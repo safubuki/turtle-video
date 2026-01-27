@@ -1012,20 +1012,21 @@ const TurtleVideo: React.FC = () => {
 
       configureAudioRouting(isExportMode);
 
-      if (!isExportMode) {
-        Object.values(mediaElementsRef.current).forEach((el) => {
-          if (
-            (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') &&
-            (el as HTMLMediaElement).readyState === 0
-          ) {
+      // メディア要素の準備
+      Object.values(mediaElementsRef.current).forEach((el) => {
+        if (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') {
+          const mediaEl = el as HTMLMediaElement;
+          
+          // readyStateが0の場合はloadを呼ぶ
+          if (mediaEl.readyState === 0) {
             try {
-              (el as HTMLMediaElement).load();
+              mediaEl.load();
             } catch (e) {
               /* ignore */
             }
           }
-        });
-      }
+        }
+      });
 
       if (isExportMode) {
         setCurrentTime(0);
@@ -1042,7 +1043,13 @@ const TurtleVideo: React.FC = () => {
         renderFrame(0, false, true);
         await new Promise((r) => setTimeout(r, 100));
       } else {
-        await new Promise((r) => setTimeout(r, 50));
+        // 通常再生モード: 開始位置でフレームを描画してビデオ位置を同期
+        setCurrentTime(fromTime);
+        currentTimeRef.current = fromTime;
+        renderFrame(fromTime, false);
+        
+        // メディア要素のシーク完了を待つ
+        await new Promise((r) => setTimeout(r, 100));
       }
 
       startTimeRef.current = Date.now() - fromTime * 1000;
