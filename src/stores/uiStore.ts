@@ -26,6 +26,7 @@ interface UIState {
   aiPrompt: string;
   aiScript: string;
   aiVoice: VoiceId;
+  aiVoiceStyle: string;
   isAiLoading: boolean;
 
   // Actions - Toast & Error
@@ -53,6 +54,7 @@ interface UIState {
   setAiPrompt: (prompt: string) => void;
   setAiScript: (script: string) => void;
   setAiVoice: (voice: VoiceId) => void;
+  setAiVoiceStyle: (style: string) => void;
   setAiLoading: (loading: boolean) => void;
   resetAiModal: () => void;
 
@@ -78,6 +80,7 @@ export const useUIStore = create<UIState>()(
       aiPrompt: '',
       aiScript: '',
       aiVoice: 'Aoede' as const,
+      aiVoiceStyle: '',
       isAiLoading: false,
 
       // === Toast & Error Actions ===
@@ -177,6 +180,10 @@ export const useUIStore = create<UIState>()(
         set({ aiVoice: voice });
       },
 
+      setAiVoiceStyle: (style) => {
+        set({ aiVoiceStyle: style });
+      },
+
       setAiLoading: (loading) => {
         set({ isAiLoading: loading });
       },
@@ -187,6 +194,7 @@ export const useUIStore = create<UIState>()(
           aiPrompt: '',
           aiScript: '',
           aiVoice: 'Aoede' as const,
+          aiVoiceStyle: '',
           isAiLoading: false,
         });
       },
@@ -213,6 +221,7 @@ export const useUIStore = create<UIState>()(
           aiPrompt: '',
           aiScript: '',
           aiVoice: 'Aoede' as const,
+          aiVoiceStyle: '',
           isAiLoading: false,
         });
       },

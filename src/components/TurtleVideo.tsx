@@ -95,6 +95,7 @@ const TurtleVideo: React.FC = () => {
   const aiPrompt = useUIStore((s) => s.aiPrompt);
   const aiScript = useUIStore((s) => s.aiScript);
   const aiVoice = useUIStore((s) => s.aiVoice);
+  const aiVoiceStyle = useUIStore((s) => s.aiVoiceStyle);
   const isAiLoading = useUIStore((s) => s.isAiLoading);
   const showToast = useUIStore((s) => s.showToast);
   const clearToast = useUIStore((s) => s.clearToast);
@@ -112,6 +113,7 @@ const TurtleVideo: React.FC = () => {
   const setAiPrompt = useUIStore((s) => s.setAiPrompt);
   const setAiScript = useUIStore((s) => s.setAiScript);
   const setAiVoice = useUIStore((s) => s.setAiVoice);
+  const setAiVoiceStyle = useUIStore((s) => s.setAiVoiceStyle);
   const setAiLoading = useUIStore((s) => s.setAiLoading);
   const resetUI = useUIStore((s) => s.resetUI);
 
@@ -587,13 +589,18 @@ const TurtleVideo: React.FC = () => {
     }
     setAiLoading(true);
     try {
+      // 声の調子が指定されている場合は、セリフの前に括弧書きで付与
+      const scriptWithStyle = aiVoiceStyle.trim()
+        ? `（${aiVoiceStyle.trim()}）${aiScript}`
+        : aiScript;
+
       const response = await fetch(
         `${GEMINI_API_BASE_URL}/${GEMINI_TTS_MODEL}:generateContent?key=${apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: aiScript }] }],
+            contents: [{ parts: [{ text: scriptWithStyle }] }],
             generationConfig: {
               responseModalities: ['AUDIO'],
               speechConfig: {
@@ -665,7 +672,7 @@ const TurtleVideo: React.FC = () => {
     } finally {
       setAiLoading(false);
     }
-  }, [aiScript, aiVoice, pcmToWav, setNarration, closeAiModal, clearError, setError, setAiLoading]);
+  }, [aiScript, aiVoice, aiVoiceStyle, pcmToWav, setNarration, closeAiModal, clearError, setError, setAiLoading]);
 
   // --- アップロード処理 ---
   const handleMediaUpload = useCallback(
@@ -1278,11 +1285,13 @@ const TurtleVideo: React.FC = () => {
         aiPrompt={aiPrompt}
         aiScript={aiScript}
         aiVoice={aiVoice}
+        aiVoiceStyle={aiVoiceStyle}
         isAiLoading={isAiLoading}
         voiceOptions={VOICE_OPTIONS}
         onPromptChange={setAiPrompt}
         onScriptChange={setAiScript}
         onVoiceChange={setAiVoice}
+        onVoiceStyleChange={setAiVoiceStyle}
         onGenerateScript={generateScript}
         onGenerateSpeech={generateSpeech}
       />

@@ -8,11 +8,13 @@ interface AiModalProps {
   aiPrompt: string;
   aiScript: string;
   aiVoice: VoiceId;
+  aiVoiceStyle: string;
   isAiLoading: boolean;
   voiceOptions: VoiceOption[];
   onPromptChange: (value: string) => void;
   onScriptChange: (value: string) => void;
   onVoiceChange: (value: VoiceId) => void;
+  onVoiceStyleChange: (value: string) => void;
   onGenerateScript: () => void;
   onGenerateSpeech: () => void;
 }
@@ -26,11 +28,13 @@ const AiModal: React.FC<AiModalProps> = ({
   aiPrompt,
   aiScript,
   aiVoice,
+  aiVoiceStyle,
   isAiLoading,
   voiceOptions,
   onPromptChange,
   onScriptChange,
   onVoiceChange,
+  onVoiceStyleChange,
   onGenerateScript,
   onGenerateSpeech,
 }) => {
@@ -103,6 +107,21 @@ const AiModal: React.FC<AiModalProps> = ({
                 </select>
                 <ChevronDown className="w-4 h-4 absolute inset-y-0 right-3 my-auto text-gray-400 pointer-events-none" />
               </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
+                声の調子（オプション）
+              </label>
+              <input
+                type="text"
+                value={aiVoiceStyle}
+                onChange={(e) => onVoiceStyleChange(e.target.value)}
+                placeholder="例: まるでドラマの主人公のようにカッコいい二枚目"
+                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+              />
+              <p className="text-[10px] text-gray-500">
+                入力すると、その調子・雰囲気で話します。空欄なら通常の声で読み上げます。
+              </p>
             </div>
           </div>
           <button
