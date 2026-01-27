@@ -152,8 +152,9 @@ const TurtleVideo: React.FC = () => {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const loopIdRef = useRef(0); // ループの世代を追跡
   const isPlayingRef = useRef(false); // 再生状態を即座に反映するRef
-  const playPromisesRef = useRef<Map<string, Promise<void>>>(new Map()); // ビデオのplay()Promiseを追跡
-  const lastToggleTimeRef = useRef(0); // 最後のtoggle時刻（デバウンス用）
+  const isSeekingRef = useRef(false); // シーク中フラグ
+  const activeVideoIdRef = useRef<string | null>(null); // 現在再生中のビデオID
+  const lastToggleTimeRef = useRef(0); // デバウンス用
 
   // --- Helper: renderFrame ---
   const renderFrame = useCallback(
@@ -219,38 +220,25 @@ const TurtleVideo: React.FC = () => {
               const videoEl = element as HTMLVideoElement;
               const targetTime = (conf.trimStart || 0) + localTime;
 
-              if (isActivePlaying) {
-                if (Math.abs(videoEl.currentTime - targetTime) > 0.8) {
-                  videoEl.currentTime = targetTime;
-                }
-                // play()がまだ実行中でなく、pausedの場合のみplay()を呼ぶ
-                if (videoEl.paused && !playPromisesRef.current.has(id)) {
-                  const playPromise = videoEl.play();
-                  playPromisesRef.current.set(id, playPromise);
-                  playPromise
-                    .then(() => {
-                      playPromisesRef.current.delete(id);
-                    })
-                    .catch(() => {
-                      playPromisesRef.current.delete(id);
-                    });
-                }
-              } else {
-                // pause()を呼ぶ前にplay()のPromiseを待つ
-                const existingPromise = playPromisesRef.current.get(id);
-                if (existingPromise) {
-                  existingPromise
-                    .then(() => {
-                      if (!videoEl.paused) videoEl.pause();
-                    })
-                    .catch(() => {
-                      // エラーでも続行
-                    });
+              // シーク中は何もしない
+              if (!isSeekingRef.current) {
+                if (isActivePlaying) {
+                  // 再生中: 大きなズレがあれば補正
+                  if (Math.abs(videoEl.currentTime - targetTime) > 0.5) {
+                    videoEl.currentTime = targetTime;
+                  }
+                  // 一時停止していれば再生（ビデオ切り替え時など）
+                  if (videoEl.paused && activeVideoIdRef.current === id) {
+                    videoEl.play().catch(() => {});
+                  }
                 } else {
-                  if (!videoEl.paused) videoEl.pause();
-                }
-                if (Math.abs(videoEl.currentTime - targetTime) > 0.01) {
-                  videoEl.currentTime = targetTime;
+                  // 停止中: ビデオも停止状態にして位置を合わせる
+                  if (!videoEl.paused) {
+                    videoEl.pause();
+                  }
+                  if (Math.abs(videoEl.currentTime - targetTime) > 0.05) {
+                    videoEl.currentTime = targetTime;
+                  }
                 }
               }
             }
@@ -890,6 +878,7 @@ const TurtleVideo: React.FC = () => {
     // ループIDをインクリメントして古いループを無効化
     loopIdRef.current += 1;
     isPlayingRef.current = false;
+    activeVideoIdRef.current = null;
     
     // アニメーションフレームをキャンセル
     if (reqIdRef.current) {
@@ -897,27 +886,14 @@ const TurtleVideo: React.FC = () => {
       reqIdRef.current = null;
     }
 
-    // play()のPromiseが完了するのを待ってからpause()を呼ぶ
-    const pauseMedia = (el: HTMLMediaElement, id: string) => {
-      const existingPromise = playPromisesRef.current.get(id);
-      if (existingPromise) {
-        existingPromise
-          .then(() => {
-            try { el.pause(); } catch (e) { /* ignore */ }
-          })
-          .catch(() => {
-            try { el.pause(); } catch (e) { /* ignore */ }
-          });
-        playPromisesRef.current.delete(id);
-      } else {
-        try { el.pause(); } catch (e) { /* ignore */ }
-      }
-    };
-
-    // メディア要素を停止
-    Object.entries(mediaElementsRef.current).forEach(([id, el]) => {
+    // メディア要素を停止（シンプルにpauseを呼ぶ）
+    Object.values(mediaElementsRef.current).forEach((el) => {
       if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO')) {
-        pauseMedia(el as HTMLMediaElement, id);
+        try {
+          (el as HTMLMediaElement).pause();
+        } catch (e) {
+          /* ignore */
+        }
       }
     });
 
@@ -1105,10 +1081,31 @@ const TurtleVideo: React.FC = () => {
         // 通常再生モード: 開始位置でフレームを描画してビデオ位置を同期
         setCurrentTime(fromTime);
         currentTimeRef.current = fromTime;
+        
+        // 現在のアクティブなビデオを特定
+        let t = 0;
+        for (const item of mediaItemsRef.current) {
+          if (fromTime >= t && fromTime < t + item.duration) {
+            if (item.type === 'video') {
+              const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
+              if (videoEl) {
+                const localTime = fromTime - t;
+                const targetTime = (item.trimStart || 0) + localTime;
+                videoEl.currentTime = targetTime;
+                activeVideoIdRef.current = item.id;
+                // 再生を開始
+                videoEl.play().catch(() => {});
+              }
+            }
+            break;
+          }
+          t += item.duration;
+        }
+        
         renderFrame(fromTime, false);
         
         // メディア要素のシーク完了を待つ
-        await new Promise((r) => setTimeout(r, 100));
+        await new Promise((r) => setTimeout(r, 50));
       }
 
       // awaitの間にstopAllが呼ばれていたら中止
@@ -1160,21 +1157,61 @@ const TurtleVideo: React.FC = () => {
   const handleSeekChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const t = parseFloat(e.target.value);
+      const wasPlaying = isPlayingRef.current;
+      
+      // シーク開始: 再生中ならまず停止
+      if (wasPlaying) {
+        isSeekingRef.current = true;
+        // ループを停止
+        if (reqIdRef.current) {
+          cancelAnimationFrame(reqIdRef.current);
+          reqIdRef.current = null;
+        }
+        // ビデオを一時停止
+        Object.values(mediaElementsRef.current).forEach((el) => {
+          if (el && el.tagName === 'VIDEO') {
+            try { (el as HTMLVideoElement).pause(); } catch (e) { /* ignore */ }
+          }
+        });
+      }
+      
       setCurrentTime(t);
       currentTimeRef.current = t;
 
-      // アニメーションフレームだけキャンセル（メディアは停止しない）
-      if (reqIdRef.current) {
-        cancelAnimationFrame(reqIdRef.current);
-        reqIdRef.current = null;
+      // ビデオの位置を設定
+      let accTime = 0;
+      for (const item of mediaItemsRef.current) {
+        if (t >= accTime && t < accTime + item.duration) {
+          if (item.type === 'video') {
+            const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
+            if (videoEl) {
+              const localTime = t - accTime;
+              const targetTime = (item.trimStart || 0) + localTime;
+              videoEl.currentTime = targetTime;
+              activeVideoIdRef.current = item.id;
+            }
+          }
+          break;
+        }
+        accTime += item.duration;
       }
 
-      // フレームを描画（isActivePlaying=falseでビデオをpauseしcurrentTimeを設定）
+      // フレームを描画
       renderFrame(t, false);
 
-      // 再生中だった場合はループを再開（現在のloopIdを使用）
-      if (isPlayingRef.current) {
+      // 再生中だった場合はシーク完了後に再開
+      if (wasPlaying) {
+        isSeekingRef.current = false;
         startTimeRef.current = Date.now() - t * 1000;
+        
+        // アクティブなビデオを再生
+        if (activeVideoIdRef.current) {
+          const videoEl = mediaElementsRef.current[activeVideoIdRef.current] as HTMLVideoElement;
+          if (videoEl && videoEl.paused) {
+            videoEl.play().catch(() => {});
+          }
+        }
+        
         const currentLoopId = loopIdRef.current;
         reqIdRef.current = requestAnimationFrame(() => loop(false, currentLoopId));
       }
