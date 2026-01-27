@@ -298,13 +298,13 @@ src/
 
 ```
 タスク:
-├── [ ] useMediaItems フック (AI: state/logicを自動抽出)
-├── [ ] useAudioTracks フック (AI: BGM/ナレーションロジック抽出)
-├── [ ] usePlayback フック (AI: 再生制御ロジック抽出)
-├── [ ] useAudioContext フック (AI: Web Audio APIラッパー生成)
-├── [ ] useExport フック (AI: 書き出しロジック抽出)
-├── [ ] useAiNarration フック (AI: Gemini API呼び出し抽出)
-└── [ ] 動作確認
+├── [x] useMediaItems フック (AI: state/logicを自動抽出)
+├── [x] useAudioTracks フック (AI: BGM/ナレーションロジック抽出)
+├── [x] usePlayback フック (AI: 再生制御ロジック抽出)
+├── [x] useAudioContext フック (AI: Web Audio APIラッパー生成)
+├── [x] useExport フック (AI: 書き出しロジック抽出)
+├── [x] useAiNarration フック (AI: Gemini API呼び出し抽出)
+└── [x] 動作確認
 ```
 
 **成果物**:
