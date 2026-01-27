@@ -6,6 +6,7 @@ import ClipItem from '../media/ClipItem';
 interface ClipsSectionProps {
   mediaItems: MediaItem[];
   isClipsLocked: boolean;
+  mediaElements: Record<string, HTMLVideoElement | HTMLImageElement>;
   onToggleClipsLock: () => void;
   onMediaUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onMoveMedia: (index: number, direction: 'up' | 'down') => void;
@@ -29,6 +30,7 @@ interface ClipsSectionProps {
 const ClipsSection: React.FC<ClipsSectionProps> = ({
   mediaItems,
   isClipsLocked,
+  mediaElements,
   onToggleClipsLock,
   onMediaUpload,
   onMoveMedia,
@@ -89,6 +91,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             index={i}
             totalItems={mediaItems.length}
             isClipsLocked={isClipsLocked}
+            mediaElement={mediaElements[v.id] || null}
             onMoveUp={() => onMoveMedia(i, 'up')}
             onMoveDown={() => onMoveMedia(i, 'down')}
             onRemove={() => onRemoveMedia(v.id)}

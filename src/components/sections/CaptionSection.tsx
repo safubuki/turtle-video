@@ -1,0 +1,248 @@
+import React, { useState } from 'react';
+import {
+  Lock,
+  Unlock,
+  Plus,
+  ChevronDown,
+  ChevronRight,
+  Type,
+  Eye,
+  EyeOff,
+} from 'lucide-react';
+import type { Caption, CaptionSettings, CaptionPosition, CaptionSize } from '../../types';
+import CaptionItem from '../media/CaptionItem';
+
+interface CaptionSectionProps {
+  captions: Caption[];
+  settings: CaptionSettings;
+  isLocked: boolean;
+  totalDuration: number;
+  currentTime: number;
+  onToggleLock: () => void;
+  onAddCaption: (text: string, startTime: number, endTime: number) => void;
+  onUpdateCaption: (id: string, updates: Partial<Omit<Caption, 'id'>>) => void;
+  onRemoveCaption: (id: string) => void;
+  onSetEnabled: (enabled: boolean) => void;
+  onSetFontSize: (size: CaptionSize) => void;
+  onSetPosition: (position: CaptionPosition) => void;
+}
+
+/**
+ * キャプションセクションコンポーネント
+ */
+const CaptionSection: React.FC<CaptionSectionProps> = ({
+  captions,
+  settings,
+  isLocked,
+  totalDuration,
+  currentTime,
+  onToggleLock,
+  onAddCaption,
+  onUpdateCaption,
+  onRemoveCaption,
+  onSetEnabled,
+  onSetFontSize,
+  onSetPosition,
+}) => {
+  const [isOpen, setIsOpen] = useState(true);
+  const [showStyleSettings, setShowStyleSettings] = useState(false);
+  const [newText, setNewText] = useState('');
+
+  const handleAddCaption = () => {
+    if (!newText.trim()) return;
+    
+    // 最後のキャプションの終了時刻から開始、なければ0から
+    const lastCaption = captions[captions.length - 1];
+    let startTime = lastCaption ? lastCaption.endTime : 0;
+    
+    // 境界値チェック: startTimeがtotalDurationを超えないようにする
+    if (startTime >= totalDuration) {
+      // 動画の終わりに達している場合、最後の0.5秒前から開始
+      startTime = Math.max(0, totalDuration - 0.5);
+    }
+    
+    // endTimeは最低0.1秒確保、totalDurationを超えない
+    const endTime = Math.min(Math.max(startTime + 3, startTime + 0.1), totalDuration);
+    
+    // startTimeとendTimeが同じ（または逆転）にならないようにする
+    if (endTime <= startTime) {
+      return; // 追加できる余地がない
+    }
+    
+    onAddCaption(newText.trim(), startTime, endTime);
+    setNewText('');
+  };
+
+  const fontSizeOptions: { value: CaptionSize; label: string }[] = [
+    { value: 'small', label: '小' },
+    { value: 'medium', label: '中' },
+    { value: 'large', label: '大' },
+  ];
+
+  const positionOptions: { value: CaptionPosition; label: string }[] = [
+    { value: 'top', label: '上部' },
+    { value: 'center', label: '中央' },
+    { value: 'bottom', label: '下部' },
+  ];
+
+  return (
+    <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
+      {/* ヘッダー */}
+      <div
+        className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center cursor-pointer hover:bg-gray-800/50 transition"
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        <h2 className="font-bold flex items-center gap-2 text-yellow-400">
+          {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+          <span className="w-6 h-6 rounded-full bg-yellow-500/10 flex items-center justify-center text-xs">
+            4
+          </span>{' '}
+          キャプション
+          {captions.length > 0 && (
+            <span className="text-[10px] text-yellow-300 font-normal ml-2">
+              ({captions.length}件)
+            </span>
+          )}
+        </h2>
+        <div className="flex gap-2 items-center" onClick={(e) => e.stopPropagation()}>
+          {/* 表示/非表示トグル */}
+          <button
+            onClick={() => onSetEnabled(!settings.enabled)}
+            className={`p-1.5 rounded transition ${
+              settings.enabled
+                ? 'bg-yellow-500/20 text-yellow-400'
+                : 'bg-gray-700 text-gray-400 hover:text-white'
+            }`}
+            title={settings.enabled ? 'キャプションを非表示' : 'キャプションを表示'}
+          >
+            {settings.enabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+          </button>
+          {/* ロック */}
+          <button
+            onClick={onToggleLock}
+            className={`p-1.5 rounded transition ${
+              isLocked
+                ? 'bg-red-500/20 text-red-400'
+                : 'bg-gray-700 text-gray-400 hover:text-white'
+            }`}
+          >
+            {isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+          </button>
+        </div>
+      </div>
+
+      {/* コンテンツ */}
+      {isOpen && (
+        <div className="p-3 space-y-3">
+          {/* スタイル設定 */}
+          <div className="bg-gray-800/50 rounded-lg border border-gray-700/50">
+            <button
+              onClick={() => setShowStyleSettings(!showStyleSettings)}
+              className="w-full p-2 flex items-center justify-between text-xs text-gray-400 hover:text-white transition"
+            >
+              <div className="flex items-center gap-2">
+                <Type className="w-3 h-3" />
+                <span>スタイル設定</span>
+              </div>
+              {showStyleSettings ? (
+                <ChevronDown className="w-3 h-3" />
+              ) : (
+                <ChevronRight className="w-3 h-3" />
+              )}
+            </button>
+            {showStyleSettings && (
+              <div className="px-3 pb-3 space-y-2">
+                {/* 文字サイズ */}
+                <div className="flex items-center gap-2 text-[10px]">
+                  <span className="text-gray-400 w-16">サイズ:</span>
+                  <div className="flex gap-1">
+                    {fontSizeOptions.map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => onSetFontSize(opt.value)}
+                        disabled={isLocked}
+                        className={`px-2 py-1 rounded transition ${
+                          settings.fontSize === opt.value
+                            ? 'bg-yellow-500 text-gray-900'
+                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                        } disabled:opacity-50`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {/* 位置 */}
+                <div className="flex items-center gap-2 text-[10px]">
+                  <span className="text-gray-400 w-16">位置:</span>
+                  <div className="flex gap-1">
+                    {positionOptions.map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => onSetPosition(opt.value)}
+                        disabled={isLocked}
+                        className={`px-2 py-1 rounded transition ${
+                          settings.position === opt.value
+                            ? 'bg-yellow-500 text-gray-900'
+                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                        } disabled:opacity-50`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 新規キャプション追加 */}
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newText}
+              onChange={(e) => setNewText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleAddCaption();
+              }}
+              placeholder="キャプションテキストを入力..."
+              disabled={isLocked}
+              className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500 disabled:opacity-50"
+            />
+            <button
+              onClick={handleAddCaption}
+              disabled={isLocked || !newText.trim()}
+              className="bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Plus className="w-3 h-3" /> 追加
+            </button>
+          </div>
+
+          {/* キャプション一覧 */}
+          <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
+            {captions.length === 0 ? (
+              <div className="text-center py-4 text-gray-600 text-xs border-2 border-dashed border-gray-800 rounded">
+                キャプションがありません
+              </div>
+            ) : (
+              captions.map((caption, index) => (
+                <CaptionItem
+                  key={caption.id}
+                  caption={caption}
+                  index={index}
+                  totalDuration={totalDuration}
+                  currentTime={currentTime}
+                  isLocked={isLocked}
+                  onUpdate={onUpdateCaption}
+                  onRemove={onRemoveCaption}
+                />
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+};
+
+export default React.memo(CaptionSection);

@@ -14,7 +14,7 @@ import {
 } from '../constants';
 
 // Zustand Stores
-import { useMediaStore, useAudioStore, useUIStore } from '../stores';
+import { useMediaStore, useAudioStore, useUIStore, useCaptionStore } from '../stores';
 
 // コンポーネント
 import Toast from './common/Toast';
@@ -24,6 +24,7 @@ import Header from './Header';
 import ClipsSection from './sections/ClipsSection';
 import BgmSection from './sections/BgmSection';
 import NarrationSection from './sections/NarrationSection';
+import CaptionSection from './sections/CaptionSection';
 import PreviewSection from './sections/PreviewSection';
 import AiModal from './modals/AiModal';
 import SettingsModal, { getStoredApiKey } from './modals/SettingsModal';
@@ -113,6 +114,19 @@ const TurtleVideo: React.FC = () => {
   const setAiVoice = useUIStore((s) => s.setAiVoice);
   const setAiLoading = useUIStore((s) => s.setAiLoading);
   const resetUI = useUIStore((s) => s.resetUI);
+
+  // Caption Store
+  const captions = useCaptionStore((s) => s.captions);
+  const captionSettings = useCaptionStore((s) => s.settings);
+  const isCaptionLocked = useCaptionStore((s) => s.isLocked);
+  const addCaption = useCaptionStore((s) => s.addCaption);
+  const updateCaption = useCaptionStore((s) => s.updateCaption);
+  const removeCaption = useCaptionStore((s) => s.removeCaption);
+  const setCaptionEnabled = useCaptionStore((s) => s.setEnabled);
+  const setCaptionFontSize = useCaptionStore((s) => s.setFontSize);
+  const setCaptionPosition = useCaptionStore((s) => s.setPosition);
+  const toggleCaptionLock = useCaptionStore((s) => s.toggleLock);
+  const resetCaptions = useCaptionStore((s) => s.resetCaptions);
 
   // === Local State ===
   const [reloadKey, setReloadKey] = useState(0);
@@ -270,6 +284,45 @@ const TurtleVideo: React.FC = () => {
           }
         });
 
+        // キャプション描画
+        if (captionSettings.enabled && captions.length > 0) {
+          const activeCaption = captions.find(
+            (c) => time >= c.startTime && time < c.endTime
+          );
+          if (activeCaption) {
+            // フォントサイズ
+            const fontSizeMap = { small: 32, medium: 48, large: 64 };
+            const fontSize = fontSizeMap[captionSettings.fontSize];
+            
+            // 位置（余白はフォントサイズに応じて調整）
+            const padding = fontSize * 0.8; // フォントサイズの80%を余白として確保
+            let y: number;
+            if (captionSettings.position === 'top') {
+              y = padding + fontSize / 2;
+            } else if (captionSettings.position === 'center') {
+              y = CANVAS_HEIGHT / 2;
+            } else {
+              y = CANVAS_HEIGHT - padding - fontSize / 2;
+            }
+
+            ctx.save();
+            ctx.font = `bold ${fontSize}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // 縁取り
+            ctx.strokeStyle = captionSettings.strokeColor;
+            ctx.lineWidth = captionSettings.strokeWidth * 2;
+            ctx.lineJoin = 'round';
+            ctx.strokeText(activeCaption.text, CANVAS_WIDTH / 2, y);
+            
+            // 文字
+            ctx.fillStyle = captionSettings.fontColor;
+            ctx.fillText(activeCaption.text, CANVAS_WIDTH / 2, y);
+            ctx.restore();
+          }
+        }
+
         // Audio Tracks
         const processAudioTrack = (track: AudioTrack | null, trackId: string) => {
           const element = mediaElementsRef.current[trackId] as HTMLAudioElement;
@@ -320,7 +373,7 @@ const TurtleVideo: React.FC = () => {
         console.error('Render Error:', e);
       }
     },
-    []
+    [captions, captionSettings]
   );
 
   // --- State Sync ---
@@ -720,6 +773,10 @@ const TurtleVideo: React.FC = () => {
     delete mediaElementsRef.current[id];
   }, [removeMediaItem]);
 
+  const handleToggleTransformPanel = useCallback((id: string) => {
+    toggleTransformPanel(id);
+  }, [toggleTransformPanel]);
+
   // --- Audio Track Handlers ---
   const handleBgmUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -865,6 +922,7 @@ const TurtleVideo: React.FC = () => {
     // Zustand stores clear
     clearAllMedia();
     clearAllAudio();
+    resetCaptions();
     resetUI();
     setReloadKey(0);
     
@@ -876,7 +934,7 @@ const TurtleVideo: React.FC = () => {
         ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
       }
     }
-  }, [mediaItems, bgm, narration, stopAll, clearAllMedia, clearAllAudio, resetUI]);
+  }, [mediaItems, bgm, narration, stopAll, clearAllMedia, clearAllAudio, resetCaptions, resetUI]);
 
   const handleReloadResources = useCallback(
     (targetTime: number | null = null) => {
@@ -1112,12 +1170,13 @@ const TurtleVideo: React.FC = () => {
         <ClipsSection
           mediaItems={mediaItems}
           isClipsLocked={isClipsLocked}
+          mediaElements={mediaElementsRef.current as Record<string, HTMLVideoElement | HTMLImageElement>}
           onToggleClipsLock={toggleClipsLock}
           onMediaUpload={handleMediaUpload}
           onMoveMedia={handleMoveMedia}
           onRemoveMedia={handleRemoveMedia}
           onToggleMediaLock={toggleItemLock}
-          onToggleTransformPanel={toggleTransformPanel}
+          onToggleTransformPanel={handleToggleTransformPanel}
           onUpdateVideoTrim={handleUpdateVideoTrim}
           onUpdateImageDuration={handleUpdateImageDuration}
           onUpdateMediaScale={handleUpdateMediaScale}
@@ -1162,7 +1221,23 @@ const TurtleVideo: React.FC = () => {
           formatTime={formatTime}
         />
 
-        {/* 4. PREVIEW */}
+        {/* 4. CAPTIONS */}
+        <CaptionSection
+          captions={captions}
+          settings={captionSettings}
+          isLocked={isCaptionLocked}
+          totalDuration={totalDuration}
+          currentTime={currentTime}
+          onToggleLock={toggleCaptionLock}
+          onAddCaption={addCaption}
+          onUpdateCaption={updateCaption}
+          onRemoveCaption={removeCaption}
+          onSetEnabled={setCaptionEnabled}
+          onSetFontSize={setCaptionFontSize}
+          onSetPosition={setCaptionPosition}
+        />
+
+        {/* 5. PREVIEW */}
         <PreviewSection
           mediaItems={mediaItems}
           bgm={bgm}

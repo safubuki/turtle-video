@@ -76,3 +76,27 @@ export type TrackType = 'bgm' | 'narration';
 
 // エクスポート形式
 export type ExportFormat = 'mp4' | 'webm';
+
+// キャプション（字幕）
+export interface Caption {
+  id: string;
+  text: string;
+  startTime: number;  // 秒
+  endTime: number;    // 秒
+}
+
+// キャプション位置
+export type CaptionPosition = 'top' | 'center' | 'bottom';
+
+// キャプションサイズ
+export type CaptionSize = 'small' | 'medium' | 'large';
+
+// キャプション設定
+export interface CaptionSettings {
+  enabled: boolean;
+  fontSize: CaptionSize;
+  fontColor: string;
+  strokeColor: string;
+  strokeWidth: number;
+  position: CaptionPosition;
+}

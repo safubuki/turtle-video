@@ -11,3 +11,6 @@ export { useAudioStore, createAudioTrack } from './audioStore';
 
 // UI Store
 export { useUIStore } from './uiStore';
+
+// Caption Store
+export { useCaptionStore } from './captionStore';

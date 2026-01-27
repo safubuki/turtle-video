@@ -18,12 +18,14 @@ import {
   VolumeX,
 } from 'lucide-react';
 import type { MediaItem } from '../../types';
+import MiniPreview from '../common/MiniPreview';
 
 export interface ClipItemProps {
   item: MediaItem;
   index: number;
   totalItems: number;
   isClipsLocked: boolean;
+  mediaElement: HTMLVideoElement | HTMLImageElement | null;
   onMoveUp: () => void;
   onMoveDown: () => void;
   onRemove: () => void;
@@ -49,6 +51,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
   index: i,
   totalItems,
   isClipsLocked,
+  mediaElement,
   onMoveUp,
   onMoveDown,
   onRemove,
@@ -265,6 +268,9 @@ const ClipItem: React.FC<ClipItemProps> = ({
               className="w-full accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
             />
           </div>
+
+          {/* ミニプレビュー */}
+          <MiniPreview item={v} mediaElement={mediaElement} />
         </div>
       )}
 

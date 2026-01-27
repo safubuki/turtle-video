@@ -1,5 +1,5 @@
-import React from 'react';
-import { Upload, Lock, Unlock, Music, Volume2, Timer } from 'lucide-react';
+import React, { useState } from 'react';
+import { Upload, Lock, Unlock, Music, Volume2, Timer, ChevronDown, ChevronRight } from 'lucide-react';
 import type { AudioTrack } from '../../types';
 
 interface BgmSectionProps {
@@ -34,16 +34,23 @@ const BgmSection: React.FC<BgmSectionProps> = ({
   onToggleFadeOut,
   formatTime,
 }) => {
+  const [isOpen, setIsOpen] = useState(true);
+
   return (
     <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
-      <div className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center">
+      <div 
+        className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center cursor-pointer hover:bg-gray-800/50 transition"
+        onClick={() => setIsOpen(!isOpen)}
+      >
         <h2 className="font-bold flex items-center gap-2 text-purple-400">
+          {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
           <span className="w-6 h-6 rounded-full bg-purple-500/10 flex items-center justify-center text-xs">
             2
           </span>{' '}
           BGM設定
+          {bgm && <span className="text-[10px] text-purple-300 font-normal ml-2 truncate max-w-[100px]">✓ {bgm.file.name}</span>}
         </h2>
-        <div className="flex gap-2 items-center">
+        <div className="flex gap-2 items-center" onClick={(e) => e.stopPropagation()}>
           <button
             onClick={onToggleBgmLock}
             className={`p-1.5 rounded transition ${isBgmLocked ? 'bg-red-500/20 text-red-400' : 'bg-gray-700 text-gray-400 hover:text-white'}`}
@@ -74,7 +81,7 @@ const BgmSection: React.FC<BgmSectionProps> = ({
           )}
         </div>
       </div>
-      {bgm && (
+      {isOpen && bgm && (
         <div className="p-4 bg-purple-900/10 border border-purple-500/20 m-3 rounded-xl space-y-3">
           <div className="flex items-center gap-2 text-purple-200 text-xs font-medium truncate">
             <Music className="w-3 h-3 text-purple-400 shrink-0" /> {bgm.file.name}
