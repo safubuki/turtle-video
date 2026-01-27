@@ -26,9 +26,14 @@ import BgmSection from './sections/BgmSection';
 import NarrationSection from './sections/NarrationSection';
 import PreviewSection from './sections/PreviewSection';
 import AiModal from './modals/AiModal';
+import SettingsModal, { getStoredApiKey } from './modals/SettingsModal';
 
-// API キー (環境変数から取得)
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+// API キー取得関数（localStorage優先、フォールバックで環境変数）
+const getApiKey = (): string => {
+  const storedKey = getStoredApiKey();
+  if (storedKey) return storedKey;
+  return import.meta.env.VITE_GEMINI_API_KEY || '';
+};
 
 const TurtleVideo: React.FC = () => {
   // === Zustand Stores ===
@@ -111,6 +116,7 @@ const TurtleVideo: React.FC = () => {
 
   // === Local State ===
   const [reloadKey, setReloadKey] = useState(0);
+  const [showSettings, setShowSettings] = useState(false);
 
   // Ref
   const mediaItemsRef = useRef<MediaItem[]>([]);
@@ -451,8 +457,9 @@ const TurtleVideo: React.FC = () => {
 
   const generateScript = useCallback(async () => {
     if (!aiPrompt) return;
+    const apiKey = getApiKey();
     if (!apiKey) {
-      setError('APIキーが設定されていません。環境変数 VITE_GEMINI_API_KEY を確認してください。');
+      setError('APIキーが設定されていません。右上の歯車アイコンから設定してください。');
       return;
     }
     setAiLoading(true);
@@ -505,8 +512,9 @@ const TurtleVideo: React.FC = () => {
 
   const generateSpeech = useCallback(async () => {
     if (!aiScript) return;
+    const apiKey = getApiKey();
     if (!apiKey) {
-      setError('APIキーが設定されていません。環境変数 VITE_GEMINI_API_KEY を確認してください。');
+      setError('APIキーが設定されていません。右上の歯車アイコンから設定してください。');
       return;
     }
     setAiLoading(true);
@@ -1088,8 +1096,14 @@ const TurtleVideo: React.FC = () => {
         onGenerateSpeech={generateSpeech}
       />
 
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+      />
+
       {/* Header */}
-      <Header />
+      <Header onOpenSettings={() => setShowSettings(true)} />
 
       <div className="max-w-md mx-auto p-4 space-y-6">
         <ErrorMessage message={errorMsg} onClose={clearError} />
