@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import {
   ArrowUp,
   ArrowDown,
@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import type { MediaItem } from '../../types';
 import MiniPreview from '../common/MiniPreview';
+import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 
 export interface ClipItemProps {
   item: MediaItem;
@@ -68,6 +69,14 @@ const ClipItem: React.FC<ClipItemProps> = ({
   onToggleFadeOut,
 }) => {
   const isDisabled = isClipsLocked || v.isLocked;
+
+  // スワイプ保護用コールバック
+  const handleTrimStart = useCallback((val: number) => onUpdateVideoTrim('start', String(val)), [onUpdateVideoTrim]);
+  const handleTrimEnd = useCallback((val: number) => onUpdateVideoTrim('end', String(val)), [onUpdateVideoTrim]);
+  const handleScale = useCallback((val: number) => onUpdateScale(val), [onUpdateScale]);
+  const handlePositionX = useCallback((val: number) => onUpdatePosition('x', String(val)), [onUpdatePosition]);
+  const handlePositionY = useCallback((val: number) => onUpdatePosition('y', String(val)), [onUpdatePosition]);
+  const handleImageDuration = useCallback((val: number) => onUpdateImageDuration(String(val)), [onUpdateImageDuration]);
 
   return (
     <div className="bg-gray-800 p-3 rounded-xl border border-gray-700/50 relative group">
@@ -127,26 +136,24 @@ const ClipItem: React.FC<ClipItemProps> = ({
           </div>
           <div className="flex items-center gap-2 text-[10px]">
             <span className="text-gray-500 w-6">開始</span>
-            <input
-              type="range"
-              min="0"
+            <SwipeProtectedSlider
+              min={0}
               max={v.originalDuration}
-              step="0.1"
+              step={0.1}
               value={v.trimStart}
-              onChange={(e) => onUpdateVideoTrim('start', e.target.value)}
+              onChange={handleTrimStart}
               disabled={isDisabled}
               className="flex-1 accent-green-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
             />
           </div>
           <div className="flex items-center gap-2 text-[10px] mt-1">
             <span className="text-gray-500 w-6">終了</span>
-            <input
-              type="range"
-              min="0"
+            <SwipeProtectedSlider
+              min={0}
               max={v.originalDuration}
-              step="0.1"
+              step={0.1}
               value={v.trimEnd}
-              onChange={(e) => onUpdateVideoTrim('end', e.target.value)}
+              onChange={handleTrimEnd}
               disabled={isDisabled}
               className="flex-1 accent-red-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
             />
@@ -203,13 +210,12 @@ const ClipItem: React.FC<ClipItemProps> = ({
               </label>
             </div>
 
-            <input
-              type="range"
-              min="0.5"
-              max="3.0"
-              step="0.001"
+            <SwipeProtectedSlider
+              min={0.5}
+              max={3.0}
+              step={0.001}
               value={v.scale || 1.0}
-              onChange={(e) => onUpdateScale(e.target.value)}
+              onChange={handleScale}
               disabled={isDisabled}
               className="w-full accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
             />
@@ -230,13 +236,12 @@ const ClipItem: React.FC<ClipItemProps> = ({
                 <RotateCcw className="w-3 h-3" />
               </button>
             </div>
-            <input
-              type="range"
-              min="-1280"
-              max="1280"
-              step="10"
+            <SwipeProtectedSlider
+              min={-1280}
+              max={1280}
+              step={10}
               value={v.positionX || 0}
-              onChange={(e) => onUpdatePosition('x', e.target.value)}
+              onChange={handlePositionX}
               disabled={isDisabled}
               className="w-full accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
             />
@@ -257,13 +262,12 @@ const ClipItem: React.FC<ClipItemProps> = ({
                 <RotateCcw className="w-3 h-3" />
               </button>
             </div>
-            <input
-              type="range"
-              min="-720"
-              max="720"
-              step="10"
+            <SwipeProtectedSlider
+              min={-720}
+              max={720}
+              step={10}
               value={v.positionY || 0}
-              onChange={(e) => onUpdatePosition('y', e.target.value)}
+              onChange={handlePositionY}
               disabled={isDisabled}
               className="w-full accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
             />
@@ -290,13 +294,12 @@ const ClipItem: React.FC<ClipItemProps> = ({
               className="w-12 bg-gray-700 rounded border border-gray-600 px-1 text-right focus:outline-none focus:border-blue-500 disabled:opacity-50"
             />
             <span className="text-gray-400">秒</span>
-            <input
-              type="range"
-              min="0.5"
-              max="30"
-              step="0.5"
+            <SwipeProtectedSlider
+              min={0.5}
+              max={30}
+              step={0.5}
               value={v.duration}
-              onChange={(e) => onUpdateImageDuration(e.target.value)}
+              onChange={handleImageDuration}
               disabled={isDisabled}
               className="flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
             />

@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Upload, Lock, Unlock, Mic, Sparkles, Save, Volume2, Timer, ChevronDown, ChevronRight } from 'lucide-react';
 import type { AudioTrack } from '../../types';
+import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 
 interface NarrationSectionProps {
   narration: AudioTrack | null;
@@ -37,6 +38,20 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
   formatTime,
 }) => {
   const [isOpen, setIsOpen] = useState(true);
+
+  // スワイプ保護用ハンドラ
+  const handleStartPointChange = useCallback(
+    (val: number) => onUpdateStartPoint(String(val)),
+    [onUpdateStartPoint]
+  );
+  const handleDelayChange = useCallback(
+    (val: number) => onUpdateDelay(String(val)),
+    [onUpdateDelay]
+  );
+  const handleVolumeChange = useCallback(
+    (val: number) => onUpdateVolume(String(val)),
+    [onUpdateVolume]
+  );
 
   return (
     <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
@@ -112,13 +127,12 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
               <span>長さ: {formatTime(narration.duration)}</span>
             </div>
             <div className="flex items-center gap-2">
-              <input
-                type="range"
+              <SwipeProtectedSlider
                 min={0}
                 max={narration.duration}
-                step="0.1"
+                step={0.1}
                 value={narration.startPoint}
-                onChange={(e) => onUpdateStartPoint(e.target.value)}
+                onChange={handleStartPointChange}
                 disabled={isNarrationLocked}
                 className="flex-1 accent-indigo-500 h-1 bg-gray-700 rounded appearance-none cursor-pointer disabled:opacity-50"
               />
@@ -141,13 +155,12 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
               <span>開始タイミング (遅延): {formatTime(narration.delay || 0)}</span>
             </div>
             <div className="flex items-center gap-2">
-              <input
-                type="range"
+              <SwipeProtectedSlider
                 min={0}
                 max={totalDuration}
-                step="0.5"
+                step={0.5}
                 value={narration.delay || 0}
-                onChange={(e) => onUpdateDelay(e.target.value)}
+                onChange={handleDelayChange}
                 disabled={isNarrationLocked}
                 className="flex-1 accent-indigo-400 h-1 bg-gray-700 rounded appearance-none cursor-pointer disabled:opacity-50"
               />
@@ -166,13 +179,12 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
           </div>
           <div className="flex items-center gap-2 bg-gray-800/50 p-2 rounded-lg">
             <Volume2 className="w-3 h-3 text-gray-400" />
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.1"
+            <SwipeProtectedSlider
+              min={0}
+              max={1}
+              step={0.1}
               value={narration.volume}
-              onChange={(e) => onUpdateVolume(e.target.value)}
+              onChange={handleVolumeChange}
               disabled={isNarrationLocked}
               className="flex-1 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
             />

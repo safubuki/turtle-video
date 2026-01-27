@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Trash2, Edit2, Check, X, MapPin } from 'lucide-react';
 import type { Caption } from '../../types';
+import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 
 interface CaptionItemProps {
   caption: Caption;
@@ -41,6 +42,25 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
 
   // 現在時刻がこのキャプションの範囲内かどうか
   const isActive = currentTime >= caption.startTime && currentTime < caption.endTime;
+
+  // スワイプ保護用ハンドラ
+  const handleStartTimeChange = useCallback(
+    (val: number) => {
+      if (!isNaN(val) && val >= 0 && val < caption.endTime) {
+        onUpdate(caption.id, { startTime: val });
+      }
+    },
+    [caption.id, caption.endTime, onUpdate]
+  );
+
+  const handleEndTimeChange = useCallback(
+    (val: number) => {
+      if (!isNaN(val) && val > caption.startTime) {
+        onUpdate(caption.id, { endTime: val });
+      }
+    },
+    [caption.id, caption.startTime, onUpdate]
+  );
 
   return (
     <div
@@ -116,18 +136,12 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
         {/* 開始時間 */}
         <div className="flex items-center gap-2 text-[10px]">
           <span className="text-gray-400 w-8 shrink-0">開始:</span>
-          <input
-            type="range"
+          <SwipeProtectedSlider
             min={0}
             max={totalDuration || 60}
             step={0.1}
             value={caption.startTime}
-            onChange={(e) => {
-              const val = parseFloat(e.target.value);
-              if (!isNaN(val) && val >= 0 && val < caption.endTime) {
-                onUpdate(caption.id, { startTime: val });
-              }
-            }}
+            onChange={handleStartTimeChange}
             disabled={isLocked}
             className="flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
           />
@@ -165,18 +179,12 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
         {/* 終了時間 */}
         <div className="flex items-center gap-2 text-[10px]">
           <span className="text-gray-400 w-8 shrink-0">終了:</span>
-          <input
-            type="range"
+          <SwipeProtectedSlider
             min={0}
             max={totalDuration || 60}
             step={0.1}
             value={caption.endTime}
-            onChange={(e) => {
-              const val = parseFloat(e.target.value);
-              if (!isNaN(val) && val > caption.startTime) {
-                onUpdate(caption.id, { endTime: val });
-              }
-            }}
+            onChange={handleEndTimeChange}
             disabled={isLocked}
             className="flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
           />

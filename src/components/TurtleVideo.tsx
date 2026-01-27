@@ -634,8 +634,9 @@ const TurtleVideo: React.FC = () => {
       audio.onloadedmetadata = () => {
         const voiceLabel = VOICE_OPTIONS.find((v) => v.id === aiVoice)?.label || 'AI音声';
         setNarration({
-          file: new File([], `AIナレーション_${voiceLabel}.wav`),
+          file: new File([wavBlob], `AIナレーション_${voiceLabel}.wav`, { type: 'audio/wav' }),
           url: blobUrl,
+          blobUrl: blobUrl,
           startPoint: 0,
           delay: 0,
           volume: 1.0,

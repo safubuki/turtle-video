@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Upload, Lock, Unlock, Music, Volume2, Timer, ChevronDown, ChevronRight } from 'lucide-react';
 import type { AudioTrack } from '../../types';
+import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 
 interface BgmSectionProps {
   bgm: AudioTrack | null;
@@ -35,6 +36,20 @@ const BgmSection: React.FC<BgmSectionProps> = ({
   formatTime,
 }) => {
   const [isOpen, setIsOpen] = useState(true);
+
+  // スワイプ保護用ハンドラ
+  const handleStartPointChange = useCallback(
+    (val: number) => onUpdateStartPoint(String(val)),
+    [onUpdateStartPoint]
+  );
+  const handleDelayChange = useCallback(
+    (val: number) => onUpdateDelay(String(val)),
+    [onUpdateDelay]
+  );
+  const handleVolumeChange = useCallback(
+    (val: number) => onUpdateVolume(String(val)),
+    [onUpdateVolume]
+  );
 
   return (
     <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
@@ -92,13 +107,12 @@ const BgmSection: React.FC<BgmSectionProps> = ({
               <span>長さ: {formatTime(bgm.duration)}</span>
             </div>
             <div className="flex items-center gap-2">
-              <input
-                type="range"
+              <SwipeProtectedSlider
                 min={0}
                 max={bgm.duration}
-                step="0.1"
+                step={0.1}
                 value={bgm.startPoint}
-                onChange={(e) => onUpdateStartPoint(e.target.value)}
+                onChange={handleStartPointChange}
                 disabled={isBgmLocked}
                 className="flex-1 accent-purple-500 h-1 bg-gray-700 rounded appearance-none cursor-pointer disabled:opacity-50"
               />
@@ -121,13 +135,12 @@ const BgmSection: React.FC<BgmSectionProps> = ({
               <span>開始タイミング (遅延): {formatTime(bgm.delay || 0)}</span>
             </div>
             <div className="flex items-center gap-2">
-              <input
-                type="range"
+              <SwipeProtectedSlider
                 min={0}
                 max={totalDuration}
-                step="0.5"
+                step={0.5}
                 value={bgm.delay || 0}
-                onChange={(e) => onUpdateDelay(e.target.value)}
+                onChange={handleDelayChange}
                 disabled={isBgmLocked}
                 className="flex-1 accent-purple-400 h-1 bg-gray-700 rounded appearance-none cursor-pointer disabled:opacity-50"
               />
@@ -146,13 +159,12 @@ const BgmSection: React.FC<BgmSectionProps> = ({
           </div>
           <div className="flex items-center gap-2 bg-gray-800/50 p-2 rounded-lg">
             <Volume2 className="w-3 h-3 text-gray-400" />
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.1"
+            <SwipeProtectedSlider
+              min={0}
+              max={1}
+              step={0.1}
               value={bgm.volume}
-              onChange={(e) => onUpdateVolume(e.target.value)}
+              onChange={handleVolumeChange}
               disabled={isBgmLocked}
               className="flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
             />
