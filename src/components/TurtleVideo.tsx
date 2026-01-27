@@ -1,40 +1,6 @@
-import React, { useState, useRef, useEffect, memo, useCallback } from 'react';
-import {
-  Play,
-  Pause,
-  Square,
-  Upload,
-  Music,
-  Download,
-  Volume2,
-  VolumeX,
-  Loader,
-  RotateCcw,
-  MonitorPlay,
-  Trash2,
-  Sparkles,
-  Mic,
-  FileText,
-  X,
-  ArrowUp,
-  ArrowDown,
-  ChevronDown,
-  AlertCircle,
-  Image as ImageIcon,
-  Clock,
-  Scissors,
-  Timer,
-  Lock,
-  Unlock,
-  Save,
-  RefreshCw,
-  CheckCircle,
-  ZoomIn,
-  Move,
-  ChevronRight,
-} from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 
-import type { MediaItem, AudioTrack, ToastProps, MediaResourceLoaderProps } from '../types';
+import type { MediaItem, AudioTrack } from '../types';
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -47,125 +13,19 @@ import {
   EXPORT_VIDEO_BITRATE,
 } from '../constants';
 
+// コンポーネント
+import Toast from './common/Toast';
+import ErrorMessage from './common/ErrorMessage';
+import MediaResourceLoader from './media/MediaResourceLoader';
+import Header from './Header';
+import ClipsSection from './sections/ClipsSection';
+import BgmSection from './sections/BgmSection';
+import NarrationSection from './sections/NarrationSection';
+import PreviewSection from './sections/PreviewSection';
+import AiModal from './modals/AiModal';
+
 // API キー (環境変数から取得)
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-
-/**
- * トースト通知コンポーネント
- */
-const Toast: React.FC<ToastProps> = ({ message, onClose }) => {
-  useEffect(() => {
-    const timer = setTimeout(onClose, 2000);
-    return () => clearTimeout(timer);
-  }, [onClose]);
-
-  if (!message) return null;
-
-  return (
-    <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-green-600 text-white px-4 py-2 rounded-lg shadow-xl z-[200] flex items-center gap-2 animate-bounce">
-      <CheckCircle className="w-4 h-4" />
-      <span className="text-sm font-bold">{message}</span>
-    </div>
-  );
-};
-
-/**
- * 動画/画像/音声リソースローダー
- * 画面内に配置し、透明度で隠すことでブラウザの描画停止を回避
- */
-const MediaResourceLoader = memo<MediaResourceLoaderProps>(
-  ({ mediaItems, bgm, narration, onElementLoaded, onRefAssign, onSeeked }) => {
-    const hiddenStyle: React.CSSProperties = {
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      width: '320px',
-      height: '240px',
-      opacity: 0.001,
-      pointerEvents: 'none',
-      zIndex: -100,
-      visibility: 'visible',
-    };
-
-    const audioStyle: React.CSSProperties = { display: 'none' };
-
-    const handleError = (e: React.SyntheticEvent<HTMLVideoElement | HTMLAudioElement>) => {
-      const el = e.currentTarget;
-      if (el) {
-        console.warn('Resource error, retrying:', (el as HTMLMediaElement).error);
-        setTimeout(() => {
-          try {
-            el.load();
-          } catch (err) {
-            /* ignore */
-          }
-        }, 1000);
-      }
-    };
-
-    return (
-      <div style={{ position: 'fixed', top: 0, left: 0, width: 0, height: 0, overflow: 'hidden' }}>
-        {/* 動画・画像 */}
-        {mediaItems.map((v) => (
-          <React.Fragment key={v.id}>
-            {v.type === 'video' ? (
-              <video
-                ref={(el) => onRefAssign(v.id, el)}
-                src={v.url}
-                onLoadedMetadata={(e) => onElementLoaded(v.id, e.currentTarget)}
-                onSeeked={onSeeked}
-                onError={handleError}
-                preload="auto"
-                playsInline
-                style={hiddenStyle}
-              />
-            ) : (
-              <img
-                ref={(el) => onRefAssign(v.id, el)}
-                src={v.url}
-                alt="resource"
-                onLoad={(e) => onElementLoaded(v.id, e.currentTarget)}
-                style={hiddenStyle}
-              />
-            )}
-          </React.Fragment>
-        ))}
-
-        {/* BGM用Audio要素 */}
-        {bgm && (
-          <audio
-            ref={(el) => onRefAssign('bgm', el)}
-            src={bgm.url}
-            onLoadedMetadata={(e) => onElementLoaded('bgm', e.currentTarget)}
-            onError={handleError}
-            preload="auto"
-            style={audioStyle}
-          />
-        )}
-
-        {/* ナレーション用Audio要素 */}
-        {narration && (
-          <audio
-            ref={(el) => onRefAssign('narration', el)}
-            src={narration.url}
-            onLoadedMetadata={(e) => onElementLoaded('narration', e.currentTarget)}
-            onError={handleError}
-            preload="auto"
-            style={audioStyle}
-          />
-        )}
-      </div>
-    );
-  },
-  (prev, next) => {
-    const itemsChanged = prev.mediaItems !== next.mediaItems;
-    const bgmChanged = prev.bgm?.url !== next.bgm?.url;
-    const narrationChanged = prev.narration?.url !== next.narration?.url;
-    return !itemsChanged && !bgmChanged && !narrationChanged;
-  }
-);
-
-MediaResourceLoader.displayName = 'MediaResourceLoader';
 
 const TurtleVideo: React.FC = () => {
   // --- State ---
@@ -218,7 +78,7 @@ const TurtleVideo: React.FC = () => {
   const startTimeRef = useRef(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
 
-  // --- Helper: renderFrame (前方参照用に関数を先に定義) ---
+  // --- Helper: renderFrame ---
   const renderFrame = useCallback(
     (time: number, isActivePlaying = false, _isExporting = false) => {
       try {
@@ -251,7 +111,7 @@ const TurtleVideo: React.FC = () => {
         ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-        // Preload (再生中のみ)
+        // Preload
         if (isActivePlaying && activeIndex !== -1 && activeIndex + 1 < currentItems.length) {
           const nextItem = currentItems[activeIndex + 1];
           if (nextItem.type === 'video') {
@@ -701,6 +561,7 @@ const TurtleVideo: React.FC = () => {
     requestAnimationFrame(() => renderFrame(currentTimeRef.current, false));
   }, [renderFrame]);
 
+  // --- Media Item Handlers ---
   const updateImageDuration = useCallback((id: string, newDuration: string) => {
     let val = parseFloat(newDuration);
     if (isNaN(val) || val < 0.5) val = 0.5;
@@ -784,6 +645,40 @@ const TurtleVideo: React.FC = () => {
     setMediaItems((prev) => prev.map((v) => (v.id === id ? { ...v, isLocked: !v.isLocked } : v)));
   }, []);
 
+  const updateMediaVolume = useCallback((id: string, value: number) => {
+    setMediaItems((prev) => prev.map((v) => (v.id === id ? { ...v, volume: value } : v)));
+  }, []);
+
+  const toggleMediaMute = useCallback((id: string) => {
+    setMediaItems((prev) => prev.map((v) => (v.id === id ? { ...v, isMuted: !v.isMuted } : v)));
+  }, []);
+
+  const toggleMediaFadeIn = useCallback((id: string, checked: boolean) => {
+    setMediaItems((prev) => prev.map((v) => (v.id === id ? { ...v, fadeIn: checked } : v)));
+  }, []);
+
+  const toggleMediaFadeOut = useCallback((id: string, checked: boolean) => {
+    setMediaItems((prev) => prev.map((v) => (v.id === id ? { ...v, fadeOut: checked } : v)));
+  }, []);
+
+  const moveMedia = useCallback(
+    (idx: number, dir: 'up' | 'down') => {
+      const copy = [...mediaItems];
+      const target = dir === 'up' ? idx - 1 : idx + 1;
+      if (target >= 0 && target < copy.length) {
+        [copy[idx], copy[target]] = [copy[target], copy[idx]];
+        setMediaItems(copy);
+      }
+    },
+    [mediaItems]
+  );
+
+  const removeMedia = useCallback((id: string) => {
+    setMediaItems((prev) => prev.filter((v) => v.id !== id));
+    delete mediaElementsRef.current[id];
+  }, []);
+
+  // --- Audio Track Handlers ---
   const handleBgmUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1140,23 +1035,6 @@ const TurtleVideo: React.FC = () => {
     return `${m}:${sec.toString().padStart(2, '0')}`;
   }, []);
 
-  const moveMedia = useCallback(
-    (idx: number, dir: 'up' | 'down') => {
-      const copy = [...mediaItems];
-      const target = dir === 'up' ? idx - 1 : idx + 1;
-      if (target >= 0 && target < copy.length) {
-        [copy[idx], copy[target]] = [copy[target], copy[idx]];
-        setMediaItems(copy);
-      }
-    },
-    [mediaItems]
-  );
-
-  const removeMedia = useCallback((id: string) => {
-    setMediaItems((prev) => prev.filter((v) => v.id !== id));
-    delete mediaElementsRef.current[id];
-  }, []);
-
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans pb-24 select-none relative">
       <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
@@ -1173,931 +1051,101 @@ const TurtleVideo: React.FC = () => {
       />
 
       {/* AI Modal */}
-      {showAiModal && (
-        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-gray-800 border border-gray-700 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden">
-            <div className="p-4 border-b border-gray-700 flex justify-between items-center bg-gradient-to-r from-purple-900/50 to-blue-900/50">
-              <h3 className="font-bold flex items-center gap-2 text-white">
-                <Sparkles className="w-5 h-5 text-yellow-400" /> AIナレーションスタジオ
-              </h3>
-              <button
-                onClick={() => setShowAiModal(false)}
-                className="text-gray-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-6 space-y-6">
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
-                  Step 1: テーマ入力
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={aiPrompt}
-                    onChange={(e) => setAiPrompt(e.target.value)}
-                    placeholder="例: 京都旅行の動画"
-                    className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500"
-                  />
-                  <button
-                    onClick={generateScript}
-                    disabled={isAiLoading || !aiPrompt}
-                    className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-1 disabled:opacity-50"
-                  >
-                    {isAiLoading ? (
-                      <Loader className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <FileText className="w-4 h-4" />
-                    )}{' '}
-                    作成
-                  </button>
-                </div>
-              </div>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
-                    Step 2: 原稿編集
-                  </label>
-                  <textarea
-                    value={aiScript}
-                    onChange={(e) => setAiScript(e.target.value)}
-                    className="w-full h-24 bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm focus:outline-none focus:border-blue-500 resize-none"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
-                    声の選択
-                  </label>
-                  <div className="relative">
-                    <select
-                      value={aiVoice}
-                      onChange={(e) => setAiVoice(e.target.value)}
-                      className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 pr-10 text-sm appearance-none focus:outline-none focus:border-blue-500 text-gray-100"
-                    >
-                      {VOICE_OPTIONS.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {v.label} - {v.desc}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="w-4 h-4 absolute inset-y-0 right-3 my-auto text-gray-400 pointer-events-none" />
-                  </div>
-                </div>
-              </div>
-              <button
-                onClick={generateSpeech}
-                disabled={isAiLoading || !aiScript}
-                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 shadow-lg disabled:opacity-50 transition-all"
-              >
-                {isAiLoading ? (
-                  <Loader className="w-5 h-5 animate-spin" />
-                ) : (
-                  <Mic className="w-5 h-5" />
-                )}{' '}
-                音声を生成して追加
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AiModal
+        isOpen={showAiModal}
+        onClose={() => setShowAiModal(false)}
+        aiPrompt={aiPrompt}
+        aiScript={aiScript}
+        aiVoice={aiVoice}
+        isAiLoading={isAiLoading}
+        voiceOptions={VOICE_OPTIONS}
+        onPromptChange={setAiPrompt}
+        onScriptChange={setAiScript}
+        onVoiceChange={setAiVoice}
+        onGenerateScript={generateScript}
+        onGenerateSpeech={generateSpeech}
+      />
 
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-gray-900/95 backdrop-blur border-b border-gray-800 px-4 py-3 flex items-center justify-center shadow-lg">
-        <div className="flex items-center gap-2">
-          <div className="bg-green-600 p-1.5 rounded-lg">
-            <span className="text-xl">🐢</span>
-          </div>
-          <h1 className="font-bold text-lg whitespace-nowrap">
-            タートルビデオ{' '}
-            <span className="text-xs bg-purple-600 px-1.5 py-0.5 rounded ml-1">AI</span>
-          </h1>
-        </div>
-      </header>
+      <Header />
 
       <div className="max-w-md mx-auto p-4 space-y-6">
-        {errorMsg && (
-          <div className="bg-red-500/10 border border-red-500/50 p-3 rounded text-sm text-red-200 flex justify-between items-center">
-            <span>{errorMsg}</span>
-            <button onClick={() => setErrorMsg(null)}>
-              <Trash2 className="w-3 h-3" />
-            </button>
-          </div>
-        )}
+        <ErrorMessage message={errorMsg} onClose={() => setErrorMsg(null)} />
 
         {/* 1. CLIPS */}
-        <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
-          <div className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center">
-            <h2 className="font-bold flex items-center gap-2 text-blue-400">
-              <span className="w-6 h-6 rounded-full bg-blue-500/10 flex items-center justify-center text-xs">
-                1
-              </span>{' '}
-              クリップ
-            </h2>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setIsClipsLocked(!isClipsLocked)}
-                className={`p-1.5 rounded transition ${isClipsLocked ? 'bg-red-500/20 text-red-400' : 'bg-gray-700 text-gray-400 hover:text-white'}`}
-              >
-                {isClipsLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-              </button>
-              <label
-                className={`cursor-pointer bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition ${isClipsLocked ? 'opacity-50 pointer-events-none' : ''}`}
-              >
-                <Upload className="w-3 h-3" /> 追加
-                <input
-                  type="file"
-                  multiple
-                  accept="video/*, image/*"
-                  className="hidden"
-                  onChange={handleMediaUpload}
-                  disabled={isClipsLocked}
-                />
-              </label>
-            </div>
-          </div>
-          <div className="p-3 space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar">
-            {mediaItems.length === 0 && (
-              <div className="text-center py-8 text-gray-600 text-xs border-2 border-dashed border-gray-800 rounded">
-                動画または画像ファイルを追加してください
-              </div>
-            )}
-            {mediaItems.map((v, i) => (
-              <div
-                key={v.id}
-                className="bg-gray-800 p-3 rounded-xl border border-gray-700/50 relative group"
-              >
-                <div className="flex justify-between items-center mb-3">
-                  <div className="flex items-center gap-2 overflow-hidden">
-                    <span className="bg-gray-900 text-gray-500 w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-mono">
-                      {i + 1}
-                    </span>
-                    {v.type === 'image' ? (
-                      <ImageIcon className="w-3 h-3 text-yellow-500" />
-                    ) : (
-                      <MonitorPlay className="w-3 h-3 text-blue-500" />
-                    )}
-                    <span className="text-xs font-medium truncate max-w-[140px] text-gray-300">
-                      {v.file.name}
-                    </span>
-                    <button
-                      onClick={() => toggleMediaLock(v.id)}
-                      className={`p-1 rounded hover:bg-gray-700 ${v.isLocked ? 'text-red-400' : 'text-gray-500'}`}
-                    >
-                      {v.isLocked ? (
-                        <Lock className="w-3 h-3" />
-                      ) : (
-                        <Unlock className="w-3 h-3" />
-                      )}
-                    </button>
-                  </div>
-                  <div className="flex gap-1">
-                    <button
-                      onClick={() => moveMedia(i, 'up')}
-                      disabled={i === 0 || isClipsLocked || v.isLocked}
-                      className="p-1.5 hover:bg-gray-700 rounded text-gray-400 disabled:opacity-30"
-                    >
-                      <ArrowUp className="w-3 h-3" />
-                    </button>
-                    <button
-                      onClick={() => moveMedia(i, 'down')}
-                      disabled={i === mediaItems.length - 1 || isClipsLocked || v.isLocked}
-                      className="p-1.5 hover:bg-gray-700 rounded text-gray-400 disabled:opacity-30"
-                    >
-                      <ArrowDown className="w-3 h-3" />
-                    </button>
-                    <button
-                      onClick={() => removeMedia(v.id)}
-                      disabled={isClipsLocked || v.isLocked}
-                      className="p-1.5 hover:bg-red-900/30 text-red-400 rounded disabled:opacity-30"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* 動画トリミングUI */}
-                {v.type === 'video' && (
-                  <div className="bg-black/30 p-2 rounded mb-2 border border-gray-700/50">
-                    <div className="flex items-center gap-2 mb-1 text-[10px] text-gray-400">
-                      <Scissors className="w-3 h-3" />
-                      <span>
-                        トリミング: {v.trimStart.toFixed(1)}s - {v.trimEnd.toFixed(1)}s
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 text-[10px]">
-                      <span className="text-gray-500 w-6">開始</span>
-                      <input
-                        type="range"
-                        min="0"
-                        max={v.originalDuration}
-                        step="0.1"
-                        value={v.trimStart}
-                        onChange={(e) => updateVideoTrim(v.id, 'start', e.target.value)}
-                        disabled={isClipsLocked || v.isLocked}
-                        className="flex-1 accent-green-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-                      />
-                    </div>
-                    <div className="flex items-center gap-2 text-[10px] mt-1">
-                      <span className="text-gray-500 w-6">終了</span>
-                      <input
-                        type="range"
-                        min="0"
-                        max={v.originalDuration}
-                        step="0.1"
-                        value={v.trimEnd}
-                        onChange={(e) => updateVideoTrim(v.id, 'end', e.target.value)}
-                        disabled={isClipsLocked || v.isLocked}
-                        className="flex-1 accent-red-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* 調整パネル開閉ボタン */}
-                <button
-                  onClick={() => toggleTransformPanel(v.id)}
-                  disabled={isClipsLocked || v.isLocked}
-                  className="text-xs flex items-center gap-1 text-gray-400 hover:text-white mb-2 disabled:opacity-50"
-                >
-                  {v.isTransformOpen ? (
-                    <ChevronDown className="w-3 h-3" />
-                  ) : (
-                    <ChevronRight className="w-3 h-3" />
-                  )}
-                  <span>位置・サイズ調整</span>
-                </button>
-
-                {/* 調整パネル (アコーディオン) */}
-                {v.isTransformOpen && (
-                  <div className="px-2 mb-2 space-y-2 border-t border-gray-700/50 pt-2 mt-2 bg-gray-900/30 rounded p-2">
-                    {/* 拡大率 */}
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center justify-between text-[10px] text-gray-400">
-                        <div className="flex items-center gap-1">
-                          <ZoomIn className="w-3 h-3" /> 拡大: {((v.scale || 1.0) * 100).toFixed(1)}%
-                        </div>
-                        <button
-                          onClick={() => resetMediaSetting(v.id, 'scale')}
-                          disabled={isClipsLocked || v.isLocked}
-                          title="リセット"
-                          className="hover:text-white disabled:opacity-30"
-                        >
-                          <RotateCcw className="w-3 h-3" />
-                        </button>
-                      </div>
-
-                      {/* 拡大微調整チェックボックス */}
-                      <div className="flex items-center gap-2 px-1 mb-1">
-                        <label
-                          className={`flex items-center gap-1.5 text-[10px] text-gray-300 cursor-pointer hover:text-white transition ${isClipsLocked || v.isLocked ? 'opacity-50 pointer-events-none' : ''}`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={Math.abs((v.scale || 1.0) - 1.025) < 0.001}
-                            onChange={(e) => updateMediaScale(v.id, e.target.checked ? 1.025 : 1.0)}
-                            className="rounded accent-blue-500 w-3 h-3"
-                            disabled={isClipsLocked || v.isLocked}
-                          />
-                          <span>黒帯除去 (102.5%に拡大)</span>
-                        </label>
-                      </div>
-
-                      <input
-                        type="range"
-                        min="0.5"
-                        max="3.0"
-                        step="0.001"
-                        value={v.scale || 1.0}
-                        onChange={(e) => updateMediaScale(v.id, e.target.value)}
-                        disabled={isClipsLocked || v.isLocked}
-                        className="w-full accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-                      />
-                    </div>
-
-                    {/* 横方向 */}
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center justify-between text-[10px] text-gray-400">
-                        <div className="flex items-center gap-1">
-                          <Move className="w-3 h-3" /> 横方向: {Math.round(v.positionX || 0)}
-                        </div>
-                        <button
-                          onClick={() => resetMediaSetting(v.id, 'x')}
-                          disabled={isClipsLocked || v.isLocked}
-                          title="リセット"
-                          className="hover:text-white disabled:opacity-30"
-                        >
-                          <RotateCcw className="w-3 h-3" />
-                        </button>
-                      </div>
-                      <input
-                        type="range"
-                        min="-1280"
-                        max="1280"
-                        step="10"
-                        value={v.positionX || 0}
-                        onChange={(e) => updateMediaPosition(v.id, 'x', e.target.value)}
-                        disabled={isClipsLocked || v.isLocked}
-                        className="w-full accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-                      />
-                    </div>
-
-                    {/* 縦方向 */}
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center justify-between text-[10px] text-gray-400">
-                        <div className="flex items-center gap-1">
-                          <Move className="w-3 h-3" /> 縦方向: {Math.round(v.positionY || 0)}
-                        </div>
-                        <button
-                          onClick={() => resetMediaSetting(v.id, 'y')}
-                          disabled={isClipsLocked || v.isLocked}
-                          title="リセット"
-                          className="hover:text-white disabled:opacity-30"
-                        >
-                          <RotateCcw className="w-3 h-3" />
-                        </button>
-                      </div>
-                      <input
-                        type="range"
-                        min="-720"
-                        max="720"
-                        step="10"
-                        value={v.positionY || 0}
-                        onChange={(e) => updateMediaPosition(v.id, 'y', e.target.value)}
-                        disabled={isClipsLocked || v.isLocked}
-                        className="w-full accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-2 text-[10px] bg-gray-900/50 p-2 rounded-lg">
-                  {v.type === 'image' ? (
-                    <div className="col-span-2 flex items-center gap-2">
-                      <Clock className="w-3 h-3 text-gray-400" />
-                      <span className="text-gray-400">表示時間:</span>
-                      <input
-                        type="number"
-                        min="0.5"
-                        max="60"
-                        step="0.5"
-                        value={v.duration}
-                        onChange={(e) => updateImageDuration(v.id, e.target.value)}
-                        disabled={isClipsLocked || v.isLocked}
-                        className="w-12 bg-gray-700 rounded border border-gray-600 px-1 text-right focus:outline-none focus:border-blue-500 disabled:opacity-50"
-                      />
-                      <span className="text-gray-400">秒</span>
-                      <input
-                        type="range"
-                        min="0.5"
-                        max="30"
-                        step="0.5"
-                        value={v.duration}
-                        onChange={(e) => updateImageDuration(v.id, e.target.value)}
-                        disabled={isClipsLocked || v.isLocked}
-                        className="flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-                      />
-                    </div>
-                  ) : (
-                    <div className="col-span-2 flex items-center gap-2">
-                      <button
-                        onClick={() =>
-                          setMediaItems((prev) =>
-                            prev.map((item) =>
-                              item.id === v.id ? { ...item, isMuted: !item.isMuted } : item
-                            )
-                          )
-                        }
-                        disabled={isClipsLocked || v.isLocked}
-                        className={`p-1.5 rounded flex items-center gap-1 ${v.isMuted ? 'bg-red-500/20 text-red-300' : 'bg-gray-700 text-gray-300'} disabled:opacity-50`}
-                      >
-                        {v.isMuted ? (
-                          <VolumeX className="w-3 h-3" />
-                        ) : (
-                          <Volume2 className="w-3 h-3" />
-                        )}
-                      </button>
-                      <input
-                        type="range"
-                        min="0"
-                        max="1"
-                        step="0.1"
-                        value={v.volume}
-                        disabled={v.isMuted || isClipsLocked || v.isLocked}
-                        onChange={(e) =>
-                          setMediaItems((prev) =>
-                            prev.map((item) =>
-                              item.id === v.id
-                                ? { ...item, volume: parseFloat(e.target.value) }
-                                : item
-                            )
-                          )
-                        }
-                        className="flex-1 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-                      />
-                    </div>
-                  )}
-                  <label
-                    className={`flex items-center gap-1 cursor-pointer hover:text-blue-300 ${isClipsLocked || v.isLocked ? 'opacity-50 pointer-events-none' : ''}`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={v.fadeIn}
-                      onChange={(e) =>
-                        setMediaItems((prev) =>
-                          prev.map((item) =>
-                            item.id === v.id ? { ...item, fadeIn: e.target.checked } : item
-                          )
-                        )
-                      }
-                      disabled={isClipsLocked || v.isLocked}
-                      className="rounded accent-blue-500 w-3 h-3"
-                    />{' '}
-                    フェードイン
-                  </label>
-                  <label
-                    className={`flex items-center gap-1 cursor-pointer hover:text-blue-300 ${isClipsLocked ? 'opacity-50 pointer-events-none' : ''}`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={v.fadeOut}
-                      onChange={(e) =>
-                        setMediaItems((prev) =>
-                          prev.map((item) =>
-                            item.id === v.id ? { ...item, fadeOut: e.target.checked } : item
-                          )
-                        )
-                      }
-                      disabled={isClipsLocked || v.isLocked}
-                      className="rounded accent-blue-500 w-3 h-3"
-                    />{' '}
-                    フェードアウト
-                  </label>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
+        <ClipsSection
+          mediaItems={mediaItems}
+          isClipsLocked={isClipsLocked}
+          onToggleClipsLock={() => setIsClipsLocked(!isClipsLocked)}
+          onMediaUpload={handleMediaUpload}
+          onMoveMedia={moveMedia}
+          onRemoveMedia={removeMedia}
+          onToggleMediaLock={toggleMediaLock}
+          onToggleTransformPanel={toggleTransformPanel}
+          onUpdateVideoTrim={updateVideoTrim}
+          onUpdateImageDuration={updateImageDuration}
+          onUpdateMediaScale={updateMediaScale}
+          onUpdateMediaPosition={updateMediaPosition}
+          onResetMediaSetting={resetMediaSetting}
+          onUpdateMediaVolume={updateMediaVolume}
+          onToggleMediaMute={toggleMediaMute}
+          onToggleMediaFadeIn={toggleMediaFadeIn}
+          onToggleMediaFadeOut={toggleMediaFadeOut}
+        />
 
         {/* 2. BGM SETTINGS */}
-        <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
-          <div className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center">
-            <h2 className="font-bold flex items-center gap-2 text-purple-400">
-              <span className="w-6 h-6 rounded-full bg-purple-500/10 flex items-center justify-center text-xs">
-                2
-              </span>{' '}
-              BGM設定
-            </h2>
-            <div className="flex gap-2 items-center">
-              <button
-                onClick={() => setIsBgmLocked(!isBgmLocked)}
-                className={`p-1.5 rounded transition ${isBgmLocked ? 'bg-red-500/20 text-red-400' : 'bg-gray-700 text-gray-400 hover:text-white'}`}
-              >
-                {isBgmLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-              </button>
-              {!bgm ? (
-                <label
-                  className={`cursor-pointer bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 ${isBgmLocked ? 'opacity-50 pointer-events-none' : ''}`}
-                >
-                  <Upload className="w-3 h-3" /> 選択
-                  <input
-                    type="file"
-                    accept="audio/*"
-                    className="hidden"
-                    onChange={handleBgmUpload}
-                    disabled={isBgmLocked}
-                  />
-                </label>
-              ) : (
-                <button
-                  onClick={() => setBgm(null)}
-                  disabled={isBgmLocked}
-                  className="text-red-400 hover:text-red-300 text-xs px-2 disabled:opacity-50"
-                >
-                  削除
-                </button>
-              )}
-            </div>
-          </div>
-          {bgm && (
-            <div className="p-4 bg-purple-900/10 border border-purple-500/20 m-3 rounded-xl space-y-3">
-              <div className="flex items-center gap-2 text-purple-200 text-xs font-medium truncate">
-                <Music className="w-3 h-3 text-purple-400 shrink-0" /> {bgm.file.name}
-              </div>
-              <div className="space-y-1">
-                <div className="flex justify-between text-[10px] text-gray-400">
-                  <span>開始位置 (頭出し): {formatTime(bgm.startPoint)}</span>
-                  <span>長さ: {formatTime(bgm.duration)}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="range"
-                    min={0}
-                    max={bgm.duration}
-                    step="0.1"
-                    value={bgm.startPoint}
-                    onChange={(e) => updateTrackStart('bgm', e.target.value)}
-                    disabled={isBgmLocked}
-                    className="flex-1 accent-purple-500 h-1 bg-gray-700 rounded appearance-none cursor-pointer disabled:opacity-50"
-                  />
-                  <input
-                    type="number"
-                    min="0"
-                    max={bgm.duration}
-                    step="0.1"
-                    value={bgm.startPoint}
-                    onChange={(e) => updateTrackStart('bgm', e.target.value)}
-                    disabled={isBgmLocked}
-                    className="w-16 bg-gray-700 border border-gray-600 rounded px-1 text-[10px] text-right focus:outline-none focus:border-purple-500 disabled:opacity-50"
-                  />
-                  <span className="text-[10px] text-gray-500">秒</span>
-                </div>
-              </div>
-              <div className="bg-purple-900/30 p-2 rounded border border-purple-500/30 space-y-1">
-                <div className="flex items-center gap-2 text-[10px] text-purple-200">
-                  <Timer className="w-3 h-3" />
-                  <span>開始タイミング (遅延): {formatTime(bgm.delay || 0)}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="range"
-                    min={0}
-                    max={totalDuration}
-                    step="0.5"
-                    value={bgm.delay || 0}
-                    onChange={(e) => updateTrackDelay('bgm', e.target.value)}
-                    disabled={isBgmLocked}
-                    className="flex-1 accent-purple-400 h-1 bg-gray-700 rounded appearance-none cursor-pointer disabled:opacity-50"
-                  />
-                  <input
-                    type="number"
-                    min="0"
-                    max={totalDuration}
-                    step="0.5"
-                    value={bgm.delay || 0}
-                    onChange={(e) => updateTrackDelay('bgm', e.target.value)}
-                    disabled={isBgmLocked}
-                    className="w-16 bg-gray-700 border border-gray-600 rounded px-1 text-[10px] text-right focus:outline-none focus:border-purple-400 disabled:opacity-50"
-                  />
-                  <span className="text-[10px] text-gray-500">秒</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 bg-gray-800/50 p-2 rounded-lg">
-                <Volume2 className="w-3 h-3 text-gray-400" />
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.1"
-                  value={bgm.volume}
-                  onChange={(e) => updateTrackVolume('bgm', e.target.value)}
-                  disabled={isBgmLocked}
-                  className="flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-                />
-              </div>
-              <div className="flex gap-3 text-[10px]">
-                <label
-                  className={`flex items-center gap-1 cursor-pointer ${isBgmLocked ? 'opacity-50 pointer-events-none' : ''}`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={bgm.fadeIn}
-                    onChange={(e) => setBgm((p) => (p ? { ...p, fadeIn: e.target.checked } : null))}
-                    disabled={isBgmLocked}
-                    className="accent-purple-500 rounded"
-                  />{' '}
-                  フェードイン
-                </label>
-                <label
-                  className={`flex items-center gap-1 cursor-pointer ${isBgmLocked ? 'opacity-50 pointer-events-none' : ''}`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={bgm.fadeOut}
-                    onChange={(e) => setBgm((p) => (p ? { ...p, fadeOut: e.target.checked } : null))}
-                    disabled={isBgmLocked}
-                    className="accent-purple-500 rounded"
-                  />{' '}
-                  フェードアウト
-                </label>
-              </div>
-            </div>
-          )}
-        </section>
+        <BgmSection
+          bgm={bgm}
+          isBgmLocked={isBgmLocked}
+          totalDuration={totalDuration}
+          onToggleBgmLock={() => setIsBgmLocked(!isBgmLocked)}
+          onBgmUpload={handleBgmUpload}
+          onRemoveBgm={() => setBgm(null)}
+          onUpdateStartPoint={(val) => updateTrackStart('bgm', val)}
+          onUpdateDelay={(val) => updateTrackDelay('bgm', val)}
+          onUpdateVolume={(val) => updateTrackVolume('bgm', val)}
+          onToggleFadeIn={(checked) => setBgm((p) => (p ? { ...p, fadeIn: checked } : null))}
+          onToggleFadeOut={(checked) => setBgm((p) => (p ? { ...p, fadeOut: checked } : null))}
+          formatTime={formatTime}
+        />
 
         {/* 3. NARRATION SETTINGS */}
-        <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
-          <div className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center">
-            <h2 className="font-bold flex items-center gap-2 text-indigo-400">
-              <span className="w-6 h-6 rounded-full bg-indigo-500/10 flex items-center justify-center text-xs">
-                3
-              </span>{' '}
-              ナレーション
-            </h2>
-            <div className="flex gap-2 shrink-0 items-center">
-              <button
-                onClick={() => setIsNarrationLocked(!isNarrationLocked)}
-                className={`p-1.5 rounded transition ${isNarrationLocked ? 'bg-red-500/20 text-red-400' : 'bg-gray-700 text-gray-400 hover:text-white'}`}
-              >
-                {isNarrationLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-              </button>
-              <button
-                onClick={() => setShowAiModal(true)}
-                disabled={isNarrationLocked}
-                className={`bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-lg ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
-              >
-                <Sparkles className="w-3 h-3" /> AI
-              </button>
-              {!narration ? (
-                <label
-                  className={`cursor-pointer bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
-                >
-                  <Upload className="w-3 h-3" /> 選択
-                  <input
-                    type="file"
-                    accept="audio/*"
-                    className="hidden"
-                    onChange={handleNarrationUpload}
-                    disabled={isNarrationLocked}
-                  />
-                </label>
-              ) : (
-                <button
-                  onClick={() => setNarration(null)}
-                  disabled={isNarrationLocked}
-                  className="text-red-400 hover:text-red-300 text-xs px-2 disabled:opacity-50"
-                >
-                  削除
-                </button>
-              )}
-            </div>
-          </div>
-          {narration && (
-            <div className="p-4 bg-indigo-900/10 border border-indigo-500/20 m-3 rounded-xl space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-indigo-200 text-xs font-medium truncate">
-                  <Mic className="w-3 h-3 text-indigo-400 shrink-0" /> {narration.file.name}
-                </div>
-                {narration.blobUrl && (
-                  <a
-                    href={narration.blobUrl}
-                    download={narration.file.name}
-                    className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-1 rounded text-[10px] font-bold transition"
-                  >
-                    <Save className="w-3 h-3" /> 保存
-                  </a>
-                )}
-              </div>
-              <div className="space-y-1">
-                <div className="flex justify-between text-[10px] text-gray-400">
-                  <span>開始位置 (頭出し): {formatTime(narration.startPoint)}</span>
-                  <span>長さ: {formatTime(narration.duration)}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="range"
-                    min={0}
-                    max={narration.duration}
-                    step="0.1"
-                    value={narration.startPoint}
-                    onChange={(e) => updateTrackStart('narration', e.target.value)}
-                    disabled={isNarrationLocked}
-                    className="flex-1 accent-indigo-500 h-1 bg-gray-700 rounded appearance-none cursor-pointer disabled:opacity-50"
-                  />
-                  <input
-                    type="number"
-                    min="0"
-                    max={narration.duration}
-                    step="0.1"
-                    value={narration.startPoint}
-                    onChange={(e) => updateTrackStart('narration', e.target.value)}
-                    disabled={isNarrationLocked}
-                    className="w-16 bg-gray-700 border border-gray-600 rounded px-1 text-[10px] text-right focus:outline-none focus:border-indigo-500 disabled:opacity-50"
-                  />
-                  <span className="text-[10px] text-gray-500">秒</span>
-                </div>
-              </div>
-              <div className="bg-indigo-900/30 p-2 rounded border border-indigo-500/30 space-y-1">
-                <div className="flex items-center gap-2 text-[10px] text-indigo-200">
-                  <Timer className="w-3 h-3" />
-                  <span>開始タイミング (遅延): {formatTime(narration.delay || 0)}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="range"
-                    min={0}
-                    max={totalDuration}
-                    step="0.5"
-                    value={narration.delay || 0}
-                    onChange={(e) => updateTrackDelay('narration', e.target.value)}
-                    disabled={isNarrationLocked}
-                    className="flex-1 accent-indigo-400 h-1 bg-gray-700 rounded appearance-none cursor-pointer disabled:opacity-50"
-                  />
-                  <input
-                    type="number"
-                    min="0"
-                    max={totalDuration}
-                    step="0.5"
-                    value={narration.delay || 0}
-                    onChange={(e) => updateTrackDelay('narration', e.target.value)}
-                    disabled={isNarrationLocked}
-                    className="w-16 bg-gray-700 border border-gray-600 rounded px-1 text-[10px] text-right focus:outline-none focus:border-indigo-400 disabled:opacity-50"
-                  />
-                  <span className="text-[10px] text-gray-500">秒</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 bg-gray-800/50 p-2 rounded-lg">
-                <Volume2 className="w-3 h-3 text-gray-400" />
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.1"
-                  value={narration.volume}
-                  onChange={(e) => updateTrackVolume('narration', e.target.value)}
-                  disabled={isNarrationLocked}
-                  className="flex-1 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-                />
-              </div>
-              <div className="flex gap-3 text-[10px]">
-                <label
-                  className={`flex items-center gap-1 cursor-pointer ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={narration.fadeIn}
-                    onChange={(e) =>
-                      setNarration((p) => (p ? { ...p, fadeIn: e.target.checked } : null))
-                    }
-                    disabled={isNarrationLocked}
-                    className="accent-indigo-500 rounded"
-                  />{' '}
-                  フェードイン
-                </label>
-                <label
-                  className={`flex items-center gap-1 cursor-pointer ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={narration.fadeOut}
-                    onChange={(e) =>
-                      setNarration((p) => (p ? { ...p, fadeOut: e.target.checked } : null))
-                    }
-                    disabled={isNarrationLocked}
-                    className="accent-indigo-500 rounded"
-                  />{' '}
-                  フェードアウト
-                </label>
-              </div>
-            </div>
-          )}
-        </section>
+        <NarrationSection
+          narration={narration}
+          isNarrationLocked={isNarrationLocked}
+          totalDuration={totalDuration}
+          onToggleNarrationLock={() => setIsNarrationLocked(!isNarrationLocked)}
+          onShowAiModal={() => setShowAiModal(true)}
+          onNarrationUpload={handleNarrationUpload}
+          onRemoveNarration={() => setNarration(null)}
+          onUpdateStartPoint={(val) => updateTrackStart('narration', val)}
+          onUpdateDelay={(val) => updateTrackDelay('narration', val)}
+          onUpdateVolume={(val) => updateTrackVolume('narration', val)}
+          onToggleFadeIn={(checked) => setNarration((p) => (p ? { ...p, fadeIn: checked } : null))}
+          onToggleFadeOut={(checked) => setNarration((p) => (p ? { ...p, fadeOut: checked } : null))}
+          formatTime={formatTime}
+        />
 
         {/* 4. PREVIEW */}
-        <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
-          <div className="p-3 border-b border-gray-800 bg-gray-850 flex items-center justify-between">
-            <h2 className="font-bold flex items-center gap-2 text-green-400">
-              <span className="w-6 h-6 rounded-full bg-green-500/10 flex items-center justify-center text-xs">
-                4
-              </span>{' '}
-              プレビュー
-            </h2>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => handleReloadResources()}
-                title="プレビューを強制リロード"
-                className="p-2 bg-gray-700 hover:bg-gray-600 rounded-full text-white transition shadow-sm"
-              >
-                <RefreshCw className="w-4 h-4" />
-              </button>
-              {isProcessing && (
-                <span className="text-[10px] text-green-400 font-mono animate-pulse bg-green-900/30 px-2 py-0.5 rounded">
-                  REC ●
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="relative aspect-video bg-black w-full group">
-            <canvas
-              ref={canvasRef}
-              width={1280}
-              height={720}
-              className="w-full h-full object-contain"
-            />
-            {mediaItems.length === 0 && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <MonitorPlay className="w-12 h-12 text-gray-800" />
-              </div>
-            )}
-            {!isPlaying && !isProcessing && mediaItems.length > 0 && (
-              <button
-                onClick={togglePlay}
-                className="absolute inset-0 m-auto w-14 h-14 bg-white/20 hover:bg-white/30 backdrop-blur rounded-full flex items-center justify-center text-white transition-transform active:scale-95"
-              >
-                <Play className="w-6 h-6 fill-current ml-1" />
-              </button>
-            )}
-          </div>
-          <div className="p-4 bg-gray-900 border-t border-gray-800">
-            <div className="flex justify-between text-[10px] font-mono text-gray-400 mb-2">
-              <span>{formatTime(currentTime)}</span>
-              <span>{formatTime(totalDuration)}</span>
-            </div>
-            <div className="relative h-8 w-full select-none">
-              <div className="absolute top-3 w-full h-2 bg-gray-800 rounded-full overflow-hidden">
-                <div className="flex w-full h-full opacity-60">
-                  {mediaItems.map((v, i) => (
-                    <div
-                      key={v.id}
-                      style={{ width: `${(v.duration / totalDuration) * 100}%` }}
-                      className={
-                        v.type === 'image'
-                          ? 'bg-yellow-600'
-                          : i % 2 === 0
-                            ? 'bg-blue-600'
-                            : 'bg-blue-500'
-                      }
-                    />
-                  ))}
-                </div>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max={totalDuration || 0.1}
-                step="0.1"
-                value={currentTime}
-                onChange={handleSeekChange}
-                className="absolute top-0 w-full h-full opacity-0 cursor-pointer z-10"
-                disabled={mediaItems.length === 0 || isProcessing}
-              />
-              <div
-                className="absolute top-1.5 w-5 h-5 bg-white shadow-lg rounded-full pointer-events-none z-0 border-2 border-gray-200"
-                style={{ left: `calc(${(currentTime / (totalDuration || 1)) * 100}% - 10px)` }}
-              />
-            </div>
-            <div className="mt-4 flex justify-center gap-4 border-b border-gray-800 pb-6">
-              <button
-                onClick={handleStop}
-                disabled={mediaItems.length === 0}
-                className="p-3 rounded-full bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white transition shadow-lg disabled:opacity-50"
-              >
-                <Square className="w-5 h-5 fill-current" />
-              </button>
-              <button
-                onClick={togglePlay}
-                disabled={mediaItems.length === 0}
-                className={`p-3 rounded-full transition shadow-lg ${isPlaying ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-blue-600 text-white hover:bg-blue-500'}`}
-              >
-                {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
-              </button>
-            </div>
-            <div className="mt-6 flex flex-col gap-4">
-              <div className="flex items-center justify-between gap-4">
-                <button
-                  onClick={handleClearAll}
-                  disabled={mediaItems.length === 0 && !bgm && !narration}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-gray-400 hover:bg-red-900/20 hover:text-red-400 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <RotateCcw className="w-4 h-4" /> 一括クリア
-                </button>
-                {exportUrl ? (
-                  <a
-                    href={exportUrl}
-                    download={`turtle_video_${Date.now()}.${exportExt}`}
-                    className="bg-green-600 hover:bg-green-500 text-white px-6 py-2.5 rounded-full text-sm font-bold flex items-center gap-2 animate-bounce-short shadow-lg"
-                  >
-                    <Download className="w-4 h-4" /> 保存 (.{exportExt})
-                  </a>
-                ) : (
-                  <button
-                    onClick={handleExport}
-                    disabled={isProcessing || mediaItems.length === 0}
-                    className={`flex-1 max-w-xs flex items-center justify-center gap-2 px-6 py-2.5 rounded-full text-sm font-bold shadow-lg transition ${isProcessing ? 'bg-gray-700 text-gray-400 cursor-wait' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20'}`}
-                  >
-                    {isProcessing ? (
-                      <Loader className="animate-spin w-4 h-4" />
-                    ) : (
-                      <Download className="w-4 h-4" />
-                    )}
-                    {isProcessing ? '書き出し中...' : '書き出す'}
-                  </button>
-                )}
-              </div>
-              {exportUrl && exportExt === 'webm' && (
-                <div className="bg-yellow-900/30 border border-yellow-700/50 p-3 rounded-lg flex items-start gap-2 text-xs text-yellow-200">
-                  <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-                  <div>
-                    <p className="font-bold">重要: SNS投稿について</p>
-                    <p>
-                      お使いのブラウザはMP4出力に非対応のため、互換性の高いWebM形式で保存しました。
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </section>
+        <PreviewSection
+          mediaItems={mediaItems}
+          bgm={bgm}
+          narration={narration}
+          canvasRef={canvasRef}
+          currentTime={currentTime}
+          totalDuration={totalDuration}
+          isPlaying={isPlaying}
+          isProcessing={isProcessing}
+          exportUrl={exportUrl}
+          exportExt={exportExt}
+          onSeekChange={handleSeekChange}
+          onTogglePlay={togglePlay}
+          onStop={handleStop}
+          onExport={handleExport}
+          onClearAll={handleClearAll}
+          onReloadResources={() => handleReloadResources()}
+          formatTime={formatTime}
+        />
       </div>
     </div>
   );

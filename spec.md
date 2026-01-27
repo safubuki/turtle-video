@@ -256,15 +256,15 @@ src/
 
 ```
 タスク:
-├── [ ] Toast コンポーネント分離 (AI: 自動抽出)
-├── [ ] MediaResourceLoader コンポーネント分離 (AI: 自動抽出)
-├── [ ] Header コンポーネント (AI: 自動抽出)
-├── [ ] ClipsSection コンポーネント (AI: 自動抽出 + ClipItem分離)
-├── [ ] BgmSection コンポーネント (AI: 自動抽出)
-├── [ ] NarrationSection コンポーネント (AI: 自動抽出)
-├── [ ] PreviewSection コンポーネント (AI: 自動抽出 + Controls分離)
-├── [ ] AiModal コンポーネント (AI: 自動抽出)
-└── [ ] 動作確認
+├── [x] Toast コンポーネント分離 (AI: 自動抽出)
+├── [x] MediaResourceLoader コンポーネント分離 (AI: 自動抽出)
+├── [x] Header コンポーネント (AI: 自動抽出)
+├── [x] ClipsSection コンポーネント (AI: 自動抽出 + ClipItem分離)
+├── [x] BgmSection コンポーネント (AI: 自動抽出)
+├── [x] NarrationSection コンポーネント (AI: 自動抽出)
+├── [x] PreviewSection コンポーネント (AI: 自動抽出 + Controls分離)
+├── [x] AiModal コンポーネント (AI: 自動抽出)
+└── [x] 動作確認
 ```
 
 **成果物**:
