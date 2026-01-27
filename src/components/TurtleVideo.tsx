@@ -152,6 +152,8 @@ const TurtleVideo: React.FC = () => {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const loopIdRef = useRef(0); // ループの世代を追跡
   const isPlayingRef = useRef(false); // 再生状態を即座に反映するRef
+  const playPromisesRef = useRef<Map<string, Promise<void>>>(new Map()); // ビデオのplay()Promiseを追跡
+  const lastToggleTimeRef = useRef(0); // 最後のtoggle時刻（デバウンス用）
 
   // --- Helper: renderFrame ---
   const renderFrame = useCallback(
@@ -221,9 +223,32 @@ const TurtleVideo: React.FC = () => {
                 if (Math.abs(videoEl.currentTime - targetTime) > 0.8) {
                   videoEl.currentTime = targetTime;
                 }
-                if (videoEl.paused) videoEl.play().catch(() => {});
+                // play()がまだ実行中でなく、pausedの場合のみplay()を呼ぶ
+                if (videoEl.paused && !playPromisesRef.current.has(id)) {
+                  const playPromise = videoEl.play();
+                  playPromisesRef.current.set(id, playPromise);
+                  playPromise
+                    .then(() => {
+                      playPromisesRef.current.delete(id);
+                    })
+                    .catch(() => {
+                      playPromisesRef.current.delete(id);
+                    });
+                }
               } else {
-                if (!videoEl.paused) videoEl.pause();
+                // pause()を呼ぶ前にplay()のPromiseを待つ
+                const existingPromise = playPromisesRef.current.get(id);
+                if (existingPromise) {
+                  existingPromise
+                    .then(() => {
+                      if (!videoEl.paused) videoEl.pause();
+                    })
+                    .catch(() => {
+                      // エラーでも続行
+                    });
+                } else {
+                  if (!videoEl.paused) videoEl.pause();
+                }
                 if (Math.abs(videoEl.currentTime - targetTime) > 0.01) {
                   videoEl.currentTime = targetTime;
                 }
@@ -872,14 +897,27 @@ const TurtleVideo: React.FC = () => {
       reqIdRef.current = null;
     }
 
+    // play()のPromiseが完了するのを待ってからpause()を呼ぶ
+    const pauseMedia = (el: HTMLMediaElement, id: string) => {
+      const existingPromise = playPromisesRef.current.get(id);
+      if (existingPromise) {
+        existingPromise
+          .then(() => {
+            try { el.pause(); } catch (e) { /* ignore */ }
+          })
+          .catch(() => {
+            try { el.pause(); } catch (e) { /* ignore */ }
+          });
+        playPromisesRef.current.delete(id);
+      } else {
+        try { el.pause(); } catch (e) { /* ignore */ }
+      }
+    };
+
     // メディア要素を停止
-    Object.values(mediaElementsRef.current).forEach((el) => {
+    Object.entries(mediaElementsRef.current).forEach(([id, el]) => {
       if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO')) {
-        try {
-          (el as HTMLMediaElement).pause();
-        } catch (e) {
-          /* ignore */
-        }
+        pauseMedia(el as HTMLMediaElement, id);
       }
     });
 
@@ -1145,6 +1183,13 @@ const TurtleVideo: React.FC = () => {
   );
 
   const togglePlay = useCallback(() => {
+    // デバウンス: 200ms以内の連続クリックを無視
+    const now = Date.now();
+    if (now - lastToggleTimeRef.current < 200) {
+      return;
+    }
+    lastToggleTimeRef.current = now;
+    
     if (isPlaying) {
       stopAll();
       pause();
