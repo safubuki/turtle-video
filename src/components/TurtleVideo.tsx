@@ -150,6 +150,8 @@ const TurtleVideo: React.FC = () => {
   const reqIdRef = useRef<number | null>(null);
   const startTimeRef = useRef(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const loopIdRef = useRef(0); // ループの世代を追跡
+  const isPlayingRef = useRef(false); // 再生状態を即座に反映するRef
 
   // --- Helper: renderFrame ---
   const renderFrame = useCallback(
@@ -860,6 +862,10 @@ const TurtleVideo: React.FC = () => {
 
   // --- コアエンジン ---
   const stopAll = useCallback(() => {
+    // ループIDをインクリメントして古いループを無効化
+    loopIdRef.current += 1;
+    isPlayingRef.current = false;
+    
     // アニメーションフレームをキャンセル
     if (reqIdRef.current) {
       cancelAnimationFrame(reqIdRef.current);
@@ -973,11 +979,22 @@ const TurtleVideo: React.FC = () => {
   }, []);
 
   const loop = useCallback(
-    (isExportMode: boolean) => {
+    (isExportMode: boolean, myLoopId: number) => {
+      // このループが無効化されていたら終了
+      if (myLoopId !== loopIdRef.current) {
+        return;
+      }
+      
       if (mediaItemsRef.current.length === 0) {
         stopAll();
         return;
       }
+      
+      // 再生状態でなければ終了
+      if (!isPlayingRef.current && !isExportMode) {
+        return;
+      }
+      
       const now = Date.now();
       const elapsed = (now - startTimeRef.current) / 1000;
 
@@ -988,7 +1005,7 @@ const TurtleVideo: React.FC = () => {
       }
       setCurrentTime(elapsed);
       renderFrame(elapsed, true, isExportMode);
-      reqIdRef.current = requestAnimationFrame(() => loop(isExportMode));
+      reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
     },
     [stopAll, pause, setCurrentTime, renderFrame]
   );
@@ -998,14 +1015,18 @@ const TurtleVideo: React.FC = () => {
       const ctx = getAudioContext();
       if (ctx.state === 'suspended') await ctx.resume();
 
-      // 既存のループとメディアを停止
+      // 既存のループとメディアを停止（これでloopIdRefがインクリメントされる）
       stopAll();
+      
+      // 新しいループIDを取得
+      const myLoopId = loopIdRef.current;
       
       // 状態をリセットしてから新しい状態を設定
       if (isExportMode) {
         setProcessing(true);
       } else {
         setProcessing(false);
+        isPlayingRef.current = true;
         play();
       }
       clearExport();
@@ -1052,6 +1073,11 @@ const TurtleVideo: React.FC = () => {
         await new Promise((r) => setTimeout(r, 100));
       }
 
+      // awaitの間にstopAllが呼ばれていたら中止
+      if (myLoopId !== loopIdRef.current) {
+        return;
+      }
+
       startTimeRef.current = Date.now() - fromTime * 1000;
 
       if (isExportMode && canvasRef.current && masterDestRef.current) {
@@ -1088,7 +1114,7 @@ const TurtleVideo: React.FC = () => {
         rec.start();
       }
 
-      loop(isExportMode);
+      loop(isExportMode, myLoopId);
     },
     [getAudioContext, stopAll, setProcessing, play, clearExport, configureAudioRouting, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop]
   );
@@ -1108,13 +1134,14 @@ const TurtleVideo: React.FC = () => {
       // フレームを描画（isActivePlaying=falseでビデオをpauseしcurrentTimeを設定）
       renderFrame(t, false);
 
-      // 再生中だった場合はループを再開
-      if (isPlaying) {
+      // 再生中だった場合はループを再開（現在のloopIdを使用）
+      if (isPlayingRef.current) {
         startTimeRef.current = Date.now() - t * 1000;
-        reqIdRef.current = requestAnimationFrame(() => loop(false));
+        const currentLoopId = loopIdRef.current;
+        reqIdRef.current = requestAnimationFrame(() => loop(false, currentLoopId));
       }
     },
-    [isPlaying, setCurrentTime, renderFrame, loop]
+    [setCurrentTime, renderFrame, loop]
   );
 
   const togglePlay = useCallback(() => {
