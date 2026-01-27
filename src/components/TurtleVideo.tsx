@@ -860,14 +860,13 @@ const TurtleVideo: React.FC = () => {
 
   // --- コアエンジン ---
   const stopAll = useCallback(() => {
+    // アニメーションフレームをキャンセル
     if (reqIdRef.current) {
       cancelAnimationFrame(reqIdRef.current);
       reqIdRef.current = null;
     }
 
-    pause();
-    setProcessing(false);
-
+    // メディア要素を停止
     Object.values(mediaElementsRef.current).forEach((el) => {
       if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO')) {
         try {
@@ -892,11 +891,13 @@ const TurtleVideo: React.FC = () => {
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
       recorderRef.current.stop();
     }
-  }, [pause, setProcessing]);
+  }, []);
 
   const handleClearAll = useCallback(() => {
     if (mediaItems.length === 0 && !bgm && !narration) return;
     stopAll();
+    pause();
+    setProcessing(false);
     Object.values(sourceNodesRef.current).forEach((n) => {
       try {
         n.disconnect();
@@ -940,6 +941,7 @@ const TurtleVideo: React.FC = () => {
     (targetTime: number | null = null) => {
       stopAll();
       pause();
+      setProcessing(false);
       setReloadKey((prev) => prev + 1);
       sourceNodesRef.current = {};
       gainNodesRef.current = {};
@@ -996,10 +998,14 @@ const TurtleVideo: React.FC = () => {
       const ctx = getAudioContext();
       if (ctx.state === 'suspended') await ctx.resume();
 
+      // 既存のループとメディアを停止
       stopAll();
+      
+      // 状態をリセットしてから新しい状態を設定
       if (isExportMode) {
         setProcessing(true);
       } else {
+        setProcessing(false);
         play();
       }
       clearExport();
@@ -1086,31 +1092,41 @@ const TurtleVideo: React.FC = () => {
       setCurrentTime(t);
       currentTimeRef.current = t;
 
-      if (isPlaying) {
-        pause();
-        stopAll();
+      // アニメーションフレームだけキャンセル（メディアは停止しない）
+      if (reqIdRef.current) {
+        cancelAnimationFrame(reqIdRef.current);
+        reqIdRef.current = null;
       }
 
+      // フレームを描画（isActivePlaying=falseでビデオをpauseしcurrentTimeを設定）
       renderFrame(t, false);
+
+      // 再生中だった場合はループを再開
+      if (isPlaying) {
+        startTimeRef.current = Date.now() - t * 1000;
+        reqIdRef.current = requestAnimationFrame(() => loop(false));
+      }
     },
-    [isPlaying, stopAll, pause, setCurrentTime, renderFrame]
+    [isPlaying, setCurrentTime, renderFrame, loop]
   );
 
   const togglePlay = useCallback(() => {
     if (isPlaying) {
       stopAll();
+      pause();
     } else {
       let startT = currentTime;
       if (startT >= totalDuration - 0.1 || startT < 0) startT = 0;
       startEngine(startT, false);
     }
-  }, [isPlaying, currentTime, totalDuration, stopAll, startEngine]);
+  }, [isPlaying, currentTime, totalDuration, stopAll, pause, startEngine]);
 
   const handleStop = useCallback(() => {
     stopAll();
+    pause();
     setCurrentTime(0);
     handleReloadResources(0);
-  }, [stopAll, setCurrentTime, handleReloadResources]);
+  }, [stopAll, pause, setCurrentTime, handleReloadResources]);
 
   const handleExport = useCallback(() => {
     startEngine(0, true);
