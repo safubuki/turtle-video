@@ -345,4 +345,4 @@ const ClipItem: React.FC<ClipItemProps> = ({
   );
 };
 
-export default ClipItem;
+export default React.memo(ClipItem);

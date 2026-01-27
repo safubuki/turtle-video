@@ -182,4 +182,4 @@ const BgmSection: React.FC<BgmSectionProps> = ({
   );
 };
 
-export default BgmSection;
+export default React.memo(BgmSection);

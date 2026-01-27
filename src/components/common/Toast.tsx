@@ -22,4 +22,4 @@ const Toast: React.FC<ToastProps> = ({ message, onClose }) => {
   );
 };
 
-export default Toast;
+export default React.memo(Toast);

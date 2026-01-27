@@ -110,4 +110,4 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   );
 };
 
-export default ClipsSection;
+export default React.memo(ClipsSection);

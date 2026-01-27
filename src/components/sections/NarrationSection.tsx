@@ -202,4 +202,4 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
   );
 };
 
-export default NarrationSection;
+export default React.memo(NarrationSection);

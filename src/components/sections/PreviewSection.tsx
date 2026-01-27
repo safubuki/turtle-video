@@ -202,4 +202,4 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   );
 };
 
-export default PreviewSection;
+export default React.memo(PreviewSection);
