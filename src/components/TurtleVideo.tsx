@@ -13,6 +13,9 @@ import {
   EXPORT_VIDEO_BITRATE,
 } from '../constants';
 
+// Zustand Stores
+import { useMediaStore, useAudioStore, useUIStore } from '../stores';
+
 // コンポーネント
 import Toast from './common/Toast';
 import ErrorMessage from './common/ErrorMessage';
@@ -28,18 +31,86 @@ import AiModal from './modals/AiModal';
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
 
 const TurtleVideo: React.FC = () => {
-  // --- State ---
-  const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
-  const [bgm, setBgm] = useState<AudioTrack | null>(null);
-  const [narration, setNarration] = useState<AudioTrack | null>(null);
+  // === Zustand Stores ===
+  // Media Store
+  const mediaItems = useMediaStore((s) => s.mediaItems);
+  const totalDuration = useMediaStore((s) => s.totalDuration);
+  const isClipsLocked = useMediaStore((s) => s.isClipsLocked);
+  const addMediaItems = useMediaStore((s) => s.addMediaItems);
+  const removeMediaItem = useMediaStore((s) => s.removeMediaItem);
+  const moveMediaItem = useMediaStore((s) => s.moveMediaItem);
+  const setVideoDuration = useMediaStore((s) => s.setVideoDuration);
+  const updateVideoTrim = useMediaStore((s) => s.updateVideoTrim);
+  const updateImageDuration = useMediaStore((s) => s.updateImageDuration);
+  const updateScale = useMediaStore((s) => s.updateScale);
+  const updatePosition = useMediaStore((s) => s.updatePosition);
+  const resetTransform = useMediaStore((s) => s.resetTransform);
+  const toggleTransformPanel = useMediaStore((s) => s.toggleTransformPanel);
+  const updateVolume = useMediaStore((s) => s.updateVolume);
+  const toggleMute = useMediaStore((s) => s.toggleMute);
+  const toggleFadeIn = useMediaStore((s) => s.toggleFadeIn);
+  const toggleFadeOut = useMediaStore((s) => s.toggleFadeOut);
+  const toggleItemLock = useMediaStore((s) => s.toggleItemLock);
+  const toggleClipsLock = useMediaStore((s) => s.toggleClipsLock);
+  const clearAllMedia = useMediaStore((s) => s.clearAllMedia);
 
+  // Audio Store
+  const bgm = useAudioStore((s) => s.bgm);
+  const isBgmLocked = useAudioStore((s) => s.isBgmLocked);
+  const narration = useAudioStore((s) => s.narration);
+  const isNarrationLocked = useAudioStore((s) => s.isNarrationLocked);
+  const setBgm = useAudioStore((s) => s.setBgm);
+  const updateBgmStartPoint = useAudioStore((s) => s.updateBgmStartPoint);
+  const updateBgmDelay = useAudioStore((s) => s.updateBgmDelay);
+  const updateBgmVolume = useAudioStore((s) => s.updateBgmVolume);
+  const toggleBgmFadeIn = useAudioStore((s) => s.toggleBgmFadeIn);
+  const toggleBgmFadeOut = useAudioStore((s) => s.toggleBgmFadeOut);
+  const toggleBgmLock = useAudioStore((s) => s.toggleBgmLock);
+  const removeBgm = useAudioStore((s) => s.removeBgm);
+  const setNarration = useAudioStore((s) => s.setNarration);
+  const updateNarrationStartPoint = useAudioStore((s) => s.updateNarrationStartPoint);
+  const updateNarrationDelay = useAudioStore((s) => s.updateNarrationDelay);
+  const updateNarrationVolume = useAudioStore((s) => s.updateNarrationVolume);
+  const toggleNarrationFadeIn = useAudioStore((s) => s.toggleNarrationFadeIn);
+  const toggleNarrationFadeOut = useAudioStore((s) => s.toggleNarrationFadeOut);
+  const toggleNarrationLock = useAudioStore((s) => s.toggleNarrationLock);
+  const removeNarration = useAudioStore((s) => s.removeNarration);
+  const clearAllAudio = useAudioStore((s) => s.clearAllAudio);
+
+  // UI Store
+  const toastMessage = useUIStore((s) => s.toastMessage);
+  const errorMsg = useUIStore((s) => s.errorMsg);
+  const isPlaying = useUIStore((s) => s.isPlaying);
+  const currentTime = useUIStore((s) => s.currentTime);
+  const isProcessing = useUIStore((s) => s.isProcessing);
+  const exportUrl = useUIStore((s) => s.exportUrl);
+  const exportExt = useUIStore((s) => s.exportExt);
+  const showAiModal = useUIStore((s) => s.showAiModal);
+  const aiPrompt = useUIStore((s) => s.aiPrompt);
+  const aiScript = useUIStore((s) => s.aiScript);
+  const aiVoice = useUIStore((s) => s.aiVoice);
+  const isAiLoading = useUIStore((s) => s.isAiLoading);
+  const showToast = useUIStore((s) => s.showToast);
+  const clearToast = useUIStore((s) => s.clearToast);
+  const setError = useUIStore((s) => s.setError);
+  const clearError = useUIStore((s) => s.clearError);
+  const play = useUIStore((s) => s.play);
+  const pause = useUIStore((s) => s.pause);
+  const setCurrentTime = useUIStore((s) => s.setCurrentTime);
+  const setProcessing = useUIStore((s) => s.setProcessing);
+  const setExportUrl = useUIStore((s) => s.setExportUrl);
+  const setExportExt = useUIStore((s) => s.setExportExt);
+  const clearExport = useUIStore((s) => s.clearExport);
+  const openAiModal = useUIStore((s) => s.openAiModal);
+  const closeAiModal = useUIStore((s) => s.closeAiModal);
+  const setAiPrompt = useUIStore((s) => s.setAiPrompt);
+  const setAiScript = useUIStore((s) => s.setAiScript);
+  const setAiVoice = useUIStore((s) => s.setAiVoice);
+  const setAiLoading = useUIStore((s) => s.setAiLoading);
+  const resetUI = useUIStore((s) => s.resetUI);
+
+  // === Local State ===
   const [reloadKey, setReloadKey] = useState(0);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-  // ロック機能
-  const [isClipsLocked, setIsClipsLocked] = useState(false);
-  const [isBgmLocked, setIsBgmLocked] = useState(false);
-  const [isNarrationLocked, setIsNarrationLocked] = useState(false);
 
   // Ref
   const mediaItemsRef = useRef<MediaItem[]>([]);
@@ -47,24 +118,6 @@ const TurtleVideo: React.FC = () => {
   const narrationRef = useRef<AudioTrack | null>(null);
   const totalDurationRef = useRef(0);
   const currentTimeRef = useRef(0);
-
-  // 再生制御
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [totalDuration, setTotalDuration] = useState(0);
-  const [exportUrl, setExportUrl] = useState<string | null>(null);
-  const [exportExt, setExportExt] = useState<string | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
-  // AI Modal
-  const [showAiModal, setShowAiModal] = useState(false);
-  const [aiPrompt, setAiPrompt] = useState('');
-  const [aiScript, setAiScript] = useState('');
-  const [aiVoice, setAiVoice] = useState('Aoede');
-  const [isAiLoading, setIsAiLoading] = useState(false);
-
-  // --- Refs (エンジン用) ---
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mediaElementsRef = useRef<Record<string, HTMLVideoElement | HTMLImageElement | HTMLAudioElement>>({});
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -267,19 +320,13 @@ const TurtleVideo: React.FC = () => {
   // --- State Sync ---
   useEffect(() => {
     mediaItemsRef.current = mediaItems;
-    const total = mediaItems.reduce(
-      (acc, v) => acc + (Number.isFinite(v.duration) ? v.duration : 0),
-      0
-    );
-    setTotalDuration(total);
-    totalDurationRef.current = total;
-
+    totalDurationRef.current = totalDuration;
     currentTimeRef.current = currentTime;
 
     if (mediaItems.length > 0 && !isPlaying && !isProcessing) {
       requestAnimationFrame(() => renderFrame(currentTime, false));
     }
-  }, [mediaItems, reloadKey, currentTime, isPlaying, isProcessing, renderFrame]);
+  }, [mediaItems, totalDuration, reloadKey, currentTime, isPlaying, isProcessing, renderFrame]);
 
   useEffect(() => {
     bgmRef.current = bgm;
@@ -362,7 +409,7 @@ const TurtleVideo: React.FC = () => {
 
   const generateScript = useCallback(async () => {
     if (!aiPrompt) return;
-    setIsAiLoading(true);
+    setAiLoading(true);
     try {
       const response = await fetch(
         `${GEMINI_API_BASE_URL}/${GEMINI_SCRIPT_MODEL}:generateContent?key=${apiKey}`,
@@ -387,15 +434,15 @@ const TurtleVideo: React.FC = () => {
       if (text) setAiScript(text.trim());
     } catch (e) {
       console.error(e);
-      setErrorMsg('スクリプト生成に失敗しました');
+      setError('スクリプト生成に失敗しました');
     } finally {
-      setIsAiLoading(false);
+      setAiLoading(false);
     }
-  }, [aiPrompt]);
+  }, [aiPrompt, setAiLoading, setAiScript, setError]);
 
   const generateSpeech = useCallback(async () => {
     if (!aiScript) return;
-    setIsAiLoading(true);
+    setAiLoading(true);
     try {
       const response = await fetch(
         `${GEMINI_API_BASE_URL}/${GEMINI_TTS_MODEL}:generateContent?key=${apiKey}`,
@@ -435,9 +482,8 @@ const TurtleVideo: React.FC = () => {
         audio.onloadedmetadata = () => {
           const voiceLabel = VOICE_OPTIONS.find((v) => v.id === aiVoice)?.label || 'AI音声';
           setNarration({
-            file: { name: `AIナレーション_${voiceLabel}.wav` },
+            file: new File([], `AIナレーション_${voiceLabel}.wav`),
             url: blobUrl,
-            blobUrl: blobUrl,
             startPoint: 0,
             delay: 0,
             volume: 1.0,
@@ -446,17 +492,17 @@ const TurtleVideo: React.FC = () => {
             duration: audio.duration,
             isAi: true,
           });
-          setShowAiModal(false);
-          setErrorMsg(null);
+          closeAiModal();
+          clearError();
         };
       }
     } catch (e) {
       console.error(e);
-      setErrorMsg('音声生成に失敗しました');
+      setError('音声生成に失敗しました');
     } finally {
-      setIsAiLoading(false);
+      setAiLoading(false);
     }
-  }, [aiScript, aiVoice, pcmToWav]);
+  }, [aiScript, aiVoice, pcmToWav, setNarration, closeAiModal, clearError, setError, setAiLoading]);
 
   // --- アップロード処理 ---
   const handleMediaUpload = useCallback(
@@ -467,35 +513,13 @@ const TurtleVideo: React.FC = () => {
         e.target.value = '';
         const ctx = getAudioContext();
         if (ctx.state === 'suspended') ctx.resume().catch(console.error);
-        setExportUrl(null);
-        const newItems: MediaItem[] = files.map((file) => {
-          const isImage = file.type.startsWith('image');
-          return {
-            id: Math.random().toString(36).substr(2, 9),
-            file,
-            type: isImage ? 'image' : 'video',
-            url: URL.createObjectURL(file),
-            volume: 1.0,
-            isMuted: false,
-            fadeIn: false,
-            fadeOut: false,
-            duration: isImage ? 5 : 0,
-            originalDuration: 0,
-            trimStart: 0,
-            trimEnd: 0,
-            scale: 1.0,
-            positionX: 0,
-            positionY: 0,
-            isTransformOpen: false,
-            isLocked: false,
-          };
-        });
-        setMediaItems((prev) => [...prev, ...newItems]);
+        clearExport();
+        addMediaItems(files);
       } catch (err) {
-        setErrorMsg('メディアの読み込みエラー');
+        setError('メディアの読み込みエラー');
       }
     },
-    [getAudioContext]
+    [getAudioContext, clearExport, addMediaItems, setError]
   );
 
   // MediaResourceLoaderコールバック
@@ -505,28 +529,11 @@ const TurtleVideo: React.FC = () => {
         const videoEl = element as HTMLVideoElement;
         const duration = videoEl.duration;
         if (!isNaN(duration) && duration !== Infinity) {
-          setMediaItems((prev) =>
-            prev.map((v) => {
-              if (v.id === id) {
-                const isInitialized = v.originalDuration > 0;
-                const newTrimStart = isInitialized ? v.trimStart : 0;
-                const newTrimEnd = isInitialized && v.trimEnd > 0 ? v.trimEnd : duration;
-                const newDuration = newTrimEnd - newTrimStart;
-                return {
-                  ...v,
-                  originalDuration: duration,
-                  trimStart: newTrimStart,
-                  trimEnd: newTrimEnd,
-                  duration: newDuration > 0 ? newDuration : duration,
-                };
-              }
-              return v;
-            })
-          );
+          setVideoDuration(id, duration);
         }
       }
     },
-    []
+    [setVideoDuration]
   );
 
   const handleMediaRefAssign = useCallback(
@@ -561,129 +568,70 @@ const TurtleVideo: React.FC = () => {
     requestAnimationFrame(() => renderFrame(currentTimeRef.current, false));
   }, [renderFrame]);
 
-  // --- Media Item Handlers ---
-  const updateImageDuration = useCallback((id: string, newDuration: string) => {
-    let val = parseFloat(newDuration);
-    if (isNaN(val) || val < 0.5) val = 0.5;
-    setMediaItems((prev) => prev.map((v) => (v.id === id ? { ...v, duration: val } : v)));
-  }, []);
-
-  const updateVideoTrim = useCallback(
+  // --- Media Item Handlers (using Zustand store actions) ---
+  const handleUpdateVideoTrim = useCallback(
     (id: string, type: 'start' | 'end', value: string) => {
-      setMediaItems((prev) =>
-        prev.map((item) => {
-          if (item.id !== id) return item;
-          let val = parseFloat(value);
-          if (isNaN(val)) val = 0;
-          let newStart = item.trimStart;
-          let newEnd = item.trimEnd;
-          const max = item.originalDuration;
+      let val = parseFloat(value);
+      if (isNaN(val)) val = 0;
+      updateVideoTrim(id, type, val);
 
-          if (type === 'start') {
-            newStart = Math.min(Math.max(0, val), newEnd - 0.1);
-          } else {
-            newEnd = Math.max(Math.min(max, val), newStart + 0.1);
+      // Seek video element
+      const item = mediaItems.find((v) => v.id === id);
+      if (item) {
+        const el = mediaElementsRef.current[id] as HTMLVideoElement;
+        if (el && el.tagName === 'VIDEO') {
+          const newStart = type === 'start' ? Math.max(0, Math.min(val, item.trimEnd - 0.1)) : item.trimStart;
+          const newEnd = type === 'end' ? Math.min(item.originalDuration, Math.max(val, item.trimStart + 0.1)) : item.trimEnd;
+          const seekTime = type === 'start' ? newStart : Math.max(newStart, newEnd - 0.1);
+          if (Number.isFinite(seekTime)) {
+            el.currentTime = Math.max(0, Math.min(item.originalDuration, seekTime));
           }
-
-          const el = mediaElementsRef.current[id] as HTMLVideoElement;
-          if (el && el.tagName === 'VIDEO') {
-            const seekTime = type === 'start' ? newStart : Math.max(newStart, newEnd - 0.1);
-            if (Number.isFinite(seekTime)) {
-              el.currentTime = Math.max(0, Math.min(max, seekTime));
-            }
-          }
-
-          return { ...item, trimStart: newStart, trimEnd: newEnd, duration: newEnd - newStart };
-        })
-      );
-    },
-    []
-  );
-
-  const updateMediaScale = useCallback((id: string, value: string | number) => {
-    let val = typeof value === 'number' ? value : parseFloat(value);
-    if (isNaN(val)) val = 1.0;
-    val = Math.min(Math.max(val, 0.5), 3.0);
-    setMediaItems((prev) => prev.map((v) => (v.id === id ? { ...v, scale: val } : v)));
-  }, []);
-
-  const updateMediaPosition = useCallback((id: string, axis: 'x' | 'y', value: string) => {
-    let val = parseFloat(value);
-    if (isNaN(val)) val = 0;
-    val = Math.min(Math.max(val, -1280), 1280);
-    setMediaItems((prev) =>
-      prev.map((v) => {
-        if (v.id === id) {
-          if (axis === 'x') return { ...v, positionX: val };
-          if (axis === 'y') return { ...v, positionY: val };
         }
-        return v;
-      })
-    );
-  }, []);
-
-  const toggleTransformPanel = useCallback((id: string) => {
-    setMediaItems((prev) =>
-      prev.map((v) => (v.id === id ? { ...v, isTransformOpen: !v.isTransformOpen } : v))
-    );
-  }, []);
-
-  const resetMediaSetting = useCallback((id: string, type: 'scale' | 'x' | 'y') => {
-    setMediaItems((prev) =>
-      prev.map((v) => {
-        if (v.id === id) {
-          if (type === 'scale') return { ...v, scale: 1.0 };
-          if (type === 'x') return { ...v, positionX: 0 };
-          if (type === 'y') return { ...v, positionY: 0 };
-        }
-        return v;
-      })
-    );
-  }, []);
-
-  const toggleMediaLock = useCallback((id: string) => {
-    setMediaItems((prev) => prev.map((v) => (v.id === id ? { ...v, isLocked: !v.isLocked } : v)));
-  }, []);
-
-  const updateMediaVolume = useCallback((id: string, value: number) => {
-    setMediaItems((prev) => prev.map((v) => (v.id === id ? { ...v, volume: value } : v)));
-  }, []);
-
-  const toggleMediaMute = useCallback((id: string) => {
-    setMediaItems((prev) => prev.map((v) => (v.id === id ? { ...v, isMuted: !v.isMuted } : v)));
-  }, []);
-
-  const toggleMediaFadeIn = useCallback((id: string, checked: boolean) => {
-    setMediaItems((prev) => prev.map((v) => (v.id === id ? { ...v, fadeIn: checked } : v)));
-  }, []);
-
-  const toggleMediaFadeOut = useCallback((id: string, checked: boolean) => {
-    setMediaItems((prev) => prev.map((v) => (v.id === id ? { ...v, fadeOut: checked } : v)));
-  }, []);
-
-  const moveMedia = useCallback(
-    (idx: number, dir: 'up' | 'down') => {
-      const copy = [...mediaItems];
-      const target = dir === 'up' ? idx - 1 : idx + 1;
-      if (target >= 0 && target < copy.length) {
-        [copy[idx], copy[target]] = [copy[target], copy[idx]];
-        setMediaItems(copy);
       }
     },
-    [mediaItems]
+    [updateVideoTrim, mediaItems]
   );
 
-  const removeMedia = useCallback((id: string) => {
-    setMediaItems((prev) => prev.filter((v) => v.id !== id));
+  const handleUpdateImageDuration = useCallback((id: string, newDuration: string) => {
+    let val = parseFloat(newDuration);
+    if (isNaN(val) || val < 0.5) val = 0.5;
+    updateImageDuration(id, val);
+  }, [updateImageDuration]);
+
+  const handleUpdateMediaScale = useCallback((id: string, value: string | number) => {
+    let val = typeof value === 'number' ? value : parseFloat(value);
+    if (isNaN(val)) val = 1.0;
+    updateScale(id, val);
+  }, [updateScale]);
+
+  const handleUpdateMediaPosition = useCallback((id: string, axis: 'x' | 'y', value: string) => {
+    let val = parseFloat(value);
+    if (isNaN(val)) val = 0;
+    updatePosition(id, axis, val);
+  }, [updatePosition]);
+
+  const handleResetMediaSetting = useCallback((id: string, type: 'scale' | 'x' | 'y') => {
+    resetTransform(id, type);
+  }, [resetTransform]);
+
+  const handleMoveMedia = useCallback(
+    (idx: number, dir: 'up' | 'down') => {
+      moveMediaItem(idx, dir);
+    },
+    [moveMediaItem]
+  );
+
+  const handleRemoveMedia = useCallback((id: string) => {
+    removeMediaItem(id);
     delete mediaElementsRef.current[id];
-  }, []);
+  }, [removeMediaItem]);
 
   // --- Audio Track Handlers ---
   const handleBgmUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
-    setExportUrl(null);
+    clearExport();
     const url = URL.createObjectURL(file);
     const audio = new Audio(url);
     audio.onloadedmetadata = () => {
@@ -699,13 +647,13 @@ const TurtleVideo: React.FC = () => {
         isAi: false,
       });
     };
-  }, []);
+  }, [setBgm, clearExport]);
 
   const handleNarrationUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
-    setExportUrl(null);
+    clearExport();
     const url = URL.createObjectURL(file);
     const audio = new Audio(url);
     audio.onloadedmetadata = () => {
@@ -721,42 +669,43 @@ const TurtleVideo: React.FC = () => {
         isAi: false,
       });
     };
-  }, []);
+  }, [setNarration, clearExport]);
 
-  const updateTrackStart = useCallback(
+  const handleUpdateTrackStart = useCallback(
     (type: 'bgm' | 'narration', val: string) => {
-      let numVal = parseFloat(val);
-      if (isNaN(numVal)) numVal = 0;
+      const numVal = parseFloat(val);
+      if (isNaN(numVal)) return;
 
-      if (type === 'bgm' && bgm) {
-        const safeVal = Math.max(0, Math.min(bgm.duration, numVal));
-        setBgm((prev) => (prev ? { ...prev, startPoint: safeVal } : null));
-      } else if (type === 'narration' && narration) {
-        const safeVal = Math.max(0, Math.min(narration.duration, numVal));
-        setNarration((prev) => (prev ? { ...prev, startPoint: safeVal } : null));
+      if (type === 'bgm') {
+        updateBgmStartPoint(numVal);
+      } else {
+        updateNarrationStartPoint(numVal);
       }
     },
-    [bgm, narration]
+    [updateBgmStartPoint, updateNarrationStartPoint]
   );
 
-  const updateTrackDelay = useCallback((type: 'bgm' | 'narration', val: string) => {
-    let numVal = parseFloat(val);
-    if (isNaN(numVal)) numVal = 0;
-    const safeVal = Math.max(0, numVal);
+  const handleUpdateTrackDelay = useCallback((type: 'bgm' | 'narration', val: string) => {
+    const numVal = parseFloat(val);
+    if (isNaN(numVal)) return;
 
     if (type === 'bgm') {
-      setBgm((prev) => (prev ? { ...prev, delay: safeVal } : null));
-    } else if (type === 'narration') {
-      setNarration((prev) => (prev ? { ...prev, delay: safeVal } : null));
+      updateBgmDelay(numVal);
+    } else {
+      updateNarrationDelay(numVal);
     }
-  }, []);
+  }, [updateBgmDelay, updateNarrationDelay]);
 
-  const updateTrackVolume = useCallback((type: 'bgm' | 'narration', val: string) => {
-    let numVal = parseFloat(val);
-    if (isNaN(numVal)) numVal = 0;
-    if (type === 'bgm') setBgm((prev) => (prev ? { ...prev, volume: numVal } : null));
-    if (type === 'narration') setNarration((prev) => (prev ? { ...prev, volume: numVal } : null));
-  }, []);
+  const handleUpdateTrackVolume = useCallback((type: 'bgm' | 'narration', val: string) => {
+    const numVal = parseFloat(val);
+    if (isNaN(numVal)) return;
+
+    if (type === 'bgm') {
+      updateBgmVolume(numVal);
+    } else {
+      updateNarrationVolume(numVal);
+    }
+  }, [updateBgmVolume, updateNarrationVolume]);
 
   // --- コアエンジン ---
   const stopAll = useCallback(() => {
@@ -765,8 +714,8 @@ const TurtleVideo: React.FC = () => {
       reqIdRef.current = null;
     }
 
-    setIsPlaying(false);
-    setIsProcessing(false);
+    pause();
+    setProcessing(false);
 
     Object.values(mediaElementsRef.current).forEach((el) => {
       if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO')) {
@@ -792,7 +741,7 @@ const TurtleVideo: React.FC = () => {
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
       recorderRef.current.stop();
     }
-  }, []);
+  }, [pause, setProcessing]);
 
   const handleClearAll = useCallback(() => {
     if (mediaItems.length === 0 && !bgm && !narration) return;
@@ -814,31 +763,17 @@ const TurtleVideo: React.FC = () => {
     sourceNodesRef.current = {};
     gainNodesRef.current = {};
 
-    mediaItems.forEach((v) => {
-      URL.revokeObjectURL(v.url);
-    });
-    if (bgm?.url) URL.revokeObjectURL(bgm.url);
-    if (narration?.url) URL.revokeObjectURL(narration.url);
-
     mediaItemsRef.current = [];
     mediaElementsRef.current = {};
     bgmRef.current = null;
     narrationRef.current = null;
 
-    setMediaItems([]);
-    setBgm(null);
-    setNarration(null);
-    setCurrentTime(0);
-    setTotalDuration(0);
-    setExportUrl(null);
-    setExportExt(null);
-    setErrorMsg(null);
-    setIsPlaying(false);
-    setIsProcessing(false);
-    setIsClipsLocked(false);
-    setIsBgmLocked(false);
-    setIsNarrationLocked(false);
+    // Zustand stores clear
+    clearAllMedia();
+    clearAllAudio();
+    resetUI();
     setReloadKey(0);
+    
     if (canvasRef.current) {
       const ctx = canvasRef.current.getContext('2d');
       if (ctx) {
@@ -847,24 +782,23 @@ const TurtleVideo: React.FC = () => {
         ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
       }
     }
-  }, [mediaItems, bgm, narration, stopAll]);
+  }, [mediaItems, bgm, narration, stopAll, clearAllMedia, clearAllAudio, resetUI]);
 
   const handleReloadResources = useCallback(
     (targetTime: number | null = null) => {
       stopAll();
-      setIsPlaying(false);
+      pause();
       setReloadKey((prev) => prev + 1);
       sourceNodesRef.current = {};
       gainNodesRef.current = {};
-      setToastMessage('リソースをリロードしました');
-      setTimeout(() => setToastMessage(null), 2000);
+      showToast('リソースをリロードしました');
 
       const t = targetTime !== null ? targetTime : currentTime;
       setTimeout(() => {
         renderFrame(t, false);
       }, 500);
     },
-    [currentTime, stopAll, renderFrame]
+    [currentTime, stopAll, pause, showToast, renderFrame]
   );
 
   const configureAudioRouting = useCallback((isExporting: boolean) => {
@@ -895,14 +829,14 @@ const TurtleVideo: React.FC = () => {
 
       if (elapsed >= totalDurationRef.current) {
         stopAll();
-        if (!isExportMode) setIsPlaying(false);
+        if (!isExportMode) pause();
         return;
       }
       setCurrentTime(elapsed);
       renderFrame(elapsed, true, isExportMode);
       reqIdRef.current = requestAnimationFrame(() => loop(isExportMode));
     },
-    [stopAll, renderFrame]
+    [stopAll, pause, setCurrentTime, renderFrame]
   );
 
   const startEngine = useCallback(
@@ -911,10 +845,12 @@ const TurtleVideo: React.FC = () => {
       if (ctx.state === 'suspended') await ctx.resume();
 
       stopAll();
-      setIsPlaying(!isExportMode);
-      setIsProcessing(isExportMode);
-      setExportUrl(null);
-      setExportExt(null);
+      if (isExportMode) {
+        setProcessing(true);
+      } else {
+        play();
+      }
+      clearExport();
 
       configureAudioRouting(isExportMode);
 
@@ -979,9 +915,9 @@ const TurtleVideo: React.FC = () => {
         rec.onstop = () => {
           const blob = new Blob(chunks, { type: mimeType });
           setExportUrl(URL.createObjectURL(blob));
-          setExportExt(extension);
-          setIsProcessing(false);
-          setIsPlaying(false);
+          setExportExt(extension === 'mp4' ? 'mp4' : 'webm');
+          setProcessing(false);
+          pause();
         };
         recorderRef.current = rec;
         rec.start();
@@ -989,7 +925,7 @@ const TurtleVideo: React.FC = () => {
 
       loop(isExportMode);
     },
-    [getAudioContext, stopAll, configureAudioRouting, renderFrame, loop]
+    [getAudioContext, stopAll, setProcessing, play, clearExport, configureAudioRouting, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop]
   );
 
   const handleSeekChange = useCallback(
@@ -999,13 +935,13 @@ const TurtleVideo: React.FC = () => {
       currentTimeRef.current = t;
 
       if (isPlaying) {
-        setIsPlaying(false);
+        pause();
         stopAll();
       }
 
       renderFrame(t, false);
     },
-    [isPlaying, stopAll, renderFrame]
+    [isPlaying, stopAll, pause, setCurrentTime, renderFrame]
   );
 
   const togglePlay = useCallback(() => {
@@ -1022,7 +958,7 @@ const TurtleVideo: React.FC = () => {
     stopAll();
     setCurrentTime(0);
     handleReloadResources(0);
-  }, [stopAll, handleReloadResources]);
+  }, [stopAll, setCurrentTime, handleReloadResources]);
 
   const handleExport = useCallback(() => {
     startEngine(0, true);
@@ -1037,7 +973,7 @@ const TurtleVideo: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans pb-24 select-none relative">
-      <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
+      <Toast message={toastMessage} onClose={clearToast} />
 
       {/* 隠しリソースローダー */}
       <MediaResourceLoader
@@ -1053,7 +989,7 @@ const TurtleVideo: React.FC = () => {
       {/* AI Modal */}
       <AiModal
         isOpen={showAiModal}
-        onClose={() => setShowAiModal(false)}
+        onClose={closeAiModal}
         aiPrompt={aiPrompt}
         aiScript={aiScript}
         aiVoice={aiVoice}
@@ -1070,27 +1006,27 @@ const TurtleVideo: React.FC = () => {
       <Header />
 
       <div className="max-w-md mx-auto p-4 space-y-6">
-        <ErrorMessage message={errorMsg} onClose={() => setErrorMsg(null)} />
+        <ErrorMessage message={errorMsg} onClose={clearError} />
 
         {/* 1. CLIPS */}
         <ClipsSection
           mediaItems={mediaItems}
           isClipsLocked={isClipsLocked}
-          onToggleClipsLock={() => setIsClipsLocked(!isClipsLocked)}
+          onToggleClipsLock={toggleClipsLock}
           onMediaUpload={handleMediaUpload}
-          onMoveMedia={moveMedia}
-          onRemoveMedia={removeMedia}
-          onToggleMediaLock={toggleMediaLock}
+          onMoveMedia={handleMoveMedia}
+          onRemoveMedia={handleRemoveMedia}
+          onToggleMediaLock={toggleItemLock}
           onToggleTransformPanel={toggleTransformPanel}
-          onUpdateVideoTrim={updateVideoTrim}
-          onUpdateImageDuration={updateImageDuration}
-          onUpdateMediaScale={updateMediaScale}
-          onUpdateMediaPosition={updateMediaPosition}
-          onResetMediaSetting={resetMediaSetting}
-          onUpdateMediaVolume={updateMediaVolume}
-          onToggleMediaMute={toggleMediaMute}
-          onToggleMediaFadeIn={toggleMediaFadeIn}
-          onToggleMediaFadeOut={toggleMediaFadeOut}
+          onUpdateVideoTrim={handleUpdateVideoTrim}
+          onUpdateImageDuration={handleUpdateImageDuration}
+          onUpdateMediaScale={handleUpdateMediaScale}
+          onUpdateMediaPosition={handleUpdateMediaPosition}
+          onResetMediaSetting={handleResetMediaSetting}
+          onUpdateMediaVolume={updateVolume}
+          onToggleMediaMute={toggleMute}
+          onToggleMediaFadeIn={toggleFadeIn}
+          onToggleMediaFadeOut={toggleFadeOut}
         />
 
         {/* 2. BGM SETTINGS */}
@@ -1098,14 +1034,14 @@ const TurtleVideo: React.FC = () => {
           bgm={bgm}
           isBgmLocked={isBgmLocked}
           totalDuration={totalDuration}
-          onToggleBgmLock={() => setIsBgmLocked(!isBgmLocked)}
+          onToggleBgmLock={toggleBgmLock}
           onBgmUpload={handleBgmUpload}
-          onRemoveBgm={() => setBgm(null)}
-          onUpdateStartPoint={(val) => updateTrackStart('bgm', val)}
-          onUpdateDelay={(val) => updateTrackDelay('bgm', val)}
-          onUpdateVolume={(val) => updateTrackVolume('bgm', val)}
-          onToggleFadeIn={(checked) => setBgm((p) => (p ? { ...p, fadeIn: checked } : null))}
-          onToggleFadeOut={(checked) => setBgm((p) => (p ? { ...p, fadeOut: checked } : null))}
+          onRemoveBgm={removeBgm}
+          onUpdateStartPoint={(val) => handleUpdateTrackStart('bgm', val)}
+          onUpdateDelay={(val) => handleUpdateTrackDelay('bgm', val)}
+          onUpdateVolume={(val) => handleUpdateTrackVolume('bgm', val)}
+          onToggleFadeIn={toggleBgmFadeIn}
+          onToggleFadeOut={toggleBgmFadeOut}
           formatTime={formatTime}
         />
 
@@ -1114,15 +1050,15 @@ const TurtleVideo: React.FC = () => {
           narration={narration}
           isNarrationLocked={isNarrationLocked}
           totalDuration={totalDuration}
-          onToggleNarrationLock={() => setIsNarrationLocked(!isNarrationLocked)}
-          onShowAiModal={() => setShowAiModal(true)}
+          onToggleNarrationLock={toggleNarrationLock}
+          onShowAiModal={openAiModal}
           onNarrationUpload={handleNarrationUpload}
-          onRemoveNarration={() => setNarration(null)}
-          onUpdateStartPoint={(val) => updateTrackStart('narration', val)}
-          onUpdateDelay={(val) => updateTrackDelay('narration', val)}
-          onUpdateVolume={(val) => updateTrackVolume('narration', val)}
-          onToggleFadeIn={(checked) => setNarration((p) => (p ? { ...p, fadeIn: checked } : null))}
-          onToggleFadeOut={(checked) => setNarration((p) => (p ? { ...p, fadeOut: checked } : null))}
+          onRemoveNarration={removeNarration}
+          onUpdateStartPoint={(val) => handleUpdateTrackStart('narration', val)}
+          onUpdateDelay={(val) => handleUpdateTrackDelay('narration', val)}
+          onUpdateVolume={(val) => handleUpdateTrackVolume('narration', val)}
+          onToggleFadeIn={toggleNarrationFadeIn}
+          onToggleFadeOut={toggleNarrationFadeOut}
           formatTime={formatTime}
         />
 

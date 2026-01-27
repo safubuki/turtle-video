@@ -1,18 +1,18 @@
 import React from 'react';
 import { Sparkles, X, Loader, FileText, Mic, ChevronDown } from 'lucide-react';
-import type { VoiceOption } from '../../types';
+import type { VoiceOption, VoiceId } from '../../types';
 
 interface AiModalProps {
   isOpen: boolean;
   onClose: () => void;
   aiPrompt: string;
   aiScript: string;
-  aiVoice: string;
+  aiVoice: VoiceId;
   isAiLoading: boolean;
   voiceOptions: VoiceOption[];
   onPromptChange: (value: string) => void;
   onScriptChange: (value: string) => void;
-  onVoiceChange: (value: string) => void;
+  onVoiceChange: (value: VoiceId) => void;
   onGenerateScript: () => void;
   onGenerateSpeech: () => void;
 }
@@ -92,7 +92,7 @@ const AiModal: React.FC<AiModalProps> = ({
               <div className="relative">
                 <select
                   value={aiVoice}
-                  onChange={(e) => onVoiceChange(e.target.value)}
+                  onChange={(e) => onVoiceChange(e.target.value as VoiceId)}
                   className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 pr-10 text-sm appearance-none focus:outline-none focus:border-blue-500 text-gray-100"
                 >
                   {voiceOptions.map((v) => (

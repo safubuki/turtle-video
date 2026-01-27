@@ -2,9 +2,12 @@
  * タートルビデオ - 型定義
  */
 
+// ボイスID (定数と連動)
+export type VoiceId = 'Aoede' | 'Kore' | 'Puck' | 'Fenrir' | 'Charon';
+
 // ボイスオプション
 export interface VoiceOption {
-  id: string;
+  id: VoiceId;
   label: string;
   desc: string;
 }
