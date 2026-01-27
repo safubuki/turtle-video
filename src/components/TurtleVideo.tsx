@@ -336,6 +336,48 @@ const TurtleVideo: React.FC = () => {
     narrationRef.current = narration;
   }, [narration]);
 
+  // --- Cleanup on Unmount ---
+  useEffect(() => {
+    return () => {
+      // Cancel animation frame
+      if (reqIdRef.current) {
+        cancelAnimationFrame(reqIdRef.current);
+        reqIdRef.current = null;
+      }
+
+      // Stop and close AudioContext
+      if (audioCtxRef.current) {
+        try {
+          audioCtxRef.current.close();
+        } catch (e) {
+          console.error('Error closing AudioContext:', e);
+        }
+        audioCtxRef.current = null;
+      }
+
+      // Stop MediaRecorder
+      if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+        try {
+          recorderRef.current.stop();
+        } catch (e) {
+          /* ignore */
+        }
+        recorderRef.current = null;
+      }
+
+      // Pause all media elements
+      Object.values(mediaElementsRef.current).forEach((el) => {
+        if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO')) {
+          try {
+            (el as HTMLMediaElement).pause();
+          } catch (e) {
+            /* ignore */
+          }
+        }
+      });
+    };
+  }, []);
+
   // タブ復帰時の自動リフレッシュ
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -409,6 +451,10 @@ const TurtleVideo: React.FC = () => {
 
   const generateScript = useCallback(async () => {
     if (!aiPrompt) return;
+    if (!apiKey) {
+      setError('APIキーが設定されていません。環境変数 VITE_GEMINI_API_KEY を確認してください。');
+      return;
+    }
     setAiLoading(true);
     try {
       const response = await fetch(
@@ -429,12 +475,29 @@ const TurtleVideo: React.FC = () => {
           }),
         }
       );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`;
+        throw new Error(errorMessage);
+      }
+
       const data = await response.json();
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (text) setAiScript(text.trim());
+      if (text) {
+        setAiScript(text.trim());
+      } else {
+        throw new Error('スクリプトの生成結果が空です');
+      }
     } catch (e) {
-      console.error(e);
-      setError('スクリプト生成に失敗しました');
+      console.error('Script generation error:', e);
+      if (e instanceof TypeError && e.message.includes('fetch')) {
+        setError('ネットワークエラー: インターネット接続を確認してください');
+      } else if (e instanceof Error) {
+        setError(`スクリプト生成エラー: ${e.message}`);
+      } else {
+        setError('スクリプト生成に失敗しました');
+      }
     } finally {
       setAiLoading(false);
     }
@@ -442,6 +505,10 @@ const TurtleVideo: React.FC = () => {
 
   const generateSpeech = useCallback(async () => {
     if (!aiScript) return;
+    if (!apiKey) {
+      setError('APIキーが設定されていません。環境変数 VITE_GEMINI_API_KEY を確認してください。');
+      return;
+    }
     setAiLoading(true);
     try {
       const response = await fetch(
@@ -463,42 +530,61 @@ const TurtleVideo: React.FC = () => {
         }
       );
 
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`;
+        throw new Error(errorMessage);
+      }
+
       const data = await response.json();
       const inlineData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
 
-      if (inlineData) {
-        const binaryString = window.atob(inlineData.data);
-        const len = binaryString.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-
-        const wavBuffer = pcmToWav(bytes.buffer, TTS_SAMPLE_RATE);
-        const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' });
-        const blobUrl = URL.createObjectURL(wavBlob);
-
-        const audio = new Audio(blobUrl);
-        audio.onloadedmetadata = () => {
-          const voiceLabel = VOICE_OPTIONS.find((v) => v.id === aiVoice)?.label || 'AI音声';
-          setNarration({
-            file: new File([], `AIナレーション_${voiceLabel}.wav`),
-            url: blobUrl,
-            startPoint: 0,
-            delay: 0,
-            volume: 1.0,
-            fadeIn: false,
-            fadeOut: false,
-            duration: audio.duration,
-            isAi: true,
-          });
-          closeAiModal();
-          clearError();
-        };
+      if (!inlineData) {
+        throw new Error('音声データが取得できませんでした');
       }
+
+      const binaryString = window.atob(inlineData.data);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      const wavBuffer = pcmToWav(bytes.buffer, TTS_SAMPLE_RATE);
+      const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' });
+      const blobUrl = URL.createObjectURL(wavBlob);
+
+      const audio = new Audio(blobUrl);
+      audio.onloadedmetadata = () => {
+        const voiceLabel = VOICE_OPTIONS.find((v) => v.id === aiVoice)?.label || 'AI音声';
+        setNarration({
+          file: new File([], `AIナレーション_${voiceLabel}.wav`),
+          url: blobUrl,
+          startPoint: 0,
+          delay: 0,
+          volume: 1.0,
+          fadeIn: false,
+          fadeOut: false,
+          duration: audio.duration,
+          isAi: true,
+        });
+        closeAiModal();
+        clearError();
+      };
+      audio.onerror = () => {
+        URL.revokeObjectURL(blobUrl);
+        setError('生成された音声の読み込みに失敗しました');
+        setAiLoading(false);
+      };
     } catch (e) {
-      console.error(e);
-      setError('音声生成に失敗しました');
+      console.error('Speech generation error:', e);
+      if (e instanceof TypeError && e.message.includes('fetch')) {
+        setError('ネットワークエラー: インターネット接続を確認してください');
+      } else if (e instanceof Error) {
+        setError(`音声生成エラー: ${e.message}`);
+      } else {
+        setError('音声生成に失敗しました');
+      }
     } finally {
       setAiLoading(false);
     }

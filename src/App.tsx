@@ -1,7 +1,12 @@
 import TurtleVideo from './components/TurtleVideo';
+import ErrorBoundary from './components/common/ErrorBoundary';
 
 function App() {
-  return <TurtleVideo />;
+  return (
+    <ErrorBoundary>
+      <TurtleVideo />
+    </ErrorBoundary>
+  );
 }
 
 export default App;

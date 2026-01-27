@@ -375,7 +375,7 @@ src/
 
 ---
 
-### Phase 6: エラーハンドリング & テスト (1-2日)
+### Phase 6: エラーハンドリング & テスト (1-2日) ✅ 完了
 
 **目標**: 堅牢なエラーハンドリングとテスト追加
 
@@ -383,21 +383,28 @@ src/
 
 ```
 タスク:
-├── [ ] エラーバウンダリ実装 (AI: ボイラープレート生成)
-├── [ ] API エラーハンドリング改善 (AI: try-catch自動追加)
-├── [ ] メモリリーク対策 (AI: cleanup関数自動生成)
-├── [ ] Vitest セットアップ (AI: 設定自動生成)
-├── [ ] ユーティリティ関数のテスト (AI: テストケース自動生成)
-├── [ ] フックのテスト (AI: Testing Library活用テスト生成)
-└── [ ] 動作確認
+├── [x] エラーバウンダリ実装 (AI: ボイラープレート生成)
+├── [x] API エラーハンドリング改善 (AI: try-catch自動追加)
+├── [x] メモリリーク対策 (AI: cleanup関数自動生成)
+├── [x] Vitest セットアップ (AI: 設定自動生成)
+├── [x] ユーティリティ関数のテスト (AI: テストケース自動生成)
+├── [x] ストアのテスト (Zustandストアのテスト)
+└── [x] 動作確認 (62テストパス、ビルド成功)
 ```
 
 **成果物**:
 ```
 src/
-├── __tests__/
-│   ├── utils/
-│   └── hooks/
+├── components/common/
+│   └── ErrorBoundary.tsx   # React Error Boundary
+├── test/
+│   ├── setup.ts            # Vitest セットアップ
+│   ├── format.test.ts      # フォーマット関数テスト
+│   ├── media.test.ts       # メディア関数テスト
+│   └── stores/
+│       ├── mediaStore.test.ts   # メディアストアテスト
+│       ├── audioStore.test.ts   # オーディオストアテスト
+│       └── uiStore.test.ts      # UIストアテスト
 ```
 
 ---
