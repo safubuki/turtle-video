@@ -217,9 +217,35 @@ const TurtleVideo: React.FC = () => {
           t += item.duration;
         }
 
-        ctx.globalAlpha = 1.0;
-        ctx.fillStyle = '#000000';
-        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        // アクティブな動画が未準備の場合はキャンバスをクリアせず、
+        // 直前フレームを保持してブラックアウトを防止
+        let holdFrame = false;
+        if (activeId && activeIndex !== -1) {
+          const activeItem = currentItems[activeIndex];
+          if (activeItem.type === 'video') {
+            const activeEl = mediaElementsRef.current[activeId] as HTMLVideoElement | undefined;
+            if (activeEl) {
+              if (activeEl.readyState === 0) {
+                try {
+                  activeEl.load();
+                } catch (e) {
+                  /* ignore */
+                }
+              }
+              const hasFrame =
+                activeEl.readyState >= 2 && activeEl.videoWidth > 0 && activeEl.videoHeight > 0;
+              if (!hasFrame) {
+                holdFrame = true;
+              }
+            }
+          }
+        }
+
+        if (!holdFrame) {
+          ctx.globalAlpha = 1.0;
+          ctx.fillStyle = '#000000';
+          ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        }
 
         // Preload
         if (isActivePlaying && activeIndex !== -1 && activeIndex + 1 < currentItems.length) {
@@ -319,20 +345,16 @@ const TurtleVideo: React.FC = () => {
             const isVideo = conf.type === 'video';
             const videoEl = element as HTMLVideoElement;
             const imgEl = element as HTMLImageElement;
-            // ビデオの場合: readyState >= 1 または seeking 中でも描画を試みる
-            // これによりトリミング操作中のブラックアウトを防止
-            const isVideoReady = isVideo ? (videoEl.readyState >= 1 || videoEl.seeking) : false;
+            // ビデオの場合: readyState >= 2（HAVE_CURRENT_DATA）を基本とし、
+            // seeking中は readyState >= 1 でも描画を試みる
+            const isVideoReady = isVideo
+              ? videoEl.readyState >= 2 || (videoEl.seeking && videoEl.readyState >= 1)
+              : false;
             const isReady = isVideo ? isVideoReady : imgEl.complete;
 
             if (isReady) {
               let elemW = isVideo ? videoEl.videoWidth : imgEl.naturalWidth;
               let elemH = isVideo ? videoEl.videoHeight : imgEl.naturalHeight;
-              // ビデオがシーク中でサイズが0の場合、前回の描画を維持するため描画をスキップ
-              // （キャンバスをクリアしないので前のフレームが残る）
-              if (isVideo && (elemW === 0 || elemH === 0)) {
-                // 動画がまだ読み込まれていない場合はスキップ（黒画面を防止）
-                return;
-              }
               if (elemW && elemH) {
                 const scaleFactor = conf.scale || 1.0;
                 const userX = conf.positionX || 0;
