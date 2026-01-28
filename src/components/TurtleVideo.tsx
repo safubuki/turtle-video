@@ -330,7 +330,20 @@ const TurtleVideo: React.FC = () => {
               y = CANVAS_HEIGHT - padding - fontSize / 2;
             }
 
+            // フェードイン・フェードアウトのアルファ値計算
+            const captionDuration = activeCaption.endTime - activeCaption.startTime;
+            const captionLocalTime = time - activeCaption.startTime;
+            const fadeDuration = 0.5; // フェード時間（秒）
+            let alpha = 1.0;
+            if (activeCaption.fadeIn && captionLocalTime < fadeDuration) {
+              alpha = captionLocalTime / fadeDuration;
+            } else if (activeCaption.fadeOut && captionLocalTime > captionDuration - fadeDuration) {
+              alpha = (captionDuration - captionLocalTime) / fadeDuration;
+            }
+            alpha = Math.max(0, Math.min(1, alpha));
+
             ctx.save();
+            ctx.globalAlpha = alpha;
             ctx.font = `bold ${fontSize}px ${fontFamily}`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
