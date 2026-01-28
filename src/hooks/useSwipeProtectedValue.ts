@@ -9,67 +9,84 @@ interface SwipeProtectedHandlers {
 /**
  * 誤タッチを検出して値を元に戻すフック
  * 
- * 以下の場合に「誤タッチ」と判断して値をリセット：
- * 1. 縦方向に閾値以上移動した（縦スクロールの意図）
- * 2. タッチ時間が短すぎる（通りすがりのタッチ）
- * 
- * 意図的な操作と判断する条件：
- * - 縦移動が少ない AND タッチ時間が一定以上
+ * スライダー操作（横移動）と縦スクロールを区別：
+ * - 縦移動が横移動より大きい → 縦スクロールの意図 → 値をリセット
+ * - 横移動が縦移動より大きい → スライダー操作 → 値を維持
+ * - タッチ時間が短すぎる場合も通りすがりと判断してリセット
  */
 export function useSwipeProtectedValue(
   currentValue: number,
   onRestore: (value: number) => void,
   options: {
-    verticalThreshold?: number; // 縦移動の閾値（px）
-    minTouchDuration?: number;  // 最小タッチ時間（ms）
+    minMovement?: number;      // 判定開始の最小移動量（px）
+    minTouchDuration?: number; // 最小タッチ時間（ms）
   } = {}
 ): SwipeProtectedHandlers {
-  const { verticalThreshold = 15, minTouchDuration = 100 } = options;
+  const { minMovement = 10, minTouchDuration = 80 } = options;
 
+  const startXRef = useRef<number>(0);
   const startYRef = useRef<number>(0);
   const startValueRef = useRef<number>(0);
   const touchStartTimeRef = useRef<number>(0);
-  const isScrollingRef = useRef<boolean>(false);
+  const isVerticalScrollRef = useRef<boolean>(false);
+  const directionDecidedRef = useRef<boolean>(false);
 
   const onTouchStart = useCallback(
     (e: TouchEvent<HTMLInputElement>) => {
+      startXRef.current = e.touches[0].clientX;
       startYRef.current = e.touches[0].clientY;
       startValueRef.current = currentValue;
       touchStartTimeRef.current = Date.now();
-      isScrollingRef.current = false;
+      isVerticalScrollRef.current = false;
+      directionDecidedRef.current = false;
     },
     [currentValue]
   );
 
   const onTouchMove = useCallback(
     (e: TouchEvent<HTMLInputElement>) => {
-      if (isScrollingRef.current) return;
+      // 方向が既に決定済みの場合
+      if (directionDecidedRef.current) {
+        if (isVerticalScrollRef.current) {
+          // 縦スクロール中は値を戻し続ける
+          onRestore(startValueRef.current);
+        }
+        return;
+      }
 
+      const deltaX = Math.abs(e.touches[0].clientX - startXRef.current);
       const deltaY = Math.abs(e.touches[0].clientY - startYRef.current);
-      if (deltaY > verticalThreshold) {
-        // 縦移動が閾値を超えた = スクロールの意図
-        isScrollingRef.current = true;
-        // 元の値に戻す
-        onRestore(startValueRef.current);
+
+      // 最小移動量を超えたら方向を判定
+      if (deltaX > minMovement || deltaY > minMovement) {
+        directionDecidedRef.current = true;
+
+        if (deltaY > deltaX) {
+          // 縦移動が横移動より大きい = 縦スクロールの意図
+          isVerticalScrollRef.current = true;
+          onRestore(startValueRef.current);
+        }
+        // 横移動が大きい場合はスライダー操作なので何もしない
       }
     },
-    [verticalThreshold, onRestore]
+    [minMovement, onRestore]
   );
 
   const onTouchEnd = useCallback(
     (_e: TouchEvent<HTMLInputElement>) => {
       const touchDuration = Date.now() - touchStartTimeRef.current;
 
-      if (isScrollingRef.current) {
-        // スクロール中だった場合は元の値を確定
+      if (isVerticalScrollRef.current) {
+        // 縦スクロール中だった場合は元の値を確定
         onRestore(startValueRef.current);
-      } else if (touchDuration < minTouchDuration) {
-        // タッチ時間が短すぎる = 通りすがりのタッチ
+      } else if (touchDuration < minTouchDuration && !directionDecidedRef.current) {
+        // 移動がなく、タッチ時間が短すぎる = 通りすがりのタップ
         onRestore(startValueRef.current);
       }
-      // それ以外は意図的な操作なので値を維持
+      // それ以外は意図的なスライダー操作なので値を維持
 
-      isScrollingRef.current = false;
+      isVerticalScrollRef.current = false;
+      directionDecidedRef.current = false;
     },
     [minTouchDuration, onRestore]
   );

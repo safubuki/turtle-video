@@ -14,9 +14,9 @@ interface SwipeProtectedSliderProps {
 /**
  * 誤タッチ保護付きスライダー
  * 
- * 縦スクロール時の誤タッチを防止：
- * - 縦方向に15px以上動いたら値をリセット
- * - タッチ時間が100ms未満なら値をリセット
+ * スライダー操作（横移動）と縦スクロールを区別：
+ * - 縦移動 > 横移動 → 縦スクロールと判断 → 値をリセット
+ * - 横移動 > 縦移動 → スライダー操作 → 値を維持
  */
 export const SwipeProtectedSlider: React.FC<SwipeProtectedSliderProps> = ({
   value,
@@ -38,8 +38,8 @@ export const SwipeProtectedSlider: React.FC<SwipeProtectedSliderProps> = ({
     value,
     handleRestore,
     {
-      verticalThreshold: 15, // 縦15px以上で縦スクロールと判断
-      minTouchDuration: 100, // 100ms未満のタッチは無視
+      minMovement: 10,       // 10px以上動いたら方向を判定
+      minTouchDuration: 80,  // 80ms未満の移動なしタッチは無視
     }
   );
 
