@@ -33,6 +33,7 @@ export const VIDEO_SYNC_THRESHOLD = 0.8; // 秒 - 再生中の同期ズレ許容
 export const SEEK_SYNC_THRESHOLD = 0.01; // 秒 - シーク時の同期精度
 export const AUDIO_SYNC_THRESHOLD = 0.5; // 秒 - オーディオの同期ズレ許容値
 export const PRELOAD_TIME = 1.5; // 秒 - 次のメディアのプリロード開始時間
+export const SEEK_THROTTLE_MS = 50; // ミリ秒 - シーク操作のスロットリング間隔
 
 // API設定
 export const GEMINI_SCRIPT_MODEL = 'gemini-2.5-flash-preview-09-2025';
