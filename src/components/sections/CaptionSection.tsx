@@ -9,7 +9,7 @@ import {
   Eye,
   EyeOff,
 } from 'lucide-react';
-import type { Caption, CaptionSettings, CaptionPosition, CaptionSize } from '../../types';
+import type { Caption, CaptionSettings, CaptionPosition, CaptionSize, CaptionFontStyle } from '../../types';
 import CaptionItem from '../media/CaptionItem';
 
 interface CaptionSectionProps {
@@ -24,6 +24,7 @@ interface CaptionSectionProps {
   onRemoveCaption: (id: string) => void;
   onSetEnabled: (enabled: boolean) => void;
   onSetFontSize: (size: CaptionSize) => void;
+  onSetFontStyle: (style: CaptionFontStyle) => void;
   onSetPosition: (position: CaptionPosition) => void;
 }
 
@@ -42,6 +43,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   onRemoveCaption,
   onSetEnabled,
   onSetFontSize,
+  onSetFontStyle,
   onSetPosition,
 }) => {
   const [isOpen, setIsOpen] = useState(true);
@@ -77,6 +79,11 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
     { value: 'small', label: '小' },
     { value: 'medium', label: '中' },
     { value: 'large', label: '大' },
+  ];
+
+  const fontStyleOptions: { value: CaptionFontStyle; label: string }[] = [
+    { value: 'gothic', label: 'ゴシック' },
+    { value: 'mincho', label: '明朝' },
   ];
 
   const positionOptions: { value: CaptionPosition; label: string }[] = [
@@ -163,6 +170,26 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                         disabled={isLocked}
                         className={`px-2 py-1 rounded transition ${
                           settings.fontSize === opt.value
+                            ? 'bg-yellow-500 text-gray-900'
+                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                        } disabled:opacity-50`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {/* 字体 */}
+                <div className="flex items-center gap-2 text-[10px]">
+                  <span className="text-gray-400 w-16">字体:</span>
+                  <div className="flex gap-1">
+                    {fontStyleOptions.map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => onSetFontStyle(opt.value)}
+                        disabled={isLocked}
+                        className={`px-2 py-1 rounded transition ${
+                          settings.fontStyle === opt.value
                             ? 'bg-yellow-500 text-gray-900'
                             : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                         } disabled:opacity-50`}
