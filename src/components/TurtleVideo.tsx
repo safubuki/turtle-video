@@ -126,6 +126,7 @@ const TurtleVideo: React.FC = () => {
   const removeCaption = useCaptionStore((s) => s.removeCaption);
   const setCaptionEnabled = useCaptionStore((s) => s.setEnabled);
   const setCaptionFontSize = useCaptionStore((s) => s.setFontSize);
+  const setCaptionFontStyle = useCaptionStore((s) => s.setFontStyle);
   const setCaptionPosition = useCaptionStore((s) => s.setPosition);
   const toggleCaptionLock = useCaptionStore((s) => s.toggleLock);
   const resetCaptions = useCaptionStore((s) => s.resetCaptions);
@@ -311,6 +312,13 @@ const TurtleVideo: React.FC = () => {
             const fontSizeMap = { small: 32, medium: 48, large: 64 };
             const fontSize = fontSizeMap[captionSettings.fontSize];
             
+            // フォントファミリー（ゴシック体: sans-serif, 明朝体: serif）
+            const fontFamilyMap = {
+              gothic: 'sans-serif',
+              mincho: '"游明朝", "Yu Mincho", "ヒラギノ明朝 ProN", "Hiragino Mincho ProN", serif',
+            };
+            const fontFamily = fontFamilyMap[captionSettings.fontStyle];
+            
             // 位置（余白はフォントサイズに応じて調整）
             const padding = fontSize * 0.8; // フォントサイズの80%を余白として確保
             let y: number;
@@ -323,7 +331,7 @@ const TurtleVideo: React.FC = () => {
             }
 
             ctx.save();
-            ctx.font = `bold ${fontSize}px sans-serif`;
+            ctx.font = `bold ${fontSize}px ${fontFamily}`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             
@@ -1376,6 +1384,7 @@ const TurtleVideo: React.FC = () => {
           onRemoveCaption={removeCaption}
           onSetEnabled={setCaptionEnabled}
           onSetFontSize={setCaptionFontSize}
+          onSetFontStyle={setCaptionFontStyle}
           onSetPosition={setCaptionPosition}
         />
 

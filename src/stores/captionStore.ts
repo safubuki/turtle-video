@@ -5,7 +5,7 @@
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import type { Caption, CaptionSettings, CaptionPosition, CaptionSize } from '../types';
+import type { Caption, CaptionSettings, CaptionPosition, CaptionSize, CaptionFontStyle } from '../types';
 
 interface CaptionState {
   // キャプション一覧
@@ -26,6 +26,7 @@ interface CaptionState {
   // === スタイル設定 ===
   setEnabled: (enabled: boolean) => void;
   setFontSize: (size: CaptionSize) => void;
+  setFontStyle: (style: CaptionFontStyle) => void;
   setFontColor: (color: string) => void;
   setStrokeColor: (color: string) => void;
   setStrokeWidth: (width: number) => void;
@@ -42,6 +43,7 @@ interface CaptionState {
 const initialSettings: CaptionSettings = {
   enabled: true,
   fontSize: 'medium',
+  fontStyle: 'gothic',
   fontColor: '#FFFFFF',
   strokeColor: '#000000',
   strokeWidth: 2,
@@ -117,6 +119,15 @@ export const useCaptionStore = create<CaptionState>()(
           }),
           false,
           'setFontSize'
+        ),
+
+      setFontStyle: (fontStyle) =>
+        set(
+          (state) => ({
+            settings: { ...state.settings, fontStyle },
+          }),
+          false,
+          'setFontStyle'
         ),
 
       setFontColor: (fontColor) =>

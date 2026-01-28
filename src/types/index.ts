@@ -91,10 +91,14 @@ export type CaptionPosition = 'top' | 'center' | 'bottom';
 // キャプションサイズ
 export type CaptionSize = 'small' | 'medium' | 'large';
 
+// キャプションフォントスタイル
+export type CaptionFontStyle = 'gothic' | 'mincho';
+
 // キャプション設定
 export interface CaptionSettings {
   enabled: boolean;
   fontSize: CaptionSize;
+  fontStyle: CaptionFontStyle;
   fontColor: string;
   strokeColor: string;
   strokeWidth: number;
