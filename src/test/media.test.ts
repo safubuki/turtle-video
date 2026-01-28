@@ -27,6 +27,21 @@ describe('generateId', () => {
     expect(typeof id).toBe('string');
     expect(id.length).toBeGreaterThan(0);
   });
+
+  it('should generate unique IDs even when called rapidly', () => {
+    const ids = new Set<string>();
+    for (let i = 0; i < 1000; i++) {
+      ids.add(generateId());
+    }
+    // 1000回呼び出して全て一意であること
+    expect(ids.size).toBe(1000);
+  });
+
+  it('should contain timestamp and counter components', () => {
+    const id = generateId();
+    // ID形式: timestamp-counter-random
+    expect(id).toMatch(/^[a-z0-9]+-[a-z0-9]+-[a-z0-9]+$/);
+  });
 });
 
 describe('getMediaType', () => {

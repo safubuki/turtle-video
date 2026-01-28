@@ -38,6 +38,36 @@ describe('mediaStore', () => {
       expect(mediaItems[0].type).toBe('image');
       expect(mediaItems[0].duration).toBe(5); // default image duration
     });
+
+    it('should handle same file added multiple times with unique IDs', () => {
+      const { addMediaItems } = useMediaStore.getState();
+      const file = new File(['test content'], 'same-file.mp4', { type: 'video/mp4' });
+      
+      // 同じファイルを2回追加
+      addMediaItems([file]);
+      addMediaItems([file]);
+      
+      const { mediaItems } = useMediaStore.getState();
+      expect(mediaItems).toHaveLength(2);
+      // IDが異なること
+      expect(mediaItems[0].id).not.toBe(mediaItems[1].id);
+      // URLも異なること（createObjectURLは毎回新しいURLを生成）
+      expect(mediaItems[0].url).not.toBe(mediaItems[1].url);
+    });
+
+    it('should handle files with same name added simultaneously', () => {
+      const { addMediaItems } = useMediaStore.getState();
+      const file1 = new File(['content1'], 'duplicate.mp4', { type: 'video/mp4' });
+      const file2 = new File(['content2'], 'duplicate.mp4', { type: 'video/mp4' });
+      
+      // 同じ名前の2つのファイルを同時に追加
+      addMediaItems([file1, file2]);
+      
+      const { mediaItems } = useMediaStore.getState();
+      expect(mediaItems).toHaveLength(2);
+      // IDが異なること
+      expect(mediaItems[0].id).not.toBe(mediaItems[1].id);
+    });
   });
 
   describe('removeMediaItem', () => {

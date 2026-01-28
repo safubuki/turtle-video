@@ -5,11 +5,20 @@
 import type { MediaItem } from '../types';
 
 /**
+ * ID生成用カウンター（同一ミリ秒内での重複を防止）
+ */
+let idCounter = 0;
+
+/**
  * 一意なIDを生成
- * @returns ランダムな9文字のID
+ * タイムスタンプ + カウンター + ランダム文字列で確実に一意性を保証
+ * @returns 一意なID文字列
  */
 export function generateId(): string {
-  return Math.random().toString(36).substr(2, 9);
+  const timestamp = Date.now().toString(36);
+  const counter = (idCounter++).toString(36);
+  const random = Math.random().toString(36).substr(2, 5);
+  return `${timestamp}-${counter}-${random}`;
 }
 
 /**
