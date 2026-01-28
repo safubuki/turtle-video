@@ -224,6 +224,16 @@ const TurtleVideo: React.FC = () => {
               const videoEl = element as HTMLVideoElement;
               const targetTime = (conf.trimStart || 0) + localTime;
 
+              // 動画がエラー状態または未読み込み状態の場合はリロードを試みる
+              // これにより、シーク操作などで壊れた動画を回復できる
+              if (videoEl.readyState === 0 && !videoEl.error) {
+                try {
+                  videoEl.load();
+                } catch (e) {
+                  /* ignore */
+                }
+              }
+
               // シーク中は何もしない
               if (!isSeekingRef.current) {
                 if (isActivePlaying) {
@@ -1005,6 +1015,24 @@ const TurtleVideo: React.FC = () => {
       stopAll();
       pause();
       setProcessing(false);
+      
+      // Properly disconnect all audio nodes before clearing them
+      // This prevents Web Audio API corruption that can cause video blackout
+      Object.values(sourceNodesRef.current).forEach((n) => {
+        try {
+          n.disconnect();
+        } catch (e) {
+          /* ignore */
+        }
+      });
+      Object.values(gainNodesRef.current).forEach((n) => {
+        try {
+          n.disconnect();
+        } catch (e) {
+          /* ignore */
+        }
+      });
+      
       setReloadKey((prev) => prev + 1);
       sourceNodesRef.current = {};
       gainNodesRef.current = {};
