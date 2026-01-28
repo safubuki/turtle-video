@@ -77,6 +77,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
   const handlePositionX = useCallback((val: number) => onUpdatePosition('x', String(val)), [onUpdatePosition]);
   const handlePositionY = useCallback((val: number) => onUpdatePosition('y', String(val)), [onUpdatePosition]);
   const handleImageDuration = useCallback((val: number) => onUpdateImageDuration(String(val)), [onUpdateImageDuration]);
+  const handleVolume = useCallback((val: number) => onUpdateVolume(val), [onUpdateVolume]);
 
   return (
     <div className="bg-gray-800 p-3 rounded-xl border border-gray-700/50 relative group">
@@ -313,14 +314,13 @@ const ClipItem: React.FC<ClipItemProps> = ({
             >
               {v.isMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
             </button>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.1"
+            <SwipeProtectedSlider
+              min={0}
+              max={1}
+              step={0.1}
               value={v.volume}
               disabled={v.isMuted || isDisabled}
-              onChange={(e) => onUpdateVolume(parseFloat(e.target.value))}
+              onChange={handleVolume}
               className="flex-1 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
             />
           </div>
