@@ -166,6 +166,27 @@ const TurtleVideo: React.FC = () => {
   const pendingSeekRef = useRef<number | null>(null); // 保留中のシーク位置
   const wasPlayingBeforeSeekRef = useRef(false); // シーク前の再生状態を保持
   const pendingSeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 保留中のシーク処理用タイマー
+  const playbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 再生開始待機用タイマー
+
+  // --- Helper: 非アクティブなビデオを開始位置にリセット ---
+  const resetInactiveVideos = useCallback(() => {
+    for (const item of mediaItemsRef.current) {
+      if (item.type === 'video' && item.id !== activeVideoIdRef.current) {
+        const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
+        if (videoEl) {
+          // 一時停止
+          if (!videoEl.paused) {
+            videoEl.pause();
+          }
+          // 開始位置にリセット
+          const startTime = item.trimStart || 0;
+          if (Math.abs(videoEl.currentTime - startTime) > 0.1) {
+            videoEl.currentTime = startTime;
+          }
+        }
+      }
+    }
+  }, []);
 
   // --- Helper: renderFrame ---
   const renderFrame = useCallback(
@@ -233,7 +254,8 @@ const TurtleVideo: React.FC = () => {
 
               // 再生中はアクティブなビデオIDを更新
               // これにより、画像→動画の切り替え時に正しく再生が開始される
-              if (isActivePlaying && activeVideoIdRef.current !== id) {
+              const isNewlyActive = isActivePlaying && activeVideoIdRef.current !== id;
+              if (isNewlyActive) {
                 activeVideoIdRef.current = id;
               }
 
@@ -265,8 +287,10 @@ const TurtleVideo: React.FC = () => {
               const shouldSkipSync = isSeekingRef.current || isInSeekingSet || isVideoCurrentlySeeking;
               if (!shouldSkipSync) {
                 if (isActivePlaying) {
-                  // 再生中: 大きなズレがあれば補正（閾値を少し大きくして頻繁な補正を防ぐ）
-                  if (Math.abs(videoEl.currentTime - targetTime) > 0.8) {
+                  // 新しくアクティブになったビデオは即座に同期（カクツキ防止）
+                  // 通常再生中は大きなズレがあれば補正
+                  const syncThreshold = isNewlyActive ? 0.05 : 0.8;
+                  if (Math.abs(videoEl.currentTime - targetTime) > syncThreshold) {
                     videoEl.currentTime = targetTime;
                   }
                   // 一時停止していれば再生（ビデオ切り替え時など）
@@ -1293,6 +1317,11 @@ const TurtleVideo: React.FC = () => {
           cancelAnimationFrame(reqIdRef.current);
           reqIdRef.current = null;
         }
+        // 再生待機タイムアウトをクリア
+        if (playbackTimeoutRef.current) {
+          clearTimeout(playbackTimeoutRef.current);
+          playbackTimeoutRef.current = null;
+        }
         // ビデオを一時停止
         Object.values(mediaElementsRef.current).forEach((el) => {
           if (el && el.tagName === 'VIDEO') {
@@ -1385,8 +1414,7 @@ const TurtleVideo: React.FC = () => {
         accTime += item.duration;
       }
       
-      // 非アクティブなビデオを準備（プリロード）
-      // これにより、境界をまたいだシークがスムーズになる
+      // 非アクティブなビデオを一時停止のみ（位置リセットはhandleSeekEndで行う）
       for (const item of mediaItemsRef.current) {
         if (item.type === 'video' && item.id !== activeVideoIdRef.current) {
           const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
@@ -1448,6 +1476,12 @@ const TurtleVideo: React.FC = () => {
     // シーク完了: シーク中のビデオをクリア
     seekingVideosRef.current.clear();
     
+    // 既存の再生待機タイムアウトをクリア
+    if (playbackTimeoutRef.current) {
+      clearTimeout(playbackTimeoutRef.current);
+      playbackTimeoutRef.current = null;
+    }
+    
     // シーク前に再生中だった場合は再開
     if (wasPlayingBeforeSeekRef.current && isSeekingRef.current) {
       isSeekingRef.current = false;
@@ -1455,34 +1489,55 @@ const TurtleVideo: React.FC = () => {
       const t = currentTimeRef.current;
       startTimeRef.current = Date.now() - t * 1000;
       
-      // アクティブなビデオを再生
-      if (activeVideoIdRef.current) {
-        const videoEl = mediaElementsRef.current[activeVideoIdRef.current] as HTMLVideoElement;
-        if (videoEl) {
-          // ビデオが準備できているか確認してから再生（readyState >= 3で十分なデータあり）
-          if (videoEl.readyState >= 3) {
-            videoEl.play().catch(() => {});
+      // アクティブなメディアを特定し、ビデオの位置を正確に設定
+      let accTime = 0;
+      for (const item of mediaItemsRef.current) {
+        if (t >= accTime && t < accTime + item.duration) {
+          if (item.type === 'video') {
+            const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
+            if (videoEl) {
+              const localTime = t - accTime;
+              const targetTime = (item.trimStart || 0) + localTime;
+              
+              // 再生開始前に位置を正確に設定（ズレがあれば必ず補正）
+              if (Math.abs(videoEl.currentTime - targetTime) > 0.01) {
+                videoEl.currentTime = targetTime;
+              }
+              
+              activeVideoIdRef.current = item.id;
+              
+              // ビデオが準備できているか確認してから再生（readyState >= 3で十分なデータあり）
+              if (videoEl.readyState >= 3) {
+                videoEl.play().catch(() => {});
+              } else {
+                // 準備ができていない場合は canplaythrough イベントを待つ
+                const playWhenReady = () => {
+                  if (isPlayingRef.current && videoEl.paused) {
+                    videoEl.play().catch(() => {});
+                  }
+                };
+                videoEl.addEventListener('canplaythrough', playWhenReady, { once: true });
+                
+                // 3秒後のフォールバック（タイムアウトIDを保存してクリーンアップ可能に）
+                playbackTimeoutRef.current = setTimeout(() => {
+                  playbackTimeoutRef.current = null;
+                  if (isPlayingRef.current && videoEl.paused && videoEl.readyState >= 2) {
+                    videoEl.play().catch(() => {});
+                  }
+                }, 3000);
+              }
+            }
           } else {
-            // 準備ができていない場合は canplaythrough イベントを待つ
-            // タイムアウトを設けてメモリリークを防ぐ
-            let listenerRemoved = false;
-            const playWhenReady = () => {
-              if (!listenerRemoved && isPlayingRef.current) {
-                videoEl.play().catch(() => {});
-              }
-            };
-            videoEl.addEventListener('canplaythrough', playWhenReady, { once: true });
-            
-            // 3秒後にイベントリスナーが残っていれば強制的にplay試行
-            setTimeout(() => {
-              listenerRemoved = true;
-              if (isPlayingRef.current && videoEl.paused && videoEl.readyState >= 2) {
-                videoEl.play().catch(() => {});
-              }
-            }, 3000);
+            // 画像の場合
+            activeVideoIdRef.current = null;
           }
+          break;
         }
+        accTime += item.duration;
       }
+      
+      // 非アクティブなビデオを開始位置にリセット（次回アクティブになった時のカクツキを防止）
+      resetInactiveVideos();
       
       const currentLoopId = loopIdRef.current;
       reqIdRef.current = requestAnimationFrame(() => loop(false, currentLoopId));
@@ -1491,7 +1546,7 @@ const TurtleVideo: React.FC = () => {
     }
     
     wasPlayingBeforeSeekRef.current = false;
-  }, [renderFrame, loop]);
+  }, [renderFrame, loop, resetInactiveVideos]);
 
   const togglePlay = useCallback(() => {
     // デバウンス: 200ms以内の連続クリックを無視
