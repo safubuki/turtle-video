@@ -159,6 +159,7 @@ const TurtleVideo: React.FC = () => {
   const isSeekingRef = useRef(false); // シーク中フラグ
   const activeVideoIdRef = useRef<string | null>(null); // 現在再生中のビデオID
   const lastToggleTimeRef = useRef(0); // デバウンス用
+  const videoRecoveryAttemptsRef = useRef<Record<string, number>>({}); // ビデオリカバリー試行時刻を追跡
 
   // --- Helper: renderFrame ---
   const renderFrame = useCallback(
@@ -223,6 +224,22 @@ const TurtleVideo: React.FC = () => {
             if (conf.type === 'video') {
               const videoEl = element as HTMLVideoElement;
               const targetTime = (conf.trimStart || 0) + localTime;
+
+              // 動画がエラー状態または未読み込み状態の場合はリロードを試みる
+              // これにより、シーク操作などで壊れた動画を回復できる
+              // 連続呼び出しを防ぐため、2秒間のクールダウンを設ける
+              if (videoEl.readyState === 0 && !videoEl.error) {
+                const now = Date.now();
+                const lastAttempt = videoRecoveryAttemptsRef.current[id] || 0;
+                if (now - lastAttempt > 2000) {
+                  videoRecoveryAttemptsRef.current[id] = now;
+                  try {
+                    videoEl.load();
+                  } catch (e) {
+                    /* ignore */
+                  }
+                }
+              }
 
               // シーク中は何もしない
               if (!isSeekingRef.current) {
@@ -1005,6 +1022,24 @@ const TurtleVideo: React.FC = () => {
       stopAll();
       pause();
       setProcessing(false);
+      
+      // Properly disconnect all audio nodes before clearing them
+      // This prevents Web Audio API corruption that can cause video blackout
+      Object.values(sourceNodesRef.current).forEach((n) => {
+        try {
+          n.disconnect();
+        } catch (e) {
+          /* ignore */
+        }
+      });
+      Object.values(gainNodesRef.current).forEach((n) => {
+        try {
+          n.disconnect();
+        } catch (e) {
+          /* ignore */
+        }
+      });
+      
       setReloadKey((prev) => prev + 1);
       sourceNodesRef.current = {};
       gainNodesRef.current = {};
