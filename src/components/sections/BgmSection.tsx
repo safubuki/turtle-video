@@ -62,7 +62,7 @@ const BgmSection: React.FC<BgmSectionProps> = ({
           <span className="w-6 h-6 rounded-full bg-purple-500/10 flex items-center justify-center text-xs">
             2
           </span>{' '}
-          BGM設定
+          BGM
           {bgm && <span className="text-[10px] text-purple-300 font-normal ml-2 truncate max-w-[100px]">✓ {bgm.file.name}</span>}
         </h2>
         <div className="flex gap-2 items-center" onClick={(e) => e.stopPropagation()}>
