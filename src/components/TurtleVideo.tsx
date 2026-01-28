@@ -274,63 +274,42 @@ const TurtleVideo: React.FC = () => {
           if (!element || !conf) return;
 
           if (id === activeId) {
+            // --- アクティブなメディアの処理 ---
             if (conf.type === 'video') {
               const videoEl = element as HTMLVideoElement;
               const targetTime = (conf.trimStart || 0) + localTime;
 
-              // 再生中はアクティブなビデオIDを更新
-              // これにより、画像→動画の切り替え時に正しく再生が開始される
-              const isNewlyActive = isActivePlaying && activeVideoIdRef.current !== id;
-              if (isNewlyActive) {
+              // アクティブなビデオIDを更新
+              if (isActivePlaying && activeVideoIdRef.current !== id) {
                 activeVideoIdRef.current = id;
               }
 
-              // 動画がエラー状態または未読み込み状態の場合はリロードを試みる
-              // これにより、シーク操作などで壊れた動画を回復できる
-              // 連続呼び出しを防ぐため、2秒間のクールダウンを設ける
+              // 動画が未読み込み状態の場合はリロードを試みる（クールダウン付き）
               if (videoEl.readyState === 0 && !videoEl.error) {
                 const now = Date.now();
                 const lastAttempt = videoRecoveryAttemptsRef.current[id] || 0;
                 if (now - lastAttempt > 2000) {
                   videoRecoveryAttemptsRef.current[id] = now;
-                  try {
-                    videoEl.load();
-                  } catch (e) {
-                    /* ignore */
-                  }
+                  try { videoEl.load(); } catch (e) { /* ignore */ }
                 }
               }
 
-              // シーク中またはビデオ自体がシーク中は何もしない
-              const isInSeekingSet = seekingVideosRef.current.has(id);
-              const isVideoCurrentlySeeking = videoEl.seeking;
-              
-              // ビデオのシーク完了を検知したらシーク中リストから削除
-              if (isInSeekingSet && !isVideoCurrentlySeeking) {
-                seekingVideosRef.current.delete(id);
-              }
-              
-              const shouldSkipSync = isSeekingRef.current || isInSeekingSet || isVideoCurrentlySeeking;
-              if (!shouldSkipSync) {
+              // シーク中（スライダー操作中）は再生位置の同期をスキップ
+              const skipSync = isSeekingRef.current || videoEl.seeking;
+              if (!skipSync) {
                 if (isActivePlaying) {
-                  // 新しくアクティブになったビデオは即座に同期（カクツキ防止）
-                  // 通常再生中は大きなズレがあれば補正
-                  const syncThreshold = isNewlyActive ? 0.05 : 0.8;
-                  if (Math.abs(videoEl.currentTime - targetTime) > syncThreshold) {
+                  // 再生中: 大きなズレがあれば補正
+                  if (Math.abs(videoEl.currentTime - targetTime) > 0.5) {
                     videoEl.currentTime = targetTime;
                   }
-                  // 一時停止していれば再生（ビデオ切り替え時など）
-                  // ビデオが準備できているか確認（readyState >= 3 で十分なデータあり）
-                  if (videoEl.paused && activeVideoIdRef.current === id && videoEl.readyState >= 3) {
+                  // 一時停止していれば再生開始
+                  if (videoEl.paused && videoEl.readyState >= 3) {
                     videoEl.play().catch(() => {});
                   }
                 } else {
-                  // 停止中: ビデオも停止状態にして位置を合わせる
+                  // 停止中: ビデオを停止し位置を合わせる
                   if (!videoEl.paused) {
                     videoEl.pause();
-                  }
-                  if (Math.abs(videoEl.currentTime - targetTime) > 0.05) {
-                    videoEl.currentTime = targetTime;
                   }
                 }
               }
@@ -527,26 +506,40 @@ const TurtleVideo: React.FC = () => {
     [captions, captionSettings]
   );
 
-  // --- State Sync ---
+  // --- 状態同期: Zustandの状態をRefに同期 ---
+  // 目的: renderFrame等の非同期処理で最新の状態を参照できるようにする
   useEffect(() => {
     mediaItemsRef.current = mediaItems;
     totalDurationRef.current = totalDuration;
-    currentTimeRef.current = currentTime;
+  }, [mediaItems, totalDuration]);
 
+  // --- 再描画トリガー: メディア構成変更時のみキャンバスを更新 ---
+  // 目的: メディアの追加・削除・リロード時にプレビューを更新
+  // 注意: currentTimeやisPlayingには依存しない（シーク時の過剰描画を防止）
+  useEffect(() => {
     if (mediaItems.length > 0 && !isPlaying && !isProcessing) {
-      requestAnimationFrame(() => renderFrame(currentTime, false));
+      // 少し遅延させてメディア要素の準備を待つ
+      const timeoutId = setTimeout(() => {
+        renderFrame(currentTimeRef.current, false);
+      }, 100);
+      return () => clearTimeout(timeoutId);
     }
-  }, [mediaItems, totalDuration, reloadKey, currentTime, isPlaying, isProcessing, renderFrame]);
+  }, [mediaItems.length, reloadKey, isPlaying, isProcessing, renderFrame]);
 
+  // --- BGM状態の同期 ---
+  // 目的: BGMトラックの最新状態をRefに保持
   useEffect(() => {
     bgmRef.current = bgm;
   }, [bgm]);
 
+  // --- ナレーション状態の同期 ---
+  // 目的: ナレーショントラックの最新状態をRefに保持
   useEffect(() => {
     narrationRef.current = narration;
   }, [narration]);
 
-  // --- Cleanup on Unmount ---
+  // --- コンポーネントアンマウント時のクリーンアップ ---
+  // 目的: メモリリークを防止し、リソースを適切に解放
   useEffect(() => {
     return () => {
       // Cancel animation frame
@@ -876,69 +869,66 @@ const TurtleVideo: React.FC = () => {
     requestAnimationFrame(() => renderFrame(currentTimeRef.current, false));
   }, [renderFrame]);
 
-  // --- Media Item Handlers (using Zustand store actions) ---
+  // --- 動画トリミング更新ハンドラ ---
+  // 目的: トリミングスライダー操作時に動画のカット位置を変更
+  // 注意: 対象動画のみシークし、他の動画には影響しない
   const handleUpdateVideoTrim = useCallback(
     (id: string, type: 'start' | 'end', value: string) => {
       let val = parseFloat(value);
       if (isNaN(val)) val = 0;
       
-      // トリミング操作中のビデオをシーク中として追跡
-      // これにより、renderFrame内での不正な同期を防止
-      seekingVideosRef.current.add(id);
-      
+      // ストアを更新
       updateVideoTrim(id, type, val);
 
-      // Seek video element
+      // 対象動画の再生位置をトリミング位置に合わせる
       const item = mediaItems.find((v) => v.id === id);
       if (item) {
         const el = mediaElementsRef.current[id] as HTMLVideoElement;
-        if (el && el.tagName === 'VIDEO') {
+        if (el && el.tagName === 'VIDEO' && !el.seeking) {
           const newStart = type === 'start' ? Math.max(0, Math.min(val, item.trimEnd - 0.1)) : item.trimStart;
           const newEnd = type === 'end' ? Math.min(item.originalDuration, Math.max(val, item.trimStart + 0.1)) : item.trimEnd;
           const seekTime = type === 'start' ? newStart : Math.max(newStart, newEnd - 0.1);
           if (Number.isFinite(seekTime)) {
             el.currentTime = Math.max(0, Math.min(item.originalDuration, seekTime));
           }
-          
-          // シーク完了後にフラグをクリア
-          const handleSeekComplete = () => {
-            seekingVideosRef.current.delete(id);
-            el.removeEventListener('seeked', handleSeekComplete);
-          };
-          el.addEventListener('seeked', handleSeekComplete, { once: true });
-          
-          // フォールバック: 1秒後に確実にクリア
-          setTimeout(() => {
-            seekingVideosRef.current.delete(id);
-          }, 1000);
         }
       }
     },
     [updateVideoTrim, mediaItems]
   );
 
+  // --- 画像表示時間更新ハンドラ ---
+  // 目的: 画像クリップの表示時間を変更
   const handleUpdateImageDuration = useCallback((id: string, newDuration: string) => {
     let val = parseFloat(newDuration);
     if (isNaN(val) || val < 0.5) val = 0.5;
     updateImageDuration(id, val);
   }, [updateImageDuration]);
 
+  // --- スケール更新ハンドラ ---
+  // 目的: メディアの拡大率を変更
   const handleUpdateMediaScale = useCallback((id: string, value: string | number) => {
     let val = typeof value === 'number' ? value : parseFloat(value);
     if (isNaN(val)) val = 1.0;
     updateScale(id, val);
   }, [updateScale]);
 
+  // --- 位置更新ハンドラ ---
+  // 目的: メディアの表示位置（X/Y座標）を変更
   const handleUpdateMediaPosition = useCallback((id: string, axis: 'x' | 'y', value: string) => {
     let val = parseFloat(value);
     if (isNaN(val)) val = 0;
     updatePosition(id, axis, val);
   }, [updatePosition]);
 
+  // --- 設定リセットハンドラ ---
+  // 目的: スケールまたは位置を初期値にリセット
   const handleResetMediaSetting = useCallback((id: string, type: 'scale' | 'x' | 'y') => {
     resetTransform(id, type);
   }, [resetTransform]);
 
+  // --- メディア順序変更ハンドラ ---
+  // 目的: クリップの再生順序を上下に移動
   const handleMoveMedia = useCallback(
     (idx: number, dir: 'up' | 'down') => {
       moveMediaItem(idx, dir);
@@ -946,6 +936,8 @@ const TurtleVideo: React.FC = () => {
     [moveMediaItem]
   );
 
+  // --- メディア削除ハンドラ ---
+  // 目的: クリップを削除し、関連するオーディオノードを解放
   const handleRemoveMedia = useCallback((id: string) => {
     // オーディオノードを解放
     if (sourceNodesRef.current[id]) {
@@ -969,11 +961,18 @@ const TurtleVideo: React.FC = () => {
     delete mediaElementsRef.current[id];
   }, [removeMediaItem]);
 
+  // --- トランスフォームパネル開閉ハンドラ ---
+  // 目的: スケール・位置設定UIの表示/非表示を切り替え
   const handleToggleTransformPanel = useCallback((id: string) => {
     toggleTransformPanel(id);
   }, [toggleTransformPanel]);
 
-  // --- Audio Track Handlers ---
+  // ==========================================================
+  // オーディオトラック（BGM・ナレーション）ハンドラ
+  // ==========================================================
+
+  // --- BGMアップロードハンドラ ---
+  // 目的: BGMファイルを読み込みストアに設定
   const handleBgmUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -996,6 +995,8 @@ const TurtleVideo: React.FC = () => {
     };
   }, [setBgm, clearExport]);
 
+  // --- ナレーションアップロードハンドラ ---
+  // 目的: ナレーションファイルを読み込みストアに設定
   const handleNarrationUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1018,6 +1019,8 @@ const TurtleVideo: React.FC = () => {
     };
   }, [setNarration, clearExport]);
 
+  // --- BGM/ナレーション開始位置更新ハンドラ ---
+  // 目的: オーディオトラックの再生開始位置（ファイル内の位置）を変更
   const handleUpdateTrackStart = useCallback(
     (type: 'bgm' | 'narration', val: string) => {
       const numVal = parseFloat(val);
@@ -1032,6 +1035,8 @@ const TurtleVideo: React.FC = () => {
     [updateBgmStartPoint, updateNarrationStartPoint]
   );
 
+  // --- BGM/ナレーション遅延更新ハンドラ ---
+  // 目的: オーディオトラックの開始遅延（動画開始からの秒数）を変更
   const handleUpdateTrackDelay = useCallback((type: 'bgm' | 'narration', val: string) => {
     const numVal = parseFloat(val);
     if (isNaN(numVal)) return;
@@ -1043,6 +1048,8 @@ const TurtleVideo: React.FC = () => {
     }
   }, [updateBgmDelay, updateNarrationDelay]);
 
+  // --- BGM/ナレーション音量更新ハンドラ ---
+  // 目的: オーディオトラックの音量を変更
   const handleUpdateTrackVolume = useCallback((type: 'bgm' | 'narration', val: string) => {
     const numVal = parseFloat(val);
     if (isNaN(numVal)) return;
@@ -1054,7 +1061,13 @@ const TurtleVideo: React.FC = () => {
     }
   }, [updateBgmVolume, updateNarrationVolume]);
 
-  // --- コアエンジン ---
+  // ==========================================================
+  // コアエンジン（再生制御・リソース管理）
+  // ==========================================================
+
+  // --- 全停止処理 ---
+  // 目的: すべての再生を停止し、状態をリセット
+  // 注意: ループID、シーク状態、アニメーションフレーム、メディア要素を全て解放
   const stopAll = useCallback(() => {
     // ループIDをインクリメントして古いループを無効化
     loopIdRef.current += 1;
@@ -1106,6 +1119,8 @@ const TurtleVideo: React.FC = () => {
     }
   }, []);
 
+  // --- 全クリア処理 ---
+  // 目的: 全てのメディア・オーディオ・キャプションを削除し初期状態に戻す
   const handleClearAll = useCallback(() => {
     if (mediaItems.length === 0 && !bgm && !narration) return;
     stopAll();
@@ -1150,6 +1165,9 @@ const TurtleVideo: React.FC = () => {
     }
   }, [mediaItems, bgm, narration, stopAll, clearAllMedia, clearAllAudio, resetCaptions, resetUI]);
 
+  // --- リソースリロード処理 ---
+  // 目的: 全メディアをリロードし、オーディオノードを再構築
+  // 使用タイミング: ブラックアウトやオーディオ問題発生時の復旧
   const handleReloadResources = useCallback(
     (targetTime: number | null = null) => {
       stopAll();
@@ -1186,6 +1204,8 @@ const TurtleVideo: React.FC = () => {
     [currentTime, stopAll, pause, showToast, renderFrame]
   );
 
+  // --- オーディオルーティング設定 ---
+  // 目的: 通常再生とエクスポート時で出力先を切り替え
   const configureAudioRouting = useCallback((isExporting: boolean) => {
     const ctx = audioCtxRef.current;
     if (!ctx) return;
@@ -1203,6 +1223,9 @@ const TurtleVideo: React.FC = () => {
     });
   }, []);
 
+  // --- 再生ループ ---
+  // 目的: 再生中にフレームを継続的に描画
+  // 注意: loopIdを監視し、古いループは自動的に終了
   const loop = useCallback(
     (isExportMode: boolean, myLoopId: number) => {
       // このループが無効化されていたら終了
@@ -1235,6 +1258,9 @@ const TurtleVideo: React.FC = () => {
     [stopAll, pause, setCurrentTime, renderFrame]
   );
 
+  // --- エンジン起動処理 ---
+  // 目的: 再生またはエクスポートを開始
+  // 処理: AudioContext復帰→メディア準備→ループ開始
   const startEngine = useCallback(
     async (fromTime: number, isExportMode: boolean) => {
       const ctx = getAudioContext();
@@ -1365,184 +1391,126 @@ const TurtleVideo: React.FC = () => {
     [getAudioContext, stopAll, setProcessing, play, clearExport, configureAudioRouting, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop]
   );
 
+  // --- シークバー操作ハンドラ ---
+  // 目的: ユーザーがシークバーをドラッグした時にプレビューを更新
+  // 設計: スロットリングで過剰なビデオシークを防止し、カクつきを軽減
   const handleSeekChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const t = parseFloat(e.target.value);
       const now = Date.now();
       
-      // 最初のシーク開始時に再生状態を記録
+      // シーク開始時の処理
       if (!isSeekingRef.current) {
         wasPlayingBeforeSeekRef.current = isPlayingRef.current;
-      }
-      
-      // シーク開始: 再生中ならまず停止
-      if (isPlayingRef.current && !isSeekingRef.current) {
         isSeekingRef.current = true;
-        // ループを停止
-        if (reqIdRef.current) {
-          cancelAnimationFrame(reqIdRef.current);
-          reqIdRef.current = null;
-        }
-        // 再生待機タイムアウトをクリア
-        if (playbackTimeoutRef.current) {
-          clearTimeout(playbackTimeoutRef.current);
-          playbackTimeoutRef.current = null;
-        }
-        // ビデオを一時停止
-        Object.values(mediaElementsRef.current).forEach((el) => {
-          if (el && el.tagName === 'VIDEO') {
-            try { (el as HTMLVideoElement).pause(); } catch (e) { /* ignore */ }
+        
+        // 再生中なら一時停止
+        if (isPlayingRef.current) {
+          if (reqIdRef.current) {
+            cancelAnimationFrame(reqIdRef.current);
+            reqIdRef.current = null;
           }
-        });
+          if (playbackTimeoutRef.current) {
+            clearTimeout(playbackTimeoutRef.current);
+            playbackTimeoutRef.current = null;
+          }
+          // 全ビデオを一時停止
+          Object.values(mediaElementsRef.current).forEach((el) => {
+            if (el && el.tagName === 'VIDEO') {
+              try { (el as HTMLVideoElement).pause(); } catch (e) { /* ignore */ }
+            }
+          });
+        }
       }
       
-      // UIの現在時刻を即座に更新（レスポンシブ性を維持）
+      // UI更新は常に即座に実行
       setCurrentTime(t);
       currentTimeRef.current = t;
 
-      // スロットリング: 前回のシークから時間が経っていない場合は保留
-      if (now - lastSeekTimeRef.current < SEEK_THROTTLE_MS) {
+      // スロットリング: ビデオシークは間隔を空けて実行
+      const timeSinceLastSeek = now - lastSeekTimeRef.current;
+      if (timeSinceLastSeek < SEEK_THROTTLE_MS) {
+        // 保留中のシークを記録し、タイマーで後から処理
         pendingSeekRef.current = t;
-        
-        // 既存のタイマーをクリア
-        if (pendingSeekTimeoutRef.current) {
-          clearTimeout(pendingSeekTimeoutRef.current);
-        }
-        
-        // 保留中のシークを SEEK_THROTTLE_MS 後に処理するようスケジュール
-        pendingSeekTimeoutRef.current = setTimeout(() => {
-          if (pendingSeekRef.current !== null) {
-            const pendingT = pendingSeekRef.current;
-            pendingSeekRef.current = null;
-            lastSeekTimeRef.current = Date.now();
-            
-            // アクティブなメディアアイテムのビデオ位置を設定
-            let accTime = 0;
-            for (const item of mediaItemsRef.current) {
-              if (pendingT >= accTime && pendingT < accTime + item.duration) {
-                if (item.type === 'video') {
-                  const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
-                  if (videoEl) {
-                    const localTime = pendingT - accTime;
-                    const targetTime = (item.trimStart || 0) + localTime;
-                    if (!seekingVideosRef.current.has(item.id)) {
-                      seekingVideosRef.current.add(item.id);
-                      videoEl.currentTime = targetTime;
-                    }
-                    activeVideoIdRef.current = item.id;
-                  }
-                } else {
-                  activeVideoIdRef.current = null;
-                }
-                break;
-              }
-              accTime += item.duration;
+        if (!pendingSeekTimeoutRef.current) {
+          pendingSeekTimeoutRef.current = setTimeout(() => {
+            pendingSeekTimeoutRef.current = null;
+            if (pendingSeekRef.current !== null) {
+              const pendingT = pendingSeekRef.current;
+              pendingSeekRef.current = null;
+              lastSeekTimeRef.current = Date.now();
+              syncVideoToTime(pendingT);
+              renderFrame(pendingT, false);
             }
-            
-            renderFrame(pendingT, false);
-          }
-        }, SEEK_THROTTLE_MS);
-        
+          }, SEEK_THROTTLE_MS - timeSinceLastSeek);
+        }
+        // キャンバスだけは更新（画像の場合など）
+        renderFrame(t, false);
         return;
       }
       
       lastSeekTimeRef.current = now;
       pendingSeekRef.current = null;
-      
-      // 既存のタイマーをクリア
       if (pendingSeekTimeoutRef.current) {
         clearTimeout(pendingSeekTimeoutRef.current);
         pendingSeekTimeoutRef.current = null;
       }
       
-      // 現在アクティブなメディアアイテムを特定
-      let accTime = 0;
-      for (const item of mediaItemsRef.current) {
-        if (t >= accTime && t < accTime + item.duration) {
-          const localTime = t - accTime;
-          
-          if (item.type === 'video') {
-            const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
-            if (videoEl) {
-              const targetTime = (item.trimStart || 0) + localTime;
-              // ビデオがシーク中でなければシーク位置を設定
-              if (!seekingVideosRef.current.has(item.id)) {
-                seekingVideosRef.current.add(item.id);
-                videoEl.currentTime = targetTime;
-              }
-              activeVideoIdRef.current = item.id;
-            }
-          } else {
-            activeVideoIdRef.current = null;
-          }
-          break;
-        }
-        accTime += item.duration;
-      }
-      
-      // 非アクティブなビデオを一時停止のみ（位置リセットはhandleSeekEndで行う）
-      for (const item of mediaItemsRef.current) {
-        if (item.type === 'video' && item.id !== activeVideoIdRef.current) {
-          const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
-          if (videoEl && !videoEl.paused) {
-            videoEl.pause();
-          }
-        }
-      }
-
-      // フレームを描画
+      // ビデオ位置を同期してフレーム描画
+      syncVideoToTime(t);
       renderFrame(t, false);
     },
     [setCurrentTime, renderFrame]
   );
+  
+  // --- ビデオ位置同期ヘルパー ---
+  // 目的: 指定時刻に対応するビデオの再生位置を設定
+  const syncVideoToTime = useCallback((t: number) => {
+    let accTime = 0;
+    for (const item of mediaItemsRef.current) {
+      if (t >= accTime && t < accTime + item.duration) {
+        if (item.type === 'video') {
+          const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
+          if (videoEl && !videoEl.seeking) {
+            const localTime = t - accTime;
+            const targetTime = (item.trimStart || 0) + localTime;
+            // 大きなズレがある場合のみシーク（カクつき防止）
+            if (Math.abs(videoEl.currentTime - targetTime) > 0.3) {
+              videoEl.currentTime = targetTime;
+            }
+          }
+          activeVideoIdRef.current = item.id;
+        } else {
+          activeVideoIdRef.current = null;
+        }
+        return;
+      }
+      accTime += item.duration;
+    }
+    activeVideoIdRef.current = null;
+  }, []);
 
-  // シーク完了時の処理: 保留中のシークがあれば処理し、再生を再開
+  // --- シークバー操作完了ハンドラ ---
+  // 目的: シークバーのドラッグ終了時に再生を再開（必要な場合）
   const handleSeekEnd = useCallback(() => {
-    // タイマーをクリア
+    // 保留中のタイマーをクリア
     if (pendingSeekTimeoutRef.current) {
       clearTimeout(pendingSeekTimeoutRef.current);
       pendingSeekTimeoutRef.current = null;
     }
     
-    // 保留中のシークがある場合は処理
+    // 保留中のシークがあれば最終処理
     if (pendingSeekRef.current !== null) {
       const t = pendingSeekRef.current;
       pendingSeekRef.current = null;
-      lastSeekTimeRef.current = Date.now();
-      
-      // アクティブなメディアアイテムのビデオ位置を設定
-      let accTime = 0;
-      for (const item of mediaItemsRef.current) {
-        if (t >= accTime && t < accTime + item.duration) {
-          if (item.type === 'video') {
-            const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
-            if (videoEl) {
-              const localTime = t - accTime;
-              const targetTime = (item.trimStart || 0) + localTime;
-              if (!seekingVideosRef.current.has(item.id)) {
-                seekingVideosRef.current.add(item.id);
-                videoEl.currentTime = targetTime;
-              }
-              activeVideoIdRef.current = item.id;
-            }
-          } else {
-            // 画像の場合はactiveVideoIdRefをクリア
-            activeVideoIdRef.current = null;
-          }
-          break;
-        }
-        accTime += item.duration;
-      }
-      
+      syncVideoToTime(t);
       renderFrame(t, false);
-      // 保留中のシーク処理後も引き続きシーク完了処理を実行する
-      // （再生を再開するため）
     }
     
-    // シーク完了: シーク中のビデオをクリア
+    // シーク中フラグをクリア
     seekingVideosRef.current.clear();
     
-    // 既存の再生待機タイムアウトをクリア
+    // 再生待機タイムアウトをクリア
     if (playbackTimeoutRef.current) {
       clearTimeout(playbackTimeoutRef.current);
       playbackTimeoutRef.current = null;
@@ -1551,11 +1519,12 @@ const TurtleVideo: React.FC = () => {
     // シーク前に再生中だった場合は再開
     if (wasPlayingBeforeSeekRef.current && isSeekingRef.current) {
       isSeekingRef.current = false;
+      wasPlayingBeforeSeekRef.current = false;
       
       const t = currentTimeRef.current;
       startTimeRef.current = Date.now() - t * 1000;
       
-      // アクティブなメディアを特定し、ビデオの位置を正確に設定
+      // アクティブなビデオを特定して再生開始
       let accTime = 0;
       for (const item of mediaItemsRef.current) {
         if (t >= accTime && t < accTime + item.duration) {
@@ -1565,36 +1534,31 @@ const TurtleVideo: React.FC = () => {
               const localTime = t - accTime;
               const targetTime = (item.trimStart || 0) + localTime;
               
-              // 再生開始前に位置を正確に設定（ズレがあれば必ず補正）
+              // 位置を正確に設定
               if (Math.abs(videoEl.currentTime - targetTime) > 0.01) {
                 videoEl.currentTime = targetTime;
               }
-              
               activeVideoIdRef.current = item.id;
               
-              // ビデオが準備できているか確認してから再生（readyState >= 3で十分なデータあり）
+              // 準備完了なら即再生、そうでなければ待機
               if (videoEl.readyState >= 3) {
                 videoEl.play().catch(() => {});
               } else {
-                // 準備ができていない場合は canplaythrough イベントを待つ
                 const playWhenReady = () => {
                   if (isPlayingRef.current && videoEl.paused) {
                     videoEl.play().catch(() => {});
                   }
                 };
                 videoEl.addEventListener('canplaythrough', playWhenReady, { once: true });
-                
-                // 3秒後のフォールバック（タイムアウトIDを保存してクリーンアップ可能に）
                 playbackTimeoutRef.current = setTimeout(() => {
                   playbackTimeoutRef.current = null;
                   if (isPlayingRef.current && videoEl.paused && videoEl.readyState >= 2) {
                     videoEl.play().catch(() => {});
                   }
-                }, 3000);
+                }, 2000);
               }
             }
           } else {
-            // 画像の場合
             activeVideoIdRef.current = null;
           }
           break;
@@ -1602,18 +1566,21 @@ const TurtleVideo: React.FC = () => {
         accTime += item.duration;
       }
       
-      // 非アクティブなビデオを開始位置にリセット（次回アクティブになった時のカクツキを防止）
+      // 非アクティブなビデオをリセット
       resetInactiveVideos();
       
+      // ループ再開
       const currentLoopId = loopIdRef.current;
       reqIdRef.current = requestAnimationFrame(() => loop(false, currentLoopId));
     } else {
       isSeekingRef.current = false;
+      wasPlayingBeforeSeekRef.current = false;
     }
-    
-    wasPlayingBeforeSeekRef.current = false;
-  }, [renderFrame, loop, resetInactiveVideos]);
+  }, [renderFrame, loop, resetInactiveVideos, syncVideoToTime]);
 
+  // --- 再生/一時停止トグル ---
+  // 目的: 再生中なら停止、停止中なら再生を開始
+  // 注意: 200msのデバウンスで連続クリックを防止
   const togglePlay = useCallback(() => {
     // デバウンス: 200ms以内の連続クリックを無視
     const now = Date.now();
@@ -1632,6 +1599,8 @@ const TurtleVideo: React.FC = () => {
     }
   }, [isPlaying, currentTime, totalDuration, stopAll, pause, startEngine]);
 
+  // --- 停止ハンドラ ---
+  // 目的: 再生を停止し、時刻を0にリセットしてリソースをリロード
   const handleStop = useCallback(() => {
     stopAll();
     pause();
@@ -1639,10 +1608,14 @@ const TurtleVideo: React.FC = () => {
     handleReloadResources(0);
   }, [stopAll, pause, setCurrentTime, handleReloadResources]);
 
+  // --- エクスポート開始ハンドラ ---
+  // 目的: 動画ファイルとして書き出しを開始
   const handleExport = useCallback(() => {
     startEngine(0, true);
   }, [startEngine]);
 
+  // --- 時刻フォーマットヘルパー ---
+  // 目的: 秒数を「分:秒」形式の文字列に変換
   const formatTime = useCallback((s: number): string => {
     if (!s || isNaN(s)) return '0:00';
     const m = Math.floor(s / 60);
