@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { X, Key, Eye, EyeOff, ExternalLink, CheckCircle, AlertCircle } from 'lucide-react';
 
+// アプリバージョン
+export const APP_VERSION = '1.1.0';
+
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -177,6 +180,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
           >
             保存
           </button>
+        </div>
+
+        {/* バージョン情報 */}
+        <div className="px-4 pb-3 text-center">
+          <span className="text-xs text-gray-500">
+            タートルビデオ v{APP_VERSION}
+          </span>
         </div>
       </div>
     </div>
