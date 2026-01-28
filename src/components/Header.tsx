@@ -13,7 +13,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenSettings }) => {
     <header className="sticky top-0 z-50 bg-gray-900/95 backdrop-blur border-b border-gray-800 px-4 py-3 flex items-center justify-center shadow-lg">
       <div className="flex items-center gap-2">
         <div className="bg-green-600 p-1.5 rounded-lg">
-          <img src="/turtle_icon.png" alt="タートルビデオ" className="w-6 h-6" />
+          <img src={`${import.meta.env.BASE_URL}turtle_icon.png`} alt="タートルビデオ" className="w-6 h-6" />
         </div>
         <h1 className="font-bold text-lg whitespace-nowrap">
           タートルビデオ{' '}
