@@ -38,8 +38,8 @@ export const SwipeProtectedSlider: React.FC<SwipeProtectedSliderProps> = ({
     value,
     handleRestore,
     {
-      minMovement: 10,       // 10px以上動いたら方向を判定
-      minTouchDuration: 80,  // 80ms未満の移動なしタッチは無視
+      minMovement: 15,        // 15px以上動いたら方向を判定
+      minTouchDuration: 200,  // 200ms未満の移動なしタッチは無視
     }
   );
 
