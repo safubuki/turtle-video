@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Key, Eye, EyeOff, ExternalLink, CheckCircle, AlertCircle } from 'lucide-react';
 
 // アプリバージョン
-export const APP_VERSION = '1.1.0';
+export const APP_VERSION = '1.2.0';
 
 interface SettingsModalProps {
   isOpen: boolean;
