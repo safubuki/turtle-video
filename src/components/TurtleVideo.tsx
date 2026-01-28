@@ -159,6 +159,7 @@ const TurtleVideo: React.FC = () => {
   const isSeekingRef = useRef(false); // シーク中フラグ
   const activeVideoIdRef = useRef<string | null>(null); // 現在再生中のビデオID
   const lastToggleTimeRef = useRef(0); // デバウンス用
+  const videoRecoveryAttemptsRef = useRef<Record<string, number>>({}); // ビデオリカバリー試行時刻を追跡
 
   // --- Helper: renderFrame ---
   const renderFrame = useCallback(
@@ -226,11 +227,17 @@ const TurtleVideo: React.FC = () => {
 
               // 動画がエラー状態または未読み込み状態の場合はリロードを試みる
               // これにより、シーク操作などで壊れた動画を回復できる
+              // 連続呼び出しを防ぐため、2秒間のクールダウンを設ける
               if (videoEl.readyState === 0 && !videoEl.error) {
-                try {
-                  videoEl.load();
-                } catch (e) {
-                  /* ignore */
+                const now = Date.now();
+                const lastAttempt = videoRecoveryAttemptsRef.current[id] || 0;
+                if (now - lastAttempt > 2000) {
+                  videoRecoveryAttemptsRef.current[id] = now;
+                  try {
+                    videoEl.load();
+                  } catch (e) {
+                    /* ignore */
+                  }
                 }
               }
 
