@@ -231,6 +231,12 @@ const TurtleVideo: React.FC = () => {
               const videoEl = element as HTMLVideoElement;
               const targetTime = (conf.trimStart || 0) + localTime;
 
+              // 再生中はアクティブなビデオIDを更新
+              // これにより、画像→動画の切り替え時に正しく再生が開始される
+              if (isActivePlaying && activeVideoIdRef.current !== id) {
+                activeVideoIdRef.current = id;
+              }
+
               // 動画がエラー状態または未読み込み状態の場合はリロードを試みる
               // これにより、シーク操作などで壊れた動画を回復できる
               // 連続呼び出しを防ぐため、2秒間のクールダウンを設ける
@@ -277,6 +283,11 @@ const TurtleVideo: React.FC = () => {
                     videoEl.currentTime = targetTime;
                   }
                 }
+              }
+            } else {
+              // 画像がアクティブな場合、activeVideoIdRefをクリア
+              if (isActivePlaying && activeVideoIdRef.current !== null) {
+                activeVideoIdRef.current = null;
               }
             }
 
