@@ -12,6 +12,7 @@ import {
   TTS_SAMPLE_RATE,
   EXPORT_VIDEO_BITRATE,
   CAPTION_FADE_DURATION,
+  SEEK_THROTTLE_MS,
 } from '../constants';
 
 // Zustand Stores
@@ -164,6 +165,7 @@ const TurtleVideo: React.FC = () => {
   const lastSeekTimeRef = useRef(0); // 最後のシーク時刻（スロットリング用）
   const pendingSeekRef = useRef<number | null>(null); // 保留中のシーク位置
   const wasPlayingBeforeSeekRef = useRef(false); // シーク前の再生状態を保持
+  const pendingSeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 保留中のシーク処理用タイマー
 
   // --- Helper: renderFrame ---
   const renderFrame = useCallback(
@@ -246,16 +248,24 @@ const TurtleVideo: React.FC = () => {
               }
 
               // シーク中またはビデオ自体がシーク中は何もしない
-              const isVideoSeeking = seekingVideosRef.current.has(id) || videoEl.seeking;
-              if (!isSeekingRef.current && !isVideoSeeking) {
+              const isInSeekingSet = seekingVideosRef.current.has(id);
+              const isVideoCurrentlySeeking = videoEl.seeking;
+              
+              // ビデオのシーク完了を検知したらシーク中リストから削除
+              if (isInSeekingSet && !isVideoCurrentlySeeking) {
+                seekingVideosRef.current.delete(id);
+              }
+              
+              const shouldSkipSync = isSeekingRef.current || isInSeekingSet || isVideoCurrentlySeeking;
+              if (!shouldSkipSync) {
                 if (isActivePlaying) {
                   // 再生中: 大きなズレがあれば補正（閾値を少し大きくして頻繁な補正を防ぐ）
                   if (Math.abs(videoEl.currentTime - targetTime) > 0.8) {
                     videoEl.currentTime = targetTime;
                   }
                   // 一時停止していれば再生（ビデオ切り替え時など）
-                  // ビデオが準備できているか確認
-                  if (videoEl.paused && activeVideoIdRef.current === id && videoEl.readyState >= 2) {
+                  // ビデオが準備できているか確認（readyState >= 3 で十分なデータあり）
+                  if (videoEl.paused && activeVideoIdRef.current === id && videoEl.readyState >= 3) {
                     videoEl.play().catch(() => {});
                   }
                 } else {
@@ -267,9 +277,6 @@ const TurtleVideo: React.FC = () => {
                     videoEl.currentTime = targetTime;
                   }
                 }
-              } else if (isVideoSeeking && !videoEl.seeking) {
-                // ビデオのシーク完了を検知したらシーク中リストから削除
-                seekingVideosRef.current.delete(id);
               }
             }
 
@@ -796,9 +803,10 @@ const TurtleVideo: React.FC = () => {
   );
 
   const handleSeeked = useCallback(() => {
-    // ビデオのシーク完了を追跡するためにシーク中リストから削除
-    // ただし、onSeekEnterイベントで実際のIDを知ることができないため、
-    // ここでは一般的なフレーム更新のみを行う
+    // ビデオのseekedイベントハンドラ
+    // このハンドラはMediaResourceLoaderからすべてのビデオに対して共通で呼ばれるため、
+    // 特定のビデオIDを知ることができない。
+    // シーク中ビデオの追跡はrenderFrame内で各ビデオのseeking状態を監視して行う。
     requestAnimationFrame(() => renderFrame(currentTimeRef.current, false));
   }, [renderFrame]);
 
@@ -957,6 +965,12 @@ const TurtleVideo: React.FC = () => {
     wasPlayingBeforeSeekRef.current = false;
     seekingVideosRef.current.clear();
     pendingSeekRef.current = null;
+    
+    // 保留中のシーク処理タイマーをクリア
+    if (pendingSeekTimeoutRef.current) {
+      clearTimeout(pendingSeekTimeoutRef.current);
+      pendingSeekTimeoutRef.current = null;
+    }
     
     // アニメーションフレームをキャンセル
     if (reqIdRef.current) {
@@ -1255,10 +1269,6 @@ const TurtleVideo: React.FC = () => {
       const t = parseFloat(e.target.value);
       const now = Date.now();
       
-      // スロットリング: 50ms以内の連続シークは保留し、最後の値のみを処理
-      // これにより、スライダーを素早く動かした際の過剰なシーク操作を防ぐ
-      const SEEK_THROTTLE_MS = 50;
-      
       // 最初のシーク開始時に再生状態を記録
       if (!isSeekingRef.current) {
         wasPlayingBeforeSeekRef.current = isPlayingRef.current;
@@ -1287,11 +1297,57 @@ const TurtleVideo: React.FC = () => {
       // スロットリング: 前回のシークから時間が経っていない場合は保留
       if (now - lastSeekTimeRef.current < SEEK_THROTTLE_MS) {
         pendingSeekRef.current = t;
+        
+        // 既存のタイマーをクリア
+        if (pendingSeekTimeoutRef.current) {
+          clearTimeout(pendingSeekTimeoutRef.current);
+        }
+        
+        // 保留中のシークを SEEK_THROTTLE_MS 後に処理するようスケジュール
+        pendingSeekTimeoutRef.current = setTimeout(() => {
+          if (pendingSeekRef.current !== null) {
+            const pendingT = pendingSeekRef.current;
+            pendingSeekRef.current = null;
+            lastSeekTimeRef.current = Date.now();
+            
+            // アクティブなメディアアイテムのビデオ位置を設定
+            let accTime = 0;
+            for (const item of mediaItemsRef.current) {
+              if (pendingT >= accTime && pendingT < accTime + item.duration) {
+                if (item.type === 'video') {
+                  const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
+                  if (videoEl) {
+                    const localTime = pendingT - accTime;
+                    const targetTime = (item.trimStart || 0) + localTime;
+                    if (!seekingVideosRef.current.has(item.id)) {
+                      seekingVideosRef.current.add(item.id);
+                      videoEl.currentTime = targetTime;
+                    }
+                    activeVideoIdRef.current = item.id;
+                  }
+                } else {
+                  activeVideoIdRef.current = null;
+                }
+                break;
+              }
+              accTime += item.duration;
+            }
+            
+            renderFrame(pendingT, false);
+          }
+        }, SEEK_THROTTLE_MS);
+        
         return;
       }
       
       lastSeekTimeRef.current = now;
       pendingSeekRef.current = null;
+      
+      // 既存のタイマーをクリア
+      if (pendingSeekTimeoutRef.current) {
+        clearTimeout(pendingSeekTimeoutRef.current);
+        pendingSeekTimeoutRef.current = null;
+      }
       
       // 現在アクティブなメディアアイテムを特定
       let accTime = 0;
@@ -1337,6 +1393,12 @@ const TurtleVideo: React.FC = () => {
 
   // シーク完了時の処理: 保留中のシークがあれば処理し、再生を再開
   const handleSeekEnd = useCallback(() => {
+    // タイマーをクリア
+    if (pendingSeekTimeoutRef.current) {
+      clearTimeout(pendingSeekTimeoutRef.current);
+      pendingSeekTimeoutRef.current = null;
+    }
+    
     // 保留中のシークがある場合は処理
     if (pendingSeekRef.current !== null) {
       const t = pendingSeekRef.current;
@@ -1358,6 +1420,9 @@ const TurtleVideo: React.FC = () => {
               }
               activeVideoIdRef.current = item.id;
             }
+          } else {
+            // 画像の場合はactiveVideoIdRefをクリア
+            activeVideoIdRef.current = null;
           }
           break;
         }
@@ -1365,7 +1430,8 @@ const TurtleVideo: React.FC = () => {
       }
       
       renderFrame(t, false);
-      return;
+      // 保留中のシーク処理後も引き続きシーク完了処理を実行する
+      // （再生を再開するため）
     }
     
     // シーク完了: シーク中のビデオをクリア
@@ -1382,17 +1448,27 @@ const TurtleVideo: React.FC = () => {
       if (activeVideoIdRef.current) {
         const videoEl = mediaElementsRef.current[activeVideoIdRef.current] as HTMLVideoElement;
         if (videoEl) {
-          // ビデオが準備できているか確認してから再生
-          if (videoEl.readyState >= 2) {
+          // ビデオが準備できているか確認してから再生（readyState >= 3で十分なデータあり）
+          if (videoEl.readyState >= 3) {
             videoEl.play().catch(() => {});
           } else {
-            // 準備ができていない場合は少し待ってから再生
+            // 準備ができていない場合は canplaythrough イベントを待つ
+            // タイムアウトを設けてメモリリークを防ぐ
+            let listenerRemoved = false;
             const playWhenReady = () => {
-              if (videoEl.readyState >= 2) {
+              if (!listenerRemoved && isPlayingRef.current) {
                 videoEl.play().catch(() => {});
               }
             };
-            videoEl.addEventListener('canplay', playWhenReady, { once: true });
+            videoEl.addEventListener('canplaythrough', playWhenReady, { once: true });
+            
+            // 3秒後にイベントリスナーが残っていれば強制的にplay試行
+            setTimeout(() => {
+              listenerRemoved = true;
+              if (isPlayingRef.current && videoEl.paused && videoEl.readyState >= 2) {
+                videoEl.play().catch(() => {});
+              }
+            }, 3000);
           }
         }
       }
