@@ -54,7 +54,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
           <span className="w-6 h-6 rounded-full bg-blue-500/10 flex items-center justify-center text-xs">
             1
           </span>{' '}
-          クリップ
+          動画・画像
         </h2>
         <div className="flex items-center gap-2">
           <button
