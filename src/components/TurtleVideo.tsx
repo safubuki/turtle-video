@@ -11,6 +11,7 @@ import {
   GEMINI_TTS_MODEL,
   TTS_SAMPLE_RATE,
   EXPORT_VIDEO_BITRATE,
+  CAPTION_FADE_DURATION,
 } from '../constants';
 
 // Zustand Stores
@@ -330,7 +331,33 @@ const TurtleVideo: React.FC = () => {
               y = CANVAS_HEIGHT - padding - fontSize / 2;
             }
 
+            // フェードイン・フェードアウトのアルファ値計算
+            const captionDuration = activeCaption.endTime - activeCaption.startTime;
+            const captionLocalTime = time - activeCaption.startTime;
+            
+            // フェード時間を計算（短いキャプションの場合は調整）
+            let effectiveFadeDuration = CAPTION_FADE_DURATION;
+            if (activeCaption.fadeIn && activeCaption.fadeOut) {
+              // 両方有効な場合、重複しないようにフェード時間を調整
+              effectiveFadeDuration = Math.min(CAPTION_FADE_DURATION, captionDuration / 2);
+            }
+            
+            // フェードイン・フェードアウトのアルファ値を個別に計算
+            let fadeInAlpha = 1.0;
+            let fadeOutAlpha = 1.0;
+            
+            if (activeCaption.fadeIn && captionLocalTime < effectiveFadeDuration) {
+              fadeInAlpha = captionLocalTime / effectiveFadeDuration;
+            }
+            if (activeCaption.fadeOut && captionLocalTime > captionDuration - effectiveFadeDuration) {
+              fadeOutAlpha = (captionDuration - captionLocalTime) / effectiveFadeDuration;
+            }
+            
+            // 両方のアルファ値を乗算して最終的な透明度を計算
+            const alpha = Math.max(0, Math.min(1, fadeInAlpha * fadeOutAlpha));
+
             ctx.save();
+            ctx.globalAlpha = alpha;
             ctx.font = `bold ${fontSize}px ${fontFamily}`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';

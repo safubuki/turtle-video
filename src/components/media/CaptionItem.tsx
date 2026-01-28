@@ -219,6 +219,34 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
           <span className="text-gray-500">秒</span>
         </div>
       </div>
+
+      {/* フェードイン・フェードアウト設定 */}
+      <div className="flex gap-4 mt-2 text-[10px]">
+        <label
+          className={`flex items-center gap-1 cursor-pointer hover:text-yellow-300 ${isLocked ? 'opacity-50 pointer-events-none' : ''}`}
+        >
+          <input
+            type="checkbox"
+            checked={caption.fadeIn}
+            onChange={(e) => onUpdate(caption.id, { fadeIn: e.target.checked })}
+            disabled={isLocked}
+            className="rounded accent-yellow-500 w-3 h-3"
+          />{' '}
+          フェードイン
+        </label>
+        <label
+          className={`flex items-center gap-1 cursor-pointer hover:text-yellow-300 ${isLocked ? 'opacity-50 pointer-events-none' : ''}`}
+        >
+          <input
+            type="checkbox"
+            checked={caption.fadeOut}
+            onChange={(e) => onUpdate(caption.id, { fadeOut: e.target.checked })}
+            disabled={isLocked}
+            className="rounded accent-yellow-500 w-3 h-3"
+          />{' '}
+          フェードアウト
+        </label>
+      </div>
     </div>
   );
 };

@@ -83,6 +83,8 @@ export interface Caption {
   text: string;
   startTime: number;  // 秒
   endTime: number;    // 秒
+  fadeIn: boolean;
+  fadeOut: boolean;
 }
 
 // キャプション位置

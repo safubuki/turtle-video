@@ -72,6 +72,8 @@ export const useCaptionStore = create<CaptionState>()(
                 text,
                 startTime,
                 endTime,
+                fadeIn: false,
+                fadeOut: false,
               },
             ].sort((a, b) => a.startTime - b.startTime), // 開始時間でソート
           }),
