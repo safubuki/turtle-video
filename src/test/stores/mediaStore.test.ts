@@ -171,4 +171,151 @@ describe('mediaStore', () => {
       expect(mediaItems[0].scale).toBe(3.0);
     });
   });
+
+  describe('setVideoDuration', () => {
+    it('should set video duration and trim values on first load', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'a', type: 'video', duration: 0, originalDuration: 0, trimStart: 0, trimEnd: 0 } as any,
+        ],
+        totalDuration: 0,
+      });
+      
+      const { setVideoDuration } = useMediaStore.getState();
+      setVideoDuration('a', 30);
+      
+      const { mediaItems, totalDuration } = useMediaStore.getState();
+      expect(mediaItems[0].originalDuration).toBe(30);
+      expect(mediaItems[0].trimStart).toBe(0);
+      expect(mediaItems[0].trimEnd).toBe(30);
+      expect(mediaItems[0].duration).toBe(30);
+      expect(totalDuration).toBe(30);
+    });
+
+    it('should preserve trim values if already initialized', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'a', type: 'video', duration: 15, originalDuration: 30, trimStart: 5, trimEnd: 20 } as any,
+        ],
+        totalDuration: 15,
+      });
+      
+      const { setVideoDuration } = useMediaStore.getState();
+      setVideoDuration('a', 30);
+      
+      const { mediaItems } = useMediaStore.getState();
+      expect(mediaItems[0].trimStart).toBe(5);
+      expect(mediaItems[0].trimEnd).toBe(20);
+      expect(mediaItems[0].duration).toBe(15);
+    });
+  });
+
+  describe('updateVideoTrim', () => {
+    it('should update trim start and recalculate duration', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'a', type: 'video', duration: 30, originalDuration: 30, trimStart: 0, trimEnd: 30 } as any,
+        ],
+        totalDuration: 30,
+      });
+      
+      const { updateVideoTrim } = useMediaStore.getState();
+      updateVideoTrim('a', 'start', 5);
+      
+      const { mediaItems, totalDuration } = useMediaStore.getState();
+      expect(mediaItems[0].trimStart).toBe(5);
+      expect(mediaItems[0].trimEnd).toBe(30);
+      expect(mediaItems[0].duration).toBe(25);
+      expect(totalDuration).toBe(25);
+    });
+
+    it('should update trim end and recalculate duration', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'a', type: 'video', duration: 30, originalDuration: 30, trimStart: 0, trimEnd: 30 } as any,
+        ],
+        totalDuration: 30,
+      });
+      
+      const { updateVideoTrim } = useMediaStore.getState();
+      updateVideoTrim('a', 'end', 20);
+      
+      const { mediaItems, totalDuration } = useMediaStore.getState();
+      expect(mediaItems[0].trimStart).toBe(0);
+      expect(mediaItems[0].trimEnd).toBe(20);
+      expect(mediaItems[0].duration).toBe(20);
+      expect(totalDuration).toBe(20);
+    });
+
+    it('should not allow trim start to exceed trim end', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'a', type: 'video', duration: 20, originalDuration: 30, trimStart: 0, trimEnd: 20 } as any,
+        ],
+        totalDuration: 20,
+      });
+      
+      const { updateVideoTrim } = useMediaStore.getState();
+      updateVideoTrim('a', 'start', 25); // exceeds trimEnd of 20
+      
+      const { mediaItems } = useMediaStore.getState();
+      expect(mediaItems[0].trimStart).toBeLessThan(mediaItems[0].trimEnd);
+    });
+
+    it('should not affect other media items when updating one', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'a', type: 'video', duration: 30, originalDuration: 30, trimStart: 0, trimEnd: 30 } as any,
+          { id: 'b', type: 'video', duration: 20, originalDuration: 20, trimStart: 0, trimEnd: 20 } as any,
+        ],
+        totalDuration: 50,
+      });
+      
+      const { updateVideoTrim } = useMediaStore.getState();
+      updateVideoTrim('a', 'end', 10);
+      
+      const { mediaItems, totalDuration } = useMediaStore.getState();
+      // Item 'a' should be updated
+      expect(mediaItems[0].trimEnd).toBe(10);
+      expect(mediaItems[0].duration).toBe(10);
+      // Item 'b' should remain unchanged
+      expect(mediaItems[1].trimEnd).toBe(20);
+      expect(mediaItems[1].duration).toBe(20);
+      // Total duration should be updated
+      expect(totalDuration).toBe(30);
+    });
+  });
+
+  describe('updateImageDuration', () => {
+    it('should update image duration', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'a', type: 'image', duration: 5 } as any,
+        ],
+        totalDuration: 5,
+      });
+      
+      const { updateImageDuration } = useMediaStore.getState();
+      updateImageDuration('a', 10);
+      
+      const { mediaItems, totalDuration } = useMediaStore.getState();
+      expect(mediaItems[0].duration).toBe(10);
+      expect(totalDuration).toBe(10);
+    });
+
+    it('should enforce minimum duration of 0.5 seconds', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'a', type: 'image', duration: 5 } as any,
+        ],
+        totalDuration: 5,
+      });
+      
+      const { updateImageDuration } = useMediaStore.getState();
+      updateImageDuration('a', 0.1);
+      
+      const { mediaItems } = useMediaStore.getState();
+      expect(mediaItems[0].duration).toBeGreaterThanOrEqual(0.5);
+    });
+  });
 });

@@ -319,11 +319,20 @@ const TurtleVideo: React.FC = () => {
             const isVideo = conf.type === 'video';
             const videoEl = element as HTMLVideoElement;
             const imgEl = element as HTMLImageElement;
-            const isReady = isVideo ? videoEl.readyState >= 1 : imgEl.complete;
+            // ビデオの場合: readyState >= 1 または seeking 中でも描画を試みる
+            // これによりトリミング操作中のブラックアウトを防止
+            const isVideoReady = isVideo ? (videoEl.readyState >= 1 || videoEl.seeking) : false;
+            const isReady = isVideo ? isVideoReady : imgEl.complete;
 
             if (isReady) {
-              const elemW = isVideo ? videoEl.videoWidth : imgEl.naturalWidth;
-              const elemH = isVideo ? videoEl.videoHeight : imgEl.naturalHeight;
+              let elemW = isVideo ? videoEl.videoWidth : imgEl.naturalWidth;
+              let elemH = isVideo ? videoEl.videoHeight : imgEl.naturalHeight;
+              // ビデオがシーク中でサイズが0の場合、前回の描画を維持するため描画をスキップ
+              // （キャンバスをクリアしないので前のフレームが残る）
+              if (isVideo && (elemW === 0 || elemH === 0)) {
+                // 動画がまだ読み込まれていない場合はスキップ（黒画面を防止）
+                return;
+              }
               if (elemW && elemH) {
                 const scaleFactor = conf.scale || 1.0;
                 const userX = conf.positionX || 0;
@@ -850,6 +859,11 @@ const TurtleVideo: React.FC = () => {
     (id: string, type: 'start' | 'end', value: string) => {
       let val = parseFloat(value);
       if (isNaN(val)) val = 0;
+      
+      // トリミング操作中のビデオをシーク中として追跡
+      // これにより、renderFrame内での不正な同期を防止
+      seekingVideosRef.current.add(id);
+      
       updateVideoTrim(id, type, val);
 
       // Seek video element
@@ -863,6 +877,18 @@ const TurtleVideo: React.FC = () => {
           if (Number.isFinite(seekTime)) {
             el.currentTime = Math.max(0, Math.min(item.originalDuration, seekTime));
           }
+          
+          // シーク完了後にフラグをクリア
+          const handleSeekComplete = () => {
+            seekingVideosRef.current.delete(id);
+            el.removeEventListener('seeked', handleSeekComplete);
+          };
+          el.addEventListener('seeked', handleSeekComplete, { once: true });
+          
+          // フォールバック: 1秒後に確実にクリア
+          setTimeout(() => {
+            seekingVideosRef.current.delete(id);
+          }, 1000);
         }
       }
     },
@@ -899,6 +925,24 @@ const TurtleVideo: React.FC = () => {
   );
 
   const handleRemoveMedia = useCallback((id: string) => {
+    // オーディオノードを解放
+    if (sourceNodesRef.current[id]) {
+      try {
+        sourceNodesRef.current[id].disconnect();
+      } catch (e) {
+        /* ignore */
+      }
+      delete sourceNodesRef.current[id];
+    }
+    if (gainNodesRef.current[id]) {
+      try {
+        gainNodesRef.current[id].disconnect();
+      } catch (e) {
+        /* ignore */
+      }
+      delete gainNodesRef.current[id];
+    }
+    
     removeMediaItem(id);
     delete mediaElementsRef.current[id];
   }, [removeMediaItem]);
