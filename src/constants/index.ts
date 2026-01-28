@@ -11,6 +11,7 @@ export const FPS = 30;
 // フェード設定
 export const FADE_DURATION = 1.0; // 秒
 export const AUDIO_FADE_DURATION = 2.0; // 秒
+export const CAPTION_FADE_DURATION = 0.5; // 秒
 
 // スケール設定
 export const MIN_SCALE = 0.5;
