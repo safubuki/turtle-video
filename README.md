@@ -4,14 +4,29 @@
 
 ## ✨ 機能
 
+### 基本編集機能
 - **動画/画像編集**: 複数の動画・画像を結合してタイムライン編集
 - **トリミング**: 動画の開始/終了時間を調整
-- **トランスフォーム**: 拡大・縮小、位置調整
+- **トランスフォーム**: 拡大・縮小、位置調整（ミニプレビュー付き）
+- **動画エクスポート**: WebM/MP4形式で書き出し
+
+### オーディオ機能
 - **BGM追加**: 音楽ファイルをBGMとして追加
 - **ナレーション**: 音声ファイルの追加またはAI生成
 - **AIナレーション**: Google Gemini APIを使用したテキスト読み上げ
 - **音声フェード**: フェードイン/フェードアウト効果
-- **動画エクスポート**: WebM/MP4形式で書き出し
+
+### キャプション機能
+- **字幕追加**: テキスト字幕を任意のタイミングで表示
+- **スタイル設定**: 文字サイズ（小/中/大）、表示位置（上/中央/下）
+- **タイムライン編集**: 開始/終了時間をスライダーまたは数値で調整
+- **リアルタイムプレビュー**: 現在時刻のキャプションをハイライト表示
+
+### UI/UX機能
+- **誤操作防止**: スワイプ保護付きスライダーで縦スクロール時の誤操作を防止
+- **セクションロック**: 各セクション（クリップ/BGM/ナレーション/キャプション）を個別にロック可能
+- **設定モーダル**: APIキーの設定UIを提供
+- **ミニプレビュー**: トランスフォームパネル内でリアルタイムプレビュー表示
 
 ## 🚀 セットアップ
 
@@ -33,6 +48,12 @@ npm run dev
 ### 環境変数設定
 
 AIナレーション機能を使用するには、Google Gemini API キーが必要です。
+
+**方法1: 設定モーダルから設定（推奨）**
+
+アプリケーション起動後、ヘッダーの歯車アイコンから設定モーダルを開き、APIキーを設定できます。設定されたAPIキーはブラウザのlocalStorageに保存されます。
+
+**方法2: 環境変数で設定**
 
 ```bash
 # .env.example をコピーして .env を作成
@@ -83,22 +104,36 @@ src/
 │   ├── common/          # 共通UIコンポーネント
 │   │   ├── Toast.tsx
 │   │   ├── ErrorMessage.tsx
-│   │   └── ErrorBoundary.tsx
+│   │   ├── ErrorBoundary.tsx
+│   │   └── MiniPreview.tsx     # トランスフォームミニプレビュー
 │   ├── media/           # メディア関連コンポーネント
 │   │   ├── ClipItem.tsx
+│   │   ├── CaptionItem.tsx     # キャプションアイテム
 │   │   └── MediaResourceLoader.tsx
 │   ├── sections/        # セクションコンポーネント
 │   │   ├── ClipsSection.tsx
 │   │   ├── BgmSection.tsx
 │   │   ├── NarrationSection.tsx
+│   │   ├── CaptionSection.tsx  # キャプションセクション
 │   │   └── PreviewSection.tsx
 │   ├── modals/          # モーダルコンポーネント
-│   │   └── AiModal.tsx
+│   │   ├── AiModal.tsx
+│   │   └── SettingsModal.tsx   # 設定モーダル（APIキー設定）
 │   ├── Header.tsx
+│   ├── SwipeProtectedSlider.tsx # 誤操作防止スライダー
 │   └── TurtleVideo.tsx  # メインコンポーネント
+├── hooks/               # カスタムフック
+│   ├── useMediaItems.ts
+│   ├── useAudioTracks.ts
+│   ├── usePlayback.ts
+│   ├── useAudioContext.ts
+│   ├── useExport.ts
+│   ├── useAiNarration.ts
+│   └── useSwipeProtectedValue.ts # 誤操作防止フック
 ├── stores/              # Zustand ストア
 │   ├── mediaStore.ts    # メディア状態管理
 │   ├── audioStore.ts    # BGM/ナレーション状態管理
+│   ├── captionStore.ts  # キャプション状態管理
 │   └── uiStore.ts       # UI状態管理
 ├── utils/               # ユーティリティ関数
 │   ├── format.ts        # フォーマット関数
