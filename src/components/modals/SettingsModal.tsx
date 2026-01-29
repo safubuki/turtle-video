@@ -109,7 +109,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   // ログが追加されたら自動スクロール
   useEffect(() => {
     if (logContainerRef.current && activeTab === 'logs') {
-      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+      logContainerRef.current.scrollTop = 0;
     }
   }, [entries, activeTab]);
 

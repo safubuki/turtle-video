@@ -259,7 +259,7 @@ const TurtleVideo: React.FC = () => {
               if (!hasFrame) {
                 holdFrame = true;
                 // ブラックアウト防止発動をログ
-                logWarn('RENDER', 'フレーム保持発動', {
+                logInfo('RENDER', 'フレーム保持発動', {
                   videoId: activeId,
                   readyState: activeEl.readyState,
                   seeking: activeEl.seeking,
