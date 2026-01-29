@@ -233,7 +233,10 @@ const TurtleVideo: React.FC = () => {
                 }
               }
               const hasFrame =
-                activeEl.readyState >= 2 && activeEl.videoWidth > 0 && activeEl.videoHeight > 0;
+                activeEl.readyState >= 2 && 
+                activeEl.videoWidth > 0 && 
+                activeEl.videoHeight > 0 &&
+                !activeEl.seeking;
               if (!hasFrame) {
                 holdFrame = true;
               }
@@ -327,9 +330,9 @@ const TurtleVideo: React.FC = () => {
             const videoEl = element as HTMLVideoElement;
             const imgEl = element as HTMLImageElement;
             // ビデオの場合: readyState >= 2（HAVE_CURRENT_DATA）を基本とし、
-            // seeking中は readyState >= 1 でも描画を試みる
+            // seeking中はフレームが不確定なため描画をスキップし、前フレームを保持
             const isVideoReady = isVideo
-              ? videoEl.readyState >= 2 || (videoEl.seeking && videoEl.readyState >= 1)
+              ? videoEl.readyState >= 2 && !videoEl.seeking
               : false;
             const isReady = isVideo ? isVideoReady : imgEl.complete;
 
@@ -1480,7 +1483,7 @@ const TurtleVideo: React.FC = () => {
       if (t >= accTime && t < accTime + item.duration) {
         if (item.type === 'video') {
           const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
-          if (videoEl && !videoEl.seeking) {
+          if (videoEl && !videoEl.seeking && videoEl.readyState >= 1) {
             const localTime = t - accTime;
             const targetTime = (item.trimStart || 0) + localTime;
             // シーク時は少しのズレでも位置を合わせる（0.1秒しきい値）
@@ -1533,57 +1536,94 @@ const TurtleVideo: React.FC = () => {
     
     // シーク前に再生中だった場合は再開
     if (wasPlaying) {
-      startTimeRef.current = Date.now() - t * 1000;
-      isPlayingRef.current = true;
+      // 再生再開のための内部関数
+      const proceedWithPlayback = () => {
+        startTimeRef.current = Date.now() - t * 1000;
+        isPlayingRef.current = true;
+        
+        // アクティブなビデオを特定して再生開始
+        let accTime = 0;
+        for (const item of mediaItemsRef.current) {
+          if (t >= accTime && t < accTime + item.duration) {
+            if (item.type === 'video') {
+              const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
+              if (videoEl) {
+                const localTime = t - accTime;
+                const targetTime = (item.trimStart || 0) + localTime;
+                
+                // 位置を正確に設定
+                if (Math.abs(videoEl.currentTime - targetTime) > 0.05) {
+                  videoEl.currentTime = targetTime;
+                }
+                activeVideoIdRef.current = item.id;
+                
+                // 準備完了なら即再生、そうでなければ待機
+                if (videoEl.readyState >= 2 && !videoEl.seeking) {
+                  videoEl.play().catch(() => {});
+                } else {
+                  const playWhenReady = () => {
+                    if (isPlayingRef.current && videoEl.paused) {
+                      videoEl.play().catch(() => {});
+                    }
+                  };
+                  videoEl.addEventListener('canplaythrough', playWhenReady, { once: true });
+                  playbackTimeoutRef.current = setTimeout(() => {
+                    playbackTimeoutRef.current = null;
+                    if (isPlayingRef.current && videoEl.paused && videoEl.readyState >= 2) {
+                      videoEl.play().catch(() => {});
+                    }
+                  }, 1000);
+                }
+              }
+            } else {
+              activeVideoIdRef.current = null;
+            }
+            break;
+          }
+          accTime += item.duration;
+        }
+        
+        // 非アクティブなビデオをリセット
+        resetInactiveVideos();
+        
+        // ループ再開
+        const currentLoopId = loopIdRef.current;
+        reqIdRef.current = requestAnimationFrame(() => loop(false, currentLoopId));
+      };
       
-      // アクティブなビデオを特定して再生開始
+      // アクティブビデオがシーク中の場合は完了を待つ
       let accTime = 0;
       for (const item of mediaItemsRef.current) {
         if (t >= accTime && t < accTime + item.duration) {
           if (item.type === 'video') {
             const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
-            if (videoEl) {
-              const localTime = t - accTime;
-              const targetTime = (item.trimStart || 0) + localTime;
-              
-              // 位置を正確に設定
-              if (Math.abs(videoEl.currentTime - targetTime) > 0.05) {
-                videoEl.currentTime = targetTime;
-              }
-              activeVideoIdRef.current = item.id;
-              
-              // 準備完了なら即再生、そうでなければ待機
-              if (videoEl.readyState >= 2) {
-                videoEl.play().catch(() => {});
-              } else {
-                const playWhenReady = () => {
-                  if (isPlayingRef.current && videoEl.paused) {
-                    videoEl.play().catch(() => {});
-                  }
-                };
-                videoEl.addEventListener('canplaythrough', playWhenReady, { once: true });
-                playbackTimeoutRef.current = setTimeout(() => {
+            if (videoEl && videoEl.seeking) {
+              // seekedイベントを待ってから再開
+              const onSeeked = () => {
+                videoEl.removeEventListener('seeked', onSeeked);
+                if (playbackTimeoutRef.current) {
+                  clearTimeout(playbackTimeoutRef.current);
                   playbackTimeoutRef.current = null;
-                  if (isPlayingRef.current && videoEl.paused && videoEl.readyState >= 2) {
-                    videoEl.play().catch(() => {});
-                  }
-                }, 1000);
-              }
+                }
+                proceedWithPlayback();
+              };
+              videoEl.addEventListener('seeked', onSeeked);
+              // フォールバックタイムアウト（万が一イベントが発火しない場合）
+              playbackTimeoutRef.current = setTimeout(() => {
+                videoEl.removeEventListener('seeked', onSeeked);
+                playbackTimeoutRef.current = null;
+                proceedWithPlayback();
+              }, 500);
+              return;
             }
-          } else {
-            activeVideoIdRef.current = null;
           }
           break;
         }
         accTime += item.duration;
       }
       
-      // 非アクティブなビデオをリセット
-      resetInactiveVideos();
-      
-      // ループ再開
-      const currentLoopId = loopIdRef.current;
-      reqIdRef.current = requestAnimationFrame(() => loop(false, currentLoopId));
+      // シーク中でなければ即座に再生開始
+      proceedWithPlayback();
     } else {
       // 再生していなかった場合は現在位置でフレームを再描画
       renderFrame(t, false);
