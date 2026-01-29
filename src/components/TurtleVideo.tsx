@@ -1788,6 +1788,15 @@ const TurtleVideo: React.FC = () => {
     handleReloadResources(0);
   }, [stopAll, pause, setCurrentTime, handleReloadResources]);
 
+  // --- Helper: 停止付きで関数を実行 ---
+  // 目的: BGM/ナレーション追加時など、完全に停止して先頭に戻してから実行したい場合に使用
+  const withStop = useCallback(<T extends any[]>(fn: (...args: T) => void) => {
+    return (...args: T) => {
+      handleStop();
+      fn(...args);
+    };
+  }, [handleStop]);
+
   // --- エクスポート開始ハンドラ ---
   // 目的: 動画ファイルとして書き出しを開始
   const handleExport = useCallback(() => {
@@ -1876,7 +1885,7 @@ const TurtleVideo: React.FC = () => {
           isBgmLocked={isBgmLocked}
           totalDuration={totalDuration}
           onToggleBgmLock={withPause(toggleBgmLock)}
-          onBgmUpload={withPause(handleBgmUpload)}
+          onBgmUpload={withStop(handleBgmUpload)}
           onRemoveBgm={withPause(removeBgm)}
           onUpdateStartPoint={withPause((val) => handleUpdateTrackStart('bgm', val))}
           onUpdateDelay={withPause((val) => handleUpdateTrackDelay('bgm', val))}
@@ -1893,7 +1902,7 @@ const TurtleVideo: React.FC = () => {
           totalDuration={totalDuration}
           onToggleNarrationLock={withPause(toggleNarrationLock)}
           onShowAiModal={withPause(openAiModal)}
-          onNarrationUpload={withPause(handleNarrationUpload)}
+          onNarrationUpload={withStop(handleNarrationUpload)}
           onRemoveNarration={withPause(removeNarration)}
           onUpdateStartPoint={withPause((val) => handleUpdateTrackStart('narration', val))}
           onUpdateDelay={withPause((val) => handleUpdateTrackDelay('narration', val))}
