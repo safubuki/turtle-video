@@ -233,8 +233,8 @@ const TurtleVideo: React.FC = () => {
                 }
               }
               const hasFrame =
-                activeEl.readyState >= 2 && 
-                activeEl.videoWidth > 0 && 
+                activeEl.readyState >= 2 &&
+                activeEl.videoWidth > 0 &&
                 activeEl.videoHeight > 0 &&
                 !activeEl.seeking;
               if (!hasFrame) {
@@ -300,7 +300,7 @@ const TurtleVideo: React.FC = () => {
               // シーク中（スライダー操作中）の処理
               const isUserSeeking = isSeekingRef.current;
               const isVideoSeeking = videoEl.seeking;
-              
+
               if (isActivePlaying && !isUserSeeking) {
                 // 再生中かつユーザーがシーク操作していない場合
                 // 大きなズレがあれば補正
@@ -309,7 +309,7 @@ const TurtleVideo: React.FC = () => {
                 }
                 // 一時停止していれば再生開始
                 if (videoEl.paused && videoEl.readyState >= 2) {
-                  videoEl.play().catch(() => {});
+                  videoEl.play().catch(() => { });
                 }
               } else if (!isActivePlaying && !isUserSeeking) {
                 // 停止中かつユーザーがシーク操作していない場合
@@ -395,14 +395,14 @@ const TurtleVideo: React.FC = () => {
             // フォントサイズ
             const fontSizeMap = { small: 32, medium: 48, large: 64 };
             const fontSize = fontSizeMap[captionSettings.fontSize];
-            
+
             // フォントファミリー（ゴシック体: sans-serif, 明朝体: serif）
             const fontFamilyMap = {
               gothic: 'sans-serif',
               mincho: '"游明朝", "Yu Mincho", "ヒラギノ明朝 ProN", "Hiragino Mincho ProN", serif',
             };
             const fontFamily = fontFamilyMap[captionSettings.fontStyle];
-            
+
             // 位置（余白はフォントサイズに応じて調整）
             const padding = fontSize * 0.8; // フォントサイズの80%を余白として確保
             let y: number;
@@ -417,25 +417,25 @@ const TurtleVideo: React.FC = () => {
             // フェードイン・フェードアウトのアルファ値計算
             const captionDuration = activeCaption.endTime - activeCaption.startTime;
             const captionLocalTime = time - activeCaption.startTime;
-            
+
             // フェード時間を計算（短いキャプションの場合は調整）
             let effectiveFadeDuration = CAPTION_FADE_DURATION;
             if (activeCaption.fadeIn && activeCaption.fadeOut) {
               // 両方有効な場合、重複しないようにフェード時間を調整
               effectiveFadeDuration = Math.min(CAPTION_FADE_DURATION, captionDuration / 2);
             }
-            
+
             // フェードイン・フェードアウトのアルファ値を個別に計算
             let fadeInAlpha = 1.0;
             let fadeOutAlpha = 1.0;
-            
+
             if (activeCaption.fadeIn && captionLocalTime < effectiveFadeDuration) {
               fadeInAlpha = captionLocalTime / effectiveFadeDuration;
             }
             if (activeCaption.fadeOut && captionLocalTime > captionDuration - effectiveFadeDuration) {
               fadeOutAlpha = (captionDuration - captionLocalTime) / effectiveFadeDuration;
             }
-            
+
             // 両方のアルファ値を乗算して最終的な透明度を計算
             const alpha = Math.max(0, Math.min(1, fadeInAlpha * fadeOutAlpha));
 
@@ -444,13 +444,13 @@ const TurtleVideo: React.FC = () => {
             ctx.font = `bold ${fontSize}px ${fontFamily}`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            
+
             // 縁取り
             ctx.strokeStyle = captionSettings.strokeColor;
             ctx.lineWidth = captionSettings.strokeWidth * 2;
             ctx.lineJoin = 'round';
             ctx.strokeText(activeCaption.text, CANVAS_WIDTH / 2, y);
-            
+
             // 文字
             ctx.fillStyle = captionSettings.fontColor;
             ctx.fillText(activeCaption.text, CANVAS_WIDTH / 2, y);
@@ -477,7 +477,7 @@ const TurtleVideo: React.FC = () => {
                   if (Math.abs(element.currentTime - trackTime) > 0.5) {
                     element.currentTime = trackTime;
                   }
-                  if (element.paused) element.play().catch(() => {});
+                  if (element.paused) element.play().catch(() => { });
 
                   if (track.fadeIn && playDuration < 2.0) vol *= playDuration / 2.0;
                   if (track.fadeOut && time > totalDurationRef.current - 2.0)
@@ -851,7 +851,7 @@ const TurtleVideo: React.FC = () => {
               const ctx = getAudioContext();
               // AudioContextがsuspended状態の場合は復帰を試みる
               if (ctx.state === 'suspended') {
-                ctx.resume().catch(() => {});
+                ctx.resume().catch(() => { });
               }
               const source = ctx.createMediaElementSource(element as HTMLMediaElement);
               const gain = ctx.createGain();
@@ -888,7 +888,7 @@ const TurtleVideo: React.FC = () => {
     (id: string, type: 'start' | 'end', value: string) => {
       let val = parseFloat(value);
       if (isNaN(val)) val = 0;
-      
+
       // ストアを更新
       updateVideoTrim(id, type, val);
 
@@ -968,7 +968,7 @@ const TurtleVideo: React.FC = () => {
       }
       delete gainNodesRef.current[id];
     }
-    
+
     removeMediaItem(id);
     delete mediaElementsRef.current[id];
   }, [removeMediaItem]);
@@ -1085,19 +1085,19 @@ const TurtleVideo: React.FC = () => {
     loopIdRef.current += 1;
     isPlayingRef.current = false;
     activeVideoIdRef.current = null;
-    
+
     // シーク関連の状態をリセット
     isSeekingRef.current = false;
     wasPlayingBeforeSeekRef.current = false;
     seekingVideosRef.current.clear();
     pendingSeekRef.current = null;
-    
+
     // 保留中のシーク処理タイマーをクリア
     if (pendingSeekTimeoutRef.current) {
       clearTimeout(pendingSeekTimeoutRef.current);
       pendingSeekTimeoutRef.current = null;
     }
-    
+
     // アニメーションフレームをキャンセル
     if (reqIdRef.current) {
       cancelAnimationFrame(reqIdRef.current);
@@ -1166,7 +1166,7 @@ const TurtleVideo: React.FC = () => {
     resetCaptions();
     resetUI();
     setReloadKey(0);
-    
+
     if (canvasRef.current) {
       const ctx = canvasRef.current.getContext('2d');
       if (ctx) {
@@ -1180,12 +1180,13 @@ const TurtleVideo: React.FC = () => {
   // --- リソースリロード処理 ---
   // 目的: 全メディアをリロードし、オーディオノードを再構築
   // 使用タイミング: ブラックアウトやオーディオ問題発生時の復旧
+  // fullReset=trueの場合: メディア要素とAudioContextを完全に再構築（強力な復旧）
   const handleReloadResources = useCallback(
-    (targetTime: number | null = null) => {
+    (targetTime: number | null = null, fullReset: boolean = false) => {
       stopAll();
       pause();
       setProcessing(false);
-      
+
       // Properly disconnect all audio nodes before clearing them
       // This prevents Web Audio API corruption that can cause video blackout
       Object.values(sourceNodesRef.current).forEach((n) => {
@@ -1202,19 +1203,82 @@ const TurtleVideo: React.FC = () => {
           /* ignore */
         }
       });
-      
+
+      // フルリセット: AudioContextを完全に再作成し、全メディア要素を初期状態に戻す
+      if (fullReset) {
+        // AudioContextを閉じて再作成
+        if (audioCtxRef.current) {
+          try {
+            audioCtxRef.current.close();
+          } catch (e) {
+            /* ignore */
+          }
+          audioCtxRef.current = null;
+          masterDestRef.current = null;
+        }
+
+        // 全メディア要素を初期状態にリセット
+        Object.values(mediaElementsRef.current).forEach((el) => {
+          if (el) {
+            if (el.tagName === 'VIDEO') {
+              const videoEl = el as HTMLVideoElement;
+              try {
+                videoEl.pause();
+                videoEl.currentTime = 0;
+                // srcを一時的にクリアして再設定することでデコーダをリセット
+                const src = videoEl.src;
+                videoEl.src = '';
+                videoEl.load();
+                videoEl.src = src;
+                videoEl.load();
+              } catch (e) {
+                /* ignore */
+              }
+            } else if (el.tagName === 'AUDIO') {
+              const audioEl = el as HTMLAudioElement;
+              try {
+                audioEl.pause();
+                audioEl.currentTime = 0;
+                audioEl.load();
+              } catch (e) {
+                /* ignore */
+              }
+            }
+          }
+        });
+
+        // メディア要素参照をクリア（MediaResourceLoaderで再作成される）
+        mediaElementsRef.current = {};
+
+        // アクティブビデオをリセット
+        activeVideoIdRef.current = null;
+        videoRecoveryAttemptsRef.current = {};
+        seekingVideosRef.current.clear();
+      }
+
+      // reloadKeyをインクリメントしてMediaResourceLoaderを再マウント
       setReloadKey((prev) => prev + 1);
       sourceNodesRef.current = {};
       gainNodesRef.current = {};
-      showToast('リソースをリロードしました');
 
-      const t = targetTime !== null ? targetTime : currentTime;
+      const toastMsg = fullReset
+        ? 'プレビューを完全リセットしました'
+        : 'リソースをリロードしました';
+      showToast(toastMsg);
+
+      const t = targetTime !== null ? targetTime : 0;
+      setCurrentTime(t);
+      currentTimeRef.current = t;
+
+      // fullResetの場合は長めに待機してメディア要素の再構築を待つ
+      const waitTime = fullReset ? 1000 : 500;
       setTimeout(() => {
         renderFrame(t, false);
-      }, 500);
+      }, waitTime);
     },
-    [currentTime, stopAll, pause, showToast, renderFrame]
+    [currentTime, stopAll, pause, showToast, renderFrame, setCurrentTime, setProcessing]
   );
+
 
   // --- オーディオルーティング設定 ---
   // 目的: 通常再生とエクスポート時で出力先を切り替え
@@ -1244,17 +1308,17 @@ const TurtleVideo: React.FC = () => {
       if (myLoopId !== loopIdRef.current) {
         return;
       }
-      
+
       if (mediaItemsRef.current.length === 0) {
         stopAll();
         return;
       }
-      
+
       // 再生状態でなければ終了
       if (!isPlayingRef.current && !isExportMode) {
         return;
       }
-      
+
       const now = Date.now();
       const elapsed = (now - startTimeRef.current) / 1000;
 
@@ -1280,10 +1344,10 @@ const TurtleVideo: React.FC = () => {
 
       // 既存のループとメディアを停止（これでloopIdRefがインクリメントされる）
       stopAll();
-      
+
       // 新しいループIDを取得
       const myLoopId = loopIdRef.current;
-      
+
       // 状態をリセットしてから新しい状態を設定
       if (isExportMode) {
         setProcessing(true);
@@ -1300,7 +1364,7 @@ const TurtleVideo: React.FC = () => {
       Object.values(mediaElementsRef.current).forEach((el) => {
         if (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') {
           const mediaEl = el as HTMLMediaElement;
-          
+
           // readyStateが0の場合はloadを呼ぶ
           if (mediaEl.readyState === 0) {
             try {
@@ -1330,7 +1394,7 @@ const TurtleVideo: React.FC = () => {
         // 通常再生モード: 開始位置でフレームを描画してビデオ位置を同期
         setCurrentTime(fromTime);
         currentTimeRef.current = fromTime;
-        
+
         // 現在のアクティブなビデオを特定
         let t = 0;
         for (const item of mediaItemsRef.current) {
@@ -1343,16 +1407,16 @@ const TurtleVideo: React.FC = () => {
                 videoEl.currentTime = targetTime;
                 activeVideoIdRef.current = item.id;
                 // 再生を開始
-                videoEl.play().catch(() => {});
+                videoEl.play().catch(() => { });
               }
             }
             break;
           }
           t += item.duration;
         }
-        
+
         renderFrame(fromTime, false);
-        
+
         // メディア要素のシーク完了を待つ
         await new Promise((r) => setTimeout(r, 50));
       }
@@ -1410,12 +1474,12 @@ const TurtleVideo: React.FC = () => {
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const t = parseFloat(e.target.value);
       const now = Date.now();
-      
+
       // シーク開始時の処理
       if (!isSeekingRef.current) {
         wasPlayingBeforeSeekRef.current = isPlayingRef.current;
         isSeekingRef.current = true;
-        
+
         // 再生中なら一時停止
         if (isPlayingRef.current) {
           if (reqIdRef.current) {
@@ -1434,7 +1498,7 @@ const TurtleVideo: React.FC = () => {
           });
         }
       }
-      
+
       // UI更新は常に即座に実行
       setCurrentTime(t);
       currentTimeRef.current = t;
@@ -1460,21 +1524,21 @@ const TurtleVideo: React.FC = () => {
         renderFrame(t, false);
         return;
       }
-      
+
       lastSeekTimeRef.current = now;
       pendingSeekRef.current = null;
       if (pendingSeekTimeoutRef.current) {
         clearTimeout(pendingSeekTimeoutRef.current);
         pendingSeekTimeoutRef.current = null;
       }
-      
+
       // ビデオ位置を同期してフレーム描画
       syncVideoToTime(t);
       renderFrame(t, false);
     },
     [setCurrentTime, renderFrame]
   );
-  
+
   // --- ビデオ位置同期ヘルパー ---
   // 目的: 指定時刻に対応するビデオの再生位置を設定
   const syncVideoToTime = useCallback((t: number) => {
@@ -1510,37 +1574,37 @@ const TurtleVideo: React.FC = () => {
       clearTimeout(pendingSeekTimeoutRef.current);
       pendingSeekTimeoutRef.current = null;
     }
-    
+
     // 再生待機タイムアウトをクリア
     if (playbackTimeoutRef.current) {
       clearTimeout(playbackTimeoutRef.current);
       playbackTimeoutRef.current = null;
     }
-    
+
     // シーク中フラグをクリア
     seekingVideosRef.current.clear();
-    
+
     const t = currentTimeRef.current;
     const wasPlaying = wasPlayingBeforeSeekRef.current;
-    
+
     // 保留中のシークがあれば最終処理
     if (pendingSeekRef.current !== null) {
       const pendingT = pendingSeekRef.current;
       pendingSeekRef.current = null;
       syncVideoToTime(pendingT);
     }
-    
+
     // シーク状態を先にリセット（重要: 以降のrenderFrameで正しく動作させるため）
     isSeekingRef.current = false;
     wasPlayingBeforeSeekRef.current = false;
-    
+
     // シーク前に再生中だった場合は再開
     if (wasPlaying) {
       // 再生再開のための内部関数
       const proceedWithPlayback = () => {
         startTimeRef.current = Date.now() - t * 1000;
         isPlayingRef.current = true;
-        
+
         // アクティブなビデオを特定して再生開始
         let accTime = 0;
         for (const item of mediaItemsRef.current) {
@@ -1550,27 +1614,27 @@ const TurtleVideo: React.FC = () => {
               if (videoEl) {
                 const localTime = t - accTime;
                 const targetTime = (item.trimStart || 0) + localTime;
-                
+
                 // 位置を正確に設定
                 if (Math.abs(videoEl.currentTime - targetTime) > 0.05) {
                   videoEl.currentTime = targetTime;
                 }
                 activeVideoIdRef.current = item.id;
-                
+
                 // 準備完了なら即再生、そうでなければ待機
                 if (videoEl.readyState >= 2 && !videoEl.seeking) {
-                  videoEl.play().catch(() => {});
+                  videoEl.play().catch(() => { });
                 } else {
                   const playWhenReady = () => {
                     if (isPlayingRef.current && videoEl.paused) {
-                      videoEl.play().catch(() => {});
+                      videoEl.play().catch(() => { });
                     }
                   };
                   videoEl.addEventListener('canplaythrough', playWhenReady, { once: true });
                   playbackTimeoutRef.current = setTimeout(() => {
                     playbackTimeoutRef.current = null;
                     if (isPlayingRef.current && videoEl.paused && videoEl.readyState >= 2) {
-                      videoEl.play().catch(() => {});
+                      videoEl.play().catch(() => { });
                     }
                   }, 1000);
                 }
@@ -1582,15 +1646,15 @@ const TurtleVideo: React.FC = () => {
           }
           accTime += item.duration;
         }
-        
+
         // 非アクティブなビデオをリセット
         resetInactiveVideos();
-        
+
         // ループ再開
         const currentLoopId = loopIdRef.current;
         reqIdRef.current = requestAnimationFrame(() => loop(false, currentLoopId));
       };
-      
+
       // アクティブビデオがシーク中の場合は完了を待つ
       let accTime = 0;
       for (const item of mediaItemsRef.current) {
@@ -1621,7 +1685,7 @@ const TurtleVideo: React.FC = () => {
         }
         accTime += item.duration;
       }
-      
+
       // シーク中でなければ即座に再生開始
       proceedWithPlayback();
     } else {
@@ -1640,7 +1704,7 @@ const TurtleVideo: React.FC = () => {
       return;
     }
     lastToggleTimeRef.current = now;
-    
+
     if (isPlaying) {
       stopAll();
       pause();
@@ -1810,7 +1874,7 @@ const TurtleVideo: React.FC = () => {
           onStop={handleStop}
           onExport={handleExport}
           onClearAll={handleClearAll}
-          onReloadResources={() => handleReloadResources()}
+          onReloadResources={() => handleReloadResources(null, true)}
           formatTime={formatTime}
         />
       </div>
