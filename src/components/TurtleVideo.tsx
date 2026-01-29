@@ -1172,6 +1172,17 @@ const TurtleVideo: React.FC = () => {
     }
   }, []);
 
+  // --- Helper: 一時停止付きで関数を実行 ---
+  // 目的: 編集操作時に必ず一時停止を実行してから元の処理を行う
+  // 依存関係: stopAll (実行停止用), pause (UI更新用)
+  const withPause = useCallback(<T extends any[]>(fn: (...args: T) => void) => {
+    return (...args: T) => {
+      stopAll();
+      pause();
+      fn(...args);
+    };
+  }, [stopAll, pause]);
+
   // --- 全クリア処理 ---
   // 目的: 全てのメディア・オーディオ・キャプションを削除し初期状態に戻す
   const handleClearAll = useCallback(() => {
@@ -1842,21 +1853,21 @@ const TurtleVideo: React.FC = () => {
           mediaItems={mediaItems}
           isClipsLocked={isClipsLocked}
           mediaElements={mediaElementsRef.current as Record<string, HTMLVideoElement | HTMLImageElement>}
-          onToggleClipsLock={toggleClipsLock}
-          onMediaUpload={handleMediaUpload}
-          onMoveMedia={handleMoveMedia}
-          onRemoveMedia={handleRemoveMedia}
-          onToggleMediaLock={toggleItemLock}
-          onToggleTransformPanel={handleToggleTransformPanel}
-          onUpdateVideoTrim={handleUpdateVideoTrim}
-          onUpdateImageDuration={handleUpdateImageDuration}
-          onUpdateMediaScale={handleUpdateMediaScale}
-          onUpdateMediaPosition={handleUpdateMediaPosition}
-          onResetMediaSetting={handleResetMediaSetting}
-          onUpdateMediaVolume={updateVolume}
-          onToggleMediaMute={toggleMute}
-          onToggleMediaFadeIn={toggleFadeIn}
-          onToggleMediaFadeOut={toggleFadeOut}
+          onToggleClipsLock={withPause(toggleClipsLock)}
+          onMediaUpload={withPause(handleMediaUpload)}
+          onMoveMedia={withPause(handleMoveMedia)}
+          onRemoveMedia={withPause(handleRemoveMedia)}
+          onToggleMediaLock={withPause(toggleItemLock)}
+          onToggleTransformPanel={withPause(handleToggleTransformPanel)}
+          onUpdateVideoTrim={withPause(handleUpdateVideoTrim)}
+          onUpdateImageDuration={withPause(handleUpdateImageDuration)}
+          onUpdateMediaScale={withPause(handleUpdateMediaScale)}
+          onUpdateMediaPosition={withPause(handleUpdateMediaPosition)}
+          onResetMediaSetting={withPause(handleResetMediaSetting)}
+          onUpdateMediaVolume={withPause(updateVolume)}
+          onToggleMediaMute={withPause(toggleMute)}
+          onToggleMediaFadeIn={withPause(toggleFadeIn)}
+          onToggleMediaFadeOut={withPause(toggleFadeOut)}
         />
 
         {/* 2. BGM SETTINGS */}
@@ -1864,14 +1875,14 @@ const TurtleVideo: React.FC = () => {
           bgm={bgm}
           isBgmLocked={isBgmLocked}
           totalDuration={totalDuration}
-          onToggleBgmLock={toggleBgmLock}
-          onBgmUpload={handleBgmUpload}
-          onRemoveBgm={removeBgm}
-          onUpdateStartPoint={(val) => handleUpdateTrackStart('bgm', val)}
-          onUpdateDelay={(val) => handleUpdateTrackDelay('bgm', val)}
-          onUpdateVolume={(val) => handleUpdateTrackVolume('bgm', val)}
-          onToggleFadeIn={toggleBgmFadeIn}
-          onToggleFadeOut={toggleBgmFadeOut}
+          onToggleBgmLock={withPause(toggleBgmLock)}
+          onBgmUpload={withPause(handleBgmUpload)}
+          onRemoveBgm={withPause(removeBgm)}
+          onUpdateStartPoint={withPause((val) => handleUpdateTrackStart('bgm', val))}
+          onUpdateDelay={withPause((val) => handleUpdateTrackDelay('bgm', val))}
+          onUpdateVolume={withPause((val) => handleUpdateTrackVolume('bgm', val))}
+          onToggleFadeIn={withPause(toggleBgmFadeIn)}
+          onToggleFadeOut={withPause(toggleBgmFadeOut)}
           formatTime={formatTime}
         />
 
@@ -1880,15 +1891,15 @@ const TurtleVideo: React.FC = () => {
           narration={narration}
           isNarrationLocked={isNarrationLocked}
           totalDuration={totalDuration}
-          onToggleNarrationLock={toggleNarrationLock}
-          onShowAiModal={openAiModal}
-          onNarrationUpload={handleNarrationUpload}
-          onRemoveNarration={removeNarration}
-          onUpdateStartPoint={(val) => handleUpdateTrackStart('narration', val)}
-          onUpdateDelay={(val) => handleUpdateTrackDelay('narration', val)}
-          onUpdateVolume={(val) => handleUpdateTrackVolume('narration', val)}
-          onToggleFadeIn={toggleNarrationFadeIn}
-          onToggleFadeOut={toggleNarrationFadeOut}
+          onToggleNarrationLock={withPause(toggleNarrationLock)}
+          onShowAiModal={withPause(openAiModal)}
+          onNarrationUpload={withPause(handleNarrationUpload)}
+          onRemoveNarration={withPause(removeNarration)}
+          onUpdateStartPoint={withPause((val) => handleUpdateTrackStart('narration', val))}
+          onUpdateDelay={withPause((val) => handleUpdateTrackDelay('narration', val))}
+          onUpdateVolume={withPause((val) => handleUpdateTrackVolume('narration', val))}
+          onToggleFadeIn={withPause(toggleNarrationFadeIn)}
+          onToggleFadeOut={withPause(toggleNarrationFadeOut)}
           formatTime={formatTime}
         />
 
@@ -1899,14 +1910,14 @@ const TurtleVideo: React.FC = () => {
           isLocked={isCaptionLocked}
           totalDuration={totalDuration}
           currentTime={currentTime}
-          onToggleLock={toggleCaptionLock}
-          onAddCaption={addCaption}
-          onUpdateCaption={updateCaption}
-          onRemoveCaption={removeCaption}
-          onSetEnabled={setCaptionEnabled}
-          onSetFontSize={setCaptionFontSize}
-          onSetFontStyle={setCaptionFontStyle}
-          onSetPosition={setCaptionPosition}
+          onToggleLock={withPause(toggleCaptionLock)}
+          onAddCaption={withPause(addCaption)}
+          onUpdateCaption={withPause(updateCaption)}
+          onRemoveCaption={withPause(removeCaption)}
+          onSetEnabled={withPause(setCaptionEnabled)}
+          onSetFontSize={withPause(setCaptionFontSize)}
+          onSetFontStyle={withPause(setCaptionFontStyle)}
+          onSetPosition={withPause(setCaptionPosition)}
         />
 
         {/* 5. PREVIEW */}
