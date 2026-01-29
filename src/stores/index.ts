@@ -14,3 +14,7 @@ export { useUIStore } from './uiStore';
 
 // Caption Store
 export { useCaptionStore } from './captionStore';
+
+// Log Store
+export { useLogStore } from './logStore';
+export type { LogEntry, LogLevel, LogCategory } from './logStore';

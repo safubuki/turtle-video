@@ -16,7 +16,7 @@ import {
 } from '../constants';
 
 // Zustand Stores
-import { useMediaStore, useAudioStore, useUIStore, useCaptionStore } from '../stores';
+import { useMediaStore, useAudioStore, useUIStore, useCaptionStore, useLogStore } from '../stores';
 
 // コンポーネント
 import Toast from './common/Toast';
@@ -133,6 +133,12 @@ const TurtleVideo: React.FC = () => {
   const toggleCaptionLock = useCaptionStore((s) => s.toggleLock);
   const resetCaptions = useCaptionStore((s) => s.resetCaptions);
 
+  // Log Store
+  const logInfo = useLogStore((s) => s.info);
+  const logWarn = useLogStore((s) => s.warn);
+  const logError = useLogStore((s) => s.error);
+  const logDebug = useLogStore((s) => s.debug);
+
   // === Local State ===
   const [reloadKey, setReloadKey] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
@@ -239,6 +245,13 @@ const TurtleVideo: React.FC = () => {
                 !activeEl.seeking;
               if (!hasFrame) {
                 holdFrame = true;
+                // ブラックアウト防止発動をログ
+                logWarn('RENDER', 'フレーム保持発動', {
+                  videoId: activeId,
+                  readyState: activeEl.readyState,
+                  seeking: activeEl.seeking,
+                  currentTime: t
+                });
               }
             }
           }
@@ -817,11 +830,20 @@ const TurtleVideo: React.FC = () => {
         if (ctx.state === 'suspended') ctx.resume().catch(console.error);
         clearExport();
         addMediaItems(files);
+        // メディア追加をログ
+        files.forEach(file => {
+          logInfo('MEDIA', `メディア追加: ${file.name}`, {
+            type: file.type.startsWith('video/') ? 'video' : 'image',
+            fileName: file.name,
+            fileSize: file.size
+          });
+        });
       } catch (err) {
         setError('メディアの読み込みエラー');
+        logError('MEDIA', 'メディア読み込みエラー', { error: String(err) });
       }
     },
-    [getAudioContext, clearExport, addMediaItems, setError]
+    [getAudioContext, clearExport, addMediaItems, setError, logInfo, logError]
   );
 
   // MediaResourceLoaderコールバック
@@ -1266,6 +1288,17 @@ const TurtleVideo: React.FC = () => {
         : 'リソースをリロードしました';
       showToast(toastMsg);
 
+      // リロード実行をログ
+      if (fullReset) {
+        logWarn('SYSTEM', 'プレビュー完全リセット', {
+          mediaCount: mediaItemsRef.current.length,
+          hasBgm: !!bgmRef.current,
+          hasNarration: !!narrationRef.current
+        });
+      } else {
+        logInfo('SYSTEM', 'リソースリロード', { targetTime });
+      }
+
       const t = targetTime !== null ? targetTime : 0;
       setCurrentTime(t);
       currentTimeRef.current = t;
@@ -1479,6 +1512,7 @@ const TurtleVideo: React.FC = () => {
       if (!isSeekingRef.current) {
         wasPlayingBeforeSeekRef.current = isPlayingRef.current;
         isSeekingRef.current = true;
+        logDebug('RENDER', 'シーク開始', { fromTime: currentTimeRef.current, toTime: t });
 
         // 再生中なら一時停止
         if (isPlayingRef.current) {
