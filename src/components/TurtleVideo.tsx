@@ -138,6 +138,7 @@ const TurtleVideo: React.FC = () => {
   const logWarn = useLogStore((s) => s.warn);
   const logError = useLogStore((s) => s.error);
   const logDebug = useLogStore((s) => s.debug);
+  const updateMemoryStats = useLogStore((s) => s.updateMemoryStats);
 
   // === Local State ===
   const [reloadKey, setReloadKey] = useState(0);
@@ -173,6 +174,18 @@ const TurtleVideo: React.FC = () => {
   const wasPlayingBeforeSeekRef = useRef(false); // シーク前の再生状態を保持
   const pendingSeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 保留中のシーク処理用タイマー
   const playbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 再生開始待機用タイマー
+
+  // --- メモリ監視（10秒ごと） ---
+  useEffect(() => {
+    // 初回実行
+    updateMemoryStats();
+
+    const intervalId = setInterval(() => {
+      updateMemoryStats();
+    }, 10000); // 10秒ごと
+
+    return () => clearInterval(intervalId);
+  }, [updateMemoryStats]);
 
   // --- Helper: 非アクティブなビデオを開始位置にリセット ---
   const resetInactiveVideos = useCallback(() => {
@@ -846,7 +859,6 @@ const TurtleVideo: React.FC = () => {
     [getAudioContext, clearExport, addMediaItems, setError, logInfo, logError]
   );
 
-  // MediaResourceLoaderコールバック
   const handleMediaElementLoaded = useCallback(
     (id: string, element: HTMLVideoElement | HTMLImageElement | HTMLAudioElement) => {
       if (element.tagName === 'VIDEO') {
@@ -854,10 +866,17 @@ const TurtleVideo: React.FC = () => {
         const duration = videoEl.duration;
         if (!isNaN(duration) && duration !== Infinity) {
           setVideoDuration(id, duration);
+          // ビデオロード完了をログ
+          logInfo('MEDIA', `ビデオロード完了: ${id.substring(0, 8)}...`, {
+            duration: Math.round(duration * 10) / 10,
+            readyState: videoEl.readyState,
+            videoWidth: videoEl.videoWidth,
+            videoHeight: videoEl.videoHeight
+          });
         }
       }
     },
-    [setVideoDuration]
+    [setVideoDuration, logInfo]
   );
 
   const handleMediaRefAssign = useCallback(

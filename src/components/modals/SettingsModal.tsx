@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   X, Key, Eye, EyeOff, ExternalLink, CheckCircle, AlertCircle,
-  FileText, Copy, Download, Trash2, CheckCircle2, AlertTriangle
+  FileText, Copy, Download, Trash2, CheckCircle2, Cpu, RefreshCw
 } from 'lucide-react';
-import { useLogStore } from '../../stores';
-import type { LogEntry } from '../../stores';
+import { useLogStore, getSystemInfo } from '../../stores';
+import type { LogEntry, SystemInfo } from '../../stores';
 
 // アプリバージョン
 export const APP_VERSION = '1.6.0';
@@ -42,7 +42,7 @@ export function setStoredApiKey(key: string): void {
   }
 }
 
-type TabType = 'apikey' | 'logs';
+type TabType = 'apikey' | 'logs' | 'system';
 
 /**
  * ログレベルに応じた色を返す
@@ -80,6 +80,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const logContainerRef = useRef<HTMLDivElement>(null);
 
   // Log Store
@@ -88,6 +89,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const clearLogs = useLogStore((s) => s.clearLogs);
   const clearErrorFlag = useLogStore((s) => s.clearErrorFlag);
   const exportLogs = useLogStore((s) => s.exportLogs);
+  const memoryStats = useLogStore((s) => s.memoryStats);
+  const updateMemoryStats = useLogStore((s) => s.updateMemoryStats);
+  const clearMemoryStats = useLogStore((s) => s.clearMemoryStats);
 
   useEffect(() => {
     if (isOpen) {
@@ -197,7 +201,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
         <div className="flex border-b border-gray-700 shrink-0">
           <button
             onClick={() => setActiveTab('apikey')}
-            className={`flex-1 py-3 px-4 text-sm font-bold flex items-center justify-center gap-2 transition ${activeTab === 'apikey'
+            className={`flex-1 py-3 px-2 text-xs font-bold flex items-center justify-center gap-1 transition ${activeTab === 'apikey'
               ? 'text-white border-b-2 border-blue-500 bg-gray-800/50'
               : 'text-gray-400 hover:text-white hover:bg-gray-800/30'
               }`}
@@ -207,7 +211,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
           </button>
           <button
             onClick={() => { setActiveTab('logs'); clearErrorFlag(); }}
-            className={`flex-1 py-3 px-4 text-sm font-bold flex items-center justify-center gap-2 transition ${activeTab === 'logs'
+            className={`flex-1 py-3 px-2 text-xs font-bold flex items-center justify-center gap-1 transition ${activeTab === 'logs'
               ? 'text-white border-b-2 border-blue-500 bg-gray-800/50'
               : 'text-gray-400 hover:text-white hover:bg-gray-800/30'
               }`}
@@ -217,6 +221,16 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
             {hasError && activeTab !== 'logs' && (
               <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
             )}
+          </button>
+          <button
+            onClick={() => { setActiveTab('system'); setSystemInfo(getSystemInfo()); }}
+            className={`flex-1 py-3 px-2 text-xs font-bold flex items-center justify-center gap-1 transition ${activeTab === 'system'
+              ? 'text-white border-b-2 border-blue-500 bg-gray-800/50'
+              : 'text-gray-400 hover:text-white hover:bg-gray-800/30'
+              }`}
+          >
+            <Cpu className="w-4 h-4" />
+            システム
           </button>
         </div>
 
@@ -311,14 +325,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                 </button>
               </div>
             </div>
-          ) : (
+          ) : activeTab === 'logs' ? (
             /* ログタブ */
             <div className="flex flex-col flex-1 overflow-hidden">
               {/* ステータス */}
               <div className="p-3 border-b border-gray-700 shrink-0">
                 <div className={`flex items-center gap-3 p-3 rounded-lg ${errorCount > 0 ? 'bg-red-500/10 border border-red-500/30' :
-                  warnCount > 0 ? 'bg-yellow-500/10 border border-yellow-500/30' :
-                    'bg-green-500/10 border border-green-500/30'
+                  'bg-green-500/10 border border-green-500/30'
                   }`}>
                   {errorCount > 0 ? (
                     <>
@@ -326,16 +339,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                       <div>
                         <p className="font-bold text-red-400">エラー発生</p>
                         <p className="text-xs text-gray-400">
-                          エラー: {errorCount}件 / 警告: {warnCount}件
+                          エラー: {errorCount}件 / ワーニング: {warnCount}件
                         </p>
-                      </div>
-                    </>
-                  ) : warnCount > 0 ? (
-                    <>
-                      <AlertTriangle className="w-5 h-5 text-yellow-400" />
-                      <div>
-                        <p className="font-bold text-yellow-400">警告あり</p>
-                        <p className="text-xs text-gray-400">警告: {warnCount}件</p>
                       </div>
                     </>
                   ) : (
@@ -343,7 +348,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                       <CheckCircle2 className="w-5 h-5 text-green-400" />
                       <div>
                         <p className="font-bold text-green-400">正常動作中</p>
-                        <p className="text-xs text-gray-400">ログ: {entries.length}件</p>
+                        <p className="text-xs text-gray-400">
+                          ログ: {entries.length}件
+                          {warnCount > 0 && <span className="text-yellow-400 ml-2">（ワーニングあり: {warnCount}件）</span>}
+                        </p>
                       </div>
                     </>
                   )}
@@ -416,7 +424,139 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                 </button>
               </div>
             </div>
-          )}
+          ) : activeTab === 'system' ? (
+            /* システムタブ */
+            <div className="p-4 space-y-4 overflow-y-auto">
+              {/* 更新ボタン */}
+              <div className="flex justify-end">
+                <button
+                  onClick={() => setSystemInfo(getSystemInfo())}
+                  className="flex items-center gap-2 bg-gray-700 hover:bg-gray-600 text-white py-2 px-3 rounded-lg text-sm font-bold transition"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  更新
+                </button>
+              </div>
+
+              {systemInfo && (
+                <>
+                  {/* デバイス情報 */}
+                  <div className="bg-gray-800/50 rounded-lg p-4 space-y-3">
+                    <h3 className="font-bold text-sm flex items-center gap-2">
+                      <Cpu className="w-4 h-4 text-blue-400" />
+                      デバイス情報
+                    </h3>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div className="text-gray-400">デバイス</div>
+                      <div className={systemInfo.isMobile ? 'text-yellow-400' : 'text-green-400'}>
+                        {systemInfo.isMobile ? 'モバイル' : 'デスクトップ'}
+                      </div>
+                      <div className="text-gray-400">プラットフォーム</div>
+                      <div className="text-gray-200">{systemInfo.platform}</div>
+                      <div className="text-gray-400">CPUコア数</div>
+                      <div className="text-gray-200">
+                        {systemInfo.hardwareConcurrency ?? '不明'}
+                      </div>
+                      <div className="text-gray-400">デバイスメモリ</div>
+                      <div className="text-gray-200">
+                        {systemInfo.deviceMemory ? `${systemInfo.deviceMemory} GB` : '不明'}
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2">
+                      ※ブラウザAPIの制限により概算値（上限8GB）
+                    </p>
+                  </div>
+
+                  {/* メモリ使用量（Chrome限定） */}
+                  {systemInfo.jsHeapUsed !== null && (
+                    <div className="bg-gray-800/50 rounded-lg p-4 space-y-3">
+                      <div className="flex justify-between items-center">
+                        <h3 className="font-bold text-sm">📊 JSヒープメモリ</h3>
+                        <button
+                          onClick={() => { updateMemoryStats(); setSystemInfo(getSystemInfo()); }}
+                          className="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded transition"
+                        >
+                          更新
+                        </button>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-400">現在使用中</span>
+                          <span className="text-gray-200">{memoryStats.currentHeapUsed ?? systemInfo.jsHeapUsed} MB</span>
+                        </div>
+                        <div className="w-full bg-gray-700 rounded-full h-2">
+                          <div
+                            className={`h-2 rounded-full transition-all ${(systemInfo.jsHeapUsed / (systemInfo.jsHeapLimit || 1)) > 0.8
+                              ? 'bg-red-500'
+                              : (systemInfo.jsHeapUsed / (systemInfo.jsHeapLimit || 1)) > 0.5
+                                ? 'bg-yellow-500'
+                                : 'bg-green-500'
+                              }`}
+                            style={{
+                              width: `${Math.min(100, (systemInfo.jsHeapUsed / (systemInfo.jsHeapLimit || 1)) * 100)}%`
+                            }}
+                          />
+                        </div>
+                        <div className="flex justify-between text-xs text-gray-500">
+                          <span>0 MB</span>
+                          <span>総量: {systemInfo.jsHeapTotal} MB</span>
+                          <span>制限: {systemInfo.jsHeapLimit} MB</span>
+                        </div>
+                      </div>
+
+                      {/* 最大使用量 */}
+                      <div className="border-t border-gray-700 pt-3 mt-3 space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-400">📈 最大使用量</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-orange-400">{memoryStats.maxHeapUsed} MB</span>
+                            <button
+                              onClick={clearMemoryStats}
+                              className="text-xs bg-red-600/50 hover:bg-red-600 px-2 py-1 rounded transition"
+                            >
+                              クリア
+                            </button>
+                          </div>
+                        </div>
+                        {memoryStats.maxHeapRecordedAt && (
+                          <p className="text-xs text-gray-500">
+                            記録日時: {new Date(memoryStats.maxHeapRecordedAt).toLocaleString()}
+                          </p>
+                        )}
+                        <p className="text-xs text-gray-500">
+                          監視開始: {new Date(memoryStats.monitoringStartedAt).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ユーザーエージェント */}
+                  <div className="bg-gray-800/50 rounded-lg p-4 space-y-2">
+                    <h3 className="font-bold text-sm">🌐 ブラウザ情報</h3>
+                    <p className="text-xs text-gray-400 break-all">{systemInfo.userAgent}</p>
+                  </div>
+
+                  {/* モバイル警告 */}
+                  {systemInfo.isMobile && (
+                    <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+                      <p className="text-sm text-yellow-400 font-bold">⚠️ モバイルデバイス</p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        モバイルブラウザではビデオデコーダーの制限により、複数の動画を同時に処理すると
+                        フリーズや黒画面が発生する場合があります。問題が発生した場合は、リロードボタン（🔄）を
+                        お試しください。
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {!systemInfo && (
+                <div className="text-center text-gray-500 py-8">
+                  「更新」ボタンを押してシステム情報を取得
+                </div>
+              )}
+            </div>
+          ) : null}
         </div>
 
         {/* バージョン情報 */}

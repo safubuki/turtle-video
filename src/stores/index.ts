@@ -16,5 +16,5 @@ export { useUIStore } from './uiStore';
 export { useCaptionStore } from './captionStore';
 
 // Log Store
-export { useLogStore } from './logStore';
-export type { LogEntry, LogLevel, LogCategory } from './logStore';
+export { useLogStore, getSystemInfo } from './logStore';
+export type { LogEntry, LogLevel, LogCategory, SystemInfo, MemoryStats } from './logStore';
