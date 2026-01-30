@@ -1335,11 +1335,65 @@ const TurtleVideo: React.FC = () => {
       setCurrentTime(t);
       currentTimeRef.current = t;
 
-      // fullResetの場合は長めに待機してメディア要素の再構築を待つ
-      const waitTime = fullReset ? 1000 : 500;
-      setTimeout(() => {
-        renderFrame(t, false);
-      }, waitTime);
+      // ビデオ読み込み完了を待って描画（固定待機ではなくイベントベース）
+      const waitForVideosAndRender = () => {
+        // 基本待機時間（メディア要素の再生成を待つ）
+        const baseDelay = fullReset ? 500 : 200;
+
+        setTimeout(() => {
+          const videoElements = Object.values(mediaElementsRef.current)
+            .filter(el => el?.tagName === 'VIDEO') as HTMLVideoElement[];
+
+          // ビデオがない場合は即描画
+          if (videoElements.length === 0) {
+            renderFrame(t, false);
+            return;
+          }
+
+          // 最初のビデオ要素を取得
+          const firstVideo = videoElements[0];
+
+          // 既に準備完了ならすぐ描画
+          if (firstVideo && firstVideo.readyState >= 2) {
+            logDebug('RENDER', 'ビデオ準備完了（即座）', { readyState: firstVideo.readyState });
+            renderFrame(t, false);
+            return;
+          }
+
+          // まだ準備できていない場合はイベントを待つ（タイムアウト5秒）
+          const LOAD_TIMEOUT_MS = 5000;
+          let resolved = false;
+
+          const timeoutId = setTimeout(() => {
+            if (resolved) return;
+            resolved = true;
+            logWarn('RENDER', 'ビデオ読み込みタイムアウト', {
+              readyState: firstVideo?.readyState ?? 'N/A',
+              timeout: LOAD_TIMEOUT_MS
+            });
+            renderFrame(t, false); // タイムアウト時も描画を試みる
+          }, LOAD_TIMEOUT_MS);
+
+          const onLoaded = () => {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(timeoutId);
+            logDebug('RENDER', 'ビデオ準備完了（イベント）', { readyState: firstVideo.readyState });
+            renderFrame(t, false);
+          };
+
+          if (firstVideo) {
+            firstVideo.addEventListener('loadeddata', onLoaded, { once: true });
+            // canplaythrough も監視（より確実）
+            firstVideo.addEventListener('canplaythrough', onLoaded, { once: true });
+          } else {
+            // firstVideoがnullの場合は遅延後に描画
+            renderFrame(t, false);
+          }
+        }, baseDelay);
+      };
+
+      waitForVideosAndRender();
     },
     [currentTime, stopAll, pause, showToast, renderFrame, setCurrentTime, setProcessing]
   );
