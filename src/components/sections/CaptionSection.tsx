@@ -52,25 +52,24 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
 
   const handleAddCaption = () => {
     if (!newText.trim()) return;
-    
-    // 最後のキャプションの終了時刻から開始、なければ0から
-    const lastCaption = captions[captions.length - 1];
-    let startTime = lastCaption ? lastCaption.endTime : 0;
-    
+
+    // 現在のスライドバー位置（currentTime）から開始
+    let startTime = currentTime;
+
     // 境界値チェック: startTimeがtotalDurationを超えないようにする
     if (startTime >= totalDuration) {
-      // 動画の終わりに達している場合、最後の0.5秒前から開始
-      startTime = Math.max(0, totalDuration - 0.5);
+      // 動画の終わりに達している場合、最後の3秒前から開始
+      startTime = Math.max(0, totalDuration - 3);
     }
-    
-    // endTimeは最低0.1秒確保、totalDurationを超えない
-    const endTime = Math.min(Math.max(startTime + 3, startTime + 0.1), totalDuration);
-    
+
+    // endTimeは3秒後、ただしtotalDurationを超えない
+    const endTime = Math.min(startTime + 3, totalDuration);
+
     // startTimeとendTimeが同じ（または逆転）にならないようにする
     if (endTime <= startTime) {
       return; // 追加できる余地がない
     }
-    
+
     onAddCaption(newText.trim(), startTime, endTime);
     setNewText('');
   };
@@ -115,11 +114,10 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
           {/* 表示/非表示トグル */}
           <button
             onClick={() => onSetEnabled(!settings.enabled)}
-            className={`p-1.5 rounded transition ${
-              settings.enabled
+            className={`p-1.5 rounded transition ${settings.enabled
                 ? 'bg-yellow-500/20 text-yellow-400'
                 : 'bg-gray-700 text-gray-400 hover:text-white'
-            }`}
+              }`}
             title={settings.enabled ? 'キャプションを非表示' : 'キャプションを表示'}
           >
             {settings.enabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
@@ -127,11 +125,10 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
           {/* ロック */}
           <button
             onClick={onToggleLock}
-            className={`p-1.5 rounded transition ${
-              isLocked
+            className={`p-1.5 rounded transition ${isLocked
                 ? 'bg-red-500/20 text-red-400'
                 : 'bg-gray-700 text-gray-400 hover:text-white'
-            }`}
+              }`}
           >
             {isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
           </button>
@@ -168,11 +165,10 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                         key={opt.value}
                         onClick={() => onSetFontSize(opt.value)}
                         disabled={isLocked}
-                        className={`px-2 py-1 rounded transition ${
-                          settings.fontSize === opt.value
+                        className={`px-2 py-1 rounded transition ${settings.fontSize === opt.value
                             ? 'bg-yellow-500 text-gray-900'
                             : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                        } disabled:opacity-50`}
+                          } disabled:opacity-50`}
                       >
                         {opt.label}
                       </button>
@@ -188,11 +184,10 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                         key={opt.value}
                         onClick={() => onSetFontStyle(opt.value)}
                         disabled={isLocked}
-                        className={`px-2 py-1 rounded transition ${
-                          settings.fontStyle === opt.value
+                        className={`px-2 py-1 rounded transition ${settings.fontStyle === opt.value
                             ? 'bg-yellow-500 text-gray-900'
                             : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                        } disabled:opacity-50`}
+                          } disabled:opacity-50`}
                       >
                         {opt.label}
                       </button>
@@ -208,11 +203,10 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                         key={opt.value}
                         onClick={() => onSetPosition(opt.value)}
                         disabled={isLocked}
-                        className={`px-2 py-1 rounded transition ${
-                          settings.position === opt.value
+                        className={`px-2 py-1 rounded transition ${settings.position === opt.value
                             ? 'bg-yellow-500 text-gray-900'
                             : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                        } disabled:opacity-50`}
+                          } disabled:opacity-50`}
                       >
                         {opt.label}
                       </button>

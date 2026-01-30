@@ -63,7 +63,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
       <div className="p-3 border-b border-gray-800 bg-gray-850 flex items-center justify-between">
         <h2 className="font-bold flex items-center gap-2 text-green-400">
           <span className="w-6 h-6 rounded-full bg-green-500/10 flex items-center justify-center text-xs">
-            4
+            5
           </span>{' '}
           プレビュー
         </h2>
