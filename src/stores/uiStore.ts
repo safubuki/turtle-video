@@ -18,6 +18,7 @@ interface UIState {
 
   // Processing & Export
   isProcessing: boolean;
+  isLoading: boolean;  // リソース読み込み中フラグ
   exportUrl: string | null;
   exportExt: ExportFormat;
 
@@ -44,6 +45,7 @@ interface UIState {
 
   // Actions - Processing & Export
   setProcessing: (processing: boolean) => void;
+  setLoading: (loading: boolean) => void;
   setExportUrl: (url: string | null) => void;
   setExportExt: (ext: ExportFormat) => void;
   clearExport: () => void;
@@ -74,6 +76,7 @@ export const useUIStore = create<UIState>()(
       isPlaying: false,
       currentTime: 0,
       isProcessing: false,
+      isLoading: false,
       exportUrl: null,
       exportExt: 'mp4' as const,
       showAiModal: false,
@@ -89,7 +92,7 @@ export const useUIStore = create<UIState>()(
           clearTimeout(toastTimerId);
         }
         set({ toastMessage: message });
-        
+
         toastTimerId = window.setTimeout(() => {
           set({ toastMessage: '' });
           toastTimerId = undefined;
@@ -136,6 +139,10 @@ export const useUIStore = create<UIState>()(
       // === Processing & Export Actions ===
       setProcessing: (processing) => {
         set({ isProcessing: processing });
+      },
+
+      setLoading: (loading) => {
+        set({ isLoading: loading });
       },
 
       setExportUrl: (url) => {

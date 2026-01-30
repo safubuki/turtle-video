@@ -21,6 +21,7 @@ interface PreviewSectionProps {
   totalDuration: number;
   isPlaying: boolean;
   isProcessing: boolean;
+  isLoading: boolean;  // リソース読み込み中フラグ
   exportUrl: string | null;
   exportExt: string | null;
   onSeekChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -45,6 +46,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   totalDuration,
   isPlaying,
   isProcessing,
+  isLoading,
   exportUrl,
   exportExt,
   onSeekChange,
@@ -92,7 +94,16 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
             <MonitorPlay className="w-12 h-12 text-gray-800" />
           </div>
         )}
-        {!isPlaying && !isProcessing && mediaItems.length > 0 && (
+        {/* ローディングオーバーレイ */}
+        {isLoading && mediaItems.length > 0 && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50 pointer-events-none">
+            <div className="flex flex-col items-center gap-2">
+              <Loader className="w-8 h-8 text-blue-400 animate-spin" />
+              <span className="text-xs text-gray-300">読み込み中...</span>
+            </div>
+          </div>
+        )}
+        {!isPlaying && !isProcessing && !isLoading && mediaItems.length > 0 && (
           <button
             onClick={onTogglePlay}
             className="absolute inset-0 m-auto w-14 h-14 bg-white/20 hover:bg-white/30 backdrop-blur rounded-full flex items-center justify-center text-white transition-transform active:scale-95"
@@ -144,17 +155,17 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
         <div className="mt-4 flex justify-center gap-4 border-b border-gray-800 pb-6">
           <button
             onClick={onStop}
-            disabled={mediaItems.length === 0}
+            disabled={mediaItems.length === 0 || isLoading}
             className="p-3 rounded-full bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white transition shadow-lg disabled:opacity-50"
           >
             <Square className="w-5 h-5 fill-current" />
           </button>
           <button
             onClick={onTogglePlay}
-            disabled={mediaItems.length === 0}
-            className={`p-3 rounded-full transition shadow-lg ${isPlaying ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-blue-600 text-white hover:bg-blue-500'}`}
+            disabled={mediaItems.length === 0 || isLoading}
+            className={`p-3 rounded-full transition shadow-lg ${isLoading ? 'bg-gray-700 text-gray-400 cursor-wait' : isPlaying ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-blue-600 text-white hover:bg-blue-500'}`}
           >
-            {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
+            {isLoading ? <Loader className="w-5 h-5 animate-spin" /> : isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
           </button>
         </div>
         <div className="mt-6 flex flex-col gap-4">

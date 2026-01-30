@@ -107,6 +107,8 @@ const TurtleVideo: React.FC = () => {
   const pause = useUIStore((s) => s.pause);
   const setCurrentTime = useUIStore((s) => s.setCurrentTime);
   const setProcessing = useUIStore((s) => s.setProcessing);
+  const setLoading = useUIStore((s) => s.setLoading);
+  const isLoading = useUIStore((s) => s.isLoading);
   const setExportUrl = useUIStore((s) => s.setExportUrl);
   const setExportExt = useUIStore((s) => s.setExportExt);
   const clearExport = useUIStore((s) => s.clearExport);
@@ -1237,6 +1239,9 @@ const TurtleVideo: React.FC = () => {
   // fullReset=trueの場合: メディア要素とAudioContextを完全に再構築（強力な復旧）
   const handleReloadResources = useCallback(
     (targetTime: number | null = null, fullReset: boolean = false) => {
+      // 読み込み中フラグを立てる（UIで再生ボタンを無効化）
+      setLoading(true);
+
       stopAll();
       pause();
       setProcessing(false);
@@ -1346,6 +1351,7 @@ const TurtleVideo: React.FC = () => {
 
           // ビデオがない場合は即描画
           if (videoElements.length === 0) {
+            setLoading(false);
             renderFrame(t, false);
             return;
           }
@@ -1356,6 +1362,7 @@ const TurtleVideo: React.FC = () => {
           // 既に準備完了ならすぐ描画
           if (firstVideo && firstVideo.readyState >= 2) {
             logDebug('RENDER', 'ビデオ準備完了（即座）', { readyState: firstVideo.readyState });
+            setLoading(false);
             renderFrame(t, false);
             return;
           }
@@ -1371,6 +1378,7 @@ const TurtleVideo: React.FC = () => {
               readyState: firstVideo?.readyState ?? 'N/A',
               timeout: LOAD_TIMEOUT_MS
             });
+            setLoading(false);
             renderFrame(t, false); // タイムアウト時も描画を試みる
           }, LOAD_TIMEOUT_MS);
 
@@ -1379,6 +1387,7 @@ const TurtleVideo: React.FC = () => {
             resolved = true;
             clearTimeout(timeoutId);
             logDebug('RENDER', 'ビデオ準備完了（イベント）', { readyState: firstVideo.readyState });
+            setLoading(false);
             renderFrame(t, false);
           };
 
@@ -1388,6 +1397,7 @@ const TurtleVideo: React.FC = () => {
             firstVideo.addEventListener('canplaythrough', onLoaded, { once: true });
           } else {
             // firstVideoがnullの場合は遅延後に描画
+            setLoading(false);
             renderFrame(t, false);
           }
         }, baseDelay);
@@ -1395,7 +1405,7 @@ const TurtleVideo: React.FC = () => {
 
       waitForVideosAndRender();
     },
-    [currentTime, stopAll, pause, showToast, renderFrame, setCurrentTime, setProcessing]
+    [currentTime, stopAll, pause, showToast, renderFrame, setCurrentTime, setProcessing, setLoading, logDebug, logWarn]
   );
 
 
@@ -2005,6 +2015,7 @@ const TurtleVideo: React.FC = () => {
           totalDuration={totalDuration}
           isPlaying={isPlaying}
           isProcessing={isProcessing}
+          isLoading={isLoading}
           exportUrl={exportUrl}
           exportExt={exportExt}
           onSeekChange={handleSeekChange}
