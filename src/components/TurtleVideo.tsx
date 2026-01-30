@@ -1460,6 +1460,7 @@ const TurtleVideo: React.FC = () => {
         return;
       }
       setCurrentTime(elapsed);
+      currentTimeRef.current = elapsed;
       renderFrame(elapsed, true, isExportMode);
       reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
     },
