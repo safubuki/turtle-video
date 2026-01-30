@@ -1122,6 +1122,8 @@ const TurtleVideo: React.FC = () => {
   // 目的: すべての再生を停止し、状態をリセット
   // 注意: ループID、シーク状態、アニメーションフレーム、メディア要素を全て解放
   const stopAll = useCallback(() => {
+    logDebug('SYSTEM', 'stopAll呼び出し', { previousLoopId: loopIdRef.current, isPlayingRef: isPlayingRef.current });
+
     // ループIDをインクリメントして古いループを無効化
     loopIdRef.current += 1;
     isPlayingRef.current = false;
@@ -1369,16 +1371,19 @@ const TurtleVideo: React.FC = () => {
     (isExportMode: boolean, myLoopId: number) => {
       // このループが無効化されていたら終了
       if (myLoopId !== loopIdRef.current) {
+        logDebug('RENDER', 'ループ終了（loopId不一致）', { myLoopId, currentLoopId: loopIdRef.current });
         return;
       }
 
       if (mediaItemsRef.current.length === 0) {
+        logWarn('RENDER', 'ループ終了（メディアなし）', {});
         stopAll();
         return;
       }
 
       // 再生状態でなければ終了
       if (!isPlayingRef.current && !isExportMode) {
+        logWarn('RENDER', 'ループ終了（再生状態でない）', { isPlayingRef: isPlayingRef.current, isExportMode });
         return;
       }
 
@@ -1394,7 +1399,7 @@ const TurtleVideo: React.FC = () => {
       renderFrame(elapsed, true, isExportMode);
       reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
     },
-    [stopAll, pause, setCurrentTime, renderFrame]
+    [stopAll, pause, setCurrentTime, renderFrame, logDebug, logWarn]
   );
 
   // --- エンジン起動処理 ---
@@ -1402,14 +1407,21 @@ const TurtleVideo: React.FC = () => {
   // 処理: AudioContext復帰→メディア準備→ループ開始
   const startEngine = useCallback(
     async (fromTime: number, isExportMode: boolean) => {
+      logInfo('AUDIO', 'エンジン起動開始', { fromTime, isExportMode });
+
       const ctx = getAudioContext();
-      if (ctx.state === 'suspended') await ctx.resume();
+      logDebug('AUDIO', 'AudioContext状態', { state: ctx.state });
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+        logInfo('AUDIO', 'AudioContext再開', { newState: ctx.state });
+      }
 
       // 既存のループとメディアを停止（これでloopIdRefがインクリメントされる）
       stopAll();
 
       // 新しいループIDを取得
       const myLoopId = loopIdRef.current;
+      logDebug('RENDER', 'ループID取得', { myLoopId });
 
       // 状態をリセットしてから新しい状態を設定
       if (isExportMode) {

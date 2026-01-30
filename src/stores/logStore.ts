@@ -10,7 +10,7 @@ import { devtools } from 'zustand/middleware';
 export type LogLevel = 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
 
 // ログカテゴリ
-export type LogCategory = 'MEDIA' | 'RENDER' | 'AUDIO' | 'SYSTEM';
+export type LogCategory = 'MEDIA' | 'RENDER' | 'AUDIO' | 'SYSTEM' | 'GLOBAL';
 
 // ログエントリ
 export interface LogEntry {
