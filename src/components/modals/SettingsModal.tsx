@@ -7,7 +7,7 @@ import { useLogStore, getSystemInfo } from '../../stores';
 import type { LogEntry, SystemInfo } from '../../stores';
 
 // アプリバージョン
-export const APP_VERSION = '1.7.0';
+export const APP_VERSION = '1.8.0';
 
 interface SettingsModalProps {
   isOpen: boolean;
