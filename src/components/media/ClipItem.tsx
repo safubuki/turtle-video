@@ -111,7 +111,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
           <button
             onClick={onMoveUp}
             disabled={i === 0 || isDisabled}
-            className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded border border-gray-600 text-gray-300 flex items-center gap-0.5 disabled:opacity-30 text-[10px] transition"
+            className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded border border-gray-600 text-gray-300 flex items-center gap-0.5 disabled:opacity-30 disabled:transition-none text-[10px] transition"
             title="上へ移動"
           >
             <ArrowUp className="w-3 h-3" />
@@ -119,7 +119,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
           <button
             onClick={onMoveDown}
             disabled={i === totalItems - 1 || isDisabled}
-            className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded border border-gray-600 text-gray-300 flex items-center gap-0.5 disabled:opacity-30 text-[10px] transition"
+            className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded border border-gray-600 text-gray-300 flex items-center gap-0.5 disabled:opacity-30 disabled:transition-none text-[10px] transition"
             title="下へ移動"
           >
             <ArrowDown className="w-3 h-3" />

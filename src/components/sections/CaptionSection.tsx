@@ -166,7 +166,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
               <div className="px-3 pb-3 space-y-3">
                 {/* ■ スタイル設定 */}
                 <div className="space-y-2">
-                  <div className="text-[10px] text-yellow-400 font-bold border-b border-gray-700/50 pb-1">■ スタイル設定</div>
+                  <div className="text-[10px] text-yellow-400 font-bold">■ スタイル設定</div>
                   {/* 文字サイズ */}
                   <div className="flex items-center gap-2 text-[10px]">
                     <span className="text-gray-400 w-16">サイズ:</span>
@@ -226,22 +226,22 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                   </div>
                 </div>
                 {/* ■ フェード一括設定 */}
-                <div className="space-y-2">
-                  <div className="text-[10px] text-yellow-400 font-bold border-b border-gray-700/50 pb-1">■ フェード一括設定（個別ON優先）</div>
+                <div className="space-y-2 pt-2 border-t border-gray-700/50">
+                  <div className="text-[10px] text-yellow-400 font-bold">■ フェード一括設定（個別ON優先）</div>
                   {/* フェード設定 - 1行表示 */}
                   {/* フェード一括設定 - レイアウト改善 */}
-                  <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[10px]">
+                  <div className="flex flex-nowrap items-center gap-x-2 text-[10px] overflow-x-auto scrollbar-hide">
                     {/* フェードイン */}
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <label className={`flex items-center gap-1 ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}>
                         <input
                           type="checkbox"
                           checked={settings.bulkFadeIn}
                           onChange={(e) => onSetBulkFadeIn(e.target.checked)}
                           disabled={isLocked}
-                          className="rounded accent-yellow-500 w-3 h-3 cursor-pointer"
+                          className="accent-yellow-500 rounded cursor-pointer disabled:opacity-50 disabled:cursor-default"
                         />
-                        <span>フェードイン</span>
+                        <span className="whitespace-nowrap">フェードイン</span>
                       </label>
                       <input
                         type="range"
@@ -254,22 +254,22 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                           onSetBulkFadeInDuration(steps[parseInt(e.target.value)]);
                         }}
                         disabled={isLocked || !settings.bulkFadeIn}
-                        className={`w-16 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked || !settings.bulkFadeIn ? '' : 'cursor-pointer'}`}
+                        className={`w-10 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isLocked || !settings.bulkFadeIn ? '' : 'cursor-pointer'}`}
                       />
-                      <span className="text-gray-400 w-8">{settings.bulkFadeInDuration}秒</span>
+                      <span className="text-gray-400 w-6 whitespace-nowrap">{settings.bulkFadeInDuration}秒</span>
                     </div>
 
                     {/* フェードアウト */}
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <label className={`flex items-center gap-1 ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}>
                         <input
                           type="checkbox"
                           checked={settings.bulkFadeOut}
                           onChange={(e) => onSetBulkFadeOut(e.target.checked)}
                           disabled={isLocked}
-                          className="rounded accent-yellow-500 w-3 h-3 cursor-pointer"
+                          className="accent-yellow-500 rounded cursor-pointer disabled:opacity-50 disabled:cursor-default"
                         />
-                        <span>フェードアウト</span>
+                        <span className="whitespace-nowrap">フェードアウト</span>
                       </label>
                       <input
                         type="range"
@@ -282,9 +282,9 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                           onSetBulkFadeOutDuration(steps[parseInt(e.target.value)]);
                         }}
                         disabled={isLocked || !settings.bulkFadeOut}
-                        className={`w-16 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked || !settings.bulkFadeOut ? '' : 'cursor-pointer'}`}
+                        className={`w-10 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isLocked || !settings.bulkFadeOut ? '' : 'cursor-pointer'}`}
                       />
-                      <span className="text-gray-400 w-8">{settings.bulkFadeOutDuration}秒</span>
+                      <span className="text-gray-400 w-6 whitespace-nowrap">{settings.bulkFadeOutDuration}秒</span>
                     </div>
                   </div>
                 </div>
