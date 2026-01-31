@@ -21,17 +21,21 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
   const isVisibleRef = useRef<boolean>(false);
   const lastRenderTimeRef = useRef<number>(0);
 
-  // 描画関数
+  // itemの最新状態をRefに保持し、renderFrameの再生成を防ぐ
+  const itemRef = useRef(item);
+
+  // 描画関数 (itemへの依存を除去)
   const renderFrame = useCallback((force: boolean = false) => {
-    // 画面外なら描画しない（force=trueでもスキップするかは要検討だが、基本は見えないなら描画不要）
+    // 画面外なら描画しない
     if (!isVisibleRef.current) return;
 
+    const currentItem = itemRef.current;
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx || !mediaElement) return;
 
     // ビデオ再生中のFPS制限 (約15fps = 66ms間隔)
-    if (!force && item.type === 'video') {
+    if (!force && currentItem.type === 'video') {
       const now = Date.now();
       if (now - lastRenderTimeRef.current < 66) {
         return;
@@ -50,16 +54,16 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
     ctx.save();
 
     // 中心を基準にスケールと位置を適用
-    const centerX = MINI_CANVAS_WIDTH / 2 + item.positionX * scaleRatio;
-    const centerY = MINI_CANVAS_HEIGHT / 2 + item.positionY * scaleRatio;
+    const centerX = MINI_CANVAS_WIDTH / 2 + currentItem.positionX * scaleRatio;
+    const centerY = MINI_CANVAS_HEIGHT / 2 + currentItem.positionY * scaleRatio;
 
     ctx.translate(centerX, centerY);
-    ctx.scale(item.scale, item.scale);
+    ctx.scale(currentItem.scale, currentItem.scale);
     ctx.translate(-MINI_CANVAS_WIDTH / 2, -MINI_CANVAS_HEIGHT / 2);
 
     // メディアを描画
     try {
-      if (item.type === 'video') {
+      if (currentItem.type === 'video') {
         const video = mediaElement as HTMLVideoElement;
         // readyState >= 2 (HAVE_CURRENT_DATA)
         if (video.readyState >= 2) {
@@ -78,7 +82,13 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
     ctx.lineWidth = 1;
     ctx.strokeRect(0, 0, MINI_CANVAS_WIDTH, MINI_CANVAS_HEIGHT);
-  }, [item, mediaElement]);
+  }, [mediaElement]); // itemへの依存を削除
+
+  useEffect(() => {
+    itemRef.current = item;
+    // プロパティ変更時は即時反映 (force=true)
+    requestAnimationFrame(() => renderFrame(true));
+  }, [item, renderFrame]);
 
   // アニメーションループ管理
   const startLoop = useCallback(() => {
@@ -112,7 +122,7 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
           renderFrame(true); // 即座に1回描画
 
           // 動画が再生中ならループ開始
-          if (item.type === 'video' && mediaElement) {
+          if (itemRef.current.type === 'video' && mediaElement) {
             const video = mediaElement as HTMLVideoElement;
             if (!video.paused && !video.ended) {
               startLoop();
@@ -133,11 +143,13 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
       observer.disconnect();
       stopLoop();
     };
-  }, [item.type, mediaElement, renderFrame, startLoop, stopLoop]);
+  }, [mediaElement, renderFrame, startLoop, stopLoop]); // item.typeへの依存も除去（ref参照のため）
 
   // 動画イベントリスナー設定
   useEffect(() => {
-    if (item.type !== 'video' || !mediaElement) return;
+    // itemRef.current.type のチェックはここではなく内部で行うか、
+    // mediaElementの型チェックだけで十分とする（画像ならplayイベントは起きない）
+    if (!mediaElement || mediaElement.tagName !== 'VIDEO') return;
 
     const video = mediaElement as HTMLVideoElement;
 
@@ -179,13 +191,14 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
       video.removeEventListener('loadeddata', handleLoaded);
       stopLoop();
     };
-  }, [item.type, mediaElement, startLoop, stopLoop, renderFrame]);
+  }, [mediaElement, startLoop, stopLoop, renderFrame]); // itemへの依存を完全排除
 
   // プロパティ変更時の再描画 (静止画・動画(停止中)の変形操作への追従)
-  useEffect(() => {
-    // プロパティ変更はユーザー操作によるものなので force=true で即時反映
-    requestAnimationFrame(() => renderFrame(true));
-  }, [item.scale, item.positionX, item.positionY, renderFrame]);
+  // このuseEffectはitemRefのuseEffectに統合されたため削除
+  // useEffect(() => {
+  //   // プロパティ変更はユーザー操作によるものなので force=true で即時反映
+  //   requestAnimationFrame(() => renderFrame(true));
+  // }, [item.scale, item.positionX, item.positionY, renderFrame]);
 
   return (
     <div
