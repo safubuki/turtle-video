@@ -397,7 +397,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
             {/* フェードイン */}
             <div className="flex items-center gap-2">
               <label
-                className={`flex items-center gap-1 w-20 justify-start ${isDisabled ? 'opacity-50' : 'cursor-pointer'}`}
+                className={`flex items-center gap-1 w-24 justify-start ${isDisabled ? 'opacity-50' : 'cursor-pointer'}`}
               >
                 <input
                   type="checkbox"
@@ -427,7 +427,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
             {/* フェードアウト */}
             <div className="flex items-center gap-2">
               <label
-                className={`flex items-center gap-1 w-20 justify-start ${isDisabled ? 'opacity-50' : 'cursor-pointer'}`}
+                className={`flex items-center gap-1 w-24 justify-start ${isDisabled ? 'opacity-50' : 'cursor-pointer'}`}
               >
                 <input
                   type="checkbox"
