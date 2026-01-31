@@ -344,78 +344,66 @@ const ClipItem: React.FC<ClipItemProps> = ({
             </div>
             {/* 標準位置ラベル */}
             <div className="relative h-3 ml-9 mr-16 text-[8px]">
-              <span className="absolute left-[40%] -translate-x-1/2 text-gray-500">標準</span>
+              <span className="absolute left-[66.7%] -translate-x-1/2 text-gray-500">標準</span>
             </div>
           </div>
         )}
-        {/* フェード設定 */}
-        <div className="col-span-2 space-y-2">
-          {/* フェードイン設定 */}
-          <div className="flex items-center gap-2">
-            <label
-              className={`flex items-center gap-1 cursor-pointer hover:text-blue-300 min-w-[80px] ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}
-            >
-              <input
-                type="checkbox"
-                checked={v.fadeIn}
-                onChange={(e) => onToggleFadeIn(e.target.checked)}
-                disabled={isDisabled}
-                className="rounded accent-blue-500 w-3 h-3"
-              />
-              <span className="text-[10px]">フェードイン</span>
-            </label>
-            {v.fadeIn && (
-              <div className="flex-1 flex items-center gap-2">
-                <input
-                  type="range"
-                  min={0}
-                  max={2}
-                  step={1}
-                  value={v.fadeInDuration === 0.5 ? 0 : v.fadeInDuration === 1.0 ? 1 : 2}
-                  onChange={(e) => {
-                    const steps = [0.5, 1.0, 2.0];
-                    onUpdateFadeInDuration(steps[parseInt(e.target.value)]);
-                  }}
-                  disabled={isDisabled}
-                  className="flex-1 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-                />
-                <span className="text-[10px] text-gray-400 w-10 text-right">{v.fadeInDuration}秒</span>
-              </div>
-            )}
-          </div>
-          {/* フェードアウト設定 */}
-          <div className="flex items-center gap-2">
-            <label
-              className={`flex items-center gap-1 cursor-pointer hover:text-blue-300 min-w-[80px] ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}
-            >
-              <input
-                type="checkbox"
-                checked={v.fadeOut}
-                onChange={(e) => onToggleFadeOut(e.target.checked)}
-                disabled={isDisabled}
-                className="rounded accent-blue-500 w-3 h-3"
-              />
-              <span className="text-[10px]">フェードアウト</span>
-            </label>
-            {v.fadeOut && (
-              <div className="flex-1 flex items-center gap-2">
-                <input
-                  type="range"
-                  min={0}
-                  max={2}
-                  step={1}
-                  value={v.fadeOutDuration === 0.5 ? 0 : v.fadeOutDuration === 1.0 ? 1 : 2}
-                  onChange={(e) => {
-                    const steps = [0.5, 1.0, 2.0];
-                    onUpdateFadeOutDuration(steps[parseInt(e.target.value)]);
-                  }}
-                  disabled={isDisabled}
-                  className="flex-1 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-                />
-                <span className="text-[10px] text-gray-400 w-10 text-right">{v.fadeOutDuration}秒</span>
-              </div>
-            )}
-          </div>
+        {/* フェード設定 - 1行表示 */}
+        <div className="col-span-2 flex items-center gap-2">
+          {/* フェードイン */}
+          <label
+            className={`flex items-center gap-1 cursor-pointer hover:text-blue-300 ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}
+          >
+            <input
+              type="checkbox"
+              checked={v.fadeIn}
+              onChange={(e) => onToggleFadeIn(e.target.checked)}
+              disabled={isDisabled}
+              className="rounded accent-blue-500 w-3 h-3"
+            />
+            <span className="text-[10px]">フェードイン</span>
+          </label>
+          <input
+            type="range"
+            min={0}
+            max={2}
+            step={1}
+            value={v.fadeInDuration === 0.5 ? 0 : v.fadeInDuration === 1.0 ? 1 : 2}
+            onChange={(e) => {
+              const steps = [0.5, 1.0, 2.0];
+              onUpdateFadeInDuration(steps[parseInt(e.target.value)]);
+            }}
+            disabled={isDisabled || !v.fadeIn}
+            className="w-16 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+          />
+          <span className="text-[10px] text-gray-400 w-8">{v.fadeInDuration}秒</span>
+          {/* フェードアウト */}
+          <label
+            className={`flex items-center gap-1 cursor-pointer hover:text-blue-300 ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}
+          >
+            <input
+              type="checkbox"
+              checked={v.fadeOut}
+              onChange={(e) => onToggleFadeOut(e.target.checked)}
+              disabled={isDisabled}
+              className="rounded accent-blue-500 w-3 h-3"
+            />
+            <span className="text-[10px]">フェードアウト</span>
+          </label>
+          <input
+            type="range"
+            min={0}
+            max={2}
+            step={1}
+            value={v.fadeOutDuration === 0.5 ? 0 : v.fadeOutDuration === 1.0 ? 1 : 2}
+            onChange={(e) => {
+              const steps = [0.5, 1.0, 2.0];
+              onUpdateFadeOutDuration(steps[parseInt(e.target.value)]);
+            }}
+            disabled={isDisabled || !v.fadeOut}
+            className="w-16 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+          />
+          <span className="text-[10px] text-gray-400 w-8">{v.fadeOutDuration}秒</span>
         </div>
       </div>
     </div>

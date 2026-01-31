@@ -228,69 +228,58 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                 {/* ■ フェード一括設定 */}
                 <div className="space-y-2">
                   <div className="text-[10px] text-yellow-400 font-bold border-b border-gray-700/50 pb-1">■ フェード一括設定（個別ON優先）</div>
-                  <div className="space-y-2">
+                  {/* フェード設定 - 1行表示 */}
+                  <div className="flex items-center gap-2 text-[10px]">
                     {/* フェードイン */}
-                    <div className="flex items-center gap-2 text-[10px]">
-                      <label className={`flex items-center gap-1 cursor-pointer min-w-[80px] ${isLocked ? 'opacity-50 pointer-events-none' : ''}`}>
-                        <input
-                          type="checkbox"
-                          checked={settings.bulkFadeIn}
-                          onChange={(e) => onSetBulkFadeIn(e.target.checked)}
-                          disabled={isLocked}
-                          className="rounded accent-yellow-500 w-3 h-3"
-                        />
-                        <span>フェードイン</span>
-                      </label>
-                      {settings.bulkFadeIn && (
-                        <div className="flex-1 flex items-center gap-2">
-                          <input
-                            type="range"
-                            min={0}
-                            max={2}
-                            step={1}
-                            value={settings.bulkFadeInDuration === 0.5 ? 0 : settings.bulkFadeInDuration === 1.0 ? 1 : 2}
-                            onChange={(e) => {
-                              const steps = [0.5, 1.0, 2.0];
-                              onSetBulkFadeInDuration(steps[parseInt(e.target.value)]);
-                            }}
-                            disabled={isLocked}
-                            className="flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-                          />
-                          <span className="text-gray-400 w-10 text-right">{settings.bulkFadeInDuration}秒</span>
-                        </div>
-                      )}
-                    </div>
+                    <label className={`flex items-center gap-1 cursor-pointer ${isLocked ? 'opacity-50 pointer-events-none' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={settings.bulkFadeIn}
+                        onChange={(e) => onSetBulkFadeIn(e.target.checked)}
+                        disabled={isLocked}
+                        className="rounded accent-yellow-500 w-3 h-3"
+                      />
+                      <span>フェードイン</span>
+                    </label>
+                    <input
+                      type="range"
+                      min={0}
+                      max={2}
+                      step={1}
+                      value={settings.bulkFadeInDuration === 0.5 ? 0 : settings.bulkFadeInDuration === 1.0 ? 1 : 2}
+                      onChange={(e) => {
+                        const steps = [0.5, 1.0, 2.0];
+                        onSetBulkFadeInDuration(steps[parseInt(e.target.value)]);
+                      }}
+                      disabled={isLocked || !settings.bulkFadeIn}
+                      className="w-16 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+                    />
+                    <span className="text-gray-400 w-8">{settings.bulkFadeInDuration}秒</span>
                     {/* フェードアウト */}
-                    <div className="flex items-center gap-2 text-[10px]">
-                      <label className={`flex items-center gap-1 cursor-pointer min-w-[80px] ${isLocked ? 'opacity-50 pointer-events-none' : ''}`}>
-                        <input
-                          type="checkbox"
-                          checked={settings.bulkFadeOut}
-                          onChange={(e) => onSetBulkFadeOut(e.target.checked)}
-                          disabled={isLocked}
-                          className="rounded accent-yellow-500 w-3 h-3"
-                        />
-                        <span>フェードアウト</span>
-                      </label>
-                      {settings.bulkFadeOut && (
-                        <div className="flex-1 flex items-center gap-2">
-                          <input
-                            type="range"
-                            min={0}
-                            max={2}
-                            step={1}
-                            value={settings.bulkFadeOutDuration === 0.5 ? 0 : settings.bulkFadeOutDuration === 1.0 ? 1 : 2}
-                            onChange={(e) => {
-                              const steps = [0.5, 1.0, 2.0];
-                              onSetBulkFadeOutDuration(steps[parseInt(e.target.value)]);
-                            }}
-                            disabled={isLocked}
-                            className="flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-                          />
-                          <span className="text-gray-400 w-10 text-right">{settings.bulkFadeOutDuration}秒</span>
-                        </div>
-                      )}
-                    </div>
+                    <label className={`flex items-center gap-1 cursor-pointer ${isLocked ? 'opacity-50 pointer-events-none' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={settings.bulkFadeOut}
+                        onChange={(e) => onSetBulkFadeOut(e.target.checked)}
+                        disabled={isLocked}
+                        className="rounded accent-yellow-500 w-3 h-3"
+                      />
+                      <span>フェードアウト</span>
+                    </label>
+                    <input
+                      type="range"
+                      min={0}
+                      max={2}
+                      step={1}
+                      value={settings.bulkFadeOutDuration === 0.5 ? 0 : settings.bulkFadeOutDuration === 1.0 ? 1 : 2}
+                      onChange={(e) => {
+                        const steps = [0.5, 1.0, 2.0];
+                        onSetBulkFadeOutDuration(steps[parseInt(e.target.value)]);
+                      }}
+                      disabled={isLocked || !settings.bulkFadeOut}
+                      className="w-16 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+                    />
+                    <span className="text-gray-400 w-8">{settings.bulkFadeOutDuration}秒</span>
                   </div>
                 </div>
               </div>

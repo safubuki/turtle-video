@@ -387,9 +387,15 @@ const TurtleVideo: React.FC = () => {
                 ctx.scale(baseScale * scaleFactor, baseScale * scaleFactor);
 
                 let alpha = 1.0;
-                if (conf.fadeIn && localTime < 1.0) alpha = localTime;
-                else if (conf.fadeOut && localTime > conf.duration - 1.0)
-                  alpha = conf.duration - localTime;
+                const fadeInDur = conf.fadeInDuration || 1.0;
+                const fadeOutDur = conf.fadeOutDuration || 1.0;
+
+                if (conf.fadeIn && localTime < fadeInDur) {
+                  alpha = localTime / fadeInDur;
+                } else if (conf.fadeOut && localTime > conf.duration - fadeOutDur) {
+                  const remaining = conf.duration - localTime;
+                  alpha = remaining / fadeOutDur;
+                }
 
                 ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
                 ctx.drawImage(element as CanvasImageSource, -elemW / 2, -elemH / 2, elemW, elemH);
@@ -401,10 +407,21 @@ const TurtleVideo: React.FC = () => {
             if (conf.type === 'video' && gainNode && audioCtxRef.current) {
               if (isActivePlaying) {
                 let vol = conf.isMuted ? 0 : conf.volume;
-                if (conf.fadeIn && localTime < 1.0) vol *= localTime;
-                else if (conf.fadeOut && localTime > conf.duration - 1.0)
-                  vol *= conf.duration - localTime;
-                gainNode.gain.setTargetAtTime(vol, audioCtxRef.current.currentTime, 0.05);
+                const fadeInDur = conf.fadeInDuration || 1.0;
+                const fadeOutDur = conf.fadeOutDuration || 1.0;
+
+                if (conf.fadeIn && localTime < fadeInDur) {
+                  vol *= localTime / fadeInDur;
+                } else if (conf.fadeOut && localTime > conf.duration - fadeOutDur) {
+                  const remaining = conf.duration - localTime;
+                  vol *= remaining / fadeOutDur;
+                }
+
+                // 音量の急激な変化を防ぐ
+                const currentGain = gainNode.gain.value;
+                if (Math.abs(currentGain - vol) > 0.01) {
+                  gainNode.gain.setTargetAtTime(vol, audioCtxRef.current.currentTime, 0.05);
+                }
               } else {
                 gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.05);
               }
@@ -454,22 +471,20 @@ const TurtleVideo: React.FC = () => {
             const captionDuration = activeCaption.endTime - activeCaption.startTime;
             const captionLocalTime = time - activeCaption.startTime;
 
-            // フェード時間を計算（短いキャプションの場合は調整）
-            let effectiveFadeDuration = CAPTION_FADE_DURATION;
-            if (activeCaption.fadeIn && activeCaption.fadeOut) {
-              // 両方有効な場合、重複しないようにフェード時間を調整
-              effectiveFadeDuration = Math.min(CAPTION_FADE_DURATION, captionDuration / 2);
-            }
+            // フェード時間を取得（デフォルト1.0秒）
+            const fadeInDur = activeCaption.fadeInDuration || 1.0;
+            const fadeOutDur = activeCaption.fadeOutDuration || 1.0;
 
             // フェードイン・フェードアウトのアルファ値を個別に計算
             let fadeInAlpha = 1.0;
             let fadeOutAlpha = 1.0;
 
-            if (activeCaption.fadeIn && captionLocalTime < effectiveFadeDuration) {
-              fadeInAlpha = captionLocalTime / effectiveFadeDuration;
+            if (activeCaption.fadeIn && captionLocalTime < fadeInDur) {
+              fadeInAlpha = captionLocalTime / fadeInDur;
             }
-            if (activeCaption.fadeOut && captionLocalTime > captionDuration - effectiveFadeDuration) {
-              fadeOutAlpha = (captionDuration - captionLocalTime) / effectiveFadeDuration;
+            if (activeCaption.fadeOut && captionLocalTime > captionDuration - fadeOutDur) {
+              const remaining = captionDuration - captionLocalTime;
+              fadeOutAlpha = remaining / fadeOutDur;
             }
 
             // 両方のアルファ値を乗算して最終的な透明度を計算
@@ -515,10 +530,22 @@ const TurtleVideo: React.FC = () => {
                   }
                   if (element.paused) element.play().catch(() => { });
 
-                  if (track.fadeIn && playDuration < 2.0) vol *= playDuration / 2.0;
-                  if (track.fadeOut && time > totalDurationRef.current - 2.0)
-                    vol *= Math.max(0, (totalDurationRef.current - time) / 2.0);
-                  gainNode.gain.setTargetAtTime(vol, audioCtxRef.current.currentTime, 0.1);
+                  const fadeInDur = track.fadeInDuration || 1.0;
+                  const fadeOutDur = track.fadeOutDuration || 1.0;
+
+                  if (track.fadeIn && playDuration < fadeInDur) {
+                    vol *= playDuration / fadeInDur;
+                  }
+                  if (track.fadeOut && time > totalDurationRef.current - fadeOutDur) {
+                    const remaining = totalDurationRef.current - time;
+                    vol *= Math.max(0, remaining / fadeOutDur);
+                  }
+
+                  // 音量の急激な変化を防ぐ
+                  const currentGain = gainNode.gain.value;
+                  if (Math.abs(currentGain - vol) > 0.01) {
+                    gainNode.gain.setTargetAtTime(vol, audioCtxRef.current.currentTime, 0.1);
+                  }
                 } else {
                   gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.1);
                   if (!element.paused) element.pause();

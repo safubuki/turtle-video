@@ -201,10 +201,11 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
             </div>
             {/* 標準位置ラベル */}
             <div className="relative h-3 ml-5 mr-20 text-[8px]">
-              <span className="absolute left-[40%] -translate-x-1/2 text-gray-500">標準</span>
+              <span className="absolute left-[66.7%] -translate-x-1/2 text-gray-500">標準</span>
             </div>
           </div>
-          <div className="flex gap-3 text-[10px]">
+          {/* フェード設定 - BGMと同じレイアウト */}
+          <div className="flex items-center gap-2 text-[10px]">
             <label
               className={`flex items-center gap-1 cursor-pointer ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
             >
@@ -214,9 +215,10 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                 onChange={(e) => onToggleFadeIn(e.target.checked)}
                 disabled={isNarrationLocked}
                 className="accent-indigo-500 rounded"
-              />{' '}
-              フェードイン
+              />
+              <span>フェードイン</span>
             </label>
+            <span className="text-gray-400 w-24"></span>
             <label
               className={`flex items-center gap-1 cursor-pointer ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
             >
@@ -226,8 +228,8 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                 onChange={(e) => onToggleFadeOut(e.target.checked)}
                 disabled={isNarrationLocked}
                 className="accent-indigo-500 rounded"
-              />{' '}
-              フェードアウト
+              />
+              <span>フェードアウト</span>
             </label>
           </div>
         </div>

@@ -220,73 +220,63 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
       </div>
 
       {/* フェードイン・フェードアウト設定 */}
-      <div className="mt-2 space-y-2 text-[10px]">
-        {/* フェードイン設定 */}
-        <div className="flex items-center gap-2">
-          <label
-            className={`flex items-center gap-1 cursor-pointer hover:text-yellow-300 min-w-[80px] ${isLocked ? 'opacity-50 pointer-events-none' : ''}`}
-          >
-            <input
-              type="checkbox"
-              checked={caption.fadeIn}
-              onChange={(e) => onUpdate(caption.id, { fadeIn: e.target.checked })}
-              disabled={isLocked}
-              className="rounded accent-yellow-500 w-3 h-3"
-            />
-            <span>フェードイン</span>
-          </label>
-          {caption.fadeIn && (
-            <div className="flex-1 flex items-center gap-2">
-              <input
-                type="range"
-                min={0}
-                max={2}
-                step={1}
-                value={caption.fadeInDuration === 0.5 ? 0 : caption.fadeInDuration === 1.0 ? 1 : 2}
-                onChange={(e) => {
-                  const steps = [0.5, 1.0, 2.0];
-                  onUpdate(caption.id, { fadeInDuration: steps[parseInt(e.target.value)] });
-                }}
-                disabled={isLocked}
-                className="flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-              />
-              <span className="text-gray-400 w-10 text-right">{caption.fadeInDuration}秒</span>
-            </div>
-          )}
-        </div>
-        {/* フェードアウト設定 */}
-        <div className="flex items-center gap-2">
-          <label
-            className={`flex items-center gap-1 cursor-pointer hover:text-yellow-300 min-w-[80px] ${isLocked ? 'opacity-50 pointer-events-none' : ''}`}
-          >
-            <input
-              type="checkbox"
-              checked={caption.fadeOut}
-              onChange={(e) => onUpdate(caption.id, { fadeOut: e.target.checked })}
-              disabled={isLocked}
-              className="rounded accent-yellow-500 w-3 h-3"
-            />
-            <span>フェードアウト</span>
-          </label>
-          {caption.fadeOut && (
-            <div className="flex-1 flex items-center gap-2">
-              <input
-                type="range"
-                min={0}
-                max={2}
-                step={1}
-                value={caption.fadeOutDuration === 0.5 ? 0 : caption.fadeOutDuration === 1.0 ? 1 : 2}
-                onChange={(e) => {
-                  const steps = [0.5, 1.0, 2.0];
-                  onUpdate(caption.id, { fadeOutDuration: steps[parseInt(e.target.value)] });
-                }}
-                disabled={isLocked}
-                className="flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-              />
-              <span className="text-gray-400 w-10 text-right">{caption.fadeOutDuration}秒</span>
-            </div>
-          )}
-        </div>
+      {/* フェードイン・フェードアウト設定 - 1行表示 */}
+      <div className="mt-2 flex items-center gap-2 text-[10px]">
+        {/* フェードイン */}
+        <label
+          className={`flex items-center gap-1 cursor-pointer hover:text-yellow-300 ${isLocked ? 'opacity-50 pointer-events-none' : ''}`}
+        >
+          <input
+            type="checkbox"
+            checked={caption.fadeIn}
+            onChange={(e) => onUpdate(caption.id, { fadeIn: e.target.checked })}
+            disabled={isLocked}
+            className="rounded accent-yellow-500 w-3 h-3"
+          />
+          <span>フェードイン</span>
+        </label>
+        <input
+          type="range"
+          min={0}
+          max={2}
+          step={1}
+          value={caption.fadeInDuration === 0.5 ? 0 : caption.fadeInDuration === 1.0 ? 1 : 2}
+          onChange={(e) => {
+            const steps = [0.5, 1.0, 2.0];
+            onUpdate(caption.id, { fadeInDuration: steps[parseInt(e.target.value)] });
+          }}
+          disabled={isLocked || !caption.fadeIn}
+          className="w-16 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+        />
+        <span className="text-gray-400 w-8">{caption.fadeInDuration}秒</span>
+
+        {/* フェードアウト */}
+        <label
+          className={`flex items-center gap-1 cursor-pointer hover:text-yellow-300 ${isLocked ? 'opacity-50 pointer-events-none' : ''}`}
+        >
+          <input
+            type="checkbox"
+            checked={caption.fadeOut}
+            onChange={(e) => onUpdate(caption.id, { fadeOut: e.target.checked })}
+            disabled={isLocked}
+            className="rounded accent-yellow-500 w-3 h-3"
+          />
+          <span>フェードアウト</span>
+        </label>
+        <input
+          type="range"
+          min={0}
+          max={2}
+          step={1}
+          value={caption.fadeOutDuration === 0.5 ? 0 : caption.fadeOutDuration === 1.0 ? 1 : 2}
+          onChange={(e) => {
+            const steps = [0.5, 1.0, 2.0];
+            onUpdate(caption.id, { fadeOutDuration: steps[parseInt(e.target.value)] });
+          }}
+          disabled={isLocked || !caption.fadeOut}
+          className="w-16 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+        />
+        <span className="text-gray-400 w-8">{caption.fadeOutDuration}秒</span>
       </div>
     </div>
   );

@@ -83,10 +83,10 @@ export const useCaptionStore = create<CaptionState>()(
                 text,
                 startTime,
                 endTime,
-                fadeIn: false,
-                fadeOut: false,
-                fadeInDuration: 1.0,
-                fadeOutDuration: 1.0,
+                fadeIn: state.settings.bulkFadeIn,
+                fadeOut: state.settings.bulkFadeOut,
+                fadeInDuration: state.settings.bulkFadeInDuration,
+                fadeOutDuration: state.settings.bulkFadeOutDuration,
               },
             ].sort((a, b) => a.startTime - b.startTime), // 開始時間でソート
           }),
@@ -186,6 +186,7 @@ export const useCaptionStore = create<CaptionState>()(
         set(
           (state) => ({
             settings: { ...state.settings, bulkFadeIn },
+            captions: state.captions.map((c) => ({ ...c, fadeIn: bulkFadeIn })),
           }),
           false,
           'setBulkFadeIn'
@@ -195,6 +196,7 @@ export const useCaptionStore = create<CaptionState>()(
         set(
           (state) => ({
             settings: { ...state.settings, bulkFadeOut },
+            captions: state.captions.map((c) => ({ ...c, fadeOut: bulkFadeOut })),
           }),
           false,
           'setBulkFadeOut'
@@ -204,6 +206,7 @@ export const useCaptionStore = create<CaptionState>()(
         set(
           (state) => ({
             settings: { ...state.settings, bulkFadeInDuration },
+            captions: state.captions.map((c) => ({ ...c, fadeInDuration: bulkFadeInDuration })),
           }),
           false,
           'setBulkFadeInDuration'
@@ -213,6 +216,7 @@ export const useCaptionStore = create<CaptionState>()(
         set(
           (state) => ({
             settings: { ...state.settings, bulkFadeOutDuration },
+            captions: state.captions.map((c) => ({ ...c, fadeOutDuration: bulkFadeOutDuration })),
           }),
           false,
           'setBulkFadeOutDuration'
