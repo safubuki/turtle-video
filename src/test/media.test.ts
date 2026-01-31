@@ -76,6 +76,8 @@ const createMockMediaItem = (overrides: Partial<MediaItem> = {}): MediaItem => (
   isMuted: false,
   fadeIn: false,
   fadeOut: false,
+  fadeInDuration: 1.0,
+  fadeOutDuration: 1.0,
   duration: 10,
   originalDuration: 10,
   trimStart: 0,

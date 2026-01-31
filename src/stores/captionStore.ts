@@ -10,10 +10,10 @@ import type { Caption, CaptionSettings, CaptionPosition, CaptionSize, CaptionFon
 interface CaptionState {
   // キャプション一覧
   captions: Caption[];
-  
+
   // スタイル設定
   settings: CaptionSettings;
-  
+
   // ロック状態
   isLocked: boolean;
 
@@ -32,6 +32,12 @@ interface CaptionState {
   setStrokeWidth: (width: number) => void;
   setPosition: (position: CaptionPosition) => void;
 
+  // === 一括フェード設定 ===
+  setBulkFadeIn: (enabled: boolean) => void;
+  setBulkFadeOut: (enabled: boolean) => void;
+  setBulkFadeInDuration: (duration: number) => void;
+  setBulkFadeOutDuration: (duration: number) => void;
+
   // === ロック ===
   toggleLock: () => void;
 
@@ -48,6 +54,11 @@ const initialSettings: CaptionSettings = {
   strokeColor: '#000000',
   strokeWidth: 2,
   position: 'bottom',
+  // 一括フェード設定
+  bulkFadeIn: false,
+  bulkFadeOut: false,
+  bulkFadeInDuration: 1.0,
+  bulkFadeOutDuration: 1.0,
 };
 
 // ID生成
@@ -74,6 +85,8 @@ export const useCaptionStore = create<CaptionState>()(
                 endTime,
                 fadeIn: false,
                 fadeOut: false,
+                fadeInDuration: 1.0,
+                fadeOutDuration: 1.0,
               },
             ].sort((a, b) => a.startTime - b.startTime), // 開始時間でソート
           }),
@@ -166,6 +179,43 @@ export const useCaptionStore = create<CaptionState>()(
           }),
           false,
           'setPosition'
+        ),
+
+      // === 一括フェード設定 ===
+      setBulkFadeIn: (bulkFadeIn) =>
+        set(
+          (state) => ({
+            settings: { ...state.settings, bulkFadeIn },
+          }),
+          false,
+          'setBulkFadeIn'
+        ),
+
+      setBulkFadeOut: (bulkFadeOut) =>
+        set(
+          (state) => ({
+            settings: { ...state.settings, bulkFadeOut },
+          }),
+          false,
+          'setBulkFadeOut'
+        ),
+
+      setBulkFadeInDuration: (bulkFadeInDuration) =>
+        set(
+          (state) => ({
+            settings: { ...state.settings, bulkFadeInDuration },
+          }),
+          false,
+          'setBulkFadeInDuration'
+        ),
+
+      setBulkFadeOutDuration: (bulkFadeOutDuration) =>
+        set(
+          (state) => ({
+            settings: { ...state.settings, bulkFadeOutDuration },
+          }),
+          false,
+          'setBulkFadeOutDuration'
         ),
 
       // === ロック ===

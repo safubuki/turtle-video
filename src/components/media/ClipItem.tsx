@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Volume2,
   VolumeX,
+  RefreshCw,
 } from 'lucide-react';
 import type { MediaItem } from '../../types';
 import MiniPreview from '../common/MiniPreview';
@@ -41,6 +42,8 @@ export interface ClipItemProps {
   onToggleMute: () => void;
   onToggleFadeIn: (checked: boolean) => void;
   onToggleFadeOut: (checked: boolean) => void;
+  onUpdateFadeInDuration: (duration: number) => void;
+  onUpdateFadeOutDuration: (duration: number) => void;
 }
 
 /**
@@ -67,6 +70,8 @@ const ClipItem: React.FC<ClipItemProps> = ({
   onToggleMute,
   onToggleFadeIn,
   onToggleFadeOut,
+  onUpdateFadeInDuration,
+  onUpdateFadeOutDuration,
 }) => {
   const isDisabled = isClipsLocked || v.isLocked;
 
@@ -105,21 +110,24 @@ const ClipItem: React.FC<ClipItemProps> = ({
           <button
             onClick={onMoveUp}
             disabled={i === 0 || isDisabled}
-            className="p-1.5 hover:bg-gray-700 rounded text-gray-400 disabled:opacity-30"
+            className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded border border-gray-600 text-gray-300 flex items-center gap-0.5 disabled:opacity-30 text-[10px] transition"
+            title="上へ移動"
           >
             <ArrowUp className="w-3 h-3" />
           </button>
           <button
             onClick={onMoveDown}
             disabled={i === totalItems - 1 || isDisabled}
-            className="p-1.5 hover:bg-gray-700 rounded text-gray-400 disabled:opacity-30"
+            className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded border border-gray-600 text-gray-300 flex items-center gap-0.5 disabled:opacity-30 text-[10px] transition"
+            title="下へ移動"
           >
             <ArrowDown className="w-3 h-3" />
           </button>
           <button
             onClick={onRemove}
             disabled={isDisabled}
-            className="p-1.5 hover:bg-red-900/30 text-red-400 rounded disabled:opacity-30"
+            className="px-2 py-1 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded border border-red-800/50 disabled:opacity-30 text-[10px] transition"
+            title="削除"
           >
             <Trash2 className="w-3 h-3" />
           </button>
@@ -306,49 +314,109 @@ const ClipItem: React.FC<ClipItemProps> = ({
             />
           </div>
         ) : (
-          <div className="col-span-2 flex items-center gap-2">
-            <button
-              onClick={onToggleMute}
-              disabled={isDisabled}
-              className={`p-1.5 rounded flex items-center gap-1 ${v.isMuted ? 'bg-red-500/20 text-red-300' : 'bg-gray-700 text-gray-300'} disabled:opacity-50`}
-            >
-              {v.isMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
-            </button>
-            <SwipeProtectedSlider
-              min={0}
-              max={1}
-              step={0.1}
-              value={v.volume}
-              disabled={v.isMuted || isDisabled}
-              onChange={handleVolume}
-              className="flex-1 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-            />
+          <div className="col-span-2">
+            <div className="flex items-center gap-2 mb-1">
+              <button
+                onClick={onToggleMute}
+                disabled={isDisabled}
+                className={`p-1.5 rounded flex items-center gap-1 ${v.isMuted ? 'bg-red-500/20 text-red-300' : 'bg-gray-700 text-gray-300'} disabled:opacity-50`}
+              >
+                {v.isMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+              </button>
+              <SwipeProtectedSlider
+                min={0}
+                max={2.5}
+                step={0.1}
+                value={v.volume}
+                disabled={v.isMuted || isDisabled}
+                onChange={handleVolume}
+                className="flex-1 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+              />
+              <span className="text-[10px] text-gray-400 w-10 text-right">{Math.round(v.volume * 100)}%</span>
+              <button
+                onClick={() => onUpdateVolume(1)}
+                disabled={isDisabled}
+                className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition disabled:opacity-50"
+                title="標準音量に戻す"
+              >
+                <RefreshCw className="w-3 h-3" />
+              </button>
+            </div>
+            {/* 標準位置ラベル */}
+            <div className="relative h-3 ml-9 mr-16 text-[8px]">
+              <span className="absolute left-[40%] -translate-x-1/2 text-gray-500">標準</span>
+            </div>
           </div>
         )}
-        <label
-          className={`flex items-center gap-1 cursor-pointer hover:text-blue-300 ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}
-        >
-          <input
-            type="checkbox"
-            checked={v.fadeIn}
-            onChange={(e) => onToggleFadeIn(e.target.checked)}
-            disabled={isDisabled}
-            className="rounded accent-blue-500 w-3 h-3"
-          />{' '}
-          フェードイン
-        </label>
-        <label
-          className={`flex items-center gap-1 cursor-pointer hover:text-blue-300 ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}
-        >
-          <input
-            type="checkbox"
-            checked={v.fadeOut}
-            onChange={(e) => onToggleFadeOut(e.target.checked)}
-            disabled={isDisabled}
-            className="rounded accent-blue-500 w-3 h-3"
-          />{' '}
-          フェードアウト
-        </label>
+        {/* フェード設定 */}
+        <div className="col-span-2 space-y-2">
+          {/* フェードイン設定 */}
+          <div className="flex items-center gap-2">
+            <label
+              className={`flex items-center gap-1 cursor-pointer hover:text-blue-300 min-w-[80px] ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}
+            >
+              <input
+                type="checkbox"
+                checked={v.fadeIn}
+                onChange={(e) => onToggleFadeIn(e.target.checked)}
+                disabled={isDisabled}
+                className="rounded accent-blue-500 w-3 h-3"
+              />
+              <span className="text-[10px]">フェードイン</span>
+            </label>
+            {v.fadeIn && (
+              <div className="flex-1 flex items-center gap-2">
+                <input
+                  type="range"
+                  min={0}
+                  max={2}
+                  step={1}
+                  value={v.fadeInDuration === 0.5 ? 0 : v.fadeInDuration === 1.0 ? 1 : 2}
+                  onChange={(e) => {
+                    const steps = [0.5, 1.0, 2.0];
+                    onUpdateFadeInDuration(steps[parseInt(e.target.value)]);
+                  }}
+                  disabled={isDisabled}
+                  className="flex-1 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+                />
+                <span className="text-[10px] text-gray-400 w-10 text-right">{v.fadeInDuration}秒</span>
+              </div>
+            )}
+          </div>
+          {/* フェードアウト設定 */}
+          <div className="flex items-center gap-2">
+            <label
+              className={`flex items-center gap-1 cursor-pointer hover:text-blue-300 min-w-[80px] ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}
+            >
+              <input
+                type="checkbox"
+                checked={v.fadeOut}
+                onChange={(e) => onToggleFadeOut(e.target.checked)}
+                disabled={isDisabled}
+                className="rounded accent-blue-500 w-3 h-3"
+              />
+              <span className="text-[10px]">フェードアウト</span>
+            </label>
+            {v.fadeOut && (
+              <div className="flex-1 flex items-center gap-2">
+                <input
+                  type="range"
+                  min={0}
+                  max={2}
+                  step={1}
+                  value={v.fadeOutDuration === 0.5 ? 0 : v.fadeOutDuration === 1.0 ? 1 : 2}
+                  onChange={(e) => {
+                    const steps = [0.5, 1.0, 2.0];
+                    onUpdateFadeOutDuration(steps[parseInt(e.target.value)]);
+                  }}
+                  disabled={isDisabled}
+                  className="flex-1 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+                />
+                <span className="text-[10px] text-gray-400 w-10 text-right">{v.fadeOutDuration}秒</span>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

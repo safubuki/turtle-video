@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Upload, Lock, Unlock, Music, Volume2, Timer, ChevronDown, ChevronRight } from 'lucide-react';
+import { Upload, Lock, Unlock, Music, Volume2, Timer, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
 import type { AudioTrack } from '../../types';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 
@@ -15,6 +15,8 @@ interface BgmSectionProps {
   onUpdateVolume: (value: string) => void;
   onToggleFadeIn: (checked: boolean) => void;
   onToggleFadeOut: (checked: boolean) => void;
+  onUpdateFadeInDuration: (duration: number) => void;
+  onUpdateFadeOutDuration: (duration: number) => void;
   formatTime: (seconds: number) => string;
 }
 
@@ -33,6 +35,8 @@ const BgmSection: React.FC<BgmSectionProps> = ({
   onUpdateVolume,
   onToggleFadeIn,
   onToggleFadeOut,
+  onUpdateFadeInDuration,
+  onUpdateFadeOutDuration,
   formatTime,
 }) => {
   const [isOpen, setIsOpen] = useState(true);
@@ -53,7 +57,7 @@ const BgmSection: React.FC<BgmSectionProps> = ({
 
   return (
     <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
-      <div 
+      <div
         className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center cursor-pointer hover:bg-gray-800/50 transition"
         onClick={() => setIsOpen(!isOpen)}
       >
@@ -157,43 +161,100 @@ const BgmSection: React.FC<BgmSectionProps> = ({
               <span className="text-[10px] text-gray-500">秒</span>
             </div>
           </div>
-          <div className="flex items-center gap-2 bg-gray-800/50 p-2 rounded-lg">
-            <Volume2 className="w-3 h-3 text-gray-400" />
-            <SwipeProtectedSlider
-              min={0}
-              max={1}
-              step={0.1}
-              value={bgm.volume}
-              onChange={handleVolumeChange}
-              disabled={isBgmLocked}
-              className="flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-            />
+          <div className="bg-gray-800/50 p-2 rounded-lg space-y-1">
+            <div className="flex items-center gap-2">
+              <Volume2 className="w-3 h-3 text-gray-400" />
+              <SwipeProtectedSlider
+                min={0}
+                max={2.5}
+                step={0.1}
+                value={bgm.volume}
+                onChange={handleVolumeChange}
+                disabled={isBgmLocked}
+                className="flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+              />
+              <span className="text-[10px] text-gray-400 w-10 text-right">{Math.round(bgm.volume * 100)}%</span>
+              <button
+                onClick={() => onUpdateVolume('1')}
+                disabled={isBgmLocked}
+                className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition disabled:opacity-50"
+                title="標準音量に戻す"
+              >
+                <RefreshCw className="w-3 h-3" />
+              </button>
+            </div>
+            {/* 標準位置ラベル */}
+            <div className="relative h-3 ml-5 mr-20 text-[8px]">
+              <span className="absolute left-[40%] -translate-x-1/2 text-gray-500">標準</span>
+            </div>
           </div>
-          <div className="flex gap-3 text-[10px]">
-            <label
-              className={`flex items-center gap-1 cursor-pointer ${isBgmLocked ? 'opacity-50 pointer-events-none' : ''}`}
-            >
-              <input
-                type="checkbox"
-                checked={bgm.fadeIn}
-                onChange={(e) => onToggleFadeIn(e.target.checked)}
-                disabled={isBgmLocked}
-                className="accent-purple-500 rounded"
-              />{' '}
-              フェードイン
-            </label>
-            <label
-              className={`flex items-center gap-1 cursor-pointer ${isBgmLocked ? 'opacity-50 pointer-events-none' : ''}`}
-            >
-              <input
-                type="checkbox"
-                checked={bgm.fadeOut}
-                onChange={(e) => onToggleFadeOut(e.target.checked)}
-                disabled={isBgmLocked}
-                className="accent-purple-500 rounded"
-              />{' '}
-              フェードアウト
-            </label>
+          <div className="space-y-2 text-[10px]">
+            {/* フェードイン設定 */}
+            <div className="flex items-center gap-2">
+              <label
+                className={`flex items-center gap-1 cursor-pointer min-w-[80px] ${isBgmLocked ? 'opacity-50 pointer-events-none' : ''}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={bgm.fadeIn}
+                  onChange={(e) => onToggleFadeIn(e.target.checked)}
+                  disabled={isBgmLocked}
+                  className="accent-purple-500 rounded"
+                />
+                <span>フェードイン</span>
+              </label>
+              {bgm.fadeIn && (
+                <div className="flex-1 flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={0}
+                    max={2}
+                    step={1}
+                    value={bgm.fadeInDuration === 0.5 ? 0 : bgm.fadeInDuration === 1.0 ? 1 : 2}
+                    onChange={(e) => {
+                      const steps = [0.5, 1.0, 2.0];
+                      onUpdateFadeInDuration(steps[parseInt(e.target.value)]);
+                    }}
+                    disabled={isBgmLocked}
+                    className="flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+                  />
+                  <span className="text-gray-400 w-10 text-right">{bgm.fadeInDuration}秒</span>
+                </div>
+              )}
+            </div>
+            {/* フェードアウト設定 */}
+            <div className="flex items-center gap-2">
+              <label
+                className={`flex items-center gap-1 cursor-pointer min-w-[80px] ${isBgmLocked ? 'opacity-50 pointer-events-none' : ''}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={bgm.fadeOut}
+                  onChange={(e) => onToggleFadeOut(e.target.checked)}
+                  disabled={isBgmLocked}
+                  className="accent-purple-500 rounded"
+                />
+                <span>フェードアウト</span>
+              </label>
+              {bgm.fadeOut && (
+                <div className="flex-1 flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={0}
+                    max={2}
+                    step={1}
+                    value={bgm.fadeOutDuration === 0.5 ? 0 : bgm.fadeOutDuration === 1.0 ? 1 : 2}
+                    onChange={(e) => {
+                      const steps = [0.5, 1.0, 2.0];
+                      onUpdateFadeOutDuration(steps[parseInt(e.target.value)]);
+                    }}
+                    disabled={isBgmLocked}
+                    className="flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+                  />
+                  <span className="text-gray-400 w-10 text-right">{bgm.fadeOutDuration}秒</span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

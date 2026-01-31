@@ -22,6 +22,8 @@ export interface MediaItem {
   isMuted: boolean;
   fadeIn: boolean;
   fadeOut: boolean;
+  fadeInDuration: number;   // フェードイン時間（秒）
+  fadeOutDuration: number;  // フェードアウト時間（秒）
   duration: number;
   originalDuration: number;
   trimStart: number;
@@ -43,6 +45,8 @@ export interface AudioTrack {
   volume: number;
   fadeIn: boolean;
   fadeOut: boolean;
+  fadeInDuration: number;   // フェードイン時間（秒）
+  fadeOutDuration: number;  // フェードアウト時間（秒）
   duration: number;
   isAi: boolean;
 }
@@ -85,6 +89,8 @@ export interface Caption {
   endTime: number;    // 秒
   fadeIn: boolean;
   fadeOut: boolean;
+  fadeInDuration: number;   // フェードイン時間（秒）
+  fadeOutDuration: number;  // フェードアウト時間（秒）
 }
 
 // キャプション位置
@@ -105,4 +111,9 @@ export interface CaptionSettings {
   strokeColor: string;
   strokeWidth: number;
   position: CaptionPosition;
+  // 一括フェード設定
+  bulkFadeIn: boolean;
+  bulkFadeOut: boolean;
+  bulkFadeInDuration: number;
+  bulkFadeOutDuration: number;
 }

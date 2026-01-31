@@ -6,13 +6,13 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import type { MediaItem } from '../types';
-import { 
-  createMediaItem, 
-  calculateTotalDuration, 
-  validateTrim, 
-  validateScale, 
+import {
+  createMediaItem,
+  calculateTotalDuration,
+  validateTrim,
+  validateScale,
   validatePosition,
-  revokeObjectUrl 
+  revokeObjectUrl
 } from '../utils';
 
 interface MediaState {
@@ -26,32 +26,34 @@ interface MediaState {
   removeMediaItem: (id: string) => void;
   moveMediaItem: (index: number, direction: 'up' | 'down') => void;
   updateMediaItem: (id: string, updates: Partial<MediaItem>) => void;
-  
+
   // Video specific
   setVideoDuration: (id: string, originalDuration: number) => void;
   updateVideoTrim: (id: string, type: 'start' | 'end', value: number) => void;
-  
+
   // Image specific
   updateImageDuration: (id: string, duration: number) => void;
-  
+
   // Transform
   updateScale: (id: string, scale: number) => void;
   updatePosition: (id: string, axis: 'x' | 'y', value: number) => void;
   resetTransform: (id: string, type: 'scale' | 'x' | 'y') => void;
   toggleTransformPanel: (id: string) => void;
-  
+
   // Audio
   updateVolume: (id: string, volume: number) => void;
   toggleMute: (id: string) => void;
-  
+
   // Fade
   toggleFadeIn: (id: string, enabled: boolean) => void;
   toggleFadeOut: (id: string, enabled: boolean) => void;
-  
+  updateFadeInDuration: (id: string, duration: number) => void;
+  updateFadeOutDuration: (id: string, duration: number) => void;
+
   // Lock
   toggleItemLock: (id: string) => void;
   toggleClipsLock: () => void;
-  
+
   // Clear
   clearAllMedia: () => void;
 }
@@ -220,11 +222,11 @@ export const useMediaStore = create<MediaState>()(
         }));
       },
 
-      // Audio - Volume
+      // Audio - Volume (max 1.5 = 150%)
       updateVolume: (id, volume) => {
         set((state) => ({
           mediaItems: state.mediaItems.map((item) =>
-            item.id === id ? { ...item, volume: Math.max(0, Math.min(1, volume)) } : item
+            item.id === id ? { ...item, volume: Math.max(0, Math.min(2.5, volume)) } : item
           ),
         }));
       },
@@ -252,6 +254,24 @@ export const useMediaStore = create<MediaState>()(
         set((state) => ({
           mediaItems: state.mediaItems.map((item) =>
             item.id === id ? { ...item, fadeOut: enabled } : item
+          ),
+        }));
+      },
+
+      // Fade Duration - In
+      updateFadeInDuration: (id, duration) => {
+        set((state) => ({
+          mediaItems: state.mediaItems.map((item) =>
+            item.id === id ? { ...item, fadeInDuration: duration } : item
+          ),
+        }));
+      },
+
+      // Fade Duration - Out
+      updateFadeOutDuration: (id, duration) => {
+        set((state) => ({
+          mediaItems: state.mediaItems.map((item) =>
+            item.id === id ? { ...item, fadeOutDuration: duration } : item
           ),
         }));
       },

@@ -58,6 +58,8 @@ const TurtleVideo: React.FC = () => {
   const toggleMute = useMediaStore((s) => s.toggleMute);
   const toggleFadeIn = useMediaStore((s) => s.toggleFadeIn);
   const toggleFadeOut = useMediaStore((s) => s.toggleFadeOut);
+  const updateFadeInDuration = useMediaStore((s) => s.updateFadeInDuration);
+  const updateFadeOutDuration = useMediaStore((s) => s.updateFadeOutDuration);
   const toggleItemLock = useMediaStore((s) => s.toggleItemLock);
   const toggleClipsLock = useMediaStore((s) => s.toggleClipsLock);
   const clearAllMedia = useMediaStore((s) => s.clearAllMedia);
@@ -73,6 +75,8 @@ const TurtleVideo: React.FC = () => {
   const updateBgmVolume = useAudioStore((s) => s.updateBgmVolume);
   const toggleBgmFadeIn = useAudioStore((s) => s.toggleBgmFadeIn);
   const toggleBgmFadeOut = useAudioStore((s) => s.toggleBgmFadeOut);
+  const updateBgmFadeInDuration = useAudioStore((s) => s.updateBgmFadeInDuration);
+  const updateBgmFadeOutDuration = useAudioStore((s) => s.updateBgmFadeOutDuration);
   const toggleBgmLock = useAudioStore((s) => s.toggleBgmLock);
   const removeBgm = useAudioStore((s) => s.removeBgm);
   const setNarration = useAudioStore((s) => s.setNarration);
@@ -132,6 +136,10 @@ const TurtleVideo: React.FC = () => {
   const setCaptionFontSize = useCaptionStore((s) => s.setFontSize);
   const setCaptionFontStyle = useCaptionStore((s) => s.setFontStyle);
   const setCaptionPosition = useCaptionStore((s) => s.setPosition);
+  const setBulkFadeIn = useCaptionStore((s) => s.setBulkFadeIn);
+  const setBulkFadeOut = useCaptionStore((s) => s.setBulkFadeOut);
+  const setBulkFadeInDuration = useCaptionStore((s) => s.setBulkFadeInDuration);
+  const setBulkFadeOutDuration = useCaptionStore((s) => s.setBulkFadeOutDuration);
   const toggleCaptionLock = useCaptionStore((s) => s.toggleLock);
   const resetCaptions = useCaptionStore((s) => s.resetCaptions);
 
@@ -809,6 +817,8 @@ const TurtleVideo: React.FC = () => {
           volume: 1.0,
           fadeIn: false,
           fadeOut: false,
+          fadeInDuration: 2.0,
+          fadeOutDuration: 2.0,
           duration: audio.duration,
           isAi: true,
         });
@@ -1041,9 +1051,11 @@ const TurtleVideo: React.FC = () => {
         url,
         startPoint: 0,
         delay: 0,
-        volume: 0.5,
+        volume: 1.0,
         fadeIn: false,
         fadeOut: false,
+        fadeInDuration: 2.0,
+        fadeOutDuration: 2.0,
         duration: audio.duration,
         isAi: false,
       });
@@ -1068,6 +1080,8 @@ const TurtleVideo: React.FC = () => {
         volume: 1.0,
         fadeIn: false,
         fadeOut: false,
+        fadeInDuration: 2.0,
+        fadeOutDuration: 2.0,
         duration: audio.duration,
         isAi: false,
       });
@@ -1954,6 +1968,8 @@ const TurtleVideo: React.FC = () => {
           onToggleMediaMute={withPause(toggleMute)}
           onToggleMediaFadeIn={withPause(toggleFadeIn)}
           onToggleMediaFadeOut={withPause(toggleFadeOut)}
+          onUpdateFadeInDuration={withPause(updateFadeInDuration)}
+          onUpdateFadeOutDuration={withPause(updateFadeOutDuration)}
         />
 
         {/* 2. BGM SETTINGS */}
@@ -1969,6 +1985,8 @@ const TurtleVideo: React.FC = () => {
           onUpdateVolume={withPause((val) => handleUpdateTrackVolume('bgm', val))}
           onToggleFadeIn={withPause(toggleBgmFadeIn)}
           onToggleFadeOut={withPause(toggleBgmFadeOut)}
+          onUpdateFadeInDuration={withPause(updateBgmFadeInDuration)}
+          onUpdateFadeOutDuration={withPause(updateBgmFadeOutDuration)}
           formatTime={formatTime}
         />
 
@@ -2004,6 +2022,10 @@ const TurtleVideo: React.FC = () => {
           onSetFontSize={withPause(setCaptionFontSize)}
           onSetFontStyle={withPause(setCaptionFontStyle)}
           onSetPosition={withPause(setCaptionPosition)}
+          onSetBulkFadeIn={withPause(setBulkFadeIn)}
+          onSetBulkFadeOut={withPause(setBulkFadeOut)}
+          onSetBulkFadeInDuration={withPause(setBulkFadeInDuration)}
+          onSetBulkFadeOutDuration={withPause(setBulkFadeOutDuration)}
         />
 
         {/* 5. PREVIEW */}

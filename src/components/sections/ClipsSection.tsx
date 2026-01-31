@@ -22,6 +22,8 @@ interface ClipsSectionProps {
   onToggleMediaMute: (id: string) => void;
   onToggleMediaFadeIn: (id: string, checked: boolean) => void;
   onToggleMediaFadeOut: (id: string, checked: boolean) => void;
+  onUpdateFadeInDuration: (id: string, duration: number) => void;
+  onUpdateFadeOutDuration: (id: string, duration: number) => void;
 }
 
 /**
@@ -46,6 +48,8 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   onToggleMediaMute,
   onToggleMediaFadeIn,
   onToggleMediaFadeOut,
+  onUpdateFadeInDuration,
+  onUpdateFadeOutDuration,
 }) => {
   return (
     <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
@@ -106,6 +110,8 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             onToggleMute={() => onToggleMediaMute(v.id)}
             onToggleFadeIn={(checked) => onToggleMediaFadeIn(v.id, checked)}
             onToggleFadeOut={(checked) => onToggleMediaFadeOut(v.id, checked)}
+            onUpdateFadeInDuration={(duration) => onUpdateFadeInDuration(v.id, duration)}
+            onUpdateFadeOutDuration={(duration) => onUpdateFadeOutDuration(v.id, duration)}
           />
         ))}
       </div>
