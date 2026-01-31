@@ -182,11 +182,13 @@ export const useCaptionStore = create<CaptionState>()(
         ),
 
       // === 一括フェード設定 ===
+      // 要望対応: 一括設定は「個別設定がOFFのもの」に対してのみ適用し、
+      // 既存の個別設定（ONになっているもの）や、決定済みの時間を勝手に変更しない。
+
       setBulkFadeIn: (bulkFadeIn) =>
         set(
           (state) => ({
             settings: { ...state.settings, bulkFadeIn },
-            captions: state.captions.map((c) => ({ ...c, fadeIn: bulkFadeIn })),
           }),
           false,
           'setBulkFadeIn'
@@ -196,17 +198,16 @@ export const useCaptionStore = create<CaptionState>()(
         set(
           (state) => ({
             settings: { ...state.settings, bulkFadeOut },
-            captions: state.captions.map((c) => ({ ...c, fadeOut: bulkFadeOut })),
           }),
           false,
           'setBulkFadeOut'
         ),
 
+      // 時間変更は settings のみ更新し、既存キャプションには連動させない
       setBulkFadeInDuration: (bulkFadeInDuration) =>
         set(
           (state) => ({
             settings: { ...state.settings, bulkFadeInDuration },
-            captions: state.captions.map((c) => ({ ...c, fadeInDuration: bulkFadeInDuration })),
           }),
           false,
           'setBulkFadeInDuration'
@@ -216,7 +217,6 @@ export const useCaptionStore = create<CaptionState>()(
         set(
           (state) => ({
             settings: { ...state.settings, bulkFadeOutDuration },
-            captions: state.captions.map((c) => ({ ...c, fadeOutDuration: bulkFadeOutDuration })),
           }),
           false,
           'setBulkFadeOutDuration'

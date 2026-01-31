@@ -16,6 +16,8 @@ interface NarrationSectionProps {
   onUpdateVolume: (value: string) => void;
   onToggleFadeIn: (checked: boolean) => void;
   onToggleFadeOut: (checked: boolean) => void;
+  onUpdateFadeInDuration: (duration: number) => void;
+  onUpdateFadeOutDuration: (duration: number) => void;
   formatTime: (seconds: number) => string;
 }
 
@@ -35,6 +37,8 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
   onUpdateVolume,
   onToggleFadeIn,
   onToggleFadeOut,
+  onUpdateFadeInDuration,
+  onUpdateFadeOutDuration,
   formatTime,
 }) => {
   const [isOpen, setIsOpen] = useState(true);
@@ -168,7 +172,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                 type="number"
                 min="0"
                 max={totalDuration}
-                step="0.1"
+                step={0.1}
                 value={narration.delay || 0}
                 onChange={(e) => onUpdateDelay(e.target.value)}
                 disabled={isNarrationLocked}
@@ -177,60 +181,90 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
               <span className="text-[10px] text-gray-500">秒</span>
             </div>
           </div>
-          <div className="bg-gray-800/50 p-2 rounded-lg space-y-1">
-            <div className="flex items-center gap-2">
-              <Volume2 className="w-3 h-3 text-gray-400" />
-              <SwipeProtectedSlider
-                min={0}
-                max={2.5}
-                step={0.1}
-                value={narration.volume}
-                onChange={handleVolumeChange}
-                disabled={isNarrationLocked}
-                className="flex-1 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-              />
-              <span className="text-[10px] text-gray-400 w-10 text-right">{Math.round(narration.volume * 100)}%</span>
-              <button
-                onClick={() => onUpdateVolume('1')}
-                disabled={isNarrationLocked}
-                className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition disabled:opacity-50"
-                title="標準音量に戻す"
-              >
-                <RefreshCw className="w-3 h-3" />
-              </button>
-            </div>
-            {/* 標準位置ラベル */}
-            <div className="relative h-3 ml-5 mr-20 text-[8px]">
-              <span className="absolute left-[66.7%] -translate-x-1/2 text-gray-500">標準</span>
-            </div>
+          {/* 音量コントロール */}
+          <div className="bg-gray-800/50 p-2 rounded-lg flex items-center gap-2">
+            <Volume2 className="w-3 h-3 text-gray-400" />
+            <SwipeProtectedSlider
+              min={0}
+              max={2.0}
+              step={0.05}
+              value={narration.volume}
+              onChange={handleVolumeChange}
+              disabled={isNarrationLocked}
+              className={`flex-1 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isNarrationLocked ? '' : 'cursor-pointer'}`}
+            />
+            <span className="text-[10px] text-gray-400 w-10 text-right">{Math.round(narration.volume * 100)}%</span>
+            <button
+              onClick={() => onUpdateVolume('1')}
+              disabled={isNarrationLocked}
+              className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition disabled:opacity-50"
+              title="リセット"
+            >
+              <RefreshCw className="w-3 h-3" />
+            </button>
           </div>
-          {/* フェード設定 - BGMと同じレイアウト */}
-          <div className="flex items-center gap-2 text-[10px]">
-            <label
-              className={`flex items-center gap-1 cursor-pointer ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
-            >
+
+          {/* フェード設定 */}
+          <div className="flex flex-nowrap items-center gap-x-2 text-[10px] overflow-x-auto scrollbar-hide">
+            {/* フェードイン */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <label
+                className={`flex items-center gap-1 ${isNarrationLocked ? 'opacity-50' : 'cursor-pointer'}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={narration.fadeIn}
+                  onChange={(e) => onToggleFadeIn(e.target.checked)}
+                  disabled={isNarrationLocked}
+                  className="accent-indigo-500 rounded cursor-pointer disabled:opacity-50 disabled:cursor-default"
+                />
+                <span className="whitespace-nowrap">フェードイン</span>
+              </label>
               <input
-                type="checkbox"
-                checked={narration.fadeIn}
-                onChange={(e) => onToggleFadeIn(e.target.checked)}
-                disabled={isNarrationLocked}
-                className="accent-indigo-500 rounded"
+                type="range"
+                min={0}
+                max={2}
+                step={1}
+                value={narration.fadeInDuration === 0.5 ? 0 : narration.fadeInDuration === 1.0 ? 1 : 2}
+                onChange={(e) => {
+                  const steps = [0.5, 1.0, 2.0];
+                  onUpdateFadeInDuration(steps[parseInt(e.target.value)]);
+                }}
+                disabled={isNarrationLocked || !narration.fadeIn}
+                className={`w-10 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isNarrationLocked || !narration.fadeIn ? '' : 'cursor-pointer'}`}
               />
-              <span>フェードイン</span>
-            </label>
-            <span className="text-gray-400 w-24"></span>
-            <label
-              className={`flex items-center gap-1 cursor-pointer ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
-            >
+              <span className="text-gray-400 w-6 whitespace-nowrap">{narration.fadeInDuration}秒</span>
+            </div>
+
+            {/* フェードアウト */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <label
+                className={`flex items-center gap-1 ${isNarrationLocked ? 'opacity-50' : 'cursor-pointer'}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={narration.fadeOut}
+                  onChange={(e) => onToggleFadeOut(e.target.checked)}
+                  disabled={isNarrationLocked}
+                  className="accent-indigo-500 rounded cursor-pointer disabled:opacity-50 disabled:cursor-default"
+                />
+                <span className="whitespace-nowrap">フェードアウト</span>
+              </label>
               <input
-                type="checkbox"
-                checked={narration.fadeOut}
-                onChange={(e) => onToggleFadeOut(e.target.checked)}
-                disabled={isNarrationLocked}
-                className="accent-indigo-500 rounded"
+                type="range"
+                min={0}
+                max={2}
+                step={1}
+                value={narration.fadeOutDuration === 0.5 ? 0 : narration.fadeOutDuration === 1.0 ? 1 : 2}
+                onChange={(e) => {
+                  const steps = [0.5, 1.0, 2.0];
+                  onUpdateFadeOutDuration(steps[parseInt(e.target.value)]);
+                }}
+                disabled={isNarrationLocked || !narration.fadeOut}
+                className={`w-10 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isNarrationLocked || !narration.fadeOut ? '' : 'cursor-pointer'}`}
               />
-              <span>フェードアウト</span>
-            </label>
+              <span className="text-gray-400 w-6 whitespace-nowrap">{narration.fadeOutDuration}秒</span>
+            </div>
           </div>
         </div>
       )}

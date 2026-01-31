@@ -11,7 +11,6 @@ import {
   GEMINI_TTS_MODEL,
   TTS_SAMPLE_RATE,
   EXPORT_VIDEO_BITRATE,
-  CAPTION_FADE_DURATION,
   SEEK_THROTTLE_MS,
 } from '../constants';
 
@@ -67,8 +66,7 @@ const TurtleVideo: React.FC = () => {
   // Audio Store
   const bgm = useAudioStore((s) => s.bgm);
   const isBgmLocked = useAudioStore((s) => s.isBgmLocked);
-  const narration = useAudioStore((s) => s.narration);
-  const isNarrationLocked = useAudioStore((s) => s.isNarrationLocked);
+
   const setBgm = useAudioStore((s) => s.setBgm);
   const updateBgmStartPoint = useAudioStore((s) => s.updateBgmStartPoint);
   const updateBgmDelay = useAudioStore((s) => s.updateBgmDelay);
@@ -79,15 +77,22 @@ const TurtleVideo: React.FC = () => {
   const updateBgmFadeOutDuration = useAudioStore((s) => s.updateBgmFadeOutDuration);
   const toggleBgmLock = useAudioStore((s) => s.toggleBgmLock);
   const removeBgm = useAudioStore((s) => s.removeBgm);
-  const setNarration = useAudioStore((s) => s.setNarration);
-  const updateNarrationStartPoint = useAudioStore((s) => s.updateNarrationStartPoint);
-  const updateNarrationDelay = useAudioStore((s) => s.updateNarrationDelay);
-  const updateNarrationVolume = useAudioStore((s) => s.updateNarrationVolume);
-  const toggleNarrationFadeIn = useAudioStore((s) => s.toggleNarrationFadeIn);
-  const toggleNarrationFadeOut = useAudioStore((s) => s.toggleNarrationFadeOut);
-  const toggleNarrationLock = useAudioStore((s) => s.toggleNarrationLock);
-  const removeNarration = useAudioStore((s) => s.removeNarration);
-  const clearAllAudio = useAudioStore((s) => s.clearAllAudio);
+
+  const {
+    narration,
+    isNarrationLocked,
+    setNarration,
+    updateNarrationStartPoint,
+    updateNarrationDelay,
+    updateNarrationVolume,
+    toggleNarrationFadeIn,
+    toggleNarrationFadeOut,
+    updateNarrationFadeInDuration,
+    updateNarrationFadeOutDuration,
+    toggleNarrationLock,
+    removeNarration,
+    clearAllAudio,
+  } = useAudioStore();
 
   // UI Store
   const toastMessage = useUIStore((s) => s.toastMessage);
@@ -471,18 +476,26 @@ const TurtleVideo: React.FC = () => {
             const captionDuration = activeCaption.endTime - activeCaption.startTime;
             const captionLocalTime = time - activeCaption.startTime;
 
-            // フェード時間を取得（デフォルト1.0秒）
-            const fadeInDur = activeCaption.fadeInDuration || 1.0;
-            const fadeOutDur = activeCaption.fadeOutDuration || 1.0;
+            // フェード時間を取得（個別優先、なければ一括）
+            const useFadeIn = activeCaption.fadeIn || captionSettings.bulkFadeIn;
+            const useFadeOut = activeCaption.fadeOut || captionSettings.bulkFadeOut;
+
+            const fadeInDur = activeCaption.fadeIn
+              ? (activeCaption.fadeInDuration || 1.0)
+              : (captionSettings.bulkFadeInDuration || 1.0);
+
+            const fadeOutDur = activeCaption.fadeOut
+              ? (activeCaption.fadeOutDuration || 1.0)
+              : (captionSettings.bulkFadeOutDuration || 1.0);
 
             // フェードイン・フェードアウトのアルファ値を個別に計算
             let fadeInAlpha = 1.0;
             let fadeOutAlpha = 1.0;
 
-            if (activeCaption.fadeIn && captionLocalTime < fadeInDur) {
+            if (useFadeIn && captionLocalTime < fadeInDur) {
               fadeInAlpha = captionLocalTime / fadeInDur;
             }
-            if (activeCaption.fadeOut && captionLocalTime > captionDuration - fadeOutDur) {
+            if (useFadeOut && captionLocalTime > captionDuration - fadeOutDur) {
               const remaining = captionDuration - captionLocalTime;
               fadeOutAlpha = remaining / fadeOutDur;
             }
@@ -2031,6 +2044,8 @@ const TurtleVideo: React.FC = () => {
           onUpdateVolume={withPause((val) => handleUpdateTrackVolume('narration', val))}
           onToggleFadeIn={withPause(toggleNarrationFadeIn)}
           onToggleFadeOut={withPause(toggleNarrationFadeOut)}
+          onUpdateFadeInDuration={withPause(updateNarrationFadeInDuration)}
+          onUpdateFadeOutDuration={withPause(updateNarrationFadeOutDuration)}
           formatTime={formatTime}
         />
 

@@ -226,7 +226,7 @@ export const useMediaStore = create<MediaState>()(
       updateVolume: (id, volume) => {
         set((state) => ({
           mediaItems: state.mediaItems.map((item) =>
-            item.id === id ? { ...item, volume: Math.max(0, Math.min(2.5, volume)) } : item
+            item.id === id ? { ...item, volume: Math.max(0, Math.min(2.0, volume)) } : item
           ),
         }));
       },

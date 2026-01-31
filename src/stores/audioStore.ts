@@ -168,7 +168,7 @@ export const useAudioStore = create<AudioState>()(
       updateNarrationVolume: (value) => {
         set((state) => {
           if (!state.narration) return state;
-          return { narration: { ...state.narration, volume: Math.max(0, Math.min(2.5, value)) } };
+          return { narration: { ...state.narration, volume: Math.max(0, Math.min(2.0, value)) } };
         });
       },
 
