@@ -64,11 +64,10 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
 
   return (
     <div
-      className={`p-3 rounded-lg border transition ${
-        isActive
-          ? 'bg-yellow-900/30 border-yellow-500/50'
-          : 'bg-gray-800/50 border-gray-700/50'
-      }`}
+      className={`p-3 rounded-lg border transition ${isActive
+        ? 'bg-yellow-900/30 border-yellow-500/50'
+        : 'bg-gray-800/50 border-gray-700/50'
+        }`}
     >
       {/* ヘッダー: 番号とアクション */}
       <div className="flex items-center justify-between mb-2">
@@ -221,31 +220,68 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
       </div>
 
       {/* フェードイン・フェードアウト設定 */}
-      <div className="flex gap-4 mt-2 text-[10px]">
-        <label
-          className={`flex items-center gap-1 cursor-pointer hover:text-yellow-300 ${isLocked ? 'opacity-50 pointer-events-none' : ''}`}
-        >
+      {/* フェードイン・フェードアウト設定 - 1行表示 */}
+      {/* フェード設定 - レイアウト改善 */}
+      <div className="mt-2 flex flex-nowrap items-center gap-x-2 text-[10px] overflow-x-auto scrollbar-hide">
+        {/* フェードイン */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <label
+            className={`flex items-center gap-1 ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
+          >
+            <input
+              type="checkbox"
+              checked={caption.fadeIn}
+              onChange={(e) => onUpdate(caption.id, { fadeIn: e.target.checked })}
+              disabled={isLocked}
+              className="accent-yellow-500 rounded cursor-pointer disabled:opacity-50 disabled:cursor-default"
+            />
+            <span className="whitespace-nowrap">フェードイン</span>
+          </label>
           <input
-            type="checkbox"
-            checked={caption.fadeIn}
-            onChange={(e) => onUpdate(caption.id, { fadeIn: e.target.checked })}
-            disabled={isLocked}
-            className="rounded accent-yellow-500 w-3 h-3"
-          />{' '}
-          フェードイン
-        </label>
-        <label
-          className={`flex items-center gap-1 cursor-pointer hover:text-yellow-300 ${isLocked ? 'opacity-50 pointer-events-none' : ''}`}
-        >
+            type="range"
+            min={0}
+            max={2}
+            step={1}
+            value={caption.fadeInDuration === 0.5 ? 0 : caption.fadeInDuration === 1.0 ? 1 : 2}
+            onChange={(e) => {
+              const steps = [0.5, 1.0, 2.0];
+              onUpdate(caption.id, { fadeInDuration: steps[parseInt(e.target.value)] });
+            }}
+            disabled={isLocked || !caption.fadeIn}
+            className={`w-10 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isLocked || !caption.fadeIn ? '' : 'cursor-pointer'}`}
+          />
+          <span className="text-gray-400 w-6 whitespace-nowrap">{caption.fadeInDuration}秒</span>
+        </div>
+
+        {/* フェードアウト */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <label
+            className={`flex items-center gap-1 ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
+          >
+            <input
+              type="checkbox"
+              checked={caption.fadeOut}
+              onChange={(e) => onUpdate(caption.id, { fadeOut: e.target.checked })}
+              disabled={isLocked}
+              className="accent-yellow-500 rounded cursor-pointer disabled:opacity-50 disabled:cursor-default"
+            />
+            <span className="whitespace-nowrap">フェードアウト</span>
+          </label>
           <input
-            type="checkbox"
-            checked={caption.fadeOut}
-            onChange={(e) => onUpdate(caption.id, { fadeOut: e.target.checked })}
-            disabled={isLocked}
-            className="rounded accent-yellow-500 w-3 h-3"
-          />{' '}
-          フェードアウト
-        </label>
+            type="range"
+            min={0}
+            max={2}
+            step={1}
+            value={caption.fadeOutDuration === 0.5 ? 0 : caption.fadeOutDuration === 1.0 ? 1 : 2}
+            onChange={(e) => {
+              const steps = [0.5, 1.0, 2.0];
+              onUpdate(caption.id, { fadeOutDuration: steps[parseInt(e.target.value)] });
+            }}
+            disabled={isLocked || !caption.fadeOut}
+            className={`w-10 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isLocked || !caption.fadeOut ? '' : 'cursor-pointer'}`}
+          />
+          <span className="text-gray-400 w-6 whitespace-nowrap">{caption.fadeOutDuration}秒</span>
+        </div>
       </div>
     </div>
   );

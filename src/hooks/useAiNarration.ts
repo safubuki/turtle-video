@@ -163,6 +163,8 @@ export function useAiNarration(): UseAiNarrationReturn {
               volume: 1.0,
               fadeIn: false,
               fadeOut: false,
+              fadeInDuration: 2.0,
+              fadeOutDuration: 2.0,
               duration: audio.duration,
               isAi: true,
             };

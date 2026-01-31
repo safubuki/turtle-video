@@ -26,6 +26,10 @@ interface CaptionSectionProps {
   onSetFontSize: (size: CaptionSize) => void;
   onSetFontStyle: (style: CaptionFontStyle) => void;
   onSetPosition: (position: CaptionPosition) => void;
+  onSetBulkFadeIn: (enabled: boolean) => void;
+  onSetBulkFadeOut: (enabled: boolean) => void;
+  onSetBulkFadeInDuration: (duration: number) => void;
+  onSetBulkFadeOutDuration: (duration: number) => void;
 }
 
 /**
@@ -45,6 +49,10 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   onSetFontSize,
   onSetFontStyle,
   onSetPosition,
+  onSetBulkFadeIn,
+  onSetBulkFadeOut,
+  onSetBulkFadeInDuration,
+  onSetBulkFadeOutDuration,
 }) => {
   const [isOpen, setIsOpen] = useState(true);
   const [showStyleSettings, setShowStyleSettings] = useState(false);
@@ -115,8 +123,8 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
           <button
             onClick={() => onSetEnabled(!settings.enabled)}
             className={`p-1.5 rounded transition ${settings.enabled
-                ? 'bg-yellow-500/20 text-yellow-400'
-                : 'bg-gray-700 text-gray-400 hover:text-white'
+              ? 'bg-yellow-500/20 text-yellow-400'
+              : 'bg-gray-700 text-gray-400 hover:text-white'
               }`}
             title={settings.enabled ? 'キャプションを非表示' : 'キャプションを表示'}
           >
@@ -126,8 +134,8 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
           <button
             onClick={onToggleLock}
             className={`p-1.5 rounded transition ${isLocked
-                ? 'bg-red-500/20 text-red-400'
-                : 'bg-gray-700 text-gray-400 hover:text-white'
+              ? 'bg-red-500/20 text-red-400'
+              : 'bg-gray-700 text-gray-400 hover:text-white'
               }`}
           >
             {isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
@@ -138,7 +146,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
       {/* コンテンツ */}
       {isOpen && (
         <div className="p-3 space-y-3">
-          {/* スタイル設定 */}
+          {/* スタイル/フェード一括設定 */}
           <div className="bg-gray-800/50 rounded-lg border border-gray-700/50">
             <button
               onClick={() => setShowStyleSettings(!showStyleSettings)}
@@ -146,7 +154,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
             >
               <div className="flex items-center gap-2">
                 <Type className="w-3 h-3" />
-                <span>スタイル設定</span>
+                <span>スタイル/フェード一括設定</span>
               </div>
               {showStyleSettings ? (
                 <ChevronDown className="w-3 h-3" />
@@ -155,62 +163,129 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
               )}
             </button>
             {showStyleSettings && (
-              <div className="px-3 pb-3 space-y-2">
-                {/* 文字サイズ */}
-                <div className="flex items-center gap-2 text-[10px]">
-                  <span className="text-gray-400 w-16">サイズ:</span>
-                  <div className="flex gap-1">
-                    {fontSizeOptions.map((opt) => (
-                      <button
-                        key={opt.value}
-                        onClick={() => onSetFontSize(opt.value)}
-                        disabled={isLocked}
-                        className={`px-2 py-1 rounded transition ${settings.fontSize === opt.value
+              <div className="px-3 pb-3 space-y-3">
+                {/* ■ スタイル設定 */}
+                <div className="space-y-2">
+                  <div className="text-[10px] text-yellow-400 font-bold">■ スタイル設定</div>
+                  {/* 文字サイズ */}
+                  <div className="flex items-center gap-2 text-[10px]">
+                    <span className="text-gray-400 w-16">サイズ:</span>
+                    <div className="flex gap-1">
+                      {fontSizeOptions.map((opt) => (
+                        <button
+                          key={opt.value}
+                          onClick={() => onSetFontSize(opt.value)}
+                          disabled={isLocked}
+                          className={`px-2 py-1 rounded transition ${settings.fontSize === opt.value
                             ? 'bg-yellow-500 text-gray-900'
                             : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                          } disabled:opacity-50`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
+                            } disabled:opacity-50`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* 字体 */}
+                  <div className="flex items-center gap-2 text-[10px]">
+                    <span className="text-gray-400 w-16">字体:</span>
+                    <div className="flex gap-1">
+                      {fontStyleOptions.map((opt) => (
+                        <button
+                          key={opt.value}
+                          onClick={() => onSetFontStyle(opt.value)}
+                          disabled={isLocked}
+                          className={`px-2 py-1 rounded transition ${settings.fontStyle === opt.value
+                            ? 'bg-yellow-500 text-gray-900'
+                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                            } disabled:opacity-50`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* 位置 */}
+                  <div className="flex items-center gap-2 text-[10px]">
+                    <span className="text-gray-400 w-16">位置:</span>
+                    <div className="flex gap-1">
+                      {positionOptions.map((opt) => (
+                        <button
+                          key={opt.value}
+                          onClick={() => onSetPosition(opt.value)}
+                          disabled={isLocked}
+                          className={`px-2 py-1 rounded transition ${settings.position === opt.value
+                            ? 'bg-yellow-500 text-gray-900'
+                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                            } disabled:opacity-50`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
-                {/* 字体 */}
-                <div className="flex items-center gap-2 text-[10px]">
-                  <span className="text-gray-400 w-16">字体:</span>
-                  <div className="flex gap-1">
-                    {fontStyleOptions.map((opt) => (
-                      <button
-                        key={opt.value}
-                        onClick={() => onSetFontStyle(opt.value)}
-                        disabled={isLocked}
-                        className={`px-2 py-1 rounded transition ${settings.fontStyle === opt.value
-                            ? 'bg-yellow-500 text-gray-900'
-                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                          } disabled:opacity-50`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                {/* 位置 */}
-                <div className="flex items-center gap-2 text-[10px]">
-                  <span className="text-gray-400 w-16">位置:</span>
-                  <div className="flex gap-1">
-                    {positionOptions.map((opt) => (
-                      <button
-                        key={opt.value}
-                        onClick={() => onSetPosition(opt.value)}
-                        disabled={isLocked}
-                        className={`px-2 py-1 rounded transition ${settings.position === opt.value
-                            ? 'bg-yellow-500 text-gray-900'
-                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                          } disabled:opacity-50`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
+                {/* ■ フェード一括設定 */}
+                <div className="space-y-2 pt-2 border-t border-gray-700/50">
+                  <div className="text-[10px] text-yellow-400 font-bold">■ フェード一括設定（個別ON優先）</div>
+                  {/* フェード設定 - 1行表示 */}
+                  {/* フェード一括設定 - レイアウト改善 */}
+                  <div className="flex flex-nowrap items-center gap-x-2 text-[10px] overflow-x-auto scrollbar-hide">
+                    {/* フェードイン */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <label className={`flex items-center gap-1 ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}>
+                        <input
+                          type="checkbox"
+                          checked={settings.bulkFadeIn}
+                          onChange={(e) => onSetBulkFadeIn(e.target.checked)}
+                          disabled={isLocked}
+                          className="accent-yellow-500 rounded cursor-pointer disabled:opacity-50 disabled:cursor-default"
+                        />
+                        <span className="whitespace-nowrap">フェードイン</span>
+                      </label>
+                      <input
+                        type="range"
+                        min={0}
+                        max={2}
+                        step={1}
+                        value={settings.bulkFadeInDuration === 0.5 ? 0 : settings.bulkFadeInDuration === 1.0 ? 1 : 2}
+                        onChange={(e) => {
+                          const steps = [0.5, 1.0, 2.0];
+                          onSetBulkFadeInDuration(steps[parseInt(e.target.value)]);
+                        }}
+                        disabled={isLocked || !settings.bulkFadeIn}
+                        className={`w-10 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isLocked || !settings.bulkFadeIn ? '' : 'cursor-pointer'}`}
+                      />
+                      <span className="text-gray-400 w-6 whitespace-nowrap">{settings.bulkFadeInDuration}秒</span>
+                    </div>
+
+                    {/* フェードアウト */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <label className={`flex items-center gap-1 ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}>
+                        <input
+                          type="checkbox"
+                          checked={settings.bulkFadeOut}
+                          onChange={(e) => onSetBulkFadeOut(e.target.checked)}
+                          disabled={isLocked}
+                          className="accent-yellow-500 rounded cursor-pointer disabled:opacity-50 disabled:cursor-default"
+                        />
+                        <span className="whitespace-nowrap">フェードアウト</span>
+                      </label>
+                      <input
+                        type="range"
+                        min={0}
+                        max={2}
+                        step={1}
+                        value={settings.bulkFadeOutDuration === 0.5 ? 0 : settings.bulkFadeOutDuration === 1.0 ? 1 : 2}
+                        onChange={(e) => {
+                          const steps = [0.5, 1.0, 2.0];
+                          onSetBulkFadeOutDuration(steps[parseInt(e.target.value)]);
+                        }}
+                        disabled={isLocked || !settings.bulkFadeOut}
+                        className={`w-10 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isLocked || !settings.bulkFadeOut ? '' : 'cursor-pointer'}`}
+                      />
+                      <span className="text-gray-400 w-6 whitespace-nowrap">{settings.bulkFadeOutDuration}秒</span>
+                    </div>
                   </div>
                 </div>
               </div>

@@ -54,9 +54,11 @@ export function useAudioTracks(): UseAudioTracksReturn {
           url,
           startPoint: 0,
           delay: 0,
-          volume: 0.5,
+          volume: 1.0,
           fadeIn: false,
           fadeOut: false,
+          fadeInDuration: 2.0,
+          fadeOutDuration: 2.0,
           duration: audio.duration,
           isAi: false,
         });
@@ -83,6 +85,8 @@ export function useAudioTracks(): UseAudioTracksReturn {
           volume: 1.0,
           fadeIn: false,
           fadeOut: false,
+          fadeInDuration: 2.0,
+          fadeOutDuration: 2.0,
           duration: audio.duration,
           isAi: false,
         });

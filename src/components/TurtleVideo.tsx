@@ -11,7 +11,6 @@ import {
   GEMINI_TTS_MODEL,
   TTS_SAMPLE_RATE,
   EXPORT_VIDEO_BITRATE,
-  CAPTION_FADE_DURATION,
   SEEK_THROTTLE_MS,
 } from '../constants';
 
@@ -58,6 +57,8 @@ const TurtleVideo: React.FC = () => {
   const toggleMute = useMediaStore((s) => s.toggleMute);
   const toggleFadeIn = useMediaStore((s) => s.toggleFadeIn);
   const toggleFadeOut = useMediaStore((s) => s.toggleFadeOut);
+  const updateFadeInDuration = useMediaStore((s) => s.updateFadeInDuration);
+  const updateFadeOutDuration = useMediaStore((s) => s.updateFadeOutDuration);
   const toggleItemLock = useMediaStore((s) => s.toggleItemLock);
   const toggleClipsLock = useMediaStore((s) => s.toggleClipsLock);
   const clearAllMedia = useMediaStore((s) => s.clearAllMedia);
@@ -65,25 +66,33 @@ const TurtleVideo: React.FC = () => {
   // Audio Store
   const bgm = useAudioStore((s) => s.bgm);
   const isBgmLocked = useAudioStore((s) => s.isBgmLocked);
-  const narration = useAudioStore((s) => s.narration);
-  const isNarrationLocked = useAudioStore((s) => s.isNarrationLocked);
+
   const setBgm = useAudioStore((s) => s.setBgm);
   const updateBgmStartPoint = useAudioStore((s) => s.updateBgmStartPoint);
   const updateBgmDelay = useAudioStore((s) => s.updateBgmDelay);
   const updateBgmVolume = useAudioStore((s) => s.updateBgmVolume);
   const toggleBgmFadeIn = useAudioStore((s) => s.toggleBgmFadeIn);
   const toggleBgmFadeOut = useAudioStore((s) => s.toggleBgmFadeOut);
+  const updateBgmFadeInDuration = useAudioStore((s) => s.updateBgmFadeInDuration);
+  const updateBgmFadeOutDuration = useAudioStore((s) => s.updateBgmFadeOutDuration);
   const toggleBgmLock = useAudioStore((s) => s.toggleBgmLock);
   const removeBgm = useAudioStore((s) => s.removeBgm);
-  const setNarration = useAudioStore((s) => s.setNarration);
-  const updateNarrationStartPoint = useAudioStore((s) => s.updateNarrationStartPoint);
-  const updateNarrationDelay = useAudioStore((s) => s.updateNarrationDelay);
-  const updateNarrationVolume = useAudioStore((s) => s.updateNarrationVolume);
-  const toggleNarrationFadeIn = useAudioStore((s) => s.toggleNarrationFadeIn);
-  const toggleNarrationFadeOut = useAudioStore((s) => s.toggleNarrationFadeOut);
-  const toggleNarrationLock = useAudioStore((s) => s.toggleNarrationLock);
-  const removeNarration = useAudioStore((s) => s.removeNarration);
-  const clearAllAudio = useAudioStore((s) => s.clearAllAudio);
+
+  const {
+    narration,
+    isNarrationLocked,
+    setNarration,
+    updateNarrationStartPoint,
+    updateNarrationDelay,
+    updateNarrationVolume,
+    toggleNarrationFadeIn,
+    toggleNarrationFadeOut,
+    updateNarrationFadeInDuration,
+    updateNarrationFadeOutDuration,
+    toggleNarrationLock,
+    removeNarration,
+    clearAllAudio,
+  } = useAudioStore();
 
   // UI Store
   const toastMessage = useUIStore((s) => s.toastMessage);
@@ -132,6 +141,10 @@ const TurtleVideo: React.FC = () => {
   const setCaptionFontSize = useCaptionStore((s) => s.setFontSize);
   const setCaptionFontStyle = useCaptionStore((s) => s.setFontStyle);
   const setCaptionPosition = useCaptionStore((s) => s.setPosition);
+  const setBulkFadeIn = useCaptionStore((s) => s.setBulkFadeIn);
+  const setBulkFadeOut = useCaptionStore((s) => s.setBulkFadeOut);
+  const setBulkFadeInDuration = useCaptionStore((s) => s.setBulkFadeInDuration);
+  const setBulkFadeOutDuration = useCaptionStore((s) => s.setBulkFadeOutDuration);
   const toggleCaptionLock = useCaptionStore((s) => s.toggleLock);
   const resetCaptions = useCaptionStore((s) => s.resetCaptions);
 
@@ -379,9 +392,15 @@ const TurtleVideo: React.FC = () => {
                 ctx.scale(baseScale * scaleFactor, baseScale * scaleFactor);
 
                 let alpha = 1.0;
-                if (conf.fadeIn && localTime < 1.0) alpha = localTime;
-                else if (conf.fadeOut && localTime > conf.duration - 1.0)
-                  alpha = conf.duration - localTime;
+                const fadeInDur = conf.fadeInDuration || 1.0;
+                const fadeOutDur = conf.fadeOutDuration || 1.0;
+
+                if (conf.fadeIn && localTime < fadeInDur) {
+                  alpha = localTime / fadeInDur;
+                } else if (conf.fadeOut && localTime > conf.duration - fadeOutDur) {
+                  const remaining = conf.duration - localTime;
+                  alpha = remaining / fadeOutDur;
+                }
 
                 ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
                 ctx.drawImage(element as CanvasImageSource, -elemW / 2, -elemH / 2, elemW, elemH);
@@ -393,10 +412,21 @@ const TurtleVideo: React.FC = () => {
             if (conf.type === 'video' && gainNode && audioCtxRef.current) {
               if (isActivePlaying) {
                 let vol = conf.isMuted ? 0 : conf.volume;
-                if (conf.fadeIn && localTime < 1.0) vol *= localTime;
-                else if (conf.fadeOut && localTime > conf.duration - 1.0)
-                  vol *= conf.duration - localTime;
-                gainNode.gain.setTargetAtTime(vol, audioCtxRef.current.currentTime, 0.05);
+                const fadeInDur = conf.fadeInDuration || 1.0;
+                const fadeOutDur = conf.fadeOutDuration || 1.0;
+
+                if (conf.fadeIn && localTime < fadeInDur) {
+                  vol *= localTime / fadeInDur;
+                } else if (conf.fadeOut && localTime > conf.duration - fadeOutDur) {
+                  const remaining = conf.duration - localTime;
+                  vol *= remaining / fadeOutDur;
+                }
+
+                // 音量の急激な変化を防ぐ
+                const currentGain = gainNode.gain.value;
+                if (Math.abs(currentGain - vol) > 0.01) {
+                  gainNode.gain.setTargetAtTime(vol, audioCtxRef.current.currentTime, 0.05);
+                }
               } else {
                 gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.05);
               }
@@ -446,22 +476,28 @@ const TurtleVideo: React.FC = () => {
             const captionDuration = activeCaption.endTime - activeCaption.startTime;
             const captionLocalTime = time - activeCaption.startTime;
 
-            // フェード時間を計算（短いキャプションの場合は調整）
-            let effectiveFadeDuration = CAPTION_FADE_DURATION;
-            if (activeCaption.fadeIn && activeCaption.fadeOut) {
-              // 両方有効な場合、重複しないようにフェード時間を調整
-              effectiveFadeDuration = Math.min(CAPTION_FADE_DURATION, captionDuration / 2);
-            }
+            // フェード時間を取得（個別優先、なければ一括）
+            const useFadeIn = activeCaption.fadeIn || captionSettings.bulkFadeIn;
+            const useFadeOut = activeCaption.fadeOut || captionSettings.bulkFadeOut;
+
+            const fadeInDur = activeCaption.fadeIn
+              ? (activeCaption.fadeInDuration || 1.0)
+              : (captionSettings.bulkFadeInDuration || 1.0);
+
+            const fadeOutDur = activeCaption.fadeOut
+              ? (activeCaption.fadeOutDuration || 1.0)
+              : (captionSettings.bulkFadeOutDuration || 1.0);
 
             // フェードイン・フェードアウトのアルファ値を個別に計算
             let fadeInAlpha = 1.0;
             let fadeOutAlpha = 1.0;
 
-            if (activeCaption.fadeIn && captionLocalTime < effectiveFadeDuration) {
-              fadeInAlpha = captionLocalTime / effectiveFadeDuration;
+            if (useFadeIn && captionLocalTime < fadeInDur) {
+              fadeInAlpha = captionLocalTime / fadeInDur;
             }
-            if (activeCaption.fadeOut && captionLocalTime > captionDuration - effectiveFadeDuration) {
-              fadeOutAlpha = (captionDuration - captionLocalTime) / effectiveFadeDuration;
+            if (useFadeOut && captionLocalTime > captionDuration - fadeOutDur) {
+              const remaining = captionDuration - captionLocalTime;
+              fadeOutAlpha = remaining / fadeOutDur;
             }
 
             // 両方のアルファ値を乗算して最終的な透明度を計算
@@ -507,10 +543,22 @@ const TurtleVideo: React.FC = () => {
                   }
                   if (element.paused) element.play().catch(() => { });
 
-                  if (track.fadeIn && playDuration < 2.0) vol *= playDuration / 2.0;
-                  if (track.fadeOut && time > totalDurationRef.current - 2.0)
-                    vol *= Math.max(0, (totalDurationRef.current - time) / 2.0);
-                  gainNode.gain.setTargetAtTime(vol, audioCtxRef.current.currentTime, 0.1);
+                  const fadeInDur = track.fadeInDuration || 1.0;
+                  const fadeOutDur = track.fadeOutDuration || 1.0;
+
+                  if (track.fadeIn && playDuration < fadeInDur) {
+                    vol *= playDuration / fadeInDur;
+                  }
+                  if (track.fadeOut && time > totalDurationRef.current - fadeOutDur) {
+                    const remaining = totalDurationRef.current - time;
+                    vol *= Math.max(0, remaining / fadeOutDur);
+                  }
+
+                  // 音量の急激な変化を防ぐ
+                  const currentGain = gainNode.gain.value;
+                  if (Math.abs(currentGain - vol) > 0.01) {
+                    gainNode.gain.setTargetAtTime(vol, audioCtxRef.current.currentTime, 0.1);
+                  }
                 } else {
                   gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.1);
                   if (!element.paused) element.pause();
@@ -809,6 +857,8 @@ const TurtleVideo: React.FC = () => {
           volume: 1.0,
           fadeIn: false,
           fadeOut: false,
+          fadeInDuration: 2.0,
+          fadeOutDuration: 2.0,
           duration: audio.duration,
           isAi: true,
         });
@@ -1041,9 +1091,11 @@ const TurtleVideo: React.FC = () => {
         url,
         startPoint: 0,
         delay: 0,
-        volume: 0.5,
+        volume: 1.0,
         fadeIn: false,
         fadeOut: false,
+        fadeInDuration: 2.0,
+        fadeOutDuration: 2.0,
         duration: audio.duration,
         isAi: false,
       });
@@ -1068,6 +1120,8 @@ const TurtleVideo: React.FC = () => {
         volume: 1.0,
         fadeIn: false,
         fadeOut: false,
+        fadeInDuration: 2.0,
+        fadeOutDuration: 2.0,
         duration: audio.duration,
         isAi: false,
       });
@@ -1954,6 +2008,8 @@ const TurtleVideo: React.FC = () => {
           onToggleMediaMute={withPause(toggleMute)}
           onToggleMediaFadeIn={withPause(toggleFadeIn)}
           onToggleMediaFadeOut={withPause(toggleFadeOut)}
+          onUpdateFadeInDuration={withPause(updateFadeInDuration)}
+          onUpdateFadeOutDuration={withPause(updateFadeOutDuration)}
         />
 
         {/* 2. BGM SETTINGS */}
@@ -1969,6 +2025,8 @@ const TurtleVideo: React.FC = () => {
           onUpdateVolume={withPause((val) => handleUpdateTrackVolume('bgm', val))}
           onToggleFadeIn={withPause(toggleBgmFadeIn)}
           onToggleFadeOut={withPause(toggleBgmFadeOut)}
+          onUpdateFadeInDuration={withPause(updateBgmFadeInDuration)}
+          onUpdateFadeOutDuration={withPause(updateBgmFadeOutDuration)}
           formatTime={formatTime}
         />
 
@@ -1986,6 +2044,8 @@ const TurtleVideo: React.FC = () => {
           onUpdateVolume={withPause((val) => handleUpdateTrackVolume('narration', val))}
           onToggleFadeIn={withPause(toggleNarrationFadeIn)}
           onToggleFadeOut={withPause(toggleNarrationFadeOut)}
+          onUpdateFadeInDuration={withPause(updateNarrationFadeInDuration)}
+          onUpdateFadeOutDuration={withPause(updateNarrationFadeOutDuration)}
           formatTime={formatTime}
         />
 
@@ -2004,6 +2064,10 @@ const TurtleVideo: React.FC = () => {
           onSetFontSize={withPause(setCaptionFontSize)}
           onSetFontStyle={withPause(setCaptionFontStyle)}
           onSetPosition={withPause(setCaptionPosition)}
+          onSetBulkFadeIn={withPause(setBulkFadeIn)}
+          onSetBulkFadeOut={withPause(setBulkFadeOut)}
+          onSetBulkFadeInDuration={withPause(setBulkFadeInDuration)}
+          onSetBulkFadeOutDuration={withPause(setBulkFadeOutDuration)}
         />
 
         {/* 5. PREVIEW */}

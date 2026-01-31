@@ -24,6 +24,8 @@ interface AudioState {
   updateBgmVolume: (value: number) => void;
   toggleBgmFadeIn: (enabled: boolean) => void;
   toggleBgmFadeOut: (enabled: boolean) => void;
+  updateBgmFadeInDuration: (duration: number) => void;
+  updateBgmFadeOutDuration: (duration: number) => void;
   toggleBgmLock: () => void;
   removeBgm: () => void;
 
@@ -34,6 +36,8 @@ interface AudioState {
   updateNarrationVolume: (value: number) => void;
   toggleNarrationFadeIn: (enabled: boolean) => void;
   toggleNarrationFadeOut: (enabled: boolean) => void;
+  updateNarrationFadeInDuration: (duration: number) => void;
+  updateNarrationFadeOutDuration: (duration: number) => void;
   toggleNarrationLock: () => void;
   removeNarration: () => void;
 
@@ -56,6 +60,8 @@ export function createAudioTrack(
     volume: defaultVolume,
     fadeIn: false,
     fadeOut: false,
+    fadeInDuration: 2.0,
+    fadeOutDuration: 2.0,
     duration,
     isAi,
   };
@@ -95,7 +101,7 @@ export const useAudioStore = create<AudioState>()(
       updateBgmVolume: (value) => {
         set((state) => {
           if (!state.bgm) return state;
-          return { bgm: { ...state.bgm, volume: Math.max(0, Math.min(1, value)) } };
+          return { bgm: { ...state.bgm, volume: Math.max(0, Math.min(2.5, value)) } };
         });
       },
 
@@ -110,6 +116,20 @@ export const useAudioStore = create<AudioState>()(
         set((state) => {
           if (!state.bgm) return state;
           return { bgm: { ...state.bgm, fadeOut: enabled } };
+        });
+      },
+
+      updateBgmFadeInDuration: (duration) => {
+        set((state) => {
+          if (!state.bgm) return state;
+          return { bgm: { ...state.bgm, fadeInDuration: duration } };
+        });
+      },
+
+      updateBgmFadeOutDuration: (duration) => {
+        set((state) => {
+          if (!state.bgm) return state;
+          return { bgm: { ...state.bgm, fadeOutDuration: duration } };
         });
       },
 
@@ -148,7 +168,7 @@ export const useAudioStore = create<AudioState>()(
       updateNarrationVolume: (value) => {
         set((state) => {
           if (!state.narration) return state;
-          return { narration: { ...state.narration, volume: Math.max(0, Math.min(1, value)) } };
+          return { narration: { ...state.narration, volume: Math.max(0, Math.min(2.0, value)) } };
         });
       },
 
@@ -163,6 +183,20 @@ export const useAudioStore = create<AudioState>()(
         set((state) => {
           if (!state.narration) return state;
           return { narration: { ...state.narration, fadeOut: enabled } };
+        });
+      },
+
+      updateNarrationFadeInDuration: (duration) => {
+        set((state) => {
+          if (!state.narration) return state;
+          return { narration: { ...state.narration, fadeInDuration: duration } };
+        });
+      },
+
+      updateNarrationFadeOutDuration: (duration) => {
+        set((state) => {
+          if (!state.narration) return state;
+          return { narration: { ...state.narration, fadeOutDuration: duration } };
         });
       },
 

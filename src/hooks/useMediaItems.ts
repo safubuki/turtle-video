@@ -87,6 +87,8 @@ export function useMediaItems(): UseMediaItemsReturn {
             isMuted: false,
             fadeIn: false,
             fadeOut: false,
+            fadeInDuration: 1.0,
+            fadeOutDuration: 1.0,
             duration: isImage ? 5 : 0,
             originalDuration: 0,
             trimStart: 0,

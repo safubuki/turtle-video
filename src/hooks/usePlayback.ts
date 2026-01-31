@@ -135,7 +135,7 @@ export function usePlayback(): UsePlaybackReturn {
                 if (Math.abs(videoEl.currentTime - targetTime) > 0.8) {
                   videoEl.currentTime = targetTime;
                 }
-                if (videoEl.paused) videoEl.play().catch(() => {});
+                if (videoEl.paused) videoEl.play().catch(() => { });
               } else {
                 if (!videoEl.paused) videoEl.pause();
                 if (Math.abs(videoEl.currentTime - targetTime) > 0.01) {
@@ -220,11 +220,18 @@ export function usePlayback(): UsePlaybackReturn {
                   if (Math.abs(element.currentTime - trackTime) > 0.5) {
                     element.currentTime = trackTime;
                   }
-                  if (element.paused) element.play().catch(() => {});
+                  if (element.paused) element.play().catch(() => { });
 
-                  if (track.fadeIn && playDuration < 2.0) vol *= playDuration / 2.0;
-                  if (track.fadeOut && time > totalDurationRef.current - 2.0)
-                    vol *= Math.max(0, (totalDurationRef.current - time) / 2.0);
+                  const fadeInDur = track.fadeInDuration || 1.0;
+                  const fadeOutDur = track.fadeOutDuration || 1.0;
+
+                  if (track.fadeIn && playDuration < fadeInDur) {
+                    vol *= playDuration / fadeInDur;
+                  }
+                  if (track.fadeOut && time > totalDurationRef.current - fadeOutDur) {
+                    const remaining = totalDurationRef.current - time;
+                    vol *= Math.max(0, remaining / fadeOutDur);
+                  }
                   gainNode.gain.setTargetAtTime(vol, audioCtxRef.current.currentTime, 0.1);
                 } else {
                   gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.1);

@@ -10,10 +10,10 @@ import type { Caption, CaptionSettings, CaptionPosition, CaptionSize, CaptionFon
 interface CaptionState {
   // キャプション一覧
   captions: Caption[];
-  
+
   // スタイル設定
   settings: CaptionSettings;
-  
+
   // ロック状態
   isLocked: boolean;
 
@@ -32,6 +32,12 @@ interface CaptionState {
   setStrokeWidth: (width: number) => void;
   setPosition: (position: CaptionPosition) => void;
 
+  // === 一括フェード設定 ===
+  setBulkFadeIn: (enabled: boolean) => void;
+  setBulkFadeOut: (enabled: boolean) => void;
+  setBulkFadeInDuration: (duration: number) => void;
+  setBulkFadeOutDuration: (duration: number) => void;
+
   // === ロック ===
   toggleLock: () => void;
 
@@ -48,6 +54,11 @@ const initialSettings: CaptionSettings = {
   strokeColor: '#000000',
   strokeWidth: 2,
   position: 'bottom',
+  // 一括フェード設定
+  bulkFadeIn: false,
+  bulkFadeOut: false,
+  bulkFadeInDuration: 1.0,
+  bulkFadeOutDuration: 1.0,
 };
 
 // ID生成
@@ -72,8 +83,10 @@ export const useCaptionStore = create<CaptionState>()(
                 text,
                 startTime,
                 endTime,
-                fadeIn: false,
-                fadeOut: false,
+                fadeIn: state.settings.bulkFadeIn,
+                fadeOut: state.settings.bulkFadeOut,
+                fadeInDuration: state.settings.bulkFadeInDuration,
+                fadeOutDuration: state.settings.bulkFadeOutDuration,
               },
             ].sort((a, b) => a.startTime - b.startTime), // 開始時間でソート
           }),
@@ -166,6 +179,47 @@ export const useCaptionStore = create<CaptionState>()(
           }),
           false,
           'setPosition'
+        ),
+
+      // === 一括フェード設定 ===
+      // 要望対応: 一括設定は「個別設定がOFFのもの」に対してのみ適用し、
+      // 既存の個別設定（ONになっているもの）や、決定済みの時間を勝手に変更しない。
+
+      setBulkFadeIn: (bulkFadeIn) =>
+        set(
+          (state) => ({
+            settings: { ...state.settings, bulkFadeIn },
+          }),
+          false,
+          'setBulkFadeIn'
+        ),
+
+      setBulkFadeOut: (bulkFadeOut) =>
+        set(
+          (state) => ({
+            settings: { ...state.settings, bulkFadeOut },
+          }),
+          false,
+          'setBulkFadeOut'
+        ),
+
+      // 時間変更は settings のみ更新し、既存キャプションには連動させない
+      setBulkFadeInDuration: (bulkFadeInDuration) =>
+        set(
+          (state) => ({
+            settings: { ...state.settings, bulkFadeInDuration },
+          }),
+          false,
+          'setBulkFadeInDuration'
+        ),
+
+      setBulkFadeOutDuration: (bulkFadeOutDuration) =>
+        set(
+          (state) => ({
+            settings: { ...state.settings, bulkFadeOutDuration },
+          }),
+          false,
+          'setBulkFadeOutDuration'
         ),
 
       // === ロック ===

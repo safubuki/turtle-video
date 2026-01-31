@@ -13,6 +13,14 @@ export const FADE_DURATION = 1.0; // 秒
 export const AUDIO_FADE_DURATION = 2.0; // 秒
 export const CAPTION_FADE_DURATION = 0.5; // 秒
 
+// フェード時間オプション
+export const FADE_DURATION_OPTIONS = [0.5, 1.0, 2.0];
+export const DEFAULT_FADE_DURATION = 1.0;
+
+// 音量増幅設定
+export const MAX_VOLUME = 1.5;                    // 150%まで増幅可能
+export const STANDARD_VOLUME_POSITION = 0.75;     // 3/4位置 = 100%
+
 // スケール設定
 export const MIN_SCALE = 0.5;
 export const MAX_SCALE = 3.0;
