@@ -393,11 +393,11 @@ const ClipItem: React.FC<ClipItemProps> = ({
           )}
 
           {/* フェード設定 (共通) - 改善版 */}
-          <div className="flex flex-nowrap items-center gap-x-2 text-[10px] overflow-x-auto scrollbar-hide">
+          <div className="flex flex-col gap-2 mt-2 text-[10px]">
             {/* フェードイン */}
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-2">
               <label
-                className={`flex items-center gap-1 ${isDisabled ? 'opacity-50' : 'cursor-pointer'}`}
+                className={`flex items-center gap-1 w-20 justify-start ${isDisabled ? 'opacity-50' : 'cursor-pointer'}`}
               >
                 <input
                   type="checkbox"
@@ -419,15 +419,15 @@ const ClipItem: React.FC<ClipItemProps> = ({
                   onUpdateFadeInDuration(steps[parseInt(e.target.value)]);
                 }}
                 disabled={isDisabled || !v.fadeIn}
-                className={`w-10 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isDisabled || !v.fadeIn ? '' : 'cursor-pointer'}`}
+                className={`flex-1 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isDisabled || !v.fadeIn ? '' : 'cursor-pointer'}`}
               />
-              <span className="text-gray-400 w-6 whitespace-nowrap">{v.fadeInDuration}秒</span>
+              <span className="text-gray-400 w-8 text-right whitespace-nowrap">{v.fadeInDuration}秒</span>
             </div>
 
             {/* フェードアウト */}
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-2">
               <label
-                className={`flex items-center gap-1 ${isDisabled ? 'opacity-50' : 'cursor-pointer'}`}
+                className={`flex items-center gap-1 w-20 justify-start ${isDisabled ? 'opacity-50' : 'cursor-pointer'}`}
               >
                 <input
                   type="checkbox"
@@ -449,9 +449,9 @@ const ClipItem: React.FC<ClipItemProps> = ({
                   onUpdateFadeOutDuration(steps[parseInt(e.target.value)]);
                 }}
                 disabled={isDisabled || !v.fadeOut}
-                className={`w-10 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isDisabled || !v.fadeOut ? '' : 'cursor-pointer'}`}
+                className={`flex-1 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isDisabled || !v.fadeOut ? '' : 'cursor-pointer'}`}
               />
-              <span className="text-gray-400 w-6 whitespace-nowrap">{v.fadeOutDuration}秒</span>
+              <span className="text-gray-400 w-8 text-right whitespace-nowrap">{v.fadeOutDuration}秒</span>
             </div>
           </div>
         </div>

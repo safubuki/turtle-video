@@ -230,10 +230,10 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                   <div className="text-[10px] text-yellow-400 font-bold">■ フェード一括設定（個別ON優先）</div>
                   {/* フェード設定 - 1行表示 */}
                   {/* フェード一括設定 - レイアウト改善 */}
-                  <div className="flex flex-nowrap items-center gap-x-2 text-[10px] overflow-x-auto scrollbar-hide">
+                  <div className="flex flex-col gap-2 mt-2 text-[10px]">
                     {/* フェードイン */}
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <label className={`flex items-center gap-1 ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}>
+                    <div className="flex items-center gap-2">
+                      <label className={`flex items-center gap-1 w-20 justify-start ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}>
                         <input
                           type="checkbox"
                           checked={settings.bulkFadeIn}
@@ -254,14 +254,14 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                           onSetBulkFadeInDuration(steps[parseInt(e.target.value)]);
                         }}
                         disabled={isLocked || !settings.bulkFadeIn}
-                        className={`w-10 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isLocked || !settings.bulkFadeIn ? '' : 'cursor-pointer'}`}
+                        className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isLocked || !settings.bulkFadeIn ? '' : 'cursor-pointer'}`}
                       />
-                      <span className="text-gray-400 w-6 whitespace-nowrap">{settings.bulkFadeInDuration}秒</span>
+                      <span className="text-gray-400 w-8 text-right whitespace-nowrap">{settings.bulkFadeInDuration}秒</span>
                     </div>
 
                     {/* フェードアウト */}
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <label className={`flex items-center gap-1 ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}>
+                    <div className="flex items-center gap-2">
+                      <label className={`flex items-center gap-1 w-20 justify-start ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}>
                         <input
                           type="checkbox"
                           checked={settings.bulkFadeOut}
@@ -282,9 +282,9 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                           onSetBulkFadeOutDuration(steps[parseInt(e.target.value)]);
                         }}
                         disabled={isLocked || !settings.bulkFadeOut}
-                        className={`w-10 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isLocked || !settings.bulkFadeOut ? '' : 'cursor-pointer'}`}
+                        className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isLocked || !settings.bulkFadeOut ? '' : 'cursor-pointer'}`}
                       />
-                      <span className="text-gray-400 w-6 whitespace-nowrap">{settings.bulkFadeOutDuration}秒</span>
+                      <span className="text-gray-400 w-8 text-right whitespace-nowrap">{settings.bulkFadeOutDuration}秒</span>
                     </div>
                   </div>
                 </div>

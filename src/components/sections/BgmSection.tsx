@@ -185,11 +185,11 @@ const BgmSection: React.FC<BgmSectionProps> = ({
           </div>
 
           {/* フェード設定 - レイアウト改善 */}
-          <div className="flex flex-nowrap items-center gap-x-2 text-[10px] overflow-x-auto scrollbar-hide">
+          <div className="flex flex-col gap-2 mt-2 text-[10px]">
             {/* フェードイン */}
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-2">
               <label
-                className={`flex items-center gap-1 ${isBgmLocked ? 'opacity-50' : 'cursor-pointer'}`}
+                className={`flex items-center gap-1 w-20 justify-start ${isBgmLocked ? 'opacity-50' : 'cursor-pointer'}`}
               >
                 <input
                   type="checkbox"
@@ -211,15 +211,15 @@ const BgmSection: React.FC<BgmSectionProps> = ({
                   onUpdateFadeInDuration(steps[parseInt(e.target.value)]);
                 }}
                 disabled={isBgmLocked || !bgm.fadeIn}
-                className={`w-10 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isBgmLocked || !bgm.fadeIn ? '' : 'cursor-pointer'}`}
+                className={`flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isBgmLocked || !bgm.fadeIn ? '' : 'cursor-pointer'}`}
               />
-              <span className="text-gray-400 w-6 whitespace-nowrap">{bgm.fadeInDuration}秒</span>
+              <span className="text-gray-400 w-8 text-right whitespace-nowrap">{bgm.fadeInDuration}秒</span>
             </div>
 
             {/* フェードアウト */}
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-2">
               <label
-                className={`flex items-center gap-1 ${isBgmLocked ? 'opacity-50' : 'cursor-pointer'}`}
+                className={`flex items-center gap-1 w-20 justify-start ${isBgmLocked ? 'opacity-50' : 'cursor-pointer'}`}
               >
                 <input
                   type="checkbox"
@@ -241,9 +241,9 @@ const BgmSection: React.FC<BgmSectionProps> = ({
                   onUpdateFadeOutDuration(steps[parseInt(e.target.value)]);
                 }}
                 disabled={isBgmLocked || !bgm.fadeOut}
-                className={`w-10 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isBgmLocked || !bgm.fadeOut ? '' : 'cursor-pointer'}`}
+                className={`flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isBgmLocked || !bgm.fadeOut ? '' : 'cursor-pointer'}`}
               />
-              <span className="text-gray-400 w-6 whitespace-nowrap">{bgm.fadeOutDuration}秒</span>
+              <span className="text-gray-400 w-8 text-right whitespace-nowrap">{bgm.fadeOutDuration}秒</span>
             </div>
           </div>
         </div>

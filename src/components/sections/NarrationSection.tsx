@@ -205,11 +205,11 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
           </div>
 
           {/* フェード設定 */}
-          <div className="flex flex-nowrap items-center gap-x-2 text-[10px] overflow-x-auto scrollbar-hide">
+          <div className="flex flex-col gap-2 mt-2 text-[10px]">
             {/* フェードイン */}
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-2">
               <label
-                className={`flex items-center gap-1 ${isNarrationLocked ? 'opacity-50' : 'cursor-pointer'}`}
+                className={`flex items-center gap-1 w-20 justify-start ${isNarrationLocked ? 'opacity-50' : 'cursor-pointer'}`}
               >
                 <input
                   type="checkbox"
@@ -231,15 +231,15 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                   onUpdateFadeInDuration(steps[parseInt(e.target.value)]);
                 }}
                 disabled={isNarrationLocked || !narration.fadeIn}
-                className={`w-10 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isNarrationLocked || !narration.fadeIn ? '' : 'cursor-pointer'}`}
+                className={`flex-1 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isNarrationLocked || !narration.fadeIn ? '' : 'cursor-pointer'}`}
               />
-              <span className="text-gray-400 w-6 whitespace-nowrap">{narration.fadeInDuration}秒</span>
+              <span className="text-gray-400 w-8 text-right whitespace-nowrap">{narration.fadeInDuration}秒</span>
             </div>
 
             {/* フェードアウト */}
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-2">
               <label
-                className={`flex items-center gap-1 ${isNarrationLocked ? 'opacity-50' : 'cursor-pointer'}`}
+                className={`flex items-center gap-1 w-20 justify-start ${isNarrationLocked ? 'opacity-50' : 'cursor-pointer'}`}
               >
                 <input
                   type="checkbox"
@@ -261,9 +261,9 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                   onUpdateFadeOutDuration(steps[parseInt(e.target.value)]);
                 }}
                 disabled={isNarrationLocked || !narration.fadeOut}
-                className={`w-10 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isNarrationLocked || !narration.fadeOut ? '' : 'cursor-pointer'}`}
+                className={`flex-1 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isNarrationLocked || !narration.fadeOut ? '' : 'cursor-pointer'}`}
               />
-              <span className="text-gray-400 w-6 whitespace-nowrap">{narration.fadeOutDuration}秒</span>
+              <span className="text-gray-400 w-8 text-right whitespace-nowrap">{narration.fadeOutDuration}秒</span>
             </div>
           </div>
         </div>

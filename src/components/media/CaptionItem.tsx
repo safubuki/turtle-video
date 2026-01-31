@@ -222,11 +222,11 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
       {/* フェードイン・フェードアウト設定 */}
       {/* フェードイン・フェードアウト設定 - 1行表示 */}
       {/* フェード設定 - レイアウト改善 */}
-      <div className="mt-2 flex flex-nowrap items-center gap-x-2 text-[10px] overflow-x-auto scrollbar-hide">
+      <div className="mt-2 flex flex-col gap-2 text-[10px]">
         {/* フェードイン */}
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-2">
           <label
-            className={`flex items-center gap-1 ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
+            className={`flex items-center gap-1 w-20 justify-start ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
           >
             <input
               type="checkbox"
@@ -248,15 +248,15 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
               onUpdate(caption.id, { fadeInDuration: steps[parseInt(e.target.value)] });
             }}
             disabled={isLocked || !caption.fadeIn}
-            className={`w-10 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isLocked || !caption.fadeIn ? '' : 'cursor-pointer'}`}
+            className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isLocked || !caption.fadeIn ? '' : 'cursor-pointer'}`}
           />
-          <span className="text-gray-400 w-6 whitespace-nowrap">{caption.fadeInDuration}秒</span>
+          <span className="text-gray-400 w-8 text-right whitespace-nowrap">{caption.fadeInDuration}秒</span>
         </div>
 
         {/* フェードアウト */}
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-2">
           <label
-            className={`flex items-center gap-1 ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
+            className={`flex items-center gap-1 w-20 justify-start ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
           >
             <input
               type="checkbox"
@@ -278,9 +278,9 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
               onUpdate(caption.id, { fadeOutDuration: steps[parseInt(e.target.value)] });
             }}
             disabled={isLocked || !caption.fadeOut}
-            className={`w-10 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isLocked || !caption.fadeOut ? '' : 'cursor-pointer'}`}
+            className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isLocked || !caption.fadeOut ? '' : 'cursor-pointer'}`}
           />
-          <span className="text-gray-400 w-6 whitespace-nowrap">{caption.fadeOutDuration}秒</span>
+          <span className="text-gray-400 w-8 text-right whitespace-nowrap">{caption.fadeOutDuration}秒</span>
         </div>
       </div>
     </div>
