@@ -16,12 +16,28 @@ const ORIGINAL_WIDTH = 1280;
  */
 const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number | null>(null);
+  const isVisibleRef = useRef<boolean>(false);
+  const lastRenderTimeRef = useRef<number>(0);
 
-  const renderFrame = useCallback(() => {
+  // 描画関数
+  const renderFrame = useCallback((force: boolean = false) => {
+    // 画面外なら描画しない（force=trueでもスキップするかは要検討だが、基本は見えないなら描画不要）
+    if (!isVisibleRef.current) return;
+
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx || !mediaElement) return;
+
+    // ビデオ再生中のFPS制限 (約15fps = 66ms間隔)
+    if (!force && item.type === 'video') {
+      const now = Date.now();
+      if (now - lastRenderTimeRef.current < 66) {
+        return;
+      }
+      lastRenderTimeRef.current = now;
+    }
 
     // 背景をクリア
     ctx.fillStyle = '#000000';
@@ -32,11 +48,11 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
 
     // トランスフォーム適用
     ctx.save();
-    
+
     // 中心を基準にスケールと位置を適用
     const centerX = MINI_CANVAS_WIDTH / 2 + item.positionX * scaleRatio;
     const centerY = MINI_CANVAS_HEIGHT / 2 + item.positionY * scaleRatio;
-    
+
     ctx.translate(centerX, centerY);
     ctx.scale(item.scale, item.scale);
     ctx.translate(-MINI_CANVAS_WIDTH / 2, -MINI_CANVAS_HEIGHT / 2);
@@ -45,6 +61,7 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
     try {
       if (item.type === 'video') {
         const video = mediaElement as HTMLVideoElement;
+        // readyState >= 2 (HAVE_CURRENT_DATA)
         if (video.readyState >= 2) {
           ctx.drawImage(video, 0, 0, MINI_CANVAS_WIDTH, MINI_CANVAS_HEIGHT);
         }
@@ -61,29 +78,120 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
     ctx.lineWidth = 1;
     ctx.strokeRect(0, 0, MINI_CANVAS_WIDTH, MINI_CANVAS_HEIGHT);
-
-    // 動画の場合は継続的に更新
-    if (item.type === 'video') {
-      animationRef.current = requestAnimationFrame(renderFrame);
-    }
   }, [item, mediaElement]);
 
-  useEffect(() => {
-    renderFrame();
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
+  // アニメーションループ管理
+  const startLoop = useCallback(() => {
+    if (animationRef.current) cancelAnimationFrame(animationRef.current);
+
+    const loop = () => {
+      renderFrame(false); // 通常ループは throttled
+      animationRef.current = requestAnimationFrame(loop);
     };
+    loop();
   }, [renderFrame]);
 
-  // スケールや位置が変わったら再描画
+  const stopLoop = useCallback(() => {
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+      animationRef.current = null;
+    }
+  }, []);
+
+  // Intersection Observer 設定 (可視判定)
   useEffect(() => {
-    renderFrame();
+    const el = containerRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        isVisibleRef.current = entry.isIntersecting;
+
+        if (entry.isIntersecting) {
+          // 画面内に入った時
+          renderFrame(true); // 即座に1回描画
+
+          // 動画が再生中ならループ開始
+          if (item.type === 'video' && mediaElement) {
+            const video = mediaElement as HTMLVideoElement;
+            if (!video.paused && !video.ended) {
+              startLoop();
+            }
+          }
+        } else {
+          // 画面外に出た時はループ停止
+          stopLoop();
+        }
+      });
+    }, {
+      threshold: 0.1 // 10%見えたら描画開始
+    });
+
+    observer.observe(el);
+
+    return () => {
+      observer.disconnect();
+      stopLoop();
+    };
+  }, [item.type, mediaElement, renderFrame, startLoop, stopLoop]);
+
+  // 動画イベントリスナー設定
+  useEffect(() => {
+    if (item.type !== 'video' || !mediaElement) return;
+
+    const video = mediaElement as HTMLVideoElement;
+
+    const handlePlay = () => {
+      if (isVisibleRef.current) startLoop();
+    };
+
+    const handlePause = () => {
+      stopLoop();
+      renderFrame(true); // 停止位置で念のため再描画
+    };
+
+    const handleSeeked = () => {
+      requestAnimationFrame(() => renderFrame(true)); // シーク後は確実に描画
+    };
+
+    const handleLoaded = () => {
+      renderFrame(true);
+    };
+
+    video.addEventListener('play', handlePlay);
+    video.addEventListener('pause', handlePause);
+    video.addEventListener('seeked', handleSeeked);
+    video.addEventListener('loadeddata', handleLoaded);
+    video.addEventListener('timeupdate', () => { /* Loopで処理するので不要だが、Loopが止まった場合の保険として何かするならここ */ });
+
+    // 初期状態チェック
+    if (!video.paused && isVisibleRef.current) {
+      startLoop();
+    } else {
+      // マウント時に一度描画
+      requestAnimationFrame(() => renderFrame(true));
+    }
+
+    return () => {
+      video.removeEventListener('play', handlePlay);
+      video.removeEventListener('pause', handlePause);
+      video.removeEventListener('seeked', handleSeeked);
+      video.removeEventListener('loadeddata', handleLoaded);
+      stopLoop();
+    };
+  }, [item.type, mediaElement, startLoop, stopLoop, renderFrame]);
+
+  // プロパティ変更時の再描画 (静止画・動画(停止中)の変形操作への追従)
+  useEffect(() => {
+    // プロパティ変更はユーザー操作によるものなので force=true で即時反映
+    requestAnimationFrame(() => renderFrame(true));
   }, [item.scale, item.positionX, item.positionY, renderFrame]);
 
   return (
-    <div className="mt-2 rounded-lg overflow-hidden border border-gray-600">
+    <div
+      ref={containerRef}
+      className="mt-2 rounded-lg overflow-hidden border border-gray-600"
+    >
       {/* プレビュー */}
       <div className="relative bg-black">
         <canvas
@@ -92,7 +200,7 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
           height={MINI_CANVAS_HEIGHT}
           className="block w-full"
         />
-        
+
         {/* トランスフォーム情報オーバーレイ */}
         <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-2 py-1 text-[10px] text-gray-300 flex justify-between">
           <span>Scale: {(item.scale * 100).toFixed(0)}%</span>
