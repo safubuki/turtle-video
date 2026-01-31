@@ -4,15 +4,16 @@ import type { MediaItem, AudioTrack } from '../types';
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
-  FPS,
   VOICE_OPTIONS,
   GEMINI_API_BASE_URL,
   GEMINI_SCRIPT_MODEL,
   GEMINI_TTS_MODEL,
   TTS_SAMPLE_RATE,
-  EXPORT_VIDEO_BITRATE,
   SEEK_THROTTLE_MS,
 } from '../constants';
+
+// Hooks
+import { useExport } from '../hooks/useExport';
 
 // Zustand Stores
 import { useMediaStore, useAudioStore, useUIStore, useCaptionStore, useLogStore } from '../stores';
@@ -188,7 +189,11 @@ const TurtleVideo: React.FC = () => {
   const pendingSeekRef = useRef<number | null>(null); // 保留中のシーク位置
   const wasPlayingBeforeSeekRef = useRef(false); // シーク前の再生状態を保持
   const pendingSeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 保留中のシーク処理用タイマー
+
   const playbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 再生開始待機用タイマー
+
+  // Hooks
+  const { startExport: startWebCodecsExport, stopExport: stopWebCodecsExport } = useExport();
 
   // --- メモリ監視（10秒ごと） ---
   useEffect(() => {
@@ -1228,7 +1233,9 @@ const TurtleVideo: React.FC = () => {
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
       recorderRef.current.stop();
     }
-  }, []);
+    // WebCodecsエクスポートの強制停止
+    stopWebCodecsExport();
+  }, [stopWebCodecsExport]);
 
   // --- Helper: 一時停止付きで関数を実行 ---
   // 目的: 編集操作時に必ず一時停止を実行してから元の処理を行う
@@ -1623,37 +1630,18 @@ const TurtleVideo: React.FC = () => {
       startTimeRef.current = Date.now() - fromTime * 1000;
 
       if (isExportMode && canvasRef.current && masterDestRef.current) {
-        const canvasStream = canvasRef.current.captureStream(FPS);
-        const audioStream = masterDestRef.current.stream;
-        const combined = new MediaStream([
-          ...canvasStream.getVideoTracks(),
-          ...audioStream.getAudioTracks(),
-        ]);
-
-        let mimeType = 'video/webm';
-        let extension = 'webm';
-        if (MediaRecorder.isTypeSupported('video/mp4; codecs="avc1.42E01E, mp4a.40.2"')) {
-          mimeType = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
-          extension = 'mp4';
-        } else if (MediaRecorder.isTypeSupported('video/mp4')) {
-          mimeType = 'video/mp4';
-          extension = 'mp4';
-        }
-
-        const chunks: Blob[] = [];
-        const rec = new MediaRecorder(combined, { mimeType, videoBitsPerSecond: EXPORT_VIDEO_BITRATE });
-        rec.ondataavailable = (e) => {
-          if (e.data.size > 0) chunks.push(e.data);
-        };
-        rec.onstop = () => {
-          const blob = new Blob(chunks, { type: mimeType });
-          setExportUrl(URL.createObjectURL(blob));
-          setExportExt(extension === 'mp4' ? 'mp4' : 'webm');
-          setProcessing(false);
-          pause();
-        };
-        recorderRef.current = rec;
-        rec.start();
+        startWebCodecsExport(
+          canvasRef,
+          masterDestRef,
+          (url, ext) => {
+            setExportUrl(url);
+            setExportExt(ext as 'mp4' | 'webm');
+            setProcessing(false);
+            pause();
+            // エンジン停止（再生ループを止める）
+            stopAll();
+          }
+        );
       }
 
       loop(isExportMode, myLoopId);

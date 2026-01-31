@@ -419,9 +419,9 @@ const ClipItem: React.FC<ClipItemProps> = ({
                   onUpdateFadeInDuration(steps[parseInt(e.target.value)]);
                 }}
                 disabled={isDisabled || !v.fadeIn}
-                className={`flex-1 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isDisabled || !v.fadeIn ? '' : 'cursor-pointer'}`}
+                className={`flex-1 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isDisabled || !v.fadeIn ? '' : 'cursor-pointer'}`}
               />
-              <span className="text-gray-400 w-8 text-right whitespace-nowrap">{v.fadeInDuration}秒</span>
+              <span className={`text-gray-400 w-8 text-right whitespace-nowrap ${isDisabled || !v.fadeIn ? 'text-gray-600' : 'text-gray-400'}`}>{v.fadeInDuration}秒</span>
             </div>
 
             {/* フェードアウト */}
@@ -449,9 +449,9 @@ const ClipItem: React.FC<ClipItemProps> = ({
                   onUpdateFadeOutDuration(steps[parseInt(e.target.value)]);
                 }}
                 disabled={isDisabled || !v.fadeOut}
-                className={`flex-1 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isDisabled || !v.fadeOut ? '' : 'cursor-pointer'}`}
+                className={`flex-1 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isDisabled || !v.fadeOut ? '' : 'cursor-pointer'}`}
               />
-              <span className="text-gray-400 w-8 text-right whitespace-nowrap">{v.fadeOutDuration}秒</span>
+              <span className={`text-gray-400 w-8 text-right whitespace-nowrap ${isDisabled || !v.fadeOut ? 'text-gray-600' : 'text-gray-400'}`}>{v.fadeOutDuration}秒</span>
             </div>
           </div>
         </div>

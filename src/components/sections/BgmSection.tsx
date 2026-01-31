@@ -189,7 +189,7 @@ const BgmSection: React.FC<BgmSectionProps> = ({
             {/* フェードイン */}
             <div className="flex items-center gap-2">
               <label
-                className={`flex items-center gap-1 w-20 justify-start ${isBgmLocked ? 'opacity-50' : 'cursor-pointer'}`}
+                className={`flex items-center gap-1 w-24 justify-start ${isBgmLocked ? 'opacity-50' : 'cursor-pointer'}`}
               >
                 <input
                   type="checkbox"
@@ -211,15 +211,15 @@ const BgmSection: React.FC<BgmSectionProps> = ({
                   onUpdateFadeInDuration(steps[parseInt(e.target.value)]);
                 }}
                 disabled={isBgmLocked || !bgm.fadeIn}
-                className={`flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isBgmLocked || !bgm.fadeIn ? '' : 'cursor-pointer'}`}
+                className={`flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isBgmLocked || !bgm.fadeIn ? '' : 'cursor-pointer'}`}
               />
-              <span className="text-gray-400 w-8 text-right whitespace-nowrap">{bgm.fadeInDuration}秒</span>
+              <span className={`w-8 text-right whitespace-nowrap ${isBgmLocked || !bgm.fadeIn ? 'text-gray-600' : 'text-gray-400'}`}>{bgm.fadeInDuration}秒</span>
             </div>
 
             {/* フェードアウト */}
             <div className="flex items-center gap-2">
               <label
-                className={`flex items-center gap-1 w-20 justify-start ${isBgmLocked ? 'opacity-50' : 'cursor-pointer'}`}
+                className={`flex items-center gap-1 w-24 justify-start ${isBgmLocked ? 'opacity-50' : 'cursor-pointer'}`}
               >
                 <input
                   type="checkbox"
@@ -241,9 +241,9 @@ const BgmSection: React.FC<BgmSectionProps> = ({
                   onUpdateFadeOutDuration(steps[parseInt(e.target.value)]);
                 }}
                 disabled={isBgmLocked || !bgm.fadeOut}
-                className={`flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isBgmLocked || !bgm.fadeOut ? '' : 'cursor-pointer'}`}
+                className={`flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isBgmLocked || !bgm.fadeOut ? '' : 'cursor-pointer'}`}
               />
-              <span className="text-gray-400 w-8 text-right whitespace-nowrap">{bgm.fadeOutDuration}秒</span>
+              <span className={`w-8 text-right whitespace-nowrap ${isBgmLocked || !bgm.fadeOut ? 'text-gray-600' : 'text-gray-400'}`}>{bgm.fadeOutDuration}秒</span>
             </div>
           </div>
         </div>

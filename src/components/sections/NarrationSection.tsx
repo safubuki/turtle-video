@@ -209,7 +209,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
             {/* フェードイン */}
             <div className="flex items-center gap-2">
               <label
-                className={`flex items-center gap-1 w-20 justify-start ${isNarrationLocked ? 'opacity-50' : 'cursor-pointer'}`}
+                className={`flex items-center gap-1 w-24 justify-start ${isNarrationLocked ? 'opacity-50' : 'cursor-pointer'}`}
               >
                 <input
                   type="checkbox"
@@ -231,15 +231,15 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                   onUpdateFadeInDuration(steps[parseInt(e.target.value)]);
                 }}
                 disabled={isNarrationLocked || !narration.fadeIn}
-                className={`flex-1 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isNarrationLocked || !narration.fadeIn ? '' : 'cursor-pointer'}`}
+                className={`flex-1 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isNarrationLocked || !narration.fadeIn ? '' : 'cursor-pointer'}`}
               />
-              <span className="text-gray-400 w-8 text-right whitespace-nowrap">{narration.fadeInDuration}秒</span>
+              <span className={`w-8 text-right whitespace-nowrap ${isNarrationLocked || !narration.fadeIn ? 'text-gray-600' : 'text-gray-400'}`}>{narration.fadeInDuration}秒</span>
             </div>
 
             {/* フェードアウト */}
             <div className="flex items-center gap-2">
               <label
-                className={`flex items-center gap-1 w-20 justify-start ${isNarrationLocked ? 'opacity-50' : 'cursor-pointer'}`}
+                className={`flex items-center gap-1 w-24 justify-start ${isNarrationLocked ? 'opacity-50' : 'cursor-pointer'}`}
               >
                 <input
                   type="checkbox"
@@ -261,9 +261,9 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                   onUpdateFadeOutDuration(steps[parseInt(e.target.value)]);
                 }}
                 disabled={isNarrationLocked || !narration.fadeOut}
-                className={`flex-1 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isNarrationLocked || !narration.fadeOut ? '' : 'cursor-pointer'}`}
+                className={`flex-1 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isNarrationLocked || !narration.fadeOut ? '' : 'cursor-pointer'}`}
               />
-              <span className="text-gray-400 w-8 text-right whitespace-nowrap">{narration.fadeOutDuration}秒</span>
+              <span className={`w-8 text-right whitespace-nowrap ${isNarrationLocked || !narration.fadeOut ? 'text-gray-600' : 'text-gray-400'}`}>{narration.fadeOutDuration}秒</span>
             </div>
           </div>
         </div>

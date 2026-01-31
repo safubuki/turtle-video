@@ -57,8 +57,8 @@ const initialSettings: CaptionSettings = {
   // 一括フェード設定
   bulkFadeIn: false,
   bulkFadeOut: false,
-  bulkFadeInDuration: 1.0,
-  bulkFadeOutDuration: 1.0,
+  bulkFadeInDuration: 0.5,
+  bulkFadeOutDuration: 0.5,
 };
 
 // ID生成

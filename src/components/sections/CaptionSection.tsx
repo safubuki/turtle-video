@@ -233,7 +233,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                   <div className="flex flex-col gap-2 mt-2 text-[10px]">
                     {/* フェードイン */}
                     <div className="flex items-center gap-2">
-                      <label className={`flex items-center gap-1 w-20 justify-start ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}>
+                      <label className={`flex items-center gap-1 w-24 justify-start ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}>
                         <input
                           type="checkbox"
                           checked={settings.bulkFadeIn}
@@ -254,14 +254,14 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                           onSetBulkFadeInDuration(steps[parseInt(e.target.value)]);
                         }}
                         disabled={isLocked || !settings.bulkFadeIn}
-                        className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isLocked || !settings.bulkFadeIn ? '' : 'cursor-pointer'}`}
+                        className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isLocked || !settings.bulkFadeIn ? '' : 'cursor-pointer'}`}
                       />
-                      <span className="text-gray-400 w-8 text-right whitespace-nowrap">{settings.bulkFadeInDuration}秒</span>
+                      <span className={`w-8 text-right whitespace-nowrap ${isLocked || !settings.bulkFadeIn ? 'text-gray-600' : 'text-gray-400'}`}>{settings.bulkFadeInDuration}秒</span>
                     </div>
 
                     {/* フェードアウト */}
                     <div className="flex items-center gap-2">
-                      <label className={`flex items-center gap-1 w-20 justify-start ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}>
+                      <label className={`flex items-center gap-1 w-24 justify-start ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}>
                         <input
                           type="checkbox"
                           checked={settings.bulkFadeOut}
@@ -282,9 +282,9 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                           onSetBulkFadeOutDuration(steps[parseInt(e.target.value)]);
                         }}
                         disabled={isLocked || !settings.bulkFadeOut}
-                        className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isLocked || !settings.bulkFadeOut ? '' : 'cursor-pointer'}`}
+                        className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isLocked || !settings.bulkFadeOut ? '' : 'cursor-pointer'}`}
                       />
-                      <span className="text-gray-400 w-8 text-right whitespace-nowrap">{settings.bulkFadeOutDuration}秒</span>
+                      <span className={`w-8 text-right whitespace-nowrap ${isLocked || !settings.bulkFadeOut ? 'text-gray-600' : 'text-gray-400'}`}>{settings.bulkFadeOutDuration}秒</span>
                     </div>
                   </div>
                 </div>

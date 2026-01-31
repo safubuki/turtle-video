@@ -226,7 +226,7 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
         {/* フェードイン */}
         <div className="flex items-center gap-2">
           <label
-            className={`flex items-center gap-1 w-20 justify-start ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
+            className={`flex items-center gap-1 w-24 justify-start ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
           >
             <input
               type="checkbox"
@@ -248,15 +248,15 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
               onUpdate(caption.id, { fadeInDuration: steps[parseInt(e.target.value)] });
             }}
             disabled={isLocked || !caption.fadeIn}
-            className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isLocked || !caption.fadeIn ? '' : 'cursor-pointer'}`}
+            className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isLocked || !caption.fadeIn ? '' : 'cursor-pointer'}`}
           />
-          <span className="text-gray-400 w-8 text-right whitespace-nowrap">{caption.fadeInDuration}秒</span>
+          <span className={`text-gray-400 w-8 text-right whitespace-nowrap ${isLocked || !caption.fadeIn ? 'text-gray-600' : 'text-gray-400'}`}>{caption.fadeInDuration}秒</span>
         </div>
 
         {/* フェードアウト */}
         <div className="flex items-center gap-2">
           <label
-            className={`flex items-center gap-1 w-20 justify-start ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
+            className={`flex items-center gap-1 w-24 justify-start ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
           >
             <input
               type="checkbox"
@@ -278,9 +278,9 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
               onUpdate(caption.id, { fadeOutDuration: steps[parseInt(e.target.value)] });
             }}
             disabled={isLocked || !caption.fadeOut}
-            className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-30 disabled:cursor-default ${isLocked || !caption.fadeOut ? '' : 'cursor-pointer'}`}
+            className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isLocked || !caption.fadeOut ? '' : 'cursor-pointer'}`}
           />
-          <span className="text-gray-400 w-8 text-right whitespace-nowrap">{caption.fadeOutDuration}秒</span>
+          <span className={`text-gray-400 w-8 text-right whitespace-nowrap ${isLocked || !caption.fadeOut ? 'text-gray-600' : 'text-gray-400'}`}>{caption.fadeOutDuration}秒</span>
         </div>
       </div>
     </div>
