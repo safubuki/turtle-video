@@ -1900,12 +1900,33 @@ const TurtleVideo: React.FC = () => {
 
   // --- 停止ハンドラ ---
   // 目的: 再生を停止し、時刻を0にリセットしてリソースをリロード
+  // --- 停止ハンドラ ---
+  // 目的: 再生を停止し、時刻を0にリセット（リソースのリロードは行わない）
+  // 改善: 以前はhandleReloadResourcesを呼んでいたが、DOM破棄により動画切り替え時にクラッシュするため
+  //       安全な停止・巻き戻し処理に変更
   const handleStop = useCallback(() => {
     stopAll();
     pause();
     setCurrentTime(0);
-    handleReloadResources(0);
-  }, [stopAll, pause, setCurrentTime, handleReloadResources]);
+    currentTimeRef.current = 0;
+
+    // 全メディアを安全に巻き戻し
+    Object.values(mediaElementsRef.current).forEach((el) => {
+      if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO')) {
+        try {
+          const media = el as HTMLMediaElement;
+          media.pause();
+          media.currentTime = 0;
+        } catch (e) {
+          /* ignore */
+        }
+      }
+    });
+
+    // 0秒時点を描画
+    // 少し遅延させて確実にシーク反映させる
+    requestAnimationFrame(() => renderFrame(0, false));
+  }, [stopAll, pause, setCurrentTime, renderFrame]);
 
   // --- Helper: 停止付きで関数を実行 ---
   // 目的: BGM/ナレーション追加時など、完全に停止して先頭に戻してから実行したい場合に使用
