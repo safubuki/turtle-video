@@ -1,5 +1,7 @@
 /**
- * フォーマット関連ユーティリティ
+ * @file format.ts
+ * @author Turtle Village
+ * @description 時間表示、ファイルサイズ、パーセンテージなどの数値フォーマット変換を行うユーティリティ関数群。
  */
 
 /**

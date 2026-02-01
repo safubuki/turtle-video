@@ -1,3 +1,8 @@
+/**
+ * @file AiModal.tsx
+ * @author Turtle Village
+ * @description AIナレーションを生成するためのモーダルダイアログ。プロンプト入力、スクリプト生成、音声合成のフローを提供する。
+ */
 import React from 'react';
 import { Sparkles, X, Loader, FileText, Mic, ChevronDown } from 'lucide-react';
 import type { VoiceOption, VoiceId } from '../../types';

@@ -1,3 +1,8 @@
+/**
+ * @file useAudioTracks.ts
+ * @author Turtle Village
+ * @description BGMとナレーションのトラック操作（アップロード、音量、フェード、削除など）を行うカスタムフック。
+ */
 import { useState, useCallback, useRef } from 'react';
 import type { AudioTrack } from '../types';
 

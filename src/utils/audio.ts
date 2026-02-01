@@ -1,5 +1,7 @@
 /**
- * オーディオ関連ユーティリティ
+ * @file audio.ts
+ * @author Turtle Village
+ * @description 音声データの変換（PCM to WAV）、AudioContextの管理、ボリューム計算などのユーティリティ関数群。
  */
 
 /**
@@ -76,7 +78,7 @@ export function base64ToArrayBuffer(base64: string): ArrayBuffer {
  * @returns AudioContext
  */
 export function getOrCreateAudioContext(): AudioContext {
-  const AC = window.AudioContext || 
+  const AC = window.AudioContext ||
     (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   return new AC();
 }
@@ -115,14 +117,14 @@ export function calculateFadeVolume(
   fadeDuration: number = 2.0
 ): number {
   let volume = baseVolume;
-  
+
   if (fadeIn && currentTime < fadeDuration) {
     volume *= currentTime / fadeDuration;
   }
-  
+
   if (fadeOut && currentTime > totalDuration - fadeDuration) {
     volume *= Math.max(0, (totalDuration - currentTime) / fadeDuration);
   }
-  
+
   return Math.max(0, Math.min(1, volume));
 }

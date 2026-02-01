@@ -1,3 +1,8 @@
+/**
+ * @file ErrorBoundary.tsx
+ * @author Turtle Village
+ * @description Reactコンポーネントツリー内のエラーを捕捉し、ユーザーフレンドリーなフォールバックUIを表示するラッパーコンポーネント。
+ */
 import { Component, type ReactNode, type ErrorInfo } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 
@@ -35,7 +40,7 @@ class ErrorBoundary extends Component<Props, State> {
     // エラー情報をログに記録（本番環境ではエラー追跡サービスに送信可能）
     console.error('ErrorBoundary caught an error:', error);
     console.error('Component stack:', errorInfo.componentStack);
-    
+
     this.setState({ errorInfo });
   }
 
@@ -67,11 +72,11 @@ class ErrorBoundary extends Component<Props, State> {
             <div className="flex justify-center mb-4">
               <AlertTriangle className="w-16 h-16 text-red-500" />
             </div>
-            
+
             <h1 className="text-xl font-bold text-white mb-2">
               エラーが発生しました
             </h1>
-            
+
             <p className="text-gray-400 mb-4">
               予期しないエラーが発生しました。
               ページをリロードするか、しばらくしてから再度お試しください。

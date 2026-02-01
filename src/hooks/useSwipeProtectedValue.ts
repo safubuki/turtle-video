@@ -1,3 +1,8 @@
+/**
+ * @file useSwipeProtectedValue.ts
+ * @author Turtle Village
+ * @description スワイプ（スクロール）とスライダー操作（値変更）を区別し、誤操作を防ぐためのロジックを提供するカスタムフック。
+ */
 import { useRef, useCallback, TouchEvent } from 'react';
 
 interface SwipeProtectedHandlers {

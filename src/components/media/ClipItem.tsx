@@ -1,3 +1,8 @@
+/**
+ * @file ClipItem.tsx
+ * @author Turtle Village
+ * @description タイムライン上の個々のメディアクリップ（動画・画像）を表示・操作するためのコンポーネント。ドラッグ移動、リサイズ、詳細設定モーダルへのアクセスを提供する。
+ */
 import React, { useCallback, useState } from 'react';
 import {
   ArrowUp,

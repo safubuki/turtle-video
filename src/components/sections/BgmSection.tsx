@@ -1,3 +1,8 @@
+/**
+ * @file BgmSection.tsx
+ * @author Turtle Village
+ * @description BGM（バックグラウンドミュージック）のアップロード、音量調整、フェード設定、削除を行うセクションコンポーネント。
+ */
 import React, { useState, useCallback } from 'react';
 import { Upload, Lock, Unlock, Music, Volume2, Timer, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
 import type { AudioTrack } from '../../types';

@@ -1,6 +1,7 @@
 /**
- * オーディオストア - Zustand
- * BGM・ナレーションの状態管理
+ * @file audioStore.ts
+ * @author Turtle Village
+ * @description BGMおよびナレーションの状態管理を行うZustandストア。各トラックのプロパティ（音量、フェード、ロック状態など）を保持する。
  */
 
 import { create } from 'zustand';

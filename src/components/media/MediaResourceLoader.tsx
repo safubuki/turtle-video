@@ -1,3 +1,8 @@
+/**
+ * @file MediaResourceLoader.tsx
+ * @author Turtle Village
+ * @description メディアリソース（動画、画像、音声）をDOM上に配置・管理するローダーコンポーネント。キャッシュ効率を高めるためのメモ化や、エラー時の再試行ロジックを含む。
+ */
 import React, { memo, useMemo } from 'react';
 import type { MediaResourceLoaderProps, MediaItem } from '../../types';
 

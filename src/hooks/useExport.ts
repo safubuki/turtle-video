@@ -1,3 +1,8 @@
+/**
+ * @file useExport.ts
+ * @author Turtle Village
+ * @description WebCodecs APIとmp4-muxerを使用して、編集内容をMP4ファイルとして書き出すためのカスタムフック。
+ */
 import { useState, useRef, useCallback } from 'react';
 import { FPS, EXPORT_VIDEO_BITRATE } from '../constants';
 import * as Mp4Muxer from 'mp4-muxer';

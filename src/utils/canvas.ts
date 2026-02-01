@@ -1,5 +1,7 @@
 /**
- * Canvas描画ユーティリティ
+ * @file canvas.ts
+ * @author Turtle Village
+ * @description Canvasへの画像・動画の描画、サイズ計算、クリア処理などを行うユーティリティ関数群。
  */
 
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../constants';
@@ -68,13 +70,13 @@ export function calculateFadeAlpha(
   fadeDuration: number = 1.0
 ): number {
   let alpha = 1.0;
-  
+
   if (fadeIn && localTime < fadeDuration) {
     alpha = localTime / fadeDuration;
   } else if (fadeOut && localTime > duration - fadeDuration) {
     alpha = (duration - localTime) / fadeDuration;
   }
-  
+
   return Math.max(0, Math.min(1, alpha));
 }
 
@@ -95,12 +97,12 @@ export function drawMediaCentered(
   } = {}
 ): void {
   const { scale = 1.0, offsetX = 0, offsetY = 0, alpha = 1.0 } = options;
-  
+
   const dims = getMediaDimensions(element);
   if (!dims) return;
-  
+
   const baseScale = calculateFitScale(dims.width, dims.height);
-  
+
   ctx.save();
   ctx.translate(CANVAS_WIDTH / 2 + offsetX, CANVAS_HEIGHT / 2 + offsetY);
   ctx.scale(baseScale * scale, baseScale * scale);

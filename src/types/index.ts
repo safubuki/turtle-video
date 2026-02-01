@@ -1,5 +1,7 @@
 /**
- * タートルビデオ - 型定義
+ * @file index.ts
+ * @author Turtle Village
+ * @description アプリケーション全体で使用される型定義（インターフェース、型エイリアス）。
  */
 
 // ボイスID (定数と連動)

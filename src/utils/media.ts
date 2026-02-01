@@ -1,5 +1,7 @@
 /**
- * メディア操作ユーティリティ
+ * @file media.ts
+ * @author Turtle Village
+ * @description メディアアイテムの作成、ID生成、トリム値やスケールの検証など、メディア操作に関連するユーティリティ関数群。
  */
 
 import type { MediaItem } from '../types';

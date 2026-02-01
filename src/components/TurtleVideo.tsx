@@ -1,3 +1,8 @@
+/**
+ * @file TurtleVideo.tsx
+ * @author Turtle Village
+ * @description 動画編集アプリケーションのメインコンポーネント。タイムライン管理、再生制御、レンダリングループ、および各種セクションの統合を行う。
+ */
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 
 import type { MediaItem, AudioTrack } from '../types';
@@ -1910,13 +1915,13 @@ const TurtleVideo: React.FC = () => {
     setCurrentTime(0);
     currentTimeRef.current = 0;
 
-    // 全メディアを安全に巻き戻し
+    // [TV] 全メディアを安全に巻き戻し (DOM要素を維持したままリセット)
     Object.values(mediaElementsRef.current).forEach((el) => {
       if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO')) {
         try {
           const media = el as HTMLMediaElement;
           media.pause();
-          media.currentTime = 0;
+          media.currentTime = 0; // [TV] 物理的に0秒に戻す
         } catch (e) {
           /* ignore */
         }

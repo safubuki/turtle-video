@@ -1,3 +1,8 @@
+/**
+ * @file useMediaItems.ts
+ * @author Turtle Village
+ * @description 画像・動画クリップのCRUD操作（追加、削除、並び替え、トリミング、変形など）を管理するカスタムフック。
+ */
 import { useState, useCallback, useRef } from 'react';
 import type { MediaItem } from '../types';
 

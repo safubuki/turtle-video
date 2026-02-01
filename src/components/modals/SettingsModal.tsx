@@ -1,3 +1,8 @@
+/**
+ * @file SettingsModal.tsx
+ * @author Turtle Village
+ * @description アプリケーションの設定（Gemini APIキーの管理）およびシステムログ、デバイスリソース情報の閲覧を行うモーダル。
+ */
 import React, { useState, useEffect, useRef } from 'react';
 import {
   X, Key, Eye, EyeOff, ExternalLink, CheckCircle, AlertCircle,

@@ -1,3 +1,8 @@
+/**
+ * @file usePlayback.ts
+ * @author Turtle Village
+ * @description 再生状態（再生中/停止中、現在時刻）、再生速度、ループ制御などを提供するカスタムフック。
+ */
 import { useState, useRef, useCallback } from 'react';
 import type { MediaItem, AudioTrack } from '../types';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../constants';

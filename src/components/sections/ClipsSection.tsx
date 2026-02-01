@@ -1,3 +1,8 @@
+/**
+ * @file ClipsSection.tsx
+ * @author Turtle Village
+ * @description 動画・画像クリップの管理を行うセクション。アップロード、並び替え、各クリップの基本操作（削除、複製）を提供するリストビュー。
+ */
 import React from 'react';
 import { Upload, Lock, Unlock } from 'lucide-react';
 import type { MediaItem } from '../../types';

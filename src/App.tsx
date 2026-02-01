@@ -1,3 +1,8 @@
+/**
+ * @file App.tsx
+ * @author Turtle Village
+ * @description アプリケーションのルートコンポーネント。エラーバウンダリを含み、メインのTurtleVideoコンポーネントをレンダリングする。
+ */
 import TurtleVideo from './components/TurtleVideo';
 import ErrorBoundary from './components/common/ErrorBoundary';
 

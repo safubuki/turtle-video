@@ -3,6 +3,11 @@
  * UI状態�E再生・エクスポ�Eト�EAIモーダルの状態管琁E
  */
 
+/**
+ * @file uiStore.ts
+ * @author Turtle Village
+ * @description アプリケーションのUI状態（モーダル表示、選択中のアイテム、ドラッグ状態など）を管理するZustandストア。
+ */
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import type { ExportFormat, VoiceId } from '../types';

@@ -1,3 +1,8 @@
+/**
+ * @file PreviewSection.tsx
+ * @author Turtle Village
+ * @description 編集中の動画をリアルタイムでプレビュー再生、シーク、およびファイルへの書き出しを行うセクションコンポーネント。
+ */
 import React, { RefObject } from 'react';
 import {
   Play,

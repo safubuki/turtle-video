@@ -1,3 +1,8 @@
+/**
+ * @file NarrationSection.tsx
+ * @author Turtle Village
+ * @description ナレーション音声の追加、AI生成、音量・フェード調整を行うセクションコンポーネント。
+ */
 import React, { useState, useCallback } from 'react';
 import { Upload, Lock, Unlock, Mic, Sparkles, Save, Volume2, Timer, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
 import type { AudioTrack } from '../../types';

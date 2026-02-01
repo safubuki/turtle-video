@@ -1,5 +1,7 @@
 /**
- * タートルビデオ - 定数
+ * @file index.ts
+ * @author Turtle Village
+ * @description アプリケーション全体で使用される定数定義（キャンバスサイズ、デフォルト値、API設定など）。
  */
 import type { VoiceOption } from '../types';
 

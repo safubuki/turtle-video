@@ -1,6 +1,7 @@
 /**
- * キャプションストア - Zustand
- * 字幕の管理（CRUD操作、スタイル設定）
+ * @file captionStore.ts
+ * @author Turtle Village
+ * @description 字幕（キャプション）のデータとスタイル設定を管理するZustandストア。
  */
 
 import { create } from 'zustand';

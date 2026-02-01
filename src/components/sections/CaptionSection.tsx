@@ -1,3 +1,8 @@
+/**
+ * @file CaptionSection.tsx
+ * @author Turtle Village
+ * @description テキストキャプションの追加、編集、削除を行うセクション。タイムライン上での表示タイミングやスタイル（サイズ、位置）の設定UIを提供する。
+ */
 import React, { useState } from 'react';
 import {
   Lock,

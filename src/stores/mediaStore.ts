@@ -3,6 +3,11 @@
  * メディアアイテムの状態管理
  */
 
+/**
+ * @file mediaStore.ts
+ * @author Turtle Village
+ * @description 動画・画像クリップの状態（追加、削除、順序変更、プロパティ更新）を管理するZustandストア。
+ */
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import type { MediaItem } from '../types';

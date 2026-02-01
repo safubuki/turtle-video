@@ -1,3 +1,8 @@
+/**
+ * @file Header.tsx
+ * @author Turtle Village
+ * @description アプリケーションのグローバルヘッダー。タイトル表示、エクスポートボタン、設定モーダルへのアクセスを提供する。
+ */
 import React from 'react';
 import { Settings } from 'lucide-react';
 

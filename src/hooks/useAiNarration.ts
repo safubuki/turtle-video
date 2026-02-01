@@ -1,3 +1,8 @@
+/**
+ * @file useAiNarration.ts
+ * @author Turtle Village
+ * @description Gemini APIを使用してAIナレーション（スクリプト生成、音声合成）を行うためのカスタムフック。
+ */
 import { useState, useCallback } from 'react';
 import type { AudioTrack } from '../types';
 import {

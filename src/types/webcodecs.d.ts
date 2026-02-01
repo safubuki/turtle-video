@@ -1,5 +1,9 @@
+/**
+ * @file webcodecs.d.ts
+ * @author Turtle Village
+ * @description WebCodecs APIおよび関連する実験的APIのための型定義拡張。
+ */
 // WebCodecs API types
-// 簡易定義
 
 interface MediaStreamTrackProcessorInit {
     track: MediaStreamTrack;

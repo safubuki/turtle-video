@@ -1,6 +1,7 @@
 /**
- * ログストア - Zustand
- * 動作ログ・エラーログの記録・管理
+ * @file logStore.ts
+ * @author Turtle Village
+ * @description アプリケーションの動作ログ、エラーログ、システムリソース情報を一元管理するZustandストア。
  */
 
 import { create } from 'zustand';

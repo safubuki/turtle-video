@@ -1,3 +1,8 @@
+/**
+ * @file useAudioContext.ts
+ * @author Turtle Village
+ * @description Web Audio APIのコンテキスト管理、ノード接続（GainNode, SourceNode）を行うカスタムフック。
+ */
 import { useRef, useCallback } from 'react';
 
 /**

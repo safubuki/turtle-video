@@ -1,3 +1,8 @@
+/**
+ * @file ErrorMessage.tsx
+ * @author Turtle Village
+ * @description アプリケーション内で発生したエラーメッセージをユーザーに通知するための表示コンポーネント。
+ */
 import React from 'react';
 import { Trash2 } from 'lucide-react';
 
