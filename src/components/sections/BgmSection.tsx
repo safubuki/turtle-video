@@ -72,7 +72,6 @@ const BgmSection: React.FC<BgmSectionProps> = ({
             2
           </span>{' '}
           BGM
-          {bgm && <span className="text-[10px] text-purple-300 font-normal ml-2 truncate max-w-[100px]">✓ {bgm.file.name}</span>}
         </h2>
         <div className="flex gap-2 items-center" onClick={(e) => e.stopPropagation()}>
           <button
@@ -205,15 +204,14 @@ const BgmSection: React.FC<BgmSectionProps> = ({
                 />
                 <span className="whitespace-nowrap">フェードイン</span>
               </label>
-              <input
-                type="range"
+              <SwipeProtectedSlider
                 min={0}
                 max={2}
                 step={1}
                 value={bgm.fadeInDuration === 0.5 ? 0 : bgm.fadeInDuration === 1.0 ? 1 : 2}
-                onChange={(e) => {
+                onChange={(val) => {
                   const steps = [0.5, 1.0, 2.0];
-                  onUpdateFadeInDuration(steps[parseInt(e.target.value)]);
+                  onUpdateFadeInDuration(steps[val]);
                 }}
                 disabled={isBgmLocked || !bgm.fadeIn}
                 className={`flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isBgmLocked || !bgm.fadeIn ? '' : 'cursor-pointer'}`}
@@ -235,15 +233,14 @@ const BgmSection: React.FC<BgmSectionProps> = ({
                 />
                 <span className="whitespace-nowrap">フェードアウト</span>
               </label>
-              <input
-                type="range"
+              <SwipeProtectedSlider
                 min={0}
                 max={2}
                 step={1}
                 value={bgm.fadeOutDuration === 0.5 ? 0 : bgm.fadeOutDuration === 1.0 ? 1 : 2}
-                onChange={(e) => {
+                onChange={(val) => {
                   const steps = [0.5, 1.0, 2.0];
-                  onUpdateFadeOutDuration(steps[parseInt(e.target.value)]);
+                  onUpdateFadeOutDuration(steps[val]);
                 }}
                 disabled={isBgmLocked || !bgm.fadeOut}
                 className={`flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isBgmLocked || !bgm.fadeOut ? '' : 'cursor-pointer'}`}

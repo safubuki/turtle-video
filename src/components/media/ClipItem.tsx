@@ -413,15 +413,14 @@ const ClipItem: React.FC<ClipItemProps> = ({
                 />
                 <span className="whitespace-nowrap">フェードイン</span>
               </label>
-              <input
-                type="range"
+              <SwipeProtectedSlider
                 min={0}
                 max={2}
                 step={1}
                 value={v.fadeInDuration === 0.5 ? 0 : v.fadeInDuration === 1.0 ? 1 : 2}
-                onChange={(e) => {
+                onChange={(val) => {
                   const steps = [0.5, 1.0, 2.0];
-                  onUpdateFadeInDuration(steps[parseInt(e.target.value)]);
+                  onUpdateFadeInDuration(steps[val]);
                 }}
                 disabled={isDisabled || !v.fadeIn}
                 className={`flex-1 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isDisabled || !v.fadeIn ? '' : 'cursor-pointer'}`}
@@ -443,15 +442,14 @@ const ClipItem: React.FC<ClipItemProps> = ({
                 />
                 <span className="whitespace-nowrap">フェードアウト</span>
               </label>
-              <input
-                type="range"
+              <SwipeProtectedSlider
                 min={0}
                 max={2}
                 step={1}
                 value={v.fadeOutDuration === 0.5 ? 0 : v.fadeOutDuration === 1.0 ? 1 : 2}
-                onChange={(e) => {
+                onChange={(val) => {
                   const steps = [0.5, 1.0, 2.0];
-                  onUpdateFadeOutDuration(steps[parseInt(e.target.value)]);
+                  onUpdateFadeOutDuration(steps[val]);
                 }}
                 disabled={isDisabled || !v.fadeOut}
                 className={`flex-1 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isDisabled || !v.fadeOut ? '' : 'cursor-pointer'}`}
