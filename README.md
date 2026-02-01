@@ -1,8 +1,8 @@
-# 🐢 Turtle Video
+# Turtle Video
 
 ブラウザで動作する動画編集アプリケーション。動画・画像の結合、BGM・ナレーション追加、AIナレーション生成機能を備えています。
 
-## ✨ 機能
+## 機能
 
 ### 基本編集機能
 - **動画/画像編集**: 複数の動画・画像を結合してタイムライン編集
@@ -31,7 +31,7 @@
 ### 更新履歴
 - **v2.1.1**: 動画切り替え直後の停止操作により発生するタイムアウト/フリーズ不具合を修正（安全な停止ロジックの実装）
 
-## 🚀 セットアップ
+## セットアップ
 
 ### 必要環境
 
@@ -66,7 +66,7 @@ cp .env.example .env
 VITE_GEMINI_API_KEY=your_api_key_here
 ```
 
-## 📦 ビルド
+## ビルド
 
 ```bash
 # プロダクションビルド
@@ -76,7 +76,7 @@ npm run build
 npm run preview
 ```
 
-## 🧪 テスト
+## テスト
 
 ```bash
 # テストを実行 (ウォッチモード)
@@ -89,7 +89,7 @@ npm run test:run
 npm run test:coverage
 ```
 
-## 🛠 技術スタック
+## 技術スタック
 
 - **フレームワーク**: React 19 + TypeScript
 - **ビルドツール**: Vite 7
@@ -99,7 +99,7 @@ npm run test:coverage
 - **テスト**: Vitest + Testing Library
 - **AI API**: Google Gemini API (text/speech generation)
 
-## 📁 プロジェクト構造
+## プロジェクト構造
 
 ```
 src/
@@ -153,7 +153,7 @@ src/
         └── uiStore.test.ts
 ```
 
-## 📝 開発ガイド
+## 開発ガイド
 
 ### コード規約
 
@@ -168,6 +168,6 @@ src/
 3. 状態管理は Zustand ストアを使用
 4. テストを `src/test/` に追加
 
-## 📄 ライセンス
+## ライセンス
 
 MIT
