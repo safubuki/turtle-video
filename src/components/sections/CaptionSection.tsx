@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import type { Caption, CaptionSettings, CaptionPosition, CaptionSize, CaptionFontStyle } from '../../types';
 import CaptionItem from '../media/CaptionItem';
+import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 
 interface CaptionSectionProps {
   captions: Caption[];
@@ -248,15 +249,14 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                         />
                         <span className="whitespace-nowrap">フェードイン</span>
                       </label>
-                      <input
-                        type="range"
+                      <SwipeProtectedSlider
                         min={0}
                         max={2}
                         step={1}
                         value={settings.bulkFadeInDuration === 0.5 ? 0 : settings.bulkFadeInDuration === 1.0 ? 1 : 2}
-                        onChange={(e) => {
+                        onChange={(val) => {
                           const steps = [0.5, 1.0, 2.0];
-                          onSetBulkFadeInDuration(steps[parseInt(e.target.value)]);
+                          onSetBulkFadeInDuration(steps[val]);
                         }}
                         disabled={isLocked || !settings.bulkFadeIn}
                         className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isLocked || !settings.bulkFadeIn ? '' : 'cursor-pointer'}`}
@@ -276,15 +276,14 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                         />
                         <span className="whitespace-nowrap">フェードアウト</span>
                       </label>
-                      <input
-                        type="range"
+                      <SwipeProtectedSlider
                         min={0}
                         max={2}
                         step={1}
                         value={settings.bulkFadeOutDuration === 0.5 ? 0 : settings.bulkFadeOutDuration === 1.0 ? 1 : 2}
-                        onChange={(e) => {
+                        onChange={(val) => {
                           const steps = [0.5, 1.0, 2.0];
-                          onSetBulkFadeOutDuration(steps[parseInt(e.target.value)]);
+                          onSetBulkFadeOutDuration(steps[val]);
                         }}
                         disabled={isLocked || !settings.bulkFadeOut}
                         className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isLocked || !settings.bulkFadeOut ? '' : 'cursor-pointer'}`}
