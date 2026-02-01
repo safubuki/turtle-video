@@ -8,7 +8,8 @@ import type { VoiceOption } from '../types';
 // キャンバス設定
 export const CANVAS_WIDTH = 1280;
 export const CANVAS_HEIGHT = 720;
-export const FPS = 30;
+export const DEFAULT_FPS = 30;
+export const HIGH_FPS = 60;
 
 // フェード設定
 export const FADE_DURATION = 1.0; // 秒
@@ -61,4 +62,4 @@ export const VOICE_OPTIONS: VoiceOption[] = [
 ];
 
 // エクスポート設定
-export const EXPORT_VIDEO_BITRATE = 5000000; // 5Mbps
+export const EXPORT_VIDEO_BITRATE = 8000000; // 8Mbps

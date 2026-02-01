@@ -24,6 +24,7 @@ interface PreviewSectionProps {
   canvasRef: RefObject<HTMLCanvasElement | null>;
   currentTime: number;
   totalDuration: number;
+  fps: number;
   isPlaying: boolean;
   isProcessing: boolean;
   isLoading: boolean;  // リソース読み込み中フラグ
@@ -49,6 +50,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   canvasRef,
   currentTime,
   totalDuration,
+  fps,
   isPlaying,
   isProcessing,
   isLoading,

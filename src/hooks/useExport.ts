@@ -4,7 +4,7 @@
  * @description WebCodecs APIとmp4-muxerを使用して、編集内容をMP4ファイルとして書き出すためのカスタムフック。
  */
 import { useState, useRef, useCallback } from 'react';
-import { FPS, EXPORT_VIDEO_BITRATE } from '../constants';
+import { EXPORT_VIDEO_BITRATE } from '../constants';
 import * as Mp4Muxer from 'mp4-muxer';
 
 /**
@@ -31,6 +31,7 @@ export interface UseExportReturn {
   startExport: (
     canvasRef: React.MutableRefObject<HTMLCanvasElement | null>,
     masterDestRef: React.MutableRefObject<MediaStreamAudioDestinationNode | null>,
+    fps: number,
     onRecordingStop: (url: string, ext: string) => void
   ) => void;
   stopExport: () => void; // 明示的な停止メソッドを追加
@@ -73,6 +74,7 @@ export function useExport(): UseExportReturn {
     async (
       canvasRef: React.MutableRefObject<HTMLCanvasElement | null>,
       masterDestRef: React.MutableRefObject<MediaStreamAudioDestinationNode | null>,
+      fps: number,
       onRecordingStop: (url: string, ext: string) => void
     ) => {
       if (!canvasRef.current || !masterDestRef.current) return;
@@ -80,6 +82,8 @@ export function useExport(): UseExportReturn {
       setIsProcessing(true);
       setExportUrl(null);
       setExportExt(null);
+
+      console.log('[Export] Starting export with FPS:', fps);
 
       const canvas = canvasRef.current;
       const width = canvas.width;
@@ -119,7 +123,8 @@ export function useExport(): UseExportReturn {
           width,
           height,
           bitrate: EXPORT_VIDEO_BITRATE,
-          framerate: FPS,
+          framerate: fps,
+          latencyMode: 'quality', // 品質優先（リアルタイム性より画質・滑らかさを重視）
         });
 
         // 3. AudioEncoder の設定
@@ -136,7 +141,7 @@ export function useExport(): UseExportReturn {
 
         // 4. ストリームの取得と処理
         // Canvasからの映像ストリーム
-        const canvasStream = canvas.captureStream(FPS);
+        const canvasStream = canvas.captureStream(fps);
         const videoTrack = canvasStream.getVideoTracks()[0];
         // AudioDestinationNodeからの音声ストリーム
         const audioStream = masterDestRef.current.stream;
@@ -312,8 +317,148 @@ export function useExport(): UseExportReturn {
     recorderRef,
     startExport, // 既存I/F維持
     stopExport, // 新規追加（必要であれば使う）
-    clearExportUrl,
   };
+}
+
+export interface ManualExportController {
+  addVideoFrame: (canvas: HTMLCanvasElement, timestamp: number, duration: number) => Promise<void>;
+  finish: () => Promise<void>;
+}
+
+export function useManualExport() {
+  const [isProcessing, setIsProcessing] = useState(false);
+  const videoEncoderRef = useRef<VideoEncoder | null>(null);
+  const audioEncoderRef = useRef<AudioEncoder | null>(null);
+  const muxerRef = useRef<Mp4Muxer.Muxer<Mp4Muxer.ArrayBufferTarget> | null>(null);
+
+  const startManualExport = useCallback(async (
+    width: number,
+    height: number,
+    fps: number,
+    audioBuffer: AudioBuffer,
+    onComplete: (url: string, ext: string) => void
+  ): Promise<ManualExportController> => {
+    setIsProcessing(true);
+
+    const muxer = new Mp4Muxer.Muxer({
+      target: new Mp4Muxer.ArrayBufferTarget(),
+      video: {
+        codec: 'avc',
+        width,
+        height,
+      },
+      audio: {
+        codec: 'aac',
+        sampleRate: audioBuffer.sampleRate,
+        numberOfChannels: audioBuffer.numberOfChannels,
+      },
+      firstTimestampBehavior: 'offset',
+      fastStart: 'in-memory',
+    });
+    muxerRef.current = muxer;
+
+    const videoEncoder = new VideoEncoder({
+      output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+      error: (e) => console.error('VideoEncoder error:', e),
+    });
+    videoEncoder.configure({
+      codec: 'avc1.4d002a',
+      width,
+      height,
+      bitrate: EXPORT_VIDEO_BITRATE,
+      framerate: fps,
+      latencyMode: 'quality',
+    });
+    videoEncoderRef.current = videoEncoder;
+
+    const audioEncoder = new AudioEncoder({
+      output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
+      error: (e) => console.error('AudioEncoder error:', e),
+    });
+    audioEncoder.configure({
+      codec: 'mp4a.40.2',
+      sampleRate: audioBuffer.sampleRate,
+      numberOfChannels: audioBuffer.numberOfChannels,
+      bitrate: 128000,
+    });
+    audioEncoderRef.current = audioEncoder;
+
+    // Encode all audio at once (simplified) or chunk it
+    // WebCodecs AudioEncoder takes AudioData.
+    // Convert AudioBuffer to AudioData
+    const numberOfChannels = audioBuffer.numberOfChannels;
+    const length = audioBuffer.length;
+    const sampleRate = audioBuffer.sampleRate;
+
+    // AudioData requires interleaved data or planar?
+    // AudioData init takes `data` which is BufferSource.
+    // Format is usually f32-planar for WebAudio.
+
+    // Split into smaller chunks to avoid too large buffer issues if necessary,
+    // but for < 10min video, one chunk might be okay if system allows.
+    // Let's create one AudioData for the whole buffer for simplicity first.
+
+    // Prepare planar data
+    const planarData = new Float32Array(length * numberOfChannels);
+    for (let c = 0; c < numberOfChannels; c++) {
+      const channelData = audioBuffer.getChannelData(c);
+      // planar: [ch0...][ch1...] - wait, AudioData expects interleaved? or format specific?
+      // "f32-planar" means planar.
+      // https://w3c.github.io/webcodecs/#audio-data-layout
+      // "successive memory regions"
+      planarData.set(channelData, c * length);
+    }
+
+    const audioData = new AudioData({
+      format: 'f32-planar',
+      sampleRate,
+      numberOfFrames: length,
+      numberOfChannels,
+      timestamp: 0,
+      data: planarData
+    });
+
+    audioEncoder.encode(audioData);
+    audioData.close();
+
+
+    return {
+      addVideoFrame: async (canvas: HTMLCanvasElement, timestamp: number, duration: number) => {
+        // Create VideoFrame from Canvas
+        // timestamp unit: microseconds
+        const frame = new VideoFrame(canvas, {
+          timestamp: timestamp * 1000000, // s to us
+          duration: duration * 1000000
+        });
+
+        if (videoEncoder.state === 'configured') {
+          // console.log(`[ManualExport] Encoding frame at ${timestamp}`);
+          videoEncoder.encode(frame);
+          frame.close();
+        } else {
+          frame.close();
+          console.error('[ManualExport] VideoEncoder not configured');
+          throw new Error('VideoEncoder not configured');
+        }
+      },
+      finish: async () => {
+        console.log('[ManualExport] Finishing...');
+        await videoEncoder.flush();
+        await audioEncoder.flush();
+        muxer.finalize();
+
+        console.log('[ManualExport] Muxer finalized. Buffer size:', muxer.target.buffer.byteLength);
+
+        const { buffer } = muxer.target;
+        const blob = new Blob([buffer], { type: 'video/mp4' });
+        const url = URL.createObjectURL(blob);
+        onComplete(url, 'mp4');
+        setIsProcessing(false);
+      }
+    };
+  }, []);
+
+  return { isProcessing, startManualExport };
 }
 
 export default useExport;

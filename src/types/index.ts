@@ -4,6 +4,9 @@
  * @description アプリケーション全体で使用される型定義（インターフェース、型エイリアス）。
  */
 
+// ボイスID// ログカテゴリ
+export type LogCategory = 'SYSTEM' | 'USER' | 'ERROR' | 'AUDIO' | 'MEDIA' | 'RENDER' | 'AI' | 'EXPORT';
+
 // ボイスID (定数と連動)
 export type VoiceId = 'Aoede' | 'Kore' | 'Puck' | 'Fenrir' | 'Charon';
 
@@ -28,6 +31,7 @@ export interface MediaItem {
   fadeOutDuration: number;  // フェードアウト時間（秒）
   duration: number;
   originalDuration: number;
+  fps?: number;
   trimStart: number;
   trimEnd: number;
   scale: number;

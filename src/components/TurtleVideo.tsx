@@ -5,7 +5,7 @@
  */
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 
-import type { MediaItem, AudioTrack } from '../types';
+import type { MediaItem, AudioTrack, LogCategory } from '../types';
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -15,13 +15,22 @@ import {
   GEMINI_TTS_MODEL,
   TTS_SAMPLE_RATE,
   SEEK_THROTTLE_MS,
+  DEFAULT_FPS,
+  HIGH_FPS
 } from '../constants';
 
 // Hooks
-import { useExport } from '../hooks/useExport';
+import { useExport, useManualExport } from '../hooks/useExport';
 
 // Zustand Stores
 import { useMediaStore, useAudioStore, useUIStore, useCaptionStore, useLogStore } from '../stores';
+import {
+  calculateFitScale,
+  calculateFadeAlpha,
+  drawMediaCentered,
+  safeSetVideoTime,
+  renderAudioOffline
+} from '../utils';
 
 // コンポーネント
 import Toast from './common/Toast';
@@ -382,10 +391,22 @@ const TurtleVideo: React.FC = () => {
             const imgEl = element as HTMLImageElement;
             // ビデオの場合: readyState >= 2（HAVE_CURRENT_DATA）を基本とし、
             // seeking中はフレームが不確定なため描画をスキップし、前フレームを保持
+            // ただし、オフラインエクスポート時(_isExporting)は外部でシーク完了を待機しているため、
+            // seekingフラグがfalseになっていなくても描画を許可する（タイミング緩和）
             const isVideoReady = isVideo
-              ? videoEl.readyState >= 2 && !videoEl.seeking
+              ? videoEl.readyState >= 2 && (!videoEl.seeking || _isExporting)
               : false;
             const isReady = isVideo ? isVideoReady : imgEl.complete;
+
+            // Debug log for export issues
+            if (_isExporting && activeId === id && !isReady) {
+              console.warn('[OfflineExport] Media not ready for render:', {
+                id,
+                readyState: isVideo ? videoEl.readyState : 'N/A',
+                seeking: isVideo ? videoEl.seeking : 'N/A',
+                complete: !isVideo ? imgEl.complete : 'N/A'
+              });
+            }
 
             if (isReady) {
               let elemW = isVideo ? videoEl.videoWidth : imgEl.naturalWidth;
@@ -894,9 +915,44 @@ const TurtleVideo: React.FC = () => {
     }
   }, [aiScript, aiVoice, aiVoiceStyle, pcmToWav, setNarration, closeAiModal, clearError, setError, setAiLoading]);
 
+  // Project FPS Calculation
+  const [projectFps, setProjectFps] = useState(DEFAULT_FPS);
+
+  useEffect(() => {
+    if (mediaItems.length === 0) {
+      setProjectFps(DEFAULT_FPS);
+      return;
+    }
+
+    const videoItems = mediaItems.filter(item => item.type === 'video');
+    if (videoItems.length === 0) {
+      setProjectFps(DEFAULT_FPS);
+      return;
+    }
+
+    // Check if any video has low FPS (< 50)
+    const hasLowFps = videoItems.some(item => (item.fps || DEFAULT_FPS) < 50);
+
+    console.log('[Project] Calculating FPS:', {
+      videoItemsCount: videoItems.length,
+      fpsList: videoItems.map(v => v.fps),
+      hasLowFps
+    });
+
+    if (hasLowFps) {
+      // ユーザー要望: 混在時は低い方に合わせる (30fps)
+      console.log('[Project] Setting Project FPS to DEFAULT (30)');
+      setProjectFps(DEFAULT_FPS);
+    } else {
+      // 全て60fps以上なら60fps
+      console.log('[Project] Setting Project FPS to HIGH (60)');
+      setProjectFps(HIGH_FPS);
+    }
+  }, [mediaItems]);
+
   // --- アップロード処理 ---
   const handleMediaUpload = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
       try {
         const files = Array.from(e.target.files || []);
         if (files.length === 0) return;
@@ -904,7 +960,7 @@ const TurtleVideo: React.FC = () => {
         const ctx = getAudioContext();
         if (ctx.state === 'suspended') ctx.resume().catch(console.error);
         clearExport();
-        addMediaItems(files);
+        await addMediaItems(files);
         // メディア追加をログ
         files.forEach(file => {
           logInfo('MEDIA', `メディア追加: ${file.name}`, {
@@ -1638,12 +1694,13 @@ const TurtleVideo: React.FC = () => {
         startWebCodecsExport(
           canvasRef,
           masterDestRef,
+          projectFps,
           (url, ext) => {
+            // ... existing callback
             setExportUrl(url);
             setExportExt(ext as 'mp4' | 'webm');
             setProcessing(false);
             pause();
-            // エンジン停止（再生ループを止める）
             stopAll();
           }
         );
@@ -1651,8 +1708,223 @@ const TurtleVideo: React.FC = () => {
 
       loop(isExportMode, myLoopId);
     },
-    [getAudioContext, stopAll, setProcessing, play, clearExport, configureAudioRouting, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop]
+    // ... dependencies
+    [getAudioContext, stopAll, setProcessing, play, clearExport, configureAudioRouting, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, projectFps, startWebCodecsExport]
   );
+
+  // マニュアルエクスポート（オフライン）フック
+  const { startManualExport, isProcessing: isManualProcessing } = useManualExport();
+
+  // オフラインレンダリング実行
+  const runOfflineExport = useCallback(async () => {
+    if (!canvasRef.current || !masterDestRef.current) return;
+
+    // -------------------------------------------------------------------------
+    // Debug: コンソールにパラメータを出力 (F12で確認用)
+    console.log('[OfflineExport] Starting with params:', {
+      fps: projectFps,
+      width: CANVAS_WIDTH,
+      height: CANVAS_HEIGHT,
+      duration: totalDurationRef.current,
+      totalMediaItems: mediaItemsRef.current.length,
+      totalDurationRefValue: totalDurationRef.current
+    });
+    // -------------------------------------------------------------------------
+
+    logInfo('EXPORT', 'オフラインレンダリング開始', { fps: projectFps, duration: totalDurationRef.current });
+    setProcessing(true);
+    clearExport();
+
+    try {
+      const fps = projectFps;
+      const width = CANVAS_WIDTH;
+      const height = CANVAS_HEIGHT;
+      const duration = totalDurationRef.current;
+      const frameInterval = 1 / fps;
+
+      logInfo('EXPORT', 'Offline Render Params', {
+        fps,
+        width,
+        height,
+        duration,
+        frameInterval,
+        mediaItemsCount: mediaItemsRef.current.length
+      });
+
+      if (duration <= 0) {
+        logError('EXPORT', 'Duration is zero or negative', { duration });
+        // durationが0でも処理続行すると一瞬で終わる。
+        // 強制的にエラーにするか、最低限のフレームを出力するか？
+        // ここではエラーとして処理中断
+        throw new Error('Total duration is zero. Cannot export.');
+      }
+
+      // 1. オーディオのオフラインレンダリング
+      console.log('[OfflineExport] Rendering Audio...');
+      logInfo('EXPORT', '音声レンダリング中...');
+      const audioBuffer = await renderAudioOffline(
+        masterDestRef.current.context,
+        mediaItemsRef.current, // Video Items added
+        useAudioStore.getState().bgm,
+        useAudioStore.getState().narration,
+        duration
+      );
+
+      console.log('[OfflineExport] Audio Buffer Created:', {
+        length: audioBuffer.length,
+        duration: audioBuffer.duration
+      });
+
+      // 2. マニュアルエクスポート開始
+      logInfo('EXPORT', '映像レンダリング準備...');
+      const controller = await startManualExport(
+        width,
+        height,
+        fps,
+        audioBuffer,
+        (url, ext) => {
+          setExportUrl(url);
+          setExportExt(ext as 'mp4' | 'webm');
+          setProcessing(false);
+          logInfo('EXPORT', 'オフラインレンダリング完了', { url });
+          console.log('[OfflineExport] Finished. URL:', url);
+        }
+      );
+
+
+      // 3. 全フレームレンダリングループ
+      logInfo('EXPORT', 'フレームレンダリング開始...', { duration, frameInterval });
+      console.log('[OfflineExport] Starting Frame Loop. Expected frames:', Math.ceil(duration * fps));
+
+      // メディアの準備
+      Object.values(mediaElementsRef.current).forEach((el) => {
+        if (el.tagName === 'VIDEO') (el as HTMLMediaElement).load();
+      });
+
+      let frameCount = 0;
+      // オフラインレンダリングなので、tを0から刻んでいく
+      for (let t = 0; t < duration; t += frameInterval) {
+        frameCount++;
+        // シーク
+        setCurrentTime(t);
+        currentTimeRef.current = t;
+
+        // ビデオ要素の同期とシーク完了待機
+        const seekPromises: Promise<void>[] = [];
+
+        let currentSegmentStart = 0;
+        // どのメディアが表示されるべきか計算してシーク
+        for (const item of mediaItemsRef.current) { // Refを使う
+          const itemDuration = item.duration;
+          // このアイテムの表示期間内か？
+          if (t >= currentSegmentStart && t < currentSegmentStart + itemDuration) {
+            if (item.type === 'video') {
+              const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
+              if (videoEl) {
+                // Export用に確実にロード完了を待つ
+                if (videoEl.readyState < 2) {
+                  // console.log(`[OfflineExport] Waiting for video ${item.id} (state: ${videoEl.readyState})`);
+                  await new Promise<void>((resolve) => {
+                    const onReady = () => {
+                      if (videoEl.readyState >= 2) {
+                        videoEl.removeEventListener('canplay', onReady);
+                        videoEl.removeEventListener('loadeddata', onReady);
+                        resolve();
+                      }
+                    };
+                    videoEl.addEventListener('canplay', onReady);
+                    videoEl.addEventListener('loadeddata', onReady);
+
+                    // タイムアウトまたは強制ロード
+                    // 既にload()はループ外で呼ばれているが、念のため
+                    if (videoEl.networkState === HTMLMediaElement.NETWORK_IDLE && videoEl.readyState === 0) {
+                      videoEl.load();
+                    }
+
+                    // 3秒待ってもダメなら進む（無限ループ防止）
+                    setTimeout(() => {
+                      videoEl.removeEventListener('canplay', onReady);
+                      videoEl.removeEventListener('loadeddata', onReady);
+                      resolve();
+                    }, 3000);
+                  });
+                }
+
+                const localTime = t - currentSegmentStart;
+                const targetTime = (item.trimStart || 0) + localTime;
+
+                // HTMLVideoElementのcurrentTimeを設定
+                // 浮動小数点誤差を考慮して少し余裕を持つべきだが、まずは単純設定
+                // 設定値が変わらない場合はseekedが発火しないことに注意
+                if (Math.abs(videoEl.currentTime - targetTime) > 0.001 || videoEl.readyState < 2) {
+                  videoEl.currentTime = targetTime;
+
+                  // seekedを待つ
+                  seekPromises.push(new Promise<void>(resolve => {
+                    // console.log(`[OfflineExport] Seeking video to ${targetTime}`);
+                    const onSeeked = () => {
+                      videoEl.removeEventListener('seeked', onSeeked);
+                      // console.log(`[OfflineExport] Seeked to ${videoEl.currentTime}`);
+                      resolve();
+                    };
+                    // すぐ終わる（既にロード済み）場合もあるが、WebCodecsと連携するなら確実性を取る
+                    if (videoEl.seeking) {
+                      videoEl.addEventListener('seeked', onSeeked);
+                    } else {
+                      // console.log(`[OfflineExport] Seek already done or not needed (seeking=false)`);
+                      resolve();
+                    }
+                    // タイムアウト設定（万が一seekedが来ない場合ブロックしないように）
+                    setTimeout(() => {
+                      videoEl.removeEventListener('seeked', onSeeked);
+                      resolve();
+                    }, 500);
+                  }));
+                }
+              }
+            }
+            // 重なりがない前提ならbreakしてよい
+            break;
+          }
+          currentSegmentStart += itemDuration;
+        }
+
+        await Promise.all(seekPromises);
+
+        // 描画 (force render)
+        renderFrame(t, false, true);
+
+        // エンコードに追加
+        await controller.addVideoFrame(canvasRef.current, t, frameInterval);
+
+        // 進捗表示更新 (コンソールのみ)
+        if (frameCount % 30 === 0) {
+          console.log(`[OfflineExport] Rendered frame: ${frameCount} (Time: ${t.toFixed(2)})`);
+        }
+      }
+
+      logInfo('EXPORT', 'Loop finished', { frameCount, expectedFrames: Math.ceil(duration * fps) });
+      console.log('[OfflineExport] Loop finished. Total frames:', frameCount);
+
+      await controller.finish();
+
+    } catch (e) {
+      console.error('[OfflineExport] Error:', e);
+      logError('EXPORT', 'オフラインレンダリング失敗', { error: e });
+      setProcessing(false);
+      setError('書き出しに失敗しました');
+    }
+
+  }, [projectFps, startManualExport, canvasRef, renderAudioOffline, renderFrame]);
+
+  // handleExportの更新（既存のstartEngine呼び出しをラップ）
+  const handleExport = useCallback(() => {
+    console.log('[handleExport] Export requested. FPS:', projectFps);
+    // すべてのFPSでオフラインエクスポートを使用（品質安定のため）
+    // リアルタイムプレビュー録画(startEngine)は使用しない
+    console.log('[handleExport] Triggering Offline Export (Universal)');
+    runOfflineExport();
+  }, [projectFps, runOfflineExport]);
 
   // --- シークバー操作ハンドラ ---
   // 目的: ユーザーがシークバーをドラッグした時にプレビューを更新
@@ -1944,9 +2216,7 @@ const TurtleVideo: React.FC = () => {
 
   // --- エクスポート開始ハンドラ ---
   // 目的: 動画ファイルとして書き出しを開始
-  const handleExport = useCallback(() => {
-    startEngine(0, true);
-  }, [startEngine]);
+
 
   // --- 時刻フォーマットヘルパー ---
   // 目的: 秒数を「分:秒」形式の文字列に変換
@@ -2092,6 +2362,7 @@ const TurtleVideo: React.FC = () => {
           canvasRef={canvasRef}
           currentTime={currentTime}
           totalDuration={totalDuration}
+          fps={projectFps}
           isPlaying={isPlaying}
           isProcessing={isProcessing}
           isLoading={isLoading}

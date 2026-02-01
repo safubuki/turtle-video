@@ -11,7 +11,7 @@ import { devtools } from 'zustand/middleware';
 export type LogLevel = 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
 
 // ログカテゴリ
-export type LogCategory = 'MEDIA' | 'RENDER' | 'AUDIO' | 'SYSTEM' | 'GLOBAL';
+export type LogCategory = 'SYSTEM' | 'USER' | 'ERROR' | 'AUDIO' | 'MEDIA' | 'RENDER' | 'AI' | 'EXPORT';
 
 // ログエントリ
 export interface LogEntry {

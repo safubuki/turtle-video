@@ -4,7 +4,9 @@
  * @description メディアアイテムの作成、ID生成、トリム値やスケールの検証など、メディア操作に関連するユーティリティ関数群。
  */
 
+import * as MP4Box from 'mp4box';
 import type { MediaItem } from '../types';
+import { DEFAULT_FPS } from '../constants';
 
 /**
  * ID生成用カウンター（同一ミリ秒内での重複を防止）
@@ -36,11 +38,83 @@ export function getMediaType(file: File): 'video' | 'image' | 'audio' | null {
 }
 
 /**
+ * 動画ファイルのFPSを検出する
+ * @param file - 動画ファイル
+ * @returns FPS（検出できない場合はDEFAULT_FPS）
+ */
+export function detectVideoFps(file: File): Promise<number> {
+  return new Promise((resolve) => {
+    // MP4/MOV以外はデフォルトFPSを返す（WebMなどは別途対応が必要だが今回は簡易実装）
+    if (file.type !== 'video/mp4' && file.type !== 'video/quicktime') {
+      resolve(DEFAULT_FPS);
+      return;
+    }
+
+    const mp4boxfile = MP4Box.createFile();
+    let fpsFound = false;
+
+    mp4boxfile.onReady = (info: any) => {
+      const videoTrack = info.videoTracks[0];
+      if (videoTrack) {
+        // nb_samples: サンプル総数
+        // duration: ムービーのタイムスケール単位での長さ
+        // timescale: 1秒あたりの単位数
+        // timescale / (duration / nb_samples) でも計算できるが、
+        // duration / timescale = 秒数
+        // nb_samples / 秒数 = FPS
+        if (videoTrack.nb_samples > 0 && videoTrack.duration > 0 && videoTrack.timescale > 0) {
+          const durationSec = videoTrack.duration / videoTrack.timescale;
+          const fps = videoTrack.nb_samples / durationSec;
+          // 小数点以下を丸める（例: 29.97 -> 30, 59.94 -> 60）
+          // ただしユーザー要望は「29.64をそのまま」なので、あえて丸めすぎない方が良いかも？
+          // しかし「29.64」はかなり半端。通常は29.97 or 30 or 60 or 59.94
+          // ユーザーの「29.64」は可変フレームレート(VFR)の結果かもしれない。
+          // ここではありのまま返す
+          console.log('[Media] Detected FPS info:', {
+            fps,
+            durationSec,
+            samples: videoTrack.nb_samples
+          });
+          resolve(fps);
+          fpsFound = true;
+        }
+      }
+
+      if (!fpsFound) {
+        resolve(DEFAULT_FPS);
+      }
+    };
+
+    mp4boxfile.onError = (e: any) => {
+      console.warn('MP4Box FPS detection failed:', e);
+      resolve(DEFAULT_FPS);
+    };
+
+    // ファイル読み込み（先頭チャンクだけでなく全体を読み込む簡易実装）
+    // ※巨大ファイルの場合はチャンク読み込みにすべきだが、今回はブラウザ依存のためFile APIを使用
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const buffer = e.target?.result as ArrayBuffer;
+      if (buffer) {
+        (buffer as any).fileStart = 0;
+        mp4boxfile.appendBuffer(buffer as any);
+        mp4boxfile.flush();
+      } else {
+        resolve(DEFAULT_FPS);
+      }
+    };
+    reader.onerror = () => resolve(DEFAULT_FPS);
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+/**
  * ファイルからMediaItemを作成
  * @param file - アップロードされたファイル
+ * @param fps - 検出されたFPS（動画の場合）
  * @returns 新しいMediaItem
  */
-export function createMediaItem(file: File): MediaItem {
+export function createMediaItem(file: File, fps?: number): MediaItem {
   const isImage = file.type.startsWith('image');
   return {
     id: generateId(),
@@ -55,6 +129,7 @@ export function createMediaItem(file: File): MediaItem {
     fadeOutDuration: 1.0,
     duration: isImage ? 5 : 0,
     originalDuration: 0,
+    fps: fps, // FPSを設定
     trimStart: 0,
     trimEnd: 0,
     scale: 1.0,

@@ -19,6 +19,7 @@ export {
   calculateTrackTime,
   calculateFadeVolume,
 } from './audio';
+export { renderAudioOffline } from './offlineAudio';
 
 // メディア関連
 export {
@@ -32,6 +33,7 @@ export {
   validateScale,
   validatePosition,
   revokeObjectUrl,
+  detectVideoFps,
 } from './media';
 
 // Canvas関連

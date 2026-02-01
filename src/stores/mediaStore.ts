@@ -17,7 +17,8 @@ import {
   validateTrim,
   validateScale,
   validatePosition,
-  revokeObjectUrl
+  revokeObjectUrl,
+  detectVideoFps
 } from '../utils';
 
 interface MediaState {
@@ -27,7 +28,7 @@ interface MediaState {
   isClipsLocked: boolean;
 
   // Actions
-  addMediaItems: (files: File[]) => void;
+  addMediaItems: (files: File[]) => Promise<void>;
   removeMediaItem: (id: string) => void;
   moveMediaItem: (index: number, direction: 'up' | 'down') => void;
   updateMediaItem: (id: string, updates: Partial<MediaItem>) => void;
@@ -72,8 +73,13 @@ export const useMediaStore = create<MediaState>()(
       isClipsLocked: false,
 
       // Add media items
-      addMediaItems: (files) => {
-        const newItems = files.map(createMediaItem);
+      addMediaItems: async (files) => {
+        const newItemsProms = files.map(async (file) => {
+          const fps = await detectVideoFps(file);
+          return createMediaItem(file, fps);
+        });
+        const newItems = await Promise.all(newItemsProms);
+
         set((state) => {
           const updated = [...state.mediaItems, ...newItems];
           return {
