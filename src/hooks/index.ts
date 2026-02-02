@@ -20,3 +20,5 @@ export type { UseExportReturn } from './useExport';
 
 export { useAiNarration } from './useAiNarration';
 export type { UseAiNarrationReturn } from './useAiNarration';
+
+export { useAutoSave } from './useAutoSave';

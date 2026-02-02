@@ -44,6 +44,14 @@ interface AudioState {
 
   // Clear
   clearAllAudio: () => void;
+
+  // Restore
+  restoreFromSave: (
+    bgm: AudioTrack | null,
+    isBgmLocked: boolean,
+    narration: AudioTrack | null,
+    isNarrationLocked: boolean
+  ) => void;
 }
 
 // Helper: オーディオファイルからトラックを作成
@@ -221,6 +229,20 @@ export const useAudioStore = create<AudioState>()(
           isBgmLocked: false,
           narration: null,
           isNarrationLocked: false,
+        });
+      },
+
+      // === Restore from save ===
+      restoreFromSave: (newBgm, newIsBgmLocked, newNarration, newIsNarrationLocked) => {
+        const { bgm, narration } = get();
+        // 既存のURLを解放
+        if (bgm?.url) revokeObjectUrl(bgm.url);
+        if (narration?.url) revokeObjectUrl(narration.url);
+        set({
+          bgm: newBgm,
+          isBgmLocked: newIsBgmLocked,
+          narration: newNarration,
+          isNarrationLocked: newIsNarrationLocked,
         });
       },
     }),

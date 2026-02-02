@@ -61,6 +61,10 @@ interface MediaState {
 
   // Clear
   clearAllMedia: () => void;
+
+  // Restore
+  isLocked: boolean;
+  restoreFromSave: (items: MediaItem[], isLocked: boolean) => void;
 }
 
 export const useMediaStore = create<MediaState>()(
@@ -300,6 +304,19 @@ export const useMediaStore = create<MediaState>()(
         const { mediaItems } = get();
         mediaItems.forEach((item) => revokeObjectUrl(item.url));
         set({ mediaItems: [], totalDuration: 0, isClipsLocked: false });
+      },
+
+      // Restore from save (isLockedのエイリアス)
+      isLocked: false,
+      restoreFromSave: (items, isLocked) => {
+        const { mediaItems } = get();
+        // 既存のURLを解放
+        mediaItems.forEach((item) => revokeObjectUrl(item.url));
+        set({
+          mediaItems: items,
+          totalDuration: calculateTotalDuration(items),
+          isClipsLocked: isLocked,
+        });
       },
     }),
     { name: 'media-store' }

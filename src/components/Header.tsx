@@ -4,16 +4,17 @@
  * @description アプリケーションのグローバルヘッダー。タイトル表示、エクスポートボタン、設定モーダルへのアクセスを提供する。
  */
 import React from 'react';
-import { Settings, RefreshCw } from 'lucide-react';
+import { Settings, RefreshCw, FolderOpen } from 'lucide-react';
 
 interface HeaderProps {
   onOpenSettings?: () => void;
+  onOpenProjectManager?: () => void;
 }
 
 /**
  * ヘッダーコンポーネント
  */
-const Header: React.FC<HeaderProps> = ({ onOpenSettings }) => {
+const Header: React.FC<HeaderProps> = ({ onOpenSettings, onOpenProjectManager }) => {
   const handleReload = () => {
     window.location.reload();
   };
@@ -35,6 +36,15 @@ const Header: React.FC<HeaderProps> = ({ onOpenSettings }) => {
         >
           <RefreshCw className="w-5 h-5" />
         </button>
+        {onOpenProjectManager && (
+          <button
+            onClick={onOpenProjectManager}
+            className="p-1.5 hover:bg-gray-700 rounded-lg transition text-gray-400 hover:text-white"
+            title="保存・読み込み"
+          >
+            <FolderOpen className="w-5 h-5" />
+          </button>
+        )}
         {onOpenSettings && (
           <button
             onClick={onOpenSettings}
