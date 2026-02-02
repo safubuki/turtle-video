@@ -93,6 +93,14 @@ export interface Caption {
   fadeOut: boolean;
   fadeInDuration: number;   // フェードイン時間（秒）
   fadeOutDuration: number;  // フェードアウト時間（秒）
+  // 個別スタイル設定（override）- undefinedの場合は一括設定を使用
+  overridePosition?: CaptionPosition;   // 個別配置（デフォルト=undefined）
+  overrideFontStyle?: CaptionFontStyle; // 個別字体（デフォルト=undefined）
+  overrideFontSize?: CaptionSize;       // 個別サイズ（デフォルト=undefined）
+  overrideFadeIn?: 'on' | 'off';        // 個別フェードイン（デフォルト=undefined）
+  overrideFadeOut?: 'on' | 'off';       // 個別フェードアウト（デフォルト=undefined）
+  overrideFadeInDuration?: number;      // 個別フェードイン時間（デフォルト=undefined）
+  overrideFadeOutDuration?: number;     // 個別フェードアウト時間（デフォルト=undefined）
 }
 
 // キャプション位置

@@ -466,23 +466,26 @@ const TurtleVideo: React.FC = () => {
             (c) => time >= c.startTime && time < c.endTime
           );
           if (activeCaption) {
-            // フォントサイズ
+            // フォントサイズ（個別設定優先）
             const fontSizeMap = { small: 32, medium: 48, large: 64 };
-            const fontSize = fontSizeMap[captionSettings.fontSize];
+            const effectiveFontSizeKey = activeCaption.overrideFontSize ?? captionSettings.fontSize;
+            const fontSize = fontSizeMap[effectiveFontSizeKey];
 
-            // フォントファミリー（ゴシック体: sans-serif, 明朝体: serif）
+            // フォントファミリー（個別設定優先）
             const fontFamilyMap = {
               gothic: 'sans-serif',
               mincho: '"游明朝", "Yu Mincho", "ヒラギノ明朝 ProN", "Hiragino Mincho ProN", serif',
             };
-            const fontFamily = fontFamilyMap[captionSettings.fontStyle];
+            const effectiveFontStyle = activeCaption.overrideFontStyle ?? captionSettings.fontStyle;
+            const fontFamily = fontFamilyMap[effectiveFontStyle];
 
-            // 位置（余白はフォントサイズに応じて調整）
+            // 位置（個別設定優先）
+            const effectivePosition = activeCaption.overridePosition ?? captionSettings.position;
             const padding = fontSize * 0.8; // フォントサイズの80%を余白として確保
             let y: number;
-            if (captionSettings.position === 'top') {
+            if (effectivePosition === 'top') {
               y = padding + fontSize / 2;
-            } else if (captionSettings.position === 'center') {
+            } else if (effectivePosition === 'center') {
               y = CANVAS_HEIGHT / 2;
             } else {
               y = CANVAS_HEIGHT - padding - fontSize / 2;
@@ -492,16 +495,22 @@ const TurtleVideo: React.FC = () => {
             const captionDuration = activeCaption.endTime - activeCaption.startTime;
             const captionLocalTime = time - activeCaption.startTime;
 
-            // フェード時間を取得（個別優先、なければ一括）
-            const useFadeIn = activeCaption.fadeIn || captionSettings.bulkFadeIn;
-            const useFadeOut = activeCaption.fadeOut || captionSettings.bulkFadeOut;
+            // フェード設定を取得（個別設定 > 一括設定）
+            // overrideFadeIn/Out: 'on' | 'off' | undefined
+            // undefined の場合は一括設定を参照
+            const useFadeIn = activeCaption.overrideFadeIn !== undefined
+              ? activeCaption.overrideFadeIn === 'on'
+              : captionSettings.bulkFadeIn;
+            const useFadeOut = activeCaption.overrideFadeOut !== undefined
+              ? activeCaption.overrideFadeOut === 'on'
+              : captionSettings.bulkFadeOut;
 
-            const fadeInDur = activeCaption.fadeIn
-              ? (activeCaption.fadeInDuration || 1.0)
+            // フェード時間を取得（個別設定 > 一括設定）
+            const fadeInDur = activeCaption.overrideFadeIn === 'on' && activeCaption.overrideFadeInDuration !== undefined
+              ? activeCaption.overrideFadeInDuration
               : (captionSettings.bulkFadeInDuration || 1.0);
-
-            const fadeOutDur = activeCaption.fadeOut
-              ? (activeCaption.fadeOutDuration || 1.0)
+            const fadeOutDur = activeCaption.overrideFadeOut === 'on' && activeCaption.overrideFadeOutDuration !== undefined
+              ? activeCaption.overrideFadeOutDuration
               : (captionSettings.bulkFadeOutDuration || 1.0);
 
             // フェードイン・フェードアウトのアルファ値を個別に計算

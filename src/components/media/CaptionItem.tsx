@@ -1,7 +1,8 @@
 import React, { useState, useCallback } from 'react';
-import { Trash2, Edit2, Check, X, MapPin } from 'lucide-react';
+import { Trash2, Edit2, Check, X, MapPin, Settings } from 'lucide-react';
 import type { Caption } from '../../types';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
+import CaptionSettingsModal from '../modals/CaptionSettingsModal';
 
 interface CaptionItemProps {
   caption: Caption;
@@ -27,6 +28,7 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(caption.text);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   const handleSave = () => {
     if (editText.trim()) {
@@ -64,15 +66,38 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
 
   return (
     <div
-      className={`p-3 rounded-lg border transition ${isActive
-        ? 'bg-yellow-900/30 border-yellow-500/50'
-        : 'bg-gray-800/50 border-gray-700/50'
-        }`}
+      className={`p-3 rounded-lg border transition ${
+        isActive
+          ? 'bg-yellow-900/30 border-yellow-500/50'
+          : 'bg-gray-800/50 border-gray-700/50'
+      }`}
     >
       {/* ヘッダー: 番号とアクション */}
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs text-gray-500 font-mono">[{index + 1}]</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500 font-mono">[{index + 1}]</span>
+          {/* 個別設定が有効な場合にバッジ表示 */}
+          {(caption.overridePosition || caption.overrideFontStyle || caption.overrideFontSize || caption.overrideFadeIn || caption.overrideFadeOut) && (
+            <span className="text-[9px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded">
+              個別設定
+            </span>
+          )}
+        </div>
         <div className="flex gap-1">
+          {/* 設定ボタン */}
+          <button
+            onClick={() => setShowSettingsModal(true)}
+            disabled={isLocked}
+            className={`p-1 transition disabled:opacity-50 ${
+              caption.overridePosition || caption.overrideFontStyle || caption.overrideFontSize || caption.overrideFadeIn || caption.overrideFadeOut
+                ? 'text-yellow-400 hover:text-yellow-300'
+                : 'text-gray-400 hover:text-white'
+            }`}
+            title="個別設定"
+          >
+            <Settings className="w-3 h-3" />
+          </button>
+          {/* 編集ボタン */}
           {!isEditing ? (
             <button
               onClick={() => setIsEditing(true)}
@@ -100,6 +125,7 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
               </button>
             </>
           )}
+          {/* 削除ボタン */}
           <button
             onClick={() => onRemove(caption.id)}
             disabled={isLocked}
@@ -219,70 +245,14 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
         </div>
       </div>
 
-      {/* フェードイン・フェードアウト設定 */}
-      {/* フェードイン・フェードアウト設定 - 1行表示 */}
-      {/* フェード設定 - レイアウト改善 */}
-      <div className="mt-2 flex flex-col gap-2 text-[10px]">
-        {/* フェードイン */}
-        <div className="flex items-center gap-2">
-          <label
-            className={`flex items-center gap-1 w-24 justify-start ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
-          >
-            <input
-              type="checkbox"
-              checked={caption.fadeIn}
-              onChange={(e) => onUpdate(caption.id, { fadeIn: e.target.checked })}
-              disabled={isLocked}
-              className="accent-yellow-500 rounded cursor-pointer disabled:opacity-50 disabled:cursor-default"
-            />
-            <span className="whitespace-nowrap">フェードイン</span>
-          </label>
-          <input
-            type="range"
-            min={0}
-            max={2}
-            step={1}
-            value={caption.fadeInDuration === 0.5 ? 0 : caption.fadeInDuration === 1.0 ? 1 : 2}
-            onChange={(e) => {
-              const steps = [0.5, 1.0, 2.0];
-              onUpdate(caption.id, { fadeInDuration: steps[parseInt(e.target.value)] });
-            }}
-            disabled={isLocked || !caption.fadeIn}
-            className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isLocked || !caption.fadeIn ? '' : 'cursor-pointer'}`}
-          />
-          <span className={`text-gray-400 w-8 text-right whitespace-nowrap ${isLocked || !caption.fadeIn ? 'text-gray-600' : 'text-gray-400'}`}>{caption.fadeInDuration}秒</span>
-        </div>
-
-        {/* フェードアウト */}
-        <div className="flex items-center gap-2">
-          <label
-            className={`flex items-center gap-1 w-24 justify-start ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
-          >
-            <input
-              type="checkbox"
-              checked={caption.fadeOut}
-              onChange={(e) => onUpdate(caption.id, { fadeOut: e.target.checked })}
-              disabled={isLocked}
-              className="accent-yellow-500 rounded cursor-pointer disabled:opacity-50 disabled:cursor-default"
-            />
-            <span className="whitespace-nowrap">フェードアウト</span>
-          </label>
-          <input
-            type="range"
-            min={0}
-            max={2}
-            step={1}
-            value={caption.fadeOutDuration === 0.5 ? 0 : caption.fadeOutDuration === 1.0 ? 1 : 2}
-            onChange={(e) => {
-              const steps = [0.5, 1.0, 2.0];
-              onUpdate(caption.id, { fadeOutDuration: steps[parseInt(e.target.value)] });
-            }}
-            disabled={isLocked || !caption.fadeOut}
-            className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isLocked || !caption.fadeOut ? '' : 'cursor-pointer'}`}
-          />
-          <span className={`text-gray-400 w-8 text-right whitespace-nowrap ${isLocked || !caption.fadeOut ? 'text-gray-600' : 'text-gray-400'}`}>{caption.fadeOutDuration}秒</span>
-        </div>
-      </div>
+      {/* 個別設定モーダル */}
+      {showSettingsModal && (
+        <CaptionSettingsModal
+          caption={caption}
+          onClose={() => setShowSettingsModal(false)}
+          onUpdate={onUpdate}
+        />
+      )}
     </div>
   );
 };
