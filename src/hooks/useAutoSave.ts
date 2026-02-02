@@ -1,7 +1,7 @@
 /**
  * @file useAutoSave.ts
  * @author Turtle Village
- * @description 自動保存機能を提供するカスタムフック。2分間隔で自動保存を実行する。
+ * @description 自動保存機能を提供するカスタムフック。1分間隔で自動保存を実行する。
  */
 
 import { useEffect, useRef, useCallback } from 'react';
@@ -9,9 +9,10 @@ import { useMediaStore } from '../stores/mediaStore';
 import { useAudioStore } from '../stores/audioStore';
 import { useCaptionStore } from '../stores/captionStore';
 import { useProjectStore } from '../stores/projectStore';
+import { useUIStore } from '../stores/uiStore';
 
 /** 自動保存間隔（ミリ秒） */
-const AUTO_SAVE_INTERVAL = 2 * 60 * 1000; // 2分
+const AUTO_SAVE_INTERVAL = 1 * 60 * 1000; // 1分
 
 /**
  * 自動保存機能を提供するカスタムフック
@@ -30,6 +31,9 @@ export function useAutoSave() {
   const captions = useCaptionStore((s) => s.captions);
   const captionSettings = useCaptionStore((s) => s.captionSettings);
   const isCaptionsLocked = useCaptionStore((s) => s.isLocked);
+  
+  // エクスポート中かどうか
+  const isProcessing = useUIStore((s) => s.isProcessing);
   
   const saveProjectAuto = useProjectStore((s) => s.saveProjectAuto);
   
@@ -53,6 +57,11 @@ export function useAutoSave() {
    * 自動保存を実行
    */
   const performAutoSave = useCallback(async () => {
+    // エクスポート中は保存をスキップ（動画品質を保護）
+    if (isProcessing) {
+      return;
+    }
+    
     const currentHash = computeHash();
     
     // 変更がない場合はスキップ
@@ -89,6 +98,7 @@ export function useAutoSave() {
     captions,
     captionSettings,
     isCaptionsLocked,
+    isProcessing,
     saveProjectAuto,
   ]);
   
