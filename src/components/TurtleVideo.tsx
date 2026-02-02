@@ -36,6 +36,7 @@ import CaptionSection from './sections/CaptionSection';
 import PreviewSection from './sections/PreviewSection';
 import AiModal from './modals/AiModal';
 import SettingsModal, { getStoredApiKey } from './modals/SettingsModal';
+import SaveLoadModal from './modals/SaveLoadModal';
 
 // API キー取得関数（localStorage優先、フォールバックで環境変数）
 const getApiKey = (): string => {
@@ -122,6 +123,7 @@ const TurtleVideo: React.FC = () => {
   const isAiLoading = useUIStore((s) => s.isAiLoading);
 
   const clearToast = useUIStore((s) => s.clearToast);
+  const showToast = useUIStore((s) => s.showToast);
   const setError = useUIStore((s) => s.setError);
   const clearError = useUIStore((s) => s.clearError);
   const play = useUIStore((s) => s.play);
@@ -170,6 +172,7 @@ const TurtleVideo: React.FC = () => {
   // === Local State ===
   const [reloadKey, setReloadKey] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
+  const [showProjectManager, setShowProjectManager] = useState(false);
 
   // Ref
   const mediaItemsRef = useRef<MediaItem[]>([]);
@@ -1833,8 +1836,24 @@ const TurtleVideo: React.FC = () => {
         onClose={() => setShowSettings(false)}
       />
 
+      {/* SaveLoad Modal */}
+      <SaveLoadModal
+        isOpen={showProjectManager}
+        onClose={() => setShowProjectManager(false)}
+        onToast={(msg, type) => {
+          if (type === 'error') {
+            setError(msg);
+          } else {
+            showToast(msg);
+          }
+        }}
+      />
+
       {/* Header */}
-      <Header onOpenSettings={() => setShowSettings(true)} />
+      <Header
+        onOpenSettings={() => setShowSettings(true)}
+        onOpenProjectManager={() => setShowProjectManager(true)}
+      />
 
       <div className="max-w-md mx-auto p-4 space-y-6">
         <ErrorMessage message={errorMsg} onClose={clearError} />
