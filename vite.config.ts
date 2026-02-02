@@ -16,7 +16,7 @@ export default defineConfig({
         theme_color: '#1e3a5f',
         background_color: '#0f172a',
         display: 'standalone',
-        orientation: 'any',
+        orientation: 'portrait',
         scope: '/turtle-video/',
         start_url: '/turtle-video/',
         icons: [

@@ -1,12 +1,19 @@
 /**
  * @file App.tsx
  * @author Turtle Village
- * @description アプリケーションのルートコンポーネント。エラーバウンダリを含み、メインのTurtleVideoコンポーネントをレンダリングする。
  */
 import TurtleVideo from './components/TurtleVideo';
 import ErrorBoundary from './components/common/ErrorBoundary';
 
+
+
+
+import { useOrientationLock } from './hooks/useOrientationLock';
+
 function App() {
+  // 可能な限り縦画面に固定を試みる（スマホ対策）
+  useOrientationLock('portrait');
+
   return (
     <ErrorBoundary>
       <TurtleVideo />

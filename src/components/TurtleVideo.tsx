@@ -120,7 +120,7 @@ const TurtleVideo: React.FC = () => {
   const aiVoice = useUIStore((s) => s.aiVoice);
   const aiVoiceStyle = useUIStore((s) => s.aiVoiceStyle);
   const isAiLoading = useUIStore((s) => s.isAiLoading);
-  const showToast = useUIStore((s) => s.showToast);
+
   const clearToast = useUIStore((s) => s.clearToast);
   const setError = useUIStore((s) => s.setError);
   const clearError = useUIStore((s) => s.clearError);
@@ -128,7 +128,7 @@ const TurtleVideo: React.FC = () => {
   const pause = useUIStore((s) => s.pause);
   const setCurrentTime = useUIStore((s) => s.setCurrentTime);
   const setProcessing = useUIStore((s) => s.setProcessing);
-  const setLoading = useUIStore((s) => s.setLoading);
+
   const isLoading = useUIStore((s) => s.isLoading);
   const setExportUrl = useUIStore((s) => s.setExportUrl);
   const setExportExt = useUIStore((s) => s.setExportExt);
@@ -1305,184 +1305,6 @@ const TurtleVideo: React.FC = () => {
     }
   }, [mediaItems, bgm, narration, stopAll, clearAllMedia, clearAllAudio, resetCaptions, resetUI]);
 
-  // --- リソースリロード処理 ---
-  // 目的: 全メディアをリロードし、オーディオノードを再構築
-  // 使用タイミング: ブラックアウトやオーディオ問題発生時の復旧
-  // fullReset=trueの場合: メディア要素とAudioContextを完全に再構築（強力な復旧）
-  const handleReloadResources = useCallback(
-    (targetTime: number | null = null, fullReset: boolean = false) => {
-      // 読み込み中フラグを立てる（UIで再生ボタンを無効化）
-      setLoading(true);
-
-      stopAll();
-      pause();
-      setProcessing(false);
-
-      // Properly disconnect all audio nodes before clearing them
-      // This prevents Web Audio API corruption that can cause video blackout
-      Object.values(sourceNodesRef.current).forEach((n) => {
-        try {
-          n.disconnect();
-        } catch (e) {
-          /* ignore */
-        }
-      });
-      Object.values(gainNodesRef.current).forEach((n) => {
-        try {
-          n.disconnect();
-        } catch (e) {
-          /* ignore */
-        }
-      });
-
-      // フルリセット: AudioContextを完全に再作成し、全メディア要素を初期状態に戻す
-      if (fullReset) {
-        // AudioContextを閉じて再作成
-        if (audioCtxRef.current) {
-          try {
-            audioCtxRef.current.close();
-          } catch (e) {
-            /* ignore */
-          }
-          audioCtxRef.current = null;
-          masterDestRef.current = null;
-        }
-
-        // 全メディア要素を初期状態にリセット
-        Object.values(mediaElementsRef.current).forEach((el) => {
-          if (el) {
-            if (el.tagName === 'VIDEO') {
-              const videoEl = el as HTMLVideoElement;
-              try {
-                videoEl.pause();
-                videoEl.currentTime = 0;
-                // srcを一時的にクリアして再設定することでデコーダをリセット
-                const src = videoEl.src;
-                videoEl.src = '';
-                videoEl.load();
-                videoEl.src = src;
-                videoEl.load();
-              } catch (e) {
-                /* ignore */
-              }
-            } else if (el.tagName === 'AUDIO') {
-              const audioEl = el as HTMLAudioElement;
-              try {
-                audioEl.pause();
-                audioEl.currentTime = 0;
-                audioEl.load();
-              } catch (e) {
-                /* ignore */
-              }
-            }
-          }
-        });
-
-        // メディア要素参照をクリア（MediaResourceLoaderで再作成される）
-        mediaElementsRef.current = {};
-
-        // アクティブビデオをリセット
-        activeVideoIdRef.current = null;
-        videoRecoveryAttemptsRef.current = {};
-        seekingVideosRef.current.clear();
-      }
-
-      // reloadKeyをインクリメントしてMediaResourceLoaderを再マウント
-      setReloadKey((prev) => prev + 1);
-      sourceNodesRef.current = {};
-      gainNodesRef.current = {};
-
-      const toastMsg = fullReset
-        ? 'プレビューを完全リセットしました'
-        : 'リソースをリロードしました';
-      showToast(toastMsg);
-
-      // リロード実行をログ
-      if (fullReset) {
-        logWarn('SYSTEM', 'プレビュー完全リセット', {
-          mediaCount: mediaItemsRef.current.length,
-          hasBgm: !!bgmRef.current,
-          hasNarration: !!narrationRef.current
-        });
-      } else {
-        logInfo('SYSTEM', 'リソースリロード', { targetTime });
-      }
-
-      const t = targetTime !== null ? targetTime : 0;
-      setCurrentTime(t);
-      currentTimeRef.current = t;
-
-      // ビデオ読み込み完了を待って描画（固定待機ではなくイベントベース）
-      const waitForVideosAndRender = () => {
-        // 基本待機時間（メディア要素の再生成を待つ）
-        const baseDelay = fullReset ? 500 : 200;
-
-        setTimeout(() => {
-          const videoElements = Object.values(mediaElementsRef.current)
-            .filter(el => el?.tagName === 'VIDEO') as HTMLVideoElement[];
-
-          // ビデオがない場合は即描画
-          if (videoElements.length === 0) {
-            setLoading(false);
-            renderFrame(t, false);
-            return;
-          }
-
-          // 最初のビデオ要素を取得
-          const firstVideo = videoElements[0];
-
-          // 既に準備完了ならすぐ描画
-          if (firstVideo && firstVideo.readyState >= 2) {
-            logDebug('RENDER', 'ビデオ準備完了（即座）', { readyState: firstVideo.readyState });
-            setLoading(false);
-            renderFrame(t, false);
-            return;
-          }
-
-          // まだ準備できていない場合はイベントを待つ（タイムアウト5秒）
-          const LOAD_TIMEOUT_MS = 5000;
-          let resolved = false;
-
-          const timeoutId = setTimeout(() => {
-            if (resolved) return;
-            resolved = true;
-            logWarn('RENDER', 'ビデオ読み込みタイムアウト', {
-              readyState: firstVideo?.readyState ?? 'N/A',
-              timeout: LOAD_TIMEOUT_MS
-            });
-            setLoading(false);
-            renderFrame(t, false); // タイムアウト時も描画を試みる
-          }, LOAD_TIMEOUT_MS);
-
-          const onLoaded = () => {
-            if (resolved) return;
-            resolved = true;
-            clearTimeout(timeoutId);
-            logDebug('RENDER', 'ビデオ準備完了（イベント）', { readyState: firstVideo.readyState });
-            setLoading(false);
-            renderFrame(t, false);
-          };
-
-          if (firstVideo) {
-            firstVideo.addEventListener('loadeddata', onLoaded, { once: true });
-            // canplaythrough も監視（より確実）
-            firstVideo.addEventListener('canplaythrough', onLoaded, { once: true });
-          } else {
-            // firstVideoがnullの場合は遅延後に描画
-            setLoading(false);
-            renderFrame(t, false);
-          }
-        }, baseDelay);
-      };
-
-      waitForVideosAndRender();
-    },
-    [currentTime, stopAll, pause, showToast, renderFrame, setCurrentTime, setProcessing, setLoading, logDebug, logWarn]
-  );
-
-
-  // --- オーディオルーティング設定 ---
-  // 目的: 通常再生とエクスポート時で出力先を切り替え
   const configureAudioRouting = useCallback((isExporting: boolean) => {
     const ctx = audioCtxRef.current;
     if (!ctx) return;
