@@ -13,7 +13,7 @@ import {
   RotateCcw,
   MonitorPlay,
   AlertCircle,
-  RefreshCw,
+
 } from 'lucide-react';
 import type { MediaItem, AudioTrack } from '../../types';
 
@@ -35,7 +35,7 @@ interface PreviewSectionProps {
   onStop: () => void;
   onExport: () => void;
   onClearAll: () => void;
-  onReloadResources: () => void;
+
   formatTime: (seconds: number) => string;
 }
 
@@ -60,7 +60,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   onStop,
   onExport,
   onClearAll,
-  onReloadResources,
+
   formatTime,
 }) => {
   return (
@@ -73,13 +73,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
           プレビュー
         </h2>
         <div className="flex items-center gap-2">
-          <button
-            onClick={onReloadResources}
-            title="プレビューを強制リロード"
-            className="p-2 bg-gray-700 hover:bg-gray-600 rounded-full text-white transition shadow-sm"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
+
           {isProcessing && (
             <span className="text-[10px] text-green-400 font-mono animate-pulse bg-green-900/30 px-2 py-0.5 rounded">
               REC ●

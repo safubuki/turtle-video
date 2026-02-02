@@ -5,6 +5,11 @@
   --color-gray-850: #1a1d23;
 }
 
+/* プルリロード（Pull-to-Refresh）の無効化 */
+body {
+  overscroll-behavior-y: none;
+}
+
 /* カスタムスクロールバー */
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;

@@ -19,6 +19,7 @@ import {
 
 // Hooks
 import { useExport } from '../hooks/useExport';
+import { usePreventUnload } from '../hooks/usePreventUnload';
 
 // Zustand Stores
 import { useMediaStore, useAudioStore, useUIStore, useCaptionStore, useLogStore } from '../stores';
@@ -43,7 +44,12 @@ const getApiKey = (): string => {
   return import.meta.env.VITE_GEMINI_API_KEY || '';
 };
 
+
+
 const TurtleVideo: React.FC = () => {
+  // 離脱防止フックを使用
+  usePreventUnload();
+
   // === Zustand Stores ===
   // Media Store
   const mediaItems = useMediaStore((s) => s.mediaItems);
@@ -2103,7 +2109,6 @@ const TurtleVideo: React.FC = () => {
           onStop={handleStop}
           onExport={handleExport}
           onClearAll={handleClearAll}
-          onReloadResources={() => handleReloadResources(null, true)}
           formatTime={formatTime}
         />
       </div>
