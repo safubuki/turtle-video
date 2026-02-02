@@ -174,7 +174,7 @@ GNU General Public License v3.0 (GPLv3)
 
 Copyright (c) 2026 safubuki (TurtleVillage)
 
-本ソフトウェアはフリーソフトウェアです。GNU General Public License v3.0 (GPLv3) の条件下で、再頒布および変更が可能です。
+本ソフトウェアはオープンソースソフトウェアです。GNU General Public License v3.0 (GPLv3) の条件下で、再頒布および変更が可能です。
 
 **GPLv3の主な特徴:**
 - **ソースコードの公開義務**: 本ソフトウェアを改変して配布する場合、そのソースコードも公開する必要があります。
