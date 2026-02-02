@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { X, Save, FolderOpen, Trash2, Clock, AlertTriangle, Timer } from 'lucide-react';
+import { X, Save, FolderOpen, Trash2, Clock, AlertTriangle, Timer, Image } from 'lucide-react';
 import { useProjectStore } from '../../stores/projectStore';
 import { useMediaStore } from '../../stores/mediaStore';
 import { useAudioStore } from '../../stores/audioStore';
@@ -16,6 +16,7 @@ import {
   setAutoSaveInterval,
   type AutoSaveIntervalOption,
 } from '../../hooks/useAutoSave';
+import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../../constants';
 
 interface SaveLoadModalProps {
   isOpen: boolean;
@@ -124,6 +125,40 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
     onToast(`自動保存間隔を${value === 0 ? 'オフ' : `${value}分`}に変更しました`, 'success');
   };
   
+  /**
+   * 単色画像を生成してダウンロード
+   */
+  const handleGenerateColorImage = (color: 'black' | 'white') => {
+    const canvas = document.createElement('canvas');
+    canvas.width = CANVAS_WIDTH;
+    canvas.height = CANVAS_HEIGHT;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      onToast('画像の生成に失敗しました', 'error');
+      return;
+    }
+    
+    ctx.fillStyle = color === 'black' ? '#000000' : '#FFFFFF';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    
+    // PNGとしてダウンロード
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        onToast('画像の生成に失敗しました', 'error');
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${color === 'black' ? '黒' : '白'}画像_${CANVAS_WIDTH}x${CANVAS_HEIGHT}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      onToast(`${color === 'black' ? '黒' : '白'}画像を保存しました`, 'success');
+    }, 'image/png');
+  };
+  
   // 手動保存
   const handleSave = async () => {
     try {
@@ -228,7 +263,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
         {/* ヘッダー */}
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-semibold text-white">
-            {mode === 'menu' && 'プロジェクト管理'}
+            {mode === 'menu' && '保存・素材'}
             {mode === 'selectSlot' && 'どちらを読み込みますか？'}
             {mode === 'confirmLoad' && '読み込み確認'}
             {mode === 'confirmDelete' && '削除確認'}
@@ -319,6 +354,31 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
                 <Trash2 size={18} />
                 保存データを削除
               </button>
+            </div>
+            
+            {/* 素材生成 */}
+            <div className="border-t border-gray-700 pt-4 mt-2">
+              <div className="flex items-center gap-2 mb-3">
+                <Image size={14} className="text-gray-400" />
+                <span className="text-sm text-gray-400">素材生成</span>
+                <span className="text-xs text-gray-500">({CANVAS_WIDTH}×{CANVAS_HEIGHT}px)</span>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  className="flex-1 flex items-center justify-center gap-2 py-2 bg-gray-900 hover:bg-gray-800 text-gray-300 rounded-lg transition-colors border border-gray-700"
+                  onClick={() => handleGenerateColorImage('black')}
+                >
+                  <div className="w-4 h-4 bg-black border border-gray-600 rounded" />
+                  黒画像
+                </button>
+                <button
+                  className="flex-1 flex items-center justify-center gap-2 py-2 bg-gray-100 hover:bg-white text-gray-800 rounded-lg transition-colors border border-gray-300"
+                  onClick={() => handleGenerateColorImage('white')}
+                >
+                  <div className="w-4 h-4 bg-white border border-gray-400 rounded" />
+                  白画像
+                </button>
+              </div>
             </div>
           </div>
         )}
