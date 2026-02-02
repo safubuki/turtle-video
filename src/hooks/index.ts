@@ -21,4 +21,5 @@ export type { UseExportReturn } from './useExport';
 export { useAiNarration } from './useAiNarration';
 export type { UseAiNarrationReturn } from './useAiNarration';
 
-export { useAutoSave } from './useAutoSave';
+export { useAutoSave, getAutoSaveInterval, setAutoSaveInterval } from './useAutoSave';
+export type { AutoSaveIntervalOption } from './useAutoSave';

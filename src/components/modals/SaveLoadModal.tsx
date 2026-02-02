@@ -5,12 +5,17 @@
  */
 
 import { useEffect, useState } from 'react';
-import { X, Save, FolderOpen, Trash2, Clock, AlertTriangle } from 'lucide-react';
+import { X, Save, FolderOpen, Trash2, Clock, AlertTriangle, Timer } from 'lucide-react';
 import { useProjectStore } from '../../stores/projectStore';
 import { useMediaStore } from '../../stores/mediaStore';
 import { useAudioStore } from '../../stores/audioStore';
 import { useCaptionStore } from '../../stores/captionStore';
 import type { SaveSlot } from '../../utils/indexedDB';
+import {
+  getAutoSaveInterval,
+  setAutoSaveInterval,
+  type AutoSaveIntervalOption,
+} from '../../hooks/useAutoSave';
 
 interface SaveLoadModalProps {
   isOpen: boolean;
@@ -19,6 +24,14 @@ interface SaveLoadModalProps {
 }
 
 type ModalMode = 'menu' | 'confirmLoad' | 'confirmDelete' | 'selectSlot';
+
+/** 自動保存間隔のオプション */
+const AUTO_SAVE_OPTIONS: { value: AutoSaveIntervalOption; label: string }[] = [
+  { value: 0, label: 'オフ' },
+  { value: 1, label: '1分' },
+  { value: 2, label: '2分' },
+  { value: 5, label: '5分' },
+];
 
 /**
  * 日時を読みやすい形式にフォーマット
@@ -55,6 +68,7 @@ function formatDateTime(isoString: string | null): string {
 export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModalProps) {
   const [mode, setMode] = useState<ModalMode>('menu');
   const [selectedSlot, setSelectedSlot] = useState<SaveSlot | null>(null);
+  const [autoSaveInterval, setAutoSaveIntervalState] = useState<AutoSaveIntervalOption>(getAutoSaveInterval);
   
   // プロジェクトストア
   const {
@@ -98,8 +112,17 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
       refreshSaveInfo();
       setMode('menu');
       setSelectedSlot(null);
+      setAutoSaveIntervalState(getAutoSaveInterval());
     }
   }, [isOpen, refreshSaveInfo]);
+  
+  // 自動保存間隔変更ハンドラ
+  const handleAutoSaveIntervalChange = (value: AutoSaveIntervalOption) => {
+    setAutoSaveInterval(value);
+    setAutoSaveIntervalState(value);
+    // 設定反映のためにページリロードが必要な旨を通知
+    onToast(`自動保存間隔を${value === 0 ? 'オフ' : `${value}分`}に変更しました`, 'success');
+  };
   
   // 手動保存
   const handleSave = async () => {
@@ -221,6 +244,31 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
         {/* メインメニュー */}
         {mode === 'menu' && (
           <div className="space-y-4">
+            {/* 自動保存間隔設定 */}
+            <div className="bg-gray-800 rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400 flex items-center gap-1 text-sm">
+                  <Timer size={14} />
+                  自動保存間隔
+                </span>
+                <div className="flex gap-1">
+                  {AUTO_SAVE_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      onClick={() => handleAutoSaveIntervalChange(option.value)}
+                      className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                        autoSaveInterval === option.value
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            
             {/* 保存情報 */}
             <div className="bg-gray-800 rounded-lg p-4 space-y-2">
               <div className="flex items-center justify-between text-sm">
