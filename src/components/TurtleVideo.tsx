@@ -1755,6 +1755,9 @@ const TurtleVideo: React.FC = () => {
     setCurrentTime(0);
     currentTimeRef.current = 0;
 
+    // エクスポート後の保存ボタンをクリアして書き出しボタンに戻す
+    clearExport();
+
     // [TV] 全メディアを安全に巻き戻し (DOM要素を維持したままリセット)
     Object.values(mediaElementsRef.current).forEach((el) => {
       if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO')) {
@@ -1771,7 +1774,7 @@ const TurtleVideo: React.FC = () => {
     // 0秒時点を描画
     // 少し遅延させて確実にシーク反映させる
     requestAnimationFrame(() => renderFrame(0, false));
-  }, [stopAll, pause, setCurrentTime, renderFrame]);
+  }, [stopAll, pause, setCurrentTime, clearExport, renderFrame]);
 
   // --- Helper: 停止付きで関数を実行 ---
   // 目的: BGM/ナレーション追加時など、完全に停止して先頭に戻してから実行したい場合に使用

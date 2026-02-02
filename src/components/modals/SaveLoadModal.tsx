@@ -10,6 +10,7 @@ import { useProjectStore } from '../../stores/projectStore';
 import { useMediaStore } from '../../stores/mediaStore';
 import { useAudioStore } from '../../stores/audioStore';
 import { useCaptionStore } from '../../stores/captionStore';
+import { useLogStore } from '../../stores/logStore';
 import type { SaveSlot } from '../../utils/indexedDB';
 import {
   getAutoSaveInterval,
@@ -121,6 +122,8 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
   const handleAutoSaveIntervalChange = (value: AutoSaveIntervalOption) => {
     setAutoSaveInterval(value);
     setAutoSaveIntervalState(value);
+    // ログを記録
+    useLogStore.getState().info('SYSTEM', `自動保存間隔を${value === 0 ? 'オフ' : `${value}分`}に変更`);
     // 設定反映のためにページリロードが必要な旨を通知
     onToast(`自動保存間隔を${value === 0 ? 'オフ' : `${value}分`}に変更しました`, 'success');
   };
@@ -155,6 +158,8 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      // ログを記録
+      useLogStore.getState().info('MEDIA', `${color === 'black' ? '黒' : '白'}画像を生成 (${CANVAS_WIDTH}x${CANVAS_HEIGHT})`);
       onToast(`${color === 'black' ? '黒' : '白'}画像を保存しました`, 'success');
     }, 'image/png');
   };
@@ -173,9 +178,16 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
         captionSettings,
         isCaptionsLocked
       );
+      useLogStore.getState().info('SYSTEM', `プロジェクトを手動保存`, {
+        mediaCount: mediaItems.length,
+        captionCount: captions.length,
+        hasBgm: !!bgm,
+        hasNarration: !!narration,
+      });
       onToast('保存しました', 'success');
       onClose();
     } catch (error) {
+      useLogStore.getState().error('SYSTEM', '手動保存に失敗');
       onToast('保存に失敗しました', 'error');
     }
   };
@@ -223,12 +235,17 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
         restoreMediaItems(data.mediaItems, data.isClipsLocked);
         restoreAudio(data.bgm, data.isBgmLocked, data.narration, data.isNarrationLocked);
         restoreCaptions(data.captions, data.captionSettings, data.isCaptionsLocked);
+        useLogStore.getState().info('SYSTEM', `プロジェクトを読み込み (${slot === 'auto' ? '自動保存' : '手動保存'})`, {
+          mediaCount: data.mediaItems.length,
+          captionCount: data.captions.length,
+        });
         onToast('読み込みました', 'success');
       } else {
         onToast('保存データが見つかりません', 'error');
       }
       onClose();
     } catch (error) {
+      useLogStore.getState().error('SYSTEM', `プロジェクト読み込みに失敗 (${slot})`);
       onToast('読み込みに失敗しました', 'error');
     }
   };
@@ -242,9 +259,11 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
   const handleDeleteConfirm = async () => {
     try {
       await deleteAllSaves();
+      useLogStore.getState().info('SYSTEM', '保存データを全て削除');
       onToast('削除しました', 'success');
       onClose();
     } catch (error) {
+      useLogStore.getState().error('SYSTEM', '保存データ削除に失敗');
       onToast('削除に失敗しました', 'error');
     }
   };

@@ -10,6 +10,7 @@ import { useAudioStore } from '../stores/audioStore';
 import { useCaptionStore } from '../stores/captionStore';
 import { useProjectStore } from '../stores/projectStore';
 import { useUIStore } from '../stores/uiStore';
+import { useLogStore } from '../stores/logStore';
 
 /** 自動保存間隔の設定キー */
 export const AUTO_SAVE_INTERVAL_KEY = 'turtle-video-auto-save-interval';
@@ -121,6 +122,12 @@ export function useAutoSave() {
       captionSettings,
       isCaptionsLocked
     );
+    
+    // 自動保存成功ログ（デバッグレベルで記録）
+    useLogStore.getState().debug('SYSTEM', '自動保存を実行', {
+      mediaCount: mediaItems.length,
+      captionCount: captions.length,
+    });
     
     lastSaveHashRef.current = currentHash;
   }, [
