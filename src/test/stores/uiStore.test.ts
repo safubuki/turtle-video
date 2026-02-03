@@ -103,7 +103,7 @@ describe('uiStore', () => {
       expect(useUIStore.getState().errorMsg).toBe('Error occurred');
       expect(useUIStore.getState().errorCount).toBe(1);
       
-      vi.advanceTimersByTime(10000);
+      vi.advanceTimersByTime(10000); // ERROR_AUTO_CLEAR_TIMEOUT_MS
       
       expect(useUIStore.getState().errorMsg).toBe('');
       expect(useUIStore.getState().errorCount).toBe(0);
@@ -116,7 +116,7 @@ describe('uiStore', () => {
       
       expect(useUIStore.getState().errorMsg).toBe('Error occurred');
       
-      vi.advanceTimersByTime(10000);
+      vi.advanceTimersByTime(10000); // ERROR_AUTO_CLEAR_TIMEOUT_MS経過
       
       expect(useUIStore.getState().errorMsg).toBe('Error occurred');
       expect(useUIStore.getState().errorCount).toBe(1);

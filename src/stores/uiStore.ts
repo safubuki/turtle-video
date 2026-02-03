@@ -74,6 +74,8 @@ interface UIState {
 let toastTimerId: number | undefined;
 // Error timer ID for auto-clear
 let errorTimerId: number | undefined;
+// Error auto-clear timeout duration (ms)
+const ERROR_AUTO_CLEAR_TIMEOUT_MS = 10000;
 
 export const useUIStore = create<UIState>()(
   devtools(
@@ -139,7 +141,7 @@ export const useUIStore = create<UIState>()(
           errorTimerId = window.setTimeout(() => {
             set({ errorMsg: '', errorCount: 0 });
             errorTimerId = undefined;
-          }, 10000); // 10秒後に自動消去
+          }, ERROR_AUTO_CLEAR_TIMEOUT_MS);
         }
       },
 
