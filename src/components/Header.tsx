@@ -4,7 +4,7 @@
  * @description アプリケーションのグローバルヘッダー。タイトル表示、エクスポートボタン、設定モーダルへのアクセスを提供する。
  */
 import React from 'react';
-import { Settings, RefreshCw, FolderOpen } from 'lucide-react';
+import { Settings, FolderOpen } from 'lucide-react';
 
 interface HeaderProps {
   onOpenSettings?: () => void;
@@ -15,10 +15,6 @@ interface HeaderProps {
  * ヘッダーコンポーネント
  */
 const Header: React.FC<HeaderProps> = ({ onOpenSettings, onOpenProjectManager }) => {
-  const handleReload = () => {
-    window.location.reload();
-  };
-
   return (
     <header className="sticky top-0 z-50 bg-gray-900/95 backdrop-blur border-b border-gray-800 px-4 py-3 flex items-center justify-center shadow-lg">
       <div className="flex items-center gap-2">
@@ -29,17 +25,10 @@ const Header: React.FC<HeaderProps> = ({ onOpenSettings, onOpenProjectManager })
           タートルビデオ{' '}
           <span className="text-xs bg-purple-600 px-1.5 py-0.5 rounded ml-1">AI</span>
         </h1>
-        <button
-          onClick={handleReload}
-          className="ml-auto p-1.5 hover:bg-gray-700 rounded-lg transition text-gray-400 hover:text-white"
-          title="再読み込み"
-        >
-          <RefreshCw className="w-5 h-5" />
-        </button>
         {onOpenProjectManager && (
           <button
             onClick={onOpenProjectManager}
-            className="p-1.5 hover:bg-gray-700 rounded-lg transition text-gray-400 hover:text-white"
+            className="ml-auto p-1.5 hover:bg-gray-700 rounded-lg transition text-gray-400 hover:text-white"
             title="保存・読み込み"
           >
             <FolderOpen className="w-5 h-5" />
