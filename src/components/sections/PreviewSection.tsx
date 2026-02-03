@@ -182,7 +182,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
                 download={`turtle_video_${Date.now()}.${exportExt}`}
                 className="bg-green-600 hover:bg-green-500 text-white px-6 py-2.5 rounded-full text-sm font-bold flex items-center gap-2 animate-bounce-short shadow-lg"
               >
-                <Download className="w-4 h-4" /> 保存 (.{exportExt})
+                <Download className="w-4 h-4" /> ダウンロード (.{exportExt})
               </a>
             ) : (
               <button
@@ -190,12 +190,10 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
                 disabled={isProcessing || mediaItems.length === 0}
                 className={`flex-1 max-w-xs flex items-center justify-center gap-2 px-6 py-2.5 rounded-full text-sm font-bold shadow-lg transition ${isProcessing ? 'bg-gray-700 text-gray-400 cursor-wait' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20'}`}
               >
-                {isProcessing ? (
+                {isProcessing && (
                   <Loader className="animate-spin w-4 h-4" />
-                ) : (
-                  <Download className="w-4 h-4" />
                 )}
-                {isProcessing ? '書き出し中...' : '書き出す'}
+                {isProcessing ? '作成中...' : '動画ファイルを作成'}
               </button>
             )}
           </div>
