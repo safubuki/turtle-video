@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useLogStore } from '../../stores';
 import type { LogEntry } from '../../stores';
+import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 
 // アプリバージョン
 import versionData from '../../../version.json';
@@ -87,6 +88,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
   const logContainerRef = useRef<HTMLDivElement>(null);
+
+  // モーダル表示中は背景のスクロールを防止
+  useDisableBodyScroll(isOpen);
 
   // Log Store
   const entries = useLogStore((s) => s.entries);

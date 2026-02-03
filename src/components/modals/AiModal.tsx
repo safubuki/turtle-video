@@ -6,6 +6,7 @@
 import React from 'react';
 import { Sparkles, X, Loader, FileText, Mic, ChevronDown } from 'lucide-react';
 import type { VoiceOption, VoiceId } from '../../types';
+import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 
 interface AiModalProps {
   isOpen: boolean;
@@ -43,6 +44,9 @@ const AiModal: React.FC<AiModalProps> = ({
   onGenerateScript,
   onGenerateSpeech,
 }) => {
+  // モーダル表示中は背景のスクロールを防止
+  useDisableBodyScroll(isOpen);
+
   if (!isOpen) return null;
 
   return (

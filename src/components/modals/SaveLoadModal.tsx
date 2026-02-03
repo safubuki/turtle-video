@@ -18,6 +18,7 @@ import {
   type AutoSaveIntervalOption,
 } from '../../hooks/useAutoSave';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../../constants';
+import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 
 interface SaveLoadModalProps {
   isOpen: boolean;
@@ -71,6 +72,9 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
   const [mode, setMode] = useState<ModalMode>('menu');
   const [selectedSlot, setSelectedSlot] = useState<SaveSlot | null>(null);
   const [autoSaveInterval, setAutoSaveIntervalState] = useState<AutoSaveIntervalOption>(getAutoSaveInterval);
+  
+  // モーダル表示中は背景のスクロールを防止
+  useDisableBodyScroll(isOpen);
   
   // プロジェクトストア
   const {
