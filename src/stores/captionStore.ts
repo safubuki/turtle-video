@@ -46,7 +46,6 @@ interface CaptionState {
   resetCaptions: () => void;
 
   // === 復元 ===
-  captionSettings: CaptionSettings;
   restoreFromSave: (
     captions: Caption[],
     settings: CaptionSettings,
@@ -252,7 +251,6 @@ export const useCaptionStore = create<CaptionState>()(
         ),
 
       // === 復元 ===
-      captionSettings: { ...initialSettings },
       restoreFromSave: (newCaptions, newSettings, newIsLocked) =>
         set(
           {

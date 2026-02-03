@@ -92,7 +92,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
   const narration = useAudioStore((s) => s.narration);
   const isNarrationLocked = useAudioStore((s) => s.isNarrationLocked);
   const captions = useCaptionStore((s) => s.captions);
-  const captionSettings = useCaptionStore((s) => s.captionSettings);
+  const captionSettings = useCaptionStore((s) => s.settings);
   const isCaptionsLocked = useCaptionStore((s) => s.isLocked);
   
   // ストアへの復元用アクション
