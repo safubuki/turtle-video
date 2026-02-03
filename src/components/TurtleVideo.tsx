@@ -110,6 +110,7 @@ const TurtleVideo: React.FC = () => {
   // UI Store
   const toastMessage = useUIStore((s) => s.toastMessage);
   const errorMsg = useUIStore((s) => s.errorMsg);
+  const errorCount = useUIStore((s) => s.errorCount);
   const isPlaying = useUIStore((s) => s.isPlaying);
   const currentTime = useUIStore((s) => s.currentTime);
   const isProcessing = useUIStore((s) => s.isProcessing);
@@ -1859,7 +1860,7 @@ const TurtleVideo: React.FC = () => {
       />
 
       <div className="max-w-md mx-auto p-4 space-y-6">
-        <ErrorMessage message={errorMsg} onClose={clearError} />
+        <ErrorMessage message={errorMsg} count={errorCount} onClose={clearError} />
 
         {/* 1. CLIPS */}
         <ClipsSection

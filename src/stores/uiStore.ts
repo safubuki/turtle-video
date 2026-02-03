@@ -16,6 +16,7 @@ interface UIState {
   // Toast & Error
   toastMessage: string;
   errorMsg: string;
+  errorCount: number; // エラーカウンター
 
   // Playback
   isPlaying: boolean;
@@ -38,7 +39,7 @@ interface UIState {
   // Actions - Toast & Error
   showToast: (message: string, duration?: number) => void;
   clearToast: () => void;
-  setError: (message: string) => void;
+  setError: (message: string, autoClear?: boolean) => void;
   clearError: () => void;
 
   // Actions - Playback
@@ -71,6 +72,8 @@ interface UIState {
 
 // Toast timer ID
 let toastTimerId: number | undefined;
+// Error timer ID for auto-clear
+let errorTimerId: number | undefined;
 
 export const useUIStore = create<UIState>()(
   devtools(
@@ -78,6 +81,7 @@ export const useUIStore = create<UIState>()(
       // Initial state
       toastMessage: '',
       errorMsg: '',
+      errorCount: 0,
       isPlaying: false,
       currentTime: 0,
       isProcessing: false,
@@ -112,12 +116,39 @@ export const useUIStore = create<UIState>()(
         set({ toastMessage: '' });
       },
 
-      setError: (message) => {
-        set({ errorMsg: message });
+      setError: (message, autoClear = true) => {
+        const currentError = get().errorMsg;
+        const currentCount = get().errorCount;
+        
+        // 既存のタイマーをクリア
+        if (errorTimerId) {
+          clearTimeout(errorTimerId);
+          errorTimerId = undefined;
+        }
+        
+        // 同じエラーメッセージの場合はカウントを増やす
+        if (currentError === message && currentCount > 0) {
+          set({ errorCount: currentCount + 1 });
+        } else {
+          // 新しいエラーメッセージの場合は初期化
+          set({ errorMsg: message, errorCount: 1 });
+        }
+        
+        // 自動消去を有効にする場合
+        if (autoClear) {
+          errorTimerId = window.setTimeout(() => {
+            set({ errorMsg: '', errorCount: 0 });
+            errorTimerId = undefined;
+          }, 10000); // 10秒後に自動消去
+        }
       },
 
       clearError: () => {
-        set({ errorMsg: '' });
+        if (errorTimerId) {
+          clearTimeout(errorTimerId);
+          errorTimerId = undefined;
+        }
+        set({ errorMsg: '', errorCount: 0 });
       },
 
       // === Playback Actions ===
@@ -221,9 +252,14 @@ export const useUIStore = create<UIState>()(
           clearTimeout(toastTimerId);
           toastTimerId = undefined;
         }
+        if (errorTimerId) {
+          clearTimeout(errorTimerId);
+          errorTimerId = undefined;
+        }
         set({
           toastMessage: '',
           errorMsg: '',
+          errorCount: 0,
           isPlaying: false,
           currentTime: 0,
           isProcessing: false,
