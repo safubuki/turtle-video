@@ -1275,6 +1275,11 @@ const TurtleVideo: React.FC = () => {
   // 目的: 全てのメディア・オーディオ・キャプションを削除し初期状態に戻す
   const handleClearAll = useCallback(() => {
     if (mediaItems.length === 0 && !bgm && !narration) return;
+    
+    // 確認ダイアログを表示
+    const confirmed = window.confirm('すべてのメディア、BGM、ナレーションをクリアします。よろしいですか？');
+    if (!confirmed) return;
+    
     stopAll();
     pause();
     setProcessing(false);
