@@ -40,8 +40,8 @@ export const useDisableBodyScroll = (isOpen: boolean) => {
       document.body.style.left = originalStyle.left;
       document.body.style.width = originalStyle.width;
 
-      // スクロール位置を復元
-      window.scrollTo(scrollX, scrollY);
+      // スクロール位置を復元（instant behaviorで即座に復元）
+      window.scrollTo({ top: scrollY, left: scrollX, behavior: 'instant' });
     };
   }, [isOpen]);
 };

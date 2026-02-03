@@ -29,7 +29,9 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
   onClose,
   onUpdate,
 }) => {
-  // モーダル表示中は背景のスクロールを防止（このコンポーネントは表示時のみマウントされる）
+  // モーダル表示中は背景のスクロールを防止
+  // このコンポーネントは親で条件付きレンダリングされているため、
+  // マウント時は常に表示状態なので true を渡す
   useDisableBodyScroll(true);
 
   // 現在の値を取得（undefinedの場合は'default'）
