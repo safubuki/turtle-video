@@ -7,6 +7,7 @@ import React from 'react';
 import { X } from 'lucide-react';
 import type { Caption, CaptionPosition, CaptionSize, CaptionFontStyle } from '../../types';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
+import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 
 interface CaptionSettingsModalProps {
   caption: Caption;
@@ -28,6 +29,11 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
   onClose,
   onUpdate,
 }) => {
+  // モーダル表示中は背景のスクロールを防止
+  // このコンポーネントは親で条件付きレンダリングされているため、
+  // マウント時は常に表示状態なので true を渡す
+  useDisableBodyScroll(true);
+
   // 現在の値を取得（undefinedの場合は'default'）
   const currentPosition: PositionOption = caption.overridePosition ?? 'default';
   const currentFontStyle: FontStyleOption = caption.overrideFontStyle ?? 'default';
