@@ -66,7 +66,7 @@ export function useAutoSave() {
   const narration = useAudioStore((s) => s.narration);
   const isNarrationLocked = useAudioStore((s) => s.isNarrationLocked);
   const captions = useCaptionStore((s) => s.captions);
-  const captionSettings = useCaptionStore((s) => s.captionSettings);
+  const captionSettings = useCaptionStore((s) => s.settings);
   const isCaptionsLocked = useCaptionStore((s) => s.isLocked);
   
   // エクスポート中かどうか
