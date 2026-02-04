@@ -806,9 +806,14 @@ const TurtleVideo: React.FC = () => {
     } catch (e) {
       console.error('Script generation error:', e);
       if (e instanceof TypeError && e.message.includes('fetch')) {
-        setError('ネットワークエラー: インターネット接続を確認してください');
       } else if (e instanceof Error) {
-        setError(`スクリプト生成エラー: ${e.message}`);
+        // Quota/Limitエラーの判定
+        const lowerMsg = e.message.toLowerCase();
+        if (lowerMsg.includes('quota') || lowerMsg.includes('limit') || lowerMsg.includes('429')) {
+          setError('スクリプト生成のリミットに達しました。しばらく待ってから再試行してください。');
+        } else {
+          setError(`スクリプト生成エラー: ${e.message}`);
+        }
       } else {
         setError('スクリプト生成に失敗しました');
       }
@@ -904,7 +909,13 @@ const TurtleVideo: React.FC = () => {
       if (e instanceof TypeError && e.message.includes('fetch')) {
         setError('ネットワークエラー: インターネット接続を確認してください');
       } else if (e instanceof Error) {
-        setError(`音声生成エラー: ${e.message}`);
+        // Quota/Limitエラーの判定
+        const lowerMsg = e.message.toLowerCase();
+        if (lowerMsg.includes('quota') || lowerMsg.includes('limit') || lowerMsg.includes('429')) {
+          setError('音声生成のリミットに達しました。しばらく待ってから再試行してください。');
+        } else {
+          setError(`音声生成エラー: ${e.message}`);
+        }
       } else {
         setError('音声生成に失敗しました');
       }
