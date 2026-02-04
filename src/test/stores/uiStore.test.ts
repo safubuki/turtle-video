@@ -12,6 +12,7 @@ describe('uiStore', () => {
     useUIStore.setState({
       toastMessage: '',
       errorMsg: '',
+      errorCount: 0,
       isPlaying: false,
       currentTime: 0,
       isProcessing: false,
@@ -64,18 +65,71 @@ describe('uiStore', () => {
     it('should set error message', () => {
       const { setError } = useUIStore.getState();
       
-      setError('Error occurred');
+      setError('Error occurred', false); // autoClear無効
       
       expect(useUIStore.getState().errorMsg).toBe('Error occurred');
+      expect(useUIStore.getState().errorCount).toBe(1);
     });
 
-    it('should clear error', () => {
-      useUIStore.setState({ errorMsg: 'Error' });
+    it('should increment error count for same error', () => {
+      const { setError } = useUIStore.getState();
+      
+      setError('Error occurred', false);
+      expect(useUIStore.getState().errorCount).toBe(1);
+      
+      setError('Error occurred', false);
+      expect(useUIStore.getState().errorCount).toBe(2);
+      
+      setError('Error occurred', false);
+      expect(useUIStore.getState().errorCount).toBe(3);
+    });
+
+    it('should reset count for different error', () => {
+      const { setError } = useUIStore.getState();
+      
+      setError('Error 1', false);
+      expect(useUIStore.getState().errorCount).toBe(1);
+      
+      setError('Error 2', false);
+      expect(useUIStore.getState().errorMsg).toBe('Error 2');
+      expect(useUIStore.getState().errorCount).toBe(1);
+    });
+
+    it('should auto-clear error after timeout when enabled', () => {
+      const { setError } = useUIStore.getState();
+      
+      setError('Error occurred', true); // autoClear有効
+      
+      expect(useUIStore.getState().errorMsg).toBe('Error occurred');
+      expect(useUIStore.getState().errorCount).toBe(1);
+      
+      vi.advanceTimersByTime(10000); // ERROR_AUTO_CLEAR_TIMEOUT_MS
+      
+      expect(useUIStore.getState().errorMsg).toBe('');
+      expect(useUIStore.getState().errorCount).toBe(0);
+    });
+
+    it('should not auto-clear error when disabled', () => {
+      const { setError } = useUIStore.getState();
+      
+      setError('Error occurred', false);
+      
+      expect(useUIStore.getState().errorMsg).toBe('Error occurred');
+      
+      vi.advanceTimersByTime(10000); // ERROR_AUTO_CLEAR_TIMEOUT_MS経過
+      
+      expect(useUIStore.getState().errorMsg).toBe('Error occurred');
+      expect(useUIStore.getState().errorCount).toBe(1);
+    });
+
+    it('should clear error and count manually', () => {
+      useUIStore.setState({ errorMsg: 'Error', errorCount: 3 });
       const { clearError } = useUIStore.getState();
       
       clearError();
       
       expect(useUIStore.getState().errorMsg).toBe('');
+      expect(useUIStore.getState().errorCount).toBe(0);
     });
   });
 
@@ -164,6 +218,7 @@ describe('uiStore', () => {
       useUIStore.setState({
         toastMessage: 'Test',
         errorMsg: 'Error',
+        errorCount: 5,
         isPlaying: true,
         currentTime: 30,
         isProcessing: true,
@@ -179,6 +234,8 @@ describe('uiStore', () => {
       resetUI();
       
       const state = useUIStore.getState();
+      expect(state.errorMsg).toBe('');
+      expect(state.errorCount).toBe(0);
       expect(state.isPlaying).toBe(false);
       expect(state.currentTime).toBe(0);
       expect(state.isProcessing).toBe(false);
