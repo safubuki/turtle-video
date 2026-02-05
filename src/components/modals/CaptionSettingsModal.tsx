@@ -49,6 +49,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
     { value: 'small', label: '小' },
     { value: 'medium', label: '中' },
     { value: 'large', label: '大' },
+    { value: 'xlarge', label: '特大' },
   ];
 
   // 字体オプション
@@ -117,10 +118,9 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
 
   // セグメンテッドコントロールのスタイル（一括設定と同じ）
   const getButtonClass = (isSelected: boolean) =>
-    `px-2 py-1 rounded transition text-[10px] ${
-      isSelected
-        ? 'bg-yellow-500 text-gray-900'
-        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+    `flex-1 py-1 rounded transition text-[10px] whitespace-nowrap ${isSelected
+      ? 'bg-yellow-500 text-gray-900'
+      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
     }`;
 
   return (
@@ -153,7 +153,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
             {/* サイズ */}
             <div className="flex items-center gap-2 text-[10px]">
               <span className="text-gray-400 w-16">サイズ:</span>
-              <div className="flex gap-1">
+              <div className="flex gap-1 flex-1">
                 {fontSizeOptions.map((opt) => (
                   <button
                     key={opt.value}
@@ -168,7 +168,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
             {/* 字体 */}
             <div className="flex items-center gap-2 text-[10px]">
               <span className="text-gray-400 w-16">字体:</span>
-              <div className="flex gap-1">
+              <div className="flex gap-1 flex-1">
                 {fontStyleOptions.map((opt) => (
                   <button
                     key={opt.value}
@@ -183,7 +183,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
             {/* 位置 */}
             <div className="flex items-center gap-2 text-[10px]">
               <span className="text-gray-400 w-16">位置:</span>
-              <div className="flex gap-1">
+              <div className="flex gap-1 flex-1">
                 {positionOptions.map((opt) => (
                   <button
                     key={opt.value}

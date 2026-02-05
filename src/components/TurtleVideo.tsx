@@ -471,7 +471,7 @@ const TurtleVideo: React.FC = () => {
           );
           if (activeCaption) {
             // フォントサイズ（個別設定優先）
-            const fontSizeMap = { small: 32, medium: 48, large: 64 };
+            const fontSizeMap = { small: 32, medium: 48, large: 64, xlarge: 80 };
             const effectiveFontSizeKey = activeCaption.overrideFontSize ?? captionSettings.fontSize;
             const fontSize = fontSizeMap[effectiveFontSizeKey];
 
@@ -485,7 +485,7 @@ const TurtleVideo: React.FC = () => {
 
             // 位置（個別設定優先）
             const effectivePosition = activeCaption.overridePosition ?? captionSettings.position;
-            const padding = fontSize * 0.8; // フォントサイズの80%を余白として確保
+            const padding = 50; // 画面端からの固定マージン（サイズ依存を廃止し、大文字でも端に寄せる）
             let y: number;
             if (effectivePosition === 'top') {
               y = padding + fontSize / 2;
@@ -1287,11 +1287,11 @@ const TurtleVideo: React.FC = () => {
   // 目的: 全てのメディア・オーディオ・キャプションを削除し初期状態に戻す
   const handleClearAll = useCallback(() => {
     if (mediaItems.length === 0 && !bgm && !narration) return;
-    
+
     // 確認ダイアログを表示
     const confirmed = window.confirm('すべてのメディア、BGM、ナレーションをクリアします。よろしいですか？');
     if (!confirmed) return;
-    
+
     stopAll();
     pause();
     setProcessing(false);
