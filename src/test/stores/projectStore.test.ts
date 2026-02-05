@@ -1,14 +1,15 @@
 /**
- * projectStore のテスト - 個別設定の保存・読み込み
+ * Caption データ構造のテスト
  * 
- * Note: IndexedDB統合テストは現在のテスト環境では実行できないため、
+ * Note: 個別設定（override フィールド）が正しくサポートされていることを検証します。
+ * IndexedDB統合テストは現在のテスト環境では実行できないため、
  * データ構造の検証のみを行います。
  */
 
 import { describe, it, expect } from 'vitest';
 import type { Caption, CaptionSettings } from '../../types';
 
-describe('projectStore - caption serialization', () => {
+describe('Caption data structure with override fields', () => {
   describe('caption data structure validation', () => {
     it('should handle caption with individual override settings', () => {
       const originalCaption: Caption = {
