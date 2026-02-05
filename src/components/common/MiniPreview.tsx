@@ -52,36 +52,53 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, MINI_CANVAS_WIDTH, MINI_CANVAS_HEIGHT);
 
-    // スケール比率
-    const scaleRatio = MINI_CANVAS_WIDTH / ORIGINAL_WIDTH;
+    // スケール比率 (プレビュー枠サイズ / オリジナルサイズ)
+    const previewRatio = MINI_CANVAS_WIDTH / ORIGINAL_WIDTH;
 
-    // トランスフォーム適用
-    ctx.save();
-
-    // 中心を基準にスケールと位置を適用
-    const centerX = MINI_CANVAS_WIDTH / 2 + currentItem.positionX * scaleRatio;
-    const centerY = MINI_CANVAS_HEIGHT / 2 + currentItem.positionY * scaleRatio;
-
-    ctx.translate(centerX, centerY);
-    ctx.scale(currentItem.scale, currentItem.scale);
-    ctx.translate(-MINI_CANVAS_WIDTH / 2, -MINI_CANVAS_HEIGHT / 2);
-
-    // メディアを描画
-    try {
-      if (currentItem.type === 'video') {
-        const video = mediaElement as HTMLVideoElement;
-        // readyState >= 2 (HAVE_CURRENT_DATA)
-        if (video.readyState >= 2) {
-          ctx.drawImage(video, 0, 0, MINI_CANVAS_WIDTH, MINI_CANVAS_HEIGHT);
-        }
-      } else {
-        ctx.drawImage(mediaElement, 0, 0, MINI_CANVAS_WIDTH, MINI_CANVAS_HEIGHT);
-      }
-    } catch {
-      // 描画エラーは無視
+    // メディアの元サイズを取得
+    let elemW = 0;
+    let elemH = 0;
+    if (currentItem.type === 'video') {
+      const video = mediaElement as HTMLVideoElement;
+      elemW = video.videoWidth;
+      elemH = video.videoHeight;
+    } else {
+      const img = mediaElement as HTMLImageElement;
+      elemW = img.naturalWidth;
+      elemH = img.naturalHeight;
     }
 
-    ctx.restore();
+    if (elemW > 0 && elemH > 0) {
+      // アスペクト比を維持するための基本スケール (object-contain相当)
+      const baseScale = Math.min(MINI_CANVAS_WIDTH / elemW, MINI_CANVAS_HEIGHT / elemH);
+
+      // トランスフォーム適用
+      ctx.save();
+
+      // 位置計算: プレビュー比率に合わせて縮小
+      const userX = currentItem.positionX * previewRatio;
+      const userY = currentItem.positionY * previewRatio;
+
+      // 中心基準で移動とスケール
+      ctx.translate(MINI_CANVAS_WIDTH / 2 + userX, MINI_CANVAS_HEIGHT / 2 + userY);
+      ctx.scale(baseScale * currentItem.scale, baseScale * currentItem.scale);
+
+      // メディアを描画 (中心基準なので -w/2, -h/2)
+      try {
+        if (currentItem.type === 'video') {
+          const video = mediaElement as HTMLVideoElement;
+          if (video.readyState >= 2) {
+            ctx.drawImage(video, -elemW / 2, -elemH / 2, elemW, elemH);
+          }
+        } else {
+          ctx.drawImage(mediaElement, -elemW / 2, -elemH / 2, elemW, elemH);
+        }
+      } catch {
+        // 描画エラーは無視
+      }
+
+      ctx.restore();
+    }
 
     // 境界線を描画（プレビュー範囲を示す）
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
