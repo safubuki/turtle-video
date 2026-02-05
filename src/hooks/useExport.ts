@@ -99,6 +99,7 @@ export function useExport(): UseExportReturn {
             codec: 'avc', // H.264
             width,
             height,
+            frameRate: FPS, // タイムスタンプをフレームレートに合わせて丸める（Teams互換性向上）
           },
           audio: {
             codec: 'aac',
