@@ -168,17 +168,39 @@ export function useExport(): UseExportReturn {
         };
 
         const processVideo = async () => {
+          let frameIndex = 0;
+          const frameDuration = 1e6 / FPS; // 1フレームあたりの時間（マイクロ秒）
+
           try {
             while (!signal.aborted) {
               const { done, value } = await videoReader.read();
               if (done) break;
 
               if (value) {
-                const frame = value as VideoFrame;
+                const originalFrame = value as VideoFrame;
+
                 if (videoEncoder.state === 'configured') {
-                  videoEncoder.encode(frame);
+                  // [FIX] Teamsスロー再生対策
+                  // オリジナルのtimestamp（実時間ベース）を使うと、レンダリング遅延（ジッター）が含まれ
+                  // 結果としてVFR（可変フレームレート）となり、一部プレーヤーで再生時間が間延びする。
+                  // そのため、強制的にCFR（固定フレームレート）としてタイムスタンプを書き換える。
+                  const newTimestamp = Math.round(frameIndex * frameDuration);
+
+                  // 新しいタイムスタンプでフレームを再作成
+                  // copyToなどのコストを避けるため、VideoFrameコンストラクタでラップする
+                  const newFrame = new VideoFrame(originalFrame, {
+                    timestamp: newTimestamp,
+                    duration: Math.round(frameDuration),
+                  });
+
+                  // エンコード
+                  videoEncoder.encode(newFrame);
+
+                  // クローズ
+                  newFrame.close();
                 }
-                frame.close();
+                originalFrame.close();
+                frameIndex++;
               }
             }
           } catch (e) {
