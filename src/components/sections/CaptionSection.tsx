@@ -183,7 +183,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                           key={opt.value}
                           onClick={() => onSetFontSize(opt.value)}
                           disabled={isLocked}
-                          className={`flex-1 py-1 rounded transition ${settings.fontSize === opt.value
+                          className={`flex-1 max-w-[4rem] py-1 rounded transition ${settings.fontSize === opt.value
                             ? 'bg-yellow-500 text-gray-900'
                             : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                             } disabled:opacity-50`}
@@ -196,13 +196,13 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                   {/* 字体 */}
                   <div className="flex items-center gap-2 text-[10px]">
                     <span className="text-gray-400 w-16">字体:</span>
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 flex-1">
                       {fontStyleOptions.map((opt) => (
                         <button
                           key={opt.value}
                           onClick={() => onSetFontStyle(opt.value)}
                           disabled={isLocked}
-                          className={`px-2 py-1 rounded transition ${settings.fontStyle === opt.value
+                          className={`flex-1 max-w-[4rem] py-1 rounded transition ${settings.fontStyle === opt.value
                             ? 'bg-yellow-500 text-gray-900'
                             : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                             } disabled:opacity-50`}
@@ -215,13 +215,13 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                   {/* 位置 */}
                   <div className="flex items-center gap-2 text-[10px]">
                     <span className="text-gray-400 w-16">位置:</span>
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 flex-1">
                       {positionOptions.map((opt) => (
                         <button
                           key={opt.value}
                           onClick={() => onSetPosition(opt.value)}
                           disabled={isLocked}
-                          className={`px-2 py-1 rounded transition ${settings.position === opt.value
+                          className={`flex-1 max-w-[4rem] py-1 rounded transition ${settings.position === opt.value
                             ? 'bg-yellow-500 text-gray-900'
                             : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                             } disabled:opacity-50`}
