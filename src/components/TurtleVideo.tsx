@@ -1450,6 +1450,89 @@ const TurtleVideo: React.FC = () => {
             }
           }
         });
+
+        // エクスポート前にオーディオ要素のプリロードとシーク準備を行う
+        // BGMとナレーションの開始位置（startPoint）へのシークを事前に完了させる
+        const audioPreloadPromises: Promise<void>[] = [];
+
+        const prepareAudioTrack = (track: AudioTrack | null, trackId: string): Promise<void> => {
+          return new Promise((resolve) => {
+            const element = mediaElementsRef.current[trackId] as HTMLAudioElement;
+            if (!track || !element) {
+              resolve();
+              return;
+            }
+
+            // 開始位置にシーク
+            const targetTime = track.startPoint;
+            
+            // readyStateが低い場合はロード待機
+            if (element.readyState < 2) {
+              const handleCanPlay = () => {
+                element.removeEventListener('canplay', handleCanPlay);
+                // シークが必要な場合
+                if (targetTime > 0 && Math.abs(element.currentTime - targetTime) > 0.1) {
+                  const handleSeeked = () => {
+                    element.removeEventListener('seeked', handleSeeked);
+                    logDebug('AUDIO', `${trackId}プリロード完了（シーク後）`, { targetTime, actualTime: element.currentTime });
+                    resolve();
+                  };
+                  element.addEventListener('seeked', handleSeeked, { once: true });
+                  element.currentTime = targetTime;
+                } else {
+                  logDebug('AUDIO', `${trackId}プリロード完了`, { targetTime });
+                  resolve();
+                }
+              };
+              element.addEventListener('canplay', handleCanPlay, { once: true });
+              element.load();
+
+              // タイムアウト保険（5秒）
+              setTimeout(() => {
+                element.removeEventListener('canplay', handleCanPlay);
+                logWarn('AUDIO', `${trackId}プリロードタイムアウト`, { readyState: element.readyState });
+                resolve();
+              }, 5000);
+            } else {
+              // 既にロード済みの場合はシークのみ
+              if (targetTime > 0 && Math.abs(element.currentTime - targetTime) > 0.1) {
+                const handleSeeked = () => {
+                  element.removeEventListener('seeked', handleSeeked);
+                  logDebug('AUDIO', `${trackId}シーク完了`, { targetTime, actualTime: element.currentTime });
+                  resolve();
+                };
+                element.addEventListener('seeked', handleSeeked, { once: true });
+                element.currentTime = targetTime;
+
+                // タイムアウト保険（2秒）
+                setTimeout(() => {
+                  element.removeEventListener('seeked', handleSeeked);
+                  resolve();
+                }, 2000);
+              } else {
+                resolve();
+              }
+            }
+          });
+        };
+
+        // BGMとナレーションのプリロードを並列実行
+        const currentBgm = bgmRef.current;
+        const currentNarration = narrationRef.current;
+        if (currentBgm) {
+          audioPreloadPromises.push(prepareAudioTrack(currentBgm, 'bgm'));
+        }
+        if (currentNarration) {
+          audioPreloadPromises.push(prepareAudioTrack(currentNarration, 'narration'));
+        }
+
+        // オーディオプリロード完了を待機
+        if (audioPreloadPromises.length > 0) {
+          logInfo('AUDIO', 'オーディオプリロード開始', { bgm: !!currentBgm, narration: !!currentNarration });
+          await Promise.all(audioPreloadPromises);
+          logInfo('AUDIO', 'オーディオプリロード完了');
+        }
+
         await new Promise((r) => setTimeout(r, 200));
         renderFrame(0, false, true);
         await new Promise((r) => setTimeout(r, 100));
