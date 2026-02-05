@@ -49,6 +49,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
     { value: 'small', label: '小' },
     { value: 'medium', label: '中' },
     { value: 'large', label: '大' },
+    { value: 'xlarge', label: '特大' },
   ];
 
   // 字体オプション
@@ -117,7 +118,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
 
   // セグメンテッドコントロールのスタイル（一括設定と同じ）
   const getButtonClass = (isSelected: boolean) =>
-    `px-2 py-1 rounded transition text-[10px] ${
+    `flex-1 py-1 rounded transition text-[10px] ${
       isSelected
         ? 'bg-yellow-500 text-gray-900'
         : 'bg-gray-700 text-gray-300 hover:bg-gray-600'

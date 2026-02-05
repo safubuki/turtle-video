@@ -107,7 +107,7 @@ export interface Caption {
 export type CaptionPosition = 'top' | 'center' | 'bottom';
 
 // キャプションサイズ
-export type CaptionSize = 'small' | 'medium' | 'large';
+export type CaptionSize = 'small' | 'medium' | 'large' | 'xlarge';
 
 // キャプションフォントスタイル
 export type CaptionFontStyle = 'gothic' | 'mincho';

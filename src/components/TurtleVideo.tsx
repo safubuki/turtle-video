@@ -471,7 +471,7 @@ const TurtleVideo: React.FC = () => {
           );
           if (activeCaption) {
             // フォントサイズ（個別設定優先）
-            const fontSizeMap = { small: 32, medium: 48, large: 64 };
+            const fontSizeMap = { small: 32, medium: 48, large: 64, xlarge: 80 };
             const effectiveFontSizeKey = activeCaption.overrideFontSize ?? captionSettings.fontSize;
             const fontSize = fontSizeMap[effectiveFontSizeKey];
 

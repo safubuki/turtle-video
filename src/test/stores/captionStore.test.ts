@@ -45,6 +45,15 @@ describe('captionStore', () => {
       expect(settings.fontSize).toBe('large');
     });
 
+    it('should update settings when setFontSize is called with xlarge', () => {
+      const { setFontSize } = useCaptionStore.getState();
+      
+      setFontSize('xlarge');
+      
+      const { settings } = useCaptionStore.getState();
+      expect(settings.fontSize).toBe('xlarge');
+    });
+
     it('should update settings when setFontColor is called', () => {
       const { setFontColor } = useCaptionStore.getState();
       

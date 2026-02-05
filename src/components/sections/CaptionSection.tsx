@@ -92,6 +92,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
     { value: 'small', label: '小' },
     { value: 'medium', label: '中' },
     { value: 'large', label: '大' },
+    { value: 'xlarge', label: '特大' },
   ];
 
   const fontStyleOptions: { value: CaptionFontStyle; label: string }[] = [
@@ -176,13 +177,13 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                   {/* 文字サイズ */}
                   <div className="flex items-center gap-2 text-[10px]">
                     <span className="text-gray-400 w-16">サイズ:</span>
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 flex-1">
                       {fontSizeOptions.map((opt) => (
                         <button
                           key={opt.value}
                           onClick={() => onSetFontSize(opt.value)}
                           disabled={isLocked}
-                          className={`px-2 py-1 rounded transition ${settings.fontSize === opt.value
+                          className={`flex-1 py-1 rounded transition ${settings.fontSize === opt.value
                             ? 'bg-yellow-500 text-gray-900'
                             : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                             } disabled:opacity-50`}

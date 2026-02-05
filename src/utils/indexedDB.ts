@@ -64,7 +64,7 @@ export interface SerializedCaption {
   fadeOutDuration: number;
   overridePosition?: 'top' | 'center' | 'bottom';
   overrideFontStyle?: 'gothic' | 'mincho';
-  overrideFontSize?: 'small' | 'medium' | 'large';
+  overrideFontSize?: 'small' | 'medium' | 'large' | 'xlarge';
   overrideFadeIn?: 'on' | 'off';
   overrideFadeOut?: 'on' | 'off';
   overrideFadeInDuration?: number;
@@ -74,7 +74,7 @@ export interface SerializedCaption {
 // キャプション設定の形式
 export interface SerializedCaptionSettings {
   enabled: boolean;
-  fontSize: 'small' | 'medium' | 'large';
+  fontSize: 'small' | 'medium' | 'large' | 'xlarge';
   fontStyle: 'gothic' | 'mincho';
   fontColor: string;
   strokeColor: string;
