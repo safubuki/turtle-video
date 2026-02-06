@@ -29,3 +29,6 @@ dist_test
 .env
 .env.local
 .env.*.local
+
+# Documentation drafts (local only)
+Docs/AgentSkillsBlog.md
