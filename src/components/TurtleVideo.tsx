@@ -280,11 +280,13 @@ const TurtleVideo: React.FC = () => {
           if (activeItem.type === 'video') {
             const activeEl = mediaElementsRef.current[activeId] as HTMLVideoElement | undefined;
             if (activeEl) {
-              if (activeEl.readyState === 0) {
-                try {
-                  activeEl.load();
-                } catch (e) {
-                  /* ignore */
+              // readyState 0: 未ロード → クールダウン付きload()で復旧試行
+              if (activeEl.readyState === 0 && !activeEl.error) {
+                const now = Date.now();
+                const lastAttempt = videoRecoveryAttemptsRef.current[activeId] || 0;
+                if (now - lastAttempt > 2000) {
+                  videoRecoveryAttemptsRef.current[activeId] = now;
+                  try { activeEl.load(); } catch (e) { /* ignore */ }
                 }
               }
               const hasFrame =
@@ -312,17 +314,23 @@ const TurtleVideo: React.FC = () => {
           ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
         }
 
-        // Preload
+        // Preload: 次のビデオを事前に準備（3秒前から開始）
         if (isActivePlaying && activeIndex !== -1 && activeIndex + 1 < currentItems.length) {
           const nextItem = currentItems[activeIndex + 1];
           if (nextItem.type === 'video') {
             const remainingTime = currentItems[activeIndex].duration - localTime;
-            if (remainingTime < 1.5) {
+            if (remainingTime < 3.0) {
               const nextElement = mediaElementsRef.current[nextItem.id] as HTMLVideoElement;
-              if (nextElement && (nextElement.paused || nextElement.readyState < 2)) {
-                const nextStart = nextItem.trimStart || 0;
-                if (Math.abs(nextElement.currentTime - nextStart) > 0.1) {
-                  nextElement.currentTime = nextStart;
+              if (nextElement) {
+                // readyState 0: ロード未開始 → load()で読み込みを開始
+                if (nextElement.readyState === 0 && !nextElement.error) {
+                  try { nextElement.load(); } catch (e) { /* ignore */ }
+                }
+                if (nextElement.paused || nextElement.readyState < 2) {
+                  const nextStart = nextItem.trimStart || 0;
+                  if (Math.abs(nextElement.currentTime - nextStart) > 0.1) {
+                    nextElement.currentTime = nextStart;
+                  }
                 }
               }
             }
@@ -370,7 +378,11 @@ const TurtleVideo: React.FC = () => {
                   videoEl.currentTime = targetTime;
                 }
                 // 一時停止していれば再生開始
-                if (videoEl.paused && videoEl.readyState >= 2) {
+                // readyState >= 1 (HAVE_METADATA) で play() を許可。
+                // ブラウザはplay()呼び出しをトリガーにバッファリングを開始し、
+                // データ準備完了後に再生する。readyState >= 2 を要求すると
+                // paused→バッファ停滞→readyState上がらず のデッドロックが発生する。
+                if (videoEl.paused && videoEl.readyState >= 1) {
                   videoEl.play().catch(() => { });
                 }
               } else if (!isActivePlaying && !isUserSeeking) {
@@ -1697,12 +1709,19 @@ const TurtleVideo: React.FC = () => {
       if (t >= accTime && t < accTime + item.duration) {
         if (item.type === 'video') {
           const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
-          if (videoEl && !videoEl.seeking && videoEl.readyState >= 1) {
-            const localTime = t - accTime;
-            const targetTime = (item.trimStart || 0) + localTime;
-            // シーク時は少しのズレでも位置を合わせる（0.1秒しきい値）
-            if (Math.abs(videoEl.currentTime - targetTime) > 0.1) {
-              videoEl.currentTime = targetTime;
+          if (videoEl) {
+            // readyState 0: 未ロード → load()でデータ取得を開始
+            if (videoEl.readyState === 0 && !videoEl.error) {
+              try { videoEl.load(); } catch (e) { /* ignore */ }
+            }
+            // シーク中でなければ位置を合わせる
+            if (!videoEl.seeking && videoEl.readyState >= 1) {
+              const localTime = t - accTime;
+              const targetTime = (item.trimStart || 0) + localTime;
+              // シーク時は少しのズレでも位置を合わせる（0.1秒しきい値）
+              if (Math.abs(videoEl.currentTime - targetTime) > 0.1) {
+                videoEl.currentTime = targetTime;
+              }
             }
           }
           activeVideoIdRef.current = item.id;
@@ -1780,10 +1799,13 @@ const TurtleVideo: React.FC = () => {
                       videoEl.play().catch(() => { });
                     }
                   };
-                  videoEl.addEventListener('canplaythrough', playWhenReady, { once: true });
+                  // canplay (readyState >= 3) を使用。canplaythrough は長い動画で
+                  // 発火しない場合があるため。
+                  videoEl.addEventListener('canplay', playWhenReady, { once: true });
                   playbackTimeoutRef.current = setTimeout(() => {
                     playbackTimeoutRef.current = null;
-                    if (isPlayingRef.current && videoEl.paused && videoEl.readyState >= 2) {
+                    // readyState >= 1 でplay()を許可（ブラウザがバッファリングを開始する）
+                    if (isPlayingRef.current && videoEl.paused && videoEl.readyState >= 1) {
                       videoEl.play().catch(() => { });
                     }
                   }, 1000);
@@ -1881,12 +1903,27 @@ const TurtleVideo: React.FC = () => {
     clearExport();
 
     // [TV] 全メディアを安全に巻き戻し (DOM要素を維持したままリセット)
-    Object.values(mediaElementsRef.current).forEach((el) => {
-      if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO')) {
+    // 各ビデオをtrimStart位置にリセット（0ではなく実際の開始位置へ）
+    for (const item of mediaItemsRef.current) {
+      const el = mediaElementsRef.current[item.id];
+      if (el && el.tagName === 'VIDEO') {
         try {
-          const media = el as HTMLMediaElement;
-          media.pause();
-          media.currentTime = 0; // [TV] 物理的に0秒に戻す
+          const videoEl = el as HTMLVideoElement;
+          videoEl.pause();
+          videoEl.currentTime = item.trimStart || 0;
+        } catch (e) {
+          /* ignore */
+        }
+      }
+    }
+    // BGM/ナレーションは0に戻す
+    ['bgm', 'narration'].forEach((trackId) => {
+      const el = mediaElementsRef.current[trackId];
+      if (el && (el.tagName === 'AUDIO')) {
+        try {
+          const audioEl = el as HTMLAudioElement;
+          audioEl.pause();
+          audioEl.currentTime = 0;
         } catch (e) {
           /* ignore */
         }
