@@ -567,10 +567,21 @@ const TurtleVideo: React.FC = () => {
                 const playDuration = time - track.delay;
 
                 if (trackTime <= track.duration) {
-                  if (Math.abs(element.currentTime - trackTime) > 0.5) {
+                  // シーク中は再生を開始しない（正確な位置からの再生を保証）
+                  const needsSeek = Math.abs(element.currentTime - trackTime) > 0.5;
+                  
+                  if (needsSeek) {
+                    // シーク実行前に一時停止して位置を同期
+                    if (!element.paused) {
+                      element.pause();
+                    }
                     element.currentTime = trackTime;
                   }
-                  if (element.paused) element.play().catch(() => { });
+                  
+                  // シーク中でなく、readyStateが十分であれば再生開始
+                  if (!element.seeking && element.readyState >= 2 && element.paused) {
+                    element.play().catch(() => { });
+                  }
 
                   const fadeInDur = track.fadeInDuration || 1.0;
                   const fadeOutDur = track.fadeOutDuration || 1.0;
@@ -581,6 +592,11 @@ const TurtleVideo: React.FC = () => {
                   if (track.fadeOut && time > totalDurationRef.current - fadeOutDur) {
                     const remaining = totalDurationRef.current - time;
                     vol *= Math.max(0, remaining / fadeOutDur);
+                  }
+
+                  // シーク中は音量を0にして音飛びを防ぐ
+                  if (element.seeking) {
+                    vol = 0;
                   }
 
                   // 音量の急激な変化を防ぐ

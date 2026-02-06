@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import type { Caption, CaptionSettings } from '../../types';
+import type { Caption } from '../../types';
 
 describe('Caption data structure with override fields', () => {
   describe('caption data structure validation', () => {
