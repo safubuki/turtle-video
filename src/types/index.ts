@@ -121,6 +121,7 @@ export interface CaptionSettings {
   strokeColor: string;
   strokeWidth: number;
   position: CaptionPosition;
+  blur: number; // ぼかし強度（0〜5px、0=なし）
   // 一括フェード設定
   bulkFadeIn: boolean;
   bulkFadeOut: boolean;

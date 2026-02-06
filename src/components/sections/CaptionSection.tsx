@@ -32,6 +32,7 @@ interface CaptionSectionProps {
   onSetFontSize: (size: CaptionSize) => void;
   onSetFontStyle: (style: CaptionFontStyle) => void;
   onSetPosition: (position: CaptionPosition) => void;
+  onSetBlur: (blur: number) => void;
   onSetBulkFadeIn: (enabled: boolean) => void;
   onSetBulkFadeOut: (enabled: boolean) => void;
   onSetBulkFadeInDuration: (duration: number) => void;
@@ -55,6 +56,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   onSetFontSize,
   onSetFontStyle,
   onSetPosition,
+  onSetBlur,
   onSetBulkFadeIn,
   onSetBulkFadeOut,
   onSetBulkFadeInDuration,
@@ -230,6 +232,20 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                         </button>
                       ))}
                     </div>
+                  </div>
+                  {/* ぼかし */}
+                  <div className="flex items-center gap-2 text-[10px]">
+                    <span className="text-gray-400 w-16">ぼかし:</span>
+                    <SwipeProtectedSlider
+                      min={0}
+                      max={50}
+                      step={1}
+                      value={settings.blur * 10}
+                      onChange={(val) => onSetBlur(val / 10)}
+                      disabled={isLocked}
+                      className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isLocked ? '' : 'cursor-pointer'}`}
+                    />
+                    <span className={`w-8 text-right whitespace-nowrap ${isLocked ? 'text-gray-600' : 'text-gray-400'}`}>{settings.blur.toFixed(1)}</span>
                   </div>
                 </div>
                 {/* ■ フェード一括設定 */}

@@ -156,6 +156,7 @@ const TurtleVideo: React.FC = () => {
   const setCaptionFontSize = useCaptionStore((s) => s.setFontSize);
   const setCaptionFontStyle = useCaptionStore((s) => s.setFontStyle);
   const setCaptionPosition = useCaptionStore((s) => s.setPosition);
+  const setCaptionBlur = useCaptionStore((s) => s.setBlur);
   const setBulkFadeIn = useCaptionStore((s) => s.setBulkFadeIn);
   const setBulkFadeOut = useCaptionStore((s) => s.setBulkFadeOut);
   const setBulkFadeInDuration = useCaptionStore((s) => s.setBulkFadeInDuration);
@@ -537,6 +538,11 @@ const TurtleVideo: React.FC = () => {
             ctx.font = `bold ${fontSize}px ${fontFamily}`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
+
+            // ぼかし効果
+            if (captionSettings.blur > 0) {
+              ctx.filter = `blur(${captionSettings.blur}px)`;
+            }
 
             // 縁取り
             ctx.strokeStyle = captionSettings.strokeColor;
@@ -2053,6 +2059,7 @@ const TurtleVideo: React.FC = () => {
           onSetFontSize={withPause(setCaptionFontSize)}
           onSetFontStyle={withPause(setCaptionFontStyle)}
           onSetPosition={withPause(setCaptionPosition)}
+          onSetBlur={withPause(setCaptionBlur)}
           onSetBulkFadeIn={withPause(setBulkFadeIn)}
           onSetBulkFadeOut={withPause(setBulkFadeOut)}
           onSetBulkFadeInDuration={withPause(setBulkFadeInDuration)}

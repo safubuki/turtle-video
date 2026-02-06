@@ -19,6 +19,7 @@ describe('captionStore', () => {
         strokeColor: '#000000',
         strokeWidth: 2,
         position: 'bottom',
+        blur: 0,
         bulkFadeIn: false,
         bulkFadeOut: false,
         bulkFadeInDuration: 0.5,
@@ -71,6 +72,20 @@ describe('captionStore', () => {
       const { settings } = useCaptionStore.getState();
       expect(settings.bulkFadeIn).toBe(true);
     });
+
+    it('should update settings when setBlur is called', () => {
+      const { setBlur } = useCaptionStore.getState();
+      
+      setBlur(2.5);
+      
+      const { settings } = useCaptionStore.getState();
+      expect(settings.blur).toBe(2.5);
+    });
+
+    it('should default blur to 0', () => {
+      const { settings } = useCaptionStore.getState();
+      expect(settings.blur).toBe(0);
+    });
   });
 
   describe('restoreFromSave', () => {
@@ -96,6 +111,7 @@ describe('captionStore', () => {
         strokeColor: '#FF0000',
         strokeWidth: 4,
         position: 'top',
+        blur: 1.5,
         bulkFadeIn: true,
         bulkFadeOut: true,
         bulkFadeInDuration: 1.0,
@@ -120,6 +136,7 @@ describe('captionStore', () => {
       expect(settings.strokeColor).toBe('#FF0000');
       expect(settings.strokeWidth).toBe(4);
       expect(settings.position).toBe('top');
+      expect(settings.blur).toBe(1.5);
       expect(settings.bulkFadeIn).toBe(true);
       expect(settings.bulkFadeOut).toBe(true);
       expect(settings.bulkFadeInDuration).toBe(1.0);
@@ -189,6 +206,7 @@ describe('captionStore', () => {
         strokeColor: '#000000',
         strokeWidth: 2,
         position: 'bottom',
+        blur: 0,
         bulkFadeIn: false,
         bulkFadeOut: false,
         bulkFadeInDuration: 0.5,

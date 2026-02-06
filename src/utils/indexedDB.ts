@@ -80,6 +80,7 @@ export interface SerializedCaptionSettings {
   strokeColor: string;
   strokeWidth: number;
   position: 'top' | 'center' | 'bottom';
+  blur: number; // ぼかし強度（0〜5px、0=なし）
   bulkFadeIn: boolean;
   bulkFadeOut: boolean;
   bulkFadeInDuration: number;

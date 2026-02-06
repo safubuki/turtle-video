@@ -32,6 +32,7 @@ interface CaptionState {
   setStrokeColor: (color: string) => void;
   setStrokeWidth: (width: number) => void;
   setPosition: (position: CaptionPosition) => void;
+  setBlur: (blur: number) => void;
 
   // === 一括フェード設定 ===
   setBulkFadeIn: (enabled: boolean) => void;
@@ -62,6 +63,7 @@ const initialSettings: CaptionSettings = {
   strokeColor: '#000000',
   strokeWidth: 2,
   position: 'bottom',
+  blur: 0, // ぼかし強度（0=なし）
   // 一括フェード設定
   bulkFadeIn: false,
   bulkFadeOut: false,
@@ -187,6 +189,15 @@ export const useCaptionStore = create<CaptionState>()(
           }),
           false,
           'setPosition'
+        ),
+
+      setBlur: (blur) =>
+        set(
+          (state) => ({
+            settings: { ...state.settings, blur },
+          }),
+          false,
+          'setBlur'
         ),
 
       // === 一括フェード設定 ===
