@@ -35,8 +35,7 @@ export interface UseExportReturn {
     masterDestRef: React.MutableRefObject<MediaStreamAudioDestinationNode | null>,
     onRecordingStop: (url: string, ext: string) => void,
     onRecordingError?: (message: string) => void,
-    audioMixerNode?: AudioNode,
-    audioSources?: ExportAudioSources
+    audioSources?: ExportAudioSources  // iOS Safari: OfflineAudioContext用音声ソース
   ) => void;
   stopExport: () => void; // 明示的な停止メソッドを追加
   clearExportUrl: () => void;
@@ -304,7 +303,6 @@ export function useExport(): UseExportReturn {
       masterDestRef: React.MutableRefObject<MediaStreamAudioDestinationNode | null>,
       onRecordingStop: (url: string, ext: string) => void,
       onRecordingError?: (message: string) => void,
-      audioMixerNode?: AudioNode,
       audioSources?: ExportAudioSources
     ) => {
       if (!canvasRef.current || !masterDestRef.current) {
@@ -341,8 +339,9 @@ export function useExport(): UseExportReturn {
       ).MediaStreamTrackProcessor;
       const canUseTrackProcessor = typeof TrackProcessor === 'function';
       const useManualCanvasFrames = isIosSafari || !canUseTrackProcessor;
-      // iOS Safari では TrackProcessor での音声読み取りに問題があるため、
-      // 音声キャプチャは常に ScriptProcessorNode を使用する
+      // iOS Safari では OfflineAudioContext でプリレンダリングするため、
+      // TrackProcessor / ScriptProcessor は基本的に不要。
+      // OfflineAudioContext 失敗時のフォールバックとして ScriptProcessor を使用。
       const useScriptProcessorAudio = isIosSafari;
       const trackProcessorCtor = TrackProcessor as TrackProcessorConstructor | undefined;
 
@@ -351,7 +350,7 @@ export function useExport(): UseExportReturn {
       abortControllerRef.current = controller;
       const { signal } = controller;
 
-      // ScriptProcessorNode用（iOS Safari音声キャプチャフォールバック）
+      // ScriptProcessorNode用（OfflineAudioContext失敗時のフォールバック）
       let scriptProcessorNode: ScriptProcessorNode | null = null;
       let scriptProcessorSource: MediaStreamAudioSourceNode | null = null;
 
@@ -459,9 +458,9 @@ export function useExport(): UseExportReturn {
           audioReaderRef.current = audioReader;
           useLogStore.getState().info('RENDER', 'TrackProcessor経由で音声をキャプチャ');
         } else if (!offlineAudioDone) {
-          // ScriptProcessorNode 経由の音声キャプチャ（OfflineAudioContext未使用時のフォールバック）
+          // ScriptProcessorNode 経由の音声キャプチャ（フォールバック）
           // iOS Safari で OfflineAudioContext が失敗した場合、または非Safari で TrackProcessor 非対応時。
-          useLogStore.getState().info('RENDER', 'ScriptProcessorNode経由で音声をキャプチャ', {
+          useLogStore.getState().info('RENDER', 'ScriptProcessorNode経由で音声をキャプチャ（フォールバック）', {
             isIosSafari,
             canUseTrackProcessor,
             hasAudioTrack: !!audioTrack,
@@ -474,16 +473,8 @@ export function useExport(): UseExportReturn {
           let audioTimestamp = 0;
           let capturedChunks = 0;
 
-          // [iOS Safari対策] AudioNode直接接続
-          // masterDest.stream経由だとデータが欠落する場合があるため、
-          // audioMixerNodeが渡された場合は直接接続する
-          if (isIosSafari && audioMixerNode) {
-            useLogStore.getState().info('RENDER', 'MixerNodeから直接音声をキャプチャ');
-            audioMixerNode.connect(scriptProcessorNode);
-          } else {
-            scriptProcessorSource = audioCtx.createMediaStreamSource(masterDestRef.current!.stream);
-            scriptProcessorSource.connect(scriptProcessorNode);
-          }
+          scriptProcessorSource = audioCtx.createMediaStreamSource(masterDestRef.current!.stream);
+          scriptProcessorSource.connect(scriptProcessorNode);
           scriptProcessorNode.connect(audioCtx.destination);
 
           scriptProcessorNode.onaudioprocess = (event: AudioProcessingEvent) => {
@@ -793,10 +784,6 @@ export function useExport(): UseExportReturn {
         }
         if (scriptProcessorSource) {
           try { scriptProcessorSource.disconnect(); } catch (e) { /* ignore */ }
-        }
-        // [iOS Safari対策] 直接接続したMixerNodeの切断
-        if (isIosSafari && audioMixerNode && scriptProcessorNode) {
-          try { audioMixerNode.disconnect(scriptProcessorNode); } catch (e) { /* ignore */ }
         }
         // リソース解放などはGCに任せるが、明示的なcloseも可
         // controllerはstopExportでabort済み

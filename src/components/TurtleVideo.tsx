@@ -209,7 +209,7 @@ const TurtleVideo: React.FC = () => {
   const pendingSeekRef = useRef<number | null>(null); // 保留中のシーク位置
   const wasPlayingBeforeSeekRef = useRef(false); // シーク前の再生状態を保持
   const pendingSeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 保留中のシーク処理用タイマー
-  const exportMixerNodeRef = useRef<GainNode | null>(null); // エクスポート用のミキサーノード
+
 
   const playbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 再生開始待機用タイマー
 
@@ -794,9 +794,6 @@ const TurtleVideo: React.FC = () => {
       const ctx = new AC();
       audioCtxRef.current = ctx;
       masterDestRef.current = ctx.createMediaStreamDestination();
-      // エクスポート用ミキサー（全音声をここに集める）
-      exportMixerNodeRef.current = ctx.createGain();
-      exportMixerNodeRef.current.gain.value = 1.0;
     }
     return audioCtxRef.current;
   }, []);
@@ -1414,7 +1411,6 @@ const TurtleVideo: React.FC = () => {
     const ctx = audioCtxRef.current;
     if (!ctx) return;
     const dest = masterDestRef.current;
-    const exportMixer = exportMixerNodeRef.current;
 
     Object.keys(gainNodesRef.current).forEach((id) => {
       const gain = gainNodesRef.current[id];
@@ -1422,22 +1418,12 @@ const TurtleVideo: React.FC = () => {
         // 一旦すべての接続を解除
         gain.disconnect();
 
-        // 常にexportMixerには繋いでおく（エクスポート直接接続用）
-        if (exportMixer) {
-          gain.connect(exportMixer);
-        }
-
         if (isExporting && dest) {
-          // エクスポート先（録音用ノード）へ接続（PC/Android用、あるいはバックアップ）
+          // エクスポート先（録音用ノード）へ接続（PC/Android の TrackProcessor 用）
+          // iOS Safari では OfflineAudioContext で音声をプリレンダリングするため、
+          // リアルタイムのオーディオルーティングは不要だが、
+          // masterDest への接続は維持する（フォールバック用）
           gain.connect(dest);
-
-          // [iOS Safari対策]
-          // iOS SafariのWeb Audio APIは、スピーカー(ctx.destination)への接続がないと
-          // 音声処理をサスペンド（最適化）してしまう場合があるため、
-          // エクスポート中もスピーカー接続を維持する（＝端末から音が出る）。
-          if (isIosSafari) {
-            gain.connect(ctx.destination);
-          }
         } else {
           // 通常再生時はスピーカーへ接続
           gain.connect(ctx.destination);
@@ -1446,7 +1432,7 @@ const TurtleVideo: React.FC = () => {
         /* ignore */
       }
     });
-  }, [isIosSafari]);
+  }, []);
 
   // --- 再生ループ ---
   // 目的: 再生中にフレームを継続的に描画
@@ -1689,7 +1675,6 @@ const TurtleVideo: React.FC = () => {
             stopAll();
             setError(message);
           },
-          exportMixerNodeRef.current || undefined, // iOS Safari用MixerNode
           {
             mediaItems: mediaItemsRef.current,
             bgm: bgmRef.current,
