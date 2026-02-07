@@ -130,7 +130,32 @@ input[type="number"] {
 
   /* 数値入力フィールドの拡大 */
   section input[type="number"] {
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     padding: 0.25rem 0.5rem;
+  }
+
+  /* PC版: 極小テキスト (text-[10px]) を読みやすいサイズに拡大 */
+  section [class*="text-[10px]"] {
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
+
+  /* PC版: タブレット対応済みテキスト（md:text-xs等）を更にスケールアップ */
+  section [class*="text-[10px]"][class*="md:text-"] {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+
+  /* PC版: チェックボックスの操作性改善 */
+  section input[type="checkbox"] {
+    width: 1rem;
+    height: 1rem;
+    min-width: 1rem;
+    min-height: 1rem;
+  }
+
+  /* PC版: フェードラベル幅拡大（テキスト拡大に合わせる） */
+  section label[class*="w-24"] {
+    width: 7rem;
   }
 }

@@ -2092,7 +2092,7 @@ const TurtleVideo: React.FC = () => {
       <div className="max-w-md md:max-w-3xl lg:max-w-6xl mx-auto p-4 lg:p-6">
         <ErrorMessage message={errorMsg} count={errorCount} onClose={clearError} />
 
-        <div className="mt-4 lg:grid lg:grid-cols-[1fr_585px] lg:gap-8 lg:items-start">
+        <div className="mt-4 lg:grid lg:grid-cols-[1fr_585px] lg:gap-8">
           {/* 左カラム: 編集コントロール（モバイルでは通常の縦並び） */}
           <div className="space-y-6">
         {/* 1. CLIPS */}
