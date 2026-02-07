@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import type { MediaItem } from '../../types';
 import MiniPreview from '../common/MiniPreview';
+import ClipThumbnail from '../common/ClipThumbnail';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 
 export interface ClipItemProps {
@@ -93,21 +94,22 @@ const ClipItem: React.FC<ClipItemProps> = ({
   return (
     <div className="bg-gray-800 p-3 lg:p-4 rounded-xl border border-gray-700/50 relative group">
       <div className="flex justify-between items-center mb-3">
-        <div className="flex items-center gap-2 overflow-hidden">
-          <span className="bg-gray-900 text-gray-500 w-5 h-5 md:w-6 md:h-6 flex items-center justify-center rounded-full text-[10px] md:text-xs font-mono">
+        <div className="flex items-center gap-2 overflow-hidden min-w-0">
+          <span className="bg-gray-900 text-gray-500 w-5 h-5 md:w-6 md:h-6 flex items-center justify-center rounded-full text-[10px] md:text-xs font-mono shrink-0">
             {i + 1}
           </span>
+          <ClipThumbnail file={v.file} type={v.type} />
           {v.type === 'image' ? (
-            <ImageIcon className="w-3 h-3 md:w-4 md:h-4 text-yellow-500" />
+            <ImageIcon className="w-3 h-3 md:w-4 md:h-4 text-yellow-500 shrink-0" />
           ) : (
-            <MonitorPlay className="w-3 h-3 md:w-4 md:h-4 text-blue-500" />
+            <MonitorPlay className="w-3 h-3 md:w-4 md:h-4 text-blue-500 shrink-0" />
           )}
-          <span className="text-xs md:text-sm font-medium truncate max-w-35 md:max-w-none text-gray-300">
+          <span className="text-xs md:text-sm font-medium truncate max-w-24 lg:max-w-32 text-gray-300">
             {v.file.name}
           </span>
           <button
             onClick={onToggleLock}
-            className={`p-1 rounded hover:bg-gray-700 ${v.isLocked ? 'text-red-400' : 'text-gray-500'}`}
+            className={`p-1 rounded hover:bg-gray-700 shrink-0 ${v.isLocked ? 'text-red-400' : 'text-gray-500'}`}
           >
             {v.isLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
           </button>
