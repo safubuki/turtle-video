@@ -5,6 +5,13 @@ description: プロジェクトのREADME.mdを作成・更新するスキル。�
 
 # README Generator Skill
 
+## スキル読み込み通知
+
+このスキルが読み込まれたら、必ず以下の通知をユーザーに表示してください：
+
+> 💡 **README Generator スキルを読み込みました**  
+> プロジェクトのREADME.mdを作成・更新します。
+
 ## When to Use
 
 - プロジェクトの README.md を新規作成したいとき

@@ -5,6 +5,13 @@ description: Turtle Videoプロジェクトの全体像と実装パターンを�
 
 # Turtle Video Overview Skill
 
+## スキル読み込み通知
+
+このスキルが読み込まれたら、必ず以下の通知をユーザーに表示してください：
+
+> 💡 **Turtle Video Overview スキルを読み込みました**  
+> Turtle Videoプロジェクトの全体像と実装パターンを提供します。
+
 ## When to Use
 
 - 新しい機能を実装する前にプロジェクト全体を把握したいとき
