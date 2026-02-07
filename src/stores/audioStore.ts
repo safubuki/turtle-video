@@ -8,6 +8,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import type { AudioTrack } from '../types';
 import { revokeObjectUrl } from '../utils';
+import { useLogStore } from './logStore';
 
 interface AudioState {
   // BGM
@@ -89,6 +90,11 @@ export const useAudioStore = create<AudioState>()(
       setBgm: (track) => {
         const { bgm } = get();
         if (bgm?.url) revokeObjectUrl(bgm.url);
+        useLogStore.getState().info('AUDIO', 'BGMを設定', { 
+          fileName: track?.file instanceof File ? track.file.name : track?.file?.name || 'unknown',
+          duration: track?.duration || 0,
+          isAi: track?.isAi || false
+        });
         set({ bgm: track });
       },
 
@@ -148,7 +154,12 @@ export const useAudioStore = create<AudioState>()(
 
       removeBgm: () => {
         const { bgm } = get();
-        if (bgm?.url) revokeObjectUrl(bgm.url);
+        if (bgm?.url) {
+          useLogStore.getState().info('AUDIO', 'BGMを削除', {
+            fileName: bgm.file instanceof File ? bgm.file.name : (bgm.file as { name: string }).name
+          });
+          revokeObjectUrl(bgm.url);
+        }
         set({ bgm: null });
       },
 
@@ -156,6 +167,11 @@ export const useAudioStore = create<AudioState>()(
       setNarration: (track) => {
         const { narration } = get();
         if (narration?.url) revokeObjectUrl(narration.url);
+        useLogStore.getState().info('AUDIO', 'ナレーションを設定', { 
+          fileName: track?.file instanceof File ? track.file.name : track?.file?.name || 'unknown',
+          duration: track?.duration || 0,
+          isAi: track?.isAi || false
+        });
         set({ narration: track });
       },
 
@@ -215,13 +231,22 @@ export const useAudioStore = create<AudioState>()(
 
       removeNarration: () => {
         const { narration } = get();
-        if (narration?.url) revokeObjectUrl(narration.url);
+        if (narration?.url) {
+          useLogStore.getState().info('AUDIO', 'ナレーションを削除', {
+            fileName: narration.file instanceof File ? narration.file.name : (narration.file as { name: string }).name
+          });
+          revokeObjectUrl(narration.url);
+        }
         set({ narration: null });
       },
 
       // === Clear All ===
       clearAllAudio: () => {
         const { bgm, narration } = get();
+        useLogStore.getState().info('AUDIO', '全オーディオをクリア', { 
+          hasBgm: !!bgm, 
+          hasNarration: !!narration 
+        });
         if (bgm?.url) revokeObjectUrl(bgm.url);
         if (narration?.url) revokeObjectUrl(narration.url);
         set({

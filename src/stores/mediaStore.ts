@@ -19,6 +19,7 @@ import {
   validatePosition,
   revokeObjectUrl
 } from '../utils';
+import { useLogStore } from './logStore';
 
 interface MediaState {
   // State
@@ -77,9 +78,11 @@ export const useMediaStore = create<MediaState>()(
 
       // Add media items
       addMediaItems: (files) => {
+        useLogStore.getState().info('MEDIA', 'メディアアイテムを追加', { fileCount: files.length, fileNames: files.map(f => f.name) });
         const newItems = files.map(createMediaItem);
         set((state) => {
           const updated = [...state.mediaItems, ...newItems];
+          useLogStore.getState().info('MEDIA', 'メディアアイテム追加完了', { totalItems: updated.length, totalDuration: calculateTotalDuration(updated) });
           return {
             mediaItems: updated,
             totalDuration: calculateTotalDuration(updated),
@@ -92,6 +95,7 @@ export const useMediaStore = create<MediaState>()(
         set((state) => {
           const item = state.mediaItems.find((m) => m.id === id);
           if (item) {
+            useLogStore.getState().info('MEDIA', 'メディアアイテムを削除', { id, fileName: item.file.name, type: item.type });
             revokeObjectUrl(item.url);
           }
           const updated = state.mediaItems.filter((m) => m.id !== id);
@@ -128,6 +132,7 @@ export const useMediaStore = create<MediaState>()(
 
       // Set video duration when loaded
       setVideoDuration: (id, originalDuration) => {
+        useLogStore.getState().info('MEDIA', '動画の長さを設定', { id, originalDuration });
         set((state) => {
           const updated = state.mediaItems.map((item) => {
             if (item.id !== id) return item;
@@ -302,6 +307,7 @@ export const useMediaStore = create<MediaState>()(
       // Clear all
       clearAllMedia: () => {
         const { mediaItems } = get();
+        useLogStore.getState().info('MEDIA', '全メディアをクリア', { itemCount: mediaItems.length });
         mediaItems.forEach((item) => revokeObjectUrl(item.url));
         set({ mediaItems: [], totalDuration: 0, isClipsLocked: false });
       },

@@ -21,6 +21,7 @@ import {
   type SerializedAudioTrack,
   type SerializedCaption,
 } from '../utils/indexedDB';
+import { useLogStore } from './logStore';
 
 // アプリバージョン
 import versionData from '../../version.json';
@@ -276,6 +277,12 @@ export const useProjectStore = create<ProjectState>()(
         captions, captionSettings, isCaptionsLocked
       ) => {
         set({ isSaving: true });
+        useLogStore.getState().info('SYSTEM', '手動保存を開始', { 
+          mediaCount: mediaItems.length, 
+          hasBgm: !!bgm, 
+          hasNarration: !!narration,
+          captionCount: captions.length
+        });
         try {
           const serializedMediaItems = await Promise.all(
             mediaItems.map(serializeMediaItem)
@@ -301,8 +308,10 @@ export const useProjectStore = create<ProjectState>()(
           };
           
           await saveProject(projectData);
+          useLogStore.getState().info('SYSTEM', '手動保存完了', { savedAt: projectData.savedAt });
           set({ lastManualSave: projectData.savedAt, isSaving: false });
         } catch (error) {
+          useLogStore.getState().error('SYSTEM', '手動保存失敗', { error: error instanceof Error ? error.message : String(error) });
           set({ isSaving: false });
           throw error;
         }
@@ -320,6 +329,12 @@ export const useProjectStore = create<ProjectState>()(
           return;
         }
         
+        useLogStore.getState().debug('SYSTEM', '自動保存を開始', { 
+          mediaCount: mediaItems.length, 
+          hasBgm: !!bgm, 
+          hasNarration: !!narration,
+          captionCount: captions.length
+        });
         try {
           const serializedMediaItems = await Promise.all(
             mediaItems.map(serializeMediaItem)
@@ -345,8 +360,10 @@ export const useProjectStore = create<ProjectState>()(
           };
           
           await saveProject(projectData);
+          useLogStore.getState().debug('SYSTEM', '自動保存完了', { savedAt: projectData.savedAt });
           set({ lastAutoSave: projectData.savedAt, autoSaveError: null });
         } catch (error) {
+          useLogStore.getState().error('SYSTEM', '自動保存失敗', { error: error instanceof Error ? error.message : String(error) });
           set({ autoSaveError: error instanceof Error ? error.message : '自動保存に失敗しました' });
         }
       },
@@ -354,9 +371,11 @@ export const useProjectStore = create<ProjectState>()(
       // プロジェクト読み込み
       loadProjectFromSlot: async (slot) => {
         set({ isLoading: true });
+        useLogStore.getState().info('SYSTEM', 'プロジェクトを読み込み中', { slot });
         try {
           const data = await loadProject(slot);
           if (!data) {
+            useLogStore.getState().warn('SYSTEM', '読み込むプロジェクトが見つかりません', { slot });
             set({ isLoading: false });
             return null;
           }
@@ -366,6 +385,14 @@ export const useProjectStore = create<ProjectState>()(
           const narration = data.narration ? deserializeAudioTrack(data.narration) : null;
           const captions = data.captions.map(deserializeCaption);
           
+          useLogStore.getState().info('SYSTEM', 'プロジェクト読み込み完了', { 
+            slot,
+            mediaCount: mediaItems.length,
+            hasBgm: !!bgm,
+            hasNarration: !!narration,
+            captionCount: captions.length,
+            savedAt: data.savedAt
+          });
           set({ isLoading: false });
           
           return {
@@ -380,6 +407,7 @@ export const useProjectStore = create<ProjectState>()(
             isCaptionsLocked: data.isCaptionsLocked,
           };
         } catch (error) {
+          useLogStore.getState().error('SYSTEM', 'プロジェクト読み込み失敗', { slot, error: error instanceof Error ? error.message : String(error) });
           set({ isLoading: false });
           throw error;
         }
@@ -387,8 +415,10 @@ export const useProjectStore = create<ProjectState>()(
       
       // 全削除
       deleteAllSaves: async () => {
+        useLogStore.getState().info('SYSTEM', '全保存データを削除');
         await deleteAllProjects();
         set({ lastAutoSave: null, lastManualSave: null });
+        useLogStore.getState().info('SYSTEM', '全保存データ削除完了');
       },
       
       // 保存情報を更新

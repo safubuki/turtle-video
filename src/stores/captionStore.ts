@@ -7,6 +7,7 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import type { Caption, CaptionSettings, CaptionPosition, CaptionSize, CaptionFontStyle } from '../types';
+import { useLogStore } from './logStore';
 
 interface CaptionState {
   // キャプション一覧
@@ -84,8 +85,9 @@ export const useCaptionStore = create<CaptionState>()(
       isLocked: false,
 
       // === キャプション操作 ===
-      addCaption: (text, startTime, endTime) =>
-        set(
+      addCaption: (text, startTime, endTime) => {
+        useLogStore.getState().info('MEDIA', 'キャプションを追加', { text: text.substring(0, 20), startTime, endTime });
+        return set(
           (state) => ({
             captions: [
               ...state.captions,
@@ -103,7 +105,8 @@ export const useCaptionStore = create<CaptionState>()(
           }),
           false,
           'addCaption'
-        ),
+        );
+      },
 
       updateCaption: (id, updates) =>
         set(
@@ -115,14 +118,16 @@ export const useCaptionStore = create<CaptionState>()(
           'updateCaption'
         ),
 
-      removeCaption: (id) =>
-        set(
+      removeCaption: (id) => {
+        useLogStore.getState().info('MEDIA', 'キャプションを削除', { id });
+        return set(
           (state) => ({
             captions: state.captions.filter((c) => c.id !== id),
           }),
           false,
           'removeCaption'
-        ),
+        );
+      },
 
       moveCaption: (id, direction) =>
         set(
@@ -139,8 +144,10 @@ export const useCaptionStore = create<CaptionState>()(
           'moveCaption'
         ),
 
-      clearAllCaptions: () =>
-        set({ captions: [] }, false, 'clearAllCaptions'),
+      clearAllCaptions: () => {
+        useLogStore.getState().info('MEDIA', '全キャプションをクリア');
+        return set({ captions: [] }, false, 'clearAllCaptions');
+      },
 
       // === スタイル設定 ===
       setEnabled: (enabled) =>

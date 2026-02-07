@@ -4,6 +4,8 @@
  * @description IndexedDBのラッパーユーティリティ。プロジェクトデータの保存・読み込み・削除を行う。
  */
 
+import { useLogStore } from '../stores/logStore';
+
 const DB_NAME = 'turtle-video-db';
 const DB_VERSION = 1;
 const STORE_NAME = 'projects';
@@ -117,14 +119,17 @@ function openDB(): Promise<IDBDatabase> {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     
     request.onerror = () => {
+      useLogStore.getState().error('SYSTEM', 'IndexedDBを開けませんでした');
       reject(new Error('IndexedDBを開けませんでした'));
     };
     
     request.onsuccess = () => {
+      useLogStore.getState().debug('SYSTEM', 'IndexedDBを開きました');
       resolve(request.result);
     };
     
     request.onupgradeneeded = (event) => {
+      useLogStore.getState().info('SYSTEM', 'IndexedDBをアップグレード中', { version: DB_VERSION });
       const db = (event.target as IDBOpenDBRequest).result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME, { keyPath: 'slot' });
@@ -137,6 +142,7 @@ function openDB(): Promise<IDBDatabase> {
  * プロジェクトデータを保存
  */
 export async function saveProject(data: ProjectData): Promise<void> {
+  useLogStore.getState().debug('SYSTEM', 'プロジェクトをIndexedDBに保存中', { slot: data.slot });
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([STORE_NAME], 'readwrite');
@@ -144,10 +150,12 @@ export async function saveProject(data: ProjectData): Promise<void> {
     const request = store.put(data);
     
     request.onerror = () => {
+      useLogStore.getState().error('SYSTEM', 'プロジェクトの保存に失敗', { slot: data.slot });
       reject(new Error('プロジェクトの保存に失敗しました'));
     };
     
     request.onsuccess = () => {
+      useLogStore.getState().debug('SYSTEM', 'プロジェクトをIndexedDBに保存完了', { slot: data.slot });
       resolve();
     };
     
@@ -161,6 +169,7 @@ export async function saveProject(data: ProjectData): Promise<void> {
  * プロジェクトデータを読み込み
  */
 export async function loadProject(slot: SaveSlot): Promise<ProjectData | null> {
+  useLogStore.getState().debug('SYSTEM', 'プロジェクトをIndexedDBから読み込み中', { slot });
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([STORE_NAME], 'readonly');
@@ -168,11 +177,16 @@ export async function loadProject(slot: SaveSlot): Promise<ProjectData | null> {
     const request = store.get(slot);
     
     request.onerror = () => {
+      useLogStore.getState().error('SYSTEM', 'プロジェクトの読み込みに失敗', { slot });
       reject(new Error('プロジェクトの読み込みに失敗しました'));
     };
     
     request.onsuccess = () => {
-      resolve(request.result || null);
+      const result = request.result || null;
+      if (result) {
+        useLogStore.getState().debug('SYSTEM', 'プロジェクトをIndexedDBから読み込み完了', { slot });
+      }
+      resolve(result);
     };
     
     transaction.oncomplete = () => {
@@ -185,6 +199,7 @@ export async function loadProject(slot: SaveSlot): Promise<ProjectData | null> {
  * プロジェクトデータを削除
  */
 export async function deleteProject(slot: SaveSlot): Promise<void> {
+  useLogStore.getState().info('SYSTEM', 'プロジェクトをIndexedDBから削除中', { slot });
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([STORE_NAME], 'readwrite');
@@ -192,10 +207,12 @@ export async function deleteProject(slot: SaveSlot): Promise<void> {
     const request = store.delete(slot);
     
     request.onerror = () => {
+      useLogStore.getState().error('SYSTEM', 'プロジェクトの削除に失敗', { slot });
       reject(new Error('プロジェクトの削除に失敗しました'));
     };
     
     request.onsuccess = () => {
+      useLogStore.getState().info('SYSTEM', 'プロジェクトをIndexedDBから削除完了', { slot });
       resolve();
     };
     

@@ -12,6 +12,7 @@ import {
   TTS_SAMPLE_RATE,
   VOICE_OPTIONS,
 } from '../constants';
+import { useLogStore } from '../stores/logStore';
 
 // API キー (環境変数から取得)
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
@@ -86,6 +87,7 @@ export function useAiNarration(): UseAiNarrationReturn {
   const generateScript = useCallback(async () => {
     if (!aiPrompt) return;
     setIsAiLoading(true);
+    useLogStore.getState().info('AUDIO', 'AIスクリプト生成を開始', { prompt: aiPrompt.substring(0, 50) });
     try {
       const response = await fetch(
         `${GEMINI_API_BASE_URL}/${GEMINI_SCRIPT_MODEL}:generateContent?key=${apiKey}`,
@@ -107,8 +109,12 @@ export function useAiNarration(): UseAiNarrationReturn {
       );
       const data = await response.json();
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (text) setAiScript(text.trim());
+      if (text) {
+        useLogStore.getState().info('AUDIO', 'AIスクリプト生成成功', { scriptLength: text.length });
+        setAiScript(text.trim());
+      }
     } catch (e) {
+      useLogStore.getState().error('AUDIO', 'AIスクリプト生成失敗', { error: e instanceof Error ? e.message : String(e) });
       console.error('スクリプト生成エラー:', e);
       throw new Error('スクリプト生成に失敗しました');
     } finally {
@@ -121,6 +127,7 @@ export function useAiNarration(): UseAiNarrationReturn {
     async (onNarrationCreated: (narration: AudioTrack) => void) => {
       if (!aiScript) return;
       setIsAiLoading(true);
+      useLogStore.getState().info('AUDIO', 'AI音声合成を開始', { voice: aiVoice, scriptLength: aiScript.length });
       try {
         const response = await fetch(
           `${GEMINI_API_BASE_URL}/${GEMINI_TTS_MODEL}:generateContent?key=${apiKey}`,
@@ -159,6 +166,7 @@ export function useAiNarration(): UseAiNarrationReturn {
           const audio = new Audio(blobUrl);
           audio.onloadedmetadata = () => {
             const voiceLabel = VOICE_OPTIONS.find((v) => v.id === aiVoice)?.label || 'AI音声';
+            useLogStore.getState().info('AUDIO', 'AI音声合成成功', { voice: aiVoice, duration: audio.duration });
             const narration: AudioTrack = {
               file: { name: `AIナレーション_${voiceLabel}.wav` },
               url: blobUrl,
@@ -178,6 +186,7 @@ export function useAiNarration(): UseAiNarrationReturn {
           };
         }
       } catch (e) {
+        useLogStore.getState().error('AUDIO', 'AI音声合成失敗', { error: e instanceof Error ? e.message : String(e) });
         console.error('音声生成エラー:', e);
         throw new Error('音声生成に失敗しました');
       } finally {

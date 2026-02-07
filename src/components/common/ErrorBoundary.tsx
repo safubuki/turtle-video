@@ -5,6 +5,7 @@
  */
 import { Component, type ReactNode, type ErrorInfo } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { useLogStore } from '../../stores/logStore';
 
 interface Props {
   children: ReactNode;
@@ -40,6 +41,13 @@ class ErrorBoundary extends Component<Props, State> {
     // エラー情報をログに記録（本番環境ではエラー追跡サービスに送信可能）
     console.error('ErrorBoundary caught an error:', error);
     console.error('Component stack:', errorInfo.componentStack);
+
+    // ログストアにエラーを記録
+    useLogStore.getState().error('GLOBAL', 'Reactエラーバウンダリでエラーを捕捉', {
+      errorName: error.name,
+      errorMessage: error.message,
+      componentStack: errorInfo.componentStack?.substring(0, 200)
+    });
 
     this.setState({ errorInfo });
   }

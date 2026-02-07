@@ -6,6 +6,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { FPS, EXPORT_VIDEO_BITRATE } from '../constants';
 import * as Mp4Muxer from 'mp4-muxer';
+import { useLogStore } from '../stores/logStore';
 
 /**
  * useExport - 動画書き出しロジックを提供するフック
@@ -52,6 +53,7 @@ export function useExport(): UseExportReturn {
 
   // エクスポート停止処理
   const stopExport = useCallback(() => {
+    useLogStore.getState().info('RENDER', 'エクスポートを停止');
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
@@ -77,6 +79,12 @@ export function useExport(): UseExportReturn {
     ) => {
       if (!canvasRef.current || !masterDestRef.current) return;
 
+      useLogStore.getState().info('RENDER', 'エクスポートを開始', { 
+        width: canvasRef.current.width, 
+        height: canvasRef.current.height,
+        fps: FPS,
+        bitrate: EXPORT_VIDEO_BITRATE
+      });
       setIsProcessing(true);
       setExportUrl(null);
       setExportExt(null);
@@ -290,10 +298,15 @@ export function useExport(): UseExportReturn {
         const url = URL.createObjectURL(blob);
 
         if (buffer.byteLength > 0) {
+          useLogStore.getState().info('RENDER', 'エクスポート成功', { 
+            size: buffer.byteLength,
+            sizeMB: (buffer.byteLength / 1024 / 1024).toFixed(2)
+          });
           setExportUrl(url);
           setExportExt('mp4');
           onRecordingStop(url, 'mp4');
         } else {
+          useLogStore.getState().warn('RENDER', 'エクスポートバッファが空');
           console.warn('Exported buffer is empty');
         }
 
@@ -304,7 +317,12 @@ export function useExport(): UseExportReturn {
           (err as any)?.message?.includes('Aborted');
 
         if (!isAbort) {
+          useLogStore.getState().error('RENDER', 'エクスポート失敗', { 
+            error: err instanceof Error ? err.message : String(err) 
+          });
           console.error('Export failed:', err);
+        } else {
+          useLogStore.getState().info('RENDER', 'エクスポートが中断されました');
         }
       } finally {
         // リソース解放などはGCに任せるが、明示的なcloseも可

@@ -4,6 +4,7 @@
  * @description Web Audio APIのコンテキスト管理、ノード接続（GainNode, SourceNode）を行うカスタムフック。
  */
 import { useRef, useCallback } from 'react';
+import { useLogStore } from '../stores/logStore';
 
 /**
  * useAudioContext - Web Audio APIのラッパーフック
@@ -38,10 +39,12 @@ export function useAudioContext(): UseAudioContextReturn {
   // AudioContext の取得/作成
   const getAudioContext = useCallback(() => {
     if (!audioCtxRef.current) {
+      useLogStore.getState().info('AUDIO', 'AudioContextを作成');
       const AC = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       const ctx = new AC();
       audioCtxRef.current = ctx;
       masterDestRef.current = ctx.createMediaStreamDestination();
+      useLogStore.getState().info('AUDIO', 'AudioContext作成完了', { sampleRate: ctx.sampleRate, state: ctx.state });
     }
     return audioCtxRef.current;
   }, []);
@@ -56,6 +59,7 @@ export function useAudioContext(): UseAudioContextReturn {
           try {
             const ctx = getAudioContext();
             if (!sourceNodesRef.current[id]) {
+              useLogStore.getState().debug('AUDIO', 'オーディオノードを接続', { id, tagName: element.tagName });
               const source = ctx.createMediaElementSource(element as HTMLMediaElement);
               const gain = ctx.createGain();
               source.connect(gain);
@@ -65,7 +69,7 @@ export function useAudioContext(): UseAudioContextReturn {
               gainNodesRef.current[id] = gain;
             }
           } catch (e) {
-            /* ignore - already connected */
+            useLogStore.getState().warn('AUDIO', 'オーディオノード接続失敗または既に接続済み', { id, error: e instanceof Error ? e.message : String(e) });
           }
         }
       } else {
@@ -82,6 +86,8 @@ export function useAudioContext(): UseAudioContextReturn {
     const dest = masterDestRef.current;
     const target = isExporting && dest ? dest : ctx.destination;
 
+    useLogStore.getState().debug('AUDIO', 'オーディオルーティングを設定', { isExporting, nodeCount: Object.keys(gainNodesRef.current).length });
+
     Object.keys(gainNodesRef.current).forEach((id) => {
       const gain = gainNodesRef.current[id];
       try {
@@ -95,6 +101,10 @@ export function useAudioContext(): UseAudioContextReturn {
 
   // 全ノードの切断
   const disconnectAllNodes = useCallback(() => {
+    useLogStore.getState().debug('AUDIO', '全オーディオノードを切断', { 
+      sourceNodeCount: Object.keys(sourceNodesRef.current).length,
+      gainNodeCount: Object.keys(gainNodesRef.current).length
+    });
     Object.values(sourceNodesRef.current).forEach((n) => {
       try {
         n.disconnect();

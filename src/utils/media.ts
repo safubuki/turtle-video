@@ -5,6 +5,7 @@
  */
 
 import type { MediaItem } from '../types';
+import { useLogStore } from '../stores/logStore';
 
 /**
  * ID生成用カウンター（同一ミリ秒内での重複を防止）
@@ -42,6 +43,7 @@ export function getMediaType(file: File): 'video' | 'image' | 'audio' | null {
  */
 export function createMediaItem(file: File): MediaItem {
   const isImage = file.type.startsWith('image');
+  useLogStore.getState().debug('MEDIA', 'メディアアイテムを作成', { fileName: file.name, type: isImage ? 'image' : 'video', size: file.size });
   return {
     id: generateId(),
     file,
@@ -167,9 +169,10 @@ export function validatePosition(position: number, limit: number = 1280): number
 export function revokeObjectUrl(url: string | undefined | null): void {
   if (url) {
     try {
+      useLogStore.getState().debug('MEDIA', 'ObjectURLを解放', { url: url.substring(0, 50) });
       URL.revokeObjectURL(url);
     } catch (e) {
-      // ignore
+      useLogStore.getState().warn('MEDIA', 'ObjectURL解放失敗', { url: url.substring(0, 50), error: e instanceof Error ? e.message : String(e) });
     }
   }
 }

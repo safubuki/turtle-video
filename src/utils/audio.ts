@@ -4,6 +4,8 @@
  * @description 音声データの変換（PCM to WAV）、AudioContextの管理、ボリューム計算などのユーティリティ関数群。
  */
 
+import { useLogStore } from '../stores/logStore';
+
 /**
  * PCMデータをWAVフォーマットに変換
  * @param pcmData - 生のPCMデータ
@@ -78,6 +80,7 @@ export function base64ToArrayBuffer(base64: string): ArrayBuffer {
  * @returns AudioContext
  */
 export function getOrCreateAudioContext(): AudioContext {
+  useLogStore.getState().debug('AUDIO', 'AudioContextを作成または取得');
   const AC = window.AudioContext ||
     (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   return new AC();
