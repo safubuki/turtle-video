@@ -1,4 +1,3 @@
-```skill
 ---
 name: skills-generator
 description: Agent Skillsを新規作成・改善・セキュリティ診断・日本語ローカライズするメタスキル。ユーザーの目的に応じたSKILL.mdとオプションフォルダ（references/assets/examples/scripts/）を含む完全なスキルパッケージを生成する。既存スキルの発火条件・構造・品質の改善、ヘルパースクリプト付きスキルの生成、悪意ある指示やリスクの診断、英語スキルの日本語化にも対応。「スキルを作って」「Skill作成」「新しいスキル」「スキル生成」「スキルを改善」「スキルを最適化」「発火しない」「発火条件を改善」「スキルの診断」「スキルをチェック」「スキルを監査」「スキルを日本語化」「スキルを翻訳」「ローカライズ」「こんなことしたい」「あんな事ができたら」「自動化したい」などで発火。
@@ -321,4 +320,3 @@ GitHub や Anthropic のリポジトリなどから取得した英語スキル�
 | [references/skill-standard-summary.md](references/skill-standard-summary.md) | Agent Skills Standard 仕様サマリー |
 | [references/implementation-patterns-guide.md](references/implementation-patterns-guide.md) | 実装パターン・注意点リファレンス作成ガイド |
 | [examples/example-skill/](examples/example-skill/) | 良いスキルの実装例 |
-```

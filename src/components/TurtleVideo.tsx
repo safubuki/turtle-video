@@ -275,6 +275,16 @@ const TurtleVideo: React.FC = () => {
           t += item.duration;
         }
 
+        // シーク終端対策: time が totalDuration 以上で activeId が見つからない場合、
+        // 最後のクリップの最終フレームを表示する（黒画面防止）
+        if (!activeId && currentItems.length > 0 && time >= totalDurationRef.current) {
+          const lastItem = currentItems[currentItems.length - 1];
+          activeId = lastItem.id;
+          activeIndex = currentItems.length - 1;
+          // 最終フレームを表示するため、duration からごく小さなオフセットを引く
+          localTime = Math.max(0, lastItem.duration - 0.001);
+        }
+
         // アクティブな動画が未準備の場合はキャンバスをクリアせず、
         // 直前フレームを保持してブラックアウトを防止
         let holdFrame = false;
@@ -1735,6 +1745,31 @@ const TurtleVideo: React.FC = () => {
       }
       accTime += item.duration;
     }
+
+    // シーク終端対策: t が totalDuration 以上の場合、最後のクリップの最終フレームに同期
+    const items = mediaItemsRef.current;
+    if (items.length > 0 && t >= totalDurationRef.current) {
+      const lastItem = items[items.length - 1];
+      if (lastItem.type === 'video') {
+        const videoEl = mediaElementsRef.current[lastItem.id] as HTMLVideoElement;
+        if (videoEl) {
+          if (videoEl.readyState === 0 && !videoEl.error) {
+            try { videoEl.load(); } catch (e) { /* ignore */ }
+          }
+          if (!videoEl.seeking && videoEl.readyState >= 1) {
+            const targetTime = (lastItem.trimStart || 0) + Math.max(0, lastItem.duration - 0.001);
+            if (Math.abs(videoEl.currentTime - targetTime) > 0.1) {
+              videoEl.currentTime = targetTime;
+            }
+          }
+        }
+        activeVideoIdRef.current = lastItem.id;
+      } else {
+        activeVideoIdRef.current = null;
+      }
+      return;
+    }
+
     activeVideoIdRef.current = null;
   }, []);
 
