@@ -625,7 +625,7 @@ const TurtleVideo: React.FC = () => {
                 if (trackTime <= track.duration) {
                   // シーク中は再生を開始しない（正確な位置からの再生を保証）
                   const needsSeek = Math.abs(element.currentTime - trackTime) > 0.5;
-                  
+
                   if (needsSeek) {
                     // シーク実行前に一時停止して位置を同期
                     if (!element.paused) {
@@ -633,7 +633,7 @@ const TurtleVideo: React.FC = () => {
                     }
                     element.currentTime = trackTime;
                   }
-                  
+
                   // シーク中でなく、readyStateが十分であれば再生開始
                   if (!element.seeking && element.readyState >= 2 && element.paused) {
                     element.play().catch(() => { });
@@ -1410,18 +1410,33 @@ const TurtleVideo: React.FC = () => {
     const ctx = audioCtxRef.current;
     if (!ctx) return;
     const dest = masterDestRef.current;
-    const target = isExporting && dest ? dest : ctx.destination;
 
     Object.keys(gainNodesRef.current).forEach((id) => {
       const gain = gainNodesRef.current[id];
       try {
+        // 一旦すべての接続を解除
         gain.disconnect();
-        gain.connect(target);
+
+        if (isExporting && dest) {
+          // エクスポート先（録音用ノード）へ接続
+          gain.connect(dest);
+
+          // [iOS Safari対策]
+          // iOS SafariのWeb Audio APIは、スピーカー(ctx.destination)への接続がないと
+          // 音声処理をサスペンド（最適化）してしまう場合があるため、
+          // エクスポート中もスピーカー接続を維持する（＝端末から音が出る）。
+          if (isIosSafari) {
+            gain.connect(ctx.destination);
+          }
+        } else {
+          // 通常再生時はスピーカーへ接続
+          gain.connect(ctx.destination);
+        }
       } catch (e) {
         /* ignore */
       }
     });
-  }, []);
+  }, [isIosSafari]);
 
   // --- 再生ループ ---
   // 目的: 再生中にフレームを継続的に描画
@@ -1537,7 +1552,7 @@ const TurtleVideo: React.FC = () => {
 
             // 開始位置にシーク
             const targetTime = track.startPoint;
-            
+
             // readyStateが低い場合はロード待機
             if (element.readyState < 2) {
               const handleCanPlay = () => {
@@ -2126,117 +2141,117 @@ const TurtleVideo: React.FC = () => {
         <div className="mt-4 lg:grid lg:grid-cols-[1fr_585px] lg:gap-8">
           {/* 左カラム: 編集コントロール（モバイルでは通常の縦並び） */}
           <div className="space-y-6">
-        {/* 1. CLIPS */}
-        <ClipsSection
-          mediaItems={mediaItems}
-          isClipsLocked={isClipsLocked}
-          mediaElements={mediaElementsRef.current as Record<string, HTMLVideoElement | HTMLImageElement>}
-          onToggleClipsLock={withPause(toggleClipsLock)}
-          onMediaUpload={withPause(handleMediaUpload)}
-          onMoveMedia={withPause(handleMoveMedia)}
-          onRemoveMedia={withPause(handleRemoveMedia)}
-          onToggleMediaLock={withPause(toggleItemLock)}
-          onToggleTransformPanel={withPause(handleToggleTransformPanel)}
-          onUpdateVideoTrim={withPause(handleUpdateVideoTrim)}
-          onUpdateImageDuration={withPause(handleUpdateImageDuration)}
-          onUpdateMediaScale={withPause(handleUpdateMediaScale)}
-          onUpdateMediaPosition={withPause(handleUpdateMediaPosition)}
-          onResetMediaSetting={withPause(handleResetMediaSetting)}
-          onUpdateMediaVolume={withPause(updateVolume)}
-          onToggleMediaMute={withPause(toggleMute)}
-          onToggleMediaFadeIn={withPause(toggleFadeIn)}
-          onToggleMediaFadeOut={withPause(toggleFadeOut)}
-          onUpdateFadeInDuration={withPause(updateFadeInDuration)}
-          onUpdateFadeOutDuration={withPause(updateFadeOutDuration)}
-        />
+            {/* 1. CLIPS */}
+            <ClipsSection
+              mediaItems={mediaItems}
+              isClipsLocked={isClipsLocked}
+              mediaElements={mediaElementsRef.current as Record<string, HTMLVideoElement | HTMLImageElement>}
+              onToggleClipsLock={withPause(toggleClipsLock)}
+              onMediaUpload={withPause(handleMediaUpload)}
+              onMoveMedia={withPause(handleMoveMedia)}
+              onRemoveMedia={withPause(handleRemoveMedia)}
+              onToggleMediaLock={withPause(toggleItemLock)}
+              onToggleTransformPanel={withPause(handleToggleTransformPanel)}
+              onUpdateVideoTrim={withPause(handleUpdateVideoTrim)}
+              onUpdateImageDuration={withPause(handleUpdateImageDuration)}
+              onUpdateMediaScale={withPause(handleUpdateMediaScale)}
+              onUpdateMediaPosition={withPause(handleUpdateMediaPosition)}
+              onResetMediaSetting={withPause(handleResetMediaSetting)}
+              onUpdateMediaVolume={withPause(updateVolume)}
+              onToggleMediaMute={withPause(toggleMute)}
+              onToggleMediaFadeIn={withPause(toggleFadeIn)}
+              onToggleMediaFadeOut={withPause(toggleFadeOut)}
+              onUpdateFadeInDuration={withPause(updateFadeInDuration)}
+              onUpdateFadeOutDuration={withPause(updateFadeOutDuration)}
+            />
 
-        {/* 2. BGM SETTINGS */}
-        <BgmSection
-          bgm={bgm}
-          isBgmLocked={isBgmLocked}
-          totalDuration={totalDuration}
-          onToggleBgmLock={withPause(toggleBgmLock)}
-          onBgmUpload={withStop(handleBgmUpload)}
-          onRemoveBgm={withPause(removeBgm)}
-          onUpdateStartPoint={withPause((val) => handleUpdateTrackStart('bgm', val))}
-          onUpdateDelay={withPause((val) => handleUpdateTrackDelay('bgm', val))}
-          onUpdateVolume={withPause((val) => handleUpdateTrackVolume('bgm', val))}
-          onToggleFadeIn={withPause(toggleBgmFadeIn)}
-          onToggleFadeOut={withPause(toggleBgmFadeOut)}
-          onUpdateFadeInDuration={withPause(updateBgmFadeInDuration)}
-          onUpdateFadeOutDuration={withPause(updateBgmFadeOutDuration)}
-          formatTime={formatTime}
-        />
+            {/* 2. BGM SETTINGS */}
+            <BgmSection
+              bgm={bgm}
+              isBgmLocked={isBgmLocked}
+              totalDuration={totalDuration}
+              onToggleBgmLock={withPause(toggleBgmLock)}
+              onBgmUpload={withStop(handleBgmUpload)}
+              onRemoveBgm={withPause(removeBgm)}
+              onUpdateStartPoint={withPause((val) => handleUpdateTrackStart('bgm', val))}
+              onUpdateDelay={withPause((val) => handleUpdateTrackDelay('bgm', val))}
+              onUpdateVolume={withPause((val) => handleUpdateTrackVolume('bgm', val))}
+              onToggleFadeIn={withPause(toggleBgmFadeIn)}
+              onToggleFadeOut={withPause(toggleBgmFadeOut)}
+              onUpdateFadeInDuration={withPause(updateBgmFadeInDuration)}
+              onUpdateFadeOutDuration={withPause(updateBgmFadeOutDuration)}
+              formatTime={formatTime}
+            />
 
-        {/* 3. NARRATION SETTINGS */}
-        <NarrationSection
-          narration={narration}
-          isNarrationLocked={isNarrationLocked}
-          totalDuration={totalDuration}
-          onToggleNarrationLock={withPause(toggleNarrationLock)}
-          onShowAiModal={withPause(openAiModal)}
-          onNarrationUpload={withStop(handleNarrationUpload)}
-          onRemoveNarration={withPause(removeNarration)}
-          onUpdateStartPoint={withPause((val) => handleUpdateTrackStart('narration', val))}
-          onUpdateDelay={withPause((val) => handleUpdateTrackDelay('narration', val))}
-          onUpdateVolume={withPause((val) => handleUpdateTrackVolume('narration', val))}
-          onToggleFadeIn={withPause(toggleNarrationFadeIn)}
-          onToggleFadeOut={withPause(toggleNarrationFadeOut)}
-          onUpdateFadeInDuration={withPause(updateNarrationFadeInDuration)}
-          onUpdateFadeOutDuration={withPause(updateNarrationFadeOutDuration)}
-          formatTime={formatTime}
-        />
+            {/* 3. NARRATION SETTINGS */}
+            <NarrationSection
+              narration={narration}
+              isNarrationLocked={isNarrationLocked}
+              totalDuration={totalDuration}
+              onToggleNarrationLock={withPause(toggleNarrationLock)}
+              onShowAiModal={withPause(openAiModal)}
+              onNarrationUpload={withStop(handleNarrationUpload)}
+              onRemoveNarration={withPause(removeNarration)}
+              onUpdateStartPoint={withPause((val) => handleUpdateTrackStart('narration', val))}
+              onUpdateDelay={withPause((val) => handleUpdateTrackDelay('narration', val))}
+              onUpdateVolume={withPause((val) => handleUpdateTrackVolume('narration', val))}
+              onToggleFadeIn={withPause(toggleNarrationFadeIn)}
+              onToggleFadeOut={withPause(toggleNarrationFadeOut)}
+              onUpdateFadeInDuration={withPause(updateNarrationFadeInDuration)}
+              onUpdateFadeOutDuration={withPause(updateNarrationFadeOutDuration)}
+              formatTime={formatTime}
+            />
 
-        {/* 4. CAPTIONS */}
-        <CaptionSection
-          captions={captions}
-          settings={captionSettings}
-          isLocked={isCaptionLocked}
-          totalDuration={totalDuration}
-          currentTime={currentTime}
-          onToggleLock={withPause(toggleCaptionLock)}
-          onAddCaption={withPause(addCaption)}
-          onUpdateCaption={withPause(updateCaption)}
-          onRemoveCaption={withPause(removeCaption)}
-          onMoveCaption={withPause(moveCaption)}
-          onSetEnabled={withPause(setCaptionEnabled)}
-          onSetFontSize={withPause(setCaptionFontSize)}
-          onSetFontStyle={withPause(setCaptionFontStyle)}
-          onSetPosition={withPause(setCaptionPosition)}
-          onSetBlur={withPause(setCaptionBlur)}
-          onSetBulkFadeIn={withPause(setBulkFadeIn)}
-          onSetBulkFadeOut={withPause(setBulkFadeOut)}
-          onSetBulkFadeInDuration={withPause(setBulkFadeInDuration)}
-          onSetBulkFadeOutDuration={withPause(setBulkFadeOutDuration)}
-        />
+            {/* 4. CAPTIONS */}
+            <CaptionSection
+              captions={captions}
+              settings={captionSettings}
+              isLocked={isCaptionLocked}
+              totalDuration={totalDuration}
+              currentTime={currentTime}
+              onToggleLock={withPause(toggleCaptionLock)}
+              onAddCaption={withPause(addCaption)}
+              onUpdateCaption={withPause(updateCaption)}
+              onRemoveCaption={withPause(removeCaption)}
+              onMoveCaption={withPause(moveCaption)}
+              onSetEnabled={withPause(setCaptionEnabled)}
+              onSetFontSize={withPause(setCaptionFontSize)}
+              onSetFontStyle={withPause(setCaptionFontStyle)}
+              onSetPosition={withPause(setCaptionPosition)}
+              onSetBlur={withPause(setCaptionBlur)}
+              onSetBulkFadeIn={withPause(setBulkFadeIn)}
+              onSetBulkFadeOut={withPause(setBulkFadeOut)}
+              onSetBulkFadeInDuration={withPause(setBulkFadeInDuration)}
+              onSetBulkFadeOutDuration={withPause(setBulkFadeOutDuration)}
+            />
 
           </div>
 
           {/* 右カラム: プレビュー（モバイルでは下部に表示、PCではスティッキーサイドバー） */}
           <div className="mt-6 lg:mt-0">
             <div className="lg:sticky lg:top-20">
-        {/* 5. PREVIEW */}
-        <PreviewSection
-          mediaItems={mediaItems}
-          bgm={bgm}
-          narration={narration}
-          canvasRef={canvasRef}
-          currentTime={currentTime}
-          totalDuration={totalDuration}
-          isPlaying={isPlaying}
-          isProcessing={isProcessing}
-          isLoading={isLoading}
-          exportUrl={exportUrl}
-          exportExt={exportExt}
-          onSeekChange={handleSeekChange}
-          onSeekEnd={handleSeekEnd}
-          onTogglePlay={togglePlay}
-          onStop={handleStop}
-          onExport={handleExport}
-          onClearAll={handleClearAll}
-          onCapture={handleCapture}
-          formatTime={formatTime}
-        />
+              {/* 5. PREVIEW */}
+              <PreviewSection
+                mediaItems={mediaItems}
+                bgm={bgm}
+                narration={narration}
+                canvasRef={canvasRef}
+                currentTime={currentTime}
+                totalDuration={totalDuration}
+                isPlaying={isPlaying}
+                isProcessing={isProcessing}
+                isLoading={isLoading}
+                exportUrl={exportUrl}
+                exportExt={exportExt}
+                onSeekChange={handleSeekChange}
+                onSeekEnd={handleSeekEnd}
+                onTogglePlay={togglePlay}
+                onStop={handleStop}
+                onExport={handleExport}
+                onClearAll={handleClearAll}
+                onCapture={handleCapture}
+                formatTime={formatTime}
+              />
             </div>
           </div>
         </div>
