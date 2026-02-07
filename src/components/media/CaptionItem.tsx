@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Trash2, Edit2, Check, X, MapPin, Settings } from 'lucide-react';
+import { Trash2, Edit2, Check, X, MapPin, Settings, ArrowUp, ArrowDown } from 'lucide-react';
 import type { Caption } from '../../types';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import CaptionSettingsModal from '../modals/CaptionSettingsModal';
@@ -7,11 +7,13 @@ import CaptionSettingsModal from '../modals/CaptionSettingsModal';
 interface CaptionItemProps {
   caption: Caption;
   index: number;
+  totalCaptions: number;
   totalDuration: number;
   currentTime: number;
   isLocked: boolean;
   onUpdate: (id: string, updates: Partial<Omit<Caption, 'id'>>) => void;
   onRemove: (id: string) => void;
+  onMove: (id: string, direction: 'up' | 'down') => void;
 }
 
 /**
@@ -20,11 +22,13 @@ interface CaptionItemProps {
 const CaptionItem: React.FC<CaptionItemProps> = ({
   caption,
   index,
+  totalCaptions,
   totalDuration,
   currentTime,
   isLocked,
   onUpdate,
   onRemove,
+  onMove,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(caption.text);
@@ -84,6 +88,24 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
           )}
         </div>
         <div className="flex gap-1">
+          {/* 上へ移動 */}
+          <button
+            onClick={() => onMove(caption.id, 'up')}
+            disabled={index === 0 || isLocked}
+            className="p-1 text-gray-400 hover:text-white transition disabled:opacity-30 disabled:transition-none"
+            title="上へ移動"
+          >
+            <ArrowUp className="w-3 h-3" />
+          </button>
+          {/* 下へ移動 */}
+          <button
+            onClick={() => onMove(caption.id, 'down')}
+            disabled={index === totalCaptions - 1 || isLocked}
+            className="p-1 text-gray-400 hover:text-white transition disabled:opacity-30 disabled:transition-none"
+            title="下へ移動"
+          >
+            <ArrowDown className="w-3 h-3" />
+          </button>
           {/* 設定ボタン */}
           <button
             onClick={() => setShowSettingsModal(true)}

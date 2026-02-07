@@ -22,6 +22,7 @@ interface CaptionState {
   addCaption: (text: string, startTime: number, endTime: number) => void;
   updateCaption: (id: string, updates: Partial<Omit<Caption, 'id'>>) => void;
   removeCaption: (id: string) => void;
+  moveCaption: (id: string, direction: 'up' | 'down') => void;
   clearAllCaptions: () => void;
 
   // === スタイル設定 ===
@@ -98,7 +99,7 @@ export const useCaptionStore = create<CaptionState>()(
                 fadeInDuration: state.settings.bulkFadeInDuration,
                 fadeOutDuration: state.settings.bulkFadeOutDuration,
               },
-            ].sort((a, b) => a.startTime - b.startTime), // 開始時間でソート
+            ],
           }),
           false,
           'addCaption'
@@ -108,8 +109,7 @@ export const useCaptionStore = create<CaptionState>()(
         set(
           (state) => ({
             captions: state.captions
-              .map((c) => (c.id === id ? { ...c, ...updates } : c))
-              .sort((a, b) => a.startTime - b.startTime),
+              .map((c) => (c.id === id ? { ...c, ...updates } : c)),
           }),
           false,
           'updateCaption'
@@ -122,6 +122,21 @@ export const useCaptionStore = create<CaptionState>()(
           }),
           false,
           'removeCaption'
+        ),
+
+      moveCaption: (id, direction) =>
+        set(
+          (state) => {
+            const idx = state.captions.findIndex((c) => c.id === id);
+            if (idx < 0) return state;
+            const newIdx = direction === 'up' ? idx - 1 : idx + 1;
+            if (newIdx < 0 || newIdx >= state.captions.length) return state;
+            const newCaptions = [...state.captions];
+            [newCaptions[idx], newCaptions[newIdx]] = [newCaptions[newIdx], newCaptions[idx]];
+            return { captions: newCaptions };
+          },
+          false,
+          'moveCaption'
         ),
 
       clearAllCaptions: () =>

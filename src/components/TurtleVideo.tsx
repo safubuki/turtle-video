@@ -155,6 +155,7 @@ const TurtleVideo: React.FC = () => {
   const addCaption = useCaptionStore((s) => s.addCaption);
   const updateCaption = useCaptionStore((s) => s.updateCaption);
   const removeCaption = useCaptionStore((s) => s.removeCaption);
+  const moveCaption = useCaptionStore((s) => s.moveCaption);
   const setCaptionEnabled = useCaptionStore((s) => s.setEnabled);
   const setCaptionFontSize = useCaptionStore((s) => s.setFontSize);
   const setCaptionFontStyle = useCaptionStore((s) => s.setFontStyle);
@@ -2167,6 +2168,7 @@ const TurtleVideo: React.FC = () => {
           onAddCaption={withPause(addCaption)}
           onUpdateCaption={withPause(updateCaption)}
           onRemoveCaption={withPause(removeCaption)}
+          onMoveCaption={withPause(moveCaption)}
           onSetEnabled={withPause(setCaptionEnabled)}
           onSetFontSize={withPause(setCaptionFontSize)}
           onSetFontStyle={withPause(setCaptionFontStyle)}
