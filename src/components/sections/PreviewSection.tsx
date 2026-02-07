@@ -13,6 +13,7 @@ import {
   RotateCcw,
   MonitorPlay,
   AlertCircle,
+  Camera,
 
 } from 'lucide-react';
 import type { MediaItem, AudioTrack } from '../../types';
@@ -35,6 +36,7 @@ interface PreviewSectionProps {
   onStop: () => void;
   onExport: () => void;
   onClearAll: () => void;
+  onCapture: () => void;
 
   formatTime: (seconds: number) => string;
 }
@@ -60,6 +62,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   onStop,
   onExport,
   onClearAll,
+  onCapture,
 
   formatTime,
 }) => {
@@ -165,6 +168,14 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
             className={`p-3 rounded-full transition shadow-lg ${isLoading ? 'bg-gray-700 text-gray-400 cursor-wait' : isPlaying ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-blue-600 text-white hover:bg-blue-500'}`}
           >
             {isLoading ? <Loader className="w-5 h-5 animate-spin" /> : isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
+          </button>
+          <button
+            onClick={onCapture}
+            disabled={mediaItems.length === 0 || isProcessing || isLoading}
+            title="プレビューをキャプチャ"
+            className="p-3 rounded-full bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white transition shadow-lg disabled:opacity-50"
+          >
+            <Camera className="w-5 h-5" />
           </button>
         </div>
         <div className="mt-6 flex flex-col gap-4">

@@ -43,4 +43,5 @@ export {
   drawMediaCentered,
   isMediaReady,
   safeSetVideoTime,
+  captureCanvasAsImage,
 } from './canvas';
