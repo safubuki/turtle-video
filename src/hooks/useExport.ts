@@ -33,7 +33,8 @@ export interface UseExportReturn {
     canvasRef: React.MutableRefObject<HTMLCanvasElement | null>,
     masterDestRef: React.MutableRefObject<MediaStreamAudioDestinationNode | null>,
     onRecordingStop: (url: string, ext: string) => void,
-    onRecordingError?: (message: string) => void
+    onRecordingError?: (message: string) => void,
+    audioMixerNode?: AudioNode
   ) => void;
   stopExport: () => void; // 明示的な停止メソッドを追加
   clearExportUrl: () => void;
@@ -77,15 +78,16 @@ export function useExport(): UseExportReturn {
       canvasRef: React.MutableRefObject<HTMLCanvasElement | null>,
       masterDestRef: React.MutableRefObject<MediaStreamAudioDestinationNode | null>,
       onRecordingStop: (url: string, ext: string) => void,
-      onRecordingError?: (message: string) => void
+      onRecordingError?: (message: string) => void,
+      audioMixerNode?: AudioNode
     ) => {
       if (!canvasRef.current || !masterDestRef.current) {
         onRecordingError?.('エクスポートの初期化に失敗しました。');
         return;
       }
 
-      useLogStore.getState().info('RENDER', 'エクスポートを開始', { 
-        width: canvasRef.current.width, 
+      useLogStore.getState().info('RENDER', 'エクスポートを開始', {
+        width: canvasRef.current.width,
         height: canvasRef.current.height,
         fps: FPS,
         bitrate: EXPORT_VIDEO_BITRATE
@@ -217,14 +219,22 @@ export function useExport(): UseExportReturn {
           });
 
           const audioCtx = audioContext as AudioContext;
-          scriptProcessorSource = audioCtx.createMediaStreamSource(masterDestRef.current!.stream);
           const bufferSize = 4096;
           scriptProcessorNode = audioCtx.createScriptProcessor(bufferSize, 2, 2);
 
           let audioTimestamp = 0;
           let capturedChunks = 0;
 
-          scriptProcessorSource.connect(scriptProcessorNode);
+          // [iOS Safari対策] AudioNode直接接続
+          // masterDest.stream経由だとデータが欠落する場合があるため、
+          // audioMixerNodeが渡された場合は直接接続する
+          if (isIosSafari && audioMixerNode) {
+            useLogStore.getState().info('RENDER', 'MixerNodeから直接音声をキャプチャ');
+            audioMixerNode.connect(scriptProcessorNode);
+          } else {
+            scriptProcessorSource = audioCtx.createMediaStreamSource(masterDestRef.current!.stream);
+            scriptProcessorSource.connect(scriptProcessorNode);
+          }
           scriptProcessorNode.connect(audioCtx.destination);
 
           scriptProcessorNode.onaudioprocess = (event: AudioProcessingEvent) => {
@@ -496,7 +506,7 @@ export function useExport(): UseExportReturn {
         if (buffer.byteLength > 0) {
           const blob = new Blob([buffer], { type: 'video/mp4' });
           const url = URL.createObjectURL(blob);
-          useLogStore.getState().info('RENDER', 'エクスポート成功', { 
+          useLogStore.getState().info('RENDER', 'エクスポート成功', {
             size: buffer.byteLength,
             sizeMB: (buffer.byteLength / 1024 / 1024).toFixed(2)
           });
@@ -515,8 +525,8 @@ export function useExport(): UseExportReturn {
           (err as any)?.message?.includes('Aborted');
 
         if (!isAbort) {
-          useLogStore.getState().error('RENDER', 'エクスポート失敗', { 
-            error: err instanceof Error ? err.message : String(err) 
+          useLogStore.getState().error('RENDER', 'エクスポート失敗', {
+            error: err instanceof Error ? err.message : String(err)
           });
           console.error('Export failed:', err);
           onRecordingError?.(
@@ -534,6 +544,10 @@ export function useExport(): UseExportReturn {
         }
         if (scriptProcessorSource) {
           try { scriptProcessorSource.disconnect(); } catch (e) { /* ignore */ }
+        }
+        // [iOS Safari対策] 直接接続したMixerNodeの切断
+        if (isIosSafari && audioMixerNode && scriptProcessorNode) {
+          try { audioMixerNode.disconnect(scriptProcessorNode); } catch (e) { /* ignore */ }
         }
         // リソース解放などはGCに任せるが、明示的なcloseも可
         // controllerはstopExportでabort済み
