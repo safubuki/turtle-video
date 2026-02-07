@@ -491,12 +491,12 @@ const TurtleVideo: React.FC = () => {
           }
         });
 
-        // キャプション描画
+        // キャプション描画（複数同時表示対応）
         if (captionSettings.enabled && captions.length > 0) {
-          const activeCaption = captions.find(
+          const activeCaptions = captions.filter(
             (c) => time >= c.startTime && time < c.endTime
           );
-          if (activeCaption) {
+          for (const activeCaption of activeCaptions) {
             // フォントサイズ（個別設定優先）
             const fontSizeMap = { small: 32, medium: 48, large: 64, xlarge: 80 };
             const effectiveFontSizeKey = activeCaption.overrideFontSize ?? captionSettings.fontSize;
