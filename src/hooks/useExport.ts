@@ -59,6 +59,7 @@ export interface ExportAudioSources {
  */
 async function offlineRenderAudio(
   sources: ExportAudioSources,
+  mainCtx: BaseAudioContext,
   sampleRate: number,
   signal: AbortSignal,
 ): Promise<AudioBuffer | null> {
@@ -78,21 +79,65 @@ async function offlineRenderAudio(
   const offlineCtx = new OfflineAudioContext(numberOfChannels, length, sampleRate);
 
   // Helper: ファイルから音声をデコード
+  // メインAudioContextを使用して decodeAudioData を呼ぶ（iOS Safariではコンテナ形式の
+  // デコード互換性がメインコンテキストの方が高い。OfflineAudioContext上での
+  // decodeAudioDataはビデオコンテナ(MP4等)のオーディオ抽出に失敗する場合がある）
   async function decodeAudio(file: File | { name: string }, url: string): Promise<AudioBuffer | null> {
+    const fileName = file instanceof File ? file.name : (file as { name: string }).name;
     try {
       let arrayBuffer: ArrayBuffer;
       if (file instanceof File) {
         arrayBuffer = await file.arrayBuffer();
+        log.info('RENDER', `[DIAG-DECODE] File.arrayBuffer 取得成功`, {
+          fileName,
+          arrayBufferSize: arrayBuffer.byteLength,
+          arrayBufferSizeKB: Math.round(arrayBuffer.byteLength / 1024),
+        });
       } else {
         const response = await fetch(url);
+        if (!response.ok) {
+          log.warn('RENDER', `[DIAG-DECODE] fetch 失敗`, {
+            fileName,
+            status: response.status,
+            statusText: response.statusText,
+          });
+          return null;
+        }
         arrayBuffer = await response.arrayBuffer();
+        log.info('RENDER', `[DIAG-DECODE] fetch + arrayBuffer 取得成功`, {
+          fileName,
+          arrayBufferSize: arrayBuffer.byteLength,
+          arrayBufferSizeKB: Math.round(arrayBuffer.byteLength / 1024),
+        });
       }
+
+      if (arrayBuffer.byteLength === 0) {
+        log.warn('RENDER', `[DIAG-DECODE] ArrayBuffer が空です`, { fileName });
+        return null;
+      }
+
       // decodeAudioData は渡されたバッファを detach するため、コピーを渡す
-      return await offlineCtx.decodeAudioData(arrayBuffer.slice(0));
+      // メインctxで再生時に動作実績のある decodeAudioData を使用
+      log.info('RENDER', `[DIAG-DECODE] decodeAudioData 呼び出し開始`, {
+        fileName,
+        usingContext: (mainCtx as any).constructor?.name || 'unknown',
+        contextState: (mainCtx as any).state || 'N/A',
+        bufferSize: arrayBuffer.byteLength,
+      });
+      const decoded = await mainCtx.decodeAudioData(arrayBuffer.slice(0));
+      log.info('RENDER', `[DIAG-DECODE] 音声デコード成功`, {
+        fileName,
+        duration: Math.round(decoded.duration * 100) / 100,
+        channels: decoded.numberOfChannels,
+        sampleRate: decoded.sampleRate,
+        length: decoded.length,
+      });
+      return decoded;
     } catch (e) {
-      log.warn('RENDER', '音声デコードスキップ', {
-        fileName: file instanceof File ? file.name : (file as { name: string }).name,
+      log.warn('RENDER', `[DIAG-DECODE] 音声デコード失敗`, {
+        fileName,
         error: e instanceof Error ? e.message : String(e),
+        errorName: e instanceof Error ? e.name : 'unknown',
       });
       return null;
     }
@@ -142,7 +187,28 @@ async function offlineRenderAudio(
 
         source.start(clipStart, item.trimStart, item.duration);
         scheduledSources++;
+
+        // [DIAG-SCHED] クリップスケジュール詳細
+        log.info('RENDER', `[DIAG-SCHED] クリップ音声スケジュール`, {
+          fileName: item.file instanceof File ? item.file.name : '(not File)',
+          clipStart: Math.round(clipStart * 100) / 100,
+          clipEnd: Math.round(clipEnd * 100) / 100,
+          trimStart: item.trimStart,
+          duration: Math.round(item.duration * 100) / 100,
+          volume: vol,
+          bufferDuration: Math.round(audioBuffer.duration * 100) / 100,
+          bufferSampleRate: audioBuffer.sampleRate,
+          scheduledSources,
+        });
       }
+    } else {
+      // [DIAG-SCHED] スキップ理由もログ
+      log.info('RENDER', `[DIAG-SCHED] クリップスキップ`, {
+        type: item.type,
+        isMuted: item.isMuted,
+        volume: item.volume,
+        timelinePosition: Math.round(timelinePosition * 100) / 100,
+      });
     }
     timelinePosition += item.duration;
   }
@@ -203,11 +269,31 @@ async function offlineRenderAudio(
 
   try {
     const renderedBuffer = await offlineCtx.startRendering();
+
+    // 診断: レンダリング結果の振幅チェック（iOS Safari でデコード失敗時にゼロバッファになる）
+    let maxAmplitude = 0;
+    let nonZeroSamples = 0;
+    for (let ch = 0; ch < renderedBuffer.numberOfChannels; ch++) {
+      const data = renderedBuffer.getChannelData(ch);
+      for (let i = 0; i < data.length; i += 100) { // 100サンプル毎にチェック（パフォーマンス考慮）
+        const abs = Math.abs(data[i]);
+        if (abs > 1e-10) nonZeroSamples++;
+        if (abs > maxAmplitude) maxAmplitude = abs;
+      }
+    }
+
     log.info('RENDER', 'OfflineAudioContext レンダリング完了', {
       duration: Math.round(renderedBuffer.duration * 100) / 100,
       length: renderedBuffer.length,
       channels: renderedBuffer.numberOfChannels,
+      maxAmplitude: Math.round(maxAmplitude * 10000) / 10000,
+      nonZeroSamples,
     });
+
+    if (maxAmplitude < 1e-8) {
+      log.warn('RENDER', '⚠️ レンダリング結果がほぼ無音です。音声デコードまたはミキシングに問題がある可能性があります');
+    }
+
     return renderedBuffer;
   } catch (e) {
     log.error('RENDER', 'OfflineAudioContext レンダリング失敗', {
@@ -219,49 +305,89 @@ async function offlineRenderAudio(
 
 /**
  * プリレンダリング済み AudioBuffer を AudioEncoder にチャンク分割して供給する。
+ * f32-planar 形式を使用（AudioBuffer のネイティブ形式であり、
+ * iOS Safari の AudioEncoder との互換性が高い）。
  */
 function feedPreRenderedAudio(
   renderedAudio: AudioBuffer,
   audioEncoder: AudioEncoder,
   signal: AbortSignal,
-): void {
+): number {
+  const log = useLogStore.getState();
   const chunkSize = 4096;
   let audioOffset = 0;
   const totalSamples = renderedAudio.length;
   let audioTimestamp = 0;
+  let encodedChunks = 0;
   const ch0 = renderedAudio.getChannelData(0);
   const ch1 = renderedAudio.numberOfChannels >= 2
     ? renderedAudio.getChannelData(1) : ch0;
 
+  // 診断: 入力データの振幅チェック
+  let inputMaxAmp = 0;
+  for (let i = 0; i < ch0.length; i += 1000) {
+    const a = Math.abs(ch0[i]);
+    if (a > inputMaxAmp) inputMaxAmp = a;
+    if (ch1 !== ch0) {
+      const b = Math.abs(ch1[i]);
+      if (b > inputMaxAmp) inputMaxAmp = b;
+    }
+  }
+  log.info('RENDER', 'feedPreRenderedAudio 入力診断', {
+    totalSamples,
+    inputMaxAmplitude: Math.round(inputMaxAmp * 10000) / 10000,
+    sampleRate: renderedAudio.sampleRate,
+    channels: renderedAudio.numberOfChannels,
+  });
+
   while (audioOffset < totalSamples && !signal.aborted) {
     const framesToProcess = Math.min(chunkSize, totalSamples - audioOffset);
-    const interleavedData = new Float32Array(framesToProcess * 2);
-    for (let i = 0; i < framesToProcess; i++) {
-      interleavedData[i * 2] = ch0[audioOffset + i];
-      interleavedData[i * 2 + 1] = ch1[audioOffset + i];
-    }
+
+    // f32-planar 形式: [ch0全サンプル, ch1全サンプル] の順に配置
+    // AudioBuffer.getChannelData() が返すプレーナー形式をそのまま活用
+    const planarData = new Float32Array(framesToProcess * 2);
+    planarData.set(ch0.subarray(audioOffset, audioOffset + framesToProcess), 0);
+    planarData.set(ch1.subarray(audioOffset, audioOffset + framesToProcess), framesToProcess);
 
     if (audioEncoder.state === 'configured') {
-      const audioData = new AudioData({
-        format: 'f32' as AudioSampleFormat,
-        sampleRate: renderedAudio.sampleRate,
-        numberOfFrames: framesToProcess,
-        numberOfChannels: 2,
-        timestamp: audioTimestamp,
-        data: interleavedData,
-      });
-      audioEncoder.encode(audioData);
-      audioData.close();
+      try {
+        const audioData = new AudioData({
+          format: 'f32-planar' as AudioSampleFormat,
+          sampleRate: renderedAudio.sampleRate,
+          numberOfFrames: framesToProcess,
+          numberOfChannels: 2,
+          timestamp: audioTimestamp,
+          data: planarData,
+        });
+        audioEncoder.encode(audioData);
+        audioData.close();
+        encodedChunks++;
+      } catch (e) {
+        // 初回エラーのみログ
+        if (encodedChunks === 0) {
+          log.error('RENDER', 'AudioData/Encode 失敗', {
+            error: e instanceof Error ? e.message : String(e),
+            format: 'f32-planar',
+            framesToProcess,
+            timestamp: audioTimestamp,
+          });
+        }
+      }
     }
 
     audioOffset += framesToProcess;
     audioTimestamp += Math.round((framesToProcess / renderedAudio.sampleRate) * 1e6);
   }
 
-  useLogStore.getState().info('RENDER', 'プリレンダリング音声エンコード完了', {
+  log.info('RENDER', 'プリレンダリング音声エンコード完了', {
     totalChunks: Math.ceil(totalSamples / chunkSize),
+    encodedChunks,
     totalSamples,
+    format: 'f32-planar',
+    encodeQueueSize: audioEncoder.encodeQueueSize,
   });
+
+  return encodedChunks;
 }
 
 export function useExport(): UseExportReturn {
@@ -331,6 +457,47 @@ export function useExport(): UseExportReturn {
       const isSafari = /Safari/i.test(userAgent) && !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/i.test(userAgent);
       const isIosSafari = isIOS && isSafari;
 
+      // ============================================================
+      // [DIAG-1] プラットフォーム検出・入力情報の診断ログ
+      // ============================================================
+      useLogStore.getState().info('RENDER', '[DIAG-1] プラットフォーム・入力診断', {
+        isIOS,
+        isSafari,
+        isIosSafari,
+        userAgent: userAgent.substring(0, 120),
+        platform: typeof navigator !== 'undefined' ? navigator.platform : 'N/A',
+        maxTouchPoints: typeof navigator !== 'undefined' ? navigator.maxTouchPoints : -1,
+        hasAudioTrack: !!audioTrack,
+        audioContextState: (audioContext as AudioContext).state,
+        audioContextSampleRate: audioContext.sampleRate,
+        hasAudioSources: !!audioSources,
+        audioSourcesDetail: audioSources ? {
+          mediaItemCount: audioSources.mediaItems.length,
+          videoItemCount: audioSources.mediaItems.filter(i => i.type === 'video').length,
+          hasBgm: !!audioSources.bgm,
+          hasNarration: !!audioSources.narration,
+          totalDuration: Math.round(audioSources.totalDuration * 100) / 100,
+        } : null,
+      });
+
+      // [DIAG-1b] 全MediaItemの詳細一覧
+      if (audioSources && isIosSafari) {
+        audioSources.mediaItems.forEach((item, idx) => {
+          useLogStore.getState().info('RENDER', `[DIAG-1b] MediaItem[${idx}]`, {
+            type: item.type,
+            name: item.file instanceof File ? item.file.name : '(not File)',
+            hasFile: item.file instanceof File,
+            hasUrl: !!item.url,
+            duration: Math.round(item.duration * 100) / 100,
+            volume: item.volume,
+            isMuted: item.isMuted,
+            trimStart: item.trimStart,
+            fadeIn: item.fadeIn,
+            fadeOut: item.fadeOut,
+          });
+        });
+      }
+
       type TrackProcessorConstructor = new (init: { track: MediaStreamTrack }) => {
         readable: ReadableStream<VideoFrame | AudioData>;
       };
@@ -393,34 +560,95 @@ export function useExport(): UseExportReturn {
         });
 
         // 3. AudioEncoder の設定（常に作成する）
+        let audioEncoderOutputChunks = 0;
+        let audioEncoderOutputBytes = 0;
         const audioEncoder = new AudioEncoder({
-          output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
+          output: (chunk, meta) => {
+            audioEncoderOutputChunks++;
+            audioEncoderOutputBytes += chunk.byteLength;
+            // [DIAG-ENC-OUT] 初回出力とその後10チャンクごとにログ
+            if (audioEncoderOutputChunks === 1) {
+              useLogStore.getState().info('RENDER', '[DIAG-ENC-OUT] AudioEncoder 初回出力チャンク', {
+                chunkByteLength: chunk.byteLength,
+                chunkType: chunk.type,
+                chunkTimestamp: chunk.timestamp,
+                chunkDuration: chunk.duration,
+                hasMeta: !!meta,
+                metaDecoderConfig: meta?.decoderConfig ? {
+                  codec: meta.decoderConfig.codec,
+                  sampleRate: meta.decoderConfig.sampleRate,
+                  numberOfChannels: meta.decoderConfig.numberOfChannels,
+                } : null,
+              });
+            } else if (audioEncoderOutputChunks % 50 === 0) {
+              useLogStore.getState().info('RENDER', `[DIAG-ENC-OUT] AudioEncoder 出力中 (${audioEncoderOutputChunks}チャンク)`, {
+                totalBytes: audioEncoderOutputBytes,
+              });
+            }
+            muxer.addAudioChunk(chunk, meta);
+          },
           error: (e) => {
             useLogStore.getState().error('RENDER', 'AudioEncoder エラー', { error: String(e) });
             console.error('AudioEncoder error:', e);
           },
         });
-        audioEncoder.configure({
-          codec: 'mp4a.40.2', // AAC-LC
+        const audioEncoderConfig = {
+          codec: 'mp4a.40.2' as const, // AAC-LC
           sampleRate: audioContext.sampleRate,
-          numberOfChannels: 2,
+          numberOfChannels: 2 as const,
           bitrate: 128000,
+        };
+        audioEncoder.configure(audioEncoderConfig);
+
+        // ============================================================
+        // [DIAG-2] AudioEncoder 設定完了後の状態確認
+        // ============================================================
+        useLogStore.getState().info('RENDER', '[DIAG-2] AudioEncoder 設定完了', {
+          state: audioEncoder.state,
+          codec: audioEncoderConfig.codec,
+          sampleRate: audioEncoderConfig.sampleRate,
+          numberOfChannels: audioEncoderConfig.numberOfChannels,
+          bitrate: audioEncoderConfig.bitrate,
         });
 
         // === iOS Safari: OfflineAudioContext による音声プリレンダリング ===
         let offlineAudioDone = false;
         if (isIosSafari && audioSources) {
-          useLogStore.getState().info('RENDER', 'iOS Safari: OfflineAudioContext方式で音声レンダリング');
+          // [DIAG-3] OfflineAudioContext パス開始
+          useLogStore.getState().info('RENDER', '[DIAG-3] iOS Safari: OfflineAudioContext パス開始', {
+            totalDuration: audioSources.totalDuration,
+            sampleRate: audioContext.sampleRate,
+            audioEncoderState: audioEncoder.state,
+          });
           try {
             const renderedAudio = await offlineRenderAudio(
               audioSources,
+              audioContext,  // メインAudioContextでデコード（iOS Safari互換性向上）
               audioContext.sampleRate,
               signal,
             );
             if (renderedAudio && !signal.aborted) {
-              feedPreRenderedAudio(renderedAudio, audioEncoder, signal);
+              // [DIAG-4] feedPreRenderedAudio 呼び出し前の AudioEncoder 状態
+              useLogStore.getState().info('RENDER', '[DIAG-4] feed開始前 AudioEncoder状態', {
+                state: audioEncoder.state,
+                queueSize: audioEncoder.encodeQueueSize,
+                outputChunksSoFar: audioEncoderOutputChunks,
+              });
+              const encodedChunks = feedPreRenderedAudio(renderedAudio, audioEncoder, signal);
+              // [DIAG-5] feed完了後の AudioEncoder 状態
+              useLogStore.getState().info('RENDER', '[DIAG-5] feed完了後 AudioEncoder状態', {
+                state: audioEncoder.state,
+                queueSize: audioEncoder.encodeQueueSize,
+                outputChunksAfterFeed: audioEncoderOutputChunks,
+                encodedInputChunks: encodedChunks,
+              });
               offlineAudioDone = true;
-              useLogStore.getState().info('RENDER', 'iOS Safari: 音声プリレンダリング＆エンコード成功');
+              useLogStore.getState().info('RENDER', '[DIAG-5b] iOS Safari: 音声プリレンダリング＆エンコード完了', {
+                encodedChunks,
+                audioEncoderOutputChunks,
+                audioEncoderOutputBytes,
+                offlineAudioDone,
+              });
             } else if (!signal.aborted) {
               useLogStore.getState().warn('RENDER', 'OfflineAudioContext失敗、ScriptProcessorにフォールバック');
             }
@@ -430,6 +658,19 @@ export function useExport(): UseExportReturn {
             });
           }
         }
+
+        // ============================================================
+        // [DIAG-6] オフラインレンダリング後のパス分岐判断
+        // ============================================================
+        useLogStore.getState().info('RENDER', '[DIAG-6] 音声パス判断結果', {
+          offlineAudioDone,
+          isIosSafari,
+          hasAudioSources: !!audioSources,
+          audioEncoderOutputChunks,
+          audioEncoderOutputBytes,
+          willUseScriptProcessor: !offlineAudioDone && isIosSafari,
+          willUseTrackProcessor: !isIosSafari && !!audioTrack && canUseTrackProcessor,
+        });
 
         // 4. ストリームの取得と処理
         let videoReader: ReadableStreamDefaultReader<VideoFrame> | null = null;
@@ -722,12 +963,42 @@ export function useExport(): UseExportReturn {
           scriptProcessorSource = null;
         }
 
-        // フラッシュ
+        // ============================================================
+        // [DIAG-7] フラッシュ前の最終状態
+        // ============================================================
+        useLogStore.getState().info('RENDER', '[DIAG-7] エンコーダー flush 開始', {
+          audioEncoderOutputChunks,
+          audioEncoderOutputBytes,
+          audioEncoderState: audioEncoder.state,
+          audioEncoderQueueSize: audioEncoder.encodeQueueSize,
+          videoEncoderState: videoEncoder.state,
+          videoEncoderQueueSize: videoEncoder.encodeQueueSize,
+          offlineAudioDone,
+        });
         await videoEncoder.flush();
-        await audioEncoder.flush();
+        useLogStore.getState().info('RENDER', '[DIAG-7b] VideoEncoder flush 完了');
+        try {
+          await audioEncoder.flush();
+          useLogStore.getState().info('RENDER', '[DIAG-7c] AudioEncoder flush 完了', {
+            outputChunksAfterFlush: audioEncoderOutputChunks,
+            outputBytesAfterFlush: audioEncoderOutputBytes,
+          });
+        } catch (flushErr) {
+          useLogStore.getState().error('RENDER', '[DIAG-7c] AudioEncoder flush 失敗', {
+            error: flushErr instanceof Error ? flushErr.message : String(flushErr),
+            audioEncoderState: audioEncoder.state,
+          });
+        }
 
-        // Muxer終了
+        // ============================================================
+        // [DIAG-8] Muxer finalize
+        // ============================================================
         muxer.finalize();
+        useLogStore.getState().info('RENDER', '[DIAG-8] Muxer finalize 完了', {
+          bufferByteLength: muxer.target.buffer.byteLength,
+          audioEncoderOutputChunks,
+          audioEncoderOutputBytes,
+        });
 
         // Canvasストリームを停止
         if (canvasStream) {
@@ -746,9 +1017,16 @@ export function useExport(): UseExportReturn {
         if (buffer.byteLength > 0) {
           const blob = new Blob([buffer], { type: 'video/mp4' });
           const url = URL.createObjectURL(blob);
-          useLogStore.getState().info('RENDER', 'エクスポート成功', {
-            size: buffer.byteLength,
-            sizeMB: (buffer.byteLength / 1024 / 1024).toFixed(2)
+          // ============================================================
+          // [DIAG-9] エクスポート最終結果
+          // ============================================================
+          useLogStore.getState().info('RENDER', '[DIAG-9] エクスポート完了 最終結果', {
+            fileSizeBytes: buffer.byteLength,
+            fileSizeMB: (buffer.byteLength / 1024 / 1024).toFixed(2),
+            audioEncoderOutputChunks,
+            audioEncoderOutputBytes,
+            audioDataPresent: audioEncoderOutputChunks > 0,
+            offlineAudioDone,
           });
           setExportUrl(url);
           setExportExt('mp4');

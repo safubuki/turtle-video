@@ -276,11 +276,12 @@
   - `MediaStreamTrackProcessor` 非対応または iOS Safari では、`VideoFrame(canvas)` による直接キャプチャへフォールバック
   - **muxer と AudioEncoder は常に音声付きで設定**（`audioTrack` の有無に関わらず）
   - **iOS Safari では `OfflineAudioContext` による音声プリレンダリング方式を使用**:
-    - エクスポート開始前に全音声ソース（動画音声、BGM、ナレーション）の `File` オブジェクトを `decodeAudioData` で `AudioBuffer` に変換
+    - エクスポート開始前に全音声ソース（動画音声、BGM、ナレーション）の `File` オブジェクトを **メインAudioContext** の `decodeAudioData` で `AudioBuffer` に変換（OfflineAudioContext上でのビデオコンテナ(MP4)デコード失敗を回避）
     - `OfflineAudioContext` 上で各ソースを `BufferSourceNode` + `GainNode` でタイムライン通りにスケジューリング（音量・フェードイン/アウト含む）
     - `startRendering()` で完全なミックスダウン済み `AudioBuffer` を生成
-    - プリレンダリング済みバッファを `f32` インターリーブ形式の `AudioData` チャンクに分割し、`AudioEncoder` に直接供給
+    - プリレンダリング済みバッファを **`f32-planar` 形式**の `AudioData` チャンクに分割し、`AudioEncoder` に直接供給（AudioBufferのネイティブ形式であり、iOS Safari AudioEncoderとの互換性が高い）
     - これにより `ScriptProcessorNode`、`MediaStreamAudioDestinationNode`、リアルタイム同期を完全に回避
+    - **診断ログ**: レンダリング後の振幅チェック、AudioEncoder出力チャンクカウンタ、flush前後の状態ログを出力
   - OfflineAudioContext 失敗時は従来の ScriptProcessorNode 方式にフォールバック
   - `renderFrame` で「補正シークが必要なフレーム」を事前に `holdFrame` 扱いにし、黒クリアを回避（**エクスポート時のみ適用、通常再生には影響させない**）
   - iOS Safari のエクスポート時は動画同期しきい値を緩和（通常 0.5 秒 / Safari エクスポート時 1.2 秒）
@@ -288,7 +289,7 @@
 - **注意**:
   - クリップ切替直後のみ厳密同期（0.05 秒）を維持し、それ以外は過剰なシークを避ける
   - `OfflineAudioContext` はリアルタイムではなく最大速度でレンダリングするため、メインスレッド負荷の影響を受けない
-  - `decodeAudioData` が失敗した音声ソース（画像アイテム、音声トラックなし等）は自動的にスキップ
+  - `decodeAudioData` が失敗した音声ソース（画像アイテム、音声トラックなし等）は自動的にスキップ（各ソースのデコード成否をログ出力）
   - フェード時間の重複（短いクリップ）は按分で自動クランプ
   - BGM/ナレーションのフェードアウトはプロジェクト終端からの相対位置で計算
 
@@ -380,7 +381,7 @@
 | **ObjectURL** | 作成したら必ず `revokeObjectURL` で解放。特にリストア時の古い URL に注意 |
 | **Canvas** | `display: none` の video からは描画不可。`opacity: 0.001` で隠す |
 | **WebCodecs** | `VideoFrame` は `close()` しないとメモリリーク。CFR 強制が重要 |
-| **Safari Export** | iOS Safari では OfflineAudioContext による音声プリレンダリング方式を使用。エクスポート前に全音声（動画音声・BGM・ナレーション）をオフラインでミックスダウンし、AudioEncoder に直接供給する。リアルタイムキャプチャ（MediaStreamAudioDestinationNode / ScriptProcessorNode）は iOS Safari で動作しないため使用しない。muxer/AudioEncoder は常に音声付きで初期化。OfflineAudioContext 失敗時は ScriptProcessorNode にフォールバック |
+| **Safari Export** | iOS Safari では OfflineAudioContext による音声プリレンダリング方式を使用。メインAudioContextで`decodeAudioData`を実行し（OfflineAudioContextでのビデオコンテナデコード失敗回避）、`f32-planar`形式のAudioDataをAudioEncoderに直接供給する。レンダリング結果の振幅チェック・AudioEncoder出力カウンタ等の診断ログを出力。リアルタイムキャプチャ（MediaStreamAudioDestinationNode / ScriptProcessorNode）は iOS Safari で動作しないため使用しない。muxer/AudioEncoder は常に音声付きで初期化。OfflineAudioContext 失敗時は ScriptProcessorNode にフォールバック |
 | **タブ切替** | `visibilitychange` で復帰時に Canvas を再描画、メディアをリロード |
 | **モバイル** | スライダー誤操作を `useSwipeProtectedValue` で防止。`playsInline` 必須 |
 | **レスポンシブ** | モバイル既存スタイルは変更禁止。`md:` / `lg:` バリアントのみ追加で対応 |
