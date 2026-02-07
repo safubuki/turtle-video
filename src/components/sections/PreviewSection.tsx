@@ -149,10 +149,12 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
             className="absolute top-0 w-full h-full opacity-0 cursor-pointer z-10"
             disabled={mediaItems.length === 0 || isProcessing}
           />
-          <div
-            className="absolute top-1.5 w-5 h-5 bg-white shadow-lg rounded-full pointer-events-none z-0 border-2 border-gray-200"
-            style={{ left: `calc(${(currentTime / (totalDuration || 1)) * 100}% - 10px)` }}
-          />
+          {!isProcessing && mediaItems.length > 0 && (
+            <div
+              className="absolute top-1.5 w-5 h-5 bg-white shadow-lg rounded-full pointer-events-none z-0 border-2 border-gray-200"
+              style={{ left: `calc(${(currentTime / (totalDuration || 1)) * 100}% - 10px)` }}
+            />
+          )}
         </div>
         <div className="mt-4 flex justify-center gap-4 border-b border-gray-800 pb-6">
           <button
