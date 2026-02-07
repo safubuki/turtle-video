@@ -32,7 +32,8 @@ export interface UseExportReturn {
   startExport: (
     canvasRef: React.MutableRefObject<HTMLCanvasElement | null>,
     masterDestRef: React.MutableRefObject<MediaStreamAudioDestinationNode | null>,
-    onRecordingStop: (url: string, ext: string) => void
+    onRecordingStop: (url: string, ext: string) => void,
+    onRecordingError?: (message: string) => void
   ) => void;
   stopExport: () => void; // 明示的な停止メソッドを追加
   clearExportUrl: () => void;
@@ -75,9 +76,13 @@ export function useExport(): UseExportReturn {
     async (
       canvasRef: React.MutableRefObject<HTMLCanvasElement | null>,
       masterDestRef: React.MutableRefObject<MediaStreamAudioDestinationNode | null>,
-      onRecordingStop: (url: string, ext: string) => void
+      onRecordingStop: (url: string, ext: string) => void,
+      onRecordingError?: (message: string) => void
     ) => {
-      if (!canvasRef.current || !masterDestRef.current) return;
+      if (!canvasRef.current || !masterDestRef.current) {
+        onRecordingError?.('エクスポートの初期化に失敗しました。');
+        return;
+      }
 
       useLogStore.getState().info('RENDER', 'エクスポートを開始', { 
         width: canvasRef.current.width, 
@@ -93,6 +98,22 @@ export function useExport(): UseExportReturn {
       const width = canvas.width;
       const height = canvas.height;
       const audioContext = masterDestRef.current.context;
+      const audioTrack = masterDestRef.current.stream.getAudioTracks()[0] || null;
+      const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+      const isIOS = /iP(hone|ad|od)/i.test(userAgent) ||
+        (typeof navigator !== 'undefined' && navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      const isSafari = /Safari/i.test(userAgent) && !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/i.test(userAgent);
+      const isIosSafari = isIOS && isSafari;
+
+      type TrackProcessorConstructor = new (init: { track: MediaStreamTrack }) => {
+        readable: ReadableStream<VideoFrame | AudioData>;
+      };
+      const TrackProcessor = (
+        window as typeof window & { MediaStreamTrackProcessor?: TrackProcessorConstructor }
+      ).MediaStreamTrackProcessor;
+      const canUseTrackProcessor = typeof TrackProcessor === 'function';
+      const useManualCanvasFrames = isIosSafari || !canUseTrackProcessor;
+      const trackProcessorCtor = TrackProcessor as TrackProcessorConstructor | undefined;
 
       // 停止用シグナル
       const controller = new AbortController();
@@ -100,6 +121,10 @@ export function useExport(): UseExportReturn {
       const { signal } = controller;
 
       try {
+        if (typeof VideoEncoder === 'undefined' || typeof AudioEncoder === 'undefined') {
+          throw new Error('WebCodecsに対応していないブラウザです');
+        }
+
         // 1. Muxerの初期化 (ArrayBufferTarget -> メモリ上に構築)
         const muxer = new Mp4Muxer.Muxer({
           target: new Mp4Muxer.ArrayBufferTarget(),
@@ -109,11 +134,15 @@ export function useExport(): UseExportReturn {
             height,
             frameRate: FPS, // タイムスタンプをフレームレートに合わせて丸める（Teams互換性向上）
           },
-          audio: {
-            codec: 'aac',
-            sampleRate: audioContext.sampleRate,
-            numberOfChannels: 2,
-          },
+          ...(audioTrack
+            ? {
+              audio: {
+                codec: 'aac' as const,
+                sampleRate: audioContext.sampleRate,
+                numberOfChannels: 2,
+              },
+            }
+            : {}),
           firstTimestampBehavior: 'offset',
           fastStart: 'in-memory',
         });
@@ -132,37 +161,49 @@ export function useExport(): UseExportReturn {
         });
 
         // 3. AudioEncoder の設定
-        const audioEncoder = new AudioEncoder({
-          output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
-          error: (e) => console.error('AudioEncoder error:', e),
-        });
-        audioEncoder.configure({
-          codec: 'mp4a.40.2', // AAC-LC
-          sampleRate: audioContext.sampleRate,
-          numberOfChannels: 2,
-          bitrate: 128000,
-        });
+        let audioEncoder: AudioEncoder | null = null;
+        if (audioTrack) {
+          audioEncoder = new AudioEncoder({
+            output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
+            error: (e) => console.error('AudioEncoder error:', e),
+          });
+          audioEncoder.configure({
+            codec: 'mp4a.40.2', // AAC-LC
+            sampleRate: audioContext.sampleRate,
+            numberOfChannels: 2,
+            bitrate: 128000,
+          });
+        } else {
+          useLogStore.getState().warn('RENDER', '音声トラックなしでエクスポートを継続');
+        }
 
         // 4. ストリームの取得と処理
-        // Canvasからの映像ストリーム
-        const canvasStream = canvas.captureStream(FPS);
-        const videoTrack = canvasStream.getVideoTracks()[0];
-        // AudioDestinationNodeからの音声ストリーム
-        const audioStream = masterDestRef.current.stream;
-        const audioTrack = audioStream.getAudioTracks()[0];
+        let videoReader: ReadableStreamDefaultReader<VideoFrame> | null = null;
+        let audioReader: ReadableStreamDefaultReader<AudioData> | null = null;
+        let canvasStream: MediaStream | null = null;
 
-        if (!videoTrack) throw new Error('No video track found');
+        if (!useManualCanvasFrames) {
+          if (!trackProcessorCtor) {
+            throw new Error('TrackProcessorの初期化に失敗しました');
+          }
+          canvasStream = canvas.captureStream(FPS);
+          const videoTrack = canvasStream.getVideoTracks()[0];
+          if (!videoTrack) throw new Error('No video track found');
 
-        // TrackProcessorを使ってReadableStreamを取得
-        const videoProcessor = new MediaStreamTrackProcessor({ track: videoTrack });
-        const audioProcessor = new MediaStreamTrackProcessor({ track: audioTrack });
+          const videoProcessor = new trackProcessorCtor({ track: videoTrack });
+          videoReader = videoProcessor.readable.getReader() as ReadableStreamDefaultReader<VideoFrame>;
+          videoReaderRef.current = videoReader;
+        } else {
+          useLogStore.getState().info('RENDER', 'iOS Safari向けにCanvas直接キャプチャを使用');
+        }
 
-        const videoReader = videoProcessor.readable.getReader();
-        const audioReader = audioProcessor.readable.getReader();
-
-        // Refに保存して停止時にキャンセルできるようにする
-        videoReaderRef.current = videoReader as ReadableStreamDefaultReader<VideoFrame>;
-        audioReaderRef.current = audioReader as ReadableStreamDefaultReader<AudioData>;
+        if (audioTrack && canUseTrackProcessor && audioEncoder && trackProcessorCtor) {
+          const audioProcessor = new trackProcessorCtor({ track: audioTrack });
+          audioReader = audioProcessor.readable.getReader() as ReadableStreamDefaultReader<AudioData>;
+          audioReaderRef.current = audioReader;
+        } else if (audioTrack && !canUseTrackProcessor) {
+          useLogStore.getState().warn('RENDER', 'Audio TrackProcessor非対応のため音声なしでエクスポート');
+        }
 
         // 録画開始時刻
         // const startTime = document.timeline ? document.timeline.currentTime : performance.now();
@@ -175,12 +216,13 @@ export function useExport(): UseExportReturn {
           );
         };
 
-        const processVideo = async () => {
+        const processVideoWithTrackProcessor = async () => {
           let frameIndex = 0;
           const frameDuration = 1e6 / FPS; // 1フレームあたりの時間（マイクロ秒）
 
           try {
             while (!signal.aborted) {
+              if (!videoReader) break;
               const { done, value } = await videoReader.read();
               if (done) break;
 
@@ -218,7 +260,46 @@ export function useExport(): UseExportReturn {
           }
         };
 
+        const processVideoWithCanvasFrames = async () => {
+          let frameIndex = 0;
+          const frameDuration = 1e6 / FPS;
+          const frameInterval = Math.max(1, Math.round(1000 / FPS));
+
+          try {
+            while (!signal.aborted) {
+              if (videoEncoder.state === 'configured') {
+                const frame = new VideoFrame(canvas, {
+                  timestamp: Math.round(frameIndex * frameDuration),
+                  duration: Math.round(frameDuration),
+                });
+                videoEncoder.encode(frame);
+                frame.close();
+                frameIndex++;
+              }
+
+              await new Promise<void>((resolve) => {
+                const timeoutId = setTimeout(() => {
+                  signal.removeEventListener('abort', onAbort);
+                  resolve();
+                }, frameInterval);
+                const onAbort = () => {
+                  clearTimeout(timeoutId);
+                  signal.removeEventListener('abort', onAbort);
+                  resolve();
+                };
+                signal.addEventListener('abort', onAbort, { once: true });
+              });
+            }
+          } catch (e) {
+            if (!isAbortError(e)) {
+              console.error('Video processing error (canvas):', e);
+            }
+          }
+        };
+
         const processAudio = async () => {
+          if (!audioReader || !audioEncoder) return;
+
           try {
             while (!signal.aborted) {
               const { done, value } = await audioReader.read();
@@ -240,7 +321,11 @@ export function useExport(): UseExportReturn {
         };
 
         // 並列実行
-        const processing = Promise.all([processVideo(), processAudio()]);
+        const processingTasks = [
+          useManualCanvasFrames ? processVideoWithCanvasFrames() : processVideoWithTrackProcessor(),
+          processAudio(),
+        ];
+        const processing = Promise.all(processingTasks);
 
         // 停止を待つためのPromiseを作成
         // 実際のアプリでは「再生終了」などのイベントで stopExport が呼ばれることを想定するが、
@@ -287,17 +372,30 @@ export function useExport(): UseExportReturn {
 
         // フラッシュ
         await videoEncoder.flush();
-        await audioEncoder.flush();
+        if (audioEncoder) {
+          await audioEncoder.flush();
+        }
 
         // Muxer終了
         muxer.finalize();
 
+        // Canvasストリームを停止
+        if (canvasStream) {
+          canvasStream.getTracks().forEach((track) => {
+            try {
+              track.stop();
+            } catch (e) {
+              /* ignore */
+            }
+          });
+        }
+
         // バッファ取得とBlob作成
         const { buffer } = muxer.target;
-        const blob = new Blob([buffer], { type: 'video/mp4' });
-        const url = URL.createObjectURL(blob);
 
         if (buffer.byteLength > 0) {
+          const blob = new Blob([buffer], { type: 'video/mp4' });
+          const url = URL.createObjectURL(blob);
           useLogStore.getState().info('RENDER', 'エクスポート成功', { 
             size: buffer.byteLength,
             sizeMB: (buffer.byteLength / 1024 / 1024).toFixed(2)
@@ -307,7 +405,7 @@ export function useExport(): UseExportReturn {
           onRecordingStop(url, 'mp4');
         } else {
           useLogStore.getState().warn('RENDER', 'エクスポートバッファが空');
-          console.warn('Exported buffer is empty');
+          onRecordingError?.('エクスポートに失敗しました。書き出しデータが空です。');
         }
 
       } catch (err) {
@@ -321,13 +419,20 @@ export function useExport(): UseExportReturn {
             error: err instanceof Error ? err.message : String(err) 
           });
           console.error('Export failed:', err);
+          onRecordingError?.(
+            err instanceof Error ? `エクスポートに失敗しました: ${err.message}` : 'エクスポートに失敗しました'
+          );
         } else {
           useLogStore.getState().info('RENDER', 'エクスポートが中断されました');
+          onRecordingError?.('エクスポートが中断されました');
         }
       } finally {
         // リソース解放などはGCに任せるが、明示的なcloseも可
         // controllerはstopExportでabort済み
         // ReaderのキャンセルもstopExportで実施済み
+        abortControllerRef.current = null;
+        videoReaderRef.current = null;
+        audioReaderRef.current = null;
         setIsProcessing(false);
       }
     },

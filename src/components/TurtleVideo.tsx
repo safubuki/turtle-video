@@ -3,7 +3,7 @@
  * @author Turtle Village
  * @description 動画編集アプリケーションのメインコンポーネント。タイムライン管理、再生制御、レンダリングループ、および各種セクションの統合を行う。
  */
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 
 import type { MediaItem, AudioTrack } from '../types';
 import {
@@ -212,6 +212,16 @@ const TurtleVideo: React.FC = () => {
 
   const playbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 再生開始待機用タイマー
 
+  const isIosSafari = useMemo(() => {
+    if (typeof navigator === 'undefined') return false;
+    const ua = navigator.userAgent;
+    const isIOS =
+      /iP(hone|ad|od)/i.test(ua) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isSafari = /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/i.test(ua);
+    return isIOS && isSafari;
+  }, []);
+
   // Hooks
   const { startExport: startWebCodecsExport, stopExport: stopWebCodecsExport } = useExport();
 
@@ -294,6 +304,14 @@ const TurtleVideo: React.FC = () => {
           if (activeItem.type === 'video') {
             const activeEl = mediaElementsRef.current[activeId] as HTMLVideoElement | undefined;
             if (activeEl) {
+              const targetTime = (activeItem.trimStart || 0) + localTime;
+              const exportSyncThreshold = _isExporting && isIosSafari ? 1.2 : 0.5;
+              const needsCorrection =
+                isActivePlaying &&
+                !isSeekingRef.current &&
+                !activeEl.seeking &&
+                Math.abs(activeEl.currentTime - targetTime) > exportSyncThreshold;
+
               // readyState 0: 未ロード → クールダウン付きload()で復旧試行
               if (activeEl.readyState === 0 && !activeEl.error) {
                 const now = Date.now();
@@ -308,14 +326,15 @@ const TurtleVideo: React.FC = () => {
                 activeEl.videoWidth > 0 &&
                 activeEl.videoHeight > 0 &&
                 !activeEl.seeking;
-              if (!hasFrame) {
+              if (!hasFrame || needsCorrection) {
                 holdFrame = true;
                 // ブラックアウト防止発動をログ
                 logInfo('RENDER', 'フレーム保持発動', {
                   videoId: activeId,
                   readyState: activeEl.readyState,
                   seeking: activeEl.seeking,
-                  currentTime: t
+                  currentTime: t,
+                  needsCorrection,
                 });
               }
             }
@@ -365,6 +384,10 @@ const TurtleVideo: React.FC = () => {
             if (conf.type === 'video') {
               const videoEl = element as HTMLVideoElement;
               const targetTime = (conf.trimStart || 0) + localTime;
+              const isSwitchedVideo = isActivePlaying && activeVideoIdRef.current !== id;
+              const syncThreshold = _isExporting && isIosSafari
+                ? (isSwitchedVideo ? 0.05 : 1.2)
+                : 0.5;
 
               // アクティブなビデオIDを更新
               if (isActivePlaying && activeVideoIdRef.current !== id) {
@@ -388,7 +411,7 @@ const TurtleVideo: React.FC = () => {
               if (isActivePlaying && !isUserSeeking) {
                 // 再生中かつユーザーがシーク操作していない場合
                 // 大きなズレがあれば補正
-                if (!isVideoSeeking && Math.abs(videoEl.currentTime - targetTime) > 0.5) {
+                if (!isVideoSeeking && Math.abs(videoEl.currentTime - targetTime) > syncThreshold) {
                   videoEl.currentTime = targetTime;
                 }
                 // 一時停止していれば再生開始
@@ -661,7 +684,7 @@ const TurtleVideo: React.FC = () => {
         console.error('Render Error:', e);
       }
     },
-    [captions, captionSettings]
+    [captions, captionSettings, isIosSafari, logInfo]
   );
 
   // --- 状態同期: Zustandの状態をRefに同期 ---
@@ -1633,13 +1656,19 @@ const TurtleVideo: React.FC = () => {
             pause();
             // エンジン停止（再生ループを止める）
             stopAll();
+          },
+          (message) => {
+            setProcessing(false);
+            pause();
+            stopAll();
+            setError(message);
           }
         );
       }
 
       loop(isExportMode, myLoopId);
     },
-    [getAudioContext, stopAll, setProcessing, play, clearExport, configureAudioRouting, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop]
+    [getAudioContext, stopAll, setProcessing, play, clearExport, configureAudioRouting, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError]
   );
 
   // --- シークバー操作ハンドラ ---
