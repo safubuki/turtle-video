@@ -155,6 +155,7 @@ const TurtleVideo: React.FC = () => {
   const addCaption = useCaptionStore((s) => s.addCaption);
   const updateCaption = useCaptionStore((s) => s.updateCaption);
   const removeCaption = useCaptionStore((s) => s.removeCaption);
+  const moveCaption = useCaptionStore((s) => s.moveCaption);
   const setCaptionEnabled = useCaptionStore((s) => s.setEnabled);
   const setCaptionFontSize = useCaptionStore((s) => s.setFontSize);
   const setCaptionFontStyle = useCaptionStore((s) => s.setFontStyle);
@@ -490,12 +491,12 @@ const TurtleVideo: React.FC = () => {
           }
         });
 
-        // キャプション描画
+        // キャプション描画（複数同時表示対応）
         if (captionSettings.enabled && captions.length > 0) {
-          const activeCaption = captions.find(
+          const activeCaptions = captions.filter(
             (c) => time >= c.startTime && time < c.endTime
           );
-          if (activeCaption) {
+          for (const activeCaption of activeCaptions) {
             // フォントサイズ（個別設定優先）
             const fontSizeMap = { small: 32, medium: 48, large: 64, xlarge: 80 };
             const effectiveFontSizeKey = activeCaption.overrideFontSize ?? captionSettings.fontSize;
@@ -2167,6 +2168,7 @@ const TurtleVideo: React.FC = () => {
           onAddCaption={withPause(addCaption)}
           onUpdateCaption={withPause(updateCaption)}
           onRemoveCaption={withPause(removeCaption)}
+          onMoveCaption={withPause(moveCaption)}
           onSetEnabled={withPause(setCaptionEnabled)}
           onSetFontSize={withPause(setCaptionFontSize)}
           onSetFontStyle={withPause(setCaptionFontStyle)}

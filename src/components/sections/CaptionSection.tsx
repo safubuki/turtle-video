@@ -28,6 +28,7 @@ interface CaptionSectionProps {
   onAddCaption: (text: string, startTime: number, endTime: number) => void;
   onUpdateCaption: (id: string, updates: Partial<Omit<Caption, 'id'>>) => void;
   onRemoveCaption: (id: string) => void;
+  onMoveCaption: (id: string, direction: 'up' | 'down') => void;
   onSetEnabled: (enabled: boolean) => void;
   onSetFontSize: (size: CaptionSize) => void;
   onSetFontStyle: (style: CaptionFontStyle) => void;
@@ -52,6 +53,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   onAddCaption,
   onUpdateCaption,
   onRemoveCaption,
+  onMoveCaption,
   onSetEnabled,
   onSetFontSize,
   onSetFontStyle,
@@ -347,11 +349,13 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                   key={caption.id}
                   caption={caption}
                   index={index}
+                  totalCaptions={captions.length}
                   totalDuration={totalDuration}
                   currentTime={currentTime}
                   isLocked={isLocked}
                   onUpdate={onUpdateCaption}
                   onRemove={onRemoveCaption}
+                  onMove={onMoveCaption}
                 />
               ))
             )}
