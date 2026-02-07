@@ -66,7 +66,7 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
 
   return (
     <div
-      className={`p-3 rounded-lg border transition ${
+      className={`p-3 lg:p-4 rounded-lg border transition ${
         isActive
           ? 'bg-yellow-900/30 border-yellow-500/50'
           : 'bg-gray-800/50 border-gray-700/50'
@@ -75,7 +75,7 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
       {/* ヘッダー: 番号とアクション */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-500 font-mono">[{index + 1}]</span>
+          <span className="text-xs md:text-sm text-gray-500 font-mono">[{index + 1}]</span>
           {/* 個別設定が有効な場合にバッジ表示 */}
           {(caption.overridePosition || caption.overrideFontStyle || caption.overrideFontSize || caption.overrideFadeIn || caption.overrideFadeOut) && (
             <span className="text-[9px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded">
@@ -151,7 +151,7 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
           autoFocus
         />
       ) : (
-        <p className="text-sm text-white mb-2 truncate" title={caption.text}>
+        <p className="text-sm md:text-base text-white mb-2 truncate" title={caption.text}>
           "{caption.text}"
         </p>
       )}

@@ -91,18 +91,18 @@ const ClipItem: React.FC<ClipItemProps> = ({
   const handleVolume = useCallback((val: number) => onUpdateVolume(val), [onUpdateVolume]);
 
   return (
-    <div className="bg-gray-800 p-3 rounded-xl border border-gray-700/50 relative group">
+    <div className="bg-gray-800 p-3 lg:p-4 rounded-xl border border-gray-700/50 relative group">
       <div className="flex justify-between items-center mb-3">
         <div className="flex items-center gap-2 overflow-hidden">
-          <span className="bg-gray-900 text-gray-500 w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-mono">
+          <span className="bg-gray-900 text-gray-500 w-5 h-5 md:w-6 md:h-6 flex items-center justify-center rounded-full text-[10px] md:text-xs font-mono">
             {i + 1}
           </span>
           {v.type === 'image' ? (
-            <ImageIcon className="w-3 h-3 text-yellow-500" />
+            <ImageIcon className="w-3 h-3 md:w-4 md:h-4 text-yellow-500" />
           ) : (
-            <MonitorPlay className="w-3 h-3 text-blue-500" />
+            <MonitorPlay className="w-3 h-3 md:w-4 md:h-4 text-blue-500" />
           )}
-          <span className="text-xs font-medium truncate max-w-35 text-gray-300">
+          <span className="text-xs md:text-sm font-medium truncate max-w-35 md:max-w-none text-gray-300">
             {v.file.name}
           </span>
           <button
@@ -142,8 +142,8 @@ const ClipItem: React.FC<ClipItemProps> = ({
 
       {/* 動画トリミングUI */}
       {v.type === 'video' && (
-        <div className="bg-black/30 p-2 rounded mb-2 border border-gray-700/50 space-y-2">
-          <div className="flex items-center gap-2 mb-1 text-[10px] text-gray-400">
+        <div className="bg-black/30 p-2 lg:p-3 rounded mb-2 border border-gray-700/50 space-y-2">
+          <div className="flex items-center gap-2 mb-1 text-[10px] md:text-xs text-gray-400">
             <Scissors className="w-3 h-3" />
             <span>
               トリミング: {v.trimStart.toFixed(2)}s - {v.trimEnd.toFixed(2)}s
@@ -234,7 +234,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
       <button
         onClick={onToggleTransformPanel}
         disabled={isDisabled}
-        className="text-xs flex items-center gap-1 text-gray-400 hover:text-white mb-2 disabled:opacity-50"
+        className="text-xs md:text-sm flex items-center gap-1 text-gray-400 hover:text-white mb-2 disabled:opacity-50"
       >
         {v.isTransformOpen ? (
           <ChevronDown className="w-3 h-3" />
@@ -351,7 +351,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
       <button
         onClick={() => setIsSettingsOpen(!isSettingsOpen)}
         disabled={isDisabled}
-        className="text-xs flex items-center gap-1 text-gray-400 hover:text-white mb-2 disabled:opacity-50 mt-2"
+        className="text-xs md:text-sm flex items-center gap-1 text-gray-400 hover:text-white mb-2 disabled:opacity-50 mt-2"
       >
         {isSettingsOpen ? (
           <ChevronDown className="w-3 h-3" />
@@ -385,7 +385,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
                 onChange={handleVolume}
                 className={`flex-1 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${v.isMuted || isDisabled ? '' : 'cursor-pointer'}`}
               />
-              <span className="text-[10px] text-gray-400 w-10 text-right">{Math.round(v.volume * 100)}%</span>
+              <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right">{Math.round(v.volume * 100)}%</span>
               <button
                 onClick={() => onUpdateVolume(1)}
                 disabled={isDisabled}
@@ -398,7 +398,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
           )}
 
           {/* フェード設定 (共通) - 改善版 */}
-          <div className="flex flex-col gap-2 mt-2 text-[10px]">
+          <div className="flex flex-col gap-2 mt-2 text-[10px] md:text-xs">
             {/* フェードイン */}
             <div className="flex items-center gap-2">
               <label

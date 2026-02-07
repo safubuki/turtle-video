@@ -2089,9 +2089,12 @@ const TurtleVideo: React.FC = () => {
         onOpenProjectManager={() => setShowProjectManager(true)}
       />
 
-      <div className="max-w-md mx-auto p-4 space-y-6">
+      <div className="max-w-md md:max-w-3xl lg:max-w-6xl mx-auto p-4 lg:p-6">
         <ErrorMessage message={errorMsg} count={errorCount} onClose={clearError} />
 
+        <div className="mt-4 lg:grid lg:grid-cols-[1fr_585px] lg:gap-8 lg:items-start">
+          {/* 左カラム: 編集コントロール（モバイルでは通常の縦並び） */}
+          <div className="space-y-6">
         {/* 1. CLIPS */}
         <ClipsSection
           mediaItems={mediaItems}
@@ -2175,6 +2178,11 @@ const TurtleVideo: React.FC = () => {
           onSetBulkFadeOutDuration={withPause(setBulkFadeOutDuration)}
         />
 
+          </div>
+
+          {/* 右カラム: プレビュー（モバイルでは下部に表示、PCではスティッキーサイドバー） */}
+          <div className="mt-6 lg:mt-0">
+            <div className="lg:sticky lg:top-20">
         {/* 5. PREVIEW */}
         <PreviewSection
           mediaItems={mediaItems}
@@ -2197,6 +2205,9 @@ const TurtleVideo: React.FC = () => {
           onCapture={handleCapture}
           formatTime={formatTime}
         />
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

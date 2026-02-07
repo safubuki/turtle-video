@@ -68,9 +68,9 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
         className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center cursor-pointer hover:bg-gray-800/50 transition"
         onClick={() => setIsOpen(!isOpen)}
       >
-        <h2 className="font-bold flex items-center gap-2 text-indigo-400">
+        <h2 className="font-bold flex items-center gap-2 text-indigo-400 md:text-base lg:text-lg">
           {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-          <span className="w-6 h-6 rounded-full bg-indigo-500/10 flex items-center justify-center text-xs">
+          <span className="w-6 h-6 lg:w-7 lg:h-7 rounded-full bg-indigo-500/10 flex items-center justify-center text-xs lg:text-sm">
             3
           </span>{' '}
           ナレーション
@@ -85,13 +85,13 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
           <button
             onClick={onShowAiModal}
             disabled={isNarrationLocked}
-            className={`bg-linear-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-lg ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
+            className={`bg-linear-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white px-3 py-1.5 lg:px-4 lg:py-2 rounded-lg text-xs md:text-sm font-bold transition flex items-center gap-1 shadow-lg ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
           >
             <Sparkles className="w-3 h-3" /> AI
           </button>
           {!narration ? (
             <label
-              className={`cursor-pointer bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
+              className={`cursor-pointer bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 lg:px-4 lg:py-2 rounded-lg text-xs md:text-sm font-bold transition flex items-center gap-1 ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
             >
               <Upload className="w-3 h-3" /> 選択
               <input
@@ -116,7 +116,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
       {isOpen && narration && (
         <div className="p-4 bg-indigo-900/10 border border-indigo-500/20 m-3 rounded-xl space-y-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-indigo-200 text-xs font-medium truncate">
+            <div className="flex items-center gap-2 text-indigo-200 text-xs md:text-sm font-medium truncate">
               <Mic className="w-3 h-3 text-indigo-400 shrink-0" /> {narration.file.name}
             </div>
             {narration.blobUrl && (
@@ -130,7 +130,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
             )}
           </div>
           <div className="space-y-1">
-            <div className="flex justify-between text-[10px] text-gray-400">
+            <div className="flex justify-between text-[10px] md:text-xs text-gray-400">
               <span>開始位置 (頭出し): {formatTime(narration.startPoint)}</span>
               <span>長さ: {formatTime(narration.duration)}</span>
             </div>
@@ -152,13 +152,13 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                 value={narration.startPoint}
                 onChange={(e) => onUpdateStartPoint(e.target.value)}
                 disabled={isNarrationLocked}
-                className="w-16 bg-gray-700 border border-gray-600 rounded px-1 text-[10px] text-right focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+                className="w-16 md:w-20 bg-gray-700 border border-gray-600 rounded px-1 text-[10px] md:text-xs text-right focus:outline-none focus:border-indigo-500 disabled:opacity-50"
               />
-              <span className="text-[10px] text-gray-500">秒</span>
+              <span className="text-[10px] md:text-xs text-gray-500">秒</span>
             </div>
           </div>
-          <div className="bg-indigo-900/30 p-2 rounded border border-indigo-500/30 space-y-1">
-            <div className="flex items-center gap-2 text-[10px] text-indigo-200">
+          <div className="bg-indigo-900/30 p-2 lg:p-3 rounded border border-indigo-500/30 space-y-1">
+            <div className="flex items-center gap-2 text-[10px] md:text-xs text-indigo-200">
               <Timer className="w-3 h-3" />
               <span>開始タイミング (遅延): {formatTime(narration.delay || 0)}</span>
             </div>
@@ -180,9 +180,9 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                 value={narration.delay || 0}
                 onChange={(e) => onUpdateDelay(e.target.value)}
                 disabled={isNarrationLocked}
-                className="w-16 bg-gray-700 border border-gray-600 rounded px-1 text-[10px] text-right focus:outline-none focus:border-indigo-400 disabled:opacity-50"
+                className="w-16 md:w-20 bg-gray-700 border border-gray-600 rounded px-1 text-[10px] md:text-xs text-right focus:outline-none focus:border-indigo-400 disabled:opacity-50"
               />
-              <span className="text-[10px] text-gray-500">秒</span>
+              <span className="text-[10px] md:text-xs text-gray-500">秒</span>
             </div>
           </div>
           {/* 音量コントロール */}
@@ -197,7 +197,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
               disabled={isNarrationLocked}
               className={`flex-1 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isNarrationLocked ? '' : 'cursor-pointer'}`}
             />
-            <span className="text-[10px] text-gray-400 w-10 text-right">{Math.round(narration.volume * 100)}%</span>
+            <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right">{Math.round(narration.volume * 100)}%</span>
             <button
               onClick={() => onUpdateVolume('1')}
               disabled={isNarrationLocked}
@@ -209,7 +209,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
           </div>
 
           {/* フェード設定 */}
-          <div className="flex flex-col gap-2 mt-2 text-[10px]">
+          <div className="flex flex-col gap-2 mt-2 text-[10px] md:text-xs">
             {/* フェードイン */}
             <div className="flex items-center gap-2">
               <label
