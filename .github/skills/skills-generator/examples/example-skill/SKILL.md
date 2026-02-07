@@ -1,4 +1,3 @@
-```skill
 ---
 name: code-review
 description: コードレビューを体系的に実施するスキル。品質・セキュリティ・パフォーマンス・保守性の観点でコードを分析し、改善提案をフォーマット化して出力する。「コードレビューして」「レビュー」「PRチェック」「コード品質」などで発火。
@@ -40,4 +39,3 @@ description: コードレビューを体系的に実施するスキル。品質�
 
 - [assets/review-template.md](assets/review-template.md) — レビューレポートテンプレート
 - [references/review-checklist.md](references/review-checklist.md) — 詳細チェックリスト
-```
