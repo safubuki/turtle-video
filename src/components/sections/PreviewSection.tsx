@@ -68,9 +68,9 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
 }) => {
   return (
     <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
-      <div className="p-3 border-b border-gray-800 bg-gray-850 flex items-center justify-between">
-        <h2 className="font-bold flex items-center gap-2 text-green-400">
-          <span className="w-6 h-6 rounded-full bg-green-500/10 flex items-center justify-center text-xs">
+      <div className="p-3 lg:p-4 border-b border-gray-800 bg-gray-850 flex items-center justify-between">
+        <h2 className="font-bold flex items-center gap-2 text-green-400 md:text-base lg:text-lg">
+          <span className="w-6 h-6 lg:w-7 lg:h-7 rounded-full bg-green-500/10 flex items-center justify-center text-xs lg:text-sm">
             5
           </span>{' '}
           プレビュー
@@ -78,7 +78,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
         <div className="flex items-center gap-2">
 
           {isProcessing && (
-            <span className="text-[10px] text-green-400 font-mono animate-pulse bg-green-900/30 px-2 py-0.5 rounded">
+            <span className="text-[10px] md:text-xs text-green-400 font-mono animate-pulse bg-green-900/30 px-2 py-0.5 rounded">
               REC ●
             </span>
           )}
@@ -93,29 +93,29 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
         />
         {mediaItems.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <MonitorPlay className="w-12 h-12 text-gray-800" />
+            <MonitorPlay className="w-12 h-12 lg:w-16 lg:h-16 text-gray-800" />
           </div>
         )}
         {/* ローディングオーバーレイ */}
         {isLoading && mediaItems.length > 0 && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50 pointer-events-none">
             <div className="flex flex-col items-center gap-2">
-              <Loader className="w-8 h-8 text-blue-400 animate-spin" />
-              <span className="text-xs text-gray-300">読み込み中...</span>
+              <Loader className="w-8 h-8 lg:w-10 lg:h-10 text-blue-400 animate-spin" />
+              <span className="text-xs lg:text-sm text-gray-300">読み込み中...</span>
             </div>
           </div>
         )}
         {!isPlaying && !isProcessing && !isLoading && mediaItems.length > 0 && (
           <button
             onClick={onTogglePlay}
-            className="absolute inset-0 m-auto w-14 h-14 bg-white/20 hover:bg-white/30 backdrop-blur rounded-full flex items-center justify-center text-white transition-transform active:scale-95"
+            className="absolute inset-0 m-auto w-14 h-14 lg:w-16 lg:h-16 bg-white/20 hover:bg-white/30 backdrop-blur rounded-full flex items-center justify-center text-white transition-transform active:scale-95"
           >
-            <Play className="w-6 h-6 fill-current ml-1" />
+            <Play className="w-6 h-6 lg:w-8 lg:h-8 fill-current ml-1" />
           </button>
         )}
       </div>
-      <div className="p-4 bg-gray-900 border-t border-gray-800">
-        <div className="flex justify-between text-[10px] font-mono text-gray-400 mb-2">
+      <div className="p-4 lg:p-5 bg-gray-900 border-t border-gray-800">
+        <div className="flex justify-between text-[10px] md:text-xs lg:text-sm font-mono text-gray-400 mb-2">
           <span>{formatTime(currentTime)}</span>
           <span>{formatTime(totalDuration)}</span>
         </div>
@@ -158,24 +158,24 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
           <button
             onClick={onStop}
             disabled={mediaItems.length === 0 || isLoading}
-            className="p-3 rounded-full bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white transition shadow-lg disabled:opacity-50"
+            className="p-3 lg:p-4 rounded-full bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white transition shadow-lg disabled:opacity-50"
           >
-            <Square className="w-5 h-5 fill-current" />
+            <Square className="w-5 h-5 lg:w-6 lg:h-6 fill-current" />
           </button>
           <button
             onClick={onTogglePlay}
             disabled={mediaItems.length === 0 || isLoading}
-            className={`p-3 rounded-full transition shadow-lg ${isLoading ? 'bg-gray-700 text-gray-400 cursor-wait' : isPlaying ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-blue-600 text-white hover:bg-blue-500'}`}
+            className={`p-3 lg:p-4 rounded-full transition shadow-lg ${isLoading ? 'bg-gray-700 text-gray-400 cursor-wait' : isPlaying ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-blue-600 text-white hover:bg-blue-500'}`}
           >
-            {isLoading ? <Loader className="w-5 h-5 animate-spin" /> : isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
+            {isLoading ? <Loader className="w-5 h-5 lg:w-6 lg:h-6 animate-spin" /> : isPlaying ? <Pause className="w-5 h-5 lg:w-6 lg:h-6" /> : <Play className="w-5 h-5 lg:w-6 lg:h-6 ml-0.5" />}
           </button>
           <button
             onClick={onCapture}
             disabled={mediaItems.length === 0 || isProcessing || isLoading}
             title="プレビューをキャプチャ"
-            className="p-3 rounded-full bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white transition shadow-lg disabled:opacity-50"
+            className="p-3 lg:p-4 rounded-full bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white transition shadow-lg disabled:opacity-50"
           >
-            <Camera className="w-5 h-5" />
+            <Camera className="w-5 h-5 lg:w-6 lg:h-6" />
           </button>
         </div>
         <div className="mt-6 flex flex-col gap-4">
@@ -183,9 +183,9 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
             <button
               onClick={onClearAll}
               disabled={mediaItems.length === 0 && !bgm && !narration}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-gray-400 hover:bg-red-900/20 hover:text-red-400 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm lg:text-base font-medium text-gray-400 hover:bg-red-900/20 hover:text-red-400 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <RotateCcw className="w-4 h-4" /> 一括クリア
+              <RotateCcw className="w-4 h-4 lg:w-5 lg:h-5" /> 一括クリア
             </button>
             {exportUrl ? (
               <a
@@ -199,7 +199,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
               <button
                 onClick={onExport}
                 disabled={isProcessing || mediaItems.length === 0}
-                className={`flex-1 max-w-xs flex items-center justify-center gap-2 px-6 py-2.5 rounded-full text-sm font-bold shadow-lg transition ${isProcessing ? 'bg-gray-700 text-gray-400 cursor-wait' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20'}`}
+                className={`flex-1 max-w-xs flex items-center justify-center gap-2 px-6 py-2.5 lg:py-3 rounded-full text-sm lg:text-base font-bold shadow-lg transition ${isProcessing ? 'bg-gray-700 text-gray-400 cursor-wait' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20'}`}
               >
                 {isProcessing && (
                   <Loader className="animate-spin w-4 h-4" />

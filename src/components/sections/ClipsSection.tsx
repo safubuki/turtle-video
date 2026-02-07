@@ -59,8 +59,8 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   return (
     <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
       <div className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center">
-        <h2 className="font-bold flex items-center gap-2 text-blue-400">
-          <span className="w-6 h-6 rounded-full bg-blue-500/10 flex items-center justify-center text-xs">
+        <h2 className="font-bold flex items-center gap-2 text-blue-400 md:text-base lg:text-lg">
+          <span className="w-6 h-6 lg:w-7 lg:h-7 rounded-full bg-blue-500/10 flex items-center justify-center text-xs lg:text-sm">
             1
           </span>{' '}
           動画・画像
@@ -73,7 +73,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             {isClipsLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
           </button>
           <label
-            className={`cursor-pointer bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition ${isClipsLocked ? 'opacity-50 pointer-events-none' : ''}`}
+            className={`cursor-pointer bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 lg:px-4 lg:py-2 rounded-lg text-xs md:text-sm font-bold flex items-center gap-1 transition ${isClipsLocked ? 'opacity-50 pointer-events-none' : ''}`}
           >
             <Upload className="w-3 h-3" /> 追加
             <input
@@ -87,9 +87,9 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
           </label>
         </div>
       </div>
-      <div className="p-3 space-y-3 max-h-75 overflow-y-auto custom-scrollbar">
+      <div className="p-3 lg:p-4 space-y-3 max-h-75 lg:max-h-128 overflow-y-auto custom-scrollbar">
         {mediaItems.length === 0 && (
-          <div className="text-center py-8 text-gray-600 text-xs border-2 border-dashed border-gray-800 rounded">
+          <div className="text-center py-8 text-gray-600 text-xs md:text-sm border-2 border-dashed border-gray-800 rounded">
             動画または画像ファイルを追加してください
           </div>
         )}

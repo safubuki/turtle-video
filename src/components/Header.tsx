@@ -16,33 +16,61 @@ interface HeaderProps {
  */
 const Header: React.FC<HeaderProps> = ({ onOpenSettings, onOpenProjectManager }) => {
   return (
-    <header className="sticky top-0 z-50 bg-gray-900/95 backdrop-blur border-b border-gray-800 px-4 py-3 flex items-center justify-center shadow-lg">
-      <div className="flex items-center gap-2">
-        <div className="bg-green-600 p-1.5 rounded-lg">
-          <img src={`${import.meta.env.BASE_URL}turtle_icon.png`} alt="タートルビデオ" className="w-6 h-6" />
+    <header className="sticky top-0 z-50 bg-gray-900/95 backdrop-blur border-b border-gray-800 px-4 py-3 lg:px-8 lg:py-4 shadow-lg">
+      {/* モバイル: 従来通り中央寄せ1行 */}
+      {/* PC: タイトル中央 + アイコン少し右寄せ */}
+      <div className="flex items-center justify-center lg:justify-center lg:relative">
+        <div className="flex items-center gap-2 lg:gap-3">
+          <div className="bg-green-600 p-1.5 lg:p-2 rounded-lg">
+            <img src={`${import.meta.env.BASE_URL}turtle_icon.png`} alt="タートルビデオ" className="w-6 h-6 lg:w-7 lg:h-7" />
+          </div>
+          <h1 className="font-bold text-lg lg:text-xl whitespace-nowrap">
+            タートルビデオ{' '}
+            <span className="text-xs lg:text-sm bg-purple-600 px-1.5 py-0.5 rounded ml-1">AI</span>
+          </h1>
+          {/* モバイル: タイトル横に配置（従来通り） */}
+          <div className="flex items-center gap-1 lg:hidden">
+            {onOpenProjectManager && (
+              <button
+                onClick={onOpenProjectManager}
+                className="p-1.5 hover:bg-gray-700 rounded-lg transition text-gray-400 hover:text-white"
+                title="保存・読み込み"
+              >
+                <FolderOpen className="w-5 h-5" />
+              </button>
+            )}
+            {onOpenSettings && (
+              <button
+                onClick={onOpenSettings}
+                className="p-1.5 hover:bg-gray-700 rounded-lg transition text-gray-400 hover:text-white"
+                title="設定"
+              >
+                <Settings className="w-5 h-5" />
+              </button>
+            )}
+          </div>
         </div>
-        <h1 className="font-bold text-lg whitespace-nowrap">
-          タートルビデオ{' '}
-          <span className="text-xs bg-purple-600 px-1.5 py-0.5 rounded ml-1">AI</span>
-        </h1>
-        {onOpenProjectManager && (
-          <button
-            onClick={onOpenProjectManager}
-            className="ml-auto p-1.5 hover:bg-gray-700 rounded-lg transition text-gray-400 hover:text-white"
-            title="保存・読み込み"
-          >
-            <FolderOpen className="w-5 h-5" />
-          </button>
-        )}
-        {onOpenSettings && (
-          <button
-            onClick={onOpenSettings}
-            className="p-1.5 hover:bg-gray-700 rounded-lg transition text-gray-400 hover:text-white"
-            title="設定"
-          >
-            <Settings className="w-5 h-5" />
-          </button>
-        )}
+        {/* PC: タイトルから少し離して右側に配置 (ml-8 で間隔調整) */}
+        <div className="hidden lg:flex items-center gap-1 ml-10">
+          {onOpenProjectManager && (
+            <button
+              onClick={onOpenProjectManager}
+              className="p-2 hover:bg-gray-700 rounded-lg transition text-gray-400 hover:text-white"
+              title="保存・読み込み"
+            >
+              <FolderOpen className="w-6 h-6" />
+            </button>
+          )}
+          {onOpenSettings && (
+            <button
+              onClick={onOpenSettings}
+              className="p-2 hover:bg-gray-700 rounded-lg transition text-gray-400 hover:text-white"
+              title="設定"
+            >
+              <Settings className="w-6 h-6" />
+            </button>
+          )}
+        </div>
       </div>
     </header>
   );

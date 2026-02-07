@@ -83,3 +83,79 @@ input[type="number"] {
 .animate-bounce-short {
   animation: bounce-short 0.5s ease-in-out;
 }
+
+/* ============================================
+   PC / タブレット レスポンシブ対応
+   モバイル (<768px) には一切影響しない
+   ============================================ */
+
+/* タブレット横画面 (768px+): テキスト・UI要素のスケールアップ */
+@media (min-width: 768px) {
+  /* スライダーのトラック拡大 */
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 3px;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    width: 18px;
+    height: 18px;
+    margin-top: -6px;
+  }
+
+  /* スクロールバー拡大 */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+  }
+}
+
+/* デスクトップ (1024px+): さらなるスケールアップ */
+@media (min-width: 1024px) {
+  /* スライダーのトラック・サム拡大 */
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 8px;
+    border-radius: 4px;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    width: 22px;
+    height: 22px;
+    margin-top: -7px;
+  }
+
+  /* スクロールバー拡大 */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 10px;
+  }
+
+  /* 数値入力フィールドの拡大 */
+  section input[type="number"] {
+    font-size: 0.875rem;
+    padding: 0.25rem 0.5rem;
+  }
+
+  /* PC版: 極小テキスト (text-[10px]) を読みやすいサイズに拡大 */
+  section [class*="text-[10px]"] {
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
+
+  /* PC版: タブレット対応済みテキスト（md:text-xs等）を更にスケールアップ */
+  section [class*="text-[10px]"][class*="md:text-"] {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+
+  /* PC版: チェックボックスの操作性改善 */
+  section input[type="checkbox"] {
+    width: 1rem;
+    height: 1rem;
+    min-width: 1rem;
+    min-height: 1rem;
+  }
+
+  /* PC版: フェードラベル幅拡大（テキスト拡大に合わせる） */
+  section label[class*="w-24"] {
+    width: 7rem;
+  }
+}

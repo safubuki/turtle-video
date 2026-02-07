@@ -115,14 +115,14 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
         className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center cursor-pointer hover:bg-gray-800/50 transition"
         onClick={() => setIsOpen(!isOpen)}
       >
-        <h2 className="font-bold flex items-center gap-2 text-yellow-400">
+        <h2 className="font-bold flex items-center gap-2 text-yellow-400 md:text-base lg:text-lg">
           {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-          <span className="w-6 h-6 rounded-full bg-yellow-500/10 flex items-center justify-center text-xs">
+          <span className="w-6 h-6 lg:w-7 lg:h-7 rounded-full bg-yellow-500/10 flex items-center justify-center text-xs lg:text-sm">
             4
           </span>{' '}
           キャプション
           {captions.length > 0 && (
-            <span className="text-[10px] text-yellow-300 font-normal ml-2">
+            <span className="text-[10px] md:text-xs text-yellow-300 font-normal ml-2">
               ({captions.length}件)
             </span>
           )}
@@ -154,12 +154,12 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
 
       {/* コンテンツ */}
       {isOpen && (
-        <div className="p-3 space-y-3">
+        <div className="p-3 lg:p-4 space-y-3">
           {/* スタイル/フェード一括設定 */}
           <div className="bg-gray-800/50 rounded-lg border border-gray-700/50">
             <button
               onClick={() => setShowStyleSettings(!showStyleSettings)}
-              className="w-full p-2 flex items-center justify-between text-xs text-gray-400 hover:text-white transition"
+              className="w-full p-2 flex items-center justify-between text-xs md:text-sm text-gray-400 hover:text-white transition"
             >
               <div className="flex items-center gap-2">
                 <Type className="w-3 h-3" />
@@ -175,9 +175,9 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
               <div className="px-3 pb-3 space-y-3">
                 {/* ■ スタイル設定 */}
                 <div className="space-y-2">
-                  <div className="text-[10px] text-yellow-400 font-bold">■ スタイル設定</div>
+                  <div className="text-[10px] md:text-xs text-yellow-400 font-bold">■ スタイル設定</div>
                   {/* 文字サイズ */}
-                  <div className="flex items-center gap-2 text-[10px]">
+                  <div className="flex items-center gap-2 text-[10px] md:text-xs">
                     <span className="text-gray-400 w-16">サイズ:</span>
                     <div className="flex gap-1 flex-1">
                       {fontSizeOptions.map((opt) => (
@@ -196,7 +196,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                     </div>
                   </div>
                   {/* 字体 */}
-                  <div className="flex items-center gap-2 text-[10px]">
+                  <div className="flex items-center gap-2 text-[10px] md:text-xs">
                     <span className="text-gray-400 w-16">字体:</span>
                     <div className="flex gap-1 flex-1">
                       {fontStyleOptions.map((opt) => (
@@ -215,7 +215,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                     </div>
                   </div>
                   {/* 位置 */}
-                  <div className="flex items-center gap-2 text-[10px]">
+                  <div className="flex items-center gap-2 text-[10px] md:text-xs">
                     <span className="text-gray-400 w-16">位置:</span>
                     <div className="flex gap-1 flex-1">
                       {positionOptions.map((opt) => (
@@ -234,7 +234,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                     </div>
                   </div>
                   {/* ぼかし */}
-                  <div className="flex items-center gap-2 text-[10px]">
+                  <div className="flex items-center gap-2 text-[10px] md:text-xs">
                     <span className="text-gray-400 w-16">ぼかし:</span>
                     <SwipeProtectedSlider
                       min={0}
@@ -250,10 +250,10 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                 </div>
                 {/* ■ フェード一括設定 */}
                 <div className="space-y-2 pt-2 border-t border-gray-700/50">
-                  <div className="text-[10px] text-yellow-400 font-bold">■ フェード一括設定（個別ON優先）</div>
+                  <div className="text-[10px] md:text-xs text-yellow-400 font-bold">■ フェード一括設定（個別ON優先）</div>
                   {/* フェード設定 - 1行表示 */}
                   {/* フェード一括設定 - レイアウト改善 */}
-                  <div className="flex flex-col gap-2 mt-2 text-[10px]">
+                  <div className="flex flex-col gap-2 mt-2 text-[10px] md:text-xs">
                     {/* フェードイン */}
                     <div className="flex items-center gap-2">
                       <label className={`flex items-center gap-1 w-24 justify-start ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}>
@@ -324,21 +324,21 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
               }}
               placeholder="キャプションテキストを入力..."
               disabled={isLocked}
-              className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500 disabled:opacity-50"
+              className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm md:text-base text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500 disabled:opacity-50"
             />
             <button
               onClick={handleAddCaption}
               disabled={isLocked || !newText.trim()}
-              className="bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-2 lg:px-4 rounded-lg text-xs md:text-sm font-bold flex items-center gap-1 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Plus className="w-3 h-3" /> 追加
             </button>
           </div>
 
           {/* キャプション一覧 */}
-          <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
+          <div className="space-y-2 max-h-60 lg:max-h-80 overflow-y-auto custom-scrollbar">
             {captions.length === 0 ? (
-              <div className="text-center py-4 text-gray-600 text-xs border-2 border-dashed border-gray-800 rounded">
+              <div className="text-center py-4 text-gray-600 text-xs md:text-sm border-2 border-dashed border-gray-800 rounded">
                 キャプションがありません
               </div>
             ) : (
