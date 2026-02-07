@@ -1689,7 +1689,13 @@ const TurtleVideo: React.FC = () => {
             stopAll();
             setError(message);
           },
-          exportMixerNodeRef.current || undefined // iOS Safari用MixerNode
+          exportMixerNodeRef.current || undefined, // iOS Safari用MixerNode
+          {
+            mediaItems: mediaItemsRef.current,
+            bgm: bgmRef.current,
+            narration: narrationRef.current,
+            totalDuration: totalDurationRef.current,
+          }
         );
       }
 

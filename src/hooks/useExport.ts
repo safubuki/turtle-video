@@ -6,6 +6,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { FPS, EXPORT_VIDEO_BITRATE } from '../constants';
 import * as Mp4Muxer from 'mp4-muxer';
+import type { MediaItem, AudioTrack } from '../types';
 import { useLogStore } from '../stores/logStore';
 
 /**
@@ -34,10 +35,234 @@ export interface UseExportReturn {
     masterDestRef: React.MutableRefObject<MediaStreamAudioDestinationNode | null>,
     onRecordingStop: (url: string, ext: string) => void,
     onRecordingError?: (message: string) => void,
-    audioMixerNode?: AudioNode
+    audioMixerNode?: AudioNode,
+    audioSources?: ExportAudioSources
   ) => void;
   stopExport: () => void; // 明示的な停止メソッドを追加
   clearExportUrl: () => void;
+}
+
+/**
+ * エクスポート用の音声ソース情報。
+ * iOS Safari の OfflineAudioContext プリレンダリングに使用。
+ */
+export interface ExportAudioSources {
+  mediaItems: MediaItem[];
+  bgm: AudioTrack | null;
+  narration: AudioTrack | null;
+  totalDuration: number;
+}
+
+/**
+ * OfflineAudioContext を使用して全音声をオフラインでミックスダウンする。
+ * iOS Safari のリアルタイム音声キャプチャ問題（MediaStreamAudioDestinationNode / ScriptProcessorNode
+ * 経由でデータがドロップされる）を完全に回避する。
+ */
+async function offlineRenderAudio(
+  sources: ExportAudioSources,
+  sampleRate: number,
+  signal: AbortSignal,
+): Promise<AudioBuffer | null> {
+  const { mediaItems, bgm, narration, totalDuration } = sources;
+  if (totalDuration <= 0) return null;
+
+  const log = useLogStore.getState();
+  const numberOfChannels = 2;
+  const length = Math.ceil((totalDuration + 0.5) * sampleRate); // +0.5s safety margin
+
+  log.info('RENDER', 'OfflineAudioContext 音声プリレンダリング開始', {
+    totalDuration: Math.round(totalDuration * 100) / 100,
+    sampleRate,
+    estimatedSizeMB: Math.round((length * numberOfChannels * 4) / 1024 / 1024 * 10) / 10,
+  });
+
+  const offlineCtx = new OfflineAudioContext(numberOfChannels, length, sampleRate);
+
+  // Helper: ファイルから音声をデコード
+  async function decodeAudio(file: File | { name: string }, url: string): Promise<AudioBuffer | null> {
+    try {
+      let arrayBuffer: ArrayBuffer;
+      if (file instanceof File) {
+        arrayBuffer = await file.arrayBuffer();
+      } else {
+        const response = await fetch(url);
+        arrayBuffer = await response.arrayBuffer();
+      }
+      // decodeAudioData は渡されたバッファを detach するため、コピーを渡す
+      return await offlineCtx.decodeAudioData(arrayBuffer.slice(0));
+    } catch (e) {
+      log.warn('RENDER', '音声デコードスキップ', {
+        fileName: file instanceof File ? file.name : (file as { name: string }).name,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      return null;
+    }
+  }
+
+  let scheduledSources = 0;
+
+  // 1. ビデオクリップの音声
+  let timelinePosition = 0;
+  for (const item of mediaItems) {
+    if (signal.aborted) return null;
+
+    if (item.type === 'video' && !item.isMuted && item.volume > 0) {
+      const audioBuffer = await decodeAudio(item.file, item.url);
+      if (audioBuffer) {
+        const source = offlineCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        const gain = offlineCtx.createGain();
+        source.connect(gain);
+        gain.connect(offlineCtx.destination);
+
+        const vol = item.volume;
+        const clipStart = timelinePosition;
+        const clipEnd = clipStart + item.duration;
+
+        // フェード時間のクランプ（重なった場合に按分）
+        let fadeInDur = item.fadeIn ? (item.fadeInDuration || 1.0) : 0;
+        let fadeOutDur = item.fadeOut ? (item.fadeOutDuration || 1.0) : 0;
+        if (fadeInDur + fadeOutDur > item.duration) {
+          const ratio = item.duration / (fadeInDur + fadeOutDur);
+          fadeInDur *= ratio;
+          fadeOutDur *= ratio;
+        }
+
+        // ゲインエンベロープ設定
+        gain.gain.setValueAtTime(0, 0);
+        if (fadeInDur > 0) {
+          gain.gain.setValueAtTime(0, clipStart);
+          gain.gain.linearRampToValueAtTime(vol, clipStart + fadeInDur);
+        } else {
+          gain.gain.setValueAtTime(vol, clipStart);
+        }
+        if (fadeOutDur > 0) {
+          gain.gain.setValueAtTime(vol, clipEnd - fadeOutDur);
+          gain.gain.linearRampToValueAtTime(0, clipEnd);
+        }
+
+        source.start(clipStart, item.trimStart, item.duration);
+        scheduledSources++;
+      }
+    }
+    timelinePosition += item.duration;
+  }
+
+  // Helper: BGM/ナレーションのスケジューリング
+  async function scheduleAudioTrack(track: AudioTrack, label: string): Promise<void> {
+    if (signal.aborted) return;
+    const audioBuffer = await decodeAudio(track.file, track.url);
+    if (!audioBuffer) return;
+
+    const source = offlineCtx.createBufferSource();
+    source.buffer = audioBuffer;
+    const gain = offlineCtx.createGain();
+    source.connect(gain);
+    gain.connect(offlineCtx.destination);
+
+    const vol = track.volume;
+    const trackStart = Math.max(0, track.delay);
+    const sourceOffset = track.startPoint;
+    const availableDuration = track.duration - track.startPoint;
+    const availableTimeline = totalDuration - trackStart;
+    const playDuration = Math.min(availableDuration, availableTimeline);
+    if (playDuration <= 0) return;
+
+    const fadeInDur = track.fadeIn ? (track.fadeInDuration || 1.0) : 0;
+    const fadeOutDur = track.fadeOut ? (track.fadeOutDuration || 1.0) : 0;
+
+    // ゲインエンベロープ
+    gain.gain.setValueAtTime(0, 0);
+    if (fadeInDur > 0) {
+      gain.gain.setValueAtTime(0, trackStart);
+      gain.gain.linearRampToValueAtTime(vol, trackStart + fadeInDur);
+    } else {
+      gain.gain.setValueAtTime(vol, trackStart);
+    }
+    if (fadeOutDur > 0) {
+      // BGM/ナレーションのフェードアウトはプロジェクト終端からの相対位置
+      const fadeOutStart = Math.max(trackStart + fadeInDur, totalDuration - fadeOutDur);
+      gain.gain.setValueAtTime(vol, fadeOutStart);
+      gain.gain.linearRampToValueAtTime(0, totalDuration);
+    }
+
+    source.start(trackStart, sourceOffset, playDuration);
+    scheduledSources++;
+    log.info('RENDER', `${label}音声スケジュール完了`, {
+      start: trackStart, offset: sourceOffset, duration: Math.round(playDuration * 10) / 10,
+    });
+  }
+
+  // 2. BGM
+  if (bgm) await scheduleAudioTrack(bgm, 'BGM');
+  // 3. ナレーション
+  if (narration) await scheduleAudioTrack(narration, 'ナレーション');
+
+  if (signal.aborted) return null;
+
+  log.info('RENDER', 'OfflineAudioContext レンダリング実行', { scheduledSources });
+
+  try {
+    const renderedBuffer = await offlineCtx.startRendering();
+    log.info('RENDER', 'OfflineAudioContext レンダリング完了', {
+      duration: Math.round(renderedBuffer.duration * 100) / 100,
+      length: renderedBuffer.length,
+      channels: renderedBuffer.numberOfChannels,
+    });
+    return renderedBuffer;
+  } catch (e) {
+    log.error('RENDER', 'OfflineAudioContext レンダリング失敗', {
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return null;
+  }
+}
+
+/**
+ * プリレンダリング済み AudioBuffer を AudioEncoder にチャンク分割して供給する。
+ */
+function feedPreRenderedAudio(
+  renderedAudio: AudioBuffer,
+  audioEncoder: AudioEncoder,
+  signal: AbortSignal,
+): void {
+  const chunkSize = 4096;
+  let audioOffset = 0;
+  const totalSamples = renderedAudio.length;
+  let audioTimestamp = 0;
+  const ch0 = renderedAudio.getChannelData(0);
+  const ch1 = renderedAudio.numberOfChannels >= 2
+    ? renderedAudio.getChannelData(1) : ch0;
+
+  while (audioOffset < totalSamples && !signal.aborted) {
+    const framesToProcess = Math.min(chunkSize, totalSamples - audioOffset);
+    const interleavedData = new Float32Array(framesToProcess * 2);
+    for (let i = 0; i < framesToProcess; i++) {
+      interleavedData[i * 2] = ch0[audioOffset + i];
+      interleavedData[i * 2 + 1] = ch1[audioOffset + i];
+    }
+
+    if (audioEncoder.state === 'configured') {
+      const audioData = new AudioData({
+        format: 'f32' as AudioSampleFormat,
+        sampleRate: renderedAudio.sampleRate,
+        numberOfFrames: framesToProcess,
+        numberOfChannels: 2,
+        timestamp: audioTimestamp,
+        data: interleavedData,
+      });
+      audioEncoder.encode(audioData);
+      audioData.close();
+    }
+
+    audioOffset += framesToProcess;
+    audioTimestamp += Math.round((framesToProcess / renderedAudio.sampleRate) * 1e6);
+  }
+
+  useLogStore.getState().info('RENDER', 'プリレンダリング音声エンコード完了', {
+    totalChunks: Math.ceil(totalSamples / chunkSize),
+    totalSamples,
+  });
 }
 
 export function useExport(): UseExportReturn {
@@ -79,7 +304,8 @@ export function useExport(): UseExportReturn {
       masterDestRef: React.MutableRefObject<MediaStreamAudioDestinationNode | null>,
       onRecordingStop: (url: string, ext: string) => void,
       onRecordingError?: (message: string) => void,
-      audioMixerNode?: AudioNode
+      audioMixerNode?: AudioNode,
+      audioSources?: ExportAudioSources
     ) => {
       if (!canvasRef.current || !masterDestRef.current) {
         onRecordingError?.('エクスポートの初期化に失敗しました。');
@@ -182,6 +408,30 @@ export function useExport(): UseExportReturn {
           bitrate: 128000,
         });
 
+        // === iOS Safari: OfflineAudioContext による音声プリレンダリング ===
+        let offlineAudioDone = false;
+        if (isIosSafari && audioSources) {
+          useLogStore.getState().info('RENDER', 'iOS Safari: OfflineAudioContext方式で音声レンダリング');
+          try {
+            const renderedAudio = await offlineRenderAudio(
+              audioSources,
+              audioContext.sampleRate,
+              signal,
+            );
+            if (renderedAudio && !signal.aborted) {
+              feedPreRenderedAudio(renderedAudio, audioEncoder, signal);
+              offlineAudioDone = true;
+              useLogStore.getState().info('RENDER', 'iOS Safari: 音声プリレンダリング＆エンコード成功');
+            } else if (!signal.aborted) {
+              useLogStore.getState().warn('RENDER', 'OfflineAudioContext失敗、ScriptProcessorにフォールバック');
+            }
+          } catch (e) {
+            useLogStore.getState().warn('RENDER', 'OfflineAudioContext例外、ScriptProcessorにフォールバック', {
+              error: e instanceof Error ? e.message : String(e),
+            });
+          }
+        }
+
         // 4. ストリームの取得と処理
         let videoReader: ReadableStreamDefaultReader<VideoFrame> | null = null;
         let audioReader: ReadableStreamDefaultReader<AudioData> | null = null;
@@ -208,10 +458,9 @@ export function useExport(): UseExportReturn {
           audioReader = audioProcessor.readable.getReader() as ReadableStreamDefaultReader<AudioData>;
           audioReaderRef.current = audioReader;
           useLogStore.getState().info('RENDER', 'TrackProcessor経由で音声をキャプチャ');
-        } else {
-          // ScriptProcessorNode 経由の音声キャプチャ
-          // iOS Safari では常にこのパスを通る（TrackProcessor が利用可能でも masterDest.stream
-          // 経由の読み取りに問題があるため）。非Safari でも TrackProcessor 非対応時のフォールバック。
+        } else if (!offlineAudioDone) {
+          // ScriptProcessorNode 経由の音声キャプチャ（OfflineAudioContext未使用時のフォールバック）
+          // iOS Safari で OfflineAudioContext が失敗した場合、または非Safari で TrackProcessor 非対応時。
           useLogStore.getState().info('RENDER', 'ScriptProcessorNode経由で音声をキャプチャ', {
             isIosSafari,
             canUseTrackProcessor,
