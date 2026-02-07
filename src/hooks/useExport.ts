@@ -120,6 +120,10 @@ export function useExport(): UseExportReturn {
       abortControllerRef.current = controller;
       const { signal } = controller;
 
+      // ScriptProcessorNode用（iOS Safari音声キャプチャフォールバック）
+      let scriptProcessorNode: ScriptProcessorNode | null = null;
+      let scriptProcessorSource: MediaStreamAudioSourceNode | null = null;
+
       try {
         if (typeof VideoEncoder === 'undefined' || typeof AudioEncoder === 'undefined') {
           throw new Error('WebCodecsに対応していないブラウザです');
@@ -201,8 +205,63 @@ export function useExport(): UseExportReturn {
           const audioProcessor = new trackProcessorCtor({ track: audioTrack });
           audioReader = audioProcessor.readable.getReader() as ReadableStreamDefaultReader<AudioData>;
           audioReaderRef.current = audioReader;
+        } else if (audioTrack && audioEncoder && !canUseTrackProcessor) {
+          // Fallback: ScriptProcessorNodeで音声キャプチャ（iOS Safari等のMediaStreamTrackProcessor非対応環境用）
+          useLogStore.getState().info('RENDER', 'ScriptProcessorNode経由で音声をキャプチャ');
+
+          const audioCtx = audioContext as AudioContext;
+          scriptProcessorSource = audioCtx.createMediaStreamSource(masterDestRef.current!.stream);
+          const bufferSize = 4096;
+          scriptProcessorNode = audioCtx.createScriptProcessor(bufferSize, 2, 2);
+
+          let audioTimestamp = 0;
+
+          scriptProcessorSource.connect(scriptProcessorNode);
+          // onaudioprocess発火のためdestinationに接続（出力はゼロ化して無音維持）
+          scriptProcessorNode.connect(audioCtx.destination);
+
+          scriptProcessorNode.onaudioprocess = (event: AudioProcessingEvent) => {
+            if (signal.aborted || !audioEncoder || audioEncoder.state !== 'configured') return;
+
+            const inputBuffer = event.inputBuffer;
+            const numberOfFrames = inputBuffer.length;
+            const numberOfChannels = inputBuffer.numberOfChannels;
+
+            // f32-planar: ch0のデータを前半、ch1のデータを後半に配置
+            const planarData = new Float32Array(numberOfFrames * 2);
+            planarData.set(inputBuffer.getChannelData(0), 0);
+            if (numberOfChannels >= 2) {
+              planarData.set(inputBuffer.getChannelData(1), numberOfFrames);
+            } else {
+              // モノラルの場合はch0をステレオ化
+              planarData.set(inputBuffer.getChannelData(0), numberOfFrames);
+            }
+
+            try {
+              const audioData = new AudioData({
+                format: 'f32-planar',
+                sampleRate: audioCtx.sampleRate,
+                numberOfFrames,
+                numberOfChannels: 2,
+                timestamp: audioTimestamp,
+                data: planarData,
+              });
+
+              audioEncoder.encode(audioData);
+              audioData.close();
+
+              audioTimestamp += Math.round((numberOfFrames / audioCtx.sampleRate) * 1e6);
+            } catch (e) {
+              console.error('ScriptProcessor audio capture error:', e);
+            }
+
+            // 出力をゼロにしてスピーカーへのエコーを防止
+            for (let ch = 0; ch < event.outputBuffer.numberOfChannels; ch++) {
+              event.outputBuffer.getChannelData(ch).fill(0);
+            }
+          };
         } else if (audioTrack && !canUseTrackProcessor) {
-          useLogStore.getState().warn('RENDER', 'Audio TrackProcessor非対応のため音声なしでエクスポート');
+          useLogStore.getState().warn('RENDER', 'AudioEncoder非対応のため音声なしでエクスポート');
         }
 
         // 録画開始時刻
@@ -320,10 +379,18 @@ export function useExport(): UseExportReturn {
           }
         };
 
+        // ScriptProcessorNode使用時はabortシグナル待機のみ（音声キャプチャはコールバックで非同期実行）
+        const waitForAbort = async () => {
+          await new Promise<void>((resolve) => {
+            if (signal.aborted) { resolve(); return; }
+            signal.addEventListener('abort', () => resolve(), { once: true });
+          });
+        };
+
         // 並列実行
         const processingTasks = [
           useManualCanvasFrames ? processVideoWithCanvasFrames() : processVideoWithTrackProcessor(),
-          processAudio(),
+          audioReader ? processAudio() : (scriptProcessorNode ? waitForAbort() : Promise.resolve()),
         ];
         const processing = Promise.all(processingTasks);
 
@@ -369,6 +436,17 @@ export function useExport(): UseExportReturn {
 
         // 停止されるまで待機（processingは停止シグナルで終わる）
         await processing;
+
+        // ScriptProcessorNodeのクリーンアップ（flush前に停止して新規データ送信を防止）
+        if (scriptProcessorNode) {
+          scriptProcessorNode.onaudioprocess = null;
+          try { scriptProcessorNode.disconnect(); } catch (e) { /* ignore */ }
+          scriptProcessorNode = null;
+        }
+        if (scriptProcessorSource) {
+          try { scriptProcessorSource.disconnect(); } catch (e) { /* ignore */ }
+          scriptProcessorSource = null;
+        }
 
         // フラッシュ
         await videoEncoder.flush();
@@ -427,6 +505,14 @@ export function useExport(): UseExportReturn {
           onRecordingError?.('エクスポートが中断されました');
         }
       } finally {
+        // ScriptProcessorNodeのクリーンアップ（エラー時の保険）
+        if (scriptProcessorNode) {
+          scriptProcessorNode.onaudioprocess = null;
+          try { scriptProcessorNode.disconnect(); } catch (e) { /* ignore */ }
+        }
+        if (scriptProcessorSource) {
+          try { scriptProcessorSource.disconnect(); } catch (e) { /* ignore */ }
+        }
         // リソース解放などはGCに任せるが、明示的なcloseも可
         // controllerはstopExportでabort済み
         // ReaderのキャンセルもstopExportで実施済み

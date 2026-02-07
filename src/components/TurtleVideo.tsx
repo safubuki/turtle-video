@@ -307,6 +307,7 @@ const TurtleVideo: React.FC = () => {
               const targetTime = (activeItem.trimStart || 0) + localTime;
               const exportSyncThreshold = _isExporting && isIosSafari ? 1.2 : 0.5;
               const needsCorrection =
+                _isExporting &&
                 isActivePlaying &&
                 !isSeekingRef.current &&
                 !activeEl.seeking &&
@@ -385,9 +386,9 @@ const TurtleVideo: React.FC = () => {
               const videoEl = element as HTMLVideoElement;
               const targetTime = (conf.trimStart || 0) + localTime;
               const isSwitchedVideo = isActivePlaying && activeVideoIdRef.current !== id;
-              const syncThreshold = _isExporting && isIosSafari
-                ? (isSwitchedVideo ? 0.05 : 1.2)
-                : 0.5;
+              const syncThreshold = _isExporting
+                ? (isIosSafari ? (isSwitchedVideo ? 0.05 : 1.2) : 0.5)
+                : (isIosSafari ? 1.0 : 0.5);
 
               // アクティブなビデオIDを更新
               if (isActivePlaying && activeVideoIdRef.current !== id) {

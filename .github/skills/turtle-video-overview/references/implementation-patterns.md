@@ -268,13 +268,20 @@
 - **問題**:
   - iOS Safari で音声トラックが取得できないケースや空バッファ時に、UI が「作成中」のまま復帰しない
   - エクスポート中の時間補正シークで、黒フレームが周期的に混入する
+  - `MediaStreamTrackProcessor` 非対応環境で音声データがエンコードされず、エクスポート動画に音声がない
+  - `needsCorrection` が通常再生時にも `holdFrame` を発動し、iOS Safari で再生がカクつく
 - **対策**:
   - `startExport` に失敗コールバックを追加し、例外・中断・空バッファ時に呼び出し元で `isProcessing` を確実に解除
   - `MediaStreamTrackProcessor` 非対応または iOS Safari では、`VideoFrame(canvas)` による直接キャプチャへフォールバック
   - 音声トラック不在時は音声エンコードをスキップして映像のみで継続
-  - `renderFrame` で「補正シークが必要なフレーム」を事前に `holdFrame` 扱いにし、黒クリアを回避
+  - **`MediaStreamTrackProcessor` 非対応時は `ScriptProcessorNode` で `masterDest.stream` から音声をキャプチャし、`AudioData` → `AudioEncoder` へ直接フィード**（音声エクスポート対応）
+  - `renderFrame` で「補正シークが必要なフレーム」を事前に `holdFrame` 扱いにし、黒クリアを回避（**エクスポート時のみ適用、通常再生には影響させない**）
   - iOS Safari のエクスポート時は動画同期しきい値を緩和（通常 0.5 秒 / Safari エクスポート時 1.2 秒）
-- **注意**: クリップ切替直後のみ厳密同期（0.05 秒）を維持し、それ以外は過剰なシークを避ける
+  - iOS Safari の通常再生時は同期しきい値を 1.0 秒に緩和し、過剰なシークによるカクつきを防止
+- **注意**:
+  - クリップ切替直後のみ厳密同期（0.05 秒）を維持し、それ以外は過剰なシークを避ける
+  - `ScriptProcessorNode` は deprecated だが iOS Safari 含め全ブラウザで動作する。出力は明示的にゼロ化してエコーを防止
+  - `ScriptProcessorNode` は `try-finally` で確実にクリーンアップする（onaudioprocess の null 化 + disconnect）
 
 ---
 
@@ -364,7 +371,7 @@
 | **ObjectURL** | 作成したら必ず `revokeObjectURL` で解放。特にリストア時の古い URL に注意 |
 | **Canvas** | `display: none` の video からは描画不可。`opacity: 0.001` で隠す |
 | **WebCodecs** | `VideoFrame` は `close()` しないとメモリリーク。CFR 強制が重要 |
-| **Safari Export** | iOS Safari では TrackProcessor/音声トラックの差異を考慮し、失敗コールバックとCanvas直接キャプチャのフォールバックを用意する |
+| **Safari Export** | iOS Safari では TrackProcessor/音声トラックの差異を考慮し、失敗コールバック・Canvas直接キャプチャ・ScriptProcessorNode 音声フォールバックを用意。通常再生の同期閾値は 1.0 秒に緩和 |
 | **タブ切替** | `visibilitychange` で復帰時に Canvas を再描画、メディアをリロード |
 | **モバイル** | スライダー誤操作を `useSwipeProtectedValue` で防止。`playsInline` 必須 |
 | **レスポンシブ** | モバイル既存スタイルは変更禁止。`md:` / `lg:` バリアントのみ追加で対応 |
