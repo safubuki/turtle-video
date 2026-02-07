@@ -31,6 +31,7 @@ const MediaItemResource = memo<MediaItemResourceProps>(
           onError={onError}
           preload="auto"
           playsInline
+          crossOrigin="anonymous"
           style={hiddenStyle}
         />
       );
@@ -111,6 +112,7 @@ const MediaResourceLoader = memo<MediaResourceLoaderProps>(
             onLoadedMetadata={(e) => onElementLoaded('bgm', e.currentTarget)}
             onError={handleError}
             preload="auto"
+            crossOrigin="anonymous"
             style={audioStyle}
           />
         )}
@@ -123,6 +125,7 @@ const MediaResourceLoader = memo<MediaResourceLoaderProps>(
             onLoadedMetadata={(e) => onElementLoaded('narration', e.currentTarget)}
             onError={handleError}
             preload="auto"
+            crossOrigin="anonymous"
             style={audioStyle}
           />
         )}
