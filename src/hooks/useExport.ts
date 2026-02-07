@@ -113,6 +113,9 @@ export function useExport(): UseExportReturn {
       ).MediaStreamTrackProcessor;
       const canUseTrackProcessor = typeof TrackProcessor === 'function';
       const useManualCanvasFrames = isIosSafari || !canUseTrackProcessor;
+      // iOS Safari では TrackProcessor での音声読み取りに問題があるため、
+      // 音声キャプチャは常に ScriptProcessorNode を使用する
+      const useScriptProcessorAudio = isIosSafari;
       const trackProcessorCtor = TrackProcessor as TrackProcessorConstructor | undefined;
 
       // 停止用シグナル
@@ -130,6 +133,8 @@ export function useExport(): UseExportReturn {
         }
 
         // 1. Muxerの初期化 (ArrayBufferTarget -> メモリ上に構築)
+        // 音声は常にセットアップする（iOS Safariでは audioTrack が取得できないケースでも
+        // ScriptProcessorNode 経由で音声データをキャプチャするため）
         const muxer = new Mp4Muxer.Muxer({
           target: new Mp4Muxer.ArrayBufferTarget(),
           video: {
@@ -138,15 +143,11 @@ export function useExport(): UseExportReturn {
             height,
             frameRate: FPS, // タイムスタンプをフレームレートに合わせて丸める（Teams互換性向上）
           },
-          ...(audioTrack
-            ? {
-              audio: {
-                codec: 'aac' as const,
-                sampleRate: audioContext.sampleRate,
-                numberOfChannels: 2,
-              },
-            }
-            : {}),
+          audio: {
+            codec: 'aac' as const,
+            sampleRate: audioContext.sampleRate,
+            numberOfChannels: 2,
+          },
           firstTimestampBehavior: 'offset',
           fastStart: 'in-memory',
         });
@@ -164,22 +165,20 @@ export function useExport(): UseExportReturn {
           framerate: FPS,
         });
 
-        // 3. AudioEncoder の設定
-        let audioEncoder: AudioEncoder | null = null;
-        if (audioTrack) {
-          audioEncoder = new AudioEncoder({
-            output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
-            error: (e) => console.error('AudioEncoder error:', e),
-          });
-          audioEncoder.configure({
-            codec: 'mp4a.40.2', // AAC-LC
-            sampleRate: audioContext.sampleRate,
-            numberOfChannels: 2,
-            bitrate: 128000,
-          });
-        } else {
-          useLogStore.getState().warn('RENDER', '音声トラックなしでエクスポートを継続');
-        }
+        // 3. AudioEncoder の設定（常に作成する）
+        const audioEncoder = new AudioEncoder({
+          output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
+          error: (e) => {
+            useLogStore.getState().error('RENDER', 'AudioEncoder エラー', { error: String(e) });
+            console.error('AudioEncoder error:', e);
+          },
+        });
+        audioEncoder.configure({
+          codec: 'mp4a.40.2', // AAC-LC
+          sampleRate: audioContext.sampleRate,
+          numberOfChannels: 2,
+          bitrate: 128000,
+        });
 
         // 4. ストリームの取得と処理
         let videoReader: ReadableStreamDefaultReader<VideoFrame> | null = null;
@@ -201,13 +200,21 @@ export function useExport(): UseExportReturn {
           useLogStore.getState().info('RENDER', 'iOS Safari向けにCanvas直接キャプチャを使用');
         }
 
-        if (audioTrack && canUseTrackProcessor && audioEncoder && trackProcessorCtor) {
+        if (audioTrack && !useScriptProcessorAudio && canUseTrackProcessor && trackProcessorCtor) {
+          // TrackProcessor 経由の音声キャプチャ（PC/Android 向け）
           const audioProcessor = new trackProcessorCtor({ track: audioTrack });
           audioReader = audioProcessor.readable.getReader() as ReadableStreamDefaultReader<AudioData>;
           audioReaderRef.current = audioReader;
-        } else if (audioTrack && audioEncoder && !canUseTrackProcessor) {
-          // Fallback: ScriptProcessorNodeで音声キャプチャ（iOS Safari等のMediaStreamTrackProcessor非対応環境用）
-          useLogStore.getState().info('RENDER', 'ScriptProcessorNode経由で音声をキャプチャ');
+          useLogStore.getState().info('RENDER', 'TrackProcessor経由で音声をキャプチャ');
+        } else {
+          // ScriptProcessorNode 経由の音声キャプチャ
+          // iOS Safari では常にこのパスを通る（TrackProcessor が利用可能でも masterDest.stream
+          // 経由の読み取りに問題があるため）。非Safari でも TrackProcessor 非対応時のフォールバック。
+          useLogStore.getState().info('RENDER', 'ScriptProcessorNode経由で音声をキャプチャ', {
+            isIosSafari,
+            canUseTrackProcessor,
+            hasAudioTrack: !!audioTrack,
+          });
 
           const audioCtx = audioContext as AudioContext;
           scriptProcessorSource = audioCtx.createMediaStreamSource(masterDestRef.current!.stream);
@@ -215,53 +222,70 @@ export function useExport(): UseExportReturn {
           scriptProcessorNode = audioCtx.createScriptProcessor(bufferSize, 2, 2);
 
           let audioTimestamp = 0;
+          let capturedChunks = 0;
 
           scriptProcessorSource.connect(scriptProcessorNode);
-          // onaudioprocess発火のためdestinationに接続（出力はゼロ化して無音維持）
           scriptProcessorNode.connect(audioCtx.destination);
 
           scriptProcessorNode.onaudioprocess = (event: AudioProcessingEvent) => {
-            if (signal.aborted || !audioEncoder || audioEncoder.state !== 'configured') return;
+            if (signal.aborted || audioEncoder.state !== 'configured') return;
 
             const inputBuffer = event.inputBuffer;
             const numberOfFrames = inputBuffer.length;
             const numberOfChannels = inputBuffer.numberOfChannels;
 
-            // f32-planar: ch0のデータを前半、ch1のデータを後半に配置
-            const planarData = new Float32Array(numberOfFrames * 2);
-            planarData.set(inputBuffer.getChannelData(0), 0);
-            if (numberOfChannels >= 2) {
-              planarData.set(inputBuffer.getChannelData(1), numberOfFrames);
-            } else {
-              // モノラルの場合はch0をステレオ化
-              planarData.set(inputBuffer.getChannelData(0), numberOfFrames);
+            // インターリーブ f32 形式（Safari AudioEncoder との互換性が最も高い）
+            const interleavedData = new Float32Array(numberOfFrames * 2);
+            const ch0 = inputBuffer.getChannelData(0);
+            const ch1 = numberOfChannels >= 2 ? inputBuffer.getChannelData(1) : ch0;
+            for (let i = 0; i < numberOfFrames; i++) {
+              interleavedData[i * 2] = ch0[i];
+              interleavedData[i * 2 + 1] = ch1[i];
             }
 
             try {
               const audioData = new AudioData({
-                format: 'f32-planar',
+                format: 'f32' as AudioSampleFormat,
                 sampleRate: audioCtx.sampleRate,
                 numberOfFrames,
                 numberOfChannels: 2,
                 timestamp: audioTimestamp,
-                data: planarData,
+                data: interleavedData,
               });
 
               audioEncoder.encode(audioData);
               audioData.close();
 
+              capturedChunks++;
               audioTimestamp += Math.round((numberOfFrames / audioCtx.sampleRate) * 1e6);
+
+              // 初回キャプチャ成功をログ
+              if (capturedChunks === 1) {
+                useLogStore.getState().info('RENDER', 'ScriptProcessor 音声キャプチャ開始', {
+                  sampleRate: audioCtx.sampleRate,
+                  bufferSize: numberOfFrames,
+                  channels: numberOfChannels,
+                });
+              }
             } catch (e) {
-              console.error('ScriptProcessor audio capture error:', e);
+              // 初回エラーのみログ（連続エラーの抑制）
+              if (capturedChunks === 0) {
+                useLogStore.getState().error('RENDER', 'ScriptProcessor 音声キャプチャ失敗', {
+                  error: e instanceof Error ? e.message : String(e),
+                });
+                console.error('ScriptProcessor audio capture error:', e);
+              }
             }
 
-            // 出力をゼロにしてスピーカーへのエコーを防止
+            // 出力に極小値を設定してiOS Safariのノード最適化を防止
+            // （完全ゼロだとSafariがonaudioprocess発火を停止する可能性がある）
             for (let ch = 0; ch < event.outputBuffer.numberOfChannels; ch++) {
-              event.outputBuffer.getChannelData(ch).fill(0);
+              const output = event.outputBuffer.getChannelData(ch);
+              for (let i = 0; i < output.length; i++) {
+                output[i] = 1e-10;
+              }
             }
           };
-        } else if (audioTrack && !canUseTrackProcessor) {
-          useLogStore.getState().warn('RENDER', 'AudioEncoder非対応のため音声なしでエクスポート');
         }
 
         // 録画開始時刻
@@ -357,7 +381,7 @@ export function useExport(): UseExportReturn {
         };
 
         const processAudio = async () => {
-          if (!audioReader || !audioEncoder) return;
+          if (!audioReader) return;
 
           try {
             while (!signal.aborted) {
@@ -450,9 +474,7 @@ export function useExport(): UseExportReturn {
 
         // フラッシュ
         await videoEncoder.flush();
-        if (audioEncoder) {
-          await audioEncoder.flush();
-        }
+        await audioEncoder.flush();
 
         // Muxer終了
         muxer.finalize();
