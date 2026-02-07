@@ -255,6 +255,21 @@
 
 ---
 
+## 9.5. プレビューキャプチャ
+
+### 9.5-1. CanvasフレームのPNGキャプチャ
+
+- **ファイル**: `src/utils/canvas.ts` (`captureCanvasAsImage`), `src/components/TurtleVideo.tsx` (`handleCapture`), `src/components/sections/PreviewSection.tsx`
+- **機能**: プレビューの現在のフレームをPNG画像としてダウンロード
+- **対策**:
+  - 再生停止中: 現在のCanvas内容をそのまま `canvas.toBlob('image/png')` でキャプチャ
+  - 再生中: 先に `stopAll()` + `pause()` で一時停止し、現在のフレームをキャプチャ
+  - `URL.createObjectURL(blob)` で一時URLを生成し、`<a>` 要素のクリックでダウンロードをトリガー
+  - ObjectURLは `setTimeout(() => URL.revokeObjectURL(url), 1000)` で確実に解放
+- **ファイル名规則**: `turtle_capture_{time}_{timestamp}.png`（例: `turtle_capture_1m30s_1738900000000.png`）
+- **UI**: PreviewSectionの再生コントロール横にCameraアイコンボタンを配置
+- **注意**: エクスポート中（`isProcessing`）はキャプチャ不可。メディアがない場合も無効
+
 ## 10. 状態管理パターン
 
 ### 10-1. ストアの責務分離
@@ -306,4 +321,5 @@
 | **IndexedDB** | `File → ArrayBuffer → File` のラウンドトリップが必要。大容量データに注意 |
 | **Zustand** | `getState()` で React 外アクセス可能。Ref+State 並行管理でリアルタイム値と再レンダリングを両立 |
 | **再生ループ** | `loopIdRef` で世代管理。古いループの自動停止メカニズムが重要 |
+| **キャプチャ** | 再生中は一時停止してからCanvasをキャプチャ。ObjectURLは`setTimeout`で解放 |
 | **エラー** | 3 層防御: ErrorBoundary（コンポーネント）、グローバルハンドラ（window）、try-catch（個別処理） |

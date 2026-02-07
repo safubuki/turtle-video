@@ -142,3 +142,45 @@ export function safeSetVideoTime(
     video.currentTime = Math.max(0, Math.min(max, time));
   }
 }
+
+/**
+ * Canvasの現在の内容をキャプチャしてPNG画像としてダウンロードする
+ * @param canvas - キャプチャ対象のCanvas要素
+ * @param filename - 保存ファイル名（拡張子なし）。未指定時はタイムスタンプベースの名前を生成
+ * @returns ダウンロードが成功したらtrue、失敗したらfalse
+ */
+export function captureCanvasAsImage(
+  canvas: HTMLCanvasElement,
+  filename?: string
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      const name = filename || `turtle_capture_${Date.now()}`;
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            resolve(false);
+            return;
+          }
+          const url = URL.createObjectURL(blob);
+          try {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${name}.png`;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            resolve(true);
+          } finally {
+            // ObjectURL を確実に解放
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+          }
+        },
+        'image/png'
+      );
+    } catch {
+      resolve(false);
+    }
+  });
+}

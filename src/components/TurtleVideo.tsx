@@ -21,6 +21,9 @@ import {
 import { useExport } from '../hooks/useExport';
 import { usePreventUnload } from '../hooks/usePreventUnload';
 
+// Utils
+import { captureCanvasAsImage } from '../utils/canvas';
+
 // Zustand Stores
 import { useMediaStore, useAudioStore, useUIStore, useCaptionStore, useLogStore } from '../stores';
 
@@ -1959,6 +1962,40 @@ const TurtleVideo: React.FC = () => {
     return `${m}:${sec.toString().padStart(2, '0')}`;
   }, []);
 
+  // --- キャプチャハンドラ ---
+  // 目的: プレビューの現在のフレームをPNG画像として保存
+  // 再生中の場合は一時停止してからキャプチャする
+  const handleCapture = useCallback(async () => {
+    // メディアがない場合は何もしない
+    if (mediaItems.length === 0) return;
+    // エクスポート中はキャプチャ不可
+    if (isProcessing) return;
+
+    // 再生中の場合は一時停止
+    const wasPlaying = isPlayingRef.current;
+    if (wasPlaying) {
+      stopAll();
+      pause();
+    }
+
+    // Canvasからキャプチャ
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      showToast('キャプチャに失敗しました');
+      return;
+    }
+
+    const timestamp = formatTime(currentTimeRef.current).replace(':', 'm') + 's';
+    const filename = `turtle_capture_${timestamp}_${Date.now()}`;
+    const success = await captureCanvasAsImage(canvas, filename);
+
+    if (success) {
+      showToast('キャプチャを保存しました');
+    } else {
+      showToast('キャプチャに失敗しました');
+    }
+  }, [mediaItems.length, isProcessing, stopAll, pause, showToast, formatTime]);
+
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans pb-24 select-none relative">
       <Toast message={toastMessage} onClose={clearToast} />
@@ -2122,6 +2159,7 @@ const TurtleVideo: React.FC = () => {
           onStop={handleStop}
           onExport={handleExport}
           onClearAll={handleClearAll}
+          onCapture={handleCapture}
           formatTime={formatTime}
         />
       </div>
