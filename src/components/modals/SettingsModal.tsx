@@ -6,9 +6,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   X, Key, Eye, EyeOff, ExternalLink, CheckCircle, AlertCircle,
-  FileText, Copy, Download, Trash2, CheckCircle2
+  FileText, Copy, Download, Trash2, CheckCircle2, RefreshCw
 } from 'lucide-react';
 import { useLogStore } from '../../stores';
+import { useUpdateStore } from '../../stores/updateStore';
 import type { LogEntry } from '../../stores';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 
@@ -423,13 +424,35 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
           ) : null}
         </div>
 
-        {/* バージョン情報 */}
-        <div className="px-4 pb-3 text-center border-t border-gray-700 pt-3 shrink-0">
+        {/* バージョン情報 & 更新確認 */}
+        <div className="px-4 pb-3 border-t border-gray-700 pt-3 shrink-0 flex flex-col items-center gap-2">
           <span className="text-xs text-gray-500">
             タートルビデオ v{APP_VERSION}
           </span>
+          <UpdateStatus />
         </div>
       </div>
+    </div>
+  );
+};
+
+const UpdateStatus: React.FC = () => {
+  const { needRefresh, updateServiceWorker } = useUpdateStore();
+
+  if (!needRefresh) return null;
+
+  return (
+    <div className="w-full bg-blue-500/10 border border-blue-500/30 rounded-lg p-2 flex items-center justify-between gap-2">
+      <div className="flex items-center gap-2 text-blue-400">
+        <RefreshCw className="w-4 h-4 animate-spin-slow" />
+        <span className="text-xs font-bold">新しいバージョンがあります</span>
+      </div>
+      <button
+        onClick={() => updateServiceWorker(true)}
+        className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded text-xs font-bold transition"
+      >
+        更新
+      </button>
     </div>
   );
 };
