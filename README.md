@@ -108,20 +108,55 @@ npm run test:coverage
 
 ## Agent Skills
 
-- 管理対象ディレクトリ: `.github/skills`（推奨）
-- 同期コマンド:
-  - `npm run skills:sync -- --dry-run --verbose`（確認のみ）
-  - `npm run skills:sync`（実同期）
-  - `npm run skills:sync -- --strategy base --base github`（GitHub側をベースに同期）
-- Windows の `config.toml` は通常 `C:/Users/<ユーザー名>/.codex/config.toml` にあります。
+**Agent Skills とは**
 
-### 設定例（詳細は1つだけ）
+AIアシスタントに特定のタスク手順やプロジェクト固有の知識を教えるための「指示書のパッケージ」です。
+これにより、AIがプロジェクトの文脈を理解し、一貫した品質でコード生成やドキュメント作成を行えるようになります。
+
+このプロジェクトには、3つの異なるAI環境（GitHub Copilot、GPT Codex、Google Gemini）向けのAgent Skills設定が含まれています。
+それぞれの環境で利用方法と参照するディレクトリが異なります。
+
+### 1. 管理と同期
+
+以下の2つのディレクトリでスキルを管理しています。
+
+- **Master**: `.github/skills` (GitHub Copilot / GPT Codex用)
+- **Mirror**: `.agent/skills` (Google Gemini用)
+
+以下のコマンドで、これら2つのディレクトリを同期します。
+
+- `npm run skills:sync -- --dry-run --verbose`（確認のみ）
+- `npm run skills:sync`（実同期）
+- `npm run skills:sync -- --strategy base --base github`（GitHub側を正として強制同期）
+
+### 2. 環境別セットアップ
+
+#### A. GitHub Copilot
+- **利用ディレクトリ**: `.github/skills`
+- **設定**: VS Code等の `.vscode/settings.json` で以下を有効にします。
+
+```json
+{
+  "chat.useAgentSkills": true
+}
+```
+
+#### B. GPT Codex (CLI)
+- **利用ディレクトリ**: `.github/skills`
+- **設定**: ユーザー設定ファイル（通常 `C:/Users/<ユーザー名>/.codex/config.toml`）にパスを指定してください。
+
+**設定例（1つのスキルのみ）**:
 ```toml
 # 例: C:/Users/<ユーザー名>/.codex/config.toml
 [[skills.config]]
 path = "C:/<workspace-parent>/<workspace-folder>/.github/skills/bug-analysis/SKILL.md"
 enabled = true
 ```
+
+#### C. Google Gemini (AntiGravity)
+- **利用ディレクトリ**: `.agent/skills`
+- **設定**: **不要**。
+  - プロジェクトルートに `.agent/skills` ディレクトリが存在するだけで自動的に認識されます。
 
 ### このプロジェクトで使う主なスキル
 - `bug-analysis`
@@ -132,7 +167,6 @@ enabled = true
 - `skills-generator`
 - `turtle-video-overview`
 - `user-guide`
-- リポジトリを移動した場合は、`C:/Users/<ユーザー名>/.codex/config.toml` の `path` を新しいワークスペースの絶対パスに更新してください。
 
 ## 技術スタック
 
