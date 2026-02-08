@@ -72,6 +72,28 @@
 
 ---
 
+### 0.7 追加事象: 外部動画再生後にプレビュー音が鳴らない（iOS Safari）
+
+#### 現象
+- Safari編集画面をバックグラウンド化して他アプリ/他画面で動画再生
+- Safariへ戻ってプレビュー再生すると映像は出るが音が出ない場合がある
+- 何も再生せず戻った場合は音が出る
+
+#### 原因
+- iOS Safari で `AudioContext.state` が `suspended` だけでなく `interrupted` へ遷移する
+- 従来コードは `suspended` のみを復帰対象としており、`interrupted` 復帰が漏れていた
+
+#### 対策（実装済み）
+- `TurtleVideo.tsx` で可視復帰時に `AudioContext` が `running` 以外なら `resume()` を試行
+- `startEngine()` で再生開始時に `running` 以外を包括復帰（再試行付き）
+- アップロード時・メディア要素再接続時の復帰条件も `running以外` に統一
+
+#### 注意点
+- 可視復帰時 `resume()` はユーザー操作要件で失敗し得るため、失敗しても次の再生操作で再試行する設計にする
+- iOS Safari 対応では `AudioContext.state` 判定を **`!== 'running'`** で書く
+
+---
+
 ## 1. 問題の背景
 
 ### 1.1 初期状態

@@ -768,6 +768,23 @@ const TurtleVideo: React.FC = () => {
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
+        const ctx = audioCtxRef.current;
+        if (ctx) {
+          const state = ctx.state as AudioContextState | 'interrupted';
+          if (state !== 'running') {
+            ctx.resume()
+              .then(() => {
+                logInfo('AUDIO', '可視復帰時にAudioContextを再開', { from: state, to: ctx.state });
+              })
+              .catch((err) => {
+                logWarn('AUDIO', '可視復帰時のAudioContext再開に失敗（次のユーザー操作で再試行）', {
+                  state,
+                  error: err instanceof Error ? err.message : String(err),
+                });
+              });
+          }
+        }
+
         requestAnimationFrame(() => renderFrame(currentTimeRef.current, false));
         Object.values(mediaElementsRef.current).forEach((el) => {
           if (
@@ -785,7 +802,7 @@ const TurtleVideo: React.FC = () => {
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [renderFrame]);
+  }, [renderFrame, logInfo, logWarn]);
 
   // --- Audio Context ---
   const getAudioContext = useCallback(() => {
@@ -1005,7 +1022,9 @@ const TurtleVideo: React.FC = () => {
         if (files.length === 0) return;
         e.target.value = '';
         const ctx = getAudioContext();
-        if (ctx.state === 'suspended') ctx.resume().catch(console.error);
+        if ((ctx.state as AudioContextState | 'interrupted') !== 'running') {
+          ctx.resume().catch(console.error);
+        }
         clearExport();
         addMediaItems(files);
         // メディア追加をログ
@@ -1055,8 +1074,8 @@ const TurtleVideo: React.FC = () => {
           if (!sourceNodesRef.current[id]) {
             try {
               const ctx = getAudioContext();
-              // AudioContextがsuspended状態の場合は復帰を試みる
-              if (ctx.state === 'suspended') {
+              // iOS Safariでは interrupted になることがあるため running 以外は復帰を試みる
+              if ((ctx.state as AudioContextState | 'interrupted') !== 'running') {
                 ctx.resume().catch(() => { });
               }
               const source = ctx.createMediaElementSource(element as HTMLMediaElement);
@@ -1481,10 +1500,35 @@ const TurtleVideo: React.FC = () => {
       logInfo('AUDIO', 'エンジン起動開始', { fromTime, isExportMode });
 
       const ctx = getAudioContext();
-      logDebug('AUDIO', 'AudioContext状態', { state: ctx.state });
-      if (ctx.state === 'suspended') {
-        await ctx.resume();
-        logInfo('AUDIO', 'AudioContext再開', { newState: ctx.state });
+      const stateBeforeResume = ctx.state as AudioContextState | 'interrupted';
+      logDebug('AUDIO', 'AudioContext状態', { state: stateBeforeResume });
+      if (stateBeforeResume !== 'running') {
+        try {
+          await ctx.resume();
+        } catch (err) {
+          logWarn('AUDIO', 'AudioContext再開に失敗（1回目）', {
+            state: stateBeforeResume,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+
+        const stateAfterFirstResume = ctx.state as AudioContextState | 'interrupted';
+        if (stateAfterFirstResume !== 'running') {
+          try {
+            // iOS Safariの復帰直後は1回目resumeで復帰しないことがあるため再試行
+            await ctx.resume();
+          } catch (err) {
+            logWarn('AUDIO', 'AudioContext再開に失敗（2回目）', {
+              state: stateAfterFirstResume,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+
+        logInfo('AUDIO', 'AudioContext再開処理後の状態', {
+          before: stateBeforeResume,
+          after: ctx.state,
+        });
       }
 
       // 既存のループとメディアを停止（これでloopIdRefがインクリメントされる）
@@ -1695,7 +1739,7 @@ const TurtleVideo: React.FC = () => {
         loop(isExportMode, myLoopId);
       }
     },
-    [getAudioContext, stopAll, setProcessing, play, clearExport, configureAudioRouting, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError]
+    [getAudioContext, stopAll, setProcessing, play, clearExport, configureAudioRouting, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError, logWarn]
   );
 
   // --- シークバー操作ハンドラ ---
