@@ -11,7 +11,10 @@
     "format": "prettier --write src/**/*.{ts,tsx}",
     "test": "vitest",
     "test:run": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "skills:sync": "node scripts/sync-skills.mjs",
+    "skills:sync:windows": "powershell -ExecutionPolicy Bypass -File ./scripts/sync-skills.ps1",
+    "skills:sync:ubuntu": "bash ./scripts/sync-skills.sh"
   },
   "repository": {
     "type": "git",
