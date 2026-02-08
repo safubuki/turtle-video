@@ -592,42 +592,65 @@ const TurtleVideo: React.FC = () => {
 
             const blurStrength = Math.max(0, captionSettings.blur);
             const centerX = CANVAS_WIDTH / 2;
-            const drawCaptionGlyph = (x: number, yPos: number, localAlpha: number) => {
+            const drawCaptionGlyph = (
+              x: number,
+              yPos: number,
+              localAlpha: number,
+              options?: { stroke?: boolean; fill?: boolean }
+            ) => {
               const clamped = Math.max(0, Math.min(1, localAlpha));
               if (clamped <= 0) return;
               ctx.globalAlpha = alpha * clamped;
-              ctx.strokeStyle = captionSettings.strokeColor;
-              ctx.lineWidth = captionSettings.strokeWidth * 2;
-              ctx.lineJoin = 'round';
-              ctx.strokeText(activeCaption.text, x, yPos);
-              ctx.fillStyle = captionSettings.fontColor;
-              ctx.fillText(activeCaption.text, x, yPos);
+              const drawStroke = options?.stroke ?? true;
+              const drawFill = options?.fill ?? true;
+              if (drawStroke) {
+                ctx.strokeStyle = captionSettings.strokeColor;
+                ctx.lineWidth = captionSettings.strokeWidth * 2;
+                ctx.lineJoin = 'round';
+                ctx.strokeText(activeCaption.text, x, yPos);
+              }
+              if (drawFill) {
+                ctx.fillStyle = captionSettings.fontColor;
+                ctx.fillText(activeCaption.text, x, yPos);
+              }
             };
 
             if (isIosSafari && blurStrength > 0) {
               // iOS Safari では text + filter が安定しないため、
               // 複数オフセット描画で文字全体を拡散し、中心成分をぼかし強度に応じて減衰させる。
-              const ringCount = Math.max(2, Math.round(blurStrength * 3));
-              const samplesPerRing = 16;
-              const maxRadius = Math.max(1, blurStrength * 2.4);
+              const blurNorm = Math.min(1, blurStrength / 5);
+              const ringCount = Math.max(3, Math.round(blurStrength * 3.5));
+              const samplesPerRing = 18;
+              const maxRadius = Math.max(1.5, blurStrength * 2.6);
               const totalSamples = ringCount * samplesPerRing;
+              const prevComposite = ctx.globalCompositeOperation;
+
+              // 色味が灰色化しないよう、拡散層は加算合成で色を保持する。
+              ctx.globalCompositeOperation = 'lighter';
 
               for (let ring = 1; ring <= ringCount; ring++) {
                 const radius = (ring / ringCount) * maxRadius;
-                const ringWeight = Math.max(0.2, 1 - ((ring - 1) / ringCount) * 0.6);
-                const sampleAlpha = (0.9 * ringWeight) / totalSamples;
+                const ringWeight = Math.max(0.3, 1 - ((ring - 1) / Math.max(1, ringCount - 1)) * 0.55);
+                const sampleAlpha = ((0.95 + blurNorm * 0.55) * ringWeight) / totalSamples;
                 for (let i = 0; i < samplesPerRing; i++) {
                   const angle = (Math.PI * 2 * i) / samplesPerRing;
-                  const offsetX = Math.cos(angle) * ring;
-                  const offsetY = Math.sin(angle) * ring;
-                  drawCaptionGlyph(centerX + (offsetX * radius) / ring, y + (offsetY * radius) / ring, sampleAlpha);
+                  const offsetX = Math.cos(angle) * radius;
+                  const offsetY = Math.sin(angle) * radius;
+                  drawCaptionGlyph(centerX + offsetX, y + offsetY, sampleAlpha, { stroke: false, fill: true });
                 }
               }
 
-              // ぼかしが強いほど中心のシャープ成分を落とす（最大時はほぼ輪郭を残さない）
-              const sharpCore = Math.max(0, 1 - blurStrength / 4.5);
-              if (sharpCore > 0.02) {
-                drawCaptionGlyph(centerX, y, sharpCore);
+              ctx.globalCompositeOperation = prevComposite;
+
+              // 中心成分: ぼかし強度に応じて減衰。縁取りはより強く減衰させる。
+              const coreFillAlpha = Math.max(0.35, 0.88 - blurNorm * 0.45);
+              const coreStrokeAlpha = Math.max(0, 0.9 - blurNorm * 1.4);
+
+              if (coreFillAlpha > 0.01) {
+                drawCaptionGlyph(centerX, y, coreFillAlpha, { stroke: false, fill: true });
+              }
+              if (coreStrokeAlpha > 0.01) {
+                drawCaptionGlyph(centerX, y, coreStrokeAlpha, { stroke: true, fill: false });
               }
               ctx.restore();
               continue;
