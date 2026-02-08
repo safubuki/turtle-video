@@ -819,21 +819,71 @@ export function useExport(): UseExportReturn {
             return false;
           }
 
+          const exportDest = masterDestRef.current!;
           const canvasStream = canvas.captureStream(FPS);
-          const audioTracks = masterDestRef.current!.stream.getAudioTracks();
+          const sourceAudioTracks = exportDest.stream.getAudioTracks();
+          const liveAudioTracks = sourceAudioTracks.filter((track) => track.readyState === 'live');
+          if (liveAudioTracks.length === 0) {
+            useLogStore.getState().warn('RENDER', 'iOS Safari: 有効な音声トラックがないため WebCodecs 経路へフォールバック', {
+              sourceTrackCount: sourceAudioTracks.length,
+              sourceTrackStates: sourceAudioTracks.map((track) => track.readyState),
+            });
+            canvasStream.getTracks().forEach((track) => {
+              try { track.stop(); } catch { /* ignore */ }
+            });
+            return false;
+          }
+
+          // 元トラックを stop すると後続エクスポートや再生に影響するため、録画用には clone を使用する。
+          const recorderAudioTracks = liveAudioTracks.map((track) => track.clone());
+          let keepAliveOscillator: OscillatorNode | null = null;
+          let keepAliveGain: GainNode | null = null;
           const combined = new MediaStream([
             ...canvasStream.getVideoTracks(),
-            ...audioTracks,
+            ...recorderAudioTracks,
           ]);
 
+          // iOS Safari で無音最適化されるのを防ぐため、極小レベルの keep-alive 音声を維持する。
+          try {
+            keepAliveOscillator = audioContext.createOscillator();
+            keepAliveGain = audioContext.createGain();
+            keepAliveOscillator.frequency.value = 440;
+            keepAliveGain.gain.value = 0.00001;
+            keepAliveOscillator.connect(keepAliveGain);
+            keepAliveGain.connect(exportDest);
+            keepAliveOscillator.start();
+          } catch (err) {
+            keepAliveOscillator = null;
+            keepAliveGain = null;
+            useLogStore.getState().warn('RENDER', 'iOS Safari: keep-alive 音声ノードの初期化に失敗（続行）', {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+
           const cleanupStreams = () => {
-            combined.getTracks().forEach((track) => {
+            canvasStream.getTracks().forEach((track) => {
               try {
                 track.stop();
               } catch {
                 // ignore
               }
             });
+            recorderAudioTracks.forEach((track) => {
+              try {
+                track.stop();
+              } catch {
+                // ignore
+              }
+            });
+            if (keepAliveOscillator) {
+              try { keepAliveOscillator.stop(); } catch { /* ignore */ }
+              try { keepAliveOscillator.disconnect(); } catch { /* ignore */ }
+              keepAliveOscillator = null;
+            }
+            if (keepAliveGain) {
+              try { keepAliveGain.disconnect(); } catch { /* ignore */ }
+              keepAliveGain = null;
+            }
           };
 
           const recorderOptions: MediaRecorderOptions = {
@@ -847,7 +897,9 @@ export function useExport(): UseExportReturn {
           useLogStore.getState().info('RENDER', 'iOS Safari: MediaRecorder 経路でエクスポート開始', {
             mimeType: profile.mimeType || '(default)',
             extension: profile.extension,
-            audioTrackCount: audioTracks.length,
+            sourceAudioTrackCount: sourceAudioTracks.length,
+            sourceAudioTrackStates: sourceAudioTracks.map((track) => track.readyState),
+            recorderAudioTrackCount: recorderAudioTracks.length,
           });
 
           let startedSuccessfully = false;
@@ -875,6 +927,11 @@ export function useExport(): UseExportReturn {
 
             const onAbort = () => {
               if (recorder && recorder.state !== 'inactive') {
+                try {
+                  recorder.requestData();
+                } catch {
+                  // ignore
+                }
                 try {
                   recorder.stop();
                 } catch {
@@ -934,7 +991,8 @@ export function useExport(): UseExportReturn {
             };
 
             try {
-              recorder.start();
+              // timeslice指定で定期的にチャンクを取り出し、終端が無音でも音声チャンクを取りこぼさないようにする。
+              recorder.start(1000);
               startedSuccessfully = true;
               useLogStore.getState().info('RENDER', '[DIAG-READY] 音声準備完了、再生ループ開始通知（MediaRecorder経路）');
               audioSources?.onAudioPreRenderComplete?.();

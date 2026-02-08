@@ -7,6 +7,71 @@
 
 ---
 
+## 0. 追補（2026年2月8日 / v3.0.6相当）
+
+### 0.1 実機確認結果（今回）
+- ✅ **動画単体プロジェクト**では、iOS Safari でエクスポート音声ありを確認
+- ❌ **動画→静止画の混在プロジェクト**で、出力動画が無音化するケースを確認
+- ❌ その後、ビュー再生時の音声不調が発生するケースを確認
+
+### 0.2 追加で判明した原因（iOS Safari特有）
+1. **MediaRecorder用の結合ストリーム停止処理が元音声トラックを停止していた**
+   - 旧実装では `combined.getTracks().forEach(track.stop())` を実行
+   - `combined` に `masterDest.stream` の**元AudioTrack**を直接入れていたため、停止時に元トラックまで `ended` 化
+   - これにより後続エクスポート・再生系へ副作用が波及
+
+2. **MediaRecorder を timeslice なしで開始していた**
+   - `recorder.start()`（単一終端チャンク依存）だと、iOS Safari で終端条件（後半無音・トラック最適化）により音声チャンク取りこぼしが起きるケースがある
+
+3. **iOS Safariの無音最適化対策が不足**
+   - 動画→静止画の遷移で音声が途切れる構成は、Safari側の最適化を誘発しやすい
+
+### 0.3 今回の対策（実装済み）
+- `src/hooks/useExport.ts` の iOS Safari MediaRecorder 経路を修正
+1. **録画用AudioTrackを clone 化**
+   - `masterDest.stream` の元トラックは停止せず、`track.clone()` を録画用に利用
+   - cleanup 時は clone のみ停止
+
+2. **cleanup対象を限定**
+   - 停止対象を「録画用 canvas track + clone audio track」に限定
+   - 元 `masterDest` のトラックを停止しない
+
+3. **keep-alive 微小音を追加**
+   - 録画中のみ `OscillatorNode -> Gain(0.00001) -> masterDest` を接続
+   - iOS Safari の無音最適化でオーディオ経路が止まるのを抑制
+
+4. **MediaRecorder を timeslice 付きで開始**
+   - `recorder.start(1000)` に変更し、1秒ごとにチャンク化
+   - `abort` 時に `requestData()` を試行してから `stop()`
+
+5. **フォールバック戦略は維持**
+   - MediaRecorder 経路が使えない場合は既存 WebCodecs 経路へフォールバック
+
+### 0.4 なぜ従来対応で解決しきれなかったか
+- 従来は `decodeAudioData` / WebCodecs / OfflineAudioContext 側の解析に主軸があり、**MediaRecorder経路のトラックライフサイクル副作用**が未特定だった
+- 単体動画テストでは通るため、**「動画→静止画」混在 + 連続実行**でのみ顕在化する問題が埋もれていた
+- 「処理成功時に stop している対象が共有トラックか否か」の監査が不足していた
+
+### 0.5 不要対応の整理（慎重削除方針）
+- 削除済み（実質）：`combined` 経由で元トラックを停止する危険処理
+- 維持（意図的）：
+  - WebCodecs + OfflineAudioContext + `extractAudioViaVideoElement()` 系は、MediaRecorder 非対応/失敗時の保険として保持
+  - 既存 Android/PC 動線への影響回避を優先
+
+### 0.6 今後Safari対応で必ず守ること
+1. 録画用 `MediaStream` には **clone track** を使い、元トラックを直接 stop しない
+2. cleanup は「この処理で生成したリソースだけ」を停止する（所有権を明確化）
+3. iOS Safari では timeslice 付き録画と keep-alive を標準採用する
+4. テストケースに必ず以下を含める
+   - 動画単体
+   - 動画→静止画
+   - 静止画→動画
+   - 連続2回以上のエクスポート
+   - エクスポート後のビュー再生音声確認
+5. ログには track の `readyState` と chunk 数を必ず残す
+
+---
+
 ## 1. 問題の背景
 
 ### 1.1 初期状態
