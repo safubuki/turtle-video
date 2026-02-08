@@ -590,9 +590,30 @@ const TurtleVideo: React.FC = () => {
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
 
-            // ぼかし効果
-            if (captionSettings.blur > 0) {
-              ctx.filter = `blur(${captionSettings.blur}px)`;
+            const blurStrength = Math.max(0, captionSettings.blur);
+            const useNativeFilterBlur = blurStrength > 0 && !isIosSafari;
+
+            // 通常ブラウザ: Canvas filter を使用
+            // iOS Safari: text + filter が効かないケースがあるため下でフォールバック描画を行う
+            ctx.filter = useNativeFilterBlur ? `blur(${blurStrength}px)` : 'none';
+
+            if (isIosSafari && blurStrength > 0) {
+              const baseAlpha = ctx.globalAlpha;
+              const blurRings = Math.max(1, Math.round(blurStrength * 2));
+              const sampleCount = 12;
+              const centerX = CANVAS_WIDTH / 2;
+
+              ctx.fillStyle = captionSettings.fontColor;
+              for (let ring = 1; ring <= blurRings; ring++) {
+                ctx.globalAlpha = baseAlpha * Math.min(0.2, 0.28 / ring);
+                for (let i = 0; i < sampleCount; i++) {
+                  const angle = (Math.PI * 2 * i) / sampleCount;
+                  const offsetX = Math.cos(angle) * ring;
+                  const offsetY = Math.sin(angle) * ring;
+                  ctx.fillText(activeCaption.text, centerX + offsetX, y + offsetY);
+                }
+              }
+              ctx.globalAlpha = baseAlpha;
             }
 
             // 縁取り
@@ -1085,12 +1106,32 @@ const TurtleVideo: React.FC = () => {
   const handleMediaRefAssign = useCallback(
     (id: string, element: HTMLVideoElement | HTMLImageElement | HTMLAudioElement | null) => {
       if (element) {
+        const prevElement = mediaElementsRef.current[id];
         mediaElementsRef.current[id] = element;
 
         if (element.tagName === 'VIDEO' || element.tagName === 'AUDIO') {
-          // オーディオノードの作成は非同期で行い、既存のノードに影響しないようにする
-          // 既にソースノードが存在する場合はスキップ
-          if (!sourceNodesRef.current[id]) {
+          // DOM 要素が差し替わった場合、古いノード参照を破棄して再作成する。
+          if (prevElement && prevElement !== element) {
+            if (sourceNodesRef.current[id]) {
+              try {
+                sourceNodesRef.current[id].disconnect();
+              } catch {
+                // ignore
+              }
+              delete sourceNodesRef.current[id];
+            }
+            if (gainNodesRef.current[id]) {
+              try {
+                gainNodesRef.current[id].disconnect();
+              } catch {
+                // ignore
+              }
+              delete gainNodesRef.current[id];
+            }
+          }
+
+          let hasAudioNode = !!sourceNodesRef.current[id];
+          if (!hasAudioNode) {
             try {
               const ctx = getAudioContext();
               // iOS Safariでは interrupted になることがあるため running 以外は復帰を試みる
@@ -1104,17 +1145,43 @@ const TurtleVideo: React.FC = () => {
               gain.gain.setValueAtTime(1, ctx.currentTime);
               sourceNodesRef.current[id] = source;
               gainNodesRef.current[id] = gain;
+              hasAudioNode = true;
             } catch (e) {
               // MediaElementAudioSourceNodeの作成エラーはログに出力
               console.warn(`Audio node creation failed for ${id}:`, e);
             }
           }
+
+          // iOS Safari では複数メディア同時再生時にネイティブ音声経路の競合が起きるため、
+          // WebAudio 経路が確立できた要素のみネイティブ出力をミュートする。
+          if (isIosSafari && hasAudioNode) {
+            const mediaEl = element as HTMLMediaElement;
+            mediaEl.defaultMuted = true;
+            mediaEl.muted = true;
+            mediaEl.volume = 1;
+          }
         }
       } else {
+        if (sourceNodesRef.current[id]) {
+          try {
+            sourceNodesRef.current[id].disconnect();
+          } catch {
+            // ignore
+          }
+          delete sourceNodesRef.current[id];
+        }
+        if (gainNodesRef.current[id]) {
+          try {
+            gainNodesRef.current[id].disconnect();
+          } catch {
+            // ignore
+          }
+          delete gainNodesRef.current[id];
+        }
         delete mediaElementsRef.current[id];
       }
     },
-    [getAudioContext]
+    [getAudioContext, isIosSafari]
   );
 
   const handleSeeked = useCallback(() => {
