@@ -591,40 +591,51 @@ const TurtleVideo: React.FC = () => {
             ctx.textBaseline = 'middle';
 
             const blurStrength = Math.max(0, captionSettings.blur);
-            const useNativeFilterBlur = blurStrength > 0 && !isIosSafari;
-
-            // 通常ブラウザ: Canvas filter を使用
-            // iOS Safari: text + filter が効かないケースがあるため下でフォールバック描画を行う
-            ctx.filter = useNativeFilterBlur ? `blur(${blurStrength}px)` : 'none';
+            const centerX = CANVAS_WIDTH / 2;
+            const drawCaptionGlyph = (x: number, yPos: number, localAlpha: number) => {
+              const clamped = Math.max(0, Math.min(1, localAlpha));
+              if (clamped <= 0) return;
+              ctx.globalAlpha = alpha * clamped;
+              ctx.strokeStyle = captionSettings.strokeColor;
+              ctx.lineWidth = captionSettings.strokeWidth * 2;
+              ctx.lineJoin = 'round';
+              ctx.strokeText(activeCaption.text, x, yPos);
+              ctx.fillStyle = captionSettings.fontColor;
+              ctx.fillText(activeCaption.text, x, yPos);
+            };
 
             if (isIosSafari && blurStrength > 0) {
-              const baseAlpha = ctx.globalAlpha;
-              const blurRings = Math.max(1, Math.round(blurStrength * 2));
-              const sampleCount = 12;
-              const centerX = CANVAS_WIDTH / 2;
+              // iOS Safari では text + filter が安定しないため、
+              // 複数オフセット描画で文字全体を拡散し、中心成分をぼかし強度に応じて減衰させる。
+              const ringCount = Math.max(2, Math.round(blurStrength * 3));
+              const samplesPerRing = 16;
+              const maxRadius = Math.max(1, blurStrength * 2.4);
+              const totalSamples = ringCount * samplesPerRing;
 
-              ctx.fillStyle = captionSettings.fontColor;
-              for (let ring = 1; ring <= blurRings; ring++) {
-                ctx.globalAlpha = baseAlpha * Math.min(0.2, 0.28 / ring);
-                for (let i = 0; i < sampleCount; i++) {
-                  const angle = (Math.PI * 2 * i) / sampleCount;
+              for (let ring = 1; ring <= ringCount; ring++) {
+                const radius = (ring / ringCount) * maxRadius;
+                const ringWeight = Math.max(0.2, 1 - ((ring - 1) / ringCount) * 0.6);
+                const sampleAlpha = (0.9 * ringWeight) / totalSamples;
+                for (let i = 0; i < samplesPerRing; i++) {
+                  const angle = (Math.PI * 2 * i) / samplesPerRing;
                   const offsetX = Math.cos(angle) * ring;
                   const offsetY = Math.sin(angle) * ring;
-                  ctx.fillText(activeCaption.text, centerX + offsetX, y + offsetY);
+                  drawCaptionGlyph(centerX + (offsetX * radius) / ring, y + (offsetY * radius) / ring, sampleAlpha);
                 }
               }
-              ctx.globalAlpha = baseAlpha;
+
+              // ぼかしが強いほど中心のシャープ成分を落とす（最大時はほぼ輪郭を残さない）
+              const sharpCore = Math.max(0, 1 - blurStrength / 4.5);
+              if (sharpCore > 0.02) {
+                drawCaptionGlyph(centerX, y, sharpCore);
+              }
+              ctx.restore();
+              continue;
             }
 
-            // 縁取り
-            ctx.strokeStyle = captionSettings.strokeColor;
-            ctx.lineWidth = captionSettings.strokeWidth * 2;
-            ctx.lineJoin = 'round';
-            ctx.strokeText(activeCaption.text, CANVAS_WIDTH / 2, y);
-
-            // 文字
-            ctx.fillStyle = captionSettings.fontColor;
-            ctx.fillText(activeCaption.text, CANVAS_WIDTH / 2, y);
+            // 通常ブラウザは Canvas filter をそのまま利用
+            ctx.filter = blurStrength > 0 ? `blur(${blurStrength}px)` : 'none';
+            drawCaptionGlyph(centerX, y, 1);
             ctx.restore();
           }
         }
