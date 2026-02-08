@@ -1683,7 +1683,10 @@ const TurtleVideo: React.FC = () => {
             // 音声プリレンダリング完了後に再生ループを開始
             // iOS Safari ではリアルタイム音声抽出に数秒かかるため、
             // その完了を待ってからビデオキャプチャ用の再生を始める。
+            // startTimeRef を再セットしないと、抽出に費やした時間分
+            // elapsed が進んでしまいループが即座に終了する。
             onAudioPreRenderComplete: () => {
+              startTimeRef.current = Date.now() - fromTime * 1000;
               loop(isExportMode, myLoopId);
             },
           }
