@@ -841,6 +841,7 @@ export function useExport(): UseExportReturn {
           let keepAliveOscillator: OscillatorNode | null = null;
           let keepAliveGain: GainNode | null = null;
           let framePumpTimer: ReturnType<typeof setInterval> | null = null;
+          let abortStopTimer: ReturnType<typeof setTimeout> | null = null;
           const combined = new MediaStream([
             ...canvasStream.getVideoTracks(),
             ...recorderAudioTracks,
@@ -894,6 +895,10 @@ export function useExport(): UseExportReturn {
             if (framePumpTimer) {
               clearInterval(framePumpTimer);
               framePumpTimer = null;
+            }
+            if (abortStopTimer) {
+              clearTimeout(abortStopTimer);
+              abortStopTimer = null;
             }
             if (keepAliveOscillator) {
               try { keepAliveOscillator.stop(); } catch { /* ignore */ }
@@ -958,10 +963,19 @@ export function useExport(): UseExportReturn {
                 } catch {
                   // ignore
                 }
-                try {
-                  recorder.stop();
-                } catch {
-                  // ignore
+                // iOS Safari では requestData 直後に stop すると終端チャンクが欠落する場合があるため、
+                // 最終フラッシュ時間を確保してから stop する。
+                if (!abortStopTimer) {
+                  abortStopTimer = setTimeout(() => {
+                    abortStopTimer = null;
+                    if (recorder && recorder.state !== 'inactive') {
+                      try {
+                        recorder.stop();
+                      } catch {
+                        // ignore
+                      }
+                    }
+                  }, 180);
                 }
               }
             };
@@ -1017,8 +1031,9 @@ export function useExport(): UseExportReturn {
             };
 
             try {
-              // timeslice指定で定期的にチャンクを取り出し、終端が無音でも音声チャンクを取りこぼさないようにする。
-              recorder.start(1000);
+              // iOS Safari では timeslice が粗いと終端側の時間解像度が荒くなるため、
+              // 短めの timeslice でチャンクを小刻みに取り出す。
+              recorder.start(250);
               try {
                 canvasVideoTrack?.requestFrame?.();
               } catch {
