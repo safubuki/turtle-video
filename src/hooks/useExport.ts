@@ -821,6 +821,8 @@ export function useExport(): UseExportReturn {
 
           const exportDest = masterDestRef.current!;
           const canvasStream = canvas.captureStream(FPS);
+          const canvasVideoTrack = canvasStream.getVideoTracks()[0] as
+            (MediaStreamTrack & { requestFrame?: () => void }) | undefined;
           const sourceAudioTracks = exportDest.stream.getAudioTracks();
           const liveAudioTracks = sourceAudioTracks.filter((track) => track.readyState === 'live');
           if (liveAudioTracks.length === 0) {
@@ -838,10 +840,24 @@ export function useExport(): UseExportReturn {
           const recorderAudioTracks = liveAudioTracks.map((track) => track.clone());
           let keepAliveOscillator: OscillatorNode | null = null;
           let keepAliveGain: GainNode | null = null;
+          let framePumpTimer: ReturnType<typeof setInterval> | null = null;
           const combined = new MediaStream([
             ...canvasStream.getVideoTracks(),
             ...recorderAudioTracks,
           ]);
+
+          // iOS Safari: 静止画主体のタイムラインでは Canvas 変化が少なく、
+          // captureStream のフレーム供給が不安定になることがあるため、requestFrame で明示供給する。
+          if (canvasVideoTrack && typeof canvasVideoTrack.requestFrame === 'function') {
+            const frameIntervalMs = Math.max(16, Math.round(1000 / FPS));
+            framePumpTimer = setInterval(() => {
+              try {
+                canvasVideoTrack.requestFrame?.();
+              } catch {
+                // ignore
+              }
+            }, frameIntervalMs);
+          }
 
           // iOS Safari で無音最適化されるのを防ぐため、極小レベルの keep-alive 音声を維持する。
           try {
@@ -875,6 +891,10 @@ export function useExport(): UseExportReturn {
                 // ignore
               }
             });
+            if (framePumpTimer) {
+              clearInterval(framePumpTimer);
+              framePumpTimer = null;
+            }
             if (keepAliveOscillator) {
               try { keepAliveOscillator.stop(); } catch { /* ignore */ }
               try { keepAliveOscillator.disconnect(); } catch { /* ignore */ }
@@ -900,6 +920,7 @@ export function useExport(): UseExportReturn {
             sourceAudioTrackCount: sourceAudioTracks.length,
             sourceAudioTrackStates: sourceAudioTracks.map((track) => track.readyState),
             recorderAudioTrackCount: recorderAudioTracks.length,
+            hasCanvasFramePump: !!framePumpTimer,
           });
 
           let startedSuccessfully = false;
@@ -927,6 +948,11 @@ export function useExport(): UseExportReturn {
 
             const onAbort = () => {
               if (recorder && recorder.state !== 'inactive') {
+                try {
+                  canvasVideoTrack?.requestFrame?.();
+                } catch {
+                  // ignore
+                }
                 try {
                   recorder.requestData();
                 } catch {
@@ -993,6 +1019,11 @@ export function useExport(): UseExportReturn {
             try {
               // timeslice指定で定期的にチャンクを取り出し、終端が無音でも音声チャンクを取りこぼさないようにする。
               recorder.start(1000);
+              try {
+                canvasVideoTrack?.requestFrame?.();
+              } catch {
+                // ignore
+              }
               startedSuccessfully = true;
               useLogStore.getState().info('RENDER', '[DIAG-READY] 音声準備完了、再生ループ開始通知（MediaRecorder経路）');
               audioSources?.onAudioPreRenderComplete?.();
