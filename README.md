@@ -1,4 +1,4 @@
-# Turtle Video
+# タートルビデオ
 
 ブラウザで動作する動画編集アプリケーション。動画・画像の結合、BGM・ナレーション追加、AIナレーション生成機能を備えています。
 
@@ -36,16 +36,13 @@
 - **ミニプレビュー**: トランスフォームパネル内でリアルタイムプレビュー表示
 - **ログ機能**: エラー・警告・情報をリアルタイム記録（エクスポート可能）
 
-### 更新履歴
-- **v2.1.1**: 動画切り替え直後の停止操作により発生するタイムアウト/フリーズ不具合を修正（安全な停止ロジックの実装）
-- **v2.2.0**: プロジェクト保存機能、素材生成機能、ログ機能の追加、UI/UX改善
-  - 自動保存機能（設定可能な間隔）
-  - 手動保存・読み込み機能（2スロット方式）
-  - 保存・素材モーダル（黒/白画像生成機能）
-  - ログ機能の強化（エラー・警告の可視化）
-  - 設定モーダルの整理（APIキーとログに集約）
-  - エクスポートUI改善（「書き出す」→「動画ファイルを作成」）
-  - 誤操作防止機能の強化
+## すぐに使う（GitHub Pages）
+
+- 公開URL: `https://safubuki.github.io/turtle-video-rel/`
+- URLにアクセスするだけで利用できます（インストール不要）。
+- 対応環境: Android / PC / iOS Safari
+- 提供機能は各対応環境で基本的に同一です。
+- iOS Safari は暫定対応です。端末やOSバージョンによっては不具合が発生する可能性があります。
 
 ## セットアップ
 
@@ -108,6 +105,34 @@ npm run test:run
 # カバレッジを確認
 npm run test:coverage
 ```
+
+## Agent Skills
+
+- 管理対象ディレクトリ: `.github/skills`（推奨）
+- 同期コマンド:
+  - `npm run skills:sync -- --dry-run --verbose`（確認のみ）
+  - `npm run skills:sync`（実同期）
+  - `npm run skills:sync -- --strategy base --base github`（GitHub側をベースに同期）
+- Windows の `config.toml` は通常 `C:/Users/<ユーザー名>/.codex/config.toml` にあります。
+
+### 設定例（詳細は1つだけ）
+```toml
+# 例: C:/Users/<ユーザー名>/.codex/config.toml
+[[skills.config]]
+path = "C:/<workspace-parent>/<workspace-folder>/.github/skills/bug-analysis/SKILL.md"
+enabled = true
+```
+
+### このプロジェクトで使う主なスキル
+- `bug-analysis`
+- `bugfix-guard`
+- `elite-ux-architect`
+- `implementation-plan`
+- `readme-generator`
+- `skills-generator`
+- `turtle-video-overview`
+- `user-guide`
+- リポジトリを移動した場合は、`C:/Users/<ユーザー名>/.codex/config.toml` の `path` を新しいワークスペースの絶対パスに更新してください。
 
 ## 技術スタック
 
