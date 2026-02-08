@@ -85,12 +85,35 @@
 
 #### 対策（実装済み）
 - `TurtleVideo.tsx` で可視復帰時に `AudioContext` が `running` 以外なら `resume()` を試行
+- 可視復帰イベントを `visibilitychange` だけでなく `focus` / `pageshow` に拡張
 - `startEngine()` で再生開始時に `running` 以外を包括復帰（再試行付き）
+- `startEngine()` の iOS Safari 通常再生時に `suspend -> resume` を追加し音声経路を再初期化
 - アップロード時・メディア要素再接続時の復帰条件も `running以外` に統一
 
 #### 注意点
 - 可視復帰時 `resume()` はユーザー操作要件で失敗し得るため、失敗しても次の再生操作で再試行する設計にする
 - iOS Safari 対応では `AudioContext.state` 判定を **`!== 'running'`** で書く
+
+---
+
+### 0.8 追加事象: 音声ファイル選択不可 / 先頭フレーム混入（iOS Safari）
+
+#### 事象A: BGM/ナレーションで mp3 が選択できない
+- **現象**: iOS Safari で `audio/*` 指定時に、ファイルピッカーで mp3 が選択しづらい/選択不可になるケースがある
+- **対策**:
+  - BGM/Narration の file input `accept` を iOS Safari のみ拡張
+  - `audio/*` に加えて拡張子ベース（`.mp3/.m4a/.wav/.aac...`）を追加
+  - 既存ブラウザ（Android/PC）は従来の `audio/*` を維持
+
+#### 事象B: 一時停止位置の最終フレームが書き出し先頭に混入
+- **現象**: 一時停止中にエクスポートすると、先頭に直前プレビューフレームが混入する
+- **原因**: iOS Safari では先頭動画フレームが未準備のタイミングで録画開始すると、Canvas の旧フレームが先頭に取り込まれる
+- **対策**:
+  - iOS Safari エクスポート前に「先頭動画クリップの `trimStart` フレーム準備待ち」を追加
+  - `loadeddata/canplay/seeked` とタイムアウトで待機し、先頭フレーム確定後に録画開始
+
+#### iOS限定方針
+- すべて iOS Safari 条件下でのみ有効化し、Android/PC の既存経路には影響させない
 
 ---
 

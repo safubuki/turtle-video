@@ -3,7 +3,7 @@
  * @author Turtle Village
  * @description BGM（バックグラウンドミュージック）のアップロード、音量調整、フェード設定、削除を行うセクションコンポーネント。
  */
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { Upload, Lock, Unlock, Music, Volume2, Timer, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
 import type { AudioTrack } from '../../types';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
@@ -45,6 +45,17 @@ const BgmSection: React.FC<BgmSectionProps> = ({
   formatTime,
 }) => {
   const [isOpen, setIsOpen] = useState(true);
+  const isIosSafari = useMemo(() => {
+    if (typeof navigator === 'undefined') return false;
+    const ua = navigator.userAgent;
+    const isIOS = /iP(hone|ad|od)/i.test(ua) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isSafari = /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/i.test(ua);
+    return isIOS && isSafari;
+  }, []);
+  const audioFileAccept = isIosSafari
+    ? 'audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.oga,.opus,.caf,.aif,.aiff,.mp4,.m4v,.mov,.webm'
+    : 'audio/*';
 
   // スワイプ保護用ハンドラ
   const handleStartPointChange = useCallback(
@@ -87,7 +98,7 @@ const BgmSection: React.FC<BgmSectionProps> = ({
               <Upload className="w-3 h-3" /> 選択
               <input
                 type="file"
-                accept="audio/*"
+                accept={audioFileAccept}
                 className="hidden"
                 onChange={onBgmUpload}
                 disabled={isBgmLocked}

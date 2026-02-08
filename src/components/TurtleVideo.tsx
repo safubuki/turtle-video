@@ -766,42 +766,61 @@ const TurtleVideo: React.FC = () => {
 
   // タブ復帰時の自動リフレッシュ
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        const ctx = audioCtxRef.current;
-        if (ctx) {
-          const state = ctx.state as AudioContextState | 'interrupted';
-          if (state !== 'running') {
-            ctx.resume()
-              .then(() => {
-                logInfo('AUDIO', '可視復帰時にAudioContextを再開', { from: state, to: ctx.state });
-              })
-              .catch((err) => {
-                logWarn('AUDIO', '可視復帰時のAudioContext再開に失敗（次のユーザー操作で再試行）', {
-                  state,
-                  error: err instanceof Error ? err.message : String(err),
-                });
+    const refreshAfterReturn = () => {
+      if (document.visibilityState !== 'visible') return;
+
+      const ctx = audioCtxRef.current;
+      if (ctx) {
+        const state = ctx.state as AudioContextState | 'interrupted';
+        if (state !== 'running') {
+          ctx.resume()
+            .then(() => {
+              logInfo('AUDIO', '可視復帰時にAudioContextを再開', { from: state, to: ctx.state });
+            })
+            .catch((err) => {
+              logWarn('AUDIO', '可視復帰時のAudioContext再開に失敗（次のユーザー操作で再試行）', {
+                state,
+                error: err instanceof Error ? err.message : String(err),
               });
+            });
+        }
+      }
+
+      requestAnimationFrame(() => renderFrame(currentTimeRef.current, false));
+      Object.values(mediaElementsRef.current).forEach((el) => {
+        if (
+          (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') &&
+          (el as HTMLMediaElement).readyState < 2
+        ) {
+          try {
+            (el as HTMLMediaElement).load();
+          } catch (e) {
+            /* ignore */
           }
         }
+      });
+    };
 
-        requestAnimationFrame(() => renderFrame(currentTimeRef.current, false));
-        Object.values(mediaElementsRef.current).forEach((el) => {
-          if (
-            (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') &&
-            (el as HTMLMediaElement).readyState < 2
-          ) {
-            try {
-              (el as HTMLMediaElement).load();
-            } catch (e) {
-              /* ignore */
-            }
-          }
-        });
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshAfterReturn();
       }
     };
+    const handleWindowFocus = () => {
+      refreshAfterReturn();
+    };
+    const handlePageShow = () => {
+      refreshAfterReturn();
+    };
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleWindowFocus);
+    window.addEventListener('pageshow', handlePageShow);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleWindowFocus);
+      window.removeEventListener('pageshow', handlePageShow);
+    };
   }, [renderFrame, logInfo, logWarn]);
 
   // --- Audio Context ---
@@ -1531,6 +1550,23 @@ const TurtleVideo: React.FC = () => {
         });
       }
 
+      // iOS Safari では外部再生復帰後に state が running でも無音化する場合があるため、
+      // ユーザー操作起点の再生開始時に一度 suspend/resume で音声経路を再初期化する。
+      if (isIosSafari && !isExportMode) {
+        try {
+          if ((ctx.state as AudioContextState | 'interrupted') === 'running') {
+            await ctx.suspend();
+            await ctx.resume();
+            logInfo('AUDIO', 'iOS Safari 音声経路を再初期化', { state: ctx.state });
+          }
+        } catch (err) {
+          logWarn('AUDIO', 'iOS Safari 音声経路再初期化に失敗', {
+            error: err instanceof Error ? err.message : String(err),
+            state: ctx.state,
+          });
+        }
+      }
+
       // 既存のループとメディアを停止（これでloopIdRefがインクリメントされる）
       stopAll();
 
@@ -1660,6 +1696,51 @@ const TurtleVideo: React.FC = () => {
           logInfo('AUDIO', 'オーディオプリロード完了');
         }
 
+        // iOS Safari: エクスポート開始前に先頭フレームを確実に準備する。
+        // これを行わないと、直前のプレビュー最終フレームが先頭に混入することがある。
+        if (isIosSafari) {
+          const firstItem = mediaItemsRef.current[0];
+          if (firstItem?.type === 'video') {
+            const firstVideo = mediaElementsRef.current[firstItem.id] as HTMLVideoElement | undefined;
+            if (firstVideo) {
+              const targetTime = firstItem.trimStart || 0;
+              try {
+                if (firstVideo.readyState === 0) {
+                  firstVideo.load();
+                }
+                if (Math.abs(firstVideo.currentTime - targetTime) > 0.01) {
+                  firstVideo.currentTime = targetTime;
+                }
+              } catch {
+                // ignore
+              }
+
+              await new Promise<void>((resolve) => {
+                let done = false;
+                const finish = () => {
+                  if (done) return;
+                  done = true;
+                  clearTimeout(timeoutId);
+                  firstVideo.removeEventListener('loadeddata', onReady);
+                  firstVideo.removeEventListener('canplay', onReady);
+                  firstVideo.removeEventListener('seeked', onReady);
+                  resolve();
+                };
+                const onReady = () => {
+                  if (firstVideo.readyState >= 2 && !firstVideo.seeking) {
+                    finish();
+                  }
+                };
+                const timeoutId = setTimeout(finish, 1500);
+                firstVideo.addEventListener('loadeddata', onReady);
+                firstVideo.addEventListener('canplay', onReady);
+                firstVideo.addEventListener('seeked', onReady);
+                onReady();
+              });
+            }
+          }
+        }
+
         await new Promise((r) => setTimeout(r, 200));
         renderFrame(0, false, true);
         await new Promise((r) => setTimeout(r, 100));
@@ -1739,7 +1820,7 @@ const TurtleVideo: React.FC = () => {
         loop(isExportMode, myLoopId);
       }
     },
-    [getAudioContext, stopAll, setProcessing, play, clearExport, configureAudioRouting, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError, logWarn]
+    [getAudioContext, stopAll, setProcessing, play, clearExport, configureAudioRouting, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError, logWarn, isIosSafari]
   );
 
   // --- シークバー操作ハンドラ ---
