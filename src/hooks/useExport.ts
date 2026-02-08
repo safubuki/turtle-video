@@ -59,6 +59,35 @@ export interface ExportAudioSources {
   onAudioPreRenderComplete?: () => void;
 }
 
+interface MediaRecorderProfile {
+  mimeType: string | null;
+  extension: 'mp4' | 'webm';
+}
+
+function getSupportedMediaRecorderProfile(): MediaRecorderProfile | null {
+  if (typeof MediaRecorder === 'undefined') return null;
+
+  const candidates: MediaRecorderProfile[] = [
+    { mimeType: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"', extension: 'mp4' },
+    { mimeType: 'video/mp4;codecs="avc1.42E01E,mp4a.40.2"', extension: 'mp4' },
+    { mimeType: 'video/mp4', extension: 'mp4' },
+    { mimeType: 'video/webm; codecs="vp8, opus"', extension: 'webm' },
+    { mimeType: 'video/webm', extension: 'webm' },
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      if (!candidate.mimeType || MediaRecorder.isTypeSupported(candidate.mimeType)) {
+        return candidate;
+      }
+    } catch {
+      // ignore and continue
+    }
+  }
+
+  return null;
+}
+
 /**
  * iOS Safari フォールバック: <video> 要素を使って動画ファイルから音声をリアルタイム抽出する。
  * iOS Safari の decodeAudioData はビデオコンテナ(.mov/.mp4)のデコードに対応していないため、
@@ -779,6 +808,156 @@ export function useExport(): UseExportReturn {
       let scriptProcessorSource: MediaStreamAudioSourceNode | null = null;
 
       try {
+        // iOS Safari は WebCodecs AudioEncoder の音声無音化が起きるケースがあるため、
+        // MediaRecorder の MP4 経路を最優先で使用する。
+        const runIosSafariMediaRecorderExport = async (): Promise<boolean> => {
+          if (!isIosSafari) return false;
+
+          const profile = getSupportedMediaRecorderProfile();
+          if (!profile) {
+            useLogStore.getState().warn('RENDER', 'iOS Safari: MediaRecorder が未対応のため WebCodecs 経路へフォールバック');
+            return false;
+          }
+
+          const canvasStream = canvas.captureStream(FPS);
+          const audioTracks = masterDestRef.current!.stream.getAudioTracks();
+          const combined = new MediaStream([
+            ...canvasStream.getVideoTracks(),
+            ...audioTracks,
+          ]);
+
+          const cleanupStreams = () => {
+            combined.getTracks().forEach((track) => {
+              try {
+                track.stop();
+              } catch {
+                // ignore
+              }
+            });
+          };
+
+          const recorderOptions: MediaRecorderOptions = {
+            videoBitsPerSecond: EXPORT_VIDEO_BITRATE,
+            audioBitsPerSecond: 128000,
+          };
+          if (profile.mimeType) {
+            recorderOptions.mimeType = profile.mimeType;
+          }
+
+          useLogStore.getState().info('RENDER', 'iOS Safari: MediaRecorder 経路でエクスポート開始', {
+            mimeType: profile.mimeType || '(default)',
+            extension: profile.extension,
+            audioTrackCount: audioTracks.length,
+          });
+
+          let startedSuccessfully = false;
+          await new Promise<void>((resolve, reject) => {
+            let settled = false;
+            const chunks: Blob[] = [];
+            let recorder: MediaRecorder | null = null;
+
+            const finishResolve = () => {
+              if (settled) return;
+              settled = true;
+              resolve();
+            };
+
+            const finishReject = (err: Error) => {
+              if (settled) return;
+              settled = true;
+              reject(err);
+            };
+
+            const cleanup = () => {
+              signal.removeEventListener('abort', onAbort);
+              cleanupStreams();
+            };
+
+            const onAbort = () => {
+              if (recorder && recorder.state !== 'inactive') {
+                try {
+                  recorder.stop();
+                } catch {
+                  // ignore
+                }
+              }
+            };
+
+            try {
+              recorder = new MediaRecorder(combined, recorderOptions);
+              recorderRef.current = recorder;
+            } catch (err) {
+              cleanup();
+              recorderRef.current = null;
+              useLogStore.getState().warn('RENDER', 'iOS Safari: MediaRecorder 初期化失敗、WebCodecs 経路へフォールバック', {
+                error: err instanceof Error ? err.message : String(err),
+              });
+              finishResolve();
+              return;
+            }
+
+            signal.addEventListener('abort', onAbort, { once: true });
+
+            recorder.ondataavailable = (event: BlobEvent) => {
+              if (event.data && event.data.size > 0) {
+                chunks.push(event.data);
+              }
+            };
+
+            recorder.onerror = () => {
+              cleanup();
+              finishReject(new Error('MediaRecorder で録画中にエラーが発生しました'));
+            };
+
+            recorder.onstop = () => {
+              cleanup();
+              recorderRef.current = null;
+
+              if (chunks.length === 0) {
+                finishReject(new Error('MediaRecorder の出力データが空です'));
+                return;
+              }
+
+              const blob = new Blob(chunks, { type: profile.mimeType || 'video/mp4' });
+              const url = URL.createObjectURL(blob);
+              setExportUrl(url);
+              setExportExt(profile.extension);
+
+              useLogStore.getState().info('RENDER', 'iOS Safari: MediaRecorder エクスポート完了', {
+                chunks: chunks.length,
+                blobSizeBytes: blob.size,
+                extension: profile.extension,
+              });
+
+              onRecordingStop(url, profile.extension);
+              finishResolve();
+            };
+
+            try {
+              recorder.start();
+              startedSuccessfully = true;
+              useLogStore.getState().info('RENDER', '[DIAG-READY] 音声準備完了、再生ループ開始通知（MediaRecorder経路）');
+              audioSources?.onAudioPreRenderComplete?.();
+            } catch (err) {
+              cleanup();
+              recorderRef.current = null;
+              useLogStore.getState().warn('RENDER', 'iOS Safari: MediaRecorder 開始失敗、WebCodecs 経路へフォールバック', {
+                error: err instanceof Error ? err.message : String(err),
+              });
+              finishResolve();
+            }
+          });
+
+          return startedSuccessfully;
+        };
+
+        if (isIosSafari) {
+          const handledByMediaRecorder = await runIosSafariMediaRecorderExport();
+          if (handledByMediaRecorder) {
+            return;
+          }
+        }
+
         if (typeof VideoEncoder === 'undefined' || typeof AudioEncoder === 'undefined') {
           throw new Error('WebCodecsに対応していないブラウザです');
         }
