@@ -53,13 +53,245 @@ export interface ExportAudioSources {
 }
 
 /**
+ * iOS Safari フォールバック: <video> 要素を使って動画ファイルから音声をリアルタイム抽出する。
+ * iOS Safari の decodeAudioData はビデオコンテナ(.mov/.mp4)のデコードに対応していないため、
+ * <video> 要素で再生し MediaElementAudioSourceNode → ScriptProcessorNode 経由で
+ * PCM データを直接キャプチャする。
+ *
+ * 制約: リアルタイム再生のため、動画の長さと同程度の時間がかかる。
+ */
+async function extractAudioViaVideoElement(
+  file: File,
+  url: string,
+  duration: number,
+  mainCtx: AudioContext,
+  signal: AbortSignal,
+): Promise<AudioBuffer | null> {
+  const log = useLogStore.getState();
+  log.info('RENDER', '[EXTRACT] 動画音声のリアルタイム抽出を開始', {
+    fileName: file.name,
+    duration: Math.round(duration * 100) / 100,
+    estimatedTimeSec: Math.ceil(duration + 2),
+    audioContextState: mainCtx.state,
+    sampleRate: mainCtx.sampleRate,
+  });
+
+  return new Promise<AudioBuffer | null>((resolve) => {
+    let resolved = false;
+    const safeResolve = (result: AudioBuffer | null) => {
+      if (resolved) return;
+      resolved = true;
+      signal.removeEventListener('abort', onAbort);
+      clearTimeout(timeoutId);
+      cleanup();
+      resolve(result);
+    };
+
+    const video = document.createElement('video');
+    video.playsInline = true;
+    video.preload = 'auto';
+    video.setAttribute('playsinline', ''); // iOS Safari 互換
+    video.setAttribute('webkit-playsinline', '');
+
+    let sourceNode: MediaElementAudioSourceNode | null = null;
+    let processor: ScriptProcessorNode | null = null;
+    let silentGain: GainNode | null = null;
+    let blobUrl: string | null = null;
+    const collectedL: Float32Array[] = [];
+    const collectedR: Float32Array[] = [];
+    let totalFrames = 0;
+
+    const cleanup = () => {
+      if (processor) {
+        processor.onaudioprocess = null;
+        try { processor.disconnect(); } catch { /* ignore */ }
+      }
+      if (sourceNode) {
+        try { sourceNode.disconnect(); } catch { /* ignore */ }
+      }
+      if (silentGain) {
+        try { silentGain.disconnect(); } catch { /* ignore */ }
+      }
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+      if (blobUrl) {
+        URL.revokeObjectURL(blobUrl);
+        blobUrl = null;
+      }
+    };
+
+    const onAbort = () => {
+      log.info('RENDER', '[EXTRACT] 中断シグナルで音声抽出終了');
+      safeResolve(null);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+
+    // タイムアウト（duration + 5秒のマージン、最低10秒）
+    const timeoutMs = Math.max(10000, (duration + 5) * 1000);
+    const timeoutId = setTimeout(() => {
+      log.warn('RENDER', '[EXTRACT] タイムアウトで音声キャプチャ終了', {
+        timeoutMs,
+        totalFrames,
+        capturedDuration: Math.round(totalFrames / mainCtx.sampleRate * 100) / 100,
+      });
+      buildAndResolve();
+    }, timeoutMs);
+
+    const buildAndResolve = () => {
+      if (totalFrames === 0) {
+        log.warn('RENDER', '[EXTRACT] 音声キャプチャデータなし（0 frames）');
+        safeResolve(null);
+        return;
+      }
+
+      try {
+        const audioBuffer = mainCtx.createBuffer(2, totalFrames, mainCtx.sampleRate);
+        let offset = 0;
+        const ch0Data = audioBuffer.getChannelData(0);
+        const ch1Data = audioBuffer.getChannelData(1);
+        for (let i = 0; i < collectedL.length; i++) {
+          ch0Data.set(collectedL[i], offset);
+          ch1Data.set(collectedR[i], offset);
+          offset += collectedL[i].length;
+        }
+
+        // 振幅チェック
+        let maxAmp = 0;
+        let nonZero = 0;
+        for (let i = 0; i < ch0Data.length; i += 100) {
+          const a = Math.abs(ch0Data[i]);
+          if (a > 1e-10) nonZero++;
+          if (a > maxAmp) maxAmp = a;
+        }
+
+        log.info('RENDER', '[EXTRACT] 音声抽出完了', {
+          totalFrames,
+          durationSec: Math.round(totalFrames / mainCtx.sampleRate * 100) / 100,
+          maxAmplitude: Math.round(maxAmp * 10000) / 10000,
+          nonZeroSamples: nonZero,
+          chunks: collectedL.length,
+        });
+
+        if (maxAmp < 1e-8) {
+          log.warn('RENDER', '[EXTRACT] ⚠️ 抽出音声がほぼ無音です');
+          safeResolve(null);
+          return;
+        }
+        safeResolve(audioBuffer);
+      } catch (err) {
+        log.error('RENDER', '[EXTRACT] AudioBuffer構築失敗', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        safeResolve(null);
+      }
+    };
+
+    try {
+      // Web Audio ノードの構築
+      sourceNode = mainCtx.createMediaElementSource(video);
+      processor = mainCtx.createScriptProcessor(4096, 2, 2);
+      silentGain = mainCtx.createGain();
+      // 極小音量（0 にすると iOS Safari がノードを最適化で無効化する恐れ）
+      silentGain.gain.value = 0.00001;
+
+      sourceNode.connect(processor);
+      processor.connect(silentGain);
+      silentGain.connect(mainCtx.destination);
+
+      log.info('RENDER', '[EXTRACT] Web Audio パイプライン構築完了');
+
+      let capturedChunks = 0;
+      processor.onaudioprocess = (e: AudioProcessingEvent) => {
+        if (resolved || signal.aborted) return;
+
+        const inputL = e.inputBuffer.getChannelData(0);
+        const inputR = e.inputBuffer.numberOfChannels >= 2
+          ? e.inputBuffer.getChannelData(1) : inputL;
+        collectedL.push(new Float32Array(inputL));
+        collectedR.push(new Float32Array(inputR));
+        totalFrames += inputL.length;
+        capturedChunks++;
+
+        // 初回キャプチャとその後のログ
+        if (capturedChunks === 1) {
+          // 初回データの振幅チェック
+          let firstMaxAmp = 0;
+          for (let i = 0; i < inputL.length; i += 10) {
+            const a = Math.abs(inputL[i]);
+            if (a > firstMaxAmp) firstMaxAmp = a;
+          }
+          log.info('RENDER', '[EXTRACT] ScriptProcessor 初回データ受信', {
+            bufferSize: inputL.length,
+            channels: e.inputBuffer.numberOfChannels,
+            firstMaxAmplitude: Math.round(firstMaxAmp * 10000) / 10000,
+          });
+        }
+
+        // 出力に極小値（iOS Safari の最適化防止）
+        for (let ch = 0; ch < e.outputBuffer.numberOfChannels; ch++) {
+          const out = e.outputBuffer.getChannelData(ch);
+          for (let i = 0; i < out.length; i++) out[i] = 1e-10;
+        }
+      };
+
+      // Video イベント
+      video.onended = () => {
+        log.info('RENDER', '[EXTRACT] video.onended 発火', {
+          capturedChunks,
+          totalFrames,
+          capturedDuration: Math.round(totalFrames / mainCtx.sampleRate * 100) / 100,
+        });
+        // ほんの少し待ってからバッファを構築（最後の onaudioprocess が確実に処理されるため）
+        setTimeout(() => buildAndResolve(), 100);
+      };
+
+      video.onerror = () => {
+        log.error('RENDER', '[EXTRACT] video error', {
+          code: video.error?.code,
+          message: video.error?.message,
+        });
+        safeResolve(null);
+      };
+
+      // ファイルを読み込んで再生
+      if (file instanceof File) {
+        blobUrl = URL.createObjectURL(file);
+        video.src = blobUrl;
+      } else {
+        video.src = url;
+      }
+
+      video.play().then(() => {
+        log.info('RENDER', '[EXTRACT] video.play() 成功', {
+          videoDuration: video.duration,
+          readyState: video.readyState,
+        });
+      }).catch((err) => {
+        log.error('RENDER', '[EXTRACT] video.play() 失敗', {
+          error: err instanceof Error ? err.message : String(err),
+          errorName: err instanceof Error ? err.name : 'unknown',
+        });
+        safeResolve(null);
+      });
+
+    } catch (err) {
+      log.error('RENDER', '[EXTRACT] 初期化エラー', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      safeResolve(null);
+    }
+  });
+}
+
+/**
  * OfflineAudioContext を使用して全音声をオフラインでミックスダウンする。
  * iOS Safari のリアルタイム音声キャプチャ問題（MediaStreamAudioDestinationNode / ScriptProcessorNode
  * 経由でデータがドロップされる）を完全に回避する。
  */
 async function offlineRenderAudio(
   sources: ExportAudioSources,
-  mainCtx: BaseAudioContext,
+  mainCtx: AudioContext,
   sampleRate: number,
   signal: AbortSignal,
 ): Promise<AudioBuffer | null> {
@@ -79,10 +311,10 @@ async function offlineRenderAudio(
   const offlineCtx = new OfflineAudioContext(numberOfChannels, length, sampleRate);
 
   // Helper: ファイルから音声をデコード
-  // メインAudioContextを使用して decodeAudioData を呼ぶ（iOS Safariではコンテナ形式の
-  // デコード互換性がメインコンテキストの方が高い。OfflineAudioContext上での
-  // decodeAudioDataはビデオコンテナ(MP4等)のオーディオ抽出に失敗する場合がある）
-  async function decodeAudio(file: File | { name: string }, url: string): Promise<AudioBuffer | null> {
+  // メインAudioContextを使用して decodeAudioData を呼ぶ。
+  // iOS Safari では decodeAudioData がビデオコンテナ(.mov/.mp4)のデコードに
+  // 失敗するため、その場合は <video> 要素経由のリアルタイム抽出にフォールバックする。
+  async function decodeAudio(file: File | { name: string }, url: string, mediaDuration?: number): Promise<AudioBuffer | null> {
     const fileName = file instanceof File ? file.name : (file as { name: string }).name;
     try {
       let arrayBuffer: ArrayBuffer;
@@ -134,11 +366,29 @@ async function offlineRenderAudio(
       });
       return decoded;
     } catch (e) {
-      log.warn('RENDER', `[DIAG-DECODE] 音声デコード失敗`, {
+      log.warn('RENDER', `[DIAG-DECODE] decodeAudioData 失敗`, {
         fileName,
         error: e instanceof Error ? e.message : String(e),
         errorName: e instanceof Error ? e.name : 'unknown',
       });
+
+      // iOS Safari: ビデオコンテナ(.mov/.mp4)の decodeAudioData が
+      // "EncodingError: Decoding failed" で失敗する場合、
+      // <video> 要素経由でリアルタイム音声抽出を試みる
+      if (file instanceof File) {
+        const isVideoFile = file.type.startsWith('video/') ||
+          /\.(mov|mp4|m4v|webm)$/i.test(fileName);
+        if (isVideoFile && !signal.aborted) {
+          log.info('RENDER', '[DIAG-DECODE] ビデオファイルのため <video> 経由のリアルタイム抽出にフォールバック', {
+            fileName,
+            fileType: file.type,
+            mediaDuration: mediaDuration || 'unknown',
+          });
+          return await extractAudioViaVideoElement(
+            file, url, mediaDuration || 30, mainCtx, signal
+          );
+        }
+      }
       return null;
     }
   }
@@ -151,7 +401,7 @@ async function offlineRenderAudio(
     if (signal.aborted) return null;
 
     if (item.type === 'video' && !item.isMuted && item.volume > 0) {
-      const audioBuffer = await decodeAudio(item.file, item.url);
+      const audioBuffer = await decodeAudio(item.file, item.url, item.duration);
       if (audioBuffer) {
         const source = offlineCtx.createBufferSource();
         source.buffer = audioBuffer;
@@ -216,7 +466,7 @@ async function offlineRenderAudio(
   // Helper: BGM/ナレーションのスケジューリング
   async function scheduleAudioTrack(track: AudioTrack, label: string): Promise<void> {
     if (signal.aborted) return;
-    const audioBuffer = await decodeAudio(track.file, track.url);
+    const audioBuffer = await decodeAudio(track.file, track.url, track.duration);
     if (!audioBuffer) return;
 
     const source = offlineCtx.createBufferSource();
@@ -623,7 +873,7 @@ export function useExport(): UseExportReturn {
           try {
             const renderedAudio = await offlineRenderAudio(
               audioSources,
-              audioContext,  // メインAudioContextでデコード（iOS Safari互換性向上）
+              audioContext as AudioContext,  // メインAudioContextでデコード（iOS Safari互換性向上）
               audioContext.sampleRate,
               signal,
             );
