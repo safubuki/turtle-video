@@ -50,6 +50,13 @@ export interface ExportAudioSources {
   bgm: AudioTrack | null;
   narration: AudioTrack | null;
   totalDuration: number;
+  /**
+   * 音声プリレンダリング完了時に呼ばれるコールバック。
+   * iOS Safari では音声抽出にリアルタイムで動画再生が必要なため、
+   * エクスポート用の再生ループ（loop）はこのコールバック後に開始する。
+   * 音声プリレンダリングが不要な環境（PC/Android）では即座に呼ばれる。
+   */
+  onAudioPreRenderComplete?: () => void;
 }
 
 /**
@@ -1198,6 +1205,13 @@ export function useExport(): UseExportReturn {
           audioBitsPerSecond: 128000,
           videoBitsPerSecond: EXPORT_VIDEO_BITRATE
         } as unknown as MediaRecorder;
+
+        // 音声プリレンダリング完了を通知 — エクスポート用の再生ループを開始させる
+        // iOS Safari では extractAudioViaVideoElement にリアルタイムがかかるため、
+        // このコールバックのタイミングが重要。
+        // PC/Android では offlineRenderAudio が高速なため即座に呼ばれる。
+        useLogStore.getState().info('RENDER', '[DIAG-READY] 音声準備完了、再生ループ開始通知');
+        audioSources?.onAudioPreRenderComplete?.();
 
         // 停止されるまで待機（processingは停止シグナルで終わる）
         await processing;

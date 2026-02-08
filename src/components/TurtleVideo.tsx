@@ -1680,11 +1680,17 @@ const TurtleVideo: React.FC = () => {
             bgm: bgmRef.current,
             narration: narrationRef.current,
             totalDuration: totalDurationRef.current,
+            // 音声プリレンダリング完了後に再生ループを開始
+            // iOS Safari ではリアルタイム音声抽出に数秒かかるため、
+            // その完了を待ってからビデオキャプチャ用の再生を始める。
+            onAudioPreRenderComplete: () => {
+              loop(isExportMode, myLoopId);
+            },
           }
         );
+      } else {
+        loop(isExportMode, myLoopId);
       }
-
-      loop(isExportMode, myLoopId);
     },
     [getAudioContext, stopAll, setProcessing, play, clearExport, configureAudioRouting, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError]
   );
