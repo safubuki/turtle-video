@@ -4,12 +4,10 @@ import { useUpdateStore } from '../stores/updateStore';
 import { RefreshCw, X } from 'lucide-react';
 
 export const ReloadPrompt: React.FC = () => {
-    const {
-        needRefresh: storeNeedRefresh,
-        setNeedRefresh,
-        setOfflineReady,
-        setUpdateServiceWorker
-    } = useUpdateStore();
+    const storeNeedRefresh = useUpdateStore((state) => state.needRefresh);
+    const setNeedRefresh = useUpdateStore((state) => state.setNeedRefresh);
+    const setOfflineReady = useUpdateStore((state) => state.setOfflineReady);
+    const setUpdateServiceWorker = useUpdateStore((state) => state.setUpdateServiceWorker);
 
     const {
         needRefresh: [needRefresh],
@@ -26,12 +24,17 @@ export const ReloadPrompt: React.FC = () => {
     });
 
     // Sync hook state to store
+    // Only update when true to allow user to dismiss
     useEffect(() => {
-        setNeedRefresh(needRefresh);
+        if (needRefresh) {
+            setNeedRefresh(true);
+        }
     }, [needRefresh, setNeedRefresh]);
 
     useEffect(() => {
-        setOfflineReady(offlineReady);
+        if (offlineReady) {
+            setOfflineReady(true);
+        }
     }, [offlineReady, setOfflineReady]);
 
     useEffect(() => {
@@ -43,7 +46,7 @@ export const ReloadPrompt: React.FC = () => {
         setNeedRefresh(false);
     };
 
-    if (!storeNeedRefresh && !offlineReady) return null;
+    if (!storeNeedRefresh) return null;
 
     return (
         <div className="fixed bottom-4 right-4 z-[400] flex flex-col gap-2 w-full max-w-sm">
