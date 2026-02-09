@@ -1333,6 +1333,7 @@ export function useExport(): UseExportReturn {
         const processVideoWithTrackProcessor = async () => {
           let frameIndex = 0;
           const frameDuration = 1e6 / FPS; // 1フレームあたりの時間（マイクロ秒）
+          const isKeyFrame = (index: number) => index === 0 || index % FPS === 0;
 
           try {
             while (!signal.aborted) {
@@ -1358,7 +1359,7 @@ export function useExport(): UseExportReturn {
                   });
 
                   // エンコード
-                  videoEncoder.encode(newFrame);
+                  videoEncoder.encode(newFrame, { keyFrame: isKeyFrame(frameIndex) });
 
                   // クローズ
                   newFrame.close();
@@ -1378,6 +1379,7 @@ export function useExport(): UseExportReturn {
           let frameIndex = 0;
           const frameDuration = 1e6 / FPS;
           const frameInterval = Math.max(1, Math.round(1000 / FPS));
+          const isKeyFrame = (index: number) => index === 0 || index % FPS === 0;
 
           try {
             while (!signal.aborted) {
@@ -1386,7 +1388,7 @@ export function useExport(): UseExportReturn {
                   timestamp: Math.round(frameIndex * frameDuration),
                   duration: Math.round(frameDuration),
                 });
-                videoEncoder.encode(frame);
+                videoEncoder.encode(frame, { keyFrame: isKeyFrame(frameIndex) });
                 frame.close();
                 frameIndex++;
               }

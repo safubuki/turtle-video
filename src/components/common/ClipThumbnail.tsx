@@ -13,6 +13,13 @@ interface ClipThumbnailProps {
 
 const THUMB_WIDTH = 48;
 const THUMB_HEIGHT = 28;
+const VIDEO_FRAME_WAIT_MS = 80;
+const VIDEO_DRAW_RETRY_COUNT = 4;
+
+type FrameAwareVideo = HTMLVideoElement & {
+  requestVideoFrameCallback?: (callback: (...args: unknown[]) => void) => number;
+  cancelVideoFrameCallback?: (handle: number) => void;
+};
 
 /**
  * クリップサムネイルコンポーネント
@@ -28,74 +35,228 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({ file, type }) => {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    setReady(false);
+
+    let cancelled = false;
+    const timeoutIds = new Set<number>();
+
+    const registerTimeout = (id: number): number => {
+      timeoutIds.add(id);
+      return id;
+    };
+
+    const clearAllTimeouts = () => {
+      timeoutIds.forEach((id) => window.clearTimeout(id));
+      timeoutIds.clear();
+    };
 
     const url = URL.createObjectURL(file);
     urlRef.current = url;
 
-    if (type === 'image') {
-      const img = new Image();
-      img.onload = () => {
-        // アスペクト比を維持して描画
-        const scale = Math.min(THUMB_WIDTH / img.naturalWidth, THUMB_HEIGHT / img.naturalHeight);
-        const w = img.naturalWidth * scale;
-        const h = img.naturalHeight * scale;
-        ctx.fillStyle = '#000';
-        ctx.fillRect(0, 0, THUMB_WIDTH, THUMB_HEIGHT);
-        ctx.drawImage(img, (THUMB_WIDTH - w) / 2, (THUMB_HEIGHT - h) / 2, w, h);
-        setReady(true);
-        URL.revokeObjectURL(url);
-        urlRef.current = null;
-      };
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        urlRef.current = null;
-      };
-      img.src = url;
-    } else {
-      const video = document.createElement('video');
-      video.muted = true;
-      video.preload = 'auto';
-      video.playsInline = true;
-
-      const drawFrame = () => {
-        const scale = Math.min(THUMB_WIDTH / video.videoWidth, THUMB_HEIGHT / video.videoHeight);
-        const w = video.videoWidth * scale;
-        const h = video.videoHeight * scale;
-        ctx.fillStyle = '#000';
-        ctx.fillRect(0, 0, THUMB_WIDTH, THUMB_HEIGHT);
-        try {
-          ctx.drawImage(video, (THUMB_WIDTH - w) / 2, (THUMB_HEIGHT - h) / 2, w, h);
-        } catch {
-          // 描画エラーは無視
-        }
-        setReady(true);
-        URL.revokeObjectURL(url);
-        urlRef.current = null;
-      };
-
-      // メタデータ読み込み後、1秒地点にシークしてからキャプチャ
-      video.onloadedmetadata = () => {
-        // 動画の長さに応じてシーク位置を決定（1秒 or 動画長の10%の小さい方）
-        const seekTime = Math.min(1, video.duration * 0.1);
-        video.currentTime = seekTime;
-      };
-
-      video.onseeked = () => {
-        drawFrame();
-      };
-
-      video.onerror = () => {
-        URL.revokeObjectURL(url);
-        urlRef.current = null;
-      };
-      video.src = url;
-    }
-
-    return () => {
+    const revokeUrl = () => {
       if (urlRef.current) {
         URL.revokeObjectURL(urlRef.current);
         urlRef.current = null;
       }
+    };
+
+    const wait = (ms: number): Promise<void> =>
+      new Promise((resolve) => {
+        const timeoutId = registerTimeout(window.setTimeout(() => {
+          timeoutIds.delete(timeoutId);
+          resolve();
+        }, ms));
+      });
+
+    const waitForEvent = (
+      target: EventTarget,
+      eventName: string,
+      timeoutMs: number
+    ): Promise<boolean> =>
+      new Promise((resolve) => {
+        if (cancelled) {
+          resolve(false);
+          return;
+        }
+
+        let settled = false;
+        const onEvent = () => finish(true);
+        const finish = (result: boolean) => {
+          if (settled) return;
+          settled = true;
+          target.removeEventListener(eventName, onEvent as EventListener);
+          window.clearTimeout(timeoutId);
+          timeoutIds.delete(timeoutId);
+          resolve(result);
+        };
+
+        const timeoutId = registerTimeout(window.setTimeout(() => finish(false), timeoutMs));
+        target.addEventListener(eventName, onEvent as EventListener, { once: true });
+      });
+
+    const drawCentered = (
+      source: CanvasImageSource,
+      sourceWidth: number,
+      sourceHeight: number
+    ): boolean => {
+      if (sourceWidth <= 0 || sourceHeight <= 0) return false;
+
+      const scale = Math.min(THUMB_WIDTH / sourceWidth, THUMB_HEIGHT / sourceHeight);
+      const w = sourceWidth * scale;
+      const h = sourceHeight * scale;
+
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, THUMB_WIDTH, THUMB_HEIGHT);
+
+      try {
+        ctx.drawImage(source, (THUMB_WIDTH - w) / 2, (THUMB_HEIGHT - h) / 2, w, h);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const drawVideoFallback = () => {
+      ctx.fillStyle = '#1f2937';
+      ctx.fillRect(0, 0, THUMB_WIDTH, THUMB_HEIGHT);
+      ctx.fillStyle = '#9ca3af';
+      ctx.beginPath();
+      ctx.moveTo(19, 8);
+      ctx.lineTo(19, 20);
+      ctx.lineTo(30, 14);
+      ctx.closePath();
+      ctx.fill();
+    };
+
+    const waitForDecodedFrame = async (video: FrameAwareVideo): Promise<void> => {
+      if (cancelled) return;
+
+      if (typeof video.requestVideoFrameCallback === 'function') {
+        await new Promise<void>((resolve) => {
+          let settled = false;
+          const finish = () => {
+            if (settled) return;
+            settled = true;
+            window.clearTimeout(timeoutId);
+            timeoutIds.delete(timeoutId);
+            resolve();
+          };
+
+          const callbackId = video.requestVideoFrameCallback?.(() => finish());
+          const timeoutId = registerTimeout(window.setTimeout(() => {
+            if (typeof callbackId === 'number' && typeof video.cancelVideoFrameCallback === 'function') {
+              video.cancelVideoFrameCallback(callbackId);
+            }
+            finish();
+          }, VIDEO_FRAME_WAIT_MS));
+        });
+        return;
+      }
+
+      await wait(VIDEO_FRAME_WAIT_MS);
+    };
+
+    const seekVideo = async (video: HTMLVideoElement, time: number): Promise<void> => {
+      if (cancelled) return;
+
+      const safeTime = Number.isFinite(time) ? Math.max(0, time) : 0;
+      const needsSeek = Math.abs(video.currentTime - safeTime) > 0.03;
+      if (!needsSeek) return;
+
+      const seekPromise = waitForEvent(video, 'seeked', 1500);
+      try {
+        video.currentTime = safeTime;
+        await seekPromise;
+      } catch {
+        // シーク失敗時は次の候補時刻へフォールバック
+      }
+    };
+
+    const buildSeekCandidates = (duration: number): number[] => {
+      if (!Number.isFinite(duration) || duration <= 0) return [0];
+
+      const maxSeek = Math.max(0, duration - 0.05);
+      const head = Math.min(1, duration * 0.1, maxSeek);
+      const middle = Math.min(duration * 0.5, maxSeek);
+
+      return Array.from(new Set([head, 0, middle].map((value) => Math.max(0, value))));
+    };
+
+    if (type === 'image') {
+      const img = new Image();
+      img.onload = () => {
+        if (cancelled) return;
+        drawCentered(img, img.naturalWidth, img.naturalHeight);
+        setReady(true);
+        revokeUrl();
+      };
+      img.onerror = () => {
+        if (cancelled) return;
+        drawVideoFallback();
+        setReady(true);
+        revokeUrl();
+      };
+      img.src = url;
+    } else {
+      const loadVideoThumbnail = async () => {
+        const video = document.createElement('video') as FrameAwareVideo;
+        video.muted = true;
+        video.preload = 'auto';
+        video.playsInline = true;
+        video.src = url;
+
+        const loadedMetadata = video.readyState >= 1 || await waitForEvent(video, 'loadedmetadata', 3000);
+        if (!loadedMetadata || cancelled) {
+          if (!cancelled) {
+            drawVideoFallback();
+            setReady(true);
+          }
+          revokeUrl();
+          return;
+        }
+
+        const seekCandidates = buildSeekCandidates(video.duration);
+        let captured = false;
+
+        for (const seekTime of seekCandidates) {
+          if (cancelled) break;
+
+          await seekVideo(video, seekTime);
+
+          if (video.readyState < 2) {
+            await waitForEvent(video, 'loadeddata', 800);
+          }
+
+          await waitForDecodedFrame(video);
+
+          for (let retry = 0; retry < VIDEO_DRAW_RETRY_COUNT; retry++) {
+            if (cancelled) break;
+            if (drawCentered(video, video.videoWidth, video.videoHeight)) {
+              captured = true;
+              break;
+            }
+            await wait(60);
+          }
+
+          if (captured) break;
+        }
+
+        if (!cancelled) {
+          if (!captured) {
+            drawVideoFallback();
+          }
+          setReady(true);
+        }
+        revokeUrl();
+      };
+
+      void loadVideoThumbnail();
+    }
+
+    return () => {
+      cancelled = true;
+      clearAllTimeouts();
+      revokeUrl();
     };
   }, [file, type]);
 
