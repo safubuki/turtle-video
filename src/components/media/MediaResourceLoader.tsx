@@ -107,6 +107,7 @@ const MediaResourceLoader = memo<MediaResourceLoaderProps>(
         {/* BGM用Audio要素 */}
         {bgm && (
           <audio
+            key={bgm.url}
             ref={(el) => onRefAssign('bgm', el)}
             src={bgm.url}
             onLoadedMetadata={(e) => onElementLoaded('bgm', e.currentTarget)}
@@ -120,6 +121,7 @@ const MediaResourceLoader = memo<MediaResourceLoaderProps>(
         {/* ナレーション用Audio要素 */}
         {narration && (
           <audio
+            key={narration.url}
             ref={(el) => onRefAssign('narration', el)}
             src={narration.url}
             onLoadedMetadata={(e) => onElementLoaded('narration', e.currentTarget)}
