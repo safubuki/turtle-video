@@ -193,6 +193,8 @@ const TurtleVideo: React.FC = () => {
   // Audio Nodes
   const sourceNodesRef = useRef<Record<string, MediaElementAudioSourceNode>>({});
   const gainNodesRef = useRef<Record<string, GainNode>>({});
+  const sourceElementsRef = useRef<Record<string, HTMLMediaElement>>({});
+  const pendingAudioDetachTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   const masterDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
   const reqIdRef = useRef<number | null>(null);
@@ -816,6 +818,12 @@ const TurtleVideo: React.FC = () => {
           }
         }
       });
+
+      Object.values(pendingAudioDetachTimersRef.current).forEach((timer) => {
+        clearTimeout(timer);
+      });
+      pendingAudioDetachTimersRef.current = {};
+      sourceElementsRef.current = {};
     };
   }, []);
 
@@ -1137,31 +1145,45 @@ const TurtleVideo: React.FC = () => {
     [setVideoDuration, logInfo]
   );
 
+  const detachAudioNode = useCallback((id: string) => {
+    if (sourceNodesRef.current[id]) {
+      try {
+        sourceNodesRef.current[id].disconnect();
+      } catch {
+        // ignore
+      }
+      delete sourceNodesRef.current[id];
+    }
+    if (gainNodesRef.current[id]) {
+      try {
+        gainNodesRef.current[id].disconnect();
+      } catch {
+        // ignore
+      }
+      delete gainNodesRef.current[id];
+    }
+    delete sourceElementsRef.current[id];
+  }, []);
+
   const handleMediaRefAssign = useCallback(
     (id: string, element: HTMLVideoElement | HTMLImageElement | HTMLAudioElement | null) => {
       if (element) {
-        const prevElement = mediaElementsRef.current[id];
+        const pendingTimer = pendingAudioDetachTimersRef.current[id];
+        if (pendingTimer) {
+          clearTimeout(pendingTimer);
+          delete pendingAudioDetachTimersRef.current[id];
+        }
+
         mediaElementsRef.current[id] = element;
 
         if (element.tagName === 'VIDEO' || element.tagName === 'AUDIO') {
-          // DOM 要素が差し替わった場合、古いノード参照を破棄して再作成する。
-          if (prevElement && prevElement !== element) {
-            if (sourceNodesRef.current[id]) {
-              try {
-                sourceNodesRef.current[id].disconnect();
-              } catch {
-                // ignore
-              }
-              delete sourceNodesRef.current[id];
-            }
-            if (gainNodesRef.current[id]) {
-              try {
-                gainNodesRef.current[id].disconnect();
-              } catch {
-                // ignore
-              }
-              delete gainNodesRef.current[id];
-            }
+          const mediaEl = element as HTMLMediaElement;
+          const currentSourceEl = sourceElementsRef.current[id];
+          const hasExistingAudioNode = !!sourceNodesRef.current[id] && !!gainNodesRef.current[id];
+
+          // 同じidでDOM要素が入れ替わった場合のみ、既存ノードを破棄して再生成する。
+          if (hasExistingAudioNode && currentSourceEl && currentSourceEl !== mediaEl) {
+            detachAudioNode(id);
           }
 
           let hasAudioNode = !!sourceNodesRef.current[id];
@@ -1179,6 +1201,7 @@ const TurtleVideo: React.FC = () => {
               gain.gain.setValueAtTime(1, ctx.currentTime);
               sourceNodesRef.current[id] = source;
               gainNodesRef.current[id] = gain;
+              sourceElementsRef.current[id] = mediaEl;
               hasAudioNode = true;
             } catch (e) {
               // MediaElementAudioSourceNodeの作成エラーはログに出力
@@ -1188,34 +1211,27 @@ const TurtleVideo: React.FC = () => {
 
           // iOS Safari では複数メディア同時再生時にネイティブ音声経路の競合が起きるため、
           // WebAudio 経路が確立できた要素のみネイティブ出力をミュートする。
-          if (isIosSafari && hasAudioNode) {
-            const mediaEl = element as HTMLMediaElement;
-            mediaEl.defaultMuted = true;
-            mediaEl.muted = true;
+          if (isIosSafari) {
+            const shouldMuteNative = hasAudioNode;
+            mediaEl.defaultMuted = shouldMuteNative;
+            mediaEl.muted = shouldMuteNative;
             mediaEl.volume = 1;
           }
         }
       } else {
-        if (sourceNodesRef.current[id]) {
-          try {
-            sourceNodesRef.current[id].disconnect();
-          } catch {
-            // ignore
-          }
-          delete sourceNodesRef.current[id];
-        }
-        if (gainNodesRef.current[id]) {
-          try {
-            gainNodesRef.current[id].disconnect();
-          } catch {
-            // ignore
-          }
-          delete gainNodesRef.current[id];
-        }
         delete mediaElementsRef.current[id];
+
+        // callback ref の差し替え時に一時的に null が来ることがあるため、解放は遅延実行する。
+        const timer = setTimeout(() => {
+          delete pendingAudioDetachTimersRef.current[id];
+          if (!mediaElementsRef.current[id]) {
+            detachAudioNode(id);
+          }
+        }, 0);
+        pendingAudioDetachTimersRef.current[id] = timer;
       }
     },
-    [getAudioContext, isIosSafari]
+    [detachAudioNode, getAudioContext, isIosSafari]
   );
 
   const handleSeeked = useCallback(() => {
@@ -1296,6 +1312,12 @@ const TurtleVideo: React.FC = () => {
   // --- メディア削除ハンドラ ---
   // 目的: クリップを削除し、関連するオーディオノードを解放
   const handleRemoveMedia = useCallback((id: string) => {
+    const pendingTimer = pendingAudioDetachTimersRef.current[id];
+    if (pendingTimer) {
+      clearTimeout(pendingTimer);
+      delete pendingAudioDetachTimersRef.current[id];
+    }
+
     // オーディオノードを解放
     if (sourceNodesRef.current[id]) {
       try {
@@ -1313,6 +1335,7 @@ const TurtleVideo: React.FC = () => {
       }
       delete gainNodesRef.current[id];
     }
+    delete sourceElementsRef.current[id];
 
     removeMediaItem(id);
     delete mediaElementsRef.current[id];
@@ -1523,6 +1546,9 @@ const TurtleVideo: React.FC = () => {
     });
     sourceNodesRef.current = {};
     gainNodesRef.current = {};
+    sourceElementsRef.current = {};
+    Object.values(pendingAudioDetachTimersRef.current).forEach((timer) => clearTimeout(timer));
+    pendingAudioDetachTimersRef.current = {};
 
     mediaItemsRef.current = [];
     mediaElementsRef.current = {};
