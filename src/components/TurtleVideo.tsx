@@ -217,6 +217,13 @@ const TurtleVideo: React.FC = () => {
 
   const playbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 再生開始待機用タイマー
 
+  const captionsRef = useRef(captions);
+  const captionSettingsRef = useRef(captionSettings);
+
+  // 描画が遅延実行されても最新状態を参照できるようにする
+  captionsRef.current = captions;
+  captionSettingsRef.current = captionSettings;
+
   const isIosSafari = useMemo(() => {
     if (typeof navigator === 'undefined') return false;
     const ua = navigator.userAgent;
@@ -509,14 +516,16 @@ const TurtleVideo: React.FC = () => {
         });
 
         // キャプション描画（複数同時表示対応）
-        if (captionSettings.enabled && captions.length > 0) {
-          const activeCaptions = captions.filter(
+        const currentCaptions = captionsRef.current;
+        const currentCaptionSettings = captionSettingsRef.current;
+        if (currentCaptionSettings.enabled && currentCaptions.length > 0) {
+          const activeCaptions = currentCaptions.filter(
             (c) => time >= c.startTime && time < c.endTime
           );
           for (const activeCaption of activeCaptions) {
             // フォントサイズ（個別設定優先）
             const fontSizeMap = { small: 32, medium: 48, large: 64, xlarge: 80 };
-            const effectiveFontSizeKey = activeCaption.overrideFontSize ?? captionSettings.fontSize;
+            const effectiveFontSizeKey = activeCaption.overrideFontSize ?? currentCaptionSettings.fontSize;
             const fontSize = fontSizeMap[effectiveFontSizeKey];
 
             // フォントファミリー（個別設定優先）
@@ -524,11 +533,11 @@ const TurtleVideo: React.FC = () => {
               gothic: 'sans-serif',
               mincho: '"游明朝", "Yu Mincho", "ヒラギノ明朝 ProN", "Hiragino Mincho ProN", serif',
             };
-            const effectiveFontStyle = activeCaption.overrideFontStyle ?? captionSettings.fontStyle;
+            const effectiveFontStyle = activeCaption.overrideFontStyle ?? currentCaptionSettings.fontStyle;
             const fontFamily = fontFamilyMap[effectiveFontStyle];
 
             // 位置（個別設定優先）
-            const effectivePosition = activeCaption.overridePosition ?? captionSettings.position;
+            const effectivePosition = activeCaption.overridePosition ?? currentCaptionSettings.position;
             const padding = 50; // 画面端からの固定マージン（サイズ依存を廃止し、大文字でも端に寄せる）
             let y: number;
             if (effectivePosition === 'top') {
@@ -548,18 +557,18 @@ const TurtleVideo: React.FC = () => {
             // undefined の場合は一括設定を参照
             const useFadeIn = activeCaption.overrideFadeIn !== undefined
               ? activeCaption.overrideFadeIn === 'on'
-              : captionSettings.bulkFadeIn;
+              : currentCaptionSettings.bulkFadeIn;
             const useFadeOut = activeCaption.overrideFadeOut !== undefined
               ? activeCaption.overrideFadeOut === 'on'
-              : captionSettings.bulkFadeOut;
+              : currentCaptionSettings.bulkFadeOut;
 
             // フェード時間を取得（個別設定 > 一括設定）
             const fadeInDur = activeCaption.overrideFadeIn === 'on' && activeCaption.overrideFadeInDuration !== undefined
               ? activeCaption.overrideFadeInDuration
-              : (captionSettings.bulkFadeInDuration || 1.0);
+              : (currentCaptionSettings.bulkFadeInDuration || 1.0);
             const fadeOutDur = activeCaption.overrideFadeOut === 'on' && activeCaption.overrideFadeOutDuration !== undefined
               ? activeCaption.overrideFadeOutDuration
-              : (captionSettings.bulkFadeOutDuration || 1.0);
+              : (currentCaptionSettings.bulkFadeOutDuration || 1.0);
 
             // フェードイン・フェードアウトのアルファ値を個別に計算
             let fadeInAlpha = 1.0;
@@ -582,7 +591,7 @@ const TurtleVideo: React.FC = () => {
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
 
-            const blurStrength = Math.max(0, captionSettings.blur);
+            const blurStrength = Math.max(0, currentCaptionSettings.blur);
             const centerX = CANVAS_WIDTH / 2;
             const drawCaptionGlyph = (
               x: number,
@@ -596,13 +605,13 @@ const TurtleVideo: React.FC = () => {
               const drawStroke = options?.stroke ?? true;
               const drawFill = options?.fill ?? true;
               if (drawStroke) {
-                ctx.strokeStyle = captionSettings.strokeColor;
-                ctx.lineWidth = captionSettings.strokeWidth * 2;
+                ctx.strokeStyle = currentCaptionSettings.strokeColor;
+                ctx.lineWidth = currentCaptionSettings.strokeWidth * 2;
                 ctx.lineJoin = 'round';
                 ctx.strokeText(activeCaption.text, x, yPos);
               }
               if (drawFill) {
-                ctx.fillStyle = captionSettings.fontColor;
+                ctx.fillStyle = currentCaptionSettings.fontColor;
                 ctx.fillText(activeCaption.text, x, yPos);
               }
             };
