@@ -45,3 +45,9 @@ export {
   safeSetVideoTime,
   captureCanvasAsImage,
 } from './canvas';
+
+// 再生タイムライン判定
+export {
+  findActiveTimelineItem,
+  collectPlaybackBlockingVideos,
+} from './playbackTimeline';

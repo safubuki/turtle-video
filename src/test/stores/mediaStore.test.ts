@@ -238,6 +238,25 @@ describe('mediaStore', () => {
       expect(mediaItems[0].trimEnd).toBe(20);
       expect(mediaItems[0].duration).toBe(15);
     });
+
+    it('should update totalDuration and keep order in video->image timeline', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'video-1', type: 'video', duration: 0, originalDuration: 0, trimStart: 0, trimEnd: 0 } as any,
+          { id: 'image-1', type: 'image', duration: 5, originalDuration: 5, trimStart: 0, trimEnd: 5 } as any,
+        ],
+        totalDuration: 5,
+      });
+
+      const { setVideoDuration } = useMediaStore.getState();
+      setVideoDuration('video-1', 12);
+
+      const { mediaItems, totalDuration } = useMediaStore.getState();
+      expect(mediaItems.map((item) => item.id)).toEqual(['video-1', 'image-1']);
+      expect(mediaItems[0].duration).toBe(12);
+      expect(mediaItems[1].duration).toBe(5);
+      expect(totalDuration).toBe(17);
+    });
   });
 
   describe('updateVideoTrim', () => {

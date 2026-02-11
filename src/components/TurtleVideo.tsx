@@ -23,6 +23,7 @@ import { usePreventUnload } from '../hooks/usePreventUnload';
 
 // Utils
 import { captureCanvasAsImage } from '../utils/canvas';
+import { findActiveTimelineItem, collectPlaybackBlockingVideos } from '../utils/playbackTimeline';
 
 // Zustand Stores
 import { useMediaStore, useAudioStore, useUIStore, useCaptionStore, useLogStore } from '../stores';
@@ -134,6 +135,7 @@ const TurtleVideo: React.FC = () => {
   const pause = useUIStore((s) => s.pause);
   const setCurrentTime = useUIStore((s) => s.setCurrentTime);
   const setProcessing = useUIStore((s) => s.setProcessing);
+  const setLoading = useUIStore((s) => s.setLoading);
 
   const isLoading = useUIStore((s) => s.isLoading);
   const setExportUrl = useUIStore((s) => s.setExportUrl);
@@ -273,31 +275,19 @@ const TurtleVideo: React.FC = () => {
         const currentBgm = bgmRef.current;
         const currentNarration = narrationRef.current;
 
-        let t = 0;
         let activeId: string | null = null;
         let localTime = 0;
         let activeIndex = -1;
-
-        for (let i = 0; i < currentItems.length; i++) {
-          const item = currentItems[i];
-          if (time >= t && time < t + item.duration) {
-            activeId = item.id;
-            activeIndex = i;
-            localTime = time - t;
-            break;
-          }
-          t += item.duration;
+        const active = findActiveTimelineItem(currentItems, time, totalDurationRef.current);
+        if (active) {
+          activeId = active.id;
+          activeIndex = active.index;
+          localTime = active.localTime;
         }
 
         // シーク終端対策: time が totalDuration 以上で activeId が見つからない場合、
         // 最後のクリップの最終フレームを表示する（黒画面防止）
-        if (!activeId && currentItems.length > 0 && time >= totalDurationRef.current) {
-          const lastItem = currentItems[currentItems.length - 1];
-          activeId = lastItem.id;
-          activeIndex = currentItems.length - 1;
-          // 最終フレームを表示するため、duration からごく小さなオフセットを引く
-          localTime = Math.max(0, lastItem.duration - 0.001);
-        }
+        // 末尾補間を含むアクティブ判定は findActiveTimelineItem 側で処理
 
         // アクティブな動画が未準備の場合はキャンバスをクリアせず、
         // 直前フレームを保持してブラックアウトを防止
@@ -337,7 +327,7 @@ const TurtleVideo: React.FC = () => {
                   videoId: activeId,
                   readyState: activeEl.readyState,
                   seeking: activeEl.seeking,
-                  currentTime: t,
+                  currentTime: time,
                   needsCorrection,
                 });
               }
@@ -978,6 +968,7 @@ const TurtleVideo: React.FC = () => {
     } catch (e) {
       console.error('Script generation error:', e);
       if (e instanceof TypeError && e.message.includes('fetch')) {
+        // ネットワーク系エラーは下の共通ハンドリングへフォールスルー
       } else if (e instanceof Error) {
         // Quota/Limitエラーの判定
         const lowerMsg = e.message.toLowerCase();
@@ -1143,6 +1134,110 @@ const TurtleVideo: React.FC = () => {
       }
     },
     [setVideoDuration, logInfo]
+  );
+
+  const waitForVideoMetadata = useCallback(
+    async (item: MediaItem, timeoutMs: number = 5000): Promise<boolean> => {
+      if (item.type !== 'video') return true;
+
+      let videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
+      if (!videoEl) {
+        for (let i = 0; i < 10; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
+          if (videoEl) break;
+        }
+      }
+
+      if (!videoEl) {
+        logWarn('MEDIA', '動画要素の取得に失敗', { id: item.id.substring(0, 8) });
+        return false;
+      }
+
+      const syncDurationFromElement = (): boolean => {
+        const duration = videoEl.duration;
+        if (Number.isFinite(duration) && duration > 0) {
+          setVideoDuration(item.id, duration);
+          return true;
+        }
+        return false;
+      };
+
+      if (syncDurationFromElement()) {
+        return true;
+      }
+
+      if (videoEl.readyState === 0 && !videoEl.error) {
+        try {
+          videoEl.load();
+        } catch {
+          // ignore
+        }
+      }
+
+      return await new Promise<boolean>((resolve) => {
+        let settled = false;
+
+        const settle = (ok: boolean) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeoutId);
+          videoEl.removeEventListener('loadedmetadata', onReady);
+          videoEl.removeEventListener('durationchange', onReady);
+          videoEl.removeEventListener('canplay', onReady);
+          videoEl.removeEventListener('error', onError);
+          resolve(ok);
+        };
+
+        const onReady = () => {
+          if (syncDurationFromElement()) {
+            settle(true);
+          }
+        };
+
+        const onError = () => settle(false);
+
+        const timeoutId = setTimeout(() => settle(false), timeoutMs);
+        videoEl.addEventListener('loadedmetadata', onReady);
+        videoEl.addEventListener('durationchange', onReady);
+        videoEl.addEventListener('canplay', onReady);
+        videoEl.addEventListener('error', onError);
+
+        onReady();
+      });
+    },
+    [logWarn, setVideoDuration]
+  );
+
+  const ensureVideoMetadataReady = useCallback(
+    async (targets: MediaItem[], fromTime: number): Promise<boolean> => {
+      if (targets.length === 0) return true;
+
+      logInfo('MEDIA', '再生前に動画メタデータ読み込み待機', {
+        fromTime,
+        videoCount: targets.length,
+        ids: targets.map((v) => v.id.substring(0, 8)),
+      });
+
+      const results = await Promise.all(targets.map((item) => waitForVideoMetadata(item)));
+      const allReady = results.every(Boolean);
+
+      const latest = useMediaStore.getState();
+      mediaItemsRef.current = latest.mediaItems;
+      totalDurationRef.current = latest.totalDuration;
+
+      if (!allReady) {
+        logWarn('MEDIA', '動画メタデータの読み込み待機がタイムアウト', {
+          fromTime,
+          failedIds: targets
+            .filter((_, index) => !results[index])
+            .map((item) => item.id.substring(0, 8)),
+        });
+      }
+
+      return allReady;
+    },
+    [logInfo, logWarn, waitForVideoMetadata]
   );
 
   const detachAudioNode = useCallback((id: string) => {
@@ -1459,6 +1554,7 @@ const TurtleVideo: React.FC = () => {
     loopIdRef.current += 1;
     isPlayingRef.current = false;
     activeVideoIdRef.current = null;
+    setLoading(false);
 
     // シーク関連の状態をリセット
     isSeekingRef.current = false;
@@ -1505,7 +1601,7 @@ const TurtleVideo: React.FC = () => {
     }
     // WebCodecsエクスポートの強制停止
     stopWebCodecsExport();
-  }, [stopWebCodecsExport]);
+  }, [setLoading, stopWebCodecsExport]);
 
   // --- Helper: 一時停止付きで関数を実行 ---
   // 目的: 編集操作時に必ず一時停止を実行してから元の処理を行う
@@ -1706,8 +1802,8 @@ const TurtleVideo: React.FC = () => {
         setProcessing(true);
       } else {
         setProcessing(false);
-        isPlayingRef.current = true;
-        play();
+        isPlayingRef.current = false;
+        pause();
       }
       clearExport();
 
@@ -1728,6 +1824,33 @@ const TurtleVideo: React.FC = () => {
           }
         }
       });
+
+      if (!isExportMode) {
+        const blockingVideos = collectPlaybackBlockingVideos(mediaItemsRef.current, fromTime);
+        if (blockingVideos.length > 0) {
+          let playbackReady = false;
+          setLoading(true);
+          try {
+            playbackReady = await ensureVideoMetadataReady(blockingVideos, fromTime);
+          } finally {
+            setLoading(false);
+          }
+
+          // 待機中に stopAll された場合は中断
+          if (myLoopId !== loopIdRef.current) {
+            return;
+          }
+
+          if (!playbackReady) {
+            setError('動画の読み込みが完了していません。数秒待ってから再生してください。');
+            pause();
+            return;
+          }
+        }
+
+        isPlayingRef.current = true;
+        play();
+      }
 
       if (isExportMode) {
         setCurrentTime(0);
@@ -1947,7 +2070,7 @@ const TurtleVideo: React.FC = () => {
         loop(isExportMode, myLoopId);
       }
     },
-    [getAudioContext, stopAll, setProcessing, play, clearExport, configureAudioRouting, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError, logWarn, isIosSafari]
+    [getAudioContext, stopAll, setProcessing, setLoading, play, clearExport, configureAudioRouting, ensureVideoMetadataReady, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError, logWarn, isIosSafari]
   );
 
   // --- シークバー操作ハンドラ ---
