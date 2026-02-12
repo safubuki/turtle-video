@@ -202,6 +202,7 @@ const TurtleVideo: React.FC = () => {
   const reqIdRef = useRef<number | null>(null);
   const startTimeRef = useRef(0);
   const hiddenStartedAtRef = useRef<number | null>(null);
+  const needsResyncAfterVisibilityRef = useRef(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const loopIdRef = useRef(0); // ループの世代を追跡
   const isPlayingRef = useRef(false); // 再生状態を即座に反映するRef
@@ -830,6 +831,81 @@ const TurtleVideo: React.FC = () => {
 
   // タブ復帰時の自動リフレッシュ
   useEffect(() => {
+    const pauseAllMediaElements = () => {
+      Object.values(mediaElementsRef.current).forEach((el) => {
+        if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO')) {
+          try {
+            (el as HTMLMediaElement).pause();
+          } catch {
+            // ignore
+          }
+        }
+      });
+    };
+
+    const resyncMediaElementsToCurrentTime = () => {
+      const t = currentTimeRef.current;
+      let accTime = 0;
+      let activeVideoId: string | null = null;
+
+      for (const item of mediaItemsRef.current) {
+        const el = mediaElementsRef.current[item.id];
+        if (item.type === 'video' && el) {
+          const videoEl = el as HTMLVideoElement;
+          if (t >= accTime && t < accTime + item.duration) {
+            const localTime = t - accTime;
+            const targetTime = (item.trimStart || 0) + localTime;
+            if (!videoEl.seeking && videoEl.readyState >= 1 && Math.abs(videoEl.currentTime - targetTime) > 0.03) {
+              try {
+                videoEl.currentTime = targetTime;
+              } catch {
+                // ignore
+              }
+            }
+            activeVideoId = item.id;
+          } else if (!videoEl.paused) {
+            try {
+              videoEl.pause();
+            } catch {
+              // ignore
+            }
+          }
+        }
+        accTime += item.duration;
+      }
+      activeVideoIdRef.current = activeVideoId;
+
+      const resyncAudioTrack = (track: AudioTrack | null, trackId: 'bgm' | 'narration') => {
+        const el = mediaElementsRef.current[trackId] as HTMLAudioElement | undefined;
+        if (!track || !el) return;
+
+        const trackTime = t - track.delay + track.startPoint;
+        const inRange = trackTime >= 0 && trackTime <= track.duration;
+
+        if (!inRange) {
+          if (!el.paused) {
+            try { el.pause(); } catch { /* ignore */ }
+          }
+          return;
+        }
+
+        if (Math.abs(el.currentTime - trackTime) > 0.03) {
+          try {
+            el.currentTime = trackTime;
+          } catch {
+            // ignore
+          }
+        }
+
+        if (!el.paused) {
+          try { el.pause(); } catch { /* ignore */ }
+        }
+      };
+
+      resyncAudioTrack(bgmRef.current, 'bgm');
+      resyncAudioTrack(narrationRef.current, 'narration');
+    };
+
     const restoreTimelineClockAfterHidden = () => {
       const hiddenAt = hiddenStartedAtRef.current;
       if (hiddenAt === null) return;
@@ -867,6 +943,12 @@ const TurtleVideo: React.FC = () => {
       }
 
       const shouldKeepRunning = isPlayingRef.current || isProcessing;
+
+      if (needsResyncAfterVisibilityRef.current && shouldKeepRunning) {
+        resyncMediaElementsToCurrentTime();
+        needsResyncAfterVisibilityRef.current = false;
+      }
+
       requestAnimationFrame(() => {
         renderFrame(currentTimeRef.current, shouldKeepRunning, isProcessing);
       });
@@ -891,6 +973,10 @@ const TurtleVideo: React.FC = () => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
         hiddenStartedAtRef.current = Date.now();
+        if (isPlayingRef.current || isProcessing) {
+          needsResyncAfterVisibilityRef.current = true;
+          pauseAllMediaElements();
+        }
         return;
       }
       if (document.visibilityState === 'visible') {
