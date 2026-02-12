@@ -37,6 +37,7 @@ export interface UseExportReturn {
     onRecordingError?: (message: string) => void,
     audioSources?: ExportAudioSources  // iOS Safari: OfflineAudioContext用音声ソース
   ) => void;
+  completeExport: () => void; // 正常終了要求（abortせずにflush/finalizeへ進める）
   stopExport: () => void; // 明示的な停止メソッドを追加
   clearExportUrl: () => void;
 }
@@ -685,6 +686,7 @@ export function useExport(): UseExportReturn {
   const abortControllerRef = useRef<AbortController | null>(null);
   const videoReaderRef = useRef<ReadableStreamDefaultReader<VideoFrame> | null>(null);
   const audioReaderRef = useRef<ReadableStreamDefaultReader<AudioData> | null>(null);
+  const completionRequestedRef = useRef(false);
 
   // 互換性維持のためのダミーRef（実際には使用しない）
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -692,6 +694,7 @@ export function useExport(): UseExportReturn {
   // エクスポート停止処理
   const stopExport = useCallback(() => {
     useLogStore.getState().info('RENDER', 'エクスポートを停止');
+    completionRequestedRef.current = false;
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
@@ -706,6 +709,20 @@ export function useExport(): UseExportReturn {
       audioReaderRef.current = null;
     }
     setIsProcessing(false);
+  }, []);
+
+  // 正常終了要求（abortではなく、読み取りループを自然終了させる）
+  const completeExport = useCallback(() => {
+    useLogStore.getState().info('RENDER', 'エクスポートの正常終了を要求');
+    completionRequestedRef.current = true;
+    if (videoReaderRef.current) {
+      videoReaderRef.current.cancel().catch(() => { });
+      videoReaderRef.current = null;
+    }
+    if (audioReaderRef.current) {
+      audioReaderRef.current.cancel().catch(() => { });
+      audioReaderRef.current = null;
+    }
   }, []);
 
   // エクスポート開始
@@ -731,6 +748,7 @@ export function useExport(): UseExportReturn {
       setIsProcessing(true);
       setExportUrl(null);
       setExportExt(null);
+      completionRequestedRef.current = false;
 
       const canvas = canvasRef.current;
       const width = canvas.width;
@@ -933,6 +951,8 @@ export function useExport(): UseExportReturn {
             let settled = false;
             const chunks: Blob[] = [];
             let recorder: MediaRecorder | null = null;
+            let pausedByVisibility = false;
+            let visibilityListenersAttached = false;
 
             const finishResolve = () => {
               if (settled) return;
@@ -946,8 +966,66 @@ export function useExport(): UseExportReturn {
               reject(err);
             };
 
+            const removeVisibilityListeners = () => {
+              if (!visibilityListenersAttached || typeof document === 'undefined') return;
+              document.removeEventListener('visibilitychange', handleRecorderVisibilityChange);
+              if (typeof window !== 'undefined') {
+                window.removeEventListener('focus', handleRecorderVisibilityChange);
+                window.removeEventListener('pageshow', handleRecorderVisibilityChange);
+              }
+              visibilityListenersAttached = false;
+            };
+
+            const handleRecorderVisibilityChange = () => {
+              if (!recorder || recorder.state === 'inactive' || typeof document === 'undefined') return;
+              const isVisible = document.visibilityState === 'visible';
+
+              if (!isVisible) {
+                if (recorder.state === 'recording') {
+                  try {
+                    recorder.pause();
+                    pausedByVisibility = true;
+                    useLogStore.getState().info('RENDER', 'iOS Safari: 非アクティブ化のため録画を一時停止');
+                  } catch (err) {
+                    useLogStore.getState().warn('RENDER', 'iOS Safari: 非アクティブ化時の録画一時停止に失敗', {
+                      error: err instanceof Error ? err.message : String(err),
+                    });
+                  }
+                }
+                return;
+              }
+
+              if (pausedByVisibility && recorder.state === 'paused') {
+                try {
+                  recorder.resume();
+                  pausedByVisibility = false;
+                  useLogStore.getState().info('RENDER', 'iOS Safari: 可視復帰で録画を再開');
+                } catch (err) {
+                  useLogStore.getState().warn('RENDER', 'iOS Safari: 可視復帰時の録画再開に失敗', {
+                    error: err instanceof Error ? err.message : String(err),
+                  });
+                }
+              }
+              try {
+                canvasVideoTrack?.requestFrame?.();
+              } catch {
+                // ignore
+              }
+            };
+
+            const addVisibilityListeners = () => {
+              if (typeof document === 'undefined' || visibilityListenersAttached) return;
+              document.addEventListener('visibilitychange', handleRecorderVisibilityChange);
+              if (typeof window !== 'undefined') {
+                window.addEventListener('focus', handleRecorderVisibilityChange);
+                window.addEventListener('pageshow', handleRecorderVisibilityChange);
+              }
+              visibilityListenersAttached = true;
+            };
+
             const cleanup = () => {
               signal.removeEventListener('abort', onAbort);
+              removeVisibilityListeners();
               cleanupStreams();
             };
 
@@ -994,6 +1072,7 @@ export function useExport(): UseExportReturn {
             }
 
             signal.addEventListener('abort', onAbort, { once: true });
+            addVisibilityListeners();
 
             recorder.ondataavailable = (event: BlobEvent) => {
               if (event.data && event.data.size > 0) {
@@ -1042,6 +1121,7 @@ export function useExport(): UseExportReturn {
               startedSuccessfully = true;
               useLogStore.getState().info('RENDER', '[DIAG-READY] 音声準備完了、再生ループ開始通知（MediaRecorder経路）');
               audioSources?.onAudioPreRenderComplete?.();
+              handleRecorderVisibilityChange();
             } catch (err) {
               cleanup();
               recorderRef.current = null;
@@ -1330,19 +1410,80 @@ export function useExport(): UseExportReturn {
           );
         };
 
+        const waitForVisibleIfNeeded = async () => {
+          if (
+            typeof document === 'undefined' ||
+            document.visibilityState === 'visible' ||
+            signal.aborted ||
+            completionRequestedRef.current
+          ) {
+            return;
+          }
+
+          await new Promise<void>((resolve) => {
+            let completionPoll: ReturnType<typeof setInterval> | null = null;
+
+            const cleanup = () => {
+              signal.removeEventListener('abort', onAbort);
+              document.removeEventListener('visibilitychange', onVisibility);
+              if (typeof window !== 'undefined') {
+                window.removeEventListener('focus', onVisibility);
+                window.removeEventListener('pageshow', onVisibility);
+              }
+              if (completionPoll !== null) {
+                clearInterval(completionPoll);
+                completionPoll = null;
+              }
+            };
+
+            const onAbort = () => {
+              cleanup();
+              resolve();
+            };
+
+            const onVisibility = () => {
+              if (document.visibilityState === 'visible') {
+                cleanup();
+                resolve();
+              }
+            };
+
+            signal.addEventListener('abort', onAbort, { once: true });
+            document.addEventListener('visibilitychange', onVisibility);
+            if (typeof window !== 'undefined') {
+              window.addEventListener('focus', onVisibility);
+              window.addEventListener('pageshow', onVisibility);
+            }
+
+            completionPoll = setInterval(() => {
+              if (completionRequestedRef.current) {
+                cleanup();
+                resolve();
+              }
+            }, 50);
+          });
+        };
+
         const processVideoWithTrackProcessor = async () => {
           let frameIndex = 0;
           const frameDuration = 1e6 / FPS; // 1フレームあたりの時間（マイクロ秒）
           const isKeyFrame = (index: number) => index === 0 || index % FPS === 0;
 
           try {
-            while (!signal.aborted) {
+            while (!signal.aborted && !completionRequestedRef.current) {
+              await waitForVisibleIfNeeded();
+              if (signal.aborted || completionRequestedRef.current) break;
+
               if (!videoReader) break;
               const { done, value } = await videoReader.read();
               if (done) break;
 
               if (value) {
                 const originalFrame = value as VideoFrame;
+                if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+                  originalFrame.close();
+                  continue;
+                }
 
                 if (videoEncoder.state === 'configured') {
                   // [FIX] Teamsスロー再生対策
@@ -1382,7 +1523,10 @@ export function useExport(): UseExportReturn {
           const isKeyFrame = (index: number) => index === 0 || index % FPS === 0;
 
           try {
-            while (!signal.aborted) {
+            while (!signal.aborted && !completionRequestedRef.current) {
+              await waitForVisibleIfNeeded();
+              if (signal.aborted || completionRequestedRef.current) break;
+
               if (videoEncoder.state === 'configured') {
                 const frame = new VideoFrame(canvas, {
                   timestamp: Math.round(frameIndex * frameDuration),
@@ -1417,12 +1561,19 @@ export function useExport(): UseExportReturn {
           if (!audioReader) return;
 
           try {
-            while (!signal.aborted) {
+            while (!signal.aborted && !completionRequestedRef.current) {
+              await waitForVisibleIfNeeded();
+              if (signal.aborted || completionRequestedRef.current) break;
+
               const { done, value } = await audioReader.read();
               if (done) break;
 
               if (value) {
                 const data = value as AudioData;
+                if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+                  data.close();
+                  continue;
+                }
                 if (audioEncoder.state === 'configured') {
                   audioEncoder.encode(data);
                 }
@@ -1436,18 +1587,31 @@ export function useExport(): UseExportReturn {
           }
         };
 
-        // ScriptProcessorNode使用時はabortシグナル待機のみ（音声キャプチャはコールバックで非同期実行）
-        const waitForAbort = async () => {
+        // ScriptProcessorNode使用時は停止要求待機のみ（音声キャプチャはコールバックで非同期実行）
+        const waitForStopRequest = async () => {
           await new Promise<void>((resolve) => {
-            if (signal.aborted) { resolve(); return; }
-            signal.addEventListener('abort', () => resolve(), { once: true });
+            if (signal.aborted || completionRequestedRef.current) { resolve(); return; }
+            let pollTimer: ReturnType<typeof setInterval> | null = null;
+            const onAbort = () => {
+              signal.removeEventListener('abort', onAbort);
+              if (pollTimer !== null) clearInterval(pollTimer);
+              resolve();
+            };
+            signal.addEventListener('abort', onAbort, { once: true });
+            pollTimer = setInterval(() => {
+              if (completionRequestedRef.current) {
+                signal.removeEventListener('abort', onAbort);
+                if (pollTimer !== null) clearInterval(pollTimer);
+                resolve();
+              }
+            }, 50);
           });
         };
 
         // 並列実行
         const processingTasks = [
           useManualCanvasFrames ? processVideoWithCanvasFrames() : processVideoWithTrackProcessor(),
-          audioReader ? processAudio() : (scriptProcessorNode ? waitForAbort() : Promise.resolve()),
+          audioReader ? processAudio() : (scriptProcessorNode ? waitForStopRequest() : Promise.resolve()),
         ];
         const processing = Promise.all(processingTasks);
 
@@ -1467,8 +1631,8 @@ export function useExport(): UseExportReturn {
 
         recorderRef.current = {
           stop: () => {
-            // 停止シグナルを送る
-            stopExport();
+            // 正常終了シグナルを送る（abortしない）
+            completeExport();
           },
           state: 'recording',
           // 他に必要なプロパティがあればダミー実装する
@@ -1618,10 +1782,12 @@ export function useExport(): UseExportReturn {
         abortControllerRef.current = null;
         videoReaderRef.current = null;
         audioReaderRef.current = null;
+        recorderRef.current = null;
+        completionRequestedRef.current = false;
         setIsProcessing(false);
       }
     },
-    [stopExport]
+    [completeExport, stopExport]
   );
 
   // エクスポートURLクリア
@@ -1642,6 +1808,7 @@ export function useExport(): UseExportReturn {
     setExportExt,
     recorderRef,
     startExport, // 既存I/F維持
+    completeExport,
     stopExport, // 新規追加（必要であれば使う）
     clearExportUrl,
   };

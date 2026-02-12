@@ -201,6 +201,7 @@ const TurtleVideo: React.FC = () => {
   const masterDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
   const reqIdRef = useRef<number | null>(null);
   const startTimeRef = useRef(0);
+  const hiddenStartedAtRef = useRef<number | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const loopIdRef = useRef(0); // ループの世代を追跡
   const isPlayingRef = useRef(false); // 再生状態を即座に反映するRef
@@ -305,7 +306,9 @@ const TurtleVideo: React.FC = () => {
             const activeEl = mediaElementsRef.current[activeId] as HTMLVideoElement | undefined;
             if (activeEl) {
               const targetTime = (activeItem.trimStart || 0) + localTime;
-              const exportSyncThreshold = _isExporting && isIosSafari ? 1.2 : 0.5;
+              const exportSyncThreshold = _isExporting
+                ? (isIosSafari ? 0.2 : 0.12)
+                : 0.5;
               const needsCorrection =
                 _isExporting &&
                 isActivePlaying &&
@@ -385,9 +388,8 @@ const TurtleVideo: React.FC = () => {
             if (conf.type === 'video') {
               const videoEl = element as HTMLVideoElement;
               const targetTime = (conf.trimStart || 0) + localTime;
-              const isSwitchedVideo = isActivePlaying && activeVideoIdRef.current !== id;
               const syncThreshold = _isExporting
-                ? (isIosSafari ? (isSwitchedVideo ? 0.05 : 1.2) : 0.5)
+                ? (isIosSafari ? 0.2 : 0.12)
                 : (isIosSafari ? 1.0 : 0.5);
 
               // アクティブなビデオIDを更新
@@ -828,8 +830,24 @@ const TurtleVideo: React.FC = () => {
 
   // タブ復帰時の自動リフレッシュ
   useEffect(() => {
+    const restoreTimelineClockAfterHidden = () => {
+      const hiddenAt = hiddenStartedAtRef.current;
+      if (hiddenAt === null) return;
+      hiddenStartedAtRef.current = null;
+
+      const hiddenDurationMs = Math.max(0, Date.now() - hiddenAt);
+      if (hiddenDurationMs <= 0) return;
+
+      // 再生/エクスポートとも Date.now ベースなので、
+      // 非アクティブ時間分を差し戻して停止/早送りを防ぐ
+      if (isPlayingRef.current || isProcessing) {
+        startTimeRef.current += hiddenDurationMs;
+      }
+    };
+
     const refreshAfterReturn = () => {
       if (document.visibilityState !== 'visible') return;
+      restoreTimelineClockAfterHidden();
 
       const ctx = audioCtxRef.current;
       if (ctx) {
@@ -848,24 +866,40 @@ const TurtleVideo: React.FC = () => {
         }
       }
 
-      requestAnimationFrame(() => renderFrame(currentTimeRef.current, false));
-      Object.values(mediaElementsRef.current).forEach((el) => {
-        if (
-          (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') &&
-          (el as HTMLMediaElement).readyState < 2
-        ) {
-          try {
-            (el as HTMLMediaElement).load();
-          } catch (e) {
-            /* ignore */
-          }
-        }
+      const shouldKeepRunning = isPlayingRef.current || isProcessing;
+      requestAnimationFrame(() => {
+        renderFrame(currentTimeRef.current, shouldKeepRunning, isProcessing);
       });
+
+      // 実行中（再生/エクスポート）に load() すると再生状態を壊しやすいので、停止中のみ再読み込みする
+      if (!shouldKeepRunning) {
+        Object.values(mediaElementsRef.current).forEach((el) => {
+          if (
+            (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') &&
+            (el as HTMLMediaElement).readyState < 2
+          ) {
+            try {
+              (el as HTMLMediaElement).load();
+            } catch (e) {
+              /* ignore */
+            }
+          }
+        });
+      }
     };
 
     const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenStartedAtRef.current = Date.now();
+        return;
+      }
       if (document.visibilityState === 'visible') {
         refreshAfterReturn();
+      }
+    };
+    const handleWindowBlur = () => {
+      if (hiddenStartedAtRef.current === null) {
+        hiddenStartedAtRef.current = Date.now();
       }
     };
     const handleWindowFocus = () => {
@@ -876,14 +910,16 @@ const TurtleVideo: React.FC = () => {
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleWindowBlur);
     window.addEventListener('focus', handleWindowFocus);
     window.addEventListener('pageshow', handlePageShow);
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleWindowBlur);
       window.removeEventListener('focus', handleWindowFocus);
       window.removeEventListener('pageshow', handlePageShow);
     };
-  }, [renderFrame, logInfo, logWarn]);
+  }, [renderFrame, logInfo, logWarn, isProcessing]);
 
   // --- Audio Context ---
   const getAudioContext = useCallback(() => {
@@ -1605,11 +1641,13 @@ const TurtleVideo: React.FC = () => {
       });
     }
 
-    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
-      recorderRef.current.stop();
+    const hasActiveRecorder = !!(recorderRef.current && recorderRef.current.state !== 'inactive');
+    if (hasActiveRecorder) {
+      recorderRef.current!.stop();
+    } else {
+      // 再生停止など、録画セッションが存在しないケースのみ強制停止を実行
+      stopWebCodecsExport();
     }
-    // WebCodecsエクスポートの強制停止
-    stopWebCodecsExport();
   }, [setLoading, stopWebCodecsExport]);
 
   // --- Helper: 一時停止付きで関数を実行 ---
@@ -1727,17 +1765,24 @@ const TurtleVideo: React.FC = () => {
         return;
       }
 
+      // 非アクティブ中はエクスポート進行を止める（hidden時間は可視復帰時に補正）
+      if (isExportMode && typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
+        return;
+      }
+
       const now = Date.now();
       const elapsed = (now - startTimeRef.current) / 1000;
+      const clampedElapsed = Math.min(elapsed, totalDurationRef.current);
 
-      if (elapsed >= totalDurationRef.current) {
+      if (clampedElapsed >= totalDurationRef.current) {
         stopAll();
         if (!isExportMode) pause();
         return;
       }
-      setCurrentTime(elapsed);
-      currentTimeRef.current = elapsed;
-      renderFrame(elapsed, true, isExportMode);
+      setCurrentTime(clampedElapsed);
+      currentTimeRef.current = clampedElapsed;
+      renderFrame(clampedElapsed, true, isExportMode);
       reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
     },
     [stopAll, pause, setCurrentTime, renderFrame, logDebug, logWarn]
@@ -2067,8 +2112,8 @@ const TurtleVideo: React.FC = () => {
             // 音声プリレンダリング完了後に再生ループを開始
             // iOS Safari ではリアルタイム音声抽出に数秒かかるため、
             // その完了を待ってからビデオキャプチャ用の再生を始める。
-            // startTimeRef を再セットしないと、抽出に費やした時間分
-            // elapsed が進んでしまいループが即座に終了する。
+            // 開始時刻情報（startTimeRef）を初期化し直して、
+            // 事前処理に要した時間が終了判定に混ざらないようにする。
             onAudioPreRenderComplete: () => {
               startTimeRef.current = Date.now() - fromTime * 1000;
               loop(isExportMode, myLoopId);
