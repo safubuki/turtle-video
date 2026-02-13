@@ -119,6 +119,27 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
           <span>{formatTime(currentTime)}</span>
           <span>{formatTime(totalDuration)}</span>
         </div>
+        {isProcessing && (
+          <div className="relative overflow-hidden mb-3 rounded-xl border border-amber-400/40 bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-rose-500/10 px-3 py-2.5 lg:px-4 lg:py-3 shadow-[0_6px_20px_rgba(251,146,60,0.14)]">
+            <div className="pointer-events-none absolute right-3 top-2.5 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-200/90 shadow-[0_0_10px_rgba(251,191,36,0.7)] animate-firefly-soft" />
+              <span className="w-1.5 h-1.5 rounded-full bg-orange-200/90 shadow-[0_0_10px_rgba(251,146,60,0.72)] animate-firefly-soft-delayed" />
+            </div>
+            <div className="flex items-start gap-2.5">
+              <div className="mt-0.5 w-6 h-6 rounded-lg border border-amber-300/40 bg-amber-300/10 flex items-center justify-center shrink-0">
+                <AlertCircle className="w-3.5 h-3.5 text-amber-200" />
+              </div>
+              <div>
+                <p className="text-[11px] lg:text-xs font-semibold text-amber-100">
+                  作成中はこのタブを開いたままお待ちください
+                </p>
+                <p className="text-[10px] lg:text-[11px] text-amber-200/90 mt-0.5">
+                  切り替えると映像や音声が乱れる場合があります。
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="relative h-8 w-full select-none">
           <div className="absolute top-3 w-full h-2 bg-gray-800 rounded-full overflow-hidden">
             <div className="flex w-full h-full opacity-60">
