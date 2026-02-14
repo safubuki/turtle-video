@@ -222,6 +222,10 @@ const TurtleVideo: React.FC = () => {
   const playbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 再生開始待機用タイマー
   const seekSettleGenerationRef = useRef(0);
   const pendingPausedSeekWaitRef = useRef<{ videoEl: HTMLVideoElement; handler: () => void } | null>(null);
+  const detachGlobalSeekEndListenersRef = useRef<(() => void) | null>(null);
+  const handleSeekEndCallbackRef = useRef<(() => void) | null>(null);
+  const cancelSeekPlaybackPrepareRef = useRef<(() => void) | null>(null);
+  const isSeekPlaybackPreparingRef = useRef(false);
 
   const captionsRef = useRef(captions);
   const captionSettingsRef = useRef(captionSettings);
@@ -266,6 +270,60 @@ const TurtleVideo: React.FC = () => {
       playbackTimeoutRef.current = null;
     }
   }, []);
+
+  const cancelPendingSeekPlaybackPrepare = useCallback(() => {
+    if (cancelSeekPlaybackPrepareRef.current) {
+      cancelSeekPlaybackPrepareRef.current();
+      cancelSeekPlaybackPrepareRef.current = null;
+    }
+    isSeekPlaybackPreparingRef.current = false;
+  }, []);
+
+  const detachGlobalSeekEndListeners = useCallback(() => {
+    if (detachGlobalSeekEndListenersRef.current) {
+      detachGlobalSeekEndListenersRef.current();
+      detachGlobalSeekEndListenersRef.current = null;
+    }
+  }, []);
+
+  const attachGlobalSeekEndListeners = useCallback(() => {
+    if (detachGlobalSeekEndListenersRef.current || typeof window === 'undefined') {
+      return;
+    }
+
+    const onSeekInteractionEnd = () => {
+      if (!isSeekingRef.current) return;
+      handleSeekEndCallbackRef.current?.();
+    };
+
+    window.addEventListener('pointerup', onSeekInteractionEnd);
+    window.addEventListener('pointercancel', onSeekInteractionEnd);
+    window.addEventListener('mouseup', onSeekInteractionEnd);
+    window.addEventListener('touchend', onSeekInteractionEnd);
+    window.addEventListener('touchcancel', onSeekInteractionEnd);
+    window.addEventListener('blur', onSeekInteractionEnd);
+
+    detachGlobalSeekEndListenersRef.current = () => {
+      window.removeEventListener('pointerup', onSeekInteractionEnd);
+      window.removeEventListener('pointercancel', onSeekInteractionEnd);
+      window.removeEventListener('mouseup', onSeekInteractionEnd);
+      window.removeEventListener('touchend', onSeekInteractionEnd);
+      window.removeEventListener('touchcancel', onSeekInteractionEnd);
+      window.removeEventListener('blur', onSeekInteractionEnd);
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      detachGlobalSeekEndListeners();
+    };
+  }, [detachGlobalSeekEndListeners]);
+
+  useEffect(() => {
+    return () => {
+      cancelPendingSeekPlaybackPrepare();
+    };
+  }, [cancelPendingSeekPlaybackPrepare]);
 
   // --- Helper: 非アクティブなビデオを開始位置にリセット ---
   const resetInactiveVideos = useCallback(() => {
@@ -1513,12 +1571,18 @@ const TurtleVideo: React.FC = () => {
     // このハンドラはMediaResourceLoaderからすべてのビデオに対して共通で呼ばれるため、
     // 特定のビデオIDを知ることができない。
     // シーク中ビデオの追跡はrenderFrame内で各ビデオのseeking状態を監視して行う。
-    requestAnimationFrame(() => renderFrame(currentTimeRef.current, isPlayingRef.current && !isSeekingRef.current));
+    requestAnimationFrame(() => renderFrame(
+      currentTimeRef.current,
+      isPlayingRef.current && !isSeekingRef.current && !isSeekPlaybackPreparingRef.current
+    ));
   }, [renderFrame]);
 
   const handleVideoLoadedData = useCallback(() => {
     // loadeddata is not seek completion; keep current playback mode when redrawing.
-    requestAnimationFrame(() => renderFrame(currentTimeRef.current, isPlayingRef.current && !isSeekingRef.current));
+    requestAnimationFrame(() => renderFrame(
+      currentTimeRef.current,
+      isPlayingRef.current && !isSeekingRef.current && !isSeekPlaybackPreparingRef.current
+    ));
   }, [renderFrame]);
 
   // --- 動画トリミング更新ハンドラ ---
@@ -1752,6 +1816,8 @@ const TurtleVideo: React.FC = () => {
       clearTimeout(pendingSeekTimeoutRef.current);
       pendingSeekTimeoutRef.current = null;
     }
+    cancelPendingSeekPlaybackPrepare();
+    detachGlobalSeekEndListeners();
     cancelPendingPausedSeekWait();
 
     // アニメーションフレームをキャンセル
@@ -1789,7 +1855,7 @@ const TurtleVideo: React.FC = () => {
       // 再生停止など、録画セッションが存在しないケースのみ強制停止を実行
       stopWebCodecsExport();
     }
-  }, [setLoading, stopWebCodecsExport, cancelPendingPausedSeekWait]);
+  }, [setLoading, stopWebCodecsExport, cancelPendingPausedSeekWait, detachGlobalSeekEndListeners, cancelPendingSeekPlaybackPrepare]);
 
   // --- Helper: 一時停止付きで関数を実行 ---
   // 目的: 編集操作時に必ず一時停止を実行してから元の処理を行う
@@ -2276,12 +2342,14 @@ const TurtleVideo: React.FC = () => {
       const t = parseFloat(e.target.value);
       const now = Date.now();
       seekSettleGenerationRef.current += 1;
+      cancelPendingSeekPlaybackPrepare();
       cancelPendingPausedSeekWait();
 
       // シーク開始時の処理
       if (!isSeekingRef.current) {
         wasPlayingBeforeSeekRef.current = isPlayingRef.current;
         isSeekingRef.current = true;
+        attachGlobalSeekEndListeners();
         logDebug('RENDER', 'シーク開始', { fromTime: currentTimeRef.current, toTime: t });
 
         // 再生中なら一時停止
@@ -2340,7 +2408,7 @@ const TurtleVideo: React.FC = () => {
       syncVideoToTime(t);
       renderFrame(t, false);
     },
-    [setCurrentTime, renderFrame, cancelPendingPausedSeekWait]
+    [setCurrentTime, renderFrame, cancelPendingPausedSeekWait, attachGlobalSeekEndListeners, cancelPendingSeekPlaybackPrepare]
   );
 
   // --- ビデオ位置同期ヘルパー ---
@@ -2407,6 +2475,13 @@ const TurtleVideo: React.FC = () => {
   // --- シークバー操作完了ハンドラ ---
   // 目的: シークバーのドラッグ終了時に再生を再開（必要な場合）
   const handleSeekEnd = useCallback(() => {
+    // pointerup/mouseup/touchend が重複発火するため、
+    // シーク中でない再入は無視して待機中の復帰処理を壊さない。
+    if (!isSeekingRef.current) {
+      return;
+    }
+    cancelPendingSeekPlaybackPrepare();
+    detachGlobalSeekEndListeners();
     // 保留中のタイマーをクリア
     if (pendingSeekTimeoutRef.current) {
       clearTimeout(pendingSeekTimeoutRef.current);
@@ -2438,8 +2513,36 @@ const TurtleVideo: React.FC = () => {
 
     // シーク前に再生中だった場合は再開
     if (wasPlaying) {
+      isSeekPlaybackPreparingRef.current = true;
+      const seekGeneration = seekSettleGenerationRef.current;
+
+      const findActiveVideoAtTime = (): HTMLVideoElement | null => {
+        let accTime = 0;
+        for (const item of mediaItemsRef.current) {
+          if (t >= accTime && t < accTime + item.duration) {
+            if (item.type === 'video') {
+              return (mediaElementsRef.current[item.id] as HTMLVideoElement | undefined) ?? null;
+            }
+            return null;
+          }
+          accTime += item.duration;
+        }
+
+        if (mediaItemsRef.current.length > 0 && t >= totalDurationRef.current) {
+          const lastItem = mediaItemsRef.current[mediaItemsRef.current.length - 1];
+          if (lastItem.type === 'video') {
+            return (mediaElementsRef.current[lastItem.id] as HTMLVideoElement | undefined) ?? null;
+          }
+        }
+        return null;
+      };
+
       // 再生再開のための内部関数
       const proceedWithPlayback = () => {
+        if (seekGeneration !== seekSettleGenerationRef.current || isSeekingRef.current) {
+          return;
+        }
+        isSeekPlaybackPreparingRef.current = false;
         startTimeRef.current = Date.now() - t * 1000;
         isPlayingRef.current = true;
 
@@ -2496,40 +2599,79 @@ const TurtleVideo: React.FC = () => {
         reqIdRef.current = requestAnimationFrame(() => loop(false, currentLoopId));
       };
 
-      // アクティブビデオがシーク中の場合は完了を待つ
-      let accTime = 0;
-      for (const item of mediaItemsRef.current) {
-        if (t >= accTime && t < accTime + item.duration) {
-          if (item.type === 'video') {
-            const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
-            if (videoEl && videoEl.seeking) {
-              // seekedイベントを待ってから再開
-              const onSeeked = () => {
-                videoEl.removeEventListener('seeked', onSeeked);
-                if (playbackTimeoutRef.current) {
-                  clearTimeout(playbackTimeoutRef.current);
-                  playbackTimeoutRef.current = null;
-                }
-                proceedWithPlayback();
-              };
-              videoEl.addEventListener('seeked', onSeeked);
-              // フォールバックタイムアウト（万が一イベントが発火しない場合）
-              playbackTimeoutRef.current = setTimeout(() => {
-                videoEl.removeEventListener('seeked', onSeeked);
-                playbackTimeoutRef.current = null;
-                proceedWithPlayback();
-              }, 500);
-              return;
-            }
+      // 再生中シーク復帰: 先に位置を合わせ、対象が動画なら準備完了を短時間待ってから再開
+      syncVideoToTime(t, { force: true });
+      const activeVideoEl = findActiveVideoAtTime();
+      if (activeVideoEl) {
+        const prepareStartedAt = Date.now();
+        const minPrepareMs = 220;
+        const maxPrepareMs = 900;
+        let finished = false;
+        let pollTimer: ReturnType<typeof setInterval> | null = null;
+        let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+        let maybeResume: () => void = () => { };
+
+        const onPrepared = () => {
+          maybeResume();
+        };
+
+        const cleanupPrepareWait = () => {
+          if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
           }
-          break;
-        }
-        accTime += item.duration;
+          if (fallbackTimer) {
+            clearTimeout(fallbackTimer);
+            fallbackTimer = null;
+          }
+          activeVideoEl.removeEventListener('seeked', onPrepared);
+          activeVideoEl.removeEventListener('loadeddata', onPrepared);
+          activeVideoEl.removeEventListener('canplay', onPrepared);
+          activeVideoEl.removeEventListener('error', onPrepared);
+          if (cancelSeekPlaybackPrepareRef.current === cleanupPrepareWait) {
+            cancelSeekPlaybackPrepareRef.current = null;
+          }
+        };
+
+        const finishPrepareWait = (shouldResume: boolean) => {
+          if (finished) return;
+          finished = true;
+          cleanupPrepareWait();
+          isSeekPlaybackPreparingRef.current = false;
+          if (shouldResume) {
+            proceedWithPlayback();
+          }
+        };
+
+        maybeResume = () => {
+          if (finished) return;
+          if (seekGeneration !== seekSettleGenerationRef.current || isSeekingRef.current) {
+            finishPrepareWait(false);
+            return;
+          }
+          const elapsed = Date.now() - prepareStartedAt;
+          const isReady = activeVideoEl.readyState >= 2 && !activeVideoEl.seeking;
+          if (!isReady && elapsed < maxPrepareMs) return;
+          if (elapsed < minPrepareMs) return;
+          finishPrepareWait(true);
+        };
+
+        activeVideoEl.addEventListener('seeked', onPrepared);
+        activeVideoEl.addEventListener('loadeddata', onPrepared);
+        activeVideoEl.addEventListener('canplay', onPrepared);
+        activeVideoEl.addEventListener('error', onPrepared);
+        pollTimer = setInterval(maybeResume, 40);
+        fallbackTimer = setTimeout(maybeResume, maxPrepareMs + 50);
+        cancelSeekPlaybackPrepareRef.current = cleanupPrepareWait;
+        maybeResume();
+        return;
       }
 
       // シーク中でなければ即座に再生開始
+      isSeekPlaybackPreparingRef.current = false;
       proceedWithPlayback();
     } else {
+      isSeekPlaybackPreparingRef.current = false;
       const drawSettledFrame = (targetTime: number) => {
         syncVideoToTime(targetTime, { force: true });
         renderFrame(targetTime, false);
@@ -2592,7 +2734,11 @@ const TurtleVideo: React.FC = () => {
       // 再生していなかった場合は現在位置でフレームを再描画
       drawSettledFrame(t);
     }
-  }, [setCurrentTime, renderFrame, loop, resetInactiveVideos, syncVideoToTime, cancelPendingPausedSeekWait]);
+  }, [setCurrentTime, renderFrame, loop, resetInactiveVideos, syncVideoToTime, cancelPendingPausedSeekWait, detachGlobalSeekEndListeners, cancelPendingSeekPlaybackPrepare]);
+
+  useEffect(() => {
+    handleSeekEndCallbackRef.current = handleSeekEnd;
+  }, [handleSeekEnd]);
 
   // --- 再生/一時停止トグル ---
   // 目的: 再生中なら停止、停止中なら再生を開始

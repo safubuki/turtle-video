@@ -161,8 +161,12 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
             step="0.1"
             value={currentTime}
             onChange={onSeekChange}
+            onPointerUp={onSeekEnd}
+            onPointerCancel={onSeekEnd}
             onMouseUp={onSeekEnd}
             onTouchEnd={onSeekEnd}
+            onTouchCancel={onSeekEnd}
+            onBlur={onSeekEnd}
             className="absolute top-0 w-full h-full opacity-0 cursor-pointer z-10"
             disabled={mediaItems.length === 0 || isProcessing}
           />
