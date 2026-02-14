@@ -163,6 +163,7 @@ enabled = true
 - `bugfix-guard`
 - `elite-ux-architect`
 - `implementation-plan`
+- `media-video-analyzer`
 - `readme-generator`
 - `skills-generator`
 - `turtle-video-overview`

@@ -19,7 +19,9 @@
     "skills:sync:ubuntu": "bash ./scripts/sync-skills.sh",
     "skills:install": "node scripts/install-codex-skill.mjs",
     "skills:install:windows": "powershell -ExecutionPolicy Bypass -File ./scripts/install-codex-skill.ps1",
-    "skills:install:ubuntu": "bash ./scripts/install-codex-skill.sh"
+    "skills:install:ubuntu": "bash ./scripts/install-codex-skill.sh",
+    "dev:media:setup": "powershell -ExecutionPolicy Bypass -File ./scripts/dev/setup-media-analysis-env.ps1",
+    "dev:media:analyze": "powershell -ExecutionPolicy Bypass -File ./scripts/dev/run-media-analysis.ps1"
   },
   "repository": {
     "type": "git",
