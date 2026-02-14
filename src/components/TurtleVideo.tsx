@@ -2337,6 +2337,32 @@ const TurtleVideo: React.FC = () => {
   // --- シークバー操作ハンドラ ---
   // 目的: ユーザーがシークバーをドラッグした時にプレビューを更新
   // 設計: スロットリングで過剰なビデオシークを防止し、カクつきを軽減
+  const handleSeekStart = useCallback(() => {
+    cancelPendingSeekPlaybackPrepare();
+    cancelPendingPausedSeekWait();
+    if (isSeekingRef.current) return;
+
+    wasPlayingBeforeSeekRef.current = isPlayingRef.current;
+    isSeekingRef.current = true;
+    attachGlobalSeekEndListeners();
+
+    if (isPlayingRef.current) {
+      if (reqIdRef.current) {
+        cancelAnimationFrame(reqIdRef.current);
+        reqIdRef.current = null;
+      }
+      if (playbackTimeoutRef.current) {
+        clearTimeout(playbackTimeoutRef.current);
+        playbackTimeoutRef.current = null;
+      }
+      Object.values(mediaElementsRef.current).forEach((el) => {
+        if (el && el.tagName === 'VIDEO') {
+          try { (el as HTMLVideoElement).pause(); } catch (e) { /* ignore */ }
+        }
+      });
+    }
+  }, [attachGlobalSeekEndListeners, cancelPendingPausedSeekWait, cancelPendingSeekPlaybackPrepare]);
+
   const handleSeekChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const t = parseFloat(e.target.value);
@@ -2347,28 +2373,8 @@ const TurtleVideo: React.FC = () => {
 
       // シーク開始時の処理
       if (!isSeekingRef.current) {
-        wasPlayingBeforeSeekRef.current = isPlayingRef.current;
-        isSeekingRef.current = true;
-        attachGlobalSeekEndListeners();
+        handleSeekStart();
         logDebug('RENDER', 'シーク開始', { fromTime: currentTimeRef.current, toTime: t });
-
-        // 再生中なら一時停止
-        if (isPlayingRef.current) {
-          if (reqIdRef.current) {
-            cancelAnimationFrame(reqIdRef.current);
-            reqIdRef.current = null;
-          }
-          if (playbackTimeoutRef.current) {
-            clearTimeout(playbackTimeoutRef.current);
-            playbackTimeoutRef.current = null;
-          }
-          // 全ビデオを一時停止
-          Object.values(mediaElementsRef.current).forEach((el) => {
-            if (el && el.tagName === 'VIDEO') {
-              try { (el as HTMLVideoElement).pause(); } catch (e) { /* ignore */ }
-            }
-          });
-        }
       }
 
       // UI更新は常に即座に実行
@@ -2408,7 +2414,7 @@ const TurtleVideo: React.FC = () => {
       syncVideoToTime(t);
       renderFrame(t, false);
     },
-    [setCurrentTime, renderFrame, cancelPendingPausedSeekWait, attachGlobalSeekEndListeners, cancelPendingSeekPlaybackPrepare]
+    [setCurrentTime, renderFrame, cancelPendingPausedSeekWait, cancelPendingSeekPlaybackPrepare, handleSeekStart]
   );
 
   // --- ビデオ位置同期ヘルパー ---
@@ -3035,6 +3041,7 @@ const TurtleVideo: React.FC = () => {
                 exportUrl={exportUrl}
                 exportExt={exportExt}
                 onSeekChange={handleSeekChange}
+                onSeekStart={handleSeekStart}
                 onSeekEnd={handleSeekEnd}
                 onTogglePlay={togglePlay}
                 onStop={handleStop}

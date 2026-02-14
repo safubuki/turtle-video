@@ -31,6 +31,7 @@ interface PreviewSectionProps {
   exportUrl: string | null;
   exportExt: string | null;
   onSeekChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onSeekStart: () => void;
   onSeekEnd: () => void;
   onTogglePlay: () => void;
   onStop: () => void;
@@ -57,6 +58,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   exportUrl,
   exportExt,
   onSeekChange,
+  onSeekStart,
   onSeekEnd,
   onTogglePlay,
   onStop,
@@ -161,6 +163,9 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
             step="0.1"
             value={currentTime}
             onChange={onSeekChange}
+            onPointerDown={onSeekStart}
+            onMouseDown={onSeekStart}
+            onTouchStart={onSeekStart}
             onPointerUp={onSeekEnd}
             onPointerCancel={onSeekEnd}
             onMouseUp={onSeekEnd}
