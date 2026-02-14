@@ -768,18 +768,29 @@ const TurtleVideo: React.FC = () => {
     totalDurationRef.current = totalDuration;
   }, [mediaItems, totalDuration]);
 
-  // --- 再描画トリガー: メディア構成変更時のみキャンバスを更新 ---
+  // --- 再描画トリガー: メディア構成変更時のキャンバス更新 ---
   // 目的: メディアの追加・削除・リロード時にプレビューを更新
-  // 注意: currentTimeやisPlayingには依存しない（シーク時の過剰描画を防止）
+  // 補足: 削除で空になった場合も最後のフレームを残さないよう必ず再描画する
   useEffect(() => {
-    if (mediaItems.length > 0 && !isPlaying && !isProcessing) {
-      // 少し遅延させてメディア要素の準備を待つ
-      const timeoutId = setTimeout(() => {
-        renderFrame(currentTimeRef.current, false);
-      }, 100);
-      return () => clearTimeout(timeoutId);
+    if (isPlaying || isProcessing) return;
+
+    const hasMedia = mediaItems.length > 0;
+    const targetTime = hasMedia
+      ? Math.max(0, Math.min(currentTimeRef.current, totalDuration))
+      : 0;
+
+    if (Math.abs(currentTimeRef.current - targetTime) > 0.001) {
+      currentTimeRef.current = targetTime;
+      setCurrentTime(targetTime);
     }
-  }, [mediaItems.length, reloadKey, isPlaying, isProcessing, renderFrame]);
+
+    // メディアがある場合のみ少し待って描画（要素準備待ち）
+    const timeoutId = setTimeout(() => {
+      renderFrame(targetTime, false);
+    }, hasMedia ? 100 : 0);
+
+    return () => clearTimeout(timeoutId);
+  }, [mediaItems.length, totalDuration, reloadKey, isPlaying, isProcessing, renderFrame, setCurrentTime]);
 
   // --- BGM状態の同期 ---
   // 目的: BGMトラックの最新状態をRefに保持
@@ -1489,6 +1500,11 @@ const TurtleVideo: React.FC = () => {
     // 特定のビデオIDを知ることができない。
     // シーク中ビデオの追跡はrenderFrame内で各ビデオのseeking状態を監視して行う。
     requestAnimationFrame(() => renderFrame(currentTimeRef.current, false));
+  }, [renderFrame]);
+
+  const handleVideoLoadedData = useCallback(() => {
+    // loadeddata is not seek completion; keep current playback mode when redrawing.
+    requestAnimationFrame(() => renderFrame(currentTimeRef.current, isPlayingRef.current));
   }, [renderFrame]);
 
   // --- 動画トリミング更新ハンドラ ---
@@ -2640,6 +2656,7 @@ const TurtleVideo: React.FC = () => {
         onElementLoaded={handleMediaElementLoaded}
         onRefAssign={handleMediaRefAssign}
         onSeeked={handleSeeked}
+        onVideoLoadedData={handleVideoLoadedData}
       />
 
       {/* AI Modal */}

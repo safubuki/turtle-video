@@ -75,6 +75,7 @@ export interface MediaResourceLoaderProps {
   onElementLoaded: (id: string, element: HTMLVideoElement | HTMLImageElement | HTMLAudioElement) => void;
   onRefAssign: (id: string, element: HTMLVideoElement | HTMLImageElement | HTMLAudioElement | null) => void;
   onSeeked: () => void;
+  onVideoLoadedData: () => void;
 }
 
 // トラックタイプ

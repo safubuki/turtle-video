@@ -16,17 +16,20 @@ interface MediaItemResourceProps {
   onRefAssign: (id: string, el: HTMLVideoElement | HTMLImageElement | HTMLAudioElement | null) => void;
   onElementLoaded: (id: string, el: HTMLVideoElement | HTMLImageElement | HTMLAudioElement) => void;
   onSeeked: () => void;
+  onVideoLoadedData: () => void;
   onError: (e: React.SyntheticEvent<HTMLVideoElement | HTMLAudioElement>) => void;
 }
 
 const MediaItemResource = memo<MediaItemResourceProps>(
-  ({ item, hiddenStyle, onRefAssign, onElementLoaded, onSeeked, onError }) => {
+  ({ item, hiddenStyle, onRefAssign, onElementLoaded, onSeeked, onVideoLoadedData, onError }) => {
     if (item.type === 'video') {
       return (
         <video
           ref={(el) => onRefAssign(item.id, el)}
           src={item.url}
           onLoadedMetadata={(e) => onElementLoaded(item.id, e.currentTarget)}
+          // 初回デコードフレームが利用可能になったタイミングで再描画を促す
+          onLoadedData={onVideoLoadedData}
           onSeeked={onSeeked}
           onError={onError}
           preload="auto"
@@ -60,7 +63,7 @@ MediaItemResource.displayName = 'MediaItemResource';
  * 画面内に配置し、透明度で隠すことでブラウザの描画停止を回避
  */
 const MediaResourceLoader = memo<MediaResourceLoaderProps>(
-  ({ mediaItems, bgm, narration, onElementLoaded, onRefAssign, onSeeked }) => {
+  ({ mediaItems, bgm, narration, onElementLoaded, onRefAssign, onSeeked, onVideoLoadedData }) => {
     const hiddenStyle: React.CSSProperties = useMemo(() => ({
       position: 'fixed',
       top: 0,
@@ -100,6 +103,7 @@ const MediaResourceLoader = memo<MediaResourceLoaderProps>(
             onRefAssign={onRefAssign}
             onElementLoaded={onElementLoaded}
             onSeeked={onSeeked}
+            onVideoLoadedData={onVideoLoadedData}
             onError={handleError}
           />
         ))}
