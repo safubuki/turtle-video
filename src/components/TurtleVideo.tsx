@@ -214,6 +214,7 @@ const TurtleVideo: React.FC = () => {
   const videoRecoveryAttemptsRef = useRef<Record<string, number>>({}); // ビデオリカバリー試行時刻を追跡
   const seekingVideosRef = useRef<Set<string>>(new Set()); // シーク中のビデオIDを追跡
   const lastSeekTimeRef = useRef(0); // 最後のシーク時刻（スロットリング用）
+  const lastSeekPreviewRenderAtRef = useRef(0); // シーク中プレビュー描画の最終時刻
   const pendingSeekRef = useRef<number | null>(null); // 保留中のシーク位置
   const wasPlayingBeforeSeekRef = useRef(false); // シーク前の再生状態を保持
   const pendingSeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 保留中のシーク処理用タイマー
@@ -242,6 +243,11 @@ const TurtleVideo: React.FC = () => {
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     const isSafari = /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/i.test(ua);
     return isIOS && isSafari;
+  }, []);
+
+  const isAndroid = useMemo(() => {
+    if (typeof navigator === 'undefined') return false;
+    return /Android/i.test(navigator.userAgent);
   }, []);
 
   // Hooks
@@ -2341,6 +2347,8 @@ const TurtleVideo: React.FC = () => {
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const t = parseFloat(e.target.value);
       const now = Date.now();
+      const seekThrottleMs = isAndroid ? 90 : SEEK_THROTTLE_MS;
+      const seekPreviewRenderIntervalMs = isAndroid ? 33 : 0;
       seekSettleGenerationRef.current += 1;
       cancelPendingSeekPlaybackPrepare();
       cancelPendingPausedSeekWait();
@@ -2349,6 +2357,7 @@ const TurtleVideo: React.FC = () => {
       if (!isSeekingRef.current) {
         wasPlayingBeforeSeekRef.current = isPlayingRef.current;
         isSeekingRef.current = true;
+        lastSeekPreviewRenderAtRef.current = 0;
         attachGlobalSeekEndListeners();
         logDebug('RENDER', 'シーク開始', { fromTime: currentTimeRef.current, toTime: t });
 
@@ -2377,7 +2386,7 @@ const TurtleVideo: React.FC = () => {
 
       // スロットリング: ビデオシークは間隔を空けて実行
       const timeSinceLastSeek = now - lastSeekTimeRef.current;
-      if (timeSinceLastSeek < SEEK_THROTTLE_MS) {
+      if (timeSinceLastSeek < seekThrottleMs) {
         // 保留中のシークを記録し、タイマーで後から処理
         pendingSeekRef.current = t;
         if (!pendingSeekTimeoutRef.current) {
@@ -2388,12 +2397,25 @@ const TurtleVideo: React.FC = () => {
               pendingSeekRef.current = null;
               lastSeekTimeRef.current = Date.now();
               syncVideoToTime(pendingT);
-              renderFrame(pendingT, false);
+              const renderNow = Date.now();
+              if (
+                seekPreviewRenderIntervalMs === 0 ||
+                renderNow - lastSeekPreviewRenderAtRef.current >= seekPreviewRenderIntervalMs
+              ) {
+                lastSeekPreviewRenderAtRef.current = renderNow;
+                renderFrame(pendingT, false);
+              }
             }
-          }, SEEK_THROTTLE_MS - timeSinceLastSeek);
+          }, seekThrottleMs - timeSinceLastSeek);
         }
         // キャンバスだけは更新（画像の場合など）
-        renderFrame(t, false);
+        if (
+          seekPreviewRenderIntervalMs === 0 ||
+          now - lastSeekPreviewRenderAtRef.current >= seekPreviewRenderIntervalMs
+        ) {
+          lastSeekPreviewRenderAtRef.current = now;
+          renderFrame(t, false);
+        }
         return;
       }
 
@@ -2406,9 +2428,17 @@ const TurtleVideo: React.FC = () => {
 
       // ビデオ位置を同期してフレーム描画
       syncVideoToTime(t);
+      lastSeekPreviewRenderAtRef.current = now;
       renderFrame(t, false);
     },
-    [setCurrentTime, renderFrame, cancelPendingPausedSeekWait, attachGlobalSeekEndListeners, cancelPendingSeekPlaybackPrepare]
+    [
+      setCurrentTime,
+      renderFrame,
+      cancelPendingPausedSeekWait,
+      attachGlobalSeekEndListeners,
+      cancelPendingSeekPlaybackPrepare,
+      isAndroid,
+    ]
   );
 
   // --- ビデオ位置同期ヘルパー ---
