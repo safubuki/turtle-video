@@ -32,3 +32,16 @@ dist_test
 
 # Documentation drafts (local only)
 Docs/AgentSkillsBlog.md
+
+# Local developer-only media analysis environment
+.venv/
+.venv-media-analysis/
+.venv-media-analysis*/
+.media-analysis-output/
+.tmp-empty-requirements.txt
+scripts/dev/requirements-empty.txt
+scripts/dev/__pycache__/
+
+# Skill sync artifacts
+.agents/
+.skills-backups/
