@@ -95,3 +95,9 @@ Remove-Item -Recurse -Force .\.media-analysis-output -ErrorAction SilentlyContin
 - Network access is required to install Python dependencies.
 - If setup fails due to a broken venv, delete `.venv-media-analysis` and rerun setup.
 - The setup script prefers `py -3` on Windows to avoid MSYS Python venv issues.
+
+## 8. GitHub Issue Workflow
+
+For repository issue templates and CLI issue creation, see:
+
+- `Docs/github_issue_workflow.md`
