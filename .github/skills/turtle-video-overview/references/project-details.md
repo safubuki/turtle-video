@@ -170,3 +170,12 @@ npm run format      # Prettier
 Google Gemini API を使用。APIキーは以下の方法で設定：
 1. **設定モーダル**（推奨）: ヘッダーの歯車アイコン → APIキータブ
 2. **環境変数**: `VITE_GEMINI_API_KEY` を `.env` に設定
+
+## 9. Development Scripts (Media Analyzer)
+
+- `npm run dev:media:setup`: base analysis venv setup
+- `npm run dev:media:setup:stt`: base + Whisper STT dependencies (`faster-whisper`) in `.venv-media-analysis`
+- `npm run dev:media:setup:stt:models`: install STT deps and prefetch Whisper models (`tiny`, `small`)
+- `npm run dev:media:analyze -- -Mode transcribe ...`: speech-to-text extraction for video audio
+- `npm run dev:media:cleanup`: remove generated artifacts under `tmp/video-analysis` and `.media-analysis-output`
+- `npm run dev:media:cleanup:keep-json`: keep JSON reports and remove other generated artifacts

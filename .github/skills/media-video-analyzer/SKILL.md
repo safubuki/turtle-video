@@ -40,8 +40,11 @@ description: 動画ファイルを根拠に挙動確認・不具合解析を行�
    - `scripts/dev/setup-media-analysis-env.ps1`
    - `scripts/dev/run-media-analysis.ps1`
    - `scripts/dev/analyze-video.py`
+   - `scripts/dev/requirements-media-analysis-stt.txt`（セリフ抽出を行う場合）
 2. `.venv-media-analysis` が利用可能か確認する
 3. 環境未構築なら、必ずユーザー確認後に `npm run dev:media:setup` を実行する
+4. セリフ抽出（STT）が必要な場合は、必ずユーザー確認後に `npm run dev:media:setup:stt` を実行する
+5. `small` / `tiny` を確実に使う場合は、必ずユーザー確認後に `npm run dev:media:setup:stt:models`（または `-PrefetchSttModels -SttModels ...`）で事前取得する
 
 経路 B（helper がない場合のポータブル手順）:
 
@@ -51,6 +54,7 @@ description: 動画ファイルを根拠に挙動確認・不具合解析を行�
 4. `scripts/dev` が無ければ作成し、解析スクリプトを `scripts/dev` に配置する
 5. 解析スクリプトは引数で動く汎用形にする（固定パス・固定閾値を避ける）
 6. 依存インストール前に必ずユーザー確認を取る
+7. セリフ抽出を行う場合は Whisper 系依存（例: `faster-whisper`）を venv にのみ導入する
 
 ### 手順3: ベースライン解析
 
@@ -76,6 +80,10 @@ npm run dev:media:analyze -- -InputPath "C:\path\capture.mp4" -Mode black-segmen
 npm run dev:media:analyze -- -InputPath "C:\path\capture.mp4" -Mode freeze-segments -Scope full
 ```
 
+```powershell
+npm run dev:media:analyze -- -InputPath "C:\path\capture.mp4" -Mode transcribe -SttModel small -SttLanguage ja
+```
+
 ### 手順4: 拡張ルール（ワークスペース別）
 
 既存モードで不足する場合のみ、`scripts/dev` に追加スクリプトを作成・拡張する。
@@ -91,6 +99,7 @@ npm run dev:media:analyze -- -InputPath "C:\path\capture.mp4" -Mode freeze-segme
 1. 時刻/フレーム根拠付きで結果を整理
 2. 必要なら最小影響の修正案を提示
 3. 修正後は同一手順で再検証する
+4. 解析生成物が不要になったら `npm run dev:media:cleanup`（または `npm run dev:media:cleanup:keep-json`）を案内する
 
 ## 参照ガイド
 

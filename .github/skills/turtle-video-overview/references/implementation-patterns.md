@@ -413,3 +413,50 @@
 | **停止→再生終端** | `startEngine` で `resetInactiveVideos()` を実行、`shouldGuardNearEnd` + `endFinalizedRef` で非アクティブ描画の黒クリア抑止、`shouldHoldForVideoEnd` でビデオ自然終了時の holdFrame 強制、`isEndedNearEnd` で ended ビデオへの play()/sync 抑止 |
 | **キャプチャ** | 再生中は一時停止してからCanvasをキャプチャ。ObjectURLは`setTimeout`で解放 |
 | **エラー** | 3 層防御: ErrorBoundary（コンポーネント）、グローバルハンドラ（window）、try-catch（個別処理） |
+
+## 12. Dev Script Pattern (media-video-analyzer STT)
+
+### 12-1. Whisper STT in dedicated venv
+
+- **Files**: `scripts/dev/setup-media-analysis-env.ps1`, `scripts/dev/run-media-analysis.ps1`, `scripts/dev/analyze-video.py`, `scripts/dev/requirements-media-analysis-stt.txt`
+- **Behavior**:
+  - Keep STT dependencies optional via setup flag `-WithStt`.
+  - Provide npm shortcut `npm run dev:media:setup:stt`.
+  - `run-media-analysis.ps1` forwards STT args to analyzer for `-Mode transcribe`.
+  - `analyze-video.py` uses provider fallback order: `faster-whisper` -> `openai-whisper`.
+- **Caution**:
+  - Install STT dependencies only after explicit user approval.
+  - STT model download can require network and extra time; report this before execution.
+
+### 12-2. Whisper model prefetch + blocked proxy guard
+
+- **Files**: `scripts/dev/setup-media-analysis-env.ps1`, `scripts/dev/prefetch-whisper-models.py`, `package.json`
+- **Behavior**:
+  - Add `-PrefetchSttModels` and `-SttModels` to setup script for proactive model caching (`tiny`, `small`).
+  - Add npm shortcut `npm run dev:media:setup:stt:models`.
+  - Setup script temporarily disables only blocked loopback proxy values (`127.0.0.1:9`, `localhost:9`, `::1:9`) for install/prefetch commands and restores environment variables afterwards.
+- **Caution**:
+  - Guard is intentionally narrow; valid corporate proxies are left unchanged.
+  - Prefetch still requires network access and can take time on first run.
+
+### 12-3. Media analysis artifact cleanup policy
+
+- **Files**: `scripts/dev/cleanup-media-analysis-artifacts.ps1`, `package.json`, `Docs/developer_guide.md`
+- **Behavior**:
+  - Provide `npm run dev:media:cleanup` to remove generated files under `tmp/video-analysis` and `.media-analysis-output`.
+  - Provide `npm run dev:media:cleanup:keep-json` to keep only `*.json` reports in `tmp/video-analysis`.
+  - Treat extracted audio and frame image dumps as disposable artifacts by default.
+- **Caution**:
+  - Keep JSON reports when evidence or review records are required.
+  - Removing artifacts does not affect app runtime; they are developer-only outputs.
+
+### 12-4. Issue CLI local gh fallback
+
+- **Files**: `scripts/create-github-issue.mjs`, `.tools/gh/bin/gh.exe`, `Docs/github_issue_workflow.md`
+- **Behavior**:
+  - `issue:create` uses `gh` from `PATH` first.
+  - If not found, it falls back to local bundled CLI at `.tools/gh/bin/gh.exe` (Windows).
+  - Authentication remains required (`gh auth login` or `GH_TOKEN`).
+- **Caution**:
+  - `.tools/gh/LICENSE` should be kept together with bundled `gh.exe`.
+  - Without authentication, issue creation fails even when `gh` binary is available.
