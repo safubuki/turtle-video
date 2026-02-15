@@ -14,6 +14,7 @@
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
     "quality:gate": "node scripts/quality-gate.mjs",
+    "issue:create": "node scripts/create-github-issue.mjs",
     "skills:sync": "node scripts/sync-skills.mjs",
     "skills:sync:windows": "powershell -ExecutionPolicy Bypass -File ./scripts/sync-skills.ps1",
     "skills:sync:ubuntu": "bash ./scripts/sync-skills.sh",
