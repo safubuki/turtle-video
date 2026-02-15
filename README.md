@@ -106,6 +106,25 @@ npm run test:run
 npm run test:coverage
 ```
 
+## 開発スクリプト（集約先）
+
+- 実行可能なスクリプト一覧の正本は `package.json` の `scripts` です。
+- 動画解析系スクリプトの詳細は `Docs/developer_guide.md` にまとめています。
+- `gh` のポータブル運用と Issue 登録手順は `Docs/developer_guide.md` と `Docs/github_issue_workflow.md` を参照してください。
+
+### よく使うスクリプト
+
+- `npm run dev`: 開発サーバー起動
+- `npm run build`: 本番ビルド
+- `npm run test:run`: テスト一括実行
+- `npm run dev:media:setup`: 動画解析用 venv の初期セットアップ
+- `npm run dev:media:setup:stt`: STT依存（`faster-whisper`）の導入
+- `npm run dev:media:setup:stt:models`: STT依存導入 + `tiny`/`small` モデル事前取得
+- `npm run dev:media:analyze -- -InputPath "<動画パス>" -Mode summary`: 動画サマリー解析
+- `npm run dev:media:analyze -- -InputPath "<動画パス>" -Mode transcribe -SttModel small -SttLanguage ja`: セリフ抽出
+- `npm run dev:media:cleanup`: 解析生成物を全削除（`tmp/video-analysis`, `.media-analysis-output`）
+- `npm run dev:media:cleanup:keep-json`: JSONレポートのみ残して解析生成物を削除
+
 ## Agent Skills
 
 **Agent Skills とは**
@@ -245,6 +264,7 @@ src/
 - TypeScript strict モードを使用
 - ESLint + Prettier でコードフォーマット
 - コンポーネントは React.memo で最適化
+- 開発用スクリプトは `package.json` の `scripts` を正本とし、動画解析手順は `Docs/developer_guide.md` を参照
 
 ### 新機能の追加
 
