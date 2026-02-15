@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 
@@ -301,12 +303,36 @@ function buildIssue(opts) {
   return { title, body, labels };
 }
 
-function isGhAvailable() {
-  const result = spawnSync('gh', ['--version'], {
+function resolveGhCommand() {
+  const resultFromPath = spawnSync('gh', ['--version'], {
     stdio: 'ignore',
     shell: process.platform === 'win32',
   });
-  return result.status === 0;
+  if (resultFromPath.status === 0) {
+    return { command: 'gh', useShell: process.platform === 'win32', source: 'PATH' };
+  }
+
+  const localCandidates = process.platform === 'win32'
+    ? [path.resolve(process.cwd(), '.tools', 'gh', 'bin', 'gh.exe')]
+    : [
+        path.resolve(process.cwd(), '.tools', 'gh', 'bin', 'gh'),
+        path.resolve(process.cwd(), '.tools', 'gh', 'bin', 'gh.exe'),
+      ];
+
+  for (const candidate of localCandidates) {
+    if (!existsSync(candidate)) {
+      continue;
+    }
+    const resultLocal = spawnSync(candidate, ['--version'], {
+      stdio: 'ignore',
+      shell: false,
+    });
+    if (resultLocal.status === 0) {
+      return { command: candidate, useShell: false, source: 'local' };
+    }
+  }
+
+  return null;
 }
 
 async function promptForMissingFields(opts) {
@@ -396,9 +422,11 @@ async function main() {
     return;
   }
 
-  if (!isGhAvailable()) {
+  const ghCommand = resolveGhCommand();
+  if (!ghCommand) {
     console.error('Error: GitHub CLI (gh) がPATH上に見つかりません。');
     console.error('インストール: https://cli.github.com/');
+    console.error('またはローカル配置: .tools/gh/bin/gh.exe');
     console.error('ヒント: --dry-run で生成内容だけ確認できます。');
     process.exit(1);
   }
@@ -411,9 +439,9 @@ async function main() {
     args.push('--label', label);
   }
 
-  const result = spawnSync('gh', args, {
+  const result = spawnSync(ghCommand.command, args, {
     stdio: 'inherit',
-    shell: process.platform === 'win32',
+    shell: ghCommand.useShell,
   });
 
   if (result.status !== 0) {

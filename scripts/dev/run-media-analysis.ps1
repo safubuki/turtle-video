@@ -1,6 +1,6 @@
 param(
   [string]$InputPath,
-  [ValidateSet("summary", "black-segments", "freeze-segments", "tail-black", "full-black")]
+  [ValidateSet("summary", "black-segments", "freeze-segments", "transcribe", "tail-black", "full-black")]
   [string]$Mode = "summary",
   [ValidateSet("full", "tail")]
   [string]$Scope = "full",
@@ -8,6 +8,13 @@ param(
   [double]$BlackThreshold = 8.0,
   [double]$FreezeThreshold = 0.8,
   [int]$MinSegmentFrames = 3,
+  [ValidateSet("auto", "faster-whisper", "openai-whisper")]
+  [string]$SttProvider = "auto",
+  [string]$SttModel = "small",
+  [string]$SttLanguage = "ja",
+  [string]$SttDevice = "auto",
+  [string]$SttComputeType = "int8",
+  [int]$SttBeamSize = 5,
   [string]$OutputPath = "",
   [string]$VenvDir = ".venv-media-analysis",
   [Alias("?")]
@@ -18,15 +25,19 @@ $ErrorActionPreference = "Stop"
 
 if ($Help) {
   Write-Host "Usage:"
-  Write-Host "  powershell -ExecutionPolicy Bypass -File scripts/dev/run-media-analysis.ps1 -InputPath <video> [-Mode summary|black-segments|freeze-segments|tail-black|full-black] [-Scope full|tail] [-TailSeconds <n>] [-BlackThreshold <n>] [-FreezeThreshold <n>] [-MinSegmentFrames <n>] [-OutputPath <path>] [-VenvDir <path>]"
+  Write-Host "  powershell -ExecutionPolicy Bypass -File scripts/dev/run-media-analysis.ps1 -InputPath <video> [-Mode summary|black-segments|freeze-segments|transcribe|tail-black|full-black] [-Scope full|tail] [-TailSeconds <n>] [-BlackThreshold <n>] [-FreezeThreshold <n>] [-MinSegmentFrames <n>] [-SttProvider auto|faster-whisper|openai-whisper] [-SttModel <name>] [-SttLanguage <code>] [-SttDevice <name>] [-SttComputeType <name>] [-SttBeamSize <n>] [-OutputPath <path>] [-VenvDir <path>]"
   Write-Host ""
   Write-Host "Example:"
   Write-Host "  npm run dev:media:analyze -- -InputPath `"C:\path\capture.mp4`" -Mode freeze-segments -Scope tail"
+  Write-Host "  npm run dev:media:analyze -- -InputPath `"C:\path\capture.mp4`" -Mode transcribe -SttModel small -SttLanguage ja"
   exit 0
 }
 
 if ([string]::IsNullOrWhiteSpace($InputPath)) {
   throw "InputPath is required. Use -InputPath <video> or -Help."
+}
+if ($SttBeamSize -le 0) {
+  throw "SttBeamSize must be > 0."
 }
 
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
@@ -56,7 +67,13 @@ $CliArgs = @(
   "--tail-seconds", "$TailSeconds",
   "--black-threshold", "$BlackThreshold",
   "--freeze-threshold", "$FreezeThreshold",
-  "--min-segment-frames", "$MinSegmentFrames"
+  "--min-segment-frames", "$MinSegmentFrames",
+  "--stt-provider", "$SttProvider",
+  "--stt-model", "$SttModel",
+  "--stt-language", "$SttLanguage",
+  "--stt-device", "$SttDevice",
+  "--stt-compute-type", "$SttComputeType",
+  "--stt-beam-size", "$SttBeamSize"
 )
 
 if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {

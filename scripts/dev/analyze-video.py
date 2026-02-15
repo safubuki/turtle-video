@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ def parse_args() -> argparse.Namespace:
             "summary",
             "black-segments",
             "freeze-segments",
+            "transcribe",
             # backward-compatible aliases:
             "tail-black",
             "full-black",
@@ -58,6 +60,38 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=3,
         help="Minimum contiguous frames for a detected segment. Default: 3",
+    )
+    parser.add_argument(
+        "--stt-provider",
+        default="auto",
+        choices=("auto", "faster-whisper", "openai-whisper"),
+        help="Whisper provider for transcribe mode. Default: auto",
+    )
+    parser.add_argument(
+        "--stt-model",
+        default="small",
+        help="Whisper model name for transcribe mode. Default: small",
+    )
+    parser.add_argument(
+        "--stt-language",
+        default="ja",
+        help="Language code for transcribe mode (or auto). Default: ja",
+    )
+    parser.add_argument(
+        "--stt-device",
+        default="auto",
+        help="Inference device for transcribe mode. Example: auto/cpu/cuda",
+    )
+    parser.add_argument(
+        "--stt-compute-type",
+        default="int8",
+        help="Compute type for faster-whisper. Default: int8",
+    )
+    parser.add_argument(
+        "--stt-beam-size",
+        type=int,
+        default=5,
+        help="Beam size for transcribe mode. Default: 5",
     )
     parser.add_argument(
         "--output",
@@ -353,6 +387,164 @@ def analyze_freeze_segments(
     }
 
 
+def normalize_stt_language(value: str) -> str | None:
+    normalized = value.strip()
+    if not normalized:
+        return None
+    lowered = normalized.lower()
+    if lowered in {"auto", "none"}:
+        return None
+    return normalized
+
+
+def prepend_imageio_ffmpeg_to_path() -> None:
+    # openai-whisper may require ffmpeg command discovery on PATH.
+    try:
+        import imageio_ffmpeg
+    except ModuleNotFoundError:
+        return
+
+    ffmpeg_path = Path(imageio_ffmpeg.get_ffmpeg_exe())
+    ffmpeg_dir = str(ffmpeg_path.parent)
+    path_value = os.environ.get("PATH", "")
+    path_parts = path_value.split(os.pathsep) if path_value else []
+    if ffmpeg_dir not in path_parts:
+        os.environ["PATH"] = ffmpeg_dir + os.pathsep + path_value
+
+
+def analyze_transcribe_faster_whisper(video_path: Path, args: argparse.Namespace) -> dict[str, Any]:
+    try:
+        from faster_whisper import WhisperModel
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "faster-whisper is not installed. Run `npm run dev:media:setup -- -WithStt`."
+        ) from exc
+
+    language = normalize_stt_language(args.stt_language)
+    model = WhisperModel(
+        args.stt_model,
+        device=args.stt_device,
+        compute_type=args.stt_compute_type,
+    )
+    segments_iter, info = model.transcribe(
+        str(video_path),
+        language=language,
+        beam_size=args.stt_beam_size,
+    )
+
+    segments: list[dict[str, Any]] = []
+    for idx, segment in enumerate(segments_iter):
+        text = str(getattr(segment, "text", "")).strip()
+        segments.append(
+            {
+                "segment_index": idx,
+                "start_time_sec": float(getattr(segment, "start", 0.0)),
+                "end_time_sec": float(getattr(segment, "end", 0.0)),
+                "text": text,
+            }
+        )
+
+    full_text = " ".join(seg["text"] for seg in segments if seg["text"]).strip()
+    detected_language = getattr(info, "language", None)
+    detected_probability = getattr(info, "language_probability", None)
+
+    return {
+        "mode": "transcribe",
+        "provider": "faster-whisper",
+        "input_path": str(video_path),
+        "model": args.stt_model,
+        "language": language,
+        "detected_language": detected_language,
+        "detected_language_probability": (
+            float(detected_probability) if detected_probability is not None else None
+        ),
+        "segment_count": len(segments),
+        "segments": segments,
+        "text": full_text,
+    }
+
+
+def analyze_transcribe_openai_whisper(video_path: Path, args: argparse.Namespace) -> dict[str, Any]:
+    try:
+        import whisper
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "openai-whisper is not installed. Run `npm run dev:media:setup -- -WithStt`."
+        ) from exc
+
+    prepend_imageio_ffmpeg_to_path()
+    language = normalize_stt_language(args.stt_language)
+    device = None if args.stt_device == "auto" else args.stt_device
+    model = whisper.load_model(args.stt_model, device=device)
+
+    transcribe_kwargs: dict[str, Any] = {
+        "beam_size": args.stt_beam_size,
+        "verbose": False,
+    }
+    if language is not None:
+        transcribe_kwargs["language"] = language
+    if args.stt_device != "cuda":
+        transcribe_kwargs["fp16"] = False
+
+    result = model.transcribe(str(video_path), **transcribe_kwargs)
+    raw_segments = result.get("segments") or []
+    segments: list[dict[str, Any]] = []
+    for idx, segment in enumerate(raw_segments):
+        text = str(segment.get("text", "")).strip()
+        segments.append(
+            {
+                "segment_index": idx,
+                "start_time_sec": float(segment.get("start", 0.0)),
+                "end_time_sec": float(segment.get("end", 0.0)),
+                "text": text,
+            }
+        )
+
+    full_text = " ".join(seg["text"] for seg in segments if seg["text"]).strip()
+    if not full_text:
+        full_text = str(result.get("text", "")).strip()
+
+    return {
+        "mode": "transcribe",
+        "provider": "openai-whisper",
+        "input_path": str(video_path),
+        "model": args.stt_model,
+        "language": language,
+        "detected_language": result.get("language"),
+        "detected_language_probability": None,
+        "segment_count": len(segments),
+        "segments": segments,
+        "text": full_text,
+    }
+
+
+def analyze_transcribe(video_path: Path, args: argparse.Namespace) -> dict[str, Any]:
+    providers = (
+        ["faster-whisper", "openai-whisper"] if args.stt_provider == "auto" else [args.stt_provider]
+    )
+    missing_errors: dict[str, str] = {}
+
+    for provider in providers:
+        try:
+            if provider == "faster-whisper":
+                return analyze_transcribe_faster_whisper(video_path, args)
+            if provider == "openai-whisper":
+                return analyze_transcribe_openai_whisper(video_path, args)
+        except ModuleNotFoundError as exc:
+            missing_errors[provider] = str(exc)
+            continue
+
+    if missing_errors:
+        detail = " / ".join(f"{name}: {message}" for name, message in missing_errors.items())
+        raise RuntimeError(
+            "No Whisper STT backend is available in this venv. "
+            "Run `npm run dev:media:setup -- -WithStt`. "
+            f"Details: {detail}"
+        )
+
+    raise ValueError(f"unsupported stt provider: {args.stt_provider}")
+
+
 def normalize_mode_scope(mode: str, scope: str) -> tuple[str, str]:
     # Backward compatibility with old blackout-specific mode names.
     if mode == "tail-black":
@@ -372,8 +564,13 @@ def run_analysis(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("--black-threshold must be >= 0")
     if args.freeze_threshold < 0:
         raise ValueError("--freeze-threshold must be >= 0")
+    if args.stt_beam_size <= 0:
+        raise ValueError("--stt-beam-size must be > 0")
 
     mode, scope = normalize_mode_scope(args.mode, args.scope)
+    if mode == "transcribe":
+        return analyze_transcribe(video_path=input_path, args=args)
+
     fps, luma_values, motion_values = load_metrics(input_path)
 
     if mode == "summary":
