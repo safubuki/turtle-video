@@ -69,8 +69,62 @@ node .github/skills/issue-specialist/scripts/setup-issue-specialist.mjs --target
 
 - GitHub CLI（`gh`）の導入と認証が必要
 - 導入: https://cli.github.com/
+- 補足: このリポジトリでは `scripts/create-github-issue.mjs` が `PATH` 上の `gh` を優先し、見つからない場合は `.tools/gh/bin/gh.exe` を自動で利用します（Windows）
 - 認証例:
 
 ```powershell
 gh auth login
+```
+
+## 6. トークンについて
+
+Issue 作成には認証が必要です。未認証だと `gh issue create` は失敗します。
+
+- 対話ログイン: `gh auth login`（推奨）
+- トークン利用: `GH_TOKEN` 環境変数を設定
+
+必要な権限の目安:
+
+- 公開リポジトリ（Classic PAT）: `public_repo`
+- 非公開リポジトリ（Classic PAT）: `repo`
+- Fine-grained PAT: 対象リポジトリの `Issues: Read and write`
+
+補足:
+
+- 環境によっては `read:org` も要求されるため、Classic PAT では `repo + read:org`（公開のみなら `public_repo + read:org`）での発行を推奨
+
+## 7. ポータブル運用（最短手順）
+
+`gh` をシステムインストールせず、このリポジトリ同梱の `.tools/gh/bin/gh.exe` を使う手順です。
+
+### 7.1 最短ログイン（対話）
+
+```powershell
+cd C:\git_home\turtle-video
+$env:GH_CONFIG_DIR="$PWD\.tools\gh\config"
+.\.tools\gh\bin\gh.exe auth login --hostname github.com
+```
+
+### 7.2 認証確認
+
+```powershell
+.\.tools\gh\bin\gh.exe auth status
+```
+
+### 7.3 Issue作成
+
+```powershell
+# 内容確認のみ
+npm run issue:create -- --type docs --summary "手順確認" --dry-run
+
+# 実作成
+npm run issue:create -- --type docs --summary "手順確認"
+```
+
+### 7.4 毎回短く打つ（任意）
+
+```powershell
+cd C:\git_home\turtle-video
+function gh { & "$PWD\.tools\gh\bin\gh.exe" @args }
+gh auth status
 ```
