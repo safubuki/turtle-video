@@ -226,6 +226,7 @@ const TurtleVideo: React.FC = () => {
   const handleSeekEndCallbackRef = useRef<(() => void) | null>(null);
   const cancelSeekPlaybackPrepareRef = useRef<(() => void) | null>(null);
   const isSeekPlaybackPreparingRef = useRef(false);
+  const endFinalizedRef = useRef(false); // 終端ファイナライズ済みフラグ（遅延renderFrame競合防止）
 
   const captionsRef = useRef(captions);
   const captionSettingsRef = useRef(captionSettings);
@@ -366,6 +367,17 @@ const TurtleVideo: React.FC = () => {
           activeId = active.id;
           activeIndex = active.index;
           localTime = active.localTime;
+        } else if (currentItems.length > 0) {
+          // 終端付近で active 判定が欠ける瞬間（丸め誤差/更新順序差）を吸収し、
+          // 最終アイテムの最終フレームを優先して描画する。
+          const END_FALLBACK_TOLERANCE_SEC = 0.2;
+          if (time >= totalDurationRef.current - END_FALLBACK_TOLERANCE_SEC) {
+            const lastIndex = currentItems.length - 1;
+            const lastItem = currentItems[lastIndex];
+            activeId = lastItem.id;
+            activeIndex = lastIndex;
+            localTime = Math.max(0, lastItem.duration - 0.001);
+          }
         }
         const holdAudioThisFrame = isActivePlaying && audioResumeWaitFramesRef.current > 0;
 
@@ -380,8 +392,19 @@ const TurtleVideo: React.FC = () => {
           const activeItem = currentItems[activeIndex];
           if (activeItem.type === 'video') {
             const activeEl = mediaElementsRef.current[activeId] as HTMLVideoElement | undefined;
-            if (activeEl) {
+            if (!activeEl) {
+              holdFrame = true;
+            } else {
               const targetTime = (activeItem.trimStart || 0) + localTime;
+              const isLastTimelineItem = activeIndex === currentItems.length - 1;
+              const isNearTimelineEnd =
+                totalDurationRef.current > 0 &&
+                time >= totalDurationRef.current - 0.05;
+              const safeEndTime = (activeItem.trimStart || 0) + Math.max(0, activeItem.duration - 0.001);
+              const shouldForceEndFrameAlign =
+                !isActivePlaying &&
+                isLastTimelineItem &&
+                isNearTimelineEnd;
               const exportSyncThreshold = _isExporting
                 ? (isIosSafari ? 0.2 : 0.12)
                 : 0.5;
@@ -391,6 +414,16 @@ const TurtleVideo: React.FC = () => {
                 !isSeekingRef.current &&
                 !activeEl.seeking &&
                 Math.abs(activeEl.currentTime - targetTime) > exportSyncThreshold;
+
+              if (shouldForceEndFrameAlign && activeEl.readyState >= 1 && !activeEl.seeking) {
+                const endAlignThreshold = 0.0001;
+                const desired = Math.min(targetTime, safeEndTime);
+                const drift = Math.abs(activeEl.currentTime - desired);
+                const isAhead = activeEl.currentTime > desired + endAlignThreshold;
+                if (drift > endAlignThreshold || isAhead) {
+                  activeEl.currentTime = desired;
+                }
+              }
 
               // readyState 0: 未ロード → クールダウン付きload()で復旧試行
               if (activeEl.readyState === 0 && !activeEl.error) {
@@ -406,22 +439,85 @@ const TurtleVideo: React.FC = () => {
                 activeEl.videoWidth > 0 &&
                 activeEl.videoHeight > 0 &&
                 !activeEl.seeking;
-              if (!hasFrame || needsCorrection) {
+
+              // 終端付近でビデオが自然終了(ended)した、または自然終了直前の場合、
+              // play() が position 0 へのシークを発動して seeking=true にし、
+              // 描画チェック(readyState>=2 && !seeking)が失敗して黒フレームが出る。
+              // これを防ぐため、終端付近では ended/自然終了直前を holdFrame 扱いにする。
+              const isWithinEndGuardZone =
+                totalDurationRef.current > 0 &&
+                time >= totalDurationRef.current - 0.2;
+              const isVideoEndedOrAboutToEnd =
+                activeEl.ended ||
+                (Number.isFinite(activeEl.duration) &&
+                  activeEl.duration > 0 &&
+                  activeEl.currentTime >= activeEl.duration - 0.05);
+              const shouldHoldForVideoEnd = isWithinEndGuardZone && isVideoEndedOrAboutToEnd;
+
+              if (!hasFrame || needsCorrection || shouldHoldForVideoEnd) {
                 holdFrame = true;
                 // ブラックアウト防止発動をログ
                 logInfo('RENDER', 'フレーム保持発動', {
                   videoId: activeId,
                   readyState: activeEl.readyState,
                   seeking: activeEl.seeking,
+                  ended: activeEl.ended,
+                  videoCT: Math.round(activeEl.currentTime * 10000) / 10000,
+                  videoDur: activeEl.duration,
                   currentTime: time,
                   needsCorrection,
+                  shouldHoldForVideoEnd,
                 });
               }
+            }
+          } else if (activeItem.type === 'image') {
+            const activeEl = mediaElementsRef.current[activeId] as HTMLImageElement | undefined;
+            const isImageReady =
+              !!activeEl &&
+              activeEl.complete &&
+              activeEl.naturalWidth > 0 &&
+              activeEl.naturalHeight > 0;
+            if (!isImageReady) {
+              holdFrame = true;
             }
           }
         }
 
-        if (!holdFrame) {
+        // 終端到達直後に active 判定が一瞬取れないケースでも、黒クリアせず直前フレームを保持する。
+        const shouldHoldAtTimelineEnd =
+          !activeId &&
+          currentItems.length > 0 &&
+          totalDurationRef.current > 0 &&
+          time >= totalDurationRef.current - 0.0005;
+
+        // 非アクティブ再生（終端ファイナライズ・イベントコールバック・遅延描画）かつ
+        // 終端付近のとき、黒クリアを抑止して直前フレームを保持する。
+        // これにより stopAll() 後の遅延 renderFrame や handleSeeked 競合でも黒画面を防止。
+        const shouldGuardNearEnd =
+          !isActivePlaying &&
+          currentItems.length > 0 &&
+          totalDurationRef.current > 0 &&
+          time >= totalDurationRef.current - 0.1;
+
+        // 終端ファイナライズ済みの場合、後続の遅延 renderFrame による黒クリアを完全に抑止する。
+        const shouldGuardAfterFinalize = endFinalizedRef.current && !isActivePlaying;
+
+        if (!holdFrame && !shouldHoldAtTimelineEnd && !shouldGuardNearEnd && !shouldGuardAfterFinalize) {
+          // 診断ログ: 終端付近で黒クリアが実行される場合、状態を記録
+          if (totalDurationRef.current > 0 && time >= totalDurationRef.current - 0.5) {
+            logInfo('RENDER', '終端付近で黒クリア実行', {
+              time: Math.round(time * 10000) / 10000,
+              totalDuration: totalDurationRef.current,
+              activeId: activeId ? activeId.substring(0, 8) : null,
+              activeIndex,
+              holdFrame,
+              shouldHoldAtTimelineEnd,
+              shouldGuardNearEnd,
+              shouldGuardAfterFinalize,
+              isActivePlaying,
+              endFinalized: endFinalizedRef.current,
+            });
+          }
           ctx.globalAlpha = 1.0;
           ctx.fillStyle = '#000000';
           ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -489,8 +585,17 @@ const TurtleVideo: React.FC = () => {
 
               if (isActivePlaying && !isUserSeeking) {
                 // 再生中かつユーザーがシーク操作していない場合
-                // 大きなズレがあれば補正
-                if (!isVideoSeeking && Math.abs(videoEl.currentTime - targetTime) > syncThreshold) {
+                // 終端付近でビデオが自然終了(ended)している場合は、
+                // sync と play() を抑止する。play() on ended はブラウザが
+                // position 0 へシークし seeking=true になるため、
+                // 直後の描画チェックが失敗して黒フレームが発生する。
+                const isEndedNearEnd =
+                  videoEl.ended &&
+                  totalDurationRef.current > 0 &&
+                  time >= totalDurationRef.current - 0.2;
+
+                // 大きなズレがあれば補正（ended不要時のみ）
+                if (!isVideoSeeking && !isEndedNearEnd && Math.abs(videoEl.currentTime - targetTime) > syncThreshold) {
                   videoEl.currentTime = targetTime;
                 }
                 // 一時停止していれば再生開始
@@ -498,7 +603,9 @@ const TurtleVideo: React.FC = () => {
                 // ブラウザはplay()呼び出しをトリガーにバッファリングを開始し、
                 // データ準備完了後に再生する。readyState >= 2 を要求すると
                 // paused→バッファ停滞→readyState上がらず のデッドロックが発生する。
-                if (videoEl.paused && videoEl.readyState >= 1) {
+                // ただし ended 状態のビデオへの play() は position 0 への
+                // シークを発動するため、終端付近では抑止する。
+                if (videoEl.paused && videoEl.readyState >= 1 && !isEndedNearEnd) {
                   videoEl.play().catch(() => { });
                 }
               } else if (!isActivePlaying && !isUserSeeking) {
@@ -1983,8 +2090,87 @@ const TurtleVideo: React.FC = () => {
       const clampedElapsed = Math.min(elapsed, totalDurationRef.current);
 
       if (clampedElapsed >= totalDurationRef.current) {
+        if (!isExportMode) {
+          const endTime = totalDurationRef.current;
+          const finalizeAtEnd = () => {
+            if (myLoopId !== loopIdRef.current) return;
+            endFinalizedRef.current = true;
+            renderFrame(endTime, false, false);
+            setCurrentTime(endTime);
+            currentTimeRef.current = endTime;
+            stopAll();
+            pause();
+            // useEffect の遅延 renderFrame（100ms後）をカバーした後、ガードを自動解除
+            setTimeout(() => { endFinalizedRef.current = false; }, 300);
+          };
+
+          // 終端フレームを先に確定描画してから停止し、黒フラッシュを防ぐ。
+          const lastItem = mediaItemsRef.current[mediaItemsRef.current.length - 1];
+          if (lastItem?.type === 'video') {
+            const videoEl = mediaElementsRef.current[lastItem.id] as HTMLVideoElement | undefined;
+            if (videoEl) {
+              if (videoEl.readyState === 0 && !videoEl.error) {
+                try { videoEl.load(); } catch { /* ignore */ }
+              }
+              if (videoEl.readyState >= 1 && !videoEl.seeking) {
+                const targetTime = (lastItem.trimStart || 0) + Math.max(0, lastItem.duration - 0.001);
+                const endAlignThreshold = 0.0001;
+                const drift = Math.abs(videoEl.currentTime - targetTime);
+                const isAhead = videoEl.currentTime > targetTime + endAlignThreshold;
+                if (drift > endAlignThreshold || isAhead) {
+                  videoEl.currentTime = targetTime;
+                }
+              }
+              // 停止→再生直後の経路では終端到達時に seek が残る場合があるため、
+              // シーク完了を短時間待ってから最終フレームを確定する。
+              if (videoEl.seeking || videoEl.readyState < 2) {
+                let settled = false;
+                let timeoutId: ReturnType<typeof setTimeout> | null = null;
+                let maybeFinish: () => void = () => { };
+                const onReady = () => {
+                  maybeFinish();
+                };
+                const cleanup = () => {
+                  videoEl.removeEventListener('seeked', onReady);
+                  videoEl.removeEventListener('loadeddata', onReady);
+                  videoEl.removeEventListener('canplay', onReady);
+                  if (timeoutId) {
+                    clearTimeout(timeoutId);
+                    timeoutId = null;
+                  }
+                };
+                const finish = () => {
+                  if (settled) return;
+                  settled = true;
+                  cleanup();
+                  finalizeAtEnd();
+                };
+                maybeFinish = () => {
+                  if (settled) return;
+                  if (myLoopId !== loopIdRef.current) {
+                    settled = true;
+                    cleanup();
+                    return;
+                  }
+                  if (!videoEl.seeking && videoEl.readyState >= 2) {
+                    finish();
+                  }
+                };
+                videoEl.addEventListener('seeked', onReady);
+                videoEl.addEventListener('loadeddata', onReady);
+                videoEl.addEventListener('canplay', onReady);
+                timeoutId = setTimeout(() => {
+                  finish();
+                }, 220);
+                requestAnimationFrame(maybeFinish);
+                return;
+              }
+            }
+          }
+          finalizeAtEnd();
+          return;
+        }
         stopAll();
-        if (!isExportMode) pause();
         return;
       }
       setCurrentTime(clampedElapsed);
@@ -2067,6 +2253,9 @@ const TurtleVideo: React.FC = () => {
         pause();
       }
       clearExport();
+
+      // 終端ファイナライズガードをクリア（新しい再生セッション開始）
+      endFinalizedRef.current = false;
 
       configureAudioRouting(isExportMode);
 
@@ -2280,6 +2469,12 @@ const TurtleVideo: React.FC = () => {
           t += item.duration;
         }
 
+        // 非アクティブビデオをtrimStart位置にリセットし、
+        // 再生中のクリップ切替時に大きなシークが不要になるようにする。
+        // （handleSeekEnd → proceedWithPlayback と同等のリセットで、
+        //   「停止→再生」と「シーク→再生」の動作差を解消する）
+        resetInactiveVideos();
+
         renderFrame(fromTime, false);
 
         // メディア要素のシーク完了を待つ
@@ -2370,11 +2565,15 @@ const TurtleVideo: React.FC = () => {
       seekSettleGenerationRef.current += 1;
       cancelPendingSeekPlaybackPrepare();
       cancelPendingPausedSeekWait();
+      endFinalizedRef.current = false;
 
       // シーク開始時の処理
       if (!isSeekingRef.current) {
-        handleSeekStart();
-        logDebug('RENDER', 'シーク開始', { fromTime: currentTimeRef.current, toTime: t });
+        // Android などで pointerup/touchend の後に change が来るケースがあるため、
+        // change 側で新規シークセッションを開始しない（開始は down イベントで行う）。
+        if (isPlayingRef.current) {
+          startTimeRef.current = now - t * 1000;
+        }
       }
 
       // UI更新は常に即座に実行
@@ -2414,7 +2613,7 @@ const TurtleVideo: React.FC = () => {
       syncVideoToTime(t);
       renderFrame(t, false);
     },
-    [setCurrentTime, renderFrame, cancelPendingPausedSeekWait, cancelPendingSeekPlaybackPrepare, handleSeekStart]
+    [setCurrentTime, renderFrame, cancelPendingPausedSeekWait, cancelPendingSeekPlaybackPrepare]
   );
 
   // --- ビデオ位置同期ヘルパー ---
@@ -2463,7 +2662,14 @@ const TurtleVideo: React.FC = () => {
           if (videoEl.readyState >= 1) {
             const targetTime = (lastItem.trimStart || 0) + Math.max(0, lastItem.duration - 0.001);
             const drift = Math.abs(videoEl.currentTime - targetTime);
-            if (drift > seekThreshold && (force || !videoEl.seeking)) {
+            const endAlignThreshold = 0.0001;
+            const shouldForceEndAlign = force || t >= totalDurationRef.current - 0.05;
+            if (shouldForceEndAlign) {
+              const isAhead = videoEl.currentTime > targetTime + endAlignThreshold;
+              if (!videoEl.seeking && (drift > endAlignThreshold || isAhead)) {
+                videoEl.currentTime = targetTime;
+              }
+            } else if (drift > seekThreshold && (force || !videoEl.seeking)) {
               videoEl.currentTime = targetTime;
             }
           }
@@ -2778,6 +2984,7 @@ const TurtleVideo: React.FC = () => {
     pause();
     setCurrentTime(0);
     currentTimeRef.current = 0;
+    endFinalizedRef.current = false;
 
     // エクスポート後の保存ボタンをクリアして書き出しボタンに戻す
     clearExport();
