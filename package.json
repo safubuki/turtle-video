@@ -22,7 +22,11 @@
     "skills:install:windows": "powershell -ExecutionPolicy Bypass -File ./scripts/install-codex-skill.ps1",
     "skills:install:ubuntu": "bash ./scripts/install-codex-skill.sh",
     "dev:media:setup": "powershell -ExecutionPolicy Bypass -File ./scripts/dev/setup-media-analysis-env.ps1",
-    "dev:media:analyze": "powershell -ExecutionPolicy Bypass -File ./scripts/dev/run-media-analysis.ps1"
+    "dev:media:setup:stt": "powershell -ExecutionPolicy Bypass -File ./scripts/dev/setup-media-analysis-env.ps1 -WithStt",
+    "dev:media:setup:stt:models": "powershell -ExecutionPolicy Bypass -File ./scripts/dev/setup-media-analysis-env.ps1 -WithStt -PrefetchSttModels -SttModels tiny,small",
+    "dev:media:analyze": "powershell -ExecutionPolicy Bypass -File ./scripts/dev/run-media-analysis.ps1",
+    "dev:media:cleanup": "powershell -ExecutionPolicy Bypass -File ./scripts/dev/cleanup-media-analysis-artifacts.ps1 -Mode all",
+    "dev:media:cleanup:keep-json": "powershell -ExecutionPolicy Bypass -File ./scripts/dev/cleanup-media-analysis-artifacts.ps1 -Mode keep-json"
   },
   "repository": {
     "type": "git",
