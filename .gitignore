@@ -43,5 +43,4 @@ scripts/dev/requirements-empty.txt
 scripts/dev/__pycache__/
 
 # Skill sync artifacts
-.agents/
 .skills-backups/
