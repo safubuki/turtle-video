@@ -142,11 +142,46 @@ async function getNewestMtimeMs(rootDir) {
 }
 
 async function copyDirectoryContents(srcDir, destDir) {
-  const entries = await readdir(srcDir, { withFileTypes: true });
-  for (const entry of entries) {
-    const src = path.join(srcDir, entry.name);
-    const dest = path.join(destDir, entry.name);
-    await cp(src, dest, { recursive: true, force: true, errorOnExist: false });
+  const stack = [{ srcDir, destDir }];
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    await mkdir(current.destDir, { recursive: true });
+    const entries = await readdir(current.srcDir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const src = path.join(current.srcDir, entry.name);
+      const dest = path.join(current.destDir, entry.name);
+
+      if (entry.isDirectory()) {
+        stack.push({ srcDir: src, destDir: dest });
+        continue;
+      }
+      if (!entry.isFile()) {
+        continue;
+      }
+
+      let shouldCopy = true;
+      try {
+        const [srcStat, destStat] = await Promise.all([stat(src), stat(dest)]);
+        if (destStat.isFile() && srcStat.size === destStat.size) {
+          const [srcBytes, destBytes] = await Promise.all([readFile(src), readFile(dest)]);
+          const srcHash = createHash('sha256').update(srcBytes).digest('hex');
+          const destHash = createHash('sha256').update(destBytes).digest('hex');
+          shouldCopy = srcHash !== destHash;
+        }
+      } catch {
+        // Dest does not exist or cannot be compared. Copy as fallback.
+        shouldCopy = true;
+      }
+
+      if (!shouldCopy) {
+        continue;
+      }
+
+      await mkdir(path.dirname(dest), { recursive: true });
+      await cp(src, dest, { recursive: false, force: true, errorOnExist: false });
+    }
   }
 }
 
