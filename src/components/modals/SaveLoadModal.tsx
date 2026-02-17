@@ -6,7 +6,11 @@
 
 import { useEffect, useState } from 'react';
 import { X, Save, FolderOpen, Trash2, Clock, AlertTriangle, Timer, Image } from 'lucide-react';
-import { useProjectStore } from '../../stores/projectStore';
+import {
+  useProjectStore,
+  isStorageQuotaError,
+  getProjectStoreErrorMessage,
+} from '../../stores/projectStore';
 import { useMediaStore } from '../../stores/mediaStore';
 import { useAudioStore } from '../../stores/audioStore';
 import { useCaptionStore } from '../../stores/captionStore';
@@ -26,7 +30,7 @@ interface SaveLoadModalProps {
   onToast: (message: string, type?: 'success' | 'error') => void;
 }
 
-type ModalMode = 'menu' | 'confirmLoad' | 'confirmDelete' | 'selectSlot';
+type ModalMode = 'menu' | 'confirmLoad' | 'confirmDelete' | 'selectSlot' | 'confirmAutoDeleteForSave';
 
 /** 自動保存間隔のオプション */
 const AUTO_SAVE_OPTIONS: { value: AutoSaveIntervalOption; label: string }[] = [
@@ -85,12 +89,13 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
     saveProjectManual,
     loadProjectFromSlot,
     deleteAllSaves,
+    deleteAutoSaveOnly,
     refreshSaveInfo,
   } = useProjectStore();
   
   // 各ストアからデータを取得
   const mediaItems = useMediaStore((s) => s.mediaItems);
-  const isClipsLocked = useMediaStore((s) => s.isLocked);
+  const isClipsLocked = useMediaStore((s) => s.isClipsLocked);
   const bgm = useAudioStore((s) => s.bgm);
   const isBgmLocked = useAudioStore((s) => s.isBgmLocked);
   const narration = useAudioStore((s) => s.narration);
@@ -168,31 +173,59 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
     }, 'image/png');
   };
   
+  const executeManualSave = async () => {
+    await saveProjectManual(
+      mediaItems,
+      isClipsLocked,
+      bgm,
+      isBgmLocked,
+      narration,
+      isNarrationLocked,
+      captions,
+      captionSettings,
+      isCaptionsLocked
+    );
+    useLogStore.getState().info('SYSTEM', 'プロジェクトを手動保存', {
+      mediaCount: mediaItems.length,
+      captionCount: captions.length,
+      hasBgm: !!bgm,
+      hasNarration: !!narration,
+    });
+    onToast('保存しました', 'success');
+    onClose();
+  };
+
   // 手動保存
   const handleSave = async () => {
     try {
-      await saveProjectManual(
-        mediaItems,
-        isClipsLocked,
-        bgm,
-        isBgmLocked,
-        narration,
-        isNarrationLocked,
-        captions,
-        captionSettings,
-        isCaptionsLocked
-      );
-      useLogStore.getState().info('SYSTEM', `プロジェクトを手動保存`, {
-        mediaCount: mediaItems.length,
-        captionCount: captions.length,
-        hasBgm: !!bgm,
-        hasNarration: !!narration,
-      });
-      onToast('保存しました', 'success');
-      onClose();
+      await executeManualSave();
     } catch (error) {
-      useLogStore.getState().error('SYSTEM', '手動保存に失敗');
-      onToast('保存に失敗しました', 'error');
+      const message = getProjectStoreErrorMessage(error);
+      useLogStore.getState().error('SYSTEM', '手動保存に失敗', { error: message });
+      if (isStorageQuotaError(error) && hasAutoSave) {
+        setMode('confirmAutoDeleteForSave');
+      } else if (isStorageQuotaError(error)) {
+        onToast('保存容量が不足しています。不要な保存データを削除してください', 'error');
+      } else {
+        onToast('保存に失敗しました', 'error');
+      }
+    }
+  };
+
+  // 容量不足時: 自動保存削除後に手動保存を再試行
+  const handleSaveAfterAutoDelete = async () => {
+    try {
+      await deleteAutoSaveOnly();
+      await executeManualSave();
+    } catch (error) {
+      const message = getProjectStoreErrorMessage(error);
+      useLogStore.getState().error('SYSTEM', '自動保存削除後の手動保存に失敗', { error: message });
+      if (isStorageQuotaError(error)) {
+        onToast('自動保存を削除しても容量不足です。素材を減らして再試行してください', 'error');
+      } else {
+        onToast('保存に失敗しました', 'error');
+      }
+      setMode('menu');
     }
   };
   
@@ -290,6 +323,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
             {mode === 'selectSlot' && 'どちらを読み込みますか？'}
             {mode === 'confirmLoad' && '読み込み確認'}
             {mode === 'confirmDelete' && '削除確認'}
+            {mode === 'confirmAutoDeleteForSave' && '容量不足の対応'}
           </h2>
           <button
             className="p-1 text-gray-400 hover:text-white transition-colors"
@@ -473,6 +507,36 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
                 disabled={isLoading}
               >
                 {isLoading ? '読み込み中...' : '読み込む'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 容量不足対応（自動保存のみ削除して手動保存を続行） */}
+        {mode === 'confirmAutoDeleteForSave' && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 p-4 bg-yellow-900/30 border border-yellow-700/50 rounded-lg">
+              <AlertTriangle size={20} className="text-yellow-500 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-yellow-200">
+                保存容量が不足しています。<br />
+                自動保存データのみ削除して、手動保存を続行しますか？
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                className="flex-1 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+                onClick={() => setMode('menu')}
+                disabled={isSaving}
+              >
+                キャンセル
+              </button>
+              <button
+                className="flex-1 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={handleSaveAfterAutoDelete}
+                disabled={isSaving}
+              >
+                {isSaving ? '保存中...' : '削除して保存'}
               </button>
             </div>
           </div>

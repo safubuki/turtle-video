@@ -10,6 +10,7 @@ import type { MediaItem, AudioTrack, Caption, CaptionSettings } from '../types';
 import {
   saveProject,
   loadProject,
+  deleteProject,
   deleteAllProjects,
   getProjectsInfo,
   fileToArrayBuffer,
@@ -25,6 +26,28 @@ import { useLogStore } from './logStore';
 
 // アプリバージョン
 import versionData from '../../version.json';
+
+/**
+ * unknownなエラーをメッセージ化
+ */
+export function getProjectStoreErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+/**
+ * 容量不足系エラーかどうかを判定
+ */
+export function isStorageQuotaError(error: unknown): boolean {
+  const lower = getProjectStoreErrorMessage(error).toLowerCase();
+  return (
+    lower.includes('quotaexceeded') ||
+    lower.includes('quota exceeded') ||
+    lower.includes('quota') ||
+    lower.includes('storage') ||
+    lower.includes('容量')
+  );
+}
 
 interface ProjectState {
   // 状態
@@ -72,6 +95,7 @@ interface ProjectState {
   } | null>;
   
   deleteAllSaves: () => Promise<void>;
+  deleteAutoSaveOnly: () => Promise<void>;
   
   refreshSaveInfo: () => Promise<void>;
   
@@ -306,12 +330,15 @@ export const useProjectStore = create<ProjectState>()(
             captionSettings,
             isCaptionsLocked,
           };
-          
           await saveProject(projectData);
+
           useLogStore.getState().info('SYSTEM', '手動保存完了', { savedAt: projectData.savedAt });
-          set({ lastManualSave: projectData.savedAt, isSaving: false });
+          set({
+            lastManualSave: projectData.savedAt,
+            isSaving: false,
+          });
         } catch (error) {
-          useLogStore.getState().error('SYSTEM', '手動保存失敗', { error: error instanceof Error ? error.message : String(error) });
+          useLogStore.getState().error('SYSTEM', '手動保存失敗', { error: getProjectStoreErrorMessage(error) });
           set({ isSaving: false });
           throw error;
         }
@@ -363,8 +390,11 @@ export const useProjectStore = create<ProjectState>()(
           useLogStore.getState().debug('SYSTEM', '自動保存完了', { savedAt: projectData.savedAt });
           set({ lastAutoSave: projectData.savedAt, autoSaveError: null });
         } catch (error) {
-          useLogStore.getState().error('SYSTEM', '自動保存失敗', { error: error instanceof Error ? error.message : String(error) });
-          set({ autoSaveError: error instanceof Error ? error.message : '自動保存に失敗しました' });
+          const message = isStorageQuotaError(error)
+            ? '保存領域が不足しています。不要な保存データを削除してください'
+            : getProjectStoreErrorMessage(error);
+          useLogStore.getState().error('SYSTEM', '自動保存失敗', { error: message });
+          set({ autoSaveError: message });
         }
       },
       
@@ -419,6 +449,14 @@ export const useProjectStore = create<ProjectState>()(
         await deleteAllProjects();
         set({ lastAutoSave: null, lastManualSave: null });
         useLogStore.getState().info('SYSTEM', '全保存データ削除完了');
+      },
+
+      // 自動保存のみ削除
+      deleteAutoSaveOnly: async () => {
+        useLogStore.getState().info('SYSTEM', '自動保存データを削除');
+        await deleteProject('auto');
+        set({ lastAutoSave: null });
+        useLogStore.getState().info('SYSTEM', '自動保存データ削除完了');
       },
       
       // 保存情報を更新

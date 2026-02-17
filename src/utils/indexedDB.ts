@@ -10,6 +10,12 @@ const DB_NAME = 'turtle-video-db';
 const DB_VERSION = 1;
 const STORE_NAME = 'projects';
 
+function getIdbErrorReason(error: DOMException | null): string {
+  if (!error) return 'UnknownError';
+  if (!error.message) return error.name;
+  return `${error.name}: ${error.message}`;
+}
+
 // スロットタイプ
 export type SaveSlot = 'auto' | 'manual';
 
@@ -119,8 +125,9 @@ function openDB(): Promise<IDBDatabase> {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     
     request.onerror = () => {
-      useLogStore.getState().error('SYSTEM', 'IndexedDBを開けませんでした');
-      reject(new Error('IndexedDBを開けませんでした'));
+      const reason = getIdbErrorReason(request.error);
+      useLogStore.getState().error('SYSTEM', 'IndexedDBを開けませんでした', { reason });
+      reject(new Error(`IndexedDBを開けませんでした (${reason})`));
     };
     
     request.onsuccess = () => {
@@ -150,8 +157,9 @@ export async function saveProject(data: ProjectData): Promise<void> {
     const request = store.put(data);
     
     request.onerror = () => {
-      useLogStore.getState().error('SYSTEM', 'プロジェクトの保存に失敗', { slot: data.slot });
-      reject(new Error('プロジェクトの保存に失敗しました'));
+      const reason = getIdbErrorReason(request.error);
+      useLogStore.getState().error('SYSTEM', 'プロジェクトの保存に失敗', { slot: data.slot, reason });
+      reject(new Error(`プロジェクトの保存に失敗しました (${reason})`));
     };
     
     request.onsuccess = () => {
@@ -177,8 +185,9 @@ export async function loadProject(slot: SaveSlot): Promise<ProjectData | null> {
     const request = store.get(slot);
     
     request.onerror = () => {
-      useLogStore.getState().error('SYSTEM', 'プロジェクトの読み込みに失敗', { slot });
-      reject(new Error('プロジェクトの読み込みに失敗しました'));
+      const reason = getIdbErrorReason(request.error);
+      useLogStore.getState().error('SYSTEM', 'プロジェクトの読み込みに失敗', { slot, reason });
+      reject(new Error(`プロジェクトの読み込みに失敗しました (${reason})`));
     };
     
     request.onsuccess = () => {
@@ -207,8 +216,9 @@ export async function deleteProject(slot: SaveSlot): Promise<void> {
     const request = store.delete(slot);
     
     request.onerror = () => {
-      useLogStore.getState().error('SYSTEM', 'プロジェクトの削除に失敗', { slot });
-      reject(new Error('プロジェクトの削除に失敗しました'));
+      const reason = getIdbErrorReason(request.error);
+      useLogStore.getState().error('SYSTEM', 'プロジェクトの削除に失敗', { slot, reason });
+      reject(new Error(`プロジェクトの削除に失敗しました (${reason})`));
     };
     
     request.onsuccess = () => {

@@ -248,6 +248,16 @@
 - **ファイル**: `src/hooks/usePreventUnload.ts`
 - **対策**: `beforeunload` イベントで `e.preventDefault()` + `e.returnValue` 設定（複数ストアのデータ有無を確認）
 
+### 8-5. 手動保存の容量不足リカバリ
+
+- **ファイル**: `src/stores/projectStore.ts`, `src/components/modals/SaveLoadModal.tsx`, `src/utils/indexedDB.ts`
+- **問題**: 大きなプロジェクトでは `auto` + `manual` の2スロット保持で容量上限に達し、手動保存が `QuotaExceededError` で失敗しやすい
+- **対策**:
+  - IndexedDB 例外の詳細（DOMException名/メッセージ）を保存エラーに付与
+  - 手動保存時に容量不足を検知した場合、`auto` は自動削除せず失敗を返す
+  - UI 側で「自動保存を削除して続行」確認を出し、ユーザー同意時のみ `auto` 削除後に手動保存を再試行
+- **注意**: `auto` 削除は明示同意時のみ実行し、勝手に復元ポイントを失わないようにする
+
 ---
 
 ## 9. メディアハンドリング
@@ -416,7 +426,7 @@
 | **タブ切替** | `visibilitychange` で復帰時に Canvas を再描画、メディアをリロード |
 | **モバイル** | スライダー誤操作を `useSwipeProtectedValue` で防止。`playsInline` 必須 |
 | **レスポンシブ** | モバイル既存スタイルは変更禁止。`md:` / `lg:` バリアントのみ追加で対応 |
-| **IndexedDB** | `File → ArrayBuffer → File` のラウンドトリップが必要。大容量データに注意 |
+| **IndexedDB** | `File → ArrayBuffer → File` のラウンドトリップが必要。大容量データに注意。容量不足時は`auto`を自動削除せず、確認後のみ削除リトライする |
 | **Zustand** | `getState()` で React 外アクセス可能。Ref+State 並行管理でリアルタイム値と再レンダリングを両立 |
 | **再生ループ** | `loopIdRef` で世代管理。古いループの自動停止メカニズムが重要 |
 | **シーク終端** | `time >= totalDuration` で最終クリップにフォールバックし黒画面を防止 |
