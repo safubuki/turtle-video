@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - 'main'
-      - 'feature/**'
-      - 'fix/**'
-      - 'preview/**'
   workflow_dispatch:
 
 permissions:
