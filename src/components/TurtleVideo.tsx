@@ -2562,19 +2562,32 @@ const TurtleVideo: React.FC = () => {
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const t = parseFloat(e.target.value);
       const now = Date.now();
-      seekSettleGenerationRef.current += 1;
-      cancelPendingSeekPlaybackPrepare();
-      cancelPendingPausedSeekWait();
       endFinalizedRef.current = false;
 
-      // シーク開始時の処理
+      // シークセッション外で発火した change（Android の遅延イベント含む）は、
+      // 現在の再生状態を維持したまま位置だけ同期する。
       if (!isSeekingRef.current) {
-        // Android などで pointerup/touchend の後に change が来るケースがあるため、
-        // change 側で新規シークセッションを開始しない（開始は down イベントで行う）。
+        setCurrentTime(t);
+        currentTimeRef.current = t;
+
         if (isPlayingRef.current) {
           startTimeRef.current = now - t * 1000;
         }
+
+        pendingSeekRef.current = null;
+        if (pendingSeekTimeoutRef.current) {
+          clearTimeout(pendingSeekTimeoutRef.current);
+          pendingSeekTimeoutRef.current = null;
+        }
+
+        syncVideoToTime(t, { force: true });
+        renderFrame(t, isPlayingRef.current && !isSeekPlaybackPreparingRef.current);
+        return;
       }
+
+      seekSettleGenerationRef.current += 1;
+      cancelPendingSeekPlaybackPrepare();
+      cancelPendingPausedSeekWait();
 
       // UI更新は常に即座に実行
       setCurrentTime(t);
@@ -2728,10 +2741,10 @@ const TurtleVideo: React.FC = () => {
       isSeekPlaybackPreparingRef.current = true;
       const seekGeneration = seekSettleGenerationRef.current;
 
-      const findActiveVideoAtTime = (): HTMLVideoElement | null => {
+      const findActiveVideoAtTime = (targetTimelineTime: number): HTMLVideoElement | null => {
         let accTime = 0;
         for (const item of mediaItemsRef.current) {
-          if (t >= accTime && t < accTime + item.duration) {
+          if (targetTimelineTime >= accTime && targetTimelineTime < accTime + item.duration) {
             if (item.type === 'video') {
               return (mediaElementsRef.current[item.id] as HTMLVideoElement | undefined) ?? null;
             }
@@ -2740,7 +2753,7 @@ const TurtleVideo: React.FC = () => {
           accTime += item.duration;
         }
 
-        if (mediaItemsRef.current.length > 0 && t >= totalDurationRef.current) {
+        if (mediaItemsRef.current.length > 0 && targetTimelineTime >= totalDurationRef.current) {
           const lastItem = mediaItemsRef.current[mediaItemsRef.current.length - 1];
           if (lastItem.type === 'video') {
             return (mediaElementsRef.current[lastItem.id] as HTMLVideoElement | undefined) ?? null;
@@ -2754,18 +2767,19 @@ const TurtleVideo: React.FC = () => {
         if (seekGeneration !== seekSettleGenerationRef.current || isSeekingRef.current) {
           return;
         }
+        const playbackTime = Math.max(0, Math.min(currentTimeRef.current, totalDurationRef.current));
         isSeekPlaybackPreparingRef.current = false;
-        startTimeRef.current = Date.now() - t * 1000;
+        startTimeRef.current = Date.now() - playbackTime * 1000;
         isPlayingRef.current = true;
 
         // アクティブなビデオを特定して再生開始
         let accTime = 0;
         for (const item of mediaItemsRef.current) {
-          if (t >= accTime && t < accTime + item.duration) {
+          if (playbackTime >= accTime && playbackTime < accTime + item.duration) {
             if (item.type === 'video') {
               const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
               if (videoEl) {
-                const localTime = t - accTime;
+                const localTime = playbackTime - accTime;
                 const targetTime = (item.trimStart || 0) + localTime;
 
                 // 位置を正確に設定
@@ -2813,7 +2827,7 @@ const TurtleVideo: React.FC = () => {
 
       // 再生中シーク復帰: 先に位置を合わせ、対象が動画なら準備完了を短時間待ってから再開
       syncVideoToTime(t, { force: true });
-      const activeVideoEl = findActiveVideoAtTime();
+      const activeVideoEl = findActiveVideoAtTime(t);
       if (activeVideoEl) {
         const prepareStartedAt = Date.now();
         const minPrepareMs = 220;

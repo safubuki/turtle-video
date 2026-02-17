@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -120,8 +120,26 @@ async function hasEntries(dirPath) {
   }
 }
 
+function isCopyableEntry(entry) {
+  return entry.isFile() || entry.isSymbolicLink();
+}
+
+async function getEntryDigest(absPath) {
+  const st = await lstat(absPath);
+  if (st.isSymbolicLink()) {
+    const linkTarget = await readlink(absPath);
+    return `symlink:${linkTarget}`;
+  }
+  if (!st.isFile()) {
+    return null;
+  }
+  const bytes = await readFile(absPath);
+  const fileHash = createHash('sha256').update(bytes).digest('hex');
+  return `file:${st.size}:${fileHash}`;
+}
+
 async function getNewestMtimeMs(rootDir) {
-  const rootStat = await stat(rootDir);
+  const rootStat = await lstat(rootDir);
   let newest = rootStat.mtimeMs;
   const stack = [rootDir];
 
@@ -130,7 +148,7 @@ async function getNewestMtimeMs(rootDir) {
     const entries = await readdir(current, { withFileTypes: true });
     for (const entry of entries) {
       const fullPath = path.join(current, entry.name);
-      const st = await stat(fullPath);
+      const st = await lstat(fullPath);
       if (st.mtimeMs > newest) newest = st.mtimeMs;
       if (entry.isDirectory()) {
         stack.push(fullPath);
@@ -142,11 +160,41 @@ async function getNewestMtimeMs(rootDir) {
 }
 
 async function copyDirectoryContents(srcDir, destDir) {
-  const entries = await readdir(srcDir, { withFileTypes: true });
-  for (const entry of entries) {
-    const src = path.join(srcDir, entry.name);
-    const dest = path.join(destDir, entry.name);
-    await cp(src, dest, { recursive: true, force: true, errorOnExist: false });
+  const stack = [{ srcDir, destDir }];
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    await mkdir(current.destDir, { recursive: true });
+    const entries = await readdir(current.srcDir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const src = path.join(current.srcDir, entry.name);
+      const dest = path.join(current.destDir, entry.name);
+
+      if (entry.isDirectory()) {
+        stack.push({ srcDir: src, destDir: dest });
+        continue;
+      }
+      if (!isCopyableEntry(entry)) {
+        continue;
+      }
+
+      let shouldCopy = true;
+      try {
+        const [srcDigest, destDigest] = await Promise.all([getEntryDigest(src), getEntryDigest(dest)]);
+        shouldCopy = srcDigest !== destDigest;
+      } catch {
+        // Dest does not exist or cannot be compared. Copy as fallback.
+        shouldCopy = true;
+      }
+
+      if (!shouldCopy) {
+        continue;
+      }
+
+      await mkdir(path.dirname(dest), { recursive: true });
+      await cp(src, dest, { recursive: false, force: true, errorOnExist: false });
+    }
   }
 }
 
@@ -172,8 +220,8 @@ async function listFilesWithMeta(rootDir) {
         stack.push(fullPath);
         continue;
       }
-      if (!entry.isFile()) continue;
-      const st = await stat(fullPath);
+      if (!isCopyableEntry(entry)) continue;
+      const st = await lstat(fullPath);
       files.push({
         relPath: path.relative(rootDir, fullPath).replace(/\\/g, '/'),
         absPath: fullPath,
@@ -187,7 +235,7 @@ async function listFilesWithMeta(rootDir) {
 async function getDirectoryContentHash(rootDir) {
   const hasher = createHash('sha256');
   const stack = [rootDir];
-  const filePaths = [];
+  const entryPaths = [];
 
   while (stack.length > 0) {
     const current = stack.pop();
@@ -198,21 +246,21 @@ async function getDirectoryContentHash(rootDir) {
         stack.push(fullPath);
         continue;
       }
-      if (entry.isFile()) {
-        filePaths.push(fullPath);
+      if (isCopyableEntry(entry)) {
+        entryPaths.push(fullPath);
       }
     }
   }
 
-  filePaths.sort((a, b) => a.localeCompare(b));
+  entryPaths.sort((a, b) => a.localeCompare(b));
 
-  for (const filePath of filePaths) {
-    const relPath = path.relative(rootDir, filePath).replace(/\\/g, '/');
-    const bytes = await readFile(filePath);
-    const fileHash = createHash('sha256').update(bytes).digest('hex');
+  for (const entryPath of entryPaths) {
+    const relPath = path.relative(rootDir, entryPath).replace(/\\/g, '/');
+    const digest = await getEntryDigest(entryPath);
+    if (digest == null) continue;
     hasher.update(relPath);
     hasher.update(':');
-    hasher.update(fileHash);
+    hasher.update(digest);
     hasher.update('\n');
   }
 
@@ -223,11 +271,11 @@ async function getEntriesContentHash(fileEntries) {
   const hasher = createHash('sha256');
   const sorted = [...fileEntries].sort((a, b) => a.relPath.localeCompare(b.relPath));
   for (const entry of sorted) {
-    const bytes = await readFile(entry.absPath);
-    const fileHash = createHash('sha256').update(bytes).digest('hex');
+    const digest = await getEntryDigest(entry.absPath);
+    if (digest == null) continue;
     hasher.update(entry.relPath);
     hasher.update(':');
-    hasher.update(fileHash);
+    hasher.update(digest);
     hasher.update('\n');
   }
   return hasher.digest('hex');
