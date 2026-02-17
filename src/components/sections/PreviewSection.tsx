@@ -129,10 +129,10 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
               </div>
               <div>
                 <p className="text-[11px] md:text-[12px] lg:text-sm leading-snug font-semibold text-amber-100">
-                  作成中はこのタブを開いたままお待ちください
+                  動画作成中はこの画面のままお待ちください
                 </p>
                 <p className="text-[10px] md:text-[11px] lg:text-xs leading-snug text-amber-200/90 mt-0.5">
-                  切り替えると映像や音声が乱れる場合があります。
+                  画面を切り替えると映像・音声が乱れます
                 </p>
               </div>
             </div>
