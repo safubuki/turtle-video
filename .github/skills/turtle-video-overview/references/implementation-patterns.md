@@ -77,6 +77,16 @@
   - 終端付近（±0.5秒以内）での黒クリア実行時に診断ログを出力
 - **注意**: `shouldGuardNearEnd` は `isActivePlaying=false` のときのみ適用。`shouldHoldForVideoEnd` は `isActivePlaying` の値に関わらずビデオ終了状態を検出。アクティブ再生中のフェードアウト等には影響しない
 
+### 2-6. Android再生中シークの遅延change競合対策
+
+- **ファイル**: `src/components/TurtleVideo.tsx`（`handleSeekChange`, `handleSeekEnd`）
+- **問題**: Android でシーク終了（`pointerup`/`touchend`）後に `change` が遅延発火すると、シーク再開準備と競合して `renderFrame(..., false)` が走り、再生のカクつきやブラックアウトが発生する
+- **対策**:
+  - `handleSeekChange` は `isSeekingRef.current === false` の場合、再生状態を維持したまま `syncVideoToTime(..., { force: true })` で同期する
+  - `cancelPendingSeekPlaybackPrepare()` / `cancelPendingPausedSeekWait()` はアクティブなシークセッション中にのみ実行し、遅延 `change` で再開準備を破壊しない
+  - `handleSeekEnd` の再生再開時刻は固定値ではなく `currentTimeRef.current` から再取得し、遅延イベントで更新された最終シーク位置を取りこぼさない
+- **注意**: シークセッション外イベントで `renderFrame(..., false)` を実行すると、再生中動画を誤って `pause()` しやすい
+
 ---
 
 ## 3. AudioContext 管理
@@ -460,3 +470,14 @@
 - **Caution**:
   - `.tools/gh/LICENSE` should be kept together with bundled `gh.exe`.
   - Without authentication, issue creation fails even when `gh` binary is available.
+
+### 12-5. Skills sync symlink preservation
+
+- **Files**: `scripts/sync-skills.mjs`, `.github/skills/skills-sync-guard/scripts/safe-sync-skills.mjs`
+- **Behavior**:
+  - `Dirent.isFile()` だけではなく `Dirent.isSymbolicLink()` も同期対象・監査対象に含める。
+  - 差分判定ハッシュは、通常ファイルは内容ハッシュ、symlink は `readlink()` のリンク先文字列を使う。
+  - `latest` / `base` の両戦略で symlink を欠落させずに同期する。
+- **Caution**:
+  - symlink をハッシュ対象から外すと `hasDiff=false` となり、必要な同期がスキップされる可能性がある。
+  - symlink を `stat/readFile` 前提で扱うと、リンク先の変更検知が不正確になる。

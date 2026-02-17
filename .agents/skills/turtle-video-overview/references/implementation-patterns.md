@@ -470,3 +470,14 @@
 - **Caution**:
   - `.tools/gh/LICENSE` should be kept together with bundled `gh.exe`.
   - Without authentication, issue creation fails even when `gh` binary is available.
+
+### 12-5. Skills sync symlink preservation
+
+- **Files**: `scripts/sync-skills.mjs`, `.github/skills/skills-sync-guard/scripts/safe-sync-skills.mjs`
+- **Behavior**:
+  - `Dirent.isFile()` だけではなく `Dirent.isSymbolicLink()` も同期対象・監査対象に含める。
+  - 差分判定ハッシュは、通常ファイルは内容ハッシュ、symlink は `readlink()` のリンク先文字列を使う。
+  - `latest` / `base` の両戦略で symlink を欠落させずに同期する。
+- **Caution**:
+  - symlink をハッシュ対象から外すと `hasDiff=false` となり、必要な同期がスキップされる可能性がある。
+  - symlink を `stat/readFile` 前提で扱うと、リンク先の変更検知が不正確になる。

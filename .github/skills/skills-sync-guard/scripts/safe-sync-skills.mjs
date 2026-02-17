@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { lstat, readdir, readFile, readlink, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 const TARGETS = {
@@ -132,6 +132,24 @@ function normalizeRel(filePath) {
   return filePath.replace(/\\/g, '/');
 }
 
+function isTrackedEntry(entry) {
+  return entry.isFile() || entry.isSymbolicLink();
+}
+
+async function hashEntry(fullPath) {
+  const st = await lstat(fullPath);
+  if (st.isSymbolicLink()) {
+    const linkTarget = await readlink(fullPath);
+    return `symlink:${linkTarget}`;
+  }
+  if (!st.isFile()) {
+    return null;
+  }
+  const bytes = await readFile(fullPath);
+  const fileHash = createHash('sha256').update(bytes).digest('hex');
+  return `file:${fileHash}`;
+}
+
 function chooseByNewest(entries, preferredOrder = []) {
   const priority = new Map(preferredOrder.map((name, idx) => [name, idx]));
   return [...entries].sort((a, b) => {
@@ -165,10 +183,10 @@ async function listFilesRecursive(rootDir) {
         stack.push(fullPath);
         continue;
       }
-      if (!entry.isFile()) continue;
-      const st = await stat(fullPath);
-      const bytes = await readFile(fullPath);
-      const hash = createHash('sha256').update(bytes).digest('hex');
+      if (!isTrackedEntry(entry)) continue;
+      const st = await lstat(fullPath);
+      const hash = await hashEntry(fullPath);
+      if (hash == null) continue;
       out.push({
         absPath: fullPath,
         relPath: normalizeRel(path.relative(rootDir, fullPath)),
