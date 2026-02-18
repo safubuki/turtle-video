@@ -1,10 +1,10 @@
-/**
+﻿/**
  * audioStore のテスト
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useAudioStore } from '../../stores/audioStore';
-import type { AudioTrack } from '../../types';
+import type { AudioTrack, NarrationClip } from '../../types';
 
 const createMockAudioTrack = (overrides: Partial<AudioTrack> = {}): AudioTrack => ({
   file: new File([''], 'test.mp3', { type: 'audio/mpeg' }),
@@ -21,13 +21,26 @@ const createMockAudioTrack = (overrides: Partial<AudioTrack> = {}): AudioTrack =
   ...overrides,
 });
 
+const createMockNarrationClip = (
+  overrides: Partial<NarrationClip> = {}
+): NarrationClip => ({
+  id: 'narration-1',
+  sourceType: 'file',
+  file: new File([''], 'narration.mp3', { type: 'audio/mpeg' }),
+  url: 'blob:narration',
+  startTime: 0,
+  volume: 1.0,
+  duration: 30,
+  isAiEditable: false,
+  ...overrides,
+});
+
 describe('audioStore', () => {
   beforeEach(() => {
-    // Reset store before each test
     useAudioStore.setState({
       bgm: null,
       isBgmLocked: false,
-      narration: null,
+      narrations: [],
       isNarrationLocked: false,
     });
   });
@@ -55,10 +68,10 @@ describe('audioStore', () => {
       useAudioStore.setState({ bgm: createMockAudioTrack() });
       const { updateBgmVolume } = useAudioStore.getState();
 
-      updateBgmVolume(2.0); // max is 2.5
+      updateBgmVolume(2.0);
       expect(useAudioStore.getState().bgm?.volume).toBe(2.0);
 
-      updateBgmVolume(-0.5); // min is 0
+      updateBgmVolume(-0.5);
       expect(useAudioStore.getState().bgm?.volume).toBe(0);
     });
 
@@ -92,32 +105,59 @@ describe('audioStore', () => {
   });
 
   describe('Narration', () => {
-    it('should set narration', () => {
-      const { setNarration } = useAudioStore.getState();
-      const track = createMockAudioTrack({ isAi: true });
+    it('should add narration clip', () => {
+      const { addNarration } = useAudioStore.getState();
+      const clip = createMockNarrationClip({ sourceType: 'ai', isAiEditable: true });
 
-      setNarration(track);
+      addNarration(clip);
 
-      expect(useAudioStore.getState().narration).toBe(track);
-      expect(useAudioStore.getState().narration?.isAi).toBe(true);
+      expect(useAudioStore.getState().narrations).toHaveLength(1);
+      expect(useAudioStore.getState().narrations[0]).toEqual(clip);
     });
 
-    it('should update narration delay', () => {
-      useAudioStore.setState({ narration: createMockAudioTrack() });
-      const { updateNarrationDelay } = useAudioStore.getState();
+    it('should update narration start time', () => {
+      const clip = createMockNarrationClip();
+      useAudioStore.setState({ narrations: [clip] });
+      const { updateNarrationStartTime } = useAudioStore.getState();
 
-      updateNarrationDelay(5);
+      updateNarrationStartTime(clip.id, 5);
+      expect(useAudioStore.getState().narrations[0].startTime).toBe(5);
 
-      expect(useAudioStore.getState().narration?.delay).toBe(5);
+      updateNarrationStartTime(clip.id, -3);
+      expect(useAudioStore.getState().narrations[0].startTime).toBe(0);
     });
 
-    it('should not allow negative delay', () => {
-      useAudioStore.setState({ narration: createMockAudioTrack() });
-      const { updateNarrationDelay } = useAudioStore.getState();
+    it('should update narration volume with clamp', () => {
+      const clip = createMockNarrationClip();
+      useAudioStore.setState({ narrations: [clip] });
+      const { updateNarrationVolume } = useAudioStore.getState();
 
-      updateNarrationDelay(-5);
+      updateNarrationVolume(clip.id, 1.5);
+      expect(useAudioStore.getState().narrations[0].volume).toBe(1.5);
 
-      expect(useAudioStore.getState().narration?.delay).toBe(0);
+      updateNarrationVolume(clip.id, 3.0);
+      expect(useAudioStore.getState().narrations[0].volume).toBe(2.0);
+    });
+
+    it('should move narration order', () => {
+      const clip1 = createMockNarrationClip({ id: 'n1' });
+      const clip2 = createMockNarrationClip({ id: 'n2' });
+      useAudioStore.setState({ narrations: [clip1, clip2] });
+      const { moveNarration } = useAudioStore.getState();
+
+      moveNarration('n2', 'up');
+
+      expect(useAudioStore.getState().narrations.map((n) => n.id)).toEqual(['n2', 'n1']);
+    });
+
+    it('should remove narration clip', () => {
+      const clip = createMockNarrationClip();
+      useAudioStore.setState({ narrations: [clip] });
+      const { removeNarration } = useAudioStore.getState();
+
+      removeNarration(clip.id);
+
+      expect(useAudioStore.getState().narrations).toHaveLength(0);
     });
   });
 
@@ -126,7 +166,7 @@ describe('audioStore', () => {
       useAudioStore.setState({
         bgm: createMockAudioTrack(),
         isBgmLocked: true,
-        narration: createMockAudioTrack({ isAi: true }),
+        narrations: [createMockNarrationClip({ id: 'n1' })],
         isNarrationLocked: true,
       });
 
@@ -136,7 +176,7 @@ describe('audioStore', () => {
       const state = useAudioStore.getState();
       expect(state.bgm).toBeNull();
       expect(state.isBgmLocked).toBe(false);
-      expect(state.narration).toBeNull();
+      expect(state.narrations).toHaveLength(0);
       expect(state.isNarrationLocked).toBe(false);
     });
   });

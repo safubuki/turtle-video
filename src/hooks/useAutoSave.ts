@@ -63,7 +63,7 @@ export function useAutoSave() {
   const isClipsLocked = useMediaStore((s) => s.isLocked);
   const bgm = useAudioStore((s) => s.bgm);
   const isBgmLocked = useAudioStore((s) => s.isBgmLocked);
-  const narration = useAudioStore((s) => s.narration);
+  const narrations = useAudioStore((s) => s.narrations);
   const isNarrationLocked = useAudioStore((s) => s.isNarrationLocked);
   const captions = useCaptionStore((s) => s.captions);
   const captionSettings = useCaptionStore((s) => s.settings);
@@ -82,13 +82,14 @@ export function useAutoSave() {
       mediaItems.length,
       mediaItems.map((m) => `${m.id}:${m.volume}:${m.isMuted}:${m.duration}:${m.trimStart}:${m.trimEnd}`).join(','),
       bgm ? `${bgm.volume}:${bgm.delay}:${bgm.fadeIn}:${bgm.fadeOut}` : 'none',
-      narration ? `${narration.volume}:${narration.delay}:${narration.fadeIn}:${narration.fadeOut}` : 'none',
+      narrations.length,
+      narrations.map((n) => `${n.id}:${n.startTime}:${n.volume}:${n.duration}:${n.sourceType}`).join(','),
       captions.length,
       captions.map((c) => `${c.id}:${c.text}:${c.startTime}:${c.endTime}`).join(','),
       JSON.stringify(captionSettings),
     ];
     return parts.join('|');
-  }, [mediaItems, bgm, narration, captions, captionSettings]);
+  }, [mediaItems, bgm, narrations, captions, captionSettings]);
   
   /**
    * 自動保存を実行
@@ -107,7 +108,7 @@ export function useAutoSave() {
     }
     
     // データがない場合はスキップ
-    if (mediaItems.length === 0 && !bgm && !narration && captions.length === 0) {
+    if (mediaItems.length === 0 && !bgm && narrations.length === 0 && captions.length === 0) {
       return;
     }
     
@@ -116,7 +117,7 @@ export function useAutoSave() {
       isClipsLocked,
       bgm,
       isBgmLocked,
-      narration,
+      narrations,
       isNarrationLocked,
       captions,
       captionSettings,
@@ -136,7 +137,7 @@ export function useAutoSave() {
     isClipsLocked,
     bgm,
     isBgmLocked,
-    narration,
+    narrations,
     isNarrationLocked,
     captions,
     captionSettings,

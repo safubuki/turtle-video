@@ -1,15 +1,11 @@
 /**
  * @file MediaResourceLoader.tsx
  * @author Turtle Village
- * @description メディアリソース（動画、画像、音声）をDOM上に配置・管理するローダーコンポーネント。キャッシュ効率を高めるためのメモ化や、エラー時の再試行ロジックを含む。
+ * @description Hidden media elements loader for preview/export
  */
 import React, { memo, useMemo } from 'react';
 import type { MediaResourceLoaderProps, MediaItem } from '../../types';
 
-/**
- * 個別のメディアアイテムをメモ化するコンポーネント
- * URLが変わらない限り再レンダリングしない
- */
 interface MediaItemResourceProps {
   item: MediaItem;
   hiddenStyle: React.CSSProperties;
@@ -28,7 +24,6 @@ const MediaItemResource = memo<MediaItemResourceProps>(
           ref={(el) => onRefAssign(item.id, el)}
           src={item.url}
           onLoadedMetadata={(e) => onElementLoaded(item.id, e.currentTarget)}
-          // 初回デコードフレームが利用可能になったタイミングで再描画を促す
           onLoadedData={onVideoLoadedData}
           onSeeked={onSeeked}
           onError={onError}
@@ -39,6 +34,7 @@ const MediaItemResource = memo<MediaItemResourceProps>(
         />
       );
     }
+
     return (
       <img
         ref={(el) => onRefAssign(item.id, el)}
@@ -49,21 +45,13 @@ const MediaItemResource = memo<MediaItemResourceProps>(
       />
     );
   },
-  (prev, next) => {
-    // URLとIDが同じなら再レンダリングしない
-    // トリミングや他のプロパティ変更では再レンダリングしない
-    return prev.item.id === next.item.id && prev.item.url === next.item.url;
-  }
+  (prev, next) => prev.item.id === next.item.id && prev.item.url === next.item.url
 );
 
 MediaItemResource.displayName = 'MediaItemResource';
 
-/**
- * 動画/画像/音声リソースローダー
- * 画面内に配置し、透明度で隠すことでブラウザの描画停止を回避
- */
 const MediaResourceLoader = memo<MediaResourceLoaderProps>(
-  ({ mediaItems, bgm, narration, onElementLoaded, onRefAssign, onSeeked, onVideoLoadedData }) => {
+  ({ mediaItems, bgm, narrations, onElementLoaded, onRefAssign, onSeeked, onVideoLoadedData }) => {
     const hiddenStyle: React.CSSProperties = useMemo(() => ({
       position: 'fixed',
       top: 0,
@@ -78,27 +66,29 @@ const MediaResourceLoader = memo<MediaResourceLoaderProps>(
 
     const audioStyle: React.CSSProperties = useMemo(() => ({ display: 'none' }), []);
 
-    const handleError = useMemo(() => (e: React.SyntheticEvent<HTMLVideoElement | HTMLAudioElement>) => {
-      const el = e.currentTarget;
-      if (el) {
+    const handleError = useMemo(
+      () => (e: React.SyntheticEvent<HTMLVideoElement | HTMLAudioElement>) => {
+        const el = e.currentTarget;
+        if (!el) return;
+
         console.warn('Resource error, retrying:', (el as HTMLMediaElement).error);
         setTimeout(() => {
           try {
             el.load();
-          } catch (err) {
-            /* ignore */
+          } catch {
+            // ignore
           }
         }, 1000);
-      }
-    }, []);
+      },
+      []
+    );
 
     return (
       <div style={{ position: 'fixed', top: 0, left: 0, width: 0, height: 0, overflow: 'hidden' }}>
-        {/* 動画・画像 - 個別にメモ化 */}
-        {mediaItems.map((v) => (
+        {mediaItems.map((item) => (
           <MediaItemResource
-            key={v.id}
-            item={v}
+            key={item.id}
+            item={item}
             hiddenStyle={hiddenStyle}
             onRefAssign={onRefAssign}
             onElementLoaded={onElementLoaded}
@@ -108,7 +98,6 @@ const MediaResourceLoader = memo<MediaResourceLoaderProps>(
           />
         ))}
 
-        {/* BGM用Audio要素 */}
         {bgm && (
           <audio
             ref={(el) => onRefAssign('bgm', el)}
@@ -121,28 +110,33 @@ const MediaResourceLoader = memo<MediaResourceLoaderProps>(
           />
         )}
 
-        {/* ナレーション用Audio要素 */}
-        {narration && (
-          <audio
-            ref={(el) => onRefAssign('narration', el)}
-            src={narration.url}
-            onLoadedMetadata={(e) => onElementLoaded('narration', e.currentTarget)}
-            onError={handleError}
-            preload="auto"
-            crossOrigin="anonymous"
-            style={audioStyle}
-          />
-        )}
+        {narrations.map((clip) => {
+          if (!clip.url) return null;
+          const trackId = `narration:${clip.id}`;
+          return (
+            <audio
+              key={clip.id}
+              ref={(el) => onRefAssign(trackId, el)}
+              src={clip.url}
+              onLoadedMetadata={(e) => onElementLoaded(trackId, e.currentTarget)}
+              onError={handleError}
+              preload="auto"
+              crossOrigin="anonymous"
+              style={audioStyle}
+            />
+          );
+        })}
       </div>
     );
   },
   (prev, next) => {
-    // メディアアイテムのIDとURLだけを比較（順序や他のプロパティは無視）
-    const prevIds = prev.mediaItems.map(m => `${m.id}:${m.url}`).join(',');
-    const nextIds = next.mediaItems.map(m => `${m.id}:${m.url}`).join(',');
+    const prevIds = prev.mediaItems.map((m) => `${m.id}:${m.url}`).join(',');
+    const nextIds = next.mediaItems.map((m) => `${m.id}:${m.url}`).join(',');
     const itemsChanged = prevIds !== nextIds;
     const bgmChanged = prev.bgm?.url !== next.bgm?.url;
-    const narrationChanged = prev.narration?.url !== next.narration?.url;
+    const prevNarrations = prev.narrations.map((n) => `${n.id}:${n.url}`).join(',');
+    const nextNarrations = next.narrations.map((n) => `${n.id}:${n.url}`).join(',');
+    const narrationChanged = prevNarrations !== nextNarrations;
     return !itemsChanged && !bgmChanged && !narrationChanged;
   }
 );

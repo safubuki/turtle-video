@@ -5,7 +5,7 @@
  */
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 
-import type { MediaItem, AudioTrack } from '../types';
+import type { MediaItem, AudioTrack, NarrationClip } from '../types';
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -26,7 +26,7 @@ import { captureCanvasAsImage } from '../utils/canvas';
 import { findActiveTimelineItem, collectPlaybackBlockingVideos } from '../utils/playbackTimeline';
 
 // Zustand Stores
-import { useMediaStore, useAudioStore, useUIStore, useCaptionStore, useLogStore } from '../stores';
+import { useMediaStore, useAudioStore, useUIStore, useCaptionStore, useLogStore, createNarrationClip } from '../stores';
 
 // コンポーネント
 import Toast from './common/Toast';
@@ -95,21 +95,17 @@ const TurtleVideo: React.FC = () => {
   const toggleBgmLock = useAudioStore((s) => s.toggleBgmLock);
   const removeBgm = useAudioStore((s) => s.removeBgm);
 
-  const {
-    narration,
-    isNarrationLocked,
-    setNarration,
-    updateNarrationStartPoint,
-    updateNarrationDelay,
-    updateNarrationVolume,
-    toggleNarrationFadeIn,
-    toggleNarrationFadeOut,
-    updateNarrationFadeInDuration,
-    updateNarrationFadeOutDuration,
-    toggleNarrationLock,
-    removeNarration,
-    clearAllAudio,
-  } = useAudioStore();
+  const narrations = useAudioStore((s) => s.narrations);
+  const isNarrationLocked = useAudioStore((s) => s.isNarrationLocked);
+  const addNarration = useAudioStore((s) => s.addNarration);
+  const updateNarrationStartTime = useAudioStore((s) => s.updateNarrationStartTime);
+  const updateNarrationVolume = useAudioStore((s) => s.updateNarrationVolume);
+  const updateNarrationMeta = useAudioStore((s) => s.updateNarrationMeta);
+  const replaceNarrationAudio = useAudioStore((s) => s.replaceNarrationAudio);
+  const moveNarration = useAudioStore((s) => s.moveNarration);
+  const toggleNarrationLock = useAudioStore((s) => s.toggleNarrationLock);
+  const removeNarration = useAudioStore((s) => s.removeNarration);
+  const clearAllAudio = useAudioStore((s) => s.clearAllAudio);
 
   // UI Store
   const toastMessage = useUIStore((s) => s.toastMessage);
@@ -181,11 +177,12 @@ const TurtleVideo: React.FC = () => {
   const [reloadKey, setReloadKey] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
   const [showProjectManager, setShowProjectManager] = useState(false);
+  const [editingNarrationId, setEditingNarrationId] = useState<string | null>(null);
 
   // Ref
   const mediaItemsRef = useRef<MediaItem[]>([]);
   const bgmRef = useRef<AudioTrack | null>(null);
-  const narrationRef = useRef<AudioTrack | null>(null);
+  const narrationsRef = useRef<NarrationClip[]>([]);
   const totalDurationRef = useRef(0);
   const currentTimeRef = useRef(0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -357,7 +354,7 @@ const TurtleVideo: React.FC = () => {
 
         const currentItems = mediaItemsRef.current;
         const currentBgm = bgmRef.current;
-        const currentNarration = narrationRef.current;
+        const currentNarrations = narrationsRef.current;
 
         let activeId: string | null = null;
         let localTime = 0;
@@ -547,7 +544,7 @@ const TurtleVideo: React.FC = () => {
         }
 
         Object.keys(mediaElementsRef.current).forEach((id) => {
-          if (id === 'bgm' || id === 'narration') return;
+          if (id === 'bgm' || id.startsWith('narration:')) return;
 
           const element = mediaElementsRef.current[id];
           const gainNode = gainNodesRef.current[id];
@@ -850,7 +847,7 @@ const TurtleVideo: React.FC = () => {
         }
 
         // Audio Tracks
-        const processAudioTrack = (track: AudioTrack | null, trackId: string) => {
+        const processAudioTrack = (track: AudioTrack | null, trackId: 'bgm') => {
           const element = mediaElementsRef.current[trackId] as HTMLAudioElement;
           const gainNode = gainNodesRef.current[trackId];
 
@@ -927,8 +924,60 @@ const TurtleVideo: React.FC = () => {
           }
         };
 
+        const processNarrationClip = (clip: NarrationClip) => {
+          const trackId = `narration:${clip.id}`;
+          const element = mediaElementsRef.current[trackId] as HTMLAudioElement;
+          const gainNode = gainNodesRef.current[trackId];
+
+          if (!element || !gainNode || !audioCtxRef.current) return;
+
+          const clipTime = time - clip.startTime;
+          const inRange = clipTime >= 0 && clipTime <= clip.duration;
+
+          if (isActivePlaying) {
+            if (!inRange) {
+              gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.1);
+              if (!element.paused) element.pause();
+              return;
+            }
+
+            const needsSeek = Math.abs(element.currentTime - clipTime) > 0.5;
+            if (needsSeek) {
+              if (!element.paused) {
+                element.pause();
+              }
+              element.currentTime = clipTime;
+            }
+
+            if (holdAudioThisFrame) {
+              if (!element.paused) {
+                element.pause();
+              }
+            } else if (!element.seeking && element.readyState >= 2 && element.paused) {
+              element.play().catch(() => { });
+            }
+
+            let vol = clip.volume;
+            if (element.seeking || holdAudioThisFrame) {
+              vol = 0;
+            }
+
+            const currentGain = gainNode.gain.value;
+            if (Math.abs(currentGain - vol) > 0.01) {
+              gainNode.gain.setTargetAtTime(vol, audioCtxRef.current.currentTime, 0.1);
+            }
+          } else {
+            gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.1);
+            if (!element.paused) element.pause();
+
+            if (inRange && Math.abs(element.currentTime - clipTime) > 0.1) {
+              element.currentTime = clipTime;
+            }
+          }
+        };
+
         processAudioTrack(currentBgm, 'bgm');
-        processAudioTrack(currentNarration, 'narration');
+        currentNarrations.forEach((clip) => processNarrationClip(clip));
 
         if (isActivePlaying && audioResumeWaitFramesRef.current > 0) {
           audioResumeWaitFramesRef.current -= 1;
@@ -980,8 +1029,8 @@ const TurtleVideo: React.FC = () => {
   // --- ナレーション状態の同期 ---
   // 目的: ナレーショントラックの最新状態をRefに保持
   useEffect(() => {
-    narrationRef.current = narration;
-  }, [narration]);
+    narrationsRef.current = narrations;
+  }, [narrations]);
 
   // --- コンポーネントアンマウント時のクリーンアップ ---
   // 目的: メモリリークを防止し、リソースを適切に解放
@@ -1078,7 +1127,7 @@ const TurtleVideo: React.FC = () => {
       }
       activeVideoIdRef.current = activeVideoId;
 
-      const resyncAudioTrack = (track: AudioTrack | null, trackId: 'bgm' | 'narration') => {
+      const resyncAudioTrack = (track: AudioTrack | null, trackId: 'bgm') => {
         const el = mediaElementsRef.current[trackId] as HTMLAudioElement | undefined;
         if (!track || !el) return;
 
@@ -1104,8 +1153,33 @@ const TurtleVideo: React.FC = () => {
         }
       };
 
+      const resyncNarrationClip = (clip: NarrationClip) => {
+        const trackId = `narration:${clip.id}`;
+        const el = mediaElementsRef.current[trackId] as HTMLAudioElement | undefined;
+        if (!el) return;
+
+        const trackTime = t - clip.startTime;
+        const inRange = trackTime >= 0 && trackTime <= clip.duration;
+
+        if (!inRange) {
+          if (!el.paused) {
+            try { el.pause(); } catch { /* ignore */ }
+          }
+          return;
+        }
+
+        const drift = Math.abs(el.currentTime - trackTime);
+        if (drift > 0.08 && !el.seeking && el.readyState >= 1) {
+          try {
+            el.currentTime = trackTime;
+          } catch {
+            // ignore
+          }
+        }
+      };
+
       resyncAudioTrack(bgmRef.current, 'bgm');
-      resyncAudioTrack(narrationRef.current, 'narration');
+      narrationsRef.current.forEach((clip) => resyncNarrationClip(clip));
     };
 
     const restoreTimelineClockAfterHidden = (): boolean => {
@@ -1338,18 +1412,20 @@ const TurtleVideo: React.FC = () => {
     }
     setAiLoading(true);
     try {
-      // 声の調子が指定されている場合は、セリフの前に括弧書きで付与
-      const scriptWithStyle = aiVoiceStyle.trim()
-        ? `（${aiVoiceStyle.trim()}）${aiScript}`
-        : aiScript;
+      const transcript = aiScript.trim();
+      const styleText = aiVoiceStyle.trim();
+      const styledPrompt = styleText
+        ? `Say the following Japanese text in this style: ${styleText}\n\nText: ${transcript}`
+        : `Say the following Japanese text:\n${transcript}`;
+      const plainPrompt = `Say the following Japanese text:\n${transcript}`;
+      const strictPrompt = `TTS the following text exactly as written. Do not add any extra words.\n${transcript}`;
 
-      const response = await fetch(
-        `${GEMINI_API_BASE_URL}/${GEMINI_TTS_MODEL}:generateContent?key=${apiKey}`,
-        {
+      const requestTts = (text: string) =>
+        fetch(`${GEMINI_API_BASE_URL}/${GEMINI_TTS_MODEL}:generateContent?key=${apiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: scriptWithStyle }] }],
+            contents: [{ parts: [{ text }] }],
             generationConfig: {
               responseModalities: ['AUDIO'],
               speechConfig: {
@@ -1359,50 +1435,166 @@ const TurtleVideo: React.FC = () => {
               },
             },
           }),
+        });
+
+      const readTtsErrorMessage = async (res: Response): Promise<string> => {
+        const errorData = await res.json().catch(() => ({} as { error?: { message?: string } }));
+        return errorData.error?.message || `HTTP ${res.status}: ${res.statusText}`;
+      };
+
+      type TtsInlineData = { data?: string; mimeType?: string };
+      type TtsPart = { text?: string; inlineData?: TtsInlineData; inline_data?: TtsInlineData };
+      type TtsCandidate = { finishReason?: string; content?: { parts?: TtsPart[] } };
+      type TtsResponse = { candidates?: TtsCandidate[]; promptFeedback?: { blockReason?: string } };
+      type TtsAttempt = {
+        label: 'style' | 'plain' | 'strict';
+        prompt: string;
+        usedStyle: boolean;
+      };
+
+      const parseTtsResponse = (data: TtsResponse) => {
+        const candidates = Array.isArray(data.candidates) ? data.candidates : [];
+        const parts = candidates.flatMap((candidate) => (Array.isArray(candidate.content?.parts) ? candidate.content.parts : []));
+        const inlineData = parts
+          .map((part) => part.inlineData ?? part.inline_data)
+          .find((candidateInlineData): candidateInlineData is TtsInlineData & { data: string } =>
+            typeof candidateInlineData?.data === 'string' && candidateInlineData.data.length > 0
+          );
+        const hasTextPart = parts.some((part) => typeof part.text === 'string' && part.text.trim().length > 0);
+        const finishReason = candidates.map((candidate) => candidate.finishReason).find((reason) => !!reason);
+        return {
+          inlineData,
+          hasTextPart,
+          finishReason,
+          blockReason: data.promptFeedback?.blockReason,
+          partsCount: parts.length,
+        };
+      };
+
+      const attempts: TtsAttempt[] = styleText
+        ? [
+            { label: 'style', prompt: styledPrompt, usedStyle: true },
+            { label: 'plain', prompt: plainPrompt, usedStyle: false },
+          ]
+        : [
+            { label: 'plain', prompt: plainPrompt, usedStyle: false },
+            { label: 'strict', prompt: strictPrompt, usedStyle: false },
+          ];
+
+      let resolvedInlineData: (TtsInlineData & { data: string }) | null = null;
+      let resolvedAttempt: TtsAttempt | null = null;
+      let lastFinishReason: string | undefined;
+      let lastBlockReason: string | undefined;
+      let lastHttpError: string | undefined;
+
+      for (let i = 0; i < attempts.length; i++) {
+        const attempt = attempts[i];
+        const hasNext = i < attempts.length - 1;
+        const response = await requestTts(attempt.prompt);
+
+        if (!response.ok) {
+          const errorMessage = await readTtsErrorMessage(response);
+          lastHttpError = errorMessage;
+          const retryableHttpError = /model tried to generate text|only be used for tts|response modalities/i.test(errorMessage);
+          if (hasNext && retryableHttpError) {
+            console.warn('TTS attempt failed and will retry with fallback prompt/model.', {
+              label: attempt.label,
+              errorMessage,
+            });
+            continue;
+          }
+          throw new Error(errorMessage);
         }
-      );
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        const errorMessage = errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`;
-        throw new Error(errorMessage);
+        const data = (await response.json()) as TtsResponse;
+        const parsed = parseTtsResponse(data);
+        if (parsed.inlineData) {
+          resolvedInlineData = parsed.inlineData;
+          resolvedAttempt = attempt;
+          lastFinishReason = parsed.finishReason;
+          lastBlockReason = parsed.blockReason;
+          break;
+        }
+
+        lastFinishReason = parsed.finishReason;
+        lastBlockReason = parsed.blockReason;
+        if (hasNext) {
+          console.warn('TTS attempt returned no inline audio data. Retrying with fallback.', {
+            label: attempt.label,
+            finishReason: parsed.finishReason,
+            blockReason: parsed.blockReason,
+            hasTextPart: parsed.hasTextPart,
+            partsCount: parsed.partsCount,
+          });
+          continue;
+        }
       }
 
-      const data = await response.json();
-      const inlineData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-
-      if (!inlineData) {
-        throw new Error('音声データが取得できませんでした');
+      if (!resolvedInlineData) {
+        if (lastHttpError) {
+          throw new Error(lastHttpError);
+        }
+        if (lastBlockReason) {
+          throw new Error(`音声生成がブロックされました: ${lastBlockReason}`);
+        }
+        const reasonSuffix = lastFinishReason ? ` (${lastFinishReason})` : '';
+        throw new Error(`音声データを取得できませんでした${reasonSuffix}`);
       }
 
-      const binaryString = window.atob(inlineData.data);
+      if (styleText && resolvedAttempt && !resolvedAttempt.usedStyle) {
+        showToast('声の調子指定は適用できなかったため、通常の読み上げで生成しました。', 5000);
+      }
+
+      const binaryString = window.atob(resolvedInlineData.data);
       const len = binaryString.length;
       const bytes = new Uint8Array(len);
       for (let i = 0; i < len; i++) {
         bytes[i] = binaryString.charCodeAt(i);
       }
 
-      const wavBuffer = pcmToWav(bytes.buffer, TTS_SAMPLE_RATE);
+      const normalizedMimeType = resolvedInlineData.mimeType?.toLowerCase() || '';
+      const payloadIsWav = normalizedMimeType.includes('audio/wav') || normalizedMimeType.includes('audio/x-wav');
+      const wavBuffer = payloadIsWav ? bytes.buffer : pcmToWav(bytes.buffer, TTS_SAMPLE_RATE);
       const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' });
       const blobUrl = URL.createObjectURL(wavBlob);
 
       const audio = new Audio(blobUrl);
       audio.onloadedmetadata = () => {
         const voiceLabel = VOICE_OPTIONS.find((v) => v.id === aiVoice)?.label || 'AI音声';
-        setNarration({
-          file: new File([wavBlob], `AIナレーション_${voiceLabel}.wav`, { type: 'audio/wav' }),
-          url: blobUrl,
-          blobUrl: blobUrl,
-          startPoint: 0,
-          delay: 0,
-          volume: 1.0,
-          fadeIn: false,
-          fadeOut: false,
-          fadeInDuration: 2.0,
-          fadeOutDuration: 2.0,
-          duration: audio.duration,
-          isAi: true,
-        });
+        const narrationFile = new File([wavBlob], `AIナレーション_${voiceLabel}.wav`, { type: 'audio/wav' });
+        if (editingNarrationId) {
+          replaceNarrationAudio(editingNarrationId, {
+            file: narrationFile,
+            url: blobUrl,
+            blobUrl,
+            duration: audio.duration,
+            sourceType: 'ai',
+            isAiEditable: true,
+            aiScript,
+            aiVoice,
+            aiVoiceStyle,
+          });
+          updateNarrationMeta(editingNarrationId, {
+            aiScript,
+            aiVoice,
+            aiVoiceStyle,
+          });
+          setEditingNarrationId(null);
+        } else {
+          addNarration(
+            createNarrationClip({
+              file: narrationFile,
+              url: blobUrl,
+              blobUrl,
+              duration: audio.duration,
+              startTime: currentTimeRef.current,
+              sourceType: 'ai',
+              aiScript,
+              aiVoice,
+              aiVoiceStyle,
+            })
+          );
+        }
         closeAiModal();
         clearError();
       };
@@ -1429,7 +1621,21 @@ const TurtleVideo: React.FC = () => {
     } finally {
       setAiLoading(false);
     }
-  }, [aiScript, aiVoice, aiVoiceStyle, pcmToWav, setNarration, closeAiModal, clearError, setError, setAiLoading]);
+  }, [
+    aiScript,
+    aiVoice,
+    aiVoiceStyle,
+    editingNarrationId,
+    pcmToWav,
+    replaceNarrationAudio,
+    updateNarrationMeta,
+    addNarration,
+    closeAiModal,
+    clearError,
+    showToast,
+    setError,
+    setAiLoading,
+  ]);
 
   // --- アップロード処理 ---
   const handleMediaUpload = useCallback(
@@ -1830,70 +2036,117 @@ const TurtleVideo: React.FC = () => {
   // --- ナレーションアップロードハンドラ ---
   // 目的: ナレーションファイルを読み込みストアに設定
   const handleNarrationUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
     e.target.value = '';
     clearExport();
-    const url = URL.createObjectURL(file);
-    const audio = new Audio(url);
-    audio.onloadedmetadata = () => {
-      setNarration({
-        file,
-        url,
-        startPoint: 0,
-        delay: 0,
-        volume: 1.0,
-        fadeIn: false,
-        fadeOut: false,
-        fadeInDuration: 2.0,
-        fadeOutDuration: 2.0,
-        duration: audio.duration,
-        isAi: false,
+
+    const startTimeAtUpload = currentTimeRef.current;
+    const loadNarrationMeta = (file: File): Promise<{ file: File; url: string; duration: number }> =>
+      new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const audio = new Audio(url);
+
+        audio.onloadedmetadata = () => {
+          const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+          resolve({ file, url, duration });
+        };
+
+        audio.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error(`音声メタデータ読み込み失敗: ${file.name}`));
+        };
       });
-    };
-  }, [setNarration, clearExport]);
+
+    void (async () => {
+      let failedCount = 0;
+
+      for (const file of files) {
+        try {
+          const { url, duration } = await loadNarrationMeta(file);
+          addNarration(
+            createNarrationClip({
+              file,
+              url,
+              duration,
+              startTime: startTimeAtUpload,
+              sourceType: 'file',
+            })
+          );
+        } catch {
+          failedCount += 1;
+        }
+      }
+
+      if (failedCount > 0) {
+        showToast(`ナレーション${failedCount}件の読み込みに失敗しました`);
+      }
+    })();
+  }, [addNarration, clearExport, showToast]);
 
   // --- BGM/ナレーション開始位置更新ハンドラ ---
   // 目的: オーディオトラックの再生開始位置（ファイル内の位置）を変更
-  const handleUpdateTrackStart = useCallback(
-    (type: 'bgm' | 'narration', val: string) => {
-      const numVal = parseFloat(val);
-      if (isNaN(numVal)) return;
-
-      if (type === 'bgm') {
-        updateBgmStartPoint(numVal);
-      } else {
-        updateNarrationStartPoint(numVal);
-      }
-    },
-    [updateBgmStartPoint, updateNarrationStartPoint]
-  );
+  const handleUpdateBgmStart = useCallback((val: string) => {
+    const numVal = parseFloat(val);
+    if (isNaN(numVal)) return;
+    updateBgmStartPoint(numVal);
+  }, [updateBgmStartPoint]);
 
   // --- BGM/ナレーション遅延更新ハンドラ ---
   // 目的: オーディオトラックの開始遅延（動画開始からの秒数）を変更
-  const handleUpdateTrackDelay = useCallback((type: 'bgm' | 'narration', val: string) => {
+  const handleUpdateBgmDelay = useCallback((val: string) => {
     const numVal = parseFloat(val);
     if (isNaN(numVal)) return;
-
-    if (type === 'bgm') {
-      updateBgmDelay(numVal);
-    } else {
-      updateNarrationDelay(numVal);
-    }
-  }, [updateBgmDelay, updateNarrationDelay]);
+    updateBgmDelay(numVal);
+  }, [updateBgmDelay]);
 
   // --- BGM/ナレーション音量更新ハンドラ ---
   // 目的: オーディオトラックの音量を変更
-  const handleUpdateTrackVolume = useCallback((type: 'bgm' | 'narration', val: string) => {
+  const handleUpdateBgmVolume = useCallback((val: string) => {
     const numVal = parseFloat(val);
     if (isNaN(numVal)) return;
+    updateBgmVolume(numVal);
+  }, [updateBgmVolume]);
 
-    if (type === 'bgm') {
-      updateBgmVolume(numVal);
-    } else {
-      updateNarrationVolume(numVal);
-    }
-  }, [updateBgmVolume, updateNarrationVolume]);
+  const handleUpdateNarrationStart = useCallback((id: string, val: string) => {
+    const numVal = parseFloat(val);
+    if (isNaN(numVal)) return;
+    updateNarrationStartTime(id, numVal);
+  }, [updateNarrationStartTime]);
+
+  const handleSetNarrationStartToCurrent = useCallback((id: string) => {
+    updateNarrationStartTime(id, currentTimeRef.current);
+  }, [updateNarrationStartTime]);
+
+  const handleUpdateNarrationVolume = useCallback((id: string, val: string) => {
+    const numVal = parseFloat(val);
+    if (isNaN(numVal)) return;
+    updateNarrationVolume(id, numVal);
+  }, [updateNarrationVolume]);
+
+  const handleAddAiNarration = useCallback(() => {
+    setEditingNarrationId(null);
+    setAiScript('');
+    setAiPrompt('');
+    openAiModal();
+  }, [openAiModal, setAiPrompt, setAiScript]);
+
+  const handleEditAiNarration = useCallback((id: string) => {
+    const target = narrations.find((clip) => clip.id === id);
+    if (!target || !target.isAiEditable) return;
+    setEditingNarrationId(id);
+    setAiPrompt('');
+    setAiScript(target.aiScript ?? '');
+    setAiVoice(target.aiVoice ?? 'Aoede');
+    setAiVoiceStyle(target.aiVoiceStyle ?? '');
+    openAiModal();
+  }, [narrations, openAiModal, setAiPrompt, setAiScript, setAiVoice, setAiVoiceStyle]);
+
+  const handleCloseAiModal = useCallback(() => {
+    setEditingNarrationId(null);
+    closeAiModal();
+  }, [closeAiModal]);
 
   // ==========================================================
   // コアエンジン（再生制御・リソース管理）
@@ -1978,7 +2231,7 @@ const TurtleVideo: React.FC = () => {
   // --- 全クリア処理 ---
   // 目的: 全てのメディア・オーディオ・キャプションを削除し初期状態に戻す
   const handleClearAll = useCallback(() => {
-    if (mediaItems.length === 0 && !bgm && !narration) return;
+    if (mediaItems.length === 0 && !bgm && narrations.length === 0) return;
 
     // 確認ダイアログを表示
     const confirmed = window.confirm('すべてのメディア、BGM、ナレーションをクリアします。よろしいですか？');
@@ -2010,7 +2263,7 @@ const TurtleVideo: React.FC = () => {
     mediaItemsRef.current = [];
     mediaElementsRef.current = {};
     bgmRef.current = null;
-    narrationRef.current = null;
+    narrationsRef.current = [];
 
     // Zustand stores clear
     clearAllMedia();
@@ -2027,7 +2280,7 @@ const TurtleVideo: React.FC = () => {
         ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
       }
     }
-  }, [mediaItems, bgm, narration, stopAll, clearAllMedia, clearAllAudio, resetCaptions, resetUI]);
+  }, [mediaItems, bgm, narrations, stopAll, clearAllMedia, clearAllAudio, resetCaptions, resetUI]);
 
   const configureAudioRouting = useCallback((isExporting: boolean) => {
     const ctx = audioCtxRef.current;
@@ -2381,17 +2634,61 @@ const TurtleVideo: React.FC = () => {
 
         // BGMとナレーションのプリロードを並列実行
         const currentBgm = bgmRef.current;
-        const currentNarration = narrationRef.current;
+        const currentNarrations = narrationsRef.current;
         if (currentBgm) {
           audioPreloadPromises.push(prepareAudioTrack(currentBgm, 'bgm'));
         }
-        if (currentNarration) {
-          audioPreloadPromises.push(prepareAudioTrack(currentNarration, 'narration'));
-        }
+        currentNarrations.forEach((clip) => {
+          const trackId = `narration:${clip.id}`;
+          const element = mediaElementsRef.current[trackId] as HTMLAudioElement;
+          if (!element) return;
+          audioPreloadPromises.push(
+            new Promise((resolve) => {
+              const targetTime = 0;
+              if (element.readyState < 2) {
+                const handleCanPlay = () => {
+                  element.removeEventListener('canplay', handleCanPlay);
+                  if (Math.abs(element.currentTime - targetTime) > 0.1) {
+                    const handleSeeked = () => {
+                      element.removeEventListener('seeked', handleSeeked);
+                      resolve();
+                    };
+                    element.addEventListener('seeked', handleSeeked, { once: true });
+                    element.currentTime = targetTime;
+                  } else {
+                    resolve();
+                  }
+                };
+                element.addEventListener('canplay', handleCanPlay, { once: true });
+                element.load();
+                setTimeout(() => {
+                  element.removeEventListener('canplay', handleCanPlay);
+                  resolve();
+                }, 5000);
+              } else if (Math.abs(element.currentTime - targetTime) > 0.1) {
+                const handleSeeked = () => {
+                  element.removeEventListener('seeked', handleSeeked);
+                  resolve();
+                };
+                element.addEventListener('seeked', handleSeeked, { once: true });
+                element.currentTime = targetTime;
+                setTimeout(() => {
+                  element.removeEventListener('seeked', handleSeeked);
+                  resolve();
+                }, 2000);
+              } else {
+                resolve();
+              }
+            })
+          );
+        });
 
         // オーディオプリロード完了を待機
         if (audioPreloadPromises.length > 0) {
-          logInfo('AUDIO', 'オーディオプリロード開始', { bgm: !!currentBgm, narration: !!currentNarration });
+          logInfo('AUDIO', 'オーディオプリロード開始', {
+            bgm: !!currentBgm,
+            narrationCount: currentNarrations.length,
+          });
           await Promise.all(audioPreloadPromises);
           logInfo('AUDIO', 'オーディオプリロード完了');
         }
@@ -2509,7 +2806,7 @@ const TurtleVideo: React.FC = () => {
           {
             mediaItems: mediaItemsRef.current,
             bgm: bgmRef.current,
-            narration: narrationRef.current,
+            narrations: narrationsRef.current,
             totalDuration: totalDurationRef.current,
             // 音声プリレンダリング完了後に再生ループを開始
             // iOS Safari ではリアルタイム音声抽出に数秒かかるため、
@@ -3018,7 +3315,11 @@ const TurtleVideo: React.FC = () => {
       }
     }
     // BGM/ナレーションは0に戻す
-    ['bgm', 'narration'].forEach((trackId) => {
+    const audioTrackIds = [
+      'bgm',
+      ...narrationsRef.current.map((clip) => `narration:${clip.id}`),
+    ];
+    audioTrackIds.forEach((trackId) => {
       const el = mediaElementsRef.current[trackId];
       if (el && (el.tagName === 'AUDIO')) {
         try {
@@ -3103,7 +3404,7 @@ const TurtleVideo: React.FC = () => {
         key={reloadKey}
         mediaItems={mediaItems}
         bgm={bgm}
-        narration={narration}
+        narrations={narrations}
         onElementLoaded={handleMediaElementLoaded}
         onRefAssign={handleMediaRefAssign}
         onSeeked={handleSeeked}
@@ -3113,7 +3414,7 @@ const TurtleVideo: React.FC = () => {
       {/* AI Modal */}
       <AiModal
         isOpen={showAiModal}
-        onClose={closeAiModal}
+        onClose={handleCloseAiModal}
         aiPrompt={aiPrompt}
         aiScript={aiScript}
         aiVoice={aiVoice}
@@ -3191,9 +3492,9 @@ const TurtleVideo: React.FC = () => {
               onToggleBgmLock={withPause(toggleBgmLock)}
               onBgmUpload={withStop(handleBgmUpload)}
               onRemoveBgm={withPause(removeBgm)}
-              onUpdateStartPoint={withPause((val) => handleUpdateTrackStart('bgm', val))}
-              onUpdateDelay={withPause((val) => handleUpdateTrackDelay('bgm', val))}
-              onUpdateVolume={withPause((val) => handleUpdateTrackVolume('bgm', val))}
+              onUpdateStartPoint={withPause(handleUpdateBgmStart)}
+              onUpdateDelay={withPause(handleUpdateBgmDelay)}
+              onUpdateVolume={withPause(handleUpdateBgmVolume)}
               onToggleFadeIn={withPause(toggleBgmFadeIn)}
               onToggleFadeOut={withPause(toggleBgmFadeOut)}
               onUpdateFadeInDuration={withPause(updateBgmFadeInDuration)}
@@ -3203,20 +3504,19 @@ const TurtleVideo: React.FC = () => {
 
             {/* 3. NARRATION SETTINGS */}
             <NarrationSection
-              narration={narration}
+              narrations={narrations}
               isNarrationLocked={isNarrationLocked}
               totalDuration={totalDuration}
+              currentTime={currentTime}
               onToggleNarrationLock={withPause(toggleNarrationLock)}
-              onShowAiModal={withPause(openAiModal)}
+              onAddAiNarration={withPause(handleAddAiNarration)}
+              onEditAiNarration={withPause(handleEditAiNarration)}
               onNarrationUpload={withStop(handleNarrationUpload)}
               onRemoveNarration={withPause(removeNarration)}
-              onUpdateStartPoint={withPause((val) => handleUpdateTrackStart('narration', val))}
-              onUpdateDelay={withPause((val) => handleUpdateTrackDelay('narration', val))}
-              onUpdateVolume={withPause((val) => handleUpdateTrackVolume('narration', val))}
-              onToggleFadeIn={withPause(toggleNarrationFadeIn)}
-              onToggleFadeOut={withPause(toggleNarrationFadeOut)}
-              onUpdateFadeInDuration={withPause(updateNarrationFadeInDuration)}
-              onUpdateFadeOutDuration={withPause(updateNarrationFadeOutDuration)}
+              onMoveNarration={withPause(moveNarration)}
+              onUpdateStartTime={withPause(handleUpdateNarrationStart)}
+              onSetStartTimeToCurrent={withPause(handleSetNarrationStartToCurrent)}
+              onUpdateVolume={withPause(handleUpdateNarrationVolume)}
               formatTime={formatTime}
             />
 
@@ -3252,7 +3552,7 @@ const TurtleVideo: React.FC = () => {
               <PreviewSection
                 mediaItems={mediaItems}
                 bgm={bgm}
-                narration={narration}
+                narrations={narrations}
                 canvasRef={canvasRef}
                 currentTime={currentTime}
                 totalDuration={totalDuration}

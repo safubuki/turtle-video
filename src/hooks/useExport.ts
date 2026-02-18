@@ -6,7 +6,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { FPS, EXPORT_VIDEO_BITRATE } from '../constants';
 import * as Mp4Muxer from 'mp4-muxer';
-import type { MediaItem, AudioTrack } from '../types';
+import type { MediaItem, AudioTrack, NarrationClip } from '../types';
 import { useLogStore } from '../stores/logStore';
 
 /**
@@ -49,7 +49,7 @@ export interface UseExportReturn {
 export interface ExportAudioSources {
   mediaItems: MediaItem[];
   bgm: AudioTrack | null;
-  narration: AudioTrack | null;
+  narrations: NarrationClip[];
   totalDuration: number;
   /**
    * 音声プリレンダリング完了時に呼ばれるコールバック。
@@ -332,7 +332,7 @@ async function offlineRenderAudio(
   sampleRate: number,
   signal: AbortSignal,
 ): Promise<AudioBuffer | null> {
-  const { mediaItems, bgm, narration, totalDuration } = sources;
+  const { mediaItems, bgm, narrations, totalDuration } = sources;
   if (totalDuration <= 0) return null;
 
   const log = useLogStore.getState();
@@ -547,8 +547,39 @@ async function offlineRenderAudio(
 
   // 2. BGM
   if (bgm) await scheduleAudioTrack(bgm, 'BGM');
-  // 3. ナレーション
-  if (narration) await scheduleAudioTrack(narration, 'ナレーション');
+  // 3. Narrations
+  async function scheduleNarrationClip(clip: NarrationClip): Promise<void> {
+    if (signal.aborted) return;
+    if (!clip.url || clip.duration <= 0) return;
+
+    const audioBuffer = await decodeAudio(clip.file, clip.url, clip.duration);
+    if (!audioBuffer) return;
+
+    const source = offlineCtx.createBufferSource();
+    source.buffer = audioBuffer;
+    const gain = offlineCtx.createGain();
+    source.connect(gain);
+    gain.connect(offlineCtx.destination);
+
+    const clipStart = Math.max(0, clip.startTime);
+    const playDuration = Math.min(clip.duration, totalDuration - clipStart);
+    if (playDuration <= 0) return;
+
+    gain.gain.setValueAtTime(Math.max(0, Math.min(2.0, clip.volume)), clipStart);
+    source.start(clipStart, 0, playDuration);
+    scheduledSources++;
+  }
+
+  const orderedNarrations = narrations
+    .map((clip, index) => ({ clip, index }))
+    .sort((a, b) => {
+      if (a.clip.startTime === b.clip.startTime) return a.index - b.index;
+      return a.clip.startTime - b.clip.startTime;
+    });
+
+  for (const entry of orderedNarrations) {
+    await scheduleNarrationClip(entry.clip);
+  }
 
   if (signal.aborted) return null;
 
@@ -779,7 +810,7 @@ export function useExport(): UseExportReturn {
           mediaItemCount: audioSources.mediaItems.length,
           videoItemCount: audioSources.mediaItems.filter(i => i.type === 'video').length,
           hasBgm: !!audioSources.bgm,
-          hasNarration: !!audioSources.narration,
+          narrationCount: audioSources.narrations.length,
           totalDuration: Math.round(audioSources.totalDuration * 100) / 100,
         } : null,
       });

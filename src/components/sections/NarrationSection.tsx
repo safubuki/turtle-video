@@ -1,52 +1,65 @@
 /**
  * @file NarrationSection.tsx
  * @author Turtle Village
- * @description ナレーション音声の追加、AI生成、音量・フェード調整を行うセクションコンポーネント。
+ * @description Narration section (multiple clips)
  */
-import React, { useState, useCallback, useMemo } from 'react';
-import { Upload, Lock, Unlock, Mic, Sparkles, Save, Volume2, Timer, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
-import type { AudioTrack } from '../../types';
+import React, { useMemo, useState, useCallback } from 'react';
+import {
+  Upload,
+  Lock,
+  Unlock,
+  Mic,
+  Sparkles,
+  Volume2,
+  ChevronDown,
+  ChevronRight,
+  RefreshCw,
+  ArrowUp,
+  ArrowDown,
+  Trash2,
+  MapPin,
+  FileAudio,
+  Edit2,
+  Save,
+} from 'lucide-react';
+import type { NarrationClip } from '../../types';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 
 interface NarrationSectionProps {
-  narration: AudioTrack | null;
+  narrations: NarrationClip[];
   isNarrationLocked: boolean;
   totalDuration: number;
+  currentTime: number;
   onToggleNarrationLock: () => void;
-  onShowAiModal: () => void;
+  onAddAiNarration: () => void;
+  onEditAiNarration: (id: string) => void;
   onNarrationUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  onRemoveNarration: () => void;
-  onUpdateStartPoint: (value: string) => void;
-  onUpdateDelay: (value: string) => void;
-  onUpdateVolume: (value: string) => void;
-  onToggleFadeIn: (checked: boolean) => void;
-  onToggleFadeOut: (checked: boolean) => void;
-  onUpdateFadeInDuration: (duration: number) => void;
-  onUpdateFadeOutDuration: (duration: number) => void;
+  onRemoveNarration: (id: string) => void;
+  onMoveNarration: (id: string, direction: 'up' | 'down') => void;
+  onUpdateStartTime: (id: string, value: string) => void;
+  onSetStartTimeToCurrent: (id: string) => void;
+  onUpdateVolume: (id: string, value: string) => void;
   formatTime: (seconds: number) => string;
 }
 
-/**
- * ナレーションセクションコンポーネント
- */
 const NarrationSection: React.FC<NarrationSectionProps> = ({
-  narration,
+  narrations,
   isNarrationLocked,
   totalDuration,
+  currentTime,
   onToggleNarrationLock,
-  onShowAiModal,
+  onAddAiNarration,
+  onEditAiNarration,
   onNarrationUpload,
   onRemoveNarration,
-  onUpdateStartPoint,
-  onUpdateDelay,
+  onMoveNarration,
+  onUpdateStartTime,
+  onSetStartTimeToCurrent,
   onUpdateVolume,
-  onToggleFadeIn,
-  onToggleFadeOut,
-  onUpdateFadeInDuration,
-  onUpdateFadeOutDuration,
   formatTime,
 }) => {
   const [isOpen, setIsOpen] = useState(true);
+
   const isIosSafari = useMemo(() => {
     if (typeof navigator === 'undefined') return false;
     const ua = navigator.userAgent;
@@ -55,21 +68,18 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
     const isSafari = /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/i.test(ua);
     return isIOS && isSafari;
   }, []);
+
   const audioFileAccept = isIosSafari
     ? 'audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.oga,.opus,.caf,.aif,.aiff,.mp4,.m4v,.mov,.webm'
     : 'audio/*';
 
-  // スワイプ保護用ハンドラ
-  const handleStartPointChange = useCallback(
-    (val: number) => onUpdateStartPoint(String(val)),
-    [onUpdateStartPoint]
+  const handleStartTimeChange = useCallback(
+    (id: string, val: number) => onUpdateStartTime(id, String(val)),
+    [onUpdateStartTime]
   );
-  const handleDelayChange = useCallback(
-    (val: number) => onUpdateDelay(String(val)),
-    [onUpdateDelay]
-  );
+
   const handleVolumeChange = useCallback(
-    (val: number) => onUpdateVolume(String(val)),
+    (id: string, val: number) => onUpdateVolume(id, String(val)),
     [onUpdateVolume]
   );
 
@@ -83,7 +93,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
           {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
           <span className="w-6 h-6 lg:w-7 lg:h-7 rounded-full bg-indigo-500/10 flex items-center justify-center text-xs lg:text-sm">
             3
-          </span>{' '}
+          </span>
           ナレーション
         </h2>
         <div className="flex gap-2 shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
@@ -94,191 +104,160 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
             {isNarrationLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
           </button>
           <button
-            onClick={onShowAiModal}
+            onClick={onAddAiNarration}
             disabled={isNarrationLocked}
             className={`bg-linear-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white px-3 py-1.5 lg:px-4 lg:py-2 rounded-lg text-xs md:text-sm font-bold transition flex items-center gap-1 shadow-lg ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
           >
-            <Sparkles className="w-3 h-3" /> AI
+            <Sparkles className="w-3 h-3" /> AI追加
           </button>
-          {!narration ? (
-            <label
-              className={`cursor-pointer bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 lg:px-4 lg:py-2 rounded-lg text-xs md:text-sm font-bold transition flex items-center gap-1 ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
-            >
-              <Upload className="w-3 h-3" /> 選択
-              <input
-                type="file"
-                accept={audioFileAccept}
-                className="hidden"
-                onChange={onNarrationUpload}
-                disabled={isNarrationLocked}
-              />
-            </label>
-          ) : (
-            <button
-              onClick={onRemoveNarration}
+          <label
+            className={`cursor-pointer bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 lg:px-4 lg:py-2 rounded-lg text-xs md:text-sm font-bold transition flex items-center gap-1 ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
+          >
+            <Upload className="w-3 h-3" /> ファイル追加
+            <input
+              type="file"
+              accept={audioFileAccept}
+              multiple
+              className="hidden"
+              onChange={onNarrationUpload}
               disabled={isNarrationLocked}
-              className="text-red-400 hover:text-red-300 text-xs px-2 disabled:opacity-50"
-            >
-              削除
-            </button>
-          )}
+            />
+          </label>
         </div>
       </div>
-      {isOpen && narration && (
-        <div className="p-4 bg-indigo-900/10 border border-indigo-500/20 m-3 rounded-xl space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-indigo-200 text-xs md:text-sm font-medium truncate">
-              <Mic className="w-3 h-3 text-indigo-400 shrink-0" /> {narration.file.name}
-            </div>
-            {narration.blobUrl && (
-              <a
-                href={narration.blobUrl}
-                download={narration.file.name}
-                className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-1 rounded text-[10px] font-bold transition"
-              >
-                <Save className="w-3 h-3" /> 保存
-              </a>
-            )}
-          </div>
-          <div className="space-y-1">
-            <div className="flex justify-between text-[10px] md:text-xs text-gray-400">
-              <span>開始位置 (頭出し): {formatTime(narration.startPoint)}</span>
-              <span>長さ: {formatTime(narration.duration)}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <SwipeProtectedSlider
-                min={0}
-                max={narration.duration}
-                step={0.1}
-                value={narration.startPoint}
-                onChange={handleStartPointChange}
-                disabled={isNarrationLocked}
-                className="flex-1 accent-indigo-500 h-1 bg-gray-700 rounded appearance-none cursor-pointer disabled:opacity-50"
-              />
-              <input
-                type="number"
-                min="0"
-                max={narration.duration}
-                step="0.1"
-                value={narration.startPoint}
-                onChange={(e) => onUpdateStartPoint(e.target.value)}
-                disabled={isNarrationLocked}
-                className="w-16 md:w-20 bg-gray-700 border border-gray-600 rounded px-1 text-[10px] md:text-xs text-right focus:outline-none focus:border-indigo-500 disabled:opacity-50"
-              />
-              <span className="text-[10px] md:text-xs text-gray-500">秒</span>
-            </div>
-          </div>
-          <div className="bg-indigo-900/30 p-2 lg:p-3 rounded border border-indigo-500/30 space-y-1">
-            <div className="flex items-center gap-2 text-[10px] md:text-xs text-indigo-200">
-              <Timer className="w-3 h-3" />
-              <span>開始タイミング (遅延): {formatTime(narration.delay || 0)}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <SwipeProtectedSlider
-                min={0}
-                max={totalDuration}
-                step={0.1}
-                value={narration.delay || 0}
-                onChange={handleDelayChange}
-                disabled={isNarrationLocked}
-                className="flex-1 accent-indigo-400 h-1 bg-gray-700 rounded appearance-none cursor-pointer disabled:opacity-50"
-              />
-              <input
-                type="number"
-                min="0"
-                max={totalDuration}
-                step={0.1}
-                value={narration.delay || 0}
-                onChange={(e) => onUpdateDelay(e.target.value)}
-                disabled={isNarrationLocked}
-                className="w-16 md:w-20 bg-gray-700 border border-gray-600 rounded px-1 text-[10px] md:text-xs text-right focus:outline-none focus:border-indigo-400 disabled:opacity-50"
-              />
-              <span className="text-[10px] md:text-xs text-gray-500">秒</span>
-            </div>
-          </div>
-          {/* 音量コントロール */}
-          <div className="bg-gray-800/50 p-2 rounded-lg flex items-center gap-2">
-            <Volume2 className="w-3 h-3 text-gray-400" />
-            <SwipeProtectedSlider
-              min={0}
-              max={2.0}
-              step={0.05}
-              value={narration.volume}
-              onChange={handleVolumeChange}
-              disabled={isNarrationLocked}
-              className={`flex-1 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isNarrationLocked ? '' : 'cursor-pointer'}`}
-            />
-            <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right">{Math.round(narration.volume * 100)}%</span>
-            <button
-              onClick={() => onUpdateVolume('1')}
-              disabled={isNarrationLocked}
-              className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition disabled:opacity-50"
-              title="リセット"
-            >
-              <RefreshCw className="w-3 h-3" />
-            </button>
-          </div>
 
-          {/* フェード設定 */}
-          <div className="flex flex-col gap-2 mt-2 text-[10px] md:text-xs">
-            {/* フェードイン */}
-            <div className="flex items-center gap-2">
-              <label
-                className={`flex items-center gap-1 w-24 justify-start ${isNarrationLocked ? 'opacity-50' : 'cursor-pointer'}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={narration.fadeIn}
-                  onChange={(e) => onToggleFadeIn(e.target.checked)}
-                  disabled={isNarrationLocked}
-                  className="accent-indigo-500 rounded cursor-pointer disabled:opacity-50 disabled:cursor-default"
-                />
-                <span className="whitespace-nowrap">フェードイン</span>
-              </label>
-              <SwipeProtectedSlider
-                min={0}
-                max={2}
-                step={1}
-                value={narration.fadeInDuration === 0.5 ? 0 : narration.fadeInDuration === 1.0 ? 1 : 2}
-                onChange={(val) => {
-                  const steps = [0.5, 1.0, 2.0];
-                  onUpdateFadeInDuration(steps[val]);
-                }}
-                disabled={isNarrationLocked || !narration.fadeIn}
-                className={`flex-1 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isNarrationLocked || !narration.fadeIn ? '' : 'cursor-pointer'}`}
-              />
-              <span className={`w-8 text-right whitespace-nowrap ${isNarrationLocked || !narration.fadeIn ? 'text-gray-600' : 'text-gray-400'}`}>{narration.fadeInDuration}秒</span>
+      {isOpen && (
+        <div className="p-3 lg:p-4 space-y-3 max-h-75 lg:max-h-128 overflow-y-auto custom-scrollbar">
+          {narrations.length === 0 && (
+            <div className="text-center py-8 text-gray-600 text-xs md:text-sm border-2 border-dashed border-gray-800 rounded">
+              ナレーションはまだありません。AI追加またはファイル追加で作成できます。
             </div>
+          )}
 
-            {/* フェードアウト */}
-            <div className="flex items-center gap-2">
-              <label
-                className={`flex items-center gap-1 w-24 justify-start ${isNarrationLocked ? 'opacity-50' : 'cursor-pointer'}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={narration.fadeOut}
-                  onChange={(e) => onToggleFadeOut(e.target.checked)}
-                  disabled={isNarrationLocked}
-                  className="accent-indigo-500 rounded cursor-pointer disabled:opacity-50 disabled:cursor-default"
-                />
-                <span className="whitespace-nowrap">フェードアウト</span>
-              </label>
-              <SwipeProtectedSlider
-                min={0}
-                max={2}
-                step={1}
-                value={narration.fadeOutDuration === 0.5 ? 0 : narration.fadeOutDuration === 1.0 ? 1 : 2}
-                onChange={(val) => {
-                  const steps = [0.5, 1.0, 2.0];
-                  onUpdateFadeOutDuration(steps[val]);
-                }}
-                disabled={isNarrationLocked || !narration.fadeOut}
-                className={`flex-1 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isNarrationLocked || !narration.fadeOut ? '' : 'cursor-pointer'}`}
-              />
-              <span className={`w-8 text-right whitespace-nowrap ${isNarrationLocked || !narration.fadeOut ? 'text-gray-600' : 'text-gray-400'}`}>{narration.fadeOutDuration}秒</span>
-            </div>
-          </div>
+          {narrations.map((clip, index) => {
+            const isAi = clip.sourceType === 'ai';
+
+            return (
+              <div key={clip.id} className="p-3 bg-indigo-900/10 border border-indigo-500/20 rounded-xl space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-xs text-gray-500 font-mono shrink-0">[{index + 1}]</span>
+                    {isAi ? <Mic className="w-3.5 h-3.5 text-indigo-400 shrink-0" /> : <FileAudio className="w-3.5 h-3.5 text-cyan-400 shrink-0" />}
+                    <span className="text-xs md:text-sm text-indigo-100 truncate" title={clip.file.name}>
+                      {clip.file.name}
+                    </span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${isAi ? 'bg-indigo-500/20 text-indigo-200' : 'bg-cyan-500/20 text-cyan-200'}`}>
+                      {isAi ? 'AI' : 'FILE'}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => onMoveNarration(clip.id, 'up')}
+                      disabled={index === 0 || isNarrationLocked}
+                      className="p-1 text-gray-400 hover:text-white disabled:opacity-30"
+                      title="上へ移動"
+                    >
+                      <ArrowUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => onMoveNarration(clip.id, 'down')}
+                      disabled={index === narrations.length - 1 || isNarrationLocked}
+                      className="p-1 text-gray-400 hover:text-white disabled:opacity-30"
+                      title="下へ移動"
+                    >
+                      <ArrowDown className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => onEditAiNarration(clip.id)}
+                      disabled={isNarrationLocked || !isAi}
+                      className="p-1 text-gray-400 hover:text-white disabled:opacity-30"
+                      title={isAi ? 'AIで編集' : 'ファイル追加のナレーションはAI編集できません'}
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => onRemoveNarration(clip.id)}
+                      disabled={isNarrationLocked}
+                      className="p-1 text-red-400 hover:text-red-300 disabled:opacity-30"
+                      title="削除"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                    {clip.blobUrl && (
+                      <a
+                        href={clip.blobUrl}
+                        download={clip.file.name}
+                        className="p-1 text-gray-400 hover:text-white"
+                        title="音声を保存"
+                      >
+                        <Save className="w-3.5 h-3.5" />
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[10px] md:text-xs text-gray-400">
+                    <span>開始位置: {formatTime(clip.startTime)}</span>
+                    <span>長さ: {formatTime(clip.duration)}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <SwipeProtectedSlider
+                      min={0}
+                      max={Math.max(0, totalDuration)}
+                      step={0.1}
+                      value={clip.startTime}
+                      onChange={(val) => handleStartTimeChange(clip.id, val)}
+                      disabled={isNarrationLocked}
+                      className="flex-1 accent-indigo-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
+                    />
+                    <button
+                      onClick={() => onSetStartTimeToCurrent(clip.id)}
+                      disabled={isNarrationLocked}
+                      className="p-1 text-gray-400 hover:text-indigo-300 disabled:opacity-30"
+                      title={`現在位置(${formatTime(currentTime)})を開始位置に設定`}
+                    >
+                      <MapPin className="w-3.5 h-3.5" />
+                    </button>
+                    <input
+                      type="number"
+                      min="0"
+                      max={Math.max(0, totalDuration)}
+                      step="0.1"
+                      value={clip.startTime}
+                      onChange={(e) => onUpdateStartTime(clip.id, e.target.value)}
+                      disabled={isNarrationLocked}
+                      className="w-16 md:w-20 bg-gray-700 border border-gray-600 rounded px-1 text-[10px] md:text-xs text-right focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+                    />
+                    <span className="text-[10px] md:text-xs text-gray-500">秒</span>
+                  </div>
+                </div>
+
+                <div className="bg-gray-800/50 p-2 rounded-lg flex items-center gap-2">
+                  <Volume2 className="w-3.5 h-3.5 text-gray-400" />
+                  <SwipeProtectedSlider
+                    min={0}
+                    max={2.0}
+                    step={0.05}
+                    value={clip.volume}
+                    onChange={(val) => handleVolumeChange(clip.id, val)}
+                    disabled={isNarrationLocked}
+                    className={`flex-1 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isNarrationLocked ? '' : 'cursor-pointer'}`}
+                  />
+                  <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right">{Math.round(clip.volume * 100)}%</span>
+                  <button
+                    onClick={() => onUpdateVolume(clip.id, '1')}
+                    disabled={isNarrationLocked}
+                    className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition disabled:opacity-50"
+                    title="リセット"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </section>

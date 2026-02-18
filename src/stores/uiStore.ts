@@ -1,6 +1,6 @@
 /**
  * UIストア - Zustand
- * UI状態�E再生・エクスポ�Eト�EAIモーダルの状態管琁E
+ * UI状態・再生・エクスポート・AIモーダルの状態管理
  */
 
 /**
@@ -185,7 +185,7 @@ export const useUIStore = create<UIState>()(
 
       setExportUrl: (url) => {
         const { exportUrl } = get();
-        // 既存�EURLを解放
+        // 既存URLを解放
         if (exportUrl) {
           URL.revokeObjectURL(exportUrl);
         }

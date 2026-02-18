@@ -53,6 +53,23 @@ export interface AudioTrack {
   isAi: boolean;
 }
 
+export type NarrationSourceType = 'ai' | 'file';
+
+export interface NarrationClip {
+  id: string;
+  sourceType: NarrationSourceType;
+  file: File | { name: string };
+  url: string;
+  blobUrl?: string;
+  startTime: number;
+  volume: number;
+  duration: number;
+  isAiEditable: boolean;
+  aiScript?: string;
+  aiVoice?: VoiceId;
+  aiVoiceStyle?: string;
+}
+
 // メディア要素の参照型
 export type MediaElementsRef = Record<string, HTMLVideoElement | HTMLImageElement | HTMLAudioElement>;
 
@@ -71,7 +88,7 @@ export interface ToastProps {
 export interface MediaResourceLoaderProps {
   mediaItems: MediaItem[];
   bgm: AudioTrack | null;
-  narration: AudioTrack | null;
+  narrations: NarrationClip[];
   onElementLoaded: (id: string, element: HTMLVideoElement | HTMLImageElement | HTMLAudioElement) => void;
   onRefAssign: (id: string, element: HTMLVideoElement | HTMLImageElement | HTMLAudioElement | null) => void;
   onSeeked: () => void;

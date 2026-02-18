@@ -489,5 +489,53 @@
   - 差分判定ハッシュは、通常ファイルは内容ハッシュ、symlink は `readlink()` のリンク先文字列を使う。
   - `latest` / `base` の両戦略で symlink を欠落させずに同期する。
 - **Caution**:
-  - symlink をハッシュ対象から外すと `hasDiff=false` となり、必要な同期がスキップされる可能性がある。
-  - symlink を `stat/readFile` 前提で扱うと、リンク先の変更検知が不正確になる。
+- symlink をハッシュ対象から外すと `hasDiff=false` となり、必要な同期がスキップされる可能性がある。
+- symlink を `stat/readFile` 前提で扱うと、リンク先の変更検知が不正確になる。
+
+---
+
+## 13. 文字コード・AI TTS 応答処理
+
+### 13-1. ソース文字コードの UTF-8 統一
+
+- **ファイル**: `src/components/sections/NarrationSection.tsx`, `src/stores/audioStore.ts`, `src/stores/projectStore.ts`
+- **問題**: 一部ファイルが CP932 で保存されると、ビルド時に UTF-8 として解釈され、UI 文言が文字化けする
+- **対策**:
+  - 日本語文言を含むソースは UTF-8（BOMなし）で統一
+  - 変換時は「CP932として読み取り → UTF-8で再保存」を行い、文字列自体は維持する
+- **注意**:
+  - PowerShell の既定エンコーディングで書き戻すと再発しやすい。書き込み時は `-Encoding utf8` または明示的な UTF-8 指定を使う
+  - 画面上で `�` が出た場合は、まず対象ファイルの UTF-8 妥当性を確認する
+
+### 13-2. Gemini TTS の `inlineData` 探索を固定位置依存にしない
+
+- **ファイル**: `src/components/TurtleVideo.tsx`（`generateSpeech`）
+- **問題**: `candidates[0].content.parts[0].inlineData` に固定すると、応答の並びや形式差分で `inlineData` を拾えず「音声データを取得できませんでした」になる
+- **対策**:
+  - 全 `candidates[].content.parts[]` を走査し、`inlineData` / `inline_data` の両方を探索
+  - `promptFeedback.blockReason` / `finishReason` を補助情報として扱い、エラー原因を判別しやすくする
+  - `mimeType` が WAV の場合は再変換せず利用し、PCM 系のみ WAV へ変換する
+- **注意**:
+  - `inlineData` 欠落時は API 側の安全ブロックや応答形式差分の可能性があるため、コンソール警告ログを確認する
+  - `Model tried to generate text ... only be used for TTS` が返る場合は、話し方指示付きプロンプトが拒否されている可能性がある。`src/components/TurtleVideo.tsx` ではこのエラー時に「声の調子なしの素の原稿」で自動リトライする
+  - `finishReason=OTHER` で音声未返却の場合は、`Say ...` / `TTS ... exactly` の厳密プロンプトへ切替えて再試行する
+  - リトライは API コールを追加で消費するため、現在は最大2回（初回 + フォールバック1回）に制限してレートリミット悪化を抑える
+
+### 13-3. ナレーションセクションの縦スクロール統一
+
+- **ファイル**: `src/components/sections/NarrationSection.tsx`
+- **問題**: ナレーションが増えるとセクションが伸び続け、動画・画像セクションと操作感が不一致になる
+- **対策**: `max-h-75 lg:max-h-128 overflow-y-auto custom-scrollbar` を適用し、動画・画像セクションと同じ固定高さ + 内部スクロールに統一
+- **注意**: モバイルの誤操作防止のため、既存の `SwipeProtectedSlider` は維持する
+
+### 13-4. ナレーションの複数ファイル一括追加
+
+- **ファイル**: `src/components/sections/NarrationSection.tsx`, `src/components/TurtleVideo.tsx`
+- **問題**: ナレーションファイル入力が単一選択のみで、動画・画像セクションと操作性が揃っていない
+- **対策**:
+  - `NarrationSection` のファイル入力に `multiple` を付与
+  - `handleNarrationUpload` を複数ファイル対応に変更し、選択された全ファイルを順番にメタデータ読み込みして `addNarration` する
+  - 読み込み失敗したファイルは `ObjectURL` を解放し、失敗件数をトースト表示する
+- **注意**:
+  - 一括追加後の開始位置は「追加時点の currentTime スナップショット」を全ファイルに適用する
+  - TTS側のフォールバックリトライと同様に、API呼び出しが増える処理は必要最小限に維持する

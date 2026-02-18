@@ -1,25 +1,38 @@
 /**
  * @file audioStore.ts
  * @author Turtle Village
- * @description BGMおよびナレーションの状態管理を行うZustandストア。各トラックのプロパティ（音量、フェード、ロック状態など）を保持する。
+ * @description Audio state store (BGM and narrations)
  */
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import type { AudioTrack } from '../types';
+import type { AudioTrack, NarrationClip, NarrationSourceType } from '../types';
 import { revokeObjectUrl } from '../utils';
 import { useLogStore } from './logStore';
+
+interface CreateNarrationClipParams {
+  file: File | { name: string };
+  url: string;
+  duration: number;
+  startTime: number;
+  sourceType: NarrationSourceType;
+  blobUrl?: string;
+  volume?: number;
+  aiScript?: string;
+  aiVoice?: NarrationClip['aiVoice'];
+  aiVoiceStyle?: string;
+}
 
 interface AudioState {
   // BGM
   bgm: AudioTrack | null;
   isBgmLocked: boolean;
 
-  // Narration
-  narration: AudioTrack | null;
+  // Narrations
+  narrations: NarrationClip[];
   isNarrationLocked: boolean;
 
-  // BGM Actions
+  // BGM actions
   setBgm: (track: AudioTrack | null) => void;
   updateBgmStartPoint: (value: number) => void;
   updateBgmDelay: (value: number) => void;
@@ -31,17 +44,19 @@ interface AudioState {
   toggleBgmLock: () => void;
   removeBgm: () => void;
 
-  // Narration Actions
-  setNarration: (track: AudioTrack | null) => void;
-  updateNarrationStartPoint: (value: number) => void;
-  updateNarrationDelay: (value: number) => void;
-  updateNarrationVolume: (value: number) => void;
-  toggleNarrationFadeIn: (enabled: boolean) => void;
-  toggleNarrationFadeOut: (enabled: boolean) => void;
-  updateNarrationFadeInDuration: (duration: number) => void;
-  updateNarrationFadeOutDuration: (duration: number) => void;
+  // Narration actions
+  addNarration: (clip: NarrationClip) => void;
+  updateNarrationStartTime: (id: string, value: number) => void;
+  updateNarrationVolume: (id: string, value: number) => void;
+  updateNarrationMeta: (id: string, updates: Partial<NarrationClip>) => void;
+  replaceNarrationAudio: (
+    id: string,
+    payload: Pick<NarrationClip, 'file' | 'url' | 'blobUrl' | 'duration' | 'sourceType' | 'isAiEditable' | 'aiScript' | 'aiVoice' | 'aiVoiceStyle'>
+  ) => void;
+  moveNarration: (id: string, direction: 'up' | 'down') => void;
+  removeNarration: (id: string) => void;
+  setNarrations: (clips: NarrationClip[]) => void;
   toggleNarrationLock: () => void;
-  removeNarration: () => void;
 
   // Clear
   clearAllAudio: () => void;
@@ -50,12 +65,22 @@ interface AudioState {
   restoreFromSave: (
     bgm: AudioTrack | null,
     isBgmLocked: boolean,
-    narration: AudioTrack | null,
+    narrations: NarrationClip[],
     isNarrationLocked: boolean
   ) => void;
 }
 
-// Helper: オーディオファイルからトラックを作成
+function generateNarrationId(): string {
+  return `narration_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function revokeNarrationUrls(clips: NarrationClip[]): void {
+  clips.forEach((clip) => {
+    if (clip.url) revokeObjectUrl(clip.url);
+  });
+}
+
+// Helper: create BGM track
 export function createAudioTrack(
   file: File,
   duration: number,
@@ -77,23 +102,41 @@ export function createAudioTrack(
   };
 }
 
+// Helper: create narration clip
+export function createNarrationClip(params: CreateNarrationClipParams): NarrationClip {
+  return {
+    id: generateNarrationId(),
+    sourceType: params.sourceType,
+    file: params.file,
+    url: params.url,
+    blobUrl: params.blobUrl,
+    startTime: Math.max(0, params.startTime),
+    volume: Math.max(0, Math.min(2.0, params.volume ?? 1.0)),
+    duration: params.duration,
+    isAiEditable: params.sourceType === 'ai',
+    aiScript: params.aiScript,
+    aiVoice: params.aiVoice,
+    aiVoiceStyle: params.aiVoiceStyle,
+  };
+}
+
 export const useAudioStore = create<AudioState>()(
   devtools(
     (set, get) => ({
       // Initial state
       bgm: null,
       isBgmLocked: false,
-      narration: null,
+      narrations: [],
       isNarrationLocked: false,
 
-      // === BGM Actions ===
+      // === BGM actions ===
       setBgm: (track) => {
         const { bgm } = get();
         if (bgm?.url) revokeObjectUrl(bgm.url);
-        useLogStore.getState().info('AUDIO', 'BGMを設定', { 
+        useLogStore.getState().info('AUDIO', 'BGMを設定', {
           fileName: track?.file instanceof File ? track.file.name : track?.file?.name || 'unknown',
           duration: track?.duration || 0,
-          isAi: track?.isAi || false
+          isAi: track?.isAi || false,
         });
         set({ bgm: track });
       },
@@ -156,117 +199,145 @@ export const useAudioStore = create<AudioState>()(
         const { bgm } = get();
         if (bgm?.url) {
           useLogStore.getState().info('AUDIO', 'BGMを削除', {
-            fileName: bgm.file instanceof File ? bgm.file.name : (bgm.file as { name: string }).name
+            fileName: bgm.file instanceof File ? bgm.file.name : (bgm.file as { name: string }).name,
           });
           revokeObjectUrl(bgm.url);
         }
         set({ bgm: null });
       },
 
-      // === Narration Actions ===
-      setNarration: (track) => {
-        const { narration } = get();
-        if (narration?.url) revokeObjectUrl(narration.url);
-        useLogStore.getState().info('AUDIO', 'ナレーションを設定', { 
-          fileName: track?.file instanceof File ? track.file.name : track?.file?.name || 'unknown',
-          duration: track?.duration || 0,
-          isAi: track?.isAi || false
+      // === Narration actions ===
+      addNarration: (clip) => {
+        useLogStore.getState().info('AUDIO', 'ナレーションを追加', {
+          id: clip.id,
+          fileName: clip.file instanceof File ? clip.file.name : clip.file.name,
+          sourceType: clip.sourceType,
+          startTime: clip.startTime,
+          duration: clip.duration,
         });
-        set({ narration: track });
+        set((state) => ({ narrations: [...state.narrations, clip] }));
       },
 
-      updateNarrationStartPoint: (value) => {
+      updateNarrationStartTime: (id, value) => {
+        set((state) => ({
+          narrations: state.narrations.map((clip) => {
+            if (clip.id !== id) return clip;
+            return { ...clip, startTime: Math.max(0, value) };
+          }),
+        }));
+      },
+
+      updateNarrationVolume: (id, value) => {
+        set((state) => ({
+          narrations: state.narrations.map((clip) => {
+            if (clip.id !== id) return clip;
+            return { ...clip, volume: Math.max(0, Math.min(2.0, value)) };
+          }),
+        }));
+      },
+
+      updateNarrationMeta: (id, updates) => {
+        set((state) => ({
+          narrations: state.narrations.map((clip) => {
+            if (clip.id !== id) return clip;
+            const next = { ...clip, ...updates };
+            next.startTime = Math.max(0, next.startTime);
+            next.volume = Math.max(0, Math.min(2.0, next.volume));
+            return next;
+          }),
+        }));
+      },
+
+      replaceNarrationAudio: (id, payload) => {
+        set((state) => ({
+          narrations: state.narrations.map((clip) => {
+            if (clip.id !== id) return clip;
+            if (clip.url && clip.url !== payload.url) {
+              revokeObjectUrl(clip.url);
+            }
+            return {
+              ...clip,
+              file: payload.file,
+              url: payload.url,
+              blobUrl: payload.blobUrl,
+              duration: payload.duration,
+              sourceType: payload.sourceType,
+              isAiEditable: payload.isAiEditable,
+              aiScript: payload.aiScript,
+              aiVoice: payload.aiVoice,
+              aiVoiceStyle: payload.aiVoiceStyle,
+            };
+          }),
+        }));
+      },
+
+      moveNarration: (id, direction) => {
         set((state) => {
-          if (!state.narration) return state;
-          const safeValue = Math.max(0, Math.min(state.narration.duration, value));
-          return { narration: { ...state.narration, startPoint: safeValue } };
+          const idx = state.narrations.findIndex((clip) => clip.id === id);
+          if (idx < 0) return state;
+          const target = direction === 'up' ? idx - 1 : idx + 1;
+          if (target < 0 || target >= state.narrations.length) return state;
+          const next = [...state.narrations];
+          [next[idx], next[target]] = [next[target], next[idx]];
+          return { narrations: next };
         });
       },
 
-      updateNarrationDelay: (value) => {
-        set((state) => {
-          if (!state.narration) return state;
-          return { narration: { ...state.narration, delay: Math.max(0, value) } };
-        });
+      removeNarration: (id) => {
+        const clip = get().narrations.find((item) => item.id === id);
+        if (clip?.url) {
+          useLogStore.getState().info('AUDIO', 'ナレーションを削除', {
+            id: clip.id,
+            fileName: clip.file instanceof File ? clip.file.name : clip.file.name,
+          });
+          revokeObjectUrl(clip.url);
+        }
+
+        set((state) => ({
+          narrations: state.narrations.filter((item) => item.id !== id),
+        }));
       },
 
-      updateNarrationVolume: (value) => {
-        set((state) => {
-          if (!state.narration) return state;
-          return { narration: { ...state.narration, volume: Math.max(0, Math.min(2.0, value)) } };
-        });
-      },
-
-      toggleNarrationFadeIn: (enabled) => {
-        set((state) => {
-          if (!state.narration) return state;
-          return { narration: { ...state.narration, fadeIn: enabled } };
-        });
-      },
-
-      toggleNarrationFadeOut: (enabled) => {
-        set((state) => {
-          if (!state.narration) return state;
-          return { narration: { ...state.narration, fadeOut: enabled } };
-        });
-      },
-
-      updateNarrationFadeInDuration: (duration) => {
-        set((state) => {
-          if (!state.narration) return state;
-          return { narration: { ...state.narration, fadeInDuration: duration } };
-        });
-      },
-
-      updateNarrationFadeOutDuration: (duration) => {
-        set((state) => {
-          if (!state.narration) return state;
-          return { narration: { ...state.narration, fadeOutDuration: duration } };
-        });
+      setNarrations: (clips) => {
+        const { narrations } = get();
+        revokeNarrationUrls(narrations);
+        set({ narrations: clips });
       },
 
       toggleNarrationLock: () => {
         set((state) => ({ isNarrationLocked: !state.isNarrationLocked }));
       },
 
-      removeNarration: () => {
-        const { narration } = get();
-        if (narration?.url) {
-          useLogStore.getState().info('AUDIO', 'ナレーションを削除', {
-            fileName: narration.file instanceof File ? narration.file.name : (narration.file as { name: string }).name
-          });
-          revokeObjectUrl(narration.url);
-        }
-        set({ narration: null });
-      },
-
-      // === Clear All ===
+      // === Clear all ===
       clearAllAudio: () => {
-        const { bgm, narration } = get();
-        useLogStore.getState().info('AUDIO', '全オーディオをクリア', { 
-          hasBgm: !!bgm, 
-          hasNarration: !!narration 
+        const { bgm, narrations } = get();
+        useLogStore.getState().info('AUDIO', '全オーディオをクリア', {
+          hasBgm: !!bgm,
+          narrationCount: narrations.length,
         });
+
         if (bgm?.url) revokeObjectUrl(bgm.url);
-        if (narration?.url) revokeObjectUrl(narration.url);
+        revokeNarrationUrls(narrations);
+
         set({
           bgm: null,
           isBgmLocked: false,
-          narration: null,
+          narrations: [],
           isNarrationLocked: false,
         });
       },
 
       // === Restore from save ===
-      restoreFromSave: (newBgm, newIsBgmLocked, newNarration, newIsNarrationLocked) => {
-        const { bgm, narration } = get();
-        // 既存のURLを解放
+      restoreFromSave: (newBgm, newIsBgmLocked, newNarrations, newIsNarrationLocked) => {
+        const { bgm, narrations } = get();
+
         if (bgm?.url) revokeObjectUrl(bgm.url);
-        if (narration?.url) revokeObjectUrl(narration.url);
+        revokeNarrationUrls(narrations);
+
         set({
           bgm: newBgm,
           isBgmLocked: newIsBgmLocked,
-          narration: newNarration,
+          narrations: newNarrations,
           isNarrationLocked: newIsNarrationLocked,
         });
       },

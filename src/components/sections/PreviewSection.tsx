@@ -16,12 +16,12 @@ import {
   Camera,
 
 } from 'lucide-react';
-import type { MediaItem, AudioTrack } from '../../types';
+import type { MediaItem, AudioTrack, NarrationClip } from '../../types';
 
 interface PreviewSectionProps {
   mediaItems: MediaItem[];
   bgm: AudioTrack | null;
-  narration: AudioTrack | null;
+  narrations: NarrationClip[];
   canvasRef: RefObject<HTMLCanvasElement | null>;
   currentTime: number;
   totalDuration: number;
@@ -48,7 +48,7 @@ interface PreviewSectionProps {
 const PreviewSection: React.FC<PreviewSectionProps> = ({
   mediaItems,
   bgm,
-  narration,
+  narrations,
   canvasRef,
   currentTime,
   totalDuration,
@@ -210,7 +210,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
           <div className="flex items-center justify-between gap-4">
             <button
               onClick={onClearAll}
-              disabled={mediaItems.length === 0 && !bgm && !narration}
+              disabled={mediaItems.length === 0 && !bgm && narrations.length === 0}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm lg:text-base font-medium text-gray-400 hover:bg-red-900/20 hover:text-red-400 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <RotateCcw className="w-4 h-4 lg:w-5 lg:h-5" /> 一括クリア
