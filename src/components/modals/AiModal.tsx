@@ -3,9 +3,9 @@
  * @author Turtle Village
  * @description AIナレーションを生成するためのモーダルダイアログ。プロンプト入力、スクリプト生成、音声合成のフローを提供する。
  */
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Sparkles, X, Loader, FileText, Mic, ChevronDown } from 'lucide-react';
-import type { VoiceOption, VoiceId } from '../../types';
+import type { VoiceOption, VoiceId, NarrationScriptLength } from '../../types';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 
 interface AiModalProps {
@@ -13,12 +13,14 @@ interface AiModalProps {
   onClose: () => void;
   aiPrompt: string;
   aiScript: string;
+  aiScriptLength: NarrationScriptLength;
   aiVoice: VoiceId;
   aiVoiceStyle: string;
   isAiLoading: boolean;
   voiceOptions: VoiceOption[];
   onPromptChange: (value: string) => void;
   onScriptChange: (value: string) => void;
+  onScriptLengthChange: (value: NarrationScriptLength) => void;
   onVoiceChange: (value: VoiceId) => void;
   onVoiceStyleChange: (value: string) => void;
   onGenerateScript: () => void;
@@ -33,12 +35,14 @@ const AiModal: React.FC<AiModalProps> = ({
   onClose,
   aiPrompt,
   aiScript,
+  aiScriptLength,
   aiVoice,
   aiVoiceStyle,
   isAiLoading,
   voiceOptions,
   onPromptChange,
   onScriptChange,
+  onScriptLengthChange,
   onVoiceChange,
   onVoiceStyleChange,
   onGenerateScript,
@@ -46,6 +50,97 @@ const AiModal: React.FC<AiModalProps> = ({
 }) => {
   // モーダル表示中は背景のスクロールを防止
   useDisableBodyScroll(isOpen);
+
+  const tonePresets = [
+    { id: 'standard', label: '標準', value: '' },
+    { id: 'bright', label: '明るく', value: '明るく、親しみやすく' },
+    { id: 'calm', label: '落ち着いて', value: '落ち着いて、ゆっくり丁寧に' },
+  ] as const;
+
+  const characterPresets = [
+    { id: 'youthful', label: '若々しい', value: '若々しく、軽やかに' },
+    { id: 'senior', label: '年配', value: '年配らしい深みのある調子で' },
+    { id: 'anime', label: 'アニメ調', value: 'アニメ風に、抑揚をつけて' },
+  ] as const;
+
+  type TonePresetId = typeof tonePresets[number]['id'];
+  type CharacterPresetId = typeof characterPresets[number]['id'];
+
+  const cleanupStyleText = (text: string): string =>
+    text
+      .replace(/[。\s,、]{2,}/g, ' ')
+      .replace(/^[。\s,、]+/, '')
+      .replace(/[。\s,、]+$/, '')
+      .trim();
+
+  const removeStyleFragment = (text: string, fragment: string): string =>
+    cleanupStyleText(text.replace(fragment, ' '));
+
+  const buildVoiceStyle = (
+    toneId: TonePresetId,
+    characterIds: CharacterPresetId[],
+    customText: string
+  ): string => {
+    const tone = tonePresets.find((item) => item.id === toneId)?.value.trim() ?? '';
+    const characterValues = characterPresets
+      .filter((item) => characterIds.includes(item.id))
+      .map((item) => item.value.trim())
+      .filter((value) => value.length > 0);
+    const custom = customText.trim();
+    const fragments = [tone, ...characterValues, custom].filter((value) => value.length > 0);
+    return fragments.join('。');
+  };
+
+  const parseVoiceStyle = (
+    value: string
+  ): { toneId: TonePresetId; characterIds: CharacterPresetId[]; customText: string } => {
+    const normalized = value.trim();
+    if (!normalized) {
+      return { toneId: 'standard', characterIds: [], customText: '' };
+    }
+
+    let remaining = normalized;
+    let toneId: TonePresetId = 'standard';
+    for (const preset of tonePresets) {
+      if (!preset.value) {
+        continue;
+      }
+      if (remaining.includes(preset.value)) {
+        toneId = preset.id;
+        remaining = removeStyleFragment(remaining, preset.value);
+        break;
+      }
+    }
+
+    const characterIds: CharacterPresetId[] = [];
+    for (const preset of characterPresets) {
+      if (remaining.includes(preset.value)) {
+        characterIds.push(preset.id);
+        remaining = removeStyleFragment(remaining, preset.value);
+      }
+    }
+
+    return { toneId, characterIds, customText: cleanupStyleText(remaining) };
+  };
+
+  const [selectedTonePreset, setSelectedTonePreset] = useState<TonePresetId>('standard');
+  const [selectedCharacterPresets, setSelectedCharacterPresets] = useState<CharacterPresetId[]>([]);
+  const [customVoiceStyle, setCustomVoiceStyle] = useState('');
+
+  useEffect(() => {
+    const parsedVoiceStyle = parseVoiceStyle(aiVoiceStyle);
+    setSelectedTonePreset(parsedVoiceStyle.toneId);
+    setSelectedCharacterPresets(parsedVoiceStyle.characterIds);
+    setCustomVoiceStyle(parsedVoiceStyle.customText);
+  }, [aiVoiceStyle, isOpen]);
+
+  const syncVoiceStyle = (
+    toneId: TonePresetId,
+    characterIds: CharacterPresetId[],
+    customText: string
+  ) => {
+    onVoiceStyleChange(buildVoiceStyle(toneId, characterIds, customText));
+  };
 
   if (!isOpen) return null;
 
@@ -60,46 +155,90 @@ const AiModal: React.FC<AiModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
-        <div className="p-6 space-y-6">
+        <div className="p-4 md:p-6 space-y-5 md:space-y-6 max-h-[78vh] overflow-y-auto">
+          <div className="space-y-3">
+            <label className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
+              Step 1: テーマ入力（任意）
+            </label>
+            <input
+              type="text"
+              value={aiPrompt}
+              onChange={(e) => onPromptChange(e.target.value)}
+              placeholder="例: 京都旅行の動画"
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500"
+            />
+            <div className="text-xs text-gray-500">
+              テーマを入れずに、Step 2へ直接入力して音声生成することもできます。
+            </div>
+            <fieldset className="space-y-2 pt-1">
+              <legend className="text-xs font-bold text-gray-400 uppercase tracking-wider">文章の長さ</legend>
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex flex-wrap gap-3">
+                  <label className="inline-flex items-center gap-1.5 text-xs text-gray-300">
+                    <input
+                      type="radio"
+                      name="ai-script-length"
+                      checked={aiScriptLength === 'short'}
+                      onChange={() => onScriptLengthChange('short')}
+                      className="accent-purple-500"
+                    />
+                    短め
+                  </label>
+                  <label className="inline-flex items-center gap-1.5 text-xs text-gray-300">
+                    <input
+                      type="radio"
+                      name="ai-script-length"
+                      checked={aiScriptLength === 'medium'}
+                      onChange={() => onScriptLengthChange('medium')}
+                      className="accent-purple-500"
+                    />
+                    中くらい
+                  </label>
+                  <label className="inline-flex items-center gap-1.5 text-xs text-gray-300">
+                    <input
+                      type="radio"
+                      name="ai-script-length"
+                      checked={aiScriptLength === 'long'}
+                      onChange={() => onScriptLengthChange('long')}
+                      className="accent-purple-500"
+                    />
+                    長め
+                  </label>
+                </div>
+                <button
+                  onClick={onGenerateScript}
+                  disabled={isAiLoading || !aiPrompt.trim()}
+                  className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-1 disabled:opacity-50"
+                >
+                  {isAiLoading ? (
+                    <Loader className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <FileText className="w-4 h-4" />
+                  )}{' '}
+                  AI原稿を作成
+                </button>
+              </div>
+            </fieldset>
+          </div>
           <div className="space-y-2">
             <label className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
-              Step 1: テーマ入力
+              Step 2: 原稿編集（直接入力OK）
             </label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={aiPrompt}
-                onChange={(e) => onPromptChange(e.target.value)}
-                placeholder="例: 京都旅行の動画"
-                className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500"
-              />
-              <button
-                onClick={onGenerateScript}
-                disabled={isAiLoading || !aiPrompt}
-                className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-1 disabled:opacity-50"
-              >
-                {isAiLoading ? (
-                  <Loader className="w-4 h-4 animate-spin" />
-                ) : (
-                  <FileText className="w-4 h-4" />
-                )}{' '}
-                作成
-              </button>
-            </div>
+            <textarea
+              value={aiScript}
+              onChange={(e) => onScriptChange(e.target.value)}
+              placeholder="ここにそのままナレーション原稿を入力できます"
+              className="w-full h-24 bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm focus:outline-none focus:border-blue-500 resize-none"
+            />
           </div>
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
-                Step 2: 原稿編集
+                Step 3: 声の設定
               </label>
-              <textarea
-                value={aiScript}
-                onChange={(e) => onScriptChange(e.target.value)}
-                className="w-full h-24 bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm focus:outline-none focus:border-blue-500 resize-none"
-              />
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
+              <label className="text-xs font-bold text-gray-400 flex items-center gap-1">
                 声の選択
               </label>
               <div className="relative">
@@ -118,24 +257,88 @@ const AiModal: React.FC<AiModalProps> = ({
               </div>
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
+              <label className="text-xs font-bold text-gray-400 flex items-center gap-1">
                 声の調子（オプション）
               </label>
+              <fieldset className="space-y-2">
+                <legend className="sr-only">話し方の雰囲気</legend>
+                <div className="grid grid-cols-3 gap-2">
+                  {tonePresets.map((preset) => (
+                    <label
+                      key={preset.id}
+                      className={`rounded-md border px-2 py-2 text-center text-[11px] md:text-xs font-semibold cursor-pointer transition-colors ${
+                        selectedTonePreset === preset.id
+                          ? 'border-purple-500 bg-purple-500/20 text-white'
+                          : 'border-gray-700 bg-gray-900/40 text-gray-200 hover:border-gray-500'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="voice-style-tone"
+                        checked={selectedTonePreset === preset.id}
+                        onChange={() => {
+                          setSelectedTonePreset(preset.id);
+                          syncVoiceStyle(preset.id, selectedCharacterPresets, customVoiceStyle);
+                        }}
+                        className="sr-only"
+                      />
+                      {preset.label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <fieldset className="space-y-2">
+                <legend className="sr-only">話し方のキャラクター</legend>
+                <div className="grid grid-cols-3 gap-2">
+                  {characterPresets.map((preset) => {
+                    const selected = selectedCharacterPresets.includes(preset.id);
+                    return (
+                      <label
+                        key={preset.id}
+                        className={`rounded-md border px-2 py-2 text-center text-[11px] md:text-xs font-semibold cursor-pointer transition-colors ${
+                          selected
+                            ? 'border-cyan-500 bg-cyan-500/20 text-white'
+                            : 'border-gray-700 bg-gray-900/40 text-gray-200 hover:border-gray-500'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          name={`voice-style-character-${preset.id}`}
+                          checked={selected}
+                          onChange={() => {
+                            const nextCharacterPresets = selected
+                              ? selectedCharacterPresets.filter((id) => id !== preset.id)
+                              : [...selectedCharacterPresets, preset.id];
+                            setSelectedCharacterPresets(nextCharacterPresets);
+                            syncVoiceStyle(selectedTonePreset, nextCharacterPresets, customVoiceStyle);
+                          }}
+                          className="sr-only"
+                        />
+                        {preset.label}
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
               <input
                 type="text"
-                value={aiVoiceStyle}
-                onChange={(e) => onVoiceStyleChange(e.target.value)}
-                placeholder="例: まるでドラマの主人公のようにカッコいい二枚目"
+                value={customVoiceStyle}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setCustomVoiceStyle(value);
+                  syncVoiceStyle(selectedTonePreset, selectedCharacterPresets, value);
+                }}
+                placeholder="追加ニュアンス（任意） 例: 少し低めで、ニュース番組のように"
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
               />
-              <p className="text-[10px] text-gray-500">
-                入力すると、その調子・雰囲気で話します。空欄なら通常の声で読み上げます。
+              <p className="text-xs text-gray-500 leading-relaxed">
+                2段目は複数選択できます。自由入力は任意で追加できます。
               </p>
             </div>
           </div>
           <button
             onClick={onGenerateSpeech}
-            disabled={isAiLoading || !aiScript}
+            disabled={isAiLoading || !aiScript.trim()}
             className="w-full bg-linear-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 shadow-lg disabled:opacity-50 transition-all"
           >
             {isAiLoading ? (
@@ -143,7 +346,7 @@ const AiModal: React.FC<AiModalProps> = ({
             ) : (
               <Mic className="w-5 h-5" />
             )}{' '}
-            音声を生成して追加
+            AIナレーションを作成して追加
           </button>
         </div>
       </div>

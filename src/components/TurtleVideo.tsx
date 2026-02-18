@@ -5,13 +5,14 @@
  */
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 
-import type { MediaItem, AudioTrack, NarrationClip } from '../types';
+import type { MediaItem, AudioTrack, NarrationClip, NarrationScriptLength } from '../types';
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
   VOICE_OPTIONS,
   GEMINI_API_BASE_URL,
   GEMINI_SCRIPT_MODEL,
+  GEMINI_SCRIPT_FALLBACK_MODELS,
   GEMINI_TTS_MODEL,
   TTS_SAMPLE_RATE,
   SEEK_THROTTLE_MS,
@@ -178,6 +179,7 @@ const TurtleVideo: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [showProjectManager, setShowProjectManager] = useState(false);
   const [editingNarrationId, setEditingNarrationId] = useState<string | null>(null);
+  const [aiScriptLength, setAiScriptLength] = useState<NarrationScriptLength>('medium');
 
   // Ref
   const mediaItemsRef = useRef<MediaItem[]>([]);
@@ -1343,7 +1345,8 @@ const TurtleVideo: React.FC = () => {
   }, []);
 
   const generateScript = useCallback(async () => {
-    if (!aiPrompt) return;
+    const trimmedPrompt = aiPrompt.trim();
+    if (!trimmedPrompt) return;
     const apiKey = getApiKey();
     if (!apiKey) {
       setError('APIキーが設定されていません。右上の歯車アイコンから設定してください。');
@@ -1351,38 +1354,104 @@ const TurtleVideo: React.FC = () => {
     }
     setAiLoading(true);
     try {
-      const response = await fetch(
-        `${GEMINI_API_BASE_URL}/${GEMINI_SCRIPT_MODEL}:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  {
-                    text: `以下のテーマで、短い動画用のナレーション原稿を日本語で作成してください。文字数は100文字以内で、自然な話し言葉にしてください。\n\nテーマ: ${aiPrompt}\n\n【重要】出力には挨拶や「原稿案:」などの見出しを含めず、ナレーションで読み上げるセリフのテキストのみを出力してください。`,
-                  },
-                ],
+      const modelsToTry = [GEMINI_SCRIPT_MODEL, ...GEMINI_SCRIPT_FALLBACK_MODELS]
+        .filter((model, idx, arr) => arr.indexOf(model) === idx);
+      const lengthTargetByMode: Record<NarrationScriptLength, string> = {
+        short: '40〜70文字',
+        medium: '70〜120文字',
+        long: '120〜180文字',
+      };
+      const selectedLengthTarget = lengthTargetByMode[aiScriptLength];
+
+      const systemInstruction = [
+        'あなたは日本語の動画ナレーション原稿を作るプロです。',
+        '出力は読み上げる本文のみ、1段落、1つだけ返してください。',
+        '挨拶・見出し・箇条書き・注釈・引用符・絵文字は禁止です。',
+        'テーマに沿って、30秒前後の短尺動画で使える自然な口語文にしてください。',
+        `文字数は${selectedLengthTarget}を目安にし、聞き取りやすい短文中心にしてください。`,
+      ].join('\n');
+
+      const userPrompt = [
+        `テーマ: ${trimmedPrompt}`,
+        '用途: 短い動画のナレーション',
+        `希望する長さ: ${selectedLengthTarget}`,
+        '出力: ナレーション本文のみ',
+      ].join('\n');
+
+      type ScriptPart = { text?: string };
+      type ScriptCandidate = { content?: { parts?: ScriptPart[] } };
+      type ScriptResponse = { candidates?: ScriptCandidate[] };
+
+      const normalizeNarrationScript = (rawText: string): string => {
+        const withoutFence = rawText
+          .replace(/```[\s\S]*?```/g, (block) => block.replace(/```[a-zA-Z]*\n?/g, '').replace(/```/g, ''));
+        const flattened = withoutFence
+          .replace(/\r?\n+/g, ' ')
+          .replace(/^(原稿案|ナレーション|台本)\s*[:：]\s*/i, '')
+          .replace(/\s{2,}/g, ' ')
+          .trim();
+        return flattened.replace(/^[「『"']+|[」』"']+$/g, '').trim();
+      };
+
+      let lastErrorMessage = 'スクリプトの生成に失敗しました';
+      for (let i = 0; i < modelsToTry.length; i++) {
+        const model = modelsToTry[i];
+        const hasNextModel = i < modelsToTry.length - 1;
+
+        const response = await fetch(
+          `${GEMINI_API_BASE_URL}/${model}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              systemInstruction: {
+                parts: [{ text: systemInstruction }],
               },
-            ],
-          }),
+              contents: [
+                {
+                  parts: [{ text: userPrompt }],
+                },
+              ],
+            }),
+          }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({} as { error?: { message?: string } }));
+          const errorMessage = errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`;
+          lastErrorMessage = errorMessage;
+          const isModelUnavailable = /no longer available|not found|404|model.+(available|found)/i.test(errorMessage);
+          if (hasNextModel && isModelUnavailable) {
+            console.warn('Script model unavailable. Retrying with fallback model.', { model, errorMessage });
+            continue;
+          }
+          throw new Error(errorMessage);
         }
-      );
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        const errorMessage = errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`;
-        throw new Error(errorMessage);
+        const data = (await response.json()) as ScriptResponse;
+        const rawText = (data.candidates ?? [])
+          .flatMap((candidate) => candidate.content?.parts ?? [])
+          .map((part) => (typeof part.text === 'string' ? part.text : ''))
+          .join('\n')
+          .trim();
+        const script = normalizeNarrationScript(rawText);
+
+        if (script) {
+          setAiScript(script);
+          if (model !== GEMINI_SCRIPT_MODEL) {
+            showToast('スクリプト生成モデルを自動切替して生成しました。');
+          }
+          return;
+        }
+
+        lastErrorMessage = 'スクリプトの生成結果が空です';
+        if (hasNextModel) {
+          console.warn('Script text was empty. Retrying with fallback model.', { model });
+          continue;
+        }
       }
 
-      const data = await response.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (text) {
-        setAiScript(text.trim());
-      } else {
-        throw new Error('スクリプトの生成結果が空です');
-      }
+      throw new Error(lastErrorMessage);
     } catch (e) {
       console.error('Script generation error:', e);
       if (e instanceof TypeError && e.message.includes('fetch')) {
@@ -1401,7 +1470,7 @@ const TurtleVideo: React.FC = () => {
     } finally {
       setAiLoading(false);
     }
-  }, [aiPrompt, setAiLoading, setAiScript, setError]);
+  }, [aiPrompt, aiScriptLength, setAiLoading, setAiScript, setError, showToast]);
 
   const generateSpeech = useCallback(async () => {
     if (!aiScript) return;
@@ -2129,19 +2198,24 @@ const TurtleVideo: React.FC = () => {
     setEditingNarrationId(null);
     setAiScript('');
     setAiPrompt('');
+    setAiScriptLength('medium');
     openAiModal();
-  }, [openAiModal, setAiPrompt, setAiScript]);
+  }, [openAiModal, setAiPrompt, setAiScript, setAiScriptLength]);
 
   const handleEditAiNarration = useCallback((id: string) => {
     const target = narrations.find((clip) => clip.id === id);
     if (!target || !target.isAiEditable) return;
+    const currentScript = target.aiScript ?? '';
+    const inferredLength: NarrationScriptLength =
+      currentScript.length <= 70 ? 'short' : currentScript.length <= 120 ? 'medium' : 'long';
     setEditingNarrationId(id);
     setAiPrompt('');
-    setAiScript(target.aiScript ?? '');
+    setAiScript(currentScript);
+    setAiScriptLength(inferredLength);
     setAiVoice(target.aiVoice ?? 'Aoede');
     setAiVoiceStyle(target.aiVoiceStyle ?? '');
     openAiModal();
-  }, [narrations, openAiModal, setAiPrompt, setAiScript, setAiVoice, setAiVoiceStyle]);
+  }, [narrations, openAiModal, setAiPrompt, setAiScript, setAiScriptLength, setAiVoice, setAiVoiceStyle]);
 
   const handleCloseAiModal = useCallback(() => {
     setEditingNarrationId(null);
@@ -3417,12 +3491,14 @@ const TurtleVideo: React.FC = () => {
         onClose={handleCloseAiModal}
         aiPrompt={aiPrompt}
         aiScript={aiScript}
+        aiScriptLength={aiScriptLength}
         aiVoice={aiVoice}
         aiVoiceStyle={aiVoiceStyle}
         isAiLoading={isAiLoading}
         voiceOptions={VOICE_OPTIONS}
         onPromptChange={setAiPrompt}
         onScriptChange={setAiScript}
+        onScriptLengthChange={setAiScriptLength}
         onVoiceChange={setAiVoice}
         onVoiceStyleChange={setAiVoiceStyle}
         onGenerateScript={generateScript}

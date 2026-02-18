@@ -6,6 +6,7 @@
 
 // ボイスID (定数と連動)
 export type VoiceId = 'Aoede' | 'Kore' | 'Puck' | 'Fenrir' | 'Charon';
+export type NarrationScriptLength = 'short' | 'medium' | 'long';
 
 // ボイスオプション
 export interface VoiceOption {

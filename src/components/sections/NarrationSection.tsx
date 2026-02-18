@@ -136,6 +136,15 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
 
           {narrations.map((clip, index) => {
             const isAi = clip.sourceType === 'ai';
+            const rawEndTime = clip.startTime + clip.duration;
+            const hasEndMarker = totalDuration > 0;
+            const clampedEndTime = hasEndMarker
+              ? Math.max(0, Math.min(totalDuration, rawEndTime))
+              : 0;
+            const endMarkerPercent = hasEndMarker
+              ? (clampedEndTime / totalDuration) * 100
+              : 0;
+            const isEndOverflow = rawEndTime > totalDuration;
 
             return (
               <div key={clip.id} className="p-3 bg-indigo-900/10 border border-indigo-500/20 rounded-xl space-y-3">
@@ -203,15 +212,28 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                     <span>長さ: {formatTime(clip.duration)}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <SwipeProtectedSlider
-                      min={0}
-                      max={Math.max(0, totalDuration)}
-                      step={0.1}
-                      value={clip.startTime}
-                      onChange={(val) => handleStartTimeChange(clip.id, val)}
-                      disabled={isNarrationLocked}
-                      className="flex-1 accent-indigo-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
-                    />
+                    <div className="relative flex-1 pt-3">
+                      {hasEndMarker && (
+                        <div
+                          className="pointer-events-none absolute top-0 -translate-x-1/2 z-10"
+                          style={{ left: `${endMarkerPercent}%` }}
+                          aria-hidden="true"
+                        >
+                          <div
+                            className={`w-0 h-0 border-l-[7px] border-r-[7px] border-l-transparent border-r-transparent border-t-[9px] ${isEndOverflow ? 'border-t-amber-400/90' : 'border-t-indigo-300/90'}`}
+                          />
+                        </div>
+                      )}
+                      <SwipeProtectedSlider
+                        min={0}
+                        max={Math.max(0, totalDuration)}
+                        step={0.1}
+                        value={clip.startTime}
+                        onChange={(val) => handleStartTimeChange(clip.id, val)}
+                        disabled={isNarrationLocked}
+                        className="w-full accent-indigo-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
+                      />
+                    </div>
                     <button
                       onClick={() => onSetStartTimeToCurrent(clip.id)}
                       disabled={isNarrationLocked}
