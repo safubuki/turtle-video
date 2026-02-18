@@ -614,3 +614,84 @@
   - 最終ボタンを `AIナレーションを作成して追加` に変更し、音声生成と追加まで行う操作だと明示
 - **注意**:
   - 生成対象の区別（原稿 vs 音声）を文言で維持し、誤操作を防ぐ
+
+### 13-11. エクスポート音声の長さ超過・途切れ対策
+
+- **ファイル**: `src/hooks/useExport.ts`
+- **問題**:
+  - 実動画で「映像尺より音声尺が長い」「後半ナレーションが途切れる/プツプツする」事象が発生
+  - 既定のリアルタイム音声キャプチャ（TrackProcessor/ScriptProcessor）では、環境依存のバッファ遅延や終端超過が起きやすい
+- **対策**:
+  - `OfflineAudioContext` を iOS Safari 限定から全環境優先へ拡張し、エクスポート音声を非リアルタイムで確定生成
+  - プリレンダリング音声長を `totalDuration` へ厳密に合わせる（余剰マージン `+0.5s` を廃止）
+  - `feedPreRenderedAudio` に最大長指定を追加し、エンコード対象サンプル数を `totalDuration * sampleRate` で上限化
+  - リアルタイム音声フォールバック経路でも `maxAudioTimestampUs` を超えるチャンクを打ち切り
+- **注意**:
+  - `offlineAudioDone=true` のときは TrackProcessor 音声キャプチャを同時実行しない（二重エンコード防止）
+  - decode失敗時は既存フォールバック（ScriptProcessor / video要素抽出）を維持し、互換性を確保する
+
+### 13-12. 静止画区間で映像尺が短くなる問題（TrackProcessor）
+
+- **ファイル**: `src/hooks/useExport.ts`
+- **問題**:
+  - WebCodecs + `canvas.captureStream()` + `MediaStreamTrackProcessor` 経路では、Canvasに変化が少ない静止画区間でフレーム供給が疎になる場合がある
+  - その状態でCFR用に `frameIndex * frameDuration` へタイムスタンプを書き換えると、静止画区間が圧縮され「画像の表示時間だけ短い」見え方になる
+  - 結果として映像長が音声長より短くなり、後半でAVタイミングがズレる
+- **対策**:
+  - TrackProcessor映像経路でも `CanvasCaptureMediaStreamTrack.requestFrame()` を FPS 間隔で定期実行し、静止画区間でもフレームを明示供給
+  - 完了時/例外時の両方で frame pump の `setInterval` を必ず `clearInterval` する
+  - ログに frame pump 有効状態を出力し、現場診断を容易にする
+- **注意**:
+  - 本事象の主因はフェード設定ではなく、静止画区間のフレーム供給欠落とCFR補正の組み合わせ
+  - iOS Safari の MediaRecorder 経路にある frame pump と同種の対策を、WebCodecs 経路にも適用する
+
+### 13-13. `captureStream(FPS)` と `requestFrame()` 併用時の映像尺伸長
+
+- **ファイル**: `src/hooks/useExport.ts`
+- **問題**:
+  - `captureStream(FPS)` の自動供給に加えて `requestFrame()` を定期実行すると、ブラウザ実装によってはフレームが二重供給される
+  - CFRタイムスタンプ（`frameIndex * frameDuration`）でエンコードしているため、フレーム数増加がそのまま映像尺伸長（音声とのズレ増大）になる
+- **対策**:
+  - `requestFrame` 利用時は `captureStream(0)` の手動キャプチャモードへ切替え、自動供給を停止する
+  - 手動モード時のみ frame pump を動かし、`captureStream(FPS)` とは併用しない
+  - ログに `captureMode`（`manual-requestFrame` / `auto-fps`）を出力して診断可能にする
+- **注意**:
+  - 「静止画区間の欠落対策」と「二重供給対策」はセットで実装する必要がある
+  - `requestFrame` 非対応ブラウザでは `auto-fps` にフォールバックする
+
+### 13-14. フレーム供給を再生タイムライン基準で同期
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/components/TurtleVideo.tsx`
+- **問題**:
+  - `setInterval` の周期だけで `requestFrame()` を呼ぶと、CPU負荷やタブ状態でフレーム供給数が前後し、映像尺が短縮/伸長する
+  - 特に静止画主体タイムラインでは「フレーム供給不足→画像が短い」「供給過多→映像が長い」が起こりやすい
+- **対策**:
+  - `TurtleVideo` から `getPlaybackTimeSec` を `useExport` へ渡し、エクスポート中の現在再生時刻を参照可能にする
+  - `useExport` 側は `floor(playbackTimeSec * FPS)` を目標フレーム数として `requestFrame()` を補充し、供給数をタイムライン進行に同期
+  - 停止要求後は目標フレーム数（`totalDuration * FPS`）まで不足分を補完してから終了し、AV尺を一致させる
+- **注意**:
+  - 壁時計（`Date.now()`）だけで供給数を決めると、非アクティブ時間や負荷変動を誤って取り込む
+  - `completionRequested` 後の補完は末尾フレーム複製が入るため、常時発生する場合は供給遅延の根本要因調査が必要
+
+### 13-15. 画像尺ズレ調査中の暫定運用（Canvas直接フレーム固定）
+
+- **ファイル**: `src/hooks/useExport.ts`
+- **問題**:
+  - `captureStream` + TrackProcessor 経路は環境差が大きく、静止画区間で「短縮」と「伸長」の両症状が再現した
+- **対策**:
+  - 映像エンコード経路を一時的に `useManualCanvasFrames = true` で固定し、Canvasから直接 `VideoFrame` を生成
+  - 音声は既存の OfflineAudioContext 優先経路を維持し、AV同期の切り分けを容易にする
+- **注意**:
+  - 暫定措置のため、将来的には TrackProcessor 経路を再導入する場合の再検証が必要
+  - 固定後もズレが残る場合は、`renderFrame` 側（`TurtleVideo.tsx`）の時間進行と停止判定を優先調査する
+
+### 13-16. エクスポート中UIの状態表示は `isPlaying` に依存しない
+
+- **ファイル**: `src/components/sections/PreviewSection.tsx`
+- **問題**:
+  - エクスポート中は `isPlaying` が必ずしも true にならないため、`isPlaying` 依存の状態判定だと表示が「準備中」に固定される
+- **対策**:
+  - フェーズ判定を `currentTime` の進捗検知（差分閾値）ベースへ変更
+  - 初回進捗前は `preparing`、進捗後に停滞したら `stalled`、進行中は `rendering` として表示
+- **注意**:
+  - 「再生中かどうか」と「エクスポート進捗の有無」は別概念として扱う

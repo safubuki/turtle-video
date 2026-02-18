@@ -244,6 +244,19 @@ const TurtleVideo: React.FC = () => {
     return isIOS && isSafari;
   }, []);
 
+  const mediaTimelineRanges = useMemo(() => {
+    let timelineStart = 0;
+    const ranges: Record<string, { start: number; end: number }> = {};
+    for (const item of mediaItems) {
+      const duration = Number.isFinite(item.duration) ? Math.max(0, item.duration) : 0;
+      const start = timelineStart;
+      const end = start + duration;
+      ranges[item.id] = { start, end };
+      timelineStart = end;
+    }
+    return ranges;
+  }, [mediaItems]);
+
   // Hooks
   const { startExport: startWebCodecsExport, stopExport: stopWebCodecsExport } = useExport();
 
@@ -2882,6 +2895,7 @@ const TurtleVideo: React.FC = () => {
             bgm: bgmRef.current,
             narrations: narrationsRef.current,
             totalDuration: totalDurationRef.current,
+            getPlaybackTimeSec: () => currentTimeRef.current,
             // 音声プリレンダリング完了後に再生ループを開始
             // iOS Safari ではリアルタイム音声抽出に数秒かかるため、
             // その完了を待ってからビデオキャプチャ用の再生を始める。
@@ -3539,6 +3553,7 @@ const TurtleVideo: React.FC = () => {
             {/* 1. CLIPS */}
             <ClipsSection
               mediaItems={mediaItems}
+              mediaTimelineRanges={mediaTimelineRanges}
               isClipsLocked={isClipsLocked}
               mediaElements={mediaElementsRef.current as Record<string, HTMLVideoElement | HTMLImageElement>}
               onToggleClipsLock={withPause(toggleClipsLock)}
