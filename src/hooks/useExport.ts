@@ -6,7 +6,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { FPS, EXPORT_VIDEO_BITRATE } from '../constants';
 import * as Mp4Muxer from 'mp4-muxer';
-import type { MediaItem, AudioTrack } from '../types';
+import type { MediaItem, AudioTrack, NarrationClip } from '../types';
 import { useLogStore } from '../stores/logStore';
 
 /**
@@ -49,7 +49,7 @@ export interface UseExportReturn {
 export interface ExportAudioSources {
   mediaItems: MediaItem[];
   bgm: AudioTrack | null;
-  narration: AudioTrack | null;
+  narrations: NarrationClip[];
   totalDuration: number;
   /**
    * 音声プリレンダリング完了時に呼ばれるコールバック。
@@ -58,6 +58,11 @@ export interface ExportAudioSources {
    * 音声プリレンダリングが不要な環境（PC/Android）では即座に呼ばれる。
    */
   onAudioPreRenderComplete?: () => void;
+  /**
+   * エクスポート再生ループの現在時刻（秒）を返す。
+   * 映像フレーム供給数をタイムライン進行に追従させるために使用する。
+   */
+  getPlaybackTimeSec?: () => number;
 }
 
 interface MediaRecorderProfile {
@@ -332,12 +337,13 @@ async function offlineRenderAudio(
   sampleRate: number,
   signal: AbortSignal,
 ): Promise<AudioBuffer | null> {
-  const { mediaItems, bgm, narration, totalDuration } = sources;
+  const { mediaItems, bgm, narrations, totalDuration } = sources;
   if (totalDuration <= 0) return null;
 
   const log = useLogStore.getState();
   const numberOfChannels = 2;
-  const length = Math.ceil((totalDuration + 0.5) * sampleRate); // +0.5s safety margin
+  // 音声は動画タイムライン長と厳密一致させる（余剰サンプルでAV長がズレるのを防止）
+  const length = Math.max(1, Math.round(totalDuration * sampleRate));
 
   log.info('RENDER', 'OfflineAudioContext 音声プリレンダリング開始', {
     totalDuration: Math.round(totalDuration * 100) / 100,
@@ -547,8 +553,39 @@ async function offlineRenderAudio(
 
   // 2. BGM
   if (bgm) await scheduleAudioTrack(bgm, 'BGM');
-  // 3. ナレーション
-  if (narration) await scheduleAudioTrack(narration, 'ナレーション');
+  // 3. Narrations
+  async function scheduleNarrationClip(clip: NarrationClip): Promise<void> {
+    if (signal.aborted) return;
+    if (!clip.url || clip.duration <= 0) return;
+
+    const audioBuffer = await decodeAudio(clip.file, clip.url, clip.duration);
+    if (!audioBuffer) return;
+
+    const source = offlineCtx.createBufferSource();
+    source.buffer = audioBuffer;
+    const gain = offlineCtx.createGain();
+    source.connect(gain);
+    gain.connect(offlineCtx.destination);
+
+    const clipStart = Math.max(0, clip.startTime);
+    const playDuration = Math.min(clip.duration, totalDuration - clipStart);
+    if (playDuration <= 0) return;
+
+    gain.gain.setValueAtTime(Math.max(0, Math.min(2.0, clip.volume)), clipStart);
+    source.start(clipStart, 0, playDuration);
+    scheduledSources++;
+  }
+
+  const orderedNarrations = narrations
+    .map((clip, index) => ({ clip, index }))
+    .sort((a, b) => {
+      if (a.clip.startTime === b.clip.startTime) return a.index - b.index;
+      return a.clip.startTime - b.clip.startTime;
+    });
+
+  for (const entry of orderedNarrations) {
+    await scheduleNarrationClip(entry.clip);
+  }
 
   if (signal.aborted) return null;
 
@@ -599,11 +636,15 @@ function feedPreRenderedAudio(
   renderedAudio: AudioBuffer,
   audioEncoder: AudioEncoder,
   signal: AbortSignal,
+  maxDurationSec?: number,
 ): number {
   const log = useLogStore.getState();
   const chunkSize = 4096;
   let audioOffset = 0;
-  const totalSamples = renderedAudio.length;
+  const maxSamplesFromDuration = (typeof maxDurationSec === 'number' && Number.isFinite(maxDurationSec))
+    ? Math.max(1, Math.round(maxDurationSec * renderedAudio.sampleRate))
+    : renderedAudio.length;
+  const totalSamples = Math.min(renderedAudio.length, maxSamplesFromDuration);
   let audioTimestamp = 0;
   let encodedChunks = 0;
   const ch0 = renderedAudio.getChannelData(0);
@@ -779,7 +820,7 @@ export function useExport(): UseExportReturn {
           mediaItemCount: audioSources.mediaItems.length,
           videoItemCount: audioSources.mediaItems.filter(i => i.type === 'video').length,
           hasBgm: !!audioSources.bgm,
-          hasNarration: !!audioSources.narration,
+          narrationCount: audioSources.narrations.length,
           totalDuration: Math.round(audioSources.totalDuration * 100) / 100,
         } : null,
       });
@@ -809,7 +850,10 @@ export function useExport(): UseExportReturn {
         window as typeof window & { MediaStreamTrackProcessor?: TrackProcessorConstructor }
       ).MediaStreamTrackProcessor;
       const canUseTrackProcessor = typeof TrackProcessor === 'function';
-      const useManualCanvasFrames = isIosSafari || !canUseTrackProcessor;
+      // 映像経路は安定性優先で常に Canvas 直接フレーム方式を使用する。
+      // TrackProcessor/captureStream 経路は環境差で静止画区間の尺ズレが発生しやすいため、
+      // 問題収束まで一時的に固定運用とする。
+      const useManualCanvasFrames = true;
       // iOS Safari では OfflineAudioContext でプリレンダリングするため、
       // TrackProcessor / ScriptProcessor は基本的に不要。
       // OfflineAudioContext 失敗時のフォールバックとして ScriptProcessor を使用。
@@ -820,10 +864,25 @@ export function useExport(): UseExportReturn {
       const controller = new AbortController();
       abortControllerRef.current = controller;
       const { signal } = controller;
+      const maxAudioTimestampUs =
+        audioSources && Number.isFinite(audioSources.totalDuration)
+          ? Math.max(0, Math.round(audioSources.totalDuration * 1e6))
+          : Number.POSITIVE_INFINITY;
+      const expectedVideoFrames =
+        audioSources && Number.isFinite(audioSources.totalDuration)
+          ? Math.max(1, Math.round(audioSources.totalDuration * FPS))
+          : null;
+      const getPlaybackTimeSec = (): number | null => {
+        if (!audioSources?.getPlaybackTimeSec) return null;
+        const raw = audioSources.getPlaybackTimeSec();
+        if (!Number.isFinite(raw)) return null;
+        return Math.max(0, raw);
+      };
 
       // ScriptProcessorNode用（OfflineAudioContext失敗時のフォールバック）
       let scriptProcessorNode: ScriptProcessorNode | null = null;
       let scriptProcessorSource: MediaStreamAudioSourceNode | null = null;
+      let canvasFramePumpTimer: ReturnType<typeof setInterval> | null = null;
 
       try {
         // iOS Safari は WebCodecs AudioEncoder の音声無音化が起きるケースがあるため、
@@ -1233,12 +1292,13 @@ export function useExport(): UseExportReturn {
 
         // === iOS Safari: OfflineAudioContext による音声プリレンダリング ===
         let offlineAudioDone = false;
-        if (isIosSafari && audioSources) {
-          // [DIAG-3] OfflineAudioContext パス開始
-          useLogStore.getState().info('RENDER', '[DIAG-3] iOS Safari: OfflineAudioContext パス開始', {
+        if (audioSources) {
+          // [DIAG-3] OfflineAudioContext パス開始（全環境で優先）
+          useLogStore.getState().info('RENDER', '[DIAG-3] OfflineAudioContext パス開始', {
             totalDuration: audioSources.totalDuration,
             sampleRate: audioContext.sampleRate,
             audioEncoderState: audioEncoder.state,
+            isIosSafari,
           });
           try {
             const renderedAudio = await offlineRenderAudio(
@@ -1254,7 +1314,12 @@ export function useExport(): UseExportReturn {
                 queueSize: audioEncoder.encodeQueueSize,
                 outputChunksSoFar: audioEncoderOutputChunks,
               });
-              const encodedChunks = feedPreRenderedAudio(renderedAudio, audioEncoder, signal);
+              const encodedChunks = feedPreRenderedAudio(
+                renderedAudio,
+                audioEncoder,
+                signal,
+                audioSources.totalDuration,
+              );
               // [DIAG-5] feed完了後の AudioEncoder 状態
               useLogStore.getState().info('RENDER', '[DIAG-5] feed完了後 AudioEncoder状態', {
                 state: audioEncoder.state,
@@ -1289,30 +1354,112 @@ export function useExport(): UseExportReturn {
           audioEncoderOutputChunks,
           audioEncoderOutputBytes,
           willUseScriptProcessor: !offlineAudioDone && isIosSafari,
-          willUseTrackProcessor: !isIosSafari && !!audioTrack && canUseTrackProcessor,
+          willUseTrackProcessor: !offlineAudioDone && !isIosSafari && !!audioTrack && canUseTrackProcessor,
         });
 
         // 4. ストリームの取得と処理
         let videoReader: ReadableStreamDefaultReader<VideoFrame> | null = null;
         let audioReader: ReadableStreamDefaultReader<AudioData> | null = null;
         let canvasStream: MediaStream | null = null;
+        const videoCaptureStartedAtMs = Date.now();
+        let requestedCanvasFrames = 0;
+        let requestCanvasFrame: (() => void) | null = null;
+        const getTargetVideoFrameCount = (forceToEnd: boolean): number | null => {
+          if (expectedVideoFrames === null) return null;
+          if (forceToEnd || completionRequestedRef.current) return expectedVideoFrames;
+
+          const playbackTimeSec = getPlaybackTimeSec();
+          if (playbackTimeSec !== null) {
+            return Math.min(expectedVideoFrames, Math.max(1, Math.floor(playbackTimeSec * FPS) + 1));
+          }
+
+          const elapsedSec = (Date.now() - videoCaptureStartedAtMs) / 1000;
+          return Math.min(expectedVideoFrames, Math.max(1, Math.floor(elapsedSec * FPS) + 1));
+        };
+        const pumpCanvasFrames = (forceToEnd: boolean) => {
+          if (!requestCanvasFrame) return;
+          const targetFrameCount = getTargetVideoFrameCount(forceToEnd);
+          if (targetFrameCount === null) {
+            if (!completionRequestedRef.current) requestCanvasFrame();
+            return;
+          }
+          let needed = targetFrameCount - requestedCanvasFrames;
+          if (needed <= 0) return;
+          const burst = forceToEnd ? needed : Math.min(needed, Math.max(1, Math.ceil(FPS / 2)));
+          for (let i = 0; i < burst; i++) {
+            requestCanvasFrame();
+          }
+        };
 
         if (!useManualCanvasFrames) {
           if (!trackProcessorCtor) {
             throw new Error('TrackProcessorの初期化に失敗しました');
           }
-          canvasStream = canvas.captureStream(FPS);
-          const videoTrack = canvasStream.getVideoTracks()[0];
+          const autoCanvasStream = canvas.captureStream(FPS);
+          let selectedCanvasStream: MediaStream = autoCanvasStream;
+          let videoTrack = selectedCanvasStream.getVideoTracks()[0];
           if (!videoTrack) throw new Error('No video track found');
+          let canvasVideoTrack = videoTrack as MediaStreamTrack & { requestFrame?: () => void };
+          let captureMode: 'auto-fps' | 'manual-requestFrame' = 'auto-fps';
+
+          // requestFrame が使える環境では、captureStream(0) の手動モードへ切り替える。
+          // captureStream(FPS) + requestFrame の併用は二重供給になり、映像尺が伸びる場合がある。
+          if (typeof canvasVideoTrack.requestFrame === 'function') {
+            try {
+              const manualCanvasStream = canvas.captureStream(0);
+              const manualTrack = manualCanvasStream.getVideoTracks()[0];
+              if (manualTrack && typeof (manualTrack as MediaStreamTrack & { requestFrame?: () => void }).requestFrame === 'function') {
+                selectedCanvasStream = manualCanvasStream;
+                videoTrack = manualTrack;
+                canvasVideoTrack = manualTrack as MediaStreamTrack & { requestFrame?: () => void };
+                captureMode = 'manual-requestFrame';
+                autoCanvasStream.getTracks().forEach((track) => {
+                  try { track.stop(); } catch { /* ignore */ }
+                });
+              } else {
+                manualCanvasStream.getTracks().forEach((track) => {
+                  try { track.stop(); } catch { /* ignore */ }
+                });
+              }
+            } catch {
+              // manual capture が失敗したら自動モードを継続
+            }
+          }
+
+          canvasStream = selectedCanvasStream;
+
+          if (captureMode === 'manual-requestFrame') {
+            const framePumpIntervalMs = 16;
+            requestCanvasFrame = () => {
+              try {
+                canvasVideoTrack.requestFrame?.();
+                requestedCanvasFrames += 1;
+              } catch {
+                // ignore
+              }
+            };
+            pumpCanvasFrames(false);
+            canvasFramePumpTimer = setInterval(() => {
+              if (signal.aborted) return;
+              pumpCanvasFrames(false);
+            }, framePumpIntervalMs);
+          }
 
           const videoProcessor = new trackProcessorCtor({ track: videoTrack });
           videoReader = videoProcessor.readable.getReader() as ReadableStreamDefaultReader<VideoFrame>;
           videoReaderRef.current = videoReader;
+
+          useLogStore.getState().info('RENDER', 'WebCodecs: Canvas frame pump の状態', {
+            hasCanvasFramePump: !!canvasFramePumpTimer,
+            canRequestFrame: typeof canvasVideoTrack.requestFrame === 'function',
+            captureMode,
+            expectedVideoFrames,
+          });
         } else {
           useLogStore.getState().info('RENDER', 'iOS Safari向けにCanvas直接キャプチャを使用');
         }
 
-        if (audioTrack && !useScriptProcessorAudio && canUseTrackProcessor && trackProcessorCtor) {
+        if (!offlineAudioDone && audioTrack && !useScriptProcessorAudio && canUseTrackProcessor && trackProcessorCtor) {
           // TrackProcessor 経由の音声キャプチャ（PC/Android 向け）
           const audioProcessor = new trackProcessorCtor({ track: audioTrack });
           audioReader = audioProcessor.readable.getReader() as ReadableStreamDefaultReader<AudioData>;
@@ -1340,6 +1487,7 @@ export function useExport(): UseExportReturn {
 
           scriptProcessorNode.onaudioprocess = (event: AudioProcessingEvent) => {
             if (signal.aborted || audioEncoder.state !== 'configured') return;
+            if (audioTimestamp >= maxAudioTimestampUs) return;
 
             const inputBuffer = event.inputBuffer;
             const numberOfFrames = inputBuffer.length;
@@ -1470,9 +1618,19 @@ export function useExport(): UseExportReturn {
           const isKeyFrame = (index: number) => index === 0 || index % FPS === 0;
 
           try {
-            while (!signal.aborted && !completionRequestedRef.current) {
+            while (!signal.aborted) {
+              if (completionRequestedRef.current) {
+                if (expectedVideoFrames === null) break;
+                if (frameIndex >= expectedVideoFrames) break;
+              }
+
               await waitForVisibleIfNeeded();
-              if (signal.aborted || completionRequestedRef.current) break;
+              if (signal.aborted) break;
+              if (completionRequestedRef.current && expectedVideoFrames === null) break;
+              if (completionRequestedRef.current && expectedVideoFrames !== null && frameIndex >= expectedVideoFrames) break;
+              if (completionRequestedRef.current) {
+                pumpCanvasFrames(true);
+              }
 
               if (!videoReader) break;
               const { done, value } = await videoReader.read();
@@ -1509,6 +1667,26 @@ export function useExport(): UseExportReturn {
                 frameIndex++;
               }
             }
+
+            // 終了要求時に不足フレームが残っていた場合、最終キャンバスを複製して尺を揃える。
+            // 画像区間の供給遅延で映像尺が短くなるのを防ぐための保険。
+            if (!signal.aborted && completionRequestedRef.current && expectedVideoFrames !== null && frameIndex < expectedVideoFrames && videoEncoder.state === 'configured') {
+              const missingFrames = expectedVideoFrames - frameIndex;
+              for (let i = 0; i < missingFrames; i++) {
+                const frame = new VideoFrame(canvas, {
+                  timestamp: Math.round(frameIndex * frameDuration),
+                  duration: Math.round(frameDuration),
+                });
+                videoEncoder.encode(frame, { keyFrame: isKeyFrame(frameIndex) });
+                frame.close();
+                frameIndex++;
+              }
+              useLogStore.getState().warn('RENDER', '映像不足フレームを末尾補完', {
+                missingFrames,
+                finalFrameIndex: frameIndex,
+                expectedVideoFrames,
+              });
+            }
           } catch (e) {
             if (!isAbortError(e)) {
               console.error('Video processing error:', e);
@@ -1519,29 +1697,49 @@ export function useExport(): UseExportReturn {
         const processVideoWithCanvasFrames = async () => {
           let frameIndex = 0;
           const frameDuration = 1e6 / FPS;
-          const frameInterval = Math.max(1, Math.round(1000 / FPS));
+          const framePollInterval = 16;
           const isKeyFrame = (index: number) => index === 0 || index % FPS === 0;
 
           try {
-            while (!signal.aborted && !completionRequestedRef.current) {
-              await waitForVisibleIfNeeded();
-              if (signal.aborted || completionRequestedRef.current) break;
+            while (!signal.aborted) {
+              if (completionRequestedRef.current) {
+                if (expectedVideoFrames === null) break;
+                if (frameIndex >= expectedVideoFrames) break;
+              }
 
-              if (videoEncoder.state === 'configured') {
-                const frame = new VideoFrame(canvas, {
-                  timestamp: Math.round(frameIndex * frameDuration),
-                  duration: Math.round(frameDuration),
-                });
-                videoEncoder.encode(frame, { keyFrame: isKeyFrame(frameIndex) });
-                frame.close();
-                frameIndex++;
+              await waitForVisibleIfNeeded();
+              if (signal.aborted) break;
+              if (completionRequestedRef.current && expectedVideoFrames === null) break;
+
+              const forceToEnd = completionRequestedRef.current;
+              const targetFrameCount = getTargetVideoFrameCount(forceToEnd);
+              let framesToEncode = targetFrameCount === null ? 1 : targetFrameCount - frameIndex;
+              if (framesToEncode < 0) framesToEncode = 0;
+              if (!forceToEnd) {
+                framesToEncode = Math.min(framesToEncode, Math.max(1, Math.ceil(FPS / 2)));
+              }
+
+              if (videoEncoder.state === 'configured' && framesToEncode > 0) {
+                for (let i = 0; i < framesToEncode; i++) {
+                  const frame = new VideoFrame(canvas, {
+                    timestamp: Math.round(frameIndex * frameDuration),
+                    duration: Math.round(frameDuration),
+                  });
+                  videoEncoder.encode(frame, { keyFrame: isKeyFrame(frameIndex) });
+                  frame.close();
+                  frameIndex++;
+                }
+              }
+
+              if (completionRequestedRef.current && expectedVideoFrames !== null && frameIndex >= expectedVideoFrames) {
+                break;
               }
 
               await new Promise<void>((resolve) => {
                 const timeoutId = setTimeout(() => {
                   signal.removeEventListener('abort', onAbort);
                   resolve();
-                }, frameInterval);
+                }, framePollInterval);
                 const onAbort = () => {
                   clearTimeout(timeoutId);
                   signal.removeEventListener('abort', onAbort);
@@ -1573,6 +1771,10 @@ export function useExport(): UseExportReturn {
                 if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
                   data.close();
                   continue;
+                }
+                if (data.timestamp >= maxAudioTimestampUs) {
+                  data.close();
+                  break;
                 }
                 if (audioEncoder.state === 'configured') {
                   audioEncoder.encode(data);
@@ -1714,6 +1916,10 @@ export function useExport(): UseExportReturn {
         });
 
         // Canvasストリームを停止
+        if (canvasFramePumpTimer) {
+          clearInterval(canvasFramePumpTimer);
+          canvasFramePumpTimer = null;
+        }
         if (canvasStream) {
           canvasStream.getTracks().forEach((track) => {
             try {
@@ -1768,6 +1974,10 @@ export function useExport(): UseExportReturn {
           onRecordingError?.('エクスポートが中断されました');
         }
       } finally {
+        if (canvasFramePumpTimer) {
+          clearInterval(canvasFramePumpTimer);
+          canvasFramePumpTimer = null;
+        }
         // ScriptProcessorNodeのクリーンアップ（エラー時の保険）
         if (scriptProcessorNode) {
           scriptProcessorNode.onaudioprocess = null;

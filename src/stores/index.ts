@@ -7,7 +7,7 @@
 export { useMediaStore } from './mediaStore';
 
 // Audio Store
-export { useAudioStore, createAudioTrack } from './audioStore';
+export { useAudioStore, createAudioTrack, createNarrationClip } from './audioStore';
 
 // UI Store
 export { useUIStore } from './uiStore';

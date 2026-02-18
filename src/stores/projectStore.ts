@@ -1,12 +1,12 @@
 /**
  * @file projectStore.ts
  * @author Turtle Village
- * @description プロジェクトの保存・読み込み・削除を管理するZustandストア。
+ * @description Project save/load store
  */
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import type { MediaItem, AudioTrack, Caption, CaptionSettings } from '../types';
+import type { MediaItem, AudioTrack, Caption, CaptionSettings, NarrationClip } from '../types';
 import {
   saveProject,
   loadProject,
@@ -21,23 +21,16 @@ import {
   type SerializedMediaItem,
   type SerializedAudioTrack,
   type SerializedCaption,
+  type SerializedNarrationClip,
 } from '../utils/indexedDB';
 import { useLogStore } from './logStore';
-
-// アプリバージョン
 import versionData from '../../version.json';
 
-/**
- * unknownなエラーをメッセージ化
- */
 export function getProjectStoreErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
 }
 
-/**
- * 容量不足系エラーかどうかを判定
- */
 export function isStorageQuotaError(error: unknown): boolean {
   const lower = getProjectStoreErrorMessage(error).toLowerCase();
   return (
@@ -50,61 +43,54 @@ export function isStorageQuotaError(error: unknown): boolean {
 }
 
 interface ProjectState {
-  // 状態
   isSaving: boolean;
   isLoading: boolean;
   lastAutoSave: string | null;
   lastManualSave: string | null;
   autoSaveError: string | null;
-  
-  // アクション
+
   saveProjectManual: (
     mediaItems: MediaItem[],
     isClipsLocked: boolean,
     bgm: AudioTrack | null,
     isBgmLocked: boolean,
-    narration: AudioTrack | null,
+    narrations: NarrationClip[],
     isNarrationLocked: boolean,
     captions: Caption[],
     captionSettings: CaptionSettings,
     isCaptionsLocked: boolean
   ) => Promise<void>;
-  
+
   saveProjectAuto: (
     mediaItems: MediaItem[],
     isClipsLocked: boolean,
     bgm: AudioTrack | null,
     isBgmLocked: boolean,
-    narration: AudioTrack | null,
+    narrations: NarrationClip[],
     isNarrationLocked: boolean,
     captions: Caption[],
     captionSettings: CaptionSettings,
     isCaptionsLocked: boolean
   ) => Promise<void>;
-  
+
   loadProjectFromSlot: (slot: SaveSlot) => Promise<{
     mediaItems: MediaItem[];
     isClipsLocked: boolean;
     bgm: AudioTrack | null;
     isBgmLocked: boolean;
-    narration: AudioTrack | null;
+    narrations: NarrationClip[];
     isNarrationLocked: boolean;
     captions: Caption[];
     captionSettings: CaptionSettings;
     isCaptionsLocked: boolean;
   } | null>;
-  
+
   deleteAllSaves: () => Promise<void>;
   deleteAutoSaveOnly: () => Promise<void>;
-  
   refreshSaveInfo: () => Promise<void>;
-  
   clearAutoSaveError: () => void;
 }
 
-/**
- * MediaItemをシリアライズ形式に変換
- */
 async function serializeMediaItem(item: MediaItem): Promise<SerializedMediaItem> {
   const fileData = await fileToArrayBuffer(item.file);
   return {
@@ -131,9 +117,6 @@ async function serializeMediaItem(item: MediaItem): Promise<SerializedMediaItem>
   };
 }
 
-/**
- * シリアライズ形式からMediaItemを復元
- */
 function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
   const file = arrayBufferToFile(data.fileData, data.fileName, data.fileType);
   return {
@@ -159,29 +142,24 @@ function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
   };
 }
 
-/**
- * AudioTrackをシリアライズ形式に変換
- */
 async function serializeAudioTrack(track: AudioTrack): Promise<SerializedAudioTrack> {
   let fileData: ArrayBuffer | null = null;
   let blobData: ArrayBuffer | undefined;
-  
-  // 通常のファイル
+
   if (track.file instanceof File) {
     fileData = await fileToArrayBuffer(track.file);
   }
-  
-  // AI生成の場合はblobUrlからデータを取得
+
   if (track.blobUrl) {
     try {
       blobData = await blobUrlToArrayBuffer(track.blobUrl);
     } catch {
-      // blobUrlが無効な場合は無視
+      // ignore blob fetch errors
     }
   }
-  
-  const fileName = track.file instanceof File ? track.file.name : (track.file as { name: string }).name;
-  
+
+  const fileName = track.file instanceof File ? track.file.name : track.file.name;
+
   return {
     fileName,
     fileType: track.file instanceof File ? track.file.type : 'audio/wav',
@@ -199,14 +177,11 @@ async function serializeAudioTrack(track: AudioTrack): Promise<SerializedAudioTr
   };
 }
 
-/**
- * シリアライズ形式からAudioTrackを復元
- */
 function deserializeAudioTrack(data: SerializedAudioTrack): AudioTrack {
   let file: File | { name: string };
   let url: string;
   let blobUrl: string | undefined;
-  
+
   if (data.fileData) {
     const f = arrayBufferToFile(data.fileData, data.fileName, data.fileType);
     file = f;
@@ -220,7 +195,7 @@ function deserializeAudioTrack(data: SerializedAudioTrack): AudioTrack {
     file = { name: data.fileName };
     url = '';
   }
-  
+
   return {
     file,
     url,
@@ -237,9 +212,90 @@ function deserializeAudioTrack(data: SerializedAudioTrack): AudioTrack {
   };
 }
 
-/**
- * Captionをシリアライズ形式に変換
- */
+async function serializeNarrationClip(clip: NarrationClip): Promise<SerializedNarrationClip> {
+  let fileData: ArrayBuffer | null = null;
+  let blobData: ArrayBuffer | undefined;
+
+  if (clip.file instanceof File) {
+    fileData = await fileToArrayBuffer(clip.file);
+  }
+
+  if (clip.blobUrl) {
+    try {
+      blobData = await blobUrlToArrayBuffer(clip.blobUrl);
+    } catch {
+      // ignore blob fetch errors
+    }
+  }
+
+  const fileName = clip.file instanceof File ? clip.file.name : clip.file.name;
+
+  return {
+    id: clip.id,
+    sourceType: clip.sourceType,
+    fileName,
+    fileType: clip.file instanceof File ? clip.file.type : 'audio/wav',
+    fileData,
+    blobData,
+    startTime: clip.startTime,
+    volume: clip.volume,
+    duration: clip.duration,
+    isAiEditable: clip.isAiEditable,
+    aiScript: clip.aiScript,
+    aiVoice: clip.aiVoice,
+    aiVoiceStyle: clip.aiVoiceStyle,
+  };
+}
+
+function deserializeNarrationClip(data: SerializedNarrationClip): NarrationClip {
+  let file: File | { name: string };
+  let url: string;
+  let blobUrl: string | undefined;
+
+  if (data.fileData) {
+    const f = arrayBufferToFile(data.fileData, data.fileName, data.fileType);
+    file = f;
+    url = URL.createObjectURL(f);
+  } else if (data.blobData) {
+    const blob = new Blob([data.blobData], { type: data.fileType });
+    file = { name: data.fileName };
+    url = URL.createObjectURL(blob);
+    blobUrl = url;
+  } else {
+    file = { name: data.fileName };
+    url = '';
+  }
+
+  return {
+    id: data.id,
+    sourceType: data.sourceType,
+    file,
+    url,
+    blobUrl,
+    startTime: Math.max(0, data.startTime),
+    volume: Math.max(0, Math.min(2.0, data.volume)),
+    duration: data.duration,
+    isAiEditable: data.isAiEditable,
+    aiScript: data.aiScript,
+    aiVoice: data.aiVoice as NarrationClip['aiVoice'],
+    aiVoiceStyle: data.aiVoiceStyle,
+  };
+}
+
+function convertLegacyNarrationToClip(track: AudioTrack): NarrationClip {
+  return {
+    id: `legacy_narration_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+    sourceType: track.isAi ? 'ai' : 'file',
+    file: track.file,
+    url: track.url,
+    blobUrl: track.blobUrl,
+    startTime: Math.max(0, track.delay || 0),
+    volume: Math.max(0, Math.min(2.0, track.volume)),
+    duration: track.duration,
+    isAiEditable: !!track.isAi,
+  };
+}
+
 function serializeCaption(caption: Caption): SerializedCaption {
   return {
     id: caption.id,
@@ -260,9 +316,6 @@ function serializeCaption(caption: Caption): SerializedCaption {
   };
 }
 
-/**
- * シリアライズ形式からCaptionを復元
- */
 function deserializeCaption(data: SerializedCaption): Caption {
   return {
     id: data.id,
@@ -286,36 +339,37 @@ function deserializeCaption(data: SerializedCaption): Caption {
 export const useProjectStore = create<ProjectState>()(
   devtools(
     (set) => ({
-      // 初期状態
       isSaving: false,
       isLoading: false,
       lastAutoSave: null,
       lastManualSave: null,
       autoSaveError: null,
-      
-      // 手動保存
+
       saveProjectManual: async (
-        mediaItems, isClipsLocked,
-        bgm, isBgmLocked,
-        narration, isNarrationLocked,
-        captions, captionSettings, isCaptionsLocked
+        mediaItems,
+        isClipsLocked,
+        bgm,
+        isBgmLocked,
+        narrations,
+        isNarrationLocked,
+        captions,
+        captionSettings,
+        isCaptionsLocked
       ) => {
         set({ isSaving: true });
-        useLogStore.getState().info('SYSTEM', '手動保存を開始', { 
-          mediaCount: mediaItems.length, 
-          hasBgm: !!bgm, 
-          hasNarration: !!narration,
-          captionCount: captions.length
+        useLogStore.getState().info('SYSTEM', '手動保存を開始', {
+          mediaCount: mediaItems.length,
+          hasBgm: !!bgm,
+          narrationCount: narrations.length,
+          captionCount: captions.length,
         });
+
         try {
-          const serializedMediaItems = await Promise.all(
-            mediaItems.map(serializeMediaItem)
-          );
-          
+          const serializedMediaItems = await Promise.all(mediaItems.map(serializeMediaItem));
           const serializedBgm = bgm ? await serializeAudioTrack(bgm) : null;
-          const serializedNarration = narration ? await serializeAudioTrack(narration) : null;
+          const serializedNarrations = await Promise.all(narrations.map(serializeNarrationClip));
           const serializedCaptions = captions.map(serializeCaption);
-          
+
           const projectData: ProjectData = {
             slot: 'manual',
             savedAt: new Date().toISOString(),
@@ -324,12 +378,13 @@ export const useProjectStore = create<ProjectState>()(
             isClipsLocked,
             bgm: serializedBgm,
             isBgmLocked,
-            narration: serializedNarration,
+            narrations: serializedNarrations,
             isNarrationLocked,
             captions: serializedCaptions,
             captionSettings,
             isCaptionsLocked,
           };
+
           await saveProject(projectData);
 
           useLogStore.getState().info('SYSTEM', '手動保存完了', { savedAt: projectData.savedAt });
@@ -338,39 +393,42 @@ export const useProjectStore = create<ProjectState>()(
             isSaving: false,
           });
         } catch (error) {
-          useLogStore.getState().error('SYSTEM', '手動保存失敗', { error: getProjectStoreErrorMessage(error) });
+          useLogStore.getState().error('SYSTEM', '手動保存失敗', {
+            error: getProjectStoreErrorMessage(error),
+          });
           set({ isSaving: false });
           throw error;
         }
       },
-      
-      // 自動保存
+
       saveProjectAuto: async (
-        mediaItems, isClipsLocked,
-        bgm, isBgmLocked,
-        narration, isNarrationLocked,
-        captions, captionSettings, isCaptionsLocked
+        mediaItems,
+        isClipsLocked,
+        bgm,
+        isBgmLocked,
+        narrations,
+        isNarrationLocked,
+        captions,
+        captionSettings,
+        isCaptionsLocked
       ) => {
-        // 保存するデータがない場合はスキップ
-        if (mediaItems.length === 0 && !bgm && !narration && captions.length === 0) {
+        if (mediaItems.length === 0 && !bgm && narrations.length === 0 && captions.length === 0) {
           return;
         }
-        
-        useLogStore.getState().debug('SYSTEM', '自動保存を開始', { 
-          mediaCount: mediaItems.length, 
-          hasBgm: !!bgm, 
-          hasNarration: !!narration,
-          captionCount: captions.length
+
+        useLogStore.getState().debug('SYSTEM', '自動保存を開始', {
+          mediaCount: mediaItems.length,
+          hasBgm: !!bgm,
+          narrationCount: narrations.length,
+          captionCount: captions.length,
         });
+
         try {
-          const serializedMediaItems = await Promise.all(
-            mediaItems.map(serializeMediaItem)
-          );
-          
+          const serializedMediaItems = await Promise.all(mediaItems.map(serializeMediaItem));
           const serializedBgm = bgm ? await serializeAudioTrack(bgm) : null;
-          const serializedNarration = narration ? await serializeAudioTrack(narration) : null;
+          const serializedNarrations = await Promise.all(narrations.map(serializeNarrationClip));
           const serializedCaptions = captions.map(serializeCaption);
-          
+
           const projectData: ProjectData = {
             slot: 'auto',
             savedAt: new Date().toISOString(),
@@ -379,71 +437,75 @@ export const useProjectStore = create<ProjectState>()(
             isClipsLocked,
             bgm: serializedBgm,
             isBgmLocked,
-            narration: serializedNarration,
+            narrations: serializedNarrations,
             isNarrationLocked,
             captions: serializedCaptions,
             captionSettings,
             isCaptionsLocked,
           };
-          
+
           await saveProject(projectData);
           useLogStore.getState().debug('SYSTEM', '自動保存完了', { savedAt: projectData.savedAt });
           set({ lastAutoSave: projectData.savedAt, autoSaveError: null });
         } catch (error) {
           const message = isStorageQuotaError(error)
-            ? '保存領域が不足しています。不要な保存データを削除してください'
+            ? '保存容量が不足しています。不要な保存データを削除してください'
             : getProjectStoreErrorMessage(error);
           useLogStore.getState().error('SYSTEM', '自動保存失敗', { error: message });
           set({ autoSaveError: message });
         }
       },
-      
-      // プロジェクト読み込み
+
       loadProjectFromSlot: async (slot) => {
         set({ isLoading: true });
         useLogStore.getState().info('SYSTEM', 'プロジェクトを読み込み中', { slot });
+
         try {
           const data = await loadProject(slot);
           if (!data) {
-            useLogStore.getState().warn('SYSTEM', '読み込むプロジェクトが見つかりません', { slot });
+            useLogStore.getState().warn('SYSTEM', '読み込み対象のプロジェクトが存在しません', { slot });
             set({ isLoading: false });
             return null;
           }
-          
+
           const mediaItems = data.mediaItems.map(deserializeMediaItem);
           const bgm = data.bgm ? deserializeAudioTrack(data.bgm) : null;
-          const narration = data.narration ? deserializeAudioTrack(data.narration) : null;
+          const narrations = (data.narrations && data.narrations.length > 0)
+            ? data.narrations.map(deserializeNarrationClip)
+            : (data.narration ? [convertLegacyNarrationToClip(deserializeAudioTrack(data.narration))] : []);
           const captions = data.captions.map(deserializeCaption);
-          
-          useLogStore.getState().info('SYSTEM', 'プロジェクト読み込み完了', { 
+
+          useLogStore.getState().info('SYSTEM', 'プロジェクト読み込み完了', {
             slot,
             mediaCount: mediaItems.length,
             hasBgm: !!bgm,
-            hasNarration: !!narration,
+            narrationCount: narrations.length,
             captionCount: captions.length,
-            savedAt: data.savedAt
+            savedAt: data.savedAt,
           });
           set({ isLoading: false });
-          
+
           return {
             mediaItems,
             isClipsLocked: data.isClipsLocked,
             bgm,
             isBgmLocked: data.isBgmLocked,
-            narration,
+            narrations,
             isNarrationLocked: data.isNarrationLocked,
             captions,
             captionSettings: data.captionSettings,
             isCaptionsLocked: data.isCaptionsLocked,
           };
         } catch (error) {
-          useLogStore.getState().error('SYSTEM', 'プロジェクト読み込み失敗', { slot, error: error instanceof Error ? error.message : String(error) });
+          useLogStore.getState().error('SYSTEM', 'プロジェクト読み込み失敗', {
+            slot,
+            error: error instanceof Error ? error.message : String(error),
+          });
           set({ isLoading: false });
           throw error;
         }
       },
-      
-      // 全削除
+
       deleteAllSaves: async () => {
         useLogStore.getState().info('SYSTEM', '全保存データを削除');
         await deleteAllProjects();
@@ -451,15 +513,13 @@ export const useProjectStore = create<ProjectState>()(
         useLogStore.getState().info('SYSTEM', '全保存データ削除完了');
       },
 
-      // 自動保存のみ削除
       deleteAutoSaveOnly: async () => {
         useLogStore.getState().info('SYSTEM', '自動保存データを削除');
         await deleteProject('auto');
         set({ lastAutoSave: null });
         useLogStore.getState().info('SYSTEM', '自動保存データ削除完了');
       },
-      
-      // 保存情報を更新
+
       refreshSaveInfo: async () => {
         try {
           const info = await getProjectsInfo();
@@ -468,11 +528,10 @@ export const useProjectStore = create<ProjectState>()(
             lastManualSave: info.manual?.savedAt || null,
           });
         } catch {
-          // エラーは無視
+          // ignore
         }
       },
-      
-      // エラークリア
+
       clearAutoSaveError: () => set({ autoSaveError: null }),
     }),
     { name: 'ProjectStore' }

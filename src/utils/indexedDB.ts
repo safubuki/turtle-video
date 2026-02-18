@@ -60,6 +60,22 @@ export interface SerializedAudioTrack {
   isAi: boolean;
 }
 
+export interface SerializedNarrationClip {
+  id: string;
+  sourceType: 'ai' | 'file';
+  fileName: string;
+  fileType: string;
+  fileData: ArrayBuffer | null;
+  blobData?: ArrayBuffer;
+  startTime: number;
+  volume: number;
+  duration: number;
+  isAiEditable: boolean;
+  aiScript?: string;
+  aiVoice?: string;
+  aiVoiceStyle?: string;
+}
+
 // 保存されるキャプションの形式
 export interface SerializedCaption {
   id: string;
@@ -108,7 +124,8 @@ export interface ProjectData {
   // オーディオ
   bgm: SerializedAudioTrack | null;
   isBgmLocked: boolean;
-  narration: SerializedAudioTrack | null;
+  narrations: SerializedNarrationClip[];
+  narration?: SerializedAudioTrack | null;
   isNarrationLocked: boolean;
   
   // キャプション

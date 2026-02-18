@@ -489,5 +489,209 @@
   - 差分判定ハッシュは、通常ファイルは内容ハッシュ、symlink は `readlink()` のリンク先文字列を使う。
   - `latest` / `base` の両戦略で symlink を欠落させずに同期する。
 - **Caution**:
-  - symlink をハッシュ対象から外すと `hasDiff=false` となり、必要な同期がスキップされる可能性がある。
-  - symlink を `stat/readFile` 前提で扱うと、リンク先の変更検知が不正確になる。
+- symlink をハッシュ対象から外すと `hasDiff=false` となり、必要な同期がスキップされる可能性がある。
+- symlink を `stat/readFile` 前提で扱うと、リンク先の変更検知が不正確になる。
+
+---
+
+## 13. 文字コード・AI TTS 応答処理
+
+### 13-1. ソース文字コードの UTF-8 統一
+
+- **ファイル**: `src/components/sections/NarrationSection.tsx`, `src/stores/audioStore.ts`, `src/stores/projectStore.ts`
+- **問題**: 一部ファイルが CP932 で保存されると、ビルド時に UTF-8 として解釈され、UI 文言が文字化けする
+- **対策**:
+  - 日本語文言を含むソースは UTF-8（BOMなし）で統一
+  - 変換時は「CP932として読み取り → UTF-8で再保存」を行い、文字列自体は維持する
+- **注意**:
+  - PowerShell の既定エンコーディングで書き戻すと再発しやすい。書き込み時は `-Encoding utf8` または明示的な UTF-8 指定を使う
+  - 画面上で `�` が出た場合は、まず対象ファイルの UTF-8 妥当性を確認する
+
+### 13-2. Gemini TTS の `inlineData` 探索を固定位置依存にしない
+
+- **ファイル**: `src/components/TurtleVideo.tsx`（`generateSpeech`）
+- **問題**: `candidates[0].content.parts[0].inlineData` に固定すると、応答の並びや形式差分で `inlineData` を拾えず「音声データを取得できませんでした」になる
+- **対策**:
+  - 全 `candidates[].content.parts[]` を走査し、`inlineData` / `inline_data` の両方を探索
+  - `promptFeedback.blockReason` / `finishReason` を補助情報として扱い、エラー原因を判別しやすくする
+  - `mimeType` が WAV の場合は再変換せず利用し、PCM 系のみ WAV へ変換する
+- **注意**:
+  - `inlineData` 欠落時は API 側の安全ブロックや応答形式差分の可能性があるため、コンソール警告ログを確認する
+  - `Model tried to generate text ... only be used for TTS` が返る場合は、話し方指示付きプロンプトが拒否されている可能性がある。`src/components/TurtleVideo.tsx` ではこのエラー時に「声の調子なしの素の原稿」で自動リトライする
+  - `finishReason=OTHER` で音声未返却の場合は、`Say ...` / `TTS ... exactly` の厳密プロンプトへ切替えて再試行する
+  - リトライは API コールを追加で消費するため、現在は最大2回（初回 + フォールバック1回）に制限してレートリミット悪化を抑える
+
+### 13-3. ナレーションセクションの縦スクロール統一
+
+- **ファイル**: `src/components/sections/NarrationSection.tsx`
+- **問題**: ナレーションが増えるとセクションが伸び続け、動画・画像セクションと操作感が不一致になる
+- **対策**: `max-h-75 lg:max-h-128 overflow-y-auto custom-scrollbar` を適用し、動画・画像セクションと同じ固定高さ + 内部スクロールに統一
+- **注意**: モバイルの誤操作防止のため、既存の `SwipeProtectedSlider` は維持する
+
+### 13-4. ナレーションの複数ファイル一括追加
+
+- **ファイル**: `src/components/sections/NarrationSection.tsx`, `src/components/TurtleVideo.tsx`
+- **問題**: ナレーションファイル入力が単一選択のみで、動画・画像セクションと操作性が揃っていない
+- **対策**:
+  - `NarrationSection` のファイル入力に `multiple` を付与
+  - `handleNarrationUpload` を複数ファイル対応に変更し、選択された全ファイルを順番にメタデータ読み込みして `addNarration` する
+  - 読み込み失敗したファイルは `ObjectURL` を解放し、失敗件数をトースト表示する
+- **注意**:
+  - 一括追加後の開始位置は「追加時点の currentTime スナップショット」を全ファイルに適用する
+  - TTS側のフォールバックリトライと同様に、API呼び出しが増える処理は必要最小限に維持する
+
+### 13-5. AIスクリプト生成モデル廃止へのフォールバック
+
+- **ファイル**: `src/constants/index.ts`, `src/components/TurtleVideo.tsx`, `src/hooks/useAiNarration.ts`
+- **問題**: `gemini-2.5-flash-preview-09-2025` のような preview モデルが廃止されると、スクリプト生成が即失敗する
+- **対策**:
+  - 既定モデルを `gemini-2.5-flash` に更新
+  - `GEMINI_SCRIPT_FALLBACK_MODELS` を導入し、モデル未提供エラー時に自動で次候補へ再試行
+  - フォールバックで成功した場合はユーザーへ通知し、生成体験を維持する
+- **注意**:
+  - モデル未提供判定は `no longer available / not found / 404` 系メッセージで実施
+  - 不要な多段リトライはレートリミットを悪化させるため、候補数は最小限にする
+
+### 13-6. ナレーションらしい原稿のための指示強化
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/hooks/useAiNarration.ts`
+- **問題**: テーマ入力だけでは説明文・見出し付き文など、読み上げに不向きな文体が生成されることがある
+- **対策**:
+  - `systemInstruction` を追加し、出力を「本文のみ・1段落・短尺動画向け口語文」に明示制約
+  - ユーザープロンプトに用途（短い動画のナレーション）を明記
+  - 生成後に軽い正規化（改行圧縮、先頭ラベル除去）を行い、読み上げ原稿として扱いやすくする
+- **注意**:
+  - 過度な整形は意味改変リスクがあるため、正規化は最小限に留める
+
+### 13-7. AIナレーションUIの運用性向上
+
+- **ファイル**: `src/components/modals/AiModal.tsx`, `src/components/TurtleVideo.tsx`, `src/types/index.ts`
+- **問題**:
+  - テーマ生成の長さ調整ができず、意図した尺の原稿を作りにくい
+  - テーマ未入力でも手動で原稿を入力できることが画面上で伝わりにくい
+  - PC表示で「声の調子」説明文が小さく視認性が低い
+- **対策**:
+  - `NarrationScriptLength`（`short` / `medium` / `long`）を導入し、Step 1 にラジオボタンで長さ選択UIを追加
+  - 選択長さを `generateScript` の指示文に反映（文字数目安を可変化）
+  - 「Step 1は任意」「Step 2へ直接入力可能」の補助文言を追加し、手動運用を明示
+  - 「声の調子」ラベル・説明を `md:text-sm` へ拡大し、PCで読みやすく調整
+- **注意**:
+  - 音声生成ボタンは `aiScript.trim()` 判定で有効化し、空白のみの入力を防止する
+  - 長さ選択は生成時のみ利用し、既存の手動編集フローを妨げない
+
+### 13-8. ナレーション終了位置マーカー
+
+- **ファイル**: `src/components/sections/NarrationSection.tsx`
+- **問題**: 開始位置スライダー上で「そのクリップがどこで終わるか」が見えず、次クリップとの重なり確認がしづらい
+- **対策**:
+  - 各ナレーションカードの開始位置スライダー上に、終了位置（三角マーカー）を参考表示
+  - 終了位置は `startTime + duration` から算出し、スライダー上に重ねて描画
+  - タイムライン終端を超える場合はマーカーを右端にクランプして表示（非表示にはしない）
+- **注意**:
+  - マーカーは参考表示のみで、ナレーションの同時再生仕様（重なり許容）は変更しない
+  - 右端クランプ時は色を変えて「終端超え」を視覚的に示す
+
+### 13-9. AIナレーションモーダルの動線最適化
+
+- **ファイル**: `src/components/modals/AiModal.tsx`
+- **問題**:
+  - Step1でテーマ入力後、長さ指定と作成操作の視線移動が大きく、操作動線が長い
+  - 「声の選択」と「声の調子」で見出しのサイズ感・太さが揃っていない
+- **対策**:
+  - Step1の入力欄を `w-full` にし、長さ選択行の右端に「作成」ボタンを移動
+  - `Step 3: 声の設定` を新設し、その下に「声の選択」「声の調子」を配置
+  - 「声の選択」「声の調子」のラベルクラスを同一に統一して視覚的一貫性を確保
+- **注意**:
+  - `作成` は引き続き `aiPrompt.trim()` が空の場合は無効化する
+  - Step2直入力フロー（テーマ未入力でも音声生成可能）は維持する
+
+### 13-10. AIモーダルの操作ラベル明確化
+
+- **ファイル**: `src/components/modals/AiModal.tsx`
+- **問題**: ボタン文言が短すぎると、何を作る操作か分かりにくい
+- **対策**:
+  - Step1ボタンを `AI原稿を作成` に変更し、原稿生成操作だと明示
+  - 最終ボタンを `AIナレーションを作成して追加` に変更し、音声生成と追加まで行う操作だと明示
+- **注意**:
+  - 生成対象の区別（原稿 vs 音声）を文言で維持し、誤操作を防ぐ
+
+### 13-11. エクスポート音声の長さ超過・途切れ対策
+
+- **ファイル**: `src/hooks/useExport.ts`
+- **問題**:
+  - 実動画で「映像尺より音声尺が長い」「後半ナレーションが途切れる/プツプツする」事象が発生
+  - 既定のリアルタイム音声キャプチャ（TrackProcessor/ScriptProcessor）では、環境依存のバッファ遅延や終端超過が起きやすい
+- **対策**:
+  - `OfflineAudioContext` を iOS Safari 限定から全環境優先へ拡張し、エクスポート音声を非リアルタイムで確定生成
+  - プリレンダリング音声長を `totalDuration` へ厳密に合わせる（余剰マージン `+0.5s` を廃止）
+  - `feedPreRenderedAudio` に最大長指定を追加し、エンコード対象サンプル数を `totalDuration * sampleRate` で上限化
+  - リアルタイム音声フォールバック経路でも `maxAudioTimestampUs` を超えるチャンクを打ち切り
+- **注意**:
+  - `offlineAudioDone=true` のときは TrackProcessor 音声キャプチャを同時実行しない（二重エンコード防止）
+  - decode失敗時は既存フォールバック（ScriptProcessor / video要素抽出）を維持し、互換性を確保する
+
+### 13-12. 静止画区間で映像尺が短くなる問題（TrackProcessor）
+
+- **ファイル**: `src/hooks/useExport.ts`
+- **問題**:
+  - WebCodecs + `canvas.captureStream()` + `MediaStreamTrackProcessor` 経路では、Canvasに変化が少ない静止画区間でフレーム供給が疎になる場合がある
+  - その状態でCFR用に `frameIndex * frameDuration` へタイムスタンプを書き換えると、静止画区間が圧縮され「画像の表示時間だけ短い」見え方になる
+  - 結果として映像長が音声長より短くなり、後半でAVタイミングがズレる
+- **対策**:
+  - TrackProcessor映像経路でも `CanvasCaptureMediaStreamTrack.requestFrame()` を FPS 間隔で定期実行し、静止画区間でもフレームを明示供給
+  - 完了時/例外時の両方で frame pump の `setInterval` を必ず `clearInterval` する
+  - ログに frame pump 有効状態を出力し、現場診断を容易にする
+- **注意**:
+  - 本事象の主因はフェード設定ではなく、静止画区間のフレーム供給欠落とCFR補正の組み合わせ
+  - iOS Safari の MediaRecorder 経路にある frame pump と同種の対策を、WebCodecs 経路にも適用する
+
+### 13-13. `captureStream(FPS)` と `requestFrame()` 併用時の映像尺伸長
+
+- **ファイル**: `src/hooks/useExport.ts`
+- **問題**:
+  - `captureStream(FPS)` の自動供給に加えて `requestFrame()` を定期実行すると、ブラウザ実装によってはフレームが二重供給される
+  - CFRタイムスタンプ（`frameIndex * frameDuration`）でエンコードしているため、フレーム数増加がそのまま映像尺伸長（音声とのズレ増大）になる
+- **対策**:
+  - `requestFrame` 利用時は `captureStream(0)` の手動キャプチャモードへ切替え、自動供給を停止する
+  - 手動モード時のみ frame pump を動かし、`captureStream(FPS)` とは併用しない
+  - ログに `captureMode`（`manual-requestFrame` / `auto-fps`）を出力して診断可能にする
+- **注意**:
+  - 「静止画区間の欠落対策」と「二重供給対策」はセットで実装する必要がある
+  - `requestFrame` 非対応ブラウザでは `auto-fps` にフォールバックする
+
+### 13-14. フレーム供給を再生タイムライン基準で同期
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/components/TurtleVideo.tsx`
+- **問題**:
+  - `setInterval` の周期だけで `requestFrame()` を呼ぶと、CPU負荷やタブ状態でフレーム供給数が前後し、映像尺が短縮/伸長する
+  - 特に静止画主体タイムラインでは「フレーム供給不足→画像が短い」「供給過多→映像が長い」が起こりやすい
+- **対策**:
+  - `TurtleVideo` から `getPlaybackTimeSec` を `useExport` へ渡し、エクスポート中の現在再生時刻を参照可能にする
+  - `useExport` 側は `floor(playbackTimeSec * FPS)` を目標フレーム数として `requestFrame()` を補充し、供給数をタイムライン進行に同期
+  - 停止要求後は目標フレーム数（`totalDuration * FPS`）まで不足分を補完してから終了し、AV尺を一致させる
+- **注意**:
+  - 壁時計（`Date.now()`）だけで供給数を決めると、非アクティブ時間や負荷変動を誤って取り込む
+  - `completionRequested` 後の補完は末尾フレーム複製が入るため、常時発生する場合は供給遅延の根本要因調査が必要
+
+### 13-15. 画像尺ズレ調査中の暫定運用（Canvas直接フレーム固定）
+
+- **ファイル**: `src/hooks/useExport.ts`
+- **問題**:
+  - `captureStream` + TrackProcessor 経路は環境差が大きく、静止画区間で「短縮」と「伸長」の両症状が再現した
+- **対策**:
+  - 映像エンコード経路を一時的に `useManualCanvasFrames = true` で固定し、Canvasから直接 `VideoFrame` を生成
+  - 音声は既存の OfflineAudioContext 優先経路を維持し、AV同期の切り分けを容易にする
+- **注意**:
+  - 暫定措置のため、将来的には TrackProcessor 経路を再導入する場合の再検証が必要
+  - 固定後もズレが残る場合は、`renderFrame` 側（`TurtleVideo.tsx`）の時間進行と停止判定を優先調査する
+
+### 13-16. エクスポート中UIの状態表示は `isPlaying` に依存しない
+
+- **ファイル**: `src/components/sections/PreviewSection.tsx`
+- **問題**:
+  - エクスポート中は `isPlaying` が必ずしも true にならないため、`isPlaying` 依存の状態判定だと表示が「準備中」に固定される
+- **対策**:
+  - フェーズ判定を `currentTime` の進捗検知（差分閾値）ベースへ変更
+  - 初回進捗前は `preparing`、進捗後に停滞したら `stalled`、進行中は `rendering` として表示
+- **注意**:
+  - 「再生中かどうか」と「エクスポート進捗の有無」は別概念として扱う

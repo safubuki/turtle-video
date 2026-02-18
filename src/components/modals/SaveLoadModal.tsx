@@ -98,7 +98,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
   const isClipsLocked = useMediaStore((s) => s.isClipsLocked);
   const bgm = useAudioStore((s) => s.bgm);
   const isBgmLocked = useAudioStore((s) => s.isBgmLocked);
-  const narration = useAudioStore((s) => s.narration);
+  const narrations = useAudioStore((s) => s.narrations);
   const isNarrationLocked = useAudioStore((s) => s.isNarrationLocked);
   const captions = useCaptionStore((s) => s.captions);
   const captionSettings = useCaptionStore((s) => s.settings);
@@ -110,7 +110,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
   const restoreCaptions = useCaptionStore((s) => s.restoreFromSave);
   
   // 現在編集中のデータがあるかどうか
-  const hasCurrentData = mediaItems.length > 0 || bgm !== null || narration !== null || captions.length > 0;
+  const hasCurrentData = mediaItems.length > 0 || bgm !== null || narrations.length > 0 || captions.length > 0;
   
   // 保存データがあるかどうか
   const hasAutoSave = lastAutoSave !== null;
@@ -179,7 +179,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
       isClipsLocked,
       bgm,
       isBgmLocked,
-      narration,
+      narrations,
       isNarrationLocked,
       captions,
       captionSettings,
@@ -189,7 +189,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
       mediaCount: mediaItems.length,
       captionCount: captions.length,
       hasBgm: !!bgm,
-      hasNarration: !!narration,
+      narrationCount: narrations.length,
     });
     onToast('保存しました', 'success');
     onClose();
@@ -270,7 +270,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
       if (data) {
         // 各ストアに復元
         restoreMediaItems(data.mediaItems, data.isClipsLocked);
-        restoreAudio(data.bgm, data.isBgmLocked, data.narration, data.isNarrationLocked);
+        restoreAudio(data.bgm, data.isBgmLocked, data.narrations, data.isNarrationLocked);
         restoreCaptions(data.captions, data.captionSettings, data.isCaptionsLocked);
         useLogStore.getState().info('SYSTEM', `プロジェクトを読み込み (${slot === 'auto' ? '自動保存' : '手動保存'})`, {
           mediaCount: data.mediaItems.length,

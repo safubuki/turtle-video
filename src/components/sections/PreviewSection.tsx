@@ -3,7 +3,7 @@
  * @author Turtle Village
  * @description 編集中の動画をリアルタイムでプレビュー再生、シーク、およびファイルへの書き出しを行うセクションコンポーネント。
  */
-import React, { RefObject } from 'react';
+import React, { RefObject, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Play,
   Pause,
@@ -16,12 +16,12 @@ import {
   Camera,
 
 } from 'lucide-react';
-import type { MediaItem, AudioTrack } from '../../types';
+import type { MediaItem, AudioTrack, NarrationClip } from '../../types';
 
 interface PreviewSectionProps {
   mediaItems: MediaItem[];
   bgm: AudioTrack | null;
-  narration: AudioTrack | null;
+  narrations: NarrationClip[];
   canvasRef: RefObject<HTMLCanvasElement | null>;
   currentTime: number;
   totalDuration: number;
@@ -48,7 +48,7 @@ interface PreviewSectionProps {
 const PreviewSection: React.FC<PreviewSectionProps> = ({
   mediaItems,
   bgm,
-  narration,
+  narrations,
   canvasRef,
   currentTime,
   totalDuration,
@@ -68,6 +68,65 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
 
   formatTime,
 }) => {
+  const [exportPhase, setExportPhase] = useState<'preparing' | 'rendering' | 'stalled'>('preparing');
+  const lastProgressAtRef = useRef<number>(Date.now());
+  const lastObservedTimeRef = useRef<number>(currentTime);
+  const hasExportProgressRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    if (!isProcessing) {
+      setExportPhase('preparing');
+      lastObservedTimeRef.current = currentTime;
+      lastProgressAtRef.current = Date.now();
+      hasExportProgressRef.current = false;
+      return;
+    }
+
+    const delta = Math.abs(currentTime - lastObservedTimeRef.current);
+    if (delta >= 0.05) {
+      lastObservedTimeRef.current = currentTime;
+      lastProgressAtRef.current = Date.now();
+      hasExportProgressRef.current = true;
+    }
+  }, [currentTime, isProcessing]);
+
+  useEffect(() => {
+    if (!isProcessing) return;
+
+    const updatePhase = () => {
+      // まだ時刻進行が始まっていない段階は「準備中」として扱う。
+      if (!hasExportProgressRef.current) {
+        setExportPhase('preparing');
+        return;
+      }
+      const stagnantMs = Date.now() - lastProgressAtRef.current;
+      setExportPhase(stagnantMs > 1500 ? 'stalled' : 'rendering');
+    };
+
+    updatePhase();
+    const timer = setInterval(updatePhase, 250);
+    return () => clearInterval(timer);
+  }, [isProcessing]);
+
+  const exportProgressPct = useMemo(() => {
+    if (!isProcessing || totalDuration <= 0) return 0;
+    return Math.min(100, Math.max(0, (currentTime / totalDuration) * 100));
+  }, [currentTime, isProcessing, totalDuration]);
+
+  const exportButtonText = useMemo(() => {
+    if (!isProcessing) return '動画ファイルを作成';
+    if (exportPhase === 'preparing') return '音声を準備中...';
+    if (exportPhase === 'stalled') return 'フレーム待機中...';
+    return `映像を生成中... ${exportProgressPct.toFixed(0)}%`;
+  }, [exportPhase, exportProgressPct, isProcessing]);
+
+  const exportStatusText = useMemo(() => {
+    if (!isProcessing) return null;
+    if (exportPhase === 'preparing') return '音声を準備しています（この間はシークバーが動かないことがあります）';
+    if (exportPhase === 'stalled') return '素材同期中です。しばらく待っても進まない場合は中断して再実行してください。';
+    return '映像を書き出し中です。';
+  }, [exportPhase, isProcessing]);
+
   return (
     <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
       <div className="p-3 lg:p-4 border-b border-gray-800 bg-gray-850 flex items-center justify-between">
@@ -133,6 +192,9 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
                 </p>
                 <p className="text-[10px] md:text-[11px] lg:text-xs leading-snug text-amber-200/90 mt-0.5">
                   画面を切り替えると映像・音声が乱れます
+                </p>
+                <p className="text-[10px] md:text-[11px] lg:text-xs leading-snug text-amber-100/90 mt-1">
+                  {exportStatusText}
                 </p>
               </div>
             </div>
@@ -210,7 +272,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
           <div className="flex items-center justify-between gap-4">
             <button
               onClick={onClearAll}
-              disabled={mediaItems.length === 0 && !bgm && !narration}
+              disabled={mediaItems.length === 0 && !bgm && narrations.length === 0}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm lg:text-base font-medium text-gray-400 hover:bg-red-900/20 hover:text-red-400 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <RotateCcw className="w-4 h-4 lg:w-5 lg:h-5" /> 一括クリア
@@ -232,7 +294,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
                 {isProcessing && (
                   <Loader className="animate-spin w-4 h-4 lg:w-5 lg:h-5" />
                 )}
-                {isProcessing ? '作成中...' : '動画ファイルを作成'}
+                {exportButtonText}
               </button>
             )}
           </div>

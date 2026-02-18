@@ -9,7 +9,7 @@ import { useCaptionStore } from '../stores/captionStore';
 export const usePreventUnload = () => {
     const mediaItems = useMediaStore((state) => state.mediaItems);
     const bgm = useAudioStore((state) => state.bgm);
-    const narration = useAudioStore((state) => state.narration);
+    const narrations = useAudioStore((state) => state.narrations);
     const captions = useCaptionStore((state) => state.captions);
 
     useEffect(() => {
@@ -17,7 +17,7 @@ export const usePreventUnload = () => {
             const hasUnsavedChanges =
                 mediaItems.length > 0 ||
                 bgm !== null ||
-                narration !== null ||
+                narrations.length > 0 ||
                 captions.length > 0;
 
             if (hasUnsavedChanges) {
@@ -32,5 +32,5 @@ export const usePreventUnload = () => {
         return () => {
             window.removeEventListener('beforeunload', handleBeforeUnload);
         };
-    }, [mediaItems, bgm, narration, captions]);
+    }, [mediaItems, bgm, narrations, captions]);
 };

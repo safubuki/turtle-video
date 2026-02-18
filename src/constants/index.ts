@@ -46,18 +46,19 @@ export const PRELOAD_TIME = 1.5; // 秒 - 次のメディアのプリロード�
 export const SEEK_THROTTLE_MS = 50; // ミリ秒 - シーク操作のスロットリング間隔
 
 // API設定
-export const GEMINI_SCRIPT_MODEL = 'gemini-2.5-flash-preview-09-2025';
+export const GEMINI_SCRIPT_MODEL = 'gemini-2.5-flash';
+export const GEMINI_SCRIPT_FALLBACK_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash'];
 export const GEMINI_TTS_MODEL = 'gemini-2.5-flash-preview-tts';
 export const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 export const TTS_SAMPLE_RATE = 24000;
 
 // 利用可能なボイスリスト
 export const VOICE_OPTIONS: VoiceOption[] = [
-  { id: 'Aoede', label: '女性 (明るめ)', desc: '親しみやすい標準的な声' },
-  { id: 'Kore', label: '女性 (落ち着いた)', desc: '穏やかで安心感のある声' },
-  { id: 'Puck', label: '男性 (ハキハキ)', desc: 'クリアで聞き取りやすい声' },
-  { id: 'Fenrir', label: '男性 (低音・渋め)', desc: '深みのある力強い声' },
-  { id: 'Charon', label: '男性 (エネルギッシュ)', desc: '少し強めのしっかりした声' },
+  { id: 'Aoede', label: '女性A', desc: '親しみやすい標準ボイス' },
+  { id: 'Kore', label: '女性B', desc: '落ち着いたやわらかいボイス' },
+  { id: 'Puck', label: '男性A', desc: '聞き取りやすいクリアボイス' },
+  { id: 'Fenrir', label: '男性B', desc: '低めで深みのあるボイス' },
+  { id: 'Charon', label: '男性C', desc: '力強く張りのあるボイス' },
 ];
 
 // エクスポート設定

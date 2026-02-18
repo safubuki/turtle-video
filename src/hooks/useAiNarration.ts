@@ -8,6 +8,7 @@ import type { AudioTrack } from '../types';
 import {
   GEMINI_API_BASE_URL,
   GEMINI_SCRIPT_MODEL,
+  GEMINI_SCRIPT_FALLBACK_MODELS,
   GEMINI_TTS_MODEL,
   TTS_SAMPLE_RATE,
   VOICE_OPTIONS,
@@ -85,34 +86,76 @@ export function useAiNarration(): UseAiNarrationReturn {
 
   // スクリプト生成
   const generateScript = useCallback(async () => {
-    if (!aiPrompt) return;
+    const trimmedPrompt = aiPrompt.trim();
+    if (!trimmedPrompt) return;
     setIsAiLoading(true);
-    useLogStore.getState().info('AUDIO', 'AIスクリプト生成を開始', { prompt: aiPrompt.substring(0, 50) });
+    useLogStore.getState().info('AUDIO', 'AIスクリプト生成を開始', { prompt: trimmedPrompt.substring(0, 50) });
     try {
-      const response = await fetch(
-        `${GEMINI_API_BASE_URL}/${GEMINI_SCRIPT_MODEL}:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  {
-                    text: `以下のテーマで、短い動画用のナレーション原稿を日本語で作成してください。文字数は100文字以内で、自然な話し言葉にしてください。\n\nテーマ: ${aiPrompt}\n\n【重要】出力には挨拶や「原稿案:」などの見出しを含めず、ナレーションで読み上げるセリフのテキストのみを出力してください。`,
-                  },
-                ],
+      const modelsToTry = [GEMINI_SCRIPT_MODEL, ...GEMINI_SCRIPT_FALLBACK_MODELS]
+        .filter((model, idx, arr) => arr.indexOf(model) === idx);
+
+      const systemInstruction = [
+        'あなたは日本語の動画ナレーション原稿を作るプロです。',
+        '出力は読み上げる本文のみ、1段落、1つだけ返してください。',
+        '挨拶・見出し・箇条書き・注釈・引用符・絵文字は禁止です。',
+        'テーマに沿って、30秒前後の短尺動画で使える自然な口語文にしてください。',
+        '文字数は60〜120文字を目安にし、聞き取りやすい短文中心にしてください。',
+      ].join('\n');
+
+      const userPrompt = [
+        `テーマ: ${trimmedPrompt}`,
+        '用途: 短い動画のナレーション',
+        '出力: ナレーション本文のみ',
+      ].join('\n');
+
+      for (let i = 0; i < modelsToTry.length; i++) {
+        const model = modelsToTry[i];
+        const hasNextModel = i < modelsToTry.length - 1;
+
+        const response = await fetch(
+          `${GEMINI_API_BASE_URL}/${model}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              systemInstruction: {
+                parts: [{ text: systemInstruction }],
               },
-            ],
-          }),
+              contents: [
+                {
+                  parts: [{ text: userPrompt }],
+                },
+              ],
+            }),
+          }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({} as { error?: { message?: string } }));
+          const errorMessage = errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`;
+          const isModelUnavailable = /no longer available|not found|404|model.+(available|found)/i.test(errorMessage);
+          if (hasNextModel && isModelUnavailable) {
+            useLogStore.getState().warn('AUDIO', 'スクリプト生成モデルをフォールバック', { model, errorMessage });
+            continue;
+          }
+          throw new Error(errorMessage);
         }
-      );
-      const data = await response.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (text) {
-        useLogStore.getState().info('AUDIO', 'AIスクリプト生成成功', { scriptLength: text.length });
-        setAiScript(text.trim());
+
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (typeof text === 'string' && text.trim()) {
+          const normalized = text
+            .replace(/\r?\n+/g, ' ')
+            .replace(/^(原稿案|ナレーション|台本)\s*[:：]\s*/i, '')
+            .replace(/\s{2,}/g, ' ')
+            .trim();
+          useLogStore.getState().info('AUDIO', 'AIスクリプト生成成功', { scriptLength: normalized.length, model });
+          setAiScript(normalized);
+          return;
+        }
       }
+
+      throw new Error('スクリプトの生成結果が空です');
     } catch (e) {
       useLogStore.getState().error('AUDIO', 'AIスクリプト生成失敗', { error: e instanceof Error ? e.message : String(e) });
       console.error('スクリプト生成エラー:', e);

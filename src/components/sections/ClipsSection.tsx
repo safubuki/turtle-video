@@ -10,6 +10,7 @@ import ClipItem from '../media/ClipItem';
 
 interface ClipsSectionProps {
   mediaItems: MediaItem[];
+  mediaTimelineRanges: Record<string, { start: number; end: number }>;
   isClipsLocked: boolean;
   mediaElements: Record<string, HTMLVideoElement | HTMLImageElement>;
   onToggleClipsLock: () => void;
@@ -36,6 +37,7 @@ interface ClipsSectionProps {
  */
 const ClipsSection: React.FC<ClipsSectionProps> = ({
   mediaItems,
+  mediaTimelineRanges,
   isClipsLocked,
   mediaElements,
   onToggleClipsLock,
@@ -97,6 +99,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
           <ClipItem
             key={v.id}
             item={v}
+            timelineRange={mediaTimelineRanges[v.id] ?? { start: 0, end: v.duration }}
             index={i}
             totalItems={mediaItems.length}
             isClipsLocked={isClipsLocked}

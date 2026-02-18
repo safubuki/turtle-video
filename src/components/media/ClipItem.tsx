@@ -30,6 +30,7 @@ import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 
 export interface ClipItemProps {
   item: MediaItem;
+  timelineRange: { start: number; end: number };
   index: number;
   totalItems: number;
   isClipsLocked: boolean;
@@ -58,6 +59,7 @@ export interface ClipItemProps {
  */
 const ClipItem: React.FC<ClipItemProps> = ({
   item: v,
+  timelineRange,
   index: i,
   totalItems,
   isClipsLocked,
@@ -90,6 +92,14 @@ const ClipItem: React.FC<ClipItemProps> = ({
   const handlePositionY = useCallback((val: number) => onUpdatePosition('y', String(val)), [onUpdatePosition]);
   const handleImageDuration = useCallback((val: number) => onUpdateImageDuration(String(val)), [onUpdateImageDuration]);
   const handleVolume = useCallback((val: number) => onUpdateVolume(val), [onUpdateVolume]);
+  const formatTimelineTime = useCallback((seconds: number): string => {
+    if (!Number.isFinite(seconds)) return '00:00.0';
+    const totalTenths = Math.max(0, Math.round(seconds * 10));
+    const minutes = Math.floor(totalTenths / 600);
+    const secs = Math.floor((totalTenths % 600) / 10);
+    const tenths = totalTenths % 10;
+    return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${tenths}`;
+  }, []);
 
   return (
     <div className="bg-gray-800 p-3 lg:p-4 rounded-xl border border-gray-700/50 relative group">
@@ -145,6 +155,12 @@ const ClipItem: React.FC<ClipItemProps> = ({
       {/* 動画トリミングUI */}
       {v.type === 'video' && (
         <div className="bg-black/30 p-2 lg:p-3 rounded mb-2 border border-gray-700/50 space-y-2">
+          <div className="flex items-center justify-between text-[10px] md:text-xs text-gray-500">
+            <span>表示区間</span>
+            <span className="font-mono text-gray-300">
+              {formatTimelineTime(timelineRange.start)} - {formatTimelineTime(timelineRange.end)}
+            </span>
+          </div>
           <div className="flex items-center gap-2 mb-1 text-[10px] md:text-xs text-gray-400">
             <Scissors className="w-3 h-3" />
             <span>
@@ -205,6 +221,12 @@ const ClipItem: React.FC<ClipItemProps> = ({
       {/* 画像表示時間UI (新設: ヘッダー下) */}
       {v.type === 'image' && (
         <div className="bg-black/30 p-2 rounded mb-2 border border-gray-700/50">
+          <div className="flex items-center justify-between text-[10px] md:text-xs text-gray-500 mb-1">
+            <span>表示区間</span>
+            <span className="font-mono text-gray-300">
+              {formatTimelineTime(timelineRange.start)} - {formatTimelineTime(timelineRange.end)}
+            </span>
+          </div>
           <div className="flex items-center gap-2 text-[10px]">
             <Clock className="w-3 h-3 text-gray-400" />
             <span className="text-gray-400 w-14">表示時間</span>
