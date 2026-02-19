@@ -17,17 +17,16 @@ interface HeaderProps {
 const Header: React.FC<HeaderProps> = ({ onOpenSettings, onOpenProjectManager }) => {
   return (
     <header className="sticky top-0 z-50 bg-gray-900/95 backdrop-blur border-b border-gray-800 px-4 py-3 lg:px-8 lg:py-4 shadow-lg">
-      {/* モバイル: 従来通り中央寄せ1行 */}
-      {/* PC: タイトル中央 + アイコン少し右寄せ */}
       <div className="flex items-center justify-center lg:justify-center lg:relative">
-        <div className="flex items-center gap-2 lg:gap-3">
-          <div className="bg-green-600 p-1.5 lg:p-2 rounded-lg">
-            <img src={`${import.meta.env.BASE_URL}turtle_icon.png`} alt="タートルビデオ" className="w-6 h-6 lg:w-7 lg:h-7" />
+        <div className="flex items-center gap-2.5 lg:gap-3.5">
+          <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-emerald-600/95 ring-1 ring-emerald-300/35 shadow-[0_0_0_2px_rgba(2,6,23,0.65)] lg:h-12 lg:w-12">
+            <img
+              src={`${import.meta.env.BASE_URL}turtle_icon.png`}
+              alt="タートルビデオ"
+              className="h-8 w-8 rounded-full object-cover lg:h-9 lg:w-9"
+            />
           </div>
-          <h1 className="font-bold text-lg lg:text-xl whitespace-nowrap">
-            タートルビデオ{' '}
-            <span className="text-xs lg:text-sm bg-purple-600 px-1.5 py-0.5 rounded ml-1">AI</span>
-          </h1>
+          <h1 className="font-bold text-lg lg:text-xl whitespace-nowrap leading-none">タートルビデオ</h1>
           {/* モバイル: タイトル横に配置（従来通り） */}
           <div className="flex items-center gap-1 lg:hidden">
             {onOpenProjectManager && (

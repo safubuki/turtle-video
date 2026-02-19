@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import {
   Lock,
   Unlock,
+  CircleHelp,
   Plus,
   ChevronDown,
   ChevronRight,
@@ -17,6 +18,7 @@ import {
 import type { Caption, CaptionSettings, CaptionPosition, CaptionSize, CaptionFontStyle } from '../../types';
 import CaptionItem from '../media/CaptionItem';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
+import { useUIStore } from '../../stores/uiStore';
 
 interface CaptionSectionProps {
   captions: Caption[];
@@ -67,6 +69,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   const [isOpen, setIsOpen] = useState(true);
   const [showStyleSettings, setShowStyleSettings] = useState(false);
   const [newText, setNewText] = useState('');
+  const showToast = useUIStore((s) => s.showToast);
 
   const handleAddCaption = () => {
     if (!newText.trim()) return;
@@ -121,21 +124,32 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
           {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
           <span className="w-6 h-6 lg:w-7 lg:h-7 rounded-full bg-yellow-500/10 flex items-center justify-center text-xs lg:text-sm">
             4
-          </span>{' '}
-          キャプション
+          </span>
+          <span>キャプション</span>
           {captions.length > 0 && (
             <span className="text-[10px] md:text-xs text-yellow-300 font-normal ml-2">
               ({captions.length}件)
             </span>
           )}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              showToast('キャプションの表示設定、追加、時間調整、スタイル一括設定ができます。', 2800);
+            }}
+            className="p-1 rounded-lg transition border border-blue-500/45 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:text-blue-200 ml-1"
+            title="このセクションの説明"
+            aria-label="キャプションセクションの説明"
+          >
+            <CircleHelp className="w-4 h-4" />
+          </button>
         </h2>
         <div className="flex gap-2 items-center" onClick={(e) => e.stopPropagation()}>
           {/* 表示/非表示トグル */}
           <button
             onClick={() => onSetEnabled(!settings.enabled)}
-            className={`p-1.5 rounded transition ${settings.enabled
+            className={`p-1.5 rounded-lg transition ${settings.enabled
               ? 'bg-yellow-500/20 text-yellow-400'
-              : 'bg-gray-700 text-gray-400 hover:text-white'
+              : 'bg-gray-700 text-gray-400 hover:text-white hover:bg-gray-600'
               }`}
             title={settings.enabled ? 'キャプションを非表示' : 'キャプションを表示'}
           >
@@ -144,10 +158,12 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
           {/* ロック */}
           <button
             onClick={onToggleLock}
-            className={`p-1.5 rounded transition ${isLocked
+            className={`p-1.5 rounded-lg transition ${isLocked
               ? 'bg-red-500/20 text-red-400'
-              : 'bg-gray-700 text-gray-400 hover:text-white'
+              : 'bg-gray-700 text-gray-400 hover:text-white hover:bg-gray-600'
               }`}
+            title={isLocked ? 'ロック解除' : 'ロック'}
+            aria-label={isLocked ? 'キャプションセクションのロックを解除' : 'キャプションセクションをロック'}
           >
             {isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
           </button>
@@ -326,21 +342,21 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
               }}
               placeholder="キャプションテキストを入力..."
               disabled={isLocked}
-              className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm md:text-base text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500 disabled:opacity-50"
+              className="flex-1 h-9 md:h-10 bg-gray-800 border border-gray-700 rounded-lg px-3 text-sm md:text-sm text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500 disabled:opacity-50"
             />
             <button
               onClick={handleAddCaption}
               disabled={isLocked || !newText.trim()}
-              className="bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-2 lg:px-4 rounded-lg text-xs md:text-sm font-bold flex items-center gap-1 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="h-9 md:h-10 bg-yellow-600 hover:bg-yellow-500 text-white px-3 lg:px-4 rounded-lg text-xs md:text-sm font-semibold whitespace-nowrap flex items-center gap-1 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Plus className="w-3 h-3" /> 追加
             </button>
           </div>
 
           {/* キャプション一覧 */}
-          <div className="space-y-2 max-h-60 lg:max-h-80 overflow-y-auto custom-scrollbar">
+          <div className="space-y-2 min-h-14 lg:min-h-[4.5rem] max-h-44 lg:max-h-[15rem] overflow-y-auto custom-scrollbar">
             {captions.length === 0 ? (
-              <div className="text-center py-4 text-gray-600 text-xs md:text-sm border-2 border-dashed border-gray-800 rounded">
+              <div className="text-center py-2 lg:py-2.5 min-h-12 lg:min-h-14 text-gray-600 text-xs md:text-sm border-2 border-dashed border-gray-800 rounded flex items-center justify-center">
                 キャプションがありません
               </div>
             ) : (

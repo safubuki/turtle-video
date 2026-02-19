@@ -4,9 +4,10 @@
  * @description 動画・画像クリップの管理を行うセクション。アップロード、並び替え、各クリップの基本操作（削除、複製）を提供するリストビュー。
  */
 import React from 'react';
-import { Upload, Lock, Unlock } from 'lucide-react';
+import { Upload, Lock, Unlock, CircleHelp } from 'lucide-react';
 import type { MediaItem } from '../../types';
 import ClipItem from '../media/ClipItem';
+import { useUIStore } from '../../stores/uiStore';
 
 interface ClipsSectionProps {
   mediaItems: MediaItem[];
@@ -58,24 +59,36 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   onUpdateFadeInDuration,
   onUpdateFadeOutDuration,
 }) => {
+  const showToast = useUIStore((s) => s.showToast);
+
   return (
     <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
-      <div className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center">
+      <div className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center gap-3">
         <h2 className="font-bold flex items-center gap-2 text-blue-400 md:text-base lg:text-lg">
           <span className="w-6 h-6 lg:w-7 lg:h-7 rounded-full bg-blue-500/10 flex items-center justify-center text-xs lg:text-sm">
             1
-          </span>{' '}
-          動画・画像
+          </span>
+          <span>動画・画像</span>
+          <button
+            onClick={() => showToast('動画・画像の追加、並び替え、個別調整ができます。', 2800)}
+            className="p-1 rounded-lg transition border border-blue-500/45 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:text-blue-200"
+            title="このセクションの説明"
+            aria-label="動画・画像セクションの説明"
+          >
+            <CircleHelp className="w-4 h-4" />
+          </button>
         </h2>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 shrink-0">
           <button
             onClick={onToggleClipsLock}
-            className={`p-1.5 rounded transition ${isClipsLocked ? 'bg-red-500/20 text-red-400' : 'bg-gray-700 text-gray-400 hover:text-white'}`}
+            className={`p-1 rounded-lg transition ${isClipsLocked ? 'bg-red-500/20 text-red-400' : 'bg-gray-700 text-gray-300 hover:text-white hover:bg-gray-600'}`}
+            title={isClipsLocked ? 'ロック解除' : 'ロック'}
+            aria-label={isClipsLocked ? '動画・画像セクションのロックを解除' : '動画・画像セクションをロック'}
           >
             {isClipsLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
           </button>
           <label
-            className={`cursor-pointer bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 lg:px-4 lg:py-2 rounded-lg text-xs md:text-sm font-bold flex items-center gap-1 transition ${isClipsLocked ? 'opacity-50 pointer-events-none' : ''}`}
+            className={`cursor-pointer bg-emerald-700 hover:bg-emerald-600 border border-emerald-500/45 text-white px-2.5 py-1 rounded-lg text-xs md:text-sm font-semibold whitespace-nowrap flex items-center gap-1 transition ${isClipsLocked ? 'opacity-50 pointer-events-none' : ''}`}
           >
             <Upload className="w-3 h-3" /> 追加
             <input

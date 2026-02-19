@@ -8,6 +8,7 @@ import {
   Upload,
   Lock,
   Unlock,
+  CircleHelp,
   Mic,
   Sparkles,
   Volume2,
@@ -24,6 +25,7 @@ import {
 } from 'lucide-react';
 import type { NarrationClip } from '../../types';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
+import { useUIStore } from '../../stores/uiStore';
 
 interface NarrationSectionProps {
   narrations: NarrationClip[];
@@ -59,6 +61,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
   formatTime,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const showToast = useUIStore((s) => s.showToast);
 
   const isIosSafari = useMemo(() => {
     if (typeof navigator === 'undefined') return false;
@@ -86,7 +89,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
   return (
     <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
       <div
-        className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center cursor-pointer hover:bg-gray-800/50 transition"
+        className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center gap-3 cursor-pointer hover:bg-gray-800/50 transition"
         onClick={() => setIsOpen(!isOpen)}
       >
         <h2 className="font-bold flex items-center gap-2 text-indigo-400 md:text-base lg:text-lg">
@@ -95,25 +98,38 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
             3
           </span>
           <span className="whitespace-nowrap">ナレーション</span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              showToast('ナレーションのAI追加・追加、開始位置、音量調整ができます。', 2800);
+            }}
+            className="p-1 rounded-lg transition border border-blue-500/45 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:text-blue-200"
+            title="このセクションの説明"
+            aria-label="ナレーションセクションの説明"
+          >
+            <CircleHelp className="w-4 h-4" />
+          </button>
         </h2>
-        <div className="flex gap-2 shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
           <button
             onClick={onToggleNarrationLock}
-            className={`p-1.5 rounded transition ${isNarrationLocked ? 'bg-red-500/20 text-red-400' : 'bg-gray-700 text-gray-400 hover:text-white'}`}
+            className={`p-1 rounded-lg transition ${isNarrationLocked ? 'bg-red-500/20 text-red-400' : 'bg-gray-700 text-gray-300 hover:text-white hover:bg-gray-600'}`}
+            title={isNarrationLocked ? 'ロック解除' : 'ロック'}
+            aria-label={isNarrationLocked ? 'ナレーションセクションのロックを解除' : 'ナレーションセクションをロック'}
           >
             {isNarrationLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
           </button>
           <button
             onClick={onAddAiNarration}
             disabled={isNarrationLocked}
-            className={`bg-linear-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white px-2 py-1.5 sm:px-3 sm:py-1.5 lg:px-4 lg:py-2 rounded-lg text-xs md:text-sm font-bold transition flex items-center gap-1 shadow-lg ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
+            className={`h-7 md:h-8 bg-linear-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white px-2.5 rounded-lg text-xs md:text-sm font-semibold whitespace-nowrap transition flex items-center gap-1 ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
           >
             <Sparkles className="w-3 h-3" /> AI追加
           </button>
           <label
-            className={`cursor-pointer bg-gray-700 hover:bg-gray-600 text-white px-2 py-1.5 sm:px-3 sm:py-1.5 lg:px-4 lg:py-2 rounded-lg text-xs md:text-sm font-bold transition flex items-center gap-1 ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
+            className={`cursor-pointer h-7 md:h-8 bg-emerald-700 hover:bg-emerald-600 border border-emerald-500/45 text-white px-2.5 rounded-lg text-xs md:text-sm font-semibold whitespace-nowrap transition flex items-center gap-1 ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
           >
-            <Upload className="w-3 h-3" /> ファイル追加
+            <Upload className="w-3 h-3" /> 追加
             <input
               type="file"
               accept={audioFileAccept}
@@ -130,7 +146,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
         <div className="p-3 lg:p-4 space-y-3 max-h-75 lg:max-h-128 overflow-y-auto custom-scrollbar">
           {narrations.length === 0 && (
             <div className="text-center py-8 text-gray-600 text-xs md:text-sm border-2 border-dashed border-gray-800 rounded">
-              ナレーションはまだありません。AI追加またはファイル追加で作成できます。
+              ナレーションはまだありません。AI追加または追加で作成できます。
             </div>
           )}
 
@@ -181,7 +197,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                       onClick={() => onEditAiNarration(clip.id)}
                       disabled={isNarrationLocked || !isAi}
                       className="p-1 text-gray-400 hover:text-white disabled:opacity-30"
-                      title={isAi ? 'AIで編集' : 'ファイル追加のナレーションはAI編集できません'}
+                      title={isAi ? 'AIで編集' : '追加したナレーションはAI編集できません'}
                     >
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>

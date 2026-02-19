@@ -4,9 +4,10 @@
  * @description BGM（バックグラウンドミュージック）のアップロード、音量調整、フェード設定、削除を行うセクションコンポーネント。
  */
 import React, { useState, useCallback, useMemo } from 'react';
-import { Upload, Lock, Unlock, Music, Volume2, Timer, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
+import { Upload, Lock, Unlock, Music, Volume2, Timer, ChevronDown, ChevronRight, RefreshCw, CircleHelp } from 'lucide-react';
 import type { AudioTrack } from '../../types';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
+import { useUIStore } from '../../stores/uiStore';
 
 interface BgmSectionProps {
   bgm: AudioTrack | null;
@@ -45,6 +46,7 @@ const BgmSection: React.FC<BgmSectionProps> = ({
   formatTime,
 }) => {
   const [isOpen, setIsOpen] = useState(true);
+  const showToast = useUIStore((s) => s.showToast);
   const isIosSafari = useMemo(() => {
     if (typeof navigator === 'undefined') return false;
     const ua = navigator.userAgent;
@@ -74,45 +76,57 @@ const BgmSection: React.FC<BgmSectionProps> = ({
   return (
     <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
       <div
-        className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center cursor-pointer hover:bg-gray-800/50 transition"
+        className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center gap-3 cursor-pointer hover:bg-gray-800/50 transition"
         onClick={() => setIsOpen(!isOpen)}
       >
         <h2 className="font-bold flex items-center gap-2 text-purple-400 md:text-base lg:text-lg">
           {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
           <span className="w-6 h-6 lg:w-7 lg:h-7 rounded-full bg-purple-500/10 flex items-center justify-center text-xs lg:text-sm">
             2
-          </span>{' '}
-          BGM
+          </span>
+          <span>BGM</span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              showToast('BGMの追加、開始位置、音量、フェード設定ができます。', 2800);
+            }}
+            className="p-1 rounded-lg transition border border-blue-500/45 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:text-blue-200"
+            title="このセクションの説明"
+            aria-label="BGMセクションの説明"
+          >
+            <CircleHelp className="w-4 h-4" />
+          </button>
         </h2>
-        <div className="flex gap-2 items-center" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
           <button
             onClick={onToggleBgmLock}
-            className={`p-1.5 rounded transition ${isBgmLocked ? 'bg-red-500/20 text-red-400' : 'bg-gray-700 text-gray-400 hover:text-white'}`}
+            className={`p-1 rounded-lg transition ${isBgmLocked ? 'bg-red-500/20 text-red-400' : 'bg-gray-700 text-gray-300 hover:text-white hover:bg-gray-600'}`}
+            title={isBgmLocked ? 'ロック解除' : 'ロック'}
+            aria-label={isBgmLocked ? 'BGMセクションのロックを解除' : 'BGMセクションをロック'}
           >
             {isBgmLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
           </button>
-          {!bgm ? (
-            <label
-              className={`cursor-pointer bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 lg:px-4 lg:py-2 rounded-lg text-xs md:text-sm font-bold transition flex items-center gap-1 ${isBgmLocked ? 'opacity-50 pointer-events-none' : ''}`}
-            >
-              <Upload className="w-3 h-3" /> 選択
-              <input
-                type="file"
-                accept={audioFileAccept}
-                className="hidden"
-                onChange={onBgmUpload}
-                disabled={isBgmLocked}
-              />
-            </label>
-          ) : (
+          {bgm && (
             <button
               onClick={onRemoveBgm}
               disabled={isBgmLocked}
-              className="text-red-400 hover:text-red-300 text-xs px-2 disabled:opacity-50"
+              className="bg-gray-700 hover:bg-gray-600 text-red-300 px-2 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition disabled:opacity-50"
             >
               削除
             </button>
           )}
+          <label
+            className={`cursor-pointer bg-emerald-700 hover:bg-emerald-600 border border-emerald-500/45 text-white px-2.5 py-1 rounded-lg text-xs md:text-sm font-semibold whitespace-nowrap transition flex items-center gap-1 ${isBgmLocked ? 'opacity-50 pointer-events-none' : ''}`}
+          >
+            <Upload className="w-3 h-3" /> 追加
+            <input
+              type="file"
+              accept={audioFileAccept}
+              className="hidden"
+              onChange={onBgmUpload}
+              disabled={isBgmLocked}
+            />
+          </label>
         </div>
       </div>
       {isOpen && bgm && (
