@@ -94,7 +94,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
           <span className="w-6 h-6 lg:w-7 lg:h-7 rounded-full bg-indigo-500/10 flex items-center justify-center text-xs lg:text-sm">
             3
           </span>
-          ナレーション
+          <span className="whitespace-nowrap">ナレーション</span>
         </h2>
         <div className="flex gap-2 shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
           <button
@@ -106,12 +106,12 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
           <button
             onClick={onAddAiNarration}
             disabled={isNarrationLocked}
-            className={`bg-linear-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white px-3 py-1.5 lg:px-4 lg:py-2 rounded-lg text-xs md:text-sm font-bold transition flex items-center gap-1 shadow-lg ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
+            className={`bg-linear-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white px-2 py-1.5 sm:px-3 sm:py-1.5 lg:px-4 lg:py-2 rounded-lg text-xs md:text-sm font-bold transition flex items-center gap-1 shadow-lg ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
           >
             <Sparkles className="w-3 h-3" /> AI追加
           </button>
           <label
-            className={`cursor-pointer bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 lg:px-4 lg:py-2 rounded-lg text-xs md:text-sm font-bold transition flex items-center gap-1 ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
+            className={`cursor-pointer bg-gray-700 hover:bg-gray-600 text-white px-2 py-1.5 sm:px-3 sm:py-1.5 lg:px-4 lg:py-2 rounded-lg text-xs md:text-sm font-bold transition flex items-center gap-1 ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
           >
             <Upload className="w-3 h-3" /> ファイル追加
             <input
