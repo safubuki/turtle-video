@@ -58,7 +58,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
   onUpdateVolume,
   formatTime,
 }) => {
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
 
   const isIosSafari = useMemo(() => {
     if (typeof navigator === 'undefined') return false;
