@@ -4,7 +4,7 @@
  * @description 保存・読み込み・削除機能を提供するモーダル。
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X, Save, FolderOpen, Trash2, Clock, AlertTriangle, Timer, Image, CircleHelp } from 'lucide-react';
 import {
   useProjectStore,
@@ -77,6 +77,20 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
   const [selectedSlot, setSelectedSlot] = useState<SaveSlot | null>(null);
   const [autoSaveInterval, setAutoSaveIntervalState] = useState<AutoSaveIntervalOption>(getAutoSaveInterval);
   const [showHelp, setShowHelp] = useState(false);
+  const showHelpRef = useRef(false);
+  const modalHistoryIdRef = useRef<string | null>(null);
+  const closedByPopstateRef = useRef(false);
+  const sheetScrollRef = useRef<HTMLDivElement>(null);
+  const touchStartXRef = useRef<number | null>(null);
+  const touchStartYRef = useRef<number | null>(null);
+  const touchStartScrollTopRef = useRef(0);
+  const touchDeltaYRef = useRef(0);
+  const swipeCloseEligibleRef = useRef(false);
+
+  const isMobileViewport = () => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(max-width: 767px)').matches;
+  };
   
   // モーダル表示中は背景のスクロールを防止
   useDisableBodyScroll(isOpen);
@@ -134,6 +148,102 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
       setShowHelp(false);
     }
   }, [mode]);
+
+  useEffect(() => {
+    showHelpRef.current = showHelp;
+  }, [showHelp]);
+
+  useEffect(() => {
+    if (!isOpen || typeof window === 'undefined') return;
+    const stateId = `save-load-modal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    modalHistoryIdRef.current = stateId;
+    closedByPopstateRef.current = false;
+
+    const currentState = (window.history.state && typeof window.history.state === 'object')
+      ? window.history.state as Record<string, unknown>
+      : {};
+    window.history.pushState({ ...currentState, __saveLoadModal: stateId }, '');
+
+    const handlePopState = () => {
+      if (showHelpRef.current) {
+        setShowHelp(false);
+        const state = (window.history.state && typeof window.history.state === 'object')
+          ? window.history.state as Record<string, unknown>
+          : {};
+        window.history.pushState({ ...state, __saveLoadModal: stateId }, '');
+        return;
+      }
+      closedByPopstateRef.current = true;
+      onClose();
+    };
+
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      const current = (window.history.state && typeof window.history.state === 'object')
+        ? window.history.state as Record<string, unknown>
+        : null;
+      const ownStateOnTop = Boolean(
+        modalHistoryIdRef.current &&
+        current &&
+        current.__saveLoadModal === modalHistoryIdRef.current
+      );
+      if (!closedByPopstateRef.current && ownStateOnTop) {
+        window.history.back();
+      }
+      modalHistoryIdRef.current = null;
+      closedByPopstateRef.current = false;
+    };
+  }, [isOpen, onClose]);
+
+  const resetTouchTracking = () => {
+    touchStartXRef.current = null;
+    touchStartYRef.current = null;
+    touchStartScrollTopRef.current = 0;
+    touchDeltaYRef.current = 0;
+    swipeCloseEligibleRef.current = false;
+  };
+
+  const handleSheetTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (!isMobileViewport() || event.touches.length !== 1) {
+      resetTouchTracking();
+      return;
+    }
+    const touch = event.touches[0];
+    touchStartXRef.current = touch.clientX;
+    touchStartYRef.current = touch.clientY;
+    touchDeltaYRef.current = 0;
+    touchStartScrollTopRef.current = sheetScrollRef.current?.scrollTop ?? 0;
+    swipeCloseEligibleRef.current = touchStartScrollTopRef.current <= 0;
+  };
+
+  const handleSheetTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (!swipeCloseEligibleRef.current || touchStartXRef.current === null || touchStartYRef.current === null || event.touches.length !== 1) {
+      return;
+    }
+
+    const touch = event.touches[0];
+    const deltaX = touch.clientX - touchStartXRef.current;
+    const deltaY = touch.clientY - touchStartYRef.current;
+    touchDeltaYRef.current = deltaY;
+
+    const atTop = (sheetScrollRef.current?.scrollTop ?? 0) <= 0;
+    const isVerticalDownSwipe = deltaY > 0 && Math.abs(deltaY) > Math.abs(deltaX);
+    if (!atTop || touchStartScrollTopRef.current > 0 || !isVerticalDownSwipe) {
+      swipeCloseEligibleRef.current = false;
+      return;
+    }
+
+    event.preventDefault();
+  };
+
+  const handleSheetTouchEnd = () => {
+    if (swipeCloseEligibleRef.current && touchDeltaYRef.current > 72) {
+      onClose();
+    }
+    resetTouchTracking();
+  };
   
   // 自動保存間隔変更ハンドラ
   const handleAutoSaveIntervalChange = (value: AutoSaveIntervalOption) => {
@@ -321,8 +431,13 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
       onClick={onClose}
     >
       <div
+        ref={sheetScrollRef}
         className="relative w-full md:w-[90%] max-w-md bg-gray-900 rounded-t-2xl md:rounded-2xl border border-gray-700 p-4 md:p-6 max-h-[calc(100dvh-0.5rem)] md:max-h-[90vh] overflow-y-auto pb-[calc(env(safe-area-inset-bottom)+1rem)] md:pb-6 animate-ai-modal-sheet"
         onClick={(e) => e.stopPropagation()}
+        onTouchStart={handleSheetTouchStart}
+        onTouchMove={handleSheetTouchMove}
+        onTouchEnd={handleSheetTouchEnd}
+        onTouchCancel={resetTouchTracking}
       >
         <div className="md:hidden pt-0.5 pb-2">
           <div className="mx-auto h-1 w-12 rounded-full bg-gray-600/80" />

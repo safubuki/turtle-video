@@ -89,7 +89,21 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const showHelpRef = useRef(false);
+  const modalHistoryIdRef = useRef<string | null>(null);
+  const closedByPopstateRef = useRef(false);
+  const apikeyScrollRef = useRef<HTMLDivElement>(null);
   const logContainerRef = useRef<HTMLDivElement>(null);
+  const touchStartXRef = useRef<number | null>(null);
+  const touchStartYRef = useRef<number | null>(null);
+  const touchStartScrollTopRef = useRef(0);
+  const touchDeltaYRef = useRef(0);
+  const swipeCloseEligibleRef = useRef(false);
+
+  const isMobileViewport = () => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(max-width: 767px)').matches;
+  };
 
   // モーダル表示中は背景のスクロールを防止
   useDisableBodyScroll(isOpen);
@@ -114,6 +128,107 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
       }
     }
   }, [isOpen, activeTab, clearErrorFlag]);
+
+  useEffect(() => {
+    showHelpRef.current = showHelp;
+  }, [showHelp]);
+
+  useEffect(() => {
+    if (!isOpen || typeof window === 'undefined') return;
+    const stateId = `settings-modal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    modalHistoryIdRef.current = stateId;
+    closedByPopstateRef.current = false;
+
+    const currentState = (window.history.state && typeof window.history.state === 'object')
+      ? window.history.state as Record<string, unknown>
+      : {};
+    window.history.pushState({ ...currentState, __settingsModal: stateId }, '');
+
+    const handlePopState = () => {
+      if (showHelpRef.current) {
+        setShowHelp(false);
+        const state = (window.history.state && typeof window.history.state === 'object')
+          ? window.history.state as Record<string, unknown>
+          : {};
+        window.history.pushState({ ...state, __settingsModal: stateId }, '');
+        return;
+      }
+      closedByPopstateRef.current = true;
+      onClose();
+    };
+
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      const current = (window.history.state && typeof window.history.state === 'object')
+        ? window.history.state as Record<string, unknown>
+        : null;
+      const ownStateOnTop = Boolean(
+        modalHistoryIdRef.current &&
+        current &&
+        current.__settingsModal === modalHistoryIdRef.current
+      );
+      if (!closedByPopstateRef.current && ownStateOnTop) {
+        window.history.back();
+      }
+      modalHistoryIdRef.current = null;
+      closedByPopstateRef.current = false;
+    };
+  }, [isOpen, onClose]);
+
+  const getActiveScrollTop = () => {
+    if (activeTab === 'apikey') return apikeyScrollRef.current?.scrollTop ?? 0;
+    return logContainerRef.current?.scrollTop ?? 0;
+  };
+
+  const resetTouchTracking = () => {
+    touchStartXRef.current = null;
+    touchStartYRef.current = null;
+    touchStartScrollTopRef.current = 0;
+    touchDeltaYRef.current = 0;
+    swipeCloseEligibleRef.current = false;
+  };
+
+  const handleSheetTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (!isMobileViewport() || event.touches.length !== 1) {
+      resetTouchTracking();
+      return;
+    }
+    const touch = event.touches[0];
+    touchStartXRef.current = touch.clientX;
+    touchStartYRef.current = touch.clientY;
+    touchDeltaYRef.current = 0;
+    touchStartScrollTopRef.current = getActiveScrollTop();
+    swipeCloseEligibleRef.current = touchStartScrollTopRef.current <= 0;
+  };
+
+  const handleSheetTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (!swipeCloseEligibleRef.current || touchStartXRef.current === null || touchStartYRef.current === null || event.touches.length !== 1) {
+      return;
+    }
+
+    const touch = event.touches[0];
+    const deltaX = touch.clientX - touchStartXRef.current;
+    const deltaY = touch.clientY - touchStartYRef.current;
+    touchDeltaYRef.current = deltaY;
+
+    const atTop = getActiveScrollTop() <= 0;
+    const isVerticalDownSwipe = deltaY > 0 && Math.abs(deltaY) > Math.abs(deltaX);
+    if (!atTop || touchStartScrollTopRef.current > 0 || !isVerticalDownSwipe) {
+      swipeCloseEligibleRef.current = false;
+      return;
+    }
+
+    event.preventDefault();
+  };
+
+  const handleSheetTouchEnd = () => {
+    if (swipeCloseEligibleRef.current && touchDeltaYRef.current > 72) {
+      onClose();
+    }
+    resetTouchTracking();
+  };
 
   // ログが追加されたら自動スクロール
   useEffect(() => {
@@ -192,7 +307,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-end md:items-center md:justify-center z-[300] md:p-4">
-      <div className="bg-gray-900 rounded-t-2xl md:rounded-2xl border border-gray-700 w-full max-w-lg shadow-2xl max-h-[calc(100dvh-0.5rem)] md:max-h-[90vh] flex flex-col overflow-hidden animate-ai-modal-sheet">
+      <div
+        className="bg-gray-900 rounded-t-2xl md:rounded-2xl border border-gray-700 w-full max-w-lg shadow-2xl max-h-[calc(100dvh-0.5rem)] md:max-h-[90vh] flex flex-col overflow-hidden animate-ai-modal-sheet"
+        onTouchStart={handleSheetTouchStart}
+        onTouchMove={handleSheetTouchMove}
+        onTouchEnd={handleSheetTouchEnd}
+        onTouchCancel={resetTouchTracking}
+      >
         <div className="md:hidden pt-2 px-4 shrink-0">
           <div className="mx-auto h-1 w-12 rounded-full bg-gray-600/80" />
         </div>
@@ -283,7 +404,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
           )}
           {activeTab === 'apikey' ? (
             /* APIキータブ */
-            <div className="p-4 space-y-4 overflow-y-auto">
+            <div ref={apikeyScrollRef} className="p-4 space-y-4 overflow-y-auto">
               {/* 説明 */}
               <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
                 <h3 className="font-bold text-blue-400 mb-2 flex items-center gap-2">
