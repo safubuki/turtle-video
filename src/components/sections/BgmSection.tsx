@@ -4,10 +4,9 @@
  * @description BGM（バックグラウンドミュージック）のアップロード、音量調整、フェード設定、削除を行うセクションコンポーネント。
  */
 import React, { useState, useCallback, useMemo } from 'react';
-import { Upload, Lock, Unlock, Music, Volume2, Timer, ChevronDown, ChevronRight, RefreshCw, CircleHelp } from 'lucide-react';
+import { Upload, Lock, Unlock, Music, Volume2, Timer, ChevronDown, ChevronRight, RefreshCw, CircleHelp, Trash2 } from 'lucide-react';
 import type { AudioTrack } from '../../types';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
-import { useUIStore } from '../../stores/uiStore';
 
 interface BgmSectionProps {
   bgm: AudioTrack | null;
@@ -24,6 +23,7 @@ interface BgmSectionProps {
   onUpdateFadeInDuration: (duration: number) => void;
   onUpdateFadeOutDuration: (duration: number) => void;
   formatTime: (seconds: number) => string;
+  onOpenHelp: () => void;
 }
 
 /**
@@ -44,9 +44,9 @@ const BgmSection: React.FC<BgmSectionProps> = ({
   onUpdateFadeInDuration,
   onUpdateFadeOutDuration,
   formatTime,
+  onOpenHelp,
 }) => {
   const [isOpen, setIsOpen] = useState(true);
-  const showToast = useUIStore((s) => s.showToast);
   const isIosSafari = useMemo(() => {
     if (typeof navigator === 'undefined') return false;
     const ua = navigator.userAgent;
@@ -88,7 +88,7 @@ const BgmSection: React.FC<BgmSectionProps> = ({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              showToast('BGMの追加、開始位置、音量、フェード設定ができます。', 2800);
+              onOpenHelp();
             }}
             className="p-1 rounded-lg transition border border-blue-500/45 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:text-blue-200"
             title="このセクションの説明"
@@ -106,15 +106,6 @@ const BgmSection: React.FC<BgmSectionProps> = ({
           >
             {isBgmLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
           </button>
-          {bgm && (
-            <button
-              onClick={onRemoveBgm}
-              disabled={isBgmLocked}
-              className="bg-gray-700 hover:bg-gray-600 text-red-300 px-2 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition disabled:opacity-50"
-            >
-              削除
-            </button>
-          )}
           <label
             className={`cursor-pointer bg-emerald-700 hover:bg-emerald-600 border border-emerald-500/45 text-white px-2.5 py-1 rounded-lg text-xs md:text-sm font-semibold whitespace-nowrap transition flex items-center gap-1 ${isBgmLocked ? 'opacity-50 pointer-events-none' : ''}`}
           >
@@ -131,8 +122,20 @@ const BgmSection: React.FC<BgmSectionProps> = ({
       </div>
       {isOpen && bgm && (
         <div className="p-4 bg-purple-900/10 border border-purple-500/20 m-3 rounded-xl space-y-3">
-          <div className="flex items-center gap-2 text-purple-200 text-xs md:text-sm font-medium truncate">
-            <Music className="w-3 h-3 text-purple-400 shrink-0" /> {bgm.file.name}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-purple-200 text-xs md:text-sm font-medium truncate min-w-0">
+              <Music className="w-3 h-3 text-purple-400 shrink-0" />
+              <span className="truncate">{bgm.file.name}</span>
+            </div>
+            <button
+              onClick={onRemoveBgm}
+              disabled={isBgmLocked}
+              className="px-2 py-1 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded border border-red-800/50 disabled:opacity-30 text-[10px] transition"
+              title="削除"
+              aria-label="BGMを削除"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
           </div>
           <div className="space-y-1">
             <div className="flex justify-between text-[10px] md:text-xs text-gray-400">

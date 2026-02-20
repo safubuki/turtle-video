@@ -4,7 +4,7 @@
  * @description AIナレーションを生成するためのモーダルダイアログ。プロンプト入力、スクリプト生成、音声合成のフローを提供する。
  */
 import React, { useEffect, useState } from 'react';
-import { Sparkles, X, Loader, FileText, Mic, ChevronDown } from 'lucide-react';
+import { Sparkles, X, Loader, FileText, Mic, ChevronDown, CircleHelp, ExternalLink } from 'lucide-react';
 import type { VoiceOption, VoiceId, NarrationScriptLength } from '../../types';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 
@@ -126,6 +126,7 @@ const AiModal: React.FC<AiModalProps> = ({
   const [selectedTonePreset, setSelectedTonePreset] = useState<TonePresetId>('standard');
   const [selectedCharacterPresets, setSelectedCharacterPresets] = useState<CharacterPresetId[]>([]);
   const [customVoiceStyle, setCustomVoiceStyle] = useState('');
+  const [showHelp, setShowHelp] = useState(false);
 
   useEffect(() => {
     const parsedVoiceStyle = parseVoiceStyle(aiVoiceStyle);
@@ -149,13 +150,56 @@ const AiModal: React.FC<AiModalProps> = ({
       <div className="bg-gray-800 border border-gray-700 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden">
         <div className="p-4 border-b border-gray-700 flex justify-between items-center bg-linear-to-r from-purple-900/50 to-blue-900/50">
           <h3 className="font-bold flex items-center gap-2 text-white">
-            <Sparkles className="w-5 h-5 text-yellow-400" /> AIナレーションスタジオ
+            <Sparkles className="w-5 h-5 text-yellow-400" />
+            <span>AIナレーションスタジオ</span>
+            <button
+              onClick={() => setShowHelp((prev) => !prev)}
+              className="p-1 rounded-lg transition border border-blue-500/45 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:text-blue-200"
+              title="このセクションの説明"
+              aria-label="AIナレーションスタジオの説明"
+            >
+              <CircleHelp className="w-4 h-4" />
+            </button>
           </h3>
           <button onClick={onClose} className="text-gray-400 hover:text-white">
             <X className="w-5 h-5" />
           </button>
         </div>
         <div className="p-4 md:p-6 space-y-5 md:space-y-6 max-h-[78vh] overflow-y-auto">
+          {showHelp && (
+            <div className="rounded-xl border border-orange-400/45 bg-linear-to-br from-orange-500/18 via-amber-500/12 to-orange-500/6 p-3 md:p-4 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <h4 className="text-sm font-bold text-orange-100 flex items-center gap-1">
+                  <CircleHelp className="w-4 h-4" /> AIナレーションスタジオの使い方
+                </h4>
+                <button
+                  onClick={() => setShowHelp(false)}
+                  className="p-1 rounded text-orange-200 hover:text-orange-100 hover:bg-orange-500/20 transition"
+                  title="ヘルプを閉じる"
+                  aria-label="ヘルプを閉じる"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <p className="text-xs md:text-sm text-orange-50 leading-relaxed">
+                先にAPI設定が必要です。右上の設定からGemini APIキーを登録してください。
+              </p>
+              <a
+                href="https://aistudio.google.com/app/apikey"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-xs md:text-sm text-orange-200 hover:text-orange-100 underline underline-offset-2"
+              >
+                APIキー取得（Google AI Studio）
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+              <ol className="list-decimal ml-4 space-y-1 text-xs md:text-sm text-orange-50 leading-relaxed">
+                <li>STEP 1: テーマを入れて「AI原稿を作成」。テーマは任意で、長さも選べます。</li>
+                <li>STEP 2: 原稿を直接編集。テーマなしでここから入力しても問題ありません。</li>
+                <li>STEP 3: 声の選択と調子を決めて「AIナレーションを作成して追加」を押します。</li>
+              </ol>
+            </div>
+          )}
           <div className="space-y-3">
             <label className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
               Step 1: テーマ入力（任意）

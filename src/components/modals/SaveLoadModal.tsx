@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { X, Save, FolderOpen, Trash2, Clock, AlertTriangle, Timer, Image } from 'lucide-react';
+import { X, Save, FolderOpen, Trash2, Clock, AlertTriangle, Timer, Image, CircleHelp } from 'lucide-react';
 import {
   useProjectStore,
   isStorageQuotaError,
@@ -76,6 +76,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
   const [mode, setMode] = useState<ModalMode>('menu');
   const [selectedSlot, setSelectedSlot] = useState<SaveSlot | null>(null);
   const [autoSaveInterval, setAutoSaveIntervalState] = useState<AutoSaveIntervalOption>(getAutoSaveInterval);
+  const [showHelp, setShowHelp] = useState(false);
   
   // モーダル表示中は背景のスクロールを防止
   useDisableBodyScroll(isOpen);
@@ -124,8 +125,15 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
       setMode('menu');
       setSelectedSlot(null);
       setAutoSaveIntervalState(getAutoSaveInterval());
+      setShowHelp(false);
     }
   }, [isOpen, refreshSaveInfo]);
+
+  useEffect(() => {
+    if (mode !== 'menu') {
+      setShowHelp(false);
+    }
+  }, [mode]);
   
   // 自動保存間隔変更ハンドラ
   const handleAutoSaveIntervalChange = (value: AutoSaveIntervalOption) => {
@@ -318,13 +326,25 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
       >
         {/* ヘッダー */}
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-lg font-semibold text-white">
-            {mode === 'menu' && '保存・素材'}
-            {mode === 'selectSlot' && 'どちらを読み込みますか？'}
-            {mode === 'confirmLoad' && '読み込み確認'}
-            {mode === 'confirmDelete' && '削除確認'}
-            {mode === 'confirmAutoDeleteForSave' && '容量不足の対応'}
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-white">
+              {mode === 'menu' && '保存・素材'}
+              {mode === 'selectSlot' && 'どちらを読み込みますか？'}
+              {mode === 'confirmLoad' && '読み込み確認'}
+              {mode === 'confirmDelete' && '削除確認'}
+              {mode === 'confirmAutoDeleteForSave' && '容量不足の対応'}
+            </h2>
+            {mode === 'menu' && (
+              <button
+                onClick={() => setShowHelp((prev) => !prev)}
+                className="p-1 rounded-lg transition border border-blue-500/45 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:text-blue-200"
+                title="このセクションの説明"
+                aria-label="保存・素材の説明"
+              >
+                <CircleHelp className="w-4 h-4" />
+              </button>
+            )}
+          </div>
           <button
             className="p-1 text-gray-400 hover:text-white transition-colors"
             onClick={onClose}
@@ -336,6 +356,29 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
         {/* メインメニュー */}
         {mode === 'menu' && (
           <div className="space-y-4">
+            {showHelp && (
+              <div className="rounded-xl border border-orange-400/45 bg-linear-to-br from-orange-500/18 via-amber-500/12 to-orange-500/6 p-3 md:p-4 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className="text-sm font-bold text-orange-100 flex items-center gap-1">
+                    <CircleHelp className="w-4 h-4" /> 保存・素材の使い方
+                  </h3>
+                  <button
+                    onClick={() => setShowHelp(false)}
+                    className="p-1 rounded text-orange-200 hover:text-orange-100 hover:bg-orange-500/20 transition"
+                    title="ヘルプを閉じる"
+                    aria-label="ヘルプを閉じる"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <ol className="list-decimal ml-4 space-y-1 text-xs md:text-sm text-orange-50 leading-relaxed">
+                  <li>自動保存間隔はオフ/1分/2分/5分から選べます。</li>
+                  <li>手動保存で現在の状態を保存し、読み込みで復元できます。</li>
+                  <li>保存データを削除すると、自動保存と手動保存の両方が消えます。</li>
+                  <li>素材生成では 1280x720 の黒画像・白画像を作成できます。</li>
+                </ol>
+              </div>
+            )}
             {/* 自動保存間隔設定 */}
             <div className="bg-gray-800 rounded-lg p-4">
               <div className="flex items-center justify-between">

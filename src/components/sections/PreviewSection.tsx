@@ -14,6 +14,7 @@ import {
   MonitorPlay,
   AlertCircle,
   Camera,
+  CircleHelp,
 
 } from 'lucide-react';
 import type { MediaItem, AudioTrack, NarrationClip } from '../../types';
@@ -38,6 +39,7 @@ interface PreviewSectionProps {
   onExport: () => void;
   onClearAll: () => void;
   onCapture: () => void;
+  onOpenHelp: () => void;
 
   formatTime: (seconds: number) => string;
 }
@@ -65,6 +67,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   onExport,
   onClearAll,
   onCapture,
+  onOpenHelp,
 
   formatTime,
 }) => {
@@ -135,6 +138,14 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
             5
           </span>{' '}
           プレビュー
+          <button
+            onClick={onOpenHelp}
+            className="p-1 rounded-lg transition border border-blue-500/45 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:text-blue-200"
+            title="このセクションの説明"
+            aria-label="プレビューセクションの説明"
+          >
+            <CircleHelp className="w-4 h-4" />
+          </button>
         </h2>
         <div className="flex items-center gap-2">
 

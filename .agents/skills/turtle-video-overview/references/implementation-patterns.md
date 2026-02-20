@@ -731,7 +731,7 @@
   - キャプションの入力欄と `追加` ボタンは `h-9 md:h-10` に揃えて、全体を僅かにコンパクト化
   - `?` ボタンは青系ライン（青枠 + 青アイコン）に統一し、各セクションのタイトル横へ配置して文脈を明確化
   - キャプションは右側に「表示ON/OFF（目アイコン） + ロック」を維持し、ヘルプはタイトル側へ移動
-  - ヘルプボタン押下時は `showToast` で簡易説明を表示
+  - ヘルプボタン押下時は `SectionHelpModal` を開き、項目別の説明を表示
 - **注意**:
   - アコーディオンの開閉クリック領域と干渉しないよう、操作ボタン側は `stopPropagation` を維持する
   - 既存の編集フローを壊さないため、機能追加ではなく配置・文言・見た目の統一に留める
@@ -765,3 +765,87 @@
 - **注意**:
   - 追加入力行（入力欄/追加ボタン）の `h-9 md:h-10` は維持し、操作系の高さ統一を崩さない
   - 一覧が長くなるケースでは `overflow-y-auto` を維持し、ページ全体のスクロール暴走を防ぐ
+
+### 13-22. セクションヘルプのデータ駆動化（UI変更に追従しやすい構成）
+
+- **ファイル**: `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`, `src/components/TurtleVideo.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/sections/BgmSection.tsx`, `src/components/sections/NarrationSection.tsx`, `src/components/sections/CaptionSection.tsx`
+- **問題**:
+  - `?` ボタンの説明が `showToast` の短文固定だと、操作項目が増えた時に説明不足になりやすい
+  - セクションごとに説明文が分散し、UI変更時の更新漏れが起きやすい
+- **対策**:
+  - セクション別ヘルプ文言を `src/constants/sectionHelp.ts` へ集約し、データ駆動で管理
+  - `SectionHelpModal` を追加し、`?` 押下時に「追加/ロック/表示時間/位置・サイズ/フェード」等を項目ごとに表示
+  - 文字だけでなく、ボタン色・アイコンを実物に近いトークンで表示し、認識負荷を下げる
+  - 動画・画像の「削除」「個別ロック」などは、実UIに合わせてテキストなしのアイコンボタンとして表示する
+  - スライダー操作は固定デモではなく、ヘルプ内で疑似的に動くトラック/ノブ表示でイメージを伝える
+  - `TurtleVideo` でアクティブなヘルプセクションを管理し、各セクションは `onOpenHelp` を呼ぶだけに単純化
+  - モバイルはボトムシート、PCは中央モーダルの同一実装で表示し、ESC・背景クリックで閉じられるようにする
+- **注意**:
+  - ヘルプ文言を更新する際は `src/constants/sectionHelp.ts` を修正すれば全セクションへ反映される
+  - セクション見出しがアコーディオンの場合、ヘルプボタン押下で誤って開閉しないよう `stopPropagation` を維持する
+  - お客様向けヘルプ画面には、開発者向けの更新ガイド文を表示しない
+
+### 13-23. 操作ボタンの実UI統一とプレビューヘルプ追加
+
+- **ファイル**: `src/components/sections/BgmSection.tsx`, `src/components/sections/NarrationSection.tsx`, `src/components/media/CaptionItem.tsx`, `src/components/sections/PreviewSection.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`
+- **問題**:
+  - BGM削除導線がヘッダー側にあり、対象（現在のBGM）との距離が遠く分かりづらい
+  - ナレーション/キャプションの行操作ボタンが、動画・画像（ClipItem）と見た目ルールが揃っていない
+  - ヘルプがプレビューに無く、停止/再生/キャプチャ/書き出し/ダウンロードの意味が画面だけでは伝わりにくい
+  - フェード・音量・リセット説明が抽象的で、実際のアイコンとの対応が弱い
+- **対策**:
+  - BGM削除をヘッダーから外し、BGMパネル内のゴミ箱アイコン（実UI同形）へ移動
+  - ナレーション行に `設定` ボタンを追加し、開始位置/音量の詳細表示を開閉可能にした
+  - ナレーション/キャプションの上下移動・編集・設定・削除・保存ボタンを `ClipItem` と同系統の角丸/枠/色ルールへ統一
+  - `SectionHelpKey` に `preview` を追加し、プレビュー見出し横にも `?` ヘルプ導線を実装
+  - ヘルプトークンにチェック付きフェード、スピーカー（ミュート）、くるくる（リセット）、プレビュー操作ボタン群を追加し、実UIに寄せた表記へ更新
+  - プレビュー説明に「停止/再生後でも動画ファイル作成可能」「作成後はダウンロード表示」を明記
+- **注意**:
+  - `sectionHelp.ts` のトークン追加時は、`SectionHelpModal.tsx` の `renderVisualToken` に必ず対応ケースを追加する
+  - プレビューヘルプ追加時も、既存のREC表示やヘッダーレイアウトを壊さないよう最小差分で実装する
+
+### 13-24. ヘルプ表現の実UI追従強化（フェードチェック・黒帯除去・AIモーダル）
+
+- **ファイル**: `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`, `src/components/modals/AiModal.tsx`
+- **問題**:
+  - フェードON/OFFの説明がテキスト中心だと、実際のチェックボックス操作と結び付きにくい
+  - 動画/画像の「黒帯除去」設定意図がヘルプに無く、用途が伝わりにくい
+  - スライダーデモの幅がカードごとに揺れて見えやすく、補助テキストが冗長
+  - AIナレーションスタジオ側に導線付きヘルプがなく、API準備やSTEP進行が初見で分かりにくい
+- **対策**:
+  - 各セクションのフェード説明は `fade_in_checkbox` / `fade_out_checkbox` トークンで統一し、チェック操作を視覚化
+  - `blackbar_toggle_chip` を追加し、黒帯除去（102.5%拡大）の目的を「微妙な上下隙間を目立ちにくくする」と要約表示
+  - `slider_demo` は `basis-full w-full` にして幅を統一、補助文（スライダー操作イメージ）を削除
+  - AIモーダルのヘッダーにヘルプボタンを追加し、APIキー設定必須・Google AI Studioリンク・STEP1〜3説明を表示
+  - プレビューヘルプは文言を見直し、`動画ファイルを作成できます` と `ダウンロード後に停止/再生で再作成可能` を明記
+- **注意**:
+  - 外部リンクは `target=\"_blank\" rel=\"noreferrer\"` を付与して安全に開く
+  - ヘルプ文言は実画面ラベル変更に追従して `sectionHelp.ts` 側を先に更新する
+
+### 13-25. モーダルヘルプ導線の統一（AI / 保存・素材 / 設定）
+
+- **ファイル**: `src/components/modals/AiModal.tsx`, `src/components/modals/SaveLoadModal.tsx`, `src/components/modals/SettingsModal.tsx`, `src/constants/sectionHelp.ts`
+- **問題**:
+  - モーダルごとにヘルプ導線の位置と閉じ方が揃っておらず、初見ユーザーが使い方を探しづらい
+  - AIモーダルのヘルプボタンがタイトルから離れており、機能文脈が伝わりにくい
+  - 保存・素材モーダル、設定モーダル（APIキー・ログ）に共通ヘルプ導線が無かった
+- **対策**:
+  - ヘルプボタンをタイトル右横に統一し、セクションヘッダーと同じ青系 `?` スタイルへ統一
+  - ヘルプカード内に `×` ボタンを追加し、カードのみを閉じられる導線を実装
+  - 保存・素材モーダルに、自動保存間隔/保存読み込み/素材生成の要点ヘルプを追加
+  - 設定モーダルに、APIキー運用とログ機能の要点ヘルプ、および API取得リンクを追加
+  - プレビューヘルプのキャプチャ説明を「現在の表示内容を画像として保存」に更新
+- **注意**:
+  - 保存・素材モーダルは `menu` モード時のみヘルプ表示を許可し、確認ダイアログ系モードでは表示を閉じる
+  - ヘルプ文言は重複を避けるため要点に絞り、詳細説明は既存の各タブ本文へ委ねる
+
+### 13-26. モーダルヘルプの配色分離（本体UIとの差別化）
+
+- **ファイル**: `src/components/modals/AiModal.tsx`, `src/components/modals/SaveLoadModal.tsx`, `src/components/modals/SettingsModal.tsx`
+- **問題**:
+  - モーダルのヘルプカードと本体UIが同系色（青系）だと、視覚的なレイヤー差が弱く、ヘルプ領域が埋もれやすい
+- **対策**:
+  - AIヘルプを `fuchsia/indigo`、保存・素材ヘルプを `emerald/teal`、設定ヘルプを `amber/orange` に分離
+  - ヘルプボタン（`?`）とヘルプカードの色相を揃え、カード内テキスト/リンク/閉じるボタンも同系色で統一
+- **注意**:
+  - 色変更対象はヘルプUIに限定し、モーダル本体の既存ブランド配色や主要導線ボタン色は維持する

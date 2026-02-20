@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   X, Key, Eye, EyeOff, ExternalLink, CheckCircle, AlertCircle,
-  FileText, Copy, Download, Trash2, CheckCircle2, RefreshCw
+  FileText, Copy, Download, Trash2, CheckCircle2, RefreshCw, CircleHelp
 } from 'lucide-react';
 import { useLogStore } from '../../stores';
 import { useUpdateStore } from '../../stores/updateStore';
@@ -88,6 +88,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const logContainerRef = useRef<HTMLDivElement>(null);
 
   // モーダル表示中は背景のスクロールを防止
@@ -106,6 +107,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
       setSaved(false);
       setShowKey(false);
       setCopied(false);
+      setShowHelp(false);
       // ログタブを開いたらエラーフラグをクリア
       if (activeTab === 'logs') {
         clearErrorFlag();
@@ -193,9 +195,19 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
       <div className="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
         {/* ヘッダー */}
         <div className="flex items-center justify-between p-4 border-b border-gray-700 shrink-0">
-          <h2 className="text-lg font-bold flex items-center gap-2">
-            ⚙️ 設定
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-bold flex items-center gap-2">
+              ⚙️ 設定
+            </h2>
+            <button
+              onClick={() => setShowHelp((prev) => !prev)}
+              className="p-1 rounded-lg transition border border-blue-500/45 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:text-blue-200"
+              title="このセクションの説明"
+              aria-label="設定モーダルの説明"
+            >
+              <CircleHelp className="w-4 h-4" />
+            </button>
+          </div>
           <button
             onClick={onClose}
             className="p-1.5 hover:bg-gray-700 rounded-lg transition"
@@ -233,6 +245,39 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
 
         {/* コンテンツ */}
         <div className="flex-1 overflow-hidden flex flex-col">
+          {showHelp && (
+            <div className="p-3 border-b border-gray-700/70 shrink-0">
+              <div className="rounded-xl border border-orange-400/45 bg-linear-to-br from-orange-500/18 via-amber-500/12 to-orange-500/6 p-3 md:p-4 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className="text-sm font-bold text-orange-100 flex items-center gap-1">
+                    <CircleHelp className="w-4 h-4" /> 設定の使い方
+                  </h3>
+                  <button
+                    onClick={() => setShowHelp(false)}
+                    className="p-1 rounded text-orange-200 hover:text-orange-100 hover:bg-orange-500/20 transition"
+                    title="ヘルプを閉じる"
+                    aria-label="ヘルプを閉じる"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <ol className="list-decimal ml-4 space-y-1 text-xs md:text-sm text-orange-50 leading-relaxed">
+                  <li>APIキータブで Gemini APIキーを保存すると、AIナレーション機能が使えます。</li>
+                  <li>APIキーはこのブラウザに保存されます。端末を変える場合は再設定が必要です。</li>
+                  <li>ログタブでは実行ログ確認、コピー、JSON出力、クリアができます。</li>
+                </ol>
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-xs md:text-sm text-orange-200 hover:text-orange-100 underline underline-offset-2"
+                >
+                  APIキー取得（Google AI Studio）
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
+            </div>
+          )}
           {activeTab === 'apikey' ? (
             /* APIキータブ */
             <div className="p-4 space-y-4 overflow-y-auto">
@@ -256,7 +301,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
 
               {/* AI Studio リンク */}
               <a
-                href="https://aistudio.google.com/"
+                href="https://aistudio.google.com/app/apikey"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white py-3 px-4 rounded-lg font-bold transition shadow-lg"

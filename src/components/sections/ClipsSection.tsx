@@ -7,7 +7,6 @@ import React from 'react';
 import { Upload, Lock, Unlock, CircleHelp } from 'lucide-react';
 import type { MediaItem } from '../../types';
 import ClipItem from '../media/ClipItem';
-import { useUIStore } from '../../stores/uiStore';
 
 interface ClipsSectionProps {
   mediaItems: MediaItem[];
@@ -31,6 +30,7 @@ interface ClipsSectionProps {
   onToggleMediaFadeOut: (id: string, checked: boolean) => void;
   onUpdateFadeInDuration: (id: string, duration: number) => void;
   onUpdateFadeOutDuration: (id: string, duration: number) => void;
+  onOpenHelp: () => void;
 }
 
 /**
@@ -58,9 +58,8 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   onToggleMediaFadeOut,
   onUpdateFadeInDuration,
   onUpdateFadeOutDuration,
+  onOpenHelp,
 }) => {
-  const showToast = useUIStore((s) => s.showToast);
-
   return (
     <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
       <div className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center gap-3">
@@ -70,7 +69,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
           </span>
           <span>動画・画像</span>
           <button
-            onClick={() => showToast('動画・画像の追加、並び替え、個別調整ができます。', 2800)}
+            onClick={onOpenHelp}
             className="p-1 rounded-lg transition border border-blue-500/45 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:text-blue-200"
             title="このセクションの説明"
             aria-label="動画・画像セクションの説明"

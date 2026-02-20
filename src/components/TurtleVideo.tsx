@@ -6,6 +6,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 
 import type { MediaItem, AudioTrack, NarrationClip, NarrationScriptLength } from '../types';
+import type { SectionHelpKey } from '../constants/sectionHelp';
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -42,6 +43,7 @@ import PreviewSection from './sections/PreviewSection';
 import AiModal from './modals/AiModal';
 import SettingsModal, { getStoredApiKey } from './modals/SettingsModal';
 import SaveLoadModal from './modals/SaveLoadModal';
+import SectionHelpModal from './modals/SectionHelpModal';
 
 // API キー取得関数（localStorage優先、フォールバックで環境変数）
 const getApiKey = (): string => {
@@ -180,6 +182,7 @@ const TurtleVideo: React.FC = () => {
   const [showProjectManager, setShowProjectManager] = useState(false);
   const [editingNarrationId, setEditingNarrationId] = useState<string | null>(null);
   const [aiScriptLength, setAiScriptLength] = useState<NarrationScriptLength>('medium');
+  const [activeHelpSection, setActiveHelpSection] = useState<SectionHelpKey | null>(null);
 
   // Ref
   const mediaItemsRef = useRef<MediaItem[]>([]);
@@ -3483,6 +3486,14 @@ const TurtleVideo: React.FC = () => {
     }
   }, [mediaItems.length, isProcessing, stopAll, pause, showToast, formatTime]);
 
+  const openSectionHelp = useCallback((section: SectionHelpKey) => {
+    setActiveHelpSection(section);
+  }, []);
+
+  const closeSectionHelp = useCallback(() => {
+    setActiveHelpSection(null);
+  }, []);
+
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans pb-24 select-none relative">
       <Toast message={toastMessage} onClose={clearToast} />
@@ -3538,6 +3549,13 @@ const TurtleVideo: React.FC = () => {
         }}
       />
 
+      {/* Section Help Modal */}
+      <SectionHelpModal
+        isOpen={activeHelpSection !== null}
+        section={activeHelpSection}
+        onClose={closeSectionHelp}
+      />
+
       {/* Header */}
       <Header
         onOpenSettings={() => setShowSettings(true)}
@@ -3573,6 +3591,7 @@ const TurtleVideo: React.FC = () => {
               onToggleMediaFadeOut={withPause(toggleFadeOut)}
               onUpdateFadeInDuration={withPause(updateFadeInDuration)}
               onUpdateFadeOutDuration={withPause(updateFadeOutDuration)}
+              onOpenHelp={() => openSectionHelp('clips')}
             />
 
             {/* 2. BGM SETTINGS */}
@@ -3591,6 +3610,7 @@ const TurtleVideo: React.FC = () => {
               onUpdateFadeInDuration={withPause(updateBgmFadeInDuration)}
               onUpdateFadeOutDuration={withPause(updateBgmFadeOutDuration)}
               formatTime={formatTime}
+              onOpenHelp={() => openSectionHelp('bgm')}
             />
 
             {/* 3. NARRATION SETTINGS */}
@@ -3609,6 +3629,7 @@ const TurtleVideo: React.FC = () => {
               onSetStartTimeToCurrent={withPause(handleSetNarrationStartToCurrent)}
               onUpdateVolume={withPause(handleUpdateNarrationVolume)}
               formatTime={formatTime}
+              onOpenHelp={() => openSectionHelp('narration')}
             />
 
             {/* 4. CAPTIONS */}
@@ -3632,6 +3653,7 @@ const TurtleVideo: React.FC = () => {
               onSetBulkFadeOut={withPause(setBulkFadeOut)}
               onSetBulkFadeInDuration={withPause(setBulkFadeInDuration)}
               onSetBulkFadeOutDuration={withPause(setBulkFadeOutDuration)}
+              onOpenHelp={() => openSectionHelp('caption')}
             />
 
           </div>
@@ -3660,6 +3682,7 @@ const TurtleVideo: React.FC = () => {
                 onExport={handleExport}
                 onClearAll={handleClearAll}
                 onCapture={handleCapture}
+                onOpenHelp={() => openSectionHelp('preview')}
                 formatTime={formatTime}
               />
             </div>

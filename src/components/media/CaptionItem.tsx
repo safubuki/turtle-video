@@ -92,7 +92,7 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
           <button
             onClick={() => onMove(caption.id, 'up')}
             disabled={index === 0 || isLocked}
-            className="p-1 text-gray-400 hover:text-white transition disabled:opacity-30 disabled:transition-none"
+            className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded border border-gray-600 text-gray-300 flex items-center gap-0.5 disabled:opacity-30 disabled:transition-none text-[10px] transition"
             title="上へ移動"
           >
             <ArrowUp className="w-3 h-3" />
@@ -101,7 +101,7 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
           <button
             onClick={() => onMove(caption.id, 'down')}
             disabled={index === totalCaptions - 1 || isLocked}
-            className="p-1 text-gray-400 hover:text-white transition disabled:opacity-30 disabled:transition-none"
+            className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded border border-gray-600 text-gray-300 flex items-center gap-0.5 disabled:opacity-30 disabled:transition-none text-[10px] transition"
             title="下へ移動"
           >
             <ArrowDown className="w-3 h-3" />
@@ -110,10 +110,10 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
           <button
             onClick={() => setShowSettingsModal(true)}
             disabled={isLocked}
-            className={`p-1 transition disabled:opacity-50 ${
+            className={`px-2 py-1 rounded border text-[10px] transition disabled:opacity-50 ${
               caption.overridePosition || caption.overrideFontStyle || caption.overrideFontSize || caption.overrideFadeIn || caption.overrideFadeOut
-                ? 'text-yellow-400 hover:text-yellow-300'
-                : 'text-gray-400 hover:text-white'
+                ? 'bg-yellow-500/20 border-yellow-500/50 text-yellow-300 hover:bg-yellow-500/30'
+                : 'bg-gray-700 hover:bg-gray-600 border-gray-600 text-gray-300'
             }`}
             title="個別設定"
           >
@@ -124,7 +124,7 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
             <button
               onClick={() => setIsEditing(true)}
               disabled={isLocked}
-              className="p-1 text-gray-400 hover:text-white transition disabled:opacity-50"
+              className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded border border-gray-600 text-gray-300 flex items-center gap-0.5 text-[10px] transition disabled:opacity-30 disabled:transition-none"
               title="編集"
             >
               <Edit2 className="w-3 h-3" />
@@ -133,14 +133,14 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
             <>
               <button
                 onClick={handleSave}
-                className="p-1 text-green-400 hover:text-green-300 transition"
+                className="px-2 py-1 bg-green-900/30 hover:bg-green-900/50 text-green-300 rounded border border-green-700/50 text-[10px] transition"
                 title="保存"
               >
                 <Check className="w-3 h-3" />
               </button>
               <button
                 onClick={handleCancel}
-                className="p-1 text-gray-400 hover:text-white transition"
+                className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded border border-gray-600 text-gray-300 text-[10px] transition"
                 title="キャンセル"
               >
                 <X className="w-3 h-3" />
@@ -151,7 +151,7 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
           <button
             onClick={() => onRemove(caption.id)}
             disabled={isLocked}
-            className="p-1 text-red-400 hover:text-red-300 transition disabled:opacity-50"
+            className="px-2 py-1 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded border border-red-800/50 disabled:opacity-30 text-[10px] transition"
             title="削除"
           >
             <Trash2 className="w-3 h-3" />

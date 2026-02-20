@@ -18,7 +18,6 @@ import {
 import type { Caption, CaptionSettings, CaptionPosition, CaptionSize, CaptionFontStyle } from '../../types';
 import CaptionItem from '../media/CaptionItem';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
-import { useUIStore } from '../../stores/uiStore';
 
 interface CaptionSectionProps {
   captions: Caption[];
@@ -40,6 +39,7 @@ interface CaptionSectionProps {
   onSetBulkFadeOut: (enabled: boolean) => void;
   onSetBulkFadeInDuration: (duration: number) => void;
   onSetBulkFadeOutDuration: (duration: number) => void;
+  onOpenHelp: () => void;
 }
 
 /**
@@ -65,11 +65,11 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   onSetBulkFadeOut,
   onSetBulkFadeInDuration,
   onSetBulkFadeOutDuration,
+  onOpenHelp,
 }) => {
   const [isOpen, setIsOpen] = useState(true);
   const [showStyleSettings, setShowStyleSettings] = useState(false);
   const [newText, setNewText] = useState('');
-  const showToast = useUIStore((s) => s.showToast);
 
   const handleAddCaption = () => {
     if (!newText.trim()) return;
@@ -134,7 +134,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              showToast('キャプションの表示設定、追加、時間調整、スタイル一括設定ができます。', 2800);
+              onOpenHelp();
             }}
             className="p-1 rounded-lg transition border border-blue-500/45 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:text-blue-200 ml-1"
             title="このセクションの説明"
