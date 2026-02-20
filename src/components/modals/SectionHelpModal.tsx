@@ -156,6 +156,15 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({ isOpen, section, on
       return;
     }
 
+    const touchedInsideScrollableContent = Boolean(
+      contentScrollRef.current && contentScrollRef.current.contains(event.target as Node)
+    );
+    if (touchedInsideScrollableContent) {
+      // 本文のスクロール操作と下スワイプ閉じる操作を競合させない
+      resetTouchTracking();
+      return;
+    }
+
     const touch = event.touches[0];
     touchStartXRef.current = touch.clientX;
     touchStartYRef.current = touch.clientY;
@@ -513,7 +522,7 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({ isOpen, section, on
       aria-label={`${help.title}ヘルプ`}
     >
       <div
-        className="w-full md:max-w-2xl max-h-[calc(100dvh-0.5rem)] md:max-h-[88vh] bg-gray-900 border border-gray-700 rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden"
+        className="w-full md:max-w-2xl max-h-[calc(100dvh-0.5rem)] md:max-h-[88vh] bg-gray-900 border border-gray-700 rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
         onTouchStart={handleSheetTouchStart}
         onTouchMove={handleSheetTouchMove}
@@ -543,7 +552,7 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({ isOpen, section, on
 
         <div
           ref={contentScrollRef}
-          className="p-4 md:p-5 overflow-y-auto space-y-4 overscroll-contain pb-[calc(env(safe-area-inset-bottom)+1rem)] md:pb-5"
+          className="flex-1 min-h-0 p-4 md:p-5 overflow-y-auto space-y-4 overscroll-contain pb-[calc(env(safe-area-inset-bottom)+1rem)] md:pb-5"
         >
           <p className="text-xs md:text-sm text-gray-300 leading-relaxed">{help.subtitle}</p>
 
