@@ -91,28 +91,28 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
   return (
     <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
       <div
-        className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center gap-3 cursor-pointer hover:bg-gray-800/50 transition"
+        className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center gap-2 cursor-pointer hover:bg-gray-800/50 transition"
         onClick={() => setIsOpen(!isOpen)}
       >
-        <h2 className="font-bold flex items-center gap-2 text-indigo-400 md:text-base lg:text-lg">
+        <h2 className="font-bold flex items-center gap-1.5 md:gap-2 text-indigo-400 md:text-base lg:text-lg min-w-0 flex-1">
           {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
           <span className="w-6 h-6 lg:w-7 lg:h-7 rounded-full bg-indigo-500/10 flex items-center justify-center text-xs lg:text-sm">
             3
           </span>
-          <span className="whitespace-nowrap">ナレーション</span>
+          <span className="truncate">ナレーション</span>
           <button
             onClick={(e) => {
               e.stopPropagation();
               onOpenHelp();
             }}
-            className="p-1 rounded-lg transition border border-blue-500/45 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:text-blue-200"
+            className="p-1 rounded-lg transition border border-blue-500/45 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:text-blue-200 shrink-0"
             title="このセクションの説明"
             aria-label="ナレーションセクションの説明"
           >
             <CircleHelp className="w-4 h-4" />
           </button>
         </h2>
-        <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
           <button
             onClick={onToggleNarrationLock}
             className={`p-1 rounded-lg transition ${isNarrationLocked ? 'bg-red-500/20 text-red-400' : 'bg-gray-700 text-gray-300 hover:text-white hover:bg-gray-600'}`}
@@ -124,12 +124,12 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
           <button
             onClick={onAddAiNarration}
             disabled={isNarrationLocked}
-            className={`h-7 md:h-8 bg-linear-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white px-2.5 rounded-lg text-xs md:text-sm font-semibold whitespace-nowrap transition flex items-center gap-1 ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
+            className={`h-7 md:h-8 bg-linear-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white px-2 md:px-2.5 rounded-lg text-xs md:text-sm font-semibold whitespace-nowrap transition flex items-center gap-1 ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
           >
-            <Sparkles className="w-3 h-3" /> AI追加
+            <Sparkles className="w-3 h-3" /> AI
           </button>
           <label
-            className={`cursor-pointer h-7 md:h-8 bg-emerald-700 hover:bg-emerald-600 border border-emerald-500/45 text-white px-2.5 rounded-lg text-xs md:text-sm font-semibold whitespace-nowrap transition flex items-center gap-1 ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
+            className={`cursor-pointer h-7 md:h-8 bg-emerald-700 hover:bg-emerald-600 border border-emerald-500/45 text-white px-2 md:px-2.5 rounded-lg text-xs md:text-sm font-semibold whitespace-nowrap transition flex items-center gap-1 ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
           >
             <Upload className="w-3 h-3" /> 追加
             <input
@@ -148,7 +148,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
         <div className="p-3 lg:p-4 space-y-3 max-h-75 lg:max-h-128 overflow-y-auto custom-scrollbar">
           {narrations.length === 0 && (
             <div className="text-center py-8 text-gray-600 text-xs md:text-sm border-2 border-dashed border-gray-800 rounded">
-              ナレーションはまだありません。AI追加または追加で作成できます。
+              ナレーションはまだありません。AIまたは追加で作成できます。
             </div>
           )}
 

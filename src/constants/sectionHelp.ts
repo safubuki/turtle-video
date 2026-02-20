@@ -140,10 +140,10 @@ export const SECTION_HELP_CONTENT: Record<SectionHelpKey, SectionHelpDefinition>
   },
   narration: {
     title: 'ナレーションの使い方',
-    subtitle: 'AI追加とファイル追加を使って、ナレーションを重ねて管理します。',
+    subtitle: 'AIボタンと追加ボタンを使って、ナレーションを重ねて管理します。',
     items: [
       {
-        title: 'AI追加 / 追加ボタン',
+        title: 'AI / 追加ボタン',
         description: 'AI生成で作成するか、音声ファイルを追加するかを選べます。',
         visuals: ['ai_add_button', 'add_green_button'],
       },

@@ -113,7 +113,7 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({ isOpen, section, on
       case 'ai_add_button':
         return (
           <span key={`${token}-${index}`} className={`${chipBaseClass} px-2.5 py-1 bg-linear-to-r from-indigo-600 to-blue-600 border-indigo-400/45 text-white font-semibold`}>
-            <Sparkles className="w-3 h-3" /> AI追加
+            <Sparkles className="w-3 h-3" /> AI
           </span>
         );
       case 'unlock_button':
