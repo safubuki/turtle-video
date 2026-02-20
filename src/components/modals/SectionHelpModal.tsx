@@ -3,7 +3,7 @@
  * @author Turtle Village
  * @description セクション別の操作ヘルプを表示するモーダル（モバイルはボトムシート表示）。
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   CircleHelp,
   X,
@@ -62,6 +62,19 @@ const sectionAccentClass: Record<SectionHelpKey, string> = {
 const SectionHelpModal: React.FC<SectionHelpModalProps> = ({ isOpen, section, onClose }) => {
   useDisableBodyScroll(isOpen);
   const [demoSliderValue, setDemoSliderValue] = useState(24);
+  const contentScrollRef = useRef<HTMLDivElement | null>(null);
+  const historyStateIdRef = useRef<string | null>(null);
+  const closedByPopstateRef = useRef(false);
+  const touchStartXRef = useRef<number | null>(null);
+  const touchStartYRef = useRef<number | null>(null);
+  const touchStartScrollTopRef = useRef(0);
+  const touchDeltaYRef = useRef(0);
+  const swipeCloseEligibleRef = useRef(false);
+
+  const isMobileViewport = () => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(max-width: 767px)').matches;
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -89,6 +102,95 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({ isOpen, section, on
     }, 520);
     return () => clearInterval(timer);
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || typeof window === 'undefined') return;
+    const stateId = `section-help-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    historyStateIdRef.current = stateId;
+    closedByPopstateRef.current = false;
+
+    const currentState = (window.history.state && typeof window.history.state === 'object')
+      ? window.history.state as Record<string, unknown>
+      : {};
+    window.history.pushState({ ...currentState, __sectionHelpModal: stateId }, '');
+
+    const handlePopState = () => {
+      closedByPopstateRef.current = true;
+      onClose();
+    };
+
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+
+      const current = (window.history.state && typeof window.history.state === 'object')
+        ? window.history.state as Record<string, unknown>
+        : null;
+      const ownStateOnTop = Boolean(
+        historyStateIdRef.current &&
+        current &&
+        current.__sectionHelpModal === historyStateIdRef.current
+      );
+
+      if (!closedByPopstateRef.current && ownStateOnTop) {
+        window.history.back();
+      }
+
+      historyStateIdRef.current = null;
+      closedByPopstateRef.current = false;
+    };
+  }, [isOpen, onClose]);
+
+  const resetTouchTracking = () => {
+    touchStartXRef.current = null;
+    touchStartYRef.current = null;
+    touchStartScrollTopRef.current = 0;
+    touchDeltaYRef.current = 0;
+    swipeCloseEligibleRef.current = false;
+  };
+
+  const handleSheetTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (!isMobileViewport() || event.touches.length !== 1) {
+      resetTouchTracking();
+      return;
+    }
+
+    const touch = event.touches[0];
+    touchStartXRef.current = touch.clientX;
+    touchStartYRef.current = touch.clientY;
+    touchDeltaYRef.current = 0;
+    touchStartScrollTopRef.current = contentScrollRef.current?.scrollTop ?? 0;
+    swipeCloseEligibleRef.current = touchStartScrollTopRef.current <= 0;
+  };
+
+  const handleSheetTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (!swipeCloseEligibleRef.current || touchStartXRef.current === null || touchStartYRef.current === null || event.touches.length !== 1) {
+      return;
+    }
+
+    const touch = event.touches[0];
+    const deltaX = touch.clientX - touchStartXRef.current;
+    const deltaY = touch.clientY - touchStartYRef.current;
+    touchDeltaYRef.current = deltaY;
+
+    const atTop = (contentScrollRef.current?.scrollTop ?? 0) <= 0;
+    const isVerticalDownSwipe = deltaY > 0 && Math.abs(deltaY) > Math.abs(deltaX);
+    if (!atTop || touchStartScrollTopRef.current > 0 || !isVerticalDownSwipe) {
+      swipeCloseEligibleRef.current = false;
+      return;
+    }
+
+    // 上端から下方向スワイプ時はシートを閉じる操作を優先する
+    event.preventDefault();
+  };
+
+  const handleSheetTouchEnd = () => {
+    if (swipeCloseEligibleRef.current && touchDeltaYRef.current > 72) {
+      onClose();
+    }
+    resetTouchTracking();
+  };
 
   if (!isOpen || !section) return null;
 
@@ -411,9 +513,16 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({ isOpen, section, on
       aria-label={`${help.title}ヘルプ`}
     >
       <div
-        className="w-full md:max-w-2xl max-h-[88vh] bg-gray-900 border border-gray-700 rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden"
+        className="w-full md:max-w-2xl max-h-[calc(100dvh-0.5rem)] md:max-h-[88vh] bg-gray-900 border border-gray-700 rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
+        onTouchStart={handleSheetTouchStart}
+        onTouchMove={handleSheetTouchMove}
+        onTouchEnd={handleSheetTouchEnd}
+        onTouchCancel={resetTouchTracking}
       >
+        <div className="md:hidden pt-2 px-4">
+          <div className="mx-auto h-1 w-12 rounded-full bg-gray-600/80" />
+        </div>
         <div className="p-4 border-b border-gray-700 flex items-center justify-between bg-gray-850">
           <div className="flex items-center gap-2 min-w-0">
             <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs border shrink-0 ${accent}`}>
@@ -432,7 +541,10 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({ isOpen, section, on
           </button>
         </div>
 
-        <div className="p-4 md:p-5 overflow-y-auto space-y-4">
+        <div
+          ref={contentScrollRef}
+          className="p-4 md:p-5 overflow-y-auto space-y-4 overscroll-contain pb-[calc(env(safe-area-inset-bottom)+1rem)] md:pb-5"
+        >
           <p className="text-xs md:text-sm text-gray-300 leading-relaxed">{help.subtitle}</p>
 
           <div className="space-y-3">

@@ -317,15 +317,18 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
   
   return (
     <div
-      className="fixed inset-0 z-[300] flex items-center justify-center bg-black/70"
+      className="fixed inset-0 z-[300] flex items-end md:items-center md:justify-center bg-black/70 md:p-4"
       onClick={onClose}
     >
       <div
-        className="relative w-[90%] max-w-md bg-gray-900 rounded-2xl border border-gray-700 p-6"
+        className="relative w-full md:w-[90%] max-w-md bg-gray-900 rounded-t-2xl md:rounded-2xl border border-gray-700 p-4 md:p-6 max-h-[calc(100dvh-0.5rem)] md:max-h-[90vh] overflow-y-auto pb-[calc(env(safe-area-inset-bottom)+1rem)] md:pb-6 animate-ai-modal-sheet"
         onClick={(e) => e.stopPropagation()}
       >
+        <div className="md:hidden pt-0.5 pb-2">
+          <div className="mx-auto h-1 w-12 rounded-full bg-gray-600/80" />
+        </div>
         {/* ヘッダー */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-5 md:mb-6">
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-semibold text-white">
               {mode === 'menu' && '保存・素材'}

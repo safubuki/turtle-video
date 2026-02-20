@@ -148,7 +148,7 @@ const AiModal: React.FC<AiModalProps> = ({
   return (
     <div className="fixed inset-0 z-100 bg-black/80 backdrop-blur-sm flex items-end md:items-center md:justify-center md:p-4">
       <div className="bg-gray-800 border border-gray-700 w-full md:max-w-lg rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden animate-ai-modal-sheet">
-        <div className="p-4 border-b border-gray-700 flex justify-between items-center bg-linear-to-r from-purple-900/50 to-blue-900/50">
+        <div className="p-3.5 md:p-4 border-b border-gray-700 flex justify-between items-center bg-linear-to-r from-purple-900/50 to-blue-900/50">
           <h3 className="font-bold flex items-center gap-2 text-white">
             <Sparkles className="w-5 h-5 text-yellow-400" />
             <span>AIナレーションスタジオ</span>
@@ -165,7 +165,7 @@ const AiModal: React.FC<AiModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
-        <div className="p-4 md:p-6 space-y-5 md:space-y-6 max-h-[78vh] overflow-y-auto">
+        <div className="p-3.5 md:p-6 space-y-4 md:space-y-6 max-h-[78vh] overflow-y-auto">
           {showHelp && (
             <div className="rounded-xl border border-orange-400/45 bg-linear-to-br from-orange-500/18 via-amber-500/12 to-orange-500/6 p-3 md:p-4 space-y-2">
               <div className="flex items-start justify-between gap-2">
@@ -201,7 +201,7 @@ const AiModal: React.FC<AiModalProps> = ({
               </ol>
             </div>
           )}
-          <div className="space-y-3">
+          <div className="space-y-2.5 md:space-y-3">
             <label className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
               Step 1: テーマ入力（任意）
             </label>
@@ -215,10 +215,10 @@ const AiModal: React.FC<AiModalProps> = ({
             <div className="text-xs text-gray-500">
               テーマを入れずに、Step2へ直接入力することもできます。
             </div>
-            <fieldset className="space-y-2 pt-1">
+            <fieldset className="space-y-1.5 md:space-y-2 pt-0.5 md:pt-1">
               <legend className="text-xs font-bold text-gray-400 uppercase tracking-wider">文章の長さ</legend>
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex flex-wrap gap-3">
+              <div className="flex items-center justify-between gap-2.5 md:gap-3 flex-wrap">
+                <div className="flex flex-wrap gap-2.5 md:gap-3">
                   <label className="inline-flex items-center gap-1.5 text-xs text-gray-300">
                     <input
                       type="radio"
@@ -265,7 +265,7 @@ const AiModal: React.FC<AiModalProps> = ({
               </div>
             </fieldset>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-1.5 md:space-y-2">
             <label className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
               Step 2: 原稿編集（直接入力OK）
             </label>
@@ -273,16 +273,16 @@ const AiModal: React.FC<AiModalProps> = ({
               value={aiScript}
               onChange={(e) => onScriptChange(e.target.value)}
               placeholder="ここにそのままナレーション原稿を入力できます"
-              className="w-full h-24 bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm focus:outline-none focus:border-blue-500 resize-none"
+              className="w-full h-[5.5rem] md:h-24 bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm focus:outline-none focus:border-blue-500 resize-none"
             />
           </div>
-          <div className="space-y-4">
-            <div className="space-y-2">
+          <div className="space-y-3 md:space-y-4">
+            <div className="space-y-1.5 md:space-y-2">
               <label className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
                 Step 3: 声の設定
               </label>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-1.5 md:space-y-2">
               <label className="text-xs font-bold text-gray-400 flex items-center gap-1">
                 声の選択
               </label>
@@ -301,13 +301,13 @@ const AiModal: React.FC<AiModalProps> = ({
                 <ChevronDown className="w-4 h-4 absolute inset-y-0 right-3 my-auto text-gray-400 pointer-events-none" />
               </div>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-1.5 md:space-y-2">
               <label className="text-xs font-bold text-gray-400 flex items-center gap-1">
                 声の調子（オプション）
               </label>
-              <fieldset className="space-y-2">
+              <fieldset className="space-y-1.5 md:space-y-2">
                 <legend className="sr-only">話し方の雰囲気</legend>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 gap-1.5 md:gap-2">
                   {tonePresets.map((preset) => (
                     <label
                       key={preset.id}
@@ -332,9 +332,9 @@ const AiModal: React.FC<AiModalProps> = ({
                   ))}
                 </div>
               </fieldset>
-              <fieldset className="space-y-2">
+              <fieldset className="space-y-1.5 md:space-y-2">
                 <legend className="sr-only">話し方のキャラクター</legend>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 gap-1.5 md:gap-2">
                   {characterPresets.map((preset) => {
                     const selected = selectedCharacterPresets.includes(preset.id);
                     return (
@@ -381,7 +381,7 @@ const AiModal: React.FC<AiModalProps> = ({
           <button
             onClick={onGenerateSpeech}
             disabled={isAiLoading || !aiScript.trim()}
-            className="w-full bg-linear-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 shadow-lg disabled:opacity-50 transition-all"
+            className="w-full bg-linear-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white py-2.5 md:py-3 rounded-lg font-bold flex items-center justify-center gap-2 shadow-lg disabled:opacity-50 transition-all"
           >
             {isAiLoading ? (
               <Loader className="w-5 h-5 animate-spin" />

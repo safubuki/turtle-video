@@ -191,8 +191,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[300] p-4">
-      <div className="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 bg-black/70 flex items-end md:items-center md:justify-center z-[300] md:p-4">
+      <div className="bg-gray-900 rounded-t-2xl md:rounded-2xl border border-gray-700 w-full max-w-lg shadow-2xl max-h-[calc(100dvh-0.5rem)] md:max-h-[90vh] flex flex-col overflow-hidden animate-ai-modal-sheet">
+        <div className="md:hidden pt-2 px-4 shrink-0">
+          <div className="mx-auto h-1 w-12 rounded-full bg-gray-600/80" />
+        </div>
         {/* ヘッダー */}
         <div className="flex items-center justify-between p-4 border-b border-gray-700 shrink-0">
           <div className="flex items-center gap-2">
@@ -470,7 +473,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
         </div>
 
         {/* バージョン情報 & 更新確認 */}
-        <div className="px-4 pb-3 border-t border-gray-700 pt-3 shrink-0 flex flex-col items-center gap-2">
+        <div className="px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] md:pb-3 border-t border-gray-700 pt-3 shrink-0 flex flex-col items-center gap-2">
           <span className="text-xs text-gray-500">
             タートルビデオ v{APP_VERSION}
           </span>
