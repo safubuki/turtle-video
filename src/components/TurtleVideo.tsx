@@ -52,6 +52,29 @@ const getApiKey = (): string => {
   return import.meta.env.VITE_GEMINI_API_KEY || '';
 };
 
+type SaveFilePickerAcceptType = {
+  description?: string;
+  accept: Record<string, string[]>;
+};
+
+type SaveFilePickerOptions = {
+  suggestedName?: string;
+  types?: SaveFilePickerAcceptType[];
+};
+
+type FileSystemWritableFileStreamLike = {
+  write: (data: Blob) => Promise<void>;
+  close: () => Promise<void>;
+};
+
+type FileSystemFileHandleLike = {
+  createWritable: () => Promise<FileSystemWritableFileStreamLike>;
+};
+
+type WindowWithSavePicker = Window & {
+  showSaveFilePicker?: (options?: SaveFilePickerOptions) => Promise<FileSystemFileHandleLike>;
+};
+
 
 
 const TurtleVideo: React.FC = () => {
@@ -3443,6 +3466,60 @@ const TurtleVideo: React.FC = () => {
     startEngine(0, true);
   }, [startEngine]);
 
+  // --- ダウンロードハンドラ ---
+  // 目的: ダウンロード完了時にユーザーへ通知する
+  const handleDownload = useCallback(async () => {
+    if (!exportUrl) return;
+
+    const ext = exportExt || 'mp4';
+    const filename = `turtle_video_${Date.now()}.${ext}`;
+    const mimeType = ext === 'webm' ? 'video/webm' : 'video/mp4';
+    const fileDescription = ext === 'webm' ? 'WebM 動画' : 'MP4 動画';
+    const { showSaveFilePicker } = window as WindowWithSavePicker;
+
+    try {
+      if (typeof showSaveFilePicker === 'function') {
+        const fileHandle = await showSaveFilePicker({
+          suggestedName: filename,
+          types: [
+            {
+              description: fileDescription,
+              accept: { [mimeType]: [`.${ext}`] },
+            },
+          ],
+        });
+
+        const response = await fetch(exportUrl);
+        if (!response.ok) {
+          throw new Error(`download source unavailable: ${response.status}`);
+        }
+        const blob = await response.blob();
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+
+        window.alert('ダウンロードが完了しました。');
+        showToast('ダウンロードが完了しました');
+        return;
+      }
+
+      const anchor = document.createElement('a');
+      anchor.href = exportUrl;
+      anchor.download = filename;
+      anchor.rel = 'noopener';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      showToast('ダウンロードを開始しました。完了はブラウザの通知をご確認ください。', 5000);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        showToast('ダウンロードをキャンセルしました');
+        return;
+      }
+      setError('ダウンロードに失敗しました');
+    }
+  }, [exportUrl, exportExt, setError, showToast]);
+
   // --- 時刻フォーマットヘルパー ---
   // 目的: 秒数を「分:秒」形式の文字列に変換
   const formatTime = useCallback((s: number): string => {
@@ -3680,6 +3757,7 @@ const TurtleVideo: React.FC = () => {
                 onTogglePlay={togglePlay}
                 onStop={handleStop}
                 onExport={handleExport}
+                onDownload={handleDownload}
                 onClearAll={handleClearAll}
                 onCapture={handleCapture}
                 onOpenHelp={() => openSectionHelp('preview')}

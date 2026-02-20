@@ -37,6 +37,7 @@ interface PreviewSectionProps {
   onTogglePlay: () => void;
   onStop: () => void;
   onExport: () => void;
+  onDownload: () => void;
   onClearAll: () => void;
   onCapture: () => void;
   onOpenHelp: () => void;
@@ -65,6 +66,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   onTogglePlay,
   onStop,
   onExport,
+  onDownload,
   onClearAll,
   onCapture,
   onOpenHelp,
@@ -289,13 +291,13 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
               <RotateCcw className="w-4 h-4 lg:w-5 lg:h-5" /> 一括クリア
             </button>
             {exportUrl ? (
-              <a
-                href={exportUrl}
-                download={`turtle_video_${Date.now()}.${exportExt}`}
+              <button
+                type="button"
+                onClick={onDownload}
                 className="bg-green-600 hover:bg-green-500 text-white px-6 py-2.5 rounded-full text-sm lg:text-base font-bold flex items-center gap-2 animate-bounce-short shadow-lg"
               >
                 <Download className="w-4 h-4 lg:w-5 lg:h-5" /> ダウンロード (.{exportExt})
-              </a>
+              </button>
             ) : (
               <button
                 onClick={onExport}
