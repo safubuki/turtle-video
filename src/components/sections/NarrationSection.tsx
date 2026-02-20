@@ -3,7 +3,7 @@
  * @author Turtle Village
  * @description Narration section (multiple clips)
  */
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import {
   Upload,
   Lock,
@@ -64,6 +64,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [openDetailMap, setOpenDetailMap] = useState<Record<string, boolean>>({});
+  const prevNarrationCountRef = useRef(narrations.length);
 
   const isIosSafari = useMemo(() => {
     if (typeof navigator === 'undefined') return false;
@@ -87,6 +88,13 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
     (id: string, val: number) => onUpdateVolume(id, String(val)),
     [onUpdateVolume]
   );
+
+  useEffect(() => {
+    if (narrations.length > prevNarrationCountRef.current) {
+      setIsOpen(true);
+    }
+    prevNarrationCountRef.current = narrations.length;
+  }, [narrations.length]);
 
   return (
     <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">

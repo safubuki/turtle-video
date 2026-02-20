@@ -3,7 +3,7 @@
  * @author Turtle Village
  * @description BGM（バックグラウンドミュージック）のアップロード、音量調整、フェード設定、削除を行うセクションコンポーネント。
  */
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Upload, Lock, Unlock, Music, Volume2, Timer, ChevronDown, ChevronRight, RefreshCw, CircleHelp, Trash2 } from 'lucide-react';
 import type { AudioTrack } from '../../types';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
@@ -47,6 +47,7 @@ const BgmSection: React.FC<BgmSectionProps> = ({
   onOpenHelp,
 }) => {
   const [isOpen, setIsOpen] = useState(true);
+  const prevBgmUrlRef = useRef<string | null>(bgm?.url ?? null);
   const isIosSafari = useMemo(() => {
     if (typeof navigator === 'undefined') return false;
     const ua = navigator.userAgent;
@@ -72,6 +73,14 @@ const BgmSection: React.FC<BgmSectionProps> = ({
     (val: number) => onUpdateVolume(String(val)),
     [onUpdateVolume]
   );
+
+  useEffect(() => {
+    const currentBgmUrl = bgm?.url ?? null;
+    if (currentBgmUrl && currentBgmUrl !== prevBgmUrlRef.current) {
+      setIsOpen(true);
+    }
+    prevBgmUrlRef.current = currentBgmUrl;
+  }, [bgm?.url]);
 
   return (
     <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
