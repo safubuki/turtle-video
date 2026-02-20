@@ -84,6 +84,21 @@ input[type="number"] {
   animation: bounce-short 0.5s ease-in-out;
 }
 
+@keyframes ai-modal-sheet-up {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-ai-modal-sheet {
+  animation: ai-modal-sheet-up 0.22s ease-out;
+}
+
 /* ============================================
    PC / タブレット レスポンシブ対応
    モバイル (<768px) には一切影響しない
@@ -91,6 +106,10 @@ input[type="number"] {
 
 /* タブレット横画面 (768px+): テキスト・UI要素のスケールアップ */
 @media (min-width: 768px) {
+  .animate-ai-modal-sheet {
+    animation: none;
+  }
+
   /* スライダーのトラック拡大 */
   input[type="range"]::-webkit-slider-runnable-track {
     height: 6px;

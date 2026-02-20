@@ -146,8 +146,8 @@ const AiModal: React.FC<AiModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-100 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-gray-800 border border-gray-700 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-100 bg-black/80 backdrop-blur-sm flex items-end md:items-center md:justify-center md:p-4">
+      <div className="bg-gray-800 border border-gray-700 w-full md:max-w-lg rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden animate-ai-modal-sheet">
         <div className="p-4 border-b border-gray-700 flex justify-between items-center bg-linear-to-r from-purple-900/50 to-blue-900/50">
           <h3 className="font-bold flex items-center gap-2 text-white">
             <Sparkles className="w-5 h-5 text-yellow-400" />
@@ -195,8 +195,9 @@ const AiModal: React.FC<AiModalProps> = ({
               </a>
               <ol className="list-decimal ml-4 space-y-1 text-xs md:text-sm text-orange-50 leading-relaxed">
                 <li>STEP 1: テーマを入れて「AI原稿を作成」。テーマは任意で、長さも選べます。</li>
-                <li>STEP 2: 原稿を直接編集。テーマなしでここから入力しても問題ありません。</li>
+                <li>STEP 2: 原稿を直接編集。テーマを入れずに、Step2へ直接入力することもできます。</li>
                 <li>STEP 3: 声の選択と調子を決めて「AIナレーションを作成して追加」を押します。</li>
+                <li>声の調子の2段目は複数選択できます。自由入力は任意で追加できます。</li>
               </ol>
             </div>
           )}
@@ -212,7 +213,7 @@ const AiModal: React.FC<AiModalProps> = ({
               className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500"
             />
             <div className="text-xs text-gray-500">
-              テーマを入れずに、Step 2へ直接入力して音声生成することもできます。
+              テーマを入れずに、Step2へ直接入力することもできます。
             </div>
             <fieldset className="space-y-2 pt-1">
               <legend className="text-xs font-bold text-gray-400 uppercase tracking-wider">文章の長さ</legend>
@@ -375,9 +376,6 @@ const AiModal: React.FC<AiModalProps> = ({
                 placeholder="追加ニュアンス（任意） 例: 少し低めで、ニュース番組のように"
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
               />
-              <p className="text-xs text-gray-500 leading-relaxed">
-                2段目は複数選択できます。自由入力は任意で追加できます。
-              </p>
             </div>
           </div>
           <button
