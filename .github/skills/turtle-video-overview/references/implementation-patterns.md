@@ -489,5 +489,404 @@
   - 差分判定ハッシュは、通常ファイルは内容ハッシュ、symlink は `readlink()` のリンク先文字列を使う。
   - `latest` / `base` の両戦略で symlink を欠落させずに同期する。
 - **Caution**:
-  - symlink をハッシュ対象から外すと `hasDiff=false` となり、必要な同期がスキップされる可能性がある。
-  - symlink を `stat/readFile` 前提で扱うと、リンク先の変更検知が不正確になる。
+- symlink をハッシュ対象から外すと `hasDiff=false` となり、必要な同期がスキップされる可能性がある。
+- symlink を `stat/readFile` 前提で扱うと、リンク先の変更検知が不正確になる。
+
+---
+
+## 13. 文字コード・AI TTS 応答処理
+
+### 13-1. ソース文字コードの UTF-8 統一
+
+- **ファイル**: `src/components/sections/NarrationSection.tsx`, `src/stores/audioStore.ts`, `src/stores/projectStore.ts`
+- **問題**: 一部ファイルが CP932 で保存されると、ビルド時に UTF-8 として解釈され、UI 文言が文字化けする
+- **対策**:
+  - 日本語文言を含むソースは UTF-8（BOMなし）で統一
+  - 変換時は「CP932として読み取り → UTF-8で再保存」を行い、文字列自体は維持する
+- **注意**:
+  - PowerShell の既定エンコーディングで書き戻すと再発しやすい。書き込み時は `-Encoding utf8` または明示的な UTF-8 指定を使う
+  - 画面上で `�` が出た場合は、まず対象ファイルの UTF-8 妥当性を確認する
+
+### 13-2. Gemini TTS の `inlineData` 探索を固定位置依存にしない
+
+- **ファイル**: `src/components/TurtleVideo.tsx`（`generateSpeech`）
+- **問題**: `candidates[0].content.parts[0].inlineData` に固定すると、応答の並びや形式差分で `inlineData` を拾えず「音声データを取得できませんでした」になる
+- **対策**:
+  - 全 `candidates[].content.parts[]` を走査し、`inlineData` / `inline_data` の両方を探索
+  - `promptFeedback.blockReason` / `finishReason` を補助情報として扱い、エラー原因を判別しやすくする
+  - `mimeType` が WAV の場合は再変換せず利用し、PCM 系のみ WAV へ変換する
+- **注意**:
+  - `inlineData` 欠落時は API 側の安全ブロックや応答形式差分の可能性があるため、コンソール警告ログを確認する
+  - `Model tried to generate text ... only be used for TTS` が返る場合は、話し方指示付きプロンプトが拒否されている可能性がある。`src/components/TurtleVideo.tsx` ではこのエラー時に「声の調子なしの素の原稿」で自動リトライする
+  - `finishReason=OTHER` で音声未返却の場合は、`Say ...` / `TTS ... exactly` の厳密プロンプトへ切替えて再試行する
+  - リトライは API コールを追加で消費するため、現在は最大2回（初回 + フォールバック1回）に制限してレートリミット悪化を抑える
+
+### 13-3. ナレーションセクションの縦スクロール統一
+
+- **ファイル**: `src/components/sections/NarrationSection.tsx`
+- **問題**: ナレーションが増えるとセクションが伸び続け、動画・画像セクションと操作感が不一致になる
+- **対策**: `max-h-75 lg:max-h-128 overflow-y-auto custom-scrollbar` を適用し、動画・画像セクションと同じ固定高さ + 内部スクロールに統一
+- **注意**: モバイルの誤操作防止のため、既存の `SwipeProtectedSlider` は維持する
+
+### 13-4. ナレーションの複数ファイル一括追加
+
+- **ファイル**: `src/components/sections/NarrationSection.tsx`, `src/components/TurtleVideo.tsx`
+- **問題**: ナレーションファイル入力が単一選択のみで、動画・画像セクションと操作性が揃っていない
+- **対策**:
+  - `NarrationSection` のファイル入力に `multiple` を付与
+  - `handleNarrationUpload` を複数ファイル対応に変更し、選択された全ファイルを順番にメタデータ読み込みして `addNarration` する
+  - 読み込み失敗したファイルは `ObjectURL` を解放し、失敗件数をトースト表示する
+- **注意**:
+  - 一括追加後の開始位置は「追加時点の currentTime スナップショット」を全ファイルに適用する
+  - TTS側のフォールバックリトライと同様に、API呼び出しが増える処理は必要最小限に維持する
+
+### 13-5. AIスクリプト生成モデル廃止へのフォールバック
+
+- **ファイル**: `src/constants/index.ts`, `src/components/TurtleVideo.tsx`, `src/hooks/useAiNarration.ts`
+- **問題**: `gemini-2.5-flash-preview-09-2025` のような preview モデルが廃止されると、スクリプト生成が即失敗する
+- **対策**:
+  - 既定モデルを `gemini-2.5-flash` に更新
+  - `GEMINI_SCRIPT_FALLBACK_MODELS` を導入し、モデル未提供エラー時に自動で次候補へ再試行
+  - フォールバックで成功した場合はユーザーへ通知し、生成体験を維持する
+- **注意**:
+  - モデル未提供判定は `no longer available / not found / 404` 系メッセージで実施
+  - 不要な多段リトライはレートリミットを悪化させるため、候補数は最小限にする
+
+### 13-6. ナレーションらしい原稿のための指示強化
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/hooks/useAiNarration.ts`
+- **問題**: テーマ入力だけでは説明文・見出し付き文など、読み上げに不向きな文体が生成されることがある
+- **対策**:
+  - `systemInstruction` を追加し、出力を「本文のみ・1段落・短尺動画向け口語文」に明示制約
+  - ユーザープロンプトに用途（短い動画のナレーション）を明記
+  - 生成後に軽い正規化（改行圧縮、先頭ラベル除去）を行い、読み上げ原稿として扱いやすくする
+- **注意**:
+  - 過度な整形は意味改変リスクがあるため、正規化は最小限に留める
+
+### 13-7. AIナレーションUIの運用性向上
+
+- **ファイル**: `src/components/modals/AiModal.tsx`, `src/components/TurtleVideo.tsx`, `src/types/index.ts`
+- **問題**:
+  - テーマ生成の長さ調整ができず、意図した尺の原稿を作りにくい
+  - テーマ未入力でも手動で原稿を入力できることが画面上で伝わりにくい
+  - PC表示で「声の調子」説明文が小さく視認性が低い
+- **対策**:
+  - `NarrationScriptLength`（`short` / `medium` / `long`）を導入し、Step 1 にラジオボタンで長さ選択UIを追加
+  - 選択長さを `generateScript` の指示文に反映（文字数目安を可変化）
+  - 「Step 1は任意」「Step 2へ直接入力可能」の補助文言を追加し、手動運用を明示
+  - 「声の調子」ラベル・説明を `md:text-sm` へ拡大し、PCで読みやすく調整
+- **注意**:
+  - 音声生成ボタンは `aiScript.trim()` 判定で有効化し、空白のみの入力を防止する
+  - 長さ選択は生成時のみ利用し、既存の手動編集フローを妨げない
+
+### 13-8. ナレーション終了位置マーカー
+
+- **ファイル**: `src/components/sections/NarrationSection.tsx`
+- **問題**: 開始位置スライダー上で「そのクリップがどこで終わるか」が見えず、次クリップとの重なり確認がしづらい
+- **対策**:
+  - 各ナレーションカードの開始位置スライダー上に、終了位置（三角マーカー）を参考表示
+  - 終了位置は `startTime + duration` から算出し、スライダー上に重ねて描画
+  - タイムライン終端を超える場合はマーカーを右端にクランプして表示（非表示にはしない）
+- **注意**:
+  - マーカーは参考表示のみで、ナレーションの同時再生仕様（重なり許容）は変更しない
+  - 右端クランプ時は色を変えて「終端超え」を視覚的に示す
+
+### 13-9. AIナレーションモーダルの動線最適化
+
+- **ファイル**: `src/components/modals/AiModal.tsx`
+- **問題**:
+  - Step1でテーマ入力後、長さ指定と作成操作の視線移動が大きく、操作動線が長い
+  - 「声の選択」と「声の調子」で見出しのサイズ感・太さが揃っていない
+- **対策**:
+  - Step1の入力欄を `w-full` にし、長さ選択行の右端に「作成」ボタンを移動
+  - `Step 3: 声の設定` を新設し、その下に「声の選択」「声の調子」を配置
+  - 「声の選択」「声の調子」のラベルクラスを同一に統一して視覚的一貫性を確保
+- **注意**:
+  - `作成` は引き続き `aiPrompt.trim()` が空の場合は無効化する
+  - Step2直入力フロー（テーマ未入力でも音声生成可能）は維持する
+
+### 13-10. AIモーダルの操作ラベル明確化
+
+- **ファイル**: `src/components/modals/AiModal.tsx`
+- **問題**: ボタン文言が短すぎると、何を作る操作か分かりにくい
+- **対策**:
+  - Step1ボタンを `AI原稿を作成` に変更し、原稿生成操作だと明示
+  - 最終ボタンを `AIナレーションを作成して追加` に変更し、音声生成と追加まで行う操作だと明示
+- **注意**:
+  - 生成対象の区別（原稿 vs 音声）を文言で維持し、誤操作を防ぐ
+
+### 13-11. エクスポート音声の長さ超過・途切れ対策
+
+- **ファイル**: `src/hooks/useExport.ts`
+- **問題**:
+  - 実動画で「映像尺より音声尺が長い」「後半ナレーションが途切れる/プツプツする」事象が発生
+  - 既定のリアルタイム音声キャプチャ（TrackProcessor/ScriptProcessor）では、環境依存のバッファ遅延や終端超過が起きやすい
+- **対策**:
+  - `OfflineAudioContext` を iOS Safari 限定から全環境優先へ拡張し、エクスポート音声を非リアルタイムで確定生成
+  - プリレンダリング音声長を `totalDuration` へ厳密に合わせる（余剰マージン `+0.5s` を廃止）
+  - `feedPreRenderedAudio` に最大長指定を追加し、エンコード対象サンプル数を `totalDuration * sampleRate` で上限化
+  - リアルタイム音声フォールバック経路でも `maxAudioTimestampUs` を超えるチャンクを打ち切り
+- **注意**:
+  - `offlineAudioDone=true` のときは TrackProcessor 音声キャプチャを同時実行しない（二重エンコード防止）
+  - decode失敗時は既存フォールバック（ScriptProcessor / video要素抽出）を維持し、互換性を確保する
+
+### 13-12. 静止画区間で映像尺が短くなる問題（TrackProcessor）
+
+- **ファイル**: `src/hooks/useExport.ts`
+- **問題**:
+  - WebCodecs + `canvas.captureStream()` + `MediaStreamTrackProcessor` 経路では、Canvasに変化が少ない静止画区間でフレーム供給が疎になる場合がある
+  - その状態でCFR用に `frameIndex * frameDuration` へタイムスタンプを書き換えると、静止画区間が圧縮され「画像の表示時間だけ短い」見え方になる
+  - 結果として映像長が音声長より短くなり、後半でAVタイミングがズレる
+- **対策**:
+  - TrackProcessor映像経路でも `CanvasCaptureMediaStreamTrack.requestFrame()` を FPS 間隔で定期実行し、静止画区間でもフレームを明示供給
+  - 完了時/例外時の両方で frame pump の `setInterval` を必ず `clearInterval` する
+  - ログに frame pump 有効状態を出力し、現場診断を容易にする
+- **注意**:
+  - 本事象の主因はフェード設定ではなく、静止画区間のフレーム供給欠落とCFR補正の組み合わせ
+  - iOS Safari の MediaRecorder 経路にある frame pump と同種の対策を、WebCodecs 経路にも適用する
+
+### 13-13. `captureStream(FPS)` と `requestFrame()` 併用時の映像尺伸長
+
+- **ファイル**: `src/hooks/useExport.ts`
+- **問題**:
+  - `captureStream(FPS)` の自動供給に加えて `requestFrame()` を定期実行すると、ブラウザ実装によってはフレームが二重供給される
+  - CFRタイムスタンプ（`frameIndex * frameDuration`）でエンコードしているため、フレーム数増加がそのまま映像尺伸長（音声とのズレ増大）になる
+- **対策**:
+  - `requestFrame` 利用時は `captureStream(0)` の手動キャプチャモードへ切替え、自動供給を停止する
+  - 手動モード時のみ frame pump を動かし、`captureStream(FPS)` とは併用しない
+  - ログに `captureMode`（`manual-requestFrame` / `auto-fps`）を出力して診断可能にする
+- **注意**:
+  - 「静止画区間の欠落対策」と「二重供給対策」はセットで実装する必要がある
+  - `requestFrame` 非対応ブラウザでは `auto-fps` にフォールバックする
+
+### 13-14. フレーム供給を再生タイムライン基準で同期
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/components/TurtleVideo.tsx`
+- **問題**:
+  - `setInterval` の周期だけで `requestFrame()` を呼ぶと、CPU負荷やタブ状態でフレーム供給数が前後し、映像尺が短縮/伸長する
+  - 特に静止画主体タイムラインでは「フレーム供給不足→画像が短い」「供給過多→映像が長い」が起こりやすい
+- **対策**:
+  - `TurtleVideo` から `getPlaybackTimeSec` を `useExport` へ渡し、エクスポート中の現在再生時刻を参照可能にする
+  - `useExport` 側は `floor(playbackTimeSec * FPS)` を目標フレーム数として `requestFrame()` を補充し、供給数をタイムライン進行に同期
+  - 停止要求後は目標フレーム数（`totalDuration * FPS`）まで不足分を補完してから終了し、AV尺を一致させる
+- **注意**:
+  - 壁時計（`Date.now()`）だけで供給数を決めると、非アクティブ時間や負荷変動を誤って取り込む
+  - `completionRequested` 後の補完は末尾フレーム複製が入るため、常時発生する場合は供給遅延の根本要因調査が必要
+
+### 13-15. 画像尺ズレ調査中の暫定運用（Canvas直接フレーム固定）
+
+- **ファイル**: `src/hooks/useExport.ts`
+- **問題**:
+  - `captureStream` + TrackProcessor 経路は環境差が大きく、静止画区間で「短縮」と「伸長」の両症状が再現した
+- **対策**:
+  - 映像エンコード経路を一時的に `useManualCanvasFrames = true` で固定し、Canvasから直接 `VideoFrame` を生成
+  - 音声は既存の OfflineAudioContext 優先経路を維持し、AV同期の切り分けを容易にする
+- **注意**:
+  - 暫定措置のため、将来的には TrackProcessor 経路を再導入する場合の再検証が必要
+  - 固定後もズレが残る場合は、`renderFrame` 側（`TurtleVideo.tsx`）の時間進行と停止判定を優先調査する
+
+### 13-16. エクスポート中UIの状態表示は `isPlaying` に依存しない
+
+- **ファイル**: `src/components/sections/PreviewSection.tsx`
+- **問題**:
+  - エクスポート中は `isPlaying` が必ずしも true にならないため、`isPlaying` 依存の状態判定だと表示が「準備中」に固定される
+- **対策**:
+  - フェーズ判定を `currentTime` の進捗検知（差分閾値）ベースへ変更
+  - 初回進捗前は `preparing`、進捗後に停滞したら `stalled`、進行中は `rendering` として表示
+- **注意**:
+  - 「再生中かどうか」と「エクスポート進捗の有無」は別概念として扱う
+
+### 13-17. Androidでナレーション見出しが不自然に改行される問題
+
+- **ファイル**: `src/components/sections/NarrationSection.tsx`
+- **問題**:
+  - Android の狭い画面幅でセクション見出し `ナレーション` が文字単位で改行され、`ナレ / ーション` のように分断されて見える
+- **対策**:
+  - 見出し文字列を `span.whitespace-nowrap` で包み、単語内改行を抑止
+  - 同一ヘッダー内ボタン（`AI追加` / `ファイル追加`）のモバイル横余白を `px-2` に縮小し、見出し表示領域を確保
+- **注意**:
+  - タイトル文言を将来長文化する場合は、`whitespace-nowrap` により横幅不足が顕在化しやすいためモバイル実機で再確認する
+
+### 13-18. ナレーションセクションは初期表示で閉じる
+
+- **ファイル**: `src/components/sections/NarrationSection.tsx`
+- **問題**:
+  - 初回表示でナレーションセクションが常に展開されると、編集開始時の視認領域を圧迫しやすい
+- **対策**:
+  - アコーディオン状態の初期値を `useState(false)` に設定し、デフォルトで閉じた状態にする
+- **注意**:
+  - 既存のクリック開閉挙動は変更しない。初期状態のみ変更する
+
+### 13-19. セクションヘッダー操作系の配置・文言統一
+
+- **ファイル**: `src/components/sections/ClipsSection.tsx`, `src/components/sections/BgmSection.tsx`, `src/components/sections/NarrationSection.tsx`, `src/components/sections/CaptionSection.tsx`
+- **問題**:
+  - セクションごとにボタン配置・文言・色が揃っておらず、モバイルで操作の予測がしづらい
+  - 2段レイアウトは視線移動が増え、ヘッダーの情報密度が上がりすぎる
+- **対策**:
+  - ヘッダー右側を1行レイアウトに統一し、右端を主要操作（`追加`）に固定
+  - 動画・画像/BGM/ナレーションのアップロード導線は文言を `追加` に統一し、配色はタートルテーマ寄りの緑（`emerald`系）へ揃える
+  - ナレーションは `AI追加` をインディゴ-ブルー系グラデーション、`追加` を緑で分離し、機能差を視覚化
+  - ナレーションの `AI追加` / `追加` は `h-7 md:h-8` で縦幅を統一
+  - キャプションの入力欄と `追加` ボタンは `h-9 md:h-10` に揃えて、全体を僅かにコンパクト化
+  - `?` ボタンは青系ライン（青枠 + 青アイコン）に統一し、各セクションのタイトル横へ配置して文脈を明確化
+  - キャプションは右側に「表示ON/OFF（目アイコン） + ロック」を維持し、ヘルプはタイトル側へ移動
+  - ヘルプボタン押下時は `SectionHelpModal` を開き、項目別の説明を表示
+- **注意**:
+  - アコーディオンの開閉クリック領域と干渉しないよう、操作ボタン側は `stopPropagation` を維持する
+  - 既存の編集フローを壊さないため、機能追加ではなく配置・文言・見た目の統一に留める
+  - 4ボタンが並ぶナレーションヘッダーは、狭幅端末で折返しが発生しないか実機確認を行う
+
+### 13-20. ヘッダーブランド表示のノイズ低減（AIバッジ削除 + ロゴ丸型化）
+
+- **ファイル**: `src/components/Header.tsx`
+- **問題**:
+  - タイトル横の `AI` バッジがブランド名の視認を分断し、ヘッダー上部で視線ノイズになりやすい
+  - ロゴが小さい角丸四角だと、端末によっては潰れて見えやすく、ブランドアイコンの認識性が下がる
+- **対策**:
+  - タイトルを `タートルビデオ` 単体にして `AI` バッジを削除
+  - ロゴコンテナを `rounded-full` + `overflow-hidden` にし、サイズをモバイル/PCとも一段大きく調整
+  - ロゴ画像は `object-cover` を適用して、比率崩れによる潰れ感を抑える
+  - サイズは段階的に調整し、現行はコンテナ `h-10/w-10`（PC `h-12/w-12`）、画像 `h-8/w-8`（PC `h-9/w-9`）を基準にする
+- **注意**:
+  - モバイル/PCともにヘッダーの基本レイアウト（横並び）は維持し、操作導線を変えない
+  - ロゴ拡大時は保存・設定アイコンとの最小タップ余白が不足しないか確認する
+
+### 13-21. キャプション空状態カードと一覧パネルの高さバランス調整
+
+- **ファイル**: `src/components/sections/CaptionSection.tsx`
+- **問題**:
+  - キャプション未登録時に `キャプションがありません` カードの縦幅が薄く見え、右カラムのプレビュー下部と高さ感が合いにくい
+  - 一覧パネルの最小高さがなく、状態によってセクションの見た目が詰まって見える
+- **対策**:
+  - 一覧パネルに `min-h-28 lg:min-h-32` を追加し、空状態でも安定した高さを確保
+  - 一覧パネルの上限を `max-h-64 lg:max-h-[23rem]` に拡張し、キャプション領域をさらに少し広げる
+  - 空状態カードを `py-5 lg:py-7` + `min-h-24 lg:min-h-28` + `flex items-center justify-center` にして、縦方向の余白と視認性を向上
+- **注意**:
+  - 追加入力行（入力欄/追加ボタン）の `h-9 md:h-10` は維持し、操作系の高さ統一を崩さない
+  - 一覧が長くなるケースでは `overflow-y-auto` を維持し、ページ全体のスクロール暴走を防ぐ
+
+### 13-22. セクションヘルプのデータ駆動化（UI変更に追従しやすい構成）
+
+- **ファイル**: `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`, `src/components/TurtleVideo.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/sections/BgmSection.tsx`, `src/components/sections/NarrationSection.tsx`, `src/components/sections/CaptionSection.tsx`
+- **問題**:
+  - `?` ボタンの説明が `showToast` の短文固定だと、操作項目が増えた時に説明不足になりやすい
+  - セクションごとに説明文が分散し、UI変更時の更新漏れが起きやすい
+- **対策**:
+  - セクション別ヘルプ文言を `src/constants/sectionHelp.ts` へ集約し、データ駆動で管理
+  - `SectionHelpModal` を追加し、`?` 押下時に「追加/ロック/表示時間/位置・サイズ/フェード」等を項目ごとに表示
+  - 文字だけでなく、ボタン色・アイコンを実物に近いトークンで表示し、認識負荷を下げる
+  - 動画・画像の「削除」「個別ロック」などは、実UIに合わせてテキストなしのアイコンボタンとして表示する
+  - スライダー操作は固定デモではなく、ヘルプ内で疑似的に動くトラック/ノブ表示でイメージを伝える
+  - `TurtleVideo` でアクティブなヘルプセクションを管理し、各セクションは `onOpenHelp` を呼ぶだけに単純化
+  - モバイルはボトムシート、PCは中央モーダルの同一実装で表示し、ESC・背景クリックで閉じられるようにする
+- **注意**:
+  - ヘルプ文言を更新する際は `src/constants/sectionHelp.ts` を修正すれば全セクションへ反映される
+  - セクション見出しがアコーディオンの場合、ヘルプボタン押下で誤って開閉しないよう `stopPropagation` を維持する
+  - お客様向けヘルプ画面には、開発者向けの更新ガイド文を表示しない
+
+### 13-23. 操作ボタンの実UI統一とプレビューヘルプ追加
+
+- **ファイル**: `src/components/sections/BgmSection.tsx`, `src/components/sections/NarrationSection.tsx`, `src/components/media/CaptionItem.tsx`, `src/components/sections/PreviewSection.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`
+- **問題**:
+  - BGM削除導線がヘッダー側にあり、対象（現在のBGM）との距離が遠く分かりづらい
+  - ナレーション/キャプションの行操作ボタンが、動画・画像（ClipItem）と見た目ルールが揃っていない
+  - ヘルプがプレビューに無く、停止/再生/キャプチャ/書き出し/ダウンロードの意味が画面だけでは伝わりにくい
+  - フェード・音量・リセット説明が抽象的で、実際のアイコンとの対応が弱い
+- **対策**:
+  - BGM削除をヘッダーから外し、BGMパネル内のゴミ箱アイコン（実UI同形）へ移動
+  - ナレーション行に `設定` ボタンを追加し、開始位置/音量の詳細表示を開閉可能にした
+  - ナレーション/キャプションの上下移動・編集・設定・削除・保存ボタンを `ClipItem` と同系統の角丸/枠/色ルールへ統一
+  - `SectionHelpKey` に `preview` を追加し、プレビュー見出し横にも `?` ヘルプ導線を実装
+  - ヘルプトークンにチェック付きフェード、スピーカー（ミュート）、くるくる（リセット）、プレビュー操作ボタン群を追加し、実UIに寄せた表記へ更新
+  - プレビュー説明に「停止/再生後でも動画ファイル作成可能」「作成後はダウンロード表示」を明記
+- **注意**:
+  - `sectionHelp.ts` のトークン追加時は、`SectionHelpModal.tsx` の `renderVisualToken` に必ず対応ケースを追加する
+  - プレビューヘルプ追加時も、既存のREC表示やヘッダーレイアウトを壊さないよう最小差分で実装する
+
+### 13-24. ヘルプ表現の実UI追従強化（フェードチェック・黒帯除去・AIモーダル）
+
+- **ファイル**: `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`, `src/components/modals/AiModal.tsx`
+- **問題**:
+  - フェードON/OFFの説明がテキスト中心だと、実際のチェックボックス操作と結び付きにくい
+  - 動画/画像の「黒帯除去」設定意図がヘルプに無く、用途が伝わりにくい
+  - スライダーデモの幅がカードごとに揺れて見えやすく、補助テキストが冗長
+  - AIナレーションスタジオ側に導線付きヘルプがなく、API準備やSTEP進行が初見で分かりにくい
+- **対策**:
+  - 各セクションのフェード説明は `fade_in_checkbox` / `fade_out_checkbox` トークンで統一し、チェック操作を視覚化
+  - `blackbar_toggle_chip` を追加し、黒帯除去（102.5%拡大）の目的を「微妙な上下隙間を目立ちにくくする」と要約表示
+  - `slider_demo` は `basis-full w-full` にして幅を統一、補助文（スライダー操作イメージ）を削除
+  - AIモーダルのヘッダーにヘルプボタンを追加し、APIキー設定必須・Google AI Studioリンク・STEP1〜3説明を表示
+  - プレビューヘルプは文言を見直し、`動画ファイルを作成できます` と `ダウンロード後に停止/再生で再作成可能` を明記
+- **注意**:
+  - 外部リンクは `target=\"_blank\" rel=\"noreferrer\"` を付与して安全に開く
+  - ヘルプ文言は実画面ラベル変更に追従して `sectionHelp.ts` 側を先に更新する
+
+### 13-25. モーダルヘルプ導線の統一（AI / 保存・素材 / 設定）
+
+- **ファイル**: `src/components/modals/AiModal.tsx`, `src/components/modals/SaveLoadModal.tsx`, `src/components/modals/SettingsModal.tsx`, `src/constants/sectionHelp.ts`
+- **問題**:
+  - モーダルごとにヘルプ導線の位置と閉じ方が揃っておらず、初見ユーザーが使い方を探しづらい
+  - AIモーダルのヘルプボタンがタイトルから離れており、機能文脈が伝わりにくい
+  - 保存・素材モーダル、設定モーダル（APIキー・ログ）に共通ヘルプ導線が無かった
+- **対策**:
+  - ヘルプボタンをタイトル右横に統一し、セクションヘッダーと同じ青系 `?` スタイルへ統一
+  - ヘルプカード内に `×` ボタンを追加し、カードのみを閉じられる導線を実装
+  - 保存・素材モーダルに、自動保存間隔/保存読み込み/素材生成の要点ヘルプを追加
+  - 設定モーダルに、APIキー運用とログ機能の要点ヘルプ、および API取得リンクを追加
+  - プレビューヘルプのキャプチャ説明を「現在の表示内容を画像として保存」に更新
+- **注意**:
+  - 保存・素材モーダルは `menu` モード時のみヘルプ表示を許可し、確認ダイアログ系モードでは表示を閉じる
+  - ヘルプ文言は重複を避けるため要点に絞り、詳細説明は既存の各タブ本文へ委ねる
+
+### 13-26. モーダルヘルプの配色分離（本体UIとの差別化）
+
+- **ファイル**: `src/components/modals/AiModal.tsx`, `src/components/modals/SaveLoadModal.tsx`, `src/components/modals/SettingsModal.tsx`
+- **問題**:
+  - モーダルのヘルプカードと本体UIが同系色（青系）だと、視覚的なレイヤー差が弱く、ヘルプ領域が埋もれやすい
+- **対策**:
+  - AIヘルプを `fuchsia/indigo`、保存・素材ヘルプを `emerald/teal`、設定ヘルプを `amber/orange` に分離
+  - ヘルプボタン（`?`）とヘルプカードの色相を揃え、カード内テキスト/リンク/閉じるボタンも同系色で統一
+- **注意**:
+  - 色変更対象はヘルプUIに限定し、モーダル本体の既存ブランド配色や主要導線ボタン色は維持する
+
+### 13-27. ダウンロード完了通知の確実化（File System Access API + フォールバック）
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/components/sections/PreviewSection.tsx`
+- **問題**:
+  - `a[download]` のみで保存すると、アプリ側で「保存完了」のタイミングを検知できない
+  - 同一レンダー中の `Date.now()` 由来ファイル名が再利用され、再ダウンロード時に上書き確認が出やすい
+- **対策**:
+  - ダウンロード操作を `TurtleVideo` の `handleDownload` に集約し、`PreviewSection` はボタン経由で呼び出す
+  - `showSaveFilePicker` 対応ブラウザでは、`createWritable() -> write() -> close()` 完了後に「ダウンロード完了」ダイアログを表示
+  - 非対応ブラウザでは `a[download]` フォールバックを使い、完了検知不可であることをトーストで案内する
+  - ファイル名はクリック時に生成し、連続クリック時の同名衝突を減らす
+- **注意**:
+  - `showSaveFilePicker` はユーザーキャンセル時に `AbortError` を投げるため、エラー扱いせずキャンセル通知に分岐する
+  - フォールバック経路ではブラウザ仕様上、完了時刻の厳密検知はできない
+
+### 13-28. セクションヘルプの本文スクロール保証と下スワイプ閉じる競合回避
+
+- **ファイル**: `src/components/modals/SectionHelpModal.tsx`
+- **問題**:
+  - モーダル本体に `max-height` があっても、本文スクロール領域が高さを確保できず、BGMヘルプなど項目数が多い場合に下部が見切れる
+  - シート全体で下スワイプ閉じるを判定すると、本文の縦スクロール操作と競合しやすい
+- **対策**:
+  - モーダル本体を `flex flex-col` に変更し、本文を `flex-1 min-h-0 overflow-y-auto` で明示的にスクロール可能にする
+  - タッチ開始位置が本文スクロール領域内の場合は、下スワイプ閉じる判定を開始しない
+  - これにより本文スクロールを優先しつつ、ヘッダー/ハンドル側での下スワイプ閉じる操作は維持する
+- **注意**:
+  - `overflow-y-auto` を有効化する場合、親に `flex` と子に `min-h-0` が無いとスクロールが効かず見切れやすい
+  - モーダル系で同様のジェスチャーを実装する際は、スクロール領域と閉じるジェスチャー領域を分離する
+
+### 13-29. Skills同期ベース選定の更新進捗評価
+
+- **ファイル**: `.github/skills/skills-sync-guard/scripts/safe-sync-skills.mjs`
+- **問題**:
+  - ディレクトリ単位の最終更新時刻のみで `base` 候補を選ぶと、1ファイルだけ新しいフォルダが正として選ばれ、更新が進んだ別フォルダを上書きするリスクがある
+- **対策**:
+  - `base` 候補の自動選定に `freshness` 指標（`latestWins` / `staleFiles` / `missingFiles`）を導入
+  - 比較順を `latestWins` 優先にし、同点時は `staleFiles` / `missingFiles` / `fileCount` / `newestMtimeMs` で決定
+  - `--verbose` / `--json` に各ディレクトリの freshness 指標を出力し、選定根拠を可視化
+- **注意**:
+  - ベース固定で運用する場合は `--base agents` などを明示し、意図しない自動選定を避ける

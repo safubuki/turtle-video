@@ -878,3 +878,15 @@
 - **注意**:
   - `overflow-y-auto` を有効化する場合、親に `flex` と子に `min-h-0` が無いとスクロールが効かず見切れやすい
   - モーダル系で同様のジェスチャーを実装する際は、スクロール領域と閉じるジェスチャー領域を分離する
+
+### 13-29. Skills同期ベース選定の更新進捗評価
+
+- **ファイル**: `.github/skills/skills-sync-guard/scripts/safe-sync-skills.mjs`
+- **問題**:
+  - ディレクトリ単位の最終更新時刻のみで `base` 候補を選ぶと、1ファイルだけ新しいフォルダが正として選ばれ、更新が進んだ別フォルダを上書きするリスクがある
+- **対策**:
+  - `base` 候補の自動選定に `freshness` 指標（`latestWins` / `staleFiles` / `missingFiles`）を導入
+  - 比較順を `latestWins` 優先にし、同点時は `staleFiles` / `missingFiles` / `fileCount` / `newestMtimeMs` で決定
+  - `--verbose` / `--json` に各ディレクトリの freshness 指標を出力し、選定根拠を可視化
+- **注意**:
+  - ベース固定で運用する場合は `--base agents` などを明示し、意図しない自動選定を避ける
