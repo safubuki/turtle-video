@@ -237,6 +237,53 @@ async function collectTargetState(repoRoot, name, relPath) {
   };
 }
 
+function buildFreshnessScores(targets) {
+  const byRelPath = new Map();
+  const scores = new Map(
+    targets.map((target) => [
+      target.name,
+      {
+        latestWins: 0,
+        staleFiles: 0,
+        missingFiles: 0,
+        comparedFiles: 0,
+      },
+    ])
+  );
+
+  for (const target of targets) {
+    for (const file of target.filesByRelPath.values()) {
+      if (!byRelPath.has(file.relPath)) {
+        byRelPath.set(file.relPath, []);
+      }
+      byRelPath.get(file.relPath).push({ ...file, source: target.name });
+    }
+  }
+
+  const preference = Object.keys(TARGETS);
+
+  for (const [relPath, entries] of byRelPath.entries()) {
+    const newestEntry = chooseByNewest(entries, preference);
+    const winnerScore = scores.get(newestEntry.source);
+    winnerScore.latestWins += 1;
+
+    for (const target of targets) {
+      const score = scores.get(target.name);
+      score.comparedFiles += 1;
+      const entry = target.filesByRelPath.get(relPath) || null;
+      if (!entry) {
+        score.missingFiles += 1;
+        continue;
+      }
+      if (entry.hash !== newestEntry.hash) {
+        score.staleFiles += 1;
+      }
+    }
+  }
+
+  return scores;
+}
+
 function pickBaseCandidate(targets) {
   const existing = targets.filter((t) => t.exists);
   if (existing.length === 0) {
@@ -245,11 +292,24 @@ function pickBaseCandidate(targets) {
 
   const nonEmpty = existing.filter((t) => t.nonEmpty);
   const pool = nonEmpty.length > 0 ? nonEmpty : existing;
+  const freshnessScores = buildFreshnessScores(pool);
 
-  return [...pool].sort((a, b) => {
+  const ranked = [...pool].sort((a, b) => {
+    const as = freshnessScores.get(a.name);
+    const bs = freshnessScores.get(b.name);
+
+    if (bs.latestWins !== as.latestWins) return bs.latestWins - as.latestWins;
+    if (as.staleFiles !== bs.staleFiles) return as.staleFiles - bs.staleFiles;
+    if (as.missingFiles !== bs.missingFiles) return as.missingFiles - bs.missingFiles;
+    if (b.fileCount !== a.fileCount) return b.fileCount - a.fileCount;
     if (b.newestMtimeMs !== a.newestMtimeMs) return b.newestMtimeMs - a.newestMtimeMs;
     return a.name.localeCompare(b.name);
-  })[0];
+  });
+
+  return {
+    candidate: ranked[0],
+    freshnessScores,
+  };
 }
 
 function buildConflictReport(targets, baseName) {
@@ -336,7 +396,7 @@ function buildSyncArgs(opts, plan) {
   return args;
 }
 
-function printSummary(targets, baseCandidate, report, plan, opts) {
+function printSummary(targets, baseCandidate, report, plan, opts, freshnessScores) {
   console.log('Skills sync audit summary:');
   for (const t of targets) {
     const newest = t.exists ? new Date(t.newestMtimeMs).toISOString() : 'n/a';
@@ -359,11 +419,18 @@ function printSummary(targets, baseCandidate, report, plan, opts) {
   }
 
   if (opts.verbose) {
+    for (const t of targets) {
+      const score = freshnessScores.get(t.name);
+      if (!score) continue;
+      console.log(
+        `  score ${t.relPath}: latestWins=${score.latestWins}, staleFiles=${score.staleFiles}, missingFiles=${score.missingFiles}, comparedFiles=${score.comparedFiles}`
+      );
+    }
     console.log(`Divergences (base already newest): ${report.divergences.length}`);
   }
 }
 
-function toJson(targets, baseCandidate, report, plan, opts) {
+function toJson(targets, baseCandidate, report, plan, opts, freshnessScores) {
   return {
     mode: opts.apply ? 'apply' : 'dry-run',
     targets: targets.map((t) => ({
@@ -372,8 +439,10 @@ function toJson(targets, baseCandidate, report, plan, opts) {
       exists: t.exists,
       fileCount: t.fileCount,
       newest: t.exists ? new Date(t.newestMtimeMs).toISOString() : null,
+      freshness: freshnessScores.get(t.name) || null,
     })),
     baseCandidate: baseCandidate.name,
+    baseCandidateFreshness: freshnessScores.get(baseCandidate.name) || null,
     resolvedBase: plan.baseName,
     resolvedStrategy: plan.strategy,
     conflicts: report.conflicts,
@@ -414,7 +483,7 @@ async function main() {
     Object.entries(TARGETS).map(([name, relPath]) => collectTargetState(repoRoot, name, relPath))
   );
 
-  const baseCandidate = pickBaseCandidate(targetEntries);
+  const { candidate: baseCandidate, freshnessScores } = pickBaseCandidate(targetEntries);
   const auditBaseName = opts.base === 'auto' ? baseCandidate.name : opts.base;
   ensureBaseExists(auditBaseName, targetEntries);
 
@@ -423,9 +492,9 @@ async function main() {
   const syncArgs = buildSyncArgs(opts, plan);
 
   if (opts.json) {
-    console.log(JSON.stringify(toJson(targetEntries, baseCandidate, report, plan, opts), null, 2));
+    console.log(JSON.stringify(toJson(targetEntries, baseCandidate, report, plan, opts, freshnessScores), null, 2));
   } else {
-    printSummary(targetEntries, baseCandidate, report, plan, opts);
+    printSummary(targetEntries, baseCandidate, report, plan, opts, freshnessScores);
     console.log(`Planned command: node ${syncArgs.join(' ')}`);
   }
 

@@ -37,14 +37,14 @@ node .github/skills/skills-sync-guard/scripts/safe-sync-skills.mjs --verbose
 確認ポイント:
 
 - 各ディレクトリの `files` 数と `newest` タイムスタンプ
-- `base` 候補（最も新しい更新を持つディレクトリ）
+- `base` 候補（ファイル単位の最新採用数が最も多く、かつ新しい更新を持つディレクトリ）
 - `conflicts` 件数（`base-missing` / `base-outdated`）
 
 ### Step 2: 同期戦略の決定
 
 `safe-sync-skills.mjs` のデフォルト戦略は `auto`:
 
-- 競合なし: `base` 戦略（最も新しいディレクトリをベースに展開）
+- 競合なし: `base` 戦略（最新採用数と更新時刻を加味したベース候補を展開）
 - 競合あり: `latest` 戦略（ファイル単位で最新を選ぶ）
 
 ベース固定したい場合:
