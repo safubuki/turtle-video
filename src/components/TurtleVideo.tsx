@@ -2616,6 +2616,80 @@ const TurtleVideo: React.FC = () => {
     [stopAll, pause, setCurrentTime, renderFrame, logDebug, logWarn]
   );
 
+  // --- 開始位置同期ヘルパー ---
+  // 目的: 再生や書き出し開始時、最初に表示される動画要素が指定時刻のフレームをデコード完了するまで待機し、ブラックアウトやカクつきを防ぐ
+  const waitForActiveVideosToSeek = useCallback(
+    async (fromTime: number): Promise<boolean> => {
+      let t = 0;
+      const activeVideos: { el: HTMLVideoElement; targetTime: number }[] = [];
+      for (const item of mediaItemsRef.current) {
+        if (fromTime >= t && fromTime < t + item.duration) {
+          if (item.type === 'video') {
+            const el = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
+            if (el) {
+              const localTime = fromTime - t;
+              activeVideos.push({ el, targetTime: (item.trimStart || 0) + localTime });
+            }
+          }
+          break; // 最初のアクティブなアイテムを見つけたら終了
+        }
+        t += item.duration;
+      }
+
+      if (activeVideos.length === 0) return true;
+
+      const promises = activeVideos.map(({ el, targetTime }) => {
+        return new Promise<boolean>((resolve) => {
+          if (el.readyState === 0 && !el.error) {
+            try { el.load(); } catch { /* ignore */ }
+          }
+
+          if (Math.abs(el.currentTime - targetTime) > 0.01) {
+            try { el.currentTime = targetTime; } catch { /* ignore */ }
+          }
+
+          // 既にロードおよびシークが完了していれば即座に解決
+          if (el.readyState >= 2 && !el.seeking) {
+            resolve(true);
+            return;
+          }
+
+          let settled = false;
+          let timeoutId: ReturnType<typeof setTimeout>;
+
+          const finish = (ok: boolean) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeoutId);
+            el.removeEventListener('seeked', onReady);
+            el.removeEventListener('canplay', onReady);
+            el.removeEventListener('loadeddata', onReady);
+            resolve(ok);
+          };
+
+          const onReady = () => {
+            if (el.readyState >= 2 && !el.seeking) {
+              finish(true);
+            }
+          };
+
+          el.addEventListener('seeked', onReady);
+          el.addEventListener('canplay', onReady);
+          el.addEventListener('loadeddata', onReady);
+
+          timeoutId = setTimeout(() => {
+            logWarn('RENDER', '動画デコード完了待機タイムアウト', { targetTime, readyState: el.readyState });
+            finish(false);
+          }, 3000); // 3秒でタイムアウトして強行
+        });
+      });
+
+      const results = await Promise.all(promises);
+      return results.every(Boolean);
+    },
+    [logWarn]
+  );
+
   // --- エンジン起動処理 ---
   // 目的: 再生またはエクスポートを開始
   // 処理: AudioContext復帰→メディア準備→ループ開始
@@ -2741,6 +2815,8 @@ const TurtleVideo: React.FC = () => {
 
       if (isExportMode) {
         setCurrentTime(0);
+        currentTimeRef.current = 0;
+        // エクスポート用に全メディアの現在時刻を初期化するが、アクティブなビデオのみ後で正確にシークする
         Object.values(mediaElementsRef.current).forEach((el) => {
           if (el.tagName === 'VIDEO') {
             try {
@@ -2876,29 +2952,32 @@ const TurtleVideo: React.FC = () => {
           await Promise.all(audioPreloadPromises);
           logInfo('AUDIO', 'オーディオプリロード完了');
         }
-
-
-
-        await new Promise((r) => setTimeout(r, 200));
-        renderFrame(0, false, true);
-        await new Promise((r) => setTimeout(r, 100));
       } else {
-        // 通常再生モード: 開始位置でフレームを描画してビデオ位置を同期
+        // 通常再生モード
         setCurrentTime(fromTime);
         currentTimeRef.current = fromTime;
+        resetInactiveVideos();
+      }
 
-        // 現在のアクティブなビデオを特定
+      // エクスポート・通常再生ともに、最初に描画される動画のフレームデコード完了を待機する。
+      // これにより「タイマーが進んでいるのに動画が追いついていない（カクつき・黒画面）」を防ぐ。
+      const decodeReady = await waitForActiveVideosToSeek(fromTime);
+      logDebug('RENDER', '開始時動画デコード待機完了', { decodeReady });
+
+      // awaitの間にstopAllが呼ばれていたら中止
+      if (myLoopId !== loopIdRef.current) {
+        return;
+      }
+
+      // 現在のアクティブなビデオを特定して再生を開始する（通常再生の場合のみ）
+      if (!isExportMode) {
         let t = 0;
         for (const item of mediaItemsRef.current) {
           if (fromTime >= t && fromTime < t + item.duration) {
             if (item.type === 'video') {
               const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
               if (videoEl) {
-                const localTime = fromTime - t;
-                const targetTime = (item.trimStart || 0) + localTime;
-                videoEl.currentTime = targetTime;
                 activeVideoIdRef.current = item.id;
-                // 再生を開始
                 videoEl.play().catch(() => { });
               }
             }
@@ -2906,17 +2985,9 @@ const TurtleVideo: React.FC = () => {
           }
           t += item.duration;
         }
-
-        // 非アクティブビデオをtrimStart位置にリセットし、
-        // 再生中のクリップ切替時に大きなシークが不要になるようにする。
-        // （handleSeekEnd → proceedWithPlayback と同等のリセットで、
-        //   「停止→再生」と「シーク→再生」の動作差を解消する）
-        resetInactiveVideos();
-
         renderFrame(fromTime, false);
-
-        // メディア要素のシーク完了を待つ
-        await new Promise((r) => setTimeout(r, 50));
+      } else {
+        renderFrame(0, false, true);
       }
 
       // awaitの間にstopAllが呼ばれていたら中止
