@@ -1363,6 +1363,10 @@ const TurtleVideo: React.FC = () => {
         if (isPlayingRef.current || isProcessing) {
           needsResyncAfterVisibilityRef.current = true;
           pauseAllMediaElements();
+          if (!isProcessing) {
+            isPlayingRef.current = false;
+            pause();
+          }
         }
         return;
       }
@@ -1392,7 +1396,7 @@ const TurtleVideo: React.FC = () => {
       window.removeEventListener('focus', handleWindowFocus);
       window.removeEventListener('pageshow', handlePageShow);
     };
-  }, [renderFrame, logInfo, logWarn, isProcessing]);
+  }, [renderFrame, logInfo, logWarn, isProcessing, pause]);
 
   // --- Audio Context ---
   const getAudioContext = useCallback(() => {
