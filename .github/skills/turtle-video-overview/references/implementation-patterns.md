@@ -890,3 +890,17 @@
   - `--verbose` / `--json` に各ディレクトリの freshness 指標を出力し、選定根拠を可視化
 - **注意**:
   - ベース固定で運用する場合は `--base agents` などを明示し、意図しない自動選定を避ける
+
+### 13-30. Issue Forms に AI簡易依頼テンプレートを追加する運用
+
+- **ファイル**: `.github/ISSUE_TEMPLATE/00-ai-assist.yml`, `.github/skills/issue-specialist/assets/issue-templates/00-ai-assist.yml`, `.agents/skills/issue-specialist/assets/issue-templates/00-ai-assist.yml`, `.agent/skills/issue-specialist/assets/issue-templates/00-ai-assist.yml`, `.github/skills/issue-specialist/scripts/setup-issue-specialist.mjs`, `.agents/skills/issue-specialist/scripts/setup-issue-specialist.mjs`, `.agent/skills/issue-specialist/scripts/setup-issue-specialist.mjs`
+- **問題**:
+  - 詳細テンプレート（バグ/改善/ドキュメント/メンテ）だけだと、起票時の入力負荷が高く、アイデア段階の依頼が止まりやすい
+  - テンプレート追加時に `assets` と `setup` スクリプトを同時更新しないと、再セットアップ時に新規テンプレートが消える
+- **対策**:
+  - 文章入力1欄のみの `00-ai-assist.yml` を追加し、Issue作成画面に「AI依頼（簡易）」を表示する
+  - 追加テンプレートは実運用 `.github/ISSUE_TEMPLATE` だけでなく、スキル資産（`.github/skills`, `.agents`, `.agent`）にも同一内容で配置する
+  - `setup-issue-specialist.mjs` の `ISSUE_TEMPLATE_FILES` に `00-ai-assist.yml` を追加して再生成時の消失を防ぐ
+- **注意**:
+  - Issue Forms ではトップレベル `type` は使わない（テンプレート無効化の原因になる）
+  - 必須項目を増やすと「文章だけで依頼」の目的に反するため、必須は本文1欄に留める
