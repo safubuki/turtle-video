@@ -904,3 +904,16 @@
 - **注意**:
   - Issue Forms ではトップレベル `type` は使わない（テンプレート無効化の原因になる）
   - 必須項目を増やすと「文章だけで依頼」の目的に反するため、必須は本文1欄に留める
+
+### 13-31. Issue Forms の画像貼り付け欄は `render` を付けない
+
+- **ファイル**: `.github/ISSUE_TEMPLATE/01-bug-report.yml`, `.github/skills/issue-specialist/assets/issue-templates/01-bug-report.yml`, `.agents/skills/issue-specialist/assets/issue-templates/01-bug-report.yml`, `.agent/skills/issue-specialist/assets/issue-templates/01-bug-report.yml`
+- **問題**:
+  - `textarea` に `render: shell` を付けると、コードブロック前提の入力になり、画像貼り付けや添付導線（Paste/Drop）が通常の本文欄より弱くなる
+  - その結果、ログ・スクリーンショット欄で画像を貼り付けできない運用になりやすい
+- **対策**:
+  - 画像貼り付けを想定する `textarea` では `render` を指定しない
+  - すでに設定済みの `render: shell` は削除し、通常の Markdown 入力欄に戻す
+- **注意**:
+  - `render` はコード片（JSON/YAML/ログテキスト）専用欄に限定して使用し、画像添付欄には使わない
+  - 実運用テンプレートとスキル資産（`.github/skills`, `.agents`, `.agent`）を同時に更新して再生成時の逆戻りを防ぐ
