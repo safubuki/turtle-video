@@ -87,6 +87,16 @@
   - `handleSeekEnd` の再生再開時刻は固定値ではなく `currentTimeRef.current` から再取得し、遅延イベントで更新された最終シーク位置を取りこぼさない
 - **注意**: シークセッション外イベントで `renderFrame(..., false)` を実行すると、再生中動画を誤って `pause()` しやすい
 
+### 2-7. 非アクティブ復帰時の再生時計ドリフト抑止
+
+- **ファイル**: `src/components/TurtleVideo.tsx`
+- **問題**: アプリ/タブが非アクティブ中でも通常再生ループが進行すると、`startTimeRef` の可視復帰補正と二重計上になり、復帰後に「途中で再生が止まる」「クリップ遷移で黒画面化」が発生しやすい
+- **対策**:
+  - `loop()` で `document.visibilityState !== 'visible'` の間は通常再生/エクスポートともタイムライン更新を停止し、`requestAnimationFrame` の再予約だけを行う
+  - 可視復帰時の `restoreTimelineClockAfterHidden()` に時計補正を一元化し、hidden区間の進行補正を重複させない
+  - 復帰時リシンクで in-range の `video/audio` が `readyState === 0` の場合は `load()` を再試行し、ブラックアウトからの復帰率を上げる
+- **注意**: 非表示中に `elapsed` を進めない設計を前提に、hidden時間補正ロジック（`startTimeRef += hiddenDurationMs`）を別経路で重複実行しないこと
+
 ---
 
 ## 3. AudioContext 管理
@@ -257,6 +267,16 @@
   - 手動保存時に容量不足を検知した場合、`auto` は自動削除せず失敗を返す
   - UI 側で「自動保存を削除して続行」確認を出し、ユーザー同意時のみ `auto` 削除後に手動保存を再試行
 - **注意**: `auto` 削除は明示同意時のみ実行し、勝手に復元ポイントを失わないようにする
+
+### 8-6. 復帰直後の手動保存ハング防止（I/Oフォールバック + IDB失敗経路補足）
+
+- **ファイル**: `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`
+- **問題**: 端末復帰直後に `FileReader` や IndexedDB トランザクションが不安定化すると、手動保存が完了しない/失敗理由が拾えないケースがある
+- **対策**:
+  - `projectStore` のシリアライズで `File -> ArrayBuffer` が失敗した場合、`blobUrl` からの読み込みへフォールバックする
+  - `indexedDB` ラッパーで `transaction.onerror` / `transaction.onabort` / open timeout を補足し、Promise 未解決で保存UIが固まる経路を防ぐ
+  - `saveProject` の成功は `request.onsuccess` ではなく `transaction.oncomplete` で確定させ、コミット完了を待って返す
+- **注意**: フォールバック成功時でも根本原因調査のためログを残し、継続的に発生する場合はメディアソース状態（Blob URL有効性・容量逼迫）を優先調査する
 
 ---
 
