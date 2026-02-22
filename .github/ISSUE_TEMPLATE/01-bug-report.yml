@@ -3,7 +3,6 @@ description: 再現可能な不具合を報告する
 title: "[バグ] "
 labels:
   - bug
-type: bug
 body:
   - type: markdown
     attributes:

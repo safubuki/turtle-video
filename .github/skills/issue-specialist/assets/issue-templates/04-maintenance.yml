@@ -1,7 +1,6 @@
 name: メンテナンス作業
 description: リファクタ、依存更新、CI整備など機能追加以外の作業を管理する
 title: "[メンテ] "
-type: task
 body:
   - type: markdown
     attributes:

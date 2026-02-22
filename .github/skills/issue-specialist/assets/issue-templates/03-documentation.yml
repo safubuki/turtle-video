@@ -3,7 +3,6 @@ description: 不足・古い・不明瞭なドキュメントを改善する
 title: "[ドキュメント] "
 labels:
   - documentation
-type: task
 body:
   - type: markdown
     attributes:
