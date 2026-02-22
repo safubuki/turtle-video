@@ -1,0 +1,23 @@
+name: AI依頼（簡易）
+description: 文章を入力するだけでAIにIssue化を依頼する
+title: "[AI依頼] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        文章を入力するだけでOKです。
+        入力内容をもとに、AIがバグ/改善/ドキュメント/メンテナンス向けにIssue内容を整理します。
+  - type: textarea
+    id: request_text
+    attributes:
+      label: 依頼内容
+      description: この欄だけ入力してください。背景・困りごと・実現したいことを自由に記載できます。
+      placeholder: |
+        例:
+        - 何が問題か / 何を改善したいか
+        - いつ・どこで困ったか
+        - 完了のイメージ
+    validations:
+      required: true
