@@ -118,6 +118,91 @@ describe('projectStore save behavior', () => {
     expect(isStorageQuotaError(new Error('network error'))).toBe(false);
   });
 
+  it('メディアFileReader失敗時はBlobURLフォールバックで手動保存を継続する', async () => {
+    mocks.fileToArrayBuffer.mockRejectedValueOnce(new Error('reader failed'));
+    mocks.blobUrlToArrayBuffer.mockResolvedValueOnce(new ArrayBuffer(16));
+    mocks.saveProject.mockResolvedValueOnce(undefined);
+
+    const mediaFile = new File(['video-bytes'], 'clip.mp4', { type: 'video/mp4' });
+    const mediaItem = {
+      id: 'media-1',
+      file: mediaFile,
+      type: 'video',
+      url: 'blob:media-1',
+      volume: 1,
+      isMuted: false,
+      fadeIn: false,
+      fadeOut: false,
+      fadeInDuration: 1,
+      fadeOutDuration: 1,
+      duration: 5,
+      originalDuration: 5,
+      trimStart: 0,
+      trimEnd: 5,
+      scale: 1,
+      positionX: 0,
+      positionY: 0,
+      isTransformOpen: false,
+      isLocked: false,
+    } as const;
+
+    await expect(
+      useProjectStore.getState().saveProjectManual(
+        [mediaItem as any],
+        false,
+        null,
+        false,
+        [],
+        false,
+        [],
+        defaultCaptionSettings,
+        false
+      )
+    ).resolves.toBeUndefined();
+
+    expect(mocks.blobUrlToArrayBuffer).toHaveBeenCalledWith('blob:media-1');
+    expect(mocks.saveProject).toHaveBeenCalledTimes(1);
+  });
+
+  it('BGM FileReader失敗時はBlobURLフォールバックで手動保存を継続する', async () => {
+    mocks.fileToArrayBuffer.mockRejectedValueOnce(new Error('audio reader failed'));
+    mocks.blobUrlToArrayBuffer.mockResolvedValueOnce(new ArrayBuffer(32));
+    mocks.saveProject.mockResolvedValueOnce(undefined);
+
+    const bgmFile = new File(['audio-bytes'], 'bgm.mp3', { type: 'audio/mpeg' });
+    const bgm = {
+      file: bgmFile,
+      url: 'blob:bgm-file',
+      blobUrl: 'blob:bgm-file',
+      startPoint: 0,
+      delay: 0,
+      volume: 1,
+      fadeIn: false,
+      fadeOut: false,
+      fadeInDuration: 1,
+      fadeOutDuration: 1,
+      duration: 30,
+      isAi: false,
+    };
+
+    await expect(
+      useProjectStore.getState().saveProjectManual(
+        [],
+        false,
+        bgm as any,
+        false,
+        [],
+        false,
+        [],
+        defaultCaptionSettings,
+        false
+      )
+    ).resolves.toBeUndefined();
+
+    expect(mocks.blobUrlToArrayBuffer).toHaveBeenCalledWith('blob:bgm-file');
+    expect(mocks.saveProject).toHaveBeenCalledTimes(1);
+  });
+
   it('deleteAutoSaveOnlyはautoだけ削除しmanualは保持する', async () => {
     mocks.deleteProject.mockResolvedValue(undefined);
 

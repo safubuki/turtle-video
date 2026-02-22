@@ -1146,6 +1146,13 @@ const TurtleVideo: React.FC = () => {
         if (item.type === 'video' && el) {
           const videoEl = el as HTMLVideoElement;
           if (t >= accTime && t < accTime + item.duration) {
+            if (videoEl.readyState === 0 && !videoEl.error) {
+              try {
+                videoEl.load();
+              } catch {
+                // ignore
+              }
+            }
             const localTime = t - accTime;
             const targetTime = (item.trimStart || 0) + localTime;
             if (!videoEl.seeking && videoEl.readyState >= 1 && Math.abs(videoEl.currentTime - targetTime) > 0.03) {
@@ -1182,6 +1189,14 @@ const TurtleVideo: React.FC = () => {
           return;
         }
 
+        if (el.readyState === 0 && !el.error) {
+          try {
+            el.load();
+          } catch {
+            // ignore
+          }
+        }
+
         // 微小ズレまで補正すると復帰直後にデコード再同期が過剰に走り、
         // 聴感上の音切れを招くため、有意なズレのみ補正する。
         const drift = Math.abs(el.currentTime - trackTime);
@@ -1207,6 +1222,14 @@ const TurtleVideo: React.FC = () => {
             try { el.pause(); } catch { /* ignore */ }
           }
           return;
+        }
+
+        if (el.readyState === 0 && !el.error) {
+          try {
+            el.load();
+          } catch {
+            // ignore
+          }
         }
 
         const drift = Math.abs(el.currentTime - trackTime);
@@ -2445,8 +2468,9 @@ const TurtleVideo: React.FC = () => {
         return;
       }
 
-      // 非アクティブ中はエクスポート進行を止める（hidden時間は可視復帰時に補正）
-      if (isExportMode && typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+      // 非アクティブ中は通常再生/エクスポートともにタイムライン進行を止める。
+      // hidden時間の補正は可視復帰時（restoreTimelineClockAfterHidden）で行う。
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
         reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
         return;
       }

@@ -92,7 +92,32 @@ interface ProjectState {
 }
 
 async function serializeMediaItem(item: MediaItem): Promise<SerializedMediaItem> {
-  const fileData = await fileToArrayBuffer(item.file);
+  let fileData: ArrayBuffer | null = null;
+  const errors: string[] = [];
+
+  try {
+    fileData = await fileToArrayBuffer(item.file);
+  } catch (error) {
+    errors.push(getProjectStoreErrorMessage(error));
+  }
+
+  if (!fileData && item.url) {
+    try {
+      fileData = await blobUrlToArrayBuffer(item.url);
+      useLogStore.getState().warn('SYSTEM', 'メディア保存でBlobURLフォールバックを使用', {
+        id: item.id,
+        fileName: item.file.name,
+      });
+    } catch (error) {
+      errors.push(getProjectStoreErrorMessage(error));
+    }
+  }
+
+  if (!fileData) {
+    const detail = errors.length > 0 ? ` (${errors.join(' / ')})` : '';
+    throw new Error(`メディアファイルの読み込みに失敗しました: ${item.file.name}${detail}`);
+  }
+
   return {
     id: item.id,
     fileName: item.file.name,
@@ -145,17 +170,30 @@ function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
 async function serializeAudioTrack(track: AudioTrack): Promise<SerializedAudioTrack> {
   let fileData: ArrayBuffer | null = null;
   let blobData: ArrayBuffer | undefined;
+  const errors: string[] = [];
 
   if (track.file instanceof File) {
-    fileData = await fileToArrayBuffer(track.file);
+    try {
+      fileData = await fileToArrayBuffer(track.file);
+    } catch (error) {
+      errors.push(getProjectStoreErrorMessage(error));
+    }
   }
 
-  if (track.blobUrl) {
+  if (!fileData && track.blobUrl) {
     try {
       blobData = await blobUrlToArrayBuffer(track.blobUrl);
-    } catch {
-      // ignore blob fetch errors
+      useLogStore.getState().warn('SYSTEM', 'オーディオ保存でBlobURLフォールバックを使用', {
+        fileName: track.file.name,
+      });
+    } catch (error) {
+      errors.push(getProjectStoreErrorMessage(error));
     }
+  }
+
+  if (!fileData && !blobData && track.file instanceof File) {
+    const detail = errors.length > 0 ? ` (${errors.join(' / ')})` : '';
+    throw new Error(`音声ファイルの読み込みに失敗しました: ${track.file.name}${detail}`);
   }
 
   const fileName = track.file instanceof File ? track.file.name : track.file.name;
@@ -215,17 +253,31 @@ function deserializeAudioTrack(data: SerializedAudioTrack): AudioTrack {
 async function serializeNarrationClip(clip: NarrationClip): Promise<SerializedNarrationClip> {
   let fileData: ArrayBuffer | null = null;
   let blobData: ArrayBuffer | undefined;
+  const errors: string[] = [];
 
   if (clip.file instanceof File) {
-    fileData = await fileToArrayBuffer(clip.file);
+    try {
+      fileData = await fileToArrayBuffer(clip.file);
+    } catch (error) {
+      errors.push(getProjectStoreErrorMessage(error));
+    }
   }
 
-  if (clip.blobUrl) {
+  if (!fileData && clip.blobUrl) {
     try {
       blobData = await blobUrlToArrayBuffer(clip.blobUrl);
-    } catch {
-      // ignore blob fetch errors
+      useLogStore.getState().warn('SYSTEM', 'ナレーション保存でBlobURLフォールバックを使用', {
+        id: clip.id,
+        fileName: clip.file.name,
+      });
+    } catch (error) {
+      errors.push(getProjectStoreErrorMessage(error));
     }
+  }
+
+  if (!fileData && !blobData && clip.file instanceof File) {
+    const detail = errors.length > 0 ? ` (${errors.join(' / ')})` : '';
+    throw new Error(`ナレーション音声の読み込みに失敗しました: ${clip.file.name}${detail}`);
   }
 
   const fileName = clip.file instanceof File ? clip.file.name : clip.file.name;

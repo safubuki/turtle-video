@@ -9,6 +9,8 @@ import { useLogStore } from '../stores/logStore';
 const DB_NAME = 'turtle-video-db';
 const DB_VERSION = 1;
 const STORE_NAME = 'projects';
+const OPEN_DB_TIMEOUT_MS = 15000;
+const TRANSACTION_TIMEOUT_MS = 20000;
 
 function getIdbErrorReason(error: DOMException | null): string {
   if (!error) return 'UnknownError';
@@ -140,18 +142,59 @@ export interface ProjectData {
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
-    
-    request.onerror = () => {
-      const reason = getIdbErrorReason(request.error);
-      useLogStore.getState().error('SYSTEM', 'IndexedDBを開けませんでした', { reason });
+    let settled = false;
+
+    const rejectOnce = (reason: string) => {
+      if (settled) return;
+      settled = true;
       reject(new Error(`IndexedDBを開けませんでした (${reason})`));
     };
-    
-    request.onsuccess = () => {
-      useLogStore.getState().debug('SYSTEM', 'IndexedDBを開きました');
-      resolve(request.result);
+
+    const timeoutId = setTimeout(() => {
+      useLogStore.getState().error('SYSTEM', 'IndexedDBオープンがタイムアウト', {
+        timeoutMs: OPEN_DB_TIMEOUT_MS,
+      });
+      rejectOnce(`TimeoutError: open timeout (${OPEN_DB_TIMEOUT_MS}ms)`);
+    }, OPEN_DB_TIMEOUT_MS);
+
+    request.onerror = () => {
+      clearTimeout(timeoutId);
+      const reason = getIdbErrorReason(request.error);
+      useLogStore.getState().error('SYSTEM', 'IndexedDBを開けませんでした', { reason });
+      rejectOnce(reason);
     };
-    
+
+    request.onblocked = () => {
+      useLogStore.getState().warn('SYSTEM', 'IndexedDBオープンがブロックされています', {
+        dbName: DB_NAME,
+        version: DB_VERSION,
+      });
+    };
+
+    request.onsuccess = () => {
+      clearTimeout(timeoutId);
+      const db = request.result;
+      if (settled) {
+        try {
+          db.close();
+        } catch {
+          // ignore
+        }
+        return;
+      }
+      db.onversionchange = () => {
+        useLogStore.getState().warn('SYSTEM', 'IndexedDBバージョン変更を検知したため接続を閉じます');
+        try {
+          db.close();
+        } catch {
+          // ignore
+        }
+      };
+      useLogStore.getState().debug('SYSTEM', 'IndexedDBを開きました');
+      settled = true;
+      resolve(db);
+    };
+
     request.onupgradeneeded = (event) => {
       useLogStore.getState().info('SYSTEM', 'IndexedDBをアップグレード中', { version: DB_VERSION });
       const db = (event.target as IDBOpenDBRequest).result;
@@ -169,23 +212,74 @@ export async function saveProject(data: ProjectData): Promise<void> {
   useLogStore.getState().debug('SYSTEM', 'プロジェクトをIndexedDBに保存中', { slot: data.slot });
   const db = await openDB();
   return new Promise((resolve, reject) => {
+    let settled = false;
     const transaction = db.transaction([STORE_NAME], 'readwrite');
     const store = transaction.objectStore(STORE_NAME);
     const request = store.put(data);
-    
+
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      try {
+        db.close();
+      } catch {
+        // ignore
+      }
+    };
+
+    const rejectOnce = (reason: string) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error(`プロジェクトの保存に失敗しました (${reason})`));
+    };
+
+    const resolveOnce = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+
+    const timeoutId = setTimeout(() => {
+      useLogStore.getState().error('SYSTEM', 'プロジェクト保存がタイムアウト', {
+        slot: data.slot,
+        timeoutMs: TRANSACTION_TIMEOUT_MS,
+      });
+      try {
+        transaction.abort();
+      } catch {
+        // ignore
+      }
+      rejectOnce(`TimeoutError: save timeout (${TRANSACTION_TIMEOUT_MS}ms)`);
+    }, TRANSACTION_TIMEOUT_MS);
+
     request.onerror = () => {
       const reason = getIdbErrorReason(request.error);
       useLogStore.getState().error('SYSTEM', 'プロジェクトの保存に失敗', { slot: data.slot, reason });
-      reject(new Error(`プロジェクトの保存に失敗しました (${reason})`));
+      rejectOnce(reason);
     };
-    
+
     request.onsuccess = () => {
       useLogStore.getState().debug('SYSTEM', 'プロジェクトをIndexedDBに保存完了', { slot: data.slot });
-      resolve();
     };
-    
+
+    transaction.onerror = () => {
+      const reason = getIdbErrorReason(transaction.error);
+      useLogStore.getState().error('SYSTEM', '保存トランザクションでエラー', { slot: data.slot, reason });
+      rejectOnce(reason);
+    };
+
+    transaction.onabort = () => {
+      const reason = getIdbErrorReason(transaction.error) || 'AbortError';
+      useLogStore.getState().error('SYSTEM', '保存トランザクションが中断されました', {
+        slot: data.slot,
+        reason,
+      });
+      rejectOnce(reason);
+    };
+
     transaction.oncomplete = () => {
-      db.close();
+      resolveOnce();
     };
   });
 }
@@ -197,26 +291,78 @@ export async function loadProject(slot: SaveSlot): Promise<ProjectData | null> {
   useLogStore.getState().debug('SYSTEM', 'プロジェクトをIndexedDBから読み込み中', { slot });
   const db = await openDB();
   return new Promise((resolve, reject) => {
+    let settled = false;
+    let result: ProjectData | null = null;
     const transaction = db.transaction([STORE_NAME], 'readonly');
     const store = transaction.objectStore(STORE_NAME);
     const request = store.get(slot);
-    
+
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      try {
+        db.close();
+      } catch {
+        // ignore
+      }
+    };
+
+    const rejectOnce = (reason: string) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error(`プロジェクトの読み込みに失敗しました (${reason})`));
+    };
+
+    const resolveOnce = (data: ProjectData | null) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(data);
+    };
+
+    const timeoutId = setTimeout(() => {
+      useLogStore.getState().error('SYSTEM', 'プロジェクト読み込みがタイムアウト', {
+        slot,
+        timeoutMs: TRANSACTION_TIMEOUT_MS,
+      });
+      try {
+        transaction.abort();
+      } catch {
+        // ignore
+      }
+      rejectOnce(`TimeoutError: load timeout (${TRANSACTION_TIMEOUT_MS}ms)`);
+    }, TRANSACTION_TIMEOUT_MS);
+
     request.onerror = () => {
       const reason = getIdbErrorReason(request.error);
       useLogStore.getState().error('SYSTEM', 'プロジェクトの読み込みに失敗', { slot, reason });
-      reject(new Error(`プロジェクトの読み込みに失敗しました (${reason})`));
+      rejectOnce(reason);
     };
-    
+
     request.onsuccess = () => {
-      const result = request.result || null;
+      result = request.result || null;
       if (result) {
         useLogStore.getState().debug('SYSTEM', 'プロジェクトをIndexedDBから読み込み完了', { slot });
       }
-      resolve(result);
     };
-    
+
+    transaction.onerror = () => {
+      const reason = getIdbErrorReason(transaction.error);
+      useLogStore.getState().error('SYSTEM', '読み込みトランザクションでエラー', { slot, reason });
+      rejectOnce(reason);
+    };
+
+    transaction.onabort = () => {
+      const reason = getIdbErrorReason(transaction.error) || 'AbortError';
+      useLogStore.getState().error('SYSTEM', '読み込みトランザクションが中断されました', {
+        slot,
+        reason,
+      });
+      rejectOnce(reason);
+    };
+
     transaction.oncomplete = () => {
-      db.close();
+      resolveOnce(result);
     };
   });
 }
@@ -228,23 +374,74 @@ export async function deleteProject(slot: SaveSlot): Promise<void> {
   useLogStore.getState().info('SYSTEM', 'プロジェクトをIndexedDBから削除中', { slot });
   const db = await openDB();
   return new Promise((resolve, reject) => {
+    let settled = false;
     const transaction = db.transaction([STORE_NAME], 'readwrite');
     const store = transaction.objectStore(STORE_NAME);
     const request = store.delete(slot);
-    
+
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      try {
+        db.close();
+      } catch {
+        // ignore
+      }
+    };
+
+    const rejectOnce = (reason: string) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error(`プロジェクトの削除に失敗しました (${reason})`));
+    };
+
+    const resolveOnce = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+
+    const timeoutId = setTimeout(() => {
+      useLogStore.getState().error('SYSTEM', 'プロジェクト削除がタイムアウト', {
+        slot,
+        timeoutMs: TRANSACTION_TIMEOUT_MS,
+      });
+      try {
+        transaction.abort();
+      } catch {
+        // ignore
+      }
+      rejectOnce(`TimeoutError: delete timeout (${TRANSACTION_TIMEOUT_MS}ms)`);
+    }, TRANSACTION_TIMEOUT_MS);
+
     request.onerror = () => {
       const reason = getIdbErrorReason(request.error);
       useLogStore.getState().error('SYSTEM', 'プロジェクトの削除に失敗', { slot, reason });
-      reject(new Error(`プロジェクトの削除に失敗しました (${reason})`));
+      rejectOnce(reason);
     };
-    
+
     request.onsuccess = () => {
       useLogStore.getState().info('SYSTEM', 'プロジェクトをIndexedDBから削除完了', { slot });
-      resolve();
     };
-    
+
+    transaction.onerror = () => {
+      const reason = getIdbErrorReason(transaction.error);
+      useLogStore.getState().error('SYSTEM', '削除トランザクションでエラー', { slot, reason });
+      rejectOnce(reason);
+    };
+
+    transaction.onabort = () => {
+      const reason = getIdbErrorReason(transaction.error) || 'AbortError';
+      useLogStore.getState().error('SYSTEM', '削除トランザクションが中断されました', {
+        slot,
+        reason,
+      });
+      rejectOnce(reason);
+    };
+
     transaction.oncomplete = () => {
-      db.close();
+      resolveOnce();
     };
   });
 }
