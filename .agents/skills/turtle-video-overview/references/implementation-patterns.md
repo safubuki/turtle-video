@@ -917,3 +917,17 @@
 - **注意**:
   - `render` はコード片（JSON/YAML/ログテキスト）専用欄に限定して使用し、画像添付欄には使わない
   - 実運用テンプレートとスキル資産（`.github/skills`, `.agents`, `.agent`）を同時に更新して再生成時の逆戻りを防ぐ
+
+### 13-32. 00テンプレートを「ザクっと登録→後でAI整理」前提にする
+
+- **ファイル**: `.github/ISSUE_TEMPLATE/00-ai-assist.yml`, `.github/skills/issue-specialist/assets/issue-templates/00-ai-assist.yml`, `.agents/skills/issue-specialist/assets/issue-templates/00-ai-assist.yml`, `.agent/skills/issue-specialist/assets/issue-templates/00-ai-assist.yml`
+- **問題**:
+  - 起票時点で種別（bug/enhancement/documentation/maintenance）を判断し切れない内容は、詳細テンプレートに入力しづらく登録が止まりやすい
+  - 後でAIに整理依頼するときに、毎回プロンプトを作る手間がある
+- **対策**:
+  - テンプレート名を「ザクっと登録」に変更し、最小入力で起票できる粗メモ欄を必須化
+  - AIにそのまま渡せる「整理依頼文」を既定値付き textarea として同梱し、Issue本文に残す
+  - 整理依頼文で、種別判定・タイトル整形・ラベル提案・本文構造化の出力フォーマットを固定化
+- **注意**:
+  - 00テンプレートではラベル固定を避け、種別確定は後段のAI整理で行う
+  - 実運用テンプレートとスキル資産の4系統を同時更新し、再同期で仕様が戻らないようにする

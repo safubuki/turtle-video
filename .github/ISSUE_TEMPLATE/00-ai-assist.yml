@@ -1,23 +1,47 @@
-name: AI依頼（簡易）
-description: 文章を入力するだけでAIにIssue化を依頼する
-title: "[AI依頼] "
-labels:
-  - enhancement
+name: ザクっと登録
+description: まずはザクっと登録し、後でAIに整理してもらうためのテンプレート
+title: "[ザクっと] "
 body:
   - type: markdown
     attributes:
       value: |
-        文章を入力するだけでOKです。
-        入力内容をもとに、AIがバグ/改善/ドキュメント/メンテナンス向けにIssue内容を整理します。
+        まずは思いついた内容をこのIssueにザクっと残してください。
+        後でこのIssue本文をAIに渡すと、種別判定（バグ/改善/ドキュメント/メンテ）と構造化をしやすくなります。
   - type: textarea
-    id: request_text
+    id: rough_note
     attributes:
-      label: 依頼内容
-      description: この欄だけ入力してください。背景・困りごと・実現したいことを自由に記載できます。
+      label: ザクっと内容
+      description: ここだけ自由に埋めれば登録できます。箇条書きでも1文でもOKです。
       placeholder: |
-        例:
+        例（自由記述）:
         - 何が問題か / 何を改善したいか
         - いつ・どこで困ったか
         - 完了のイメージ
     validations:
       required: true
+  - type: textarea
+    id: ai_handoff_prompt
+    attributes:
+      label: AI整理用コピペ文（そのまま使える）
+      description: 後でAIに依頼するときは、この欄と「ザクっと内容」を一緒にコピペしてください。
+      value: |
+        このIssueは「ザクっと登録」です。以下の内容を整理してください。
+        目的:
+        - Issue種別を判定する（bug / enhancement / documentation / maintenance）
+        - 読みやすいタイトルへ整える
+        - 本文を目的に合わせて構造化する
+        
+        出力フォーマット:
+        1. 判定種別: bug / enhancement / documentation / maintenance
+        2. 推奨タイトル:
+        3. 推奨ラベル:
+        4. 整理済み本文:
+           - 概要
+           - 背景/課題
+           - （必要なら）再現手順 or 提案内容
+           - 受け入れ条件/完了条件
+           - 補足
+        
+        注意:
+        - 元の意図を変えず、情報不足は「不足項目」として明示する
+        - 断定できない点は推測と明記する
