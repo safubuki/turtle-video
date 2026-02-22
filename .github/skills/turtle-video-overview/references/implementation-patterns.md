@@ -951,3 +951,79 @@
 - **注意**:
   - 00テンプレートではラベル固定を避け、種別確定は後段のAI整理で行う
   - 実運用テンプレートとスキル資産の4系統を同時更新し、再同期で仕様が戻らないようにする
+
+### 13-33. エクスポート終端は `abort` ではなく正常完了シグナルで閉じる
+
+- **ファイル**: `src/components/TurtleVideo.tsx`
+- **問題**:
+  - エクスポート再生ループの終端到達時に `stopAll()` が `stopExport()`（abort）を呼ぶと、`useExport` の `completionRequested` 経路を通らず、`flush/finalize` の完了待ちと競合して「フレーム待機中...」のままダウンロードボタンが出ない経路が発生する
+- **対策**:
+  - `stopAll` に停止モード（`abort` / `complete`）を追加し、エクスポートの自然終端だけ `completeExport()` を呼ぶ
+  - これにより `completionRequested` を立てたまま終端フレーム補完→`flush/finalize`→`exportUrl` 設定まで正常完了フローで到達できる
+- **注意**:
+  - ユーザーの停止操作や再生切替など明示キャンセルは従来どおり `abort` を使う（意図しない保存完了を防ぐ）
+  - 終端判定の `complete` と明示停止の `abort` を混同しないこと
+
+### 13-34. 目標フレーム到達時の自動完了要求（終端待機ハング防止）
+
+- **ファイル**: `src/hooks/useExport.ts`
+- **問題**:
+  - 再生側の終端通知が遅延/欠落すると、エクスポート側は `completionRequested` が立たないまま目標フレーム数に到達し、`フレーム待機中...` で待機し続けることがある
+- **対策**:
+  - `processVideoWithCanvasFrames` / `processVideoWithTrackProcessor` で `frameIndex >= expectedVideoFrames` 到達時に `completionRequested` を自動で `true` にするフェイルセーフを追加
+  - これにより終端通知が遅れた場合でも、`flush/finalize` へ進んでダウンロード可能状態へ遷移できる
+- **注意**:
+  - 目標フレーム到達の自動完了は終端近傍の保険であり、通常は再生ループ側の終端完了通知で閉じる設計を維持する
+
+### 13-35. VideoEncoder flush ハング対策（バックプレッシャー + 監視ログ + タイムアウト）
+
+- **ファイル**: `src/hooks/useExport.ts`
+- **問題**:
+  - 一部環境で `VideoEncoder.encodeQueueSize` が大きく積み上がったまま `videoEncoder.flush()` が完了せず、UI が「フレーム待機中...」で停止することがある
+- **対策**:
+  - 映像フレーム encode 前に `encodeQueueSize` を監視し、閾値超過時は短時間待機してキューを解放する（バックプレッシャー制御）
+  - VideoEncoder 出力チャンク数/サイズの診断ログ（初回・定期）を追加し、映像エンコード進行を可視化
+  - `flush` 待機中のウォッチドッグログ（`[DIAG-7w]`）とタイムアウトを追加し、無限待機を防止
+- **注意**:
+  - `flush` タイムアウト時はエクスポート失敗として終了させ、ログ（`[DIAG-7b]`）の `queueSize` / `outputChunks` を優先確認する
+  - まず `queueSize` が高止まりしていないかを確認し、必要なら codec/profile の互換性調査を行う
+
+### 13-36. MediaRecorder 経路の正常終了要求で `stop()` を確実実行（終端待機ハング回避）
+
+- **ファイル**: `src/hooks/useExport.ts`
+- **問題**:
+  - `completeExport()` が完了フラグ更新のみで終わると、MediaRecorder 経路で `onstop` が発火せず「フレーム待機中...」のまま遷移しないケースがある
+- **対策**:
+  - `completeExport()` で実体 MediaRecorder（非ダミー）を検出した場合に `requestData()` → `stop()` を明示実行する
+  - WebCodecs 互換用ダミー recorder には `__turtleDummy` フラグを付け、`stop()` 再帰呼び出しを回避する
+  - 完了要求時に `hasRecorder` / `recorderState` / `isDummyRecorder` を診断ログに出力する
+- **注意**:
+  - Edge デスクトップは従来どおり WebCodecs 既定経路を維持し、MediaRecorder 優先は iOS Safari のみとする
+  - 明示キャンセルは `stopExport()`（abort）、自然終端は `completeExport()`（normal complete）を使い分ける
+
+### 13-37. 終端完了要求後はバックプレッシャー時の追加フレーム投入を停止
+
+- **ファイル**: `src/hooks/useExport.ts`
+- **問題**:
+  - `completionRequested` 後に `VideoEncoder.encodeQueueSize` が閾値以上で高止まりすると、待機上限到達のたびに追加フレームを投入し続け、完了処理へ進めず待機が継続することがある
+- **対策**:
+  - `waitForVideoEncoderCapacity()` を状態返却（`ok` / `timed_out` / `aborted`）に変更
+  - 完了要求後に `timed_out` を検知したら、映像の追加投入を打ち切って `flush/finalize` へ進む
+  - 補完フレームの末尾埋めでも同様に `timed_out` で打ち切り、ハングを回避する
+- **注意**:
+  - 追加投入停止時は末尾の補完フレーム数が減る可能性があるため、尺厳密化より「完了不能回避」を優先する
+  - 再現時は `[DIAG-BP] 終端完了要求後の映像追加を停止` の有無を確認する
+
+### 13-38. EdgeデスクトップのVideoEncoder高キュー固着を回避する保護制御
+
+- **ファイル**: `src/hooks/useExport.ts`
+- **問題**:
+  - Edgeデスクトップで `VideoEncoder.encodeQueueSize` が 60 前後まで積み上がると、出力チャンクが進まず `flush` がタイムアウトするケースがある
+- **対策**:
+  - Edgeデスクトップ時のみバックプレッシャー閾値を低め（`FPS` 近傍）に設定し、キュー飽和前に投入を抑制する
+  - 待機タイムアウト時はフレームを追加投入せず、`[DIAG-BP] キュー飽和回避のためフレームを間引き` を出して処理を継続する
+  - Edge時は `VideoEncoder` を `latencyMode: realtime` + `hardwareAcceleration: prefer-software` で初期化し、設定失敗時のみ標準設定にフォールバックする
+  - `DIAG-7` に `videoBackpressureDropCount` / `videoBackpressureThreshold` / `videoBackpressureMaxWaitMs` を出力し、固着条件を追跡可能にする
+- **注意**:
+  - この対策は「完了不能回避」優先のため、極端な高負荷時は一部フレーム間引きで滑らかさが低下する可能性がある
+  - `flush` タイムアウトが継続する場合は、WebCodecs実装依存の可能性が高いためブラウザ経路フォールバックを検討する

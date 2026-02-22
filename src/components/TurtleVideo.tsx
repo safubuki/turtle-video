@@ -284,7 +284,11 @@ const TurtleVideo: React.FC = () => {
   }, [mediaItems]);
 
   // Hooks
-  const { startExport: startWebCodecsExport, stopExport: stopWebCodecsExport } = useExport();
+  const {
+    startExport: startWebCodecsExport,
+    completeExport: completeWebCodecsExport,
+    stopExport: stopWebCodecsExport,
+  } = useExport();
 
   // --- メモリ監視（10秒ごと） ---
   useEffect(() => {
@@ -2291,8 +2295,12 @@ const TurtleVideo: React.FC = () => {
   // --- 全停止処理 ---
   // 目的: すべての再生を停止し、状態をリセット
   // 注意: ループID、シーク状態、アニメーションフレーム、メディア要素を全て解放
-  const stopAll = useCallback(() => {
-    logDebug('SYSTEM', 'stopAll呼び出し', { previousLoopId: loopIdRef.current, isPlayingRef: isPlayingRef.current });
+  const stopAll = useCallback((mode: 'abort' | 'complete' = 'abort') => {
+    logDebug('SYSTEM', 'stopAll呼び出し', {
+      previousLoopId: loopIdRef.current,
+      isPlayingRef: isPlayingRef.current,
+      mode,
+    });
 
     // ループIDをインクリメントして古いループを無効化
     loopIdRef.current += 1;
@@ -2348,10 +2356,15 @@ const TurtleVideo: React.FC = () => {
     if (hasActiveRecorder) {
       recorderRef.current!.stop();
     } else {
-      // 再生停止など、録画セッションが存在しないケースのみ強制停止を実行
-      stopWebCodecsExport();
+      if (mode === 'complete') {
+        // エクスポート終端の自然終了は abort せず正常終了要求へ回す。
+        completeWebCodecsExport();
+      } else {
+        // 再生停止・明示キャンセルなどは従来どおり強制停止（abort）。
+        stopWebCodecsExport();
+      }
     }
-  }, [setLoading, stopWebCodecsExport, cancelPendingPausedSeekWait, detachGlobalSeekEndListeners, cancelPendingSeekPlaybackPrepare]);
+  }, [setLoading, stopWebCodecsExport, completeWebCodecsExport, cancelPendingPausedSeekWait, detachGlobalSeekEndListeners, cancelPendingSeekPlaybackPrepare]);
 
   // --- Helper: 一時停止付きで関数を実行 ---
   // 目的: 編集操作時に必ず一時停止を実行してから元の処理を行う
@@ -2560,7 +2573,7 @@ const TurtleVideo: React.FC = () => {
           finalizeAtEnd();
           return;
         }
-        stopAll();
+        stopAll('complete');
         return;
       }
       setCurrentTime(clampedElapsed);
