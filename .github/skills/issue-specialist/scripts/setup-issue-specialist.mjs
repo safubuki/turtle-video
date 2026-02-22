@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const ISSUE_TEMPLATE_FILES = [
   'config.yml',
+  '00-ai-assist.yml',
   '01-bug-report.yml',
   '02-feature-request.yml',
   '03-documentation.yml',

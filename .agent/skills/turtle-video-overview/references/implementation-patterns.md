@@ -910,3 +910,44 @@
   - `--verbose` / `--json` に各ディレクトリの freshness 指標を出力し、選定根拠を可視化
 - **注意**:
   - ベース固定で運用する場合は `--base agents` などを明示し、意図しない自動選定を避ける
+
+### 13-30. Issue Forms に AI簡易依頼テンプレートを追加する運用
+
+- **ファイル**: `.github/ISSUE_TEMPLATE/00-ai-assist.yml`, `.github/skills/issue-specialist/assets/issue-templates/00-ai-assist.yml`, `.agents/skills/issue-specialist/assets/issue-templates/00-ai-assist.yml`, `.agent/skills/issue-specialist/assets/issue-templates/00-ai-assist.yml`, `.github/skills/issue-specialist/scripts/setup-issue-specialist.mjs`, `.agents/skills/issue-specialist/scripts/setup-issue-specialist.mjs`, `.agent/skills/issue-specialist/scripts/setup-issue-specialist.mjs`
+- **問題**:
+  - 詳細テンプレート（バグ/改善/ドキュメント/メンテ）だけだと、起票時の入力負荷が高く、アイデア段階の依頼が止まりやすい
+  - テンプレート追加時に `assets` と `setup` スクリプトを同時更新しないと、再セットアップ時に新規テンプレートが消える
+- **対策**:
+  - 文章入力1欄のみの `00-ai-assist.yml` を追加し、Issue作成画面に「AI依頼（簡易）」を表示する
+  - 追加テンプレートは実運用 `.github/ISSUE_TEMPLATE` だけでなく、スキル資産（`.github/skills`, `.agents`, `.agent`）にも同一内容で配置する
+  - `setup-issue-specialist.mjs` の `ISSUE_TEMPLATE_FILES` に `00-ai-assist.yml` を追加して再生成時の消失を防ぐ
+- **注意**:
+  - Issue Forms ではトップレベル `type` は使わない（テンプレート無効化の原因になる）
+  - 必須項目を増やすと「文章だけで依頼」の目的に反するため、必須は本文1欄に留める
+
+### 13-31. Issue Forms の画像貼り付け欄は `render` を付けない
+
+- **ファイル**: `.github/ISSUE_TEMPLATE/01-bug-report.yml`, `.github/skills/issue-specialist/assets/issue-templates/01-bug-report.yml`, `.agents/skills/issue-specialist/assets/issue-templates/01-bug-report.yml`, `.agent/skills/issue-specialist/assets/issue-templates/01-bug-report.yml`
+- **問題**:
+  - `textarea` に `render: shell` を付けると、コードブロック前提の入力になり、画像貼り付けや添付導線（Paste/Drop）が通常の本文欄より弱くなる
+  - その結果、ログ・スクリーンショット欄で画像を貼り付けできない運用になりやすい
+- **対策**:
+  - 画像貼り付けを想定する `textarea` では `render` を指定しない
+  - すでに設定済みの `render: shell` は削除し、通常の Markdown 入力欄に戻す
+- **注意**:
+  - `render` はコード片（JSON/YAML/ログテキスト）専用欄に限定して使用し、画像添付欄には使わない
+  - 実運用テンプレートとスキル資産（`.github/skills`, `.agents`, `.agent`）を同時に更新して再生成時の逆戻りを防ぐ
+
+### 13-32. 00テンプレートを「ザクっと登録→後でAI整理」前提にする
+
+- **ファイル**: `.github/ISSUE_TEMPLATE/00-ai-assist.yml`, `.github/skills/issue-specialist/assets/issue-templates/00-ai-assist.yml`, `.agents/skills/issue-specialist/assets/issue-templates/00-ai-assist.yml`, `.agent/skills/issue-specialist/assets/issue-templates/00-ai-assist.yml`
+- **問題**:
+  - 起票時点で種別（bug/enhancement/documentation/maintenance）を判断し切れない内容は、詳細テンプレートに入力しづらく登録が止まりやすい
+  - 後でAIに整理依頼するときに、毎回プロンプトを作る手間がある
+- **対策**:
+  - テンプレート名を「ザクっと登録」に変更し、最小入力で起票できる粗メモ欄を必須化
+  - AIにそのまま渡せる「整理依頼文」を既定値付き textarea として同梱し、Issue本文に残す
+  - 整理依頼文で、種別判定・タイトル整形・ラベル提案・本文構造化の出力フォーマットを固定化
+- **注意**:
+  - 00テンプレートではラベル固定を避け、種別確定は後段のAI整理で行う
+  - 実運用テンプレートとスキル資産の4系統を同時更新し、再同期で仕様が戻らないようにする

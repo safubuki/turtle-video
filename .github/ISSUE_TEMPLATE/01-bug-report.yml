@@ -3,7 +3,6 @@ description: 再現可能な不具合を報告する
 title: "[バグ] "
 labels:
   - bug
-type: bug
 body:
   - type: markdown
     attributes:
@@ -53,7 +52,6 @@ body:
     attributes:
       label: ログ・スクリーンショット
       description: スタックトレース、ログ、画像リンクなどを貼り付け
-      render: shell
   - type: checkboxes
     id: checks
     attributes:
