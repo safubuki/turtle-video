@@ -826,7 +826,8 @@ export function useExport(): UseExportReturn {
       const isIosSafari = isIOS && isSafari;
       const isEdge = /Edg\//i.test(userAgent);
       const isEdgeDesktop = isEdge && !isIOS;
-      const shouldPreferMediaRecorderPath = isIosSafari;
+      const shouldPreferMediaRecorderPath = isIosSafari || isEdgeDesktop;
+      const exportEngineRevision = '2026-02-22-r3';
 
       // ============================================================
       // [DIAG-1] プラットフォーム検出・入力情報の診断ログ
@@ -838,6 +839,7 @@ export function useExport(): UseExportReturn {
         isEdge,
         isEdgeDesktop,
         shouldPreferMediaRecorderPath,
+        exportEngineRevision,
         userAgent: userAgent.substring(0, 120),
         platform: typeof navigator !== 'undefined' ? navigator.platform : 'N/A',
         maxTouchPoints: typeof navigator !== 'undefined' ? navigator.maxTouchPoints : -1,
@@ -855,7 +857,10 @@ export function useExport(): UseExportReturn {
       });
       useLogStore.getState().info('RENDER', '[DIAG-PATH] エクスポート経路選定', {
         shouldPreferMediaRecorderPath,
-        reason: isIosSafari ? 'ios-safari' : 'webcodecs-default',
+        exportEngineRevision,
+        reason: isIosSafari
+          ? 'ios-safari'
+          : (isEdgeDesktop ? 'edge-desktop' : 'webcodecs-default'),
       });
 
       // [DIAG-1b] 全MediaItemの詳細一覧
@@ -918,10 +923,10 @@ export function useExport(): UseExportReturn {
       let canvasFramePumpTimer: ReturnType<typeof setInterval> | null = null;
 
       try {
-        // 互換性優先の MediaRecorder 経路（iOS Safari 用）。
+        // 互換性優先の MediaRecorder 経路（iOS Safari / Edge Desktop 優先）。
         const runPreferredMediaRecorderExport = async (): Promise<boolean> => {
           if (!shouldPreferMediaRecorderPath) return false;
-          const pathReason = 'ios-safari';
+          const pathReason = isIosSafari ? 'ios-safari' : 'edge-desktop';
           const shouldUseKeepAliveTone = isIosSafari;
           const abortStopDelayMs = isIosSafari ? 180 : 0;
           const recorderTimesliceMs = isIosSafari ? 250 : 500;
@@ -1349,6 +1354,7 @@ export function useExport(): UseExportReturn {
         let longestVideoBackpressureMs = 0;
         let videoBackpressureTimeoutCount = 0;
         let videoBackpressureDropCount = 0;
+        let videoLagSpikeCount = 0;
         let completionBackpressureStopLogged = false;
         const waitForVideoEncoderCapacity = async (): Promise<'ok' | 'timed_out' | 'aborted'> => {
           let waitedMs = 0;
@@ -1935,6 +1941,8 @@ export function useExport(): UseExportReturn {
           let frameIndex = 0;
           const frameDuration = 1e6 / FPS;
           const framePollInterval = 16;
+          const liveFrameBurstLimit = 1;
+          const completionFrameBurstLimit = Math.max(3, Math.ceil(FPS / 4));
           const isKeyFrame = (index: number) => index === 0 || index % FPS === 0;
 
           try {
@@ -1952,8 +1960,24 @@ export function useExport(): UseExportReturn {
               const targetFrameCount = getTargetVideoFrameCount(forceToEnd);
               let framesToEncode = targetFrameCount === null ? 1 : targetFrameCount - frameIndex;
               if (framesToEncode < 0) framesToEncode = 0;
-              if (!forceToEnd) {
-                framesToEncode = Math.min(framesToEncode, Math.max(1, Math.ceil(FPS / 2)));
+              if (!forceToEnd && targetFrameCount !== null) {
+                const lagFrames = Math.max(0, targetFrameCount - frameIndex);
+                if (lagFrames >= 6) {
+                  videoLagSpikeCount += 1;
+                  if (videoLagSpikeCount === 1 || videoLagSpikeCount % 30 === 0) {
+                    useLogStore.getState().warn('RENDER', '[DIAG-BP] エクスポート映像の追従遅れを検知', {
+                      lagFrames,
+                      frameIndex,
+                      targetFrameCount,
+                      spikeCount: videoLagSpikeCount,
+                    });
+                  }
+                }
+                // 通常進行時は一度に大量投入せず、同一フレーム連続の発生を抑える。
+                framesToEncode = Math.min(framesToEncode, liveFrameBurstLimit);
+              } else if (forceToEnd) {
+                // 完了時は不足分を補完しつつ、過剰バーストを避ける。
+                framesToEncode = Math.min(framesToEncode, completionFrameBurstLimit);
               }
 
               if (videoEncoder.state === 'configured' && framesToEncode > 0) {

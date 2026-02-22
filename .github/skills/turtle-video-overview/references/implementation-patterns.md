@@ -998,7 +998,7 @@
   - WebCodecs 互換用ダミー recorder には `__turtleDummy` フラグを付け、`stop()` 再帰呼び出しを回避する
   - 完了要求時に `hasRecorder` / `recorderState` / `isDummyRecorder` を診断ログに出力する
 - **注意**:
-  - Edge デスクトップは従来どおり WebCodecs 既定経路を維持し、MediaRecorder 優先は iOS Safari のみとする
+  - Edge デスクトップは品質重視で MediaRecorder 優先に切り替わるため、WebCodecs 前提の挙動確認時は経路ログを必ず確認する
   - 明示キャンセルは `stopExport()`（abort）、自然終端は `completeExport()`（normal complete）を使い分ける
 
 ### 13-37. 終端完了要求後はバックプレッシャー時の追加フレーム投入を停止
@@ -1027,3 +1027,32 @@
 - **注意**:
   - この対策は「完了不能回避」優先のため、極端な高負荷時は一部フレーム間引きで滑らかさが低下する可能性がある
   - `flush` タイムアウトが継続する場合は、WebCodecs実装依存の可能性が高いためブラウザ経路フォールバックを検討する
+
+### 13-39. Edgeデスクトップは品質優先でMediaRecorder経路を再優先
+
+- **ファイル**: `src/hooks/useExport.ts`
+- **問題**:
+  - Edgeデスクトップで WebCodecs 経路を既定にした場合、エクスポート自体は完了しても同一フレーム連続率が増え、体感でカクつきが強くなるケースがある
+  - ログ上は `flush/finalize` が正常完了していても、時間軸が正常なまま動きの滑らかさだけが劣化しやすい
+- **対策**:
+  - 経路判定 `shouldPreferMediaRecorderPath` を `isIosSafari || isEdgeDesktop` に変更し、Edgeデスクトップを MediaRecorder 優先へ戻す
+  - `DIAG-PATH` の reason と MediaRecorder 経路の `pathReason` に `edge-desktop` を追加し、実行経路をログで追跡できるようにする
+  - MediaRecorder 未対応/開始失敗時は既存どおり WebCodecs にフォールバックし、完了不能を防ぐ
+- **注意**:
+  - Edgeで品質劣化が再発した場合は、まず `DIAG-PATH` の reason が `edge-desktop` になっているかを確認する
+  - WebCodecs fallback に入ったケースは、`VideoEncoder` のバックプレッシャー系ログ（`DIAG-BP`）と併せて確認する
+
+### 13-40. エクスポート補正時の過剰ホールド抑制と低バースト化
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/hooks/useExport.ts`
+- **問題**:
+  - エクスポート中に時刻補正（`needsCorrection`）を検知するたびに `holdFrame` へ倒すと、同一フレーム連続が増えて体感カクつきが悪化する
+  - Canvas 取り込みで追従遅れ時に多フレームを一括投入すると、同一キャンバスの連続エンコードが起きやすい
+- **対策**:
+  - `TurtleVideo` でエクスポート時のみ「補正理由の hold」を無効化し、hold は描画不能/終端保護に限定する
+  - エクスポート時の動画同期しきい値（非 iOS）を `0.12 -> 0.2` に緩和し、不要なシーク頻発を抑制する
+  - `useExport` の Canvas フレーム投入を通常時 `burst=1` に制限し、完了時も上限付きバーストで補完する
+  - 追従遅れが継続するケースを `DIAG-BP` ログで可視化し、再発時の切り分けを容易にする
+- **注意**:
+  - この調整は「滑らかさ優先」のため、極端な負荷時は追従を安定させる代わりに一部フレームの間引きが増える可能性がある
+  - 画質/滑らかさ評価時は `DIAG-PATH`（経路）と `DIAG-BP`（遅れ/待機）をセットで確認する

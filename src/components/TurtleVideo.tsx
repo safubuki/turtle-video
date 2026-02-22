@@ -448,7 +448,7 @@ const TurtleVideo: React.FC = () => {
                 isLastTimelineItem &&
                 isNearTimelineEnd;
               const exportSyncThreshold = _isExporting
-                ? (isIosSafari ? 0.2 : 0.12)
+                ? (isIosSafari ? 0.2 : 0.2)
                 : 0.5;
               const needsCorrection =
                 _isExporting &&
@@ -496,7 +496,12 @@ const TurtleVideo: React.FC = () => {
                   activeEl.currentTime >= activeEl.duration - 0.05);
               const shouldHoldForVideoEnd = isWithinEndGuardZone && isVideoEndedOrAboutToEnd;
 
-              if (!hasFrame || needsCorrection || shouldHoldForVideoEnd) {
+              // エクスポート中は補正が必要でも、フレーム保持を優先しすぎると
+              // 同一フレーム連続が増えて体感カクつきにつながる。
+              // 補正は継続しつつ、hold は「描画不能/終端保護」に限定する。
+              const shouldHoldForCorrection = needsCorrection && !_isExporting;
+
+              if (!hasFrame || shouldHoldForCorrection || shouldHoldForVideoEnd) {
                 holdFrame = true;
                 // ブラックアウト防止発動をログ
                 logInfo('RENDER', 'フレーム保持発動', {
@@ -603,7 +608,7 @@ const TurtleVideo: React.FC = () => {
               const videoEl = element as HTMLVideoElement;
               const targetTime = (conf.trimStart || 0) + localTime;
               const syncThreshold = _isExporting
-                ? (isIosSafari ? 0.2 : 0.12)
+                ? (isIosSafari ? 0.2 : 0.2)
                 : (isIosSafari ? 1.0 : 0.5);
 
               // アクティブなビデオIDを更新
