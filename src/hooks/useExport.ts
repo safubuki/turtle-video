@@ -63,6 +63,13 @@ export interface ExportAudioSources {
    * 映像フレーム供給数をタイムライン進行に追従させるために使用する。
    */
   getPlaybackTimeSec?: () => number;
+  /**
+   * Canvas に新しい映像コンテンツが描画された回数を返す。
+   * renderFrame() が実際に新フレームを描画するたびにインクリメントされる。
+   * フレームキャプチャ側はこの値が変化した時だけキャプチャすることで、
+   * 同一フレーム連続（duplicate frames）を防止する。
+   */
+  getCanvasDrawSeq?: () => number;
 }
 
 interface MediaRecorderProfile {
@@ -916,6 +923,10 @@ export function useExport(): UseExportReturn {
         if (!Number.isFinite(raw)) return null;
         return Math.max(0, raw);
       };
+      const getCanvasDrawSeq = (): number | null => {
+        if (!audioSources?.getCanvasDrawSeq) return null;
+        return audioSources.getCanvasDrawSeq();
+      };
 
       // ScriptProcessorNode用（OfflineAudioContext失敗時のフォールバック）
       let scriptProcessorNode: ScriptProcessorNode | null = null;
@@ -1325,26 +1336,9 @@ export function useExport(): UseExportReturn {
           bitrate: EXPORT_VIDEO_BITRATE,
           framerate: FPS,
         };
-        if (isEdgeDesktop) {
-          try {
-            videoEncoder.configure({
-              ...baseVideoEncoderConfig,
-              latencyMode: 'realtime',
-              hardwareAcceleration: 'prefer-software',
-            });
-            useLogStore.getState().info('RENDER', '[DIAG-2b] Edge向け VideoEncoder 設定を適用', {
-              latencyMode: 'realtime',
-              hardwareAcceleration: 'prefer-software',
-            });
-          } catch (edgeConfigErr) {
-            useLogStore.getState().warn('RENDER', 'Edge向け VideoEncoder 設定に失敗。標準設定へフォールバック', {
-              error: edgeConfigErr instanceof Error ? edgeConfigErr.message : String(edgeConfigErr),
-            });
-            videoEncoder.configure(baseVideoEncoderConfig);
-          }
-        } else {
-          videoEncoder.configure(baseVideoEncoderConfig);
-        }
+        // Edge Desktop でも標準設定を使用する。
+        // prefer-software は HW エンコードを無効化し低スペック環境でバックプレッシャーが多発するため削除。
+        videoEncoder.configure(baseVideoEncoderConfig);
         const VIDEO_QUEUE_BACKPRESSURE_THRESHOLD = isEdgeDesktop
           ? Math.max(FPS, 30)
           : Math.max(FPS * 2, 60);
@@ -1355,6 +1349,7 @@ export function useExport(): UseExportReturn {
         let videoBackpressureTimeoutCount = 0;
         let videoBackpressureDropCount = 0;
         let videoLagSpikeCount = 0;
+        let canvasDedupSkipCount = 0; // Canvas未更新スキップ回数（品質診断用）
         let completionBackpressureStopLogged = false;
         const waitForVideoEncoderCapacity = async (): Promise<'ok' | 'timed_out' | 'aborted'> => {
           let waitedMs = 0;
@@ -1555,8 +1550,15 @@ export function useExport(): UseExportReturn {
           const elapsedSec = (Date.now() - videoCaptureStartedAtMs) / 1000;
           return Math.min(expectedVideoFrames, Math.max(1, Math.floor(elapsedSec * FPS) + 1));
         };
+        let lastPumpedCanvasDrawSeq = -1;
         const pumpCanvasFrames = (forceToEnd: boolean) => {
           if (!requestCanvasFrame) return;
+          // Canvas 内容が更新されていなければキャプチャしない（同一フレーム連続防止）
+          if (!forceToEnd) {
+            const currentSeq = getCanvasDrawSeq();
+            if (currentSeq !== null && currentSeq === lastPumpedCanvasDrawSeq) return;
+            if (currentSeq !== null) lastPumpedCanvasDrawSeq = currentSeq;
+          }
           const targetFrameCount = getTargetVideoFrameCount(forceToEnd);
           if (targetFrameCount === null) {
             if (!completionRequestedRef.current) requestCanvasFrame();
@@ -1564,7 +1566,9 @@ export function useExport(): UseExportReturn {
           }
           let needed = targetFrameCount - requestedCanvasFrames;
           if (needed <= 0) return;
-          const burst = forceToEnd ? needed : Math.min(needed, Math.max(1, Math.ceil(FPS / 2)));
+          // 通常進行時は 1 フレームずつキャプチャし、同一内容の連続キャプチャを防ぐ。
+          // 完了時（forceToEnd）は不足分を一括補完する。
+          const burst = forceToEnd ? needed : 1;
           for (let i = 0; i < burst; i++) {
             requestCanvasFrame();
           }
@@ -1941,9 +1945,9 @@ export function useExport(): UseExportReturn {
           let frameIndex = 0;
           const frameDuration = 1e6 / FPS;
           const framePollInterval = 16;
-          const liveFrameBurstLimit = 1;
           const completionFrameBurstLimit = Math.max(3, Math.ceil(FPS / 4));
           const isKeyFrame = (index: number) => index === 0 || index % FPS === 0;
+          let lastEncodedCanvasDrawSeq = -1;
 
           try {
             while (!signal.aborted) {
@@ -1957,6 +1961,38 @@ export function useExport(): UseExportReturn {
               if (completionRequestedRef.current && expectedVideoFrames === null) break;
 
               const forceToEnd = completionRequestedRef.current;
+
+              // Canvas に新しいコンテンツが描画されていなければスキップする。
+              // これにより video 要素の seeking 中に同一フレームが連続エンコードされるのを防ぐ。
+              // 完了モード（forceToEnd）では末尾補完のためスキップしない。
+              if (!forceToEnd) {
+                const currentSeq = getCanvasDrawSeq();
+                if (currentSeq !== null && currentSeq === lastEncodedCanvasDrawSeq) {
+                  canvasDedupSkipCount++;
+                  if (canvasDedupSkipCount === 1 || canvasDedupSkipCount % 60 === 0) {
+                    useLogStore.getState().info('RENDER', '[EXPORT-DEDUP] Canvas 未更新のためフレームスキップ', {
+                      skipCount: canvasDedupSkipCount,
+                      frameIndex,
+                      currentSeq,
+                    });
+                  }
+                  await new Promise<void>((resolve) => {
+                    const timeoutId = setTimeout(() => {
+                      signal.removeEventListener('abort', onAbort);
+                      resolve();
+                    }, framePollInterval);
+                    const onAbort = () => {
+                      clearTimeout(timeoutId);
+                      signal.removeEventListener('abort', onAbort);
+                      resolve();
+                    };
+                    signal.addEventListener('abort', onAbort, { once: true });
+                  });
+                  continue;
+                }
+                if (currentSeq !== null) lastEncodedCanvasDrawSeq = currentSeq;
+              }
+
               const targetFrameCount = getTargetVideoFrameCount(forceToEnd);
               let framesToEncode = targetFrameCount === null ? 1 : targetFrameCount - frameIndex;
               if (framesToEncode < 0) framesToEncode = 0;
@@ -1973,8 +2009,8 @@ export function useExport(): UseExportReturn {
                     });
                   }
                 }
-                // 通常進行時は一度に大量投入せず、同一フレーム連続の発生を抑える。
-                framesToEncode = Math.min(framesToEncode, liveFrameBurstLimit);
+                // 通常進行時は 1 フレームずつエンコードし、同一フレーム連続を抑える。
+                framesToEncode = Math.min(framesToEncode, 1);
               } else if (forceToEnd) {
                 // 完了時は不足分を補完しつつ、過剰バーストを避ける。
                 framesToEncode = Math.min(framesToEncode, completionFrameBurstLimit);
@@ -2198,6 +2234,7 @@ export function useExport(): UseExportReturn {
           videoBackpressureDropCount,
           videoBackpressureThreshold: VIDEO_QUEUE_BACKPRESSURE_THRESHOLD,
           videoBackpressureMaxWaitMs: VIDEO_QUEUE_BACKPRESSURE_MAX_WAIT_MS,
+          canvasDedupSkipCount,
           offlineAudioDone,
         });
         if (videoMuxError) {

@@ -1022,8 +1022,8 @@
 - **対策**:
   - Edgeデスクトップ時のみバックプレッシャー閾値を低め（`FPS` 近傍）に設定し、キュー飽和前に投入を抑制する
   - 待機タイムアウト時はフレームを追加投入せず、`[DIAG-BP] キュー飽和回避のためフレームを間引き` を出して処理を継続する
-  - Edge時は `VideoEncoder` を `latencyMode: realtime` + `hardwareAcceleration: prefer-software` で初期化し、設定失敗時のみ標準設定にフォールバックする
-  - `DIAG-7` に `videoBackpressureDropCount` / `videoBackpressureThreshold` / `videoBackpressureMaxWaitMs` を出力し、固着条件を追跡可能にする
+  - Edge時は標準の `VideoEncoderConfig` を使用し、ブラウザデフォルトのハードウェアアクセラレーションを活用する（`prefer-software` は削除済み）
+  - `DIAG-7` に `videoBackpressureDropCount` / `videoBackpressureThreshold` / `videoBackpressureMaxWaitMs` / `canvasDedupSkipCount` を出力し、固着条件を追跡可能にする
 - **注意**:
   - この対策は「完了不能回避」優先のため、極端な高負荷時は一部フレーム間引きで滑らかさが低下する可能性がある
   - `flush` タイムアウトが継続する場合は、WebCodecs実装依存の可能性が高いためブラウザ経路フォールバックを検討する
@@ -1042,17 +1042,23 @@
   - Edgeで品質劣化が再発した場合は、まず `DIAG-PATH` の reason が `edge-desktop` になっているかを確認する
   - WebCodecs fallback に入ったケースは、`VideoEncoder` のバックプレッシャー系ログ（`DIAG-BP`）と併せて確認する
 
-### 13-40. エクスポート補正時の過剰ホールド抑制と低バースト化
+### 13-40. エクスポート品質改善: Canvas描画シーケンス追跡による同一フレーム連続防止
 
 - **ファイル**: `src/components/TurtleVideo.tsx`, `src/hooks/useExport.ts`
 - **問題**:
-  - エクスポート中に時刻補正（`needsCorrection`）を検知するたびに `holdFrame` へ倒すと、同一フレーム連続が増えて体感カクつきが悪化する
-  - Canvas 取り込みで追従遅れ時に多フレームを一括投入すると、同一キャンバスの連続エンコードが起きやすい
+  - エクスポート中に Canvas の内容が変わっていないのにフレームが繰り返しキャプチャされ、連続同一フレーム率が 31-60% に達して体感カクつきの主因になっていた
+  - `pumpCanvasFrames` のバースト上限が `Math.ceil(FPS / 2) = 15` で、1回のポンプで同一内容が最大15回キャプチャされていた
+  - video 要素の seeking 中は Canvas に新しい内容が描画されないが、フレームキャプチャは継続していた
+  - Edge Desktop の VideoEncoder に `hardwareAcceleration: prefer-software` を設定していたため、HW エンコードが無効化され低スペック環境でバックプレッシャーが多発していた
 - **対策**:
-  - `TurtleVideo` でエクスポート時のみ「補正理由の hold」を無効化し、hold は描画不能/終端保護に限定する
-  - エクスポート時の動画同期しきい値（非 iOS）を `0.12 -> 0.2` に緩和し、不要なシーク頻発を抑制する
-  - `useExport` の Canvas フレーム投入を通常時 `burst=1` に制限し、完了時も上限付きバーストで補完する
-  - 追従遅れが継続するケースを `DIAG-BP` ログで可視化し、再発時の切り分けを容易にする
+  - `TurtleVideo.tsx` に `exportCanvasDrawSeqRef` を追加し、`renderFrame()` が実際に新しいコンテンツを Canvas に描画するたびにインクリメントする
+  - `ExportAudioSources` に `getCanvasDrawSeq` コールバックを追加し、useExport 側からシーケンス値を参照可能にする
+  - `processVideoWithCanvasFrames()` で直前にキャプチャしたシーケンス値と現在値を比較し、変化がなければフレームキャプチャをスキップする（`[EXPORT-DEDUP]`ログで追跡可能）
+  - `pumpCanvasFrames()` のバースト制限を通常進行時 `1`、完了時のみ `needed` に変更し、seq チェックも追加
+  - Edge 向け `prefer-software` を削除し、ブラウザデフォルトの HW エンコードを活用する
+  - canvas dedup スキップ回数を `canvasDedupSkipCount` として `DIAG-7` に出力
 - **注意**:
-  - この調整は「滑らかさ優先」のため、極端な負荷時は追従を安定させる代わりに一部フレームの間引きが増える可能性がある
-  - 画質/滑らかさ評価時は `DIAG-PATH`（経路）と `DIAG-BP`（遅れ/待機）をセットで確認する
+  - `getCanvasDrawSeq` が null を返す場合（コールバック未提供時）は seq チェックをスキップし、従来どおり動作する
+  - 完了モード（forceToEnd）では seq チェックを適用せず、末尾補完フレームを確実に投入する
+  - `exportCanvasDrawSeqRef` はエンジン起動時に 0 にリセットされる
+  - 品質評価時は `DIAG-7` の `canvasDedupSkipCount` で重複回避の効果を確認する

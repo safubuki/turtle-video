@@ -252,6 +252,7 @@ const TurtleVideo: React.FC = () => {
   const cancelSeekPlaybackPrepareRef = useRef<(() => void) | null>(null);
   const isSeekPlaybackPreparingRef = useRef(false);
   const endFinalizedRef = useRef(false); // 終端ファイナライズ済みフラグ（遅延renderFrame競合防止）
+  const exportCanvasDrawSeqRef = useRef(0); // エクスポート中の Canvas 描画シーケンスカウンタ
 
   const captionsRef = useRef(captions);
   const captionSettingsRef = useRef(captionSettings);
@@ -709,6 +710,12 @@ const TurtleVideo: React.FC = () => {
                 ctx.drawImage(element as CanvasImageSource, -elemW / 2, -elemH / 2, elemW, elemH);
                 ctx.restore();
                 ctx.globalAlpha = 1.0;
+
+                // エクスポート中: Canvas に新しいコンテンツを描画したことを通知
+                // useExport 側はこの値の変化を見て、同一フレームの連続キャプチャを防ぐ
+                if (_isExporting) {
+                  exportCanvasDrawSeqRef.current++;
+                }
               }
             }
 
@@ -2664,6 +2671,8 @@ const TurtleVideo: React.FC = () => {
 
       // 終端ファイナライズガードをクリア（新しい再生セッション開始）
       endFinalizedRef.current = false;
+      // エクスポート用 Canvas 描画シーケンスをリセット
+      exportCanvasDrawSeqRef.current = 0;
 
       configureAudioRouting(isExportMode);
 
@@ -2964,6 +2973,7 @@ const TurtleVideo: React.FC = () => {
             narrations: narrationsRef.current,
             totalDuration: totalDurationRef.current,
             getPlaybackTimeSec: () => currentTimeRef.current,
+            getCanvasDrawSeq: () => exportCanvasDrawSeqRef.current,
             // 音声プリレンダリング完了後に再生ループを開始
             // iOS Safari ではリアルタイム音声抽出に数秒かかるため、
             // その完了を待ってからビデオキャプチャ用の再生を始める。
