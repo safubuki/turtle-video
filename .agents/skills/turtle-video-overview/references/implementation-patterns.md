@@ -1028,21 +1028,24 @@
   - この対策は「完了不能回避」優先のため、極端な高負荷時は一部フレーム間引きで滑らかさが低下する可能性がある
   - `flush` タイムアウトが継続する場合は、WebCodecs実装依存の可能性が高いためブラウザ経路フォールバックを検討する
 
-### 13-39. Edgeデスクトップは品質優先でMediaRecorder経路を再優先
+### 13-39. エクスポート経路選定: Edge Desktop は WebCodecs 経路を使用
 
 - **ファイル**: `src/hooks/useExport.ts`
-- **問題**:
-  - Edgeデスクトップで WebCodecs 経路を既定にした場合、エクスポート自体は完了しても同一フレーム連続率が増え、体感でカクつきが強くなるケースがある
-  - ログ上は `flush/finalize` が正常完了していても、時間軸が正常なまま動きの滑らかさだけが劣化しやすい
-- **対策**:
-  - 経路判定 `shouldPreferMediaRecorderPath` を `isIosSafari || isEdgeDesktop` に変更し、Edgeデスクトップを MediaRecorder 優先へ戻す
-  - `DIAG-PATH` の reason と MediaRecorder 経路の `pathReason` に `edge-desktop` を追加し、実行経路をログで追跡できるようにする
-  - MediaRecorder 未対応/開始失敗時は既存どおり WebCodecs にフォールバックし、完了不能を防ぐ
+- **経緯**:
+  - 初期は Edge Desktop を MediaRecorder 優先にしていたが、`captureStream(FPS)` の自動キャプチャで Canvas 未更新時にも黒フレームが紛れ込む問題が判明
+  - Canvas描画シーケンス追跡（13-40）により WebCodecs/Canvas直接経路の重複排除が実現したため、Edge Desktop を WebCodecs に戻した
+- **現在の設定**:
+  - `shouldPreferMediaRecorderPath = isIosSafari` — iOS Safari のみ MediaRecorder 優先
+  - Edge Desktop は WebCodecs/Canvas直接経路で seq 重複排除が適用される
+  - `DIAG-PATH` の `reason` で実行経路を確認可能: `ios-safari` / `webcodecs-default`
+- **MediaRecorder 経路の改善**:
+  - iOS Safari 向け MediaRecorder 経路にも `lastPumpedSeq` による seq チェックを追加し、Canvas 未更新時のキャプチャをスキップ
+  - `canvasVideoTrack.requestFrame()` を seq 変化時のみ発行することで、同一フレーム連続を防止
 - **注意**:
-  - Edgeで品質劣化が再発した場合は、まず `DIAG-PATH` の reason が `edge-desktop` になっているかを確認する
-  - WebCodecs fallback に入ったケースは、`VideoEncoder` のバックプレッシャー系ログ（`DIAG-BP`）と併せて確認する
+  - Edge で品質問題が再発した場合は `DIAG-PATH` の reason が `webcodecs-default` であることを確認
+  - MediaRecorder にフォールバックした場合は `DIAG-PATH` の reason と `pathReason` を確認
 
-### 13-40. エクスポート品質改善: Canvas描画シーケンス追跡による同一フレーム連続防止
+### 13-40. エクスポート品質改善: Canvas描画シーケンス追跡と黒クリアガード
 
 - **ファイル**: `src/components/TurtleVideo.tsx`, `src/hooks/useExport.ts`
 - **問題**:
@@ -1050,15 +1053,59 @@
   - `pumpCanvasFrames` のバースト上限が `Math.ceil(FPS / 2) = 15` で、1回のポンプで同一内容が最大15回キャプチャされていた
   - video 要素の seeking 中は Canvas に新しい内容が描画されないが、フレームキャプチャは継続していた
   - Edge Desktop の VideoEncoder に `hardwareAcceleration: prefer-software` を設定していたため、HW エンコードが無効化され低スペック環境でバックプレッシャーが多発していた
-- **対策**:
+  - エクスポート中 `isActivePlaying=true` のため `shouldGuardNearEnd` が無効化され、ビデオデコーダ遅延で黒フレームが紛れ込む可能性があった
+- **対策 (Canvas描画シーケンス)**:
   - `TurtleVideo.tsx` に `exportCanvasDrawSeqRef` を追加し、`renderFrame()` が実際に新しいコンテンツを Canvas に描画するたびにインクリメントする
   - `ExportAudioSources` に `getCanvasDrawSeq` コールバックを追加し、useExport 側からシーケンス値を参照可能にする
   - `processVideoWithCanvasFrames()` で直前にキャプチャしたシーケンス値と現在値を比較し、変化がなければフレームキャプチャをスキップする（`[EXPORT-DEDUP]`ログで追跡可能）
   - `pumpCanvasFrames()` のバースト制限を通常進行時 `1`、完了時のみ `needed` に変更し、seq チェックも追加
   - Edge 向け `prefer-software` を削除し、ブラウザデフォルトの HW エンコードを活用する
   - canvas dedup スキップ回数を `canvasDedupSkipCount` として `DIAG-7` に出力
+- **対策 (エクスポート黒クリアガード)**:
+  - `shouldExportGuardBlackClear` を追加し、エクスポート中にアクティブ video 要素の描画確実性を検証
+  - チェック内容: `readyState < 2`（デコード未完了）/ `seeking`（シーク中）/ `videoWidth === 0`（寸法未取得）の場合は黒クリアを禁止
+  - `holdFrame` チェックと同じ条件を黒クリア判定にも適用し、描画不可時の黒フレーム生成を二重に防止
+  - `shouldGuardNearEnd` が `isActivePlaying=true` で無効化されるエクスポート中は、終端0.5秒以内で黒クリアを完全抑止
 - **注意**:
   - `getCanvasDrawSeq` が null を返す場合（コールバック未提供時）は seq チェックをスキップし、従来どおり動作する
   - 完了モード（forceToEnd）では seq チェックを適用せず、末尾補完フレームを確実に投入する
   - `exportCanvasDrawSeqRef` はエンジン起動時に 0 にリセットされる
   - 品質評価時は `DIAG-7` の `canvasDedupSkipCount` で重複回避の効果を確認する
+  - `shouldExportGuardBlackClear` は画像素材（type !== 'video'）には適用されない（画像は別途 holdFrame で保護済み）
+
+### 13-41. エクスポート前の動画フレームデータ準備待機
+
+- **ファイル**: `src/components/TurtleVideo.tsx`
+- **問題**:
+  - 起動直後にエクスポートすると、動画の readyState が 1（HAVE_METADATA、メタデータのみ）の状態でエクスポートが開始される
+  - readyState=1 では Canvas に描画不能 → 描画シーケンスが進まず → VideoEncoder に投入されるフレームが大幅不足
+  - VideoEncoder が少数フレーム出力後に凍結し、flush タイムアウト（32秒）でエクスポート失敗
+  - 再生を数回繰り返した後は問題ないのは、ブラウザが動画データをバッファリング済みで readyState >= 2 になるため
+- **対策**:
+  - エクスポートモードの `startEngine()` で、音声プリロード後・エクスポート開始前に全動画素材の readyState >= 2 を待機
+  - 各動画に対して: `load()` 呼び出し → `currentTime` を `trimStart` 位置にシーク → `loadeddata`/`canplay`/`canplaythrough`/`seeked` イベントで準備完了を検知
+  - タイムアウト 5 秒（動画あたり）で、準備完了しない場合も readyState >= 2 なら続行
+  - 全プラットフォーム共通（以前は iOS Safari のみ先頭フレーム待機しており、Edge Desktop 等では待機なしだった）
+  - 準備結果をログ出力: `'エクスポート前の動画準備完了' { allReady, readyStates }`
+- **注意**:
+  - `stopAll()` が待機中に呼ばれた場合は `myLoopId` チェックで中断する
+  - 5 秒タイムアウトは低速ネットワーク経由のメディアには短い可能性がある（ローカルファイルでは十分）
+  - readyState の遷移: 0(HAVE_NOTHING) → 1(HAVE_METADATA) → 2(HAVE_CURRENT_DATA) → 3(HAVE_FUTURE_DATA) → 4(HAVE_ENOUGH_DATA)
+
+### 13-42. VideoEncoder 凍結検知と部分ファイナライズ
+
+- **ファイル**: `src/hooks/useExport.ts`
+- **問題**:
+  - Edge Desktop の VideoEncoder が特定の条件で凍結し（キューに30フレーム残ったまま出力が停止）、flush が 32 秒タイムアウトしてエクスポート失敗となる
+  - flush タイムアウトまで 32 秒待機する間、ユーザーは進捗なしの状態で待たされる
+  - 凍結時も一部フレーム（例: 8フレーム）は正常に出力されており、部分的なファイルは生成可能
+- **対策**:
+  - flush ウォッチドッグ（3秒間隔）に進捗追跡を追加: `videoEncoderOutputChunks` の変化を監視
+  - 12 秒間（`FLUSH_STALL_DETECT_MS`）出力チャンクが増加せず、かつキューにフレームが残っている場合、エンコーダ凍結と判断
+  - 凍結検知時: 1フレーム以上出力済みなら `videoEncoder.close()` で強制終了し、既存の出力チャンクで muxer をファイナライズ
+  - 凍結ではない通常のタイムアウトは従来どおりエラーとして処理
+  - ウォッチドッグログに `stallMs`（無進捗経過時間）を追加
+- **注意**:
+  - 凍結による部分ファイナライズは品質が劣化する（フレーム不足で動画が短くなる/カクつく）
+  - 根本原因は 13-41 の動画準備待機で回避されるべきで、この対策はフォールバック
+  - `FLUSH_STALL_DETECT_MS = 12000` は保守的な値。さらに短縮すると正常な遅いエンコードを誤検知するリスクがある

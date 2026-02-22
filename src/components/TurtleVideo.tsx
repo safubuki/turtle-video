@@ -550,7 +550,27 @@ const TurtleVideo: React.FC = () => {
         // 終端ファイナライズ済みの場合、後続の遅延 renderFrame による黒クリアを完全に抑止する。
         const shouldGuardAfterFinalize = endFinalizedRef.current && !isActivePlaying;
 
-        if (!holdFrame && !shouldHoldAtTimelineEnd && !shouldGuardNearEnd && !shouldGuardAfterFinalize) {
+        // エクスポート中: アクティブ要素の描画が確実に成功する場合のみ黒クリアを許可する。
+        // ブラウザのビデオデコーダ遅延や captureStream のタイミングにより、
+        // 黒クリア直後のキャプチャで黒フレームが紛れ込むのを防止する。
+        // また終端付近では shouldGuardNearEnd が isActivePlaying=true で無効になるため、
+        // エクスポート中は独自にガードする。
+        const shouldExportGuardBlackClear = (() => {
+          if (!_isExporting) return false;
+          // エクスポート中の終端付近: shouldGuardNearEnd が isActivePlaying=true で無効になる分を補填
+          if (currentItems.length > 0 && totalDurationRef.current > 0 && time >= totalDurationRef.current - 0.5) {
+            return true;
+          }
+          if (!activeId || activeIndex === -1) return false;
+          const item = currentItems[activeIndex];
+          if (item.type !== 'video') return false;
+          const el = mediaElementsRef.current[activeId] as HTMLVideoElement | undefined;
+          if (!el) return true; // 要素なし → holdFrame 扱い
+          // 描画確実性チェック: readyState < 2 / seeking / videoWidth=0 の場合は黒クリア禁止
+          return el.readyState < 2 || el.seeking || el.videoWidth === 0 || el.videoHeight === 0;
+        })();
+
+        if (!holdFrame && !shouldHoldAtTimelineEnd && !shouldGuardNearEnd && !shouldGuardAfterFinalize && !shouldExportGuardBlackClear) {
           // 診断ログ: 終端付近で黒クリアが実行される場合、状態を記録
           if (totalDurationRef.current > 0 && time >= totalDurationRef.current - 0.5) {
             logInfo('RENDER', '終端付近で黒クリア実行', {
@@ -1620,13 +1640,13 @@ const TurtleVideo: React.FC = () => {
 
       const attempts: TtsAttempt[] = styleText
         ? [
-            { label: 'style', prompt: styledPrompt, usedStyle: true },
-            { label: 'plain', prompt: plainPrompt, usedStyle: false },
-          ]
+          { label: 'style', prompt: styledPrompt, usedStyle: true },
+          { label: 'plain', prompt: plainPrompt, usedStyle: false },
+        ]
         : [
-            { label: 'plain', prompt: plainPrompt, usedStyle: false },
-            { label: 'strict', prompt: strictPrompt, usedStyle: false },
-          ];
+          { label: 'plain', prompt: plainPrompt, usedStyle: false },
+          { label: 'strict', prompt: strictPrompt, usedStyle: false },
+        ];
 
       let resolvedInlineData: (TtsInlineData & { data: string }) | null = null;
       let resolvedAttempt: TtsAttempt | null = null;
@@ -2857,50 +2877,7 @@ const TurtleVideo: React.FC = () => {
           logInfo('AUDIO', 'オーディオプリロード完了');
         }
 
-        // iOS Safari: エクスポート開始前に先頭フレームを確実に準備する。
-        // これを行わないと、直前のプレビュー最終フレームが先頭に混入することがある。
-        if (isIosSafari) {
-          const firstItem = mediaItemsRef.current[0];
-          if (firstItem?.type === 'video') {
-            const firstVideo = mediaElementsRef.current[firstItem.id] as HTMLVideoElement | undefined;
-            if (firstVideo) {
-              const targetTime = firstItem.trimStart || 0;
-              try {
-                if (firstVideo.readyState === 0) {
-                  firstVideo.load();
-                }
-                if (Math.abs(firstVideo.currentTime - targetTime) > 0.01) {
-                  firstVideo.currentTime = targetTime;
-                }
-              } catch {
-                // ignore
-              }
 
-              await new Promise<void>((resolve) => {
-                let done = false;
-                const finish = () => {
-                  if (done) return;
-                  done = true;
-                  clearTimeout(timeoutId);
-                  firstVideo.removeEventListener('loadeddata', onReady);
-                  firstVideo.removeEventListener('canplay', onReady);
-                  firstVideo.removeEventListener('seeked', onReady);
-                  resolve();
-                };
-                const onReady = () => {
-                  if (firstVideo.readyState >= 2 && !firstVideo.seeking) {
-                    finish();
-                  }
-                };
-                const timeoutId = setTimeout(finish, 1500);
-                firstVideo.addEventListener('loadeddata', onReady);
-                firstVideo.addEventListener('canplay', onReady);
-                firstVideo.addEventListener('seeked', onReady);
-                onReady();
-              });
-            }
-          }
-        }
 
         await new Promise((r) => setTimeout(r, 200));
         renderFrame(0, false, true);

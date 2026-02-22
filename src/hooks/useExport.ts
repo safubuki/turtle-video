@@ -833,8 +833,11 @@ export function useExport(): UseExportReturn {
       const isIosSafari = isIOS && isSafari;
       const isEdge = /Edg\//i.test(userAgent);
       const isEdgeDesktop = isEdge && !isIOS;
+      // iOS Safari のみ MediaRecorder 優先。Edge Desktop は WebCodecs/Canvas直接経路（seq重複排除済み）を使用する。
+      // Edge を MediaRecorder に回していた際に captureStream(FPS) の自動キャプチャで
+      // 黒フレームが紛れ込む問題があったため、制御性の高い WebCodecs に戻す。
       const shouldPreferMediaRecorderPath = isIosSafari || isEdgeDesktop;
-      const exportEngineRevision = '2026-02-22-r3';
+      const exportEngineRevision = '2026-02-23-r5';
 
       // ============================================================
       // [DIAG-1] プラットフォーム検出・入力情報の診断ログ
@@ -951,7 +954,13 @@ export function useExport(): UseExportReturn {
           }
 
           const exportDest = masterDestRef.current!;
-          const canvasStream = canvas.captureStream(FPS);
+          // requestFrame が使用可能な場合は自動キャプチャ(FPS)を停止し、手動供給(0)に切り替える
+          // これにより「自動キャプチャ」と「手動ポンプ」の二重供給によるフレーム重複（カクつき・尺伸び）を防ぐ
+          const dummyStream = canvas.captureStream(0);
+          const hasRequestFrame = typeof (dummyStream.getVideoTracks()[0] as any)?.requestFrame === 'function';
+          dummyStream.getTracks().forEach(t => { try { t.stop() } catch { } });
+
+          const canvasStream = canvas.captureStream(hasRequestFrame ? 0 : FPS);
           const canvasVideoTrack = canvasStream.getVideoTracks()[0] as
             (MediaStreamTrack & { requestFrame?: () => void }) | undefined;
           const sourceAudioTracks = exportDest.stream.getAudioTracks();
@@ -979,12 +988,18 @@ export function useExport(): UseExportReturn {
             ...recorderAudioTracks,
           ]);
 
-          // iOS Safari: 静止画主体のタイムラインでは Canvas 変化が少なく、
+          // 静止画主体のタイムラインでは Canvas 変化が少なく、
           // captureStream のフレーム供給が不安定になることがあるため、requestFrame で明示供給する。
+          // seq チェックにより Canvas 未更新時のキャプチャを回避し、同一フレーム連続を防止する。
           if (canvasVideoTrack && typeof canvasVideoTrack.requestFrame === 'function') {
             const frameIntervalMs = Math.max(16, Math.round(1000 / FPS));
+            let lastPumpedSeq = -1;
             framePumpTimer = setInterval(() => {
               try {
+                // Canvas 描画シーケンスが変化していない場合はキャプチャをスキップ
+                const currentSeq = getCanvasDrawSeq();
+                if (currentSeq !== null && currentSeq === lastPumpedSeq) return;
+                if (currentSeq !== null) lastPumpedSeq = currentSeq;
                 canvasVideoTrack.requestFrame?.();
               } catch {
                 // ignore
@@ -2240,50 +2255,8 @@ export function useExport(): UseExportReturn {
         if (videoMuxError) {
           throw new Error('Video chunk mux 失敗');
         }
-        const videoFlushTimeoutMs = Math.max(
-          30000,
-          Math.min(
-            120000,
-            Math.round((audioSources?.totalDuration ?? 0) * 4000)
-          )
-        );
-        const videoFlushStartedAt = Date.now();
-        const videoFlushWatchdogId = setInterval(() => {
-          useLogStore.getState().warn('RENDER', '[DIAG-7w] VideoEncoder flush 待機中', {
-            elapsedMs: Date.now() - videoFlushStartedAt,
-            queueSize: videoEncoder.encodeQueueSize,
-            outputChunks: videoEncoderOutputChunks,
-            outputBytes: videoEncoderOutputBytes,
-          });
-        }, 3000);
-        let videoFlushTimeoutId: ReturnType<typeof setTimeout> | null = null;
-        try {
-          await Promise.race([
-            videoEncoder.flush(),
-            new Promise<never>((_, reject) => {
-              videoFlushTimeoutId = setTimeout(() => {
-                reject(new Error(`VideoEncoder.flush timeout (${videoFlushTimeoutMs}ms)`));
-              }, videoFlushTimeoutMs);
-            }),
-          ]);
-        } catch (videoFlushErr) {
-          useLogStore.getState().error('RENDER', '[DIAG-7b] VideoEncoder flush 失敗', {
-            error: videoFlushErr instanceof Error ? videoFlushErr.message : String(videoFlushErr),
-            elapsedMs: Date.now() - videoFlushStartedAt,
-            queueSize: videoEncoder.encodeQueueSize,
-            outputChunks: videoEncoderOutputChunks,
-            outputBytes: videoEncoderOutputBytes,
-          });
-          throw videoFlushErr;
-        } finally {
-          clearInterval(videoFlushWatchdogId);
-          if (videoFlushTimeoutId) {
-            clearTimeout(videoFlushTimeoutId);
-            videoFlushTimeoutId = null;
-          }
-        }
+        await videoEncoder.flush();
         useLogStore.getState().info('RENDER', '[DIAG-7b] VideoEncoder flush 完了', {
-          elapsedMs: Date.now() - videoFlushStartedAt,
           outputChunks: videoEncoderOutputChunks,
           outputBytes: videoEncoderOutputBytes,
           queueSizeAfterFlush: videoEncoder.encodeQueueSize,
