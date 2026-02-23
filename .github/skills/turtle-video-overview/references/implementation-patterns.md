@@ -1036,8 +1036,8 @@
   - Canvas描画シーケンス追跡（13-40）により WebCodecs/Canvas直接経路の重複排除が実現したため、Edge Desktop を WebCodecs に戻した
 - **現在の設定**:
   - `shouldPreferMediaRecorderPath = isIosSafari` — iOS Safari のみ MediaRecorder 優先
-  - Edge Desktop は WebCodecs/Canvas直接経路で seq 重複排除が適用される
-  - `DIAG-PATH` の `reason` で実行経路を確認可能: `ios-safari` / `webcodecs-default`
+  - Edge Desktop は WebCodecs/Canvas直接経路（リアルタイム寄り: playback loop 駆動）を使用する
+  - `DIAG-PATH` の `reason` で実行経路を確認可能: `ios-safari` / `edge-desktop-webcodecs` / `webcodecs-default`
 - **MediaRecorder 経路の改善**:
   - iOS Safari 向け MediaRecorder 経路にも `lastPumpedSeq` による seq チェックを追加し、Canvas 未更新時のキャプチャをスキップ
   - `canvasVideoTrack.requestFrame()` を seq 変化時のみ発行することで、同一フレーム連続を防止
@@ -1109,3 +1109,35 @@
   - 凍結による部分ファイナライズは品質が劣化する（フレーム不足で動画が短くなる/カクつく）
   - 根本原因は 13-41 の動画準備待機で回避されるべきで、この対策はフォールバック
   - `FLUSH_STALL_DETECT_MS = 12000` は保守的な値。さらに短縮すると正常な遅いエンコードを誤検知するリスクがある
+
+### 13-43. WebCodecs リアルタイム寄り運用の速度・非アクティブ・保存安定化
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/components/TurtleVideo.tsx`, `src/stores/uiStore.ts`
+- **問題**:
+  - WebCodecs 経路で `visibilityState` 待機が入ると、タブ非アクティブ時にエクスポート進行が大きく停滞する
+  - 非 iOS 環境まで `OfflineAudioContext` を優先すると、音声前処理の待ちで全体時間が伸びる
+  - ダウンロードが `fetch(exportUrl)` 依存だと、URL解放タイミングや環境差で保存失敗しやすい
+- **対策**:
+  - WebCodecs 経路は hidden 時の待機を無効化し、非アクティブ中も処理を継続する
+  - 音声は iOS Safari のみ `OfflineAudioContext` 優先、非 iOS は TrackProcessor / ScriptProcessor 優先に戻す
+  - `onRecordingStop(url, ext, blob)` で Blob を直接受け渡し、`uiStore` に `exportBlob` を保持する
+  - 保存は `showSaveFilePicker` 失敗時に必ず `<a download>` へフォールバックし、詳細ログを記録する
+  - `VideoEncoder` バックプレッシャー待機時間と Canvas dedup 待機時間の計測値を `DIAG-7` に追加する
+- **注意**:
+  - hidden 中継続はブラウザ依存で進行速度が変動するため、`DIAG-BP` と `DIAG-7` で待機量を合わせて確認する
+  - `exportBlob` は `clearExport`/`resetUI` で必ずクリアし、不要な Blob 保持を避ける
+
+### 13-44. 「フレーム待機中」固着を避ける完了ウォッチドッグと flush 強制解放
+
+- **ファイル**: `src/hooks/useExport.ts`
+- **問題**:
+  - 完了要求が伝播しない経路や `VideoEncoder.flush()` の未解決で、UI が「フレーム待機中...」のまま固着する場合がある
+  - 固着時は保存フローまで到達せず、ダウンロード不可になる
+- **対策**:
+  - `processing` 待機に soft/hard timeout のウォッチドッグを追加し、必要時は `completionRequested` を強制発行
+  - hard timeout 到達時は `AbortController` で処理ループを収束させ、`flush/finalize` へ移行
+  - `VideoEncoder.flush()` に監視ログ（`DIAG-7w`）とタイムアウトを追加し、停滞時は `videoEncoder.close()` で部分ファイナライズにフォールバック
+  - `AudioEncoder.flush()` もタイムアウト付きにし、長時間停止を回避
+- **注意**:
+  - 部分ファイナライズ時は末尾フレーム欠落の可能性があるが、「保存不能で固着」より「保存可能」を優先する
+  - 再現時は `DIAG-WAIT` / `DIAG-7w` / `flushMode` のログを優先確認する

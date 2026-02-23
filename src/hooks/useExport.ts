@@ -33,7 +33,7 @@ export interface UseExportReturn {
   startExport: (
     canvasRef: React.MutableRefObject<HTMLCanvasElement | null>,
     masterDestRef: React.MutableRefObject<MediaStreamAudioDestinationNode | null>,
-    onRecordingStop: (url: string, ext: string) => void,
+    onRecordingStop: (url: string, ext: string, blob?: Blob) => void,
     onRecordingError?: (message: string) => void,
     audioSources?: ExportAudioSources  // iOS Safari: OfflineAudioContext用音声ソース
   ) => void;
@@ -801,7 +801,7 @@ export function useExport(): UseExportReturn {
     async (
       canvasRef: React.MutableRefObject<HTMLCanvasElement | null>,
       masterDestRef: React.MutableRefObject<MediaStreamAudioDestinationNode | null>,
-      onRecordingStop: (url: string, ext: string) => void,
+      onRecordingStop: (url: string, ext: string, blob?: Blob) => void,
       onRecordingError?: (message: string) => void,
       audioSources?: ExportAudioSources
     ) => {
@@ -833,10 +833,9 @@ export function useExport(): UseExportReturn {
       const isIosSafari = isIOS && isSafari;
       const isEdge = /Edg\//i.test(userAgent);
       const isEdgeDesktop = isEdge && !isIOS;
-      // iOS Safari のみ MediaRecorder 優先。Edge Desktop は WebCodecs/Canvas直接経路（seq重複排除済み）を使用する。
-      // Edge を MediaRecorder に回していた際に captureStream(FPS) の自動キャプチャで
-      // 黒フレームが紛れ込む問題があったため、制御性の高い WebCodecs に戻す。
-      const shouldPreferMediaRecorderPath = isIosSafari || isEdgeDesktop;
+      // iOS Safari のみ MediaRecorder 優先。
+      // Edge Desktop を含むそれ以外は WebCodecs のリアルタイム寄り運用を使用する。
+      const shouldPreferMediaRecorderPath = isIosSafari;
       const exportEngineRevision = '2026-02-23-r5';
 
       // ============================================================
@@ -870,7 +869,7 @@ export function useExport(): UseExportReturn {
         exportEngineRevision,
         reason: isIosSafari
           ? 'ios-safari'
-          : (isEdgeDesktop ? 'edge-desktop' : 'webcodecs-default'),
+          : (isEdgeDesktop ? 'edge-desktop-webcodecs' : 'webcodecs-default'),
       });
 
       // [DIAG-1b] 全MediaItemの詳細一覧
@@ -902,6 +901,9 @@ export function useExport(): UseExportReturn {
       // TrackProcessor/captureStream 経路は環境差で静止画区間の尺ズレが発生しやすいため、
       // 問題収束まで一時的に固定運用とする。
       const useManualCanvasFrames = true;
+      // WebCodecs経路では非アクティブ中も可能な限り処理を継続する。
+      // iOS Safari は MediaRecorder 優先のため、ここは通常 false になる。
+      const shouldPauseWebCodecsWhenHidden = false;
       // iOS Safari では OfflineAudioContext でプリレンダリングするため、
       // TrackProcessor / ScriptProcessor は基本的に不要。
       // OfflineAudioContext 失敗時のフォールバックとして ScriptProcessor を使用。
@@ -1249,7 +1251,7 @@ export function useExport(): UseExportReturn {
                 extension: profile.extension,
               });
 
-              onRecordingStop(url, profile.extension);
+              onRecordingStop(url, profile.extension, blob);
               finishResolve();
             };
 
@@ -1360,11 +1362,14 @@ export function useExport(): UseExportReturn {
         const VIDEO_QUEUE_BACKPRESSURE_SLEEP_MS = 8;
         const VIDEO_QUEUE_BACKPRESSURE_MAX_WAIT_MS = isEdgeDesktop ? 480 : 1200;
         let videoBackpressureWaitCount = 0;
+        let videoBackpressureWaitTotalMs = 0;
         let longestVideoBackpressureMs = 0;
         let videoBackpressureTimeoutCount = 0;
         let videoBackpressureDropCount = 0;
         let videoLagSpikeCount = 0;
         let canvasDedupSkipCount = 0; // Canvas未更新スキップ回数（品質診断用）
+        let canvasDedupWaitCount = 0;
+        let canvasDedupWaitTotalMs = 0;
         let completionBackpressureStopLogged = false;
         const waitForVideoEncoderCapacity = async (): Promise<'ok' | 'timed_out' | 'aborted'> => {
           let waitedMs = 0;
@@ -1408,6 +1413,7 @@ export function useExport(): UseExportReturn {
           }
           if (waitedMs > 0) {
             videoBackpressureWaitCount += 1;
+            videoBackpressureWaitTotalMs += waitedMs;
             longestVideoBackpressureMs = Math.max(longestVideoBackpressureMs, waitedMs);
             if (waitedMs >= 500 || videoBackpressureWaitCount % 80 === 0) {
               useLogStore.getState().warn('RENDER', '[DIAG-BP] VideoEncoder バックプレッシャー待機', {
@@ -1481,8 +1487,9 @@ export function useExport(): UseExportReturn {
 
         // === iOS Safari: OfflineAudioContext による音声プリレンダリング ===
         let offlineAudioDone = false;
-        if (audioSources) {
-          // [DIAG-3] OfflineAudioContext パス開始（全環境で優先）
+        const shouldUseOfflineAudio = isIosSafari && !!audioSources;
+        if (shouldUseOfflineAudio && audioSources) {
+          // [DIAG-3] OfflineAudioContext パス開始（iOS Safari優先）
           useLogStore.getState().info('RENDER', '[DIAG-3] OfflineAudioContext パス開始', {
             totalDuration: audioSources.totalDuration,
             sampleRate: audioContext.sampleRate,
@@ -1531,6 +1538,12 @@ export function useExport(): UseExportReturn {
               error: e instanceof Error ? e.message : String(e),
             });
           }
+        } else {
+          useLogStore.getState().info('RENDER', '[DIAG-3] OfflineAudioContext は使用しません', {
+            reason: isIosSafari ? 'audio-sources-unavailable' : 'prefer-realtime-audio-path',
+            isIosSafari,
+            hasAudioSources: !!audioSources,
+          });
         }
 
         // ============================================================
@@ -1538,6 +1551,7 @@ export function useExport(): UseExportReturn {
         // ============================================================
         useLogStore.getState().info('RENDER', '[DIAG-6] 音声パス判断結果', {
           offlineAudioDone,
+          shouldUseOfflineAudio,
           isIosSafari,
           hasAudioSources: !!audioSources,
           audioEncoderOutputChunks,
@@ -1757,6 +1771,9 @@ export function useExport(): UseExportReturn {
         };
 
         const waitForVisibleIfNeeded = async () => {
+          if (!shouldPauseWebCodecsWhenHidden) {
+            return;
+          }
           if (
             typeof document === 'undefined' ||
             document.visibilityState === 'visible' ||
@@ -1836,7 +1853,11 @@ export function useExport(): UseExportReturn {
 
               if (value) {
                 const originalFrame = value as VideoFrame;
-                if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+                if (
+                  shouldPauseWebCodecsWhenHidden &&
+                  typeof document !== 'undefined' &&
+                  document.visibilityState !== 'visible'
+                ) {
                   originalFrame.close();
                   continue;
                 }
@@ -1978,8 +1999,6 @@ export function useExport(): UseExportReturn {
               const forceToEnd = completionRequestedRef.current;
 
               // Canvas に新しいコンテンツが描画されていなければスキップする。
-              // これにより video 要素の seeking 中に同一フレームが連続エンコードされるのを防ぐ。
-              // 完了モード（forceToEnd）では末尾補完のためスキップしない。
               if (!forceToEnd) {
                 const currentSeq = getCanvasDrawSeq();
                 if (currentSeq !== null && currentSeq === lastEncodedCanvasDrawSeq) {
@@ -1991,6 +2010,7 @@ export function useExport(): UseExportReturn {
                       currentSeq,
                     });
                   }
+                  const dedupWaitStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
                   await new Promise<void>((resolve) => {
                     const timeoutId = setTimeout(() => {
                       signal.removeEventListener('abort', onAbort);
@@ -2003,6 +2023,9 @@ export function useExport(): UseExportReturn {
                     };
                     signal.addEventListener('abort', onAbort, { once: true });
                   });
+                  const dedupWaitElapsed = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - dedupWaitStartedAt;
+                  canvasDedupWaitCount += 1;
+                  canvasDedupWaitTotalMs += Math.max(0, dedupWaitElapsed);
                   continue;
                 }
                 if (currentSeq !== null) lastEncodedCanvasDrawSeq = currentSeq;
@@ -2024,10 +2047,8 @@ export function useExport(): UseExportReturn {
                     });
                   }
                 }
-                // 通常進行時は 1 フレームずつエンコードし、同一フレーム連続を抑える。
                 framesToEncode = Math.min(framesToEncode, 1);
               } else if (forceToEnd) {
-                // 完了時は不足分を補完しつつ、過剰バーストを避ける。
                 framesToEncode = Math.min(framesToEncode, completionFrameBurstLimit);
               }
 
@@ -2073,8 +2094,6 @@ export function useExport(): UseExportReturn {
                 if (shouldStopDueToFinalizeBackpressure) break;
               }
 
-              // タイムライン終端付近で playback 側の完了通知が遅延しても、
-              // 目標フレーム到達時に自動で正常終了要求へ進めて無限待機を防ぐ。
               if (!completionRequestedRef.current && expectedVideoFrames !== null && frameIndex >= expectedVideoFrames) {
                 completionRequestedRef.current = true;
                 useLogStore.getState().warn('RENDER', '目標フレーム到達により自動で完了要求を発行（Canvas）', {
@@ -2120,7 +2139,11 @@ export function useExport(): UseExportReturn {
 
               if (value) {
                 const data = value as AudioData;
-                if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+                if (
+                  shouldPauseWebCodecsWhenHidden &&
+                  typeof document !== 'undefined' &&
+                  document.visibilityState !== 'visible'
+                ) {
                   data.close();
                   continue;
                 }
@@ -2167,7 +2190,16 @@ export function useExport(): UseExportReturn {
           useManualCanvasFrames ? processVideoWithCanvasFrames() : processVideoWithTrackProcessor(),
           audioReader ? processAudio() : (scriptProcessorNode ? waitForStopRequest() : Promise.resolve()),
         ];
-        const processing = Promise.all(processingTasks);
+        let processingDone = false;
+        let processingError: unknown = null;
+        const processing = Promise.all(processingTasks)
+          .then(() => {
+            processingDone = true;
+          })
+          .catch((err) => {
+            processingDone = true;
+            processingError = err;
+          });
 
         // 停止を待つためのPromiseを作成
         // 実際のアプリでは「再生終了」などのイベントで stopExport が呼ばれることを想定するが、
@@ -2218,7 +2250,50 @@ export function useExport(): UseExportReturn {
         audioSources?.onAudioPreRenderComplete?.();
 
         // 停止されるまで待機（processingは停止シグナルで終わる）
-        await processing;
+        // ただし、完了通知経路の不整合で永久待機しないようにウォッチドッグを併用する。
+        const totalDurationSec =
+          audioSources && Number.isFinite(audioSources.totalDuration)
+            ? Math.max(0, audioSources.totalDuration)
+            : 0;
+        while (!processingDone) {
+          const playbackTimeSec = getPlaybackTimeSec();
+          const nearTimelineEnd =
+            totalDurationSec > 0 &&
+            playbackTimeSec !== null &&
+            playbackTimeSec >= Math.max(0, totalDurationSec - 1 / FPS);
+
+          if (!completionRequestedRef.current && nearTimelineEnd) {
+            completionRequestedRef.current = true;
+            useLogStore.getState().info('RENDER', '[DIAG-WAIT] 再生時刻終端検知により完了要求を自動発行', {
+              playbackTimeSec,
+              totalDurationSec,
+            });
+          }
+
+          if (signal.aborted) {
+            break;
+          }
+
+          await Promise.race([
+            processing,
+            new Promise<void>((resolve) => setTimeout(resolve, 200)),
+          ]);
+        }
+
+        await Promise.race([
+          processing,
+          new Promise<void>((resolve) => setTimeout(resolve, 2500)),
+        ]);
+        if (!processingDone) {
+          completionRequestedRef.current = true;
+          useLogStore.getState().warn('RENDER', '[DIAG-WAIT] 処理タスクが未完了ですが完了要求を発行します', {
+            signalAborted: signal.aborted,
+            expectedVideoFrames,
+          });
+        }
+        if (processingError && !isAbortError(processingError)) {
+          throw processingError;
+        }
 
         // ScriptProcessorNodeのクリーンアップ（flush前に停止して新規データ送信を防止）
         if (scriptProcessorNode) {
@@ -2244,28 +2319,140 @@ export function useExport(): UseExportReturn {
           videoEncoderOutputChunks,
           videoEncoderOutputBytes,
           videoBackpressureWaitCount,
+          videoBackpressureWaitTotalMs,
           longestVideoBackpressureMs,
           videoBackpressureTimeoutCount,
           videoBackpressureDropCount,
           videoBackpressureThreshold: VIDEO_QUEUE_BACKPRESSURE_THRESHOLD,
           videoBackpressureMaxWaitMs: VIDEO_QUEUE_BACKPRESSURE_MAX_WAIT_MS,
           canvasDedupSkipCount,
+          canvasDedupWaitCount,
+          canvasDedupWaitTotalMs: Math.round(canvasDedupWaitTotalMs * 100) / 100,
           offlineAudioDone,
+          shouldPauseWebCodecsWhenHidden,
         });
         if (videoMuxError) {
           throw new Error('Video chunk mux 失敗');
         }
-        await videoEncoder.flush();
+        const VIDEO_FLUSH_TIMEOUT_MS = 180000; // 3分（低スペックPCでも必ず完走させる）
+        const VIDEO_FLUSH_WATCHDOG_MS = 3000;
+        const AUDIO_FLUSH_TIMEOUT_MS = 30000;
+
+        const flushVideoEncoderWithGuard = async (): Promise<'ok' | 'forced-close'> => {
+          const flushStartedAt = Date.now();
+          let flushSettled = false;
+          let flushError: unknown = null;
+          let lastOutputChunks = videoEncoderOutputChunks;
+          let lastProgressAt = flushStartedAt;
+
+          const flushPromise = videoEncoder.flush()
+            .then(() => {
+              flushSettled = true;
+            })
+            .catch((err) => {
+              flushSettled = true;
+              flushError = err;
+            });
+
+          while (!flushSettled) {
+            const elapsedMs = Date.now() - flushStartedAt;
+            if (elapsedMs >= VIDEO_FLUSH_TIMEOUT_MS) break;
+
+            await new Promise<void>((resolve) => setTimeout(resolve, VIDEO_FLUSH_WATCHDOG_MS));
+
+            if (videoEncoderOutputChunks !== lastOutputChunks) {
+              lastOutputChunks = videoEncoderOutputChunks;
+              lastProgressAt = Date.now();
+            }
+
+            const stallMs = Date.now() - lastProgressAt;
+            useLogStore.getState().info('RENDER', '[DIAG-7w] VideoEncoder flush 監視中', {
+              elapsedMs,
+              stallMs,
+              queueSize: videoEncoder.encodeQueueSize,
+              outputChunks: videoEncoderOutputChunks,
+            });
+          }
+
+          if (!flushSettled) {
+            try {
+              if (videoEncoder.state !== 'closed') {
+                videoEncoder.close();
+              }
+            } catch {
+              // ignore
+            }
+            await Promise.race([
+              flushPromise,
+              new Promise<void>((resolve) => setTimeout(resolve, 100)),
+            ]);
+
+            if (videoEncoderOutputChunks <= 0) {
+              throw new Error('VideoEncoder flush がタイムアウトし、映像チャンクを取得できませんでした');
+            }
+            return 'forced-close';
+          }
+
+          if (flushError) {
+            throw flushError;
+          }
+          return 'ok';
+        };
+
+        const flushAudioEncoderWithGuard = async (): Promise<'ok' | 'forced-close'> => {
+          const flushStartedAt = Date.now();
+          let flushSettled = false;
+          let flushError: unknown = null;
+          const flushPromise = audioEncoder.flush()
+            .then(() => {
+              flushSettled = true;
+            })
+            .catch((err) => {
+              flushSettled = true;
+              flushError = err;
+            });
+
+          while (!flushSettled) {
+            const elapsedMs = Date.now() - flushStartedAt;
+            if (elapsedMs >= AUDIO_FLUSH_TIMEOUT_MS) break;
+            await new Promise<void>((resolve) => setTimeout(resolve, 300));
+          }
+
+          if (!flushSettled) {
+            try {
+              if (audioEncoder.state !== 'closed') {
+                audioEncoder.close();
+              }
+            } catch {
+              // ignore
+            }
+            await Promise.race([
+              flushPromise,
+              new Promise<void>((resolve) => setTimeout(resolve, 100)),
+            ]);
+            return 'forced-close';
+          }
+
+          if (flushError) {
+            throw flushError;
+          }
+          return 'ok';
+        };
+
+        const videoFlushMode = await flushVideoEncoderWithGuard();
         useLogStore.getState().info('RENDER', '[DIAG-7b] VideoEncoder flush 完了', {
           outputChunks: videoEncoderOutputChunks,
           outputBytes: videoEncoderOutputBytes,
           queueSizeAfterFlush: videoEncoder.encodeQueueSize,
+          flushMode: videoFlushMode,
         });
+
         try {
-          await audioEncoder.flush();
+          const audioFlushMode = await flushAudioEncoderWithGuard();
           useLogStore.getState().info('RENDER', '[DIAG-7c] AudioEncoder flush 完了', {
             outputChunksAfterFlush: audioEncoderOutputChunks,
             outputBytesAfterFlush: audioEncoderOutputBytes,
+            flushMode: audioFlushMode,
           });
         } catch (flushErr) {
           useLogStore.getState().error('RENDER', '[DIAG-7c] AudioEncoder flush 失敗', {
@@ -2318,7 +2505,7 @@ export function useExport(): UseExportReturn {
           });
           setExportUrl(url);
           setExportExt('mp4');
-          onRecordingStop(url, 'mp4');
+          onRecordingStop(url, 'mp4', blob);
         } else {
           useLogStore.getState().warn('RENDER', 'エクスポートバッファが空');
           onRecordingError?.('エクスポートに失敗しました。書き出しデータが空です。');

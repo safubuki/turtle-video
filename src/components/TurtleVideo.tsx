@@ -141,6 +141,7 @@ const TurtleVideo: React.FC = () => {
   const currentTime = useUIStore((s) => s.currentTime);
   const isProcessing = useUIStore((s) => s.isProcessing);
   const exportUrl = useUIStore((s) => s.exportUrl);
+  const exportBlob = useUIStore((s) => s.exportBlob);
   const exportExt = useUIStore((s) => s.exportExt);
   const showAiModal = useUIStore((s) => s.showAiModal);
   const aiPrompt = useUIStore((s) => s.aiPrompt);
@@ -161,6 +162,7 @@ const TurtleVideo: React.FC = () => {
 
   const isLoading = useUIStore((s) => s.isLoading);
   const setExportUrl = useUIStore((s) => s.setExportUrl);
+  const setExportBlob = useUIStore((s) => s.setExportBlob);
   const setExportExt = useUIStore((s) => s.setExportExt);
   const clearExport = useUIStore((s) => s.clearExport);
   const openAiModal = useUIStore((s) => s.openAiModal);
@@ -230,6 +232,7 @@ const TurtleVideo: React.FC = () => {
   const needsResyncAfterVisibilityRef = useRef(false);
   const audioResumeWaitFramesRef = useRef(0);
   const lastVisibilityRefreshAtRef = useRef(0);
+  const lastExportUiUpdateAtRef = useRef(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const loopIdRef = useRef(0); // ループの世代を追跡
   const isPlayingRef = useRef(false); // 再生状態を即座に反映するRef
@@ -253,6 +256,11 @@ const TurtleVideo: React.FC = () => {
   const isSeekPlaybackPreparingRef = useRef(false);
   const endFinalizedRef = useRef(false); // 終端ファイナライズ済みフラグ（遅延renderFrame競合防止）
   const exportCanvasDrawSeqRef = useRef(0); // エクスポート中の Canvas 描画シーケンスカウンタ
+  const exportRenderPerfRef = useRef({
+    frameCount: 0,
+    totalMs: 0,
+    maxMs: 0,
+  });
 
   const captionsRef = useRef(captions);
   const captionSettingsRef = useRef(captionSettings);
@@ -392,6 +400,8 @@ const TurtleVideo: React.FC = () => {
   // --- Helper: renderFrame ---
   const renderFrame = useCallback(
     (time: number, isActivePlaying = false, _isExporting = false) => {
+      const shouldProfileExportRender = _isExporting && typeof performance !== 'undefined';
+      const renderStartedAt = shouldProfileExportRender ? performance.now() : 0;
       try {
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -1061,9 +1071,25 @@ const TurtleVideo: React.FC = () => {
         }
       } catch (e) {
         console.error('Render Error:', e);
+      } finally {
+        if (shouldProfileExportRender) {
+          const elapsedMs = Math.max(0, performance.now() - renderStartedAt);
+          const metrics = exportRenderPerfRef.current;
+          metrics.frameCount += 1;
+          metrics.totalMs += elapsedMs;
+          metrics.maxMs = Math.max(metrics.maxMs, elapsedMs);
+
+          if (metrics.frameCount === 1 || metrics.frameCount % 120 === 0) {
+            logDebug('RENDER', '[DIAG-PERF] renderFrame統計', {
+              frameCount: metrics.frameCount,
+              avgMs: Math.round((metrics.totalMs / metrics.frameCount) * 100) / 100,
+              maxMs: Math.round(metrics.maxMs * 100) / 100,
+            });
+          }
+        }
       }
     },
-    [captions, captionSettings, isIosSafari, logInfo]
+    [captions, captionSettings, isIosSafari, logDebug, logInfo]
   );
 
   // --- 状態同期: Zustandの状態をRefに同期 ---
@@ -1290,9 +1316,9 @@ const TurtleVideo: React.FC = () => {
       const hiddenDurationMs = Math.max(0, Date.now() - hiddenAt);
       if (hiddenDurationMs <= 0) return false;
 
-      // 再生/エクスポートとも Date.now ベースなので、
-      // 非アクティブ時間分を差し戻して停止/早送りを防ぐ
-      if (isPlayingRef.current || isProcessing) {
+      // 通常再生は非アクティブ中に時計進行を止めるため、可視復帰時に差し戻す。
+      // エクスポートは可能な限り時計進行を継続するため、差し戻しは適用しない。
+      if (!isProcessing && isPlayingRef.current) {
         startTimeRef.current += hiddenDurationMs;
       }
       return true;
@@ -1362,10 +1388,12 @@ const TurtleVideo: React.FC = () => {
         hiddenStartedAtRef.current = Date.now();
         if (isPlayingRef.current || isProcessing) {
           needsResyncAfterVisibilityRef.current = true;
-          pauseAllMediaElements();
           if (!isProcessing) {
+            pauseAllMediaElements();
             isPlayingRef.current = false;
             pause();
+          } else {
+            logInfo('RENDER', 'エクスポート中の非アクティブ遷移を検知（処理は継続）');
           }
         }
         return;
@@ -2517,9 +2545,9 @@ const TurtleVideo: React.FC = () => {
         return;
       }
 
-      // 非アクティブ中は通常再生/エクスポートともにタイムライン進行を止める。
-      // hidden時間の補正は可視復帰時（restoreTimelineClockAfterHidden）で行う。
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+      // 非アクティブ中の通常再生はタイムライン進行を止める。
+      // エクスポート中は可能な限り進行を継続し、処理停滞を避ける。
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible' && !isExportMode) {
         reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
         return;
       }
@@ -2612,7 +2640,16 @@ const TurtleVideo: React.FC = () => {
         stopAll('complete');
         return;
       }
-      setCurrentTime(clampedElapsed);
+      const shouldUpdateUiTime =
+        !isExportMode ||
+        clampedElapsed >= totalDurationRef.current ||
+        now - lastExportUiUpdateAtRef.current >= 200;
+      if (shouldUpdateUiTime) {
+        setCurrentTime(clampedElapsed);
+        if (isExportMode) {
+          lastExportUiUpdateAtRef.current = now;
+        }
+      }
       currentTimeRef.current = clampedElapsed;
       renderFrame(clampedElapsed, true, isExportMode);
       reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
@@ -2623,7 +2660,14 @@ const TurtleVideo: React.FC = () => {
   // --- 開始位置同期ヘルパー ---
   // 目的: 再生や書き出し開始時、最初に表示される動画要素が指定時刻のフレームをデコード完了するまで待機し、ブラックアウトやカクつきを防ぐ
   const waitForActiveVideosToSeek = useCallback(
-    async (fromTime: number): Promise<boolean> => {
+    async (
+      fromTime: number,
+      options?: { mode?: 'playback' | 'export' }
+    ): Promise<boolean> => {
+      const mode = options?.mode ?? 'playback';
+      const seekThresholdSec = mode === 'export' ? 0.04 : 0.01;
+      const timeoutMs = mode === 'export' ? 900 : 3000;
+      const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
       let t = 0;
       const activeVideos: { el: HTMLVideoElement; targetTime: number }[] = [];
       for (const item of mediaItemsRef.current) {
@@ -2648,7 +2692,7 @@ const TurtleVideo: React.FC = () => {
             try { el.load(); } catch { /* ignore */ }
           }
 
-          if (Math.abs(el.currentTime - targetTime) > 0.01) {
+          if (Math.abs(el.currentTime - targetTime) > seekThresholdSec) {
             try { el.currentTime = targetTime; } catch { /* ignore */ }
           }
 
@@ -2682,16 +2726,28 @@ const TurtleVideo: React.FC = () => {
           el.addEventListener('loadeddata', onReady);
 
           timeoutId = setTimeout(() => {
-            logWarn('RENDER', '動画デコード完了待機タイムアウト', { targetTime, readyState: el.readyState });
+            logWarn('RENDER', '動画デコード完了待機タイムアウト', {
+              targetTime,
+              readyState: el.readyState,
+              mode,
+              timeoutMs,
+            });
             finish(false);
-          }, 3000); // 3秒でタイムアウトして強行
+          }, timeoutMs);
         });
       });
 
       const results = await Promise.all(promises);
+      const elapsedMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt;
+      logDebug('RENDER', '[DIAG-PERF] 動画シーク同期待機', {
+        mode,
+        activeVideoCount: activeVideos.length,
+        elapsedMs: Math.round(elapsedMs * 100) / 100,
+        success: results.every(Boolean),
+      });
       return results.every(Boolean);
     },
-    [logWarn]
+    [logDebug, logWarn]
   );
 
   // --- エンジン起動処理 ---
@@ -2760,6 +2816,12 @@ const TurtleVideo: React.FC = () => {
       // 状態をリセットしてから新しい状態を設定
       if (isExportMode) {
         setProcessing(true);
+        lastExportUiUpdateAtRef.current = 0;
+        exportRenderPerfRef.current = {
+          frameCount: 0,
+          totalMs: 0,
+          maxMs: 0,
+        };
       } else {
         setProcessing(false);
         isPlayingRef.current = false;
@@ -2965,7 +3027,9 @@ const TurtleVideo: React.FC = () => {
 
       // エクスポート・通常再生ともに、最初に描画される動画のフレームデコード完了を待機する。
       // これにより「タイマーが進んでいるのに動画が追いついていない（カクつき・黒画面）」を防ぐ。
-      const decodeReady = await waitForActiveVideosToSeek(fromTime);
+      const decodeReady = await waitForActiveVideosToSeek(fromTime, {
+        mode: isExportMode ? 'export' : 'playback',
+      });
       logDebug('RENDER', '開始時動画デコード待機完了', { decodeReady });
 
       // awaitの間にstopAllが呼ばれていたら中止
@@ -3005,8 +3069,9 @@ const TurtleVideo: React.FC = () => {
         startWebCodecsExport(
           canvasRef,
           masterDestRef,
-          (url, ext) => {
+          (url, ext, blob) => {
             setExportUrl(url);
+            setExportBlob(blob ?? null);
             setExportExt(ext as 'mp4' | 'webm');
             setProcessing(false);
             pause();
@@ -3041,7 +3106,7 @@ const TurtleVideo: React.FC = () => {
         loop(isExportMode, myLoopId);
       }
     },
-    [getAudioContext, stopAll, setProcessing, setLoading, play, clearExport, configureAudioRouting, ensureVideoMetadataReady, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError, logWarn, isIosSafari]
+    [getAudioContext, stopAll, setProcessing, setLoading, play, clearExport, configureAudioRouting, ensureVideoMetadataReady, setCurrentTime, setExportUrl, setExportBlob, setExportExt, pause, renderFrame, loop, setError, logWarn, isIosSafari]
   );
 
   // --- シークバー操作ハンドラ ---
@@ -3573,7 +3638,7 @@ const TurtleVideo: React.FC = () => {
   // --- ダウンロードハンドラ ---
   // 目的: ダウンロード完了時にユーザーへ通知する
   const handleDownload = useCallback(async () => {
-    if (!exportUrl) return;
+    if (!exportBlob && !exportUrl) return;
 
     const ext = exportExt || 'mp4';
     const filename = `turtle_video_${Date.now()}.${ext}`;
@@ -3581,48 +3646,80 @@ const TurtleVideo: React.FC = () => {
     const fileDescription = ext === 'webm' ? 'WebM 動画' : 'MP4 動画';
     const { showSaveFilePicker } = window as WindowWithSavePicker;
 
-    try {
-      if (typeof showSaveFilePicker === 'function') {
-        const fileHandle = await showSaveFilePicker({
-          suggestedName: filename,
-          types: [
-            {
-              description: fileDescription,
-              accept: { [mimeType]: [`.${ext}`] },
-            },
-          ],
-        });
-
-        const response = await fetch(exportUrl);
-        if (!response.ok) {
-          throw new Error(`download source unavailable: ${response.status}`);
-        }
-        const blob = await response.blob();
-        const writable = await fileHandle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-
-        window.alert('ダウンロードが完了しました。');
-        showToast('ダウンロードが完了しました');
-        return;
+    const downloadWithAnchor = (blobOrNull: Blob | null) => {
+      const tempUrl = blobOrNull ? URL.createObjectURL(blobOrNull) : null;
+      const href = tempUrl || exportUrl;
+      if (!href) {
+        throw new Error('download source missing');
       }
-
       const anchor = document.createElement('a');
-      anchor.href = exportUrl;
+      anchor.href = href;
       anchor.download = filename;
       anchor.rel = 'noopener';
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
+      if (tempUrl) {
+        setTimeout(() => URL.revokeObjectURL(tempUrl), 1000);
+      }
+    };
+
+    try {
+      let blobToDownload = exportBlob;
+      if (!blobToDownload && exportUrl) {
+        const response = await fetch(exportUrl);
+        if (!response.ok) {
+          throw new Error(`download source unavailable: ${response.status}`);
+        }
+        blobToDownload = await response.blob();
+      }
+
+      if (typeof showSaveFilePicker === 'function') {
+        try {
+          const fileHandle = await showSaveFilePicker({
+            suggestedName: filename,
+            types: [
+              {
+                description: fileDescription,
+                accept: { [mimeType]: [`.${ext}`] },
+              },
+            ],
+          });
+
+          if (!blobToDownload) {
+            throw new Error('download blob unavailable');
+          }
+          const writable = await fileHandle.createWritable();
+          await writable.write(blobToDownload);
+          await writable.close();
+
+          window.alert('ダウンロードが完了しました。');
+          showToast('ダウンロードが完了しました');
+          return;
+        } catch (pickerError) {
+          if (pickerError instanceof DOMException && pickerError.name === 'AbortError') {
+            showToast('ダウンロードをキャンセルしました');
+            return;
+          }
+          logError('RENDER', 'showSaveFilePicker保存に失敗。aダウンロードにフォールバックします', {
+            error: pickerError instanceof Error ? pickerError.message : String(pickerError),
+            hasBlob: !!blobToDownload,
+            hasExportUrl: !!exportUrl,
+          });
+        }
+      }
+
+      downloadWithAnchor(blobToDownload ?? null);
       showToast('ダウンロードを開始しました。完了はブラウザの通知をご確認ください。', 5000);
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        showToast('ダウンロードをキャンセルしました');
-        return;
-      }
+      logError('RENDER', 'ダウンロード処理が失敗しました', {
+        error: error instanceof Error ? error.message : String(error),
+        hasBlob: !!exportBlob,
+        hasExportUrl: !!exportUrl,
+      });
       setError('ダウンロードに失敗しました');
     }
-  }, [exportUrl, exportExt, setError, showToast]);
+  }, [exportBlob, exportUrl, exportExt, setError, showToast, logError]);
 
   // --- 時刻フォーマットヘルパー ---
   // 目的: 秒数を「分:秒」形式の文字列に変換

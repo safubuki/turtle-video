@@ -26,6 +26,7 @@ interface UIState {
   isProcessing: boolean;
   isLoading: boolean;  // リソース読み込み中フラグ
   exportUrl: string | null;
+  exportBlob: Blob | null;
   exportExt: ExportFormat;
 
   // AI Modal
@@ -53,6 +54,7 @@ interface UIState {
   setProcessing: (processing: boolean) => void;
   setLoading: (loading: boolean) => void;
   setExportUrl: (url: string | null) => void;
+  setExportBlob: (blob: Blob | null) => void;
   setExportExt: (ext: ExportFormat) => void;
   clearExport: () => void;
 
@@ -89,6 +91,7 @@ export const useUIStore = create<UIState>()(
       isProcessing: false,
       isLoading: false,
       exportUrl: null,
+      exportBlob: null,
       exportExt: 'mp4' as const,
       showAiModal: false,
       aiPrompt: '',
@@ -192,6 +195,10 @@ export const useUIStore = create<UIState>()(
         set({ exportUrl: url });
       },
 
+      setExportBlob: (blob) => {
+        set({ exportBlob: blob });
+      },
+
       setExportExt: (ext) => {
         set({ exportExt: ext });
       },
@@ -201,7 +208,7 @@ export const useUIStore = create<UIState>()(
         if (exportUrl) {
           URL.revokeObjectURL(exportUrl);
         }
-        set({ exportUrl: null });
+        set({ exportUrl: null, exportBlob: null });
       },
 
       // === AI Modal Actions ===
@@ -266,6 +273,7 @@ export const useUIStore = create<UIState>()(
           currentTime: 0,
           isProcessing: false,
           exportUrl: null,
+          exportBlob: null,
           exportExt: 'mp4' as const,
           showAiModal: false,
           aiPrompt: '',
