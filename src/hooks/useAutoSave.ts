@@ -14,12 +14,17 @@ import { useLogStore } from '../stores/logStore';
 
 /** 自動保存間隔の設定キー */
 export const AUTO_SAVE_INTERVAL_KEY = 'turtle-video-auto-save-interval';
+const AUTO_SAVE_INTERVAL_CHANGED_EVENT = 'turtle-video:auto-save-interval-changed';
 
 /** 自動保存間隔オプション（分） */
 export type AutoSaveIntervalOption = 0 | 1 | 2 | 5;
 
 /** デフォルトの自動保存間隔（分） */
 export const DEFAULT_AUTO_SAVE_INTERVAL: AutoSaveIntervalOption = 2;
+
+function isAutoSaveIntervalOption(value: number): value is AutoSaveIntervalOption {
+  return value === 0 || value === 1 || value === 2 || value === 5;
+}
 
 /**
  * localStorageから自動保存間隔を取得
@@ -29,8 +34,8 @@ export function getAutoSaveInterval(): AutoSaveIntervalOption {
     const stored = localStorage.getItem(AUTO_SAVE_INTERVAL_KEY);
     if (stored !== null) {
       const value = parseInt(stored, 10);
-      if (value === 0 || value === 1 || value === 2 || value === 5) {
-        return value as AutoSaveIntervalOption;
+      if (isAutoSaveIntervalOption(value)) {
+        return value;
       }
     }
   } catch {
@@ -47,6 +52,12 @@ export function setAutoSaveInterval(interval: AutoSaveIntervalOption): void {
     localStorage.setItem(AUTO_SAVE_INTERVAL_KEY, String(interval));
   } catch {
     // localStorageエラーは無視
+  } finally {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent<AutoSaveIntervalOption>(AUTO_SAVE_INTERVAL_CHANGED_EVENT, {
+        detail: interval,
+      }));
+    }
   }
 }
 
@@ -56,6 +67,9 @@ export function setAutoSaveInterval(interval: AutoSaveIntervalOption): void {
 export function useAutoSave() {
   const intervalRef = useRef<number | null>(null);
   const lastSaveHashRef = useRef<string>('');
+  const performAutoSaveRef = useRef<() => Promise<void>>(async () => {});
+  const isAutoSaveRunningRef = useRef(false);
+  const lastAutoSaveAttemptAtRef = useRef<number>(Date.now());
   const [autoSaveMinutes, setAutoSaveMinutes] = useState<AutoSaveIntervalOption>(getAutoSaveInterval);
   
   // ストアからデータを取得
@@ -145,11 +159,53 @@ export function useAutoSave() {
     isProcessing,
     saveProjectAuto,
   ]);
+
+  useEffect(() => {
+    performAutoSaveRef.current = performAutoSave;
+  }, [performAutoSave]);
+
+  const runAutoSave = useCallback(async () => {
+    if (isAutoSaveRunningRef.current) return;
+
+    isAutoSaveRunningRef.current = true;
+    lastAutoSaveAttemptAtRef.current = Date.now();
+    try {
+      await performAutoSaveRef.current();
+    } finally {
+      isAutoSaveRunningRef.current = false;
+    }
+  }, []);
+
+  // 保存間隔の更新を即時反映（同一タブ + 他タブ）
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleIntervalChanged = (event: Event) => {
+      const next = (event as CustomEvent<AutoSaveIntervalOption>).detail;
+      if (typeof next === 'number' && isAutoSaveIntervalOption(next)) {
+        setAutoSaveMinutes(next);
+        return;
+      }
+      setAutoSaveMinutes(getAutoSaveInterval());
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== AUTO_SAVE_INTERVAL_KEY) return;
+      setAutoSaveMinutes(getAutoSaveInterval());
+    };
+
+    window.addEventListener(AUTO_SAVE_INTERVAL_CHANGED_EVENT, handleIntervalChanged as EventListener);
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener(AUTO_SAVE_INTERVAL_CHANGED_EVENT, handleIntervalChanged as EventListener);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, []);
   
   // 自動保存タイマーの設定
   useEffect(() => {
     // 初回起動時は少し遅延してから保存情報を更新
-    const initTimeout = setTimeout(() => {
+    const initTimeout = window.setTimeout(() => {
       useProjectStore.getState().refreshSaveInfo();
     }, 1000);
     
@@ -162,17 +218,32 @@ export function useAutoSave() {
     
     // 自動保存タイマー開始
     const intervalMs = autoSaveMinutes * 60 * 1000;
+    lastAutoSaveAttemptAtRef.current = Date.now();
     intervalRef.current = window.setInterval(() => {
-      performAutoSave();
+      void runAutoSave();
     }, intervalMs);
+
+    const triggerCatchUpSave = () => {
+      if (document.visibilityState !== 'visible') return;
+      const elapsed = Date.now() - lastAutoSaveAttemptAtRef.current;
+      if (elapsed < intervalMs) return;
+      void runAutoSave();
+    };
+
+    document.addEventListener('visibilitychange', triggerCatchUpSave);
+    window.addEventListener('focus', triggerCatchUpSave);
+    window.addEventListener('pageshow', triggerCatchUpSave);
     
     return () => {
       clearTimeout(initTimeout);
       if (intervalRef.current !== null) {
         clearInterval(intervalRef.current);
       }
+      document.removeEventListener('visibilitychange', triggerCatchUpSave);
+      window.removeEventListener('focus', triggerCatchUpSave);
+      window.removeEventListener('pageshow', triggerCatchUpSave);
     };
-  }, [performAutoSave, autoSaveMinutes]);
+  }, [autoSaveMinutes, runAutoSave]);
   
   /**
    * 自動保存間隔を更新
@@ -183,7 +254,7 @@ export function useAutoSave() {
   }, []);
   
   return {
-    performAutoSave,
+    performAutoSave: runAutoSave,
     autoSaveMinutes,
     updateAutoSaveInterval,
   };
