@@ -983,3 +983,13 @@
   - In export audio scheduling, skip muted narration clips to prevent mixed output.
   - Persist `isMuted` in project save/load and include it in auto-save change hash.
 - **Note**: Keep slider value while muted so unmute restores previous level.
+
+### 13-37. Unified volume range 0-250% for video/BGM/narration
+
+- **Files**: `src/components/media/ClipItem.tsx`, `src/components/sections/BgmSection.tsx`, `src/components/sections/NarrationSection.tsx`, `src/stores/mediaStore.ts`, `src/stores/audioStore.ts`, `src/stores/projectStore.ts`, `src/hooks/useExport.ts`
+- **Issue**: Volume control upper bound was inconsistent (some paths capped at 200%).
+- **Pattern**:
+  - Standardize max gain to `2.5` (250%) across UI sliders, store clamps, restore path, and export mix path.
+  - Keep default volume at `1.0` and percentage label as `Math.round(volume * 100)`.
+  - Ensure tests verify clamping at `2.5` for BGM and narration.
+- **Note**: Perceived loudness is logarithmic; 200% amplitude (~+6 dB) is not perceived as "twice as loud".

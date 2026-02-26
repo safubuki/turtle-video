@@ -577,7 +577,7 @@ async function offlineRenderAudio(
     const playDuration = Math.min(trimmedDuration, totalDuration - clipStart);
     if (playDuration <= 0) return;
 
-    gain.gain.setValueAtTime(Math.max(0, Math.min(2.0, clip.volume)), clipStart);
+    gain.gain.setValueAtTime(Math.max(0, Math.min(2.5, clip.volume)), clipStart);
     source.start(clipStart, trimStart, playDuration);
     scheduledSources++;
   }

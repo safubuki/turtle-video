@@ -207,7 +207,7 @@ const BgmSection: React.FC<BgmSectionProps> = ({
             <Volume2 className="w-3 h-3 text-gray-400" />
             <SwipeProtectedSlider
               min={0}
-              max={2.0}
+              max={2.5}
               step={0.05}
               value={bgm.volume}
               onChange={handleVolumeChange}

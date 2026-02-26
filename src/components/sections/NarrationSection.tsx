@@ -395,7 +395,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                   </button>
                   <SwipeProtectedSlider
                     min={0}
-                    max={2.0}
+                    max={2.5}
                     step={0.05}
                     value={clip.volume}
                     onChange={(val) => handleVolumeChange(clip.id, val)}

@@ -236,11 +236,11 @@ export const useMediaStore = create<MediaState>()(
         }));
       },
 
-      // Audio - Volume (max 1.5 = 150%)
+      // Audio - Volume (max 2.5 = 250%)
       updateVolume: (id, volume) => {
         set((state) => ({
           mediaItems: state.mediaItems.map((item) =>
-            item.id === id ? { ...item, volume: Math.max(0, Math.min(2.0, volume)) } : item
+            item.id === id ? { ...item, volume: Math.max(0, Math.min(2.5, volume)) } : item
           ),
         }));
       },

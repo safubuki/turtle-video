@@ -402,7 +402,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
               </button>
               <SwipeProtectedSlider
                 min={0}
-                max={2.0}
+                max={2.5}
                 step={0.05}
                 value={v.volume}
                 disabled={v.isMuted || isDisabled}

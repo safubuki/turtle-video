@@ -114,7 +114,7 @@ export function createNarrationClip(params: CreateNarrationClipParams): Narratio
     url: params.url,
     blobUrl: params.blobUrl,
     startTime: Math.max(0, params.startTime),
-    volume: Math.max(0, Math.min(2.0, params.volume ?? 1.0)),
+    volume: Math.max(0, Math.min(2.5, params.volume ?? 1.0)),
     isMuted: false,
     trimStart: 0,
     trimEnd: safeDuration,
@@ -138,7 +138,7 @@ function normalizeNarrationClip(clip: NarrationClip): NarrationClip {
     ...clip,
     duration,
     startTime: Math.max(0, clip.startTime),
-    volume: Math.max(0, Math.min(2.0, clip.volume)),
+    volume: Math.max(0, Math.min(2.5, clip.volume)),
     isMuted: Boolean(clip.isMuted),
     trimStart: clampedTrimStart,
     trimEnd: clampedTrimEnd,
@@ -256,7 +256,7 @@ export const useAudioStore = create<AudioState>()(
         set((state) => ({
           narrations: state.narrations.map((clip) => {
             if (clip.id !== id) return clip;
-            return normalizeNarrationClip({ ...clip, volume: Math.max(0, Math.min(2.0, value)) });
+            return normalizeNarrationClip({ ...clip, volume: Math.max(0, Math.min(2.5, value)) });
           }),
         }));
       },
