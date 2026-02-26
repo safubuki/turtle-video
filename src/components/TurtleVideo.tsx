@@ -1304,6 +1304,12 @@ const TurtleVideo: React.FC = () => {
         if (isPlayingRef.current || isProcessing) {
           needsResyncAfterVisibilityRef.current = true;
           pauseAllMediaElements();
+          // 通常再生時はタブ切替で明示的に一時停止状態へ遷移させる
+          // （復帰時に自動再開せず、ユーザー操作で再開できるようにする）
+          if (!isProcessing) {
+            isPlayingRef.current = false;
+            pause();
+          }
         }
         return;
       }
@@ -1333,7 +1339,7 @@ const TurtleVideo: React.FC = () => {
       window.removeEventListener('focus', handleWindowFocus);
       window.removeEventListener('pageshow', handlePageShow);
     };
-  }, [renderFrame, logInfo, logWarn, isProcessing]);
+  }, [renderFrame, logInfo, logWarn, isProcessing, pause]);
 
   // --- Audio Context ---
   const getAudioContext = useCallback(() => {
