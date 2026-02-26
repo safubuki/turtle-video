@@ -937,3 +937,49 @@
 - **注意**:
   - 00テンプレートではラベル固定を避け、種別確定は後段のAI整理で行う
   - 実運用テンプレートとスキル資産の4系統を同時更新し、再同期で仕様が戻らないようにする
+
+### 13-33. Narration clip trimStart/trimEnd support
+
+- **Files**: `src/types/index.ts`, `src/stores/audioStore.ts`, `src/components/sections/NarrationSection.tsx`, `src/components/TurtleVideo.tsx`, `src/hooks/useExport.ts`, `src/stores/projectStore.ts`, `src/hooks/useAutoSave.ts`
+- **Issue**: Long narration reuse needs per-clip in/out trim without implementing waveform split.
+- **Pattern**:
+  - Add `trimStart` / `trimEnd` to `NarrationClip` and initialize on clip creation.
+  - Normalize and clamp in store updates (`updateNarrationTrim`) with a minimum gap to avoid invalid ranges.
+  - In preview playback and visibility resync, map timeline time to source time with `sourceTime = trimStart + clipTime`.
+  - In export scheduling, use `source.start(clipStart, trimStart, playDuration)` where `playDuration` is computed from trimmed duration and timeline remainder.
+  - Persist trim fields in project save/load with backward-compatible defaults for legacy data.
+  - Include trim fields in auto-save change detection hash.
+  - In narration UI, expose trim sliders/inputs and show duration based on trimmed range.
+- **Note**: Loading the same narration source multiple times with per-clip trim is a practical substitute for dedicated split functionality.
+
+### 13-34. Narration trim controls as collapsed accordion (default closed)
+
+- **Files**: `src/components/sections/NarrationSection.tsx`
+- **Issue**: Narration card became visually dense when trim controls were always visible.
+- **Pattern**:
+  - Keep `startTime` and `volume` controls always visible for primary operation.
+  - Move `trimStart` / `trimEnd` controls into a per-clip accordion (`openTrimMap`) and default it to closed.
+  - Reuse chevron-style toggle pattern consistent with clip settings panels.
+- **Note**: This keeps the common workflow simple while preserving advanced trim editing on demand.
+
+### 13-35. Narration help content sync with trim-accordion UI
+
+- **Files**: `src/constants/sectionHelp.ts`
+- **Issue**: Help modal text lagged behind narration UI after trim controls became collapsible.
+- **Pattern**:
+  - Remove stale help visuals (e.g., narration `settings_button`) that no longer exist in the actual row controls.
+  - Add explicit help item for trim controls being inside a collapsed section.
+  - Clarify that `startTime` and `volume` are always visible for normal workflow.
+- **Note**: Keep help descriptions aligned with current UI to reduce onboarding confusion and false bug reports.
+
+### 13-36. Narration per-clip mute (preview/export/save)
+
+- **Files**: `src/types/index.ts`, `src/stores/audioStore.ts`, `src/components/sections/NarrationSection.tsx`, `src/components/TurtleVideo.tsx`, `src/hooks/useExport.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/hooks/useAutoSave.ts`
+- **Issue**: Narration card mute button existed visually but did not mute playback/export output.
+- **Pattern**:
+  - Add `isMuted` to `NarrationClip` and normalize with backward-compatible default (`false`).
+  - Add store action `toggleNarrationMute` and wire it to narration card speaker button.
+  - In preview playback, use effective volume `clip.isMuted ? 0 : clip.volume`.
+  - In export audio scheduling, skip muted narration clips to prevent mixed output.
+  - Persist `isMuted` in project save/load and include it in auto-save change hash.
+- **Note**: Keep slider value while muted so unmute restores previous level.

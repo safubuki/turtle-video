@@ -48,6 +48,8 @@ interface AudioState {
   addNarration: (clip: NarrationClip) => void;
   updateNarrationStartTime: (id: string, value: number) => void;
   updateNarrationVolume: (id: string, value: number) => void;
+  toggleNarrationMute: (id: string) => void;
+  updateNarrationTrim: (id: string, edge: 'start' | 'end', value: number) => void;
   updateNarrationMeta: (id: string, updates: Partial<NarrationClip>) => void;
   replaceNarrationAudio: (
     id: string,
@@ -104,6 +106,7 @@ export function createAudioTrack(
 
 // Helper: create narration clip
 export function createNarrationClip(params: CreateNarrationClipParams): NarrationClip {
+  const safeDuration = Math.max(0, params.duration);
   return {
     id: generateNarrationId(),
     sourceType: params.sourceType,
@@ -112,11 +115,33 @@ export function createNarrationClip(params: CreateNarrationClipParams): Narratio
     blobUrl: params.blobUrl,
     startTime: Math.max(0, params.startTime),
     volume: Math.max(0, Math.min(2.0, params.volume ?? 1.0)),
-    duration: params.duration,
+    isMuted: false,
+    trimStart: 0,
+    trimEnd: safeDuration,
+    duration: safeDuration,
     isAiEditable: params.sourceType === 'ai',
     aiScript: params.aiScript,
     aiVoice: params.aiVoice,
     aiVoiceStyle: params.aiVoiceStyle,
+  };
+}
+
+function normalizeNarrationClip(clip: NarrationClip): NarrationClip {
+  const duration = Math.max(0, clip.duration);
+  const fallbackTrimEnd = duration;
+  const rawTrimStart = Number.isFinite(clip.trimStart) ? clip.trimStart : 0;
+  const rawTrimEnd = Number.isFinite(clip.trimEnd) ? clip.trimEnd : fallbackTrimEnd;
+  const clampedTrimStart = Math.max(0, Math.min(duration, rawTrimStart));
+  const clampedTrimEnd = Math.max(clampedTrimStart, Math.min(duration, rawTrimEnd));
+
+  return {
+    ...clip,
+    duration,
+    startTime: Math.max(0, clip.startTime),
+    volume: Math.max(0, Math.min(2.0, clip.volume)),
+    isMuted: Boolean(clip.isMuted),
+    trimStart: clampedTrimStart,
+    trimEnd: clampedTrimEnd,
   };
 }
 
@@ -215,7 +240,7 @@ export const useAudioStore = create<AudioState>()(
           startTime: clip.startTime,
           duration: clip.duration,
         });
-        set((state) => ({ narrations: [...state.narrations, clip] }));
+        set((state) => ({ narrations: [...state.narrations, normalizeNarrationClip(clip)] }));
       },
 
       updateNarrationStartTime: (id, value) => {
@@ -231,7 +256,35 @@ export const useAudioStore = create<AudioState>()(
         set((state) => ({
           narrations: state.narrations.map((clip) => {
             if (clip.id !== id) return clip;
-            return { ...clip, volume: Math.max(0, Math.min(2.0, value)) };
+            return normalizeNarrationClip({ ...clip, volume: Math.max(0, Math.min(2.0, value)) });
+          }),
+        }));
+      },
+
+      toggleNarrationMute: (id) => {
+        set((state) => ({
+          narrations: state.narrations.map((clip) => (
+            clip.id === id ? normalizeNarrationClip({ ...clip, isMuted: !clip.isMuted }) : clip
+          )),
+        }));
+      },
+
+      updateNarrationTrim: (id, edge, value) => {
+        set((state) => ({
+          narrations: state.narrations.map((clip) => {
+            if (clip.id !== id) return clip;
+            const minGap = 0.05;
+            const duration = Math.max(0, clip.duration);
+            const trimStart = Number.isFinite(clip.trimStart) ? clip.trimStart : 0;
+            const trimEnd = Number.isFinite(clip.trimEnd) ? clip.trimEnd : duration;
+
+            if (edge === 'start') {
+              const nextStart = Math.max(0, Math.min(value, trimEnd - minGap));
+              return normalizeNarrationClip({ ...clip, trimStart: nextStart });
+            }
+
+            const nextEnd = Math.min(duration, Math.max(value, trimStart + minGap));
+            return normalizeNarrationClip({ ...clip, trimEnd: nextEnd });
           }),
         }));
       },
@@ -241,9 +294,7 @@ export const useAudioStore = create<AudioState>()(
           narrations: state.narrations.map((clip) => {
             if (clip.id !== id) return clip;
             const next = { ...clip, ...updates };
-            next.startTime = Math.max(0, next.startTime);
-            next.volume = Math.max(0, Math.min(2.0, next.volume));
-            return next;
+            return normalizeNarrationClip(next);
           }),
         }));
       },
@@ -261,6 +312,8 @@ export const useAudioStore = create<AudioState>()(
               url: payload.url,
               blobUrl: payload.blobUrl,
               duration: payload.duration,
+              trimStart: 0,
+              trimEnd: Math.max(0, payload.duration),
               sourceType: payload.sourceType,
               isAiEditable: payload.isAiEditable,
               aiScript: payload.aiScript,
@@ -301,7 +354,7 @@ export const useAudioStore = create<AudioState>()(
       setNarrations: (clips) => {
         const { narrations } = get();
         revokeNarrationUrls(narrations);
-        set({ narrations: clips });
+        set({ narrations: clips.map((clip) => normalizeNarrationClip(clip)) });
       },
 
       toggleNarrationLock: () => {
@@ -337,7 +390,7 @@ export const useAudioStore = create<AudioState>()(
         set({
           bgm: newBgm,
           isBgmLocked: newIsBgmLocked,
-          narrations: newNarrations,
+          narrations: newNarrations.map((clip) => normalizeNarrationClip(clip)),
           isNarrationLocked: newIsNarrationLocked,
         });
       },

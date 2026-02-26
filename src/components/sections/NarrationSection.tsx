@@ -12,6 +12,7 @@ import {
   Mic,
   Sparkles,
   Volume2,
+  VolumeX,
   ChevronDown,
   ChevronRight,
   RefreshCw,
@@ -22,7 +23,6 @@ import {
   FileAudio,
   Edit2,
   Save,
-  Settings,
 } from 'lucide-react';
 import type { NarrationClip } from '../../types';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
@@ -41,6 +41,9 @@ interface NarrationSectionProps {
   onUpdateStartTime: (id: string, value: string) => void;
   onSetStartTimeToCurrent: (id: string) => void;
   onUpdateVolume: (id: string, value: string) => void;
+  onToggleMute: (id: string) => void;
+  onUpdateTrimStart: (id: string, value: string) => void;
+  onUpdateTrimEnd: (id: string, value: string) => void;
   formatTime: (seconds: number) => string;
   onOpenHelp: () => void;
 }
@@ -59,11 +62,14 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
   onUpdateStartTime,
   onSetStartTimeToCurrent,
   onUpdateVolume,
+  onToggleMute,
+  onUpdateTrimStart,
+  onUpdateTrimEnd,
   formatTime,
   onOpenHelp,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [openDetailMap, setOpenDetailMap] = useState<Record<string, boolean>>({});
+  const [openTrimMap, setOpenTrimMap] = useState<Record<string, boolean>>({});
   const prevNarrationCountRef = useRef(narrations.length);
 
   const isIosSafari = useMemo(() => {
@@ -87,6 +93,16 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
   const handleVolumeChange = useCallback(
     (id: string, val: number) => onUpdateVolume(id, String(val)),
     [onUpdateVolume]
+  );
+
+  const handleTrimStartChange = useCallback(
+    (id: string, val: number) => onUpdateTrimStart(id, String(val)),
+    [onUpdateTrimStart]
+  );
+
+  const handleTrimEndChange = useCallback(
+    (id: string, val: number) => onUpdateTrimEnd(id, String(val)),
+    [onUpdateTrimEnd]
   );
 
   useEffect(() => {
@@ -162,8 +178,13 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
 
           {narrations.map((clip, index) => {
             const isAi = clip.sourceType === 'ai';
-            const isDetailOpen = openDetailMap[clip.id] ?? true;
-            const rawEndTime = clip.startTime + clip.duration;
+            const isTrimOpen = openTrimMap[clip.id] ?? false;
+            const trimStart = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
+            const trimEnd = Number.isFinite(clip.trimEnd)
+              ? Math.max(trimStart, Math.min(clip.duration, clip.trimEnd))
+              : clip.duration;
+            const playableDuration = Math.max(0.05, trimEnd - trimStart);
+            const rawEndTime = clip.startTime + playableDuration;
             const hasEndMarker = totalDuration > 0;
             const clampedEndTime = hasEndMarker
               ? Math.max(0, Math.min(totalDuration, rawEndTime))
@@ -205,23 +226,6 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                       <ArrowDown className="w-3.5 h-3.5" />
                     </button>
                     <button
-                      onClick={() => {
-                        setOpenDetailMap((prev) => ({
-                          ...prev,
-                          [clip.id]: !(prev[clip.id] ?? true),
-                        }));
-                      }}
-                      disabled={isNarrationLocked}
-                      className={`px-2 py-1 rounded border text-[10px] transition ${
-                        isDetailOpen
-                          ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-200'
-                          : 'bg-gray-700 hover:bg-gray-600 border-gray-600 text-gray-300'
-                      } disabled:opacity-30`}
-                      title={isDetailOpen ? '設定を閉じる' : '設定を開く'}
-                    >
-                      <Settings className="w-3.5 h-3.5" />
-                    </button>
-                    <button
                       onClick={() => onEditAiNarration(clip.id)}
                       disabled={isNarrationLocked || !isAi}
                       className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded border border-gray-600 text-gray-300 flex items-center gap-0.5 disabled:opacity-30 disabled:transition-none text-[10px] transition"
@@ -250,51 +254,98 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                   </div>
                 </div>
 
-                {isDetailOpen && (
-                  <>
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between text-[10px] md:text-xs text-gray-400">
-                        <span>開始位置: {formatTime(clip.startTime)}</span>
-                        <span>長さ: {formatTime(clip.duration)}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="relative flex-1 pt-3">
-                          {hasEndMarker && (
-                            <div
-                              className="pointer-events-none absolute top-0 -translate-x-1/2 z-10"
-                              style={{ left: `${endMarkerPercent}%` }}
-                              aria-hidden="true"
-                            >
-                              <div
-                                className={`w-0 h-0 border-l-[7px] border-r-[7px] border-l-transparent border-r-transparent border-t-[9px] ${isEndOverflow ? 'border-t-amber-400/90' : 'border-t-indigo-300/90'}`}
-                              />
-                            </div>
-                          )}
-                          <SwipeProtectedSlider
-                            min={0}
-                            max={Math.max(0, totalDuration)}
-                            step={0.1}
-                            value={clip.startTime}
-                            onChange={(val) => handleStartTimeChange(clip.id, val)}
-                            disabled={isNarrationLocked}
-                            className="w-full accent-indigo-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[10px] md:text-xs text-gray-400">
+                    <span>開始位置: {formatTime(clip.startTime)}</span>
+                    <span>長さ: {formatTime(playableDuration)}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1 pt-3">
+                      {hasEndMarker && (
+                        <div
+                          className="pointer-events-none absolute top-0 -translate-x-1/2 z-10"
+                          style={{ left: `${endMarkerPercent}%` }}
+                          aria-hidden="true"
+                        >
+                          <div
+                            className={`w-0 h-0 border-l-[7px] border-r-[7px] border-l-transparent border-r-transparent border-t-[9px] ${isEndOverflow ? 'border-t-amber-400/90' : 'border-t-indigo-300/90'}`}
                           />
                         </div>
-                        <button
-                          onClick={() => onSetStartTimeToCurrent(clip.id)}
+                      )}
+                      <SwipeProtectedSlider
+                        min={0}
+                        max={Math.max(0, totalDuration)}
+                        step={0.1}
+                        value={clip.startTime}
+                        onChange={(val) => handleStartTimeChange(clip.id, val)}
+                        disabled={isNarrationLocked}
+                        className="w-full accent-indigo-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
+                      />
+                    </div>
+                    <button
+                      onClick={() => onSetStartTimeToCurrent(clip.id)}
+                      disabled={isNarrationLocked}
+                      className="p-1 text-gray-400 hover:text-indigo-300 disabled:opacity-30"
+                      title={`現在位置(${formatTime(currentTime)})を開始位置に設定`}
+                    >
+                      <MapPin className="w-3.5 h-3.5" />
+                    </button>
+                    <input
+                      type="number"
+                      min="0"
+                      max={Math.max(0, totalDuration)}
+                      step="0.1"
+                      value={clip.startTime}
+                      onChange={(e) => onUpdateStartTime(clip.id, e.target.value)}
+                      disabled={isNarrationLocked}
+                      className="w-16 md:w-20 bg-gray-700 border border-gray-600 rounded px-1 text-[10px] md:text-xs text-right focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+                    />
+                    <span className="text-[10px] md:text-xs text-gray-500">秒</span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setOpenTrimMap((prev) => ({
+                      ...prev,
+                      [clip.id]: !(prev[clip.id] ?? false),
+                    }));
+                  }}
+                  disabled={isNarrationLocked}
+                  className="text-xs md:text-sm flex items-center gap-1 text-gray-400 hover:text-white disabled:opacity-50"
+                >
+                  {isTrimOpen ? (
+                    <ChevronDown className="w-3 h-3" />
+                  ) : (
+                    <ChevronRight className="w-3 h-3" />
+                  )}
+                  <span>切り出し設定</span>
+                </button>
+
+                {isTrimOpen && (
+                  <div className="px-2 mb-1 space-y-2 border-t border-gray-700/50 pt-2 mt-1 bg-gray-900/30 rounded p-2">
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[10px] md:text-xs text-gray-400">
+                        <span>切り出し開始: {formatTime(trimStart)}</span>
+                        <span>元音声: {formatTime(clip.duration)}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <SwipeProtectedSlider
+                          min={0}
+                          max={Math.max(0, clip.duration)}
+                          step={0.1}
+                          value={trimStart}
+                          onChange={(val) => handleTrimStartChange(clip.id, val)}
                           disabled={isNarrationLocked}
-                          className="p-1 text-gray-400 hover:text-indigo-300 disabled:opacity-30"
-                          title={`現在位置(${formatTime(currentTime)})を開始位置に設定`}
-                        >
-                          <MapPin className="w-3.5 h-3.5" />
-                        </button>
+                          className="flex-1 accent-indigo-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
+                        />
                         <input
                           type="number"
                           min="0"
-                          max={Math.max(0, totalDuration)}
+                          max={Math.max(0, trimEnd - 0.05)}
                           step="0.1"
-                          value={clip.startTime}
-                          onChange={(e) => onUpdateStartTime(clip.id, e.target.value)}
+                          value={trimStart}
+                          onChange={(e) => onUpdateTrimStart(clip.id, e.target.value)}
                           disabled={isNarrationLocked}
                           className="w-16 md:w-20 bg-gray-700 border border-gray-600 rounded px-1 text-[10px] md:text-xs text-right focus:outline-none focus:border-indigo-500 disabled:opacity-50"
                         />
@@ -302,29 +353,65 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                       </div>
                     </div>
 
-                    <div className="bg-gray-800/50 p-2 rounded-lg flex items-center gap-2">
-                      <Volume2 className="w-3.5 h-3.5 text-gray-400" />
-                      <SwipeProtectedSlider
-                        min={0}
-                        max={2.0}
-                        step={0.05}
-                        value={clip.volume}
-                        onChange={(val) => handleVolumeChange(clip.id, val)}
-                        disabled={isNarrationLocked}
-                        className={`flex-1 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isNarrationLocked ? '' : 'cursor-pointer'}`}
-                      />
-                      <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right">{Math.round(clip.volume * 100)}%</span>
-                      <button
-                        onClick={() => onUpdateVolume(clip.id, '1')}
-                        disabled={isNarrationLocked}
-                        className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition disabled:opacity-50"
-                        title="リセット"
-                      >
-                        <RefreshCw className="w-3 h-3" />
-                      </button>
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[10px] md:text-xs text-gray-400">
+                        <span>切り出し終了: {formatTime(trimEnd)}</span>
+                        <span>範囲: {formatTime(playableDuration)}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <SwipeProtectedSlider
+                          min={0}
+                          max={Math.max(0, clip.duration)}
+                          step={0.1}
+                          value={trimEnd}
+                          onChange={(val) => handleTrimEndChange(clip.id, val)}
+                          disabled={isNarrationLocked}
+                          className="flex-1 accent-indigo-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
+                        />
+                        <input
+                          type="number"
+                          min={Math.min(Math.max(0, trimStart + 0.05), Math.max(0, clip.duration))}
+                          max={Math.max(0, clip.duration)}
+                          step="0.1"
+                          value={trimEnd}
+                          onChange={(e) => onUpdateTrimEnd(clip.id, e.target.value)}
+                          disabled={isNarrationLocked}
+                          className="w-16 md:w-20 bg-gray-700 border border-gray-600 rounded px-1 text-[10px] md:text-xs text-right focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+                        />
+                        <span className="text-[10px] md:text-xs text-gray-500">秒</span>
+                      </div>
                     </div>
-                  </>
+                  </div>
                 )}
+
+                <div className="bg-gray-800/50 p-2 rounded-lg flex items-center gap-2">
+                  <button
+                    onClick={() => onToggleMute(clip.id)}
+                    disabled={isNarrationLocked}
+                    className={`p-1 rounded transition ${clip.isMuted ? 'bg-red-500/20 text-red-300' : 'text-gray-400 hover:text-white'} disabled:opacity-50`}
+                    title={clip.isMuted ? 'ミュート解除' : 'ミュート'}
+                  >
+                    {clip.isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                  </button>
+                  <SwipeProtectedSlider
+                    min={0}
+                    max={2.0}
+                    step={0.05}
+                    value={clip.volume}
+                    onChange={(val) => handleVolumeChange(clip.id, val)}
+                    disabled={isNarrationLocked || clip.isMuted}
+                    className={`flex-1 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${(isNarrationLocked || clip.isMuted) ? '' : 'cursor-pointer'}`}
+                  />
+                  <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right">{Math.round(clip.volume * 100)}%</span>
+                  <button
+                    onClick={() => onUpdateVolume(clip.id, '1')}
+                    disabled={isNarrationLocked}
+                    className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition disabled:opacity-50"
+                    title="リセット"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
             );
           })}

@@ -557,6 +557,7 @@ async function offlineRenderAudio(
   async function scheduleNarrationClip(clip: NarrationClip): Promise<void> {
     if (signal.aborted) return;
     if (!clip.url || clip.duration <= 0) return;
+    if (clip.isMuted || clip.volume <= 0) return;
 
     const audioBuffer = await decodeAudio(clip.file, clip.url, clip.duration);
     if (!audioBuffer) return;
@@ -568,11 +569,16 @@ async function offlineRenderAudio(
     gain.connect(offlineCtx.destination);
 
     const clipStart = Math.max(0, clip.startTime);
-    const playDuration = Math.min(clip.duration, totalDuration - clipStart);
+    const trimStart = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
+    const trimEnd = Number.isFinite(clip.trimEnd)
+      ? Math.max(trimStart, Math.min(clip.duration, clip.trimEnd))
+      : clip.duration;
+    const trimmedDuration = Math.max(0, trimEnd - trimStart);
+    const playDuration = Math.min(trimmedDuration, totalDuration - clipStart);
     if (playDuration <= 0) return;
 
     gain.gain.setValueAtTime(Math.max(0, Math.min(2.0, clip.volume)), clipStart);
-    source.start(clipStart, 0, playDuration);
+    source.start(clipStart, trimStart, playDuration);
     scheduledSources++;
   }
 

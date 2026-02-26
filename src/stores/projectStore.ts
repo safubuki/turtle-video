@@ -239,6 +239,9 @@ async function serializeNarrationClip(clip: NarrationClip): Promise<SerializedNa
     blobData,
     startTime: clip.startTime,
     volume: clip.volume,
+    isMuted: clip.isMuted,
+    trimStart: clip.trimStart,
+    trimEnd: clip.trimEnd,
     duration: clip.duration,
     isAiEditable: clip.isAiEditable,
     aiScript: clip.aiScript,
@@ -266,6 +269,10 @@ function deserializeNarrationClip(data: SerializedNarrationClip): NarrationClip 
     url = '';
   }
 
+  const duration = Math.max(0, data.duration);
+  const trimStart = Math.max(0, Math.min(duration, data.trimStart ?? 0));
+  const trimEnd = Math.max(trimStart, Math.min(duration, data.trimEnd ?? duration));
+
   return {
     id: data.id,
     sourceType: data.sourceType,
@@ -274,7 +281,10 @@ function deserializeNarrationClip(data: SerializedNarrationClip): NarrationClip 
     blobUrl,
     startTime: Math.max(0, data.startTime),
     volume: Math.max(0, Math.min(2.0, data.volume)),
-    duration: data.duration,
+    isMuted: Boolean(data.isMuted),
+    trimStart,
+    trimEnd,
+    duration,
     isAiEditable: data.isAiEditable,
     aiScript: data.aiScript,
     aiVoice: data.aiVoice as NarrationClip['aiVoice'],
@@ -291,6 +301,9 @@ function convertLegacyNarrationToClip(track: AudioTrack): NarrationClip {
     blobUrl: track.blobUrl,
     startTime: Math.max(0, track.delay || 0),
     volume: Math.max(0, Math.min(2.0, track.volume)),
+    isMuted: false,
+    trimStart: 0,
+    trimEnd: Math.max(0, track.duration),
     duration: track.duration,
     isAiEditable: !!track.isAi,
   };

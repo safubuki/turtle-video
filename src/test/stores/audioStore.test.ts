@@ -23,17 +23,32 @@ const createMockAudioTrack = (overrides: Partial<AudioTrack> = {}): AudioTrack =
 
 const createMockNarrationClip = (
   overrides: Partial<NarrationClip> = {}
-): NarrationClip => ({
-  id: 'narration-1',
-  sourceType: 'file',
-  file: new File([''], 'narration.mp3', { type: 'audio/mpeg' }),
-  url: 'blob:narration',
-  startTime: 0,
-  volume: 1.0,
-  duration: 30,
-  isAiEditable: false,
-  ...overrides,
-});
+): NarrationClip => {
+  const duration = overrides.duration ?? 30;
+  const trimStart = overrides.trimStart ?? 0;
+  const trimEnd = overrides.trimEnd ?? duration;
+
+  const clip: NarrationClip = {
+    id: overrides.id ?? 'narration-1',
+    sourceType: overrides.sourceType ?? 'file',
+    file: overrides.file ?? new File([''], 'narration.mp3', { type: 'audio/mpeg' }),
+    url: overrides.url ?? 'blob:narration',
+    startTime: overrides.startTime ?? 0,
+    volume: overrides.volume ?? 1.0,
+    isMuted: overrides.isMuted ?? false,
+    duration,
+    trimStart,
+    trimEnd,
+    isAiEditable: overrides.isAiEditable ?? false,
+  };
+
+  if (overrides.blobUrl !== undefined) clip.blobUrl = overrides.blobUrl;
+  if (overrides.aiScript !== undefined) clip.aiScript = overrides.aiScript;
+  if (overrides.aiVoice !== undefined) clip.aiVoice = overrides.aiVoice;
+  if (overrides.aiVoiceStyle !== undefined) clip.aiVoiceStyle = overrides.aiVoiceStyle;
+
+  return clip;
+};
 
 describe('audioStore', () => {
   beforeEach(() => {
@@ -139,6 +154,18 @@ describe('audioStore', () => {
       expect(useAudioStore.getState().narrations[0].volume).toBe(2.0);
     });
 
+    it('should toggle narration mute', () => {
+      const clip = createMockNarrationClip({ isMuted: false });
+      useAudioStore.setState({ narrations: [clip] });
+      const { toggleNarrationMute } = useAudioStore.getState();
+
+      toggleNarrationMute(clip.id);
+      expect(useAudioStore.getState().narrations[0].isMuted).toBe(true);
+
+      toggleNarrationMute(clip.id);
+      expect(useAudioStore.getState().narrations[0].isMuted).toBe(false);
+    });
+
     it('should move narration order', () => {
       const clip1 = createMockNarrationClip({ id: 'n1' });
       const clip2 = createMockNarrationClip({ id: 'n2' });
@@ -158,6 +185,20 @@ describe('audioStore', () => {
       removeNarration(clip.id);
 
       expect(useAudioStore.getState().narrations).toHaveLength(0);
+    });
+
+    it('should update narration trim with clamp', () => {
+      const clip = createMockNarrationClip({ duration: 10, trimStart: 0, trimEnd: 10 });
+      useAudioStore.setState({ narrations: [clip] });
+      const { updateNarrationTrim } = useAudioStore.getState();
+
+      updateNarrationTrim(clip.id, 'start', 9.99);
+      const afterStart = useAudioStore.getState().narrations[0];
+      expect(afterStart.trimStart).toBeCloseTo(9.95, 2);
+
+      updateNarrationTrim(clip.id, 'end', 0);
+      const afterEnd = useAudioStore.getState().narrations[0];
+      expect(afterEnd.trimEnd).toBeCloseTo(10, 2);
     });
   });
 

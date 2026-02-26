@@ -126,6 +126,8 @@ const TurtleVideo: React.FC = () => {
   const addNarration = useAudioStore((s) => s.addNarration);
   const updateNarrationStartTime = useAudioStore((s) => s.updateNarrationStartTime);
   const updateNarrationVolume = useAudioStore((s) => s.updateNarrationVolume);
+  const toggleNarrationMute = useAudioStore((s) => s.toggleNarrationMute);
+  const updateNarrationTrim = useAudioStore((s) => s.updateNarrationTrim);
   const updateNarrationMeta = useAudioStore((s) => s.updateNarrationMeta);
   const replaceNarrationAudio = useAudioStore((s) => s.replaceNarrationAudio);
   const moveNarration = useAudioStore((s) => s.moveNarration);
@@ -981,8 +983,12 @@ const TurtleVideo: React.FC = () => {
 
           if (!element || !gainNode || !audioCtxRef.current) return;
 
+          const trimStart = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
+          const trimEnd = Number.isFinite(clip.trimEnd) ? Math.max(trimStart, Math.min(clip.duration, clip.trimEnd)) : clip.duration;
+          const playableDuration = Math.max(0, trimEnd - trimStart);
           const clipTime = time - clip.startTime;
-          const inRange = clipTime >= 0 && clipTime <= clip.duration;
+          const sourceTime = trimStart + clipTime;
+          const inRange = clipTime >= 0 && clipTime <= playableDuration;
 
           if (isActivePlaying) {
             if (!inRange) {
@@ -991,12 +997,12 @@ const TurtleVideo: React.FC = () => {
               return;
             }
 
-            const needsSeek = Math.abs(element.currentTime - clipTime) > 0.5;
+            const needsSeek = Math.abs(element.currentTime - sourceTime) > 0.5;
             if (needsSeek) {
               if (!element.paused) {
                 element.pause();
               }
-              element.currentTime = clipTime;
+              element.currentTime = sourceTime;
             }
 
             if (holdAudioThisFrame) {
@@ -1007,7 +1013,7 @@ const TurtleVideo: React.FC = () => {
               element.play().catch(() => { });
             }
 
-            let vol = clip.volume;
+            let vol = clip.isMuted ? 0 : clip.volume;
             if (element.seeking || holdAudioThisFrame) {
               vol = 0;
             }
@@ -1020,8 +1026,8 @@ const TurtleVideo: React.FC = () => {
             gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.1);
             if (!element.paused) element.pause();
 
-            if (inRange && Math.abs(element.currentTime - clipTime) > 0.1) {
-              element.currentTime = clipTime;
+            if (inRange && Math.abs(element.currentTime - sourceTime) > 0.1) {
+              element.currentTime = sourceTime;
             }
           }
         };
@@ -1208,8 +1214,12 @@ const TurtleVideo: React.FC = () => {
         const el = mediaElementsRef.current[trackId] as HTMLAudioElement | undefined;
         if (!el) return;
 
-        const trackTime = t - clip.startTime;
-        const inRange = trackTime >= 0 && trackTime <= clip.duration;
+        const trimStart = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
+        const trimEnd = Number.isFinite(clip.trimEnd) ? Math.max(trimStart, Math.min(clip.duration, clip.trimEnd)) : clip.duration;
+        const playableDuration = Math.max(0, trimEnd - trimStart);
+        const clipTime = t - clip.startTime;
+        const trackTime = trimStart + clipTime;
+        const inRange = clipTime >= 0 && clipTime <= playableDuration;
 
         if (!inRange) {
           if (!el.paused) {
@@ -2261,6 +2271,22 @@ const TurtleVideo: React.FC = () => {
     updateNarrationVolume(id, numVal);
   }, [updateNarrationVolume]);
 
+  const handleToggleNarrationMute = useCallback((id: string) => {
+    toggleNarrationMute(id);
+  }, [toggleNarrationMute]);
+
+  const handleUpdateNarrationTrimStart = useCallback((id: string, val: string) => {
+    const numVal = parseFloat(val);
+    if (isNaN(numVal)) return;
+    updateNarrationTrim(id, 'start', numVal);
+  }, [updateNarrationTrim]);
+
+  const handleUpdateNarrationTrimEnd = useCallback((id: string, val: string) => {
+    const numVal = parseFloat(val);
+    if (isNaN(numVal)) return;
+    updateNarrationTrim(id, 'end', numVal);
+  }, [updateNarrationTrim]);
+
   const handleAddAiNarration = useCallback(() => {
     setEditingNarrationId(null);
     setAiScript('');
@@ -2801,7 +2827,7 @@ const TurtleVideo: React.FC = () => {
           if (!element) return;
           audioPreloadPromises.push(
             new Promise((resolve) => {
-              const targetTime = 0;
+              const targetTime = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
               if (element.readyState < 2) {
                 const handleCanPlay = () => {
                   element.removeEventListener('canplay', handleCanPlay);
@@ -3749,6 +3775,9 @@ const TurtleVideo: React.FC = () => {
               onUpdateStartTime={withPause(handleUpdateNarrationStart)}
               onSetStartTimeToCurrent={withPause(handleSetNarrationStartToCurrent)}
               onUpdateVolume={withPause(handleUpdateNarrationVolume)}
+              onToggleMute={withPause(handleToggleNarrationMute)}
+              onUpdateTrimStart={withPause(handleUpdateNarrationTrimStart)}
+              onUpdateTrimEnd={withPause(handleUpdateNarrationTrimEnd)}
               formatTime={formatTime}
               onOpenHelp={() => openSectionHelp('narration')}
             />

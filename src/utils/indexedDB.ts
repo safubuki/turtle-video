@@ -69,6 +69,9 @@ export interface SerializedNarrationClip {
   blobData?: ArrayBuffer;
   startTime: number;
   volume: number;
+  isMuted?: boolean;
+  trimStart?: number;
+  trimEnd?: number;
   duration: number;
   isAiEditable: boolean;
   aiScript?: string;

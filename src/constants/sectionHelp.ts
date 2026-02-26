@@ -155,7 +155,7 @@ export const SECTION_HELP_CONTENT: Record<SectionHelpKey, SectionHelpDefinition>
       {
         title: '並び替え・編集・削除・保存',
         description: '各ナレーションを上下移動、編集、削除、保存できます。',
-        visuals: ['move_up_button', 'move_down_button', 'settings_button', 'edit_button', 'delete_button', 'save_button'],
+        visuals: ['move_up_button', 'move_down_button', 'edit_button', 'delete_button', 'save_button'],
       },
       {
         title: '開始位置',
@@ -163,8 +163,13 @@ export const SECTION_HELP_CONTENT: Record<SectionHelpKey, SectionHelpDefinition>
         visuals: ['start_chip', 'current_pin_chip', 'slider_demo'],
       },
       {
+        title: '切り出し設定（折りたたみ）',
+        description: '切り出し開始/終了は「切り出し設定」を開いたときだけ表示されます。通常は閉じたまま使えます。',
+        visuals: ['trim_chip', 'duration_chip', 'slider_demo'],
+      },
+      {
         title: '音量調整',
-        description: '音量を調整し、スピーカーアイコンでミュートON/OFF切替、くるくるアイコンでデフォルト値に戻せます。',
+        description: '音量は常時表示です。スライダーで調整し、スピーカーアイコンでミュートON/OFF切替、くるくるアイコンでデフォルト値に戻せます。',
         visuals: ['volume_chip', 'mute_button', 'reset_button', 'slider_demo'],
       },
     ],

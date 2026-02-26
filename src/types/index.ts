@@ -64,6 +64,9 @@ export interface NarrationClip {
   blobUrl?: string;
   startTime: number;
   volume: number;
+  isMuted: boolean;
+  trimStart: number;
+  trimEnd: number;
   duration: number;
   isAiEditable: boolean;
   aiScript?: string;

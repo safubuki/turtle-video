@@ -97,7 +97,7 @@ export function useAutoSave() {
       mediaItems.map((m) => `${m.id}:${m.volume}:${m.isMuted}:${m.duration}:${m.trimStart}:${m.trimEnd}`).join(','),
       bgm ? `${bgm.volume}:${bgm.delay}:${bgm.fadeIn}:${bgm.fadeOut}` : 'none',
       narrations.length,
-      narrations.map((n) => `${n.id}:${n.startTime}:${n.volume}:${n.duration}:${n.sourceType}`).join(','),
+      narrations.map((n) => `${n.id}:${n.startTime}:${n.volume}:${n.isMuted}:${n.duration}:${n.trimStart}:${n.trimEnd}:${n.sourceType}`).join(','),
       captions.length,
       captions.map((c) => `${c.id}:${c.text}:${c.startTime}:${c.endTime}`).join(','),
       JSON.stringify(captionSettings),
