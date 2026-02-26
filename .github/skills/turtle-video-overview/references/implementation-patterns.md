@@ -425,6 +425,8 @@
 | **Safari Export** | iOS Safari では OfflineAudioContext による音声プリレンダリング方式を使用。メインAudioContextで`decodeAudioData`を実行し、`f32-planar`形式のAudioDataをAudioEncoderに直接供給する。**重要**: iOS Safari の `decodeAudioData` はビデオコンテナ(.mov/.mp4)をデコードできない（`EncodingError`）ため、`extractAudioViaVideoElement()` で `<video>` 要素経由のリアルタイム音声抽出にフォールバックする。muxer/AudioEncoder は常に音声付きで初期化。OfflineAudioContext 失敗時は ScriptProcessorNode にフォールバック |
 | **タブ切替** | `visibilitychange` で hidden 時は通常再生を明示一時停止（`isPlayingRef=false` + `pause()`）、復帰時に Canvas 再描画と必要なメディア再同期を実行 |
 | **下部モーダル** | 下から開くモーダルは `history.pushState` + `popstate` で戻るキー閉じを実装し、モバイルでは `scrollTop=0` かつ縦下スワイプ（72px超）で閉じる。クリーンアップ時は自分の履歴 state が先頭のときのみ `history.back()` する |
+| **AIナレーション(TTS)** | 声の調子は先頭に `（スタイル指示）` として付与し、TTS 指示で「括弧内は発話しない」を明示する。実際に読ませる本文は括弧の後ろのみ |
+| **AIナレーション(原稿文量)** | 原稿生成は長さモードを秒数目安で統一する。`短め=約5秒（20〜35文字）` / `中くらい=約10秒（35〜60文字）` / `長め=約20秒（100〜140文字）` をプロンプトで明示し、過剰な長文化を防ぐ |
 | **モバイル** | スライダー誤操作を `useSwipeProtectedValue` で防止。`playsInline` 必須 |
 | **レスポンシブ** | モバイル既存スタイルは変更禁止。`md:` / `lg:` バリアントのみ追加で対応 |
 | **IndexedDB** | `File → ArrayBuffer → File` のラウンドトリップが必要。大容量データに注意。容量不足時は`auto`を自動削除せず、確認後のみ削除リトライする |

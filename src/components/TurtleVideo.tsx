@@ -1402,9 +1402,9 @@ const TurtleVideo: React.FC = () => {
       const modelsToTry = [GEMINI_SCRIPT_MODEL, ...GEMINI_SCRIPT_FALLBACK_MODELS]
         .filter((model, idx, arr) => arr.indexOf(model) === idx);
       const lengthTargetByMode: Record<NarrationScriptLength, string> = {
-        short: '40〜70文字',
-        medium: '70〜120文字',
-        long: '120〜180文字',
+        short: '約5秒（20〜35文字）',
+        medium: '約10秒（35〜60文字）',
+        long: '約20秒（100〜140文字）',
       };
       const selectedLengthTarget = lengthTargetByMode[aiScriptLength];
 
@@ -1412,7 +1412,8 @@ const TurtleVideo: React.FC = () => {
         'あなたは日本語の動画ナレーション原稿を作るプロです。',
         '出力は読み上げる本文のみ、1段落、1つだけ返してください。',
         '挨拶・見出し・箇条書き・注釈・引用符・絵文字は禁止です。',
-        'テーマに沿って、30秒前後の短尺動画で使える自然な口語文にしてください。',
+        'テーマに沿って、短尺動画で使える自然な口語文にしてください。',
+        '選択された長さ（短め=約5秒 / 中くらい=約10秒 / 長め=約20秒）を優先してください。',
         `文字数は${selectedLengthTarget}を目安にし、聞き取りやすい短文中心にしてください。`,
       ].join('\n');
 
@@ -1528,8 +1529,20 @@ const TurtleVideo: React.FC = () => {
     try {
       const transcript = aiScript.trim();
       const styleText = aiVoiceStyle.trim();
-      const styledPrompt = styleText
-        ? `Say the following Japanese text in this style: ${styleText}\n\nText: ${transcript}`
+      const normalizedStyleText = styleText
+        // 先頭/末尾に括弧が入力されていても二重括弧にならないように整形
+        .replace(/^[\s()（）]+/, '')
+        .replace(/[\s()（）]+$/, '');
+      const styleDirectiveText = normalizedStyleText ? `（${normalizedStyleText}）` : '';
+      const styledText = `${styleDirectiveText}${transcript}`;
+      const styledPrompt = normalizedStyleText
+        ? [
+            'Generate Japanese TTS audio.',
+            'The leading parenthesized style directive is NOT part of narration and must never be spoken.',
+            'Speak only the narration body that follows the directive.',
+            'Do not add extra words.',
+            `Input: ${styledText}`,
+          ].join('\n')
         : `Say the following Japanese text:\n${transcript}`;
       const plainPrompt = `Say the following Japanese text:\n${transcript}`;
       const strictPrompt = `TTS the following text exactly as written. Do not add any extra words.\n${transcript}`;
