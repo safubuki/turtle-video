@@ -418,6 +418,9 @@ const TurtleVideo: React.FC = () => {
           }
         }
         const holdAudioThisFrame = isActivePlaying && audioResumeWaitFramesRef.current > 0;
+        const isNearTimelineStart =
+          currentItems.length > 0 &&
+          time <= 0.05;
 
         // シーク終端対策: time が totalDuration 以上で activeId が見つからない場合、
         // 最後のクリップの最終フレームを表示する（黒画面防止）
@@ -540,7 +543,13 @@ const TurtleVideo: React.FC = () => {
         // 終端ファイナライズ済みの場合、後続の遅延 renderFrame による黒クリアを完全に抑止する。
         const shouldGuardAfterFinalize = endFinalizedRef.current && !isActivePlaying;
 
-        if (!holdFrame && !shouldHoldAtTimelineEnd && !shouldGuardNearEnd && !shouldGuardAfterFinalize) {
+        const shouldForceStartClear = isNearTimelineStart && (
+          _isExporting || (!isActivePlaying && !isPlayingRef.current)
+        );
+        const shouldClearCanvas = shouldForceStartClear
+          || (!holdFrame && !shouldHoldAtTimelineEnd && !shouldGuardNearEnd && !shouldGuardAfterFinalize);
+
+        if (shouldClearCanvas) {
           // 診断ログ: 終端付近で黒クリアが実行される場合、状態を記録
           if (totalDurationRef.current > 0 && time >= totalDurationRef.current - 0.5) {
             logInfo('RENDER', '終端付近で黒クリア実行', {
