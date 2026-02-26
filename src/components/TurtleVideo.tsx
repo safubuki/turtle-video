@@ -2360,6 +2360,22 @@ const TurtleVideo: React.FC = () => {
     };
   }, [stopAll, pause]);
 
+  const pausePreviewBeforeHeaderModal = useCallback(() => {
+    if (isProcessing || !isPlayingRef.current) return;
+    stopAll();
+    pause();
+  }, [isProcessing, stopAll, pause]);
+
+  const handleOpenSettingsModal = useCallback(() => {
+    pausePreviewBeforeHeaderModal();
+    setShowSettings(true);
+  }, [pausePreviewBeforeHeaderModal]);
+
+  const handleOpenProjectManagerModal = useCallback(() => {
+    pausePreviewBeforeHeaderModal();
+    setShowProjectManager(true);
+  }, [pausePreviewBeforeHeaderModal]);
+
   // --- 全クリア処理 ---
   // 目的: 全てのメディア・オーディオ・キャプションを削除し初期状態に戻す
   const handleClearAll = useCallback(() => {
@@ -3654,8 +3670,8 @@ const TurtleVideo: React.FC = () => {
 
       {/* Header */}
       <Header
-        onOpenSettings={() => setShowSettings(true)}
-        onOpenProjectManager={() => setShowProjectManager(true)}
+        onOpenSettings={handleOpenSettingsModal}
+        onOpenProjectManager={handleOpenProjectManagerModal}
       />
 
       <div className="max-w-md md:max-w-3xl lg:max-w-6xl mx-auto p-4 lg:p-6">
