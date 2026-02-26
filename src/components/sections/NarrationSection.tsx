@@ -38,6 +38,7 @@ interface NarrationSectionProps {
   onNarrationUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onRemoveNarration: (id: string) => void;
   onMoveNarration: (id: string, direction: 'up' | 'down') => void;
+  onSaveNarration: (id: string) => void;
   onUpdateStartTime: (id: string, value: string) => void;
   onSetStartTimeToCurrent: (id: string) => void;
   onUpdateVolume: (id: string, value: string) => void;
@@ -59,6 +60,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
   onNarrationUpload,
   onRemoveNarration,
   onMoveNarration,
+  onSaveNarration,
   onUpdateStartTime,
   onSetStartTimeToCurrent,
   onUpdateVolume,
@@ -242,14 +244,14 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                     {clip.blobUrl && (
-                      <a
-                        href={clip.blobUrl}
-                        download={clip.file.name}
-                        className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded border border-gray-600 text-gray-300 flex items-center gap-0.5 text-[10px] transition"
+                      <button
+                        onClick={() => onSaveNarration(clip.id)}
+                        disabled={isNarrationLocked}
+                        className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded border border-gray-600 text-gray-300 flex items-center gap-0.5 text-[10px] transition disabled:opacity-30"
                         title="音声を保存"
                       >
                         <Save className="w-3.5 h-3.5" />
-                      </a>
+                      </button>
                     )}
                   </div>
                 </div>

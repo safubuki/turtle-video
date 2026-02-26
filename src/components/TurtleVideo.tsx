@@ -2287,6 +2287,73 @@ const TurtleVideo: React.FC = () => {
     updateNarrationTrim(id, 'end', numVal);
   }, [updateNarrationTrim]);
 
+  const handleSaveNarration = useCallback(async (id: string) => {
+    const clip = narrations.find((item) => item.id === id);
+    if (!clip) return;
+
+    const sourceUrl = clip.blobUrl || clip.url;
+    if (!sourceUrl) {
+      showToast('保存できる音声が見つかりませんでした');
+      return;
+    }
+
+    const rawName = clip.file instanceof File ? clip.file.name : clip.file.name;
+    const fallbackName = rawName && rawName.trim().length > 0 ? rawName : 'narration.wav';
+    const dotIndex = fallbackName.lastIndexOf('.');
+    const hasExt = dotIndex > 0 && dotIndex < fallbackName.length - 1;
+    const baseName = hasExt ? fallbackName.slice(0, dotIndex) : fallbackName;
+    const ext = hasExt ? fallbackName.slice(dotIndex + 1) : 'wav';
+    const filename = `${baseName}_${Date.now()}.${ext}`;
+
+    const inferredMimeType = clip.file instanceof File && clip.file.type
+      ? clip.file.type
+      : 'audio/wav';
+    const { showSaveFilePicker } = window as WindowWithSavePicker;
+
+    try {
+      if (typeof showSaveFilePicker === 'function') {
+        const fileHandle = await showSaveFilePicker({
+          suggestedName: filename,
+          types: [
+            {
+              description: '音声ファイル',
+              accept: { [inferredMimeType]: [`.${ext}`] },
+            },
+          ],
+        });
+
+        const response = await fetch(sourceUrl);
+        if (!response.ok) {
+          throw new Error(`narration source unavailable: ${response.status}`);
+        }
+        const blob = await response.blob();
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+
+        window.alert('音声の保存が完了しました。');
+        showToast('音声の保存が完了しました');
+        return;
+      }
+
+      const anchor = document.createElement('a');
+      anchor.href = sourceUrl;
+      anchor.download = filename;
+      anchor.rel = 'noopener';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.alert('音声の保存を開始しました。完了はブラウザの通知をご確認ください。');
+      showToast('音声の保存を開始しました。完了はブラウザの通知をご確認ください。', 5000);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        showToast('音声の保存をキャンセルしました');
+        return;
+      }
+      setError('音声の保存に失敗しました');
+    }
+  }, [narrations, setError, showToast]);
+
   const handleAddAiNarration = useCallback(() => {
     setEditingNarrationId(null);
     setAiScript('');
@@ -3772,6 +3839,7 @@ const TurtleVideo: React.FC = () => {
               onNarrationUpload={withStop(handleNarrationUpload)}
               onRemoveNarration={withPause(removeNarration)}
               onMoveNarration={withPause(moveNarration)}
+              onSaveNarration={withPause(handleSaveNarration)}
               onUpdateStartTime={withPause(handleUpdateNarrationStart)}
               onSetStartTimeToCurrent={withPause(handleSetNarrationStartToCurrent)}
               onUpdateVolume={withPause(handleUpdateNarrationVolume)}

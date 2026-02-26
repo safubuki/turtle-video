@@ -993,3 +993,14 @@
   - Keep default volume at `1.0` and percentage label as `Math.round(volume * 100)`.
   - Ensure tests verify clamping at `2.5` for BGM and narration.
 - **Note**: Perceived loudness is logarithmic; 200% amplitude (~+6 dB) is not perceived as "twice as loud".
+
+### 13-38. Narration save UX improvement for Android/fallback download
+
+- **Files**: `src/components/TurtleVideo.tsx`, `src/components/sections/NarrationSection.tsx`
+- **Issue**: On Android fallback download, first save had no clear result dialog and second save could show confusing overwrite prompt.
+- **Pattern**:
+  - Replace direct `<a download>` in narration card with delegated save handler.
+  - Generate unique timestamped filename per save to avoid overwrite-confirm confusion.
+  - Use `showSaveFilePicker` when available; otherwise fallback to anchor download.
+  - Show explicit user feedback (`alert` + toast) after save start/completion/cancel.
+- **Note**: Fallback path cannot detect actual OS-level completion reliably; communicate "save started" clearly.
