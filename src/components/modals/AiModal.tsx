@@ -3,7 +3,7 @@
  * @author Turtle Village
  * @description AIナレーションを生成するためのモーダルダイアログ。プロンプト入力、スクリプト生成、音声合成のフローを提供する。
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Sparkles, X, Loader, FileText, Mic, ChevronDown, CircleHelp, ExternalLink } from 'lucide-react';
 import type { VoiceOption, VoiceId, NarrationScriptLength } from '../../types';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
@@ -50,6 +50,20 @@ const AiModal: React.FC<AiModalProps> = ({
 }) => {
   // モーダル表示中は背景のスクロールを防止
   useDisableBodyScroll(isOpen);
+  const showHelpRef = useRef(false);
+  const modalHistoryIdRef = useRef<string | null>(null);
+  const closedByPopstateRef = useRef(false);
+  const sheetScrollRef = useRef<HTMLDivElement>(null);
+  const touchStartXRef = useRef<number | null>(null);
+  const touchStartYRef = useRef<number | null>(null);
+  const touchStartScrollTopRef = useRef(0);
+  const touchDeltaYRef = useRef(0);
+  const swipeCloseEligibleRef = useRef(false);
+
+  const isMobileViewport = () => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(max-width: 767px)').matches;
+  };
 
   const tonePresets = [
     { id: 'standard', label: '標準', value: '' },
@@ -129,11 +143,107 @@ const AiModal: React.FC<AiModalProps> = ({
   const [showHelp, setShowHelp] = useState(false);
 
   useEffect(() => {
+    showHelpRef.current = showHelp;
+  }, [showHelp]);
+
+  useEffect(() => {
+    if (!isOpen || typeof window === 'undefined') return;
+    const stateId = `ai-modal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    modalHistoryIdRef.current = stateId;
+    closedByPopstateRef.current = false;
+
+    const currentState = (window.history.state && typeof window.history.state === 'object')
+      ? window.history.state as Record<string, unknown>
+      : {};
+    window.history.pushState({ ...currentState, __aiModal: stateId }, '');
+
+    const handlePopState = () => {
+      if (showHelpRef.current) {
+        setShowHelp(false);
+        const state = (window.history.state && typeof window.history.state === 'object')
+          ? window.history.state as Record<string, unknown>
+          : {};
+        window.history.pushState({ ...state, __aiModal: stateId }, '');
+        return;
+      }
+      closedByPopstateRef.current = true;
+      onClose();
+    };
+
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      const current = (window.history.state && typeof window.history.state === 'object')
+        ? window.history.state as Record<string, unknown>
+        : null;
+      const ownStateOnTop = Boolean(
+        modalHistoryIdRef.current &&
+        current &&
+        current.__aiModal === modalHistoryIdRef.current
+      );
+      if (!closedByPopstateRef.current && ownStateOnTop) {
+        window.history.back();
+      }
+      modalHistoryIdRef.current = null;
+      closedByPopstateRef.current = false;
+    };
+  }, [isOpen, onClose]);
+
+  useEffect(() => {
     const parsedVoiceStyle = parseVoiceStyle(aiVoiceStyle);
     setSelectedTonePreset(parsedVoiceStyle.toneId);
     setSelectedCharacterPresets(parsedVoiceStyle.characterIds);
     setCustomVoiceStyle(parsedVoiceStyle.customText);
   }, [aiVoiceStyle, isOpen]);
+
+  const resetTouchTracking = () => {
+    touchStartXRef.current = null;
+    touchStartYRef.current = null;
+    touchStartScrollTopRef.current = 0;
+    touchDeltaYRef.current = 0;
+    swipeCloseEligibleRef.current = false;
+  };
+
+  const handleSheetTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (!isMobileViewport() || event.touches.length !== 1) {
+      resetTouchTracking();
+      return;
+    }
+    const touch = event.touches[0];
+    touchStartXRef.current = touch.clientX;
+    touchStartYRef.current = touch.clientY;
+    touchDeltaYRef.current = 0;
+    touchStartScrollTopRef.current = sheetScrollRef.current?.scrollTop ?? 0;
+    swipeCloseEligibleRef.current = touchStartScrollTopRef.current <= 0;
+  };
+
+  const handleSheetTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (!swipeCloseEligibleRef.current || touchStartXRef.current === null || touchStartYRef.current === null || event.touches.length !== 1) {
+      return;
+    }
+
+    const touch = event.touches[0];
+    const deltaX = touch.clientX - touchStartXRef.current;
+    const deltaY = touch.clientY - touchStartYRef.current;
+    touchDeltaYRef.current = deltaY;
+
+    const atTop = (sheetScrollRef.current?.scrollTop ?? 0) <= 0;
+    const isVerticalDownSwipe = deltaY > 0 && Math.abs(deltaY) > Math.abs(deltaX);
+    if (!atTop || touchStartScrollTopRef.current > 0 || !isVerticalDownSwipe) {
+      swipeCloseEligibleRef.current = false;
+      return;
+    }
+
+    event.preventDefault();
+  };
+
+  const handleSheetTouchEnd = () => {
+    if (swipeCloseEligibleRef.current && touchDeltaYRef.current > 72) {
+      onClose();
+    }
+    resetTouchTracking();
+  };
 
   const syncVoiceStyle = (
     toneId: TonePresetId,
@@ -146,8 +256,17 @@ const AiModal: React.FC<AiModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-100 bg-black/80 backdrop-blur-sm flex items-end md:items-center md:justify-center md:p-4">
-      <div className="bg-gray-800 border border-gray-700 w-full md:max-w-lg rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden animate-ai-modal-sheet">
+    <div
+      className="fixed inset-0 z-100 bg-black/80 backdrop-blur-sm flex items-end md:items-center md:justify-center md:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-gray-800 border border-gray-700 w-full md:max-w-lg rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden animate-ai-modal-sheet"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="md:hidden pt-2 px-4 shrink-0">
+          <div className="mx-auto h-1 w-12 rounded-full bg-gray-600/80" />
+        </div>
         <div className="p-3.5 md:p-4 border-b border-gray-700 flex justify-between items-center bg-linear-to-r from-purple-900/50 to-blue-900/50">
           <h3 className="font-bold flex items-center gap-2 text-white">
             <Sparkles className="w-5 h-5 text-yellow-400" />
@@ -165,7 +284,14 @@ const AiModal: React.FC<AiModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
-        <div className="p-3.5 md:p-6 space-y-4 md:space-y-6 max-h-[78vh] overflow-y-auto">
+        <div
+          ref={sheetScrollRef}
+          className="p-3.5 md:p-6 space-y-4 md:space-y-6 max-h-[78vh] overflow-y-auto"
+          onTouchStart={handleSheetTouchStart}
+          onTouchMove={handleSheetTouchMove}
+          onTouchEnd={handleSheetTouchEnd}
+          onTouchCancel={resetTouchTracking}
+        >
           {showHelp && (
             <div className="rounded-xl border border-orange-400/45 bg-linear-to-br from-orange-500/18 via-amber-500/12 to-orange-500/6 p-3 md:p-4 space-y-2">
               <div className="flex items-start justify-between gap-2">
