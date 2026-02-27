@@ -183,7 +183,7 @@ export const SECTION_HELP_CONTENT: Record<SectionHelpKey, SectionHelpDefinition>
   },
   caption: {
     title: 'キャプションの使い方',
-    subtitle: '追加、表示ON/OFF、個別設定、フェード設定をまとめて管理できます。',
+    subtitle: '追加、表示ON/OFF、一括設定、個別設定をまとめて管理できます。',
     items: [
       {
         title: '追加ボタン',
@@ -191,29 +191,33 @@ export const SECTION_HELP_CONTENT: Record<SectionHelpKey, SectionHelpDefinition>
         visuals: ['add_yellow_button'],
       },
       {
-        title: '表示アイコン / 鍵アイコン',
-        description: '目アイコンで表示ON/OFF、鍵アイコンで編集ロックを切り替えます。',
+        title: '表示アイコン（目のマークのアイコン）',
+        description:
+          '表示アイコンをOFFに設定すると、キャプションを設定していてもすべてOFF表示になり、出力した動画にも表示されません。鍵アイコンで編集ロックを切り替えます。',
         visuals: ['eye_on_button', 'eye_off_button', 'unlock_button', 'lock_button_red'],
       },
       {
+        title: 'スタイル・フェードの一括設定',
+        description:
+          'ここで全キャプション共通の設定をまとめて行えます。サイズ、字体、位置、ぼかしなどのスタイルに加えて、フェード（0.5秒・1秒・2秒）も一括で設定できます。',
+        visuals: ['style_chip', 'size_chip', 'position_chip', 'blur_chip', 'fade_in_checkbox', 'fade_out_checkbox', 'slider_demo'],
+      },
+      {
         title: '各キャプションの操作',
-        description: '上下移動、設定、編集、削除を各行のボタンで行います。',
-        visuals: ['move_up_button', 'move_down_button', 'settings_button', 'edit_button', 'delete_button'],
+        description:
+          '上下移動、削除、編集を各行のボタンで行えます。鉛筆の編集ボタンでキャプション内容を編集できます。',
+        visuals: ['move_up_button', 'move_down_button', 'edit_button', 'delete_button'],
+      },
+      {
+        title: '個別設定（歯車マーク）',
+        description:
+          '歯車マークを押すと、キャプションごとの個別設定を開けます。サイズ、字体、位置、フェードを個別に調整でき、一括設定を使っていても個別設定で上書きできます。',
+        visuals: ['settings_button', 'slider_demo'],
       },
       {
         title: '表示時間',
-        description: '開始時間・終了時間はスライダーや数値で調整し、現在位置ボタンでも設定できます。',
+        description: '開始時間・終了時間はスライダーや数値で調整し、現在位置ボタンでプレビューの現在位置に設定できます。',
         visuals: ['start_chip', 'duration_chip', 'current_pin_chip', 'slider_demo'],
-      },
-      {
-        title: '位置・サイズ調整',
-        description: 'スタイル一括設定でサイズ、字体、位置、ぼかしをまとめて調整できます。',
-        visuals: ['style_chip', 'size_chip', 'position_chip', 'blur_chip'],
-      },
-      {
-        title: 'フェード設定',
-        description: 'フェードはチェックONで有効になり、秒数は0.5秒・1秒・2秒の3つから設定できます。',
-        visuals: ['fade_in_checkbox', 'fade_out_checkbox', 'slider_demo'],
       },
     ],
   },
