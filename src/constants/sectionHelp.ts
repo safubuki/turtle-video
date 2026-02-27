@@ -86,18 +86,21 @@ export const SECTION_HELP_CONTENT: Record<SectionHelpKey, SectionHelpDefinition>
         visuals: ['item_unlock_chip', 'item_lock_chip'],
       },
       {
-        title: '表示時間・位置・サイズ',
-        description: 'トリミング、表示時間、拡大率、位置X/Yをスライダーで調整できます。',
-        visuals: ['trim_chip', 'duration_chip', 'scale_chip', 'position_chip', 'slider_demo'],
+        title: '表示区間（動画：トリミング／画像：表示時間）',
+        description:
+          '動画は開始・終了位置を指定してトリミングできます。画像は表示時間を常時調整できます。どちらもスライダーで操作できます。',
+        visuals: ['trim_chip', 'duration_chip', 'slider_demo'],
       },
       {
-        title: '黒帯除去',
-        description: '素材の縦横比差で上下に出る微小な隙間を、102.5%拡大で目立ちにくくする設定です。',
-        visuals: ['blackbar_toggle_chip'],
+        title: '位置・サイズ調整',
+        description:
+          'この項目は折りたたみ表示です。開くと黒帯除去、拡大縮小、位置X/Yの調整ができます。黒帯除去は微細な上下の隙間を目立ちにくくする設定です。拡大縮小・位置の調整はスライダーで行え、くるくるアイコンでデフォルト値に戻せます。',
+        visuals: ['blackbar_toggle_chip', 'scale_chip', 'position_chip', 'reset_button', 'slider_demo'],
       },
       {
         title: '音量・フェード設定',
-        description: 'スピーカーでミュート切替、くるくるで初期値に戻せます。フェードはチェックON時のみ有効です。',
+        description:
+          'この項目は折りたたみ表示です。開くとスピーカーでミュート切替、くるくるアイコンでデフォルト値に戻せます。フェードはチェックON時のみ有効です。',
         visuals: ['volume_chip', 'mute_button', 'reset_button', 'fade_in_checkbox', 'fade_out_checkbox', 'slider_demo'],
       },
     ],

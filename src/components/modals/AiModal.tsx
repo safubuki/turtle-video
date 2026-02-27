@@ -300,11 +300,11 @@ const AiModal: React.FC<AiModalProps> = ({
                 </h4>
                 <button
                   onClick={() => setShowHelp(false)}
-                  className="p-1 rounded text-orange-200 hover:text-orange-100 hover:bg-orange-500/20 transition"
+                  className="p-1.5 rounded-md border border-orange-300/40 bg-orange-500/10 text-orange-100 hover:bg-orange-500/25 hover:border-orange-200/60 transition"
                   title="ヘルプを閉じる"
                   aria-label="ヘルプを閉じる"
                 >
-                  <X className="w-4 h-4" />
+                  <X className="w-[18px] h-[18px]" />
                 </button>
               </div>
               <p className="text-xs md:text-sm text-orange-50 leading-relaxed">

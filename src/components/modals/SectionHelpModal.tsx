@@ -542,11 +542,11 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({ isOpen, section, on
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-gray-700 transition"
+            className="p-1.5 rounded-lg border border-gray-600/80 bg-gray-800/80 text-gray-200 hover:text-white hover:bg-gray-700 hover:border-gray-500 transition"
             title="閉じる"
             aria-label="ヘルプを閉じる"
           >
-            <X className="w-4 h-4" />
+            <X className="w-[18px] h-[18px]" />
           </button>
         </div>
 

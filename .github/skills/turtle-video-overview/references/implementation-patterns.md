@@ -1004,3 +1004,52 @@
   - Use `showSaveFilePicker` when available; otherwise fallback to anchor download.
   - Show explicit user feedback (`alert` + toast) after save start/completion/cancel.
 - **Note**: Fallback path cannot detect actual OS-level completion reliably; communicate "save started" clearly.
+
+### 13-39. Clipsヘルプ文言の整理（表示区間 / 位置・サイズ / 折りたたみ案内）
+
+- **Files**: `src/constants/sectionHelp.ts`
+- **Issue**:
+  - 動画・画像ヘルプで「表示時間・位置・サイズ」の粒度が広く、動画トリミングと画像表示時間の違いが伝わりにくい
+  - 「黒帯除去」が独立項目のため、実UIの「位置・サイズ調整」パネルとの対応が分かりにくい
+  - 「位置・サイズ調整」「音量・フェード設定」が折りたたみ表示であることがヘルプ本文に明示されていなかった
+- **Pattern**:
+  - 項目名を `表示区間（動画：トリミング・画像：表示時間）` に統一し、動画は開始/終了トリミング、画像は常時表示時間調整を明記
+  - `黒帯除去` を `位置・サイズ調整` に統合し、黒帯除去・拡大縮小・位置調整を1項目で説明
+  - `位置・サイズ調整` と `音量・フェード設定` の説明文に「折りたたみ表示のため開いて使う」旨を追記
+- **Note**: ヘルプ文言は `sectionHelp.ts` を単一ソースとして更新し、UIの開閉仕様と常に同期する。
+
+### 13-40. Clipsヘルプの表記統一とリセットアイコン説明の明確化
+
+- **Files**: `src/constants/sectionHelp.ts`
+- **Issue**:
+  - 表示区間タイトルの区切り表記を `／` に統一したい
+  - 黒帯除去の目的（微細な上下隙間を目立ちにくくする）がヘルプで弱く、必要性が伝わりにくい
+  - 拡大縮小/位置/音量にある「くるくる」アイコンの意味（デフォルト値へ戻す）が項目ごとに明確でない
+- **Pattern**:
+  - タイトルを `表示区間（動画：トリミング／画像：表示時間）` に更新
+  - 位置・サイズ調整の説明に、黒帯除去の目的とスライダー調整可能である旨を追記
+  - 位置・サイズ調整に `reset_button` 視覚トークンを追加し、くるくるアイコンでデフォルト値へ戻せることを明記
+  - 音量・フェード設定も「くるくるアイコンでデフォルト値に戻す」表現へ統一
+- **Note**: ヘルプ文言とアイコン説明は、実UIラベル・実アイコン挙動（デフォルト値復帰）と常に一致させる。
+
+### 13-41. ヘルプの閉じる `×` ボタン視認性を軽微に向上
+
+- **Files**: `src/components/modals/SectionHelpModal.tsx`, `src/components/modals/AiModal.tsx`, `src/components/modals/SaveLoadModal.tsx`, `src/components/modals/SettingsModal.tsx`
+- **Issue**:
+  - セクションヘルプや各モーダル内ヘルプの `×` ボタンが小さく、視認しづらい
+- **Pattern**:
+  - ヘルプ `×` ボタンの余白をわずかに拡大し、アイコンを `18px` に統一
+  - 背景と細い境界線を追加して、ヘルプカード配色を保ったままコントラストを上げる
+  - クリックハンドラと文言は変えず、見た目クラスのみ調整する
+- **Note**: 通常モーダル本体の閉じるボタンには影響させず、ヘルプ機能の `×` のみを対象にする。
+
+### 13-42. 保存・素材 / 設定モーダルの本体 `×` をヘルプ同系に統一
+
+- **Files**: `src/components/modals/SaveLoadModal.tsx`, `src/components/modals/SettingsModal.tsx`
+- **Issue**:
+  - モーダル本体ヘッダーの `×` がプレーン表示で、ヘルプ側の `×` と視認性・見た目の統一感が不足していた
+- **Pattern**:
+  - `SaveLoadModal` と `SettingsModal` の本体 `×` に、ヘルプ同系の枠付き・背景付きスタイルを適用
+  - アイコンサイズを `18px` に統一し、`title` / `aria-label` を付与して操作意図を明確化
+  - 閉じる処理（`onClose`）は変更せず、表示スタイルのみ調整
+- **Note**: 本体モーダルの閉じる導線をヘルプ系UIと揃えることで、視認性を上げつつ学習コストを下げる。

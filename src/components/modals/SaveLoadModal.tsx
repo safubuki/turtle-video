@@ -464,10 +464,12 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
             )}
           </div>
           <button
-            className="p-1 text-gray-400 hover:text-white transition-colors"
+            className="p-1.5 rounded-lg border border-gray-600/80 bg-gray-800/80 text-gray-200 hover:text-white hover:bg-gray-700 hover:border-gray-500 transition"
             onClick={onClose}
+            title="閉じる"
+            aria-label="閉じる"
           >
-            <X size={20} />
+            <X className="w-[18px] h-[18px]" />
           </button>
         </div>
         
@@ -482,11 +484,11 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
                   </h3>
                   <button
                     onClick={() => setShowHelp(false)}
-                    className="p-1 rounded text-orange-200 hover:text-orange-100 hover:bg-orange-500/20 transition"
+                    className="p-1.5 rounded-md border border-orange-300/40 bg-orange-500/10 text-orange-100 hover:bg-orange-500/25 hover:border-orange-200/60 transition"
                     title="ヘルプを閉じる"
                     aria-label="ヘルプを閉じる"
                   >
-                    <X className="w-4 h-4" />
+                    <X className="w-[18px] h-[18px]" />
                   </button>
                 </div>
                 <ol className="list-decimal ml-4 space-y-1 text-xs md:text-sm text-orange-50 leading-relaxed">
