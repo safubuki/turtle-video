@@ -231,19 +231,19 @@ export const SECTION_HELP_CONTENT: Record<SectionHelpKey, SectionHelpDefinition>
         visuals: ['stop_button', 'play_button', 'capture_button'],
       },
       {
-        title: '一括クリア',
-        description: '一括クリアで素材・音声・キャプションを初期状態に戻せます。',
-        visuals: ['clear_button'],
-      },
-      {
         title: '動画ファイルを作成',
-        description: '動画ファイルを作成できます。',
+        description: '動画ファイルを作成できます。作成中にタブを切り替えたり画面を非アクティブにすると、動画を正しく作成できません。',
         visuals: ['export_button'],
       },
       {
         title: '作成後のダウンロード',
-        description: '作成完了後はダウンロードできます。停止/再生を押すと作成ボタンに戻り、再作成も可能です。',
+        description: '作成完了後はダウンロードできます。停止/再生を押すと「動画ファイルを作成」ボタンに戻り、再作成も可能です。',
         visuals: ['download_button'],
+      },
+      {
+        title: '一括クリア',
+        description: '一括クリアで動画作成状態をクリアしてすべて初期状態に戻せます。',
+        visuals: ['clear_button'],
       },
     ],
   },
