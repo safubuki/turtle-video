@@ -100,7 +100,7 @@ export const SECTION_HELP_CONTENT: Record<SectionHelpKey, SectionHelpDefinition>
       {
         title: '音量・フェード設定',
         description:
-          'この項目は折りたたみ表示です。開くとスピーカーでミュート切替、くるくるアイコンでデフォルト値に戻せます。フェードはチェックON時のみ有効です。',
+          'この項目は折りたたみ表示です。開くとスピーカーでミュート切替、くるくるアイコンでデフォルト値に戻せます。動画・画像のフェードはチェックON時のみ有効で、秒数は0.5秒・1秒・2秒の3つから設定できます。',
         visuals: ['volume_chip', 'mute_button', 'reset_button', 'fade_in_checkbox', 'fade_out_checkbox', 'slider_demo'],
       },
     ],
@@ -125,8 +125,8 @@ export const SECTION_HELP_CONTENT: Record<SectionHelpKey, SectionHelpDefinition>
         visuals: ['delete_button'],
       },
       {
-        title: '開始位置・遅延',
-        description: 'BGM内の開始位置と、動画タイムライン上の遅延位置を設定できます。',
+        title: '開始位置・開始タイミング（遅延）',
+        description: 'BGM内の開始位置と、動画タイムライン上の開始タイミング（遅延）を設定できます。',
         visuals: ['start_chip', 'delay_chip', 'slider_demo'],
       },
       {
@@ -136,18 +136,20 @@ export const SECTION_HELP_CONTENT: Record<SectionHelpKey, SectionHelpDefinition>
       },
       {
         title: 'フェード設定',
-        description: 'チェックを入れるとフェードイン/フェードアウトが有効になり、秒数を調整できます。',
+        description:
+          'チェックを入れるとフェードイン/フェードアウトが有効になり、秒数は0.5秒・1秒・2秒の3つから設定できます。',
         visuals: ['fade_in_checkbox', 'fade_out_checkbox', 'slider_demo'],
       },
     ],
   },
   narration: {
     title: 'ナレーションの使い方',
-    subtitle: 'AIボタンと追加ボタンを使って、ナレーションを重ねて管理します。',
+    subtitle: 'AIボタンと追加ボタンを使って、複数のナレーションを重ねて管理します。',
     items: [
       {
         title: 'AI / 追加ボタン',
-        description: 'AI生成で作成するか、音声ファイルを追加するかを選べます。',
+        description:
+          'AIで好みのナレーションを生成できます。あらかじめ用意した音声ファイルを追加することもでき、複数のナレーションを重ねて設定できます。',
         visuals: ['ai_add_button', 'add_green_button'],
       },
       {
@@ -157,17 +159,19 @@ export const SECTION_HELP_CONTENT: Record<SectionHelpKey, SectionHelpDefinition>
       },
       {
         title: '並び替え・編集・削除・保存',
-        description: '各ナレーションを上下移動、編集、削除、保存できます。',
+        description:
+          '各ナレーションを上下移動、編集、削除できます。保存ボタンを使うと、AIで生成したナレーションをパソコンやスマホに保存できます。',
         visuals: ['move_up_button', 'move_down_button', 'edit_button', 'delete_button', 'save_button'],
       },
       {
         title: '開始位置',
-        description: '開始位置は数値入力・スライダーのほか、現在位置ボタンでも設定できます。',
+        description: '開始位置は数値入力・スライダーのほか、現在位置ボタンでプレビューの現在位置に設定できます。',
         visuals: ['start_chip', 'current_pin_chip', 'slider_demo'],
       },
       {
-        title: '切り出し設定（折りたたみ）',
-        description: '切り出し開始/終了は「切り出し設定」を開いたときだけ表示されます。通常は閉じたまま使えます。',
+        title: 'トリミング設定（折りたたみ）',
+        description:
+          'トリミング開始/終了は「トリミング設定」を開いたときだけ表示されます。長いナレーションを複数に分割して、タイミングを調整したり、声質を合わせたいときに便利です。',
         visuals: ['trim_chip', 'duration_chip', 'slider_demo'],
       },
       {
@@ -208,7 +212,7 @@ export const SECTION_HELP_CONTENT: Record<SectionHelpKey, SectionHelpDefinition>
       },
       {
         title: 'フェード設定',
-        description: 'フェードはチェックONで有効になり、秒数を調整できます。',
+        description: 'フェードはチェックONで有効になり、秒数は0.5秒・1秒・2秒の3つから設定できます。',
         visuals: ['fade_in_checkbox', 'fade_out_checkbox', 'slider_demo'],
       },
     ],

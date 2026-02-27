@@ -321,14 +321,14 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                   ) : (
                     <ChevronRight className="w-3 h-3" />
                   )}
-                  <span>切り出し設定</span>
+                  <span>トリミング設定</span>
                 </button>
 
                 {isTrimOpen && (
                   <div className="px-2 mb-1 space-y-2 border-t border-gray-700/50 pt-2 mt-1 bg-gray-900/30 rounded p-2">
                     <div className="space-y-1">
                       <div className="flex items-center justify-between text-[10px] md:text-xs text-gray-400">
-                        <span>切り出し開始: {formatTime(trimStart)}</span>
+                        <span>トリミング開始: {formatTime(trimStart)}</span>
                         <span>元音声: {formatTime(clip.duration)}</span>
                       </div>
                       <div className="flex items-center gap-2">
@@ -357,7 +357,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
 
                     <div className="space-y-1">
                       <div className="flex items-center justify-between text-[10px] md:text-xs text-gray-400">
-                        <span>切り出し終了: {formatTime(trimEnd)}</span>
+                        <span>トリミング終了: {formatTime(trimEnd)}</span>
                         <span>範囲: {formatTime(playableDuration)}</span>
                       </div>
                       <div className="flex items-center gap-2">
