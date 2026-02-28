@@ -392,6 +392,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                   <li>APIキーはこのブラウザに保存されます。端末を変える場合は再設定が必要です。</li>
                   <li>ログタブでは実行ログ確認、コピー、JSON出力、クリアができます。</li>
                 </ol>
+                <p className="text-xs md:text-sm text-orange-100/95 leading-relaxed">
+                  ※ Google AI Studio / Gemini API には利用上限（レート制限・日次上限など）があります。一定量の利用を超えると一時的に利用できなくなり、一定時間待ってから再試行が必要です。
+                </p>
                 <a
                   href="https://aistudio.google.com/app/apikey"
                   target="_blank"

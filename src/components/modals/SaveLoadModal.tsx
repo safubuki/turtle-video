@@ -491,12 +491,27 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
                     <X className="w-[18px] h-[18px]" />
                   </button>
                 </div>
-                <ol className="list-decimal ml-4 space-y-1 text-xs md:text-sm text-orange-50 leading-relaxed">
-                  <li>自動保存間隔はオフ/1分/2分/5分から選べます。</li>
-                  <li>手動保存で現在の状態を保存し、読み込みで復元できます。</li>
-                  <li>保存データを削除すると、自動保存と手動保存の両方が消えます。</li>
-                  <li>素材生成では 1280x720 の黒画像・白画像を作成できます。</li>
-                </ol>
+                <div className="space-y-3 text-xs md:text-sm text-orange-50 leading-relaxed">
+                  <div className="space-y-1.5">
+                    <div className="font-semibold text-orange-100">保存</div>
+                    <ul className="list-disc ml-4 space-y-1">
+                      <li>保存データはブラウザ上の IndexedDB に保存されます。</li>
+                      <li>ブラウザやアプリを閉じても、保存データは保持されます。</li>
+                      <li>自動保存間隔はオフ/1分/2分/5分から選べます。</li>
+                      <li>自動保存は定期的に上書き保存されるため、保存データが増え続けずローカル領域を圧迫しにくい設計です。</li>
+                      <li>手動保存で現在の状態を保存し、読み込みで復元できます。</li>
+                      <li>保存データを削除すると、自動保存と手動保存の両方が消えます。</li>
+                    </ul>
+                  </div>
+                  <div className="border-t border-orange-300/35" />
+                  <div className="space-y-1.5">
+                    <div className="font-semibold text-orange-100">素材</div>
+                    <ul className="list-disc ml-4 space-y-1">
+                      <li>素材生成では 1280x720 の黒画像・白画像を作成できます。</li>
+                      <li>動画のつなぎや背景用のプレースホルダー素材として利用できます。</li>
+                    </ul>
+                  </div>
+                </div>
               </div>
             )}
             {/* 自動保存間隔設定 */}
