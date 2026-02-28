@@ -1,48 +1,71 @@
 # タートルビデオ
 
-ブラウザで動作する動画編集アプリケーション。動画・画像の結合、BGM・ナレーション追加、AIナレーション生成機能を備えています。
+ブラウザで動作する動画編集ソフトです。動画・画像・BGM・ナレーション・キャプションをまとめて編集し、動画ファイルとして書き出せます。PWA対応のためスマホでもアプリ感覚で利用できます。
 
 ## 機能
 
-### 基本編集機能
-- **動画/画像編集**: 複数の動画・画像を結合してタイムライン編集
-- **トリミング**: 動画の開始/終了時間を調整
-- **トランスフォーム**: 拡大・縮小、位置調整（ミニプレビュー付き）
-- **動画エクスポート**: WebM/MP4形式でファイル作成・ダウンロード
+### 動画・画像
+- 複数ファイルの追加、並び替え、削除
+- 表示区間の調整（動画: トリミング / 画像: 表示時間）
+- 位置・サイズ調整（黒帯除去、拡大縮小、位置X/Y）
+- 音量、ミュート、フェード（0.5秒 / 1秒 / 2秒）
 
-### プロジェクト管理機能
-- **自動保存**: 設定可能な間隔（オフ/1分/2分/5分）で自動的にプロジェクトを保存
-- **手動保存・読み込み**: IndexedDBを使用した2スロット方式（自動保存/手動保存）
-- **保存・素材モーダル**: プロジェクトの保存・読み込み・削除、白/黒画像の生成機能
-- **データ永続化**: ブラウザを閉じても作業内容を保持
+### BGM
+- BGMファイルの追加・削除
+- 開始位置・開始タイミング（遅延）の調整
+- 音量、ミュート、フェード（0.5秒 / 1秒 / 2秒）
 
-### オーディオ機能
-- **BGM追加**: 音楽ファイルをBGMとして追加
-- **ナレーション**: 音声ファイルの追加またはAI生成
-- **AIナレーション**: Google Gemini APIを使用したテキスト読み上げ
-- **音声フェード**: フェードイン/フェードアウト効果
+### ナレーション
+- AI生成または音声ファイル追加
+- 複数トラック管理（並び替え・編集・削除・保存）
+- 開始位置（現在位置ボタン対応）、トリミング設定（折りたたみ）
+- 音量、ミュート調整
 
-### キャプション機能
-- **字幕追加**: テキスト字幕を任意のタイミングで表示
-- **スタイル設定**: 文字サイズ（小/中/大）、表示位置（上/中央/下）
-- **タイムライン編集**: 開始/終了時間をスライダーまたは数値で調整
-- **リアルタイムプレビュー**: 現在時刻のキャプションをハイライト表示
+### キャプション
+- 追加、表示ON/OFF、ロック
+- スタイル・フェードの一括設定（サイズ、字体、位置、ぼかし、フェード）
+- 各行の操作（移動・削除・編集）と個別設定（歯車）
+- 表示時間の開始/終了調整（現在位置ボタン対応）
 
-### UI/UX機能
-- **誤操作防止**: スワイプ保護付きスライダーで縦スクロール時の誤操作を防止
-- **セクションロック**: 各セクション（クリップ/BGM/ナレーション/キャプション）を個別にロック可能
-- **確認ダイアログ**: 一括クリアやデータ削除時に確認を要求
-- **設定モーダル**: APIキー設定とログ閲覧機能を提供
-- **ミニプレビュー**: トランスフォームパネル内でリアルタイムプレビュー表示
-- **ログ機能**: エラー・警告・情報をリアルタイム記録（エクスポート可能）
+### プレビュー・書き出し
+- 停止・再生・キャプチャ
+- 動画ファイル作成とダウンロード
+- 一括クリアで作成状態を含め初期化
+
+### 保存・素材
+- 保存先はブラウザ上の IndexedDB（自動保存/手動保存の2スロット）
+- ブラウザやアプリを閉じても保存データを保持
+- 自動保存は定期上書きで、保存データが増え続けにくい設計
+- 白画像/黒画像（1280x720）素材の生成
+
+### 設定
+- Gemini APIキー管理（ブラウザ保存）
+- 実行ログの確認、コピー、JSON出力、クリア
+- Google AI Studio / Gemini API の利用上限に関する注意表示
 
 ## すぐに使う（GitHub Pages）
 
-- 公開URL: `https://safubuki.github.io/turtle-video-rel/`
+- 公開URL: `https://safubuki.github.io/turtle-video-playground/`
 - URLにアクセスするだけで利用できます（インストール不要）。
-- 対応環境: Android / PC / iOS Safari
-- 提供機能は各対応環境で基本的に同一です。
-- iOS Safari は暫定対応です。端末やOSバージョンによっては不具合が発生する可能性があります。
+- 動作確認機種:
+  - スマホ: Pixel 6a（Android・Chrome）
+  - PC: Windows / CPU Ryzen 5 5500 / GPU RTX3060 12GB
+- ※動作確認は手持ちの機種でのみ実施しています。動作しない場合はご了承ください。
+- ※iPhone（iOS・Safari）は現状非対応です（順次対応予定）。
+
+## 使い方（ヘルプ準拠）
+
+1. 動画・画像を追加し、並び順や表示区間を調整
+2. BGMを追加し、開始タイミングや音量を調整
+3. ナレーションをAI生成または音声ファイルで追加
+4. キャプションを追加し、表示時間やスタイルを調整
+5. プレビュー確認後、「動画ファイルを作成」してダウンロード
+
+### 注意事項
+
+- 長い編集や複雑な編集では、動作が不安定になることがあります。
+- 手動保存と自動保存を活用してください。
+- 動画ファイル作成中にタブ切り替えや非アクティブ化を行うと、正しく作成できない場合があります。
 
 ## セットアップ
 
@@ -108,51 +131,25 @@ npm run test:coverage
 
 ## 開発スクリプト（集約先）
 
-- 実行可能なスクリプト一覧の正本は `package.json` の `scripts` です。
-- 動画解析系スクリプトの詳細は `Docs/developer_guide.md` にまとめています。
-- `gh` のポータブル運用と Issue 登録手順は `Docs/developer_guide.md` と `Docs/github_issue_workflow.md` を参照してください。
+実行可能なスクリプト一覧の正本は `package.json` の `scripts` です。
 
 ### よく使うスクリプト
 
 - `npm run dev`: 開発サーバー起動
 - `npm run build`: 本番ビルド
 - `npm run test:run`: テスト一括実行
-- `npm run dev:media:setup`: 動画解析用 venv の初期セットアップ
-- `npm run dev:media:setup:stt`: STT依存（`faster-whisper`）の導入
-- `npm run dev:media:setup:stt:models`: STT依存導入 + `tiny`/`small` モデル事前取得
-- `npm run dev:media:analyze -- -InputPath "<動画パス>" -Mode summary`: 動画サマリー解析
-- `npm run dev:media:analyze -- -InputPath "<動画パス>" -Mode transcribe -SttModel small -SttLanguage ja`: セリフ抽出
-- `npm run dev:media:cleanup`: 解析生成物を全削除（`tmp/video-analysis`, `.media-analysis-output`）
-- `npm run dev:media:cleanup:keep-json`: JSONレポートのみ残して解析生成物を削除
+- `npm run preview`: ビルド結果をローカル確認
 
-## Agent Skills
+## 導入手順
 
-**Agent Skills とは**
+### Step 1: 環境別セットアップ（保存先の確認）
 
-AIアシスタントに特定のタスク手順やプロジェクト固有の知識を教えるための「指示書のパッケージ」です。
-これにより、AIがプロジェクトの文脈を理解し、一貫した品質でコード生成やドキュメント作成を行えるようになります。
+Agent Skills は、使用する AI エディタ・ツールによって読み込まれるディレクトリが異なります。プロジェクトのルートディレクトリに以下のフォルダを作成してください。
 
-このプロジェクトには、3つの異なるAI環境（GitHub Copilot、GPT Codex、Google Gemini）向けのAgent Skills設定が含まれています。
-それぞれの環境で利用方法と参照するディレクトリが異なります。
+#### GitHub Copilot
 
-### 1. 管理と同期
-
-以下の2つのディレクトリでスキルを管理しています。
-
-- **Master**: `.github/skills` (GitHub Copilot / GPT Codex用)
-- **Mirror**: `.agent/skills` (Google Gemini用)
-
-以下のコマンドで、これら2つのディレクトリを同期します。
-
-- `npm run skills:sync -- --dry-run --verbose`（確認のみ）
-- `npm run skills:sync`（実同期）
-- `npm run skills:sync -- --strategy base --base github`（GitHub側を正として強制同期）
-
-### 2. 環境別セットアップ
-
-#### A. GitHub Copilot
-- **利用ディレクトリ**: `.github/skills`
-- **設定**: VS Code等の `.vscode/settings.json` で以下を有効にします。
+- **利用ディレクトリ**: `.github/skills/`
+- **設定**: `.vscode/settings.json` に以下を追加します。
 
 ```json
 {
@@ -160,22 +157,18 @@ AIアシスタントに特定のタスク手順やプロジェクト固有の知
 }
 ```
 
-#### B. GPT Codex (CLI)
-- **利用ディレクトリ**: `.github/skills`
-- **設定**: ユーザー設定ファイル（通常 `C:/Users/<ユーザー名>/.codex/config.toml`）にパスを指定してください。
+#### GPT Codex（VS Code 拡張・CLI）
 
-**設定例（1つのスキルのみ）**:
-```toml
-# 例: C:/Users/<ユーザー名>/.codex/config.toml
-[[skills.config]]
-path = "C:/<workspace-parent>/<workspace-folder>/.github/skills/bug-analysis/SKILL.md"
-enabled = true
-```
+- **利用ディレクトリ**: `.agents/skills/`
+- **設定**: 不要。ディレクトリが存在するだけで自動認識されます。
 
-#### C. Google Gemini (AntiGravity)
-- **利用ディレクトリ**: `.agent/skills`
-- **設定**: **不要**。
-  - プロジェクトルートに `.agent/skills` ディレクトリが存在するだけで自動的に認識されます。
+#### Google Gemini（AntiGravity）
+
+- **利用ディレクトリ**: `.agent/skills/`（複数形の「s」なし）
+- **設定**: 不要。ディレクトリが存在するだけで自動認識されます。
+
+> [!NOTE]
+> GPT Codex は `.agents`（複数形）、Google Gemini は `.agent`（単数形）と異なる点に注意してください。
 
 ### このプロジェクトで使う主なスキル
 - `bug-analysis`
@@ -201,60 +194,24 @@ enabled = true
 ## プロジェクト構造
 
 ```
-src/
-├── components/
-│   ├── common/          # 共通UIコンポーネント
-│   │   ├── Toast.tsx
-│   │   ├── ErrorMessage.tsx
-│   │   ├── ErrorBoundary.tsx
-│   │   └── MiniPreview.tsx     # トランスフォームミニプレビュー
-│   ├── media/           # メディア関連コンポーネント
-│   │   ├── ClipItem.tsx
-│   │   ├── CaptionItem.tsx     # キャプションアイテム
-│   │   └── MediaResourceLoader.tsx
-│   ├── sections/        # セクションコンポーネント
-│   │   ├── ClipsSection.tsx
-│   │   ├── BgmSection.tsx
-│   │   ├── NarrationSection.tsx
-│   │   ├── CaptionSection.tsx  # キャプションセクション
-│   │   └── PreviewSection.tsx
-│   ├── modals/          # モーダルコンポーネント
-│   │   ├── AiModal.tsx
-│   │   ├── SettingsModal.tsx   # 設定モーダル（APIキー・ログ）
-│   │   └── SaveLoadModal.tsx   # 保存・素材モーダル
-│   ├── Header.tsx
-│   ├── SwipeProtectedSlider.tsx # 誤操作防止スライダー
-│   └── TurtleVideo.tsx  # メインコンポーネント
-├── hooks/               # カスタムフック
-│   ├── useMediaItems.ts
-│   ├── useAudioTracks.ts
-│   ├── usePlayback.ts
-│   ├── useAudioContext.ts
-│   ├── useExport.ts
-│   ├── useAiNarration.ts
-│   ├── useAutoSave.ts           # 自動保存フック
-│   └── useSwipeProtectedValue.ts # 誤操作防止フック
-├── stores/              # Zustand ストア
-│   ├── mediaStore.ts    # メディア状態管理
-│   ├── audioStore.ts    # BGM/ナレーション状態管理
-│   ├── captionStore.ts  # キャプション状態管理
-│   ├── projectStore.ts  # プロジェクト保存・読み込み管理
-│   ├── logStore.ts      # ログ管理
-│   └── uiStore.ts       # UI状態管理
-├── utils/               # ユーティリティ関数
-│   ├── format.ts        # フォーマット関数
-│   ├── media.ts         # メディア操作関数
-│   └── indexedDB.ts     # IndexedDB操作関数
-├── types/               # 型定義
-│   └── index.ts
-└── test/                # テストファイル
-    ├── setup.ts
-    ├── format.test.ts
-    ├── media.test.ts
-    └── stores/
-        ├── mediaStore.test.ts
-        ├── audioStore.test.ts
-        └── uiStore.test.ts
+turtle-video/
+├── .github/skills/      # GitHub Copilot向け Agent Skills
+├── .agents/skills/      # GPT Codex向け Agent Skills
+├── .agent/skills/       # Google Gemini向け Agent Skills
+├── Docs/                # ドキュメント
+├── public/              # 静的アセット
+├── scripts/             # 開発・運用スクリプト
+├── src/
+│   ├── components/      # UIコンポーネント（common/media/modals/sections）
+│   ├── constants/       # 定数定義
+│   ├── hooks/           # カスタムフック
+│   ├── stores/          # Zustandストア
+│   ├── test/            # テストコード
+│   ├── types/           # 型定義
+│   └── utils/           # ユーティリティ
+├── spec.md
+├── version.json
+└── package.json
 ```
 
 ## 開発ガイド
@@ -280,6 +237,7 @@ GNU General Public License v3.0 (GPLv3)
 Copyright (c) 2026 safubuki (TurtleVillage)
 
 本ソフトウェアはオープンソースソフトウェアです。GNU General Public License v3.0 (GPLv3) の条件下で、再頒布および変更が可能です。
+個人や社内で再頒布を伴わない場合は、自由に改変して利用できます。
 
 **GPLv3の主な特徴:**
 - **ソースコードの公開義務**: 本ソフトウェアを改変して配布する場合、そのソースコードも公開する必要があります。
