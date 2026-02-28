@@ -1270,3 +1270,15 @@
   - `よく使うスクリプト` を `dev/build/test:run/preview` の最小セットへ簡略化
   - `プロジェクト構造` をトップレベル起点の最新構成（`.github/skills`, `.agents/skills`, `.agent/skills` 含む）へ更新
 - **Note**: Agent Skills の運用先を変更した場合は、READMEの導入手順・プロジェクト構造・関連ドキュメントを同時更新する。
+
+### 13-59. Gemini API key transport hardening (query string -> header)
+
+- **Files**: `src/components/TurtleVideo.tsx`, `src/hooks/useAiNarration.ts`
+- **Issue**:
+  - Gemini API calls appended `?key=...` to request URLs, which increases accidental exposure risk through URL surfaces.
+- **Pattern**:
+  - Keep endpoint format as `${GEMINI_API_BASE_URL}/{model}:generateContent` (no query key).
+  - Send API key via `x-goog-api-key` request header.
+  - Set `referrerPolicy: 'no-referrer'` on external Gemini calls.
+  - Keep request body schema and fallback flow unchanged to avoid behavior/performance regressions.
+- **Note**: Future Gemini integrations should never place API keys in query parameters.

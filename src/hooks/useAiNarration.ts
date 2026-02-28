@@ -112,23 +112,24 @@ export function useAiNarration(): UseAiNarrationReturn {
         const model = modelsToTry[i];
         const hasNextModel = i < modelsToTry.length - 1;
 
-        const response = await fetch(
-          `${GEMINI_API_BASE_URL}/${model}:generateContent?key=${apiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              systemInstruction: {
-                parts: [{ text: systemInstruction }],
+        const response = await fetch(`${GEMINI_API_BASE_URL}/${model}:generateContent`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey,
+          },
+          referrerPolicy: 'no-referrer',
+          body: JSON.stringify({
+            systemInstruction: {
+              parts: [{ text: systemInstruction }],
+            },
+            contents: [
+              {
+                parts: [{ text: userPrompt }],
               },
-              contents: [
-                {
-                  parts: [{ text: userPrompt }],
-                },
-              ],
-            }),
-          }
-        );
+            ],
+          }),
+        });
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({} as { error?: { message?: string } }));
@@ -172,24 +173,25 @@ export function useAiNarration(): UseAiNarrationReturn {
       setIsAiLoading(true);
       useLogStore.getState().info('AUDIO', 'AI音声合成を開始', { voice: aiVoice, scriptLength: aiScript.length });
       try {
-        const response = await fetch(
-          `${GEMINI_API_BASE_URL}/${GEMINI_TTS_MODEL}:generateContent?key=${apiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: aiScript }] }],
-              generationConfig: {
-                responseModalities: ['AUDIO'],
-                speechConfig: {
-                  voiceConfig: {
-                    prebuiltVoiceConfig: { voiceName: aiVoice },
-                  },
+        const response = await fetch(`${GEMINI_API_BASE_URL}/${GEMINI_TTS_MODEL}:generateContent`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey,
+          },
+          referrerPolicy: 'no-referrer',
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: aiScript }] }],
+            generationConfig: {
+              responseModalities: ['AUDIO'],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: { voiceName: aiVoice },
                 },
               },
-            }),
-          }
-        );
+            },
+          }),
+        });
 
         const data = await response.json();
         const inlineData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;

@@ -1463,23 +1463,24 @@ const TurtleVideo: React.FC = () => {
         const model = modelsToTry[i];
         const hasNextModel = i < modelsToTry.length - 1;
 
-        const response = await fetch(
-          `${GEMINI_API_BASE_URL}/${model}:generateContent?key=${apiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              systemInstruction: {
-                parts: [{ text: systemInstruction }],
+        const response = await fetch(`${GEMINI_API_BASE_URL}/${model}:generateContent`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey,
+          },
+          referrerPolicy: 'no-referrer',
+          body: JSON.stringify({
+            systemInstruction: {
+              parts: [{ text: systemInstruction }],
+            },
+            contents: [
+              {
+                parts: [{ text: userPrompt }],
               },
-              contents: [
-                {
-                  parts: [{ text: userPrompt }],
-                },
-              ],
-            }),
-          }
-        );
+            ],
+          }),
+        });
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({} as { error?: { message?: string } }));
@@ -1567,9 +1568,13 @@ const TurtleVideo: React.FC = () => {
       const strictPrompt = `TTS the following text exactly as written. Do not add any extra words.\n${transcript}`;
 
       const requestTts = (text: string) =>
-        fetch(`${GEMINI_API_BASE_URL}/${GEMINI_TTS_MODEL}:generateContent?key=${apiKey}`, {
+        fetch(`${GEMINI_API_BASE_URL}/${GEMINI_TTS_MODEL}:generateContent`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey,
+          },
+          referrerPolicy: 'no-referrer',
           body: JSON.stringify({
             contents: [{ parts: [{ text }] }],
             generationConfig: {

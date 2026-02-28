@@ -1004,3 +1004,14 @@
   - Use `showSaveFilePicker` when available; otherwise fallback to anchor download.
   - Show explicit user feedback (`alert` + toast) after save start/completion/cancel.
 - **Note**: Fallback path cannot detect actual OS-level completion reliably; communicate "save started" clearly.
+
+### 13-39. Gemini API key transport hardening (query string -> header)
+
+- **Files**: `src/components/TurtleVideo.tsx`, `src/hooks/useAiNarration.ts`
+- **Issue**: Gemini API calls appended `?key=...` to request URLs, which increases accidental exposure risk through URL surfaces.
+- **Pattern**:
+  - Keep endpoint format as `${GEMINI_API_BASE_URL}/{model}:generateContent` (no query key).
+  - Send API key via `x-goog-api-key` request header.
+  - Set `referrerPolicy: 'no-referrer'` on external Gemini calls.
+  - Keep request body schema and fallback flow unchanged to avoid behavior/performance regressions.
+- **Note**: Future Gemini integrations should never place API keys in query parameters.
