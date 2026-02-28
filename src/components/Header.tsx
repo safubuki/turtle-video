@@ -4,17 +4,18 @@
  * @description アプリケーションのグローバルヘッダー。タイトル表示、エクスポートボタン、設定モーダルへのアクセスを提供する。
  */
 import React from 'react';
-import { Settings, FolderOpen } from 'lucide-react';
+import { Settings, FolderOpen, CircleHelp } from 'lucide-react';
 
 interface HeaderProps {
   onOpenSettings?: () => void;
   onOpenProjectManager?: () => void;
+  onOpenAppHelp?: () => void;
 }
 
 /**
  * ヘッダーコンポーネント
  */
-const Header: React.FC<HeaderProps> = ({ onOpenSettings, onOpenProjectManager }) => {
+const Header: React.FC<HeaderProps> = ({ onOpenSettings, onOpenProjectManager, onOpenAppHelp }) => {
   return (
     <header className="sticky top-0 z-50 bg-gray-900/95 backdrop-blur border-b border-gray-800 px-4 py-3 lg:px-8 lg:py-4 shadow-lg">
       <div className="flex items-center justify-center lg:justify-center lg:relative">
@@ -47,6 +48,16 @@ const Header: React.FC<HeaderProps> = ({ onOpenSettings, onOpenProjectManager })
                 <Settings className="w-5 h-5" />
               </button>
             )}
+            {onOpenAppHelp && (
+              <button
+                onClick={onOpenAppHelp}
+                className="p-1.5 rounded-lg transition border border-blue-500/45 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:text-blue-200"
+                title="このアプリの説明"
+                aria-label="このアプリの説明"
+              >
+                <CircleHelp className="w-5 h-5" />
+              </button>
+            )}
           </div>
         </div>
         {/* PC: タイトルから少し離して右側に配置 (ml-8 で間隔調整) */}
@@ -67,6 +78,16 @@ const Header: React.FC<HeaderProps> = ({ onOpenSettings, onOpenProjectManager })
               title="設定"
             >
               <Settings className="w-6 h-6" />
+            </button>
+          )}
+          {onOpenAppHelp && (
+            <button
+              onClick={onOpenAppHelp}
+              className="p-2 rounded-lg transition border border-blue-500/45 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:text-blue-200"
+              title="このアプリの説明"
+              aria-label="このアプリの説明"
+            >
+              <CircleHelp className="w-6 h-6" />
             </button>
           )}
         </div>

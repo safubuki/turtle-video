@@ -4,9 +4,14 @@
  * @description セクションヘルプの表示内容を一元管理する定義。
  */
 
-export type SectionHelpKey = 'clips' | 'bgm' | 'narration' | 'caption' | 'preview';
+export type SectionHelpKey = 'app' | 'clips' | 'bgm' | 'narration' | 'caption' | 'preview';
 
 export type SectionHelpVisualId =
+  | 'app_step_clips'
+  | 'app_step_bgm'
+  | 'app_step_narration'
+  | 'app_step_caption'
+  | 'app_step_preview'
   | 'add_green_button'
   | 'add_yellow_button'
   | 'ai_add_button'
@@ -52,6 +57,10 @@ export interface SectionHelpItem {
   title: string;
   description: string;
   visuals?: SectionHelpVisualId[];
+  accordions?: {
+    title: string;
+    items: string[];
+  }[];
 }
 
 export interface SectionHelpDefinition {
@@ -61,6 +70,101 @@ export interface SectionHelpDefinition {
 }
 
 export const SECTION_HELP_CONTENT: Record<SectionHelpKey, SectionHelpDefinition> = {
+  app: {
+    title: 'タートルビデオの使い方',
+    subtitle: '',
+    items: [
+      {
+        title: '概要',
+        description:
+          'タートルビデオは、旅行や出張などのちょっとした隙間時間にも、自宅で落ち着いて動画を作成したいときにも便利な動画編集ソフトです。\nレスポンシブデザインにより、スマホ・PCそれぞれに最適化された表示で編集できます。\nPWA（プログレッシブウェブアプリ）なので、スマホではアプリのような感覚で使え、AI機能を利用しなければオフラインでも利用できます。\nAI機能を活用すれば、より魅力的な動画に仕上げることができます。\nさらにオープンソース（GPLv3ライセンス）なので、AIであなた好みに改変して活用できます（※ライセンスの詳細は後述）。\nいつもあなたのそばに、タートルビデオを是非ご活用ください🐢',
+      },
+      {
+        title: '主要な機能',
+        description:
+          '・動画・画像の追加、並び替え、トリミング/表示時間調整\n・BGMの追加と開始タイミング・音量・フェード調整\n・ナレーション（AI生成/音声追加）とタイミング調整\n・キャプションの追加、一括設定、個別設定\n・プレビュー確認、動画ファイル作成、ダウンロード\n・自動保存/手動保存と読み込み',
+      },
+      {
+        title: '使い方（5ステップ）',
+        description:
+          '初めてでも、次の5ステップでかんたんに動画を作成できます。',
+        visuals: ['app_step_clips', 'app_step_bgm', 'app_step_narration', 'app_step_caption', 'app_step_preview'],
+      },
+      {
+        title: '動作確認機種',
+        description:
+          'スマホ: Pixel 6a（Android・Chrome）\nPC: Windows / CPU Ryzen 5 5500 / GPU RTX3060 12GB\n※動作確認は手持ちの機種でのみ実施しています。もし、動作しない場合はご了承ください。\n※iPhone（iOS・Safari）は現状非対応。ただし、順次対応予定。',
+      },
+      {
+        title: '注意事項',
+        description: '長い編集や複雑な編集は、動作が不安定になることがあります。手動、自動保存を活用してください。',
+      },
+      {
+        title: 'ライセンス',
+        description:
+          'タートルビデオは GNU General Public License v3.0（GPLv3）で公開されています。\n個人や社内で再頒布を伴わない場合は、自由に改変して利用可能です。ぜひAIなどを活用して、自分好みに改変して利用してみてください。\n改変版を外部に配布する場合は、ソースコード公開や同ライセンス継承など、GPLv3の条件に従う必要があります。\n詳細は README と LICENSE を確認してください。',
+        accordions: [
+          {
+            title: '使用ライセンス一覧（本番依存 / 直接）',
+            items: [
+              '@tailwindcss/postcss (^4.1.18): MIT',
+              'lucide-react (^0.563.0): ISC',
+              'mp4-muxer (^5.2.2): MIT',
+              'react (^19.2.4): MIT',
+              'react-dom (^19.2.4): MIT',
+              'zustand (^5.0.10): MIT',
+            ],
+          },
+          {
+            title: '使用ライセンス一覧（開発依存 / 直接）',
+            items: [
+              '@testing-library/jest-dom (^6.9.1): MIT',
+              '@testing-library/react (^16.3.2): MIT',
+              '@testing-library/user-event (^14.6.1): MIT',
+              '@types/react (^19.2.10): MIT',
+              '@types/react-dom (^19.2.3): MIT',
+              '@typescript-eslint/eslint-plugin (^8.54.0): MIT',
+              '@typescript-eslint/parser (^8.54.0): MIT',
+              '@vitejs/plugin-react (^5.1.2): MIT',
+              'autoprefixer (^10.4.23): MIT',
+              'eslint (^9.39.2): MIT',
+              'eslint-config-prettier (^10.1.8): MIT',
+              'jsdom (^27.4.0): MIT',
+              'postcss (^8.5.6): MIT',
+              'prettier (^3.8.1): MIT',
+              'sharp (^0.34.5): Apache-2.0',
+              'tailwindcss (^4.1.18): MIT',
+              'typescript (^5.9.3): Apache-2.0',
+              'vite (^7.3.1): MIT',
+              'vite-plugin-pwa (^1.2.0): MIT',
+              'vitest (^4.0.18): MIT',
+            ],
+          },
+          {
+            title: '使用ライセンス一覧（間接依存を含む集計）',
+            items: [
+              '調査範囲: node_modules のユニークパッケージ 537 件',
+              'MIT: 463件',
+              'Apache-2.0: 21件',
+              'ISC: 21件',
+              'BSD-2-Clause: 11件',
+              'BSD-3-Clause: 6件',
+              'BlueOak-1.0.0: 4件',
+              'MIT-0: 2件',
+              'MPL-2.0: 2件',
+              'Apache-2.0 AND LGPL-3.0-or-later: 1件',
+              'Python-2.0: 1件',
+              'CC-BY-4.0: 1件',
+              '(AFL-2.1 OR BSD-3-Clause): 1件',
+              'CC0-1.0: 1件',
+              '0BSD: 1件',
+              '(MIT OR CC0-1.0): 1件',
+            ],
+          },
+        ],
+      },
+    ],
+  },
   clips: {
     title: '動画・画像の使い方',
     subtitle: '素材の追加、並び替え、表示調整をこのセクションで行います。',

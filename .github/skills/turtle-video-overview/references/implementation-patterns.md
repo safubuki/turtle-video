@@ -1149,3 +1149,71 @@
   - 戻る先を「停止/再生を押すと『動画ファイルを作成』ボタンに戻り」と鍵括弧付きで表記
   - 一括クリア説明を「動画作成状態をクリアしてすべて初期状態に戻せます」に更新
 - **Note**: 強い注意文にする項目は、実際に失敗し得る操作条件に限定して記載する。
+
+### 13-50. ヘッダー右側に全体ヘルプ導線を追加（PCモーダル / スマホ下スライド）
+
+- **Files**: `src/components/Header.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`
+- **Issue**:
+  - セクション別ヘルプはあるが、アプリ全体の概要・使い方をまとめて確認する導線がヘッダーに無かった
+  - 初見ユーザー向けに、機能概要/5ステップ手順/動作確認機種/注意点を一箇所で案内したい
+- **Pattern**:
+  - ヘッダーの歯車（設定）右側に、既存ヘルプと同系スタイルの `?` ボタンを追加（モバイル/PC両方）
+  - クリック時は `SectionHelpModal` を `app` セクションで開き、既存同様に PC は中央モーダル、スマホは下からスライドで表示
+  - `sectionHelp.ts` に `app` セクションを追加し、以下を順に掲載:
+    - ソフト概要（端的説明）
+    - 主要機能（箇条書き）
+    - 使い方5ステップ
+    - 動作確認機種（Pixel 6a / Ryzen 5 5500 + RTX3060 12GB、注記付き）
+    - 全体注意点（適宜保存・自動保存活用）
+    - 使い方のコツ（追加案内）
+  - 説明文で改行を使えるよう、`SectionHelpModal` の本文を `whitespace-pre-line` 表示に対応
+- **Note**: 全体ヘルプはセクション操作説明と役割が異なるため、ヘッダー導線として独立管理する。
+
+### 13-51. 全体ヘルプ「使い方（5ステップ）」をセクション配色に合わせた視覚ガイドへ強化
+
+- **Files**: `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`
+- **Issue**:
+  - 全体ヘルプの5ステップがテキスト列挙のみで、実際のセクション配色（青/紫/藍/黄/緑）との対応が直感的に伝わりにくかった
+  - ステップ説明をもう少し丁寧で自然な文章にしたい要望があった
+- **Pattern**:
+  - `SectionHelpVisualId` に `app_step_*`（clips/bgm/narration/caption/preview）を追加し、全体ヘルプの5ステップを visual token で描画
+  - `sectionHelp.ts` の「使い方（5ステップ）」は導入文 + `visuals` 指定へ変更し、本文の行番号リスト依存を解消
+  - `SectionHelpModal` 側で各 `app_step_*` をフル幅カードとして描画し、番号バッジとタイトル色をセクション見出し色に統一
+  - 各ステップ文言を、追加→調整→確認→作成/ダウンロードの流れが伝わる文に更新
+- **Note**: 5ステップ文言を更新する際は、`sectionHelp.ts` と `SectionHelpModal.tsx` の `app_step_*` 描画を同時に見直し、表示順と色対応を崩さない。
+
+### 13-52. 全体ヘルプの概要文を実利用シーン寄りに校正し、5ステップ説明文の文字サイズを統一
+
+- **Files**: `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`
+- **Issue**:
+  - 全体ヘルプ「使い方（5ステップ）」の説明文が他項目より小さく、読みづらい
+  - 概要文を、モバイル利用/PWA/オフライン利用/OSS活用まで含めた案内へ改善したい
+- **Pattern**:
+  - `SectionHelpModal` の `app_step_*` 説明文クラスを `text-xs md:text-sm` に変更し、ヘルプ本文の標準サイズへ統一
+  - `sectionHelp.ts` の `app > 概要` を複数文に再構成し、実際の利用シーンと価値（レスポンシブ、PWA、AI活用、GPLv3）を自然な流れで記載
+- **Note**: 全体ヘルプ本文は `whitespace-pre-line` 表示を前提に、長文は改行で段落分けして可読性を維持する。
+
+### 13-53. 全体ヘルプのライセンス案内を拡張し、OSSライセンス一覧をアコーディオン化
+
+- **Files**: `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`
+- **Issue**:
+  - 全体ヘルプ内でライセンス説明を独立項目として示したい
+  - 使用OSSとライセンス形態を、折りたたみで見やすく提示したい
+- **Pattern**:
+  - `SectionHelpItem` に `accordions`（title + items）を追加し、任意項目で折りたたみデータを保持できる構造に拡張
+  - `SectionHelpModal` 側で `details/summary` によるアコーディオン描画を追加し、一覧表示を省スペース化
+  - `app` セクションに `ライセンス` 項目を追加し、GPLv3の概要を簡潔に案内
+  - 同項目内に「本番依存（直接）」「開発依存（直接）」「間接依存を含む集計」の3アコーディオンを配置
+  - 直接依存のライセンスは `package.json` + `node_modules/<pkg>/package.json` を参照し、集計値は `node_modules` 全体のユニークパッケージで算出
+- **Note**: 依存パッケージ更新時は、`ライセンス` 項目の直接依存一覧と集計値を同期して更新する。
+
+### 13-54. ライセンス説明を「改変しやすさ重視」の表現へ調整
+
+- **Files**: `src/constants/sectionHelp.ts`
+- **Issue**:
+  - GPLv3説明が義務寄りの印象になり、個人/社内の改変利用を後押しするメッセージが弱かった
+- **Pattern**:
+  - `ライセンス` 説明に「個人や社内で再頒布を伴わない場合は自由に改変して利用可能」を明記
+  - AI活用で自分好みに改変することを推奨する文章を追加
+  - 一方で、外部配布時のみGPLv3条件（ソース公開・同ライセンス継承等）が必要である点は簡潔に維持
+- **Note**: 法的な厳密判断は README / LICENSE を正本とし、ヘルプ文言は運用上の分かりやすさを優先する。

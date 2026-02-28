@@ -49,6 +49,7 @@ interface SectionHelpModalProps {
 }
 
 const sectionAccentClass: Record<SectionHelpKey, string> = {
+  app: 'text-emerald-300 border-emerald-500/35 bg-emerald-500/10',
   clips: 'text-blue-300 border-blue-500/35 bg-blue-500/10',
   bgm: 'text-purple-300 border-purple-500/35 bg-purple-500/10',
   narration: 'text-indigo-300 border-indigo-500/35 bg-indigo-500/10',
@@ -209,6 +210,86 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({ isOpen, section, on
 
   const renderVisualToken = (token: SectionHelpVisualId, index: number) => {
     switch (token) {
+      case 'app_step_clips':
+        return (
+          <div key={`${token}-${index}`} className="basis-full w-full">
+            <div className="w-full rounded-lg border border-blue-500/35 bg-blue-500/10 px-2.5 py-2">
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 inline-flex items-center justify-center w-6 h-6 rounded-full border border-blue-400/40 bg-blue-500/20 text-xs font-bold text-blue-200 shrink-0">
+                  1
+                </span>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-blue-200">動画・画像</div>
+                  <p className="text-xs md:text-sm text-gray-200 leading-relaxed">動画・画像を追加し、並び順や表示区間を整えます。</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      case 'app_step_bgm':
+        return (
+          <div key={`${token}-${index}`} className="basis-full w-full">
+            <div className="w-full rounded-lg border border-purple-500/35 bg-purple-500/10 px-2.5 py-2">
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 inline-flex items-center justify-center w-6 h-6 rounded-full border border-purple-400/40 bg-purple-500/20 text-xs font-bold text-purple-200 shrink-0">
+                  2
+                </span>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-purple-200">BGM</div>
+                  <p className="text-xs md:text-sm text-gray-200 leading-relaxed">BGMを追加し、開始タイミングや音量を調整して動画を盛り上げます。</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      case 'app_step_narration':
+        return (
+          <div key={`${token}-${index}`} className="basis-full w-full">
+            <div className="w-full rounded-lg border border-indigo-500/35 bg-indigo-500/10 px-2.5 py-2">
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 inline-flex items-center justify-center w-6 h-6 rounded-full border border-indigo-400/40 bg-indigo-500/20 text-xs font-bold text-indigo-200 shrink-0">
+                  3
+                </span>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-indigo-200">ナレーション</div>
+                  <p className="text-xs md:text-sm text-gray-200 leading-relaxed">AI生成でも、あらかじめ用意した音声ファイルでもナレーションを追加できます。</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      case 'app_step_caption':
+        return (
+          <div key={`${token}-${index}`} className="basis-full w-full">
+            <div className="w-full rounded-lg border border-yellow-500/35 bg-yellow-500/10 px-2.5 py-2">
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 inline-flex items-center justify-center w-6 h-6 rounded-full border border-yellow-400/40 bg-yellow-500/20 text-xs font-bold text-yellow-200 shrink-0">
+                  4
+                </span>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-yellow-200">キャプション</div>
+                  <p className="text-xs md:text-sm text-gray-200 leading-relaxed">キャプションを追加し、サイズや字体、位置、フェードなどを整えて見やすく仕上げます。</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      case 'app_step_preview':
+        return (
+          <div key={`${token}-${index}`} className="basis-full w-full">
+            <div className="w-full rounded-lg border border-green-500/35 bg-green-500/10 px-2.5 py-2">
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 inline-flex items-center justify-center w-6 h-6 rounded-full border border-green-400/40 bg-green-500/20 text-xs font-bold text-green-200 shrink-0">
+                  5
+                </span>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-green-200">プレビュー</div>
+                  <p className="text-xs md:text-sm text-gray-200 leading-relaxed">プレビューで確認後、「動画ファイルを作成」してダウンロードすれば完了です。</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
       case 'add_green_button':
         return (
           <span key={`${token}-${index}`} className={`${chipBaseClass} px-2.5 py-1 bg-emerald-700 border-emerald-500/45 text-white font-semibold`}>
@@ -554,7 +635,9 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({ isOpen, section, on
           ref={contentScrollRef}
           className="flex-1 min-h-0 p-4 md:p-5 overflow-y-auto space-y-4 overscroll-contain pb-[calc(env(safe-area-inset-bottom)+1rem)] md:pb-5"
         >
-          <p className="text-xs md:text-sm text-gray-300 leading-relaxed">{help.subtitle}</p>
+          {help.subtitle.trim().length > 0 && (
+            <p className="text-xs md:text-sm text-gray-300 leading-relaxed">{help.subtitle}</p>
+          )}
 
           <div className="space-y-3">
             {help.items.map((item, index) => (
@@ -565,10 +648,34 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({ isOpen, section, on
                   </span>
                   <div className="min-w-0 flex-1 space-y-1">
                     <div className="text-sm font-semibold text-white">{item.title}</div>
-                    <p className="text-xs md:text-sm text-gray-300 leading-relaxed">{item.description}</p>
+                    <p className="text-xs md:text-sm text-gray-300 leading-relaxed whitespace-pre-line">{item.description}</p>
                     {item.visuals && item.visuals.length > 0 && (
                       <div className="flex flex-wrap w-full gap-1.5 pt-1">
                         {item.visuals.map((visual, visualIndex) => renderVisualToken(visual, visualIndex))}
+                      </div>
+                    )}
+                    {item.accordions && item.accordions.length > 0 && (
+                      <div className="space-y-2 pt-1">
+                        {item.accordions.map((accordion, accordionIndex) => (
+                          <details
+                            key={`${item.title}-accordion-${accordionIndex}`}
+                            className="rounded-lg border border-gray-700/90 bg-gray-900/55"
+                          >
+                            <summary className="cursor-pointer select-none list-none px-3 py-2 text-xs md:text-sm text-gray-100 font-semibold flex items-center justify-between gap-2">
+                              <span>{accordion.title}</span>
+                              <span className="text-[10px] md:text-xs text-gray-400">開く</span>
+                            </summary>
+                            <div className="px-3 pb-2">
+                              <ul className="space-y-1">
+                                {accordion.items.map((line, lineIndex) => (
+                                  <li key={`${item.title}-accordion-${accordionIndex}-line-${lineIndex}`} className="text-[11px] md:text-xs text-gray-300 leading-relaxed">
+                                    ・{line}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          </details>
+                        ))}
                       </div>
                     )}
                   </div>
