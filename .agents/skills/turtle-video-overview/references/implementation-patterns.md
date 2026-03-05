@@ -938,112 +938,132 @@
   - 00テンプレートではラベル固定を避け、種別確定は後段のAI整理で行う
   - 実運用テンプレートとスキル資産の4系統を同時更新し、再同期で仕様が戻らないようにする
 
-### 13-33. Narration clip trimStart/trimEnd support
+### 13-33. ナレーションクリップの trimStart/trimEnd 対応
 
-- **Files**: `src/types/index.ts`, `src/stores/audioStore.ts`, `src/components/sections/NarrationSection.tsx`, `src/components/TurtleVideo.tsx`, `src/hooks/useExport.ts`, `src/stores/projectStore.ts`, `src/hooks/useAutoSave.ts`
-- **Issue**: Long narration reuse needs per-clip in/out trim without implementing waveform split.
-- **Pattern**:
-  - Add `trimStart` / `trimEnd` to `NarrationClip` and initialize on clip creation.
-  - Normalize and clamp in store updates (`updateNarrationTrim`) with a minimum gap to avoid invalid ranges.
-  - In preview playback and visibility resync, map timeline time to source time with `sourceTime = trimStart + clipTime`.
-  - In export scheduling, use `source.start(clipStart, trimStart, playDuration)` where `playDuration` is computed from trimmed duration and timeline remainder.
-  - Persist trim fields in project save/load with backward-compatible defaults for legacy data.
-  - Include trim fields in auto-save change detection hash.
-  - In narration UI, expose trim sliders/inputs and show duration based on trimmed range.
-- **Note**: Loading the same narration source multiple times with per-clip trim is a practical substitute for dedicated split functionality.
+- **ファイル**: `src/types/index.ts`, `src/stores/audioStore.ts`, `src/components/sections/NarrationSection.tsx`, `src/components/TurtleVideo.tsx`, `src/hooks/useExport.ts`, `src/stores/projectStore.ts`, `src/hooks/useAutoSave.ts`
+- **問題**: 波形分割機能を実装せずに、長いナレーション素材をクリップ単位の入出点トリムで再利用したい。
+- **対策**:
+  - `NarrationClip` に `trimStart` / `trimEnd` を追加し、クリップ作成時に初期化する。
+  - ストア更新（`updateNarrationTrim`）で最小間隔を保った正規化・クランプを行い、無効レンジを防ぐ。
+  - プレビュー再生と可視範囲再同期で、`sourceTime = trimStart + clipTime` によりタイムライン時刻をソース時刻へ変換する。
+  - エクスポート時は `source.start(clipStart, trimStart, playDuration)` を使い、`playDuration` はトリム後尺と残りタイムラインから算出する。
+  - trim項目はプロジェクト保存/読込に永続化し、旧データは後方互換デフォルトで補完する。
+  - trim項目を自動保存の差分検知ハッシュに含める。
+  - ナレーションUIに trim スライダー/入力を追加し、表示尺はトリム後レンジ基準で表示する。
+- **注意**: 同一ナレーション素材を複数クリップとして配置し、クリップごとに trim する運用は、専用分割機能の実用的代替になる。
 
-### 13-34. Narration trim controls as collapsed accordion (default closed)
+### 13-34. ナレーショントリム操作を折りたたみ化（初期は閉じる）
 
-- **Files**: `src/components/sections/NarrationSection.tsx`
-- **Issue**: Narration card became visually dense when trim controls were always visible.
-- **Pattern**:
-  - Keep `startTime` and `volume` controls always visible for primary operation.
-  - Move `trimStart` / `trimEnd` controls into a per-clip accordion (`openTrimMap`) and default it to closed.
-  - Reuse chevron-style toggle pattern consistent with clip settings panels.
-- **Note**: This keeps the common workflow simple while preserving advanced trim editing on demand.
+- **ファイル**: `src/components/sections/NarrationSection.tsx`
+- **問題**: trim 操作を常時表示すると、ナレーションカードの情報密度が高くなりすぎる。
+- **対策**:
+  - 主要操作の `startTime` と `volume` は常時表示のまま維持する。
+  - `trimStart` / `trimEnd` はクリップ単位アコーディオン（`openTrimMap`）に移し、初期は閉じる。
+  - クリップ設定パネルと同じシェブロントグルの操作パターンを再利用する。
+- **注意**: 日常操作を簡潔に保ちつつ、必要時だけ詳細トリム編集を開ける構成にする。
 
-### 13-35. Narration help content sync with trim-accordion UI
+### 13-35. ナレーションヘルプをトリム折りたたみUIに同期
 
-- **Files**: `src/constants/sectionHelp.ts`
-- **Issue**: Help modal text lagged behind narration UI after trim controls became collapsible.
-- **Pattern**:
-  - Remove stale help visuals (e.g., narration `settings_button`) that no longer exist in the actual row controls.
-  - Add explicit help item for trim controls being inside a collapsed section.
-  - Clarify that `startTime` and `volume` are always visible for normal workflow.
-- **Note**: Keep help descriptions aligned with current UI to reduce onboarding confusion and false bug reports.
+- **ファイル**: `src/constants/sectionHelp.ts`
+- **問題**: trim 操作を折りたたみにした後、ヘルプ文面が実UIより古い内容のままになっていた。
+- **対策**:
+  - 実UI行操作に存在しない古いヘルプ表現（例: narration `settings_button`）を削除する。
+  - trim 操作が折りたたみ内にあることを明示したヘルプ項目を追加する。
+  - 通常操作として `startTime` と `volume` が常時表示である点を明記する。
+- **注意**: ヘルプ説明を実UIに同期し、導入時の混乱や誤報告を減らす。
 
-### 13-36. Narration per-clip mute (preview/export/save)
+### 13-36. ナレーションのクリップ単位ミュート（プレビュー/エクスポート/保存）
 
-- **Files**: `src/types/index.ts`, `src/stores/audioStore.ts`, `src/components/sections/NarrationSection.tsx`, `src/components/TurtleVideo.tsx`, `src/hooks/useExport.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/hooks/useAutoSave.ts`
-- **Issue**: Narration card mute button existed visually but did not mute playback/export output.
-- **Pattern**:
-  - Add `isMuted` to `NarrationClip` and normalize with backward-compatible default (`false`).
-  - Add store action `toggleNarrationMute` and wire it to narration card speaker button.
-  - In preview playback, use effective volume `clip.isMuted ? 0 : clip.volume`.
-  - In export audio scheduling, skip muted narration clips to prevent mixed output.
-  - Persist `isMuted` in project save/load and include it in auto-save change hash.
-- **Note**: Keep slider value while muted so unmute restores previous level.
+- **ファイル**: `src/types/index.ts`, `src/stores/audioStore.ts`, `src/components/sections/NarrationSection.tsx`, `src/components/TurtleVideo.tsx`, `src/hooks/useExport.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/hooks/useAutoSave.ts`
+- **問題**: ナレーションカードのミュートボタンは見た目だけで、実際のプレビュー/書き出し音声に反映されていなかった。
+- **対策**:
+  - `NarrationClip` に `isMuted` を追加し、後方互換デフォルト（`false`）で正規化する。
+  - ストアに `toggleNarrationMute` を追加し、カードのスピーカーボタンへ接続する。
+  - プレビュー再生では有効音量を `clip.isMuted ? 0 : clip.volume` とする。
+  - エクスポート音声スケジューリングでは、ミュート中のナレーションクリップを混音対象から除外する。
+  - `isMuted` をプロジェクト保存/読込に永続化し、自動保存差分ハッシュにも含める。
+- **注意**: ミュート中もスライダー値は保持し、解除時に元の音量へ戻せるようにする。
 
-### 13-37. Unified volume range 0-250% for video/BGM/narration
+### 13-37. 動画/BGM/ナレーションの音量レンジを0-250%に統一
 
-- **Files**: `src/components/media/ClipItem.tsx`, `src/components/sections/BgmSection.tsx`, `src/components/sections/NarrationSection.tsx`, `src/stores/mediaStore.ts`, `src/stores/audioStore.ts`, `src/stores/projectStore.ts`, `src/hooks/useExport.ts`
-- **Issue**: Volume control upper bound was inconsistent (some paths capped at 200%).
-- **Pattern**:
-  - Standardize max gain to `2.5` (250%) across UI sliders, store clamps, restore path, and export mix path.
-  - Keep default volume at `1.0` and percentage label as `Math.round(volume * 100)`.
-  - Ensure tests verify clamping at `2.5` for BGM and narration.
-- **Note**: Perceived loudness is logarithmic; 200% amplitude (~+6 dB) is not perceived as "twice as loud".
+- **ファイル**: `src/components/media/ClipItem.tsx`, `src/components/sections/BgmSection.tsx`, `src/components/sections/NarrationSection.tsx`, `src/stores/mediaStore.ts`, `src/stores/audioStore.ts`, `src/stores/projectStore.ts`, `src/hooks/useExport.ts`
+- **問題**: 音量上限が経路ごとに不一致で、一部は200%に制限されていた。
+- **対策**:
+  - UIスライダー、ストアのクランプ、復元経路、エクスポート混音経路の上限を `2.5`（250%）に統一する。
+  - 既定値は `1.0` を維持し、表示ラベルは `Math.round(volume * 100)` を使う。
+  - BGM/ナレーションの上限クランプ（`2.5`）をテストで検証する。
+- **注意**: 体感音量は対数的なので、振幅200%（約+6 dB）は知覚上の「2倍の大きさ」とは一致しない。
 
-### 13-38. Narration save UX improvement for Android/fallback download
+### 13-38. Android/フォールバック向けナレーション保存UX改善
 
-- **Files**: `src/components/TurtleVideo.tsx`, `src/components/sections/NarrationSection.tsx`
-- **Issue**: On Android fallback download, first save had no clear result dialog and second save could show confusing overwrite prompt.
-- **Pattern**:
-  - Replace direct `<a download>` in narration card with delegated save handler.
-  - Generate unique timestamped filename per save to avoid overwrite-confirm confusion.
-  - Use `showSaveFilePicker` when available; otherwise fallback to anchor download.
-  - Show explicit user feedback (`alert` + toast) after save start/completion/cancel.
-- **Note**: Fallback path cannot detect actual OS-level completion reliably; communicate "save started" clearly.
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/components/sections/NarrationSection.tsx`
+- **問題**: Androidのフォールバック保存で、初回保存結果が分かりにくく、2回目保存時に上書き確認が混乱を招くことがあった。
+- **対策**:
+  - ナレーションカードの直接 `<a download>` をやめ、共通保存ハンドラ経由に統一する。
+  - 保存ごとにタイムスタンプ付きの一意ファイル名を生成し、上書き確認の混乱を抑える。
+  - `showSaveFilePicker` 対応時はそれを使い、非対応時はアンカーダウンロードへフォールバックする。
+  - 保存開始/完了/キャンセルで明示的なユーザー通知（`alert` + toast）を出す。
+- **注意**: フォールバック経路ではOSレベル完了を厳密検知できないため、「保存開始」を明確に伝える。
 
-### 13-39. Gemini API key transport hardening (query string -> header)
+### 13-39. Gemini APIキー送信経路の強化（クエリパラメータ -> ヘッダー）
 
-- **Files**: `src/components/TurtleVideo.tsx`, `src/hooks/useAiNarration.ts`
-- **Issue**: Gemini API calls appended `?key=...` to request URLs, which increases accidental exposure risk through URL surfaces.
-- **Pattern**:
-  - Keep endpoint format as `${GEMINI_API_BASE_URL}/{model}:generateContent` (no query key).
-  - Send API key via `x-goog-api-key` request header.
-  - Set `referrerPolicy: 'no-referrer'` on external Gemini calls.
-  - Keep request body schema and fallback flow unchanged to avoid behavior/performance regressions.
-- **Note**: Future Gemini integrations should never place API keys in query parameters.
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/hooks/useAiNarration.ts`
+- **問題**: Gemini API呼び出しで `?key=...` をURLに付与しており、URL露出経路からの漏えいリスクが高まる。
+- **対策**:
+  - エンドポイント形式は `${GEMINI_API_BASE_URL}/{model}:generateContent`（クエリキーなし）を維持する。
+  - APIキーは `x-goog-api-key` リクエストヘッダーで送る。
+  - Gemini向け外部リクエストに `referrerPolicy: 'no-referrer'` を設定する。
+  - 既存のリクエストボディ仕様とフォールバック動作は維持し、挙動/性能デグレを避ける。
+- **注意**: 今後のGemini連携でも、APIキーをクエリパラメータに載せない。
 
-### 13-40. Caption help position chip label should avoid strict XY implication
+### 13-40. キャプションヘルプの位置チップは厳密XY表現を避ける
 
-- **Files**: `src/components/modals/SectionHelpModal.tsx`
-- **Issue**: Caption help chip label showed `位置X/Y`, but actual caption positioning is not intended as strict XY coordinate control in user guidance.
-- **Pattern**:
-  - Use `位置` as the help chip label for caption style guidance.
-  - Keep the move icon for visual association, but avoid over-specific coordinate wording.
-- **Note**: Help labels should describe practical operation granularity, not internal parameter semantics.
+- **ファイル**: `src/components/modals/SectionHelpModal.tsx`
+- **問題**: キャプションヘルプのチップが `位置X/Y` 表記で、実際の操作意図（厳密座標指定ではない）とズレていた。
+- **対策**:
+  - キャプションスタイル案内のチップ文言は `位置` にする。
+  - 移動アイコンは視覚連想のため維持しつつ、過度に座標を想起させる文言を避ける。
+- **注意**: ヘルプラベルは内部パラメータ名ではなく、実運用での操作粒度に合わせる。
 
-### 13-41. App help "main features" should include swipe-misoperation guard summary
+### 13-41. アプリヘルプ「主要な機能」にスワイプ誤操作防止の要約を追加
 
-- **Files**: `src/constants/sectionHelp.ts`
-- **Issue**: The top-level help summary did not mention mobile slider misoperation protection, making accidental value-reset behavior look unexpected.
-- **Pattern**:
-  - Add one bullet under `主要な機能` that explains the guard in user terms.
-  - Describe detection by swipe direction and touch duration, and clarify that mistaken slider changes are restored automatically.
-- **Note**: Keep this sentence aligned with `useSwipeProtectedValue` behavior to avoid overpromising.
+- **ファイル**: `src/constants/sectionHelp.ts`
+- **問題**: ヘルプ上位サマリーにモバイルでのスライダー誤操作防止が記載されず、値が戻る挙動が意図不明に見えていた。
+- **対策**:
+  - `主要な機能` 配下に、誤操作防止の説明を1項目追加する。
+  - スワイプ方向とタッチ時間による判定、および誤操作時に値が自動復元される点をユーザー向け表現で明記する。
+- **注意**: 文言は `useSwipeProtectedValue` の実挙動と一致させ、過剰な期待を生まない。
 
-### 13-42. Manual save failure hardening for clip edits on Android (IDB transaction cleanup + recovery path)
+### 13-42. Androidでのクリップ編集後の手動保存失敗を堅牢化（IDBトランザクション後始末 + 復旧経路）
 
-- **Files**: `src/utils/indexedDB.ts`, `src/components/modals/SaveLoadModal.tsx`
-- **Issue**:
-  - On Android, manual save could fail after timeline trim/duration edits, and once it failed, subsequent saves often kept failing.
-  - IndexedDB failure paths did not always close DB connections, and quota recovery UI depended on stale `hasAutoSave` state.
-- **Pattern**:
-  - In IndexedDB wrapper functions (`saveProject` / `loadProject` / `deleteProject`), always close DB in every terminal path (`oncomplete`, `onabort`, `onerror`, and request error) with idempotent settle guards.
-  - Resolve writes/deletes on `transaction.oncomplete` (commit-confirmed) instead of request success timing.
-  - On manual save quota errors, always route to `confirmAutoDeleteForSave` after `refreshSaveInfo()` so recovery remains available even if local save-info state is stale.
-- **Note**:
-  - Request success in IndexedDB does not guarantee transaction commit; commit confirmation must be based on transaction completion.
-  - Recovery UX should not rely solely on cached `lastAutoSave` values.
+- **ファイル**: `src/utils/indexedDB.ts`, `src/components/modals/SaveLoadModal.tsx`
+- **問題**:
+  - Androidでタイムラインのトリム/尺編集後に手動保存が失敗し、一度失敗すると連続して失敗しやすかった。
+  - IndexedDB失敗経路でDBクローズが漏れる場合があり、容量復旧UIが古い `hasAutoSave` 状態に依存していた。
+- **対策**:
+  - IndexedDBラッパー（`saveProject` / `loadProject` / `deleteProject`）で、`oncomplete` / `onabort` / `onerror` / request error の全終端経路で idempotent ガード付きDBクローズを徹底する。
+  - 書き込み/削除の成功判定は request success ではなく `transaction.oncomplete`（コミット確定）で行う。
+  - 手動保存の容量エラー時は `refreshSaveInfo()` 後に必ず `confirmAutoDeleteForSave` へ誘導し、ローカル保存情報が古くても復旧経路を維持する。
+- **注意**:
+  - IndexedDBは request success だけではコミット確定を保証しないため、トランザクション完了で確定判定する。
+  - 復旧UXを `lastAutoSave` のキャッシュ値だけに依存させない。
+
+### 13-43. 音声エンコーダー（AudioEncoder）出力チャンクの終端クランプ（Teams向け最小保険）
+
+- **ファイル**: `src/hooks/useExport.ts`
+- **問題**:
+  - 一部環境では、`maxAudioTimestampUs` を超えるAACチャンクが終端に残り、再生側（Teamsデスクトップ）で再エンコード/再パッケージ時に体感遅延が出るケースがある
+  - 合計尺差分は小さくても、終端の扱い差で「わずかにスロー」に見えることがある
+- **対策**:
+  - `AudioEncoder` の `output` でチャンクごとに `timestamp/duration` を検査し、`maxAudioTimestampUs` 超過分をスキップまたはクランプする
+  - 部分超過チャンクは `copyTo` + `muxer.addAudioChunkRaw(..., clippedDurationUs, ...)` で有効区間だけMuxする
+  - `chunk.duration` が取れない場合に備えて、AAC 1024サンプル基準のフォールバック長を使う
+  - クランプ/スキップ件数と切り詰め時間をDIAGログへ出し、実動画で追跡可能にする
+- **解消確認（2026-03-05）**:
+  - 本対応後、Teamsデスクトップで再生時の「わずかにスローに見える遅延」は再現しなくなった
+- **なぜ解消したか**:
+  - 以前は、動画末尾で音声チャンクが `maxAudioTimestampUs` をわずかに超えるケースが残り、Teams側の再パッケージ/再エンコードで終端タイミング補正が入ることで体感遅延につながっていた
+  - 終端を事前にクランプして「音声終端が動画タイムライン内に収まる」状態を保証したため、Teams側での補正余地が減り、見かけ上のスロー再生が消えた
+- **注意**:
+  - 既存のエクスポート方式（WebCodecs + mp4-muxer）は維持し、コンテナ全面変更はしない
+  - 本対応は「終端超過の抑制」が目的で、解像度・FPS・音量レンジなど他仕様には影響しない
