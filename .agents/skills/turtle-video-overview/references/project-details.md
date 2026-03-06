@@ -70,6 +70,7 @@ turtle-video/
 │       ├── media.test.ts
 │       └── stores/          # ストアテスト
 ├── Docs/                    # ドキュメント
+│   └── review/              # Codex向けPRレビュー基準
 ├── scripts/                 # ビルドスクリプト
 ├── spec.md                  # 仕様書 & 実装計画
 ├── version.json             # バージョン管理

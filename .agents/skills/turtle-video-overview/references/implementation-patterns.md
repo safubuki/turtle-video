@@ -1110,3 +1110,18 @@
 - **注意**:
   - 開始トリミングが大きいケースでは、`readyState` だけでなく目標時刻到達の確認が必須
   - 補正しきい値を厳しくし過ぎると `seeking` が連続して描画が止まりやすい
+
+### 13-47. Codex向けPRレビュー運用の固定化（`AGENTS.md` + `Docs/review` + 軽量PRテンプレート）
+
+- **ファイル**: `AGENTS.md`, `Docs/review/README.md`, `Docs/review/functional-review-checklist.md`, `Docs/review/non-functional-and-regression-checklist.md`, `.github/pull_request_template.md`
+- **問題**:
+  - AIレビューの指示が散在していると、文法・作法中心の指摘に寄りやすく、要件充足・デグレ・非機能観点が抜けやすい
+  - PR本文の粒度が揃わないと、レビュアが変更意図と影響範囲を読み取りにくい
+- **対策**:
+  - ルート `AGENTS.md` に、Codexレビュー時の言語、優先順位、出力形式を固定する
+  - 具体的なレビュー観点は `Docs/review/` に分離し、機能要件と非機能・デグレ観点を明示する
+  - `.github/pull_request_template.md` は Markdown ベースでさらに軽量にし、`何を変えたか` `なぜ変えたか` `見てほしい点` `確認メモ` の最小構成にする
+  - PR本文が薄い場合も、レビュー側が差分・Issue・`spec.md` から意図を再構成して観点を補完する
+- **注意**:
+  - GitHub の PR テンプレートは Issue Forms のような YAML フォームではなく Markdown 前提で設計する
+  - 個人開発では、PR作成者に要件整理を過剰に要求せず、「困りごと」や「作りたい方向」だけでもレビューが回るようにする
