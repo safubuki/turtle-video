@@ -1125,3 +1125,49 @@
 - **注意**:
   - GitHub の PR テンプレートは Issue Forms のような YAML フォームではなく Markdown 前提で設計する
   - 個人開発では、PR作成者に要件整理を過剰に要求せず、「困りごと」や「作りたい方向」だけでもレビューが回るようにする
+
+### 13-48. 設定モーダルに前回タグ差分の概要履歴を追加（軽量な履歴カード）
+
+- **ファイル**: `src/components/modals/SettingsModal.tsx`, `version.json`
+- **問題**:
+  - バージョン番号だけでは、更新後に何が変わったかが設定画面から分かりにくい
+  - 全履歴を設定画面に載せると重くなり、APIキー設定やログ確認の主導線を邪魔しやすい
+- **対策**:
+  - 設定タイトル横に履歴ボタンを追加し、ヘルプと同じ位置に補助カードとして表示する
+  - 配色はヘルプの暖色系と分け、客観情報として薄いライトグレー系で静かに見せる
+  - `version.json` に `history` を追加し、前回タグから今回バージョンまでの概要だけを保持する
+  - 全履歴配列にはせず、`previousVersion` + `summary` + `highlights` の最小構成にして運用負荷を抑える
+  - `history` が無いビルドでは履歴ボタン自体を表示せず、内部の情報パネル状態も `history` に遷移させない
+- **注意**:
+  - 履歴カードは要約レベルに留め、詳細な技術メモや全変更一覧は載せない
+  - `version.json` のファイル名は維持し、既存参照や保存データ上のバージョン利用箇所への波及を最小化する
+  - `popstate` による戻る操作では、見えていない履歴パネルを閉じるだけの無駄な状態遷移を作らない
+
+### 13-49. リリース用バージョン更新スキルの追加（差分収集 + `version.json` 更新補助）
+
+- **ファイル**: `.agents/skills/release-version-manager/SKILL.md`, `.agents/skills/release-version-manager/scripts/collect-release-context.ps1`, `.agents/skills/release-version-manager/scripts/update-version-json.mjs`, `.github/skills/release-version-manager/SKILL.md`
+- **問題**:
+  - バージョン更新時に、最新タグ・コミット・差分を毎回手作業で確認すると抜けや揺れが出やすい
+  - `version.json` の `history` を都度手編集すると、粒度や形式がぶれやすい
+- **対策**:
+  - `release-version-manager` スキルを追加し、タグ取得、差分収集、AI要約、`version.json` 更新、検証、タグ運用を段階化する
+  - 差分収集は PowerShell スクリプトで `safe.directory` を付けて Git 情報を収集し、Windows 環境でも扱いやすくする
+  - `update-version-json.mjs` は dry-run を既定にし、確認後にだけ `--write` で反映する
+- **注意**:
+  - `git push` / `git push --tags` はスキル内でも必ずユーザー確認を挟む
+  - `version.json` には全履歴ではなく最新差分だけを保持する前提を崩さない
+  - 実運用で参照される `.agents/skills` 側と、共有元の `.github/skills` 側は同一内容を維持する
+
+### 13-50. AIレビューでは「防御コード」と「現行契約」を切り分けて評価する
+
+- **ファイル**: `AGENTS.md`, `Docs/review/README.md`, `Docs/review/functional-review-checklist.md`, `Docs/review/non-functional-and-regression-checklist.md`
+- **問題**:
+  - 防御コード（`??`, optional chaining, null guard など）だけを見ると、実際には必須前提のデータまで optional 仕様だと誤認してレビューしやすい
+  - その結果、型・テスト・スキーマが示す現行契約とずれた仮説ベース指摘が高優先度で出ることがある
+- **対策**:
+  - レビュー時は PR本文、Issue、`spec.md`、差分だけでなく、型・スキーマ・保存/読込コード・既存テストで現行契約を確認する
+  - 到達可能性が確認できない懸念は、断定せず前提付きの open question として扱う
+  - findings が 1 件だけでも、要件充足・デグレ・非機能の主要観点を確認した結果を短く添える
+- **注意**:
+  - `Docs/review/` は詳細基準であり、入口としてルート `AGENTS.md` から明示参照する
+  - `Docs/review/` を置くだけでは、Codex が常に自動参照する前提ではない
