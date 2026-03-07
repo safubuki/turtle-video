@@ -1155,3 +1155,17 @@
   - `git push` / `git push --tags` はスキル内でも必ずユーザー確認を挟む
   - `version.json` には全履歴ではなく最新差分だけを保持する前提を崩さない
   - 実運用で参照される `.agents/skills` 側と、共有元の `.github/skills` 側は同一内容を維持する
+
+### 13-50. AIレビューでは「防御コード」と「現行契約」を切り分けて評価する
+
+- **ファイル**: `AGENTS.md`, `Docs/review/README.md`, `Docs/review/functional-review-checklist.md`, `Docs/review/non-functional-and-regression-checklist.md`
+- **問題**:
+  - 防御コード（`??`, optional chaining, null guard など）だけを見ると、実際には必須前提のデータまで optional 仕様だと誤認してレビューしやすい
+  - その結果、型・テスト・スキーマが示す現行契約とずれた仮説ベース指摘が高優先度で出ることがある
+- **対策**:
+  - レビュー時は PR本文、Issue、`spec.md`、差分だけでなく、型・スキーマ・保存/読込コード・既存テストで現行契約を確認する
+  - 到達可能性が確認できない懸念は、断定せず前提付きの open question として扱う
+  - findings が 1 件だけでも、要件充足・デグレ・非機能の主要観点を確認した結果を短く添える
+- **注意**:
+  - `Docs/review/` は詳細基準であり、入口としてルート `AGENTS.md` から明示参照する
+  - `Docs/review/` を置くだけでは、Codex が常に自動参照する前提ではない

@@ -1298,3 +1298,17 @@
   - 同期プッシュ後、GitHub Actions API 経由で `deploy.yml` をディスパッチし、手動同期直後にデプロイを自動実行する。
 - **注意**:
   - Playground 専用ファイル（例: `CNAME`、リポジトリ固有のワークフロー）が存在する場合は、`--delete` を有効にする前に明示的な `--exclude` エントリを追加すること。
+
+### 13-61. AIレビューでは防御コードだけで仕様変更を断定しない
+
+- **対象ファイル**: `AGENTS.md`, `Docs/review/README.md`, `Docs/review/functional-review-checklist.md`, `Docs/review/non-functional-and-regression-checklist.md`
+- **問題**:
+  - `??`, optional chaining, null guard などの防御コードだけを見ると、実際には必須前提のデータまで optional 仕様だと誤読しやすい。
+  - その結果、型・テスト・スキーマが示す現行契約とずれた仮説ベースの指摘が高優先度で出ることがある。
+- **対応パターン**:
+  - レビュー時は PR本文、Issue、`spec.md`、差分に加え、型・スキーマ・保存/読込コード・既存テストから現行契約を確認する。
+  - 到達可能性が確認できないケースは、断定指摘ではなく前提付きの open question として扱う。
+  - findings が 1 件だけでも、要件充足・デグレ・非機能の主要観点を確認した結果を短く添える。
+- **注意**:
+  - `Docs/review/` は詳細基準であり、入口としてルート `AGENTS.md` から明示参照する。
+  - `Docs/review/` を置くだけでは、Codex が常に自動参照する前提ではない。
