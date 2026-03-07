@@ -54,6 +54,18 @@ export function setStoredApiKey(key: string): void {
 type TabType = 'apikey' | 'logs';
 type InfoPanelType = 'help' | 'history' | null;
 
+export function getNextInfoPanel(
+  current: InfoPanelType,
+  panel: Exclude<InfoPanelType, null>,
+  hasReleaseHistory: boolean
+): InfoPanelType {
+  if (panel === 'history' && !hasReleaseHistory) {
+    return current;
+  }
+
+  return current === panel ? null : panel;
+}
+
 /**
  * ログレベルに応じた色を返す
  */
@@ -304,8 +316,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
 
   const errorCount = entries.filter(e => e.level === 'ERROR').length;
   const warnCount = entries.filter(e => e.level === 'WARN').length;
+  const hasReleaseHistory = Boolean(APP_RELEASE_HISTORY);
   const toggleInfoPanel = (panel: Exclude<InfoPanelType, null>) => {
-    setActiveInfoPanel((prev) => (prev === panel ? null : panel));
+    setActiveInfoPanel((prev) => getNextInfoPanel(prev, panel, hasReleaseHistory));
   };
 
   if (!isOpen) return null;
@@ -341,19 +354,21 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
             >
               <CircleHelp className="w-4 h-4" />
             </button>
-            <button
-              onClick={() => toggleInfoPanel('history')}
-              className={`p-1 rounded-lg transition border ${
-                activeInfoPanel === 'history'
-                  ? 'border-gray-300/55 bg-gray-200/20 text-gray-100'
-                  : 'border-gray-400/35 bg-gray-200/8 text-gray-300 hover:bg-gray-200/15 hover:text-gray-100'
-              }`}
-              title="前回バージョンからの変更点"
-              aria-label="前回バージョンからの変更点を表示"
-              aria-pressed={activeInfoPanel === 'history'}
-            >
-              <History className="w-4 h-4" />
-            </button>
+            {hasReleaseHistory && (
+              <button
+                onClick={() => toggleInfoPanel('history')}
+                className={`p-1 rounded-lg transition border ${
+                  activeInfoPanel === 'history'
+                    ? 'border-gray-300/55 bg-gray-200/20 text-gray-100'
+                    : 'border-gray-400/35 bg-gray-200/8 text-gray-300 hover:bg-gray-200/15 hover:text-gray-100'
+                }`}
+                title="前回バージョンからの変更点"
+                aria-label="前回バージョンからの変更点を表示"
+                aria-pressed={activeInfoPanel === 'history'}
+              >
+                <History className="w-4 h-4" />
+              </button>
+            )}
           </div>
           <button
             onClick={onClose}
