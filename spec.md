@@ -168,9 +168,9 @@ export type ExportStrategyId =
 
 タスク:
 ├── [ ] `renderFrame` から export 専用制御を切り離す
-├── [ ] AudioContext 復帰、visibility 復帰、mute 方針を preview policy 化する
-├── [ ] iOS Safari の caption blur fallback を描画ポリシーへ整理する
-└── [ ] 動作確認
+├── [x] AudioContext 復帰、visibility 復帰、mute 方針を preview policy 化する
+├── [x] iOS Safari の caption blur fallback を描画ポリシーへ整理する
+└── [x] 動作確認
 
 **成果物**:
 - `src/components/TurtleVideo.tsx`
@@ -178,8 +178,8 @@ export type ExportStrategyId =
 
 **完了条件**:
 - [ ] 一時停止、停止、シーク、タブ復帰で既存デグレがない
-- [ ] iOS 専用制御が preview 側に閉じている
-- [ ] ビルドが成功する
+- [x] iOS 専用制御が preview 側に閉じている
+- [x] ビルドが成功する
 
 ---
 

@@ -61,3 +61,13 @@ export {
   getSupportedMediaRecorderProfile,
   getPlatformCapabilities,
 } from './platform';
+
+// プレビュー制御ポリシー
+export {
+  getPreviewPlatformPolicy,
+  getPreviewVideoSyncThreshold,
+  shouldUseCaptionBlurFallback,
+  shouldMuteNativeMediaElement,
+  shouldResumeAudioContextOnVisibilityReturn,
+  shouldReinitializeAudioRoute,
+} from './previewPlatform';

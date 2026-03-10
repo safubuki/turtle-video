@@ -27,6 +27,14 @@ import { usePreventUnload } from '../hooks/usePreventUnload';
 import { captureCanvasAsImage } from '../utils/canvas';
 import { findActiveTimelineItem, collectPlaybackBlockingVideos } from '../utils/playbackTimeline';
 import { getPlatformCapabilities } from '../utils/platform';
+import {
+  getPreviewPlatformPolicy,
+  getPreviewVideoSyncThreshold,
+  shouldMuteNativeMediaElement,
+  shouldReinitializeAudioRoute,
+  shouldResumeAudioContextOnVisibilityReturn,
+  shouldUseCaptionBlurFallback,
+} from '../utils/previewPlatform';
 
 // Zustand Stores
 import { useMediaStore, useAudioStore, useUIStore, useCaptionStore, useLogStore, createNarrationClip } from '../stores';
@@ -266,7 +274,10 @@ const TurtleVideo: React.FC = () => {
   captionSettingsRef.current = captionSettings;
 
   const platformCapabilities = useMemo(() => getPlatformCapabilities(), []);
-  const isIosSafari = platformCapabilities.isIosSafari;
+  const previewPlatformPolicy = useMemo(
+    () => getPreviewPlatformPolicy(platformCapabilities),
+    [platformCapabilities]
+  );
   const supportsShowSaveFilePicker = platformCapabilities.supportsShowSaveFilePicker;
 
   const mediaTimelineRanges = useMemo(() => {
@@ -445,9 +456,10 @@ const TurtleVideo: React.FC = () => {
                 !isActivePlaying &&
                 isLastTimelineItem &&
                 isNearTimelineEnd;
-              const exportSyncThreshold = _isExporting
-                ? (isIosSafari ? 1.2 : 0.5)
-                : 0.5;
+              const exportSyncThreshold = getPreviewVideoSyncThreshold(previewPlatformPolicy, {
+                isExporting: _isExporting,
+                hasExportPlayFailure: false,
+              });
               const hasExportPlayFailure = _isExporting && !!exportPlayFailedRef.current[activeId];
               const needsCorrection =
                 _isExporting &&
@@ -610,9 +622,10 @@ const TurtleVideo: React.FC = () => {
               const videoEl = element as HTMLVideoElement;
               const targetTime = (conf.trimStart || 0) + localTime;
               const hasExportPlayFailure = _isExporting && !!exportPlayFailedRef.current[id];
-              const syncThreshold = _isExporting
-                ? (hasExportPlayFailure ? 0.35 : (isIosSafari ? 1.2 : 0.5))
-                : (isIosSafari ? 1.0 : 0.5);
+              const syncThreshold = getPreviewVideoSyncThreshold(previewPlatformPolicy, {
+                isExporting: _isExporting,
+                hasExportPlayFailure,
+              });
 
               // アクティブなビデオIDを更新
               if (isActivePlaying && activeVideoIdRef.current !== id) {
@@ -886,7 +899,7 @@ const TurtleVideo: React.FC = () => {
               }
             };
 
-            if (isIosSafari && blurStrength > 0) {
+            if (shouldUseCaptionBlurFallback(previewPlatformPolicy, blurStrength)) {
               // iOS Safari では text + filter が安定しないため、
               // 複数オフセット描画で文字全体を拡散し、中心成分をぼかし強度に応じて減衰させる。
               const blurNorm = Math.min(1, blurStrength / 5);
@@ -1078,7 +1091,7 @@ const TurtleVideo: React.FC = () => {
         console.error('Render Error:', e);
       }
     },
-    [captions, captionSettings, isIosSafari, logInfo]
+    [captions, captionSettings, logInfo, previewPlatformPolicy]
   );
 
   // --- 状態同期: Zustandの状態をRefに同期 ---
@@ -1300,7 +1313,7 @@ const TurtleVideo: React.FC = () => {
       // visibilitychange / focus / pageshow が短時間に連続発火しうるため、
       // 復帰処理の重複実行を抑止する。
       const nowPerf = typeof performance !== 'undefined' ? performance.now() : Date.now();
-      if (nowPerf - lastVisibilityRefreshAtRef.current < 120) return;
+      if (nowPerf - lastVisibilityRefreshAtRef.current < previewPlatformPolicy.visibilityRecoveryDebounceMs) return;
       lastVisibilityRefreshAtRef.current = nowPerf;
 
       const resumedFromHidden = restoreTimelineClockAfterHidden();
@@ -1308,7 +1321,7 @@ const TurtleVideo: React.FC = () => {
       const ctx = audioCtxRef.current;
       if (ctx) {
         const state = ctx.state as AudioContextState | 'interrupted';
-        if (state !== 'running') {
+        if (shouldResumeAudioContextOnVisibilityReturn(previewPlatformPolicy, state)) {
           ctx.resume()
             .then(() => {
               logInfo('AUDIO', '可視復帰時にAudioContextを再開', { from: state, to: ctx.state });
@@ -1394,7 +1407,7 @@ const TurtleVideo: React.FC = () => {
       window.removeEventListener('focus', handleWindowFocus);
       window.removeEventListener('pageshow', handlePageShow);
     };
-  }, [renderFrame, logInfo, logWarn, isProcessing, pause]);
+  }, [renderFrame, logInfo, logWarn, isProcessing, pause, previewPlatformPolicy]);
 
   // --- Audio Context ---
   const getAudioContext = useCallback(() => {
@@ -2043,8 +2056,8 @@ const TurtleVideo: React.FC = () => {
 
           // iOS Safari では複数メディア同時再生時にネイティブ音声経路の競合が起きるため、
           // WebAudio 経路が確立できた要素のみネイティブ出力をミュートする。
-          if (isIosSafari) {
-            const shouldMuteNative = hasAudioNode;
+          if (previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
+            const shouldMuteNative = shouldMuteNativeMediaElement(previewPlatformPolicy, hasAudioNode);
             mediaEl.defaultMuted = shouldMuteNative;
             mediaEl.muted = shouldMuteNative;
             mediaEl.volume = 1;
@@ -2063,7 +2076,7 @@ const TurtleVideo: React.FC = () => {
         pendingAudioDetachTimersRef.current[id] = timer;
       }
     },
-    [detachAudioNode, getAudioContext, isIosSafari]
+    [detachAudioNode, getAudioContext, previewPlatformPolicy]
   );
 
   const handleSeeked = useCallback(() => {
@@ -2743,25 +2756,20 @@ const TurtleVideo: React.FC = () => {
       const stateBeforeResume = ctx.state as AudioContextState | 'interrupted';
       logDebug('AUDIO', 'AudioContext状態', { state: stateBeforeResume });
       if (stateBeforeResume !== 'running') {
-        try {
-          await ctx.resume();
-        } catch (err) {
-          logWarn('AUDIO', 'AudioContext再開に失敗（1回目）', {
-            state: stateBeforeResume,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-
-        const stateAfterFirstResume = ctx.state as AudioContextState | 'interrupted';
-        if (stateAfterFirstResume !== 'running') {
+        let attemptState: AudioContextState | 'interrupted' = stateBeforeResume;
+        for (let attempt = 1; attempt <= previewPlatformPolicy.audioContextResumeRetryCount; attempt++) {
           try {
-            // iOS Safariの復帰直後は1回目resumeで復帰しないことがあるため再試行
             await ctx.resume();
           } catch (err) {
-            logWarn('AUDIO', 'AudioContext再開に失敗（2回目）', {
-              state: stateAfterFirstResume,
+            logWarn('AUDIO', `AudioContext再開に失敗（${attempt}回目）`, {
+              state: attemptState,
               error: err instanceof Error ? err.message : String(err),
             });
+          }
+
+          attemptState = ctx.state as AudioContextState | 'interrupted';
+          if (attemptState === 'running') {
+            break;
           }
         }
 
@@ -2773,7 +2781,7 @@ const TurtleVideo: React.FC = () => {
 
       // iOS Safari では外部再生復帰後に state が running でも無音化する場合があるため、
       // ユーザー操作起点の再生開始時に一度 suspend/resume で音声経路を再初期化する。
-      if (isIosSafari && !isExportMode) {
+      if (shouldReinitializeAudioRoute(previewPlatformPolicy, isExportMode)) {
         try {
           if ((ctx.state as AudioContextState | 'interrupted') === 'running') {
             await ctx.suspend();
@@ -3138,7 +3146,7 @@ const TurtleVideo: React.FC = () => {
         loop(isExportMode, myLoopId);
       }
     },
-    [getAudioContext, stopAll, setProcessing, setLoading, play, clearExport, configureAudioRouting, ensureVideoMetadataReady, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError, logWarn, isIosSafari]
+    [getAudioContext, stopAll, setProcessing, setLoading, play, clearExport, configureAudioRouting, ensureVideoMetadataReady, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError, logWarn, logInfo, logDebug, previewPlatformPolicy]
   );
 
   // --- シークバー操作ハンドラ ---
