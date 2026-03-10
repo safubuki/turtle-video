@@ -369,6 +369,31 @@
   - iOS 固有の録画回避策を追加する場合は `useExport.ts` に直接条件を戻さず、まず strategy / resolver へ寄せる
   - WebCodecs 側の CFR、AudioEncoder 終端クランプ、TrackProcessor / ScriptProcessor fallback の順序は既存どおり維持する
 
+### 9-11. Capability ベースの保存/ダウンロード経路統一
+
+- **ファイル**: `src/utils/fileSave.ts`, `src/components/TurtleVideo.tsx`, `src/components/modals/SaveLoadModal.tsx`, `src/constants/sectionHelp.ts`, `src/test/fileSave.test.ts`
+- **問題**: エクスポート動画、AI ナレーション保存、生成画像保存で `showSaveFilePicker` と `a[download]` の分岐が重複し、iOS Safari 向けの保存導線や完了メッセージを調整するたびに複数箇所を直す必要があった。ヘルプ文言も iPhone を一律非対応扱いのままで、現状の保存方針とずれていた
+- **対策**:
+  - `src/utils/fileSave.ts` に `file-picker` / `anchor-download` の resolver と保存 helper を追加し、caller 側はファイル名・MIME・通知文言だけを持つ
+  - `TurtleVideo.tsx` の動画ダウンロードとナレーション保存、`SaveLoadModal.tsx` の生成画像保存を同じ helper に寄せる
+  - `src/test/fileSave.test.ts` で strategy 選択、object URL 保存、blob 保存の回帰を自動検証する
+  - `sectionHelp.ts` と SaveLoadModal のヘルプでは、iPhone / iPad Safari を「正式対応に向けて検証中」とし、保存ダイアログ対応の有無で挙動が分かれること、手動保存 / 自動保存 / 読込の確認観点を明示する
+- **注意**:
+  - 保存データ本体は引き続き IndexedDB の共通経路を使い、iOS Safari 向けの保存領域 fork は実機不具合が出るまで追加しない
+  - 新しいダウンロード導線を増やす場合は個別に `showSaveFilePicker` を判定せず、まず `fileSave.ts` の helper を再利用する
+
+### 9-12. サポート表記は「検証中」と「正式対応」を分けて扱う
+
+- **ファイル**: `README.md`, `Docs/2026-03-11_report_ios.md`, `src/constants/sectionHelp.ts`, `src/test/sectionHelp.test.ts`
+- **問題**: 実装と自動テストが進んでも、README や help に「iPhone 非対応」が残ると現状の案内と乖離する。一方で、保存 / 読込 / 設定を含む実機受け入れが終わる前に「正式対応済み」と書くのも過剰
+- **対策**:
+  - ユーザー向け表記は「正式対応に向けて検証中」に統一し、保存先ダイアログ対応の有無などブラウザ差だけを案内する
+  - `Docs/2026-03-11_report_ios.md` には、自動確認済み項目・部分実機確認済み項目・未確認項目を分けて記録し、正式対応可否の判断材料を残す
+  - `src/test/sectionHelp.test.ts` で app/help 文言に「非対応」が戻っていないことと、保存導線の説明が維持されていることを確認する
+- **注意**:
+  - 「正式対応済み」へ切り替えるのは、保存 / 読込 / 設定まで含む iOS Safari の主要受け入れ条件を実機で確認した後に限る
+  - ドキュメント上の表記変更だけで Phase 完了扱いにせず、必ず test/build と実機確認ステータスをセットで更新する
+
 ---
 
 ## 9.5. プレビューキャプチャ

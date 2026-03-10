@@ -190,10 +190,10 @@ export type ExportStrategyId =
 **前提条件**: Phase 2 完了
 
 タスク:
-├── [ ] `useExport.ts` から iOS Safari MediaRecorder 経路を strategy 化する
+├── [x] `useExport.ts` から iOS Safari MediaRecorder 経路を strategy 化する
 ├── [ ] 標準 WebCodecs 経路を strategy 化する
-├── [ ] strategy resolver を導入する
-└── [ ] 動作確認
+├── [x] strategy resolver を導入する
+└── [x] 動作確認
 
 **成果物**:
 - `src/hooks/useExport.ts`
@@ -202,8 +202,8 @@ export type ExportStrategyId =
 **完了条件**:
 - [ ] iOS Safari と非iOS の責務境界が明確
 - [ ] 音声/映像の既存回避策が strategy 内に閉じる
-- [ ] 既存テストがパスする
-- [ ] ビルドが成功する
+- [x] 既存テストがパスする
+- [x] ビルドが成功する
 
 ---
 
@@ -214,21 +214,23 @@ export type ExportStrategyId =
 **前提条件**: Phase 3 完了
 
 タスク:
-├── [ ] BGM/Narration の `accept` を共通 utility 化する
-├── [ ] ダウンロード経路を capability ベースで整理する
-├── [ ] 手動保存 / 自動保存 / 読込の iOS Safari 実機確認項目を反映する
-└── [ ] ヘルプ文言更新方針を確定する
+├── [x] BGM/Narration の `accept` を共通 utility 化する
+├── [x] ダウンロード経路を capability ベースで整理する
+├── [x] 手動保存 / 自動保存 / 読込の iOS Safari 実機確認項目を反映する
+└── [x] ヘルプ文言更新方針を確定する
 
 **成果物**:
 - `src/components/sections/BgmSection.tsx`
 - `src/components/sections/NarrationSection.tsx`
 - `src/components/TurtleVideo.tsx`
+- `src/components/modals/SaveLoadModal.tsx`
 - `src/constants/sectionHelp.ts`
+- `src/utils/fileSave.ts`
 
 **完了条件**:
-- [ ] iOS Safari で入力/ダウンロード/保存の方針が明確
-- [ ] 不要な platform fork を増やしていない
-- [ ] ビルドが成功する
+- [x] iOS Safari で入力/ダウンロード/保存の方針が明確
+- [x] 不要な platform fork を増やしていない
+- [x] ビルドが成功する
 
 ---
 
@@ -239,9 +241,9 @@ export type ExportStrategyId =
 **前提条件**: Phase 4 完了
 
 タスク:
-├── [ ] capability 判定と strategy 選択のテスト追加
-├── [ ] プレビュー/エクスポートの pure logic テスト追加
-├── [ ] 実機確認結果をドキュメントに反映
+├── [x] capability 判定と strategy 選択のテスト追加
+├── [x] プレビュー/エクスポートの pure logic テスト追加
+├── [x] 実機確認結果をドキュメントに反映
 └── [ ] 正式対応表記へ更新
 
 **成果物**:
@@ -249,10 +251,10 @@ export type ExportStrategyId =
 - 必要な Docs 更新
 
 **完了条件**:
-- [ ] `npm run test:run` が通る
-- [ ] `npm run build` が成功する
+- [x] `npm run test:run` が通る
+- [x] `npm run build` が成功する
 - [ ] iOS Safari の主要受け入れ条件を確認済み
-- [ ] 「iPhone 非対応」表記の更新可否を判断できる
+- [x] 「iPhone 非対応」表記の更新可否を判断できる
 
 ### ブランチ運用方針
 

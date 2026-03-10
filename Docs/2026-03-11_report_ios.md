@@ -250,3 +250,22 @@ export interface PlatformCapabilities {
 - **iOS Safari 固有制約だけを adapter / strategy に隔離する**
 - **Android は専用実装を増やすより、既定経路 + capability fallback で扱う**
 - **正式対応の判定は、プレビューとエクスポートだけでなく、保存/読込/設定まで通しで確認してから行う**
+
+---
+
+## 9. 2026-03-11 時点の確認状況
+
+| 項目 | 状況 | 根拠 |
+| --- | --- | --- |
+| capability 判定 / strategy 選択 / 保存経路の pure logic | 自動確認済み | `src/test/platform.test.ts`, `src/test/exportStrategyResolver.test.ts`, `src/test/fileSave.test.ts` |
+| プレビュー / export policy の pure logic | 自動確認済み | `src/test/previewPlatform.test.ts`, `src/test/useExport.test.ts`, `src/test/iosSafariMediaRecorder.test.ts` |
+| TypeScript / build | 確認済み | `npm run build` |
+| iOS Safari の音声付きエクスポート | 部分確認済み | `Docs/ios-safari-audio-export-fix-report.md` の iPhone Safari 実機結果 |
+| iOS Safari の手動保存 / 自動保存 / 読込 | 未確認 | IndexedDB は共通経路のまま。Safari 通常タブ / ホーム画面追加 / 再起動後保持の通し確認が残る |
+| サポート表記 | 「非対応」から「検証中」へ更新 | `README.md`, `src/constants/sectionHelp.ts` |
+
+### 9.1 正式対応判断の暫定結論
+
+- 自動テストと build は、正式対応に向けた最低限の判断材料として揃っている
+- iOS Safari の export 系は実機確認が進んでいるが、保存 / 読込 / 設定を含む主要受け入れ条件はまだ未完了
+- したがって、2026-03-11 時点では「正式対応済み」と断定せず、「正式対応に向けて検証中」と表記するのが妥当
