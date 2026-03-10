@@ -51,3 +51,13 @@ export {
   findActiveTimelineItem,
   collectPlaybackBlockingVideos,
 } from './playbackTimeline';
+
+// プラットフォーム判定
+export {
+  detectBrowserPlatform,
+  getAudioUploadAccept,
+  supportsShowSaveFilePicker,
+  getTrackProcessorConstructor,
+  getSupportedMediaRecorderProfile,
+  getPlatformCapabilities,
+} from './platform';

@@ -334,6 +334,15 @@
   - フェード時間の重複（短いクリップ）は按分で自動クランプ
   - BGM/ナレーションのフェードアウトはプロジェクト終端からの相対位置で計算
 
+### 9-8. Platform capability 判定の共通化
+
+- **ファイル**: `src/utils/platform.ts`, `src/components/TurtleVideo.tsx`, `src/hooks/useExport.ts`, `src/components/sections/BgmSection.tsx`, `src/components/sections/NarrationSection.tsx`
+- **問題**: `isIosSafari`、`showSaveFilePicker`、`MediaStreamTrackProcessor`、MediaRecorder MP4 対応、音声アップロード `accept` が複数箇所に重複し、iOS 分岐を更新するたびに Android/PC 側へ差分が漏れやすい
+- **対策**:
+  - `src/utils/platform.ts` にブラウザ判定と capability 判定を集約
+  - セクション UI の `accept`、プレビュー側の保存 API 判定、エクスポート側の TrackProcessor / MediaRecorder 判定を同じ utility 参照へ統一
+- **注意**: capability 共通化フェーズでは判定ロジックの集約に留め、再生ループやエクスポート戦略の分岐順序は変更しない
+
 ---
 
 ## 9.5. プレビューキャプチャ
