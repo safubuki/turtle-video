@@ -26,6 +26,7 @@ import { usePreventUnload } from '../hooks/usePreventUnload';
 // Utils
 import { captureCanvasAsImage } from '../utils/canvas';
 import { findActiveTimelineItem, collectPlaybackBlockingVideos } from '../utils/playbackTimeline';
+import { getPlatformCapabilities } from '../utils/platform';
 
 // Zustand Stores
 import { useMediaStore, useAudioStore, useUIStore, useCaptionStore, useLogStore, createNarrationClip } from '../stores';
@@ -264,15 +265,9 @@ const TurtleVideo: React.FC = () => {
   captionsRef.current = captions;
   captionSettingsRef.current = captionSettings;
 
-  const isIosSafari = useMemo(() => {
-    if (typeof navigator === 'undefined') return false;
-    const ua = navigator.userAgent;
-    const isIOS =
-      /iP(hone|ad|od)/i.test(ua) ||
-      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    const isSafari = /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/i.test(ua);
-    return isIOS && isSafari;
-  }, []);
+  const platformCapabilities = useMemo(() => getPlatformCapabilities(), []);
+  const isIosSafari = platformCapabilities.isIosSafari;
+  const supportsShowSaveFilePicker = platformCapabilities.supportsShowSaveFilePicker;
 
   const mediaTimelineRanges = useMemo(() => {
     let timelineStart = 0;
@@ -2357,7 +2352,7 @@ const TurtleVideo: React.FC = () => {
     const { showSaveFilePicker } = window as WindowWithSavePicker;
 
     try {
-      if (typeof showSaveFilePicker === 'function') {
+      if (supportsShowSaveFilePicker && typeof showSaveFilePicker === 'function') {
         const fileHandle = await showSaveFilePicker({
           suggestedName: filename,
           types: [
@@ -2398,7 +2393,7 @@ const TurtleVideo: React.FC = () => {
       }
       setError('音声の保存に失敗しました');
     }
-  }, [narrations, setError, showToast]);
+  }, [narrations, setError, showToast, supportsShowSaveFilePicker]);
 
   const handleAddAiNarration = useCallback(() => {
     setEditingNarrationId(null);
@@ -3684,7 +3679,7 @@ const TurtleVideo: React.FC = () => {
     const { showSaveFilePicker } = window as WindowWithSavePicker;
 
     try {
-      if (typeof showSaveFilePicker === 'function') {
+      if (supportsShowSaveFilePicker && typeof showSaveFilePicker === 'function') {
         const fileHandle = await showSaveFilePicker({
           suggestedName: filename,
           types: [
@@ -3724,7 +3719,7 @@ const TurtleVideo: React.FC = () => {
       }
       setError('ダウンロードに失敗しました');
     }
-  }, [exportUrl, exportExt, setError, showToast]);
+  }, [exportUrl, exportExt, setError, showToast, supportsShowSaveFilePicker]);
 
   // --- 時刻フォーマットヘルパー ---
   // 目的: 秒数を「分:秒」形式の文字列に変換

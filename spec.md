@@ -141,10 +141,10 @@ export type ExportStrategyId =
 **前提条件**: Phase 0 完了
 
 タスク:
-├── [ ] `PlatformCapabilities` utility を追加
-├── [ ] `isIosSafari` 重複判定を共通化
-├── [ ] `showSaveFilePicker` / `TrackProcessor` / `MediaRecorder MP4` 判定を共通化
-└── [ ] 動作確認
+├── [x] `PlatformCapabilities` utility を追加
+├── [x] `isIosSafari` 重複判定を共通化
+├── [x] `showSaveFilePicker` / `TrackProcessor` / `MediaRecorder MP4` 判定を共通化
+└── [x] 動作確認
 
 **成果物**:
 - `src/utils/platform*.ts`（新規）
@@ -154,9 +154,9 @@ export type ExportStrategyId =
 - `src/components/sections/NarrationSection.tsx`
 
 **完了条件**:
-- [ ] 各所の重複判定が除去されている
-- [ ] 既存テストがパスする
-- [ ] ビルドが成功する
+- [x] 各所の重複判定が除去されている
+- [x] 既存テストがパスする
+- [x] ビルドが成功する
 
 ---
 

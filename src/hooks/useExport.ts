@@ -8,6 +8,7 @@ import { FPS, EXPORT_VIDEO_BITRATE } from '../constants';
 import * as Mp4Muxer from 'mp4-muxer';
 import type { MediaItem, AudioTrack, NarrationClip } from '../types';
 import { useLogStore } from '../stores/logStore';
+import { getPlatformCapabilities } from '../utils/platform';
 
 /**
  * useExport - 動画書き出しロジックを提供するフック
@@ -63,35 +64,6 @@ export interface ExportAudioSources {
    * 映像フレーム供給数をタイムライン進行に追従させるために使用する。
    */
   getPlaybackTimeSec?: () => number;
-}
-
-interface MediaRecorderProfile {
-  mimeType: string | null;
-  extension: 'mp4' | 'webm';
-}
-
-function getSupportedMediaRecorderProfile(): MediaRecorderProfile | null {
-  if (typeof MediaRecorder === 'undefined') return null;
-
-  const candidates: MediaRecorderProfile[] = [
-    { mimeType: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"', extension: 'mp4' },
-    { mimeType: 'video/mp4;codecs="avc1.42E01E,mp4a.40.2"', extension: 'mp4' },
-    { mimeType: 'video/mp4', extension: 'mp4' },
-    { mimeType: 'video/webm; codecs="vp8, opus"', extension: 'webm' },
-    { mimeType: 'video/webm', extension: 'webm' },
-  ];
-
-  for (const candidate of candidates) {
-    try {
-      if (!candidate.mimeType || MediaRecorder.isTypeSupported(candidate.mimeType)) {
-        return candidate;
-      }
-    } catch {
-      // ignore and continue
-    }
-  }
-
-  return null;
 }
 
 /**
@@ -802,11 +774,16 @@ export function useExport(): UseExportReturn {
       const height = canvas.height;
       const audioContext = masterDestRef.current.context;
       const audioTrack = masterDestRef.current.stream.getAudioTracks()[0] || null;
-      const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-      const isIOS = /iP(hone|ad|od)/i.test(userAgent) ||
-        (typeof navigator !== 'undefined' && navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-      const isSafari = /Safari/i.test(userAgent) && !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/i.test(userAgent);
-      const isIosSafari = isIOS && isSafari;
+      const platformCapabilities = getPlatformCapabilities();
+      const {
+        userAgent,
+        isIOS,
+        isSafari,
+        isIosSafari,
+        supportsTrackProcessor: canUseTrackProcessor,
+        supportedMediaRecorderProfile,
+        trackProcessorCtor,
+      } = platformCapabilities;
 
       // ============================================================
       // [DIAG-1] プラットフォーム検出・入力情報の診断ログ
@@ -849,13 +826,6 @@ export function useExport(): UseExportReturn {
         });
       }
 
-      type TrackProcessorConstructor = new (init: { track: MediaStreamTrack }) => {
-        readable: ReadableStream<VideoFrame | AudioData>;
-      };
-      const TrackProcessor = (
-        window as typeof window & { MediaStreamTrackProcessor?: TrackProcessorConstructor }
-      ).MediaStreamTrackProcessor;
-      const canUseTrackProcessor = typeof TrackProcessor === 'function';
       // 映像経路は安定性優先で常に Canvas 直接フレーム方式を使用する。
       // TrackProcessor/captureStream 経路は環境差で静止画区間の尺ズレが発生しやすいため、
       // 問題収束まで一時的に固定運用とする。
@@ -864,8 +834,6 @@ export function useExport(): UseExportReturn {
       // TrackProcessor / ScriptProcessor は基本的に不要。
       // OfflineAudioContext 失敗時のフォールバックとして ScriptProcessor を使用。
       const useScriptProcessorAudio = isIosSafari;
-      const trackProcessorCtor = TrackProcessor as TrackProcessorConstructor | undefined;
-
       // 停止用シグナル
       const controller = new AbortController();
       abortControllerRef.current = controller;
@@ -896,7 +864,7 @@ export function useExport(): UseExportReturn {
         const runIosSafariMediaRecorderExport = async (): Promise<boolean> => {
           if (!isIosSafari) return false;
 
-          const profile = getSupportedMediaRecorderProfile();
+          const profile = supportedMediaRecorderProfile;
           if (!profile) {
             useLogStore.getState().warn('RENDER', 'iOS Safari: MediaRecorder が未対応のため WebCodecs 経路へフォールバック');
             return false;
