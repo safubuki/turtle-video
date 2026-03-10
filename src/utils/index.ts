@@ -71,3 +71,10 @@ export {
   shouldResumeAudioContextOnVisibilityReturn,
   shouldReinitializeAudioRoute,
 } from './previewPlatform';
+
+// 保存経路
+export {
+  resolveClientFileSaveStrategy,
+  saveBlobWithClientFileStrategy,
+  saveObjectUrlWithClientFileStrategy,
+} from './fileSave';
