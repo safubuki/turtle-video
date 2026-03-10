@@ -343,6 +343,32 @@
   - セクション UI の `accept`、プレビュー側の保存 API 判定、エクスポート側の TrackProcessor / MediaRecorder 判定を同じ utility 参照へ統一
 - **注意**: capability 共通化フェーズでは判定ロジックの集約に留め、再生ループやエクスポート戦略の分岐順序は変更しない
 
+### 9-9. Preview platform policy による iOS 再生制御の分離
+
+- **ファイル**: `src/utils/previewPlatform.ts`, `src/components/TurtleVideo.tsx`, `src/test/previewPlatform.test.ts`
+- **問題**: プレビュー側の同期しきい値、caption blur fallback、AudioContext 再初期化、ネイティブ音声 mute 方針が `TurtleVideo.tsx` に直書きされ、iOS Safari 向け調整を変えるたびに render / visibility / audio attach の複数箇所を同時修正する必要があった
+- **対策**:
+  - `src/utils/previewPlatform.ts` に `PreviewPlatformPolicy` を追加し、通常再生/エクスポートの同期しきい値、可視復帰の debounce、AudioContext resume 再試行回数、caption blur fallback、native mute 方針を集約
+  - `TurtleVideo.tsx` 側は `isIosSafari` を直接見ず、preview policy の helper で判定する形へ置換
+  - pure logic は `src/test/previewPlatform.test.ts` で自動検証する
+- **注意**:
+  - iOS 向け挙動を追加調整するときは、`TurtleVideo.tsx` に数値や `isIosSafari` 条件を増やすのではなく、まず preview policy に寄せる
+  - 既存の終端黒フレーム対策や export fallback seek の条件順序は変えず、policy は「閾値と方針」のみに留める
+
+### 9-10. Export strategy resolver による iOS 経路の分離
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/hooks/export-strategies/exportStrategyResolver.ts`, `src/hooks/export-strategies/iosSafariMediaRecorder.ts`, `src/test/exportStrategyResolver.test.ts`, `src/test/iosSafariMediaRecorder.test.ts`, `src/test/useExport.test.ts`
+- **問題**: `useExport.ts` に iOS Safari MediaRecorder 経路と標準 WebCodecs 経路の選択・実装が混在し、分岐条件の変更時に iOS 固有ワークアラウンドを WebCodecs 側へ誤って波及させやすかった。加えて、分離後に片方の経路だけが壊れても自動検知しづらかった
+- **対策**:
+  - strategy resolver で優先経路を決め、`useExport.ts` は選択と共通セッション初期化を担当する
+  - iOS Safari の MediaRecorder 経路は `iosSafariMediaRecorder.ts` に切り出し、keep-alive 音声、visibility pause/resume、requestData 後 stop 遅延を strategy 側へ閉じ込める
+  - resolver には WebCodecs 側の音声キャプチャ分岐（offline rendered / TrackProcessor / ScriptProcessor）も寄せ、純粋ロジックを `src/test/exportStrategyResolver.test.ts` で自動検証する
+  - iOS strategy は `src/test/iosSafariMediaRecorder.test.ts` で、fallback、成功時の callback 伝播、track cleanup を検証する
+  - `src/test/useExport.test.ts` では hook 契約として、iOS 優先起動、fallback 時の WebCodecs 移行、stop/abort、Blob URL 解放を薄く確認し、strategy 分離後のオーケストレーション回帰を拾う
+- **注意**:
+  - iOS 固有の録画回避策を追加する場合は `useExport.ts` に直接条件を戻さず、まず strategy / resolver へ寄せる
+  - WebCodecs 側の CFR、AudioEncoder 終端クランプ、TrackProcessor / ScriptProcessor fallback の順序は既存どおり維持する
+
 ---
 
 ## 9.5. プレビューキャプチャ

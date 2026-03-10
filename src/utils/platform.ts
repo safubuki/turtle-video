@@ -1,3 +1,9 @@
+/**
+ * @file platform.ts
+ * @description ブラウザ/OS 依存の判定を集約する utility。
+ * iOS Safari 判定、保存 API 対応、TrackProcessor 対応、
+ * MediaRecorder の出力形式判定などをここでまとめて扱う。
+ */
 export interface BrowserPlatformInfo {
   userAgent: string;
   platform: string;
@@ -41,6 +47,7 @@ const IOS_SAFARI_AUDIO_UPLOAD_ACCEPT =
 
 const DEFAULT_AUDIO_UPLOAD_ACCEPT = 'audio/*';
 
+// テスト時に差し替えやすいよう、実環境オブジェクトの取得を薄い関数に分離している。
 function getDefaultNavigator(): NavigatorLike | undefined {
   return typeof navigator !== 'undefined' ? navigator : undefined;
 }
@@ -53,6 +60,10 @@ function getDefaultMediaRecorder(): MediaRecorderLike | undefined {
   return typeof MediaRecorder !== 'undefined' ? MediaRecorder : undefined;
 }
 
+/**
+ * userAgent / platform / touch 情報から、iOS Safari を含む基本的なブラウザ判定を返す。
+ * iPadOS の「MacIntel + touch」も iOS とみなす。
+ */
 export function detectBrowserPlatform(
   navigatorLike: NavigatorLike | undefined = getDefaultNavigator(),
 ): BrowserPlatformInfo {
@@ -72,14 +83,25 @@ export function detectBrowserPlatform(
   };
 }
 
+/**
+ * 音声アップロード input の accept 文字列を返す。
+ * iOS Safari では音声が動画コンテナ経由になるケースがあるため、拡張子を広めに許可する。
+ */
 export function getAudioUploadAccept(platformInfo: BrowserPlatformInfo = detectBrowserPlatform()): string {
   return platformInfo.isIosSafari ? IOS_SAFARI_AUDIO_UPLOAD_ACCEPT : DEFAULT_AUDIO_UPLOAD_ACCEPT;
 }
 
+/**
+ * File System Access API の保存ダイアログが使えるかを判定する。
+ */
 export function supportsShowSaveFilePicker(win: PlatformWindowLike | undefined = getDefaultWindow()): boolean {
   return typeof win?.showSaveFilePicker === 'function';
 }
 
+/**
+ * MediaStreamTrackProcessor のコンストラクタを取得する。
+ * 未対応環境では undefined を返し、呼び出し側でフォールバックさせる。
+ */
 export function getTrackProcessorConstructor(
   win: PlatformWindowLike | undefined = getDefaultWindow(),
 ): TrackProcessorConstructor | undefined {
@@ -87,11 +109,16 @@ export function getTrackProcessorConstructor(
   return typeof trackProcessorCtor === 'function' ? trackProcessorCtor : undefined;
 }
 
+/**
+ * 現在のブラウザで利用可能な MediaRecorder の出力形式を返す。
+ * MP4 を優先し、使えなければ WebM を返す。
+ */
 export function getSupportedMediaRecorderProfile(
   mediaRecorderLike: MediaRecorderLike | undefined = getDefaultMediaRecorder(),
 ): MediaRecorderProfile | null {
   if (!mediaRecorderLike) return null;
 
+  // Safari 系では codec 文字列の表記差で判定結果が変わることがあるため、候補を複数並べる。
   const candidates: MediaRecorderProfile[] = [
     { mimeType: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"', extension: 'mp4' },
     { mimeType: 'video/mp4;codecs="avc1.42E01E,mp4a.40.2"', extension: 'mp4' },
@@ -106,13 +133,17 @@ export function getSupportedMediaRecorderProfile(
         return candidate;
       }
     } catch {
-      // ignore and continue
+      // 実装差で例外になるブラウザもあるため、次の候補へ進む。
     }
   }
 
   return null;
 }
 
+/**
+ * 各種 platform 判定を 1 つのオブジェクトにまとめて返す。
+ * 呼び出し側は個別の userAgent 判定を持たず、この戻り値だけを見る前提。
+ */
 export function getPlatformCapabilities(options?: {
   navigator?: NavigatorLike;
   win?: PlatformWindowLike;
