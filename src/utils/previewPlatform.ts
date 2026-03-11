@@ -92,8 +92,10 @@ export function getPreviewAudioOutputMode(
     return 'webaudio';
   }
 
-  if (!options.hasAudioNode) {
-    return 'native';
+  // MediaElementAudioSourceNode を一度生成した要素は native 出力へ戻せないため、
+  // ノード生成済みなら常に WebAudio 側で扱う。
+  if (options.hasAudioNode) {
+    return 'webaudio';
   }
 
   if (!options.isExporting && options.audibleSourceCount <= 1) {

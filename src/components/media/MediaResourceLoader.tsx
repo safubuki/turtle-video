@@ -64,7 +64,11 @@ const MediaResourceLoader = memo<MediaResourceLoaderProps>(
       visibility: 'visible',
     }), []);
 
-    const audioStyle: React.CSSProperties = useMemo(() => ({ display: 'none' }), []);
+    const audioStyle: React.CSSProperties = useMemo(() => ({
+      ...hiddenStyle,
+      width: '1px',
+      height: '1px',
+    }), [hiddenStyle]);
 
     const handleError = useMemo(
       () => (e: React.SyntheticEvent<HTMLVideoElement | HTMLAudioElement>) => {

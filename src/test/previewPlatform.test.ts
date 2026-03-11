@@ -64,25 +64,32 @@ describe('preview platform helpers', () => {
     expect(shouldMuteNativeMediaElement(iosPolicy, false)).toBe(false);
   });
 
-  it('iOS Safari preview は単一音源だけ native 出力に切り替える', () => {
+  it('iOS Safari preview は未接続の単一音源だけ native 出力にする', () => {
     expect(
       getPreviewAudioOutputMode(iosPolicy, {
-        hasAudioNode: true,
+        hasAudioNode: false,
         isExporting: false,
         audibleSourceCount: 1,
       }),
     ).toBe('native');
     expect(
       getPreviewAudioOutputMode(iosPolicy, {
-        hasAudioNode: true,
+        hasAudioNode: false,
         isExporting: false,
         audibleSourceCount: 2,
       }),
     ).toBe('webaudio');
     expect(
       getPreviewAudioOutputMode(iosPolicy, {
-        hasAudioNode: true,
+        hasAudioNode: false,
         isExporting: true,
+        audibleSourceCount: 1,
+      }),
+    ).toBe('webaudio');
+    expect(
+      getPreviewAudioOutputMode(iosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
         audibleSourceCount: 1,
       }),
     ).toBe('webaudio');
