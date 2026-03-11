@@ -29,6 +29,7 @@ import { saveObjectUrlWithClientFileStrategy } from '../utils/fileSave';
 import { findActiveTimelineItem, collectPlaybackBlockingVideos } from '../utils/playbackTimeline';
 import { getPlatformCapabilities } from '../utils/platform';
 import {
+  getPreviewAudioOutputMode,
   getPreviewPlatformPolicy,
   getPreviewVideoSyncThreshold,
   shouldMuteNativeMediaElement,
@@ -60,6 +61,40 @@ const getApiKey = (): string => {
   const storedKey = getStoredApiKey();
   if (storedKey) return storedKey;
   return import.meta.env.VITE_GEMINI_API_KEY || '';
+};
+
+const resetNativeMediaAudioState = (mediaEl: HTMLMediaElement) => {
+  mediaEl.defaultMuted = false;
+  mediaEl.muted = false;
+  mediaEl.volume = 1;
+};
+
+const applyPreviewAudioOutputState = (
+  policy: ReturnType<typeof getPreviewPlatformPolicy>,
+  mediaEl: HTMLMediaElement,
+  options: {
+    hasAudioNode: boolean;
+    desiredVolume: number;
+    audibleSourceCount: number;
+    isExporting: boolean;
+  },
+) => {
+  const outputMode = getPreviewAudioOutputMode(policy, {
+    hasAudioNode: options.hasAudioNode,
+    isExporting: options.isExporting,
+    audibleSourceCount: options.audibleSourceCount,
+  });
+  const shouldMuteNative =
+    outputMode === 'webaudio'
+      && shouldMuteNativeMediaElement(policy, options.hasAudioNode);
+
+  mediaEl.defaultMuted = shouldMuteNative;
+  mediaEl.muted = shouldMuteNative;
+  mediaEl.volume = outputMode === 'native'
+    ? Math.max(0, Math.min(1, options.desiredVolume))
+    : 1;
+
+  return outputMode;
 };
 
 const TurtleVideo: React.FC = () => {
@@ -407,6 +442,43 @@ const TurtleVideo: React.FC = () => {
         const isNearTimelineStart =
           currentItems.length > 0 &&
           time <= 0.05;
+        const activePreviewAudioSourceCount = (() => {
+          if (!isActivePlaying || holdAudioThisFrame) {
+            return 0;
+          }
+
+          let count = 0;
+          if (activeIndex !== -1) {
+            const activeItem = currentItems[activeIndex];
+            if (activeItem?.type === 'video' && !activeItem.isMuted && activeItem.volume > 0) {
+              count += 1;
+            }
+          }
+
+          if (currentBgm && currentBgm.volume > 0 && time >= currentBgm.delay) {
+            const trackTime = time - currentBgm.delay + currentBgm.startPoint;
+            if (trackTime >= 0 && trackTime <= currentBgm.duration) {
+              count += 1;
+            }
+          }
+
+          for (const clip of currentNarrations) {
+            if (clip.isMuted || clip.volume <= 0) {
+              continue;
+            }
+            const trimStart = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
+            const trimEnd = Number.isFinite(clip.trimEnd)
+              ? Math.max(trimStart, Math.min(clip.duration, clip.trimEnd))
+              : clip.duration;
+            const playableDuration = Math.max(0, trimEnd - trimStart);
+            const clipTime = time - clip.startTime;
+            if (clipTime >= 0 && clipTime <= playableDuration) {
+              count += 1;
+            }
+          }
+
+          return count;
+        })();
 
         // シーク終端対策: time が totalDuration 以上で activeId が見つからない場合、
         // 最後のクリップの最終フレームを表示する（黒画面防止）
@@ -740,6 +812,8 @@ const TurtleVideo: React.FC = () => {
             }
 
             if (conf.type === 'video' && gainNode && audioCtxRef.current) {
+              const videoMediaEl = element as HTMLMediaElement;
+              const hasAudioNode = !!sourceNodesRef.current[id];
               if (isActivePlaying) {
                 let vol = holdAudioThisFrame ? 0 : (conf.isMuted ? 0 : conf.volume);
                 const fadeInDur = conf.fadeInDuration || 1.0;
@@ -753,11 +827,24 @@ const TurtleVideo: React.FC = () => {
                 }
 
                 // 音量の急激な変化を防ぐ
+                const outputMode = applyPreviewAudioOutputState(previewPlatformPolicy, videoMediaEl, {
+                  hasAudioNode,
+                  desiredVolume: vol,
+                  audibleSourceCount: vol > 0 ? activePreviewAudioSourceCount : 0,
+                  isExporting: _isExporting,
+                });
+                const effectiveGain = outputMode === 'native' ? 0 : vol;
                 const currentGain = gainNode.gain.value;
-                if (Math.abs(currentGain - vol) > 0.01) {
-                  gainNode.gain.setTargetAtTime(vol, audioCtxRef.current.currentTime, 0.05);
+                if (Math.abs(currentGain - effectiveGain) > 0.01) {
+                  gainNode.gain.setTargetAtTime(effectiveGain, audioCtxRef.current.currentTime, 0.05);
                 }
               } else {
+                applyPreviewAudioOutputState(previewPlatformPolicy, videoMediaEl, {
+                  hasAudioNode,
+                  desiredVolume: 0,
+                  audibleSourceCount: 0,
+                  isExporting: _isExporting,
+                });
                 gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.05);
               }
             }
@@ -767,6 +854,12 @@ const TurtleVideo: React.FC = () => {
               if (!videoEl.paused) {
                 videoEl.pause();
               }
+              applyPreviewAudioOutputState(previewPlatformPolicy, videoEl, {
+                hasAudioNode: !!sourceNodesRef.current[id],
+                desiredVolume: 0,
+                audibleSourceCount: 0,
+                isExporting: _isExporting,
+              });
             }
             if (conf.type === 'video' && gainNode && audioCtxRef.current) {
               gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.05);
@@ -927,10 +1020,17 @@ const TurtleVideo: React.FC = () => {
         const processAudioTrack = (track: AudioTrack | null, trackId: 'bgm') => {
           const element = mediaElementsRef.current[trackId] as HTMLAudioElement;
           const gainNode = gainNodesRef.current[trackId];
+          const hasAudioNode = !!sourceNodesRef.current[trackId];
 
           if (track && element && gainNode && audioCtxRef.current) {
             if (isActivePlaying) {
               if (time < track.delay) {
+                applyPreviewAudioOutputState(previewPlatformPolicy, element, {
+                  hasAudioNode,
+                  desiredVolume: 0,
+                  audibleSourceCount: 0,
+                  isExporting: _isExporting,
+                });
                 gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.01);
                 if (!element.paused) element.pause();
               } else {
@@ -978,16 +1078,35 @@ const TurtleVideo: React.FC = () => {
                   }
 
                   // 音量の急激な変化を防ぐ
+                  const outputMode = applyPreviewAudioOutputState(previewPlatformPolicy, element, {
+                    hasAudioNode,
+                    desiredVolume: vol,
+                    audibleSourceCount: vol > 0 ? activePreviewAudioSourceCount : 0,
+                    isExporting: _isExporting,
+                  });
+                  const effectiveGain = outputMode === 'native' ? 0 : vol;
                   const currentGain = gainNode.gain.value;
-                  if (Math.abs(currentGain - vol) > 0.01) {
-                    gainNode.gain.setTargetAtTime(vol, audioCtxRef.current.currentTime, 0.1);
+                  if (Math.abs(currentGain - effectiveGain) > 0.01) {
+                    gainNode.gain.setTargetAtTime(effectiveGain, audioCtxRef.current.currentTime, 0.1);
                   }
                 } else {
+                  applyPreviewAudioOutputState(previewPlatformPolicy, element, {
+                    hasAudioNode,
+                    desiredVolume: 0,
+                    audibleSourceCount: 0,
+                    isExporting: _isExporting,
+                  });
                   gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.1);
                   if (!element.paused) element.pause();
                 }
               }
             } else {
+              applyPreviewAudioOutputState(previewPlatformPolicy, element, {
+                hasAudioNode,
+                desiredVolume: 0,
+                audibleSourceCount: 0,
+                isExporting: _isExporting,
+              });
               gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.1);
               if (!element.paused) element.pause();
 
@@ -1005,6 +1124,7 @@ const TurtleVideo: React.FC = () => {
           const trackId = `narration:${clip.id}`;
           const element = mediaElementsRef.current[trackId] as HTMLAudioElement;
           const gainNode = gainNodesRef.current[trackId];
+          const hasAudioNode = !!sourceNodesRef.current[trackId];
 
           if (!element || !gainNode || !audioCtxRef.current) return;
 
@@ -1017,6 +1137,12 @@ const TurtleVideo: React.FC = () => {
 
           if (isActivePlaying) {
             if (!inRange) {
+              applyPreviewAudioOutputState(previewPlatformPolicy, element, {
+                hasAudioNode,
+                desiredVolume: 0,
+                audibleSourceCount: 0,
+                isExporting: _isExporting,
+              });
               gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.1);
               if (!element.paused) element.pause();
               return;
@@ -1043,11 +1169,24 @@ const TurtleVideo: React.FC = () => {
               vol = 0;
             }
 
+            const outputMode = applyPreviewAudioOutputState(previewPlatformPolicy, element, {
+              hasAudioNode,
+              desiredVolume: vol,
+              audibleSourceCount: vol > 0 ? activePreviewAudioSourceCount : 0,
+              isExporting: _isExporting,
+            });
+            const effectiveGain = outputMode === 'native' ? 0 : vol;
             const currentGain = gainNode.gain.value;
-            if (Math.abs(currentGain - vol) > 0.01) {
-              gainNode.gain.setTargetAtTime(vol, audioCtxRef.current.currentTime, 0.1);
+            if (Math.abs(currentGain - effectiveGain) > 0.01) {
+              gainNode.gain.setTargetAtTime(effectiveGain, audioCtxRef.current.currentTime, 0.1);
             }
           } else {
+            applyPreviewAudioOutputState(previewPlatformPolicy, element, {
+              hasAudioNode,
+              desiredVolume: 0,
+              audibleSourceCount: 0,
+              isExporting: _isExporting,
+            });
             gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.1);
             if (!element.paused) element.pause();
 
@@ -2007,8 +2146,7 @@ const TurtleVideo: React.FC = () => {
             detachAudioNode(id);
           }
 
-          let hasAudioNode = !!sourceNodesRef.current[id];
-          if (!hasAudioNode) {
+          if (!sourceNodesRef.current[id]) {
             try {
               const ctx = getAudioContext();
               // iOS Safariでは interrupted になることがあるため running 以外は復帰を試みる
@@ -2023,7 +2161,6 @@ const TurtleVideo: React.FC = () => {
               sourceNodesRef.current[id] = source;
               gainNodesRef.current[id] = gain;
               sourceElementsRef.current[id] = mediaEl;
-              hasAudioNode = true;
             } catch (e) {
               // MediaElementAudioSourceNodeの作成エラーはログに出力
               console.warn(`Audio node creation failed for ${id}:`, e);
@@ -2032,12 +2169,7 @@ const TurtleVideo: React.FC = () => {
 
           // iOS Safari では複数メディア同時再生時にネイティブ音声経路の競合が起きるため、
           // WebAudio 経路が確立できた要素のみネイティブ出力をミュートする。
-          if (previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
-            const shouldMuteNative = shouldMuteNativeMediaElement(previewPlatformPolicy, hasAudioNode);
-            mediaEl.defaultMuted = shouldMuteNative;
-            mediaEl.muted = shouldMuteNative;
-            mediaEl.volume = 1;
-          }
+          resetNativeMediaAudioState(mediaEl);
         }
       } else {
         delete mediaElementsRef.current[id];
@@ -2052,7 +2184,7 @@ const TurtleVideo: React.FC = () => {
         pendingAudioDetachTimersRef.current[id] = timer;
       }
     },
-    [detachAudioNode, getAudioContext, previewPlatformPolicy]
+    [detachAudioNode, getAudioContext]
   );
 
   const handleSeeked = useCallback(() => {
@@ -2438,7 +2570,9 @@ const TurtleVideo: React.FC = () => {
     Object.values(mediaElementsRef.current).forEach((el) => {
       if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO')) {
         try {
-          (el as HTMLMediaElement).pause();
+          const mediaEl = el as HTMLMediaElement;
+          mediaEl.pause();
+          resetNativeMediaAudioState(mediaEl);
         } catch (e) {
           /* ignore */
         }

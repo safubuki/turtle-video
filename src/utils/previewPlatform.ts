@@ -19,6 +19,8 @@ export interface PreviewPlatformPolicy {
   audioContextResumeRetryCount: number;
 }
 
+export type PreviewAudioOutputMode = 'native' | 'webaudio';
+
 /**
  * プラットフォーム capability から、プレビュー制御用の方針を組み立てる。
  */
@@ -73,6 +75,32 @@ export function shouldMuteNativeMediaElement(
   hasAudioNode: boolean,
 ): boolean {
   return policy.muteNativeMediaWhenAudioRouted && hasAudioNode;
+}
+
+/**
+ * iOS Safari preview では単一音源時のみ native 出力へ逃がし、複数同時再生時は WebAudio mix を使う。
+ */
+export function getPreviewAudioOutputMode(
+  policy: PreviewPlatformPolicy,
+  options: {
+    hasAudioNode: boolean;
+    isExporting: boolean;
+    audibleSourceCount: number;
+  },
+): PreviewAudioOutputMode {
+  if (!policy.muteNativeMediaWhenAudioRouted) {
+    return 'webaudio';
+  }
+
+  if (!options.hasAudioNode) {
+    return 'native';
+  }
+
+  if (!options.isExporting && options.audibleSourceCount <= 1) {
+    return 'native';
+  }
+
+  return 'webaudio';
 }
 
 /**

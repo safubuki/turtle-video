@@ -64,6 +64,7 @@ export {
 
 // プレビュー制御ポリシー
 export {
+  getPreviewAudioOutputMode,
   getPreviewPlatformPolicy,
   getPreviewVideoSyncThreshold,
   shouldUseCaptionBlurFallback,

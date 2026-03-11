@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  getPreviewAudioOutputMode,
   getPreviewPlatformPolicy,
   getPreviewVideoSyncThreshold,
   shouldMuteNativeMediaElement,
@@ -9,7 +10,7 @@ import {
 } from '../utils/previewPlatform';
 
 describe('getPreviewPlatformPolicy', () => {
-  it('iOS Safari ではプレビュー/エクスポート向け緩和値を返す', () => {
+  it('iOS Safari では preview/export 向けの緩和値を返す', () => {
     const policy = getPreviewPlatformPolicy({
       isIosSafari: true,
       audioContextMayInterrupt: true,
@@ -44,7 +45,7 @@ describe('preview platform helpers', () => {
     audioContextMayInterrupt: true,
   });
 
-  it('フォールバック再生失敗時は専用の同期しきい値を返す', () => {
+  it('export の再生失敗時は fallback しきい値を返す', () => {
     expect(
       getPreviewVideoSyncThreshold(iosPolicy, {
         isExporting: true,
@@ -53,14 +54,38 @@ describe('preview platform helpers', () => {
     ).toBe(0.35);
   });
 
-  it('caption blur fallback が必要かを返す', () => {
+  it('caption blur fallback の要否を返す', () => {
     expect(shouldUseCaptionBlurFallback(iosPolicy, 2)).toBe(true);
     expect(shouldUseCaptionBlurFallback(iosPolicy, 0)).toBe(false);
   });
 
-  it('AudioNode 接続済みのときだけネイティブ音声をミュートする', () => {
+  it('AudioNode があるときだけ native mute 判定を返す', () => {
     expect(shouldMuteNativeMediaElement(iosPolicy, true)).toBe(true);
     expect(shouldMuteNativeMediaElement(iosPolicy, false)).toBe(false);
+  });
+
+  it('iOS Safari preview は単一音源だけ native 出力に切り替える', () => {
+    expect(
+      getPreviewAudioOutputMode(iosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        audibleSourceCount: 1,
+      }),
+    ).toBe('native');
+    expect(
+      getPreviewAudioOutputMode(iosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        audibleSourceCount: 2,
+      }),
+    ).toBe('webaudio');
+    expect(
+      getPreviewAudioOutputMode(iosPolicy, {
+        hasAudioNode: true,
+        isExporting: true,
+        audibleSourceCount: 1,
+      }),
+    ).toBe('webaudio');
   });
 
   it('可視復帰時の AudioContext resume 判定と再初期化判定を返す', () => {
