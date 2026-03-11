@@ -25,7 +25,17 @@ import { usePreventUnload } from '../hooks/usePreventUnload';
 
 // Utils
 import { captureCanvasAsImage } from '../utils/canvas';
+import { saveObjectUrlWithClientFileStrategy } from '../utils/fileSave';
 import { findActiveTimelineItem, collectPlaybackBlockingVideos } from '../utils/playbackTimeline';
+import { getPlatformCapabilities } from '../utils/platform';
+import {
+  getPreviewPlatformPolicy,
+  getPreviewVideoSyncThreshold,
+  shouldMuteNativeMediaElement,
+  shouldReinitializeAudioRoute,
+  shouldResumeAudioContextOnVisibilityReturn,
+  shouldUseCaptionBlurFallback,
+} from '../utils/previewPlatform';
 
 // Zustand Stores
 import { useMediaStore, useAudioStore, useUIStore, useCaptionStore, useLogStore, createNarrationClip } from '../stores';
@@ -51,31 +61,6 @@ const getApiKey = (): string => {
   if (storedKey) return storedKey;
   return import.meta.env.VITE_GEMINI_API_KEY || '';
 };
-
-type SaveFilePickerAcceptType = {
-  description?: string;
-  accept: Record<string, string[]>;
-};
-
-type SaveFilePickerOptions = {
-  suggestedName?: string;
-  types?: SaveFilePickerAcceptType[];
-};
-
-type FileSystemWritableFileStreamLike = {
-  write: (data: Blob) => Promise<void>;
-  close: () => Promise<void>;
-};
-
-type FileSystemFileHandleLike = {
-  createWritable: () => Promise<FileSystemWritableFileStreamLike>;
-};
-
-type WindowWithSavePicker = Window & {
-  showSaveFilePicker?: (options?: SaveFilePickerOptions) => Promise<FileSystemFileHandleLike>;
-};
-
-
 
 const TurtleVideo: React.FC = () => {
   // 離脱防止フックを使用
@@ -264,15 +249,12 @@ const TurtleVideo: React.FC = () => {
   captionsRef.current = captions;
   captionSettingsRef.current = captionSettings;
 
-  const isIosSafari = useMemo(() => {
-    if (typeof navigator === 'undefined') return false;
-    const ua = navigator.userAgent;
-    const isIOS =
-      /iP(hone|ad|od)/i.test(ua) ||
-      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    const isSafari = /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/i.test(ua);
-    return isIOS && isSafari;
-  }, []);
+  const platformCapabilities = useMemo(() => getPlatformCapabilities(), []);
+  const previewPlatformPolicy = useMemo(
+    () => getPreviewPlatformPolicy(platformCapabilities),
+    [platformCapabilities]
+  );
+  const supportsShowSaveFilePicker = platformCapabilities.supportsShowSaveFilePicker;
 
   const mediaTimelineRanges = useMemo(() => {
     let timelineStart = 0;
@@ -450,9 +432,10 @@ const TurtleVideo: React.FC = () => {
                 !isActivePlaying &&
                 isLastTimelineItem &&
                 isNearTimelineEnd;
-              const exportSyncThreshold = _isExporting
-                ? (isIosSafari ? 1.2 : 0.5)
-                : 0.5;
+              const exportSyncThreshold = getPreviewVideoSyncThreshold(previewPlatformPolicy, {
+                isExporting: _isExporting,
+                hasExportPlayFailure: false,
+              });
               const hasExportPlayFailure = _isExporting && !!exportPlayFailedRef.current[activeId];
               const needsCorrection =
                 _isExporting &&
@@ -615,9 +598,10 @@ const TurtleVideo: React.FC = () => {
               const videoEl = element as HTMLVideoElement;
               const targetTime = (conf.trimStart || 0) + localTime;
               const hasExportPlayFailure = _isExporting && !!exportPlayFailedRef.current[id];
-              const syncThreshold = _isExporting
-                ? (hasExportPlayFailure ? 0.35 : (isIosSafari ? 1.2 : 0.5))
-                : (isIosSafari ? 1.0 : 0.5);
+              const syncThreshold = getPreviewVideoSyncThreshold(previewPlatformPolicy, {
+                isExporting: _isExporting,
+                hasExportPlayFailure,
+              });
 
               // アクティブなビデオIDを更新
               if (isActivePlaying && activeVideoIdRef.current !== id) {
@@ -891,7 +875,7 @@ const TurtleVideo: React.FC = () => {
               }
             };
 
-            if (isIosSafari && blurStrength > 0) {
+            if (shouldUseCaptionBlurFallback(previewPlatformPolicy, blurStrength)) {
               // iOS Safari では text + filter が安定しないため、
               // 複数オフセット描画で文字全体を拡散し、中心成分をぼかし強度に応じて減衰させる。
               const blurNorm = Math.min(1, blurStrength / 5);
@@ -1083,7 +1067,7 @@ const TurtleVideo: React.FC = () => {
         console.error('Render Error:', e);
       }
     },
-    [captions, captionSettings, isIosSafari, logInfo]
+    [captions, captionSettings, logInfo, previewPlatformPolicy]
   );
 
   // --- 状態同期: Zustandの状態をRefに同期 ---
@@ -1305,7 +1289,7 @@ const TurtleVideo: React.FC = () => {
       // visibilitychange / focus / pageshow が短時間に連続発火しうるため、
       // 復帰処理の重複実行を抑止する。
       const nowPerf = typeof performance !== 'undefined' ? performance.now() : Date.now();
-      if (nowPerf - lastVisibilityRefreshAtRef.current < 120) return;
+      if (nowPerf - lastVisibilityRefreshAtRef.current < previewPlatformPolicy.visibilityRecoveryDebounceMs) return;
       lastVisibilityRefreshAtRef.current = nowPerf;
 
       const resumedFromHidden = restoreTimelineClockAfterHidden();
@@ -1313,7 +1297,7 @@ const TurtleVideo: React.FC = () => {
       const ctx = audioCtxRef.current;
       if (ctx) {
         const state = ctx.state as AudioContextState | 'interrupted';
-        if (state !== 'running') {
+        if (shouldResumeAudioContextOnVisibilityReturn(previewPlatformPolicy, state)) {
           ctx.resume()
             .then(() => {
               logInfo('AUDIO', '可視復帰時にAudioContextを再開', { from: state, to: ctx.state });
@@ -1399,7 +1383,7 @@ const TurtleVideo: React.FC = () => {
       window.removeEventListener('focus', handleWindowFocus);
       window.removeEventListener('pageshow', handlePageShow);
     };
-  }, [renderFrame, logInfo, logWarn, isProcessing, pause]);
+  }, [renderFrame, logInfo, logWarn, isProcessing, pause, previewPlatformPolicy]);
 
   // --- Audio Context ---
   const getAudioContext = useCallback(() => {
@@ -2048,8 +2032,8 @@ const TurtleVideo: React.FC = () => {
 
           // iOS Safari では複数メディア同時再生時にネイティブ音声経路の競合が起きるため、
           // WebAudio 経路が確立できた要素のみネイティブ出力をミュートする。
-          if (isIosSafari) {
-            const shouldMuteNative = hasAudioNode;
+          if (previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
+            const shouldMuteNative = shouldMuteNativeMediaElement(previewPlatformPolicy, hasAudioNode);
             mediaEl.defaultMuted = shouldMuteNative;
             mediaEl.muted = shouldMuteNative;
             mediaEl.volume = 1;
@@ -2068,7 +2052,7 @@ const TurtleVideo: React.FC = () => {
         pendingAudioDetachTimersRef.current[id] = timer;
       }
     },
-    [detachAudioNode, getAudioContext, isIosSafari]
+    [detachAudioNode, getAudioContext, previewPlatformPolicy]
   );
 
   const handleSeeked = useCallback(() => {
@@ -2354,41 +2338,23 @@ const TurtleVideo: React.FC = () => {
     const inferredMimeType = clip.file instanceof File && clip.file.type
       ? clip.file.type
       : 'audio/wav';
-    const { showSaveFilePicker } = window as WindowWithSavePicker;
-
     try {
-      if (typeof showSaveFilePicker === 'function') {
-        const fileHandle = await showSaveFilePicker({
-          suggestedName: filename,
-          types: [
-            {
-              description: '音声ファイル',
-              accept: { [inferredMimeType]: [`.${ext}`] },
-            },
-          ],
-        });
+      const result = await saveObjectUrlWithClientFileStrategy({
+        sourceUrl,
+        descriptor: {
+          filename,
+          mimeType: inferredMimeType,
+          description: '音声ファイル',
+        },
+        supportsShowSaveFilePicker,
+      });
 
-        const response = await fetch(sourceUrl);
-        if (!response.ok) {
-          throw new Error(`narration source unavailable: ${response.status}`);
-        }
-        const blob = await response.blob();
-        const writable = await fileHandle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-
+      if (result.strategy === 'file-picker') {
         window.alert('音声の保存が完了しました。');
         showToast('音声の保存が完了しました');
         return;
       }
 
-      const anchor = document.createElement('a');
-      anchor.href = sourceUrl;
-      anchor.download = filename;
-      anchor.rel = 'noopener';
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
       window.alert('音声の保存を開始しました。完了はブラウザの通知をご確認ください。');
       showToast('音声の保存を開始しました。完了はブラウザの通知をご確認ください。', 5000);
     } catch (error) {
@@ -2398,7 +2364,7 @@ const TurtleVideo: React.FC = () => {
       }
       setError('音声の保存に失敗しました');
     }
-  }, [narrations, setError, showToast]);
+  }, [narrations, setError, showToast, supportsShowSaveFilePicker]);
 
   const handleAddAiNarration = useCallback(() => {
     setEditingNarrationId(null);
@@ -2748,25 +2714,20 @@ const TurtleVideo: React.FC = () => {
       const stateBeforeResume = ctx.state as AudioContextState | 'interrupted';
       logDebug('AUDIO', 'AudioContext状態', { state: stateBeforeResume });
       if (stateBeforeResume !== 'running') {
-        try {
-          await ctx.resume();
-        } catch (err) {
-          logWarn('AUDIO', 'AudioContext再開に失敗（1回目）', {
-            state: stateBeforeResume,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-
-        const stateAfterFirstResume = ctx.state as AudioContextState | 'interrupted';
-        if (stateAfterFirstResume !== 'running') {
+        let attemptState: AudioContextState | 'interrupted' = stateBeforeResume;
+        for (let attempt = 1; attempt <= previewPlatformPolicy.audioContextResumeRetryCount; attempt++) {
           try {
-            // iOS Safariの復帰直後は1回目resumeで復帰しないことがあるため再試行
             await ctx.resume();
           } catch (err) {
-            logWarn('AUDIO', 'AudioContext再開に失敗（2回目）', {
-              state: stateAfterFirstResume,
+            logWarn('AUDIO', `AudioContext再開に失敗（${attempt}回目）`, {
+              state: attemptState,
               error: err instanceof Error ? err.message : String(err),
             });
+          }
+
+          attemptState = ctx.state as AudioContextState | 'interrupted';
+          if (attemptState === 'running') {
+            break;
           }
         }
 
@@ -2778,7 +2739,7 @@ const TurtleVideo: React.FC = () => {
 
       // iOS Safari では外部再生復帰後に state が running でも無音化する場合があるため、
       // ユーザー操作起点の再生開始時に一度 suspend/resume で音声経路を再初期化する。
-      if (isIosSafari && !isExportMode) {
+      if (shouldReinitializeAudioRoute(previewPlatformPolicy, isExportMode)) {
         try {
           if ((ctx.state as AudioContextState | 'interrupted') === 'running') {
             await ctx.suspend();
@@ -3143,7 +3104,7 @@ const TurtleVideo: React.FC = () => {
         loop(isExportMode, myLoopId);
       }
     },
-    [getAudioContext, stopAll, setProcessing, setLoading, play, clearExport, configureAudioRouting, ensureVideoMetadataReady, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError, logWarn, isIosSafari]
+    [getAudioContext, stopAll, setProcessing, setLoading, play, clearExport, configureAudioRouting, ensureVideoMetadataReady, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError, logWarn, logInfo, logDebug, previewPlatformPolicy]
   );
 
   // --- シークバー操作ハンドラ ---
@@ -3681,41 +3642,23 @@ const TurtleVideo: React.FC = () => {
     const filename = `turtle_video_${Date.now()}.${ext}`;
     const mimeType = ext === 'webm' ? 'video/webm' : 'video/mp4';
     const fileDescription = ext === 'webm' ? 'WebM 動画' : 'MP4 動画';
-    const { showSaveFilePicker } = window as WindowWithSavePicker;
-
     try {
-      if (typeof showSaveFilePicker === 'function') {
-        const fileHandle = await showSaveFilePicker({
-          suggestedName: filename,
-          types: [
-            {
-              description: fileDescription,
-              accept: { [mimeType]: [`.${ext}`] },
-            },
-          ],
-        });
+      const result = await saveObjectUrlWithClientFileStrategy({
+        sourceUrl: exportUrl,
+        descriptor: {
+          filename,
+          mimeType,
+          description: fileDescription,
+        },
+        supportsShowSaveFilePicker,
+      });
 
-        const response = await fetch(exportUrl);
-        if (!response.ok) {
-          throw new Error(`download source unavailable: ${response.status}`);
-        }
-        const blob = await response.blob();
-        const writable = await fileHandle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-
+      if (result.strategy === 'file-picker') {
         window.alert('ダウンロードが完了しました。');
         showToast('ダウンロードが完了しました');
         return;
       }
 
-      const anchor = document.createElement('a');
-      anchor.href = exportUrl;
-      anchor.download = filename;
-      anchor.rel = 'noopener';
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
       showToast('ダウンロードを開始しました。完了はブラウザの通知をご確認ください。', 5000);
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -3724,7 +3667,7 @@ const TurtleVideo: React.FC = () => {
       }
       setError('ダウンロードに失敗しました');
     }
-  }, [exportUrl, exportExt, setError, showToast]);
+  }, [exportUrl, exportExt, setError, showToast, supportsShowSaveFilePicker]);
 
   // --- 時刻フォーマットヘルパー ---
   // 目的: 秒数を「分:秒」形式の文字列に変換

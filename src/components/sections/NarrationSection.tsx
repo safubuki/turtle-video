@@ -3,7 +3,7 @@
  * @author Turtle Village
  * @description Narration section (multiple clips)
  */
-import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Upload,
   Lock,
@@ -25,6 +25,7 @@ import {
   Save,
 } from 'lucide-react';
 import type { NarrationClip } from '../../types';
+import { getAudioUploadAccept } from '../../utils/platform';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 
 interface NarrationSectionProps {
@@ -73,19 +74,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [openTrimMap, setOpenTrimMap] = useState<Record<string, boolean>>({});
   const prevNarrationCountRef = useRef(narrations.length);
-
-  const isIosSafari = useMemo(() => {
-    if (typeof navigator === 'undefined') return false;
-    const ua = navigator.userAgent;
-    const isIOS = /iP(hone|ad|od)/i.test(ua) ||
-      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    const isSafari = /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/i.test(ua);
-    return isIOS && isSafari;
-  }, []);
-
-  const audioFileAccept = isIosSafari
-    ? 'audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.oga,.opus,.caf,.aif,.aiff,.mp4,.m4v,.mov,.webm'
-    : 'audio/*';
+  const audioFileAccept = getAudioUploadAccept();
 
   const handleStartTimeChange = useCallback(
     (id: string, val: number) => onUpdateStartTime(id, String(val)),

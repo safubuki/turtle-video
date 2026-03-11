@@ -334,6 +334,66 @@
   - フェード時間の重複（短いクリップ）は按分で自動クランプ
   - BGM/ナレーションのフェードアウトはプロジェクト終端からの相対位置で計算
 
+### 9-8. Platform capability 判定の共通化
+
+- **ファイル**: `src/utils/platform.ts`, `src/components/TurtleVideo.tsx`, `src/hooks/useExport.ts`, `src/components/sections/BgmSection.tsx`, `src/components/sections/NarrationSection.tsx`
+- **問題**: `isIosSafari`、`showSaveFilePicker`、`MediaStreamTrackProcessor`、MediaRecorder MP4 対応、音声アップロード `accept` が複数箇所に重複し、iOS 分岐を更新するたびに Android/PC 側へ差分が漏れやすい
+- **対策**:
+  - `src/utils/platform.ts` にブラウザ判定と capability 判定を集約
+  - セクション UI の `accept`、プレビュー側の保存 API 判定、エクスポート側の TrackProcessor / MediaRecorder 判定を同じ utility 参照へ統一
+- **注意**: capability 共通化フェーズでは判定ロジックの集約に留め、再生ループやエクスポート戦略の分岐順序は変更しない
+
+### 9-9. Preview platform policy による iOS 再生制御の分離
+
+- **ファイル**: `src/utils/previewPlatform.ts`, `src/components/TurtleVideo.tsx`, `src/test/previewPlatform.test.ts`
+- **問題**: プレビュー側の同期しきい値、caption blur fallback、AudioContext 再初期化、ネイティブ音声 mute 方針が `TurtleVideo.tsx` に直書きされ、iOS Safari 向け調整を変えるたびに render / visibility / audio attach の複数箇所を同時修正する必要があった
+- **対策**:
+  - `src/utils/previewPlatform.ts` に `PreviewPlatformPolicy` を追加し、通常再生/エクスポートの同期しきい値、可視復帰の debounce、AudioContext resume 再試行回数、caption blur fallback、native mute 方針を集約
+  - `TurtleVideo.tsx` 側は `isIosSafari` を直接見ず、preview policy の helper で判定する形へ置換
+  - pure logic は `src/test/previewPlatform.test.ts` で自動検証する
+- **注意**:
+  - iOS 向け挙動を追加調整するときは、`TurtleVideo.tsx` に数値や `isIosSafari` 条件を増やすのではなく、まず preview policy に寄せる
+  - 既存の終端黒フレーム対策や export fallback seek の条件順序は変えず、policy は「閾値と方針」のみに留める
+
+### 9-10. Export strategy resolver による iOS 経路の分離
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/hooks/export-strategies/exportStrategyResolver.ts`, `src/hooks/export-strategies/iosSafariMediaRecorder.ts`, `src/test/exportStrategyResolver.test.ts`, `src/test/iosSafariMediaRecorder.test.ts`, `src/test/useExport.test.ts`
+- **問題**: `useExport.ts` に iOS Safari MediaRecorder 経路と標準 WebCodecs 経路の選択・実装が混在し、分岐条件の変更時に iOS 固有ワークアラウンドを WebCodecs 側へ誤って波及させやすかった。加えて、分離後に片方の経路だけが壊れても自動検知しづらかった
+- **対策**:
+  - strategy resolver で優先経路を決め、`useExport.ts` は選択と共通セッション初期化を担当する
+  - iOS Safari の MediaRecorder 経路は `iosSafariMediaRecorder.ts` に切り出し、keep-alive 音声、visibility pause/resume、requestData 後 stop 遅延を strategy 側へ閉じ込める
+  - resolver には WebCodecs 側の音声キャプチャ分岐（offline rendered / TrackProcessor / ScriptProcessor）も寄せ、純粋ロジックを `src/test/exportStrategyResolver.test.ts` で自動検証する
+  - iOS strategy は `src/test/iosSafariMediaRecorder.test.ts` で、fallback、成功時の callback 伝播、track cleanup を検証する
+  - `src/test/useExport.test.ts` では hook 契約として、iOS 優先起動、fallback 時の WebCodecs 移行、stop/abort、Blob URL 解放を薄く確認し、strategy 分離後のオーケストレーション回帰を拾う
+- **注意**:
+  - iOS 固有の録画回避策を追加する場合は `useExport.ts` に直接条件を戻さず、まず strategy / resolver へ寄せる
+  - WebCodecs 側の CFR、AudioEncoder 終端クランプ、TrackProcessor / ScriptProcessor fallback の順序は既存どおり維持する
+
+### 9-11. Capability ベースの保存/ダウンロード経路統一
+
+- **ファイル**: `src/utils/fileSave.ts`, `src/components/TurtleVideo.tsx`, `src/components/modals/SaveLoadModal.tsx`, `src/constants/sectionHelp.ts`, `src/test/fileSave.test.ts`
+- **問題**: エクスポート動画、AI ナレーション保存、生成画像保存で `showSaveFilePicker` と `a[download]` の分岐が重複し、iOS Safari 向けの保存導線や完了メッセージを調整するたびに複数箇所を直す必要があった。ヘルプ文言も iPhone を一律非対応扱いのままで、現状の保存方針とずれていた
+- **対策**:
+  - `src/utils/fileSave.ts` に `file-picker` / `anchor-download` の resolver と保存 helper を追加し、caller 側はファイル名・MIME・通知文言だけを持つ
+  - `TurtleVideo.tsx` の動画ダウンロードとナレーション保存、`SaveLoadModal.tsx` の生成画像保存を同じ helper に寄せる
+  - `src/test/fileSave.test.ts` で strategy 選択、object URL 保存、blob 保存の回帰を自動検証する
+  - `sectionHelp.ts` と SaveLoadModal のヘルプでは、iPhone / iPad Safari を「正式対応に向けて検証中」とし、保存ダイアログ対応の有無で挙動が分かれること、手動保存 / 自動保存 / 読込の確認観点を明示する
+- **注意**:
+  - 保存データ本体は引き続き IndexedDB の共通経路を使い、iOS Safari 向けの保存領域 fork は実機不具合が出るまで追加しない
+  - 新しいダウンロード導線を増やす場合は個別に `showSaveFilePicker` を判定せず、まず `fileSave.ts` の helper を再利用する
+
+### 9-12. サポート表記は「検証中」と「正式対応」を分けて扱う
+
+- **ファイル**: `README.md`, `Docs/2026-03-11_report_ios.md`, `src/constants/sectionHelp.ts`, `src/test/sectionHelp.test.ts`
+- **問題**: 実装と自動テストが進んでも、README や help に「iPhone 非対応」が残ると現状の案内と乖離する。一方で、保存 / 読込 / 設定を含む実機受け入れが終わる前に「正式対応済み」と書くのも過剰
+- **対策**:
+  - ユーザー向け表記は「正式対応に向けて検証中」に統一し、保存先ダイアログ対応の有無などブラウザ差だけを案内する
+  - `Docs/2026-03-11_report_ios.md` には、自動確認済み項目・部分実機確認済み項目・未確認項目を分けて記録し、正式対応可否の判断材料を残す
+  - `src/test/sectionHelp.test.ts` で app/help 文言に「非対応」が戻っていないことと、保存導線の説明が維持されていることを確認する
+- **注意**:
+  - 「正式対応済み」へ切り替えるのは、保存 / 読込 / 設定まで含む iOS Safari の主要受け入れ条件を実機で確認した後に限る
+  - ドキュメント上の表記変更だけで Phase 完了扱いにせず、必ず test/build と実機確認ステータスをセットで更新する
+
 ---
 
 ## 9.5. プレビューキャプチャ

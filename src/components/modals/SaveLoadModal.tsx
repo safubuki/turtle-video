@@ -4,7 +4,7 @@
  * @description 保存・読み込み・削除機能を提供するモーダル。
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Save, FolderOpen, Trash2, Clock, AlertTriangle, Timer, Image, CircleHelp } from 'lucide-react';
 import {
   useProjectStore,
@@ -23,6 +23,8 @@ import {
 } from '../../hooks/useAutoSave';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../../constants';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
+import { saveBlobWithClientFileStrategy } from '../../utils/fileSave';
+import { getPlatformCapabilities } from '../../utils/platform';
 
 interface SaveLoadModalProps {
   isOpen: boolean;
@@ -78,6 +80,10 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
   const [autoSaveInterval, setAutoSaveIntervalState] = useState<AutoSaveIntervalOption>(getAutoSaveInterval);
   const [showHelp, setShowHelp] = useState(false);
   const showHelpRef = useRef(false);
+  const supportsShowSaveFilePicker = useMemo(
+    () => getPlatformCapabilities().supportsShowSaveFilePicker,
+    [],
+  );
   const modalHistoryIdRef = useRef<string | null>(null);
   const closedByPopstateRef = useRef(false);
   const sheetScrollRef = useRef<HTMLDivElement>(null);
@@ -272,22 +278,39 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     
     // PNGとしてダウンロード
-    canvas.toBlob((blob) => {
+    canvas.toBlob(async (blob) => {
       if (!blob) {
         onToast('画像の生成に失敗しました', 'error');
         return;
       }
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${color === 'black' ? '黒' : '白'}画像_${CANVAS_WIDTH}x${CANVAS_HEIGHT}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      // ログを記録
-      useLogStore.getState().info('MEDIA', `${color === 'black' ? '黒' : '白'}画像を生成 (${CANVAS_WIDTH}x${CANVAS_HEIGHT})`);
-      onToast(`${color === 'black' ? '黒' : '白'}画像を保存しました`, 'success');
+
+      try {
+        const result = await saveBlobWithClientFileStrategy({
+          blob,
+          descriptor: {
+            filename: `${color === 'black' ? '黒' : '白'}画像_${CANVAS_WIDTH}x${CANVAS_HEIGHT}.png`,
+            mimeType: 'image/png',
+            description: 'PNG 画像',
+          },
+          supportsShowSaveFilePicker,
+        });
+
+        useLogStore.getState().info('MEDIA', `${color === 'black' ? '黒' : '白'}画像を生成 (${CANVAS_WIDTH}x${CANVAS_HEIGHT})`, {
+          saveStrategy: result.strategy,
+        });
+        onToast(
+          result.strategy === 'file-picker'
+            ? `${color === 'black' ? '黒' : '白'}画像を保存しました`
+            : `${color === 'black' ? '黒' : '白'}画像の保存を開始しました`,
+          'success',
+        );
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          onToast('画像の保存をキャンセルしました', 'error');
+          return;
+        }
+        onToast('画像の保存に失敗しました', 'error');
+      }
     }, 'image/png');
   };
   
@@ -500,6 +523,8 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
                       <li>自動保存は定期的に上書き保存されるため、保存データが増え続けずローカル領域を圧迫しにくい設計です。</li>
                       <li>手動保存で現在の状態を保存し、読み込みで復元できます。</li>
                       <li>保存データを削除すると、自動保存と手動保存の両方が消えます。</li>
+                      <li>iPhone / iPad の Safari では、手動保存→読み込み、自動保存反映、ブラウザ再起動後の保持を、同じ起動方法で確認してください。</li>
+                      <li>Safari の通常タブ、ホーム画面追加、プライベートブラウズでは保存領域が分かれる場合があります。継続利用する起動方法を固定してください。</li>
                     </ul>
                   </div>
                   <div className="border-t border-orange-300/35" />

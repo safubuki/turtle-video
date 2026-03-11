@@ -51,3 +51,30 @@ export {
   findActiveTimelineItem,
   collectPlaybackBlockingVideos,
 } from './playbackTimeline';
+
+// プラットフォーム判定
+export {
+  detectBrowserPlatform,
+  getAudioUploadAccept,
+  supportsShowSaveFilePicker,
+  getTrackProcessorConstructor,
+  getSupportedMediaRecorderProfile,
+  getPlatformCapabilities,
+} from './platform';
+
+// プレビュー制御ポリシー
+export {
+  getPreviewPlatformPolicy,
+  getPreviewVideoSyncThreshold,
+  shouldUseCaptionBlurFallback,
+  shouldMuteNativeMediaElement,
+  shouldResumeAudioContextOnVisibilityReturn,
+  shouldReinitializeAudioRoute,
+} from './previewPlatform';
+
+// 保存経路
+export {
+  resolveClientFileSaveStrategy,
+  saveBlobWithClientFileStrategy,
+  saveObjectUrlWithClientFileStrategy,
+} from './fileSave';
