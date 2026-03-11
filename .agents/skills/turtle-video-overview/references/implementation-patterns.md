@@ -1245,3 +1245,17 @@
 - **注意**:
   - 入力途中の破壊コストが高いモーダルだけは「閉じない」を選び、その他は操作の軽さを優先する
   - モーダル追加時は、入力破壊リスクの有無を基準に backdrop 方針を先に決める
+### 13-64. iOS Safari preview 音声は単一音源なら native fallback を使う
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **問題**:
+  - iOS Safari で attach 時に全音源を一律 `muted` 化すると、単一音源の preview でも無音になるケースがある
+  - 一方で動画音声 + BGM + ナレーションの同時再生では、従来どおり WebAudio mix が必要
+- **対策**:
+  - `getPreviewAudioOutputMode()` で iOS Safari の preview 音声出力モードを判定する
+  - preview 中の可聴音源が 1 つだけなら native 出力へ逃がし、GainNode 側は 0 にする
+  - 複数同時再生または export では従来どおり WebAudio mix を使い、native 側を mute する
+  - `stopAll()` と media attach 時には native の `muted` / `volume` を初期状態へ戻す
+- **注意**:
+  - iOS Safari preview の無音修正は `handleMediaRefAssign` の一律 mute へ戻さず、必ず output mode helper 経由で調整する
+  - 単一音源 preview の音量は native `HTMLMediaElement.volume` に寄せるため、Safari 専用の preview 回避は export 音声経路へ混ぜない
