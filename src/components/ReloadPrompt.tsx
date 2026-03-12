@@ -3,8 +3,10 @@ import { useRegisterSW } from 'virtual:pwa-register/react';
 import { useOfflineModeStore } from '../stores/offlineModeStore';
 import { useUpdateStore } from '../stores/updateStore';
 import { RefreshCw, X } from 'lucide-react';
+import { getPlatformCapabilities } from '../utils/platform';
 
 const ReloadPromptInner: React.FC = () => {
+    const { isIosSafari } = getPlatformCapabilities();
     const storeNeedRefresh = useUpdateStore((state) => state.needRefresh);
     const registration = useUpdateStore((state) => state.registration);
     const setNeedRefresh = useUpdateStore((state) => state.setNeedRefresh);
@@ -59,10 +61,22 @@ const ReloadPromptInner: React.FC = () => {
         setNeedRefresh(false);
     };
 
+    const promptContainerStyle = isIosSafari
+        ? {
+            left: '1rem',
+            right: '1rem',
+            width: 'auto',
+            maxWidth: 'none',
+        }
+        : undefined;
+
     if (!storeNeedRefresh) return null;
 
     return (
-        <div className="fixed bottom-4 right-4 z-[400] flex flex-col gap-2 w-full max-w-sm">
+        <div
+            className="fixed bottom-4 right-4 z-[400] flex flex-col gap-2 w-full max-w-sm"
+            style={promptContainerStyle}
+        >
             {storeNeedRefresh && (
                 <div className="bg-gray-800 border border-blue-500/50 shadow-2xl rounded-lg p-4 flex flex-col gap-3 animate-slide-up">
                     <div className="flex items-start justify-between">

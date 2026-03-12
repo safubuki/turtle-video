@@ -1,3 +1,8 @@
 {
-  "chat.useAgentSkills": true
+  "chat.useAgentSkills": true,
+  "github.copilot.chat.commitMessageGeneration.instructions": [
+    {
+      "text": "コミットメッセージは必ず日本語で生成してください。Conventional Commits を使う場合は feat、fix、chore などの接頭辞は英字のままで構いませんが、要約と本文は日本語にしてください。"
+    }
+  ]
 }
