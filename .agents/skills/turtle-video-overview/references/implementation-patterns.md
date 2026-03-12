@@ -1248,17 +1248,31 @@
 - **注意**:
   - 入力途中の破壊コストが高いモーダルだけは「閉じない」を選び、その他は操作の軽さを優先する
   - モーダル追加時は、入力破壊リスクの有無を基準に backdrop 方針を先に決める
-### 13-64. iOS Safari preview 音声は単一音源なら native fallback を使う
+### 13-64. iOS Safari preview 音声は「単一音源かつ音量1倍」のときだけ native fallback を使う
 
 - **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
 - **問題**:
   - iOS Safari で attach 時に全音源を一律 `muted` 化すると、単一音源の preview でも無音になるケースがある
-  - 一方で動画音声 + BGM + ナレーションの同時再生では、従来どおり WebAudio mix が必要
+  - ただし native `HTMLMediaElement.volume` 経路は、BGM 音量変更やフェードを正しく反映できず、音量が 1 以外のときに preview と export がずれる
 - **対策**:
   - `getPreviewAudioOutputMode()` で iOS Safari の preview 音声出力モードを判定する
-  - preview 中の可聴音源が 1 つだけなら native 出力へ逃がし、GainNode 側は 0 にする
-  - 複数同時再生または export では従来どおり WebAudio mix を使い、native 側を mute する
+  - `audibleSourceCount === 1` かつ `desiredVolume === 1` のときだけ `native` を返し、それ以外は `webaudio` を返す
+  - export 中、複数同時再生、AudioNode 接続済み、または音量変更ありの経路では常に WebAudio mix を使う
   - `stopAll()` と media attach 時には native の `muted` / `volume` を初期状態へ戻す
 - **注意**:
   - iOS Safari preview の無音修正は `handleMediaRefAssign` の一律 mute へ戻さず、必ず output mode helper 経由で調整する
-  - 単一音源 preview の音量は native `HTMLMediaElement.volume` に寄せるため、Safari 専用の preview 回避は export 音声経路へ混ぜない
+  - BGM やナレーションの音量が 1 以外なら、単一音源でも native fallback へ逃がさない
+
+### 13-65. iOS Safari の動画サムネイルは offscreen DOM + prime 再生で黒化を避ける
+
+- **ファイル**: `src/components/common/ClipThumbnail.tsx`, `src/test/clipThumbnail.test.tsx`
+- **問題**:
+  - iPhone Safari では、`document.createElement('video')` で作った未配置 video から即座に `drawImage()` すると、iPhone 撮影動画で黒いサムネイルになることがある
+  - `loadedmetadata` / `seeked` だけではフレームのデコード完了を保証できず、キャンバス描画だけが先行しやすい
+- **対策**:
+  - iOS Safari だけ、サムネイル生成用 video を一時的に offscreen DOM へ追加し、`loadeddata` / `canplay` / `seeked` と短い待機でフレーム準備を待つ
+  - `playsinline` / `webkit-playsinline` を付けた muted video を一度だけ短く `play()` して、ネイティブデコーダにフレーム確定を促す
+  - prime 再生で時刻がずれた場合は、目標時刻へ再シークしてからキャンバスへ描画する
+- **注意**:
+  - この workaround は iOS Safari 限定で適用し、Android / PC の既存サムネイル経路には波及させない
+  - offscreen 配置した video はサムネイル確定後すぐに `pause()` と DOM 解除を行い、不要なデコーダ保持を避ける
