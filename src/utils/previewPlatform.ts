@@ -13,6 +13,7 @@ export interface PreviewPlatformPolicy {
   exportFallbackSyncThresholdSec: number;
   needsCaptionBlurFallback: boolean;
   muteNativeMediaWhenAudioRouted: boolean;
+  muteNativeMediaDuringExportWhenAudioRouted: boolean;
   reinitializeAudioRouteOnPlay: boolean;
   resumeAudioContextOnVisibilityReturn: boolean;
   visibilityRecoveryDebounceMs: number;
@@ -35,7 +36,7 @@ export interface VideoClipEndGuardOptions {
  * プラットフォーム capability から、プレビュー制御用の方針を組み立てる。
  */
 export function getPreviewPlatformPolicy(
-  capabilities: Pick<PlatformCapabilities, 'isIosSafari' | 'audioContextMayInterrupt'>,
+  capabilities: Pick<PlatformCapabilities, 'isIosSafari' | 'isAndroid' | 'audioContextMayInterrupt'>,
 ): PreviewPlatformPolicy {
   return {
     previewSyncThresholdSec: capabilities.isIosSafari ? 1.0 : 0.5,
@@ -43,6 +44,7 @@ export function getPreviewPlatformPolicy(
     exportFallbackSyncThresholdSec: 0.35,
     needsCaptionBlurFallback: capabilities.isIosSafari,
     muteNativeMediaWhenAudioRouted: capabilities.isIosSafari,
+    muteNativeMediaDuringExportWhenAudioRouted: capabilities.isIosSafari || capabilities.isAndroid,
     reinitializeAudioRouteOnPlay: capabilities.isIosSafari,
     resumeAudioContextOnVisibilityReturn: true,
     visibilityRecoveryDebounceMs: 120,
@@ -82,9 +84,18 @@ export function shouldUseCaptionBlurFallback(
  */
 export function shouldMuteNativeMediaElement(
   policy: PreviewPlatformPolicy,
-  hasAudioNode: boolean,
+  options: {
+    hasAudioNode: boolean;
+    isExporting: boolean;
+  },
 ): boolean {
-  return policy.muteNativeMediaWhenAudioRouted && hasAudioNode;
+  if (!options.hasAudioNode) {
+    return false;
+  }
+
+  return options.isExporting
+    ? policy.muteNativeMediaDuringExportWhenAudioRouted
+    : policy.muteNativeMediaWhenAudioRouted;
 }
 
 /**

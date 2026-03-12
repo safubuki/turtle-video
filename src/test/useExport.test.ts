@@ -28,6 +28,7 @@ function createPlatformCapabilities(
     userAgent: 'test-agent',
     platform: 'test-platform',
     maxTouchPoints: 0,
+    isAndroid: false,
     isIOS: false,
     isSafari: false,
     isIosSafari: false,

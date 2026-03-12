@@ -13,6 +13,7 @@ import {
 describe('getPreviewPlatformPolicy', () => {
   it('iOS Safari では preview/export 向けの緩和値を返す', () => {
     const policy = getPreviewPlatformPolicy({
+      isAndroid: false,
       isIosSafari: true,
       audioContextMayInterrupt: true,
     });
@@ -21,12 +22,14 @@ describe('getPreviewPlatformPolicy', () => {
     expect(policy.exportSyncThresholdSec).toBe(1.2);
     expect(policy.needsCaptionBlurFallback).toBe(true);
     expect(policy.muteNativeMediaWhenAudioRouted).toBe(true);
+    expect(policy.muteNativeMediaDuringExportWhenAudioRouted).toBe(true);
     expect(policy.reinitializeAudioRouteOnPlay).toBe(true);
     expect(policy.audioContextResumeRetryCount).toBe(2);
   });
 
   it('非 iOS Safari では既定値を返す', () => {
     const policy = getPreviewPlatformPolicy({
+      isAndroid: false,
       isIosSafari: false,
       audioContextMayInterrupt: false,
     });
@@ -35,13 +38,26 @@ describe('getPreviewPlatformPolicy', () => {
     expect(policy.exportSyncThresholdSec).toBe(0.5);
     expect(policy.needsCaptionBlurFallback).toBe(false);
     expect(policy.muteNativeMediaWhenAudioRouted).toBe(false);
+    expect(policy.muteNativeMediaDuringExportWhenAudioRouted).toBe(false);
     expect(policy.reinitializeAudioRouteOnPlay).toBe(false);
     expect(policy.audioContextResumeRetryCount).toBe(2);
+  });
+
+  it('Android は export 中だけ native mute を有効にする', () => {
+    const policy = getPreviewPlatformPolicy({
+      isAndroid: true,
+      isIosSafari: false,
+      audioContextMayInterrupt: false,
+    });
+
+    expect(policy.muteNativeMediaWhenAudioRouted).toBe(false);
+    expect(policy.muteNativeMediaDuringExportWhenAudioRouted).toBe(true);
   });
 });
 
 describe('preview platform helpers', () => {
   const iosPolicy = getPreviewPlatformPolicy({
+    isAndroid: false,
     isIosSafari: true,
     audioContextMayInterrupt: true,
   });
@@ -61,8 +77,19 @@ describe('preview platform helpers', () => {
   });
 
   it('AudioNode があるときだけ native mute 判定を返す', () => {
-    expect(shouldMuteNativeMediaElement(iosPolicy, true)).toBe(true);
-    expect(shouldMuteNativeMediaElement(iosPolicy, false)).toBe(false);
+    expect(shouldMuteNativeMediaElement(iosPolicy, { hasAudioNode: true, isExporting: false })).toBe(true);
+    expect(shouldMuteNativeMediaElement(iosPolicy, { hasAudioNode: false, isExporting: false })).toBe(false);
+  });
+
+  it('Android は export 中だけ native mute 判定を返す', () => {
+    const androidPolicy = getPreviewPlatformPolicy({
+      isAndroid: true,
+      isIosSafari: false,
+      audioContextMayInterrupt: false,
+    });
+
+    expect(shouldMuteNativeMediaElement(androidPolicy, { hasAudioNode: true, isExporting: false })).toBe(false);
+    expect(shouldMuteNativeMediaElement(androidPolicy, { hasAudioNode: true, isExporting: true })).toBe(true);
   });
 
   it('iOS Safari preview は未接続の単一音源だけ native 出力にする', () => {

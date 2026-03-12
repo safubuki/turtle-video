@@ -90,7 +90,10 @@ const applyPreviewAudioOutputState = (
   });
   const shouldMuteNative =
     outputMode === 'webaudio'
-      && shouldMuteNativeMediaElement(policy, options.hasAudioNode);
+      && shouldMuteNativeMediaElement(policy, {
+        hasAudioNode: options.hasAudioNode,
+        isExporting: options.isExporting,
+      });
 
   mediaEl.defaultMuted = shouldMuteNative;
   mediaEl.muted = shouldMuteNative;

@@ -95,7 +95,7 @@ async function extractAudioViaVideoElement(
 
     let sourceNode: MediaElementAudioSourceNode | null = null;
     let processor: ScriptProcessorNode | null = null;
-    let silentGain: GainNode | null = null;
+    let captureSink: MediaStreamAudioDestinationNode | null = null;
     let blobUrl: string | null = null;
     const collectedL: Float32Array[] = [];
     const collectedR: Float32Array[] = [];
@@ -109,8 +109,8 @@ async function extractAudioViaVideoElement(
       if (sourceNode) {
         try { sourceNode.disconnect(); } catch { /* ignore */ }
       }
-      if (silentGain) {
-        try { silentGain.disconnect(); } catch { /* ignore */ }
+      if (captureSink) {
+        try { captureSink.disconnect(); } catch { /* ignore */ }
       }
       video.pause();
       video.removeAttribute('src');
@@ -191,13 +191,10 @@ async function extractAudioViaVideoElement(
       // Web Audio ノードの構築
       sourceNode = mainCtx.createMediaElementSource(video);
       processor = mainCtx.createScriptProcessor(4096, 2, 2);
-      silentGain = mainCtx.createGain();
-      // 極小音量（0 にすると iOS Safari がノードを最適化で無効化する恐れ）
-      silentGain.gain.value = 0.00001;
+      captureSink = mainCtx.createMediaStreamDestination();
 
       sourceNode.connect(processor);
-      processor.connect(silentGain);
-      silentGain.connect(mainCtx.destination);
+      processor.connect(captureSink);
 
       log.info('RENDER', '[EXTRACT] Web Audio パイプライン構築完了');
 

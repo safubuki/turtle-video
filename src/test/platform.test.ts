@@ -16,6 +16,7 @@ describe('detectBrowserPlatform', () => {
       maxTouchPoints: 5,
     });
 
+    expect(platform.isAndroid).toBe(false);
     expect(platform.isIOS).toBe(true);
     expect(platform.isSafari).toBe(true);
     expect(platform.isIosSafari).toBe(true);
@@ -29,6 +30,7 @@ describe('detectBrowserPlatform', () => {
       maxTouchPoints: 5,
     });
 
+    expect(platform.isAndroid).toBe(false);
     expect(platform.isIOS).toBe(true);
     expect(platform.isIosSafari).toBe(true);
   });
@@ -41,7 +43,22 @@ describe('detectBrowserPlatform', () => {
       maxTouchPoints: 5,
     });
 
+    expect(platform.isAndroid).toBe(false);
     expect(platform.isIOS).toBe(true);
+    expect(platform.isSafari).toBe(false);
+    expect(platform.isIosSafari).toBe(false);
+  });
+
+  it('Android Chrome を Android として検出する', () => {
+    const platform = detectBrowserPlatform({
+      userAgent:
+        'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36',
+      platform: 'Linux armv8l',
+      maxTouchPoints: 5,
+    });
+
+    expect(platform.isAndroid).toBe(true);
+    expect(platform.isIOS).toBe(false);
     expect(platform.isSafari).toBe(false);
     expect(platform.isIosSafari).toBe(false);
   });
@@ -54,6 +71,7 @@ describe('getAudioUploadAccept', () => {
         'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
       platform: 'iPhone',
       maxTouchPoints: 5,
+      isAndroid: false,
       isIOS: true,
       isSafari: true,
       isIosSafari: true,
@@ -68,6 +86,7 @@ describe('getAudioUploadAccept', () => {
       userAgent: 'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 Chrome/135.0.0.0 Mobile Safari/537.36',
       platform: 'Linux armv8l',
       maxTouchPoints: 5,
+      isAndroid: true,
       isIOS: false,
       isSafari: false,
       isIosSafari: false,
@@ -116,6 +135,7 @@ describe('capability helpers', () => {
     });
 
     expect(capabilities.isIosSafari).toBe(true);
+    expect(capabilities.isAndroid).toBe(false);
     expect(capabilities.supportsShowSaveFilePicker).toBe(true);
     expect(capabilities.supportsTrackProcessor).toBe(true);
     expect(capabilities.supportsMp4MediaRecorder).toBe(true);

@@ -8,6 +8,7 @@ export interface BrowserPlatformInfo {
   userAgent: string;
   platform: string;
   maxTouchPoints: number;
+  isAndroid: boolean;
   isIOS: boolean;
   isSafari: boolean;
   isIosSafari: boolean;
@@ -70,13 +71,17 @@ export function detectBrowserPlatform(
   const userAgent = navigatorLike?.userAgent ?? '';
   const platform = navigatorLike?.platform ?? '';
   const maxTouchPoints = navigatorLike?.maxTouchPoints ?? 0;
+  const isAndroid = /Android/i.test(userAgent);
   const isIOS = /iP(hone|ad|od)/i.test(userAgent) || (platform === 'MacIntel' && maxTouchPoints > 1);
-  const isSafari = /Safari/i.test(userAgent) && !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/i.test(userAgent);
+  const isSafari =
+    /Safari/i.test(userAgent)
+    && !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo|Chrome|Chromium|Edg|OPR|SamsungBrowser/i.test(userAgent);
 
   return {
     userAgent,
     platform,
     maxTouchPoints,
+    isAndroid,
     isIOS,
     isSafari,
     isIosSafari: isIOS && isSafari,
