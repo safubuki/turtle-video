@@ -67,7 +67,7 @@ afterEach(() => {
 });
 
 describe('PreviewSection action buttons', () => {
-  it('停止とキャプチャの初期状態は既存のグレー系を維持する', () => {
+  it('停止とキャプチャの既定スタイルを表示する', () => {
     renderPreviewSection();
 
     const stopButton = screen.getByRole('button', { name: 'プレビューを停止' });
@@ -79,7 +79,7 @@ describe('PreviewSection action buttons', () => {
     expect(captureButton.className).toContain('text-gray-300');
   });
 
-  it('キャプチャ押下時だけ追加ボタン色の変化で押下感を出す', () => {
+  it('キャプチャ押下時だけ強調表示を適用する', () => {
     vi.useFakeTimers();
     const onStop = vi.fn();
     const onCapture = vi.fn();
@@ -124,5 +124,92 @@ describe('PreviewSection action buttons', () => {
     });
 
     expect(screen.getByRole('button', { name: '書き出し準備 3/4...' })).toBeInTheDocument();
+  });
+
+  it('停止位置から 0 秒へ戻る初期化は進捗扱いせず準備表示を維持する', () => {
+    vi.useFakeTimers();
+    const { rerender, props } = renderPreviewSection({
+      currentTime: 6,
+      isProcessing: false,
+      exportPreparationStep: null,
+    });
+
+    rerender(
+      <PreviewSection
+        {...props}
+        currentTime={6}
+        isProcessing
+        exportPreparationStep={1}
+      />,
+    );
+
+    rerender(
+      <PreviewSection
+        {...props}
+        currentTime={0}
+        isProcessing
+        exportPreparationStep={1}
+      />,
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(1800);
+    });
+
+    expect(screen.getByRole('button', { name: '書き出し準備 1/4...' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'フレーム待機中...' })).not.toBeInTheDocument();
+  });
+
+  it('開始直後の微小な進行は準備表示を維持する', () => {
+    vi.useFakeTimers();
+    const { rerender, props } = renderPreviewSection({
+      isProcessing: true,
+      currentTime: 0,
+      totalDuration: 100,
+      exportPreparationStep: 4,
+    });
+
+    rerender(
+      <PreviewSection
+        {...props}
+        isProcessing
+        currentTime={0.05}
+        totalDuration={100}
+        exportPreparationStep={4}
+      />,
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(1800);
+    });
+
+    expect(screen.getByRole('button', { name: '書き出し準備 4/4...' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'フレーム待機中...' })).not.toBeInTheDocument();
+  });
+
+  it('開始直後の閾値を超えた後は生成中表示に切り替わる', () => {
+    vi.useFakeTimers();
+    const { rerender, props } = renderPreviewSection({
+      isProcessing: true,
+      currentTime: 0,
+      totalDuration: 100,
+      exportPreparationStep: 4,
+    });
+
+    rerender(
+      <PreviewSection
+        {...props}
+        isProcessing
+        currentTime={1}
+        totalDuration={100}
+        exportPreparationStep={4}
+      />,
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(screen.getByRole('button', { name: '映像を生成中... 1%' })).toBeInTheDocument();
   });
 });

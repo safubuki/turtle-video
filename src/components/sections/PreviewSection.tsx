@@ -25,6 +25,7 @@ const PREVIEW_STOP_BUTTON =
   'border-gray-700 bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white disabled:border-gray-700 disabled:bg-gray-800 disabled:text-gray-500';
 const PREVIEW_CAPTURE_BUTTON =
   'border-gray-700 bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white disabled:border-gray-700 disabled:bg-gray-800 disabled:text-gray-500';
+const EXPORT_RENDERING_READY_TIME_SEC = 0.25;
 
 interface PreviewSectionProps {
   mediaItems: MediaItem[];
@@ -96,13 +97,27 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
       return;
     }
 
-    const delta = Math.abs(currentTime - lastObservedTimeRef.current);
+    const delta = currentTime - lastObservedTimeRef.current;
+    const renderingReadyTime = totalDuration > 0
+      ? Math.min(EXPORT_RENDERING_READY_TIME_SEC, Math.max(0.05, totalDuration * 0.1))
+      : EXPORT_RENDERING_READY_TIME_SEC;
+
+    // Export 開始時に前回の停止位置から 0 秒へ戻る巻き戻しは、進捗ではなく準備フェーズとして扱う。
+    if (delta <= -0.05) {
+      lastObservedTimeRef.current = currentTime;
+      lastProgressAtRef.current = Date.now();
+      hasExportProgressRef.current = false;
+      return;
+    }
+
     if (delta >= 0.05) {
       lastObservedTimeRef.current = currentTime;
       lastProgressAtRef.current = Date.now();
-      hasExportProgressRef.current = true;
+      if (currentTime >= renderingReadyTime) {
+        hasExportProgressRef.current = true;
+      }
     }
-  }, [currentTime, isProcessing]);
+  }, [currentTime, isProcessing, totalDuration]);
 
   useEffect(() => {
     if (!isProcessing) return;
