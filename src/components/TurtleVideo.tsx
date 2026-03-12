@@ -40,6 +40,7 @@ import {
 
 // Zustand Stores
 import { useMediaStore, useAudioStore, useUIStore, useCaptionStore, useLogStore, createNarrationClip } from '../stores';
+import { useOfflineModeStore } from '../stores/offlineModeStore';
 
 // コンポーネント
 import Toast from './common/Toast';
@@ -175,6 +176,7 @@ const TurtleVideo: React.FC = () => {
   const showToast = useUIStore((s) => s.showToast);
   const setError = useUIStore((s) => s.setError);
   const clearError = useUIStore((s) => s.clearError);
+  const offlineMode = useOfflineModeStore((s) => s.offlineMode);
   const play = useUIStore((s) => s.play);
   const pause = useUIStore((s) => s.pause);
   const setCurrentTime = useUIStore((s) => s.setCurrentTime);
@@ -307,6 +309,12 @@ const TurtleVideo: React.FC = () => {
 
   // Hooks
   const { startExport: startWebCodecsExport, stopExport: stopWebCodecsExport } = useExport();
+
+  useEffect(() => {
+    if (!offlineMode || !showAiModal) return;
+    setEditingNarrationId(null);
+    closeAiModal();
+  }, [offlineMode, showAiModal, closeAiModal]);
 
   // --- メモリ監視（10秒ごと） ---
   useEffect(() => {
@@ -1629,6 +1637,7 @@ const TurtleVideo: React.FC = () => {
   const generateScript = useCallback(async () => {
     const trimmedPrompt = aiPrompt.trim();
     if (!trimmedPrompt) return;
+    if (offlineMode) return;
     const apiKey = getApiKey();
     if (!apiKey) {
       setError('APIキーが設定されていません。右上の歯車アイコンから設定してください。');
@@ -1754,10 +1763,11 @@ const TurtleVideo: React.FC = () => {
     } finally {
       setAiLoading(false);
     }
-  }, [aiPrompt, aiScriptLength, setAiLoading, setAiScript, setError, showToast]);
+  }, [aiPrompt, aiScriptLength, offlineMode, setAiLoading, setAiScript, setError, showToast]);
 
   const generateSpeech = useCallback(async () => {
     if (!aiScript) return;
+    if (offlineMode) return;
     const apiKey = getApiKey();
     if (!apiKey) {
       setError('APIキーが設定されていません。右上の歯車アイコンから設定してください。');
@@ -2004,6 +2014,7 @@ const TurtleVideo: React.FC = () => {
     showToast,
     setError,
     setAiLoading,
+    offlineMode,
   ]);
 
   // --- アップロード処理 ---
@@ -2589,29 +2600,6 @@ const TurtleVideo: React.FC = () => {
     }
   }, [narrations, setError, showToast, supportsShowSaveFilePicker]);
 
-  const handleAddAiNarration = useCallback(() => {
-    setEditingNarrationId(null);
-    setAiScript('');
-    setAiPrompt('');
-    setAiScriptLength('medium');
-    openAiModal();
-  }, [openAiModal, setAiPrompt, setAiScript, setAiScriptLength]);
-
-  const handleEditAiNarration = useCallback((id: string) => {
-    const target = narrations.find((clip) => clip.id === id);
-    if (!target || !target.isAiEditable) return;
-    const currentScript = target.aiScript ?? '';
-    const inferredLength: NarrationScriptLength =
-      currentScript.length <= 70 ? 'short' : currentScript.length <= 120 ? 'medium' : 'long';
-    setEditingNarrationId(id);
-    setAiPrompt('');
-    setAiScript(currentScript);
-    setAiScriptLength(inferredLength);
-    setAiVoice(target.aiVoice ?? 'Aoede');
-    setAiVoiceStyle(target.aiVoiceStyle ?? '');
-    openAiModal();
-  }, [narrations, openAiModal, setAiPrompt, setAiScript, setAiScriptLength, setAiVoice, setAiVoiceStyle]);
-
   const handleCloseAiModal = useCallback(() => {
     setEditingNarrationId(null);
     closeAiModal();
@@ -2706,6 +2694,35 @@ const TurtleVideo: React.FC = () => {
     stopAll();
     pause();
   }, [isProcessing, stopAll, pause]);
+
+  const handleAddAiNarration = useCallback(() => {
+    if (offlineMode) return;
+    stopAll();
+    pause();
+    setEditingNarrationId(null);
+    setAiScript('');
+    setAiPrompt('');
+    setAiScriptLength('medium');
+    openAiModal();
+  }, [offlineMode, openAiModal, pause, setAiPrompt, setAiScript, stopAll]);
+
+  const handleEditAiNarration = useCallback((id: string) => {
+    if (offlineMode) return;
+    const target = narrations.find((clip) => clip.id === id);
+    if (!target || !target.isAiEditable) return;
+    const currentScript = target.aiScript ?? '';
+    const inferredLength: NarrationScriptLength =
+      currentScript.length <= 70 ? 'short' : currentScript.length <= 120 ? 'medium' : 'long';
+    stopAll();
+    pause();
+    setEditingNarrationId(id);
+    setAiPrompt('');
+    setAiScript(currentScript);
+    setAiScriptLength(inferredLength);
+    setAiVoice(target.aiVoice ?? 'Aoede');
+    setAiVoiceStyle(target.aiVoiceStyle ?? '');
+    openAiModal();
+  }, [narrations, offlineMode, openAiModal, pause, setAiPrompt, setAiScript, setAiVoice, setAiVoiceStyle, stopAll]);
 
   const handleOpenSettingsModal = useCallback(() => {
     pausePreviewBeforeHeaderModal();
@@ -4069,12 +4086,13 @@ const TurtleVideo: React.FC = () => {
             {/* 3. NARRATION SETTINGS */}
             <NarrationSection
               narrations={narrations}
+              offlineMode={offlineMode}
               isNarrationLocked={isNarrationLocked}
               totalDuration={totalDuration}
               currentTime={currentTime}
               onToggleNarrationLock={withPause(toggleNarrationLock)}
-              onAddAiNarration={withPause(handleAddAiNarration)}
-              onEditAiNarration={withPause(handleEditAiNarration)}
+              onAddAiNarration={handleAddAiNarration}
+              onEditAiNarration={handleEditAiNarration}
               onNarrationUpload={withStop(handleNarrationUpload)}
               onRemoveNarration={withPause(removeNarration)}
               onMoveNarration={withPause(moveNarration)}

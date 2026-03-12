@@ -1,12 +1,18 @@
 import React, { useEffect } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
+import { useOfflineModeStore } from '../stores/offlineModeStore';
 import { useUpdateStore } from '../stores/updateStore';
 import { RefreshCw, X } from 'lucide-react';
 
-export const ReloadPrompt: React.FC = () => {
+const ReloadPromptInner: React.FC = () => {
     const storeNeedRefresh = useUpdateStore((state) => state.needRefresh);
+    const registration = useUpdateStore((state) => state.registration);
     const setNeedRefresh = useUpdateStore((state) => state.setNeedRefresh);
     const setOfflineReady = useUpdateStore((state) => state.setOfflineReady);
+    const setRegistration = useUpdateStore((state) => state.setRegistration);
+    const pendingUpdateCheckAfterRegister = useUpdateStore((state) => state.pendingUpdateCheckAfterRegister);
+    const clearPendingUpdateCheck = useUpdateStore((state) => state.clearPendingUpdateCheck);
+    const checkForUpdate = useUpdateStore((state) => state.checkForUpdate);
     const setUpdateServiceWorker = useUpdateStore((state) => state.setUpdateServiceWorker);
 
     const {
@@ -17,6 +23,7 @@ export const ReloadPrompt: React.FC = () => {
         onRegistered(r) {
             // eslint-disable-next-line no-console
             console.log('SW Registered: ' + r);
+            setRegistration(r);
         },
         onRegisterError(error) {
             console.error('SW registration error', error);
@@ -40,6 +47,12 @@ export const ReloadPrompt: React.FC = () => {
     useEffect(() => {
         setUpdateServiceWorker(hookUpdateServiceWorker);
     }, [hookUpdateServiceWorker, setUpdateServiceWorker]);
+
+    useEffect(() => {
+        if (!pendingUpdateCheckAfterRegister || !registration) return;
+        clearPendingUpdateCheck();
+        void checkForUpdate();
+    }, [pendingUpdateCheckAfterRegister, registration, clearPendingUpdateCheck, checkForUpdate]);
 
     const close = () => {
         setOfflineReady(false);
@@ -87,4 +100,19 @@ export const ReloadPrompt: React.FC = () => {
             )}
         </div>
     );
+};
+
+export const ReloadPrompt: React.FC = () => {
+    const offlineMode = useOfflineModeStore((state) => state.offlineMode);
+    const clearUpdateSignals = useUpdateStore((state) => state.clearUpdateSignals);
+
+    useEffect(() => {
+        if (offlineMode) {
+            clearUpdateSignals();
+        }
+    }, [offlineMode, clearUpdateSignals]);
+
+    if (offlineMode) return null;
+
+    return <ReloadPromptInner />;
 };

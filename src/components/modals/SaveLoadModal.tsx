@@ -79,6 +79,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
   const [selectedSlot, setSelectedSlot] = useState<SaveSlot | null>(null);
   const [autoSaveInterval, setAutoSaveIntervalState] = useState<AutoSaveIntervalOption>(getAutoSaveInterval);
   const [showHelp, setShowHelp] = useState(false);
+  const onCloseRef = useRef(onClose);
   const showHelpRef = useRef(false);
   const supportsShowSaveFilePicker = useMemo(
     () => getPlatformCapabilities().supportsShowSaveFilePicker,
@@ -156,6 +157,10 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
   }, [mode]);
 
   useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
     showHelpRef.current = showHelp;
   }, [showHelp]);
 
@@ -180,7 +185,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
         return;
       }
       closedByPopstateRef.current = true;
-      onClose();
+      onCloseRef.current();
     };
 
     window.addEventListener('popstate', handlePopState);
@@ -201,7 +206,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
       modalHistoryIdRef.current = null;
       closedByPopstateRef.current = false;
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   const resetTouchTracking = () => {
     touchStartXRef.current = null;
@@ -246,7 +251,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
 
   const handleSheetTouchEnd = () => {
     if (swipeCloseEligibleRef.current && touchDeltaYRef.current > 72) {
-      onClose();
+      onCloseRef.current();
     }
     resetTouchTracking();
   };
