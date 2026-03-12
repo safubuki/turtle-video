@@ -15,9 +15,9 @@ import {
   resolveWebCodecsAudioCaptureStrategy,
 } from './export-strategies/exportStrategyResolver';
 import { runIosSafariMediaRecorderStrategy } from './export-strategies/iosSafariMediaRecorder';
-import type { ExportAudioSources } from './export-strategies/types';
+import type { ExportAudioSources, ExportPreparationStep } from './export-strategies/types';
 
-export type { ExportAudioSources } from './export-strategies/types';
+export type { ExportAudioSources, ExportPreparationStep } from './export-strategies/types';
 
 /**
  * useExport - 動画書き出しロジックを提供するフック
@@ -297,6 +297,7 @@ async function offlineRenderAudio(
 ): Promise<AudioBuffer | null> {
   const { mediaItems, bgm, narrations, totalDuration } = sources;
   if (totalDuration <= 0) return null;
+  sources.onPreparationStepChange?.(2);
 
   const log = useLogStore.getState();
   const numberOfChannels = 2;
@@ -556,6 +557,7 @@ async function offlineRenderAudio(
   log.info('RENDER', 'OfflineAudioContext レンダリング実行', { scheduledSources });
 
   try {
+    sources.onPreparationStepChange?.(3);
     const renderedBuffer = await offlineCtx.startRendering();
 
     // 診断: レンダリング結果の振幅チェック（iOS Safari でデコード失敗時にゼロバッファになる）
@@ -695,6 +697,12 @@ export function useExport(): UseExportReturn {
 
   // 互換性維持のためのダミーRef（実際には使用しない）
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const updatePreparationStep = useCallback(
+    (audioSources: ExportAudioSources | undefined, step: ExportPreparationStep) => {
+      audioSources?.onPreparationStepChange?.(step);
+    },
+    []
+  );
 
   // エクスポート停止処理
   const stopExport = useCallback(() => {
@@ -754,6 +762,7 @@ export function useExport(): UseExportReturn {
       setExportUrl(null);
       setExportExt(null);
       completionRequestedRef.current = false;
+      updatePreparationStep(audioSources, 1);
 
       const canvas = canvasRef.current;
       const width = canvas.width;
@@ -1023,7 +1032,6 @@ export function useExport(): UseExportReturn {
         // === iOS Safari 限定: OfflineAudioContext による音声プリレンダリング ===
         let offlineAudioDone = false;
         const shouldPreRenderAudio = shouldUseOfflineAudioPreRender({
-          isIosSafari,
           hasAudioSources: !!audioSources,
         });
         if (shouldPreRenderAudio && audioSources) {
@@ -1041,6 +1049,7 @@ export function useExport(): UseExportReturn {
               signal,
             );
             if (renderedAudio && !signal.aborted) {
+              updatePreparationStep(audioSources, 4);
               // [DIAG-4] feedPreRenderedAudio 呼び出し前の AudioEncoder 状態
               useLogStore.getState().info('RENDER', '[DIAG-4] feed開始前 AudioEncoder状態', {
                 state: audioEncoder.state,
@@ -1749,7 +1758,7 @@ export function useExport(): UseExportReturn {
         setIsProcessing(false);
       }
     },
-    [completeExport, stopExport]
+    [completeExport, stopExport, updatePreparationStep]
   );
 
   // エクスポートURLクリア

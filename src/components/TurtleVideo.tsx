@@ -21,6 +21,7 @@ import {
 
 // Hooks
 import { useExport } from '../hooks/useExport';
+import type { ExportPreparationStep } from '../hooks/useExport';
 import { usePreventUnload } from '../hooks/usePreventUnload';
 
 // Utils
@@ -232,6 +233,7 @@ const TurtleVideo: React.FC = () => {
   const [editingNarrationId, setEditingNarrationId] = useState<string | null>(null);
   const [aiScriptLength, setAiScriptLength] = useState<NarrationScriptLength>('medium');
   const [activeHelpSection, setActiveHelpSection] = useState<SectionHelpKey | null>(null);
+  const [exportPreparationStep, setExportPreparationStep] = useState<ExportPreparationStep | null>(null);
 
   // Ref
   const mediaItemsRef = useRef<MediaItem[]>([]);
@@ -3020,8 +3022,10 @@ const TurtleVideo: React.FC = () => {
       // 状態をリセットしてから新しい状態を設定
       if (isExportMode) {
         setProcessing(true);
+        setExportPreparationStep(1);
       } else {
         setProcessing(false);
+        setExportPreparationStep(null);
         isPlayingRef.current = false;
         pause();
       }
@@ -3329,12 +3333,14 @@ const TurtleVideo: React.FC = () => {
             setExportUrl(url);
             setExportExt(ext as 'mp4' | 'webm');
             setProcessing(false);
+            setExportPreparationStep(null);
             pause();
             // エンジン停止（再生ループを止める）
             stopAll();
           },
           (message) => {
             setProcessing(false);
+            setExportPreparationStep(null);
             pause();
             stopAll();
             setError(message);
@@ -3345,6 +3351,7 @@ const TurtleVideo: React.FC = () => {
             narrations: narrationsRef.current,
             totalDuration: totalDurationRef.current,
             getPlaybackTimeSec: () => currentTimeRef.current,
+            onPreparationStepChange: setExportPreparationStep,
             // 音声プリレンダリング完了後に再生ループを開始
             // iOS Safari ではリアルタイム音声抽出に数秒かかるため、
             // その完了を待ってからビデオキャプチャ用の再生を始める。
@@ -3830,6 +3837,7 @@ const TurtleVideo: React.FC = () => {
   const handleStop = useCallback(() => {
     stopAll();
     pause();
+    setExportPreparationStep(null);
     setCurrentTime(0);
     currentTimeRef.current = 0;
     endFinalizedRef.current = false;
@@ -4160,6 +4168,7 @@ const TurtleVideo: React.FC = () => {
                 isPlaying={isPlaying}
                 isProcessing={isProcessing}
                 isLoading={isLoading}
+                exportPreparationStep={exportPreparationStep}
                 exportUrl={exportUrl}
                 exportExt={exportExt}
                 onSeekChange={handleSeekChange}

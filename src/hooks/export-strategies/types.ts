@@ -3,6 +3,7 @@ import type { AudioTrack, MediaItem, NarrationClip } from '../../types';
 import type { MediaRecorderProfile } from '../../utils/platform';
 
 export type ExportStrategyId = 'ios-safari-mediarecorder' | 'webcodecs-mp4';
+export type ExportPreparationStep = 1 | 2 | 3 | 4;
 
 /**
  * エクスポート用の音声ソース情報。
@@ -13,6 +14,7 @@ export interface ExportAudioSources {
   bgm: AudioTrack | null;
   narrations: NarrationClip[];
   totalDuration: number;
+  onPreparationStepChange?: (step: ExportPreparationStep) => void;
   /**
    * 音声プリレンダリング完了時に呼ばれるコールバック。
    * iOS Safari では音声抽出にリアルタイムで動画再生が必要なため、

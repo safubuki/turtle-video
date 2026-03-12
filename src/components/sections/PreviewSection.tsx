@@ -15,9 +15,9 @@ import {
   AlertCircle,
   Camera,
   CircleHelp,
-
 } from 'lucide-react';
 import type { MediaItem, AudioTrack, NarrationClip } from '../../types';
+import type { ExportPreparationStep } from '../../hooks/useExport';
 
 const PREVIEW_ICON_BUTTON_BASE =
   'relative overflow-hidden p-3 lg:p-4 rounded-full border transition-[transform,background-color,color,box-shadow,filter] duration-200 shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed';
@@ -35,7 +35,8 @@ interface PreviewSectionProps {
   totalDuration: number;
   isPlaying: boolean;
   isProcessing: boolean;
-  isLoading: boolean;  // リソース読み込み中フラグ
+  exportPreparationStep: ExportPreparationStep | null;
+  isLoading: boolean;
   exportUrl: string | null;
   exportExt: string | null;
   onSeekChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -48,7 +49,6 @@ interface PreviewSectionProps {
   onClearAll: () => void;
   onCapture: () => void;
   onOpenHelp: () => void;
-
   formatTime: (seconds: number) => string;
 }
 
@@ -64,6 +64,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   totalDuration,
   isPlaying,
   isProcessing,
+  exportPreparationStep,
   isLoading,
   exportUrl,
   exportExt,
@@ -77,7 +78,6 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   onClearAll,
   onCapture,
   onOpenHelp,
-
   formatTime,
 }) => {
   const [exportPhase, setExportPhase] = useState<'preparing' | 'rendering' | 'stalled'>('preparing');
@@ -137,16 +137,17 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
 
   const exportButtonText = useMemo(() => {
     if (!isProcessing) return '動画ファイルを作成';
-    if (exportPhase === 'preparing') return '音声を準備中...';
+    if (exportPhase === 'preparing') return `書き出し準備 ${exportPreparationStep ?? 1}/4...`;
     if (exportPhase === 'stalled') return 'フレーム待機中...';
     return `映像を生成中... ${exportProgressPct.toFixed(0)}%`;
-  }, [exportPhase, exportProgressPct, isProcessing]);
+  }, [exportPhase, exportPreparationStep, exportProgressPct, isProcessing]);
 
   const exportStatusText = useMemo(() => {
-    if (!isProcessing) return null;
-    if (exportPhase === 'preparing') return '音声を準備しています（この間はシークバーが動かないことがあります）';
-    if (exportPhase === 'stalled') return '素材同期中です。しばらく待っても進まない場合は中断して再実行してください。';
-    return '映像を書き出し中です。';
+    if (!isProcessing || exportPhase === 'preparing') return null;
+    if (exportPhase === 'stalled') {
+      return '処理に時間がかかっています。しばらく待っても進まない場合は中断して再実行してください。';
+    }
+    return '映像を生成中です。';
   }, [exportPhase, isProcessing]);
 
   const triggerCaptureFeedback = (callback: () => void) => {
@@ -179,7 +180,6 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
           </button>
         </h2>
         <div className="flex items-center gap-2">
-
           {isProcessing && (
             <span className="text-[10px] md:text-xs text-green-400 font-mono animate-pulse bg-green-900/30 px-2 py-0.5 rounded">
               REC ●
@@ -199,7 +199,6 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
             <MonitorPlay className="w-12 h-12 lg:w-16 lg:h-16 text-gray-800" />
           </div>
         )}
-        {/* ローディングオーバーレイ */}
         {isLoading && mediaItems.length > 0 && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50 pointer-events-none">
             <div className="flex flex-col items-center gap-2">
@@ -235,9 +234,11 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
                 <p className="text-[10px] md:text-[11px] lg:text-xs leading-snug text-amber-200/90 mt-0.5">
                   画面を切り替えると映像・音声が乱れます
                 </p>
-                <p className="text-[10px] md:text-[11px] lg:text-xs leading-snug text-amber-100/90 mt-1">
-                  {exportStatusText}
-                </p>
+                {exportStatusText && (
+                  <p className="text-[10px] md:text-[11px] lg:text-xs leading-snug text-amber-100/90 mt-1">
+                    {exportStatusText}
+                  </p>
+                )}
               </div>
             </div>
           </div>

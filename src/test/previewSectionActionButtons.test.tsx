@@ -37,6 +37,7 @@ function renderPreviewSection(overrides?: Partial<React.ComponentProps<typeof Pr
     isPlaying: false,
     isProcessing: false,
     isLoading: false,
+    exportPreparationStep: null,
     exportUrl: null,
     exportExt: null,
     onSeekChange: vi.fn(),
@@ -66,7 +67,7 @@ afterEach(() => {
 });
 
 describe('PreviewSection action buttons', () => {
-  it('停止とキャプチャの配色は既存のグレー系を維持する', () => {
+  it('停止とキャプチャの初期状態は既存のグレー系を維持する', () => {
     renderPreviewSection();
 
     const stopButton = screen.getByRole('button', { name: 'プレビューを停止' });
@@ -78,7 +79,7 @@ describe('PreviewSection action buttons', () => {
     expect(captureButton.className).toContain('text-gray-300');
   });
 
-  it('キャプチャ押下時だけ追加ボタン系の緑でゆったり反応を返す', () => {
+  it('キャプチャ押下時だけ追加ボタン色の変化で押下感を出す', () => {
     vi.useFakeTimers();
     const onStop = vi.fn();
     const onCapture = vi.fn();
@@ -103,5 +104,25 @@ describe('PreviewSection action buttons', () => {
     });
 
     expect(captureButton.className).not.toContain('animate-preview-capture-press');
+  });
+
+  it('準備中はフェーズ番号付きのボタン文言を表示する', () => {
+    renderPreviewSection({
+      isProcessing: true,
+      currentTime: 0,
+      exportPreparationStep: 1,
+    });
+
+    expect(screen.getByRole('button', { name: '書き出し準備 1/4...' })).toBeInTheDocument();
+  });
+
+  it('準備フェーズ番号をボタンに反映する', () => {
+    renderPreviewSection({
+      isProcessing: true,
+      currentTime: 0,
+      exportPreparationStep: 3,
+    });
+
+    expect(screen.getByRole('button', { name: '書き出し準備 3/4...' })).toBeInTheDocument();
   });
 });
