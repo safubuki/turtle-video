@@ -408,7 +408,7 @@
   - `URL.createObjectURL(blob)` で一時URLを生成し、`<a>` 要素のクリックでダウンロードをトリガー
   - ObjectURLは `setTimeout(() => URL.revokeObjectURL(url), 1000)` で確実に解放
 - **ファイル名规則**: `turtle_capture_{time}_{timestamp}.png`（例: `turtle_capture_1m30s_1738900000000.png`）
-- **UI**: PreviewSectionの再生コントロール横にCameraアイコンボタンを配置
+- **UI**: PreviewSectionの再生コントロール横にCameraアイコンボタンを配置する。停止とキャプチャの通常配色は既存のグレー系を維持し、キャプチャだけ押下後 0.42 秒のエメラルド系フラッシュ + 外側ハローで反応感を返す
 - **注意**: エクスポート中（`isProcessing`）はキャプチャ不可。メディアがない場合も無効
 
 ## 10. 状態管理パターン

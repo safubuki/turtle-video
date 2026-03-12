@@ -19,6 +19,13 @@ import {
 } from 'lucide-react';
 import type { MediaItem, AudioTrack, NarrationClip } from '../../types';
 
+const PREVIEW_ICON_BUTTON_BASE =
+  'relative overflow-hidden p-3 lg:p-4 rounded-full border transition-[transform,background-color,color,box-shadow,filter] duration-200 shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed';
+const PREVIEW_STOP_BUTTON =
+  'border-gray-700 bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white disabled:border-gray-700 disabled:bg-gray-800 disabled:text-gray-500';
+const PREVIEW_CAPTURE_BUTTON =
+  'border-gray-700 bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white disabled:border-gray-700 disabled:bg-gray-800 disabled:text-gray-500';
+
 interface PreviewSectionProps {
   mediaItems: MediaItem[];
   bgm: AudioTrack | null;
@@ -74,9 +81,11 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   formatTime,
 }) => {
   const [exportPhase, setExportPhase] = useState<'preparing' | 'rendering' | 'stalled'>('preparing');
+  const [isCapturePressed, setIsCapturePressed] = useState(false);
   const lastProgressAtRef = useRef<number>(Date.now());
   const lastObservedTimeRef = useRef<number>(currentTime);
   const hasExportProgressRef = useRef<boolean>(false);
+  const flashTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!isProcessing) {
@@ -113,6 +122,14 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     return () => clearInterval(timer);
   }, [isProcessing]);
 
+  useEffect(() => {
+    return () => {
+      if (flashTimeoutRef.current !== null) {
+        window.clearTimeout(flashTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const exportProgressPct = useMemo(() => {
     if (!isProcessing || totalDuration <= 0) return 0;
     return Math.min(100, Math.max(0, (currentTime / totalDuration) * 100));
@@ -131,6 +148,18 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     if (exportPhase === 'stalled') return '素材同期中です。しばらく待っても進まない場合は中断して再実行してください。';
     return '映像を書き出し中です。';
   }, [exportPhase, isProcessing]);
+
+  const triggerCaptureFeedback = (callback: () => void) => {
+    if (flashTimeoutRef.current !== null) {
+      window.clearTimeout(flashTimeoutRef.current);
+    }
+    setIsCapturePressed(true);
+    callback();
+    flashTimeoutRef.current = window.setTimeout(() => {
+      setIsCapturePressed(false);
+      flashTimeoutRef.current = null;
+    }, 420);
+  };
 
   return (
     <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
@@ -259,9 +288,12 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
         </div>
         <div className="mt-4 flex justify-center gap-4 border-b border-gray-800 pb-6">
           <button
+            type="button"
             onClick={onStop}
             disabled={mediaItems.length === 0 || isLoading}
-            className="p-3 lg:p-4 rounded-full bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white transition shadow-lg disabled:opacity-50"
+            title="プレビューを停止"
+            aria-label="プレビューを停止"
+            className={`${PREVIEW_ICON_BUTTON_BASE} ${PREVIEW_STOP_BUTTON}`}
           >
             <Square className="w-5 h-5 lg:w-6 lg:h-6 fill-current" />
           </button>
@@ -273,10 +305,16 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
             {isLoading ? <Loader className="w-5 h-5 lg:w-6 lg:h-6 animate-spin" /> : isPlaying ? <Pause className="w-5 h-5 lg:w-6 lg:h-6" /> : <Play className="w-5 h-5 lg:w-6 lg:h-6 ml-0.5" />}
           </button>
           <button
-            onClick={onCapture}
+            type="button"
+            onClick={() => triggerCaptureFeedback(onCapture)}
             disabled={mediaItems.length === 0 || isProcessing || isLoading}
             title="プレビューをキャプチャ"
-            className="p-3 lg:p-4 rounded-full bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white transition shadow-lg disabled:opacity-50"
+            aria-label="プレビューをキャプチャ"
+            className={`${PREVIEW_ICON_BUTTON_BASE} ${PREVIEW_CAPTURE_BUTTON} ${
+              isCapturePressed
+                ? 'animate-preview-capture-press bg-emerald-700 text-white border-emerald-400/90 shadow-[0_0_0_4px_rgba(167,243,208,0.42),0_0_26px_rgba(16,185,129,0.52)]'
+                : ''
+            }`}
           >
             <Camera className="w-5 h-5 lg:w-6 lg:h-6" />
           </button>
