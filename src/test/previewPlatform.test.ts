@@ -70,6 +70,7 @@ describe('preview platform helpers', () => {
         hasAudioNode: false,
         isExporting: false,
         audibleSourceCount: 1,
+        desiredVolume: 1,
       }),
     ).toBe('native');
     expect(
@@ -77,6 +78,15 @@ describe('preview platform helpers', () => {
         hasAudioNode: false,
         isExporting: false,
         audibleSourceCount: 2,
+        desiredVolume: 1,
+      }),
+    ).toBe('webaudio');
+    expect(
+      getPreviewAudioOutputMode(iosPolicy, {
+        hasAudioNode: false,
+        isExporting: false,
+        audibleSourceCount: 1,
+        desiredVolume: 0.5,
       }),
     ).toBe('webaudio');
     expect(
@@ -84,6 +94,7 @@ describe('preview platform helpers', () => {
         hasAudioNode: false,
         isExporting: true,
         audibleSourceCount: 1,
+        desiredVolume: 1,
       }),
     ).toBe('webaudio');
     expect(
@@ -91,6 +102,7 @@ describe('preview platform helpers', () => {
         hasAudioNode: true,
         isExporting: false,
         audibleSourceCount: 1,
+        desiredVolume: 1,
       }),
     ).toBe('webaudio');
   });

@@ -84,6 +84,7 @@ const applyPreviewAudioOutputState = (
     hasAudioNode: options.hasAudioNode,
     isExporting: options.isExporting,
     audibleSourceCount: options.audibleSourceCount,
+    desiredVolume: options.desiredVolume,
   });
   const shouldMuteNative =
     outputMode === 'webaudio'
@@ -823,16 +824,6 @@ const TurtleVideo: React.FC = () => {
             if (conf.type === 'video') {
               const videoMediaEl = element as HTMLMediaElement;
               let hasAudioNode = !!sourceNodesRef.current[id];
-              if (
-                !hasAudioNode &&
-                getPreviewAudioOutputMode(previewPlatformPolicy, {
-                  hasAudioNode: false,
-                  isExporting: _isExporting,
-                  audibleSourceCount: activePreviewAudioSourceCount,
-                }) === 'webaudio'
-              ) {
-                hasAudioNode = ensureAudioNodeForElement(id, videoMediaEl);
-              }
               const currentGainNode = gainNodesRef.current[id];
               if (isActivePlaying) {
                 let vol = holdAudioThisFrame ? 0 : (conf.isMuted ? 0 : conf.volume);
@@ -844,6 +835,18 @@ const TurtleVideo: React.FC = () => {
                 } else if (conf.fadeOut && localTime > conf.duration - fadeOutDur) {
                   const remaining = conf.duration - localTime;
                   vol *= remaining / fadeOutDur;
+                }
+
+                if (
+                  !hasAudioNode &&
+                  getPreviewAudioOutputMode(previewPlatformPolicy, {
+                    hasAudioNode: false,
+                    isExporting: _isExporting,
+                    audibleSourceCount: vol > 0 ? activePreviewAudioSourceCount : 0,
+                    desiredVolume: vol,
+                  }) === 'webaudio'
+                ) {
+                  hasAudioNode = ensureAudioNodeForElement(id, videoMediaEl);
                 }
 
                 // 音量の急激な変化を防ぐ
@@ -1047,18 +1050,6 @@ const TurtleVideo: React.FC = () => {
           let hasAudioNode = !!sourceNodesRef.current[trackId];
 
           if (track && element) {
-            if (
-              !hasAudioNode &&
-              getPreviewAudioOutputMode(previewPlatformPolicy, {
-                hasAudioNode: false,
-                isExporting: _isExporting,
-                audibleSourceCount: activePreviewAudioSourceCount,
-              }) === 'webaudio'
-            ) {
-              hasAudioNode = ensureAudioNodeForElement(trackId, element);
-              gainNode = gainNodesRef.current[trackId];
-            }
-
             if (isActivePlaying) {
               if (time < track.delay) {
                 applyPreviewAudioOutputState(previewPlatformPolicy, element, {
@@ -1113,6 +1104,19 @@ const TurtleVideo: React.FC = () => {
                   // シーク中は音量を0にして音飛びを防ぐ
                   if (element.seeking || holdAudioThisFrame) {
                     vol = 0;
+                  }
+
+                  if (
+                    !hasAudioNode &&
+                    getPreviewAudioOutputMode(previewPlatformPolicy, {
+                      hasAudioNode: false,
+                      isExporting: _isExporting,
+                      audibleSourceCount: vol > 0 ? activePreviewAudioSourceCount : 0,
+                      desiredVolume: vol,
+                    }) === 'webaudio'
+                  ) {
+                    hasAudioNode = ensureAudioNodeForElement(trackId, element);
+                    gainNode = gainNodesRef.current[trackId];
                   }
 
                   // 音量の急激な変化を防ぐ
@@ -1172,18 +1176,6 @@ const TurtleVideo: React.FC = () => {
 
           if (!element) return;
 
-          if (
-            !hasAudioNode &&
-            getPreviewAudioOutputMode(previewPlatformPolicy, {
-              hasAudioNode: false,
-              isExporting: _isExporting,
-              audibleSourceCount: activePreviewAudioSourceCount,
-            }) === 'webaudio'
-          ) {
-            hasAudioNode = ensureAudioNodeForElement(trackId, element);
-            gainNode = gainNodesRef.current[trackId];
-          }
-
           const trimStart = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
           const trimEnd = Number.isFinite(clip.trimEnd) ? Math.max(trimStart, Math.min(clip.duration, clip.trimEnd)) : clip.duration;
           const playableDuration = Math.max(0, trimEnd - trimStart);
@@ -1225,6 +1217,19 @@ const TurtleVideo: React.FC = () => {
             let vol = clip.isMuted ? 0 : clip.volume;
             if (element.seeking || holdAudioThisFrame) {
               vol = 0;
+            }
+
+            if (
+              !hasAudioNode &&
+              getPreviewAudioOutputMode(previewPlatformPolicy, {
+                hasAudioNode: false,
+                isExporting: _isExporting,
+                audibleSourceCount: vol > 0 ? activePreviewAudioSourceCount : 0,
+                desiredVolume: vol,
+              }) === 'webaudio'
+            ) {
+              hasAudioNode = ensureAudioNodeForElement(trackId, element);
+              gainNode = gainNodesRef.current[trackId];
             }
 
             const outputMode = applyPreviewAudioOutputState(previewPlatformPolicy, element, {

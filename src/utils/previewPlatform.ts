@@ -86,6 +86,7 @@ export function getPreviewAudioOutputMode(
     hasAudioNode: boolean;
     isExporting: boolean;
     audibleSourceCount: number;
+    desiredVolume: number;
   },
 ): PreviewAudioOutputMode {
   if (!policy.muteNativeMediaWhenAudioRouted) {
@@ -95,6 +96,12 @@ export function getPreviewAudioOutputMode(
   // MediaElementAudioSourceNode を一度生成した要素は native 出力へ戻せないため、
   // ノード生成済みなら常に WebAudio 側で扱う。
   if (options.hasAudioNode) {
+    return 'webaudio';
+  }
+
+  // iOS Safari の native volume 経路は単一音源の再生確保には有効だが、
+  // 音量変更・フェード・一時ミュートのような細かな制御は不安定になりやすい。
+  if (Math.abs(options.desiredVolume - 1) > 0.001) {
     return 'webaudio';
   }
 
