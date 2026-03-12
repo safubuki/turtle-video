@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   resolveExportStrategyOrder,
   resolveWebCodecsAudioCaptureStrategy,
+  shouldUseOfflineAudioPreRender,
 } from '../hooks/export-strategies/exportStrategyResolver';
 
 describe('resolveExportStrategyOrder', () => {
@@ -82,5 +83,34 @@ describe('resolveWebCodecsAudioCaptureStrategy', () => {
         canUseTrackProcessor: true,
       }),
     ).toBe('script-processor');
+  });
+});
+
+describe('shouldUseOfflineAudioPreRender', () => {
+  it('iOS Safari かつ音声ソースありのときだけ OfflineAudioContext を使う', () => {
+    expect(
+      shouldUseOfflineAudioPreRender({
+        isIosSafari: true,
+        hasAudioSources: true,
+      }),
+    ).toBe(true);
+  });
+
+  it('非iOS では音声ソースがあっても OfflineAudioContext を先行させない', () => {
+    expect(
+      shouldUseOfflineAudioPreRender({
+        isIosSafari: false,
+        hasAudioSources: true,
+      }),
+    ).toBe(false);
+  });
+
+  it('iOS Safari でも音声ソースが無ければ OfflineAudioContext を使わない', () => {
+    expect(
+      shouldUseOfflineAudioPreRender({
+        isIosSafari: true,
+        hasAudioSources: false,
+      }),
+    ).toBe(false);
   });
 });

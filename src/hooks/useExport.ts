@@ -11,6 +11,7 @@ import { useLogStore } from '../stores/logStore';
 import { getPlatformCapabilities } from '../utils/platform';
 import {
   resolveExportStrategyOrder,
+  shouldUseOfflineAudioPreRender,
   resolveWebCodecsAudioCaptureStrategy,
 } from './export-strategies/exportStrategyResolver';
 import { runIosSafariMediaRecorderStrategy } from './export-strategies/iosSafariMediaRecorder';
@@ -1019,10 +1020,13 @@ export function useExport(): UseExportReturn {
           bitrate: audioEncoderConfig.bitrate,
         });
 
-        // === iOS Safari: OfflineAudioContext による音声プリレンダリング ===
+        // === iOS Safari 限定: OfflineAudioContext による音声プリレンダリング ===
         let offlineAudioDone = false;
-        if (audioSources) {
-          // [DIAG-3] OfflineAudioContext パス開始（全環境で優先）
+        const shouldPreRenderAudio = shouldUseOfflineAudioPreRender({
+          isIosSafari,
+          hasAudioSources: !!audioSources,
+        });
+        if (shouldPreRenderAudio && audioSources) {
           useLogStore.getState().info('RENDER', '[DIAG-3] OfflineAudioContext パス開始', {
             totalDuration: audioSources.totalDuration,
             sampleRate: audioContext.sampleRate,

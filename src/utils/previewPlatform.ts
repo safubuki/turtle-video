@@ -21,6 +21,16 @@ export interface PreviewPlatformPolicy {
 
 export type PreviewAudioOutputMode = 'native' | 'webaudio';
 
+export interface VideoClipEndGuardOptions {
+  clipLocalTime: number;
+  clipDuration: number;
+  trimStart: number;
+  videoCurrentTime: number;
+  videoEnded: boolean;
+  clipEndGuardWindowSec?: number;
+  videoEndToleranceSec?: number;
+}
+
 /**
  * プラットフォーム capability から、プレビュー制御用の方針を組み立てる。
  */
@@ -110,6 +120,29 @@ export function getPreviewAudioOutputMode(
   }
 
   return 'webaudio';
+}
+
+/**
+ * クリップ終端直前に ended 済み動画を再始動すると position 0 へ巻き戻るため、
+ * その瞬間だけ最終フレーム保持へ倒す。
+ */
+export function shouldHoldVideoFrameAtClipEnd(
+  options: VideoClipEndGuardOptions,
+): boolean {
+  const clipDuration = Math.max(0, options.clipDuration);
+  if (clipDuration <= 0) {
+    return false;
+  }
+
+  const clipEndGuardWindowSec = options.clipEndGuardWindowSec ?? 0.2;
+  const videoEndToleranceSec = options.videoEndToleranceSec ?? 0.05;
+  const remainingClipTime = Math.max(0, clipDuration - Math.max(0, options.clipLocalTime));
+  if (remainingClipTime > clipEndGuardWindowSec) {
+    return false;
+  }
+
+  const safeClipEndTime = options.trimStart + Math.max(0, clipDuration - 0.001);
+  return options.videoEnded || options.videoCurrentTime >= safeClipEndTime - videoEndToleranceSec;
 }
 
 /**

@@ -3,6 +3,7 @@ import {
   getPreviewAudioOutputMode,
   getPreviewPlatformPolicy,
   getPreviewVideoSyncThreshold,
+  shouldHoldVideoFrameAtClipEnd,
   shouldMuteNativeMediaElement,
   shouldReinitializeAudioRoute,
   shouldResumeAudioContextOnVisibilityReturn,
@@ -112,5 +113,29 @@ describe('preview platform helpers', () => {
     expect(shouldResumeAudioContextOnVisibilityReturn(iosPolicy, 'running')).toBe(false);
     expect(shouldReinitializeAudioRoute(iosPolicy, false)).toBe(true);
     expect(shouldReinitializeAudioRoute(iosPolicy, true)).toBe(false);
+  });
+
+  it('動画クリップ終端では非最終クリップでも最終フレーム保持を優先する', () => {
+    expect(
+      shouldHoldVideoFrameAtClipEnd({
+        clipLocalTime: 1.96,
+        clipDuration: 2,
+        trimStart: 3,
+        videoCurrentTime: 4.97,
+        videoEnded: true,
+      }),
+    ).toBe(true);
+  });
+
+  it('クリップ終端前なら ended していない動画を通常再生のまま扱う', () => {
+    expect(
+      shouldHoldVideoFrameAtClipEnd({
+        clipLocalTime: 1.2,
+        clipDuration: 2,
+        trimStart: 3,
+        videoCurrentTime: 4.2,
+        videoEnded: false,
+      }),
+    ).toBe(false);
   });
 });

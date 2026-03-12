@@ -16,6 +16,17 @@ export function resolveExportStrategyOrder(
   return ['webcodecs-mp4'];
 }
 
+export interface OfflineAudioPreRenderResolutionInput {
+  isIosSafari: boolean;
+  hasAudioSources: boolean;
+}
+
+export function shouldUseOfflineAudioPreRender(
+  input: OfflineAudioPreRenderResolutionInput,
+): boolean {
+  return input.isIosSafari && input.hasAudioSources;
+}
+
 export type WebCodecsAudioCaptureStrategy =
   | 'pre-rendered'
   | 'track-processor'

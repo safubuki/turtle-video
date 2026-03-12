@@ -32,6 +32,7 @@ import {
   getPreviewAudioOutputMode,
   getPreviewPlatformPolicy,
   getPreviewVideoSyncThreshold,
+  shouldHoldVideoFrameAtClipEnd,
   shouldMuteNativeMediaElement,
   shouldReinitializeAudioRoute,
   shouldResumeAudioContextOnVisibilityReturn,
@@ -557,15 +558,13 @@ const TurtleVideo: React.FC = () => {
               // play() が position 0 へのシークを発動して seeking=true にし、
               // 描画チェック(readyState>=2 && !seeking)が失敗して黒フレームが出る。
               // これを防ぐため、終端付近では ended/自然終了直前を holdFrame 扱いにする。
-              const isWithinEndGuardZone =
-                totalDurationRef.current > 0 &&
-                time >= totalDurationRef.current - 0.2;
-              const isVideoEndedOrAboutToEnd =
-                activeEl.ended ||
-                (Number.isFinite(activeEl.duration) &&
-                  activeEl.duration > 0 &&
-                  activeEl.currentTime >= activeEl.duration - 0.05);
-              const shouldHoldForVideoEnd = isWithinEndGuardZone && isVideoEndedOrAboutToEnd;
+              const shouldHoldForVideoEnd = shouldHoldVideoFrameAtClipEnd({
+                clipLocalTime: localTime,
+                clipDuration: activeItem.duration,
+                trimStart: activeItem.trimStart || 0,
+                videoCurrentTime: activeEl.currentTime,
+                videoEnded: activeEl.ended,
+              });
 
               if (!hasFrame || needsCorrection || shouldHoldForVideoEnd) {
                 holdFrame = true;
@@ -710,16 +709,20 @@ const TurtleVideo: React.FC = () => {
                 // sync と play() を抑止する。play() on ended はブラウザが
                 // position 0 へシークし seeking=true になるため、
                 // 直後の描画チェックが失敗して黒フレームが発生する。
-                const isEndedNearEnd =
-                  videoEl.ended &&
-                  totalDurationRef.current > 0 &&
-                  time >= totalDurationRef.current - 0.2;
+                const shouldHoldVideoAtClipEnd = shouldHoldVideoFrameAtClipEnd({
+                  clipLocalTime: localTime,
+                  clipDuration: conf.duration,
+                  trimStart: conf.trimStart || 0,
+                  videoCurrentTime: videoEl.currentTime,
+                  videoEnded: videoEl.ended,
+                });
 
                 const shouldUseExportFallbackSeek =
                   _isExporting &&
                   hasExportPlayFailure &&
                   videoEl.paused &&
                   !isVideoSeeking &&
+                  !shouldHoldVideoAtClipEnd &&
                   Math.abs(videoEl.currentTime - targetTime) > 0.04;
                 if (shouldUseExportFallbackSeek) {
                   const nowMs = Date.now();
@@ -734,7 +737,7 @@ const TurtleVideo: React.FC = () => {
                 // 大きなズレがあれば補正（ended不要時のみ）
                 if (
                   !isVideoSeeking &&
-                  !isEndedNearEnd &&
+                  !shouldHoldVideoAtClipEnd &&
                   !hasExportPlayFailure &&
                   Math.abs(videoEl.currentTime - targetTime) > syncThreshold
                 ) {
@@ -747,7 +750,12 @@ const TurtleVideo: React.FC = () => {
                 // paused→バッファ停滞→readyState上がらず のデッドロックが発生する。
                 // ただし ended 状態のビデオへの play() は position 0 への
                 // シークを発動するため、終端付近では抑止する。
-                if (videoEl.paused && videoEl.readyState >= 1 && !isEndedNearEnd && !hasExportPlayFailure) {
+                if (
+                  videoEl.paused &&
+                  videoEl.readyState >= 1 &&
+                  !shouldHoldVideoAtClipEnd &&
+                  !hasExportPlayFailure
+                ) {
                   videoEl.play().then(() => {
                     if (_isExporting) {
                       delete exportPlayFailedRef.current[id];

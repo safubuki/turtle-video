@@ -1276,3 +1276,31 @@
 - **注意**:
   - この workaround は iOS Safari 限定で適用し、Android / PC の既存サムネイル経路には波及させない
   - offscreen 配置した video はサムネイル確定後すぐに `pause()` と DOM 解除を行い、不要なデコーダ保持を避ける
+
+### 13-66. 動画クリップ終端の `ended -> play()` 巻き戻りは途中クリップでもガードする
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **問題**:
+  - 動画の直後に画像が続くタイムラインで、動画要素がクリップ終端よりわずかに先に `ended` になると、再生ループが `play()` を再実行して `position 0` へ巻き戻すことがある
+  - その直後は `seeking=true` で `drawImage()` がスキップされるため、PC Edge や Android を含む非iOS経路でも「動画 -> 画像」の境界に黒フレームが挟まり得る
+- **対策**:
+  - `shouldHoldVideoFrameAtClipEnd()` で「クリップ残り時間」と「動画 currentTime/ended 状態」を合わせて判定し、タイムライン終端だけでなく各クリップ終端でも最終フレーム保持へ倒す
+  - export fallback seek、通常の同期シーク、`play()` 再始動の全てで同じ helper を参照し、境界条件のずれを防ぐ
+  - helper の pure logic は `src/test/previewPlatform.test.ts` で自動検証する
+- **注意**:
+  - 終端ガードを「タイムライン全体の最後」だけに限定すると、途中クリップの切り替わりで同種の黒フレームが再発する
+  - クリップ終端ガードは動画の自然終了そのものを止めるのではなく、終端直前の再始動だけを抑止する
+
+### 13-67. `OfflineAudioContext` の事前音声プリレンダリングは iOS Safari 専用に閉じる
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/hooks/export-strategies/exportStrategyResolver.ts`, `src/test/exportStrategyResolver.test.ts`
+- **問題**:
+  - Safari 向けの音声プリレンダリングを非iOSにも広げると、PC/Android のエクスポートが「先に音声準備、その後映像開始」の待機型フローへ変わり、既存の体感挙動を壊しやすい
+  - 分離方針が曖昧なままだと、Safari 向け回避策が Edge / Android の標準経路へ混入する
+- **対策**:
+  - `shouldUseOfflineAudioPreRender()` で `OfflineAudioContext` の先行実行条件を `isIosSafari && hasAudioSources` に限定する
+  - PC/Android は従来どおり TrackProcessor / ScriptProcessor のリアルタイム音声キャプチャを優先し、エクスポート再生ループを早く開始する
+  - resolver の pure logic は `src/test/exportStrategyResolver.test.ts` で自動検証する
+- **注意**:
+  - Safari のために追加した「事前音声処理」は resolver で隔離し、`useExport.ts` に無条件で広げない
+  - 体感フローの変更もデグレとして扱い、PC/Android の既定経路は明示的に守る
