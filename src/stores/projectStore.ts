@@ -91,6 +91,14 @@ interface ProjectState {
   clearAutoSaveError: () => void;
 }
 
+let projectSaveQueue: Promise<void> = Promise.resolve();
+
+function enqueueProjectSave<T>(task: () => Promise<T>): Promise<T> {
+  const run = projectSaveQueue.catch(() => undefined).then(task);
+  projectSaveQueue = run.then(() => undefined, () => undefined);
+  return run;
+}
+
 async function serializeMediaItem(item: MediaItem): Promise<SerializedMediaItem> {
   const fileData = await fileToArrayBuffer(item.file);
   return {
@@ -378,27 +386,30 @@ export const useProjectStore = create<ProjectState>()(
         });
 
         try {
-          const serializedMediaItems = await Promise.all(mediaItems.map(serializeMediaItem));
-          const serializedBgm = bgm ? await serializeAudioTrack(bgm) : null;
-          const serializedNarrations = await Promise.all(narrations.map(serializeNarrationClip));
-          const serializedCaptions = captions.map(serializeCaption);
+          const projectData = await enqueueProjectSave(async () => {
+            const serializedMediaItems = await Promise.all(mediaItems.map(serializeMediaItem));
+            const serializedBgm = bgm ? await serializeAudioTrack(bgm) : null;
+            const serializedNarrations = await Promise.all(narrations.map(serializeNarrationClip));
+            const serializedCaptions = captions.map(serializeCaption);
 
-          const projectData: ProjectData = {
-            slot: 'manual',
-            savedAt: new Date().toISOString(),
-            version: versionData.version,
-            mediaItems: serializedMediaItems,
-            isClipsLocked,
-            bgm: serializedBgm,
-            isBgmLocked,
-            narrations: serializedNarrations,
-            isNarrationLocked,
-            captions: serializedCaptions,
-            captionSettings,
-            isCaptionsLocked,
-          };
+            const nextProjectData: ProjectData = {
+              slot: 'manual',
+              savedAt: new Date().toISOString(),
+              version: versionData.version,
+              mediaItems: serializedMediaItems,
+              isClipsLocked,
+              bgm: serializedBgm,
+              isBgmLocked,
+              narrations: serializedNarrations,
+              isNarrationLocked,
+              captions: serializedCaptions,
+              captionSettings,
+              isCaptionsLocked,
+            };
 
-          await saveProject(projectData);
+            await saveProject(nextProjectData);
+            return nextProjectData;
+          });
 
           useLogStore.getState().info('SYSTEM', '手動保存完了', { savedAt: projectData.savedAt });
           set({
@@ -437,27 +448,30 @@ export const useProjectStore = create<ProjectState>()(
         });
 
         try {
-          const serializedMediaItems = await Promise.all(mediaItems.map(serializeMediaItem));
-          const serializedBgm = bgm ? await serializeAudioTrack(bgm) : null;
-          const serializedNarrations = await Promise.all(narrations.map(serializeNarrationClip));
-          const serializedCaptions = captions.map(serializeCaption);
+          const projectData = await enqueueProjectSave(async () => {
+            const serializedMediaItems = await Promise.all(mediaItems.map(serializeMediaItem));
+            const serializedBgm = bgm ? await serializeAudioTrack(bgm) : null;
+            const serializedNarrations = await Promise.all(narrations.map(serializeNarrationClip));
+            const serializedCaptions = captions.map(serializeCaption);
 
-          const projectData: ProjectData = {
-            slot: 'auto',
-            savedAt: new Date().toISOString(),
-            version: versionData.version,
-            mediaItems: serializedMediaItems,
-            isClipsLocked,
-            bgm: serializedBgm,
-            isBgmLocked,
-            narrations: serializedNarrations,
-            isNarrationLocked,
-            captions: serializedCaptions,
-            captionSettings,
-            isCaptionsLocked,
-          };
+            const nextProjectData: ProjectData = {
+              slot: 'auto',
+              savedAt: new Date().toISOString(),
+              version: versionData.version,
+              mediaItems: serializedMediaItems,
+              isClipsLocked,
+              bgm: serializedBgm,
+              isBgmLocked,
+              narrations: serializedNarrations,
+              isNarrationLocked,
+              captions: serializedCaptions,
+              captionSettings,
+              isCaptionsLocked,
+            };
 
-          await saveProject(projectData);
+            await saveProject(nextProjectData);
+            return nextProjectData;
+          });
           useLogStore.getState().debug('SYSTEM', '自動保存完了', { savedAt: projectData.savedAt });
           set({ lastAutoSave: projectData.savedAt, autoSaveError: null });
         } catch (error) {

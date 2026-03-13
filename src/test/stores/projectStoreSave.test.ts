@@ -40,6 +40,19 @@ const defaultCaptionSettings: CaptionSettings = {
   bulkFadeOutDuration: 0.5,
 };
 
+function createCaption(id = 'caption-1') {
+  return {
+    id,
+    text: 'sample',
+    startTime: 0,
+    endTime: 1,
+    fadeIn: false,
+    fadeOut: false,
+    fadeInDuration: 0.5,
+    fadeOutDuration: 0.5,
+  };
+}
+
 describe('projectStore save behavior', () => {
   beforeEach(() => {
     mocks.saveProject.mockReset();
@@ -131,5 +144,59 @@ describe('projectStore save behavior', () => {
     expect(mocks.deleteProject).toHaveBeenCalledWith('auto');
     expect(useProjectStore.getState().lastAutoSave).toBeNull();
     expect(useProjectStore.getState().lastManualSave).toBe('2026-02-17T01:00:00.000Z');
+  });
+  it('自動保存が進行中でも手動保存は直列化され、復帰直後の競合で失敗しない', async () => {
+    const captions = [createCaption()];
+    let resolveAutoSave: (() => void) = () => {
+      throw new Error('auto save resolver is not ready');
+    };
+
+    mocks.saveProject.mockImplementation((data: { slot: 'auto' | 'manual' }) => {
+      if (data.slot === 'auto') {
+        return new Promise<void>((resolve) => {
+          resolveAutoSave = resolve;
+        });
+      }
+      return Promise.resolve();
+    });
+
+    const autoSavePromise = useProjectStore.getState().saveProjectAuto(
+      [],
+      false,
+      null,
+      false,
+      [],
+      false,
+      captions,
+      defaultCaptionSettings,
+      false,
+    );
+
+    await vi.waitFor(() => {
+      expect(mocks.saveProject).toHaveBeenCalledTimes(1);
+    });
+
+    const manualSavePromise = useProjectStore.getState().saveProjectManual(
+      [],
+      false,
+      null,
+      false,
+      [],
+      false,
+      captions,
+      defaultCaptionSettings,
+      false,
+    );
+
+    expect(mocks.saveProject.mock.calls[0][0].slot).toBe('auto');
+
+    resolveAutoSave();
+
+    await autoSavePromise;
+    await manualSavePromise;
+
+    expect(mocks.saveProject).toHaveBeenCalledTimes(2);
+    expect(mocks.saveProject.mock.calls[1][0].slot).toBe('manual');
+    expect(useProjectStore.getState().lastManualSave).not.toBeNull();
   });
 });
