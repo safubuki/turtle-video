@@ -3971,57 +3971,17 @@ const TurtleVideo: React.FC = () => {
         startTimeRef.current = Date.now() - playbackTime * 1000;
         isPlayingRef.current = true;
 
-        // アクティブなビデオを特定して再生開始
-        let accTime = 0;
-        for (const item of mediaItemsRef.current) {
-          if (playbackTime >= accTime && playbackTime < accTime + item.duration) {
-            if (item.type === 'video') {
-              const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
-              if (videoEl) {
-                const localTime = playbackTime - accTime;
-                const targetTime = (item.trimStart || 0) + localTime;
+        // iOS WebAudio モード判定: startEngine と同じパターンで、
+        // BGM が WebAudio ノード済みの場合にビデオの先行 play() をスキップする。
+        // iOS Safari はビデオの play() と BGM の play() が競合して
+        // シングルメディア制約により BGM が無音化するケースがある。
+        const iosWebAudioMode = previewPlatformPolicy.muteNativeMediaWhenAudioRouted
+          && sourceNodesRef.current['bgm'];
+        const shouldPrimeActiveVideo = !iosWebAudioMode;
 
-                // 位置を正確に設定
-                if (Math.abs(videoEl.currentTime - targetTime) > 0.05) {
-                  videoEl.currentTime = targetTime;
-                }
-                activeVideoIdRef.current = item.id;
-
-                // 準備完了なら即再生、そうでなければ待機
-                if (videoEl.readyState >= 2 && !videoEl.seeking) {
-                  videoEl.play().catch(() => { });
-                } else {
-                  const playWhenReady = () => {
-                    if (isPlayingRef.current && videoEl.paused) {
-                      videoEl.play().catch(() => { });
-                    }
-                  };
-                  // canplay (readyState >= 3) を使用。canplaythrough は長い動画で
-                  // 発火しない場合があるため。
-                  videoEl.addEventListener('canplay', playWhenReady, { once: true });
-                  playbackTimeoutRef.current = setTimeout(() => {
-                    playbackTimeoutRef.current = null;
-                    // readyState >= 1 でplay()を許可（ブラウザがバッファリングを開始する）
-                    if (isPlayingRef.current && videoEl.paused && videoEl.readyState >= 1) {
-                      videoEl.play().catch(() => { });
-                    }
-                  }, 1000);
-                }
-              }
-            } else {
-              activeVideoIdRef.current = null;
-            }
-            break;
-          }
-          accTime += item.duration;
-        }
-
-        // 非アクティブなビデオをリセット
-        resetInactiveVideos();
-
-        // iOS WebAudio モード: シーク復帰時に BGM/ナレーションの play() を
-        // 明示的に呼ぶ。processAudioTrack に任せると iOS Safari の play() が
-        // 不安定に reject され無音化する。PC/Android は影響なし（条件で除外）。
+        // iOS WebAudio モード: BGM/ナレーションの play() をビデオより先に呼ぶ。
+        // ビデオの play() はレンダーループに委ねることで、iOS Safari の
+        // シングルメディア競合による BGM 無音化を防ぐ。
         if (previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
           // WebAudio ノードを準備（まだ作成されていない場合に備える）
           preparePreviewAudioNodesForTime(playbackTime);
@@ -4065,6 +4025,58 @@ const TurtleVideo: React.FC = () => {
             }
           }
         }
+
+        // アクティブなビデオを特定して再生開始
+        let accTime = 0;
+        for (const item of mediaItemsRef.current) {
+          if (playbackTime >= accTime && playbackTime < accTime + item.duration) {
+            if (item.type === 'video') {
+              const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
+              if (videoEl) {
+                const localTime = playbackTime - accTime;
+                const targetTime = (item.trimStart || 0) + localTime;
+
+                // 位置を正確に設定
+                if (Math.abs(videoEl.currentTime - targetTime) > 0.05) {
+                  videoEl.currentTime = targetTime;
+                }
+                activeVideoIdRef.current = item.id;
+
+                // iOS WebAudio モードではビデオの先行 play() をスキップし、
+                // レンダーループ内で BGM と同時に開始させる（startEngine と同じ方式）。
+                if (shouldPrimeActiveVideo) {
+                  // 準備完了なら即再生、そうでなければ待機
+                  if (videoEl.readyState >= 2 && !videoEl.seeking) {
+                    videoEl.play().catch(() => { });
+                  } else {
+                    const playWhenReady = () => {
+                      if (isPlayingRef.current && videoEl.paused) {
+                        videoEl.play().catch(() => { });
+                      }
+                    };
+                    // canplay (readyState >= 3) を使用。canplaythrough は長い動画で
+                    // 発火しない場合があるため。
+                    videoEl.addEventListener('canplay', playWhenReady, { once: true });
+                    playbackTimeoutRef.current = setTimeout(() => {
+                      playbackTimeoutRef.current = null;
+                      // readyState >= 1 でplay()を許可（ブラウザがバッファリングを開始する）
+                      if (isPlayingRef.current && videoEl.paused && videoEl.readyState >= 1) {
+                        videoEl.play().catch(() => { });
+                      }
+                    }, 1000);
+                  }
+                }
+              }
+            } else {
+              activeVideoIdRef.current = null;
+            }
+            break;
+          }
+          accTime += item.duration;
+        }
+
+        // 非アクティブなビデオをリセット
+        resetInactiveVideos();
 
         // ループ再開
         const currentLoopId = loopIdRef.current;
