@@ -96,11 +96,22 @@ const applyPreviewAudioOutputState = (
         isExporting: options.isExporting,
       });
 
-  mediaEl.defaultMuted = shouldMuteNative;
-  mediaEl.muted = shouldMuteNative;
-  mediaEl.volume = outputMode === 'native'
-    ? Math.max(0, Math.min(1, options.desiredVolume))
-    : 1;
+  if (shouldMuteNative && options.hasAudioNode) {
+    // WebAudio が createMediaElementSource で要素の音声を取得済みの場合、
+    // muted=true ではなく volume=0 でネイティブ出力を無音化する。
+    // iOS Safari は muted=true の要素に対して音声デコード自体をスキップする
+    // 最適化を行うことがあり、その場合 WebAudio グラフにも無音データしか流れない。
+    // volume=0 であればデコードは維持されつつネイティブ出力のみが無音化される。
+    mediaEl.defaultMuted = false;
+    mediaEl.muted = false;
+    mediaEl.volume = 0;
+  } else {
+    mediaEl.defaultMuted = shouldMuteNative;
+    mediaEl.muted = shouldMuteNative;
+    mediaEl.volume = outputMode === 'native'
+      ? Math.max(0, Math.min(1, options.desiredVolume))
+      : 1;
+  }
 
   return outputMode;
 };
@@ -3272,10 +3283,11 @@ const TurtleVideo: React.FC = () => {
           }
         }
 
-        const previewUsesWebAudio = preparePreviewAudioNodesForTime(fromTime);
-        if (previewUsesWebAudio) {
-          await refreshPreviewAudioRoute();
-        }
+        // iOS Safari: AudioContext の suspend/resume による音声ルート再初期化は
+        // WebAudio ノード作成前に行う。ノード作成後に suspend/resume すると
+        // MediaElementSourceNode と media element の接続が不安定化し無音になる。
+        await refreshPreviewAudioRoute();
+        preparePreviewAudioNodesForTime(fromTime);
 
         isPlayingRef.current = true;
         play();
