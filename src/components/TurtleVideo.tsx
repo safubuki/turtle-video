@@ -283,6 +283,7 @@ const TurtleVideo: React.FC = () => {
   const pendingPausedSeekWaitRef = useRef<{ cleanup: () => void } | null>(null);
   const detachGlobalSeekEndListenersRef = useRef<(() => void) | null>(null);
   const handleSeekEndCallbackRef = useRef<(() => void) | null>(null);
+  const renderPausedPreviewFrameAtTimeRef = useRef<(targetTime: number) => void>(() => { });
   const cancelSeekPlaybackPrepareRef = useRef<(() => void) | null>(null);
   const isSeekPlaybackPreparingRef = useRef(false);
   const endFinalizedRef = useRef(false); // 終端ファイナライズ済みフラグ（遅延renderFrame競合防止）
@@ -1535,13 +1536,23 @@ const TurtleVideo: React.FC = () => {
         audioResumeWaitFramesRef.current = Math.max(audioResumeWaitFramesRef.current, 1);
       }
 
-      if (needsResyncAfterVisibilityRef.current && shouldKeepRunning) {
+      const latestTime = Math.max(0, Math.min(currentTimeRef.current, totalDurationRef.current));
+
+      if (!shouldKeepRunning) {
+        cancelPendingSeekPlaybackPrepare();
+        cancelPendingPausedSeekWait();
+        needsResyncAfterVisibilityRef.current = false;
+      } else if (needsResyncAfterVisibilityRef.current) {
         resyncMediaElementsToCurrentTime();
         needsResyncAfterVisibilityRef.current = false;
       }
 
       requestAnimationFrame(() => {
-        renderFrame(currentTimeRef.current, shouldKeepRunning, isProcessing);
+        if (!shouldKeepRunning) {
+          renderPausedPreviewFrameAtTimeRef.current(latestTime);
+          return;
+        }
+        renderFrame(latestTime, shouldKeepRunning, isProcessing);
       });
 
       // 実行中（再生/エクスポート）に load() すると再生状態を壊しやすいので、停止中のみ再読み込みする
@@ -1564,6 +1575,8 @@ const TurtleVideo: React.FC = () => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
         hiddenStartedAtRef.current = Date.now();
+        cancelPendingSeekPlaybackPrepare();
+        cancelPendingPausedSeekWait();
         if (isPlayingRef.current || isProcessing) {
           needsResyncAfterVisibilityRef.current = true;
           pauseAllMediaElements();
@@ -1602,7 +1615,7 @@ const TurtleVideo: React.FC = () => {
       window.removeEventListener('focus', handleWindowFocus);
       window.removeEventListener('pageshow', handlePageShow);
     };
-  }, [renderFrame, logInfo, logWarn, isProcessing, pause, previewPlatformPolicy]);
+  }, [renderFrame, logInfo, logWarn, isProcessing, pause, previewPlatformPolicy, cancelPendingPausedSeekWait, cancelPendingSeekPlaybackPrepare]);
 
   // --- Audio Context ---
   const getAudioContext = useCallback(() => {
@@ -3573,6 +3586,16 @@ const TurtleVideo: React.FC = () => {
 
     cancelPendingPausedSeekWait();
 
+    if (activeVideoEl?.readyState === 0 && !activeVideoEl.error) {
+      try {
+        activeVideoEl.load();
+      } catch {
+        // ignore
+      }
+    }
+
+    syncVideoToTime(clampedTime, { force: true });
+
     if (activeVideoEl && (activeVideoEl.seeking || activeVideoEl.readyState < 2)) {
       const settleGeneration = seekSettleGenerationRef.current;
 
@@ -3616,6 +3639,8 @@ const TurtleVideo: React.FC = () => {
 
     drawSettledFrame(clampedTime);
   }, [cancelPendingPausedSeekWait, renderFrame, syncVideoToTime]);
+
+  renderPausedPreviewFrameAtTimeRef.current = renderPausedPreviewFrameAtTime;
 
   const handleSeekEnd = useCallback(() => {
     // pointerup/mouseup/touchend が重複発火するため、

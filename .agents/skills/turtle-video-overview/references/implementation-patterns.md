@@ -1331,3 +1331,14 @@
 - **注意**:
   - これは Safari 専用分岐ではなく「動画コンテナ音声抽出フォールバック」の共有処理として扱う
   - `MediaStreamDestination` への接続だけで無音化を防ごうとすると、PC / Android / iOS いずれでも抽出失敗を招く可能性がある
+### 13-70. 可視復帰では paused preview の待機状態を clear してから settled frame を描く
+- **ファイル**: `src/components/TurtleVideo.tsx`
+- **背景**:
+  - タブ非アクティブ化や `visibilitychange` 復帰の前後で、seek 再開待ちや paused frame wait が残ると、古い `seeked` / `canplay` callback が後から発火して黒フレームや不安定描画を起こしやすい
+  - 通常再生中でない復帰では `renderFrame()` を即時実行すると、まだ `readyState < 2` / `seeking` の動画を掴んでしまう
+- **対策**:
+  - hidden 入りでは `cancelPendingSeekPlaybackPrepare()` と `cancelPendingPausedSeekWait()` を先に流し、stale な preview callback を残さない
+  - visible 復帰で停止中なら `renderFrame()` 直描きではなく `renderPausedPreviewFrameAtTime()` を使い、`seeked` / `loadeddata` / `canplay` 完了後に paused frame を再描画する
+  - `renderPausedPreviewFrameAtTime()` 側でも `readyState === 0` の動画には `load()` を掛け直してから `syncVideoToTime(..., { force: true })` し、タブ復帰直後の黒画面を避ける
+- **注意**:
+  - この修正は preview visibility 復帰に閉じ、export strategy や `useExport.ts` には波及させない
