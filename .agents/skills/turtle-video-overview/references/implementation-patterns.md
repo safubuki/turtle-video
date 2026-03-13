@@ -1318,3 +1318,16 @@
 - **注意**:
   - Android / PC / iOS の platform policy 分岐には混ぜず、停止後の paused preview 初期化ロジックとして `TurtleVideo.tsx` 側で閉じる
   - 停止直後の 0 秒描画は「黒クリア優先」ではなく「先頭動画フレーム準備優先」で扱わないと、最初の動画だけ黒いまま再生されやすい
+
+### 13-69. 動画コンテナ音声のフォールバック抽出は無音 gain 経由で real destination へ接続する
+
+- **ファイル**: `src/hooks/useExport.ts`
+- **問題**:
+  - `decodeAudioData` が動画コンテナ音声の抽出に失敗したときは `extractAudioViaVideoElement()` で `ScriptProcessorNode` にフォールバックする
+  - このとき `ScriptProcessorNode` を `MediaStreamDestination` だけへつなぐと、環境によって `onaudioprocess` が発火せず、抽出結果が空になって書き出し音声が無音化しやすい
+- **対策**:
+  - フォールバック抽出では `ScriptProcessorNode -> silent GainNode -> AudioContext.destination` の経路を使い、実デスティネーション到達でコールバック発火を保証する
+  - `GainNode.gain = 0` と `outputBuffer` の無音書き込みを併用し、スピーカーへの漏れを防ぎつつ PCM 抽出だけを維持する
+- **注意**:
+  - これは Safari 専用分岐ではなく「動画コンテナ音声抽出フォールバック」の共有処理として扱う
+  - `MediaStreamDestination` への接続だけで無音化を防ごうとすると、PC / Android / iOS いずれでも抽出失敗を招く可能性がある

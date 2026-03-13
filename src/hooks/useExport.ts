@@ -95,7 +95,7 @@ async function extractAudioViaVideoElement(
 
     let sourceNode: MediaElementAudioSourceNode | null = null;
     let processor: ScriptProcessorNode | null = null;
-    let captureSink: MediaStreamAudioDestinationNode | null = null;
+    let silentSinkGain: GainNode | null = null;
     let blobUrl: string | null = null;
     const collectedL: Float32Array[] = [];
     const collectedR: Float32Array[] = [];
@@ -109,8 +109,8 @@ async function extractAudioViaVideoElement(
       if (sourceNode) {
         try { sourceNode.disconnect(); } catch { /* ignore */ }
       }
-      if (captureSink) {
-        try { captureSink.disconnect(); } catch { /* ignore */ }
+      if (silentSinkGain) {
+        try { silentSinkGain.disconnect(); } catch { /* ignore */ }
       }
       video.pause();
       video.removeAttribute('src');
@@ -191,10 +191,14 @@ async function extractAudioViaVideoElement(
       // Web Audio ノードの構築
       sourceNode = mainCtx.createMediaElementSource(video);
       processor = mainCtx.createScriptProcessor(4096, 2, 2);
-      captureSink = mainCtx.createMediaStreamDestination();
+      silentSinkGain = mainCtx.createGain();
 
       sourceNode.connect(processor);
-      processor.connect(captureSink);
+      // ScriptProcessor は実デスティネーションにつながっていないと
+      // onaudioprocess が発火しない環境があるため、無音 gain 経由で destination へつなぐ。
+      processor.connect(silentSinkGain);
+      silentSinkGain.gain.setValueAtTime(0, mainCtx.currentTime);
+      silentSinkGain.connect(mainCtx.destination);
 
       log.info('RENDER', '[EXTRACT] Web Audio パイプライン構築完了');
 
