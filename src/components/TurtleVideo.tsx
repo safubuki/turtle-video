@@ -1081,6 +1081,13 @@ const TurtleVideo: React.FC = () => {
           let hasAudioNode = !!sourceNodesRef.current[trackId];
 
           if (track && element) {
+            // iOS WebAudio モード: createMediaElementSource 済みの BGM 要素に対して
+            // pause()/play() サイクルを避ける。iOS Safari は同サイクルで play() を
+            // 不安定に reject し、途切れの原因になる。代わりに GainNode のみで制御する。
+            const avoidPausePlay = hasAudioNode
+              && previewPlatformPolicy.muteNativeMediaWhenAudioRouted
+              && !_isExporting;
+
             if (isActivePlaying) {
               if (time < track.delay) {
                 applyPreviewAudioOutputState(previewPlatformPolicy, element, {
@@ -1092,7 +1099,7 @@ const TurtleVideo: React.FC = () => {
                 if (gainNode && audioCtxRef.current) {
                   gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.01);
                 }
-                if (!element.paused) element.pause();
+                if (!avoidPausePlay && !element.paused) element.pause();
               } else {
                 let vol = track.volume;
                 const trackTime = time - track.delay + track.startPoint;
@@ -1100,17 +1107,29 @@ const TurtleVideo: React.FC = () => {
 
                 if (trackTime <= track.duration) {
                   // シーク中は再生を開始しない（正確な位置からの再生を保証）
-                  const needsSeek = Math.abs(element.currentTime - trackTime) > 0.5;
+                  const needsSeek = Math.abs(element.currentTime - trackTime) > (avoidPausePlay ? 2.0 : 0.5);
 
                   if (needsSeek) {
-                    // シーク実行前に一時停止して位置を同期
-                    if (!element.paused) {
-                      element.pause();
+                    if (avoidPausePlay) {
+                      // iOS WebAudio: pause() せず currentTime のみ設定。
+                      // pause → play サイクルを回避する。
+                      element.currentTime = trackTime;
+                    } else {
+                      // シーク実行前に一時停止して位置を同期
+                      if (!element.paused) {
+                        element.pause();
+                      }
+                      element.currentTime = trackTime;
                     }
-                    element.currentTime = trackTime;
                   }
 
-                  if (holdAudioThisFrame) {
+                  if (avoidPausePlay) {
+                    // iOS WebAudio: pause() は呼ばない。
+                    // element が paused のままなら play() を 1 回だけ試みる。
+                    if (element.paused && !element.seeking && element.readyState >= 2) {
+                      element.play().catch(() => { });
+                    }
+                  } else if (holdAudioThisFrame) {
                     // 可視復帰直後の1フレームだけ音声再開を待機して、
                     // 映像側の再開タイミングを先行させる。
                     if (!element.paused) {
@@ -1133,7 +1152,7 @@ const TurtleVideo: React.FC = () => {
                   }
 
                   // シーク中は音量を0にして音飛びを防ぐ
-                  if (element.seeking || holdAudioThisFrame) {
+                  if (element.seeking || (!avoidPausePlay && holdAudioThisFrame)) {
                     vol = 0;
                   }
 
@@ -1177,7 +1196,7 @@ const TurtleVideo: React.FC = () => {
                   if (gainNode && audioCtxRef.current) {
                     gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.1);
                   }
-                  if (!element.paused) element.pause();
+                  if (!avoidPausePlay && !element.paused) element.pause();
                 }
               }
             } else {
@@ -3283,10 +3302,12 @@ const TurtleVideo: React.FC = () => {
           }
         }
 
-        // iOS Safari: AudioContext の suspend/resume による音声ルート再初期化は
-        // WebAudio ノード作成前に行う。ノード作成後に suspend/resume すると
-        // MediaElementSourceNode と media element の接続が不安定化し無音になる。
-        await refreshPreviewAudioRoute();
+        // iOS Safari の AudioContext 再初期化 (suspend/resume) は startEngine 冒頭で
+        // 既に実行済み。ここで再度 refreshPreviewAudioRoute() を呼ぶと、
+        // ① 2回目の suspend/resume で音声経路が不安定化する
+        // ② audioResumeWaitFramesRef=1 → holdAudioThisFrame=true で
+        //    ループ初回フレームで全音源が pause() される
+        // いずれも再生中の途切れの原因になるため、ノード作成のみ行う。
         preparePreviewAudioNodesForTime(fromTime);
 
         isPlayingRef.current = true;
@@ -3500,8 +3521,12 @@ const TurtleVideo: React.FC = () => {
         setCurrentTime(fromTime);
         currentTimeRef.current = fromTime;
 
-        // 現在のアクティブなビデオを特定
-        const shouldPrimeActiveVideo = !preparePreviewAudioNodesForTime(fromTime);
+        // preparePreviewAudioNodesForTime は上で既に実行済み。
+        // iOS WebAudio モードでは shouldPrimeActiveVideo = false で、
+        // 動画の先行 play() をスキップする（BGM と同時に renderFrame で開始させる）。
+        const iosWebAudioMode = previewPlatformPolicy.muteNativeMediaWhenAudioRouted
+          && sourceNodesRef.current['bgm'];
+        const shouldPrimeActiveVideo = !iosWebAudioMode;
         let t = 0;
         for (const item of mediaItemsRef.current) {
           if (fromTime >= t && fromTime < t + item.duration) {
@@ -3521,6 +3546,23 @@ const TurtleVideo: React.FC = () => {
             break;
           }
           t += item.duration;
+        }
+
+        // iOS WebAudio モード: BGM の play() を startEngine 内で明示的に呼ぶ。
+        // renderFrame の processAudioTrack に任せると、iOS Safari の
+        // play() が不安定に reject され pause/play サイクルで途切れが発生する。
+        if (iosWebAudioMode) {
+          const currentBgm = bgmRef.current;
+          if (currentBgm) {
+            const bgmEl = mediaElementsRef.current.bgm as HTMLAudioElement | undefined;
+            if (bgmEl) {
+              const trackTime = Math.max(0, fromTime - currentBgm.delay + currentBgm.startPoint);
+              if (fromTime >= currentBgm.delay && trackTime <= currentBgm.duration) {
+                bgmEl.currentTime = trackTime;
+                bgmEl.play().catch(() => { });
+              }
+            }
+          }
         }
 
         // 非アクティブビデオをtrimStart位置にリセットし、
@@ -3584,7 +3626,7 @@ const TurtleVideo: React.FC = () => {
         loop(isExportMode, myLoopId);
       }
     },
-    [getAudioContext, stopAll, setProcessing, setLoading, play, clearExport, configureAudioRouting, ensureVideoMetadataReady, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError, logWarn, logInfo, logDebug, previewPlatformPolicy, preparePreviewAudioNodesForTime, refreshPreviewAudioRoute]
+    [getAudioContext, stopAll, setProcessing, setLoading, play, clearExport, configureAudioRouting, ensureVideoMetadataReady, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError, logWarn, logInfo, logDebug, previewPlatformPolicy, preparePreviewAudioNodesForTime]
   );
 
   // --- シークバー操作ハンドラ ---
