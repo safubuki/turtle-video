@@ -4434,8 +4434,8 @@ const TurtleVideo: React.FC = () => {
               onUpdateMediaScale={withPause(handleUpdateMediaScale)}
               onUpdateMediaPosition={withPause(handleUpdateMediaPosition)}
               onResetMediaSetting={withPause(handleResetMediaSetting)}
-              onUpdateMediaVolume={withPause(updateVolume)}
-              onToggleMediaMute={withPause(toggleMute)}
+              onUpdateMediaVolume={updateVolume}
+              onToggleMediaMute={toggleMute}
               onToggleMediaFadeIn={withPause(toggleFadeIn)}
               onToggleMediaFadeOut={withPause(toggleFadeOut)}
               onUpdateFadeInDuration={withPause(updateFadeInDuration)}
@@ -4453,7 +4453,7 @@ const TurtleVideo: React.FC = () => {
               onRemoveBgm={withPause(removeBgm)}
               onUpdateStartPoint={withPause(handleUpdateBgmStart)}
               onUpdateDelay={withPause(handleUpdateBgmDelay)}
-              onUpdateVolume={withPause(handleUpdateBgmVolume)}
+              onUpdateVolume={handleUpdateBgmVolume}
               onToggleFadeIn={withPause(toggleBgmFadeIn)}
               onToggleFadeOut={withPause(toggleBgmFadeOut)}
               onUpdateFadeInDuration={withPause(updateBgmFadeInDuration)}
@@ -4478,8 +4478,8 @@ const TurtleVideo: React.FC = () => {
               onSaveNarration={withPause(handleSaveNarration)}
               onUpdateStartTime={withPause(handleUpdateNarrationStart)}
               onSetStartTimeToCurrent={withPause(handleSetNarrationStartToCurrent)}
-              onUpdateVolume={withPause(handleUpdateNarrationVolume)}
-              onToggleMute={withPause(handleToggleNarrationMute)}
+              onUpdateVolume={handleUpdateNarrationVolume}
+              onToggleMute={handleToggleNarrationMute}
               onUpdateTrimStart={withPause(handleUpdateNarrationTrimStart)}
               onUpdateTrimEnd={withPause(handleUpdateNarrationTrimEnd)}
               formatTime={formatTime}
