@@ -3489,6 +3489,7 @@ const TurtleVideo: React.FC = () => {
         currentTimeRef.current = fromTime;
 
         // 現在のアクティブなビデオを特定
+        const shouldPrimeActiveVideo = !preparePreviewAudioNodesForTime(fromTime);
         let t = 0;
         for (const item of mediaItemsRef.current) {
           if (fromTime >= t && fromTime < t + item.duration) {
@@ -3500,7 +3501,9 @@ const TurtleVideo: React.FC = () => {
                 videoEl.currentTime = targetTime;
                 activeVideoIdRef.current = item.id;
                 // 再生を開始
-                videoEl.play().catch(() => { });
+                if (shouldPrimeActiveVideo) {
+                  videoEl.play().catch(() => { });
+                }
               }
             }
             break;
