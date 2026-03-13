@@ -4006,6 +4006,53 @@ const TurtleVideo: React.FC = () => {
         // 非アクティブなビデオをリセット
         resetInactiveVideos();
 
+        // iOS WebAudio モード: シーク復帰時に BGM/ナレーションの play() を
+        // 明示的に呼ぶ。processAudioTrack に任せると iOS Safari の play() が
+        // 不安定に reject され無音化する。PC/Android は影響なし（条件で除外）。
+        if (previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
+          // WebAudio ノードを準備（まだ作成されていない場合に備える）
+          preparePreviewAudioNodesForTime(playbackTime);
+
+          const currentBgm = bgmRef.current;
+          if (currentBgm) {
+            const bgmEl = mediaElementsRef.current.bgm as HTMLAudioElement | undefined;
+            if (bgmEl && sourceNodesRef.current['bgm']) {
+              const trackTime = Math.max(0, playbackTime - currentBgm.delay + currentBgm.startPoint);
+              if (playbackTime >= currentBgm.delay && trackTime <= currentBgm.duration) {
+                if (Math.abs(bgmEl.currentTime - trackTime) > 0.5) {
+                  bgmEl.currentTime = trackTime;
+                }
+                if (bgmEl.paused) {
+                  bgmEl.play().catch(() => { });
+                }
+              }
+            }
+          }
+
+          const currentNarrations = narrationsRef.current;
+          for (const clip of currentNarrations) {
+            if (clip.isMuted || clip.volume <= 0) continue;
+            const trackId = `narration:${clip.id}`;
+            const narEl = mediaElementsRef.current[trackId] as HTMLAudioElement | undefined;
+            if (!narEl || !sourceNodesRef.current[trackId]) continue;
+            const trimStart = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
+            const trimEnd = Number.isFinite(clip.trimEnd)
+              ? Math.max(trimStart, Math.min(clip.duration, clip.trimEnd))
+              : clip.duration;
+            const playableDuration = Math.max(0, trimEnd - trimStart);
+            const clipTime = playbackTime - clip.startTime;
+            if (clipTime >= 0 && clipTime <= playableDuration) {
+              const sourceTime = trimStart + clipTime;
+              if (Math.abs(narEl.currentTime - sourceTime) > 0.5) {
+                narEl.currentTime = sourceTime;
+              }
+              if (narEl.paused) {
+                narEl.play().catch(() => { });
+              }
+            }
+          }
+        }
+
         // ループ再開
         const currentLoopId = loopIdRef.current;
         reqIdRef.current = requestAnimationFrame(() => loop(false, currentLoopId));
