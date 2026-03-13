@@ -909,7 +909,16 @@ const TurtleVideo: React.FC = () => {
           } else {
             if (conf.type === 'video') {
               const videoEl = element as HTMLVideoElement;
-              if (!videoEl.paused) {
+              // iOS WebAudio モード（createMediaElementSource 済み）のビデオは、
+              // render ループ内で pause() しない。iOS Safari は全ての
+              // createMediaElementSource 接続要素が paused になると AudioContext の
+              // 処理を停止し、BGM を含む全音声が無音化するケースがある。
+              // GainNode=0 で無音化し、stopAll 等が通常通り pause() する。
+              const avoidVideoPause = isActivePlaying
+                && !!sourceNodesRef.current[id]
+                && previewPlatformPolicy.muteNativeMediaWhenAudioRouted
+                && !_isExporting;
+              if (!avoidVideoPause && !videoEl.paused) {
                 videoEl.pause();
               }
               applyPreviewAudioOutputState(previewPlatformPolicy, videoEl, {
@@ -3322,6 +3331,21 @@ const TurtleVideo: React.FC = () => {
         //    ループ初回フレームで全音源が pause() される
         // いずれも再生中の途切れの原因になるため、ノード作成のみ行う。
         preparePreviewAudioNodesForTime(fromTime);
+
+        // iOS WebAudio モード: 全ビデオ要素のオーディオノードを事前作成する。
+        // 再生中にクリップが切り替わった際の ensureAudioNodeForElement →
+        // requestPreviewAudioRouteRefresh (suspend/resume) を防ぎ、
+        // BGM への音声経路中断を回避する。
+        if (previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
+          for (const item of mediaItemsRef.current) {
+            if (item.type === 'video' && !sourceNodesRef.current[item.id]) {
+              const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
+              if (videoEl) {
+                ensureAudioNodeForElement(item.id, videoEl);
+              }
+            }
+          }
+        }
 
         isPlayingRef.current = true;
         play();
