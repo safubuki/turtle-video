@@ -1304,3 +1304,17 @@
 - **注意**:
   - Safari のために追加した「事前音声処理」は resolver で隔離し、`useExport.ts` に無条件で広げない
   - 体感フローの変更もデグレとして扱い、PC/Android の既定経路は明示的に守る
+
+### 13-68. Android の停止後 0 秒復帰は `seeked` / `canplay` 待ちで先頭動画フレームを描く
+
+- **ファイル**: `src/components/TurtleVideo.tsx`
+- **問題**:
+  - Android で `動画 -> 画像 -> 動画 -> 画像` のタイムラインを停止して 0 秒へ戻すと、先頭動画を `trimStart` へ戻した直後は `seeking` または `readyState < 2` のままになりやすい
+  - その状態で停止経路が即座に `renderFrame(0, false)` すると、キャンバス黒クリアだけが先に走り、先頭動画フレームが未描画のまま次回再生開始へ持ち越される
+- **対策**:
+  - 停止後の 0 秒描画は `renderPausedPreviewFrameAtTime(0)` に集約し、先頭動画が `seeked` / `loadeddata` / `canplay` を満たすまで paused フレーム描画を待つ
+  - `pendingPausedSeekWaitRef` は単純な `seeked` listener 参照ではなく `cleanup` 関数保持に変え、停止・シーク・再開のどの経路からでも確実に待機解除できるようにする
+  - `handleStop` では seek 世代と pending wait をクリアしてから 0 秒描画へ入れ、古い seek 待ちが先頭フレーム復帰を邪魔しないようにする
+- **注意**:
+  - Android / PC / iOS の platform policy 分岐には混ぜず、停止後の paused preview 初期化ロジックとして `TurtleVideo.tsx` 側で閉じる
+  - 停止直後の 0 秒描画は「黒クリア優先」ではなく「先頭動画フレーム準備優先」で扱わないと、最初の動画だけ黒いまま再生されやすい

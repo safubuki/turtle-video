@@ -280,7 +280,7 @@ const TurtleVideo: React.FC = () => {
 
   const playbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 再生開始待機用タイマー
   const seekSettleGenerationRef = useRef(0);
-  const pendingPausedSeekWaitRef = useRef<{ videoEl: HTMLVideoElement; handler: () => void } | null>(null);
+  const pendingPausedSeekWaitRef = useRef<{ cleanup: () => void } | null>(null);
   const detachGlobalSeekEndListenersRef = useRef<(() => void) | null>(null);
   const handleSeekEndCallbackRef = useRef<(() => void) | null>(null);
   const cancelSeekPlaybackPrepareRef = useRef<(() => void) | null>(null);
@@ -338,7 +338,7 @@ const TurtleVideo: React.FC = () => {
   const cancelPendingPausedSeekWait = useCallback(() => {
     const pendingWait = pendingPausedSeekWaitRef.current;
     if (pendingWait) {
-      pendingWait.videoEl.removeEventListener('seeked', pendingWait.handler);
+      pendingWait.cleanup();
       pendingPausedSeekWaitRef.current = null;
     }
     if (playbackTimeoutRef.current) {
@@ -3543,6 +3543,80 @@ const TurtleVideo: React.FC = () => {
 
   // --- シークバー操作完了ハンドラ ---
   // 目的: シークバーのドラッグ終了時に再生を再開（必要な場合）
+  const renderPausedPreviewFrameAtTime = useCallback((targetTime: number) => {
+    const clampedTime = Math.max(0, Math.min(targetTime, totalDurationRef.current));
+    const drawSettledFrame = (timeToDraw: number) => {
+      syncVideoToTime(timeToDraw, { force: true });
+      renderFrame(timeToDraw, false);
+    };
+
+    let activeVideoEl: HTMLVideoElement | null = null;
+    let accTime = 0;
+    for (const item of mediaItemsRef.current) {
+      if (clampedTime >= accTime && clampedTime < accTime + item.duration) {
+        if (item.type === 'video') {
+          const el = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
+          activeVideoEl = el ?? null;
+        }
+        break;
+      }
+      accTime += item.duration;
+    }
+
+    if (!activeVideoEl && mediaItemsRef.current.length > 0 && clampedTime >= totalDurationRef.current) {
+      const lastItem = mediaItemsRef.current[mediaItemsRef.current.length - 1];
+      if (lastItem.type === 'video') {
+        const el = mediaElementsRef.current[lastItem.id] as HTMLVideoElement | undefined;
+        activeVideoEl = el ?? null;
+      }
+    }
+
+    cancelPendingPausedSeekWait();
+
+    if (activeVideoEl && (activeVideoEl.seeking || activeVideoEl.readyState < 2)) {
+      const settleGeneration = seekSettleGenerationRef.current;
+
+      const drawIfFresh = () => {
+        if (settleGeneration !== seekSettleGenerationRef.current) return;
+        const latestTime = Math.max(0, Math.min(currentTimeRef.current, totalDurationRef.current));
+        drawSettledFrame(latestTime);
+      };
+
+      const cleanupWait = () => {
+        activeVideoEl?.removeEventListener('seeked', onPrepared);
+        activeVideoEl?.removeEventListener('loadeddata', onPrepared);
+        activeVideoEl?.removeEventListener('canplay', onPrepared);
+        if (pendingPausedSeekWaitRef.current?.cleanup === cleanupWait) {
+          pendingPausedSeekWaitRef.current = null;
+        }
+        if (playbackTimeoutRef.current) {
+          clearTimeout(playbackTimeoutRef.current);
+          playbackTimeoutRef.current = null;
+        }
+      };
+
+      const onPrepared = () => {
+        if (activeVideoEl?.seeking) return;
+        if ((activeVideoEl?.readyState ?? 0) < 2) return;
+        cleanupWait();
+        drawIfFresh();
+      };
+
+      pendingPausedSeekWaitRef.current = { cleanup: cleanupWait };
+      activeVideoEl.addEventListener('seeked', onPrepared);
+      activeVideoEl.addEventListener('loadeddata', onPrepared);
+      activeVideoEl.addEventListener('canplay', onPrepared);
+      playbackTimeoutRef.current = setTimeout(() => {
+        cleanupWait();
+        drawIfFresh();
+      }, 500);
+      onPrepared();
+      return;
+    }
+
+    drawSettledFrame(clampedTime);
+  }, [cancelPendingPausedSeekWait, renderFrame, syncVideoToTime]);
+
   const handleSeekEnd = useCallback(() => {
     // pointerup/mouseup/touchend が重複発火するため、
     // シーク中でない再入は無視して待機中の復帰処理を壊さない。
@@ -3777,24 +3851,22 @@ const TurtleVideo: React.FC = () => {
         };
         const onSeeked = () => {
           activeVideoEl?.removeEventListener('seeked', onSeeked);
-          const pendingWait = pendingPausedSeekWaitRef.current;
-          if (pendingWait?.videoEl === activeVideoEl && pendingWait.handler === onSeeked) {
-            pendingPausedSeekWaitRef.current = null;
-          }
+          pendingPausedSeekWaitRef.current = null;
           if (playbackTimeoutRef.current) {
             clearTimeout(playbackTimeoutRef.current);
             playbackTimeoutRef.current = null;
           }
           drawIfFresh();
         };
-        pendingPausedSeekWaitRef.current = { videoEl: activeVideoEl, handler: onSeeked };
+        pendingPausedSeekWaitRef.current = {
+          cleanup: () => {
+            activeVideoEl?.removeEventListener('seeked', onSeeked);
+          },
+        };
         activeVideoEl.addEventListener('seeked', onSeeked, { once: true });
         playbackTimeoutRef.current = setTimeout(() => {
-          const pendingWait = pendingPausedSeekWaitRef.current;
-          if (pendingWait?.videoEl === activeVideoEl && pendingWait.handler === onSeeked) {
-            pendingWait.videoEl.removeEventListener('seeked', onSeeked);
-            pendingPausedSeekWaitRef.current = null;
-          }
+          activeVideoEl?.removeEventListener('seeked', onSeeked);
+          pendingPausedSeekWaitRef.current = null;
           playbackTimeoutRef.current = null;
           drawIfFresh();
         }, 500);
@@ -3840,6 +3912,12 @@ const TurtleVideo: React.FC = () => {
   const handleStop = useCallback(() => {
     stopAll();
     pause();
+    seekSettleGenerationRef.current += 1;
+    cancelPendingSeekPlaybackPrepare();
+    cancelPendingPausedSeekWait();
+    detachGlobalSeekEndListeners();
+    isSeekingRef.current = false;
+    wasPlayingBeforeSeekRef.current = false;
     setExportPreparationStep(null);
     setCurrentTime(0);
     currentTimeRef.current = 0;
@@ -3882,8 +3960,17 @@ const TurtleVideo: React.FC = () => {
 
     // 0秒時点を描画
     // 少し遅延させて確実にシーク反映させる
-    requestAnimationFrame(() => renderFrame(0, false));
-  }, [stopAll, pause, setCurrentTime, clearExport, renderFrame]);
+    renderPausedPreviewFrameAtTime(0);
+  }, [
+    stopAll,
+    pause,
+    setCurrentTime,
+    clearExport,
+    cancelPendingPausedSeekWait,
+    cancelPendingSeekPlaybackPrepare,
+    detachGlobalSeekEndListeners,
+    renderPausedPreviewFrameAtTime,
+  ]);
 
   // --- Helper: 停止付きで関数を実行 ---
   // 目的: BGM/ナレーション追加時など、完全に停止して先頭に戻してから実行したい場合に使用
