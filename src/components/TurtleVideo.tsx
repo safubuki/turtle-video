@@ -909,16 +909,7 @@ const TurtleVideo: React.FC = () => {
           } else {
             if (conf.type === 'video') {
               const videoEl = element as HTMLVideoElement;
-              // iOS WebAudio モード（createMediaElementSource 済み）のビデオは、
-              // render ループ内で pause() しない。iOS Safari は全ての
-              // createMediaElementSource 接続要素が paused になると AudioContext の
-              // 処理を停止し、BGM を含む全音声が無音化するケースがある。
-              // GainNode=0 で無音化し、stopAll 等が通常通り pause() する。
-              const avoidVideoPause = isActivePlaying
-                && !!sourceNodesRef.current[id]
-                && previewPlatformPolicy.muteNativeMediaWhenAudioRouted
-                && !_isExporting;
-              if (!avoidVideoPause && !videoEl.paused) {
+              if (!videoEl.paused) {
                 videoEl.pause();
               }
               applyPreviewAudioOutputState(previewPlatformPolicy, videoEl, {
