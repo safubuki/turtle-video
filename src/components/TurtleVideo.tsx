@@ -422,11 +422,8 @@ const TurtleVideo: React.FC = () => {
       if (item.type === 'video' && item.id !== activeVideoIdRef.current) {
         const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
         if (videoEl) {
-          // iOS WebAudio モード: createMediaElementSource 済みのビデオを
-          // pause() すると AudioContext 上の他音源（BGM 等）が不安定になる。
-          const avoidVideoPause = !!sourceNodesRef.current[item.id]
-            && previewPlatformPolicy.muteNativeMediaWhenAudioRouted;
-          if (!avoidVideoPause && !videoEl.paused) {
+          // 一時停止
+          if (!videoEl.paused) {
             videoEl.pause();
           }
           // 開始位置にリセット
@@ -437,7 +434,7 @@ const TurtleVideo: React.FC = () => {
         }
       }
     }
-  }, [previewPlatformPolicy]);
+  }, []);
 
   // --- Helper: renderFrame ---
   const renderFrame = useCallback(
@@ -912,18 +909,11 @@ const TurtleVideo: React.FC = () => {
           } else {
             if (conf.type === 'video') {
               const videoEl = element as HTMLVideoElement;
-              const videoHasAudioNode = !!sourceNodesRef.current[id];
-              // iOS WebAudio モード: createMediaElementSource 済みのビデオ要素を
-              // pause() すると、同じ AudioContext 上の BGM/ナレーション音声まで
-              // 不安定になる。GainNode=0 で無音化し、再生状態は維持する。
-              const avoidVideoPause = videoHasAudioNode
-                && previewPlatformPolicy.muteNativeMediaWhenAudioRouted
-                && !_isExporting;
-              if (!avoidVideoPause && !videoEl.paused) {
+              if (!videoEl.paused) {
                 videoEl.pause();
               }
               applyPreviewAudioOutputState(previewPlatformPolicy, videoEl, {
-                hasAudioNode: videoHasAudioNode,
+                hasAudioNode: !!sourceNodesRef.current[id],
                 desiredVolume: 0,
                 audibleSourceCount: 0,
                 isExporting: _isExporting,
@@ -1219,7 +1209,7 @@ const TurtleVideo: React.FC = () => {
               if (gainNode && audioCtxRef.current) {
                 gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.1);
               }
-              if (!avoidPausePlay && !element.paused) element.pause();
+              if (!element.paused) element.pause();
 
               const trackTime = time - track.delay + track.startPoint;
               if (trackTime >= 0 && trackTime <= track.duration) {
@@ -1334,11 +1324,7 @@ const TurtleVideo: React.FC = () => {
             if (gainNode && audioCtxRef.current) {
               gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.1);
             }
-            // iOS WebAudio モード: pause() を避け GainNode=0 のみで無音化
-            const avoidNarPausePlay = hasAudioNode
-              && previewPlatformPolicy.muteNativeMediaWhenAudioRouted
-              && !_isExporting;
-            if (!avoidNarPausePlay && !element.paused) element.pause();
+            if (!element.paused) element.pause();
 
             if (inRange && Math.abs(element.currentTime - sourceTime) > 0.1) {
               element.currentTime = sourceTime;
@@ -2914,23 +2900,13 @@ const TurtleVideo: React.FC = () => {
       reqIdRef.current = null;
     }
 
-    // メディア要素を停止
-    Object.entries(mediaElementsRef.current).forEach(([id, el]) => {
+    // メディア要素を停止（シンプルにpauseを呼ぶ）
+    Object.values(mediaElementsRef.current).forEach((el) => {
       if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO')) {
         try {
           const mediaEl = el as HTMLMediaElement;
-          // iOS WebAudio モード（プレビュー時のみ）: createMediaElementSource 済みの
-          // 要素を pause() すると AudioContext 全体が不安定になり、次回 play() 時に
-          // 無音化する。GainNode=0 で無音化し、再生状態は維持する。
-          // エクスポート中/後は通常通り pause() する。
-          const hasAudioNode = !!sourceNodesRef.current[id];
-          const isPreviewMode = audioRoutingModeRef.current === 'preview';
-          if (hasAudioNode && isPreviewMode && previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
-            // volume=0 のまま維持（resetNativeMediaAudioState を呼ばない）
-          } else {
-            mediaEl.pause();
-            resetNativeMediaAudioState(mediaEl);
-          }
+          mediaEl.pause();
+          resetNativeMediaAudioState(mediaEl);
         } catch (e) {
           /* ignore */
         }
@@ -2942,7 +2918,6 @@ const TurtleVideo: React.FC = () => {
       Object.values(gainNodesRef.current).forEach((node) => {
         try {
           node.gain.cancelScheduledValues(ctx.currentTime);
-          node.gain.setValueAtTime(0, ctx.currentTime);
         } catch (e) {
           /* ignore */
         }
@@ -2956,7 +2931,7 @@ const TurtleVideo: React.FC = () => {
       // 再生停止など、録画セッションが存在しないケースのみ強制停止を実行
       stopWebCodecsExport();
     }
-  }, [setLoading, stopWebCodecsExport, cancelPendingPausedSeekWait, detachGlobalSeekEndListeners, cancelPendingSeekPlaybackPrepare, previewPlatformPolicy]);
+  }, [setLoading, stopWebCodecsExport, cancelPendingPausedSeekWait, detachGlobalSeekEndListeners, cancelPendingSeekPlaybackPrepare]);
 
   // --- Helper: 一時停止付きで関数を実行 ---
   // 目的: 編集操作時に必ず一時停止を実行してから元の処理を行う
@@ -4286,12 +4261,7 @@ const TurtleVideo: React.FC = () => {
       if (el && el.tagName === 'VIDEO') {
         try {
           const videoEl = el as HTMLVideoElement;
-          // iOS WebAudio（プレビュー時のみ）で createMediaElementSource 済みのビデオは pause() を避ける
-          const hasAudioNode = !!sourceNodesRef.current[item.id];
-          const isPreviewMode = audioRoutingModeRef.current === 'preview';
-          if (!(hasAudioNode && isPreviewMode && previewPlatformPolicy.muteNativeMediaWhenAudioRouted)) {
-            videoEl.pause();
-          }
+          videoEl.pause();
           videoEl.currentTime = item.trimStart || 0;
         } catch (e) {
           /* ignore */
@@ -4308,12 +4278,7 @@ const TurtleVideo: React.FC = () => {
       if (el && (el.tagName === 'AUDIO')) {
         try {
           const audioEl = el as HTMLAudioElement;
-          // iOS WebAudio（プレビュー時のみ）で createMediaElementSource 済みのオーディオは pause() を避ける
-          const hasAudioNode = !!sourceNodesRef.current[trackId];
-          const isPreviewMode = audioRoutingModeRef.current === 'preview';
-          if (!(hasAudioNode && isPreviewMode && previewPlatformPolicy.muteNativeMediaWhenAudioRouted)) {
-            audioEl.pause();
-          }
+          audioEl.pause();
           audioEl.currentTime = 0;
         } catch (e) {
           /* ignore */
@@ -4333,7 +4298,6 @@ const TurtleVideo: React.FC = () => {
     cancelPendingSeekPlaybackPrepare,
     detachGlobalSeekEndListeners,
     renderPausedPreviewFrameAtTime,
-    previewPlatformPolicy,
   ]);
 
   // --- Helper: 停止付きで関数を実行 ---
