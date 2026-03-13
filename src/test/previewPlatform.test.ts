@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   getPreviewAudioOutputMode,
+  getPreviewAudioRoutingPlan,
   getPreviewPlatformPolicy,
   getPreviewVideoSyncThreshold,
   shouldHoldVideoFrameAtClipEnd,
@@ -133,6 +134,64 @@ describe('preview platform helpers', () => {
         desiredVolume: 1,
       }),
     ).toBe('webaudio');
+  });
+
+  it('iOS Safari preview の複数音源は開始前判定でもまとめて WebAudio に寄せる', () => {
+    expect(
+      getPreviewAudioRoutingPlan(iosPolicy, {
+        isExporting: false,
+        candidates: [
+          {
+            id: 'video:1',
+            hasAudioNode: false,
+            desiredVolume: 1,
+          },
+          {
+            id: 'bgm',
+            hasAudioNode: false,
+            desiredVolume: 1,
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        id: 'video:1',
+        hasAudioNode: false,
+        desiredVolume: 1,
+        audibleSourceCount: 2,
+        outputMode: 'webaudio',
+      },
+      {
+        id: 'bgm',
+        hasAudioNode: false,
+        desiredVolume: 1,
+        audibleSourceCount: 2,
+        outputMode: 'webaudio',
+      },
+    ]);
+  });
+
+  it('iOS Safari preview の単一音源は開始前判定でも native fallback を維持する', () => {
+    expect(
+      getPreviewAudioRoutingPlan(iosPolicy, {
+        isExporting: false,
+        candidates: [
+          {
+            id: 'video:1',
+            hasAudioNode: false,
+            desiredVolume: 1,
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        id: 'video:1',
+        hasAudioNode: false,
+        desiredVolume: 1,
+        audibleSourceCount: 1,
+        outputMode: 'native',
+      },
+    ]);
   });
 
   it('可視復帰時の AudioContext resume 判定と再初期化判定を返す', () => {

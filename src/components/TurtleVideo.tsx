@@ -31,6 +31,7 @@ import { findActiveTimelineItem, collectPlaybackBlockingVideos } from '../utils/
 import { getPlatformCapabilities } from '../utils/platform';
 import {
   getPreviewAudioOutputMode,
+  getPreviewAudioRoutingPlan,
   getPreviewPlatformPolicy,
   getPreviewVideoSyncThreshold,
   shouldHoldVideoFrameAtClipEnd,
@@ -281,6 +282,8 @@ const TurtleVideo: React.FC = () => {
   const playbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 再生開始待機用タイマー
   const seekSettleGenerationRef = useRef(0);
   const pendingPausedSeekWaitRef = useRef<{ cleanup: () => void } | null>(null);
+  const previewAudioRouteRefreshInFlightRef = useRef<Promise<void> | null>(null);
+  const requestPreviewAudioRouteRefreshRef = useRef<() => void>(() => { });
   const detachGlobalSeekEndListenersRef = useRef<(() => void) | null>(null);
   const handleSeekEndCallbackRef = useRef<(() => void) | null>(null);
   const renderPausedPreviewFrameAtTimeRef = useRef<(targetTime: number) => void>(() => { });
@@ -861,6 +864,9 @@ const TurtleVideo: React.FC = () => {
                   }) === 'webaudio'
                 ) {
                   hasAudioNode = ensureAudioNodeForElement(id, videoMediaEl);
+                  if (hasAudioNode && !_isExporting) {
+                    requestPreviewAudioRouteRefreshRef.current();
+                  }
                 }
 
                 // 音量の急激な変化を防ぐ
@@ -1130,6 +1136,9 @@ const TurtleVideo: React.FC = () => {
                     }) === 'webaudio'
                   ) {
                     hasAudioNode = ensureAudioNodeForElement(trackId, element);
+                    if (hasAudioNode && !_isExporting) {
+                      requestPreviewAudioRouteRefreshRef.current();
+                    }
                     gainNode = gainNodesRef.current[trackId];
                   }
 
@@ -1243,6 +1252,9 @@ const TurtleVideo: React.FC = () => {
               }) === 'webaudio'
             ) {
               hasAudioNode = ensureAudioNodeForElement(trackId, element);
+              if (hasAudioNode && !_isExporting) {
+                requestPreviewAudioRouteRefreshRef.current();
+              }
               gainNode = gainNodesRef.current[trackId];
             }
 
@@ -2260,6 +2272,175 @@ const TurtleVideo: React.FC = () => {
     }
   }
 
+  const refreshPreviewAudioRoute = useCallback(async () => {
+    if (!shouldReinitializeAudioRoute(previewPlatformPolicy, false)) {
+      return;
+    }
+
+    const ctx = audioCtxRef.current;
+    if (!ctx) {
+      return;
+    }
+
+    try {
+      if ((ctx.state as AudioContextState | 'interrupted') !== 'running') {
+        await ctx.resume();
+      }
+
+      if ((ctx.state as AudioContextState | 'interrupted') !== 'running') {
+        return;
+      }
+
+      await ctx.suspend();
+      await ctx.resume();
+      audioResumeWaitFramesRef.current = Math.max(audioResumeWaitFramesRef.current, 1);
+      logInfo('AUDIO', 'iOS Safari preview 音声ルートを再初期化', {
+        state: ctx.state,
+      });
+    } catch (err) {
+      logWarn('AUDIO', 'iOS Safari preview 音声ルート再初期化に失敗', {
+        error: err instanceof Error ? err.message : String(err),
+        state: ctx.state,
+      });
+    }
+  }, [logInfo, logWarn, previewPlatformPolicy]);
+
+  const requestPreviewAudioRouteRefresh = useCallback(() => {
+    if (!shouldReinitializeAudioRoute(previewPlatformPolicy, false)) {
+      return;
+    }
+
+    if (previewAudioRouteRefreshInFlightRef.current) {
+      return;
+    }
+
+    const refreshPromise = refreshPreviewAudioRoute().finally(() => {
+      if (previewAudioRouteRefreshInFlightRef.current === refreshPromise) {
+        previewAudioRouteRefreshInFlightRef.current = null;
+      }
+    });
+    previewAudioRouteRefreshInFlightRef.current = refreshPromise;
+  }, [previewPlatformPolicy, refreshPreviewAudioRoute]);
+
+  useEffect(() => {
+    requestPreviewAudioRouteRefreshRef.current = requestPreviewAudioRouteRefresh;
+  }, [requestPreviewAudioRouteRefresh]);
+
+  const preparePreviewAudioNodesForTime = useCallback((time: number): boolean => {
+    if (!previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
+      return false;
+    }
+
+    const currentItems = mediaItemsRef.current;
+    const currentBgm = bgmRef.current;
+    const currentNarrations = narrationsRef.current;
+    const candidates: Array<{
+      id: string;
+      desiredVolume: number;
+      element: HTMLMediaElement;
+    }> = [];
+
+    const active = findActiveTimelineItem(currentItems, time, totalDurationRef.current);
+    if (active && active.index !== -1) {
+      const activeItem = currentItems[active.index];
+      if (activeItem?.type === 'video' && !activeItem.isMuted && activeItem.volume > 0) {
+        const element = mediaElementsRef.current[activeItem.id] as HTMLVideoElement | undefined;
+        if (element) {
+          let vol = activeItem.volume;
+          const fadeInDur = activeItem.fadeInDuration || 1.0;
+          const fadeOutDur = activeItem.fadeOutDuration || 1.0;
+
+          if (activeItem.fadeIn && active.localTime < fadeInDur) {
+            vol *= active.localTime / fadeInDur;
+          } else if (activeItem.fadeOut && active.localTime > activeItem.duration - fadeOutDur) {
+            const remaining = activeItem.duration - active.localTime;
+            vol *= remaining / fadeOutDur;
+          }
+
+          if (vol > 0) {
+            candidates.push({
+              id: activeItem.id,
+              desiredVolume: vol,
+              element,
+            });
+          }
+        }
+      }
+    }
+
+    if (currentBgm && currentBgm.volume > 0 && time >= currentBgm.delay) {
+      const element = mediaElementsRef.current.bgm as HTMLAudioElement | undefined;
+      const trackTime = time - currentBgm.delay + currentBgm.startPoint;
+      const playDuration = time - currentBgm.delay;
+      if (element && trackTime >= 0 && trackTime <= currentBgm.duration) {
+        let vol = currentBgm.volume;
+        const fadeInDur = currentBgm.fadeInDuration || 1.0;
+        const fadeOutDur = currentBgm.fadeOutDuration || 1.0;
+
+        if (currentBgm.fadeIn && playDuration < fadeInDur) {
+          vol *= playDuration / fadeInDur;
+        }
+        if (currentBgm.fadeOut && time > totalDurationRef.current - fadeOutDur) {
+          const remaining = totalDurationRef.current - time;
+          vol *= Math.max(0, remaining / fadeOutDur);
+        }
+
+        if (vol > 0) {
+          candidates.push({
+            id: 'bgm',
+            desiredVolume: vol,
+            element,
+          });
+        }
+      }
+    }
+
+    for (const clip of currentNarrations) {
+      if (clip.isMuted || clip.volume <= 0) {
+        continue;
+      }
+
+      const trackId = `narration:${clip.id}`;
+      const element = mediaElementsRef.current[trackId] as HTMLAudioElement | undefined;
+      if (!element) {
+        continue;
+      }
+
+      const trimStart = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
+      const trimEnd = Number.isFinite(clip.trimEnd)
+        ? Math.max(trimStart, Math.min(clip.duration, clip.trimEnd))
+        : clip.duration;
+      const playableDuration = Math.max(0, trimEnd - trimStart);
+      const clipTime = time - clip.startTime;
+
+      if (clipTime >= 0 && clipTime <= playableDuration) {
+        candidates.push({
+          id: trackId,
+          desiredVolume: clip.volume,
+          element,
+        });
+      }
+    }
+
+    const routingPlan = getPreviewAudioRoutingPlan(previewPlatformPolicy, {
+      isExporting: false,
+      candidates: candidates.map((candidate) => ({
+        id: candidate.id,
+        hasAudioNode: !!sourceNodesRef.current[candidate.id],
+        desiredVolume: candidate.desiredVolume,
+      })),
+    });
+
+    routingPlan.forEach((decision, index) => {
+      if (decision.outputMode !== 'webaudio' || decision.hasAudioNode) {
+        return;
+      }
+      ensureAudioNodeForElement(decision.id, candidates[index].element);
+    });
+
+    return routingPlan.some((decision) => decision.outputMode === 'webaudio');
+  }, [ensureAudioNodeForElement, previewPlatformPolicy]);
+
   const handleMediaRefAssign = useCallback(
     (id: string, element: HTMLVideoElement | HTMLImageElement | HTMLAudioElement | null) => {
       if (element) {
@@ -3091,6 +3272,11 @@ const TurtleVideo: React.FC = () => {
           }
         }
 
+        const previewUsesWebAudio = preparePreviewAudioNodesForTime(fromTime);
+        if (previewUsesWebAudio) {
+          await refreshPreviewAudioRoute();
+        }
+
         isPlayingRef.current = true;
         play();
       }
@@ -3383,7 +3569,7 @@ const TurtleVideo: React.FC = () => {
         loop(isExportMode, myLoopId);
       }
     },
-    [getAudioContext, stopAll, setProcessing, setLoading, play, clearExport, configureAudioRouting, ensureVideoMetadataReady, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError, logWarn, logInfo, logDebug, previewPlatformPolicy]
+    [getAudioContext, stopAll, setProcessing, setLoading, play, clearExport, configureAudioRouting, ensureVideoMetadataReady, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError, logWarn, logInfo, logDebug, previewPlatformPolicy, preparePreviewAudioNodesForTime, refreshPreviewAudioRoute]
   );
 
   // --- シークバー操作ハンドラ ---

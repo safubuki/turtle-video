@@ -22,6 +22,17 @@ export interface PreviewPlatformPolicy {
 
 export type PreviewAudioOutputMode = 'native' | 'webaudio';
 
+export interface PreviewAudioRoutingCandidate {
+  id: string;
+  hasAudioNode: boolean;
+  desiredVolume: number;
+}
+
+export interface PreviewAudioRoutingDecision extends PreviewAudioRoutingCandidate {
+  audibleSourceCount: number;
+  outputMode: PreviewAudioOutputMode;
+}
+
 export interface VideoClipEndGuardOptions {
   clipLocalTime: number;
   clipDuration: number;
@@ -131,6 +142,38 @@ export function getPreviewAudioOutputMode(
   }
 
   return 'webaudio';
+}
+
+/**
+ * 同一フレームで可聴な preview 音源群に対する出力モードをまとめて判定する。
+ * iOS Safari では「複数音源なら全て WebAudio」に揃える必要があるため、
+ * 候補ごとの個別判定ではなく全体の可聴数を先に確定してから決める。
+ */
+export function getPreviewAudioRoutingPlan(
+  policy: PreviewPlatformPolicy,
+  options: {
+    isExporting: boolean;
+    candidates: PreviewAudioRoutingCandidate[];
+  },
+): PreviewAudioRoutingDecision[] {
+  const audibleSourceCount = options.candidates.reduce(
+    (count, candidate) => count + (candidate.desiredVolume > 0 ? 1 : 0),
+    0,
+  );
+
+  return options.candidates.map((candidate) => {
+    const candidateAudibleSourceCount = candidate.desiredVolume > 0 ? audibleSourceCount : 0;
+    return {
+      ...candidate,
+      audibleSourceCount: candidateAudibleSourceCount,
+      outputMode: getPreviewAudioOutputMode(policy, {
+        hasAudioNode: candidate.hasAudioNode,
+        isExporting: options.isExporting,
+        audibleSourceCount: candidateAudibleSourceCount,
+        desiredVolume: candidate.desiredVolume,
+      }),
+    };
+  });
 }
 
 /**
