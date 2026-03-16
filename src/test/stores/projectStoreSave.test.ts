@@ -251,6 +251,36 @@ describe('projectStore save behavior', () => {
     expect(useProjectStore.getState().lastSaveFailure?.reason).toContain('broken.mp4');
   });
 
+  it('保存と読込の往復でメディアの元ファイル名を維持する', async () => {
+    const mediaItems = [createMediaItem('original-name.mp4', 'video')];
+    mocks.saveProject.mockResolvedValue(undefined);
+
+    await useProjectStore.getState().saveProjectManual(
+      mediaItems,
+      false,
+      null,
+      false,
+      [],
+      false,
+      [],
+      defaultCaptionSettings,
+      false
+    );
+
+    expect(mocks.saveProject).toHaveBeenCalledTimes(1);
+    const savedProjectData = mocks.saveProject.mock.calls[0][0] as { mediaItems: Array<{ fileName: string }> };
+    expect(savedProjectData.mediaItems[0].fileName).toBe('original-name.mp4');
+
+    mocks.loadProject.mockResolvedValue(savedProjectData);
+
+    const loaded = await useProjectStore.getState().loadProjectFromSlot('manual');
+
+    if (!loaded) {
+      throw new Error('loaded project was null');
+    }
+    expect(loaded.mediaItems[0].file.name).toBe('original-name.mp4');
+  });
+
   it('resetSaveDatabase は保存情報と失敗状態を初期化する', async () => {
     mocks.resetProjectDatabase.mockResolvedValue(undefined);
 

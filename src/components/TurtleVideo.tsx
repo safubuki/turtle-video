@@ -26,6 +26,7 @@ import { usePreventUnload } from '../hooks/usePreventUnload';
 
 // Utils
 import { captureCanvasAsImage } from '../utils/canvas';
+import { preserveOriginalFileName, resolveAiNarrationFileName } from '../utils/fileNames';
 import { saveObjectUrlWithClientFileStrategy } from '../utils/fileSave';
 import { findActiveTimelineItem, collectPlaybackBlockingVideos } from '../utils/playbackTimeline';
 import { getPlatformCapabilities } from '../utils/platform';
@@ -2030,7 +2031,17 @@ const TurtleVideo: React.FC = () => {
       const audio = new Audio(blobUrl);
       audio.onloadedmetadata = () => {
         const voiceLabel = VOICE_OPTIONS.find((v) => v.id === aiVoice)?.label || 'AI音声';
-        const narrationFile = new File([wavBlob], `AIナレーション_${voiceLabel}.wav`, { type: 'audio/wav' });
+        const currentNarrationName = editingNarrationId
+          ? narrations.find((item) => item.id === editingNarrationId)?.file.name
+          : null;
+        const narrationFile = new File(
+          [wavBlob],
+          resolveAiNarrationFileName({
+            currentName: currentNarrationName,
+            voiceLabel,
+          }),
+          { type: 'audio/wav' },
+        );
         if (editingNarrationId) {
           replaceNarrationAudio(editingNarrationId, {
             file: narrationFile,
@@ -2104,6 +2115,7 @@ const TurtleVideo: React.FC = () => {
     showToast,
     setError,
     setAiLoading,
+    narrations,
     offlineMode,
   ]);
 
@@ -2821,12 +2833,7 @@ const TurtleVideo: React.FC = () => {
     }
 
     const rawName = clip.file instanceof File ? clip.file.name : clip.file.name;
-    const fallbackName = rawName && rawName.trim().length > 0 ? rawName : 'narration.wav';
-    const dotIndex = fallbackName.lastIndexOf('.');
-    const hasExt = dotIndex > 0 && dotIndex < fallbackName.length - 1;
-    const baseName = hasExt ? fallbackName.slice(0, dotIndex) : fallbackName;
-    const ext = hasExt ? fallbackName.slice(dotIndex + 1) : 'wav';
-    const filename = `${baseName}_${Date.now()}.${ext}`;
+    const filename = preserveOriginalFileName(rawName, 'narration.wav');
 
     const inferredMimeType = clip.file instanceof File && clip.file.type
       ? clip.file.type
