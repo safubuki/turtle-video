@@ -495,7 +495,7 @@
 | **先頭フレーム描画** | `time <= 0.05` の先頭付近は、`エクスポート中` または `非再生時` に限ってキャンバスを強制クリアし、終端フレーム残像（終端キャプション）との重なりを防ぐ。通常再生開始時は保持ロジックを優先して黒フラッシュを回避する |
 | **モバイル** | スライダー誤操作を `useSwipeProtectedValue` で防止。`playsInline` 必須 |
 | **レスポンシブ** | モバイル既存スタイルは変更禁止。`md:` / `lg:` バリアントのみ追加で対応 |
-| **IndexedDB** | `File → ArrayBuffer → File` のラウンドトリップが必要。大容量データに注意。容量不足時は`auto`を自動削除せず、確認後のみ削除リトライする。保存失敗は `lastSaveFailure` に reason / recoveryAction / storageEstimate を残し、復旧導線を UI から再実行できるようにする |
+| **IndexedDB** | `File → ArrayBuffer → File` のラウンドトリップが必要。大容量データに注意。容量不足時は`auto`を自動削除せず、確認後のみ削除リトライする。保存失敗は `lastSaveFailure` に reason / recoveryAction / storageEstimate を残し、復旧導線を UI から再実行できるようにする。`File` 読み出し失敗時は `file.arrayBuffer` / `FileReader` / object URL fetch の順に救済し、素材名付きで失敗理由を残す |
 | **Zustand** | `getState()` で React 外アクセス可能。Ref+State 並行管理でリアルタイム値と再レンダリングを両立 |
 | **再生ループ** | `loopIdRef` で世代管理。古いループの自動停止メカニズムが重要 |
 | **シーク終端** | `time >= totalDuration` で最終クリップにフォールバックし黒画面を防止 |
@@ -1354,6 +1354,7 @@
   - `SaveLoadModal` に直近の保存失敗カードを出し、推奨対応を表示する。手動保存失敗後は `lastSaveFailure` を参照して `confirmAutoDeleteForSave` または `confirmResetDbForSave` へ遷移する
   - `resetProjectDatabase()` で保存用 IndexedDB 全体を delete できるようにし、DB 初期化後に同じ編集中データで manual save を再試行できるようにする
   - manual/auto save 成功時、auto save 削除時、DB 初期化時は `lastSaveFailure` を clear し、古いエラー監視状態を持ち越さない
+  - `File` 直読みが失敗した素材は object URL fetch へフォールバックし、それでも失敗した場合は `メディア「foo.mp4」` のように素材名付きエラーへ変換して、どの素材が壊れているかを UI / ログから追えるようにする
 - **注意**:
   - DB 初期化は保存履歴を消す最終手段であり、現在編集中の state は React/Zustand 側に残っている前提でのみ案内する
   - `inspect-media` は素材 Blob / File 読み出し失敗系を想定しており、DB 初期化では解決しないため別導線に分ける

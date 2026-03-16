@@ -423,12 +423,28 @@ export async function resetProjectDatabase(): Promise<void> {
  * FileをArrayBufferに変換
  */
 export async function fileToArrayBuffer(file: File): Promise<ArrayBuffer> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as ArrayBuffer);
-    reader.onerror = () => reject(new Error('ファイルの読み込みに失敗しました'));
-    reader.readAsArrayBuffer(file);
-  });
+  if (typeof file.arrayBuffer === 'function') {
+    try {
+      return await file.arrayBuffer();
+    } catch {
+      // FileReader / Response fallback below
+    }
+  }
+
+  try {
+    return await new Promise<ArrayBuffer>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as ArrayBuffer);
+      reader.onerror = () => reject(new Error('ファイルの読み込みに失敗しました'));
+      reader.readAsArrayBuffer(file);
+    });
+  } catch {
+    try {
+      return await new Response(file).arrayBuffer();
+    } catch {
+      throw new Error('ファイルの読み込みに失敗しました');
+    }
+  }
 }
 
 /**

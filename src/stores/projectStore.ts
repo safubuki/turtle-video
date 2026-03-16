@@ -188,8 +188,44 @@ function enqueueProjectSave<T>(task: () => Promise<T>): Promise<T> {
   return run;
 }
 
+async function readSerializableFileData(params: {
+  file: File;
+  fallbackUrl?: string;
+  kind: 'メディア' | 'BGM' | 'ナレーション';
+}): Promise<ArrayBuffer> {
+  try {
+    return await fileToArrayBuffer(params.file);
+  } catch (fileError) {
+    if (params.fallbackUrl) {
+      try {
+        const fallbackData = await blobUrlToArrayBuffer(params.fallbackUrl);
+        useLogStore.getState().warn('SYSTEM', '保存用ファイル読み込み失敗のためURLフォールバックを使用', {
+          kind: params.kind,
+          fileName: params.file.name,
+          error: getProjectStoreErrorMessage(fileError),
+        });
+        return fallbackData;
+      } catch (fallbackError) {
+        throw new Error(
+          `${params.kind}「${params.file.name}」の読み込みに失敗しました`
+          + ` (file: ${getProjectStoreErrorMessage(fileError)} / url: ${getProjectStoreErrorMessage(fallbackError)})`
+        );
+      }
+    }
+
+    throw new Error(
+      `${params.kind}「${params.file.name}」の読み込みに失敗しました`
+      + ` (${getProjectStoreErrorMessage(fileError)})`
+    );
+  }
+}
+
 async function serializeMediaItem(item: MediaItem): Promise<SerializedMediaItem> {
-  const fileData = await fileToArrayBuffer(item.file);
+  const fileData = await readSerializableFileData({
+    file: item.file,
+    fallbackUrl: item.url,
+    kind: 'メディア',
+  });
   return {
     id: item.id,
     fileName: item.file.name,
@@ -244,7 +280,11 @@ async function serializeAudioTrack(track: AudioTrack): Promise<SerializedAudioTr
   let blobData: ArrayBuffer | undefined;
 
   if (track.file instanceof File) {
-    fileData = await fileToArrayBuffer(track.file);
+    fileData = await readSerializableFileData({
+      file: track.file,
+      fallbackUrl: track.blobUrl || track.url,
+      kind: 'BGM',
+    });
   }
 
   if (track.blobUrl) {
@@ -314,7 +354,11 @@ async function serializeNarrationClip(clip: NarrationClip): Promise<SerializedNa
   let blobData: ArrayBuffer | undefined;
 
   if (clip.file instanceof File) {
-    fileData = await fileToArrayBuffer(clip.file);
+    fileData = await readSerializableFileData({
+      file: clip.file,
+      fallbackUrl: clip.blobUrl || clip.url,
+      kind: 'ナレーション',
+    });
   }
 
   if (clip.blobUrl) {

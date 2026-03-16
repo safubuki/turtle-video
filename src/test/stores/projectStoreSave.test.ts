@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CaptionSettings } from '../../types';
+import type { CaptionSettings, MediaItem } from '../../types';
 
 const mocks = vi.hoisted(() => ({
   saveProject: vi.fn(),
@@ -54,6 +54,31 @@ function createCaption(id = 'caption-1') {
     fadeOut: false,
     fadeInDuration: 0.5,
     fadeOutDuration: 0.5,
+  };
+}
+
+function createMediaItem(fileName: string, type: 'video' | 'image' = 'video'): MediaItem {
+  const fileType = type === 'video' ? 'video/mp4' : 'image/png';
+  return {
+    id: `${type}-${fileName}`,
+    file: new File(['dummy'], fileName, { type: fileType }),
+    type,
+    url: `blob:${fileName}`,
+    volume: 1,
+    isMuted: false,
+    fadeIn: false,
+    fadeOut: false,
+    fadeInDuration: 1,
+    fadeOutDuration: 1,
+    duration: type === 'image' ? 5 : 10,
+    originalDuration: type === 'image' ? 5 : 10,
+    trimStart: 0,
+    trimEnd: type === 'image' ? 5 : 10,
+    scale: 1,
+    positionX: 0,
+    positionY: 0,
+    isTransformOpen: false,
+    isLocked: false,
   };
 }
 
@@ -174,6 +199,56 @@ describe('projectStore save behavior', () => {
     ).rejects.toThrow('AbortError');
 
     expect(useProjectStore.getState().lastSaveFailure?.recoveryAction).toBe('delete-auto-and-retry');
+  });
+
+  it('メディアの File 読み込み失敗時は url フォールバックで保存を継続する', async () => {
+    const mediaItems = [createMediaItem('clip-1.mp4', 'video')];
+
+    mocks.fileToArrayBuffer.mockRejectedValueOnce(new Error('ファイルの読み込みに失敗しました'));
+    mocks.blobUrlToArrayBuffer.mockResolvedValueOnce(new ArrayBuffer(8));
+
+    await expect(
+      useProjectStore.getState().saveProjectManual(
+        mediaItems,
+        false,
+        null,
+        false,
+        [],
+        false,
+        [],
+        defaultCaptionSettings,
+        false
+      )
+    ).resolves.toBeUndefined();
+
+    expect(mocks.blobUrlToArrayBuffer).toHaveBeenCalledWith(mediaItems[0].url);
+    expect(mocks.saveProject).toHaveBeenCalledTimes(1);
+    expect(useProjectStore.getState().lastSaveFailure).toBeNull();
+  });
+
+  it('素材名付きの読み込み失敗を保持して inspect-media を提案する', async () => {
+    const mediaItems = [createMediaItem('broken.mp4', 'video')];
+
+    mocks.fileToArrayBuffer.mockRejectedValueOnce(new Error('ファイルの読み込みに失敗しました'));
+    mocks.blobUrlToArrayBuffer.mockRejectedValueOnce(new Error('Failed to fetch'));
+
+    await expect(
+      useProjectStore.getState().saveProjectManual(
+        mediaItems,
+        false,
+        null,
+        false,
+        [],
+        false,
+        [],
+        defaultCaptionSettings,
+        false
+      )
+    ).rejects.toThrow('メディア「broken.mp4」');
+
+    expect(mocks.saveProject).not.toHaveBeenCalled();
+    expect(useProjectStore.getState().lastSaveFailure?.recoveryAction).toBe('inspect-media');
+    expect(useProjectStore.getState().lastSaveFailure?.reason).toContain('broken.mp4');
   });
 
   it('resetSaveDatabase は保存情報と失敗状態を初期化する', async () => {
