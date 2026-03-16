@@ -6,7 +6,9 @@ const mocks = vi.hoisted(() => ({
   loadProject: vi.fn(),
   deleteProject: vi.fn(),
   deleteAllProjects: vi.fn(),
+  resetProjectDatabase: vi.fn(),
   getProjectsInfo: vi.fn(),
+  getStorageEstimate: vi.fn(),
   fileToArrayBuffer: vi.fn(),
   blobUrlToArrayBuffer: vi.fn(),
   arrayBufferToFile: vi.fn(),
@@ -17,7 +19,9 @@ vi.mock('../../utils/indexedDB', () => ({
   loadProject: mocks.loadProject,
   deleteProject: mocks.deleteProject,
   deleteAllProjects: mocks.deleteAllProjects,
+  resetProjectDatabase: mocks.resetProjectDatabase,
   getProjectsInfo: mocks.getProjectsInfo,
+  getStorageEstimate: mocks.getStorageEstimate,
   fileToArrayBuffer: mocks.fileToArrayBuffer,
   blobUrlToArrayBuffer: mocks.blobUrlToArrayBuffer,
   arrayBufferToFile: mocks.arrayBufferToFile,
@@ -59,12 +63,15 @@ describe('projectStore save behavior', () => {
     mocks.loadProject.mockReset();
     mocks.deleteProject.mockReset();
     mocks.deleteAllProjects.mockReset();
+    mocks.resetProjectDatabase.mockReset();
     mocks.getProjectsInfo.mockReset();
+    mocks.getStorageEstimate.mockReset();
     mocks.fileToArrayBuffer.mockReset();
     mocks.blobUrlToArrayBuffer.mockReset();
     mocks.arrayBufferToFile.mockReset();
 
     mocks.getProjectsInfo.mockResolvedValue({ auto: null, manual: null });
+    mocks.getStorageEstimate.mockResolvedValue(null);
     mocks.fileToArrayBuffer.mockResolvedValue(new ArrayBuffer(0));
     mocks.blobUrlToArrayBuffer.mockResolvedValue(new ArrayBuffer(0));
     mocks.arrayBufferToFile.mockImplementation((buffer: ArrayBuffer, fileName: string, fileType: string) =>
@@ -77,6 +84,7 @@ describe('projectStore save behavior', () => {
       lastAutoSave: '2026-02-17T00:00:00.000Z',
       lastManualSave: null,
       autoSaveError: null,
+      lastSaveFailure: null,
     });
   });
 
@@ -144,6 +152,53 @@ describe('projectStore save behavior', () => {
     expect(mocks.deleteProject).toHaveBeenCalledWith('auto');
     expect(useProjectStore.getState().lastAutoSave).toBeNull();
     expect(useProjectStore.getState().lastManualSave).toBe('2026-02-17T01:00:00.000Z');
+  });
+
+  it('generic な IndexedDB 失敗でも auto save がある間は削除リカバリを提案する', async () => {
+    mocks.saveProject.mockRejectedValueOnce(
+      new Error('プロジェクトの保存に失敗しました (AbortError: transaction aborted)')
+    );
+
+    await expect(
+      useProjectStore.getState().saveProjectManual(
+        [],
+        false,
+        null,
+        false,
+        [],
+        false,
+        [],
+        defaultCaptionSettings,
+        false
+      )
+    ).rejects.toThrow('AbortError');
+
+    expect(useProjectStore.getState().lastSaveFailure?.recoveryAction).toBe('delete-auto-and-retry');
+  });
+
+  it('resetSaveDatabase は保存情報と失敗状態を初期化する', async () => {
+    mocks.resetProjectDatabase.mockResolvedValue(undefined);
+
+    useProjectStore.setState({
+      lastAutoSave: '2026-02-17T00:00:00.000Z',
+      lastManualSave: '2026-02-17T01:00:00.000Z',
+      autoSaveError: '保存失敗',
+      lastSaveFailure: {
+        operation: 'manual',
+        reason: 'AbortError',
+        occurredAt: '2026-03-17T00:00:00.000Z',
+        recoveryAction: 'reset-database-and-retry',
+        storageEstimate: null,
+      },
+    });
+
+    await useProjectStore.getState().resetSaveDatabase();
+
+    expect(mocks.resetProjectDatabase).toHaveBeenCalledTimes(1);
+    expect(useProjectStore.getState().lastAutoSave).toBeNull();
+    expect(useProjectStore.getState().lastManualSave).toBeNull();
+    expect(useProjectStore.getState().autoSaveError).toBeNull();
+    expect(useProjectStore.getState().lastSaveFailure).toBeNull();
   });
   it('自動保存が進行中でも手動保存は直列化され、復帰直後の競合で失敗しない', async () => {
     const captions = [createCaption()];

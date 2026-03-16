@@ -8,7 +8,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Save, FolderOpen, Trash2, Clock, AlertTriangle, Timer, Image, CircleHelp } from 'lucide-react';
 import {
   useProjectStore,
-  isStorageQuotaError,
   getProjectStoreErrorMessage,
 } from '../../stores/projectStore';
 import { useMediaStore } from '../../stores/mediaStore';
@@ -32,7 +31,13 @@ interface SaveLoadModalProps {
   onToast: (message: string, type?: 'success' | 'error') => void;
 }
 
-type ModalMode = 'menu' | 'confirmLoad' | 'confirmDelete' | 'selectSlot' | 'confirmAutoDeleteForSave';
+type ModalMode =
+  | 'menu'
+  | 'confirmLoad'
+  | 'confirmDelete'
+  | 'selectSlot'
+  | 'confirmAutoDeleteForSave'
+  | 'confirmResetDbForSave';
 
 /** 自動保存間隔のオプション */
 const AUTO_SAVE_OPTIONS: { value: AutoSaveIntervalOption; label: string }[] = [
@@ -108,11 +113,14 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
     isLoading,
     lastAutoSave,
     lastManualSave,
+    lastSaveFailure,
     saveProjectManual,
     loadProjectFromSlot,
     deleteAllSaves,
     deleteAutoSaveOnly,
+    resetSaveDatabase,
     refreshSaveInfo,
+    clearLastSaveFailure,
   } = useProjectStore();
   
   // 各ストアからデータを取得
@@ -138,6 +146,21 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
   const hasAutoSave = lastAutoSave !== null;
   const hasManualSave = lastManualSave !== null;
   const hasSaveData = hasAutoSave || hasManualSave;
+
+  const failureActionLabel = useMemo(() => {
+    switch (lastSaveFailure?.recoveryAction) {
+      case 'delete-auto-and-retry':
+        return '自動保存を削除して再試行';
+      case 'reset-database-and-retry':
+        return '保存DBを初期化して再試行';
+      case 'inspect-media':
+        return '素材データとログの確認が必要';
+      case 'retry':
+        return '時間を置いて再試行';
+      default:
+        return null;
+    }
+  }, [lastSaveFailure]);
   
   // 初回表示時に保存情報を更新
   useEffect(() => {
@@ -347,13 +370,23 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
       await executeManualSave();
     } catch (error) {
       const message = getProjectStoreErrorMessage(error);
+      const failureInfo = useProjectStore.getState().lastSaveFailure;
       useLogStore.getState().error('SYSTEM', '手動保存に失敗', { error: message });
-      if (isStorageQuotaError(error)) {
+      if (failureInfo?.recoveryAction === 'delete-auto-and-retry') {
         await refreshSaveInfo();
         setMode('confirmAutoDeleteForSave');
-      } else {
-        onToast('保存に失敗しました', 'error');
+        return;
       }
+      if (failureInfo?.recoveryAction === 'reset-database-and-retry') {
+        await refreshSaveInfo();
+        setMode('confirmResetDbForSave');
+        return;
+      }
+      if (failureInfo?.recoveryAction === 'inspect-media') {
+        onToast('保存素材の一部が壊れている可能性があります。ログ詳細を確認してください', 'error');
+        return;
+      }
+      onToast('保存に失敗しました', 'error');
     }
   };
 
@@ -364,12 +397,29 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
       await executeManualSave();
     } catch (error) {
       const message = getProjectStoreErrorMessage(error);
+      const failureInfo = useProjectStore.getState().lastSaveFailure;
       useLogStore.getState().error('SYSTEM', '自動保存削除後の手動保存に失敗', { error: message });
-      if (isStorageQuotaError(error)) {
-        onToast('自動保存を削除しても容量不足です。素材を減らして再試行してください', 'error');
+      if (failureInfo?.recoveryAction === 'reset-database-and-retry') {
+        setMode('confirmResetDbForSave');
+        return;
+      }
+      if (failureInfo?.recoveryAction === 'inspect-media') {
+        onToast('保存素材の一部が壊れている可能性があります。ログ詳細を確認してください', 'error');
       } else {
         onToast('保存に失敗しました', 'error');
       }
+      setMode('menu');
+    }
+  };
+
+  const handleSaveAfterDbReset = async () => {
+    try {
+      await resetSaveDatabase();
+      await executeManualSave();
+    } catch (error) {
+      const message = getProjectStoreErrorMessage(error);
+      useLogStore.getState().error('SYSTEM', '保存DB初期化後の手動保存に失敗', { error: message });
+      onToast('保存DBを初期化しても保存に失敗しました。ログ詳細を確認してください', 'error');
       setMode('menu');
     }
   };
@@ -478,6 +528,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
               {mode === 'confirmLoad' && '読み込み確認'}
               {mode === 'confirmDelete' && '削除確認'}
               {mode === 'confirmAutoDeleteForSave' && '容量不足の対応'}
+              {mode === 'confirmResetDbForSave' && '保存DBの復旧'}
             </h2>
             {mode === 'menu' && (
               <button
@@ -589,6 +640,35 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
                 </span>
               </div>
             </div>
+
+            {lastSaveFailure && (
+              <div className="bg-red-950/35 border border-red-700/50 rounded-lg p-4 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm font-medium text-red-200 flex items-center gap-1">
+                    <AlertTriangle size={14} />
+                    直近の保存失敗
+                  </span>
+                  <button
+                    className="text-xs text-red-300 hover:text-red-100 transition-colors"
+                    onClick={clearLastSaveFailure}
+                  >
+                    閉じる
+                  </button>
+                </div>
+                <div className="text-xs text-red-100 leading-relaxed break-words">
+                  {lastSaveFailure.reason}
+                </div>
+                <div className="text-xs text-red-200/90">
+                  推奨対応: {failureActionLabel ?? 'ログを確認して再試行'}
+                </div>
+                {lastSaveFailure.storageEstimate && lastSaveFailure.storageEstimate.quota > 0 && (
+                  <div className="text-[11px] text-red-200/80">
+                    使用量: {Math.round((lastSaveFailure.storageEstimate.usage / 1024 / 1024) * 10) / 10}MB /
+                    {` `}上限: {Math.round((lastSaveFailure.storageEstimate.quota / 1024 / 1024) * 10) / 10}MB
+                  </div>
+                )}
+              </div>
+            )}
             
             {/* ボタン */}
             <div className="space-y-3">
@@ -744,6 +824,35 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
                 disabled={isSaving}
               >
                 {isSaving ? '保存中...' : '削除して保存'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {mode === 'confirmResetDbForSave' && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 p-4 bg-red-900/30 border border-red-700/50 rounded-lg">
+              <AlertTriangle size={20} className="text-red-500 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-red-200">
+                保存用の IndexedDB が不整合状態の可能性があります。<br />
+                保存DBを初期化すると、自動保存と手動保存の履歴は消えますが、現在編集中の内容で再保存を試せます。続行しますか？
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                className="flex-1 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+                onClick={() => setMode('menu')}
+                disabled={isSaving}
+              >
+                キャンセル
+              </button>
+              <button
+                className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={handleSaveAfterDbReset}
+                disabled={isSaving}
+              >
+                {isSaving ? '保存中...' : '初期化して保存'}
               </button>
             </div>
           </div>

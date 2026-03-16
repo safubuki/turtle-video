@@ -395,6 +395,31 @@ export async function deleteAllProjects(): Promise<void> {
 }
 
 /**
+ * 保存用IndexedDB全体を初期化
+ */
+export async function resetProjectDatabase(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(DB_NAME);
+
+    request.onsuccess = () => {
+      useLogStore.getState().info('SYSTEM', '保存用IndexedDBを初期化');
+      resolve();
+    };
+
+    request.onerror = () => {
+      const reason = getIdbErrorReason(request.error);
+      useLogStore.getState().error('SYSTEM', '保存用IndexedDBの初期化に失敗', { reason });
+      reject(new Error(`保存用IndexedDBの初期化に失敗しました (${reason})`));
+    };
+
+    request.onblocked = () => {
+      useLogStore.getState().warn('SYSTEM', '保存用IndexedDBの初期化がブロックされました');
+      reject(new Error('保存用IndexedDBの初期化が他タブまたは別接続によりブロックされました'));
+    };
+  });
+}
+
+/**
  * FileをArrayBufferに変換
  */
 export async function fileToArrayBuffer(file: File): Promise<ArrayBuffer> {

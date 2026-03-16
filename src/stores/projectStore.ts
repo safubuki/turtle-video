@@ -12,7 +12,9 @@ import {
   loadProject,
   deleteProject,
   deleteAllProjects,
+  resetProjectDatabase,
   getProjectsInfo,
+  getStorageEstimate,
   fileToArrayBuffer,
   blobUrlToArrayBuffer,
   arrayBufferToFile,
@@ -42,12 +44,97 @@ export function isStorageQuotaError(error: unknown): boolean {
   );
 }
 
+export type SaveFailureRecoveryAction =
+  | 'delete-auto-and-retry'
+  | 'reset-database-and-retry'
+  | 'inspect-media'
+  | 'retry';
+
+export interface SaveFailureInfo {
+  operation: 'manual' | 'auto';
+  reason: string;
+  occurredAt: string;
+  recoveryAction: SaveFailureRecoveryAction;
+  storageEstimate: { usage: number; quota: number } | null;
+}
+
+function isLikelyIndexedDbTransactionError(error: unknown): boolean {
+  const lower = getProjectStoreErrorMessage(error).toLowerCase();
+  return (
+    lower.includes('indexeddb') ||
+    lower.includes('aborterror') ||
+    lower.includes('unknownerror') ||
+    lower.includes('invalidstateerror') ||
+    lower.includes('transaction') ||
+    lower.includes('database')
+  );
+}
+
+function isLikelyMediaSerializationError(error: unknown): boolean {
+  const lower = getProjectStoreErrorMessage(error).toLowerCase();
+  return (
+    lower.includes('ファイルの読み込みに失敗') ||
+    lower.includes('failed to fetch') ||
+    lower.includes('blob') ||
+    lower.includes('readasarraybuffer')
+  );
+}
+
+function isStorageNearQuota(estimate: { usage: number; quota: number } | null): boolean {
+  if (!estimate) return false;
+  if (!(estimate.quota > 0)) return false;
+  return estimate.usage / estimate.quota >= 0.85;
+}
+
+function classifySaveFailureRecoveryAction(params: {
+  error: unknown;
+  estimate: { usage: number; quota: number } | null;
+  hasAutoSave: boolean;
+}): SaveFailureRecoveryAction {
+  if (isStorageQuotaError(params.error) || (params.hasAutoSave && isStorageNearQuota(params.estimate))) {
+    return params.hasAutoSave ? 'delete-auto-and-retry' : 'retry';
+  }
+  if (isLikelyMediaSerializationError(params.error)) {
+    return 'inspect-media';
+  }
+  if (isLikelyIndexedDbTransactionError(params.error)) {
+    return params.hasAutoSave ? 'delete-auto-and-retry' : 'reset-database-and-retry';
+  }
+  return 'retry';
+}
+
+async function buildSaveFailureInfo(params: {
+  operation: 'manual' | 'auto';
+  error: unknown;
+  hasAutoSave: boolean;
+}): Promise<SaveFailureInfo> {
+  let estimate: { usage: number; quota: number } | null = null;
+  try {
+    estimate = await getStorageEstimate();
+  } catch {
+    // ignore estimate failures
+  }
+
+  return {
+    operation: params.operation,
+    reason: getProjectStoreErrorMessage(params.error),
+    occurredAt: new Date().toISOString(),
+    recoveryAction: classifySaveFailureRecoveryAction({
+      error: params.error,
+      estimate,
+      hasAutoSave: params.hasAutoSave,
+    }),
+    storageEstimate: estimate,
+  };
+}
+
 interface ProjectState {
   isSaving: boolean;
   isLoading: boolean;
   lastAutoSave: string | null;
   lastManualSave: string | null;
   autoSaveError: string | null;
+  lastSaveFailure: SaveFailureInfo | null;
 
   saveProjectManual: (
     mediaItems: MediaItem[],
@@ -87,8 +174,10 @@ interface ProjectState {
 
   deleteAllSaves: () => Promise<void>;
   deleteAutoSaveOnly: () => Promise<void>;
+  resetSaveDatabase: () => Promise<void>;
   refreshSaveInfo: () => Promise<void>;
   clearAutoSaveError: () => void;
+  clearLastSaveFailure: () => void;
 }
 
 let projectSaveQueue: Promise<void> = Promise.resolve();
@@ -359,12 +448,13 @@ function deserializeCaption(data: SerializedCaption): Caption {
 
 export const useProjectStore = create<ProjectState>()(
   devtools(
-    (set) => ({
+    (set, get) => ({
       isSaving: false,
       isLoading: false,
       lastAutoSave: null,
       lastManualSave: null,
       autoSaveError: null,
+      lastSaveFailure: null,
 
       saveProjectManual: async (
         mediaItems,
@@ -415,12 +505,20 @@ export const useProjectStore = create<ProjectState>()(
           set({
             lastManualSave: projectData.savedAt,
             isSaving: false,
+            lastSaveFailure: null,
           });
         } catch (error) {
-          useLogStore.getState().error('SYSTEM', '手動保存失敗', {
-            error: getProjectStoreErrorMessage(error),
+          const failureInfo = await buildSaveFailureInfo({
+            operation: 'manual',
+            error,
+            hasAutoSave: get().lastAutoSave !== null,
           });
-          set({ isSaving: false });
+          useLogStore.getState().error('SYSTEM', '手動保存失敗', {
+            error: failureInfo.reason,
+            recoveryAction: failureInfo.recoveryAction,
+            storageEstimate: failureInfo.storageEstimate,
+          });
+          set({ isSaving: false, lastSaveFailure: failureInfo });
           throw error;
         }
       },
@@ -473,13 +571,22 @@ export const useProjectStore = create<ProjectState>()(
             return nextProjectData;
           });
           useLogStore.getState().debug('SYSTEM', '自動保存完了', { savedAt: projectData.savedAt });
-          set({ lastAutoSave: projectData.savedAt, autoSaveError: null });
+          set({ lastAutoSave: projectData.savedAt, autoSaveError: null, lastSaveFailure: null });
         } catch (error) {
+          const failureInfo = await buildSaveFailureInfo({
+            operation: 'auto',
+            error,
+            hasAutoSave: get().lastAutoSave !== null,
+          });
           const message = isStorageQuotaError(error)
             ? '保存容量が不足しています。不要な保存データを削除してください'
             : getProjectStoreErrorMessage(error);
-          useLogStore.getState().error('SYSTEM', '自動保存失敗', { error: message });
-          set({ autoSaveError: message });
+          useLogStore.getState().error('SYSTEM', '自動保存失敗', {
+            error: message,
+            recoveryAction: failureInfo.recoveryAction,
+            storageEstimate: failureInfo.storageEstimate,
+          });
+          set({ autoSaveError: message, lastSaveFailure: failureInfo });
         }
       },
 
@@ -543,8 +650,22 @@ export const useProjectStore = create<ProjectState>()(
       deleteAutoSaveOnly: async () => {
         useLogStore.getState().info('SYSTEM', '自動保存データを削除');
         await deleteProject('auto');
-        set({ lastAutoSave: null });
+        set({ lastAutoSave: null, lastSaveFailure: null });
         useLogStore.getState().info('SYSTEM', '自動保存データ削除完了');
+      },
+
+      resetSaveDatabase: async () => {
+        useLogStore.getState().warn('SYSTEM', '保存用データベースを初期化');
+        await enqueueProjectSave(async () => {
+          await resetProjectDatabase();
+        });
+        set({
+          lastAutoSave: null,
+          lastManualSave: null,
+          autoSaveError: null,
+          lastSaveFailure: null,
+        });
+        useLogStore.getState().info('SYSTEM', '保存用データベース初期化完了');
       },
 
       refreshSaveInfo: async () => {
@@ -560,6 +681,7 @@ export const useProjectStore = create<ProjectState>()(
       },
 
       clearAutoSaveError: () => set({ autoSaveError: null }),
+      clearLastSaveFailure: () => set({ lastSaveFailure: null }),
     }),
     { name: 'ProjectStore' }
   )

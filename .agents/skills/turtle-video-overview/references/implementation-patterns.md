@@ -240,7 +240,7 @@
 ### 8-3. 自動保存（変更検知付き）
 
 - **ファイル**: `src/hooks/useAutoSave.ts`
-- **対策**: メディア ID・音量・トリム値等を連結したハッシュで変更検知。空データ時とエクスポート中はスキップ
+- **対策**: 保存対象のメディア/BGM/ナレーション/キャプション属性を連結したハッシュで変更検知。少なくとも動画の `trimStart` / `trimEnd` に加え、`scale` / `positionX` / `positionY` の transform 変更も差分として扱う。空データ時とエクスポート中はスキップ
 - **注意**: エクスポート中（`isProcessing`）は保存をスキップ（動画品質保護）
 
 ### 8-4. ページ離脱防止
@@ -490,12 +490,12 @@
 | **オフラインモード** | `offlineModeStore` を localStorage 永続化し、AIナレーション入口・Gemini 呼び出し・更新確認を一元ガードする。オフライン中の AI 追加/編集ボタンは disabled にして「押してエラー」ではなく「押せない」挙動へ寄せ、既存ナレーションの移動や削除は止めない。UI文言は「インターネット接続が必要な機能を使わない」ことを示し、ブラウザ/OSレベルの完全遮断ではないと明記する。ON 切替時だけ注意ダイアログを必須にし、OFF 復帰時は service worker 登録済みなら即時更新確認、未登録なら登録完了後に 1 回だけ更新確認する |
 | **手動更新確認** | 設定タブの更新確認は `updateStore.checkForUpdate()` に集約し、更新検知時だけ既存の `ReloadPrompt` / `needRefresh` 表示を使う。更新が無いときだけ短い通知を出し、オフラインモード中はボタンを disabled にして実行自体を止める。`ReloadPrompt` の横幅は iOS Safari だけ左右余白付きの可変幅にして画面外にはみ出させず、Android / desktop の右下レイアウトは維持する |
 | **設定モーダル操作** | API キー保存やオフラインモード切替のような設定変更は、その場で完了状態や警告を表示してモーダルを閉じない。説明文は短く保ち、無効/有効トグルや更新ボタンで分かる状態を重ねて説明しない。設定タブの操作ボタンは 無効=青系 / 有効=オレンジ系 の大きめトグルにし、ソフトウェア更新の手動確認は同サイズの青ボタンを中央寄せで置く。`history.pushState` を使うモーダルは最新の `onClose` を ref で参照し、親再描画だけで effect が張り直されて `history.back()` しないようにする |
-| **自動保存タイマー** | `setInterval` は最新状態Refを参照して固定周期で実行し、編集状態の変化でタイマーを再生成しない。`visibilitychange/focus/pageshow` 復帰時は短い遅延でイベントを集約してから経過時間を判定し、手動保存中は追いつき保存を走らせない。手動保存成功時は現在ハッシュを自動保存の基準にも反映し、直後の重複 auto save を防ぐ。保存間隔変更は custom event + `storage` で即時反映する |
+| **自動保存タイマー** | `setInterval` は最新状態Refを参照して固定周期で実行し、編集状態の変化でタイマーを再生成しない。差分ハッシュは保存対象の実フィールドに合わせ、`trim` の後に `scale/position` だけ変わったケースも見逃さない。`visibilitychange/focus/pageshow` 復帰時は短い遅延でイベントを集約してから経過時間を判定し、手動保存中は追いつき保存を走らせない。手動保存成功時は現在ハッシュを自動保存の基準にも反映し、直後の重複 auto save を防ぐ。保存間隔変更は custom event + `storage` で即時反映する |
 | **ヘッダーモーダル遷移** | 設定/保存ボタン押下でモーダルを開く前に、通常プレビュー再生中なら `stopAll() + pause()` で明示一時停止する。再生継続のまま開くとモバイルでタップ競合し、モーダルが瞬時に閉じる誤動作を誘発しやすい |
 | **先頭フレーム描画** | `time <= 0.05` の先頭付近は、`エクスポート中` または `非再生時` に限ってキャンバスを強制クリアし、終端フレーム残像（終端キャプション）との重なりを防ぐ。通常再生開始時は保持ロジックを優先して黒フラッシュを回避する |
 | **モバイル** | スライダー誤操作を `useSwipeProtectedValue` で防止。`playsInline` 必須 |
 | **レスポンシブ** | モバイル既存スタイルは変更禁止。`md:` / `lg:` バリアントのみ追加で対応 |
-| **IndexedDB** | `File → ArrayBuffer → File` のラウンドトリップが必要。大容量データに注意。容量不足時は`auto`を自動削除せず、確認後のみ削除リトライする |
+| **IndexedDB** | `File → ArrayBuffer → File` のラウンドトリップが必要。大容量データに注意。容量不足時は`auto`を自動削除せず、確認後のみ削除リトライする。保存失敗は `lastSaveFailure` に reason / recoveryAction / storageEstimate を残し、復旧導線を UI から再実行できるようにする |
 | **Zustand** | `getState()` で React 外アクセス可能。Ref+State 並行管理でリアルタイム値と再レンダリングを両立 |
 | **再生ループ** | `loopIdRef` で世代管理。古いループの自動停止メカニズムが重要 |
 | **シーク終端** | `time >= totalDuration` で最終クリップにフォールバックし黒画面を防止 |
@@ -1343,3 +1343,17 @@
   - `renderPausedPreviewFrameAtTime()` 側でも `readyState === 0` の動画には `load()` を掛け直してから `syncVideoToTime(..., { force: true })` し、タブ復帰直後の黒画面を避ける
 - **注意**:
   - この修正は preview visibility 復帰に閉じ、export strategy や `useExport.ts` には波及させない
+### 13-71. 保存失敗は原因分類を保持し、UI から復旧アクションを再実行できるようにする
+- **ファイル**: `src/stores/projectStore.ts`, `src/components/modals/SaveLoadModal.tsx`, `src/utils/indexedDB.ts`
+- **問題**:
+  - 手動保存で `保存に失敗しました` が一度出ると、その後も同じ underlying failure が続いても generic error toast しか出ず、ユーザーからは「何を消せば戻るのか」「DB を初期化すべきか」が分からない
+  - `AbortError` / `UnknownError` のような IndexedDB 失敗は容量不足と別経路でも起きるが、従来は監視情報が残らず、復旧手段も auto save 削除しか見えない
+- **対策**:
+  - `projectStore` で保存失敗時に `lastSaveFailure` を構築し、`reason` / `recoveryAction` / `storageEstimate` を保持する
+  - 復旧アクションは `quota / near quota -> delete-auto-and-retry`、`IndexedDB transaction error -> delete-auto-and-retry or reset-database-and-retry`、`素材シリアライズ失敗 -> inspect-media` に分類する
+  - `SaveLoadModal` に直近の保存失敗カードを出し、推奨対応を表示する。手動保存失敗後は `lastSaveFailure` を参照して `confirmAutoDeleteForSave` または `confirmResetDbForSave` へ遷移する
+  - `resetProjectDatabase()` で保存用 IndexedDB 全体を delete できるようにし、DB 初期化後に同じ編集中データで manual save を再試行できるようにする
+  - manual/auto save 成功時、auto save 削除時、DB 初期化時は `lastSaveFailure` を clear し、古いエラー監視状態を持ち越さない
+- **注意**:
+  - DB 初期化は保存履歴を消す最終手段であり、現在編集中の state は React/Zustand 側に残っている前提でのみ案内する
+  - `inspect-media` は素材 Blob / File 読み出し失敗系を想定しており、DB 初期化では解決しないため別導線に分ける
