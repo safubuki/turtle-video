@@ -29,13 +29,30 @@ type MediaRecorderLike = {
   isTypeSupported: (mimeType: string) => boolean;
 };
 
+type OpenFilePickerAcceptType = {
+  description?: string;
+  accept: Record<string, string[]>;
+};
+
+type OpenFilePickerOptions = {
+  multiple?: boolean;
+  excludeAcceptAllOption?: boolean;
+  types?: OpenFilePickerAcceptType[];
+};
+
+type FileSystemFileHandleLike = {
+  getFile: () => Promise<File>;
+};
+
 type PlatformWindowLike = {
   showSaveFilePicker?: unknown;
+  showOpenFilePicker?: unknown;
   MediaStreamTrackProcessor?: TrackProcessorConstructor;
 };
 
 export interface PlatformCapabilities extends BrowserPlatformInfo {
   supportsShowSaveFilePicker: boolean;
+  supportsShowOpenFilePicker: boolean;
   supportsTrackProcessor: boolean;
   supportsMp4MediaRecorder: boolean;
   audioContextMayInterrupt: boolean;
@@ -104,6 +121,37 @@ export function supportsShowSaveFilePicker(win: PlatformWindowLike | undefined =
 }
 
 /**
+ * File System Access API のファイル選択ダイアログが使えるかを判定する。
+ */
+export function supportsShowOpenFilePicker(win: PlatformWindowLike | undefined = getDefaultWindow()): boolean {
+  return typeof win?.showOpenFilePicker === 'function';
+}
+
+export async function openFilesWithPicker(params: {
+  win?: PlatformWindowLike;
+  multiple?: boolean;
+  excludeAcceptAllOption?: boolean;
+  types?: OpenFilePickerAcceptType[];
+}): Promise<File[]> {
+  const win = params.win ?? getDefaultWindow();
+  if (typeof win?.showOpenFilePicker !== 'function') {
+    throw new Error('showOpenFilePicker is unavailable');
+  }
+
+  const showOpenFilePicker = win.showOpenFilePicker as (
+    options?: OpenFilePickerOptions,
+  ) => Promise<FileSystemFileHandleLike[]>;
+
+  const handles = await showOpenFilePicker({
+    multiple: params.multiple,
+    excludeAcceptAllOption: params.excludeAcceptAllOption,
+    types: params.types,
+  });
+
+  return Promise.all(handles.map((handle) => handle.getFile()));
+}
+
+/**
  * MediaStreamTrackProcessor のコンストラクタを取得する。
  * 未対応環境では undefined を返し、呼び出し側でフォールバックさせる。
  */
@@ -161,6 +209,7 @@ export function getPlatformCapabilities(options?: {
   return {
     ...browser,
     supportsShowSaveFilePicker: supportsShowSaveFilePicker(options?.win),
+    supportsShowOpenFilePicker: supportsShowOpenFilePicker(options?.win),
     supportsTrackProcessor: !!trackProcessorCtor,
     supportsMp4MediaRecorder: supportedMediaRecorderProfile?.extension === 'mp4',
     audioContextMayInterrupt: browser.isIosSafari,

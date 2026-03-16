@@ -28,6 +28,7 @@ import { usePreventUnload } from '../hooks/usePreventUnload';
 import { captureCanvasAsImage } from '../utils/canvas';
 import { preserveOriginalFileName, resolveAiNarrationFileName } from '../utils/fileNames';
 import { saveObjectUrlWithClientFileStrategy } from '../utils/fileSave';
+import { openFilesWithPicker } from '../utils/platform';
 import { findActiveTimelineItem, collectPlaybackBlockingVideos } from '../utils/playbackTimeline';
 import { getPlatformCapabilities } from '../utils/platform';
 import {
@@ -316,6 +317,7 @@ const TurtleVideo: React.FC = () => {
     [platformCapabilities]
   );
   const supportsShowSaveFilePicker = platformCapabilities.supportsShowSaveFilePicker;
+  const supportsShowOpenFilePicker = platformCapabilities.supportsShowOpenFilePicker;
 
   const mediaTimelineRanges = useMemo(() => {
     let timelineStart = 0;
@@ -2120,33 +2122,62 @@ const TurtleVideo: React.FC = () => {
   ]);
 
   // --- アップロード処理 ---
+  const processUploadedMediaFiles = useCallback((files: File[]) => {
+    if (files.length === 0) return;
+    const ctx = getAudioContext();
+    if ((ctx.state as AudioContextState | 'interrupted') !== 'running') {
+      ctx.resume().catch(console.error);
+    }
+    clearExport();
+    addMediaItems(files);
+    files.forEach(file => {
+      logInfo('MEDIA', `メディア追加: ${file.name}`, {
+        type: file.type.startsWith('video/') ? 'video' : 'image',
+        fileName: file.name,
+        fileSize: file.size,
+      });
+    });
+  }, [getAudioContext, clearExport, addMediaItems, logInfo]);
+
   const handleMediaUpload = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       try {
         const files = Array.from(e.target.files || []);
-        if (files.length === 0) return;
         e.target.value = '';
-        const ctx = getAudioContext();
-        if ((ctx.state as AudioContextState | 'interrupted') !== 'running') {
-          ctx.resume().catch(console.error);
-        }
-        clearExport();
-        addMediaItems(files);
-        // メディア追加をログ
-        files.forEach(file => {
-          logInfo('MEDIA', `メディア追加: ${file.name}`, {
-            type: file.type.startsWith('video/') ? 'video' : 'image',
-            fileName: file.name,
-            fileSize: file.size
-          });
-        });
+        processUploadedMediaFiles(files);
       } catch (err) {
         setError('メディアの読み込みエラー');
         logError('MEDIA', 'メディア読み込みエラー', { error: String(err) });
       }
     },
-    [getAudioContext, clearExport, addMediaItems, setError, logInfo, logError]
+    [processUploadedMediaFiles, setError, logError]
   );
+
+  const handleOpenMediaPicker = useCallback(async () => {
+    if (!supportsShowOpenFilePicker) return;
+
+    try {
+      const files = await openFilesWithPicker({
+        multiple: true,
+        types: [
+          {
+            description: '動画・画像',
+            accept: {
+              'video/*': ['.mp4', '.mov', '.m4v', '.webm'],
+              'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.heic', '.heif'],
+            },
+          },
+        ],
+      });
+      processUploadedMediaFiles(files);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return;
+      }
+      setError('メディアの読み込みエラー');
+      logError('MEDIA', 'メディアピッカー起動エラー', { error: String(err) });
+    }
+  }, [supportsShowOpenFilePicker, processUploadedMediaFiles, setError, logError]);
 
   const handleMediaElementLoaded = useCallback(
     (id: string, element: HTMLVideoElement | HTMLImageElement | HTMLAudioElement) => {
@@ -4523,6 +4554,8 @@ const TurtleVideo: React.FC = () => {
               mediaElements={mediaElementsRef.current as Record<string, HTMLVideoElement | HTMLImageElement>}
               onToggleClipsLock={withPause(toggleClipsLock)}
               onMediaUpload={withPause(handleMediaUpload)}
+              onOpenMediaPicker={withPause(handleOpenMediaPicker)}
+              supportsShowOpenFilePicker={supportsShowOpenFilePicker}
               onMoveMedia={withPause(handleMoveMedia)}
               onRemoveMedia={withPause(handleRemoveMedia)}
               onToggleMediaLock={withPause(toggleItemLock)}

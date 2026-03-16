@@ -33,6 +33,7 @@ function createPlatformCapabilities(
     isSafari: false,
     isIosSafari: false,
     supportsShowSaveFilePicker: false,
+    supportsShowOpenFilePicker: false,
     supportsTrackProcessor: false,
     supportsMp4MediaRecorder: false,
     audioContextMayInterrupt: false,

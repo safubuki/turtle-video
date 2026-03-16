@@ -4,6 +4,7 @@ import {
   getAudioUploadAccept,
   getPlatformCapabilities,
   getSupportedMediaRecorderProfile,
+  supportsShowOpenFilePicker,
   supportsShowSaveFilePicker,
 } from '../utils/platform';
 
@@ -102,6 +103,11 @@ describe('capability helpers', () => {
     expect(supportsShowSaveFilePicker({})).toBe(false);
   });
 
+  it('showOpenFilePicker の有無を判定する', () => {
+    expect(supportsShowOpenFilePicker({ showOpenFilePicker: async () => [] })).toBe(true);
+    expect(supportsShowOpenFilePicker({})).toBe(false);
+  });
+
   it('MediaRecorder の対応 mimeType から MP4 優先でプロファイルを返す', () => {
     const profile = getSupportedMediaRecorderProfile({
       isTypeSupported: (mimeType: string) => mimeType.startsWith('video/mp4'),
@@ -127,6 +133,7 @@ describe('capability helpers', () => {
       },
       win: {
         showSaveFilePicker: async () => ({}),
+        showOpenFilePicker: async () => [],
         MediaStreamTrackProcessor: MockTrackProcessor as never,
       },
       mediaRecorder: {
@@ -137,6 +144,7 @@ describe('capability helpers', () => {
     expect(capabilities.isIosSafari).toBe(true);
     expect(capabilities.isAndroid).toBe(false);
     expect(capabilities.supportsShowSaveFilePicker).toBe(true);
+    expect(capabilities.supportsShowOpenFilePicker).toBe(true);
     expect(capabilities.supportsTrackProcessor).toBe(true);
     expect(capabilities.supportsMp4MediaRecorder).toBe(true);
     expect(capabilities.audioContextMayInterrupt).toBe(true);

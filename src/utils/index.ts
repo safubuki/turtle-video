@@ -56,7 +56,9 @@ export {
 export {
   detectBrowserPlatform,
   getAudioUploadAccept,
+  openFilesWithPicker,
   supportsShowSaveFilePicker,
+  supportsShowOpenFilePicker,
   getTrackProcessorConstructor,
   getSupportedMediaRecorderProfile,
   getPlatformCapabilities,

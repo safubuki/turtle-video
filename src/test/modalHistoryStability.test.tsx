@@ -156,6 +156,7 @@ vi.mock('../utils/fileSave', () => ({
 vi.mock('../utils/platform', () => ({
   getPlatformCapabilities: () => ({
     supportsShowSaveFilePicker: false,
+    supportsShowOpenFilePicker: false,
   }),
 }));
 

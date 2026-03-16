@@ -1360,3 +1360,16 @@
 - **注意**:
   - DB 初期化は保存履歴を消す最終手段であり、現在編集中の state は React/Zustand 側に残っている前提でのみ案内する
   - `inspect-media` は素材 Blob / File 読み出し失敗系を想定しており、DB 初期化では解決しないため別導線に分ける
+
+### 13-72. メディア追加時のファイル名は app 側で rename せず、対応ブラウザでは open file picker を優先する
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/components/sections/ClipsSection.tsx`, `src/utils/platform.ts`
+- **問題**:
+  - `input[type=file]` 経由のメディア追加では、ブラウザ/OS によっては元ファイル名ではなく数値ベースの一時名が `File.name` として渡ることがある
+  - app 側で rename しているように見えやすく、ユーザーが元ファイルとの対応を見失う
+- **対策**:
+  - クリップ追加ボタンは、`showOpenFilePicker` が使えるブラウザではそちらを優先し、`getFile()` で取得した `File` をそのまま `mediaStore` へ渡す
+  - `showOpenFilePicker` 非対応環境だけ従来の hidden file input にフォールバックする
+  - 追加後の表示名は引き続き `file.name` をそのまま使い、app 側で別名へ変換しない
+- **注意**:
+  - `showOpenFilePicker` 非対応ブラウザでは、ブラウザ/OS が返した `File.name` より元の名前を復元できない場合がある
+  - この制約は特にモバイルの写真/動画ライブラリ選択で出やすく、app 側だけでは完全には補正できない
