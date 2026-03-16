@@ -1652,6 +1652,10 @@ const TurtleVideo: React.FC = () => {
       if (hiddenStartedAtRef.current === null) {
         hiddenStartedAtRef.current = Date.now();
       }
+      // blur が visibilitychange(hidden) より先に来る環境でも、
+      // 復帰後に古い seek/canplay callback が割り込まないよう待機状態を落とす。
+      cancelPendingSeekPlaybackPrepare();
+      cancelPendingPausedSeekWait();
     };
     const handleWindowFocus = () => {
       refreshAfterReturn();

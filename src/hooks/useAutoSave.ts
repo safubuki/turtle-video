@@ -21,6 +21,7 @@ export type AutoSaveIntervalOption = 0 | 1 | 2 | 5;
 
 /** デフォルトの自動保存間隔（分） */
 export const DEFAULT_AUTO_SAVE_INTERVAL: AutoSaveIntervalOption = 2;
+const AUTO_SAVE_RETURN_CHECK_DELAY_MS = 80;
 
 function isAutoSaveIntervalOption(value: number): value is AutoSaveIntervalOption {
   return value === 0 || value === 1 || value === 2 || value === 5;
@@ -66,6 +67,7 @@ export function setAutoSaveInterval(interval: AutoSaveIntervalOption): void {
  */
 export function useAutoSave() {
   const intervalRef = useRef<number | null>(null);
+  const catchUpSaveTimeoutRef = useRef<number | null>(null);
   const lastSaveHashRef = useRef<string>('');
   const performAutoSaveRef = useRef<() => Promise<void>>(async () => {});
   const isAutoSaveRunningRef = useRef(false);
@@ -87,6 +89,7 @@ export function useAutoSave() {
   const isProcessing = useUIStore((s) => s.isProcessing);
   
   const saveProjectAuto = useProjectStore((s) => s.saveProjectAuto);
+  const lastManualSave = useProjectStore((s) => s.lastManualSave);
   
   /**
    * 現在の状態のハッシュを計算（簡易的な変更検知用）
@@ -165,6 +168,7 @@ export function useAutoSave() {
   }, [performAutoSave]);
 
   const runAutoSave = useCallback(async () => {
+    if (useProjectStore.getState().isSaving) return;
     if (isAutoSaveRunningRef.current) return;
 
     isAutoSaveRunningRef.current = true;
@@ -175,6 +179,13 @@ export function useAutoSave() {
       isAutoSaveRunningRef.current = false;
     }
   }, []);
+
+  useEffect(() => {
+    if (!lastManualSave) return;
+    // 手動保存直後は同一内容が保存済みなので、自動保存の差分ベースラインも更新する。
+    lastSaveHashRef.current = computeHash();
+    lastAutoSaveAttemptAtRef.current = Date.now();
+  }, [lastManualSave, computeHash]);
 
   // 保存間隔の更新を即時反映（同一タブ + 他タブ）
   useEffect(() => {
@@ -223,11 +234,25 @@ export function useAutoSave() {
       void runAutoSave();
     }, intervalMs);
 
+    const clearScheduledCatchUpSave = () => {
+      if (catchUpSaveTimeoutRef.current !== null) {
+        clearTimeout(catchUpSaveTimeoutRef.current);
+        catchUpSaveTimeoutRef.current = null;
+      }
+    };
+
     const triggerCatchUpSave = () => {
-      if (document.visibilityState !== 'visible') return;
-      const elapsed = Date.now() - lastAutoSaveAttemptAtRef.current;
-      if (elapsed < intervalMs) return;
-      void runAutoSave();
+      clearScheduledCatchUpSave();
+      // visibilitychange / focus / pageshow の発火順は環境依存なので、
+      // 少し待ってから可視状態と手動保存状態を確定させる。
+      catchUpSaveTimeoutRef.current = window.setTimeout(() => {
+        catchUpSaveTimeoutRef.current = null;
+        if (document.visibilityState === 'hidden') return;
+        if (useProjectStore.getState().isSaving) return;
+        const elapsed = Date.now() - lastAutoSaveAttemptAtRef.current;
+        if (elapsed < intervalMs) return;
+        void runAutoSave();
+      }, AUTO_SAVE_RETURN_CHECK_DELAY_MS);
     };
 
     document.addEventListener('visibilitychange', triggerCatchUpSave);
@@ -239,6 +264,7 @@ export function useAutoSave() {
       if (intervalRef.current !== null) {
         clearInterval(intervalRef.current);
       }
+      clearScheduledCatchUpSave();
       document.removeEventListener('visibilitychange', triggerCatchUpSave);
       window.removeEventListener('focus', triggerCatchUpSave);
       window.removeEventListener('pageshow', triggerCatchUpSave);
