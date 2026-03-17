@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  getFutureVideoAudioProbeTimes,
   getPreviewAudioOutputMode,
   getPreviewAudioRoutingPlan,
   getPreviewPlatformPolicy,
@@ -53,6 +54,25 @@ describe('getPreviewPlatformPolicy', () => {
 
     expect(policy.muteNativeMediaWhenAudioRouted).toBe(false);
     expect(policy.muteNativeMediaDuringExportWhenAudioRouted).toBe(true);
+  });
+  it('iOS Safari の将来動画 warm-up は動画開始点だけを probe する', () => {
+    expect(
+      getFutureVideoAudioProbeTimes([
+        { type: 'image', duration: 2 },
+        { type: 'video', duration: 3 },
+        { type: 'image', duration: 1 },
+        { type: 'video', duration: 0.04 },
+      ], 0),
+    ).toEqual([2.05, 6.02]);
+
+    expect(
+      getFutureVideoAudioProbeTimes([
+        { type: 'image', duration: 2 },
+        { type: 'video', duration: 3 },
+        { type: 'image', duration: 1 },
+        { type: 'video', duration: 2 },
+      ], 2.2),
+    ).toEqual([6.05]);
   });
 });
 

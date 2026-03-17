@@ -32,6 +32,7 @@ import { openFilesWithPicker } from '../utils/platform';
 import { findActiveTimelineItem, collectPlaybackBlockingVideos } from '../utils/playbackTimeline';
 import { getPlatformCapabilities } from '../utils/platform';
 import {
+  getFutureVideoAudioProbeTimes,
   getPreviewAudioOutputMode,
   getPreviewAudioRoutingPlan,
   getPreviewPlatformPolicy,
@@ -2531,6 +2532,17 @@ const TurtleVideo: React.FC = () => {
     return routingPlan.some((decision) => decision.outputMode === 'webaudio');
   }, [ensureAudioNodeForElement, previewPlatformPolicy]);
 
+  const preparePreviewAudioNodesForUpcomingVideos = useCallback((fromTime: number) => {
+    if (!previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
+      return;
+    }
+
+    const probeTimes = getFutureVideoAudioProbeTimes(mediaItemsRef.current, fromTime);
+    probeTimes.forEach((probeTime) => {
+      preparePreviewAudioNodesForTime(probeTime);
+    });
+  }, [preparePreviewAudioNodesForTime, previewPlatformPolicy]);
+
   const handleMediaRefAssign = useCallback(
     (id: string, element: HTMLVideoElement | HTMLImageElement | HTMLAudioElement | null) => {
       if (element) {
@@ -3369,16 +3381,7 @@ const TurtleVideo: React.FC = () => {
         // 再生中にクリップが切り替わった際の ensureAudioNodeForElement →
         // requestPreviewAudioRouteRefresh (suspend/resume) を防ぎ、
         // BGM への音声経路中断を回避する。
-        if (previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
-          for (const item of mediaItemsRef.current) {
-            if (item.type === 'video' && !sourceNodesRef.current[item.id]) {
-              const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
-              if (videoEl) {
-                ensureAudioNodeForElement(item.id, videoEl);
-              }
-            }
-          }
-        }
+        preparePreviewAudioNodesForUpcomingVideos(fromTime);
 
         isPlayingRef.current = true;
         play();
@@ -3696,7 +3699,7 @@ const TurtleVideo: React.FC = () => {
         loop(isExportMode, myLoopId);
       }
     },
-    [getAudioContext, stopAll, setProcessing, setLoading, play, clearExport, configureAudioRouting, ensureVideoMetadataReady, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError, logWarn, logInfo, logDebug, previewPlatformPolicy, preparePreviewAudioNodesForTime]
+    [getAudioContext, stopAll, setProcessing, setLoading, play, clearExport, configureAudioRouting, ensureVideoMetadataReady, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError, logWarn, logInfo, logDebug, previewPlatformPolicy, preparePreviewAudioNodesForTime, preparePreviewAudioNodesForUpcomingVideos]
   );
 
   // --- シークバー操作ハンドラ ---

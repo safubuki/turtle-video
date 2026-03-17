@@ -33,6 +33,11 @@ export interface PreviewAudioRoutingDecision extends PreviewAudioRoutingCandidat
   outputMode: PreviewAudioOutputMode;
 }
 
+export interface PreviewAudioProbeTimelineItem {
+  type: 'video' | 'image';
+  duration: number;
+}
+
 export interface VideoClipEndGuardOptions {
   clipLocalTime: number;
   clipDuration: number;
@@ -174,6 +179,37 @@ export function getPreviewAudioRoutingPlan(
       }),
     };
   });
+}
+
+/**
+ * iOS Safari preview で将来の動画開始点だけを事前評価するための probe time を返す。
+ * 単独動画 native fallback を壊さないよう、開始直後の少し先だけを warm-up 対象にする。
+ */
+export function getFutureVideoAudioProbeTimes(
+  items: PreviewAudioProbeTimelineItem[],
+  fromTime: number,
+): number[] {
+  const probeTimes: number[] = [];
+  let cursor = 0;
+
+  for (const item of items) {
+    const startTime = cursor;
+    const duration = Math.max(0, item.duration);
+    cursor += duration;
+
+    if (item.type !== 'video' || duration <= 0.001) {
+      continue;
+    }
+
+    if (startTime <= fromTime + 0.0005) {
+      continue;
+    }
+
+    const probeOffset = duration <= 0.1 ? duration / 2 : 0.05;
+    probeTimes.push(startTime + probeOffset);
+  }
+
+  return probeTimes;
 }
 
 /**
