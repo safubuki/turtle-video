@@ -1174,9 +1174,9 @@ const TurtleVideo: React.FC = () => {
                     }) === 'webaudio'
                   ) {
                     hasAudioNode = ensureAudioNodeForElement(trackId, element);
-                    if (hasAudioNode && !_isExporting) {
-                      requestPreviewAudioRouteRefreshRef.current();
-                    }
+                    // audio-only 要素は常に WebAudio 経路を使うため、
+                    // ノード作成に伴う route refresh (suspend/resume) は不要。
+                    // suspend/resume は再生中の全音声を途切れさせる原因になる。
                     gainNode = gainNodesRef.current[trackId];
                   }
 
@@ -1304,9 +1304,7 @@ const TurtleVideo: React.FC = () => {
               }) === 'webaudio'
             ) {
               hasAudioNode = ensureAudioNodeForElement(trackId, element);
-              if (hasAudioNode && !_isExporting) {
-                requestPreviewAudioRouteRefreshRef.current();
-              }
+              // audio-only 要素は route refresh 不要（BGM と同様）
               gainNode = gainNodesRef.current[trackId];
             }
 
@@ -2379,17 +2377,39 @@ const TurtleVideo: React.FC = () => {
     }
 
     try {
+      // Step 1: 旧 native 要素を即座にミュートして二重経路を防止
+      Object.keys(sourceNodesRef.current).forEach((nodeId) => {
+        const el = mediaElementsRef.current[nodeId];
+        if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO')) {
+          (el as HTMLMediaElement).volume = 0;
+        }
+      });
+
+      // Step 2: AudioContext が running でなければ resume を試みる
       if ((ctx.state as AudioContextState | 'interrupted') !== 'running') {
         await ctx.resume();
       }
 
+      // Step 3: それでも running でなければ suspend/resume で強制再初期化
       if ((ctx.state as AudioContextState | 'interrupted') !== 'running') {
-        return;
+        await ctx.suspend();
+        await ctx.resume();
       }
 
-      await ctx.suspend();
-      await ctx.resume();
-      audioResumeWaitFramesRef.current = Math.max(audioResumeWaitFramesRef.current, 1);
+      // Step 4: GainNode の接続を再確認
+      const target = ctx.destination;
+      Object.keys(gainNodesRef.current).forEach((nodeId) => {
+        const gain = gainNodesRef.current[nodeId];
+        try {
+          gain.disconnect();
+          gain.connect(target);
+        } catch { /* ignore */ }
+      });
+
+      // audioResumeWaitFramesRef は設定しない。
+      // native 要素は既にミュート済みなので holdAudioThisFrame による
+      // 全音源一時停止は不要。renderFrame の applyPreviewAudioOutputState が
+      // 各要素の native/webaudio 状態を次フレームで正しく設定する。
       logInfo('AUDIO', 'iOS Safari preview 音声ルートを再初期化', {
         state: ctx.state,
       });
@@ -2553,6 +2573,38 @@ const TurtleVideo: React.FC = () => {
     });
   }, [preparePreviewAudioNodesForTime, previewPlatformPolicy]);
 
+  // --- iOS Safari: BGM/ナレーション追加時のビデオオーディオノード事前作成 ---
+  // BGM が加わると audibleSourceCount が増え、これまで native fallback だった
+  // ビデオが webaudio に切り替わる必要がある。ノードを先に作ることで、
+  // renderFrame の ensureAudioNodeForElement → route refresh (suspend/resume) を防ぐ。
+  useEffect(() => {
+    if (
+      bgm &&
+      isPlayingRef.current &&
+      !isProcessing &&
+      previewPlatformPolicy.muteNativeMediaWhenAudioRouted
+    ) {
+      const bgmEl = mediaElementsRef.current.bgm as HTMLAudioElement | undefined;
+      if (bgmEl && !sourceNodesRef.current.bgm) {
+        ensureAudioNodeForElement('bgm', bgmEl);
+      }
+      preparePreviewAudioNodesForTime(currentTimeRef.current);
+      preparePreviewAudioNodesForUpcomingVideos(currentTimeRef.current);
+    }
+  }, [bgm, isProcessing, preparePreviewAudioNodesForTime, preparePreviewAudioNodesForUpcomingVideos, previewPlatformPolicy]);
+
+  useEffect(() => {
+    if (
+      narrations.length > 0 &&
+      isPlayingRef.current &&
+      !isProcessing &&
+      previewPlatformPolicy.muteNativeMediaWhenAudioRouted
+    ) {
+      preparePreviewAudioNodesForTime(currentTimeRef.current);
+      preparePreviewAudioNodesForUpcomingVideos(currentTimeRef.current);
+    }
+  }, [narrations, isProcessing, preparePreviewAudioNodesForTime, preparePreviewAudioNodesForUpcomingVideos, previewPlatformPolicy]);
+
   const handleMediaRefAssign = useCallback(
     (id: string, element: HTMLVideoElement | HTMLImageElement | HTMLAudioElement | null) => {
       if (element) {
@@ -2572,25 +2624,16 @@ const TurtleVideo: React.FC = () => {
             detachAudioNode(id);
           }
 
-          if (false && !sourceNodesRef.current[id]) {
-            try {
-              const ctx = getAudioContext();
-              // iOS Safariでは interrupted になることがあるため running 以外は復帰を試みる
-              if ((ctx.state as AudioContextState | 'interrupted') !== 'running') {
-                ctx.resume().catch(() => { });
-              }
-              const source = ctx.createMediaElementSource(element as HTMLMediaElement);
-              const gain = ctx.createGain();
-              source.connect(gain);
-              gain.connect(ctx.destination);
-              gain.gain.setValueAtTime(1, ctx.currentTime);
-              sourceNodesRef.current[id] = source;
-              gainNodesRef.current[id] = gain;
-              sourceElementsRef.current[id] = mediaEl;
-            } catch (e) {
-              // MediaElementAudioSourceNodeの作成エラーはログに出力
-              console.warn(`Audio node creation failed for ${id}:`, e);
-            }
+          // iOS Safari: audio-only 要素 (BGM, narration) は常に WebAudio 経路を使用する。
+          // handleMediaRefAssign の時点でノードを即時作成することで、
+          // renderFrame 内の遅延作成 → route refresh (suspend/resume) による
+          // 再生中の音声途切れを回避する。
+          if (
+            element.tagName === 'AUDIO' &&
+            previewPlatformPolicy.muteNativeMediaWhenAudioRouted &&
+            !sourceNodesRef.current[id]
+          ) {
+            ensureAudioNodeForElement(id, mediaEl);
           }
 
           // iOS Safari では複数メディア同時再生時にネイティブ音声経路の競合が起きるため、

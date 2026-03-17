@@ -91,6 +91,22 @@
 
 ## 3. AudioContext 管理
 
+### 3-0. iOS Safari プレビュー BGM 経路安定化
+
+- **ファイル**: `src/components/TurtleVideo.tsx`（`handleMediaRefAssign`, `renderFrame`, `refreshPreviewAudioRoute`）, `src/utils/previewPlatform.ts`
+- **問題**: iOS Safari のプレビューで BGM（audio-only 要素）が画像区間で鳴らない、動画区間でも任意のタイミングで途切れる、動画→画像遷移で無音化する
+- **原因**: BGM まで `native fallback`（`audibleSourceCount <= 1` 時の単一音源ネイティブ再生）に入り、`native` と `WebAudio` の経路が画像⇔動画境界で揺れていた。加えて、ノードの遅延作成が `requestPreviewAudioRouteRefresh`（`suspend/resume`）を発動し、再生中の全音源が中断されていた
+- **対策**:
+  - **audio-only ノードの即時作成**: `handleMediaRefAssign` で `<audio>` 要素が割り当てられた時点で `ensureAudioNodeForElement` を呼び、WebAudio ノードを即座に作成する。`renderFrame` 内の遅延作成 → route refresh を排除
+  - **audio-only の route refresh 除外**: `processAudioTrack`（BGM）と `processNarrationClip` で `ensureAudioNodeForElement` が呼ばれた場合でも `requestPreviewAudioRouteRefreshRef.current()` を呼ばない。audio-only は常に WebAudio 経路であり、`suspend/resume` は不要
+  - **BGM/ナレーション追加時のビデオノード事前作成**: BGM やナレーションが追加されると `audibleSourceCount` が増え、それまで `native` だったビデオが `webaudio` に切り替わる必要がある。`useEffect` で `preparePreviewAudioNodesForTime` + `preparePreviewAudioNodesForUpcomingVideos` を呼び、全ビデオのノードを先行作成
+  - **route refresh の安全化**: `refreshPreviewAudioRoute` を再設計し、① 旧 native 要素を即座に mute（`volume=0`）、② `resume()` で復帰試行、③ running にならない場合のみ `suspend/resume`、④ GainNode 接続を再確認、⑤ `audioResumeWaitFramesRef` を設定しない（全音源一時停止を回避）
+- **合格条件**: 途中BGM追加直後、画像区間へシーク、動画区間へシークの 3 ケースで無音・遅延・二重経路がなく、可聴な native は動画区間で 1 系統以下、画像区間で 0 系統
+- **注意**:
+  - 可視復帰時の route refresh（`visibilitychange` 経由）は引き続き有効
+  - `avoidPausePlay` パターン（WebAudio 接続済み audio-only 要素の `pause()/play()` サイクル回避）は維持
+  - `startEngine` 冒頭の初回 `suspend/resume` は変更なし
+
 ### 3-1. 遅延初期化 + ユーザージェスチャー要件
 
 - **ファイル**: `src/hooks/useAudioContext.ts`, `src/utils/audio.ts`
