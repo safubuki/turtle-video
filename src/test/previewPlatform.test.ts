@@ -74,6 +74,36 @@ describe('getPreviewPlatformPolicy', () => {
       ], 2.2),
     ).toEqual([6.05]);
   });
+
+  it('iOS Safari preview の BGM 単独再生は WebAudio を維持する', () => {
+    const iosPolicy = getPreviewPlatformPolicy({
+      isAndroid: false,
+      isIosSafari: true,
+      audioContextMayInterrupt: true,
+    });
+
+    expect(
+      getPreviewAudioRoutingPlan(iosPolicy, {
+        isExporting: false,
+        candidates: [
+          {
+            id: 'bgm',
+            hasAudioNode: false,
+            desiredVolume: 1,
+            sourceType: 'audio',
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        id: 'bgm',
+        hasAudioNode: false,
+        desiredVolume: 1,
+        audibleSourceCount: 1,
+        outputMode: 'webaudio',
+      },
+    ]);
+  });
 });
 
 describe('preview platform helpers', () => {
@@ -120,6 +150,7 @@ describe('preview platform helpers', () => {
         isExporting: false,
         audibleSourceCount: 1,
         desiredVolume: 1,
+        sourceType: 'video',
       }),
     ).toBe('native');
     expect(
@@ -128,6 +159,7 @@ describe('preview platform helpers', () => {
         isExporting: false,
         audibleSourceCount: 2,
         desiredVolume: 1,
+        sourceType: 'video',
       }),
     ).toBe('webaudio');
     expect(
@@ -136,6 +168,7 @@ describe('preview platform helpers', () => {
         isExporting: false,
         audibleSourceCount: 1,
         desiredVolume: 0.5,
+        sourceType: 'video',
       }),
     ).toBe('webaudio');
     expect(
@@ -144,6 +177,7 @@ describe('preview platform helpers', () => {
         isExporting: true,
         audibleSourceCount: 1,
         desiredVolume: 1,
+        sourceType: 'video',
       }),
     ).toBe('webaudio');
     expect(
@@ -152,6 +186,16 @@ describe('preview platform helpers', () => {
         isExporting: false,
         audibleSourceCount: 1,
         desiredVolume: 1,
+        sourceType: 'video',
+      }),
+    ).toBe('webaudio');
+    expect(
+      getPreviewAudioOutputMode(iosPolicy, {
+        hasAudioNode: false,
+        isExporting: false,
+        audibleSourceCount: 1,
+        desiredVolume: 1,
+        sourceType: 'audio',
       }),
     ).toBe('webaudio');
   });
@@ -165,11 +209,13 @@ describe('preview platform helpers', () => {
             id: 'video:1',
             hasAudioNode: false,
             desiredVolume: 1,
+            sourceType: 'video',
           },
           {
             id: 'bgm',
             hasAudioNode: false,
             desiredVolume: 1,
+            sourceType: 'audio',
           },
         ],
       }),
@@ -200,6 +246,7 @@ describe('preview platform helpers', () => {
             id: 'video:1',
             hasAudioNode: false,
             desiredVolume: 1,
+            sourceType: 'video',
           },
         ],
       }),

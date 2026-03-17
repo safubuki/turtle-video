@@ -86,11 +86,13 @@ const applyPreviewAudioOutputState = (
     isExporting: boolean;
   },
 ) => {
+  const sourceType = mediaEl.tagName === 'AUDIO' ? 'audio' : 'video';
   const outputMode = getPreviewAudioOutputMode(policy, {
     hasAudioNode: options.hasAudioNode,
     isExporting: options.isExporting,
     audibleSourceCount: options.audibleSourceCount,
     desiredVolume: options.desiredVolume,
+    sourceType,
   });
   const shouldMuteNative =
     outputMode === 'webaudio'
@@ -876,6 +878,7 @@ const TurtleVideo: React.FC = () => {
                     isExporting: _isExporting,
                     audibleSourceCount: vol > 0 ? activePreviewAudioSourceCount : 0,
                     desiredVolume: vol,
+                    sourceType: 'video',
                   }) === 'webaudio'
                 ) {
                   hasAudioNode = ensureAudioNodeForElement(id, videoMediaEl);
@@ -1167,6 +1170,7 @@ const TurtleVideo: React.FC = () => {
                       isExporting: _isExporting,
                       audibleSourceCount: vol > 0 ? activePreviewAudioSourceCount : 0,
                       desiredVolume: vol,
+                      sourceType: 'audio',
                     }) === 'webaudio'
                   ) {
                     hasAudioNode = ensureAudioNodeForElement(trackId, element);
@@ -1296,6 +1300,7 @@ const TurtleVideo: React.FC = () => {
                 isExporting: _isExporting,
                 audibleSourceCount: vol > 0 ? activePreviewAudioSourceCount : 0,
                 desiredVolume: vol,
+                sourceType: 'audio',
               }) === 'webaudio'
             ) {
               hasAudioNode = ensureAudioNodeForElement(trackId, element);
@@ -2429,6 +2434,7 @@ const TurtleVideo: React.FC = () => {
       id: string;
       desiredVolume: number;
       element: HTMLMediaElement;
+      sourceType: 'video' | 'audio';
     }> = [];
 
     const active = findActiveTimelineItem(currentItems, time, totalDurationRef.current);
@@ -2453,6 +2459,7 @@ const TurtleVideo: React.FC = () => {
               id: activeItem.id,
               desiredVolume: vol,
               element,
+              sourceType: 'video',
             });
           }
         }
@@ -2481,6 +2488,7 @@ const TurtleVideo: React.FC = () => {
             id: 'bgm',
             desiredVolume: vol,
             element,
+            sourceType: 'audio',
           });
         }
       }
@@ -2509,6 +2517,7 @@ const TurtleVideo: React.FC = () => {
           id: trackId,
           desiredVolume: clip.volume,
           element,
+          sourceType: 'audio',
         });
       }
     }
@@ -2519,6 +2528,7 @@ const TurtleVideo: React.FC = () => {
         id: candidate.id,
         hasAudioNode: !!sourceNodesRef.current[candidate.id],
         desiredVolume: candidate.desiredVolume,
+        sourceType: candidate.sourceType,
       })),
     });
 

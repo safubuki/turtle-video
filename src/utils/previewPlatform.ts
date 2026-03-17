@@ -26,6 +26,7 @@ export interface PreviewAudioRoutingCandidate {
   id: string;
   hasAudioNode: boolean;
   desiredVolume: number;
+  sourceType?: 'video' | 'audio';
 }
 
 export interface PreviewAudioRoutingDecision extends PreviewAudioRoutingCandidate {
@@ -124,6 +125,7 @@ export function getPreviewAudioOutputMode(
     isExporting: boolean;
     audibleSourceCount: number;
     desiredVolume: number;
+    sourceType?: 'video' | 'audio';
   },
 ): PreviewAudioOutputMode {
   if (!policy.muteNativeMediaWhenAudioRouted) {
@@ -133,6 +135,10 @@ export function getPreviewAudioOutputMode(
   // MediaElementAudioSourceNode を一度生成した要素は native 出力へ戻せないため、
   // ノード生成済みなら常に WebAudio 側で扱う。
   if (options.hasAudioNode) {
+    return 'webaudio';
+  }
+
+  if (options.sourceType === 'audio' && !options.isExporting) {
     return 'webaudio';
   }
 
@@ -169,13 +175,16 @@ export function getPreviewAudioRoutingPlan(
   return options.candidates.map((candidate) => {
     const candidateAudibleSourceCount = candidate.desiredVolume > 0 ? audibleSourceCount : 0;
     return {
-      ...candidate,
+      id: candidate.id,
+      hasAudioNode: candidate.hasAudioNode,
+      desiredVolume: candidate.desiredVolume,
       audibleSourceCount: candidateAudibleSourceCount,
       outputMode: getPreviewAudioOutputMode(policy, {
         hasAudioNode: candidate.hasAudioNode,
         isExporting: options.isExporting,
         audibleSourceCount: candidateAudibleSourceCount,
         desiredVolume: candidate.desiredVolume,
+        sourceType: candidate.sourceType,
       }),
     };
   });

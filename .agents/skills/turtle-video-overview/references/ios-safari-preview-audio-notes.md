@@ -1,13 +1,14 @@
 # iOS Safari Preview Audio Notes
 
-## 1. Single-video native fallback must survive image -> video transitions
+## 1. Single-video native fallback is only for video clips
 
 - `getPreviewAudioOutputMode()` already allows `native` output for preview when:
   - iOS Safari
   - only one audible source
   - desired volume is `1`
   - no existing `AudioNode`
-- This fallback is important because Safari can fail to start clip audio reliably if a single video is forced through WebAudio unnecessarily.
+- This fallback is important for video clips because Safari can fail to start clip audio reliably if a single video is forced through WebAudio unnecessarily.
+- Audio-only tracks such as BGM and narration should stay on WebAudio in preview so they do not flap between native and WebAudio at image/video boundaries.
 
 ## 2. Do not eagerly attach `AudioNode` to every future video
 
@@ -18,9 +19,10 @@
   - audio may begin later without user input, or remain silent
   - seek / slider interaction restarts playback with audio
 
-## 3. Current warm-up policy
+## 3. Current routing policy
 
 - `preparePreviewAudioNodesForTime(fromTime)` still prepares the current playback point.
+- Audio-only tracks (`<audio>`) stay on WebAudio for iOS Safari preview even when they are the only audible source.
 - Future warm-up is now limited to `getFutureVideoAudioProbeTimes()`:
   - only future video clip start points
   - slightly after clip start, not every frame
@@ -34,3 +36,7 @@
   - no BGM / narration case
   - video audio starts immediately on transition
   - no delayed audio start after idle waiting
+- Also re-check BGM on:
+  - image-only sections before the first video
+  - image -> video transitions
+  - video -> image transitions
