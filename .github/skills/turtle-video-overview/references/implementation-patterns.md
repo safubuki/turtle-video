@@ -93,19 +93,29 @@
 
 ### 3-0. iOS Safari プレビュー BGM 経路安定化
 
-- **ファイル**: `src/components/TurtleVideo.tsx`（`handleMediaRefAssign`, `renderFrame`, `refreshPreviewAudioRoute`）, `src/utils/previewPlatform.ts`
+- **ファイル**: `src/components/TurtleVideo.tsx`（`handleMediaRefAssign`, `renderFrame`, `refreshPreviewAudioRoute`, `startEngine`, `stopAll`, シーク復帰部）, `src/utils/previewPlatform.ts`
 - **問題**: iOS Safari のプレビューで BGM（audio-only 要素）が画像区間で鳴らない、動画区間でも任意のタイミングで途切れる、動画→画像遷移で無音化する
-- **原因**: BGM まで `native fallback`（`audibleSourceCount <= 1` 時の単一音源ネイティブ再生）に入り、`native` と `WebAudio` の経路が画像⇔動画境界で揺れていた。加えて、ノードの遅延作成が `requestPreviewAudioRouteRefresh`（`suspend/resume`）を発動し、再生中の全音源が中断されていた
+- **原因（Phase 1）**: BGM まで `native fallback`（`audibleSourceCount <= 1` 時の単一音源ネイティブ再生）に入り、`native` と `WebAudio` の経路が画像⇔動画境界で揺れていた。加えて、ノードの遅延作成が `requestPreviewAudioRouteRefresh`（`suspend/resume`）を発動し、再生中の全音源が中断されていた
+- **原因（Phase 2）**: iOS Safari の `play()` がユーザージェスチャーのクレジット失効後（`requestAnimationFrame` コールバック内）に呼ばれると AudioSession を破壊し、AudioContext が `interrupted` 状態に遷移する。非アクティブビデオの `pause()` → アクティブ化時の `play()` サイクルがクリップ境界（画像→動画）で発生し、BGM の WebAudio 経路ごと断絶していた
 - **対策**:
-  - **audio-only ノードの即時作成**: `handleMediaRefAssign` で `<audio>` 要素が割り当てられた時点で `ensureAudioNodeForElement` を呼び、WebAudio ノードを即座に作成する。`renderFrame` 内の遅延作成 → route refresh を排除
-  - **audio-only の route refresh 除外**: `processAudioTrack`（BGM）と `processNarrationClip` で `ensureAudioNodeForElement` が呼ばれた場合でも `requestPreviewAudioRouteRefreshRef.current()` を呼ばない。audio-only は常に WebAudio 経路であり、`suspend/resume` は不要
-  - **BGM/ナレーション追加時のビデオノード事前作成**: BGM やナレーションが追加されると `audibleSourceCount` が増え、それまで `native` だったビデオが `webaudio` に切り替わる必要がある。`useEffect` で `preparePreviewAudioNodesForTime` + `preparePreviewAudioNodesForUpcomingVideos` を呼び、全ビデオのノードを先行作成
-  - **route refresh の安全化**: `refreshPreviewAudioRoute` を再設計し、① 旧 native 要素を即座に mute（`volume=0`）、② `resume()` で復帰試行、③ running にならない場合のみ `suspend/resume`、④ GainNode 接続を再確認、⑤ `audioResumeWaitFramesRef` を設定しない（全音源一時停止を回避）
+  - **Phase 1 対策（維持）**:
+    - **audio-only ノードの即時作成**: `handleMediaRefAssign` で `<audio>` 要素が割り当てられた時点で `ensureAudioNodeForElement` を呼び、WebAudio ノードを即座に作成する。`renderFrame` 内の遅延作成 → route refresh を排除
+    - **audio-only の route refresh 除外**: `processAudioTrack`（BGM）と `processNarrationClip` で `ensureAudioNodeForElement` が呼ばれた場合でも `requestPreviewAudioRouteRefreshRef.current()` を呼ばない
+    - **BGM/ナレーション追加時のビデオノード事前作成**: `useEffect` で `preparePreviewAudioNodesForTime` + `preparePreviewAudioNodesForUpcomingVideos` を呼び、全ビデオのノードを先行作成
+    - **route refresh の安全化**: ① 旧 native 要素を即座に mute、② `resume()` 試行、③ 必要時のみ `suspend/resume`、④ GainNode 再接続、⑤ `audioResumeWaitFramesRef` 非設定
+  - **Phase 2 対策（追加）**:
+    - **ビデオ要素のジェスチャー内事前 play()**: `startEngine` 内（ユーザージェスチャーのクレジットあり）で全ビデオ要素を GainNode=0 の状態で `play()` する。`renderFrame` 内での `play()` 呼び出しが不要になり、AudioSession 破壊を回避
+    - **非アクティブビデオの avoidPausePlay**: WebAudio ノードを持つ非アクティブビデオは再生中 `pause()` しない。GainNode=0 で無音のまま再生を維持し、アクティブ化時に gain を上げるだけで済む
+    - **AudioContext statechange 回復ハンドラ**: `startEngine` で `ctx.onstatechange` を設定し、AudioContext が `interrupted` に遷移した場合に自動 `resume()` を試みる。`stopAll` でクリア
+    - **renderFrame レベルの AudioContext 健全性チェック**: BGM 処理の直前に AudioContext の state を確認し、`running` でなければ `resume()` を fire-and-forget で呼ぶ
+    - **シーク復帰時のビデオ事前 play()**: `proceedWithPlayback`（シーク完了後の再生再開）でも `resetInactiveVideos()` の後に全ビデオ要素を事前 `play()` する（シーク操作はジェスチャーなのでクレジットあり）
 - **合格条件**: 途中BGM追加直後、画像区間へシーク、動画区間へシークの 3 ケースで無音・遅延・二重経路がなく、可聴な native は動画区間で 1 系統以下、画像区間で 0 系統
 - **注意**:
   - 可視復帰時の route refresh（`visibilitychange` 経由）は引き続き有効
-  - `avoidPausePlay` パターン（WebAudio 接続済み audio-only 要素の `pause()/play()` サイクル回避）は維持
+  - `avoidPausePlay` パターン（WebAudio 接続済み audio-only 要素の `pause()/play()` サイクル回避）は維持。ビデオ要素にも同パターンを適用
   - `startEngine` 冒頭の初回 `suspend/resume` は変更なし
+  - ビデオの事前 play() は GainNode=0 かつ native volume=0 で行うため、可聴出力への影響なし
+  - 非アクティブビデオは再生を継続するが、アクティブ化時の sync ロジック (`currentTime` 補正) で位置が修正される
 
 ### 3-1. 遅延初期化 + ユーザージェスチャー要件
 

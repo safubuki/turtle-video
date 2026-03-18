@@ -916,11 +916,20 @@ const TurtleVideo: React.FC = () => {
           } else {
             if (conf.type === 'video') {
               const videoEl = element as HTMLVideoElement;
-              if (!videoEl.paused) {
+              const hasVideoAudioNode = !!sourceNodesRef.current[id];
+              // iOS Safari: WebAudio ノードを持つビデオは再生中 pause() しない。
+              // pause() → play() サイクルがクリップ境界で AudioSession を破壊し、
+              // BGM の WebAudio 経路が断絶する原因になる。
+              // GainNode=0 で無音のまま再生を維持し、アクティブ時に gain を上げる。
+              const avoidVideoPausePlay = hasVideoAudioNode
+                && previewPlatformPolicy.muteNativeMediaWhenAudioRouted
+                && !_isExporting
+                && isActivePlaying;
+              if (!avoidVideoPausePlay && !videoEl.paused) {
                 videoEl.pause();
               }
               applyPreviewAudioOutputState(previewPlatformPolicy, videoEl, {
-                hasAudioNode: !!sourceNodesRef.current[id],
+                hasAudioNode: hasVideoAudioNode,
                 desiredVolume: 0,
                 audibleSourceCount: 0,
                 isExporting: _isExporting,
@@ -1338,6 +1347,15 @@ const TurtleVideo: React.FC = () => {
             }
           }
         };
+
+        // iOS Safari: ビデオの play() が AudioContext を interrupted にした場合の
+        // フレームレベル回復。BGM 処理前に AudioContext を running に戻す。
+        if (isActivePlaying && previewPlatformPolicy.muteNativeMediaWhenAudioRouted && !_isExporting) {
+          const ctx = audioCtxRef.current;
+          if (ctx && (ctx.state as AudioContextState | 'interrupted') !== 'running') {
+            ctx.resume().catch(() => {});
+          }
+        }
 
         processAudioTrack(currentBgm, 'bgm');
         currentNarrations.forEach((clip) => processNarrationClip(clip));
@@ -3022,6 +3040,8 @@ const TurtleVideo: React.FC = () => {
 
     const ctx = audioCtxRef.current;
     if (ctx) {
+      // statechange ハンドラをクリア（startEngine で設定した iOS Safari 用回復ハンドラ）
+      ctx.onstatechange = null;
       Object.values(gainNodesRef.current).forEach((node) => {
         try {
           node.gain.cancelScheduledValues(ctx.currentTime);
@@ -3435,6 +3455,47 @@ const TurtleVideo: React.FC = () => {
         // requestPreviewAudioRouteRefresh (suspend/resume) を防ぎ、
         // BGM への音声経路中断を回避する。
         preparePreviewAudioNodesForUpcomingVideos(fromTime);
+
+        // iOS Safari: ユーザージェスチャーのクレジットがある startEngine 内で
+        // 全ビデオ要素を事前 play() する。renderFrame (requestAnimationFrame
+        // コールバック) 内での play() はジェスチャークレジット失効後に失敗し、
+        // AudioSession 破壊で BGM が無音化する原因になる。
+        // ここで play() しておけば、renderFrame では pause/play 不要になる。
+        if (previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
+          for (const item of mediaItemsRef.current) {
+            if (item.type !== 'video') continue;
+            const el = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
+            if (el && sourceNodesRef.current[item.id]) {
+              // GainNode=0 で無音のまま再生開始
+              const gn = gainNodesRef.current[item.id];
+              if (gn && audioCtxRef.current) {
+                gn.gain.setValueAtTime(0, audioCtxRef.current.currentTime);
+              }
+              applyPreviewAudioOutputState(previewPlatformPolicy, el, {
+                hasAudioNode: true,
+                desiredVolume: 0,
+                audibleSourceCount: 0,
+                isExporting: false,
+              });
+              el.currentTime = item.trimStart || 0;
+              el.play().catch(() => {});
+            }
+          }
+        }
+
+        // iOS Safari: AudioContext が再生中に interrupted 状態に遷移した場合の
+        // 非同期回復ハンドラを設定する。video の play() が AudioSession を
+        // 破壊したケースでも自動的に resume を試みる。
+        if (previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
+          const ctxForHandler = audioCtxRef.current;
+          if (ctxForHandler) {
+            ctxForHandler.onstatechange = () => {
+              if (isPlayingRef.current && (ctxForHandler.state as AudioContextState | 'interrupted') !== 'running') {
+                ctxForHandler.resume().catch(() => {});
+              }
+            };
+          }
+        }
 
         isPlayingRef.current = true;
         play();
@@ -4190,6 +4251,23 @@ const TurtleVideo: React.FC = () => {
 
         // 非アクティブなビデオをリセット
         resetInactiveVideos();
+
+        // iOS Safari: シーク後もユーザージェスチャーのクレジットがあるため、
+        // 非アクティブなビデオを事前 play() する。startEngine と同じ目的で、
+        // renderFrame 内での play() 呼び出しを回避する。
+        if (previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
+          for (const item of mediaItemsRef.current) {
+            if (item.type !== 'video') continue;
+            const el = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
+            if (el && sourceNodesRef.current[item.id] && el.paused) {
+              const gn = gainNodesRef.current[item.id];
+              if (gn && audioCtxRef.current) {
+                gn.gain.setValueAtTime(0, audioCtxRef.current.currentTime);
+              }
+              el.play().catch(() => {});
+            }
+          }
+        }
 
         // ループ再開
         const currentLoopId = loopIdRef.current;
