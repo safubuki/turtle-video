@@ -5,6 +5,7 @@ import {
   getPreviewAudioRoutingPlan,
   getPreviewPlatformPolicy,
   getPreviewVideoSyncThreshold,
+  shouldBundlePreviewStartForWebAudioMix,
   shouldHoldVideoFrameAtClipEnd,
   shouldMuteNativeMediaElement,
   shouldReinitializeAudioRoute,
@@ -235,6 +236,40 @@ describe('preview platform helpers', () => {
         outputMode: 'webaudio',
       },
     ]);
+  });
+
+  it('iOS Safari で動画+BGM の複数音源時は audio-only を先に起動する', () => {
+    expect(
+      shouldBundlePreviewStartForWebAudioMix(iosPolicy, {
+        hasActiveVideo: true,
+        audibleSourceCount: 2,
+        requiresWebAudio: true,
+      }),
+    ).toBe(true);
+  });
+
+  it('単一動画や非 iOS では bundled start を使わない', () => {
+    expect(
+      shouldBundlePreviewStartForWebAudioMix(iosPolicy, {
+        hasActiveVideo: true,
+        audibleSourceCount: 1,
+        requiresWebAudio: true,
+      }),
+    ).toBe(false);
+
+    const nonIosPolicy = getPreviewPlatformPolicy({
+      isAndroid: false,
+      isIosSafari: false,
+      audioContextMayInterrupt: false,
+    });
+
+    expect(
+      shouldBundlePreviewStartForWebAudioMix(nonIosPolicy, {
+        hasActiveVideo: true,
+        audibleSourceCount: 2,
+        requiresWebAudio: true,
+      }),
+    ).toBe(false);
   });
 
   it('iOS Safari preview の単一音源は開始前判定でも native fallback を維持する', () => {

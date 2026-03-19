@@ -37,6 +37,7 @@ import {
   getPreviewAudioRoutingPlan,
   getPreviewPlatformPolicy,
   getPreviewVideoSyncThreshold,
+  shouldBundlePreviewStartForWebAudioMix,
   shouldHoldVideoFrameAtClipEnd,
   shouldMuteNativeMediaElement,
   shouldReinitializeAudioRoute,
@@ -120,6 +121,12 @@ const applyPreviewAudioOutputState = (
 
   return outputMode;
 };
+
+interface PreparedPreviewAudioNodesResult {
+  activeVideoId: string | null;
+  audibleSourceCount: number;
+  requiresWebAudio: boolean;
+}
 
 const TurtleVideo: React.FC = () => {
   // 離脱防止フックを使用
@@ -2460,14 +2467,19 @@ const TurtleVideo: React.FC = () => {
     requestPreviewAudioRouteRefreshRef.current = requestPreviewAudioRouteRefresh;
   }, [requestPreviewAudioRouteRefresh]);
 
-  const preparePreviewAudioNodesForTime = useCallback((time: number): boolean => {
+  const preparePreviewAudioNodesForTime = useCallback((time: number): PreparedPreviewAudioNodesResult => {
     if (!previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
-      return false;
+      return {
+        activeVideoId: null,
+        audibleSourceCount: 0,
+        requiresWebAudio: false,
+      };
     }
 
     const currentItems = mediaItemsRef.current;
     const currentBgm = bgmRef.current;
     const currentNarrations = narrationsRef.current;
+    let activeVideoId: string | null = null;
     const candidates: Array<{
       id: string;
       desiredVolume: number;
@@ -2479,6 +2491,7 @@ const TurtleVideo: React.FC = () => {
     if (active && active.index !== -1) {
       const activeItem = currentItems[active.index];
       if (activeItem?.type === 'video' && !activeItem.isMuted && activeItem.volume > 0) {
+        activeVideoId = activeItem.id;
         const element = mediaElementsRef.current[activeItem.id] as HTMLVideoElement | undefined;
         if (element) {
           let vol = activeItem.volume;
@@ -2577,8 +2590,51 @@ const TurtleVideo: React.FC = () => {
       ensureAudioNodeForElement(decision.id, candidates[index].element);
     });
 
-    return routingPlan.some((decision) => decision.outputMode === 'webaudio');
+    return {
+      activeVideoId,
+      audibleSourceCount: candidates.length,
+      requiresWebAudio: routingPlan.some((decision) => decision.outputMode === 'webaudio'),
+    };
   }, [ensureAudioNodeForElement, previewPlatformPolicy]);
+
+  const primePreviewAudioOnlyTracksAtTime = useCallback((playbackTime: number) => {
+    const currentBgm = bgmRef.current;
+    if (currentBgm) {
+      const bgmEl = mediaElementsRef.current.bgm as HTMLAudioElement | undefined;
+      if (bgmEl && sourceNodesRef.current.bgm) {
+        const trackTime = Math.max(0, playbackTime - currentBgm.delay + currentBgm.startPoint);
+        if (playbackTime >= currentBgm.delay && trackTime <= currentBgm.duration) {
+          bgmEl.currentTime = trackTime;
+          if (bgmEl.paused) {
+            bgmEl.play().catch(() => { });
+          }
+        }
+      }
+    }
+
+    const currentNarrations = narrationsRef.current;
+    for (const clip of currentNarrations) {
+      if (clip.isMuted || clip.volume <= 0) continue;
+      const trackId = `narration:${clip.id}`;
+      const narEl = mediaElementsRef.current[trackId] as HTMLAudioElement | undefined;
+      if (!narEl || !sourceNodesRef.current[trackId]) continue;
+      const trimStart = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
+      const trimEnd = Number.isFinite(clip.trimEnd)
+        ? Math.max(trimStart, Math.min(clip.duration, clip.trimEnd))
+        : clip.duration;
+      const playableDuration = Math.max(0, trimEnd - trimStart);
+      const clipTime = playbackTime - clip.startTime;
+      if (clipTime >= 0 && clipTime <= playableDuration) {
+        const sourceTime = trimStart + clipTime;
+        if (Math.abs(narEl.currentTime - sourceTime) > 0.5) {
+          narEl.currentTime = sourceTime;
+        }
+        if (narEl.paused) {
+          narEl.play().catch(() => { });
+        }
+      }
+    }
+  }, []);
 
   const preparePreviewAudioNodesForUpcomingVideos = useCallback((fromTime: number) => {
     if (!previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
@@ -3419,6 +3475,13 @@ const TurtleVideo: React.FC = () => {
         }
       });
 
+      let preparedPreviewAudio: PreparedPreviewAudioNodesResult = {
+        activeVideoId: null,
+        audibleSourceCount: 0,
+        requiresWebAudio: false,
+      };
+      let shouldBundlePreviewStart = false;
+
       if (!isExportMode) {
         const blockingVideos = collectPlaybackBlockingVideos(mediaItemsRef.current, fromTime);
         if (blockingVideos.length > 0) {
@@ -3448,7 +3511,12 @@ const TurtleVideo: React.FC = () => {
         // ② audioResumeWaitFramesRef=1 → holdAudioThisFrame=true で
         //    ループ初回フレームで全音源が pause() される
         // いずれも再生中の途切れの原因になるため、ノード作成のみ行う。
-        preparePreviewAudioNodesForTime(fromTime);
+        preparedPreviewAudio = preparePreviewAudioNodesForTime(fromTime);
+        shouldBundlePreviewStart = shouldBundlePreviewStartForWebAudioMix(previewPlatformPolicy, {
+          hasActiveVideo: preparedPreviewAudio.activeVideoId !== null,
+          audibleSourceCount: preparedPreviewAudio.audibleSourceCount,
+          requiresWebAudio: preparedPreviewAudio.requiresWebAudio,
+        });
 
         // iOS WebAudio モード: 全ビデオ要素のオーディオノードを事前作成する。
         // 再生中にクリップが切り替わった際の ensureAudioNodeForElement →
@@ -3464,6 +3532,9 @@ const TurtleVideo: React.FC = () => {
         if (previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
           for (const item of mediaItemsRef.current) {
             if (item.type !== 'video') continue;
+            if (shouldBundlePreviewStart && item.id === preparedPreviewAudio.activeVideoId) {
+              continue;
+            }
             const el = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
             if (el && sourceNodesRef.current[item.id]) {
               // GainNode=0 で無音のまま再生開始
@@ -3709,11 +3780,10 @@ const TurtleVideo: React.FC = () => {
         currentTimeRef.current = fromTime;
 
         // preparePreviewAudioNodesForTime は上で既に実行済み。
-        // iOS WebAudio モードでは shouldPrimeActiveVideo = false で、
-        // 動画の先行 play() をスキップする（BGM と同時に renderFrame で開始させる）。
-        const iosWebAudioMode = previewPlatformPolicy.muteNativeMediaWhenAudioRouted
-          && sourceNodesRef.current['bgm'];
-        const shouldPrimeActiveVideo = !iosWebAudioMode;
+        // iOS で可聴ソースが複数ある場合は、audio-only トラックを先に起動し、
+        // 動画は最後に開始して AudioSession 競合を避ける。
+        const shouldPrimeActiveVideo = !shouldBundlePreviewStart;
+        let activeVideoElForBundledStart: HTMLVideoElement | null = null;
         let t = 0;
         for (const item of mediaItemsRef.current) {
           if (fromTime >= t && fromTime < t + item.duration) {
@@ -3724,6 +3794,7 @@ const TurtleVideo: React.FC = () => {
                 const targetTime = (item.trimStart || 0) + localTime;
                 videoEl.currentTime = targetTime;
                 activeVideoIdRef.current = item.id;
+                activeVideoElForBundledStart = videoEl;
                 // 再生を開始
                 if (shouldPrimeActiveVideo) {
                   videoEl.play().catch(() => { });
@@ -3735,20 +3806,19 @@ const TurtleVideo: React.FC = () => {
           t += item.duration;
         }
 
-        // iOS WebAudio モード: BGM の play() を startEngine 内で明示的に呼ぶ。
-        // renderFrame の processAudioTrack に任せると、iOS Safari の
-        // play() が不安定に reject され pause/play サイクルで途切れが発生する。
-        if (iosWebAudioMode) {
-          const currentBgm = bgmRef.current;
-          if (currentBgm) {
-            const bgmEl = mediaElementsRef.current.bgm as HTMLAudioElement | undefined;
-            if (bgmEl) {
-              const trackTime = Math.max(0, fromTime - currentBgm.delay + currentBgm.startPoint);
-              if (fromTime >= currentBgm.delay && trackTime <= currentBgm.duration) {
-                bgmEl.currentTime = trackTime;
-                bgmEl.play().catch(() => { });
+        if (preparedPreviewAudio.requiresWebAudio) {
+          primePreviewAudioOnlyTracksAtTime(fromTime);
+        }
+        if (shouldBundlePreviewStart && activeVideoElForBundledStart) {
+          if (activeVideoElForBundledStart.readyState >= 2 && !activeVideoElForBundledStart.seeking) {
+            activeVideoElForBundledStart.play().catch(() => { });
+          } else {
+            const playWhenReady = () => {
+              if (isPlayingRef.current && activeVideoElForBundledStart.paused) {
+                activeVideoElForBundledStart.play().catch(() => { });
               }
-            }
+            };
+            activeVideoElForBundledStart.addEventListener('canplay', playWhenReady, { once: true });
           }
         }
 
@@ -3813,7 +3883,7 @@ const TurtleVideo: React.FC = () => {
         loop(isExportMode, myLoopId);
       }
     },
-    [getAudioContext, stopAll, setProcessing, setLoading, play, clearExport, configureAudioRouting, ensureVideoMetadataReady, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError, logWarn, logInfo, logDebug, previewPlatformPolicy, preparePreviewAudioNodesForTime, preparePreviewAudioNodesForUpcomingVideos]
+    [getAudioContext, stopAll, setProcessing, setLoading, play, clearExport, configureAudioRouting, ensureVideoMetadataReady, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError, logWarn, logInfo, logDebug, previewPlatformPolicy, preparePreviewAudioNodesForTime, preparePreviewAudioNodesForUpcomingVideos, primePreviewAudioOnlyTracksAtTime]
   );
 
   // --- シークバー操作ハンドラ ---
@@ -4145,62 +4215,24 @@ const TurtleVideo: React.FC = () => {
         startTimeRef.current = Date.now() - playbackTime * 1000;
         isPlayingRef.current = true;
 
-        // iOS WebAudio モード判定: startEngine と同じパターンで、
-        // BGM が WebAudio ノード済みの場合にビデオの先行 play() をスキップする。
-        // iOS Safari はビデオの play() と BGM の play() が競合して
-        // シングルメディア制約により BGM が無音化するケースがある。
-        const iosWebAudioMode = previewPlatformPolicy.muteNativeMediaWhenAudioRouted
-          && sourceNodesRef.current['bgm'];
-        const shouldPrimeActiveVideo = !iosWebAudioMode;
+        const preparedPreviewAudio = preparePreviewAudioNodesForTime(playbackTime);
+        const shouldBundlePreviewStart = shouldBundlePreviewStartForWebAudioMix(previewPlatformPolicy, {
+          hasActiveVideo: preparedPreviewAudio.activeVideoId !== null,
+          audibleSourceCount: preparedPreviewAudio.audibleSourceCount,
+          requiresWebAudio: preparedPreviewAudio.requiresWebAudio,
+        });
+        const shouldPrimeActiveVideo = !shouldBundlePreviewStart;
 
         // iOS WebAudio モード: BGM/ナレーションの play() をビデオより先に呼ぶ。
         // ビデオの play() はレンダーループに委ねることで、iOS Safari の
         // シングルメディア競合による BGM 無音化を防ぐ。
         if (previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
-          // WebAudio ノードを準備（まだ作成されていない場合に備える）
-          preparePreviewAudioNodesForTime(playbackTime);
-
-          const currentBgm = bgmRef.current;
-          if (currentBgm) {
-            const bgmEl = mediaElementsRef.current.bgm as HTMLAudioElement | undefined;
-            if (bgmEl && sourceNodesRef.current['bgm']) {
-              const trackTime = Math.max(0, playbackTime - currentBgm.delay + currentBgm.startPoint);
-              if (playbackTime >= currentBgm.delay && trackTime <= currentBgm.duration) {
-                if (Math.abs(bgmEl.currentTime - trackTime) > 0.5) {
-                  bgmEl.currentTime = trackTime;
-                }
-                if (bgmEl.paused) {
-                  bgmEl.play().catch(() => { });
-                }
-              }
-            }
-          }
-
-          const currentNarrations = narrationsRef.current;
-          for (const clip of currentNarrations) {
-            if (clip.isMuted || clip.volume <= 0) continue;
-            const trackId = `narration:${clip.id}`;
-            const narEl = mediaElementsRef.current[trackId] as HTMLAudioElement | undefined;
-            if (!narEl || !sourceNodesRef.current[trackId]) continue;
-            const trimStart = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
-            const trimEnd = Number.isFinite(clip.trimEnd)
-              ? Math.max(trimStart, Math.min(clip.duration, clip.trimEnd))
-              : clip.duration;
-            const playableDuration = Math.max(0, trimEnd - trimStart);
-            const clipTime = playbackTime - clip.startTime;
-            if (clipTime >= 0 && clipTime <= playableDuration) {
-              const sourceTime = trimStart + clipTime;
-              if (Math.abs(narEl.currentTime - sourceTime) > 0.5) {
-                narEl.currentTime = sourceTime;
-              }
-              if (narEl.paused) {
-                narEl.play().catch(() => { });
-              }
-            }
-          }
+          // audio-only トラックを先に起動し、動画は後段で開始する。
+          primePreviewAudioOnlyTracksAtTime(playbackTime);
         }
 
         // アクティブなビデオを特定して再生開始
+        let activeVideoElForBundledStart: HTMLVideoElement | null = null;
         let accTime = 0;
         for (const item of mediaItemsRef.current) {
           if (playbackTime >= accTime && playbackTime < accTime + item.duration) {
@@ -4215,6 +4247,7 @@ const TurtleVideo: React.FC = () => {
                   videoEl.currentTime = targetTime;
                 }
                 activeVideoIdRef.current = item.id;
+                activeVideoElForBundledStart = videoEl;
 
                 // iOS WebAudio モードではビデオの先行 play() をスキップし、
                 // レンダーループ内で BGM と同時に開始させる（startEngine と同じ方式）。
@@ -4249,6 +4282,19 @@ const TurtleVideo: React.FC = () => {
           accTime += item.duration;
         }
 
+        if (shouldBundlePreviewStart && activeVideoElForBundledStart) {
+          if (activeVideoElForBundledStart.readyState >= 2 && !activeVideoElForBundledStart.seeking) {
+            activeVideoElForBundledStart.play().catch(() => { });
+          } else {
+            const playWhenReady = () => {
+              if (isPlayingRef.current && activeVideoElForBundledStart.paused) {
+                activeVideoElForBundledStart.play().catch(() => { });
+              }
+            };
+            activeVideoElForBundledStart.addEventListener('canplay', playWhenReady, { once: true });
+          }
+        }
+
         // 非アクティブなビデオをリセット
         resetInactiveVideos();
 
@@ -4258,6 +4304,9 @@ const TurtleVideo: React.FC = () => {
         if (previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
           for (const item of mediaItemsRef.current) {
             if (item.type !== 'video') continue;
+            if (shouldBundlePreviewStart && item.id === preparedPreviewAudio.activeVideoId) {
+              continue;
+            }
             const el = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
             if (el && sourceNodesRef.current[item.id] && el.paused) {
               const gn = gainNodesRef.current[item.id];
@@ -4407,7 +4456,7 @@ const TurtleVideo: React.FC = () => {
       // 再生していなかった場合は現在位置でフレームを再描画
       drawSettledFrame(t);
     }
-  }, [setCurrentTime, renderFrame, loop, resetInactiveVideos, syncVideoToTime, cancelPendingPausedSeekWait, detachGlobalSeekEndListeners, cancelPendingSeekPlaybackPrepare]);
+  }, [setCurrentTime, renderFrame, loop, resetInactiveVideos, syncVideoToTime, cancelPendingPausedSeekWait, detachGlobalSeekEndListeners, cancelPendingSeekPlaybackPrepare, preparePreviewAudioNodesForTime, previewPlatformPolicy, primePreviewAudioOnlyTracksAtTime]);
 
   useEffect(() => {
     handleSeekEndCallbackRef.current = handleSeekEnd;

@@ -34,6 +34,12 @@ export interface PreviewAudioRoutingDecision extends PreviewAudioRoutingCandidat
   outputMode: PreviewAudioOutputMode;
 }
 
+export interface PreviewBundledStartOptions {
+  hasActiveVideo: boolean;
+  audibleSourceCount: number;
+  requiresWebAudio: boolean;
+}
+
 export interface PreviewAudioProbeTimelineItem {
   type: 'video' | 'image';
   duration: number;
@@ -188,6 +194,20 @@ export function getPreviewAudioRoutingPlan(
       }),
     };
   });
+}
+
+/**
+ * iOS Safari preview で、可聴な音声専用トラックを先に起動し、
+ * 動画は最後に開始した方が安定するケースかを返す。
+ */
+export function shouldBundlePreviewStartForWebAudioMix(
+  policy: PreviewPlatformPolicy,
+  options: PreviewBundledStartOptions,
+): boolean {
+  return policy.muteNativeMediaWhenAudioRouted
+    && options.hasActiveVideo
+    && options.requiresWebAudio
+    && options.audibleSourceCount > 1;
 }
 
 /**
