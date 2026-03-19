@@ -164,8 +164,6 @@ export function getPreviewAudioOutputMode(
     return 'webaudio';
   }
 
-  // MediaElementAudioSourceNode を一度生成した要素は native 出力へ戻せないため、
-  // ノード生成済みなら常に WebAudio 側で扱う。
   if (options.hasAudioNode) {
     return 'webaudio';
   }
@@ -174,8 +172,10 @@ export function getPreviewAudioOutputMode(
     return 'webaudio';
   }
 
-  // iOS Safari の native volume 経路は単一音源の再生確保には有効だが、
-  // 音量変更・フェード・一時ミュートのような細かな制御は不安定になりやすい。
+  if (!options.isExporting && options.sourceType === 'video') {
+    return 'native';
+  }
+
   if (Math.abs(options.desiredVolume - 1) > 0.001) {
     return 'webaudio';
   }
@@ -189,8 +189,6 @@ export function getPreviewAudioOutputMode(
 
 /**
  * 同一フレームで可聴な preview 音源群に対する出力モードをまとめて判定する。
- * iOS Safari では「複数音源なら全て WebAudio」に揃える必要があるため、
- * 候補ごとの個別判定ではなく全体の可聴数を先に確定してから決める。
  */
 export function getPreviewAudioRoutingPlan(
   policy: PreviewPlatformPolicy,
