@@ -11,6 +11,7 @@ import {
   shouldMuteNativeMediaElement,
   shouldReinitializeAudioRoute,
   shouldResumeAudioContextOnVisibilityReturn,
+  shouldWarmUpcomingVideoForExportTransition,
   shouldUseCaptionBlurFallback,
 } from '../utils/previewPlatform';
 
@@ -388,6 +389,38 @@ describe('preview platform helpers', () => {
         trimStart: 3,
         videoCurrentTime: 4.2,
         videoEnded: false,
+      }),
+    ).toBe(false);
+  });
+
+  it('export 中の 画像 -> 動画 境界直前だけ upcoming video warm-up を許可する', () => {
+    expect(
+      shouldWarmUpcomingVideoForExportTransition({
+        isExporting: true,
+        isActivePlaying: true,
+        currentItemType: 'image',
+        nextItemType: 'video',
+        remainingTimeSec: 0.03,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldWarmUpcomingVideoForExportTransition({
+        isExporting: true,
+        isActivePlaying: true,
+        currentItemType: 'image',
+        nextItemType: 'video',
+        remainingTimeSec: 0.08,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldWarmUpcomingVideoForExportTransition({
+        isExporting: true,
+        isActivePlaying: true,
+        currentItemType: 'video',
+        nextItemType: 'video',
+        remainingTimeSec: 0.03,
       }),
     ).toBe(false);
   });

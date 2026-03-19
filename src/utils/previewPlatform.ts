@@ -45,6 +45,15 @@ export interface PreviewAudioProbeTimelineItem {
   duration: number;
 }
 
+export interface ExportUpcomingVideoWarmupOptions {
+  isExporting: boolean;
+  isActivePlaying: boolean;
+  currentItemType: 'video' | 'image';
+  nextItemType: 'video' | 'image' | null;
+  remainingTimeSec: number;
+  warmupLeadSec?: number;
+}
+
 export interface VideoClipEndGuardOptions {
   clipLocalTime: number;
   clipDuration: number;
@@ -234,6 +243,22 @@ export function shouldBundlePreviewStartForWebAudioMix(
     && options.hasActiveVideo
     && options.requiresWebAudio
     && options.audibleSourceCount > 1;
+}
+
+/**
+ * export 中の画像 -> 動画切替直前だけ、次の video を muted のまま短時間 warm-up するかを判定する。
+ * MediaRecorder/live export で境界時の play() 立ち上がり遅延を抑える目的。
+ */
+export function shouldWarmUpcomingVideoForExportTransition(
+  options: ExportUpcomingVideoWarmupOptions,
+): boolean {
+  const warmupLeadSec = options.warmupLeadSec ?? 0.035;
+  return options.isExporting
+    && options.isActivePlaying
+    && options.currentItemType === 'image'
+    && options.nextItemType === 'video'
+    && options.remainingTimeSec > 0
+    && options.remainingTimeSec <= warmupLeadSec;
 }
 
 /**

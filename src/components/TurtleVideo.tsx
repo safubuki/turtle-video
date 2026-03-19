@@ -43,6 +43,7 @@ import {
   shouldMuteNativeMediaElement,
   shouldReinitializeAudioRoute,
   shouldResumeAudioContextOnVisibilityReturn,
+  shouldWarmUpcomingVideoForExportTransition,
   shouldUseCaptionBlurFallback,
 } from '../utils/previewPlatform';
 
@@ -684,11 +685,14 @@ const TurtleVideo: React.FC = () => {
           ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
         }
 
+        let exportWarmUpcomingVideoId: string | null = null;
+
         // Preload: 次のビデオを事前に準備（3秒前から開始）
         if (isActivePlaying && activeIndex !== -1 && activeIndex + 1 < currentItems.length) {
+          const activeItem = currentItems[activeIndex];
           const nextItem = currentItems[activeIndex + 1];
           if (nextItem.type === 'video') {
-            const remainingTime = currentItems[activeIndex].duration - localTime;
+            const remainingTime = activeItem.duration - localTime;
             if (remainingTime < 3.0) {
               const nextElement = mediaElementsRef.current[nextItem.id] as HTMLVideoElement;
               if (nextElement) {
@@ -700,6 +704,42 @@ const TurtleVideo: React.FC = () => {
                   const nextStart = nextItem.trimStart || 0;
                   if (Math.abs(nextElement.currentTime - nextStart) > 0.1) {
                     nextElement.currentTime = nextStart;
+                  }
+                }
+
+                const shouldWarmUpcomingVideo = shouldWarmUpcomingVideoForExportTransition({
+                  isExporting:
+                    _isExporting
+                    && platformCapabilities.isIosSafari
+                    && !!platformCapabilities.supportedMediaRecorderProfile,
+                  isActivePlaying,
+                  currentItemType: activeItem.type,
+                  nextItemType: !nextItem.isMuted && nextItem.volume > 0 ? nextItem.type : null,
+                  remainingTimeSec: remainingTime,
+                });
+                if (shouldWarmUpcomingVideo) {
+                  exportWarmUpcomingVideoId = nextItem.id;
+                  let hasUpcomingAudioNode = !!sourceNodesRef.current[nextItem.id];
+                  if (!hasUpcomingAudioNode) {
+                    hasUpcomingAudioNode = ensureAudioNodeForElement(nextItem.id, nextElement);
+                  }
+                  applyPreviewAudioOutputState(previewPlatformPolicy, nextElement, {
+                    hasAudioNode: hasUpcomingAudioNode,
+                    desiredVolume: 0,
+                    audibleSourceCount: 0,
+                    isExporting: true,
+                  });
+                  const nextGainNode = gainNodesRef.current[nextItem.id];
+                  if (nextGainNode && audioCtxRef.current) {
+                    nextGainNode.gain.setValueAtTime(0, audioCtxRef.current.currentTime);
+                  }
+                  if (nextElement.paused && !nextElement.seeking && nextElement.readyState >= 1) {
+                    const nextStart = nextItem.trimStart || 0;
+                    const warmTarget = Math.max(0, nextStart - remainingTime);
+                    if (Math.abs(nextElement.currentTime - warmTarget) > 0.01) {
+                      nextElement.currentTime = warmTarget;
+                    }
+                    nextElement.play().catch(() => { });
                   }
                 }
               }
@@ -717,15 +757,23 @@ const TurtleVideo: React.FC = () => {
           if (!element || !conf) return;
 
           if (id === activeId) {
+            const isJustEnteredFromImageDuringExport =
+              conf.type === 'video'
+              && _isExporting
+              && activeIndex > 0
+              && currentItems[activeIndex - 1]?.type === 'image'
+              && localTime <= 0.05;
             // --- アクティブなメディアの処理 ---
             if (conf.type === 'video') {
               const videoEl = element as HTMLVideoElement;
               const targetTime = (conf.trimStart || 0) + localTime;
               const hasExportPlayFailure = _isExporting && !!exportPlayFailedRef.current[id];
-              const syncThreshold = getPreviewVideoSyncThreshold(previewPlatformPolicy, {
-                isExporting: _isExporting,
-                hasExportPlayFailure,
-              });
+              const syncThreshold = isJustEnteredFromImageDuringExport
+                ? 0.01
+                : getPreviewVideoSyncThreshold(previewPlatformPolicy, {
+                  isExporting: _isExporting,
+                  hasExportPlayFailure,
+                });
 
               // アクティブなビデオIDを更新
               if (isActivePlaying && activeVideoIdRef.current !== id) {
@@ -915,7 +963,11 @@ const TurtleVideo: React.FC = () => {
                 if (currentGainNode && audioCtxRef.current) {
                   const currentGain = currentGainNode.gain.value;
                   if (Math.abs(currentGain - effectiveGain) > 0.01) {
-                    currentGainNode.gain.setTargetAtTime(effectiveGain, audioCtxRef.current.currentTime, 0.05);
+                    currentGainNode.gain.setTargetAtTime(
+                      effectiveGain,
+                      audioCtxRef.current.currentTime,
+                      isJustEnteredFromImageDuringExport ? 0.01 : 0.05,
+                    );
                   }
                 }
               } else {
@@ -938,16 +990,21 @@ const TurtleVideo: React.FC = () => {
               const timeSinceVideoEndSec = timelineRange
                 ? time - timelineRange.end
                 : null;
+              const shouldKeepExportWarmVideo =
+                _isExporting
+                && isActivePlaying
+                && id === exportWarmUpcomingVideoId;
               // iOS Safari: WebAudio mix 中は future/current に加えて
               // 境界直後の just-ended video も短時間だけ prewarm を維持する。
               // ただし、既に通過した video まで走らせ続けると BGM へ干渉しやすいため、
               // future/current video だけを prewarm 対象として維持する。
-              const shouldKeepVideoPrewarmed = shouldKeepInactiveVideoPrewarmed(previewPlatformPolicy, {
-                hasAudioNode: hasVideoAudioNode,
-                isExporting: _isExporting,
-                isActivePlaying,
-                timeSinceVideoEndSec,
-              });
+              const shouldKeepVideoPrewarmed = shouldKeepExportWarmVideo
+                || shouldKeepInactiveVideoPrewarmed(previewPlatformPolicy, {
+                  hasAudioNode: hasVideoAudioNode,
+                  isExporting: _isExporting,
+                  isActivePlaying,
+                  timeSinceVideoEndSec,
+                });
               if (!shouldKeepVideoPrewarmed && !videoEl.paused) {
                 videoEl.pause();
                 if (
@@ -1402,7 +1459,7 @@ const TurtleVideo: React.FC = () => {
         console.error('Render Error:', e);
       }
     },
-    [captions, captionSettings, ensureAudioNodeForElement, logInfo, previewPlatformPolicy]
+    [captions, captionSettings, ensureAudioNodeForElement, logInfo, platformCapabilities, previewPlatformPolicy]
   );
 
   // --- 状態同期: Zustandの状態をRefに同期 ---
