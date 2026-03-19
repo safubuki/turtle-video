@@ -43,12 +43,19 @@ export interface ExportRecorderRefs {
   recorderRef: MutableRefObject<MediaRecorder | null>;
 }
 
+export interface PreRenderedRecorderAudioSource {
+  stream: MediaStream;
+  startPlayback: () => void;
+  cleanup: () => void;
+}
+
 export interface IosSafariMediaRecorderStrategyContext {
   canvas: HTMLCanvasElement;
   masterDest: MediaStreamAudioDestinationNode;
   audioContext: AudioContext;
   signal: AbortSignal;
   audioSources?: ExportAudioSources;
+  preRenderedAudio?: PreRenderedRecorderAudioSource | null;
   callbacks: ExportCallbacks;
   state: ExportStateSetters;
   refs: ExportRecorderRefs;

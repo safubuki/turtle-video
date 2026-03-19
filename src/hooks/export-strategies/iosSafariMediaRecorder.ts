@@ -14,6 +14,7 @@ export async function runIosSafariMediaRecorderStrategy(
     audioContext,
     signal,
     audioSources,
+    preRenderedAudio,
     callbacks,
     state,
     refs,
@@ -21,20 +22,24 @@ export async function runIosSafariMediaRecorderStrategy(
     supportedMediaRecorderProfile,
   } = context;
 
+  const log = useLogStore.getState();
   const profile = supportedMediaRecorderProfile;
   if (!profile) {
-    useLogStore.getState().warn('RENDER', 'iOS Safari: MediaRecorder が未対応のため WebCodecs 経路へフォールバック');
+    log.warn('RENDER', 'iOS Safari: MediaRecorder profile unavailable, fallback to WebCodecs');
     return false;
   }
 
   const canvasStream = canvas.captureStream(exportConfig.fps);
   const canvasVideoTrack = canvasStream.getVideoTracks()[0] as RequestFrameCapableTrack | undefined;
-  const sourceAudioTracks = masterDest.stream.getAudioTracks();
+  const sourceAudioStream = preRenderedAudio?.stream ?? masterDest.stream;
+  const sourceAudioTracks = sourceAudioStream.getAudioTracks();
   const liveAudioTracks = sourceAudioTracks.filter((track) => track.readyState === 'live');
+
   if (liveAudioTracks.length === 0) {
-    useLogStore.getState().warn('RENDER', 'iOS Safari: 有効な音声トラックがないため WebCodecs 経路へフォールバック', {
+    log.warn('RENDER', 'iOS Safari: no live audio track for MediaRecorder, fallback to WebCodecs', {
       sourceTrackCount: sourceAudioTracks.length,
       sourceTrackStates: sourceAudioTracks.map((track) => track.readyState),
+      hasPreRenderedAudio: !!preRenderedAudio,
     });
     canvasStream.getTracks().forEach((track) => {
       try {
@@ -46,19 +51,21 @@ export async function runIosSafariMediaRecorderStrategy(
     return false;
   }
 
-  // 元トラックを stop すると後続エクスポートや再生に影響するため、録画用には clone を使用する。
-  const recorderAudioTracks = liveAudioTracks.map((track) => track.clone());
+  // live masterDest の場合だけ clone して録音側の stop を分離する。
+  const recorderAudioTracks = preRenderedAudio
+    ? liveAudioTracks
+    : liveAudioTracks.map((track) => track.clone());
+
   let keepAliveOscillator: OscillatorNode | null = null;
   let keepAliveGain: GainNode | null = null;
   let framePumpTimer: ReturnType<typeof setInterval> | null = null;
   let abortStopTimer: ReturnType<typeof setTimeout> | null = null;
+
   const combined = new MediaStream([
     ...canvasStream.getVideoTracks(),
     ...recorderAudioTracks,
   ]);
 
-  // iOS Safari: 静止画主体のタイムラインでは Canvas 変化が少なく、
-  // captureStream のフレーム供給が不安定になることがあるため、requestFrame で明示供給する。
   if (canvasVideoTrack && typeof canvasVideoTrack.requestFrame === 'function') {
     const frameIntervalMs = Math.max(16, Math.round(1000 / exportConfig.fps));
     framePumpTimer = setInterval(() => {
@@ -70,21 +77,23 @@ export async function runIosSafariMediaRecorderStrategy(
     }, frameIntervalMs);
   }
 
-  // iOS Safari で無音最適化されるのを防ぐため、極小レベルの keep-alive 音声を維持する。
-  try {
-    keepAliveOscillator = audioContext.createOscillator();
-    keepAliveGain = audioContext.createGain();
-    keepAliveOscillator.frequency.value = 440;
-    keepAliveGain.gain.value = 0.00001;
-    keepAliveOscillator.connect(keepAliveGain);
-    keepAliveGain.connect(masterDest);
-    keepAliveOscillator.start();
-  } catch (err) {
-    keepAliveOscillator = null;
-    keepAliveGain = null;
-    useLogStore.getState().warn('RENDER', 'iOS Safari: keep-alive 音声ノードの初期化に失敗（続行）', {
-      error: err instanceof Error ? err.message : String(err),
-    });
+  // prerecorded 音声を使わない経路では、音声トラック維持用の keep-alive を masterDest に足す。
+  if (!preRenderedAudio) {
+    try {
+      keepAliveOscillator = audioContext.createOscillator();
+      keepAliveGain = audioContext.createGain();
+      keepAliveOscillator.frequency.value = 440;
+      keepAliveGain.gain.value = 0.00001;
+      keepAliveOscillator.connect(keepAliveGain);
+      keepAliveGain.connect(masterDest);
+      keepAliveOscillator.start();
+    } catch (err) {
+      keepAliveOscillator = null;
+      keepAliveGain = null;
+      log.warn('RENDER', 'iOS Safari: failed to create keep-alive audio node', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   const cleanupStreams = () => {
@@ -95,6 +104,7 @@ export async function runIosSafariMediaRecorderStrategy(
         // ignore
       }
     });
+
     recorderAudioTracks.forEach((track) => {
       try {
         track.stop();
@@ -102,14 +112,17 @@ export async function runIosSafariMediaRecorderStrategy(
         // ignore
       }
     });
+
     if (framePumpTimer) {
       clearInterval(framePumpTimer);
       framePumpTimer = null;
     }
+
     if (abortStopTimer) {
       clearTimeout(abortStopTimer);
       abortStopTimer = null;
     }
+
     if (keepAliveOscillator) {
       try {
         keepAliveOscillator.stop();
@@ -123,6 +136,7 @@ export async function runIosSafariMediaRecorderStrategy(
       }
       keepAliveOscillator = null;
     }
+
     if (keepAliveGain) {
       try {
         keepAliveGain.disconnect();
@@ -131,6 +145,8 @@ export async function runIosSafariMediaRecorderStrategy(
       }
       keepAliveGain = null;
     }
+
+    preRenderedAudio?.cleanup();
   };
 
   const recorderOptions: MediaRecorderOptions = {
@@ -141,16 +157,18 @@ export async function runIosSafariMediaRecorderStrategy(
     recorderOptions.mimeType = profile.mimeType;
   }
 
-  useLogStore.getState().info('RENDER', 'iOS Safari: MediaRecorder 経路でエクスポート開始', {
+  log.info('RENDER', 'iOS Safari: starting MediaRecorder export strategy', {
     mimeType: profile.mimeType || '(default)',
     extension: profile.extension,
     sourceAudioTrackCount: sourceAudioTracks.length,
     sourceAudioTrackStates: sourceAudioTracks.map((track) => track.readyState),
     recorderAudioTrackCount: recorderAudioTracks.length,
     hasCanvasFramePump: !!framePumpTimer,
+    hasPreRenderedAudio: !!preRenderedAudio,
   });
 
   let startedSuccessfully = false;
+
   await new Promise<void>((resolve, reject) => {
     let settled = false;
     const chunks: Blob[] = [];
@@ -164,34 +182,26 @@ export async function runIosSafariMediaRecorderStrategy(
       resolve();
     };
 
-    const finishReject = (err: Error) => {
+    const finishReject = (error: Error) => {
       if (settled) return;
       settled = true;
-      reject(err);
-    };
-
-    const removeVisibilityListeners = () => {
-      if (!visibilityListenersAttached || typeof document === 'undefined') return;
-      document.removeEventListener('visibilitychange', handleRecorderVisibilityChange);
-      if (typeof window !== 'undefined') {
-        window.removeEventListener('focus', handleRecorderVisibilityChange);
-        window.removeEventListener('pageshow', handleRecorderVisibilityChange);
-      }
-      visibilityListenersAttached = false;
+      reject(error);
     };
 
     const handleRecorderVisibilityChange = () => {
-      if (!recorder || recorder.state === 'inactive' || typeof document === 'undefined') return;
-      const isVisible = document.visibilityState === 'visible';
+      if (!recorder || recorder.state === 'inactive' || typeof document === 'undefined') {
+        return;
+      }
 
+      const isVisible = document.visibilityState === 'visible';
       if (!isVisible) {
         if (recorder.state === 'recording') {
           try {
             recorder.pause();
             pausedByVisibility = true;
-            useLogStore.getState().info('RENDER', 'iOS Safari: 非アクティブ化のため録画を一時停止');
+            log.info('RENDER', 'iOS Safari: paused MediaRecorder while page hidden');
           } catch (err) {
-            useLogStore.getState().warn('RENDER', 'iOS Safari: 非アクティブ化時の録画一時停止に失敗', {
+            log.warn('RENDER', 'iOS Safari: failed to pause MediaRecorder while hidden', {
               error: err instanceof Error ? err.message : String(err),
             });
           }
@@ -203,13 +213,14 @@ export async function runIosSafariMediaRecorderStrategy(
         try {
           recorder.resume();
           pausedByVisibility = false;
-          useLogStore.getState().info('RENDER', 'iOS Safari: 可視復帰で録画を再開');
+          log.info('RENDER', 'iOS Safari: resumed MediaRecorder after visibility return');
         } catch (err) {
-          useLogStore.getState().warn('RENDER', 'iOS Safari: 可視復帰時の録画再開に失敗', {
+          log.warn('RENDER', 'iOS Safari: failed to resume MediaRecorder after visibility return', {
             error: err instanceof Error ? err.message : String(err),
           });
         }
       }
+
       try {
         canvasVideoTrack?.requestFrame?.();
       } catch {
@@ -217,8 +228,22 @@ export async function runIosSafariMediaRecorderStrategy(
       }
     };
 
+    const removeVisibilityListeners = () => {
+      if (!visibilityListenersAttached || typeof document === 'undefined') {
+        return;
+      }
+      document.removeEventListener('visibilitychange', handleRecorderVisibilityChange);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', handleRecorderVisibilityChange);
+        window.removeEventListener('pageshow', handleRecorderVisibilityChange);
+      }
+      visibilityListenersAttached = false;
+    };
+
     const addVisibilityListeners = () => {
-      if (typeof document === 'undefined' || visibilityListenersAttached) return;
+      if (visibilityListenersAttached || typeof document === 'undefined') {
+        return;
+      }
       document.addEventListener('visibilitychange', handleRecorderVisibilityChange);
       if (typeof window !== 'undefined') {
         window.addEventListener('focus', handleRecorderVisibilityChange);
@@ -234,31 +259,33 @@ export async function runIosSafariMediaRecorderStrategy(
     };
 
     const onAbort = () => {
-      if (recorder && recorder.state !== 'inactive') {
-        try {
-          canvasVideoTrack?.requestFrame?.();
-        } catch {
-          // ignore
-        }
-        try {
-          recorder.requestData();
-        } catch {
-          // ignore
-        }
-        // iOS Safari では requestData 直後に stop すると終端チャンクが欠落する場合があるため、
-        // 最終フラッシュ時間を確保してから stop する。
-        if (!abortStopTimer) {
-          abortStopTimer = setTimeout(() => {
-            abortStopTimer = null;
-            if (recorder && recorder.state !== 'inactive') {
-              try {
-                recorder.stop();
-              } catch {
-                // ignore
-              }
+      if (!recorder || recorder.state === 'inactive') {
+        return;
+      }
+
+      try {
+        canvasVideoTrack?.requestFrame?.();
+      } catch {
+        // ignore
+      }
+
+      try {
+        recorder.requestData();
+      } catch {
+        // ignore
+      }
+
+      if (!abortStopTimer) {
+        abortStopTimer = setTimeout(() => {
+          abortStopTimer = null;
+          if (recorder && recorder.state !== 'inactive') {
+            try {
+              recorder.stop();
+            } catch {
+              // ignore
             }
-          }, 180);
-        }
+          }
+        }, 180);
       }
     };
 
@@ -268,7 +295,7 @@ export async function runIosSafariMediaRecorderStrategy(
     } catch (err) {
       cleanup();
       refs.recorderRef.current = null;
-      useLogStore.getState().warn('RENDER', 'iOS Safari: MediaRecorder 初期化失敗、WebCodecs 経路へフォールバック', {
+      log.warn('RENDER', 'iOS Safari: failed to construct MediaRecorder, fallback to WebCodecs', {
         error: err instanceof Error ? err.message : String(err),
       });
       finishResolve();
@@ -286,7 +313,7 @@ export async function runIosSafariMediaRecorderStrategy(
 
     recorder.onerror = () => {
       cleanup();
-      finishReject(new Error('MediaRecorder で録画中にエラーが発生しました'));
+      finishReject(new Error('MediaRecorder recording failed'));
     };
 
     recorder.onstop = () => {
@@ -294,7 +321,7 @@ export async function runIosSafariMediaRecorderStrategy(
       refs.recorderRef.current = null;
 
       if (chunks.length === 0) {
-        finishReject(new Error('MediaRecorder の出力データが空です'));
+        finishReject(new Error('MediaRecorder produced no output data'));
         return;
       }
 
@@ -303,7 +330,7 @@ export async function runIosSafariMediaRecorderStrategy(
       state.setExportUrl(url);
       state.setExportExt(profile.extension);
 
-      useLogStore.getState().info('RENDER', 'iOS Safari: MediaRecorder エクスポート完了', {
+      log.info('RENDER', 'iOS Safari: MediaRecorder export completed', {
         chunks: chunks.length,
         blobSizeBytes: blob.size,
         extension: profile.extension,
@@ -314,22 +341,21 @@ export async function runIosSafariMediaRecorderStrategy(
     };
 
     try {
-      // iOS Safari では timeslice が粗いと終端側の時間解像度が荒くなるため、
-      // 短めの timeslice でチャンクを小刻みに取り出す。
       recorder.start(250);
       try {
         canvasVideoTrack?.requestFrame?.();
       } catch {
         // ignore
       }
+      preRenderedAudio?.startPlayback();
       startedSuccessfully = true;
-      useLogStore.getState().info('RENDER', '[DIAG-READY] 音声準備完了、再生ループ開始通知（MediaRecorder経路）');
+      log.info('RENDER', 'iOS Safari: MediaRecorder export ready');
       audioSources?.onAudioPreRenderComplete?.();
       handleRecorderVisibilityChange();
     } catch (err) {
       cleanup();
       refs.recorderRef.current = null;
-      useLogStore.getState().warn('RENDER', 'iOS Safari: MediaRecorder 開始失敗、WebCodecs 経路へフォールバック', {
+      log.warn('RENDER', 'iOS Safari: failed to start MediaRecorder, fallback to WebCodecs', {
         error: err instanceof Error ? err.message : String(err),
       });
       finishResolve();

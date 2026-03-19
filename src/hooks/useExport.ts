@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file useExport.ts
  * @author Turtle Village
  * @description WebCodecs APIとmp4-muxerを使用して、編集内容をMP4ファイルとして書き出すためのカスタムフック。
@@ -15,9 +15,17 @@ import {
   resolveWebCodecsAudioCaptureStrategy,
 } from './export-strategies/exportStrategyResolver';
 import { runIosSafariMediaRecorderStrategy } from './export-strategies/iosSafariMediaRecorder';
-import type { ExportAudioSources, ExportPreparationStep } from './export-strategies/types';
+import type {
+  ExportAudioSources,
+  ExportPreparationStep,
+  PreRenderedRecorderAudioSource,
+} from './export-strategies/types';
 
-export type { ExportAudioSources, ExportPreparationStep } from './export-strategies/types';
+export type {
+  ExportAudioSources,
+  ExportPreparationStep,
+  PreRenderedRecorderAudioSource,
+} from './export-strategies/types';
 
 /**
  * useExport - 動画書き出しロジックを提供するフック
@@ -685,6 +693,106 @@ function feedPreRenderedAudio(
   return encodedChunks;
 }
 
+function createPreRenderedRecorderAudioSource(
+  renderedAudio: AudioBuffer,
+  audioContext: AudioContext,
+): PreRenderedRecorderAudioSource {
+  const log = useLogStore.getState();
+  const source = audioContext.createBufferSource();
+  const outputGain = audioContext.createGain();
+  const streamDest = audioContext.createMediaStreamDestination();
+  let keepAliveOscillator: OscillatorNode | null = null;
+  let keepAliveGain: GainNode | null = null;
+  let started = false;
+  let cleaned = false;
+
+  source.buffer = renderedAudio;
+  outputGain.gain.setValueAtTime(1, audioContext.currentTime);
+  source.connect(outputGain);
+  outputGain.connect(streamDest);
+
+  try {
+    keepAliveOscillator = audioContext.createOscillator();
+    keepAliveGain = audioContext.createGain();
+    keepAliveOscillator.frequency.value = 440;
+    keepAliveGain.gain.setValueAtTime(0.00001, audioContext.currentTime);
+    keepAliveOscillator.connect(keepAliveGain);
+    keepAliveGain.connect(streamDest);
+    keepAliveOscillator.start();
+  } catch (err) {
+    keepAliveOscillator = null;
+    keepAliveGain = null;
+    log.warn('RENDER', 'プリレンダ音声の keep-alive 作成に失敗', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    try {
+      source.stop();
+    } catch {
+      // ignore
+    }
+    try {
+      source.disconnect();
+    } catch {
+      // ignore
+    }
+    try {
+      outputGain.disconnect();
+    } catch {
+      // ignore
+    }
+    if (keepAliveOscillator) {
+      try {
+        keepAliveOscillator.stop();
+      } catch {
+        // ignore
+      }
+      try {
+        keepAliveOscillator.disconnect();
+      } catch {
+        // ignore
+      }
+      keepAliveOscillator = null;
+    }
+    if (keepAliveGain) {
+      try {
+        keepAliveGain.disconnect();
+      } catch {
+        // ignore
+      }
+      keepAliveGain = null;
+    }
+    streamDest.stream.getTracks().forEach((track) => {
+      try {
+        track.stop();
+      } catch {
+        // ignore
+      }
+    });
+  };
+
+  return {
+    stream: streamDest.stream,
+    startPlayback: () => {
+      if (started) return;
+      started = true;
+      if ((audioContext.state as AudioContextState | 'interrupted') !== 'running') {
+        audioContext.resume().catch(() => { });
+      }
+      source.start();
+      log.info('RENDER', 'プリレンダ音声ストリームの再生を開始', {
+        duration: Math.round(renderedAudio.duration * 100) / 100,
+        sampleRate: renderedAudio.sampleRate,
+      });
+    },
+    cleanup,
+  };
+}
+
 export function useExport(): UseExportReturn {
   const [isProcessing, setIsProcessing] = useState(false);
   const [exportUrl, setExportUrl] = useState<string | null>(null);
@@ -849,6 +957,47 @@ export function useExport(): UseExportReturn {
       let scriptProcessorNode: ScriptProcessorNode | null = null;
       let scriptProcessorSource: MediaStreamAudioSourceNode | null = null;
       let canvasFramePumpTimer: ReturnType<typeof setInterval> | null = null;
+      let preRenderedAudioBuffer: AudioBuffer | null = null;
+      let preRenderedAudioPrepared = false;
+
+      const ensurePreRenderedAudioBuffer = async (): Promise<AudioBuffer | null> => {
+        if (preRenderedAudioPrepared) {
+          return preRenderedAudioBuffer;
+        }
+        preRenderedAudioPrepared = true;
+
+        const shouldPreRenderAudio = shouldUseOfflineAudioPreRender({
+          hasAudioSources: !!audioSources,
+        });
+        if (!shouldPreRenderAudio || !audioSources) {
+          return null;
+        }
+
+        useLogStore.getState().info('RENDER', '[DIAG-3] OfflineAudioContext パス開始', {
+          totalDuration: audioSources.totalDuration,
+          sampleRate: audioContext.sampleRate,
+          isIosSafari,
+        });
+
+        try {
+          const renderedAudio = await offlineRenderAudio(
+            audioSources,
+            audioContext as AudioContext,
+            audioContext.sampleRate,
+            signal,
+          );
+          if (renderedAudio && !signal.aborted) {
+            updatePreparationStep(audioSources, 4);
+            preRenderedAudioBuffer = renderedAudio;
+          }
+        } catch (e) {
+          useLogStore.getState().warn('RENDER', 'OfflineAudioContext失敗、通常経路へフォールバック', {
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+
+        return preRenderedAudioBuffer;
+      };
 
       try {
         const strategyOrder = resolveExportStrategyOrder({
@@ -864,29 +1013,46 @@ export function useExport(): UseExportReturn {
         });
 
         if (strategyOrder.includes('ios-safari-mediarecorder')) {
-          const handledByMediaRecorder = await runIosSafariMediaRecorderStrategy({
-            canvas,
-            masterDest: masterDestRef.current!,
-            audioContext: audioContext as AudioContext,
-            signal,
-            audioSources,
-            callbacks: {
-              onRecordingStop,
-              onRecordingError,
-            },
-            state: {
-              setExportUrl,
-              setExportExt,
-            },
-            refs: {
-              recorderRef,
-            },
-            exportConfig: {
-              fps: FPS,
-              videoBitrate: EXPORT_VIDEO_BITRATE,
-            },
-            supportedMediaRecorderProfile,
-          });
+          let preRenderedAudio: PreRenderedRecorderAudioSource | null = null;
+          const renderedAudioForMediaRecorder = await ensurePreRenderedAudioBuffer();
+          if (renderedAudioForMediaRecorder && !signal.aborted) {
+            preRenderedAudio = createPreRenderedRecorderAudioSource(
+              renderedAudioForMediaRecorder,
+              audioContext as AudioContext,
+            );
+          }
+
+          let handledByMediaRecorder = false;
+          try {
+            handledByMediaRecorder = await runIosSafariMediaRecorderStrategy({
+              canvas,
+              masterDest: masterDestRef.current!,
+              audioContext: audioContext as AudioContext,
+              signal,
+              audioSources,
+              preRenderedAudio,
+              callbacks: {
+                onRecordingStop,
+                onRecordingError,
+              },
+              state: {
+                setExportUrl,
+                setExportExt,
+              },
+              refs: {
+                recorderRef,
+              },
+              exportConfig: {
+                fps: FPS,
+                videoBitrate: EXPORT_VIDEO_BITRATE,
+              },
+              supportedMediaRecorderProfile,
+            });
+          } finally {
+            if (!handledByMediaRecorder) {
+              preRenderedAudio?.cleanup();
+            }
+          }
           if (handledByMediaRecorder) {
             return;
           }
@@ -1036,54 +1202,34 @@ export function useExport(): UseExportReturn {
           hasAudioSources: !!audioSources,
         });
         if (shouldPreRenderAudio && audioSources) {
-          useLogStore.getState().info('RENDER', '[DIAG-3] OfflineAudioContext パス開始', {
-            totalDuration: audioSources.totalDuration,
-            sampleRate: audioContext.sampleRate,
-            audioEncoderState: audioEncoder.state,
-            isIosSafari,
-          });
-          try {
-            const renderedAudio = await offlineRenderAudio(
-              audioSources,
-              audioContext as AudioContext,  // メインAudioContextでデコード（iOS Safari互換性向上）
-              audioContext.sampleRate,
-              signal,
-            );
-            if (renderedAudio && !signal.aborted) {
-              updatePreparationStep(audioSources, 4);
-              // [DIAG-4] feedPreRenderedAudio 呼び出し前の AudioEncoder 状態
-              useLogStore.getState().info('RENDER', '[DIAG-4] feed開始前 AudioEncoder状態', {
-                state: audioEncoder.state,
-                queueSize: audioEncoder.encodeQueueSize,
-                outputChunksSoFar: audioEncoderOutputChunks,
-              });
-              const encodedChunks = feedPreRenderedAudio(
-                renderedAudio,
-                audioEncoder,
-                signal,
-                audioSources.totalDuration,
-              );
-              // [DIAG-5] feed完了後の AudioEncoder 状態
-              useLogStore.getState().info('RENDER', '[DIAG-5] feed完了後 AudioEncoder状態', {
-                state: audioEncoder.state,
-                queueSize: audioEncoder.encodeQueueSize,
-                outputChunksAfterFeed: audioEncoderOutputChunks,
-                encodedInputChunks: encodedChunks,
-              });
-              offlineAudioDone = true;
-              useLogStore.getState().info('RENDER', '[DIAG-5b] iOS Safari: 音声プリレンダリング＆エンコード完了', {
-                encodedChunks,
-                audioEncoderOutputChunks,
-                audioEncoderOutputBytes,
-                offlineAudioDone,
-              });
-            } else if (!signal.aborted) {
-              useLogStore.getState().warn('RENDER', 'OfflineAudioContext失敗、ScriptProcessorにフォールバック');
-            }
-          } catch (e) {
-            useLogStore.getState().warn('RENDER', 'OfflineAudioContext例外、ScriptProcessorにフォールバック', {
-              error: e instanceof Error ? e.message : String(e),
+          const renderedAudio = await ensurePreRenderedAudioBuffer();
+          if (renderedAudio && !signal.aborted) {
+            useLogStore.getState().info('RENDER', '[DIAG-4] feed開始前 AudioEncoder状態', {
+              state: audioEncoder.state,
+              queueSize: audioEncoder.encodeQueueSize,
+              outputChunksSoFar: audioEncoderOutputChunks,
             });
+            const encodedChunks = feedPreRenderedAudio(
+              renderedAudio,
+              audioEncoder,
+              signal,
+              audioSources.totalDuration,
+            );
+            useLogStore.getState().info('RENDER', '[DIAG-5] feed完了後 AudioEncoder状態', {
+              state: audioEncoder.state,
+              queueSize: audioEncoder.encodeQueueSize,
+              outputChunksAfterFeed: audioEncoderOutputChunks,
+              encodedInputChunks: encodedChunks,
+            });
+            offlineAudioDone = true;
+            useLogStore.getState().info('RENDER', '[DIAG-5b] iOS Safari: 音声プリレンダリング＆エンコード完了', {
+              encodedChunks,
+              audioEncoderOutputChunks,
+              audioEncoderOutputBytes,
+              offlineAudioDone,
+            });
+          } else if (!signal.aborted) {
+            useLogStore.getState().warn('RENDER', 'OfflineAudioContext失敗、ScriptProcessorにフォールバック');
           }
         }
 

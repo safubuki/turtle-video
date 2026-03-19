@@ -254,9 +254,114 @@ describe('runIosSafariMediaRecorderStrategy', () => {
     expect(state.setExportExt).toHaveBeenCalledWith('mp4');
     expect(callbacks.onRecordingStop).toHaveBeenCalledWith('blob:ios-export', 'mp4');
     expect(videoTrack.requestFrame).toHaveBeenCalled();
-    expect(videoTrack.stop).toHaveBeenCalled();
-    expect(recorderAudioTrack.stop).toHaveBeenCalled();
-    expect(recorderRef.current).toBeNull();
+  expect(videoTrack.stop).toHaveBeenCalled();
+  expect(recorderAudioTrack.stop).toHaveBeenCalled();
+  expect(recorderRef.current).toBeNull();
+  expect(createObjectUrlSpy).toHaveBeenCalled();
+  });
+
+  it('pre-rendered 音声がある場合は live masterDest よりそちらを優先する', async () => {
+    const videoTrack: FakeTrack = {
+      kind: 'video',
+      readyState: 'live',
+      stop: vi.fn(),
+      requestFrame: vi.fn(),
+    };
+    const preRenderedTrack: FakeTrack = {
+      kind: 'audio',
+      readyState: 'live',
+      stop: vi.fn(),
+    };
+    const { canvas } = createCanvasDouble(videoTrack);
+    const callbacks = createCallbacks();
+    const state = createStateSetters();
+    const recorderRef = { current: null as MediaRecorder | null };
+    const onAudioPreRenderComplete = vi.fn();
+    const preRenderedAudio = {
+      stream: new FakeMediaStream([preRenderedTrack]) as unknown as MediaStream,
+      startPlayback: vi.fn(),
+      cleanup: vi.fn(),
+    };
+    const audioContext = createAudioContextDouble();
+    const createObjectUrlSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:ios-export-prerendered');
+
+    class MockMediaRecorder {
+      state: RecordingState = 'inactive';
+      ondataavailable: ((event: BlobEvent) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onstop: (() => void) | null = null;
+      readonly start = vi.fn(() => {
+        this.state = 'recording';
+        setTimeout(() => {
+          this.ondataavailable?.({ data: new Blob(['ok']) } as BlobEvent);
+          this.state = 'inactive';
+          this.onstop?.();
+        }, 0);
+      });
+      readonly pause = vi.fn(() => {
+        this.state = 'paused';
+      });
+      readonly resume = vi.fn(() => {
+        this.state = 'recording';
+      });
+      readonly requestData = vi.fn();
+      readonly stop = vi.fn(() => {
+        this.state = 'inactive';
+        this.onstop?.();
+      });
+
+      constructor(
+        readonly stream: MediaStream,
+        readonly options?: MediaRecorderOptions,
+      ) {}
+    }
+
+    vi.stubGlobal('MediaRecorder', MockMediaRecorder as unknown as typeof MediaRecorder);
+
+    const promise = runIosSafariMediaRecorderStrategy({
+      canvas,
+      masterDest: {
+        stream: new FakeMediaStream([]),
+      } as unknown as MediaStreamAudioDestinationNode,
+      audioContext,
+      signal: new AbortController().signal,
+      audioSources: {
+        mediaItems: [],
+        bgm: null,
+        narrations: [],
+        totalDuration: 1,
+        onAudioPreRenderComplete,
+      },
+      preRenderedAudio,
+      callbacks,
+      state,
+      refs: {
+        recorderRef,
+      },
+      exportConfig: {
+        fps: 30,
+        videoBitrate: 1_000_000,
+      },
+      supportedMediaRecorderProfile: {
+        mimeType: 'video/mp4',
+        extension: 'mp4',
+      },
+    });
+
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result).toBe(true);
+    expect(preRenderedAudio.startPlayback).toHaveBeenCalledTimes(1);
+    expect(onAudioPreRenderComplete).toHaveBeenCalledTimes(1);
+    expect(preRenderedAudio.startPlayback.mock.invocationCallOrder[0]).toBeLessThan(
+      onAudioPreRenderComplete.mock.invocationCallOrder[0],
+    );
+    expect(preRenderedAudio.cleanup).toHaveBeenCalledTimes(1);
+    expect(preRenderedTrack.stop).toHaveBeenCalled();
+    expect(state.setExportUrl).toHaveBeenCalledWith('blob:ios-export-prerendered');
+    expect(callbacks.onRecordingStop).toHaveBeenCalledWith('blob:ios-export-prerendered', 'mp4');
+    expect(audioContext.createOscillator).not.toHaveBeenCalled();
     expect(createObjectUrlSpy).toHaveBeenCalled();
   });
 });

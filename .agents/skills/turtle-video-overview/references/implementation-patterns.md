@@ -327,14 +327,14 @@
   - `renderFrame` で「補正シークが必要なフレーム」を事前に `holdFrame` 扱いにし、黒クリアを回避（**エクスポート時のみ適用、通常再生には影響させない**）
   - iOS Safari のエクスポート時は動画同期しきい値を緩和（通常 0.5 秒 / Safari エクスポート時 1.2 秒）
   - iOS Safari の通常再生時は同期しきい値を 1.0 秒に緩和し、過剰なシークによるカクつきを防止
-  - iOS Safari MediaRecorder 経路では `画像 -> 動画` 境界の直前だけ、次の video の AudioNode を先に作り、muted のまま短い lead で warm-up してからアクティブ化する。これにより境界時の `play()` 立ち上がり遅延による瞬間的な音切れを抑える
+  - iOS Safari MediaRecorder 経路では live `masterDest.stream` へ依存せず、`OfflineAudioContext` で事前レンダリングした `AudioBuffer` を `MediaStreamAudioDestinationNode` 経由の専用録音ストリームに変換して録音へ渡す。`画像 -> 動画` 境界で video 要素の `play()` 立ち上がりが遅れても、録音音声はそこで途切れない
 - **注意**:
   - クリップ切替直後のみ厳密同期（0.05 秒）を維持し、それ以外は過剰なシークを避ける
   - `OfflineAudioContext` はリアルタイムではなく最大速度でレンダリングするため、メインスレッド負荷の影響を受けない
   - `decodeAudioData` が失敗した音声ソース（画像アイテム、音声トラックなし等）は自動的にスキップ（各ソースのデコード成否をログ出力）
   - フェード時間の重複（短いクリップ）は按分で自動クランプ
   - BGM/ナレーションのフェードアウトはプロジェクト終端からの相対位置で計算
-  - 上記 warm-up は live 録音の iOS MediaRecorder 条件に限定し、WebCodecs のプリレンダ済み音声ルートへは広げない
+  - iOS MediaRecorder がプリレンダ済み音声ストリームを使う場合は、strategy 側で `recorder.start()` 後に `preRenderedAudio.startPlayback()` を呼び、その後 `onAudioPreRenderComplete` で export ループを開始する。録音開始前に音声だけ先走らせない
 
 ### 9-8. Platform capability 判定の共通化
 
