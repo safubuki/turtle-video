@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file TurtleVideo.tsx
  * @author Turtle Village
  * @description 動画編集アプリケーションのメインコンポーネント。タイムライン管理、再生制御、レンダリングループ、および各種セクションの統合を行う。
@@ -39,6 +39,7 @@ import {
   getPreviewVideoSyncThreshold,
   shouldBundlePreviewStartForWebAudioMix,
   shouldHoldVideoFrameAtClipEnd,
+  shouldKeepInactiveVideoPrewarmed,
   shouldMuteNativeMediaElement,
   shouldReinitializeAudioRoute,
   shouldResumeAudioContextOnVisibilityReturn,
@@ -310,6 +311,7 @@ const TurtleVideo: React.FC = () => {
   const detachGlobalSeekEndListenersRef = useRef<(() => void) | null>(null);
   const handleSeekEndCallbackRef = useRef<(() => void) | null>(null);
   const renderPausedPreviewFrameAtTimeRef = useRef<(targetTime: number) => void>(() => { });
+  const primePreviewAudioOnlyTracksAtTimeRef = useRef<(playbackTime: number) => void>(() => { });
   const cancelSeekPlaybackPrepareRef = useRef<(() => void) | null>(null);
   const isSeekPlaybackPreparingRef = useRef(false);
   const endFinalizedRef = useRef(false); // 終端ファイナライズ済みフラグ（遅延renderFrame競合防止）
@@ -933,19 +935,33 @@ const TurtleVideo: React.FC = () => {
               const videoEl = element as HTMLVideoElement;
               const hasVideoAudioNode = !!sourceNodesRef.current[id];
               const timelineRange = timelineRanges.get(id);
-              const isPastVideo =
-                !!timelineRange &&
-                time >= timelineRange.end - 0.0005;
-              // iOS Safari: WebAudio ノードを持つビデオは再生中 pause() しない。
+              const timeSinceVideoEndSec = timelineRange
+                ? time - timelineRange.end
+                : null;
+              // iOS Safari: WebAudio mix 中は future/current に加えて
+              // 境界直後の just-ended video も短時間だけ prewarm を維持する。
               // ただし、既に通過した video まで走らせ続けると BGM へ干渉しやすいため、
               // future/current video だけを prewarm 対象として維持する。
-              const avoidVideoPausePlay = hasVideoAudioNode
-                && previewPlatformPolicy.muteNativeMediaWhenAudioRouted
-                && !_isExporting
-                && isActivePlaying
-                && !isPastVideo;
-              if (!avoidVideoPausePlay && !videoEl.paused) {
+              const shouldKeepVideoPrewarmed = shouldKeepInactiveVideoPrewarmed(previewPlatformPolicy, {
+                hasAudioNode: hasVideoAudioNode,
+                isExporting: _isExporting,
+                isActivePlaying,
+                timeSinceVideoEndSec,
+              });
+              if (!shouldKeepVideoPrewarmed && !videoEl.paused) {
                 videoEl.pause();
+                if (
+                  hasVideoAudioNode
+                  && isActivePlaying
+                  && previewPlatformPolicy.muteNativeMediaWhenAudioRouted
+                  && !_isExporting
+                ) {
+                  const ctx = audioCtxRef.current;
+                  if (ctx && (ctx.state as AudioContextState | 'interrupted') !== 'running') {
+                    ctx.resume().catch(() => { });
+                  }
+                  primePreviewAudioOnlyTracksAtTimeRef.current(time);
+                }
               }
               applyPreviewAudioOutputState(previewPlatformPolicy, videoEl, {
                 hasAudioNode: hasVideoAudioNode,
@@ -2674,6 +2690,10 @@ const TurtleVideo: React.FC = () => {
       }
     }
   }, [primePreviewMediaElementPlayback]);
+
+  useEffect(() => {
+    primePreviewAudioOnlyTracksAtTimeRef.current = primePreviewAudioOnlyTracksAtTime;
+  }, [primePreviewAudioOnlyTracksAtTime]);
 
   const preparePreviewAudioNodesForUpcomingVideos = useCallback((fromTime: number) => {
     if (!previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {

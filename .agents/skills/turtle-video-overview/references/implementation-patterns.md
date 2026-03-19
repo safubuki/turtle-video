@@ -1386,3 +1386,4 @@
 - **注意**:
   - iOS Safari の無音対策で「全 video を常時走らせる」方向へ戻すと、静止画区間の BGM が揺れやすい
   - ただし future video まで止めると、画像区間から次の video へ入る際に gesture credit を失いやすいので、past video と future video は分けて扱う
+  - `動画 -> 静止画` の境界では just-ended video を短い grace だけ prewarm 維持し、実際に pause した直後は `AudioContext.resume()` と `primePreviewAudioOnlyTracksAtTime()` で audio-only を再点火する

@@ -122,6 +122,32 @@ export function shouldMuteNativeMediaElement(
 }
 
 /**
+ * iOS Safari preview で inactive video を無音再生のまま維持すべきかを返す。
+ * 通過済み video は止め、future/current だけを prewarm 対象として残す。
+ */
+export function shouldKeepInactiveVideoPrewarmed(
+  policy: PreviewPlatformPolicy,
+  options: {
+    hasAudioNode: boolean;
+    isExporting: boolean;
+    isActivePlaying: boolean;
+    timeSinceVideoEndSec: number | null;
+    pauseGraceSec?: number;
+  },
+): boolean {
+  const pauseGraceSec = options.pauseGraceSec ?? 0.25;
+  const isPastVideoBeyondGrace =
+    options.timeSinceVideoEndSec !== null
+    && options.timeSinceVideoEndSec >= pauseGraceSec;
+
+  return options.hasAudioNode
+    && policy.muteNativeMediaWhenAudioRouted
+    && !options.isExporting
+    && options.isActivePlaying
+    && !isPastVideoBeyondGrace;
+}
+
+/**
  * iOS Safari preview では単一音源時のみ native 出力へ逃がし、複数同時再生時は WebAudio mix を使う。
  */
 export function getPreviewAudioOutputMode(

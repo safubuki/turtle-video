@@ -7,6 +7,7 @@ import {
   getPreviewVideoSyncThreshold,
   shouldBundlePreviewStartForWebAudioMix,
   shouldHoldVideoFrameAtClipEnd,
+  shouldKeepInactiveVideoPrewarmed,
   shouldMuteNativeMediaElement,
   shouldReinitializeAudioRoute,
   shouldResumeAudioContextOnVisibilityReturn,
@@ -104,6 +105,70 @@ describe('getPreviewPlatformPolicy', () => {
         outputMode: 'webaudio',
       },
     ]);
+  });
+  it('iOS Safari preview 縺ｧ inactive video 縺ｯ境界直後だけ prewarm を維持する', () => {
+    const iosPolicy = getPreviewPlatformPolicy({
+      isAndroid: false,
+      isIosSafari: true,
+      audioContextMayInterrupt: true,
+    });
+    expect(
+      shouldKeepInactiveVideoPrewarmed(iosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        isActivePlaying: true,
+        timeSinceVideoEndSec: -0.1,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldKeepInactiveVideoPrewarmed(iosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        isActivePlaying: true,
+        timeSinceVideoEndSec: 0.1,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldKeepInactiveVideoPrewarmed(iosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        isActivePlaying: true,
+        timeSinceVideoEndSec: 0.4,
+      }),
+    ).toBe(false);
+  });
+
+  it('非 iOS や非再生中では inactive video を prewarm 維持しない', () => {
+    const iosPolicy = getPreviewPlatformPolicy({
+      isAndroid: false,
+      isIosSafari: true,
+      audioContextMayInterrupt: true,
+    });
+    const nonIosPolicy = getPreviewPlatformPolicy({
+      isAndroid: false,
+      isIosSafari: false,
+      audioContextMayInterrupt: false,
+    });
+
+    expect(
+      shouldKeepInactiveVideoPrewarmed(nonIosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        isActivePlaying: true,
+        timeSinceVideoEndSec: -0.1,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldKeepInactiveVideoPrewarmed(iosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        isActivePlaying: false,
+        timeSinceVideoEndSec: -0.1,
+      }),
+    ).toBe(false);
   });
 });
 
