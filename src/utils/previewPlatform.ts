@@ -306,6 +306,26 @@ export function shouldResumeAudioContextOnVisibilityReturn(
 }
 
 /**
+ * 非同期の canplay/seeked 復帰で play() を実行してよいかを判定する。
+ * 古い再生試行や seek 中の遅延イベントが、後から割り込んで play() しないようにする。
+ */
+export function shouldAttemptDeferredPreviewPlay(options: {
+  isCurrentAttempt: boolean;
+  isPlaying: boolean;
+  isSeeking: boolean;
+  mediaSeeking: boolean;
+  readyState: number;
+  minReadyState?: number;
+}): boolean {
+  const minReadyState = options.minReadyState ?? 1;
+  return options.isCurrentAttempt
+    && options.isPlaying
+    && !options.isSeeking
+    && !options.mediaSeeking
+    && options.readyState >= minReadyState;
+}
+
+/**
  * 再生開始時に AudioContext の経路再初期化が必要かを返す。
  */
 export function shouldReinitializeAudioRoute(

@@ -3,6 +3,21 @@
 本プロジェクトに組み込まれている実装パターン・ワークアラウンド・注意すべきポイントを網羅的にまとめたドキュメントです。新機能の追加や既存コードの変更時に必ず確認してください。
 
 ---
+## 0. Recent Notes
+
+### 0-1. iOS Safari preview の遅延 `play()` は再生試行世代で無効化する
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **背景**:
+  - 同じ操作でも preview の成功率が揺れる場合、`seeked` / `canplay` を待っている古い `play()` callback が、次の seek や再生再開の後に遅れて発火していることがある
+  - `isPlayingRef` だけでは「今の再生試行か」を識別できず、seek 中断や 0 秒戻しの直後に stale callback が割り込む
+- **実装指針**:
+  - `previewPlaybackAttemptRef` のような世代 ref を持ち、`stopAll()`, `handleSeekStart()`, preview の新規 `startEngine()`, `handleSeekEnd()` の再開時に必ずインクリメントする
+  - 遅延 `play()` は helper で `isCurrentAttempt && isPlaying && !isSeeking && !mediaSeeking && readyState >= minReadyState` をまとめて判定する
+  - seek 開始時は video だけでなく audio-only 要素も pause し、drag 中の古い再生状態を一旦切る
+- **注意点**:
+  - iOS Safari では `canplay` 自体が遅延到達することがあるため、listener を外すだけでは不十分で、発火後の no-op ガードが必要
+  - timeout fallback で `play()` を再試行する場合も同じ世代 helper を使わないと、seek 直後の race が再発する
 
 ## 1. スクロール/スワイプ誤操作防止
 

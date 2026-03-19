@@ -5,6 +5,7 @@ import {
   getPreviewAudioRoutingPlan,
   getPreviewPlatformPolicy,
   getPreviewVideoSyncThreshold,
+  shouldAttemptDeferredPreviewPlay,
   shouldBundlePreviewStartForWebAudioMix,
   shouldHoldVideoFrameAtClipEnd,
   shouldKeepInactiveVideoPrewarmed,
@@ -388,6 +389,48 @@ describe('preview platform helpers', () => {
         trimStart: 3,
         videoCurrentTime: 4.2,
         videoEnded: false,
+      }),
+    ).toBe(false);
+  });
+
+  it('preview の遅延 play は現行試行かつ seek 完了時だけ許可する', () => {
+    expect(
+      shouldAttemptDeferredPreviewPlay({
+        isCurrentAttempt: true,
+        isPlaying: true,
+        isSeeking: false,
+        mediaSeeking: false,
+        readyState: 2,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldAttemptDeferredPreviewPlay({
+        isCurrentAttempt: false,
+        isPlaying: true,
+        isSeeking: false,
+        mediaSeeking: false,
+        readyState: 2,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldAttemptDeferredPreviewPlay({
+        isCurrentAttempt: true,
+        isPlaying: true,
+        isSeeking: true,
+        mediaSeeking: false,
+        readyState: 2,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldAttemptDeferredPreviewPlay({
+        isCurrentAttempt: true,
+        isPlaying: true,
+        isSeeking: false,
+        mediaSeeking: true,
+        readyState: 2,
       }),
     ).toBe(false);
   });

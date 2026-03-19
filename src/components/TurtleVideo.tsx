@@ -37,6 +37,7 @@ import {
   getPreviewAudioRoutingPlan,
   getPreviewPlatformPolicy,
   getPreviewVideoSyncThreshold,
+  shouldAttemptDeferredPreviewPlay,
   shouldBundlePreviewStartForWebAudioMix,
   shouldHoldVideoFrameAtClipEnd,
   shouldKeepInactiveVideoPrewarmed,
@@ -305,6 +306,7 @@ const TurtleVideo: React.FC = () => {
 
   const playbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 再生開始待機用タイマー
   const seekSettleGenerationRef = useRef(0);
+  const previewPlaybackAttemptRef = useRef(0);
   const pendingPausedSeekWaitRef = useRef<{ cleanup: () => void } | null>(null);
   const previewAudioRouteRefreshInFlightRef = useRef<Promise<void> | null>(null);
   const requestPreviewAudioRouteRefreshRef = useRef<() => void>(() => { });
@@ -2644,10 +2646,17 @@ const TurtleVideo: React.FC = () => {
     targetTime: number,
     seekThreshold = 0.1,
   ) => {
+    const scheduledAttempt = previewPlaybackAttemptRef.current;
     const playWhenReady = () => {
-      if (!isPlayingRef.current) return;
-      if (mediaEl.seeking) return;
-      if (mediaEl.readyState < 1) return;
+      if (!shouldAttemptDeferredPreviewPlay({
+        isCurrentAttempt: scheduledAttempt === previewPlaybackAttemptRef.current,
+        isPlaying: isPlayingRef.current,
+        isSeeking: isSeekingRef.current,
+        mediaSeeking: mediaEl.seeking,
+        readyState: mediaEl.readyState,
+      })) {
+        return;
+      }
       if (mediaEl.paused) {
         mediaEl.play().catch(() => { });
       }
@@ -3126,6 +3135,7 @@ const TurtleVideo: React.FC = () => {
 
     // ループIDをインクリメントして古いループを無効化
     loopIdRef.current += 1;
+    previewPlaybackAttemptRef.current += 1;
     isPlayingRef.current = false;
     audioResumeWaitFramesRef.current = 0;
     activeVideoIdRef.current = null;
@@ -3554,6 +3564,7 @@ const TurtleVideo: React.FC = () => {
         requiresWebAudio: false,
       };
       let shouldBundlePreviewStart = false;
+      let previewPlaybackAttempt = previewPlaybackAttemptRef.current;
 
       if (!isExportMode) {
         const blockingVideos = collectPlaybackBlockingVideos(mediaItemsRef.current, fromTime);
@@ -3577,6 +3588,9 @@ const TurtleVideo: React.FC = () => {
             return;
           }
         }
+
+        previewPlaybackAttemptRef.current += 1;
+        previewPlaybackAttempt = previewPlaybackAttemptRef.current;
 
         // iOS Safari の AudioContext 再初期化 (suspend/resume) は startEngine 冒頭で
         // 既に実行済み。ここで再度 refreshPreviewAudioRoute() を呼ぶと、
@@ -3891,7 +3905,17 @@ const TurtleVideo: React.FC = () => {
             activeVideoElForBundledStart.play().catch(() => { });
           } else {
             const playWhenReady = () => {
-              if (isPlayingRef.current && activeVideoElForBundledStart.paused) {
+              if (!shouldAttemptDeferredPreviewPlay({
+                isCurrentAttempt: previewPlaybackAttempt === previewPlaybackAttemptRef.current,
+                isPlaying: isPlayingRef.current,
+                isSeeking: isSeekingRef.current,
+                mediaSeeking: activeVideoElForBundledStart.seeking,
+                readyState: activeVideoElForBundledStart.readyState,
+                minReadyState: 2,
+              })) {
+                return;
+              }
+              if (activeVideoElForBundledStart.paused) {
                 activeVideoElForBundledStart.play().catch(() => { });
               }
             };
@@ -3973,9 +3997,11 @@ const TurtleVideo: React.FC = () => {
 
     wasPlayingBeforeSeekRef.current = isPlayingRef.current;
     isSeekingRef.current = true;
+    previewPlaybackAttemptRef.current += 1;
     attachGlobalSeekEndListeners();
 
     if (isPlayingRef.current) {
+      isPlayingRef.current = false;
       if (reqIdRef.current) {
         cancelAnimationFrame(reqIdRef.current);
         reqIdRef.current = null;
@@ -3985,8 +4011,8 @@ const TurtleVideo: React.FC = () => {
         playbackTimeoutRef.current = null;
       }
       Object.values(mediaElementsRef.current).forEach((el) => {
-        if (el && el.tagName === 'VIDEO') {
-          try { (el as HTMLVideoElement).pause(); } catch (e) { /* ignore */ }
+        if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO')) {
+          try { (el as HTMLMediaElement).pause(); } catch (e) { /* ignore */ }
         }
       });
     }
@@ -4288,6 +4314,8 @@ const TurtleVideo: React.FC = () => {
           return;
         }
         const playbackTime = Math.max(0, Math.min(currentTimeRef.current, totalDurationRef.current));
+        previewPlaybackAttemptRef.current += 1;
+        const previewPlaybackAttempt = previewPlaybackAttemptRef.current;
         isSeekPlaybackPreparingRef.current = false;
         startTimeRef.current = Date.now() - playbackTime * 1000;
         isPlayingRef.current = true;
@@ -4334,17 +4362,35 @@ const TurtleVideo: React.FC = () => {
                     videoEl.play().catch(() => { });
                   } else {
                     const playWhenReady = () => {
-                      if (isPlayingRef.current && videoEl.paused) {
+                      if (!shouldAttemptDeferredPreviewPlay({
+                        isCurrentAttempt: previewPlaybackAttempt === previewPlaybackAttemptRef.current,
+                        isPlaying: isPlayingRef.current,
+                        isSeeking: isSeekingRef.current,
+                        mediaSeeking: videoEl.seeking,
+                        readyState: videoEl.readyState,
+                      })) {
+                        return;
+                      }
+                      if (videoEl.paused) {
                         videoEl.play().catch(() => { });
                       }
                     };
                     // canplay (readyState >= 3) を使用。canplaythrough は長い動画で
                     // 発火しない場合があるため。
                     videoEl.addEventListener('canplay', playWhenReady, { once: true });
+                    if (playbackTimeoutRef.current) {
+                      clearTimeout(playbackTimeoutRef.current);
+                    }
                     playbackTimeoutRef.current = setTimeout(() => {
                       playbackTimeoutRef.current = null;
                       // readyState >= 1 でplay()を許可（ブラウザがバッファリングを開始する）
-                      if (isPlayingRef.current && videoEl.paused && videoEl.readyState >= 1) {
+                      if (shouldAttemptDeferredPreviewPlay({
+                        isCurrentAttempt: previewPlaybackAttempt === previewPlaybackAttemptRef.current,
+                        isPlaying: isPlayingRef.current,
+                        isSeeking: isSeekingRef.current,
+                        mediaSeeking: videoEl.seeking,
+                        readyState: videoEl.readyState,
+                      }) && videoEl.paused) {
                         videoEl.play().catch(() => { });
                       }
                     }, 1000);
@@ -4364,7 +4410,17 @@ const TurtleVideo: React.FC = () => {
             activeVideoElForBundledStart.play().catch(() => { });
           } else {
             const playWhenReady = () => {
-              if (isPlayingRef.current && activeVideoElForBundledStart.paused) {
+              if (!shouldAttemptDeferredPreviewPlay({
+                isCurrentAttempt: previewPlaybackAttempt === previewPlaybackAttemptRef.current,
+                isPlaying: isPlayingRef.current,
+                isSeeking: isSeekingRef.current,
+                mediaSeeking: activeVideoElForBundledStart.seeking,
+                readyState: activeVideoElForBundledStart.readyState,
+                minReadyState: 2,
+              })) {
+                return;
+              }
+              if (activeVideoElForBundledStart.paused) {
                 activeVideoElForBundledStart.play().catch(() => { });
               }
             };
