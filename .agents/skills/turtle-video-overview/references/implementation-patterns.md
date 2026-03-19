@@ -1373,3 +1373,16 @@
 - **注意**:
   - `showOpenFilePicker` 非対応ブラウザでは、ブラウザ/OS が返した `File.name` より元の名前を復元できない場合がある
   - この制約は特にモバイルの写真/動画ライブラリ選択で出やすく、app 側だけでは完全には補正できない
+
+### 13-73. iOS Safari preview の複数音源開始は audio-only を先に起動し、通過済み video は止める
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **問題**:
+  - iOS Safari で `動画 + BGM` のような複数可聴ソースを 0 秒から開始すると、動画側が先に `play()` して AudioSession の主導権を取り、BGM が鳴り始めないことがある
+  - 逆に、通過済みの video を gain=0 のまま走らせ続けると、`動画 -> 静止画` の境界後も BGM へ周期的な干渉が出ることがある
+- **対策**:
+  - `preparePreviewAudioNodesForTime()` で「現在時刻の可聴 source 数」「active video の有無」「WebAudio mix 必要性」を返し、`shouldBundlePreviewStartForWebAudioMix()` で bundled start の要否を決める
+  - bundled start が必要な場合は、`primePreviewAudioOnlyTracksAtTime()` で BGM / narration の `seeked` / `canplay` を待ちながら先に起動し、active video は最後に開始する
+  - iOS preview の prewarm 対象は「現在以降の video」に限定し、render loop 中も通過済み video は pause して future/current video だけを維持する
+- **注意**:
+  - iOS Safari の無音対策で「全 video を常時走らせる」方向へ戻すと、静止画区間の BGM が揺れやすい
+  - ただし future video まで止めると、画像区間から次の video へ入る際に gesture credit を失いやすいので、past video と future video は分けて扱う
