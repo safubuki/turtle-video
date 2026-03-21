@@ -132,18 +132,35 @@ export function shouldKeepInactiveVideoPrewarmed(
     isExporting: boolean;
     isActivePlaying: boolean;
     timeSinceVideoEndSec: number | null;
+    timeUntilVideoStartSec?: number | null;
     pauseGraceSec?: number;
+    prewarmLeadSec?: number;
+    isNearestFutureVideo?: boolean;
+    allowExtendedFuturePrewarm?: boolean;
   },
 ): boolean {
   const pauseGraceSec = options.pauseGraceSec ?? 0.25;
+  const prewarmLeadSec = options.prewarmLeadSec ?? 0.35;
+  const shouldAllowExtendedFuturePrewarm =
+    options.allowExtendedFuturePrewarm
+    && options.isNearestFutureVideo
+    && options.timeUntilVideoStartSec !== null
+    && options.timeUntilVideoStartSec !== undefined
+    && options.timeUntilVideoStartSec >= 0;
   const isPastVideoBeyondGrace =
     options.timeSinceVideoEndSec !== null
     && options.timeSinceVideoEndSec >= pauseGraceSec;
+  const isFutureVideoTooFar =
+    options.timeUntilVideoStartSec !== null
+    && options.timeUntilVideoStartSec !== undefined
+    && options.timeUntilVideoStartSec > prewarmLeadSec
+    && !shouldAllowExtendedFuturePrewarm;
 
   return options.hasAudioNode
     && policy.muteNativeMediaWhenAudioRouted
     && !options.isExporting
     && options.isActivePlaying
+    && !isFutureVideoTooFar
     && !isPastVideoBeyondGrace;
 }
 

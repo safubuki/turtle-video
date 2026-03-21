@@ -711,6 +711,19 @@ const TurtleVideo: React.FC = () => {
           }
         }
 
+        const allowExtendedFutureVideoPrewarm = !activeId || currentItems[activeIndex]?.type !== 'video';
+        let nearestFutureVideoId: string | null = null;
+        for (const item of currentItems) {
+          const timelineRange = timelineRanges.get(item.id);
+          if (!timelineRange || item.type !== 'video') {
+            continue;
+          }
+          if (timelineRange.start - time > 0.0005) {
+            nearestFutureVideoId = item.id;
+            break;
+          }
+        }
+
         Object.keys(mediaElementsRef.current).forEach((id) => {
           if (id === 'bgm' || id.startsWith('narration:')) return;
 
@@ -954,15 +967,21 @@ const TurtleVideo: React.FC = () => {
               const timeSinceVideoEndSec = timelineRange
                 ? time - timelineRange.end
                 : null;
+              const timeUntilVideoStartSec = timelineRange
+                ? timelineRange.start - time
+                : null;
               // iOS Safari: WebAudio mix 中は future/current に加えて
               // 境界直後の just-ended video も短時間だけ prewarm を維持する。
-              // ただし、既に通過した video まで走らせ続けると BGM へ干渉しやすいため、
-              // future/current video だけを prewarm 対象として維持する。
+              // ただし、遠い将来動画まで走らせ続けると BGM へ干渉しやすいため、
+              // 次の切り替えが近い video だけを prewarm 対象として維持する。
               const shouldKeepVideoPrewarmed = shouldKeepInactiveVideoPrewarmed(previewPlatformPolicy, {
                 hasAudioNode: hasVideoAudioNode,
                 isExporting: _isExporting,
                 isActivePlaying,
                 timeSinceVideoEndSec,
+                timeUntilVideoStartSec,
+                isNearestFutureVideo: id === nearestFutureVideoId,
+                allowExtendedFuturePrewarm: allowExtendedFutureVideoPrewarm,
               });
               if (!shouldKeepVideoPrewarmed && !videoEl.paused) {
                 videoEl.pause();
@@ -3617,13 +3636,40 @@ const TurtleVideo: React.FC = () => {
         // AudioSession 破壊で BGM が無音化する原因になる。
         // ここで play() しておけば、renderFrame では pause/play 不要になる。
         if (previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
+          const allowExtendedFuturePrewarm = preparedPreviewAudio.activeVideoId === null;
+          let nearestFutureVideoId: string | null = null;
           let prewarmCursor = 0;
           for (const item of mediaItemsRef.current) {
+            const itemStart = prewarmCursor;
+            const itemEnd = prewarmCursor + Math.max(0, item.duration);
+            prewarmCursor = itemEnd;
+            if (item.type !== 'video') continue;
+            if (itemStart - fromTime > 0.0005) {
+              nearestFutureVideoId = item.id;
+              break;
+            }
+          }
+
+          prewarmCursor = 0;
+          for (const item of mediaItemsRef.current) {
+            const itemStart = prewarmCursor;
             const itemEnd = prewarmCursor + Math.max(0, item.duration);
             prewarmCursor = itemEnd;
             if (item.type !== 'video') continue;
             if (itemEnd <= fromTime + 0.0005) continue;
             if (shouldBundlePreviewStart && item.id === preparedPreviewAudio.activeVideoId) {
+              continue;
+            }
+            const shouldPrewarmVideo = shouldKeepInactiveVideoPrewarmed(previewPlatformPolicy, {
+              hasAudioNode: !!sourceNodesRef.current[item.id],
+              isExporting: false,
+              isActivePlaying: true,
+              timeSinceVideoEndSec: fromTime - itemEnd,
+              timeUntilVideoStartSec: itemStart - fromTime,
+              isNearestFutureVideo: item.id === nearestFutureVideoId,
+              allowExtendedFuturePrewarm,
+            });
+            if (!shouldPrewarmVideo) {
               continue;
             }
             const el = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
@@ -4435,13 +4481,40 @@ const TurtleVideo: React.FC = () => {
         // 非アクティブなビデオを事前 play() する。startEngine と同じ目的で、
         // renderFrame 内での play() 呼び出しを回避する。
         if (previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
+          const allowExtendedFuturePrewarm = preparedPreviewAudio.activeVideoId === null;
+          let nearestFutureVideoId: string | null = null;
           let prewarmCursor = 0;
           for (const item of mediaItemsRef.current) {
+            const itemStart = prewarmCursor;
+            const itemEnd = prewarmCursor + Math.max(0, item.duration);
+            prewarmCursor = itemEnd;
+            if (item.type !== 'video') continue;
+            if (itemStart - playbackTime > 0.0005) {
+              nearestFutureVideoId = item.id;
+              break;
+            }
+          }
+
+          prewarmCursor = 0;
+          for (const item of mediaItemsRef.current) {
+            const itemStart = prewarmCursor;
             const itemEnd = prewarmCursor + Math.max(0, item.duration);
             prewarmCursor = itemEnd;
             if (item.type !== 'video') continue;
             if (itemEnd <= playbackTime + 0.0005) continue;
             if (shouldBundlePreviewStart && item.id === preparedPreviewAudio.activeVideoId) {
+              continue;
+            }
+            const shouldPrewarmVideo = shouldKeepInactiveVideoPrewarmed(previewPlatformPolicy, {
+              hasAudioNode: !!sourceNodesRef.current[item.id],
+              isExporting: false,
+              isActivePlaying: true,
+              timeSinceVideoEndSec: playbackTime - itemEnd,
+              timeUntilVideoStartSec: itemStart - playbackTime,
+              isNearestFutureVideo: item.id === nearestFutureVideoId,
+              allowExtendedFuturePrewarm,
+            });
+            if (!shouldPrewarmVideo) {
               continue;
             }
             const el = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;

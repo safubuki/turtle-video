@@ -19,6 +19,20 @@
   - iOS Safari では `canplay` 自体が遅延到達することがあるため、listener を外すだけでは不十分で、発火後の no-op ガードが必要
   - timeout fallback で `play()` を再試行する場合も同じ世代 helper を使わないと、seek 直後の race が再発する
 
+
+### 0-2. iOS Safari preview の future video prewarm は「画像区間中の次動画」を例外維持する
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **背景**:
+  - 遠い future video の prewarm を一律 `0.35s` に制限すると、画像クリップが 350ms を超える一般的なタイムラインで次動画が事前 `play()` 対象から外れる
+  - `renderFrame()` は対象外になった inactive video を `pause()` するだけで、後から lead window に入っても rAF 外で再 prime されないため、iOS Safari の gesture credit を失った `play()` に逆戻りしやすい
+- **実装指針**:
+  - `shouldKeepInactiveVideoPrewarmed()` では、通常は lead window で future video を絞りつつ、**現在が画像/無動画区間で、かつ最も近い次動画** だけは距離に関係なく prewarm 維持を許可する
+  - `startEngine()` / seek 再開 (`proceedWithPlayback`) / `renderFrame()` で同じ「最も近い future video」判定を共有し、初回 prime と維持判定が食い違わないようにする
+- **注意点**:
+  - 例外維持を許可するのは次動画 1 本だけに留め、2 本目以降の future video まで走らせない
+  - active video 再生中まで例外を広げると、元の「遠い future video が BGM と競合する」問題を再発させやすい
+
 ## 1. スクロール/スワイプ誤操作防止
 
 ### 1-1. モーダル表示時のボディスクロールロック
@@ -1404,3 +1418,16 @@
   - iOS Safari の無音対策で「全 video を常時走らせる」方向へ戻すと、静止画区間の BGM が揺れやすい
   - ただし future video まで止めると、画像区間から次の video へ入る際に gesture credit を失いやすいので、past video と future video は分けて扱う
   - `動画 -> 静止画` の境界では just-ended video を短い grace だけ prewarm 維持し、実際に pause した直後は `AudioContext.resume()` と `primePreviewAudioOnlyTracksAtTime()` で audio-only を再点火する
+
+### 13-74. iOS Safari preview の future video prewarm は「直近の切替候補」だけに絞る
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **問題**:
+  - iOS Safari で BGM / narration と video を混在再生するとき、future video をすべて gain=0 のまま `play()` すると、遠い将来の video まで AudioSession / デコード資源を消費し、結果として「動画だけ」「BGMだけ」は動くのに、両方同時だとどちらかが不安定になることがある
+  - startEngine / seek 再開直後の一括 prewarm は gesture credit を確保しやすい一方で、対象を広げすぎると release 品質の安定性を落とす
+- **対策**:
+  - `shouldKeepInactiveVideoPrewarmed()` に `timeUntilVideoStartSec` と lead window を追加し、遠い future video は prewarm 維持対象から外す
+  - `renderFrame()` の inactive video 制御だけでなく、`startEngine()` / seek 再開時の事前 `play()` ループにも同じ helper を使い、直近の切替候補だけを無音 prewarm する
+  - これにより、最小限の gesture credit 維持は残しつつ、複数 video の常時再生による BGM 干渉を抑える
+- **注意**:
+  - lead window を広げすぎると再び「遠い future video まで走る」状態へ戻り、狭めすぎると画像区間→動画区間の立ち上がりが悪化する
+  - iOS Safari preview の安定性を優先する場合は、「すべてを滑らかにする」より「今必要な video だけ確実に鳴らす」方針を維持する

@@ -119,6 +119,7 @@ describe('getPreviewPlatformPolicy', () => {
         isExporting: false,
         isActivePlaying: true,
         timeSinceVideoEndSec: -0.1,
+        timeUntilVideoStartSec: 0.1,
       }),
     ).toBe(true);
 
@@ -128,6 +129,7 @@ describe('getPreviewPlatformPolicy', () => {
         isExporting: false,
         isActivePlaying: true,
         timeSinceVideoEndSec: 0.1,
+        timeUntilVideoStartSec: -2,
       }),
     ).toBe(true);
 
@@ -137,6 +139,57 @@ describe('getPreviewPlatformPolicy', () => {
         isExporting: false,
         isActivePlaying: true,
         timeSinceVideoEndSec: 0.4,
+        timeUntilVideoStartSec: -2,
+      }),
+    ).toBe(false);
+  });
+
+  it('iOS Safari preview でも遠い将来動画までは prewarm し続けない', () => {
+    const iosPolicy = getPreviewPlatformPolicy({
+      isAndroid: false,
+      isIosSafari: true,
+      audioContextMayInterrupt: true,
+    });
+
+    expect(
+      shouldKeepInactiveVideoPrewarmed(iosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        isActivePlaying: true,
+        timeSinceVideoEndSec: -3,
+        timeUntilVideoStartSec: 1.5,
+      }),
+    ).toBe(false);
+  });
+
+  it('画像区間中は次の動画だけ距離に関わらず prewarm を維持できる', () => {
+    const iosPolicy = getPreviewPlatformPolicy({
+      isAndroid: false,
+      isIosSafari: true,
+      audioContextMayInterrupt: true,
+    });
+
+    expect(
+      shouldKeepInactiveVideoPrewarmed(iosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        isActivePlaying: true,
+        timeSinceVideoEndSec: -3,
+        timeUntilVideoStartSec: 1.5,
+        isNearestFutureVideo: true,
+        allowExtendedFuturePrewarm: true,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldKeepInactiveVideoPrewarmed(iosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        isActivePlaying: true,
+        timeSinceVideoEndSec: -6,
+        timeUntilVideoStartSec: 3.5,
+        isNearestFutureVideo: false,
+        allowExtendedFuturePrewarm: true,
       }),
     ).toBe(false);
   });
@@ -159,6 +212,7 @@ describe('getPreviewPlatformPolicy', () => {
         isExporting: false,
         isActivePlaying: true,
         timeSinceVideoEndSec: -0.1,
+        timeUntilVideoStartSec: 0.1,
       }),
     ).toBe(false);
 
@@ -168,6 +222,7 @@ describe('getPreviewPlatformPolicy', () => {
         isExporting: false,
         isActivePlaying: false,
         timeSinceVideoEndSec: -0.1,
+        timeUntilVideoStartSec: 0.1,
       }),
     ).toBe(false);
   });
