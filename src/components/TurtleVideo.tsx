@@ -954,15 +954,19 @@ const TurtleVideo: React.FC = () => {
               const timeSinceVideoEndSec = timelineRange
                 ? time - timelineRange.end
                 : null;
+              const timeUntilVideoStartSec = timelineRange
+                ? timelineRange.start - time
+                : null;
               // iOS Safari: WebAudio mix 中は future/current に加えて
               // 境界直後の just-ended video も短時間だけ prewarm を維持する。
-              // ただし、既に通過した video まで走らせ続けると BGM へ干渉しやすいため、
-              // future/current video だけを prewarm 対象として維持する。
+              // ただし、遠い将来動画まで走らせ続けると BGM へ干渉しやすいため、
+              // 次の切り替えが近い video だけを prewarm 対象として維持する。
               const shouldKeepVideoPrewarmed = shouldKeepInactiveVideoPrewarmed(previewPlatformPolicy, {
                 hasAudioNode: hasVideoAudioNode,
                 isExporting: _isExporting,
                 isActivePlaying,
                 timeSinceVideoEndSec,
+                timeUntilVideoStartSec,
               });
               if (!shouldKeepVideoPrewarmed && !videoEl.paused) {
                 videoEl.pause();
@@ -3619,11 +3623,22 @@ const TurtleVideo: React.FC = () => {
         if (previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
           let prewarmCursor = 0;
           for (const item of mediaItemsRef.current) {
+            const itemStart = prewarmCursor;
             const itemEnd = prewarmCursor + Math.max(0, item.duration);
             prewarmCursor = itemEnd;
             if (item.type !== 'video') continue;
             if (itemEnd <= fromTime + 0.0005) continue;
             if (shouldBundlePreviewStart && item.id === preparedPreviewAudio.activeVideoId) {
+              continue;
+            }
+            const shouldPrewarmVideo = shouldKeepInactiveVideoPrewarmed(previewPlatformPolicy, {
+              hasAudioNode: !!sourceNodesRef.current[item.id],
+              isExporting: false,
+              isActivePlaying: true,
+              timeSinceVideoEndSec: fromTime - itemEnd,
+              timeUntilVideoStartSec: itemStart - fromTime,
+            });
+            if (!shouldPrewarmVideo) {
               continue;
             }
             const el = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
@@ -4437,11 +4452,22 @@ const TurtleVideo: React.FC = () => {
         if (previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
           let prewarmCursor = 0;
           for (const item of mediaItemsRef.current) {
+            const itemStart = prewarmCursor;
             const itemEnd = prewarmCursor + Math.max(0, item.duration);
             prewarmCursor = itemEnd;
             if (item.type !== 'video') continue;
             if (itemEnd <= playbackTime + 0.0005) continue;
             if (shouldBundlePreviewStart && item.id === preparedPreviewAudio.activeVideoId) {
+              continue;
+            }
+            const shouldPrewarmVideo = shouldKeepInactiveVideoPrewarmed(previewPlatformPolicy, {
+              hasAudioNode: !!sourceNodesRef.current[item.id],
+              isExporting: false,
+              isActivePlaying: true,
+              timeSinceVideoEndSec: playbackTime - itemEnd,
+              timeUntilVideoStartSec: itemStart - playbackTime,
+            });
+            if (!shouldPrewarmVideo) {
               continue;
             }
             const el = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
