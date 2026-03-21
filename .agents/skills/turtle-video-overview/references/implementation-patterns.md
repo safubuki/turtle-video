@@ -19,6 +19,20 @@
   - iOS Safari では `canplay` 自体が遅延到達することがあるため、listener を外すだけでは不十分で、発火後の no-op ガードが必要
   - timeout fallback で `play()` を再試行する場合も同じ世代 helper を使わないと、seek 直後の race が再発する
 
+
+### 0-2. iOS Safari preview の future video prewarm は「画像区間中の次動画」を例外維持する
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **背景**:
+  - 遠い future video の prewarm を一律 `0.35s` に制限すると、画像クリップが 350ms を超える一般的なタイムラインで次動画が事前 `play()` 対象から外れる
+  - `renderFrame()` は対象外になった inactive video を `pause()` するだけで、後から lead window に入っても rAF 外で再 prime されないため、iOS Safari の gesture credit を失った `play()` に逆戻りしやすい
+- **実装指針**:
+  - `shouldKeepInactiveVideoPrewarmed()` では、通常は lead window で future video を絞りつつ、**現在が画像/無動画区間で、かつ最も近い次動画** だけは距離に関係なく prewarm 維持を許可する
+  - `startEngine()` / seek 再開 (`proceedWithPlayback`) / `renderFrame()` で同じ「最も近い future video」判定を共有し、初回 prime と維持判定が食い違わないようにする
+- **注意点**:
+  - 例外維持を許可するのは次動画 1 本だけに留め、2 本目以降の future video まで走らせない
+  - active video 再生中まで例外を広げると、元の「遠い future video が BGM と競合する」問題を再発させやすい
+
 ## 1. スクロール/スワイプ誤操作防止
 
 ### 1-1. モーダル表示時のボディスクロールロック

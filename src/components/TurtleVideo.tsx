@@ -711,6 +711,19 @@ const TurtleVideo: React.FC = () => {
           }
         }
 
+        const allowExtendedFutureVideoPrewarm = !activeId || currentItems[activeIndex]?.type !== 'video';
+        let nearestFutureVideoId: string | null = null;
+        for (const item of currentItems) {
+          const timelineRange = timelineRanges.get(item.id);
+          if (!timelineRange || item.type !== 'video') {
+            continue;
+          }
+          if (timelineRange.start - time > 0.0005) {
+            nearestFutureVideoId = item.id;
+            break;
+          }
+        }
+
         Object.keys(mediaElementsRef.current).forEach((id) => {
           if (id === 'bgm' || id.startsWith('narration:')) return;
 
@@ -967,6 +980,8 @@ const TurtleVideo: React.FC = () => {
                 isActivePlaying,
                 timeSinceVideoEndSec,
                 timeUntilVideoStartSec,
+                isNearestFutureVideo: id === nearestFutureVideoId,
+                allowExtendedFuturePrewarm: allowExtendedFutureVideoPrewarm,
               });
               if (!shouldKeepVideoPrewarmed && !videoEl.paused) {
                 videoEl.pause();
@@ -3621,7 +3636,21 @@ const TurtleVideo: React.FC = () => {
         // AudioSession 破壊で BGM が無音化する原因になる。
         // ここで play() しておけば、renderFrame では pause/play 不要になる。
         if (previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
+          const allowExtendedFuturePrewarm = preparedPreviewAudio.activeVideoId === null;
+          let nearestFutureVideoId: string | null = null;
           let prewarmCursor = 0;
+          for (const item of mediaItemsRef.current) {
+            const itemStart = prewarmCursor;
+            const itemEnd = prewarmCursor + Math.max(0, item.duration);
+            prewarmCursor = itemEnd;
+            if (item.type !== 'video') continue;
+            if (itemStart - fromTime > 0.0005) {
+              nearestFutureVideoId = item.id;
+              break;
+            }
+          }
+
+          prewarmCursor = 0;
           for (const item of mediaItemsRef.current) {
             const itemStart = prewarmCursor;
             const itemEnd = prewarmCursor + Math.max(0, item.duration);
@@ -3637,6 +3666,8 @@ const TurtleVideo: React.FC = () => {
               isActivePlaying: true,
               timeSinceVideoEndSec: fromTime - itemEnd,
               timeUntilVideoStartSec: itemStart - fromTime,
+              isNearestFutureVideo: item.id === nearestFutureVideoId,
+              allowExtendedFuturePrewarm,
             });
             if (!shouldPrewarmVideo) {
               continue;
@@ -4450,7 +4481,21 @@ const TurtleVideo: React.FC = () => {
         // 非アクティブなビデオを事前 play() する。startEngine と同じ目的で、
         // renderFrame 内での play() 呼び出しを回避する。
         if (previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
+          const allowExtendedFuturePrewarm = preparedPreviewAudio.activeVideoId === null;
+          let nearestFutureVideoId: string | null = null;
           let prewarmCursor = 0;
+          for (const item of mediaItemsRef.current) {
+            const itemStart = prewarmCursor;
+            const itemEnd = prewarmCursor + Math.max(0, item.duration);
+            prewarmCursor = itemEnd;
+            if (item.type !== 'video') continue;
+            if (itemStart - playbackTime > 0.0005) {
+              nearestFutureVideoId = item.id;
+              break;
+            }
+          }
+
+          prewarmCursor = 0;
           for (const item of mediaItemsRef.current) {
             const itemStart = prewarmCursor;
             const itemEnd = prewarmCursor + Math.max(0, item.duration);
@@ -4466,6 +4511,8 @@ const TurtleVideo: React.FC = () => {
               isActivePlaying: true,
               timeSinceVideoEndSec: playbackTime - itemEnd,
               timeUntilVideoStartSec: itemStart - playbackTime,
+              isNearestFutureVideo: item.id === nearestFutureVideoId,
+              allowExtendedFuturePrewarm,
             });
             if (!shouldPrewarmVideo) {
               continue;
