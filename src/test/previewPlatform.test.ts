@@ -578,10 +578,23 @@ describe('preview platform helpers', () => {
     ).toBe(true);
   });
 
-  it('フェード終端手前の低アルファ帯でも terminal window 外なら即黒クリアしない', () => {
+  it('フェード終端の低アルファ帯（alpha < 閾値）では黒クリアを優先する', () => {
+    // remaining=0.04s, fadeOutDuration=1s → alpha=0.04 (< 0.05 閾値) → 黒クリア
     expect(
       shouldBlackoutVideoFadeTail({
         clipLocalTime: 1.96,
+        clipDuration: 2,
+        fadeOut: true,
+        fadeOutDuration: 1,
+      }),
+    ).toBe(true);
+  });
+
+  it('フェード終端の blackout window 境界外ではフレーム保持を許可する', () => {
+    // remaining=0.06s, fadeOutDuration=1s → alpha=0.06 (> 0.05 閾値) → 保持許可
+    expect(
+      shouldBlackoutVideoFadeTail({
+        clipLocalTime: 1.94,
         clipDuration: 2,
         fadeOut: true,
         fadeOutDuration: 1,

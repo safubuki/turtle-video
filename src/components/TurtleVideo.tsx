@@ -558,6 +558,14 @@ const TurtleVideo: React.FC = () => {
             fadeOutDuration: activeItem.fadeOutDuration || 1.0,
           });
 
+          // フェードアウト領域判定: この領域では holdFrame を抑制し、
+          // キャンバスを毎フレーム黒クリアしてから描画することで二重合成による明滅を防止する。
+          const fadeOutDurForRegion = activeItem.fadeOutDuration || 1.0;
+          const isInFadeOutRegion =
+            activeItem.type === 'video' &&
+            activeItem.fadeOut &&
+            localTime > activeItem.duration - fadeOutDurForRegion;
+
           if (activeItem.type === 'video' && shouldPreferBlackoutAtFadeTail) {
             shouldBlackoutFadeTail = true;
           }
@@ -565,7 +573,7 @@ const TurtleVideo: React.FC = () => {
           if (activeItem.type === 'video') {
             const activeEl = mediaElementsRef.current[activeId] as HTMLVideoElement | undefined;
             if (!activeEl) {
-              if (!shouldPreferBlackoutAtFadeTail) {
+              if (!shouldPreferBlackoutAtFadeTail && !isInFadeOutRegion) {
                 holdFrame = true;
               }
             } else {
@@ -631,7 +639,7 @@ const TurtleVideo: React.FC = () => {
               });
 
               if (!hasFrame || needsCorrection || shouldHoldForVideoEnd) {
-                if (!shouldPreferBlackoutAtFadeTail) {
+                if (!shouldPreferBlackoutAtFadeTail && !isInFadeOutRegion) {
                   holdFrame = true;
                 }
                 // ブラックアウト防止発動をログ
