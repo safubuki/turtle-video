@@ -27,6 +27,10 @@ export interface VisibilityRecoveryPlan {
   shouldDelayAudioResume: boolean;
 }
 
+export interface PageHidePausePlan {
+  shouldPauseMediaElements: boolean;
+}
+
 export type PreviewAudioOutputMode = 'native' | 'webaudio';
 
 export interface PreviewAudioRoutingCandidate {
@@ -390,5 +394,18 @@ export function getVisibilityRecoveryPlan(options: {
     shouldKeepRunning,
     shouldResyncMedia: shouldKeepRunning && (options.resumedFromHidden || options.needsResyncFromLifecycle),
     shouldDelayAudioResume: shouldKeepRunning && options.resumedFromHidden,
+  };
+}
+
+/**
+ * `pagehide` が `visibilitychange(hidden)` より先に来る環境では、
+ * export を止める前に入力メディアだけ pause すると黒フレーム/無音の原因になる。
+ * 通常 preview は停止してよいが、export 中は hidden 側の停止契機へ委ねる。
+ */
+export function getPageHidePausePlan(options: {
+  isProcessing: boolean;
+}): PageHidePausePlan {
+  return {
+    shouldPauseMediaElements: !options.isProcessing,
   };
 }

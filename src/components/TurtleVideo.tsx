@@ -38,6 +38,7 @@ import {
   getPreviewAudioRoutingPlan,
   getPreviewPlatformPolicy,
   getPreviewVideoSyncThreshold,
+  getPageHidePausePlan,
   shouldAttemptDeferredPreviewPlay,
   shouldBundlePreviewStartForWebAudioMix,
   getVisibilityRecoveryPlan,
@@ -1778,6 +1779,7 @@ const TurtleVideo: React.FC = () => {
       refreshAfterReturn();
     };
     const handlePageHide = () => {
+      const { shouldPauseMediaElements } = getPageHidePausePlan({ isProcessing });
       if (hiddenStartedAtRef.current === null) {
         hiddenStartedAtRef.current = Date.now();
       }
@@ -1785,7 +1787,9 @@ const TurtleVideo: React.FC = () => {
       cancelPendingPausedSeekWait();
       if (isPlayingRef.current || isProcessing) {
         needsResyncAfterVisibilityRef.current = true;
-        pauseAllMediaElements();
+        if (shouldPauseMediaElements) {
+          pauseAllMediaElements();
+        }
         if (!isProcessing) {
           isPlayingRef.current = false;
           pause();
