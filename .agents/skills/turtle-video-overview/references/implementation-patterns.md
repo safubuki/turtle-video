@@ -1446,3 +1446,32 @@
 - **注意**:
   - lead window を広げすぎると再び「遠い future video まで走る」状態へ戻り、狭めすぎると画像区間→動画区間の立ち上がりが悪化する
   - iOS Safari preview の安定性を優先する場合は、「すべてを滑らかにする」より「今必要な video だけ確実に鳴らす」方針を維持する
+
+### 13-75. 自動保存の経過判定は『実際に保存を再開できる時刻』を基準にし、export 見送り後は即 catch-up する
+
+- **ファイル**: `src/hooks/useAutoSave.ts`
+- **問題**:
+  - 自動保存タイマーの tick 時点で export 中だと保存自体は見送るが、その時刻を次回判定基準にしてしまうと、export 終了後も次の1周期が来るまで保存が再開されない
+  - Android / PC では長めの export や復帰操作のあとに「1分設定でもいつまでも auto save されない」体感につながりやすい
+- **対策**:
+  - 自動保存の経過判定は `lastAutoSaveActivityAtRef` のような『実際に保存可能だった最新時刻』で管理し、`skipped-processing` では更新しない
+  - `isProcessing` が `true -> false` に戻った直後、かつ保存間隔を超過していれば短い遅延で catch-up save を実行する
+  - `visibilitychange` / `focus` / `pageshow` 復帰時も同じ基準で overdue 判定し、hidden 中の見送りを持ち越さない
+- **注意**:
+  - export 中だけ保存を避け、通常の no-change / empty 判定では基準時刻を更新して次周期までの待機へ戻す
+  - iOS Safari preview の再生制御とは分離し、保存再開ロジックだけを `useAutoSave.ts` に閉じる
+
+### 13-76. `OfflineAudioContext` の先行プリレンダリング条件は resolver で iOS Safari に限定する
+
+- **ファイル**: `src/hooks/export-strategies/exportStrategyResolver.ts`, `src/hooks/useExport.ts`, `src/test/exportStrategyResolver.test.ts`
+- **問題**:
+  - Safari 向け回避策のはずの `OfflineAudioContext` 事前レンダリング条件が `hasAudioSources` だけだと、Android / PC でも常に音声準備待ちが入って export 準備時間が長くなる
+  - 条件が hook 本体に散ると、iOS Safari 専用の責務境界が崩れて再発しやすい
+- **対策**:
+  - `shouldUseOfflineAudioPreRender()` の入力に `isIosSafari` を含め、`isIosSafari && hasAudioSources` のときだけ true を返す
+  - `useExport.ts` 側は resolver の結果だけを参照し、Android / PC は従来どおり WebCodecs のリアルタイム音声キャプチャ経路へ進める
+  - resolver の pure logic をテストで固定し、非iOSへの漏れを自動検知する
+- **注意**:
+  - iOS Safari export の音声安定化には必要なため、条件を削るのではなく resolver へ閉じ込めて platform 分岐を明示する
+  - preview 側の iOS Safari workaround と混線させず、export strategy の責務として維持する
+

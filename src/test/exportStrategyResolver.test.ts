@@ -91,6 +91,7 @@ describe('shouldUseOfflineAudioPreRender', () => {
     expect(
       shouldUseOfflineAudioPreRender({
         hasAudioSources: true,
+        isIosSafari: true,
       }),
     ).toBe(true);
   });
@@ -99,14 +100,16 @@ describe('shouldUseOfflineAudioPreRender', () => {
     expect(
       shouldUseOfflineAudioPreRender({
         hasAudioSources: true,
+        isIosSafari: false,
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('iOS Safari でも音声ソースが無ければ OfflineAudioContext を使わない', () => {
     expect(
       shouldUseOfflineAudioPreRender({
         hasAudioSources: false,
+        isIosSafari: true,
       }),
     ).toBe(false);
   });

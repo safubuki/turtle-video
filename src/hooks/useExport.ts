@@ -968,6 +968,7 @@ export function useExport(): UseExportReturn {
 
         const shouldPreRenderAudio = shouldUseOfflineAudioPreRender({
           hasAudioSources: !!audioSources,
+          isIosSafari,
         });
         if (!shouldPreRenderAudio || !audioSources) {
           return null;
@@ -1210,6 +1211,7 @@ export function useExport(): UseExportReturn {
         let offlineAudioDone = false;
         const shouldPreRenderAudio = shouldUseOfflineAudioPreRender({
           hasAudioSources: !!audioSources,
+          isIosSafari,
         });
         if (shouldPreRenderAudio && audioSources) {
           const renderedAudio = await ensurePreRenderedAudioBuffer();
