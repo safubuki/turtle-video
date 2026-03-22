@@ -81,3 +81,7 @@ export {
   saveBlobWithClientFileStrategy,
   saveObjectUrlWithClientFileStrategy,
 } from './fileSave';
+
+export {
+  resolveIosSafariSingleMixedAudio,
+} from './iosSafariAudio';

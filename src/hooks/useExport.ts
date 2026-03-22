@@ -1012,6 +1012,16 @@ export function useExport(): UseExportReturn {
           supportsMp4MediaRecorder: !!supportedMediaRecorderProfile,
         });
 
+        if (isIosSafari) {
+          useLogStore.getState().info('RENDER', 'iOS Safari export route', {
+            safariDetected: isIosSafari,
+            exportRoute: strategyOrder[0] ?? 'webcodecs-mp4',
+            audioContextState: (audioContext as AudioContext).state,
+            hasLiveAudioTrack: !!audioTrack,
+            hasAudioSources: !!audioSources,
+          });
+        }
+
         if (strategyOrder.includes('ios-safari-mediarecorder')) {
           let preRenderedAudio: PreRenderedRecorderAudioSource | null = null;
           const renderedAudioForMediaRecorder = await ensurePreRenderedAudioBuffer();

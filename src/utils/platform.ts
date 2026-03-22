@@ -105,6 +105,10 @@ export function detectBrowserPlatform(
   };
 }
 
+export function isStrictIosSafari(navigatorLike: NavigatorLike | undefined = getDefaultNavigator()): boolean {
+  return detectBrowserPlatform(navigatorLike).isIosSafari;
+}
+
 /**
  * 音声アップロード input の accept 文字列を返す。
  * iOS Safari では音声が動画コンテナ経由になるケースがあるため、拡張子を広めに許可する。

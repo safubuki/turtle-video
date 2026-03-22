@@ -31,6 +31,7 @@ import { saveObjectUrlWithClientFileStrategy } from '../utils/fileSave';
 import { openFilesWithPicker } from '../utils/platform';
 import { findActiveTimelineItem, collectPlaybackBlockingVideos } from '../utils/playbackTimeline';
 import { getPlatformCapabilities } from '../utils/platform';
+import { resolveIosSafariSingleMixedAudio } from '../utils/iosSafariAudio';
 import {
   getFutureVideoAudioProbeTimes,
   getPreviewAudioOutputMode,
@@ -309,6 +310,7 @@ const TurtleVideo: React.FC = () => {
   const previewPlaybackAttemptRef = useRef(0);
   const pendingPausedSeekWaitRef = useRef<{ cleanup: () => void } | null>(null);
   const previewAudioRouteRefreshInFlightRef = useRef<Promise<void> | null>(null);
+  const lastIosSafariAudioLogRef = useRef<string>('');
   const requestPreviewAudioRouteRefreshRef = useRef<() => void>(() => { });
   const detachGlobalSeekEndListenersRef = useRef<(() => void) | null>(null);
   const handleSeekEndCallbackRef = useRef<(() => void) | null>(null);
@@ -2429,8 +2431,17 @@ const TurtleVideo: React.FC = () => {
 
     try {
       const ctx = getAudioContext();
-      if ((ctx.state as AudioContextState | 'interrupted') !== 'running') {
-        ctx.resume().catch(() => { });
+      const stateBeforeResume = ctx.state as AudioContextState | 'interrupted';
+      if (stateBeforeResume !== 'running') {
+        ctx.resume().catch((err) => {
+          if (platformCapabilities.isIosSafari) {
+            logWarn('AUDIO', 'iOS Safari AudioContext resume 失敗', {
+              id,
+              stateBeforeResume,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        });
       }
 
       const source = ctx.createMediaElementSource(mediaEl);
@@ -2447,9 +2458,28 @@ const TurtleVideo: React.FC = () => {
       sourceNodesRef.current[id] = source;
       gainNodesRef.current[id] = gain;
       sourceElementsRef.current[id] = mediaEl;
+
+      if (platformCapabilities.isIosSafari) {
+        logInfo('AUDIO', 'iOS Safari MediaElementAudioSource を作成', {
+          id,
+          tagName: mediaEl.tagName,
+          audioContextState: ctx.state,
+          route: audioRoutingModeRef.current,
+          gainValue: gain.gain.value,
+        });
+      }
+
       return true;
     } catch (e) {
-      console.warn(`Audio node creation failed for ${id}:`, e);
+      if (platformCapabilities.isIosSafari) {
+        logWarn('AUDIO', 'iOS Safari MediaElementAudioSource 作成失敗', {
+          id,
+          tagName: mediaEl.tagName,
+          reason: e instanceof Error ? e.message : String(e),
+        });
+      } else {
+        console.warn(`Audio node creation failed for ${id}:`, e);
+      }
       return false;
     }
   }
@@ -2529,6 +2559,62 @@ const TurtleVideo: React.FC = () => {
   useEffect(() => {
     requestPreviewAudioRouteRefreshRef.current = requestPreviewAudioRouteRefresh;
   }, [requestPreviewAudioRouteRefresh]);
+
+  const logIosSafariPreviewAudioRoute = useCallback((params: {
+    time: number;
+    candidates: Array<{ id: string; desiredVolume: number; sourceType: 'video' | 'audio' }>;
+    routingPlan: Array<{ id: string; outputMode: string; audibleSourceCount: number }>;
+  }) => {
+    if (!platformCapabilities.isIosSafari) {
+      return;
+    }
+
+    const hasAudibleVideo = params.candidates.some((candidate) => candidate.sourceType === 'video' && candidate.desiredVolume > 0);
+    const hasAudibleAuxAudio = params.candidates.some((candidate) => candidate.sourceType === 'audio' && candidate.desiredVolume > 0);
+    const mixDecision = resolveIosSafariSingleMixedAudio({
+      isIosSafari: true,
+      isExporting: false,
+      audibleSourceCount: params.candidates.filter((candidate) => candidate.desiredVolume > 0).length,
+      sourceType: hasAudibleVideo ? 'video' : 'audio',
+    });
+
+    const signature = JSON.stringify({
+      timeBucket: Math.round(params.time * 10) / 10,
+      mixDecision: mixDecision.reason,
+      candidates: params.candidates.map((candidate) => ({
+        id: candidate.id,
+        sourceType: candidate.sourceType,
+        desiredVolume: Math.round(candidate.desiredVolume * 100) / 100,
+      })),
+      routingPlan: params.routingPlan,
+      audioContextState: audioCtxRef.current?.state ?? 'uninitialized',
+      route: audioRoutingModeRef.current,
+    });
+
+    if (lastIosSafariAudioLogRef.current === signature) {
+      return;
+    }
+    lastIosSafariAudioLogRef.current = signature;
+
+    logInfo('AUDIO', 'iOS Safari preview mixed audio route', {
+      safariDetected: platformCapabilities.isIosSafari,
+      audioContextState: audioCtxRef.current?.state ?? 'uninitialized',
+      route: audioRoutingModeRef.current,
+      playbackTime: Math.round(params.time * 100) / 100,
+      shouldUseSingleMixedAudio: mixDecision.shouldUseSingleMixedAudio,
+      reason: mixDecision.reason,
+      hasAudibleVideo,
+      hasAudibleAuxAudio,
+      gains: params.routingPlan.map((decision) => ({
+        id: decision.id,
+        outputMode: decision.outputMode,
+        audibleSourceCount: decision.audibleSourceCount,
+        gainValue: gainNodesRef.current[decision.id]
+          ? Math.round(gainNodesRef.current[decision.id].gain.value * 100) / 100
+          : null,
+      })),
+    });
+  }, [logInfo, platformCapabilities.isIosSafari]);
 
   const preparePreviewAudioNodesForTime = useCallback((time: number): PreparedPreviewAudioNodesResult => {
     if (!previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
@@ -2653,12 +2739,26 @@ const TurtleVideo: React.FC = () => {
       ensureAudioNodeForElement(decision.id, candidates[index].element);
     });
 
+    logIosSafariPreviewAudioRoute({
+      time,
+      candidates: candidates.map((candidate) => ({
+        id: candidate.id,
+        desiredVolume: candidate.desiredVolume,
+        sourceType: candidate.sourceType,
+      })),
+      routingPlan: routingPlan.map((decision) => ({
+        id: decision.id,
+        outputMode: decision.outputMode,
+        audibleSourceCount: decision.audibleSourceCount,
+      })),
+    });
+
     return {
       activeVideoId,
       audibleSourceCount: candidates.length,
       requiresWebAudio: routingPlan.some((decision) => decision.outputMode === 'webaudio'),
     };
-  }, [ensureAudioNodeForElement, previewPlatformPolicy]);
+  }, [ensureAudioNodeForElement, logIosSafariPreviewAudioRoute, previewPlatformPolicy]);
 
   const primePreviewMediaElementPlayback = useCallback((
     mediaEl: HTMLMediaElement,
@@ -3493,6 +3593,14 @@ const TurtleVideo: React.FC = () => {
     async (fromTime: number, isExportMode: boolean) => {
       logInfo('AUDIO', 'エンジン起動開始', { fromTime, isExportMode });
 
+      if (platformCapabilities.isIosSafari) {
+        logInfo('AUDIO', 'iOS Safari 判定結果', {
+          safariDetected: platformCapabilities.isIosSafari,
+          isExportMode,
+          route: isExportMode ? 'export' : 'preview',
+        });
+      }
+
       const ctx = getAudioContext();
       const stateBeforeResume = ctx.state as AudioContextState | 'interrupted';
       logDebug('AUDIO', 'AudioContext状態', { state: stateBeforeResume });
@@ -4030,7 +4138,7 @@ const TurtleVideo: React.FC = () => {
         loop(isExportMode, myLoopId);
       }
     },
-    [getAudioContext, stopAll, setProcessing, setLoading, play, clearExport, configureAudioRouting, ensureVideoMetadataReady, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError, logWarn, logInfo, logDebug, previewPlatformPolicy, preparePreviewAudioNodesForTime, preparePreviewAudioNodesForUpcomingVideos, primePreviewAudioOnlyTracksAtTime]
+    [getAudioContext, stopAll, setProcessing, setLoading, play, clearExport, configureAudioRouting, ensureVideoMetadataReady, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError, logWarn, logInfo, logDebug, platformCapabilities.isIosSafari, previewPlatformPolicy, preparePreviewAudioNodesForTime, preparePreviewAudioNodesForUpcomingVideos, primePreviewAudioOnlyTracksAtTime]
   );
 
   // --- シークバー操作ハンドラ ---

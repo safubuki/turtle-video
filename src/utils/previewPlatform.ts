@@ -6,6 +6,7 @@
  */
 
 import type { PlatformCapabilities } from './platform';
+import { resolveIosSafariSingleMixedAudio } from './iosSafariAudio';
 
 export interface PreviewPlatformPolicy {
   previewSyncThresholdSec: number;
@@ -178,6 +179,17 @@ export function getPreviewAudioOutputMode(
   },
 ): PreviewAudioOutputMode {
   if (!policy.muteNativeMediaWhenAudioRouted) {
+    return 'webaudio';
+  }
+
+  const iosSafariSingleMixDecision = resolveIosSafariSingleMixedAudio({
+    isIosSafari: policy.muteNativeMediaWhenAudioRouted,
+    isExporting: options.isExporting,
+    audibleSourceCount: options.audibleSourceCount,
+    sourceType: options.sourceType,
+  });
+
+  if (iosSafariSingleMixDecision.shouldUseSingleMixedAudio) {
     return 'webaudio';
   }
 

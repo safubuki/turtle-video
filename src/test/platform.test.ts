@@ -3,6 +3,7 @@ import {
   detectBrowserPlatform,
   getAudioUploadAccept,
   getPlatformCapabilities,
+  isStrictIosSafari,
   getSupportedMediaRecorderProfile,
   supportsShowOpenFilePicker,
   supportsShowSaveFilePicker,
@@ -65,6 +66,28 @@ describe('detectBrowserPlatform', () => {
   });
 });
 
+
+describe('isStrictIosSafari', () => {
+  it('detectBrowserPlatform を介して iOS Safari を厳密判定する', () => {
+    expect(
+      isStrictIosSafari({
+        userAgent:
+          'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
+        platform: 'iPhone',
+        maxTouchPoints: 5,
+      }),
+    ).toBe(true);
+
+    expect(
+      isStrictIosSafari({
+        userAgent:
+          'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/135.0.0.0 Mobile/15E148 Safari/604.1',
+        platform: 'iPhone',
+        maxTouchPoints: 5,
+      }),
+    ).toBe(false);
+  });
+});
 describe('getAudioUploadAccept', () => {
   it('iOS Safari では動画コンテナ由来音声を許可する', () => {
     const accept = getAudioUploadAccept({
