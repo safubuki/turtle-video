@@ -40,6 +40,7 @@ import {
   getPreviewVideoSyncThreshold,
   shouldAttemptDeferredPreviewPlay,
   shouldBundlePreviewStartForWebAudioMix,
+  getVisibilityRecoveryPlan,
   shouldHoldVideoFrameAtClipEnd,
   shouldKeepInactiveVideoPrewarmed,
   shouldMuteNativeMediaElement,
@@ -1690,32 +1691,38 @@ const TurtleVideo: React.FC = () => {
         }
       }
 
-      const shouldKeepRunning = isPlayingRef.current || isProcessing;
-      if (resumedFromHidden && shouldKeepRunning) {
+      const recoveryPlan = getVisibilityRecoveryPlan({
+        resumedFromHidden,
+        needsResyncFromLifecycle: needsResyncAfterVisibilityRef.current,
+        isPlaying: isPlayingRef.current,
+        isProcessing,
+      });
+
+      if (recoveryPlan.shouldDelayAudioResume) {
         audioResumeWaitFramesRef.current = Math.max(audioResumeWaitFramesRef.current, 1);
       }
 
       const latestTime = Math.max(0, Math.min(currentTimeRef.current, totalDurationRef.current));
 
-      if (!shouldKeepRunning) {
+      if (!recoveryPlan.shouldKeepRunning) {
         cancelPendingSeekPlaybackPrepare();
         cancelPendingPausedSeekWait();
         needsResyncAfterVisibilityRef.current = false;
-      } else if (needsResyncAfterVisibilityRef.current) {
+      } else if (recoveryPlan.shouldResyncMedia) {
         resyncMediaElementsToCurrentTime();
         needsResyncAfterVisibilityRef.current = false;
       }
 
       requestAnimationFrame(() => {
-        if (!shouldKeepRunning) {
+        if (!recoveryPlan.shouldKeepRunning) {
           renderPausedPreviewFrameAtTimeRef.current(latestTime);
           return;
         }
-        renderFrame(latestTime, shouldKeepRunning, isProcessing);
+        renderFrame(latestTime, recoveryPlan.shouldKeepRunning, isProcessing);
       });
 
       // 実行中（再生/エクスポート）に load() すると再生状態を壊しやすいので、停止中のみ再読み込みする
-      if (!shouldKeepRunning) {
+      if (!recoveryPlan.shouldKeepRunning) {
         Object.values(mediaElementsRef.current).forEach((el) => {
           if (
             (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') &&
@@ -1756,6 +1763,9 @@ const TurtleVideo: React.FC = () => {
       if (hiddenStartedAtRef.current === null) {
         hiddenStartedAtRef.current = Date.now();
       }
+      if (isPlayingRef.current || isProcessing) {
+        needsResyncAfterVisibilityRef.current = true;
+      }
       // blur が visibilitychange(hidden) より先に来る環境でも、
       // 復帰後に古い seek/canplay callback が割り込まないよう待機状態を落とす。
       cancelPendingSeekPlaybackPrepare();
@@ -1767,15 +1777,32 @@ const TurtleVideo: React.FC = () => {
     const handlePageShow = () => {
       refreshAfterReturn();
     };
+    const handlePageHide = () => {
+      if (hiddenStartedAtRef.current === null) {
+        hiddenStartedAtRef.current = Date.now();
+      }
+      cancelPendingSeekPlaybackPrepare();
+      cancelPendingPausedSeekWait();
+      if (isPlayingRef.current || isProcessing) {
+        needsResyncAfterVisibilityRef.current = true;
+        pauseAllMediaElements();
+        if (!isProcessing) {
+          isPlayingRef.current = false;
+          pause();
+        }
+      }
+    };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('blur', handleWindowBlur);
     window.addEventListener('focus', handleWindowFocus);
+    window.addEventListener('pagehide', handlePageHide);
     window.addEventListener('pageshow', handlePageShow);
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleWindowBlur);
       window.removeEventListener('focus', handleWindowFocus);
+      window.removeEventListener('pagehide', handlePageHide);
       window.removeEventListener('pageshow', handlePageShow);
     };
   }, [renderFrame, logInfo, logWarn, isProcessing, pause, previewPlatformPolicy, cancelPendingPausedSeekWait, cancelPendingSeekPlaybackPrepare]);

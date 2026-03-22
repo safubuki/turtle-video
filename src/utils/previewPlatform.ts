@@ -21,6 +21,12 @@ export interface PreviewPlatformPolicy {
   audioContextResumeRetryCount: number;
 }
 
+export interface VisibilityRecoveryPlan {
+  shouldKeepRunning: boolean;
+  shouldResyncMedia: boolean;
+  shouldDelayAudioResume: boolean;
+}
+
 export type PreviewAudioOutputMode = 'native' | 'webaudio';
 
 export interface PreviewAudioRoutingCandidate {
@@ -365,4 +371,24 @@ export function shouldReinitializeAudioRoute(
   isExportMode: boolean,
 ): boolean {
   return policy.reinitializeAudioRouteOnPlay && !isExportMode;
+}
+
+/**
+ * 可視復帰時に、再生状態を維持するか・メディア同期を取り直すかを判定する。
+ * blur / hidden / pageshow の発火順は環境依存のため、復帰契機が取れた場合は
+ * 「実行中だったか」と「非アクティブ経由か」をまとめて判定する。
+ */
+export function getVisibilityRecoveryPlan(options: {
+  resumedFromHidden: boolean;
+  needsResyncFromLifecycle: boolean;
+  isPlaying: boolean;
+  isProcessing: boolean;
+}): VisibilityRecoveryPlan {
+  const shouldKeepRunning = options.isPlaying || options.isProcessing;
+
+  return {
+    shouldKeepRunning,
+    shouldResyncMedia: shouldKeepRunning && (options.resumedFromHidden || options.needsResyncFromLifecycle),
+    shouldDelayAudioResume: shouldKeepRunning && options.resumedFromHidden,
+  };
 }

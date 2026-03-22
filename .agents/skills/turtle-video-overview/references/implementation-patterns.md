@@ -48,6 +48,20 @@
   - Android / PC の既存ルートは変更しない。iOS Safari 専用 helper を経由して分岐させる
   - Safari 対応を理由に `previewPlatform` 全体の既定挙動を変えず、影響範囲を iOS 条件に限定する
 
+### 0-4. 非アクティブ復帰の preview は blur / pagehide 先行でも再同期前提で扱う
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **背景**:
+  - Android / PC では別アプリ遷移やタブ移動の際、`visibilitychange(hidden)` より先に `blur` や `pagehide` が届くことがある
+  - hidden 側イベントだけで `needsResyncAfterVisibilityRef` を立てていると、復帰時に `isPlayingRef` は再生中のままでもメディア要素が pause / decoder reset 済みで、ブラックアウトや `play()` 不安定が再発しやすい
+- **実装指針**:
+  - 復帰判定は `getVisibilityRecoveryPlan()` にまとめ、`resumedFromHidden` と `needsResyncFromLifecycle` の両方を見る
+  - `blur` 先行時も、再生中 / 処理中なら `needsResyncAfterVisibilityRef` を立てて復帰時の `resyncMediaElementsToCurrentTime()` を保証する
+  - `pagehide` では `visibilitychange(hidden)` と同様に pending seek を落とし、実行中メディアを pause して UI 再生状態も整える
+- **注意点**:
+  - `blur` だけで即 pause するとファイルピッカーや保存ダイアログでも再生が止まりやすいので、blur では「再同期予約」までに留める
+  - 可視復帰時の `load()` は停止中だけに限定し、再生中は `resync + renderFrame` で復旧させる
+
 ## 1. スクロール/スワイプ誤操作防止
 
 ### 1-1. モーダル表示時のボディスクロールロック
@@ -1489,4 +1503,3 @@
 - **注意**:
   - iOS Safari export の音声安定化には必要なため、条件を削るのではなく resolver へ閉じ込めて platform 分岐を明示する
   - preview 側の iOS Safari workaround と混線させず、export strategy の責務として維持する
-
