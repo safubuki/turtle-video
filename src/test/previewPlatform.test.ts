@@ -265,7 +265,7 @@ describe('preview platform helpers', () => {
     expect(shouldMuteNativeMediaElement(androidPolicy, { hasAudioNode: true, isExporting: true })).toBe(true);
   });
 
-  it('iOS Safari preview は未接続の動画音源を常に native 出力にする', () => {
+  it('iOS Safari preview は単一動画だけ native 出力を維持し、動画+BGM では WebAudio mix に寄せる', () => {
     expect(
       getPreviewAudioOutputMode(iosPolicy, {
         hasAudioNode: false,
@@ -283,7 +283,7 @@ describe('preview platform helpers', () => {
         desiredVolume: 1,
         sourceType: 'video',
       }),
-    ).toBe('native');
+    ).toBe('webaudio');
     expect(
       getPreviewAudioOutputMode(iosPolicy, {
         hasAudioNode: false,
@@ -310,7 +310,7 @@ describe('preview platform helpers', () => {
         desiredVolume: 1,
         sourceType: 'video',
       }),
-    ).toBe('webaudio');
+    ).toBe('native');
     expect(
       getPreviewAudioOutputMode(iosPolicy, {
         hasAudioNode: false,
@@ -322,7 +322,64 @@ describe('preview platform helpers', () => {
     ).toBe('webaudio');
   });
 
-  it('iOS Safari preview の複数音源時、動画要素は native 出力のまま維持しつつ他は WebAudio に寄せる', () => {
+  it('iOS Safari preview で混在区間を抜けて単独動画に戻ったら AudioNode があっても native を返す', () => {
+    // 混在区間中: hasAudioNode=true, audibleSourceCount=2 → webaudio
+    expect(
+      getPreviewAudioOutputMode(iosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        audibleSourceCount: 2,
+        desiredVolume: 1,
+        sourceType: 'video',
+      }),
+    ).toBe('webaudio');
+
+    // 混在区間を抜けた: hasAudioNode=true, audibleSourceCount=1 → native
+    expect(
+      getPreviewAudioOutputMode(iosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        audibleSourceCount: 1,
+        desiredVolume: 1,
+        sourceType: 'video',
+      }),
+    ).toBe('native');
+
+    // 可聴ソースなし: hasAudioNode=true, audibleSourceCount=0 → native
+    expect(
+      getPreviewAudioOutputMode(iosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        audibleSourceCount: 0,
+        desiredVolume: 0,
+        sourceType: 'video',
+      }),
+    ).toBe('native');
+
+    // export 中は hasAudioNode=true で単独動画でも webaudio を維持
+    expect(
+      getPreviewAudioOutputMode(iosPolicy, {
+        hasAudioNode: true,
+        isExporting: true,
+        audibleSourceCount: 1,
+        desiredVolume: 1,
+        sourceType: 'video',
+      }),
+    ).toBe('webaudio');
+
+    // audio ソースタイプは hasAudioNode=true で単独でも webaudio を維持
+    expect(
+      getPreviewAudioOutputMode(iosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        audibleSourceCount: 1,
+        desiredVolume: 1,
+        sourceType: 'audio',
+      }),
+    ).toBe('webaudio');
+  });
+
+  it('iOS Safari preview の複数音源時、動画音声も含めて WebAudio mix に寄せる', () => {
     expect(
       getPreviewAudioRoutingPlan(iosPolicy, {
         isExporting: false,
@@ -347,7 +404,7 @@ describe('preview platform helpers', () => {
         hasAudioNode: false,
         desiredVolume: 1,
         audibleSourceCount: 2,
-        outputMode: 'native',
+        outputMode: 'webaudio',
       },
       {
         id: 'bgm',

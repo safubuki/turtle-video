@@ -33,6 +33,21 @@
   - 例外維持を許可するのは次動画 1 本だけに留め、2 本目以降の future video まで走らせない
   - active video 再生中まで例外を広げると、元の「遠い future video が BGM と競合する」問題を再発させやすい
 
+### 0-3. iOS Safari の動画音声 + BGM preview は単一 WebAudio mix に寄せる
+
+- **ファイル**: `src/utils/iosSafariAudio.ts`, `src/utils/previewPlatform.ts`, `src/components/TurtleVideo.tsx`, `src/hooks/useExport.ts`
+- **背景**:
+  - iOS Safari では動画要素のネイティブ音声と BGM/ナレーション要素を別経路で同時再生すると、AudioSession 競合で preview が無音化することがある
+  - Android / PC の既存 preview / export は安定しているため、共通処理ではなく iOS Safari 専用分岐に閉じる必要がある
+- **実装指針**:
+  - iOS Safari 判定は `src/utils/platform.ts` の関数に集約し、呼び出し側へ UA 判定を散らさない
+  - preview では `src/utils/iosSafariAudio.ts` の判定で「動画音声 + audio-only」が同時に鳴る場合だけ video も WebAudio へ寄せ、`masterDest` / `ctx.destination` に一本化する
+  - `createMediaElementSource()` は `sourceElementsRef` と `sourceNodesRef` を使って同一 element へ 1 回だけ作成する
+  - Safari 専用ログとして、判定結果・AudioContext state・gain 値・export route・失敗理由を残す
+- **注意**:
+  - Android / PC の既存ルートは変更しない。iOS Safari 専用 helper を経由して分岐させる
+  - Safari 対応を理由に `previewPlatform` 全体の既定挙動を変えず、影響範囲を iOS 条件に限定する
+
 ## 1. スクロール/スワイプ誤操作防止
 
 ### 1-1. モーダル表示時のボディスクロールロック
