@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   getFutureVideoAudioProbeTimes,
+  getPageHidePausePlan,
   getPreviewAudioOutputMode,
   getPreviewAudioRoutingPlan,
   getVisibilityRecoveryPlan,
@@ -520,6 +521,24 @@ describe('preview platform helpers', () => {
       shouldKeepRunning: false,
       shouldResyncMedia: false,
       shouldDelayAudioResume: false,
+    });
+  });
+
+  it('pagehide では通常 preview だけ入力メディアを pause し、export 中は hidden 側へ委ねる', () => {
+    expect(
+      getPageHidePausePlan({
+        isProcessing: false,
+      }),
+    ).toEqual({
+      shouldPauseMediaElements: true,
+    });
+
+    expect(
+      getPageHidePausePlan({
+        isProcessing: true,
+      }),
+    ).toEqual({
+      shouldPauseMediaElements: false,
     });
   });
 

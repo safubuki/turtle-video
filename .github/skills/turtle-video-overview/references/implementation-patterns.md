@@ -1449,3 +1449,15 @@
   - `focus` / `visibilitychange` / `pageshow` を契機にした catch-up 保存テストで、失敗直後でも同内容を即再試行できることを維持する
 - **注意**:
   - 自動保存結果の種類を増やす場合は、変更検知ハッシュを進めるかだけでなく、catch-up 判定用の活動時刻を進めるかも必ずセットで決める
+
+### 13-66. `pagehide` 先行時の export は入力メディアを即 pause しない
+
+- **対象ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **問題**:
+  - 環境によっては `pagehide` が `visibilitychange(hidden)` より先に発火する
+  - この瞬間に export 中でも `pauseAllMediaElements()` を実行すると、export ループが hidden 側で止まる前に入力動画/音声だけ pause され、黒フレームや無音区間が混入しうる
+- **対応パターン**:
+  - `pagehide` では通常 preview だけ入力メディアを pause し、export 中は hidden 側の停止契機へ委ねる
+  - 判定は `getPageHidePausePlan()` に切り出し、pure helper として回帰テストで固定する
+- **注意**:
+  - `visibilitychange(hidden)` 側の停止・復帰契約は維持し、`pagehide` だけを別扱いして race を潰す
