@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   getFutureVideoAudioProbeTimes,
+  getPageHidePausePlan,
   getPreviewAudioOutputMode,
   getPreviewAudioRoutingPlan,
+  getVisibilityRecoveryPlan,
   getPreviewPlatformPolicy,
   getPreviewVideoSyncThreshold,
   shouldAttemptDeferredPreviewPlay,
@@ -479,6 +481,65 @@ describe('preview platform helpers', () => {
     expect(shouldResumeAudioContextOnVisibilityReturn(iosPolicy, 'running')).toBe(false);
     expect(shouldReinitializeAudioRoute(iosPolicy, false)).toBe(true);
     expect(shouldReinitializeAudioRoute(iosPolicy, true)).toBe(false);
+  });
+
+  it('blur 先行や pageshow 復帰でも、実行中ならメディア再同期を維持する', () => {
+    expect(
+      getVisibilityRecoveryPlan({
+        resumedFromHidden: true,
+        needsResyncFromLifecycle: false,
+        isPlaying: true,
+        isProcessing: false,
+      }),
+    ).toEqual({
+      shouldKeepRunning: true,
+      shouldResyncMedia: true,
+      shouldDelayAudioResume: true,
+    });
+
+    expect(
+      getVisibilityRecoveryPlan({
+        resumedFromHidden: false,
+        needsResyncFromLifecycle: true,
+        isPlaying: false,
+        isProcessing: true,
+      }),
+    ).toEqual({
+      shouldKeepRunning: true,
+      shouldResyncMedia: true,
+      shouldDelayAudioResume: false,
+    });
+
+    expect(
+      getVisibilityRecoveryPlan({
+        resumedFromHidden: true,
+        needsResyncFromLifecycle: true,
+        isPlaying: false,
+        isProcessing: false,
+      }),
+    ).toEqual({
+      shouldKeepRunning: false,
+      shouldResyncMedia: false,
+      shouldDelayAudioResume: false,
+    });
+  });
+
+  it('pagehide では通常 preview だけ入力メディアを pause し、export 中は hidden 側へ委ねる', () => {
+    expect(
+      getPageHidePausePlan({
+        isProcessing: false,
+      }),
+    ).toEqual({
+      shouldPauseMediaElements: true,
+    });
+
+    expect(
+      getPageHidePausePlan({
+        isProcessing: true,
+      }),
+    ).toEqual({
+      shouldPauseMediaElements: false,
+    });
   });
 
   it('動画クリップ終端では非最終クリップでも最終フレーム保持を優先する', () => {
