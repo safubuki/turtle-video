@@ -263,7 +263,7 @@ export function useAutoSave() {
     isAutoSaveRunningRef.current = true;
     try {
       const result = await performAutoSaveRef.current();
-      if (result !== 'skipped-processing') {
+      if (result !== 'skipped-processing' && result !== 'failed') {
         lastAutoSaveActivityAtRef.current = Date.now();
       }
     } finally {
