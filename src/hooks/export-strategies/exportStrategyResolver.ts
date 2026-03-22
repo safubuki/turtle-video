@@ -18,12 +18,13 @@ export function resolveExportStrategyOrder(
 
 export interface OfflineAudioPreRenderResolutionInput {
   hasAudioSources: boolean;
+  isIosSafari: boolean;
 }
 
 export function shouldUseOfflineAudioPreRender(
   input: OfflineAudioPreRenderResolutionInput,
 ): boolean {
-  return input.hasAudioSources;
+  return input.isIosSafari && input.hasAudioSources;
 }
 
 export type WebCodecsAudioCaptureStrategy =

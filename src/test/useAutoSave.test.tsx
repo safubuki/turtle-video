@@ -165,6 +165,41 @@ describe('useAutoSave', () => {
     expect(saveProjectAuto).not.toHaveBeenCalled();
   });
 
+  it('エクスポート中に見送った自動保存は、処理終了後に即座に再開する', async () => {
+    const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
+    const saveProjectAuto = vi.fn().mockResolvedValue(undefined);
+    act(() => {
+      useProjectStore.setState({
+        refreshSaveInfo,
+        saveProjectAuto,
+        isSaving: false,
+        lastManualSave: null,
+      });
+      useUIStore.setState({ isProcessing: true });
+    });
+
+    renderHook(() => useAutoSave());
+
+    await act(async () => {
+      vi.advanceTimersByTime(61_000);
+      await Promise.resolve();
+    });
+
+    expect(saveProjectAuto).not.toHaveBeenCalled();
+
+    await act(async () => {
+      useUIStore.setState({ isProcessing: false });
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(100);
+      await Promise.resolve();
+    });
+
+    expect(saveProjectAuto).toHaveBeenCalledTimes(1);
+  });
+
   it('トリム後の位置・サイズ調整も自動保存の差分として検知する', async () => {
     const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
     const saveProjectAuto = vi.fn().mockResolvedValue(undefined);
