@@ -97,6 +97,7 @@ describe('useAutoSave', () => {
         saveProjectAuto,
         isSaving: false,
         lastManualSave: null,
+        lastAutoSave: '2026-03-16T23:59:00.000Z',
       });
     });
 
@@ -128,6 +129,7 @@ describe('useAutoSave', () => {
         saveProjectAuto,
         isSaving: false,
         lastManualSave: null,
+        lastAutoSave: '2026-03-16T23:59:00.000Z',
       });
     });
 
@@ -163,6 +165,42 @@ describe('useAutoSave', () => {
     });
 
     expect(saveProjectAuto).not.toHaveBeenCalled();
+  });
+
+  it('auto save スロットが未作成なら、手動保存直後でも初回の自動保存を1回は作成する', async () => {
+    const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
+    const saveProjectAuto = vi.fn().mockResolvedValue(undefined);
+    act(() => {
+      useProjectStore.setState({
+        refreshSaveInfo,
+        saveProjectAuto,
+        isSaving: false,
+        lastManualSave: '2026-03-17T00:00:00.000Z',
+        lastAutoSave: null,
+      });
+    });
+
+    renderHook(() => useAutoSave());
+
+    await act(async () => {
+      vi.advanceTimersByTime(61_000);
+      await Promise.resolve();
+    });
+
+    expect(saveProjectAuto).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      useProjectStore.setState({
+        lastAutoSave: '2026-03-17T00:01:01.000Z',
+      });
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(61_000);
+      await Promise.resolve();
+    });
+
+    expect(saveProjectAuto).toHaveBeenCalledTimes(1);
   });
 
   it('エクスポート中に見送った自動保存は、処理終了後に即座に再開する', async () => {

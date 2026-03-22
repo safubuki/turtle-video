@@ -1475,3 +1475,15 @@
   - iOS Safari export の音声安定化には必要なため、条件を削るのではなく resolver へ閉じ込めて platform 分岐を明示する
   - preview 側の iOS Safari workaround と混線させず、export strategy の責務として維持する
 
+### 13-77. 初回 auto save は manual save 直後でも auto slot 未作成なら 1 回は実行する
+
+- **ファイル**: `src/hooks/useAutoSave.ts`, `src/test/useAutoSave.test.tsx`
+- **問題**:
+  - manual save 直後に差分ベースラインだけ更新すると、内容が変わっていない限り `skipped-nochange` が続き、auto save スロット自体が一度も作られない
+  - 保存モーダル上では「自動保存」が `---` のまま残り、1 分設定でも動いていないように見える
+- **対策**:
+  - `lastAutoSave === null` の間は no-change 最適化を外し、manual save と同内容でも最初の auto save を 1 回だけ作成する
+  - auto slot 作成後は従来どおり差分ベースの no-change スキップへ戻す
+- **注意**:
+  - 「内容が変わっていないときに毎回 auto save する」わけではなく、対象は auto slot 未作成時の初回だけに限定する
+  - `isProcessing` や hidden 復帰の catch-up 判定とは別責務として、auto slot の初期生成可否だけをこの条件で制御する

@@ -91,6 +91,7 @@ export function useAutoSave() {
   const isProcessing = useUIStore((s) => s.isProcessing);
   
   const saveProjectAuto = useProjectStore((s) => s.saveProjectAuto);
+  const lastAutoSave = useProjectStore((s) => s.lastAutoSave);
   const lastManualSave = useProjectStore((s) => s.lastManualSave);
   
   /**
@@ -200,7 +201,7 @@ export function useAutoSave() {
     const currentHash = computeHash();
     
     // 変更がない場合はスキップ
-    if (currentHash === lastSaveHashRef.current) {
+    if (currentHash === lastSaveHashRef.current && lastAutoSave) {
       return 'skipped-nochange';
     }
     
@@ -242,6 +243,7 @@ export function useAutoSave() {
     isCaptionsLocked,
     isProcessing,
     saveProjectAuto,
+    lastAutoSave,
   ]);
 
   useEffect(() => {
