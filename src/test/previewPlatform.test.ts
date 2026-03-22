@@ -613,6 +613,30 @@ describe('preview platform helpers', () => {
     ).toBe(false);
   });
 
+  it('長いフェードでも alphaDerivedWindow が maxBlackoutWindowSec で制限される', () => {
+    // fadeOutDuration=20s → alphaDerivedWindowSec = 20 * 0.05 = 1.0s
+    // maxBlackoutWindowSec = 0.5s で制限 → blackoutWindowSec = 0.5s
+    // remaining=0.51s > 0.5s → false
+    expect(
+      shouldBlackoutVideoFadeTail({
+        clipLocalTime: 19.49,
+        clipDuration: 20,
+        fadeOut: true,
+        fadeOutDuration: 20,
+      }),
+    ).toBe(false);
+
+    // remaining=0.49s <= 0.5s → true
+    expect(
+      shouldBlackoutVideoFadeTail({
+        clipLocalTime: 19.51,
+        clipDuration: 20,
+        fadeOut: true,
+        fadeOutDuration: 20,
+      }),
+    ).toBe(true);
+  });
+
   it('フェードアウト未使用クリップでは黒クリアへ倒さない', () => {
     expect(
       shouldBlackoutVideoFadeTail({

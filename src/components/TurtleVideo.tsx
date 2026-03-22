@@ -551,20 +551,22 @@ const TurtleVideo: React.FC = () => {
         let shouldBlackoutFadeTail = false;
         if (activeId && activeIndex !== -1) {
           const activeItem = currentItems[activeIndex];
+          const activeFadeOutDur = activeItem.fadeOutDuration || 1.0;
           const shouldPreferBlackoutAtFadeTail = shouldBlackoutVideoFadeTail({
             clipLocalTime: localTime,
             clipDuration: activeItem.duration,
             fadeOut: activeItem.fadeOut,
-            fadeOutDuration: activeItem.fadeOutDuration || 1.0,
+            fadeOutDuration: activeFadeOutDur,
           });
 
-          // フェードアウト領域判定: この領域では holdFrame を抑制し、
-          // キャンバスを毎フレーム黒クリアしてから描画することで二重合成による明滅を防止する。
-          const fadeOutDurForRegion = activeItem.fadeOutDuration || 1.0;
+          // フェードアウト領域判定: holdFrame により前フレームがキャンバスに残ると、
+          // その上に低 alpha の現フレームが合成され、意図より明るい描画になる。
+          // holdFrame のオンオフが数フレームで切り替わると明滅ノイズとして視認されるため、
+          // フェードアウト領域では holdFrame を抑制し、毎フレーム黒クリア→描画の流れを保証する。
           const isInFadeOutRegion =
             activeItem.type === 'video' &&
             activeItem.fadeOut &&
-            localTime > activeItem.duration - fadeOutDurForRegion;
+            localTime > activeItem.duration - activeFadeOutDur;
 
           if (activeItem.type === 'video' && shouldPreferBlackoutAtFadeTail) {
             shouldBlackoutFadeTail = true;
