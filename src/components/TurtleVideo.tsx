@@ -938,6 +938,13 @@ const TurtleVideo: React.FC = () => {
                   audibleSourceCount: vol > 0 ? activePreviewAudioSourceCount : 0,
                   isExporting: _isExporting,
                 });
+
+                // 混在区間を抜けて native に戻った場合、不要な AudioNode を切り離す
+                if (outputMode === 'native' && hasAudioNode) {
+                  detachAudioNode(id);
+                  hasAudioNode = false;
+                }
+
                 const effectiveGain = outputMode === 'native' ? 0 : vol;
                 if (currentGainNode && audioCtxRef.current) {
                   const currentGain = currentGainNode.gain.value;
