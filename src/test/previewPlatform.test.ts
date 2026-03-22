@@ -8,6 +8,7 @@ import {
   getPreviewPlatformPolicy,
   getPreviewVideoSyncThreshold,
   shouldAttemptDeferredPreviewPlay,
+  shouldBlackoutVideoFadeTail,
   shouldBundlePreviewStartForWebAudioMix,
   shouldHoldVideoFrameAtClipEnd,
   shouldKeepInactiveVideoPrewarmed,
@@ -562,6 +563,39 @@ describe('preview platform helpers', () => {
         trimStart: 3,
         videoCurrentTime: 4.2,
         videoEnded: false,
+      }),
+    ).toBe(false);
+  });
+
+  it('フェード終端でほぼ黒になるはずの tail は保持より黒クリアを優先する', () => {
+    expect(
+      shouldBlackoutVideoFadeTail({
+        clipLocalTime: 1.98,
+        clipDuration: 2,
+        fadeOut: true,
+        fadeOutDuration: 1,
+      }),
+    ).toBe(true);
+  });
+
+  it('フェード中盤では従来どおりフレーム保持を許可する', () => {
+    expect(
+      shouldBlackoutVideoFadeTail({
+        clipLocalTime: 1.6,
+        clipDuration: 2,
+        fadeOut: true,
+        fadeOutDuration: 1,
+      }),
+    ).toBe(false);
+  });
+
+  it('フェードアウト未使用クリップでは黒クリアへ倒さない', () => {
+    expect(
+      shouldBlackoutVideoFadeTail({
+        clipLocalTime: 1.99,
+        clipDuration: 2,
+        fadeOut: false,
+        fadeOutDuration: 1,
       }),
     ).toBe(false);
   });
