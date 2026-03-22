@@ -90,7 +90,7 @@ describe('useAutoSave', () => {
 
   it('復帰イベントは可視状態が落ち着いてから追いつき保存を判定する', async () => {
     const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
-    const saveProjectAuto = vi.fn().mockResolvedValue(undefined);
+    const saveProjectAuto = vi.fn().mockResolvedValue(true);
     act(() => {
       useProjectStore.setState({
         refreshSaveInfo,
@@ -121,7 +121,7 @@ describe('useAutoSave', () => {
 
   it('手動保存中は復帰時の自動保存を走らせず、手動保存直後の重複保存も防ぐ', async () => {
     const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
-    const saveProjectAuto = vi.fn().mockResolvedValue(undefined);
+    const saveProjectAuto = vi.fn().mockResolvedValue(true);
     act(() => {
       useProjectStore.setState({
         refreshSaveInfo,
@@ -167,7 +167,7 @@ describe('useAutoSave', () => {
 
   it('エクスポート中に見送った自動保存は、処理終了後に即座に再開する', async () => {
     const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
-    const saveProjectAuto = vi.fn().mockResolvedValue(undefined);
+    const saveProjectAuto = vi.fn().mockResolvedValue(true);
     act(() => {
       useProjectStore.setState({
         refreshSaveInfo,
@@ -200,9 +200,39 @@ describe('useAutoSave', () => {
     expect(saveProjectAuto).toHaveBeenCalledTimes(1);
   });
 
+
+  it('自動保存失敗時は変更検知ハッシュを進めず、同じ内容でも次回再試行する', async () => {
+    const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
+    const saveProjectAuto = vi
+      .fn<() => Promise<boolean>>()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+
+    act(() => {
+      useProjectStore.setState({
+        refreshSaveInfo,
+        saveProjectAuto,
+        isSaving: false,
+        lastManualSave: null,
+      });
+    });
+
+    const { result } = renderHook(() => useAutoSave());
+
+    await act(async () => {
+      await result.current.performAutoSave();
+    });
+
+    await act(async () => {
+      await result.current.performAutoSave();
+    });
+
+    expect(saveProjectAuto).toHaveBeenCalledTimes(2);
+  });
+
   it('トリム後の位置・サイズ調整も自動保存の差分として検知する', async () => {
     const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
-    const saveProjectAuto = vi.fn().mockResolvedValue(undefined);
+    const saveProjectAuto = vi.fn().mockResolvedValue(true);
     const mediaFile = new File(['video'], 'clip.mp4', { type: 'video/mp4' });
 
     act(() => {

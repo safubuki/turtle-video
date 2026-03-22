@@ -292,6 +292,7 @@
 - **ファイル**: `src/hooks/usePreventUnload.ts`
 - **対策**: `beforeunload` イベントで `e.preventDefault()` + `e.returnValue` 設定（複数ストアのデータ有無を確認）
 
+
 ### 8-5. 手動保存の容量不足リカバリ
 
 - **ファイル**: `src/stores/projectStore.ts`, `src/components/modals/SaveLoadModal.tsx`, `src/utils/indexedDB.ts`
@@ -301,6 +302,20 @@
   - 手動保存時に容量不足を検知した場合、`auto` は自動削除せず失敗を返す
   - UI 側で「自動保存を削除して続行」確認を出し、ユーザー同意時のみ `auto` 削除後に手動保存を再試行
 - **注意**: `auto` 削除は明示同意時のみ実行し、勝手に復元ポイントを失わないようにする
+
+### 8-6. 自動保存失敗時は変更検知ハッシュを進めない
+
+- **ファイル**: `src/hooks/useAutoSave.ts`, `src/stores/projectStore.ts`, `src/test/useAutoSave.test.tsx`
+- **背景**:
+  - `saveProjectAuto()` は失敗を store に記録して呼び出し元へ例外を投げない設計のため、hook 側が戻り値なしで「成功」と見なすと、IndexedDB 失敗後でも `lastSaveHashRef` だけ進んでしまう
+  - その状態では内容が変わらない限り次回以降が `skipped-nochange` になり、保存日時表示だけ古いまま固定される
+- **実装指針**:
+  - `saveProjectAuto()` は成功/失敗を boolean で返し、`useAutoSave()` は成功時だけ変更検知ハッシュを更新する
+  - 失敗時は `autoSaveError` / `lastSaveFailure` を保持したまま、次周期で同じ内容を再試行できるようにする
+- **注意**:
+  - 自動保存は silent failure になりやすいので、hook 側で「保存 API を await した」ことと「実際に保存できた」ことを分けて扱う
+  - `skipped-processing` だけでなく、失敗ケースでも catch-up 判定の基準時刻を不用意に進めない
+
 
 ---
 

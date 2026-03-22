@@ -158,7 +158,7 @@ interface ProjectState {
     captions: Caption[],
     captionSettings: CaptionSettings,
     isCaptionsLocked: boolean
-  ) => Promise<void>;
+  ) => Promise<boolean>;
 
   loadProjectFromSlot: (slot: SaveSlot) => Promise<{
     mediaItems: MediaItem[];
@@ -579,7 +579,7 @@ export const useProjectStore = create<ProjectState>()(
         isCaptionsLocked
       ) => {
         if (mediaItems.length === 0 && !bgm && narrations.length === 0 && captions.length === 0) {
-          return;
+          return false;
         }
 
         useLogStore.getState().debug('SYSTEM', '自動保存を開始', {
@@ -616,6 +616,7 @@ export const useProjectStore = create<ProjectState>()(
           });
           useLogStore.getState().debug('SYSTEM', '自動保存完了', { savedAt: projectData.savedAt });
           set({ lastAutoSave: projectData.savedAt, autoSaveError: null, lastSaveFailure: null });
+          return true;
         } catch (error) {
           const failureInfo = await buildSaveFailureInfo({
             operation: 'auto',
@@ -631,6 +632,7 @@ export const useProjectStore = create<ProjectState>()(
             storageEstimate: failureInfo.storageEstimate,
           });
           set({ autoSaveError: message, lastSaveFailure: failureInfo });
+          return false;
         }
       },
 
