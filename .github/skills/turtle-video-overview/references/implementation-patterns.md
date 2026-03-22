@@ -1455,7 +1455,7 @@
 - **対象ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
 - **問題**:
   - 環境によっては `pagehide` が `visibilitychange(hidden)` より先に発火する
-  - この瞬間に export 中でも `pauseAllMediaElements()` を実行すると、export ループが hidden 側で止まる前に入力動画/音声だけ pause され、黒フレームや無音区間が混入しうる
+  - この瞬間に export 中でも `pauseAllMediaElements()` を実行すると、export ループが hidden 側で止まる前に入力動画/音声だけ pause され、出力ファイルへ黒フレームや無音区間が混入しうる
 - **対応パターン**:
   - `pagehide` では通常 preview だけ入力メディアを pause し、export 中は hidden 側の停止契機へ委ねる
   - 判定は `getPageHidePausePlan()` に切り出し、pure helper として回帰テストで固定する

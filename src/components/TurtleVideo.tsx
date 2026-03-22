@@ -1779,6 +1779,7 @@ const TurtleVideo: React.FC = () => {
       refreshAfterReturn();
     };
     const handlePageHide = () => {
+      const { shouldPauseMediaElements } = getPageHidePausePlan({ isProcessing });
       if (hiddenStartedAtRef.current === null) {
         hiddenStartedAtRef.current = Date.now();
       }
@@ -1786,7 +1787,7 @@ const TurtleVideo: React.FC = () => {
       cancelPendingPausedSeekWait();
       if (isPlayingRef.current || isProcessing) {
         needsResyncAfterVisibilityRef.current = true;
-        if (getPageHidePausePlan({ isProcessing }).shouldPauseMediaElements) {
+        if (shouldPauseMediaElements) {
           pauseAllMediaElements();
         }
         if (!isProcessing) {
