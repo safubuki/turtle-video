@@ -194,6 +194,11 @@ export function getPreviewAudioOutputMode(
   }
 
   if (options.hasAudioNode) {
+    // 混在区間を抜けて単独動画に戻った場合は native を優先する。
+    // 呼び出し元は outputMode が native のとき不要な AudioNode を切り離す。
+    if (!options.isExporting && options.sourceType === 'video' && options.audibleSourceCount <= 1) {
+      return 'native';
+    }
     return 'webaudio';
   }
 
