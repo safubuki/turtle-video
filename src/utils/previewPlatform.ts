@@ -73,6 +73,8 @@ export interface FadeTailBlackoutGuardOptions {
   fadeOut: boolean;
   fadeOutDuration: number;
   blackoutAlphaThreshold?: number;
+  minBlackoutWindowSec?: number;
+  maxBlackoutWindowSec?: number;
 }
 
 /**
@@ -364,9 +366,16 @@ export function shouldBlackoutVideoFadeTail(
   }
 
   const remainingClipTime = Math.max(0, clipDuration - Math.max(0, options.clipLocalTime));
-  const fadeAlpha = Math.max(0, Math.min(1, remainingClipTime / fadeOutDuration));
   const blackoutAlphaThreshold = options.blackoutAlphaThreshold ?? 0.05;
-  return fadeAlpha <= blackoutAlphaThreshold;
+  const minBlackoutWindowSec = options.minBlackoutWindowSec ?? (1 / 60);
+  const maxBlackoutWindowSec = options.maxBlackoutWindowSec ?? (1 / 30);
+  const alphaDerivedWindowSec = fadeOutDuration * blackoutAlphaThreshold;
+  const blackoutWindowSec = Math.min(
+    maxBlackoutWindowSec,
+    Math.max(minBlackoutWindowSec, alphaDerivedWindowSec),
+  );
+
+  return remainingClipTime <= blackoutWindowSec;
 }
 
 /**

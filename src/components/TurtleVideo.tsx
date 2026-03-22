@@ -558,12 +558,14 @@ const TurtleVideo: React.FC = () => {
             fadeOutDuration: activeItem.fadeOutDuration || 1.0,
           });
 
+          if (activeItem.type === 'video' && shouldPreferBlackoutAtFadeTail) {
+            shouldBlackoutFadeTail = true;
+          }
+
           if (activeItem.type === 'video') {
             const activeEl = mediaElementsRef.current[activeId] as HTMLVideoElement | undefined;
             if (!activeEl) {
-              if (shouldPreferBlackoutAtFadeTail) {
-                shouldBlackoutFadeTail = true;
-              } else {
+              if (!shouldPreferBlackoutAtFadeTail) {
                 holdFrame = true;
               }
             } else {
@@ -629,9 +631,7 @@ const TurtleVideo: React.FC = () => {
               });
 
               if (!hasFrame || needsCorrection || shouldHoldForVideoEnd) {
-                if (shouldPreferBlackoutAtFadeTail) {
-                  shouldBlackoutFadeTail = true;
-                } else {
+                if (!shouldPreferBlackoutAtFadeTail) {
                   holdFrame = true;
                 }
                 // ブラックアウト防止発動をログ
@@ -887,8 +887,12 @@ const TurtleVideo: React.FC = () => {
               ? videoEl.readyState >= 2 && !videoEl.seeking
               : false;
             const isReady = isVideo ? isVideoReady : imgEl.complete;
+            const shouldSkipVideoDrawForFadeTail =
+              isVideo
+              && id === activeId
+              && shouldBlackoutFadeTail;
 
-            if (isReady) {
+            if (isReady && !shouldSkipVideoDrawForFadeTail) {
               let elemW = isVideo ? videoEl.videoWidth : imgEl.naturalWidth;
               let elemH = isVideo ? videoEl.videoHeight : imgEl.naturalHeight;
               if (elemW && elemH) {

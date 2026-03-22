@@ -578,6 +578,17 @@ describe('preview platform helpers', () => {
     ).toBe(true);
   });
 
+  it('フェード終端手前の低アルファ帯でも terminal window 外なら即黒クリアしない', () => {
+    expect(
+      shouldBlackoutVideoFadeTail({
+        clipLocalTime: 1.96,
+        clipDuration: 2,
+        fadeOut: true,
+        fadeOutDuration: 1,
+      }),
+    ).toBe(false);
+  });
+
   it('フェード中盤では従来どおりフレーム保持を許可する', () => {
     expect(
       shouldBlackoutVideoFadeTail({
