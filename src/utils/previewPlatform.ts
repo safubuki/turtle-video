@@ -66,6 +66,15 @@ export interface VideoClipEndGuardOptions {
   videoEndToleranceSec?: number;
 }
 
+
+export interface FadeTailBlackoutGuardOptions {
+  clipLocalTime: number;
+  clipDuration: number;
+  fadeOut: boolean;
+  fadeOutDuration: number;
+  blackoutAlphaThreshold?: number;
+}
+
 /**
  * プラットフォーム capability から、プレビュー制御用の方針を組み立てる。
  */
@@ -335,6 +344,29 @@ export function shouldHoldVideoFrameAtClipEnd(
 
   const safeClipEndTime = options.trimStart + Math.max(0, clipDuration - 0.001);
   return options.videoEnded || options.videoCurrentTime >= safeClipEndTime - videoEndToleranceSec;
+}
+
+/**
+ * フェードアウト終端で動画フレームを保持すると、低頻度で「黒へ落ち切る直前の最終フレーム」が残留する。
+ * ほぼ黒になるはずの tail では holdFrame より黒クリアを優先すべきかを返す。
+ */
+export function shouldBlackoutVideoFadeTail(
+  options: FadeTailBlackoutGuardOptions,
+): boolean {
+  if (!options.fadeOut) {
+    return false;
+  }
+
+  const clipDuration = Math.max(0, options.clipDuration);
+  const fadeOutDuration = Math.max(0, options.fadeOutDuration);
+  if (clipDuration <= 0 || fadeOutDuration <= 0) {
+    return false;
+  }
+
+  const remainingClipTime = Math.max(0, clipDuration - Math.max(0, options.clipLocalTime));
+  const fadeAlpha = Math.max(0, Math.min(1, remainingClipTime / fadeOutDuration));
+  const blackoutAlphaThreshold = options.blackoutAlphaThreshold ?? 0.05;
+  return fadeAlpha <= blackoutAlphaThreshold;
 }
 
 /**

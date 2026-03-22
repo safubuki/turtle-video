@@ -1503,3 +1503,16 @@
 - **注意**:
   - iOS Safari export の音声安定化には必要なため、条件を削るのではなく resolver へ閉じ込めて platform 分岐を明示する
   - preview 側の iOS Safari workaround と混線させず、export strategy の責務として維持する
+
+### 13-77. フェードアウト終端で動画フレームが欠けたら hold より黒クリアを優先する
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **問題**:
+  - Android / PC では、トリミング済み動画のフェードアウト終端でデコーダが最後の `seeked` / `ended` に寄ると、`holdFrame` が直前の可視フレームを保持してしまい「黒へ落ち切る直前に最終フレームが残る」ことがある
+  - このとき audio routing や native mute を触ると、過去に対策した Teams 共有時の遅延回避まで壊すリスクがある
+- **対策**:
+  - `shouldBlackoutVideoFadeTail()` で「fade alpha がほぼ 0 の tail」だけを pure に判定し、その区間でフレーム未確定なら `holdFrame` ではなくキャンバス黒クリアを優先する
+  - 修正は `renderFrame()` の描画判定に閉じ、既存の `shouldHoldVideoFrameAtClipEnd()` / audio node / native mute 制御は変更しない
+- **注意**:
+  - フェード中盤まで黒クリアへ倒すと、正当なフェード途中フレームまで欠けて見えるため、alpha が十分下がった末尾だけに限定する
+  - Teams 向けの muted / WebAudio 経路は既存 helper に委ね、描画不具合の修正を音声制御へ波及させない

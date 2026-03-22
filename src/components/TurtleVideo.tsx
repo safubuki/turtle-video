@@ -40,6 +40,7 @@ import {
   getPreviewVideoSyncThreshold,
   getPageHidePausePlan,
   shouldAttemptDeferredPreviewPlay,
+  shouldBlackoutVideoFadeTail,
   shouldBundlePreviewStartForWebAudioMix,
   getVisibilityRecoveryPlan,
   shouldHoldVideoFrameAtClipEnd,
@@ -547,12 +548,24 @@ const TurtleVideo: React.FC = () => {
         // アクティブな動画が未準備の場合はキャンバスをクリアせず、
         // 直前フレームを保持してブラックアウトを防止
         let holdFrame = false;
+        let shouldBlackoutFadeTail = false;
         if (activeId && activeIndex !== -1) {
           const activeItem = currentItems[activeIndex];
+          const shouldPreferBlackoutAtFadeTail = shouldBlackoutVideoFadeTail({
+            clipLocalTime: localTime,
+            clipDuration: activeItem.duration,
+            fadeOut: activeItem.fadeOut,
+            fadeOutDuration: activeItem.fadeOutDuration || 1.0,
+          });
+
           if (activeItem.type === 'video') {
             const activeEl = mediaElementsRef.current[activeId] as HTMLVideoElement | undefined;
             if (!activeEl) {
-              holdFrame = true;
+              if (shouldPreferBlackoutAtFadeTail) {
+                shouldBlackoutFadeTail = true;
+              } else {
+                holdFrame = true;
+              }
             } else {
               const targetTime = (activeItem.trimStart || 0) + localTime;
               const isLastTimelineItem = activeIndex === currentItems.length - 1;
@@ -616,9 +629,13 @@ const TurtleVideo: React.FC = () => {
               });
 
               if (!hasFrame || needsCorrection || shouldHoldForVideoEnd) {
-                holdFrame = true;
+                if (shouldPreferBlackoutAtFadeTail) {
+                  shouldBlackoutFadeTail = true;
+                } else {
+                  holdFrame = true;
+                }
                 // ブラックアウト防止発動をログ
-                logInfo('RENDER', 'フレーム保持発動', {
+                logInfo('RENDER', shouldPreferBlackoutAtFadeTail ? 'フェード終端ブラックアウト優先' : 'フレーム保持発動', {
                   videoId: activeId,
                   readyState: activeEl.readyState,
                   seeking: activeEl.seeking,
@@ -628,6 +645,7 @@ const TurtleVideo: React.FC = () => {
                   currentTime: time,
                   needsCorrection,
                   shouldHoldForVideoEnd,
+                  shouldBlackoutFadeTail: shouldPreferBlackoutAtFadeTail,
                 });
               }
             }
@@ -667,6 +685,7 @@ const TurtleVideo: React.FC = () => {
           _isExporting || (!isActivePlaying && !isPlayingRef.current)
         );
         const shouldClearCanvas = shouldForceStartClear
+          || shouldBlackoutFadeTail
           || (!holdFrame && !shouldHoldAtTimelineEnd && !shouldGuardNearEnd && !shouldGuardAfterFinalize);
 
         if (shouldClearCanvas) {
