@@ -1438,3 +1438,14 @@
 - **注意**:
   - iOS Safari preview の無音修正は `handleMediaRefAssign` の一律 mute へ戻さず、必ず output mode helper 経由で調整する
   - 単一音源 preview の音量は native `HTMLMediaElement.volume` に寄せるため、Safari 専用の preview 回避は export 音声経路へ混ぜない
+
+### 13-65. 自動保存失敗時は catch-up 再試行の基準時刻を進めない
+
+- **対象ファイル**: `src/hooks/useAutoSave.ts`, `src/test/useAutoSave.test.tsx`
+- **問題**:
+  - `saveProjectAuto()` が失敗しても `lastAutoSaveActivityAtRef` を更新すると、タブ復帰直後やエクスポート終了直後の catch-up 保存が次の保存間隔まで抑止される
+- **対応パターン**:
+  - `failed` は `skipped-processing` と同じく「活動なし」とみなし、`lastAutoSaveActivityAtRef` を更新しない
+  - `focus` / `visibilitychange` / `pageshow` を契機にした catch-up 保存テストで、失敗直後でも同内容を即再試行できることを維持する
+- **注意**:
+  - 自動保存結果の種類を増やす場合は、変更検知ハッシュを進めるかだけでなく、catch-up 判定用の活動時刻を進めるかも必ずセットで決める

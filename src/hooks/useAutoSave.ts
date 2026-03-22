@@ -23,7 +23,7 @@ export type AutoSaveIntervalOption = 0 | 1 | 2 | 5;
 export const DEFAULT_AUTO_SAVE_INTERVAL: AutoSaveIntervalOption = 2;
 const AUTO_SAVE_RETURN_CHECK_DELAY_MS = 80;
 
-type AutoSaveRunResult = 'saved' | 'skipped-processing' | 'skipped-nochange' | 'skipped-empty';
+type AutoSaveRunResult = 'saved' | 'failed' | 'skipped-processing' | 'skipped-nochange' | 'skipped-empty';
 
 function isAutoSaveIntervalOption(value: number): value is AutoSaveIntervalOption {
   return value === 0 || value === 1 || value === 2 || value === 5;
@@ -209,7 +209,7 @@ export function useAutoSave() {
       return 'skipped-empty';
     }
     
-    await saveProjectAuto(
+    const saved = await saveProjectAuto(
       mediaItems,
       isClipsLocked,
       bgm,
@@ -220,6 +220,14 @@ export function useAutoSave() {
       captionSettings,
       isCaptionsLocked
     );
+
+    if (!saved) {
+      useLogStore.getState().warn('SYSTEM', '自動保存が失敗したため変更検知ハッシュは更新しません', {
+        mediaCount: mediaItems.length,
+        captionCount: captions.length,
+      });
+      return 'failed';
+    }
     
     // 自動保存成功ログ（デバッグレベルで記録）
     useLogStore.getState().debug('SYSTEM', '自動保存を実行', {
@@ -255,7 +263,7 @@ export function useAutoSave() {
     isAutoSaveRunningRef.current = true;
     try {
       const result = await performAutoSaveRef.current();
-      if (result !== 'skipped-processing') {
+      if (result !== 'skipped-processing' && result !== 'failed') {
         lastAutoSaveActivityAtRef.current = Date.now();
       }
     } finally {
