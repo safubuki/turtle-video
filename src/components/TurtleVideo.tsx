@@ -551,12 +551,22 @@ const TurtleVideo: React.FC = () => {
         let shouldBlackoutFadeTail = false;
         if (activeId && activeIndex !== -1) {
           const activeItem = currentItems[activeIndex];
+          const activeFadeOutDur = activeItem.fadeOutDuration || 1.0;
           const shouldPreferBlackoutAtFadeTail = shouldBlackoutVideoFadeTail({
             clipLocalTime: localTime,
             clipDuration: activeItem.duration,
             fadeOut: activeItem.fadeOut,
-            fadeOutDuration: activeItem.fadeOutDuration || 1.0,
+            fadeOutDuration: activeFadeOutDur,
           });
+
+          // フェードアウト領域判定: holdFrame により前フレームがキャンバスに残ると、
+          // その上に低 alpha の現フレームが合成され、意図より明るい描画になる。
+          // holdFrame のオンオフが数フレームで切り替わると明滅ノイズとして視認されるため、
+          // フェードアウト領域では holdFrame を抑制し、毎フレーム黒クリア→描画の流れを保証する。
+          const isInFadeOutRegion =
+            activeItem.type === 'video' &&
+            activeItem.fadeOut &&
+            localTime > activeItem.duration - activeFadeOutDur;
 
           if (activeItem.type === 'video' && shouldPreferBlackoutAtFadeTail) {
             shouldBlackoutFadeTail = true;
@@ -565,7 +575,7 @@ const TurtleVideo: React.FC = () => {
           if (activeItem.type === 'video') {
             const activeEl = mediaElementsRef.current[activeId] as HTMLVideoElement | undefined;
             if (!activeEl) {
-              if (!shouldPreferBlackoutAtFadeTail) {
+              if (!shouldPreferBlackoutAtFadeTail && !isInFadeOutRegion) {
                 holdFrame = true;
               }
             } else {
@@ -631,7 +641,7 @@ const TurtleVideo: React.FC = () => {
               });
 
               if (!hasFrame || needsCorrection || shouldHoldForVideoEnd) {
-                if (!shouldPreferBlackoutAtFadeTail) {
+                if (!shouldPreferBlackoutAtFadeTail && !isInFadeOutRegion) {
                   holdFrame = true;
                 }
                 // ブラックアウト防止発動をログ

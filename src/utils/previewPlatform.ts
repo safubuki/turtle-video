@@ -368,7 +368,7 @@ export function shouldBlackoutVideoFadeTail(
   const remainingClipTime = Math.max(0, clipDuration - Math.max(0, options.clipLocalTime));
   const blackoutAlphaThreshold = options.blackoutAlphaThreshold ?? 0.05;
   const minBlackoutWindowSec = options.minBlackoutWindowSec ?? (1 / 60);
-  const maxBlackoutWindowSec = options.maxBlackoutWindowSec ?? (1 / 30);
+  const maxBlackoutWindowSec = options.maxBlackoutWindowSec ?? 0.5;
   const alphaDerivedWindowSec = fadeOutDuration * blackoutAlphaThreshold;
   const blackoutWindowSec = Math.min(
     maxBlackoutWindowSec,
