@@ -1587,3 +1587,17 @@
 - **注意**:
   - Android / PC の速度最適化は「track が live な通常ケース」でのみ TrackProcessor を使う
   - iOS 側の事前プリレンダリング条件にはこの判定を混ぜず、platform 条件を分離して保つ
+
+### 13-80. export 尺はタイムライン値ではなく CFR フレーム境界へ切り上げて音声終端も同じ長さへ合わせる
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/utils/exportTimeline.ts`, `src/test/exportTimeline.test.ts`
+- **問題**:
+  - WebCodecs export は 30fps の CFR で映像フレーム数を離散化するため、`totalDuration` がフレーム境界に乗らない案件では `frameCount / FPS` と音声長が数ms〜十数msずれることがある
+  - この差分が小さくても、Teams 側が「音声と動画にズレあり」と見なして再パッケージ時に補正し、わずかな遅延やスロー再生感として再発する場合がある
+- **対策**:
+  - `alignExportDurationToFrameGrid()` で export 尺を `ceil(totalDuration * FPS) / FPS` へ切り上げ、映像フレーム数とコンテナ上の最終動画時刻を先に確定する
+  - `useExport.ts` では `expectedVideoFrames`、`maxAudioTimestampUs`、`OfflineAudioContext` のプリレンダ長、`feedPreRenderedAudio()` の上限長に同じ aligned duration を共有し、動画・音声の終端を必ず一致させる
+  - 診断ログにも raw duration と aligned duration を残し、境界ズレの再発を追跡できるようにする
+- **注意**:
+  - 端数を切り捨てると末尾コンテンツを欠く可能性があるため、必ず切り上げる
+  - 修正は export 専用に閉じ、preview 再生の時間進行や iOS Safari MediaRecorder 分岐の責務は変えない

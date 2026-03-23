@@ -9,6 +9,7 @@ import * as Mp4Muxer from 'mp4-muxer';
 import type { AudioTrack, NarrationClip } from '../types';
 import { useLogStore } from '../stores/logStore';
 import { getPlatformCapabilities } from '../utils/platform';
+import { alignExportDurationToFrameGrid } from '../utils/exportTimeline';
 import {
   resolveExportStrategyOrder,
   shouldUseOfflineAudioPreRender,
@@ -891,6 +892,10 @@ export function useExport(): UseExportReturn {
       } = platformCapabilities;
 
       // ============================================================
+      const exportTimelineAlignment = audioSources
+        ? alignExportDurationToFrameGrid(audioSources.totalDuration, FPS)
+        : null;
+
       // [DIAG-1] プラットフォーム検出・入力情報の診断ログ
       // ============================================================
       useLogStore.getState().info('RENDER', '[DIAG-1] プラットフォーム・入力診断', {
@@ -912,6 +917,10 @@ export function useExport(): UseExportReturn {
           hasBgm: !!audioSources.bgm,
           narrationCount: audioSources.narrations.length,
           totalDuration: Math.round(audioSources.totalDuration * 100) / 100,
+          alignedDurationSec: exportTimelineAlignment
+            ? Math.round(exportTimelineAlignment.alignedDurationSec * 1000) / 1000
+            : null,
+          alignedFrameCount: exportTimelineAlignment?.frameCount ?? null,
         } : null,
       });
 
@@ -941,14 +950,12 @@ export function useExport(): UseExportReturn {
       const controller = new AbortController();
       abortControllerRef.current = controller;
       const { signal } = controller;
-      const maxAudioTimestampUs =
-        audioSources && Number.isFinite(audioSources.totalDuration)
-          ? Math.max(0, Math.round(audioSources.totalDuration * 1e6))
-          : Number.POSITIVE_INFINITY;
-      const expectedVideoFrames =
-        audioSources && Number.isFinite(audioSources.totalDuration)
-          ? Math.max(1, Math.round(audioSources.totalDuration * FPS))
-          : null;
+      const maxAudioTimestampUs = exportTimelineAlignment
+        ? exportTimelineAlignment.alignedDurationUs
+        : Number.POSITIVE_INFINITY;
+      const expectedVideoFrames = exportTimelineAlignment
+        ? Math.max(1, exportTimelineAlignment.frameCount)
+        : null;
       const getPlaybackTimeSec = (): number | null => {
         if (!audioSources?.getPlaybackTimeSec) return null;
         const raw = audioSources.getPlaybackTimeSec();
@@ -981,8 +988,11 @@ export function useExport(): UseExportReturn {
           return null;
         }
 
+        const preRenderedAudioDurationSec = exportTimelineAlignment?.alignedDurationSec ?? audioSources.totalDuration;
+
         useLogStore.getState().info('RENDER', '[DIAG-3] OfflineAudioContext パス開始', {
           totalDuration: audioSources.totalDuration,
+          alignedDurationSec: preRenderedAudioDurationSec,
           sampleRate: audioContext.sampleRate,
           isIosSafari,
           reason,
@@ -991,7 +1001,10 @@ export function useExport(): UseExportReturn {
         preRenderedAudioPromise = (async () => {
           try {
             const renderedAudio = await offlineRenderAudio(
-              audioSources,
+              {
+                ...audioSources,
+                totalDuration: preRenderedAudioDurationSec,
+              },
               audioContext as AudioContext,
               audioContext.sampleRate,
               signal,
@@ -1238,7 +1251,7 @@ export function useExport(): UseExportReturn {
               renderedAudio,
               audioEncoder,
               signal,
-              audioSources.totalDuration,
+              exportTimelineAlignment?.alignedDurationSec ?? audioSources.totalDuration,
             );
             useLogStore.getState().info('RENDER', '[DIAG-5] feed完了後 AudioEncoder状態', {
               state: audioEncoder.state,
@@ -1817,7 +1830,7 @@ export function useExport(): UseExportReturn {
               renderedAudio,
               audioEncoder,
               signal,
-              audioSources.totalDuration,
+              exportTimelineAlignment?.alignedDurationSec ?? audioSources.totalDuration,
             );
             offlineAudioDone = true;
             useLogStore.getState().info('RENDER', 'OfflineAudioContext フォールバックで音声を補完', {
