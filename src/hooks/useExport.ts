@@ -13,6 +13,7 @@ import {
   resolveExportStrategyOrder,
   shouldUseOfflineAudioPreRender,
   resolveWebCodecsAudioCaptureStrategy,
+  shouldWarmupOfflineAudioFallback,
 } from './export-strategies/exportStrategyResolver';
 import { runIosSafariMediaRecorderStrategy } from './export-strategies/iosSafariMediaRecorder';
 import type {
@@ -962,18 +963,25 @@ export function useExport(): UseExportReturn {
       let canvasFramePumpTimer: ReturnType<typeof setInterval> | null = null;
       let preRenderedAudioBuffer: AudioBuffer | null = null;
       let preRenderedAudioPrepared = false;
+      let preRenderedAudioPromise: Promise<AudioBuffer | null> | null = null;
+      const shouldPrepareOfflineAudioBuffer = shouldUseOfflineAudioPreRender({
+        hasAudioSources: !!audioSources,
+        isIosSafari,
+      }) || shouldWarmupOfflineAudioFallback({
+        hasAudioSources: !!audioSources,
+        isIosSafari,
+      });
 
-      const ensurePreRenderedAudioBuffer = async (): Promise<AudioBuffer | null> => {
+      const ensurePreRenderedAudioBuffer = async (reason: 'required' | 'warmup' = 'required'): Promise<AudioBuffer | null> => {
+        if (preRenderedAudioPromise) {
+          return preRenderedAudioPromise;
+        }
         if (preRenderedAudioPrepared) {
           return preRenderedAudioBuffer;
         }
         preRenderedAudioPrepared = true;
 
-        const shouldPreRenderAudio = shouldUseOfflineAudioPreRender({
-          hasAudioSources: !!audioSources,
-          isIosSafari,
-        });
-        if (!shouldPreRenderAudio || !audioSources) {
+        if (!shouldPrepareOfflineAudioBuffer || !audioSources) {
           return null;
         }
 
@@ -981,26 +989,31 @@ export function useExport(): UseExportReturn {
           totalDuration: audioSources.totalDuration,
           sampleRate: audioContext.sampleRate,
           isIosSafari,
+          reason,
         });
 
-        try {
-          const renderedAudio = await offlineRenderAudio(
-            audioSources,
-            audioContext as AudioContext,
-            audioContext.sampleRate,
-            signal,
-          );
-          if (renderedAudio && !signal.aborted) {
-            updatePreparationStep(audioSources, 4);
-            preRenderedAudioBuffer = renderedAudio;
+        preRenderedAudioPromise = (async () => {
+          try {
+            const renderedAudio = await offlineRenderAudio(
+              audioSources,
+              audioContext as AudioContext,
+              audioContext.sampleRate,
+              signal,
+            );
+            if (renderedAudio && !signal.aborted) {
+              updatePreparationStep(audioSources, 4);
+              preRenderedAudioBuffer = renderedAudio;
+            }
+          } catch (e) {
+            useLogStore.getState().warn('RENDER', 'OfflineAudioContext失敗、通常経路へフォールバック', {
+              error: e instanceof Error ? e.message : String(e),
+              reason,
+            });
           }
-        } catch (e) {
-          useLogStore.getState().warn('RENDER', 'OfflineAudioContext失敗、通常経路へフォールバック', {
-            error: e instanceof Error ? e.message : String(e),
-          });
-        }
+          return preRenderedAudioBuffer;
+        })();
 
-        return preRenderedAudioBuffer;
+        return preRenderedAudioPromise;
       };
 
       try {
@@ -1014,7 +1027,15 @@ export function useExport(): UseExportReturn {
           isIosSafari,
           supportsTrackProcessor: canUseTrackProcessor,
           supportsMp4MediaRecorder: !!supportedMediaRecorderProfile,
+          warmupOfflineAudioFallback: shouldWarmupOfflineAudioFallback({
+            hasAudioSources: !!audioSources,
+            isIosSafari,
+          }),
         });
+
+        if (shouldWarmupOfflineAudioFallback({ hasAudioSources: !!audioSources, isIosSafari })) {
+          void ensurePreRenderedAudioBuffer('warmup');
+        }
 
         if (isIosSafari) {
           useLogStore.getState().info('RENDER', 'iOS Safari export route', {
@@ -1028,7 +1049,7 @@ export function useExport(): UseExportReturn {
 
         if (strategyOrder.includes('ios-safari-mediarecorder')) {
           let preRenderedAudio: PreRenderedRecorderAudioSource | null = null;
-          const renderedAudioForMediaRecorder = await ensurePreRenderedAudioBuffer();
+          const renderedAudioForMediaRecorder = await ensurePreRenderedAudioBuffer('required');
           if (renderedAudioForMediaRecorder && !signal.aborted) {
             preRenderedAudio = createPreRenderedRecorderAudioSource(
               renderedAudioForMediaRecorder,
@@ -1217,7 +1238,7 @@ export function useExport(): UseExportReturn {
           isIosSafari,
         });
         if (shouldPreRenderAudio && audioSources) {
-          const renderedAudio = await ensurePreRenderedAudioBuffer();
+          const renderedAudio = await ensurePreRenderedAudioBuffer('required');
           if (renderedAudio && !signal.aborted) {
             useLogStore.getState().info('RENDER', '[DIAG-4] feed開始前 AudioEncoder状態', {
               state: audioEncoder.state,
@@ -1776,7 +1797,7 @@ export function useExport(): UseExportReturn {
         // 音声プリレンダリング完了を通知 — エクスポート用の再生ループを開始させる
         // iOS Safari では extractAudioViaVideoElement にリアルタイムがかかるため、
         // このコールバックのタイミングが重要。
-        // PC/Android では offlineRenderAudio が高速なため即座に呼ばれる。
+        // 非iOS は export 開始待ちを増やさず、必要なら裏で warmup を進める。
         useLogStore.getState().info('RENDER', '[DIAG-READY] 音声準備完了、再生ループ開始通知');
         audioSources?.onAudioPreRenderComplete?.();
 
@@ -1802,7 +1823,7 @@ export function useExport(): UseExportReturn {
             audioTrackReadyState: audioTrack?.readyState ?? 'none',
             canUseTrackProcessor,
           });
-          const renderedAudio = await ensurePreRenderedAudioBuffer();
+          const renderedAudio = await ensurePreRenderedAudioBuffer('required');
           if (renderedAudio && !signal.aborted) {
             const encodedChunks = feedPreRenderedAudio(
               renderedAudio,

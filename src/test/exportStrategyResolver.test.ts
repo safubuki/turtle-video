@@ -3,6 +3,7 @@ import {
   resolveExportStrategyOrder,
   resolveWebCodecsAudioCaptureStrategy,
   shouldUseOfflineAudioPreRender,
+  shouldWarmupOfflineAudioFallback,
 } from '../hooks/export-strategies/exportStrategyResolver';
 
 describe('resolveExportStrategyOrder', () => {
@@ -154,6 +155,35 @@ describe('shouldUseOfflineAudioPreRender', () => {
   it('非iOS でも音声ソースが無ければ OfflineAudioContext を使わない', () => {
     expect(
       shouldUseOfflineAudioPreRender({
+        hasAudioSources: false,
+        isIosSafari: false,
+      })
+    ).toBe(false);
+  });
+});
+
+describe('shouldWarmupOfflineAudioFallback', () => {
+  it('非iOS かつ音声ソースありのときは裏でフォールバック準備を始める', () => {
+    expect(
+      shouldWarmupOfflineAudioFallback({
+        hasAudioSources: true,
+        isIosSafari: false,
+      })
+    ).toBe(true);
+  });
+
+  it('iOS Safari では warmup ではなく事前プリレンダリング側で扱う', () => {
+    expect(
+      shouldWarmupOfflineAudioFallback({
+        hasAudioSources: true,
+        isIosSafari: true,
+      })
+    ).toBe(false);
+  });
+
+  it('音声ソースが無ければ warmup しない', () => {
+    expect(
+      shouldWarmupOfflineAudioFallback({
         hasAudioSources: false,
         isIosSafari: false,
       })
