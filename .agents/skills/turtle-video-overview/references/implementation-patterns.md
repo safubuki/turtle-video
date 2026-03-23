@@ -76,6 +76,20 @@
   - iOS Safari の MediaRecorder 経路はそのまま維持し、非 iOS の滑らかさ対策を iOS 側へ波及させない
   - 非 iOS の時刻スナップは export ループだけに閉じ、通常 preview の再生体感は変えない
 
+### 0-6. 非 iOS export の時間進行は壁時計ではなく決定的なフレームカウンタで進める
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/exportFrameTiming.ts`, `src/test/exportFrameTiming.test.ts`
+- **背景**:
+  - `Date.now()` ベースで `elapsed` を切り下げるだけでは、rAF の遅延やメインスレッド負荷が大きいと描画時刻自体が飛び、30fps 出力でも motion が所々で引っかかったように見えることがある
+  - 非 iOS export は OfflineAudioContext で音声を先行確定できるため、映像側もリアルタイム追従より「1 フレームずつ確実に進める」方が安定しやすい
+- **実装指針**:
+  - 非 iOS export では `fromTime + renderedFrameCount / FPS` を現在時刻として使い、壁時計ではなくフレームカウンタから `renderFrame()` の描画時刻を決める
+  - export 開始時と `onAudioPreRenderComplete` 後にフレームカウンタを必ずリセットし、準備時間や一時停止の遅れがタイムライン進行へ混ざらないようにする
+  - フレームカウンタは `stopAll()` でもクリアし、次回 preview / export セッションへ持ち越さない
+- **注意点**:
+  - この決定的ステップ進行は非 iOS export 専用で、iOS Safari の MediaRecorder 経路や通常 preview の `Date.now()` 依存ループは変更しない
+  - 進行基準を frame index に寄せても、最終停止判定と音声フォールバックは既存ロジックを維持して AV 尺合わせを崩さない
+
 ## 1. スクロール/スワイプ誤操作防止
 
 ### 1-1. モーダル表示時のボディスクロールロック
