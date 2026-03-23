@@ -117,6 +117,20 @@
   - Teams 対策だからといって preview や iOS Safari MediaRecorder 経路へ同じ補正を広げない
   - 総尺合わせを理由に `frameCount` 自体を減らすと最後の静止保持が欠けるため、フレーム数は維持して duration 配分だけを調整する
 
+### 0-9. Teams 向け export の音声 clamp / プリレンダ長も raw timeline duration へ揃える
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/utils/exportTimeline.ts`, `src/test/exportTimeline.test.ts`
+- **背景**:
+  - 映像だけ raw duration 基準へ戻しても、音声の clamp や OfflineAudioContext のプリレンダ長が `alignedDuration` のままだと、結局コンテナ上の総尺が CFR 切り上げ値へ寄ってしまう
+  - その状態では Teams デスクトップ再エンコード時に AV 総尺差の補正が入り、以前抑えられていた「少し遅い」見え方が再発しやすい
+- **実装指針**:
+  - `expectedVideoFrames` は `ceil(totalDuration * FPS)` のまま維持し、映像フレーム数は減らさない
+  - `getExportFrameTiming()` の最終フレーム duration、`maxAudioTimestampUs`、`feedPreRenderedAudio()` へ渡す最大長、`offlineRenderAudio()` へ渡す `totalDuration` は **すべて raw timeline duration 基準** に揃える
+  - 通常フレームの timestamp / duration は決定的な CFR 採番を維持し、端数吸収は最終フレームだけへ閉じる
+- **注意点**:
+  - `alignedDurationSec` / `alignedDurationUs` は frame count 診断やデバッグ用途として残っていても、Teams 対策の実処理基準に混ぜない
+  - raw duration へ戻す修正は export 専用で、preview の再生・シーク・停止や iOS Safari workaround へ波及させない
+
 ## 1. スクロール/スワイプ誤操作防止
 
 ### 1-1. モーダル表示時のボディスクロールロック
