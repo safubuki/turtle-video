@@ -60,8 +60,10 @@ export function getExportFrameTiming(
   const nominalFrameDurationUs = 1e6 / safeFps;
   const timestampUs = Math.max(0, Math.round(frameIndex * nominalFrameDurationUs));
   const isLastFrame = frameIndex === alignment.frameCount - 1;
+  // Teams 再エンコード時の AV 尺差を防ぐため、最終フレームも均一な CFR duration にする。
+  // rawDurationUs を使うと timescale 丸めで映像トラックが短くなり遅延が出る。
   const nextBoundaryUs = isLastFrame
-    ? alignment.rawDurationUs
+    ? alignment.alignedDurationUs
     : Math.max(timestampUs, Math.round((frameIndex + 1) * nominalFrameDurationUs));
 
   return {
