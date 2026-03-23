@@ -31,6 +31,16 @@ export function shouldUseOfflineAudioPreRender(
   return input.isIosSafari;
 }
 
+export function shouldWarmupOfflineAudioFallback(
+  input: OfflineAudioPreRenderResolutionInput
+): boolean {
+  if (!input.hasAudioSources) {
+    return false;
+  }
+
+  return !input.isIosSafari;
+}
+
 export type WebCodecsAudioCaptureStrategy = 'pre-rendered' | 'track-processor' | 'script-processor';
 
 export interface WebCodecsAudioCaptureResolutionInput {

@@ -62,6 +62,20 @@
   - `blur` だけで即 pause するとファイルピッカーや保存ダイアログでも再生が止まりやすいので、blur では「再同期予約」までに留める
   - 可視復帰時の `load()` は停止中だけに限定し、再生中は `resync + renderFrame` で復旧させる
 
+### 0-5. 非 iOS export の OfflineAudioContext フォールバックは待機せず warmup だけ先行する
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/hooks/export-strategies/exportStrategyResolver.ts`, `src/test/exportStrategyResolver.test.ts`
+- **背景**:
+  - 非 iOS で export 開始前に `OfflineAudioContext` を待つと、PC / Android の体感速度が落ちやすい
+  - 一方で、リアルタイム音声キャプチャが 0 chunk になったケースでは、終了後に初めてオフライン描画を始めると待ち時間が長く、失敗時の復旧も遅れる
+- **実装指針**:
+  - iOS Safari は従来どおり事前プリレンダリングを export 開始条件として扱う
+  - 非 iOS は `shouldWarmupOfflineAudioFallback()` で warmup 可否だけ判定し、export 本体は待たずに開始する
+  - warmup した `OfflineAudioContext` 結果は 0 chunk フォールバック時に再利用し、無音回帰時だけ補完へ使う
+- **注意点**:
+  - 非 iOS の warmup は「準備開始」であって「開始待ち」ではない。`onAudioPreRenderComplete` を遅らせない
+  - platform 分岐は resolver に集約し、`useExport.ts` に iOS/非 iOS の if を散らさない
+
 ## 1. スクロール/スワイプ誤操作防止
 
 ### 1-1. モーダル表示時のボディスクロールロック
