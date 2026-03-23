@@ -103,6 +103,20 @@
   - 非 iOS の滑らかさ問題を再調整する場合でも、映像の時間進行変更と音声プリレンダリング変更は切り離して評価する
   - iOS Safari の MediaRecorder 経路や preview 再生の時間管理には波及させない
 
+### 0-8. Teams 向け export は決定的なフレーム列を維持しつつ、最終フレームだけで総尺を合わせる
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/utils/exportTimeline.ts`, `src/test/exportTimeline.test.ts`
+- **背景**:
+  - Teams デスクトップへの投稿後は再エンコード時の音声・映像の総尺差に敏感で、1 フレーム未満の延長でも「少し遅い」見え方へ繋がることがある
+  - 一方で全フレームの timestamp を実時間ベースへ戻すと、過去に潰した VFR ジッターが再発しやすい
+- **実装指針**:
+  - フレーム順序ベースの決定的 timestamp 採番は維持し、通常フレームの並びは壊さない
+  - export の総尺は raw timeline duration に合わせ、必要な端数は **最後の 1 フレームだけ** の duration で吸収する
+  - 音声のプリレンダリング長・AudioEncoder の終端 clamp も raw duration 基準へ揃え、映像側の切り上げ尺へ引っ張られないようにする
+- **注意点**:
+  - Teams 対策だからといって preview や iOS Safari MediaRecorder 経路へ同じ補正を広げない
+  - 総尺合わせを理由に `frameCount` 自体を減らすと最後の静止保持が欠けるため、フレーム数は維持して duration 配分だけを調整する
+
 ## 1. スクロール/スワイプ誤操作防止
 
 ### 1-1. モーダル表示時のボディスクロールロック

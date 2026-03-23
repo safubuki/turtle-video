@@ -9,7 +9,7 @@ import * as Mp4Muxer from 'mp4-muxer';
 import type { AudioTrack, NarrationClip } from '../types';
 import { useLogStore } from '../stores/logStore';
 import { getPlatformCapabilities } from '../utils/platform';
-import { alignExportDurationToFrameGrid } from '../utils/exportTimeline';
+import { alignExportDurationToFrameGrid, getExportFrameTiming } from '../utils/exportTimeline';
 import {
   resolveExportStrategyOrder,
   shouldUseOfflineAudioPreRender,
@@ -917,6 +917,7 @@ export function useExport(): UseExportReturn {
           hasBgm: !!audioSources.bgm,
           narrationCount: audioSources.narrations.length,
           totalDuration: Math.round(audioSources.totalDuration * 100) / 100,
+          rawDurationUs: exportTimelineAlignment?.rawDurationUs ?? null,
           alignedDurationSec: exportTimelineAlignment
             ? Math.round(exportTimelineAlignment.alignedDurationSec * 1000) / 1000
             : null,
@@ -951,7 +952,7 @@ export function useExport(): UseExportReturn {
       abortControllerRef.current = controller;
       const { signal } = controller;
       const maxAudioTimestampUs = exportTimelineAlignment
-        ? exportTimelineAlignment.alignedDurationUs
+        ? exportTimelineAlignment.rawDurationUs
         : Number.POSITIVE_INFINITY;
       const expectedVideoFrames = exportTimelineAlignment
         ? Math.max(1, exportTimelineAlignment.frameCount)
@@ -988,7 +989,7 @@ export function useExport(): UseExportReturn {
           return null;
         }
 
-        const preRenderedAudioDurationSec = exportTimelineAlignment?.alignedDurationSec ?? audioSources.totalDuration;
+        const preRenderedAudioDurationSec = exportTimelineAlignment?.rawDurationSec ?? audioSources.totalDuration;
 
         useLogStore.getState().info('RENDER', '[DIAG-3] OfflineAudioContext パス開始', {
           totalDuration: audioSources.totalDuration,
@@ -1251,7 +1252,7 @@ export function useExport(): UseExportReturn {
               renderedAudio,
               audioEncoder,
               signal,
-              exportTimelineAlignment?.alignedDurationSec ?? audioSources.totalDuration,
+              exportTimelineAlignment?.rawDurationSec ?? audioSources.totalDuration,
             );
             useLogStore.getState().info('RENDER', '[DIAG-5] feed完了後 AudioEncoder状態', {
               state: audioEncoder.state,
@@ -1553,7 +1554,6 @@ export function useExport(): UseExportReturn {
 
         const processVideoWithTrackProcessor = async () => {
           let frameIndex = 0;
-          const frameDuration = 1e6 / FPS; // 1フレームあたりの時間（マイクロ秒）
           const isKeyFrame = (index: number) => index === 0 || index % FPS === 0;
 
           try {
@@ -1586,14 +1586,20 @@ export function useExport(): UseExportReturn {
                   // [FIX] Teamsスロー再生対策
                   // オリジナルのtimestamp（実時間ベース）を使うと、レンダリング遅延（ジッター）が含まれ
                   // 結果としてVFR（可変フレームレート）となり、一部プレーヤーで再生時間が間延びする。
-                  // そのため、強制的にCFR（固定フレームレート）としてタイムスタンプを書き換える。
-                  const newTimestamp = Math.round(frameIndex * frameDuration);
+                  // そのため、フレーム順序ベースの決定的なタイムスタンプへ揃えつつ、
+                  // 総尺は生のタイムライン値へ一致させる。
+                  const frameTiming = exportTimelineAlignment
+                    ? getExportFrameTiming(exportTimelineAlignment, FPS, frameIndex)
+                    : {
+                      timestampUs: Math.round(frameIndex * (1e6 / FPS)),
+                      durationUs: Math.round(1e6 / FPS),
+                    };
 
                   // 新しいタイムスタンプでフレームを再作成
                   // copyToなどのコストを避けるため、VideoFrameコンストラクタでラップする
                   const newFrame = new VideoFrame(originalFrame, {
-                    timestamp: newTimestamp,
-                    duration: Math.round(frameDuration),
+                    timestamp: frameTiming.timestampUs,
+                    duration: frameTiming.durationUs,
                   });
 
                   // エンコード
@@ -1612,9 +1618,15 @@ export function useExport(): UseExportReturn {
             if (!signal.aborted && completionRequestedRef.current && expectedVideoFrames !== null && frameIndex < expectedVideoFrames && videoEncoder.state === 'configured') {
               const missingFrames = expectedVideoFrames - frameIndex;
               for (let i = 0; i < missingFrames; i++) {
+                const frameTiming = exportTimelineAlignment
+                  ? getExportFrameTiming(exportTimelineAlignment, FPS, frameIndex)
+                  : {
+                    timestampUs: Math.round(frameIndex * (1e6 / FPS)),
+                    durationUs: Math.round(1e6 / FPS),
+                  };
                 const frame = new VideoFrame(canvas, {
-                  timestamp: Math.round(frameIndex * frameDuration),
-                  duration: Math.round(frameDuration),
+                  timestamp: frameTiming.timestampUs,
+                  duration: frameTiming.durationUs,
                 });
                 videoEncoder.encode(frame, { keyFrame: isKeyFrame(frameIndex) });
                 frame.close();
@@ -1635,7 +1647,6 @@ export function useExport(): UseExportReturn {
 
         const processVideoWithCanvasFrames = async () => {
           let frameIndex = 0;
-          const frameDuration = 1e6 / FPS;
           const framePollInterval = 16;
           const isKeyFrame = (index: number) => index === 0 || index % FPS === 0;
 
@@ -1660,9 +1671,15 @@ export function useExport(): UseExportReturn {
 
               if (videoEncoder.state === 'configured' && framesToEncode > 0) {
                 for (let i = 0; i < framesToEncode; i++) {
+                  const frameTiming = exportTimelineAlignment
+                    ? getExportFrameTiming(exportTimelineAlignment, FPS, frameIndex)
+                    : {
+                      timestampUs: Math.round(frameIndex * (1e6 / FPS)),
+                      durationUs: Math.round(1e6 / FPS),
+                    };
                   const frame = new VideoFrame(canvas, {
-                    timestamp: Math.round(frameIndex * frameDuration),
-                    duration: Math.round(frameDuration),
+                    timestamp: frameTiming.timestampUs,
+                    duration: frameTiming.durationUs,
                   });
                   videoEncoder.encode(frame, { keyFrame: isKeyFrame(frameIndex) });
                   frame.close();
@@ -1830,7 +1847,7 @@ export function useExport(): UseExportReturn {
               renderedAudio,
               audioEncoder,
               signal,
-              exportTimelineAlignment?.alignedDurationSec ?? audioSources.totalDuration,
+              exportTimelineAlignment?.rawDurationSec ?? audioSources.totalDuration,
             );
             offlineAudioDone = true;
             useLogStore.getState().info('RENDER', 'OfflineAudioContext フォールバックで音声を補完', {
