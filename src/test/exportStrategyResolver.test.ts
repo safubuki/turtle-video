@@ -87,20 +87,46 @@ describe('resolveWebCodecsAudioCaptureStrategy', () => {
 });
 
 describe('shouldUseOfflineAudioPreRender', () => {
-  it('iOS Safari かつ音声ソースありのときだけ OfflineAudioContext を使う', () => {
+  it('iOS Safari かつ音声ソースありのときは OfflineAudioContext を使う', () => {
     expect(
       shouldUseOfflineAudioPreRender({
         hasAudioSources: true,
         isIosSafari: true,
+        hasAudioTrack: true,
+        canUseTrackProcessor: true,
       }),
     ).toBe(true);
   });
 
-  it('非iOS では音声ソースがあっても OfflineAudioContext を先行させない', () => {
+  it('非iOS でも音声トラックが無い場合は OfflineAudioContext を使って音声無音化を防ぐ', () => {
     expect(
       shouldUseOfflineAudioPreRender({
         hasAudioSources: true,
         isIosSafari: false,
+        hasAudioTrack: false,
+        canUseTrackProcessor: true,
+      }),
+    ).toBe(true);
+  });
+
+  it('非iOS でも TrackProcessor が無い場合は OfflineAudioContext を使う', () => {
+    expect(
+      shouldUseOfflineAudioPreRender({
+        hasAudioSources: true,
+        isIosSafari: false,
+        hasAudioTrack: true,
+        canUseTrackProcessor: false,
+      }),
+    ).toBe(true);
+  });
+
+  it('非iOS で音声トラックと TrackProcessor がそろっていれば高速経路を優先する', () => {
+    expect(
+      shouldUseOfflineAudioPreRender({
+        hasAudioSources: true,
+        isIosSafari: false,
+        hasAudioTrack: true,
+        canUseTrackProcessor: true,
       }),
     ).toBe(false);
   });
@@ -110,6 +136,19 @@ describe('shouldUseOfflineAudioPreRender', () => {
       shouldUseOfflineAudioPreRender({
         hasAudioSources: false,
         isIosSafari: true,
+        hasAudioTrack: true,
+        canUseTrackProcessor: true,
+      }),
+    ).toBe(false);
+  });
+
+  it('非iOS でも音声ソースが無ければ OfflineAudioContext を使わない', () => {
+    expect(
+      shouldUseOfflineAudioPreRender({
+        hasAudioSources: false,
+        isIosSafari: false,
+        hasAudioTrack: false,
+        canUseTrackProcessor: false,
       }),
     ).toBe(false);
   });
