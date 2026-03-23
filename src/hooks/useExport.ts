@@ -969,6 +969,8 @@ export function useExport(): UseExportReturn {
         const shouldPreRenderAudio = shouldUseOfflineAudioPreRender({
           hasAudioSources: !!audioSources,
           isIosSafari,
+          hasAudioTrack: !!audioTrack,
+          canUseTrackProcessor,
         });
         if (!shouldPreRenderAudio || !audioSources) {
           return null;
@@ -1207,11 +1209,13 @@ export function useExport(): UseExportReturn {
           bitrate: audioEncoderConfig.bitrate,
         });
 
-        // === iOS Safari 限定: OfflineAudioContext による音声プリレンダリング ===
+        // === 条件付き: OfflineAudioContext による音声プリレンダリング ===
         let offlineAudioDone = false;
         const shouldPreRenderAudio = shouldUseOfflineAudioPreRender({
           hasAudioSources: !!audioSources,
           isIosSafari,
+          hasAudioTrack: !!audioTrack,
+          canUseTrackProcessor,
         });
         if (shouldPreRenderAudio && audioSources) {
           const renderedAudio = await ensurePreRenderedAudioBuffer();
@@ -1784,6 +1788,29 @@ export function useExport(): UseExportReturn {
         if (scriptProcessorSource) {
           try { scriptProcessorSource.disconnect(); } catch (e) { /* ignore */ }
           scriptProcessorSource = null;
+        }
+
+        if (!signal.aborted && audioSources && !offlineAudioDone && audioEncoderOutputChunks === 0) {
+          useLogStore.getState().warn('RENDER', 'リアルタイム音声キャプチャ結果が空のため、OfflineAudioContext へフォールバック', {
+            isIosSafari,
+            hasAudioTrack: !!audioTrack,
+            canUseTrackProcessor,
+          });
+          const renderedAudio = await ensurePreRenderedAudioBuffer();
+          if (renderedAudio && !signal.aborted) {
+            const encodedChunks = feedPreRenderedAudio(
+              renderedAudio,
+              audioEncoder,
+              signal,
+              audioSources.totalDuration,
+            );
+            offlineAudioDone = true;
+            useLogStore.getState().info('RENDER', 'OfflineAudioContext フォールバックで音声を補完', {
+              encodedChunks,
+              audioEncoderOutputChunks,
+              audioEncoderOutputBytes,
+            });
+          }
         }
 
         // ============================================================

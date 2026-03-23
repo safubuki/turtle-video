@@ -1517,3 +1517,18 @@
   - フェード中盤まで黒クリアへ倒すと、正当なフェード途中フレームまで欠けて見えるため、alpha が十分下がった末尾だけに限定する
   - Teams 向けの muted / WebAudio 経路は既存 helper に委ね、描画不具合の修正を音声制御へ波及させない
   - 末尾 tail に入ったら「フレーム欠落時だけ黒、取得できたら描画」にすると黒↔最終フレームが交互に出て点滅しやすい。terminal window に入ったら描画自体を黒へ揃え、終端品質を優先する
+
+### 13-78. export 音声の事前プリレンダリングは iOS 専用に閉じず、非 iOS の無音回帰も防ぐ
+
+- **ファイル**: `src/hooks/export-strategies/exportStrategyResolver.ts`, `src/hooks/useExport.ts`, `src/test/exportStrategyResolver.test.ts`
+- **問題**:
+  - `OfflineAudioContext` の事前プリレンダリングを全面有効にすると Android / PC の export 前待機が長くなり、既存より体感速度が悪化する
+  - 一方で完全に無効化すると、`MediaStreamAudioDestinationNode` の音声トラック欠落や TrackProcessor 非対応環境で mixed audio export が無音化し得る
+- **対策**:
+  - `shouldUseOfflineAudioPreRender()` は **iOS Safari**、または **非 iOS でも audio track 不在 / TrackProcessor 非対応** のときだけ true にする
+  - Android / PC で `audio track + TrackProcessor` がそろう通常ケースは高速なリアルタイム経路を優先し、前回の速度感へ戻す
+  - それでもリアルタイム音声キャプチャ結果が 0 chunk だった場合は、flush 前に `OfflineAudioContext` へフォールバックして無音ファイル化を防ぐ
+  - resolver テストで「高速経路を優先する条件」と「安全側へ倒す条件」の両方を固定し、速度と信頼性の両方を守る
+- **注意**:
+  - iOS Safari 固有の MediaRecorder / keep-alive / preview workaround は従来どおり strategy / preview policy に閉じ、非 iOS まで Safari 分岐を広げない
+  - Android / PC の export 速度だけを理由に安全側フォールバックを削る場合でも、mixed audio 実機確認なしに判断しない
