@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { alignExportDurationToFrameGrid } from '../utils/exportTimeline';
+import { alignExportDurationToFrameGrid, getExportFrameTiming } from '../utils/exportTimeline';
 
 describe('alignExportDurationToFrameGrid', () => {
   it('フレーム境界ちょうどの尺はそのまま維持する', () => {
     expect(alignExportDurationToFrameGrid(2, 30)).toEqual({
       rawDurationSec: 2,
+      rawDurationUs: 2_000_000,
       frameCount: 60,
       alignedDurationSec: 2,
       alignedDurationUs: 2_000_000,
@@ -15,6 +16,7 @@ describe('alignExportDurationToFrameGrid', () => {
     const aligned = alignExportDurationToFrameGrid(10.01, 30);
 
     expect(aligned.rawDurationSec).toBe(10.01);
+    expect(aligned.rawDurationUs).toBe(10_010_000);
     expect(aligned.frameCount).toBe(301);
     expect(aligned.alignedDurationSec).toBeCloseTo(301 / 30, 10);
     expect(aligned.alignedDurationUs).toBe(Math.round((301 / 30) * 1e6));
@@ -30,5 +32,17 @@ describe('alignExportDurationToFrameGrid', () => {
   it('不正な入力はゼロ尺として扱う', () => {
     expect(alignExportDurationToFrameGrid(-1, 30).frameCount).toBe(0);
     expect(alignExportDurationToFrameGrid(10, 0).alignedDurationSec).toBe(0);
+  });
+
+  it('最終フレームだけを短くして総尺を元のタイムラインへ一致させる', () => {
+    const aligned = alignExportDurationToFrameGrid(10.01, 30);
+    const lastFrameIndex = aligned.frameCount - 1;
+    const penultimate = getExportFrameTiming(aligned, 30, lastFrameIndex - 1);
+    const last = getExportFrameTiming(aligned, 30, lastFrameIndex);
+
+    expect(penultimate.timestampUs + penultimate.durationUs).toBe(last.timestampUs);
+    expect(last.timestampUs + last.durationUs).toBe(aligned.rawDurationUs);
+    expect(last.durationUs).toBeLessThanOrEqual(Math.round(1e6 / 30));
+    expect(last.durationUs).toBeGreaterThan(0);
   });
 });
