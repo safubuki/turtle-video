@@ -76,19 +76,32 @@
   - iOS Safari の MediaRecorder 経路はそのまま維持し、非 iOS の滑らかさ対策を iOS 側へ波及させない
   - 非 iOS の時刻スナップは export ループだけに閉じ、通常 preview の再生体感は変えない
 
-### 0-6. 非 iOS export の時間進行は壁時計ではなく決定的なフレームカウンタで進める
+### 0-6. 非 iOS export の時間進行は壁時計ではなく決定的なフレームカウンタで進める（旧方針）
 
 - **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/exportFrameTiming.ts`, `src/test/exportFrameTiming.test.ts`
 - **背景**:
   - `Date.now()` ベースで `elapsed` を切り下げるだけでは、rAF の遅延やメインスレッド負荷が大きいと描画時刻自体が飛び、30fps 出力でも motion が所々で引っかかったように見えることがある
-  - 非 iOS export は OfflineAudioContext で音声を先行確定できるため、映像側もリアルタイム追従より「1 フレームずつ確実に進める」方が安定しやすい
+  - 非 iOS export は OfflineAudioContext で音声を先行確定できるため、映像側もリアルタイム追従より「1 フレームずつ確実に進める」方が安定しやすいと判断していた
 - **実装指針**:
   - 非 iOS export では `fromTime + renderedFrameCount / FPS` を現在時刻として使い、壁時計ではなくフレームカウンタから `renderFrame()` の描画時刻を決める
   - export 開始時と `onAudioPreRenderComplete` 後にフレームカウンタを必ずリセットし、準備時間や一時停止の遅れがタイムライン進行へ混ざらないようにする
   - フレームカウンタは `stopAll()` でもクリアし、次回 preview / export セッションへ持ち越さない
 - **注意点**:
-  - この決定的ステップ進行は非 iOS export 専用で、iOS Safari の MediaRecorder 経路や通常 preview の `Date.now()` 依存ループは変更しない
-  - 進行基準を frame index に寄せても、最終停止判定と音声フォールバックは既存ロジックを維持して AV 尺合わせを崩さない
+  - この方針は 2026-03-23 時点で非 iOS 実機/実ブラウザでカクつき悪化報告があり、現行実装では採用しない
+  - 進行基準を frame index に寄せても、実デコード/描画準備が追いつかないケースまでは吸収できない
+
+### 0-7. 非 iOS export の滑らかさ制御は壁時計ベースへ戻し、音声プリレンダリングのみ維持する
+
+- **ファイル**: `src/components/TurtleVideo.tsx`
+- **背景**:
+  - 非 iOS export を決定的なフレームカウンタ進行へ寄せると、rAF の遅延そのものは吸収できても、実ブラウザの動画デコードや Canvas 描画の準備が追いつかない場面で同一実フレームの取り込みが増え、結果として出力の体感がかえってカクつくケースがある
+  - 一方で OfflineAudioContext による音声プリレンダリング自体は export 品質安定化に有効なため、その経路は維持する必要がある
+- **実装指針**:
+  - 非 iOS export の映像時刻は `Date.now()` ベースの既存進行へ戻しつつ、`1 / FPS` 単位のフレーム境界スナップは残して CFR エンコード時刻と概ね揃える
+  - OfflineAudioContext の先行プリレンダリング判定や `onAudioPreRenderComplete` 後の開始時刻リセットは従来どおり維持する
+- **注意点**:
+  - 非 iOS の滑らかさ問題を再調整する場合でも、映像の時間進行変更と音声プリレンダリング変更は切り離して評価する
+  - iOS Safari の MediaRecorder 経路や preview 再生の時間管理には波及させない
 
 ## 1. スクロール/スワイプ誤操作防止
 
