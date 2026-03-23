@@ -1109,7 +1109,12 @@ export function useExport(): UseExportReturn {
             codec: 'avc', // H.264
             width,
             height,
-            frameRate: FPS, // タイムスタンプをフレームレートに合わせて丸める（Teams互換性向上）
+            // frameRate を指定しない → デフォルト timescale 57600 を使用。
+            // 57600 は 30 の倍数 (57600/30=1920) なので通常フレームは整数 ticks で
+            // 正確に表現でき、短い最終フレーム (例: 0.01s → 576 ticks) も有効値を保つ。
+            // frameRate: FPS (=30) を設定すると timescale=30 になり、最終フレームの
+            // duration が丸めで 0 になる (例: 0.01s × 30 = 0.3 → round → 0 ticks)。
+            // その結果 AV 尺差が発生し Teams デスクトップでスロー再生となる。
           },
           audio: {
             codec: 'aac' as const,
