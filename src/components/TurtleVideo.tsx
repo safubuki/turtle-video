@@ -33,6 +33,7 @@ import { openFilesWithPicker } from '../utils/platform';
 import { findActiveTimelineItem, collectPlaybackBlockingVideos } from '../utils/playbackTimeline';
 import { getPlatformCapabilities } from '../utils/platform';
 import { resolveIosSafariSingleMixedAudio } from '../utils/iosSafariAudio';
+import { getDeterministicExportFrameTimeSec } from '../utils/exportFrameTiming';
 import {
   getFutureVideoAudioProbeTimes,
   getPreviewAudioOutputMode,
@@ -289,6 +290,8 @@ const TurtleVideo: React.FC = () => {
   const audioRoutingModeRef = useRef<'preview' | 'export'>('preview');
   const reqIdRef = useRef<number | null>(null);
   const startTimeRef = useRef(0);
+  const exportFrameBaseTimeRef = useRef(0);
+  const exportRenderedFrameCountRef = useRef(0);
   const hiddenStartedAtRef = useRef<number | null>(null);
   const needsResyncAfterVisibilityRef = useRef(false);
   const audioResumeWaitFramesRef = useRef(0);
@@ -3330,6 +3333,8 @@ const TurtleVideo: React.FC = () => {
     isPlayingRef.current = false;
     audioResumeWaitFramesRef.current = 0;
     activeVideoIdRef.current = null;
+    exportFrameBaseTimeRef.current = 0;
+    exportRenderedFrameCountRef.current = 0;
     setLoading(false);
 
     // シーク関連の状態をリセット
@@ -3563,11 +3568,14 @@ const TurtleVideo: React.FC = () => {
       }
 
       const now = Date.now();
-      const elapsed = (now - startTimeRef.current) / 1000;
-      const exportFrameDurationSec = 1 / FPS;
-      const timelineElapsed = isExportMode && !platformCapabilities.isIosSafari
-        ? Math.floor(elapsed / exportFrameDurationSec) * exportFrameDurationSec
-        : elapsed;
+      const isDeterministicNonIosExport = isExportMode && !platformCapabilities.isIosSafari;
+      const timelineElapsed = isDeterministicNonIosExport
+        ? getDeterministicExportFrameTimeSec({
+          baseTimeSec: exportFrameBaseTimeRef.current,
+          renderedFrameCount: exportRenderedFrameCountRef.current,
+          fps: FPS,
+        })
+        : (now - startTimeRef.current) / 1000;
       const clampedElapsed = Math.min(timelineElapsed, totalDurationRef.current);
 
       if (clampedElapsed >= totalDurationRef.current) {
@@ -3657,6 +3665,9 @@ const TurtleVideo: React.FC = () => {
       setCurrentTime(clampedElapsed);
       currentTimeRef.current = clampedElapsed;
       renderFrame(clampedElapsed, true, isExportMode);
+      if (isDeterministicNonIosExport) {
+        exportRenderedFrameCountRef.current += 1;
+      }
       reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
     },
     [stopAll, pause, setCurrentTime, renderFrame, logDebug, logWarn, platformCapabilities.isIosSafari]
@@ -3894,6 +3905,8 @@ const TurtleVideo: React.FC = () => {
       }
 
       if (isExportMode) {
+        exportFrameBaseTimeRef.current = fromTime;
+        exportRenderedFrameCountRef.current = 0;
         setCurrentTime(fromTime);
         currentTimeRef.current = fromTime;
         mediaItemsRef.current.forEach((item) => {
@@ -4206,6 +4219,8 @@ const TurtleVideo: React.FC = () => {
             // 事前処理に要した時間が終了判定に混ざらないようにする。
             onAudioPreRenderComplete: () => {
               startTimeRef.current = Date.now() - fromTime * 1000;
+              exportFrameBaseTimeRef.current = fromTime;
+              exportRenderedFrameCountRef.current = 0;
               loop(isExportMode, myLoopId);
             },
           }
