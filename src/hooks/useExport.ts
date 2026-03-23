@@ -13,7 +13,6 @@ import {
   resolveExportStrategyOrder,
   shouldUseOfflineAudioPreRender,
   resolveWebCodecsAudioCaptureStrategy,
-  shouldWarmupOfflineAudioFallback,
 } from './export-strategies/exportStrategyResolver';
 import { runIosSafariMediaRecorderStrategy } from './export-strategies/iosSafariMediaRecorder';
 import type {
@@ -967,12 +966,9 @@ export function useExport(): UseExportReturn {
       const shouldPrepareOfflineAudioBuffer = shouldUseOfflineAudioPreRender({
         hasAudioSources: !!audioSources,
         isIosSafari,
-      }) || shouldWarmupOfflineAudioFallback({
-        hasAudioSources: !!audioSources,
-        isIosSafari,
       });
 
-      const ensurePreRenderedAudioBuffer = async (reason: 'required' | 'warmup' = 'required'): Promise<AudioBuffer | null> => {
+      const ensurePreRenderedAudioBuffer = async (reason: 'required' = 'required'): Promise<AudioBuffer | null> => {
         if (preRenderedAudioPromise) {
           return preRenderedAudioPromise;
         }
@@ -1027,15 +1023,8 @@ export function useExport(): UseExportReturn {
           isIosSafari,
           supportsTrackProcessor: canUseTrackProcessor,
           supportsMp4MediaRecorder: !!supportedMediaRecorderProfile,
-          warmupOfflineAudioFallback: shouldWarmupOfflineAudioFallback({
-            hasAudioSources: !!audioSources,
-            isIosSafari,
-          }),
+          preRenderOfflineAudio: shouldPrepareOfflineAudioBuffer,
         });
-
-        if (shouldWarmupOfflineAudioFallback({ hasAudioSources: !!audioSources, isIosSafari })) {
-          void ensurePreRenderedAudioBuffer('warmup');
-        }
 
         if (isIosSafari) {
           useLogStore.getState().info('RENDER', 'iOS Safari export route', {
@@ -1797,7 +1786,6 @@ export function useExport(): UseExportReturn {
         // 音声プリレンダリング完了を通知 — エクスポート用の再生ループを開始させる
         // iOS Safari では extractAudioViaVideoElement にリアルタイムがかかるため、
         // このコールバックのタイミングが重要。
-        // 非iOS は export 開始待ちを増やさず、必要なら裏で warmup を進める。
         useLogStore.getState().info('RENDER', '[DIAG-READY] 音声準備完了、再生ループ開始通知');
         audioSources?.onAudioPreRenderComplete?.();
 

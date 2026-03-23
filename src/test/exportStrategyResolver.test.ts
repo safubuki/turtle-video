@@ -3,7 +3,6 @@ import {
   resolveExportStrategyOrder,
   resolveWebCodecsAudioCaptureStrategy,
   shouldUseOfflineAudioPreRender,
-  shouldWarmupOfflineAudioFallback,
 } from '../hooks/export-strategies/exportStrategyResolver';
 
 describe('resolveExportStrategyOrder', () => {
@@ -116,31 +115,31 @@ describe('shouldUseOfflineAudioPreRender', () => {
     ).toBe(true);
   });
 
-  it('非iOS では live track が無くても事前プリレンダリングしない', () => {
+  it('非iOS でも音声ソースありなら事前プリレンダリングを使う', () => {
     expect(
       shouldUseOfflineAudioPreRender({
         hasAudioSources: true,
         isIosSafari: false,
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it('非iOS では TrackProcessor が無くても事前プリレンダリングしない', () => {
+  it('非iOS では TrackProcessor 有無に関係なく事前プリレンダリングを使う', () => {
     expect(
       shouldUseOfflineAudioPreRender({
         hasAudioSources: true,
         isIosSafari: false,
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it('非iOS で音声トラックと TrackProcessor がそろっていても事前プリレンダリングしない', () => {
+  it('非iOS で live track があっても事前プリレンダリングを優先する', () => {
     expect(
       shouldUseOfflineAudioPreRender({
         hasAudioSources: true,
         isIosSafari: false,
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it('iOS Safari でも音声ソースが無ければ OfflineAudioContext を使わない', () => {
@@ -155,35 +154,6 @@ describe('shouldUseOfflineAudioPreRender', () => {
   it('非iOS でも音声ソースが無ければ OfflineAudioContext を使わない', () => {
     expect(
       shouldUseOfflineAudioPreRender({
-        hasAudioSources: false,
-        isIosSafari: false,
-      })
-    ).toBe(false);
-  });
-});
-
-describe('shouldWarmupOfflineAudioFallback', () => {
-  it('非iOS かつ音声ソースありのときは裏でフォールバック準備を始める', () => {
-    expect(
-      shouldWarmupOfflineAudioFallback({
-        hasAudioSources: true,
-        isIosSafari: false,
-      })
-    ).toBe(true);
-  });
-
-  it('iOS Safari では warmup ではなく事前プリレンダリング側で扱う', () => {
-    expect(
-      shouldWarmupOfflineAudioFallback({
-        hasAudioSources: true,
-        isIosSafari: true,
-      })
-    ).toBe(false);
-  });
-
-  it('音声ソースが無ければ warmup しない', () => {
-    expect(
-      shouldWarmupOfflineAudioFallback({
         hasAudioSources: false,
         isIosSafari: false,
       })
