@@ -951,8 +951,9 @@ export function useExport(): UseExportReturn {
       const controller = new AbortController();
       abortControllerRef.current = controller;
       const { signal } = controller;
+      // Teams 再エンコード時の AV 尺差を防ぐため、音声終端も映像と同じ aligned 尺へ揃える
       const maxAudioTimestampUs = exportTimelineAlignment
-        ? exportTimelineAlignment.rawDurationUs
+        ? exportTimelineAlignment.alignedDurationUs
         : Number.POSITIVE_INFINITY;
       const expectedVideoFrames = exportTimelineAlignment
         ? Math.max(1, exportTimelineAlignment.frameCount)
@@ -989,7 +990,7 @@ export function useExport(): UseExportReturn {
           return null;
         }
 
-        const preRenderedAudioDurationSec = exportTimelineAlignment?.rawDurationSec ?? audioSources.totalDuration;
+        const preRenderedAudioDurationSec = exportTimelineAlignment?.alignedDurationSec ?? audioSources.totalDuration;
 
         useLogStore.getState().info('RENDER', '[DIAG-3] OfflineAudioContext パス開始', {
           totalDuration: audioSources.totalDuration,
@@ -1252,7 +1253,7 @@ export function useExport(): UseExportReturn {
               renderedAudio,
               audioEncoder,
               signal,
-              exportTimelineAlignment?.rawDurationSec ?? audioSources.totalDuration,
+              exportTimelineAlignment?.alignedDurationSec ?? audioSources.totalDuration,
             );
             useLogStore.getState().info('RENDER', '[DIAG-5] feed完了後 AudioEncoder状態', {
               state: audioEncoder.state,
@@ -1847,7 +1848,7 @@ export function useExport(): UseExportReturn {
               renderedAudio,
               audioEncoder,
               signal,
-              exportTimelineAlignment?.rawDurationSec ?? audioSources.totalDuration,
+              exportTimelineAlignment?.alignedDurationSec ?? audioSources.totalDuration,
             );
             offlineAudioDone = true;
             useLogStore.getState().info('RENDER', 'OfflineAudioContext フォールバックで音声を補完', {
