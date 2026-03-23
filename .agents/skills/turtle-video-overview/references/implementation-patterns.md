@@ -1517,3 +1517,17 @@
   - フェード中盤まで黒クリアへ倒すと、正当なフェード途中フレームまで欠けて見えるため、alpha が十分下がった末尾だけに限定する
   - Teams 向けの muted / WebAudio 経路は既存 helper に委ね、描画不具合の修正を音声制御へ波及させない
   - 末尾 tail に入ったら「フレーム欠落時だけ黒、取得できたら描画」にすると黒↔最終フレームが交互に出て点滅しやすい。terminal window に入ったら描画自体を黒へ揃え、終端品質を優先する
+
+### 13-78. export 音声の事前プリレンダリングは iOS 専用に閉じず、非 iOS の無音回帰も防ぐ
+
+- **ファイル**: `src/hooks/export-strategies/exportStrategyResolver.ts`, `src/hooks/useExport.ts`, `src/test/exportStrategyResolver.test.ts`
+- **問題**:
+  - `OfflineAudioContext` の事前プリレンダリングを非 iOS で条件付きに戻しても、実環境では Android / PC の mixed audio export が無音化するケースを取り切れなかった
+  - そのため、速度最適化よりも「既存リリース同等に確実に音が入ること」を優先し、音声付き export は platform を問わず事前プリレンダリングを維持する必要がある
+- **対策**:
+  - `shouldUseOfflineAudioPreRender()` は **音声ソースが存在するなら true** を返し、iOS / Android / PC を問わず export 前にタイムライン音声を確定させる
+  - pre-rendered 音声を feed できた export では `resolveWebCodecsAudioCaptureStrategy()` が `pre-rendered` を返し、追加のリアルタイム音声キャプチャには進まない
+  - resolver テストでも「音声ソースありなら pre-render、無ければ不要」を固定し、再発を防ぐ
+- **注意**:
+  - iOS Safari 固有の MediaRecorder / keep-alive / preview workaround は従来どおり strategy / preview policy に閉じ、非 iOS まで Safari 分岐を広げない
+  - それでも export に時間がかかるのは、現行実装では **音声プリレンダとは別に動画フレーム生成が再生ループ同期で進む** ためであり、ここを短縮するには video export パイプライン自体の非リアルタイム化が別途必要になる

@@ -24,7 +24,8 @@ export interface OfflineAudioPreRenderResolutionInput {
 export function shouldUseOfflineAudioPreRender(
   input: OfflineAudioPreRenderResolutionInput,
 ): boolean {
-  return input.isIosSafari && input.hasAudioSources;
+  const { hasAudioSources } = input;
+  return hasAudioSources;
 }
 
 export type WebCodecsAudioCaptureStrategy =

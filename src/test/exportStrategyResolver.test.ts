@@ -87,7 +87,7 @@ describe('resolveWebCodecsAudioCaptureStrategy', () => {
 });
 
 describe('shouldUseOfflineAudioPreRender', () => {
-  it('iOS Safari かつ音声ソースありのときだけ OfflineAudioContext を使う', () => {
+  it('iOS Safari かつ音声ソースありのときは OfflineAudioContext を使う', () => {
     expect(
       shouldUseOfflineAudioPreRender({
         hasAudioSources: true,
@@ -96,13 +96,13 @@ describe('shouldUseOfflineAudioPreRender', () => {
     ).toBe(true);
   });
 
-  it('非iOS では音声ソースがあっても OfflineAudioContext を先行させない', () => {
+  it('非iOS でも音声ソースがあれば OfflineAudioContext を使う', () => {
     expect(
       shouldUseOfflineAudioPreRender({
         hasAudioSources: true,
         isIosSafari: false,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it('iOS Safari でも音声ソースが無ければ OfflineAudioContext を使わない', () => {
@@ -110,6 +110,15 @@ describe('shouldUseOfflineAudioPreRender', () => {
       shouldUseOfflineAudioPreRender({
         hasAudioSources: false,
         isIosSafari: true,
+      }),
+    ).toBe(false);
+  });
+
+  it('非iOS でも音声ソースが無ければ OfflineAudioContext を使わない', () => {
+    expect(
+      shouldUseOfflineAudioPreRender({
+        hasAudioSources: false,
+        isIosSafari: false,
       }),
     ).toBe(false);
   });
