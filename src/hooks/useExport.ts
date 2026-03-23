@@ -1207,7 +1207,7 @@ export function useExport(): UseExportReturn {
           bitrate: audioEncoderConfig.bitrate,
         });
 
-        // === iOS Safari 限定: OfflineAudioContext による音声プリレンダリング ===
+        // === 共通: OfflineAudioContext による音声プリレンダリング ===
         let offlineAudioDone = false;
         const shouldPreRenderAudio = shouldUseOfflineAudioPreRender({
           hasAudioSources: !!audioSources,
