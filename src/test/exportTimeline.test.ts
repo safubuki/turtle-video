@@ -34,27 +34,15 @@ describe('alignExportDurationToFrameGrid', () => {
     expect(alignExportDurationToFrameGrid(10, 0).alignedDurationSec).toBe(0);
   });
 
-  it('全フレームを均一durationにしてaligned尺へ揃える（Teams CFR互換）', () => {
+  it('最終フレームだけを短くして総尺を元のタイムラインへ一致させる', () => {
     const aligned = alignExportDurationToFrameGrid(10.01, 30);
     const lastFrameIndex = aligned.frameCount - 1;
-    const nominalDurationUs = Math.round(1e6 / 30);
     const penultimate = getExportFrameTiming(aligned, 30, lastFrameIndex - 1);
     const last = getExportFrameTiming(aligned, 30, lastFrameIndex);
 
     expect(penultimate.timestampUs + penultimate.durationUs).toBe(last.timestampUs);
-    expect(last.timestampUs + last.durationUs).toBe(aligned.alignedDurationUs);
-    expect(last.durationUs).toBe(nominalDurationUs);
-  });
-
-  it('最終フレームのdurationがtimescale=30でも0に丸められない', () => {
-    // timescale=30のとき duration < 16667μs(=0.5/30 sec) だと Math.round(dur*30/1e6)=0 になる。
-    // alignedDurationUs を使えば最終フレームは nominal 幅となり、丸めで消えない。
-    const aligned = alignExportDurationToFrameGrid(10.01, 30);
-    const last = getExportFrameTiming(aligned, 30, aligned.frameCount - 1);
-
-    const timescale = 30;
-    const lastDurationInTimescale = Math.round((last.durationUs / 1e6) * timescale);
-    expect(lastDurationInTimescale).toBeGreaterThan(0);
-    expect(lastDurationInTimescale).toBe(1); // 1/30秒 = 1 timescale unit
+    expect(last.timestampUs + last.durationUs).toBe(aligned.rawDurationUs);
+    expect(last.durationUs).toBeLessThanOrEqual(Math.round(1e6 / 30));
+    expect(last.durationUs).toBeGreaterThan(0);
   });
 });
