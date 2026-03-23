@@ -62,19 +62,19 @@
   - `blur` だけで即 pause するとファイルピッカーや保存ダイアログでも再生が止まりやすいので、blur では「再同期予約」までに留める
   - 可視復帰時の `load()` は停止中だけに限定し、再生中は `resync + renderFrame` で復旧させる
 
-### 0-5. 非 iOS export の OfflineAudioContext フォールバックは待機せず warmup だけ先行する
+### 0-5. export 音声は iOS/非 iOS とも OfflineAudioContext を先行プリレンダリングし、非 iOS はフレーム境界へ揃える
 
 - **ファイル**: `src/hooks/useExport.ts`, `src/hooks/export-strategies/exportStrategyResolver.ts`, `src/test/exportStrategyResolver.test.ts`
 - **背景**:
-  - 非 iOS で export 開始前に `OfflineAudioContext` を待つと、PC / Android の体感速度が落ちやすい
-  - 一方で、リアルタイム音声キャプチャが 0 chunk になったケースでは、終了後に初めてオフライン描画を始めると待ち時間が長く、失敗時の復旧も遅れる
+  - 非 iOS の warmup-only 経路では、端末負荷やリアルタイム音声キャプチャの揺れ次第で export 品質が不安定になりやすい
+  - Android / PC では 30fps 出力でも、再生タイムラインがフレーム境界に揃っていないと「ところどころ引っかかる」見え方になりやすい
 - **実装指針**:
-  - iOS Safari は従来どおり事前プリレンダリングを export 開始条件として扱う
-  - 非 iOS は `shouldWarmupOfflineAudioFallback()` で warmup 可否だけ判定し、export 本体は待たずに開始する
-  - warmup した `OfflineAudioContext` 結果は 0 chunk フォールバック時に再利用し、無音回帰時だけ補完へ使う
+  - `shouldUseOfflineAudioPreRender()` は platform を問わず `hasAudioSources` だけで判定し、iOS / Android / PC すべてで export 開始前に音声を確定生成する
+  - 非 iOS の export 再生ループは `1 / FPS` のフレーム境界へ時間をスナップし、Canvas に描く映像時刻と CFR エンコード時刻を揃える
+  - TrackProcessor / ScriptProcessor は OfflineAudioContext が失敗した場合のフォールバックとして維持する
 - **注意点**:
-  - 非 iOS の warmup は「準備開始」であって「開始待ち」ではない。`onAudioPreRenderComplete` を遅らせない
-  - platform 分岐は resolver に集約し、`useExport.ts` に iOS/非 iOS の if を散らさない
+  - iOS Safari の MediaRecorder 経路はそのまま維持し、非 iOS の滑らかさ対策を iOS 側へ波及させない
+  - 非 iOS の時刻スナップは export ループだけに閉じ、通常 preview の再生体感は変えない
 
 ## 1. スクロール/スワイプ誤操作防止
 
@@ -1532,20 +1532,20 @@
   - Teams 向けの muted / WebAudio 経路は既存 helper に委ね、描画不具合の修正を音声制御へ波及させない
   - 末尾 tail に入ったら「フレーム欠落時だけ黒、取得できたら描画」にすると黒↔最終フレームが交互に出て点滅しやすい。terminal window に入ったら描画自体を黒へ揃え、終端品質を優先する
 
-### 13-78. export 音声の事前プリレンダリングは iOS Safari のみ先行実行し、非 iOS は事後補完で無音回帰を防ぐ
+### 13-78. export 音声の事前プリレンダリングは全環境で先行実行し、非 iOS はフレーム境界へ揃えて滑らかさを守る
 
 - **ファイル**: `src/hooks/export-strategies/exportStrategyResolver.ts`, `src/hooks/useExport.ts`, `src/test/exportStrategyResolver.test.ts`
 - **問題**:
-  - `OfflineAudioContext` の事前プリレンダリングを非 iOS へ広げると Android / PC の export 前待機が長くなり、既存より体感速度が悪化する
-  - 一方で OfflineAudioContext の保険自体を消すと、リアルタイム音声キャプチャが 0 chunk になったケースで mixed audio export が無音化し得る
+  - 非 iOS を warmup-only + リアルタイム音声キャプチャ優先へ戻した状態では、端末やブラウザ差で export 品質が安定せず、音声も映像も滑らかさが揺れやすい
+  - CFR 30fps でエンコードしていても、Canvas 描画側の時刻がフレーム境界に揃っていないと motion が微妙に引っかかって見える
 - **対策**:
-  - `shouldUseOfflineAudioPreRender()` は **iOS Safari** のときだけ true にし、iOS のみ従来どおり export 開始前に音声を準備する
-  - Android / PC は audio track 状態に関係なく、まずリアルタイム音声キャプチャを優先して export 準備待ちを増やさない
-  - それでもリアルタイム音声キャプチャ結果が 0 chunk だった場合は、flush 前に `OfflineAudioContext` へフォールバックして無音ファイル化を防ぐ
-  - resolver テストで「iOS だけ先行プリレンダリング」「非 iOS は事前待ちしない」の境界を固定し、iOS への波及を防ぐ
+  - `shouldUseOfflineAudioPreRender()` を `hasAudioSources` ベースへ戻し、Android / PC / iOS すべてで export 前に音声をプリレンダリングする
+  - 非 iOS の export ループでは `elapsed` を `1 / FPS` 単位へ切り下げ、`renderFrame()` が CFR の出力フレームと同じ時刻を描くようにする
+  - WebCodecs 側の TrackProcessor / ScriptProcessor は OfflineAudioContext 失敗時のフォールバックとして残し、完全撤去はしない
+  - resolver テストで「非 iOS も事前プリレンダリングへ戻す」境界を固定する
 - **注意**:
-  - iOS Safari 固有の MediaRecorder / keep-alive / preview workaround は従来どおり維持し、非 iOS の速度改善理由で iOS 条件を変更しない
-  - 非 iOS の無音対策は「事前待ち」ではなく「0 chunk 時の事後補完」で担保する
+  - iOS Safari 固有の MediaRecorder / keep-alive / preview workaround は従来どおり維持し、非 iOS 向けの時刻スナップを iOS 条件へ混ぜない
+  - フレーム境界スナップは export のみに適用し、通常 preview のシークや再生の追従性は維持する
 
 ### 13-79. export の live audio track は存在有無だけでなく `readyState === 'live'` まで判定する
 

@@ -17,6 +17,7 @@ import {
   GEMINI_TTS_MODEL,
   TTS_SAMPLE_RATE,
   SEEK_THROTTLE_MS,
+  FPS,
 } from '../constants';
 
 // Hooks
@@ -3563,7 +3564,11 @@ const TurtleVideo: React.FC = () => {
 
       const now = Date.now();
       const elapsed = (now - startTimeRef.current) / 1000;
-      const clampedElapsed = Math.min(elapsed, totalDurationRef.current);
+      const exportFrameDurationSec = 1 / FPS;
+      const timelineElapsed = isExportMode && !platformCapabilities.isIosSafari
+        ? Math.floor(elapsed / exportFrameDurationSec) * exportFrameDurationSec
+        : elapsed;
+      const clampedElapsed = Math.min(timelineElapsed, totalDurationRef.current);
 
       if (clampedElapsed >= totalDurationRef.current) {
         if (!isExportMode) {
@@ -3654,7 +3659,7 @@ const TurtleVideo: React.FC = () => {
       renderFrame(clampedElapsed, true, isExportMode);
       reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
     },
-    [stopAll, pause, setCurrentTime, renderFrame, logDebug, logWarn]
+    [stopAll, pause, setCurrentTime, renderFrame, logDebug, logWarn, platformCapabilities.isIosSafari]
   );
 
   // --- エンジン起動処理 ---
