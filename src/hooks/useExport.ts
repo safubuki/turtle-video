@@ -878,6 +878,7 @@ export function useExport(): UseExportReturn {
       const height = canvas.height;
       const audioContext = masterDestRef.current.context;
       const audioTrack = masterDestRef.current.stream.getAudioTracks()[0] || null;
+      const hasLiveAudioTrack = !!audioTrack && audioTrack.readyState === 'live';
       const platformCapabilities = getPlatformCapabilities();
       const {
         userAgent,
@@ -900,6 +901,8 @@ export function useExport(): UseExportReturn {
         platform: typeof navigator !== 'undefined' ? navigator.platform : 'N/A',
         maxTouchPoints: typeof navigator !== 'undefined' ? navigator.maxTouchPoints : -1,
         hasAudioTrack: !!audioTrack,
+        hasLiveAudioTrack,
+        audioTrackReadyState: audioTrack?.readyState ?? 'none',
         audioContextState: (audioContext as AudioContext).state,
         audioContextSampleRate: audioContext.sampleRate,
         hasAudioSources: !!audioSources,
@@ -969,8 +972,6 @@ export function useExport(): UseExportReturn {
         const shouldPreRenderAudio = shouldUseOfflineAudioPreRender({
           hasAudioSources: !!audioSources,
           isIosSafari,
-          hasAudioTrack: !!audioTrack,
-          canUseTrackProcessor,
         });
         if (!shouldPreRenderAudio || !audioSources) {
           return null;
@@ -1020,7 +1021,7 @@ export function useExport(): UseExportReturn {
             safariDetected: isIosSafari,
             exportRoute: strategyOrder[0] ?? 'webcodecs-mp4',
             audioContextState: (audioContext as AudioContext).state,
-            hasLiveAudioTrack: !!audioTrack,
+            hasLiveAudioTrack,
             hasAudioSources: !!audioSources,
           });
         }
@@ -1214,8 +1215,6 @@ export function useExport(): UseExportReturn {
         const shouldPreRenderAudio = shouldUseOfflineAudioPreRender({
           hasAudioSources: !!audioSources,
           isIosSafari,
-          hasAudioTrack: !!audioTrack,
-          canUseTrackProcessor,
         });
         if (shouldPreRenderAudio && audioSources) {
           const renderedAudio = await ensurePreRenderedAudioBuffer();
@@ -1255,13 +1254,16 @@ export function useExport(): UseExportReturn {
         const webCodecsAudioCaptureStrategy = resolveWebCodecsAudioCaptureStrategy({
           offlineAudioDone,
           isIosSafari,
-          hasAudioTrack: !!audioTrack,
+          hasLiveAudioTrack,
           canUseTrackProcessor,
         });
         useLogStore.getState().info('RENDER', '[DIAG-6] 音声パス判断結果', {
           offlineAudioDone,
           isIosSafari,
           hasAudioSources: !!audioSources,
+          hasAudioTrack: !!audioTrack,
+          hasLiveAudioTrack,
+          audioTrackReadyState: audioTrack?.readyState ?? 'none',
           audioEncoderOutputChunks,
           audioEncoderOutputBytes,
           audioCaptureStrategy: webCodecsAudioCaptureStrategy,
@@ -1384,6 +1386,8 @@ export function useExport(): UseExportReturn {
             isIosSafari,
             canUseTrackProcessor,
             hasAudioTrack: !!audioTrack,
+            hasLiveAudioTrack,
+            audioTrackReadyState: audioTrack?.readyState ?? 'none',
           });
 
           const audioCtx = audioContext as AudioContext;
@@ -1794,6 +1798,8 @@ export function useExport(): UseExportReturn {
           useLogStore.getState().warn('RENDER', 'リアルタイム音声キャプチャ結果が空のため、OfflineAudioContext へフォールバック', {
             isIosSafari,
             hasAudioTrack: !!audioTrack,
+            hasLiveAudioTrack,
+            audioTrackReadyState: audioTrack?.readyState ?? 'none',
             canUseTrackProcessor,
           });
           const renderedAudio = await ensurePreRenderedAudioBuffer();

@@ -14,7 +14,7 @@ describe('resolveExportStrategyOrder', () => {
           mimeType: 'video/mp4',
           extension: 'mp4',
         },
-      }),
+      })
     ).toEqual(['ios-safari-mediarecorder', 'webcodecs-mp4']);
   });
 
@@ -23,7 +23,7 @@ describe('resolveExportStrategyOrder', () => {
       resolveExportStrategyOrder({
         isIosSafari: true,
         supportedMediaRecorderProfile: null,
-      }),
+      })
     ).toEqual(['webcodecs-mp4']);
   });
 
@@ -35,7 +35,7 @@ describe('resolveExportStrategyOrder', () => {
           mimeType: 'video/mp4',
           extension: 'mp4',
         },
-      }),
+      })
     ).toEqual(['webcodecs-mp4']);
   });
 });
@@ -46,9 +46,9 @@ describe('resolveWebCodecsAudioCaptureStrategy', () => {
       resolveWebCodecsAudioCaptureStrategy({
         offlineAudioDone: true,
         isIosSafari: false,
-        hasAudioTrack: true,
+        hasLiveAudioTrack: true,
         canUseTrackProcessor: true,
-      }),
+      })
     ).toBe('pre-rendered');
   });
 
@@ -57,10 +57,20 @@ describe('resolveWebCodecsAudioCaptureStrategy', () => {
       resolveWebCodecsAudioCaptureStrategy({
         offlineAudioDone: false,
         isIosSafari: false,
-        hasAudioTrack: true,
+        hasLiveAudioTrack: true,
         canUseTrackProcessor: true,
-      }),
+      })
     ).toBe('track-processor');
+  });
+  it('非 iOS でも audio track が live でなければ TrackProcessor を選ばない', () => {
+    expect(
+      resolveWebCodecsAudioCaptureStrategy({
+        offlineAudioDone: false,
+        isIosSafari: false,
+        hasLiveAudioTrack: false,
+        canUseTrackProcessor: true,
+      })
+    ).toBe('script-processor');
   });
 
   it('iOS Safari では ScriptProcessor フォールバックを維持する', () => {
@@ -68,9 +78,9 @@ describe('resolveWebCodecsAudioCaptureStrategy', () => {
       resolveWebCodecsAudioCaptureStrategy({
         offlineAudioDone: false,
         isIosSafari: true,
-        hasAudioTrack: true,
+        hasLiveAudioTrack: true,
         canUseTrackProcessor: true,
-      }),
+      })
     ).toBe('script-processor');
   });
 
@@ -79,9 +89,9 @@ describe('resolveWebCodecsAudioCaptureStrategy', () => {
       resolveWebCodecsAudioCaptureStrategy({
         offlineAudioDone: false,
         isIosSafari: false,
-        hasAudioTrack: false,
+        hasLiveAudioTrack: false,
         canUseTrackProcessor: true,
-      }),
+      })
     ).toBe('script-processor');
   });
 });
@@ -92,42 +102,43 @@ describe('shouldUseOfflineAudioPreRender', () => {
       shouldUseOfflineAudioPreRender({
         hasAudioSources: true,
         isIosSafari: true,
-        hasAudioTrack: true,
-        canUseTrackProcessor: true,
-      }),
+      })
     ).toBe(true);
   });
 
-  it('非iOS でも音声トラックが無い場合は OfflineAudioContext を使って音声無音化を防ぐ', () => {
+  it('iOS Safari では live でない track でも事前プリレンダリングを維持する', () => {
+    expect(
+      shouldUseOfflineAudioPreRender({
+        hasAudioSources: true,
+        isIosSafari: true,
+      })
+    ).toBe(true);
+  });
+
+  it('非iOS では live track が無くても事前プリレンダリングしない', () => {
     expect(
       shouldUseOfflineAudioPreRender({
         hasAudioSources: true,
         isIosSafari: false,
-        hasAudioTrack: false,
-        canUseTrackProcessor: true,
-      }),
-    ).toBe(true);
+      })
+    ).toBe(false);
   });
 
-  it('非iOS でも TrackProcessor が無い場合は OfflineAudioContext を使う', () => {
+  it('非iOS では TrackProcessor が無くても事前プリレンダリングしない', () => {
     expect(
       shouldUseOfflineAudioPreRender({
         hasAudioSources: true,
         isIosSafari: false,
-        hasAudioTrack: true,
-        canUseTrackProcessor: false,
-      }),
-    ).toBe(true);
+      })
+    ).toBe(false);
   });
 
-  it('非iOS で音声トラックと TrackProcessor がそろっていれば高速経路を優先する', () => {
+  it('非iOS で音声トラックと TrackProcessor がそろっていても事前プリレンダリングしない', () => {
     expect(
       shouldUseOfflineAudioPreRender({
         hasAudioSources: true,
         isIosSafari: false,
-        hasAudioTrack: true,
-        canUseTrackProcessor: true,
-      }),
+      })
     ).toBe(false);
   });
 
@@ -136,9 +147,7 @@ describe('shouldUseOfflineAudioPreRender', () => {
       shouldUseOfflineAudioPreRender({
         hasAudioSources: false,
         isIosSafari: true,
-        hasAudioTrack: true,
-        canUseTrackProcessor: true,
-      }),
+      })
     ).toBe(false);
   });
 
@@ -147,9 +156,7 @@ describe('shouldUseOfflineAudioPreRender', () => {
       shouldUseOfflineAudioPreRender({
         hasAudioSources: false,
         isIosSafari: false,
-        hasAudioTrack: false,
-        canUseTrackProcessor: false,
-      }),
+      })
     ).toBe(false);
   });
 });

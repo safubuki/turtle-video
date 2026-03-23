@@ -1518,17 +1518,31 @@
   - Teams 向けの muted / WebAudio 経路は既存 helper に委ね、描画不具合の修正を音声制御へ波及させない
   - 末尾 tail に入ったら「フレーム欠落時だけ黒、取得できたら描画」にすると黒↔最終フレームが交互に出て点滅しやすい。terminal window に入ったら描画自体を黒へ揃え、終端品質を優先する
 
-### 13-78. export 音声の事前プリレンダリングは iOS 専用に閉じず、非 iOS の無音回帰も防ぐ
+### 13-78. export 音声の事前プリレンダリングは iOS Safari のみ先行実行し、非 iOS は事後補完で無音回帰を防ぐ
 
 - **ファイル**: `src/hooks/export-strategies/exportStrategyResolver.ts`, `src/hooks/useExport.ts`, `src/test/exportStrategyResolver.test.ts`
 - **問題**:
-  - `OfflineAudioContext` の事前プリレンダリングを全面有効にすると Android / PC の export 前待機が長くなり、既存より体感速度が悪化する
-  - 一方で完全に無効化すると、`MediaStreamAudioDestinationNode` の音声トラック欠落や TrackProcessor 非対応環境で mixed audio export が無音化し得る
+  - `OfflineAudioContext` の事前プリレンダリングを非 iOS へ広げると Android / PC の export 前待機が長くなり、既存より体感速度が悪化する
+  - 一方で OfflineAudioContext の保険自体を消すと、リアルタイム音声キャプチャが 0 chunk になったケースで mixed audio export が無音化し得る
 - **対策**:
-  - `shouldUseOfflineAudioPreRender()` は **iOS Safari**、または **非 iOS でも audio track 不在 / TrackProcessor 非対応** のときだけ true にする
-  - Android / PC で `audio track + TrackProcessor` がそろう通常ケースは高速なリアルタイム経路を優先し、前回の速度感へ戻す
+  - `shouldUseOfflineAudioPreRender()` は **iOS Safari** のときだけ true にし、iOS のみ従来どおり export 開始前に音声を準備する
+  - Android / PC は audio track 状態に関係なく、まずリアルタイム音声キャプチャを優先して export 準備待ちを増やさない
   - それでもリアルタイム音声キャプチャ結果が 0 chunk だった場合は、flush 前に `OfflineAudioContext` へフォールバックして無音ファイル化を防ぐ
-  - resolver テストで「高速経路を優先する条件」と「安全側へ倒す条件」の両方を固定し、速度と信頼性の両方を守る
+  - resolver テストで「iOS だけ先行プリレンダリング」「非 iOS は事前待ちしない」の境界を固定し、iOS への波及を防ぐ
 - **注意**:
-  - iOS Safari 固有の MediaRecorder / keep-alive / preview workaround は従来どおり strategy / preview policy に閉じ、非 iOS まで Safari 分岐を広げない
-  - Android / PC の export 速度だけを理由に安全側フォールバックを削る場合でも、mixed audio 実機確認なしに判断しない
+  - iOS Safari 固有の MediaRecorder / keep-alive / preview workaround は従来どおり維持し、非 iOS の速度改善理由で iOS 条件を変更しない
+  - 非 iOS の無音対策は「事前待ち」ではなく「0 chunk 時の事後補完」で担保する
+
+### 13-79. export の live audio track は存在有無だけでなく `readyState === 'live'` まで判定する
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/hooks/export-strategies/exportStrategyResolver.ts`, `src/test/exportStrategyResolver.test.ts`
+- **問題**:
+  - `MediaStreamAudioDestinationNode.stream.getAudioTracks()[0]` が取得できても、環境や直前の録画停止手順によっては track がすでに `ended` のことがある
+  - この状態を単なる「audio track あり」とみなして TrackProcessor 高速経路へ進むと、Android / PC でも音声 0 chunk のまま無音 mp4 になり得る
+- **対策**:
+  - export 開始時に `audioTrack.readyState === 'live'` を `hasLiveAudioTrack` として切り出し、**WebCodecs 音声キャプチャ戦略の判定**と診断ログで共有する
+  - live でない track は TrackProcessor 高速経路に使わず、ScriptProcessor / オフライン補完側へ倒す
+  - 診断ログにも `audioTrackReadyState` を残し、無音再発時に live/ended のどちらだったか追えるようにする
+- **注意**:
+  - Android / PC の速度最適化は「track が live な通常ケース」でのみ TrackProcessor を使う
+  - iOS 側の事前プリレンダリング条件にはこの判定を混ぜず、platform 条件を分離して保つ

@@ -7,7 +7,7 @@ export interface ExportStrategyResolutionInput {
 }
 
 export function resolveExportStrategyOrder(
-  input: ExportStrategyResolutionInput,
+  input: ExportStrategyResolutionInput
 ): ExportStrategyId[] {
   if (input.isIosSafari && input.supportedMediaRecorderProfile) {
     return ['ios-safari-mediarecorder', 'webcodecs-mp4'];
@@ -19,44 +19,35 @@ export function resolveExportStrategyOrder(
 export interface OfflineAudioPreRenderResolutionInput {
   hasAudioSources: boolean;
   isIosSafari: boolean;
-  hasAudioTrack: boolean;
-  canUseTrackProcessor: boolean;
 }
 
 export function shouldUseOfflineAudioPreRender(
-  input: OfflineAudioPreRenderResolutionInput,
+  input: OfflineAudioPreRenderResolutionInput
 ): boolean {
   if (!input.hasAudioSources) {
     return false;
   }
 
-  if (input.isIosSafari) {
-    return true;
-  }
-
-  return !input.hasAudioTrack || !input.canUseTrackProcessor;
+  return input.isIosSafari;
 }
 
-export type WebCodecsAudioCaptureStrategy =
-  | 'pre-rendered'
-  | 'track-processor'
-  | 'script-processor';
+export type WebCodecsAudioCaptureStrategy = 'pre-rendered' | 'track-processor' | 'script-processor';
 
 export interface WebCodecsAudioCaptureResolutionInput {
   offlineAudioDone: boolean;
   isIosSafari: boolean;
-  hasAudioTrack: boolean;
+  hasLiveAudioTrack: boolean;
   canUseTrackProcessor: boolean;
 }
 
 export function resolveWebCodecsAudioCaptureStrategy(
-  input: WebCodecsAudioCaptureResolutionInput,
+  input: WebCodecsAudioCaptureResolutionInput
 ): WebCodecsAudioCaptureStrategy {
   if (input.offlineAudioDone) {
     return 'pre-rendered';
   }
 
-  if (input.hasAudioTrack && !input.isIosSafari && input.canUseTrackProcessor) {
+  if (input.hasLiveAudioTrack && !input.isIosSafari && input.canUseTrackProcessor) {
     return 'track-processor';
   }
 
