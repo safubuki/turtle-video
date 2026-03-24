@@ -234,7 +234,7 @@ describe('useAutoSave', () => {
   it('非アクティブから復帰した時は自動保存タイマーを再開する', async () => {
     const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
     const saveProjectAuto = vi.fn().mockResolvedValue(true);
-    const setIntervalSpy = vi.spyOn(window, 'setInterval');
+    const setTimeoutSpy = vi.spyOn(window, 'setTimeout');
     act(() => {
       useProjectStore.setState({
         refreshSaveInfo,
@@ -245,8 +245,6 @@ describe('useAutoSave', () => {
     });
 
     renderHook(() => useAutoSave());
-
-    expect(setIntervalSpy).toHaveBeenCalledTimes(1);
 
     setVisibilityState('hidden');
     act(() => {
@@ -261,10 +259,63 @@ describe('useAutoSave', () => {
       await Promise.resolve();
     });
 
-    expect(setIntervalSpy).toHaveBeenCalledTimes(2);
+    expect(setTimeoutSpy).toHaveBeenCalled();
 
     await act(async () => {
       vi.advanceTimersByTime(61_000);
+      await Promise.resolve();
+    });
+
+    expect(saveProjectAuto).toHaveBeenCalledTimes(1);
+  });
+
+  it('短時間の非アクティブ復帰では残り時間を維持して自動保存 cadence を保つ', async () => {
+    const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
+    const saveProjectAuto = vi.fn().mockResolvedValue(true);
+    const setIntervalSpy = vi.spyOn(window, 'setInterval');
+    const setTimeoutSpy = vi.spyOn(window, 'setTimeout');
+    act(() => {
+      useProjectStore.setState({
+        refreshSaveInfo,
+        saveProjectAuto,
+        isSaving: false,
+        lastManualSave: null,
+      });
+    });
+
+    renderHook(() => useAutoSave());
+
+    expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(50_000);
+      await Promise.resolve();
+    });
+
+    setVisibilityState('hidden');
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    setVisibilityState('visible');
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+      vi.advanceTimersByTime(100);
+      await Promise.resolve();
+    });
+
+    expect(setTimeoutSpy).toHaveBeenCalled();
+    expect(saveProjectAuto).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(9_500);
+      await Promise.resolve();
+    });
+
+    expect(saveProjectAuto).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(500);
       await Promise.resolve();
     });
 

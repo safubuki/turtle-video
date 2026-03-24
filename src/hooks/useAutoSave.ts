@@ -250,7 +250,6 @@ export function useAutoSave() {
     captions,
     captionSettings,
     isCaptionsLocked,
-    isProcessing,
     saveProjectAuto,
   ]);
 
@@ -322,13 +321,41 @@ export function useAutoSave() {
       }
     };
 
-    const restartAutoSaveTimer = () => {
+    const clearAutoSaveTimer = () => {
       if (intervalRef.current !== null) {
-        clearInterval(intervalRef.current);
+        clearTimeout(intervalRef.current);
+        intervalRef.current = null;
       }
+    };
+
+    const startRecurringAutoSaveTimer = () => {
+      clearAutoSaveTimer();
       intervalRef.current = window.setInterval(() => {
         void runAutoSave();
       }, intervalMs);
+    };
+
+    const restartAutoSaveTimer = (preserveElapsedDelay: boolean) => {
+      clearAutoSaveTimer();
+
+      if (!preserveElapsedDelay) {
+        startRecurringAutoSaveTimer();
+        return;
+      }
+
+      const now = Date.now();
+      const elapsed = now - lastAutoSaveActivityAtRef.current;
+      const initialDelay = Math.max(intervalMs - elapsed, 0);
+
+      if (initialDelay === 0) {
+        startRecurringAutoSaveTimer();
+        return;
+      }
+
+      intervalRef.current = window.setTimeout(() => {
+        void runAutoSave();
+        startRecurringAutoSaveTimer();
+      }, initialDelay);
     };
 
     const triggerCatchUpSave = () => {
@@ -340,7 +367,7 @@ export function useAutoSave() {
         if (document.visibilityState === 'hidden') return;
         if (shouldRestartTimerOnReturnRef.current) {
           shouldRestartTimerOnReturnRef.current = false;
-          restartAutoSaveTimer();
+          restartAutoSaveTimer(true);
         }
         if (useProjectStore.getState().isSaving) return;
         const elapsed = Date.now() - lastAutoSaveActivityAtRef.current;
@@ -375,7 +402,7 @@ export function useAutoSave() {
       lastAutoSaveActivityAtRef.current = Date.now();
       hasStartedAutoSaveTimerRef.current = true;
     }
-    restartAutoSaveTimer();
+    restartAutoSaveTimer(false);
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('pagehide', handlePageHide);
@@ -384,9 +411,7 @@ export function useAutoSave() {
     
     return () => {
       clearTimeout(initTimeout);
-      if (intervalRef.current !== null) {
-        clearInterval(intervalRef.current);
-      }
+      clearAutoSaveTimer();
       clearScheduledCatchUpSave();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('pagehide', handlePageHide);

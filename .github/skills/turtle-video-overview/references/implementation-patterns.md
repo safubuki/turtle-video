@@ -1515,6 +1515,7 @@
   - 自動保存間隔を 5 分→1 分などへ短く変更した時に、タイマー再生成で `lastAutoSaveActivityAtRef` を現在時刻へ戻すと、新しい間隔で既に overdue でも保存が先送りされる
 - **対応パターン**:
   - 復帰契機（`visibilitychange` / `focus` / `pageshow`）では catch-up 判定の前に、hidden/pagehide をまたいだ時だけ interval を再アームする
+  - 再アーム時は「今から丸ごと1周期」ではなく、`lastAutoSaveActivityAtRef` から見た残り時間だけ待ってから通常 cadence へ戻す
   - interval の再生成や保存間隔変更では `lastAutoSaveActivityAtRef` をリセットせず、最後に保存できた時刻を保持したまま overdue 判定する
   - 自動保存実行直前の export 判定は `useUIStore.getState().isProcessing` で最新値を参照し、エクスポート中保存を確実に抑止する
 - **注意**:
