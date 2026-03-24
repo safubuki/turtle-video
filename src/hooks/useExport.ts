@@ -9,7 +9,8 @@ import * as Mp4Muxer from 'mp4-muxer';
 import type { AudioTrack, NarrationClip } from '../types';
 import { useLogStore } from '../stores/logStore';
 import { getPlatformCapabilities } from '../utils/platform';
-import { alignExportDurationToFrameGrid, getExportFrameTiming } from '../utils/exportTimeline';
+import { getExportFrameTiming, resolveExportDuration } from '../utils/exportTimeline';
+import { inspectMp4Durations } from '../utils/mp4Duration';
 import {
   resolveExportStrategyOrder,
   shouldUseOfflineAudioPreRender,
@@ -608,19 +609,32 @@ async function offlineRenderAudio(
  * f32-planar 形式を使用（AudioBuffer のネイティブ形式であり、
  * iOS Safari の AudioEncoder との互換性が高い）。
  */
+interface FeedPreRenderedAudioResult {
+  encodedChunks: number;
+  encodedSamples: number;
+  sourceSamplesUsed: number;
+  trimmedSamples: number;
+}
+
+interface FinalizeAudioForExportResult {
+  paddedChunks: number;
+  paddedSamples: number;
+  finalSampleCount: number;
+}
+
 function feedPreRenderedAudio(
   renderedAudio: AudioBuffer,
   audioEncoder: AudioEncoder,
   signal: AbortSignal,
-  maxDurationSec?: number,
-): number {
+  exportDurationUs?: number,
+): FeedPreRenderedAudioResult {
   const log = useLogStore.getState();
   const chunkSize = 4096;
   let audioOffset = 0;
-  const maxSamplesFromDuration = (typeof maxDurationSec === 'number' && Number.isFinite(maxDurationSec))
-    ? Math.max(1, Math.round(maxDurationSec * renderedAudio.sampleRate))
+  const targetSamples = (typeof exportDurationUs === 'number' && Number.isFinite(exportDurationUs))
+    ? Math.max(0, Math.round((exportDurationUs / 1e6) * renderedAudio.sampleRate))
     : renderedAudio.length;
-  const totalSamples = Math.min(renderedAudio.length, maxSamplesFromDuration);
+  const totalSamples = Math.min(renderedAudio.length, targetSamples);
   let audioTimestamp = 0;
   let encodedChunks = 0;
   const ch0 = renderedAudio.getChannelData(0);
@@ -639,6 +653,8 @@ function feedPreRenderedAudio(
   }
   log.info('RENDER', 'feedPreRenderedAudio 入力診断', {
     totalSamples,
+    targetSamples,
+    sourceSamples: renderedAudio.length,
     inputMaxAmplitude: Math.round(inputMaxAmp * 10000) / 10000,
     sampleRate: renderedAudio.sampleRate,
     channels: renderedAudio.numberOfChannels,
@@ -687,11 +703,69 @@ function feedPreRenderedAudio(
     totalChunks: Math.ceil(totalSamples / chunkSize),
     encodedChunks,
     totalSamples,
+    sourceSamplesUsed: totalSamples,
+    trimmedSamples: Math.max(0, renderedAudio.length - totalSamples),
     format: 'f32-planar',
     encodeQueueSize: audioEncoder.encodeQueueSize,
   });
 
-  return encodedChunks;
+  return {
+    encodedChunks,
+    encodedSamples: totalSamples,
+    sourceSamplesUsed: totalSamples,
+    trimmedSamples: Math.max(0, renderedAudio.length - totalSamples),
+  };
+}
+
+function finalizeAudioForExport(
+  audioEncoder: AudioEncoder,
+  sampleRate: number,
+  signal: AbortSignal,
+  currentSampleCount: number,
+  exportDurationUs?: number,
+): FinalizeAudioForExportResult {
+  const log = useLogStore.getState();
+  const chunkSize = 4096;
+  const targetSampleCount = (typeof exportDurationUs === 'number' && Number.isFinite(exportDurationUs))
+    ? Math.max(0, Math.round((exportDurationUs / 1e6) * sampleRate))
+    : currentSampleCount;
+  const paddedSamples = Math.max(0, targetSampleCount - currentSampleCount);
+  let paddedChunks = 0;
+  let offset = 0;
+
+  while (offset < paddedSamples && !signal.aborted && audioEncoder.state === 'configured') {
+    const framesToProcess = Math.min(chunkSize, paddedSamples - offset);
+    const planarData = new Float32Array(framesToProcess * 2);
+    const timestampSamples = currentSampleCount + offset;
+    const timestampUs = Math.round((timestampSamples / sampleRate) * 1e6);
+    const audioData = new AudioData({
+      format: 'f32-planar' as AudioSampleFormat,
+      sampleRate,
+      numberOfFrames: framesToProcess,
+      numberOfChannels: 2,
+      timestamp: timestampUs,
+      data: planarData,
+    });
+    audioEncoder.encode(audioData);
+    audioData.close();
+    paddedChunks++;
+    offset += framesToProcess;
+  }
+
+  log.info('RENDER', 'finalizeAudioForExport 完了', {
+    currentSampleCount,
+    targetSampleCount,
+    paddedSamples,
+    paddedChunks,
+    sampleRate,
+    encodeQueueSize: audioEncoder.encodeQueueSize,
+  });
+
+  return {
+    paddedChunks,
+    paddedSamples,
+    finalSampleCount: targetSampleCount,
+  };
 }
 
 function createPreRenderedRecorderAudioSource(
@@ -892,8 +966,8 @@ export function useExport(): UseExportReturn {
       } = platformCapabilities;
 
       // ============================================================
-      const exportTimelineAlignment = audioSources
-        ? alignExportDurationToFrameGrid(audioSources.totalDuration, FPS)
+      const resolvedExportDuration = audioSources
+        ? resolveExportDuration(audioSources.totalDuration, FPS)
         : null;
 
       // [DIAG-1] プラットフォーム検出・入力情報の診断ログ
@@ -917,11 +991,14 @@ export function useExport(): UseExportReturn {
           hasBgm: !!audioSources.bgm,
           narrationCount: audioSources.narrations.length,
           totalDuration: Math.round(audioSources.totalDuration * 100) / 100,
-          rawDurationUs: exportTimelineAlignment?.rawDurationUs ?? null,
-          alignedDurationSec: exportTimelineAlignment
-            ? Math.round(exportTimelineAlignment.alignedDurationSec * 1000) / 1000
+          exportDurationSec: resolvedExportDuration
+            ? Math.round(resolvedExportDuration.exportDurationSec * 1000) / 1000
             : null,
-          alignedFrameCount: exportTimelineAlignment?.frameCount ?? null,
+          exportDurationUs: resolvedExportDuration?.exportDurationUs ?? null,
+          alignedDurationSec: resolvedExportDuration
+            ? Math.round(resolvedExportDuration.alignedDurationSec * 1000) / 1000
+            : null,
+          alignedFrameCount: resolvedExportDuration?.frameCount ?? null,
         } : null,
       });
 
@@ -951,11 +1028,17 @@ export function useExport(): UseExportReturn {
       const controller = new AbortController();
       abortControllerRef.current = controller;
       const { signal } = controller;
-      const maxAudioTimestampUs = exportTimelineAlignment
-        ? exportTimelineAlignment.rawDurationUs
+      const exportDurationUs = resolvedExportDuration
+        ? resolvedExportDuration.exportDurationUs
         : Number.POSITIVE_INFINITY;
-      const expectedVideoFrames = exportTimelineAlignment
-        ? Math.max(1, exportTimelineAlignment.frameCount)
+      const exportDurationSec = resolvedExportDuration
+        ? resolvedExportDuration.exportDurationSec
+        : null;
+      const maxAudioTimestampUs = resolvedExportDuration
+        ? resolvedExportDuration.exportDurationUs
+        : Number.POSITIVE_INFINITY;
+      const expectedVideoFrames = resolvedExportDuration
+        ? Math.max(1, resolvedExportDuration.frameCount)
         : null;
       const getPlaybackTimeSec = (): number | null => {
         if (!audioSources?.getPlaybackTimeSec) return null;
@@ -989,7 +1072,7 @@ export function useExport(): UseExportReturn {
           return null;
         }
 
-        const preRenderedAudioDurationSec = exportTimelineAlignment?.rawDurationSec ?? audioSources.totalDuration;
+        const preRenderedAudioDurationSec = exportDurationSec ?? audioSources.totalDuration;
 
         useLogStore.getState().info('RENDER', '[DIAG-3] OfflineAudioContext パス開始', {
           totalDuration: audioSources.totalDuration,
@@ -1126,6 +1209,9 @@ export function useExport(): UseExportReturn {
         });
 
         // 2. VideoEncoder の設定
+        let encodedVideoEndUs = 0;
+        let muxedAudioEndUs = 0;
+        let finalAudioInputSamples = 0;
         const videoEncoder = new VideoEncoder({
           output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
           error: (e) => console.error('VideoEncoder error:', e),
@@ -1144,6 +1230,8 @@ export function useExport(): UseExportReturn {
         let audioEncoderSkippedChunks = 0;
         let audioEncoderClippedChunks = 0;
         let audioEncoderClippedDurationUs = 0;
+        let audioEncoderPaddedChunks = 0;
+        let audioEncoderPaddedSamples = 0;
         // AAC-LC は通常 1024 sample/frame。duration が取れないケースの保険値。
         const fallbackAacChunkDurationUs = Math.max(1, Math.round((1024 / audioContext.sampleRate) * 1e6));
         const audioEncoder = new AudioEncoder({
@@ -1197,6 +1285,7 @@ export function useExport(): UseExportReturn {
                 const rawData = new Uint8Array(chunk.byteLength);
                 chunk.copyTo(rawData);
                 muxer.addAudioChunkRaw(rawData, chunk.type, chunkTimestampUs, clippedDurationUs, meta);
+                muxedAudioEndUs = Math.max(muxedAudioEndUs, chunkTimestampUs + clippedDurationUs);
                 audioEncoderClippedChunks++;
                 audioEncoderClippedDurationUs += chunkDurationUs - clippedDurationUs;
                 if (audioEncoderClippedChunks === 1 || audioEncoderClippedChunks % 10 === 0) {
@@ -1214,6 +1303,7 @@ export function useExport(): UseExportReturn {
             }
 
             muxer.addAudioChunk(chunk, meta);
+            muxedAudioEndUs = Math.max(muxedAudioEndUs, chunkEndUs);
           },
           error: (e) => {
             useLogStore.getState().error('RENDER', 'AudioEncoder エラー', { error: String(e) });
@@ -1253,23 +1343,27 @@ export function useExport(): UseExportReturn {
               queueSize: audioEncoder.encodeQueueSize,
               outputChunksSoFar: audioEncoderOutputChunks,
             });
-            const encodedChunks = feedPreRenderedAudio(
+            const audioFeedResult = feedPreRenderedAudio(
               renderedAudio,
               audioEncoder,
               signal,
-              exportTimelineAlignment?.rawDurationSec ?? audioSources.totalDuration,
+              exportDurationUs,
             );
+            finalAudioInputSamples = Math.max(finalAudioInputSamples, audioFeedResult.encodedSamples);
             useLogStore.getState().info('RENDER', '[DIAG-5] feed完了後 AudioEncoder状態', {
               state: audioEncoder.state,
               queueSize: audioEncoder.encodeQueueSize,
               outputChunksAfterFeed: audioEncoderOutputChunks,
-              encodedInputChunks: encodedChunks,
+              encodedInputChunks: audioFeedResult.encodedChunks,
+              encodedInputSamples: audioFeedResult.encodedSamples,
+              trimmedInputSamples: audioFeedResult.trimmedSamples,
             });
             offlineAudioDone = true;
             useLogStore.getState().info('RENDER', '[DIAG-5b] iOS Safari: 音声プリレンダリング＆エンコード完了', {
-              encodedChunks,
+              encodedChunks: audioFeedResult.encodedChunks,
               audioEncoderOutputChunks,
               audioEncoderOutputBytes,
+              finalAudioInputSamples,
               offlineAudioDone,
             });
           } else if (!signal.aborted) {
@@ -1461,6 +1555,12 @@ export function useExport(): UseExportReturn {
               audioData.close();
 
               capturedChunks++;
+              finalAudioInputSamples = Math.max(finalAudioInputSamples, Math.min(
+                Math.max(0, Math.round((audioTimestamp / 1e6) * audioCtx.sampleRate)) + numberOfFrames,
+                Number.isFinite(exportDurationUs)
+                  ? Math.max(0, Math.round((exportDurationUs / 1e6) * audioCtx.sampleRate))
+                  : Number.MAX_SAFE_INTEGER,
+              ));
               audioTimestamp += Math.round((numberOfFrames / audioCtx.sampleRate) * 1e6);
 
               // 初回キャプチャ成功をログ
@@ -1593,12 +1693,13 @@ export function useExport(): UseExportReturn {
                   // 結果としてVFR（可変フレームレート）となり、一部プレーヤーで再生時間が間延びする。
                   // そのため、フレーム順序ベースの決定的なタイムスタンプへ揃えつつ、
                   // 総尺は生のタイムライン値へ一致させる。
-                  const frameTiming = exportTimelineAlignment
-                    ? getExportFrameTiming(exportTimelineAlignment, FPS, frameIndex)
+                  const frameTiming = resolvedExportDuration
+                    ? getExportFrameTiming(resolvedExportDuration, FPS, frameIndex)
                     : {
                       timestampUs: Math.round(frameIndex * (1e6 / FPS)),
                       durationUs: Math.round(1e6 / FPS),
                     };
+                  encodedVideoEndUs = Math.max(encodedVideoEndUs, frameTiming.timestampUs + frameTiming.durationUs);
 
                   // 新しいタイムスタンプでフレームを再作成
                   // copyToなどのコストを避けるため、VideoFrameコンストラクタでラップする
@@ -1623,12 +1724,13 @@ export function useExport(): UseExportReturn {
             if (!signal.aborted && completionRequestedRef.current && expectedVideoFrames !== null && frameIndex < expectedVideoFrames && videoEncoder.state === 'configured') {
               const missingFrames = expectedVideoFrames - frameIndex;
               for (let i = 0; i < missingFrames; i++) {
-                const frameTiming = exportTimelineAlignment
-                  ? getExportFrameTiming(exportTimelineAlignment, FPS, frameIndex)
+                const frameTiming = resolvedExportDuration
+                  ? getExportFrameTiming(resolvedExportDuration, FPS, frameIndex)
                   : {
                     timestampUs: Math.round(frameIndex * (1e6 / FPS)),
                     durationUs: Math.round(1e6 / FPS),
                   };
+                encodedVideoEndUs = Math.max(encodedVideoEndUs, frameTiming.timestampUs + frameTiming.durationUs);
                 const frame = new VideoFrame(canvas, {
                   timestamp: frameTiming.timestampUs,
                   duration: frameTiming.durationUs,
@@ -1676,12 +1778,13 @@ export function useExport(): UseExportReturn {
 
               if (videoEncoder.state === 'configured' && framesToEncode > 0) {
                 for (let i = 0; i < framesToEncode; i++) {
-                  const frameTiming = exportTimelineAlignment
-                    ? getExportFrameTiming(exportTimelineAlignment, FPS, frameIndex)
+                  const frameTiming = resolvedExportDuration
+                    ? getExportFrameTiming(resolvedExportDuration, FPS, frameIndex)
                     : {
                       timestampUs: Math.round(frameIndex * (1e6 / FPS)),
                       durationUs: Math.round(1e6 / FPS),
                     };
+                  encodedVideoEndUs = Math.max(encodedVideoEndUs, frameTiming.timestampUs + frameTiming.durationUs);
                   const frame = new VideoFrame(canvas, {
                     timestamp: frameTiming.timestampUs,
                     duration: frameTiming.durationUs,
@@ -1737,6 +1840,17 @@ export function useExport(): UseExportReturn {
                   data.close();
                   break;
                 }
+                const dataTimestampUs = Math.max(0, Math.round(data.timestamp));
+                const dataEndSamples = Math.max(
+                  0,
+                  Math.round((dataTimestampUs / 1e6) * data.sampleRate) + data.numberOfFrames,
+                );
+                finalAudioInputSamples = Math.max(finalAudioInputSamples, Math.min(
+                  dataEndSamples,
+                  Number.isFinite(exportDurationUs)
+                    ? Math.max(0, Math.round((exportDurationUs / 1e6) * data.sampleRate))
+                    : Number.MAX_SAFE_INTEGER,
+                ));
                 if (audioEncoder.state === 'configured') {
                   audioEncoder.encode(data);
                 }
@@ -1848,19 +1962,34 @@ export function useExport(): UseExportReturn {
           });
           const renderedAudio = await ensurePreRenderedAudioBuffer('required');
           if (renderedAudio && !signal.aborted) {
-            const encodedChunks = feedPreRenderedAudio(
+            const audioFeedResult = feedPreRenderedAudio(
               renderedAudio,
               audioEncoder,
               signal,
-              exportTimelineAlignment?.rawDurationSec ?? audioSources.totalDuration,
+              exportDurationUs,
             );
+            finalAudioInputSamples = Math.max(finalAudioInputSamples, audioFeedResult.encodedSamples);
             offlineAudioDone = true;
             useLogStore.getState().info('RENDER', 'OfflineAudioContext フォールバックで音声を補完', {
-              encodedChunks,
+              encodedChunks: audioFeedResult.encodedChunks,
+              encodedInputSamples: audioFeedResult.encodedSamples,
               audioEncoderOutputChunks,
               audioEncoderOutputBytes,
             });
           }
+        }
+
+        if (!signal.aborted && Number.isFinite(exportDurationUs)) {
+          const finalAudioResult = finalizeAudioForExport(
+            audioEncoder,
+            audioContext.sampleRate,
+            signal,
+            finalAudioInputSamples,
+            exportDurationUs,
+          );
+          finalAudioInputSamples = finalAudioResult.finalSampleCount;
+          audioEncoderPaddedChunks += finalAudioResult.paddedChunks;
+          audioEncoderPaddedSamples += finalAudioResult.paddedSamples;
         }
 
         // ============================================================
@@ -1872,10 +2001,15 @@ export function useExport(): UseExportReturn {
           audioEncoderSkippedChunks,
           audioEncoderClippedChunks,
           audioEncoderClippedDurationMs: Math.round(audioEncoderClippedDurationUs / 1000),
+          audioEncoderPaddedChunks,
+          audioEncoderPaddedSamples,
           audioEncoderState: audioEncoder.state,
           audioEncoderQueueSize: audioEncoder.encodeQueueSize,
           videoEncoderState: videoEncoder.state,
           videoEncoderQueueSize: videoEncoder.encodeQueueSize,
+          encodedVideoEndUs,
+          muxedAudioEndUs,
+          exportDurationUs: Number.isFinite(exportDurationUs) ? exportDurationUs : null,
           offlineAudioDone,
         });
         await videoEncoder.flush();
@@ -1888,12 +2022,39 @@ export function useExport(): UseExportReturn {
             skippedChunks: audioEncoderSkippedChunks,
             clippedChunks: audioEncoderClippedChunks,
             totalClippedDurationMs: Math.round(audioEncoderClippedDurationUs / 1000),
+            paddedChunks: audioEncoderPaddedChunks,
+            paddedSamples: audioEncoderPaddedSamples,
+            muxedAudioEndUs,
+            encodedVideoEndUs,
           });
         } catch (flushErr) {
           useLogStore.getState().error('RENDER', '[DIAG-7c] AudioEncoder flush 失敗', {
             error: flushErr instanceof Error ? flushErr.message : String(flushErr),
             audioEncoderState: audioEncoder.state,
           });
+        }
+
+        if (Number.isFinite(exportDurationUs)) {
+          const audioVideoDiffUs = Math.abs(muxedAudioEndUs - encodedVideoEndUs);
+          const audioExportDiffUs = Math.abs(muxedAudioEndUs - exportDurationUs);
+          const videoExportDiffUs = Math.abs(encodedVideoEndUs - exportDurationUs);
+          const exceedsDurationThreshold =
+            audioVideoDiffUs > 1000 ||
+            audioExportDiffUs > 1000 ||
+            videoExportDiffUs > 1000;
+          const durationPayload = {
+            exportDurationUs,
+            muxedAudioEndUs,
+            encodedVideoEndUs,
+            audioVideoDiffMs: Math.round(audioVideoDiffUs) / 1000,
+            audioExportDiffMs: Math.round(audioExportDiffUs) / 1000,
+            videoExportDiffMs: Math.round(videoExportDiffUs) / 1000,
+          };
+          if (exceedsDurationThreshold) {
+            useLogStore.getState().warn('RENDER', '[DIAG-DURATION-1] AAC後 duration 差分警告', durationPayload);
+          } else {
+            useLogStore.getState().info('RENDER', '[DIAG-DURATION-1] AAC後 duration 差分確認', durationPayload);
+          }
         }
 
         // ============================================================
@@ -1907,6 +2068,11 @@ export function useExport(): UseExportReturn {
           audioEncoderSkippedChunks,
           audioEncoderClippedChunks,
           audioEncoderClippedDurationMs: Math.round(audioEncoderClippedDurationUs / 1000),
+          audioEncoderPaddedChunks,
+          audioEncoderPaddedSamples,
+          muxedAudioEndUs,
+          encodedVideoEndUs,
+          exportDurationUs: Number.isFinite(exportDurationUs) ? exportDurationUs : null,
         });
 
         // Canvasストリームを停止
@@ -1927,6 +2093,44 @@ export function useExport(): UseExportReturn {
         // バッファ取得とBlob作成
         const { buffer } = muxer.target;
 
+        if (Number.isFinite(exportDurationUs)) {
+          const muxDurationSummary = inspectMp4Durations(buffer);
+          if (!muxDurationSummary) {
+            throw new Error('mux 後の duration 検査に失敗しました');
+          }
+
+          const containerDurationUs = muxDurationSummary.containerDurationUs ?? 0;
+          const videoTrackDurationUs = muxDurationSummary.videoDurationUs ?? 0;
+          const audioTrackDurationUs = muxDurationSummary.audioDurationUs ?? 0;
+          const audioVideoDiffUs = Math.abs(audioTrackDurationUs - videoTrackDurationUs);
+          const audioContainerDiffUs = Math.abs(audioTrackDurationUs - containerDurationUs);
+          const videoContainerDiffUs = Math.abs(videoTrackDurationUs - containerDurationUs);
+          const containerExportDiffUs = Math.abs(containerDurationUs - exportDurationUs);
+          const exceedsMuxDurationThreshold =
+            audioVideoDiffUs > 1000 ||
+            audioContainerDiffUs > 1000 ||
+            videoContainerDiffUs > 1000 ||
+            containerExportDiffUs > 1000;
+
+          const muxDurationPayload = {
+            exportDurationUs,
+            containerDurationUs,
+            videoTrackDurationUs,
+            audioTrackDurationUs,
+            audioVideoDiffMs: Math.round(audioVideoDiffUs) / 1000,
+            audioContainerDiffMs: Math.round(audioContainerDiffUs) / 1000,
+            videoContainerDiffMs: Math.round(videoContainerDiffUs) / 1000,
+            containerExportDiffMs: Math.round(containerExportDiffUs) / 1000,
+          };
+
+          if (exceedsMuxDurationThreshold) {
+            useLogStore.getState().error('RENDER', '[DIAG-DURATION-2] mux後 duration 差分異常', muxDurationPayload);
+            throw new Error('mux 後の audio / video / container duration 差分が 1ms を超えました');
+          }
+
+          useLogStore.getState().info('RENDER', '[DIAG-DURATION-2] mux後 duration 差分確認', muxDurationPayload);
+        }
+
         if (buffer.byteLength > 0) {
           const blob = new Blob([buffer], { type: 'video/mp4' });
           const url = URL.createObjectURL(blob);
@@ -1941,6 +2145,11 @@ export function useExport(): UseExportReturn {
             audioEncoderSkippedChunks,
             audioEncoderClippedChunks,
             audioEncoderClippedDurationMs: Math.round(audioEncoderClippedDurationUs / 1000),
+            audioEncoderPaddedChunks,
+            audioEncoderPaddedSamples,
+            muxedAudioEndUs,
+            encodedVideoEndUs,
+            exportDurationUs: Number.isFinite(exportDurationUs) ? exportDurationUs : null,
             audioDataPresent: audioEncoderOutputChunks > 0,
             offlineAudioDone,
           });
