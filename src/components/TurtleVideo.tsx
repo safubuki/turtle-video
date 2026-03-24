@@ -45,6 +45,7 @@ import {
   shouldBundlePreviewStartForWebAudioMix,
   getVisibilityRecoveryPlan,
   shouldHoldVideoFrameAtClipEnd,
+  shouldHoldFrameForImageToVideoExportTransition,
   shouldKeepInactiveVideoPrewarmed,
   shouldStabilizeImageToVideoTransitionDuringExport,
   shouldMuteNativeMediaElement,
@@ -595,6 +596,16 @@ const TurtleVideo: React.FC = () => {
                 isExporting: _isExporting,
                 hasExportPlayFailure: false,
               });
+              const shouldHoldForImageToVideoTransition = shouldHoldFrameForImageToVideoExportTransition({
+                isExporting: _isExporting,
+                activeItemType: activeItem.type,
+                previousItemType: activeIndex > 0 ? currentItems[activeIndex - 1]?.type ?? null : null,
+                clipLocalTime: localTime,
+                videoReadyState: activeEl.readyState,
+                isVideoSeeking: activeEl.seeking,
+                videoCurrentTime: activeEl.currentTime,
+                targetTime,
+              });
               const hasExportPlayFailure = _isExporting && !!exportPlayFailedRef.current[activeId];
               const needsCorrection =
                 _isExporting &&
@@ -642,7 +653,7 @@ const TurtleVideo: React.FC = () => {
                 videoEnded: activeEl.ended,
               });
 
-              if (!hasFrame || needsCorrection || shouldHoldForVideoEnd) {
+              if (!hasFrame || needsCorrection || shouldHoldForVideoEnd || shouldHoldForImageToVideoTransition) {
                 if (!shouldPreferBlackoutAtFadeTail && !isInFadeOutRegion) {
                   holdFrame = true;
                 }
@@ -657,6 +668,7 @@ const TurtleVideo: React.FC = () => {
                   currentTime: time,
                   needsCorrection,
                   shouldHoldForVideoEnd,
+                  shouldHoldForImageToVideoTransition,
                   shouldBlackoutFadeTail: shouldPreferBlackoutAtFadeTail,
                 });
               }

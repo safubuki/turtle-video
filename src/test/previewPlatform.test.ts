@@ -10,6 +10,7 @@ import {
   shouldAttemptDeferredPreviewPlay,
   shouldBlackoutVideoFadeTail,
   shouldBundlePreviewStartForWebAudioMix,
+  shouldHoldFrameForImageToVideoExportTransition,
   shouldHoldVideoFrameAtClipEnd,
   shouldKeepInactiveVideoPrewarmed,
   shouldMuteNativeMediaElement,
@@ -303,6 +304,75 @@ describe('preview platform helpers', () => {
         activeItemType: 'video',
         previousItemType: 'image',
         clipLocalTime: 0.05,
+      }),
+    ).toBe(false);
+  });
+
+  it('export の画像->動画境界で同期補正が必要な間は前フレーム保持を返す', () => {
+    expect(
+      shouldHoldFrameForImageToVideoExportTransition({
+        isExporting: true,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        clipLocalTime: 0.05,
+        videoReadyState: 2,
+        isVideoSeeking: false,
+        videoCurrentTime: 0,
+        targetTime: 0.02,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldHoldFrameForImageToVideoExportTransition({
+        isExporting: true,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        clipLocalTime: 0.05,
+        videoReadyState: 1,
+        isVideoSeeking: false,
+        videoCurrentTime: 0.02,
+        targetTime: 0.02,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldHoldFrameForImageToVideoExportTransition({
+        isExporting: true,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        clipLocalTime: 0.05,
+        videoReadyState: 2,
+        isVideoSeeking: true,
+        videoCurrentTime: 0.02,
+        targetTime: 0.02,
+      }),
+    ).toBe(true);
+  });
+
+  it('export の画像->動画境界でも安定化済みなら前フレーム保持しない', () => {
+    expect(
+      shouldHoldFrameForImageToVideoExportTransition({
+        isExporting: true,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        clipLocalTime: 0.05,
+        videoReadyState: 2,
+        isVideoSeeking: false,
+        videoCurrentTime: 0.02,
+        targetTime: 0.021,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldHoldFrameForImageToVideoExportTransition({
+        isExporting: true,
+        activeItemType: 'video',
+        previousItemType: 'video',
+        clipLocalTime: 0.05,
+        videoReadyState: 2,
+        isVideoSeeking: false,
+        videoCurrentTime: 0.02,
+        targetTime: 0.04,
       }),
     ).toBe(false);
   });

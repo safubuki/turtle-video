@@ -85,6 +85,14 @@ export interface ExportImageToVideoStabilizationOptions {
   stabilizationWindowSec?: number;
 }
 
+export interface ExportImageToVideoFrameHoldOptions extends ExportImageToVideoStabilizationOptions {
+  videoReadyState: number;
+  isVideoSeeking: boolean;
+  videoCurrentTime: number;
+  targetTime: number;
+  syncToleranceSec?: number;
+}
+
 /**
  * プラットフォーム capability から、プレビュー制御用の方針を組み立てる。
  */
@@ -408,6 +416,24 @@ export function shouldStabilizeImageToVideoTransitionDuringExport(
   }
 
   return options.clipLocalTime >= 0 && options.clipLocalTime <= stabilizationWindowSec;
+}
+
+/**
+ * 画像→動画の export 切り替え直後、プリウォーム済み動画が一見 ready に見えても、
+ * 直後の currentTime 補正で seeking に入るとそのフレームは描画できない。
+ * この瞬間だけ前フレーム保持へ倒し、黒クリアのちらつきを防ぐ。
+ */
+export function shouldHoldFrameForImageToVideoExportTransition(
+  options: ExportImageToVideoFrameHoldOptions,
+): boolean {
+  if (!shouldStabilizeImageToVideoTransitionDuringExport(options)) {
+    return false;
+  }
+
+  const syncToleranceSec = options.syncToleranceSec ?? 0.004;
+  return options.videoReadyState < 2
+    || options.isVideoSeeking
+    || Math.abs(options.videoCurrentTime - options.targetTime) > syncToleranceSec;
 }
 
 /**
