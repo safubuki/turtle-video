@@ -314,7 +314,23 @@ describe('modal history stability', () => {
     );
 
     expect(getByText('2分前')).toBeTruthy();
-    expect(getByText(/前回保存日時: 2026\/03\/24 11:50:00/)).toBeTruthy();
+    const expectedLastAutoSaveText = new Date(
+      projectStoreState.lastAutoSave as string,
+    ).toLocaleString('ja-JP', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    expect(
+      getByText(
+        new RegExp(
+          `前回保存日時: ${expectedLastAutoSaveText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+        ),
+      ),
+    ).toBeTruthy();
 
     projectStoreState.lastAutoSaveActivityAt = '2026-03-24T11:54:00.000Z';
 

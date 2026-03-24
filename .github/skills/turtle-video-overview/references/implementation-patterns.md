@@ -1550,3 +1550,4 @@
 - **注意**:
   - `refreshSaveInfo()` は保存先 DB の最終保存時刻しか知らないため、`skipped-nochange` などで進んだ runtime 活動時刻を上書きしない
   - 手動保存で autosave cadence の基準をリセットする場合も、正確な「前回 auto 保存日時」は `lastAutoSave` 側で保持し続ける
+  - 手動保存直後の `autoSaveRuntimeStatus` は autosave 成功扱いにせず、待機状態へ戻して「直近の自動保存が完了した」と誤表示しない

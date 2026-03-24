@@ -569,7 +569,7 @@ export const useProjectStore = create<ProjectState>()(
           set({
             lastManualSave: projectData.savedAt,
             lastAutoSaveActivityAt: projectData.savedAt,
-            autoSaveRuntimeStatus: 'saved',
+            autoSaveRuntimeStatus: 'idle',
             isSaving: false,
             lastSaveFailure: null,
           });
