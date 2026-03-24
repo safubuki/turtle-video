@@ -3701,13 +3701,22 @@ const TurtleVideo: React.FC = () => {
         stopAll();
         return;
       }
-      renderFrame(clampedElapsed, true, isExportMode);
       if (isExportMode) {
+        renderFrame(clampedElapsed, true, isExportMode);
+        // renderFrame 自体の Canvas 描画は同期で完了するため、
+        // 非 iOS export ではこの直後の時刻を「描画済みフレーム時刻」として公開する。
         lastRenderedExportTimeRef.current = clampedElapsed;
+        setCurrentTime(clampedElapsed);
+        currentTimeRef.current = clampedElapsed;
+        reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
+        return;
+      } else {
+        setCurrentTime(clampedElapsed);
+        currentTimeRef.current = clampedElapsed;
+        renderFrame(clampedElapsed, true, isExportMode);
+        reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
+        return;
       }
-      setCurrentTime(clampedElapsed);
-      currentTimeRef.current = clampedElapsed;
-      reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
     },
     [stopAll, pause, setCurrentTime, renderFrame, logDebug, logWarn, platformCapabilities.isIosSafari]
   );
@@ -4223,7 +4232,9 @@ const TurtleVideo: React.FC = () => {
       startTimeRef.current = Date.now() - fromTime * 1000;
 
       if (isExportMode) {
-        lastRenderedExportTimeRef.current = Math.max(0, Math.min(fromTime, totalDurationRef.current));
+        // startExport 到達前に fromTime のフレームを同期描画済みなので、
+        // 初回参照も「最後に描画した export フレーム時刻」として fromTime を使える。
+        lastRenderedExportTimeRef.current = Math.max(0, fromTime);
       }
 
       if (isExportMode && canvasRef.current && masterDestRef.current) {

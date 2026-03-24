@@ -25,6 +25,13 @@ export interface ExportPlaybackTimeResolutionInput {
 
 const DURATION_EPSILON = 1e-9;
 
+function sanitizePlaybackTimeSec(timeSec: number): number | null {
+  if (!Number.isFinite(timeSec)) return null;
+  // export の初期化や停止境界で未初期化値を拾っても安全側へ倒せるよう、
+  // フレーム供給用の時刻は 0 以上に正規化して扱う。
+  return Math.max(0, timeSec);
+}
+
 function isResolvedExportDuration(
   alignment: ExportTimelineAlignment | ResolvedExportDuration,
 ): alignment is ResolvedExportDuration {
@@ -122,15 +129,17 @@ export function resolveExportPlaybackTimeSec(
   const preferred = input.preferRenderedPlaybackTime
     ? input.lastRenderedPlaybackTimeSec
     : input.currentPlaybackTimeSec;
-  if (Number.isFinite(preferred)) {
-    return Math.max(0, preferred);
+  const sanitizedPreferred = sanitizePlaybackTimeSec(preferred);
+  if (sanitizedPreferred !== null) {
+    return sanitizedPreferred;
   }
 
   const fallback = input.preferRenderedPlaybackTime
     ? input.currentPlaybackTimeSec
     : input.lastRenderedPlaybackTimeSec;
-  if (Number.isFinite(fallback)) {
-    return Math.max(0, fallback);
+  const sanitizedFallback = sanitizePlaybackTimeSec(fallback);
+  if (sanitizedFallback !== null) {
+    return sanitizedFallback;
   }
 
   return 0;

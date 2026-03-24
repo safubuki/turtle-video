@@ -97,4 +97,14 @@ describe('resolveExportPlaybackTimeSec', () => {
       }),
     ).toBe(1.5);
   });
+
+  it('負値は 0 秒へ正規化する', () => {
+    expect(
+      resolveExportPlaybackTimeSec({
+        currentPlaybackTimeSec: -1,
+        lastRenderedPlaybackTimeSec: Number.NaN,
+        preferRenderedPlaybackTime: false,
+      }),
+    ).toBe(0);
+  });
 });
