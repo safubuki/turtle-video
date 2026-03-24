@@ -46,7 +46,7 @@ describe('useAutoSave', () => {
 
     useMediaStore.setState({
       mediaItems: [],
-      isLocked: false,
+      isClipsLocked: false,
     });
     useAudioStore.setState({
       bgm: null,
@@ -504,7 +504,7 @@ describe('useAutoSave', () => {
           isTransformOpen: false,
           isLocked: false,
         }],
-        isLocked: false,
+        isClipsLocked: false,
       });
     });
 
@@ -520,6 +520,63 @@ describe('useAutoSave', () => {
       useMediaStore.getState().updateScale('video-1', 1.35);
       useMediaStore.getState().updatePosition('video-1', 'x', 120);
       useMediaStore.getState().updatePosition('video-1', 'y', -80);
+    });
+
+    await act(async () => {
+      await result.current.performAutoSave();
+    });
+
+    expect(saveProjectAuto).toHaveBeenCalledTimes(2);
+  });
+
+  it('クリップセクションロックの変更も自動保存の差分として検知する', async () => {
+    const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
+    const saveProjectAuto = vi.fn().mockResolvedValue(true);
+    const mediaFile = new File(['video'], 'clip.mp4', { type: 'video/mp4' });
+
+    act(() => {
+      useProjectStore.setState({
+        refreshSaveInfo,
+        saveProjectAuto,
+        isSaving: false,
+        lastManualSave: null,
+      });
+      useMediaStore.setState({
+        mediaItems: [{
+          id: 'video-1',
+          file: mediaFile,
+          type: 'video',
+          url: 'blob:video-1',
+          volume: 1,
+          isMuted: false,
+          fadeIn: false,
+          fadeOut: false,
+          fadeInDuration: 0.5,
+          fadeOutDuration: 0.5,
+          duration: 5,
+          originalDuration: 10,
+          trimStart: 0,
+          trimEnd: 5,
+          scale: 1,
+          positionX: 0,
+          positionY: 0,
+          isTransformOpen: false,
+          isLocked: false,
+        }],
+        isClipsLocked: false,
+      });
+    });
+
+    const { result } = renderHook(() => useAutoSave());
+
+    await act(async () => {
+      await result.current.performAutoSave();
+    });
+
+    expect(saveProjectAuto).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      useMediaStore.getState().toggleClipsLock();
     });
 
     await act(async () => {
