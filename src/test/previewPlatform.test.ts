@@ -10,6 +10,7 @@ import {
   shouldAttemptDeferredPreviewPlay,
   shouldBlackoutVideoFadeTail,
   shouldBundlePreviewStartForWebAudioMix,
+  shouldHoldFrameForImageToVideoExportTransition,
   shouldHoldVideoFrameAtClipEnd,
   shouldKeepInactiveVideoPrewarmed,
   shouldMuteNativeMediaElement,
@@ -305,6 +306,125 @@ describe('preview platform helpers', () => {
         clipLocalTime: 0.05,
       }),
     ).toBe(false);
+  });
+
+  it('export の画像->動画境界で needsTimeCorrection 単独なら前フレーム保持を返す', () => {
+    expect(
+      shouldHoldFrameForImageToVideoExportTransition({
+        isExporting: true,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        clipLocalTime: 0.05,
+        videoReadyState: 2,
+        isVideoSeeking: false,
+        videoCurrentTime: 0,
+        targetTime: 0.02,
+      }),
+    ).toBe(true);
+  });
+
+  it('export の画像->動画境界で videoReadyState 不足単独なら前フレーム保持を返す', () => {
+    expect(
+      shouldHoldFrameForImageToVideoExportTransition({
+        isExporting: true,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        clipLocalTime: 0.05,
+        videoReadyState: 1,
+        isVideoSeeking: false,
+        videoCurrentTime: 0.02,
+        targetTime: 0.02,
+      }),
+    ).toBe(true);
+  });
+
+  it('export の画像->動画境界でも安定化済みなら前フレーム保持しない', () => {
+    expect(
+      shouldHoldFrameForImageToVideoExportTransition({
+        isExporting: true,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        clipLocalTime: 0.05,
+        videoReadyState: 2,
+        isVideoSeeking: false,
+        videoCurrentTime: 0.02,
+        targetTime: 0.021,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldHoldFrameForImageToVideoExportTransition({
+        isExporting: true,
+        activeItemType: 'video',
+        previousItemType: 'video',
+        clipLocalTime: 0.05,
+        videoReadyState: 2,
+        isVideoSeeking: false,
+        videoCurrentTime: 0.02,
+        targetTime: 0.04,
+      }),
+    ).toBe(false);
+  });
+
+  it('export の画像->動画境界では syncToleranceSec を差し替えて保持境界を調整できる', () => {
+    expect(
+      shouldHoldFrameForImageToVideoExportTransition({
+        isExporting: true,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        clipLocalTime: 0.05,
+        videoReadyState: 2,
+        isVideoSeeking: false,
+        videoCurrentTime: 0.02,
+        targetTime: 0.023,
+        syncToleranceSec: 0.001,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldHoldFrameForImageToVideoExportTransition({
+        isExporting: true,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        clipLocalTime: 0.05,
+        videoReadyState: 2,
+        isVideoSeeking: false,
+        videoCurrentTime: 0.02,
+        targetTime: 0.023,
+        syncToleranceSec: 0.01,
+      }),
+    ).toBe(false);
+  });
+
+  it('export の画像->動画境界でも stabilizationWindowSec 外なら保持しない', () => {
+    expect(
+      shouldHoldFrameForImageToVideoExportTransition({
+        isExporting: true,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        clipLocalTime: 0.08,
+        stabilizationWindowSec: 0.05,
+        videoReadyState: 1,
+        isVideoSeeking: true,
+        videoCurrentTime: 0,
+        targetTime: 0.02,
+      }),
+    ).toBe(false);
+  });
+
+  it('export の画像->動画境界では seeking 単独でも前フレーム保持を返す', () => {
+    expect(
+      shouldHoldFrameForImageToVideoExportTransition({
+        isExporting: true,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        clipLocalTime: 0.05,
+        videoReadyState: 2,
+        isVideoSeeking: true,
+        videoCurrentTime: 0.02,
+        targetTime: 0.02,
+      }),
+    ).toBe(true);
   });
 
   it('iOS Safari preview は単一動画だけ native 出力を維持し、動画+BGM では WebAudio mix に寄せる', () => {

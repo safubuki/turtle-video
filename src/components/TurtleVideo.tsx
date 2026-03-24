@@ -40,11 +40,13 @@ import {
   getPreviewPlatformPolicy,
   getPreviewVideoSyncThreshold,
   getPageHidePausePlan,
+  EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC,
   shouldAttemptDeferredPreviewPlay,
   shouldBlackoutVideoFadeTail,
   shouldBundlePreviewStartForWebAudioMix,
   getVisibilityRecoveryPlan,
   shouldHoldVideoFrameAtClipEnd,
+  shouldHoldFrameForImageToVideoExportTransition,
   shouldKeepInactiveVideoPrewarmed,
   shouldStabilizeImageToVideoTransitionDuringExport,
   shouldMuteNativeMediaElement,
@@ -595,6 +597,17 @@ const TurtleVideo: React.FC = () => {
                 isExporting: _isExporting,
                 hasExportPlayFailure: false,
               });
+              const shouldHoldForImageToVideoTransition = shouldHoldFrameForImageToVideoExportTransition({
+                isExporting: _isExporting,
+                activeItemType: activeItem.type,
+                previousItemType: activeIndex > 0 ? currentItems[activeIndex - 1]?.type ?? null : null,
+                clipLocalTime: localTime,
+                videoReadyState: activeEl.readyState,
+                isVideoSeeking: activeEl.seeking,
+                videoCurrentTime: activeEl.currentTime,
+                targetTime,
+                syncToleranceSec: EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC,
+              });
               const hasExportPlayFailure = _isExporting && !!exportPlayFailedRef.current[activeId];
               const needsCorrection =
                 _isExporting &&
@@ -642,7 +655,19 @@ const TurtleVideo: React.FC = () => {
                 videoEnded: activeEl.ended,
               });
 
-              if (!hasFrame || needsCorrection || shouldHoldForVideoEnd) {
+              // 各条件は「描画すると黒/不正フレームになりうる理由」が異なるため分離して保持する。
+              // - !hasFrame: readyState 不足や seeking 中で現フレーム自体が未確定
+              // - needsCorrection: export sync 補正が必要で、このフレームは targetTime と不一致
+              // - shouldHoldForVideoEnd: クリップ終端で ended/play() 巻き戻りを避けたい
+              // - shouldHoldForImageToVideoTransition: 画像→動画の安定化 seek 直後で、
+              //   hold 判定時点では ready に見えても、その後の currentTime 補正で
+              //   drawing 時点では seeking へ遷移して描画不能になるケースを拾う
+              const shouldHoldActiveVideoFrame = !hasFrame
+                || needsCorrection
+                || shouldHoldForVideoEnd
+                || shouldHoldForImageToVideoTransition;
+
+              if (shouldHoldActiveVideoFrame) {
                 if (!shouldPreferBlackoutAtFadeTail && !isInFadeOutRegion) {
                   holdFrame = true;
                 }
@@ -657,6 +682,8 @@ const TurtleVideo: React.FC = () => {
                   currentTime: time,
                   needsCorrection,
                   shouldHoldForVideoEnd,
+                  shouldHoldForImageToVideoTransition,
+                  shouldHoldActiveVideoFrame,
                   shouldBlackoutFadeTail: shouldPreferBlackoutAtFadeTail,
                 });
               }
@@ -809,7 +836,14 @@ const TurtleVideo: React.FC = () => {
 
               if (isActivePlaying && !isUserSeeking) {
                 if (shouldStabilizeImageToVideoTransition) {
-                  if (!isVideoSeeking && Math.abs(videoEl.currentTime - targetTime) > 0.004) {
+                  // shouldStabilizeImageToVideoTransition は
+                  // isExporting && active=video && previous=image の安定化区間だけ true になる。
+                  // つまり、この currentTime 補正も保持判定と同じく画像→動画 export 境界に限定される。
+                  if (
+                    !isVideoSeeking
+                    && Math.abs(videoEl.currentTime - targetTime)
+                    > EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC
+                  ) {
                     videoEl.currentTime = targetTime;
                   }
                   if (!videoEl.paused) {

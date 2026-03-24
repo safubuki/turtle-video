@@ -87,6 +87,21 @@
   - `handleSeekEnd` の再生再開時刻は固定値ではなく `currentTimeRef.current` から再取得し、遅延イベントで更新された最終シーク位置を取りこぼさない
 - **注意**: シークセッション外イベントで `renderFrame(..., false)` を実行すると、再生中動画を誤って `pause()` しやすい
 
+### 2-7. エクスポート時の画像→動画境界ちらつき対策
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`
+- **問題**: エクスポート中、画像クリップから動画クリップへ切り替わる瞬間だけ黒フレームが一瞬挟まることがある
+- **原因**:
+  - 次の動画が prewarm 済みだと `holdFrame` 判定時点では `readyState >= 2` に見える
+  - しかし直後の export 安定化処理で `currentTime` 補正が入り、そのフレームでは `seeking` になって描画できない
+  - `holdFrame=false` のまま先に黒クリアされると、画像→動画境界だけ一瞬ちらつく
+- **対策**:
+  - `shouldHoldFrameForImageToVideoExportTransition()` で「画像→動画の export 安定化ウィンドウ中に、まだそのフレームは描画不能か」を判定する
+  - `renderFrame` の `holdFrame` 判定にこの条件を加え、動画が同期・seek 完了するまで直前の画像フレームを保持する
+- **注意**:
+  - この保持は `isExporting && previousItemType === 'image'` の短い安定化区間に限定する。動画→動画や通常 preview に広げると、既存の sync / fade tail / blackout 対策へ影響しやすい
+  - 画像→動画境界の seek 補正しきい値は `EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC` を single source of truth とし、保持判定と `currentTime` 補正の両方で共有する
+
 ---
 
 ## 3. AudioContext 管理

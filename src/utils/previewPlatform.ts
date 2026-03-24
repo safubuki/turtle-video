@@ -85,6 +85,26 @@ export interface ExportImageToVideoStabilizationOptions {
   stabilizationWindowSec?: number;
 }
 
+export interface ExportImageToVideoFrameHoldOptions extends ExportImageToVideoStabilizationOptions {
+  /** HTMLMediaElement.readyState (0-4)。2=HAVE_CURRENT_DATA を描画可能ラインとみなす。 */
+  videoReadyState: HTMLMediaElement['readyState'];
+  /** currentTime 補正直後など、描画対象フレームが未確定な seeking 状態か。 */
+  isVideoSeeking: boolean;
+  /** 判定時点の video.currentTime。 */
+  videoCurrentTime: number;
+  /** このフレームで描くべき targetTime。 */
+  targetTime: number;
+  /** currentTime 補正が必要とみなす許容誤差。既定値は 0.004 秒。 */
+  syncToleranceSec?: number;
+}
+
+// HTMLMediaElement.HAVE_CURRENT_DATA 相当。現在フレームを canvas 描画に使える最小 readyState。
+const MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME: HTMLMediaElement['readyState'] =
+  typeof HTMLMediaElement !== 'undefined'
+    ? HTMLMediaElement.HAVE_CURRENT_DATA
+    : 2;
+export const EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC = 0.004;
+
 /**
  * プラットフォーム capability から、プレビュー制御用の方針を組み立てる。
  */
@@ -408,6 +428,35 @@ export function shouldStabilizeImageToVideoTransitionDuringExport(
   }
 
   return options.clipLocalTime >= 0 && options.clipLocalTime <= stabilizationWindowSec;
+}
+
+/**
+ * 画像→動画の export 切り替え直後、プリウォーム済み動画が一見 ready に見えても、
+ * 直後の currentTime 補正で seeking に入るとそのフレームは描画できない。
+ * この瞬間だけ前フレーム保持へ倒し、黒クリアのちらつきを防ぐ。
+ * なお、この保持は既存の安定化ウィンドウ内に限定し、ウィンドウ終了までに
+ * 同期が完了する前提で使う。安定化後は通常の hasFrame / needsCorrection 判定へ戻す。
+ */
+export function shouldHoldFrameForImageToVideoExportTransition(
+  options: ExportImageToVideoFrameHoldOptions,
+): boolean {
+  if (!shouldStabilizeImageToVideoTransitionDuringExport(options)) {
+    return false;
+  }
+
+  // 既存の export 安定化処理が `abs(video.currentTime - targetTime) > 0.004`
+  // で currentTime 補正を入れるため、この保持判定も同じ既定値に揃える。
+  // こうしておくと「このフレームで seek 補正が入って描画不能になるか」と
+  // 「前フレーム保持が必要か」の境界が一致し、過保持や保持漏れを防げる。
+  const syncToleranceSec =
+    options.syncToleranceSec ?? EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC;
+  const isVideoNotReady =
+    options.videoReadyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME;
+  const isVideoFrameSeeking = options.isVideoSeeking;
+  const needsTimeCorrection =
+    Math.abs(options.videoCurrentTime - options.targetTime) > syncToleranceSec;
+
+  return isVideoNotReady || isVideoFrameSeeking || needsTimeCorrection;
 }
 
 /**
