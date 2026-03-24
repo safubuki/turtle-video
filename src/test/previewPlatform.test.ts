@@ -396,6 +396,22 @@ describe('preview platform helpers', () => {
     ).toBe(false);
   });
 
+  it('export の画像->動画境界でも stabilizationWindowSec 外なら保持しない', () => {
+    expect(
+      shouldHoldFrameForImageToVideoExportTransition({
+        isExporting: true,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        clipLocalTime: 0.08,
+        stabilizationWindowSec: 0.05,
+        videoReadyState: 1,
+        isVideoSeeking: true,
+        videoCurrentTime: 0,
+        targetTime: 0.02,
+      }),
+    ).toBe(false);
+  });
+
   it('export の画像->動画境界では seeking 単独でも前フレーム保持を返す', () => {
     expect(
       shouldHoldFrameForImageToVideoExportTransition({
