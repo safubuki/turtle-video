@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import SettingsModal from '../components/modals/SettingsModal';
 import SaveLoadModal from '../components/modals/SaveLoadModal';
@@ -41,8 +41,8 @@ const updateStoreState = {
 const projectStoreState = {
   isSaving: false,
   isLoading: false,
-  lastAutoSave: null,
-  lastManualSave: null,
+  lastAutoSave: null as string | null,
+  lastManualSave: null as string | null,
   lastSaveFailure: null as null | {
     operation: 'manual' | 'auto';
     reason: string;
@@ -257,5 +257,31 @@ describe('modal history stability', () => {
       expect(onToast).toHaveBeenCalledWith('保存しました', 'success');
       expect(onClose).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('SaveLoadModal は表示中に相対時刻表示を更新し、将来時刻は「たった今」に丸める', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-24T12:00:00.000Z'));
+    projectStoreState.lastAutoSave = '2026-03-24T11:59:10.000Z';
+    projectStoreState.lastManualSave = '2026-03-24T12:10:00.000Z';
+
+    const { getAllByText } = render(
+      <SaveLoadModal
+        isOpen={true}
+        onClose={() => {}}
+        onToast={() => {}}
+      />,
+    );
+
+    expect(getAllByText('たった今').length).toBeGreaterThanOrEqual(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150_000);
+    });
+
+    expect(getAllByText('3分前').length).toBeGreaterThanOrEqual(1);
+    expect(getAllByText('たった今').length).toBeGreaterThanOrEqual(1);
+
+    vi.useRealTimers();
   });
 });

@@ -281,10 +281,10 @@ describe('useAutoSave', () => {
       await Promise.resolve();
     });
 
-    expect(saveProjectAuto).toHaveBeenCalledTimes(2);
+    expect(saveProjectAuto).toHaveBeenCalledTimes(1);
   });
 
-  it('短時間の非アクティブ復帰では残り時間を維持して自動保存 cadence を保つ', async () => {
+  it('短時間の非アクティブ復帰では残り時間を維持し、期限前の即時保存は行わない', async () => {
     const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
     const saveProjectAuto = vi.fn().mockResolvedValue(true);
     const setIntervalSpy = vi.spyOn(window, 'setInterval');
@@ -326,7 +326,7 @@ describe('useAutoSave', () => {
     });
 
     expect(setTimeoutSpy).toHaveBeenCalled();
-    expect(saveProjectAuto).toHaveBeenCalledTimes(1);
+    expect(saveProjectAuto).not.toHaveBeenCalled();
 
     act(() => {
       useCaptionStore.setState({
@@ -344,7 +344,14 @@ describe('useAutoSave', () => {
     });
 
     await act(async () => {
-      vi.advanceTimersByTime(61_000);
+      vi.advanceTimersByTime(10_000);
+      await Promise.resolve();
+    });
+
+    expect(saveProjectAuto).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
       await Promise.resolve();
     });
 
@@ -443,7 +450,7 @@ describe('useAutoSave', () => {
     expect(saveProjectAuto).toHaveBeenCalledTimes(2);
   });
 
-  it('自動保存失敗時は復帰契機の catch-up 保存を即座に再試行できる', async () => {
+  it('自動保存失敗時は復帰契機で overdue なら即時に再試行できる', async () => {
     const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
     const saveProjectAuto = vi
       .fn<() => Promise<boolean>>()
