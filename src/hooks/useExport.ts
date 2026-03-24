@@ -2115,9 +2115,34 @@ export function useExport(): UseExportReturn {
             throw new Error(`MP4ファイルからduration情報を読み取れませんでした。mux 処理に問題がある可能性があります (bufferBytes: ${buffer.byteLength})`);
           }
 
-          const containerDurationUs = muxDurationSummary.containerDurationUs ?? 0;
-          const videoTrackDurationUs = muxDurationSummary.videoDurationUs ?? 0;
-          const audioTrackDurationUs = muxDurationSummary.audioDurationUs ?? 0;
+          const {
+            containerDurationUs,
+            videoDurationUs,
+            audioDurationUs,
+          } = muxDurationSummary;
+
+          if (
+            containerDurationUs == null ||
+            videoDurationUs == null ||
+            audioDurationUs == null
+          ) {
+            const missingDurationPayload = {
+              exportDurationUs,
+              bufferBytes: buffer.byteLength,
+              containerDurationUs,
+              videoDurationUs,
+              audioDurationUs,
+            };
+            useLogStore
+              .getState()
+              .error('RENDER', '[DIAG-DURATION-2] mux後 duration 欠落', missingDurationPayload);
+            throw new Error(
+              `mux 後の duration 情報に欠落があります (containerDurationUs: ${containerDurationUs}, videoDurationUs: ${videoDurationUs}, audioDurationUs: ${audioDurationUs})`,
+            );
+          }
+
+          const videoTrackDurationUs = videoDurationUs;
+          const audioTrackDurationUs = audioDurationUs;
           const audioVideoDiffUs = Math.abs(audioTrackDurationUs - videoTrackDurationUs);
           const audioContainerDiffUs = Math.abs(audioTrackDurationUs - containerDurationUs);
           const videoContainerDiffUs = Math.abs(videoTrackDurationUs - containerDurationUs);
