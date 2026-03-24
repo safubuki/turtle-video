@@ -134,7 +134,7 @@ describe('useAutoSave', () => {
     renderHook(() => useAutoSave());
 
     const baseNow = Date.now();
-    vi.spyOn(Date, 'now').mockImplementation(() => baseNow + 61_000);
+    vi.spyOn(Date, 'now').mockImplementation(() => baseNow + 3 * 60_000);
 
     act(() => {
       useProjectStore.setState({ isSaving: true });
