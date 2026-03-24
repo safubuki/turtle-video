@@ -430,6 +430,10 @@ export function shouldHoldFrameForImageToVideoExportTransition(
     return false;
   }
 
+  // 既存の export 安定化処理が `abs(video.currentTime - targetTime) > 0.004`
+  // で currentTime 補正を入れるため、この保持判定も同じ既定値に揃える。
+  // こうしておくと「このフレームで seek 補正が入って描画不能になるか」と
+  // 「前フレーム保持が必要か」の境界が一致し、過保持や保持漏れを防げる。
   const syncToleranceSec = options.syncToleranceSec ?? 0.004;
   return options.videoReadyState < 2
     || options.isVideoSeeking

@@ -377,6 +377,36 @@ describe('preview platform helpers', () => {
     ).toBe(false);
   });
 
+  it('export の画像->動画境界では syncToleranceSec を差し替えて保持境界を調整できる', () => {
+    expect(
+      shouldHoldFrameForImageToVideoExportTransition({
+        isExporting: true,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        clipLocalTime: 0.05,
+        videoReadyState: 2,
+        isVideoSeeking: false,
+        videoCurrentTime: 0.02,
+        targetTime: 0.023,
+        syncToleranceSec: 0.001,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldHoldFrameForImageToVideoExportTransition({
+        isExporting: true,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        clipLocalTime: 0.05,
+        videoReadyState: 2,
+        isVideoSeeking: false,
+        videoCurrentTime: 0.02,
+        targetTime: 0.023,
+        syncToleranceSec: 0.01,
+      }),
+    ).toBe(false);
+  });
+
   it('iOS Safari preview は単一動画だけ native 出力を維持し、動画+BGM では WebAudio mix に寄せる', () => {
     expect(
       getPreviewAudioOutputMode(iosPolicy, {

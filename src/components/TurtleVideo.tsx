@@ -653,7 +653,12 @@ const TurtleVideo: React.FC = () => {
                 videoEnded: activeEl.ended,
               });
 
-              if (!hasFrame || needsCorrection || shouldHoldForVideoEnd || shouldHoldForImageToVideoTransition) {
+              const shouldHoldActiveVideoFrame = !hasFrame
+                || needsCorrection
+                || shouldHoldForVideoEnd
+                || shouldHoldForImageToVideoTransition;
+
+              if (shouldHoldActiveVideoFrame) {
                 if (!shouldPreferBlackoutAtFadeTail && !isInFadeOutRegion) {
                   holdFrame = true;
                 }
@@ -669,6 +674,7 @@ const TurtleVideo: React.FC = () => {
                   needsCorrection,
                   shouldHoldForVideoEnd,
                   shouldHoldForImageToVideoTransition,
+                  shouldHoldActiveVideoFrame,
                   shouldBlackoutFadeTail: shouldPreferBlackoutAtFadeTail,
                 });
               }
