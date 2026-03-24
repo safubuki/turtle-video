@@ -435,9 +435,12 @@ export function shouldHoldFrameForImageToVideoExportTransition(
   // こうしておくと「このフレームで seek 補正が入って描画不能になるか」と
   // 「前フレーム保持が必要か」の境界が一致し、過保持や保持漏れを防げる。
   const syncToleranceSec = options.syncToleranceSec ?? 0.004;
-  return options.videoReadyState < 2
-    || options.isVideoSeeking
-    || Math.abs(options.videoCurrentTime - options.targetTime) > syncToleranceSec;
+  const isVideoNotReady = options.videoReadyState < 2;
+  const isVideoFrameSeeking = options.isVideoSeeking;
+  const needsTimeCorrection =
+    Math.abs(options.videoCurrentTime - options.targetTime) > syncToleranceSec;
+
+  return isVideoNotReady || isVideoFrameSeeking || needsTimeCorrection;
 }
 
 /**

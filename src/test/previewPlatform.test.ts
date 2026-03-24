@@ -334,19 +334,6 @@ describe('preview platform helpers', () => {
         targetTime: 0.02,
       }),
     ).toBe(true);
-
-    expect(
-      shouldHoldFrameForImageToVideoExportTransition({
-        isExporting: true,
-        activeItemType: 'video',
-        previousItemType: 'image',
-        clipLocalTime: 0.05,
-        videoReadyState: 2,
-        isVideoSeeking: true,
-        videoCurrentTime: 0.02,
-        targetTime: 0.02,
-      }),
-    ).toBe(true);
   });
 
   it('export の画像->動画境界でも安定化済みなら前フレーム保持しない', () => {
@@ -405,6 +392,21 @@ describe('preview platform helpers', () => {
         syncToleranceSec: 0.01,
       }),
     ).toBe(false);
+  });
+
+  it('export の画像->動画境界では seeking 単独でも前フレーム保持を返す', () => {
+    expect(
+      shouldHoldFrameForImageToVideoExportTransition({
+        isExporting: true,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        clipLocalTime: 0.05,
+        videoReadyState: 2,
+        isVideoSeeking: true,
+        videoCurrentTime: 0.02,
+        targetTime: 0.02,
+      }),
+    ).toBe(true);
   });
 
   it('iOS Safari preview は単一動画だけ native 出力を維持し、動画+BGM では WebAudio mix に寄せる', () => {

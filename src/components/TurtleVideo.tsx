@@ -653,6 +653,11 @@ const TurtleVideo: React.FC = () => {
                 videoEnded: activeEl.ended,
               });
 
+              // 各条件は「描画すると黒/不正フレームになりうる理由」が異なるため分離して保持する。
+              // - !hasFrame: readyState 不足や seeking 中で現フレーム自体が未確定
+              // - needsCorrection: export sync 補正が必要で、このフレームは targetTime と不一致
+              // - shouldHoldForVideoEnd: クリップ終端で ended/play() 巻き戻りを避けたい
+              // - shouldHoldForImageToVideoTransition: 画像→動画の安定化 seek 直後で一見 ready でも描画不能
               const shouldHoldActiveVideoFrame = !hasFrame
                 || needsCorrection
                 || shouldHoldForVideoEnd
