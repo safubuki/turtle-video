@@ -81,7 +81,7 @@ export function useAutoSave() {
   
   // ストアからデータを取得
   const mediaItems = useMediaStore((s) => s.mediaItems);
-  const isClipsLocked = useMediaStore((s) => s.isLocked);
+  const isClipsLocked = useMediaStore((s) => s.isClipsLocked);
   const bgm = useAudioStore((s) => s.bgm);
   const isBgmLocked = useAudioStore((s) => s.isBgmLocked);
   const narrations = useAudioStore((s) => s.narrations);

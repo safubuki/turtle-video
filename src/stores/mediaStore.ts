@@ -301,7 +301,15 @@ export const useMediaStore = create<MediaState>()(
 
       // Clips section lock
       toggleClipsLock: () => {
-        set((state) => ({ isClipsLocked: !state.isClipsLocked }));
+        set((state) => {
+          const nextIsClipsLocked = !state.isClipsLocked;
+          return {
+            isClipsLocked: nextIsClipsLocked,
+            // 旧 save/restore 契約との互換用 alias。
+            // 関連する操作では isClipsLocked と同期する。
+            isLocked: nextIsClipsLocked,
+          };
+        });
       },
 
       // Clear all
@@ -309,7 +317,7 @@ export const useMediaStore = create<MediaState>()(
         const { mediaItems } = get();
         useLogStore.getState().info('MEDIA', '全メディアをクリア', { itemCount: mediaItems.length });
         mediaItems.forEach((item) => revokeObjectUrl(item.url));
-        set({ mediaItems: [], totalDuration: 0, isClipsLocked: false });
+        set({ mediaItems: [], totalDuration: 0, isClipsLocked: false, isLocked: false });
       },
 
       // Restore from save (isLockedのエイリアス)
@@ -322,6 +330,7 @@ export const useMediaStore = create<MediaState>()(
           mediaItems: items,
           totalDuration: calculateTotalDuration(items),
           isClipsLocked: isLocked,
+          isLocked,
         });
       },
     }),
