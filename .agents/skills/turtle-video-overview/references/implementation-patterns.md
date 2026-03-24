@@ -1657,3 +1657,31 @@
 - **注意点**:
   - 強制保存は IndexedDB 書き込み回数が増えるため、将来最適化する場合でも「起動・復帰直後の prompt save」と「export 中のみ抑止」の契約は維持する
   - `runAutoSave` の `force` パラメータを変更する場合は、`useAutoSave.test.tsx` のライフサイクル系テストを必ず更新して回帰を防ぐ
+
+### 13-83. 自動保存の復帰契機は「即時保存固定」ではなく overdue 判定で cadence を守る
+
+- **ファイル**: `src/hooks/useAutoSave.ts`, `src/test/useAutoSave.test.tsx`
+- **問題**:
+  - `visibilitychange` / `focus` / `pageshow` のたびに prompt save を強制すると、設定間隔（例: 5分）より短い周期で `savedAt` が更新され、保存UIが「たった今」に張り付きやすい
+  - 保存自体は成功していても、ユーザーからは「常時保存されているのか」「設定間隔が効いているのか」が判別しづらい
+- **対策**:
+  - 復帰契機の catch-up は `forcePromptSave` を使わず、`lastAutoSaveActivityAtRef` と設定間隔による overdue 判定でのみ実行する
+  - 非アクティブ復帰時は残り時間を維持するタイマー再開（timeout -> interval）を優先し、期限前は保存を走らせない
+  - 定周期 tick の `runAutoSave({ force: true })` は維持し、設定間隔どおりの強制保存契約を継続する
+- **注意点**:
+  - 保存失敗時は `lastAutoSaveActivityAtRef` を更新しないため、復帰イベントで overdue と判定されれば即時再試行が走る（失敗回復優先）
+  - 復帰即保存を戻したい場合は UI 表示要件（「n分前」表示）との整合を再定義してから反映する
+
+### 13-84. 保存モーダルの相対時刻は Date.now 基準で計算し、表示中だけ 30 秒ごとに更新する
+
+- **ファイル**: `src/components/modals/SaveLoadModal.tsx`, `src/test/modalHistoryStability.test.tsx`
+- **問題**:
+  - モーダルを開いたままだと React の再描画契機がなく、`たった今` / `3分前` などの相対時刻表示が固定される
+  - 端末時計ズレで `savedAt` が未来時刻になると、負の差分をそのまま扱うと不自然な表示になりやすい
+- **対策**:
+  - `formatDateTime()` を `Date.now()`（注入可能な `nowMs`）基準で差分計算し、負の差分は `0` に丸めて `たった今` として扱う
+  - SaveLoadModal が開いている間だけ `setInterval(30_000)` で相対時刻更新用 state を更新し、閉じたら即 cleanup する
+  - テストで「表示中に `たった今` -> `3分前` へ遷移すること」と「未来時刻が `たった今` 表示になること」を固定する
+- **注意点**:
+  - この更新は表示専用であり、保存タイミングや auto save cadence そのものは変更しない
+  - interval はモーダル表示中に限定し、閉じた状態での不要な再描画を発生させない

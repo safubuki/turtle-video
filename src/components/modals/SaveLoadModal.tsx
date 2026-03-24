@@ -50,11 +50,12 @@ const AUTO_SAVE_OPTIONS: { value: AutoSaveIntervalOption; label: string }[] = [
 /**
  * 日時を読みやすい形式にフォーマット
  */
-function formatDateTime(isoString: string | null): string {
+function formatDateTime(isoString: string | null, nowMs: number = Date.now()): string {
   if (!isoString) return '---';
   const date = new Date(isoString);
-  const now = new Date();
-  const diff = now.getTime() - date.getTime();
+  const savedAt = date.getTime();
+  if (!Number.isFinite(savedAt)) return '---';
+  const diff = Math.max(nowMs - savedAt, 0);
   
   // 1分未満
   if (diff < 60 * 1000) {
@@ -84,6 +85,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
   const [selectedSlot, setSelectedSlot] = useState<SaveSlot | null>(null);
   const [autoSaveInterval, setAutoSaveIntervalState] = useState<AutoSaveIntervalOption>(getAutoSaveInterval);
   const [showHelp, setShowHelp] = useState(false);
+  const [relativeTimeNowMs, setRelativeTimeNowMs] = useState<number>(() => Date.now());
   const onCloseRef = useRef(onClose);
   const showHelpRef = useRef(false);
   const supportsShowSaveFilePicker = useMemo(
@@ -170,8 +172,19 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
       setSelectedSlot(null);
       setAutoSaveIntervalState(getAutoSaveInterval());
       setShowHelp(false);
+      setRelativeTimeNowMs(Date.now());
     }
   }, [isOpen, refreshSaveInfo]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const timerId = window.setInterval(() => {
+      setRelativeTimeNowMs(Date.now());
+    }, 30_000);
+    return () => {
+      clearInterval(timerId);
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     if (mode !== 'menu') {
@@ -627,7 +640,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
                   自動保存
                 </span>
                 <span className={hasAutoSave ? 'text-white' : 'text-gray-500'}>
-                  {formatDateTime(lastAutoSave)}
+                  {formatDateTime(lastAutoSave, relativeTimeNowMs)}
                 </span>
               </div>
               <div className="flex items-center justify-between text-sm">
@@ -636,7 +649,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
                   手動保存
                 </span>
                 <span className={hasManualSave ? 'text-white' : 'text-gray-500'}>
-                  {formatDateTime(lastManualSave)}
+                  {formatDateTime(lastManualSave, relativeTimeNowMs)}
                 </span>
               </div>
             </div>
@@ -741,7 +754,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
                     自動保存
                   </span>
                   <span className="text-sm text-gray-400">
-                    {formatDateTime(lastAutoSave)}
+                    {formatDateTime(lastAutoSave, relativeTimeNowMs)}
                   </span>
                 </button>
               )}
@@ -756,7 +769,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
                     手動保存
                   </span>
                   <span className="text-sm text-gray-400">
-                    {formatDateTime(lastManualSave)}
+                    {formatDateTime(lastManualSave, relativeTimeNowMs)}
                   </span>
                 </button>
               )}

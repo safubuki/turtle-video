@@ -406,7 +406,7 @@ export function useAutoSave() {
         clearScheduledCatchUpSave();
         return;
       }
-      triggerCatchUpSave(true);
+      triggerCatchUpSave(false);
     };
 
     const handlePageHide = () => {
@@ -427,15 +427,15 @@ export function useAutoSave() {
       hasStartedAutoSaveTimerRef.current = true;
     }
     restartAutoSaveTimer(false);
-    triggerCatchUpSave(true);
+    triggerCatchUpSave(false);
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('pagehide', handlePageHide);
     const handleFocus = () => {
-      triggerCatchUpSave(true);
+      triggerCatchUpSave(false);
     };
     const handlePageShow = () => {
-      triggerCatchUpSave(true);
+      triggerCatchUpSave(false);
     };
     window.addEventListener('focus', handleFocus);
     window.addEventListener('pageshow', handlePageShow);
