@@ -15,6 +15,7 @@ import {
   shouldMuteNativeMediaElement,
   shouldReinitializeAudioRoute,
   shouldResumeAudioContextOnVisibilityReturn,
+  shouldStabilizeImageToVideoTransitionDuringExport,
   shouldUseCaptionBlurFallback,
 } from '../utils/previewPlatform';
 
@@ -266,6 +267,44 @@ describe('preview platform helpers', () => {
 
     expect(shouldMuteNativeMediaElement(androidPolicy, { hasAudioNode: true, isExporting: false })).toBe(false);
     expect(shouldMuteNativeMediaElement(androidPolicy, { hasAudioNode: true, isExporting: true })).toBe(true);
+  });
+
+  it('export の画像->動画境界だけ短時間の安定化モードに入る', () => {
+    expect(
+      shouldStabilizeImageToVideoTransitionDuringExport({
+        isExporting: true,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        clipLocalTime: 0.08,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldStabilizeImageToVideoTransitionDuringExport({
+        isExporting: true,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        clipLocalTime: 0.18,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldStabilizeImageToVideoTransitionDuringExport({
+        isExporting: true,
+        activeItemType: 'video',
+        previousItemType: 'video',
+        clipLocalTime: 0.05,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldStabilizeImageToVideoTransitionDuringExport({
+        isExporting: false,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        clipLocalTime: 0.05,
+      }),
+    ).toBe(false);
   });
 
   it('iOS Safari preview は単一動画だけ native 出力を維持し、動画+BGM では WebAudio mix に寄せる', () => {

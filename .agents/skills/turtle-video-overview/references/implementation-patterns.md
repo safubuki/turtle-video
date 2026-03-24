@@ -1629,3 +1629,17 @@
 - **注意**:
   - 端数を切り捨てると末尾コンテンツを欠く可能性があるため、必ず切り上げる
   - 修正は export 専用に閉じ、preview 再生の時間進行や iOS Safari MediaRecorder 分岐の責務は変えない
+
+### 13-81. Android export の `画像 -> 動画` 境界は短時間だけ再生開始を抑止し、時刻同期を優先する
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **問題**:
+  - Android で export 中に `画像 -> 動画` へ切り替わる瞬間、動画デコーダの立ち上がりと `play()` 再開が競合し、境界付近で映像が乱れる（プレビュー中は出にくいが書き出し結果で再現しやすい）ことがある
+  - このタイミングで通常の再生再開ロジックをそのまま適用すると、同期補正と再生開始が同時に走り、境界フレームが不安定になりやすい
+- **対策**:
+  - `shouldStabilizeImageToVideoTransitionDuringExport()` を追加し、export かつ `画像 -> 動画` の先頭 120ms だけ安定化モードに入る
+  - 安定化モードでは `play()` 再開を抑止し、`currentTime` を目標時刻へ強めに合わせることで、境界直後のフレーム確定を優先する
+  - 判定ロジックは utility 化して `previewPlatform` テストで固定し、将来のしきい値変更でも回帰を検知できるようにする
+- **注意**:
+  - 対策は export 中の境界区間に限定し、通常 preview や動画→動画遷移には適用しない
+  - 安定化ウィンドウを広げすぎると動画の立ち上がり体感を損なうため、最小限（120ms）を維持する
