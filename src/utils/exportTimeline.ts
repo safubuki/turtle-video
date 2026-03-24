@@ -17,6 +17,12 @@ export interface ExportFrameTiming {
   durationUs: number;
 }
 
+export interface ExportPlaybackTimeResolutionInput {
+  currentPlaybackTimeSec: number;
+  lastRenderedPlaybackTimeSec: number;
+  preferRenderedPlaybackTime: boolean;
+}
+
 const DURATION_EPSILON = 1e-9;
 
 function isResolvedExportDuration(
@@ -108,4 +114,24 @@ export function getExportFrameTiming(
     timestampUs,
     durationUs: Math.max(1, nextBoundaryUs - timestampUs),
   };
+}
+
+export function resolveExportPlaybackTimeSec(
+  input: ExportPlaybackTimeResolutionInput,
+): number {
+  const preferred = input.preferRenderedPlaybackTime
+    ? input.lastRenderedPlaybackTimeSec
+    : input.currentPlaybackTimeSec;
+  if (Number.isFinite(preferred)) {
+    return Math.max(0, preferred);
+  }
+
+  const fallback = input.preferRenderedPlaybackTime
+    ? input.currentPlaybackTimeSec
+    : input.lastRenderedPlaybackTimeSec;
+  if (Number.isFinite(fallback)) {
+    return Math.max(0, fallback);
+  }
+
+  return 0;
 }

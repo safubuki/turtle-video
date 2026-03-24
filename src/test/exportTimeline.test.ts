@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   alignExportDurationToFrameGrid,
   getExportFrameTiming,
+  resolveExportPlaybackTimeSec,
   resolveExportDuration,
 } from '../utils/exportTimeline';
 
@@ -63,5 +64,37 @@ describe('alignExportDurationToFrameGrid', () => {
     expect(last.timestampUs + last.durationUs).toBe(resolved.exportDurationUs);
     expect(last.durationUs).toBeLessThanOrEqual(Math.round(1e6 / 30));
     expect(last.durationUs).toBeGreaterThan(0);
+  });
+});
+
+describe('resolveExportPlaybackTimeSec', () => {
+  it('非 iOS export では描画済みフレーム時刻を優先する', () => {
+    expect(
+      resolveExportPlaybackTimeSec({
+        currentPlaybackTimeSec: 1,
+        lastRenderedPlaybackTimeSec: 2 / 3,
+        preferRenderedPlaybackTime: true,
+      }),
+    ).toBeCloseTo(2 / 3, 10);
+  });
+
+  it('描画済み時刻が不正な場合は currentTime へフォールバックする', () => {
+    expect(
+      resolveExportPlaybackTimeSec({
+        currentPlaybackTimeSec: 1,
+        lastRenderedPlaybackTimeSec: Number.NaN,
+        preferRenderedPlaybackTime: true,
+      }),
+    ).toBe(1);
+  });
+
+  it('iOS export では従来どおり currentTime を使う', () => {
+    expect(
+      resolveExportPlaybackTimeSec({
+        currentPlaybackTimeSec: 1.5,
+        lastRenderedPlaybackTimeSec: 1,
+        preferRenderedPlaybackTime: false,
+      }),
+    ).toBe(1.5);
   });
 });

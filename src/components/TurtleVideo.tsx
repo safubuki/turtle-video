@@ -27,6 +27,7 @@ import { usePreventUnload } from '../hooks/usePreventUnload';
 
 // Utils
 import { captureCanvasAsImage } from '../utils/canvas';
+import { resolveExportPlaybackTimeSec } from '../utils/exportTimeline';
 import { preserveOriginalFileName, resolveAiNarrationFileName } from '../utils/fileNames';
 import { saveObjectUrlWithClientFileStrategy } from '../utils/fileSave';
 import { openFilesWithPicker } from '../utils/platform';
@@ -278,6 +279,7 @@ const TurtleVideo: React.FC = () => {
   const narrationsRef = useRef<NarrationClip[]>([]);
   const totalDurationRef = useRef(0);
   const currentTimeRef = useRef(0);
+  const lastRenderedExportTimeRef = useRef(0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mediaElementsRef = useRef<Record<string, HTMLVideoElement | HTMLImageElement | HTMLAudioElement>>({});
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -3699,9 +3701,12 @@ const TurtleVideo: React.FC = () => {
         stopAll();
         return;
       }
+      renderFrame(clampedElapsed, true, isExportMode);
+      if (isExportMode) {
+        lastRenderedExportTimeRef.current = clampedElapsed;
+      }
       setCurrentTime(clampedElapsed);
       currentTimeRef.current = clampedElapsed;
-      renderFrame(clampedElapsed, true, isExportMode);
       reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
     },
     [stopAll, pause, setCurrentTime, renderFrame, logDebug, logWarn, platformCapabilities.isIosSafari]
@@ -4217,6 +4222,10 @@ const TurtleVideo: React.FC = () => {
 
       startTimeRef.current = Date.now() - fromTime * 1000;
 
+      if (isExportMode) {
+        lastRenderedExportTimeRef.current = Math.max(0, Math.min(fromTime, totalDurationRef.current));
+      }
+
       if (isExportMode && canvasRef.current && masterDestRef.current) {
         startWebCodecsExport(
           canvasRef,
@@ -4242,7 +4251,11 @@ const TurtleVideo: React.FC = () => {
             bgm: bgmRef.current,
             narrations: narrationsRef.current,
             totalDuration: totalDurationRef.current,
-            getPlaybackTimeSec: () => currentTimeRef.current,
+            getPlaybackTimeSec: () => resolveExportPlaybackTimeSec({
+              currentPlaybackTimeSec: currentTimeRef.current,
+              lastRenderedPlaybackTimeSec: lastRenderedExportTimeRef.current,
+              preferRenderedPlaybackTime: !platformCapabilities.isIosSafari,
+            }),
             onPreparationStepChange: setExportPreparationStep,
             // 音声プリレンダリング完了後に再生ループを開始
             // iOS Safari ではリアルタイム音声抽出に数秒かかるため、

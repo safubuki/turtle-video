@@ -1491,3 +1491,17 @@
   - 判定は `getPageHidePausePlan()` に切り出し、pure helper として回帰テストで固定する
 - **注意**:
   - `visibilitychange(hidden)` 側の停止・復帰契約は維持し、`pagehide` だけを別扱いして race を潰す
+
+### 13-67. 非 iOS export のフレーム供給時刻は「描画済みフレーム」を基準にする
+
+- **対象ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/exportTimeline.ts`, `src/test/exportTimeline.test.ts`
+- **問題**:
+  - Canvas 直接 `VideoFrame` 化の export 経路では、エンコーダー側の目標フレーム数が `currentTimeRef` を参照している
+  - その値が `renderFrame()` 完了前に進むと、次フレームとしてまだ描画されていない古い Canvas を拾い、重複フレームと取りこぼしが混在して元動画よりカクついて見える
+- **対応パターン**:
+  - export ループでは `renderFrame()` 完了後に `lastRenderedExportTimeRef` を更新し、非 iOS の WebCodecs export ではその描画済み時刻を `getPlaybackTimeSec()` の優先値として使う
+  - iOS Safari は既存 MediaRecorder strategy との責務分離を維持し、従来どおり `currentTime` 基準を残す
+  - 時刻選択ロジックは `resolveExportPlaybackTimeSec()` に切り出し、pure test で platform 分岐と fallback を固定する
+- **注意**:
+  - export 進行時刻を publish する ref と、実際に Canvas へ描画済みの時刻は同一とは限らないため、Canvas 直接エンコードでは「描画完了後の時刻」を参照する
+  - preview 再生や iOS export まで同じ ref に統一すると既存経路へ副作用が出やすいので、適用範囲は非 iOS export のみに留める
