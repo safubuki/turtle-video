@@ -17,12 +17,6 @@ export interface ExportFrameTiming {
   durationUs: number;
 }
 
-export interface ExportPlaybackTimeResolutionInput {
-  currentPlaybackTimeSec: number;
-  lastRenderedPlaybackTimeSec: number;
-  preferRenderedPlaybackTime: boolean;
-}
-
 const DURATION_EPSILON = 1e-9;
 
 function sanitizePlaybackTimeSec(timeSec: number): number | null {
@@ -124,19 +118,21 @@ export function getExportFrameTiming(
 }
 
 export function resolveExportPlaybackTimeSec(
-  input: ExportPlaybackTimeResolutionInput,
+  currentPlaybackTimeSec: number,
+  lastRenderedPlaybackTimeSec: number,
+  preferRenderedPlaybackTime: boolean,
 ): number {
-  const preferred = input.preferRenderedPlaybackTime
-    ? input.lastRenderedPlaybackTimeSec
-    : input.currentPlaybackTimeSec;
+  const preferred = preferRenderedPlaybackTime
+    ? lastRenderedPlaybackTimeSec
+    : currentPlaybackTimeSec;
   const sanitizedPreferred = sanitizePlaybackTimeSec(preferred);
   if (sanitizedPreferred !== null) {
     return sanitizedPreferred;
   }
 
-  const fallback = input.preferRenderedPlaybackTime
-    ? input.currentPlaybackTimeSec
-    : input.lastRenderedPlaybackTimeSec;
+  const fallback = preferRenderedPlaybackTime
+    ? currentPlaybackTimeSec
+    : lastRenderedPlaybackTimeSec;
   const sanitizedFallback = sanitizePlaybackTimeSec(fallback);
   if (sanitizedFallback !== null) {
     return sanitizedFallback;

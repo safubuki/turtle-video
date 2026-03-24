@@ -70,41 +70,19 @@ describe('alignExportDurationToFrameGrid', () => {
 describe('resolveExportPlaybackTimeSec', () => {
   it('非 iOS export では描画済みフレーム時刻を優先する', () => {
     expect(
-      resolveExportPlaybackTimeSec({
-        currentPlaybackTimeSec: 1,
-        lastRenderedPlaybackTimeSec: 2 / 3,
-        preferRenderedPlaybackTime: true,
-      }),
+      resolveExportPlaybackTimeSec(1, 2 / 3, true),
     ).toBeCloseTo(2 / 3, 10);
   });
 
   it('描画済み時刻が不正な場合は currentTime へフォールバックする', () => {
-    expect(
-      resolveExportPlaybackTimeSec({
-        currentPlaybackTimeSec: 1,
-        lastRenderedPlaybackTimeSec: Number.NaN,
-        preferRenderedPlaybackTime: true,
-      }),
-    ).toBe(1);
+    expect(resolveExportPlaybackTimeSec(1, Number.NaN, true)).toBe(1);
   });
 
   it('iOS export では従来どおり currentTime を使う', () => {
-    expect(
-      resolveExportPlaybackTimeSec({
-        currentPlaybackTimeSec: 1.5,
-        lastRenderedPlaybackTimeSec: 1,
-        preferRenderedPlaybackTime: false,
-      }),
-    ).toBe(1.5);
+    expect(resolveExportPlaybackTimeSec(1.5, 1, false)).toBe(1.5);
   });
 
   it('負値は 0 秒へ正規化する', () => {
-    expect(
-      resolveExportPlaybackTimeSec({
-        currentPlaybackTimeSec: -1,
-        lastRenderedPlaybackTimeSec: Number.NaN,
-        preferRenderedPlaybackTime: false,
-      }),
-    ).toBe(0);
+    expect(resolveExportPlaybackTimeSec(-1, Number.NaN, false)).toBe(0);
   });
 });
