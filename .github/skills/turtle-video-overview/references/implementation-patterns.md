@@ -1506,3 +1506,19 @@
 - **注意**:
   - export 進行時刻を publish する ref と、実際に Canvas へ描画済みの時刻は同一とは限らないため、Canvas 直接エンコードでは「描画完了後の時刻」を参照する
   - preview 再生や iOS export まで同じ ref に統一すると既存経路へ副作用が出やすいので、適用範囲は非 iOS export のみに留める
+
+### 13-68. 自動保存タイマーは復帰時に再アームし、間隔変更でも経過時間を捨てない
+
+- **対象ファイル**: `src/hooks/useAutoSave.ts`, `src/test/useAutoSave.test.tsx`
+- **問題**:
+  - タブ非アクティブ化や BFCache 復帰の環境では、`setInterval` が停止したまま戻ることがあり、その後の自動保存が再開されないことがある
+  - 自動保存間隔を 5 分→1 分などへ短く変更した時に、タイマー再生成で `lastAutoSaveActivityAtRef` を現在時刻へ戻すと、新しい間隔で既に overdue でも保存が先送りされる
+- **対応パターン**:
+  - 復帰契機（`visibilitychange` / `focus` / `pageshow`）では catch-up 判定の前に、hidden/pagehide をまたいだ時だけ interval を再アームする
+  - 再アーム時は「今から丸ごと1周期」ではなく、`lastAutoSaveActivityAtRef` から見た残り時間だけ待ってから通常 cadence へ戻す
+  - 復帰時点で既に期限超過なら残り待ち時間は 0 とみなし、catch-up 保存で即座に追いついたうえで通常 cadence を再開する
+  - interval の再生成や保存間隔変更では `lastAutoSaveActivityAtRef` をリセットせず、最後に保存できた時刻を保持したまま overdue 判定する
+  - 自動保存実行直前の export 判定は `useUIStore.getState().isProcessing` で最新値を参照し、エクスポート中保存を確実に抑止する
+- **注意**:
+  - 復帰のたびに無条件で interval を張り直すと、通常の `focus` でも次回保存時刻を後ろ倒ししやすい。hidden / pagehide を経た時だけ再アームする
+  - export 中に interval を再アームしても保存自体は走らない契約を維持し、resume 後の catch-up 保存と競合させない

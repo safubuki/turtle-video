@@ -69,11 +69,14 @@ export function setAutoSaveInterval(interval: AutoSaveIntervalOption): void {
  */
 export function useAutoSave() {
   const intervalRef = useRef<number | null>(null);
+  const autoSaveTimerKindRef = useRef<'timeout' | 'interval' | null>(null);
   const catchUpSaveTimeoutRef = useRef<number | null>(null);
   const lastSaveHashRef = useRef<string>('');
   const performAutoSaveRef = useRef<() => Promise<AutoSaveRunResult>>(async () => 'skipped-empty');
   const isAutoSaveRunningRef = useRef(false);
   const lastAutoSaveActivityAtRef = useRef<number>(Date.now());
+  const hasStartedAutoSaveTimerRef = useRef(false);
+  const shouldRestartTimerOnReturnRef = useRef(false);
   const [autoSaveMinutes, setAutoSaveMinutes] = useState<AutoSaveIntervalOption>(getAutoSaveInterval);
   
   // ストアからデータを取得
@@ -193,7 +196,7 @@ export function useAutoSave() {
    */
   const performAutoSave = useCallback(async (): Promise<AutoSaveRunResult> => {
     // エクスポート中は保存をスキップ（動画品質を保護）
-    if (isProcessing) {
+    if (useUIStore.getState().isProcessing) {
       return 'skipped-processing';
     }
     
@@ -248,7 +251,6 @@ export function useAutoSave() {
     captions,
     captionSettings,
     isCaptionsLocked,
-    isProcessing,
     saveProjectAuto,
   ]);
 
@@ -320,6 +322,59 @@ export function useAutoSave() {
       }
     };
 
+    const clearAutoSaveTimer = () => {
+      if (intervalRef.current !== null) {
+        if (autoSaveTimerKindRef.current === 'timeout') {
+          clearTimeout(intervalRef.current);
+        } else if (autoSaveTimerKindRef.current === 'interval') {
+          clearInterval(intervalRef.current);
+        }
+        intervalRef.current = null;
+        autoSaveTimerKindRef.current = null;
+      }
+    };
+
+    const startRecurringAutoSaveTimer = () => {
+      clearAutoSaveTimer();
+      intervalRef.current = window.setInterval(() => {
+        void runAutoSave();
+      }, intervalMs);
+      autoSaveTimerKindRef.current = 'interval';
+    };
+
+    const restartAutoSaveTimer = (preserveElapsedDelay: boolean) => {
+      clearAutoSaveTimer();
+
+      if (!preserveElapsedDelay) {
+        startRecurringAutoSaveTimer();
+        return;
+      }
+
+      const now = Date.now();
+      const elapsed = now - lastAutoSaveActivityAtRef.current;
+      const initialDelay = Math.max(intervalMs - elapsed, 0);
+
+      if (initialDelay === 0) {
+        // 復帰時点で既に期限超過なら、下流の catch-up 判定が直ちに保存できるよう
+        // 通常 cadence のタイマーだけ先に再開しておく。
+        startRecurringAutoSaveTimer();
+        return;
+      }
+
+      intervalRef.current = window.setTimeout(() => {
+        void runAutoSave()
+          .catch((error) => {
+            useLogStore.getState().warn('SYSTEM', '非アクティブ復帰後の自動保存に失敗しました', {
+              error: error instanceof Error ? error.message : String(error),
+            });
+          })
+          .finally(() => {
+            startRecurringAutoSaveTimer();
+          });
+      }, initialDelay);
+      autoSaveTimerKindRef.current = 'timeout';
+    };
+
     const triggerCatchUpSave = () => {
       clearScheduledCatchUpSave();
       // visibilitychange / focus / pageshow の発火順は環境依存なので、
@@ -327,11 +382,29 @@ export function useAutoSave() {
       catchUpSaveTimeoutRef.current = window.setTimeout(() => {
         catchUpSaveTimeoutRef.current = null;
         if (document.visibilityState === 'hidden') return;
+        if (shouldRestartTimerOnReturnRef.current) {
+          shouldRestartTimerOnReturnRef.current = false;
+          restartAutoSaveTimer(true);
+        }
         if (useProjectStore.getState().isSaving) return;
         const elapsed = Date.now() - lastAutoSaveActivityAtRef.current;
         if (elapsed < intervalMs) return;
         void runAutoSave();
       }, AUTO_SAVE_RETURN_CHECK_DELAY_MS);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        shouldRestartTimerOnReturnRef.current = true;
+        clearScheduledCatchUpSave();
+        return;
+      }
+      triggerCatchUpSave();
+    };
+
+    const handlePageHide = () => {
+      shouldRestartTimerOnReturnRef.current = true;
+      clearScheduledCatchUpSave();
     };
     
     // オフの場合はタイマーを設定しない
@@ -342,22 +415,23 @@ export function useAutoSave() {
     }
     
     // 自動保存タイマー開始
-    lastAutoSaveActivityAtRef.current = Date.now();
-    intervalRef.current = window.setInterval(() => {
-      void runAutoSave();
-    }, intervalMs);
+    if (!hasStartedAutoSaveTimerRef.current) {
+      lastAutoSaveActivityAtRef.current = Date.now();
+      hasStartedAutoSaveTimerRef.current = true;
+    }
+    restartAutoSaveTimer(false);
 
-    document.addEventListener('visibilitychange', triggerCatchUpSave);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
     window.addEventListener('focus', triggerCatchUpSave);
     window.addEventListener('pageshow', triggerCatchUpSave);
     
     return () => {
       clearTimeout(initTimeout);
-      if (intervalRef.current !== null) {
-        clearInterval(intervalRef.current);
-      }
+      clearAutoSaveTimer();
       clearScheduledCatchUpSave();
-      document.removeEventListener('visibilitychange', triggerCatchUpSave);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
       window.removeEventListener('focus', triggerCatchUpSave);
       window.removeEventListener('pageshow', triggerCatchUpSave);
     };
