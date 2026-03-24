@@ -337,6 +337,7 @@ const TurtleVideo: React.FC = () => {
   captionSettingsRef.current = captionSettings;
 
   const platformCapabilities = useMemo(() => getPlatformCapabilities(), []);
+  const shouldPreferRenderedExportPlaybackTime = !platformCapabilities.isIosSafari;
   const previewPlatformPolicy = useMemo(
     () => getPreviewPlatformPolicy(platformCapabilities),
     [platformCapabilities]
@@ -4230,15 +4231,15 @@ const TurtleVideo: React.FC = () => {
         //   「停止→再生」と「シーク→再生」の動作差を解消する）
         resetInactiveVideos();
 
-        const didPrimeFrame = renderFrame(fromTime, false, isExportMode);
+        renderFrame(fromTime, false, isExportMode);
 
         // メディア要素のシーク完了を待つ
         await new Promise((r) => setTimeout(r, 50));
 
         if (isExportMode) {
-          lastRenderedExportTimeRef.current = didPrimeFrame
-            ? Math.max(0, fromTime)
-            : Math.max(0, currentTimeRef.current);
+          // export 開始前に fromTime のフレームへ同期済みのため、初回フレーム供給は
+          // 「現時点のキャンバスが表しているタイムライン時刻」として fromTime を使う。
+          lastRenderedExportTimeRef.current = Math.max(0, fromTime);
         }
       }
 
@@ -4250,7 +4251,6 @@ const TurtleVideo: React.FC = () => {
       startTimeRef.current = Date.now() - fromTime * 1000;
 
       if (isExportMode && canvasRef.current && masterDestRef.current) {
-        const shouldPreferRenderedExportPlaybackTime = !platformCapabilities.isIosSafari;
         const getExportPlaybackTimeSec = () => resolveExportPlaybackTimeSec(
           currentTimeRef.current,
           lastRenderedExportTimeRef.current,
