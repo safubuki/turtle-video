@@ -320,6 +320,28 @@ describe('useAutoSave', () => {
     });
 
     expect(saveProjectAuto).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      useCaptionStore.setState({
+        captions: [{
+          id: 'caption-1',
+          text: 'timeout-to-interval',
+          startTime: 0,
+          endTime: 1,
+          fadeIn: false,
+          fadeOut: false,
+          fadeInDuration: 0.5,
+          fadeOutDuration: 0.5,
+        }],
+      });
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(61_000);
+      await Promise.resolve();
+    });
+
+    expect(saveProjectAuto).toHaveBeenCalledTimes(2);
   });
 
   it('復帰時点で既に保存期限を過ぎている場合は即 catch-up し、その後に通常 cadence へ戻る', async () => {
@@ -342,7 +364,8 @@ describe('useAutoSave', () => {
       document.dispatchEvent(new Event('visibilitychange'));
     });
 
-    // 非アクティブ中にブラウザ側で autosave timer が失われた状態を模擬する。
+    // aggressive background throttling / tab suspension で
+    // 非アクティブ中に autosave timer が失われた状態を模擬する。
     vi.clearAllTimers();
 
     await act(async () => {

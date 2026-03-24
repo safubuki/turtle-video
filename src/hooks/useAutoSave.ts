@@ -355,7 +355,8 @@ export function useAutoSave() {
       const initialDelay = Math.max(intervalMs - elapsed, 0);
 
       if (initialDelay === 0) {
-        // 復帰時点で既に期限超過なら、catch-up 判定側で直ちに保存できる状態に戻す。
+        // 復帰時点で既に期限超過なら、下流の catch-up 判定が直ちに保存できるよう
+        // 通常 cadence のタイマーだけ先に再開しておく。
         startRecurringAutoSaveTimer();
         return;
       }
@@ -363,7 +364,7 @@ export function useAutoSave() {
       intervalRef.current = window.setTimeout(() => {
         void runAutoSave()
           .catch((error) => {
-            useLogStore.getState().warn('SYSTEM', '自動保存タイマー再開直後の保存に失敗しました', {
+            useLogStore.getState().warn('SYSTEM', '非アクティブ復帰後の自動保存に失敗しました', {
               error: error instanceof Error ? error.message : String(error),
             });
           })
