@@ -74,6 +74,7 @@ export function useAutoSave() {
   const performAutoSaveRef = useRef<() => Promise<AutoSaveRunResult>>(async () => 'skipped-empty');
   const isAutoSaveRunningRef = useRef(false);
   const lastAutoSaveActivityAtRef = useRef<number>(Date.now());
+  const hasStartedAutoSaveTimerRef = useRef(false);
   const shouldRestartTimerOnReturnRef = useRef(false);
   const [autoSaveMinutes, setAutoSaveMinutes] = useState<AutoSaveIntervalOption>(getAutoSaveInterval);
   
@@ -370,6 +371,10 @@ export function useAutoSave() {
     }
     
     // 自動保存タイマー開始
+    if (!hasStartedAutoSaveTimerRef.current) {
+      lastAutoSaveActivityAtRef.current = Date.now();
+      hasStartedAutoSaveTimerRef.current = true;
+    }
     restartAutoSaveTimer();
 
     document.addEventListener('visibilitychange', handleVisibilityChange);

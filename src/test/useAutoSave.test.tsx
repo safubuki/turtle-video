@@ -103,7 +103,7 @@ describe('useAutoSave', () => {
     renderHook(() => useAutoSave());
 
     const baseNow = Date.now();
-    vi.spyOn(Date, 'now').mockImplementation(() => baseNow + 61_000);
+    vi.spyOn(Date, 'now').mockImplementation(() => baseNow + 3 * 60_000);
 
     setVisibilityState('hidden');
     act(() => {
@@ -254,6 +254,7 @@ describe('useAutoSave', () => {
     });
 
     setVisibilityState('visible');
+    vi.clearAllTimers();
     await act(async () => {
       window.dispatchEvent(new Event('focus'));
       vi.advanceTimersByTime(100);
@@ -261,6 +262,13 @@ describe('useAutoSave', () => {
     });
 
     expect(setIntervalSpy).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      vi.advanceTimersByTime(61_000);
+      await Promise.resolve();
+    });
+
+    expect(saveProjectAuto).toHaveBeenCalledTimes(1);
   });
 
 
