@@ -87,7 +87,7 @@ export interface ExportImageToVideoStabilizationOptions {
 
 export interface ExportImageToVideoFrameHoldOptions extends ExportImageToVideoStabilizationOptions {
   /** HTMLMediaElement.readyState (0-4)。2=HAVE_CURRENT_DATA を描画可能ラインとみなす。 */
-  videoReadyState: number;
+  videoReadyState: HTMLMediaElement['readyState'];
   /** currentTime 補正直後など、描画対象フレームが未確定な seeking 状態か。 */
   isVideoSeeking: boolean;
   /** 判定時点の video.currentTime。 */
@@ -98,8 +98,8 @@ export interface ExportImageToVideoFrameHoldOptions extends ExportImageToVideoSt
   syncToleranceSec?: number;
 }
 
-const MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME = 2;
-const DEFAULT_EXPORT_IMAGE_TO_VIDEO_SYNC_TOLERANCE_SEC = 0.004;
+const MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME: HTMLMediaElement['readyState'] = 2;
+export const EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC = 0.004;
 
 /**
  * プラットフォーム capability から、プレビュー制御用の方針を組み立てる。
@@ -445,7 +445,7 @@ export function shouldHoldFrameForImageToVideoExportTransition(
   // こうしておくと「このフレームで seek 補正が入って描画不能になるか」と
   // 「前フレーム保持が必要か」の境界が一致し、過保持や保持漏れを防げる。
   const syncToleranceSec =
-    options.syncToleranceSec ?? DEFAULT_EXPORT_IMAGE_TO_VIDEO_SYNC_TOLERANCE_SEC;
+    options.syncToleranceSec ?? EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC;
   const isVideoNotReady =
     options.videoReadyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME;
   const isVideoFrameSeeking = options.isVideoSeeking;

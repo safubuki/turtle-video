@@ -98,7 +98,9 @@
 - **対策**:
   - `shouldHoldFrameForImageToVideoExportTransition()` で「画像→動画の export 安定化ウィンドウ中に、まだそのフレームは描画不能か」を判定する
   - `renderFrame` の `holdFrame` 判定にこの条件を加え、動画が同期・seek 完了するまで直前の画像フレームを保持する
-- **注意**: この保持は `isExporting && previousItemType === 'image'` の短い安定化区間に限定する。動画→動画や通常 preview に広げると、既存の sync / fade tail / blackout 対策へ影響しやすい
+- **注意**:
+  - この保持は `isExporting && previousItemType === 'image'` の短い安定化区間に限定する。動画→動画や通常 preview に広げると、既存の sync / fade tail / blackout 対策へ影響しやすい
+  - 画像→動画境界の seek 補正しきい値は `EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC` を single source of truth とし、保持判定と `currentTime` 補正の両方で共有する
 
 ---
 

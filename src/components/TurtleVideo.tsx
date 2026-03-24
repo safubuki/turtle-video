@@ -40,6 +40,7 @@ import {
   getPreviewPlatformPolicy,
   getPreviewVideoSyncThreshold,
   getPageHidePausePlan,
+  EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC,
   shouldAttemptDeferredPreviewPlay,
   shouldBlackoutVideoFadeTail,
   shouldBundlePreviewStartForWebAudioMix,
@@ -605,6 +606,7 @@ const TurtleVideo: React.FC = () => {
                 isVideoSeeking: activeEl.seeking,
                 videoCurrentTime: activeEl.currentTime,
                 targetTime,
+                syncToleranceSec: EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC,
               });
               const hasExportPlayFailure = _isExporting && !!exportPlayFailedRef.current[activeId];
               const needsCorrection =
@@ -834,7 +836,11 @@ const TurtleVideo: React.FC = () => {
 
               if (isActivePlaying && !isUserSeeking) {
                 if (shouldStabilizeImageToVideoTransition) {
-                  if (!isVideoSeeking && Math.abs(videoEl.currentTime - targetTime) > 0.004) {
+                  if (
+                    !isVideoSeeking
+                    && Math.abs(videoEl.currentTime - targetTime)
+                      > EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC
+                  ) {
                     videoEl.currentTime = targetTime;
                   }
                   if (!videoEl.paused) {
