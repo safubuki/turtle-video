@@ -420,6 +420,21 @@
   - 「正式対応済み」へ切り替えるのは、保存 / 読込 / 設定まで含む iOS Safari の主要受け入れ条件を実機で確認した後に限る
   - ドキュメント上の表記変更だけで Phase 完了扱いにせず、必ず test/build と実機確認ステータスをセットで更新する
 
+### 9-13. Teams 向け export 総尺は `resolveExportDuration()` を唯一の決定元にする
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/utils/exportTimeline.ts`, `src/utils/mp4Duration.ts`, `src/test/exportTimeline.test.ts`, `src/test/mp4Duration.test.ts`
+- **問題**:
+  - export 終端の決定が映像フレーム数、音声クランプ、mux 後確認で分散すると、Teams 投稿後に audio / video / container の尺ずれが再発しやすい
+  - 中間フレームの duration を触ると CFR が崩れ、Android / PC の既存安定処理まで巻き込みやすい
+- **対策**:
+  - `resolveExportDuration()` を最終 `exportDuration` の唯一の決定元にし、`useExport.ts` ではその値だけを映像終端・音声終端・mux 後検査へ渡す
+  - 映像は `getExportFrameTiming()` で CFR を維持し、端数調整は最後のフレーム duration だけに閉じる
+  - 音声は `feedPreRenderedAudio()` で最終尺超過を clamp し、`finalizeAudioForExport()` で不足分を無音 pad してから `AudioEncoder.flush()` する
+  - `inspectMp4Durations()` で mux 後の container / video / audio duration を再検査し、差分が 1ms を超えたら失敗扱いにする
+- **注意**:
+  - この整合処理は export finalize / encode / mux に閉じ込め、iOS Safari preview、WebAudio ルーティング、無音対策、通常プレビュー処理へ共通化しない
+  - Teams 対策と iOS Safari 対策を同じ分岐で混ぜず、iOS MediaRecorder strategy には持ち込まない
+
 ---
 
 ## 9.5. プレビューキャプチャ

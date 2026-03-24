@@ -6,6 +6,12 @@ export interface ExportTimelineAlignment {
   alignedDurationUs: number;
 }
 
+export interface ResolvedExportDuration extends ExportTimelineAlignment {
+  exportDurationSec: number;
+  exportDurationUs: number;
+  nominalFrameDurationUs: number;
+}
+
 export interface ExportFrameTiming {
   timestampUs: number;
   durationUs: number;
@@ -13,39 +19,68 @@ export interface ExportFrameTiming {
 
 const DURATION_EPSILON = 1e-9;
 
-export function alignExportDurationToFrameGrid(
+function isResolvedExportDuration(
+  alignment: ExportTimelineAlignment | ResolvedExportDuration,
+): alignment is ResolvedExportDuration {
+  return 'exportDurationUs' in alignment && 'nominalFrameDurationUs' in alignment;
+}
+
+export function resolveExportDuration(
   totalDurationSec: number,
   fps: number,
-): ExportTimelineAlignment {
+): ResolvedExportDuration {
   const safeDurationSec = Number.isFinite(totalDurationSec) && totalDurationSec > 0 ? totalDurationSec : 0;
   const safeFps = Number.isFinite(fps) && fps > 0 ? fps : 0;
 
   if (safeDurationSec <= 0 || safeFps <= 0) {
     return {
+      exportDurationSec: safeDurationSec,
+      exportDurationUs: 0,
       rawDurationSec: safeDurationSec,
       rawDurationUs: 0,
       frameCount: 0,
       alignedDurationSec: 0,
       alignedDurationUs: 0,
+      nominalFrameDurationUs: 0,
     };
   }
 
-  const rawDurationUs = Math.max(0, Math.round(safeDurationSec * 1e6));
+  const exportDurationUs = Math.max(0, Math.round(safeDurationSec * 1e6));
   const rawFrameCount = safeDurationSec * safeFps;
   const frameCount = Math.max(1, Math.ceil(rawFrameCount - DURATION_EPSILON));
   const alignedDurationSec = frameCount / safeFps;
+  const alignedDurationUs = Math.max(0, Math.round(alignedDurationSec * 1e6));
+  const nominalFrameDurationUs = Math.max(1, Math.round(alignedDurationUs / frameCount));
 
   return {
+    exportDurationSec: safeDurationSec,
+    exportDurationUs,
     rawDurationSec: safeDurationSec,
-    rawDurationUs,
+    rawDurationUs: exportDurationUs,
     frameCount,
     alignedDurationSec,
-    alignedDurationUs: Math.max(0, Math.round(alignedDurationSec * 1e6)),
+    alignedDurationUs,
+    nominalFrameDurationUs,
+  };
+}
+
+export function alignExportDurationToFrameGrid(
+  totalDurationSec: number,
+  fps: number,
+): ExportTimelineAlignment {
+  const resolved = resolveExportDuration(totalDurationSec, fps);
+
+  return {
+    rawDurationSec: resolved.rawDurationSec,
+    rawDurationUs: resolved.rawDurationUs,
+    frameCount: resolved.frameCount,
+    alignedDurationSec: resolved.alignedDurationSec,
+    alignedDurationUs: resolved.alignedDurationUs,
   };
 }
 
 export function getExportFrameTiming(
-  alignment: ExportTimelineAlignment,
+  alignment: ExportTimelineAlignment | ResolvedExportDuration,
   fps: number,
   frameIndex: number,
 ): ExportFrameTiming {
@@ -57,11 +92,16 @@ export function getExportFrameTiming(
     };
   }
 
-  const nominalFrameDurationUs = 1e6 / safeFps;
+  const nominalFrameDurationUs = isResolvedExportDuration(alignment) && alignment.nominalFrameDurationUs > 0
+    ? alignment.nominalFrameDurationUs
+    : Math.max(1, Math.round(1e6 / safeFps));
+  const exportDurationUs = isResolvedExportDuration(alignment)
+    ? alignment.exportDurationUs
+    : alignment.rawDurationUs;
   const timestampUs = Math.max(0, Math.round(frameIndex * nominalFrameDurationUs));
   const isLastFrame = frameIndex === alignment.frameCount - 1;
   const nextBoundaryUs = isLastFrame
-    ? alignment.rawDurationUs
+    ? exportDurationUs
     : Math.max(timestampUs, Math.round((frameIndex + 1) * nominalFrameDurationUs));
 
   return {
