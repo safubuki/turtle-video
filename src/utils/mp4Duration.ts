@@ -70,9 +70,14 @@ function readDurationUsFromFullBox(view: DataView, contentStart: number, end: nu
     return toDurationUs(duration, timescale);
   }
 
-  const timescale = view.getUint32(contentStart + 12);
-  const duration = view.getUint32(contentStart + 16);
-  return toDurationUs(duration, timescale);
+  if (version === 0) {
+    const timescale = view.getUint32(contentStart + 12);
+    const duration = view.getUint32(contentStart + 16);
+    return toDurationUs(duration, timescale);
+  }
+
+  // Unsupported or unknown version; fail safely.
+  return null;
 }
 
 function inspectTrackDuration(view: DataView, start: number, end: number): { handlerType: string | null; durationUs: number | null } {
