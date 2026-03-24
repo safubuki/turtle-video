@@ -200,6 +200,69 @@ describe('useAutoSave', () => {
     expect(saveProjectAuto).toHaveBeenCalledTimes(1);
   });
 
+  it('自動保存間隔を短くした時は、新しい間隔で overdue 判定して即時に追いつき保存する', async () => {
+    const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
+    const saveProjectAuto = vi.fn().mockResolvedValue(true);
+    localStorage.setItem(AUTO_SAVE_INTERVAL_KEY, '5');
+    act(() => {
+      useProjectStore.setState({
+        refreshSaveInfo,
+        saveProjectAuto,
+        isSaving: false,
+        lastManualSave: null,
+      });
+    });
+
+    const { result } = renderHook(() => useAutoSave());
+
+    const baseNow = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => baseNow + 61_000);
+
+    await act(async () => {
+      result.current.updateAutoSaveInterval(1);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(100);
+      await Promise.resolve();
+    });
+
+    expect(saveProjectAuto).toHaveBeenCalledTimes(1);
+  });
+
+  it('非アクティブから復帰した時は自動保存タイマーを再開する', async () => {
+    const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
+    const saveProjectAuto = vi.fn().mockResolvedValue(true);
+    const setIntervalSpy = vi.spyOn(window, 'setInterval');
+    act(() => {
+      useProjectStore.setState({
+        refreshSaveInfo,
+        saveProjectAuto,
+        isSaving: false,
+        lastManualSave: null,
+      });
+    });
+
+    renderHook(() => useAutoSave());
+
+    expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+
+    setVisibilityState('hidden');
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    setVisibilityState('visible');
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+      vi.advanceTimersByTime(100);
+      await Promise.resolve();
+    });
+
+    expect(setIntervalSpy).toHaveBeenCalledTimes(2);
+  });
+
 
   it('自動保存失敗時は変更検知ハッシュを進めず、同じ内容でも次回再試行する', async () => {
     const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);

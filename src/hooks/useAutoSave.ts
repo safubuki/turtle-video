@@ -74,6 +74,7 @@ export function useAutoSave() {
   const performAutoSaveRef = useRef<() => Promise<AutoSaveRunResult>>(async () => 'skipped-empty');
   const isAutoSaveRunningRef = useRef(false);
   const lastAutoSaveActivityAtRef = useRef<number>(Date.now());
+  const shouldRestartTimerOnReturnRef = useRef(false);
   const [autoSaveMinutes, setAutoSaveMinutes] = useState<AutoSaveIntervalOption>(getAutoSaveInterval);
   
   // ストアからデータを取得
@@ -193,7 +194,7 @@ export function useAutoSave() {
    */
   const performAutoSave = useCallback(async (): Promise<AutoSaveRunResult> => {
     // エクスポート中は保存をスキップ（動画品質を保護）
-    if (isProcessing) {
+    if (useUIStore.getState().isProcessing) {
       return 'skipped-processing';
     }
     
@@ -320,6 +321,15 @@ export function useAutoSave() {
       }
     };
 
+    const restartAutoSaveTimer = () => {
+      if (intervalRef.current !== null) {
+        clearInterval(intervalRef.current);
+      }
+      intervalRef.current = window.setInterval(() => {
+        void runAutoSave();
+      }, intervalMs);
+    };
+
     const triggerCatchUpSave = () => {
       clearScheduledCatchUpSave();
       // visibilitychange / focus / pageshow の発火順は環境依存なので、
@@ -327,11 +337,29 @@ export function useAutoSave() {
       catchUpSaveTimeoutRef.current = window.setTimeout(() => {
         catchUpSaveTimeoutRef.current = null;
         if (document.visibilityState === 'hidden') return;
+        if (shouldRestartTimerOnReturnRef.current) {
+          shouldRestartTimerOnReturnRef.current = false;
+          restartAutoSaveTimer();
+        }
         if (useProjectStore.getState().isSaving) return;
         const elapsed = Date.now() - lastAutoSaveActivityAtRef.current;
         if (elapsed < intervalMs) return;
         void runAutoSave();
       }, AUTO_SAVE_RETURN_CHECK_DELAY_MS);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        shouldRestartTimerOnReturnRef.current = true;
+        clearScheduledCatchUpSave();
+        return;
+      }
+      triggerCatchUpSave();
+    };
+
+    const handlePageHide = () => {
+      shouldRestartTimerOnReturnRef.current = true;
+      clearScheduledCatchUpSave();
     };
     
     // オフの場合はタイマーを設定しない
@@ -342,12 +370,10 @@ export function useAutoSave() {
     }
     
     // 自動保存タイマー開始
-    lastAutoSaveActivityAtRef.current = Date.now();
-    intervalRef.current = window.setInterval(() => {
-      void runAutoSave();
-    }, intervalMs);
+    restartAutoSaveTimer();
 
-    document.addEventListener('visibilitychange', triggerCatchUpSave);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
     window.addEventListener('focus', triggerCatchUpSave);
     window.addEventListener('pageshow', triggerCatchUpSave);
     
@@ -357,7 +383,8 @@ export function useAutoSave() {
         clearInterval(intervalRef.current);
       }
       clearScheduledCatchUpSave();
-      document.removeEventListener('visibilitychange', triggerCatchUpSave);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
       window.removeEventListener('focus', triggerCatchUpSave);
       window.removeEventListener('pageshow', triggerCatchUpSave);
     };
