@@ -657,7 +657,9 @@ const TurtleVideo: React.FC = () => {
               // - !hasFrame: readyState 不足や seeking 中で現フレーム自体が未確定
               // - needsCorrection: export sync 補正が必要で、このフレームは targetTime と不一致
               // - shouldHoldForVideoEnd: クリップ終端で ended/play() 巻き戻りを避けたい
-              // - shouldHoldForImageToVideoTransition: 画像→動画の安定化 seek 直後で一見 ready でも描画不能
+              // - shouldHoldForImageToVideoTransition: 画像→動画の安定化 seek 直後で、
+              //   hold 判定時点では ready に見えても、その後の currentTime 補正で
+              //   drawing 時点では seeking へ遷移して描画不能になるケースを拾う
               const shouldHoldActiveVideoFrame = !hasFrame
                 || needsCorrection
                 || shouldHoldForVideoEnd

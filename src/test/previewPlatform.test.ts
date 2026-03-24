@@ -308,7 +308,7 @@ describe('preview platform helpers', () => {
     ).toBe(false);
   });
 
-  it('export の画像->動画境界で同期補正が必要な間は前フレーム保持を返す', () => {
+  it('export の画像->動画境界で needsTimeCorrection 単独なら前フレーム保持を返す', () => {
     expect(
       shouldHoldFrameForImageToVideoExportTransition({
         isExporting: true,
@@ -321,7 +321,9 @@ describe('preview platform helpers', () => {
         targetTime: 0.02,
       }),
     ).toBe(true);
+  });
 
+  it('export の画像->動画境界で videoReadyState 不足単独なら前フレーム保持を返す', () => {
     expect(
       shouldHoldFrameForImageToVideoExportTransition({
         isExporting: true,

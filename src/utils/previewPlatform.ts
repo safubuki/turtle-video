@@ -422,6 +422,8 @@ export function shouldStabilizeImageToVideoTransitionDuringExport(
  * 画像→動画の export 切り替え直後、プリウォーム済み動画が一見 ready に見えても、
  * 直後の currentTime 補正で seeking に入るとそのフレームは描画できない。
  * この瞬間だけ前フレーム保持へ倒し、黒クリアのちらつきを防ぐ。
+ * なお、この保持は既存の安定化ウィンドウ内に限定し、ウィンドウ終了までに
+ * 同期が完了する前提で使う。安定化後は通常の hasFrame / needsCorrection 判定へ戻す。
  */
 export function shouldHoldFrameForImageToVideoExportTransition(
   options: ExportImageToVideoFrameHoldOptions,
