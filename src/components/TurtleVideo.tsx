@@ -836,6 +836,9 @@ const TurtleVideo: React.FC = () => {
 
               if (isActivePlaying && !isUserSeeking) {
                 if (shouldStabilizeImageToVideoTransition) {
+                  // shouldStabilizeImageToVideoTransition は
+                  // isExporting && active=video && previous=image の安定化区間だけ true になる。
+                  // つまり、この currentTime 補正も保持判定と同じく画像→動画 export 境界に限定される。
                   if (
                     !isVideoSeeking
                     && Math.abs(videoEl.currentTime - targetTime)

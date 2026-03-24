@@ -98,6 +98,7 @@ export interface ExportImageToVideoFrameHoldOptions extends ExportImageToVideoSt
   syncToleranceSec?: number;
 }
 
+// HTMLMediaElement.HAVE_CURRENT_DATA 相当。現在フレームを canvas 描画に使える最小 readyState。
 const MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME: HTMLMediaElement['readyState'] = 2;
 export const EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC = 0.004;
 
