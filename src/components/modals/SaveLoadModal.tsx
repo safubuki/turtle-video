@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { X, Save, FolderOpen, Trash2, Clock, AlertTriangle, Timer, Image, CircleHelp } from 'lucide-react';
+import { X, Save, FolderOpen, Trash2, Clock, AlertTriangle, Timer, Image, CircleHelp, RefreshCw } from 'lucide-react';
 import {
   useProjectStore,
   getProjectStoreErrorMessage,
@@ -80,6 +80,21 @@ function formatDateTime(isoString: string | null, nowMs: number = Date.now()): s
   });
 }
 
+function formatExactDateTime(isoString: string | null): string {
+  if (!isoString) return '---';
+  const date = new Date(isoString);
+  if (!Number.isFinite(date.getTime())) return '---';
+  // 保存モーダルは日本語UI前提のため、相対表示と同じく日本語ロケールでそろえる。
+  return date.toLocaleString('ja-JP', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
 export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModalProps) {
   const [mode, setMode] = useState<ModalMode>('menu');
   const [selectedSlot, setSelectedSlot] = useState<SaveSlot | null>(null);
@@ -114,7 +129,9 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
     isSaving,
     isLoading,
     lastAutoSave,
+    lastAutoSaveActivityAt,
     lastManualSave,
+    autoSaveRuntimeStatus,
     lastSaveFailure,
     saveProjectManual,
     loadProjectFromSlot,
@@ -122,6 +139,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
     deleteAutoSaveOnly,
     resetSaveDatabase,
     refreshSaveInfo,
+    requestAutoSaveRestart,
     clearLastSaveFailure,
   } = useProjectStore();
   
@@ -148,6 +166,40 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
   const hasAutoSave = lastAutoSave !== null;
   const hasManualSave = lastManualSave !== null;
   const hasSaveData = hasAutoSave || hasManualSave;
+  const autoSaveIntervalMs = autoSaveInterval * 60 * 1000;
+  const lastAutoSaveActivityLabel = useMemo(() => {
+    if (!lastAutoSaveActivityAt) return '---';
+    if (autoSaveRuntimeStatus === 'paused-processing') {
+      return formatDateTime(lastAutoSaveActivityAt, relativeTimeNowMs);
+    }
+    if (autoSaveInterval > 0) {
+      const savedAt = new Date(lastAutoSaveActivityAt).getTime();
+      if (Number.isFinite(savedAt) && relativeTimeNowMs - savedAt >= autoSaveIntervalMs) {
+        return '要確認';
+      }
+    }
+    return formatDateTime(lastAutoSaveActivityAt, relativeTimeNowMs);
+  }, [autoSaveInterval, autoSaveIntervalMs, autoSaveRuntimeStatus, lastAutoSaveActivityAt, relativeTimeNowMs]);
+  const showAutoSaveRestartButton = useMemo(() => {
+    if (autoSaveInterval === 0) return false;
+    if (autoSaveRuntimeStatus === 'paused-processing') return false;
+    if (autoSaveRuntimeStatus === 'failed') return true;
+    if (!lastAutoSaveActivityAt) return false;
+    const activityAt = new Date(lastAutoSaveActivityAt).getTime();
+    if (!Number.isFinite(activityAt)) return false;
+    return relativeTimeNowMs - activityAt >= autoSaveIntervalMs;
+  }, [autoSaveInterval, autoSaveIntervalMs, autoSaveRuntimeStatus, lastAutoSaveActivityAt, relativeTimeNowMs]);
+  const autoSaveStatusMessage = useMemo(() => {
+    if (autoSaveInterval === 0) return '自動保存はオフです。';
+    if (autoSaveRuntimeStatus === 'running') return '自動保存を実行中です。';
+    if (autoSaveRuntimeStatus === 'paused-processing') return '書き出し中のため自動保存を一時停止しています。';
+    if (autoSaveRuntimeStatus === 'failed') return '直近の自動保存が失敗しました。必要なら再始動してください。';
+    if (autoSaveRuntimeStatus === 'saved') return '直近の自動保存は正常に完了しました。';
+    if (autoSaveRuntimeStatus === 'skipped-nochange') return '変更がないため自動保存はスキップされました。';
+    if (autoSaveRuntimeStatus === 'skipped-empty') return '保存対象がないため自動保存は待機中です。';
+    if (showAutoSaveRestartButton) return '自動保存タイマーが止まっている可能性があります。再始動してください。';
+    return '自動保存タイマーを待機中です。';
+  }, [autoSaveInterval, autoSaveRuntimeStatus, showAutoSaveRestartButton]);
 
   const failureActionLabel = useMemo(() => {
     switch (lastSaveFailure?.recoveryAction) {
@@ -300,6 +352,11 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
     useLogStore.getState().info('SYSTEM', `自動保存間隔を${value === 0 ? 'オフ' : `${value}分`}に変更`);
     // 設定反映のためにページリロードが必要な旨を通知
     onToast(`自動保存間隔を${value === 0 ? 'オフ' : `${value}分`}に変更しました`, 'success');
+  };
+
+  const handleRestartAutoSave = () => {
+    requestAutoSaveRestart();
+    onToast('自動保存を再始動しました', 'success');
   };
   
   /**
@@ -639,9 +696,28 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
                   <Clock size={14} />
                   自動保存
                 </span>
-                <span className={hasAutoSave ? 'text-white' : 'text-gray-500'}>
-                  {formatDateTime(lastAutoSave, relativeTimeNowMs)}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className={lastAutoSaveActivityAt ? 'text-white' : 'text-gray-500'}>
+                    {lastAutoSaveActivityLabel}
+                  </span>
+                  {showAutoSaveRestartButton && (
+                    <button
+                      type="button"
+                      onClick={handleRestartAutoSave}
+                      className="inline-flex items-center justify-center rounded-md border border-blue-500/40 bg-blue-500/10 p-1.5 text-blue-200 transition hover:border-blue-300/70 hover:bg-blue-500/20 hover:text-white"
+                      title="自動保存を再始動"
+                      aria-label="自動保存を再始動"
+                    >
+                      <RefreshCw size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="pl-5 text-[11px] text-gray-500">
+                前回保存日時: {formatExactDateTime(lastAutoSave)}
+              </div>
+              <div className="pl-5 text-[11px] text-gray-400">
+                {autoSaveStatusMessage}
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-gray-400 flex items-center gap-1">

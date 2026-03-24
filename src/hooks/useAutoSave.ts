@@ -79,7 +79,10 @@ export function useAutoSave() {
   const isAutoSaveRunningRef = useRef(false);
   const lastAutoSaveActivityAtRef = useRef<number>(Date.now());
   const hasStartedAutoSaveTimerRef = useRef(false);
+  const hasObservedAutoSaveActivityRef = useRef(false);
   const shouldRestartTimerOnReturnRef = useRef(false);
+  const restartAutoSaveControllerRef = useRef<null | (() => void)>(null);
+  const handledAutoSaveRestartTokenRef = useRef(0);
   const [autoSaveMinutes, setAutoSaveMinutes] = useState<AutoSaveIntervalOption>(getAutoSaveInterval);
   
   // ストアからデータを取得
@@ -97,7 +100,10 @@ export function useAutoSave() {
   const isProcessing = useUIStore((s) => s.isProcessing);
   
   const saveProjectAuto = useProjectStore((s) => s.saveProjectAuto);
+  const lastAutoSave = useProjectStore((s) => s.lastAutoSave);
   const lastManualSave = useProjectStore((s) => s.lastManualSave);
+  const updateAutoSaveRuntime = useProjectStore((s) => s.updateAutoSaveRuntime);
+  const autoSaveRestartToken = useProjectStore((s) => s.autoSaveRestartToken);
   
   /**
    * 現在の状態のハッシュを計算（簡易的な変更検知用）
@@ -266,15 +272,41 @@ export function useAutoSave() {
     if (isAutoSaveRunningRef.current) return;
 
     isAutoSaveRunningRef.current = true;
+    useProjectStore.getState().updateAutoSaveRuntime({ status: 'running' });
     try {
       const result = await performAutoSaveRef.current(options);
       if (result !== 'skipped-processing' && result !== 'failed') {
-        lastAutoSaveActivityAtRef.current = Date.now();
+        const now = new Date();
+        const activityAt = now.toISOString();
+        hasObservedAutoSaveActivityRef.current = true;
+        lastAutoSaveActivityAtRef.current = now.getTime();
+        useProjectStore.getState().updateAutoSaveRuntime({
+          status: result,
+          activityAt,
+        });
+        return;
       }
+      useProjectStore.getState().updateAutoSaveRuntime({
+        status: result === 'skipped-processing' ? 'paused-processing' : 'failed',
+      });
     } finally {
       isAutoSaveRunningRef.current = false;
     }
   }, []);
+
+  useEffect(() => {
+    if (!lastAutoSave) return;
+    if (hasObservedAutoSaveActivityRef.current) return;
+
+    const savedAt = new Date(lastAutoSave).getTime();
+    if (!Number.isFinite(savedAt)) return;
+
+    lastAutoSaveActivityAtRef.current = savedAt;
+    updateAutoSaveRuntime({
+      status: 'saved',
+      activityAt: lastAutoSave,
+    });
+  }, [lastAutoSave, updateAutoSaveRuntime]);
 
   useEffect(() => {
     if (!lastManualSave) return;
@@ -311,6 +343,12 @@ export function useAutoSave() {
   
   // 自動保存タイマーの設定
   useEffect(() => {
+    if (autoSaveMinutes === 0) {
+      restartAutoSaveControllerRef.current = null;
+      updateAutoSaveRuntime({ status: 'idle' });
+      return;
+    }
+
     // 初回起動時は少し遅延してから保存情報を更新
     const initTimeout = window.setTimeout(() => {
       useProjectStore.getState().refreshSaveInfo();
@@ -413,17 +451,20 @@ export function useAutoSave() {
       shouldRestartTimerOnReturnRef.current = true;
       clearScheduledCatchUpSave();
     };
+
+    restartAutoSaveControllerRef.current = () => {
+      clearScheduledCatchUpSave();
+      shouldRestartTimerOnReturnRef.current = false;
+      restartAutoSaveTimer(false);
+      void runAutoSave({ force: true });
+    };
     
     // オフの場合はタイマーを設定しない
-    if (autoSaveMinutes === 0) {
-      return () => {
-        clearTimeout(initTimeout);
-      };
-    }
-    
     // 自動保存タイマー開始
     if (!hasStartedAutoSaveTimerRef.current) {
-      lastAutoSaveActivityAtRef.current = Date.now();
+      if (!lastAutoSave) {
+        lastAutoSaveActivityAtRef.current = Date.now();
+      }
       hasStartedAutoSaveTimerRef.current = true;
     }
     restartAutoSaveTimer(false);
@@ -444,12 +485,13 @@ export function useAutoSave() {
       clearTimeout(initTimeout);
       clearAutoSaveTimer();
       clearScheduledCatchUpSave();
+      restartAutoSaveControllerRef.current = null;
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('pagehide', handlePageHide);
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('pageshow', handlePageShow);
     };
-  }, [autoSaveMinutes, runAutoSave]);
+  }, [autoSaveMinutes, lastAutoSave, runAutoSave]);
   
   useEffect(() => {
     if (autoSaveMinutes === 0) return;
@@ -469,7 +511,13 @@ export function useAutoSave() {
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [autoSaveMinutes, isProcessing, runAutoSave]);
+  }, [autoSaveMinutes, isProcessing, lastAutoSave, runAutoSave]);
+
+  useEffect(() => {
+    if (autoSaveRestartToken === handledAutoSaveRestartTokenRef.current) return;
+    handledAutoSaveRestartTokenRef.current = autoSaveRestartToken;
+    restartAutoSaveControllerRef.current?.();
+  }, [autoSaveRestartToken]);
 
   /**
    * 自動保存間隔を更新

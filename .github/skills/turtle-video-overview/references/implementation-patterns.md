@@ -1536,3 +1536,17 @@
 - **注意**:
   - `MediaItem.isLocked`（個別クリップロック）と `mediaStore.isClipsLocked`（セクションロック）は別概念なので混同しない
   - Zustand テストで存在しない state key を直接差し込むと、今回のような selector typo を見逃すため、実ストアの state shape に合わせる
+
+### 13-70. 自動保存表示は「前回成功保存時刻」ではなく「最後に autosave cadence が進んだ時刻」を基準にする
+
+- **対象ファイル**: `src/hooks/useAutoSave.ts`, `src/stores/projectStore.ts`, `src/components/modals/SaveLoadModal.tsx`, `src/test/useAutoSave.test.tsx`, `src/test/modalHistoryStability.test.tsx`
+- **問題**:
+  - autosave が `skipped-nochange` / `skipped-empty` で正常に1周期進んでいても、UI が `projectStore.lastAutoSave`（最後に実保存できた時刻）だけを見ていると、5分設定でも「7分前」などと表示され、停止と見分けがつかない
+  - アプリ起動直後に IndexedDB 上の前回 autosave が既に期限超過していても、in-memory timer を現在時刻で初期化すると catch-up 保存が先送りされる
+- **対応パターン**:
+  - `projectStore` に `lastAutoSaveActivityAt` / `autoSaveRuntimeStatus` / `autoSaveRestartToken` を持たせ、autosave hook から「最後に cadence が進んだ時刻」と実行状態を更新する
+  - 起動直後は、まだ runtime 側で autosave 実績がない場合に限って `lastAutoSave` を活動基準へ同期し、既に期限超過なら catch-up 保存を速やかに走らせる
+  - 保存モーダルの主表示は `lastAutoSaveActivityAt` を使い、`lastAutoSave` は「前回保存日時」として別行に分ける。活動時刻が interval を超過したら「要確認」と再始動ボタンを表示する
+- **注意**:
+  - `refreshSaveInfo()` は保存先 DB の最終保存時刻しか知らないため、`skipped-nochange` などで進んだ runtime 活動時刻を上書きしない
+  - 手動保存で autosave cadence の基準をリセットする場合も、正確な「前回 auto 保存日時」は `lastAutoSave` 側で保持し続ける

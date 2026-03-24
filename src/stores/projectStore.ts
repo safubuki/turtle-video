@@ -58,6 +58,15 @@ export interface SaveFailureInfo {
   storageEstimate: { usage: number; quota: number } | null;
 }
 
+export type AutoSaveRuntimeStatus =
+  | 'idle'
+  | 'running'
+  | 'saved'
+  | 'skipped-nochange'
+  | 'skipped-empty'
+  | 'paused-processing'
+  | 'failed';
+
 function isLikelyIndexedDbTransactionError(error: unknown): boolean {
   const lower = getProjectStoreErrorMessage(error).toLowerCase();
   return (
@@ -132,6 +141,9 @@ interface ProjectState {
   isSaving: boolean;
   isLoading: boolean;
   lastAutoSave: string | null;
+  lastAutoSaveActivityAt: string | null;
+  autoSaveRuntimeStatus: AutoSaveRuntimeStatus;
+  autoSaveRestartToken: number;
   lastManualSave: string | null;
   autoSaveError: string | null;
   lastSaveFailure: SaveFailureInfo | null;
@@ -176,6 +188,11 @@ interface ProjectState {
   deleteAutoSaveOnly: () => Promise<void>;
   resetSaveDatabase: () => Promise<void>;
   refreshSaveInfo: () => Promise<void>;
+  updateAutoSaveRuntime: (params: {
+    status: AutoSaveRuntimeStatus;
+    activityAt?: string | null;
+  }) => void;
+  requestAutoSaveRestart: () => void;
   clearAutoSaveError: () => void;
   clearLastSaveFailure: () => void;
 }
@@ -496,6 +513,9 @@ export const useProjectStore = create<ProjectState>()(
       isSaving: false,
       isLoading: false,
       lastAutoSave: null,
+      lastAutoSaveActivityAt: null,
+      autoSaveRuntimeStatus: 'idle',
+      autoSaveRestartToken: 0,
       lastManualSave: null,
       autoSaveError: null,
       lastSaveFailure: null,
@@ -548,6 +568,8 @@ export const useProjectStore = create<ProjectState>()(
           useLogStore.getState().info('SYSTEM', '手動保存完了', { savedAt: projectData.savedAt });
           set({
             lastManualSave: projectData.savedAt,
+            lastAutoSaveActivityAt: projectData.savedAt,
+            autoSaveRuntimeStatus: 'saved',
             isSaving: false,
             lastSaveFailure: null,
           });
@@ -615,7 +637,13 @@ export const useProjectStore = create<ProjectState>()(
             return nextProjectData;
           });
           useLogStore.getState().debug('SYSTEM', '自動保存完了', { savedAt: projectData.savedAt });
-          set({ lastAutoSave: projectData.savedAt, autoSaveError: null, lastSaveFailure: null });
+          set({
+            lastAutoSave: projectData.savedAt,
+            lastAutoSaveActivityAt: projectData.savedAt,
+            autoSaveRuntimeStatus: 'saved',
+            autoSaveError: null,
+            lastSaveFailure: null,
+          });
           return true;
         } catch (error) {
           const failureInfo = await buildSaveFailureInfo({
@@ -631,7 +659,11 @@ export const useProjectStore = create<ProjectState>()(
             recoveryAction: failureInfo.recoveryAction,
             storageEstimate: failureInfo.storageEstimate,
           });
-          set({ autoSaveError: message, lastSaveFailure: failureInfo });
+          set({
+            autoSaveRuntimeStatus: 'failed',
+            autoSaveError: message,
+            lastSaveFailure: failureInfo,
+          });
           return false;
         }
       },
@@ -689,14 +721,24 @@ export const useProjectStore = create<ProjectState>()(
       deleteAllSaves: async () => {
         useLogStore.getState().info('SYSTEM', '全保存データを削除');
         await deleteAllProjects();
-        set({ lastAutoSave: null, lastManualSave: null });
+        set({
+          lastAutoSave: null,
+          lastAutoSaveActivityAt: null,
+          autoSaveRuntimeStatus: 'idle',
+          lastManualSave: null,
+        });
         useLogStore.getState().info('SYSTEM', '全保存データ削除完了');
       },
 
       deleteAutoSaveOnly: async () => {
         useLogStore.getState().info('SYSTEM', '自動保存データを削除');
         await deleteProject('auto');
-        set({ lastAutoSave: null, lastSaveFailure: null });
+        set({
+          lastAutoSave: null,
+          lastAutoSaveActivityAt: null,
+          autoSaveRuntimeStatus: 'idle',
+          lastSaveFailure: null,
+        });
         useLogStore.getState().info('SYSTEM', '自動保存データ削除完了');
       },
 
@@ -707,6 +749,8 @@ export const useProjectStore = create<ProjectState>()(
         });
         set({
           lastAutoSave: null,
+          lastAutoSaveActivityAt: null,
+          autoSaveRuntimeStatus: 'idle',
           lastManualSave: null,
           autoSaveError: null,
           lastSaveFailure: null,
@@ -717,14 +761,24 @@ export const useProjectStore = create<ProjectState>()(
       refreshSaveInfo: async () => {
         try {
           const info = await getProjectsInfo();
-          set({
-            lastAutoSave: info.auto?.savedAt || null,
-            lastManualSave: info.manual?.savedAt || null,
-          });
+          set((state) => ({
+            lastAutoSave: info.auto?.savedAt ?? null,
+            lastAutoSaveActivityAt: state.lastAutoSaveActivityAt ?? (info.auto?.savedAt ?? null),
+            lastManualSave: info.manual?.savedAt ?? null,
+          }));
         } catch {
           // ignore
         }
       },
+
+      updateAutoSaveRuntime: ({ status, activityAt }) => set((state) => ({
+        autoSaveRuntimeStatus: status,
+        lastAutoSaveActivityAt: activityAt === undefined ? state.lastAutoSaveActivityAt : activityAt,
+      })),
+
+      requestAutoSaveRestart: () => set((state) => ({
+        autoSaveRestartToken: state.autoSaveRestartToken + 1,
+      })),
 
       clearAutoSaveError: () => set({ autoSaveError: null }),
       clearLastSaveFailure: () => set({ lastSaveFailure: null }),
