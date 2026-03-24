@@ -241,6 +241,30 @@ describe('useAutoSave', () => {
     expect(saveProjectAuto).toHaveBeenCalledTimes(1);
   });
 
+  it('起動時に前回自動保存から期限超過している場合は速やかに catch-up 保存する', async () => {
+    const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
+    const saveProjectAuto = vi.fn().mockResolvedValue(true);
+    vi.setSystemTime(new Date('2026-03-24T12:00:00.000Z'));
+    act(() => {
+      useProjectStore.setState({
+        refreshSaveInfo,
+        saveProjectAuto,
+        isSaving: false,
+        lastAutoSave: '2026-03-17T00:00:00.000Z',
+        lastManualSave: null,
+      });
+    });
+
+    renderHook(() => useAutoSave());
+
+    await act(async () => {
+      vi.advanceTimersByTime(100);
+      await Promise.resolve();
+    });
+
+    expect(saveProjectAuto).toHaveBeenCalledTimes(1);
+  });
+
   it('非アクティブから復帰した時は自動保存タイマーを再開する', async () => {
     const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
     const saveProjectAuto = vi.fn().mockResolvedValue(true);

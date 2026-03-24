@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import SettingsModal from '../components/modals/SettingsModal';
 import SaveLoadModal from '../components/modals/SaveLoadModal';
 
+let autoSaveIntervalValue = 1;
+
 const logStoreState = {
   entries: [],
   hasError: false,
@@ -42,6 +44,9 @@ const projectStoreState = {
   isSaving: false,
   isLoading: false,
   lastAutoSave: null as string | null,
+  lastAutoSaveActivityAt: null as string | null,
+  autoSaveRuntimeStatus: 'idle' as 'idle' | 'running' | 'saved' | 'skipped-nochange' | 'skipped-empty' | 'paused-processing' | 'failed',
+  autoSaveRestartToken: 0,
   lastManualSave: null as string | null,
   lastSaveFailure: null as null | {
     operation: 'manual' | 'auto';
@@ -56,6 +61,7 @@ const projectStoreState = {
   deleteAutoSaveOnly: vi.fn(),
   resetSaveDatabase: vi.fn(),
   refreshSaveInfo: vi.fn(),
+  requestAutoSaveRestart: vi.fn(),
   clearLastSaveFailure: vi.fn(),
 };
 
@@ -141,7 +147,7 @@ vi.mock('../stores/logStore', () => {
 });
 
 vi.mock('../hooks/useAutoSave', () => ({
-  getAutoSaveInterval: vi.fn(() => 1),
+  getAutoSaveInterval: vi.fn(() => autoSaveIntervalValue),
   setAutoSaveInterval: vi.fn(),
 }));
 
@@ -166,12 +172,16 @@ afterEach(() => {
   projectStoreState.isSaving = false;
   projectStoreState.isLoading = false;
   projectStoreState.lastAutoSave = null;
+  projectStoreState.lastAutoSaveActivityAt = null;
+  projectStoreState.autoSaveRuntimeStatus = 'idle';
   projectStoreState.lastManualSave = null;
   projectStoreState.lastSaveFailure = null;
+  projectStoreState.requestAutoSaveRestart.mockReset();
   projectStoreState.resetSaveDatabase.mockReset();
   projectStoreState.clearLastSaveFailure.mockReset();
   projectStoreState.refreshSaveInfo.mockReset();
   projectStoreState.saveProjectManual.mockReset();
+  autoSaveIntervalValue = 1;
   mediaStoreState.mediaItems = [];
   captionStoreState.captions = [];
 });
@@ -261,8 +271,10 @@ describe('modal history stability', () => {
 
   it('SaveLoadModal は表示中に相対時刻表示を更新し、将来時刻は「たった今」に丸める', async () => {
     vi.useFakeTimers();
+    autoSaveIntervalValue = 5;
     vi.setSystemTime(new Date('2026-03-24T12:00:00.000Z'));
     projectStoreState.lastAutoSave = '2026-03-24T11:59:10.000Z';
+    projectStoreState.lastAutoSaveActivityAt = '2026-03-24T11:59:10.000Z';
     projectStoreState.lastManualSave = '2026-03-24T12:10:00.000Z';
 
     const { getAllByText } = render(
@@ -282,6 +294,59 @@ describe('modal history stability', () => {
     expect(getAllByText('3分前').length).toBeGreaterThanOrEqual(1);
     expect(getAllByText('たった今').length).toBeGreaterThanOrEqual(1);
 
+    vi.useRealTimers();
+  });
+
+  it('SaveLoadModal は自動保存の活動時刻と前回保存日時を分けて表示し、停止疑い時は再始動できる', () => {
+    vi.useFakeTimers();
+    autoSaveIntervalValue = 5;
+    vi.setSystemTime(new Date('2026-03-24T12:00:00.000Z'));
+    projectStoreState.lastAutoSave = '2026-03-24T11:50:00.000Z';
+    projectStoreState.lastAutoSaveActivityAt = '2026-03-24T11:58:00.000Z';
+    projectStoreState.autoSaveRuntimeStatus = 'skipped-nochange';
+
+    const { getByText, rerender, getByRole } = render(
+      <SaveLoadModal
+        isOpen={true}
+        onClose={() => {}}
+        onToast={() => {}}
+      />,
+    );
+
+    expect(getByText('2分前')).toBeTruthy();
+    const expectedLastAutoSaveText = new Date(
+      projectStoreState.lastAutoSave as string,
+    ).toLocaleString('ja-JP', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    expect(
+      getByText(
+        new RegExp(
+          `前回保存日時: ${expectedLastAutoSaveText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+        ),
+      ),
+    ).toBeTruthy();
+
+    projectStoreState.lastAutoSaveActivityAt = '2026-03-24T11:54:00.000Z';
+
+    rerender(
+      <SaveLoadModal
+        isOpen={true}
+        onClose={() => {}}
+        onToast={() => {}}
+      />,
+    );
+
+    expect(getByText('要確認')).toBeTruthy();
+
+    fireEvent.click(getByRole('button', { name: '自動保存を再始動' }));
+
+    expect(projectStoreState.requestAutoSaveRestart).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
   });
 });
