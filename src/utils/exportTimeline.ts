@@ -19,6 +19,13 @@ export interface ExportFrameTiming {
 
 const DURATION_EPSILON = 1e-9;
 
+function sanitizePlaybackTimeSec(timeSec: number): number | null {
+  if (!Number.isFinite(timeSec)) return null;
+  // export の初期化や停止境界で未初期化値を拾っても安全側へ倒せるよう、
+  // フレーム供給用の時刻は 0 以上に正規化して扱う。
+  return Math.max(0, timeSec);
+}
+
 function isResolvedExportDuration(
   alignment: ExportTimelineAlignment | ResolvedExportDuration,
 ): alignment is ResolvedExportDuration {
@@ -108,4 +115,28 @@ export function getExportFrameTiming(
     timestampUs,
     durationUs: Math.max(1, nextBoundaryUs - timestampUs),
   };
+}
+
+export function resolveExportPlaybackTimeSec(
+  currentPlaybackTimeSec: number,
+  lastRenderedPlaybackTimeSec: number,
+  preferRenderedPlaybackTime: boolean,
+): number {
+  const preferred = preferRenderedPlaybackTime
+    ? lastRenderedPlaybackTimeSec
+    : currentPlaybackTimeSec;
+  const sanitizedPreferred = sanitizePlaybackTimeSec(preferred);
+  if (sanitizedPreferred !== null) {
+    return sanitizedPreferred;
+  }
+
+  const fallback = preferRenderedPlaybackTime
+    ? currentPlaybackTimeSec
+    : lastRenderedPlaybackTimeSec;
+  const sanitizedFallback = sanitizePlaybackTimeSec(fallback);
+  if (sanitizedFallback !== null) {
+    return sanitizedFallback;
+  }
+
+  return 0;
 }

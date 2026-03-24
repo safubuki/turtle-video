@@ -27,6 +27,7 @@ import { usePreventUnload } from '../hooks/usePreventUnload';
 
 // Utils
 import { captureCanvasAsImage } from '../utils/canvas';
+import { resolveExportPlaybackTimeSec } from '../utils/exportTimeline';
 import { preserveOriginalFileName, resolveAiNarrationFileName } from '../utils/fileNames';
 import { saveObjectUrlWithClientFileStrategy } from '../utils/fileSave';
 import { openFilesWithPicker } from '../utils/platform';
@@ -278,6 +279,7 @@ const TurtleVideo: React.FC = () => {
   const narrationsRef = useRef<NarrationClip[]>([]);
   const totalDurationRef = useRef(0);
   const currentTimeRef = useRef(0);
+  const lastRenderedExportTimeRef = useRef(0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mediaElementsRef = useRef<Record<string, HTMLVideoElement | HTMLImageElement | HTMLAudioElement>>({});
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -335,6 +337,7 @@ const TurtleVideo: React.FC = () => {
   captionSettingsRef.current = captionSettings;
 
   const platformCapabilities = useMemo(() => getPlatformCapabilities(), []);
+  const shouldPreferRenderedExportPlaybackTime = !platformCapabilities.isIosSafari;
   const previewPlatformPolicy = useMemo(
     () => getPreviewPlatformPolicy(platformCapabilities),
     [platformCapabilities]
@@ -467,9 +470,10 @@ const TurtleVideo: React.FC = () => {
     (time: number, isActivePlaying = false, _isExporting = false) => {
       try {
         const canvas = canvasRef.current;
-        if (!canvas) return;
+        if (!canvas) return false;
         const ctx = canvas.getContext('2d');
-        if (!ctx) return;
+        if (!ctx) return false;
+        let didUpdateCanvas = false;
 
         const currentItems = mediaItemsRef.current;
         const currentBgm = bgmRef.current;
@@ -746,6 +750,7 @@ const TurtleVideo: React.FC = () => {
           ctx.globalAlpha = 1.0;
           ctx.fillStyle = '#000000';
           ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+          didUpdateCanvas = true;
         }
 
         // Preload: 次のビデオを事前に準備（3秒前から開始）
@@ -977,6 +982,7 @@ const TurtleVideo: React.FC = () => {
                 ctx.drawImage(element as CanvasImageSource, -elemW / 2, -elemH / 2, elemW, elemH);
                 ctx.restore();
                 ctx.globalAlpha = 1.0;
+                didUpdateCanvas = true;
               }
             }
 
@@ -1187,6 +1193,7 @@ const TurtleVideo: React.FC = () => {
             ) => {
               const clamped = Math.max(0, Math.min(1, localAlpha));
               if (clamped <= 0) return;
+              didUpdateCanvas = true;
               ctx.globalAlpha = alpha * clamped;
               const drawStroke = options?.stroke ?? true;
               const drawFill = options?.fill ?? true;
@@ -1523,8 +1530,10 @@ const TurtleVideo: React.FC = () => {
         if (isActivePlaying && audioResumeWaitFramesRef.current > 0) {
           audioResumeWaitFramesRef.current -= 1;
         }
+        return didUpdateCanvas;
       } catch (e) {
         console.error('Render Error:', e);
+        return false;
       }
     },
     [captions, captionSettings, ensureAudioNodeForElement, logInfo, platformCapabilities, previewPlatformPolicy]
@@ -3699,10 +3708,28 @@ const TurtleVideo: React.FC = () => {
         stopAll();
         return;
       }
-      setCurrentTime(clampedElapsed);
-      currentTimeRef.current = clampedElapsed;
+      const updateLoopTime = () => {
+        setCurrentTime(clampedElapsed);
+        currentTimeRef.current = clampedElapsed;
+      };
+      const scheduleNextLoop = () => {
+        reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
+      };
+
+      if (isExportMode) {
+        const didRender = renderFrame(clampedElapsed, true, isExportMode);
+        // holdFrame などで Canvas 内容が維持されたフレームは「描画済み時刻」を進めない。
+        if (didRender) {
+          lastRenderedExportTimeRef.current = clampedElapsed;
+        }
+        updateLoopTime();
+        scheduleNextLoop();
+        return;
+      }
+      updateLoopTime();
       renderFrame(clampedElapsed, true, isExportMode);
-      reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
+      scheduleNextLoop();
+      return;
     },
     [stopAll, pause, setCurrentTime, renderFrame, logDebug, logWarn, platformCapabilities.isIosSafari]
   );
@@ -4204,10 +4231,16 @@ const TurtleVideo: React.FC = () => {
         //   「停止→再生」と「シーク→再生」の動作差を解消する）
         resetInactiveVideos();
 
-        renderFrame(fromTime, false);
+        renderFrame(fromTime, false, isExportMode);
 
         // メディア要素のシーク完了を待つ
         await new Promise((r) => setTimeout(r, 50));
+
+        if (isExportMode) {
+          // export 開始前に fromTime のフレームへ同期済みのため、初回フレーム供給は
+          // 「現時点のキャンバスが表しているタイムライン時刻」として fromTime を使う。
+          lastRenderedExportTimeRef.current = Math.max(0, fromTime);
+        }
       }
 
       // awaitの間にstopAllが呼ばれていたら中止
@@ -4218,6 +4251,12 @@ const TurtleVideo: React.FC = () => {
       startTimeRef.current = Date.now() - fromTime * 1000;
 
       if (isExportMode && canvasRef.current && masterDestRef.current) {
+        const getExportPlaybackTimeSec = () => resolveExportPlaybackTimeSec(
+          currentTimeRef.current,
+          lastRenderedExportTimeRef.current,
+          shouldPreferRenderedExportPlaybackTime,
+        );
+
         startWebCodecsExport(
           canvasRef,
           masterDestRef,
@@ -4242,7 +4281,7 @@ const TurtleVideo: React.FC = () => {
             bgm: bgmRef.current,
             narrations: narrationsRef.current,
             totalDuration: totalDurationRef.current,
-            getPlaybackTimeSec: () => currentTimeRef.current,
+            getPlaybackTimeSec: getExportPlaybackTimeSec,
             onPreparationStepChange: setExportPreparationStep,
             // 音声プリレンダリング完了後に再生ループを開始
             // iOS Safari ではリアルタイム音声抽出に数秒かかるため、
