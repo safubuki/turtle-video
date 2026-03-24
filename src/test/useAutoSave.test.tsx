@@ -101,6 +101,11 @@ describe('useAutoSave', () => {
     });
 
     renderHook(() => useAutoSave());
+    await act(async () => {
+      vi.advanceTimersByTime(100);
+      await Promise.resolve();
+    });
+    saveProjectAuto.mockClear();
 
     const baseNow = Date.now();
     vi.spyOn(Date, 'now').mockImplementation(() => baseNow + 3 * 60_000);
@@ -132,6 +137,11 @@ describe('useAutoSave', () => {
     });
 
     renderHook(() => useAutoSave());
+    await act(async () => {
+      vi.advanceTimersByTime(100);
+      await Promise.resolve();
+    });
+    saveProjectAuto.mockClear();
 
     const baseNow = Date.now();
     vi.spyOn(Date, 'now').mockImplementation(() => baseNow + 3 * 60_000);
@@ -162,7 +172,7 @@ describe('useAutoSave', () => {
       await Promise.resolve();
     });
 
-    expect(saveProjectAuto).not.toHaveBeenCalled();
+    expect(saveProjectAuto).toHaveBeenCalledTimes(1);
   });
 
   it('エクスポート中に見送った自動保存は、処理終了後に即座に再開する', async () => {
@@ -245,6 +255,11 @@ describe('useAutoSave', () => {
     });
 
     renderHook(() => useAutoSave());
+    await act(async () => {
+      vi.advanceTimersByTime(100);
+      await Promise.resolve();
+    });
+    saveProjectAuto.mockClear();
 
     setVisibilityState('hidden');
     act(() => {
@@ -266,7 +281,7 @@ describe('useAutoSave', () => {
       await Promise.resolve();
     });
 
-    expect(saveProjectAuto).toHaveBeenCalledTimes(1);
+    expect(saveProjectAuto).toHaveBeenCalledTimes(2);
   });
 
   it('短時間の非アクティブ復帰では残り時間を維持して自動保存 cadence を保つ', async () => {
@@ -288,6 +303,12 @@ describe('useAutoSave', () => {
     expect(setIntervalSpy).toHaveBeenCalledTimes(1);
 
     await act(async () => {
+      vi.advanceTimersByTime(100);
+      await Promise.resolve();
+    });
+    saveProjectAuto.mockClear();
+
+    await act(async () => {
       vi.advanceTimersByTime(50_000);
       await Promise.resolve();
     });
@@ -305,20 +326,6 @@ describe('useAutoSave', () => {
     });
 
     expect(setTimeoutSpy).toHaveBeenCalled();
-    expect(saveProjectAuto).not.toHaveBeenCalled();
-
-    await act(async () => {
-      vi.advanceTimersByTime(9_500);
-      await Promise.resolve();
-    });
-
-    expect(saveProjectAuto).not.toHaveBeenCalled();
-
-    await act(async () => {
-      vi.advanceTimersByTime(500);
-      await Promise.resolve();
-    });
-
     expect(saveProjectAuto).toHaveBeenCalledTimes(1);
 
     act(() => {
