@@ -77,6 +77,14 @@ export interface FadeTailBlackoutGuardOptions {
   maxBlackoutWindowSec?: number;
 }
 
+export interface ExportImageToVideoStabilizationOptions {
+  isExporting: boolean;
+  activeItemType: 'video' | 'image' | null;
+  previousItemType: 'video' | 'image' | null;
+  clipLocalTime: number;
+  stabilizationWindowSec?: number;
+}
+
 /**
  * プラットフォーム capability から、プレビュー制御用の方針を組み立てる。
  */
@@ -376,6 +384,30 @@ export function shouldBlackoutVideoFadeTail(
   );
 
   return remainingClipTime <= blackoutWindowSec;
+}
+
+/**
+ * Android export で「画像 -> 動画」の直後は、デコーダが前クリップの状態から
+ * 立ち上がる途中に `play()`/sync が競合しやすい。短い安定化ウィンドウだけ
+ * 動画を時刻同期優先で扱うための判定を返す。
+ */
+export function shouldStabilizeImageToVideoTransitionDuringExport(
+  options: ExportImageToVideoStabilizationOptions,
+): boolean {
+  if (!options.isExporting) {
+    return false;
+  }
+
+  if (options.activeItemType !== 'video' || options.previousItemType !== 'image') {
+    return false;
+  }
+
+  const stabilizationWindowSec = options.stabilizationWindowSec ?? 0.12;
+  if (!Number.isFinite(stabilizationWindowSec) || stabilizationWindowSec <= 0) {
+    return false;
+  }
+
+  return options.clipLocalTime >= 0 && options.clipLocalTime <= stabilizationWindowSec;
 }
 
 /**

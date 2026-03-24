@@ -46,6 +46,7 @@ import {
   getVisibilityRecoveryPlan,
   shouldHoldVideoFrameAtClipEnd,
   shouldKeepInactiveVideoPrewarmed,
+  shouldStabilizeImageToVideoTransitionDuringExport,
   shouldMuteNativeMediaElement,
   shouldReinitializeAudioRoute,
   shouldResumeAudioContextOnVisibilityReturn,
@@ -768,18 +769,19 @@ const TurtleVideo: React.FC = () => {
           if (!element || !conf) return;
 
           if (id === activeId) {
-            const isJustEnteredFromImageDuringExport =
-              conf.type === 'video'
-              && _isExporting
-              && activeIndex > 0
-              && currentItems[activeIndex - 1]?.type === 'image'
-              && localTime <= 0.05;
+            const shouldStabilizeImageToVideoTransition =
+              shouldStabilizeImageToVideoTransitionDuringExport({
+                isExporting: _isExporting,
+                activeItemType: conf.type,
+                previousItemType: activeIndex > 0 ? currentItems[activeIndex - 1]?.type ?? null : null,
+                clipLocalTime: localTime,
+              });
             // --- アクティブなメディアの処理 ---
             if (conf.type === 'video') {
               const videoEl = element as HTMLVideoElement;
               const targetTime = (conf.trimStart || 0) + localTime;
               const hasExportPlayFailure = _isExporting && !!exportPlayFailedRef.current[id];
-              const syncThreshold = isJustEnteredFromImageDuringExport
+              const syncThreshold = shouldStabilizeImageToVideoTransition
                 ? 0.01
                 : getPreviewVideoSyncThreshold(previewPlatformPolicy, {
                   isExporting: _isExporting,
@@ -806,6 +808,14 @@ const TurtleVideo: React.FC = () => {
               const isVideoSeeking = videoEl.seeking;
 
               if (isActivePlaying && !isUserSeeking) {
+                if (shouldStabilizeImageToVideoTransition) {
+                  if (!isVideoSeeking && Math.abs(videoEl.currentTime - targetTime) > 0.004) {
+                    videoEl.currentTime = targetTime;
+                  }
+                  if (!videoEl.paused) {
+                    videoEl.pause();
+                  }
+                }
                 // 再生中かつユーザーがシーク操作していない場合
                 // 終端付近でビデオが自然終了(ended)している場合は、
                 // sync と play() を抑止する。play() on ended はブラウザが
@@ -853,6 +863,7 @@ const TurtleVideo: React.FC = () => {
                 // ただし ended 状態のビデオへの play() は position 0 への
                 // シークを発動するため、終端付近では抑止する。
                 if (
+                  !shouldStabilizeImageToVideoTransition &&
                   videoEl.paused &&
                   videoEl.readyState >= 1 &&
                   !shouldHoldVideoAtClipEnd &&
@@ -988,7 +999,7 @@ const TurtleVideo: React.FC = () => {
                     currentGainNode.gain.setTargetAtTime(
                       effectiveGain,
                       audioCtxRef.current.currentTime,
-                      isJustEnteredFromImageDuringExport ? 0.01 : 0.05,
+                      shouldStabilizeImageToVideoTransition ? 0.01 : 0.05,
                     );
                   }
                 }
