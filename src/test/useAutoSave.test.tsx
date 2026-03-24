@@ -322,6 +322,67 @@ describe('useAutoSave', () => {
     expect(saveProjectAuto).toHaveBeenCalledTimes(1);
   });
 
+  it('復帰時点で既に保存期限を過ぎている場合は即 catch-up し、その後に通常 cadence へ戻る', async () => {
+    const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
+    const saveProjectAuto = vi.fn().mockResolvedValue(true);
+    const setIntervalSpy = vi.spyOn(window, 'setInterval');
+    act(() => {
+      useProjectStore.setState({
+        refreshSaveInfo,
+        saveProjectAuto,
+        isSaving: false,
+        lastManualSave: null,
+      });
+    });
+
+    renderHook(() => useAutoSave());
+
+    setVisibilityState('hidden');
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    // 非アクティブ中にブラウザ側で autosave timer が失われた状態を模擬する。
+    vi.clearAllTimers();
+
+    await act(async () => {
+      vi.advanceTimersByTime(61_000);
+      await Promise.resolve();
+    });
+
+    setVisibilityState('visible');
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+      vi.advanceTimersByTime(100);
+      await Promise.resolve();
+    });
+
+    expect(saveProjectAuto).toHaveBeenCalledTimes(1);
+    expect(setIntervalSpy).toHaveBeenCalledTimes(2);
+
+    act(() => {
+      useCaptionStore.setState({
+        captions: [{
+          id: 'caption-1',
+          text: 'after-return',
+          startTime: 0,
+          endTime: 1,
+          fadeIn: false,
+          fadeOut: false,
+          fadeInDuration: 0.5,
+          fadeOutDuration: 0.5,
+        }],
+      });
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(61_000);
+      await Promise.resolve();
+    });
+
+    expect(saveProjectAuto).toHaveBeenCalledTimes(2);
+  });
+
 
   it('自動保存失敗時は変更検知ハッシュを進めず、同じ内容でも次回再試行する', async () => {
     const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);

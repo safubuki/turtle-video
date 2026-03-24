@@ -1516,6 +1516,7 @@
 - **対応パターン**:
   - 復帰契機（`visibilitychange` / `focus` / `pageshow`）では catch-up 判定の前に、hidden/pagehide をまたいだ時だけ interval を再アームする
   - 再アーム時は「今から丸ごと1周期」ではなく、`lastAutoSaveActivityAtRef` から見た残り時間だけ待ってから通常 cadence へ戻す
+  - 復帰時点で既に期限超過なら残り待ち時間は 0 とみなし、catch-up 保存で即座に追いついたうえで通常 cadence を再開する
   - interval の再生成や保存間隔変更では `lastAutoSaveActivityAtRef` をリセットせず、最後に保存できた時刻を保持したまま overdue 判定する
   - 自動保存実行直前の export 判定は `useUIStore.getState().isProcessing` で最新値を参照し、エクスポート中保存を確実に抑止する
 - **注意**:

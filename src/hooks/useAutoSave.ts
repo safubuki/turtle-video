@@ -69,6 +69,7 @@ export function setAutoSaveInterval(interval: AutoSaveIntervalOption): void {
  */
 export function useAutoSave() {
   const intervalRef = useRef<number | null>(null);
+  const autoSaveTimerKindRef = useRef<'timeout' | 'interval' | null>(null);
   const catchUpSaveTimeoutRef = useRef<number | null>(null);
   const lastSaveHashRef = useRef<string>('');
   const performAutoSaveRef = useRef<() => Promise<AutoSaveRunResult>>(async () => 'skipped-empty');
@@ -323,8 +324,13 @@ export function useAutoSave() {
 
     const clearAutoSaveTimer = () => {
       if (intervalRef.current !== null) {
-        clearTimeout(intervalRef.current);
+        if (autoSaveTimerKindRef.current === 'timeout') {
+          clearTimeout(intervalRef.current);
+        } else if (autoSaveTimerKindRef.current === 'interval') {
+          clearInterval(intervalRef.current);
+        }
         intervalRef.current = null;
+        autoSaveTimerKindRef.current = null;
       }
     };
 
@@ -333,6 +339,7 @@ export function useAutoSave() {
       intervalRef.current = window.setInterval(() => {
         void runAutoSave();
       }, intervalMs);
+      autoSaveTimerKindRef.current = 'interval';
     };
 
     const restartAutoSaveTimer = (preserveElapsedDelay: boolean) => {
@@ -348,14 +355,23 @@ export function useAutoSave() {
       const initialDelay = Math.max(intervalMs - elapsed, 0);
 
       if (initialDelay === 0) {
+        // 復帰時点で既に期限超過なら、catch-up 判定側で直ちに保存できる状態に戻す。
         startRecurringAutoSaveTimer();
         return;
       }
 
       intervalRef.current = window.setTimeout(() => {
-        void runAutoSave();
-        startRecurringAutoSaveTimer();
+        void runAutoSave()
+          .catch((error) => {
+            useLogStore.getState().warn('SYSTEM', '自動保存タイマー再開直後の保存に失敗しました', {
+              error: error instanceof Error ? error.message : String(error),
+            });
+          })
+          .finally(() => {
+            startRecurringAutoSaveTimer();
+          });
       }, initialDelay);
+      autoSaveTimerKindRef.current = 'timeout';
     };
 
     const triggerCatchUpSave = () => {
