@@ -50,7 +50,7 @@ export function resolveExportDuration(
   const frameCount = Math.max(1, Math.ceil(rawFrameCount - DURATION_EPSILON));
   const alignedDurationSec = frameCount / safeFps;
   const alignedDurationUs = Math.max(0, Math.round(alignedDurationSec * 1e6));
-  const nominalFrameDurationUs = Math.max(1, Math.round(1e6 / safeFps));
+  const nominalFrameDurationUs = Math.max(1, Math.round(alignedDurationUs / frameCount));
 
   return {
     exportDurationSec: safeDurationSec,
