@@ -1527,12 +1527,12 @@
 
 - **対象ファイル**: `src/hooks/useAutoSave.ts`, `src/stores/mediaStore.ts`, `src/test/useAutoSave.test.tsx`
 - **問題**:
-  - `mediaStore` には復元用の旧 alias `isLocked` が残っているが、通常操作の `toggleClipsLock()` では `isClipsLocked` だけが更新される
-  - 自動保存が alias 側を読むと、クリップセクションロックの変更がハッシュにも保存データにも反映されず、編集中の変更なのに `skipped-nochange` 扱いで autosave が止まる
+  - 以前の実装では `mediaStore` に旧 save/restore 契約との互換用 alias `isLocked` が残っており、通常操作の `toggleClipsLock()` では `isClipsLocked` だけが更新されていた
+  - 自動保存が alias 側を読んでいたため、クリップセクションロックの変更がハッシュにも保存データにも反映されず、編集中の変更なのに `skipped-nochange` 扱いで autosave が止まっていた
 - **対応パターン**:
-  - クリップセクションロックの参照元は `useMediaStore((s) => s.isClipsLocked)` に統一する
-  - `mediaStore` 側では `toggleClipsLock()` / `clearAllMedia()` / `restoreFromSave()` で alias `isLocked` も同期し、旧参照が残っても状態が乖離しないようにする
-  - テストは `setState({ isClipsLocked: ... })` で実ストア契約に合わせ、ロック切り替え後に autosave が再度走ることを明示的に固定する
+  - クリップセクションロックの参照元は `useMediaStore((s) => s.isClipsLocked)` に統一した
+  - `mediaStore` 側では `toggleClipsLock()` / `clearAllMedia()` / `restoreFromSave()` で alias `isLocked` も同期し、旧参照が残っても状態が乖離しないようにした
+  - テストは `setState({ isClipsLocked: ... })` で実ストア契約に合わせ、ロック切り替え後に autosave が再度走ることを明示的に固定した
 - **注意**:
   - `MediaItem.isLocked`（個別クリップロック）と `mediaStore.isClipsLocked`（セクションロック）は別概念なので混同しない
   - Zustand テストで存在しない state key を直接差し込むと、今回のような selector typo を見逃すため、実ストアの state shape に合わせる

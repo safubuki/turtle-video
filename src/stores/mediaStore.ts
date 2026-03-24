@@ -302,10 +302,12 @@ export const useMediaStore = create<MediaState>()(
       // Clips section lock
       toggleClipsLock: () => {
         set((state) => {
-          const nextIsLocked = !state.isClipsLocked;
+          const nextIsClipsLocked = !state.isClipsLocked;
           return {
-            isClipsLocked: nextIsLocked,
-            isLocked: nextIsLocked,
+            isClipsLocked: nextIsClipsLocked,
+            // 旧 save/restore 契約との互換用 alias。
+            // 関連する操作では isClipsLocked と同期する。
+            isLocked: nextIsClipsLocked,
           };
         });
       },
