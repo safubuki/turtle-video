@@ -24,6 +24,9 @@ export const DEFAULT_AUTO_SAVE_INTERVAL: AutoSaveIntervalOption = 2;
 const AUTO_SAVE_RETURN_CHECK_DELAY_MS = 80;
 
 type AutoSaveRunResult = 'saved' | 'failed' | 'skipped-processing' | 'skipped-nochange' | 'skipped-empty';
+type AutoSaveRunOptions = {
+  force?: boolean;
+};
 
 function isAutoSaveIntervalOption(value: number): value is AutoSaveIntervalOption {
   return value === 0 || value === 1 || value === 2 || value === 5;
@@ -72,7 +75,7 @@ export function useAutoSave() {
   const autoSaveTimerKindRef = useRef<'timeout' | 'interval' | null>(null);
   const catchUpSaveTimeoutRef = useRef<number | null>(null);
   const lastSaveHashRef = useRef<string>('');
-  const performAutoSaveRef = useRef<() => Promise<AutoSaveRunResult>>(async () => 'skipped-empty');
+  const performAutoSaveRef = useRef<(options?: AutoSaveRunOptions) => Promise<AutoSaveRunResult>>(async () => 'skipped-empty');
   const isAutoSaveRunningRef = useRef(false);
   const lastAutoSaveActivityAtRef = useRef<number>(Date.now());
   const hasStartedAutoSaveTimerRef = useRef(false);
@@ -194,7 +197,7 @@ export function useAutoSave() {
   /**
    * 自動保存を実行
    */
-  const performAutoSave = useCallback(async (): Promise<AutoSaveRunResult> => {
+  const performAutoSave = useCallback(async (options?: AutoSaveRunOptions): Promise<AutoSaveRunResult> => {
     // エクスポート中は保存をスキップ（動画品質を保護）
     if (useUIStore.getState().isProcessing) {
       return 'skipped-processing';
@@ -202,8 +205,8 @@ export function useAutoSave() {
     
     const currentHash = computeHash();
     
-    // 変更がない場合はスキップ
-    if (currentHash === lastSaveHashRef.current) {
+    // 強制保存でない場合のみ、変更がないときはスキップ
+    if (!options?.force && currentHash === lastSaveHashRef.current) {
       return 'skipped-nochange';
     }
     
@@ -258,13 +261,13 @@ export function useAutoSave() {
     performAutoSaveRef.current = performAutoSave;
   }, [performAutoSave]);
 
-  const runAutoSave = useCallback(async () => {
+  const runAutoSave = useCallback(async (options?: AutoSaveRunOptions) => {
     if (useProjectStore.getState().isSaving) return;
     if (isAutoSaveRunningRef.current) return;
 
     isAutoSaveRunningRef.current = true;
     try {
-      const result = await performAutoSaveRef.current();
+      const result = await performAutoSaveRef.current(options);
       if (result !== 'skipped-processing' && result !== 'failed') {
         lastAutoSaveActivityAtRef.current = Date.now();
       }
@@ -337,7 +340,7 @@ export function useAutoSave() {
     const startRecurringAutoSaveTimer = () => {
       clearAutoSaveTimer();
       intervalRef.current = window.setInterval(() => {
-        void runAutoSave();
+        void runAutoSave({ force: true });
       }, intervalMs);
       autoSaveTimerKindRef.current = 'interval';
     };
@@ -362,7 +365,7 @@ export function useAutoSave() {
       }
 
       intervalRef.current = window.setTimeout(() => {
-        void runAutoSave()
+        void runAutoSave({ force: true })
           .catch((error) => {
             useLogStore.getState().warn('SYSTEM', '非アクティブ復帰後の自動保存に失敗しました', {
               error: error instanceof Error ? error.message : String(error),
@@ -375,7 +378,7 @@ export function useAutoSave() {
       autoSaveTimerKindRef.current = 'timeout';
     };
 
-    const triggerCatchUpSave = () => {
+    const triggerCatchUpSave = (forcePromptSave = false) => {
       clearScheduledCatchUpSave();
       // visibilitychange / focus / pageshow の発火順は環境依存なので、
       // 少し待ってから可視状態と手動保存状態を確定させる。
@@ -387,9 +390,13 @@ export function useAutoSave() {
           restartAutoSaveTimer(true);
         }
         if (useProjectStore.getState().isSaving) return;
+        if (forcePromptSave) {
+          void runAutoSave({ force: true });
+          return;
+        }
         const elapsed = Date.now() - lastAutoSaveActivityAtRef.current;
         if (elapsed < intervalMs) return;
-        void runAutoSave();
+        void runAutoSave({ force: true });
       }, AUTO_SAVE_RETURN_CHECK_DELAY_MS);
     };
 
@@ -399,7 +406,7 @@ export function useAutoSave() {
         clearScheduledCatchUpSave();
         return;
       }
-      triggerCatchUpSave();
+      triggerCatchUpSave(true);
     };
 
     const handlePageHide = () => {
@@ -420,11 +427,18 @@ export function useAutoSave() {
       hasStartedAutoSaveTimerRef.current = true;
     }
     restartAutoSaveTimer(false);
+    triggerCatchUpSave(true);
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('pagehide', handlePageHide);
-    window.addEventListener('focus', triggerCatchUpSave);
-    window.addEventListener('pageshow', triggerCatchUpSave);
+    const handleFocus = () => {
+      triggerCatchUpSave(true);
+    };
+    const handlePageShow = () => {
+      triggerCatchUpSave(true);
+    };
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('pageshow', handlePageShow);
     
     return () => {
       clearTimeout(initTimeout);
@@ -432,8 +446,8 @@ export function useAutoSave() {
       clearScheduledCatchUpSave();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('pagehide', handlePageHide);
-      window.removeEventListener('focus', triggerCatchUpSave);
-      window.removeEventListener('pageshow', triggerCatchUpSave);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('pageshow', handlePageShow);
     };
   }, [autoSaveMinutes, runAutoSave]);
   
@@ -449,7 +463,7 @@ export function useAutoSave() {
     const timeoutId = window.setTimeout(() => {
       if (document.visibilityState === 'hidden') return;
       if (useProjectStore.getState().isSaving) return;
-      void runAutoSave();
+      void runAutoSave({ force: true });
     }, AUTO_SAVE_RETURN_CHECK_DELAY_MS);
 
     return () => {
