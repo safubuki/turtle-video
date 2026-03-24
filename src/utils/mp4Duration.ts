@@ -10,6 +10,14 @@ interface Mp4Box {
   end: number;
 }
 
+function toDurationUs(duration: number, timescale: number): number | null {
+  if (!Number.isFinite(duration) || !Number.isFinite(timescale) || timescale === 0) {
+    return null;
+  }
+
+  return Math.max(0, Math.round((duration / timescale) * 1e6));
+}
+
 function readType(view: DataView, offset: number): string {
   return String.fromCharCode(
     view.getUint8(offset),
@@ -59,14 +67,12 @@ function readDurationUsFromFullBox(view: DataView, contentStart: number, end: nu
     if (contentStart + 32 > end) return null;
     const timescale = view.getUint32(contentStart + 20);
     const duration = readUint64(view, contentStart + 24);
-    if (timescale <= 0) return null;
-    return Math.max(0, Math.round((duration / timescale) * 1e6));
+    return toDurationUs(duration, timescale);
   }
 
   const timescale = view.getUint32(contentStart + 12);
   const duration = view.getUint32(contentStart + 16);
-  if (timescale <= 0) return null;
-  return Math.max(0, Math.round((duration / timescale) * 1e6));
+  return toDurationUs(duration, timescale);
 }
 
 function inspectTrackDuration(view: DataView, start: number, end: number): { handlerType: string | null; durationUs: number | null } {
@@ -124,9 +130,16 @@ export function inspectMp4Durations(buffer: ArrayBuffer): Mp4DurationSummary | n
         } else if (moovBox.type === 'trak') {
           const track = inspectTrackDuration(view, moovBox.contentStart, moovBox.end);
           if (track.handlerType === 'vide' && track.durationUs !== null) {
-            summary.videoDurationUs = Math.max(summary.videoDurationUs ?? 0, track.durationUs);
+            // longest track を採用しておくと、補助トラックや重複メタデータが混ざっても
+            // 実際の再生総尺を短く誤判定しにくい。
+            summary.videoDurationUs = summary.videoDurationUs !== null
+              ? Math.max(summary.videoDurationUs, track.durationUs)
+              : track.durationUs;
           } else if (track.handlerType === 'soun' && track.durationUs !== null) {
-            summary.audioDurationUs = Math.max(summary.audioDurationUs ?? 0, track.durationUs);
+            // audio も同様に最長尺を保持し、mux 後の総尺差分検査を過小評価しないようにする。
+            summary.audioDurationUs = summary.audioDurationUs !== null
+              ? Math.max(summary.audioDurationUs, track.durationUs)
+              : track.durationUs;
           }
         }
 

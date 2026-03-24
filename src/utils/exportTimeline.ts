@@ -19,6 +19,12 @@ export interface ExportFrameTiming {
 
 const DURATION_EPSILON = 1e-9;
 
+function isResolvedExportDuration(
+  alignment: ExportTimelineAlignment | ResolvedExportDuration,
+): alignment is ResolvedExportDuration {
+  return 'exportDurationUs' in alignment && 'nominalFrameDurationUs' in alignment;
+}
+
 export function resolveExportDuration(
   totalDurationSec: number,
   fps: number,
@@ -86,10 +92,10 @@ export function getExportFrameTiming(
     };
   }
 
-  const nominalFrameDurationUs = 'nominalFrameDurationUs' in alignment && alignment.nominalFrameDurationUs > 0
+  const nominalFrameDurationUs = isResolvedExportDuration(alignment) && alignment.nominalFrameDurationUs > 0
     ? alignment.nominalFrameDurationUs
-    : 1e6 / safeFps;
-  const exportDurationUs = 'exportDurationUs' in alignment
+    : Math.max(1, Math.round(1e6 / safeFps));
+  const exportDurationUs = isResolvedExportDuration(alignment)
     ? alignment.exportDurationUs
     : alignment.rawDurationUs;
   const timestampUs = Math.max(0, Math.round(frameIndex * nominalFrameDurationUs));

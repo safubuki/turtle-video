@@ -29,6 +29,30 @@ export type {
   PreRenderedRecorderAudioSource,
 } from './export-strategies/types';
 
+function durationUsToSampleCount(durationUs: number, sampleRate: number): number {
+  return Math.max(0, Math.round((durationUs / 1e6) * sampleRate));
+}
+
+// 現行 pipeline の動画 timescale(57600) と audio sampleRate(48000) では 1ms 未満の丸め差は吸収できる一方、
+// 1ms を超える audio / video / container の尺差は Teams 投稿後の速度異常再発リスクが高いため、
+// export 完了前に明示的に検出する。
+const DURATION_DIFF_THRESHOLD_US = 1000;
+
+function calculateFinalAudioSampleCount(
+  sampleRate: number,
+  timestampUs: number,
+  numberOfFrames: number,
+  exportDurationUs?: number,
+): number {
+  const currentSampleCount = durationUsToSampleCount(timestampUs, sampleRate) + numberOfFrames;
+  if (typeof exportDurationUs !== 'number' || !Number.isFinite(exportDurationUs)) {
+    return currentSampleCount;
+  }
+
+  const targetSampleCount = durationUsToSampleCount(exportDurationUs, sampleRate);
+  return Math.min(currentSampleCount, targetSampleCount);
+}
+
 /**
  * useExport - 動画書き出しロジックを提供するフック
  * WebCodecs API + mp4-muxer を使用した標準MP4（非断片化）エクスポート機能
@@ -632,7 +656,7 @@ function feedPreRenderedAudio(
   const chunkSize = 4096;
   let audioOffset = 0;
   const targetSamples = (typeof exportDurationUs === 'number' && Number.isFinite(exportDurationUs))
-    ? Math.max(0, Math.round((exportDurationUs / 1e6) * renderedAudio.sampleRate))
+    ? durationUsToSampleCount(exportDurationUs, renderedAudio.sampleRate)
     : renderedAudio.length;
   const totalSamples = Math.min(renderedAudio.length, targetSamples);
   let audioTimestamp = 0;
@@ -727,7 +751,7 @@ function finalizeAudioForExport(
   const log = useLogStore.getState();
   const chunkSize = 4096;
   const targetSampleCount = (typeof exportDurationUs === 'number' && Number.isFinite(exportDurationUs))
-    ? Math.max(0, Math.round((exportDurationUs / 1e6) * sampleRate))
+    ? durationUsToSampleCount(exportDurationUs, sampleRate)
     : currentSampleCount;
   const paddedSamples = Math.max(0, targetSampleCount - currentSampleCount);
   let paddedChunks = 0;
@@ -1555,12 +1579,10 @@ export function useExport(): UseExportReturn {
               audioData.close();
 
               capturedChunks++;
-              finalAudioInputSamples = Math.max(finalAudioInputSamples, Math.min(
-                Math.max(0, Math.round((audioTimestamp / 1e6) * audioCtx.sampleRate)) + numberOfFrames,
-                Number.isFinite(exportDurationUs)
-                  ? Math.max(0, Math.round((exportDurationUs / 1e6) * audioCtx.sampleRate))
-                  : Number.MAX_SAFE_INTEGER,
-              ));
+              finalAudioInputSamples = Math.max(
+                finalAudioInputSamples,
+                calculateFinalAudioSampleCount(audioCtx.sampleRate, audioTimestamp, numberOfFrames, exportDurationUs),
+              );
               audioTimestamp += Math.round((numberOfFrames / audioCtx.sampleRate) * 1e6);
 
               // 初回キャプチャ成功をログ
@@ -1841,16 +1863,10 @@ export function useExport(): UseExportReturn {
                   break;
                 }
                 const dataTimestampUs = Math.max(0, Math.round(data.timestamp));
-                const dataEndSamples = Math.max(
-                  0,
-                  Math.round((dataTimestampUs / 1e6) * data.sampleRate) + data.numberOfFrames,
+                finalAudioInputSamples = Math.max(
+                  finalAudioInputSamples,
+                  calculateFinalAudioSampleCount(data.sampleRate, dataTimestampUs, data.numberOfFrames, exportDurationUs),
                 );
-                finalAudioInputSamples = Math.max(finalAudioInputSamples, Math.min(
-                  dataEndSamples,
-                  Number.isFinite(exportDurationUs)
-                    ? Math.max(0, Math.round((exportDurationUs / 1e6) * data.sampleRate))
-                    : Number.MAX_SAFE_INTEGER,
-                ));
                 if (audioEncoder.state === 'configured') {
                   audioEncoder.encode(data);
                 }
@@ -2039,9 +2055,9 @@ export function useExport(): UseExportReturn {
           const audioExportDiffUs = Math.abs(muxedAudioEndUs - exportDurationUs);
           const videoExportDiffUs = Math.abs(encodedVideoEndUs - exportDurationUs);
           const exceedsDurationThreshold =
-            audioVideoDiffUs > 1000 ||
-            audioExportDiffUs > 1000 ||
-            videoExportDiffUs > 1000;
+            audioVideoDiffUs > DURATION_DIFF_THRESHOLD_US ||
+            audioExportDiffUs > DURATION_DIFF_THRESHOLD_US ||
+            videoExportDiffUs > DURATION_DIFF_THRESHOLD_US;
           const durationPayload = {
             exportDurationUs,
             muxedAudioEndUs,
@@ -2096,7 +2112,7 @@ export function useExport(): UseExportReturn {
         if (Number.isFinite(exportDurationUs)) {
           const muxDurationSummary = inspectMp4Durations(buffer);
           if (!muxDurationSummary) {
-            throw new Error('mux 後の duration 検査に失敗しました');
+            throw new Error(`MP4ファイルからduration情報を読み取れませんでした。mux 処理に問題がある可能性があります (bufferBytes: ${buffer.byteLength})`);
           }
 
           const containerDurationUs = muxDurationSummary.containerDurationUs ?? 0;
@@ -2107,10 +2123,10 @@ export function useExport(): UseExportReturn {
           const videoContainerDiffUs = Math.abs(videoTrackDurationUs - containerDurationUs);
           const containerExportDiffUs = Math.abs(containerDurationUs - exportDurationUs);
           const exceedsMuxDurationThreshold =
-            audioVideoDiffUs > 1000 ||
-            audioContainerDiffUs > 1000 ||
-            videoContainerDiffUs > 1000 ||
-            containerExportDiffUs > 1000;
+            audioVideoDiffUs > DURATION_DIFF_THRESHOLD_US ||
+            audioContainerDiffUs > DURATION_DIFF_THRESHOLD_US ||
+            videoContainerDiffUs > DURATION_DIFF_THRESHOLD_US ||
+            containerExportDiffUs > DURATION_DIFF_THRESHOLD_US;
 
           const muxDurationPayload = {
             exportDurationUs,
@@ -2125,7 +2141,9 @@ export function useExport(): UseExportReturn {
 
           if (exceedsMuxDurationThreshold) {
             useLogStore.getState().error('RENDER', '[DIAG-DURATION-2] mux後 duration 差分異常', muxDurationPayload);
-            throw new Error('mux 後の audio / video / container duration 差分が 1ms を超えました');
+            throw new Error(
+              `mux 後の duration 差分が閾値を超えました (audio-video: ${Math.round(audioVideoDiffUs) / 1000}ms, container-export: ${Math.round(containerExportDiffUs) / 1000}ms)`,
+            );
           }
 
           useLogStore.getState().info('RENDER', '[DIAG-DURATION-2] mux後 duration 差分確認', muxDurationPayload);
