@@ -842,7 +842,7 @@ const TurtleVideo: React.FC = () => {
                   if (
                     !isVideoSeeking
                     && Math.abs(videoEl.currentTime - targetTime)
-                      > EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC
+                    > EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC
                   ) {
                     videoEl.currentTime = targetTime;
                   }
