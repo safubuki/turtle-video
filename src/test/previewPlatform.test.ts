@@ -750,6 +750,51 @@ describe('preview platform helpers', () => {
     ).toBe(true);
   });
 
+  it('PC/Android export の途中クリップ終端ではフレーム保持を抑止する', () => {
+    expect(
+      shouldHoldVideoFrameAtClipEnd({
+        clipLocalTime: 1.96,
+        clipDuration: 2,
+        trimStart: 3,
+        videoCurrentTime: 4.97,
+        videoEnded: true,
+        isExporting: true,
+        isIosSafari: false,
+        isLastTimelineItem: false,
+      }),
+    ).toBe(false);
+  });
+
+  it('PC/Android export でも最終クリップ終端では最終フレーム保持を維持する', () => {
+    expect(
+      shouldHoldVideoFrameAtClipEnd({
+        clipLocalTime: 1.96,
+        clipDuration: 2,
+        trimStart: 3,
+        videoCurrentTime: 4.97,
+        videoEnded: true,
+        isExporting: true,
+        isIosSafari: false,
+        isLastTimelineItem: true,
+      }),
+    ).toBe(true);
+  });
+
+  it('iOS export の途中クリップ終端では従来どおり最終フレーム保持を維持する', () => {
+    expect(
+      shouldHoldVideoFrameAtClipEnd({
+        clipLocalTime: 1.96,
+        clipDuration: 2,
+        trimStart: 3,
+        videoCurrentTime: 4.97,
+        videoEnded: true,
+        isExporting: true,
+        isIosSafari: true,
+        isLastTimelineItem: false,
+      }),
+    ).toBe(true);
+  });
+
   it('クリップ終端前なら ended していない動画を通常再生のまま扱う', () => {
     expect(
       shouldHoldVideoFrameAtClipEnd({

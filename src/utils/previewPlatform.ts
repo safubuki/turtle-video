@@ -62,6 +62,9 @@ export interface VideoClipEndGuardOptions {
   trimStart: number;
   videoCurrentTime: number;
   videoEnded: boolean;
+  isExporting?: boolean;
+  isIosSafari?: boolean;
+  isLastTimelineItem?: boolean;
   clipEndGuardWindowSec?: number;
   videoEndToleranceSec?: number;
 }
@@ -374,7 +377,20 @@ export function shouldHoldVideoFrameAtClipEnd(
   }
 
   const safeClipEndTime = options.trimStart + Math.max(0, clipDuration - 0.001);
-  return options.videoEnded || options.videoCurrentTime >= safeClipEndTime - videoEndToleranceSec;
+  const shouldHoldForClipEnd =
+    options.videoEnded || options.videoCurrentTime >= safeClipEndTime - videoEndToleranceSec;
+  if (!shouldHoldForClipEnd) {
+    return false;
+  }
+
+  // PC / Android export では、途中クリップ終端の hold が
+  // requestAnimationFrame ベースの export 時刻停止を誘発しやすい。
+  // 旧安定版に合わせ、非 iOS export は最終クリップ終端だけ hold を許可する。
+  if (options.isExporting && !options.isIosSafari && !options.isLastTimelineItem) {
+    return false;
+  }
+
+  return true;
 }
 
 /**
