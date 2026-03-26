@@ -761,6 +761,42 @@ describe('preview platform helpers', () => {
         isExporting: true,
         isIosSafari: false,
         isLastTimelineItem: false,
+        nextItemType: 'image',
+        fps: 30,
+      }),
+    ).toBe(false);
+  });
+
+  it('PC/Android export の video -> video 境界では 1 フレーム近傍だけ保持を許可する', () => {
+    expect(
+      shouldHoldVideoFrameAtClipEnd({
+        clipLocalTime: 1.98,
+        clipDuration: 2,
+        trimStart: 3,
+        videoCurrentTime: 4.97,
+        videoEnded: true,
+        isExporting: true,
+        isIosSafari: false,
+        isLastTimelineItem: false,
+        nextItemType: 'video',
+        fps: 30,
+      }),
+    ).toBe(true);
+  });
+
+  it('PC/Android export の video -> video 境界でも 1 フレームより前は保持しない', () => {
+    expect(
+      shouldHoldVideoFrameAtClipEnd({
+        clipLocalTime: 1.9,
+        clipDuration: 2,
+        trimStart: 3,
+        videoCurrentTime: 4.97,
+        videoEnded: true,
+        isExporting: true,
+        isIosSafari: false,
+        isLastTimelineItem: false,
+        nextItemType: 'video',
+        fps: 30,
       }),
     ).toBe(false);
   });
@@ -776,6 +812,8 @@ describe('preview platform helpers', () => {
         isExporting: true,
         isIosSafari: false,
         isLastTimelineItem: true,
+        nextItemType: null,
+        fps: 30,
       }),
     ).toBe(true);
   });
@@ -791,6 +829,8 @@ describe('preview platform helpers', () => {
         isExporting: true,
         isIosSafari: true,
         isLastTimelineItem: false,
+        nextItemType: 'video',
+        fps: 30,
       }),
     ).toBe(true);
   });

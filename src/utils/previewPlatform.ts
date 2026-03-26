@@ -65,6 +65,8 @@ export interface VideoClipEndGuardOptions {
   isExporting?: boolean;
   isIosSafari?: boolean;
   isLastTimelineItem?: boolean;
+  nextItemType?: 'video' | 'image' | null;
+  fps?: number;
   clipEndGuardWindowSec?: number;
   videoEndToleranceSec?: number;
 }
@@ -385,9 +387,18 @@ export function shouldHoldVideoFrameAtClipEnd(
 
   // PC / Android export では、途中クリップ終端の hold が
   // requestAnimationFrame ベースの export 時刻停止を誘発しやすい。
-  // 旧安定版に合わせ、非 iOS export は最終クリップ終端だけ hold を許可する。
+  // ただし video -> video 境界だけは、切替瞬間の単発黒フレームを避けるため
+  // 1 フレーム近傍の最小 hold を許可する。
   if (options.isExporting && !options.isIosSafari && !options.isLastTimelineItem) {
-    return false;
+    if (options.nextItemType !== 'video') {
+      return false;
+    }
+
+    const safeFps = Number.isFinite(options.fps) && (options.fps ?? 0) > 0
+      ? (options.fps as number)
+      : 30;
+    const videoTransitionGuardWindowSec = Math.min(clipEndGuardWindowSec, 1 / safeFps);
+    return remainingClipTime <= videoTransitionGuardWindowSec;
   }
 
   return true;

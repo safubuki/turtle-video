@@ -17,6 +17,7 @@ import {
   GEMINI_TTS_MODEL,
   TTS_SAMPLE_RATE,
   SEEK_THROTTLE_MS,
+  FPS,
 } from '../constants';
 
 // Hooks
@@ -657,6 +658,10 @@ const TurtleVideo: React.FC = () => {
                 isExporting: _isExporting,
                 isIosSafari: platformCapabilities.isIosSafari,
                 isLastTimelineItem,
+                nextItemType: activeIndex + 1 < currentItems.length
+                  ? currentItems[activeIndex + 1]?.type ?? null
+                  : null,
+                fps: FPS,
               });
 
               // 各条件は「描画すると黒/不正フレームになりうる理由」が異なるため分離して保持する。
@@ -870,6 +875,10 @@ const TurtleVideo: React.FC = () => {
                   isExporting: _isExporting,
                   isIosSafari: platformCapabilities.isIosSafari,
                   isLastTimelineItem: activeIndex === currentItems.length - 1,
+                  nextItemType: activeIndex + 1 < currentItems.length
+                    ? currentItems[activeIndex + 1]?.type ?? null
+                    : null,
+                  fps: FPS,
                 });
 
                 const shouldUseExportFallbackSeek =
