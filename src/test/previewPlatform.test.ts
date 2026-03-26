@@ -784,6 +784,38 @@ describe('preview platform helpers', () => {
     ).toBe(true);
   });
 
+  it('PC/Android export の video -> video 境界では near-end 許容を半フレームまでに絞る', () => {
+    expect(
+      shouldHoldVideoFrameAtClipEnd({
+        clipLocalTime: 1.98,
+        clipDuration: 2,
+        trimStart: 3,
+        videoCurrentTime: 4.975,
+        videoEnded: false,
+        isExporting: true,
+        isIosSafari: false,
+        isLastTimelineItem: false,
+        nextItemType: 'video',
+        fps: 30,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldHoldVideoFrameAtClipEnd({
+        clipLocalTime: 1.995,
+        clipDuration: 2,
+        trimStart: 3,
+        videoCurrentTime: 4.99,
+        videoEnded: false,
+        isExporting: true,
+        isIosSafari: false,
+        isLastTimelineItem: false,
+        nextItemType: 'video',
+        fps: 30,
+      }),
+    ).toBe(true);
+  });
+
   it('PC/Android export の video -> video 境界でも 1 フレームより前は保持しない', () => {
     expect(
       shouldHoldVideoFrameAtClipEnd({

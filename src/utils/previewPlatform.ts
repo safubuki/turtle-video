@@ -379,12 +379,6 @@ export function shouldHoldVideoFrameAtClipEnd(
   }
 
   const safeClipEndTime = options.trimStart + Math.max(0, clipDuration - 0.001);
-  const shouldHoldForClipEnd =
-    options.videoEnded || options.videoCurrentTime >= safeClipEndTime - videoEndToleranceSec;
-  if (!shouldHoldForClipEnd) {
-    return false;
-  }
-
   // PC / Android export では、途中クリップ終端の hold が
   // requestAnimationFrame ベースの export 時刻停止を誘発しやすい。
   // ただし video -> video 境界だけは、切替瞬間の単発黒フレームを避けるため
@@ -398,10 +392,18 @@ export function shouldHoldVideoFrameAtClipEnd(
       ? (options.fps as number)
       : 30;
     const videoTransitionGuardWindowSec = Math.min(clipEndGuardWindowSec, 1 / safeFps);
-    return remainingClipTime <= videoTransitionGuardWindowSec;
+    if (remainingClipTime > videoTransitionGuardWindowSec) {
+      return false;
+    }
+
+    // 黒フレーム防止に必要な pre-hold は残しつつ、2 フレーム重複を減らすため
+    // currentTime ベースの near-end 判定は半フレームぶんまで縮める。
+    const transitionVideoEndToleranceSec = Math.min(videoEndToleranceSec, 0.5 / safeFps);
+    return options.videoEnded
+      || options.videoCurrentTime >= safeClipEndTime - transitionVideoEndToleranceSec;
   }
 
-  return true;
+  return options.videoEnded || options.videoCurrentTime >= safeClipEndTime - videoEndToleranceSec;
 }
 
 /**
