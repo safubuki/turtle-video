@@ -274,6 +274,7 @@ describe('preview platform helpers', () => {
     expect(
       shouldStabilizeImageToVideoTransitionDuringExport({
         isExporting: true,
+        isAndroid: true,
         activeItemType: 'video',
         previousItemType: 'image',
         clipLocalTime: 0.08,
@@ -283,6 +284,17 @@ describe('preview platform helpers', () => {
     expect(
       shouldStabilizeImageToVideoTransitionDuringExport({
         isExporting: true,
+        isAndroid: false,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        clipLocalTime: 0.08,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldStabilizeImageToVideoTransitionDuringExport({
+        isExporting: true,
+        isAndroid: true,
         activeItemType: 'video',
         previousItemType: 'image',
         clipLocalTime: 0.18,
@@ -292,6 +304,7 @@ describe('preview platform helpers', () => {
     expect(
       shouldStabilizeImageToVideoTransitionDuringExport({
         isExporting: true,
+        isAndroid: true,
         activeItemType: 'video',
         previousItemType: 'video',
         clipLocalTime: 0.05,
@@ -301,6 +314,7 @@ describe('preview platform helpers', () => {
     expect(
       shouldStabilizeImageToVideoTransitionDuringExport({
         isExporting: false,
+        isAndroid: true,
         activeItemType: 'video',
         previousItemType: 'image',
         clipLocalTime: 0.05,
@@ -312,6 +326,7 @@ describe('preview platform helpers', () => {
     expect(
       shouldHoldFrameForImageToVideoExportTransition({
         isExporting: true,
+        isAndroid: true,
         activeItemType: 'video',
         previousItemType: 'image',
         clipLocalTime: 0.05,
@@ -327,6 +342,7 @@ describe('preview platform helpers', () => {
     expect(
       shouldHoldFrameForImageToVideoExportTransition({
         isExporting: true,
+        isAndroid: true,
         activeItemType: 'video',
         previousItemType: 'image',
         clipLocalTime: 0.05,
@@ -342,6 +358,7 @@ describe('preview platform helpers', () => {
     expect(
       shouldHoldFrameForImageToVideoExportTransition({
         isExporting: true,
+        isAndroid: true,
         activeItemType: 'video',
         previousItemType: 'image',
         clipLocalTime: 0.05,
@@ -355,6 +372,7 @@ describe('preview platform helpers', () => {
     expect(
       shouldHoldFrameForImageToVideoExportTransition({
         isExporting: true,
+        isAndroid: true,
         activeItemType: 'video',
         previousItemType: 'video',
         clipLocalTime: 0.05,
@@ -370,6 +388,7 @@ describe('preview platform helpers', () => {
     expect(
       shouldHoldFrameForImageToVideoExportTransition({
         isExporting: true,
+        isAndroid: true,
         activeItemType: 'video',
         previousItemType: 'image',
         clipLocalTime: 0.05,
@@ -384,6 +403,7 @@ describe('preview platform helpers', () => {
     expect(
       shouldHoldFrameForImageToVideoExportTransition({
         isExporting: true,
+        isAndroid: true,
         activeItemType: 'video',
         previousItemType: 'image',
         clipLocalTime: 0.05,
@@ -400,6 +420,7 @@ describe('preview platform helpers', () => {
     expect(
       shouldHoldFrameForImageToVideoExportTransition({
         isExporting: true,
+        isAndroid: true,
         activeItemType: 'video',
         previousItemType: 'image',
         clipLocalTime: 0.08,
@@ -416,6 +437,7 @@ describe('preview platform helpers', () => {
     expect(
       shouldHoldFrameForImageToVideoExportTransition({
         isExporting: true,
+        isAndroid: true,
         activeItemType: 'video',
         previousItemType: 'image',
         clipLocalTime: 0.05,
@@ -425,6 +447,20 @@ describe('preview platform helpers', () => {
         targetTime: 0.02,
       }),
     ).toBe(true);
+
+    expect(
+      shouldHoldFrameForImageToVideoExportTransition({
+        isExporting: true,
+        isAndroid: false,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        clipLocalTime: 0.05,
+        videoReadyState: 1,
+        isVideoSeeking: true,
+        videoCurrentTime: 0,
+        targetTime: 0.02,
+      }),
+    ).toBe(false);
   });
 
   it('iOS Safari preview は単一動画だけ native 出力を維持し、動画+BGM では WebAudio mix に寄せる', () => {

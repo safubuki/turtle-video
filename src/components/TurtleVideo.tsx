@@ -27,7 +27,10 @@ import { usePreventUnload } from '../hooks/usePreventUnload';
 
 // Utils
 import { captureCanvasAsImage } from '../utils/canvas';
-import { resolveExportPlaybackTimeSec } from '../utils/exportTimeline';
+import {
+  resolveExportPlaybackTimeSec,
+  resolveNonIosExportTimelineTimeSec,
+} from '../utils/exportTimeline';
 import { preserveOriginalFileName, resolveAiNarrationFileName } from '../utils/fileNames';
 import { saveObjectUrlWithClientFileStrategy } from '../utils/fileSave';
 import { openFilesWithPicker } from '../utils/platform';
@@ -603,6 +606,7 @@ const TurtleVideo: React.FC = () => {
               });
               const shouldHoldForImageToVideoTransition = shouldHoldFrameForImageToVideoExportTransition({
                 isExporting: _isExporting,
+                isAndroid: platformCapabilities.isAndroid,
                 activeItemType: activeItem.type,
                 previousItemType: activeIndex > 0 ? currentItems[activeIndex - 1]?.type ?? null : null,
                 clipLocalTime: localTime,
@@ -804,6 +808,7 @@ const TurtleVideo: React.FC = () => {
             const shouldStabilizeImageToVideoTransition =
               shouldStabilizeImageToVideoTransitionDuringExport({
                 isExporting: _isExporting,
+                isAndroid: platformCapabilities.isAndroid,
                 activeItemType: conf.type,
                 previousItemType: activeIndex > 0 ? currentItems[activeIndex - 1]?.type ?? null : null,
                 clipLocalTime: localTime,
@@ -3618,9 +3623,12 @@ const TurtleVideo: React.FC = () => {
 
       const now = Date.now();
       const elapsed = (now - startTimeRef.current) / 1000;
-      const exportFrameDurationSec = 1 / FPS;
       const timelineElapsed = isExportMode && !platformCapabilities.isIosSafari
-        ? Math.floor(elapsed / exportFrameDurationSec) * exportFrameDurationSec
+        ? resolveNonIosExportTimelineTimeSec({
+          elapsedSec: elapsed,
+          lastRenderedPlaybackTimeSec: lastRenderedExportTimeRef.current,
+          fps: FPS,
+        })
         : elapsed;
       const clampedElapsed = Math.min(timelineElapsed, totalDurationRef.current);
 

@@ -79,6 +79,7 @@ export interface FadeTailBlackoutGuardOptions {
 
 export interface ExportImageToVideoStabilizationOptions {
   isExporting: boolean;
+  isAndroid: boolean;
   activeItemType: 'video' | 'image' | null;
   previousItemType: 'video' | 'image' | null;
   clipLocalTime: number;
@@ -414,7 +415,7 @@ export function shouldBlackoutVideoFadeTail(
 export function shouldStabilizeImageToVideoTransitionDuringExport(
   options: ExportImageToVideoStabilizationOptions,
 ): boolean {
-  if (!options.isExporting) {
+  if (!options.isExporting || !options.isAndroid) {
     return false;
   }
 

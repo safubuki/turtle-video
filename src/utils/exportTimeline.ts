@@ -17,6 +17,16 @@ export interface ExportFrameTiming {
   durationUs: number;
 }
 
+export interface NonIosExportTimelineTimeInput {
+  elapsedSec: number;
+  lastRenderedPlaybackTimeSec: number;
+  fps: number;
+}
+
+export interface ExportCanvasFrameBurstInput {
+  pendingFrameCount: number;
+}
+
 const DURATION_EPSILON = 1e-9;
 
 function sanitizePlaybackTimeSec(timeSec: number): number | null {
@@ -139,4 +149,39 @@ export function resolveExportPlaybackTimeSec(
   }
 
   return 0;
+}
+
+export function resolveNonIosExportTimelineTimeSec(
+  input: NonIosExportTimelineTimeInput,
+): number {
+  const safeElapsedSec = sanitizePlaybackTimeSec(input.elapsedSec) ?? 0;
+  const safeFps = Number.isFinite(input.fps) && input.fps > 0 ? input.fps : 30;
+  const frameDurationSec = 1 / safeFps;
+  const snappedElapsedSec = Math.floor(safeElapsedSec / frameDurationSec) * frameDurationSec;
+  const safeLastRenderedSec = sanitizePlaybackTimeSec(input.lastRenderedPlaybackTimeSec);
+
+  if (safeLastRenderedSec === null) {
+    return snappedElapsedSec;
+  }
+
+  const maxAdvancedElapsedSec = safeLastRenderedSec + frameDurationSec;
+  return Math.max(
+    safeLastRenderedSec,
+    Math.min(snappedElapsedSec, maxAdvancedElapsedSec),
+  );
+}
+
+export function resolveExportCanvasFrameBurstCount(
+  input: ExportCanvasFrameBurstInput,
+): number {
+  if (!Number.isFinite(input.pendingFrameCount)) {
+    return 0;
+  }
+
+  const safePendingFrameCount = Math.max(0, Math.floor(input.pendingFrameCount));
+  if (safePendingFrameCount <= 0) {
+    return 0;
+  }
+
+  return 1;
 }

@@ -9,7 +9,11 @@ import * as Mp4Muxer from 'mp4-muxer';
 import type { AudioTrack, NarrationClip } from '../types';
 import { useLogStore } from '../stores/logStore';
 import { getPlatformCapabilities } from '../utils/platform';
-import { getExportFrameTiming, resolveExportDuration } from '../utils/exportTimeline';
+import {
+  getExportFrameTiming,
+  resolveExportCanvasFrameBurstCount,
+  resolveExportDuration,
+} from '../utils/exportTimeline';
 import { inspectMp4Durations } from '../utils/mp4Duration';
 import {
   resolveExportStrategyOrder,
@@ -1792,11 +1796,10 @@ export function useExport(): UseExportReturn {
 
               const forceToEnd = completionRequestedRef.current;
               const targetFrameCount = getTargetVideoFrameCount(forceToEnd);
-              let framesToEncode = targetFrameCount === null ? 1 : targetFrameCount - frameIndex;
-              if (framesToEncode < 0) framesToEncode = 0;
-              if (!forceToEnd) {
-                framesToEncode = Math.min(framesToEncode, Math.max(1, Math.ceil(FPS / 2)));
-              }
+              const pendingFrameCount = targetFrameCount === null ? 1 : targetFrameCount - frameIndex;
+              const framesToEncode = resolveExportCanvasFrameBurstCount({
+                pendingFrameCount,
+              });
 
               if (videoEncoder.state === 'configured' && framesToEncode > 0) {
                 for (let i = 0; i < framesToEncode; i++) {

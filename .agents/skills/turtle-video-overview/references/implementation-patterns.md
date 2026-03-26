@@ -1643,6 +1643,7 @@
 - **注意**:
   - 対策は export 中の境界区間に限定し、通常 preview や動画→動画遷移には適用しない
   - 安定化ウィンドウを広げすぎると動画の立ち上がり体感を損なうため、最小限（120ms）を維持する
+  - この安定化は Android export 専用に維持し、PC 非 iOS export には広げない。PC では v4.1.0 比較でコマ飛び要因になりやすいため、通常の同期制御へ戻す
 
 ### 13-82. 自動保存は起動/アクティブ復帰で即時トリガーし、定周期 tick では差分有無に関係なく保存を試行する
 
@@ -1685,3 +1686,29 @@
 - **注意点**:
   - この更新は表示専用であり、保存タイミングや auto save cadence そのものは変更しない
   - interval はモーダル表示中に限定し、閉じた状態での不要な再描画を発生させない
+### 13-85. 非 iOS export は壁時計ベースを維持しつつ、描画時刻の先行を 1 フレームまでに制限する
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/exportTimeline.ts`, `src/test/exportTimeline.test.ts`
+- **問題**:
+  - `Date.now()` を `1 / FPS` へ切り下げるだけの非 iOS export では、`requestAnimationFrame` が 2 フレーム以上遅れた瞬間に中間フレームを描かずに後ろの時刻へ飛び、PC / Android でコマ飛びのように見えやすい
+  - 一方で完全なフレームカウンタ進行へ戻すと、実デコードが追いつかない場面で同一フレームの連続取り込みが増え、別経路のカクつきを再発させやすい
+- **対策**:
+  - 非 iOS export のループ時刻は壁時計を `1 / FPS` に切り下げた値を基準にしつつ、`lastRenderedExportTimeRef + 1 / FPS` を上限にして 1 ループで 1 フレームまでしか先行させない
+  - `lastRenderedExportTimeRef` は実際に Canvas が更新されたときだけ進め、hold frame 中は次ループでも同じ export 時刻を再試行する
+  - これにより `v5` の音声・export 経路修正を維持したまま、rAF 遅延起因の中間フレーム欠落だけを抑制する
+- **注意点**:
+  - iOS Safari の別 export ルートには適用しない
+  - export frame 数の基準を `currentTimeRef` へ戻すと再び render 済み時刻とのズレが広がるため、capture 側は引き続き `resolveExportPlaybackTimeSec()` で描画済み時刻を優先する
+
+### 13-86. manual canvas export は 1 poll で同じキャンバスを複数回 encode しない
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/utils/exportTimeline.ts`, `src/test/exportTimeline.test.ts`
+- **問題**:
+  - PC / Android の WebCodecs export は `VideoFrame(canvas)` を setTimeout poll で取り込むため、render 側が少し遅れたときに pending frame 数だけ同じキャンバスを一気に複製 encode しやすい
+  - `v5` では render 側の保護ロジックが増えたぶん、この catch-up burst が `v4.1.0` より起きやすくなり、見た目のカクつきとして表れやすい
+- **対策**:
+  - manual canvas export では pending frame 数が複数あっても、1 回の poll で encode するのは 1 フレームに制限する
+  - これにより encoder が「同じ時点のキャンバス」を連続複製する burst を避け、render loop の追従結果をそのまま CFR 出力へ乗せやすくする
+- **注意点**:
+  - これは iOS Safari MediaRecorder 経路には適用しない
+  - 滑らかさ優先の変更なので、export wall-clock 時間がわずかに伸びても frame burst を再許可しない

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   alignExportDurationToFrameGrid,
   getExportFrameTiming,
+  resolveExportCanvasFrameBurstCount,
+  resolveNonIosExportTimelineTimeSec,
   resolveExportPlaybackTimeSec,
   resolveExportDuration,
 } from '../utils/exportTimeline';
@@ -84,5 +86,71 @@ describe('resolveExportPlaybackTimeSec', () => {
 
   it('負値は 0 秒へ正規化する', () => {
     expect(resolveExportPlaybackTimeSec(-1, Number.NaN, false)).toBe(0);
+  });
+});
+
+describe('resolveNonIosExportTimelineTimeSec', () => {
+  it('advances at most one frame beyond the last rendered frame', () => {
+    expect(
+      resolveNonIosExportTimelineTimeSec({
+        elapsedSec: 0.101,
+        lastRenderedPlaybackTimeSec: 1 / 30,
+        fps: 30,
+      }),
+    ).toBeCloseTo(2 / 30, 10);
+  });
+
+  it('uses the snapped wall-clock time while it stays within one frame', () => {
+    expect(
+      resolveNonIosExportTimelineTimeSec({
+        elapsedSec: 0.064,
+        lastRenderedPlaybackTimeSec: 1 / 30,
+        fps: 30,
+      }),
+    ).toBeCloseTo(1 / 30, 10);
+
+    expect(
+      resolveNonIosExportTimelineTimeSec({
+        elapsedSec: 0.068,
+        lastRenderedPlaybackTimeSec: 1 / 30,
+        fps: 30,
+      }),
+    ).toBeCloseTo(2 / 30, 10);
+  });
+
+  it('does not move backward when the wall clock lags behind the rendered frame', () => {
+    expect(
+      resolveNonIosExportTimelineTimeSec({
+        elapsedSec: 0.01,
+        lastRenderedPlaybackTimeSec: 0.5,
+        fps: 30,
+      }),
+    ).toBeCloseTo(0.5, 10);
+  });
+});
+
+describe('resolveExportCanvasFrameBurstCount', () => {
+  it('encodes at most one canvas frame per poll even if multiple frames are pending', () => {
+    expect(
+      resolveExportCanvasFrameBurstCount({
+        pendingFrameCount: 4,
+      }),
+    ).toBe(1);
+  });
+
+  it('returns zero when there is no pending frame', () => {
+    expect(
+      resolveExportCanvasFrameBurstCount({
+        pendingFrameCount: 0,
+      }),
+    ).toBe(0);
+  });
+
+  it('normalizes invalid pending counts to zero', () => {
+    expect(
+      resolveExportCanvasFrameBurstCount({
+        pendingFrameCount: Number.NaN,
+      }),
+    ).toBe(0);
   });
 });

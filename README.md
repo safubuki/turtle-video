@@ -222,6 +222,7 @@ turtle-video/
 - ESLint + Prettier でコードフォーマット
 - コンポーネントは React.memo で最適化
 - 開発用スクリプトは `package.json` の `scripts` を正本とし、動画解析手順は `Docs/developer_guide.md` を参照
+- platform 分岐の図解は `Docs/platform-route-diagram.md` を参照
 
 ### 新機能の追加
 
