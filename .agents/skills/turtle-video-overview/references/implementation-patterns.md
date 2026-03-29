@@ -1738,3 +1738,15 @@
 - **注意**:
   - `stopAll()` の順序変更を共有経路へ広げると、Android / PC の再生・export 初期化順序まで変わるので避ける。
   - `video -> image` 境界の recovery は短い窓に限定し、通常の audio-only 再生ループを乗っ取らない。
+### 13-89. iOS Safari preview 開始直後の `renderFrame(..., false)` は active media を再 pause するので避ける
+
+- **ファイル**: `src/components/TurtleVideo.tsx`
+- **問題**:
+  - preview 開始処理で active video / BGM / narration を `play()` した直後に `renderFrame(fromTime, false)` を呼ぶと、そのフレーム内の通常 paused-preview 分岐が active media を再度 `pause()` してしまう。
+  - iOS Safari ではこの直後の pause -> play 循環が AudioSession を壊しやすく、「停止後の初回再生が無音」「video -> image -> video で次動画が鳴らない」の再発要因になる。
+- **実装**:
+  - iOS preview (`muteNativeMediaWhenAudioRouted=true`) では、開始直後の同期用 `renderFrame()` も active 扱いで呼び、初回フレームが active media を止めないようにする。
+  - `resetInactiveVideos()` も iOS WebAudio 済み video には pause を打たず、paused の要素だけ trimStart へ戻す。
+- **注意**:
+  - Android / PC の paused-preview 描画フローはそのまま維持し、この回避策を共有経路へ広げない。
+  - iOS のみ render/pause 条件を変える場合は、startEngine / seek resume / inactive reset の 3 箇所をセットで確認する。

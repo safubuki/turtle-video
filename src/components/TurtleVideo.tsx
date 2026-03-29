@@ -452,19 +452,28 @@ const TurtleVideo: React.FC = () => {
       if (item.type === 'video' && item.id !== activeVideoIdRef.current) {
         const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
         if (videoEl) {
+          const hasAudioNode = !!sourceNodesRef.current[item.id];
+          // iOS WebAudio preview では startEngine / seek 復帰直後の
+          // pause -> play サイクル自体が AudioSession を壊しやすい。
+          const avoidPauseForInactive = shouldAvoidPauseInactiveVideoInPreview(previewPlatformPolicy, {
+            hasAudioNode,
+            isExporting: false,
+            isActivePlaying: true,
+          });
+
           // 一時停止
-          if (!videoEl.paused) {
+          if (!avoidPauseForInactive && !videoEl.paused) {
             videoEl.pause();
           }
           // 開始位置にリセット
           const startTime = item.trimStart || 0;
-          if (Math.abs(videoEl.currentTime - startTime) > 0.1) {
+          if ((!avoidPauseForInactive || videoEl.paused) && Math.abs(videoEl.currentTime - startTime) > 0.1) {
             videoEl.currentTime = startTime;
           }
         }
       }
     }
-  }, []);
+  }, [previewPlatformPolicy]);
 
   // --- Helper: renderFrame ---
   const renderFrame = useCallback(
@@ -4270,7 +4279,11 @@ const TurtleVideo: React.FC = () => {
         //   「停止→再生」と「シーク→再生」の動作差を解消する）
         resetInactiveVideos();
 
-        renderFrame(fromTime, false, isExportMode);
+        // iOS preview はここで paused-preview 分岐へ入れると、
+        // startEngine 内で開始した active media を即座に pause してしまう。
+        const shouldRenderAsActivePreview =
+          !isExportMode && previewPlatformPolicy.muteNativeMediaWhenAudioRouted;
+        renderFrame(fromTime, shouldRenderAsActivePreview, isExportMode);
 
         // メディア要素のシーク完了を待つ
         await new Promise((r) => setTimeout(r, 50));
