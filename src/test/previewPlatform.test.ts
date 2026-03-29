@@ -508,7 +508,7 @@ describe('preview platform helpers', () => {
         desiredVolume: 1,
         sourceType: 'video',
       }),
-    ).toBe('native');
+    ).toBe('webaudio');
     expect(
       getPreviewAudioOutputMode(iosPolicy, {
         hasAudioNode: false,
@@ -520,7 +520,10 @@ describe('preview platform helpers', () => {
     ).toBe('webaudio');
   });
 
-  it('iOS Safari preview で混在区間を抜けて単独動画に戻ったら AudioNode があっても native を返す', () => {
+  it('iOS Safari preview で混在区間を抜けて単独動画に戻っても AudioNode は webaudio を維持する', () => {
+    // iOS Safari では createMediaElementSource() が1要素に対して1回しか呼べない。
+    // detach 後に再接続できないため、常に webaudio を維持する。
+
     // 混在区間中: hasAudioNode=true, audibleSourceCount=2 → webaudio
     expect(
       getPreviewAudioOutputMode(iosPolicy, {
@@ -532,7 +535,7 @@ describe('preview platform helpers', () => {
       }),
     ).toBe('webaudio');
 
-    // 混在区間を抜けた: hasAudioNode=true, audibleSourceCount=1 → native
+    // 混在区間を抜けた: hasAudioNode=true, audibleSourceCount=1 → webaudio (iOS)
     expect(
       getPreviewAudioOutputMode(iosPolicy, {
         hasAudioNode: true,
@@ -541,9 +544,9 @@ describe('preview platform helpers', () => {
         desiredVolume: 1,
         sourceType: 'video',
       }),
-    ).toBe('native');
+    ).toBe('webaudio');
 
-    // 可聴ソースなし: hasAudioNode=true, audibleSourceCount=0 → native
+    // 可聴ソースなし: hasAudioNode=true, audibleSourceCount=0 → webaudio (iOS)
     expect(
       getPreviewAudioOutputMode(iosPolicy, {
         hasAudioNode: true,
@@ -552,7 +555,7 @@ describe('preview platform helpers', () => {
         desiredVolume: 0,
         sourceType: 'video',
       }),
-    ).toBe('native');
+    ).toBe('webaudio');
 
     // export 中は hasAudioNode=true で単独動画でも webaudio を維持
     expect(
@@ -573,6 +576,45 @@ describe('preview platform helpers', () => {
         audibleSourceCount: 1,
         desiredVolume: 1,
         sourceType: 'audio',
+      }),
+    ).toBe('webaudio');
+  });
+
+  it('PC/Android preview では muteNativeMediaWhenAudioRouted=false のため常に webaudio を返す', () => {
+    const pcPolicy = getPreviewPlatformPolicy({
+      isIosSafari: false,
+      isAndroid: false,
+      audioContextMayInterrupt: false,
+    });
+
+    // PC/Android では muteNativeMediaWhenAudioRouted=false → early return で webaudio
+    expect(
+      getPreviewAudioOutputMode(pcPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        audibleSourceCount: 2,
+        desiredVolume: 1,
+        sourceType: 'video',
+      }),
+    ).toBe('webaudio');
+
+    expect(
+      getPreviewAudioOutputMode(pcPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        audibleSourceCount: 1,
+        desiredVolume: 1,
+        sourceType: 'video',
+      }),
+    ).toBe('webaudio');
+
+    expect(
+      getPreviewAudioOutputMode(pcPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        audibleSourceCount: 0,
+        desiredVolume: 0,
+        sourceType: 'video',
       }),
     ).toBe('webaudio');
   });

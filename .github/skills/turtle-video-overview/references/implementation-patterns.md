@@ -131,6 +131,12 @@
   - `startEngine` 冒頭の初回 `suspend/resume` は変更なし
   - ビデオの事前 play() は GainNode=0 かつ native volume=0 で行うため、可聴出力への影響なし
   - 非アクティブビデオは再生を継続するが、アクティブ化時の sync ロジック (`currentTime` 補正) で位置が修正される
+  - **Phase 3 対策（v5.x デグレ修正）**:
+    - **原因**: (1) `getPreviewAudioOutputMode` で `audibleSourceCount <= 1` 時に `native` を返す変更が iOS Safari にも適用され、`detachAudioNode` で `createMediaElementSource()` 済みのノードが破棄されていた。一度切り離すと再接続不可のため動画音声が永久に失われた (2) `startEngine` の事前 play() が `shouldKeepInactiveVideoPrewarmed` の距離制限で遠い将来ビデオを対象外にしていたため、画像→動画遷移時に rAF 内 `play()` が必要になり AudioSession が破壊された (3) 非アクティブ動画が AudioNode を持っていても `shouldKeepInactiveVideoPrewarmed` が false 時に `pause()` されていた
+    - **対策①**: `getPreviewAudioOutputMode` で `hasAudioNode=true` 時の `native` 復帰を iOS Safari (`muteNativeMediaWhenAudioRouted`) では無効化。iOS では常に `webaudio` を返す
+    - **対策②**: `startEngine` の事前 play() で iOS Safari 時は距離に関わらず全ビデオを GainNode=0 で事前再生する
+    - **対策③**: `renderFrame` の非アクティブ動画処理で、iOS Safari (`muteNativeMediaWhenAudioRouted`) かつ AudioNode を持つ動画は `pause()` しない（`avoidPausePlayForInactive` ガード）
+    - **PC/Android への影響**: なし。3つの対策すべてが `muteNativeMediaWhenAudioRouted`（iOS Safari のみ true）で分岐しており、PC/Android の再生・エクスポート経路は変更されない
 
 ### 3-1. 遅延初期化 + ユーザージェスチャー要件
 

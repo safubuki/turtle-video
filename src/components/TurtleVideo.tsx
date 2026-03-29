@@ -1092,7 +1092,16 @@ const TurtleVideo: React.FC = () => {
                 isNearestFutureVideo: id === nearestFutureVideoId,
                 allowExtendedFuturePrewarm: allowExtendedFutureVideoPrewarm,
               });
-              if (!shouldKeepVideoPrewarmed && !videoEl.paused) {
+              // iOS Safari: AudioNode を持つ非アクティブ動画は pause() しない。
+              // pause → play サイクルが rAF 内で発生すると AudioSession が破壊され
+              // BGM を含む WebAudio 経路全体が途絶する (Phase 2 avoidPausePlay)。
+              // GainNode=0 で無音再生を維持し、アクティブ化時は gain を上げるだけで済む。
+              const avoidPausePlayForInactive =
+                hasVideoAudioNode
+                && previewPlatformPolicy.muteNativeMediaWhenAudioRouted
+                && !_isExporting
+                && isActivePlaying;
+              if (!shouldKeepVideoPrewarmed && !avoidPausePlayForInactive && !videoEl.paused) {
                 videoEl.pause();
                 if (
                   hasVideoAudioNode
@@ -3907,15 +3916,19 @@ const TurtleVideo: React.FC = () => {
             if (shouldBundlePreviewStart && item.id === preparedPreviewAudio.activeVideoId) {
               continue;
             }
-            const shouldPrewarmVideo = shouldKeepInactiveVideoPrewarmed(previewPlatformPolicy, {
-              hasAudioNode: !!sourceNodesRef.current[item.id],
-              isExporting: false,
-              isActivePlaying: true,
-              timeSinceVideoEndSec: fromTime - itemEnd,
-              timeUntilVideoStartSec: itemStart - fromTime,
-              isNearestFutureVideo: item.id === nearestFutureVideoId,
-              allowExtendedFuturePrewarm,
-            });
+            // iOS Safari: ジェスチャーコンテキストで全ビデオを事前 play() する。
+            // startEngine 外の rAF 内で play() すると AudioSession が破壊され
+            // BGM と動画音声が両方途切れるため、距離に関わらず全ビデオを対象にする。
+            const shouldPrewarmVideo = previewPlatformPolicy.muteNativeMediaWhenAudioRouted
+              || shouldKeepInactiveVideoPrewarmed(previewPlatformPolicy, {
+                hasAudioNode: !!sourceNodesRef.current[item.id],
+                isExporting: false,
+                isActivePlaying: true,
+                timeSinceVideoEndSec: fromTime - itemEnd,
+                timeUntilVideoStartSec: itemStart - fromTime,
+                isNearestFutureVideo: item.id === nearestFutureVideoId,
+                allowExtendedFuturePrewarm,
+              });
             if (!shouldPrewarmVideo) {
               continue;
             }
