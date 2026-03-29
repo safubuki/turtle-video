@@ -221,6 +221,52 @@ export function shouldKeepInactiveVideoPrewarmed(
 }
 
 /**
+ * iOS Safari preview で WebAudio 済み inactive video を pause せず維持するかを返す。
+ * pause -> play サイクルが AudioSession を壊すケースを避けるため、iOS preview だけ分離する。
+ */
+export function shouldAvoidPauseInactiveVideoInPreview(
+  policy: PreviewPlatformPolicy,
+  options: {
+    hasAudioNode: boolean;
+    isExporting: boolean;
+    isActivePlaying: boolean;
+  },
+): boolean {
+  return options.hasAudioNode
+    && policy.muteNativeMediaWhenAudioRouted
+    && !options.isExporting
+    && options.isActivePlaying;
+}
+
+/**
+ * iOS Safari preview で future video の silent prewarm を開始すべきかを返す。
+ * 画像ギャップ中の次動画は active 化前に play しておき、切替時の AudioSession 破壊を避ける。
+ */
+export function shouldPrimeFutureInactiveVideoInPreview(
+  policy: PreviewPlatformPolicy,
+  options: {
+    hasAudioNode: boolean;
+    isExporting: boolean;
+    isActivePlaying: boolean;
+    shouldKeepVideoPrewarmed: boolean;
+    timeUntilVideoStartSec?: number | null;
+  },
+): boolean {
+  const isFutureVideo =
+    options.timeUntilVideoStartSec !== null
+    && options.timeUntilVideoStartSec !== undefined
+    && options.timeUntilVideoStartSec >= 0;
+
+  return options.shouldKeepVideoPrewarmed
+    && isFutureVideo
+    && shouldAvoidPauseInactiveVideoInPreview(policy, {
+      hasAudioNode: options.hasAudioNode,
+      isExporting: options.isExporting,
+      isActivePlaying: options.isActivePlaying,
+    });
+}
+
+/**
  * iOS Safari preview では単一音源時のみ native 出力へ逃がし、複数同時再生時は WebAudio mix を使う。
  */
 export function getPreviewAudioOutputMode(

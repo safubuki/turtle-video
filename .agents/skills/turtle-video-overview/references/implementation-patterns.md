@@ -1712,3 +1712,16 @@
 - **注意点**:
   - これは iOS Safari MediaRecorder 経路には適用しない
   - 滑らかさ優先の変更なので、export wall-clock 時間がわずかに伸びても frame burst を再許可しない
+### 13-87. iOS Safari preview の future video prewarm は「keep」だけでなく silent prime まで行う
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **問題**:
+  - `shouldKeepInactiveVideoPrewarmed()` だけでは、future video が paused のままでも「prewarm 対象」と判定される。
+  - 画像ギャップ中に次動画が paused のままだと、active 化した瞬間の `play()` が iOS Safari の AudioSession を壊し、動画音声と BGM がまとめて無音化することがある。
+- **実装**:
+  - `shouldAvoidPauseInactiveVideoInPreview()` で、iOS preview 中に AudioNode 済み inactive video の `pause()` を避ける条件を helper 化する。
+  - `shouldPrimeFutureInactiveVideoInPreview()` で、prewarm 対象の future video を silent prime すべき条件を helper 化し、`renderFrame()` 側で `currentTime=trimStart` と `play()` を行う。
+  - 判定は iOS Safari preview に閉じ、PC / Android / export の既存 pause 制御は変えない。
+- **注意**:
+  - iOS 無音対策を helper ではなく `TurtleVideo.tsx` の局所条件だけで戻すと、後続の export / non-iOS 調整で再び上書きされやすい。
+  - `pause()` 回避と future video の silent prime はセットで扱い、「keep しているのに paused のまま」という中途半端な状態を作らない。

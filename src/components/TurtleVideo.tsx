@@ -45,9 +45,11 @@ import {
   shouldBlackoutVideoFadeTail,
   shouldBundlePreviewStartForWebAudioMix,
   getVisibilityRecoveryPlan,
+  shouldAvoidPauseInactiveVideoInPreview,
   shouldHoldVideoFrameAtClipEnd,
   shouldHoldFrameForImageToVideoExportTransition,
   shouldKeepInactiveVideoPrewarmed,
+  shouldPrimeFutureInactiveVideoInPreview,
   shouldStabilizeImageToVideoTransitionDuringExport,
   shouldMuteNativeMediaElement,
   shouldReinitializeAudioRoute,
@@ -1092,7 +1094,28 @@ const TurtleVideo: React.FC = () => {
                 isNearestFutureVideo: id === nearestFutureVideoId,
                 allowExtendedFuturePrewarm: allowExtendedFutureVideoPrewarm,
               });
-              if (!shouldKeepVideoPrewarmed && !videoEl.paused) {
+              const avoidPausePlayForInactive = shouldAvoidPauseInactiveVideoInPreview(previewPlatformPolicy, {
+                hasAudioNode: hasVideoAudioNode,
+                isExporting: _isExporting,
+                isActivePlaying,
+              });
+              const shouldPrimeFutureVideo = shouldPrimeFutureInactiveVideoInPreview(previewPlatformPolicy, {
+                hasAudioNode: hasVideoAudioNode,
+                isExporting: _isExporting,
+                isActivePlaying,
+                shouldKeepVideoPrewarmed,
+                timeUntilVideoStartSec,
+              });
+
+              if (shouldPrimeFutureVideo && videoEl.paused && !videoEl.seeking && videoEl.readyState >= 2) {
+                const startTime = conf.trimStart || 0;
+                if (Math.abs(videoEl.currentTime - startTime) > 0.1) {
+                  videoEl.currentTime = startTime;
+                }
+                videoEl.play().catch(() => { });
+              }
+
+              if (!shouldKeepVideoPrewarmed && !avoidPausePlayForInactive && !videoEl.paused) {
                 videoEl.pause();
                 if (
                   hasVideoAudioNode

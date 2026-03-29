@@ -9,11 +9,13 @@ import {
   getPreviewVideoSyncThreshold,
   shouldAttemptDeferredPreviewPlay,
   shouldBlackoutVideoFadeTail,
+  shouldAvoidPauseInactiveVideoInPreview,
   shouldBundlePreviewStartForWebAudioMix,
   shouldHoldFrameForImageToVideoExportTransition,
   shouldHoldVideoFrameAtClipEnd,
   shouldKeepInactiveVideoPrewarmed,
   shouldMuteNativeMediaElement,
+  shouldPrimeFutureInactiveVideoInPreview,
   shouldReinitializeAudioRoute,
   shouldResumeAudioContextOnVisibilityReturn,
   shouldStabilizeImageToVideoTransitionDuringExport,
@@ -228,6 +230,104 @@ describe('getPreviewPlatformPolicy', () => {
         isActivePlaying: false,
         timeSinceVideoEndSec: -0.1,
         timeUntilVideoStartSec: 0.1,
+      }),
+    ).toBe(false);
+  });
+
+  it('iOS Safari preview では AudioNode 済み inactive video の pause を避ける', () => {
+    const iosPolicy = getPreviewPlatformPolicy({
+      isAndroid: false,
+      isIosSafari: true,
+      audioContextMayInterrupt: true,
+    });
+    const nonIosPolicy = getPreviewPlatformPolicy({
+      isAndroid: false,
+      isIosSafari: false,
+      audioContextMayInterrupt: false,
+    });
+
+    expect(
+      shouldAvoidPauseInactiveVideoInPreview(iosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        isActivePlaying: true,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldAvoidPauseInactiveVideoInPreview(iosPolicy, {
+        hasAudioNode: true,
+        isExporting: true,
+        isActivePlaying: true,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldAvoidPauseInactiveVideoInPreview(iosPolicy, {
+        hasAudioNode: false,
+        isExporting: false,
+        isActivePlaying: true,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldAvoidPauseInactiveVideoInPreview(nonIosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        isActivePlaying: true,
+      }),
+    ).toBe(false);
+  });
+
+  it('iOS Safari preview では prewarm 対象の future video を silent prime する', () => {
+    const iosPolicy = getPreviewPlatformPolicy({
+      isAndroid: false,
+      isIosSafari: true,
+      audioContextMayInterrupt: true,
+    });
+    const nonIosPolicy = getPreviewPlatformPolicy({
+      isAndroid: false,
+      isIosSafari: false,
+      audioContextMayInterrupt: false,
+    });
+
+    expect(
+      shouldPrimeFutureInactiveVideoInPreview(iosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        isActivePlaying: true,
+        shouldKeepVideoPrewarmed: true,
+        timeUntilVideoStartSec: 1.2,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldPrimeFutureInactiveVideoInPreview(iosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        isActivePlaying: true,
+        shouldKeepVideoPrewarmed: true,
+        timeUntilVideoStartSec: -0.1,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldPrimeFutureInactiveVideoInPreview(iosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        isActivePlaying: true,
+        shouldKeepVideoPrewarmed: false,
+        timeUntilVideoStartSec: 1.2,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldPrimeFutureInactiveVideoInPreview(nonIosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        isActivePlaying: true,
+        shouldKeepVideoPrewarmed: true,
+        timeUntilVideoStartSec: 1.2,
       }),
     ).toBe(false);
   });
