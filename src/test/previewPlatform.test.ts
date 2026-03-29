@@ -16,8 +16,10 @@ import {
   shouldKeepInactiveVideoPrewarmed,
   shouldMuteNativeMediaElement,
   shouldPrimeFutureInactiveVideoInPreview,
+  shouldRecoverAudioOnlyAfterVideoBoundary,
   shouldReinitializeAudioRoute,
   shouldResumeAudioContextOnVisibilityReturn,
+  shouldStopBeforePreviewAudioRouteInit,
   shouldStabilizeImageToVideoTransitionDuringExport,
   shouldUseCaptionBlurFallback,
 } from '../utils/previewPlatform';
@@ -328,6 +330,86 @@ describe('getPreviewPlatformPolicy', () => {
         isActivePlaying: true,
         shouldKeepVideoPrewarmed: true,
         timeUntilVideoStartSec: 1.2,
+      }),
+    ).toBe(false);
+  });
+
+  it('iOS Safari preview の stop 復帰は audio 初期化前に stopAll する', () => {
+    const iosPolicy = getPreviewPlatformPolicy({
+      isAndroid: false,
+      isIosSafari: true,
+      audioContextMayInterrupt: true,
+    });
+    const nonIosPolicy = getPreviewPlatformPolicy({
+      isAndroid: false,
+      isIosSafari: false,
+      audioContextMayInterrupt: false,
+    });
+
+    expect(
+      shouldStopBeforePreviewAudioRouteInit(iosPolicy, {
+        isExporting: false,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldStopBeforePreviewAudioRouteInit(iosPolicy, {
+        isExporting: true,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldStopBeforePreviewAudioRouteInit(nonIosPolicy, {
+        isExporting: false,
+      }),
+    ).toBe(false);
+  });
+
+  it('iOS Safari preview では video -> image 境界直後に audio-only を再 prime する', () => {
+    const iosPolicy = getPreviewPlatformPolicy({
+      isAndroid: false,
+      isIosSafari: true,
+      audioContextMayInterrupt: true,
+    });
+    const nonIosPolicy = getPreviewPlatformPolicy({
+      isAndroid: false,
+      isIosSafari: false,
+      audioContextMayInterrupt: false,
+    });
+
+    expect(
+      shouldRecoverAudioOnlyAfterVideoBoundary(iosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        isActivePlaying: true,
+        timeSinceVideoEndSec: 0.04,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldRecoverAudioOnlyAfterVideoBoundary(iosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        isActivePlaying: true,
+        timeSinceVideoEndSec: 0.2,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldRecoverAudioOnlyAfterVideoBoundary(iosPolicy, {
+        hasAudioNode: false,
+        isExporting: false,
+        isActivePlaying: true,
+        timeSinceVideoEndSec: 0.04,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldRecoverAudioOnlyAfterVideoBoundary(nonIosPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        isActivePlaying: true,
+        timeSinceVideoEndSec: 0.04,
       }),
     ).toBe(false);
   });

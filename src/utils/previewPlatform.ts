@@ -269,6 +269,39 @@ export function shouldPrimeFutureInactiveVideoInPreview(
 /**
  * iOS Safari preview では単一音源時のみ native 出力へ逃がし、複数同時再生時は WebAudio mix を使う。
  */
+/**
+ * iOS Safari preview では stop 復帰時に stopAll を先に済ませ、AudioSession を作り直してから再生を始める。
+ */
+export function shouldStopBeforePreviewAudioRouteInit(
+  policy: PreviewPlatformPolicy,
+  options: { isExporting: boolean },
+): boolean {
+  return policy.muteNativeMediaWhenAudioRouted && !options.isExporting;
+}
+
+/**
+ * iOS Safari preview で video -> image 境界直後に audio-only を再 prime すべきかを返す。
+ */
+export function shouldRecoverAudioOnlyAfterVideoBoundary(
+  policy: PreviewPlatformPolicy,
+  options: {
+    hasAudioNode: boolean;
+    isExporting: boolean;
+    isActivePlaying: boolean;
+    timeSinceVideoEndSec: number | null;
+    recoveryWindowSec?: number;
+  },
+): boolean {
+  const recoveryWindowSec = options.recoveryWindowSec ?? 0.08;
+  return options.hasAudioNode
+    && policy.muteNativeMediaWhenAudioRouted
+    && !options.isExporting
+    && options.isActivePlaying
+    && options.timeSinceVideoEndSec !== null
+    && options.timeSinceVideoEndSec >= 0
+    && options.timeSinceVideoEndSec <= recoveryWindowSec;
+}
+
 export function getPreviewAudioOutputMode(
   policy: PreviewPlatformPolicy,
   options: {

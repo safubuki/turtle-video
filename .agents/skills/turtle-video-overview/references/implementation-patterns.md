@@ -1725,3 +1725,16 @@
 - **注意**:
   - iOS 無音対策を helper ではなく `TurtleVideo.tsx` の局所条件だけで戻すと、後続の export / non-iOS 調整で再び上書きされやすい。
   - `pause()` 回避と future video の silent prime はセットで扱い、「keep しているのに paused のまま」という中途半端な状態を作らない。
+### 13-88. iOS Safari preview の stop -> play 復帰は AudioSession 初期化より先に stopAll を済ませる
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **問題**:
+  - iOS Safari preview では、`AudioContext.resume()` / `suspend()` / `resume()` で音声経路を立て直した直後に `stopAll()` が全メディアを `pause()` すると、作り直した AudioSession を自分で崩して再び無音化することがある。
+  - 特に停止ボタン後の再生や先頭再生では、この順序差だけで「初回から無音」「数秒後に BGM だけ復帰」のような不安定さが出やすい。
+- **実装**:
+  - `shouldStopBeforePreviewAudioRouteInit()` で iOS preview だけ `stopAll()` を audio route 初期化より前へ移す条件を helper 化する。
+  - `shouldRecoverAudioOnlyAfterVideoBoundary()` で `video -> image` 境界直後の短い窓だけ audio-only を再 prime する条件を helper 化し、BGM/ナレーションの復帰を早める。
+  - Android / PC と iOS export は従来順序を維持し、今回の変更は preview の iOS 条件にだけ閉じる。
+- **注意**:
+  - `stopAll()` の順序変更を共有経路へ広げると、Android / PC の再生・export 初期化順序まで変わるので避ける。
+  - `video -> image` 境界の recovery は短い窓に限定し、通常の audio-only 再生ループを乗っ取らない。

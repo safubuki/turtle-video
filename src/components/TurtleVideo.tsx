@@ -50,6 +50,8 @@ import {
   shouldHoldFrameForImageToVideoExportTransition,
   shouldKeepInactiveVideoPrewarmed,
   shouldPrimeFutureInactiveVideoInPreview,
+  shouldRecoverAudioOnlyAfterVideoBoundary,
+  shouldStopBeforePreviewAudioRouteInit,
   shouldStabilizeImageToVideoTransitionDuringExport,
   shouldMuteNativeMediaElement,
   shouldReinitializeAudioRoute,
@@ -1106,6 +1108,20 @@ const TurtleVideo: React.FC = () => {
                 shouldKeepVideoPrewarmed,
                 timeUntilVideoStartSec,
               });
+              const shouldRecoverAudioOnlyAfterBoundary = shouldRecoverAudioOnlyAfterVideoBoundary(previewPlatformPolicy, {
+                hasAudioNode: hasVideoAudioNode,
+                isExporting: _isExporting,
+                isActivePlaying,
+                timeSinceVideoEndSec,
+              });
+
+              if (shouldRecoverAudioOnlyAfterBoundary) {
+                const ctx = audioCtxRef.current;
+                if (ctx && (ctx.state as AudioContextState | 'interrupted') !== 'running') {
+                  ctx.resume().catch(() => { });
+                }
+                primePreviewAudioOnlyTracksAtTimeRef.current(time);
+              }
 
               if (shouldPrimeFutureVideo && videoEl.paused && !videoEl.seeking && videoEl.readyState >= 2) {
                 const startTime = conf.trimStart || 0;
@@ -3763,6 +3779,13 @@ const TurtleVideo: React.FC = () => {
         });
       }
 
+      const shouldStopBeforeAudioInit = shouldStopBeforePreviewAudioRouteInit(previewPlatformPolicy, {
+        isExporting: isExportMode,
+      });
+      if (shouldStopBeforeAudioInit) {
+        stopAll();
+      }
+
       const ctx = getAudioContext();
       const stateBeforeResume = ctx.state as AudioContextState | 'interrupted';
       logDebug('AUDIO', 'AudioContext状態', { state: stateBeforeResume });
@@ -3808,7 +3831,9 @@ const TurtleVideo: React.FC = () => {
       }
 
       // 既存のループとメディアを停止（これでloopIdRefがインクリメントされる）
-      stopAll();
+      if (!shouldStopBeforeAudioInit) {
+        stopAll();
+      }
 
       // 新しいループIDを取得
       const myLoopId = loopIdRef.current;
