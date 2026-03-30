@@ -51,6 +51,7 @@ import {
   shouldKeepInactiveVideoPrewarmed,
   shouldPrimeFutureInactiveVideoInPreview,
   shouldRecoverAudioOnlyAfterVideoBoundary,
+  shouldRetryAudioOnlyPrimeAtPreviewStart,
   shouldStopBeforePreviewAudioRouteInit,
   shouldStabilizeImageToVideoTransitionDuringExport,
   shouldMuteNativeMediaElement,
@@ -4292,6 +4293,17 @@ const TurtleVideo: React.FC = () => {
       // awaitの間にstopAllが呼ばれていたら中止
       if (myLoopId !== loopIdRef.current) {
         return;
+      }
+
+      if (shouldRetryAudioOnlyPrimeAtPreviewStart(previewPlatformPolicy, {
+        isExporting: isExportMode,
+        hasActiveVideo: preparedPreviewAudio.activeVideoId !== null,
+        requiresWebAudio: preparedPreviewAudio.requiresWebAudio,
+      })) {
+        // 先頭が静止画のときは audio-only の prime だけが起動条件になる。
+        // stop 復帰直後は readyState / seek 競合で 1 回目を取り逃がすことがあるため、
+        // ループ開始直前にもう一度だけ prime して BGM の無音開始を避ける。
+        primePreviewAudioOnlyTracksAtTime(fromTime);
       }
 
       startTimeRef.current = Date.now() - fromTime * 1000;

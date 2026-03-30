@@ -17,6 +17,7 @@ import {
   shouldMuteNativeMediaElement,
   shouldPrimeFutureInactiveVideoInPreview,
   shouldRecoverAudioOnlyAfterVideoBoundary,
+  shouldRetryAudioOnlyPrimeAtPreviewStart,
   shouldReinitializeAudioRoute,
   shouldResumeAudioContextOnVisibilityReturn,
   shouldStopBeforePreviewAudioRouteInit,
@@ -410,6 +411,51 @@ describe('getPreviewPlatformPolicy', () => {
         isExporting: false,
         isActivePlaying: true,
         timeSinceVideoEndSec: 0.04,
+      }),
+    ).toBe(false);
+  });
+
+  it('iOS Safari preview では静止画始まりの stop 復帰時に audio-only prime を再試行する', () => {
+    const iosPolicy = getPreviewPlatformPolicy({
+      isAndroid: false,
+      isIosSafari: true,
+      audioContextMayInterrupt: true,
+    });
+    const nonIosPolicy = getPreviewPlatformPolicy({
+      isAndroid: false,
+      isIosSafari: false,
+      audioContextMayInterrupt: false,
+    });
+
+    expect(
+      shouldRetryAudioOnlyPrimeAtPreviewStart(iosPolicy, {
+        isExporting: false,
+        hasActiveVideo: false,
+        requiresWebAudio: true,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldRetryAudioOnlyPrimeAtPreviewStart(iosPolicy, {
+        isExporting: false,
+        hasActiveVideo: true,
+        requiresWebAudio: true,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldRetryAudioOnlyPrimeAtPreviewStart(iosPolicy, {
+        isExporting: true,
+        hasActiveVideo: false,
+        requiresWebAudio: true,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldRetryAudioOnlyPrimeAtPreviewStart(nonIosPolicy, {
+        isExporting: false,
+        hasActiveVideo: false,
+        requiresWebAudio: true,
       }),
     ).toBe(false);
   });

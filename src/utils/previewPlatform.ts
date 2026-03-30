@@ -302,6 +302,25 @@ export function shouldRecoverAudioOnlyAfterVideoBoundary(
     && options.timeSinceVideoEndSec <= recoveryWindowSec;
 }
 
+/**
+ * iOS Safari preview で先頭が静止画のときは audio-only の prime が開始条件になる。
+ * stop 復帰直後は seek/readyState の競合で最初の prime を取りこぼすことがあるため、
+ * ループ開始直前に 1 回だけ再 prime する。
+ */
+export function shouldRetryAudioOnlyPrimeAtPreviewStart(
+  policy: PreviewPlatformPolicy,
+  options: {
+    isExporting: boolean;
+    hasActiveVideo: boolean;
+    requiresWebAudio: boolean;
+  },
+): boolean {
+  return policy.muteNativeMediaWhenAudioRouted
+    && !options.isExporting
+    && !options.hasActiveVideo
+    && options.requiresWebAudio;
+}
+
 export function getPreviewAudioOutputMode(
   policy: PreviewPlatformPolicy,
   options: {

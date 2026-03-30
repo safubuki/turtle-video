@@ -1750,3 +1750,16 @@
 - **注意**:
   - Android / PC の paused-preview 描画フローはそのまま維持し、この回避策を共有経路へ広げない。
   - iOS のみ render/pause 条件を変える場合は、startEngine / seek resume / inactive reset の 3 箇所をセットで確認する。
+
+### 13-90. iOS Safari preview の静止画始まりはループ開始直前に audio-only prime を 1 回だけ再試行する
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **背景**:
+  - 先頭が静止画で BGM / narration だけが鳴るケースでは、preview 開始条件が `primePreviewAudioOnlyTracksAtTime()` の成功に依存する。
+  - stop 復帰直後は media element の `readyState` と seek 完了が揃う前に最初の prime が走ることがあり、その 1 回を取りこぼすと静止画区間だけ無音のまま進み、次の動画開始でだけ音が復帰する。
+- **実装方針**:
+  - `shouldRetryAudioOnlyPrimeAtPreviewStart()` で「iOS Safari preview かつ active video なし、かつ WebAudio 経路あり」のときだけ再 prime する helper を追加する。
+  - `startEngine()` では最初の同期描画と seek の settle 待ちが終わった直後、ループ開始前に 1 回だけ `primePreviewAudioOnlyTracksAtTime(fromTime)` を再実行する。
+- **注意点**:
+  - retry 条件を `previewPlatform.ts` に寄せ、Android / PC / export では必ず `false` になるテストを入れて共有経路への漏れを防ぐ。
+  - これは「静止画先頭の audio-only 起動を安定させる」ための補強であり、動画側の start 順や boundary recovery と混ぜて一般化しない。
