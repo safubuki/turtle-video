@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { AppFlavor } from '../app/resolveAppFlavor';
 import SettingsModal from '../components/modals/SettingsModal';
 import SaveLoadModal from '../components/modals/SaveLoadModal';
 
@@ -110,6 +111,8 @@ const saveRuntime = {
   })),
   saveBlobWithClientFileStrategy: vi.fn(),
 };
+
+const defaultAppFlavor: AppFlavor = 'standard';
 
 vi.mock('../stores', () => ({
   useLogStore: (selector: (state: typeof logStoreState) => unknown) => selector(logStoreState),
@@ -229,6 +232,7 @@ describe('modal history stability', () => {
         isOpen={true}
         onClose={() => {}}
         onToast={() => {}}
+        appFlavor={defaultAppFlavor}
         saveRuntime={saveRuntime}
       />,
     );
@@ -239,6 +243,7 @@ describe('modal history stability', () => {
         isOpen={true}
         onClose={() => undefined}
         onToast={() => undefined}
+        appFlavor={defaultAppFlavor}
         saveRuntime={saveRuntime}
       />,
     );
@@ -277,6 +282,7 @@ describe('modal history stability', () => {
         isOpen={true}
         onClose={onClose}
         onToast={onToast}
+        appFlavor={defaultAppFlavor}
         saveRuntime={saveRuntime}
       />,
     );
@@ -308,6 +314,7 @@ describe('modal history stability', () => {
         isOpen={true}
         onClose={() => {}}
         onToast={() => {}}
+        appFlavor={defaultAppFlavor}
         saveRuntime={saveRuntime}
       />,
     );
@@ -337,6 +344,7 @@ describe('modal history stability', () => {
         isOpen={true}
         onClose={() => {}}
         onToast={() => {}}
+        appFlavor={defaultAppFlavor}
         saveRuntime={saveRuntime}
       />,
     );
@@ -367,6 +375,7 @@ describe('modal history stability', () => {
         isOpen={true}
         onClose={() => {}}
         onToast={() => {}}
+        appFlavor={defaultAppFlavor}
         saveRuntime={saveRuntime}
       />,
     );
@@ -377,5 +386,22 @@ describe('modal history stability', () => {
 
     expect(projectStoreState.requestAutoSaveRestart).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
+  });
+
+  it('SaveLoadModal は apple-safari flavor で Safari 向け保存案内を表示する', () => {
+    const { getByLabelText, getByText } = render(
+      <SaveLoadModal
+        isOpen={true}
+        onClose={() => {}}
+        onToast={() => {}}
+        appFlavor="apple-safari"
+        saveRuntime={saveRuntime}
+      />,
+    );
+
+    fireEvent.click(getByLabelText('保存・素材の説明'));
+
+    expect(getByText('Apple Safari 検証モード')).toBeTruthy();
+    expect(getByText(/通常タブ、ホーム画面追加、プライベートブラウズ/)).toBeTruthy();
   });
 });

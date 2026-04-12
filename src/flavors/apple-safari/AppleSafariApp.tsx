@@ -8,6 +8,7 @@ function AppleSafariApp() {
   return (
     <AppShell>
       <TurtleVideo
+        appFlavor="apple-safari"
         previewRuntime={appleSafariPreviewRuntime}
         exportRuntime={appleSafariExportRuntime}
         saveRuntime={appleSafariSaveRuntime}

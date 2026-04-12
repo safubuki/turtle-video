@@ -2,6 +2,7 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import PreviewSection from '../components/sections/PreviewSection';
+import type { AppFlavor } from '../app/resolveAppFlavor';
 import type { MediaItem } from '../types';
 
 const mediaItem: MediaItem = {
@@ -28,6 +29,8 @@ const mediaItem: MediaItem = {
 
 function renderPreviewSection(overrides?: Partial<React.ComponentProps<typeof PreviewSection>>) {
   const props: React.ComponentProps<typeof PreviewSection> = {
+    appFlavor: 'standard' as AppFlavor,
+    supportsShowSaveFilePicker: false,
     mediaItems: [mediaItem],
     bgm: null,
     narrations: [],
@@ -211,5 +214,15 @@ describe('PreviewSection action buttons', () => {
     });
 
     expect(screen.getByRole('button', { name: '映像を生成中... 1%' })).toBeInTheDocument();
+  });
+
+  it('apple-safari flavor では安定動作優先の案内を表示する', () => {
+    renderPreviewSection({
+      appFlavor: 'apple-safari',
+      supportsShowSaveFilePicker: false,
+    });
+
+    expect(screen.getByText('Apple Safari 検証モード')).toBeInTheDocument();
+    expect(screen.getByText(/共有メニューまたは標準ダウンロード導線/)).toBeInTheDocument();
   });
 });

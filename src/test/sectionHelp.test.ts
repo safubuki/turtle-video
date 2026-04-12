@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { SECTION_HELP_CONTENT } from '../constants/sectionHelp';
+import { getSectionHelpContent } from '../constants/sectionHelp';
 
 function getHelpDescription(
-  section: keyof typeof SECTION_HELP_CONTENT,
+  section: keyof ReturnType<typeof getSectionHelpContent>,
   title: string,
+  input: Parameters<typeof getSectionHelpContent>[0] = {
+    appFlavor: 'standard',
+    supportsShowSaveFilePicker: false,
+  },
 ): string {
-  const item = SECTION_HELP_CONTENT[section].items.find((entry) => entry.title === title);
+  const item = getSectionHelpContent(input)[section].items.find((entry) => entry.title === title);
   if (!item) {
     throw new Error(`Help item not found: ${section} / ${title}`);
   }
@@ -21,12 +25,31 @@ describe('sectionHelp support messaging', () => {
   });
 
   it('保存系ヘルプは保存ダイアログと標準ダウンロードの両方を案内する', () => {
-    const narrationDescription = getHelpDescription('narration', '並び替え・編集・削除・保存');
-    const previewDescription = getHelpDescription('preview', '作成後のダウンロード');
+    const pickerNarrationDescription = getHelpDescription('narration', '並び替え・編集・削除・保存', {
+      appFlavor: 'standard',
+      supportsShowSaveFilePicker: true,
+    });
+    const fallbackPreviewDescription = getHelpDescription('preview', '作成後のダウンロード', {
+      appFlavor: 'standard',
+      supportsShowSaveFilePicker: false,
+    });
 
-    expect(narrationDescription).toContain('保存先ダイアログ');
-    expect(narrationDescription).toContain('標準ダウンロード');
-    expect(previewDescription).toContain('保存先ダイアログ');
-    expect(previewDescription).toContain('標準ダウンロード');
+    expect(pickerNarrationDescription).toContain('保存先ダイアログ');
+    expect(pickerNarrationDescription).toContain('標準ダウンロード');
+    expect(fallbackPreviewDescription).toContain('標準ダウンロード');
+  });
+
+  it('apple-safari help は Safari 検証モード向けの案内を出す', () => {
+    const appDescription = getHelpDescription('app', '動作確認機種', {
+      appFlavor: 'apple-safari',
+      supportsShowSaveFilePicker: false,
+    });
+    const previewDescription = getHelpDescription('preview', '作成後のダウンロード', {
+      appFlavor: 'apple-safari',
+      supportsShowSaveFilePicker: false,
+    });
+
+    expect(appDescription).toContain('安定動作優先の検証モード');
+    expect(previewDescription).toContain('共有メニュー');
   });
 });

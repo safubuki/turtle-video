@@ -6,6 +6,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Save, FolderOpen, Trash2, Clock, AlertTriangle, Timer, Image, CircleHelp, RefreshCw } from 'lucide-react';
+import type { AppFlavor } from '../../app/resolveAppFlavor';
+import { getSaveLoadRuntimeGuidance } from '../../app/appFlavorUi';
 import {
   useProjectStore,
   getProjectStoreErrorMessage,
@@ -28,6 +30,7 @@ interface SaveLoadModalProps {
   isOpen: boolean;
   onClose: () => void;
   onToast: (message: string, type?: 'success' | 'error') => void;
+  appFlavor: AppFlavor;
   saveRuntime: SaveRuntime;
 }
 
@@ -95,7 +98,7 @@ function formatExactDateTime(isoString: string | null): string {
   });
 }
 
-export default function SaveLoadModal({ isOpen, onClose, onToast, saveRuntime }: SaveLoadModalProps) {
+export default function SaveLoadModal({ isOpen, onClose, onToast, appFlavor, saveRuntime }: SaveLoadModalProps) {
   const [mode, setMode] = useState<ModalMode>('menu');
   const [selectedSlot, setSelectedSlot] = useState<SaveSlot | null>(null);
   const [autoSaveInterval, setAutoSaveIntervalState] = useState<AutoSaveIntervalOption>(getAutoSaveInterval);
@@ -106,6 +109,10 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, saveRuntime }:
   const supportsShowSaveFilePicker = useMemo(
     () => saveRuntime.getPlatformCapabilities().supportsShowSaveFilePicker,
     [saveRuntime],
+  );
+  const runtimeGuidance = useMemo(
+    () => getSaveLoadRuntimeGuidance({ appFlavor, supportsShowSaveFilePicker }),
+    [appFlavor, supportsShowSaveFilePicker],
   );
   const modalHistoryIdRef = useRef<string | null>(null);
   const closedByPopstateRef = useRef(false);
@@ -642,6 +649,10 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, saveRuntime }:
                 <div className="space-y-3 text-xs md:text-sm text-orange-50 leading-relaxed">
                   <div className="space-y-1.5">
                     <div className="font-semibold text-orange-100">保存</div>
+                    <div className="rounded-lg border border-orange-300/30 bg-orange-500/8 px-3 py-2">
+                      <div className="text-[11px] md:text-xs font-semibold text-orange-200">現在の保存モード</div>
+                      <div className="text-sm md:text-[15px] font-bold text-orange-50">{runtimeGuidance.title}</div>
+                    </div>
                     <ul className="list-disc ml-4 space-y-1">
                       <li>保存データはブラウザ上の IndexedDB に保存されます。</li>
                       <li>ブラウザやアプリを閉じても、保存データは保持されます。</li>
@@ -649,8 +660,10 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, saveRuntime }:
                       <li>自動保存は定期的に上書き保存されるため、保存データが増え続けずローカル領域を圧迫しにくい設計です。</li>
                       <li>手動保存で現在の状態を保存し、読み込みで復元できます。</li>
                       <li>保存データを削除すると、自動保存と手動保存の両方が消えます。</li>
-                      <li>iPhone / iPad の Safari では、手動保存→読み込み、自動保存反映、ブラウザ再起動後の保持を、同じ起動方法で確認してください。</li>
-                      <li>Safari の通常タブ、ホーム画面追加、プライベートブラウズでは保存領域が分かれる場合があります。継続利用する起動方法を固定してください。</li>
+                      <li>{runtimeGuidance.summary}</li>
+                      {runtimeGuidance.bullets.map((bullet) => (
+                        <li key={bullet}>{bullet}</li>
+                      ))}
                     </ul>
                   </div>
                   <div className="border-t border-orange-300/35" />

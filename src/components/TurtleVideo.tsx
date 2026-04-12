@@ -5,6 +5,7 @@
  */
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 
+import type { AppFlavor } from '../app/resolveAppFlavor';
 import type { MediaItem, AudioTrack, NarrationClip, NarrationScriptLength } from '../types';
 import type { ExportRuntime } from './turtle-video/exportRuntime';
 import type { SectionHelpKey } from '../constants/sectionHelp';
@@ -57,12 +58,13 @@ const getApiKey = (): string => {
 };
 
 interface TurtleVideoProps {
+  appFlavor: AppFlavor;
   previewRuntime: PreviewRuntime;
   exportRuntime: ExportRuntime;
   saveRuntime: SaveRuntime;
 }
 
-const TurtleVideo: React.FC<TurtleVideoProps> = ({ previewRuntime, exportRuntime, saveRuntime }) => {
+const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, exportRuntime, saveRuntime }) => {
   // 離脱防止フックを使用
   usePreventUnload();
 
@@ -1794,6 +1796,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ previewRuntime, exportRuntime
       <SaveLoadModal
         isOpen={showProjectManager}
         onClose={() => setShowProjectManager(false)}
+        appFlavor={appFlavor}
         onToast={(msg, type) => {
           if (type === 'error') {
             setError(msg);
@@ -1806,6 +1809,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ previewRuntime, exportRuntime
 
       {/* Section Help Modal */}
       <SectionHelpModal
+        appFlavor={appFlavor}
+        supportsShowSaveFilePicker={supportsShowSaveFilePicker}
         isOpen={activeHelpSection !== null}
         section={activeHelpSection}
         onClose={closeSectionHelp}
@@ -1813,6 +1818,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ previewRuntime, exportRuntime
 
       {/* Header */}
       <Header
+        appFlavor={appFlavor}
         onOpenSettings={handleOpenSettingsModal}
         onOpenProjectManager={handleOpenProjectManagerModal}
         onOpenAppHelp={handleOpenAppHelpModal}
@@ -1926,6 +1932,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ previewRuntime, exportRuntime
             <div className="lg:sticky lg:top-20">
               {/* 5. PREVIEW */}
               <PreviewSection
+                appFlavor={appFlavor}
+                supportsShowSaveFilePicker={supportsShowSaveFilePicker}
                 mediaItems={mediaItems}
                 bgm={bgm}
                 narrations={narrations}

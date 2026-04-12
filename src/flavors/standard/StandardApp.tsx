@@ -8,6 +8,7 @@ function StandardApp() {
   return (
     <AppShell>
       <TurtleVideo
+        appFlavor="standard"
         previewRuntime={standardPreviewRuntime}
         exportRuntime={standardExportRuntime}
         saveRuntime={standardSaveRuntime}

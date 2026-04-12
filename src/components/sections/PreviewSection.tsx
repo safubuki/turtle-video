@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import type { MediaItem, AudioTrack, NarrationClip } from '../../types';
 import type { ExportPreparationStep } from '../../hooks/useExport';
+import type { AppFlavor } from '../../app/resolveAppFlavor';
+import { getPreviewRuntimeNotice } from '../../app/appFlavorUi';
 
 const PREVIEW_ICON_BUTTON_BASE =
   'relative overflow-hidden p-3 lg:p-4 rounded-full border transition-[transform,background-color,color,box-shadow,filter] duration-200 shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed';
@@ -28,6 +30,8 @@ const PREVIEW_CAPTURE_BUTTON =
 const EXPORT_RENDERING_READY_TIME_SEC = 0.25;
 
 interface PreviewSectionProps {
+  appFlavor: AppFlavor;
+  supportsShowSaveFilePicker: boolean;
   mediaItems: MediaItem[];
   bgm: AudioTrack | null;
   narrations: NarrationClip[];
@@ -57,6 +61,8 @@ interface PreviewSectionProps {
  * プレビューセクションコンポーネント
  */
 const PreviewSection: React.FC<PreviewSectionProps> = ({
+  appFlavor,
+  supportsShowSaveFilePicker,
   mediaItems,
   bgm,
   narrations,
@@ -165,6 +171,11 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     return '映像を生成中です。';
   }, [exportPhase, isProcessing]);
 
+  const previewRuntimeNotice = useMemo(
+    () => getPreviewRuntimeNotice({ appFlavor, supportsShowSaveFilePicker }),
+    [appFlavor, supportsShowSaveFilePicker],
+  );
+
   const triggerCaptureFeedback = (callback: () => void) => {
     if (flashTimeoutRef.current !== null) {
       window.clearTimeout(flashTimeoutRef.current);
@@ -254,6 +265,23 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
                     {exportStatusText}
                   </p>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+        {previewRuntimeNotice && !isProcessing && (
+          <div className="mb-3 rounded-xl border border-sky-400/35 bg-linear-to-r from-sky-500/10 via-cyan-500/10 to-emerald-500/10 px-3 py-2.5 lg:px-4 lg:py-3 shadow-[0_6px_20px_rgba(34,211,238,0.12)]">
+            <div className="flex items-start gap-2.5">
+              <div className="mt-0.5 w-6 h-6 rounded-lg border border-sky-300/35 bg-sky-300/10 flex items-center justify-center shrink-0">
+                <CircleHelp className="w-3.5 h-3.5 text-sky-200" />
+              </div>
+              <div>
+                <p className="text-[11px] md:text-[12px] lg:text-sm leading-snug font-semibold text-sky-100">
+                  {previewRuntimeNotice.title}
+                </p>
+                <p className="text-[10px] md:text-[11px] lg:text-xs leading-snug text-sky-100/90 mt-0.5">
+                  {previewRuntimeNotice.description}
+                </p>
               </div>
             </div>
           </div>
