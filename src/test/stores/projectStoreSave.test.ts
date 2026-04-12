@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CaptionSettings, MediaItem } from '../../types';
+import type { AudioTrack, CaptionSettings, MediaItem, NarrationClip } from '../../types';
 
 const mocks = vi.hoisted(() => ({
   saveProject: vi.fn(),
@@ -31,8 +31,11 @@ import { useProjectStore, isStorageQuotaError } from '../../stores/projectStore'
 import {
   createIndexedDbProjectPersistenceAdapter,
   setProjectPersistenceAdapter,
+  type ProjectData,
   type ProjectPersistenceAdapter,
 } from '../../stores/projectPersistence';
+import { appleSafariSaveRuntime } from '../../flavors/apple-safari/appleSafariSaveRuntime';
+import { standardSaveRuntime } from '../../flavors/standard/standardSaveRuntime';
 
 const defaultCaptionSettings: CaptionSettings = {
   enabled: true,
@@ -84,6 +87,44 @@ function createMediaItem(fileName: string, type: 'video' | 'image' = 'video'): M
     positionY: 0,
     isTransformOpen: false,
     isLocked: false,
+  };
+}
+
+function createAudioTrack(fileName = 'bgm.mp3', overrides: Partial<AudioTrack> = {}): AudioTrack {
+  return {
+    file: overrides.file ?? new File(['bgm'], fileName, { type: 'audio/mpeg' }),
+    url: overrides.url ?? `blob:${fileName}`,
+    blobUrl: overrides.blobUrl,
+    startPoint: overrides.startPoint ?? 0,
+    delay: overrides.delay ?? 0,
+    volume: overrides.volume ?? 1,
+    fadeIn: overrides.fadeIn ?? false,
+    fadeOut: overrides.fadeOut ?? false,
+    fadeInDuration: overrides.fadeInDuration ?? 0.5,
+    fadeOutDuration: overrides.fadeOutDuration ?? 0.5,
+    duration: overrides.duration ?? 12,
+    isAi: overrides.isAi ?? false,
+  };
+}
+
+function createNarrationClip(id: string, overrides: Partial<NarrationClip> = {}): NarrationClip {
+  const duration = overrides.duration ?? 4;
+  return {
+    id,
+    sourceType: overrides.sourceType ?? 'file',
+    file: overrides.file ?? new File(['narration'], `${id}.wav`, { type: 'audio/wav' }),
+    url: overrides.url ?? `blob:${id}`,
+    blobUrl: overrides.blobUrl,
+    startTime: overrides.startTime ?? 0,
+    volume: overrides.volume ?? 1,
+    isMuted: overrides.isMuted ?? false,
+    trimStart: overrides.trimStart ?? 0,
+    trimEnd: overrides.trimEnd ?? duration,
+    duration,
+    isAiEditable: overrides.isAiEditable ?? false,
+    aiScript: overrides.aiScript,
+    aiVoice: overrides.aiVoice,
+    aiVoiceStyle: overrides.aiVoiceStyle,
   };
 }
 
@@ -346,6 +387,155 @@ describe('projectStore save behavior', () => {
 
     expect(customSaveProject).toHaveBeenCalledTimes(1);
     expect(mocks.saveProject).not.toHaveBeenCalled();
+  });
+
+  it('standard save -> apple-safari load でも shared project schema を維持する', async () => {
+    const mediaItems = [
+      createMediaItem('standard-video.mp4', 'video'),
+      createMediaItem('still.png', 'image'),
+    ];
+    const bgm = createAudioTrack('bgm.mp3', {
+      delay: 1.25,
+      volume: 0.65,
+      fadeIn: true,
+      fadeOut: true,
+      fadeInDuration: 1.5,
+      fadeOutDuration: 2,
+      duration: 42,
+    });
+    const narrations = [
+      createNarrationClip('narration-compat', {
+        sourceType: 'ai',
+        startTime: 2.5,
+        volume: 0.8,
+        trimStart: 0.25,
+        trimEnd: 3.75,
+        duration: 4,
+        isAiEditable: true,
+        aiScript: 'こんにちは、タートルビデオです。',
+        aiVoice: 'Aoede',
+        aiVoiceStyle: 'calm',
+      }),
+    ];
+    const captions = [{
+      ...createCaption('caption-compat'),
+      text: '互換テスト',
+      startTime: 0.5,
+      endTime: 3.5,
+      overridePosition: 'center' as const,
+      overrideFontStyle: 'mincho' as const,
+      overrideFontSize: 'large' as const,
+      overrideFadeIn: 'on' as const,
+      overrideFadeOut: 'off' as const,
+    }];
+    const captionSettings = {
+      ...defaultCaptionSettings,
+      position: 'center' as const,
+      blur: 2,
+      bulkFadeIn: true,
+      bulkFadeOut: true,
+      bulkFadeInDuration: 1,
+      bulkFadeOutDuration: 2,
+    };
+
+    standardSaveRuntime.configureProjectStore();
+    mocks.saveProject.mockResolvedValueOnce(undefined);
+
+    await useProjectStore.getState().saveProjectManual(
+      mediaItems,
+      true,
+      bgm,
+      true,
+      narrations,
+      true,
+      captions,
+      captionSettings,
+      true,
+    );
+
+    const lastSaveCall = mocks.saveProject.mock.calls[mocks.saveProject.mock.calls.length - 1];
+    const savedProjectData = lastSaveCall?.[0] as ProjectData;
+    expect(savedProjectData.mediaItems).toHaveLength(2);
+    expect(savedProjectData.narrations[0].aiScript).toBe('こんにちは、タートルビデオです。');
+    expect(savedProjectData.captions[0].overrideFontStyle).toBe('mincho');
+    expect(savedProjectData.captionSettings.position).toBe('center');
+
+    mocks.loadProject.mockResolvedValueOnce(savedProjectData);
+    appleSafariSaveRuntime.configureProjectStore();
+
+    const loaded = await useProjectStore.getState().loadProjectFromSlot('manual');
+
+    if (!loaded) {
+      throw new Error('loaded project was null');
+    }
+
+    expect(loaded.mediaItems.map((item) => item.file.name)).toEqual(['standard-video.mp4', 'still.png']);
+    expect(loaded.isClipsLocked).toBe(true);
+    expect(loaded.bgm?.file.name).toBe('bgm.mp3');
+    expect(loaded.bgm?.delay).toBeCloseTo(1.25);
+    expect(loaded.bgm?.volume).toBeCloseTo(0.65);
+    expect(loaded.isBgmLocked).toBe(true);
+    expect(loaded.narrations).toHaveLength(1);
+    expect(loaded.narrations[0].sourceType).toBe('ai');
+    expect(loaded.narrations[0].isAiEditable).toBe(true);
+    expect(loaded.narrations[0].aiVoice).toBe('Aoede');
+    expect(loaded.narrations[0].trimStart).toBeCloseTo(0.25);
+    expect(loaded.narrations[0].trimEnd).toBeCloseTo(3.75);
+    expect(loaded.isNarrationLocked).toBe(true);
+    expect(loaded.captionSettings.position).toBe('center');
+    expect(loaded.captionSettings.blur).toBe(2);
+    expect(loaded.isCaptionsLocked).toBe(true);
+    expect(loaded.captions[0].overridePosition).toBe('center');
+    expect(loaded.captions[0].overrideFontStyle).toBe('mincho');
+    expect(loaded.captions[0].overrideFadeIn).toBe('on');
+  });
+
+  it('legacy narration フィールドも runtime 切替後に narration clip へ復元できる', async () => {
+    const legacyProjectData: ProjectData = {
+      slot: 'manual',
+      savedAt: '2026-04-12T00:00:00.000Z',
+      version: '1.0.0',
+      mediaItems: [],
+      isClipsLocked: false,
+      bgm: null,
+      isBgmLocked: false,
+      narrations: [],
+      narration: {
+        fileName: 'legacy-narration.wav',
+        fileType: 'audio/wav',
+        fileData: new ArrayBuffer(8),
+        startPoint: 0,
+        delay: 1.5,
+        volume: 0.75,
+        fadeIn: false,
+        fadeOut: false,
+        fadeInDuration: 0.5,
+        fadeOutDuration: 0.5,
+        duration: 5,
+        isAi: true,
+      },
+      isNarrationLocked: false,
+      captions: [],
+      captionSettings: defaultCaptionSettings,
+      isCaptionsLocked: false,
+    };
+
+    mocks.loadProject.mockResolvedValueOnce(legacyProjectData);
+    appleSafariSaveRuntime.configureProjectStore();
+
+    const loaded = await useProjectStore.getState().loadProjectFromSlot('manual');
+
+    if (!loaded) {
+      throw new Error('loaded project was null');
+    }
+
+    expect(loaded.narrations).toHaveLength(1);
+    expect(loaded.narrations[0].sourceType).toBe('ai');
+    expect(loaded.narrations[0].startTime).toBeCloseTo(1.5);
+    expect(loaded.narrations[0].trimStart).toBe(0);
+    expect(loaded.narrations[0].trimEnd).toBe(5);
+    expect(loaded.narrations[0].duration).toBe(5);
+    expect(loaded.narrations[0].isAiEditable).toBe(true);
   });
 
   it('自動保存が進行中でも手動保存は直列化され、復帰直後の競合で失敗しない', async () => {

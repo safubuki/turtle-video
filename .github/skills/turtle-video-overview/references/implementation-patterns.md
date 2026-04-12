@@ -545,6 +545,19 @@
   - この整合処理は export finalize / encode / mux に閉じ込め、iOS Safari preview、WebAudio ルーティング、無音対策、通常プレビュー処理へ共通化しない
   - Teams 対策と iOS Safari 対策を同じ分岐で混ぜず、iOS MediaRecorder strategy には持ち込まない
 
+### 9-14. Flavor 単位の回帰テストで preview/export と schema 互換を固定する
+
+- **ファイル**: `src/test/standardFlavorRegression.test.ts`, `src/test/appleSafariFlavorRegression.test.ts`, `src/test/stores/projectStoreSave.test.ts`, `src/test/previewRuntimeIsolation.test.ts`, `src/test/exportRuntimeIsolation.test.ts`, `src/test/previewRuntimeCapabilities.test.ts`, `src/test/exportRuntimeCapabilities.test.ts`
+- **問題**: runtime 分離後も shared helper だけをテストしていると、Android/PC 修正で apple-safari line が壊れても検知が遅れる。逆に Safari fix が standard line を巻き込んでも、hook identity や capability 正規化だけではユーザーシナリオの差分を捕まえきれない
+- **対策**:
+  - `standardFlavorRegression.test.ts` で standard preview の image gap 後の第2動画到達、BGM routing、visibility 復帰方針、WebCodecs audio capture path を固定する
+  - `appleSafariFlavorRegression.test.ts` で apple-safari preview の video -> image -> video、BGM mixed routing、future probe、visibility hide/show、seek 復帰、MediaRecorder 優先 export path を固定する
+  - `projectStoreSave.test.ts` で shared project schema round-trip と legacy narration compatibility を検証し、runtime を分けても保存データ互換が崩れないことを固定する
+  - runtime identity/capability テスト (`previewRuntimeIsolation` / `exportRuntimeIsolation` / `previewRuntimeCapabilities` / `exportRuntimeCapabilities`) は境界監視として維持し、新規の flavor regression tests と役割分担する
+- **注意**:
+  - 新しい preview/export workaround を追加するときは、shared helper 単体テストだけで済ませず、必ず standard か apple-safari のどちらに属する回帰テストへ追加する
+  - shared schema の変更時は store/save 系テストで round-trip と後方互換の両方を確認し、片方だけ通っても完了扱いにしない
+
 ---
 
 ## 9.5. プレビューキャプチャ
