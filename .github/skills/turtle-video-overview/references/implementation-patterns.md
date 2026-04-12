@@ -190,7 +190,7 @@
 
 ### 3-0e. Preview runtime 実体の flavor 側移設完了
 
-- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/usePreviewAudioSession.ts`, `src/flavors/standard/preview/usePreviewSeekController.ts`, `src/flavors/standard/preview/usePreviewVisibilityLifecycle.ts`, `src/flavors/standard/preview/useInactiveVideoManager.ts`, `src/flavors/standard/preview/previewPlatform.ts`, `src/flavors/standard/preview/iosSafariAudio.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewAudioSession.ts`, `src/flavors/apple-safari/preview/usePreviewSeekController.ts`, `src/flavors/apple-safari/preview/usePreviewVisibilityLifecycle.ts`, `src/flavors/apple-safari/preview/useInactiveVideoManager.ts`, `src/flavors/apple-safari/preview/previewPlatform.ts`, `src/flavors/apple-safari/preview/iosSafariAudio.ts`, `src/flavors/standard/standardPreviewRuntime.ts`, `src/flavors/apple-safari/appleSafariPreviewRuntime.ts`, `src/test/previewRuntimeIsolation.test.ts`
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/usePreviewAudioSession.ts`, `src/flavors/standard/preview/usePreviewSeekController.ts`, `src/flavors/standard/preview/usePreviewVisibilityLifecycle.ts`, `src/flavors/standard/preview/useInactiveVideoManager.ts`, `src/flavors/standard/preview/previewPlatform.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewAudioSession.ts`, `src/flavors/apple-safari/preview/usePreviewSeekController.ts`, `src/flavors/apple-safari/preview/usePreviewVisibilityLifecycle.ts`, `src/flavors/apple-safari/preview/useInactiveVideoManager.ts`, `src/flavors/apple-safari/preview/previewPlatform.ts`, `src/flavors/apple-safari/preview/iosSafariAudio.ts`, `src/flavors/standard/standardPreviewRuntime.ts`, `src/flavors/apple-safari/appleSafariPreviewRuntime.ts`, `src/test/previewRuntimeIsolation.test.ts`
 - **問題**: capability 解決まで runtime 側へ寄せても、active runtime が shared preview hooks / shared preview policy を import し続ける限り、Safari preview 修正は standard preview の実装変更と分離できない
 - **対策**:
   - standard / apple-safari の両 flavor 配下に preview hook 群、preview policy、`iosSafariAudio` helper を複製し、`standardPreviewRuntime` / `appleSafariPreviewRuntime` がそれぞれ自系統の modules を参照するように切り替えた
@@ -198,6 +198,20 @@
 - **注意**:
   - Phase 2b 完了以降、preview 関連の修正は原則として `src/flavors/standard/preview/` または `src/flavors/apple-safari/preview/` のどちらかに入れる。`src/components/turtle-video/` 側の preview hooks は Phase 2a の抽出基準として残るが、active runtime の実体ではない
   - 次段の Phase 3 では、この flavor-owned preview audio 実装を起点に AudioContext 回避策と one-shot `createMediaElementSource()` 制約を apple-safari line へさらに閉じ込める
+
+### 3-0f. standard preview audio から Safari workaround を退避
+
+- **ファイル**: `src/flavors/standard/preview/previewPlatform.ts`, `src/flavors/standard/preview/usePreviewAudioSession.ts`, `src/flavors/standard/preview/iosSafariAudio.ts`（削除）, `src/test/previewRuntimeIsolation.test.ts`
+- **問題**: Phase 2b 完了直後の standard preview audio 実装は flavor-owned file になっていても、Safari 向け mixed-audio helper、future-video probe、route refresh 依存をまだ保持しており、Phase 3 の境界が曖昧だった
+- **対策**:
+  - standard 側 `previewPlatform.ts` では `iosSafariAudio` helper 依存を外し、preview の mixed video 出力・future-video probe・route reinitialize 判定を standard 前提の簡素な方針へ置き換えた
+  - standard 側 `usePreviewAudioSession.ts` では route refresh ref を no-op にし、Safari 専用の mixed-audio logging と future-video probe scheduling を削除した
+  - standard 側 `previewPlatform.ts` で visibility 復帰時の AudioContext resume、resume retry、audio resume wait frame を無効化し、これらの回復経路を apple-safari 側だけへ残した
+  - standard 側 `iosSafariAudio.ts` を削除し、one-shot `createMediaElementSource()` 制約を参照する helper を apple-safari preview 内部へ閉じ込めた
+  - `previewRuntimeIsolation.test.ts` に standard と apple-safari の audio policy divergence を追加し、出力方針・probe・visibility resume・resume retry・route refresh 判定の差を回帰テストで固定した
+- **注意**:
+  - `createMediaElementSource()` の one-shot 制約や AudioContext workaround は引き続き apple-safari 側で扱う。standard 側へ再流入させない
+  - 将来 standard 側で prewarm や route refresh が必要になっても、apple-safari helper を流用せず standard 要件として明示的に設計し直す
 
 ### 3-1. 遅延初期化 + ユーザージェスチャー要件
 

@@ -2,13 +2,10 @@ import { useCallback, useEffect, type MutableRefObject } from 'react';
 
 import type { AudioTrack, MediaElementsRef, MediaItem, NarrationClip } from '../../../types';
 import type { LogCategory } from '../../../stores/logStore';
-import { resolveIosSafariSingleMixedAudio } from './iosSafariAudio';
 import { findActiveTimelineItem } from '../../../utils/playbackTimeline';
 import {
-  getFutureVideoAudioProbeTimes,
   getPreviewAudioRoutingPlan,
   shouldAttemptDeferredPreviewPlay,
-  shouldReinitializeAudioRoute,
   type PreviewPlatformPolicy,
 } from './previewPlatform';
 
@@ -73,7 +70,7 @@ export function usePreviewAudioSession({
   totalDurationRef,
   currentTimeRef,
   mediaElementsRef,
-  audioCtxRef,
+  audioCtxRef: _audioCtxRef,
   sourceNodesRef,
   gainNodesRef,
   sourceElementsRef,
@@ -88,12 +85,12 @@ export function usePreviewAudioSession({
   isPlayingRef,
   isSeekingRef,
   previewPlatformPolicy,
-  isIosSafari,
+  isIosSafari: _isIosSafari,
   bgm,
   narrations,
   isProcessing,
   getAudioContext,
-  logInfo,
+  logInfo: _logInfo,
   logWarn,
 }: UsePreviewAudioSessionParams): UsePreviewAudioSessionResult {
   const detachAudioNode = useCallback((id: string) => {
@@ -130,16 +127,9 @@ export function usePreviewAudioSession({
 
     try {
       const ctx = getAudioContext();
-      const stateBeforeResume = ctx.state as AudioContextState | 'interrupted';
-      if (stateBeforeResume !== 'running') {
-        ctx.resume().catch((err) => {
-          if (isIosSafari) {
-            logWarn('AUDIO', 'iOS Safari AudioContext resume 失敗', {
-              id,
-              stateBeforeResume,
-              error: err instanceof Error ? err.message : String(err),
-            });
-          }
+      if ((ctx.state as AudioContextState | 'interrupted') !== 'running') {
+        ctx.resume().catch(() => {
+          // ignore
         });
       }
 
@@ -158,156 +148,25 @@ export function usePreviewAudioSession({
       gainNodesRef.current[id] = gain;
       sourceElementsRef.current[id] = mediaEl;
 
-      if (isIosSafari) {
-        logInfo('AUDIO', 'iOS Safari MediaElementAudioSource を作成', {
-          id,
-          tagName: mediaEl.tagName,
-          audioContextState: ctx.state,
-          route: audioRoutingModeRef.current,
-          gainValue: gain.gain.value,
-        });
-      }
-
       return true;
     } catch (error) {
-      if (isIosSafari) {
-        logWarn('AUDIO', 'iOS Safari MediaElementAudioSource 作成失敗', {
-          id,
-          tagName: mediaEl.tagName,
-          reason: error instanceof Error ? error.message : String(error),
-        });
-      } else {
-        console.warn(`Audio node creation failed for ${id}:`, error);
-      }
+      logWarn('AUDIO', 'preview audio node 作成失敗', {
+        id,
+        tagName: mediaEl.tagName,
+        reason: error instanceof Error ? error.message : String(error),
+      });
       return false;
     }
-  }, [audioRoutingModeRef, detachAudioNode, gainNodesRef, getAudioContext, isIosSafari, logInfo, logWarn, masterDestRef, sourceElementsRef, sourceNodesRef]);
-
-  const refreshPreviewAudioRoute = useCallback(async () => {
-    if (!shouldReinitializeAudioRoute(previewPlatformPolicy, false)) {
-      return;
-    }
-
-    const ctx = audioCtxRef.current;
-    if (!ctx) {
-      return;
-    }
-
-    try {
-      Object.keys(sourceNodesRef.current).forEach((nodeId) => {
-        const el = mediaElementsRef.current[nodeId];
-        if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO')) {
-          (el as HTMLMediaElement).volume = 0;
-        }
-      });
-
-      if ((ctx.state as AudioContextState | 'interrupted') !== 'running') {
-        await ctx.resume();
-      }
-
-      if ((ctx.state as AudioContextState | 'interrupted') !== 'running') {
-        await ctx.suspend();
-        await ctx.resume();
-      }
-
-      const target = ctx.destination;
-      Object.keys(gainNodesRef.current).forEach((nodeId) => {
-        const gain = gainNodesRef.current[nodeId];
-        try {
-          gain.disconnect();
-          gain.connect(target);
-        } catch {
-          // ignore
-        }
-      });
-
-      logInfo('AUDIO', 'iOS Safari preview 音声ルートを再初期化', {
-        state: ctx.state,
-      });
-    } catch (error) {
-      logWarn('AUDIO', 'iOS Safari preview 音声ルート再初期化に失敗', {
-        error: error instanceof Error ? error.message : String(error),
-        state: ctx.state,
-      });
-    }
-  }, [audioCtxRef, gainNodesRef, logInfo, logWarn, mediaElementsRef, previewPlatformPolicy, sourceNodesRef]);
+  }, [audioRoutingModeRef, detachAudioNode, gainNodesRef, getAudioContext, logWarn, masterDestRef, sourceElementsRef, sourceNodesRef]);
 
   const requestPreviewAudioRouteRefresh = useCallback(() => {
-    if (!shouldReinitializeAudioRoute(previewPlatformPolicy, false)) {
-      return;
-    }
-
-    if (previewAudioRouteRefreshInFlightRef.current) {
-      return;
-    }
-
-    const refreshPromise = refreshPreviewAudioRoute().finally(() => {
-      if (previewAudioRouteRefreshInFlightRef.current === refreshPromise) {
-        previewAudioRouteRefreshInFlightRef.current = null;
-      }
-    });
-    previewAudioRouteRefreshInFlightRef.current = refreshPromise;
-  }, [previewAudioRouteRefreshInFlightRef, previewPlatformPolicy, refreshPreviewAudioRoute]);
+    previewAudioRouteRefreshInFlightRef.current = null;
+    lastIosSafariAudioLogRef.current = '';
+  }, [lastIosSafariAudioLogRef, previewAudioRouteRefreshInFlightRef]);
 
   useEffect(() => {
     requestPreviewAudioRouteRefreshRef.current = requestPreviewAudioRouteRefresh;
   }, [requestPreviewAudioRouteRefresh, requestPreviewAudioRouteRefreshRef]);
-
-  const logIosSafariPreviewAudioRoute = useCallback((params: {
-    time: number;
-    candidates: Array<{ id: string; desiredVolume: number; sourceType: 'video' | 'audio' }>;
-    routingPlan: Array<{ id: string; outputMode: string; audibleSourceCount: number }>;
-  }) => {
-    if (!isIosSafari) {
-      return;
-    }
-
-    const hasAudibleVideo = params.candidates.some((candidate) => candidate.sourceType === 'video' && candidate.desiredVolume > 0);
-    const hasAudibleAuxAudio = params.candidates.some((candidate) => candidate.sourceType === 'audio' && candidate.desiredVolume > 0);
-    const mixDecision = resolveIosSafariSingleMixedAudio({
-      isIosSafari: true,
-      isExporting: false,
-      audibleSourceCount: params.candidates.filter((candidate) => candidate.desiredVolume > 0).length,
-      sourceType: hasAudibleVideo ? 'video' : 'audio',
-    });
-
-    const signature = JSON.stringify({
-      timeBucket: Math.round(params.time * 10) / 10,
-      mixDecision: mixDecision.reason,
-      candidates: params.candidates.map((candidate) => ({
-        id: candidate.id,
-        sourceType: candidate.sourceType,
-        desiredVolume: Math.round(candidate.desiredVolume * 100) / 100,
-      })),
-      routingPlan: params.routingPlan,
-      audioContextState: audioCtxRef.current?.state ?? 'uninitialized',
-      route: audioRoutingModeRef.current,
-    });
-
-    if (lastIosSafariAudioLogRef.current === signature) {
-      return;
-    }
-    lastIosSafariAudioLogRef.current = signature;
-
-    logInfo('AUDIO', 'iOS Safari preview mixed audio route', {
-      safariDetected: isIosSafari,
-      audioContextState: audioCtxRef.current?.state ?? 'uninitialized',
-      route: audioRoutingModeRef.current,
-      playbackTime: Math.round(params.time * 100) / 100,
-      shouldUseSingleMixedAudio: mixDecision.shouldUseSingleMixedAudio,
-      reason: mixDecision.reason,
-      hasAudibleVideo,
-      hasAudibleAuxAudio,
-      gains: params.routingPlan.map((decision) => ({
-        id: decision.id,
-        outputMode: decision.outputMode,
-        audibleSourceCount: decision.audibleSourceCount,
-        gainValue: gainNodesRef.current[decision.id]
-          ? Math.round(gainNodesRef.current[decision.id].gain.value * 100) / 100
-          : null,
-      })),
-    });
-  }, [audioCtxRef, audioRoutingModeRef, gainNodesRef, isIosSafari, lastIosSafariAudioLogRef, logInfo]);
 
   const preparePreviewAudioNodesForTime = useCallback((time: number): PreparedPreviewAudioNodesResult => {
     if (!previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
@@ -432,26 +291,12 @@ export function usePreviewAudioSession({
       ensureAudioNodeForElement(decision.id, candidates[index].element);
     });
 
-    logIosSafariPreviewAudioRoute({
-      time,
-      candidates: candidates.map((candidate) => ({
-        id: candidate.id,
-        desiredVolume: candidate.desiredVolume,
-        sourceType: candidate.sourceType,
-      })),
-      routingPlan: routingPlan.map((decision) => ({
-        id: decision.id,
-        outputMode: decision.outputMode,
-        audibleSourceCount: decision.audibleSourceCount,
-      })),
-    });
-
     return {
       activeVideoId,
       audibleSourceCount: candidates.length,
       requiresWebAudio: routingPlan.some((decision) => decision.outputMode === 'webaudio'),
     };
-  }, [bgmRef, ensureAudioNodeForElement, logIosSafariPreviewAudioRoute, mediaElementsRef, mediaItemsRef, narrationsRef, previewPlatformPolicy, sourceNodesRef, totalDurationRef]);
+  }, [bgmRef, ensureAudioNodeForElement, mediaElementsRef, mediaItemsRef, narrationsRef, previewPlatformPolicy, sourceNodesRef, totalDurationRef]);
 
   const primePreviewMediaElementPlayback = useCallback((
     mediaEl: HTMLMediaElement,
@@ -536,16 +381,9 @@ export function usePreviewAudioSession({
     primePreviewAudioOnlyTracksAtTimeRef.current = primePreviewAudioOnlyTracksAtTime;
   }, [primePreviewAudioOnlyTracksAtTime, primePreviewAudioOnlyTracksAtTimeRef]);
 
-  const preparePreviewAudioNodesForUpcomingVideos = useCallback((fromTime: number) => {
-    if (!previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
-      return;
-    }
-
-    const probeTimes = getFutureVideoAudioProbeTimes(mediaItemsRef.current, fromTime);
-    probeTimes.forEach((probeTime) => {
-      preparePreviewAudioNodesForTime(probeTime);
-    });
-  }, [mediaItemsRef, preparePreviewAudioNodesForTime, previewPlatformPolicy]);
+  const preparePreviewAudioNodesForUpcomingVideos = useCallback((_fromTime: number) => {
+    // standard runtime では Safari 向けの future-video probe を持たない。
+  }, []);
 
   useEffect(() => {
     if (

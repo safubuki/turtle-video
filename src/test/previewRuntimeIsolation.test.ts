@@ -12,9 +12,23 @@ import {
   getAppleSafariPreviewPlatformCapabilities,
 } from '../flavors/apple-safari/appleSafariPreviewRuntime';
 import {
+  getFutureVideoAudioProbeTimes as getAppleSafariFutureVideoAudioProbeTimes,
+  getVisibilityRecoveryPlan as getAppleSafariVisibilityRecoveryPlan,
+  getPreviewAudioOutputMode as getAppleSafariPreviewAudioOutputMode,
+  shouldResumeAudioContextOnVisibilityReturn as shouldAppleSafariResumeAudioContextOnVisibilityReturn,
+  shouldReinitializeAudioRoute as shouldAppleSafariReinitializeAudioRoute,
+} from '../flavors/apple-safari/preview/previewPlatform';
+import {
   getStandardPreviewPlatformCapabilities,
   standardPreviewRuntime,
 } from '../flavors/standard/standardPreviewRuntime';
+import {
+  getFutureVideoAudioProbeTimes as getStandardFutureVideoAudioProbeTimes,
+  getVisibilityRecoveryPlan as getStandardVisibilityRecoveryPlan,
+  getPreviewAudioOutputMode as getStandardPreviewAudioOutputMode,
+  shouldResumeAudioContextOnVisibilityReturn as shouldStandardResumeAudioContextOnVisibilityReturn,
+  shouldReinitializeAudioRoute as shouldStandardReinitializeAudioRoute,
+} from '../flavors/standard/preview/previewPlatform';
 
 const createCapabilities = (
   overrides: Partial<PlatformCapabilities> = {},
@@ -79,7 +93,54 @@ describe('preview runtime isolation', () => {
 
     expect(standardPolicy.muteNativeMediaWhenAudioRouted).toBe(false);
     expect(standardPolicy.needsCaptionBlurFallback).toBe(false);
+    expect(standardPolicy.resumeAudioContextOnVisibilityReturn).toBe(false);
+    expect(standardPolicy.audioContextResumeRetryCount).toBe(1);
     expect(appleSafariPolicy.muteNativeMediaWhenAudioRouted).toBe(true);
     expect(appleSafariPolicy.needsCaptionBlurFallback).toBe(true);
+    expect(appleSafariPolicy.resumeAudioContextOnVisibilityReturn).toBe(true);
+    expect(appleSafariPolicy.audioContextResumeRetryCount).toBe(2);
+
+    expect(getStandardPreviewAudioOutputMode(standardPolicy, {
+      hasAudioNode: false,
+      isExporting: false,
+      audibleSourceCount: 2,
+      desiredVolume: 1,
+      sourceType: 'video',
+    })).toBe('native');
+    expect(getAppleSafariPreviewAudioOutputMode(appleSafariPolicy, {
+      hasAudioNode: false,
+      isExporting: false,
+      audibleSourceCount: 2,
+      desiredVolume: 1,
+      sourceType: 'video',
+    })).toBe('webaudio');
+
+    expect(getStandardFutureVideoAudioProbeTimes([
+      { type: 'image', duration: 1 },
+      { type: 'video', duration: 2 },
+    ], 0)).toEqual([]);
+    expect(getAppleSafariFutureVideoAudioProbeTimes([
+      { type: 'image', duration: 1 },
+      { type: 'video', duration: 2 },
+    ], 0)).toEqual([1.05]);
+
+    expect(shouldStandardReinitializeAudioRoute(standardPolicy, false)).toBe(false);
+    expect(shouldAppleSafariReinitializeAudioRoute(appleSafariPolicy, false)).toBe(true);
+
+    expect(shouldStandardResumeAudioContextOnVisibilityReturn(standardPolicy, 'interrupted')).toBe(false);
+    expect(shouldAppleSafariResumeAudioContextOnVisibilityReturn(appleSafariPolicy, 'interrupted')).toBe(true);
+
+    expect(getStandardVisibilityRecoveryPlan({
+      resumedFromHidden: true,
+      needsResyncFromLifecycle: false,
+      isPlaying: true,
+      isProcessing: false,
+    }).shouldDelayAudioResume).toBe(false);
+    expect(getAppleSafariVisibilityRecoveryPlan({
+      resumedFromHidden: true,
+      needsResyncFromLifecycle: false,
+      isPlaying: true,
+      isProcessing: false,
+    }).shouldDelayAudioResume).toBe(true);
   });
 });

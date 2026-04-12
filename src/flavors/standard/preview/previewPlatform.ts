@@ -6,7 +6,6 @@
  */
 
 import type { PlatformCapabilities } from '../../../utils/platform';
-import { resolveIosSafariSingleMixedAudio } from './iosSafariAudio';
 
 export interface PreviewPlatformPolicy {
   previewSyncThresholdSec: number;
@@ -117,18 +116,19 @@ export const EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC = 0.004;
 export function getPreviewPlatformPolicy(
   capabilities: Pick<PlatformCapabilities, 'isIosSafari' | 'isAndroid' | 'audioContextMayInterrupt'>,
 ): PreviewPlatformPolicy {
+  const isAndroid = capabilities.isAndroid;
+
   return {
-    previewSyncThresholdSec: capabilities.isIosSafari ? 1.0 : 0.5,
-    exportSyncThresholdSec: capabilities.isIosSafari ? 1.2 : 0.5,
+    previewSyncThresholdSec: 0.5,
+    exportSyncThresholdSec: 0.5,
     exportFallbackSyncThresholdSec: 0.35,
-    needsCaptionBlurFallback: capabilities.isIosSafari,
-    muteNativeMediaWhenAudioRouted: capabilities.isIosSafari,
-    muteNativeMediaDuringExportWhenAudioRouted: capabilities.isIosSafari || capabilities.isAndroid,
-    reinitializeAudioRouteOnPlay: capabilities.isIosSafari,
-    resumeAudioContextOnVisibilityReturn: true,
+    needsCaptionBlurFallback: false,
+    muteNativeMediaWhenAudioRouted: false,
+    muteNativeMediaDuringExportWhenAudioRouted: isAndroid,
+    reinitializeAudioRouteOnPlay: false,
+    resumeAudioContextOnVisibilityReturn: false,
     visibilityRecoveryDebounceMs: 120,
-    // 既存実装は全ブラウザで最大2回まで resume を試みていたため、その挙動を維持する。
-    audioContextResumeRetryCount: 2,
+    audioContextResumeRetryCount: 1,
   };
 }
 
@@ -273,18 +273,18 @@ export function shouldPrimeFutureInactiveVideoInPreview(
  * iOS Safari preview では stop 復帰時に stopAll を先に済ませ、AudioSession を作り直してから再生を始める。
  */
 export function shouldStopBeforePreviewAudioRouteInit(
-  policy: PreviewPlatformPolicy,
-  options: { isExporting: boolean },
+  _policy: PreviewPlatformPolicy,
+  _options: { isExporting: boolean },
 ): boolean {
-  return policy.muteNativeMediaWhenAudioRouted && !options.isExporting;
+  return false;
 }
 
 /**
  * iOS Safari preview で video -> image 境界直後に audio-only を再 prime すべきかを返す。
  */
 export function shouldRecoverAudioOnlyAfterVideoBoundary(
-  policy: PreviewPlatformPolicy,
-  options: {
+  _policy: PreviewPlatformPolicy,
+  _options: {
     hasAudioNode: boolean;
     isExporting: boolean;
     isActivePlaying: boolean;
@@ -292,14 +292,7 @@ export function shouldRecoverAudioOnlyAfterVideoBoundary(
     recoveryWindowSec?: number;
   },
 ): boolean {
-  const recoveryWindowSec = options.recoveryWindowSec ?? 0.08;
-  return options.hasAudioNode
-    && policy.muteNativeMediaWhenAudioRouted
-    && !options.isExporting
-    && options.isActivePlaying
-    && options.timeSinceVideoEndSec !== null
-    && options.timeSinceVideoEndSec >= 0
-    && options.timeSinceVideoEndSec <= recoveryWindowSec;
+  return false;
 }
 
 /**
@@ -308,21 +301,18 @@ export function shouldRecoverAudioOnlyAfterVideoBoundary(
  * ループ開始直前に 1 回だけ再 prime する。
  */
 export function shouldRetryAudioOnlyPrimeAtPreviewStart(
-  policy: PreviewPlatformPolicy,
-  options: {
+  _policy: PreviewPlatformPolicy,
+  _options: {
     isExporting: boolean;
     hasActiveVideo: boolean;
     requiresWebAudio: boolean;
   },
 ): boolean {
-  return policy.muteNativeMediaWhenAudioRouted
-    && !options.isExporting
-    && !options.hasActiveVideo
-    && options.requiresWebAudio;
+  return false;
 }
 
 export function getPreviewAudioOutputMode(
-  policy: PreviewPlatformPolicy,
+  _policy: PreviewPlatformPolicy,
   options: {
     hasAudioNode: boolean;
     isExporting: boolean;
@@ -331,30 +321,9 @@ export function getPreviewAudioOutputMode(
     sourceType?: 'video' | 'audio';
   },
 ): PreviewAudioOutputMode {
-  if (!policy.muteNativeMediaWhenAudioRouted) {
-    return 'webaudio';
-  }
-
-  const iosSafariSingleMixDecision = resolveIosSafariSingleMixedAudio({
-    isIosSafari: policy.muteNativeMediaWhenAudioRouted,
-    isExporting: options.isExporting,
-    audibleSourceCount: options.audibleSourceCount,
-    sourceType: options.sourceType,
-  });
-
-  if (iosSafariSingleMixDecision.shouldUseSingleMixedAudio) {
-    return 'webaudio';
-  }
-
   if (options.hasAudioNode) {
-    // 混在区間を抜けて単独動画に戻った場合は native を優先する。
-    // 呼び出し元は outputMode が native のとき不要な AudioNode を切り離す。
-    // ただし iOS Safari (muteNativeMediaWhenAudioRouted) では
-    // createMediaElementSource() が1要素に対して1回しか呼べないため、
-    // detach 後に再接続できない。iOS Safari では常に webaudio を維持する。
     if (
-      !policy.muteNativeMediaWhenAudioRouted
-      && !options.isExporting
+      !options.isExporting
       && options.sourceType === 'video'
       && options.audibleSourceCount <= 1
     ) {
@@ -420,13 +389,10 @@ export function getPreviewAudioRoutingPlan(
  * 動画は最後に開始した方が安定するケースかを返す。
  */
 export function shouldBundlePreviewStartForWebAudioMix(
-  policy: PreviewPlatformPolicy,
-  options: PreviewBundledStartOptions,
+  _policy: PreviewPlatformPolicy,
+  _options: PreviewBundledStartOptions,
 ): boolean {
-  return policy.muteNativeMediaWhenAudioRouted
-    && options.hasActiveVideo
-    && options.requiresWebAudio
-    && options.audibleSourceCount > 1;
+  return false;
 }
 
 /**
@@ -439,30 +405,10 @@ export function shouldBundlePreviewStartForWebAudioMix(
  * 単独動画 native fallback を壊さないよう、開始直後の少し先だけを warm-up 対象にする。
  */
 export function getFutureVideoAudioProbeTimes(
-  items: PreviewAudioProbeTimelineItem[],
-  fromTime: number,
+  _items: PreviewAudioProbeTimelineItem[],
+  _fromTime: number,
 ): number[] {
-  const probeTimes: number[] = [];
-  let cursor = 0;
-
-  for (const item of items) {
-    const startTime = cursor;
-    const duration = Math.max(0, item.duration);
-    cursor += duration;
-
-    if (item.type !== 'video' || duration <= 0.001) {
-      continue;
-    }
-
-    if (startTime <= fromTime + 0.0005) {
-      continue;
-    }
-
-    const probeOffset = duration <= 0.1 ? duration / 2 : 0.05;
-    probeTimes.push(startTime + probeOffset);
-  }
-
-  return probeTimes;
+  return [];
 }
 
 /**
@@ -599,10 +545,10 @@ export function shouldHoldFrameForImageToVideoExportTransition(
  * 可視復帰時に AudioContext の resume を試みるべきかを返す。
  */
 export function shouldResumeAudioContextOnVisibilityReturn(
-  policy: PreviewPlatformPolicy,
-  state: AudioContextState | 'interrupted',
+  _policy: PreviewPlatformPolicy,
+  _state: AudioContextState | 'interrupted',
 ): boolean {
-  return policy.resumeAudioContextOnVisibilityReturn && state !== 'running';
+  return false;
 }
 
 /**
@@ -629,10 +575,10 @@ export function shouldAttemptDeferredPreviewPlay(options: {
  * 再生開始時に AudioContext の経路再初期化が必要かを返す。
  */
 export function shouldReinitializeAudioRoute(
-  policy: PreviewPlatformPolicy,
-  isExportMode: boolean,
+  _policy: PreviewPlatformPolicy,
+  _isExportMode: boolean,
 ): boolean {
-  return policy.reinitializeAudioRouteOnPlay && !isExportMode;
+  return false;
 }
 
 /**
@@ -651,7 +597,7 @@ export function getVisibilityRecoveryPlan(options: {
   return {
     shouldKeepRunning,
     shouldResyncMedia: shouldKeepRunning && (options.resumedFromHidden || options.needsResyncFromLifecycle),
-    shouldDelayAudioResume: shouldKeepRunning && options.resumedFromHidden,
+    shouldDelayAudioResume: false,
   };
 }
 
