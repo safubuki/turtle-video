@@ -15,11 +15,12 @@ vi.mock('../utils/platform', async () => {
   };
 });
 
-vi.mock('../hooks/export-strategies/iosSafariMediaRecorder', () => ({
+vi.mock('../flavors/apple-safari/export/iosSafariMediaRecorder', () => ({
   runIosSafariMediaRecorderStrategy: mockRunIosSafariMediaRecorderStrategy,
 }));
 
-import { useExport } from '../hooks/useExport';
+import { useExport as useAppleSafariExport } from '../flavors/apple-safari/export/useExport';
+import { useExport as useStandardExport } from '../flavors/standard/export/useExport';
 
 function createPlatformCapabilities(
   overrides: Partial<PlatformCapabilities> = {},
@@ -83,7 +84,7 @@ describe('useExport', () => {
   });
 
   it('初期化に必要な ref が無ければ即座にエラーを返す', async () => {
-    const { result } = renderHook(() => useExport());
+    const { result } = renderHook(() => useStandardExport());
     const onRecordingError = vi.fn();
 
     await act(async () => {
@@ -114,7 +115,7 @@ describe('useExport', () => {
     );
     mockRunIosSafariMediaRecorderStrategy.mockResolvedValue(true);
 
-    const { result } = renderHook(() => useExport());
+    const { result } = renderHook(() => useAppleSafariExport());
     const args = createStartExportArgs();
 
     await act(async () => {
@@ -147,7 +148,7 @@ describe('useExport', () => {
     mockRunIosSafariMediaRecorderStrategy.mockResolvedValue(false);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-    const { result } = renderHook(() => useExport());
+    const { result } = renderHook(() => useAppleSafariExport());
     const args = createStartExportArgs();
 
     await act(async () => {
@@ -189,7 +190,7 @@ describe('useExport', () => {
         }),
     );
 
-    const { result } = renderHook(() => useExport());
+    const { result } = renderHook(() => useAppleSafariExport());
     const args = createStartExportArgs();
 
     await act(async () => {
@@ -225,7 +226,7 @@ describe('useExport', () => {
 
   it('clearExportUrl は保持中の Blob URL を解放して state を空にする', () => {
     const revokeSpy = vi.spyOn(URL, 'revokeObjectURL');
-    const { result } = renderHook(() => useExport());
+    const { result } = renderHook(() => useStandardExport());
 
     act(() => {
       result.current.setExportUrl('blob:test-export');

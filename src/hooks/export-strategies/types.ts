@@ -5,6 +5,15 @@ import type { MediaRecorderProfile } from '../../utils/platform';
 export type ExportStrategyId = 'ios-safari-mediarecorder' | 'webcodecs-mp4';
 export type ExportPreparationStep = 1 | 2 | 3 | 4;
 
+export interface ExportStrategyResolutionInput {
+  isIosSafari: boolean;
+  supportedMediaRecorderProfile: MediaRecorderProfile | null;
+}
+
+export type ResolveExportStrategyOrder = (
+  input: ExportStrategyResolutionInput,
+) => ExportStrategyId[];
+
 /**
  * エクスポート用の音声ソース情報。
  * iOS Safari の OfflineAudioContext プリレンダリングに使用。
@@ -65,3 +74,7 @@ export interface IosSafariMediaRecorderStrategyContext {
   };
   supportedMediaRecorderProfile: MediaRecorderProfile | null;
 }
+
+export type MediaRecorderExportStrategyRunner = (
+  context: IosSafariMediaRecorderStrategyContext,
+) => Promise<boolean>;

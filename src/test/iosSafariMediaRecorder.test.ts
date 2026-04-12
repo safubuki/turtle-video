@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runIosSafariMediaRecorderStrategy } from '../hooks/export-strategies/iosSafariMediaRecorder';
+import { runIosSafariMediaRecorderStrategy } from '../flavors/apple-safari/export/iosSafariMediaRecorder';
 
 class FakeMediaStream {
   private readonly tracks: Array<{ kind: string }>;

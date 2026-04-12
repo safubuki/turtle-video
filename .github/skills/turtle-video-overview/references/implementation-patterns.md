@@ -479,16 +479,18 @@
 
 ### 9-10. Export strategy resolver による iOS 経路の分離
 
-- **ファイル**: `src/hooks/useExport.ts`, `src/hooks/export-strategies/exportStrategyResolver.ts`, `src/hooks/export-strategies/iosSafariMediaRecorder.ts`, `src/test/exportStrategyResolver.test.ts`, `src/test/iosSafariMediaRecorder.test.ts`, `src/test/useExport.test.ts`
-- **問題**: `useExport.ts` に iOS Safari MediaRecorder 経路と標準 WebCodecs 経路の選択・実装が混在し、分岐条件の変更時に iOS 固有ワークアラウンドを WebCodecs 側へ誤って波及させやすかった。加えて、分離後に片方の経路だけが壊れても自動検知しづらかった
+- **ファイル**: `src/components/turtle-video/exportRuntime.ts`, `src/hooks/useExport.ts`, `src/hooks/export-strategies/exportStrategyResolver.ts`, `src/flavors/standard/export/useExport.ts`, `src/flavors/standard/standardExportRuntime.ts`, `src/flavors/apple-safari/export/useExport.ts`, `src/flavors/apple-safari/export/iosSafariMediaRecorder.ts`, `src/flavors/apple-safari/appleSafariExportRuntime.ts`, `src/test/exportStrategyResolver.test.ts`, `src/test/exportRuntimeIsolation.test.ts`, `src/test/exportRuntimeCapabilities.test.ts`, `src/test/iosSafariMediaRecorder.test.ts`, `src/test/useExport.test.ts`
+- **問題**: `useExport.ts` に iOS Safari MediaRecorder 経路と標準 WebCodecs 経路の選択・実装が混在し続けると、Safari 固有ワークアラウンドを standard line へ再混入させやすく、Phase 4 の「runtime 二系統化」が export だけ未完了になる
 - **対策**:
-  - strategy resolver で優先経路を決め、`useExport.ts` は選択と共通セッション初期化を担当する
-  - iOS Safari の MediaRecorder 経路は `iosSafariMediaRecorder.ts` に切り出し、keep-alive 音声、visibility pause/resume、requestData 後 stop 遅延を strategy 側へ閉じ込める
-  - resolver には WebCodecs 側の音声キャプチャ分岐（offline rendered / TrackProcessor / ScriptProcessor）も寄せ、純粋ロジックを `src/test/exportStrategyResolver.test.ts` で自動検証する
-  - iOS strategy は `src/test/iosSafariMediaRecorder.test.ts` で、fallback、成功時の callback 伝播、track cleanup を検証する
-  - `src/test/useExport.test.ts` では hook 契約として、iOS 優先起動、fallback 時の WebCodecs 移行、stop/abort、Blob URL 解放を薄く確認し、strategy 分離後のオーケストレーション回帰を拾う
+  - `src/components/turtle-video/exportRuntime.ts` を注入境界とし、`StandardApp` / `AppleSafariApp` から `standardExportRuntime` / `appleSafariExportRuntime` を `TurtleVideo.tsx` へ渡す
+  - shared の `src/hooks/useExport.ts` は `createUseExport()` facade に縮退させ、WebCodecs MP4 本体、offline audio pre-render、AudioEncoder/muxer/duration 整合の共通 core だけを持つ
+  - strategy order と capability 正規化は `src/flavors/standard/export/useExport.ts` / `src/flavors/apple-safari/export/useExport.ts` が所有し、standard は `webcodecs-mp4` 固定、apple-safari は `ios-safari-mediarecorder -> webcodecs-mp4` 順を返す
+  - iOS Safari の MediaRecorder 経路は `src/flavors/apple-safari/export/iosSafariMediaRecorder.ts` に閉じ込め、keep-alive 音声、visibility pause/resume、requestData 後 stop 遅延は standard line から完全に分離する
+  - `shouldUseOfflineAudioPreRender()` は Safari 専用処理へ戻さず、`shared export pre-render strategy` として残す。resolver は offline rendered / TrackProcessor / ScriptProcessor の純粋分岐だけを担当する
+  - `src/test/exportRuntimeIsolation.test.ts` と `src/test/exportRuntimeCapabilities.test.ts` で flavor-owned export hook と capability divergence を固定し、`src/test/iosSafariMediaRecorder.test.ts` / `src/test/useExport.test.ts` で strategy/hook 契約を継続検証する
 - **注意**:
-  - iOS 固有の録画回避策を追加する場合は `useExport.ts` に直接条件を戻さず、まず strategy / resolver へ寄せる
+  - iOS 固有の録画回避策を追加する場合は shared core や `TurtleVideo.tsx` に直接条件を戻さず、まず apple-safari export runtime / strategy に寄せる
+  - `shouldUseOfflineAudioPreRender()` は現時点では quality 目的の shared 契約であり、Safari 専用に戻す場合は非 Safari export 品質への影響を先に検証する
   - WebCodecs 側の CFR、AudioEncoder 終端クランプ、TrackProcessor / ScriptProcessor fallback の順序は既存どおり維持する
 
 ### 9-11. Capability ベースの保存/ダウンロード経路統一

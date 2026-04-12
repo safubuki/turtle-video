@@ -6,6 +6,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 
 import type { MediaItem, AudioTrack, NarrationClip, NarrationScriptLength } from '../types';
+import type { ExportRuntime } from './turtle-video/exportRuntime';
 import type { SectionHelpKey } from '../constants/sectionHelp';
 import type { PreviewRuntime } from './turtle-video/previewRuntime';
 import {
@@ -19,8 +20,6 @@ import {
   TTS_SAMPLE_RATE,
 } from '../constants';
 
-// Hooks
-import { useExport } from '../hooks/useExport';
 import type { ExportPreparationStep } from '../hooks/useExport';
 import { usePreventUnload } from '../hooks/usePreventUnload';
 
@@ -58,9 +57,10 @@ const getApiKey = (): string => {
 
 interface TurtleVideoProps {
   previewRuntime: PreviewRuntime;
+  exportRuntime: ExportRuntime;
 }
 
-const TurtleVideo: React.FC<TurtleVideoProps> = ({ previewRuntime }) => {
+const TurtleVideo: React.FC<TurtleVideoProps> = ({ previewRuntime, exportRuntime }) => {
   // 離脱防止フックを使用
   usePreventUnload();
 
@@ -278,7 +278,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ previewRuntime }) => {
   }, [mediaItems]);
 
   // Hooks
-  const { startExport: startWebCodecsExport, stopExport: stopWebCodecsExport } = useExport();
+  const { startExport: startWebCodecsExport, stopExport: stopWebCodecsExport } = exportRuntime.useExport();
 
   useEffect(() => {
     if (!offlineMode || !showAiModal) return;

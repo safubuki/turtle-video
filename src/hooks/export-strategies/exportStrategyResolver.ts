@@ -1,21 +1,3 @@
-import type { MediaRecorderProfile } from '../../utils/platform';
-import type { ExportStrategyId } from './types';
-
-export interface ExportStrategyResolutionInput {
-  isIosSafari: boolean;
-  supportedMediaRecorderProfile: MediaRecorderProfile | null;
-}
-
-export function resolveExportStrategyOrder(
-  input: ExportStrategyResolutionInput
-): ExportStrategyId[] {
-  if (input.isIosSafari && input.supportedMediaRecorderProfile) {
-    return ['ios-safari-mediarecorder', 'webcodecs-mp4'];
-  }
-
-  return ['webcodecs-mp4'];
-}
-
 export interface OfflineAudioPreRenderResolutionInput {
   hasAudioSources: boolean;
   isIosSafari: boolean;

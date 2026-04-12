@@ -1,5 +1,5 @@
-import { useLogStore } from '../../stores/logStore';
-import type { IosSafariMediaRecorderStrategyContext } from './types';
+import { useLogStore } from '../../../stores/logStore';
+import type { IosSafariMediaRecorderStrategyContext } from '../../../hooks/export-strategies/types';
 
 type RequestFrameCapableTrack = MediaStreamTrack & {
   requestFrame?: () => void;
@@ -51,7 +51,6 @@ export async function runIosSafariMediaRecorderStrategy(
     return false;
   }
 
-  // live masterDest の場合だけ clone して録音側の stop を分離する。
   const recorderAudioTracks = preRenderedAudio
     ? liveAudioTracks
     : liveAudioTracks.map((track) => track.clone());
@@ -77,7 +76,6 @@ export async function runIosSafariMediaRecorderStrategy(
     }, frameIntervalMs);
   }
 
-  // prerecorded 音声を使わない経路では、音声トラック維持用の keep-alive を masterDest に足す。
   if (!preRenderedAudio) {
     try {
       keepAliveOscillator = audioContext.createOscillator();

@@ -118,8 +118,9 @@ turtle-video/
 - プレビューキャプチャ（現在のフレームをPNG画像として保存）
 
 ### 7. エクスポート
-- MediaRecorder を使用した動画出力
-- MP4 / WebM 形式対応
+- standard runtime は WebCodecs + mp4-muxer を中核とした MP4 出力
+- apple-safari runtime は MediaRecorder MP4 を優先し、必要時だけ WebCodecs へフォールバック
+- offline audio pre-render は `shared export pre-render strategy` として共通利用
 
 ### 8. プロジェクト管理
 - 自動保存（設定可能な間隔）
@@ -133,7 +134,7 @@ Zustand を使用し、機能ごとにストアを分離しています。
 
 また、App 入口では `resolveAppFlavor()` により runtime flavor を一度だけ解決し、選択された flavor だけを lazy load する構成へ移行を開始しています。
 
-TurtleVideo 本体では段階的な責務分離も開始しており、tab/page visibility 復帰処理は `src/components/turtle-video/usePreviewVisibilityLifecycle.ts`、seek 制御は `src/components/turtle-video/usePreviewSeekController.ts`、audio node / route refresh / audio-only prime は `src/components/turtle-video/usePreviewAudioSession.ts`、非アクティブ video reset は `src/components/turtle-video/useInactiveVideoManager.ts`、render loop / metadata wait / start-stop engine は `src/components/turtle-video/usePreviewEngine.ts` へ抽出されています。また、Phase 2b の入口として `src/components/turtle-video/previewRuntime.ts` を介した preview runtime 注入境界が追加され、`src/flavors/standard/standardPreviewRuntime.ts` と `src/flavors/apple-safari/appleSafariPreviewRuntime.ts` から flavor ごとに差し替え可能になりました。さらに preview 用 platform capability の確定も runtime 側へ移り、shared の `TurtleVideo.tsx` は capability 解決を直接持たない構成になっています。現時点の active preview 実装本体は `src/flavors/standard/preview/` と `src/flavors/apple-safari/preview/` にあり、preview hook / preview policy は runtime ごとに別ファイルを参照します。Phase 3 完了により、Safari 専用の `iosSafariAudio` helper、visibility 復帰時の AudioContext resume/retry、route refresh は `src/flavors/apple-safari/preview/` のみが持ち、standard 側はそれらを持たない標準 audio policy に固定されました。
+TurtleVideo 本体では段階的な責務分離も開始しており、tab/page visibility 復帰処理は `src/components/turtle-video/usePreviewVisibilityLifecycle.ts`、seek 制御は `src/components/turtle-video/usePreviewSeekController.ts`、audio node / route refresh / audio-only prime は `src/components/turtle-video/usePreviewAudioSession.ts`、非アクティブ video reset は `src/components/turtle-video/useInactiveVideoManager.ts`、render loop / metadata wait / start-stop engine は `src/components/turtle-video/usePreviewEngine.ts` へ抽出されています。また、Phase 2b の入口として `src/components/turtle-video/previewRuntime.ts` を介した preview runtime 注入境界が追加され、`src/flavors/standard/standardPreviewRuntime.ts` と `src/flavors/apple-safari/appleSafariPreviewRuntime.ts` から flavor ごとに差し替え可能になりました。さらに preview 用 platform capability の確定も runtime 側へ移り、shared の `TurtleVideo.tsx` は capability 解決を直接持たない構成になっています。現時点の active preview 実装本体は `src/flavors/standard/preview/` と `src/flavors/apple-safari/preview/` にあり、preview hook / preview policy は runtime ごとに別ファイルを参照します。Phase 3 完了により、Safari 専用の `iosSafariAudio` helper、visibility 復帰時の AudioContext resume/retry、route refresh は `src/flavors/apple-safari/preview/` のみが持ち、standard 側はそれらを持たない標準 audio policy に固定されました。Phase 4 完了により export も `src/components/turtle-video/exportRuntime.ts` 経由の注入構造へ移り、active export 実装は `src/flavors/standard/export/` と `src/flavors/apple-safari/export/` が所有します。shared の `src/hooks/useExport.ts` は `createUseExport()` facade と共通 core を提供し、`shouldUseOfflineAudioPreRender()` は shared quality strategy として残しつつ、Safari 専用 MediaRecorder 経路は `src/flavors/apple-safari/export/iosSafariMediaRecorder.ts` のみが持つ構成になりました。
 
 | ストア | 責務 |
 |--------|------|

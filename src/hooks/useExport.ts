@@ -8,7 +8,7 @@ import { FPS, EXPORT_VIDEO_BITRATE } from '../constants';
 import * as Mp4Muxer from 'mp4-muxer';
 import type { AudioTrack, NarrationClip } from '../types';
 import { useLogStore } from '../stores/logStore';
-import { getPlatformCapabilities } from '../utils/platform';
+import type { PlatformCapabilities } from '../utils/platform';
 import {
   getExportFrameTiming,
   resolveExportCanvasFrameBurstCount,
@@ -16,21 +16,23 @@ import {
 } from '../utils/exportTimeline';
 import { inspectMp4Durations } from '../utils/mp4Duration';
 import {
-  resolveExportStrategyOrder,
   shouldUseOfflineAudioPreRender,
   resolveWebCodecsAudioCaptureStrategy,
 } from './export-strategies/exportStrategyResolver';
-import { runIosSafariMediaRecorderStrategy } from './export-strategies/iosSafariMediaRecorder';
 import type {
   ExportAudioSources,
   ExportPreparationStep,
+  MediaRecorderExportStrategyRunner,
   PreRenderedRecorderAudioSource,
+  ResolveExportStrategyOrder,
 } from './export-strategies/types';
 
 export type {
   ExportAudioSources,
   ExportPreparationStep,
+  MediaRecorderExportStrategyRunner,
   PreRenderedRecorderAudioSource,
+  ResolveExportStrategyOrder,
 } from './export-strategies/types';
 
 function durationUsToSampleCount(durationUs: number, sampleRate: number): number {
@@ -88,6 +90,12 @@ export interface UseExportReturn {
   completeExport: () => void; // 正常終了要求（abortせずにflush/finalizeへ進める）
   stopExport: () => void; // 明示的な停止メソッドを追加
   clearExportUrl: () => void;
+}
+
+export interface UseExportRuntimeConfig {
+  getPlatformCapabilities: () => PlatformCapabilities;
+  resolveExportStrategyOrder: ResolveExportStrategyOrder;
+  runMediaRecorderStrategy?: MediaRecorderExportStrategyRunner;
 }
 
 /**
@@ -896,25 +904,26 @@ function createPreRenderedRecorderAudioSource(
   };
 }
 
-export function useExport(): UseExportReturn {
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [exportUrl, setExportUrl] = useState<string | null>(null);
-  const [exportExt, setExportExt] = useState<string | null>(null);
+export function createUseExport(config: UseExportRuntimeConfig) {
+  return function useExport(): UseExportReturn {
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [exportUrl, setExportUrl] = useState<string | null>(null);
+    const [exportExt, setExportExt] = useState<string | null>(null);
 
-  // 内部状態管理用
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const videoReaderRef = useRef<ReadableStreamDefaultReader<VideoFrame> | null>(null);
-  const audioReaderRef = useRef<ReadableStreamDefaultReader<AudioData> | null>(null);
-  const completionRequestedRef = useRef(false);
+    // 内部状態管理用
+    const abortControllerRef = useRef<AbortController | null>(null);
+    const videoReaderRef = useRef<ReadableStreamDefaultReader<VideoFrame> | null>(null);
+    const audioReaderRef = useRef<ReadableStreamDefaultReader<AudioData> | null>(null);
+    const completionRequestedRef = useRef(false);
 
-  // 互換性維持のためのダミーRef（実際には使用しない）
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const updatePreparationStep = useCallback(
-    (audioSources: ExportAudioSources | undefined, step: ExportPreparationStep) => {
-      audioSources?.onPreparationStepChange?.(step);
-    },
-    []
-  );
+    // 互換性維持のためのダミーRef（実際には使用しない）
+    const recorderRef = useRef<MediaRecorder | null>(null);
+    const updatePreparationStep = useCallback(
+      (audioSources: ExportAudioSources | undefined, step: ExportPreparationStep) => {
+        audioSources?.onPreparationStepChange?.(step);
+      },
+      []
+    );
 
   // エクスポート停止処理
   const stopExport = useCallback(() => {
@@ -982,7 +991,7 @@ export function useExport(): UseExportReturn {
       const audioContext = masterDestRef.current.context;
       const audioTrack = masterDestRef.current.stream.getAudioTracks()[0] || null;
       const hasLiveAudioTrack = !!audioTrack && audioTrack.readyState === 'live';
-      const platformCapabilities = getPlatformCapabilities();
+      const platformCapabilities = config.getPlatformCapabilities();
       const {
         userAgent,
         isIOS,
@@ -1138,7 +1147,7 @@ export function useExport(): UseExportReturn {
       };
 
       try {
-        const strategyOrder = resolveExportStrategyOrder({
+        const strategyOrder = config.resolveExportStrategyOrder({
           isIosSafari,
           supportedMediaRecorderProfile,
         });
@@ -1161,7 +1170,7 @@ export function useExport(): UseExportReturn {
           });
         }
 
-        if (strategyOrder.includes('ios-safari-mediarecorder')) {
+        if (strategyOrder.includes('ios-safari-mediarecorder') && config.runMediaRecorderStrategy) {
           let preRenderedAudio: PreRenderedRecorderAudioSource | null = null;
           const renderedAudioForMediaRecorder = await ensurePreRenderedAudioBuffer('required');
           if (renderedAudioForMediaRecorder && !signal.aborted) {
@@ -1173,7 +1182,7 @@ export function useExport(): UseExportReturn {
 
           let handledByMediaRecorder = false;
           try {
-            handledByMediaRecorder = await runIosSafariMediaRecorderStrategy({
+            handledByMediaRecorder = await config.runMediaRecorderStrategy({
               canvas,
               masterDest: masterDestRef.current!,
               audioContext: audioContext as AudioContext,
@@ -1205,6 +1214,8 @@ export function useExport(): UseExportReturn {
           if (handledByMediaRecorder) {
             return;
           }
+        } else if (strategyOrder.includes('ios-safari-mediarecorder')) {
+          useLogStore.getState().warn('RENDER', 'MediaRecorder export strategy is unavailable in this runtime; falling back to WebCodecs');
         }
 
         if (typeof VideoEncoder === 'undefined' || typeof AudioEncoder === 'undefined') {
@@ -2261,19 +2272,18 @@ export function useExport(): UseExportReturn {
     setExportExt(null);
   }, [exportUrl]);
 
-  return {
-    isProcessing,
-    setIsProcessing,
-    exportUrl,
-    setExportUrl,
-    exportExt,
-    setExportExt,
-    recorderRef,
-    startExport, // 既存I/F維持
-    completeExport,
-    stopExport, // 新規追加（必要であれば使う）
-    clearExportUrl,
+    return {
+      isProcessing,
+      setIsProcessing,
+      exportUrl,
+      setExportUrl,
+      exportExt,
+      setExportExt,
+      recorderRef,
+      startExport, // 既存I/F維持
+      completeExport,
+      stopExport, // 新規追加（必要であれば使う）
+      clearExportUrl,
+    };
   };
 }
-
-export default useExport;
