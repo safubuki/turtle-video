@@ -188,6 +188,17 @@
   - ここで分けたのは capability 解決までで、`usePreviewEngine` / `usePreviewAudioSession` の中身自体はまだ shared 実装である
   - flavor の capability 正規化は preview 分岐の固定が目的であり、保存 API 対応などの実環境 capability は base capability の値を維持する
 
+### 3-0e. Preview runtime 実体の flavor 側移設完了
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/usePreviewAudioSession.ts`, `src/flavors/standard/preview/usePreviewSeekController.ts`, `src/flavors/standard/preview/usePreviewVisibilityLifecycle.ts`, `src/flavors/standard/preview/useInactiveVideoManager.ts`, `src/flavors/standard/preview/previewPlatform.ts`, `src/flavors/standard/preview/iosSafariAudio.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewAudioSession.ts`, `src/flavors/apple-safari/preview/usePreviewSeekController.ts`, `src/flavors/apple-safari/preview/usePreviewVisibilityLifecycle.ts`, `src/flavors/apple-safari/preview/useInactiveVideoManager.ts`, `src/flavors/apple-safari/preview/previewPlatform.ts`, `src/flavors/apple-safari/preview/iosSafariAudio.ts`, `src/flavors/standard/standardPreviewRuntime.ts`, `src/flavors/apple-safari/appleSafariPreviewRuntime.ts`, `src/test/previewRuntimeIsolation.test.ts`
+- **問題**: capability 解決まで runtime 側へ寄せても、active runtime が shared preview hooks / shared preview policy を import し続ける限り、Safari preview 修正は standard preview の実装変更と分離できない
+- **対策**:
+  - standard / apple-safari の両 flavor 配下に preview hook 群、preview policy、`iosSafariAudio` helper を複製し、`standardPreviewRuntime` / `appleSafariPreviewRuntime` がそれぞれ自系統の modules を参照するように切り替えた
+  - `previewRuntimeIsolation.test.ts` を追加し、両 runtime が shared preview hooks と shared preview policy factory を参照しないこと、および standard と apple-safari が別々の module identity を持つことを固定した
+- **注意**:
+  - Phase 2b 完了以降、preview 関連の修正は原則として `src/flavors/standard/preview/` または `src/flavors/apple-safari/preview/` のどちらかに入れる。`src/components/turtle-video/` 側の preview hooks は Phase 2a の抽出基準として残るが、active runtime の実体ではない
+  - 次段の Phase 3 では、この flavor-owned preview audio 実装を起点に AudioContext 回避策と one-shot `createMediaElementSource()` 制約を apple-safari line へさらに閉じ込める
+
 ### 3-1. 遅延初期化 + ユーザージェスチャー要件
 
 - **ファイル**: `src/hooks/useAudioContext.ts`, `src/utils/audio.ts`
