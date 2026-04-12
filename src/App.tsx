@@ -2,29 +2,24 @@
  * @file App.tsx
  * @author Turtle Village
  */
-import TurtleVideo from './components/TurtleVideo';
-import ErrorBoundary from './components/common/ErrorBoundary';
+import { Suspense, lazy, useMemo } from 'react';
 
+import AppShell from './app/AppShell';
+import { resolveAppFlavor } from './app/resolveAppFlavor';
 
-
-
-import { useOrientationLock } from './hooks/useOrientationLock';
-import { useAutoSave } from './hooks/useAutoSave';
-
-import { ReloadPrompt } from './components/ReloadPrompt';
+const StandardApp = lazy(() => import('./flavors/standard/StandardApp'));
+const AppleSafariApp = lazy(() => import('./flavors/apple-safari/AppleSafariApp'));
 
 function App() {
-  // 可能な限り縦画面に固定を試みる（スマホ対策）
-  useOrientationLock('portrait');
-
-  // 自動保存機能（2分間隔）
-  useAutoSave();
+  const appFlavor = useMemo(() => resolveAppFlavor(), []);
+  const RuntimeApp = appFlavor === 'apple-safari' ? AppleSafariApp : StandardApp;
 
   return (
-    <ErrorBoundary>
-      <TurtleVideo />
-      <ReloadPrompt />
-    </ErrorBoundary>
+    <AppShell>
+      <Suspense fallback={null}>
+        <RuntimeApp />
+      </Suspense>
+    </AppShell>
   );
 }
 

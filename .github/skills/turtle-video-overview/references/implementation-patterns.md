@@ -1544,6 +1544,18 @@
 
 ### 13-70. 自動保存表示は「前回成功保存時刻」ではなく「最後に autosave cadence が進んだ時刻」を基準にする
 
+### 13-71. App 入口で runtime flavor を一度だけ解決する
+
+- **ファイル**: `src/App.tsx`, `src/app/resolveAppFlavor.ts`, `src/app/AppShell.tsx`, `src/flavors/standard/StandardApp.tsx`, `src/flavors/apple-safari/AppleSafariApp.tsx`
+- **問題**: `TurtleVideo.tsx` のような下位実装へ platform 判定が流れ込むと、iOS Safari 向け回避策が Android/PC の既定経路へ混ざりやすい
+- **対策**:
+  - App 入口で `resolveAppFlavor()` により runtime flavor を一度だけ決定する
+  - 選択した flavor だけを `React.lazy()` で読み込み、未使用 flavor を初期ロードしない
+  - Phase 1 では両 flavor とも `TurtleVideo` を adapter として共有し、以後のフェーズで runtime を段階的に分離する
+- **注意**:
+  - 下位 shared モジュールで `isIosSafari` の直参照を増やさず、flavor 境界は App 入口に保つ
+  - `AppShell` のような共通ラッパーへ残すのは、ErrorBoundary、自動保存、orientation lock など platform 非依存の責務に限定する
+
 - **対象ファイル**: `src/hooks/useAutoSave.ts`, `src/stores/projectStore.ts`, `src/components/modals/SaveLoadModal.tsx`, `src/test/useAutoSave.test.tsx`, `src/test/modalHistoryStability.test.tsx`
 - **問題**:
   - autosave が `skipped-nochange` / `skipped-empty` で正常に1周期進んでいても、UI が `projectStore.lastAutoSave`（最後に実保存できた時刻）だけを見ていると、5分設定でも「7分前」などと表示され、停止と見分けがつかない
