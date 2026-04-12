@@ -859,22 +859,25 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
 };
 
 const UpdateStatus: React.FC = () => {
-  const { needRefresh, updateServiceWorker } = useUpdateStore();
+  const needRefresh = useUpdateStore((s) => s.needRefresh);
+  const isApplyingUpdate = useUpdateStore((s) => s.isApplyingUpdate);
+  const updateServiceWorker = useUpdateStore((s) => s.updateServiceWorker);
   const offlineMode = useOfflineModeStore((s) => s.offlineMode);
 
-  if (offlineMode || !needRefresh) return null;
+  if (offlineMode || (!needRefresh && !isApplyingUpdate)) return null;
 
   return (
     <div className="w-full bg-blue-500/10 border border-blue-500/30 rounded-lg p-2 flex items-center justify-between gap-2">
       <div className="flex items-center gap-2 text-blue-400">
         <RefreshCw className="w-4 h-4 animate-spin-slow" />
-        <span className="text-xs font-bold">新しいバージョンがあります</span>
+        <span className="text-xs font-bold">{isApplyingUpdate ? '更新を適用中です' : '新しいバージョンがあります'}</span>
       </div>
       <button
-        onClick={() => updateServiceWorker(true)}
-        className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded text-xs font-bold transition"
+        onClick={() => void updateServiceWorker(true)}
+        disabled={isApplyingUpdate}
+        className="bg-blue-600 hover:bg-blue-500 disabled:bg-blue-900/60 disabled:text-blue-200/70 text-white px-3 py-1.5 rounded text-xs font-bold transition"
       >
-        更新
+        {isApplyingUpdate ? '更新中...' : '更新'}
       </button>
     </div>
   );

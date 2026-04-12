@@ -26,7 +26,8 @@ describe('updateStore', () => {
       registration: null,
       isCheckingForUpdate: false,
       pendingUpdateCheckAfterRegister: false,
-      updateServiceWorker: async () => {},
+      isApplyingUpdate: false,
+      updateServiceWorkerImpl: async () => {},
     });
   });
 
@@ -54,5 +55,45 @@ describe('updateStore', () => {
 
     expect(result).toBe('up-to-date');
     expect(useUpdateStore.getState().needRefresh).toBe(false);
+  });
+
+  it('更新適用は多重実行されず、適用開始時に更新通知を閉じる', async () => {
+    let resolveUpdate: (() => void) | undefined;
+    const updateImpl = vi.fn(() => new Promise<void>((resolve) => {
+      resolveUpdate = resolve;
+    }));
+
+    useUpdateStore.getState().setUpdateServiceWorker(updateImpl);
+    useUpdateStore.setState({ needRefresh: true });
+
+    const first = useUpdateStore.getState().updateServiceWorker(true);
+    const second = useUpdateStore.getState().updateServiceWorker(true);
+
+    expect(updateImpl).toHaveBeenCalledTimes(1);
+    expect(useUpdateStore.getState().needRefresh).toBe(false);
+    expect(useUpdateStore.getState().isApplyingUpdate).toBe(true);
+
+    if (!resolveUpdate) {
+      throw new Error('update resolver was not initialized');
+    }
+
+    resolveUpdate();
+    await first;
+    await second;
+    await vi.advanceTimersByTimeAsync(3000);
+
+    expect(useUpdateStore.getState().isApplyingUpdate).toBe(false);
+  });
+
+  it('更新適用が失敗した場合は再試行できる状態へ戻す', async () => {
+    const updateImpl = vi.fn().mockRejectedValue(new Error('apply failed'));
+
+    useUpdateStore.getState().setUpdateServiceWorker(updateImpl);
+    useUpdateStore.setState({ needRefresh: true });
+
+    await expect(useUpdateStore.getState().updateServiceWorker(true)).rejects.toThrow('apply failed');
+
+    expect(useUpdateStore.getState().needRefresh).toBe(true);
+    expect(useUpdateStore.getState().isApplyingUpdate).toBe(false);
   });
 });

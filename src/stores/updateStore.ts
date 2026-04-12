@@ -3,6 +3,17 @@ import { create } from 'zustand';
 export type UpdateCheckResult = 'update-found' | 'up-to-date' | 'unavailable' | 'error';
 
 const UPDATE_CHECK_TIMEOUT_MS = 4000;
+const UPDATE_APPLY_RESET_MS = 3000;
+
+const clearedUpdateSignals = {
+  needRefresh: false,
+  offlineReady: false,
+  isCheckingForUpdate: false,
+  pendingUpdateCheckAfterRegister: false,
+  isApplyingUpdate: false,
+} as const;
+
+const noopUpdateServiceWorker = async () => {};
 
 function waitForServiceWorkerUpdate(registration: ServiceWorkerRegistration): Promise<boolean> {
   return new Promise((resolve) => {
@@ -64,7 +75,9 @@ interface UpdateState {
     registration: ServiceWorkerRegistration | null;
     isCheckingForUpdate: boolean;
     pendingUpdateCheckAfterRegister: boolean;
+  isApplyingUpdate: boolean;
     updateServiceWorker: (reloadPage?: boolean) => Promise<void>;
+  updateServiceWorkerImpl: (reloadPage?: boolean) => Promise<void>;
     setNeedRefresh: (value: boolean) => void;
     setOfflineReady: (value: boolean) => void;
     setRegistration: (registration: ServiceWorkerRegistration | undefined) => void;
@@ -81,7 +94,27 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
     registration: null,
     isCheckingForUpdate: false,
     pendingUpdateCheckAfterRegister: false,
-    updateServiceWorker: async () => { },
+  isApplyingUpdate: false,
+  updateServiceWorkerImpl: noopUpdateServiceWorker,
+  updateServiceWorker: async (reloadPage = true) => {
+    const { isApplyingUpdate, updateServiceWorkerImpl } = get();
+
+    if (isApplyingUpdate) {
+      return;
+    }
+
+    set({ isApplyingUpdate: true, needRefresh: false });
+
+    try {
+      await updateServiceWorkerImpl(reloadPage);
+      window.setTimeout(() => {
+        set((state) => (state.isApplyingUpdate ? clearedUpdateSignals : {}));
+      }, UPDATE_APPLY_RESET_MS);
+    } catch (error) {
+      set({ isApplyingUpdate: false, needRefresh: true });
+      throw error;
+    }
+  },
     setNeedRefresh: (value) => set({ needRefresh: value }),
     setOfflineReady: (value) => set({ offlineReady: value }),
     setRegistration: (registration) => set({ registration: registration ?? null }),
@@ -110,11 +143,6 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
     },
     queueUpdateCheckAfterRegister: () => set({ pendingUpdateCheckAfterRegister: true }),
     clearPendingUpdateCheck: () => set({ pendingUpdateCheckAfterRegister: false }),
-    clearUpdateSignals: () => set({
-        needRefresh: false,
-        offlineReady: false,
-        isCheckingForUpdate: false,
-        pendingUpdateCheckAfterRegister: false,
-    }),
-    setUpdateServiceWorker: (fn) => set({ updateServiceWorker: fn }),
+    clearUpdateSignals: () => set(clearedUpdateSignals),
+    setUpdateServiceWorker: (fn) => set({ updateServiceWorkerImpl: fn }),
 }));

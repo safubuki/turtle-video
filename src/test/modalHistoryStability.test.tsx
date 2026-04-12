@@ -29,6 +29,7 @@ const updateStoreState = {
   offlineReady: false,
   registration: null,
   isCheckingForUpdate: false,
+  isApplyingUpdate: false,
   pendingUpdateCheckAfterRegister: false,
   updateServiceWorker: vi.fn(),
   setNeedRefresh: vi.fn(),

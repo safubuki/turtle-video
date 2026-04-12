@@ -8,7 +8,9 @@ import { getPlatformCapabilities } from '../utils/platform';
 const ReloadPromptInner: React.FC = () => {
     const { isIosSafari } = getPlatformCapabilities();
     const storeNeedRefresh = useUpdateStore((state) => state.needRefresh);
+    const isApplyingUpdate = useUpdateStore((state) => state.isApplyingUpdate);
     const registration = useUpdateStore((state) => state.registration);
+    const updateServiceWorker = useUpdateStore((state) => state.updateServiceWorker);
     const setNeedRefresh = useUpdateStore((state) => state.setNeedRefresh);
     const setOfflineReady = useUpdateStore((state) => state.setOfflineReady);
     const setRegistration = useUpdateStore((state) => state.setRegistration);
@@ -70,22 +72,23 @@ const ReloadPromptInner: React.FC = () => {
         }
         : undefined;
 
-    if (!storeNeedRefresh) return null;
+    if (!storeNeedRefresh && !isApplyingUpdate) return null;
 
     return (
         <div
             className="fixed bottom-4 right-4 z-[400] flex flex-col gap-2 w-full max-w-sm"
             style={promptContainerStyle}
         >
-            {storeNeedRefresh && (
+            {(storeNeedRefresh || isApplyingUpdate) && (
                 <div className="bg-gray-800 border border-blue-500/50 shadow-2xl rounded-lg p-4 flex flex-col gap-3 animate-slide-up">
                     <div className="flex items-start justify-between">
                         <div className="flex items-center gap-2 text-blue-400 font-bold">
                             <RefreshCw className="w-5 h-5 animate-spin-slow" />
-                            <span>新しいバージョンが利用可能です</span>
+                            <span>{isApplyingUpdate ? '更新を適用中です' : '新しいバージョンが利用可能です'}</span>
                         </div>
                         <button
                             onClick={close}
+                            disabled={isApplyingUpdate}
                             className="text-gray-400 hover:text-white transition p-1"
                         >
                             <X className="w-5 h-5" />
@@ -93,19 +96,23 @@ const ReloadPromptInner: React.FC = () => {
                     </div>
 
                     <p className="text-sm text-gray-300">
-                        アプリの更新準備ができました。更新して最新の機能をご利用ください。
+                        {isApplyingUpdate
+                            ? '更新を適用しています。自動で再読み込みされるまでお待ちください。'
+                            : 'アプリの更新準備ができました。更新して最新の機能をご利用ください。'}
                     </p>
 
                     <div className="flex gap-2 mt-1">
                         <button
-                            onClick={() => hookUpdateServiceWorker(true)}
-                            className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-lg font-bold text-sm transition"
+                            onClick={() => void updateServiceWorker(true)}
+                            disabled={isApplyingUpdate}
+                            className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-900/60 disabled:text-blue-200/70 text-white py-2 rounded-lg font-bold text-sm transition"
                         >
-                            更新する
+                            {isApplyingUpdate ? '更新中...' : '更新する'}
                         </button>
                         <button
                             onClick={close}
-                            className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg font-bold text-sm transition"
+                            disabled={isApplyingUpdate}
+                            className="flex-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 text-white py-2 rounded-lg font-bold text-sm transition"
                         >
                             閉じる
                         </button>

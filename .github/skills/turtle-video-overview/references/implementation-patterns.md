@@ -1623,6 +1623,20 @@
 - **問題**:
   - タブ非アクティブ化や BFCache 復帰の環境では、`setInterval` が停止したまま戻ることがあり、その後の自動保存が再開されないことがある
   - 自動保存間隔を 5 分→1 分などへ短く変更した時に、タイマー再生成で `lastAutoSaveActivityAtRef` を現在時刻へ戻すと、新しい間隔で既に overdue でも保存が先送りされる
+
+### 13-69. PWA 更新適用は多重実行を防ぎ、意図的な reload では beforeunload を出さない
+
+- **対象ファイル**: `src/stores/updateStore.ts`, `src/components/ReloadPrompt.tsx`, `src/components/modals/SettingsModal.tsx`, `src/hooks/usePreventUnload.ts`, `src/test/stores/updateStore.test.ts`, `src/test/usePreventUnload.test.tsx`
+- **問題**:
+  - `vite-plugin-pwa` の prompt モードでは、waiting service worker への `skipWaiting` 後に `controlling` を契機として reload が走る
+  - この時に更新適用ボタンを連続で押せると reload 要求が多重化し、編集中データに対する `beforeunload` 確認も重なって見えやすい
+- **対応パターン**:
+  - `updateStore` に `isApplyingUpdate` を持たせ、更新適用は store の単一ラッパー経由で 1 回だけ通す
+  - 更新適用開始時に `needRefresh` を閉じ、`ReloadPrompt` と `SettingsModal` の更新ボタンは `isApplyingUpdate` 中に無効化する
+  - `usePreventUnload` は通常の編集中離脱では従来どおり警告するが、PWA 更新適用中だけは警告を出さず、意図した reload を素通しする
+- **注意**:
+  - 手動更新導線を増やしても、service worker 更新適用は UI から直接 hook を呼ばず store ラッパーへ集約する
+  - 更新適用中の状態は reload 成功時に自然終了する前提なので、失敗時だけ再試行できるよう `needRefresh` を戻す
 - **対応パターン**:
   - 復帰契機（`visibilitychange` / `focus` / `pageshow`）では catch-up 判定の前に、hidden/pagehide をまたいだ時だけ interval を再アームする
   - 再アーム時は「今から丸ごと1周期」ではなく、`lastAutoSaveActivityAtRef` から見た残り時間だけ待ってから通常 cadence へ戻す

@@ -8,6 +8,7 @@ const offlineModeStoreState = {
 
 const updateStoreState = {
   needRefresh: true,
+  isApplyingUpdate: false,
   registration: null,
   pendingUpdateCheckAfterRegister: false,
   clearPendingUpdateCheck: vi.fn(),
