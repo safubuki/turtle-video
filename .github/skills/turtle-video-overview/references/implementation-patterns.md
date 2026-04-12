@@ -502,16 +502,20 @@
 
 ### 9-11. Capability ベースの保存/ダウンロード経路統一
 
-- **ファイル**: `src/utils/fileSave.ts`, `src/components/TurtleVideo.tsx`, `src/components/modals/SaveLoadModal.tsx`, `src/components/turtle-video/saveRuntime.ts`, `src/flavors/standard/standardSaveRuntime.ts`, `src/flavors/apple-safari/appleSafariSaveRuntime.ts`, `src/constants/sectionHelp.ts`, `src/test/fileSave.test.ts`
+- **ファイル**: `src/utils/fileSave.ts`, `src/app/appFlavorUi.ts`, `src/components/Header.tsx`, `src/components/TurtleVideo.tsx`, `src/components/sections/PreviewSection.tsx`, `src/components/modals/SaveLoadModal.tsx`, `src/components/modals/SectionHelpModal.tsx`, `src/components/turtle-video/saveRuntime.ts`, `src/flavors/standard/standardSaveRuntime.ts`, `src/flavors/apple-safari/appleSafariSaveRuntime.ts`, `src/flavors/standard/StandardApp.tsx`, `src/flavors/apple-safari/AppleSafariApp.tsx`, `src/constants/sectionHelp.ts`, `src/test/fileSave.test.ts`, `src/test/previewSectionActionButtons.test.tsx`, `src/test/modalHistoryStability.test.tsx`
 - **問題**: エクスポート動画、AI ナレーション保存、生成画像保存で `showSaveFilePicker` と `a[download]` の分岐が重複し、iOS Safari 向けの保存導線や完了メッセージを調整するたびに複数箇所を直す必要があった。ヘルプ文言も iPhone を一律非対応扱いのままで、現状の保存方針とずれていた
 - **対策**:
   - `src/utils/fileSave.ts` に `file-picker` / `anchor-download` の resolver と保存 helper を追加し、caller 側はファイル名・MIME・通知文言だけを持つ
   - `TurtleVideo.tsx` の動画ダウンロードとナレーション保存は shared helper を直接使い、`SaveLoadModal.tsx` の生成画像保存と capability 判定は save runtime 経由へ寄せる
+  - `src/app/appFlavorUi.ts` に flavor badge / support summary / download guidance / preview notice / save guidance を集約し、shared UI の copy 生成を single source of truth 化する
+  - `StandardApp.tsx` / `AppleSafariApp.tsx` から `appFlavor` を shared UI へ注入し、`Header.tsx` / `PreviewSection.tsx` / `SaveLoadModal.tsx` / `SectionHelpModal.tsx` は platform 直判定ではなく `appFlavor` と capability を受けて描画する
   - `src/test/fileSave.test.ts` で strategy 選択、object URL 保存、blob 保存の回帰を自動検証する
-  - `sectionHelp.ts` と SaveLoadModal のヘルプでは、iPhone / iPad Safari を「正式対応に向けて検証中」とし、保存ダイアログ対応の有無で挙動が分かれること、手動保存 / 自動保存 / 読込の確認観点を明示する
+  - `sectionHelp.ts` は `getSectionHelpContent(context)` で flavor-aware に生成し、SaveLoadModal の help と合わせて iPhone / iPad Safari を「安定動作優先の検証モード」として案内し、保存ダイアログ対応の有無で挙動が分かれること、手動保存 / 自動保存 / 読込の確認観点を明示する
+  - `src/test/previewSectionActionButtons.test.tsx` と `src/test/modalHistoryStability.test.tsx` で Safari 向け preview/save guidance が UI 上に出ることを固定する
 - **注意**:
   - 保存データ本体は引き続き IndexedDB の共通経路を使い、iOS Safari 向けの保存領域 fork は実機不具合が出るまで追加しない
   - 保存 UI から platform capability や `fileSave.ts` の import を直接増やさず、saveRuntime に寄せて flavor-owned boundary を維持する
+  - ヘルプやバッジの文言を増やすときは `appFlavorUi.ts` と `getSectionHelpContent(context)` を先に更新し、shared component 内で `isIosSafari` を再導入しない
   - 新しいダウンロード導線を増やす場合は個別に `showSaveFilePicker` を判定せず、まず `fileSave.ts` の helper を再利用する
 
 ### 9-12. サポート表記は「検証中」と「正式対応」を分けて扱う
