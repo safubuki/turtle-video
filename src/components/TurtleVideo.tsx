@@ -16,7 +16,6 @@ import {
   GEMINI_SCRIPT_FALLBACK_MODELS,
   GEMINI_TTS_MODEL,
   TTS_SAMPLE_RATE,
-  SEEK_THROTTLE_MS,
   FPS,
 } from '../constants';
 
@@ -24,6 +23,9 @@ import {
 import { useExport } from '../hooks/useExport';
 import type { ExportPreparationStep } from '../hooks/useExport';
 import { usePreventUnload } from '../hooks/usePreventUnload';
+import { useInactiveVideoManager } from './turtle-video/useInactiveVideoManager';
+import { usePreviewAudioSession } from './turtle-video/usePreviewAudioSession';
+import { usePreviewSeekController } from './turtle-video/usePreviewSeekController';
 import { usePreviewVisibilityLifecycle } from './turtle-video/usePreviewVisibilityLifecycle';
 
 // Utils
@@ -33,11 +35,8 @@ import { saveObjectUrlWithClientFileStrategy } from '../utils/fileSave';
 import { openFilesWithPicker } from '../utils/platform';
 import { findActiveTimelineItem, collectPlaybackBlockingVideos } from '../utils/playbackTimeline';
 import { getPlatformCapabilities } from '../utils/platform';
-import { resolveIosSafariSingleMixedAudio } from '../utils/iosSafariAudio';
 import {
-  getFutureVideoAudioProbeTimes,
   getPreviewAudioOutputMode,
-  getPreviewAudioRoutingPlan,
   getPreviewPlatformPolicy,
   getPreviewVideoSyncThreshold,
   EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC,
@@ -445,34 +444,62 @@ const TurtleVideo: React.FC = () => {
     };
   }, [cancelPendingSeekPlaybackPrepare]);
 
-  // --- Helper: 非アクティブなビデオを開始位置にリセット ---
-  const resetInactiveVideos = useCallback(() => {
-    for (const item of mediaItemsRef.current) {
-      if (item.type === 'video' && item.id !== activeVideoIdRef.current) {
-        const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
-        if (videoEl) {
-          const hasAudioNode = !!sourceNodesRef.current[item.id];
-          // iOS WebAudio preview では startEngine / seek 復帰直後の
-          // pause -> play サイクル自体が AudioSession を壊しやすい。
-          const avoidPauseForInactive = shouldAvoidPauseInactiveVideoInPreview(previewPlatformPolicy, {
-            hasAudioNode,
-            isExporting: false,
-            isActivePlaying: true,
-          });
-
-          // 一時停止
-          if (!avoidPauseForInactive && !videoEl.paused) {
-            videoEl.pause();
-          }
-          // 開始位置にリセット
-          const startTime = item.trimStart || 0;
-          if ((!avoidPauseForInactive || videoEl.paused) && Math.abs(videoEl.currentTime - startTime) > 0.1) {
-            videoEl.currentTime = startTime;
-          }
-        }
-      }
+  // --- Audio Context ---
+  const getAudioContext = useCallback(() => {
+    if (!audioCtxRef.current) {
+      const AC = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      const ctx = new AC();
+      audioCtxRef.current = ctx;
+      masterDestRef.current = ctx.createMediaStreamDestination();
     }
-  }, [previewPlatformPolicy]);
+    return audioCtxRef.current;
+  }, []);
+
+  const { resetInactiveVideos } = useInactiveVideoManager({
+    mediaItemsRef,
+    mediaElementsRef,
+    sourceNodesRef,
+    activeVideoIdRef,
+    previewPlatformPolicy,
+  });
+
+  const {
+    detachAudioNode,
+    ensureAudioNodeForElement,
+    preparePreviewAudioNodesForTime,
+    preparePreviewAudioNodesForUpcomingVideos,
+    primePreviewAudioOnlyTracksAtTime,
+    handleMediaRefAssign,
+  } = usePreviewAudioSession({
+    mediaItemsRef,
+    bgmRef,
+    narrationsRef,
+    totalDurationRef,
+    currentTimeRef,
+    mediaElementsRef,
+    audioCtxRef,
+    sourceNodesRef,
+    gainNodesRef,
+    sourceElementsRef,
+    pendingAudioDetachTimersRef,
+    masterDestRef,
+    audioRoutingModeRef,
+    previewAudioRouteRefreshInFlightRef,
+    lastIosSafariAudioLogRef,
+    requestPreviewAudioRouteRefreshRef,
+    primePreviewAudioOnlyTracksAtTimeRef,
+    previewPlaybackAttemptRef,
+    isPlayingRef,
+    isSeekingRef,
+    previewPlatformPolicy,
+    isIosSafari: platformCapabilities.isIosSafari,
+    bgm,
+    narrations,
+    isProcessing,
+    getAudioContext,
+    logInfo,
+    logWarn,
+  });
 
   // --- Helper: renderFrame ---
   const renderFrame = useCallback(
@@ -1717,17 +1744,6 @@ const TurtleVideo: React.FC = () => {
     logWarn,
   });
 
-  // --- Audio Context ---
-  const getAudioContext = useCallback(() => {
-    if (!audioCtxRef.current) {
-      const AC = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      const ctx = new AC();
-      audioCtxRef.current = ctx;
-      masterDestRef.current = ctx.createMediaStreamDestination();
-    }
-    return audioCtxRef.current;
-  }, []);
-
   // --- Gemini API Helpers ---
   const pcmToWav = useCallback((pcmData: ArrayBuffer, sampleRate: number): ArrayBuffer => {
     const numChannels = 1;
@@ -2339,540 +2355,6 @@ const TurtleVideo: React.FC = () => {
       return allReady;
     },
     [logInfo, logWarn, waitForVideoMetadata]
-  );
-
-  const detachAudioNode = useCallback((id: string) => {
-    if (sourceNodesRef.current[id]) {
-      try {
-        sourceNodesRef.current[id].disconnect();
-      } catch {
-        // ignore
-      }
-      delete sourceNodesRef.current[id];
-    }
-    if (gainNodesRef.current[id]) {
-      try {
-        gainNodesRef.current[id].disconnect();
-      } catch {
-        // ignore
-      }
-      delete gainNodesRef.current[id];
-    }
-    delete sourceElementsRef.current[id];
-  }, []);
-
-  function ensureAudioNodeForElement(id: string, mediaEl: HTMLMediaElement): boolean {
-    const currentSourceEl = sourceElementsRef.current[id];
-    const hasExistingAudioNode = !!sourceNodesRef.current[id] && !!gainNodesRef.current[id];
-
-    if (hasExistingAudioNode && currentSourceEl === mediaEl) {
-      return true;
-    }
-
-    if (hasExistingAudioNode && currentSourceEl && currentSourceEl !== mediaEl) {
-      detachAudioNode(id);
-    }
-
-    try {
-      const ctx = getAudioContext();
-      const stateBeforeResume = ctx.state as AudioContextState | 'interrupted';
-      if (stateBeforeResume !== 'running') {
-        ctx.resume().catch((err) => {
-          if (platformCapabilities.isIosSafari) {
-            logWarn('AUDIO', 'iOS Safari AudioContext resume 失敗', {
-              id,
-              stateBeforeResume,
-              error: err instanceof Error ? err.message : String(err),
-            });
-          }
-        });
-      }
-
-      const source = ctx.createMediaElementSource(mediaEl);
-      const gain = ctx.createGain();
-      source.connect(gain);
-
-      const initialTarget =
-        audioRoutingModeRef.current === 'export' && masterDestRef.current
-          ? masterDestRef.current
-          : ctx.destination;
-      gain.connect(initialTarget);
-      gain.gain.setValueAtTime(1, ctx.currentTime);
-
-      sourceNodesRef.current[id] = source;
-      gainNodesRef.current[id] = gain;
-      sourceElementsRef.current[id] = mediaEl;
-
-      if (platformCapabilities.isIosSafari) {
-        logInfo('AUDIO', 'iOS Safari MediaElementAudioSource を作成', {
-          id,
-          tagName: mediaEl.tagName,
-          audioContextState: ctx.state,
-          route: audioRoutingModeRef.current,
-          gainValue: gain.gain.value,
-        });
-      }
-
-      return true;
-    } catch (e) {
-      if (platformCapabilities.isIosSafari) {
-        logWarn('AUDIO', 'iOS Safari MediaElementAudioSource 作成失敗', {
-          id,
-          tagName: mediaEl.tagName,
-          reason: e instanceof Error ? e.message : String(e),
-        });
-      } else {
-        console.warn(`Audio node creation failed for ${id}:`, e);
-      }
-      return false;
-    }
-  }
-
-  const refreshPreviewAudioRoute = useCallback(async () => {
-    if (!shouldReinitializeAudioRoute(previewPlatformPolicy, false)) {
-      return;
-    }
-
-    const ctx = audioCtxRef.current;
-    if (!ctx) {
-      return;
-    }
-
-    try {
-      // Step 1: 旧 native 要素を即座にミュートして二重経路を防止
-      Object.keys(sourceNodesRef.current).forEach((nodeId) => {
-        const el = mediaElementsRef.current[nodeId];
-        if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO')) {
-          (el as HTMLMediaElement).volume = 0;
-        }
-      });
-
-      // Step 2: AudioContext が running でなければ resume を試みる
-      if ((ctx.state as AudioContextState | 'interrupted') !== 'running') {
-        await ctx.resume();
-      }
-
-      // Step 3: それでも running でなければ suspend/resume で強制再初期化
-      if ((ctx.state as AudioContextState | 'interrupted') !== 'running') {
-        await ctx.suspend();
-        await ctx.resume();
-      }
-
-      // Step 4: GainNode の接続を再確認
-      const target = ctx.destination;
-      Object.keys(gainNodesRef.current).forEach((nodeId) => {
-        const gain = gainNodesRef.current[nodeId];
-        try {
-          gain.disconnect();
-          gain.connect(target);
-        } catch { /* ignore */ }
-      });
-
-      // audioResumeWaitFramesRef は設定しない。
-      // native 要素は既にミュート済みなので holdAudioThisFrame による
-      // 全音源一時停止は不要。renderFrame の applyPreviewAudioOutputState が
-      // 各要素の native/webaudio 状態を次フレームで正しく設定する。
-      logInfo('AUDIO', 'iOS Safari preview 音声ルートを再初期化', {
-        state: ctx.state,
-      });
-    } catch (err) {
-      logWarn('AUDIO', 'iOS Safari preview 音声ルート再初期化に失敗', {
-        error: err instanceof Error ? err.message : String(err),
-        state: ctx.state,
-      });
-    }
-  }, [logInfo, logWarn, previewPlatformPolicy]);
-
-  const requestPreviewAudioRouteRefresh = useCallback(() => {
-    if (!shouldReinitializeAudioRoute(previewPlatformPolicy, false)) {
-      return;
-    }
-
-    if (previewAudioRouteRefreshInFlightRef.current) {
-      return;
-    }
-
-    const refreshPromise = refreshPreviewAudioRoute().finally(() => {
-      if (previewAudioRouteRefreshInFlightRef.current === refreshPromise) {
-        previewAudioRouteRefreshInFlightRef.current = null;
-      }
-    });
-    previewAudioRouteRefreshInFlightRef.current = refreshPromise;
-  }, [previewPlatformPolicy, refreshPreviewAudioRoute]);
-
-  useEffect(() => {
-    requestPreviewAudioRouteRefreshRef.current = requestPreviewAudioRouteRefresh;
-  }, [requestPreviewAudioRouteRefresh]);
-
-  const logIosSafariPreviewAudioRoute = useCallback((params: {
-    time: number;
-    candidates: Array<{ id: string; desiredVolume: number; sourceType: 'video' | 'audio' }>;
-    routingPlan: Array<{ id: string; outputMode: string; audibleSourceCount: number }>;
-  }) => {
-    if (!platformCapabilities.isIosSafari) {
-      return;
-    }
-
-    const hasAudibleVideo = params.candidates.some((candidate) => candidate.sourceType === 'video' && candidate.desiredVolume > 0);
-    const hasAudibleAuxAudio = params.candidates.some((candidate) => candidate.sourceType === 'audio' && candidate.desiredVolume > 0);
-    const mixDecision = resolveIosSafariSingleMixedAudio({
-      isIosSafari: true,
-      isExporting: false,
-      audibleSourceCount: params.candidates.filter((candidate) => candidate.desiredVolume > 0).length,
-      sourceType: hasAudibleVideo ? 'video' : 'audio',
-    });
-
-    const signature = JSON.stringify({
-      timeBucket: Math.round(params.time * 10) / 10,
-      mixDecision: mixDecision.reason,
-      candidates: params.candidates.map((candidate) => ({
-        id: candidate.id,
-        sourceType: candidate.sourceType,
-        desiredVolume: Math.round(candidate.desiredVolume * 100) / 100,
-      })),
-      routingPlan: params.routingPlan,
-      audioContextState: audioCtxRef.current?.state ?? 'uninitialized',
-      route: audioRoutingModeRef.current,
-    });
-
-    if (lastIosSafariAudioLogRef.current === signature) {
-      return;
-    }
-    lastIosSafariAudioLogRef.current = signature;
-
-    logInfo('AUDIO', 'iOS Safari preview mixed audio route', {
-      safariDetected: platformCapabilities.isIosSafari,
-      audioContextState: audioCtxRef.current?.state ?? 'uninitialized',
-      route: audioRoutingModeRef.current,
-      playbackTime: Math.round(params.time * 100) / 100,
-      shouldUseSingleMixedAudio: mixDecision.shouldUseSingleMixedAudio,
-      reason: mixDecision.reason,
-      hasAudibleVideo,
-      hasAudibleAuxAudio,
-      gains: params.routingPlan.map((decision) => ({
-        id: decision.id,
-        outputMode: decision.outputMode,
-        audibleSourceCount: decision.audibleSourceCount,
-        gainValue: gainNodesRef.current[decision.id]
-          ? Math.round(gainNodesRef.current[decision.id].gain.value * 100) / 100
-          : null,
-      })),
-    });
-  }, [logInfo, platformCapabilities.isIosSafari]);
-
-  const preparePreviewAudioNodesForTime = useCallback((time: number): PreparedPreviewAudioNodesResult => {
-    if (!previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
-      return {
-        activeVideoId: null,
-        audibleSourceCount: 0,
-        requiresWebAudio: false,
-      };
-    }
-
-    const currentItems = mediaItemsRef.current;
-    const currentBgm = bgmRef.current;
-    const currentNarrations = narrationsRef.current;
-    let activeVideoId: string | null = null;
-    const candidates: Array<{
-      id: string;
-      desiredVolume: number;
-      element: HTMLMediaElement;
-      sourceType: 'video' | 'audio';
-    }> = [];
-
-    const active = findActiveTimelineItem(currentItems, time, totalDurationRef.current);
-    if (active && active.index !== -1) {
-      const activeItem = currentItems[active.index];
-      if (activeItem?.type === 'video' && !activeItem.isMuted && activeItem.volume > 0) {
-        activeVideoId = activeItem.id;
-        const element = mediaElementsRef.current[activeItem.id] as HTMLVideoElement | undefined;
-        if (element) {
-          let vol = activeItem.volume;
-          const fadeInDur = activeItem.fadeInDuration || 1.0;
-          const fadeOutDur = activeItem.fadeOutDuration || 1.0;
-
-          if (activeItem.fadeIn && active.localTime < fadeInDur) {
-            vol *= active.localTime / fadeInDur;
-          } else if (activeItem.fadeOut && active.localTime > activeItem.duration - fadeOutDur) {
-            const remaining = activeItem.duration - active.localTime;
-            vol *= remaining / fadeOutDur;
-          }
-
-          if (vol > 0) {
-            candidates.push({
-              id: activeItem.id,
-              desiredVolume: vol,
-              element,
-              sourceType: 'video',
-            });
-          }
-        }
-      }
-    }
-
-    if (currentBgm && currentBgm.volume > 0 && time >= currentBgm.delay) {
-      const element = mediaElementsRef.current.bgm as HTMLAudioElement | undefined;
-      const trackTime = time - currentBgm.delay + currentBgm.startPoint;
-      const playDuration = time - currentBgm.delay;
-      if (element && trackTime >= 0 && trackTime <= currentBgm.duration) {
-        let vol = currentBgm.volume;
-        const fadeInDur = currentBgm.fadeInDuration || 1.0;
-        const fadeOutDur = currentBgm.fadeOutDuration || 1.0;
-
-        if (currentBgm.fadeIn && playDuration < fadeInDur) {
-          vol *= playDuration / fadeInDur;
-        }
-        if (currentBgm.fadeOut && time > totalDurationRef.current - fadeOutDur) {
-          const remaining = totalDurationRef.current - time;
-          vol *= Math.max(0, remaining / fadeOutDur);
-        }
-
-        if (vol > 0) {
-          candidates.push({
-            id: 'bgm',
-            desiredVolume: vol,
-            element,
-            sourceType: 'audio',
-          });
-        }
-      }
-    }
-
-    for (const clip of currentNarrations) {
-      if (clip.isMuted || clip.volume <= 0) {
-        continue;
-      }
-
-      const trackId = `narration:${clip.id}`;
-      const element = mediaElementsRef.current[trackId] as HTMLAudioElement | undefined;
-      if (!element) {
-        continue;
-      }
-
-      const trimStart = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
-      const trimEnd = Number.isFinite(clip.trimEnd)
-        ? Math.max(trimStart, Math.min(clip.duration, clip.trimEnd))
-        : clip.duration;
-      const playableDuration = Math.max(0, trimEnd - trimStart);
-      const clipTime = time - clip.startTime;
-
-      if (clipTime >= 0 && clipTime <= playableDuration) {
-        candidates.push({
-          id: trackId,
-          desiredVolume: clip.volume,
-          element,
-          sourceType: 'audio',
-        });
-      }
-    }
-
-    const routingPlan = getPreviewAudioRoutingPlan(previewPlatformPolicy, {
-      isExporting: false,
-      candidates: candidates.map((candidate) => ({
-        id: candidate.id,
-        hasAudioNode: !!sourceNodesRef.current[candidate.id],
-        desiredVolume: candidate.desiredVolume,
-        sourceType: candidate.sourceType,
-      })),
-    });
-
-    routingPlan.forEach((decision, index) => {
-      if (decision.outputMode !== 'webaudio' || decision.hasAudioNode) {
-        return;
-      }
-      ensureAudioNodeForElement(decision.id, candidates[index].element);
-    });
-
-    logIosSafariPreviewAudioRoute({
-      time,
-      candidates: candidates.map((candidate) => ({
-        id: candidate.id,
-        desiredVolume: candidate.desiredVolume,
-        sourceType: candidate.sourceType,
-      })),
-      routingPlan: routingPlan.map((decision) => ({
-        id: decision.id,
-        outputMode: decision.outputMode,
-        audibleSourceCount: decision.audibleSourceCount,
-      })),
-    });
-
-    return {
-      activeVideoId,
-      audibleSourceCount: candidates.length,
-      requiresWebAudio: routingPlan.some((decision) => decision.outputMode === 'webaudio'),
-    };
-  }, [ensureAudioNodeForElement, logIosSafariPreviewAudioRoute, previewPlatformPolicy]);
-
-  const primePreviewMediaElementPlayback = useCallback((
-    mediaEl: HTMLMediaElement,
-    targetTime: number,
-    seekThreshold = 0.1,
-  ) => {
-    const scheduledAttempt = previewPlaybackAttemptRef.current;
-    const playWhenReady = () => {
-      if (!shouldAttemptDeferredPreviewPlay({
-        isCurrentAttempt: scheduledAttempt === previewPlaybackAttemptRef.current,
-        isPlaying: isPlayingRef.current,
-        isSeeking: isSeekingRef.current,
-        mediaSeeking: mediaEl.seeking,
-        readyState: mediaEl.readyState,
-      })) {
-        return;
-      }
-      if (mediaEl.paused) {
-        mediaEl.play().catch(() => { });
-      }
-    };
-
-    if (mediaEl.readyState === 0 && !mediaEl.error) {
-      try {
-        mediaEl.load();
-      } catch {
-        // ignore
-      }
-    }
-
-    if (Math.abs(mediaEl.currentTime - targetTime) > seekThreshold) {
-      mediaEl.currentTime = targetTime;
-    }
-
-    if (!mediaEl.seeking && mediaEl.readyState >= 2) {
-      playWhenReady();
-      return;
-    }
-
-    mediaEl.addEventListener('canplay', playWhenReady, { once: true });
-    mediaEl.addEventListener('seeked', playWhenReady, { once: true });
-  }, []);
-
-  const primePreviewAudioOnlyTracksAtTime = useCallback((playbackTime: number) => {
-    const currentBgm = bgmRef.current;
-    if (currentBgm) {
-      const bgmEl = mediaElementsRef.current.bgm as HTMLAudioElement | undefined;
-      if (bgmEl && sourceNodesRef.current.bgm) {
-        const trackTime = Math.max(0, playbackTime - currentBgm.delay + currentBgm.startPoint);
-        if (playbackTime >= currentBgm.delay && trackTime <= currentBgm.duration) {
-          primePreviewMediaElementPlayback(bgmEl, trackTime);
-        }
-      }
-    }
-
-    const currentNarrations = narrationsRef.current;
-    for (const clip of currentNarrations) {
-      if (clip.isMuted || clip.volume <= 0) continue;
-      const trackId = `narration:${clip.id}`;
-      const narEl = mediaElementsRef.current[trackId] as HTMLAudioElement | undefined;
-      if (!narEl || !sourceNodesRef.current[trackId]) continue;
-      const trimStart = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
-      const trimEnd = Number.isFinite(clip.trimEnd)
-        ? Math.max(trimStart, Math.min(clip.duration, clip.trimEnd))
-        : clip.duration;
-      const playableDuration = Math.max(0, trimEnd - trimStart);
-      const clipTime = playbackTime - clip.startTime;
-      if (clipTime >= 0 && clipTime <= playableDuration) {
-        const sourceTime = trimStart + clipTime;
-        primePreviewMediaElementPlayback(narEl, sourceTime, 0.5);
-      }
-    }
-  }, [primePreviewMediaElementPlayback]);
-
-  useEffect(() => {
-    primePreviewAudioOnlyTracksAtTimeRef.current = primePreviewAudioOnlyTracksAtTime;
-  }, [primePreviewAudioOnlyTracksAtTime]);
-
-  const preparePreviewAudioNodesForUpcomingVideos = useCallback((fromTime: number) => {
-    if (!previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
-      return;
-    }
-
-    const probeTimes = getFutureVideoAudioProbeTimes(mediaItemsRef.current, fromTime);
-    probeTimes.forEach((probeTime) => {
-      preparePreviewAudioNodesForTime(probeTime);
-    });
-  }, [preparePreviewAudioNodesForTime, previewPlatformPolicy]);
-
-  // --- iOS Safari: BGM/ナレーション追加時のビデオオーディオノード事前作成 ---
-  // BGM が加わると audibleSourceCount が増え、これまで native fallback だった
-  // ビデオが webaudio に切り替わる必要がある。ノードを先に作ることで、
-  // renderFrame の ensureAudioNodeForElement → route refresh (suspend/resume) を防ぐ。
-  useEffect(() => {
-    if (
-      bgm &&
-      isPlayingRef.current &&
-      !isProcessing &&
-      previewPlatformPolicy.muteNativeMediaWhenAudioRouted
-    ) {
-      const bgmEl = mediaElementsRef.current.bgm as HTMLAudioElement | undefined;
-      if (bgmEl && !sourceNodesRef.current.bgm) {
-        ensureAudioNodeForElement('bgm', bgmEl);
-      }
-      preparePreviewAudioNodesForTime(currentTimeRef.current);
-      preparePreviewAudioNodesForUpcomingVideos(currentTimeRef.current);
-    }
-  }, [bgm, isProcessing, preparePreviewAudioNodesForTime, preparePreviewAudioNodesForUpcomingVideos, previewPlatformPolicy]);
-
-  useEffect(() => {
-    if (
-      narrations.length > 0 &&
-      isPlayingRef.current &&
-      !isProcessing &&
-      previewPlatformPolicy.muteNativeMediaWhenAudioRouted
-    ) {
-      preparePreviewAudioNodesForTime(currentTimeRef.current);
-      preparePreviewAudioNodesForUpcomingVideos(currentTimeRef.current);
-    }
-  }, [narrations, isProcessing, preparePreviewAudioNodesForTime, preparePreviewAudioNodesForUpcomingVideos, previewPlatformPolicy]);
-
-  const handleMediaRefAssign = useCallback(
-    (id: string, element: HTMLVideoElement | HTMLImageElement | HTMLAudioElement | null) => {
-      if (element) {
-        const pendingTimer = pendingAudioDetachTimersRef.current[id];
-        if (pendingTimer) {
-          clearTimeout(pendingTimer);
-          delete pendingAudioDetachTimersRef.current[id];
-        }
-
-        mediaElementsRef.current[id] = element;
-
-        if (element.tagName === 'VIDEO' || element.tagName === 'AUDIO') {
-          const mediaEl = element as HTMLMediaElement;
-
-          // 同じidでDOM要素が入れ替わった場合のみ、既存ノードを破棄して再生成する。
-          if (sourceElementsRef.current[id] && sourceElementsRef.current[id] !== mediaEl) {
-            detachAudioNode(id);
-          }
-
-          // iOS Safari: audio-only 要素 (BGM, narration) は常に WebAudio 経路を使用する。
-          // handleMediaRefAssign の時点でノードを即時作成することで、
-          // renderFrame 内の遅延作成 → route refresh (suspend/resume) による
-          // 再生中の音声途切れを回避する。
-          if (
-            element.tagName === 'AUDIO' &&
-            previewPlatformPolicy.muteNativeMediaWhenAudioRouted &&
-            !sourceNodesRef.current[id]
-          ) {
-            ensureAudioNodeForElement(id, mediaEl);
-          }
-
-          // iOS Safari では複数メディア同時再生時にネイティブ音声経路の競合が起きるため、
-          // WebAudio 経路が確立できた要素のみネイティブ出力をミュートする。
-          resetNativeMediaAudioState(mediaEl);
-        }
-      } else {
-        delete mediaElementsRef.current[id];
-
-        // callback ref の差し替え時に一時的に null が来ることがあるため、解放は遅延実行する。
-        const timer = setTimeout(() => {
-          delete pendingAudioDetachTimersRef.current[id];
-          if (!mediaElementsRef.current[id]) {
-            detachAudioNode(id);
-          }
-        }, 0);
-        pendingAudioDetachTimersRef.current[id] = timer;
-      }
-    },
-    [detachAudioNode, getAudioContext]
   );
 
   const handleSeeked = useCallback(() => {
@@ -4109,644 +3591,50 @@ const TurtleVideo: React.FC = () => {
     [getAudioContext, stopAll, setProcessing, setLoading, play, clearExport, configureAudioRouting, ensureVideoMetadataReady, setCurrentTime, setExportUrl, setExportExt, pause, renderFrame, loop, setError, logWarn, logInfo, logDebug, platformCapabilities.isIosSafari, previewPlatformPolicy, preparePreviewAudioNodesForTime, preparePreviewAudioNodesForUpcomingVideos, primePreviewAudioOnlyTracksAtTime]
   );
 
-  // --- シークバー操作ハンドラ ---
-  // 目的: ユーザーがシークバーをドラッグした時にプレビューを更新
-  // 設計: スロットリングで過剰なビデオシークを防止し、カクつきを軽減
-  const handleSeekStart = useCallback(() => {
-    cancelPendingSeekPlaybackPrepare();
-    cancelPendingPausedSeekWait();
-    if (isSeekingRef.current) return;
-
-    wasPlayingBeforeSeekRef.current = isPlayingRef.current;
-    isSeekingRef.current = true;
-    previewPlaybackAttemptRef.current += 1;
-    attachGlobalSeekEndListeners();
-
-    if (isPlayingRef.current) {
-      isPlayingRef.current = false;
-      if (reqIdRef.current) {
-        cancelAnimationFrame(reqIdRef.current);
-        reqIdRef.current = null;
-      }
-      if (playbackTimeoutRef.current) {
-        clearTimeout(playbackTimeoutRef.current);
-        playbackTimeoutRef.current = null;
-      }
-      Object.values(mediaElementsRef.current).forEach((el) => {
-        if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO')) {
-          try { (el as HTMLMediaElement).pause(); } catch (e) { /* ignore */ }
-        }
-      });
-    }
-  }, [attachGlobalSeekEndListeners, cancelPendingPausedSeekWait, cancelPendingSeekPlaybackPrepare]);
-
-  const handleSeekChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const t = parseFloat(e.target.value);
-      const now = Date.now();
-      endFinalizedRef.current = false;
-
-      // シークセッション外で発火した change（Android の遅延イベント含む）は、
-      // 現在の再生状態を維持したまま位置だけ同期する。
-      if (!isSeekingRef.current) {
-        setCurrentTime(t);
-        currentTimeRef.current = t;
-
-        if (isPlayingRef.current) {
-          startTimeRef.current = now - t * 1000;
-        }
-
-        pendingSeekRef.current = null;
-        if (pendingSeekTimeoutRef.current) {
-          clearTimeout(pendingSeekTimeoutRef.current);
-          pendingSeekTimeoutRef.current = null;
-        }
-
-        syncVideoToTime(t, { force: true });
-        renderFrame(t, isPlayingRef.current && !isSeekPlaybackPreparingRef.current);
-        return;
-      }
-
-      seekSettleGenerationRef.current += 1;
-      cancelPendingSeekPlaybackPrepare();
-      cancelPendingPausedSeekWait();
-
-      // UI更新は常に即座に実行
-      setCurrentTime(t);
-      currentTimeRef.current = t;
-
-      // スロットリング: ビデオシークは間隔を空けて実行
-      const timeSinceLastSeek = now - lastSeekTimeRef.current;
-      if (timeSinceLastSeek < SEEK_THROTTLE_MS) {
-        // 保留中のシークを記録し、タイマーで後から処理
-        pendingSeekRef.current = t;
-        if (!pendingSeekTimeoutRef.current) {
-          pendingSeekTimeoutRef.current = setTimeout(() => {
-            pendingSeekTimeoutRef.current = null;
-            if (pendingSeekRef.current !== null) {
-              const pendingT = pendingSeekRef.current;
-              pendingSeekRef.current = null;
-              lastSeekTimeRef.current = Date.now();
-              syncVideoToTime(pendingT);
-              renderFrame(pendingT, false);
-            }
-          }, SEEK_THROTTLE_MS - timeSinceLastSeek);
-        }
-        // キャンバスだけは更新（画像の場合など）
-        renderFrame(t, false);
-        return;
-      }
-
-      lastSeekTimeRef.current = now;
-      pendingSeekRef.current = null;
-      if (pendingSeekTimeoutRef.current) {
-        clearTimeout(pendingSeekTimeoutRef.current);
-        pendingSeekTimeoutRef.current = null;
-      }
-
-      // ビデオ位置を同期してフレーム描画
-      syncVideoToTime(t);
-      renderFrame(t, false);
-    },
-    [setCurrentTime, renderFrame, cancelPendingPausedSeekWait, cancelPendingSeekPlaybackPrepare]
-  );
-
-  // --- ビデオ位置同期ヘルパー ---
-  // 目的: 指定時刻に対応するビデオの再生位置を設定
-  const syncVideoToTime = useCallback((t: number, options?: { force?: boolean }) => {
-    const force = options?.force ?? false;
-    const seekThreshold = force ? 0.01 : 0.1;
-    let accTime = 0;
-    for (const item of mediaItemsRef.current) {
-      if (t >= accTime && t < accTime + item.duration) {
-        if (item.type === 'video') {
-          const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
-          if (videoEl) {
-            // readyState 0: 未ロード → load()でデータ取得を開始
-            if (videoEl.readyState === 0 && !videoEl.error) {
-              try { videoEl.load(); } catch (e) { /* ignore */ }
-            }
-            if (videoEl.readyState >= 1) {
-              const localTime = t - accTime;
-              const targetTime = (item.trimStart || 0) + localTime;
-              const drift = Math.abs(videoEl.currentTime - targetTime);
-              if (drift > seekThreshold && (force || !videoEl.seeking)) {
-                videoEl.currentTime = targetTime;
-              }
-            }
-          }
-          activeVideoIdRef.current = item.id;
-        } else {
-          activeVideoIdRef.current = null;
-        }
-        return;
-      }
-      accTime += item.duration;
-    }
-
-    // シーク終端対策: t が totalDuration 以上の場合、最後のクリップの最終フレームに同期
-    const items = mediaItemsRef.current;
-    if (items.length > 0 && t >= totalDurationRef.current) {
-      const lastItem = items[items.length - 1];
-      if (lastItem.type === 'video') {
-        const videoEl = mediaElementsRef.current[lastItem.id] as HTMLVideoElement;
-        if (videoEl) {
-          if (videoEl.readyState === 0 && !videoEl.error) {
-            try { videoEl.load(); } catch (e) { /* ignore */ }
-          }
-          if (videoEl.readyState >= 1) {
-            const targetTime = (lastItem.trimStart || 0) + Math.max(0, lastItem.duration - 0.001);
-            const drift = Math.abs(videoEl.currentTime - targetTime);
-            const endAlignThreshold = 0.0001;
-            const shouldForceEndAlign = force || t >= totalDurationRef.current - 0.05;
-            if (shouldForceEndAlign) {
-              const isAhead = videoEl.currentTime > targetTime + endAlignThreshold;
-              if (!videoEl.seeking && (drift > endAlignThreshold || isAhead)) {
-                videoEl.currentTime = targetTime;
-              }
-            } else if (drift > seekThreshold && (force || !videoEl.seeking)) {
-              videoEl.currentTime = targetTime;
-            }
-          }
-        }
-        activeVideoIdRef.current = lastItem.id;
-      } else {
-        activeVideoIdRef.current = null;
-      }
-      return;
-    }
-
-    activeVideoIdRef.current = null;
-  }, []);
-
-  // --- シークバー操作完了ハンドラ ---
-  // 目的: シークバーのドラッグ終了時に再生を再開（必要な場合）
-  const renderPausedPreviewFrameAtTime = useCallback((targetTime: number) => {
-    const clampedTime = Math.max(0, Math.min(targetTime, totalDurationRef.current));
-    const drawSettledFrame = (timeToDraw: number) => {
-      syncVideoToTime(timeToDraw, { force: true });
-      renderFrame(timeToDraw, false);
-    };
-
-    let activeVideoEl: HTMLVideoElement | null = null;
-    let accTime = 0;
-    for (const item of mediaItemsRef.current) {
-      if (clampedTime >= accTime && clampedTime < accTime + item.duration) {
-        if (item.type === 'video') {
-          const el = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
-          activeVideoEl = el ?? null;
-        }
-        break;
-      }
-      accTime += item.duration;
-    }
-
-    if (!activeVideoEl && mediaItemsRef.current.length > 0 && clampedTime >= totalDurationRef.current) {
-      const lastItem = mediaItemsRef.current[mediaItemsRef.current.length - 1];
-      if (lastItem.type === 'video') {
-        const el = mediaElementsRef.current[lastItem.id] as HTMLVideoElement | undefined;
-        activeVideoEl = el ?? null;
-      }
-    }
-
-    cancelPendingPausedSeekWait();
-
-    if (activeVideoEl?.readyState === 0 && !activeVideoEl.error) {
-      try {
-        activeVideoEl.load();
-      } catch {
-        // ignore
-      }
-    }
-
-    syncVideoToTime(clampedTime, { force: true });
-
-    if (activeVideoEl && (activeVideoEl.seeking || activeVideoEl.readyState < 2)) {
-      const settleGeneration = seekSettleGenerationRef.current;
-
-      const drawIfFresh = () => {
-        if (settleGeneration !== seekSettleGenerationRef.current) return;
-        const latestTime = Math.max(0, Math.min(currentTimeRef.current, totalDurationRef.current));
-        drawSettledFrame(latestTime);
-      };
-
-      const cleanupWait = () => {
-        activeVideoEl?.removeEventListener('seeked', onPrepared);
-        activeVideoEl?.removeEventListener('loadeddata', onPrepared);
-        activeVideoEl?.removeEventListener('canplay', onPrepared);
-        if (pendingPausedSeekWaitRef.current?.cleanup === cleanupWait) {
-          pendingPausedSeekWaitRef.current = null;
-        }
-        if (playbackTimeoutRef.current) {
-          clearTimeout(playbackTimeoutRef.current);
-          playbackTimeoutRef.current = null;
-        }
-      };
-
-      const onPrepared = () => {
-        if (activeVideoEl?.seeking) return;
-        if ((activeVideoEl?.readyState ?? 0) < 2) return;
-        cleanupWait();
-        drawIfFresh();
-      };
-
-      pendingPausedSeekWaitRef.current = { cleanup: cleanupWait };
-      activeVideoEl.addEventListener('seeked', onPrepared);
-      activeVideoEl.addEventListener('loadeddata', onPrepared);
-      activeVideoEl.addEventListener('canplay', onPrepared);
-      playbackTimeoutRef.current = setTimeout(() => {
-        cleanupWait();
-        drawIfFresh();
-      }, 500);
-      onPrepared();
-      return;
-    }
-
-    drawSettledFrame(clampedTime);
-  }, [cancelPendingPausedSeekWait, renderFrame, syncVideoToTime]);
-
-  renderPausedPreviewFrameAtTimeRef.current = renderPausedPreviewFrameAtTime;
-
-  const handleSeekEnd = useCallback(() => {
-    // pointerup/mouseup/touchend が重複発火するため、
-    // シーク中でない再入は無視して待機中の復帰処理を壊さない。
-    if (!isSeekingRef.current) {
-      return;
-    }
-    cancelPendingSeekPlaybackPrepare();
-    detachGlobalSeekEndListeners();
-    // 保留中のタイマーをクリア
-    if (pendingSeekTimeoutRef.current) {
-      clearTimeout(pendingSeekTimeoutRef.current);
-      pendingSeekTimeoutRef.current = null;
-    }
-
-    // 再生待機タイムアウトと停止待ちリスナーをクリア
-    cancelPendingPausedSeekWait();
-
-    // シーク中フラグをクリア
-    seekingVideosRef.current.clear();
-
-    let t = Math.max(0, Math.min(currentTimeRef.current, totalDurationRef.current));
-    const wasPlaying = wasPlayingBeforeSeekRef.current;
-
-    // 保留中のシークがあれば最終処理
-    if (pendingSeekRef.current !== null) {
-      const pendingT = Math.max(0, Math.min(pendingSeekRef.current, totalDurationRef.current));
-      pendingSeekRef.current = null;
-      t = pendingT;
-      currentTimeRef.current = pendingT;
-      setCurrentTime(pendingT);
-      syncVideoToTime(pendingT, { force: true });
-    }
-
-    // シーク状態を先にリセット（重要: 以降のrenderFrameで正しく動作させるため）
-    isSeekingRef.current = false;
-    wasPlayingBeforeSeekRef.current = false;
-
-    // シーク前に再生中だった場合は再開
-    if (wasPlaying) {
-      isSeekPlaybackPreparingRef.current = true;
-      const seekGeneration = seekSettleGenerationRef.current;
-
-      const findActiveVideoAtTime = (targetTimelineTime: number): HTMLVideoElement | null => {
-        let accTime = 0;
-        for (const item of mediaItemsRef.current) {
-          if (targetTimelineTime >= accTime && targetTimelineTime < accTime + item.duration) {
-            if (item.type === 'video') {
-              return (mediaElementsRef.current[item.id] as HTMLVideoElement | undefined) ?? null;
-            }
-            return null;
-          }
-          accTime += item.duration;
-        }
-
-        if (mediaItemsRef.current.length > 0 && targetTimelineTime >= totalDurationRef.current) {
-          const lastItem = mediaItemsRef.current[mediaItemsRef.current.length - 1];
-          if (lastItem.type === 'video') {
-            return (mediaElementsRef.current[lastItem.id] as HTMLVideoElement | undefined) ?? null;
-          }
-        }
-        return null;
-      };
-
-      // 再生再開のための内部関数
-      const proceedWithPlayback = () => {
-        if (seekGeneration !== seekSettleGenerationRef.current || isSeekingRef.current) {
-          return;
-        }
-        const playbackTime = Math.max(0, Math.min(currentTimeRef.current, totalDurationRef.current));
-        previewPlaybackAttemptRef.current += 1;
-        const previewPlaybackAttempt = previewPlaybackAttemptRef.current;
-        isSeekPlaybackPreparingRef.current = false;
-        startTimeRef.current = Date.now() - playbackTime * 1000;
-        isPlayingRef.current = true;
-
-        const preparedPreviewAudio = preparePreviewAudioNodesForTime(playbackTime);
-        const shouldBundlePreviewStart = shouldBundlePreviewStartForWebAudioMix(previewPlatformPolicy, {
-          hasActiveVideo: preparedPreviewAudio.activeVideoId !== null,
-          audibleSourceCount: preparedPreviewAudio.audibleSourceCount,
-          requiresWebAudio: preparedPreviewAudio.requiresWebAudio,
-        });
-        const shouldPrimeActiveVideo = !shouldBundlePreviewStart;
-
-        // iOS WebAudio モード: BGM/ナレーションの play() をビデオより先に呼ぶ。
-        // ビデオの play() はレンダーループに委ねることで、iOS Safari の
-        // シングルメディア競合による BGM 無音化を防ぐ。
-        if (previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
-          // audio-only トラックを先に起動し、動画は後段で開始する。
-          primePreviewAudioOnlyTracksAtTime(playbackTime);
-        }
-
-        // アクティブなビデオを特定して再生開始
-        let activeVideoElForBundledStart: HTMLVideoElement | null = null;
-        let accTime = 0;
-        for (const item of mediaItemsRef.current) {
-          if (playbackTime >= accTime && playbackTime < accTime + item.duration) {
-            if (item.type === 'video') {
-              const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
-              if (videoEl) {
-                const localTime = playbackTime - accTime;
-                const targetTime = (item.trimStart || 0) + localTime;
-
-                // 位置を正確に設定
-                if (Math.abs(videoEl.currentTime - targetTime) > 0.05) {
-                  videoEl.currentTime = targetTime;
-                }
-                activeVideoIdRef.current = item.id;
-                activeVideoElForBundledStart = videoEl;
-
-                // iOS WebAudio モードではビデオの先行 play() をスキップし、
-                // レンダーループ内で BGM と同時に開始させる（startEngine と同じ方式）。
-                if (shouldPrimeActiveVideo) {
-                  // 準備完了なら即再生、そうでなければ待機
-                  if (videoEl.readyState >= 2 && !videoEl.seeking) {
-                    videoEl.play().catch(() => { });
-                  } else {
-                    const playWhenReady = () => {
-                      if (!shouldAttemptDeferredPreviewPlay({
-                        isCurrentAttempt: previewPlaybackAttempt === previewPlaybackAttemptRef.current,
-                        isPlaying: isPlayingRef.current,
-                        isSeeking: isSeekingRef.current,
-                        mediaSeeking: videoEl.seeking,
-                        readyState: videoEl.readyState,
-                      })) {
-                        return;
-                      }
-                      if (videoEl.paused) {
-                        videoEl.play().catch(() => { });
-                      }
-                    };
-                    // canplay (readyState >= 3) を使用。canplaythrough は長い動画で
-                    // 発火しない場合があるため。
-                    videoEl.addEventListener('canplay', playWhenReady, { once: true });
-                    if (playbackTimeoutRef.current) {
-                      clearTimeout(playbackTimeoutRef.current);
-                    }
-                    playbackTimeoutRef.current = setTimeout(() => {
-                      playbackTimeoutRef.current = null;
-                      // readyState >= 1 でplay()を許可（ブラウザがバッファリングを開始する）
-                      if (shouldAttemptDeferredPreviewPlay({
-                        isCurrentAttempt: previewPlaybackAttempt === previewPlaybackAttemptRef.current,
-                        isPlaying: isPlayingRef.current,
-                        isSeeking: isSeekingRef.current,
-                        mediaSeeking: videoEl.seeking,
-                        readyState: videoEl.readyState,
-                      }) && videoEl.paused) {
-                        videoEl.play().catch(() => { });
-                      }
-                    }, 1000);
-                  }
-                }
-              }
-            } else {
-              activeVideoIdRef.current = null;
-            }
-            break;
-          }
-          accTime += item.duration;
-        }
-
-        if (shouldBundlePreviewStart && activeVideoElForBundledStart) {
-          if (activeVideoElForBundledStart.readyState >= 2 && !activeVideoElForBundledStart.seeking) {
-            activeVideoElForBundledStart.play().catch(() => { });
-          } else {
-            const playWhenReady = () => {
-              if (!shouldAttemptDeferredPreviewPlay({
-                isCurrentAttempt: previewPlaybackAttempt === previewPlaybackAttemptRef.current,
-                isPlaying: isPlayingRef.current,
-                isSeeking: isSeekingRef.current,
-                mediaSeeking: activeVideoElForBundledStart.seeking,
-                readyState: activeVideoElForBundledStart.readyState,
-                minReadyState: 2,
-              })) {
-                return;
-              }
-              if (activeVideoElForBundledStart.paused) {
-                activeVideoElForBundledStart.play().catch(() => { });
-              }
-            };
-            activeVideoElForBundledStart.addEventListener('canplay', playWhenReady, { once: true });
-          }
-        }
-
-        // 非アクティブなビデオをリセット
-        resetInactiveVideos();
-
-        // iOS Safari: シーク後もユーザージェスチャーのクレジットがあるため、
-        // 非アクティブなビデオを事前 play() する。startEngine と同じ目的で、
-        // renderFrame 内での play() 呼び出しを回避する。
-        if (previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
-          const allowExtendedFuturePrewarm = preparedPreviewAudio.activeVideoId === null;
-          let nearestFutureVideoId: string | null = null;
-          let prewarmCursor = 0;
-          for (const item of mediaItemsRef.current) {
-            const itemStart = prewarmCursor;
-            const itemEnd = prewarmCursor + Math.max(0, item.duration);
-            prewarmCursor = itemEnd;
-            if (item.type !== 'video') continue;
-            if (itemStart - playbackTime > 0.0005) {
-              nearestFutureVideoId = item.id;
-              break;
-            }
-          }
-
-          prewarmCursor = 0;
-          for (const item of mediaItemsRef.current) {
-            const itemStart = prewarmCursor;
-            const itemEnd = prewarmCursor + Math.max(0, item.duration);
-            prewarmCursor = itemEnd;
-            if (item.type !== 'video') continue;
-            if (itemEnd <= playbackTime + 0.0005) continue;
-            if (shouldBundlePreviewStart && item.id === preparedPreviewAudio.activeVideoId) {
-              continue;
-            }
-            const shouldPrewarmVideo = shouldKeepInactiveVideoPrewarmed(previewPlatformPolicy, {
-              hasAudioNode: !!sourceNodesRef.current[item.id],
-              isExporting: false,
-              isActivePlaying: true,
-              timeSinceVideoEndSec: playbackTime - itemEnd,
-              timeUntilVideoStartSec: itemStart - playbackTime,
-              isNearestFutureVideo: item.id === nearestFutureVideoId,
-              allowExtendedFuturePrewarm,
-            });
-            if (!shouldPrewarmVideo) {
-              continue;
-            }
-            const el = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
-            if (el && sourceNodesRef.current[item.id] && el.paused) {
-              const gn = gainNodesRef.current[item.id];
-              if (gn && audioCtxRef.current) {
-                gn.gain.setValueAtTime(0, audioCtxRef.current.currentTime);
-              }
-              el.play().catch(() => {});
-            }
-          }
-        }
-
-        // ループ再開
-        const currentLoopId = loopIdRef.current;
-        reqIdRef.current = requestAnimationFrame(() => loop(false, currentLoopId));
-      };
-
-      // 再生中シーク復帰: 先に位置を合わせ、対象が動画なら準備完了を短時間待ってから再開
-      syncVideoToTime(t, { force: true });
-      const activeVideoEl = findActiveVideoAtTime(t);
-      if (activeVideoEl) {
-        const prepareStartedAt = Date.now();
-        const minPrepareMs = 220;
-        const maxPrepareMs = 900;
-        let finished = false;
-        let pollTimer: ReturnType<typeof setInterval> | null = null;
-        let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
-        let maybeResume: () => void = () => { };
-
-        const onPrepared = () => {
-          maybeResume();
-        };
-
-        const cleanupPrepareWait = () => {
-          if (pollTimer) {
-            clearInterval(pollTimer);
-            pollTimer = null;
-          }
-          if (fallbackTimer) {
-            clearTimeout(fallbackTimer);
-            fallbackTimer = null;
-          }
-          activeVideoEl.removeEventListener('seeked', onPrepared);
-          activeVideoEl.removeEventListener('loadeddata', onPrepared);
-          activeVideoEl.removeEventListener('canplay', onPrepared);
-          activeVideoEl.removeEventListener('error', onPrepared);
-          if (cancelSeekPlaybackPrepareRef.current === cleanupPrepareWait) {
-            cancelSeekPlaybackPrepareRef.current = null;
-          }
-        };
-
-        const finishPrepareWait = (shouldResume: boolean) => {
-          if (finished) return;
-          finished = true;
-          cleanupPrepareWait();
-          isSeekPlaybackPreparingRef.current = false;
-          if (shouldResume) {
-            proceedWithPlayback();
-          }
-        };
-
-        maybeResume = () => {
-          if (finished) return;
-          if (seekGeneration !== seekSettleGenerationRef.current || isSeekingRef.current) {
-            finishPrepareWait(false);
-            return;
-          }
-          const elapsed = Date.now() - prepareStartedAt;
-          const isReady = activeVideoEl.readyState >= 2 && !activeVideoEl.seeking;
-          if (!isReady && elapsed < maxPrepareMs) return;
-          if (elapsed < minPrepareMs) return;
-          finishPrepareWait(true);
-        };
-
-        activeVideoEl.addEventListener('seeked', onPrepared);
-        activeVideoEl.addEventListener('loadeddata', onPrepared);
-        activeVideoEl.addEventListener('canplay', onPrepared);
-        activeVideoEl.addEventListener('error', onPrepared);
-        pollTimer = setInterval(maybeResume, 40);
-        fallbackTimer = setTimeout(maybeResume, maxPrepareMs + 50);
-        cancelSeekPlaybackPrepareRef.current = cleanupPrepareWait;
-        maybeResume();
-        return;
-      }
-
-      // シーク中でなければ即座に再生開始
-      isSeekPlaybackPreparingRef.current = false;
-      proceedWithPlayback();
-    } else {
-      isSeekPlaybackPreparingRef.current = false;
-      const drawSettledFrame = (targetTime: number) => {
-        syncVideoToTime(targetTime, { force: true });
-        renderFrame(targetTime, false);
-      };
-
-      let activeVideoEl: HTMLVideoElement | null = null;
-      let accTime = 0;
-      for (const item of mediaItemsRef.current) {
-        if (t >= accTime && t < accTime + item.duration) {
-          if (item.type === 'video') {
-            const el = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
-            activeVideoEl = el ?? null;
-          }
-          break;
-        }
-        accTime += item.duration;
-      }
-
-      if (!activeVideoEl && mediaItemsRef.current.length > 0 && t >= totalDurationRef.current) {
-        const lastItem = mediaItemsRef.current[mediaItemsRef.current.length - 1];
-        if (lastItem.type === 'video') {
-          const el = mediaElementsRef.current[lastItem.id] as HTMLVideoElement | undefined;
-          activeVideoEl = el ?? null;
-        }
-      }
-
-      if (activeVideoEl && activeVideoEl.seeking) {
-        const settleGeneration = seekSettleGenerationRef.current;
-        const drawIfFresh = () => {
-          if (settleGeneration !== seekSettleGenerationRef.current) return;
-          const latestTime = Math.max(0, Math.min(currentTimeRef.current, totalDurationRef.current));
-          drawSettledFrame(latestTime);
-        };
-        const onSeeked = () => {
-          activeVideoEl?.removeEventListener('seeked', onSeeked);
-          pendingPausedSeekWaitRef.current = null;
-          if (playbackTimeoutRef.current) {
-            clearTimeout(playbackTimeoutRef.current);
-            playbackTimeoutRef.current = null;
-          }
-          drawIfFresh();
-        };
-        pendingPausedSeekWaitRef.current = {
-          cleanup: () => {
-            activeVideoEl?.removeEventListener('seeked', onSeeked);
-          },
-        };
-        activeVideoEl.addEventListener('seeked', onSeeked, { once: true });
-        playbackTimeoutRef.current = setTimeout(() => {
-          activeVideoEl?.removeEventListener('seeked', onSeeked);
-          pendingPausedSeekWaitRef.current = null;
-          playbackTimeoutRef.current = null;
-          drawIfFresh();
-        }, 500);
-        return;
-      }
-
-      // 再生していなかった場合は現在位置でフレームを再描画
-      drawSettledFrame(t);
-    }
-  }, [setCurrentTime, renderFrame, loop, resetInactiveVideos, syncVideoToTime, cancelPendingPausedSeekWait, detachGlobalSeekEndListeners, cancelPendingSeekPlaybackPrepare, preparePreviewAudioNodesForTime, previewPlatformPolicy, primePreviewAudioOnlyTracksAtTime]);
-
-  useEffect(() => {
-    handleSeekEndCallbackRef.current = handleSeekEnd;
-  }, [handleSeekEnd]);
+  const {
+    handleSeekStart,
+    handleSeekChange,
+    handleSeekEnd,
+  } = usePreviewSeekController({
+    mediaItemsRef,
+    mediaElementsRef,
+    sourceNodesRef,
+    gainNodesRef,
+    audioCtxRef,
+    totalDurationRef,
+    currentTimeRef,
+    activeVideoIdRef,
+    isPlayingRef,
+    isSeekingRef,
+    wasPlayingBeforeSeekRef,
+    seekingVideosRef,
+    startTimeRef,
+    reqIdRef,
+    loopIdRef,
+    playbackTimeoutRef,
+    lastSeekTimeRef,
+    pendingSeekRef,
+    pendingSeekTimeoutRef,
+    seekSettleGenerationRef,
+    previewPlaybackAttemptRef,
+    pendingPausedSeekWaitRef,
+    handleSeekEndCallbackRef,
+    renderPausedPreviewFrameAtTimeRef,
+    cancelSeekPlaybackPrepareRef,
+    isSeekPlaybackPreparingRef,
+    endFinalizedRef,
+    previewPlatformPolicy,
+    setCurrentTime,
+    attachGlobalSeekEndListeners,
+    detachGlobalSeekEndListeners,
+    cancelPendingSeekPlaybackPrepare,
+    cancelPendingPausedSeekWait,
+    renderFrame,
+    loop,
+    resetInactiveVideos,
+    preparePreviewAudioNodesForTime,
+    primePreviewAudioOnlyTracksAtTime,
+  });
 
   // --- 再生/一時停止トグル ---
   // 目的: 再生中なら停止、停止中なら再生を開始
@@ -4826,7 +3714,7 @@ const TurtleVideo: React.FC = () => {
 
     // 0秒時点を描画
     // 少し遅延させて確実にシーク反映させる
-    renderPausedPreviewFrameAtTime(0);
+    renderPausedPreviewFrameAtTimeRef.current(0);
   }, [
     stopAll,
     pause,
@@ -4835,7 +3723,6 @@ const TurtleVideo: React.FC = () => {
     cancelPendingPausedSeekWait,
     cancelPendingSeekPlaybackPrepare,
     detachGlobalSeekEndListeners,
-    renderPausedPreviewFrameAtTime,
   ]);
 
   // --- Helper: 停止付きで関数を実行 ---

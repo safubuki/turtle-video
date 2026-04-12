@@ -80,13 +80,14 @@
 
 ### 2-6. Android再生中シークの遅延change競合対策
 
-- **ファイル**: `src/components/TurtleVideo.tsx`（`handleSeekChange`, `handleSeekEnd`）
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/components/turtle-video/usePreviewSeekController.ts`
 - **問題**: Android でシーク終了（`pointerup`/`touchend`）後に `change` が遅延発火すると、シーク再開準備と競合して `renderFrame(..., false)` が走り、再生のカクつきやブラックアウトが発生する
 - **対策**:
+  - `usePreviewSeekController` に `handleSeekChange` / `handleSeekEnd` / `syncVideoToTime` / paused frame redraw を集約する
   - `handleSeekChange` は `isSeekingRef.current === false` の場合、再生状態を維持したまま `syncVideoToTime(..., { force: true })` で同期する
   - `cancelPendingSeekPlaybackPrepare()` / `cancelPendingPausedSeekWait()` はアクティブなシークセッション中にのみ実行し、遅延 `change` で再開準備を破壊しない
   - `handleSeekEnd` の再生再開時刻は固定値ではなく `currentTimeRef.current` から再取得し、遅延イベントで更新された最終シーク位置を取りこぼさない
-- **注意**: シークセッション外イベントで `renderFrame(..., false)` を実行すると、再生中動画を誤って `pause()` しやすい
+- **注意**: シークセッション外イベントで `renderFrame(..., false)` を実行すると、再生中動画を誤って `pause()` しやすい。seek 復帰待機の cleanup は `cancelSeekPlaybackPrepareRef` と global seek listener の両方から中断できる構造を維持する
 
 ### 2-7. エクスポート時の画像→動画境界ちらつき対策
 
@@ -137,6 +138,18 @@
     - **対策**: `getPreviewAudioOutputMode` で `hasAudioNode=true` 時の `native` 復帰を iOS Safari (`muteNativeMediaWhenAudioRouted`) では無効化。iOS では常に `webaudio` を返す
     - **重要な設計制約**: `startEngine` の事前 play() で遠い将来のビデオまで play() してはならない。ソース終端に到達して ended/paused 状態になると、アクティブ化時の rAF 内 `play()` が pause→play サイクルとなり AudioSession を破壊する。`shouldKeepInactiveVideoPrewarmed` の距離制限は意図的な設計であり、cold-start play()（初回 play()）は rAF 内でも問題ない
     - **PC/Android への影響**: なし。`muteNativeMediaWhenAudioRouted`（iOS Safari のみ true）で分岐しており、PC/Android の再生・エクスポート経路は変更されない
+
+### 3-0a. AudioSession / InactiveVideoManager の分離継続
+
+- **ファイル**: `src/components/turtle-video/usePreviewAudioSession.ts`, `src/components/turtle-video/useInactiveVideoManager.ts`, `src/components/TurtleVideo.tsx`
+- **問題**: `TurtleVideo.tsx` に audio node 管理、route refresh、audio-only prime、非アクティブ video reset が残ると、Phase 2b の flavor 分離前に iOS Safari 回帰を再混入させやすい
+- **対策**:
+  - `usePreviewAudioSession` へ `detachAudioNode`, `ensureAudioNodeForElement`, `preparePreviewAudioNodesForTime`, `preparePreviewAudioNodesForUpcomingVideos`, `primePreviewAudioOnlyTracksAtTime`, `handleMediaRefAssign` を移した
+  - `requestPreviewAudioRouteRefreshRef` と `primePreviewAudioOnlyTracksAtTimeRef` の更新も hook 側へ集約し、render loop/startEngine からの呼び出し契約だけを残した
+  - `useInactiveVideoManager` へ `resetInactiveVideos` を移し、seek/startEngine 復帰と inactive reset の契約を明示化した
+- **注意**:
+  - `renderFrame` / `startEngine` の実行順序は変えない。今回の段階では責務移動のみで、prewarm 判定ロジック自体は shared loop に残す
+  - iOS Safari の one-shot `createMediaElementSource()` 制約があるため、hook 化後も DOM 要素差し替え時以外に `detachAudioNode` を増やさない
 
 ### 3-1. 遅延初期化 + ユーザージェスチャー要件
 

@@ -133,7 +133,7 @@ Zustand を使用し、機能ごとにストアを分離しています。
 
 また、App 入口では `resolveAppFlavor()` により runtime flavor を一度だけ解決し、選択された flavor だけを lazy load する構成へ移行を開始しています。
 
-TurtleVideo 本体では段階的な責務分離も開始しており、tab/page visibility 復帰処理は `src/components/turtle-video/usePreviewVisibilityLifecycle.ts` へ抽出されています。
+TurtleVideo 本体では段階的な責務分離も開始しており、tab/page visibility 復帰処理は `src/components/turtle-video/usePreviewVisibilityLifecycle.ts`、seek 制御は `src/components/turtle-video/usePreviewSeekController.ts`、audio node / route refresh / audio-only prime は `src/components/turtle-video/usePreviewAudioSession.ts`、非アクティブ video reset は `src/components/turtle-video/useInactiveVideoManager.ts` へ抽出されています。
 
 | ストア | 責務 |
 |--------|------|
