@@ -91,6 +91,26 @@ const saveLoadLogState = {
   error: vi.fn(),
 };
 
+const saveRuntime = {
+  configureProjectStore: vi.fn(),
+  getPlatformCapabilities: vi.fn(() => ({
+    userAgent: 'test-agent',
+    platform: 'test-platform',
+    maxTouchPoints: 0,
+    isAndroid: false,
+    isIOS: false,
+    isSafari: false,
+    isIosSafari: false,
+    supportsShowSaveFilePicker: false,
+    supportsShowOpenFilePicker: false,
+    supportsTrackProcessor: false,
+    supportsMp4MediaRecorder: false,
+    audioContextMayInterrupt: false,
+    supportedMediaRecorderProfile: null,
+  })),
+  saveBlobWithClientFileStrategy: vi.fn(),
+};
+
 vi.mock('../stores', () => ({
   useLogStore: (selector: (state: typeof logStoreState) => unknown) => selector(logStoreState),
 }));
@@ -181,6 +201,9 @@ afterEach(() => {
   projectStoreState.clearLastSaveFailure.mockReset();
   projectStoreState.refreshSaveInfo.mockReset();
   projectStoreState.saveProjectManual.mockReset();
+  saveRuntime.configureProjectStore.mockReset();
+  saveRuntime.getPlatformCapabilities.mockClear();
+  saveRuntime.saveBlobWithClientFileStrategy.mockReset();
   autoSaveIntervalValue = 1;
   mediaStoreState.mediaItems = [];
   captionStoreState.captions = [];
@@ -206,6 +229,7 @@ describe('modal history stability', () => {
         isOpen={true}
         onClose={() => {}}
         onToast={() => {}}
+        saveRuntime={saveRuntime}
       />,
     );
 
@@ -215,6 +239,7 @@ describe('modal history stability', () => {
         isOpen={true}
         onClose={() => undefined}
         onToast={() => undefined}
+        saveRuntime={saveRuntime}
       />,
     );
 
@@ -252,6 +277,7 @@ describe('modal history stability', () => {
         isOpen={true}
         onClose={onClose}
         onToast={onToast}
+        saveRuntime={saveRuntime}
       />,
     );
 
@@ -282,6 +308,7 @@ describe('modal history stability', () => {
         isOpen={true}
         onClose={() => {}}
         onToast={() => {}}
+        saveRuntime={saveRuntime}
       />,
     );
 
@@ -310,6 +337,7 @@ describe('modal history stability', () => {
         isOpen={true}
         onClose={() => {}}
         onToast={() => {}}
+        saveRuntime={saveRuntime}
       />,
     );
 
@@ -339,6 +367,7 @@ describe('modal history stability', () => {
         isOpen={true}
         onClose={() => {}}
         onToast={() => {}}
+        saveRuntime={saveRuntime}
       />,
     );
 

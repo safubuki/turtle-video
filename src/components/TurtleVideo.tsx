@@ -9,6 +9,7 @@ import type { MediaItem, AudioTrack, NarrationClip, NarrationScriptLength } from
 import type { ExportRuntime } from './turtle-video/exportRuntime';
 import type { SectionHelpKey } from '../constants/sectionHelp';
 import type { PreviewRuntime } from './turtle-video/previewRuntime';
+import type { SaveRuntime } from './turtle-video/saveRuntime';
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -58,9 +59,10 @@ const getApiKey = (): string => {
 interface TurtleVideoProps {
   previewRuntime: PreviewRuntime;
   exportRuntime: ExportRuntime;
+  saveRuntime: SaveRuntime;
 }
 
-const TurtleVideo: React.FC<TurtleVideoProps> = ({ previewRuntime, exportRuntime }) => {
+const TurtleVideo: React.FC<TurtleVideoProps> = ({ previewRuntime, exportRuntime, saveRuntime }) => {
   // 離脱防止フックを使用
   usePreventUnload();
 
@@ -1799,6 +1801,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ previewRuntime, exportRuntime
             showToast(msg);
           }
         }}
+        saveRuntime={saveRuntime}
       />
 
       {/* Section Help Modal */}

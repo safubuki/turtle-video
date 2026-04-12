@@ -28,6 +28,11 @@ vi.mock('../../utils/indexedDB', () => ({
 }));
 
 import { useProjectStore, isStorageQuotaError } from '../../stores/projectStore';
+import {
+  createIndexedDbProjectPersistenceAdapter,
+  setProjectPersistenceAdapter,
+  type ProjectPersistenceAdapter,
+} from '../../stores/projectPersistence';
 
 const defaultCaptionSettings: CaptionSettings = {
   enabled: true,
@@ -84,6 +89,8 @@ function createMediaItem(fileName: string, type: 'video' | 'image' = 'video'): M
 
 describe('projectStore save behavior', () => {
   beforeEach(() => {
+    setProjectPersistenceAdapter(createIndexedDbProjectPersistenceAdapter());
+
     mocks.saveProject.mockReset();
     mocks.loadProject.mockReset();
     mocks.deleteProject.mockReset();
@@ -305,6 +312,42 @@ describe('projectStore save behavior', () => {
     expect(useProjectStore.getState().autoSaveError).toBeNull();
     expect(useProjectStore.getState().lastSaveFailure).toBeNull();
   });
+
+  it('注入した persistence adapter を通して保存処理を実行できる', async () => {
+    const customSaveProject = vi.fn().mockResolvedValue(undefined);
+    const customPersistence: ProjectPersistenceAdapter = {
+      saveProject: customSaveProject,
+      loadProject: vi.fn().mockResolvedValue(null),
+      deleteProject: vi.fn().mockResolvedValue(undefined),
+      deleteAllProjects: vi.fn().mockResolvedValue(undefined),
+      resetProjectDatabase: vi.fn().mockResolvedValue(undefined),
+      getProjectsInfo: vi.fn().mockResolvedValue({ auto: null, manual: null }),
+      getStorageEstimate: vi.fn().mockResolvedValue(null),
+      fileToArrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(0)),
+      blobUrlToArrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(0)),
+      arrayBufferToFile: vi.fn().mockImplementation((buffer: ArrayBuffer, fileName: string, fileType: string) =>
+        new File([buffer], fileName, { type: fileType })
+      ),
+    };
+
+    setProjectPersistenceAdapter(customPersistence);
+
+    await useProjectStore.getState().saveProjectManual(
+      [createMediaItem('adapter-check.mp4')],
+      false,
+      null,
+      false,
+      [],
+      false,
+      [],
+      defaultCaptionSettings,
+      false,
+    );
+
+    expect(customSaveProject).toHaveBeenCalledTimes(1);
+    expect(mocks.saveProject).not.toHaveBeenCalled();
+  });
+
   it('自動保存が進行中でも手動保存は直列化され、復帰直後の競合で失敗しない', async () => {
     const captions = [createCaption()];
     let resolveAutoSave: (() => void) = () => {

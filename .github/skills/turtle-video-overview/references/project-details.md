@@ -54,6 +54,7 @@ turtle-video/
 │   │   ├── audioStore.ts    # BGM/ナレーション状態
 │   │   ├── captionStore.ts  # キャプション状態
 │   │   ├── projectStore.ts  # プロジェクト保存・読み込み
+│   │   ├── projectPersistence.ts  # save/load adapter 注入境界
 │   │   ├── logStore.ts      # ログ管理
 │   │   └── uiStore.ts       # UI状態
 │   ├── utils/               # ユーティリティ
@@ -126,7 +127,7 @@ turtle-video/
 - 自動保存（設定可能な間隔）
 - 保存モーダルで自動保存の相対状態・前回保存日時・再始動ボタンを表示
 - 手動保存・読み込み（IndexedDB 2スロット方式）
-- データ永続化
+- flavor-owned save runtime + shared project persistence adapter によるデータ永続化境界
 
 ## 状態管理アーキテクチャ
 
@@ -134,7 +135,7 @@ Zustand を使用し、機能ごとにストアを分離しています。
 
 また、App 入口では `resolveAppFlavor()` により runtime flavor を一度だけ解決し、選択された flavor だけを lazy load する構成へ移行を開始しています。
 
-TurtleVideo 本体では段階的な責務分離も開始しており、tab/page visibility 復帰処理は `src/components/turtle-video/usePreviewVisibilityLifecycle.ts`、seek 制御は `src/components/turtle-video/usePreviewSeekController.ts`、audio node / route refresh / audio-only prime は `src/components/turtle-video/usePreviewAudioSession.ts`、非アクティブ video reset は `src/components/turtle-video/useInactiveVideoManager.ts`、render loop / metadata wait / start-stop engine は `src/components/turtle-video/usePreviewEngine.ts` へ抽出されています。また、Phase 2b の入口として `src/components/turtle-video/previewRuntime.ts` を介した preview runtime 注入境界が追加され、`src/flavors/standard/standardPreviewRuntime.ts` と `src/flavors/apple-safari/appleSafariPreviewRuntime.ts` から flavor ごとに差し替え可能になりました。さらに preview 用 platform capability の確定も runtime 側へ移り、shared の `TurtleVideo.tsx` は capability 解決を直接持たない構成になっています。現時点の active preview 実装本体は `src/flavors/standard/preview/` と `src/flavors/apple-safari/preview/` にあり、preview hook / preview policy は runtime ごとに別ファイルを参照します。Phase 3 完了により、Safari 専用の `iosSafariAudio` helper、visibility 復帰時の AudioContext resume/retry、route refresh は `src/flavors/apple-safari/preview/` のみが持ち、standard 側はそれらを持たない標準 audio policy に固定されました。Phase 4 完了により export も `src/components/turtle-video/exportRuntime.ts` 経由の注入構造へ移り、active export 実装は `src/flavors/standard/export/` と `src/flavors/apple-safari/export/` が所有します。shared の `src/hooks/useExport.ts` は `createUseExport()` facade と共通 core を提供し、`shouldUseOfflineAudioPreRender()` は shared quality strategy として残しつつ、Safari 専用 MediaRecorder 経路は `src/flavors/apple-safari/export/iosSafariMediaRecorder.ts` のみが持つ構成になりました。
+TurtleVideo 本体では段階的な責務分離も開始しており、tab/page visibility 復帰処理は `src/components/turtle-video/usePreviewVisibilityLifecycle.ts`、seek 制御は `src/components/turtle-video/usePreviewSeekController.ts`、audio node / route refresh / audio-only prime は `src/components/turtle-video/usePreviewAudioSession.ts`、非アクティブ video reset は `src/components/turtle-video/useInactiveVideoManager.ts`、render loop / metadata wait / start-stop engine は `src/components/turtle-video/usePreviewEngine.ts` へ抽出されています。また、Phase 2b の入口として `src/components/turtle-video/previewRuntime.ts` を介した preview runtime 注入境界が追加され、`src/flavors/standard/standardPreviewRuntime.ts` と `src/flavors/apple-safari/appleSafariPreviewRuntime.ts` から flavor ごとに差し替え可能になりました。さらに preview 用 platform capability の確定も runtime 側へ移り、shared の `TurtleVideo.tsx` は capability 解決を直接持たない構成になっています。現時点の active preview 実装本体は `src/flavors/standard/preview/` と `src/flavors/apple-safari/preview/` にあり、preview hook / preview policy は runtime ごとに別ファイルを参照します。Phase 3 完了により、Safari 専用の `iosSafariAudio` helper、visibility 復帰時の AudioContext resume/retry、route refresh は `src/flavors/apple-safari/preview/` のみが持ち、standard 側はそれらを持たない標準 audio policy に固定されました。Phase 4 完了により export も `src/components/turtle-video/exportRuntime.ts` 経由の注入構造へ移り、active export 実装は `src/flavors/standard/export/` と `src/flavors/apple-safari/export/` が所有します。shared の `src/hooks/useExport.ts` は `createUseExport()` facade と共通 core を提供し、`shouldUseOfflineAudioPreRender()` は shared quality strategy として残しつつ、Safari 専用 MediaRecorder 経路は `src/flavors/apple-safari/export/iosSafariMediaRecorder.ts` のみが持つ構成になりました。Phase 5 完了により save / load も `src/components/turtle-video/saveRuntime.ts` と `src/stores/projectPersistence.ts` を境界に flavor-owned save runtime へ移り、`projectStore` は shared schema / orchestration を維持したまま永続化 adapter を注入で差し替えられる構成になっています。
 
 | ストア | 責務 |
 |--------|------|

@@ -348,9 +348,14 @@
 
 ### 8-1. IndexedDB によるプロジェクト保存
 
-- **ファイル**: `src/utils/indexedDB.ts`
-- **対策**: Promise ベースのラッパー。`'auto'` / `'manual'` の 2 スロット方式
-- **注意**: `request.onerror` と `request.onsuccess` の両方ハンドリングが必要。トランザクション後に `db.close()`
+- **ファイル**: `src/stores/projectPersistence.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`
+- **対策**:
+  - `src/utils/indexedDB.ts` は Promise ベースの永続化ラッパーとして維持し、`'auto'` / `'manual'` の 2 スロット方式を提供する
+  - `src/stores/projectPersistence.ts` で `ProjectPersistenceAdapter` を定義し、`projectStore` は direct import ではなく adapter 経由で save / load / delete / info / file byte conversion を呼ぶ
+  - flavor は `src/components/turtle-video/saveRuntime.ts` から projectStore へ adapter を登録する
+- **注意**:
+  - いまの standard / apple-safari は同じ IndexedDB adapter を再利用するが、将来要件差が出ても shared UI や schema を触らずに差し替える
+  - `request.onerror` と `request.onsuccess` の両方ハンドリングが必要。トランザクション後に `db.close()`
 
 ### 8-2. メディアファイルのシリアライズ
 
@@ -361,9 +366,11 @@
 
 ### 8-3. 自動保存（変更検知付き）
 
-- **ファイル**: `src/hooks/useAutoSave.ts`
+- **ファイル**: `src/hooks/useAutoSave.ts`, `src/flavors/standard/StandardApp.tsx`, `src/flavors/apple-safari/AppleSafariApp.tsx`
 - **対策**: メディア ID・音量・トリム値等を連結したハッシュで変更検知。空データ時とエクスポート中はスキップ
-- **注意**: エクスポート中（`isProcessing`）は保存をスキップ（動画品質保護）
+- **注意**:
+  - エクスポート中（`isProcessing`）は保存をスキップ（動画品質保護）
+  - AppShell は flavor app 側に内包し、save runtime による projectStore adapter 登録後に autosave が開始される順序を維持する
 
 ### 8-4. ページ離脱防止
 
@@ -495,15 +502,16 @@
 
 ### 9-11. Capability ベースの保存/ダウンロード経路統一
 
-- **ファイル**: `src/utils/fileSave.ts`, `src/components/TurtleVideo.tsx`, `src/components/modals/SaveLoadModal.tsx`, `src/constants/sectionHelp.ts`, `src/test/fileSave.test.ts`
+- **ファイル**: `src/utils/fileSave.ts`, `src/components/TurtleVideo.tsx`, `src/components/modals/SaveLoadModal.tsx`, `src/components/turtle-video/saveRuntime.ts`, `src/flavors/standard/standardSaveRuntime.ts`, `src/flavors/apple-safari/appleSafariSaveRuntime.ts`, `src/constants/sectionHelp.ts`, `src/test/fileSave.test.ts`
 - **問題**: エクスポート動画、AI ナレーション保存、生成画像保存で `showSaveFilePicker` と `a[download]` の分岐が重複し、iOS Safari 向けの保存導線や完了メッセージを調整するたびに複数箇所を直す必要があった。ヘルプ文言も iPhone を一律非対応扱いのままで、現状の保存方針とずれていた
 - **対策**:
   - `src/utils/fileSave.ts` に `file-picker` / `anchor-download` の resolver と保存 helper を追加し、caller 側はファイル名・MIME・通知文言だけを持つ
-  - `TurtleVideo.tsx` の動画ダウンロードとナレーション保存、`SaveLoadModal.tsx` の生成画像保存を同じ helper に寄せる
+  - `TurtleVideo.tsx` の動画ダウンロードとナレーション保存は shared helper を直接使い、`SaveLoadModal.tsx` の生成画像保存と capability 判定は save runtime 経由へ寄せる
   - `src/test/fileSave.test.ts` で strategy 選択、object URL 保存、blob 保存の回帰を自動検証する
   - `sectionHelp.ts` と SaveLoadModal のヘルプでは、iPhone / iPad Safari を「正式対応に向けて検証中」とし、保存ダイアログ対応の有無で挙動が分かれること、手動保存 / 自動保存 / 読込の確認観点を明示する
 - **注意**:
   - 保存データ本体は引き続き IndexedDB の共通経路を使い、iOS Safari 向けの保存領域 fork は実機不具合が出るまで追加しない
+  - 保存 UI から platform capability や `fileSave.ts` の import を直接増やさず、saveRuntime に寄せて flavor-owned boundary を維持する
   - 新しいダウンロード導線を増やす場合は個別に `showSaveFilePicker` を判定せず、まず `fileSave.ts` の helper を再利用する
 
 ### 9-12. サポート表記は「検証中」と「正式対応」を分けて扱う

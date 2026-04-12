@@ -10,6 +10,7 @@ import {
   useProjectStore,
   getProjectStoreErrorMessage,
 } from '../../stores/projectStore';
+import type { SaveRuntime } from '../turtle-video/saveRuntime';
 import { useMediaStore } from '../../stores/mediaStore';
 import { useAudioStore } from '../../stores/audioStore';
 import { useCaptionStore } from '../../stores/captionStore';
@@ -22,13 +23,12 @@ import {
 } from '../../hooks/useAutoSave';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../../constants';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
-import { saveBlobWithClientFileStrategy } from '../../utils/fileSave';
-import { getPlatformCapabilities } from '../../utils/platform';
 
 interface SaveLoadModalProps {
   isOpen: boolean;
   onClose: () => void;
   onToast: (message: string, type?: 'success' | 'error') => void;
+  saveRuntime: SaveRuntime;
 }
 
 type ModalMode =
@@ -95,7 +95,7 @@ function formatExactDateTime(isoString: string | null): string {
   });
 }
 
-export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModalProps) {
+export default function SaveLoadModal({ isOpen, onClose, onToast, saveRuntime }: SaveLoadModalProps) {
   const [mode, setMode] = useState<ModalMode>('menu');
   const [selectedSlot, setSelectedSlot] = useState<SaveSlot | null>(null);
   const [autoSaveInterval, setAutoSaveIntervalState] = useState<AutoSaveIntervalOption>(getAutoSaveInterval);
@@ -104,8 +104,8 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
   const onCloseRef = useRef(onClose);
   const showHelpRef = useRef(false);
   const supportsShowSaveFilePicker = useMemo(
-    () => getPlatformCapabilities().supportsShowSaveFilePicker,
-    [],
+    () => saveRuntime.getPlatformCapabilities().supportsShowSaveFilePicker,
+    [saveRuntime],
   );
   const modalHistoryIdRef = useRef<string | null>(null);
   const closedByPopstateRef = useRef(false);
@@ -383,7 +383,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
       }
 
       try {
-        const result = await saveBlobWithClientFileStrategy({
+        const result = await saveRuntime.saveBlobWithClientFileStrategy({
           blob,
           descriptor: {
             filename: `${color === 'black' ? '黒' : '白'}画像_${CANVAS_WIDTH}x${CANVAS_HEIGHT}.png`,
@@ -546,7 +546,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
         onToast('保存データが見つかりません', 'error');
       }
       onClose();
-    } catch (error) {
+    } catch {
       useLogStore.getState().error('SYSTEM', `プロジェクト読み込みに失敗 (${slot})`);
       onToast('読み込みに失敗しました', 'error');
     }
@@ -564,7 +564,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast }: SaveLoadModa
       useLogStore.getState().info('SYSTEM', '保存データを全て削除');
       onToast('削除しました', 'success');
       onClose();
-    } catch (error) {
+    } catch {
       useLogStore.getState().error('SYSTEM', '保存データ削除に失敗');
       onToast('削除に失敗しました', 'error');
     }

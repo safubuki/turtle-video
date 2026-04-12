@@ -8,23 +8,14 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import type { MediaItem, AudioTrack, Caption, CaptionSettings, NarrationClip } from '../types';
 import {
-  saveProject,
-  loadProject,
-  deleteProject,
-  deleteAllProjects,
-  resetProjectDatabase,
-  getProjectsInfo,
-  getStorageEstimate,
-  fileToArrayBuffer,
-  blobUrlToArrayBuffer,
-  arrayBufferToFile,
+  getProjectPersistenceAdapter,
   type ProjectData,
   type SaveSlot,
   type SerializedMediaItem,
   type SerializedAudioTrack,
   type SerializedCaption,
   type SerializedNarrationClip,
-} from '../utils/indexedDB';
+} from './projectPersistence';
 import { useLogStore } from './logStore';
 import versionData from '../../version.json';
 
@@ -119,7 +110,7 @@ async function buildSaveFailureInfo(params: {
 }): Promise<SaveFailureInfo> {
   let estimate: { usage: number; quota: number } | null = null;
   try {
-    estimate = await getStorageEstimate();
+    estimate = await getProjectPersistenceAdapter().getStorageEstimate();
   } catch {
     // ignore estimate failures
   }
@@ -210,12 +201,13 @@ async function readSerializableFileData(params: {
   fallbackUrl?: string;
   kind: 'メディア' | 'BGM' | 'ナレーション';
 }): Promise<ArrayBuffer> {
+  const persistence = getProjectPersistenceAdapter();
   try {
-    return await fileToArrayBuffer(params.file);
+    return await persistence.fileToArrayBuffer(params.file);
   } catch (fileError) {
     if (params.fallbackUrl) {
       try {
-        const fallbackData = await blobUrlToArrayBuffer(params.fallbackUrl);
+        const fallbackData = await persistence.blobUrlToArrayBuffer(params.fallbackUrl);
         useLogStore.getState().warn('SYSTEM', '保存用ファイル読み込み失敗のためURLフォールバックを使用', {
           kind: params.kind,
           fileName: params.file.name,
@@ -268,7 +260,7 @@ async function serializeMediaItem(item: MediaItem): Promise<SerializedMediaItem>
 }
 
 function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
-  const file = arrayBufferToFile(data.fileData, data.fileName, data.fileType);
+  const file = getProjectPersistenceAdapter().arrayBufferToFile(data.fileData, data.fileName, data.fileType);
   return {
     id: data.id,
     file,
@@ -306,7 +298,7 @@ async function serializeAudioTrack(track: AudioTrack): Promise<SerializedAudioTr
 
   if (track.blobUrl) {
     try {
-      blobData = await blobUrlToArrayBuffer(track.blobUrl);
+      blobData = await getProjectPersistenceAdapter().blobUrlToArrayBuffer(track.blobUrl);
     } catch {
       // ignore blob fetch errors
     }
@@ -337,7 +329,7 @@ function deserializeAudioTrack(data: SerializedAudioTrack): AudioTrack {
   let blobUrl: string | undefined;
 
   if (data.fileData) {
-    const f = arrayBufferToFile(data.fileData, data.fileName, data.fileType);
+    const f = getProjectPersistenceAdapter().arrayBufferToFile(data.fileData, data.fileName, data.fileType);
     file = f;
     url = URL.createObjectURL(f);
   } else if (data.blobData) {
@@ -380,7 +372,7 @@ async function serializeNarrationClip(clip: NarrationClip): Promise<SerializedNa
 
   if (clip.blobUrl) {
     try {
-      blobData = await blobUrlToArrayBuffer(clip.blobUrl);
+      blobData = await getProjectPersistenceAdapter().blobUrlToArrayBuffer(clip.blobUrl);
     } catch {
       // ignore blob fetch errors
     }
@@ -414,7 +406,7 @@ function deserializeNarrationClip(data: SerializedNarrationClip): NarrationClip 
   let blobUrl: string | undefined;
 
   if (data.fileData) {
-    const f = arrayBufferToFile(data.fileData, data.fileName, data.fileType);
+    const f = getProjectPersistenceAdapter().arrayBufferToFile(data.fileData, data.fileName, data.fileType);
     file = f;
     url = URL.createObjectURL(f);
   } else if (data.blobData) {
@@ -561,7 +553,7 @@ export const useProjectStore = create<ProjectState>()(
               isCaptionsLocked,
             };
 
-            await saveProject(nextProjectData);
+            await getProjectPersistenceAdapter().saveProject(nextProjectData);
             return nextProjectData;
           });
 
@@ -633,7 +625,7 @@ export const useProjectStore = create<ProjectState>()(
               isCaptionsLocked,
             };
 
-            await saveProject(nextProjectData);
+            await getProjectPersistenceAdapter().saveProject(nextProjectData);
             return nextProjectData;
           });
           useLogStore.getState().debug('SYSTEM', '自動保存完了', { savedAt: projectData.savedAt });
@@ -673,7 +665,7 @@ export const useProjectStore = create<ProjectState>()(
         useLogStore.getState().info('SYSTEM', 'プロジェクトを読み込み中', { slot });
 
         try {
-          const data = await loadProject(slot);
+          const data = await getProjectPersistenceAdapter().loadProject(slot);
           if (!data) {
             useLogStore.getState().warn('SYSTEM', '読み込み対象のプロジェクトが存在しません', { slot });
             set({ isLoading: false });
@@ -720,7 +712,7 @@ export const useProjectStore = create<ProjectState>()(
 
       deleteAllSaves: async () => {
         useLogStore.getState().info('SYSTEM', '全保存データを削除');
-        await deleteAllProjects();
+        await getProjectPersistenceAdapter().deleteAllProjects();
         set({
           lastAutoSave: null,
           lastAutoSaveActivityAt: null,
@@ -732,7 +724,7 @@ export const useProjectStore = create<ProjectState>()(
 
       deleteAutoSaveOnly: async () => {
         useLogStore.getState().info('SYSTEM', '自動保存データを削除');
-        await deleteProject('auto');
+        await getProjectPersistenceAdapter().deleteProject('auto');
         set({
           lastAutoSave: null,
           lastAutoSaveActivityAt: null,
@@ -745,7 +737,7 @@ export const useProjectStore = create<ProjectState>()(
       resetSaveDatabase: async () => {
         useLogStore.getState().warn('SYSTEM', '保存用データベースを初期化');
         await enqueueProjectSave(async () => {
-          await resetProjectDatabase();
+          await getProjectPersistenceAdapter().resetProjectDatabase();
         });
         set({
           lastAutoSave: null,
@@ -760,7 +752,7 @@ export const useProjectStore = create<ProjectState>()(
 
       refreshSaveInfo: async () => {
         try {
-          const info = await getProjectsInfo();
+          const info = await getProjectPersistenceAdapter().getProjectsInfo();
           set((state) => ({
             lastAutoSave: info.auto?.savedAt ?? null,
             lastAutoSaveActivityAt: state.lastAutoSaveActivityAt ?? (info.auto?.savedAt ?? null),
