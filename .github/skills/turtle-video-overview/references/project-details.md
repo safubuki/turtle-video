@@ -35,6 +35,7 @@ turtle-video/
 │   │   ├── media/           # メディア関連 (ClipItem, CaptionItem, MediaResourceLoader)
 │   │   ├── sections/        # セクション (Clips, BGM, Narration, Caption, Preview)
 │   │   ├── modals/          # モーダル (AI, Settings, SaveLoad, CaptionSettings)
+│   │   ├── turtle-video/    # TurtleVideo 専用 hook / helper
 │   │   ├── Header.tsx       # ヘッダー
 │   │   ├── SwipeProtectedSlider.tsx  # 誤操作防止スライダー
 │   │   └── TurtleVideo.tsx  # メインコンポーネント
@@ -131,6 +132,8 @@ turtle-video/
 Zustand を使用し、機能ごとにストアを分離しています。
 
 また、App 入口では `resolveAppFlavor()` により runtime flavor を一度だけ解決し、選択された flavor だけを lazy load する構成へ移行を開始しています。
+
+TurtleVideo 本体では段階的な責務分離も開始しており、tab/page visibility 復帰処理は `src/components/turtle-video/usePreviewVisibilityLifecycle.ts` へ抽出されています。
 
 | ストア | 責務 |
 |--------|------|

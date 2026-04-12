@@ -31,13 +31,14 @@
 
 ### 2-1. タブ復帰時の Canvas 自動リフレッシュ
 
-- **ファイル**: `src/components/TurtleVideo.tsx`
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/components/turtle-video/usePreviewVisibilityLifecycle.ts`
 - **問題**: タブ切り替え後に Canvas が黒画面のまま
 - **対策**:
-  - `visibilitychange` イベントで Page Visibility API を監視
-  - `document.visibilityState === 'visible'` で `requestAnimationFrame(() => renderFrame(...))` を実行
-  - `readyState < 2` のメディア要素には `element.load()` で再読み込み
-- **注意**: `visibilitychange` リスナーのクリーンアップを必ず行う
+  - `usePreviewVisibilityLifecycle` で `visibilitychange` / `blur` / `focus` / `pagehide` / `pageshow` を一括管理する
+  - `document.visibilityState === 'visible'` で `requestAnimationFrame(() => renderFrame(...))` を実行する
+  - `readyState < 2` のメディア要素には `element.load()` で再読み込みする
+  - `previewPlatform` の recovery policy を hook 内で再利用し、platform 判定と lifecycle 処理を分離する
+- **注意**: lifecycle hook には refs と副作用 callback だけを渡し、platform ごとの差分は `previewPlatform` 側へ残す
 
 ### 2-2. メディアリソースの可視配置（display: none 回避）
 

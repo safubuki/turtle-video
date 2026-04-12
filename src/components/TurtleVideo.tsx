@@ -24,6 +24,7 @@ import {
 import { useExport } from '../hooks/useExport';
 import type { ExportPreparationStep } from '../hooks/useExport';
 import { usePreventUnload } from '../hooks/usePreventUnload';
+import { usePreviewVisibilityLifecycle } from './turtle-video/usePreviewVisibilityLifecycle';
 
 // Utils
 import { captureCanvasAsImage } from '../utils/canvas';
@@ -39,12 +40,10 @@ import {
   getPreviewAudioRoutingPlan,
   getPreviewPlatformPolicy,
   getPreviewVideoSyncThreshold,
-  getPageHidePausePlan,
   EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC,
   shouldAttemptDeferredPreviewPlay,
   shouldBlackoutVideoFadeTail,
   shouldBundlePreviewStartForWebAudioMix,
-  getVisibilityRecoveryPlan,
   shouldAvoidPauseInactiveVideoInPreview,
   shouldHoldVideoFrameAtClipEnd,
   shouldHoldFrameForImageToVideoExportTransition,
@@ -56,7 +55,6 @@ import {
   shouldStabilizeImageToVideoTransitionDuringExport,
   shouldMuteNativeMediaElement,
   shouldReinitializeAudioRoute,
-  shouldResumeAudioContextOnVisibilityReturn,
   shouldUseCaptionBlurFallback,
 } from '../utils/previewPlatform';
 
@@ -1693,273 +1691,31 @@ const TurtleVideo: React.FC = () => {
     };
   }, []);
 
-  // タブ復帰時の自動リフレッシュ
-  useEffect(() => {
-    const pauseAllMediaElements = () => {
-      Object.values(mediaElementsRef.current).forEach((el) => {
-        if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO')) {
-          try {
-            (el as HTMLMediaElement).pause();
-          } catch {
-            // ignore
-          }
-        }
-      });
-    };
-
-    const resyncMediaElementsToCurrentTime = () => {
-      const t = currentTimeRef.current;
-      let accTime = 0;
-      let activeVideoId: string | null = null;
-
-      for (const item of mediaItemsRef.current) {
-        const el = mediaElementsRef.current[item.id];
-        if (item.type === 'video' && el) {
-          const videoEl = el as HTMLVideoElement;
-          if (t >= accTime && t < accTime + item.duration) {
-            const localTime = t - accTime;
-            const targetTime = (item.trimStart || 0) + localTime;
-            if (!videoEl.seeking && videoEl.readyState >= 1 && Math.abs(videoEl.currentTime - targetTime) > 0.03) {
-              try {
-                videoEl.currentTime = targetTime;
-              } catch {
-                // ignore
-              }
-            }
-            activeVideoId = item.id;
-          } else if (!videoEl.paused) {
-            try {
-              videoEl.pause();
-            } catch {
-              // ignore
-            }
-          }
-        }
-        accTime += item.duration;
-      }
-      activeVideoIdRef.current = activeVideoId;
-
-      const resyncAudioTrack = (track: AudioTrack | null, trackId: 'bgm') => {
-        const el = mediaElementsRef.current[trackId] as HTMLAudioElement | undefined;
-        if (!track || !el) return;
-
-        const trackTime = t - track.delay + track.startPoint;
-        const inRange = trackTime >= 0 && trackTime <= track.duration;
-
-        if (!inRange) {
-          if (!el.paused) {
-            try { el.pause(); } catch { /* ignore */ }
-          }
-          return;
-        }
-
-        // 微小ズレまで補正すると復帰直後にデコード再同期が過剰に走り、
-        // 聴感上の音切れを招くため、有意なズレのみ補正する。
-        const drift = Math.abs(el.currentTime - trackTime);
-        if (drift > 0.08 && !el.seeking && el.readyState >= 1) {
-          try {
-            el.currentTime = trackTime;
-          } catch {
-            // ignore
-          }
-        }
-      };
-
-      const resyncNarrationClip = (clip: NarrationClip) => {
-        const trackId = `narration:${clip.id}`;
-        const el = mediaElementsRef.current[trackId] as HTMLAudioElement | undefined;
-        if (!el) return;
-
-        const trimStart = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
-        const trimEnd = Number.isFinite(clip.trimEnd) ? Math.max(trimStart, Math.min(clip.duration, clip.trimEnd)) : clip.duration;
-        const playableDuration = Math.max(0, trimEnd - trimStart);
-        const clipTime = t - clip.startTime;
-        const trackTime = trimStart + clipTime;
-        const inRange = clipTime >= 0 && clipTime <= playableDuration;
-
-        if (!inRange) {
-          if (!el.paused) {
-            try { el.pause(); } catch { /* ignore */ }
-          }
-          return;
-        }
-
-        const drift = Math.abs(el.currentTime - trackTime);
-        if (drift > 0.08 && !el.seeking && el.readyState >= 1) {
-          try {
-            el.currentTime = trackTime;
-          } catch {
-            // ignore
-          }
-        }
-      };
-
-      resyncAudioTrack(bgmRef.current, 'bgm');
-      narrationsRef.current.forEach((clip) => resyncNarrationClip(clip));
-    };
-
-    const restoreTimelineClockAfterHidden = (): boolean => {
-      const hiddenAt = hiddenStartedAtRef.current;
-      if (hiddenAt === null) return false;
-      hiddenStartedAtRef.current = null;
-
-      const hiddenDurationMs = Math.max(0, Date.now() - hiddenAt);
-      if (hiddenDurationMs <= 0) return false;
-
-      // 再生/エクスポートとも Date.now ベースなので、
-      // 非アクティブ時間分を差し戻して停止/早送りを防ぐ
-      if (isPlayingRef.current || isProcessing) {
-        startTimeRef.current += hiddenDurationMs;
-      }
-      return true;
-    };
-
-    const refreshAfterReturn = () => {
-      if (document.visibilityState !== 'visible') return;
-
-      // visibilitychange / focus / pageshow が短時間に連続発火しうるため、
-      // 復帰処理の重複実行を抑止する。
-      const nowPerf = typeof performance !== 'undefined' ? performance.now() : Date.now();
-      if (nowPerf - lastVisibilityRefreshAtRef.current < previewPlatformPolicy.visibilityRecoveryDebounceMs) return;
-      lastVisibilityRefreshAtRef.current = nowPerf;
-
-      const resumedFromHidden = restoreTimelineClockAfterHidden();
-
-      const ctx = audioCtxRef.current;
-      if (ctx) {
-        const state = ctx.state as AudioContextState | 'interrupted';
-        if (shouldResumeAudioContextOnVisibilityReturn(previewPlatformPolicy, state)) {
-          ctx.resume()
-            .then(() => {
-              logInfo('AUDIO', '可視復帰時にAudioContextを再開', { from: state, to: ctx.state });
-            })
-            .catch((err) => {
-              logWarn('AUDIO', '可視復帰時のAudioContext再開に失敗（次のユーザー操作で再試行）', {
-                state,
-                error: err instanceof Error ? err.message : String(err),
-              });
-            });
-        }
-      }
-
-      const recoveryPlan = getVisibilityRecoveryPlan({
-        resumedFromHidden,
-        needsResyncFromLifecycle: needsResyncAfterVisibilityRef.current,
-        isPlaying: isPlayingRef.current,
-        isProcessing,
-      });
-
-      if (recoveryPlan.shouldDelayAudioResume) {
-        audioResumeWaitFramesRef.current = Math.max(audioResumeWaitFramesRef.current, 1);
-      }
-
-      const latestTime = Math.max(0, Math.min(currentTimeRef.current, totalDurationRef.current));
-
-      if (!recoveryPlan.shouldKeepRunning) {
-        cancelPendingSeekPlaybackPrepare();
-        cancelPendingPausedSeekWait();
-        needsResyncAfterVisibilityRef.current = false;
-      } else if (recoveryPlan.shouldResyncMedia) {
-        resyncMediaElementsToCurrentTime();
-        needsResyncAfterVisibilityRef.current = false;
-      }
-
-      requestAnimationFrame(() => {
-        if (!recoveryPlan.shouldKeepRunning) {
-          renderPausedPreviewFrameAtTimeRef.current(latestTime);
-          return;
-        }
-        renderFrame(latestTime, recoveryPlan.shouldKeepRunning, isProcessing);
-      });
-
-      // 実行中（再生/エクスポート）に load() すると再生状態を壊しやすいので、停止中のみ再読み込みする
-      if (!recoveryPlan.shouldKeepRunning) {
-        Object.values(mediaElementsRef.current).forEach((el) => {
-          if (
-            (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') &&
-            (el as HTMLMediaElement).readyState < 2
-          ) {
-            try {
-              (el as HTMLMediaElement).load();
-            } catch (e) {
-              /* ignore */
-            }
-          }
-        });
-      }
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        hiddenStartedAtRef.current = Date.now();
-        cancelPendingSeekPlaybackPrepare();
-        cancelPendingPausedSeekWait();
-        if (isPlayingRef.current || isProcessing) {
-          needsResyncAfterVisibilityRef.current = true;
-          pauseAllMediaElements();
-          // 通常再生時はタブ切替で明示的に一時停止状態へ遷移させる
-          // （復帰時に自動再開せず、ユーザー操作で再開できるようにする）
-          if (!isProcessing) {
-            isPlayingRef.current = false;
-            pause();
-          }
-        }
-        return;
-      }
-      if (document.visibilityState === 'visible') {
-        refreshAfterReturn();
-      }
-    };
-    const handleWindowBlur = () => {
-      if (hiddenStartedAtRef.current === null) {
-        hiddenStartedAtRef.current = Date.now();
-      }
-      if (isPlayingRef.current || isProcessing) {
-        needsResyncAfterVisibilityRef.current = true;
-      }
-      // blur が visibilitychange(hidden) より先に来る環境でも、
-      // 復帰後に古い seek/canplay callback が割り込まないよう待機状態を落とす。
-      cancelPendingSeekPlaybackPrepare();
-      cancelPendingPausedSeekWait();
-    };
-    const handleWindowFocus = () => {
-      refreshAfterReturn();
-    };
-    const handlePageShow = () => {
-      refreshAfterReturn();
-    };
-    const handlePageHide = () => {
-      const { shouldPauseMediaElements } = getPageHidePausePlan({ isProcessing });
-      if (hiddenStartedAtRef.current === null) {
-        hiddenStartedAtRef.current = Date.now();
-      }
-      cancelPendingSeekPlaybackPrepare();
-      cancelPendingPausedSeekWait();
-      if (isPlayingRef.current || isProcessing) {
-        needsResyncAfterVisibilityRef.current = true;
-        if (shouldPauseMediaElements) {
-          pauseAllMediaElements();
-        }
-        if (!isProcessing) {
-          isPlayingRef.current = false;
-          pause();
-        }
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('blur', handleWindowBlur);
-    window.addEventListener('focus', handleWindowFocus);
-    window.addEventListener('pagehide', handlePageHide);
-    window.addEventListener('pageshow', handlePageShow);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('blur', handleWindowBlur);
-      window.removeEventListener('focus', handleWindowFocus);
-      window.removeEventListener('pagehide', handlePageHide);
-      window.removeEventListener('pageshow', handlePageShow);
-    };
-  }, [renderFrame, logInfo, logWarn, isProcessing, pause, previewPlatformPolicy, cancelPendingPausedSeekWait, cancelPendingSeekPlaybackPrepare]);
+  usePreviewVisibilityLifecycle({
+    mediaElementsRef,
+    mediaItemsRef,
+    bgmRef,
+    narrationsRef,
+    activeVideoIdRef,
+    currentTimeRef,
+    totalDurationRef,
+    hiddenStartedAtRef,
+    needsResyncAfterVisibilityRef,
+    startTimeRef,
+    audioResumeWaitFramesRef,
+    lastVisibilityRefreshAtRef,
+    isPlayingRef,
+    audioCtxRef,
+    isProcessing,
+    previewPlatformPolicy,
+    cancelPendingSeekPlaybackPrepare,
+    cancelPendingPausedSeekWait,
+    renderFrame,
+    renderPausedPreviewFrameAtTimeRef,
+    pause,
+    logInfo,
+    logWarn,
+  });
 
   // --- Audio Context ---
   const getAudioContext = useCallback(() => {
