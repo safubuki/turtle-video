@@ -151,6 +151,43 @@
   - `renderFrame` / `startEngine` の実行順序は変えない。今回の段階では責務移動のみで、prewarm 判定ロジック自体は shared loop に残す
   - iOS Safari の one-shot `createMediaElementSource()` 制約があるため、hook 化後も DOM 要素差し替え時以外に `detachAudioNode` を増やさない
 
+### 3-0b. PreviewEngine の抽出完了
+
+- **ファイル**: `src/components/turtle-video/usePreviewEngine.ts`, `src/components/TurtleVideo.tsx`
+- **問題**: `TurtleVideo.tsx` に `renderFrame`, metadata wait, export preload, `startEngine`, `loop`, `stopAll` が残ると、Phase 2b の flavor 分離時に shared UI 層と preview runtime 層が再結合し、Safari 向け修正の影響範囲が広いままになる
+- **対策**:
+  - `usePreviewEngine` へ `handleMediaElementLoaded`, `handleSeeked`, `handleVideoLoadedData`, `renderFrame`, `stopAll`, `loop`, `startEngine` を移した
+  - `usePreviewEngine` には policy, refs, audio session/inactive manager 契約だけを注入し、`TurtleVideo.tsx` では hook の戻り値を wiring する形に戻した
+  - metadata wait と export preload を含む start-up/shutdown 経路も hook 側へ閉じ込め、Phase 2b では runtime flavor ごとの差し替え対象を `usePreviewEngine` 周辺へ限定できるようにした
+- **注意**:
+  - `usePreviewEngine` の呼び出し位置は `usePreviewVisibilityLifecycle` と `usePreviewSeekController` より前に置き、`renderFrame` / `loop` / `startEngine` を downstream hooks へ注入する順序を維持する
+  - shared の policy (`previewPlatform.ts`) はそのまま入力に使い、Phase 2a では挙動変更ではなく責務移動に留める
+
+### 3-0c. Preview runtime 注入境界の追加
+
+- **ファイル**: `src/components/turtle-video/previewRuntime.ts`, `src/flavors/standard/standardPreviewRuntime.ts`, `src/flavors/apple-safari/appleSafariPreviewRuntime.ts`, `src/flavors/standard/StandardApp.tsx`, `src/flavors/apple-safari/AppleSafariApp.tsx`
+- **問題**: Phase 2a 完了後も `TurtleVideo.tsx` が preview hook の import 元を固定していると、Phase 2b で flavor ごとの preview 実装へ差し替える際に shared 側を再度大きく編集する必要がある
+- **対策**:
+  - `PreviewRuntime` インターフェースを追加し、preview policy と preview hooks 一式を flavor 側から注入する構造へ変えた
+  - `StandardApp` と `AppleSafariApp` はそれぞれ `standardPreviewRuntime` / `appleSafariPreviewRuntime` を `TurtleVideo` へ渡すだけの薄い adapter にした
+  - 現段階では両 flavor とも shared 実装を再利用し、挙動変更なしで差し替え境界だけを先に固定した
+- **注意**:
+  - ここでは runtime 注入境界の追加だけに留め、Safari 専用の preview 実装差し替えは次段で行う
+  - `previewRuntime.usePreviewEngine(...)` などの hook 呼び出し順は flavor ごとに変えず、shared wiring 層の呼び出し順だけを契約として維持する
+
+### 3-0d. Preview capability 解決の runtime 側移管
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/components/turtle-video/previewRuntime.ts`, `src/flavors/standard/standardPreviewRuntime.ts`, `src/flavors/apple-safari/appleSafariPreviewRuntime.ts`, `src/test/previewRuntimeCapabilities.test.ts`
+- **問題**: preview hook の注入境界だけでは、shared の `TurtleVideo.tsx` がまだ `getPlatformCapabilities()` を直接呼んでおり、preview branch の根拠が shared 側に残っていた
+- **対策**:
+  - `PreviewRuntime` に `getPlatformCapabilities()` を追加し、`TurtleVideo.tsx` は runtime が返す capability だけを見る構造へ変更した
+  - `standardPreviewRuntime` は `isIosSafari=false` / `audioContextMayInterrupt=false` に正規化し、standard line が Apple Safari 分岐へ入らないことを明示した
+  - `appleSafariPreviewRuntime` は `isIosSafari=true` / `audioContextMayInterrupt=true` / `isAndroid=false` に正規化し、Apple line が preview の Safari 分岐を必ず選ぶようにした
+  - `previewRuntimeCapabilities.test.ts` を追加し、両 flavor の capability 正規化を固定した
+- **注意**:
+  - ここで分けたのは capability 解決までで、`usePreviewEngine` / `usePreviewAudioSession` の中身自体はまだ shared 実装である
+  - flavor の capability 正規化は preview 分岐の固定が目的であり、保存 API 対応などの実環境 capability は base capability の値を維持する
+
 ### 3-1. 遅延初期化 + ユーザージェスチャー要件
 
 - **ファイル**: `src/hooks/useAudioContext.ts`, `src/utils/audio.ts`
