@@ -215,9 +215,9 @@ afterEach(() => {
 describe('modal history stability', () => {
   it('SettingsModal は親の再描画で history.back を呼ばない', () => {
     const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {});
-    const { rerender, unmount } = render(<SettingsModal isOpen={true} onClose={() => {}} />);
+    const { rerender, unmount } = render(<SettingsModal appFlavor={defaultAppFlavor} isOpen={true} onClose={() => {}} />);
 
-    rerender(<SettingsModal isOpen={true} onClose={() => undefined} />);
+    rerender(<SettingsModal appFlavor={defaultAppFlavor} isOpen={true} onClose={() => undefined} />);
 
     expect(backSpy).not.toHaveBeenCalled();
 

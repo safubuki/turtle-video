@@ -99,7 +99,7 @@ afterEach(() => {
 describe('modal backdrop behavior', () => {
   it('SettingsModal は領域外クリックで閉じる', () => {
     const onClose = vi.fn();
-    const { container } = render(<SettingsModal isOpen={true} onClose={onClose} />);
+    const { container } = render(<SettingsModal appFlavor="standard" isOpen={true} onClose={onClose} />);
 
     fireEvent.click(container.firstChild as HTMLElement);
 
@@ -107,9 +107,10 @@ describe('modal backdrop behavior', () => {
   });
 
   it('SettingsModal は各種設定タブの文言を正しく表示する', () => {
-    render(<SettingsModal isOpen={true} onClose={vi.fn()} />);
+    render(<SettingsModal appFlavor="standard" isOpen={true} onClose={vi.fn()} />);
 
     expect(screen.getByRole('button', { name: '各種設定' })).toBeInTheDocument();
+    expect(screen.getByText('標準モード')).toBeInTheDocument();
     expect(screen.queryByText('蜷榊燕險ｭ螳・')).not.toBeInTheDocument();
   });
 
@@ -117,7 +118,7 @@ describe('modal backdrop behavior', () => {
     vi.useFakeTimers();
     const onClose = vi.fn();
 
-    render(<SettingsModal isOpen={true} onClose={onClose} />);
+    render(<SettingsModal appFlavor="standard" isOpen={true} onClose={onClose} />);
 
     const input = screen.getByPlaceholderText('AIza...');
     fireEvent.focus(input);
@@ -135,7 +136,7 @@ describe('modal backdrop behavior', () => {
 
   it('SettingsModal はオフライン時に更新確認ボタンを無効化する', () => {
     useOfflineModeStore.getState().setOfflineMode(true);
-    render(<SettingsModal isOpen={true} onClose={vi.fn()} />);
+    render(<SettingsModal appFlavor="standard" isOpen={true} onClose={vi.fn()} />);
 
     fireEvent.click(screen.getByRole('button', { name: '各種設定' }));
 
@@ -152,7 +153,7 @@ describe('modal backdrop behavior', () => {
 
   it('SettingsModal は更新なし時に結果を通知する', async () => {
     updateStoreState.checkForUpdate.mockResolvedValue('up-to-date');
-    render(<SettingsModal isOpen={true} onClose={vi.fn()} />);
+    render(<SettingsModal appFlavor="standard" isOpen={true} onClose={vi.fn()} />);
 
     fireEvent.click(screen.getByRole('button', { name: '各種設定' }));
     fireEvent.click(screen.getByRole('button', { name: '更新を確認' }));

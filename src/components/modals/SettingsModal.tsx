@@ -8,6 +8,8 @@ import {
   X, Key, Eye, EyeOff, ExternalLink, CheckCircle, AlertCircle,
   FileText, Copy, Download, Trash2, CheckCircle2, RefreshCw, CircleHelp, History, SlidersHorizontal
 } from 'lucide-react';
+import type { AppFlavor } from '../../app/resolveAppFlavor';
+import { getAppFlavorBadge } from '../../app/appFlavorUi';
 import { useLogStore } from '../../stores';
 import { useUIStore } from '../../stores/uiStore';
 import { useOfflineModeStore } from '../../stores/offlineModeStore';
@@ -21,6 +23,7 @@ export const APP_VERSION = versionData.version;
 const APP_RELEASE_HISTORY = versionData.history ?? null;
 
 interface SettingsModalProps {
+  appFlavor: AppFlavor;
   isOpen: boolean;
   onClose: () => void;
 }
@@ -118,7 +121,7 @@ function getLogLevelBg(level: string): string {
  * 設定モーダルコンポーネント
  * APIキーの設定UI + 変更履歴 + ログ表示
  */
-const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
+const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClose }) => {
   const [activeTab, setActiveTab] = useState<TabType>('apikey');
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
@@ -160,6 +163,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const isCheckingForUpdate = useUpdateStore((s) => s.isCheckingForUpdate);
   const registration = useUpdateStore((s) => s.registration);
   const queueUpdateCheckAfterRegister = useUpdateStore((s) => s.queueUpdateCheckAfterRegister);
+  const flavorBadge = getAppFlavorBadge(appFlavor);
 
   useEffect(() => {
     if (isOpen) {
@@ -433,6 +437,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                 <History className="w-4 h-4" />
               </button>
             )}
+            <span
+              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold tracking-wide ${flavorBadge.className}`}
+              title={flavorBadge.title}
+            >
+              <span className="sm:hidden">{flavorBadge.compactLabel}</span>
+              <span className="hidden sm:inline">{flavorBadge.label}</span>
+            </span>
           </div>
           <button
             onClick={onClose}

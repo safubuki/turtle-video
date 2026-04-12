@@ -5,11 +5,8 @@
  */
 import React from 'react';
 import { Settings, FolderOpen, CircleHelp } from 'lucide-react';
-import type { AppFlavor } from '../app/resolveAppFlavor';
-import { getAppFlavorBadge } from '../app/appFlavorUi';
 
 interface HeaderProps {
-  appFlavor: AppFlavor;
   onOpenSettings?: () => void;
   onOpenProjectManager?: () => void;
   onOpenAppHelp?: () => void;
@@ -18,9 +15,7 @@ interface HeaderProps {
 /**
  * ヘッダーコンポーネント
  */
-const Header: React.FC<HeaderProps> = ({ appFlavor, onOpenSettings, onOpenProjectManager, onOpenAppHelp }) => {
-  const flavorBadge = getAppFlavorBadge(appFlavor);
-
+const Header: React.FC<HeaderProps> = ({ onOpenSettings, onOpenProjectManager, onOpenAppHelp }) => {
   return (
     <header className="sticky top-0 z-50 bg-gray-900/95 backdrop-blur border-b border-gray-800 px-4 py-3 lg:px-8 lg:py-4 shadow-lg">
       <div className="flex items-center justify-center lg:justify-center lg:relative">
@@ -33,13 +28,6 @@ const Header: React.FC<HeaderProps> = ({ appFlavor, onOpenSettings, onOpenProjec
             />
           </div>
           <h1 className="font-bold text-lg lg:text-xl whitespace-nowrap leading-none">タートルビデオ</h1>
-          <span
-            className={`hidden md:inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-wide ${flavorBadge.className}`}
-            title={flavorBadge.title}
-          >
-            {flavorBadge.label}
-          </span>
-          {/* モバイル: タイトル横に配置（従来通り） */}
           <div className="flex items-center gap-1 lg:hidden">
             {onOpenProjectManager && (
               <button
@@ -71,14 +59,7 @@ const Header: React.FC<HeaderProps> = ({ appFlavor, onOpenSettings, onOpenProjec
             )}
           </div>
         </div>
-        {/* PC: タイトルから少し離して右側に配置 (ml-8 で間隔調整) */}
         <div className="hidden lg:flex items-center gap-1 ml-10">
-          <span
-            className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-wide ${flavorBadge.className}`}
-            title={flavorBadge.title}
-          >
-            {flavorBadge.compactLabel}
-          </span>
           {onOpenProjectManager && (
             <button
               onClick={onOpenProjectManager}

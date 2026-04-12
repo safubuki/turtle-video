@@ -1788,6 +1788,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
       {/* Settings Modal */}
       <SettingsModal
+        appFlavor={appFlavor}
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
       />
@@ -1818,7 +1819,6 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
       {/* Header */}
       <Header
-        appFlavor={appFlavor}
         onOpenSettings={handleOpenSettingsModal}
         onOpenProjectManager={handleOpenProjectManagerModal}
         onOpenAppHelp={handleOpenAppHelpModal}

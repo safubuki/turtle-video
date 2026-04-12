@@ -502,13 +502,14 @@
 
 ### 9-11. Capability ベースの保存/ダウンロード経路統一
 
-- **ファイル**: `src/utils/fileSave.ts`, `src/app/appFlavorUi.ts`, `src/components/Header.tsx`, `src/components/TurtleVideo.tsx`, `src/components/sections/PreviewSection.tsx`, `src/components/modals/SaveLoadModal.tsx`, `src/components/modals/SectionHelpModal.tsx`, `src/components/turtle-video/saveRuntime.ts`, `src/flavors/standard/standardSaveRuntime.ts`, `src/flavors/apple-safari/appleSafariSaveRuntime.ts`, `src/flavors/standard/StandardApp.tsx`, `src/flavors/apple-safari/AppleSafariApp.tsx`, `src/constants/sectionHelp.ts`, `src/test/fileSave.test.ts`, `src/test/previewSectionActionButtons.test.tsx`, `src/test/modalHistoryStability.test.tsx`
+- **ファイル**: `src/utils/fileSave.ts`, `src/app/appFlavorUi.ts`, `src/components/Header.tsx`, `src/components/TurtleVideo.tsx`, `src/components/sections/PreviewSection.tsx`, `src/components/modals/SettingsModal.tsx`, `src/components/modals/SaveLoadModal.tsx`, `src/components/modals/SectionHelpModal.tsx`, `src/components/turtle-video/saveRuntime.ts`, `src/flavors/standard/standardSaveRuntime.ts`, `src/flavors/apple-safari/appleSafariSaveRuntime.ts`, `src/flavors/standard/StandardApp.tsx`, `src/flavors/apple-safari/AppleSafariApp.tsx`, `src/constants/sectionHelp.ts`, `src/test/fileSave.test.ts`, `src/test/previewSectionActionButtons.test.tsx`, `src/test/modalHistoryStability.test.tsx`, `src/test/headerFlavorBadgePlacement.test.tsx`
 - **問題**: エクスポート動画、AI ナレーション保存、生成画像保存で `showSaveFilePicker` と `a[download]` の分岐が重複し、iOS Safari 向けの保存導線や完了メッセージを調整するたびに複数箇所を直す必要があった。ヘルプ文言も iPhone を一律非対応扱いのままで、現状の保存方針とずれていた
 - **対策**:
   - `src/utils/fileSave.ts` に `file-picker` / `anchor-download` の resolver と保存 helper を追加し、caller 側はファイル名・MIME・通知文言だけを持つ
   - `TurtleVideo.tsx` の動画ダウンロードとナレーション保存は shared helper を直接使い、`SaveLoadModal.tsx` の生成画像保存と capability 判定は save runtime 経由へ寄せる
   - `src/app/appFlavorUi.ts` に flavor badge / support summary / download guidance / preview notice / save guidance を集約し、shared UI の copy 生成を single source of truth 化する
-  - `StandardApp.tsx` / `AppleSafariApp.tsx` から `appFlavor` を shared UI へ注入し、`Header.tsx` / `PreviewSection.tsx` / `SaveLoadModal.tsx` / `SectionHelpModal.tsx` は platform 直判定ではなく `appFlavor` と capability を受けて描画する
+  - `StandardApp.tsx` / `AppleSafariApp.tsx` から `appFlavor` を shared UI へ注入し、`PreviewSection.tsx` / `SettingsModal.tsx` / `SaveLoadModal.tsx` / `SectionHelpModal.tsx` は platform 直判定ではなく `appFlavor` と capability を受けて描画する
+  - グローバルヘッダー `Header.tsx` のタイトル表示は従来どおり維持し、flavor badge は設定モーダルの履歴ボタン右へ移して環境表示を局所化する
   - `src/test/fileSave.test.ts` で strategy 選択、object URL 保存、blob 保存の回帰を自動検証する
   - `sectionHelp.ts` は `getSectionHelpContent(context)` で flavor-aware に生成し、SaveLoadModal の help と合わせて iPhone / iPad Safari を「安定動作優先の検証モード」として案内し、保存ダイアログ対応の有無で挙動が分かれること、手動保存 / 自動保存 / 読込の確認観点を明示する
   - `src/test/previewSectionActionButtons.test.tsx` と `src/test/modalHistoryStability.test.tsx` で Safari 向け preview/save guidance が UI 上に出ることを固定する
@@ -1562,6 +1563,7 @@
 - **注意**:
   - 入力途中の破壊コストが高いモーダルだけは「閉じない」を選び、その他は操作の軽さを優先する。
   - 新しいモーダルを追加する際は、入力破壊リスクの有無を基準に backdrop 方針を先に決める。
+
 ### 13-64. iOS Safari preview 音声は単一音源なら native fallback を使う
 
 - **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
