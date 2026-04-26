@@ -24,6 +24,7 @@ import {
 
 import type { ExportPreparationStep } from '../hooks/useExport';
 import { usePreventUnload } from '../hooks/usePreventUnload';
+import { useProjectStore } from '../stores/projectStore';
 
 // Utils
 import { captureCanvasAsImage } from '../utils/canvas';
@@ -267,6 +268,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   );
   const supportsShowSaveFilePicker = platformCapabilities.supportsShowSaveFilePicker;
   const supportsShowOpenFilePicker = platformCapabilities.supportsShowOpenFilePicker;
+  const refreshSaveHealth = useProjectStore((s) => s.refreshSaveHealth);
 
   const mediaTimelineRanges = useMemo(() => {
     let timelineStart = 0;
@@ -283,6 +285,15 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
   // Hooks
   const { startExport: startWebCodecsExport, stopExport: stopWebCodecsExport } = exportRuntime.useExport();
+
+  useEffect(() => {
+    saveRuntime.configureProjectStore();
+    void refreshSaveHealth(saveRuntime.getPersistenceHealth);
+    const exportLaunchDiagnostics = exportRuntime.getLaunchDiagnostics?.();
+    if (exportLaunchDiagnostics) {
+      useLogStore.getState().info('SYSTEM', 'エクスポートランタイム診断を記録', exportLaunchDiagnostics);
+    }
+  }, [exportRuntime, refreshSaveHealth, saveRuntime]);
 
   useEffect(() => {
     if (!offlineMode || !showAiModal) return;

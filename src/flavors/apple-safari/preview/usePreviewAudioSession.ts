@@ -11,6 +11,7 @@ import {
   shouldReinitializeAudioRoute,
   type PreviewPlatformPolicy,
 } from './previewPlatform';
+import { getAppleSafariPreviewDiagnosticDetails } from './previewDiagnostics';
 
 type LogFn = (category: LogCategory, message: string, details?: Record<string, unknown>) => void;
 
@@ -134,11 +135,11 @@ export function usePreviewAudioSession({
       if (stateBeforeResume !== 'running') {
         ctx.resume().catch((err) => {
           if (isIosSafari) {
-            logWarn('AUDIO', 'iOS Safari AudioContext resume 失敗', {
+            logWarn('AUDIO', 'iOS Safari AudioContext resume 失敗', getAppleSafariPreviewDiagnosticDetails({
               id,
               stateBeforeResume,
               error: err instanceof Error ? err.message : String(err),
-            });
+            }));
           }
         });
       }
@@ -159,23 +160,23 @@ export function usePreviewAudioSession({
       sourceElementsRef.current[id] = mediaEl;
 
       if (isIosSafari) {
-        logInfo('AUDIO', 'iOS Safari MediaElementAudioSource を作成', {
+        logInfo('AUDIO', 'iOS Safari MediaElementAudioSource を作成', getAppleSafariPreviewDiagnosticDetails({
           id,
           tagName: mediaEl.tagName,
           audioContextState: ctx.state,
           route: audioRoutingModeRef.current,
           gainValue: gain.gain.value,
-        });
+        }));
       }
 
       return true;
     } catch (error) {
       if (isIosSafari) {
-        logWarn('AUDIO', 'iOS Safari MediaElementAudioSource 作成失敗', {
+        logWarn('AUDIO', 'iOS Safari MediaElementAudioSource 作成失敗', getAppleSafariPreviewDiagnosticDetails({
           id,
           tagName: mediaEl.tagName,
           reason: error instanceof Error ? error.message : String(error),
-        });
+        }));
       } else {
         console.warn(`Audio node creation failed for ${id}:`, error);
       }
@@ -221,14 +222,14 @@ export function usePreviewAudioSession({
         }
       });
 
-      logInfo('AUDIO', 'iOS Safari preview 音声ルートを再初期化', {
+      logInfo('AUDIO', 'iOS Safari preview 音声ルートを再初期化', getAppleSafariPreviewDiagnosticDetails({
         state: ctx.state,
-      });
+      }));
     } catch (error) {
-      logWarn('AUDIO', 'iOS Safari preview 音声ルート再初期化に失敗', {
+      logWarn('AUDIO', 'iOS Safari preview 音声ルート再初期化に失敗', getAppleSafariPreviewDiagnosticDetails({
         error: error instanceof Error ? error.message : String(error),
         state: ctx.state,
-      });
+      }));
     }
   }, [audioCtxRef, gainNodesRef, logInfo, logWarn, mediaElementsRef, previewPlatformPolicy, sourceNodesRef]);
 
@@ -289,7 +290,7 @@ export function usePreviewAudioSession({
     }
     lastIosSafariAudioLogRef.current = signature;
 
-    logInfo('AUDIO', 'iOS Safari preview mixed audio route', {
+    logInfo('AUDIO', 'iOS Safari preview mixed audio route', getAppleSafariPreviewDiagnosticDetails({
       safariDetected: isIosSafari,
       audioContextState: audioCtxRef.current?.state ?? 'uninitialized',
       route: audioRoutingModeRef.current,
@@ -306,7 +307,7 @@ export function usePreviewAudioSession({
           ? Math.round(gainNodesRef.current[decision.id].gain.value * 100) / 100
           : null,
       })),
-    });
+    }));
   }, [audioCtxRef, audioRoutingModeRef, gainNodesRef, isIosSafari, lastIosSafariAudioLogRef, logInfo]);
 
   const preparePreviewAudioNodesForTime = useCallback((time: number): PreparedPreviewAudioNodesResult => {

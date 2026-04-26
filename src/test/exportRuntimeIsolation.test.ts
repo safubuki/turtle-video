@@ -10,6 +10,13 @@ describe('export runtime isolation', () => {
     expect(standardExportRuntime.useExport).toBe(useStandardExport);
     expect(appleSafariExportRuntime.useExport).toBe(useAppleSafariExport);
     expect(standardExportRuntime.useExport).not.toBe(appleSafariExportRuntime.useExport);
+    expect(standardExportRuntime.getLaunchDiagnostics).toBeUndefined();
+    expect(appleSafariExportRuntime.getLaunchDiagnostics?.()).toMatchObject({
+      runtime: 'apple-safari-export',
+      webCodecsSupport: expect.objectContaining({
+        fallbackStatus: expect.any(String),
+      }),
+    });
   });
 
   it('strategy ordering diverges by flavor', () => {

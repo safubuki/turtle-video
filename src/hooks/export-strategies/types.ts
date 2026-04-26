@@ -5,6 +5,22 @@ import type { MediaRecorderProfile } from '../../utils/platform';
 export type ExportStrategyId = 'ios-safari-mediarecorder' | 'webcodecs-mp4';
 export type ExportPreparationStep = 1 | 2 | 3 | 4;
 
+export interface ExportSessionDiagnostics {
+  exportSessionId: string;
+}
+
+export interface ExportAudioSourceResolution {
+  strategy: 'decode-audio-data' | 'media-element';
+  reason: string;
+  mimeType: string | null;
+  extension: string | null;
+}
+
+export type ResolveExportAudioSource = (input: {
+  fileName: string;
+  mimeType: string | null;
+}) => ExportAudioSourceResolution;
+
 export interface ExportStrategyResolutionInput {
   isIosSafari: boolean;
   supportedMediaRecorderProfile: MediaRecorderProfile | null;
@@ -73,6 +89,7 @@ export interface IosSafariMediaRecorderStrategyContext {
     videoBitrate: number;
   };
   supportedMediaRecorderProfile: MediaRecorderProfile | null;
+  diagnostics?: ExportSessionDiagnostics;
 }
 
 export type MediaRecorderExportStrategyRunner = (

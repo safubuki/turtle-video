@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AudioTrack, CaptionSettings, MediaItem, NarrationClip } from '../../types';
+import type { ProjectPersistenceHealthSnapshot } from '../../stores/projectPersistenceHealth';
 
 const mocks = vi.hoisted(() => ({
   saveProject: vi.fn(),
@@ -158,6 +159,8 @@ describe('projectStore save behavior', () => {
       lastManualSave: null,
       autoSaveError: null,
       lastSaveFailure: null,
+      saveHealth: null,
+      saveHealthError: null,
     });
   });
 
@@ -183,6 +186,7 @@ describe('projectStore save behavior', () => {
     expect(mocks.saveProject).toHaveBeenCalledTimes(1);
     expect(mocks.deleteProject).not.toHaveBeenCalled();
     expect(useProjectStore.getState().lastAutoSave).toBe('2026-02-17T00:00:00.000Z');
+    expect(useProjectStore.getState().lastSaveFailure?.category).toBe('storage-quota');
   });
 
   it('容量不足以外の手動保存失敗では再試行しない', async () => {
@@ -296,6 +300,7 @@ describe('projectStore save behavior', () => {
 
     expect(mocks.saveProject).not.toHaveBeenCalled();
     expect(useProjectStore.getState().lastSaveFailure?.recoveryAction).toBe('inspect-media');
+    expect(useProjectStore.getState().lastSaveFailure?.category).toBe('media-serialization');
     expect(useProjectStore.getState().lastSaveFailure?.reason).toContain('broken.mp4');
   });
 
@@ -337,11 +342,15 @@ describe('projectStore save behavior', () => {
       lastManualSave: '2026-02-17T01:00:00.000Z',
       autoSaveError: '保存失敗',
       lastSaveFailure: {
+        operationId: 'manual-save-test-00001',
         operation: 'manual',
+        category: 'indexeddb-transaction',
         reason: 'AbortError',
         occurredAt: '2026-03-17T00:00:00.000Z',
         recoveryAction: 'reset-database-and-retry',
         storageEstimate: null,
+        persistenceMode: null,
+        launchContext: null,
       },
     });
 
@@ -387,6 +396,78 @@ describe('projectStore save behavior', () => {
 
     expect(customSaveProject).toHaveBeenCalledTimes(1);
     expect(mocks.saveProject).not.toHaveBeenCalled();
+  });
+
+  it('refreshSaveHealth は loader の結果を保存する', async () => {
+    const health: ProjectPersistenceHealthSnapshot = {
+      checkedAt: '2026-04-14T00:00:00.000Z',
+      persistenceMode: 'best-effort',
+      launchContext: 'browser-tab',
+      storageEstimate: {
+        usage: 128,
+        quota: 1024,
+        usageRatio: 0.125,
+      },
+      supportsStorageEstimate: true,
+      supportsPersistApi: true,
+      warnings: ['Safari は best-effort 保存です。'],
+      summary: '通常タブ起動で保存状態を確認しました。Safari は best-effort 保存として扱われます。',
+    };
+
+    await useProjectStore.getState().refreshSaveHealth(async () => health);
+
+    expect(useProjectStore.getState().saveHealth).toEqual(health);
+    expect(useProjectStore.getState().saveHealthError).toBeNull();
+  });
+
+  it('refreshSaveHealth は loader 失敗時にエラーを保持する', async () => {
+    await useProjectStore.getState().refreshSaveHealth(async () => {
+      throw new Error('health check failed');
+    });
+
+    expect(useProjectStore.getState().saveHealth).toBeNull();
+    expect(useProjectStore.getState().saveHealthError).toContain('health check failed');
+  });
+
+  it('保存失敗に save health 文脈と operationId を残す', async () => {
+    const health: ProjectPersistenceHealthSnapshot = {
+      checkedAt: '2026-04-14T00:00:00.000Z',
+      persistenceMode: 'best-effort',
+      launchContext: 'browser-tab',
+      storageEstimate: {
+        usage: 256,
+        quota: 1024,
+        usageRatio: 0.25,
+      },
+      supportsStorageEstimate: true,
+      supportsPersistApi: true,
+      warnings: [],
+      summary: '通常タブ起動で保存状態を確認しました。Safari は best-effort 保存として扱われます。',
+    };
+    useProjectStore.setState({ saveHealth: health });
+    mocks.saveProject.mockRejectedValueOnce(new Error('保存に失敗しました'));
+
+    await expect(
+      useProjectStore.getState().saveProjectManual(
+        [],
+        false,
+        null,
+        false,
+        [],
+        false,
+        [],
+        defaultCaptionSettings,
+        false,
+      ),
+    ).rejects.toThrow('保存に失敗しました');
+
+    expect(useProjectStore.getState().lastSaveFailure).toMatchObject({
+      operation: 'manual',
+      category: 'unknown',
+      persistenceMode: 'best-effort',
+      launchContext: 'browser-tab',
+    });
+    expect(useProjectStore.getState().lastSaveFailure?.operationId).toMatch(/^manual-save-/);
   });
 
   it('standard save -> apple-safari load でも shared project schema を維持する', async () => {

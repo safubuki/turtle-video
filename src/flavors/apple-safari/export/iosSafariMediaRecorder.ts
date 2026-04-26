@@ -1,5 +1,10 @@
 import { useLogStore } from '../../../stores/logStore';
 import type { IosSafariMediaRecorderStrategyContext } from '../../../hooks/export-strategies/types';
+import {
+  createMediaRecorderProbeResult,
+  markMediaRecorderProbeFailure,
+  markMediaRecorderProbeSuccess,
+} from './mediaRecorderProbe';
 
 type RequestFrameCapableTrack = MediaStreamTrack & {
   requestFrame?: () => void;
@@ -23,9 +28,14 @@ export async function runIosSafariMediaRecorderStrategy(
   } = context;
 
   const log = useLogStore.getState();
+  const exportSessionId = context.diagnostics?.exportSessionId;
   const profile = supportedMediaRecorderProfile;
+  let probe = createMediaRecorderProbeResult(profile);
   if (!profile) {
-    log.warn('RENDER', 'iOS Safari: MediaRecorder profile unavailable, fallback to WebCodecs');
+    log.warn('RENDER', 'iOS Safari: MediaRecorder profile unavailable, fallback to WebCodecs', {
+      exportSessionId,
+      probe,
+    });
     return false;
   }
 
@@ -37,6 +47,8 @@ export async function runIosSafariMediaRecorderStrategy(
 
   if (liveAudioTracks.length === 0) {
     log.warn('RENDER', 'iOS Safari: no live audio track for MediaRecorder, fallback to WebCodecs', {
+      exportSessionId,
+      probe,
       sourceTrackCount: sourceAudioTracks.length,
       sourceTrackStates: sourceAudioTracks.map((track) => track.readyState),
       hasPreRenderedAudio: !!preRenderedAudio,
@@ -156,6 +168,7 @@ export async function runIosSafariMediaRecorderStrategy(
   }
 
   log.info('RENDER', 'iOS Safari: starting MediaRecorder export strategy', {
+    exportSessionId,
     mimeType: profile.mimeType || '(default)',
     extension: profile.extension,
     sourceAudioTrackCount: sourceAudioTracks.length,
@@ -289,11 +302,19 @@ export async function runIosSafariMediaRecorderStrategy(
 
     try {
       recorder = new MediaRecorder(combined, recorderOptions);
+      probe = markMediaRecorderProbeSuccess(probe, 'constructor');
+      probe = {
+        ...probe,
+        requestDataSupported: typeof recorder.requestData === 'function',
+      };
       refs.recorderRef.current = recorder;
     } catch (err) {
       cleanup();
       refs.recorderRef.current = null;
+      probe = markMediaRecorderProbeFailure(probe, 'constructor', err);
       log.warn('RENDER', 'iOS Safari: failed to construct MediaRecorder, fallback to WebCodecs', {
+        exportSessionId,
+        probe,
         error: err instanceof Error ? err.message : String(err),
       });
       finishResolve();
@@ -329,6 +350,8 @@ export async function runIosSafariMediaRecorderStrategy(
       state.setExportExt(profile.extension);
 
       log.info('RENDER', 'iOS Safari: MediaRecorder export completed', {
+        exportSessionId,
+        probe,
         chunks: chunks.length,
         blobSizeBytes: blob.size,
         extension: profile.extension,
@@ -340,6 +363,7 @@ export async function runIosSafariMediaRecorderStrategy(
 
     try {
       recorder.start(250);
+      probe = markMediaRecorderProbeSuccess(probe, 'start');
       try {
         canvasVideoTrack?.requestFrame?.();
       } catch {
@@ -347,13 +371,19 @@ export async function runIosSafariMediaRecorderStrategy(
       }
       preRenderedAudio?.startPlayback();
       startedSuccessfully = true;
-      log.info('RENDER', 'iOS Safari: MediaRecorder export ready');
+      log.info('RENDER', 'iOS Safari: MediaRecorder export ready', {
+        exportSessionId,
+        probe,
+      });
       audioSources?.onAudioPreRenderComplete?.();
       handleRecorderVisibilityChange();
     } catch (err) {
       cleanup();
       refs.recorderRef.current = null;
+      probe = markMediaRecorderProbeFailure(probe, 'start', err);
       log.warn('RENDER', 'iOS Safari: failed to start MediaRecorder, fallback to WebCodecs', {
+        exportSessionId,
+        probe,
         error: err instanceof Error ? err.message : String(err),
       });
       finishResolve();

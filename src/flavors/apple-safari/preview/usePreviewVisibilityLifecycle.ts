@@ -8,6 +8,7 @@ import {
   shouldResumeAudioContextOnVisibilityReturn,
   type PreviewPlatformPolicy,
 } from './previewPlatform';
+import { getAppleSafariPreviewDiagnosticDetails } from './previewDiagnostics';
 
 type LogFn = (category: LogCategory, message: string, details?: Record<string, unknown>) => void;
 
@@ -209,13 +210,13 @@ export function usePreviewVisibilityLifecycle({
         if (shouldResumeAudioContextOnVisibilityReturn(previewPlatformPolicy, state)) {
           audioContext.resume()
             .then(() => {
-              logInfo('AUDIO', '可視復帰時にAudioContextを再開', { from: state, to: audioContext.state });
+              logInfo('AUDIO', '可視復帰時にAudioContextを再開', getAppleSafariPreviewDiagnosticDetails({ from: state, to: audioContext.state }));
             })
             .catch((error) => {
-              logWarn('AUDIO', '可視復帰時のAudioContext再開に失敗（次のユーザー操作で再試行）', {
+              logWarn('AUDIO', '可視復帰時のAudioContext再開に失敗（次のユーザー操作で再試行）', getAppleSafariPreviewDiagnosticDetails({
                 state,
                 error: error instanceof Error ? error.message : String(error),
-              });
+              }));
             });
         }
       }

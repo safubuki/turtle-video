@@ -12,10 +12,9 @@ export function configureStandardProjectStore(): void {
   setProjectPersistenceAdapter(standardProjectPersistenceAdapter);
 }
 
-configureStandardProjectStore();
-
 export const standardSaveRuntime: SaveRuntime = {
   configureProjectStore: configureStandardProjectStore,
   getPlatformCapabilities,
   saveBlobWithClientFileStrategy,
+  getPersistenceHealth: async () => null,
 };

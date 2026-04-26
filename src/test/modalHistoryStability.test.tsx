@@ -1,6 +1,8 @@
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppFlavor } from '../app/resolveAppFlavor';
+import type { ProjectPersistenceHealthSnapshot } from '../stores/projectPersistenceHealth';
+import type { SaveFailureInfo } from '../stores/projectStore';
 import SettingsModal from '../components/modals/SettingsModal';
 import SaveLoadModal from '../components/modals/SaveLoadModal';
 
@@ -50,21 +52,19 @@ const projectStoreState = {
   autoSaveRuntimeStatus: 'idle' as 'idle' | 'running' | 'saved' | 'skipped-nochange' | 'skipped-empty' | 'paused-processing' | 'failed',
   autoSaveRestartToken: 0,
   lastManualSave: null as string | null,
-  lastSaveFailure: null as null | {
-    operation: 'manual' | 'auto';
-    reason: string;
-    occurredAt: string;
-    recoveryAction: 'delete-auto-and-retry' | 'reset-database-and-retry' | 'inspect-media' | 'retry';
-    storageEstimate: { usage: number; quota: number } | null;
-  },
+  lastSaveFailure: null as SaveFailureInfo | null,
+  saveHealth: null as ProjectPersistenceHealthSnapshot | null,
+  saveHealthError: null as string | null,
   saveProjectManual: vi.fn(),
   loadProjectFromSlot: vi.fn(),
   deleteAllSaves: vi.fn(),
   deleteAutoSaveOnly: vi.fn(),
   resetSaveDatabase: vi.fn(),
-  refreshSaveInfo: vi.fn(),
+  refreshSaveInfo: vi.fn().mockResolvedValue(undefined),
+  refreshSaveHealth: vi.fn().mockResolvedValue(undefined),
   requestAutoSaveRestart: vi.fn(),
   clearLastSaveFailure: vi.fn(),
+  clearSaveHealthError: vi.fn(),
 };
 
 const mediaStoreState = {
@@ -111,6 +111,7 @@ const saveRuntime = {
     supportedMediaRecorderProfile: null,
   })),
   saveBlobWithClientFileStrategy: vi.fn(),
+  getPersistenceHealth: vi.fn().mockResolvedValue(null),
 };
 
 const defaultAppFlavor: AppFlavor = 'standard';
@@ -200,14 +201,19 @@ afterEach(() => {
   projectStoreState.autoSaveRuntimeStatus = 'idle';
   projectStoreState.lastManualSave = null;
   projectStoreState.lastSaveFailure = null;
+  projectStoreState.saveHealth = null;
+  projectStoreState.saveHealthError = null;
   projectStoreState.requestAutoSaveRestart.mockReset();
   projectStoreState.resetSaveDatabase.mockReset();
   projectStoreState.clearLastSaveFailure.mockReset();
+  projectStoreState.clearSaveHealthError.mockReset();
   projectStoreState.refreshSaveInfo.mockReset();
+  projectStoreState.refreshSaveHealth.mockReset();
   projectStoreState.saveProjectManual.mockReset();
   saveRuntime.configureProjectStore.mockReset();
   saveRuntime.getPlatformCapabilities.mockClear();
   saveRuntime.saveBlobWithClientFileStrategy.mockReset();
+  saveRuntime.getPersistenceHealth.mockReset();
   autoSaveIntervalValue = 1;
   mediaStoreState.mediaItems = [];
   captionStoreState.captions = [];
@@ -264,11 +270,15 @@ describe('modal history stability', () => {
       },
     ];
     projectStoreState.lastSaveFailure = {
+      operationId: 'manual-save-test-00001',
       operation: 'manual',
+      category: 'indexeddb-transaction',
       reason: 'AbortError: transaction aborted',
       occurredAt: '2026-03-17T00:00:00.000Z',
       recoveryAction: 'reset-database-and-retry',
       storageEstimate: null,
+      persistenceMode: null,
+      launchContext: null,
     };
     projectStoreState.saveProjectManual
       .mockRejectedValueOnce(new Error('AbortError: transaction aborted'))

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   appleSafariProjectPersistenceAdapter,
@@ -29,5 +29,19 @@ describe('save runtime isolation', () => {
 
   it('save runtimes keep distinct flavor-owned configuration functions', () => {
     expect(standardSaveRuntime.configureProjectStore).not.toBe(appleSafariSaveRuntime.configureProjectStore);
+  });
+
+  it('save runtime modules は import 時に adapter を書き換えない', async () => {
+    vi.resetModules();
+
+    const persistence = await import('../stores/projectPersistence');
+    const sentinelAdapter = persistence.createIndexedDbProjectPersistenceAdapter();
+    persistence.setProjectPersistenceAdapter(sentinelAdapter);
+
+    await import('../flavors/standard/standardSaveRuntime');
+    expect(persistence.getProjectPersistenceAdapter()).toBe(sentinelAdapter);
+
+    await import('../flavors/apple-safari/appleSafariSaveRuntime');
+    expect(persistence.getProjectPersistenceAdapter()).toBe(sentinelAdapter);
   });
 });

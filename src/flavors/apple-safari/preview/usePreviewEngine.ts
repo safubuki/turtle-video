@@ -39,6 +39,10 @@ import {
   shouldAvoidPauseInactiveVideoInPreview,
   type PreviewPlatformPolicy,
 } from './previewPlatform';
+import {
+  beginAppleSafariPreviewSession,
+  getAppleSafariPreviewDiagnosticDetails,
+} from './previewDiagnostics';
 
 type LogFn = (category: LogCategory, message: string, details?: Record<string, unknown>) => void;
 
@@ -1634,14 +1638,15 @@ export function usePreviewEngine({
 
   const startEngine = useCallback(
     async (fromTime: number, isExportMode: boolean) => {
-      logInfo('AUDIO', 'エンジン起動開始', { fromTime, isExportMode });
+      beginAppleSafariPreviewSession(isExportMode ? 'export' : 'preview');
+      logInfo('AUDIO', 'エンジン起動開始', getAppleSafariPreviewDiagnosticDetails({ fromTime, isExportMode }));
 
       if (platformCapabilities.isIosSafari) {
-        logInfo('AUDIO', 'iOS Safari 判定結果', {
+        logInfo('AUDIO', 'iOS Safari 判定結果', getAppleSafariPreviewDiagnosticDetails({
           safariDetected: platformCapabilities.isIosSafari,
           isExportMode,
           route: isExportMode ? 'export' : 'preview',
-        });
+        }));
       }
 
       const shouldStopBeforeAudioInit = shouldStopBeforePreviewAudioRouteInit(previewPlatformPolicy, {
@@ -1673,6 +1678,7 @@ export function usePreviewEngine({
         }
 
         logInfo('AUDIO', 'AudioContext再開処理後の状態', {
+          ...getAppleSafariPreviewDiagnosticDetails(),
           before: stateBeforeResume,
           after: ctx.state,
         });
@@ -1683,13 +1689,13 @@ export function usePreviewEngine({
           if ((ctx.state as AudioContextState | 'interrupted') === 'running') {
             await ctx.suspend();
             await ctx.resume();
-            logInfo('AUDIO', 'iOS Safari 音声経路を再初期化', { state: ctx.state });
+            logInfo('AUDIO', 'iOS Safari 音声経路を再初期化', getAppleSafariPreviewDiagnosticDetails({ state: ctx.state }));
           }
         } catch (err) {
-          logWarn('AUDIO', 'iOS Safari 音声経路再初期化に失敗', {
+          logWarn('AUDIO', 'iOS Safari 音声経路再初期化に失敗', getAppleSafariPreviewDiagnosticDetails({
             error: err instanceof Error ? err.message : String(err),
             state: ctx.state,
-          });
+          }));
         }
       }
 

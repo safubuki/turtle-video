@@ -11,6 +11,7 @@ import { getSaveLoadRuntimeGuidance } from '../../app/appFlavorUi';
 import {
   useProjectStore,
   getProjectStoreErrorMessage,
+  type SaveFailureCategory,
 } from '../../stores/projectStore';
 import type { SaveRuntime } from '../turtle-video/saveRuntime';
 import { useMediaStore } from '../../stores/mediaStore';
@@ -25,6 +26,7 @@ import {
 } from '../../hooks/useAutoSave';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../../constants';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
+import type { ProjectPersistenceHealthSnapshot } from '../../stores/projectPersistenceHealth';
 
 interface SaveLoadModalProps {
   isOpen: boolean;
@@ -98,6 +100,36 @@ function formatExactDateTime(isoString: string | null): string {
   });
 }
 
+function getPersistenceModeLabel(saveHealth: ProjectPersistenceHealthSnapshot | null): string {
+  if (!saveHealth) return '未取得';
+  if (saveHealth.persistenceMode === 'persistent') return '永続化済み';
+  if (saveHealth.persistenceMode === 'best-effort') return 'best-effort';
+  return '情報取得不可';
+}
+
+function getLaunchContextLabel(saveHealth: ProjectPersistenceHealthSnapshot | null): string {
+  if (!saveHealth) return '未取得';
+  if (saveHealth.launchContext === 'standalone') return 'ホーム画面追加';
+  if (saveHealth.launchContext === 'browser-tab') return '通常タブ';
+  return '不明';
+}
+
+function getSaveFailureCategoryLabel(category: SaveFailureCategory | undefined): string {
+  switch (category) {
+    case 'storage-quota':
+      return '保存容量';
+    case 'indexeddb-open':
+      return '保存DBの起動';
+    case 'indexeddb-transaction':
+      return '保存DBの書き込み';
+    case 'media-serialization':
+      return '素材読み込み';
+    case 'unknown':
+    default:
+      return '未分類';
+  }
+}
+
 export default function SaveLoadModal({ isOpen, onClose, onToast, appFlavor, saveRuntime }: SaveLoadModalProps) {
   const [mode, setMode] = useState<ModalMode>('menu');
   const [selectedSlot, setSelectedSlot] = useState<SaveSlot | null>(null);
@@ -140,14 +172,18 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, appFlavor, sav
     lastManualSave,
     autoSaveRuntimeStatus,
     lastSaveFailure,
+    saveHealth,
+    saveHealthError,
     saveProjectManual,
     loadProjectFromSlot,
     deleteAllSaves,
     deleteAutoSaveOnly,
     resetSaveDatabase,
     refreshSaveInfo,
+    refreshSaveHealth,
     requestAutoSaveRestart,
     clearLastSaveFailure,
+    clearSaveHealthError,
   } = useProjectStore();
   
   // 各ストアからデータを取得
@@ -222,18 +258,29 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, appFlavor, sav
         return null;
     }
   }, [lastSaveFailure]);
+
+  const saveHealthUsageLabel = useMemo(() => {
+    if (!saveHealth?.storageEstimate) return '---';
+    const usageMb = Math.round((saveHealth.storageEstimate.usage / 1024 / 1024) * 10) / 10;
+    const quotaMb = Math.round((saveHealth.storageEstimate.quota / 1024 / 1024) * 10) / 10;
+    if (!(saveHealth.storageEstimate.quota > 0)) {
+      return `${usageMb}MB`;
+    }
+    return `${usageMb}MB / ${quotaMb}MB`;
+  }, [saveHealth]);
   
   // 初回表示時に保存情報を更新
   useEffect(() => {
     if (isOpen) {
-      refreshSaveInfo();
+      void refreshSaveInfo();
+      void refreshSaveHealth(saveRuntime.getPersistenceHealth);
       setMode('menu');
       setSelectedSlot(null);
       setAutoSaveIntervalState(getAutoSaveInterval());
       setShowHelp(false);
       setRelativeTimeNowMs(Date.now());
     }
-  }, [isOpen, refreshSaveInfo]);
+  }, [isOpen, refreshSaveHealth, refreshSaveInfo, saveRuntime]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -581,7 +628,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, appFlavor, sav
   
   return (
     <div
-      className="fixed inset-0 z-[300] flex items-end md:items-center md:justify-center bg-black/70 md:p-4"
+      className="fixed inset-0 z-300 flex items-end md:items-center md:justify-center bg-black/70 md:p-4"
       onClick={onClose}
     >
       <div
@@ -624,7 +671,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, appFlavor, sav
             title="閉じる"
             aria-label="閉じる"
           >
-            <X className="w-[18px] h-[18px]" />
+            <X className="w-4.5 h-4.5" />
           </button>
         </div>
         
@@ -643,7 +690,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, appFlavor, sav
                     title="ヘルプを閉じる"
                     aria-label="ヘルプを閉じる"
                   >
-                    <X className="w-[18px] h-[18px]" />
+                    <X className="w-4.5 h-4.5" />
                   </button>
                 </div>
                 <div className="space-y-3 text-xs md:text-sm text-orange-50 leading-relaxed">
@@ -743,6 +790,59 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, appFlavor, sav
               </div>
             </div>
 
+            {appFlavor === 'apple-safari' && (saveHealth || saveHealthError) && (
+              <div className="bg-gray-800 rounded-lg p-4 space-y-2">
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-gray-400 flex items-center gap-1">
+                    <AlertTriangle size={14} />
+                    保存領域診断
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs ${saveHealth?.persistenceMode === 'persistent' ? 'text-emerald-300' : 'text-amber-300'}`}>
+                      {getPersistenceModeLabel(saveHealth)}
+                    </span>
+                    {saveHealthError && (
+                      <button
+                        type="button"
+                        className="text-xs text-red-300 hover:text-red-100 transition-colors"
+                        onClick={clearSaveHealthError}
+                      >
+                        閉じる
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {saveHealth && (
+                  <>
+                    <div className="pl-5 text-[11px] text-gray-400">
+                      起動方法: {getLaunchContextLabel(saveHealth)}
+                    </div>
+                    <div className="pl-5 text-[11px] text-gray-400">
+                      推定使用量: {saveHealthUsageLabel}
+                    </div>
+                    <div className="pl-5 text-[11px] text-gray-400">
+                      {saveHealth.summary}
+                    </div>
+                    {saveHealth.warnings.length > 0 && (
+                      <ul className="pl-9 list-disc text-[11px] text-amber-200 space-y-1">
+                        {saveHealth.warnings.map((warning) => (
+                          <li key={warning}>{warning}</li>
+                        ))}
+                      </ul>
+                    )}
+                    <div className="pl-5 text-[11px] text-gray-500">
+                      プライベートブラウズは正式サポート対象外です。
+                    </div>
+                  </>
+                )}
+                {saveHealthError && (
+                  <div className="pl-5 text-[11px] text-red-200 wrap-break-word">
+                    保存領域診断の取得に失敗しました: {saveHealthError}
+                  </div>
+                )}
+              </div>
+            )}
+
             {lastSaveFailure && (
               <div className="bg-red-950/35 border border-red-700/50 rounded-lg p-4 space-y-2">
                 <div className="flex items-center justify-between gap-3">
@@ -757,8 +857,11 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, appFlavor, sav
                     閉じる
                   </button>
                 </div>
-                <div className="text-xs text-red-100 leading-relaxed break-words">
+                <div className="text-xs text-red-100 leading-relaxed wrap-break-word">
                   {lastSaveFailure.reason}
+                </div>
+                <div className="text-xs text-red-200/90">
+                  分類: {getSaveFailureCategoryLabel(lastSaveFailure.category)}
                 </div>
                 <div className="text-xs text-red-200/90">
                   推奨対応: {failureActionLabel ?? 'ログを確認して再試行'}
@@ -877,7 +980,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, appFlavor, sav
         {mode === 'confirmLoad' && (
           <div className="space-y-4">
             <div className="flex items-start gap-3 p-4 bg-yellow-900/30 border border-yellow-700/50 rounded-lg">
-              <AlertTriangle size={20} className="text-yellow-500 flex-shrink-0 mt-0.5" />
+              <AlertTriangle size={20} className="text-yellow-500 shrink-0 mt-0.5" />
               <p className="text-sm text-yellow-200">
                 現在編集中のデータは失われます。よろしいですか？
               </p>
@@ -905,7 +1008,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, appFlavor, sav
         {mode === 'confirmAutoDeleteForSave' && (
           <div className="space-y-4">
             <div className="flex items-start gap-3 p-4 bg-yellow-900/30 border border-yellow-700/50 rounded-lg">
-              <AlertTriangle size={20} className="text-yellow-500 flex-shrink-0 mt-0.5" />
+              <AlertTriangle size={20} className="text-yellow-500 shrink-0 mt-0.5" />
               <p className="text-sm text-yellow-200">
                 保存容量が不足しています。<br />
                 自動保存データのみ削除して、手動保存を続行しますか？
@@ -934,7 +1037,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, appFlavor, sav
         {mode === 'confirmResetDbForSave' && (
           <div className="space-y-4">
             <div className="flex items-start gap-3 p-4 bg-red-900/30 border border-red-700/50 rounded-lg">
-              <AlertTriangle size={20} className="text-red-500 flex-shrink-0 mt-0.5" />
+              <AlertTriangle size={20} className="text-red-500 shrink-0 mt-0.5" />
               <p className="text-sm text-red-200">
                 保存用の IndexedDB が不整合状態の可能性があります。<br />
                 保存DBを初期化すると、自動保存と手動保存の履歴は消えますが、現在編集中の内容で再保存を試せます。続行しますか？
@@ -964,7 +1067,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, appFlavor, sav
         {mode === 'confirmDelete' && (
           <div className="space-y-4">
             <div className="flex items-start gap-3 p-4 bg-red-900/30 border border-red-700/50 rounded-lg">
-              <AlertTriangle size={20} className="text-red-500 flex-shrink-0 mt-0.5" />
+              <AlertTriangle size={20} className="text-red-500 shrink-0 mt-0.5" />
               <p className="text-sm text-red-200">
                 自動保存と手動保存の両方のデータを削除します。この操作は取り消せません。
               </p>

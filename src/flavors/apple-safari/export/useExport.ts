@@ -4,6 +4,7 @@ import type {
   ExportStrategyResolutionInput,
 } from '../../../hooks/export-strategies/types';
 import { getPlatformCapabilities, type PlatformCapabilities } from '../../../utils/platform';
+import { resolveAppleSafariExportAudioSource } from './audioSourceResolver';
 import { runIosSafariMediaRecorderStrategy } from './iosSafariMediaRecorder';
 
 export function getAppleSafariExportPlatformCapabilities(
@@ -30,5 +31,6 @@ export function resolveAppleSafariExportStrategyOrder(
 export const useExport = createUseExport({
   getPlatformCapabilities: getAppleSafariExportPlatformCapabilities,
   resolveExportStrategyOrder: resolveAppleSafariExportStrategyOrder,
+  resolveExportAudioSource: resolveAppleSafariExportAudioSource,
   runMediaRecorderStrategy: runIosSafariMediaRecorderStrategy,
 });

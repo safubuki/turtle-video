@@ -16,7 +16,13 @@ import {
   type SerializedCaption,
   type SerializedNarrationClip,
 } from './projectPersistence';
+import type {
+  ProjectLaunchContext,
+  ProjectPersistenceHealthSnapshot,
+  ProjectPersistenceMode,
+} from './projectPersistenceHealth';
 import { useLogStore } from './logStore';
+import { createDiagnosticId } from '../utils/diagnostics';
 import versionData from '../../version.json';
 
 export function getProjectStoreErrorMessage(error: unknown): string {
@@ -41,12 +47,23 @@ export type SaveFailureRecoveryAction =
   | 'inspect-media'
   | 'retry';
 
+export type SaveFailureCategory =
+  | 'storage-quota'
+  | 'indexeddb-open'
+  | 'indexeddb-transaction'
+  | 'media-serialization'
+  | 'unknown';
+
 export interface SaveFailureInfo {
+  operationId: string;
   operation: 'manual' | 'auto';
+  category: SaveFailureCategory;
   reason: string;
   occurredAt: string;
   recoveryAction: SaveFailureRecoveryAction;
   storageEstimate: { usage: number; quota: number } | null;
+  persistenceMode: ProjectPersistenceMode | null;
+  launchContext: ProjectLaunchContext | null;
 }
 
 export type AutoSaveRuntimeStatus =
@@ -70,6 +87,18 @@ function isLikelyIndexedDbTransactionError(error: unknown): boolean {
   );
 }
 
+function isLikelyIndexedDbOpenError(error: unknown): boolean {
+  const lower = getProjectStoreErrorMessage(error).toLowerCase();
+  return (
+    lower.includes('open') ||
+    lower.includes('versionerror') ||
+    lower.includes('notfounderror') ||
+    lower.includes('blocked') ||
+    lower.includes('upgrade') ||
+    lower.includes('データベースを開')
+  );
+}
+
 function isLikelyMediaSerializationError(error: unknown): boolean {
   const lower = getProjectStoreErrorMessage(error).toLowerCase();
   return (
@@ -78,6 +107,22 @@ function isLikelyMediaSerializationError(error: unknown): boolean {
     lower.includes('blob') ||
     lower.includes('readasarraybuffer')
   );
+}
+
+function classifySaveFailureCategory(error: unknown): SaveFailureCategory {
+  if (isStorageQuotaError(error)) {
+    return 'storage-quota';
+  }
+  if (isLikelyMediaSerializationError(error)) {
+    return 'media-serialization';
+  }
+  if (isLikelyIndexedDbOpenError(error)) {
+    return 'indexeddb-open';
+  }
+  if (isLikelyIndexedDbTransactionError(error)) {
+    return 'indexeddb-transaction';
+  }
+  return 'unknown';
 }
 
 function isStorageNearQuota(estimate: { usage: number; quota: number } | null): boolean {
@@ -104,9 +149,11 @@ function classifySaveFailureRecoveryAction(params: {
 }
 
 async function buildSaveFailureInfo(params: {
+  operationId: string;
   operation: 'manual' | 'auto';
   error: unknown;
   hasAutoSave: boolean;
+  health: ProjectPersistenceHealthSnapshot | null;
 }): Promise<SaveFailureInfo> {
   let estimate: { usage: number; quota: number } | null = null;
   try {
@@ -116,7 +163,9 @@ async function buildSaveFailureInfo(params: {
   }
 
   return {
+    operationId: params.operationId,
     operation: params.operation,
+    category: classifySaveFailureCategory(params.error),
     reason: getProjectStoreErrorMessage(params.error),
     occurredAt: new Date().toISOString(),
     recoveryAction: classifySaveFailureRecoveryAction({
@@ -125,6 +174,8 @@ async function buildSaveFailureInfo(params: {
       hasAutoSave: params.hasAutoSave,
     }),
     storageEstimate: estimate,
+    persistenceMode: params.health?.persistenceMode ?? null,
+    launchContext: params.health?.launchContext ?? null,
   };
 }
 
@@ -138,6 +189,8 @@ interface ProjectState {
   lastManualSave: string | null;
   autoSaveError: string | null;
   lastSaveFailure: SaveFailureInfo | null;
+  saveHealth: ProjectPersistenceHealthSnapshot | null;
+  saveHealthError: string | null;
 
   saveProjectManual: (
     mediaItems: MediaItem[],
@@ -179,6 +232,9 @@ interface ProjectState {
   deleteAutoSaveOnly: () => Promise<void>;
   resetSaveDatabase: () => Promise<void>;
   refreshSaveInfo: () => Promise<void>;
+  refreshSaveHealth: (
+    loader?: (() => Promise<ProjectPersistenceHealthSnapshot | null>) | null,
+  ) => Promise<void>;
   updateAutoSaveRuntime: (params: {
     status: AutoSaveRuntimeStatus;
     activityAt?: string | null;
@@ -186,6 +242,7 @@ interface ProjectState {
   requestAutoSaveRestart: () => void;
   clearAutoSaveError: () => void;
   clearLastSaveFailure: () => void;
+  clearSaveHealthError: () => void;
 }
 
 let projectSaveQueue: Promise<void> = Promise.resolve();
@@ -511,6 +568,8 @@ export const useProjectStore = create<ProjectState>()(
       lastManualSave: null,
       autoSaveError: null,
       lastSaveFailure: null,
+      saveHealth: null,
+      saveHealthError: null,
 
       saveProjectManual: async (
         mediaItems,
@@ -523,8 +582,10 @@ export const useProjectStore = create<ProjectState>()(
         captionSettings,
         isCaptionsLocked
       ) => {
+        const operationId = createDiagnosticId('manual-save');
         set({ isSaving: true });
         useLogStore.getState().info('SYSTEM', '手動保存を開始', {
+          operationId,
           mediaCount: mediaItems.length,
           hasBgm: !!bgm,
           narrationCount: narrations.length,
@@ -557,7 +618,10 @@ export const useProjectStore = create<ProjectState>()(
             return nextProjectData;
           });
 
-          useLogStore.getState().info('SYSTEM', '手動保存完了', { savedAt: projectData.savedAt });
+          useLogStore.getState().info('SYSTEM', '手動保存完了', {
+            operationId,
+            savedAt: projectData.savedAt,
+          });
           set({
             lastManualSave: projectData.savedAt,
             lastAutoSaveActivityAt: projectData.savedAt,
@@ -567,14 +631,20 @@ export const useProjectStore = create<ProjectState>()(
           });
         } catch (error) {
           const failureInfo = await buildSaveFailureInfo({
+            operationId,
             operation: 'manual',
             error,
             hasAutoSave: get().lastAutoSave !== null,
+            health: get().saveHealth,
           });
           useLogStore.getState().error('SYSTEM', '手動保存失敗', {
+            operationId,
+            category: failureInfo.category,
             error: failureInfo.reason,
             recoveryAction: failureInfo.recoveryAction,
             storageEstimate: failureInfo.storageEstimate,
+            persistenceMode: failureInfo.persistenceMode,
+            launchContext: failureInfo.launchContext,
           });
           set({ isSaving: false, lastSaveFailure: failureInfo });
           throw error;
@@ -596,7 +666,10 @@ export const useProjectStore = create<ProjectState>()(
           return false;
         }
 
+        const operationId = createDiagnosticId('auto-save');
+
         useLogStore.getState().debug('SYSTEM', '自動保存を開始', {
+          operationId,
           mediaCount: mediaItems.length,
           hasBgm: !!bgm,
           narrationCount: narrations.length,
@@ -628,7 +701,10 @@ export const useProjectStore = create<ProjectState>()(
             await getProjectPersistenceAdapter().saveProject(nextProjectData);
             return nextProjectData;
           });
-          useLogStore.getState().debug('SYSTEM', '自動保存完了', { savedAt: projectData.savedAt });
+          useLogStore.getState().debug('SYSTEM', '自動保存完了', {
+            operationId,
+            savedAt: projectData.savedAt,
+          });
           set({
             lastAutoSave: projectData.savedAt,
             lastAutoSaveActivityAt: projectData.savedAt,
@@ -639,17 +715,23 @@ export const useProjectStore = create<ProjectState>()(
           return true;
         } catch (error) {
           const failureInfo = await buildSaveFailureInfo({
+            operationId,
             operation: 'auto',
             error,
             hasAutoSave: get().lastAutoSave !== null,
+            health: get().saveHealth,
           });
           const message = isStorageQuotaError(error)
             ? '保存容量が不足しています。不要な保存データを削除してください'
             : getProjectStoreErrorMessage(error);
           useLogStore.getState().error('SYSTEM', '自動保存失敗', {
+            operationId,
+            category: failureInfo.category,
             error: message,
             recoveryAction: failureInfo.recoveryAction,
             storageEstimate: failureInfo.storageEstimate,
+            persistenceMode: failureInfo.persistenceMode,
+            launchContext: failureInfo.launchContext,
           });
           set({
             autoSaveRuntimeStatus: 'failed',
@@ -661,13 +743,20 @@ export const useProjectStore = create<ProjectState>()(
       },
 
       loadProjectFromSlot: async (slot) => {
+        const operationId = createDiagnosticId(`load-${slot}`);
         set({ isLoading: true });
-        useLogStore.getState().info('SYSTEM', 'プロジェクトを読み込み中', { slot });
+        useLogStore.getState().info('SYSTEM', 'プロジェクトを読み込み中', {
+          operationId,
+          slot,
+        });
 
         try {
           const data = await getProjectPersistenceAdapter().loadProject(slot);
           if (!data) {
-            useLogStore.getState().warn('SYSTEM', '読み込み対象のプロジェクトが存在しません', { slot });
+            useLogStore.getState().warn('SYSTEM', '読み込み対象のプロジェクトが存在しません', {
+              operationId,
+              slot,
+            });
             set({ isLoading: false });
             return null;
           }
@@ -680,6 +769,7 @@ export const useProjectStore = create<ProjectState>()(
           const captions = data.captions.map(deserializeCaption);
 
           useLogStore.getState().info('SYSTEM', 'プロジェクト読み込み完了', {
+            operationId,
             slot,
             mediaCount: mediaItems.length,
             hasBgm: !!bgm,
@@ -702,6 +792,7 @@ export const useProjectStore = create<ProjectState>()(
           };
         } catch (error) {
           useLogStore.getState().error('SYSTEM', 'プロジェクト読み込み失敗', {
+            operationId,
             slot,
             error: error instanceof Error ? error.message : String(error),
           });
@@ -763,6 +854,37 @@ export const useProjectStore = create<ProjectState>()(
         }
       },
 
+      refreshSaveHealth: async (loader) => {
+        if (!loader) {
+          set({ saveHealth: null, saveHealthError: null });
+          return;
+        }
+
+        const operationId = createDiagnosticId('save-health');
+        try {
+          const health = await loader();
+          set({ saveHealth: health, saveHealthError: null });
+          if (health) {
+            useLogStore.getState().info('SYSTEM', '保存領域診断を更新', {
+              operationId,
+              persistenceMode: health.persistenceMode,
+              launchContext: health.launchContext,
+              storageEstimate: health.storageEstimate,
+              supportsStorageEstimate: health.supportsStorageEstimate,
+              supportsPersistApi: health.supportsPersistApi,
+              warnings: health.warnings,
+            });
+          }
+        } catch (error) {
+          const message = getProjectStoreErrorMessage(error);
+          useLogStore.getState().warn('SYSTEM', '保存領域診断の取得に失敗', {
+            operationId,
+            error: message,
+          });
+          set({ saveHealth: null, saveHealthError: message });
+        }
+      },
+
       updateAutoSaveRuntime: ({ status, activityAt }) => set((state) => ({
         autoSaveRuntimeStatus: status,
         lastAutoSaveActivityAt: activityAt === undefined ? state.lastAutoSaveActivityAt : activityAt,
@@ -774,6 +896,7 @@ export const useProjectStore = create<ProjectState>()(
 
       clearAutoSaveError: () => set({ autoSaveError: null }),
       clearLastSaveFailure: () => set({ lastSaveFailure: null }),
+      clearSaveHealthError: () => set({ saveHealthError: null }),
     }),
     { name: 'ProjectStore' }
   )

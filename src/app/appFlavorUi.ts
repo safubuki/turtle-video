@@ -113,6 +113,7 @@ export function getSaveLoadRuntimeGuidance(input: {
       bullets: [
         `ファイル保存は ${downloadRoute.label} を利用します。`,
         '手動保存→読み込み→ブラウザ再起動後の保持を、同じ起動方法のまま確認してください。',
+        'プライベートブラウズは正式サポート対象外です。',
         '高度機能の改善は標準モードが先行する場合があります。',
       ],
     };
