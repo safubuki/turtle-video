@@ -464,4 +464,48 @@ describe('standard preview engine', () => {
     expect(canvasContext.drawImage).not.toHaveBeenCalled();
     expect(didUpdateCanvas).toBe(false);
   });
+
+  it('Android preview の image -> trimStart あり video 安定化は先頭 0.25 秒だけに限定する', () => {
+    const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
+    const videoItem = createVideoItem({
+      id: 'video-2',
+      duration: 2,
+      trimStart: 1.2,
+      trimEnd: 3.2,
+    });
+
+    const insideWindowVideo = createMockVideoElement();
+    insideWindowVideo.readyState = 1;
+    insideWindowVideo.seeking = false;
+    insideWindowVideo.paused = false;
+    insideWindowVideo.currentTime = 1.6;
+
+    const insideHarness = setupRenderFrameHarness({
+      mediaItems: [imageItem, videoItem],
+      mediaElements: {
+        [videoItem.id]: insideWindowVideo as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+    });
+
+    insideHarness.hook.result.current.renderFrame(1.24, true, false);
+
+    expect(insideWindowVideo.currentTime).toBeCloseTo(1.44);
+
+    const outsideWindowVideo = createMockVideoElement();
+    outsideWindowVideo.readyState = 1;
+    outsideWindowVideo.seeking = false;
+    outsideWindowVideo.paused = false;
+    outsideWindowVideo.currentTime = 1.6;
+
+    const outsideHarness = setupRenderFrameHarness({
+      mediaItems: [imageItem, videoItem],
+      mediaElements: {
+        [videoItem.id]: outsideWindowVideo as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+    });
+
+    outsideHarness.hook.result.current.renderFrame(1.26, true, false);
+
+    expect(outsideWindowVideo.currentTime).toBeCloseTo(1.6);
+  });
 });

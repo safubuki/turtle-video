@@ -180,6 +180,8 @@ const MIN_VIDEO_READY_STATE_FOR_SEEK = 1;
 const MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME = 2;
 // 再生開始前に許容する currentTime のずれ。既存 preview sync しきい値より厳しく合わせる。
 const PREVIEW_START_READY_SYNC_TOLERANCE_SEC = 0.05;
+// image -> trimStart あり video の開始直後だけは、約 1 フレーム (30fps ≒ 0.033s) 未満まで寄せてカクつきを抑える。
+const PREVIEW_IMAGE_TO_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC = 0.03;
 // 再生開始直後は seeked / canplay の到着を数フレームだけ待ち、遅ければ loop を止めない。
 const PREVIEW_START_READY_POLL_INTERVAL_MS = 40;
 const PREVIEW_START_READY_TIMEOUT_MS = 900;
@@ -747,7 +749,8 @@ export function usePreviewEngine({
                 shouldStabilizeImageToTrimmedVideo
                 && activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
                 && !activeEl.seeking
-                && Math.abs(activeEl.currentTime - targetTime) > 0.03
+                && Math.abs(activeEl.currentTime - targetTime)
+                > PREVIEW_IMAGE_TO_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC
               ) {
                 activeEl.currentTime = targetTime;
                 holdFrame = true;
