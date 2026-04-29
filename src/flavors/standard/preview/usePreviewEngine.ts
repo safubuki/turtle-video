@@ -942,7 +942,7 @@ export function usePreviewEngine({
                   targetTime,
                 });
                 if (androidRecoveryDecision.shouldRecover) {
-                  const now = getStandardPreviewNow();
+                  const now = Date.now();
                   const lastAttempt = videoRecoveryAttemptsRef.current[id] || 0;
                   holdFrame = holdFrame || androidRecoveryDecision.shouldHoldFrame;
                   if (now - lastAttempt > 220) {
