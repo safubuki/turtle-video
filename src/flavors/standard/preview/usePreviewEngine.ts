@@ -625,6 +625,7 @@ export function usePreviewEngine({
         let shouldSkipAndroidPreviewActiveDraw = false;
         if (activeId && activeIndex !== -1) {
           const activeItem = currentItems[activeIndex];
+          const previousItem = activeIndex > 0 ? currentItems[activeIndex - 1] : null;
           const activeFadeOutDur = activeItem.fadeOutDuration || 1.0;
           const shouldPreferBlackoutAtFadeTail = shouldBlackoutVideoFadeTail({
             clipLocalTime: localTime,
@@ -665,6 +666,17 @@ export function usePreviewEngine({
               }
             } else {
               const targetTime = (activeItem.trimStart || 0) + localTime;
+              const shouldStabilizeImageToTrimmedVideo =
+                platformCapabilities.isAndroid
+                && !platformCapabilities.isIosSafari
+                && isActivePlaying
+                && !_isExporting
+                && !isSeekingRef.current
+                && previousItem?.type === 'image'
+                && activeItem.type === 'video'
+                && (activeItem.trimStart || 0) > 0.001
+                && localTime >= 0
+                && localTime <= 0.25;
               const isLastTimelineItem = activeIndex === currentItems.length - 1;
               const isNearTimelineEnd =
                 totalDurationRef.current > 0 &&
@@ -682,7 +694,7 @@ export function usePreviewEngine({
                 isExporting: _isExporting,
                 isAndroid: platformCapabilities.isAndroid,
                 activeItemType: activeItem.type,
-                previousItemType: activeIndex > 0 ? currentItems[activeIndex - 1]?.type ?? null : null,
+                previousItemType: previousItem?.type ?? null,
                 clipLocalTime: localTime,
                 videoReadyState: activeEl.readyState,
                 isVideoSeeking: activeEl.seeking,
@@ -717,6 +729,30 @@ export function usePreviewEngine({
                   videoRecoveryAttemptsRef.current[activeId] = now;
                   try { activeEl.load(); } catch { /* ignore */ }
                 }
+              }
+              if (
+                shouldStabilizeImageToTrimmedVideo
+                && (
+                  activeEl.seeking
+                  || activeEl.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+                  || activeEl.videoWidth <= 0
+                  || activeEl.videoHeight <= 0
+                )
+              ) {
+                holdFrame = true;
+                shouldSkipAndroidPreviewActiveDraw = true;
+                logAndroidPreviewHold(activeId, time, activeEl);
+              }
+              if (
+                shouldStabilizeImageToTrimmedVideo
+                && activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
+                && !activeEl.seeking
+                && Math.abs(activeEl.currentTime - targetTime) > 0.03
+              ) {
+                activeEl.currentTime = targetTime;
+                holdFrame = true;
+                shouldSkipAndroidPreviewActiveDraw = true;
+                logAndroidPreviewHold(activeId, time, activeEl);
               }
               let didApplyAndroidPreviewDriftFix = false;
               if (
