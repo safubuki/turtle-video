@@ -103,6 +103,24 @@ export function usePreviewSeekController({
   preparePreviewAudioNodesForTime,
   primePreviewAudioOnlyTracksAtTime,
 }: UsePreviewSeekControllerParams): UsePreviewSeekControllerResult {
+  const requestVideoPlayWithRetry = useCallback((videoElement: HTMLVideoElement, retryIntervalMs = 160) => {
+    const maxRetryCount = 4;
+    const tryPlay = (attempt: number) => {
+      if (!isPlayingRef.current || isSeekingRef.current || !videoElement.paused) return;
+      if (videoElement.readyState === 0 && !videoElement.error) {
+        try { videoElement.load(); } catch { /* ignore */ }
+      }
+      if (videoElement.readyState >= 2 && !videoElement.seeking) {
+        videoElement.play().catch(() => {
+          if (attempt < maxRetryCount) setTimeout(() => tryPlay(attempt + 1), retryIntervalMs);
+        });
+        return;
+      }
+      if (attempt < maxRetryCount) setTimeout(() => tryPlay(attempt + 1), retryIntervalMs);
+    };
+    tryPlay(1);
+  }, [isPlayingRef, isSeekingRef]);
+
   const syncVideoToTime = useCallback((time: number, options?: { force?: boolean }) => {
     const force = options?.force ?? false;
     const seekThreshold = force ? 0.01 : 0.1;
@@ -487,7 +505,7 @@ export function usePreviewSeekController({
 
                 if (shouldPrimeActiveVideo) {
                   if (videoElement.readyState >= 2 && !videoElement.seeking) {
-                    videoElement.play().catch(() => {});
+                    requestVideoPlayWithRetry(videoElement);
                   } else {
                     const playWhenReady = () => {
                       if (!shouldAttemptDeferredPreviewPlay({
@@ -500,7 +518,7 @@ export function usePreviewSeekController({
                         return;
                       }
                       if (videoElement.paused) {
-                        videoElement.play().catch(() => {});
+                        requestVideoPlayWithRetry(videoElement);
                       }
                     };
 
@@ -517,7 +535,7 @@ export function usePreviewSeekController({
                         mediaSeeking: videoElement.seeking,
                         readyState: videoElement.readyState,
                       }) && videoElement.paused) {
-                        videoElement.play().catch(() => {});
+                        requestVideoPlayWithRetry(videoElement);
                       }
                     }, 1000);
                   }
@@ -533,7 +551,7 @@ export function usePreviewSeekController({
 
         if (shouldBundlePreviewStart && activeVideoElementForBundledStart) {
           if (activeVideoElementForBundledStart.readyState >= 2 && !activeVideoElementForBundledStart.seeking) {
-            activeVideoElementForBundledStart.play().catch(() => {});
+            requestVideoPlayWithRetry(activeVideoElementForBundledStart);
           } else {
             const playWhenReady = () => {
               if (!shouldAttemptDeferredPreviewPlay({
@@ -547,7 +565,7 @@ export function usePreviewSeekController({
                 return;
               }
               if (activeVideoElementForBundledStart.paused) {
-                activeVideoElementForBundledStart.play().catch(() => {});
+                requestVideoPlayWithRetry(activeVideoElementForBundledStart);
               }
             };
             activeVideoElementForBundledStart.addEventListener('canplay', playWhenReady, { once: true });
@@ -762,6 +780,7 @@ export function usePreviewSeekController({
     previewPlatformPolicy,
     previewPlaybackAttemptRef,
     primePreviewAudioOnlyTracksAtTime,
+    requestVideoPlayWithRetry,
     cancelSeekPlaybackPrepareRef,
     renderFrame,
     reqIdRef,
