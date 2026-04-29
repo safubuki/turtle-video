@@ -157,6 +157,7 @@ const MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME: HTMLMediaElement['readyState'] =
   typeof HTMLMediaElement !== 'undefined'
     ? HTMLMediaElement.HAVE_CURRENT_DATA
     : 2;
+export const ANDROID_PREVIEW_DRIFT_FIX_THRESHOLD_SEC = 0.5;
 export const EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC = 0.004;
 
 /**
@@ -687,7 +688,7 @@ export function getAndroidPreviewRecoveryDecision(
   options: AndroidPreviewRecoveryDecisionOptions,
 ): AndroidPreviewRecoveryDecision {
   const readyStateFloor = options.readyStateFloor ?? MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME;
-  const syncThresholdSec = options.syncThresholdSec ?? 0.25;
+  const syncThresholdSec = options.syncThresholdSec ?? ANDROID_PREVIEW_DRIFT_FIX_THRESHOLD_SEC;
   const empty: AndroidPreviewRecoveryDecision = {
     shouldRecover: false,
     shouldHoldFrame: false,

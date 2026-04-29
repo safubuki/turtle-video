@@ -19,6 +19,7 @@ import { useMediaStore } from '../../../stores';
 import type { PlatformCapabilities } from '../../../utils/platform';
 import { collectPlaybackBlockingVideos, findActiveTimelineItem } from '../../../utils/playbackTimeline';
 import {
+  ANDROID_PREVIEW_DRIFT_FIX_THRESHOLD_SEC,
   EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC,
   getPreviewAudioOutputMode,
   getPreviewVideoSyncThreshold,
@@ -185,6 +186,7 @@ const PREVIEW_START_READY_TIMEOUT_MS = 900;
 // Android 実機で一発 play が落ちても数回は吸収するための retry 設定。
 const PREVIEW_PLAY_RETRY_INTERVAL_MS = 160;
 const PREVIEW_PLAY_RETRY_MAX_ATTEMPTS = 4;
+const ANDROID_PREVIEW_HOLD_LOG_INTERVAL_MS = 1000;
 
 /**
  * standard preview の開始直後に `play()` が一発失敗しても置き去りにしないための retry。
@@ -384,6 +386,29 @@ export function usePreviewEngine({
     lastTargetTime: number;
     attempts: number;
   }>>({});
+  const androidPreviewHoldLogAtRef = useRef<Record<string, number>>({});
+  const logAndroidPreviewHold = useCallback(
+    (videoId: string, timelineTime: number, activeEl?: HTMLVideoElement) => {
+      const now = Date.now();
+      const lastLoggedAt = androidPreviewHoldLogAtRef.current[videoId] ?? 0;
+      if (now - lastLoggedAt < ANDROID_PREVIEW_HOLD_LOG_INTERVAL_MS) {
+        return;
+      }
+
+      androidPreviewHoldLogAtRef.current[videoId] = now;
+      logInfo('RENDER', 'Android preview hold frame instead of black clear', {
+        videoId,
+        readyState: activeEl?.readyState,
+        paused: activeEl?.paused,
+        seeking: activeEl?.seeking,
+        videoWidth: activeEl?.videoWidth,
+        videoHeight: activeEl?.videoHeight,
+        currentTime: activeEl?.currentTime,
+        timelineTime,
+      });
+    },
+    [logInfo],
+  );
   const handleMediaElementLoaded = useCallback(
     (id: string, element: HTMLVideoElement | HTMLImageElement | HTMLAudioElement) => {
       if (element.tagName === 'VIDEO') {
@@ -531,6 +556,13 @@ export function usePreviewEngine({
         let activeId: string | null = null;
         let localTime = 0;
         let activeIndex = -1;
+        const currentLoopId = loopIdRef.current;
+        const isAndroidPreviewPlayback =
+          platformCapabilities.isAndroid
+          && !platformCapabilities.isIosSafari
+          && isActivePlaying
+          && !_isExporting
+          && !isSeekingRef.current;
         const active = findActiveTimelineItem(currentItems, time, totalDurationRef.current);
         if (active) {
           activeId = active.id;
@@ -590,6 +622,7 @@ export function usePreviewEngine({
 
         let holdFrame = false;
         let shouldBlackoutFadeTail = false;
+        let shouldSkipAndroidPreviewActiveDraw = false;
         if (activeId && activeIndex !== -1) {
           const activeItem = currentItems[activeIndex];
           const activeFadeOutDur = activeItem.fadeOutDuration || 1.0;
@@ -611,7 +644,22 @@ export function usePreviewEngine({
 
           if (activeItem.type === 'video') {
             const activeEl = mediaElementsRef.current[activeId] as HTMLVideoElement | undefined;
+            const shouldHoldForAndroidPreviewNotDrawable = isAndroidPreviewPlayback
+              && (
+                !activeEl
+                || activeEl.seeking
+                || activeEl.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+                || activeEl.videoWidth <= 0
+                || activeEl.videoHeight <= 0
+                || activeEl.paused
+              );
+
             if (!activeEl) {
+              if (shouldHoldForAndroidPreviewNotDrawable) {
+                holdFrame = true;
+                shouldSkipAndroidPreviewActiveDraw = true;
+                logAndroidPreviewHold(activeId, time);
+              }
               if (!shouldPreferBlackoutAtFadeTail && !isInFadeOutRegion) {
                 holdFrame = true;
               }
@@ -670,6 +718,19 @@ export function usePreviewEngine({
                   try { activeEl.load(); } catch { /* ignore */ }
                 }
               }
+              let didApplyAndroidPreviewDriftFix = false;
+              if (
+                isAndroidPreviewPlayback
+                && activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
+                && !activeEl.seeking
+                && Math.abs(activeEl.currentTime - targetTime) > ANDROID_PREVIEW_DRIFT_FIX_THRESHOLD_SEC
+              ) {
+                activeEl.currentTime = targetTime;
+                holdFrame = true;
+                shouldSkipAndroidPreviewActiveDraw = true;
+                didApplyAndroidPreviewDriftFix = true;
+                logAndroidPreviewHold(activeId, time, activeEl);
+              }
               const hasFrame =
                 activeEl.readyState >= 2 &&
                 activeEl.videoWidth > 0 &&
@@ -692,6 +753,7 @@ export function usePreviewEngine({
               });
 
               const shouldHoldActiveVideoFrame = !hasFrame
+                || shouldHoldForAndroidPreviewNotDrawable
                 || needsCorrection
                 || shouldHoldForVideoEnd
                 || shouldHoldForImageToVideoTransition;
@@ -700,20 +762,25 @@ export function usePreviewEngine({
                 if (!shouldPreferBlackoutAtFadeTail && !isInFadeOutRegion) {
                   holdFrame = true;
                 }
-                logInfo('RENDER', shouldPreferBlackoutAtFadeTail ? 'フェード終端ブラックアウト優先' : 'フレーム保持発動', {
-                  videoId: activeId,
-                  readyState: activeEl.readyState,
-                  seeking: activeEl.seeking,
-                  ended: activeEl.ended,
-                  videoCT: Math.round(activeEl.currentTime * 10000) / 10000,
-                  videoDur: activeEl.duration,
-                  currentTime: time,
-                  needsCorrection,
-                  shouldHoldForVideoEnd,
-                  shouldHoldForImageToVideoTransition,
-                  shouldHoldActiveVideoFrame,
-                  shouldBlackoutFadeTail: shouldPreferBlackoutAtFadeTail,
-                });
+                if (shouldHoldForAndroidPreviewNotDrawable || didApplyAndroidPreviewDriftFix) {
+                  shouldSkipAndroidPreviewActiveDraw = true;
+                  logAndroidPreviewHold(activeId, time, activeEl);
+                } else {
+                  logInfo('RENDER', shouldPreferBlackoutAtFadeTail ? 'フェード終端ブラックアウト優先' : 'フレーム保持発動', {
+                    videoId: activeId,
+                    readyState: activeEl.readyState,
+                    seeking: activeEl.seeking,
+                    ended: activeEl.ended,
+                    videoCT: Math.round(activeEl.currentTime * 10000) / 10000,
+                    videoDur: activeEl.duration,
+                    currentTime: time,
+                    needsCorrection,
+                    shouldHoldForVideoEnd,
+                    shouldHoldForImageToVideoTransition,
+                    shouldHoldActiveVideoFrame,
+                    shouldBlackoutFadeTail: shouldPreferBlackoutAtFadeTail,
+                  });
+                }
               }
             }
           } else if (activeItem.type === 'image') {
@@ -746,9 +813,15 @@ export function usePreviewEngine({
         const shouldForceStartClear = isNearTimelineStart && (
           _isExporting || (!isActivePlaying && !isPlayingRef.current)
         );
-        const shouldClearCanvas = shouldForceStartClear
-          || shouldBlackoutFadeTail
-          || (!holdFrame && !shouldHoldAtTimelineEnd && !shouldGuardNearEnd && !shouldGuardAfterFinalize);
+        const shouldSuppressAndroidPreviewClear =
+          isAndroidPreviewPlayback
+          && holdFrame;
+        const shouldClearCanvas = !shouldSuppressAndroidPreviewClear
+          && (
+            shouldForceStartClear
+            || shouldBlackoutFadeTail
+            || (!holdFrame && !shouldHoldAtTimelineEnd && !shouldGuardNearEnd && !shouldGuardAfterFinalize)
+          );
 
         if (shouldClearCanvas) {
           if (totalDurationRef.current > 0 && time >= totalDurationRef.current - 0.5) {
@@ -910,21 +983,33 @@ export function usePreviewEngine({
                   !shouldHoldVideoAtClipEnd &&
                   !hasExportPlayFailure
                 ) {
-                  videoEl.play().then(() => {
-                    if (_isExporting) {
-                      delete exportPlayFailedRef.current[id];
-                      delete exportFallbackSeekAtRef.current[id];
-                    }
-                  }).catch((err) => {
-                    if (_isExporting && !exportPlayFailedRef.current[id]) {
-                      exportPlayFailedRef.current[id] = true;
-                      exportFallbackSeekAtRef.current[id] = 0;
-                      logWarn('RENDER', 'エクスポート中の動画再生開始に失敗。シーク同期フォールバックへ切替', {
-                        videoId: id,
-                        error: err instanceof Error ? err.message : String(err),
-                      });
-                    }
-                  });
+                  if (
+                    isAndroidPreviewPlayback
+                    && !isVideoSeeking
+                    && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+                  ) {
+                    requestVideoPlayWithRetry(videoEl, () =>
+                      isPlayingRef.current
+                      && !isSeekingRef.current
+                      && loopIdRef.current === currentLoopId,
+                    );
+                  } else {
+                    videoEl.play().then(() => {
+                      if (_isExporting) {
+                        delete exportPlayFailedRef.current[id];
+                        delete exportFallbackSeekAtRef.current[id];
+                      }
+                    }).catch((err) => {
+                      if (_isExporting && !exportPlayFailedRef.current[id]) {
+                        exportPlayFailedRef.current[id] = true;
+                        exportFallbackSeekAtRef.current[id] = 0;
+                        logWarn('RENDER', 'エクスポート中の動画再生開始に失敗。シーク同期フォールバックへ切替', {
+                          videoId: id,
+                          error: err instanceof Error ? err.message : String(err),
+                        });
+                      }
+                    });
+                  }
                 }
 
                 const androidRecoveryDecision = getAndroidPreviewRecoveryDecision({
@@ -940,6 +1025,7 @@ export function usePreviewEngine({
                   videoHeight: videoEl.videoHeight,
                   videoCurrentTime: videoEl.currentTime,
                   targetTime,
+                  syncThresholdSec: ANDROID_PREVIEW_DRIFT_FIX_THRESHOLD_SEC,
                 });
                 if (androidRecoveryDecision.shouldRecover) {
                   const now = Date.now();
@@ -970,7 +1056,11 @@ export function usePreviewEngine({
                       && !isVideoSeeking
                       && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
                     ) {
-                      videoEl.play().catch(() => { /* ignore */ });
+                      requestVideoPlayWithRetry(videoEl, () =>
+                        isPlayingRef.current
+                        && !isSeekingRef.current
+                        && loopIdRef.current === currentLoopId,
+                      );
                     }
                   }
                 } else if (androidPreviewRecoveryRef.current[id]) {
@@ -1000,8 +1090,12 @@ export function usePreviewEngine({
               isVideo
               && id === activeId
               && shouldBlackoutFadeTail;
+            const shouldSkipVideoDrawForAndroidHold =
+              isVideo
+              && id === activeId
+              && shouldSkipAndroidPreviewActiveDraw;
 
-            if (isReady && !shouldSkipVideoDrawForFadeTail) {
+            if (isReady && !shouldSkipVideoDrawForFadeTail && !shouldSkipVideoDrawForAndroidHold) {
               const elemW = isVideo ? videoEl.videoWidth : imgEl.naturalWidth;
               const elemH = isVideo ? videoEl.videoHeight : imgEl.naturalHeight;
               if (elemW && elemH) {
