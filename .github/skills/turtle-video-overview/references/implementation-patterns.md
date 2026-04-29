@@ -89,7 +89,16 @@
   - `handleSeekEnd` の再生再開時刻は固定値ではなく `currentTimeRef.current` から再取得し、遅延イベントで更新された最終シーク位置を取りこぼさない
 - **注意**: シークセッション外イベントで `renderFrame(..., false)` を実行すると、再生中動画を誤って `pause()` しやすい。seek 復帰待機の cleanup は `cancelSeekPlaybackPrepareRef` と global seek listener の両方から中断できる構造を維持する
 
-### 2-7. エクスポート時の画像→動画境界ちらつき対策
+### 2-7. standard preview 再生クロック統一
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/usePreviewSeekController.ts`, `src/flavors/standard/preview/playbackClock.ts`
+- **問題**: standard preview で再生ループは `performance.now()` 基準なのに、シーク中の `change` とシーク復帰後の再開時刻が `Date.now()` 基準のままだと、Android でシーク後に `startTimeRef` が壊れ、1 秒刻みのようなカクついた再生になりやすい
+- **対策**:
+  - standard preview の再生ループ・再生開始・シーク復帰で使う現在時刻を `getStandardPreviewNow()` に統一する
+  - `startTimeRef` を更新する箇所は loop 側と同じ time origin を必ず使い、片側だけ `performance.now()` / `Date.now()` を混在させない
+- **注意**: この統一は `standard` flavor の preview 専用。apple-safari 側は別 runtime の前提で `Date.now()` ベースのまま管理しているため、shared helper へ戻さず flavor-owned boundary で閉じる
+
+### 2-8. エクスポート時の画像→動画境界ちらつき対策
 
 - **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`
 - **問題**: エクスポート中、画像クリップから動画クリップへ切り替わる瞬間だけ黒フレームが一瞬挟まることがある
