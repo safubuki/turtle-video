@@ -124,6 +124,15 @@
   - 待機と retry の継続条件には `loopIdRef`・`previewPlaybackAttemptRef`・`isSeekingRef` を使い、古い再生試行が新しい再生を上書きしないようにする
 - **注意**: この待機は `standard` flavor の preview start 専用。shared や `apple-safari` 側へ共通化すると flavor ごとの再生ポリシー差分を再び混ぜやすいため、runtime-owned boundary のまま閉じる
 
+### 2-10. standard preview の active seek 中は visibility 復帰で seek cleanup を横取りしない
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewVisibilityLifecycle.ts`, `src/test/standardPreviewVisibilityLifecycle.test.tsx`
+- **問題**: Android でシーク中に `visibilitychange` / `focus` / `pageshow` が挟まると、可視復帰側が paused seek の待機解除や paused frame 再描画を先に実行し、`handleSeekEnd` の復帰シーケンスと競合しやすい
+- **対策**:
+  - standard preview の visibility lifecycle は `isSeekingRef.current === true` の間、可視復帰で `cancelPendingSeekPlaybackPrepare()` / `cancelPendingPausedSeekWait()` / paused frame 再描画を実行しない
+  - seek セッション完了後の `handleSeekEnd` / `handleSeekChange` に最終フレーム同期を委ね、visibility 復帰は必要な resync フラグだけ保持する
+- **注意**: このガードは Android/PC 向け `standard` preview 専用。shared 側で一律に paused frame 再描画を止めるのではなく、flavor-owned lifecycle hook で seek 中だけ defer する
+
 ---
 
 ## 3. AudioContext 管理

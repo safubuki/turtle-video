@@ -25,6 +25,7 @@ interface UsePreviewVisibilityLifecycleParams {
   audioResumeWaitFramesRef: MutableRefObject<number>;
   lastVisibilityRefreshAtRef: MutableRefObject<number>;
   isPlayingRef: MutableRefObject<boolean>;
+  isSeekingRef?: MutableRefObject<boolean>;
   audioCtxRef: MutableRefObject<AudioContext | null>;
   isProcessing: boolean;
   previewPlatformPolicy: PreviewPlatformPolicy;
@@ -51,6 +52,7 @@ export function usePreviewVisibilityLifecycle({
   audioResumeWaitFramesRef,
   lastVisibilityRefreshAtRef,
   isPlayingRef,
+  isSeekingRef,
   audioCtxRef,
   isProcessing,
   previewPlatformPolicy,
@@ -233,6 +235,13 @@ export function usePreviewVisibilityLifecycle({
 
       const latestTime = Math.max(0, Math.min(currentTimeRef.current, totalDurationRef.current));
 
+      if (isSeekingRef?.current) {
+        // Android では seek 復帰の cleanup / redraw を handleSeekEnd 側へ一任し、
+        // visibility 復帰は resync 要否だけ保持してセッションを横取りしない。
+        needsResyncAfterVisibilityRef.current = recoveryPlan.shouldResyncMedia;
+        return;
+      }
+
       if (!recoveryPlan.shouldKeepRunning) {
         cancelPendingSeekPlaybackPrepare();
         cancelPendingPausedSeekWait();
@@ -345,6 +354,7 @@ export function usePreviewVisibilityLifecycle({
     currentTimeRef,
     hiddenStartedAtRef,
     isPlayingRef,
+    isSeekingRef,
     isProcessing,
     lastVisibilityRefreshAtRef,
     logInfo,

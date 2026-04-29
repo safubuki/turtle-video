@@ -17,6 +17,8 @@ import type {
 } from '../types';
 import type { PlatformCapabilities } from '../utils/platform';
 
+const TEST_PREVIEW_START_SETTLE_MS = 60;
+
 function createCapabilities(
   overrides: Partial<PlatformCapabilities> = {},
 ): PlatformCapabilities {
@@ -111,41 +113,6 @@ function createMockVideoElement() {
   return element;
 }
 
-async function advanceTimersUntilResolved<T>(promise: Promise<T>, maxSteps = 50): Promise<T> {
-  let settled = false;
-  let result!: T;
-  let error: unknown;
-
-  promise.then(
-    (value) => {
-      settled = true;
-      result = value;
-    },
-    (reason) => {
-      settled = true;
-      error = reason;
-    },
-  );
-
-  for (let step = 0; step < maxSteps && !settled; step += 1) {
-    await vi.advanceTimersToNextTimerAsync();
-  }
-
-  if (!settled) {
-    await vi.runOnlyPendingTimersAsync();
-    await Promise.resolve();
-  }
-
-  if (!settled) {
-    throw new Error(`Timed out waiting for promise to resolve after advancing timers ${maxSteps} times.`);
-  }
-
-  if (error !== undefined) {
-    throw error;
-  }
-
-  return result;
-}
 describe('standard preview engine', () => {
   beforeEach(() => {
     vi.useFakeTimers();

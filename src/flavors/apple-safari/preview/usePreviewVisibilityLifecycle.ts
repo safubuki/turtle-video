@@ -26,6 +26,7 @@ interface UsePreviewVisibilityLifecycleParams {
   audioResumeWaitFramesRef: MutableRefObject<number>;
   lastVisibilityRefreshAtRef: MutableRefObject<number>;
   isPlayingRef: MutableRefObject<boolean>;
+  isSeekingRef?: MutableRefObject<boolean>;
   audioCtxRef: MutableRefObject<AudioContext | null>;
   isProcessing: boolean;
   previewPlatformPolicy: PreviewPlatformPolicy;
