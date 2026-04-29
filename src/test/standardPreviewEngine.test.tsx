@@ -111,8 +111,41 @@ function createMockVideoElement() {
   return element;
 }
 
-const TEST_PREVIEW_START_SETTLE_MS = 80;
+async function advanceTimersUntilResolved<T>(promise: Promise<T>, maxSteps = 50): Promise<T> {
+  let settled = false;
+  let result!: T;
+  let error: unknown;
 
+  promise.then(
+    (value) => {
+      settled = true;
+      result = value;
+    },
+    (reason) => {
+      settled = true;
+      error = reason;
+    },
+  );
+
+  for (let step = 0; step < maxSteps && !settled; step += 1) {
+    await vi.advanceTimersToNextTimerAsync();
+  }
+
+  if (!settled) {
+    await vi.runOnlyPendingTimersAsync();
+    await Promise.resolve();
+  }
+
+  if (!settled) {
+    throw new Error(`Timed out waiting for promise to resolve after advancing timers ${maxSteps} times.`);
+  }
+
+  if (error !== undefined) {
+    throw error;
+  }
+
+  return result;
+}
 describe('standard preview engine', () => {
   beforeEach(() => {
     vi.useFakeTimers();
