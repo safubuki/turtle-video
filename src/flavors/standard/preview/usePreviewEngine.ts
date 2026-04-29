@@ -172,6 +172,115 @@ const applyPreviewAudioOutputState = (
   return outputMode;
 };
 
+const PREVIEW_START_READY_SYNC_TOLERANCE_SEC = 0.05;
+
+const requestVideoPlayWithRetry = (
+  videoElement: HTMLVideoElement,
+  shouldContinue: () => boolean,
+  retryIntervalMs = 160,
+) => {
+  const maxRetryCount = 4;
+  const tryPlay = (attempt: number) => {
+    if (!shouldContinue() || !videoElement.paused) return;
+    if (videoElement.readyState === 0 && !videoElement.error) {
+      try {
+        videoElement.load();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (videoElement.readyState >= 2 && !videoElement.seeking) {
+      videoElement.play().catch(() => {
+        if (attempt < maxRetryCount) {
+          setTimeout(() => tryPlay(attempt + 1), retryIntervalMs);
+        }
+      });
+      return;
+    }
+    if (attempt < maxRetryCount) {
+      setTimeout(() => tryPlay(attempt + 1), retryIntervalMs);
+    }
+  };
+  tryPlay(1);
+};
+
+const waitForPreviewStartVideoReady = async (
+  videoElement: HTMLVideoElement,
+  targetTime: number,
+  shouldContinue: () => boolean,
+): Promise<void> => {
+  const needsWait =
+    videoElement.seeking
+    || videoElement.readyState < 2
+    || Math.abs(videoElement.currentTime - targetTime) > PREVIEW_START_READY_SYNC_TOLERANCE_SEC;
+
+  if (!needsWait) {
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = () => {
+      videoElement.removeEventListener('seeked', onReady);
+      videoElement.removeEventListener('loadeddata', onReady);
+      videoElement.removeEventListener('canplay', onReady);
+      videoElement.removeEventListener('error', onReady);
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+    };
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+
+    const onReady = () => {
+      if (!shouldContinue()) {
+        finish();
+        return;
+      }
+      if (videoElement.readyState === 0 && !videoElement.error) {
+        try {
+          videoElement.load();
+        } catch {
+          /* ignore */
+        }
+      }
+      const drift = Math.abs(videoElement.currentTime - targetTime);
+      if (!videoElement.seeking && videoElement.readyState >= 1 && drift > PREVIEW_START_READY_SYNC_TOLERANCE_SEC) {
+        try {
+          videoElement.currentTime = targetTime;
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
+      if (videoElement.readyState >= 2 && !videoElement.seeking && drift <= PREVIEW_START_READY_SYNC_TOLERANCE_SEC) {
+        finish();
+      }
+    };
+
+    pollTimer = setInterval(onReady, 40);
+    timeoutId = setTimeout(finish, 900);
+    videoElement.addEventListener('seeked', onReady);
+    videoElement.addEventListener('loadeddata', onReady);
+    videoElement.addEventListener('canplay', onReady);
+    videoElement.addEventListener('error', onReady);
+    onReady();
+  });
+};
+
 export function usePreviewEngine({
   captions,
   captionSettings,
@@ -2036,6 +2145,7 @@ export function usePreviewEngine({
 
         const shouldPrimeActiveVideo = !shouldBundlePreviewStart;
         let activeVideoElForBundledStart: HTMLVideoElement | null = null;
+        let activeVideoTargetTime: number | null = null;
         let t = 0;
         for (const item of mediaItemsRef.current) {
           if (fromTime >= t && fromTime < t + item.duration) {
@@ -2047,9 +2157,7 @@ export function usePreviewEngine({
                 videoEl.currentTime = targetTime;
                 activeVideoIdRef.current = item.id;
                 activeVideoElForBundledStart = videoEl;
-                if (shouldPrimeActiveVideo) {
-                  videoEl.play().catch(() => { });
-                }
+                activeVideoTargetTime = targetTime;
               }
             }
             break;
@@ -2057,29 +2165,37 @@ export function usePreviewEngine({
           t += item.duration;
         }
 
+        if (activeVideoElForBundledStart && activeVideoTargetTime !== null) {
+          await waitForPreviewStartVideoReady(
+            activeVideoElForBundledStart,
+            activeVideoTargetTime,
+            () =>
+              myLoopId === loopIdRef.current
+              && previewPlaybackAttempt === previewPlaybackAttemptRef.current
+              && isPlayingRef.current
+              && !isSeekingRef.current,
+          );
+          if (myLoopId !== loopIdRef.current) {
+            return;
+          }
+        }
+
         if (preparedPreviewAudio.requiresWebAudio) {
           primePreviewAudioOnlyTracksAtTime(fromTime);
         }
-        if (shouldBundlePreviewStart && activeVideoElForBundledStart) {
-          if (activeVideoElForBundledStart.readyState >= 2 && !activeVideoElForBundledStart.seeking) {
-            activeVideoElForBundledStart.play().catch(() => { });
-          } else {
-            const playWhenReady = () => {
-              if (!shouldAttemptDeferredPreviewPlay({
-                isCurrentAttempt: previewPlaybackAttempt === previewPlaybackAttemptRef.current,
-                isPlaying: isPlayingRef.current,
-                isSeeking: isSeekingRef.current,
-                mediaSeeking: activeVideoElForBundledStart.seeking,
-                readyState: activeVideoElForBundledStart.readyState,
-                minReadyState: 2,
-              })) {
-                return;
-              }
-              if (activeVideoElForBundledStart.paused) {
-                activeVideoElForBundledStart.play().catch(() => { });
-              }
-            };
-            activeVideoElForBundledStart.addEventListener('canplay', playWhenReady, { once: true });
+        if (activeVideoElForBundledStart) {
+          const shouldAttemptPlay = () =>
+            shouldAttemptDeferredPreviewPlay({
+              isCurrentAttempt: previewPlaybackAttempt === previewPlaybackAttemptRef.current,
+              isPlaying: isPlayingRef.current,
+              isSeeking: isSeekingRef.current,
+              mediaSeeking: activeVideoElForBundledStart.seeking,
+              readyState: activeVideoElForBundledStart.readyState,
+              minReadyState: shouldBundlePreviewStart ? 2 : 1,
+            });
+
+          if (shouldPrimeActiveVideo || shouldBundlePreviewStart) {
+            requestVideoPlayWithRetry(activeVideoElForBundledStart, shouldAttemptPlay);
           }
         }
 
