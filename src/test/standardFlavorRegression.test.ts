@@ -236,4 +236,24 @@ describe('standard flavor regression', () => {
       });
     }
   });
+
+  it('standard preview clock は performance が無い環境で Date.now にフォールバックする', () => {
+    const originalPerformance = globalThis.performance;
+    const dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(777);
+
+    try {
+      Object.defineProperty(globalThis, 'performance', {
+        configurable: true,
+        value: undefined,
+      });
+
+      expect(getStandardPreviewNow()).toBe(777);
+    } finally {
+      dateNowSpy.mockRestore();
+      Object.defineProperty(globalThis, 'performance', {
+        configurable: true,
+        value: originalPerformance,
+      });
+    }
+  });
 });
