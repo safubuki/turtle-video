@@ -1,4 +1,4 @@
-import { useCallback, type MutableRefObject } from 'react';
+import { useCallback, useRef, type MutableRefObject } from 'react';
 
 import {
   CANVAS_HEIGHT,
@@ -30,7 +30,7 @@ import {
   shouldKeepInactiveVideoPrewarmed,
   shouldMuteNativeMediaElement,
   shouldPrimeFutureInactiveVideoInPreview,
-  shouldRecoverAndroidPreviewVideoPlayback,
+  getAndroidPreviewRecoveryDecision,
   shouldRecoverAudioOnlyAfterVideoBoundary,
   shouldReinitializeAudioRoute,
   shouldRetryAudioOnlyPrimeAtPreviewStart,
@@ -376,6 +376,14 @@ export function usePreviewEngine({
   logWarn,
   logDebug,
 }: UsePreviewEngineParams): UsePreviewEngineResult {
+  const androidPreviewRecoveryRef = useRef<Record<string, {
+    active: boolean;
+    reason: string;
+    startedAt: number;
+    lastAttemptAt: number;
+    lastTargetTime: number;
+    attempts: number;
+  }>>({});
   const handleMediaElementLoaded = useCallback(
     (id: string, element: HTMLVideoElement | HTMLImageElement | HTMLAudioElement) => {
       if (element.tagName === 'VIDEO') {
@@ -919,27 +927,56 @@ export function usePreviewEngine({
                   });
                 }
 
-                const shouldRecoverAndroidPlayback = shouldRecoverAndroidPreviewVideoPlayback({
+                const androidRecoveryDecision = getAndroidPreviewRecoveryDecision({
                   isAndroid: platformCapabilities.isAndroid,
+                  isIosSafari: platformCapabilities.isIosSafari,
                   isExporting: _isExporting,
                   isActivePlaying,
                   isUserSeeking,
                   videoPaused: videoEl.paused,
                   videoSeeking: isVideoSeeking,
                   videoReadyState: videoEl.readyState,
+                  videoWidth: videoEl.videoWidth,
+                  videoHeight: videoEl.videoHeight,
+                  videoCurrentTime: videoEl.currentTime,
+                  targetTime,
                 });
-                if (shouldRecoverAndroidPlayback) {
-                  const now = Date.now();
+                if (androidRecoveryDecision.shouldRecover) {
+                  const now = getStandardPreviewNow();
                   const lastAttempt = videoRecoveryAttemptsRef.current[id] || 0;
+                  holdFrame = holdFrame || androidRecoveryDecision.shouldHoldFrame;
                   if (now - lastAttempt > 220) {
                     videoRecoveryAttemptsRef.current[id] = now;
+                    const recoveryState = androidPreviewRecoveryRef.current[id] ?? {
+                      active: true,
+                      reason: androidRecoveryDecision.reason ?? 'ready-state-low',
+                      startedAt: now,
+                      lastAttemptAt: 0,
+                      lastTargetTime: targetTime,
+                      attempts: 0,
+                    };
+                    recoveryState.attempts += 1;
+                    recoveryState.lastAttemptAt = now;
+                    recoveryState.lastTargetTime = targetTime;
+                    androidPreviewRecoveryRef.current[id] = recoveryState;
                     if (videoEl.readyState === 0 && !videoEl.error) {
                       try { videoEl.load(); } catch { /* ignore */ }
                     }
-                    if (!isVideoSeeking && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME) {
+                    if (androidRecoveryDecision.shouldResyncTime && !videoEl.seeking && videoEl.readyState >= 1) {
+                      videoEl.currentTime = targetTime;
+                    }
+                    if (
+                      androidRecoveryDecision.shouldRetryPlay
+                      && !isVideoSeeking
+                      && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+                    ) {
                       videoEl.play().catch(() => { /* ignore */ });
                     }
                   }
+                } else if (androidPreviewRecoveryRef.current[id]) {
+                  delete androidPreviewRecoveryRef.current[id];
+                  startTimeRef.current = getStandardPreviewNow() - currentTimeRef.current * 1000;
+                  primePreviewAudioOnlyTracksAtTimeRef.current(currentTimeRef.current);
                 }
               } else if (!isActivePlaying && !isUserSeeking) {
                 if (!videoEl.paused) {
