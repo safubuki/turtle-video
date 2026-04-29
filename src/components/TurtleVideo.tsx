@@ -617,6 +617,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     audioResumeWaitFramesRef,
     lastVisibilityRefreshAtRef,
     isPlayingRef,
+    isSeekingRef,
     audioCtxRef,
     isProcessing,
     previewPlatformPolicy,
