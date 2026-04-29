@@ -428,9 +428,11 @@ describe('standard preview engine', () => {
       } as MediaElementsRef,
     });
 
-    const didUpdateCanvas = hook.result.current.renderFrame(1.1, true, false);
+    const timelineTime = 1.1;
+    const expectedTime = videoItem.trimStart + (timelineTime - imageItem.duration);
+    const didUpdateCanvas = hook.result.current.renderFrame(timelineTime, true, false);
 
-    expect(videoElement.currentTime).toBeCloseTo(1.3);
+    expect(videoElement.currentTime).toBeCloseTo(expectedTime);
     expect(canvasContext.fillRect).not.toHaveBeenCalled();
     expect(canvasContext.drawImage).not.toHaveBeenCalled();
     expect(didUpdateCanvas).toBe(false);
@@ -487,9 +489,11 @@ describe('standard preview engine', () => {
       } as MediaElementsRef,
     });
 
-    insideHarness.hook.result.current.renderFrame(1.24, true, false);
+    const insideTimelineTime = 1.24;
+    const insideExpectedTime = videoItem.trimStart + (insideTimelineTime - imageItem.duration);
+    insideHarness.hook.result.current.renderFrame(insideTimelineTime, true, false);
 
-    expect(insideWindowVideo.currentTime).toBeCloseTo(1.44);
+    expect(insideWindowVideo.currentTime).toBeCloseTo(insideExpectedTime);
 
     const outsideWindowVideo = createMockVideoElement();
     outsideWindowVideo.readyState = 1;

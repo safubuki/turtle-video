@@ -674,11 +674,7 @@ export function usePreviewEngine({
                 logAndroidPreviewHold(activeId, time, activeEl);
               };
               const shouldStabilizeImageToTrimmedVideo =
-                platformCapabilities.isAndroid
-                && !platformCapabilities.isIosSafari
-                && isActivePlaying
-                && !_isExporting
-                && !isSeekingRef.current
+                isAndroidPreviewPlayback
                 && previousItem?.type === 'image'
                 && activeItem.type === 'video'
                 && (activeItem.trimStart || 0) > 0.001
