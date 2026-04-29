@@ -30,6 +30,7 @@ import {
   shouldKeepInactiveVideoPrewarmed,
   shouldMuteNativeMediaElement,
   shouldPrimeFutureInactiveVideoInPreview,
+  shouldRecoverAndroidPreviewVideoPlayback,
   shouldRecoverAudioOnlyAfterVideoBoundary,
   shouldReinitializeAudioRoute,
   shouldRetryAudioOnlyPrimeAtPreviewStart,
@@ -916,6 +917,29 @@ export function usePreviewEngine({
                       });
                     }
                   });
+                }
+
+                const shouldRecoverAndroidPlayback = shouldRecoverAndroidPreviewVideoPlayback({
+                  isAndroid: platformCapabilities.isAndroid,
+                  isExporting: _isExporting,
+                  isActivePlaying,
+                  isUserSeeking,
+                  videoPaused: videoEl.paused,
+                  videoSeeking: isVideoSeeking,
+                  videoReadyState: videoEl.readyState,
+                });
+                if (shouldRecoverAndroidPlayback) {
+                  const now = Date.now();
+                  const lastAttempt = videoRecoveryAttemptsRef.current[id] || 0;
+                  if (now - lastAttempt > 220) {
+                    videoRecoveryAttemptsRef.current[id] = now;
+                    if (videoEl.readyState === 0 && !videoEl.error) {
+                      try { videoEl.load(); } catch { /* ignore */ }
+                    }
+                    if (!isVideoSeeking && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME) {
+                      videoEl.play().catch(() => { /* ignore */ });
+                    }
+                  }
                 }
               } else if (!isActivePlaying && !isUserSeeking) {
                 if (!videoEl.paused) {

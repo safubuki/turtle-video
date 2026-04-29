@@ -103,6 +103,17 @@ export interface ExportImageToVideoFrameHoldOptions extends ExportImageToVideoSt
   syncToleranceSec?: number;
 }
 
+export interface AndroidPreviewVideoRecoveryOptions {
+  isAndroid: boolean;
+  isExporting: boolean;
+  isActivePlaying: boolean;
+  isUserSeeking: boolean;
+  videoPaused: boolean;
+  videoSeeking: boolean;
+  videoReadyState: number;
+  readyStateFloor?: number;
+}
+
 // HTMLMediaElement.HAVE_CURRENT_DATA 相当。現在フレームを canvas 描画に使える最小 readyState。
 const MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME: HTMLMediaElement['readyState'] =
   typeof HTMLMediaElement !== 'undefined'
@@ -612,4 +623,14 @@ export function getPageHidePausePlan(options: {
   return {
     shouldPauseMediaElements: !options.isProcessing,
   };
+}
+
+export function shouldRecoverAndroidPreviewVideoPlayback(
+  options: AndroidPreviewVideoRecoveryOptions,
+): boolean {
+  if (!options.isAndroid || options.isExporting) return false;
+  if (!options.isActivePlaying || options.isUserSeeking) return false;
+
+  const readyStateFloor = options.readyStateFloor ?? MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME;
+  return options.videoPaused || options.videoSeeking || options.videoReadyState < readyStateFloor;
 }
