@@ -70,6 +70,31 @@ function createVideoItem(overrides: Partial<MediaItem> = {}): MediaItem {
   };
 }
 
+function createImageItem(overrides: Partial<MediaItem> = {}): MediaItem {
+  return {
+    id: overrides.id ?? 'image-1',
+    file: overrides.file ?? new File([''], 'frame.png', { type: 'image/png' }),
+    type: 'image',
+    url: overrides.url ?? 'blob:image-1',
+    volume: overrides.volume ?? 1,
+    isMuted: overrides.isMuted ?? false,
+    fadeIn: overrides.fadeIn ?? false,
+    fadeOut: overrides.fadeOut ?? false,
+    fadeInDuration: overrides.fadeInDuration ?? 1,
+    fadeOutDuration: overrides.fadeOutDuration ?? 1,
+    duration: overrides.duration ?? 1,
+    originalDuration: overrides.originalDuration ?? (overrides.duration ?? 1),
+    trimStart: overrides.trimStart ?? 0,
+    trimEnd: overrides.trimEnd ?? (overrides.duration ?? 1),
+    scale: overrides.scale ?? 1,
+    positionX: overrides.positionX ?? 0,
+    positionY: overrides.positionY ?? 0,
+    isTransformOpen: overrides.isTransformOpen ?? false,
+    isLocked: overrides.isLocked ?? false,
+    ...overrides,
+  };
+}
+
 function createMockVideoElement() {
   const listeners = new Map<string, Set<EventListener>>();
 
@@ -82,6 +107,8 @@ function createMockVideoElement() {
     duration: 12,
     ended: false,
     error: null,
+    videoWidth: 1280,
+    videoHeight: 720,
     defaultMuted: false,
     muted: false,
     volume: 1,
@@ -111,6 +138,19 @@ function createMockVideoElement() {
   };
 
   return element;
+}
+
+function createMockCanvasContext() {
+  return {
+    fillRect: vi.fn(),
+    drawImage: vi.fn(),
+    save: vi.fn(),
+    restore: vi.fn(),
+    translate: vi.fn(),
+    scale: vi.fn(),
+    globalAlpha: 1,
+    fillStyle: '#000000',
+  } as unknown as CanvasRenderingContext2D;
 }
 
 describe('standard preview engine', () => {
@@ -231,6 +271,95 @@ describe('standard preview engine', () => {
     return { mediaItem, videoElement, requestAnimationFrameSpy, setCurrentTime, play, hook };
   }
 
+  function setupRenderFrameHarness(options?: {
+    mediaItems?: MediaItem[];
+    mediaElements?: MediaElementsRef;
+  }) {
+    const mediaItems = options?.mediaItems ?? [createVideoItem()];
+    const mediaElements = options?.mediaElements ?? {};
+    const canvasContext = createMockCanvasContext();
+    const previewPlatformPolicy = standardPreviewRuntime.getPreviewPlatformPolicy(
+      getStandardPreviewPlatformCapabilities(createCapabilities()),
+    );
+
+    const hook = renderHook(() =>
+      usePreviewEngine({
+        captions: [] as Caption[],
+        captionSettings: {} as CaptionSettings,
+        mediaItemsRef: createRef(mediaItems),
+        bgmRef: createRef<AudioTrack | null>(null),
+        narrationsRef: createRef<NarrationClip[]>([]),
+        captionsRef: createRef<Caption[]>([]),
+        captionSettingsRef: createRef({} as CaptionSettings),
+        totalDurationRef: createRef(mediaItems.reduce((sum, item) => sum + item.duration, 0)),
+        currentTimeRef: createRef(0),
+        canvasRef: createRef({
+          getContext: vi.fn(() => canvasContext),
+        } as unknown as HTMLCanvasElement),
+        mediaElementsRef: createRef(mediaElements),
+        audioCtxRef: createRef(null),
+        sourceNodesRef: createRef({}),
+        gainNodesRef: createRef({}),
+        masterDestRef: createRef(null),
+        audioRoutingModeRef: createRef<'preview' | 'export'>('preview'),
+        reqIdRef: createRef<number | null>(null),
+        startTimeRef: createRef(0),
+        audioResumeWaitFramesRef: createRef(0),
+        recorderRef: createRef<MediaRecorder | null>(null),
+        loopIdRef: createRef(1),
+        isPlayingRef: createRef(true),
+        isSeekingRef: createRef(false),
+        isSeekPlaybackPreparingRef: createRef(false),
+        activeVideoIdRef: createRef<string | null>(null),
+        videoRecoveryAttemptsRef: createRef({}),
+        exportPlayFailedRef: createRef({}),
+        exportFallbackSeekAtRef: createRef({}),
+        seekingVideosRef: createRef(new Set<string>()),
+        pendingSeekRef: createRef<number | null>(null),
+        wasPlayingBeforeSeekRef: createRef(false),
+        pendingSeekTimeoutRef: createRef<ReturnType<typeof setTimeout> | null>(null),
+        previewPlaybackAttemptRef: createRef(0),
+        requestPreviewAudioRouteRefreshRef: createRef(() => {}),
+        primePreviewAudioOnlyTracksAtTimeRef: createRef(() => {}),
+        endFinalizedRef: createRef(false),
+        previewPlatformPolicy,
+        platformCapabilities: { isAndroid: true, isIosSafari: false },
+        setVideoDuration: vi.fn(),
+        setCurrentTime: vi.fn(),
+        setProcessing: vi.fn(),
+        setLoading: vi.fn(),
+        setExportPreparationStep: vi.fn(),
+        setExportUrl: vi.fn(),
+        setExportExt: vi.fn(),
+        clearExport: vi.fn(),
+        setError: vi.fn(),
+        play: vi.fn(),
+        pause: vi.fn(),
+        getAudioContext: vi.fn(),
+        cancelPendingPausedSeekWait: vi.fn(),
+        cancelPendingSeekPlaybackPrepare: vi.fn(),
+        detachGlobalSeekEndListeners: vi.fn(),
+        ensureAudioNodeForElement: vi.fn(() => false),
+        detachAudioNode: vi.fn(),
+        preparePreviewAudioNodesForTime: vi.fn(() => ({
+          activeVideoId: null,
+          audibleSourceCount: 0,
+          requiresWebAudio: false,
+        })),
+        preparePreviewAudioNodesForUpcomingVideos: vi.fn(),
+        primePreviewAudioOnlyTracksAtTime: vi.fn(),
+        resetInactiveVideos: vi.fn(),
+        startWebCodecsExport: vi.fn(),
+        stopWebCodecsExport: vi.fn(),
+        logInfo: vi.fn(),
+        logWarn: vi.fn(),
+        logDebug: vi.fn(),
+      }),
+    );
+
+    return { canvasContext, hook };
+  }
+
   it('paused seek 後は active video 準備完了を待ってから再生を始める', async () => {
     const { videoElement, requestAnimationFrameSpy, setCurrentTime, play, hook } =
       setupPreviewEngineHarness();
@@ -276,5 +405,63 @@ describe('standard preview engine', () => {
     expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
     expect(setCurrentTime).toHaveBeenCalledWith(0);
     expect(play).toHaveBeenCalledTimes(1);
+  });
+
+  it('Android preview は image -> trimStart あり video の先頭だけ currentTime を厳しめに合わせて描画を hold する', () => {
+    const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
+    const videoItem = createVideoItem({
+      id: 'video-2',
+      duration: 2,
+      trimStart: 1.2,
+      trimEnd: 3.2,
+    });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 1;
+    videoElement.seeking = false;
+    videoElement.paused = false;
+    videoElement.currentTime = 1.36;
+
+    const { canvasContext, hook } = setupRenderFrameHarness({
+      mediaItems: [imageItem, videoItem],
+      mediaElements: {
+        [videoItem.id]: videoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+    });
+
+    const didUpdateCanvas = hook.result.current.renderFrame(1.1, true, false);
+
+    expect(videoElement.currentTime).toBeCloseTo(1.3);
+    expect(canvasContext.fillRect).not.toHaveBeenCalled();
+    expect(canvasContext.drawImage).not.toHaveBeenCalled();
+    expect(didUpdateCanvas).toBe(false);
+  });
+
+  it('Android preview は image -> trimStart あり video がまだ描画不能なら直前フレーム保持を優先する', () => {
+    const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
+    const videoItem = createVideoItem({
+      id: 'video-2',
+      duration: 2,
+      trimStart: 1.2,
+      trimEnd: 3.2,
+    });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 1;
+    videoElement.seeking = true;
+    videoElement.paused = false;
+    videoElement.currentTime = 1.3;
+
+    const { canvasContext, hook } = setupRenderFrameHarness({
+      mediaItems: [imageItem, videoItem],
+      mediaElements: {
+        [videoItem.id]: videoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+    });
+
+    const didUpdateCanvas = hook.result.current.renderFrame(1.1, true, false);
+
+    expect(videoElement.currentTime).toBeCloseTo(1.3);
+    expect(canvasContext.fillRect).not.toHaveBeenCalled();
+    expect(canvasContext.drawImage).not.toHaveBeenCalled();
+    expect(didUpdateCanvas).toBe(false);
   });
 });
