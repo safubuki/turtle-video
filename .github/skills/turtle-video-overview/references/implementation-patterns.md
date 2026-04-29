@@ -95,6 +95,7 @@
 - **問題**: standard preview で再生ループは `performance.now()` 基準なのに、シーク中の `change` とシーク復帰後の再開時刻が `Date.now()` 基準のままだと、Android でシーク後に `startTimeRef` が壊れ、1 秒刻みのようなカクついた再生になりやすい
 - **対策**:
   - standard preview の再生ループ・再生開始・シーク復帰で使う現在時刻を `getStandardPreviewNow()` に統一する
+  - throttled seek の timeout callback で更新する `lastSeekTimeRef` も `getStandardPreviewNow()` に合わせ、`SEEK_THROTTLE_MS` 判定へ `Date.now()` を混在させない
   - `startTimeRef` を更新する箇所は loop 側と同じ time origin を必ず使い、片側だけ `performance.now()` / `Date.now()` を混在させない
 - **注意**: この統一は `standard` flavor の preview 専用。apple-safari 側は別 runtime の前提で `Date.now()` ベースのまま管理しているため、shared helper へ戻さず flavor-owned boundary で閉じる
 

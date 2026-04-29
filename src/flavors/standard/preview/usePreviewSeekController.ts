@@ -372,7 +372,7 @@ export function usePreviewSeekController({
           if (pendingSeekRef.current !== null) {
             const pendingTime = pendingSeekRef.current;
             pendingSeekRef.current = null;
-            lastSeekTimeRef.current = Date.now();
+            lastSeekTimeRef.current = getStandardPreviewNow();
             syncVideoToTime(pendingTime);
             renderFrame(pendingTime, false);
           }
