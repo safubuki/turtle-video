@@ -172,6 +172,143 @@ const applyPreviewAudioOutputState = (
   return outputMode;
 };
 
+// HTMLMediaElement.HAVE_METADATA: currentTime を安全に合わせ直せる最小 readyState。
+const MIN_VIDEO_READY_STATE_FOR_SEEK = 1;
+// HTMLMediaElement.HAVE_CURRENT_DATA: canvas 描画と play retry を始められる最小 readyState。
+const MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME = 2;
+// 再生開始前に許容する currentTime のずれ。既存 preview sync しきい値より厳しく合わせる。
+const PREVIEW_START_READY_SYNC_TOLERANCE_SEC = 0.05;
+// 再生開始直後は seeked / canplay の到着を数フレームだけ待ち、遅ければ loop を止めない。
+const PREVIEW_START_READY_POLL_INTERVAL_MS = 40;
+const PREVIEW_START_READY_TIMEOUT_MS = 900;
+// Android 実機で一発 play が落ちても数回は吸収するための retry 設定。
+const PREVIEW_PLAY_RETRY_INTERVAL_MS = 160;
+const PREVIEW_PLAY_RETRY_MAX_ATTEMPTS = 4;
+
+/**
+ * standard preview の開始直後に `play()` が一発失敗しても置き去りにしないための retry。
+ * 呼び出し側は `shouldContinue()` で loop 世代や seek 状態を監視し、古い再生試行を自然終了させる。
+ */
+const requestVideoPlayWithRetry = (
+  videoElement: HTMLVideoElement,
+  shouldContinue: () => boolean,
+  retryIntervalMs = PREVIEW_PLAY_RETRY_INTERVAL_MS,
+) => {
+  const tryPlay = (currentAttempt: number) => {
+    if (!shouldContinue() || !videoElement.paused) return;
+    if (videoElement.readyState === 0 && !videoElement.error) {
+      try {
+        videoElement.load();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (videoElement.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME && !videoElement.seeking) {
+      videoElement.play().catch(() => {
+        // play() の失敗要因は毎回変わりうるため、次回 retry 時に readyState / seeking を再評価する。
+        if (currentAttempt < PREVIEW_PLAY_RETRY_MAX_ATTEMPTS) {
+          setTimeout(() => tryPlay(currentAttempt + 1), retryIntervalMs);
+        }
+      });
+      return;
+    }
+    if (currentAttempt < PREVIEW_PLAY_RETRY_MAX_ATTEMPTS) {
+      setTimeout(() => tryPlay(currentAttempt + 1), retryIntervalMs);
+    }
+  };
+  tryPlay(1);
+};
+
+/**
+ * standard preview の startEngine で、active video が seek 完了・描画可能 readyState に入るまで短時間待機する。
+ * timeout やキャンセル時も resolve して呼び出し元へ制御を返し、古い試行は `shouldContinue()` 側で打ち切る。
+ */
+const waitForPreviewStartVideoReady = async (
+  videoElement: HTMLVideoElement,
+  targetTime: number,
+  shouldContinue: () => boolean,
+): Promise<void> => {
+  const needsWait =
+    videoElement.seeking
+    || videoElement.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+    || Math.abs(videoElement.currentTime - targetTime) > PREVIEW_START_READY_SYNC_TOLERANCE_SEC;
+
+  if (!needsWait) {
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = () => {
+      videoElement.removeEventListener('seeked', onReady);
+      videoElement.removeEventListener('loadeddata', onReady);
+      videoElement.removeEventListener('canplay', onReady);
+      videoElement.removeEventListener('error', onReady);
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+    };
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+
+    const onReady = () => {
+      if (!shouldContinue()) {
+        finish();
+        return;
+      }
+      if (videoElement.readyState === 0 && !videoElement.error) {
+        try {
+          videoElement.load();
+        } catch {
+          /* ignore */
+        }
+      }
+      const drift = Math.abs(videoElement.currentTime - targetTime);
+      if (
+        !videoElement.seeking
+        && videoElement.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
+        && drift > PREVIEW_START_READY_SYNC_TOLERANCE_SEC
+      ) {
+        try {
+          videoElement.currentTime = targetTime;
+        } catch {
+          /* ignore */
+        }
+        // currentTime 補正で新しい seek が走るため、この回は終了して次の seeked / poll で再評価する。
+        return;
+      }
+      if (
+        videoElement.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+        && !videoElement.seeking
+        && drift <= PREVIEW_START_READY_SYNC_TOLERANCE_SEC
+      ) {
+        finish();
+      }
+    };
+
+    pollTimer = setInterval(onReady, PREVIEW_START_READY_POLL_INTERVAL_MS);
+    timeoutId = setTimeout(finish, PREVIEW_START_READY_TIMEOUT_MS);
+    videoElement.addEventListener('seeked', onReady);
+    videoElement.addEventListener('loadeddata', onReady);
+    videoElement.addEventListener('canplay', onReady);
+    videoElement.addEventListener('error', onReady);
+    onReady();
+  });
+};
+
 export function usePreviewEngine({
   captions,
   captionSettings,
@@ -2036,6 +2173,7 @@ export function usePreviewEngine({
 
         const shouldPrimeActiveVideo = !shouldBundlePreviewStart;
         let activeVideoElForBundledStart: HTMLVideoElement | null = null;
+        let activeVideoTargetTime: number | null = null;
         let t = 0;
         for (const item of mediaItemsRef.current) {
           if (fromTime >= t && fromTime < t + item.duration) {
@@ -2047,9 +2185,7 @@ export function usePreviewEngine({
                 videoEl.currentTime = targetTime;
                 activeVideoIdRef.current = item.id;
                 activeVideoElForBundledStart = videoEl;
-                if (shouldPrimeActiveVideo) {
-                  videoEl.play().catch(() => { });
-                }
+                activeVideoTargetTime = targetTime;
               }
             }
             break;
@@ -2057,29 +2193,37 @@ export function usePreviewEngine({
           t += item.duration;
         }
 
+        if (activeVideoElForBundledStart && activeVideoTargetTime !== null) {
+          await waitForPreviewStartVideoReady(
+            activeVideoElForBundledStart,
+            activeVideoTargetTime,
+            () =>
+              myLoopId === loopIdRef.current
+              && previewPlaybackAttempt === previewPlaybackAttemptRef.current
+              && isPlayingRef.current
+              && !isSeekingRef.current,
+          );
+          if (myLoopId !== loopIdRef.current) {
+            return;
+          }
+        }
+
         if (preparedPreviewAudio.requiresWebAudio) {
           primePreviewAudioOnlyTracksAtTime(fromTime);
         }
-        if (shouldBundlePreviewStart && activeVideoElForBundledStart) {
-          if (activeVideoElForBundledStart.readyState >= 2 && !activeVideoElForBundledStart.seeking) {
-            activeVideoElForBundledStart.play().catch(() => { });
-          } else {
-            const playWhenReady = () => {
-              if (!shouldAttemptDeferredPreviewPlay({
-                isCurrentAttempt: previewPlaybackAttempt === previewPlaybackAttemptRef.current,
-                isPlaying: isPlayingRef.current,
-                isSeeking: isSeekingRef.current,
-                mediaSeeking: activeVideoElForBundledStart.seeking,
-                readyState: activeVideoElForBundledStart.readyState,
-                minReadyState: 2,
-              })) {
-                return;
-              }
-              if (activeVideoElForBundledStart.paused) {
-                activeVideoElForBundledStart.play().catch(() => { });
-              }
-            };
-            activeVideoElForBundledStart.addEventListener('canplay', playWhenReady, { once: true });
+        if (activeVideoElForBundledStart) {
+          const shouldAttemptPlay = () =>
+            shouldAttemptDeferredPreviewPlay({
+              isCurrentAttempt: previewPlaybackAttempt === previewPlaybackAttemptRef.current,
+              isPlaying: isPlayingRef.current,
+              isSeeking: isSeekingRef.current,
+              mediaSeeking: activeVideoElForBundledStart.seeking,
+              readyState: activeVideoElForBundledStart.readyState,
+              minReadyState: shouldBundlePreviewStart ? 2 : 1,
+            });
+
+          if (shouldPrimeActiveVideo || shouldBundlePreviewStart) {
+            requestVideoPlayWithRetry(activeVideoElForBundledStart, shouldAttemptPlay);
           }
         }
 

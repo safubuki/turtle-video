@@ -114,6 +114,16 @@
   - この保持は `isExporting && previousItemType === 'image'` の短い安定化区間に限定する。動画→動画や通常 preview に広げると、既存の sync / fade tail / blackout 対策へ影響しやすい
   - 画像→動画境界の seek 補正しきい値は `EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC` を single source of truth とし、保持判定と `currentTime` 補正の両方で共有する
 
+### 2-9. standard preview の stop / paused seek 後の再生待機
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`
+- **問題**: standard preview で停止直後や paused seek 直後に再生を押すと、active video がまだ `seeking` / `readyState < 2` のまま `play()` を投げて失敗し、Android で音飛び・映像飛びのままループだけ進みやすい
+- **対策**:
+  - standard preview の `startEngine()` では、active video の `currentTime` を合わせた直後に `seeked` / `loadeddata` / `canplay` を待ち、描画可能フレームが揃うまで loop 開始を遅らせる
+  - 再生開始自体は `requestVideoPlayWithRetry()` で retry 付きにし、stop 後・paused seek 後でも `play()` の一発失敗で置き去りにしない
+  - 待機と retry の継続条件には `loopIdRef`・`previewPlaybackAttemptRef`・`isSeekingRef` を使い、古い再生試行が新しい再生を上書きしないようにする
+- **注意**: この待機は `standard` flavor の preview start 専用。shared や `apple-safari` 側へ共通化すると flavor ごとの再生ポリシー差分を再び混ぜやすいため、runtime-owned boundary のまま閉じる
+
 ---
 
 ## 3. AudioContext 管理
