@@ -668,6 +668,11 @@ export function usePreviewEngine({
               }
             } else {
               const targetTime = (activeItem.trimStart || 0) + localTime;
+              const holdAndroidPreviewFrame = () => {
+                holdFrame = true;
+                shouldSkipAndroidPreviewActiveDraw = true;
+                logAndroidPreviewHold(activeId, time, activeEl);
+              };
               const shouldStabilizeImageToTrimmedVideo =
                 platformCapabilities.isAndroid
                 && !platformCapabilities.isIosSafari
@@ -677,6 +682,7 @@ export function usePreviewEngine({
                 && previousItem?.type === 'image'
                 && activeItem.type === 'video'
                 && (activeItem.trimStart || 0) > 0.001
+                // active clip の localTime は通常 0 以上だが、境界フォールバック追加時もこの短い窓だけに閉じる。
                 && localTime >= 0
                 && localTime <= 0.25;
               const isLastTimelineItem = activeIndex === currentItems.length - 1;
@@ -741,9 +747,7 @@ export function usePreviewEngine({
                   || activeEl.videoHeight <= 0
                 )
               ) {
-                holdFrame = true;
-                shouldSkipAndroidPreviewActiveDraw = true;
-                logAndroidPreviewHold(activeId, time, activeEl);
+                holdAndroidPreviewFrame();
               }
               if (
                 shouldStabilizeImageToTrimmedVideo
@@ -753,9 +757,7 @@ export function usePreviewEngine({
                 > PREVIEW_IMAGE_TO_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC
               ) {
                 activeEl.currentTime = targetTime;
-                holdFrame = true;
-                shouldSkipAndroidPreviewActiveDraw = true;
-                logAndroidPreviewHold(activeId, time, activeEl);
+                holdAndroidPreviewFrame();
               }
               let didApplyAndroidPreviewDriftFix = false;
               if (
