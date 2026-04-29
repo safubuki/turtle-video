@@ -172,16 +172,28 @@ const applyPreviewAudioOutputState = (
   return outputMode;
 };
 
+// HTMLMediaElement.HAVE_METADATA: currentTime を安全に合わせ直せる最小 readyState。
 const MIN_VIDEO_READY_STATE_FOR_SEEK = 1;
+// HTMLMediaElement.HAVE_CURRENT_DATA: canvas 描画と play retry を始められる最小 readyState。
 const MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME = 2;
+// 再生開始前に許容する currentTime のずれ。既存 preview sync しきい値より厳しく合わせる。
 const PREVIEW_START_READY_SYNC_TOLERANCE_SEC = 0.05;
+// 再生開始直後は seeked / canplay の到着を数フレームだけ待ち、遅ければ loop を止めない。
+const PREVIEW_START_READY_POLL_INTERVAL_MS = 40;
+const PREVIEW_START_READY_TIMEOUT_MS = 900;
+// Android 実機で一発 play が落ちても数回は吸収するための retry 設定。
+const PREVIEW_PLAY_RETRY_INTERVAL_MS = 160;
+const PREVIEW_PLAY_RETRY_MAX_ATTEMPTS = 4;
 
+/**
+ * standard preview の開始直後に `play()` が一発失敗しても置き去りにしないための retry。
+ * 呼び出し側は `shouldContinue()` で loop 世代や seek 状態を監視し、古い再生試行を自然終了させる。
+ */
 const requestVideoPlayWithRetry = (
   videoElement: HTMLVideoElement,
   shouldContinue: () => boolean,
-  retryIntervalMs = 160,
+  retryIntervalMs = PREVIEW_PLAY_RETRY_INTERVAL_MS,
 ) => {
-  const maxRetryCount = 4;
   const tryPlay = (currentAttempt: number) => {
     if (!shouldContinue() || !videoElement.paused) return;
     if (videoElement.readyState === 0 && !videoElement.error) {
@@ -193,19 +205,23 @@ const requestVideoPlayWithRetry = (
     }
     if (videoElement.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME && !videoElement.seeking) {
       videoElement.play().catch(() => {
-        if (currentAttempt < maxRetryCount) {
+        if (currentAttempt < PREVIEW_PLAY_RETRY_MAX_ATTEMPTS) {
           setTimeout(() => tryPlay(currentAttempt + 1), retryIntervalMs);
         }
       });
       return;
     }
-    if (currentAttempt < maxRetryCount) {
+    if (currentAttempt < PREVIEW_PLAY_RETRY_MAX_ATTEMPTS) {
       setTimeout(() => tryPlay(currentAttempt + 1), retryIntervalMs);
     }
   };
   tryPlay(1);
 };
 
+/**
+ * standard preview の startEngine で、active video が seek 完了・描画可能 readyState に入るまで短時間待機する。
+ * timeout やキャンセル時も resolve して呼び出し元へ制御を返し、古い試行は `shouldContinue()` 側で打ち切る。
+ */
 const waitForPreviewStartVideoReady = async (
   videoElement: HTMLVideoElement,
   targetTime: number,
@@ -281,8 +297,8 @@ const waitForPreviewStartVideoReady = async (
       }
     };
 
-    pollTimer = setInterval(onReady, 40);
-    timeoutId = setTimeout(finish, 900);
+    pollTimer = setInterval(onReady, PREVIEW_START_READY_POLL_INTERVAL_MS);
+    timeoutId = setTimeout(finish, PREVIEW_START_READY_TIMEOUT_MS);
     videoElement.addEventListener('seeked', onReady);
     videoElement.addEventListener('loadeddata', onReady);
     videoElement.addEventListener('canplay', onReady);

@@ -111,6 +111,8 @@ function createMockVideoElement() {
   return element;
 }
 
+const TEST_PREVIEW_START_SETTLE_MS = 80;
+
 describe('standard preview engine', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -121,7 +123,7 @@ describe('standard preview engine', () => {
     vi.restoreAllMocks();
   });
 
-  it('paused seek 後は active video 準備完了を待ってから再生を始める', async () => {
+  function setupPreviewEngineHarness() {
     const mediaItem = createVideoItem();
     const videoElement = createMockVideoElement();
     const requestAnimationFrameSpy = vi
@@ -136,7 +138,7 @@ describe('standard preview engine', () => {
     const play = vi.fn();
     const pause = vi.fn();
 
-    const { result } = renderHook(() =>
+    const hook = renderHook(() =>
       usePreviewEngine({
         captions: [] as Caption[],
         captionSettings: {} as CaptionSettings,
@@ -226,7 +228,14 @@ describe('standard preview engine', () => {
       }),
     );
 
-    const startPromise = result.current.startEngine(2, false);
+    return { mediaItem, videoElement, requestAnimationFrameSpy, setCurrentTime, play, hook };
+  }
+
+  it('paused seek 後は active video 準備完了を待ってから再生を始める', async () => {
+    const { videoElement, requestAnimationFrameSpy, setCurrentTime, play, hook } =
+      setupPreviewEngineHarness();
+
+    const startPromise = hook.result.current.startEngine(2, false);
     await Promise.resolve();
 
     expect(videoElement.play).not.toHaveBeenCalled();
@@ -236,12 +245,36 @@ describe('standard preview engine', () => {
     videoElement.readyState = 2;
     videoElement.dispatch('seeked');
 
-    await vi.advanceTimersByTimeAsync(60);
+    await vi.advanceTimersByTimeAsync(TEST_PREVIEW_START_SETTLE_MS);
     await startPromise;
 
     expect(videoElement.play).toHaveBeenCalledTimes(1);
     expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
     expect(setCurrentTime).toHaveBeenCalledWith(2);
+    expect(play).toHaveBeenCalledTimes(1);
+  });
+
+  it('stop 後の先頭再生でも active video 準備完了を待ってから再生を始める', async () => {
+    const { mediaItem, videoElement, requestAnimationFrameSpy, setCurrentTime, play, hook } =
+      setupPreviewEngineHarness();
+
+    const startPromise = hook.result.current.startEngine(0, false);
+    await Promise.resolve();
+
+    expect(videoElement.currentTime).toBe(mediaItem.trimStart);
+    expect(videoElement.play).not.toHaveBeenCalled();
+    expect(requestAnimationFrameSpy).not.toHaveBeenCalled();
+
+    videoElement.seeking = false;
+    videoElement.readyState = 2;
+    videoElement.dispatch('seeked');
+
+    await vi.advanceTimersByTimeAsync(TEST_PREVIEW_START_SETTLE_MS);
+    await startPromise;
+
+    expect(videoElement.play).toHaveBeenCalledTimes(1);
+    expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
+    expect(setCurrentTime).toHaveBeenCalledWith(0);
     expect(play).toHaveBeenCalledTimes(1);
   });
 });
