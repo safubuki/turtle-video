@@ -1553,7 +1553,7 @@
   - `main` への `push` は従来どおり維持しつつ、`copilot/**` / `codex/**` 向けには `pull_request.closed` を追加して merge 時だけ起動する。
   - job には `github.event.pull_request.merged == true` 条件を付け、単なる close では build / deploy を実行しない。
   - checkout は `github.event.pull_request.merge_commit_sha || github.sha` を使い、merge 後の実際の反映内容を build 対象にする。
-- **注意**: `main` 向け `push` と stacked PR 向け `pull_request.closed` を混在させる場合は、同一 merge で二重 deploy しないよう branch 条件を分けたまま維持する。
+- **注意**: `pull_request.closed` は base branch が `copilot/**` / `codex/**` の stacked PR だけを対象にし、`main` への最終 merge は従来どおり `push` 側だけで deploy する。二重 deploy を防ぐため、この branch 分離を崩さないこと。
 
 ### 13-61. AIレビューでは防御コードだけで仕様変更を断定しない
 
