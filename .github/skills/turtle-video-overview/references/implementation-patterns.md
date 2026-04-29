@@ -1687,3 +1687,14 @@
   - `refreshSaveInfo()` は保存先 DB の最終保存時刻しか知らないため、`skipped-nochange` などで進んだ runtime 活動時刻を上書きしない
   - 手動保存で autosave cadence の基準をリセットする場合も、正確な「前回 auto 保存日時」は `lastAutoSave` 側で保持し続ける
   - 手動保存直後の `autoSaveRuntimeStatus` は autosave 成功扱いにせず、待機状態へ戻して「直近の自動保存が完了した」と誤表示しない
+
+### 13-72. standard preview の再生時刻計測は `performance.now()` を優先し、Android/PC のコマ落ち体感を抑える
+
+- **対象ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`
+- **問題**:
+  - standard preview の再生ループが `Date.now()` 基準だと、端末やブラウザ負荷時の時刻分解能・ドリフトの影響で描画間隔が粗くなり、Android/PC で「パラパラ漫画」のように見えるケースがある。
+- **対応パターン**:
+  - standard preview の loop 時刻計測と `startTimeRef` 初期化を `performance.now()` 優先へ変更する（fallback は `Date.now()`）。
+  - monotonic な高精度時刻を使い、フレーム進行の微小な揺れを減らす。
+- **注意**:
+  - 本変更は `src/flavors/standard/preview/` のみで適用し、`src/flavors/apple-safari/preview/` には適用しない（Safari 経路の挙動非変更を維持）。
