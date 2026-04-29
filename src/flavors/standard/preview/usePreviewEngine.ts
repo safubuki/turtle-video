@@ -205,6 +205,7 @@ const requestVideoPlayWithRetry = (
     }
     if (videoElement.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME && !videoElement.seeking) {
       videoElement.play().catch(() => {
+        // play() の失敗要因は毎回変わりうるため、次回 retry 時に readyState / seeking を再評価する。
         if (currentAttempt < PREVIEW_PLAY_RETRY_MAX_ATTEMPTS) {
           setTimeout(() => tryPlay(currentAttempt + 1), retryIntervalMs);
         }
@@ -286,6 +287,7 @@ const waitForPreviewStartVideoReady = async (
         } catch {
           /* ignore */
         }
+        // currentTime 補正で新しい seek が走るため、この回は終了して次の seeked / poll で再評価する。
         return;
       }
       if (
