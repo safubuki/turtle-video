@@ -236,6 +236,8 @@ export function usePreviewVisibilityLifecycle({
       const latestTime = Math.max(0, Math.min(currentTimeRef.current, totalDurationRef.current));
 
       if (isSeekingRef?.current) {
+        // Android では seek 復帰の cleanup / redraw を handleSeekEnd 側へ一任し、
+        // visibility 復帰は resync 要否だけ保持してセッションを横取りしない。
         needsResyncAfterVisibilityRef.current = recoveryPlan.shouldResyncMedia;
         return;
       }
