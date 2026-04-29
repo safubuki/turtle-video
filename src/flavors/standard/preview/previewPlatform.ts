@@ -105,6 +105,7 @@ export interface ExportImageToVideoFrameHoldOptions extends ExportImageToVideoSt
 
 export interface AndroidPreviewVideoRecoveryOptions {
   isAndroid: boolean;
+  isIosSafari?: boolean;
   isExporting: boolean;
   isActivePlaying: boolean;
   isUserSeeking: boolean;
@@ -112,6 +113,43 @@ export interface AndroidPreviewVideoRecoveryOptions {
   videoSeeking: boolean;
   videoReadyState: number;
   readyStateFloor?: number;
+}
+
+export type AndroidPreviewRecoveryReason =
+  | 'paused-during-playback'
+  | 'seeking-during-playback'
+  | 'ready-state-low'
+  | 'dimension-zero'
+  | 'timeline-drift'
+  | 'play-retry-pending'
+  | 'waiting-canplay'
+  | 'waiting-seeked'
+  | 'waiting-loadeddata';
+
+export interface AndroidPreviewRecoveryDecisionOptions {
+  isAndroid: boolean;
+  isIosSafari: boolean;
+  isExporting: boolean;
+  isActivePlaying: boolean;
+  isUserSeeking: boolean;
+  videoPaused: boolean;
+  videoSeeking: boolean;
+  videoReadyState: number;
+  videoWidth: number;
+  videoHeight: number;
+  videoCurrentTime: number;
+  targetTime: number;
+  syncThresholdSec?: number;
+  readyStateFloor?: number;
+}
+
+export interface AndroidPreviewRecoveryDecision {
+  shouldRecover: boolean;
+  shouldHoldFrame: boolean;
+  shouldRetryPlay: boolean;
+  shouldResyncTime: boolean;
+  shouldRebaseClockAfterReady: boolean;
+  reason: AndroidPreviewRecoveryReason | null;
 }
 
 // HTMLMediaElement.HAVE_CURRENT_DATA 相当。現在フレームを canvas 描画に使える最小 readyState。
@@ -628,9 +666,42 @@ export function getPageHidePausePlan(options: {
 export function shouldRecoverAndroidPreviewVideoPlayback(
   options: AndroidPreviewVideoRecoveryOptions,
 ): boolean {
-  if (!options.isAndroid || options.isExporting) return false;
-  if (!options.isActivePlaying || options.isUserSeeking) return false;
+  return getAndroidPreviewRecoveryDecision({
+    isAndroid: options.isAndroid,
+    isIosSafari: options.isIosSafari ?? false,
+    isExporting: options.isExporting,
+    isActivePlaying: options.isActivePlaying,
+    isUserSeeking: options.isUserSeeking,
+    videoPaused: options.videoPaused,
+    videoSeeking: options.videoSeeking,
+    videoReadyState: options.videoReadyState,
+    videoWidth: 1,
+    videoHeight: 1,
+    videoCurrentTime: 0,
+    targetTime: 0,
+    readyStateFloor: options.readyStateFloor,
+  }).shouldRecover;
+}
 
+export function getAndroidPreviewRecoveryDecision(
+  options: AndroidPreviewRecoveryDecisionOptions,
+): AndroidPreviewRecoveryDecision {
   const readyStateFloor = options.readyStateFloor ?? MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME;
-  return options.videoPaused || options.videoSeeking || options.videoReadyState < readyStateFloor;
+  const syncThresholdSec = options.syncThresholdSec ?? 0.25;
+  const empty: AndroidPreviewRecoveryDecision = {
+    shouldRecover: false,
+    shouldHoldFrame: false,
+    shouldRetryPlay: false,
+    shouldResyncTime: false,
+    shouldRebaseClockAfterReady: false,
+    reason: null,
+  };
+  if (!options.isAndroid || options.isIosSafari) return empty;
+  if (options.isExporting || !options.isActivePlaying || options.isUserSeeking) return empty;
+  if (options.videoPaused) return { ...empty, shouldRecover: true, shouldHoldFrame: true, shouldRetryPlay: true, shouldRebaseClockAfterReady: true, reason: 'paused-during-playback' };
+  if (options.videoSeeking) return { ...empty, shouldRecover: true, shouldHoldFrame: true, shouldRebaseClockAfterReady: true, reason: 'seeking-during-playback' };
+  if (options.videoReadyState < readyStateFloor) return { ...empty, shouldRecover: true, shouldHoldFrame: true, shouldRebaseClockAfterReady: true, reason: 'ready-state-low' };
+  if (options.videoWidth <= 0 || options.videoHeight <= 0) return { ...empty, shouldRecover: true, shouldHoldFrame: true, shouldRebaseClockAfterReady: true, reason: 'dimension-zero' };
+  if (Math.abs(options.videoCurrentTime - options.targetTime) > syncThresholdSec) return { ...empty, shouldRecover: true, shouldHoldFrame: true, shouldResyncTime: true, shouldRebaseClockAfterReady: true, reason: 'timeline-drift' };
+  return empty;
 }

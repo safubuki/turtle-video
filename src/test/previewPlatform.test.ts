@@ -25,6 +25,7 @@ import {
   shouldStabilizeImageToVideoTransitionDuringExport,
   shouldUseCaptionBlurFallback,
 } from '../utils/previewPlatform';
+import { getAndroidPreviewRecoveryDecision } from '../flavors/standard/preview/previewPlatform';
 
 describe('getPreviewPlatformPolicy', () => {
   it('iOS Safari では preview/export 向けの緩和値を返す', () => {
@@ -762,6 +763,31 @@ describe('preview platform helpers', () => {
         videoReadyState: 2,
       }),
     ).toBe(false);
+  });
+
+  it('Android recovery decision helper は paused/seeking/readyState不足/dimension/drift を判定する', () => {
+    expect(getAndroidPreviewRecoveryDecision({
+      isAndroid: true, isIosSafari: false, isExporting: false, isActivePlaying: true, isUserSeeking: false,
+      videoPaused: true, videoSeeking: false, videoReadyState: 4, videoWidth: 1920, videoHeight: 1080, videoCurrentTime: 1, targetTime: 1,
+    }).reason).toBe('paused-during-playback');
+    expect(getAndroidPreviewRecoveryDecision({
+      isAndroid: true, isIosSafari: false, isExporting: false, isActivePlaying: true, isUserSeeking: false,
+      videoPaused: false, videoSeeking: true, videoReadyState: 4, videoWidth: 1920, videoHeight: 1080, videoCurrentTime: 1, targetTime: 1,
+    }).reason).toBe('seeking-during-playback');
+    expect(getAndroidPreviewRecoveryDecision({
+      isAndroid: true, isIosSafari: false, isExporting: false, isActivePlaying: true, isUserSeeking: false,
+      videoPaused: false, videoSeeking: false, videoReadyState: 1, videoWidth: 1920, videoHeight: 1080, videoCurrentTime: 1, targetTime: 1,
+    }).reason).toBe('ready-state-low');
+    expect(getAndroidPreviewRecoveryDecision({
+      isAndroid: true, isIosSafari: false, isExporting: false, isActivePlaying: true, isUserSeeking: false,
+      videoPaused: false, videoSeeking: false, videoReadyState: 4, videoWidth: 0, videoHeight: 1080, videoCurrentTime: 1, targetTime: 1,
+    }).reason).toBe('dimension-zero');
+    const drift = getAndroidPreviewRecoveryDecision({
+      isAndroid: true, isIosSafari: false, isExporting: false, isActivePlaying: true, isUserSeeking: false,
+      videoPaused: false, videoSeeking: false, videoReadyState: 4, videoWidth: 1920, videoHeight: 1080, videoCurrentTime: 2, targetTime: 1,
+    });
+    expect(drift.reason).toBe('timeline-drift');
+    expect(drift.shouldHoldFrame).toBe(true);
   });
 
   it('iOS Safari preview は単一動画だけ native 出力を維持し、動画+BGM では WebAudio mix に寄せる', () => {
