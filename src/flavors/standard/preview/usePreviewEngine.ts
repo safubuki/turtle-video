@@ -180,6 +180,8 @@ const MIN_VIDEO_READY_STATE_FOR_SEEK = 1;
 const MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME = 2;
 // 再生開始前に許容する currentTime のずれ。既存 preview sync しきい値より厳しく合わせる。
 const PREVIEW_START_READY_SYNC_TOLERANCE_SEC = 0.05;
+// image -> trimStart あり video の開始直後だけは、約 1 フレーム (30fps ≒ 0.033s) 未満まで寄せてカクつきを抑える。
+const PREVIEW_IMAGE_TO_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC = 0.03;
 // 再生開始直後は seeked / canplay の到着を数フレームだけ待ち、遅ければ loop を止めない。
 const PREVIEW_START_READY_POLL_INTERVAL_MS = 40;
 const PREVIEW_START_READY_TIMEOUT_MS = 900;
@@ -625,6 +627,7 @@ export function usePreviewEngine({
         let shouldSkipAndroidPreviewActiveDraw = false;
         if (activeId && activeIndex !== -1) {
           const activeItem = currentItems[activeIndex];
+          const previousItem = activeIndex > 0 ? currentItems[activeIndex - 1] : null;
           const activeFadeOutDur = activeItem.fadeOutDuration || 1.0;
           const shouldPreferBlackoutAtFadeTail = shouldBlackoutVideoFadeTail({
             clipLocalTime: localTime,
@@ -665,6 +668,19 @@ export function usePreviewEngine({
               }
             } else {
               const targetTime = (activeItem.trimStart || 0) + localTime;
+              const holdAndroidPreviewFrame = () => {
+                holdFrame = true;
+                shouldSkipAndroidPreviewActiveDraw = true;
+                logAndroidPreviewHold(activeId, time, activeEl);
+              };
+              const shouldStabilizeImageToTrimmedVideo =
+                isAndroidPreviewPlayback
+                && previousItem?.type === 'image'
+                && activeItem.type === 'video'
+                && (activeItem.trimStart || 0) > 0.001
+                // active clip の localTime は通常 0 以上だが、境界フォールバック追加時もこの短い窓だけに閉じる。
+                && localTime >= 0
+                && localTime <= 0.25;
               const isLastTimelineItem = activeIndex === currentItems.length - 1;
               const isNearTimelineEnd =
                 totalDurationRef.current > 0 &&
@@ -682,7 +698,7 @@ export function usePreviewEngine({
                 isExporting: _isExporting,
                 isAndroid: platformCapabilities.isAndroid,
                 activeItemType: activeItem.type,
-                previousItemType: activeIndex > 0 ? currentItems[activeIndex - 1]?.type ?? null : null,
+                previousItemType: previousItem?.type ?? null,
                 clipLocalTime: localTime,
                 videoReadyState: activeEl.readyState,
                 isVideoSeeking: activeEl.seeking,
@@ -717,6 +733,27 @@ export function usePreviewEngine({
                   videoRecoveryAttemptsRef.current[activeId] = now;
                   try { activeEl.load(); } catch { /* ignore */ }
                 }
+              }
+              if (
+                shouldStabilizeImageToTrimmedVideo
+                && (
+                  activeEl.seeking
+                  || activeEl.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+                  || activeEl.videoWidth <= 0
+                  || activeEl.videoHeight <= 0
+                )
+              ) {
+                holdAndroidPreviewFrame();
+              }
+              if (
+                shouldStabilizeImageToTrimmedVideo
+                && activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
+                && !activeEl.seeking
+                && Math.abs(activeEl.currentTime - targetTime)
+                > PREVIEW_IMAGE_TO_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC
+              ) {
+                activeEl.currentTime = targetTime;
+                holdAndroidPreviewFrame();
               }
               let didApplyAndroidPreviewDriftFix = false;
               if (
