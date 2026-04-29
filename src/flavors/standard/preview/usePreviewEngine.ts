@@ -172,6 +172,8 @@ const applyPreviewAudioOutputState = (
   return outputMode;
 };
 
+const MIN_VIDEO_READY_STATE_FOR_SEEK = 1;
+const MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME = 2;
 const PREVIEW_START_READY_SYNC_TOLERANCE_SEC = 0.05;
 
 const requestVideoPlayWithRetry = (
@@ -180,7 +182,7 @@ const requestVideoPlayWithRetry = (
   retryIntervalMs = 160,
 ) => {
   const maxRetryCount = 4;
-  const tryPlay = (attempt: number) => {
+  const tryPlay = (currentAttempt: number) => {
     if (!shouldContinue() || !videoElement.paused) return;
     if (videoElement.readyState === 0 && !videoElement.error) {
       try {
@@ -189,16 +191,16 @@ const requestVideoPlayWithRetry = (
         /* ignore */
       }
     }
-    if (videoElement.readyState >= 2 && !videoElement.seeking) {
+    if (videoElement.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME && !videoElement.seeking) {
       videoElement.play().catch(() => {
-        if (attempt < maxRetryCount) {
-          setTimeout(() => tryPlay(attempt + 1), retryIntervalMs);
+        if (currentAttempt < maxRetryCount) {
+          setTimeout(() => tryPlay(currentAttempt + 1), retryIntervalMs);
         }
       });
       return;
     }
-    if (attempt < maxRetryCount) {
-      setTimeout(() => tryPlay(attempt + 1), retryIntervalMs);
+    if (currentAttempt < maxRetryCount) {
+      setTimeout(() => tryPlay(currentAttempt + 1), retryIntervalMs);
     }
   };
   tryPlay(1);
@@ -211,7 +213,7 @@ const waitForPreviewStartVideoReady = async (
 ): Promise<void> => {
   const needsWait =
     videoElement.seeking
-    || videoElement.readyState < 2
+    || videoElement.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
     || Math.abs(videoElement.currentTime - targetTime) > PREVIEW_START_READY_SYNC_TOLERANCE_SEC;
 
   if (!needsWait) {
@@ -258,7 +260,11 @@ const waitForPreviewStartVideoReady = async (
         }
       }
       const drift = Math.abs(videoElement.currentTime - targetTime);
-      if (!videoElement.seeking && videoElement.readyState >= 1 && drift > PREVIEW_START_READY_SYNC_TOLERANCE_SEC) {
+      if (
+        !videoElement.seeking
+        && videoElement.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
+        && drift > PREVIEW_START_READY_SYNC_TOLERANCE_SEC
+      ) {
         try {
           videoElement.currentTime = targetTime;
         } catch {
@@ -266,7 +272,11 @@ const waitForPreviewStartVideoReady = async (
         }
         return;
       }
-      if (videoElement.readyState >= 2 && !videoElement.seeking && drift <= PREVIEW_START_READY_SYNC_TOLERANCE_SEC) {
+      if (
+        videoElement.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+        && !videoElement.seeking
+        && drift <= PREVIEW_START_READY_SYNC_TOLERANCE_SEC
+      ) {
         finish();
       }
     };

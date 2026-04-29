@@ -121,7 +121,7 @@ describe('standard preview engine', () => {
     vi.restoreAllMocks();
   });
 
-  it('paused seek 後の再生開始で active video の seek 完了を待ってからループを開始する', async () => {
+  it('paused seek 後は active video 準備完了を待ってから再生を始める', async () => {
     const mediaItem = createVideoItem();
     const videoElement = createMockVideoElement();
     const requestAnimationFrameSpy = vi
