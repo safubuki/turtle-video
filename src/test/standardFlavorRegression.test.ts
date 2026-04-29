@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { MediaItem } from '../types';
 import type { PlatformCapabilities } from '../utils/platform';
@@ -22,6 +22,7 @@ import {
   shouldReinitializeAudioRoute,
   shouldResumeAudioContextOnVisibilityReturn,
 } from '../flavors/standard/preview/previewPlatform';
+import { getStandardPreviewNow } from '../flavors/standard/preview/playbackClock';
 
 function createCapabilities(
   overrides: Partial<PlatformCapabilities> = {},
@@ -212,5 +213,47 @@ describe('standard flavor regression', () => {
         canUseTrackProcessor: true,
       }),
     ).toBe('pre-rendered');
+  });
+
+  it('standard preview は loop と seek 復帰で同じ時刻基準を使う', () => {
+    const originalPerformance = globalThis.performance;
+    const dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000);
+
+    try {
+      Object.defineProperty(globalThis, 'performance', {
+        configurable: true,
+        value: {
+          now: vi.fn(() => 250),
+        },
+      });
+
+      expect(getStandardPreviewNow()).toBe(250);
+    } finally {
+      dateNowSpy.mockRestore();
+      Object.defineProperty(globalThis, 'performance', {
+        configurable: true,
+        value: originalPerformance,
+      });
+    }
+  });
+
+  it('standard preview clock は performance が無い環境で Date.now にフォールバックする', () => {
+    const originalPerformance = globalThis.performance;
+    const dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(777);
+
+    try {
+      Object.defineProperty(globalThis, 'performance', {
+        configurable: true,
+        value: undefined,
+      });
+
+      expect(getStandardPreviewNow()).toBe(777);
+    } finally {
+      dateNowSpy.mockRestore();
+      Object.defineProperty(globalThis, 'performance', {
+        configurable: true,
+        value: originalPerformance,
+      });
+    }
   });
 });

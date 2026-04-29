@@ -39,6 +39,7 @@ import {
   shouldAvoidPauseInactiveVideoInPreview,
   type PreviewPlatformPolicy,
 } from './previewPlatform';
+import { getStandardPreviewNow } from './playbackClock';
 
 type LogFn = (category: LogCategory, message: string, details?: Record<string, unknown>) => void;
 
@@ -1524,7 +1525,7 @@ export function usePreviewEngine({
         return;
       }
 
-      const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+      const now = getStandardPreviewNow();
       const elapsed = (now - startTimeRef.current) / 1000;
       const clampedElapsed = Math.min(elapsed, totalDurationRef.current);
 
@@ -2103,7 +2104,7 @@ export function usePreviewEngine({
         primePreviewAudioOnlyTracksAtTime(fromTime);
       }
 
-      startTimeRef.current = (typeof performance !== "undefined" ? performance.now() : Date.now()) - fromTime * 1000;
+      startTimeRef.current = getStandardPreviewNow() - fromTime * 1000;
 
       if (isExportMode && canvasRef.current && masterDestRef.current) {
         startWebCodecsExport(
@@ -2132,7 +2133,7 @@ export function usePreviewEngine({
             getPlaybackTimeSec: () => currentTimeRef.current,
             onPreparationStepChange: setExportPreparationStep,
             onAudioPreRenderComplete: () => {
-              startTimeRef.current = (typeof performance !== "undefined" ? performance.now() : Date.now()) - fromTime * 1000;
+              startTimeRef.current = getStandardPreviewNow() - fromTime * 1000;
               loop(isExportMode, myLoopId);
             },
           },

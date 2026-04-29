@@ -8,6 +8,7 @@ import {
   shouldKeepInactiveVideoPrewarmed,
   type PreviewPlatformPolicy,
 } from './previewPlatform';
+import { getStandardPreviewNow } from './playbackClock';
 
 interface PreparedPreviewAudioNodesResult {
   activeVideoId: string | null;
@@ -333,7 +334,7 @@ export function usePreviewSeekController({
 
   const handleSeekChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     const time = parseFloat(event.target.value);
-    const now = Date.now();
+    const now = getStandardPreviewNow();
     endFinalizedRef.current = false;
 
     if (!isSeekingRef.current) {
@@ -472,7 +473,7 @@ export function usePreviewSeekController({
         previewPlaybackAttemptRef.current += 1;
         const previewPlaybackAttempt = previewPlaybackAttemptRef.current;
         isSeekPlaybackPreparingRef.current = false;
-        startTimeRef.current = Date.now() - playbackTime * 1000;
+        startTimeRef.current = getStandardPreviewNow() - playbackTime * 1000;
         isPlayingRef.current = true;
 
         const preparedPreviewAudio = preparePreviewAudioNodesForTime(playbackTime);
