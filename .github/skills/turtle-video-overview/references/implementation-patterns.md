@@ -1544,6 +1544,17 @@
 - **注意**:
   - Playground 専用ファイル（例: `CNAME`、リポジトリ固有のワークフロー）が存在する場合は、`--delete` を有効にする前に明示的な `--exclude` エントリを追加すること。
 
+### 13-70. stacked PR merge でも GitHub Pages deploy を走らせる
+
+- **対象ファイル**: `.github/workflows/deploy.yml`
+- **問題**:
+  - `Deploy to GitHub Pages` が `main` への `push` のみを対象にしていると、`copilot/*` や `codex/*` を base にした stacked PR の merge では workflow 自体が起動せず、動作確認用のデプロイが欠落する。
+- **対応パターン**:
+  - `main` への `push` は従来どおり維持しつつ、`copilot/**` / `codex/**` 向けには `pull_request.closed` を追加して merge 時だけ起動する。
+  - job には `github.event.pull_request.merged == true` 条件を付け、単なる close では build / deploy を実行しない。
+  - checkout は `github.event.pull_request.merge_commit_sha || github.sha` を使い、merge 後の実際の反映内容を build 対象にする。
+- **注意**: `main` 向け `push` と stacked PR 向け `pull_request.closed` を混在させる場合は、同一 merge で二重 deploy しないよう branch 条件を分けたまま維持する。
+
 ### 13-61. AIレビューでは防御コードだけで仕様変更を断定しない
 
 - **対象ファイル**: `AGENTS.md`, `Docs/review/README.md`, `Docs/review/functional-review-checklist.md`, `Docs/review/non-functional-and-regression-checklist.md`
