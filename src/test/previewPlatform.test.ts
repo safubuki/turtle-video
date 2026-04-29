@@ -16,6 +16,7 @@ import {
   shouldKeepInactiveVideoPrewarmed,
   shouldMuteNativeMediaElement,
   shouldPrimeFutureInactiveVideoInPreview,
+  shouldRecoverAndroidPreviewVideoPlayback,
   shouldRecoverAudioOnlyAfterVideoBoundary,
   shouldRetryAudioOnlyPrimeAtPreviewStart,
   shouldReinitializeAudioRoute,
@@ -687,6 +688,78 @@ describe('preview platform helpers', () => {
         isVideoSeeking: true,
         videoCurrentTime: 0,
         targetTime: 0.02,
+      }),
+    ).toBe(false);
+  });
+
+  it('Android preview の active video が pause/seek/未準備なら復帰アクション判定を返す', () => {
+    expect(
+      shouldRecoverAndroidPreviewVideoPlayback({
+        isAndroid: true,
+        isExporting: false,
+        isActivePlaying: true,
+        isUserSeeking: false,
+        videoPaused: true,
+        videoSeeking: false,
+        videoReadyState: 2,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRecoverAndroidPreviewVideoPlayback({
+        isAndroid: true,
+        isExporting: false,
+        isActivePlaying: true,
+        isUserSeeking: false,
+        videoPaused: false,
+        videoSeeking: true,
+        videoReadyState: 2,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRecoverAndroidPreviewVideoPlayback({
+        isAndroid: true,
+        isExporting: false,
+        isActivePlaying: true,
+        isUserSeeking: false,
+        videoPaused: false,
+        videoSeeking: false,
+        videoReadyState: 1,
+      }),
+    ).toBe(true);
+  });
+
+  it('Android 以外・export・ユーザーseek中は復帰アクション判定を抑止する', () => {
+    expect(
+      shouldRecoverAndroidPreviewVideoPlayback({
+        isAndroid: false,
+        isExporting: false,
+        isActivePlaying: true,
+        isUserSeeking: false,
+        videoPaused: true,
+        videoSeeking: false,
+        videoReadyState: 2,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRecoverAndroidPreviewVideoPlayback({
+        isAndroid: true,
+        isExporting: true,
+        isActivePlaying: true,
+        isUserSeeking: false,
+        videoPaused: true,
+        videoSeeking: false,
+        videoReadyState: 2,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRecoverAndroidPreviewVideoPlayback({
+        isAndroid: true,
+        isExporting: false,
+        isActivePlaying: true,
+        isUserSeeking: true,
+        videoPaused: true,
+        videoSeeking: false,
+        videoReadyState: 2,
       }),
     ).toBe(false);
   });

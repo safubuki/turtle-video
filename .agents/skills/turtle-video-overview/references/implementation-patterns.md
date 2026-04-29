@@ -1763,3 +1763,16 @@
 - **注意点**:
   - retry 条件を `previewPlatform.ts` に寄せ、Android / PC / export では必ず `false` になるテストを入れて共有経路への漏れを防ぐ。
   - これは「静止画先頭の audio-only 起動を安定させる」ための補強であり、動画側の start 順や boundary recovery と混ぜて一般化しない。
+
+### 13-91. Android preview の active video が pause/seek 残留した場合は即時リカバリする
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **問題**:
+  - Android preview で active video が `paused=true` や `seeking=true` に残留すると、Canvas 側は再生中の想定で進む一方で映像デコーダが追従せず、ブラックアウト・カクつき・音飛びを誘発しやすい。
+- **対策**:
+  - `shouldRecoverAndroidPreviewVideoPlayback()` を追加し、Android preview かつ active 再生中だけ「pause/seek/readyState不足」を復帰対象として判定する。
+  - `usePreviewEngine` の active video 制御で上記判定が true の場合、短い間隔で `load()` / `play()` を再試行してデコーダ停止を自己回復させる。
+  - export/iOS/ユーザーseek中には適用しないガードを helper 側に集約する。
+- **注意点**:
+  - 復帰再試行間隔を短くしすぎると `play()` 連打で逆効果になるため、約 220ms の最小間隔を維持する。
+  - Android preview 専用ロジックを共通経路へ広げない。
