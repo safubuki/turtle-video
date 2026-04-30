@@ -1079,7 +1079,12 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         bitrate: EXPORT_VIDEO_BITRATE
       });
       setIsProcessing(true);
-      setExportUrl(null);
+      setExportUrl((previousUrl) => {
+        if (previousUrl) {
+          URL.revokeObjectURL(previousUrl);
+        }
+        return null;
+      });
       setExportExt(null);
       completionRequestedRef.current = false;
       updatePreparationStep(audioSources, 1);

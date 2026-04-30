@@ -28,8 +28,11 @@ const PREVIEW_STOP_BUTTON =
 const PREVIEW_CAPTURE_BUTTON =
   'border-gray-700 bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white disabled:border-gray-700 disabled:bg-gray-800 disabled:text-gray-500';
 const EXPORT_RENDERING_READY_TIME_SEC = 0.25;
-// currentTime / totalDuration の浮動小数誤差で 100% 直前に止まるケースを吸収する。
-const EXPORT_PROGRESS_FINALIZATION_THRESHOLD = 99.9;
+const EXPORT_FINALIZING_EPSILON_SEC = 0.05;
+const EXPORT_STALLED_DELAY_MS = 3000;
+const EXPORT_FINALIZING_SLOW_MS = 30000;
+
+type ExportPhase = 'preparing' | 'rendering' | 'finalizing' | 'stalled';
 
 type PreparationStage = 'initializing' | 'audioAnalysis' | 'audioMix' | 'encoding' | 'finalizing';
 
@@ -133,7 +136,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   onOpenHelp,
   formatTime,
 }) => {
-  const [exportPhase, setExportPhase] = useState<'preparing' | 'rendering' | 'stalled'>('preparing');
+  const [exportPhase, setExportPhase] = useState<ExportPhase>('preparing');
   const [isCapturePressed, setIsCapturePressed] = useState(false);
   const lastProgressAtRef = useRef<number>(Date.now());
   const lastObservedTimeRef = useRef<number>(currentTime);
@@ -141,6 +144,15 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   const flashTimeoutRef = useRef<number | null>(null);
   const exportStartedAtRef = useRef<number | null>(null);
   const [processingNowMs, setProcessingNowMs] = useState(() => Date.now());
+  const isNearExportEnd =
+    totalDuration > 0
+    && currentTime >= Math.max(0, totalDuration - EXPORT_FINALIZING_EPSILON_SEC);
+  const isExportFinalizing = isProcessing && isNearExportEnd && !exportUrl;
+  const canShowStalled =
+    isProcessing
+    && !isExportFinalizing
+    && totalDuration > 0
+    && currentTime < Math.max(0, totalDuration - EXPORT_FINALIZING_EPSILON_SEC);
 
   useEffect(() => {
     if (!isProcessing) {
@@ -177,22 +189,30 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     if (!isProcessing) return;
 
     const updatePhase = () => {
+      if (isExportFinalizing) {
+        setExportPhase('finalizing');
+        return;
+      }
       // まだ時刻進行が始まっていない段階は「準備中」として扱う。
       if (!hasExportProgressRef.current) {
         setExportPhase('preparing');
         return;
       }
       const stagnantMs = Date.now() - lastProgressAtRef.current;
-      setExportPhase(stagnantMs > 1500 ? 'stalled' : 'rendering');
+      setExportPhase(
+        canShowStalled && stagnantMs > EXPORT_STALLED_DELAY_MS
+          ? 'stalled'
+          : 'rendering',
+      );
     };
 
     updatePhase();
     const timer = setInterval(updatePhase, 250);
     return () => clearInterval(timer);
-  }, [isProcessing]);
+  }, [canShowStalled, isExportFinalizing, isProcessing]);
 
   useEffect(() => {
-    if (isProcessing) {
+    if (isProcessing && !exportUrl) {
       if (exportStartedAtRef.current === null) {
         const startedAt = Date.now();
         exportStartedAtRef.current = startedAt;
@@ -202,17 +222,18 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     }
 
     exportStartedAtRef.current = null;
-  }, [isProcessing]);
+    setProcessingNowMs(Date.now());
+  }, [exportUrl, isProcessing]);
 
   useEffect(() => {
-    if (!isProcessing) return undefined;
+    if (!isProcessing || exportUrl) return undefined;
 
     const timer = window.setInterval(() => {
       setProcessingNowMs(Date.now());
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [isProcessing]);
+  }, [exportUrl, isProcessing]);
 
   useEffect(() => {
     return () => {
@@ -227,32 +248,29 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     return Math.min(100, Math.max(0, (currentTime / totalDuration) * 100));
   }, [currentTime, isProcessing, totalDuration]);
 
-  const isExportFinalizing =
-    isProcessing
-    && exportProgressPct >= EXPORT_PROGRESS_FINALIZATION_THRESHOLD
-    && !exportUrl;
   const preparationStage = resolvePreparationStage(exportPreparationStep);
   const preparationStageCopy = PREPARATION_STAGE_COPY[preparationStage];
-  const exportPreparingElapsedSec =
+  const exportProcessingElapsedSec =
     isProcessing && exportStartedAtRef.current !== null
       ? Math.max(0, Math.floor((processingNowMs - exportStartedAtRef.current) / 1000))
       : 0;
-  const exportPreparingElapsedText =
-    exportPreparingElapsedSec >= 3 ? `（${exportPreparingElapsedSec}秒経過）` : '';
+  const exportProcessingElapsedText =
+    exportProcessingElapsedSec >= 3 ? `（${exportProcessingElapsedSec}秒経過）` : '';
 
   const exportButtonText = useMemo(() => {
     if (!isProcessing) return '動画ファイルを作成';
-    if (isExportFinalizing) return '動画を最終化中...';
     if (exportPhase === 'preparing') {
-      return `${preparationStageCopy.buttonLabel}${exportPreparingElapsedText}`;
+      return `${preparationStageCopy.buttonLabel}${exportProcessingElapsedText}`;
+    }
+    if (exportPhase === 'finalizing') {
+      return '動画を最終化中...';
     }
     if (exportPhase === 'stalled') return 'フレーム待機中...';
     return `映像を生成中... ${exportProgressPct.toFixed(0)}%`;
   }, [
     exportPhase,
-    exportPreparingElapsedText,
+    exportProcessingElapsedText,
     exportProgressPct,
-    isExportFinalizing,
     isProcessing,
     preparationStageCopy.buttonLabel,
   ]);
@@ -260,16 +278,19 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   const exportStatusText = useMemo(() => {
     if (!isProcessing) return null;
     if (exportPhase === 'preparing') {
-      return `${preparationStageCopy.description}${exportPreparingElapsedText}`;
+      return `${preparationStageCopy.description}${exportProcessingElapsedText}`;
     }
-    if (isExportFinalizing) {
-      return '動画を最終化中...';
+    if (exportPhase === 'finalizing') {
+      if (processingNowMs - (exportStartedAtRef.current ?? processingNowMs) >= EXPORT_FINALIZING_SLOW_MS) {
+        return `動画を最終化中です。時間がかかっています...${exportProcessingElapsedText}`;
+      }
+      return `動画を最終化中...${exportProcessingElapsedText}`;
     }
     if (exportPhase === 'stalled') {
       return '処理に時間がかかっています。しばらく待っても進まない場合は中断して再実行してください。';
     }
     return '映像を生成中です。';
-  }, [exportPhase, exportPreparingElapsedText, isExportFinalizing, isProcessing, preparationStageCopy.description]);
+  }, [exportPhase, exportProcessingElapsedText, isProcessing, preparationStageCopy.description, processingNowMs]);
 
   const previewRuntimeNotice = useMemo(
     () => getPreviewRuntimeNotice({ appFlavor, supportsShowSaveFilePicker }),
@@ -480,7 +501,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
               >
                 <Download className="w-4 h-4 lg:w-5 lg:h-5" /> ダウンロード (.{exportExt})
               </button>
-            ) : (
+            ) : isProcessing ? (
               <button
                 onClick={onExport}
                 disabled={isProcessing || mediaItems.length === 0}
@@ -489,6 +510,14 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
                 {isProcessing && (
                   <Loader className="animate-spin w-4 h-4 lg:w-5 lg:h-5" />
                 )}
+                {exportButtonText}
+              </button>
+            ) : (
+              <button
+                onClick={onExport}
+                disabled={mediaItems.length === 0}
+                className="flex-1 max-w-xs flex items-center justify-center gap-2 px-6 py-2.5 lg:py-3 rounded-full text-sm lg:text-base font-bold shadow-lg transition bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20"
+              >
                 {exportButtonText}
               </button>
             )}

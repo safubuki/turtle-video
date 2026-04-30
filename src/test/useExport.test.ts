@@ -243,6 +243,32 @@ describe('useExport', () => {
     expect(result.current.exportExt).toBeNull();
   });
 
+  it('startExport 開始時に前回の Blob URL を解放してから state を空にする', async () => {
+    mockGetPlatformCapabilities.mockReturnValue(createPlatformCapabilities());
+    const revokeSpy = vi.spyOn(URL, 'revokeObjectURL');
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { result } = renderHook(() => useStandardExport());
+    const args = createStartExportArgs();
+
+    act(() => {
+      result.current.setExportUrl('blob:previous-export');
+      result.current.setExportExt('mp4');
+    });
+
+    await act(async () => {
+      await result.current.startExport(
+        args.canvasRef,
+        args.masterDestRef,
+        args.onRecordingStop,
+        args.onRecordingError,
+      );
+    });
+
+    expect(revokeSpy).toHaveBeenCalledWith('blob:previous-export');
+    expect(result.current.exportUrl).toBeNull();
+    expect(result.current.exportExt).toBeNull();
+  });
+
   it('AudioTrack volume は export 前に 0..2.5 へ clamp する', () => {
     expect(clampAudioTrackVolume(-1)).toBe(0);
     expect(clampAudioTrackVolume(0)).toBe(0);

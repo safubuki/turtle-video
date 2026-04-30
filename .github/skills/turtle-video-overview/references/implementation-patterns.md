@@ -734,6 +734,7 @@
   - standard preview の BGM 実効音量は `resolvePreviewBgmGain()` で 0..2.5 に統一し、WebAudio gain があるときは gain 側へ直接反映、`HTMLAudioElement.volume` は gain node が無い場合の 0..1 fallback に限定する
   - shared export は `clampAudioTrackVolume()` の 0..2.5 を BGM scheduling と fade の基準に使い、`ExportPreparationStep` は 10 段階へ拡張して decode / mix / encode / finalize の前後で更新する
   - `clearExport()` は新しい export 開始時だけ実行し、export 成功後は `setExportUrl()` を優先して保持する。`PreviewSection` は `exportUrl` を `isProcessing` より優先表示し、100% 到達後に URL 未生成なら「動画を最終化中...」へ切り替える
+  - `PreviewSection` の stalled 判定は終端手前だけに限定し、`currentTime >= totalDuration - 0.05` では stalled ではなく finalizing を維持する。停止ボタンで export を中断するときは `stopExport()` と `processing/loading/preparation` の解除を同時に行い、経過秒数表示を残さない
 - **注意**:
   - 100% 超の preview 音量差は standard flavor 専用の WebAudio gain で実現し、apple-safari runtime や shared UI に platform 直判定を戻さない
   - export 完了後の `exportUrl` は stop/preview 再開では消さず、タイムライン変更や新規 export 開始など「既存出力が無効化される操作」でだけ clear する
