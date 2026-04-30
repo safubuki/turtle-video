@@ -19,6 +19,7 @@ vi.mock('../flavors/apple-safari/export/iosSafariMediaRecorder', () => ({
   runIosSafariMediaRecorderStrategy: mockRunIosSafariMediaRecorderStrategy,
 }));
 
+import { clampAudioTrackVolume } from '../hooks/useExport';
 import { useExport as useAppleSafariExport } from '../flavors/apple-safari/export/useExport';
 import { useExport as useStandardExport } from '../flavors/standard/export/useExport';
 
@@ -240,5 +241,13 @@ describe('useExport', () => {
     expect(revokeSpy).toHaveBeenCalledWith('blob:test-export');
     expect(result.current.exportUrl).toBeNull();
     expect(result.current.exportExt).toBeNull();
+  });
+
+  it('AudioTrack volume は export 前に 0..2.5 へ clamp する', () => {
+    expect(clampAudioTrackVolume(-1)).toBe(0);
+    expect(clampAudioTrackVolume(0)).toBe(0);
+    expect(clampAudioTrackVolume(1.25)).toBe(1.25);
+    expect(clampAudioTrackVolume(2.5)).toBe(2.5);
+    expect(clampAudioTrackVolume(3)).toBe(2.5);
   });
 });

@@ -53,7 +53,7 @@ const DURATION_DIFF_THRESHOLD_US = 1000;
 const AUDIO_TRACK_MIN_VOLUME = 0;
 const AUDIO_TRACK_MAX_VOLUME = 2.5;
 
-function clampAudioTrackVolume(volume: number): number {
+export function clampAudioTrackVolume(volume: number): number {
   return Math.max(AUDIO_TRACK_MIN_VOLUME, Math.min(AUDIO_TRACK_MAX_VOLUME, volume));
 }
 

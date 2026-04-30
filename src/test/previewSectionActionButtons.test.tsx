@@ -226,7 +226,7 @@ describe('PreviewSection action buttons', () => {
     expect(screen.getByText(/共有メニューまたは標準ダウンロード導線/)).toBeInTheDocument();
   });
 
-  it('export 完了後は processing が false のときだけ download ボタンを表示する', () => {
+  it('export 完了後に processing=false なら download ボタンを表示する', () => {
     const onDownload = vi.fn();
     const onExport = vi.fn();
     const { rerender, props } = renderPreviewSection({
