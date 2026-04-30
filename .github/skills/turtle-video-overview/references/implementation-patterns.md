@@ -729,15 +729,17 @@
 - **問題**:
   - standard preview で BGM の `HTMLAudioElement.volume` だけを見ると 1.0 が上限のため、200% 以上の設定差が消える
   - export 完了後も preview 再生や stop 操作で `exportUrl` を消すと、ダウンロードボタンが現れない/消える
-  - OfflineAudioContext や mux finalize が長いと「書き出し準備 2/4」のまま止まって見えやすい
+  - OfflineAudioContext や mux finalize が長いと UI 上は「100% / 保存ファイル作成中」のままでも、成功 state へ戻らず download ボタンが出ないことがある
 - **対策**:
   - standard preview の BGM 実効音量は `resolvePreviewBgmGain()` で 0..2.5 に統一し、WebAudio gain があるときは gain 側へ直接反映、`HTMLAudioElement.volume` は gain node が無い場合の 0..1 fallback に限定する
   - shared export は `clampAudioTrackVolume()` の 0..2.5 を BGM scheduling と fade の基準に使い、`ExportPreparationStep` は 10 段階へ拡張して decode / mix / encode / finalize の前後で更新する
-  - `clearExport()` は新しい export 開始時だけ実行し、export 成功後は `setExportUrl()` を優先して保持する。`PreviewSection` は `exportUrl` を `isProcessing` より優先表示し、100% 到達後に URL 未生成なら「動画を最終化中...」へ切り替える
-  - `PreviewSection` の stalled 判定は終端手前だけに限定し、`currentTime >= totalDuration - 0.05` では stalled ではなく finalizing を維持する。停止ボタンで export を中断するときは `stopExport()` と `processing/loading/preparation` の解除を同時に行い、経過秒数表示を残さない
+  - `clearExport()` は新しい export 開始時だけ実行し、export 成功後は `setExportUrl()` を優先して保持する。shared の `TurtleVideo.tsx` でも `exportUrl` 監視で `processing/loading/preparation` を確実に解除し、active runtime の callback 差分を吸収する
+  - `useExport.ts` の成功経路は object URL 生成完了後に `onRecordingStop(url, ext)` を 1 回だけ呼ぶ。`PreviewSection` は `exportUrl` を `isProcessing` より優先表示し、100% 到達後に URL 未生成なら「保存ファイルを作成中...」へ切り替える
+  - export セッション中の動画音声 decode は `file.name:size:lastModified:type` key の cache で再利用し、同一動画を複数 clip に分けても `decodeAudioData` / `<video>` fallback を毎回やり直さない
+  - `PreviewSection` の finalizing timeout は「100% 到達後に 30 秒以上 URL が出ない」ケースだけを監視し、timeout 時は `stopExport({ silent: true })` と `processing/loading/preparation` の解除、エラーメッセージ表示を同時に行う
 - **注意**:
   - 100% 超の preview 音量差は standard flavor 専用の WebAudio gain で実現し、apple-safari runtime や shared UI に platform 直判定を戻さない
-  - export 完了後の `exportUrl` は stop/preview 再開では消さず、タイムライン変更や新規 export 開始など「既存出力が無効化される操作」でだけ clear する
+  - export 完了後の `exportUrl` は stop/preview 再開では消さず、timeout やユーザー停止で export を中断するときも silent abort を使って不要な「中断されました」エラーで上書きしない
 
 ---
 

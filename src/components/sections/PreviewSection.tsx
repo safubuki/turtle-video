@@ -30,52 +30,45 @@ const PREVIEW_CAPTURE_BUTTON =
 const EXPORT_RENDERING_READY_TIME_SEC = 0.25;
 const EXPORT_FINALIZING_EPSILON_SEC = 0.05;
 const EXPORT_STALLED_DELAY_MS = 3000;
-const EXPORT_FINALIZING_SLOW_MS = 30000;
+const EXPORT_FINALIZING_TIMEOUT_MS = 30000;
 
 type ExportPhase = 'preparing' | 'rendering' | 'finalizing' | 'stalled';
 
-type PreparationStage = 'initializing' | 'audioAnalysis' | 'audioMix' | 'encoding' | 'finalizing';
+type PreparationStage = 'initializing' | 'audioAnalysis' | 'audioMix' | 'encoding';
 
 const PREPARATION_STAGE_COPY: Record<
   PreparationStage,
   { buttonLabel: string; description: string }
 > = {
   initializing: {
-    buttonLabel: '書き出しを準備中...',
-    description: '書き出し設定とメディア情報を確認しています。',
+    buttonLabel: '書き出し設定を確認しています',
+    description: '書き出しに必要な準備を進めています。',
   },
   audioAnalysis: {
-    buttonLabel: '動画音声を解析中です...',
-    description: '動画数や音声トラック数が多い場合は時間がかかります。',
+    buttonLabel: '動画音声を解析中です',
+    description: '同じ動画が複数ある場合は解析結果を再利用します。',
   },
   audioMix: {
-    buttonLabel: '音声を準備中...',
-    description: 'BGM とナレーションをミックスしています。',
+    buttonLabel: '音声を準備しています',
+    description: 'BGM とナレーションをタイムラインへ配置しています。',
   },
   encoding: {
-    buttonLabel: '映像を書き出す準備をしています...',
-    description: 'エンコード前の最終確認を行っています。',
-  },
-  finalizing: {
-    buttonLabel: '動画を最終化中...',
-    description: 'ファイルを書き出しています。',
+    buttonLabel: '映像を書き出す準備をしています',
+    description: '映像生成を始める前の確認を行っています。',
   },
 };
 
-// ExportPreparationStep(1..10) を UI 上では 5 段階に束ねて見せる。
 const PREPARATION_STAGE_BOUNDARIES = {
   initializingEnd: 2,
   audioAnalysisEnd: 5,
   audioMixEnd: 7,
-  encodingEnd: 8,
 } as const;
 
 const resolvePreparationStage = (step: ExportPreparationStep | null): PreparationStage => {
   if (step === null || step <= PREPARATION_STAGE_BOUNDARIES.initializingEnd) return 'initializing';
   if (step <= PREPARATION_STAGE_BOUNDARIES.audioAnalysisEnd) return 'audioAnalysis';
   if (step <= PREPARATION_STAGE_BOUNDARIES.audioMixEnd) return 'audioMix';
-  if (step <= PREPARATION_STAGE_BOUNDARIES.encodingEnd) return 'encoding';
-  return 'finalizing';
+  return 'encoding';
 };
 
 interface PreviewSectionProps {
@@ -102,6 +95,7 @@ interface PreviewSectionProps {
   onDownload: () => void;
   onClearAll: () => void;
   onCapture: () => void;
+  onExportFinalizingTimeout: () => void;
   onOpenHelp: () => void;
   formatTime: (seconds: number) => string;
 }
@@ -133,6 +127,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   onDownload,
   onClearAll,
   onCapture,
+  onExportFinalizingTimeout,
   onOpenHelp,
   formatTime,
 }) => {
@@ -143,6 +138,8 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   const hasExportProgressRef = useRef<boolean>(false);
   const flashTimeoutRef = useRef<number | null>(null);
   const exportStartedAtRef = useRef<number | null>(null);
+  const exportFinalizingStartedAtRef = useRef<number | null>(null);
+  const hasTriggeredFinalizingTimeoutRef = useRef(false);
   const [processingNowMs, setProcessingNowMs] = useState(() => Date.now());
   const isNearExportEnd =
     totalDuration > 0
@@ -236,6 +233,27 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   }, [exportUrl, isProcessing]);
 
   useEffect(() => {
+    if (!isExportFinalizing || exportUrl || !isProcessing) {
+      exportFinalizingStartedAtRef.current = null;
+      hasTriggeredFinalizingTimeoutRef.current = false;
+      return;
+    }
+
+    if (exportFinalizingStartedAtRef.current === null) {
+      exportFinalizingStartedAtRef.current = Date.now();
+    }
+
+    if (
+      exportFinalizingStartedAtRef.current !== null
+      && processingNowMs - exportFinalizingStartedAtRef.current >= EXPORT_FINALIZING_TIMEOUT_MS
+      && !hasTriggeredFinalizingTimeoutRef.current
+    ) {
+      hasTriggeredFinalizingTimeoutRef.current = true;
+      onExportFinalizingTimeout();
+    }
+  }, [exportUrl, isExportFinalizing, isProcessing, onExportFinalizingTimeout, processingNowMs]);
+
+  useEffect(() => {
     return () => {
       if (flashTimeoutRef.current !== null) {
         window.clearTimeout(flashTimeoutRef.current);
@@ -256,10 +274,6 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
       : 0;
   const exportProcessingElapsedText =
     exportProcessingElapsedSec >= 3 ? `（${exportProcessingElapsedSec}秒経過）` : '';
-  const isSlowFinalizing =
-    exportPhase === 'finalizing'
-    && exportStartedAtRef.current !== null
-    && processingNowMs - exportStartedAtRef.current >= EXPORT_FINALIZING_SLOW_MS;
 
   const exportButtonText = useMemo(() => {
     if (!isProcessing) return '動画ファイルを作成';
@@ -267,7 +281,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
       return `${preparationStageCopy.buttonLabel}${exportProcessingElapsedText}`;
     }
     if (exportPhase === 'finalizing') {
-      return '動画を最終化中...';
+      return '保存ファイルを作成中...';
     }
     if (exportPhase === 'stalled') return 'フレーム待機中...';
     return `映像を生成中... ${exportProgressPct.toFixed(0)}%`;
@@ -285,16 +299,13 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
       return `${preparationStageCopy.description}${exportProcessingElapsedText}`;
     }
     if (exportPhase === 'finalizing') {
-      if (isSlowFinalizing) {
-        return `動画を最終化中です。時間がかかっています...${exportProcessingElapsedText}`;
-      }
-      return `動画を最終化中...${exportProcessingElapsedText}`;
+      return '保存ファイルを作成中...';
     }
     if (exportPhase === 'stalled') {
       return '処理に時間がかかっています。しばらく待っても進まない場合は中断して再実行してください。';
     }
     return '映像を生成中です。';
-  }, [exportPhase, exportProcessingElapsedText, isProcessing, isSlowFinalizing, preparationStageCopy.description]);
+  }, [exportPhase, exportProcessingElapsedText, isProcessing, preparationStageCopy.description]);
 
   const exportActionButton = (() => {
     if (exportUrl) {
