@@ -735,6 +735,9 @@
   - shared export は `clampAudioTrackVolume()` の 0..2.5 を BGM scheduling と fade の基準に使い、`ExportPreparationStep` は 10 段階へ拡張して decode / mix / encode / finalize の前後で更新する
   - `clearExport()` は新しい export 開始時だけ実行し、export 成功後は `setExportUrl()` を優先して保持する。shared の `TurtleVideo.tsx` でも `exportUrl` 監視で `processing/loading/preparation` を確実に解除し、active runtime の callback 差分を吸収する
   - `useExport.ts` の成功経路は object URL 生成完了後に `onRecordingStop(url, ext)` を 1 回だけ呼ぶ。`PreviewSection` は `exportUrl` を `isProcessing` より優先表示し、100% 到達後に URL 未生成なら「保存ファイルを作成中...」へ切り替える
+  - MP4 finalize は `Blob.size > 0` / `URL.createObjectURL(blob)` / `onRecordingStop(url, ext)` の完了まで成功扱いにしない。どこかで失敗した場合は `export finalize failed` をログし、error callback で UI をエラーへ戻す
+  - shared の `TurtleVideo.tsx` は `exportUrl` 到達時だけでなく `isProcessing` が false に戻った時点でも `loading` と `exportPreparationStep` を解除し、runtime ごとの差分で「保存ファイルを作成中...」が残り続けないようにする
+  - `PreviewSection` のユーザー向け文言は `書き出し準備中...` / `映像を書き出し中... {percent}%` / `保存ファイルを作成中...` に統一し、`フレーム待機中` は内部状態に留めて UI へ出さない
   - export セッション中の動画音声 decode は `file.name:size:lastModified:type` key の cache で再利用し、同一動画を複数 clip に分けても `decodeAudioData` / `<video>` fallback を毎回やり直さない
   - `PreviewSection` の finalizing timeout は「100% 到達後に 30 秒以上 URL が出ない」ケースだけを監視し、timeout 時は `stopExport({ silent: true })` と `processing/loading/preparation` の解除、エラーメッセージ表示を同時に行う
 - **注意**:

@@ -238,6 +238,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const lastSeekTimeRef = useRef(0); // 最後のシーク時刻（スロットリング用）
   const pendingSeekRef = useRef<number | null>(null); // 保留中のシーク位置
   const wasPlayingBeforeSeekRef = useRef(false); // シーク前の再生状態を保持
+  const wasExportProcessingRef = useRef(isProcessing);
   const pendingSeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 保留中のシーク処理用タイマー
 
 
@@ -410,10 +411,21 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   }, [setExportPreparationStep, setLoading, setProcessing]);
 
   useEffect(() => {
-    if (!exportUrl) return;
-    // runtime ごとの成功 callback 差分があっても、Blob URL が揃った時点で shared UI は必ず成功状態へ戻す。
-    clearExportUiState();
-  }, [clearExportUiState, exportUrl]);
+    const wasProcessing = wasExportProcessingRef.current;
+    wasExportProcessingRef.current = isProcessing;
+
+    if (exportUrl) {
+      setProcessing(false);
+      setLoading(false);
+      setExportPreparationStep(null);
+      return;
+    }
+
+    if (wasProcessing && !isProcessing) {
+      setLoading(false);
+      setExportPreparationStep(null);
+    }
+  }, [exportUrl, isProcessing, setExportPreparationStep, setLoading, setProcessing]);
 
   // --- Audio Context ---
   const getAudioContext = useCallback(() => {
@@ -1718,17 +1730,21 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     startEngine(0, true);
   }, [startEngine]);
 
-  const handleExportFinalizingTimeout = useCallback(() => {
+  const handleExportFinalizeTimeout = useCallback(() => {
     if (!isProcessing || exportUrl) return;
     stopWebCodecsExport({ silent: true });
     clearExportUiState();
     pause();
     stopAll();
+    logError('RENDER', 'export finalize failed', {
+      error: EXPORT_FINALIZING_TIMEOUT_ERROR,
+    });
     setError(EXPORT_FINALIZING_TIMEOUT_ERROR);
   }, [
     clearExportUiState,
     exportUrl,
     isProcessing,
+    logError,
     pause,
     setError,
     stopAll,
@@ -2028,7 +2044,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
                 onDownload={handleDownload}
                 onClearAll={handleClearAll}
                 onCapture={handleCapture}
-                onExportFinalizingTimeout={handleExportFinalizingTimeout}
+                onExportFinalizeTimeout={handleExportFinalizeTimeout}
                 onOpenHelp={() => openSectionHelp('preview')}
                 formatTime={formatTime}
               />
