@@ -50,6 +50,8 @@ function durationUsToSampleCount(durationUs: number, sampleRate: number): number
 // 1ms を超える audio / video / container の尺差は Teams 投稿後の速度異常再発リスクが高いため、
 // export 完了前に明示的に検出する。
 const DURATION_DIFF_THRESHOLD_US = 1000;
+const AUDIO_TRACK_MIN_VOLUME = 0;
+const AUDIO_TRACK_MAX_VOLUME = 2.5;
 
 function calculateFinalAudioSampleCount(
   sampleRate: number,
@@ -596,7 +598,7 @@ async function offlineRenderAudio(
     source.connect(gain);
     gain.connect(offlineCtx.destination);
 
-    const vol = Math.max(0, Math.min(2.5, track.volume));
+    const vol = Math.max(AUDIO_TRACK_MIN_VOLUME, Math.min(AUDIO_TRACK_MAX_VOLUME, track.volume));
     const trackStart = Math.max(0, track.delay);
     const sourceOffset = track.startPoint;
     const availableDuration = track.duration - track.startPoint;
