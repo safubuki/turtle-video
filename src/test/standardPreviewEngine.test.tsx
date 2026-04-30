@@ -166,7 +166,7 @@ describe('standard preview engine', () => {
   function setupPreviewEngineHarness(options?: {
     bgm?: AudioTrack | null;
     narrations?: NarrationClip[];
-    primePreviewAudioOnlyTracksAtTime?: ReturnType<typeof vi.fn>;
+    primePreviewAudioOnlyTracksAtTime?: ReturnType<typeof vi.fn<(playbackTime: number) => void>>;
   }) {
     const mediaItem = createVideoItem();
     const videoElement = createMockVideoElement();
@@ -182,9 +182,7 @@ describe('standard preview engine', () => {
     const play = vi.fn();
     const pause = vi.fn();
     const primePreviewAudioOnlyTracksAtTimeSpy =
-      options?.primePreviewAudioOnlyTracksAtTime ?? vi.fn();
-    const primePreviewAudioOnlyTracksAtTime =
-      primePreviewAudioOnlyTracksAtTimeSpy as unknown as (playbackTime: number) => void;
+      options?.primePreviewAudioOnlyTracksAtTime ?? vi.fn<(playbackTime: number) => void>();
 
     const hook = renderHook(() =>
       usePreviewEngine({
@@ -266,7 +264,7 @@ describe('standard preview engine', () => {
           requiresWebAudio: false,
         })),
         preparePreviewAudioNodesForUpcomingVideos: vi.fn(),
-        primePreviewAudioOnlyTracksAtTime,
+        primePreviewAudioOnlyTracksAtTime: primePreviewAudioOnlyTracksAtTimeSpy,
         resetInactiveVideos: vi.fn(),
         startWebCodecsExport: vi.fn(),
         stopWebCodecsExport: vi.fn(),

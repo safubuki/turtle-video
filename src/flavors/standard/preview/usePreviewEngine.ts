@@ -184,6 +184,7 @@ const PREVIEW_START_READY_SYNC_TOLERANCE_SEC = 0.05;
 const PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC = 0.05;
 const PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC = 0.25;
 const PREVIEW_ANDROID_VIDEO_PRESEEK_WINDOW_SEC = 0.6;
+const PREVIEW_ANDROID_BGM_SOFT_SYNC_TOLERANCE_SEC = 0.3;
 // 再生開始直後は seeked / canplay の到着を数フレームだけ待ち、遅ければ loop を止めない。
 const PREVIEW_START_READY_POLL_INTERVAL_MS = 40;
 const PREVIEW_START_READY_TIMEOUT_MS = 900;
@@ -1463,7 +1464,7 @@ export function usePreviewEngine({
           const element = mediaElementsRef.current[trackId] as HTMLAudioElement;
           let gainNode = gainNodesRef.current[trackId];
           let hasAudioNode = !!sourceNodesRef.current[trackId];
-          const shouldUseAndroidPreviewBgmSoftSync =
+          const isAndroidPreviewBgmTrack =
             isAndroidPreviewPlayback
             && trackId === 'bgm';
 
@@ -1490,7 +1491,7 @@ export function usePreviewEngine({
                 const playDuration = time - track.delay;
 
                 if (trackTime <= track.duration) {
-                  if (shouldUseAndroidPreviewBgmSoftSync) {
+                  if (isAndroidPreviewBgmTrack) {
                     // Android standard preview の BGM は active video を待たせないため、
                     // readyState を待たずに緩めのしきい値で fire-and-forget に同期する。
                     if (element.readyState === 0 && !element.error) {
@@ -1499,7 +1500,7 @@ export function usePreviewEngine({
                     if (
                       element.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
                       && !element.seeking
-                      && Math.abs(element.currentTime - trackTime) > 0.3
+                      && Math.abs(element.currentTime - trackTime) > PREVIEW_ANDROID_BGM_SOFT_SYNC_TOLERANCE_SEC
                     ) {
                       element.currentTime = trackTime;
                     }
@@ -1550,12 +1551,12 @@ export function usePreviewEngine({
 
                   // BGM soft sync 中は active video 優先で進めたいので、
                   // audio resume wait による追加ミュートを掛けず独立に追従させる。
-                  if (element.seeking || (!shouldUseAndroidPreviewBgmSoftSync && !avoidPausePlay && holdAudioThisFrame)) {
+                  if (element.seeking || (!isAndroidPreviewBgmTrack && !avoidPausePlay && holdAudioThisFrame)) {
                     vol = 0;
                   }
 
                   if (
-                    !shouldUseAndroidPreviewBgmSoftSync
+                    !isAndroidPreviewBgmTrack
                     && !hasAudioNode
                     && getPreviewAudioOutputMode(previewPlatformPolicy, {
                       hasAudioNode: false,
@@ -1570,13 +1571,13 @@ export function usePreviewEngine({
                   }
 
                   const outputMode = applyPreviewAudioOutputState(previewPlatformPolicy, element, {
-                    hasAudioNode: shouldUseAndroidPreviewBgmSoftSync ? false : hasAudioNode,
+                    hasAudioNode: isAndroidPreviewBgmTrack ? false : hasAudioNode,
                     desiredVolume: vol,
                     audibleSourceCount: vol > 0 ? activePreviewAudioSourceCount : 0,
                     isExporting: _isExporting,
                   });
                   const effectiveGain = outputMode === 'native' ? 0 : vol;
-                  if (!shouldUseAndroidPreviewBgmSoftSync && gainNode && audioCtxRef.current) {
+                  if (!isAndroidPreviewBgmTrack && gainNode && audioCtxRef.current) {
                     const currentGain = gainNode.gain.value;
                     if (Math.abs(currentGain - effectiveGain) > 0.01) {
                       gainNode.gain.setTargetAtTime(effectiveGain, audioCtxRef.current.currentTime, 0.1);
@@ -1584,12 +1585,12 @@ export function usePreviewEngine({
                   }
                 } else {
                   applyPreviewAudioOutputState(previewPlatformPolicy, element, {
-                    hasAudioNode: shouldUseAndroidPreviewBgmSoftSync ? false : hasAudioNode,
+                    hasAudioNode: isAndroidPreviewBgmTrack ? false : hasAudioNode,
                     desiredVolume: 0,
                     audibleSourceCount: 0,
                     isExporting: _isExporting,
                   });
-                  if (!shouldUseAndroidPreviewBgmSoftSync && gainNode && audioCtxRef.current) {
+                  if (!isAndroidPreviewBgmTrack && gainNode && audioCtxRef.current) {
                     gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.1);
                   }
                   if (!avoidPausePlay && !element.paused) element.pause();
@@ -1597,12 +1598,12 @@ export function usePreviewEngine({
               }
             } else {
               applyPreviewAudioOutputState(previewPlatformPolicy, element, {
-                hasAudioNode: shouldUseAndroidPreviewBgmSoftSync ? false : hasAudioNode,
+                hasAudioNode: isAndroidPreviewBgmTrack ? false : hasAudioNode,
                 desiredVolume: 0,
                 audibleSourceCount: 0,
                 isExporting: _isExporting,
               });
-              if (!shouldUseAndroidPreviewBgmSoftSync && gainNode && audioCtxRef.current) {
+              if (!isAndroidPreviewBgmTrack && gainNode && audioCtxRef.current) {
                 gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.1);
               }
               if (!element.paused) element.pause();
@@ -2459,7 +2460,6 @@ export function usePreviewEngine({
 
         const shouldPrimeAndroidPreviewAudioOnlyTracks =
           platformCapabilities.isAndroid
-          && !platformCapabilities.isIosSafari
           && (bgmRef.current !== null || narrationsRef.current.length > 0);
         if (shouldPrimeAndroidPreviewAudioOnlyTracks) {
           // active video の開始要求とは分離し、audio-only track は失敗しても preview 全体を止めない。
