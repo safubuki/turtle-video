@@ -1968,7 +1968,7 @@ export function usePreviewEngine({
       const reachedPreviewEnd =
         !isExportMode &&
         totalDuration > 0 &&
-        // rAF の刻み誤差で終端 1 フレーム手前に残り続けるのを防ぐため、30ms 手前で終端扱いにする。
+        // 60fps で約 2 フレーム分（33ms 弱）の余裕を持たせ、rAF の刻み誤差で終端 1 フレーム手前に残り続けるのを防ぐ。
         clampedElapsed >= totalDuration - PREVIEW_END_THRESHOLD_SEC;
 
       if (reachedPreviewEnd) {
