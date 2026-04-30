@@ -38,6 +38,14 @@ function renderClipsSection(overrides: Partial<ComponentProps<typeof ClipsSectio
   };
 }
 
+function getFileInput(container: HTMLElement): HTMLInputElement {
+  const fileInput = container.querySelector('input[type="file"]');
+  if (!(fileInput instanceof HTMLInputElement)) {
+    throw new Error('file input not found');
+  }
+  return fileInput;
+}
+
 describe('ClipsSection media picker routing', () => {
   it('showOpenFilePicker 経路が有効なときは専用 picker を開く', () => {
     const onOpenMediaPicker = vi.fn();
@@ -45,11 +53,7 @@ describe('ClipsSection media picker routing', () => {
       supportsShowOpenFilePicker: true,
       onOpenMediaPicker,
     });
-    const fileInput = container.querySelector('input[type="file"]');
-
-    expect(fileInput).not.toBeNull();
-
-    const inputClickSpy = vi.spyOn(fileInput as HTMLInputElement, 'click');
+    const inputClickSpy = vi.spyOn(getFileInput(container), 'click');
     try {
       fireEvent.click(screen.getByRole('button', { name: '追加' }));
 
@@ -66,11 +70,7 @@ describe('ClipsSection media picker routing', () => {
       supportsShowOpenFilePicker: false,
       onOpenMediaPicker,
     });
-    const fileInput = container.querySelector('input[type="file"]');
-
-    expect(fileInput).not.toBeNull();
-
-    const inputClickSpy = vi.spyOn(fileInput as HTMLInputElement, 'click');
+    const inputClickSpy = vi.spyOn(getFileInput(container), 'click');
     try {
       fireEvent.click(screen.getByRole('button', { name: '追加' }));
 
