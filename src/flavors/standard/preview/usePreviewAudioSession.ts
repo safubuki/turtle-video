@@ -63,6 +63,37 @@ const resetNativeMediaAudioState = (mediaEl: HTMLMediaElement) => {
   mediaEl.volume = 1;
 };
 
+export function resolvePreviewBgmGain(
+  bgm: AudioTrack,
+  time: number,
+  totalDuration: number,
+): number {
+  const trackTime = time - bgm.delay + bgm.startPoint;
+  if (time < bgm.delay || trackTime < 0 || trackTime > bgm.duration) {
+    return 0;
+  }
+
+  let gain = Math.max(0, Math.min(2.5, bgm.volume));
+  const playTime = time - bgm.delay;
+
+  if (bgm.fadeIn) {
+    const fadeInDuration = bgm.fadeInDuration || 1;
+    if (playTime < fadeInDuration) {
+      gain *= Math.max(0, playTime / fadeInDuration);
+    }
+  }
+
+  if (bgm.fadeOut) {
+    const fadeOutDuration = bgm.fadeOutDuration || 1;
+    const remaining = totalDuration - time;
+    if (remaining < fadeOutDuration) {
+      gain *= Math.max(0, remaining / fadeOutDuration);
+    }
+  }
+
+  return Math.max(0, Math.min(2.5, gain));
+}
+
 export function usePreviewAudioSession({
   mediaItemsRef,
   bgmRef,
@@ -221,20 +252,8 @@ export function usePreviewAudioSession({
     if (currentBgm && currentBgm.volume > 0 && time >= currentBgm.delay) {
       const element = mediaElementsRef.current.bgm as HTMLAudioElement | undefined;
       const trackTime = time - currentBgm.delay + currentBgm.startPoint;
-      const playDuration = time - currentBgm.delay;
       if (element && trackTime >= 0 && trackTime <= currentBgm.duration) {
-        let volume = currentBgm.volume;
-        const fadeInDur = currentBgm.fadeInDuration || 1.0;
-        const fadeOutDur = currentBgm.fadeOutDuration || 1.0;
-
-        if (currentBgm.fadeIn && playDuration < fadeInDur) {
-          volume *= playDuration / fadeInDur;
-        }
-        if (currentBgm.fadeOut && time > totalDurationRef.current - fadeOutDur) {
-          const remaining = totalDurationRef.current - time;
-          volume *= Math.max(0, remaining / fadeOutDur);
-        }
-
+        const volume = resolvePreviewBgmGain(currentBgm, time, totalDurationRef.current);
         if (volume > 0) {
           candidates.push({
             id: 'bgm',

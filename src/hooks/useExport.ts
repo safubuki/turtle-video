@@ -41,6 +41,10 @@ export type {
   ResolveExportAudioSource,
   ResolveExportStrategyOrder,
 } from './export-strategies/types';
+export {
+  EXPORT_PREPARATION_STEP_LABELS,
+  EXPORT_PREPARATION_TOTAL_STEPS,
+} from './export-strategies/types';
 
 function durationUsToSampleCount(durationUs: number, sampleRate: number): number {
   return Math.max(0, Math.round((durationUs / 1e6) * sampleRate));
@@ -369,7 +373,7 @@ async function offlineRenderAudio(
 ): Promise<AudioBuffer | null> {
   const { mediaItems, bgm, narrations, totalDuration } = sources;
   if (totalDuration <= 0) return null;
-  sources.onPreparationStepChange?.(2);
+  sources.onPreparationStepChange?.(3);
 
   const log = useLogStore.getState();
   const numberOfChannels = 2;
@@ -636,6 +640,9 @@ async function offlineRenderAudio(
   }
 
   // 2. BGM
+  if (bgm) {
+    sources.onPreparationStepChange?.(4);
+  }
   if (bgm) await scheduleAudioTrack(bgm, 'BGM');
   // 3. Narrations
   async function scheduleNarrationClip(clip: NarrationClip): Promise<void> {
@@ -673,16 +680,20 @@ async function offlineRenderAudio(
       return a.clip.startTime - b.clip.startTime;
     });
 
+  if (orderedNarrations.length > 0) {
+    sources.onPreparationStepChange?.(5);
+  }
   for (const entry of orderedNarrations) {
     await scheduleNarrationClip(entry.clip);
   }
 
   if (signal.aborted) return null;
 
+  sources.onPreparationStepChange?.(6);
   log.info('RENDER', 'OfflineAudioContext レンダリング実行', { scheduledSources });
 
   try {
-    sources.onPreparationStepChange?.(3);
+    sources.onPreparationStepChange?.(7);
     const renderedBuffer = await offlineCtx.startRendering();
 
     // 診断: レンダリング結果の振幅チェック（iOS Safari でデコード失敗時にゼロバッファになる）
@@ -1096,6 +1107,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
       const resolvedExportDuration = audioSources
         ? resolveExportDuration(audioSources.totalDuration, FPS)
         : null;
+      updatePreparationStep(audioSources, 2);
 
       // [DIAG-1] プラットフォーム検出・入力情報の診断ログ
       // ============================================================
@@ -1226,7 +1238,6 @@ export function createUseExport(config: UseExportRuntimeConfig) {
               },
             );
             if (renderedAudio && !signal.aborted) {
-              updatePreparationStep(audioSources, 4);
               preRenderedAudioBuffer = renderedAudio;
             }
           } catch (e) {
@@ -1320,6 +1331,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           throw new Error('WebCodecsに対応していないブラウザです');
         }
 
+        updatePreparationStep(audioSources, 8);
         // 1. Muxerの初期化 (ArrayBufferTarget -> メモリ上に構築)
         // 音声は常にセットアップする（iOS Safariでは audioTrack が取得できないケースでも
         // ScriptProcessorNode 経由で音声データをキャプチャするため）
@@ -2063,6 +2075,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         // 音声プリレンダリング完了を通知 — エクスポート用の再生ループを開始させる
         // iOS Safari では extractAudioViaVideoElement にリアルタイムがかかるため、
         // このコールバックのタイミングが重要。
+        updatePreparationStep(audioSources, 9);
         logInfo('[DIAG-READY] 音声準備完了、再生ループ開始通知');
         audioSources?.onAudioPreRenderComplete?.();
 
@@ -2120,6 +2133,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           audioEncoderPaddedSamples += finalAudioResult.paddedSamples;
         }
 
+        updatePreparationStep(audioSources, 10);
         // ============================================================
         // [DIAG-7] フラッシュ前の最終状態
         // ============================================================

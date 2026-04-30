@@ -43,6 +43,7 @@ import {
 } from './previewPlatform';
 import { getStandardPreviewNow } from './playbackClock';
 import type { ResetInactiveVideosOptions } from './useInactiveVideoManager';
+import { resolvePreviewBgmGain } from './usePreviewAudioSession';
 
 type LogFn = (category: LogCategory, message: string, details?: Record<string, unknown>) => void;
 
@@ -133,37 +134,6 @@ const resetNativeMediaAudioState = (mediaEl: HTMLMediaElement) => {
   mediaEl.defaultMuted = false;
   mediaEl.muted = false;
   mediaEl.volume = 1;
-};
-
-const computePreviewBgmVolume = (
-  bgm: AudioTrack,
-  time: number,
-  totalDuration: number,
-): number => {
-  const trackTime = time - bgm.delay + bgm.startPoint;
-  if (time < bgm.delay || trackTime < 0 || trackTime > bgm.duration) {
-    return 0;
-  }
-
-  let volume = bgm.volume;
-  const playDuration = time - bgm.delay;
-
-  if (bgm.fadeIn) {
-    const fadeInDuration = bgm.fadeInDuration || 1.0;
-    if (playDuration < fadeInDuration) {
-      volume *= Math.max(0, playDuration / fadeInDuration);
-    }
-  }
-
-  if (bgm.fadeOut) {
-    const fadeOutDuration = bgm.fadeOutDuration || 1.0;
-    const remaining = totalDuration - time;
-    if (remaining < fadeOutDuration) {
-      volume *= Math.max(0, remaining / fadeOutDuration);
-    }
-  }
-
-  return Math.max(0, Math.min(1, volume));
 };
 
 const silencePreviewBgmOutput = (
@@ -1803,19 +1773,17 @@ export function usePreviewEngine({
 
         processAudioTrack(currentBgm, 'bgm');
         if (!_isExporting && currentBgm) {
-          const bgmVolume = computePreviewBgmVolume(
+          const bgmGainValue = resolvePreviewBgmGain(
             currentBgm,
             time,
             totalDurationRef.current,
           );
           const bgmEl = mediaElementsRef.current.bgm as HTMLAudioElement | undefined;
-          if (bgmEl) {
-            bgmEl.volume = bgmVolume;
-          }
-
           const bgmGain = gainNodesRef.current.bgm;
           if (bgmGain && audioCtxRef.current) {
-            bgmGain.gain.setValueAtTime(bgmVolume, audioCtxRef.current.currentTime);
+            bgmGain.gain.setValueAtTime(bgmGainValue, audioCtxRef.current.currentTime);
+          } else if (bgmEl) {
+            bgmEl.volume = Math.max(0, Math.min(1, bgmGainValue));
           }
         }
         currentNarrations.forEach((clip) => processNarrationClip(clip));
@@ -2161,13 +2129,13 @@ export function usePreviewEngine({
       if (isExportMode) {
         setProcessing(true);
         setExportPreparationStep(1);
+        clearExport();
       } else {
         setProcessing(false);
         setExportPreparationStep(null);
         isPlayingRef.current = false;
         pause();
       }
-      clearExport();
 
       endFinalizedRef.current = false;
 

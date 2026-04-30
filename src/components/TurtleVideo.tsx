@@ -1639,9 +1639,6 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     currentTimeRef.current = 0;
     endFinalizedRef.current = false;
 
-    // エクスポート後の保存ボタンをクリアして書き出しボタンに戻す
-    clearExport();
-
     // [TV] 全メディアを安全に巻き戻し (DOM要素を維持したままリセット)
     // 各ビデオをtrimStart位置にリセット（0ではなく実際の開始位置へ）
     for (const item of mediaItemsRef.current) {
@@ -1681,7 +1678,6 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     stopAll,
     pause,
     setCurrentTime,
-    clearExport,
     cancelPendingPausedSeekWait,
     cancelPendingSeekPlaybackPrepare,
     detachGlobalSeekEndListeners,

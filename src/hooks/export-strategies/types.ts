@@ -3,7 +3,32 @@ import type { AudioTrack, MediaItem, NarrationClip } from '../../types';
 import type { MediaRecorderProfile } from '../../utils/platform';
 
 export type ExportStrategyId = 'ios-safari-mediarecorder' | 'webcodecs-mp4';
-export type ExportPreparationStep = 1 | 2 | 3 | 4;
+export const EXPORT_PREPARATION_STEP_ORDER = [
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+] as const;
+export type ExportPreparationStep = (typeof EXPORT_PREPARATION_STEP_ORDER)[number];
+export const EXPORT_PREPARATION_TOTAL_STEPS = EXPORT_PREPARATION_STEP_ORDER.length;
+export const EXPORT_PREPARATION_STEP_LABELS: Record<ExportPreparationStep, string> = {
+  1: '書き出し初期化',
+  2: 'メディア情報確認',
+  3: '動画音声の解析',
+  4: 'BGM音声の解析',
+  5: 'ナレーション音声の解析',
+  6: '音声ミックス準備',
+  7: '音声ミックス生成',
+  8: '映像エンコード準備',
+  9: '映像生成中',
+  10: 'ファイル最終化',
+};
 
 export interface ExportSessionDiagnostics {
   exportSessionId: string;

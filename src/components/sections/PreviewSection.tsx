@@ -17,7 +17,11 @@ import {
   CircleHelp,
 } from 'lucide-react';
 import type { MediaItem, AudioTrack, NarrationClip } from '../../types';
-import type { ExportPreparationStep } from '../../hooks/useExport';
+import {
+  EXPORT_PREPARATION_STEP_LABELS,
+  EXPORT_PREPARATION_TOTAL_STEPS,
+  type ExportPreparationStep,
+} from '../../hooks/useExport';
 import type { AppFlavor } from '../../app/resolveAppFlavor';
 import { getPreviewRuntimeNotice } from '../../app/appFlavorUi';
 
@@ -156,20 +160,29 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     return Math.min(100, Math.max(0, (currentTime / totalDuration) * 100));
   }, [currentTime, isProcessing, totalDuration]);
 
+  const isExportFinalizing = isProcessing && exportProgressPct >= 99.9 && !exportUrl;
+  const activePreparationStep = exportPreparationStep ?? 1;
+
   const exportButtonText = useMemo(() => {
     if (!isProcessing) return '動画ファイルを作成';
-    if (exportPhase === 'preparing') return `書き出し準備 ${exportPreparationStep ?? 1}/4...`;
+    if (isExportFinalizing) return '動画を最終化中...';
+    if (exportPhase === 'preparing') {
+      return `書き出し準備 ${activePreparationStep}/${EXPORT_PREPARATION_TOTAL_STEPS} ${EXPORT_PREPARATION_STEP_LABELS[activePreparationStep]}...`;
+    }
     if (exportPhase === 'stalled') return 'フレーム待機中...';
     return `映像を生成中... ${exportProgressPct.toFixed(0)}%`;
-  }, [exportPhase, exportPreparationStep, exportProgressPct, isProcessing]);
+  }, [activePreparationStep, exportPhase, exportProgressPct, isExportFinalizing, isProcessing]);
 
   const exportStatusText = useMemo(() => {
     if (!isProcessing || exportPhase === 'preparing') return null;
+    if (isExportFinalizing) {
+      return '動画を最終化中...';
+    }
     if (exportPhase === 'stalled') {
       return '処理に時間がかかっています。しばらく待っても進まない場合は中断して再実行してください。';
     }
     return '映像を生成中です。';
-  }, [exportPhase, isProcessing]);
+  }, [exportPhase, isExportFinalizing, isProcessing]);
 
   const previewRuntimeNotice = useMemo(
     () => getPreviewRuntimeNotice({ appFlavor, supportsShowSaveFilePicker }),
@@ -372,7 +385,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
             >
               <RotateCcw className="w-4 h-4 lg:w-5 lg:h-5" /> 一括クリア
             </button>
-            {!isProcessing && exportUrl ? (
+            {exportUrl ? (
               <button
                 type="button"
                 onClick={onDownload}
