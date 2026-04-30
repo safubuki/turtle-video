@@ -464,6 +464,32 @@ describe('standard preview engine', () => {
     expect(videoElement.currentTime).toBeCloseTo(videoItem.trimStart);
   });
 
+  it('Android preview の next trimmed video preseek は残り 0.5 秒ちょうどでも発火する', () => {
+    const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
+    const videoItem = createVideoItem({
+      id: 'video-2',
+      duration: 2,
+      trimStart: 1.2,
+      trimEnd: 3.2,
+    });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 2;
+    videoElement.seeking = false;
+    videoElement.paused = false;
+    videoElement.currentTime = 0.2;
+
+    const { hook } = setupRenderFrameHarness({
+      mediaItems: [imageItem, videoItem],
+      mediaElements: {
+        [videoItem.id]: videoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+    });
+
+    hook.result.current.renderFrame(0.5, true, false);
+
+    expect(videoElement.currentTime).toBeCloseTo(videoItem.trimStart);
+  });
+
   it('Android preview の next trimmed video preseek は image 終端 0.5 秒の外では発火しない', () => {
     const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
     const videoItem = createVideoItem({

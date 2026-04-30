@@ -885,6 +885,8 @@ export function usePreviewEngine({
             if (remainingTime < 3.0) {
               const nextElement = mediaElementsRef.current[nextItem.id] as HTMLVideoElement;
               if (nextElement) {
+                // localTime は通常 [0, duration] に収まるが、境界フォールバック時の揺れで
+                // 一時的に負側へ外れたフレームでは preseek を走らせない。
                 const shouldPreseekNextTrimmedVideo =
                   isAndroidPreviewPlayback
                   && activeItem.type === 'image'
