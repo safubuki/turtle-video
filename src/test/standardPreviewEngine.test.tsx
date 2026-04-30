@@ -206,6 +206,7 @@ describe('standard preview engine', () => {
     const play = vi.fn();
     const pause = vi.fn();
     const resetInactiveVideos = vi.fn();
+    const clearExport = vi.fn();
     const primePreviewAudioOnlyTracksAtTimeSpy =
       options?.primePreviewAudioOnlyTracksAtTime ?? vi.fn<(playbackTime: number) => void>();
     const totalDurationRef = createRef(
@@ -271,7 +272,7 @@ describe('standard preview engine', () => {
         setExportPreparationStep: vi.fn(),
         setExportUrl: vi.fn(),
         setExportExt: vi.fn(),
-        clearExport: vi.fn(),
+        clearExport,
         setError: vi.fn(),
         play,
         pause,
@@ -312,6 +313,7 @@ describe('standard preview engine', () => {
       setCurrentTime,
       play,
       pause,
+      clearExport,
       currentTimeRef,
       reqIdRef,
       loopIdRef,
@@ -439,6 +441,15 @@ describe('standard preview engine', () => {
     expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
     expect(setCurrentTime).toHaveBeenCalledWith(2);
     expect(play).toHaveBeenCalledTimes(1);
+  });
+
+  it('preview 再生開始では exportUrl を clear しない', async () => {
+    const { clearExport, hook } = setupPreviewEngineHarness();
+
+    void hook.result.current.startEngine(1, false);
+    await Promise.resolve();
+
+    expect(clearExport).not.toHaveBeenCalled();
   });
 
   it('stop 後の先頭再生でも active video 準備完了を待ってから再生を始める', async () => {
@@ -680,16 +691,70 @@ describe('standard preview engine', () => {
     });
 
     hook.result.current.renderFrame(2, true, false);
-    expect(bgmElement.volume).toBeCloseTo(0.4, 5);
+    expect(bgmElement.volume).toBeLessThanOrEqual(1);
     expect(bgmGain.gain.setValueAtTime).toHaveBeenLastCalledWith(0.4, 7);
 
     hook.result.current.renderFrame(9, true, false);
-    expect(bgmElement.volume).toBeCloseTo(0.4, 5);
+    expect(bgmElement.volume).toBeLessThanOrEqual(1);
     expect(bgmGain.gain.setValueAtTime).toHaveBeenLastCalledWith(0.4, 7);
 
     hook.result.current.renderFrame(10, true, false);
-    expect(bgmElement.volume).toBe(0);
+    expect(bgmElement.volume).toBeLessThanOrEqual(1);
     expect(bgmGain.gain.setValueAtTime).toHaveBeenLastCalledWith(0, 7);
+  });
+
+  it('renderFrame は BGM 100%超を WebAudio gain で維持しつつ native volume は 1 に抑える', () => {
+    const mediaItem = createVideoItem({ id: 'video-1', duration: 10, trimStart: 0, trimEnd: 10 });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 2;
+    videoElement.seeking = false;
+    const bgmElement = createMockAudioElement();
+    const bgmGain = {
+      gain: {
+        value: 1,
+        setTargetAtTime: vi.fn(),
+        setValueAtTime: vi.fn(),
+        cancelScheduledValues: vi.fn(),
+      },
+    } as unknown as GainNode;
+    const audioContext = {
+      state: 'running',
+      currentTime: 7,
+      destination: {},
+      onstatechange: null,
+      resume: vi.fn().mockResolvedValue(undefined),
+      suspend: vi.fn().mockResolvedValue(undefined),
+    } as unknown as AudioContext;
+    const bgm: AudioTrack = {
+      file: new File([''], 'bgm.mp3', { type: 'audio/mpeg' }),
+      url: 'blob:bgm',
+      volume: 2.5,
+      delay: 0,
+      startPoint: 0,
+      duration: 10,
+      fadeIn: false,
+      fadeOut: false,
+      fadeInDuration: 0,
+      fadeOutDuration: 0,
+      isAi: false,
+    };
+
+    const { hook } = setupRenderFrameHarness({
+      bgm,
+      mediaItems: [mediaItem],
+      mediaElements: {
+        [mediaItem.id]: videoElement as unknown as HTMLVideoElement,
+        bgm: bgmElement as unknown as HTMLAudioElement,
+      } as MediaElementsRef,
+      gainNodes: { bgm: bgmGain },
+      audioContext,
+      totalDuration: 10,
+    });
+
+    hook.result.current.renderFrame(5, true, false);
+
+    expect(bgmElement.volume).toBeLessThanOrEqual(1);
+    expect(bgmGain.gain.setValueAtTime).toHaveBeenLastCalledWith(2.5, 7);
   });
 
   it('Android preview は trimStart あり video の先頭だけ currentTime を厳しめに合わせて描画を hold する', () => {

@@ -116,7 +116,7 @@ describe('PreviewSection action buttons', () => {
       exportPreparationStep: 1,
     });
 
-    expect(screen.getByRole('button', { name: '書き出し準備 1/4...' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '書き出し準備 1/10 書き出し初期化...' })).toBeInTheDocument();
   });
 
   it('準備フェーズ番号をボタンに反映する', () => {
@@ -126,7 +126,7 @@ describe('PreviewSection action buttons', () => {
       exportPreparationStep: 3,
     });
 
-    expect(screen.getByRole('button', { name: '書き出し準備 3/4...' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '書き出し準備 3/10 動画音声の解析...' })).toBeInTheDocument();
   });
 
   it('停止位置から 0 秒へ戻る初期化は進捗扱いせず準備表示を維持する', () => {
@@ -159,7 +159,7 @@ describe('PreviewSection action buttons', () => {
       vi.advanceTimersByTime(1800);
     });
 
-    expect(screen.getByRole('button', { name: '書き出し準備 1/4...' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '書き出し準備 1/10 書き出し初期化...' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'フレーム待機中...' })).not.toBeInTheDocument();
   });
 
@@ -186,7 +186,7 @@ describe('PreviewSection action buttons', () => {
       vi.advanceTimersByTime(1800);
     });
 
-    expect(screen.getByRole('button', { name: '書き出し準備 4/4...' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '書き出し準備 4/10 BGM音声の解析...' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'フレーム待機中...' })).not.toBeInTheDocument();
   });
 
@@ -196,7 +196,7 @@ describe('PreviewSection action buttons', () => {
       isProcessing: true,
       currentTime: 0,
       totalDuration: 100,
-      exportPreparationStep: 4,
+      exportPreparationStep: 9,
     });
 
     rerender(
@@ -205,7 +205,7 @@ describe('PreviewSection action buttons', () => {
         isProcessing
         currentTime={1}
         totalDuration={100}
-        exportPreparationStep={4}
+        exportPreparationStep={9}
       />,
     );
 
@@ -238,8 +238,7 @@ describe('PreviewSection action buttons', () => {
       onExport,
     });
 
-    expect(screen.queryByRole('button', { name: 'ダウンロード (.mp4)' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '書き出し準備 1/4...' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'ダウンロード (.mp4)' })).toBeInTheDocument();
 
     rerender(
       <PreviewSection
@@ -267,5 +266,17 @@ describe('PreviewSection action buttons', () => {
 
     expect(screen.queryByRole('button', { name: 'ダウンロード (.mp4)' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '動画ファイルを作成' })).toBeInTheDocument();
+  });
+
+  it('100%到達後に exportUrl が無ければ最終化中表示を出す', () => {
+    renderPreviewSection({
+      isProcessing: true,
+      currentTime: 9.99,
+      totalDuration: 10,
+      exportPreparationStep: 10,
+    });
+
+    expect(screen.getByRole('button', { name: '動画を最終化中...' })).toBeInTheDocument();
+    expect(screen.getByText('動画を最終化中...')).toBeInTheDocument();
   });
 });
