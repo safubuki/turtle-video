@@ -403,12 +403,17 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     };
   }, [cancelPendingSeekPlaybackPrepare]);
 
-  useEffect(() => {
-    if (!exportUrl) return;
+  const clearExportUiState = useCallback(() => {
     setProcessing(false);
     setLoading(false);
     setExportPreparationStep(null);
-  }, [exportUrl, setExportPreparationStep, setLoading, setProcessing]);
+  }, [setExportPreparationStep, setLoading, setProcessing]);
+
+  useEffect(() => {
+    if (!exportUrl) return;
+    // runtime ごとの成功 callback 差分があっても、Blob URL が揃った時点で shared UI は必ず成功状態へ戻す。
+    clearExportUiState();
+  }, [clearExportUiState, exportUrl]);
 
   // --- Audio Context ---
   const getAudioContext = useCallback(() => {
@@ -1639,9 +1644,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     // 実際の停止/cleanup は export 側の abort 経路でも継続されるため、ここでは state を先に戻して表示を止める。
     if (isProcessing) {
       stopWebCodecsExport({ silent: true });
-      setProcessing(false);
-      setLoading(false);
-      setExportPreparationStep(null);
+      clearExportUiState();
       return;
     }
 
@@ -1718,19 +1721,16 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const handleExportFinalizingTimeout = useCallback(() => {
     if (!isProcessing || exportUrl) return;
     stopWebCodecsExport({ silent: true });
-    setProcessing(false);
-    setLoading(false);
-    setExportPreparationStep(null);
+    clearExportUiState();
     pause();
     stopAll();
     setError(EXPORT_FINALIZING_TIMEOUT_ERROR);
   }, [
+    clearExportUiState,
     exportUrl,
     isProcessing,
     pause,
     setError,
-    setLoading,
-    setProcessing,
     stopAll,
     stopWebCodecsExport,
   ]);
