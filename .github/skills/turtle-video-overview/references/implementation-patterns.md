@@ -744,6 +744,21 @@
   - 100% 超の preview 音量差は standard flavor 専用の WebAudio gain で実現し、apple-safari runtime や shared UI に platform 直判定を戻さない
   - export 完了後の `exportUrl` は stop/preview 再開では消さず、timeout やユーザー停止で export を中断するときも silent abort を使って不要な「中断されました」エラーで上書きしない
 
+### 9-16. shared export finalize は Blob URL handoff 完了まで成功扱いにし、UI timeout は完了競合で潰さない
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/components/TurtleVideo.tsx`, `src/components/sections/PreviewSection.tsx`, `src/test/previewSectionActionButtons.test.tsx`
+- **問題**:
+  - mux / duration 検証が成功しても、`Blob` / `Object URL` / UI callback への受け渡し前に timeout や中断扱いが割り込むと、MP4 が生成済みでも download ボタンへ遷移しない
+  - 完了直前の `isProcessing` / `exportUrl` / finalize timeout が別々に動くと、自然終端とユーザー停止の区別が崩れて成功 callback が潰れやすい
+- **対策**:
+  - `useExport.ts` は `Blob.size > 0` を確認して `URL.createObjectURL(blob)` まで成功してから `[DIAG-9]` / `[DIAG-10]` を出し、`onRecordingStop(url, 'mp4')` を成功時に 1 回だけ呼ぶ
+  - `Blob` 作成直後に `[DIAG-BLOB] export blob created` を残し、metadata probe は warning 扱いに留めて handoff 自体は継続する
+  - shared の `TurtleVideo.tsx` では export 成功 callback 受信時に `exportCompletedRef` / `exportFinalizingRef` を更新し、`processing/loading/preparation` を確実に解除して runtime 側の callback 差分を吸収する
+  - `PreviewSection.tsx` の finalizing timeout は明示的に有効なときだけ監視し、shared 側が finalize 中と判定したセッションは timeout callback を発火させない
+- **注意**:
+  - 自然終端の finalize はユーザー停止と混ぜず、abort が必要なのは stop ボタン等の明示キャンセル時だけにする
+  - 成功済みの export URL を shared UI で再設定する場合は、既存 URL の revoke と二重 handoff が衝突しないよう current owner を 1 箇所に保つ
+
 ---
 
 ## 9.5. プレビューキャプチャ

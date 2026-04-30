@@ -330,4 +330,23 @@ describe('PreviewSection action buttons', () => {
 
     expect(onExportFinalizeTimeout).toHaveBeenCalledTimes(1);
   });
+
+  it('enableFinalizeTimeout=false の間は finalizing timeout を監視しない', () => {
+    vi.useFakeTimers();
+    const onExportFinalizeTimeout = vi.fn();
+    renderPreviewSection({
+      isProcessing: true,
+      currentTime: 10,
+      totalDuration: 10,
+      exportPreparationStep: 10,
+      onExportFinalizeTimeout,
+      enableFinalizeTimeout: false,
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(30000);
+    });
+
+    expect(onExportFinalizeTimeout).not.toHaveBeenCalled();
+  });
 });
