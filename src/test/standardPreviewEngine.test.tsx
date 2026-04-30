@@ -163,7 +163,11 @@ describe('standard preview engine', () => {
     vi.restoreAllMocks();
   });
 
-  function setupPreviewEngineHarness() {
+  function setupPreviewEngineHarness(options?: {
+    bgm?: AudioTrack | null;
+    narrations?: NarrationClip[];
+    primePreviewAudioOnlyTracksAtTime?: ReturnType<typeof vi.fn<(playbackTime: number) => void>>;
+  }) {
     const mediaItem = createVideoItem();
     const videoElement = createMockVideoElement();
     const requestAnimationFrameSpy = vi
@@ -177,14 +181,16 @@ describe('standard preview engine', () => {
     const setCurrentTime = vi.fn();
     const play = vi.fn();
     const pause = vi.fn();
+    const primePreviewAudioOnlyTracksAtTimeSpy =
+      options?.primePreviewAudioOnlyTracksAtTime ?? vi.fn<(playbackTime: number) => void>();
 
     const hook = renderHook(() =>
       usePreviewEngine({
         captions: [] as Caption[],
         captionSettings: {} as CaptionSettings,
         mediaItemsRef: createRef([mediaItem]),
-        bgmRef: createRef<AudioTrack | null>(null),
-        narrationsRef: createRef<NarrationClip[]>([]),
+        bgmRef: createRef<AudioTrack | null>(options?.bgm ?? null),
+        narrationsRef: createRef<NarrationClip[]>(options?.narrations ?? []),
         captionsRef: createRef<Caption[]>([]),
         captionSettingsRef: createRef({} as CaptionSettings),
         totalDurationRef: createRef(mediaItem.duration),
@@ -258,7 +264,7 @@ describe('standard preview engine', () => {
           requiresWebAudio: false,
         })),
         preparePreviewAudioNodesForUpcomingVideos: vi.fn(),
-        primePreviewAudioOnlyTracksAtTime: vi.fn(),
+        primePreviewAudioOnlyTracksAtTime: primePreviewAudioOnlyTracksAtTimeSpy,
         resetInactiveVideos: vi.fn(),
         startWebCodecsExport: vi.fn(),
         stopWebCodecsExport: vi.fn(),
@@ -268,7 +274,15 @@ describe('standard preview engine', () => {
       }),
     );
 
-    return { mediaItem, videoElement, requestAnimationFrameSpy, setCurrentTime, play, hook };
+    return {
+      mediaItem,
+      videoElement,
+      requestAnimationFrameSpy,
+      setCurrentTime,
+      play,
+      primePreviewAudioOnlyTracksAtTime: primePreviewAudioOnlyTracksAtTimeSpy,
+      hook,
+    };
   }
 
   function setupRenderFrameHarness(options?: {
@@ -407,7 +421,39 @@ describe('standard preview engine', () => {
     expect(play).toHaveBeenCalledTimes(1);
   });
 
-  it('Android preview は image -> trimStart あり video の先頭だけ currentTime を厳しめに合わせて描画を hold する', () => {
+  it('Android preview startEngine は BGM があっても active video 開始後に audio-only prime を試す', async () => {
+    const bgm: AudioTrack = {
+      file: new File([''], 'bgm.mp3', { type: 'audio/mpeg' }),
+      url: 'blob:bgm',
+      volume: 1,
+      delay: 0,
+      startPoint: 0,
+      duration: 10,
+      fadeIn: false,
+      fadeOut: false,
+      fadeInDuration: 1,
+      fadeOutDuration: 1,
+      isAi: false,
+    };
+    const { videoElement, requestAnimationFrameSpy, primePreviewAudioOnlyTracksAtTime, hook } =
+      setupPreviewEngineHarness({ bgm });
+
+    const startPromise = hook.result.current.startEngine(0, false);
+    await Promise.resolve();
+
+    videoElement.seeking = false;
+    videoElement.readyState = 2;
+    videoElement.dispatch('seeked');
+
+    await vi.advanceTimersByTimeAsync(TEST_PREVIEW_START_SETTLE_MS);
+    await startPromise;
+
+    expect(videoElement.play).toHaveBeenCalledTimes(1);
+    expect(primePreviewAudioOnlyTracksAtTime).toHaveBeenCalledWith(0);
+    expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('Android preview は trimStart あり video の先頭だけ currentTime を厳しめに合わせて描画を hold する', () => {
     const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
     const videoItem = createVideoItem({
       id: 'video-2',
@@ -438,7 +484,48 @@ describe('standard preview engine', () => {
     expect(didUpdateCanvas).toBe(false);
   });
 
-  it('Android preview は image 終端 0.5 秒だけ次の trimmed video を trimStart に preseek する', () => {
+  it('Android preview は video -> trimmed video の先頭でも currentTime を合わせて描画を hold する', () => {
+    const leadVideo = createVideoItem({
+      id: 'video-1',
+      duration: 1,
+      trimStart: 0,
+      trimEnd: 1,
+    });
+    const trimmedVideo = createVideoItem({
+      id: 'video-2',
+      duration: 2,
+      trimStart: 1.2,
+      trimEnd: 3.2,
+    });
+    const leadVideoElement = createMockVideoElement();
+    leadVideoElement.readyState = 2;
+    leadVideoElement.seeking = false;
+    leadVideoElement.paused = false;
+    const trimmedVideoElement = createMockVideoElement();
+    trimmedVideoElement.readyState = 1;
+    trimmedVideoElement.seeking = false;
+    trimmedVideoElement.paused = false;
+    trimmedVideoElement.currentTime = 1.7;
+
+    const { canvasContext, hook } = setupRenderFrameHarness({
+      mediaItems: [leadVideo, trimmedVideo],
+      mediaElements: {
+        [leadVideo.id]: leadVideoElement as unknown as HTMLVideoElement,
+        [trimmedVideo.id]: trimmedVideoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+    });
+
+    const timelineTime = 1.2;
+    const expectedTime = trimmedVideo.trimStart + (timelineTime - leadVideo.duration);
+    const didUpdateCanvas = hook.result.current.renderFrame(timelineTime, true, false);
+
+    expect(trimmedVideoElement.currentTime).toBeCloseTo(expectedTime);
+    expect(canvasContext.fillRect).not.toHaveBeenCalled();
+    expect(canvasContext.drawImage).not.toHaveBeenCalled();
+    expect(didUpdateCanvas).toBe(false);
+  });
+
+  it('Android preview は clip 終端 0.6 秒だけ次の video を trimStart に preseek する', () => {
     const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
     const videoItem = createVideoItem({
       id: 'video-2',
@@ -464,33 +551,43 @@ describe('standard preview engine', () => {
     expect(videoElement.currentTime).toBeCloseTo(videoItem.trimStart);
   });
 
-  it('Android preview の next trimmed video preseek は残り 0.5 秒ちょうどでも発火する', () => {
-    const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
+  it('Android preview の next video preseek は video -> video かつ trimStart=0 でも残り 0.6 秒で発火する', () => {
+    const currentVideo = createVideoItem({
+      id: 'video-1',
+      duration: 1,
+      trimStart: 0,
+      trimEnd: 1,
+    });
     const videoItem = createVideoItem({
       id: 'video-2',
       duration: 2,
-      trimStart: 1.2,
-      trimEnd: 3.2,
+      trimStart: 0,
+      trimEnd: 2,
     });
+    const currentVideoElement = createMockVideoElement();
+    currentVideoElement.readyState = 2;
+    currentVideoElement.seeking = false;
+    currentVideoElement.paused = false;
     const videoElement = createMockVideoElement();
     videoElement.readyState = 2;
     videoElement.seeking = false;
     videoElement.paused = false;
-    videoElement.currentTime = 0.2;
+    videoElement.currentTime = 0.4;
 
     const { hook } = setupRenderFrameHarness({
-      mediaItems: [imageItem, videoItem],
+      mediaItems: [currentVideo, videoItem],
       mediaElements: {
+        [currentVideo.id]: currentVideoElement as unknown as HTMLVideoElement,
         [videoItem.id]: videoElement as unknown as HTMLVideoElement,
       } as MediaElementsRef,
     });
 
-    hook.result.current.renderFrame(0.5, true, false);
+    hook.result.current.renderFrame(0.4, true, false);
 
-    expect(videoElement.currentTime).toBeCloseTo(videoItem.trimStart);
+    expect(videoElement.currentTime).toBeCloseTo(0);
   });
 
-  it('Android preview の next trimmed video preseek は image 終端 0.5 秒の外では発火しない', () => {
+  it('Android preview の next trimmed video preseek は clip 終端 0.6 秒の外では発火しない', () => {
     const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
     const videoItem = createVideoItem({
       id: 'video-2',
@@ -511,7 +608,7 @@ describe('standard preview engine', () => {
       } as MediaElementsRef,
     });
 
-    hook.result.current.renderFrame(0.49, true, false);
+    hook.result.current.renderFrame(0.39, true, false);
 
     expect(videoElement.currentTime).toBeCloseTo(0.2);
   });
@@ -590,7 +687,7 @@ describe('standard preview engine', () => {
     expect(didUpdateCanvas).toBe(false);
   });
 
-  it('Android preview の image -> trimStart あり video 安定化は先頭 0.2 秒だけに限定する', () => {
+  it('Android preview の trimStart あり video 安定化は先頭 0.25 秒だけに限定する', () => {
     const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
     const videoItem = createVideoItem({
       id: 'video-2',
@@ -612,7 +709,7 @@ describe('standard preview engine', () => {
       } as MediaElementsRef,
     });
 
-    const insideTimelineTime = 1.19;
+    const insideTimelineTime = 1.25;
     const insideExpectedTime = videoItem.trimStart + (insideTimelineTime - imageItem.duration);
     insideHarness.hook.result.current.renderFrame(insideTimelineTime, true, false);
 
@@ -631,8 +728,9 @@ describe('standard preview engine', () => {
       } as MediaElementsRef,
     });
 
-    outsideHarness.hook.result.current.renderFrame(1.21, true, false);
+    outsideHarness.hook.result.current.renderFrame(1.26, true, false);
 
     expect(outsideWindowVideo.currentTime).toBeCloseTo(1.6);
   });
+
 });

@@ -344,10 +344,11 @@ export function usePreviewAudioSession({
     const currentBgm = bgmRef.current;
     if (currentBgm) {
       const bgmEl = mediaElementsRef.current.bgm as HTMLAudioElement | undefined;
-      if (bgmEl && sourceNodesRef.current.bgm) {
+      if (bgmEl) {
         const trackTime = Math.max(0, playbackTime - currentBgm.delay + currentBgm.startPoint);
         if (playbackTime >= currentBgm.delay && trackTime <= currentBgm.duration) {
-          primePreviewMediaElementPlayback(bgmEl, trackTime);
+          // BGM は preview start 直後でも active video を待たせないため、seek 許容幅を広めに取る。
+          primePreviewMediaElementPlayback(bgmEl, trackTime, 0.3);
         }
       }
     }
@@ -360,7 +361,7 @@ export function usePreviewAudioSession({
 
       const trackId = `narration:${clip.id}`;
       const narEl = mediaElementsRef.current[trackId] as HTMLAudioElement | undefined;
-      if (!narEl || !sourceNodesRef.current[trackId]) {
+      if (!narEl) {
         continue;
       }
 

@@ -153,6 +153,20 @@
   - 補正は `readyState >= 1 && !seeking` のときだけ行い、audio / export / seek / visibility の別経路は変更しない
 - **注意**: この対策は Android/PC 向け `standard` preview の image 境界専用。一般の video prewarm や iOS Safari runtime に広げない
 
+### 2-13. standard preview の video 境界 0.6 秒 preseek + trimmed head 0.25 秒 hold + BGM soft sync
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/usePreviewAudioSession.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **問題**: Android preview で同一動画を複数クリップに分けると、`video -> video` 境界や `trimStart > 0` の clip 先頭で seek が遅れ、固まり・黒フレームが出やすい。さらに BGM 追加時は BGM 側の同期準備が active video の再生開始と競合し、一部 clip が paused / ready 不足のまま進みやすい
+- **対策**:
+  - active clip の終了 0.6 秒前から、次の `video` clip を `nextItem.trimStart || 0` へ preseek する。`image -> video` だけでなく `video -> video` も対象にする
+  - `trimStart > 0` の active video は clip 先頭 0.25 秒だけ `trimStart + localTime` に十分近づくまで `holdFrame` + `shouldSkipAndroidPreviewActiveDraw` で保持する
+  - Android standard preview の BGM は `play()` / `currentTime` を soft sync するだけに留め、readyState や失敗を理由に active video の描画・再生開始を止めない
+  - preview start の audio-only prime も WebAudio node 前提にせず、native `<audio>` 要素が存在すれば BGM / narration を個別に頭出しできるようにする
+- **注意**:
+  - 対策は `standard` flavor の Android preview 再生中かつ非 export / 非 seek に限定する
+  - iOS Safari、export、seek controller、visibility lifecycle には広げない
+  - BGM soft sync では active video 用の WebAudio 準備や待機条件を増やさず、失敗時も fire-and-forget を維持する
+
 ---
 
 ## 3. AudioContext 管理
