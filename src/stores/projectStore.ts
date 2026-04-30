@@ -247,7 +247,7 @@ interface ProjectState {
 
 let projectSaveQueue: Promise<void> = Promise.resolve();
 
-function isSerializableArrayBuffer(value: unknown): value is ArrayBuffer {
+function isValidArrayBuffer(value: unknown): value is ArrayBuffer {
   return Object.prototype.toString.call(value) === '[object ArrayBuffer]';
 }
 
@@ -291,7 +291,7 @@ async function readSerializableFileData(params: {
 }
 
 async function serializeMediaItem(item: MediaItem): Promise<SerializedMediaItem> {
-  const fileData = isSerializableArrayBuffer(item.fileData) ? item.fileData : await readSerializableFileData({
+  const fileData = isValidArrayBuffer(item.fileData) ? item.fileData : await readSerializableFileData({
     file: item.file,
     fallbackUrl: item.url,
     kind: 'メディア',
