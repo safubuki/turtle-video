@@ -185,8 +185,9 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
 
   useEffect(() => {
     if (isProcessing) {
-      exportStartedAtRef.current ??= Date.now();
-      setProcessingNowMs(Date.now());
+      const startedAt = exportStartedAtRef.current ?? Date.now();
+      exportStartedAtRef.current = startedAt;
+      setProcessingNowMs(startedAt);
       return;
     }
 

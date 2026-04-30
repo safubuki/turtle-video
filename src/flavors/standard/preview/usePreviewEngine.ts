@@ -232,12 +232,15 @@ const PREVIEW_END_THRESHOLD_SEC = 0.03;
 const PREVIEW_START_READY_POLL_INTERVAL_MS = 40;
 const PREVIEW_START_READY_TIMEOUT_MS = 900;
 
+let previewExportSessionSequence = 0;
+
 const createPreviewExportSessionId = (): string => {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
     return globalThis.crypto.randomUUID();
   }
 
-  return `preview-export-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  previewExportSessionSequence += 1;
+  return `preview-export-${Date.now()}-${previewExportSessionSequence}`;
 };
 // Android 実機で一発 play が落ちても数回は吸収するための retry 設定。
 const PREVIEW_PLAY_RETRY_INTERVAL_MS = 160;
@@ -1511,20 +1514,28 @@ export function usePreviewEngine({
           }
         }
 
-        const processAudioTrack = (track: AudioTrack | null, trackId: 'bgm') => {
-          const element = mediaElementsRef.current[trackId] as HTMLAudioElement;
+        const ensurePreviewAudioGainNode = (trackId: string, element: HTMLAudioElement) => {
           let gainNode = gainNodesRef.current[trackId];
           let hasAudioNode = !!sourceNodesRef.current[trackId];
+
+          if (!_isExporting && !hasAudioNode) {
+            hasAudioNode = ensureAudioNodeForElement(trackId, element);
+            gainNode = gainNodesRef.current[trackId];
+          }
+
+          return { hasAudioNode, gainNode };
+        };
+
+        const processAudioTrack = (track: AudioTrack | null, trackId: 'bgm') => {
+          const element = mediaElementsRef.current[trackId] as HTMLAudioElement;
+          let { gainNode, hasAudioNode } = element
+            ? ensurePreviewAudioGainNode(trackId, element)
+            : { gainNode: gainNodesRef.current[trackId], hasAudioNode: !!sourceNodesRef.current[trackId] };
           const isAndroidPreviewBgmTrack =
             isAndroidPreviewPlayback
             && trackId === 'bgm';
 
           if (track && element) {
-            if (!_isExporting && !hasAudioNode) {
-              hasAudioNode = ensureAudioNodeForElement(trackId, element);
-              gainNode = gainNodesRef.current[trackId];
-            }
-
             const avoidPausePlay = hasAudioNode
               && previewPlatformPolicy.muteNativeMediaWhenAudioRouted
               && !_isExporting;
@@ -1661,15 +1672,11 @@ export function usePreviewEngine({
         const processNarrationClip = (clip: NarrationClip) => {
           const trackId = `narration:${clip.id}`;
           const element = mediaElementsRef.current[trackId] as HTMLAudioElement;
-          let gainNode = gainNodesRef.current[trackId];
-          let hasAudioNode = !!sourceNodesRef.current[trackId];
+          let { gainNode, hasAudioNode } = element
+            ? ensurePreviewAudioGainNode(trackId, element)
+            : { gainNode: gainNodesRef.current[trackId], hasAudioNode: !!sourceNodesRef.current[trackId] };
 
           if (!element) return;
-
-          if (!_isExporting && !hasAudioNode) {
-            hasAudioNode = ensureAudioNodeForElement(trackId, element);
-            gainNode = gainNodesRef.current[trackId];
-          }
 
           const trimStart = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
           const trimEnd = Number.isFinite(clip.trimEnd) ? Math.max(trimStart, Math.min(clip.duration, clip.trimEnd)) : clip.duration;
@@ -1772,10 +1779,9 @@ export function usePreviewEngine({
             totalDurationRef.current,
           );
           const bgmEl = mediaElementsRef.current.bgm as HTMLAudioElement | undefined;
-          if (bgmEl && !gainNodesRef.current.bgm) {
-            ensureAudioNodeForElement('bgm', bgmEl);
-          }
-          const bgmGain = gainNodesRef.current.bgm;
+          const { gainNode: bgmGain } = bgmEl
+            ? ensurePreviewAudioGainNode('bgm', bgmEl)
+            : { gainNode: gainNodesRef.current.bgm };
           if (bgmEl) {
             bgmEl.defaultMuted = false;
             bgmEl.muted = false;

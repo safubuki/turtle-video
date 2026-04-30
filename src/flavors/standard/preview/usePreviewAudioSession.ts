@@ -79,7 +79,7 @@ export function resolvePreviewAudioGain(params: {
   fadeInDuration?: number;
   fadeOutDuration?: number;
 }): number {
-  let gain = clampPreviewAudioGain(params.baseVolume);
+  let gain = params.baseVolume;
   const playTime = params.time - params.startTime;
 
   if (playTime < 0) {
