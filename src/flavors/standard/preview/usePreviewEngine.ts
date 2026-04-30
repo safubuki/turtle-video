@@ -904,6 +904,8 @@ export function usePreviewEngine({
                 ) {
                   nextElement.currentTime = nextStart;
                 }
+                // image -> trimmed video の境界 0.5 秒は targeted preseek を優先し、
+                // readyState/seeking が整う前に従来 prewarm で currentTime を動かさない。
                 if (!shouldPreseekNextTrimmedVideo && (nextElement.paused || nextElement.readyState < 2)) {
                   if (Math.abs(nextElement.currentTime - nextStart) > 0.1) {
                     nextElement.currentTime = nextStart;
