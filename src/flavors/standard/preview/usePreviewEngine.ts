@@ -166,6 +166,34 @@ const computePreviewBgmVolume = (
   return Math.max(0, Math.min(1, volume));
 };
 
+const silencePreviewBgmOutput = (
+  mediaElementsRef: MutableRefObject<MediaElementsRef>,
+  gainNodesRef: MutableRefObject<Record<string, GainNode>>,
+  audioCtxRef: MutableRefObject<AudioContext | null>,
+) => {
+  const bgmEl = mediaElementsRef.current.bgm as HTMLAudioElement | undefined;
+  if (bgmEl) {
+    try {
+      bgmEl.defaultMuted = false;
+      bgmEl.muted = false;
+      bgmEl.volume = 0;
+      bgmEl.pause();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const ctx = audioCtxRef.current;
+  const bgmGain = gainNodesRef.current.bgm;
+  if (bgmGain && ctx) {
+    try {
+      bgmGain.gain.setValueAtTime(0, ctx.currentTime);
+    } catch {
+      /* ignore */
+    }
+  }
+};
+
 const applyPreviewAudioOutputState = (
   policy: PreviewPlatformPolicy,
   mediaEl: HTMLMediaElement,
@@ -1848,30 +1876,17 @@ export function usePreviewEngine({
       reqIdRef.current = null;
     }
 
-    const bgmEl = mediaElementsRef.current.bgm as HTMLAudioElement | undefined;
-    if (bgmEl) {
-      try {
-        bgmEl.defaultMuted = false;
-        bgmEl.muted = false;
-        bgmEl.volume = 0;
-        bgmEl.pause();
-      } catch {
-        /* ignore */
-      }
-    }
+    silencePreviewBgmOutput(mediaElementsRef, gainNodesRef, audioCtxRef);
 
     Object.entries(mediaElementsRef.current).forEach(([id, el]) => {
       if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO')) {
+        if (id === 'bgm') {
+          return;
+        }
         try {
           const mediaEl = el as HTMLMediaElement;
           mediaEl.pause();
-          if (id === 'bgm') {
-            mediaEl.defaultMuted = false;
-            mediaEl.muted = false;
-            mediaEl.volume = 0;
-          } else {
-            resetNativeMediaAudioState(mediaEl);
-          }
+          resetNativeMediaAudioState(mediaEl);
         } catch {
           /* ignore */
         }
@@ -1881,14 +1896,6 @@ export function usePreviewEngine({
     const ctx = audioCtxRef.current;
     if (ctx) {
       ctx.onstatechange = null;
-      const bgmGain = gainNodesRef.current.bgm;
-      if (bgmGain) {
-        try {
-          bgmGain.gain.setValueAtTime(0, ctx.currentTime);
-        } catch {
-          /* ignore */
-        }
-      }
       Object.values(gainNodesRef.current).forEach((node) => {
         try {
           node.gain.cancelScheduledValues(ctx.currentTime);
@@ -1931,43 +1938,20 @@ export function usePreviewEngine({
   ]);
 
   const stopPreviewMediaAtTimelineEnd = useCallback(() => {
-    const bgmEl = mediaElementsRef.current.bgm as HTMLAudioElement | undefined;
-    if (bgmEl) {
-      try {
-        bgmEl.defaultMuted = false;
-        bgmEl.muted = false;
-        bgmEl.volume = 0;
-        bgmEl.pause();
-      } catch {
-        /* ignore */
-      }
-    }
-
-    const ctx = audioCtxRef.current;
-    const bgmGain = gainNodesRef.current.bgm;
-    if (bgmGain && ctx) {
-      try {
-        bgmGain.gain.setValueAtTime(0, ctx.currentTime);
-      } catch {
-        /* ignore */
-      }
-    }
+    silencePreviewBgmOutput(mediaElementsRef, gainNodesRef, audioCtxRef);
 
     Object.entries(mediaElementsRef.current).forEach(([id, el]) => {
       if (!el || (el.tagName !== 'VIDEO' && el.tagName !== 'AUDIO')) {
+        return;
+      }
+      if (id === 'bgm') {
         return;
       }
 
       try {
         const mediaEl = el as HTMLMediaElement;
         mediaEl.pause();
-        if (id === 'bgm') {
-          mediaEl.defaultMuted = false;
-          mediaEl.muted = false;
-          mediaEl.volume = 0;
-        } else {
-          resetNativeMediaAudioState(mediaEl);
-        }
+        resetNativeMediaAudioState(mediaEl);
       } catch {
         /* ignore */
       }

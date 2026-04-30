@@ -686,6 +686,10 @@ describe('standard preview engine', () => {
     hook.result.current.renderFrame(9, true, false);
     expect(bgmElement.volume).toBeCloseTo(0.4, 5);
     expect(bgmGain.gain.setValueAtTime).toHaveBeenLastCalledWith(0.4, 7);
+
+    hook.result.current.renderFrame(10, true, false);
+    expect(bgmElement.volume).toBe(0);
+    expect(bgmGain.gain.setValueAtTime).toHaveBeenLastCalledWith(0, 7);
   });
 
   it('Android preview は trimStart あり video の先頭だけ currentTime を厳しめに合わせて描画を hold する', () => {
