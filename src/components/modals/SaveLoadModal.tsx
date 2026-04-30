@@ -32,6 +32,7 @@ interface SaveLoadModalProps {
   isOpen: boolean;
   onClose: () => void;
   onToast: (message: string, type?: 'success' | 'error') => void;
+  onBeforeLoadProject?: () => void;
   appFlavor: AppFlavor;
   saveRuntime: SaveRuntime;
 }
@@ -130,7 +131,7 @@ function getSaveFailureCategoryLabel(category: SaveFailureCategory | undefined):
   }
 }
 
-export default function SaveLoadModal({ isOpen, onClose, onToast, appFlavor, saveRuntime }: SaveLoadModalProps) {
+export default function SaveLoadModal({ isOpen, onClose, onToast, onBeforeLoadProject, appFlavor, saveRuntime }: SaveLoadModalProps) {
   const [mode, setMode] = useState<ModalMode>('menu');
   const [selectedSlot, setSelectedSlot] = useState<SaveSlot | null>(null);
   const [autoSaveInterval, setAutoSaveIntervalState] = useState<AutoSaveIntervalOption>(getAutoSaveInterval);
@@ -585,6 +586,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, appFlavor, sav
   // 読み込み確定
   const handleLoadConfirm = async (slot: SaveSlot) => {
     try {
+      onBeforeLoadProject?.();
       const data = await loadProjectFromSlot(slot);
       if (data) {
         // 各ストアに復元

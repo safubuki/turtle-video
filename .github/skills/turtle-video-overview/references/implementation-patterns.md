@@ -179,6 +179,19 @@
   - この制限は `standard` flavor の Android preview 専用。`apple-safari`、export、seek controller、visibility lifecycle へ波及させない
   - inactive video の `currentTime` を戻してよいのは active clip の次に来る video 1 本だけで、過去 clip や 2 本以上先の future video は pause-only を保つ
 
+### 2-15. 編集操作の直前で shared preview loop を止める
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/components/modals/SaveLoadModal.tsx`
+- **問題**: Android standard preview は再生中にメディア構成や trim / caption / BGM / narration を変えると、`currentTime`・`readyState`・timeline 再計算が競合して、シークバーだけ進む / 動画が固まる / 黒画面になる再現が残りやすい
+- **対策**:
+  - shared `TurtleVideo.tsx` に `pausePreviewBeforeEdit(reason)` を置き、再生中の編集操作直前に `pause()`、`isPlayingRef.current = false`、`requestAnimationFrame` の cancel だけを行う
+  - メディア追加/削除/並び替え、trim、duration、scale / position、volume / mute / fade、BGM・ナレーション・キャプション編集、プロジェクト読み込みの直前でこのガードを呼ぶ
+  - `SaveLoadModal` の読み込み確定直前にも callback を挟み、project load が shared preview loop と競合しないようにする
+- **注意**:
+  - 自動 resume はしない。再開はユーザーの再生操作に委ねる
+  - `usePreviewEngine` / `usePreviewSeekController` / `apple-safari` runtime には処理を戻さず、shared UI 層の編集導線で止める
+  - export 中は既存処理を優先し、このガードだけで export フローを止めない
+
 ---
 
 ## 3. AudioContext 管理

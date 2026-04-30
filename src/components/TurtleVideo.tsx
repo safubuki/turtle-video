@@ -257,6 +257,27 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const captionsRef = useRef(captions);
   const captionSettingsRef = useRef(captionSettings);
 
+  const pausePreviewBeforeEdit = useCallback((reason: string) => {
+    if (isProcessing || !isPlayingRef.current) return;
+
+    pause();
+    isPlayingRef.current = false;
+
+    if (reqIdRef.current !== null) {
+      cancelAnimationFrame(reqIdRef.current);
+      reqIdRef.current = null;
+    }
+
+    logInfo('SYSTEM', 'preview paused before edit', { reason });
+  }, [isProcessing, pause, logInfo]);
+
+  const withPreviewPause = useCallback(<T extends unknown[]>(reason: string, fn: (...args: T) => void) => {
+    return (...args: T) => {
+      pausePreviewBeforeEdit(reason);
+      fn(...args);
+    };
+  }, [pausePreviewBeforeEdit]);
+
   // 描画が遅延実行されても最新状態を参照できるようにする
   captionsRef.current = captions;
   captionSettingsRef.current = captionSettings;
@@ -1065,6 +1086,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   // --- アップロード処理 ---
   const processUploadedMediaFiles = useCallback((files: File[]) => {
     if (files.length === 0) return;
+    pausePreviewBeforeEdit('add-media');
     const ctx = getAudioContext();
     if ((ctx.state as AudioContextState | 'interrupted') !== 'running') {
       ctx.resume().catch(console.error);
@@ -1078,7 +1100,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         fileSize: file.size,
       });
     });
-  }, [getAudioContext, clearExport, addMediaItems, logInfo]);
+  }, [pausePreviewBeforeEdit, getAudioContext, clearExport, addMediaItems, logInfo]);
 
   const handleMediaUpload = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1128,6 +1150,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       let val = parseFloat(value);
       if (isNaN(val)) val = 0;
 
+      pausePreviewBeforeEdit('update-video-trim');
+
       // ストアを更新
       updateVideoTrim(id, type, val);
 
@@ -1145,7 +1169,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         }
       }
     },
-    [updateVideoTrim, mediaItems]
+    [pausePreviewBeforeEdit, updateVideoTrim, mediaItems]
   );
 
   // --- 画像表示時間更新ハンドラ ---
@@ -1153,43 +1177,49 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const handleUpdateImageDuration = useCallback((id: string, newDuration: string) => {
     let val = parseFloat(newDuration);
     if (isNaN(val) || val < 0.5) val = 0.5;
+    pausePreviewBeforeEdit('update-image-duration');
     updateImageDuration(id, val);
-  }, [updateImageDuration]);
+  }, [pausePreviewBeforeEdit, updateImageDuration]);
 
   // --- スケール更新ハンドラ ---
   // 目的: メディアの拡大率を変更
   const handleUpdateMediaScale = useCallback((id: string, value: string | number) => {
     let val = typeof value === 'number' ? value : parseFloat(value);
     if (isNaN(val)) val = 1.0;
+    pausePreviewBeforeEdit('update-media-scale');
     updateScale(id, val);
-  }, [updateScale]);
+  }, [pausePreviewBeforeEdit, updateScale]);
 
   // --- 位置更新ハンドラ ---
   // 目的: メディアの表示位置（X/Y座標）を変更
   const handleUpdateMediaPosition = useCallback((id: string, axis: 'x' | 'y', value: string) => {
     let val = parseFloat(value);
     if (isNaN(val)) val = 0;
+    pausePreviewBeforeEdit('update-media-position');
     updatePosition(id, axis, val);
-  }, [updatePosition]);
+  }, [pausePreviewBeforeEdit, updatePosition]);
 
   // --- 設定リセットハンドラ ---
   // 目的: スケールまたは位置を初期値にリセット
   const handleResetMediaSetting = useCallback((id: string, type: 'scale' | 'x' | 'y') => {
+    pausePreviewBeforeEdit('reset-media-transform');
     resetTransform(id, type);
-  }, [resetTransform]);
+  }, [pausePreviewBeforeEdit, resetTransform]);
 
   // --- メディア順序変更ハンドラ ---
   // 目的: クリップの再生順序を上下に移動
   const handleMoveMedia = useCallback(
     (idx: number, dir: 'up' | 'down') => {
+      pausePreviewBeforeEdit('move-media');
       moveMediaItem(idx, dir);
     },
-    [moveMediaItem]
+    [pausePreviewBeforeEdit, moveMediaItem]
   );
 
   // --- メディア削除ハンドラ ---
   // 目的: クリップを削除し、関連するオーディオノードを解放
   const handleRemoveMedia = useCallback((id: string) => {
+    pausePreviewBeforeEdit('remove-media');
     const pendingTimer = pendingAudioDetachTimersRef.current[id];
     if (pendingTimer) {
       clearTimeout(pendingTimer);
@@ -1217,7 +1247,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
     removeMediaItem(id);
     delete mediaElementsRef.current[id];
-  }, [removeMediaItem]);
+  }, [pausePreviewBeforeEdit, removeMediaItem]);
 
   // --- トランスフォームパネル開閉ハンドラ ---
   // 目的: スケール・位置設定UIの表示/非表示を切り替え
@@ -1235,6 +1265,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
+    pausePreviewBeforeEdit('add-bgm');
     clearExport();
     const url = URL.createObjectURL(file);
     const audio = new Audio(url);
@@ -1253,7 +1284,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         isAi: false,
       });
     };
-  }, [setBgm, clearExport]);
+  }, [pausePreviewBeforeEdit, setBgm, clearExport]);
 
   // --- ナレーションアップロードハンドラ ---
   // 目的: ナレーションファイルを読み込みストアに設定
@@ -1262,6 +1293,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     if (files.length === 0) return;
 
     e.target.value = '';
+    pausePreviewBeforeEdit('add-narration');
     clearExport();
 
     const startTimeAtUpload = currentTimeRef.current;
@@ -1305,63 +1337,72 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         showToast(`ナレーション${failedCount}件の読み込みに失敗しました`);
       }
     })();
-  }, [addNarration, clearExport, showToast]);
+  }, [pausePreviewBeforeEdit, addNarration, clearExport, showToast]);
 
   // --- BGM/ナレーション開始位置更新ハンドラ ---
   // 目的: オーディオトラックの再生開始位置（ファイル内の位置）を変更
   const handleUpdateBgmStart = useCallback((val: string) => {
     const numVal = parseFloat(val);
     if (isNaN(numVal)) return;
+    pausePreviewBeforeEdit('update-bgm-start-point');
     updateBgmStartPoint(numVal);
-  }, [updateBgmStartPoint]);
+  }, [pausePreviewBeforeEdit, updateBgmStartPoint]);
 
   // --- BGM/ナレーション遅延更新ハンドラ ---
   // 目的: オーディオトラックの開始遅延（動画開始からの秒数）を変更
   const handleUpdateBgmDelay = useCallback((val: string) => {
     const numVal = parseFloat(val);
     if (isNaN(numVal)) return;
+    pausePreviewBeforeEdit('update-bgm-delay');
     updateBgmDelay(numVal);
-  }, [updateBgmDelay]);
+  }, [pausePreviewBeforeEdit, updateBgmDelay]);
 
   // --- BGM/ナレーション音量更新ハンドラ ---
   // 目的: オーディオトラックの音量を変更
   const handleUpdateBgmVolume = useCallback((val: string) => {
     const numVal = parseFloat(val);
     if (isNaN(numVal)) return;
+    pausePreviewBeforeEdit('update-bgm-volume');
     updateBgmVolume(numVal);
-  }, [updateBgmVolume]);
+  }, [pausePreviewBeforeEdit, updateBgmVolume]);
 
   const handleUpdateNarrationStart = useCallback((id: string, val: string) => {
     const numVal = parseFloat(val);
     if (isNaN(numVal)) return;
+    pausePreviewBeforeEdit('update-narration-start-time');
     updateNarrationStartTime(id, numVal);
-  }, [updateNarrationStartTime]);
+  }, [pausePreviewBeforeEdit, updateNarrationStartTime]);
 
   const handleSetNarrationStartToCurrent = useCallback((id: string) => {
+    pausePreviewBeforeEdit('set-narration-start-to-current');
     updateNarrationStartTime(id, currentTimeRef.current);
-  }, [updateNarrationStartTime]);
+  }, [pausePreviewBeforeEdit, updateNarrationStartTime]);
 
   const handleUpdateNarrationVolume = useCallback((id: string, val: string) => {
     const numVal = parseFloat(val);
     if (isNaN(numVal)) return;
+    pausePreviewBeforeEdit('update-narration-volume');
     updateNarrationVolume(id, numVal);
-  }, [updateNarrationVolume]);
+  }, [pausePreviewBeforeEdit, updateNarrationVolume]);
 
   const handleToggleNarrationMute = useCallback((id: string) => {
+    pausePreviewBeforeEdit('toggle-narration-mute');
     toggleNarrationMute(id);
-  }, [toggleNarrationMute]);
+  }, [pausePreviewBeforeEdit, toggleNarrationMute]);
 
   const handleUpdateNarrationTrimStart = useCallback((id: string, val: string) => {
     const numVal = parseFloat(val);
     if (isNaN(numVal)) return;
+    pausePreviewBeforeEdit('update-narration-trim-start');
     updateNarrationTrim(id, 'start', numVal);
-  }, [updateNarrationTrim]);
+  }, [pausePreviewBeforeEdit, updateNarrationTrim]);
 
   const handleUpdateNarrationTrimEnd = useCallback((id: string, val: string) => {
     const numVal = parseFloat(val);
     if (isNaN(numVal)) return;
+    pausePreviewBeforeEdit('update-narration-trim-end');
     updateNarrationTrim(id, 'end', numVal);
-  }, [updateNarrationTrim]);
+  }, [pausePreviewBeforeEdit, updateNarrationTrim]);
 
   const handleSaveNarration = useCallback(async (id: string) => {
     const clip = narrations.find((item) => item.id === id);
@@ -1412,33 +1453,19 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     closeAiModal();
   }, [closeAiModal]);
 
-  // --- Helper: 一時停止付きで関数を実行 ---
-  // 目的: 編集操作時に必ず一時停止を実行してから元の処理を行う
-  // 依存関係: stopAll (実行停止用), pause (UI更新用)
-  const withPause = useCallback(<T extends any[]>(fn: (...args: T) => void) => {
-    return (...args: T) => {
-      stopAll();
-      pause();
-      fn(...args);
-    };
-  }, [stopAll, pause]);
-
   const pausePreviewBeforeHeaderModal = useCallback(() => {
-    if (isProcessing || !isPlayingRef.current) return;
-    stopAll();
-    pause();
-  }, [isProcessing, stopAll, pause]);
+    pausePreviewBeforeEdit('open-header-modal');
+  }, [pausePreviewBeforeEdit]);
 
   const handleAddAiNarration = useCallback(() => {
     if (offlineMode) return;
-    stopAll();
-    pause();
+    pausePreviewBeforeEdit('add-ai-narration');
     setEditingNarrationId(null);
     setAiScript('');
     setAiPrompt('');
     setAiScriptLength('medium');
     openAiModal();
-  }, [offlineMode, openAiModal, pause, setAiPrompt, setAiScript, stopAll]);
+  }, [offlineMode, openAiModal, pausePreviewBeforeEdit, setAiPrompt, setAiScript]);
 
   const handleEditAiNarration = useCallback((id: string) => {
     if (offlineMode) return;
@@ -1447,8 +1474,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     const currentScript = target.aiScript ?? '';
     const inferredLength: NarrationScriptLength =
       currentScript.length <= 70 ? 'short' : currentScript.length <= 120 ? 'medium' : 'long';
-    stopAll();
-    pause();
+    pausePreviewBeforeEdit('edit-ai-narration');
     setEditingNarrationId(id);
     setAiPrompt('');
     setAiScript(currentScript);
@@ -1456,7 +1482,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     setAiVoice(target.aiVoice ?? 'Aoede');
     setAiVoiceStyle(target.aiVoiceStyle ?? '');
     openAiModal();
-  }, [narrations, offlineMode, openAiModal, pause, setAiPrompt, setAiScript, setAiVoice, setAiVoiceStyle, stopAll]);
+  }, [narrations, offlineMode, openAiModal, pausePreviewBeforeEdit, setAiPrompt, setAiScript, setAiVoice, setAiVoiceStyle]);
 
   const handleOpenSettingsModal = useCallback(() => {
     pausePreviewBeforeHeaderModal();
@@ -1661,15 +1687,6 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     detachGlobalSeekEndListeners,
   ]);
 
-  // --- Helper: 停止付きで関数を実行 ---
-  // 目的: BGM/ナレーション追加時など、完全に停止して先頭に戻してから実行したい場合に使用
-  const withStop = useCallback(<T extends any[]>(fn: (...args: T) => void) => {
-    return (...args: T) => {
-      handleStop();
-      fn(...args);
-    };
-  }, [handleStop]);
-
   // --- エクスポート開始ハンドラ ---
   // 目的: 動画ファイルとして書き出しを開始
   const handleExport = useCallback(() => {
@@ -1810,6 +1827,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       <SaveLoadModal
         isOpen={showProjectManager}
         onClose={() => setShowProjectManager(false)}
+        onBeforeLoadProject={() => pausePreviewBeforeEdit('load-project')}
         appFlavor={appFlavor}
         onToast={(msg, type) => {
           if (type === 'error') {
@@ -1849,25 +1867,25 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               mediaTimelineRanges={mediaTimelineRanges}
               isClipsLocked={isClipsLocked}
               mediaElements={mediaElementsRef.current as Record<string, HTMLVideoElement | HTMLImageElement>}
-              onToggleClipsLock={withPause(toggleClipsLock)}
-              onMediaUpload={withPause(handleMediaUpload)}
-              onOpenMediaPicker={withPause(handleOpenMediaPicker)}
+              onToggleClipsLock={withPreviewPause('toggle-clips-lock', toggleClipsLock)}
+              onMediaUpload={handleMediaUpload}
+              onOpenMediaPicker={handleOpenMediaPicker}
               supportsShowOpenFilePicker={shouldUseMediaPicker}
-              onMoveMedia={withPause(handleMoveMedia)}
-              onRemoveMedia={withPause(handleRemoveMedia)}
-              onToggleMediaLock={withPause(toggleItemLock)}
-              onToggleTransformPanel={withPause(handleToggleTransformPanel)}
-              onUpdateVideoTrim={withPause(handleUpdateVideoTrim)}
-              onUpdateImageDuration={withPause(handleUpdateImageDuration)}
-              onUpdateMediaScale={withPause(handleUpdateMediaScale)}
-              onUpdateMediaPosition={withPause(handleUpdateMediaPosition)}
-              onResetMediaSetting={withPause(handleResetMediaSetting)}
-              onUpdateMediaVolume={updateVolume}
-              onToggleMediaMute={toggleMute}
-              onToggleMediaFadeIn={withPause(toggleFadeIn)}
-              onToggleMediaFadeOut={withPause(toggleFadeOut)}
-              onUpdateFadeInDuration={withPause(updateFadeInDuration)}
-              onUpdateFadeOutDuration={withPause(updateFadeOutDuration)}
+              onMoveMedia={handleMoveMedia}
+              onRemoveMedia={handleRemoveMedia}
+              onToggleMediaLock={withPreviewPause('toggle-media-lock', toggleItemLock)}
+              onToggleTransformPanel={withPreviewPause('toggle-transform-panel', handleToggleTransformPanel)}
+              onUpdateVideoTrim={handleUpdateVideoTrim}
+              onUpdateImageDuration={handleUpdateImageDuration}
+              onUpdateMediaScale={handleUpdateMediaScale}
+              onUpdateMediaPosition={handleUpdateMediaPosition}
+              onResetMediaSetting={handleResetMediaSetting}
+              onUpdateMediaVolume={withPreviewPause('update-media-volume', updateVolume)}
+              onToggleMediaMute={withPreviewPause('toggle-media-mute', toggleMute)}
+              onToggleMediaFadeIn={withPreviewPause('toggle-media-fade-in', toggleFadeIn)}
+              onToggleMediaFadeOut={withPreviewPause('toggle-media-fade-out', toggleFadeOut)}
+              onUpdateFadeInDuration={withPreviewPause('update-media-fade-in-duration', updateFadeInDuration)}
+              onUpdateFadeOutDuration={withPreviewPause('update-media-fade-out-duration', updateFadeOutDuration)}
               onOpenHelp={() => openSectionHelp('clips')}
             />
 
@@ -1876,16 +1894,16 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               bgm={bgm}
               isBgmLocked={isBgmLocked}
               totalDuration={totalDuration}
-              onToggleBgmLock={withPause(toggleBgmLock)}
-              onBgmUpload={withStop(handleBgmUpload)}
-              onRemoveBgm={withPause(removeBgm)}
-              onUpdateStartPoint={withPause(handleUpdateBgmStart)}
-              onUpdateDelay={withPause(handleUpdateBgmDelay)}
+              onToggleBgmLock={withPreviewPause('toggle-bgm-lock', toggleBgmLock)}
+              onBgmUpload={handleBgmUpload}
+              onRemoveBgm={withPreviewPause('remove-bgm', removeBgm)}
+              onUpdateStartPoint={handleUpdateBgmStart}
+              onUpdateDelay={handleUpdateBgmDelay}
               onUpdateVolume={handleUpdateBgmVolume}
-              onToggleFadeIn={withPause(toggleBgmFadeIn)}
-              onToggleFadeOut={withPause(toggleBgmFadeOut)}
-              onUpdateFadeInDuration={withPause(updateBgmFadeInDuration)}
-              onUpdateFadeOutDuration={withPause(updateBgmFadeOutDuration)}
+              onToggleFadeIn={withPreviewPause('toggle-bgm-fade-in', toggleBgmFadeIn)}
+              onToggleFadeOut={withPreviewPause('toggle-bgm-fade-out', toggleBgmFadeOut)}
+              onUpdateFadeInDuration={withPreviewPause('update-bgm-fade-in-duration', updateBgmFadeInDuration)}
+              onUpdateFadeOutDuration={withPreviewPause('update-bgm-fade-out-duration', updateBgmFadeOutDuration)}
               formatTime={formatTime}
               onOpenHelp={() => openSectionHelp('bgm')}
             />
@@ -1897,19 +1915,19 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               isNarrationLocked={isNarrationLocked}
               totalDuration={totalDuration}
               currentTime={currentTime}
-              onToggleNarrationLock={withPause(toggleNarrationLock)}
+              onToggleNarrationLock={withPreviewPause('toggle-narration-lock', toggleNarrationLock)}
               onAddAiNarration={handleAddAiNarration}
               onEditAiNarration={handleEditAiNarration}
-              onNarrationUpload={withStop(handleNarrationUpload)}
-              onRemoveNarration={withPause(removeNarration)}
-              onMoveNarration={withPause(moveNarration)}
-              onSaveNarration={withPause(handleSaveNarration)}
-              onUpdateStartTime={withPause(handleUpdateNarrationStart)}
-              onSetStartTimeToCurrent={withPause(handleSetNarrationStartToCurrent)}
+              onNarrationUpload={handleNarrationUpload}
+              onRemoveNarration={withPreviewPause('remove-narration', removeNarration)}
+              onMoveNarration={withPreviewPause('move-narration', moveNarration)}
+              onSaveNarration={handleSaveNarration}
+              onUpdateStartTime={handleUpdateNarrationStart}
+              onSetStartTimeToCurrent={handleSetNarrationStartToCurrent}
               onUpdateVolume={handleUpdateNarrationVolume}
               onToggleMute={handleToggleNarrationMute}
-              onUpdateTrimStart={withPause(handleUpdateNarrationTrimStart)}
-              onUpdateTrimEnd={withPause(handleUpdateNarrationTrimEnd)}
+              onUpdateTrimStart={handleUpdateNarrationTrimStart}
+              onUpdateTrimEnd={handleUpdateNarrationTrimEnd}
               formatTime={formatTime}
               onOpenHelp={() => openSectionHelp('narration')}
             />
@@ -1921,20 +1939,20 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               isLocked={isCaptionLocked}
               totalDuration={totalDuration}
               currentTime={currentTime}
-              onToggleLock={withPause(toggleCaptionLock)}
-              onAddCaption={withPause(addCaption)}
-              onUpdateCaption={withPause(updateCaption)}
-              onRemoveCaption={withPause(removeCaption)}
-              onMoveCaption={withPause(moveCaption)}
-              onSetEnabled={withPause(setCaptionEnabled)}
-              onSetFontSize={withPause(setCaptionFontSize)}
-              onSetFontStyle={withPause(setCaptionFontStyle)}
-              onSetPosition={withPause(setCaptionPosition)}
-              onSetBlur={withPause(setCaptionBlur)}
-              onSetBulkFadeIn={withPause(setBulkFadeIn)}
-              onSetBulkFadeOut={withPause(setBulkFadeOut)}
-              onSetBulkFadeInDuration={withPause(setBulkFadeInDuration)}
-              onSetBulkFadeOutDuration={withPause(setBulkFadeOutDuration)}
+              onToggleLock={withPreviewPause('toggle-caption-lock', toggleCaptionLock)}
+              onAddCaption={withPreviewPause('add-caption', addCaption)}
+              onUpdateCaption={withPreviewPause('update-caption', updateCaption)}
+              onRemoveCaption={withPreviewPause('remove-caption', removeCaption)}
+              onMoveCaption={withPreviewPause('move-caption', moveCaption)}
+              onSetEnabled={withPreviewPause('set-caption-enabled', setCaptionEnabled)}
+              onSetFontSize={withPreviewPause('set-caption-font-size', setCaptionFontSize)}
+              onSetFontStyle={withPreviewPause('set-caption-font-style', setCaptionFontStyle)}
+              onSetPosition={withPreviewPause('set-caption-position', setCaptionPosition)}
+              onSetBlur={withPreviewPause('set-caption-blur', setCaptionBlur)}
+              onSetBulkFadeIn={withPreviewPause('set-caption-bulk-fade-in', setBulkFadeIn)}
+              onSetBulkFadeOut={withPreviewPause('set-caption-bulk-fade-out', setBulkFadeOut)}
+              onSetBulkFadeInDuration={withPreviewPause('set-caption-bulk-fade-in-duration', setBulkFadeInDuration)}
+              onSetBulkFadeOutDuration={withPreviewPause('set-caption-bulk-fade-out-duration', setBulkFadeOutDuration)}
               onOpenHelp={() => openSectionHelp('caption')}
             />
 
