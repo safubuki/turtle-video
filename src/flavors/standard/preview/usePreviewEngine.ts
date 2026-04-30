@@ -239,6 +239,12 @@ const createPreviewExportSessionId = (): string => {
     return globalThis.crypto.randomUUID();
   }
 
+  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    const randomValues = new Uint32Array(4);
+    globalThis.crypto.getRandomValues(randomValues);
+    return `preview-export-${Date.now()}-${Array.from(randomValues).join('-')}`;
+  }
+
   previewExportSessionSequence += 1;
   return `preview-export-${Date.now()}-${previewExportSessionSequence}`;
 };

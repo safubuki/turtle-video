@@ -59,11 +59,19 @@ const PREPARATION_STAGE_COPY: Record<
   },
 };
 
+// ExportPreparationStep(1..10) を UI 上では 5 段階に束ねて見せる。
+const PREPARATION_STAGE_BOUNDARIES = {
+  initializingEnd: 2,
+  audioAnalysisEnd: 5,
+  audioMixEnd: 7,
+  encodingStep: 8,
+} as const;
+
 const resolvePreparationStage = (step: ExportPreparationStep | null): PreparationStage => {
-  if (step === null || step <= 2) return 'initializing';
-  if (step <= 5) return 'audioAnalysis';
-  if (step <= 7) return 'audioMix';
-  if (step === 8) return 'encoding';
+  if (step === null || step <= PREPARATION_STAGE_BOUNDARIES.initializingEnd) return 'initializing';
+  if (step <= PREPARATION_STAGE_BOUNDARIES.audioAnalysisEnd) return 'audioAnalysis';
+  if (step <= PREPARATION_STAGE_BOUNDARIES.audioMixEnd) return 'audioMix';
+  if (step === PREPARATION_STAGE_BOUNDARIES.encodingStep) return 'encoding';
   return 'finalizing';
 };
 
@@ -185,9 +193,11 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
 
   useEffect(() => {
     if (isProcessing) {
-      const startedAt = exportStartedAtRef.current ?? Date.now();
-      exportStartedAtRef.current = startedAt;
-      setProcessingNowMs(startedAt);
+      if (exportStartedAtRef.current === null) {
+        const startedAt = Date.now();
+        exportStartedAtRef.current = startedAt;
+        setProcessingNowMs(startedAt);
+      }
       return;
     }
 
