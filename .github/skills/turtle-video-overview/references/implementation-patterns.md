@@ -696,6 +696,21 @@
   - 新しい preview/export workaround を追加するときは、shared helper 単体テストだけで済ませず、必ず standard か apple-safari のどちらに属する回帰テストへ追加する
   - shared schema の変更時は store/save 系テストで round-trip と後方互換の両方を確認し、片方だけ通っても完了扱いにしない
 
+### 9-15. standard preview/export の BGM 200%+ と export 完了 UI は state/gain を分離して扱う
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewAudioSession.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/hooks/useExport.ts`, `src/components/TurtleVideo.tsx`, `src/components/sections/PreviewSection.tsx`, `src/hooks/export-strategies/types.ts`
+- **問題**:
+  - standard preview で BGM の `HTMLAudioElement.volume` だけを見ると 1.0 が上限のため、200% 以上の設定差が消える
+  - export 完了後も preview 再生や stop 操作で `exportUrl` を消すと、ダウンロードボタンが現れない/消える
+  - OfflineAudioContext や mux finalize が長いと「書き出し準備 2/4」のまま止まって見えやすい
+- **対策**:
+  - standard preview の BGM 実効音量は `resolvePreviewBgmGain()` で 0..2.5 に統一し、WebAudio gain があるときは gain 側へ直接反映、`HTMLAudioElement.volume` は gain node が無い場合の 0..1 fallback に限定する
+  - shared export は `clampAudioTrackVolume()` の 0..2.5 を BGM scheduling と fade の基準に使い、`ExportPreparationStep` は 10 段階へ拡張して decode / mix / encode / finalize の前後で更新する
+  - `clearExport()` は新しい export 開始時だけ実行し、export 成功後は `setExportUrl()` を優先して保持する。`PreviewSection` は `exportUrl` を `isProcessing` より優先表示し、100% 到達後に URL 未生成なら「動画を最終化中...」へ切り替える
+- **注意**:
+  - 100% 超の preview 音量差は standard flavor 専用の WebAudio gain で実現し、apple-safari runtime や shared UI に platform 直判定を戻さない
+  - export 完了後の `exportUrl` は stop/preview 再開では消さず、タイムライン変更や新規 export 開始など「既存出力が無効化される操作」でだけ clear する
+
 ---
 
 ## 9.5. プレビューキャプチャ
