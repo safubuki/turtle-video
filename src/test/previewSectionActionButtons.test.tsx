@@ -225,4 +225,47 @@ describe('PreviewSection action buttons', () => {
     expect(screen.getByText('Apple Safari 検証モード')).toBeInTheDocument();
     expect(screen.getByText(/共有メニューまたは標準ダウンロード導線/)).toBeInTheDocument();
   });
+
+  it('export 完了後に processing=false なら download ボタンを表示する', () => {
+    const onDownload = vi.fn();
+    const onExport = vi.fn();
+    const { rerender, props } = renderPreviewSection({
+      isProcessing: true,
+      exportPreparationStep: 1,
+      exportUrl: 'blob:export',
+      exportExt: 'mp4',
+      onDownload,
+      onExport,
+    });
+
+    expect(screen.queryByRole('button', { name: 'ダウンロード (.mp4)' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '書き出し準備 1/4...' })).toBeInTheDocument();
+
+    rerender(
+      <PreviewSection
+        {...props}
+        isProcessing={false}
+        exportUrl="blob:export"
+        exportExt="mp4"
+        onDownload={onDownload}
+        onExport={onExport}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'ダウンロード (.mp4)' }));
+
+    expect(onDownload).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: '動画ファイルを作成' })).not.toBeInTheDocument();
+  });
+
+  it('exportUrl が空文字の間は download ボタンを表示しない', () => {
+    renderPreviewSection({
+      isProcessing: false,
+      exportUrl: '',
+      exportExt: 'mp4',
+    });
+
+    expect(screen.queryByRole('button', { name: 'ダウンロード (.mp4)' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '動画ファイルを作成' })).toBeInTheDocument();
+  });
 });
