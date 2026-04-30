@@ -287,7 +287,7 @@ async function readSerializableFileData(params: {
 }
 
 async function serializeMediaItem(item: MediaItem): Promise<SerializedMediaItem> {
-  const fileData = await readSerializableFileData({
+  const fileData = item.fileData ?? await readSerializableFileData({
     file: item.file,
     fallbackUrl: item.url,
     kind: 'メディア',
@@ -321,6 +321,7 @@ function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
   return {
     id: data.id,
     file,
+    fileData: data.fileData,
     type: data.type,
     url: URL.createObjectURL(file),
     volume: data.volume,

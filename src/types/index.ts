@@ -19,6 +19,7 @@ export interface VoiceOption {
 export interface MediaItem {
   id: string;
   file: File;
+  fileData?: ArrayBuffer;
   type: 'video' | 'image';
   url: string;
   volume: number;

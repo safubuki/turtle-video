@@ -41,14 +41,22 @@ export function getMediaType(file: File): 'video' | 'image' | 'audio' | null {
  * @param file - アップロードされたファイル
  * @returns 新しいMediaItem
  */
-export function createMediaItem(file: File): MediaItem {
+export async function createMediaItem(file: File): Promise<MediaItem> {
   const isImage = file.type.startsWith('image');
+  const fileData = typeof file.arrayBuffer === 'function'
+    ? await file.arrayBuffer()
+    : await new Response(file).arrayBuffer();
+  const stableFile = new File([fileData], file.name, {
+    type: file.type,
+    lastModified: file.lastModified,
+  });
   useLogStore.getState().debug('MEDIA', 'メディアアイテムを作成', { fileName: file.name, type: isImage ? 'image' : 'video', size: file.size });
   return {
     id: generateId(),
-    file,
+    file: stableFile,
+    fileData,
     type: isImage ? 'image' : 'video',
-    url: URL.createObjectURL(file),
+    url: URL.createObjectURL(stableFile),
     volume: 1.0,
     isMuted: false,
     fadeIn: false,
