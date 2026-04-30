@@ -131,7 +131,7 @@ describe('PreviewSection action buttons', () => {
 
   it('停止位置から 0 秒へ戻る初期化は進捗扱いせず準備表示を維持する', () => {
     vi.useFakeTimers();
-    const { rerender, props: baseProps } = renderPreviewSection({
+    const { rerender, props } = renderPreviewSection({
       currentTime: 6,
       isProcessing: false,
       exportPreparationStep: null,
@@ -139,7 +139,7 @@ describe('PreviewSection action buttons', () => {
 
     rerender(
       <PreviewSection
-        {...baseProps}
+        {...props}
         currentTime={6}
         isProcessing
         exportPreparationStep={1}
@@ -148,7 +148,7 @@ describe('PreviewSection action buttons', () => {
 
     rerender(
       <PreviewSection
-        {...baseProps}
+        {...props}
         currentTime={0}
         isProcessing
         exportPreparationStep={1}
@@ -231,6 +231,7 @@ describe('PreviewSection action buttons', () => {
     const onExport = vi.fn();
     const { rerender, props } = renderPreviewSection({
       isProcessing: true,
+      exportPreparationStep: 1,
       exportUrl: 'blob:export',
       exportExt: 'mp4',
       onDownload,
