@@ -1,10 +1,10 @@
+import type { ComponentProps } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import ClipsSection from '../components/sections/ClipsSection';
-import type { MediaItem } from '../types';
 
-function renderClipsSection(overrides: Partial<React.ComponentProps<typeof ClipsSection>> = {}) {
-  const props: React.ComponentProps<typeof ClipsSection> = {
+function renderClipsSection(overrides: Partial<ComponentProps<typeof ClipsSection>> = {}) {
+  const props: ComponentProps<typeof ClipsSection> = {
     mediaItems: [],
     mediaTimelineRanges: {},
     isClipsLocked: false,
