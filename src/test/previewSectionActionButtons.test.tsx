@@ -271,7 +271,7 @@ describe('PreviewSection action buttons', () => {
   it('100%到達後に exportUrl が無ければ最終化中表示を出す', () => {
     renderPreviewSection({
       isProcessing: true,
-      currentTime: 10,
+      currentTime: 9.99,
       totalDuration: 10,
       exportPreparationStep: 10,
     });

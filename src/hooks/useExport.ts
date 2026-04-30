@@ -640,10 +640,10 @@ async function offlineRenderAudio(
   }
 
   // 2. BGM
+  sources.onPreparationStepChange?.(4);
   if (bgm) {
-    sources.onPreparationStepChange?.(4);
+    await scheduleAudioTrack(bgm, 'BGM');
   }
-  if (bgm) await scheduleAudioTrack(bgm, 'BGM');
   // 3. Narrations
   async function scheduleNarrationClip(clip: NarrationClip): Promise<void> {
     if (signal.aborted) return;
@@ -680,9 +680,7 @@ async function offlineRenderAudio(
       return a.clip.startTime - b.clip.startTime;
     });
 
-  if (orderedNarrations.length > 0) {
-    sources.onPreparationStepChange?.(5);
-  }
+  sources.onPreparationStepChange?.(5);
   for (const entry of orderedNarrations) {
     await scheduleNarrationClip(entry.clip);
   }

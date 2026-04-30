@@ -32,6 +32,7 @@ const PREVIEW_STOP_BUTTON =
 const PREVIEW_CAPTURE_BUTTON =
   'border-gray-700 bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white disabled:border-gray-700 disabled:bg-gray-800 disabled:text-gray-500';
 const EXPORT_RENDERING_READY_TIME_SEC = 0.25;
+// currentTime / totalDuration の浮動小数誤差で 100% 直前に止まるケースを吸収する。
 const EXPORT_PROGRESS_FINALIZATION_THRESHOLD = 99.9;
 
 interface PreviewSectionProps {

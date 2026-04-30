@@ -62,6 +62,7 @@ const resetNativeMediaAudioState = (mediaEl: HTMLMediaElement) => {
   mediaEl.muted = false;
   mediaEl.volume = 1;
 };
+// BGM UI は 250% まで指定できるため、standard preview の gain も同じ上限にそろえる。
 const MAX_PREVIEW_BGM_GAIN = 2.5;
 
 export function resolvePreviewBgmGain(
