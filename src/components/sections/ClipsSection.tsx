@@ -113,7 +113,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             ref={fileInputRef}
             type="file"
             multiple
-            accept="video/*, image/*"
+            accept="image/*,video/*"
             className="hidden"
             onChange={onMediaUpload}
             disabled={isClipsLocked}

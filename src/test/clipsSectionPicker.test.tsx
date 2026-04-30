@@ -1,0 +1,75 @@
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import ClipsSection from '../components/sections/ClipsSection';
+import type { MediaItem } from '../types';
+
+function renderClipsSection(overrides: Partial<React.ComponentProps<typeof ClipsSection>> = {}) {
+  const props: React.ComponentProps<typeof ClipsSection> = {
+    mediaItems: [],
+    mediaTimelineRanges: {},
+    isClipsLocked: false,
+    mediaElements: {},
+    onToggleClipsLock: vi.fn(),
+    onMediaUpload: vi.fn(),
+    onOpenMediaPicker: vi.fn(),
+    supportsShowOpenFilePicker: false,
+    onMoveMedia: vi.fn(),
+    onRemoveMedia: vi.fn(),
+    onToggleMediaLock: vi.fn(),
+    onToggleTransformPanel: vi.fn(),
+    onUpdateVideoTrim: vi.fn(),
+    onUpdateImageDuration: vi.fn(),
+    onUpdateMediaScale: vi.fn(),
+    onUpdateMediaPosition: vi.fn(),
+    onResetMediaSetting: vi.fn(),
+    onUpdateMediaVolume: vi.fn(),
+    onToggleMediaMute: vi.fn(),
+    onToggleMediaFadeIn: vi.fn(),
+    onToggleMediaFadeOut: vi.fn(),
+    onUpdateFadeInDuration: vi.fn(),
+    onUpdateFadeOutDuration: vi.fn(),
+    onOpenHelp: vi.fn(),
+    ...overrides,
+  };
+
+  return {
+    ...render(<ClipsSection {...props} />),
+    props,
+  };
+}
+
+describe('ClipsSection media picker routing', () => {
+  it('showOpenFilePicker 経路が有効なときは専用 picker を開く', () => {
+    const onOpenMediaPicker = vi.fn();
+    const inputClickSpy = vi.spyOn(HTMLInputElement.prototype, 'click');
+
+    renderClipsSection({
+      supportsShowOpenFilePicker: true,
+      onOpenMediaPicker,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /追加/ }));
+
+    expect(onOpenMediaPicker).toHaveBeenCalledTimes(1);
+    expect(inputClickSpy).not.toHaveBeenCalled();
+
+    inputClickSpy.mockRestore();
+  });
+
+  it('showOpenFilePicker 経路を無効化したときは hidden input を使う', () => {
+    const onOpenMediaPicker = vi.fn();
+    const inputClickSpy = vi.spyOn(HTMLInputElement.prototype, 'click');
+
+    renderClipsSection({
+      supportsShowOpenFilePicker: false,
+      onOpenMediaPicker,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /追加/ }));
+
+    expect(onOpenMediaPicker).not.toHaveBeenCalled();
+    expect(inputClickSpy).toHaveBeenCalledTimes(1);
+
+    inputClickSpy.mockRestore();
+  });
+});
