@@ -182,6 +182,8 @@ const MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME = 2;
 const PREVIEW_START_READY_SYNC_TOLERANCE_SEC = 0.05;
 // image -> trimStart あり video の開始直後だけは、約 1 フレーム (30fps ≒ 0.033s) 未満まで寄せてカクつきを抑える。
 const PREVIEW_IMAGE_TO_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC = 0.03;
+const PREVIEW_IMAGE_TO_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC = 0.2;
+const PREVIEW_IMAGE_TO_TRIMMED_VIDEO_PRESEEK_WINDOW_SEC = 0.5;
 // 再生開始直後は seeked / canplay の到着を数フレームだけ待ち、遅ければ loop を止めない。
 const PREVIEW_START_READY_POLL_INTERVAL_MS = 40;
 const PREVIEW_START_READY_TIMEOUT_MS = 900;
@@ -673,14 +675,14 @@ export function usePreviewEngine({
                 shouldSkipAndroidPreviewActiveDraw = true;
                 logAndroidPreviewHold(activeId, time, activeEl);
               };
-              const shouldStabilizeImageToTrimmedVideo =
+              const shouldHoldTrimmedVideoHead =
                 isAndroidPreviewPlayback
                 && previousItem?.type === 'image'
                 && activeItem.type === 'video'
                 && (activeItem.trimStart || 0) > 0.001
                 // active clip の localTime は通常 0 以上だが、境界フォールバック追加時もこの短い窓だけに閉じる。
                 && localTime >= 0
-                && localTime <= 0.25;
+                && localTime <= PREVIEW_IMAGE_TO_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC;
               const isLastTimelineItem = activeIndex === currentItems.length - 1;
               const isNearTimelineEnd =
                 totalDurationRef.current > 0 &&
@@ -735,24 +737,16 @@ export function usePreviewEngine({
                 }
               }
               if (
-                shouldStabilizeImageToTrimmedVideo
+                shouldHoldTrimmedVideoHead
                 && (
                   activeEl.seeking
                   || activeEl.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
-                  || activeEl.videoWidth <= 0
-                  || activeEl.videoHeight <= 0
+                  || Math.abs(activeEl.currentTime - targetTime) > PREVIEW_START_READY_SYNC_TOLERANCE_SEC
                 )
               ) {
-                holdAndroidPreviewFrame();
-              }
-              if (
-                shouldStabilizeImageToTrimmedVideo
-                && activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
-                && !activeEl.seeking
-                && Math.abs(activeEl.currentTime - targetTime)
-                > PREVIEW_IMAGE_TO_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC
-              ) {
-                activeEl.currentTime = targetTime;
+                if (activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK && !activeEl.seeking) {
+                  activeEl.currentTime = targetTime;
+                }
                 holdAndroidPreviewFrame();
               }
               let didApplyAndroidPreviewDriftFix = false;
@@ -889,11 +883,26 @@ export function usePreviewEngine({
             if (remainingTime < 3.0) {
               const nextElement = mediaElementsRef.current[nextItem.id] as HTMLVideoElement;
               if (nextElement) {
+                const shouldPreseekNextTrimmedVideo =
+                  isAndroidPreviewPlayback
+                  && activeItem.type === 'image'
+                  && (nextItem.trimStart || 0) > 0.001
+                  && remainingTime >= 0
+                  && remainingTime <= PREVIEW_IMAGE_TO_TRIMMED_VIDEO_PRESEEK_WINDOW_SEC;
+                const nextStart = nextItem.trimStart || 0;
                 if (nextElement.readyState === 0 && !nextElement.error) {
                   try { nextElement.load(); } catch { /* ignore */ }
                 }
+                if (
+                  shouldPreseekNextTrimmedVideo
+                  && !nextElement.seeking
+                  && nextElement.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
+                  && Math.abs(nextElement.currentTime - nextStart)
+                  > PREVIEW_IMAGE_TO_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC
+                ) {
+                  nextElement.currentTime = nextStart;
+                }
                 if (nextElement.paused || nextElement.readyState < 2) {
-                  const nextStart = nextItem.trimStart || 0;
                   if (Math.abs(nextElement.currentTime - nextStart) > 0.1) {
                     nextElement.currentTime = nextStart;
                   }
