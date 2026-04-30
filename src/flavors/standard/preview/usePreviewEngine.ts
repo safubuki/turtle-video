@@ -194,6 +194,7 @@ const PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC = 0.05;
 const PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC = 0.25;
 const PREVIEW_ANDROID_VIDEO_PRESEEK_WINDOW_SEC = 0.6;
 const PREVIEW_ANDROID_BGM_SOFT_SYNC_TOLERANCE_SEC = 0.3;
+const PREVIEW_END_THRESHOLD_SEC = 0.03;
 // 再生開始直後は seeked / canplay の到着を数フレームだけ待ち、遅ければ loop を止めない。
 const PREVIEW_START_READY_POLL_INTERVAL_MS = 40;
 const PREVIEW_START_READY_TIMEOUT_MS = 900;
@@ -1856,6 +1857,65 @@ export function usePreviewEngine({
     wasPlayingBeforeSeekRef,
   ]);
 
+  const stopPreviewMediaAtTimelineEnd = useCallback(() => {
+    Object.values(mediaElementsRef.current).forEach((el) => {
+      if (!el || (el.tagName !== 'VIDEO' && el.tagName !== 'AUDIO')) {
+        return;
+      }
+
+      try {
+        const mediaEl = el as HTMLMediaElement;
+        mediaEl.pause();
+        resetNativeMediaAudioState(mediaEl);
+      } catch {
+        /* ignore */
+      }
+    });
+  }, [mediaElementsRef]);
+
+  const finalizePreviewAtTimelineEnd = useCallback((myLoopId: number) => {
+    if (myLoopId !== loopIdRef.current) {
+      return;
+    }
+
+    const totalDuration = totalDurationRef.current;
+    endFinalizedRef.current = true;
+    currentTimeRef.current = totalDuration;
+    setCurrentTime(totalDuration);
+    renderFrame(totalDuration, false, false);
+    stopPreviewMediaAtTimelineEnd();
+
+    audioResumeWaitFramesRef.current = 0;
+    activeVideoIdRef.current = null;
+    previewPlaybackAttemptRef.current += 1;
+    loopIdRef.current += 1;
+    isPlayingRef.current = false;
+    pause();
+
+    if (reqIdRef.current) {
+      cancelAnimationFrame(reqIdRef.current);
+      reqIdRef.current = null;
+    }
+
+    setTimeout(() => {
+      endFinalizedRef.current = false;
+    }, 300);
+  }, [
+    activeVideoIdRef,
+    audioResumeWaitFramesRef,
+    currentTimeRef,
+    endFinalizedRef,
+    isPlayingRef,
+    loopIdRef,
+    pause,
+    previewPlaybackAttemptRef,
+    renderFrame,
+    reqIdRef,
+    setCurrentTime,
+    stopPreviewMediaAtTimelineEnd,
+    totalDurationRef,
+  ]);
+
   const configureAudioRouting = useCallback((isExporting: boolean) => {
     const ctx = audioCtxRef.current;
     if (!ctx) return;
@@ -1903,85 +1963,20 @@ export function usePreviewEngine({
 
       const now = getStandardPreviewNow();
       const elapsed = (now - startTimeRef.current) / 1000;
-      const clampedElapsed = Math.min(elapsed, totalDurationRef.current);
+      const totalDuration = totalDurationRef.current;
+      const clampedElapsed = Math.min(elapsed, totalDuration);
+      const reachedPreviewEnd =
+        !isExportMode &&
+        totalDuration > 0 &&
+        // 60fps で約 2 フレーム分（33ms 弱）の余裕を持たせ、rAF の刻み誤差で終端 1 フレーム手前に残り続けるのを防ぐ。
+        clampedElapsed >= totalDuration - PREVIEW_END_THRESHOLD_SEC;
 
-      if (clampedElapsed >= totalDurationRef.current) {
-        if (!isExportMode) {
-          const endTime = totalDurationRef.current;
-          const finalizeAtEnd = () => {
-            if (myLoopId !== loopIdRef.current) return;
-            endFinalizedRef.current = true;
-            renderFrame(endTime, false, false);
-            setCurrentTime(endTime);
-            currentTimeRef.current = endTime;
-            stopAll();
-            pause();
-            setTimeout(() => { endFinalizedRef.current = false; }, 300);
-          };
+      if (reachedPreviewEnd) {
+        finalizePreviewAtTimelineEnd(myLoopId);
+        return;
+      }
 
-          const lastItem = mediaItemsRef.current[mediaItemsRef.current.length - 1];
-          if (lastItem?.type === 'video') {
-            const videoEl = mediaElementsRef.current[lastItem.id] as HTMLVideoElement | undefined;
-            if (videoEl) {
-              if (videoEl.readyState === 0 && !videoEl.error) {
-                try { videoEl.load(); } catch { /* ignore */ }
-              }
-              if (videoEl.readyState >= 1 && !videoEl.seeking) {
-                const targetTime = (lastItem.trimStart || 0) + Math.max(0, lastItem.duration - 0.001);
-                const endAlignThreshold = 0.0001;
-                const drift = Math.abs(videoEl.currentTime - targetTime);
-                const isAhead = videoEl.currentTime > targetTime + endAlignThreshold;
-                if (drift > endAlignThreshold || isAhead) {
-                  videoEl.currentTime = targetTime;
-                }
-              }
-              if (videoEl.seeking || videoEl.readyState < 2) {
-                let settled = false;
-                let timeoutId: ReturnType<typeof setTimeout> | null = null;
-                let maybeFinish: () => void = () => { };
-                const onReady = () => {
-                  maybeFinish();
-                };
-                const cleanup = () => {
-                  videoEl.removeEventListener('seeked', onReady);
-                  videoEl.removeEventListener('loadeddata', onReady);
-                  videoEl.removeEventListener('canplay', onReady);
-                  if (timeoutId) {
-                    clearTimeout(timeoutId);
-                    timeoutId = null;
-                  }
-                };
-                const finish = () => {
-                  if (settled) return;
-                  settled = true;
-                  cleanup();
-                  finalizeAtEnd();
-                };
-                maybeFinish = () => {
-                  if (settled) return;
-                  if (myLoopId !== loopIdRef.current) {
-                    settled = true;
-                    cleanup();
-                    return;
-                  }
-                  if (!videoEl.seeking && videoEl.readyState >= 2) {
-                    finish();
-                  }
-                };
-                videoEl.addEventListener('seeked', onReady);
-                videoEl.addEventListener('loadeddata', onReady);
-                videoEl.addEventListener('canplay', onReady);
-                timeoutId = setTimeout(() => {
-                  finish();
-                }, 220);
-                requestAnimationFrame(maybeFinish);
-                return;
-              }
-            }
-          }
-          finalizeAtEnd();
-          return;
-        }
+      if (clampedElapsed >= totalDuration) {
         stopAll();
         return;
       }
@@ -2005,6 +2000,7 @@ export function usePreviewEngine({
       setCurrentTime,
       startTimeRef,
       stopAll,
+      finalizePreviewAtTimelineEnd,
       totalDurationRef,
     ],
   );

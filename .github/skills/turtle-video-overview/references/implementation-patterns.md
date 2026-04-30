@@ -192,6 +192,19 @@
   - `usePreviewEngine` / `usePreviewSeekController` / `apple-safari` runtime には処理を戻さず、shared UI 層の編集導線で止める
   - export 中は既存処理を優先し、このガードだけで export フローを止めない
 
+### 2-16. standard preview の timeline 終端は totalDuration 基準で media を同時停止する
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **問題**: standard preview で最後の映像 clip の終端調整を待ってから停止すると、timeline は終端に見えても `bgm` / `narration:*` の `<audio>` が 0.5〜1 秒ほど流れ続けることがある
+- **対策**:
+  - preview loop の終了判定は最後の clip 状態ではなく `totalDurationRef.current` を単一基準にし、`totalDuration - 0.03` 以降は終端到達として扱う
+  - 終端到達時は `currentTimeRef.current` と UI の currentTime を `totalDuration` に clamp してから `renderFrame(totalDuration, false, false)` を実行する
+  - その直後に `mediaElementsRef.current` 内の `VIDEO` / `AUDIO` を一括 `pause()` し、`bgm` と `narration:*` も例外なく同時停止する
+  - 停止後は `isPlayingRef.current = false`、`pause()`、`cancelAnimationFrame(reqIdRef.current)` を行い、次の preview loop を予約しない
+- **注意**:
+  - この終端停止は `standard` flavor の preview 専用。`apple-safari`、export、seek controller、visibility lifecycle には広げない
+  - BGM の fadeOut 設定や音源自体の長さは変更せず、preview timeline の終端だけを source of truth にする
+
 ---
 
 ## 3. AudioContext 管理

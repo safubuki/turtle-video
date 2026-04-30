@@ -2,6 +2,7 @@ import { renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MutableRefObject } from 'react';
 
+import * as playbackClock from '../flavors/standard/preview/playbackClock';
 import { usePreviewEngine } from '../flavors/standard/preview/usePreviewEngine';
 import {
   getStandardPreviewPlatformCapabilities,
@@ -95,20 +96,20 @@ function createImageItem(overrides: Partial<MediaItem> = {}): MediaItem {
   };
 }
 
-function createMockVideoElement() {
+function createMockMediaElement(tagName: 'VIDEO' | 'AUDIO') {
   const listeners = new Map<string, Set<EventListener>>();
 
   const element = {
-    tagName: 'VIDEO',
-    readyState: 1,
-    seeking: true,
+    tagName,
+    readyState: tagName === 'VIDEO' ? 1 : 4,
+    seeking: tagName === 'VIDEO',
     paused: true,
     currentTime: 0,
     duration: 12,
     ended: false,
     error: null,
-    videoWidth: 1280,
-    videoHeight: 720,
+    videoWidth: tagName === 'VIDEO' ? 1280 : 0,
+    videoHeight: tagName === 'VIDEO' ? 720 : 0,
     defaultMuted: false,
     muted: false,
     volume: 1,
@@ -140,6 +141,14 @@ function createMockVideoElement() {
   return element;
 }
 
+function createMockVideoElement() {
+  return createMockMediaElement('VIDEO');
+}
+
+function createMockAudioElement() {
+  return createMockMediaElement('AUDIO');
+}
+
 function createMockCanvasContext() {
   return {
     fillRect: vi.fn(),
@@ -169,6 +178,13 @@ describe('standard preview engine', () => {
     mediaItems?: MediaItem[];
     mediaElements?: MediaElementsRef;
     primePreviewAudioOnlyTracksAtTime?: ReturnType<typeof vi.fn<(playbackTime: number) => void>>;
+    canvas?: HTMLCanvasElement | null;
+    currentTime?: number;
+    totalDuration?: number;
+    startTime?: number;
+    reqId?: number | null;
+    loopId?: number;
+    isPlaying?: boolean;
   }) {
     const mediaItems = options?.mediaItems ?? [createVideoItem()];
     const mediaItem = mediaItems[0];
@@ -190,6 +206,14 @@ describe('standard preview engine', () => {
     const resetInactiveVideos = vi.fn();
     const primePreviewAudioOnlyTracksAtTimeSpy =
       options?.primePreviewAudioOnlyTracksAtTime ?? vi.fn<(playbackTime: number) => void>();
+    const totalDurationRef = createRef(
+      options?.totalDuration ?? mediaItems.reduce((sum, item) => sum + item.duration, 0),
+    );
+    const currentTimeRef = createRef(options?.currentTime ?? 0);
+    const reqIdRef = createRef<number | null>(options?.reqId ?? null);
+    const startTimeRef = createRef(options?.startTime ?? 0);
+    const loopIdRef = createRef(options?.loopId ?? 0);
+    const isPlayingRef = createRef(options?.isPlaying ?? false);
 
     const hook = renderHook(() =>
       usePreviewEngine({
@@ -200,9 +224,9 @@ describe('standard preview engine', () => {
         narrationsRef: createRef<NarrationClip[]>(options?.narrations ?? []),
         captionsRef: createRef<Caption[]>([]),
         captionSettingsRef: createRef({} as CaptionSettings),
-        totalDurationRef: createRef(mediaItem.duration),
-        currentTimeRef: createRef(0),
-        canvasRef: createRef<HTMLCanvasElement | null>(null),
+        totalDurationRef,
+        currentTimeRef,
+        canvasRef: createRef<HTMLCanvasElement | null>(options?.canvas ?? null),
         mediaElementsRef: createRef(mediaElements),
         audioCtxRef: createRef({
           state: 'running',
@@ -216,12 +240,12 @@ describe('standard preview engine', () => {
         gainNodesRef: createRef({}),
         masterDestRef: createRef(null),
         audioRoutingModeRef: createRef<'preview' | 'export'>('preview'),
-        reqIdRef: createRef<number | null>(null),
-        startTimeRef: createRef(0),
+        reqIdRef,
+        startTimeRef,
         audioResumeWaitFramesRef: createRef(0),
         recorderRef: createRef<MediaRecorder | null>(null),
-        loopIdRef: createRef(0),
-        isPlayingRef: createRef(false),
+        loopIdRef,
+        isPlayingRef,
         isSeekingRef: createRef(false),
         isSeekPlaybackPreparingRef: createRef(false),
         activeVideoIdRef: createRef<string | null>(null),
@@ -285,6 +309,11 @@ describe('standard preview engine', () => {
       requestAnimationFrameSpy,
       setCurrentTime,
       play,
+      pause,
+      currentTimeRef,
+      reqIdRef,
+      loopIdRef,
+      totalDurationRef,
       resetInactiveVideos,
       primePreviewAudioOnlyTracksAtTime: primePreviewAudioOnlyTracksAtTimeSpy,
       hook,
@@ -456,6 +485,108 @@ describe('standard preview engine', () => {
 
     expect(videoElement.play).toHaveBeenCalledTimes(1);
     expect(primePreviewAudioOnlyTracksAtTime).toHaveBeenCalledWith(0);
+    expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('preview loop は totalDuration 手前で終端停止し BGM と narration も同時停止する', () => {
+    const mediaItem = createVideoItem({ id: 'video-1', duration: 6, trimStart: 0, trimEnd: 6 });
+    const canvasContext = createMockCanvasContext();
+    const bgmElement = createMockAudioElement();
+    bgmElement.paused = false;
+    const narrationElement = createMockAudioElement();
+    narrationElement.paused = false;
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 2;
+    videoElement.seeking = false;
+    videoElement.paused = false;
+    const canvas = {
+      getContext: vi.fn(() => canvasContext),
+    } as unknown as HTMLCanvasElement;
+
+    const cancelAnimationFrameSpy = vi
+      .spyOn(globalThis, 'cancelAnimationFrame')
+      .mockImplementation(() => {});
+    vi.spyOn(playbackClock, 'getStandardPreviewNow').mockReturnValue(5980);
+
+    const { hook, pause, currentTimeRef, reqIdRef, loopIdRef, setCurrentTime, requestAnimationFrameSpy } =
+      setupPreviewEngineHarness({
+        mediaItems: [mediaItem],
+        mediaElements: {
+          [mediaItem.id]: videoElement as unknown as HTMLVideoElement,
+          bgm: bgmElement as unknown as HTMLAudioElement,
+          'narration:test': narrationElement as unknown as HTMLAudioElement,
+        } as MediaElementsRef,
+        canvas,
+        currentTime: 5.95,
+        totalDuration: 6,
+        startTime: 0,
+        reqId: 91,
+        loopId: 1,
+        isPlaying: true,
+      });
+
+    hook.result.current.loop(false, 1);
+
+    expect(setCurrentTime).toHaveBeenCalledWith(6);
+    expect(currentTimeRef.current).toBe(6);
+    expect(canvas.getContext).toHaveBeenCalledWith('2d');
+    expect(videoElement.currentTime).toBeCloseTo(5.999, 3);
+    expect(videoElement.pause).toHaveBeenCalled();
+    expect(bgmElement.pause).toHaveBeenCalled();
+    expect(narrationElement.pause).toHaveBeenCalled();
+    expect(videoElement.volume).toBe(1);
+    expect(bgmElement.volume).toBe(1);
+    expect(narrationElement.volume).toBe(1);
+    expect(pause).toHaveBeenCalledTimes(1);
+    expect(cancelAnimationFrameSpy).toHaveBeenCalledWith(91);
+    expect(reqIdRef.current).toBeNull();
+    expect(loopIdRef.current).toBe(2);
+    expect(requestAnimationFrameSpy).not.toHaveBeenCalled();
+  });
+
+  it('preview loop は終端閾値より手前では次の requestAnimationFrame を継続する', () => {
+    const mediaItem = createVideoItem({ id: 'video-1', duration: 6, trimStart: 0, trimEnd: 6 });
+    const bgmElement = createMockAudioElement();
+    bgmElement.paused = false;
+    const narrationElement = createMockAudioElement();
+    narrationElement.paused = false;
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 2;
+    videoElement.seeking = false;
+    videoElement.paused = false;
+
+    const cancelAnimationFrameSpy = vi
+      .spyOn(globalThis, 'cancelAnimationFrame')
+      .mockImplementation(() => {});
+    vi.spyOn(playbackClock, 'getStandardPreviewNow').mockReturnValue(5960);
+
+    const { hook, pause, currentTimeRef, reqIdRef, loopIdRef, setCurrentTime, requestAnimationFrameSpy } =
+      setupPreviewEngineHarness({
+        mediaItems: [mediaItem],
+        mediaElements: {
+          [mediaItem.id]: videoElement as unknown as HTMLVideoElement,
+          bgm: bgmElement as unknown as HTMLAudioElement,
+          'narration:test': narrationElement as unknown as HTMLAudioElement,
+        } as MediaElementsRef,
+        currentTime: 5.95,
+        totalDuration: 6,
+        startTime: 0,
+        reqId: 91,
+        loopId: 1,
+        isPlaying: true,
+      });
+
+    hook.result.current.loop(false, 1);
+
+    expect(setCurrentTime).toHaveBeenCalledWith(5.96);
+    expect(currentTimeRef.current).toBe(5.96);
+    expect(videoElement.pause).not.toHaveBeenCalled();
+    expect(bgmElement.pause).not.toHaveBeenCalled();
+    expect(narrationElement.pause).not.toHaveBeenCalled();
+    expect(pause).not.toHaveBeenCalled();
+    expect(cancelAnimationFrameSpy).not.toHaveBeenCalled();
+    expect(reqIdRef.current).toBe(1);
+    expect(loopIdRef.current).toBe(1);
     expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
   });
 
