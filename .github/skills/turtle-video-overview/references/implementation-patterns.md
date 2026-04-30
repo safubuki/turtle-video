@@ -205,6 +205,18 @@
   - この終端停止は `standard` flavor の preview 専用。`apple-safari`、export、seek controller、visibility lifecycle には広げない
   - BGM の fadeOut 設定や音源自体の長さは変更せず、preview timeline の終端だけを source of truth にする
 
+### 2-17. standard preview の BGM fade は renderFrame で毎フレーム上書きする
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **問題**: standard preview では BGM が native `<audio>` 再生に残る経路があり、終端停止だけを追加すると fadeIn / fadeOut の計算結果が毎フレーム `bgm.volume` に反映されず、動画終端前に音量が下がらないことがある
+- **対策**:
+  - `renderFrame` 内で preview 中だけ `computePreviewBgmVolume()` を使い、`bgm.delay` 基準の fadeIn と `totalDurationRef.current` 基準の fadeOut を毎フレーム再計算する
+  - 計算結果は `mediaElementsRef.current.bgm.volume` と `gainNodesRef.current.bgm.gain` の両方へ反映し、native / WebAudio のどちらでも同じ fade カーブに揃える
+  - `stopAll()` では BGM を pause する前に volume / gain を 0 に落とし、timeline 終端で BGM だけ残留しないようにする
+- **注意**:
+  - fadeOut の基準は BGM ファイル終端ではなく preview timeline の `totalDuration`
+  - export と `apple-safari` runtime には広げず、`standard` preview の render loop 内だけで閉じる
+
 ---
 
 ## 3. AudioContext 管理
