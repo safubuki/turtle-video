@@ -347,6 +347,7 @@ export function usePreviewAudioSession({
       if (bgmEl) {
         const trackTime = Math.max(0, playbackTime - currentBgm.delay + currentBgm.startPoint);
         if (playbackTime >= currentBgm.delay && trackTime <= currentBgm.duration) {
+          // BGM は preview start 直後でも active video を待たせないため、seek 許容幅を広めに取る。
           primePreviewMediaElementPlayback(bgmEl, trackTime, 0.3);
         }
       }

@@ -711,7 +711,7 @@ describe('standard preview engine', () => {
       } as MediaElementsRef,
     });
 
-    const insideTimelineTime = 1.19;
+    const insideTimelineTime = 1.25;
     const insideExpectedTime = videoItem.trimStart + (insideTimelineTime - imageItem.duration);
     insideHarness.hook.result.current.renderFrame(insideTimelineTime, true, false);
 

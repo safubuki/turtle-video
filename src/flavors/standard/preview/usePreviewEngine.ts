@@ -1491,6 +1491,8 @@ export function usePreviewEngine({
 
                 if (trackTime <= track.duration) {
                   if (shouldUseAndroidPreviewBgmSoftSync) {
+                    // Android standard preview の BGM は active video を待たせないため、
+                    // readyState を待たずに緩めのしきい値で fire-and-forget に同期する。
                     if (element.readyState === 0 && !element.error) {
                       try { element.load(); } catch { /* ignore */ }
                     }
@@ -1546,6 +1548,8 @@ export function usePreviewEngine({
                     vol *= Math.max(0, remaining / fadeOutDur);
                   }
 
+                  // BGM soft sync 中は active video 優先で進めたいので、
+                  // audio resume wait による追加ミュートを掛けず独立に追従させる。
                   if (element.seeking || (!shouldUseAndroidPreviewBgmSoftSync && !avoidPausePlay && holdAudioThisFrame)) {
                     vol = 0;
                   }
@@ -2458,6 +2462,7 @@ export function usePreviewEngine({
           && !platformCapabilities.isIosSafari
           && (bgmRef.current !== null || narrationsRef.current.length > 0);
         if (shouldPrimeAndroidPreviewAudioOnlyTracks) {
+          // active video の開始要求とは分離し、audio-only track は失敗しても preview 全体を止めない。
           primePreviewAudioOnlyTracksAtTime(fromTime);
         }
 
