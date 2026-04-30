@@ -64,14 +64,14 @@ const PREPARATION_STAGE_BOUNDARIES = {
   initializingEnd: 2,
   audioAnalysisEnd: 5,
   audioMixEnd: 7,
-  encodingStep: 8,
+  encodingEnd: 8,
 } as const;
 
 const resolvePreparationStage = (step: ExportPreparationStep | null): PreparationStage => {
   if (step === null || step <= PREPARATION_STAGE_BOUNDARIES.initializingEnd) return 'initializing';
   if (step <= PREPARATION_STAGE_BOUNDARIES.audioAnalysisEnd) return 'audioAnalysis';
   if (step <= PREPARATION_STAGE_BOUNDARIES.audioMixEnd) return 'audioMix';
-  if (step === PREPARATION_STAGE_BOUNDARIES.encodingStep) return 'encoding';
+  if (step <= PREPARATION_STAGE_BOUNDARIES.encodingEnd) return 'encoding';
   return 'finalizing';
 };
 

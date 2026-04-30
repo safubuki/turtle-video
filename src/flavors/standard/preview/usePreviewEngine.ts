@@ -2577,6 +2577,11 @@ export function usePreviewEngine({
           masterDestRef,
           (url, ext) => {
             if (currentExportSessionIdRef.current !== exportSessionId) {
+              try {
+                URL.revokeObjectURL(url);
+              } catch {
+                // ignore
+              }
               return;
             }
             setExportUrl(url);
