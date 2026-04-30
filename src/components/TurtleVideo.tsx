@@ -257,6 +257,27 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const captionsRef = useRef(captions);
   const captionSettingsRef = useRef(captionSettings);
 
+  const pausePreviewBeforeEdit = useCallback((reason: string) => {
+    if (isProcessing || !isPlayingRef.current) return;
+
+    pause();
+    isPlayingRef.current = false;
+
+    if (reqIdRef.current !== null) {
+      cancelAnimationFrame(reqIdRef.current);
+      reqIdRef.current = null;
+    }
+
+    logInfo('SYSTEM', 'preview paused before edit', { reason });
+  }, [isProcessing, pause, logInfo]);
+
+  const withPreviewPause = useCallback(<T extends unknown[]>(reason: string, fn: (...args: T) => void) => {
+    return (...args: T) => {
+      pausePreviewBeforeEdit(reason);
+      fn(...args);
+    };
+  }, [pausePreviewBeforeEdit]);
+
   // 描画が遅延実行されても最新状態を参照できるようにする
   captionsRef.current = captions;
   captionSettingsRef.current = captionSettings;
@@ -1431,27 +1452,6 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     setEditingNarrationId(null);
     closeAiModal();
   }, [closeAiModal]);
-
-  const pausePreviewBeforeEdit = useCallback((reason: string) => {
-    if (isProcessing || !isPlayingRef.current) return;
-
-    pause();
-    isPlayingRef.current = false;
-
-    if (reqIdRef.current !== null) {
-      cancelAnimationFrame(reqIdRef.current);
-      reqIdRef.current = null;
-    }
-
-    logInfo('PREVIEW', 'preview paused before edit', { reason });
-  }, [isProcessing, pause, logInfo]);
-
-  const withPreviewPause = useCallback(<T extends unknown[]>(reason: string, fn: (...args: T) => void) => {
-    return (...args: T) => {
-      pausePreviewBeforeEdit(reason);
-      fn(...args);
-    };
-  }, [pausePreviewBeforeEdit]);
 
   const pausePreviewBeforeHeaderModal = useCallback(() => {
     pausePreviewBeforeEdit('open-header-modal');
