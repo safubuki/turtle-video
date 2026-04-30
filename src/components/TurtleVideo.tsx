@@ -22,7 +22,7 @@ import {
   TTS_SAMPLE_RATE,
 } from '../constants';
 
-import type { ExportPreparationStep } from '../hooks/useExport';
+import type { ExportPreparationStep, UseExportReturn } from '../hooks/useExport';
 import { usePreventUnload } from '../hooks/usePreventUnload';
 import { useProjectStore } from '../stores/projectStore';
 
@@ -58,7 +58,8 @@ const getApiKey = (): string => {
   return import.meta.env.VITE_GEMINI_API_KEY || '';
 };
 
-const EXPORT_FINALIZING_TIMEOUT_ERROR = '保存ファイルの作成に失敗しました。もう一度お試しください。';
+const EXPORT_FINALIZING_EPSILON_SEC = 0.05;
+const EXPORT_FINALIZING_TIMEOUT_WARNING = '保存ファイルの作成に時間がかかっています。完了後にダウンロードボタンが表示されます。';
 
 interface TurtleVideoProps {
   appFlavor: AppFlavor;
@@ -240,6 +241,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const wasPlayingBeforeSeekRef = useRef(false); // シーク前の再生状態を保持
   const wasExportProcessingRef = useRef(isProcessing);
   const exportCompletedRef = useRef(false);
+  const exportFinalizingRef = useRef(false);
+  const hasShownExportFinalizeWarningRef = useRef(false);
   const pendingSeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 保留中のシーク処理用タイマー
 
 
@@ -310,7 +313,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   }, [mediaItems]);
 
   // Hooks
-  const { startExport: startWebCodecsExport, stopExport: stopWebCodecsExport } = exportRuntime.useExport();
+  const {
+    startExport: startWebCodecsExportInternal,
+    stopExport: stopWebCodecsExportInternal,
+  } = exportRuntime.useExport();
 
   useEffect(() => {
     saveRuntime.configureProjectStore();
@@ -419,9 +425,58 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       if (exportUrl) {
         exportCompletedRef.current = true;
       }
+      exportFinalizingRef.current = false;
+      hasShownExportFinalizeWarningRef.current = false;
       clearExportUiState();
     }
   }, [clearExportUiState, exportUrl, isProcessing]);
+
+  useEffect(() => {
+    const isExportFinalizing =
+      isProcessing
+      && !exportUrl
+      && totalDuration > 0
+      && currentTime >= Math.max(0, totalDuration - EXPORT_FINALIZING_EPSILON_SEC);
+    exportFinalizingRef.current = isExportFinalizing;
+    if (!isProcessing || exportUrl) {
+      hasShownExportFinalizeWarningRef.current = false;
+    }
+  }, [currentTime, exportUrl, isProcessing, totalDuration]);
+
+  const startWebCodecsExport = useCallback<UseExportReturn['startExport']>(
+    (canvasRef, masterDestRef, onRecordingStop, onRecordingError, audioSources) => {
+      startWebCodecsExportInternal(
+        canvasRef,
+        masterDestRef,
+        (url, ext) => {
+          logInfo('RENDER', '[DIAG-UI] export complete callback received', {
+            urlPresent: Boolean(url),
+            ext,
+          });
+          exportCompletedRef.current = true;
+          exportFinalizingRef.current = false;
+          setProcessing(false);
+          setLoading(false);
+          setExportPreparationStep(null);
+          onRecordingStop(url, ext);
+        },
+        (message) => {
+          exportFinalizingRef.current = false;
+          setProcessing(false);
+          setLoading(false);
+          setExportPreparationStep(null);
+          onRecordingError?.(message);
+        },
+        audioSources,
+      );
+    },
+    [logInfo, setExportPreparationStep, setLoading, setProcessing, startWebCodecsExportInternal],
+  );
+
+  const stopWebCodecsExport = useCallback<UseExportReturn['stopExport']>((options) => {
+    exportFinalizingRef.current = false;
+    stopWebCodecsExportInternal(options);
+  }, [stopWebCodecsExportInternal]);
 
   // --- Audio Context ---
   const getAudioContext = useCallback(() => {
@@ -1651,6 +1706,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     // export 中の停止は「プレビューを 0 秒へ戻す」ではなく、中断要求と UI 復旧を優先する。
     // 実際の停止/cleanup は export 側の abort 経路でも継続されるため、ここでは state を先に戻して表示を止める。
     if (isProcessing) {
+      exportCompletedRef.current = false;
+      exportFinalizingRef.current = false;
+      hasShownExportFinalizeWarningRef.current = false;
       stopWebCodecsExport({ silent: true });
       clearExportUiState();
       return;
@@ -1724,28 +1782,31 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   // 目的: 動画ファイルとして書き出しを開始
   const handleExport = useCallback(() => {
     exportCompletedRef.current = false;
+    exportFinalizingRef.current = false;
+    hasShownExportFinalizeWarningRef.current = false;
     startEngine(0, true);
   }, [startEngine]);
 
   const handleExportFinalizeTimeout = useCallback(() => {
-    if (!isProcessing || exportUrl || exportCompletedRef.current) return;
-    stopWebCodecsExport({ silent: true });
-    clearExportUiState();
-    pause();
-    stopAll();
-    logError('RENDER', 'export finalize timeout', {
-      error: EXPORT_FINALIZING_TIMEOUT_ERROR,
+    if (
+      !isProcessing ||
+      exportUrl ||
+      exportCompletedRef.current ||
+      exportFinalizingRef.current ||
+      hasShownExportFinalizeWarningRef.current
+    ) {
+      return;
+    }
+    hasShownExportFinalizeWarningRef.current = true;
+    logWarn('RENDER', 'export finalize timeout warning', {
+      warning: EXPORT_FINALIZING_TIMEOUT_WARNING,
     });
-    setError(EXPORT_FINALIZING_TIMEOUT_ERROR);
+    showToast(EXPORT_FINALIZING_TIMEOUT_WARNING, 5000);
   }, [
-    clearExportUiState,
     exportUrl,
     isProcessing,
-    logError,
-    pause,
-    setError,
-    stopAll,
-    stopWebCodecsExport,
+    logWarn,
+    showToast,
   ]);
 
   // --- ダウンロードハンドラ ---
@@ -2042,6 +2103,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
                 onClearAll={handleClearAll}
                 onCapture={handleCapture}
                 onExportFinalizeTimeout={handleExportFinalizeTimeout}
+                enableFinalizeTimeout={!exportCompletedRef.current && !exportFinalizingRef.current}
                 onOpenHelp={() => openSectionHelp('preview')}
                 formatTime={formatTime}
               />

@@ -91,6 +91,7 @@ interface PreviewSectionProps {
   onClearAll: () => void;
   onCapture: () => void;
   onExportFinalizeTimeout?: () => void;
+  enableFinalizeTimeout?: boolean;
   onOpenHelp: () => void;
   formatTime: (seconds: number) => string;
 }
@@ -123,6 +124,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   onClearAll,
   onCapture,
   onExportFinalizeTimeout,
+  enableFinalizeTimeout = true,
   onOpenHelp,
   formatTime,
 }) => {
@@ -214,7 +216,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   }, [exportUrl, isProcessing]);
 
   useEffect(() => {
-    if (!isFinalizingExport || exportUrl || !isProcessing) {
+    if (!enableFinalizeTimeout || !isFinalizingExport || exportUrl || !isProcessing) {
       exportFinalizingStartedAtRef.current = null;
       hasTriggeredFinalizingTimeoutRef.current = false;
       return;
@@ -232,7 +234,14 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
       hasTriggeredFinalizingTimeoutRef.current = true;
       onExportFinalizeTimeout?.();
     }
-  }, [exportUrl, isFinalizingExport, isProcessing, onExportFinalizeTimeout, processingNowMs]);
+  }, [
+    enableFinalizeTimeout,
+    exportUrl,
+    isFinalizingExport,
+    isProcessing,
+    onExportFinalizeTimeout,
+    processingNowMs,
+  ]);
 
   useEffect(() => {
     return () => {
