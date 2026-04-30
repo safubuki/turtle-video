@@ -596,7 +596,7 @@ async function offlineRenderAudio(
     source.connect(gain);
     gain.connect(offlineCtx.destination);
 
-    const vol = track.volume;
+    const vol = Math.max(0, Math.min(2.5, track.volume));
     const trackStart = Math.max(0, track.delay);
     const sourceOffset = track.startPoint;
     const availableDuration = track.duration - track.startPoint;

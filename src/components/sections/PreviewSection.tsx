@@ -372,7 +372,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
             >
               <RotateCcw className="w-4 h-4 lg:w-5 lg:h-5" /> 一括クリア
             </button>
-            {exportUrl ? (
+            {!isProcessing && exportUrl ? (
               <button
                 type="button"
                 onClick={onDownload}

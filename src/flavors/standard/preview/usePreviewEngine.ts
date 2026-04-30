@@ -2597,12 +2597,14 @@ export function usePreviewEngine({
             setExportUrl(url);
             setExportExt(ext as 'mp4' | 'webm');
             setProcessing(false);
+            setLoading(false);
             setExportPreparationStep(null);
             pause();
             stopAll();
           },
           (message) => {
             setProcessing(false);
+            setLoading(false);
             setExportPreparationStep(null);
             pause();
             stopAll();

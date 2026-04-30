@@ -219,6 +219,20 @@
 
 ---
 
+### 2-18. export 完了 UI は exportUrl を残したまま processing/loading を先に戻す
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/components/sections/PreviewSection.tsx`, `src/hooks/useExport.ts`, `src/test/previewSectionActionButtons.test.tsx`
+- **問題**: standard export 完了時に `exportUrl` が入っても `processing/loading` の解除が遅れると、PreviewSection の action area が「作成中」のまま残り、緑の download ボタンが出ないことがある
+- **対策**:
+  - standard preview の export 完了/失敗 callback では `setProcessing(false)` と `setLoading(false)` を必ず行い、`setExportPreparationStep(null)` で準備表示も解除する
+  - PreviewSection の download ボタンは `!isProcessing && exportUrl` 条件でのみ描画し、export 完了後に安定して通常ボタンから切り替える
+  - shared offline audio export の BGM / narration scheduling は `track.volume` を `0..2.5` に clamp して、UI slider の上限を超える異常値を export gain に流さない
+- **注意**:
+  - `exportUrl` は成功時に保持し、編集操作や明示 stop 以外では直後に消さない
+  - この UI 復旧は shared preview/export facade と standard preview callback の範囲に留め、iOS Safari runtime や save/load 導線には広げない
+
+---
+
 ## 3. AudioContext 管理
 
 ### 3-0. iOS Safari プレビュー BGM 経路安定化
