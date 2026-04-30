@@ -109,24 +109,24 @@ describe('PreviewSection action buttons', () => {
     expect(captureButton.className).not.toContain('animate-preview-capture-press');
   });
 
-  it('準備中はフェーズ番号付きのボタン文言を表示する', () => {
+  it('準備中はグルーピングされた準備文言を表示する', () => {
     renderPreviewSection({
       isProcessing: true,
       currentTime: 0,
       exportPreparationStep: 1,
     });
 
-    expect(screen.getByRole('button', { name: '書き出し準備 1/10 書き出し初期化...' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '書き出しを準備中...' })).toBeInTheDocument();
   });
 
-  it('準備フェーズ番号をボタンに反映する', () => {
+  it('音声解析ステージをボタンに反映する', () => {
     renderPreviewSection({
       isProcessing: true,
       currentTime: 0,
       exportPreparationStep: 3,
     });
 
-    expect(screen.getByRole('button', { name: '書き出し準備 3/10 動画音声の解析...' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '動画音声を解析中です...' })).toBeInTheDocument();
   });
 
   it('停止位置から 0 秒へ戻る初期化は進捗扱いせず準備表示を維持する', () => {
@@ -159,7 +159,7 @@ describe('PreviewSection action buttons', () => {
       vi.advanceTimersByTime(1800);
     });
 
-    expect(screen.getByRole('button', { name: '書き出し準備 1/10 書き出し初期化...' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '書き出しを準備中...' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'フレーム待機中...' })).not.toBeInTheDocument();
   });
 
@@ -186,8 +186,24 @@ describe('PreviewSection action buttons', () => {
       vi.advanceTimersByTime(1800);
     });
 
-    expect(screen.getByRole('button', { name: '書き出し準備 4/10 BGM音声の解析...' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '動画音声を解析中です...' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'フレーム待機中...' })).not.toBeInTheDocument();
+  });
+
+  it('準備が長いと経過秒数つきの説明を表示する', () => {
+    vi.useFakeTimers();
+    renderPreviewSection({
+      isProcessing: true,
+      currentTime: 0,
+      exportPreparationStep: 3,
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+
+    expect(screen.getByRole('button', { name: '動画音声を解析中です...（3秒経過）' })).toBeInTheDocument();
+    expect(screen.getByText('動画数や音声トラック数が多い場合は時間がかかります。（3秒経過）')).toBeInTheDocument();
   });
 
   it('開始直後の閾値を超えた後は生成中表示に切り替わる', () => {

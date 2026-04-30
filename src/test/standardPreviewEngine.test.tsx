@@ -326,6 +326,7 @@ describe('standard preview engine', () => {
 
   function setupRenderFrameHarness(options?: {
     bgm?: AudioTrack | null;
+    narrations?: NarrationClip[];
     mediaItems?: MediaItem[];
     mediaElements?: MediaElementsRef;
     gainNodes?: Record<string, GainNode>;
@@ -346,7 +347,7 @@ describe('standard preview engine', () => {
         captionSettings: {} as CaptionSettings,
         mediaItemsRef: createRef(mediaItems),
         bgmRef: createRef<AudioTrack | null>(options?.bgm ?? null),
-        narrationsRef: createRef<NarrationClip[]>([]),
+        narrationsRef: createRef<NarrationClip[]>(options?.narrations ?? []),
         captionsRef: createRef<Caption[]>([]),
         captionSettingsRef: createRef({} as CaptionSettings),
         totalDurationRef: createRef(
@@ -755,6 +756,60 @@ describe('standard preview engine', () => {
 
     expect(bgmElement.volume).toBeLessThanOrEqual(1);
     expect(bgmGain.gain.setValueAtTime).toHaveBeenLastCalledWith(2.5, 7);
+  });
+
+  it('renderFrame は narration 100%超を WebAudio gain で維持しつつ native volume は 1 に抑える', () => {
+    const mediaItem = createVideoItem({ id: 'video-1', duration: 10, trimStart: 0, trimEnd: 10 });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 2;
+    videoElement.seeking = false;
+    const narrationElement = createMockAudioElement();
+    const narrationGain = {
+      gain: {
+        value: 1,
+        setTargetAtTime: vi.fn(),
+        setValueAtTime: vi.fn(),
+        cancelScheduledValues: vi.fn(),
+      },
+    } as unknown as GainNode;
+    const audioContext = {
+      state: 'running',
+      currentTime: 7,
+      destination: {},
+      onstatechange: null,
+      resume: vi.fn().mockResolvedValue(undefined),
+      suspend: vi.fn().mockResolvedValue(undefined),
+    } as unknown as AudioContext;
+    const narration: NarrationClip = {
+      id: 'nar-1',
+      sourceType: 'file',
+      file: new File([''], 'narration.mp3', { type: 'audio/mpeg' }),
+      url: 'blob:narration',
+      startTime: 0,
+      volume: 2.5,
+      isMuted: false,
+      trimStart: 0,
+      trimEnd: 10,
+      duration: 10,
+      isAiEditable: false,
+    };
+
+    const { hook } = setupRenderFrameHarness({
+      narrations: [narration],
+      mediaItems: [mediaItem],
+      mediaElements: {
+        [mediaItem.id]: videoElement as unknown as HTMLVideoElement,
+        'narration:nar-1': narrationElement as unknown as HTMLAudioElement,
+      } as MediaElementsRef,
+      gainNodes: { 'narration:nar-1': narrationGain },
+      audioContext,
+      totalDuration: 10,
+    });
+
+    hook.result.current.renderFrame(5, true, false);
+
+    expect(narrationElement.volume).toBe(1);
+    expect(narrationGain.gain.setTargetAtTime).toHaveBeenLastCalledWith(2.5, 7, 0.1);
   });
 
   it('Android preview は trimStart あり video の先頭だけ currentTime を厳しめに合わせて描画を hold する', () => {

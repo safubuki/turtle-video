@@ -62,8 +62,47 @@ const resetNativeMediaAudioState = (mediaEl: HTMLMediaElement) => {
   mediaEl.muted = false;
   mediaEl.volume = 1;
 };
-// BGM UI は 250% まで指定できるため、standard preview の gain も同じ上限にそろえる。
-const MAX_PREVIEW_BGM_GAIN = 2.5;
+// BGM / ナレーション UI は 250% まで指定できるため、standard preview の gain も同じ上限にそろえる。
+const MAX_PREVIEW_AUDIO_GAIN = 2.5;
+
+export function clampPreviewAudioGain(volume: number): number {
+  return Math.max(0, Math.min(MAX_PREVIEW_AUDIO_GAIN, volume));
+}
+
+export function resolvePreviewAudioGain(params: {
+  baseVolume: number;
+  time: number;
+  startTime: number;
+  totalDuration: number;
+  fadeIn?: boolean;
+  fadeOut?: boolean;
+  fadeInDuration?: number;
+  fadeOutDuration?: number;
+}): number {
+  let gain = params.baseVolume;
+  const playTime = params.time - params.startTime;
+
+  if (playTime < 0) {
+    return 0;
+  }
+
+  if (params.fadeIn) {
+    const duration = params.fadeInDuration || 1;
+    if (playTime < duration) {
+      gain *= Math.max(0, playTime / duration);
+    }
+  }
+
+  if (params.fadeOut) {
+    const duration = params.fadeOutDuration || 1;
+    const remaining = params.totalDuration - params.time;
+    if (remaining < duration) {
+      gain *= Math.max(0, remaining / duration);
+    }
+  }
+
+  return clampPreviewAudioGain(gain);
+}
 
 export function resolvePreviewBgmGain(
   bgm: AudioTrack,
@@ -75,25 +114,16 @@ export function resolvePreviewBgmGain(
     return 0;
   }
 
-  let gain = Math.max(0, Math.min(MAX_PREVIEW_BGM_GAIN, bgm.volume));
-  const playTime = time - bgm.delay;
-
-  if (bgm.fadeIn) {
-    const fadeInDuration = bgm.fadeInDuration || 1;
-    if (playTime < fadeInDuration) {
-      gain *= Math.max(0, playTime / fadeInDuration);
-    }
-  }
-
-  if (bgm.fadeOut) {
-    const fadeOutDuration = bgm.fadeOutDuration || 1;
-    const remaining = totalDuration - time;
-    if (remaining < fadeOutDuration) {
-      gain *= Math.max(0, remaining / fadeOutDuration);
-    }
-  }
-
-  return Math.max(0, Math.min(MAX_PREVIEW_BGM_GAIN, gain));
+  return resolvePreviewAudioGain({
+    baseVolume: bgm.volume,
+    time,
+    startTime: bgm.delay,
+    totalDuration,
+    fadeIn: bgm.fadeIn,
+    fadeOut: bgm.fadeOut,
+    fadeInDuration: bgm.fadeInDuration,
+    fadeOutDuration: bgm.fadeOutDuration,
+  });
 }
 
 export function usePreviewAudioSession({
