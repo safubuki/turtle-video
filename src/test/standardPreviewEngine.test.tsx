@@ -565,6 +565,52 @@ describe('standard preview engine', () => {
     expect(requestAnimationFrameSpy).not.toHaveBeenCalled();
   });
 
+  it('preview loop は終端閾値より手前では次の requestAnimationFrame を継続する', () => {
+    const mediaItem = createVideoItem({ id: 'video-1', duration: 6, trimStart: 0, trimEnd: 6 });
+    const bgmElement = createMockAudioElement();
+    bgmElement.paused = false;
+    const narrationElement = createMockAudioElement();
+    narrationElement.paused = false;
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 2;
+    videoElement.seeking = false;
+    videoElement.paused = false;
+
+    const cancelAnimationFrameSpy = vi
+      .spyOn(globalThis, 'cancelAnimationFrame')
+      .mockImplementation(() => {});
+    vi.spyOn(playbackClock, 'getStandardPreviewNow').mockReturnValue(5960);
+
+    const { hook, pause, currentTimeRef, reqIdRef, loopIdRef, setCurrentTime, requestAnimationFrameSpy } =
+      setupPreviewEngineHarness({
+        mediaItems: [mediaItem],
+        mediaElements: {
+          [mediaItem.id]: videoElement as unknown as HTMLVideoElement,
+          bgm: bgmElement as unknown as HTMLAudioElement,
+          'narration:test': narrationElement as unknown as HTMLAudioElement,
+        } as MediaElementsRef,
+        currentTime: 5.95,
+        totalDuration: 6,
+        startTime: 0,
+        reqId: 91,
+        loopId: 1,
+        isPlaying: true,
+      });
+
+    hook.result.current.loop(false, 1);
+
+    expect(setCurrentTime).toHaveBeenCalledWith(5.96);
+    expect(currentTimeRef.current).toBe(5.96);
+    expect(videoElement.pause).not.toHaveBeenCalled();
+    expect(bgmElement.pause).not.toHaveBeenCalled();
+    expect(narrationElement.pause).not.toHaveBeenCalled();
+    expect(pause).not.toHaveBeenCalled();
+    expect(cancelAnimationFrameSpy).not.toHaveBeenCalled();
+    expect(reqIdRef.current).toBe(1);
+    expect(loopIdRef.current).toBe(1);
+    expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('Android preview は trimStart あり video の先頭だけ currentTime を厳しめに合わせて描画を hold する', () => {
     const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
     const videoItem = createVideoItem({
