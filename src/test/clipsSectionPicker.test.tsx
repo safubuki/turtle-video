@@ -41,14 +41,17 @@ function renderClipsSection(overrides: Partial<ComponentProps<typeof ClipsSectio
 describe('ClipsSection media picker routing', () => {
   it('showOpenFilePicker 経路が有効なときは専用 picker を開く', () => {
     const onOpenMediaPicker = vi.fn();
-    const inputClickSpy = vi.spyOn(HTMLInputElement.prototype, 'click');
-
-    renderClipsSection({
+    const { container } = renderClipsSection({
       supportsShowOpenFilePicker: true,
       onOpenMediaPicker,
     });
+    const fileInput = container.querySelector('input[type="file"]');
 
-    fireEvent.click(screen.getByRole('button', { name: /追加/ }));
+    expect(fileInput).not.toBeNull();
+
+    const inputClickSpy = vi.spyOn(fileInput as HTMLInputElement, 'click');
+
+    fireEvent.click(screen.getByRole('button', { name: '追加' }));
 
     expect(onOpenMediaPicker).toHaveBeenCalledTimes(1);
     expect(inputClickSpy).not.toHaveBeenCalled();
@@ -58,14 +61,17 @@ describe('ClipsSection media picker routing', () => {
 
   it('showOpenFilePicker 経路を無効化したときは hidden input を使う', () => {
     const onOpenMediaPicker = vi.fn();
-    const inputClickSpy = vi.spyOn(HTMLInputElement.prototype, 'click');
-
-    renderClipsSection({
+    const { container } = renderClipsSection({
       supportsShowOpenFilePicker: false,
       onOpenMediaPicker,
     });
+    const fileInput = container.querySelector('input[type="file"]');
 
-    fireEvent.click(screen.getByRole('button', { name: /追加/ }));
+    expect(fileInput).not.toBeNull();
+
+    const inputClickSpy = vi.spyOn(fileInput as HTMLInputElement, 'click');
+
+    fireEvent.click(screen.getByRole('button', { name: '追加' }));
 
     expect(onOpenMediaPicker).not.toHaveBeenCalled();
     expect(inputClickSpy).toHaveBeenCalledTimes(1);
