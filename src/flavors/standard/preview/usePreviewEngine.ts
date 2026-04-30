@@ -194,6 +194,7 @@ const PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC = 0.05;
 const PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC = 0.25;
 const PREVIEW_ANDROID_VIDEO_PRESEEK_WINDOW_SEC = 0.6;
 const PREVIEW_ANDROID_BGM_SOFT_SYNC_TOLERANCE_SEC = 0.3;
+const PREVIEW_END_THRESHOLD_SEC = 0.03;
 // 再生開始直後は seeked / canplay の到着を数フレームだけ待ち、遅ければ loop を止めない。
 const PREVIEW_START_READY_POLL_INTERVAL_MS = 40;
 const PREVIEW_START_READY_TIMEOUT_MS = 900;
@@ -1968,7 +1969,7 @@ export function usePreviewEngine({
         !isExportMode &&
         totalDuration > 0 &&
         // rAF の刻み誤差で終端 1 フレーム手前に残り続けるのを防ぐため、30ms 手前で終端扱いにする。
-        clampedElapsed >= totalDuration - 0.03;
+        clampedElapsed >= totalDuration - PREVIEW_END_THRESHOLD_SEC;
 
       if (reachedPreviewEnd) {
         finalizePreviewAtTimelineEnd(myLoopId);

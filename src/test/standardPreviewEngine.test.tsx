@@ -96,20 +96,20 @@ function createImageItem(overrides: Partial<MediaItem> = {}): MediaItem {
   };
 }
 
-function createMockVideoElement() {
+function createMockMediaElement(tagName: 'VIDEO' | 'AUDIO') {
   const listeners = new Map<string, Set<EventListener>>();
 
   const element = {
-    tagName: 'VIDEO',
-    readyState: 1,
-    seeking: true,
+    tagName,
+    readyState: tagName === 'VIDEO' ? 1 : 4,
+    seeking: tagName === 'VIDEO',
     paused: true,
     currentTime: 0,
     duration: 12,
     ended: false,
     error: null,
-    videoWidth: 1280,
-    videoHeight: 720,
+    videoWidth: tagName === 'VIDEO' ? 1280 : 0,
+    videoHeight: tagName === 'VIDEO' ? 720 : 0,
     defaultMuted: false,
     muted: false,
     volume: 1,
@@ -141,41 +141,12 @@ function createMockVideoElement() {
   return element;
 }
 
+function createMockVideoElement() {
+  return createMockMediaElement('VIDEO');
+}
+
 function createMockAudioElement() {
-  const listeners = new Map<string, Set<EventListener>>();
-
-  const element = {
-    tagName: 'AUDIO',
-    readyState: 4,
-    seeking: false,
-    paused: true,
-    currentTime: 0,
-    duration: 12,
-    ended: false,
-    error: null,
-    defaultMuted: false,
-    muted: false,
-    volume: 1,
-    play: vi.fn().mockImplementation(() => {
-      element.paused = false;
-      return Promise.resolve();
-    }),
-    pause: vi.fn().mockImplementation(() => {
-      element.paused = true;
-    }),
-    load: vi.fn(),
-    addEventListener: vi.fn((type: string, listener: EventListener) => {
-      if (!listeners.has(type)) {
-        listeners.set(type, new Set());
-      }
-      listeners.get(type)?.add(listener);
-    }),
-    removeEventListener: vi.fn((type: string, listener: EventListener) => {
-      listeners.get(type)?.delete(listener);
-    }),
-  };
-
-  return element;
+  return createMockMediaElement('AUDIO');
 }
 
 function createMockCanvasContext() {
@@ -207,6 +178,7 @@ describe('standard preview engine', () => {
     mediaItems?: MediaItem[];
     mediaElements?: MediaElementsRef;
     primePreviewAudioOnlyTracksAtTime?: ReturnType<typeof vi.fn<(playbackTime: number) => void>>;
+    canvas?: HTMLCanvasElement | null;
     currentTime?: number;
     totalDuration?: number;
     startTime?: number;
@@ -254,7 +226,7 @@ describe('standard preview engine', () => {
         captionSettingsRef: createRef({} as CaptionSettings),
         totalDurationRef,
         currentTimeRef,
-        canvasRef: createRef<HTMLCanvasElement | null>(null),
+        canvasRef: createRef<HTMLCanvasElement | null>(options?.canvas ?? null),
         mediaElementsRef: createRef(mediaElements),
         audioCtxRef: createRef({
           state: 'running',
@@ -518,6 +490,7 @@ describe('standard preview engine', () => {
 
   it('preview loop は totalDuration 手前で終端停止し BGM と narration も同時停止する', () => {
     const mediaItem = createVideoItem({ id: 'video-1', duration: 6, trimStart: 0, trimEnd: 6 });
+    const canvasContext = createMockCanvasContext();
     const bgmElement = createMockAudioElement();
     bgmElement.paused = false;
     const narrationElement = createMockAudioElement();
@@ -526,6 +499,9 @@ describe('standard preview engine', () => {
     videoElement.readyState = 2;
     videoElement.seeking = false;
     videoElement.paused = false;
+    const canvas = {
+      getContext: vi.fn(() => canvasContext),
+    } as unknown as HTMLCanvasElement;
 
     const cancelAnimationFrameSpy = vi
       .spyOn(globalThis, 'cancelAnimationFrame')
@@ -540,6 +516,7 @@ describe('standard preview engine', () => {
           bgm: bgmElement as unknown as HTMLAudioElement,
           'narration:test': narrationElement as unknown as HTMLAudioElement,
         } as MediaElementsRef,
+        canvas,
         currentTime: 5.95,
         totalDuration: 6,
         startTime: 0,
@@ -552,9 +529,11 @@ describe('standard preview engine', () => {
 
     expect(setCurrentTime).toHaveBeenCalledWith(6);
     expect(currentTimeRef.current).toBe(6);
-    expect(videoElement.pause).toHaveBeenCalledTimes(1);
-    expect(bgmElement.pause).toHaveBeenCalledTimes(1);
-    expect(narrationElement.pause).toHaveBeenCalledTimes(1);
+    expect(canvas.getContext).toHaveBeenCalledWith('2d');
+    expect(videoElement.currentTime).toBeCloseTo(5.999, 3);
+    expect(videoElement.pause).toHaveBeenCalled();
+    expect(bgmElement.pause).toHaveBeenCalled();
+    expect(narrationElement.pause).toHaveBeenCalled();
     expect(videoElement.volume).toBe(1);
     expect(bgmElement.volume).toBe(1);
     expect(narrationElement.volume).toBe(1);
