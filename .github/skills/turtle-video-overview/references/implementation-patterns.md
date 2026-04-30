@@ -167,6 +167,18 @@
   - iOS Safari、export、seek controller、visibility lifecycle には広げない
   - BGM soft sync では active video 用の WebAudio 準備や待機条件を増やさず、失敗時も fire-and-forget を維持する
 
+### 2-14. standard preview の Android inactive reset は next video 1 本だけ seek する
+
+- **ファイル**: `src/flavors/standard/preview/useInactiveVideoManager.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardInactiveVideoManager.test.tsx`, `src/test/standardPreviewEngine.test.tsx`
+- **問題**: Android preview で動画数が 3〜4 本に増えると、inactive video 全体へ `pause()` + `currentTime` reset を繰り返してデコーダ負荷が上がり、active video が固まってシークバーだけ進みやすい
+- **対策**:
+  - `resetInactiveVideos()` は Android preview 時だけ `{ nextVideoId, isAndroidPreview }` を受け取り、active でも next でもない inactive video には `pause()` だけを行う
+  - `usePreviewEngine` は active clip 以降で最初に来る `video` だけを `nextVideoId` として渡し、image gap を挟んでも遠い future video まで seek しない
+  - Android preview の next video preseek は直近 1 本だけに留め、BGM 側の prime 失敗や待機で active video 開始を止めない既存方針を維持する
+- **注意**:
+  - この制限は `standard` flavor の Android preview 専用。`apple-safari`、export、seek controller、visibility lifecycle へ波及させない
+  - inactive video の `currentTime` を戻してよいのは active clip の次に来る video 1 本だけで、過去 clip や 2 本以上先の future video は pause-only を保つ
+
 ---
 
 ## 3. AudioContext 管理
