@@ -1032,6 +1032,9 @@ export function createUseExport(config: UseExportRuntimeConfig) {
     const audioReaderRef = useRef<ReadableStreamDefaultReader<AudioData> | null>(null);
     const completionRequestedRef = useRef(false);
     const silentAbortRef = useRef(false);
+    const finalizeRequestedRef = useRef(false);
+    const userCancelledExportRef = useRef(false);
+    const exportCompletedRef = useRef(false);
 
     // 互換性維持のためのダミーRef（実際には使用しない）
     const recorderRef = useRef<MediaRecorder | null>(null);
@@ -1046,6 +1049,8 @@ export function createUseExport(config: UseExportRuntimeConfig) {
   const stopExport = useCallback((options?: { silent?: boolean }) => {
     useLogStore.getState().info('RENDER', 'エクスポートを停止');
     completionRequestedRef.current = false;
+    finalizeRequestedRef.current = false;
+    userCancelledExportRef.current = true;
     silentAbortRef.current = options?.silent === true;
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -1067,6 +1072,8 @@ export function createUseExport(config: UseExportRuntimeConfig) {
   const completeExport = useCallback(() => {
     useLogStore.getState().info('RENDER', 'エクスポートの正常終了を要求');
     completionRequestedRef.current = true;
+    finalizeRequestedRef.current = true;
+    userCancelledExportRef.current = false;
     if (videoReaderRef.current) {
       videoReaderRef.current.cancel().catch(() => { });
       videoReaderRef.current = null;
@@ -1118,6 +1125,9 @@ export function createUseExport(config: UseExportRuntimeConfig) {
       });
       setExportExt(null);
       completionRequestedRef.current = false;
+      finalizeRequestedRef.current = false;
+      userCancelledExportRef.current = false;
+      exportCompletedRef.current = false;
       silentAbortRef.current = false;
       updatePreparationStep(audioSources, 1);
       const audioDecodeCache = new Map<string, Promise<AudioBuffer | null>>();
@@ -2347,7 +2357,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
 
         if (buffer.byteLength > 0) {
           const blob = new Blob([buffer], { type: 'video/mp4' });
-          if (blob.size === 0) {
+          if (blob.size <= 0) {
             throw new Error('書き出し結果が空です');
           }
           let url: string;
@@ -2375,7 +2385,12 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             audioDataPresent: audioEncoderOutputChunks > 0,
             offlineAudioDone,
           });
+          logInfo('[DIAG-10] export URL 作成完了', {
+            blobSize: blob.size,
+            urlCreated: Boolean(url),
+          });
           try {
+            exportCompletedRef.current = true;
             notifyRecordingStop(url, 'mp4');
             setExportUrl(url);
             setExportExt('mp4');
@@ -2393,6 +2408,10 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           (err as any)?.name === 'AbortError' ||
           (err as any)?.message?.includes('Aborted');
 
+        if (exportCompletedRef.current && !hasNotifiedRecordingStop) {
+          logError('export completed but callback was not delivered');
+        }
+
         if (!isAbort) {
           logError('export finalize failed', {
             error: err instanceof Error ? err.message : String(err)
@@ -2401,11 +2420,15 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           onRecordingError?.(
             err instanceof Error ? err.message : '動画ファイルの作成に失敗しました'
           );
-        } else {
+        } else if (userCancelledExportRef.current) {
           logInfo('エクスポートが中断されました');
           if (!silentAbortRef.current) {
             onRecordingError?.('エクスポートが中断されました');
           }
+        } else if (finalizeRequestedRef.current || completionRequestedRef.current) {
+          logInfo('正常終了要求後の中断を検出しましたが、完了処理を優先します');
+        } else {
+          logInfo('エクスポートが中断されました');
         }
       } finally {
         if (canvasFramePumpTimer) {
@@ -2428,6 +2451,8 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         audioReaderRef.current = null;
         recorderRef.current = null;
         completionRequestedRef.current = false;
+        finalizeRequestedRef.current = false;
+        userCancelledExportRef.current = false;
         silentAbortRef.current = false;
         setIsProcessing(false);
       }
