@@ -256,6 +256,9 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
       : 0;
   const exportProcessingElapsedText =
     exportProcessingElapsedSec >= 3 ? `（${exportProcessingElapsedSec}秒経過）` : '';
+  const isSlowFinalizing =
+    exportStartedAtRef.current !== null
+    && processingNowMs - exportStartedAtRef.current >= EXPORT_FINALIZING_SLOW_MS;
 
   const exportButtonText = useMemo(() => {
     if (!isProcessing) return '動画ファイルを作成';
@@ -281,7 +284,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
       return `${preparationStageCopy.description}${exportProcessingElapsedText}`;
     }
     if (exportPhase === 'finalizing') {
-      if (processingNowMs - (exportStartedAtRef.current ?? processingNowMs) >= EXPORT_FINALIZING_SLOW_MS) {
+      if (isSlowFinalizing) {
         return `動画を最終化中です。時間がかかっています...${exportProcessingElapsedText}`;
       }
       return `動画を最終化中...${exportProcessingElapsedText}`;
@@ -290,7 +293,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
       return '処理に時間がかかっています。しばらく待っても進まない場合は中断して再実行してください。';
     }
     return '映像を生成中です。';
-  }, [exportPhase, exportProcessingElapsedText, isProcessing, preparationStageCopy.description, processingNowMs]);
+  }, [exportPhase, exportProcessingElapsedText, isProcessing, isSlowFinalizing, preparationStageCopy.description]);
 
   const previewRuntimeNotice = useMemo(
     () => getPreviewRuntimeNotice({ appFlavor, supportsShowSaveFilePicker }),
