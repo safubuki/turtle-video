@@ -177,6 +177,8 @@ describe('standard preview engine', () => {
     narrations?: NarrationClip[];
     mediaItems?: MediaItem[];
     mediaElements?: MediaElementsRef;
+    gainNodes?: Record<string, GainNode>;
+    audioContext?: AudioContext | null;
     primePreviewAudioOnlyTracksAtTime?: ReturnType<typeof vi.fn<(playbackTime: number) => void>>;
     canvas?: HTMLCanvasElement | null;
     currentTime?: number;
@@ -228,16 +230,16 @@ describe('standard preview engine', () => {
         currentTimeRef,
         canvasRef: createRef<HTMLCanvasElement | null>(options?.canvas ?? null),
         mediaElementsRef: createRef(mediaElements),
-        audioCtxRef: createRef({
+        audioCtxRef: createRef(options?.audioContext ?? ({
           state: 'running',
           currentTime: 0,
           destination: {},
           onstatechange: null,
           resume: vi.fn().mockResolvedValue(undefined),
           suspend: vi.fn().mockResolvedValue(undefined),
-        } as unknown as AudioContext),
+        } as unknown as AudioContext)),
         sourceNodesRef: createRef({}),
-        gainNodesRef: createRef({}),
+        gainNodesRef: createRef(options?.gainNodes ?? {}),
         masterDestRef: createRef(null),
         audioRoutingModeRef: createRef<'preview' | 'export'>('preview'),
         reqIdRef,
@@ -321,8 +323,13 @@ describe('standard preview engine', () => {
   }
 
   function setupRenderFrameHarness(options?: {
+    bgm?: AudioTrack | null;
     mediaItems?: MediaItem[];
     mediaElements?: MediaElementsRef;
+    gainNodes?: Record<string, GainNode>;
+    audioContext?: AudioContext | null;
+    currentTime?: number;
+    totalDuration?: number;
   }) {
     const mediaItems = options?.mediaItems ?? [createVideoItem()];
     const mediaElements = options?.mediaElements ?? {};
@@ -336,19 +343,21 @@ describe('standard preview engine', () => {
         captions: [] as Caption[],
         captionSettings: {} as CaptionSettings,
         mediaItemsRef: createRef(mediaItems),
-        bgmRef: createRef<AudioTrack | null>(null),
+        bgmRef: createRef<AudioTrack | null>(options?.bgm ?? null),
         narrationsRef: createRef<NarrationClip[]>([]),
         captionsRef: createRef<Caption[]>([]),
         captionSettingsRef: createRef({} as CaptionSettings),
-        totalDurationRef: createRef(mediaItems.reduce((sum, item) => sum + item.duration, 0)),
-        currentTimeRef: createRef(0),
+        totalDurationRef: createRef(
+          options?.totalDuration ?? mediaItems.reduce((sum, item) => sum + item.duration, 0),
+        ),
+        currentTimeRef: createRef(options?.currentTime ?? 0),
         canvasRef: createRef({
           getContext: vi.fn(() => canvasContext),
         } as unknown as HTMLCanvasElement),
         mediaElementsRef: createRef(mediaElements),
-        audioCtxRef: createRef(null),
+        audioCtxRef: createRef(options?.audioContext ?? null),
         sourceNodesRef: createRef({}),
-        gainNodesRef: createRef({}),
+        gainNodesRef: createRef(options?.gainNodes ?? {}),
         masterDestRef: createRef(null),
         audioRoutingModeRef: createRef<'preview' | 'export'>('preview'),
         reqIdRef: createRef<number | null>(null),
@@ -508,14 +517,45 @@ describe('standard preview engine', () => {
       .mockImplementation(() => {});
     vi.spyOn(playbackClock, 'getStandardPreviewNow').mockReturnValue(5980);
 
+    const bgmGain = {
+      gain: {
+        value: 1,
+        setTargetAtTime: vi.fn(),
+        setValueAtTime: vi.fn(),
+        cancelScheduledValues: vi.fn(),
+      },
+    } as unknown as GainNode;
+
     const { hook, pause, currentTimeRef, reqIdRef, loopIdRef, setCurrentTime, requestAnimationFrameSpy } =
       setupPreviewEngineHarness({
         mediaItems: [mediaItem],
+        bgm: {
+          file: new File([''], 'bgm.mp3', { type: 'audio/mpeg' }),
+          url: 'blob:bgm',
+          volume: 1,
+          delay: 0,
+          startPoint: 0,
+          duration: 6,
+          fadeIn: false,
+          fadeOut: true,
+          fadeInDuration: 1,
+          fadeOutDuration: 1,
+          isAi: false,
+        },
         mediaElements: {
           [mediaItem.id]: videoElement as unknown as HTMLVideoElement,
           bgm: bgmElement as unknown as HTMLAudioElement,
           'narration:test': narrationElement as unknown as HTMLAudioElement,
         } as MediaElementsRef,
+        gainNodes: { bgm: bgmGain },
+        audioContext: {
+          state: 'running',
+          currentTime: 12,
+          destination: {},
+          onstatechange: null,
+          resume: vi.fn().mockResolvedValue(undefined),
+          suspend: vi.fn().mockResolvedValue(undefined),
+        } as unknown as AudioContext,
         canvas,
         currentTime: 5.95,
         totalDuration: 6,
@@ -535,8 +575,9 @@ describe('standard preview engine', () => {
     expect(bgmElement.pause).toHaveBeenCalled();
     expect(narrationElement.pause).toHaveBeenCalled();
     expect(videoElement.volume).toBe(1);
-    expect(bgmElement.volume).toBe(1);
+    expect(bgmElement.volume).toBe(0);
     expect(narrationElement.volume).toBe(1);
+    expect(bgmGain.gain.setValueAtTime).toHaveBeenCalledWith(0, 12);
     expect(pause).toHaveBeenCalledTimes(1);
     expect(cancelAnimationFrameSpy).toHaveBeenCalledWith(91);
     expect(reqIdRef.current).toBeNull();
@@ -588,6 +629,63 @@ describe('standard preview engine', () => {
     expect(reqIdRef.current).toBe(1);
     expect(loopIdRef.current).toBe(1);
     expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('renderFrame は standard preview 中の BGM fadeIn / fadeOut volume を毎フレーム反映する', () => {
+    const mediaItem = createVideoItem({ id: 'video-1', duration: 10, trimStart: 0, trimEnd: 10 });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 2;
+    videoElement.seeking = false;
+    const bgmElement = createMockAudioElement();
+    const bgmGain = {
+      gain: {
+        value: 1,
+        setTargetAtTime: vi.fn(),
+        setValueAtTime: vi.fn(),
+        cancelScheduledValues: vi.fn(),
+      },
+    } as unknown as GainNode;
+    const audioContext = {
+      state: 'running',
+      currentTime: 7,
+      destination: {},
+      onstatechange: null,
+      resume: vi.fn().mockResolvedValue(undefined),
+      suspend: vi.fn().mockResolvedValue(undefined),
+    } as unknown as AudioContext;
+    const bgm: AudioTrack = {
+      file: new File([''], 'bgm.mp3', { type: 'audio/mpeg' }),
+      url: 'blob:bgm',
+      volume: 0.8,
+      delay: 1,
+      startPoint: 0,
+      duration: 10,
+      fadeIn: true,
+      fadeOut: true,
+      fadeInDuration: 2,
+      fadeOutDuration: 2,
+      isAi: false,
+    };
+
+    const { hook } = setupRenderFrameHarness({
+      bgm,
+      mediaItems: [mediaItem],
+      mediaElements: {
+        [mediaItem.id]: videoElement as unknown as HTMLVideoElement,
+        bgm: bgmElement as unknown as HTMLAudioElement,
+      } as MediaElementsRef,
+      gainNodes: { bgm: bgmGain },
+      audioContext,
+      totalDuration: 10,
+    });
+
+    hook.result.current.renderFrame(2, true, false);
+    expect(bgmElement.volume).toBeCloseTo(0.4, 5);
+    expect(bgmGain.gain.setValueAtTime).toHaveBeenLastCalledWith(0.4, 7);
+
+    hook.result.current.renderFrame(9, true, false);
+    expect(bgmElement.volume).toBeCloseTo(0.4, 5);
+    expect(bgmGain.gain.setValueAtTime).toHaveBeenLastCalledWith(0.4, 7);
   });
 
   it('Android preview は trimStart あり video の先頭だけ currentTime を厳しめに合わせて描画を hold する', () => {
