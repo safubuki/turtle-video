@@ -53,6 +53,10 @@ const DURATION_DIFF_THRESHOLD_US = 1000;
 const AUDIO_TRACK_MIN_VOLUME = 0;
 const AUDIO_TRACK_MAX_VOLUME = 2.5;
 
+function clampAudioTrackVolume(volume: number): number {
+  return Math.max(AUDIO_TRACK_MIN_VOLUME, Math.min(AUDIO_TRACK_MAX_VOLUME, volume));
+}
+
 function calculateFinalAudioSampleCount(
   sampleRate: number,
   timestampUs: number,
@@ -598,7 +602,7 @@ async function offlineRenderAudio(
     source.connect(gain);
     gain.connect(offlineCtx.destination);
 
-    const vol = Math.max(AUDIO_TRACK_MIN_VOLUME, Math.min(AUDIO_TRACK_MAX_VOLUME, track.volume));
+    const vol = clampAudioTrackVolume(track.volume);
     const trackStart = Math.max(0, track.delay);
     const sourceOffset = track.startPoint;
     const availableDuration = track.duration - track.startPoint;

@@ -257,4 +257,15 @@ describe('PreviewSection action buttons', () => {
     expect(onDownload).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('button', { name: '動画ファイルを作成' })).not.toBeInTheDocument();
   });
+
+  it('exportUrl が空文字の間は download ボタンを表示しない', () => {
+    renderPreviewSection({
+      isProcessing: false,
+      exportUrl: '',
+      exportExt: 'mp4',
+    });
+
+    expect(screen.queryByRole('button', { name: 'ダウンロード (.mp4)' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '動画ファイルを作成' })).toBeInTheDocument();
+  });
 });
