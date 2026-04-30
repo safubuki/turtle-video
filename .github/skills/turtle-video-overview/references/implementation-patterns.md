@@ -744,6 +744,21 @@
   - 100% 超の preview 音量差は standard flavor 専用の WebAudio gain で実現し、apple-safari runtime や shared UI に platform 直判定を戻さない
   - export 完了後の `exportUrl` は stop/preview 再開では消さず、timeout やユーザー停止で export を中断するときも silent abort を使って不要な「中断されました」エラーで上書きしない
 
+### 9-16. export finalize 成功後は Blob probe と UI 成功遷移を最優先し、timeout は警告だけに留める
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/components/TurtleVideo.tsx`, `src/components/sections/PreviewSection.tsx`
+- **問題**:
+  - `Muxer finalize 完了` と `エクスポート完了 最終結果` まで到達しても、Blob URL / `exportUrl` の受け渡しが遅れると緑のダウンロードボタンが出ない
+  - finalizing 中の UI timeout が stop/abort を呼ぶと、完成済み MP4 の success callback が後段で潰れる
+- **対策**:
+  - `useExport.ts` は `Blob.size > 0` を確認した後に Object URL を作成し、`[DIAG-BLOB]` で blob size/type と metadata probe を記録してから `onRecordingStop(url, 'mp4')` を 1 回だけ呼ぶ
+  - shared の `TurtleVideo.tsx` は `exportUrl` 到達時に `[DIAG-UI] export complete callback received` を記録し、`processing/loading/exportPreparationStep` を必ず解除する
+  - finalizing 30 秒超過は `showToast('保存ファイルの作成に時間がかかっています...')` の警告に留め、成功済み export を abort しない
+  - `PreviewSection` の action button は `exportUrl ? Download : isProcessing ? Processing : Create` の優先順を固定する
+- **注意**:
+  - finalizing 完了前に user cancel した場合だけ success callback を抑止し、自然終端や finalize 済みセッションでは callback を落とさない
+  - Blob metadata probe は診断専用で、失敗しても export 自体は成功扱いを維持する。失敗扱いにするのは `Blob.size <= 0` の場合だけ
+
 ---
 
 ## 9.5. プレビューキャプチャ
