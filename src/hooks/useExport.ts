@@ -85,6 +85,49 @@ function calculateFinalAudioSampleCount(
   return Math.min(currentSampleCount, targetSampleCount);
 }
 
+async function probeExportBlobUrl(url: string): Promise<{
+  duration: number;
+  videoWidth: number;
+  videoHeight: number;
+}> {
+  const video = document.createElement('video');
+  video.preload = 'metadata';
+  video.src = url;
+
+  try {
+    return await new Promise((resolve, reject) => {
+      const cleanup = () => {
+        video.onloadedmetadata = null;
+        video.onerror = null;
+        video.removeAttribute('src');
+        video.load();
+      };
+
+      video.onloadedmetadata = () => {
+        const metadata = {
+          duration: video.duration,
+          videoWidth: video.videoWidth,
+          videoHeight: video.videoHeight,
+        };
+        cleanup();
+        resolve(metadata);
+      };
+      video.onerror = () => {
+        cleanup();
+        reject(new Error('生成動画のmetadata読み込みに失敗しました'));
+      };
+    });
+  } catch (error) {
+    try {
+      video.removeAttribute('src');
+      video.load();
+    } catch {
+      // ignore
+    }
+    throw error;
+  }
+}
+
 /**
  * useExport - 動画書き出しロジックを提供するフック
  * WebCodecs API + mp4-muxer を使用した標準MP4（非断片化）エクスポート機能
@@ -1033,6 +1076,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
     const completionRequestedRef = useRef(false);
     const silentAbortRef = useRef(false);
     const finalizeRequestedRef = useRef(false);
+    const exportFinalizingRef = useRef(false);
     const userCancelledExportRef = useRef(false);
     const exportCompletedRef = useRef(false);
 
@@ -1050,6 +1094,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
     useLogStore.getState().info('RENDER', 'エクスポートを停止');
     completionRequestedRef.current = false;
     finalizeRequestedRef.current = false;
+    exportFinalizingRef.current = false;
     userCancelledExportRef.current = true;
     silentAbortRef.current = options?.silent === true;
     if (abortControllerRef.current) {
@@ -1073,6 +1118,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
     useLogStore.getState().info('RENDER', 'エクスポートの正常終了を要求');
     completionRequestedRef.current = true;
     finalizeRequestedRef.current = true;
+    exportFinalizingRef.current = true;
     userCancelledExportRef.current = false;
     if (videoReaderRef.current) {
       videoReaderRef.current.cancel().catch(() => { });
@@ -1126,6 +1172,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
       setExportExt(null);
       completionRequestedRef.current = false;
       finalizeRequestedRef.current = false;
+      exportFinalizingRef.current = false;
       userCancelledExportRef.current = false;
       exportCompletedRef.current = false;
       silentAbortRef.current = false;
@@ -1134,6 +1181,10 @@ export function createUseExport(config: UseExportRuntimeConfig) {
       let hasNotifiedRecordingStop = false;
       const notifyRecordingStop = (url: string, ext: string) => {
         if (hasNotifiedRecordingStop) return;
+        if (userCancelledExportRef.current && !exportFinalizingRef.current) {
+          logWarn('recording stop callback was suppressed because export was cancelled by user');
+          return;
+        }
         hasNotifiedRecordingStop = true;
         onRecordingStop(url, ext);
       };
@@ -2356,15 +2407,28 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         }
 
         if (buffer.byteLength > 0) {
+          exportFinalizingRef.current = true;
           const blob = new Blob([buffer], { type: 'video/mp4' });
           if (blob.size <= 0) {
             throw new Error('書き出し結果が空です');
           }
+          logInfo('[DIAG-BLOB] export blob created', {
+            blobSize: blob.size,
+            blobType: blob.type,
+          });
           let url: string;
           try {
             url = URL.createObjectURL(blob);
           } catch {
             throw new Error('保存用URLの作成に失敗しました');
+          }
+          try {
+            const metadata = await probeExportBlobUrl(url);
+            logInfo('[DIAG-BLOB] export blob metadata loaded', metadata);
+          } catch (error) {
+            logWarn('[DIAG-BLOB] export blob metadata probe failed', {
+              error: error instanceof Error ? error.message : String(error),
+            });
           }
           // ============================================================
           // [DIAG-9] エクスポート最終結果
@@ -2389,12 +2453,14 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             blobSize: blob.size,
             urlCreated: Boolean(url),
           });
+          exportCompletedRef.current = true;
+          setExportUrl(url);
+          setExportExt('mp4');
           try {
-            exportCompletedRef.current = true;
             notifyRecordingStop(url, 'mp4');
-            setExportUrl(url);
-            setExportExt('mp4');
           } catch (error) {
+            setExportUrl(null);
+            setExportExt(null);
             URL.revokeObjectURL(url);
             throw error;
           }
@@ -2452,6 +2518,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         recorderRef.current = null;
         completionRequestedRef.current = false;
         finalizeRequestedRef.current = false;
+        exportFinalizingRef.current = false;
         userCancelledExportRef.current = false;
         silentAbortRef.current = false;
         setIsProcessing(false);
