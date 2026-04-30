@@ -2459,6 +2459,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           try {
             notifyRecordingStop(url, 'mp4');
           } catch (error) {
+            exportCompletedRef.current = false;
             setExportUrl(null);
             setExportExt(null);
             URL.revokeObjectURL(url);
