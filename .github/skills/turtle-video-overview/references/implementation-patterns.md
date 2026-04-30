@@ -233,6 +233,33 @@
 
 ---
 
+### 2-19. standard preview の BGM / narration 100%超は GainNode を source of truth にする
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewAudioSession.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **問題**: `HTMLAudioElement.volume` は 1.0 を超えて増幅できないため、standard preview で BGM / narration の 250% 指定が 100% と同じ音量に聞こえることがある
+- **対策**:
+  - standard preview の audio-only track は BGM / narration ともに `ensureAudioNodeForElement()` で GainNode を確保し、実音量は gain に反映する
+  - `<audio>` 要素の native volume は常に 1 を維持し、0..2.5 の UI 値と BGM fadeIn / fadeOut は GainNode 側で計算する
+  - Android preview の BGM soft sync は `play()` / `currentTime` のみ従来どおり使い、増幅経路だけを GainNode に寄せる
+- **注意**:
+  - この増幅は `standard` flavor preview 専用で、`apple-safari` runtime や export pipeline には広げない
+  - narration volume も 0..2.5 に clamp し、1.0 上限で切り捨てない
+
+---
+
+### 2-20. export 完了コールバックは session 一致時だけ UI を更新する
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/components/sections/PreviewSection.tsx`, `src/test/previewSectionActionButtons.test.tsx`
+- **問題**: export 完了直後に古い callback や長い準備表示が重なると、初回 export で download ボタンが消えたり、`3/10` のまま止まって見えることがある
+- **対策**:
+  - standard preview の export 開始ごとに session id を払い出し、成功 / 失敗 callback は現在の session と一致した場合だけ `exportUrl` / `processing` / `loading` / `exportPreparationStep` を更新する
+  - PreviewSection の準備表示は内部 step 数を直接見せず、4〜5 段階の文言 + 経過秒数 + 補足説明に変換して表示する
+- **注意**:
+  - 古い export 結果の破棄は開始時の `clearExport()` に限定し、成功 callback 後に `exportUrl` を消さない
+  - 経過秒数表示は UI だけの変更で、export pipeline の分割や中断条件は変更しない
+
+---
+
 ## 3. AudioContext 管理
 
 ### 3-0. iOS Safari プレビュー BGM 経路安定化

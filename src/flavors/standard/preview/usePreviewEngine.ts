@@ -43,7 +43,11 @@ import {
 } from './previewPlatform';
 import { getStandardPreviewNow } from './playbackClock';
 import type { ResetInactiveVideosOptions } from './useInactiveVideoManager';
-import { resolvePreviewBgmGain } from './usePreviewAudioSession';
+import {
+  clampPreviewAudioGain,
+  resolvePreviewAudioGain,
+  resolvePreviewBgmGain,
+} from './usePreviewAudioSession';
 
 type LogFn = (category: LogCategory, message: string, details?: Record<string, unknown>) => void;
 
@@ -227,6 +231,14 @@ const PREVIEW_END_THRESHOLD_SEC = 0.03;
 // 再生開始直後は seeked / canplay の到着を数フレームだけ待ち、遅ければ loop を止めない。
 const PREVIEW_START_READY_POLL_INTERVAL_MS = 40;
 const PREVIEW_START_READY_TIMEOUT_MS = 900;
+
+const createPreviewExportSessionId = (): string => {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return `preview-export-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
 // Android 実機で一発 play が落ちても数回は吸収するための retry 設定。
 const PREVIEW_PLAY_RETRY_INTERVAL_MS = 160;
 const PREVIEW_PLAY_RETRY_MAX_ATTEMPTS = 4;
@@ -422,6 +434,7 @@ export function usePreviewEngine({
   logWarn,
   logDebug,
 }: UsePreviewEngineParams): UsePreviewEngineResult {
+  const currentExportSessionIdRef = useRef<string | null>(null);
   const androidPreviewRecoveryRef = useRef<Record<string, {
     active: boolean;
     reason: string;
@@ -1507,6 +1520,11 @@ export function usePreviewEngine({
             && trackId === 'bgm';
 
           if (track && element) {
+            if (!_isExporting && !hasAudioNode) {
+              hasAudioNode = ensureAudioNodeForElement(trackId, element);
+              gainNode = gainNodesRef.current[trackId];
+            }
+
             const avoidPausePlay = hasAudioNode
               && previewPlatformPolicy.muteNativeMediaWhenAudioRouted
               && !_isExporting;
@@ -1524,9 +1542,8 @@ export function usePreviewEngine({
                 }
                 if (!avoidPausePlay && !element.paused) element.pause();
               } else {
-                let vol = track.volume;
+                let vol = clampPreviewAudioGain(track.volume);
                 const trackTime = time - track.delay + track.startPoint;
-                const playDuration = time - track.delay;
 
                 if (trackTime <= track.duration) {
                   if (isAndroidPreviewBgmTrack) {
@@ -1576,16 +1593,16 @@ export function usePreviewEngine({
                     }
                   }
 
-                  const fadeInDur = track.fadeInDuration || 1.0;
-                  const fadeOutDur = track.fadeOutDuration || 1.0;
-
-                  if (track.fadeIn && playDuration < fadeInDur) {
-                    vol *= playDuration / fadeInDur;
-                  }
-                  if (track.fadeOut && time > totalDurationRef.current - fadeOutDur) {
-                    const remaining = totalDurationRef.current - time;
-                    vol *= Math.max(0, remaining / fadeOutDur);
-                  }
+                    vol = resolvePreviewAudioGain({
+                      baseVolume: track.volume,
+                      time,
+                      startTime: track.delay,
+                      totalDuration: totalDurationRef.current,
+                      fadeIn: track.fadeIn,
+                      fadeOut: track.fadeOut,
+                      fadeInDuration: track.fadeInDuration,
+                      fadeOutDuration: track.fadeOutDuration,
+                    });
 
                   // BGM soft sync 中は active video 優先で進めたいので、
                   // audio resume wait による追加ミュートを掛けず独立に追従させる。
@@ -1593,42 +1610,27 @@ export function usePreviewEngine({
                     vol = 0;
                   }
 
-                  if (
-                    !isAndroidPreviewBgmTrack
-                    && !hasAudioNode
-                    && getPreviewAudioOutputMode(previewPlatformPolicy, {
-                      hasAudioNode: false,
-                      isExporting: _isExporting,
-                      audibleSourceCount: vol > 0 ? activePreviewAudioSourceCount : 0,
+                    const outputMode = applyPreviewAudioOutputState(previewPlatformPolicy, element, {
+                      hasAudioNode,
                       desiredVolume: vol,
-                      sourceType: 'audio',
-                    }) === 'webaudio'
-                  ) {
-                    hasAudioNode = ensureAudioNodeForElement(trackId, element);
-                    gainNode = gainNodesRef.current[trackId];
-                  }
-
-                  const outputMode = applyPreviewAudioOutputState(previewPlatformPolicy, element, {
-                    hasAudioNode: isAndroidPreviewBgmTrack ? false : hasAudioNode,
-                    desiredVolume: vol,
-                    audibleSourceCount: vol > 0 ? activePreviewAudioSourceCount : 0,
-                    isExporting: _isExporting,
-                  });
-                  const effectiveGain = outputMode === 'native' ? 0 : vol;
-                  if (!isAndroidPreviewBgmTrack && gainNode && audioCtxRef.current) {
-                    const currentGain = gainNode.gain.value;
-                    if (Math.abs(currentGain - effectiveGain) > 0.01) {
-                      gainNode.gain.setTargetAtTime(effectiveGain, audioCtxRef.current.currentTime, 0.1);
+                      audibleSourceCount: vol > 0 ? activePreviewAudioSourceCount : 0,
+                      isExporting: _isExporting,
+                    });
+                    const effectiveGain = outputMode === 'native' ? 0 : vol;
+                    if (gainNode && audioCtxRef.current) {
+                      const currentGain = gainNode.gain.value;
+                      if (Math.abs(currentGain - effectiveGain) > 0.01) {
+                        gainNode.gain.setTargetAtTime(effectiveGain, audioCtxRef.current.currentTime, 0.1);
                     }
                   }
                 } else {
                   applyPreviewAudioOutputState(previewPlatformPolicy, element, {
-                    hasAudioNode: isAndroidPreviewBgmTrack ? false : hasAudioNode,
+                    hasAudioNode,
                     desiredVolume: 0,
                     audibleSourceCount: 0,
                     isExporting: _isExporting,
                   });
-                  if (!isAndroidPreviewBgmTrack && gainNode && audioCtxRef.current) {
+                  if (gainNode && audioCtxRef.current) {
                     gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.1);
                   }
                   if (!avoidPausePlay && !element.paused) element.pause();
@@ -1636,12 +1638,12 @@ export function usePreviewEngine({
               }
             } else {
               applyPreviewAudioOutputState(previewPlatformPolicy, element, {
-                hasAudioNode: isAndroidPreviewBgmTrack ? false : hasAudioNode,
+                hasAudioNode,
                 desiredVolume: 0,
                 audibleSourceCount: 0,
                 isExporting: _isExporting,
               });
-              if (!isAndroidPreviewBgmTrack && gainNode && audioCtxRef.current) {
+              if (gainNode && audioCtxRef.current) {
                 gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.1);
               }
               if (!element.paused) element.pause();
@@ -1663,6 +1665,11 @@ export function usePreviewEngine({
           let hasAudioNode = !!sourceNodesRef.current[trackId];
 
           if (!element) return;
+
+          if (!_isExporting && !hasAudioNode) {
+            hasAudioNode = ensureAudioNodeForElement(trackId, element);
+            gainNode = gainNodesRef.current[trackId];
+          }
 
           const trimStart = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
           const trimEnd = Number.isFinite(clip.trimEnd) ? Math.max(trimStart, Math.min(clip.duration, clip.trimEnd)) : clip.duration;
@@ -1714,23 +1721,9 @@ export function usePreviewEngine({
               element.play().catch(() => { });
             }
 
-            let vol = clip.isMuted ? 0 : clip.volume;
+            let vol = clip.isMuted ? 0 : clampPreviewAudioGain(clip.volume);
             if (element.seeking || holdAudioThisFrame) {
               vol = 0;
-            }
-
-            if (
-              !hasAudioNode &&
-              getPreviewAudioOutputMode(previewPlatformPolicy, {
-                hasAudioNode: false,
-                isExporting: _isExporting,
-                audibleSourceCount: vol > 0 ? activePreviewAudioSourceCount : 0,
-                desiredVolume: vol,
-                sourceType: 'audio',
-              }) === 'webaudio'
-            ) {
-              hasAudioNode = ensureAudioNodeForElement(trackId, element);
-              gainNode = gainNodesRef.current[trackId];
             }
 
             const outputMode = applyPreviewAudioOutputState(previewPlatformPolicy, element, {
@@ -1779,12 +1772,17 @@ export function usePreviewEngine({
             totalDurationRef.current,
           );
           const bgmEl = mediaElementsRef.current.bgm as HTMLAudioElement | undefined;
+          if (bgmEl && !gainNodesRef.current.bgm) {
+            ensureAudioNodeForElement('bgm', bgmEl);
+          }
           const bgmGain = gainNodesRef.current.bgm;
+          if (bgmEl) {
+            bgmEl.defaultMuted = false;
+            bgmEl.muted = false;
+            bgmEl.volume = 1;
+          }
           if (bgmGain && audioCtxRef.current) {
             bgmGain.gain.setValueAtTime(bgmGainValue, audioCtxRef.current.currentTime);
-          } else if (bgmEl) {
-            // native media volume は 1.0 上限のため、gain node が無い場合だけ fallback する。
-            bgmEl.volume = Math.max(0, Math.min(1, bgmGainValue));
           }
         }
         currentNarrations.forEach((clip) => processNarrationClip(clip));
@@ -1816,6 +1814,7 @@ export function usePreviewEngine({
   }, [currentTimeRef, isPlayingRef, isSeekPlaybackPreparingRef, isSeekingRef, renderFrame]);
 
   const stopAll = useCallback(() => {
+    currentExportSessionIdRef.current = null;
     logDebug('SYSTEM', 'stopAll呼び出し', { previousLoopId: loopIdRef.current, isPlayingRef: isPlayingRef.current });
 
     loopIdRef.current += 1;
@@ -2126,8 +2125,10 @@ export function usePreviewEngine({
 
       const myLoopId = loopIdRef.current;
       logDebug('RENDER', 'ループID取得', { myLoopId });
+      const exportSessionId = isExportMode ? createPreviewExportSessionId() : null;
 
       if (isExportMode) {
+        currentExportSessionIdRef.current = exportSessionId;
         setProcessing(true);
         setExportPreparationStep(1);
         clearExport();
@@ -2563,18 +2564,26 @@ export function usePreviewEngine({
           canvasRef,
           masterDestRef,
           (url, ext) => {
+            if (currentExportSessionIdRef.current !== exportSessionId) {
+              return;
+            }
             setExportUrl(url);
             setExportExt(ext as 'mp4' | 'webm');
             setProcessing(false);
             setLoading(false);
             setExportPreparationStep(null);
+            currentExportSessionIdRef.current = null;
             pause();
             stopAll();
           },
           (message) => {
+            if (currentExportSessionIdRef.current !== exportSessionId) {
+              return;
+            }
             setProcessing(false);
             setLoading(false);
             setExportPreparationStep(null);
+            currentExportSessionIdRef.current = null;
             pause();
             stopAll();
             setError(message);
