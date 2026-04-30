@@ -180,10 +180,10 @@ const MIN_VIDEO_READY_STATE_FOR_SEEK = 1;
 const MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME = 2;
 // 再生開始前に許容する currentTime のずれ。既存 preview sync しきい値より厳しく合わせる。
 const PREVIEW_START_READY_SYNC_TOLERANCE_SEC = 0.05;
-// image -> trimStart あり video の開始直後だけは、約 1 フレーム (30fps ≒ 0.033s) 未満まで寄せてカクつきを抑える。
-const PREVIEW_IMAGE_TO_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC = 0.03;
-const PREVIEW_IMAGE_TO_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC = 0.2;
-const PREVIEW_IMAGE_TO_TRIMMED_VIDEO_PRESEEK_WINDOW_SEC = 0.5;
+// Android preview の trim 済み video 先頭だけは厳しめに currentTime を合わせてカクつきを抑える。
+const PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC = 0.05;
+const PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC = 0.25;
+const PREVIEW_ANDROID_VIDEO_PRESEEK_WINDOW_SEC = 0.6;
 // 再生開始直後は seeked / canplay の到着を数フレームだけ待ち、遅ければ loop を止めない。
 const PREVIEW_START_READY_POLL_INTERVAL_MS = 40;
 const PREVIEW_START_READY_TIMEOUT_MS = 900;
@@ -677,12 +677,11 @@ export function usePreviewEngine({
               };
               const shouldHoldTrimmedVideoHead =
                 isAndroidPreviewPlayback
-                && previousItem?.type === 'image'
                 && activeItem.type === 'video'
                 && (activeItem.trimStart || 0) > 0.001
                 // active clip の localTime は通常 0 以上だが、境界フォールバック追加時もこの短い窓だけに閉じる。
                 && localTime >= 0
-                && localTime <= PREVIEW_IMAGE_TO_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC;
+                && localTime <= PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC;
               const isLastTimelineItem = activeIndex === currentItems.length - 1;
               const isNearTimelineEnd =
                 totalDurationRef.current > 0 &&
@@ -743,7 +742,7 @@ export function usePreviewEngine({
                   || activeEl.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
                   || activeEl.videoWidth <= 0
                   || activeEl.videoHeight <= 0
-                  || Math.abs(activeEl.currentTime - targetTime) > PREVIEW_START_READY_SYNC_TOLERANCE_SEC
+                  || Math.abs(activeEl.currentTime - targetTime) > PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC
                 )
               ) {
                 if (activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK && !activeEl.seeking) {
@@ -887,28 +886,24 @@ export function usePreviewEngine({
               if (nextElement) {
                 // localTime は通常 [0, duration] に収まるが、境界フォールバック時の揺れで
                 // 一時的に負側へ外れたフレームでは preseek を走らせない。
-                const shouldPreseekNextTrimmedVideo =
+                const shouldPreseekNextVideo =
                   isAndroidPreviewPlayback
-                  && activeItem.type === 'image'
-                  && (nextItem.trimStart || 0) > 0.001
                   && remainingTime >= 0
-                  && remainingTime <= PREVIEW_IMAGE_TO_TRIMMED_VIDEO_PRESEEK_WINDOW_SEC;
+                  && remainingTime <= PREVIEW_ANDROID_VIDEO_PRESEEK_WINDOW_SEC;
                 const nextStart = nextItem.trimStart || 0;
                 if (nextElement.readyState === 0 && !nextElement.error) {
                   try { nextElement.load(); } catch { /* ignore */ }
                 }
                 if (
-                  shouldPreseekNextTrimmedVideo
+                  shouldPreseekNextVideo
                   && !nextElement.seeking
                   && nextElement.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
                   && Math.abs(nextElement.currentTime - nextStart)
-                  > PREVIEW_IMAGE_TO_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC
+                  > PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC
                 ) {
                   nextElement.currentTime = nextStart;
                 }
-                // image -> trimmed video の境界 0.5 秒は targeted preseek を優先し、
-                // readyState/seeking が整う前に従来 prewarm で currentTime を動かさない。
-                if (!shouldPreseekNextTrimmedVideo && (nextElement.paused || nextElement.readyState < 2)) {
+                if (!shouldPreseekNextVideo && (nextElement.paused || nextElement.readyState < 2)) {
                   if (Math.abs(nextElement.currentTime - nextStart) > 0.1) {
                     nextElement.currentTime = nextStart;
                   }
@@ -1468,6 +1463,9 @@ export function usePreviewEngine({
           const element = mediaElementsRef.current[trackId] as HTMLAudioElement;
           let gainNode = gainNodesRef.current[trackId];
           let hasAudioNode = !!sourceNodesRef.current[trackId];
+          const shouldUseAndroidPreviewBgmSoftSync =
+            isAndroidPreviewPlayback
+            && trackId === 'bgm';
 
           if (track && element) {
             const avoidPausePlay = hasAudioNode
@@ -1492,29 +1490,49 @@ export function usePreviewEngine({
                 const playDuration = time - track.delay;
 
                 if (trackTime <= track.duration) {
-                  const needsSeek = Math.abs(element.currentTime - trackTime) > (avoidPausePlay ? 2.0 : 0.5);
-
-                  if (needsSeek) {
-                    if (avoidPausePlay) {
+                  if (shouldUseAndroidPreviewBgmSoftSync) {
+                    if (element.readyState === 0 && !element.error) {
+                      try { element.load(); } catch { /* ignore */ }
+                    }
+                    if (
+                      element.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
+                      && !element.seeking
+                      && Math.abs(element.currentTime - trackTime) > 0.3
+                    ) {
                       element.currentTime = trackTime;
-                    } else {
+                    }
+                    if (holdAudioThisFrame) {
                       if (!element.paused) {
                         element.pause();
                       }
-                      element.currentTime = trackTime;
-                    }
-                  }
-
-                  if (avoidPausePlay) {
-                    if (element.paused && !element.seeking && element.readyState >= 2) {
+                    } else if (element.paused && element.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME) {
                       element.play().catch(() => { });
                     }
-                  } else if (holdAudioThisFrame) {
-                    if (!element.paused) {
-                      element.pause();
+                  } else {
+                    const needsSeek = Math.abs(element.currentTime - trackTime) > (avoidPausePlay ? 2.0 : 0.5);
+
+                    if (needsSeek) {
+                      if (avoidPausePlay) {
+                        element.currentTime = trackTime;
+                      } else {
+                        if (!element.paused) {
+                          element.pause();
+                        }
+                        element.currentTime = trackTime;
+                      }
                     }
-                  } else if (!element.seeking && element.readyState >= 2 && element.paused) {
-                    element.play().catch(() => { });
+
+                    if (avoidPausePlay) {
+                      if (element.paused && !element.seeking && element.readyState >= 2) {
+                        element.play().catch(() => { });
+                      }
+                    } else if (holdAudioThisFrame) {
+                      if (!element.paused) {
+                        element.pause();
+                      }
+                    } else if (!element.seeking && element.readyState >= 2 && element.paused) {
+                      element.play().catch(() => { });
+                    }
                   }
 
                   const fadeInDur = track.fadeInDuration || 1.0;
@@ -1528,13 +1546,14 @@ export function usePreviewEngine({
                     vol *= Math.max(0, remaining / fadeOutDur);
                   }
 
-                  if (element.seeking || (!avoidPausePlay && holdAudioThisFrame)) {
+                  if (element.seeking || (!shouldUseAndroidPreviewBgmSoftSync && !avoidPausePlay && holdAudioThisFrame)) {
                     vol = 0;
                   }
 
                   if (
-                    !hasAudioNode &&
-                    getPreviewAudioOutputMode(previewPlatformPolicy, {
+                    !shouldUseAndroidPreviewBgmSoftSync
+                    && !hasAudioNode
+                    && getPreviewAudioOutputMode(previewPlatformPolicy, {
                       hasAudioNode: false,
                       isExporting: _isExporting,
                       audibleSourceCount: vol > 0 ? activePreviewAudioSourceCount : 0,
@@ -1547,13 +1566,13 @@ export function usePreviewEngine({
                   }
 
                   const outputMode = applyPreviewAudioOutputState(previewPlatformPolicy, element, {
-                    hasAudioNode,
+                    hasAudioNode: shouldUseAndroidPreviewBgmSoftSync ? false : hasAudioNode,
                     desiredVolume: vol,
                     audibleSourceCount: vol > 0 ? activePreviewAudioSourceCount : 0,
                     isExporting: _isExporting,
                   });
                   const effectiveGain = outputMode === 'native' ? 0 : vol;
-                  if (gainNode && audioCtxRef.current) {
+                  if (!shouldUseAndroidPreviewBgmSoftSync && gainNode && audioCtxRef.current) {
                     const currentGain = gainNode.gain.value;
                     if (Math.abs(currentGain - effectiveGain) > 0.01) {
                       gainNode.gain.setTargetAtTime(effectiveGain, audioCtxRef.current.currentTime, 0.1);
@@ -1561,12 +1580,12 @@ export function usePreviewEngine({
                   }
                 } else {
                   applyPreviewAudioOutputState(previewPlatformPolicy, element, {
-                    hasAudioNode,
+                    hasAudioNode: shouldUseAndroidPreviewBgmSoftSync ? false : hasAudioNode,
                     desiredVolume: 0,
                     audibleSourceCount: 0,
                     isExporting: _isExporting,
                   });
-                  if (gainNode && audioCtxRef.current) {
+                  if (!shouldUseAndroidPreviewBgmSoftSync && gainNode && audioCtxRef.current) {
                     gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.1);
                   }
                   if (!avoidPausePlay && !element.paused) element.pause();
@@ -1574,12 +1593,12 @@ export function usePreviewEngine({
               }
             } else {
               applyPreviewAudioOutputState(previewPlatformPolicy, element, {
-                hasAudioNode,
+                hasAudioNode: shouldUseAndroidPreviewBgmSoftSync ? false : hasAudioNode,
                 desiredVolume: 0,
                 audibleSourceCount: 0,
                 isExporting: _isExporting,
               });
-              if (gainNode && audioCtxRef.current) {
+              if (!shouldUseAndroidPreviewBgmSoftSync && gainNode && audioCtxRef.current) {
                 gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.1);
               }
               if (!element.paused) element.pause();
@@ -2432,6 +2451,14 @@ export function usePreviewEngine({
           if (shouldPrimeActiveVideo || shouldBundlePreviewStart) {
             requestVideoPlayWithRetry(activeVideoElForBundledStart, shouldAttemptPlay);
           }
+        }
+
+        const shouldPrimeAndroidPreviewAudioOnlyTracks =
+          platformCapabilities.isAndroid
+          && !platformCapabilities.isIosSafari
+          && (bgmRef.current !== null || narrationsRef.current.length > 0);
+        if (shouldPrimeAndroidPreviewAudioOnlyTracks) {
+          primePreviewAudioOnlyTracksAtTime(fromTime);
         }
 
         resetInactiveVideos();
