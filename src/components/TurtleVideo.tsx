@@ -268,8 +268,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   );
   const supportsShowSaveFilePicker = platformCapabilities.supportsShowSaveFilePicker;
   const supportsShowOpenFilePicker = platformCapabilities.supportsShowOpenFilePicker;
-  const shouldUseAndroidMediaInput = platformCapabilities.isAndroid;
-  const shouldUseMediaOpenFilePicker = supportsShowOpenFilePicker && !shouldUseAndroidMediaInput;
+  const isAndroid = platformCapabilities.isAndroid;
+  const shouldUseMediaOpenFilePicker = supportsShowOpenFilePicker && !isAndroid;
   const refreshSaveHealth = useProjectStore((s) => s.refreshSaveHealth);
 
   const mediaTimelineRanges = useMemo(() => {

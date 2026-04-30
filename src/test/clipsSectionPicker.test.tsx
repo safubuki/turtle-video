@@ -50,13 +50,14 @@ describe('ClipsSection media picker routing', () => {
     expect(fileInput).not.toBeNull();
 
     const inputClickSpy = vi.spyOn(fileInput as HTMLInputElement, 'click');
+    try {
+      fireEvent.click(screen.getByRole('button', { name: '追加' }));
 
-    fireEvent.click(screen.getByRole('button', { name: '追加' }));
-
-    expect(onOpenMediaPicker).toHaveBeenCalledTimes(1);
-    expect(inputClickSpy).not.toHaveBeenCalled();
-
-    inputClickSpy.mockRestore();
+      expect(onOpenMediaPicker).toHaveBeenCalledTimes(1);
+      expect(inputClickSpy).not.toHaveBeenCalled();
+    } finally {
+      inputClickSpy.mockRestore();
+    }
   });
 
   it('showOpenFilePicker 経路を無効化したときは hidden input を使う', () => {
@@ -70,12 +71,13 @@ describe('ClipsSection media picker routing', () => {
     expect(fileInput).not.toBeNull();
 
     const inputClickSpy = vi.spyOn(fileInput as HTMLInputElement, 'click');
+    try {
+      fireEvent.click(screen.getByRole('button', { name: '追加' }));
 
-    fireEvent.click(screen.getByRole('button', { name: '追加' }));
-
-    expect(onOpenMediaPicker).not.toHaveBeenCalled();
-    expect(inputClickSpy).toHaveBeenCalledTimes(1);
-
-    inputClickSpy.mockRestore();
+      expect(onOpenMediaPicker).not.toHaveBeenCalled();
+      expect(inputClickSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      inputClickSpy.mockRestore();
+    }
   });
 });
