@@ -1747,3 +1747,15 @@
   - monotonic な高精度時刻を使い、フレーム進行の微小な揺れを減らす。
 - **注意**:
   - 本変更は `src/flavors/standard/preview/` のみで適用し、`src/flavors/apple-safari/preview/` には適用しない（Safari 経路の挙動非変更を維持）。
+
+### 13-73. Android の動画・画像追加は `showOpenFilePicker()` より hidden file input を優先する
+
+- **対象ファイル**: `src/components/TurtleVideo.tsx`, `src/components/sections/ClipsSection.tsx`
+- **問題**:
+  - Android Chrome で `showOpenFilePicker()` を使うと Files / ダウンロード寄りの一覧 UI になりやすく、写真・動画のサムネイル picker を開きたい要件と相性が悪い。
+- **対応パターン**:
+  - 動画・画像追加ボタンの picker 分岐は shared capability を見て決めつつ、Android では `showOpenFilePicker()` を無効化して既存の hidden `<input type="file" accept="image/*,video/*" multiple>` を使う。
+  - PC など Android 以外では既存の `showOpenFilePicker()` 経路を維持し、音声追加や保存/読み込み picker には波及させない。
+- **注意**:
+  - Android 判定は shared UI 側で直接増やさず、runtime から渡された capability をもとに `TurtleVideo.tsx` 側で経路を決める。
+  - `capture` は付けず、OS / Chrome / 端末設定によって picker 表示が変わる前提で「サムネイル一覧が出やすい経路」を優先する。
