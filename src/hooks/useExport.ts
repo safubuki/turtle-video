@@ -92,11 +92,6 @@ async function probeExportBlobUrl(url: string): Promise<{
 }> {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
-    const timeoutId = window.setTimeout(() => {
-      cleanup();
-      reject(new Error('生成動画のmetadata読み込みがタイムアウトしました'));
-    }, 5000);
-
     const cleanup = () => {
       window.clearTimeout(timeoutId);
       video.onloadedmetadata = null;
@@ -105,6 +100,10 @@ async function probeExportBlobUrl(url: string): Promise<{
       video.removeAttribute('src');
       video.load();
     };
+    const timeoutId = window.setTimeout(() => {
+      cleanup();
+      reject(new Error('生成動画のmetadata読み込みがタイムアウトしました'));
+    }, 5000);
 
     video.preload = 'metadata';
     video.muted = true;
@@ -2417,6 +2416,11 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             throw new Error('保存用URLの作成に失敗しました');
           }
 
+          if (userCancelledExportRef.current && !exportFinalizingRef.current) {
+            URL.revokeObjectURL(url);
+            throw new DOMException('エクスポートが中断されました', 'AbortError');
+          }
+
           try {
             const metadata = await probeExportBlobUrl(url);
             logInfo('[DIAG-BLOB] export blob metadata loaded', metadata);
@@ -2424,11 +2428,6 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             logWarn('[DIAG-BLOB] export blob metadata probe failed', {
               error: error instanceof Error ? error.message : String(error),
             });
-          }
-
-          if (userCancelledExportRef.current && !exportFinalizingRef.current) {
-            URL.revokeObjectURL(url);
-            throw new DOMException('エクスポートが中断されました', 'AbortError');
           }
 
           // ============================================================
