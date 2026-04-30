@@ -2347,11 +2347,13 @@ export function createUseExport(config: UseExportRuntimeConfig) {
 
         if (buffer.byteLength > 0) {
           const blob = new Blob([buffer], { type: 'video/mp4' });
-          if (blob.size <= 0) {
+          if (blob.size === 0) {
             throw new Error('書き出し結果が空です');
           }
-          const url = URL.createObjectURL(blob);
-          if (!url?.length) {
+          let url: string;
+          try {
+            url = URL.createObjectURL(blob);
+          } catch {
             throw new Error('保存用URLの作成に失敗しました');
           }
           // ============================================================

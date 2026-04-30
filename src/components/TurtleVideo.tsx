@@ -414,19 +414,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     const wasProcessing = wasExportProcessingRef.current;
     wasExportProcessingRef.current = isProcessing;
 
-    if (exportUrl) {
-      setProcessing(false);
-      setLoading(false);
-      setExportPreparationStep(null);
-      return;
+    if (exportUrl || (wasProcessing && !isProcessing)) {
+      clearExportUiState();
     }
-
-    if (wasProcessing && !isProcessing) {
-      setProcessing(false);
-      setLoading(false);
-      setExportPreparationStep(null);
-    }
-  }, [exportUrl, isProcessing, setExportPreparationStep, setLoading, setProcessing]);
+  }, [clearExportUiState, exportUrl, isProcessing]);
 
   // --- Audio Context ---
   const getAudioContext = useCallback(() => {
