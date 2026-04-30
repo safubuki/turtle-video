@@ -904,7 +904,7 @@ export function usePreviewEngine({
                 ) {
                   nextElement.currentTime = nextStart;
                 }
-                if (nextElement.paused || nextElement.readyState < 2) {
+                if (!shouldPreseekNextTrimmedVideo && (nextElement.paused || nextElement.readyState < 2)) {
                   if (Math.abs(nextElement.currentTime - nextStart) > 0.1) {
                     nextElement.currentTime = nextStart;
                   }
