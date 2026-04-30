@@ -438,6 +438,129 @@ describe('standard preview engine', () => {
     expect(didUpdateCanvas).toBe(false);
   });
 
+  it('Android preview は image 終端 0.5 秒だけ次の trimmed video を trimStart に preseek する', () => {
+    const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
+    const videoItem = createVideoItem({
+      id: 'video-2',
+      duration: 2,
+      trimStart: 1.2,
+      trimEnd: 3.2,
+    });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 1;
+    videoElement.seeking = false;
+    videoElement.paused = true;
+    videoElement.currentTime = 0.2;
+
+    const { hook } = setupRenderFrameHarness({
+      mediaItems: [imageItem, videoItem],
+      mediaElements: {
+        [videoItem.id]: videoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+    });
+
+    hook.result.current.renderFrame(0.75, true, false);
+
+    expect(videoElement.currentTime).toBeCloseTo(videoItem.trimStart);
+  });
+
+  it('Android preview の next trimmed video preseek は残り 0.5 秒ちょうどでも発火する', () => {
+    const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
+    const videoItem = createVideoItem({
+      id: 'video-2',
+      duration: 2,
+      trimStart: 1.2,
+      trimEnd: 3.2,
+    });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 2;
+    videoElement.seeking = false;
+    videoElement.paused = false;
+    videoElement.currentTime = 0.2;
+
+    const { hook } = setupRenderFrameHarness({
+      mediaItems: [imageItem, videoItem],
+      mediaElements: {
+        [videoItem.id]: videoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+    });
+
+    hook.result.current.renderFrame(0.5, true, false);
+
+    expect(videoElement.currentTime).toBeCloseTo(videoItem.trimStart);
+  });
+
+  it('Android preview の next trimmed video preseek は image 終端 0.5 秒の外では発火しない', () => {
+    const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
+    const videoItem = createVideoItem({
+      id: 'video-2',
+      duration: 2,
+      trimStart: 1.2,
+      trimEnd: 3.2,
+    });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 2;
+    videoElement.seeking = false;
+    videoElement.paused = false;
+    videoElement.currentTime = 0.2;
+
+    const { hook } = setupRenderFrameHarness({
+      mediaItems: [imageItem, videoItem],
+      mediaElements: {
+        [videoItem.id]: videoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+    });
+
+    hook.result.current.renderFrame(0.49, true, false);
+
+    expect(videoElement.currentTime).toBeCloseTo(0.2);
+  });
+
+  it('Android preview の next trimmed video preseek は metadata 未取得や seeking 中には currentTime を動かさない', () => {
+    const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
+    const videoItem = createVideoItem({
+      id: 'video-2',
+      duration: 2,
+      trimStart: 1.2,
+      trimEnd: 3.2,
+    });
+
+    const notReadyVideo = createMockVideoElement();
+    notReadyVideo.readyState = 0;
+    notReadyVideo.seeking = false;
+    notReadyVideo.paused = true;
+    notReadyVideo.currentTime = 0.2;
+
+    const notReadyHarness = setupRenderFrameHarness({
+      mediaItems: [imageItem, videoItem],
+      mediaElements: {
+        [videoItem.id]: notReadyVideo as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+    });
+
+    notReadyHarness.hook.result.current.renderFrame(0.75, true, false);
+
+    expect(notReadyVideo.load).toHaveBeenCalledTimes(1);
+    expect(notReadyVideo.currentTime).toBeCloseTo(0.2);
+
+    const seekingVideo = createMockVideoElement();
+    seekingVideo.readyState = 1;
+    seekingVideo.seeking = true;
+    seekingVideo.paused = true;
+    seekingVideo.currentTime = 0.4;
+
+    const seekingHarness = setupRenderFrameHarness({
+      mediaItems: [imageItem, videoItem],
+      mediaElements: {
+        [videoItem.id]: seekingVideo as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+    });
+
+    seekingHarness.hook.result.current.renderFrame(0.75, true, false);
+
+    expect(seekingVideo.currentTime).toBeCloseTo(0.4);
+  });
+
   it('Android preview は image -> trimStart あり video がまだ描画不能なら直前フレーム保持を優先する', () => {
     const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
     const videoItem = createVideoItem({
@@ -467,7 +590,7 @@ describe('standard preview engine', () => {
     expect(didUpdateCanvas).toBe(false);
   });
 
-  it('Android preview の image -> trimStart あり video 安定化は先頭 0.25 秒だけに限定する', () => {
+  it('Android preview の image -> trimStart あり video 安定化は先頭 0.2 秒だけに限定する', () => {
     const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
     const videoItem = createVideoItem({
       id: 'video-2',
@@ -489,7 +612,7 @@ describe('standard preview engine', () => {
       } as MediaElementsRef,
     });
 
-    const insideTimelineTime = 1.24;
+    const insideTimelineTime = 1.19;
     const insideExpectedTime = videoItem.trimStart + (insideTimelineTime - imageItem.duration);
     insideHarness.hook.result.current.renderFrame(insideTimelineTime, true, false);
 
@@ -508,7 +631,7 @@ describe('standard preview engine', () => {
       } as MediaElementsRef,
     });
 
-    outsideHarness.hook.result.current.renderFrame(1.26, true, false);
+    outsideHarness.hook.result.current.renderFrame(1.21, true, false);
 
     expect(outsideWindowVideo.currentTime).toBeCloseTo(1.6);
   });
