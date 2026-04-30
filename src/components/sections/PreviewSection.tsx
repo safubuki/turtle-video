@@ -90,6 +90,8 @@ interface PreviewSectionProps {
   onDownload: () => void;
   onClearAll: () => void;
   onCapture: () => void;
+  // shared UI では timeout を error にエスカレートするため TurtleVideo から必ず渡す。
+  // optional にしているのは isolated render/test でも使えるようにするため。
   onExportFinalizeTimeout?: () => void;
   onOpenHelp: () => void;
   formatTime: (seconds: number) => string;

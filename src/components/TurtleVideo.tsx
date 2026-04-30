@@ -422,6 +422,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     }
 
     if (wasProcessing && !isProcessing) {
+      setProcessing(false);
       setLoading(false);
       setExportPreparationStep(null);
     }
@@ -1736,7 +1737,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     clearExportUiState();
     pause();
     stopAll();
-    logError('RENDER', 'export finalize failed', {
+    logError('RENDER', 'export finalize timeout', {
       error: EXPORT_FINALIZING_TIMEOUT_ERROR,
     });
     setError(EXPORT_FINALIZING_TIMEOUT_ERROR);

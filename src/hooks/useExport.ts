@@ -2351,7 +2351,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             throw new Error('書き出し結果が空です');
           }
           const url = URL.createObjectURL(blob);
-          if (!url) {
+          if (!url?.length) {
             throw new Error('保存用URLの作成に失敗しました');
           }
           // ============================================================
