@@ -30,7 +30,7 @@ import { useProjectStore } from '../stores/projectStore';
 import { captureCanvasAsImage } from '../utils/canvas';
 import { preserveOriginalFileName, resolveAiNarrationFileName } from '../utils/fileNames';
 import { saveObjectUrlWithClientFileStrategy } from '../utils/fileSave';
-import { openFilesWithPicker } from '../utils/platform';
+import { openFilesWithPicker, shouldUseMediaOpenFilePicker } from '../utils/platform';
 
 // Zustand Stores
 import { useMediaStore, useAudioStore, useUIStore, useCaptionStore, useLogStore, createNarrationClip } from '../stores';
@@ -268,8 +268,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   );
   const supportsShowSaveFilePicker = platformCapabilities.supportsShowSaveFilePicker;
   const supportsShowOpenFilePicker = platformCapabilities.supportsShowOpenFilePicker;
-  const isAndroid = platformCapabilities.isAndroid;
-  const shouldUseMediaOpenFilePicker = supportsShowOpenFilePicker && !isAndroid;
+  const shouldUseMediaPicker = shouldUseMediaOpenFilePicker(platformCapabilities);
   const refreshSaveHealth = useProjectStore((s) => s.refreshSaveHealth);
 
   const mediaTimelineRanges = useMemo(() => {
@@ -1853,7 +1852,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onToggleClipsLock={withPause(toggleClipsLock)}
               onMediaUpload={withPause(handleMediaUpload)}
               onOpenMediaPicker={withPause(handleOpenMediaPicker)}
-              supportsShowOpenFilePicker={shouldUseMediaOpenFilePicker}
+              supportsShowOpenFilePicker={shouldUseMediaPicker}
               onMoveMedia={withPause(handleMoveMedia)}
               onRemoveMedia={withPause(handleRemoveMedia)}
               onToggleMediaLock={withPause(toggleItemLock)}

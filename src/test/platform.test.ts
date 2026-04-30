@@ -5,6 +5,7 @@ import {
   getPlatformCapabilities,
   isStrictIosSafari,
   getSupportedMediaRecorderProfile,
+  shouldUseMediaOpenFilePicker,
   supportsShowOpenFilePicker,
   supportsShowSaveFilePicker,
 } from '../utils/platform';
@@ -129,6 +130,22 @@ describe('capability helpers', () => {
   it('showOpenFilePicker の有無を判定する', () => {
     expect(supportsShowOpenFilePicker({ showOpenFilePicker: async () => [] })).toBe(true);
     expect(supportsShowOpenFilePicker({})).toBe(false);
+  });
+
+  it('Android では showOpenFilePicker 対応でも media picker を使わない', () => {
+    expect(
+      shouldUseMediaOpenFilePicker({
+        isAndroid: true,
+        supportsShowOpenFilePicker: true,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldUseMediaOpenFilePicker({
+        isAndroid: false,
+        supportsShowOpenFilePicker: true,
+      }),
+    ).toBe(true);
   });
 
   it('MediaRecorder の対応 mimeType から MP4 優先でプロファイルを返す', () => {

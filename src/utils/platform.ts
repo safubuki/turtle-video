@@ -131,6 +131,10 @@ export function supportsShowOpenFilePicker(win: PlatformWindowLike | undefined =
   return typeof win?.showOpenFilePicker === 'function';
 }
 
+export function shouldUseMediaOpenFilePicker(capabilities: Pick<PlatformCapabilities, 'isAndroid' | 'supportsShowOpenFilePicker'>): boolean {
+  return capabilities.supportsShowOpenFilePicker && !capabilities.isAndroid;
+}
+
 export async function openFilesWithPicker(params: {
   win?: PlatformWindowLike;
   multiple?: boolean;
