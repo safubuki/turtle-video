@@ -90,13 +90,20 @@ async function probeExportBlobUrl(url: string): Promise<{
   videoWidth: number;
   videoHeight: number;
 }> {
+  const timeoutMs = 10000;
   const video = document.createElement('video');
   video.preload = 'metadata';
   video.src = url;
 
   try {
     return await new Promise((resolve, reject) => {
+      const timeoutId = window.setTimeout(() => {
+        cleanup();
+        reject(new Error('生成動画のmetadata読み込みがタイムアウトしました'));
+      }, timeoutMs);
+
       const cleanup = () => {
+        window.clearTimeout(timeoutId);
         video.onloadedmetadata = null;
         video.onerror = null;
         video.removeAttribute('src');
@@ -2454,14 +2461,12 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             urlCreated: Boolean(url),
           });
           exportCompletedRef.current = true;
-          setExportUrl(url);
-          setExportExt('mp4');
           try {
             notifyRecordingStop(url, 'mp4');
+            setExportUrl(url);
+            setExportExt('mp4');
           } catch (error) {
             exportCompletedRef.current = false;
-            setExportUrl(null);
-            setExportExt(null);
             URL.revokeObjectURL(url);
             throw error;
           }

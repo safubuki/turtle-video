@@ -1758,14 +1758,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   }, [startEngine]);
 
   const handleExportFinalizeTimeout = useCallback(() => {
-    if (
-      !isProcessing
-      || exportUrl
-      || exportCompletedRef.current
-      || exportFinalizeWarningShownRef.current
-    ) {
-      return;
-    }
+    if (!isProcessing || exportUrl || exportCompletedRef.current) return;
+    if (exportFinalizeWarningShownRef.current) return;
     exportFinalizeWarningShownRef.current = true;
     logWarn('RENDER', 'export finalize is taking longer than expected', {
       exportFinalizing: exportFinalizingRef.current,
