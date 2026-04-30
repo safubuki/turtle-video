@@ -2110,12 +2110,16 @@ export function usePreviewEngine({
           canvasRef,
           masterDestRef,
           (url, ext) => {
+            logInfo('RENDER', '[DIAG-UI] export complete callback received', {
+              urlPresent: Boolean(url),
+              ext,
+            });
             setExportUrl(url);
             setExportExt(ext as 'mp4' | 'webm');
             setProcessing(false);
+            setLoading(false);
             setExportPreparationStep(null);
             pause();
-            stopAll();
           },
           (message) => {
             setProcessing(false);

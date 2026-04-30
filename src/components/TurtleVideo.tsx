@@ -239,6 +239,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const pendingSeekRef = useRef<number | null>(null); // 保留中のシーク位置
   const wasPlayingBeforeSeekRef = useRef(false); // シーク前の再生状態を保持
   const wasExportProcessingRef = useRef(isProcessing);
+  const exportCompletedRef = useRef(false);
   const pendingSeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 保留中のシーク処理用タイマー
 
 
@@ -415,6 +416,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     wasExportProcessingRef.current = isProcessing;
 
     if (exportUrl || (wasProcessing && !isProcessing)) {
+      if (exportUrl) {
+        exportCompletedRef.current = true;
+      }
       clearExportUiState();
     }
   }, [clearExportUiState, exportUrl, isProcessing]);
@@ -1719,11 +1723,12 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   // --- エクスポート開始ハンドラ ---
   // 目的: 動画ファイルとして書き出しを開始
   const handleExport = useCallback(() => {
+    exportCompletedRef.current = false;
     startEngine(0, true);
   }, [startEngine]);
 
   const handleExportFinalizeTimeout = useCallback(() => {
-    if (!isProcessing || exportUrl) return;
+    if (!isProcessing || exportUrl || exportCompletedRef.current) return;
     stopWebCodecsExport({ silent: true });
     clearExportUiState();
     pause();
