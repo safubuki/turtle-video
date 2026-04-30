@@ -56,6 +56,7 @@ function durationUsToSampleCount(durationUs: number, sampleRate: number): number
 const DURATION_DIFF_THRESHOLD_US = 1000;
 const AUDIO_TRACK_MIN_VOLUME = 0;
 const AUDIO_TRACK_MAX_VOLUME = 2.5;
+const METADATA_PROBE_TIMEOUT_MS = 5000;
 
 export function clampAudioTrackVolume(volume: number): number {
   return Math.max(AUDIO_TRACK_MIN_VOLUME, Math.min(AUDIO_TRACK_MAX_VOLUME, volume));
@@ -103,7 +104,7 @@ async function probeExportBlobUrl(url: string): Promise<{
     const timeoutId = window.setTimeout(() => {
       cleanup();
       reject(new Error('生成動画のmetadata読み込みがタイムアウトしました'));
-    }, 5000);
+    }, METADATA_PROBE_TIMEOUT_MS);
 
     video.preload = 'metadata';
     video.muted = true;
@@ -2428,6 +2429,11 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             logWarn('[DIAG-BLOB] export blob metadata probe failed', {
               error: error instanceof Error ? error.message : String(error),
             });
+          }
+
+          if (userCancelledExportRef.current && !exportFinalizingRef.current) {
+            URL.revokeObjectURL(url);
+            throw new DOMException('エクスポートが中断されました', 'AbortError');
           }
 
           // ============================================================

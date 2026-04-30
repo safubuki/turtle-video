@@ -1788,13 +1788,13 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   }, [startEngine]);
 
   const handleExportFinalizeTimeout = useCallback(() => {
-    if (
+    const shouldSkipTimeoutWarning =
       !isProcessing ||
       exportUrl ||
       exportCompletedRef.current ||
       exportFinalizingRef.current ||
-      hasShownExportFinalizeWarningRef.current
-    ) {
+      hasShownExportFinalizeWarningRef.current;
+    if (shouldSkipTimeoutWarning) {
       return;
     }
     hasShownExportFinalizeWarningRef.current = true;
