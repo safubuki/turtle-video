@@ -257,7 +257,8 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   const exportProcessingElapsedText =
     exportProcessingElapsedSec >= 3 ? `（${exportProcessingElapsedSec}秒経過）` : '';
   const isSlowFinalizing =
-    exportStartedAtRef.current !== null
+    exportPhase === 'finalizing'
+    && exportStartedAtRef.current !== null
     && processingNowMs - exportStartedAtRef.current >= EXPORT_FINALIZING_SLOW_MS;
 
   const exportButtonText = useMemo(() => {
@@ -294,6 +295,43 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     }
     return '映像を生成中です。';
   }, [exportPhase, exportProcessingElapsedText, isProcessing, isSlowFinalizing, preparationStageCopy.description]);
+
+  const exportActionButton = (() => {
+    if (exportUrl) {
+      return (
+        <button
+          type="button"
+          onClick={onDownload}
+          className="bg-green-600 hover:bg-green-500 text-white px-6 py-2.5 rounded-full text-sm lg:text-base font-bold flex items-center gap-2 animate-bounce-short shadow-lg"
+        >
+          <Download className="w-4 h-4 lg:w-5 lg:h-5" /> ダウンロード (.{exportExt})
+        </button>
+      );
+    }
+
+    if (isProcessing) {
+      return (
+        <button
+          onClick={onExport}
+          disabled
+          className="flex-1 max-w-xs flex items-center justify-center gap-2 px-6 py-2.5 lg:py-3 rounded-full text-sm lg:text-base font-bold shadow-lg transition bg-gray-700 text-gray-400 cursor-wait"
+        >
+          <Loader className="animate-spin w-4 h-4 lg:w-5 lg:h-5" />
+          {exportButtonText}
+        </button>
+      );
+    }
+
+    return (
+      <button
+        onClick={onExport}
+        disabled={mediaItems.length === 0}
+        className="flex-1 max-w-xs flex items-center justify-center gap-2 px-6 py-2.5 lg:py-3 rounded-full text-sm lg:text-base font-bold shadow-lg transition bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20"
+      >
+        {exportButtonText}
+      </button>
+    );
+  })();
 
   const previewRuntimeNotice = useMemo(
     () => getPreviewRuntimeNotice({ appFlavor, supportsShowSaveFilePicker }),
@@ -496,34 +534,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
             >
               <RotateCcw className="w-4 h-4 lg:w-5 lg:h-5" /> 一括クリア
             </button>
-            {exportUrl ? (
-              <button
-                type="button"
-                onClick={onDownload}
-                className="bg-green-600 hover:bg-green-500 text-white px-6 py-2.5 rounded-full text-sm lg:text-base font-bold flex items-center gap-2 animate-bounce-short shadow-lg"
-              >
-                <Download className="w-4 h-4 lg:w-5 lg:h-5" /> ダウンロード (.{exportExt})
-              </button>
-            ) : isProcessing ? (
-              <button
-                onClick={onExport}
-                disabled={isProcessing || mediaItems.length === 0}
-                className={`flex-1 max-w-xs flex items-center justify-center gap-2 px-6 py-2.5 lg:py-3 rounded-full text-sm lg:text-base font-bold shadow-lg transition ${isProcessing ? 'bg-gray-700 text-gray-400 cursor-wait' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20'}`}
-              >
-                {isProcessing && (
-                  <Loader className="animate-spin w-4 h-4 lg:w-5 lg:h-5" />
-                )}
-                {exportButtonText}
-              </button>
-            ) : (
-              <button
-                onClick={onExport}
-                disabled={mediaItems.length === 0}
-                className="flex-1 max-w-xs flex items-center justify-center gap-2 px-6 py-2.5 lg:py-3 rounded-full text-sm lg:text-base font-bold shadow-lg transition bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20"
-              >
-                {exportButtonText}
-              </button>
-            )}
+            {exportActionButton}
           </div>
           {exportUrl && exportExt === 'webm' && (
             <div className="bg-yellow-900/30 border border-yellow-700/50 p-3 rounded-lg flex items-start gap-2 text-xs text-yellow-200">

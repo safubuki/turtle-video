@@ -293,11 +293,7 @@ describe('PreviewSection action buttons', () => {
     });
 
     expect(screen.getByRole('button', { name: '動画を最終化中...' })).toBeInTheDocument();
-    expect(
-      screen.getByText((content, element) =>
-        element?.tagName.toLowerCase() === 'p' && content === '動画を最終化中...',
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByText('動画を最終化中...', { selector: 'p' })).toBeInTheDocument();
   });
 
   it('終端到達後は stalled ではなく finalizing を維持する', () => {
