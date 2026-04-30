@@ -241,7 +241,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const wasPlayingBeforeSeekRef = useRef(false); // シーク前の再生状態を保持
   const wasExportProcessingRef = useRef(isProcessing);
   const exportCompletedRef = useRef(false);
-  const exportFinalizingRef = useRef(false);
+  const exportFinalizingUiRef = useRef(false);
   const exportFinalizeWarningShownRef = useRef(false);
   const pendingSeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 保留中のシーク処理用タイマー
 
@@ -426,14 +426,14 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         });
       }
       exportCompletedRef.current = true;
-      exportFinalizingRef.current = false;
+      exportFinalizingUiRef.current = false;
       exportFinalizeWarningShownRef.current = false;
       clearExportUiState();
       return;
     }
 
     if (wasProcessing && !isProcessing) {
-      exportFinalizingRef.current = false;
+      exportFinalizingUiRef.current = false;
       exportFinalizeWarningShownRef.current = false;
       clearExportUiState();
     }
@@ -445,7 +445,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       && totalDuration > 0
       && currentTime >= totalDuration - EXPORT_FINALIZING_EPSILON_SEC
       && !exportUrl;
-    exportFinalizingRef.current = isFinalizing;
+    exportFinalizingUiRef.current = isFinalizing;
     if (!isFinalizing) {
       exportFinalizeWarningShownRef.current = false;
     }
@@ -1752,7 +1752,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   // 目的: 動画ファイルとして書き出しを開始
   const handleExport = useCallback(() => {
     exportCompletedRef.current = false;
-    exportFinalizingRef.current = false;
+    exportFinalizingUiRef.current = false;
     exportFinalizeWarningShownRef.current = false;
     startEngine(0, true);
   }, [startEngine]);
@@ -1762,7 +1762,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     if (exportFinalizeWarningShownRef.current) return;
     exportFinalizeWarningShownRef.current = true;
     logWarn('RENDER', 'export finalize is taking longer than expected', {
-      exportFinalizing: exportFinalizingRef.current,
+      exportFinalizing: exportFinalizingUiRef.current,
       warning: EXPORT_FINALIZING_TIMEOUT_WARNING,
     });
     showToast(EXPORT_FINALIZING_TIMEOUT_WARNING);

@@ -97,11 +97,6 @@ async function probeExportBlobUrl(url: string): Promise<{
 
   try {
     return await new Promise((resolve, reject) => {
-      const timeoutId = window.setTimeout(() => {
-        cleanup();
-        reject(new Error('生成動画のmetadata読み込みがタイムアウトしました'));
-      }, timeoutMs);
-
       const cleanup = () => {
         window.clearTimeout(timeoutId);
         video.onloadedmetadata = null;
@@ -109,6 +104,10 @@ async function probeExportBlobUrl(url: string): Promise<{
         video.removeAttribute('src');
         video.load();
       };
+      const timeoutId = window.setTimeout(() => {
+        cleanup();
+        reject(new Error('生成動画のmetadata読み込みがタイムアウトしました'));
+      }, timeoutMs);
 
       video.onloadedmetadata = () => {
         const metadata = {
@@ -1188,7 +1187,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
       let hasNotifiedRecordingStop = false;
       const notifyRecordingStop = (url: string, ext: string) => {
         if (hasNotifiedRecordingStop) return;
-        if (userCancelledExportRef.current && !exportFinalizingRef.current) {
+        if (userCancelledExportRef.current) {
           logWarn('recording stop callback was suppressed because export was cancelled by user');
           return;
         }
@@ -2460,13 +2459,12 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             blobSize: blob.size,
             urlCreated: Boolean(url),
           });
-          exportCompletedRef.current = true;
           try {
             notifyRecordingStop(url, 'mp4');
             setExportUrl(url);
             setExportExt('mp4');
+            exportCompletedRef.current = true;
           } catch (error) {
-            exportCompletedRef.current = false;
             URL.revokeObjectURL(url);
             throw error;
           }
