@@ -2347,7 +2347,15 @@ export function createUseExport(config: UseExportRuntimeConfig) {
 
         if (buffer.byteLength > 0) {
           const blob = new Blob([buffer], { type: 'video/mp4' });
-          const url = URL.createObjectURL(blob);
+          if (blob.size === 0) {
+            throw new Error('書き出し結果が空です');
+          }
+          let url: string;
+          try {
+            url = URL.createObjectURL(blob);
+          } catch {
+            throw new Error('保存用URLの作成に失敗しました');
+          }
           // ============================================================
           // [DIAG-9] エクスポート最終結果
           // ============================================================
@@ -2367,12 +2375,16 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             audioDataPresent: audioEncoderOutputChunks > 0,
             offlineAudioDone,
           });
-          setExportUrl(url);
-          setExportExt('mp4');
-          notifyRecordingStop(url, 'mp4');
+          try {
+            notifyRecordingStop(url, 'mp4');
+            setExportUrl(url);
+            setExportExt('mp4');
+          } catch (error) {
+            URL.revokeObjectURL(url);
+            throw error;
+          }
         } else {
-          useLogStore.getState().warn('RENDER', 'エクスポートバッファが空');
-          onRecordingError?.('エクスポートに失敗しました。書き出しデータが空です。');
+          throw new Error('書き出し結果が空です');
         }
 
       } catch (err) {
@@ -2382,12 +2394,12 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           (err as any)?.message?.includes('Aborted');
 
         if (!isAbort) {
-          logError('エクスポート失敗', {
+          logError('export finalize failed', {
             error: err instanceof Error ? err.message : String(err)
           });
           console.error('Export failed:', err);
           onRecordingError?.(
-            err instanceof Error ? `エクスポートに失敗しました: ${err.message}` : 'エクスポートに失敗しました'
+            err instanceof Error ? err.message : '動画ファイルの作成に失敗しました'
           );
         } else {
           logInfo('エクスポートが中断されました');

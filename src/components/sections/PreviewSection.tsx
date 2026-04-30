@@ -29,31 +29,26 @@ const PREVIEW_CAPTURE_BUTTON =
   'border-gray-700 bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white disabled:border-gray-700 disabled:bg-gray-800 disabled:text-gray-500';
 const EXPORT_RENDERING_READY_TIME_SEC = 0.25;
 const EXPORT_FINALIZING_EPSILON_SEC = 0.05;
-const EXPORT_STALLED_DELAY_MS = 3000;
 const EXPORT_FINALIZING_TIMEOUT_MS = 30000;
 
-type ExportPhase = 'preparing' | 'rendering' | 'finalizing' | 'stalled';
+type ExportPhase = 'preparing' | 'rendering' | 'finalizing';
 
 type PreparationStage = 'initializing' | 'audioAnalysis' | 'audioMix' | 'encoding';
 
 const PREPARATION_STAGE_COPY: Record<
   PreparationStage,
-  { buttonLabel: string; description: string }
+  { description: string }
 > = {
   initializing: {
-    buttonLabel: '書き出し設定を確認しています',
     description: '書き出しに必要な準備を進めています。',
   },
   audioAnalysis: {
-    buttonLabel: '動画音声を解析中です',
     description: '同じ動画が複数ある場合は解析結果を再利用します。',
   },
   audioMix: {
-    buttonLabel: '音声を準備しています',
     description: 'BGM とナレーションをタイムラインへ配置しています。',
   },
   encoding: {
-    buttonLabel: '映像を書き出す準備をしています',
     description: '映像生成を始める前の確認を行っています。',
   },
 };
@@ -95,7 +90,7 @@ interface PreviewSectionProps {
   onDownload: () => void;
   onClearAll: () => void;
   onCapture: () => void;
-  onExportFinalizingTimeout: () => void;
+  onExportFinalizeTimeout?: () => void;
   onOpenHelp: () => void;
   formatTime: (seconds: number) => string;
 }
@@ -127,13 +122,12 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   onDownload,
   onClearAll,
   onCapture,
-  onExportFinalizingTimeout,
+  onExportFinalizeTimeout,
   onOpenHelp,
   formatTime,
 }) => {
   const [exportPhase, setExportPhase] = useState<ExportPhase>('preparing');
   const [isCapturePressed, setIsCapturePressed] = useState(false);
-  const lastProgressAtRef = useRef<number>(Date.now());
   const lastObservedTimeRef = useRef<number>(currentTime);
   const hasExportProgressRef = useRef<boolean>(false);
   const flashTimeoutRef = useRef<number | null>(null);
@@ -141,21 +135,16 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   const exportFinalizingStartedAtRef = useRef<number | null>(null);
   const hasTriggeredFinalizingTimeoutRef = useRef(false);
   const [processingNowMs, setProcessingNowMs] = useState(() => Date.now());
-  const isNearExportEnd =
-    totalDuration > 0
-    && currentTime >= Math.max(0, totalDuration - EXPORT_FINALIZING_EPSILON_SEC);
-  const isExportFinalizing = isProcessing && isNearExportEnd && !exportUrl;
-  const canShowStalled =
+  const isFinalizingExport =
     isProcessing
-    && !isExportFinalizing
     && totalDuration > 0
-    && currentTime < Math.max(0, totalDuration - EXPORT_FINALIZING_EPSILON_SEC);
+    && currentTime >= totalDuration - EXPORT_FINALIZING_EPSILON_SEC
+    && !exportUrl;
 
   useEffect(() => {
     if (!isProcessing) {
       setExportPhase('preparing');
       lastObservedTimeRef.current = currentTime;
-      lastProgressAtRef.current = Date.now();
       hasExportProgressRef.current = false;
       return;
     }
@@ -168,14 +157,12 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     // Export 開始時に前回の停止位置から 0 秒へ戻る巻き戻しは、進捗ではなく準備フェーズとして扱う。
     if (delta <= -0.05) {
       lastObservedTimeRef.current = currentTime;
-      lastProgressAtRef.current = Date.now();
       hasExportProgressRef.current = false;
       return;
     }
 
     if (delta >= 0.05) {
       lastObservedTimeRef.current = currentTime;
-      lastProgressAtRef.current = Date.now();
       if (currentTime >= renderingReadyTime) {
         hasExportProgressRef.current = true;
       }
@@ -186,27 +173,21 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     if (!isProcessing) return;
 
     const updatePhase = () => {
-      if (isExportFinalizing) {
+      if (isFinalizingExport) {
         setExportPhase('finalizing');
         return;
       }
-      // まだ時刻進行が始まっていない段階は「準備中」として扱う。
       if (!hasExportProgressRef.current) {
         setExportPhase('preparing');
         return;
       }
-      const stagnantMs = Date.now() - lastProgressAtRef.current;
-      setExportPhase(
-        canShowStalled && stagnantMs > EXPORT_STALLED_DELAY_MS
-          ? 'stalled'
-          : 'rendering',
-      );
+      setExportPhase('rendering');
     };
 
     updatePhase();
     const timer = setInterval(updatePhase, 250);
     return () => clearInterval(timer);
-  }, [canShowStalled, isExportFinalizing, isProcessing]);
+  }, [isFinalizingExport, isProcessing]);
 
   useEffect(() => {
     if (isProcessing && !exportUrl) {
@@ -233,7 +214,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   }, [exportUrl, isProcessing]);
 
   useEffect(() => {
-    if (!isExportFinalizing || exportUrl || !isProcessing) {
+    if (!isFinalizingExport || exportUrl || !isProcessing) {
       exportFinalizingStartedAtRef.current = null;
       hasTriggeredFinalizingTimeoutRef.current = false;
       return;
@@ -249,9 +230,9 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
       && !hasTriggeredFinalizingTimeoutRef.current
     ) {
       hasTriggeredFinalizingTimeoutRef.current = true;
-      onExportFinalizingTimeout();
+      onExportFinalizeTimeout?.();
     }
-  }, [exportUrl, isExportFinalizing, isProcessing, onExportFinalizingTimeout, processingNowMs]);
+  }, [exportUrl, isFinalizingExport, isProcessing, onExportFinalizeTimeout, processingNowMs]);
 
   useEffect(() => {
     return () => {
@@ -278,19 +259,17 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   const exportButtonText = useMemo(() => {
     if (!isProcessing) return '動画ファイルを作成';
     if (exportPhase === 'preparing') {
-      return `${preparationStageCopy.buttonLabel}${exportProcessingElapsedText}`;
+      return `書き出し準備中...${exportProcessingElapsedText}`;
     }
     if (exportPhase === 'finalizing') {
       return '保存ファイルを作成中...';
     }
-    if (exportPhase === 'stalled') return 'フレーム待機中...';
-    return `映像を生成中... ${exportProgressPct.toFixed(0)}%`;
+    return `映像を書き出し中... ${exportProgressPct.toFixed(0)}%`;
   }, [
     exportPhase,
     exportProcessingElapsedText,
     exportProgressPct,
     isProcessing,
-    preparationStageCopy.buttonLabel,
   ]);
 
   const exportStatusText = useMemo(() => {
@@ -301,10 +280,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     if (exportPhase === 'finalizing') {
       return '保存ファイルを作成中...';
     }
-    if (exportPhase === 'stalled') {
-      return '処理に時間がかかっています。しばらく待っても進まない場合は中断して再実行してください。';
-    }
-    return '映像を生成中です。';
+    return '映像を書き出し中です。';
   }, [exportPhase, exportProcessingElapsedText, isProcessing, preparationStageCopy.description]);
 
   const exportActionButton = (() => {

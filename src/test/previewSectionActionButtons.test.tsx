@@ -52,7 +52,7 @@ function renderPreviewSection(overrides?: Partial<React.ComponentProps<typeof Pr
     onDownload: vi.fn(),
     onClearAll: vi.fn(),
     onCapture: vi.fn(),
-    onExportFinalizingTimeout: vi.fn(),
+    onExportFinalizeTimeout: vi.fn(),
     onOpenHelp: vi.fn(),
     formatTime: (seconds: number) => `${seconds.toFixed(1)}s`,
     ...overrides,
@@ -117,7 +117,8 @@ describe('PreviewSection action buttons', () => {
       exportPreparationStep: 1,
     });
 
-    expect(screen.getByRole('button', { name: '書き出し設定を確認しています' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '書き出し準備中...' })).toBeInTheDocument();
+    expect(screen.getByText('書き出しに必要な準備を進めています。')).toBeInTheDocument();
   });
 
   it('音声解析ステージをボタンに反映する', () => {
@@ -127,7 +128,8 @@ describe('PreviewSection action buttons', () => {
       exportPreparationStep: 3,
     });
 
-    expect(screen.getByRole('button', { name: '動画音声を解析中です' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '書き出し準備中...' })).toBeInTheDocument();
+    expect(screen.getByText('同じ動画が複数ある場合は解析結果を再利用します。')).toBeInTheDocument();
   });
 
   it('停止位置から 0 秒へ戻る初期化は進捗扱いせず準備表示を維持する', () => {
@@ -160,8 +162,7 @@ describe('PreviewSection action buttons', () => {
       vi.advanceTimersByTime(1800);
     });
 
-    expect(screen.getByRole('button', { name: '書き出し設定を確認しています' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'フレーム待機中...' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '書き出し準備中...' })).toBeInTheDocument();
   });
 
   it('開始直後の微小な進行は準備表示を維持する', () => {
@@ -187,8 +188,7 @@ describe('PreviewSection action buttons', () => {
       vi.advanceTimersByTime(1800);
     });
 
-    expect(screen.getByRole('button', { name: '動画音声を解析中です' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'フレーム待機中...' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '書き出し準備中...' })).toBeInTheDocument();
   });
 
   it('準備が長いと経過秒数つきの説明を表示する', () => {
@@ -203,7 +203,7 @@ describe('PreviewSection action buttons', () => {
       vi.advanceTimersByTime(3000);
     });
 
-    expect(screen.getByRole('button', { name: '動画音声を解析中です（3秒経過）' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '書き出し準備中...（3秒経過）' })).toBeInTheDocument();
     expect(screen.getByText('同じ動画が複数ある場合は解析結果を再利用します。（3秒経過）')).toBeInTheDocument();
   });
 
@@ -230,7 +230,7 @@ describe('PreviewSection action buttons', () => {
       vi.advanceTimersByTime(300);
     });
 
-    expect(screen.getByRole('button', { name: '映像を生成中... 1%' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '映像を書き出し中... 1%' })).toBeInTheDocument();
   });
 
   it('apple-safari flavor では安定動作優先の案内を表示する', () => {
@@ -311,24 +311,23 @@ describe('PreviewSection action buttons', () => {
     });
 
     expect(screen.getByRole('button', { name: '保存ファイルを作成中...' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'フレーム待機中...' })).not.toBeInTheDocument();
   });
 
   it('保存ファイル作成が30秒を超えたら timeout callback を一度だけ呼ぶ', () => {
     vi.useFakeTimers();
-    const onExportFinalizingTimeout = vi.fn();
+    const onExportFinalizeTimeout = vi.fn();
     renderPreviewSection({
       isProcessing: true,
       currentTime: 10,
       totalDuration: 10,
       exportPreparationStep: 10,
-      onExportFinalizingTimeout,
+      onExportFinalizeTimeout,
     });
 
     act(() => {
       vi.advanceTimersByTime(30000);
     });
 
-    expect(onExportFinalizingTimeout).toHaveBeenCalledTimes(1);
+    expect(onExportFinalizeTimeout).toHaveBeenCalledTimes(1);
   });
 });
