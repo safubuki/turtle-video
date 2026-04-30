@@ -206,6 +206,7 @@ describe('standard preview engine', () => {
     const play = vi.fn();
     const pause = vi.fn();
     const resetInactiveVideos = vi.fn();
+    const clearExport = vi.fn();
     const primePreviewAudioOnlyTracksAtTimeSpy =
       options?.primePreviewAudioOnlyTracksAtTime ?? vi.fn<(playbackTime: number) => void>();
     const totalDurationRef = createRef(
@@ -271,7 +272,7 @@ describe('standard preview engine', () => {
         setExportPreparationStep: vi.fn(),
         setExportUrl: vi.fn(),
         setExportExt: vi.fn(),
-        clearExport: vi.fn(),
+        clearExport,
         setError: vi.fn(),
         play,
         pause,
@@ -312,6 +313,7 @@ describe('standard preview engine', () => {
       setCurrentTime,
       play,
       pause,
+      clearExport,
       currentTimeRef,
       reqIdRef,
       loopIdRef,
@@ -439,6 +441,15 @@ describe('standard preview engine', () => {
     expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
     expect(setCurrentTime).toHaveBeenCalledWith(2);
     expect(play).toHaveBeenCalledTimes(1);
+  });
+
+  it('preview 再生開始では exportUrl を clear しない', async () => {
+    const { clearExport, hook } = setupPreviewEngineHarness();
+
+    void hook.result.current.startEngine(1, false);
+    await Promise.resolve();
+
+    expect(clearExport).not.toHaveBeenCalled();
   });
 
   it('stop 後の先頭再生でも active video 準備完了を待ってから再生を始める', async () => {

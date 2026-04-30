@@ -62,6 +62,7 @@ const resetNativeMediaAudioState = (mediaEl: HTMLMediaElement) => {
   mediaEl.muted = false;
   mediaEl.volume = 1;
 };
+const MAX_PREVIEW_BGM_GAIN = 2.5;
 
 export function resolvePreviewBgmGain(
   bgm: AudioTrack,
@@ -73,7 +74,7 @@ export function resolvePreviewBgmGain(
     return 0;
   }
 
-  let gain = Math.max(0, Math.min(2.5, bgm.volume));
+  let gain = Math.max(0, Math.min(MAX_PREVIEW_BGM_GAIN, bgm.volume));
   const playTime = time - bgm.delay;
 
   if (bgm.fadeIn) {
@@ -91,7 +92,7 @@ export function resolvePreviewBgmGain(
     }
   }
 
-  return Math.max(0, Math.min(2.5, gain));
+  return Math.max(0, Math.min(MAX_PREVIEW_BGM_GAIN, gain));
 }
 
 export function usePreviewAudioSession({

@@ -32,6 +32,7 @@ const PREVIEW_STOP_BUTTON =
 const PREVIEW_CAPTURE_BUTTON =
   'border-gray-700 bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white disabled:border-gray-700 disabled:bg-gray-800 disabled:text-gray-500';
 const EXPORT_RENDERING_READY_TIME_SEC = 0.25;
+const EXPORT_PROGRESS_FINALIZATION_THRESHOLD = 99.9;
 
 interface PreviewSectionProps {
   appFlavor: AppFlavor;
@@ -160,7 +161,10 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     return Math.min(100, Math.max(0, (currentTime / totalDuration) * 100));
   }, [currentTime, isProcessing, totalDuration]);
 
-  const isExportFinalizing = isProcessing && exportProgressPct >= 99.9 && !exportUrl;
+  const isExportFinalizing =
+    isProcessing
+    && exportProgressPct >= EXPORT_PROGRESS_FINALIZATION_THRESHOLD
+    && !exportUrl;
   const activePreparationStep = exportPreparationStep ?? 1;
 
   const exportButtonText = useMemo(() => {
