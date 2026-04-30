@@ -135,15 +135,11 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   const exportFinalizingStartedAtRef = useRef<number | null>(null);
   const hasTriggeredFinalizingTimeoutRef = useRef(false);
   const [processingNowMs, setProcessingNowMs] = useState(() => Date.now());
-  const isSavingFile =
+  const isFinalizingExport =
     isProcessing
     && totalDuration > 0
     && currentTime >= totalDuration - EXPORT_FINALIZING_EPSILON_SEC
     && !exportUrl;
-  const isNearExportEnd =
-    totalDuration > 0
-    && currentTime >= Math.max(0, totalDuration - EXPORT_FINALIZING_EPSILON_SEC);
-  const isExportFinalizing = isSavingFile && isNearExportEnd;
 
   useEffect(() => {
     if (!isProcessing) {
@@ -177,7 +173,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     if (!isProcessing) return;
 
     const updatePhase = () => {
-      if (isExportFinalizing) {
+      if (isFinalizingExport) {
         setExportPhase('finalizing');
         return;
       }
@@ -191,7 +187,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     updatePhase();
     const timer = setInterval(updatePhase, 250);
     return () => clearInterval(timer);
-  }, [isExportFinalizing, isProcessing]);
+  }, [isFinalizingExport, isProcessing]);
 
   useEffect(() => {
     if (isProcessing && !exportUrl) {
@@ -218,7 +214,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   }, [exportUrl, isProcessing]);
 
   useEffect(() => {
-    if (!isSavingFile || exportUrl || !isProcessing) {
+    if (!isFinalizingExport || exportUrl || !isProcessing) {
       exportFinalizingStartedAtRef.current = null;
       hasTriggeredFinalizingTimeoutRef.current = false;
       return;
@@ -236,7 +232,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
       hasTriggeredFinalizingTimeoutRef.current = true;
       onExportFinalizeTimeout?.();
     }
-  }, [exportUrl, isProcessing, isSavingFile, onExportFinalizeTimeout, processingNowMs]);
+  }, [exportUrl, isFinalizingExport, isProcessing, onExportFinalizeTimeout, processingNowMs]);
 
   useEffect(() => {
     return () => {
