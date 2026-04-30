@@ -42,6 +42,7 @@ import {
   type PreviewPlatformPolicy,
 } from './previewPlatform';
 import { getStandardPreviewNow } from './playbackClock';
+import type { ResetInactiveVideosOptions } from './useInactiveVideoManager';
 
 type LogFn = (category: LogCategory, message: string, details?: Record<string, unknown>) => void;
 
@@ -110,7 +111,7 @@ interface UsePreviewEngineParams {
   preparePreviewAudioNodesForTime: (time: number) => PreparedPreviewAudioNodesResult;
   preparePreviewAudioNodesForUpcomingVideos: (fromTime: number) => void;
   primePreviewAudioOnlyTracksAtTime: (playbackTime: number) => void;
-  resetInactiveVideos: () => void;
+  resetInactiveVideos: (options?: ResetInactiveVideosOptions) => void;
   startWebCodecsExport: UseExportReturn['startExport'];
   stopWebCodecsExport: UseExportReturn['stopExport'];
   logInfo: LogFn;
@@ -172,6 +173,14 @@ const applyPreviewAudioOutputState = (
   }
 
   return outputMode;
+};
+
+const findNextVideoItem = (items: MediaItem[], activeIndex: number): MediaItem | null => {
+  if (activeIndex < 0 || activeIndex + 1 >= items.length) {
+    return null;
+  }
+
+  return items.slice(activeIndex + 1).find((item) => item.type === 'video') ?? null;
 };
 
 // HTMLMediaElement.HAVE_METADATA: currentTime を安全に合わせ直せる最小 readyState。
@@ -877,37 +886,36 @@ export function usePreviewEngine({
           didUpdateCanvas = true;
         }
 
-        if (isActivePlaying && activeIndex !== -1 && activeIndex + 1 < currentItems.length) {
+        const nextVideoItem = findNextVideoItem(currentItems, activeIndex);
+
+        if (isActivePlaying && activeIndex !== -1 && nextVideoItem) {
           const activeItem = currentItems[activeIndex];
-          const nextItem = currentItems[activeIndex + 1];
-          if (nextItem.type === 'video') {
-            const remainingTime = activeItem.duration - localTime;
-            if (remainingTime < 3.0) {
-              const nextElement = mediaElementsRef.current[nextItem.id] as HTMLVideoElement;
-              if (nextElement) {
-                // localTime は通常 [0, duration] に収まるが、境界フォールバック時の揺れで
-                // 一時的に負側へ外れたフレームでは preseek を走らせない。
-                const shouldPreseekNextVideo =
-                  isAndroidPreviewPlayback
-                  && remainingTime >= 0
-                  && remainingTime <= PREVIEW_ANDROID_VIDEO_PRESEEK_WINDOW_SEC;
-                const nextStart = nextItem.trimStart || 0;
-                if (nextElement.readyState === 0 && !nextElement.error) {
-                  try { nextElement.load(); } catch { /* ignore */ }
-                }
-                if (
-                  shouldPreseekNextVideo
-                  && !nextElement.seeking
-                  && nextElement.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
-                  && Math.abs(nextElement.currentTime - nextStart)
-                  > PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC
-                ) {
+          const remainingTime = activeItem.duration - localTime;
+          if (remainingTime < 3.0) {
+            const nextElement = mediaElementsRef.current[nextVideoItem.id] as HTMLVideoElement;
+            if (nextElement) {
+              // localTime は通常 [0, duration] に収まるが、境界フォールバック時の揺れで
+              // 一時的に負側へ外れたフレームでは preseek を走らせない。
+              const shouldPreseekNextVideo =
+                isAndroidPreviewPlayback
+                && remainingTime >= 0
+                && remainingTime <= PREVIEW_ANDROID_VIDEO_PRESEEK_WINDOW_SEC;
+              const nextStart = nextVideoItem.trimStart || 0;
+              if (nextElement.readyState === 0 && !nextElement.error) {
+                try { nextElement.load(); } catch { /* ignore */ }
+              }
+              if (
+                shouldPreseekNextVideo
+                && !nextElement.seeking
+                && nextElement.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
+                && Math.abs(nextElement.currentTime - nextStart)
+                > PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC
+              ) {
+                nextElement.currentTime = nextStart;
+              }
+              if (!shouldPreseekNextVideo && (nextElement.paused || nextElement.readyState < 2)) {
+                if (Math.abs(nextElement.currentTime - nextStart) > 0.1) {
                   nextElement.currentTime = nextStart;
-                }
-                if (!shouldPreseekNextVideo && (nextElement.paused || nextElement.readyState < 2)) {
-                  if (Math.abs(nextElement.currentTime - nextStart) > 0.1) {
-                    nextElement.currentTime = nextStart;
-                  }
                 }
               }
             }
@@ -2405,9 +2413,11 @@ export function usePreviewEngine({
         const shouldPrimeActiveVideo = !shouldBundlePreviewStart;
         let activeVideoElForBundledStart: HTMLVideoElement | null = null;
         let activeVideoTargetTime: number | null = null;
+        let activeItemIndex = -1;
         let t = 0;
-        for (const item of mediaItemsRef.current) {
+        for (const [index, item] of mediaItemsRef.current.entries()) {
           if (fromTime >= t && fromTime < t + item.duration) {
+            activeItemIndex = index;
             if (item.type === 'video') {
               const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
               if (videoEl) {
@@ -2423,6 +2433,8 @@ export function usePreviewEngine({
           }
           t += item.duration;
         }
+
+        const nextVideoItem = findNextVideoItem(mediaItemsRef.current, activeItemIndex);
 
         if (activeVideoElForBundledStart && activeVideoTargetTime !== null) {
           await waitForPreviewStartVideoReady(
@@ -2466,7 +2478,14 @@ export function usePreviewEngine({
           primePreviewAudioOnlyTracksAtTime(fromTime);
         }
 
-        resetInactiveVideos();
+        resetInactiveVideos({
+          nextVideoId: nextVideoItem?.id ?? null,
+          isAndroidPreview:
+            platformCapabilities.isAndroid
+            && !platformCapabilities.isIosSafari
+            && isPlayingRef.current
+            && !isExportMode,
+        });
 
         const shouldRenderAsActivePreview =
           !isExportMode && previewPlatformPolicy.muteNativeMediaWhenAudioRouted;

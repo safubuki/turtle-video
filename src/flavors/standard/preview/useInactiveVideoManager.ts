@@ -15,7 +15,12 @@ interface UseInactiveVideoManagerParams {
 }
 
 interface UseInactiveVideoManagerResult {
-  resetInactiveVideos: () => void;
+  resetInactiveVideos: (options?: ResetInactiveVideosOptions) => void;
+}
+
+export interface ResetInactiveVideosOptions {
+  nextVideoId?: string | null;
+  isAndroidPreview?: boolean;
 }
 
 export function useInactiveVideoManager({
@@ -25,7 +30,7 @@ export function useInactiveVideoManager({
   activeVideoIdRef,
   previewPlatformPolicy,
 }: UseInactiveVideoManagerParams): UseInactiveVideoManagerResult {
-  const resetInactiveVideos = useCallback(() => {
+  const resetInactiveVideos = useCallback((options?: ResetInactiveVideosOptions) => {
     for (const item of mediaItemsRef.current) {
       if (item.type === 'video' && item.id !== activeVideoIdRef.current) {
         const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
@@ -42,6 +47,11 @@ export function useInactiveVideoManager({
 
         if (!avoidPauseForInactive && !videoEl.paused) {
           videoEl.pause();
+        }
+
+        const isNextVideo = item.id === options?.nextVideoId;
+        if (options?.isAndroidPreview && !isNextVideo) {
+          continue;
         }
 
         const startTime = item.trimStart || 0;

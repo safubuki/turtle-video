@@ -166,10 +166,16 @@ describe('standard preview engine', () => {
   function setupPreviewEngineHarness(options?: {
     bgm?: AudioTrack | null;
     narrations?: NarrationClip[];
+    mediaItems?: MediaItem[];
+    mediaElements?: MediaElementsRef;
     primePreviewAudioOnlyTracksAtTime?: ReturnType<typeof vi.fn<(playbackTime: number) => void>>;
   }) {
-    const mediaItem = createVideoItem();
+    const mediaItems = options?.mediaItems ?? [createVideoItem()];
+    const mediaItem = mediaItems[0];
     const videoElement = createMockVideoElement();
+    const mediaElements = options?.mediaElements ?? ({
+      [mediaItem.id]: videoElement as unknown as HTMLVideoElement,
+    } as MediaElementsRef);
     const requestAnimationFrameSpy = vi
       .spyOn(globalThis, 'requestAnimationFrame')
       .mockImplementation(() => 1);
@@ -181,6 +187,7 @@ describe('standard preview engine', () => {
     const setCurrentTime = vi.fn();
     const play = vi.fn();
     const pause = vi.fn();
+    const resetInactiveVideos = vi.fn();
     const primePreviewAudioOnlyTracksAtTimeSpy =
       options?.primePreviewAudioOnlyTracksAtTime ?? vi.fn<(playbackTime: number) => void>();
 
@@ -188,7 +195,7 @@ describe('standard preview engine', () => {
       usePreviewEngine({
         captions: [] as Caption[],
         captionSettings: {} as CaptionSettings,
-        mediaItemsRef: createRef([mediaItem]),
+        mediaItemsRef: createRef(mediaItems),
         bgmRef: createRef<AudioTrack | null>(options?.bgm ?? null),
         narrationsRef: createRef<NarrationClip[]>(options?.narrations ?? []),
         captionsRef: createRef<Caption[]>([]),
@@ -196,9 +203,7 @@ describe('standard preview engine', () => {
         totalDurationRef: createRef(mediaItem.duration),
         currentTimeRef: createRef(0),
         canvasRef: createRef<HTMLCanvasElement | null>(null),
-        mediaElementsRef: createRef({
-          [mediaItem.id]: videoElement as unknown as HTMLVideoElement,
-        } as MediaElementsRef),
+        mediaElementsRef: createRef(mediaElements),
         audioCtxRef: createRef({
           state: 'running',
           currentTime: 0,
@@ -265,7 +270,7 @@ describe('standard preview engine', () => {
         })),
         preparePreviewAudioNodesForUpcomingVideos: vi.fn(),
         primePreviewAudioOnlyTracksAtTime: primePreviewAudioOnlyTracksAtTimeSpy,
-        resetInactiveVideos: vi.fn(),
+        resetInactiveVideos,
         startWebCodecsExport: vi.fn(),
         stopWebCodecsExport: vi.fn(),
         logInfo: vi.fn(),
@@ -280,6 +285,7 @@ describe('standard preview engine', () => {
       requestAnimationFrameSpy,
       setCurrentTime,
       play,
+      resetInactiveVideos,
       primePreviewAudioOnlyTracksAtTime: primePreviewAudioOnlyTracksAtTimeSpy,
       hook,
     };
@@ -587,6 +593,59 @@ describe('standard preview engine', () => {
     expect(videoElement.currentTime).toBeCloseTo(0);
   });
 
+  it('Android preview の next video preseek は image gap を挟んでも直近の次 video だけを対象にする', () => {
+    const currentVideo = createVideoItem({
+      id: 'video-1',
+      duration: 1,
+      trimStart: 0,
+      trimEnd: 1,
+    });
+    const imageGap = createImageItem({
+      id: 'image-gap',
+      duration: 1,
+    });
+    const nextVideo = createVideoItem({
+      id: 'video-2',
+      duration: 2,
+      trimStart: 1.4,
+      trimEnd: 3.4,
+    });
+    const farVideo = createVideoItem({
+      id: 'video-3',
+      duration: 2,
+      trimStart: 0.8,
+      trimEnd: 2.8,
+    });
+    const currentVideoElement = createMockVideoElement();
+    currentVideoElement.readyState = 2;
+    currentVideoElement.seeking = false;
+    currentVideoElement.paused = false;
+    const nextVideoElement = createMockVideoElement();
+    nextVideoElement.readyState = 2;
+    nextVideoElement.seeking = false;
+    nextVideoElement.paused = true;
+    nextVideoElement.currentTime = 0.1;
+    const farVideoElement = createMockVideoElement();
+    farVideoElement.readyState = 2;
+    farVideoElement.seeking = false;
+    farVideoElement.paused = true;
+    farVideoElement.currentTime = 0.2;
+
+    const { hook } = setupRenderFrameHarness({
+      mediaItems: [currentVideo, imageGap, nextVideo, farVideo],
+      mediaElements: {
+        [currentVideo.id]: currentVideoElement as unknown as HTMLVideoElement,
+        [nextVideo.id]: nextVideoElement as unknown as HTMLVideoElement,
+        [farVideo.id]: farVideoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+    });
+
+    hook.result.current.renderFrame(0.5, true, false);
+
+    expect(nextVideoElement.currentTime).toBeCloseTo(nextVideo.trimStart);
+    expect(farVideoElement.currentTime).toBeCloseTo(0.2);
+  });
+
   it('Android preview の next trimmed video preseek は clip 終端 0.6 秒の外では発火しない', () => {
     const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
     const videoItem = createVideoItem({
@@ -656,6 +715,59 @@ describe('standard preview engine', () => {
     seekingHarness.hook.result.current.renderFrame(0.75, true, false);
 
     expect(seekingVideo.currentTime).toBeCloseTo(0.4);
+  });
+
+  it('Android preview startEngine は inactive reset に直近の次 video だけを渡す', async () => {
+    const currentVideo = createVideoItem({
+      id: 'video-1',
+      duration: 1,
+      trimStart: 0,
+      trimEnd: 1,
+    });
+    const imageGap = createImageItem({
+      id: 'image-gap',
+      duration: 1,
+    });
+    const nextVideo = createVideoItem({
+      id: 'video-2',
+      duration: 2,
+      trimStart: 1.25,
+      trimEnd: 3.25,
+    });
+    const farVideo = createVideoItem({
+      id: 'video-3',
+      duration: 2,
+      trimStart: 0.5,
+      trimEnd: 2.5,
+    });
+    const activeVideoElement = createMockVideoElement();
+    activeVideoElement.readyState = 2;
+    activeVideoElement.seeking = false;
+    activeVideoElement.currentTime = 0.5;
+    const nextVideoElement = createMockVideoElement();
+    nextVideoElement.readyState = 2;
+    nextVideoElement.seeking = false;
+    const farVideoElement = createMockVideoElement();
+    farVideoElement.readyState = 2;
+    farVideoElement.seeking = false;
+
+    const { hook, resetInactiveVideos } = setupPreviewEngineHarness({
+      mediaItems: [currentVideo, imageGap, nextVideo, farVideo],
+      mediaElements: {
+        [currentVideo.id]: activeVideoElement as unknown as HTMLVideoElement,
+        [nextVideo.id]: nextVideoElement as unknown as HTMLVideoElement,
+        [farVideo.id]: farVideoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+    });
+
+    const startPromise = hook.result.current.startEngine(0.5, false);
+    await vi.runAllTimersAsync();
+    await startPromise;
+
+    expect(resetInactiveVideos).toHaveBeenCalledWith({
+      nextVideoId: nextVideo.id,
+      isAndroidPreview: true,
+    });
   });
 
   it('Android preview は image -> trimStart あり video がまだ描画不能なら直前フレーム保持を優先する', () => {
