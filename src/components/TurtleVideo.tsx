@@ -1638,6 +1638,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     setCurrentTime(0);
     currentTimeRef.current = 0;
     endFinalizedRef.current = false;
+    // 停止後も直前の export 結果は保持し、新しい export 開始か編集変更時だけ破棄する。
 
     // [TV] 全メディアを安全に巻き戻し (DOM要素を維持したままリセット)
     // 各ビデオをtrimStart位置にリセット（0ではなく実際の開始位置へ）

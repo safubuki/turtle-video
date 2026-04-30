@@ -1783,6 +1783,7 @@ export function usePreviewEngine({
           if (bgmGain && audioCtxRef.current) {
             bgmGain.gain.setValueAtTime(bgmGainValue, audioCtxRef.current.currentTime);
           } else if (bgmEl) {
+            // native media volume は 1.0 上限のため、gain node が無い場合だけ fallback する。
             bgmEl.volume = Math.max(0, Math.min(1, bgmGainValue));
           }
         }

@@ -2075,6 +2075,8 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         // 音声プリレンダリング完了を通知 — エクスポート用の再生ループを開始させる
         // iOS Safari では extractAudioViaVideoElement にリアルタイムがかかるため、
         // このコールバックのタイミングが重要。
+        // Step 9 は実際の映像生成ループ開始直前に進め、直後の onAudioPreRenderComplete
+        // で preview/export loop を始動させる。
         updatePreparationStep(audioSources, 9);
         logInfo('[DIAG-READY] 音声準備完了、再生ループ開始通知');
         audioSources?.onAudioPreRenderComplete?.();
