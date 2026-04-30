@@ -293,6 +293,39 @@ describe('PreviewSection action buttons', () => {
     });
 
     expect(screen.getByRole('button', { name: '動画を最終化中...' })).toBeInTheDocument();
-    expect(screen.getByText('動画を最終化中...')).toBeInTheDocument();
+    expect(screen.getByText('動画を最終化中...', { selector: 'p' })).toBeInTheDocument();
+  });
+
+  it('終端到達後は stalled ではなく finalizing を維持する', () => {
+    vi.useFakeTimers();
+    renderPreviewSection({
+      isProcessing: true,
+      currentTime: 10,
+      totalDuration: 10,
+      exportPreparationStep: 10,
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(4000);
+    });
+
+    expect(screen.getByRole('button', { name: '動画を最終化中...' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'フレーム待機中...' })).not.toBeInTheDocument();
+  });
+
+  it('finalizing が長すぎる場合は時間がかかっている案内へ切り替える', () => {
+    vi.useFakeTimers();
+    renderPreviewSection({
+      isProcessing: true,
+      currentTime: 10,
+      totalDuration: 10,
+      exportPreparationStep: 10,
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(30000);
+    });
+
+    expect(screen.getByText('動画を最終化中です。時間がかかっています...（30秒経過）')).toBeInTheDocument();
   });
 });

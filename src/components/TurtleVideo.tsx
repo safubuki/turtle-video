@@ -1626,6 +1626,16 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   // 改善: 以前はhandleReloadResourcesを呼んでいたが、DOM破棄により動画切り替え時にクラッシュするため
   //       安全な停止・巻き戻し処理に変更
   const handleStop = useCallback(() => {
+    // export 中の停止は「プレビューを 0 秒へ戻す」ではなく、中断要求と UI 復旧を優先する。
+    // 実際の停止/cleanup は export 側の abort 経路でも継続されるため、ここでは state を先に戻して表示を止める。
+    if (isProcessing) {
+      stopWebCodecsExport();
+      setProcessing(false);
+      setLoading(false);
+      setExportPreparationStep(null);
+      return;
+    }
+
     stopAll();
     pause();
     seekSettleGenerationRef.current += 1;
@@ -1677,8 +1687,13 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     // 少し遅延させて確実にシーク反映させる
     renderPausedPreviewFrameAtTimeRef.current(0);
   }, [
+    isProcessing,
     stopAll,
+    stopWebCodecsExport,
     pause,
+    setProcessing,
+    setLoading,
+    setExportPreparationStep,
     setCurrentTime,
     cancelPendingPausedSeekWait,
     cancelPendingSeekPlaybackPrepare,
