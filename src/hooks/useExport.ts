@@ -2408,8 +2408,8 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           (err as any)?.name === 'AbortError' ||
           (err as any)?.message?.includes('Aborted');
 
-        if (exportCompletedRef.current && !hasNotifiedRecordingStop) {
-          logError('export completed but callback was not delivered');
+        if (!hasNotifiedRecordingStop) {
+          logError('recording stop callback was not delivered before export finalization failed');
         }
 
         if (!isAbort) {
