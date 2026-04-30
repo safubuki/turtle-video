@@ -432,6 +432,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   }, [clearExportUiState, exportUrl, isProcessing]);
 
   useEffect(() => {
+    // 100% 付近まで進み URL 未生成の間は、shared UI では finalize フェーズとして扱う。
     const isExportFinalizing =
       isProcessing
       && !exportUrl
@@ -1788,13 +1789,13 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   }, [startEngine]);
 
   const handleExportFinalizeTimeout = useCallback(() => {
-    const shouldSkipTimeoutWarning =
-      !isProcessing ||
-      exportUrl ||
-      exportCompletedRef.current ||
-      exportFinalizingRef.current ||
-      hasShownExportFinalizeWarningRef.current;
-    if (shouldSkipTimeoutWarning) {
+    const shouldShowTimeoutWarning =
+      isProcessing &&
+      !exportUrl &&
+      !exportCompletedRef.current &&
+      !exportFinalizingRef.current &&
+      !hasShownExportFinalizeWarningRef.current;
+    if (!shouldShowTimeoutWarning) {
       return;
     }
     hasShownExportFinalizeWarningRef.current = true;

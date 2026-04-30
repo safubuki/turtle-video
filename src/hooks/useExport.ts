@@ -1182,6 +1182,12 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         hasNotifiedRecordingStop = true;
         onRecordingStop(url, ext);
       };
+      const throwIfExportCancelled = (url: string) => {
+        if (userCancelledExportRef.current && !exportFinalizingRef.current) {
+          URL.revokeObjectURL(url);
+          throw new DOMException('エクスポートが中断されました', 'AbortError');
+        }
+      };
 
       const canvas = canvasRef.current;
       const width = canvas.width;
@@ -2417,10 +2423,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             throw new Error('保存用URLの作成に失敗しました');
           }
 
-          if (userCancelledExportRef.current && !exportFinalizingRef.current) {
-            URL.revokeObjectURL(url);
-            throw new DOMException('エクスポートが中断されました', 'AbortError');
-          }
+          throwIfExportCancelled(url);
 
           try {
             const metadata = await probeExportBlobUrl(url);
@@ -2431,10 +2434,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             });
           }
 
-          if (userCancelledExportRef.current && !exportFinalizingRef.current) {
-            URL.revokeObjectURL(url);
-            throw new DOMException('エクスポートが中断されました', 'AbortError');
-          }
+          throwIfExportCancelled(url);
 
           // ============================================================
           // [DIAG-9] エクスポート最終結果
@@ -2477,7 +2477,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         const isAbort =
           signal.aborted ||
           errorLike?.name === 'AbortError' ||
-          errorLike?.message?.includes('Aborted') === true;
+          Boolean(errorLike?.message?.includes('Aborted'));
 
         if (!hasNotifiedRecordingStop) {
           logError('recording stop callback was not delivered before export finalization failed');
