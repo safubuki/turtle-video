@@ -136,12 +136,12 @@
 ### 2-11. standard preview の image → trimStart あり video 開始直後の hold 強化
 
 - **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
-- **問題**: Android preview で `video -> image -> trimmed video` の境界に入った直後、trimStart 付き動画の先頭フレームがまだ安定しておらず、開始 0.25 秒だけカクつきやすい
+- **問題**: Android preview で `video -> image -> trimmed video` の境界に入った直後、trimStart 付き動画の先頭フレームがまだ安定しておらず、開始 0.2 秒だけカクつきやすい
 - **対策**:
   - `renderFrame` で `previousItem?.type === 'image'` かつ `activeItem.trimStart > 0` の short window（`localTime <= 0.25`）だけ専用ガードを有効にする
   - その間は `currentTime` を `trimStart + localTime` へ 0.03 秒精度で強めに合わせ、補正したフレームは `holdFrame` + `shouldSkipAndroidPreviewActiveDraw` で描画を止める
   - `readyState < 2` / `seeking` / `videoWidth|videoHeight <= 0` でまだ描画不能なら、動画を無理に出さず直前フレーム保持を優先する
-- **注意**: この安定化は Android/PC 向け `standard` preview のみ。audio / export / seek / visibility へ波及させず、`image -> trimmed video` の開始 0.25 秒だけに閉じる
+- **注意**: この安定化は Android/PC 向け `standard` preview のみ。audio / export / seek / visibility へ波及させず、`image -> trimmed video` の開始 0.2 秒だけに閉じる
 
 ### 2-12. standard preview の image 終端 0.5 秒 preseek + trimmed video 先頭 0.2 秒 hold
 

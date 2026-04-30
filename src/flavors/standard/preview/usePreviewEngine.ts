@@ -741,6 +741,8 @@ export function usePreviewEngine({
                 && (
                   activeEl.seeking
                   || activeEl.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+                  || activeEl.videoWidth <= 0
+                  || activeEl.videoHeight <= 0
                   || Math.abs(activeEl.currentTime - targetTime) > PREVIEW_START_READY_SYNC_TOLERANCE_SEC
                 )
               ) {
