@@ -52,6 +52,7 @@ function renderPreviewSection(overrides?: Partial<React.ComponentProps<typeof Pr
     onDownload: vi.fn(),
     onClearAll: vi.fn(),
     onCapture: vi.fn(),
+    onExportFinalizingTimeout: vi.fn(),
     onOpenHelp: vi.fn(),
     formatTime: (seconds: number) => `${seconds.toFixed(1)}s`,
     ...overrides,
@@ -116,7 +117,7 @@ describe('PreviewSection action buttons', () => {
       exportPreparationStep: 1,
     });
 
-    expect(screen.getByRole('button', { name: '書き出しを準備中...' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '書き出し設定を確認しています' })).toBeInTheDocument();
   });
 
   it('音声解析ステージをボタンに反映する', () => {
@@ -126,7 +127,7 @@ describe('PreviewSection action buttons', () => {
       exportPreparationStep: 3,
     });
 
-    expect(screen.getByRole('button', { name: '動画音声を解析中です...' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '動画音声を解析中です' })).toBeInTheDocument();
   });
 
   it('停止位置から 0 秒へ戻る初期化は進捗扱いせず準備表示を維持する', () => {
@@ -159,7 +160,7 @@ describe('PreviewSection action buttons', () => {
       vi.advanceTimersByTime(1800);
     });
 
-    expect(screen.getByRole('button', { name: '書き出しを準備中...' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '書き出し設定を確認しています' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'フレーム待機中...' })).not.toBeInTheDocument();
   });
 
@@ -186,7 +187,7 @@ describe('PreviewSection action buttons', () => {
       vi.advanceTimersByTime(1800);
     });
 
-    expect(screen.getByRole('button', { name: '動画音声を解析中です...' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '動画音声を解析中です' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'フレーム待機中...' })).not.toBeInTheDocument();
   });
 
@@ -202,8 +203,8 @@ describe('PreviewSection action buttons', () => {
       vi.advanceTimersByTime(3000);
     });
 
-    expect(screen.getByRole('button', { name: '動画音声を解析中です...（3秒経過）' })).toBeInTheDocument();
-    expect(screen.getByText('動画数や音声トラック数が多い場合は時間がかかります。（3秒経過）')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '動画音声を解析中です（3秒経過）' })).toBeInTheDocument();
+    expect(screen.getByText('同じ動画が複数ある場合は解析結果を再利用します。（3秒経過）')).toBeInTheDocument();
   });
 
   it('開始直後の閾値を超えた後は生成中表示に切り替わる', () => {
@@ -284,7 +285,7 @@ describe('PreviewSection action buttons', () => {
     expect(screen.getByRole('button', { name: '動画ファイルを作成' })).toBeInTheDocument();
   });
 
-  it('100%到達後に exportUrl が無ければ最終化中表示を出す', () => {
+  it('100%到達後に exportUrl が無ければ保存ファイル作成中表示を出す', () => {
     renderPreviewSection({
       isProcessing: true,
       currentTime: 9.99,
@@ -292,8 +293,8 @@ describe('PreviewSection action buttons', () => {
       exportPreparationStep: 10,
     });
 
-    expect(screen.getByRole('button', { name: '動画を最終化中...' })).toBeInTheDocument();
-    expect(screen.getByText('動画を最終化中...', { selector: 'p' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '保存ファイルを作成中...' })).toBeInTheDocument();
+    expect(screen.getByText('保存ファイルを作成中...', { selector: 'p' })).toBeInTheDocument();
   });
 
   it('終端到達後は stalled ではなく finalizing を維持する', () => {
@@ -309,23 +310,25 @@ describe('PreviewSection action buttons', () => {
       vi.advanceTimersByTime(4000);
     });
 
-    expect(screen.getByRole('button', { name: '動画を最終化中...' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '保存ファイルを作成中...' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'フレーム待機中...' })).not.toBeInTheDocument();
   });
 
-  it('finalizing が長すぎる場合は時間がかかっている案内へ切り替える', () => {
+  it('保存ファイル作成が30秒を超えたら timeout callback を一度だけ呼ぶ', () => {
     vi.useFakeTimers();
+    const onExportFinalizingTimeout = vi.fn();
     renderPreviewSection({
       isProcessing: true,
       currentTime: 10,
       totalDuration: 10,
       exportPreparationStep: 10,
+      onExportFinalizingTimeout,
     });
 
     act(() => {
       vi.advanceTimersByTime(30000);
     });
 
-    expect(screen.getByText('動画を最終化中です。時間がかかっています...（30秒経過）')).toBeInTheDocument();
+    expect(onExportFinalizingTimeout).toHaveBeenCalledTimes(1);
   });
 });

@@ -58,6 +58,8 @@ const getApiKey = (): string => {
   return import.meta.env.VITE_GEMINI_API_KEY || '';
 };
 
+const EXPORT_FINALIZING_TIMEOUT_ERROR = '保存ファイルの作成に失敗しました。もう一度お試しください。';
+
 interface TurtleVideoProps {
   appFlavor: AppFlavor;
   previewRuntime: PreviewRuntime;
@@ -400,6 +402,13 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       cancelPendingSeekPlaybackPrepare();
     };
   }, [cancelPendingSeekPlaybackPrepare]);
+
+  useEffect(() => {
+    if (!exportUrl) return;
+    setProcessing(false);
+    setLoading(false);
+    setExportPreparationStep(null);
+  }, [exportUrl, setExportPreparationStep, setLoading, setProcessing]);
 
   // --- Audio Context ---
   const getAudioContext = useCallback(() => {
@@ -1629,7 +1638,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     // export 中の停止は「プレビューを 0 秒へ戻す」ではなく、中断要求と UI 復旧を優先する。
     // 実際の停止/cleanup は export 側の abort 経路でも継続されるため、ここでは state を先に戻して表示を止める。
     if (isProcessing) {
-      stopWebCodecsExport();
+      stopWebCodecsExport({ silent: true });
       setProcessing(false);
       setLoading(false);
       setExportPreparationStep(null);
@@ -1705,6 +1714,26 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const handleExport = useCallback(() => {
     startEngine(0, true);
   }, [startEngine]);
+
+  const handleExportFinalizingTimeout = useCallback(() => {
+    if (!isProcessing || exportUrl) return;
+    stopWebCodecsExport({ silent: true });
+    setProcessing(false);
+    setLoading(false);
+    setExportPreparationStep(null);
+    pause();
+    stopAll();
+    setError(EXPORT_FINALIZING_TIMEOUT_ERROR);
+  }, [
+    exportUrl,
+    isProcessing,
+    pause,
+    setError,
+    setLoading,
+    setProcessing,
+    stopAll,
+    stopWebCodecsExport,
+  ]);
 
   // --- ダウンロードハンドラ ---
   // 目的: ダウンロード完了時にユーザーへ通知する
@@ -1999,6 +2028,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
                 onDownload={handleDownload}
                 onClearAll={handleClearAll}
                 onCapture={handleCapture}
+                onExportFinalizingTimeout={handleExportFinalizingTimeout}
                 onOpenHelp={() => openSectionHelp('preview')}
                 formatTime={formatTime}
               />

@@ -61,6 +61,15 @@ export function clampAudioTrackVolume(volume: number): number {
   return Math.max(AUDIO_TRACK_MIN_VOLUME, Math.min(AUDIO_TRACK_MAX_VOLUME, volume));
 }
 
+export function getAudioDecodeCacheKey(file: File): string {
+  return [
+    file.name,
+    file.size,
+    file.lastModified,
+    file.type,
+  ].join(':');
+}
+
 function calculateFinalAudioSampleCount(
   sampleRate: number,
   timestampUs: number,
@@ -105,7 +114,7 @@ export interface UseExportReturn {
     audioSources?: ExportAudioSources  // iOS Safari: OfflineAudioContext用音声ソース
   ) => void;
   completeExport: () => void; // 正常終了要求（abortせずにflush/finalizeへ進める）
-  stopExport: () => void; // 明示的な停止メソッドを追加
+  stopExport: (options?: { silent?: boolean }) => void; // 明示的な停止メソッドを追加
   clearExportUrl: () => void;
 }
 
@@ -369,6 +378,7 @@ async function offlineRenderAudio(
     diagnostics?: ExportSessionDiagnostics;
     resolveExportAudioSource?: ResolveExportAudioSource;
     isIosSafari?: boolean;
+    audioDecodeCache?: Map<string, Promise<AudioBuffer | null>>;
   },
 ): Promise<AudioBuffer | null> {
   const { mediaItems, bgm, narrations, totalDuration } = sources;
@@ -395,133 +405,152 @@ async function offlineRenderAudio(
   // 失敗するため、その場合は <video> 要素経由のリアルタイム抽出にフォールバックする。
   async function decodeAudio(file: File | { name: string }, url: string, mediaDuration?: number): Promise<AudioBuffer | null> {
     const fileName = file instanceof File ? file.name : (file as { name: string }).name;
-    const resolvedSource = options?.resolveExportAudioSource?.({
-      fileName,
-      mimeType: file instanceof File ? file.type : null,
-    });
-
-    if (resolvedSource) {
-      log.info('RENDER', '[DIAG-AUDIO-SOURCE] 音声ソース分類', {
-        exportSessionId: options?.diagnostics?.exportSessionId,
+    const cacheKey = file instanceof File ? getAudioDecodeCacheKey(file) : null;
+    const decodePromise = (async (): Promise<AudioBuffer | null> => {
+      const resolvedSource = options?.resolveExportAudioSource?.({
         fileName,
-        strategy: resolvedSource.strategy,
-        reason: resolvedSource.reason,
-        mimeType: resolvedSource.mimeType,
-        extension: resolvedSource.extension,
-      });
-    }
-
-    if (resolvedSource?.strategy === 'media-element' && file instanceof File && typeof mediaDuration === 'number') {
-      log.info('RENDER', '[DIAG-DECODE] media element 抽出を優先', {
-        exportSessionId: options?.diagnostics?.exportSessionId,
-        fileName,
-        reason: resolvedSource.reason,
-      });
-      return await extractAudioViaVideoElement(
-        file,
-        url,
-        mediaDuration,
-        mainCtx,
-        signal,
-        options?.diagnostics,
-      );
-    }
-
-    try {
-      let arrayBuffer: ArrayBuffer;
-      if (file instanceof File) {
-        arrayBuffer = await file.arrayBuffer();
-        log.info('RENDER', `[DIAG-DECODE] File.arrayBuffer 取得成功`, {
-          fileName,
-          arrayBufferSize: arrayBuffer.byteLength,
-          arrayBufferSizeKB: Math.round(arrayBuffer.byteLength / 1024),
-        });
-      } else {
-        const response = await fetch(url);
-        if (!response.ok) {
-          log.warn('RENDER', `[DIAG-DECODE] fetch 失敗`, {
-            fileName,
-            status: response.status,
-            statusText: response.statusText,
-          });
-          return null;
-        }
-        arrayBuffer = await response.arrayBuffer();
-        log.info('RENDER', `[DIAG-DECODE] fetch + arrayBuffer 取得成功`, {
-          fileName,
-          arrayBufferSize: arrayBuffer.byteLength,
-          arrayBufferSizeKB: Math.round(arrayBuffer.byteLength / 1024),
-        });
-      }
-
-      if (arrayBuffer.byteLength === 0) {
-        log.warn('RENDER', `[DIAG-DECODE] ArrayBuffer が空です`, { fileName });
-        return null;
-      }
-
-      // decodeAudioData は渡されたバッファを detach するため、probe 側でコピーを渡す。
-      log.info('RENDER', `[DIAG-DECODE] decodeAudioData probe 開始`, {
-        exportSessionId: options?.diagnostics?.exportSessionId,
-        fileName,
-        usingContext: (mainCtx as { constructor?: { name?: string } }).constructor?.name || 'unknown',
-        contextState: (mainCtx as AudioContext).state || 'N/A',
-        bufferSize: arrayBuffer.byteLength,
-      });
-      const decodeProbe = await probeDecodeAudioData({
-        audioContext: mainCtx,
-        arrayBuffer,
-        fileName,
-        mimeType: file instanceof File ? file.type || null : null,
-        extension: resolvedSource?.extension ?? null,
+        mimeType: file instanceof File ? file.type : null,
       });
 
-      if (decodeProbe.audioBuffer) {
-        log.info('RENDER', `[DIAG-DECODE] 音声デコード成功`, {
-          exportSessionId: options?.diagnostics?.exportSessionId,
-          ...decodeProbe.result,
-          duration: Math.round(decodeProbe.audioBuffer.duration * 100) / 100,
-          channels: decodeProbe.audioBuffer.numberOfChannels,
-        });
-        return decodeProbe.audioBuffer;
-      }
-
-      log.warn('RENDER', `[DIAG-DECODE] decodeAudioData probe 失敗`, {
-        exportSessionId: options?.diagnostics?.exportSessionId,
-        ...decodeProbe.result,
-      });
-    } catch (e) {
-      log.warn('RENDER', `[DIAG-DECODE] decodeAudioData 失敗`, {
-        fileName,
-        error: e instanceof Error ? e.message : String(e),
-        errorName: e instanceof Error ? e.name : 'unknown',
-      });
-    }
-
-    // iOS Safari: ビデオコンテナ(.mov/.mp4)の decodeAudioData が
-    // "EncodingError: Decoding failed" で失敗する場合、
-    // <video> 要素経由でリアルタイム音声抽出を試みる
-    if (file instanceof File) {
-      const isVideoFile = file.type.startsWith('video/') ||
-        /\.(mov|mp4|m4v|webm)$/i.test(fileName);
-      if (isVideoFile && !signal.aborted) {
-        log.info('RENDER', '[DIAG-DECODE] ビデオファイルのため <video> 経由のリアルタイム抽出にフォールバック', {
+      if (resolvedSource) {
+        log.info('RENDER', '[DIAG-AUDIO-SOURCE] 音声ソース分類', {
           exportSessionId: options?.diagnostics?.exportSessionId,
           fileName,
-          fileType: file.type,
-          mediaDuration: mediaDuration || 'unknown',
+          strategy: resolvedSource.strategy,
+          reason: resolvedSource.reason,
+          mimeType: resolvedSource.mimeType,
+          extension: resolvedSource.extension,
+        });
+      }
+
+      if (resolvedSource?.strategy === 'media-element' && file instanceof File && typeof mediaDuration === 'number') {
+        log.info('RENDER', '[DIAG-DECODE] media element 抽出を優先', {
+          exportSessionId: options?.diagnostics?.exportSessionId,
+          fileName,
+          reason: resolvedSource.reason,
         });
         return await extractAudioViaVideoElement(
           file,
           url,
-          mediaDuration || 30,
+          mediaDuration,
           mainCtx,
           signal,
           options?.diagnostics,
         );
       }
+
+      try {
+        let arrayBuffer: ArrayBuffer;
+        if (file instanceof File) {
+          arrayBuffer = await file.arrayBuffer();
+          log.info('RENDER', `[DIAG-DECODE] File.arrayBuffer 取得成功`, {
+            fileName,
+            arrayBufferSize: arrayBuffer.byteLength,
+            arrayBufferSizeKB: Math.round(arrayBuffer.byteLength / 1024),
+          });
+        } else {
+          const response = await fetch(url);
+          if (!response.ok) {
+            log.warn('RENDER', `[DIAG-DECODE] fetch 失敗`, {
+              fileName,
+              status: response.status,
+              statusText: response.statusText,
+            });
+            return null;
+          }
+          arrayBuffer = await response.arrayBuffer();
+          log.info('RENDER', `[DIAG-DECODE] fetch + arrayBuffer 取得成功`, {
+            fileName,
+            arrayBufferSize: arrayBuffer.byteLength,
+            arrayBufferSizeKB: Math.round(arrayBuffer.byteLength / 1024),
+          });
+        }
+
+        if (arrayBuffer.byteLength === 0) {
+          log.warn('RENDER', `[DIAG-DECODE] ArrayBuffer が空です`, { fileName });
+          return null;
+        }
+
+        // decodeAudioData は渡されたバッファを detach するため、probe 側でコピーを渡す。
+        log.info('RENDER', `[DIAG-DECODE] decodeAudioData probe 開始`, {
+          exportSessionId: options?.diagnostics?.exportSessionId,
+          fileName,
+          usingContext: (mainCtx as { constructor?: { name?: string } }).constructor?.name || 'unknown',
+          contextState: (mainCtx as AudioContext).state || 'N/A',
+          bufferSize: arrayBuffer.byteLength,
+        });
+        const decodeProbe = await probeDecodeAudioData({
+          audioContext: mainCtx,
+          arrayBuffer,
+          fileName,
+          mimeType: file instanceof File ? file.type || null : null,
+          extension: resolvedSource?.extension ?? null,
+        });
+
+        if (decodeProbe.audioBuffer) {
+          log.info('RENDER', `[DIAG-DECODE] 音声デコード成功`, {
+            exportSessionId: options?.diagnostics?.exportSessionId,
+            ...decodeProbe.result,
+            duration: Math.round(decodeProbe.audioBuffer.duration * 100) / 100,
+            channels: decodeProbe.audioBuffer.numberOfChannels,
+          });
+          return decodeProbe.audioBuffer;
+        }
+
+        log.warn('RENDER', `[DIAG-DECODE] decodeAudioData probe 失敗`, {
+          exportSessionId: options?.diagnostics?.exportSessionId,
+          ...decodeProbe.result,
+        });
+      } catch (e) {
+        log.warn('RENDER', `[DIAG-DECODE] decodeAudioData 失敗`, {
+          fileName,
+          error: e instanceof Error ? e.message : String(e),
+          errorName: e instanceof Error ? e.name : 'unknown',
+        });
+      }
+
+      // iOS Safari: ビデオコンテナ(.mov/.mp4)の decodeAudioData が
+      // "EncodingError: Decoding failed" で失敗する場合、
+      // <video> 要素経由でリアルタイム音声抽出を試みる
+      if (file instanceof File) {
+        const isVideoFile = file.type.startsWith('video/') ||
+          /\.(mov|mp4|m4v|webm)$/i.test(fileName);
+        if (isVideoFile && !signal.aborted) {
+          log.info('RENDER', '[DIAG-DECODE] ビデオファイルのため <video> 経由のリアルタイム抽出にフォールバック', {
+            exportSessionId: options?.diagnostics?.exportSessionId,
+            fileName,
+            fileType: file.type,
+            mediaDuration: mediaDuration || 'unknown',
+          });
+          return await extractAudioViaVideoElement(
+            file,
+            url,
+            mediaDuration || 30,
+            mainCtx,
+            signal,
+            options?.diagnostics,
+          );
+        }
+      }
+
+      return null;
+    })();
+
+    if (!cacheKey || !options?.audioDecodeCache) {
+      return decodePromise;
     }
 
-    return null;
+    const cachedPromise = options.audioDecodeCache.get(cacheKey);
+    if (cachedPromise) {
+      log.info('RENDER', '[DIAG-DECODE] 既存 decode 結果を再利用', {
+        exportSessionId: options?.diagnostics?.exportSessionId,
+        fileName,
+      });
+      return await cachedPromise;
+    }
+
+    options.audioDecodeCache.set(cacheKey, decodePromise);
+    return await decodePromise;
   }
 
   let scheduledSources = 0;
@@ -1002,6 +1031,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
     const videoReaderRef = useRef<ReadableStreamDefaultReader<VideoFrame> | null>(null);
     const audioReaderRef = useRef<ReadableStreamDefaultReader<AudioData> | null>(null);
     const completionRequestedRef = useRef(false);
+    const silentAbortRef = useRef(false);
 
     // 互換性維持のためのダミーRef（実際には使用しない）
     const recorderRef = useRef<MediaRecorder | null>(null);
@@ -1013,9 +1043,10 @@ export function createUseExport(config: UseExportRuntimeConfig) {
     );
 
   // エクスポート停止処理
-  const stopExport = useCallback(() => {
+  const stopExport = useCallback((options?: { silent?: boolean }) => {
     useLogStore.getState().info('RENDER', 'エクスポートを停止');
     completionRequestedRef.current = false;
+    silentAbortRef.current = options?.silent === true;
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
@@ -1087,7 +1118,15 @@ export function createUseExport(config: UseExportRuntimeConfig) {
       });
       setExportExt(null);
       completionRequestedRef.current = false;
+      silentAbortRef.current = false;
       updatePreparationStep(audioSources, 1);
+      const audioDecodeCache = new Map<string, Promise<AudioBuffer | null>>();
+      let hasNotifiedRecordingStop = false;
+      const notifyRecordingStop = (url: string, ext: string) => {
+        if (hasNotifiedRecordingStop) return;
+        hasNotifiedRecordingStop = true;
+        onRecordingStop(url, ext);
+      };
 
       const canvas = canvasRef.current;
       const width = canvas.width;
@@ -1238,6 +1277,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                 diagnostics: { exportSessionId },
                 resolveExportAudioSource: config.resolveExportAudioSource,
                 isIosSafari,
+                audioDecodeCache,
               },
             );
             if (renderedAudio && !signal.aborted) {
@@ -1299,7 +1339,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
               audioSources,
               preRenderedAudio,
               callbacks: {
-                onRecordingStop,
+                onRecordingStop: notifyRecordingStop,
                 onRecordingError,
               },
               state: {
@@ -2329,7 +2369,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           });
           setExportUrl(url);
           setExportExt('mp4');
-          onRecordingStop(url, 'mp4');
+          notifyRecordingStop(url, 'mp4');
         } else {
           useLogStore.getState().warn('RENDER', 'エクスポートバッファが空');
           onRecordingError?.('エクスポートに失敗しました。書き出しデータが空です。');
@@ -2351,7 +2391,9 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           );
         } else {
           logInfo('エクスポートが中断されました');
-          onRecordingError?.('エクスポートが中断されました');
+          if (!silentAbortRef.current) {
+            onRecordingError?.('エクスポートが中断されました');
+          }
         }
       } finally {
         if (canvasFramePumpTimer) {
@@ -2374,6 +2416,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         audioReaderRef.current = null;
         recorderRef.current = null;
         completionRequestedRef.current = false;
+        silentAbortRef.current = false;
         setIsProcessing(false);
       }
     },

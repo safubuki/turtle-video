@@ -225,6 +225,54 @@ describe('useExport', () => {
     });
   });
 
+  it('stopExport({ silent: true }) は中断エラーを通知しない', async () => {
+    mockGetPlatformCapabilities.mockReturnValue(
+      createPlatformCapabilities({
+        isIOS: true,
+        isSafari: true,
+        isIosSafari: true,
+        supportsMp4MediaRecorder: true,
+        supportedMediaRecorderProfile: {
+          mimeType: 'video/mp4',
+          extension: 'mp4',
+        },
+      }),
+    );
+
+    mockRunIosSafariMediaRecorderStrategy.mockImplementation(
+      ({ signal }: { signal: AbortSignal }) =>
+        new Promise<boolean>((resolve) => {
+          signal.addEventListener('abort', () => resolve(false), { once: true });
+        }),
+    );
+
+    const { result } = renderHook(() => useAppleSafariExport());
+    const args = createStartExportArgs();
+
+    await act(async () => {
+      result.current.startExport(
+        args.canvasRef,
+        args.masterDestRef,
+        args.onRecordingStop,
+        args.onRecordingError,
+      );
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(result.current.isProcessing).toBe(true);
+    });
+
+    act(() => {
+      result.current.stopExport({ silent: true });
+    });
+
+    await waitFor(() => {
+      expect(result.current.isProcessing).toBe(false);
+    });
+    expect(args.onRecordingError).not.toHaveBeenCalled();
+  });
+
   it('clearExportUrl は保持中の Blob URL を解放して state を空にする', () => {
     const revokeSpy = vi.spyOn(URL, 'revokeObjectURL');
     const { result } = renderHook(() => useStandardExport());
