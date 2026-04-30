@@ -293,7 +293,7 @@ describe('PreviewSection action buttons', () => {
     });
 
     expect(screen.getByRole('button', { name: '動画を最終化中...' })).toBeInTheDocument();
-    expect(screen.getByText('動画を最終化中...')).toBeInTheDocument();
+    expect(screen.getAllByText('動画を最終化中...')).toHaveLength(2);
   });
 
   it('終端到達後は stalled ではなく finalizing を維持する', () => {
