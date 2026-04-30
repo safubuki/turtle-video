@@ -247,6 +247,10 @@ interface ProjectState {
 
 let projectSaveQueue: Promise<void> = Promise.resolve();
 
+function isValidArrayBuffer(value: unknown): value is ArrayBuffer {
+  return Object.prototype.toString.call(value) === '[object ArrayBuffer]';
+}
+
 function enqueueProjectSave<T>(task: () => Promise<T>): Promise<T> {
   const run = projectSaveQueue.catch(() => undefined).then(task);
   projectSaveQueue = run.then(() => undefined, () => undefined);
@@ -287,7 +291,7 @@ async function readSerializableFileData(params: {
 }
 
 async function serializeMediaItem(item: MediaItem): Promise<SerializedMediaItem> {
-  const fileData = await readSerializableFileData({
+  const fileData = isValidArrayBuffer(item.fileData) ? item.fileData : await readSerializableFileData({
     file: item.file,
     fallbackUrl: item.url,
     kind: 'メディア',
@@ -321,6 +325,7 @@ function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
   return {
     id: data.id,
     file,
+    fileData: data.fileData,
     type: data.type,
     url: URL.createObjectURL(file),
     volume: data.volume,

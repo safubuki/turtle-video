@@ -377,6 +377,16 @@
 - **ファイル**: `src/stores/logStore.ts`, `src/components/TurtleVideo.tsx`
 - **対策**: 10 秒間隔で `performance.memory`（Chrome 限定）からヒープ使用量を取得・記録
 
+### 4-5. Android picker 由来メディアの保存スナップショット
+
+- **ファイル**: `src/utils/media.ts`, `src/stores/mediaStore.ts`, `src/stores/projectStore.ts`, `src/types/index.ts`
+- **問題**: Android の picker 経由 `File` は後段の手動保存 / 自動保存時に再読込できず、`blob:` URL fetch も失敗することがある
+- **対策**:
+  - メディア追加直後に `file.arrayBuffer()` を読み、アプリ管理の `File` と `ObjectURL` を作成して `MediaItem.fileData` に保持する
+  - `serializeMediaItem()` は `item.fileData` を最優先で使い、未保持時だけ `file/url` fallback を使う
+  - `deserializeMediaItem()` でも `fileData` を `MediaItem` に戻し、保存済みプロジェクトの再保存で再読込に依存しない
+- **注意**: 新たに `createObjectURL` する URL は既存の `remove/clear/restore` 経路で解放される前提を崩さない
+
 ---
 
 ## 5. エラーハンドリング（3層防御）

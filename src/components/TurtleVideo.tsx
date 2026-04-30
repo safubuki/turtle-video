@@ -1084,7 +1084,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   ]);
 
   // --- アップロード処理 ---
-  const processUploadedMediaFiles = useCallback((files: File[]) => {
+  const processUploadedMediaFiles = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
     pausePreviewBeforeEdit('add-media');
     const ctx = getAudioContext();
@@ -1092,7 +1092,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       ctx.resume().catch(console.error);
     }
     clearExport();
-    addMediaItems(files);
+    await addMediaItems(files);
     files.forEach(file => {
       logInfo('MEDIA', `メディア追加: ${file.name}`, {
         type: file.type.startsWith('video/') ? 'video' : 'image',
@@ -1103,11 +1103,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   }, [pausePreviewBeforeEdit, getAudioContext, clearExport, addMediaItems, logInfo]);
 
   const handleMediaUpload = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
       try {
         const files = Array.from(e.target.files || []);
         e.target.value = '';
-        processUploadedMediaFiles(files);
+        await processUploadedMediaFiles(files);
       } catch (err) {
         setError('メディアの読み込みエラー');
         logError('MEDIA', 'メディア読み込みエラー', { error: String(err) });
@@ -1132,7 +1132,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
           },
         ],
       });
-      processUploadedMediaFiles(files);
+      await processUploadedMediaFiles(files);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         return;

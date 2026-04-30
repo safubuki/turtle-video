@@ -71,6 +71,7 @@ function createMediaItem(fileName: string, type: 'video' | 'image' = 'video'): M
   return {
     id: `${type}-${fileName}`,
     file: new File(['dummy'], fileName, { type: fileType }),
+    fileData: undefined,
     type,
     url: `blob:${fileName}`,
     volume: 1,
@@ -278,6 +279,62 @@ describe('projectStore save behavior', () => {
     expect(useProjectStore.getState().lastSaveFailure).toBeNull();
   });
 
+  it('旧データ互換で fileData がなければ File 読み込みを優先する', async () => {
+    const mediaItems = [createMediaItem('file-first.mp4', 'video')];
+    const fileData = new ArrayBuffer(12);
+    mocks.fileToArrayBuffer.mockResolvedValueOnce(fileData);
+
+    await expect(
+      useProjectStore.getState().saveProjectManual(
+        mediaItems,
+        false,
+        null,
+        false,
+        [],
+        false,
+        [],
+        defaultCaptionSettings,
+        false
+      )
+    ).resolves.toBeUndefined();
+
+    expect(mocks.fileToArrayBuffer).toHaveBeenCalledWith(mediaItems[0].file);
+    expect(mocks.blobUrlToArrayBuffer).not.toHaveBeenCalled();
+    const savedProjectData = mocks.saveProject.mock.calls[0][0] as ProjectData;
+    expect(savedProjectData.mediaItems[0].fileData).toBe(fileData);
+  });
+
+  it('メディアに fileData があれば File/url 再読み込みなしで保存する', async () => {
+    const fileData = new TextEncoder().encode('stable-media').buffer as ArrayBuffer;
+    const mediaItems = [{
+      ...createMediaItem('stable.mp4', 'video'),
+      fileData,
+    }];
+
+    mocks.fileToArrayBuffer.mockRejectedValue(new Error('should not read file'));
+    mocks.blobUrlToArrayBuffer.mockRejectedValue(new Error('should not read url'));
+
+    await expect(
+      useProjectStore.getState().saveProjectManual(
+        mediaItems,
+        false,
+        null,
+        false,
+        [],
+        false,
+        [],
+        defaultCaptionSettings,
+        false
+      )
+    ).resolves.toBeUndefined();
+
+    expect(mocks.fileToArrayBuffer).not.toHaveBeenCalled();
+    expect(mocks.blobUrlToArrayBuffer).not.toHaveBeenCalled();
+    expect(mocks.saveProject).toHaveBeenCalledTimes(1);
+    const savedProjectData = mocks.saveProject.mock.calls[0][0] as ProjectData;
+    expect(savedProjectData.mediaItems[0].fileData).toBe(fileData);
+  });
+
   it('素材名付きの読み込み失敗を保持して inspect-media を提案する', async () => {
     const mediaItems = [createMediaItem('broken.mp4', 'video')];
 
@@ -321,7 +378,7 @@ describe('projectStore save behavior', () => {
     );
 
     expect(mocks.saveProject).toHaveBeenCalledTimes(1);
-    const savedProjectData = mocks.saveProject.mock.calls[0][0] as { mediaItems: Array<{ fileName: string }> };
+    const savedProjectData = mocks.saveProject.mock.calls[0][0] as { mediaItems: Array<{ fileName: string; fileData: ArrayBuffer }> };
     expect(savedProjectData.mediaItems[0].fileName).toBe('original-name.mp4');
 
     mocks.loadProject.mockResolvedValue(savedProjectData);
@@ -332,6 +389,7 @@ describe('projectStore save behavior', () => {
       throw new Error('loaded project was null');
     }
     expect(loaded.mediaItems[0].file.name).toBe('original-name.mp4');
+    expect(loaded.mediaItems[0].fileData).toBe(savedProjectData.mediaItems[0].fileData);
   });
 
   it('resetSaveDatabase は保存情報と失敗状態を初期化する', async () => {

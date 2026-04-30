@@ -28,7 +28,7 @@ interface MediaState {
   isClipsLocked: boolean;
 
   // Actions
-  addMediaItems: (files: File[]) => void;
+  addMediaItems: (files: File[]) => Promise<void>;
   removeMediaItem: (id: string) => void;
   moveMediaItem: (index: number, direction: 'up' | 'down') => void;
   updateMediaItem: (id: string, updates: Partial<MediaItem>) => void;
@@ -77,9 +77,12 @@ export const useMediaStore = create<MediaState>()(
       isClipsLocked: false,
 
       // Add media items
-      addMediaItems: (files) => {
+      addMediaItems: async (files) => {
         useLogStore.getState().info('MEDIA', 'メディアアイテムを追加', { fileCount: files.length, fileNames: files.map(f => f.name) });
-        const newItems = files.map(createMediaItem);
+        const newItems: MediaItem[] = [];
+        for (const file of files) {
+          newItems.push(await createMediaItem(file));
+        }
         set((state) => {
           const updated = [...state.mediaItems, ...newItems];
           useLogStore.getState().info('MEDIA', 'メディアアイテム追加完了', { totalItems: updated.length, totalDuration: calculateTotalDuration(updated) });
