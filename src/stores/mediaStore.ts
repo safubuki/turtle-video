@@ -79,7 +79,10 @@ export const useMediaStore = create<MediaState>()(
       // Add media items
       addMediaItems: async (files) => {
         useLogStore.getState().info('MEDIA', 'メディアアイテムを追加', { fileCount: files.length, fileNames: files.map(f => f.name) });
-        const newItems = await Promise.all(files.map(createMediaItem));
+        const newItems: MediaItem[] = [];
+        for (const file of files) {
+          newItems.push(await createMediaItem(file));
+        }
         set((state) => {
           const updated = [...state.mediaItems, ...newItems];
           useLogStore.getState().info('MEDIA', 'メディアアイテム追加完了', { totalItems: updated.length, totalDuration: calculateTotalDuration(updated) });

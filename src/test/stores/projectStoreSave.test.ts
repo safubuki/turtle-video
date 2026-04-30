@@ -279,6 +279,31 @@ describe('projectStore save behavior', () => {
     expect(useProjectStore.getState().lastSaveFailure).toBeNull();
   });
 
+  it('旧データ互換で fileData がなければ File 読み込みを優先する', async () => {
+    const mediaItems = [createMediaItem('file-first.mp4', 'video')];
+    const fileData = new ArrayBuffer(12);
+    mocks.fileToArrayBuffer.mockResolvedValueOnce(fileData);
+
+    await expect(
+      useProjectStore.getState().saveProjectManual(
+        mediaItems,
+        false,
+        null,
+        false,
+        [],
+        false,
+        [],
+        defaultCaptionSettings,
+        false
+      )
+    ).resolves.toBeUndefined();
+
+    expect(mocks.fileToArrayBuffer).toHaveBeenCalledWith(mediaItems[0].file);
+    expect(mocks.blobUrlToArrayBuffer).not.toHaveBeenCalled();
+    const savedProjectData = mocks.saveProject.mock.calls[0][0] as ProjectData;
+    expect(savedProjectData.mediaItems[0].fileData).toBe(fileData);
+  });
+
   it('メディアに fileData があれば File/url 再読み込みなしで保存する', async () => {
     const fileData = new TextEncoder().encode('stable-media').buffer as ArrayBuffer;
     const mediaItems = [{

@@ -18,16 +18,22 @@ describe('mediaStore', () => {
   describe('addMediaItems', () => {
     it('should add media items from files', async () => {
       const { addMediaItems } = useMediaStore.getState();
-      const file = new File([''], 'test.mp4', { type: 'video/mp4' });
+      const file = new File(['test content'], 'test.mp4', { type: 'video/mp4', lastModified: 123456789 });
       
       await addMediaItems([file]);
       
       const { mediaItems } = useMediaStore.getState();
+      const originalData = await new Response(file).arrayBuffer();
       expect(mediaItems).toHaveLength(1);
       expect(mediaItems[0].file).not.toBe(file);
       expect(mediaItems[0].file.name).toBe(file.name);
       expect(mediaItems[0].file.type).toBe(file.type);
+      expect(mediaItems[0].file.lastModified).toBe(file.lastModified);
       expect(mediaItems[0].fileData).toBeInstanceOf(ArrayBuffer);
+      await expect(new Response(mediaItems[0].file).arrayBuffer()).resolves.toEqual(
+        originalData
+      );
+      expect(mediaItems[0].fileData?.byteLength).toBe(originalData.byteLength);
       expect(mediaItems[0].type).toBe('video');
     });
 
