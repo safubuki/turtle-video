@@ -418,11 +418,11 @@ describe('useExport', () => {
       result.current.stopExport({ reason: 'user' });
     });
 
-    const activeSignal = capturedSignal;
-    if (!activeSignal) {
+    if (!capturedSignal) {
       throw new Error('AbortSignal was not captured');
     }
-    expect(activeSignal.aborted).toBe(false);
+    const signal = capturedSignal as AbortSignal;
+    expect(signal.aborted).toBe(false);
 
     await act(async () => {
       resolveStrategy?.(true);
