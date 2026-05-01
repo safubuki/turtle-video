@@ -492,6 +492,12 @@ export function usePreviewEngine({
     targetStartSec: number;
     preseeked: boolean;
   }>>({});
+  const trimmedEntryLogStateRef = useRef<Record<string, {
+    preseekMissLogged: boolean;
+    holdSuppressedLogged: boolean;
+    startLatencyLogged: boolean;
+    boundaryEnterAtMs: number | null;
+  }>>({});
   const lastDrawableFrameRef = useRef<ImageBitmap | null>(null);
   const androidVisualBridgeStateRef = useRef<{ previousId: string | null; activeId: string | null; bridgeFrameCount: number; }>({
     previousId: null,
@@ -1054,7 +1060,12 @@ export function usePreviewEngine({
                 }
               } else if (isTrimmedEntry) {
                 entryState.holdFrameCount = 0;
-                logInfo('RENDER', 'preview.trimmedEntry.drift', {
+                const boundaryLogState = trimmedEntryLogStateRef.current[activeId] ?? { preseekMissLogged: false, holdSuppressedLogged: false, startLatencyLogged: false, boundaryEnterAtMs: null };
+                if (localTime <= 0.02 && boundaryLogState.boundaryEnterAtMs === null) {
+                  boundaryLogState.boundaryEnterAtMs = Date.now();
+                }
+                trimmedEntryLogStateRef.current[activeId] = boundaryLogState;
+                if (trimmedDrift >= 0.08) logInfo('RENDER', 'preview.trimmedEntry.drift', {
                   segmentIndex: activeIndex,
                   localTime,
                   trimStart,
@@ -1068,26 +1079,46 @@ export function usePreviewEngine({
                   holdFrame: false,
                   holdFrameCount: entryState.holdFrameCount,
                 });
-                if (trimmedDrift >= 0.08 && trimmedDrift < 0.2) {
+                if (trimmedDrift >= 0.08 && trimmedDrift < 0.15) {
                   logInfo('RENDER', 'preview.trimmedEntry.softDriftAllowed', {
                     segmentIndex: activeIndex,
                     drift: trimmedDrift,
                   });
                 }
-                if (!isPreseekReadyEntry && isPlayableTrimmedEntry) {
+                if (!isPreseekReadyEntry && isPlayableTrimmedEntry && !boundaryLogState.holdSuppressedLogged) {
+                  boundaryLogState.holdSuppressedLogged = true;
                   logInfo('RENDER', 'preview.trimmedEntry.holdSuppressed', {
                     segmentIndex: activeIndex,
                     drift: trimmedDrift,
                     preseekCompleted: !!preseekState?.completed,
                   });
                 }
-                if (!preseekState?.completed) {
+                if (!preseekState?.completed && !boundaryLogState.preseekMissLogged) {
+                  boundaryLogState.preseekMissLogged = true;
                   logWarn('RENDER', 'preview.trimmedEntry.preseekMiss', {
                     segmentIndex: activeIndex,
                     localTime,
                     trimStart,
                     drift: trimmedDrift,
                   });
+                }
+                if (!boundaryLogState.startLatencyLogged && boundaryLogState.boundaryEnterAtMs !== null) {
+                  const elapsed = Date.now() - boundaryLogState.boundaryEnterAtMs;
+                  const advancedMs = (activeEl.currentTime - trimStart) * 1000;
+                  if (elapsed >= 100 && advancedMs < 50) {
+                    boundaryLogState.startLatencyLogged = true;
+                    logWarn('RENDER', 'preview.nextVideo.startLatency', {
+                      segmentIndex: activeIndex,
+                      trimStart,
+                      boundaryGlobalTimeMs: Math.round((time - localTime) * 1000),
+                      videoCurrentTime: activeEl.currentTime,
+                      elapsedAfterBoundaryMs: elapsed,
+                      currentTimeAdvancedMs: advancedMs,
+                      readyState: activeEl.readyState,
+                      paused: activeEl.paused,
+                      seeking: activeEl.seeking,
+                    });
+                  }
                 }
               }
               let didApplyAndroidPreviewDriftFix = false;
@@ -1313,7 +1344,7 @@ export function usePreviewEngine({
               const shouldPreseekNextVideo =
                 isAndroidPreviewPlayback
                 && remainingTime >= 0
-                && remainingTime <= PREVIEW_ANDROID_NEXT_VIDEO_PREWARM_WINDOW_SEC
+                && remainingTime <= activeItem.duration
                 && nextVideoItem.type === 'video'
                 && (nextVideoItem.trimStart || 0) > 0;
               const nextStart = nextVideoItem.trimStart || 0;
@@ -1369,8 +1400,12 @@ export function usePreviewEngine({
                   preseeked: warmupState.preseeked,
                 });
               }
-              if (preseekState && (nextElement.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME || !nextElement.seeking)) {
-                preseekState.completed = true;
+              if (preseekState) {
+                const preseekDrift = Math.abs(nextElement.currentTime - preseekState.targetTime);
+                const hasFirstFrame = nextElement.videoWidth > 0 && nextElement.videoHeight > 0;
+                if (nextElement.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME && !nextElement.seeking && preseekDrift <= 0.05 && hasFirstFrame) {
+                  preseekState.completed = true;
+                }
               }
               if (!shouldPreseekNextVideo && (nextElement.paused || nextElement.readyState < 2)) {
                 if (Math.abs(nextElement.currentTime - nextStart) > 0.1) {
@@ -3099,11 +3134,33 @@ export function usePreviewEngine({
             return;
           }
         }
+        const nextVideoElForPreflight = nextVideoItem?.type === 'video'
+          ? mediaElementsRef.current[nextVideoItem.id] as HTMLVideoElement | undefined
+          : undefined;
+        const nextTrimStart = nextVideoItem?.trimStart || 0;
+        const nextPreseekState = nextVideoItem ? androidTrimPreseekRef.current[nextVideoItem.id] : undefined;
+        const nextPreseekDrift = nextVideoElForPreflight
+          ? Math.abs(nextVideoElForPreflight.currentTime - nextTrimStart)
+          : Infinity;
+        const isNextVideoReady = !nextVideoItem || (
+          !!nextVideoElForPreflight
+          && !!nextVideoElForPreflight.currentSrc
+          && nextVideoElForPreflight.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+          && nextVideoElForPreflight.videoWidth > 0
+          && nextVideoElForPreflight.videoHeight > 0
+          && !!nextPreseekState?.completed
+          && nextPreseekDrift <= 0.05
+        );
+
         logInfo('RENDER', 'preview.preflight.ready', {
           globalTimeMs: Math.round(fromTime * 1000),
           totalDurationMs: Math.round(totalDurationRef.current * 1000),
           hasActiveVideo: !!activeVideoElForBundledStart,
+          activeVideoReadyState: activeVideoElForBundledStart?.readyState ?? null,
           hasNextVideo: !!nextVideoItem,
+          nextVideoReady: isNextVideoReady,
+          preseekCompleted: !!nextPreseekState?.completed,
+          preseekDrift: Number.isFinite(nextPreseekDrift) ? nextPreseekDrift : null,
         });
 
         if (preparedPreviewAudio.requiresWebAudio) {
