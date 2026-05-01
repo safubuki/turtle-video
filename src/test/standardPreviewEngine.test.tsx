@@ -300,6 +300,7 @@ describe('standard preview engine', () => {
         resetInactiveVideos,
         startWebCodecsExport: vi.fn(),
         stopWebCodecsExport: vi.fn(),
+        completeWebCodecsExport: vi.fn(),
         logInfo: vi.fn(),
         logWarn: vi.fn(),
         logDebug: vi.fn(),
@@ -412,6 +413,7 @@ describe('standard preview engine', () => {
         resetInactiveVideos: vi.fn(),
         startWebCodecsExport: vi.fn(),
         stopWebCodecsExport: vi.fn(),
+        completeWebCodecsExport: vi.fn(),
         logInfo: vi.fn(),
         logWarn: vi.fn(),
         logDebug: vi.fn(),
@@ -1196,6 +1198,102 @@ describe('standard preview engine', () => {
     outsideHarness.hook.result.current.renderFrame(1.26, true, false);
 
     expect(outsideWindowVideo.currentTime).toBeCloseTo(1.6);
+  });
+
+  it('export モードでタイムライン終端に達したとき completeWebCodecsExport を呼び stopWebCodecsExport を呼ばない', () => {
+    // タイムライン終端で stopAll() → stopWebCodecsExport({ reason: 'user' }) が誤呼び出しされ
+    // blob 生成後の callback が抑止される問題の回帰テスト。
+    const mediaItem = createVideoItem({ id: 'video-1', duration: 6, trimStart: 0, trimEnd: 6 });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 2;
+    videoElement.seeking = false;
+
+    // now=6000ms, startTime=0ms → clampedElapsed = 6 = totalDuration → 終端判定
+    vi.spyOn(playbackClock, 'getStandardPreviewNow').mockReturnValue(6000);
+
+    const completeWebCodecsExport = vi.fn();
+    const stopWebCodecsExport = vi.fn();
+
+    renderHook(() =>
+      usePreviewEngine({
+        captions: [] as Caption[],
+        captionSettings: {} as CaptionSettings,
+        mediaItemsRef: createRef([mediaItem]),
+        bgmRef: createRef<AudioTrack | null>(null),
+        narrationsRef: createRef<NarrationClip[]>([]),
+        captionsRef: createRef<Caption[]>([]),
+        captionSettingsRef: createRef({} as CaptionSettings),
+        totalDurationRef: createRef(6),
+        currentTimeRef: createRef(0),
+        canvasRef: createRef({
+          getContext: vi.fn(() => createMockCanvasContext()),
+        } as unknown as HTMLCanvasElement),
+        mediaElementsRef: createRef({ [mediaItem.id]: videoElement as unknown as HTMLVideoElement } as MediaElementsRef),
+        audioCtxRef: createRef(null),
+        sourceNodesRef: createRef({}),
+        gainNodesRef: createRef({}),
+        masterDestRef: createRef(null),
+        audioRoutingModeRef: createRef<'preview' | 'export'>('preview'),
+        reqIdRef: createRef<number | null>(null),
+        startTimeRef: createRef(0),
+        audioResumeWaitFramesRef: createRef(0),
+        recorderRef: createRef<MediaRecorder | null>(null),
+        loopIdRef: createRef(1),
+        isPlayingRef: createRef(true),
+        isSeekingRef: createRef(false),
+        isSeekPlaybackPreparingRef: createRef(false),
+        activeVideoIdRef: createRef<string | null>(null),
+        videoRecoveryAttemptsRef: createRef({}),
+        exportPlayFailedRef: createRef({}),
+        exportFallbackSeekAtRef: createRef({}),
+        seekingVideosRef: createRef(new Set<string>()),
+        pendingSeekRef: createRef<number | null>(null),
+        wasPlayingBeforeSeekRef: createRef(false),
+        pendingSeekTimeoutRef: createRef<ReturnType<typeof setTimeout> | null>(null),
+        previewPlaybackAttemptRef: createRef(0),
+        requestPreviewAudioRouteRefreshRef: createRef(() => {}),
+        primePreviewAudioOnlyTracksAtTimeRef: createRef(() => {}),
+        endFinalizedRef: createRef(false),
+        previewPlatformPolicy: standardPreviewRuntime.getPreviewPlatformPolicy(
+          getStandardPreviewPlatformCapabilities(createCapabilities()),
+        ),
+        platformCapabilities: { isAndroid: true, isIosSafari: false },
+        setVideoDuration: vi.fn(),
+        setCurrentTime: vi.fn(),
+        setProcessing: vi.fn(),
+        setLoading: vi.fn(),
+        setExportPreparationStep: vi.fn(),
+        setExportUrl: vi.fn(),
+        setExportExt: vi.fn(),
+        clearExport: vi.fn(),
+        setError: vi.fn(),
+        play: vi.fn(),
+        pause: vi.fn(),
+        getAudioContext: vi.fn(),
+        cancelPendingPausedSeekWait: vi.fn(),
+        cancelPendingSeekPlaybackPrepare: vi.fn(),
+        detachGlobalSeekEndListeners: vi.fn(),
+        ensureAudioNodeForElement: vi.fn(() => false),
+        detachAudioNode: vi.fn(),
+        preparePreviewAudioNodesForTime: vi.fn(() => ({
+          activeVideoId: mediaItem.id,
+          audibleSourceCount: 1,
+          requiresWebAudio: false,
+        })),
+        preparePreviewAudioNodesForUpcomingVideos: vi.fn(),
+        primePreviewAudioOnlyTracksAtTime: vi.fn(),
+        resetInactiveVideos: vi.fn(),
+        startWebCodecsExport: vi.fn(),
+        stopWebCodecsExport,
+        completeWebCodecsExport,
+        logInfo: vi.fn(),
+        logWarn: vi.fn(),
+        logDebug: vi.fn(),
+      }),
+    ).result.current.loop(true, 1);
+
+    expect(completeWebCodecsExport).toHaveBeenCalledTimes(1);
+    expect(stopWebCodecsExport).not.toHaveBeenCalled();
   });
 
 });

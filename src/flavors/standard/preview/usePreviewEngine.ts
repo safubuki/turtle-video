@@ -119,6 +119,7 @@ interface UsePreviewEngineParams {
   resetInactiveVideos: (options?: ResetInactiveVideosOptions) => void;
   startWebCodecsExport: UseExportReturn['startExport'];
   stopWebCodecsExport: UseExportReturn['stopExport'];
+  completeWebCodecsExport: UseExportReturn['completeExport'];
   logInfo: LogFn;
   logWarn: LogFn;
   logDebug: LogFn;
@@ -439,6 +440,7 @@ export function usePreviewEngine({
   resetInactiveVideos,
   startWebCodecsExport,
   stopWebCodecsExport,
+  completeWebCodecsExport,
   logInfo,
   logWarn,
   logDebug,
@@ -2042,7 +2044,14 @@ export function usePreviewEngine({
       }
 
       if (clampedElapsed >= totalDuration) {
-        stopAll();
+        // エクスポートモードでタイムライン終端に達した場合は completeWebCodecsExport を呼び正常完了させる。
+        // stopAll() を呼ぶと外部 recorderRef が null のため stopWebCodecsExport({ reason: 'user' }) が
+        // 走り、blob 生成後の callback が誤ってキャンセル扱いで抑止されてしまう。
+        if (isExportMode) {
+          completeWebCodecsExport();
+        } else {
+          stopAll();
+        }
         return;
       }
       setCurrentTime(clampedElapsed);
@@ -2065,6 +2074,7 @@ export function usePreviewEngine({
       setCurrentTime,
       startTimeRef,
       stopAll,
+      completeWebCodecsExport,
       finalizePreviewAtTimelineEnd,
       totalDurationRef,
     ],

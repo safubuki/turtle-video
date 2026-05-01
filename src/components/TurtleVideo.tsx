@@ -314,7 +314,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   }, [mediaItems]);
 
   // Hooks
-  const { startExport: startWebCodecsExport, stopExport: stopWebCodecsExport } = exportRuntime.useExport();
+  const { startExport: startWebCodecsExport, stopExport: stopWebCodecsExport, completeExport: completeWebCodecsExport } = exportRuntime.useExport();
 
   useEffect(() => {
     saveRuntime.configureProjectStore();
@@ -591,6 +591,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     resetInactiveVideos,
     startWebCodecsExport,
     stopWebCodecsExport,
+    completeWebCodecsExport,
     logInfo,
     logWarn,
     logDebug,
