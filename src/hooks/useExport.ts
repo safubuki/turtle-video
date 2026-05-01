@@ -2470,12 +2470,13 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           try {
             const callbackDelivered = notifyRecordingStop(url, 'mp4');
             if (!callbackDelivered) {
+              exportCompletedRef.current = false;
               URL.revokeObjectURL(url);
               return;
             }
-            exportCompletedRef.current = true;
             setExportUrl(url);
             setExportExt('mp4');
+            exportCompletedRef.current = true;
           } catch (error) {
             exportCompletedRef.current = false;
             URL.revokeObjectURL(url);

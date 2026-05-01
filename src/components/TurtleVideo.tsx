@@ -416,14 +416,14 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
   const handleExportCompleteUi = useCallback(() => {
     logInfo('RENDER', '[DIAG-UI] export complete callback received', {
-      urlPresent: Boolean(exportUrl),
+      urlPresent: true,
       ext: exportExt,
     });
     exportCompletedRef.current = true;
     exportFinalizingUiRef.current = false;
     exportFinalizeWarningShownRef.current = false;
     clearExportUiState();
-  }, [clearExportUiState, exportExt, exportUrl, logInfo]);
+  }, [clearExportUiState, exportExt, logInfo]);
 
   useEffect(() => {
     const wasProcessing = wasExportProcessingRef.current;
@@ -1687,7 +1687,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     // export 中の停止は「プレビューを 0 秒へ戻す」ではなく、中断要求と UI 復旧を優先する。
     // 実際の停止/cleanup は export 側の abort 経路でも継続されるため、ここでは state を先に戻して表示を止める。
     if (isProcessing) {
-      // 停止ボタンは明示 user cancel だが、UI には追加のエラー表示を出さず静かに復旧する。
+      // 停止ボタン押下は user cancel 扱いだが、download 導線を消したいだけなので追加エラーは出さず状態だけ静かに復旧する。
       stopWebCodecsExport({ silent: true, reason: 'user' });
       clearExportUiState();
       return;
