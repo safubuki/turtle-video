@@ -169,6 +169,7 @@ export interface UseExportReturn {
 
 export type ExportCancelReason = 'none' | 'user' | 'superseded' | 'unmount';
 export type ExportStopReason = Exclude<ExportCancelReason, 'none'>;
+type ExportPhase = 'idle' | 'preparing' | 'rendering' | 'finalizing' | 'completed' | 'failed' | 'cancelled';
 
 export interface UseExportRuntimeConfig {
   getPlatformCapabilities: () => PlatformCapabilities;
@@ -1088,6 +1089,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
     const exportFinalizingRef = useRef(false);
     const exportCancelReasonRef = useRef<ExportCancelReason>('none');
     const exportCompletedRef = useRef(false);
+    const exportPhaseRef = useRef<ExportPhase>('idle');
 
     // 互換性維持のためのダミーRef（実際には使用しない）
     const recorderRef = useRef<MediaRecorder | null>(null);
@@ -1107,10 +1109,19 @@ export function createUseExport(config: UseExportRuntimeConfig) {
       cancelReason === 'user' ? 'エクスポートを停止' : 'エクスポートを中断',
       { cancelReason },
     );
+    const previousPhase = exportPhaseRef.current;
     completionRequestedRef.current = false;
     finalizeRequestedRef.current = false;
     exportFinalizingRef.current = false;
     exportCancelReasonRef.current = cancelReason;
+    exportPhaseRef.current = 'cancelled';
+    useLogStore.getState().info('RENDER', '[EXPORT-FSM] transition', {
+      from: previousPhase,
+      to: 'cancelled',
+      reason: 'cancel requested',
+      cancelReason,
+      hasExportUrl: Boolean(exportUrl),
+    });
     silentAbortRef.current = options?.silent === true;
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -1126,15 +1137,24 @@ export function createUseExport(config: UseExportRuntimeConfig) {
       audioReaderRef.current = null;
     }
     setIsProcessing(false);
-  }, []);
+  }, [exportUrl]);
 
   // 正常終了要求（abortではなく、読み取りループを自然終了させる）
   const completeExport = useCallback(() => {
     useLogStore.getState().info('RENDER', 'エクスポートの正常終了を要求');
+    const previousPhase = exportPhaseRef.current;
     completionRequestedRef.current = true;
     finalizeRequestedRef.current = true;
     exportFinalizingRef.current = true;
     exportCancelReasonRef.current = 'none';
+    exportPhaseRef.current = 'finalizing';
+    useLogStore.getState().info('RENDER', '[EXPORT-FSM] transition', {
+      from: previousPhase,
+      to: 'finalizing',
+      reason: 'natural end reached',
+      cancelReason: 'none',
+      hasExportUrl: Boolean(exportUrl),
+    });
     if (videoReaderRef.current) {
       videoReaderRef.current.cancel().catch(() => { });
       videoReaderRef.current = null;
@@ -1143,7 +1163,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
       audioReaderRef.current.cancel().catch(() => { });
       audioReaderRef.current = null;
     }
-  }, []);
+  }, [exportUrl]);
 
   // エクスポート開始
   const startExport = useCallback(
@@ -1177,6 +1197,14 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         fps: FPS,
         bitrate: EXPORT_VIDEO_BITRATE
       });
+      exportPhaseRef.current = 'preparing';
+      logInfo('[EXPORT-FSM] transition', {
+        from: 'idle',
+        to: 'preparing',
+        reason: 'export start',
+        cancelReason: 'none',
+        hasExportUrl: Boolean(exportUrl),
+      });
       setIsProcessing(true);
       setExportUrl((previousUrl) => {
         if (previousUrl) {
@@ -1192,15 +1220,35 @@ export function createUseExport(config: UseExportRuntimeConfig) {
       exportCompletedRef.current = false;
       silentAbortRef.current = false;
       updatePreparationStep(audioSources, 1);
+      logInfo('[EXPORT-FSM] transition', {
+        from: 'preparing',
+        to: 'preparing',
+        reason: 'audio prepared',
+        cancelReason: exportCancelReasonRef.current,
+        hasExportUrl: Boolean(exportUrl),
+      });
       const audioDecodeCache = new Map<string, Promise<AudioBuffer | null>>();
       let hasNotifiedRecordingStop = false;
       const notifyRecordingStop = (url: string, ext: string) => {
         if (hasNotifiedRecordingStop) return;
         if (exportCancelReasonRef.current === 'user') {
-          logWarn('recording stop callback was suppressed because export was cancelled by user');
+          logWarn('[EXPORT-FSM] transition', {
+            from: exportPhaseRef.current,
+            to: exportPhaseRef.current,
+            reason: 'callback suppressed',
+            cancelReason: exportCancelReasonRef.current,
+            hasExportUrl: Boolean(exportUrl),
+          });
           return false;
         }
         hasNotifiedRecordingStop = true;
+        logInfo('[EXPORT-FSM] transition', {
+          from: exportPhaseRef.current,
+          to: exportPhaseRef.current,
+          reason: 'callback invoked',
+          cancelReason: exportCancelReasonRef.current,
+          hasExportUrl: Boolean(exportUrl),
+        });
         onRecordingStop(url, ext);
         return true;
       };
@@ -1298,6 +1346,14 @@ export function createUseExport(config: UseExportRuntimeConfig) {
       const expectedVideoFrames = resolvedExportDuration
         ? Math.max(1, resolvedExportDuration.frameCount)
         : null;
+      exportPhaseRef.current = 'rendering';
+      logInfo('[EXPORT-FSM] transition', {
+        from: 'preparing',
+        to: 'rendering',
+        reason: 'rendering started',
+        cancelReason: exportCancelReasonRef.current,
+        hasExportUrl: Boolean(exportUrl),
+      });
       const getPlaybackTimeSec = (): number | null => {
         if (!audioSources?.getPlaybackTimeSec) return null;
         const raw = audioSources.getPlaybackTimeSec();
@@ -2468,8 +2524,29 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           logInfo('[DIAG-10] export URL 作成完了', {
             blobSize: blob.size,
             urlCreated: Boolean(url),
+            cancelReason: exportCancelReasonRef.current,
+            phase: exportPhaseRef.current,
+          });
+          logInfo('[EXPORT-FSM] transition', {
+            from: exportPhaseRef.current,
+            to: exportPhaseRef.current,
+            reason: 'url created',
+            cancelReason: exportCancelReasonRef.current,
+            hasExportUrl: Boolean(exportUrl),
           });
           try {
+            const cancelReasonAtUrl = exportCancelReasonRef.current as ExportCancelReason;
+            if (cancelReasonAtUrl === 'user') {
+              URL.revokeObjectURL(url);
+              logWarn('[EXPORT-FSM] callback suppressed by explicit user cancel');
+              return;
+            }
+            exportPhaseRef.current = 'completed';
+            exportCompletedRef.current = true;
+            logInfo('[EXPORT-FSM] invoking onRecordingStop', {
+              urlPresent: Boolean(url),
+              ext: 'mp4',
+            });
             const callbackDelivered = notifyRecordingStop(url, 'mp4');
             if (!callbackDelivered) {
               exportCompletedRef.current = false;
@@ -2478,9 +2555,16 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             }
             setExportUrl(url);
             setExportExt('mp4');
-            exportCompletedRef.current = true;
+            logInfo('[EXPORT-FSM] transition', {
+              from: 'completed',
+              to: 'completed',
+              reason: 'ui exportUrl set',
+              cancelReason: exportCancelReasonRef.current,
+              hasExportUrl: true,
+            });
           } catch (error) {
             exportCompletedRef.current = false;
+            exportPhaseRef.current = 'failed';
             URL.revokeObjectURL(url);
             throw error;
           }
@@ -2494,12 +2578,20 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           (err as any)?.name === 'AbortError' ||
           (err as any)?.message?.includes('Aborted');
         const cancelReason = exportCancelReasonRef.current as ExportCancelReason;
+        exportPhaseRef.current = isAbort ? 'cancelled' : 'failed';
 
         if (!hasNotifiedRecordingStop) {
           logError('recording stop callback was not delivered before export finalization failed');
         }
 
         if (!isAbort) {
+          logError('[EXPORT-FSM] transition', {
+            from: 'finalizing',
+            to: 'failed',
+            reason: 'failed',
+            cancelReason,
+            hasExportUrl: Boolean(exportUrl),
+          });
           logError('export finalize failed', {
             error: err instanceof Error ? err.message : String(err)
           });
@@ -2545,6 +2637,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         finalizeRequestedRef.current = false;
         exportFinalizingRef.current = false;
         exportCancelReasonRef.current = 'none';
+        exportPhaseRef.current = 'idle';
         silentAbortRef.current = false;
         setIsProcessing(false);
       }
