@@ -273,7 +273,7 @@ describe('useExport', () => {
     });
   });
 
-  it('stopExport({ silent: true }) は中断エラーを通知しない', async () => {
+  it('stopExport({ silent: true, reason: "user" }) は中断エラーを通知しない', async () => {
     mockGetPlatformCapabilities.mockReturnValue(
       createPlatformCapabilities({
         isIOS: true,

@@ -2468,13 +2468,12 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             urlCreated: Boolean(url),
           });
           try {
-            exportCompletedRef.current = true;
             const callbackDelivered = notifyRecordingStop(url, 'mp4');
             if (!callbackDelivered) {
               URL.revokeObjectURL(url);
-              exportCompletedRef.current = false;
               return;
             }
+            exportCompletedRef.current = true;
             setExportUrl(url);
             setExportExt('mp4');
           } catch (error) {
@@ -2491,6 +2490,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           signal.aborted ||
           (err as any)?.name === 'AbortError' ||
           (err as any)?.message?.includes('Aborted');
+        const cancelReason = exportCancelReasonRef.current as ExportCancelReason;
 
         if (!hasNotifiedRecordingStop) {
           logError('recording stop callback was not delivered before export finalization failed');
@@ -2504,14 +2504,14 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           onRecordingError?.(
             err instanceof Error ? err.message : '動画ファイルの作成に失敗しました'
           );
-        } else if (exportCancelReasonRef.current === 'user') {
+        } else if (cancelReason === 'user') {
           logInfo('エクスポートが中断されました');
           if (!silentAbortRef.current) {
             onRecordingError?.('エクスポートが中断されました');
           }
-        } else if (exportCancelReasonRef.current === 'superseded' || exportCancelReasonRef.current === 'unmount') {
+        } else if (cancelReason === 'superseded' || cancelReason === 'unmount') {
           logInfo('エクスポートが後続処理のため中断されました', {
-            cancelReason: exportCancelReasonRef.current,
+            cancelReason,
           });
         } else if (finalizeRequestedRef.current || completionRequestedRef.current) {
           logInfo('正常終了要求後の中断を検出しましたが、完了処理を優先します');

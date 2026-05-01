@@ -1687,6 +1687,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     // export 中の停止は「プレビューを 0 秒へ戻す」ではなく、中断要求と UI 復旧を優先する。
     // 実際の停止/cleanup は export 側の abort 経路でも継続されるため、ここでは state を先に戻して表示を止める。
     if (isProcessing) {
+      // 停止ボタンは明示 user cancel だが、UI には追加のエラー表示を出さず静かに復旧する。
       stopWebCodecsExport({ silent: true, reason: 'user' });
       clearExportUiState();
       return;
