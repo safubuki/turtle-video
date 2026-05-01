@@ -1063,6 +1063,10 @@ export function usePreviewEngine({
                 const boundaryLogState = trimmedEntryLogStateRef.current[activeId] ?? { preseekMissLogged: false, holdSuppressedLogged: false, startLatencyLogged: false, boundaryEnterAtMs: null };
                 if (localTime <= 0.02 && boundaryLogState.boundaryEnterAtMs === null) {
                   boundaryLogState.boundaryEnterAtMs = Date.now();
+                } else if (localTime > PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC && boundaryLogState.boundaryEnterAtMs !== null) {
+                  // 同じ境界への再突入時に start latency の経過時間を初期化する。
+                  boundaryLogState.boundaryEnterAtMs = null;
+                  boundaryLogState.startLatencyLogged = false;
                 }
                 trimmedEntryLogStateRef.current[activeId] = boundaryLogState;
                 if (trimmedDrift >= 0.08) logInfo('RENDER', 'preview.trimmedEntry.drift', {
@@ -1120,6 +1124,14 @@ export function usePreviewEngine({
                     });
                   }
                 }
+              } else if (trimmedEntryLogStateRef.current[activeId]?.boundaryEnterAtMs !== null) {
+                // 境界ヘッド区間を離脱したら次回の再突入検知に備えて reset する。
+                trimmedEntryLogStateRef.current[activeId] = {
+                  preseekMissLogged: false,
+                  holdSuppressedLogged: false,
+                  startLatencyLogged: false,
+                  boundaryEnterAtMs: null,
+                };
               }
               let didApplyAndroidPreviewDriftFix = false;
               if (
