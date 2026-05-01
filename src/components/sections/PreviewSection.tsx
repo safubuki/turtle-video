@@ -503,6 +503,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
           <button
             onClick={onTogglePlay}
             disabled={mediaItems.length === 0 || isLoading}
+            aria-label={isPlaying ? 'プレビューを一時停止' : 'プレビューを再生'}
             className={`p-3 lg:p-4 rounded-full transition shadow-lg ${isLoading ? 'bg-gray-700 text-gray-400 cursor-wait' : isPlaying ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-blue-600 text-white hover:bg-blue-500'}`}
           >
             {isLoading ? <Loader className="w-5 h-5 lg:w-6 lg:h-6 animate-spin" /> : isPlaying ? <Pause className="w-5 h-5 lg:w-6 lg:h-6" /> : <Play className="w-5 h-5 lg:w-6 lg:h-6 ml-0.5" />}

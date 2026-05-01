@@ -806,9 +806,25 @@
   - `completeWebCodecsExport()` は `completionRequestedRef` / `finalizeRequestedRef` / `exportFinalizingRef` を立て、エンコード pipeline に正常終了を通知する
   - 成功コールバック（`onRecordingStop`）内で `stopAll()` を呼ぶことは問題ない。その時点では `exportPhaseRef === 'completed'` のため `stopExport` は早期 return する
 
----
+### 9-20. 停止・再生・編集操作で生成済み exportUrl を破棄してダウンロードボタンを消す
 
-## 9.5. プレビューキャプチャ
+- **ファイル**: `src/components/TurtleVideo.tsx`
+- **問題**:
+  - エクスポート完了後にダウンロードボタンが表示された後、停止ボタンや再生ボタンを押しても `exportUrl` が残り続け、ダウンロードボタンが消えない
+  - 編集操作（メディア追加・削除・並び替え、トリム変更、音量変更、BGM変更、ナレーション変更など）でも古いダウンロードボタンが残る
+- **対策**:
+  - `TurtleVideo.tsx` に `clearGeneratedExport(reason)` 共通ヘルパーを追加。`clearExport()` を呼んで `exportUrl/exportExt` を削除し、`exportCompletedRef` / `exportFinalizingUiRef` / `exportFinalizeWarningShownRef` をリセットする
+  - `handleStop` の非 processing パスで先頭に `clearGeneratedExport('stop-button')` を呼ぶ
+  - `togglePlay` のデバウンスチェック通過後に `clearGeneratedExport('play-toggle')` を呼ぶ
+  - `pausePreviewBeforeEdit` の先頭（`isProcessing || !isPlayingRef.current` ガードの前）に `clearGeneratedExport('edit:${reason}')` を呼ぶ。再生中でなくても編集操作であればクリアする
+  - `isProcessing === true` のとき `clearGeneratedExport` は何もしない（エクスポート中断は既存の `stopWebCodecsExport` ルートに任せる）
+  - ダウンロードボタン押下では `clearExport()` しない（同じ生成結果を再ダウンロードできる）
+- **注意**:
+  - `clearExport()` を直接呼ばず必ず `clearGeneratedExport()` 経由を使うこと。Blob URL の revoke と exportExt のクリアが clearExport に集約されているため
+  - 既存の編集ハンドラ（addMediaItems, setBgm, addNarration など）が直接 `clearExport()` を呼んでいる箇所は redundant になるが削除不要（`pausePreviewBeforeEdit` → `clearGeneratedExport` → `clearExport` の後で exportUrl が null なので idempotent）
+  - 9-15 の「export 完了後の `exportUrl` は stop/preview 再開では消さず」という旧方針は、今回の変更で撤回済み
+
+
 
 ### 9.5-1. CanvasフレームのPNGキャプチャ
 
