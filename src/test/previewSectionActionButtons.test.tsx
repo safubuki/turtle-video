@@ -330,4 +330,25 @@ describe('PreviewSection action buttons', () => {
 
     expect(onExportFinalizeTimeout).toHaveBeenCalledTimes(1);
   });
+
+  it('exportUrl が届いた後は processing 中でも timeout callback を呼ばない', () => {
+    vi.useFakeTimers();
+    const onExportFinalizeTimeout = vi.fn();
+    renderPreviewSection({
+      isProcessing: true,
+      currentTime: 10,
+      totalDuration: 10,
+      exportPreparationStep: 10,
+      exportUrl: 'blob:export',
+      exportExt: 'mp4',
+      onExportFinalizeTimeout,
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(30000);
+    });
+
+    expect(onExportFinalizeTimeout).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'ダウンロード (.mp4)' })).toBeInTheDocument();
+  });
 });

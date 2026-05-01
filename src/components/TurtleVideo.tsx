@@ -58,7 +58,8 @@ const getApiKey = (): string => {
   return import.meta.env.VITE_GEMINI_API_KEY || '';
 };
 
-const EXPORT_FINALIZING_TIMEOUT_ERROR = '保存ファイルの作成に失敗しました。もう一度お試しください。';
+const EXPORT_FINALIZING_EPSILON_SEC = 0.05;
+const EXPORT_FINALIZING_TIMEOUT_WARNING = '保存ファイルの作成に時間がかかっています...';
 
 interface TurtleVideoProps {
   appFlavor: AppFlavor;
@@ -240,6 +241,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const wasPlayingBeforeSeekRef = useRef(false); // シーク前の再生状態を保持
   const wasExportProcessingRef = useRef(isProcessing);
   const exportCompletedRef = useRef(false);
+  const exportFinalizingUiRef = useRef(false);
+  const exportFinalizeWarningShownRef = useRef(false);
   const pendingSeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 保留中のシーク処理用タイマー
 
 
@@ -415,13 +418,38 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     const wasProcessing = wasExportProcessingRef.current;
     wasExportProcessingRef.current = isProcessing;
 
-    if (exportUrl || (wasProcessing && !isProcessing)) {
-      if (exportUrl) {
-        exportCompletedRef.current = true;
+    if (exportUrl) {
+      if (!exportCompletedRef.current) {
+        logInfo('RENDER', '[DIAG-UI] export complete callback received', {
+          urlPresent: Boolean(exportUrl),
+          ext: exportExt,
+        });
       }
+      exportCompletedRef.current = true;
+      exportFinalizingUiRef.current = false;
+      exportFinalizeWarningShownRef.current = false;
+      clearExportUiState();
+      return;
+    }
+
+    if (wasProcessing && !isProcessing) {
+      exportFinalizingUiRef.current = false;
+      exportFinalizeWarningShownRef.current = false;
       clearExportUiState();
     }
-  }, [clearExportUiState, exportUrl, isProcessing]);
+  }, [clearExportUiState, exportExt, exportUrl, isProcessing, logInfo]);
+
+  useEffect(() => {
+    const isFinalizing =
+      isProcessing
+      && totalDuration > 0
+      && currentTime >= totalDuration - EXPORT_FINALIZING_EPSILON_SEC
+      && !exportUrl;
+    exportFinalizingUiRef.current = isFinalizing;
+    if (!isFinalizing) {
+      exportFinalizeWarningShownRef.current = false;
+    }
+  }, [currentTime, exportUrl, isProcessing, totalDuration]);
 
   // --- Audio Context ---
   const getAudioContext = useCallback(() => {
@@ -1724,28 +1752,25 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   // 目的: 動画ファイルとして書き出しを開始
   const handleExport = useCallback(() => {
     exportCompletedRef.current = false;
+    exportFinalizingUiRef.current = false;
+    exportFinalizeWarningShownRef.current = false;
     startEngine(0, true);
   }, [startEngine]);
 
   const handleExportFinalizeTimeout = useCallback(() => {
     if (!isProcessing || exportUrl || exportCompletedRef.current) return;
-    stopWebCodecsExport({ silent: true });
-    clearExportUiState();
-    pause();
-    stopAll();
-    logError('RENDER', 'export finalize timeout', {
-      error: EXPORT_FINALIZING_TIMEOUT_ERROR,
+    if (exportFinalizeWarningShownRef.current) return;
+    exportFinalizeWarningShownRef.current = true;
+    logWarn('RENDER', 'export finalize is taking longer than expected', {
+      exportFinalizing: exportFinalizingUiRef.current,
+      warning: EXPORT_FINALIZING_TIMEOUT_WARNING,
     });
-    setError(EXPORT_FINALIZING_TIMEOUT_ERROR);
+    showToast(EXPORT_FINALIZING_TIMEOUT_WARNING);
   }, [
-    clearExportUiState,
     exportUrl,
     isProcessing,
-    logError,
-    pause,
-    setError,
-    stopAll,
-    stopWebCodecsExport,
+    logWarn,
+    showToast,
   ]);
 
   // --- ダウンロードハンドラ ---
