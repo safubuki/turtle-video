@@ -1939,3 +1939,13 @@
 - **注意**:
   - Android 判定は shared UI 側で直接増やさず、runtime から渡された capability をもとに `TurtleVideo.tsx` 側で経路を決める。
   - `capture` は付けず、OS / Chrome / 端末設定によって picker 表示が変わる前提で「サムネイル一覧が出やすい経路」を優先する。
+
+### 13-74. Promise の resolve ハンドラ保持は `null` より `undefined + 明示型` で固定する
+
+- **対象ファイル**: `src/test/useExport.test.ts`
+- **問題**:
+  - Vitest の `mockImplementation` 内で `new Promise<boolean>((resolve) => ...)` の `resolve` を外側変数へ退避する際、`null` union のまま扱うと TypeScript の制御フロー解析で呼び出し地点が `never` 扱いになり、`This expression is not callable` を起こすことがある。
+- **対応パターン**:
+  - 退避変数を `((handled: boolean) => void) | undefined` とし、利用前ガード後に `const strategyResolver: (handled: boolean) => void = resolveStrategy` のように明示型で受ける。
+- **注意**:
+  - Promise の `resolve` は `boolean | PromiseLike<boolean>` を受けられるため、テスト意図が boolean 解決で固定されている場合は受け側関数型を明示しておく。
