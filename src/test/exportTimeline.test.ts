@@ -7,6 +7,8 @@ import {
   resolveExportPlaybackTimeSec,
   resolveExportDuration,
 } from '../utils/exportTimeline';
+import { isCaptionActiveAtTime } from '../utils/captionTimeline';
+import type { Caption } from '../types';
 
 describe('resolveExportDuration', () => {
   it('raw timeline duration を exportDuration として一本化する', () => {
@@ -152,5 +154,51 @@ describe('resolveExportCanvasFrameBurstCount', () => {
         pendingFrameCount: Number.NaN,
       }),
     ).toBe(0);
+  });
+});
+
+describe('isCaptionActiveAtTime', () => {
+  const caption: Caption = {
+    id: 'cap-1',
+    text: 'caption',
+    startTime: 1.0,
+    endTime: 2.0,
+    fadeIn: false,
+    fadeOut: false,
+    fadeInDuration: 0.5,
+    fadeOutDuration: 0.5,
+  };
+
+  it('caption の開始を含み終了を含まない区間判定を行う', () => {
+    expect(isCaptionActiveAtTime(caption, 0.999)).toBe(false);
+    expect(isCaptionActiveAtTime(caption, 1.000)).toBe(true);
+    expect(isCaptionActiveAtTime(caption, 1.033)).toBe(true);
+    expect(isCaptionActiveAtTime(caption, 1.999)).toBe(true);
+    expect(isCaptionActiveAtTime(caption, 2.000)).toBe(false);
+  });
+
+  it('export frame timestamp 由来の時刻でも同じ判定になる', () => {
+    const alignment = resolveExportDuration(3, 30);
+
+    const before = getExportFrameTiming(alignment, 30, 29).timestampUs / 1e6;
+    const firstActiveFrameIndex = Array.from({ length: alignment.frameCount }).findIndex((_, frameIndex) => {
+      const timeSec = getExportFrameTiming(alignment, 30, frameIndex).timestampUs / 1e6;
+      return isCaptionActiveAtTime(caption, timeSec);
+    });
+    const firstInactiveAfterActiveFrameIndex = Array.from({ length: alignment.frameCount }).findIndex((_, frameIndex) => {
+      if (frameIndex <= firstActiveFrameIndex) return false;
+      const timeSec = getExportFrameTiming(alignment, 30, frameIndex).timestampUs / 1e6;
+      return !isCaptionActiveAtTime(caption, timeSec);
+    });
+
+    const atStart = getExportFrameTiming(alignment, 30, firstActiveFrameIndex).timestampUs / 1e6;
+    const nearEnd = getExportFrameTiming(alignment, 30, firstInactiveAfterActiveFrameIndex - 1).timestampUs / 1e6;
+    const atEnd = getExportFrameTiming(alignment, 30, firstInactiveAfterActiveFrameIndex).timestampUs / 1e6;
+
+    expect(isCaptionActiveAtTime(caption, before)).toBe(false);
+    expect(firstActiveFrameIndex).toBeGreaterThan(0);
+    expect(isCaptionActiveAtTime(caption, atStart)).toBe(true);
+    expect(isCaptionActiveAtTime(caption, nearEnd)).toBe(true);
+    expect(isCaptionActiveAtTime(caption, atEnd)).toBe(false);
   });
 });
