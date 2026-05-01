@@ -239,6 +239,22 @@ const PREVIEW_END_THRESHOLD_SEC = 0.03;
 const PREVIEW_START_READY_POLL_INTERVAL_MS = 40;
 const PREVIEW_START_READY_TIMEOUT_MS = 900;
 const DISPLAY_TIME_CLAMP_EPSILON_SEC = 0.001;
+const PREVIEW_DETAILED_TICK_LOG_INTERVAL_MS = 500;
+
+type PreviewLogMode = 'smooth' | 'detailed';
+
+const resolvePreviewLogMode = (): PreviewLogMode => {
+  if (typeof globalThis === 'undefined') {
+    return 'smooth';
+  }
+
+  const mode = globalThis.localStorage?.getItem('preview.log.mode');
+  if (mode === 'detailed') {
+    return 'detailed';
+  }
+
+  return 'smooth';
+};
 
 let previewExportSessionSequence = 0;
 
@@ -485,10 +501,15 @@ export function usePreviewEngine({
   const previewTimelineDiagnosticsRef = useRef<{
     lastRafNowMs: number | null;
     lastSegmentIndex: number;
+    lastTickLogAtMs: number | null;
+    lastShouldSuppressEndClear: boolean | null;
   }>({
     lastRafNowMs: null,
     lastSegmentIndex: -1,
+    lastTickLogAtMs: null,
+    lastShouldSuppressEndClear: null,
   });
+  const previewLogModeRef = useRef<PreviewLogMode>(resolvePreviewLogMode());
   const toDisplayTime = useCallback((globalTimeSec: number) => {
     const totalDuration = Math.max(0, totalDurationRef.current);
     if (totalDuration <= 0) return 0;
@@ -1245,27 +1266,33 @@ export function usePreviewEngine({
             && time < totalDurationRef.current
             && !hasExplicitFadeToBlack;
           if (shouldSuppressEndClear) {
-            logInfo('RENDER', 'preview.endClear.suppressed', {
-              globalTimeMs: Math.round(time * 1000),
-              totalDurationMs: Math.round(totalDurationRef.current * 1000),
-              isActivePlaying,
-              endFinalized: endFinalizedRef.current,
-              hasExplicitFadeToBlack,
-              shouldBlackoutFadeTail,
-              loopId: currentLoopId,
-              currentLoopId: loopIdRef.current,
-            });
+            if (previewTimelineDiagnosticsRef.current.lastShouldSuppressEndClear !== true) {
+              logInfo('RENDER', 'preview.endClear.suppressed', {
+                globalTimeMs: Math.round(time * 1000),
+                totalDurationMs: Math.round(totalDurationRef.current * 1000),
+                isActivePlaying,
+                endFinalized: endFinalizedRef.current,
+                hasExplicitFadeToBlack,
+                shouldBlackoutFadeTail,
+                loopId: currentLoopId,
+                currentLoopId: loopIdRef.current,
+              });
+            }
+            previewTimelineDiagnosticsRef.current.lastShouldSuppressEndClear = true;
           } else {
-            logInfo('RENDER', 'preview.endClear.executed', {
-              globalTimeMs: Math.round(time * 1000),
-              totalDurationMs: Math.round(totalDurationRef.current * 1000),
-              isActivePlaying,
-              endFinalized: endFinalizedRef.current,
-              hasExplicitFadeToBlack,
-              shouldBlackoutFadeTail,
-              loopId: currentLoopId,
-              currentLoopId: loopIdRef.current,
-            });
+            if (previewTimelineDiagnosticsRef.current.lastShouldSuppressEndClear !== false) {
+              logInfo('RENDER', 'preview.endClear.executed', {
+                globalTimeMs: Math.round(time * 1000),
+                totalDurationMs: Math.round(totalDurationRef.current * 1000),
+                isActivePlaying,
+                endFinalized: endFinalizedRef.current,
+                hasExplicitFadeToBlack,
+                shouldBlackoutFadeTail,
+                loopId: currentLoopId,
+                currentLoopId: loopIdRef.current,
+              });
+            }
+            previewTimelineDiagnosticsRef.current.lastShouldSuppressEndClear = false;
             ctx.globalAlpha = 1.0;
             ctx.fillStyle = '#000000';
             ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -2423,6 +2450,8 @@ export function usePreviewEngine({
       endFinalizedRef.current = false;
       previewTimelineDiagnosticsRef.current.lastSegmentIndex = -1;
       previewTimelineDiagnosticsRef.current.lastRafNowMs = null;
+      previewTimelineDiagnosticsRef.current.lastTickLogAtMs = null;
+      previewTimelineDiagnosticsRef.current.lastShouldSuppressEndClear = null;
     }, 300);
   }, [
     activeVideoIdRef,
@@ -2488,14 +2517,9 @@ export function usePreviewEngine({
 
       const now = getStandardPreviewNow();
       const diagnostics = previewTimelineDiagnosticsRef.current;
+      let frameGapMs: number | null = null;
       if (diagnostics.lastRafNowMs !== null) {
-        const frameGapMs = now - diagnostics.lastRafNowMs;
-        if (frameGapMs >= 50) {
-          logWarn('RENDER', 'preview.frame.gap', {
-            frameGapMs: Math.round(frameGapMs * 100) / 100,
-            warningThresholdMs: 50,
-          });
-        }
+        frameGapMs = now - diagnostics.lastRafNowMs;
       }
       diagnostics.lastRafNowMs = now;
       const elapsed = (now - startTimeRef.current) / 1000;
@@ -2535,14 +2559,39 @@ export function usePreviewEngine({
       const resolvedSegment = findActiveTimelineItem(mediaItemsRef.current, renderTimeSec, totalDuration);
       const resolvedSegmentIndex = resolvedSegment?.index ?? -1;
       const resolvedLocalTimeMs = resolvedSegment ? Math.round(resolvedSegment.localTime * 1000) : null;
-      logDebug('RENDER', 'preview.timeline.tick', {
-        globalTimeMs: Math.round(globalTimeSec * 1000),
-        displayGlobalTimeMs: Math.round(renderTimeSec * 1000),
-        totalDurationMs: Math.round(totalDuration * 1000),
-        segmentIndex: resolvedSegmentIndex,
-        localTimeMs: resolvedLocalTimeMs,
-      });
-      if (resolvedSegmentIndex !== diagnostics.lastSegmentIndex) {
+      const segmentChanged = resolvedSegmentIndex !== diagnostics.lastSegmentIndex;
+      if (frameGapMs !== null && frameGapMs >= 50) {
+        const activeVideoElement = resolvedSegment?.item?.type === 'video'
+          ? mediaElementsRef.current[resolvedSegment.item.id] as HTMLVideoElement | undefined
+          : undefined;
+        logWarn('RENDER', 'preview.frame.gap', {
+          frameGapMs: Math.round(frameGapMs * 100) / 100,
+          globalTimeMs: Math.round(globalTimeSec * 1000),
+          segmentIndex: resolvedSegmentIndex,
+          localTimeMs: resolvedLocalTimeMs,
+          readyState: activeVideoElement?.readyState,
+          paused: activeVideoElement?.paused,
+          seeking: activeVideoElement?.seeking,
+          holdFrame: activeVideoElement
+            ? (activeVideoElement.seeking || activeVideoElement.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME)
+            : false,
+          warningThresholdMs: 50,
+        });
+      }
+      if (previewLogModeRef.current === 'detailed') {
+        const lastTickAt = diagnostics.lastTickLogAtMs ?? 0;
+        if (now - lastTickAt >= PREVIEW_DETAILED_TICK_LOG_INTERVAL_MS) {
+          logInfo('RENDER', 'preview.timeline.tick', {
+            globalTimeMs: Math.round(globalTimeSec * 1000),
+            displayGlobalTimeMs: Math.round(renderTimeSec * 1000),
+            totalDurationMs: Math.round(totalDuration * 1000),
+            segmentIndex: resolvedSegmentIndex,
+            localTimeMs: resolvedLocalTimeMs,
+          });
+          diagnostics.lastTickLogAtMs = now;
+        }
+      }
+      if (segmentChanged) {
         if (diagnostics.lastSegmentIndex >= 0) {
           logInfo('RENDER', 'preview.boundary.exit', {
             globalTimeMs: Math.round(globalTimeSec * 1000),
@@ -2563,11 +2612,13 @@ export function usePreviewEngine({
         }
         diagnostics.lastSegmentIndex = resolvedSegmentIndex;
       }
-      logDebug('RENDER', 'preview.timeline.segmentResolved', {
-        globalTimeMs: Math.round(globalTimeSec * 1000),
-        segmentIndex: resolvedSegmentIndex,
-        localTimeMs: resolvedLocalTimeMs,
-      });
+      if (previewLogModeRef.current === 'detailed' && segmentChanged) {
+        logInfo('RENDER', 'preview.timeline.segmentResolved', {
+          globalTimeMs: Math.round(globalTimeSec * 1000),
+          segmentIndex: resolvedSegmentIndex,
+          localTimeMs: resolvedLocalTimeMs,
+        });
+      }
       setCurrentTime(globalTimeSec);
       currentTimeRef.current = globalTimeSec;
       renderFrame(renderTimeSec, true, isExportMode);
