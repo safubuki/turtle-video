@@ -163,9 +163,11 @@ export interface UseExportReturn {
     audioSources?: ExportAudioSources  // iOS Safari: OfflineAudioContext用音声ソース
   ) => void;
   completeExport: () => void; // 正常終了要求（abortせずにflush/finalizeへ進める）
-  stopExport: (options?: { silent?: boolean }) => void; // 明示的な停止メソッドを追加
+  stopExport: (options?: { silent?: boolean; reason?: ExportCancelReason }) => void; // 明示的な停止メソッドを追加
   clearExportUrl: () => void;
 }
+
+export type ExportCancelReason = 'none' | 'user' | 'superseded' | 'unmount';
 
 export interface UseExportRuntimeConfig {
   getPlatformCapabilities: () => PlatformCapabilities;
@@ -1083,7 +1085,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
     const silentAbortRef = useRef(false);
     const finalizeRequestedRef = useRef(false);
     const exportFinalizingRef = useRef(false);
-    const userCancelledExportRef = useRef(false);
+    const exportCancelReasonRef = useRef<ExportCancelReason>('none');
     const exportCompletedRef = useRef(false);
 
     // 互換性維持のためのダミーRef（実際には使用しない）
@@ -1096,12 +1098,17 @@ export function createUseExport(config: UseExportRuntimeConfig) {
     );
 
   // エクスポート停止処理
-  const stopExport = useCallback((options?: { silent?: boolean }) => {
-    useLogStore.getState().info('RENDER', 'エクスポートを停止');
+  const stopExport = useCallback((options?: { silent?: boolean; reason?: ExportCancelReason }) => {
+    const cancelReason = options?.reason ?? 'superseded';
+    useLogStore.getState().info(
+      'RENDER',
+      cancelReason === 'user' ? 'エクスポートを停止' : 'エクスポートを中断',
+      { cancelReason },
+    );
     completionRequestedRef.current = false;
     finalizeRequestedRef.current = false;
     exportFinalizingRef.current = false;
-    userCancelledExportRef.current = true;
+    exportCancelReasonRef.current = cancelReason;
     silentAbortRef.current = options?.silent === true;
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -1125,7 +1132,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
     completionRequestedRef.current = true;
     finalizeRequestedRef.current = true;
     exportFinalizingRef.current = true;
-    userCancelledExportRef.current = false;
+    exportCancelReasonRef.current = 'none';
     if (videoReaderRef.current) {
       videoReaderRef.current.cancel().catch(() => { });
       videoReaderRef.current = null;
@@ -1179,7 +1186,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
       completionRequestedRef.current = false;
       finalizeRequestedRef.current = false;
       exportFinalizingRef.current = false;
-      userCancelledExportRef.current = false;
+      exportCancelReasonRef.current = 'none';
       exportCompletedRef.current = false;
       silentAbortRef.current = false;
       updatePreparationStep(audioSources, 1);
@@ -1187,12 +1194,13 @@ export function createUseExport(config: UseExportRuntimeConfig) {
       let hasNotifiedRecordingStop = false;
       const notifyRecordingStop = (url: string, ext: string) => {
         if (hasNotifiedRecordingStop) return;
-        if (userCancelledExportRef.current) {
+        if (exportCancelReasonRef.current === 'user') {
           logWarn('recording stop callback was suppressed because export was cancelled by user');
-          return;
+          return false;
         }
         hasNotifiedRecordingStop = true;
         onRecordingStop(url, ext);
+        return true;
       };
 
       const canvas = canvasRef.current;
@@ -2460,11 +2468,17 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             urlCreated: Boolean(url),
           });
           try {
-            notifyRecordingStop(url, 'mp4');
+            exportCompletedRef.current = true;
+            const callbackDelivered = notifyRecordingStop(url, 'mp4');
+            if (!callbackDelivered) {
+              URL.revokeObjectURL(url);
+              exportCompletedRef.current = false;
+              return;
+            }
             setExportUrl(url);
             setExportExt('mp4');
-            exportCompletedRef.current = true;
           } catch (error) {
+            exportCompletedRef.current = false;
             URL.revokeObjectURL(url);
             throw error;
           }
@@ -2490,11 +2504,15 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           onRecordingError?.(
             err instanceof Error ? err.message : '動画ファイルの作成に失敗しました'
           );
-        } else if (userCancelledExportRef.current) {
+        } else if (exportCancelReasonRef.current === 'user') {
           logInfo('エクスポートが中断されました');
           if (!silentAbortRef.current) {
             onRecordingError?.('エクスポートが中断されました');
           }
+        } else if (exportCancelReasonRef.current === 'superseded' || exportCancelReasonRef.current === 'unmount') {
+          logInfo('エクスポートが後続処理のため中断されました', {
+            cancelReason: exportCancelReasonRef.current,
+          });
         } else if (finalizeRequestedRef.current || completionRequestedRef.current) {
           logInfo('正常終了要求後の中断を検出しましたが、完了処理を優先します');
         } else {
@@ -2523,7 +2541,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         completionRequestedRef.current = false;
         finalizeRequestedRef.current = false;
         exportFinalizingRef.current = false;
-        userCancelledExportRef.current = false;
+        exportCancelReasonRef.current = 'none';
         silentAbortRef.current = false;
         setIsProcessing(false);
       }
