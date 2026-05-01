@@ -481,6 +481,13 @@ export function usePreviewEngine({
     activeId: null,
     bridgeFrameCount: 0,
   });
+  const previewTimelineDiagnosticsRef = useRef<{
+    lastRafNowMs: number | null;
+    lastSegmentIndex: number;
+  }>({
+    lastRafNowMs: null,
+    lastSegmentIndex: -1,
+  });
   const toDisplayTime = useCallback((globalTimeSec: number) => {
     const totalDuration = Math.max(0, totalDurationRef.current);
     if (totalDuration <= 0) return 0;
@@ -2331,6 +2338,8 @@ export function usePreviewEngine({
 
     setTimeout(() => {
       endFinalizedRef.current = false;
+      previewTimelineDiagnosticsRef.current.lastSegmentIndex = -1;
+      previewTimelineDiagnosticsRef.current.lastRafNowMs = null;
     }, 300);
   }, [
     activeVideoIdRef,
@@ -2395,6 +2404,17 @@ export function usePreviewEngine({
       }
 
       const now = getStandardPreviewNow();
+      const diagnostics = previewTimelineDiagnosticsRef.current;
+      if (diagnostics.lastRafNowMs !== null) {
+        const frameGapMs = now - diagnostics.lastRafNowMs;
+        if (frameGapMs >= 50) {
+          logWarn('RENDER', 'preview.frame.gap', {
+            frameGapMs: Math.round(frameGapMs * 100) / 100,
+            warningThresholdMs: 50,
+          });
+        }
+      }
+      diagnostics.lastRafNowMs = now;
       const elapsed = (now - startTimeRef.current) / 1000;
       const totalDuration = totalDurationRef.current;
       const clampedElapsed = Math.min(elapsed, totalDuration);
@@ -2429,6 +2449,42 @@ export function usePreviewEngine({
         : null;
       const globalTimeSec = exportFrameTiming ? (exportFrameTiming.timestampUs / 1e6) : clampedElapsed;
       const renderTimeSec = toDisplayTime(globalTimeSec);
+      const resolvedSegment = findActiveTimelineItem(mediaItemsRef.current, renderTimeSec, totalDuration);
+      const resolvedSegmentIndex = resolvedSegment?.index ?? -1;
+      const resolvedLocalTimeMs = resolvedSegment ? Math.round(resolvedSegment.localTime * 1000) : null;
+      logDebug('RENDER', 'preview.timeline.tick', {
+        globalTimeMs: Math.round(globalTimeSec * 1000),
+        displayGlobalTimeMs: Math.round(renderTimeSec * 1000),
+        totalDurationMs: Math.round(totalDuration * 1000),
+        segmentIndex: resolvedSegmentIndex,
+        localTimeMs: resolvedLocalTimeMs,
+      });
+      if (resolvedSegmentIndex !== diagnostics.lastSegmentIndex) {
+        if (diagnostics.lastSegmentIndex >= 0) {
+          logInfo('RENDER', 'preview.boundary.exit', {
+            globalTimeMs: Math.round(globalTimeSec * 1000),
+            displayGlobalTimeMs: Math.round(renderTimeSec * 1000),
+            totalDurationMs: Math.round(totalDuration * 1000),
+            boundaryIndex: diagnostics.lastSegmentIndex,
+          });
+        }
+        if (resolvedSegmentIndex >= 0) {
+          logInfo('RENDER', 'preview.boundary.enter', {
+            globalTimeMs: Math.round(globalTimeSec * 1000),
+            displayGlobalTimeMs: Math.round(renderTimeSec * 1000),
+            totalDurationMs: Math.round(totalDuration * 1000),
+            segmentIndex: resolvedSegmentIndex,
+            localTimeMs: resolvedLocalTimeMs,
+            boundaryIndex: resolvedSegmentIndex,
+          });
+        }
+        diagnostics.lastSegmentIndex = resolvedSegmentIndex;
+      }
+      logDebug('RENDER', 'preview.timeline.segmentResolved', {
+        globalTimeMs: Math.round(globalTimeSec * 1000),
+        segmentIndex: resolvedSegmentIndex,
+        localTimeMs: resolvedLocalTimeMs,
+      });
       setCurrentTime(globalTimeSec);
       currentTimeRef.current = globalTimeSec;
       renderFrame(renderTimeSec, true, isExportMode);
