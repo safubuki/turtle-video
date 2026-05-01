@@ -774,6 +774,20 @@
   - `stopExport()` のデフォルト理由は system cleanup 側 (`superseded`) として扱い、明示キャンセルだけ呼び出し側から `reason: 'user'` を渡す
   - success callback を抑止したセッションでは、生成済み Object URL を必ず revoke してダウンロード導線だけが残る中途半端な state を作らない
 
+### 9-18. natural end へ入った export は後段 stop を user cancel に昇格させず、timeout は UI エラー表示だけに留める
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/components/TurtleVideo.tsx`, `src/components/sections/PreviewSection.tsx`, `src/test/useExport.test.ts`
+- **問題**:
+  - standard preview/export の cleanup が natural end 後に `stopExport({ reason: 'user' })` を重ねると、Blob / Object URL 作成成功後の callback が誤って user cancel 扱いになる
+  - finalizing timeout が強い停止処理へ繋がると、成功済み export の download 導線まで巻き込んで壊しやすい
+- **対策**:
+  - shared export core は `completionRequestedRef` / `finalizeRequestedRef` / `exportPhaseRef === 'finalizing'` を見て、natural end 進行中の user stop を no-op にし、abort や cancelReason 上書きをさせない
+  - `[EXPORT-FSM] transition` は export session 単位で `exportSessionId` を付与し、`export start` / `natural end reached` / `cancel requested` / `callback invoked|suppressed` / `failed` などの遷移だけを記録する
+  - shared の `TurtleVideo.tsx` は finalizing timeout で `stopExport()` を呼ばず、`setError('保存ファイルの作成に時間がかかっています。ログを確認してください。')` だけを出して成功 URL の到着余地を残す
+- **注意**:
+  - natural end に入った後は、後段の cleanup が `reason: 'user'` を投げても成功 callback を潰さないことを優先する
+  - timeout 文言は UI 側のエラー表示に留め、成功 URL の revoke や `exportCompletedRef` の巻き戻しをしない
+
 ---
 
 ## 9.5. プレビューキャプチャ

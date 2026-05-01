@@ -60,6 +60,7 @@ const getApiKey = (): string => {
 
 const EXPORT_FINALIZING_EPSILON_SEC = 0.05;
 const EXPORT_FINALIZING_TIMEOUT_WARNING = '保存ファイルの作成に時間がかかっています...';
+const EXPORT_FINALIZING_TIMEOUT_ERROR = '保存ファイルの作成に時間がかかっています。ログを確認してください。';
 
 interface TurtleVideoProps {
   appFlavor: AppFlavor;
@@ -1778,12 +1779,12 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       exportFinalizing: exportFinalizingUiRef.current,
       warning: EXPORT_FINALIZING_TIMEOUT_WARNING,
     });
-    showToast(EXPORT_FINALIZING_TIMEOUT_WARNING);
+    setError(EXPORT_FINALIZING_TIMEOUT_ERROR);
   }, [
     exportUrl,
     isProcessing,
     logWarn,
-    showToast,
+    setError,
   ]);
 
   // --- ダウンロードハンドラ ---
