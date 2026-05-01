@@ -228,7 +228,7 @@ const PREVIEW_START_READY_SYNC_TOLERANCE_SEC = 0.05;
 // Android preview の trim 済み video 先頭だけは厳しめに currentTime を合わせてカクつきを抑える。
 const PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC = 0.05;
 const PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC = 0.25;
-const PREVIEW_ANDROID_NEXT_VIDEO_PREWARM_WINDOW_SEC = 1.2;
+const PREVIEW_ANDROID_NEXT_VIDEO_PREWARM_WINDOW_SEC = 0.8;
 const PREVIEW_ANDROID_BOUNDARY_DRAW_DRIFT_ALLOWANCE_SEC = 0.25;
 const PREVIEW_ANDROID_MAX_VISUAL_BRIDGE_FRAMES = 2;
 const TRIMMED_ENTRY_HARD_SEEK_THRESHOLD_SEC = 0.25;
@@ -238,6 +238,7 @@ const PREVIEW_END_THRESHOLD_SEC = 0.03;
 // 再生開始直後は seeked / canplay の到着を数フレームだけ待ち、遅ければ loop を止めない。
 const PREVIEW_START_READY_POLL_INTERVAL_MS = 40;
 const PREVIEW_START_READY_TIMEOUT_MS = 900;
+const DISPLAY_TIME_CLAMP_EPSILON_SEC = 0.001;
 
 let previewExportSessionSequence = 0;
 
@@ -480,6 +481,20 @@ export function usePreviewEngine({
     activeId: null,
     bridgeFrameCount: 0,
   });
+  const toDisplayTime = useCallback((globalTimeSec: number) => {
+    const totalDuration = Math.max(0, totalDurationRef.current);
+    if (totalDuration <= 0) return 0;
+    const clamped = Math.max(0, Math.min(globalTimeSec, Math.max(0, totalDuration - DISPLAY_TIME_CLAMP_EPSILON_SEC)));
+    if (clamped !== globalTimeSec) {
+      logInfo('RENDER', 'segment.display.clamped', {
+        globalTimeMs: Math.round(globalTimeSec * 1000),
+        displayGlobalTimeMs: Math.round(clamped * 1000),
+        totalDurationMs: Math.round(totalDuration * 1000),
+        isCompleted: globalTimeSec >= totalDuration,
+      });
+    }
+    return clamped;
+  }, [logInfo, totalDurationRef]);
   const logAndroidPreviewHold = useCallback(
     (videoId: string, timelineTime: number, activeEl?: HTMLVideoElement) => {
       const now = Date.now();
@@ -1191,7 +1206,7 @@ export function usePreviewEngine({
                 && remainingTime >= 0
                 && remainingTime <= PREVIEW_ANDROID_NEXT_VIDEO_PREWARM_WINDOW_SEC
                 && nextVideoItem.type === 'video'
-                && (nextVideoItem.trimStart || 0) >= 0;
+                && (nextVideoItem.trimStart || 0) > 0;
               const nextStart = nextVideoItem.trimStart || 0;
               const warmupState = androidBoundaryWarmupRef.current[nextVideoItem.id]
                 ?? {
@@ -1972,7 +1987,8 @@ export function usePreviewEngine({
                     isExporting: _isExporting,
                   });
                   if (gainNode && audioCtxRef.current) {
-                    gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.1);
+                    const endAt = Math.max(0, track.delay + track.duration);
+                    gainNode.gain.setValueAtTime(0, endAt);
                   }
                   if (!avoidPausePlay && !element.paused) element.pause();
                 }
@@ -2123,6 +2139,13 @@ export function usePreviewEngine({
         }
         currentNarrations.forEach((clip) => processNarrationClip(clip));
 
+        if (!_isExporting && currentBgm && audioCtxRef.current && gainNodesRef.current.bgm) {
+          const finalBgmGainValue = time >= totalDurationRef.current
+            ? 0
+            : resolvePreviewBgmGain(currentBgm, time, totalDurationRef.current);
+          gainNodesRef.current.bgm.gain.setValueAtTime(finalBgmGainValue, audioCtxRef.current.currentTime);
+        }
+
         if (isActivePlaying && audioResumeWaitFramesRef.current > 0) {
           audioResumeWaitFramesRef.current -= 1;
         }
@@ -2268,10 +2291,23 @@ export function usePreviewEngine({
     }
 
     const totalDuration = totalDurationRef.current;
+    const displayTime = toDisplayTime(totalDuration);
     endFinalizedRef.current = true;
     currentTimeRef.current = totalDuration;
     setCurrentTime(totalDuration);
-    renderFrame(totalDuration, false, false);
+    renderFrame(displayTime, false, false);
+    logInfo('RENDER', 'preview.complete', {
+      globalTimeMs: Math.round(totalDuration * 1000),
+      displayGlobalTimeMs: Math.round(displayTime * 1000),
+      totalDurationMs: Math.round(totalDuration * 1000),
+      isCompleted: true,
+    });
+    logInfo('RENDER', 'download.ready', {
+      globalTimeMs: Math.round(totalDuration * 1000),
+      totalDurationMs: Math.round(totalDuration * 1000),
+      isCompleted: true,
+      isDownloadReady: true,
+    });
     stopPreviewMediaAtTimelineEnd();
 
     audioResumeWaitFramesRef.current = 0;
@@ -2310,6 +2346,7 @@ export function usePreviewEngine({
     setCurrentTime,
     stopPreviewMediaAtTimelineEnd,
     totalDurationRef,
+    toDisplayTime,
   ]);
 
   const configureAudioRouting = useCallback((isExporting: boolean) => {
@@ -2390,9 +2427,10 @@ export function usePreviewEngine({
       const exportFrameTiming = isExportMode && exportDurationAlignment && exportFrameIndex !== null
         ? getExportFrameTiming(exportDurationAlignment, FPS, exportFrameIndex)
         : null;
-      const renderTimeSec = exportFrameTiming ? (exportFrameTiming.timestampUs / 1e6) : clampedElapsed;
-      setCurrentTime(renderTimeSec);
-      currentTimeRef.current = renderTimeSec;
+      const globalTimeSec = exportFrameTiming ? (exportFrameTiming.timestampUs / 1e6) : clampedElapsed;
+      const renderTimeSec = toDisplayTime(globalTimeSec);
+      setCurrentTime(globalTimeSec);
+      currentTimeRef.current = globalTimeSec;
       renderFrame(renderTimeSec, true, isExportMode);
       reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
     },
@@ -2411,6 +2449,7 @@ export function usePreviewEngine({
       setCurrentTime,
       startTimeRef,
       stopAll,
+      toDisplayTime,
       completeWebCodecsExport,
       finalizePreviewAtTimelineEnd,
       totalDurationRef,
@@ -2419,6 +2458,11 @@ export function usePreviewEngine({
 
   const startEngine = useCallback(
     async (fromTime: number, isExportMode: boolean) => {
+      logInfo('RENDER', 'preview.preflight.start', {
+        globalTimeMs: Math.round(fromTime * 1000),
+        totalDurationMs: Math.round(totalDurationRef.current * 1000),
+        isExportMode,
+      });
       logInfo('AUDIO', 'エンジン起動開始', { fromTime, isExportMode });
 
       if (platformCapabilities.isIosSafari) {
@@ -2862,6 +2906,12 @@ export function usePreviewEngine({
             return;
           }
         }
+        logInfo('RENDER', 'preview.preflight.ready', {
+          globalTimeMs: Math.round(fromTime * 1000),
+          totalDurationMs: Math.round(totalDurationRef.current * 1000),
+          hasActiveVideo: !!activeVideoElForBundledStart,
+          hasNextVideo: !!nextVideoItem,
+        });
 
         if (preparedPreviewAudio.requiresWebAudio) {
           primePreviewAudioOnlyTracksAtTime(fromTime);
@@ -2919,6 +2969,11 @@ export function usePreviewEngine({
       }
 
       startTimeRef.current = getStandardPreviewNow() - fromTime * 1000;
+      logInfo('RENDER', 'preview.start', {
+        globalTimeMs: Math.round(fromTime * 1000),
+        totalDurationMs: Math.round(totalDurationRef.current * 1000),
+        isExportMode,
+      });
 
       if (isExportMode && canvasRef.current && masterDestRef.current) {
         startWebCodecsExport(
