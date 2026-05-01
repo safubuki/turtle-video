@@ -470,6 +470,7 @@ export function usePreviewEngine({
   const androidTrimEntryStateRef = useRef<Record<string, {
     didHardSeek: boolean;
     didRebaseClock: boolean;
+    holdFrameCount: number;
   }>>({});
   const androidBoundaryWarmupRef = useRef<Record<string, {
     targetStartSec: number;
@@ -748,10 +749,11 @@ export function usePreviewEngine({
           const activeItem = currentItems[activeIndex];
           const previousItem = activeIndex > 0 ? currentItems[activeIndex - 1] : null;
           const activeFadeOutDur = activeItem.fadeOutDuration || 1.0;
+          const hasExplicitFadeToBlack = !!activeItem.fadeOut;
           const shouldPreferBlackoutAtFadeTail = shouldBlackoutVideoFadeTail({
             clipLocalTime: localTime,
             clipDuration: activeItem.duration,
-            fadeOut: activeItem.fadeOut,
+            fadeOut: hasExplicitFadeToBlack,
             fadeOutDuration: activeFadeOutDur,
           });
 
@@ -760,7 +762,7 @@ export function usePreviewEngine({
             activeItem.fadeOut &&
             localTime > activeItem.duration - activeFadeOutDur;
 
-          if (activeItem.type === 'video' && shouldPreferBlackoutAtFadeTail) {
+          if (activeItem.type === 'video' && hasExplicitFadeToBlack && shouldPreferBlackoutAtFadeTail) {
             shouldBlackoutFadeTail = true;
           }
 
@@ -789,7 +791,7 @@ export function usePreviewEngine({
               const trimStart = activeItem.trimStart || 0;
               const warmupState = androidBoundaryWarmupRef.current[activeId];
               const entryState = androidTrimEntryStateRef.current[activeId]
-                ?? { didHardSeek: false, didRebaseClock: false };
+                ?? { didHardSeek: false, didRebaseClock: false, holdFrameCount: 0 };
               androidTrimEntryStateRef.current[activeId] = entryState;
               const isTimelineEnd =
                 totalDurationRef.current > 0 &&
@@ -948,27 +950,37 @@ export function usePreviewEngine({
                 && localTime <= PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC;
               const preseekState = androidTrimPreseekRef.current[activeId];
               const preseekDrift = Math.abs(activeEl.currentTime - targetTime);
+              const trimmedDrift = Math.abs(activeEl.currentTime - targetTime);
               const isPreseekReadyEntry =
                 !!preseekState?.completed
                 && activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
                 && !activeEl.seeking
                 && preseekDrift <= 0.12;
+              const isPlayableTrimmedEntry =
+                activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+                && !activeEl.paused
+                && !activeEl.seeking
+                && activeEl.videoWidth > 0
+                && activeEl.videoHeight > 0
+                && isActivePlaying
+                && trimmedDrift < 0.2;
               if (
                 shouldHoldTrimmedVideoHead
                 && !isPreseekReadyEntry
+                && !isPlayableTrimmedEntry
                 && (
                   activeEl.seeking
                   || activeEl.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
                   || activeEl.videoWidth <= 0
                   || activeEl.videoHeight <= 0
-                  || Math.abs(activeEl.currentTime - targetTime) > PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC
+                  || trimmedDrift > PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC
                 )
               ) {
                 if (
                   activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
                   && !activeEl.seeking
                   && !entryState.didHardSeek
-                  && Math.abs(activeEl.currentTime - targetTime) > TRIMMED_ENTRY_HARD_SEEK_THRESHOLD_SEC
+                  && trimmedDrift > TRIMMED_ENTRY_HARD_SEEK_THRESHOLD_SEC
                 ) {
                   activeEl.currentTime = targetTime;
                   entryState.didHardSeek = true;
@@ -992,6 +1004,7 @@ export function usePreviewEngine({
                   entryState.didRebaseClock = true;
                 }
                 holdAndroidPreviewFrame();
+                entryState.holdFrameCount += 1;
                 logInfo('RENDER', '[DIAG-PREVIEW-BOUNDARY] Android trimmed entry hold', {
                   activeId,
                   previousId: previousItem?.id ?? null,
@@ -1000,22 +1013,68 @@ export function usePreviewEngine({
                   timelineTime: time,
                   targetTime,
                   videoCurrentTime: activeEl.currentTime,
-                  drift: Math.abs(activeEl.currentTime - targetTime),
+                  drift: trimmedDrift,
                   readyState: activeEl.readyState,
                   paused: activeEl.paused,
                   seeking: activeEl.seeking,
                   didHardSeek: entryState.didHardSeek,
                   didRebaseClock: entryState.didRebaseClock,
                   holdFrame: true,
+                  holdFrameCount: entryState.holdFrameCount,
                   preseekCompleted: !!preseekState?.completed,
                   preseekDrift,
                 });
+                if (entryState.holdFrameCount > 1) {
+                  logWarn('RENDER', 'preview.trimmedEntry.holdFrame.warning', {
+                    segmentIndex: activeIndex,
+                    holdFrameCount: entryState.holdFrameCount,
+                    drift: trimmedDrift,
+                  });
+                }
+              } else if (isTrimmedEntry) {
+                entryState.holdFrameCount = 0;
+                logInfo('RENDER', 'preview.trimmedEntry.drift', {
+                  segmentIndex: activeIndex,
+                  localTime,
+                  trimStart,
+                  targetTime,
+                  videoCurrentTime: activeEl.currentTime,
+                  drift: trimmedDrift,
+                  readyState: activeEl.readyState,
+                  paused: activeEl.paused,
+                  seeking: activeEl.seeking,
+                  preseekCompleted: !!preseekState?.completed,
+                  holdFrame: false,
+                  holdFrameCount: entryState.holdFrameCount,
+                });
+                if (trimmedDrift >= 0.08 && trimmedDrift < 0.2) {
+                  logInfo('RENDER', 'preview.trimmedEntry.softDriftAllowed', {
+                    segmentIndex: activeIndex,
+                    drift: trimmedDrift,
+                  });
+                }
+                if (!isPreseekReadyEntry && isPlayableTrimmedEntry) {
+                  logInfo('RENDER', 'preview.trimmedEntry.holdSuppressed', {
+                    segmentIndex: activeIndex,
+                    drift: trimmedDrift,
+                    preseekCompleted: !!preseekState?.completed,
+                  });
+                }
+                if (!preseekState?.completed) {
+                  logWarn('RENDER', 'preview.trimmedEntry.preseekMiss', {
+                    segmentIndex: activeIndex,
+                    localTime,
+                    trimStart,
+                    drift: trimmedDrift,
+                  });
+                }
               }
               let didApplyAndroidPreviewDriftFix = false;
               if (
                 isAndroidPreviewPlayback
                 && activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
                 && !activeEl.seeking
+                && !isTrimmedEntry
                 && Math.abs(activeEl.currentTime - targetTime) > TRIMMED_ENTRY_SOFT_DRIFT_ALLOWANCE_SEC
                 && Math.abs(activeEl.currentTime - targetTime) > ANDROID_PREVIEW_DRIFT_FIX_THRESHOLD_SEC
               ) {
@@ -1178,24 +1237,40 @@ export function usePreviewEngine({
           );
 
         if (shouldClearCanvas) {
-          if (totalDurationRef.current > 0 && time >= totalDurationRef.current - 0.5) {
-            logInfo('RENDER', '終端付近で黒クリア実行', {
-              time: Math.round(time * 10000) / 10000,
-              totalDuration: totalDurationRef.current,
-              activeId: activeId ? activeId.substring(0, 8) : null,
-              activeIndex,
-              holdFrame,
-              shouldHoldAtTimelineEnd,
-              shouldGuardNearEnd,
-              shouldGuardAfterFinalize,
+          const hasExplicitFadeToBlack = activeIndex !== -1 && !!currentItems[activeIndex]?.fadeOut;
+          const shouldSuppressEndClear =
+            isActivePlaying
+            && !endFinalizedRef.current
+            && totalDurationRef.current > 0
+            && time < totalDurationRef.current
+            && !hasExplicitFadeToBlack;
+          if (shouldSuppressEndClear) {
+            logInfo('RENDER', 'preview.endClear.suppressed', {
+              globalTimeMs: Math.round(time * 1000),
+              totalDurationMs: Math.round(totalDurationRef.current * 1000),
               isActivePlaying,
               endFinalized: endFinalizedRef.current,
+              hasExplicitFadeToBlack,
+              shouldBlackoutFadeTail,
+              loopId: currentLoopId,
+              currentLoopId: loopIdRef.current,
             });
+          } else {
+            logInfo('RENDER', 'preview.endClear.executed', {
+              globalTimeMs: Math.round(time * 1000),
+              totalDurationMs: Math.round(totalDurationRef.current * 1000),
+              isActivePlaying,
+              endFinalized: endFinalizedRef.current,
+              hasExplicitFadeToBlack,
+              shouldBlackoutFadeTail,
+              loopId: currentLoopId,
+              currentLoopId: loopIdRef.current,
+            });
+            ctx.globalAlpha = 1.0;
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            didUpdateCanvas = true;
           }
-          ctx.globalAlpha = 1.0;
-          ctx.fillStyle = '#000000';
-          ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-          didUpdateCanvas = true;
         }
 
         const nextVideoItem = findNextVideoItem(currentItems, activeIndex);
@@ -2303,6 +2378,14 @@ export function usePreviewEngine({
     currentTimeRef.current = totalDuration;
     setCurrentTime(totalDuration);
     renderFrame(displayTime, false, false);
+    logInfo('RENDER', 'preview.finalFrame.hold', {
+      globalTimeMs: Math.round(totalDuration * 1000),
+      displayGlobalTimeMs: Math.round(displayTime * 1000),
+      totalDurationMs: Math.round(totalDuration * 1000),
+      isCompleted: true,
+      loopId: myLoopId,
+      currentLoopId: loopIdRef.current,
+    });
     logInfo('RENDER', 'preview.complete', {
       globalTimeMs: Math.round(totalDuration * 1000),
       displayGlobalTimeMs: Math.round(displayTime * 1000),
