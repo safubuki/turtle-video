@@ -265,7 +265,34 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const captionsRef = useRef(captions);
   const captionSettingsRef = useRef(captionSettings);
 
+  // --- 生成済み export クリアヘルパー ---
+  // 停止・再生・編集操作時に呼び出し、古いダウンロードボタンを消す。
+  // isProcessing 中は何もしない（エクスポート中断は別ルートに任せる）。
+  const clearGeneratedExport = useCallback((reason: string) => {
+    if (isProcessing) return;
+    if (!exportUrl) return;
+
+    clearExport();
+    exportCompletedRef.current = false;
+    exportFinalizingUiRef.current = false;
+    exportFinalizeWarningShownRef.current = false;
+    setExportPreparationStep(null);
+
+    logInfo('RENDER', '[DIAG-UI] generated export cleared', {
+      reason,
+      hadExportUrl: true,
+    });
+  }, [
+    clearExport,
+    exportUrl,
+    isProcessing,
+    logInfo,
+    setExportPreparationStep,
+  ]);
+
   const pausePreviewBeforeEdit = useCallback((reason: string) => {
+    clearGeneratedExport(`edit:${reason}`);
+
     if (isProcessing || !isPlayingRef.current) return;
 
     pause();
@@ -277,7 +304,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     }
 
     logInfo('SYSTEM', 'preview paused before edit', { reason });
-  }, [isProcessing, pause, logInfo]);
+  }, [clearGeneratedExport, isProcessing, pause, logInfo]);
 
   const withPreviewPause = useCallback(<T extends unknown[]>(reason: string, fn: (...args: T) => void) => {
     return (...args: T) => {
@@ -1673,6 +1700,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     }
     lastToggleTimeRef.current = now;
 
+    // 再生/一時停止どちら側でも、生成済み export は古い成果物として破棄する
+    clearGeneratedExport('play-toggle');
+
     if (isPlaying) {
       stopAll();
       pause();
@@ -1681,10 +1711,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       if (startT >= totalDuration - 0.1 || startT < 0) startT = 0;
       startEngine(startT, false);
     }
-  }, [isPlaying, currentTime, totalDuration, stopAll, pause, startEngine]);
+  }, [clearGeneratedExport, isPlaying, currentTime, totalDuration, stopAll, pause, startEngine]);
 
-  // --- 停止ハンドラ ---
-  // 目的: 再生を停止し、時刻を0にリセットしてリソースをリロード
   // --- 停止ハンドラ ---
   // 目的: 再生を停止し、時刻を0にリセット（リソースのリロードは行わない）
   // 改善: 以前はhandleReloadResourcesを呼んでいたが、DOM破棄により動画切り替え時にクラッシュするため
@@ -1699,6 +1727,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       return;
     }
 
+    // 停止ボタン押下で生成済み export を古い成果物として破棄し、ダウンロードボタンを消す。
+    clearGeneratedExport('stop-button');
+
     stopAll();
     pause();
     seekSettleGenerationRef.current += 1;
@@ -1711,8 +1742,6 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     setCurrentTime(0);
     currentTimeRef.current = 0;
     endFinalizedRef.current = false;
-    // 停止後も直前の export 結果は保持し、新しい export 開始や
-    // メディア/BGM/ナレーション編集ハンドラ内の clearExport() でだけ破棄する。
 
     // [TV] 全メディアを安全に巻き戻し (DOM要素を維持したままリセット)
     // 各ビデオをtrimStart位置にリセット（0ではなく実際の開始位置へ）
@@ -1750,6 +1779,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     // 少し遅延させて確実にシーク反映させる
     renderPausedPreviewFrameAtTimeRef.current(0);
   }, [
+    clearGeneratedExport,
     isProcessing,
     stopAll,
     stopWebCodecsExport,

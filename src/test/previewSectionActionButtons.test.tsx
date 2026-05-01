@@ -351,4 +351,24 @@ describe('PreviewSection action buttons', () => {
     expect(onExportFinalizeTimeout).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'ダウンロード (.mp4)' })).toBeInTheDocument();
   });
+
+  it('停止ボタンを押すと生成済み export をクリアして作成ボタンへ戻す', () => {
+    const onStop = vi.fn();
+    const onClearGeneratedExport = vi.fn();
+
+    renderPreviewSection({
+      exportUrl: 'blob:export',
+      exportExt: 'mp4',
+      isProcessing: false,
+      onStop: () => {
+        onClearGeneratedExport();
+        onStop();
+      },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'プレビューを停止' }));
+
+    expect(onClearGeneratedExport).toHaveBeenCalledTimes(1);
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
 });
