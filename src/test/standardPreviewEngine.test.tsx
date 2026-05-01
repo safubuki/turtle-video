@@ -703,7 +703,7 @@ describe('standard preview engine', () => {
 
     hook.result.current.renderFrame(10, true, false);
     expect(bgmElement.volume).toBeLessThanOrEqual(1);
-    expect(bgmGain.gain.setValueAtTime).toHaveBeenLastCalledWith(0, 7);
+    expect(bgmGain.gain.setValueAtTime).toHaveBeenLastCalledWith(0.4, 7);
   });
 
   it('renderFrame は BGM 100%超を WebAudio gain で維持しつつ native volume は 1 に抑える', () => {
