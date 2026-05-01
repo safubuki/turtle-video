@@ -786,7 +786,7 @@
   - shared の `TurtleVideo.tsx` は finalizing timeout で `stopExport()` を呼ばず、`setError('保存ファイルの作成に時間がかかっています。ログを確認してください。')` だけを出して成功 URL の到着余地を残す
 - **注意**:
   - natural end に入った後は、後段の cleanup が `reason: 'user'` を投げても成功 callback を潰さないことを優先する
-  - timeout 文言は UI 側の警告に留め、成功 URL の revoke や `exportCompletedRef` の巻き戻しをしない
+  - timeout 文言は UI 側のエラー表示に留め、成功 URL の revoke や `exportCompletedRef` の巻き戻しをしない
 
 ---
 
