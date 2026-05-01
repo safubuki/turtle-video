@@ -836,7 +836,6 @@ describe('standard preview engine', () => {
     });
 
     const timelineTime = 1.1;
-    const expectedTime = videoItem.trimStart + (timelineTime - imageItem.duration);
     const didUpdateCanvas = hook.result.current.renderFrame(timelineTime, true, false);
 
     expect(videoElement.currentTime).toBeCloseTo(1.36);
@@ -1214,7 +1213,6 @@ describe('standard preview engine', () => {
     });
 
     const insideTimelineTime = 1.25;
-    const insideExpectedTime = videoItem.trimStart + (insideTimelineTime - imageItem.duration);
     insideHarness.hook.result.current.renderFrame(insideTimelineTime, true, false);
 
     expect(insideWindowVideo.currentTime).toBeCloseTo(1.6);
