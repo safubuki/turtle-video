@@ -387,7 +387,7 @@ describe('useExport', () => {
     );
 
     let capturedSignal: AbortSignal | null = null;
-    let resolveStrategy: ((handled: boolean) => void) | null = null;
+    let resolveStrategy: ((handled: boolean) => void) | undefined;
     mockRunIosSafariMediaRecorderStrategy.mockImplementation(
       ({ signal }: { signal: AbortSignal }) =>
         new Promise<boolean>((resolve) => {
@@ -432,7 +432,7 @@ describe('useExport', () => {
       throw new Error('Strategy resolver was not captured');
     }
     const signal = capturedSignal as AbortSignal;
-    const strategyResolver = resolveStrategy;
+    const strategyResolver: (handled: boolean) => void = resolveStrategy;
     expect(signal.aborted).toBe(false);
     expect(args.onRecordingError).not.toHaveBeenCalled();
 
