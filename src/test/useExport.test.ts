@@ -415,6 +415,13 @@ describe('useExport', () => {
 
     act(() => {
       result.current.completeExport();
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => {
       result.current.stopExport({ reason: 'user' });
     });
 
@@ -423,11 +430,13 @@ describe('useExport', () => {
     }
     const signal = capturedSignal as AbortSignal;
     expect(signal.aborted).toBe(false);
+    expect(args.onRecordingError).not.toHaveBeenCalled();
 
     await act(async () => {
       resolveStrategy?.(true);
       await Promise.resolve();
     });
+    expect(args.onRecordingError).not.toHaveBeenCalled();
   });
 
   it('clearExportUrl は保持中の Blob URL を解放して state を空にする', () => {

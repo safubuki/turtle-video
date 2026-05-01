@@ -1106,12 +1106,16 @@ export function createUseExport(config: UseExportRuntimeConfig) {
     // reason 未指定の stopExport は preview/export cleanup 側からの system stop とみなす。
     const cancelReason = options?.reason ?? 'superseded';
     const currentPhase = exportPhaseRef.current;
+    // natural end -> reader cancel -> finalize までの間は ref 更新の瞬間差があるため、
+    // phase だけでなく completion/finalize 系 ref も合わせて見て「成功へ向かう終端処理中」を判定する。
     const isNaturalFinalizeInFlight =
       completionRequestedRef.current
       || finalizeRequestedRef.current
       || exportFinalizingRef.current
-      || currentPhase === 'finalizing'
-      || currentPhase === 'completed';
+      || currentPhase === 'finalizing';
+    if (currentPhase === 'completed') {
+      return;
+    }
     if (cancelReason === 'user' && isNaturalFinalizeInFlight) {
       useLogStore.getState().info('RENDER', '[EXPORT-FSM] transition', {
         exportSessionId: exportSessionIdRef.current,
