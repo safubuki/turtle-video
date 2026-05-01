@@ -163,11 +163,12 @@ export interface UseExportReturn {
     audioSources?: ExportAudioSources  // iOS Safari: OfflineAudioContext用音声ソース
   ) => void;
   completeExport: () => void; // 正常終了要求（abortせずにflush/finalizeへ進める）
-  stopExport: (options?: { silent?: boolean; reason?: ExportCancelReason }) => void; // 明示的な停止メソッドを追加
+  stopExport: (options?: { silent?: boolean; reason?: ExportStopReason }) => void; // 明示的な停止メソッドを追加
   clearExportUrl: () => void;
 }
 
 export type ExportCancelReason = 'none' | 'user' | 'superseded' | 'unmount';
+export type ExportStopReason = Exclude<ExportCancelReason, 'none'>;
 
 export interface UseExportRuntimeConfig {
   getPlatformCapabilities: () => PlatformCapabilities;
@@ -1098,7 +1099,8 @@ export function createUseExport(config: UseExportRuntimeConfig) {
     );
 
   // エクスポート停止処理
-  const stopExport = useCallback((options?: { silent?: boolean; reason?: ExportCancelReason }) => {
+  const stopExport = useCallback((options?: { silent?: boolean; reason?: ExportStopReason }) => {
+    // reason 未指定の stopExport は preview/export cleanup 側からの system stop とみなす。
     const cancelReason = options?.reason ?? 'superseded';
     useLogStore.getState().info(
       'RENDER',

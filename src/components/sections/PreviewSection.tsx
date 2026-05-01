@@ -203,7 +203,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
 
     exportStartedAtRef.current = null;
     setProcessingNowMs(Date.now());
-  }, [hasExportUrl, isProcessing]);
+  }, [exportUrl, hasExportUrl, isProcessing]);
 
   useEffect(() => {
     if (!isProcessing || hasExportUrl) return undefined;
@@ -213,7 +213,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [hasExportUrl, isProcessing]);
+  }, [exportUrl, hasExportUrl, isProcessing]);
 
   useEffect(() => {
     if (!isFinalizingExport || hasExportUrl || !isProcessing) {
@@ -234,7 +234,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
       hasTriggeredFinalizingTimeoutRef.current = true;
       onExportFinalizeTimeout?.();
     }
-  }, [hasExportUrl, isFinalizingExport, isProcessing, onExportFinalizeTimeout, processingNowMs]);
+  }, [exportUrl, hasExportUrl, isFinalizingExport, isProcessing, onExportFinalizeTimeout, processingNowMs]);
 
   useEffect(() => {
     return () => {
