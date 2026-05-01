@@ -428,12 +428,16 @@ describe('useExport', () => {
     if (!capturedSignal) {
       throw new Error('AbortSignal was not captured');
     }
+    if (!resolveStrategy) {
+      throw new Error('Strategy resolver was not captured');
+    }
     const signal = capturedSignal as AbortSignal;
+    const strategyResolver = resolveStrategy;
     expect(signal.aborted).toBe(false);
     expect(args.onRecordingError).not.toHaveBeenCalled();
 
     await act(async () => {
-      resolveStrategy?.(true);
+      strategyResolver(true);
       await Promise.resolve();
     });
     expect(args.onRecordingError).not.toHaveBeenCalled();
