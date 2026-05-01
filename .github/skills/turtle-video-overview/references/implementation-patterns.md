@@ -759,6 +759,21 @@
   - finalizing 完了前に user cancel した場合だけ success callback を抑止し、自然終端や finalize 済みセッションでは callback を落とさない
   - Blob metadata probe は診断専用で、失敗しても export 自体は成功扱いを維持する。失敗扱いにするのは `Blob.size <= 0` の場合だけ
 
+### 9-17. export cancel reason は user / superseded / unmount を分離し、成功 URL は user cancel 以外で潰さない
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/components/TurtleVideo.tsx`, `src/components/sections/PreviewSection.tsx`
+- **問題**:
+  - Blob / Object URL 作成後でも、自然終端や後続 cleanup の stop が user cancel 扱いになると `onRecordingStop(url, ext)` が抑止され、download ボタンへ遷移できない
+  - Preview UI 側が `exportUrl` より `isProcessing` を先に見続けると、成功 URL が届いても finalizing 表示が残りやすい
+- **対策**:
+  - shared export は boolean の `userCancelled` ではなく `ExportCancelReason = 'none' | 'user' | 'superseded' | 'unmount'` を持ち、停止ボタン経由だけ `reason: 'user'` を設定する
+  - Object URL 生成後は `cancelReason === 'user'` のときだけ success callback を抑止し、その場で URL を revoke する。`superseded` / `unmount` / 自然終端では callback を通して UI 成功遷移を優先する
+  - `TurtleVideo.tsx` は `exportUrl` 到達時の UI 解除を helper に集約し、`processing/loading/exportPreparationStep` の解除と `[DIAG-UI] export complete callback received` を同じ成功経路で扱う
+  - `PreviewSection` は `Boolean(exportUrl)` を単一の優先フラグとして action button / finalizing timer の両方で使い、success URL がある間は download ボタンを最優先表示する
+- **注意**:
+  - `stopExport()` のデフォルト理由は system cleanup 側 (`superseded`) として扱い、明示キャンセルだけ呼び出し側から `reason: 'user'` を渡す
+  - success callback を抑止したセッションでは、生成済み Object URL を必ず revoke してダウンロード導線だけが残る中途半端な state を作らない
+
 ---
 
 ## 9.5. プレビューキャプチャ

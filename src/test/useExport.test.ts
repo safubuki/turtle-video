@@ -221,11 +221,12 @@ describe('useExport', () => {
     expect(result.current.isProcessing).toBe(false);
 
     await waitFor(() => {
-      expect(args.onRecordingError).toHaveBeenCalledWith('エクスポートが中断されました');
+      expect(mockRunIosSafariMediaRecorderStrategy).toHaveBeenCalledTimes(1);
     });
+    expect(args.onRecordingError).not.toHaveBeenCalled();
   });
 
-  it('stopExport({ silent: true }) は中断エラーを通知しない', async () => {
+  it('stopExport({ reason: "user" }) は明示キャンセルとして中断エラーを通知する', async () => {
     mockGetPlatformCapabilities.mockReturnValue(
       createPlatformCapabilities({
         isIOS: true,
@@ -264,7 +265,105 @@ describe('useExport', () => {
     });
 
     act(() => {
-      result.current.stopExport({ silent: true });
+      result.current.stopExport({ reason: 'user' });
+    });
+
+    await waitFor(() => {
+      expect(args.onRecordingError).toHaveBeenCalledWith('エクスポートが中断されました');
+    });
+  });
+
+  it.each(['superseded', 'unmount'] as const)(
+    'stopExport({ reason: "%s" }) は system cleanup 扱いで中断エラーを通知しない',
+    async (reason) => {
+      mockGetPlatformCapabilities.mockReturnValue(
+        createPlatformCapabilities({
+          isIOS: true,
+          isSafari: true,
+          isIosSafari: true,
+          supportsMp4MediaRecorder: true,
+          supportedMediaRecorderProfile: {
+            mimeType: 'video/mp4',
+            extension: 'mp4',
+          },
+        }),
+      );
+
+      mockRunIosSafariMediaRecorderStrategy.mockImplementation(
+        ({ signal }: { signal: AbortSignal }) =>
+          new Promise<boolean>((resolve) => {
+            signal.addEventListener('abort', () => resolve(false), { once: true });
+          }),
+      );
+
+      const { result } = renderHook(() => useAppleSafariExport());
+      const args = createStartExportArgs();
+
+      await act(async () => {
+        result.current.startExport(
+          args.canvasRef,
+          args.masterDestRef,
+          args.onRecordingStop,
+          args.onRecordingError,
+        );
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(result.current.isProcessing).toBe(true);
+      });
+
+      act(() => {
+        result.current.stopExport({ reason });
+      });
+
+      await waitFor(() => {
+        expect(result.current.isProcessing).toBe(false);
+      });
+      expect(args.onRecordingError).not.toHaveBeenCalled();
+    },
+  );
+
+  it('stopExport({ silent: true, reason: "user" }) は中断エラーを通知しない', async () => {
+    mockGetPlatformCapabilities.mockReturnValue(
+      createPlatformCapabilities({
+        isIOS: true,
+        isSafari: true,
+        isIosSafari: true,
+        supportsMp4MediaRecorder: true,
+        supportedMediaRecorderProfile: {
+          mimeType: 'video/mp4',
+          extension: 'mp4',
+        },
+      }),
+    );
+
+    mockRunIosSafariMediaRecorderStrategy.mockImplementation(
+      ({ signal }: { signal: AbortSignal }) =>
+        new Promise<boolean>((resolve) => {
+          signal.addEventListener('abort', () => resolve(false), { once: true });
+        }),
+    );
+
+    const { result } = renderHook(() => useAppleSafariExport());
+    const args = createStartExportArgs();
+
+    await act(async () => {
+      result.current.startExport(
+        args.canvasRef,
+        args.masterDestRef,
+        args.onRecordingStop,
+        args.onRecordingError,
+      );
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(result.current.isProcessing).toBe(true);
+    });
+
+    act(() => {
+      result.current.stopExport({ silent: true, reason: 'user' });
     });
 
     await waitFor(() => {

@@ -414,21 +414,29 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     setExportPreparationStep(null);
   }, [setExportPreparationStep, setLoading, setProcessing]);
 
+  const handleExportCompleteUi = useCallback(() => {
+    logInfo('RENDER', '[DIAG-UI] export complete callback received', {
+      urlPresent: true,
+      ext: exportExt,
+    });
+    exportCompletedRef.current = true;
+    exportFinalizingUiRef.current = false;
+    exportFinalizeWarningShownRef.current = false;
+    clearExportUiState();
+  }, [clearExportUiState, exportExt, logInfo]);
+
   useEffect(() => {
     const wasProcessing = wasExportProcessingRef.current;
     wasExportProcessingRef.current = isProcessing;
 
     if (exportUrl) {
       if (!exportCompletedRef.current) {
-        logInfo('RENDER', '[DIAG-UI] export complete callback received', {
-          urlPresent: Boolean(exportUrl),
-          ext: exportExt,
-        });
+        handleExportCompleteUi();
+      } else {
+        exportFinalizingUiRef.current = false;
+        exportFinalizeWarningShownRef.current = false;
+        clearExportUiState();
       }
-      exportCompletedRef.current = true;
-      exportFinalizingUiRef.current = false;
-      exportFinalizeWarningShownRef.current = false;
-      clearExportUiState();
       return;
     }
 
@@ -437,7 +445,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       exportFinalizeWarningShownRef.current = false;
       clearExportUiState();
     }
-  }, [clearExportUiState, exportExt, exportUrl, isProcessing, logInfo]);
+  }, [clearExportUiState, exportUrl, handleExportCompleteUi, isProcessing]);
 
   useEffect(() => {
     const isFinalizing =
@@ -1679,7 +1687,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     // export 中の停止は「プレビューを 0 秒へ戻す」ではなく、中断要求と UI 復旧を優先する。
     // 実際の停止/cleanup は export 側の abort 経路でも継続されるため、ここでは state を先に戻して表示を止める。
     if (isProcessing) {
-      stopWebCodecsExport({ silent: true });
+      // 停止ボタン押下は user cancel 扱いだが、download 導線を消したいだけなので追加エラーは出さず状態だけ静かに復旧する。
+      stopWebCodecsExport({ silent: true, reason: 'user' });
       clearExportUiState();
       return;
     }

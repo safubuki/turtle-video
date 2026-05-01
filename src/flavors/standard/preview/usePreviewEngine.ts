@@ -1889,7 +1889,7 @@ export function usePreviewEngine({
     if (hasActiveRecorder) {
       recorderRef.current!.stop();
     } else {
-      stopWebCodecsExport();
+      stopWebCodecsExport({ reason: 'user' });
     }
   }, [
     activeVideoIdRef,

@@ -189,8 +189,10 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     return () => clearInterval(timer);
   }, [isFinalizingExport, isProcessing]);
 
+  const hasExportUrl = Boolean(exportUrl);
+
   useEffect(() => {
-    if (isProcessing && !exportUrl) {
+    if (isProcessing && !hasExportUrl) {
       if (exportStartedAtRef.current === null) {
         const startedAt = Date.now();
         exportStartedAtRef.current = startedAt;
@@ -201,20 +203,20 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
 
     exportStartedAtRef.current = null;
     setProcessingNowMs(Date.now());
-  }, [exportUrl, isProcessing]);
+  }, [exportUrl, hasExportUrl, isProcessing]);
 
   useEffect(() => {
-    if (!isProcessing || exportUrl) return undefined;
+    if (!isProcessing || hasExportUrl) return undefined;
 
     const timer = window.setInterval(() => {
       setProcessingNowMs(Date.now());
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [exportUrl, isProcessing]);
+  }, [exportUrl, hasExportUrl, isProcessing]);
 
   useEffect(() => {
-    if (!isFinalizingExport || exportUrl || !isProcessing) {
+    if (!isFinalizingExport || hasExportUrl || !isProcessing) {
       exportFinalizingStartedAtRef.current = null;
       hasTriggeredFinalizingTimeoutRef.current = false;
       return;
@@ -232,7 +234,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
       hasTriggeredFinalizingTimeoutRef.current = true;
       onExportFinalizeTimeout?.();
     }
-  }, [exportUrl, isFinalizingExport, isProcessing, onExportFinalizeTimeout, processingNowMs]);
+  }, [exportUrl, hasExportUrl, isFinalizingExport, isProcessing, onExportFinalizeTimeout, processingNowMs]);
 
   useEffect(() => {
     return () => {
@@ -283,7 +285,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     return '映像を書き出し中です。';
   }, [exportPhase, exportProcessingElapsedText, isProcessing, preparationStageCopy.description]);
 
-  const exportActionButton = exportUrl ? (
+  const exportActionButton = hasExportUrl ? (
     <button
       type="button"
       onClick={onDownload}
