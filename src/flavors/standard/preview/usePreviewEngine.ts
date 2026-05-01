@@ -769,13 +769,22 @@ export function usePreviewEngine({
               const entryState = androidTrimEntryStateRef.current[activeId]
                 ?? { didHardSeek: false, didRebaseClock: false };
               androidTrimEntryStateRef.current[activeId] = entryState;
+              const isTimelineEnd =
+                totalDurationRef.current > 0 &&
+                time >= totalDurationRef.current - PREVIEW_END_THRESHOLD_SEC;
+              const isLastTimelineItem = activeIndex === currentItems.length - 1;
               const holdAndroidPreviewFrame = () => {
                 const shouldUseVisualBridge =
-                  bridgeState.bridgeFrameCount < PREVIEW_ANDROID_MAX_VISUAL_BRIDGE_FRAMES
+                  isAndroidPreviewPlayback
+                  && !isTimelineEnd
+                  && !isLastTimelineItem
+                  && bridgeState.bridgeFrameCount < PREVIEW_ANDROID_MAX_VISUAL_BRIDGE_FRAMES
                   && !!lastDrawableFrameRef.current
                   && !!previousItem
                   && previousItem.type === 'video'
-                  && activeItem.type === 'video';
+                  && activeItem.type === 'video'
+                  && localTime >= 0
+                  && localTime <= 0.12;
                 if (shouldUseVisualBridge) {
                   ctx.globalAlpha = 1.0;
                   ctx.drawImage(lastDrawableFrameRef.current as CanvasImageSource, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -792,7 +801,9 @@ export function usePreviewEngine({
                     videoCurrentTime: activeEl.currentTime,
                     targetTime,
                     bridgeFrameCount: bridgeState.bridgeFrameCount,
-                    usedLastDrawableFrame: true,
+                    usedVisualBridge: true,
+                    isTimelineEnd,
+                    isLastTimelineItem,
                     didRebaseClock: entryState.didRebaseClock,
                     didHardSeek: entryState.didHardSeek,
                   });
@@ -808,7 +819,6 @@ export function usePreviewEngine({
                 // active clip の localTime は通常 0 以上だが、境界フォールバック追加時もこの短い窓だけに閉じる。
                 && localTime >= 0
                 && localTime <= PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC;
-              const isLastTimelineItem = activeIndex === currentItems.length - 1;
               const isNearTimelineEnd =
                 totalDurationRef.current > 0 &&
                 time >= totalDurationRef.current - 0.05;
@@ -843,7 +853,54 @@ export function usePreviewEngine({
                 !hasExportPlayFailure &&
                 Math.abs(activeEl.currentTime - targetTime) > exportSyncThreshold;
 
-              if (shouldForceEndFrameAlign && activeEl.readyState >= 1 && !activeEl.seeking) {
+              if (isTimelineEnd && activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME && !activeEl.seeking) {
+                const finalLocalTime = Math.max(0, activeItem.duration - 0.001);
+                const finalVideoTime = (activeItem.trimStart || 0) + finalLocalTime;
+                activeEl.pause();
+                if (Math.abs(activeEl.currentTime - finalVideoTime) > 0.05) {
+                  activeEl.currentTime = finalVideoTime;
+                  holdFrame = true;
+                  shouldSkipAndroidPreviewActiveDraw = true;
+                  logInfo('RENDER', '[DIAG-PREVIEW-END-FREEZE]', {
+                    activeId,
+                    activeIndex,
+                    isLastTimelineItem,
+                    isTimelineEnd,
+                    localTime,
+                    trimStart,
+                    videoCurrentTime: activeEl.currentTime,
+                    finalVideoTime,
+                    readyState: activeEl.readyState,
+                    paused: activeEl.paused,
+                    seeking: activeEl.seeking,
+                    ended: activeEl.ended,
+                    bridgeFrameCount: bridgeState.bridgeFrameCount,
+                    usedVisualBridge: false,
+                  });
+                  return true;
+                }
+                ctx.globalAlpha = 1.0;
+                ctx.drawImage(activeEl, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                didUpdateCanvas = true;
+                holdFrame = true;
+                shouldSkipAndroidPreviewActiveDraw = true;
+                logInfo('RENDER', '[DIAG-PREVIEW-END-FREEZE]', {
+                  activeId,
+                  activeIndex,
+                  isLastTimelineItem,
+                  isTimelineEnd,
+                  localTime,
+                  trimStart,
+                  videoCurrentTime: activeEl.currentTime,
+                  finalVideoTime,
+                  readyState: activeEl.readyState,
+                  paused: activeEl.paused,
+                  seeking: activeEl.seeking,
+                  ended: activeEl.ended,
+                  bridgeFrameCount: bridgeState.bridgeFrameCount,
+                  usedVisualBridge: false,
+                });
+              } else if (shouldForceEndFrameAlign && activeEl.readyState >= 1 && !activeEl.seeking) {
                 const endAlignThreshold = 0.0001;
                 const desired = Math.min(targetTime, safeEndTime);
                 const drift = Math.abs(activeEl.currentTime - desired);
@@ -1030,6 +1087,8 @@ export function usePreviewEngine({
                 }
               }
               if (
+                !isTimelineEnd
+                &&
                 isAndroidPreviewPlayback
                 && activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
                 && !activeEl.seeking
@@ -2226,6 +2285,13 @@ export function usePreviewEngine({
       cancelAnimationFrame(reqIdRef.current);
       reqIdRef.current = null;
     }
+    logInfo('RENDER', '[DIAG-PREVIEW-END-FREEZE] finalize preview loop', {
+      loopId: myLoopId,
+      currentLoopId: loopIdRef.current,
+      totalDuration,
+      isPlaying: isPlayingRef.current,
+      reqId: reqIdRef.current,
+    });
 
     setTimeout(() => {
       endFinalizedRef.current = false;
@@ -2540,8 +2606,10 @@ export function usePreviewEngine({
                 audibleSourceCount: 0,
                 isExporting: false,
               });
-              el.currentTime = item.trimStart || 0;
-              el.play().catch(() => {});
+              if (Math.abs(el.currentTime - (item.trimStart || 0)) > 0.05 && !el.seeking) {
+                el.currentTime = item.trimStart || 0;
+              }
+              el.pause();
             }
           }
         }
