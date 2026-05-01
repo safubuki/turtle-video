@@ -788,6 +788,24 @@
   - natural end に入った後は、後段の cleanup が `reason: 'user'` を投げても成功 callback を潰さないことを優先する
   - timeout 文言は UI 側のエラー表示に留め、成功 URL の revoke や `exportCompletedRef` の巻き戻しをしない
 
+### 9-19. export ループの終端では stopAll() ではなく completeWebCodecsExport() を呼ぶ
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/components/turtle-video/usePreviewEngine.ts`, `src/components/TurtleVideo.tsx`, `src/hooks/useExport.ts`
+- **問題**:
+  - export モードで `clampedElapsed >= totalDuration` になるとループが `stopAll()` を呼ぶ
+  - `stopAll()` は外部 `recorderRef`（TurtleVideo.tsx の `useRef<MediaRecorder | null>(null)`）を確認するが、WebCodecs export 中はこの ref が null のため `stopWebCodecsExport({ reason: 'user' })` ルートへ入る
+  - `cancelReason` が `'user'` に汚染され、その後 blob/URL が正常生成されても `callback suppressed by explicit user cancel` で `onRecordingStop` が抑止される
+  - UI 側の `exportUrl` / `exportFinalizing` が更新されず、ダウンロードボタンへの遷移が起きない
+- **対策**:
+  - `UseExportReturn['completeExport']` を `completeWebCodecsExport` として両 `usePreviewEngine` の props に追加
+  - `TurtleVideo.tsx` で `completeExport` を抽出して渡す
+  - ループの `clampedElapsed >= totalDuration` 分岐で `isExportMode` の場合は `completeWebCodecsExport()` を呼ぶ（`stopAll()` を呼ばない）
+  - 保険として `useExport.ts` の最終化部分に安全網を追加: `cancelReasonAtUrl === 'user'` でも `blob.size > 0` なら `cancelReason` を `'none'` に復旧してコールバックを通す
+- **注意**:
+  - `recorderRef` は TurtleVideo.tsx（外部）と useExport.ts（内部）で **別々の ref**。`stopAll()` が参照するのは外部のもの。WebCodecs export では外部 ref は常に null なので `stopAll()` を export 終端で呼ぶと必ず `stopExport({ reason: 'user' })` ルートへ入る
+  - `completeWebCodecsExport()` は `completionRequestedRef` / `finalizeRequestedRef` / `exportFinalizingRef` を立て、エンコード pipeline に正常終了を通知する
+  - 成功コールバック（`onRecordingStop`）内で `stopAll()` を呼ぶことは問題ない。その時点では `exportPhaseRef === 'completed'` のため `stopExport` は早期 return する
+
 ---
 
 ## 9.5. プレビューキャプチャ

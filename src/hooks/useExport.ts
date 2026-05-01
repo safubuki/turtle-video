@@ -2564,15 +2564,29 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           try {
             const cancelReasonAtUrl = exportCancelReasonRef.current as ExportCancelReason;
             if (cancelReasonAtUrl === 'user') {
-              URL.revokeObjectURL(url);
-              logWarn('[EXPORT-FSM] transition', {
-                from: exportPhaseRef.current,
-                to: exportPhaseRef.current,
-                reason: 'callback suppressed',
-                cancelReason: cancelReasonAtUrl,
-                hasExportUrl: Boolean(exportUrl),
-              });
-              return;
+              // blob が正常に生成されている場合は、古い cancelReason='user' を無視して完了扱いに復旧する。
+              // stopAll() → stopWebCodecsExport({ reason: 'user' }) の誤呼び出しで cancelReason が汚染された場合の保険。
+              if (blob.size > 0) {
+                logWarn('[EXPORT-FSM] transition', {
+                  from: exportPhaseRef.current,
+                  to: exportPhaseRef.current,
+                  reason: 'recovered from stale user-cancel — valid export result will be delivered',
+                  cancelReason: cancelReasonAtUrl,
+                  blobSize: blob.size,
+                  hasExportUrl: Boolean(exportUrl),
+                });
+                exportCancelReasonRef.current = 'none';
+              } else {
+                URL.revokeObjectURL(url);
+                logWarn('[EXPORT-FSM] transition', {
+                  from: exportPhaseRef.current,
+                  to: exportPhaseRef.current,
+                  reason: 'callback suppressed',
+                  cancelReason: cancelReasonAtUrl,
+                  hasExportUrl: Boolean(exportUrl),
+                });
+                return;
+              }
             }
             exportPhaseRef.current = 'completed';
             exportCompletedRef.current = true;
