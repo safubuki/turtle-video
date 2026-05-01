@@ -2561,8 +2561,11 @@ export function usePreviewEngine({
       const resolvedLocalTimeMs = resolvedSegment ? Math.round(resolvedSegment.localTime * 1000) : null;
       const segmentChanged = resolvedSegmentIndex !== diagnostics.lastSegmentIndex;
       if (frameGapMs !== null && frameGapMs >= 50) {
-        const activeVideoElement = resolvedSegment?.item?.type === 'video'
-          ? mediaElementsRef.current[resolvedSegment.item.id] as HTMLVideoElement | undefined
+        const resolvedMediaItem = resolvedSegmentIndex >= 0
+          ? mediaItemsRef.current[resolvedSegmentIndex]
+          : null;
+        const activeVideoElement = resolvedMediaItem?.type === 'video'
+          ? mediaElementsRef.current[resolvedMediaItem.id] as HTMLVideoElement | undefined
           : undefined;
         logWarn('RENDER', 'preview.frame.gap', {
           frameGapMs: Math.round(frameGapMs * 100) / 100,
