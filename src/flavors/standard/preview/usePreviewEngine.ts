@@ -18,6 +18,8 @@ import type { LogCategory } from '../../../stores/logStore';
 import { useMediaStore } from '../../../stores';
 import type { PlatformCapabilities } from '../../../utils/platform';
 import { collectPlaybackBlockingVideos, findActiveTimelineItem } from '../../../utils/playbackTimeline';
+import { isCaptionActiveAtTime } from '../../../utils/captionTimeline';
+import { getExportFrameTiming, resolveExportDuration } from '../../../utils/exportTimeline';
 import {
   ANDROID_PREVIEW_DRIFT_FIX_THRESHOLD_SEC,
   EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC,
@@ -1474,11 +1476,29 @@ export function usePreviewEngine({
 
         const currentCaptions = captionsRef.current;
         const currentCaptionSettings = captionSettingsRef.current;
+        const exportFrameIndex = _isExporting ? Math.max(0, Math.floor(time * FPS + 1e-9)) : null;
+        const exportDurationAlignment = _isExporting
+          ? resolveExportDuration(totalDurationRef.current, FPS)
+          : null;
+        const exportFrameTiming = (_isExporting && exportDurationAlignment && exportFrameIndex !== null && exportFrameIndex < exportDurationAlignment.frameCount)
+          ? getExportFrameTiming(exportDurationAlignment, FPS, exportFrameIndex)
+          : null;
         if (currentCaptionSettings.enabled && currentCaptions.length > 0) {
           const activeCaptions = currentCaptions.filter(
-            (c) => time >= c.startTime && time < c.endTime,
+            (c) => isCaptionActiveAtTime(c, time),
           );
           for (const activeCaption of activeCaptions) {
+            if (_isExporting && exportFrameTiming && time <= 3) {
+              logInfo('RENDER', '[DIAG-CAPTION-EXPORT-TIMING]', {
+                frameIndex: exportFrameIndex,
+                frameTimestampUs: exportFrameTiming.timestampUs,
+                exportFrameTimeSec: time,
+                captionId: activeCaption.id,
+                captionStart: activeCaption.startTime,
+                captionEnd: activeCaption.endTime,
+                isActive: isCaptionActiveAtTime(activeCaption, time),
+              });
+            }
             const fontSizeMap = { small: 32, medium: 48, large: 64, xlarge: 80 };
             const effectiveFontSizeKey = activeCaption.overrideFontSize ?? currentCaptionSettings.fontSize;
             const fontSize = fontSizeMap[effectiveFontSizeKey];
@@ -2138,9 +2158,17 @@ export function usePreviewEngine({
         }
         return;
       }
-      setCurrentTime(clampedElapsed);
-      currentTimeRef.current = clampedElapsed;
-      renderFrame(clampedElapsed, true, isExportMode);
+      const exportDurationAlignment = isExportMode ? resolveExportDuration(totalDuration, FPS) : null;
+      const exportFrameIndex = isExportMode && exportDurationAlignment !== null && exportDurationAlignment.frameCount > 0
+        ? Math.min(exportDurationAlignment.frameCount - 1, Math.max(0, Math.floor(clampedElapsed * FPS + 1e-9)))
+        : null;
+      const exportFrameTiming = isExportMode && exportDurationAlignment && exportFrameIndex !== null
+        ? getExportFrameTiming(exportDurationAlignment, FPS, exportFrameIndex)
+        : null;
+      const renderTimeSec = exportFrameTiming ? (exportFrameTiming.timestampUs / 1e6) : clampedElapsed;
+      setCurrentTime(renderTimeSec);
+      currentTimeRef.current = renderTimeSec;
+      renderFrame(renderTimeSec, true, isExportMode);
       reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
     },
     [

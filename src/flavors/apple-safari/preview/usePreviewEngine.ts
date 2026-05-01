@@ -18,6 +18,7 @@ import type { LogCategory } from '../../../stores/logStore';
 import { useMediaStore } from '../../../stores';
 import type { PlatformCapabilities } from '../../../utils/platform';
 import { collectPlaybackBlockingVideos, findActiveTimelineItem } from '../../../utils/playbackTimeline';
+import { isCaptionActiveAtTime } from '../../../utils/captionTimeline';
 import {
   EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC,
   getPreviewAudioOutputMode,
@@ -993,7 +994,7 @@ export function usePreviewEngine({
         const currentCaptionSettings = captionSettingsRef.current;
         if (currentCaptionSettings.enabled && currentCaptions.length > 0) {
           const activeCaptions = currentCaptions.filter(
-            (c) => time >= c.startTime && time < c.endTime,
+            (c) => isCaptionActiveAtTime(c, time),
           );
           for (const activeCaption of activeCaptions) {
             const fontSizeMap = { small: 32, medium: 48, large: 64, xlarge: 80 };

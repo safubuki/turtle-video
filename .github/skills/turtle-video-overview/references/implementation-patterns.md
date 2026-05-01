@@ -1983,3 +1983,16 @@
   - 退避変数を `((handled: boolean) => void) | undefined` とし、利用前ガード後に `const strategyResolver: (handled: boolean) => void = resolveStrategy` のように明示型で受ける。
 - **注意**:
   - Promise の `resolve` は `boolean | PromiseLike<boolean>` を受けられるため、テスト意図が boolean 解決で固定されている場合は受け側関数型を明示しておく。
+
+### 13-75. export 時の caption 判定時刻は「エンコード対象フレーム timestamp」に固定する
+
+- **対象ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/utils/captionTimeline.ts`, `src/test/exportTimeline.test.ts`
+- **問題**:
+  - export ループが壁時計由来の `elapsed` をそのまま caption 判定へ流すと、エンコーダーへ渡す `VideoFrame.timestamp` と表示判定時刻が一致せず、字幕だけ 0.1〜0.3 秒遅れて見えることがある。
+- **対応パターン**:
+  - standard export の `renderFrame()` には `getExportFrameTiming(resolveExportDuration(...), FPS, frameIndex)` から算出した `timestampUs / 1e6` を渡し、Canvas 描画時刻を encoded timestamp と一致させる。
+  - caption の表示判定は `isCaptionActiveAtTime()` helper に統一し、preview / export の双方で同じ `[start, end)` 判定を使う。
+  - export 診断ログ `[DIAG-CAPTION-EXPORT-TIMING]` では frame timestamp・caption 境界・isActive を同一レコードへ出力し、時刻基準の不一致を早期検出する。
+- **注意**:
+  - caption 用の固定オフセット補正（±0.2s など）は導入しない。素材依存で逆効果になるため、まず timestamp 基準の一致を優先する。
+  - iOS Safari export 経路は既存戦略を維持し、今回の時刻固定は standard runtime の export ループへ限定する。
