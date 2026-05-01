@@ -886,7 +886,7 @@ describe('standard preview engine', () => {
     expect(didUpdateCanvas).toBe(false);
   });
 
-  it('Android preview は clip 終端 0.6 秒だけ次の video を trimStart に preseek する', () => {
+  it('Android preview は clip 終端 0.8 秒以内に次の video を trimStart に preseek する', () => {
     const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
     const videoItem = createVideoItem({
       id: 'video-2',
@@ -912,7 +912,7 @@ describe('standard preview engine', () => {
     expect(videoElement.currentTime).toBeCloseTo(videoItem.trimStart);
   });
 
-  it('Android preview の next video preseek は video -> video かつ trimStart=0 でも残り 0.6 秒で発火する', () => {
+  it('Android preview の next video preseek は video -> video かつ trimStart=0 でも残り 0.8 秒以内で発火する', () => {
     const currentVideo = createVideoItem({
       id: 'video-1',
       duration: 1,
@@ -1001,7 +1001,7 @@ describe('standard preview engine', () => {
     expect(farVideoElement.currentTime).toBeCloseTo(0.2);
   });
 
-  it('Android preview の next trimmed video preseek は clip 終端 0.6 秒の外では発火しない', () => {
+  it('Android preview の next trimmed video preseek は clip 終端 0.8 秒の外では発火しない', () => {
     const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
     const videoItem = createVideoItem({
       id: 'video-2',
@@ -1022,7 +1022,7 @@ describe('standard preview engine', () => {
       } as MediaElementsRef,
     });
 
-    hook.result.current.renderFrame(0.39, true, false);
+    hook.result.current.renderFrame(0.15, true, false);
 
     expect(videoElement.currentTime).toBeCloseTo(0.2);
   });
@@ -1070,6 +1070,44 @@ describe('standard preview engine', () => {
     seekingHarness.hook.result.current.renderFrame(0.75, true, false);
 
     expect(seekingVideo.currentTime).toBeCloseTo(0.4);
+  });
+
+  it('Android preview の trimStart > 0 の次 video preseek は同一動画への連続 seek を 400ms 以内は抑制する', () => {
+    const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
+    const videoItem = createVideoItem({
+      id: 'video-2',
+      duration: 2,
+      trimStart: 1.2,
+      trimEnd: 3.2,
+    });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 1;
+    videoElement.seeking = false;
+    videoElement.paused = true;
+    videoElement.currentTime = 0;
+
+    const { hook } = setupRenderFrameHarness({
+      mediaItems: [imageItem, videoItem],
+      mediaElements: {
+        [videoItem.id]: videoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+    });
+
+    // 1 フレーム目: preseek 発火 → currentTime が trimStart に移動する
+    hook.result.current.renderFrame(0.5, true, false);
+    expect(videoElement.currentTime).toBeCloseTo(videoItem.trimStart);
+
+    // Android が seek を完了したが少しズレた位置に着地したとシミュレート
+    videoElement.currentTime = videoItem.trimStart - 0.1;
+
+    // 2 フレーム目（時間経過なし）: 同一動画への再 preseek は抑制される
+    hook.result.current.renderFrame(0.5, true, false);
+    expect(videoElement.currentTime).toBeCloseTo(videoItem.trimStart - 0.1);
+
+    // 400ms 経過後は再度 preseek できる
+    vi.advanceTimersByTime(401);
+    hook.result.current.renderFrame(0.5, true, false);
+    expect(videoElement.currentTime).toBeCloseTo(videoItem.trimStart);
   });
 
   it('Android preview startEngine は inactive reset に直近の次 video だけを渡す', async () => {

@@ -226,7 +226,7 @@ const PREVIEW_START_READY_SYNC_TOLERANCE_SEC = 0.05;
 // Android preview の trim 済み video 先頭だけは厳しめに currentTime を合わせてカクつきを抑える。
 const PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC = 0.05;
 const PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC = 0.25;
-const PREVIEW_ANDROID_VIDEO_PRESEEK_WINDOW_SEC = 0.6;
+const PREVIEW_ANDROID_VIDEO_PRESEEK_WINDOW_SEC = 0.8;
 const PREVIEW_ANDROID_BGM_SOFT_SYNC_TOLERANCE_SEC = 0.3;
 const PREVIEW_END_THRESHOLD_SEC = 0.03;
 // 再生開始直後は seeked / canplay の到着を数フレームだけ待ち、遅ければ loop を止めない。
@@ -455,6 +455,8 @@ export function usePreviewEngine({
     attempts: number;
   }>>({});
   const androidPreviewHoldLogAtRef = useRef<Record<string, number>>({});
+  // video -> trimmed video 境界の preseek を毎フレーム連発しないよう最終試行を追跡する。
+  const androidTrimPreseekRef = useRef<{ videoId: string; lastAtMs: number } | null>(null);
   const logAndroidPreviewHold = useCallback(
     (videoId: string, timelineTime: number, activeEl?: HTMLVideoElement) => {
       const now = Date.now();
@@ -965,7 +967,31 @@ export function usePreviewEngine({
                 && Math.abs(nextElement.currentTime - nextStart)
                 > PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC
               ) {
-                nextElement.currentTime = nextStart;
+                if (nextStart > 0) {
+                  // trimStart > 0 の動画は毎フレーム seek を連発しないようスロットリングする。
+                  const now = Date.now();
+                  const last = androidTrimPreseekRef.current;
+                  const shouldFireTrimPreseek =
+                    !last
+                    || last.videoId !== nextVideoItem.id
+                    || now - last.lastAtMs > 400;
+                  if (shouldFireTrimPreseek) {
+                    logInfo('RENDER', '[DIAG-TRIM-PRESEEK] next trimmed video preseek', {
+                      activeId,
+                      nextId: nextVideoItem.id,
+                      trimStart: nextStart,
+                      remainingSec: remainingTime,
+                      readyState: nextElement.readyState,
+                      seeking: nextElement.seeking,
+                      paused: nextElement.paused,
+                      currentTime: nextElement.currentTime,
+                    });
+                    nextElement.currentTime = nextStart;
+                    androidTrimPreseekRef.current = { videoId: nextVideoItem.id, lastAtMs: now };
+                  }
+                } else {
+                  nextElement.currentTime = nextStart;
+                }
               }
               if (!shouldPreseekNextVideo && (nextElement.paused || nextElement.readyState < 2)) {
                 if (Math.abs(nextElement.currentTime - nextStart) > 0.1) {
@@ -1844,6 +1870,7 @@ export function usePreviewEngine({
     pendingSeekRef.current = null;
     exportPlayFailedRef.current = {};
     exportFallbackSeekAtRef.current = {};
+    androidTrimPreseekRef.current = null;
 
     if (pendingSeekTimeoutRef.current) {
       clearTimeout(pendingSeekTimeoutRef.current);
