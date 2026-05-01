@@ -20,6 +20,7 @@ import type { MediaItem, AudioTrack, NarrationClip } from '../../types';
 import type { ExportPreparationStep } from '../../hooks/useExport';
 import type { AppFlavor } from '../../app/resolveAppFlavor';
 import { getPreviewRuntimeNotice } from '../../app/appFlavorUi';
+import { useLogStore } from '../../stores/logStore';
 
 const PREVIEW_ICON_BUTTON_BASE =
   'relative overflow-hidden p-3 lg:p-4 rounded-full border transition-[transform,background-color,color,box-shadow,filter] duration-200 shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed';
@@ -126,12 +127,14 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   onOpenHelp,
   formatTime,
 }) => {
+  const log = useLogStore.getState();
   const [exportPhase, setExportPhase] = useState<ExportPhase>('preparing');
   const [isCapturePressed, setIsCapturePressed] = useState(false);
   const lastObservedTimeRef = useRef<number>(currentTime);
   const hasExportProgressRef = useRef<boolean>(false);
   const flashTimeoutRef = useRef<number | null>(null);
   const exportStartedAtRef = useRef<number | null>(null);
+  const exportButtonStateRef = useRef<'download' | 'processing' | 'create' | null>(null);
   const exportFinalizingStartedAtRef = useRef<number | null>(null);
   const hasTriggeredFinalizingTimeoutRef = useRef(false);
   const [processingNowMs, setProcessingNowMs] = useState(() => Date.now());
@@ -190,6 +193,21 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   }, [isFinalizingExport, isProcessing]);
 
   const hasExportUrl = Boolean(exportUrl);
+  const exportButtonState: 'download' | 'processing' | 'create' = hasExportUrl
+    ? 'download'
+    : isProcessing
+      ? 'processing'
+      : 'create';
+
+  useEffect(() => {
+    if (exportButtonStateRef.current === exportButtonState) return;
+    exportButtonStateRef.current = exportButtonState;
+    log.info('RENDER', '[DIAG-UI] export button state', {
+      state: exportButtonState,
+      hasExportUrl,
+      isProcessing,
+    });
+  }, [exportButtonState, hasExportUrl, isProcessing, log]);
 
   useEffect(() => {
     if (isProcessing && !hasExportUrl) {
@@ -285,7 +303,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     return '映像を書き出し中です。';
   }, [exportPhase, exportProcessingElapsedText, isProcessing, preparationStageCopy.description]);
 
-  const exportActionButton = hasExportUrl ? (
+  const exportActionButton = exportButtonState === 'download' ? (
     <button
       type="button"
       onClick={onDownload}
@@ -293,7 +311,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     >
       <Download className="w-4 h-4 lg:w-5 lg:h-5" /> ダウンロード (.{exportExt})
     </button>
-  ) : isProcessing ? (
+  ) : exportButtonState === 'processing' ? (
     <button
       onClick={onExport}
       disabled

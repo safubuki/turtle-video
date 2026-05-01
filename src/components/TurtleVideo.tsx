@@ -422,6 +422,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     exportCompletedRef.current = true;
     exportFinalizingUiRef.current = false;
     exportFinalizeWarningShownRef.current = false;
+    logInfo('RENDER', '[DIAG-UI] export url committed to UI', {
+      urlPresent: true,
+      ext: exportExt,
+    });
     clearExportUiState();
   }, [clearExportUiState, exportExt, logInfo]);
 
