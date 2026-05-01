@@ -371,4 +371,34 @@ describe('PreviewSection action buttons', () => {
     expect(onClearGeneratedExport).toHaveBeenCalledTimes(1);
     expect(onStop).toHaveBeenCalledTimes(1);
   });
+
+  it('再生ボタンを押すと onTogglePlay が呼ばれる（export クリアは TurtleVideo 側で実行）', () => {
+    const onTogglePlay = vi.fn();
+
+    renderPreviewSection({
+      exportUrl: 'blob:export',
+      exportExt: 'mp4',
+      isProcessing: false,
+      onTogglePlay,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'プレビューを再生' }));
+
+    expect(onTogglePlay).toHaveBeenCalledTimes(1);
+  });
+
+  it('エクスポート中に停止ボタンを押しても onStop が呼ばれる', () => {
+    const onStop = vi.fn();
+
+    renderPreviewSection({
+      exportUrl: null,
+      isProcessing: true,
+      exportPreparationStep: 5,
+      onStop,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'プレビューを停止' }));
+
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
 });
