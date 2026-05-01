@@ -167,8 +167,8 @@ export interface UseExportReturn {
   clearExportUrl: () => void;
 }
 
-export type ExportCancelReason = 'none' | 'user' | 'superseded' | 'unmount';
-export type ExportStopReason = Exclude<ExportCancelReason, 'none'>;
+export type ExportCancelReason = 'none' | 'user' | 'superseded' | 'unmount' | 'error';
+export type ExportStopReason = Exclude<ExportCancelReason, 'none' | 'error'>;
 type ExportPhase = 'idle' | 'preparing' | 'rendering' | 'finalizing' | 'completed' | 'failed' | 'cancelled';
 
 export interface UseExportRuntimeConfig {
@@ -1087,6 +1087,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
     const silentAbortRef = useRef(false);
     const finalizeRequestedRef = useRef(false);
     const exportFinalizingRef = useRef(false);
+    const exportSessionIdRef = useRef<string | null>(null);
     const exportCancelReasonRef = useRef<ExportCancelReason>('none');
     const exportCompletedRef = useRef(false);
     const exportPhaseRef = useRef<ExportPhase>('idle');
@@ -1104,6 +1105,24 @@ export function createUseExport(config: UseExportRuntimeConfig) {
   const stopExport = useCallback((options?: { silent?: boolean; reason?: ExportStopReason }) => {
     // reason 未指定の stopExport は preview/export cleanup 側からの system stop とみなす。
     const cancelReason = options?.reason ?? 'superseded';
+    const currentPhase = exportPhaseRef.current;
+    const isNaturalFinalizeInFlight =
+      completionRequestedRef.current
+      || finalizeRequestedRef.current
+      || exportFinalizingRef.current
+      || currentPhase === 'finalizing'
+      || currentPhase === 'completed';
+    if (cancelReason === 'user' && isNaturalFinalizeInFlight) {
+      useLogStore.getState().info('RENDER', '[EXPORT-FSM] transition', {
+        exportSessionId: exportSessionIdRef.current,
+        from: currentPhase,
+        to: currentPhase,
+        reason: 'cancel requested',
+        cancelReason: exportCancelReasonRef.current,
+        hasExportUrl: Boolean(exportUrl),
+      });
+      return;
+    }
     useLogStore.getState().info(
       'RENDER',
       cancelReason === 'user' ? 'エクスポートを停止' : 'エクスポートを中断',
@@ -1116,6 +1135,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
     exportCancelReasonRef.current = cancelReason;
     exportPhaseRef.current = 'cancelled';
     useLogStore.getState().info('RENDER', '[EXPORT-FSM] transition', {
+      exportSessionId: exportSessionIdRef.current,
       from: previousPhase,
       to: 'cancelled',
       reason: 'cancel requested',
@@ -1149,6 +1169,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
     exportCancelReasonRef.current = 'none';
     exportPhaseRef.current = 'finalizing';
     useLogStore.getState().info('RENDER', '[EXPORT-FSM] transition', {
+      exportSessionId: exportSessionIdRef.current,
       from: previousPhase,
       to: 'finalizing',
       reason: 'natural end reached',
@@ -1175,6 +1196,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
       audioSources?: ExportAudioSources
     ) => {
       const exportSessionId = createDiagnosticId('export');
+      exportSessionIdRef.current = exportSessionId;
       const log = useLogStore.getState();
       const logInfo = (message: string, details?: Record<string, unknown>) => {
         log.info('RENDER', message, { exportSessionId, ...(details ?? {}) });
@@ -1233,6 +1255,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         if (hasNotifiedRecordingStop) return;
         if (exportCancelReasonRef.current === 'user') {
           logWarn('[EXPORT-FSM] transition', {
+            exportSessionId,
             from: exportPhaseRef.current,
             to: exportPhaseRef.current,
             reason: 'callback suppressed',
@@ -2538,7 +2561,13 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             const cancelReasonAtUrl = exportCancelReasonRef.current as ExportCancelReason;
             if (cancelReasonAtUrl === 'user') {
               URL.revokeObjectURL(url);
-              logWarn('[EXPORT-FSM] callback suppressed by explicit user cancel');
+              logWarn('[EXPORT-FSM] transition', {
+                from: exportPhaseRef.current,
+                to: exportPhaseRef.current,
+                reason: 'callback suppressed',
+                cancelReason: cancelReasonAtUrl,
+                hasExportUrl: Boolean(exportUrl),
+              });
               return;
             }
             exportPhaseRef.current = 'completed';
@@ -2578,6 +2607,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           (err as any)?.name === 'AbortError' ||
           (err as any)?.message?.includes('Aborted');
         const cancelReason = exportCancelReasonRef.current as ExportCancelReason;
+        exportCancelReasonRef.current = isAbort ? cancelReason : 'error';
         exportPhaseRef.current = isAbort ? 'cancelled' : 'failed';
 
         if (!hasNotifiedRecordingStop) {
@@ -2633,6 +2663,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         videoReaderRef.current = null;
         audioReaderRef.current = null;
         recorderRef.current = null;
+        exportSessionIdRef.current = null;
         completionRequestedRef.current = false;
         finalizeRequestedRef.current = false;
         exportFinalizingRef.current = false;
