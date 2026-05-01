@@ -229,7 +229,8 @@ const PREVIEW_START_READY_SYNC_TOLERANCE_SEC = 0.05;
 const PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC = 0.05;
 const PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC = 0.25;
 const PREVIEW_ANDROID_NEXT_VIDEO_PREWARM_WINDOW_SEC = 1.2;
-const PREVIEW_ANDROID_NEXT_VIDEO_PLAY_PRIME_WINDOW_SEC = 0.35;
+const PREVIEW_ANDROID_NEXT_VIDEO_DECODER_PRIME_WINDOW_SEC = 0.6;
+const PREVIEW_ANDROID_NEXT_VIDEO_PREROLL_WINDOW_SEC = 0.3;
 const PREVIEW_ANDROID_BOUNDARY_DRAW_DRIFT_ALLOWANCE_SEC = 0.25;
 const TRIMMED_ENTRY_HARD_SEEK_THRESHOLD_SEC = 0.25;
 const TRIMMED_ENTRY_SOFT_DRIFT_ALLOWANCE_SEC = 0.35;
@@ -470,10 +471,12 @@ export function usePreviewEngine({
     didHardSeek: boolean;
     didRebaseClock: boolean;
   }>>({});
-  const androidNextVideoPrimeRef = useRef<Record<string, {
-    targetTime: number;
+  const androidBoundaryWarmupRef = useRef<Record<string, {
+    targetStartSec: number;
     preseeked: boolean;
-    playPrimed: boolean;
+    decoderPrimed: boolean;
+    prerolling: boolean;
+    readyAtBoundary: boolean;
   }>>({});
   const logAndroidPreviewHold = useCallback(
     (videoId: string, timelineTime: number, activeEl?: HTMLVideoElement) => {
@@ -754,7 +757,7 @@ export function usePreviewEngine({
             } else {
               const targetTime = (activeItem.trimStart || 0) + localTime;
               const trimStart = activeItem.trimStart || 0;
-              const primeState = androidNextVideoPrimeRef.current[activeId];
+              const warmupState = androidBoundaryWarmupRef.current[activeId];
               const entryState = androidTrimEntryStateRef.current[activeId]
                 ?? { didHardSeek: false, didRebaseClock: false };
               androidTrimEntryStateRef.current[activeId] = entryState;
@@ -866,7 +869,7 @@ export function usePreviewEngine({
                 }
                 if (
                   isTrimmedEntry
-                  && !primeState?.playPrimed
+                  && !warmupState?.readyAtBoundary
                   && !entryState.didRebaseClock
                   && trimStart > 0
                   && localTime <= 0.15
@@ -942,12 +945,12 @@ export function usePreviewEngine({
                 && !activeEl.seeking
                 && activeEl.videoWidth > 0
                 && activeEl.videoHeight > 0
-                && (activeEl.paused || !!primeState?.playPrimed);
+                && (activeEl.paused || !!warmupState?.readyAtBoundary);
 
               if (shouldBypassHoldForPrimedActiveVideo) {
                 holdFrame = false;
                 shouldSkipAndroidPreviewActiveDraw = false;
-                if (primeState?.playPrimed) {
+                if (warmupState?.readyAtBoundary) {
                   const desiredVolume = Math.max(0, Math.min(1, activeItem.volume ?? 1));
                   activeEl.defaultMuted = false;
                   activeEl.muted = false;
@@ -969,8 +972,10 @@ export function usePreviewEngine({
                   readyState: activeEl.readyState,
                   paused: activeEl.paused,
                   seeking: activeEl.seeking,
-                  preseeked: !!primeState?.preseeked,
-                  playPrimed: !!primeState?.playPrimed,
+                  preseeked: !!warmupState?.preseeked,
+                  decoderPrimed: !!warmupState?.decoderPrimed,
+                  prerolling: !!warmupState?.prerolling,
+                  readyAtBoundary: !!warmupState?.readyAtBoundary,
                   holdFrame,
                 });
               }
@@ -1104,9 +1109,22 @@ export function usePreviewEngine({
                 && nextVideoItem.type === 'video'
                 && (nextVideoItem.trimStart || 0) >= 0;
               const nextStart = nextVideoItem.trimStart || 0;
-              const primeState = androidNextVideoPrimeRef.current[nextVideoItem.id]
-                ?? { targetTime: nextStart, preseeked: false, playPrimed: false };
-              androidNextVideoPrimeRef.current[nextVideoItem.id] = primeState;
+              const warmupState = androidBoundaryWarmupRef.current[nextVideoItem.id]
+                ?? {
+                  targetStartSec: nextStart,
+                  preseeked: false,
+                  decoderPrimed: false,
+                  prerolling: false,
+                  readyAtBoundary: false,
+                };
+              if (Math.abs(warmupState.targetStartSec - nextStart) > 0.001) {
+                warmupState.targetStartSec = nextStart;
+                warmupState.preseeked = false;
+                warmupState.decoderPrimed = false;
+                warmupState.prerolling = false;
+                warmupState.readyAtBoundary = false;
+              }
+              androidBoundaryWarmupRef.current[nextVideoItem.id] = warmupState;
               const preseekState = androidTrimPreseekRef.current[nextVideoItem.id];
               const alreadyRequestedSameTarget = !!preseekState
                 && Math.abs(preseekState.targetTime - nextStart) <= 0.001;
@@ -1137,18 +1155,19 @@ export function usePreviewEngine({
                   paused: nextElement.paused,
                   currentTime: nextElement.currentTime,
                 });
-                primeState.targetTime = nextStart;
-                primeState.preseeked = true;
-                logInfo('RENDER', '[DIAG-BOUNDARY-PREWARM] next video preseek requested', {
+                warmupState.preseeked = true;
+                logInfo('RENDER', '[DIAG-BOUNDARY-WARMUP] next video preseek requested', {
                   activeId,
                   nextId: nextVideoItem.id,
                   remainingSec: remainingTime,
-                  trimStart: nextStart,
+                  targetStartSec: nextStart,
                   readyState: nextElement.readyState,
                   paused: nextElement.paused,
                   seeking: nextElement.seeking,
-                  preseeked: primeState.preseeked,
-                  playPrimed: primeState.playPrimed,
+                  preseeked: warmupState.preseeked,
+                  decoderPrimed: warmupState.decoderPrimed,
+                  prerolling: warmupState.prerolling,
+                  readyAtBoundary: warmupState.readyAtBoundary,
                 });
               }
               if (preseekState && (nextElement.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME || !nextElement.seeking)) {
@@ -1158,42 +1177,55 @@ export function usePreviewEngine({
                 isAndroidPreviewPlayback
                 && nextVideoItem.type === 'video'
                 && remainingTime >= 0
-                && remainingTime <= PREVIEW_ANDROID_NEXT_VIDEO_PLAY_PRIME_WINDOW_SEC
+                && remainingTime <= PREVIEW_ANDROID_NEXT_VIDEO_DECODER_PRIME_WINDOW_SEC
                 && nextElement.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
                 && !nextElement.seeking
                 && nextElement.paused
-                && !primeState.playPrimed
+                && !warmupState.decoderPrimed
               ) {
                 nextElement.muted = true;
                 nextElement.volume = 0;
                 void nextElement.play()
                   .then(() => {
-                    primeState.playPrimed = true;
-                    logInfo('RENDER', '[DIAG-BOUNDARY-PLAY-PRIME] next video play primed', {
-                      activeId,
-                      nextId: nextVideoItem.id,
-                      remainingSec: remainingTime,
-                      trimStart: nextStart,
-                      readyState: nextElement.readyState,
-                      paused: nextElement.paused,
-                      seeking: nextElement.seeking,
-                      preseeked: primeState.preseeked,
-                      playPrimed: primeState.playPrimed,
+                    warmupState.decoderPrimed = true;
+                    warmupState.readyAtBoundary = true;
+                    window.setTimeout(() => {
+                      nextElement.pause();
+                      if (!nextElement.seeking) {
+                        nextElement.currentTime = nextStart;
+                      }
+                    }, 80);
+                    logInfo('RENDER', '[DIAG-BOUNDARY-DECODER-PRIME] next video decoder primed', {
+                      activeId, nextId: nextVideoItem.id, remainingSec: remainingTime, targetStartSec: nextStart,
                     });
                   })
                   .catch(() => {
-                    logInfo('RENDER', '[DIAG-BOUNDARY-PLAY-PRIME] next video play prime deferred to retry', {
-                      activeId,
-                      nextId: nextVideoItem.id,
-                      remainingSec: remainingTime,
-                      trimStart: nextStart,
-                      readyState: nextElement.readyState,
-                      paused: nextElement.paused,
-                      seeking: nextElement.seeking,
-                      preseeked: primeState.preseeked,
-                      playPrimed: primeState.playPrimed,
+                    logInfo('RENDER', '[DIAG-BOUNDARY-DECODER-PRIME] next video decoder prime deferred', {
+                      activeId, nextId: nextVideoItem.id, remainingSec: remainingTime, targetStartSec: nextStart,
                     });
                   });
+              }
+              if (
+                isAndroidPreviewPlayback
+                && nextVideoItem.type === 'video'
+                && nextStart >= 0.35
+                && remainingTime >= 0
+                && remainingTime <= PREVIEW_ANDROID_NEXT_VIDEO_PREROLL_WINDOW_SEC
+                && !warmupState.prerolling
+                && nextElement.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
+                && !nextElement.seeking
+              ) {
+                const leadSec = Math.min(PREVIEW_ANDROID_NEXT_VIDEO_PREROLL_WINDOW_SEC, remainingTime);
+                const prerollStartSec = Math.max(0, nextStart - leadSec);
+                nextElement.currentTime = prerollStartSec;
+                nextElement.muted = true;
+                nextElement.volume = 0;
+                void nextElement.play();
+                warmupState.prerolling = true;
+                warmupState.readyAtBoundary = true;
+                logInfo('RENDER', '[DIAG-BOUNDARY-PREROLL] next video preroll started', {
+                  activeId, nextId: nextVideoItem.id, remainingSec: remainingTime, targetStartSec: nextStart, prerollStartSec,
+                });
               }
               if (!shouldPreseekNextVideo && (nextElement.paused || nextElement.readyState < 2)) {
                 if (Math.abs(nextElement.currentTime - nextStart) > 0.1) {
@@ -1310,6 +1342,12 @@ export function usePreviewEngine({
                   !isVideoSeeking &&
                   !shouldHoldVideoAtClipEnd &&
                   !hasExportPlayFailure &&
+                  !(
+                    isAndroidPreviewPlayback
+                    && localTime <= 0.3
+                    && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+                    && Math.abs(videoEl.currentTime - targetTime) <= PREVIEW_ANDROID_BOUNDARY_DRAW_DRIFT_ALLOWANCE_SEC
+                  ) &&
                   Math.abs(videoEl.currentTime - targetTime) > syncThreshold
                 ) {
                   videoEl.currentTime = targetTime;
@@ -1571,6 +1609,11 @@ export function usePreviewEngine({
                 isActivePlaying,
                 timeSinceVideoEndSec,
               });
+              const warmupState = androidBoundaryWarmupRef.current[id];
+              const isProtectedBoundaryWarmupNext =
+                isAndroidPreviewPlayback
+                && id === nextVideoItem?.id
+                && !!warmupState?.readyAtBoundary;
 
               if (shouldRecoverAudioOnlyAfterBoundary) {
                 const ctx = audioCtxRef.current;
@@ -1588,7 +1631,7 @@ export function usePreviewEngine({
                 videoEl.play().catch(() => { });
               }
 
-              if (!shouldKeepVideoPrewarmed && !avoidPausePlayForInactive && !videoEl.paused) {
+              if (!isProtectedBoundaryWarmupNext && !shouldKeepVideoPrewarmed && !avoidPausePlayForInactive && !videoEl.paused) {
                 videoEl.pause();
                 if (
                   hasVideoAudioNode
