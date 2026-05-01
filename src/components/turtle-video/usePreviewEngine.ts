@@ -1607,7 +1607,8 @@ export function usePreviewEngine({
           finalizeAtEnd();
           return;
         }
-        // エクスポートモードでタイムライン終端に達した場合は completeWebCodecsExport を呼び正常完了させる。
+        // タイムライン終端に達したので completeWebCodecsExport を呼び正常完了させる。
+        // （このブランチは export 専用。if (!isExportMode) が先に return しているため）
         // stopAll() を呼ぶと外部 recorderRef が null のため stopWebCodecsExport({ reason: 'user' }) が
         // 走り、blob 生成後の callback が誤ってキャンセル扱いで抑止されてしまう。
         completeWebCodecsExport();
