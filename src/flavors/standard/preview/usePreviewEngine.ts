@@ -226,7 +226,9 @@ const PREVIEW_START_READY_SYNC_TOLERANCE_SEC = 0.05;
 // Android preview の trim 済み video 先頭だけは厳しめに currentTime を合わせてカクつきを抑える。
 const PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC = 0.05;
 const PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC = 0.25;
-const PREVIEW_ANDROID_VIDEO_PRESEEK_WINDOW_SEC = 0.6;
+const PREVIEW_ANDROID_VIDEO_PRESEEK_WINDOW_SEC = 0.8;
+const TRIMMED_ENTRY_HARD_SEEK_THRESHOLD_SEC = 0.25;
+const TRIMMED_ENTRY_SOFT_DRIFT_ALLOWANCE_SEC = 0.35;
 const PREVIEW_ANDROID_BGM_SOFT_SYNC_TOLERANCE_SEC = 0.3;
 const PREVIEW_END_THRESHOLD_SEC = 0.03;
 // 再生開始直後は seeked / canplay の到着を数フレームだけ待ち、遅ければ loop を止めない。
@@ -455,6 +457,12 @@ export function usePreviewEngine({
     attempts: number;
   }>>({});
   const androidPreviewHoldLogAtRef = useRef<Record<string, number>>({});
+  const androidTrimPreseekRef = useRef<Record<string, {
+    targetTime: number;
+    requestedAt: number;
+    completed: boolean;
+  }>>({});
+  const androidTrimEntryStateRef = useRef<Record<string, { didHardSeek: boolean }>>({});
   const logAndroidPreviewHold = useCallback(
     (videoId: string, timelineTime: number, activeEl?: HTMLVideoElement) => {
       const now = Date.now();
@@ -734,6 +742,10 @@ export function usePreviewEngine({
               }
             } else {
               const targetTime = (activeItem.trimStart || 0) + localTime;
+              const trimStart = activeItem.trimStart || 0;
+              const entryState = androidTrimEntryStateRef.current[activeId]
+                ?? { didHardSeek: false };
+              androidTrimEntryStateRef.current[activeId] = entryState;
               const holdAndroidPreviewFrame = () => {
                 holdFrame = true;
                 shouldSkipAndroidPreviewActiveDraw = true;
@@ -742,7 +754,7 @@ export function usePreviewEngine({
               const shouldHoldTrimmedVideoHead =
                 isAndroidPreviewPlayback
                 && activeItem.type === 'video'
-                && (activeItem.trimStart || 0) > 0.001
+                && trimStart > 0.001
                 // active clip の localTime は通常 0 以上だが、境界フォールバック追加時もこの短い窓だけに閉じる。
                 && localTime >= 0
                 && localTime <= PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC;
@@ -809,16 +821,45 @@ export function usePreviewEngine({
                   || Math.abs(activeEl.currentTime - targetTime) > PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC
                 )
               ) {
-                if (activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK && !activeEl.seeking) {
+                if (
+                  activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
+                  && !activeEl.seeking
+                  && !entryState.didHardSeek
+                  && Math.abs(activeEl.currentTime - targetTime) > TRIMMED_ENTRY_HARD_SEEK_THRESHOLD_SEC
+                ) {
                   activeEl.currentTime = targetTime;
+                  entryState.didHardSeek = true;
+                  logInfo('RENDER', '[DIAG-TRIM-HARD-SEEK] Android trimmed entry hard seek', {
+                    activeId,
+                    trimStart,
+                    localTime,
+                    timelineTime: time,
+                    targetTime,
+                    videoCurrentTime: activeEl.currentTime,
+                  });
                 }
+                startTimeRef.current = getStandardPreviewNow() - currentTimeRef.current * 1000;
                 holdAndroidPreviewFrame();
+                logInfo('RENDER', '[DIAG-TRIM-HOLD] Android trimmed entry hold', {
+                  activeId,
+                  trimStart,
+                  localTime,
+                  timelineTime: time,
+                  targetTime,
+                  videoCurrentTime: activeEl.currentTime,
+                  drift: Math.abs(activeEl.currentTime - targetTime),
+                  readyState: activeEl.readyState,
+                  paused: activeEl.paused,
+                  seeking: activeEl.seeking,
+                  didHardSeek: entryState.didHardSeek,
+                });
               }
               let didApplyAndroidPreviewDriftFix = false;
               if (
                 isAndroidPreviewPlayback
                 && activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
                 && !activeEl.seeking
+                && Math.abs(activeEl.currentTime - targetTime) > TRIMMED_ENTRY_SOFT_DRIFT_ALLOWANCE_SEC
                 && Math.abs(activeEl.currentTime - targetTime) > ANDROID_PREVIEW_DRIFT_FIX_THRESHOLD_SEC
               ) {
                 activeEl.currentTime = targetTime;
@@ -877,6 +918,25 @@ export function usePreviewEngine({
                     shouldBlackoutFadeTail: shouldPreferBlackoutAtFadeTail,
                   });
                 }
+              }
+              if (
+                isAndroidPreviewPlayback
+                && trimStart > 0.001
+                && activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+                && !activeEl.seeking
+                && activeEl.paused
+              ) {
+                logInfo('RENDER', '[DIAG-TRIM-PLAY] Android trimmed entry play retry', {
+                  activeId,
+                  trimStart,
+                  localTime,
+                  timelineTime: time,
+                });
+                requestVideoPlayWithRetry(activeEl, () =>
+                  isPlayingRef.current
+                  && !isSeekingRef.current
+                  && loopIdRef.current === currentLoopId,
+                );
               }
             }
           } else if (activeItem.type === 'image') {
@@ -953,19 +1013,43 @@ export function usePreviewEngine({
               const shouldPreseekNextVideo =
                 isAndroidPreviewPlayback
                 && remainingTime >= 0
-                && remainingTime <= PREVIEW_ANDROID_VIDEO_PRESEEK_WINDOW_SEC;
+                && remainingTime <= PREVIEW_ANDROID_VIDEO_PRESEEK_WINDOW_SEC
+                && nextVideoItem.type === 'video'
+                && (nextVideoItem.trimStart || 0) > 0;
               const nextStart = nextVideoItem.trimStart || 0;
+              const preseekState = androidTrimPreseekRef.current[nextVideoItem.id];
+              const alreadyRequestedSameTarget = !!preseekState
+                && Math.abs(preseekState.targetTime - nextStart) <= 0.001;
               if (nextElement.readyState === 0 && !nextElement.error) {
                 try { nextElement.load(); } catch { /* ignore */ }
               }
               if (
                 shouldPreseekNextVideo
+                && !alreadyRequestedSameTarget
                 && !nextElement.seeking
                 && nextElement.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
                 && Math.abs(nextElement.currentTime - nextStart)
                 > PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC
               ) {
                 nextElement.currentTime = nextStart;
+                androidTrimPreseekRef.current[nextVideoItem.id] = {
+                  targetTime: nextStart,
+                  requestedAt: Date.now(),
+                  completed: false,
+                };
+                logInfo('RENDER', '[DIAG-TRIM-PRESEEK] next trimmed video preseek', {
+                  activeId,
+                  nextId: nextVideoItem.id,
+                  trimStart: nextStart,
+                  remainingSec: remainingTime,
+                  readyState: nextElement.readyState,
+                  seeking: nextElement.seeking,
+                  paused: nextElement.paused,
+                  currentTime: nextElement.currentTime,
+                });
+              }
+              if (preseekState && (nextElement.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME || !nextElement.seeking)) {
+                preseekState.completed = true;
               }
               if (!shouldPreseekNextVideo && (nextElement.paused || nextElement.readyState < 2)) {
                 if (Math.abs(nextElement.currentTime - nextStart) > 0.1) {
