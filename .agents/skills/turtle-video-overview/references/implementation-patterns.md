@@ -131,6 +131,20 @@
   - `alignedDurationSec` / `alignedDurationUs` は frame count 診断やデバッグ用途として残っていても、Teams 対策の実処理基準に混ぜない
   - raw duration へ戻す修正は export 専用で、preview の再生・シーク・停止や iOS Safari workaround へ波及させない
 
+### 0-10. Android preview 境界の next video warmup は「実行済み状態」を必須にする
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`
+- **背景**:
+  - `readyState=4` かつ次動画が存在していても、境界前 warmup が未実行だと `preview.trimmedEntry.preseekMiss` / `preview.nextVideo.startLatency` が再発し、境界直後の進みが鈍って `drift` が増える
+  - 特に Android は decoder warmup が未完了のまま active 昇格すると、最初の 100ms 前後で停止体感が残りやすい
+- **実装指針**:
+  - 境界 500ms 前から next video warmup を開始し、`warmupExecuted` / `warmupCompleted` / `preseekCompleted` / `decoderWarmupCompleted` を state で保持する
+  - `preview.preflight.ready` は上記 4 フラグが true になるまで成功扱いにしない（Android + 次動画ありの場合）
+  - 境界ログで warmup state を必ず出し、active 昇格時の state 持ち越し成否（`stateCarriedToActive` / `stateLost`）を診断可能にする
+- **注意点**:
+  - holdFrame 条件や drift 閾値の緩和だけで品質問題を覆い隠さない
+  - warmup 失敗時は warning を残し、次動画デコード未準備のまま smooth 扱いにしない
+
 ## 1. スクロール/スワイプ誤操作防止
 
 ### 1-1. モーダル表示時のボディスクロールロック
