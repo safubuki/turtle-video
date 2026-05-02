@@ -46,13 +46,15 @@ export function useInactiveVideoManager({
           isActivePlaying: true,
         });
 
-        if (!avoidPauseForInactive && !videoEl.paused) {
+        const isNextVideo = item.id === options?.nextVideoId;
+        const isProtected = !!options?.protectedVideoIds?.includes(item.id);
+        const shouldPreserveAndroidPreviewVideo = options?.isAndroidPreview && (!isNextVideo || isProtected);
+
+        if (!avoidPauseForInactive && !shouldPreserveAndroidPreviewVideo && !videoEl.paused) {
           videoEl.pause();
         }
 
-        const isNextVideo = item.id === options?.nextVideoId;
-        const isProtected = !!options?.protectedVideoIds?.includes(item.id);
-        if (options?.isAndroidPreview && (!isNextVideo || isProtected)) {
+        if (shouldPreserveAndroidPreviewVideo) {
           continue;
         }
 
