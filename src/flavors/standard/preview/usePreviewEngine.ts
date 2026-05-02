@@ -1462,14 +1462,15 @@ export function usePreviewEngine({
                 const currentTimeAdvancedMs = preseekState.firstAdvancedAtSec === null
                   ? 0
                   : Math.max(0, (nextElement.currentTime - preseekState.firstAdvancedAtSec) * 1000);
-                if (
+                const basePreseekReady =
                   nextElement.readyState >= 3
                   && !nextElement.seeking
-                  && !nextElement.paused
                   && preseekDrift <= 0.12
-                  && hasFirstFrame
-                  && currentTimeAdvancedMs >= 80
-                ) {
+                  && hasFirstFrame;
+                const progressedWhilePlaying =
+                  !nextElement.paused
+                  && currentTimeAdvancedMs >= 80;
+                if (basePreseekReady && (nextElement.paused || progressedWhilePlaying)) {
                   preseekState.completed = true;
                 }
               }
