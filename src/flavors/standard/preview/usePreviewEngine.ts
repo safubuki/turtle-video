@@ -1496,8 +1496,11 @@ export function usePreviewEngine({
                 && nextElement.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
                 && !nextElement.seeking
               ) {
-                const warmupLeadTimeSec = Math.min(0.50, Math.max(0, remainingTime));
-                const warmupTarget = Math.max(0, nextStart - warmupLeadTimeSec);
+                const boundedWarmupLeadTimeSec = Math.max(
+                  0,
+                  Math.min(0.50, remainingTime, nextStart),
+                );
+                const warmupTarget = Math.max(0, nextStart - boundedWarmupLeadTimeSec);
                 try {
                   if (!warmupState.warmupExecuted) {
                     logInfo('RENDER', 'preview.warmup.start', {
@@ -1505,7 +1508,7 @@ export function usePreviewEngine({
                       nextId: nextVideoItem.id,
                       remainingSec: remainingTime,
                       warmupTargetSec: warmupTarget,
-                      warmupLeadTimeSec,
+                      warmupLeadTimeSec: boundedWarmupLeadTimeSec,
                     });
                   }
                   warmupState.warmupExecuted = true;
