@@ -48,7 +48,7 @@ export function useInactiveVideoManager({
 
         const isNextVideo = item.id === options?.nextVideoId;
         const isProtected = !!options?.protectedVideoIds?.includes(item.id);
-        const shouldPreserveAndroidPreviewVideo = options?.isAndroidPreview && (!isNextVideo || isProtected);
+        const shouldPreserveAndroidPreviewVideo = options?.isAndroidPreview && (isNextVideo || isProtected);
 
         if (!avoidPauseForInactive && !shouldPreserveAndroidPreviewVideo && !videoEl.paused) {
           videoEl.pause();

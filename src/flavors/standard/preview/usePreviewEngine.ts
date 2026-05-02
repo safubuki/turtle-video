@@ -831,7 +831,8 @@ export function usePreviewEngine({
               const targetTime = (activeItem.trimStart || 0) + localTime;
               const trimStart = activeItem.trimStart || 0;
               const warmupState = androidBoundaryWarmupRef.current[activeId];
-              if (isAndroidPreviewPlayback && localTime >= 0 && localTime <= 0.12) {
+              const isAndroidBoundaryWarmupEnabled = false;
+              if (isAndroidPreviewPlayback && isAndroidBoundaryWarmupEnabled && localTime >= 0 && localTime <= 0.12) {
                 if (warmupState?.warmupExecuted && warmupState?.warmupCompleted && warmupState?.preseekCompleted) {
                   logInfo('RENDER', 'preview.warmup.stateCarriedToActive', {
                     activeId,
@@ -1117,7 +1118,7 @@ export function usePreviewEngine({
                   holdFrame: false,
                   holdFrameCount: entryState.holdFrameCount,
                 });
-                if (!preseekState?.completed && !boundaryLogState.preseekMissLogged) {
+                if (isAndroidBoundaryWarmupEnabled && !preseekState?.completed && !boundaryLogState.preseekMissLogged) {
                   boundaryLogState.preseekMissLogged = true;
                   logWarn('RENDER', 'preview.trimmedEntry.preseekMiss', {
                     segmentIndex: activeIndex,
@@ -1328,21 +1329,15 @@ export function usePreviewEngine({
 
         if (shouldClearCanvas) {
           const hasExplicitFadeToBlack = activeIndex !== -1 && !!currentItems[activeIndex]?.fadeOut;
-          const hasDrawableActiveVideo =
-            activeIndex !== -1
-            && currentItems[activeIndex]?.type === 'video'
-            && (() => {
-              const activeVideo = mediaElementsRef.current[currentItems[activeIndex].id] as HTMLVideoElement | undefined;
-              return !!activeVideo && activeVideo.readyState >= 2;
-            })();
+          const hasActiveItem = activeIndex !== -1;
+          const isBeforeTimelineEnd = totalDurationRef.current > 0 && time < totalDurationRef.current;
           const shouldSuppressEndClear =
             isAndroidPreviewPlayback
             && isActivePlaying
+            && hasActiveItem
+            && isBeforeTimelineEnd
             && !endFinalizedRef.current
-            && totalDurationRef.current > 0
-            && time < totalDurationRef.current
-            && hasDrawableActiveVideo
-            && !hasExplicitFadeToBlack;
+            && !shouldBlackoutFadeTail;
           if (shouldSuppressEndClear) {
             if (previewTimelineDiagnosticsRef.current.lastShouldSuppressEndClear !== true) {
               logInfo('RENDER', 'preview.endClear.suppressed', {
