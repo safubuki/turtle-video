@@ -1452,14 +1452,18 @@ export function usePreviewEngine({
                   nextElement.muted = true;
                   nextElement.defaultMuted = true;
                   nextElement.playsInline = true;
-                  if (Math.abs(nextElement.currentTime - warmupTarget) > 0.03) {
-                    nextElement.currentTime = warmupTarget;
-                  }
+                  const currentTimeBeforeWarmupSeek = nextElement.currentTime;
                   if (warmupState.warmupStartAtSec === null) {
+                    if (Math.abs(nextElement.currentTime - warmupTarget) > 0.03) {
+                      nextElement.currentTime = warmupTarget;
+                    }
                     warmupState.warmupStartAtSec = nextElement.currentTime;
                   }
                   void nextElement.play().catch(() => undefined);
-                  const warmupAdvancedMs = Math.max(0, (nextElement.currentTime - warmupState.warmupStartAtSec) * 1000);
+                  const warmupAdvancedMs = Math.max(
+                    0,
+                    (currentTimeBeforeWarmupSeek - warmupState.warmupStartAtSec) * 1000,
+                  );
                   if (
                     warmupAdvancedMs >= 80
                     && !nextElement.paused
