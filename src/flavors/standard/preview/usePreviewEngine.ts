@@ -481,6 +481,7 @@ export function usePreviewEngine({
     targetTime: number;
     requestedAt: number;
     completed: boolean;
+    firstAdvancedAtSec: number | null;
   }>>({});
   const androidTrimEntryStateRef = useRef<Record<string, {
     didHardSeek: boolean;
@@ -517,6 +518,14 @@ export function usePreviewEngine({
     lastShouldSuppressEndClear: null,
   });
   const previewLogModeRef = useRef<PreviewLogMode>(resolvePreviewLogMode());
+  const resetBoundaryDiagnosticsState = useCallback(() => {
+    previewTimelineDiagnosticsRef.current.lastRafNowMs = null;
+    previewTimelineDiagnosticsRef.current.lastSegmentIndex = -1;
+    previewTimelineDiagnosticsRef.current.lastTickLogAtMs = null;
+    previewTimelineDiagnosticsRef.current.lastShouldSuppressEndClear = null;
+    lastTrimmedEntryActiveIdRef.current = null;
+    trimmedEntryLogStateRef.current = {};
+  }, []);
   const toDisplayTime = useCallback((globalTimeSec: number) => {
     const totalDuration = Math.max(0, totalDurationRef.current);
     if (totalDuration <= 0) return 0;
@@ -1029,14 +1038,25 @@ export function usePreviewEngine({
                   isTrimmedEntry
                   && !entryState.didRebaseClock
                   && trimStart > 0
-                  && localTime <= 0.10
+                  && localTime > 0.30
+                  && trimmedDrift > 0.4
                   && (activeEl.seeking || activeEl.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME)
                 ) {
                   startTimeRef.current = getStandardPreviewNow() - currentTimeRef.current * 1000;
                   entryState.didRebaseClock = true;
                 }
-                holdAndroidPreviewFrame();
-                entryState.holdFrameCount += 1;
+                const isDrawablePlaying =
+                  activeEl.readyState >= 3
+                  && !activeEl.paused
+                  && !activeEl.seeking
+                  && activeEl.videoWidth > 0
+                  && activeEl.videoHeight > 0;
+                if (!isDrawablePlaying) {
+                  holdAndroidPreviewFrame();
+                  entryState.holdFrameCount += 1;
+                } else {
+                  holdFrame = false;
+                }
                 logInfo('RENDER', '[DIAG-PREVIEW-BOUNDARY] Android trimmed entry hold', {
                   activeId,
                   previousId: previousItem?.id ?? null,
@@ -1382,6 +1402,7 @@ export function usePreviewEngine({
                   targetTime: nextStart,
                   requestedAt: Date.now(),
                   completed: false,
+                  firstAdvancedAtSec: null,
                 };
                 logInfo('RENDER', '[DIAG-TRIM-PRESEEK] next trimmed video preseek', {
                   activeId,
@@ -1434,7 +1455,21 @@ export function usePreviewEngine({
               if (preseekState) {
                 const preseekDrift = Math.abs(nextElement.currentTime - preseekState.targetTime);
                 const hasFirstFrame = nextElement.videoWidth > 0 && nextElement.videoHeight > 0;
-                if (nextElement.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME && !nextElement.seeking && preseekDrift <= 0.05 && hasFirstFrame) {
+                const advancedSec = nextElement.currentTime - preseekState.targetTime;
+                if (advancedSec > 0.005 && preseekState.firstAdvancedAtSec === null) {
+                  preseekState.firstAdvancedAtSec = nextElement.currentTime;
+                }
+                const currentTimeAdvancedMs = preseekState.firstAdvancedAtSec === null
+                  ? 0
+                  : Math.max(0, (nextElement.currentTime - preseekState.firstAdvancedAtSec) * 1000);
+                if (
+                  nextElement.readyState >= 3
+                  && !nextElement.seeking
+                  && !nextElement.paused
+                  && preseekDrift <= 0.12
+                  && hasFirstFrame
+                  && currentTimeAdvancedMs >= 80
+                ) {
                   preseekState.completed = true;
                 }
               }
@@ -2364,6 +2399,7 @@ export function usePreviewEngine({
     pendingSeekRef.current = null;
     exportPlayFailedRef.current = {};
     exportFallbackSeekAtRef.current = {};
+    resetBoundaryDiagnosticsState();
 
     if (pendingSeekTimeoutRef.current) {
       clearTimeout(pendingSeekTimeoutRef.current);
@@ -2514,10 +2550,7 @@ export function usePreviewEngine({
 
     setTimeout(() => {
       endFinalizedRef.current = false;
-      previewTimelineDiagnosticsRef.current.lastSegmentIndex = -1;
-      previewTimelineDiagnosticsRef.current.lastRafNowMs = null;
-      previewTimelineDiagnosticsRef.current.lastTickLogAtMs = null;
-      previewTimelineDiagnosticsRef.current.lastShouldSuppressEndClear = null;
+      resetBoundaryDiagnosticsState();
     }, 300);
   }, [
     activeVideoIdRef,
@@ -2530,6 +2563,7 @@ export function usePreviewEngine({
     previewPlaybackAttemptRef,
     renderFrame,
     reqIdRef,
+    resetBoundaryDiagnosticsState,
     setCurrentTime,
     stopPreviewMediaAtTimelineEnd,
     totalDurationRef,
@@ -2784,6 +2818,7 @@ export function usePreviewEngine({
       if (!shouldStopBeforeAudioInit) {
         stopAll();
       }
+      resetBoundaryDiagnosticsState();
 
       const myLoopId = loopIdRef.current;
       logDebug('RENDER', 'ループID取得', { myLoopId });
