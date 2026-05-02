@@ -498,6 +498,7 @@ export function usePreviewEngine({
     startLatencyLogged: boolean;
     boundaryEnterAtMs: number | null;
   }>>({});
+  const lastTrimmedEntryActiveIdRef = useRef<string | null>(null);
   const lastDrawableFrameRef = useRef<ImageBitmap | null>(null);
   const androidVisualBridgeStateRef = useRef<{ previousId: string | null; activeId: string | null; bridgeFrameCount: number; }>({
     previousId: null,
@@ -975,6 +976,10 @@ export function usePreviewEngine({
                 && trimStart > 0.001
                 && localTime >= 0
                 && localTime <= PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC;
+              if (lastTrimmedEntryActiveIdRef.current && lastTrimmedEntryActiveIdRef.current !== activeId) {
+                delete trimmedEntryLogStateRef.current[lastTrimmedEntryActiveIdRef.current];
+              }
+              lastTrimmedEntryActiveIdRef.current = activeId;
               const preseekState = androidTrimPreseekRef.current[activeId];
               const preseekDrift = Math.abs(activeEl.currentTime - targetTime);
               const trimmedDrift = Math.abs(activeEl.currentTime - targetTime);
