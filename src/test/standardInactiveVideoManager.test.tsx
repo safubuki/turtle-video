@@ -104,7 +104,7 @@ describe('standard inactive video manager', () => {
 
     expect(nextVideoElement.pause).toHaveBeenCalledTimes(1);
     expect(nextVideoElement.currentTime).toBeCloseTo(nextVideo.trimStart ?? 0);
-    expect(farVideoElement.pause).toHaveBeenCalledTimes(1);
+    expect(farVideoElement.pause).toHaveBeenCalledTimes(0);
     expect(farVideoElement.currentTime).toBeCloseTo(4.2);
   });
 
