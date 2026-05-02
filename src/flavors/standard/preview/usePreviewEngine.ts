@@ -1341,7 +1341,8 @@ export function usePreviewEngine({
             && !endFinalizedRef.current
             && totalDurationRef.current > 0
             && time < totalDurationRef.current
-            && hasDrawableActiveVideo;
+            && hasDrawableActiveVideo
+            && !hasExplicitFadeToBlack;
           if (shouldSuppressEndClear) {
             if (previewTimelineDiagnosticsRef.current.lastShouldSuppressEndClear !== true) {
               logInfo('RENDER', 'preview.endClear.suppressed', {
