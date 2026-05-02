@@ -1789,3 +1789,18 @@
 - **注意点**:
   - 境界 300ms 以内は clock rebase を抑制し、`drift>400ms` かつ drawable でない破綻時に限定する。
   - drawable かつ再生中 (`readyState>=3 && !paused && !seeking`) の場合は holdFrame を優先しない。
+
+### 13-93. Android trimmed boundary では active/next の warmup 完了を厳格化し、drawable 時の hold を禁止する
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`
+- **問題**:
+  - 境界直前まで preseek/warmup を実施していても、active 側で `preseeked=false` 相当の状態が残ると `preseekMiss` と `startLatency` が再発しやすい。
+  - drawable (`readyState>=3 && !paused && !seeking && videoWidth/Height>0`) なフレームでも hold を発動すると、境界で瞬停として知覚される。
+- **対策**:
+  - trimmed entry の `isPreseekReadyEntry` 判定に `activeWarmupState.preseeked` と `decoderWarmupCompleted` を追加し、active 昇格時に warmup 未完了を明確に弾く。
+  - `preview.trimmedEntry.preseekMiss` に warmup 実行/完了、active ready/paused/seeking を添えて「未実行か状態喪失か」を切り分け可能にする。
+  - 境界前 warmup は `trimStart-0.3s` 起点で hidden muted play を行い、`currentTime` が 80ms 以上前進した実績が確認できた場合のみ `decoderWarmupCompleted=true` にする。
+  - drawable 時は `holdFrame=false` を維持し、diagnostic の hold 表示も実際の挙動に一致させる。
+- **注意点**:
+  - この対策は Android preview 専用で、iOS/PC の共有経路や完了後 freeze の見た目ロジックは変更しない。
+  - warmup 状態を trimStart 変更時に reset する際は `warmupStartAtSec` も同時に初期化し、古い進行量を再利用しない。

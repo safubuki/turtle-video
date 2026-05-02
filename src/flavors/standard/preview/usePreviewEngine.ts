@@ -492,6 +492,7 @@ export function usePreviewEngine({
     targetStartSec: number;
     preseeked: boolean;
     decoderWarmupCompleted: boolean;
+    warmupStartAtSec: number | null;
   }>>({});
   const trimmedEntryLogStateRef = useRef<Record<string, {
     preseekMissLogged: boolean;
@@ -992,8 +993,11 @@ export function usePreviewEngine({
               const preseekState = androidTrimPreseekRef.current[activeId];
               const preseekDrift = Math.abs(activeEl.currentTime - targetTime);
               const trimmedDrift = Math.abs(activeEl.currentTime - targetTime);
+              const activeWarmupState = androidBoundaryWarmupRef.current[activeId];
               const isPreseekReadyEntry =
                 !!preseekState?.completed
+                && !!activeWarmupState?.preseeked
+                && !!activeWarmupState?.decoderWarmupCompleted
                 && activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
                 && !activeEl.seeking
                 && preseekDrift <= 0.12;
@@ -1071,7 +1075,7 @@ export function usePreviewEngine({
                   seeking: activeEl.seeking,
                   didHardSeek: entryState.didHardSeek,
                   didRebaseClock: entryState.didRebaseClock,
-                  holdFrame: true,
+                  holdFrame: !isDrawablePlaying,
                   holdFrameCount: entryState.holdFrameCount,
                   preseekCompleted: !!preseekState?.completed,
                   preseekDrift,
@@ -1115,6 +1119,12 @@ export function usePreviewEngine({
                     localTime,
                     trimStart,
                     drift: trimmedDrift,
+                    warmupExecuted: !!activeWarmupState?.preseeked,
+                    warmupCompleted: !!activeWarmupState?.decoderWarmupCompleted,
+                    preseekCompleted: !!preseekState?.completed,
+                    activeReadyState: activeEl.readyState,
+                    activePaused: activeEl.paused,
+                    activeSeeking: activeEl.seeking,
                   });
                 }
                 if (!boundaryLogState.startLatencyLogged && boundaryLogState.boundaryEnterAtMs !== null) {
@@ -1376,11 +1386,13 @@ export function usePreviewEngine({
                   targetStartSec: nextStart,
                   preseeked: false,
                   decoderWarmupCompleted: false,
+                  warmupStartAtSec: null,
                 };
               if (Math.abs(warmupState.targetStartSec - nextStart) > 0.001) {
                 warmupState.targetStartSec = nextStart;
                 warmupState.preseeked = false;
                 warmupState.decoderWarmupCompleted = false;
+                warmupState.warmupStartAtSec = null;
               }
               androidBoundaryWarmupRef.current[nextVideoItem.id] = warmupState;
               const preseekState = androidTrimPreseekRef.current[nextVideoItem.id];
@@ -1428,26 +1440,38 @@ export function usePreviewEngine({
               }
               if (
                 isAndroidPreviewPlayback
-                && remainingTime <= 0.25
+                && remainingTime <= 0.30
                 && remainingTime >= 0
                 && !warmupState.decoderWarmupCompleted
                 && !!preseekState?.completed
                 && nextElement.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
                 && !nextElement.seeking
               ) {
-                const warmupTarget = Math.max(0, nextStart - 0.25);
+                const warmupTarget = Math.max(0, nextStart - 0.3);
                 try {
                   nextElement.muted = true;
                   nextElement.defaultMuted = true;
                   nextElement.playsInline = true;
-                  if (Math.abs(nextElement.currentTime - warmupTarget) > 0.03) {
-                    nextElement.currentTime = warmupTarget;
+                  const currentTimeBeforeWarmupSeek = nextElement.currentTime;
+                  if (warmupState.warmupStartAtSec === null) {
+                    if (Math.abs(nextElement.currentTime - warmupTarget) > 0.03) {
+                      nextElement.currentTime = warmupTarget;
+                    }
+                    warmupState.warmupStartAtSec = nextElement.currentTime;
                   }
-                  void nextElement.play()
-                    .catch(() => undefined)
-                    .finally(() => {
-                      warmupState.decoderWarmupCompleted = true;
-                    });
+                  void nextElement.play().catch(() => undefined);
+                  const warmupAdvancedMs = Math.max(
+                    0,
+                    (currentTimeBeforeWarmupSeek - warmupState.warmupStartAtSec) * 1000,
+                  );
+                  if (
+                    warmupAdvancedMs >= 80
+                    && !nextElement.paused
+                    && !nextElement.seeking
+                    && nextElement.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+                  ) {
+                    warmupState.decoderWarmupCompleted = true;
+                  }
                 } catch {
                   // ignore
                 }
