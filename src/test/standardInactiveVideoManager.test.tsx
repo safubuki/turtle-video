@@ -74,7 +74,7 @@ function createMockVideoElement(initialCurrentTime: number) {
 }
 
 describe('standard inactive video manager', () => {
-  it('Android preview では next 以外の inactive video を pause のみにする', () => {
+  it('Android preview では next video を pause/reset せず保護する', () => {
     const activeVideo = createVideoItem({ id: 'video-1', trimStart: 0 });
     const nextVideo = createVideoItem({ id: 'video-2', trimStart: 1.25 });
     const farVideo = createVideoItem({ id: 'video-3', trimStart: 2.5 });
@@ -102,10 +102,10 @@ describe('standard inactive video manager', () => {
       isAndroidPreview: true,
     });
 
-    expect(nextVideoElement.pause).toHaveBeenCalledTimes(1);
-    expect(nextVideoElement.currentTime).toBeCloseTo(nextVideo.trimStart ?? 0);
-    expect(farVideoElement.pause).toHaveBeenCalledTimes(0);
-    expect(farVideoElement.currentTime).toBeCloseTo(4.2);
+    expect(nextVideoElement.pause).toHaveBeenCalledTimes(0);
+    expect(nextVideoElement.currentTime).toBeCloseTo(0.2);
+    expect(farVideoElement.pause).toHaveBeenCalledTimes(1);
+    expect(farVideoElement.currentTime).toBeCloseTo(farVideo.trimStart ?? 0);
   });
 
   it('通常 reset では inactive video 全体を trimStart に戻す', () => {

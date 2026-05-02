@@ -1830,3 +1830,18 @@
 - **注意点**:
   - この対策は Android preview 専用で、iOS/PC の共有経路や完了後 freeze の見た目ロジックは変更しない。
   - warmup 状態を trimStart 変更時に reset する際は `warmupStartAtSec` も同時に初期化し、古い進行量を再利用しない。
+
+### 13-94. Android preview 境界では next video を pause/reset せず、再生中の endClear と warmup 警告を抑制する
+
+- **ファイル**: `src/flavors/standard/preview/useInactiveVideoManager.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardInactiveVideoManager.test.tsx`
+- **問題**:
+  - Android preview で next video を inactive reset 時に `pause + trimStart seek` すると、境界時に `activePaused=true` となって start latency が増大し、引っかかりが発生する。
+  - 再生中タイムライン途中でも `preview.endClear.executed` が走ると、黒化/瞬停を誘発する。
+  - `nextPrerollArmed=false`（warmup 無効）でも `warmup.stateLost` / `preseekMiss` を warn し続けると、真因分析を阻害する。
+- **対策**:
+  - `useInactiveVideoManager` で Android preview 時は `nextVideoId` と `protectedVideoIds` を preserve 対象にし、pause/reset の両方を回避する。
+  - `usePreviewEngine` の endClear 抑制条件を「isActivePlaying かつ active item が存在し、timeline end 前で、`shouldBlackoutFadeTail=false`」へ統一して再生中 clear を禁止する。
+  - Android boundary warmup 無効時は `preview.warmup.stateLost` と `preview.trimmedEntry.preseekMiss` の warn を発火させない。
+- **注意点**:
+  - free-running preroll / hard seek / visual bridge 復活や holdFrame 許容拡大で隠蔽しない。
+  - Android preview 専用条件に閉じ、export/iOS/通常 preview の reset 挙動を変えない。
