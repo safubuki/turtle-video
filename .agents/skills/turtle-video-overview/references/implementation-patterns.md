@@ -1776,3 +1776,16 @@
 - **注意点**:
   - 復帰再試行間隔を短くしすぎると `play()` 連打で逆効果になるため、約 220ms の最小間隔を維持する。
   - Android preview 専用ロジックを共通経路へ広げない。
+
+### 13-92. Android trimmed entry は preseek 完了条件を「hidden play の実進行」まで含めて判定する
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`
+- **問題**:
+  - `readyState=4` と trimStart 近傍への seek 完了だけでは、Android 実機で境界直後にデコーダが立ち上がらず、`preseekMiss` / `startLatency` / 大きな drift が残る。
+- **対策**:
+  - `androidTrimPreseekRef` に `firstAdvancedAtSec` を持たせ、`currentTime` が target から実際に前進した時刻を記録する。
+  - `preseek.completed` は `readyState>=3 && !seeking && !paused && drawable && drift<=0.12` に加え、`currentTimeAdvancedMs>=80` を満たした時のみ true にする。
+  - start/stop/finalize で boundary 診断状態を明示的にリセットし、`frameGap` などのセッション跨ぎ偽陽性を防ぐ。
+- **注意点**:
+  - 境界 300ms 以内は clock rebase を抑制し、`drift>400ms` かつ drawable でない破綻時に限定する。
+  - drawable かつ再生中 (`readyState>=3 && !paused && !seeking`) の場合は holdFrame を優先しない。
