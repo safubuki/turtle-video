@@ -3310,35 +3310,51 @@ export function usePreviewEngine({
           ? mediaElementsRef.current[nextVideoItem.id] as HTMLVideoElement | undefined
           : undefined;
         const nextTrimStart = nextVideoItem?.trimStart || 0;
-        const nextPreseekState = nextVideoItem ? androidTrimPreseekRef.current[nextVideoItem.id] : undefined;
-        const nextPreseekDrift = nextVideoElForPreflight
+        const nextPrerollTarget = Math.max(0, nextTrimStart - 0.35);
+        let nextPrerollArmed = false;
+        if (
+          platformCapabilities.isAndroid
+          && !platformCapabilities.isIosSafari
+          && !isExportMode
+          && nextVideoElForPreflight
+        ) {
+          try {
+            nextVideoElForPreflight.defaultMuted = true;
+            nextVideoElForPreflight.muted = true;
+            nextVideoElForPreflight.playsInline = true;
+            if (nextVideoElForPreflight.readyState === 0) nextVideoElForPreflight.load();
+            if (Math.abs(nextVideoElForPreflight.currentTime - nextPrerollTarget) > 0.03) {
+              nextVideoElForPreflight.currentTime = nextPrerollTarget;
+            }
+            await nextVideoElForPreflight.play();
+            nextPrerollArmed = true;
+          } catch {
+            logWarn('RENDER', 'preview.android.preroll.warning', {
+              nextVideoId: nextVideoItem?.id ?? null,
+              nextTrimStartSec: nextTrimStart,
+              prerollTargetSec: nextPrerollTarget,
+            });
+          }
+        }
+        const nextVideoReadyState = nextVideoElForPreflight?.readyState ?? null;
+        const nextVideoDrift = nextVideoElForPreflight
           ? Math.abs(nextVideoElForPreflight.currentTime - nextTrimStart)
-          : Infinity;
+          : null;
         const isNextVideoReady = !nextVideoItem || (
           !!nextVideoElForPreflight
           && !!nextVideoElForPreflight.currentSrc
           && nextVideoElForPreflight.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
           && nextVideoElForPreflight.videoWidth > 0
           && nextVideoElForPreflight.videoHeight > 0
-          && !!nextPreseekState?.completed
-          && nextPreseekDrift <= 0.05
         );
 
         const activeTrimDrift = activeVideoElForBundledStart && activeVideoTargetTime !== null
           ? Math.abs(activeVideoElForBundledStart.currentTime - activeVideoTargetTime)
           : Infinity;
-        const nextWarmupState = nextVideoItem ? androidBoundaryWarmupRef.current[nextVideoItem.id] : undefined;
-        const isAndroidWarmupReady = !platformCapabilities.isAndroid || !nextVideoItem || (
-          !!nextWarmupState?.warmupExecuted
-          && !!nextWarmupState?.warmupCompleted
-          && !!nextWarmupState?.preseekCompleted
-          && !!nextWarmupState?.decoderWarmupCompleted
-        );
         const isPreflightReady = !!activeVideoElForBundledStart
           && activeVideoElForBundledStart.readyState >= 3
           && activeTrimDrift <= 0.05
-          && isNextVideoReady
-          && isAndroidWarmupReady;
+          && isNextVideoReady;
         if (isPreflightReady) logInfo('RENDER', 'preview.preflight.ready', {
           globalTimeMs: Math.round(fromTime * 1000),
           totalDurationMs: Math.round(totalDurationRef.current * 1000),
@@ -3346,12 +3362,9 @@ export function usePreviewEngine({
           activeVideoReadyState: activeVideoElForBundledStart?.readyState ?? null,
           hasNextVideo: !!nextVideoItem,
           nextVideoReady: isNextVideoReady,
-          preseekCompleted: !!nextPreseekState?.completed,
-          preseekDrift: Number.isFinite(nextPreseekDrift) ? nextPreseekDrift : null,
-          warmupExecuted: !!nextWarmupState?.warmupExecuted,
-          warmupCompleted: !!nextWarmupState?.warmupCompleted,
-          warmupPreseekCompleted: !!nextWarmupState?.preseekCompleted,
-          decoderWarmupCompleted: !!nextWarmupState?.decoderWarmupCompleted,
+          nextVideoReadyState,
+          nextVideoDrift,
+          nextPrerollArmed,
           activeTrimDrift,
         });
 
@@ -3382,8 +3395,15 @@ export function usePreviewEngine({
           primePreviewAudioOnlyTracksAtTime(fromTime);
         }
 
+        const protectedVideoIds = [
+          activeVideoIdRef.current,
+          nextVideoItem?.id ?? null,
+          activeItemIndex > 0 ? mediaItemsRef.current[activeItemIndex - 1]?.id ?? null : null,
+        ].filter((id): id is string => !!id);
+
         resetInactiveVideos({
           nextVideoId: nextVideoItem?.id ?? null,
+          protectedVideoIds,
           isAndroidPreview:
             platformCapabilities.isAndroid
             && !platformCapabilities.isIosSafari

@@ -1157,6 +1157,7 @@ describe('standard preview engine', () => {
 
     expect(resetInactiveVideos).toHaveBeenCalledWith({
       nextVideoId: nextVideo.id,
+      protectedVideoIds: [currentVideo.id, nextVideo.id],
       isAndroidPreview: true,
     });
   });

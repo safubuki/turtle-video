@@ -21,6 +21,7 @@ interface UseInactiveVideoManagerResult {
 export interface ResetInactiveVideosOptions {
   nextVideoId?: string | null;
   isAndroidPreview?: boolean;
+  protectedVideoIds?: string[];
 }
 
 export function useInactiveVideoManager({
@@ -50,7 +51,8 @@ export function useInactiveVideoManager({
         }
 
         const isNextVideo = item.id === options?.nextVideoId;
-        if (options?.isAndroidPreview && !isNextVideo) {
+        const isProtected = !!options?.protectedVideoIds?.includes(item.id);
+        if (options?.isAndroidPreview && (!isNextVideo || isProtected)) {
           continue;
         }
 
