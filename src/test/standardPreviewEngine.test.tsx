@@ -844,7 +844,7 @@ describe('standard preview engine', () => {
     expect(didUpdateCanvas).toBe(false);
   });
 
-  it('Android preview は video -> trimmed video の先頭でも currentTime を合わせて描画を hold する', () => {
+  it('Android preview は video -> trimmed video の先頭で hard seek せず描画 hold を優先する', () => {
     const leadVideo = createVideoItem({
       id: 'video-1',
       duration: 1,
@@ -876,16 +876,15 @@ describe('standard preview engine', () => {
     });
 
     const timelineTime = 1.2;
-    const expectedTime = trimmedVideo.trimStart + (timelineTime - leadVideo.duration);
     const didUpdateCanvas = hook.result.current.renderFrame(timelineTime, true, false);
 
-    expect(trimmedVideoElement.currentTime).toBeCloseTo(expectedTime);
+    expect(trimmedVideoElement.currentTime).toBeCloseTo(1.7);
     expect(canvasContext.fillRect).not.toHaveBeenCalled();
     expect(canvasContext.drawImage).not.toHaveBeenCalled();
     expect(didUpdateCanvas).toBe(false);
   });
 
-  it('Android preview は clip 終端 0.8 秒だけ次の video を trimStart に preseek する', () => {
+  it('Android preview は clip 境界前でも次の video を preseek しない', () => {
     const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
     const videoItem = createVideoItem({
       id: 'video-2',
@@ -908,7 +907,7 @@ describe('standard preview engine', () => {
 
     hook.result.current.renderFrame(0.75, true, false);
 
-    expect(videoElement.currentTime).toBeCloseTo(videoItem.trimStart);
+    expect(videoElement.currentTime).toBeCloseTo(0.2);
   });
 
   it('Android preview の next video preseek は trimStart=0 では発火しない', () => {
@@ -947,7 +946,7 @@ describe('standard preview engine', () => {
     expect(videoElement.currentTime).toBeCloseTo(0.4);
   });
 
-  it('Android preview の next video preseek は image gap を挟んでも直近の次 video だけを対象にする', () => {
+  it('Android preview の next video preseek は image gap を挟むケースでも無効のままにする', () => {
     const currentVideo = createVideoItem({
       id: 'video-1',
       duration: 1,
@@ -996,11 +995,11 @@ describe('standard preview engine', () => {
 
     hook.result.current.renderFrame(0.5, true, false);
 
-    expect(nextVideoElement.currentTime).toBeCloseTo(nextVideo.trimStart);
+    expect(nextVideoElement.currentTime).toBeCloseTo(0.1);
     expect(farVideoElement.currentTime).toBeCloseTo(0.2);
   });
 
-  it('Android preview の next trimmed video preseek は clip 開始直後から発火する', () => {
+  it('Android preview の next trimmed video preseek は clip 開始直後でも発火しない', () => {
     const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
     const videoItem = createVideoItem({
       id: 'video-2',
@@ -1023,10 +1022,10 @@ describe('standard preview engine', () => {
 
     hook.result.current.renderFrame(0.19, true, false);
 
-    expect(videoElement.currentTime).toBeCloseTo(videoItem.trimStart);
+    expect(videoElement.currentTime).toBeCloseTo(0.2);
   });
 
-  it('Android preview の next trimmed video preseek は同じ trimStart へ連続発火しない', () => {
+  it('Android preview の next trimmed video preseek は無効化され currentTime を連続変更しない', () => {
     const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
     const videoItem = createVideoItem({
       id: 'video-2',
@@ -1059,11 +1058,11 @@ describe('standard preview engine', () => {
     hook.result.current.renderFrame(0.75, true, false);
     hook.result.current.renderFrame(0.76, true, false);
 
-    expect(assignedCurrentTime).toBeCloseTo(videoItem.trimStart);
-    expect(seekAssignCount).toBe(1);
+    expect(assignedCurrentTime).toBeCloseTo(0.2);
+    expect(seekAssignCount).toBe(0);
   });
 
-  it('Android preview の next trimmed video preseek は metadata 未取得や seeking 中には currentTime を動かさない', () => {
+  it('Android preview の next trimmed video preseek 無効化後も metadata 未取得や seeking 中に currentTime を動かさない', () => {
     const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
     const videoItem = createVideoItem({
       id: 'video-2',
@@ -1087,7 +1086,7 @@ describe('standard preview engine', () => {
 
     notReadyHarness.hook.result.current.renderFrame(0.75, true, false);
 
-    expect(notReadyVideo.load).toHaveBeenCalledTimes(1);
+    expect(notReadyVideo.load).toHaveBeenCalledTimes(0);
     expect(notReadyVideo.currentTime).toBeCloseTo(0.2);
 
     const seekingVideo = createMockVideoElement();
