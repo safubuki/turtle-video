@@ -1000,7 +1000,7 @@ describe('standard preview engine', () => {
     expect(farVideoElement.currentTime).toBeCloseTo(0.2);
   });
 
-  it('Android preview の next trimmed video preseek は clip 終端 0.8 秒の外では発火しない', () => {
+  it('Android preview の next trimmed video preseek は clip 開始直後から発火する', () => {
     const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
     const videoItem = createVideoItem({
       id: 'video-2',
@@ -1023,7 +1023,7 @@ describe('standard preview engine', () => {
 
     hook.result.current.renderFrame(0.19, true, false);
 
-    expect(videoElement.currentTime).toBeCloseTo(0.2);
+    expect(videoElement.currentTime).toBeCloseTo(videoItem.trimStart);
   });
 
   it('Android preview の next trimmed video preseek は同じ trimStart へ連続発火しない', () => {
