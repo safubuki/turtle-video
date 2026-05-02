@@ -21,6 +21,7 @@ interface UseInactiveVideoManagerResult {
 export interface ResetInactiveVideosOptions {
   nextVideoId?: string | null;
   isAndroidPreview?: boolean;
+  protectedVideoIds?: string[];
 }
 
 export function useInactiveVideoManager({
@@ -45,12 +46,15 @@ export function useInactiveVideoManager({
           isActivePlaying: true,
         });
 
-        if (!avoidPauseForInactive && !videoEl.paused) {
+        const isNextVideo = item.id === options?.nextVideoId;
+        const isProtected = !!options?.protectedVideoIds?.includes(item.id);
+        const shouldPreserveAndroidPreviewVideo = options?.isAndroidPreview && (!isNextVideo || isProtected);
+
+        if (!avoidPauseForInactive && !shouldPreserveAndroidPreviewVideo && !videoEl.paused) {
           videoEl.pause();
         }
 
-        const isNextVideo = item.id === options?.nextVideoId;
-        if (options?.isAndroidPreview && !isNextVideo) {
+        if (shouldPreserveAndroidPreviewVideo) {
           continue;
         }
 

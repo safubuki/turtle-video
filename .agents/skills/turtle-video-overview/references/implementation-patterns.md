@@ -145,6 +145,18 @@
   - holdFrame 条件や drift 閾値の緩和だけで品質問題を覆い隠さない
   - warmup 失敗時は warning を残し、次動画デコード未準備のまま smooth 扱いにしない
 
+### 0-11. Android preview 境界は warmup フラグではなく実 video 状態と preroll で扱う
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/useInactiveVideoManager.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **背景**:
+  - Android preview の境界で warmup 系フラグが false 固定になり、実際には preroll 済みでも stateLost / preseekMiss 判定に引っ張られていた
+- **実装指針**:
+  - preflight では next video を `trimStart - 0.35s` へ合わせて `muted + playsInline + play()` で preroll し、readyState / currentTime / paused / seeking など実要素状態を基準に判定する
+  - Android preview の inactive reset では active / next / previous を `protectedVideoIds` として除外し、境界前後の準備状態を壊さない
+- **注意点**:
+  - Android 分岐に閉じる（iOS Safari / export ルートへ波及させない）
+  - preroll 失敗時は warning を残して診断可能にする
+
 ## 1. スクロール/スワイプ誤操作防止
 
 ### 1-1. モーダル表示時のボディスクロールロック
