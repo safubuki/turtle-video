@@ -271,32 +271,35 @@
 - **注意**:
   - `shouldUseAndroidPreviewCache` は `ENABLE_ANDROID_PREVIEW_CACHE = false` により常に `false` を返す。再度有効化する場合はこの定数を `true` に戻し、実機で十分にテストすること
   - **絶対に守ること**: `preview.cache.start / preview.cache.ready / preview.cache.play` が通常プレビューで出ないこと。`startPreviewCacheExport` / `startWebCodecsExport` を preview 開始時に呼ばないこと
-  - live fallback 側の境界安定化は 2-22 (Android next-video preroll) と視覚ブリッジ（`PREVIEW_ANDROID_MAX_VISUAL_BRIDGE_FRAMES`）で対応する
+  - live fallback 側の境界安定化は 2-22 (Android next-video preroll) と 2-23 (time-based visual blend + clock absorb) で対応する
 
 ### 2-22. Android standard preview の次動画 700ms preroll で境界 warm-up
 
-- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`
-- **問題**: Android preview で video-to-video 境界到達時に次動画が `readyState=1 / seeking=true` になり、visual bridge フレームが切れると黒フレームが出る。また `PREVIEW_ANDROID_MAX_VISUAL_BRIDGE_FRAMES = 2` だと ~33ms しかカバーできない
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **問題**: Android preview で `video -> video` の即時切替を行うと、境界直後に次動画が `readyState=1 / seeking=true` のまま 100〜250ms 立ち上がらず、`currentTime` も進まないため stutter が見えやすい
 - **対策**:
-  - `PREVIEW_ANDROID_MAX_VISUAL_BRIDGE_FRAMES` を 2 → 3 (≒50ms) に拡張してブリッジ時間を延長
-  - `renderFrame` の inactive video ループで `isAndroidPrerollTarget`（次動画 & `timeUntilVideoStart <= 0.7s`）を判定し、該当する次動画を pause せず silent play のまま維持する（volume=0 は `applyPreviewAudioOutputState` が保証）
-  - 次動画が `trimStart` から大きく進みすぎた場合（`currentTime > trimStart + 0.12`）だけ warm decoder への引き戻しシークを実行する。cold state からの無駄なシークは行わない
+  - `standard` flavor の Android preview / 非 export / 非 seek / active 再生中かつ **即次の `video -> video` 境界** だけで `timeUntilNextBoundary <= 0.7s` の next video を preroll 対象にする。image gap や iOS Safari には広げない
+  - `armAndroidNextVideoPreroll()` で next video に `muted=true`, `playsInline=true`, `preload='auto'` を付け、`trimStart` へ **1 回だけ** 合わせてから `seeked` / `canplay` / `loadeddata` を待ち、silent `play()` のまま hidden/inactive で維持する
+  - preroll 済みの next video は境界直前に `pause()` / `currentTime` 再設定をしない。active 化直後も 300ms は `currentTime` 補正を抑止し、cold seek のやり直しに戻さない
+  - `preview.preflight.ready`, `preview.timeline.tick`, `preview.boundary.smoothPlan` で preroll 状態と境界メトリクスを記録する
 - **注意**:
-  - `isAndroidPreviewPlayback`（Android & 非 iOS & isActivePlaying & 非 export & 非 seek）が `true` の場合のみ preroll が動作する。iOS Safari / export には一切影響しない
-  - preroll により境界到達時に次動画が trimStart を若干超えている場合、active 化後に active section の sync（`shouldDeferTrimmedHeadSync`）が補正する。これは small backward seek on warm decoder なので許容範囲内
-  - active video の `shouldHoldTrimmedVideoHead`（trimmed head 0.25s hold）との組み合わせで seamless に移行できる
+  - preroll を active clip の「次に来る 1 本」へ限定する方針は 2-14 の inactive reset 制限とセットで維持する
+  - preroll を shared / apple-safari / export へ広げると runtime ownership が崩れるため、`src/flavors/standard/preview/` のまま閉じる
+  - 境界直前の再 seek を戻すと decoder が再び cold start しやすいので禁止
 
 ### 2-23. Android standard preview は active video の soft draw を優先して hold を長引かせない
 
 - **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/previewPlatform.ts`, `src/test/standardPreviewEngine.test.tsx`, `src/test/previewPlatform.test.ts`
-- **問題**: Android Chrome では active video が実際には再生継続して `currentTime` も進んでいるのに、`readyState=1` や `seeking=true` が残ることがあり、保守的な hold / recovery 判定だけで canvas 描画を止めると「動画は動いているのに preview だけ固まる」状態になる
+- **問題**: Android Chrome では preroll 後でも境界直後の 1〜2 フレームだけ `readyState=1` / `seeking=true` / `currentTimeAdvanced<20ms` が残ることがあり、単純 hold だけでは「前フレームで一瞬止まる」見え方になる
 - **対策**:
   - Android `standard` preview の非 export / 非 seek 再生中は、`videoWidth|videoHeight > 0`・`paused === false`・`|currentTime - targetTime| < 0.25s` を満たす active video を soft drawable とみなし、`readyState` / `seeking` だけでは hold しない
-  - trimmed entry hold は最大 3 フレームに制限し、その後は `readyState=1` / `seeking=true` でも active video の `drawImage` を試す
-  - active playback 中の `currentTime` 補正は drift `0.45s` 超かつ `!seeking` かつ前回 seek から 500ms 以上経過した場合だけに抑え、draw 失敗時のみ直前フレームへ fallback する
+  - `video -> video` 境界では last drawable frame を `ImageBitmap` として保持し、0〜80ms は前フレーム 100%、80〜180ms は前フレーム alpha を 1→0 に落とす短い visual blend を使う。active video が draw 可能なら下に描いて reveal する
+  - それでも次動画が `targetTime` より 80ms 以上遅れ、`readyState < 2` または `seeking=true` の場合だけ、`startTimeRef` を 1 boundary あたり最大 120ms まで後ろへずらして preview clock を吸収する
+  - 各境界ごとに `preview.boundary.smoothPlan` を 1 回だけ出し、`currentTimeAdvancedAt100ms`, `usedVisualBlend`, `visualBlendMs`, `clockAbsorbMs` を確認できるようにする
 - **注意**:
-  - この緩和は Android `standard` preview の live draw 専用。iOS Safari、export、audio routing、inactive reset には広げない
-  - `drawImage` 失敗時は前フレーム fallback を許容するが、`readyState` / `seeking` の見かけだけで active video の描画を止める挙動へ戻さない
+  - visual blend は Android `standard` preview の live draw 専用で、最長 180ms を超えて前フレームを固定しない
+  - `drawImage` 失敗時は前フレーム fallback を許容するが、長時間 hold や shared workaround に戻さない
+  - active video の hard resync は grace 窓の後にだけ許可し、境界直後の `currentTime` 書き戻しを増やさない
 
 ---
 
