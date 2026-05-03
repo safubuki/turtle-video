@@ -929,7 +929,7 @@ describe('standard preview engine', () => {
     expect(didUpdateCanvas).toBe(true);
   });
 
-  it('Android preview は paused でも drawable な境界 active video を先に描画してから play を要求する', () => {
+  it('Android preview は drawable な paused 境界 active video で黒フラッシュせず draw 後に play を要求する', () => {
     const leadVideo = createVideoItem({
       id: 'video-1',
       duration: 1,

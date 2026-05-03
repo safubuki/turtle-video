@@ -336,12 +336,12 @@
 - **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
 - **問題**: Android Chrome では video 境界直後に次動画が `readyState>=2`・`!seeking`・`videoWidth/Height>0`・`currentTime` 整合済みでも `paused=true` の瞬間があり、draw 前に `play()` を優先すると切替直後の黒化が見えやすかった
 - **対策**:
-  - Android `standard` preview の active video が drawable 条件を満たす場合は、`paused === true` を描画禁止条件にしない
+  - Android `standard` preview の active video が `canDrawVideo()`（`readyState >= 2`、`!seeking`、`videoWidth/Height > 0`）を満たす drawable 条件なら、`paused === true` を描画禁止条件にしない
   - 同条件の active video に対する `play()` 要求は render loop 前半の制御分岐では即時実行せず、`drawImage(activeEl)` 成功後に 1 本化して要求する
   - 既存の passive-switch 方針は維持し、`preview.boundary.smoothPlan`・`canCommit false → drawLastStableFrame`・追加 seek workaround は復活させない
 - **注意**:
   - この順序変更は `src/flavors/standard/preview/` の Android standard preview だけに閉じる。`apple-safari` runtime / export / save runtime には広げない
-  - drawable 条件は `readyState >= HAVE_CURRENT_DATA`、`!seeking`、`videoWidth/Height > 0` を維持し、未準備 video の force draw へ戻さない
+  - drawable 条件は `readyState >= 2`、`!seeking`、`videoWidth/Height > 0` を維持し、未準備 video の force draw へ戻さない
   - draw 後の `play()` は再生開始要求の順序変更であり、固定 ms 遅延・preroll・hard seek の再導入ではない
 
 ---

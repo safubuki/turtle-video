@@ -1347,7 +1347,7 @@ export function usePreviewEngine({
         let shouldSkipAndroidPreviewActiveDraw = false;
         let allowAndroidPreviewActiveSoftDraw = false;
         let forceDrawAndroidPreviewActiveVideo = false;
-        let shouldRequestAndroidPreviewActivePlayAfterDraw = false;
+        let shouldPlayAndroidPreviewActiveVideoAfterDraw = false;
         if (activeId && activeIndex !== -1) {
           const bridgeState = androidVisualBridgeStateRef.current;
           if (bridgeState.activeId !== activeId) {
@@ -1864,16 +1864,13 @@ export function usePreviewEngine({
 
               const shouldBypassHoldForReadyActiveVideo =
                 isAndroidPreviewPlayback
-                && activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
-                && !activeEl.seeking
-                && activeEl.videoWidth > 0
-                && activeEl.videoHeight > 0
+                && canDrawVideo(activeEl)
                 && activeEl.paused;
 
               if (shouldBypassHoldForReadyActiveVideo) {
                 holdFrame = false;
                 shouldSkipAndroidPreviewActiveDraw = false;
-                shouldRequestAndroidPreviewActivePlayAfterDraw = true;
+                shouldPlayAndroidPreviewActiveVideoAfterDraw = true;
                 logInfo('RENDER', '[DIAG-BOUNDARY-ACTIVE] Android active video ready', {
                   activeId,
                   localTime,
@@ -1920,7 +1917,7 @@ export function usePreviewEngine({
                 && !activeEl.seeking
                 && (localTime > 0.3 || Math.abs(activeEl.currentTime - targetTime) > PREVIEW_ANDROID_BOUNDARY_DRAW_DRIFT_ALLOWANCE_SEC)
                 && activeEl.paused
-                && !shouldRequestAndroidPreviewActivePlayAfterDraw
+                && !shouldPlayAndroidPreviewActiveVideoAfterDraw
               ) {
                 requestVideoPlayWithRetry(activeEl, () =>
                   isPlayingRef.current
@@ -2171,22 +2168,20 @@ export function usePreviewEngine({
                   !shouldHoldVideoAtClipEnd &&
                   !hasExportPlayFailure
                 ) {
-                  const shouldDeferAndroidPreviewPlayUntilAfterDraw =
+                  const canPlayAndroidPreviewActiveVideoAfterDraw =
                     isAndroidPreviewPlayback
                     && !isVideoSeeking
-                    && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
-                    && videoEl.videoWidth > 0
-                    && videoEl.videoHeight > 0;
-                  if (shouldDeferAndroidPreviewPlayUntilAfterDraw) {
-                    shouldRequestAndroidPreviewActivePlayAfterDraw = true;
-                  } else if (
-                    isAndroidPreviewPlayback
-                  ) {
-                    requestVideoPlayWithRetry(videoEl, () =>
-                      isPlayingRef.current
-                      && !isSeekingRef.current
-                      && loopIdRef.current === currentLoopId,
-                    );
+                    && canDrawVideo(videoEl);
+                  if (isAndroidPreviewPlayback) {
+                    if (canPlayAndroidPreviewActiveVideoAfterDraw) {
+                      shouldPlayAndroidPreviewActiveVideoAfterDraw = true;
+                    } else {
+                      requestVideoPlayWithRetry(videoEl, () =>
+                        isPlayingRef.current
+                        && !isSeekingRef.current
+                        && loopIdRef.current === currentLoopId,
+                      );
+                    }
                   } else {
                     videoEl.play().then(() => {
                       if (_isExporting) {
@@ -2282,7 +2277,7 @@ export function usePreviewEngine({
                     }
                     if (
                       androidRecoveryDecision.shouldRetryPlay
-                      && !shouldRequestAndroidPreviewActivePlayAfterDraw
+                      && !shouldPlayAndroidPreviewActiveVideoAfterDraw
                       && !isVideoSeeking
                       && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
                     ) {
@@ -2359,18 +2354,6 @@ export function usePreviewEngine({
                 let restoredAfterSoftDrawFailure = false;
                 try {
                   ctx.drawImage(element as CanvasImageSource, -elemW / 2, -elemH / 2, elemW, elemH);
-                  if (
-                    shouldRequestAndroidPreviewActivePlayAfterDraw
-                    && isVideo
-                    && id === activeId
-                    && videoEl.paused
-                  ) {
-                    requestVideoPlayWithRetry(videoEl, () =>
-                      isPlayingRef.current
-                      && !isSeekingRef.current
-                      && loopIdRef.current === currentLoopId,
-                    );
-                  }
                   if (canSoftDrawActiveVideo) {
                     logInfo('RENDER', 'Android active soft draw allowed', {
                       activeId: id,
@@ -2405,6 +2388,19 @@ export function usePreviewEngine({
                     usedPreviousFrame: !!lastDrawableFrameRef.current,
                   });
                 } finally {
+                  if (
+                    shouldPlayAndroidPreviewActiveVideoAfterDraw
+                    && isVideo
+                    && id === activeId
+                    && videoEl.paused
+                  ) {
+                    shouldPlayAndroidPreviewActiveVideoAfterDraw = false;
+                    requestVideoPlayWithRetry(videoEl, () =>
+                      isPlayingRef.current
+                      && !isSeekingRef.current
+                      && loopIdRef.current === currentLoopId,
+                    );
+                  }
                   if (!restoredAfterSoftDrawFailure) {
                     ctx.restore();
                   }
