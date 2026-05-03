@@ -997,11 +997,11 @@ describe('standard preview engine', () => {
     expect(assignedCurrentTime).toBeCloseTo(1.2);
     expect(seekAssignCount).toBe(1);
 
-    assignedCurrentTime = 1.22;
+    assignedCurrentTime = nextVideo.trimStart + 0.02;
     nextVideoElement.paused = false;
     hook.result.current.renderFrame(1.1, true, false);
 
-    expect(assignedCurrentTime).toBeCloseTo(1.22);
+    expect(assignedCurrentTime).toBeCloseTo(nextVideo.trimStart + 0.02);
     expect(seekAssignCount).toBe(1);
   });
 

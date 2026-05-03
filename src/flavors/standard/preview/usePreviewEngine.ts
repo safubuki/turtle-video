@@ -257,6 +257,8 @@ const PREVIEW_START_READY_SYNC_TOLERANCE_SEC = 0.05;
 const PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC = 0.05;
 const PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC = 0.25;
 const PREVIEW_ANDROID_BOUNDARY_DRAW_DRIFT_ALLOWANCE_SEC = ANDROID_PREVIEW_TIGHT_SYNC_THRESHOLD_SEC;
+const PREVIEW_ANDROID_BOUNDARY_ADVANCE_READY_THRESHOLD_MS = 20;
+const PREVIEW_ANDROID_BOUNDARY_LAG_THRESHOLD_MS = 80;
 const PREVIEW_ANDROID_BOUNDARY_VISUAL_BLEND_HOLD_MS = 80;
 const PREVIEW_ANDROID_BOUNDARY_VISUAL_BLEND_MAX_MS = 180;
 const PREVIEW_ANDROID_BOUNDARY_CLOCK_ABSORB_MAX_MS = 120;
@@ -342,6 +344,20 @@ const requestVideoPlayWithRetry = (
     }
   };
   tryPlay(1);
+};
+
+const getAndroidBoundaryPreviousFrameAlpha = (elapsedMs: number): number => {
+  if (elapsedMs <= PREVIEW_ANDROID_BOUNDARY_VISUAL_BLEND_HOLD_MS) {
+    return 1;
+  }
+
+  return Math.max(
+    0,
+    1 - (
+      (elapsedMs - PREVIEW_ANDROID_BOUNDARY_VISUAL_BLEND_HOLD_MS)
+      / (PREVIEW_ANDROID_BOUNDARY_VISUAL_BLEND_MAX_MS - PREVIEW_ANDROID_BOUNDARY_VISUAL_BLEND_HOLD_MS)
+    ),
+  );
 };
 
 /**
@@ -795,6 +811,18 @@ export function usePreviewEngine({
       }
 
       return state;
+    },
+    [],
+  );
+  const shouldDeferAndroidBoundaryCurrentTimeCorrection = useCallback(
+    (videoId: string | null, localTimeSec: number) => {
+      const boundaryPlan = androidBoundarySmoothPlanRef.current;
+      return !!boundaryPlan
+        && !!videoId
+        && boundaryPlan.activeId === videoId
+        && boundaryPlan.prerollArmed
+        && localTimeSec >= 0
+        && localTimeSec <= PREVIEW_ANDROID_BOUNDARY_CORRECTION_GRACE_SEC;
     },
     [],
   );
@@ -1395,7 +1423,7 @@ export function usePreviewEngine({
                   && (
                     activeEl.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
                     || activeEl.seeking
-                    || currentTimeAdvancedMs < 20
+                    || currentTimeAdvancedMs < PREVIEW_ANDROID_BOUNDARY_ADVANCE_READY_THRESHOLD_MS
                     || activeVideoDrift > 0.10
                   );
                 if (shouldUseVisualBridge) {
@@ -1403,15 +1431,7 @@ export function usePreviewEngine({
                     PREVIEW_ANDROID_BOUNDARY_VISUAL_BLEND_MAX_MS,
                     Math.max(0, Math.round(localTime * 1000)),
                   );
-                  const previousFrameAlpha = elapsedMs <= PREVIEW_ANDROID_BOUNDARY_VISUAL_BLEND_HOLD_MS
-                    ? 1
-                    : Math.max(
-                      0,
-                      1 - (
-                        (elapsedMs - PREVIEW_ANDROID_BOUNDARY_VISUAL_BLEND_HOLD_MS)
-                        / (PREVIEW_ANDROID_BOUNDARY_VISUAL_BLEND_MAX_MS - PREVIEW_ANDROID_BOUNDARY_VISUAL_BLEND_HOLD_MS)
-                      ),
-                    );
+                  const previousFrameAlpha = getAndroidBoundaryPreviousFrameAlpha(elapsedMs);
                   const canDrawActiveVideo =
                     activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
                     && !activeEl.seeking
@@ -1454,10 +1474,7 @@ export function usePreviewEngine({
                 logAndroidPreviewHold(activeId, time, activeEl);
               };
               const shouldDeferBoundaryCurrentTimeCorrection =
-                !!boundarySmoothPlan
-                && boundarySmoothPlan.prerollArmed
-                && localTime >= 0
-                && localTime <= PREVIEW_ANDROID_BOUNDARY_CORRECTION_GRACE_SEC;
+                shouldDeferAndroidBoundaryCurrentTimeCorrection(activeId, localTime);
               if (
                 boundarySmoothPlan
                 && localTime >= 0
@@ -1469,13 +1486,13 @@ export function usePreviewEngine({
                   PREVIEW_ANDROID_BOUNDARY_CLOCK_ABSORB_MAX_MS - boundarySmoothPlan.clockAbsorbMs;
                 if (
                   remainingClockAbsorbMs > 0
-                  && boundaryLagMs >= 80
+                  && boundaryLagMs >= PREVIEW_ANDROID_BOUNDARY_LAG_THRESHOLD_MS
                   && (activeEl.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME || activeEl.seeking)
                 ) {
                   const absorbMs = Math.min(
                     PREVIEW_ANDROID_BOUNDARY_CLOCK_ABSORB_PER_FRAME_MS,
                     remainingClockAbsorbMs,
-                    boundaryLagMs - 80,
+                    boundaryLagMs - PREVIEW_ANDROID_BOUNDARY_LAG_THRESHOLD_MS,
                   );
                   if (absorbMs > 0) {
                     startTimeRef.current += absorbMs;
@@ -2030,11 +2047,7 @@ export function usePreviewEngine({
               const shouldDeferBoundaryCurrentTimeCorrection =
                 isAndroidPreviewPlayback
                 && id === activeId
-                && !!androidBoundarySmoothPlanRef.current
-                && androidBoundarySmoothPlanRef.current.activeId === id
-                && androidBoundarySmoothPlanRef.current.prerollArmed
-                && localTime >= 0
-                && localTime <= PREVIEW_ANDROID_BOUNDARY_CORRECTION_GRACE_SEC;
+                && shouldDeferAndroidBoundaryCurrentTimeCorrection(id, localTime);
               const hasExportPlayFailure = _isExporting && !!exportPlayFailedRef.current[id];
               const syncThreshold = shouldStabilizeImageToVideoTransition
                 ? 0.01
@@ -2497,6 +2510,7 @@ export function usePreviewEngine({
                 armAndroidNextVideoPreroll(id, videoEl, prerollTarget);
               } else if (!shouldKeepVideoPrewarmed && id !== activeVideoIdRef.current) {
                 delete androidNextVideoPrerollRef.current[id];
+                videoEl.preload = 'metadata';
               }
 
               if (!isProtectedBoundaryWarmupNext && !shouldKeepVideoPrewarmed && !avoidPausePlayForInactive && !isAndroidPrerollTarget && !videoEl.paused) {
