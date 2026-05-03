@@ -834,7 +834,7 @@ export function usePreviewEngine({
       && !!previewCacheEntryRefValue.current
       && previewCacheEntryRefValue.current.cacheKey === previewCacheKeyRefValue.current
       && !!previewCacheVideoRefValue.current;
-  }, []);
+  }, [previewCacheEnabledFlag]);
 
   const startPreviewCachePlayback = async (fromTime: number): Promise<boolean> => {
     if (!hasReadyPreviewCache()) {
