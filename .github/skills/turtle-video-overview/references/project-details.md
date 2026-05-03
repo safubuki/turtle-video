@@ -114,6 +114,7 @@ turtle-video/
 
 ### 6. プレビュー & 再生
 - Canvas上でのリアルタイムプレビュー
+- Android standard preview は複数 video timeline で single preview cache video を優先
 - 再生/一時停止/停止、シークバー
 - タブ復帰時の自動リフレッシュ
 - プレビューキャプチャ（現在のフレームをPNG画像として保存）
