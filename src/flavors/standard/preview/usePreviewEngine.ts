@@ -256,9 +256,18 @@ const PREVIEW_START_READY_SYNC_TOLERANCE_SEC = 0.05;
 const PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC = 0.05;
 const PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC = 0.25;
 const PREVIEW_ANDROID_BOUNDARY_DRAW_DRIFT_ALLOWANCE_SEC = ANDROID_PREVIEW_TIGHT_SYNC_THRESHOLD_SEC;
-const PREVIEW_ANDROID_MAX_VISUAL_BRIDGE_FRAMES = 2;
+// 3 フレーム（≒50ms@60fps）維持することで次動画の warming-up 時間を確保する。
+const PREVIEW_ANDROID_MAX_VISUAL_BRIDGE_FRAMES = 3;
 const TRIMMED_ENTRY_SOFT_DRIFT_ALLOWANCE_SEC = 0.35;
 const PREVIEW_ANDROID_BGM_SOFT_SYNC_TOLERANCE_SEC = 0.3;
+// 次動画の境界 700ms 前から silent play を開始してデコーダを warm-up する。
+const ANDROID_PREVIEW_NEXT_VIDEO_PREROLL_LEAD_SEC = 0.7;
+// trimStart がこの値を超えない（先頭付近の）動画は自然再生で既にデコーダが warm なため、
+// preroll による逆向き seek を行わず自然再生を維持する。
+const ANDROID_PREROLL_MIN_TRIM_FOR_SEEKBACK_SEC = 0.2;
+// preroll 中に trimStart をこの値以上超えて進んだ場合だけ引き戻し seek を行う。
+// warm decoder への小さな逆向き seek は許容し、不要な seek を最小化する。
+const ANDROID_PREROLL_SEEKBACK_TOLERANCE_SEC = 0.12;
 const PREVIEW_END_THRESHOLD_SEC = 0.03;
 // 再生開始直後は seeked / canplay の到着を数フレームだけ待ち、遅ければ loop を止めない。
 const PREVIEW_START_READY_POLL_INTERVAL_MS = 40;
@@ -2137,6 +2146,16 @@ export function usePreviewEngine({
                 && id === nextVideoItem?.id
                 && !!warmupState?.preseeked;
 
+              // Android standard preview: 次動画の境界 700ms 前からデコーダを silent play で warm-up する。
+              // これにより境界到達時に readyState >= 2 が確保でき、visual bridge への依存を最小化する。
+              // iOS Safari / export / seek 中はこの分岐に入らない（isAndroidPreviewPlayback が false）。
+              const isAndroidPrerollTarget =
+                isAndroidPreviewPlayback
+                && id === nextVideoItem?.id
+                && timeUntilVideoStartSec !== null
+                && timeUntilVideoStartSec >= 0
+                && timeUntilVideoStartSec <= ANDROID_PREVIEW_NEXT_VIDEO_PREROLL_LEAD_SEC;
+
               if (shouldRecoverAudioOnlyAfterBoundary) {
                 const ctx = audioCtxRef.current;
                 if (ctx && (ctx.state as AudioContextState | 'interrupted') !== 'running') {
@@ -2153,7 +2172,27 @@ export function usePreviewEngine({
                 videoEl.play().catch(() => { });
               }
 
-              if (!isProtectedBoundaryWarmupNext && !shouldKeepVideoPrewarmed && !avoidPausePlayForInactive && !videoEl.paused) {
+              if (isAndroidPrerollTarget) {
+                // trimStart 位置にまだいない（または大きくずれている）場合のみシークする。
+                // trimStart が小さい（< 0.2s）ときは先頭から自然に再生されているため seek 不要。
+                // 境界直前の逆向き seek は warm decoder なら高速だが、cold state からは避けたい。
+                const prerollTarget = conf.trimStart || 0;
+                if (
+                  conf.trimStart > ANDROID_PREROLL_MIN_TRIM_FOR_SEEKBACK_SEC
+                  && !videoEl.seeking
+                  && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
+                  && videoEl.currentTime > prerollTarget + ANDROID_PREROLL_SEEKBACK_TOLERANCE_SEC
+                ) {
+                  // 再生が trimStart を超えて進みすぎた場合だけ引き戻す
+                  videoEl.currentTime = prerollTarget;
+                }
+                // silent play でデコーダを keep-alive にする（volume=0 は下の applyPreviewAudioOutputState が保証）
+                if (videoEl.paused && !videoEl.seeking && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK) {
+                  videoEl.play().catch(() => { });
+                }
+              }
+
+              if (!isProtectedBoundaryWarmupNext && !shouldKeepVideoPrewarmed && !avoidPausePlayForInactive && !isAndroidPrerollTarget && !videoEl.paused) {
                 videoEl.pause();
                 if (
                   hasVideoAudioNode

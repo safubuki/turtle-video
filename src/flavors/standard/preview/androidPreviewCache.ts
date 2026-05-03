@@ -30,12 +30,19 @@ export function countVideoItems(mediaItems: MediaItem[]): number {
   return mediaItems.reduce((count, item) => count + (item.type === 'video' ? 1 : 0), 0);
 }
 
+// preview cache 方式は Android 実機で生成中・生成物ともにブラックアウトが発生したため
+// 完全無効化する。従来の live preview 方式を使う。
+const ENABLE_ANDROID_PREVIEW_CACHE = false;
+
 export function shouldUseAndroidPreviewCache(input: {
   isAndroid: boolean;
   isIosSafari: boolean;
   isExportMode: boolean;
   mediaItems: MediaItem[];
 }): boolean {
+  if (!ENABLE_ANDROID_PREVIEW_CACHE) {
+    return false;
+  }
   return input.isAndroid
     && !input.isIosSafari
     && !input.isExportMode

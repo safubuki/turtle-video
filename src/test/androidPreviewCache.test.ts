@@ -43,7 +43,9 @@ function createImageItem(id: string): MediaItem {
 }
 
 describe('android preview cache helpers', () => {
-  it('Android + video 2本以上の通常 preview だけ cache mode を使う', () => {
+  it('ENABLE_ANDROID_PREVIEW_CACHE=false のため常に false を返す', () => {
+    // preview cache は Android 実機でのブラックアウト問題により無効化済み。
+    // shouldUseAndroidPreviewCache は ENABLE_ANDROID_PREVIEW_CACHE=false により常に false を返す。
     expect(
       shouldUseAndroidPreviewCache({
         isAndroid: true,
@@ -51,7 +53,7 @@ describe('android preview cache helpers', () => {
         isExportMode: false,
         mediaItems: [createVideoItem('v1'), createVideoItem('v2')],
       }),
-    ).toBe(true);
+    ).toBe(false);
 
     expect(
       shouldUseAndroidPreviewCache({
