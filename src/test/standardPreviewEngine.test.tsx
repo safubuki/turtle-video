@@ -818,7 +818,7 @@ describe('standard preview engine', () => {
     expect(narrationGain.gain.setTargetAtTime).toHaveBeenLastCalledWith(2.5, 7, 0.1);
   });
 
-  it('Android preview は trimStart あり video の先頭でも drift が小さければ soft draw を優先する', () => {
+  it('Android preview は trimStart あり video の先頭で readyState < 2 の video を draw しない', () => {
     const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
     const videoItem = createVideoItem({
       id: 'video-2',
@@ -844,11 +844,11 @@ describe('standard preview engine', () => {
 
     expect(videoElement.currentTime).toBeCloseTo(1.36);
     expect(canvasContext.fillRect).not.toHaveBeenCalled();
-    expect(canvasContext.drawImage).toHaveBeenCalled();
-    expect(didUpdateCanvas).toBe(true);
+    expect(canvasContext.drawImage).not.toHaveBeenCalled();
+    expect(didUpdateCanvas).toBe(false);
   });
 
-  it('Android preview は video -> trimmed video の先頭で hard seek せず soft draw を優先する', () => {
+  it('Android preview は video -> trimmed video の境界で canCommit 前に safe seek を優先する', () => {
     const leadVideo = createVideoItem({
       id: 'video-1',
       duration: 1,
@@ -882,10 +882,10 @@ describe('standard preview engine', () => {
     const timelineTime = 1.2;
     const didUpdateCanvas = hook.result.current.renderFrame(timelineTime, true, false);
 
-    expect(trimmedVideoElement.currentTime).toBeCloseTo(1.55);
+    expect(trimmedVideoElement.currentTime).toBeCloseTo(1.4);
     expect(canvasContext.fillRect).not.toHaveBeenCalled();
-    expect(canvasContext.drawImage).toHaveBeenCalled();
-    expect(didUpdateCanvas).toBe(true);
+    expect(canvasContext.drawImage).not.toHaveBeenCalled();
+    expect(didUpdateCanvas).toBe(false);
   });
 
   it('Android preview は clip 境界前でも次の video を preseek しない', () => {
@@ -1245,7 +1245,7 @@ describe('standard preview engine', () => {
     });
   });
 
-  it('Android preview は image -> trimStart あり video でも同期済みなら seeking 中に draw を試す', () => {
+  it('Android preview は image -> trimStart あり video でも seeking 中は draw しない', () => {
     const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
     const videoItem = createVideoItem({
       id: 'video-2',
@@ -1270,11 +1270,11 @@ describe('standard preview engine', () => {
 
     expect(videoElement.currentTime).toBeCloseTo(1.3);
     expect(canvasContext.fillRect).not.toHaveBeenCalled();
-    expect(canvasContext.drawImage).toHaveBeenCalled();
-    expect(didUpdateCanvas).toBe(true);
+    expect(canvasContext.drawImage).not.toHaveBeenCalled();
+    expect(didUpdateCanvas).toBe(false);
   });
 
-  it('Android preview の trimmed entry hold は 3 フレーム後に強制 soft draw へ移る', () => {
+  it('Android preview の trimmed entry hold は未準備の間 force soft draw しない', () => {
     const leadVideo = createVideoItem({
       id: 'video-1',
       duration: 1,
@@ -1319,8 +1319,8 @@ describe('standard preview engine', () => {
 
     const didUpdateCanvas = hook.result.current.renderFrame(1.02, true, false);
 
-    expect(canvasContext.drawImage).toHaveBeenCalledTimes(1);
-    expect(didUpdateCanvas).toBe(true);
+    expect(canvasContext.drawImage).not.toHaveBeenCalled();
+    expect(didUpdateCanvas).toBe(false);
   });
 
   it('Android preview の trimStart あり video 安定化は先頭 0.25 秒だけに限定する', () => {
