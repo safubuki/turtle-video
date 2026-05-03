@@ -260,18 +260,31 @@
 
 ---
 
-### 2-21. Android standard preview は single preview cache video を優先する
+### 2-21. Android standard preview は single preview cache video を優先する（**無効化済み**）
 
 - **ファイル**: `src/components/TurtleVideo.tsx`, `src/components/sections/PreviewSection.tsx`, `src/flavors/standard/preview/androidPreviewCache.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`
 - **問題**: Android Chrome / WebView 相当で複数 video timeline を live 切り替えすると、初回 2 本目の遅延や video-to-video 境界の引っかかりが残りやすい
-- **対策**:
-  - Android + video 2 本以上 + 非 export の standard preview では timeline から preview cache key を作り、cache miss 時は preview 専用の仮合成動画を先に生成する
-  - cache 生成完了後は hidden preview cache `<video>` 1 本だけを再生し、loop / seek / paused redraw もその `currentTime` を source of truth にする
-  - cache miss / 更新中は `PreviewSection` の loading overlay 文言を「プレビュー準備中...」「プレビューを更新中...」へ差し替え、失敗時だけ `preview.cache.failed` を出して live-element-preview へ fallback する
+- **対策（現在は無効化）**:
+  - Android + video 2 本以上 + 非 export の standard preview では timeline から preview cache key を作り、cache miss 時は preview 専用の仮合成動画を先に生成していた
+  - cache 生成完了後は hidden preview cache `<video>` 1 本だけを再生し、loop / seek / paused redraw もその `currentTime` を source of truth にしていた
+- **無効化理由 (2026-05)**: Android 実機で preview 用動画生成中および生成物にブラックアウトが発生した。プレビュー前に重い WebCodecs/OfflineAudioContext/Muxer エクスポート処理が走ることで体感が悪化するため、`ENABLE_ANDROID_PREVIEW_CACHE = false` で完全無効化し live preview 方式へ戻した。
 - **注意**:
-  - cache key には mediaItems の並び・trim・fade・caption・BGM・narration・canvas size を含め、編集後は invalidate して古い blob URL を必ず revoke する
-  - この cache は preview 専用で、`exportUrl` / export FSM / `apple-safari` runtime とは混ぜない
-  - live fallback 側では Android の sync threshold / drift guard / holdFrame warning 抑制だけを最小修正し、境界到達後の場当たり seek を増やさない
+  - `shouldUseAndroidPreviewCache` は `ENABLE_ANDROID_PREVIEW_CACHE = false` により常に `false` を返す。再度有効化する場合はこの定数を `true` に戻し、実機で十分にテストすること
+  - **絶対に守ること**: `preview.cache.start / preview.cache.ready / preview.cache.play` が通常プレビューで出ないこと。`startPreviewCacheExport` / `startWebCodecsExport` を preview 開始時に呼ばないこと
+  - live fallback 側の境界安定化は 2-22 (Android next-video preroll) と視覚ブリッジ（`PREVIEW_ANDROID_MAX_VISUAL_BRIDGE_FRAMES`）で対応する
+
+### 2-22. Android standard preview の次動画 700ms preroll で境界 warm-up
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`
+- **問題**: Android preview で video-to-video 境界到達時に次動画が `readyState=1 / seeking=true` になり、visual bridge フレームが切れると黒フレームが出る。また `PREVIEW_ANDROID_MAX_VISUAL_BRIDGE_FRAMES = 2` だと ~33ms しかカバーできない
+- **対策**:
+  - `PREVIEW_ANDROID_MAX_VISUAL_BRIDGE_FRAMES` を 2 → 3 (≒50ms) に拡張してブリッジ時間を延長
+  - `renderFrame` の inactive video ループで `isAndroidPrerollTarget`（次動画 & `timeUntilVideoStart <= 0.7s`）を判定し、該当する次動画を pause せず silent play のまま維持する（volume=0 は `applyPreviewAudioOutputState` が保証）
+  - 次動画が `trimStart` から大きく進みすぎた場合（`currentTime > trimStart + 0.12`）だけ warm decoder への引き戻しシークを実行する。cold state からの無駄なシークは行わない
+- **注意**:
+  - `isAndroidPreviewPlayback`（Android & 非 iOS & isActivePlaying & 非 export & 非 seek）が `true` の場合のみ preroll が動作する。iOS Safari / export には一切影響しない
+  - preroll により境界到達時に次動画が trimStart を若干超えている場合、active 化後に active section の sync（`shouldDeferTrimmedHeadSync`）が補正する。これは small backward seek on warm decoder なので許容範囲内
+  - active video の `shouldHoldTrimmedVideoHead`（trimmed head 0.25s hold）との組み合わせで seamless に移行できる
 
 ---
 
