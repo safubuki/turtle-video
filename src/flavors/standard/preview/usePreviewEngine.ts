@@ -1536,14 +1536,7 @@ export function usePreviewEngine({
               };
               const shouldDeferBoundaryCurrentTimeCorrection =
                 shouldDeferAndroidBoundaryCurrentTimeCorrection(activeId, localTime);
-              const shouldHoldTrimmedVideoHead =
-                false
-                && isAndroidPreviewPlayback
-                && activeItem.type === 'video'
-                && trimStart > 0.001
-                // active clip の localTime は通常 0 以上だが、境界フォールバック追加時もこの短い窓だけに閉じる。
-                && localTime >= 0
-                && localTime <= PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC;
+              const shouldHoldTrimmedVideoHead = false;
               const isNearTimelineEnd =
                 totalDurationRef.current > 0 &&
                 time >= totalDurationRef.current - 0.05;
@@ -1643,13 +1636,7 @@ export function usePreviewEngine({
                   try { activeEl.load(); } catch { /* ignore */ }
                 }
               }
-              const isTrimmedEntry =
-                false
-                && isAndroidPreviewPlayback
-                && activeItem.type === 'video'
-                && trimStart > 0.001
-                && localTime >= 0
-                && localTime <= PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC;
+              const isTrimmedEntry = false;
               if (lastTrimmedEntryActiveIdRef.current && lastTrimmedEntryActiveIdRef.current !== activeId) {
                 delete trimmedEntryLogStateRef.current[lastTrimmedEntryActiveIdRef.current];
               }
