@@ -74,10 +74,12 @@ function createMockVideoElement(initialCurrentTime: number) {
 }
 
 describe('standard inactive video manager', () => {
-  it('Android preview では next video を pause/reset せず保護する', () => {
+  it('Android preview では protected previous/next video を pause/reset せず保護する', () => {
+    const previousVideo = createVideoItem({ id: 'video-0', trimStart: 0.5 });
     const activeVideo = createVideoItem({ id: 'video-1', trimStart: 0 });
     const nextVideo = createVideoItem({ id: 'video-2', trimStart: 1.25 });
     const farVideo = createVideoItem({ id: 'video-3', trimStart: 2.5 });
+    const previousVideoElement = createMockVideoElement(0.8);
     const nextVideoElement = createMockVideoElement(0.2);
     const farVideoElement = createMockVideoElement(4.2);
     const previewPlatformPolicy = standardPreviewRuntime.getPreviewPlatformPolicy(
@@ -86,8 +88,9 @@ describe('standard inactive video manager', () => {
 
     const { result } = renderHook(() =>
       useInactiveVideoManager({
-        mediaItemsRef: createRef([activeVideo, nextVideo, farVideo]),
+        mediaItemsRef: createRef([previousVideo, activeVideo, nextVideo, farVideo]),
         mediaElementsRef: createRef({
+          [previousVideo.id]: previousVideoElement as unknown as HTMLVideoElement,
           [nextVideo.id]: nextVideoElement as unknown as HTMLVideoElement,
           [farVideo.id]: farVideoElement as unknown as HTMLVideoElement,
         } as MediaElementsRef),
@@ -100,8 +103,11 @@ describe('standard inactive video manager', () => {
     result.current.resetInactiveVideos({
       nextVideoId: nextVideo.id,
       isAndroidPreview: true,
+      protectedVideoIds: [previousVideo.id, nextVideo.id],
     });
 
+    expect(previousVideoElement.pause).toHaveBeenCalledTimes(0);
+    expect(previousVideoElement.currentTime).toBeCloseTo(0.8);
     expect(nextVideoElement.pause).toHaveBeenCalledTimes(0);
     expect(nextVideoElement.currentTime).toBeCloseTo(0.2);
     expect(farVideoElement.pause).toHaveBeenCalledTimes(1);

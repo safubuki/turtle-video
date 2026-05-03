@@ -287,10 +287,14 @@ const PREVIEW_ANDROID_BOUNDARY_SAFE_SEEK_EPSILON_SEC = 0.08;
 const PREVIEW_ANDROID_BOUNDARY_COMMIT_DRIFT_TOLERANCE_SEC = 0.10;
 const TRIMMED_ENTRY_SOFT_DRIFT_ALLOWANCE_SEC = ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC;
 const PREVIEW_ANDROID_BGM_SOFT_SYNC_TOLERANCE_SEC = 0.3;
-const PREVIEW_ANDROID_ACTIVE_SEEK_COOLDOWN_MS = 500;
-// 次動画の境界 450ms 前から silent play を開始してデコーダを warm-up する。
-// preroll 開始時は trimStart - prerollLeadSec から再生し、境界到達時に currentTime が trimStart に揃うようにする。
-const ANDROID_PREVIEW_NEXT_VIDEO_PREROLL_LEAD_SEC = 0.45;
+// 描画不能時に last stable frame を許容する上限。問題を hold で隠さないよう 200ms で打ち切る。
+const PREVIEW_ANDROID_PASSIVE_HOLD_MAX_SEC = 0.2;
+// recovery seek は Android Chrome の seek 連打を避けるため 1 秒以上あける。
+const PREVIEW_ANDROID_RECOVERY_MIN_INTERVAL_MS = 1000;
+// timeline drift が 0.8s を超える明確な破綻時だけ recovery seek を許可する。
+const PREVIEW_ANDROID_RECOVERY_DRIFT_THRESHOLD_SEC = 0.8;
+// 境界通過直後 500ms は media clock の自然再生に任せ、recovery seek を抑止する。
+const PREVIEW_ANDROID_RECOVERY_SKIP_AFTER_BOUNDARY_SEC = 0.5;
 const PREVIEW_END_THRESHOLD_SEC = 0.03;
 // 再生開始直後は seeked / canplay の到着を数フレームだけ待ち、遅ければ loop を止めない。
 const PREVIEW_START_READY_POLL_INTERVAL_MS = 40;
@@ -655,6 +659,7 @@ export function usePreviewEngine({
   }>>({});
   const androidPreviewHoldLogAtRef = useRef<Record<string, number>>({});
   const androidPreviewLastSeekAtRef = useRef<Record<string, number>>({});
+  const androidPreviewRecoveredSegmentRef = useRef<Record<string, string>>({});
   const androidTrimPreseekRef = useRef<Record<string, {
     targetTime: number;
     requestedAt: number;
@@ -739,6 +744,7 @@ export function usePreviewEngine({
     trimmedEntryLogStateRef.current = {};
     androidNextVideoPrerollRef.current = {};
     androidBoundarySmoothPlanRef.current = null;
+    androidPreviewRecoveredSegmentRef.current = {};
     clearAndroidBoundaryState();
   }, [clearAndroidBoundaryState]);
   const logAndroidBoundarySmoothPlan = useCallback(
@@ -767,88 +773,6 @@ export function usePreviewEngine({
       });
     },
     [logInfo],
-  );
-  const armAndroidNextVideoPreroll = useCallback(
-    (videoId: string, videoEl: HTMLVideoElement, targetStartSec: number) => {
-      const existing = androidNextVideoPrerollRef.current[videoId];
-      if (existing?.armed) {
-        return existing;
-      }
-
-      const state = {
-        armed: true,
-        startedAtMs: Date.now(),
-        targetStartSec,
-        armLoopId: loopIdRef.current,
-      };
-      androidNextVideoPrerollRef.current[videoId] = state;
-
-      videoEl.defaultMuted = true;
-      videoEl.muted = true;
-      videoEl.playsInline = true;
-      videoEl.preload = 'auto';
-
-      const cleanup = () => {
-        videoEl.removeEventListener('seeked', onReady);
-        videoEl.removeEventListener('canplay', onReady);
-        videoEl.removeEventListener('loadeddata', onReady);
-      };
-
-      const tryPlay = () => {
-        if (
-          !isPlayingRef.current
-          || loopIdRef.current !== state.armLoopId
-          || androidNextVideoPrerollRef.current[videoId] !== state
-          || !state.armed
-        ) {
-          cleanup();
-          return;
-        }
-        if (videoEl.paused && !videoEl.seeking && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK) {
-          videoEl.play().catch(() => { });
-        }
-      };
-
-      const onReady = () => {
-        tryPlay();
-        cleanup();
-      };
-
-      videoEl.addEventListener('seeked', onReady);
-      videoEl.addEventListener('canplay', onReady);
-      videoEl.addEventListener('loadeddata', onReady);
-
-      if (videoEl.readyState === 0 && !videoEl.error) {
-        try {
-          videoEl.load();
-        } catch {
-          /* ignore */
-        }
-      }
-
-      if (
-        !videoEl.seeking
-        && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
-        && Math.abs(videoEl.currentTime - targetStartSec) > PREVIEW_START_READY_SYNC_TOLERANCE_SEC
-      ) {
-        try {
-          videoEl.currentTime = targetStartSec;
-        } catch {
-          /* ignore */
-        }
-      }
-
-      if (
-        !videoEl.seeking
-        && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
-        && Math.abs(videoEl.currentTime - targetStartSec) <= PREVIEW_START_READY_SYNC_TOLERANCE_SEC
-      ) {
-        onReady();
-      }
-
-      return state;
-    },
-    [isPlayingRef, loopIdRef],
   );
   const shouldDeferAndroidBoundaryCurrentTimeCorrection = useCallback(
     (videoId: string | null, localTimeSec: number) => {
@@ -910,6 +834,47 @@ export function usePreviewEngine({
     },
     [],
   );
+  const maybeAssignAndroidPreviewSeek = useCallback((
+    {
+      videoEl,
+      reason,
+      videoId,
+      segmentIndex,
+      segmentRecoveryKey,
+      targetTime,
+      currentTimeBefore,
+      drift,
+      sinceLastSeekMs,
+    }: {
+      videoEl: HTMLVideoElement;
+      reason: string;
+      videoId: string;
+      segmentIndex: number;
+      segmentRecoveryKey: string;
+      targetTime: number;
+      currentTimeBefore: number;
+      drift: number;
+      sinceLastSeekMs: number;
+    },
+  ) => {
+    try {
+      videoEl.currentTime = targetTime;
+      androidPreviewLastSeekAtRef.current[videoId] = Date.now();
+      androidPreviewRecoveredSegmentRef.current[videoId] = segmentRecoveryKey;
+      logWarn('RENDER', 'preview.android.seek-assignment', {
+        reason,
+        videoId,
+        segmentIndex,
+        targetTime,
+        currentTimeBefore,
+        drift,
+        sinceLastSeekMs,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }, [logWarn]);
   const toDisplayTime = useCallback((globalTimeSec: number) => {
     const totalDuration = Math.max(0, totalDurationRef.current);
     if (totalDuration <= 0) return 0;
@@ -1433,18 +1398,12 @@ export function usePreviewEngine({
                 && activeEl.videoWidth > 0
                 && activeEl.videoHeight > 0
                 && activeVideoDrift < ANDROID_PREVIEW_SOFT_DRAW_DRIFT_THRESHOLD_SEC;
-              const shouldTrackAndroidBoundary =
+              const isAndroidPassiveBoundaryWindow =
                 isAndroidPreviewPlayback
-                && activeItem.type === 'video'
-                && previousItem?.type === 'video'
                 && localTime >= 0
-                && (
-                  localTime <= PREVIEW_ANDROID_BOUNDARY_CORRECTION_GRACE_SEC
-                  || (
-                    androidBoundaryStateRef.current?.nextId === activeId
-                    && !androidBoundaryStateRef.current.committed
-                  )
-                );
+                && localTime <= PREVIEW_ANDROID_PASSIVE_HOLD_MAX_SEC;
+              // Android preview の境界 smoothing / canCommit state machine は回復方針で停止したまま維持する。
+              const shouldTrackAndroidBoundary = false;
               let boundaryState = androidBoundaryStateRef.current;
               if (!shouldTrackAndroidBoundary) {
                 if (boundaryState?.nextId === activeId) {
@@ -1582,13 +1541,8 @@ export function usePreviewEngine({
               };
               const shouldDeferBoundaryCurrentTimeCorrection =
                 shouldDeferAndroidBoundaryCurrentTimeCorrection(activeId, localTime);
-              const shouldHoldTrimmedVideoHead =
-                isAndroidPreviewPlayback
-                && activeItem.type === 'video'
-                && trimStart > 0.001
-                // active clip の localTime は通常 0 以上だが、境界フォールバック追加時もこの短い窓だけに閉じる。
-                && localTime >= 0
-                && localTime <= PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC;
+              // trim head hold / drift log も Android passive 再生への回帰では使わない。
+              const shouldHoldTrimmedVideoHead = false;
               const isNearTimelineEnd =
                 totalDurationRef.current > 0 &&
                 time >= totalDurationRef.current - 0.05;
@@ -1688,12 +1642,7 @@ export function usePreviewEngine({
                   try { activeEl.load(); } catch { /* ignore */ }
                 }
               }
-              const isTrimmedEntry =
-                isAndroidPreviewPlayback
-                && activeItem.type === 'video'
-                && trimStart > 0.001
-                && localTime >= 0
-                && localTime <= PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC;
+              const isTrimmedEntry = false;
               if (lastTrimmedEntryActiveIdRef.current && lastTrimmedEntryActiveIdRef.current !== activeId) {
                 delete trimmedEntryLogStateRef.current[lastTrimmedEntryActiveIdRef.current];
               }
@@ -1855,6 +1804,7 @@ export function usePreviewEngine({
               }
               let didApplyAndroidPreviewDriftFix = false;
               const shouldHoldForAndroidPreviewNotDrawable = isAndroidPreviewPlayback
+                && isAndroidPassiveBoundaryWindow
                 && !canDrawVideo(activeEl)
                 && (
                   activeEl.seeking
@@ -1880,17 +1830,7 @@ export function usePreviewEngine({
                 && !boundaryState
                 && activeVideoDrift > TRIMMED_ENTRY_SOFT_DRIFT_ALLOWANCE_SEC
               ) {
-                const now = Date.now();
-                const lastSeekAt = androidPreviewLastSeekAtRef.current[activeId] ?? 0;
-                if (now - lastSeekAt >= PREVIEW_ANDROID_ACTIVE_SEEK_COOLDOWN_MS) {
-                  activeEl.currentTime = targetTime;
-                  androidPreviewLastSeekAtRef.current[activeId] = now;
-                  holdFrame = true;
-                  shouldSkipAndroidPreviewActiveDraw = true;
-                  didApplyAndroidPreviewDriftFix = true;
-                  allowAndroidPreviewActiveSoftDraw = false;
-                  logAndroidPreviewHold(activeId, time, activeEl);
-                }
+                didApplyAndroidPreviewDriftFix = false;
               }
               const hasFrame =
                 activeEl.readyState >= 2 &&
@@ -2129,6 +2069,7 @@ export function usePreviewEngine({
             if (conf.type === 'video') {
               const videoEl = element as HTMLVideoElement;
               const targetTime = (conf.trimStart || 0) + localTime;
+              const activeVideoDrift = Math.abs(videoEl.currentTime - targetTime);
               const shouldDeferBoundaryCurrentTimeCorrection =
                 isAndroidPreviewPlayback
                 && id === activeId
@@ -2211,27 +2152,21 @@ export function usePreviewEngine({
                     : syncThreshold;
 
                   if (
+                    !isAndroidPreviewPlayback &&
                     !shouldDeferTrimmedHeadSync &&
                     !shouldDeferBoundaryCurrentTimeCorrection &&
                     !isVideoSeeking &&
-                  !shouldHoldVideoAtClipEnd &&
-                  !hasExportPlayFailure &&
-                  !(
+                    !shouldHoldVideoAtClipEnd &&
+                    !hasExportPlayFailure &&
+                    !(
                       isAndroidPreviewPlayback
                       && localTime <= 0.3
                       && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
                       && Math.abs(videoEl.currentTime - targetTime) <= PREVIEW_ANDROID_BOUNDARY_DRAW_DRIFT_ALLOWANCE_SEC
-                    ) &&
+                  ) &&
                     Math.abs(videoEl.currentTime - targetTime) > androidPreviewSyncThreshold
                   ) {
-                    const nowMs = Date.now();
-                    const lastSeekAtMs = androidPreviewLastSeekAtRef.current[id] || 0;
-                    if (!isAndroidPreviewPlayback || nowMs - lastSeekAtMs >= PREVIEW_ANDROID_ACTIVE_SEEK_COOLDOWN_MS) {
-                      videoEl.currentTime = targetTime;
-                      if (isAndroidPreviewPlayback) {
-                        androidPreviewLastSeekAtRef.current[id] = nowMs;
-                      }
-                    }
+                    videoEl.currentTime = targetTime;
                   }
                 if (
                   !shouldStabilizeImageToVideoTransition &&
@@ -2282,13 +2217,17 @@ export function usePreviewEngine({
                   videoHeight: videoEl.videoHeight,
                   videoCurrentTime: videoEl.currentTime,
                   targetTime,
-                  syncThresholdSec: ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC,
+                  syncThresholdSec: PREVIEW_ANDROID_RECOVERY_DRIFT_THRESHOLD_SEC,
                   softDrawDriftThresholdSec: ANDROID_PREVIEW_SOFT_DRAW_DRIFT_THRESHOLD_SEC,
                 });
                 if (androidRecoveryDecision.shouldRecover) {
                   const now = Date.now();
                   const lastAttempt = videoRecoveryAttemptsRef.current[id] || 0;
-                  holdFrame = holdFrame || androidRecoveryDecision.shouldHoldFrame;
+                  const shouldHoldRecoveryFrame =
+                    androidRecoveryDecision.shouldHoldFrame
+                    && localTime >= 0
+                    && localTime <= PREVIEW_ANDROID_PASSIVE_HOLD_MAX_SEC;
+                  holdFrame = holdFrame || shouldHoldRecoveryFrame;
                   if (now - lastAttempt > 220) {
                     videoRecoveryAttemptsRef.current[id] = now;
                     const recoveryState = androidPreviewRecoveryRef.current[id] ?? {
@@ -2313,9 +2252,30 @@ export function usePreviewEngine({
                       && videoEl.readyState >= 1
                     ) {
                       const lastSeekAtMs = androidPreviewLastSeekAtRef.current[id] || 0;
-                      if (now - lastSeekAtMs >= PREVIEW_ANDROID_ACTIVE_SEEK_COOLDOWN_MS) {
-                        videoEl.currentTime = targetTime;
-                        androidPreviewLastSeekAtRef.current[id] = now;
+                      const sinceLastSeekMs = now - lastSeekAtMs;
+                      const segmentRecoveryKey = `${activeIndex}:${id}`;
+                      const alreadyRecoveredSegment =
+                        androidPreviewRecoveredSegmentRef.current[id] === segmentRecoveryKey;
+                      // recovery seek は Android passive preview の最後の手段で、1 segment あたり 1 回だけ許可する。
+                      if (
+                        localTime >= 0
+                        &&
+                        sinceLastSeekMs >= PREVIEW_ANDROID_RECOVERY_MIN_INTERVAL_MS
+                        && activeVideoDrift >= PREVIEW_ANDROID_RECOVERY_DRIFT_THRESHOLD_SEC
+                        && localTime > PREVIEW_ANDROID_RECOVERY_SKIP_AFTER_BOUNDARY_SEC
+                        && !alreadyRecoveredSegment
+                      ) {
+                        maybeAssignAndroidPreviewSeek({
+                          videoEl,
+                          reason: androidRecoveryDecision.reason ?? 'timeline-drift',
+                          videoId: id,
+                          segmentIndex: activeIndex,
+                          segmentRecoveryKey,
+                          targetTime,
+                          currentTimeBefore: videoEl.currentTime,
+                          drift: activeVideoDrift,
+                          sinceLastSeekMs,
+                        });
                       }
                     }
                     if (
@@ -2536,7 +2496,7 @@ export function usePreviewEngine({
               const timeUntilVideoStartSec = timelineRange
                 ? timelineRange.start - time
                 : null;
-              const shouldKeepVideoPrewarmed = shouldKeepInactiveVideoPrewarmed(previewPlatformPolicy, {
+              const shouldKeepVideoPrewarmed = !isAndroidPreviewPlayback && shouldKeepInactiveVideoPrewarmed(previewPlatformPolicy, {
                 hasAudioNode: hasVideoAudioNode,
                 isExporting: _isExporting,
                 isActivePlaying,
@@ -2550,7 +2510,7 @@ export function usePreviewEngine({
                 isExporting: _isExporting,
                 isActivePlaying,
               });
-              const shouldPrimeFutureVideo = shouldPrimeFutureInactiveVideoInPreview(previewPlatformPolicy, {
+              const shouldPrimeFutureVideo = !isAndroidPreviewPlayback && shouldPrimeFutureInactiveVideoInPreview(previewPlatformPolicy, {
                 hasAudioNode: hasVideoAudioNode,
                 isExporting: _isExporting,
                 isActivePlaying,
@@ -2572,14 +2532,7 @@ export function usePreviewEngine({
               // Android standard preview: 次動画の境界 450ms 前からデコーダを silent play で warm-up する。
               // preroll 開始位置は trimStart - prerollLeadSec とし、境界到達時に currentTime が trimStart に揃うようにする。
               // iOS Safari / export / seek 中はこの分岐に入らない（isAndroidPreviewPlayback が false）。
-              const isAndroidPrerollTarget =
-                isAndroidPreviewPlayback
-                && currentItems[activeIndex]?.type === 'video'
-                && currentItems[activeIndex + 1]?.type === 'video'
-                && id === nextVideoItem?.id
-                && timeUntilVideoStartSec !== null
-                && timeUntilVideoStartSec >= 0
-                && timeUntilVideoStartSec <= ANDROID_PREVIEW_NEXT_VIDEO_PREROLL_LEAD_SEC;
+              const isAndroidPrerollTarget = false;
 
               if (shouldRecoverAudioOnlyAfterBoundary) {
                 const ctx = audioCtxRef.current;
@@ -2597,13 +2550,7 @@ export function usePreviewEngine({
                 videoEl.play().catch(() => { });
               }
 
-              if (isAndroidPrerollTarget) {
-                // trimStart - prerollLeadSec から再生することで、境界到達時に currentTime ≒ trimStart になる。
-                // trimStart < prerollLeadSec の場合は 0 にクランプされ残留ドリフトが生じるが、
-                // visual blend / clock absorb（2-23）で吸収する。
-                const prerollTarget = Math.max(0, (conf.trimStart || 0) - ANDROID_PREVIEW_NEXT_VIDEO_PREROLL_LEAD_SEC);
-                armAndroidNextVideoPreroll(id, videoEl, prerollTarget);
-              } else if (!shouldKeepVideoPrewarmed && id !== activeVideoIdRef.current) {
+              if (!shouldKeepVideoPrewarmed && id !== activeVideoIdRef.current) {
                 delete androidNextVideoPrerollRef.current[id];
                 videoEl.preload = 'metadata';
               }
@@ -3523,6 +3470,24 @@ export function usePreviewEngine({
             localTimeMs: resolvedLocalTimeMs,
             boundaryIndex: resolvedSegmentIndex,
           });
+          if (platformCapabilities.isAndroid && !platformCapabilities.isIosSafari) {
+            const activeSegmentItem = mediaItemsRef.current[resolvedSegmentIndex];
+            const activeVideoElement = activeSegmentItem?.type === 'video'
+              ? mediaElementsRef.current[activeSegmentItem.id] as HTMLVideoElement | undefined
+              : undefined;
+            logInfo('RENDER', 'preview.android.boundary.passive-switch', {
+              previousId: diagnostics.lastSegmentIndex >= 0
+                ? mediaItemsRef.current[diagnostics.lastSegmentIndex]?.id ?? null
+                : null,
+              activeId: activeSegmentItem?.id ?? null,
+              segmentIndex: resolvedSegmentIndex,
+              localTime: resolvedSegment?.localTime ?? null,
+              activeReadyState: activeVideoElement?.readyState ?? null,
+              activeSeeking: activeVideoElement?.seeking ?? null,
+              activePaused: activeVideoElement?.paused ?? null,
+              activeCurrentTime: activeVideoElement?.currentTime ?? null,
+            });
+          }
         }
         diagnostics.lastSegmentIndex = resolvedSegmentIndex;
       }
