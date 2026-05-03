@@ -316,6 +316,21 @@
   - 境界直後の sync 補正は `canCommit` 判定を優先し、毎フレーム `currentTime` を書き戻さない
   - この制御は Android / PC 系の `standard` preview 専用で、`apple-safari` runtime や export pipeline には広げない
 
+### 2-25. Android standard preview は境界 smoothing を止めて passive 再生へ戻す
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/useInactiveVideoManager.ts`, `src/test/standardPreviewEngine.test.tsx`, `src/test/standardInactiveVideoManager.test.tsx`
+- **問題**: Android preview で preroll / warmup / safe seek / trimmed entry hold / active drift 補正が複数経路で競合し、active video が `seeking=true` / `readyState=1` に張り付いて動画区間の大半が holdFrame に潰れていた
+- **対策**:
+  - Android `standard` preview の通常再生では `preview.boundary.smoothPlan` 系の境界 smoothing を使わず、境界では active segment の切替と描画対象の選択だけを行う
+  - 非アクティブ next video の preroll / muted play / prewarm / preseek は行わず、`currentTime` 補正は再生開始・ユーザー seek・停止中 preview を除いて禁止する
+  - 再生中の recovery seek は `drift >= 0.8s`、前回 seek から 1000ms 以上、境界通過後 500ms 超、1 segment 1 回までに制限し、実行時だけ `preview.android.seek-assignment` を出す
+  - 境界通過時は `preview.android.boundary.passive-switch` を出し、描画不能時の last stable frame 保持も先頭 200ms 以内に限定する
+  - Android preview の inactive reset は active / previous / next を `protectedVideoIds` で保護し、warmup のための事前再生はしない
+- **注意**:
+  - この回復方針は Android / PC 系の `standard` preview 専用で、`apple-safari` runtime、export、shared UI へ広げない
+  - 2-22〜2-24 の smoothing 系 workaround は再有効化せず、まず「最後まで普通に見られる」状態を優先する
+  - `preview.android.seek-assignment` が通常再生で連発する場合は、細かい drift 補正を戻さず recovery 条件の逸脱を疑う
+
 ---
 
 ## 3. AudioContext 管理

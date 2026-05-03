@@ -341,6 +341,8 @@ describe('standard preview engine', () => {
     const mediaItems = options?.mediaItems ?? [createVideoItem()];
     const mediaElements = options?.mediaElements ?? {};
     const canvasContext = createMockCanvasContext();
+    const logInfo = vi.fn();
+    const logWarn = vi.fn();
     const previewPlatformPolicy = standardPreviewRuntime.getPreviewPlatformPolicy(
       getStandardPreviewPlatformCapabilities(createCapabilities()),
     );
@@ -418,13 +420,13 @@ describe('standard preview engine', () => {
         startWebCodecsExport: vi.fn(),
         stopWebCodecsExport: vi.fn(),
         completeWebCodecsExport: vi.fn(),
-        logInfo: vi.fn(),
-        logWarn: vi.fn(),
+        logInfo,
+        logWarn,
         logDebug: vi.fn(),
       }),
     );
 
-    return { canvasContext, hook };
+    return { canvasContext, hook, logInfo, logWarn };
   }
 
   it('paused seek 後は active video 準備完了を待ってから再生を始める', async () => {
@@ -848,7 +850,7 @@ describe('standard preview engine', () => {
     expect(didUpdateCanvas).toBe(false);
   });
 
-  it('Android preview は video -> trimmed video の境界で canCommit 前に safe seek を優先する', () => {
+  it('Android preview は video -> trimmed video の境界で active video を hard seek しない', () => {
     const leadVideo = createVideoItem({
       id: 'video-1',
       duration: 1,
@@ -882,13 +884,13 @@ describe('standard preview engine', () => {
     const timelineTime = 1.2;
     const didUpdateCanvas = hook.result.current.renderFrame(timelineTime, true, false);
 
-    expect(trimmedVideoElement.currentTime).toBeCloseTo(1.4);
+    expect(trimmedVideoElement.currentTime).toBeCloseTo(1.55);
     expect(canvasContext.fillRect).not.toHaveBeenCalled();
     expect(canvasContext.drawImage).not.toHaveBeenCalled();
     expect(didUpdateCanvas).toBe(false);
   });
 
-  it('Android preview は video 境界で canCommit を満たしたら次の video を描画する', () => {
+  it('Android preview は video 境界で passive switch のまま描画可能な active video を表示する', () => {
     const leadVideo = createVideoItem({
       id: 'video-1',
       duration: 1,
@@ -922,6 +924,7 @@ describe('standard preview engine', () => {
     const didUpdateCanvas = hook.result.current.renderFrame(1.05, true, false);
 
     expect(canvasContext.drawImage).toHaveBeenCalled();
+    expect(nextVideoElement.currentTime).toBeCloseTo(1.25);
     expect(didUpdateCanvas).toBe(true);
   });
 
@@ -951,7 +954,7 @@ describe('standard preview engine', () => {
     expect(videoElement.currentTime).toBeCloseTo(0.2);
   });
 
-  it('Android preview の next video preroll は trimStart=0 でも prerollTarget=0 (max(0, 0-0.45)) で armed する', () => {
+  it('Android preview の next video preroll は無効で、境界前に currentTime を動かさない', () => {
     const currentVideo = createVideoItem({
       id: 'video-1',
       duration: 1,
@@ -982,17 +985,15 @@ describe('standard preview engine', () => {
       } as MediaElementsRef,
     });
 
-    // time=0.6: boundary at 1.0, timeUntilVideoStart=0.4 <= 0.45 → preroll fires
-    // prerollTarget = max(0, trimStart(0) - 0.45) = 0; video seeked to 0
     hook.result.current.renderFrame(0.6, true, false);
 
-    expect(videoElement.currentTime).toBeCloseTo(0);
-    expect(videoElement.muted).toBe(true);
-    expect(videoElement.defaultMuted).toBe(true);
-    expect(videoElement.preload).toBe('auto');
+    expect(videoElement.currentTime).toBeCloseTo(0.4);
+    expect(videoElement.muted).toBe(false);
+    expect(videoElement.defaultMuted).toBe(false);
+    expect(videoElement.preload).toBe('metadata');
   });
 
-  it('Android preview の preroll 済み next video は境界直後 300ms は currentTime 補正しない', () => {
+  it('Android preview は境界直後 500ms 以内の大きな drift でも recovery seek しない', () => {
     const currentVideo = createVideoItem({
       id: 'video-1',
       duration: 1,
@@ -1012,8 +1013,8 @@ describe('standard preview engine', () => {
     const nextVideoElement = createMockVideoElement();
     nextVideoElement.readyState = 2;
     nextVideoElement.seeking = false;
-    nextVideoElement.paused = true;
-    let assignedCurrentTime = 0.2;
+    nextVideoElement.paused = false;
+    let assignedCurrentTime = 0.1;
     let seekAssignCount = 0;
     Object.defineProperty(nextVideoElement, 'currentTime', {
       configurable: true,
@@ -1032,18 +1033,10 @@ describe('standard preview engine', () => {
       } as MediaElementsRef,
     });
 
-    // time=0.6: boundary at 1.0, timeUntilVideoStart=0.4 <= 0.45 → preroll fires
-    // prerollTarget = max(0, trimStart(1.2) - 0.45) = 0.75
-    hook.result.current.renderFrame(0.6, true, false);
-    expect(assignedCurrentTime).toBeCloseTo(0.75);
-    expect(seekAssignCount).toBe(1);
+    hook.result.current.renderFrame(1.3, true, false);
 
-    assignedCurrentTime = nextVideo.trimStart + 0.02;
-    nextVideoElement.paused = false;
-    hook.result.current.renderFrame(1.1, true, false);
-
-    expect(assignedCurrentTime).toBeCloseTo(nextVideo.trimStart + 0.02);
-    expect(seekAssignCount).toBe(1);
+    expect(assignedCurrentTime).toBeCloseTo(0.1);
+    expect(seekAssignCount).toBe(0);
   });
 
   it('Android preview の next video preseek は image gap を挟むケースでも無効のままにする', () => {
@@ -1125,7 +1118,7 @@ describe('standard preview engine', () => {
     expect(videoElement.currentTime).toBeCloseTo(0.2);
   });
 
-  it('Android preview の next trimmed video preroll は初回 seek 後に currentTime を連続変更しない', () => {
+  it('Android preview は境界後の大きな drift だけを 1 セグメント 1 回だけ recovery seek する', () => {
     const currentVideo = createVideoItem({
       id: 'video-1',
       duration: 1,
@@ -1141,7 +1134,7 @@ describe('standard preview engine', () => {
     const videoElement = createMockVideoElement();
     videoElement.readyState = 2;
     videoElement.seeking = false;
-    videoElement.paused = true;
+    videoElement.paused = false;
     let assignedCurrentTime = 0.2;
     let seekAssignCount = 0;
     Object.defineProperty(videoElement, 'currentTime', {
@@ -1152,9 +1145,10 @@ describe('standard preview engine', () => {
         seekAssignCount += 1;
       },
     });
-    videoElement.paused = true;
+    const nowSpy = vi.spyOn(Date, 'now');
+    nowSpy.mockReturnValue(2_000);
 
-    const { hook } = setupRenderFrameHarness({
+    const { hook, logWarn } = setupRenderFrameHarness({
       mediaItems: [currentVideo, nextVideo],
       mediaElements: {
         [currentVideo.id]: createMockVideoElement() as unknown as HTMLVideoElement,
@@ -1162,21 +1156,29 @@ describe('standard preview engine', () => {
       } as MediaElementsRef,
     });
 
-    // time=0.75: boundary at 1.0, timeUntilVideoStart=0.25 <= 0.45 → preroll fires
-    // prerollTarget = max(0, trimStart(1.2) - 0.45) = 0.75
-    hook.result.current.renderFrame(0.75, true, false);
-    expect(assignedCurrentTime).toBeCloseTo(0.75);
+    hook.result.current.renderFrame(1.7, true, false);
+
+    expect(assignedCurrentTime).toBeCloseTo(1.9);
     expect(seekAssignCount).toBe(1);
+    expect(logWarn).toHaveBeenCalledWith(
+      'RENDER',
+      'preview.android.seek-assignment',
+      expect.objectContaining({
+        reason: 'timeline-drift',
+        videoId: nextVideo.id,
+        segmentIndex: 1,
+      }),
+    );
 
-    assignedCurrentTime = 1.28;
-    videoElement.paused = false;
-    hook.result.current.renderFrame(0.76, true, false);
+    assignedCurrentTime = 0.3;
+    nowSpy.mockReturnValue(3_200);
+    hook.result.current.renderFrame(1.8, true, false);
 
-    expect(assignedCurrentTime).toBeCloseTo(1.28);
+    expect(assignedCurrentTime).toBeCloseTo(0.3);
     expect(seekAssignCount).toBe(1);
   });
 
-  it('Android preview の next trimmed video preroll は metadata 未取得では load だけ行い、seeking 中は currentTime を動かさない', () => {
+  it('Android preview は非アクティブ next video を metadata 未取得でも preroll/load しない', () => {
     const currentVideo = createVideoItem({
       id: 'video-1',
       duration: 1,
@@ -1206,7 +1208,7 @@ describe('standard preview engine', () => {
 
     notReadyHarness.hook.result.current.renderFrame(0.75, true, false);
 
-    expect(notReadyVideo.load).toHaveBeenCalledTimes(1);
+    expect(notReadyVideo.load).toHaveBeenCalledTimes(0);
     expect(notReadyVideo.currentTime).toBeCloseTo(0.2);
 
     const seekingVideo = createMockVideoElement();
