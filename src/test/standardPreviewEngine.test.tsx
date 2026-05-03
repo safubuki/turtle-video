@@ -818,7 +818,7 @@ describe('standard preview engine', () => {
     expect(narrationGain.gain.setTargetAtTime).toHaveBeenLastCalledWith(2.5, 7, 0.1);
   });
 
-  it('Android preview は trimStart あり video の先頭で readyState < 2 の video を draw しない', () => {
+  it('Android preview は trimStart あり video の先頭で readyState < 2 の video を描画しない', () => {
     const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
     const videoItem = createVideoItem({
       id: 'video-2',
@@ -886,6 +886,43 @@ describe('standard preview engine', () => {
     expect(canvasContext.fillRect).not.toHaveBeenCalled();
     expect(canvasContext.drawImage).not.toHaveBeenCalled();
     expect(didUpdateCanvas).toBe(false);
+  });
+
+  it('Android preview は video 境界で canCommit を満たしたら次の video を描画する', () => {
+    const leadVideo = createVideoItem({
+      id: 'video-1',
+      duration: 1,
+      trimStart: 0,
+      trimEnd: 1,
+    });
+    const nextVideo = createVideoItem({
+      id: 'video-2',
+      duration: 2,
+      trimStart: 1.2,
+      trimEnd: 3.2,
+    });
+    const leadVideoElement = createMockVideoElement();
+    leadVideoElement.readyState = 2;
+    leadVideoElement.seeking = false;
+    leadVideoElement.paused = false;
+    const nextVideoElement = createMockVideoElement();
+    nextVideoElement.readyState = 2;
+    nextVideoElement.seeking = false;
+    nextVideoElement.paused = false;
+    nextVideoElement.currentTime = 1.25;
+
+    const { canvasContext, hook } = setupRenderFrameHarness({
+      mediaItems: [leadVideo, nextVideo],
+      mediaElements: {
+        [leadVideo.id]: leadVideoElement as unknown as HTMLVideoElement,
+        [nextVideo.id]: nextVideoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+    });
+
+    const didUpdateCanvas = hook.result.current.renderFrame(1.05, true, false);
+
+    expect(canvasContext.drawImage).toHaveBeenCalled();
+    expect(didUpdateCanvas).toBe(true);
   });
 
   it('Android preview は clip 境界前でも次の video を preseek しない', () => {
@@ -1245,7 +1282,7 @@ describe('standard preview engine', () => {
     });
   });
 
-  it('Android preview は image -> trimStart あり video でも seeking 中は draw しない', () => {
+  it('Android preview は image -> trimStart あり video でも seeking 中は描画しない', () => {
     const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
     const videoItem = createVideoItem({
       id: 'video-2',

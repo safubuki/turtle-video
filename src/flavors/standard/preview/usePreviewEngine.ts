@@ -723,7 +723,11 @@ export function usePreviewEngine({
   });
   const previewLogModeRef = useRef<PreviewLogMode>(resolvePreviewLogMode());
   const clearAndroidBoundaryState = useCallback(() => {
-    androidBoundaryStateRef.current?.seekCleanup?.();
+    try {
+      androidBoundaryStateRef.current?.seekCleanup?.();
+    } catch {
+      /* ignore cleanup errors */
+    }
     androidBoundaryStateRef.current = null;
   }, []);
   const resetBoundaryDiagnosticsState = useCallback(() => {
@@ -868,6 +872,7 @@ export function usePreviewEngine({
 
       state.seekInFlight = true;
       state.phase = state.committed ? 'bridging' : 'preparing-next';
+      let finished = false;
 
       // どれか 1 つのイベントで seek 終了扱いにしたら、残りの listener も明示的に外す。
       const cleanup = () => {
@@ -878,6 +883,8 @@ export function usePreviewEngine({
       };
 
       const finish = () => {
+        if (finished) return;
+        finished = true;
         cleanup();
         state.seekCleanup = null;
         state.seekInFlight = false;
@@ -1463,7 +1470,7 @@ export function usePreviewEngine({
                     seekCleanup: null,
                   };
                   androidBoundaryStateRef.current = boundaryState;
-                } else if (!boundaryState.lastStableFrame) {
+                } else if (!boundaryState.lastStableFrame && lastDrawableFrameRef.current) {
                   boundaryState.lastStableFrame = lastDrawableFrameRef.current;
                 }
               }
@@ -1568,7 +1575,7 @@ export function usePreviewEngine({
                 shouldSkipAndroidPreviewActiveDraw = true;
                 allowAndroidPreviewActiveSoftDraw = false;
                 forceDrawAndroidPreviewActiveVideo = false;
-                if (boundaryState && !boundaryState.committed) {
+                if (isAndroidVideoToVideoBoundary && boundaryState && !boundaryState.committed) {
                   boundaryState.phase = boundaryState.seekInFlight ? 'bridging' : 'failed-soft';
                 }
                 logAndroidPreviewHold(activeId, time, activeEl);
@@ -1857,7 +1864,12 @@ export function usePreviewEngine({
                 );
               if (boundaryState && !canCommitAndroidBoundary) {
                 holdAndroidPreviewFrame();
-                requestSafeSeek(boundaryState, activeEl, targetTime);
+                if (
+                  !boundaryState.seekInFlight
+                  && Math.abs(activeEl.currentTime - targetTime) >= PREVIEW_ANDROID_BOUNDARY_SAFE_SEEK_EPSILON_SEC
+                ) {
+                  requestSafeSeek(boundaryState, activeEl, targetTime);
+                }
               }
               if (
                 isAndroidPreviewPlayback
@@ -2431,10 +2443,14 @@ export function usePreviewEngine({
                   && id === activeId
                   && typeof createImageBitmap === 'function'
                 ) {
+                  const boundaryIdForBitmap = androidBoundaryStateRef.current?.boundaryId ?? null;
                   void createImageBitmap(canvas).then((bitmap) => {
                     lastDrawableFrameRef.current?.close?.();
                     lastDrawableFrameRef.current = bitmap;
-                    if (androidBoundaryStateRef.current) {
+                    if (
+                      boundaryIdForBitmap
+                      && androidBoundaryStateRef.current?.boundaryId === boundaryIdForBitmap
+                    ) {
                       androidBoundaryStateRef.current.lastStableFrame = bitmap;
                     }
                   }).catch(() => {});
