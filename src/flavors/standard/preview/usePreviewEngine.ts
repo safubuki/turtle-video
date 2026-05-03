@@ -287,9 +287,13 @@ const PREVIEW_ANDROID_BOUNDARY_SAFE_SEEK_EPSILON_SEC = 0.08;
 const PREVIEW_ANDROID_BOUNDARY_COMMIT_DRIFT_TOLERANCE_SEC = 0.10;
 const TRIMMED_ENTRY_SOFT_DRIFT_ALLOWANCE_SEC = ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC;
 const PREVIEW_ANDROID_BGM_SOFT_SYNC_TOLERANCE_SEC = 0.3;
+// 描画不能時に last stable frame を許容する上限。問題を hold で隠さないよう 200ms で打ち切る。
 const PREVIEW_ANDROID_PASSIVE_HOLD_MAX_SEC = 0.2;
+// recovery seek は Android Chrome の seek 連打を避けるため 1 秒以上あける。
 const PREVIEW_ANDROID_RECOVERY_MIN_INTERVAL_MS = 1000;
+// timeline drift が 0.8s を超える明確な破綻時だけ recovery seek を許可する。
 const PREVIEW_ANDROID_RECOVERY_DRIFT_THRESHOLD_SEC = 0.8;
+// 境界通過直後 500ms は media clock の自然再生に任せ、recovery seek を抑止する。
 const PREVIEW_ANDROID_RECOVERY_SKIP_AFTER_BOUNDARY_SEC = 0.5;
 const PREVIEW_END_THRESHOLD_SEC = 0.03;
 // 再生開始直後は seeked / canplay の到着を数フレームだけ待ち、遅ければ loop を止めない。
@@ -2254,6 +2258,8 @@ export function usePreviewEngine({
                         androidPreviewRecoveredSegmentRef.current[id] === segmentRecoveryKey;
                       // recovery seek は Android passive preview の最後の手段で、1 segment あたり 1 回だけ許可する。
                       if (
+                        localTime >= 0
+                        &&
                         sinceLastSeekMs >= PREVIEW_ANDROID_RECOVERY_MIN_INTERVAL_MS
                         && activeVideoDrift >= PREVIEW_ANDROID_RECOVERY_DRIFT_THRESHOLD_SEC
                         && localTime > PREVIEW_ANDROID_RECOVERY_SKIP_AFTER_BOUNDARY_SEC

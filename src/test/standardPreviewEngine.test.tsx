@@ -1178,6 +1178,7 @@ describe('standard preview engine', () => {
 
     expect(assignedCurrentTime).toBeCloseTo(0.3);
     expect(seekAssignCount).toBe(1);
+    nowSpy.mockRestore();
   });
 
   it('Android preview は非アクティブ next video を metadata 未取得でも preroll/load しない', () => {
