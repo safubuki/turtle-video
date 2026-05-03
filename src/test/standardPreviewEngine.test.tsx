@@ -1223,12 +1223,21 @@ describe('standard preview engine', () => {
       } as MediaElementsRef,
     });
 
-    hook.result.current.renderFrame(1.02, true, false);
-    hook.result.current.renderFrame(1.02, true, false);
-    hook.result.current.renderFrame(1.02, true, false);
+    const first = hook.result.current.renderFrame(1.02, true, false);
+    expect(canvasContext.drawImage).not.toHaveBeenCalled();
+    expect(first).toBe(false);
+
+    const second = hook.result.current.renderFrame(1.02, true, false);
+    expect(canvasContext.drawImage).not.toHaveBeenCalled();
+    expect(second).toBe(false);
+
+    const third = hook.result.current.renderFrame(1.02, true, false);
+    expect(canvasContext.drawImage).not.toHaveBeenCalled();
+    expect(third).toBe(false);
+
     const didUpdateCanvas = hook.result.current.renderFrame(1.02, true, false);
 
-    expect(canvasContext.drawImage).toHaveBeenCalled();
+    expect(canvasContext.drawImage).toHaveBeenCalledTimes(1);
     expect(didUpdateCanvas).toBe(true);
   });
 

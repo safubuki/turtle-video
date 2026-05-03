@@ -1195,14 +1195,14 @@ export function usePreviewEngine({
             } else {
               const targetTime = (activeItem.trimStart || 0) + localTime;
               const trimStart = activeItem.trimStart || 0;
-              const trimmedDrift = Math.abs(activeEl.currentTime - targetTime);
+              const activeVideoDrift = Math.abs(activeEl.currentTime - targetTime);
               const canAttemptAndroidPreviewSoftDrawBase =
                 isAndroidPreviewPlayback
                 && isActivePlaying
                 && !activeEl.paused
                 && activeEl.videoWidth > 0
                 && activeEl.videoHeight > 0
-                && trimmedDrift < ANDROID_PREVIEW_SOFT_DRAW_DRIFT_THRESHOLD_SEC;
+                && activeVideoDrift < ANDROID_PREVIEW_SOFT_DRAW_DRIFT_THRESHOLD_SEC;
               const warmupState = androidBoundaryWarmupRef.current[activeId];
               const isAndroidBoundaryWarmupEnabled = false;
               if (isAndroidPreviewPlayback && isAndroidBoundaryWarmupEnabled && localTime >= 0 && localTime <= 0.12) {
@@ -1402,7 +1402,7 @@ export function usePreviewEngine({
                 && activeEl.videoWidth > 0
                 && activeEl.videoHeight > 0
                 && isActivePlaying
-                && trimmedDrift < 0.2;
+                && activeVideoDrift < 0.2;
               if (
                 shouldHoldTrimmedVideoHead
                 && !canAttemptAndroidPreviewSoftDrawBase
@@ -1413,7 +1413,7 @@ export function usePreviewEngine({
                   || activeEl.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
                   || activeEl.videoWidth <= 0
                   || activeEl.videoHeight <= 0
-                  || trimmedDrift > PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC
+                  || activeVideoDrift > PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC
                 )
               ) {
                 entryState.didHardSeek = false;
@@ -1422,7 +1422,7 @@ export function usePreviewEngine({
                   && !entryState.didRebaseClock
                   && trimStart > 0
                   && localTime > 0.30
-                  && trimmedDrift > 0.4
+                  && activeVideoDrift > 0.4
                   && (activeEl.seeking || activeEl.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME)
                 ) {
                   startTimeRef.current = getStandardPreviewNow() - currentTimeRef.current * 1000;
@@ -1450,7 +1450,7 @@ export function usePreviewEngine({
                   timelineTime: time,
                   targetTime,
                   videoCurrentTime: activeEl.currentTime,
-                  drift: trimmedDrift,
+                  drift: activeVideoDrift,
                   readyState: activeEl.readyState,
                   paused: activeEl.paused,
                   seeking: activeEl.seeking,
@@ -1470,7 +1470,7 @@ export function usePreviewEngine({
                   logWarn('RENDER', 'preview.trimmedEntry.holdFrame.warning', {
                     segmentIndex: activeIndex,
                     holdFrameCount: entryState.holdFrameCount,
-                    drift: trimmedDrift,
+                    drift: activeVideoDrift,
                   });
                 }
               } else if (isTrimmedEntry) {
@@ -1484,13 +1484,13 @@ export function usePreviewEngine({
                   boundaryLogState.startLatencyLogged = false;
                 }
                 trimmedEntryLogStateRef.current[activeId] = boundaryLogState;
-                if (trimmedDrift >= 0.12) logWarn('RENDER', 'preview.trimmedEntry.drift', {
+                if (activeVideoDrift >= 0.12) logWarn('RENDER', 'preview.trimmedEntry.drift', {
                   segmentIndex: activeIndex,
                   localTime,
                   trimStart,
                   targetTime,
                   videoCurrentTime: activeEl.currentTime,
-                  drift: trimmedDrift,
+                  drift: activeVideoDrift,
                   readyState: activeEl.readyState,
                   paused: activeEl.paused,
                   seeking: activeEl.seeking,
@@ -1501,10 +1501,10 @@ export function usePreviewEngine({
                 if (isAndroidBoundaryWarmupEnabled && !preseekState?.completed && !boundaryLogState.preseekMissLogged) {
                   boundaryLogState.preseekMissLogged = true;
                   logWarn('RENDER', 'preview.trimmedEntry.preseekMiss', {
-                    segmentIndex: activeIndex,
-                    localTime,
-                    trimStart,
-                    drift: trimmedDrift,
+                      segmentIndex: activeIndex,
+                      localTime,
+                      trimStart,
+                      drift: activeVideoDrift,
                     preseekCompleted: !!preseekState?.completed,
                     activeReadyState: activeEl.readyState,
                     activePaused: activeEl.paused,
@@ -1558,7 +1558,7 @@ export function usePreviewEngine({
                 && activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
                 && !activeEl.seeking
                 && !isTrimmedEntry
-                && trimmedDrift > TRIMMED_ENTRY_SOFT_DRIFT_ALLOWANCE_SEC
+                && activeVideoDrift > TRIMMED_ENTRY_SOFT_DRIFT_ALLOWANCE_SEC
               ) {
                 const now = Date.now();
                 const lastSeekAt = androidPreviewLastSeekAtRef.current[activeId] ?? 0;
