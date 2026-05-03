@@ -16,6 +16,7 @@ import type {
 import type { ExportPreparationStep, UseExportReturn } from '../../../hooks/useExport';
 import type { LogCategory } from '../../../stores/logStore';
 import { useMediaStore } from '../../../stores';
+import { useProjectStore } from '../../../stores/projectStore';
 import type { PlatformCapabilities } from '../../../utils/platform';
 import { collectPlaybackBlockingVideos, findActiveTimelineItem } from '../../../utils/playbackTimeline';
 import { isCaptionActiveAtTime } from '../../../utils/captionTimeline';
@@ -101,6 +102,7 @@ interface UsePreviewEngineParams {
   setVideoDuration: (id: string, duration: number) => void;
   setCurrentTime: (time: number) => void;
   setProcessing: (processing: boolean) => void;
+  setPreviewPlaying: (playing: boolean) => void;
   setLoading: (loading: boolean) => void;
   setExportPreparationStep: (step: ExportPreparationStep | null) => void;
   setExportUrl: (url: string | null) => void;
@@ -441,6 +443,7 @@ export function usePreviewEngine({
   setVideoDuration,
   setCurrentTime,
   setProcessing,
+  setPreviewPlaying,
   setLoading,
   setExportPreparationStep,
   setExportUrl,
@@ -466,6 +469,9 @@ export function usePreviewEngine({
   logWarn,
   logDebug,
 }: UsePreviewEngineParams): UsePreviewEngineResult {
+  const safeSetPreviewPlaying = (playing: boolean) => {
+    setPreviewPlaying(playing);
+  };
   const currentExportSessionIdRef = useRef<string | null>(null);
   const androidPreviewRecoveryRef = useRef<Record<string, {
     active: boolean;
@@ -2286,6 +2292,7 @@ export function usePreviewEngine({
     audioResumeWaitFramesRef.current = 0;
     activeVideoIdRef.current = null;
     setLoading(false);
+    safeSetPreviewPlaying(false);
 
     isSeekingRef.current = false;
     wasPlayingBeforeSeekRef.current = false;
@@ -2428,6 +2435,7 @@ export function usePreviewEngine({
     previewPlaybackAttemptRef.current += 1;
     loopIdRef.current += 1;
     isPlayingRef.current = false;
+    safeSetPreviewPlaying(false);
     pause();
 
     if (reqIdRef.current) {
@@ -2535,6 +2543,7 @@ export function usePreviewEngine({
         // stopAll() を呼ぶと外部 recorderRef が null のため stopWebCodecsExport({ reason: 'user' }) が
         // 走り、blob 生成後の callback が誤ってキャンセル扱いで抑止されてしまう。
         if (isExportMode) {
+        safeSetPreviewPlaying(false);
           completeWebCodecsExport();
         } else {
           stopAll();
@@ -2574,6 +2583,16 @@ export function usePreviewEngine({
             : false,
           warningThresholdMs: 50,
         });
+        if (frameGapMs > 100) {
+          logWarn('RENDER', 'preview.frame.gap.cause', {
+            frameGapMs: Math.round(frameGapMs * 100) / 100,
+            likelyCause: 'autosave-indexeddb',
+            isPreviewPlaying: true,
+            isAutoSaveRunning: useProjectStore.getState().autoSaveRuntimeStatus === 'running',
+            isProjectSaving: useProjectStore.getState().isSaving,
+            isProjectLoading: useProjectStore.getState().isLoading,
+          });
+        }
       }
       if (previewLogModeRef.current === 'detailed') {
         const lastTickAt = diagnostics.lastTickLogAtMs ?? 0;
@@ -2719,12 +2738,14 @@ export function usePreviewEngine({
       const exportSessionId = isExportMode ? createPreviewExportSessionId() : null;
 
       if (isExportMode) {
+        safeSetPreviewPlaying(false);
         currentExportSessionIdRef.current = exportSessionId;
         setProcessing(true);
         setExportPreparationStep(1);
         clearExport();
       } else {
         setProcessing(false);
+        safeSetPreviewPlaying(true);
         setExportPreparationStep(null);
         isPlayingRef.current = false;
         pause();
@@ -2772,6 +2793,7 @@ export function usePreviewEngine({
 
           if (!playbackReady) {
             setError('動画の読み込みが完了していません。数秒待ってから再生してください。');
+            safeSetPreviewPlaying(false);
             pause();
             return;
           }
@@ -2862,6 +2884,7 @@ export function usePreviewEngine({
       }
 
       if (isExportMode) {
+        safeSetPreviewPlaying(false);
         setCurrentTime(fromTime);
         currentTimeRef.current = fromTime;
         mediaItemsRef.current.forEach((item) => {
@@ -3110,6 +3133,8 @@ export function usePreviewEngine({
           !!nextVideoElForPreflight
           && !!nextVideoElForPreflight.currentSrc
           && nextVideoElForPreflight.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+          && !nextVideoElForPreflight.seeking
+          && Math.abs(nextVideoElForPreflight.currentTime - nextTrimStart) <= PREVIEW_START_READY_SYNC_TOLERANCE_SEC
           && nextVideoElForPreflight.videoWidth > 0
           && nextVideoElForPreflight.videoHeight > 0
         );
@@ -3132,6 +3157,8 @@ export function usePreviewEngine({
           nextVideoDrift,
           nextPrerollArmed,
           activeTrimDrift,
+          preseekWaitMs: null,
+          preseekTimedOutIds: [],
         });
 
         if (preparedPreviewAudio.requiresWebAudio) {
@@ -3220,6 +3247,7 @@ export function usePreviewEngine({
             setExportExt(ext as 'mp4' | 'webm');
             setProcessing(false);
             setLoading(false);
+    safeSetPreviewPlaying(false);
             setExportPreparationStep(null);
             currentExportSessionIdRef.current = null;
             pause();
@@ -3231,6 +3259,7 @@ export function usePreviewEngine({
             }
             setProcessing(false);
             setLoading(false);
+    safeSetPreviewPlaying(false);
             setExportPreparationStep(null);
             currentExportSessionIdRef.current = null;
             pause();

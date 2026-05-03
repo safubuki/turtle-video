@@ -24,6 +24,7 @@ import type {
 import { useLogStore } from './logStore';
 import { createDiagnosticId } from '../utils/diagnostics';
 import versionData from '../../version.json';
+import { useUIStore } from './uiStore';
 
 export function getProjectStoreErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -847,6 +848,7 @@ export const useProjectStore = create<ProjectState>()(
       },
 
       refreshSaveInfo: async () => {
+        if (useUIStore.getState().isPreviewPlaying) return;
         try {
           const info = await getProjectPersistenceAdapter().getProjectsInfo();
           set((state) => ({
@@ -860,6 +862,7 @@ export const useProjectStore = create<ProjectState>()(
       },
 
       refreshSaveHealth: async (loader) => {
+        if (useUIStore.getState().isPreviewPlaying) return;
         if (!loader) {
           set({ saveHealth: null, saveHealthError: null });
           return;

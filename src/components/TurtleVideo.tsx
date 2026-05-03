@@ -153,6 +153,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const setCurrentTime = useUIStore((s) => s.setCurrentTime);
   const setProcessing = useUIStore((s) => s.setProcessing);
   const setLoading = useUIStore((s) => s.setLoading);
+  const setPreviewPlaying = useUIStore((s) => s.setPreviewPlaying);
 
   const isLoading = useUIStore((s) => s.isLoading);
   const setExportUrl = useUIStore((s) => s.setExportUrl);
@@ -598,6 +599,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     setVideoDuration,
     setCurrentTime,
     setProcessing,
+    setPreviewPlaying,
     setLoading,
     setExportPreparationStep,
     setExportUrl,
@@ -1785,6 +1787,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     stopWebCodecsExport,
     pause,
     setProcessing,
+    setPreviewPlaying,
     setLoading,
     setExportPreparationStep,
     setCurrentTime,
