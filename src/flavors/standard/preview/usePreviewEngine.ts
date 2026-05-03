@@ -23,6 +23,7 @@ import { isCaptionActiveAtTime } from '../../../utils/captionTimeline';
 import { getExportFrameTiming, resolveExportDuration } from '../../../utils/exportTimeline';
 import {
   ANDROID_PREVIEW_DRIFT_FIX_THRESHOLD_SEC,
+  ANDROID_PREVIEW_TIGHT_SYNC_THRESHOLD_SEC,
   EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC,
   getPreviewAudioOutputMode,
   getPreviewVideoSyncThreshold,
@@ -254,7 +255,7 @@ const PREVIEW_START_READY_SYNC_TOLERANCE_SEC = 0.05;
 // Android preview の trim 済み video 先頭だけは厳しめに currentTime を合わせてカクつきを抑える。
 const PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC = 0.05;
 const PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC = 0.25;
-const PREVIEW_ANDROID_BOUNDARY_DRAW_DRIFT_ALLOWANCE_SEC = 0.08;
+const PREVIEW_ANDROID_BOUNDARY_DRAW_DRIFT_ALLOWANCE_SEC = ANDROID_PREVIEW_TIGHT_SYNC_THRESHOLD_SEC;
 const PREVIEW_ANDROID_MAX_VISUAL_BRIDGE_FRAMES = 2;
 const TRIMMED_ENTRY_SOFT_DRIFT_ALLOWANCE_SEC = 0.35;
 const PREVIEW_ANDROID_BGM_SOFT_SYNC_TOLERANCE_SEC = 0.3;
@@ -1832,23 +1833,23 @@ export function usePreviewEngine({
                     videoEl.currentTime = targetTime;
                   }
                 }
+                const shouldDeferTrimmedHeadSync =
+                  // trimStart 付き clip の head は hold 優先で安定させる。ここで currentTime correction を強制すると
+                  // Android fallback が boundary 到達後の場当たり seek に戻りやすい。
+                  isAndroidPreviewPlayback
+                  && conf.trimStart > 0.001
+                  && localTime <= 0.3;
 
                 if (
+                  !shouldDeferTrimmedHeadSync &&
                   !isVideoSeeking &&
                   !shouldHoldVideoAtClipEnd &&
                   !hasExportPlayFailure &&
                   !(
                     isAndroidPreviewPlayback
-                    && (
-                      (
-                        conf.trimStart > 0.001
-                        && localTime <= 0.3
-                      ) || (
-                        localTime <= 0.3
-                        && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
-                        && Math.abs(videoEl.currentTime - targetTime) <= PREVIEW_ANDROID_BOUNDARY_DRAW_DRIFT_ALLOWANCE_SEC
-                      )
-                    )
+                    && localTime <= 0.3
+                    && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+                    && Math.abs(videoEl.currentTime - targetTime) <= PREVIEW_ANDROID_BOUNDARY_DRAW_DRIFT_ALLOWANCE_SEC
                   ) &&
                   Math.abs(videoEl.currentTime - targetTime) > syncThreshold
                 ) {

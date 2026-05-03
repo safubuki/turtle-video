@@ -485,6 +485,32 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     setExportPreparationStep(null);
   }, [setExportPreparationStep, setLoading, setProcessing]);
 
+  const clearPreviewCacheEntry = useCallback((options?: { revokeUrl?: boolean }) => {
+    const previousUrl = previewCacheEntryRef.current?.url ?? null;
+    previewCacheEntryRef.current = null;
+    previewCachePlaybackActiveRef.current = false;
+
+    if (previewCacheVideoRef.current) {
+      try {
+        previewCacheVideoRef.current.pause();
+        previewCacheVideoRef.current.removeAttribute('src');
+        previewCacheVideoRef.current.load();
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (!options?.revokeUrl || !previousUrl) {
+      return;
+    }
+
+    try {
+      URL.revokeObjectURL(previousUrl);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   useEffect(() => {
     previewCacheStatusRef.current = previewCacheStatus;
   }, [previewCacheStatus]);
@@ -504,37 +530,17 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       return;
     }
 
-    const previousUrl = currentEntry?.url ?? null;
     const wasPreparing = previewCacheStatusRef.current === 'preparing';
     const hadReadyCache = previewCacheStatusRef.current === 'ready' && currentEntry !== null;
 
     previewCacheGenerationRef.current += 1;
-    previewCachePlaybackActiveRef.current = false;
-    previewCacheEntryRef.current = null;
     previewCacheStatusRef.current = 'idle';
     setPreviewCacheStatus('idle');
     setPreviewLoadingLabel(undefined);
-
-    if (previewCacheVideoRef.current) {
-      try {
-        previewCacheVideoRef.current.pause();
-        previewCacheVideoRef.current.removeAttribute('src');
-        previewCacheVideoRef.current.load();
-      } catch {
-        /* ignore */
-      }
-    }
+    clearPreviewCacheEntry({ revokeUrl: true });
 
     if (wasPreparing) {
       stopPreviewCacheExport({ silent: true, reason: 'superseded' });
-    }
-
-    if (previousUrl) {
-      try {
-        URL.revokeObjectURL(previousUrl);
-      } catch {
-        /* ignore */
-      }
     }
 
     if (hadReadyCache || wasPreparing) {
@@ -543,21 +549,13 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         fallback: 'live-element-preview',
       });
     }
-  }, [logInfo, previewCacheKey, stopPreviewCacheExport, useAndroidPreviewCacheForPlayback]);
+  }, [clearPreviewCacheEntry, logInfo, previewCacheKey, stopPreviewCacheExport, useAndroidPreviewCacheForPlayback]);
 
   useEffect(() => {
     return () => {
-      const previewCacheUrl = previewCacheEntryRef.current?.url;
-      if (!previewCacheUrl) {
-        return;
-      }
-      try {
-        URL.revokeObjectURL(previewCacheUrl);
-      } catch {
-        /* ignore */
-      }
+      clearPreviewCacheEntry({ revokeUrl: true });
     };
-  }, []);
+  }, [clearPreviewCacheEntry]);
 
   const handleExportCompleteUi = useCallback(() => {
     logInfo('RENDER', '[DIAG-UI] export complete callback received', {
@@ -2155,8 +2153,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     position: 'fixed',
     top: 0,
     left: 0,
-    width: '320px',
-    height: '240px',
+    width: `${CANVAS_WIDTH}px`,
+    height: `${CANVAS_HEIGHT}px`,
     opacity: 0.001,
     pointerEvents: 'none',
     zIndex: -100,

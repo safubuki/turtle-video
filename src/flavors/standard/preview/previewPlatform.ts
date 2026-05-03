@@ -157,7 +157,8 @@ const MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME: HTMLMediaElement['readyState'] =
   typeof HTMLMediaElement !== 'undefined'
     ? HTMLMediaElement.HAVE_CURRENT_DATA
     : 2;
-export const ANDROID_PREVIEW_DRIFT_FIX_THRESHOLD_SEC = 0.08;
+export const ANDROID_PREVIEW_TIGHT_SYNC_THRESHOLD_SEC = 0.08;
+export const ANDROID_PREVIEW_DRIFT_FIX_THRESHOLD_SEC = ANDROID_PREVIEW_TIGHT_SYNC_THRESHOLD_SEC;
 export const EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC = 0.004;
 
 /**
@@ -169,7 +170,7 @@ export function getPreviewPlatformPolicy(
   const isAndroid = capabilities.isAndroid;
 
   return {
-    previewSyncThresholdSec: isAndroid ? 0.08 : 0.5,
+    previewSyncThresholdSec: isAndroid ? ANDROID_PREVIEW_TIGHT_SYNC_THRESHOLD_SEC : 0.5,
     exportSyncThresholdSec: 0.5,
     exportFallbackSyncThresholdSec: 0.35,
     needsCaptionBlurFallback: false,
