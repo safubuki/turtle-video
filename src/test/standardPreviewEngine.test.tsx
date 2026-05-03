@@ -112,6 +112,8 @@ function createMockMediaElement(tagName: 'VIDEO' | 'AUDIO') {
     videoHeight: tagName === 'VIDEO' ? 720 : 0,
     defaultMuted: false,
     muted: false,
+    preload: 'metadata',
+    playsInline: false,
     volume: 1,
     play: vi.fn().mockImplementation(() => {
       element.paused = false;
@@ -912,7 +914,7 @@ describe('standard preview engine', () => {
     expect(videoElement.currentTime).toBeCloseTo(0.2);
   });
 
-  it('Android preview の next video preseek は trimStart=0 では発火しない', () => {
+  it('Android preview の next video preroll は trimStart=0 でも trimStart に合わせて armed する', () => {
     const currentVideo = createVideoItem({
       id: 'video-1',
       duration: 1,
@@ -945,7 +947,62 @@ describe('standard preview engine', () => {
 
     hook.result.current.renderFrame(0.4, true, false);
 
-    expect(videoElement.currentTime).toBeCloseTo(0.4);
+    expect(videoElement.currentTime).toBeCloseTo(0);
+    expect(videoElement.muted).toBe(true);
+    expect(videoElement.defaultMuted).toBe(true);
+    expect(videoElement.preload).toBe('auto');
+  });
+
+  it('Android preview の preroll 済み next video は境界直後 300ms は currentTime 補正しない', () => {
+    const currentVideo = createVideoItem({
+      id: 'video-1',
+      duration: 1,
+      trimStart: 0,
+      trimEnd: 1,
+    });
+    const nextVideo = createVideoItem({
+      id: 'video-2',
+      duration: 2,
+      trimStart: 1.2,
+      trimEnd: 3.2,
+    });
+    const currentVideoElement = createMockVideoElement();
+    currentVideoElement.readyState = 2;
+    currentVideoElement.seeking = false;
+    currentVideoElement.paused = false;
+    const nextVideoElement = createMockVideoElement();
+    nextVideoElement.readyState = 2;
+    nextVideoElement.seeking = false;
+    nextVideoElement.paused = true;
+    let assignedCurrentTime = 0.2;
+    let seekAssignCount = 0;
+    Object.defineProperty(nextVideoElement, 'currentTime', {
+      configurable: true,
+      get: () => assignedCurrentTime,
+      set: (value: number) => {
+        assignedCurrentTime = value;
+        seekAssignCount += 1;
+      },
+    });
+
+    const { hook } = setupRenderFrameHarness({
+      mediaItems: [currentVideo, nextVideo],
+      mediaElements: {
+        [currentVideo.id]: currentVideoElement as unknown as HTMLVideoElement,
+        [nextVideo.id]: nextVideoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+    });
+
+    hook.result.current.renderFrame(0.4, true, false);
+    expect(assignedCurrentTime).toBeCloseTo(1.2);
+    expect(seekAssignCount).toBe(1);
+
+    assignedCurrentTime = nextVideo.trimStart + 0.02;
+    nextVideoElement.paused = false;
+    hook.result.current.renderFrame(1.1, true, false);
+
+    expect(assignedCurrentTime).toBeCloseTo(nextVideo.trimStart + 0.02);
+    expect(seekAssignCount).toBe(1);
   });
 
   it('Android preview の next video preseek は image gap を挟むケースでも無効のままにする', () => {
@@ -1027,9 +1084,14 @@ describe('standard preview engine', () => {
     expect(videoElement.currentTime).toBeCloseTo(0.2);
   });
 
-  it('Android preview の next trimmed video preseek は無効化され currentTime を連続変更しない', () => {
-    const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
-    const videoItem = createVideoItem({
+  it('Android preview の next trimmed video preroll は初回 seek 後に currentTime を連続変更しない', () => {
+    const currentVideo = createVideoItem({
+      id: 'video-1',
+      duration: 1,
+      trimStart: 0,
+      trimEnd: 1,
+    });
+    const nextVideo = createVideoItem({
       id: 'video-2',
       duration: 2,
       trimStart: 1.2,
@@ -1049,24 +1111,36 @@ describe('standard preview engine', () => {
         seekAssignCount += 1;
       },
     });
+    videoElement.paused = true;
 
     const { hook } = setupRenderFrameHarness({
-      mediaItems: [imageItem, videoItem],
+      mediaItems: [currentVideo, nextVideo],
       mediaElements: {
-        [videoItem.id]: videoElement as unknown as HTMLVideoElement,
+        [currentVideo.id]: createMockVideoElement() as unknown as HTMLVideoElement,
+        [nextVideo.id]: videoElement as unknown as HTMLVideoElement,
       } as MediaElementsRef,
     });
 
     hook.result.current.renderFrame(0.75, true, false);
+    expect(assignedCurrentTime).toBeCloseTo(1.2);
+    expect(seekAssignCount).toBe(1);
+
+    assignedCurrentTime = 1.28;
+    videoElement.paused = false;
     hook.result.current.renderFrame(0.76, true, false);
 
-    expect(assignedCurrentTime).toBeCloseTo(0.2);
-    expect(seekAssignCount).toBe(0);
+    expect(assignedCurrentTime).toBeCloseTo(1.28);
+    expect(seekAssignCount).toBe(1);
   });
 
-  it('Android preview の next trimmed video preseek 無効化後も metadata 未取得や seeking 中に currentTime を動かさない', () => {
-    const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
-    const videoItem = createVideoItem({
+  it('Android preview の next trimmed video preroll は metadata 未取得では load だけ行い、seeking 中は currentTime を動かさない', () => {
+    const currentVideo = createVideoItem({
+      id: 'video-1',
+      duration: 1,
+      trimStart: 0,
+      trimEnd: 1,
+    });
+    const nextVideo = createVideoItem({
       id: 'video-2',
       duration: 2,
       trimStart: 1.2,
@@ -1080,15 +1154,16 @@ describe('standard preview engine', () => {
     notReadyVideo.currentTime = 0.2;
 
     const notReadyHarness = setupRenderFrameHarness({
-      mediaItems: [imageItem, videoItem],
+      mediaItems: [currentVideo, nextVideo],
       mediaElements: {
-        [videoItem.id]: notReadyVideo as unknown as HTMLVideoElement,
+        [currentVideo.id]: createMockVideoElement() as unknown as HTMLVideoElement,
+        [nextVideo.id]: notReadyVideo as unknown as HTMLVideoElement,
       } as MediaElementsRef,
     });
 
     notReadyHarness.hook.result.current.renderFrame(0.75, true, false);
 
-    expect(notReadyVideo.load).toHaveBeenCalledTimes(0);
+    expect(notReadyVideo.load).toHaveBeenCalledTimes(1);
     expect(notReadyVideo.currentTime).toBeCloseTo(0.2);
 
     const seekingVideo = createMockVideoElement();
@@ -1098,9 +1173,10 @@ describe('standard preview engine', () => {
     seekingVideo.currentTime = 0.4;
 
     const seekingHarness = setupRenderFrameHarness({
-      mediaItems: [imageItem, videoItem],
+      mediaItems: [currentVideo, nextVideo],
       mediaElements: {
-        [videoItem.id]: seekingVideo as unknown as HTMLVideoElement,
+        [currentVideo.id]: createMockVideoElement() as unknown as HTMLVideoElement,
+        [nextVideo.id]: seekingVideo as unknown as HTMLVideoElement,
       } as MediaElementsRef,
     });
 

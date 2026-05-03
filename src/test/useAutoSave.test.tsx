@@ -210,6 +210,41 @@ describe('useAutoSave', () => {
     expect(saveProjectAuto).toHaveBeenCalledTimes(1);
   });
 
+  it('preview 再生中に見送った自動保存は、preview 停止後に期限超過していれば再開する', async () => {
+    const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
+    const saveProjectAuto = vi.fn().mockResolvedValue(true);
+    act(() => {
+      useProjectStore.setState({
+        refreshSaveInfo,
+        saveProjectAuto,
+        isSaving: false,
+        lastManualSave: null,
+      });
+      useUIStore.setState({ isPreviewPlaying: true });
+    });
+
+    renderHook(() => useAutoSave());
+
+    await act(async () => {
+      vi.advanceTimersByTime(61_000);
+      await Promise.resolve();
+    });
+
+    expect(saveProjectAuto).not.toHaveBeenCalled();
+
+    await act(async () => {
+      useUIStore.setState({ isPreviewPlaying: false });
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(100);
+      await Promise.resolve();
+    });
+
+    expect(saveProjectAuto).toHaveBeenCalledTimes(1);
+  });
+
   it('自動保存間隔を短くした時は、新しい間隔で overdue 判定して即時に追いつき保存する', async () => {
     const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
     const saveProjectAuto = vi.fn().mockResolvedValue(true);
