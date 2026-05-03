@@ -283,6 +283,8 @@ const PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC = 0.05;
 const PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC = 0.25;
 const PREVIEW_ANDROID_BOUNDARY_DRAW_DRIFT_ALLOWANCE_SEC = ANDROID_PREVIEW_TIGHT_SYNC_THRESHOLD_SEC;
 const PREVIEW_ANDROID_BOUNDARY_CORRECTION_GRACE_SEC = 0.3;
+const PREVIEW_ANDROID_BOUNDARY_SAFE_SEEK_EPSILON_SEC = 0.08;
+const PREVIEW_ANDROID_BOUNDARY_COMMIT_DRIFT_TOLERANCE_SEC = 0.10;
 const TRIMMED_ENTRY_SOFT_DRIFT_ALLOWANCE_SEC = ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC;
 const PREVIEW_ANDROID_BGM_SOFT_SYNC_TOLERANCE_SEC = 0.3;
 const PREVIEW_ANDROID_ACTIVE_SEEK_COOLDOWN_MS = 500;
@@ -862,11 +864,12 @@ export function usePreviewEngine({
       targetSec: number,
     ) => {
       if (state.seekInFlight) return;
-      if (Math.abs(video.currentTime - targetSec) < 0.08) return;
+      if (Math.abs(video.currentTime - targetSec) < PREVIEW_ANDROID_BOUNDARY_SAFE_SEEK_EPSILON_SEC) return;
 
       state.seekInFlight = true;
       state.phase = state.committed ? 'bridging' : 'preparing-next';
 
+      // どれか 1 つのイベントで seek 終了扱いにしたら、残りの listener も明示的に外す。
       const cleanup = () => {
         video.removeEventListener('seeked', finish);
         video.removeEventListener('loadeddata', finish);
@@ -1468,7 +1471,7 @@ export function usePreviewEngine({
                 !!boundaryState
                 && canDrawVideo(activeEl)
                 && !boundaryState.seekInFlight
-                && activeVideoDrift <= 0.10;
+                && activeVideoDrift <= PREVIEW_ANDROID_BOUNDARY_COMMIT_DRIFT_TOLERANCE_SEC;
               if (boundaryState && canCommitAndroidBoundary) {
                 boundaryState.committed = true;
                 boundaryState.phase = 'committed';
@@ -1477,7 +1480,10 @@ export function usePreviewEngine({
               }
               if (boundaryState && boundaryState.lastLoggedPhase !== boundaryState.phase) {
                 boundaryState.lastLoggedPhase = boundaryState.phase;
-                logInfo('RENDER', boundaryState.committed ? 'canCommit true → commitNextVideo' : 'canCommit false → drawLastStableFrame', {
+                const boundaryLogMessage = boundaryState.committed
+                  ? 'canCommit true → commitNextVideo'
+                  : 'canCommit false → drawLastStableFrame';
+                logInfo('RENDER', boundaryLogMessage, {
                   boundaryId: boundaryState.boundaryId,
                   segmentIndex: boundaryState.segmentIndex,
                   previousId: boundaryState.previousId,
@@ -1849,7 +1855,6 @@ export function usePreviewEngine({
                   || activeEl.videoWidth <= 0
                   || activeEl.videoHeight <= 0
                 );
-              allowAndroidPreviewActiveSoftDraw = false;
               if (boundaryState && !canCommitAndroidBoundary) {
                 holdAndroidPreviewFrame();
                 requestSafeSeek(boundaryState, activeEl, targetTime);
