@@ -2793,6 +2793,7 @@ export function usePreviewEngine({
 
           if (!playbackReady) {
             setError('動画の読み込みが完了していません。数秒待ってから再生してください。');
+            safeSetPreviewPlaying(false);
             pause();
             return;
           }
