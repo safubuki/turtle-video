@@ -585,14 +585,21 @@ export function usePreviewEngine({
   const safeSetPreviewPlaying = (playing: boolean) => {
     setPreviewPlaying(playing);
   };
+  const previewCacheKeyFallbackRef = useRef<string | null>(null);
+  const previewCacheStatusFallbackRef = useRef<PreviewCacheStatus>('idle');
+  const previewCacheEntryFallbackRef = useRef<PreviewCacheEntry | null>(null);
+  const previewCacheVideoFallbackRef = useRef<HTMLVideoElement | null>(null);
+  const previewCacheGenerationFallbackRef = useRef(0);
+  const previewCachePlaybackActiveFallbackRef = useRef(false);
+  const previewCacheHasBuiltOnceFallbackRef = useRef(false);
   const previewCacheEnabledFlag = previewCacheEnabled ?? false;
-  const previewCacheKeyRefValue = previewCacheKeyRef ?? { current: null };
-  const previewCacheStatusRefValue = previewCacheStatusRef ?? { current: 'idle' as PreviewCacheStatus };
-  const previewCacheEntryRefValue = previewCacheEntryRef ?? { current: null as PreviewCacheEntry | null };
-  const previewCacheVideoRefValue = previewCacheVideoRef ?? { current: null as HTMLVideoElement | null };
-  const previewCacheGenerationRefValue = previewCacheGenerationRef ?? { current: 0 };
-  const previewCachePlaybackActiveRefValue = previewCachePlaybackActiveRef ?? { current: false };
-  const previewCacheHasBuiltOnceRefValue = previewCacheHasBuiltOnceRef ?? { current: false };
+  const previewCacheKeyRefValue = previewCacheKeyRef ?? previewCacheKeyFallbackRef;
+  const previewCacheStatusRefValue = previewCacheStatusRef ?? previewCacheStatusFallbackRef;
+  const previewCacheEntryRefValue = previewCacheEntryRef ?? previewCacheEntryFallbackRef;
+  const previewCacheVideoRefValue = previewCacheVideoRef ?? previewCacheVideoFallbackRef;
+  const previewCacheGenerationRefValue = previewCacheGenerationRef ?? previewCacheGenerationFallbackRef;
+  const previewCachePlaybackActiveRefValue = previewCachePlaybackActiveRef ?? previewCachePlaybackActiveFallbackRef;
+  const previewCacheHasBuiltOnceRefValue = previewCacheHasBuiltOnceRef ?? previewCacheHasBuiltOnceFallbackRef;
   const setPreviewCacheStatusValue = setPreviewCacheStatus ?? (() => undefined);
   const setPreviewLoadingLabelValue = setPreviewLoadingLabel ?? (() => undefined);
   const activePreviewModeRef = useRef<PreviewEngineMode>('idle');
@@ -2724,7 +2731,7 @@ export function usePreviewEngine({
     const hasActiveRecorder = !!(recorderRef.current && recorderRef.current.state !== 'inactive');
     if (hasActiveRecorder) {
       recorderRef.current!.stop();
-    } else if (previousMode === 'export') {
+    } else {
       stopWebCodecsExport({ reason: 'user' });
     }
   }, [
