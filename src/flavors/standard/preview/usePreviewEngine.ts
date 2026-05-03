@@ -2518,6 +2518,9 @@ export function usePreviewEngine({
               }
 
               if (isAndroidPrerollTarget) {
+                // trimStart - prerollLeadSec から再生することで、境界到達時に currentTime ≒ trimStart になる。
+                // trimStart < prerollLeadSec の場合は 0 にクランプされ残留ドリフトが生じるが、
+                // visual blend / clock absorb（2-23）で吸収する。
                 const prerollTarget = Math.max(0, (conf.trimStart || 0) - ANDROID_PREVIEW_NEXT_VIDEO_PREROLL_LEAD_SEC);
                 armAndroidNextVideoPreroll(id, videoEl, prerollTarget);
               } else if (!shouldKeepVideoPrewarmed && id !== activeVideoIdRef.current) {
