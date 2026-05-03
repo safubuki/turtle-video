@@ -914,7 +914,7 @@ describe('standard preview engine', () => {
     expect(videoElement.currentTime).toBeCloseTo(0.2);
   });
 
-  it('Android preview の next video preroll は trimStart=0 でも trimStart に合わせて armed する', () => {
+  it('Android preview の next video preroll は trimStart=0 でも prerollTarget=0 (max(0, 0-0.45)) で armed する', () => {
     const currentVideo = createVideoItem({
       id: 'video-1',
       duration: 1,
@@ -945,7 +945,9 @@ describe('standard preview engine', () => {
       } as MediaElementsRef,
     });
 
-    hook.result.current.renderFrame(0.4, true, false);
+    // time=0.6: boundary at 1.0, timeUntilVideoStart=0.4 <= 0.45 → preroll fires
+    // prerollTarget = max(0, trimStart(0) - 0.45) = 0; video seeked to 0
+    hook.result.current.renderFrame(0.6, true, false);
 
     expect(videoElement.currentTime).toBeCloseTo(0);
     expect(videoElement.muted).toBe(true);
@@ -993,8 +995,10 @@ describe('standard preview engine', () => {
       } as MediaElementsRef,
     });
 
-    hook.result.current.renderFrame(0.4, true, false);
-    expect(assignedCurrentTime).toBeCloseTo(1.2);
+    // time=0.6: boundary at 1.0, timeUntilVideoStart=0.4 <= 0.45 → preroll fires
+    // prerollTarget = max(0, trimStart(1.2) - 0.45) = 0.75
+    hook.result.current.renderFrame(0.6, true, false);
+    expect(assignedCurrentTime).toBeCloseTo(0.75);
     expect(seekAssignCount).toBe(1);
 
     assignedCurrentTime = nextVideo.trimStart + 0.02;
@@ -1121,8 +1125,10 @@ describe('standard preview engine', () => {
       } as MediaElementsRef,
     });
 
+    // time=0.75: boundary at 1.0, timeUntilVideoStart=0.25 <= 0.45 → preroll fires
+    // prerollTarget = max(0, trimStart(1.2) - 0.45) = 0.75
     hook.result.current.renderFrame(0.75, true, false);
-    expect(assignedCurrentTime).toBeCloseTo(1.2);
+    expect(assignedCurrentTime).toBeCloseTo(0.75);
     expect(seekAssignCount).toBe(1);
 
     assignedCurrentTime = 1.28;

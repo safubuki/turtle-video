@@ -267,8 +267,9 @@ const PREVIEW_ANDROID_BOUNDARY_CORRECTION_GRACE_SEC = 0.3;
 const TRIMMED_ENTRY_SOFT_DRIFT_ALLOWANCE_SEC = ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC;
 const PREVIEW_ANDROID_BGM_SOFT_SYNC_TOLERANCE_SEC = 0.3;
 const PREVIEW_ANDROID_ACTIVE_SEEK_COOLDOWN_MS = 500;
-// 次動画の境界 700ms 前から silent play を開始してデコーダを warm-up する。
-const ANDROID_PREVIEW_NEXT_VIDEO_PREROLL_LEAD_SEC = 0.7;
+// 次動画の境界 450ms 前から silent play を開始してデコーダを warm-up する。
+// preroll 開始時は trimStart - prerollLeadSec から再生し、境界到達時に currentTime が trimStart に揃うようにする。
+const ANDROID_PREVIEW_NEXT_VIDEO_PREROLL_LEAD_SEC = 0.45;
 const PREVIEW_END_THRESHOLD_SEC = 0.03;
 // 再生開始直後は seeked / canplay の到着を数フレームだけ待ち、遅ければ loop を止めない。
 const PREVIEW_START_READY_POLL_INTERVAL_MS = 40;
@@ -2488,8 +2489,8 @@ export function usePreviewEngine({
                 && id === nextVideoItem?.id
                 && !!warmupState?.preseeked;
 
-              // Android standard preview: 次動画の境界 700ms 前からデコーダを silent play で warm-up する。
-              // これにより境界到達時に readyState >= 2 が確保でき、visual bridge への依存を最小化する。
+              // Android standard preview: 次動画の境界 450ms 前からデコーダを silent play で warm-up する。
+              // preroll 開始位置は trimStart - prerollLeadSec とし、境界到達時に currentTime が trimStart に揃うようにする。
               // iOS Safari / export / seek 中はこの分岐に入らない（isAndroidPreviewPlayback が false）。
               const isAndroidPrerollTarget =
                 isAndroidPreviewPlayback
@@ -2517,7 +2518,10 @@ export function usePreviewEngine({
               }
 
               if (isAndroidPrerollTarget) {
-                const prerollTarget = conf.trimStart || 0;
+                // trimStart - prerollLeadSec から再生することで、境界到達時に currentTime ≒ trimStart になる。
+                // trimStart < prerollLeadSec の場合は 0 にクランプされ残留ドリフトが生じるが、
+                // visual blend / clock absorb（2-23）で吸収する。
+                const prerollTarget = Math.max(0, (conf.trimStart || 0) - ANDROID_PREVIEW_NEXT_VIDEO_PREROLL_LEAD_SEC);
                 armAndroidNextVideoPreroll(id, videoEl, prerollTarget);
               } else if (!shouldKeepVideoPrewarmed && id !== activeVideoIdRef.current) {
                 delete androidNextVideoPrerollRef.current[id];

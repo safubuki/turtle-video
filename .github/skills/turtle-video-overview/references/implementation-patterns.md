@@ -273,19 +273,21 @@
   - **絶対に守ること**: `preview.cache.start / preview.cache.ready / preview.cache.play` が通常プレビューで出ないこと。`startPreviewCacheExport` / `startWebCodecsExport` を preview 開始時に呼ばないこと
   - live fallback 側の境界安定化は 2-22 (Android next-video preroll) と 2-23 (time-based visual blend + clock absorb) で対応する
 
-### 2-22. Android standard preview の次動画 700ms preroll で境界 warm-up
+### 2-22. Android standard preview の次動画 450ms preroll で境界 warm-up（preroll 開始位置修正済み）
 
 - **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
-- **問題**: Android preview で `video -> video` の即時切替を行うと、境界直後に次動画が `readyState=1 / seeking=true` のまま 100〜250ms 立ち上がらず、`currentTime` も進まないため stutter が見えやすい
+- **問題**: Android preview で `video -> video` の即時切替を行うと、境界直後に次動画が `readyState=1 / seeking=true` のまま 100〜250ms 立ち上がらず、`currentTime` も進まないため stutter が見えやすい。さらに pre-roll lead 分だけ先行した `currentTime` が境界で描画され、補正や seek が入ってカクつき・巻き戻り感が出る問題もあった。
 - **対策**:
-  - `standard` flavor の Android preview / 非 export / 非 seek / active 再生中かつ **即次の `video -> video` 境界** だけで `timeUntilNextBoundary <= 0.7s` の next video を preroll 対象にする。image gap や iOS Safari には広げない
-  - `armAndroidNextVideoPreroll()` で next video に `muted=true`, `playsInline=true`, `preload='auto'` を付け、`trimStart` へ **1 回だけ** 合わせてから `seeked` / `canplay` / `loadeddata` を待ち、silent `play()` のまま hidden/inactive で維持する
+  - `standard` flavor の Android preview / 非 export / 非 seek / active 再生中かつ **即次の `video -> video` 境界** だけで `timeUntilNextBoundary <= 0.45s` の next video を preroll 対象にする。image gap や iOS Safari には広げない
+  - preroll 開始位置は `trimStart` ではなく `max(0, trimStart - prerollLeadSec)` とする。これにより境界到達時に `currentTime ≒ trimStart` になり、先行描画とその後の補正起因のカクつきが解消される
+  - `armAndroidNextVideoPreroll()` で next video に `muted=true`, `playsInline=true`, `preload='auto'` を付け、`trimStart - prerollLeadSec` へ **1 回だけ** 合わせてから `seeked` / `canplay` / `loadeddata` を待ち、silent `play()` のまま hidden/inactive で維持する
   - preroll 済みの next video は境界直前に `pause()` / `currentTime` 再設定をしない。active 化直後も 300ms は `currentTime` 補正を抑止し、cold seek のやり直しに戻さない
   - `preview.preflight.ready`, `preview.timeline.tick`, `preview.boundary.smoothPlan` で preroll 状態と境界メトリクスを記録する
 - **注意**:
   - preroll を active clip の「次に来る 1 本」へ限定する方針は 2-14 の inactive reset 制限とセットで維持する
   - preroll を shared / apple-safari / export へ広げると runtime ownership が崩れるため、`src/flavors/standard/preview/` のまま閉じる
   - 境界直前の再 seek を戻すと decoder が再び cold start しやすいので禁止
+  - `trimStart = 0` の場合は `max(0, 0 - 0.45) = 0` となり従来と同じ挙動（trimStart が 0 の動画は影響なし）
 
 ### 2-23. Android standard preview は active video の soft draw を優先して hold を長引かせない
 
