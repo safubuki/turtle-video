@@ -210,7 +210,7 @@ describe('useAutoSave', () => {
     expect(saveProjectAuto).toHaveBeenCalledTimes(1);
   });
 
-  it('preview 再生中に見送った自動保存は、preview 停止後に即座に再開する', async () => {
+  it('preview 再生中に見送った自動保存は、preview 停止後に期限超過していれば再開する', async () => {
     const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
     const saveProjectAuto = vi.fn().mockResolvedValue(true);
     act(() => {
