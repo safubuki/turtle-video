@@ -673,6 +673,7 @@ export function usePreviewEngine({
     armed: boolean;
     startedAtMs: number | null;
     targetStartSec: number;
+    armLoopId: number;
   }>>({});
   const androidVisualBridgeStateRef = useRef<{ previousId: string | null; activeId: string | null; bridgeFrameCount: number; }>({
     previousId: null,
@@ -753,6 +754,7 @@ export function usePreviewEngine({
         armed: true,
         startedAtMs: Date.now(),
         targetStartSec,
+        armLoopId: loopIdRef.current,
       };
       androidNextVideoPrerollRef.current[videoId] = state;
 
@@ -768,6 +770,15 @@ export function usePreviewEngine({
       };
 
       const tryPlay = () => {
+        if (
+          !isPlayingRef.current
+          || loopIdRef.current !== state.armLoopId
+          || androidNextVideoPrerollRef.current[videoId] !== state
+          || !state.armed
+        ) {
+          cleanup();
+          return;
+        }
         if (videoEl.paused && !videoEl.seeking && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK) {
           videoEl.play().catch(() => { });
         }
@@ -812,7 +823,7 @@ export function usePreviewEngine({
 
       return state;
     },
-    [],
+    [isPlayingRef, loopIdRef],
   );
   const shouldDeferAndroidBoundaryCurrentTimeCorrection = useCallback(
     (videoId: string | null, localTimeSec: number) => {
