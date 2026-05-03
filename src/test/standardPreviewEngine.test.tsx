@@ -929,6 +929,65 @@ describe('standard preview engine', () => {
     expect(didUpdateCanvas).toBe(true);
   });
 
+  it('Android preview は paused でも drawable な境界 active video を先に描画してから play を要求する', () => {
+    const leadVideo = createVideoItem({
+      id: 'video-1',
+      duration: 1,
+      trimStart: 0,
+      trimEnd: 1,
+    });
+    const nextVideo = createVideoItem({
+      id: 'video-2',
+      duration: 2,
+      trimStart: 1.2,
+      trimEnd: 3.2,
+    });
+    const leadVideoElement = createMockVideoElement();
+    leadVideoElement.readyState = 2;
+    leadVideoElement.seeking = false;
+    leadVideoElement.paused = false;
+    const nextVideoElement = createMockVideoElement();
+    nextVideoElement.readyState = 4;
+    nextVideoElement.seeking = false;
+    nextVideoElement.paused = true;
+    nextVideoElement.currentTime = 1.25;
+
+    const { canvasContext, hook, logInfo, logWarn } = setupRenderFrameHarness({
+      mediaItems: [leadVideo, nextVideo],
+      mediaElements: {
+        [leadVideo.id]: leadVideoElement as unknown as HTMLVideoElement,
+        [nextVideo.id]: nextVideoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+    });
+    const drawImageMock = canvasContext.drawImage as unknown as {
+      mock: { invocationCallOrder: number[] };
+    };
+
+    const didUpdateCanvas = hook.result.current.renderFrame(1.05, true, false);
+
+    expect(canvasContext.drawImage).toHaveBeenCalledWith(
+      nextVideoElement,
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+    );
+    expect(drawImageMock.mock.invocationCallOrder[0]).toBeLessThan(
+      nextVideoElement.play.mock.invocationCallOrder[0],
+    );
+    expect(nextVideoElement.play).toHaveBeenCalledTimes(1);
+    expect(
+      logInfo.mock.calls.some(([, message]) => message === 'preview.boundary.smoothPlan'),
+    ).toBe(false);
+    expect(
+      logInfo.mock.calls.some(([, message]) => message === 'canCommit false → drawLastStableFrame'),
+    ).toBe(false);
+    expect(
+      logWarn.mock.calls.some(([, message]) => message === 'preview.android.seek-assignment'),
+    ).toBe(false);
+    expect(didUpdateCanvas).toBe(true);
+  });
+
   it('Android preview は clip 境界前でも次の video を preseek しない', () => {
     const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
     const videoItem = createVideoItem({
