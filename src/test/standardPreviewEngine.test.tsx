@@ -884,6 +884,7 @@ describe('standard preview engine', () => {
     const timelineTime = 1.2;
     const didUpdateCanvas = hook.result.current.renderFrame(timelineTime, true, false);
 
+    // passive 方式では境界直後でも targetTime へ書き戻さず、media clock の currentTime をそのまま尊重する。
     expect(trimmedVideoElement.currentTime).toBeCloseTo(1.55);
     expect(canvasContext.fillRect).not.toHaveBeenCalled();
     expect(canvasContext.drawImage).not.toHaveBeenCalled();
@@ -1172,6 +1173,7 @@ describe('standard preview engine', () => {
 
     assignedCurrentTime = 0.3;
     nowSpy.mockReturnValue(3_200);
+    // 同一 segment 内では 2 回目の大きな drift を検知しても recovery seek を再実行しない。
     hook.result.current.renderFrame(1.8, true, false);
 
     expect(assignedCurrentTime).toBeCloseTo(0.3);

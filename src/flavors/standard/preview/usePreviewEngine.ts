@@ -287,10 +287,10 @@ const PREVIEW_ANDROID_BOUNDARY_SAFE_SEEK_EPSILON_SEC = 0.08;
 const PREVIEW_ANDROID_BOUNDARY_COMMIT_DRIFT_TOLERANCE_SEC = 0.10;
 const TRIMMED_ENTRY_SOFT_DRIFT_ALLOWANCE_SEC = ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC;
 const PREVIEW_ANDROID_BGM_SOFT_SYNC_TOLERANCE_SEC = 0.3;
-const PREVIEW_ANDROID_PASSIVE_BOUNDARY_HOLD_MAX_SEC = 0.2;
+const PREVIEW_ANDROID_PASSIVE_HOLD_MAX_SEC = 0.2;
 const PREVIEW_ANDROID_RECOVERY_MIN_INTERVAL_MS = 1000;
 const PREVIEW_ANDROID_RECOVERY_DRIFT_THRESHOLD_SEC = 0.8;
-const PREVIEW_ANDROID_RECOVERY_BOUNDARY_GRACE_SEC = 0.5;
+const PREVIEW_ANDROID_RECOVERY_SKIP_AFTER_BOUNDARY_SEC = 0.5;
 const PREVIEW_END_THRESHOLD_SEC = 0.03;
 // 再生開始直後は seeked / canplay の到着を数フレームだけ待ち、遅ければ loop を止めない。
 const PREVIEW_START_READY_POLL_INTERVAL_MS = 40;
@@ -1397,7 +1397,8 @@ export function usePreviewEngine({
               const isAndroidPassiveBoundaryWindow =
                 isAndroidPreviewPlayback
                 && localTime >= 0
-                && localTime <= PREVIEW_ANDROID_PASSIVE_BOUNDARY_HOLD_MAX_SEC;
+                && localTime <= PREVIEW_ANDROID_PASSIVE_HOLD_MAX_SEC;
+              // Android preview の境界 smoothing / canCommit state machine は回復方針で停止したまま維持する。
               const shouldTrackAndroidBoundary = false;
               let boundaryState = androidBoundaryStateRef.current;
               if (!shouldTrackAndroidBoundary) {
@@ -1536,6 +1537,7 @@ export function usePreviewEngine({
               };
               const shouldDeferBoundaryCurrentTimeCorrection =
                 shouldDeferAndroidBoundaryCurrentTimeCorrection(activeId, localTime);
+              // trim head hold / drift log も Android passive 再生への回帰では使わない。
               const shouldHoldTrimmedVideoHead = false;
               const isNearTimelineEnd =
                 totalDurationRef.current > 0 &&
@@ -2220,7 +2222,7 @@ export function usePreviewEngine({
                   const shouldHoldRecoveryFrame =
                     androidRecoveryDecision.shouldHoldFrame
                     && localTime >= 0
-                    && localTime <= PREVIEW_ANDROID_PASSIVE_BOUNDARY_HOLD_MAX_SEC;
+                    && localTime <= PREVIEW_ANDROID_PASSIVE_HOLD_MAX_SEC;
                   holdFrame = holdFrame || shouldHoldRecoveryFrame;
                   if (now - lastAttempt > 220) {
                     videoRecoveryAttemptsRef.current[id] = now;
@@ -2250,10 +2252,11 @@ export function usePreviewEngine({
                       const segmentRecoveryKey = `${activeIndex}:${id}`;
                       const alreadyRecoveredSegment =
                         androidPreviewRecoveredSegmentRef.current[id] === segmentRecoveryKey;
+                      // recovery seek は Android passive preview の最後の手段で、1 segment あたり 1 回だけ許可する。
                       if (
                         sinceLastSeekMs >= PREVIEW_ANDROID_RECOVERY_MIN_INTERVAL_MS
                         && activeVideoDrift >= PREVIEW_ANDROID_RECOVERY_DRIFT_THRESHOLD_SEC
-                        && localTime > PREVIEW_ANDROID_RECOVERY_BOUNDARY_GRACE_SEC
+                        && localTime > PREVIEW_ANDROID_RECOVERY_SKIP_AFTER_BOUNDARY_SEC
                         && !alreadyRecoveredSegment
                       ) {
                         maybeAssignAndroidPreviewSeek({
