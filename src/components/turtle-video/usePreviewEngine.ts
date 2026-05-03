@@ -85,6 +85,21 @@ interface UsePreviewEngineParams {
   requestPreviewAudioRouteRefreshRef: MutableRefObject<() => void>;
   primePreviewAudioOnlyTracksAtTimeRef: MutableRefObject<(playbackTime: number) => void>;
   endFinalizedRef: MutableRefObject<boolean>;
+  previewCacheEnabled?: boolean;
+  previewCacheKeyRef?: MutableRefObject<string | null>;
+  previewCacheStatusRef?: MutableRefObject<'idle' | 'preparing' | 'ready' | 'failed'>;
+  previewCacheEntryRef?: MutableRefObject<{
+    url: string;
+    duration: number;
+    cacheKey: string;
+    createdAt: number;
+  } | null>;
+  previewCacheVideoRef?: MutableRefObject<HTMLVideoElement | null>;
+  previewCacheGenerationRef?: MutableRefObject<number>;
+  previewCachePlaybackActiveRef?: MutableRefObject<boolean>;
+  previewCacheHasBuiltOnceRef?: MutableRefObject<boolean>;
+  setPreviewCacheStatus?: (status: 'idle' | 'preparing' | 'ready' | 'failed') => void;
+  setPreviewLoadingLabel?: (label?: string) => void;
   previewPlatformPolicy: PreviewPlatformPolicy;
   platformCapabilities: Pick<PlatformCapabilities, 'isAndroid' | 'isIosSafari'>;
   setVideoDuration: (id: string, duration: number) => void;
@@ -112,6 +127,9 @@ interface UsePreviewEngineParams {
   startWebCodecsExport: UseExportReturn['startExport'];
   stopWebCodecsExport: UseExportReturn['stopExport'];
   completeWebCodecsExport: UseExportReturn['completeExport'];
+  startPreviewCacheExport?: UseExportReturn['startExport'];
+  stopPreviewCacheExport?: UseExportReturn['stopExport'];
+  completePreviewCacheExport?: UseExportReturn['completeExport'];
   logInfo: LogFn;
   logWarn: LogFn;
   logDebug: LogFn;

@@ -80,6 +80,7 @@ interface PreviewSectionProps {
   isProcessing: boolean;
   exportPreparationStep: ExportPreparationStep | null;
   isLoading: boolean;
+  loadingLabel?: string;
   exportUrl: string | null;
   exportExt: string | null;
   onSeekChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -112,6 +113,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   isProcessing,
   exportPreparationStep,
   isLoading,
+  loadingLabel,
   exportUrl,
   exportExt,
   onSeekChange,
@@ -388,7 +390,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
           <div className="absolute inset-0 flex items-center justify-center bg-black/50 pointer-events-none">
             <div className="flex flex-col items-center gap-2">
               <Loader className="w-8 h-8 lg:w-10 lg:h-10 text-blue-400 animate-spin" />
-              <span className="text-xs lg:text-sm text-gray-300">読み込み中...</span>
+              <span className="text-xs lg:text-sm text-gray-300">{loadingLabel ?? '読み込み中...'}</span>
             </div>
           </div>
         )}

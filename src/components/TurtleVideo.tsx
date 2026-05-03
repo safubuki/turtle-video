@@ -50,6 +50,12 @@ import AiModal from './modals/AiModal';
 import SettingsModal, { getStoredApiKey } from './modals/SettingsModal';
 import SaveLoadModal from './modals/SaveLoadModal';
 import SectionHelpModal from './modals/SectionHelpModal';
+import {
+  createAndroidPreviewCacheKey,
+  shouldUseAndroidPreviewCache,
+  type PreviewCacheEntry,
+  type PreviewCacheStatus,
+} from '../flavors/standard/preview/androidPreviewCache';
 
 // API キー取得関数（localStorage優先、フォールバックで環境変数）
 const getApiKey = (): string => {
@@ -203,6 +209,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const [aiScriptLength, setAiScriptLength] = useState<NarrationScriptLength>('medium');
   const [activeHelpSection, setActiveHelpSection] = useState<SectionHelpKey | null>(null);
   const [exportPreparationStep, setExportPreparationStep] = useState<ExportPreparationStep | null>(null);
+  const [previewCacheStatus, setPreviewCacheStatus] = useState<PreviewCacheStatus>('idle');
+  const [previewLoadingLabel, setPreviewLoadingLabel] = useState<string | undefined>(undefined);
 
   // Ref
   const mediaItemsRef = useRef<MediaItem[]>([]);
@@ -213,6 +221,13 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mediaElementsRef = useRef<Record<string, HTMLVideoElement | HTMLImageElement | HTMLAudioElement>>({});
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const previewCacheVideoRef = useRef<HTMLVideoElement | null>(null);
+  const previewCacheEntryRef = useRef<PreviewCacheEntry | null>(null);
+  const previewCacheStatusRef = useRef<PreviewCacheStatus>('idle');
+  const previewCacheKeyRef = useRef<string | null>(null);
+  const previewCacheGenerationRef = useRef(0);
+  const previewCachePlaybackActiveRef = useRef(false);
+  const previewCacheHasBuiltOnceRef = useRef(false);
 
   // Audio Nodes
   const sourceNodesRef = useRef<Record<string, MediaElementAudioSourceNode>>({});
@@ -323,6 +338,28 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     () => previewRuntime.getPreviewPlatformPolicy(platformCapabilities),
     [platformCapabilities, previewRuntime]
   );
+  const useAndroidPreviewCacheForPlayback = useMemo(
+    () => shouldUseAndroidPreviewCache({
+      isAndroid: platformCapabilities.isAndroid,
+      isIosSafari: platformCapabilities.isIosSafari,
+      isExportMode: false,
+      mediaItems,
+    }),
+    [mediaItems, platformCapabilities.isAndroid, platformCapabilities.isIosSafari],
+  );
+  const previewCacheKey = useMemo(
+    () => createAndroidPreviewCacheKey({
+      mediaItems,
+      bgm,
+      narrations,
+      captions,
+      captionSettings,
+      canvasWidth: CANVAS_WIDTH,
+      canvasHeight: CANVAS_HEIGHT,
+      fps: 30,
+    }),
+    [bgm, captionSettings, captions, mediaItems, narrations],
+  );
   const supportsShowSaveFilePicker = platformCapabilities.supportsShowSaveFilePicker;
   const supportsShowOpenFilePicker = platformCapabilities.supportsShowOpenFilePicker;
   const shouldUseMediaPicker = shouldUseMediaOpenFilePicker(platformCapabilities);
@@ -343,6 +380,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
   // Hooks
   const { startExport: startWebCodecsExport, stopExport: stopWebCodecsExport, completeExport: completeWebCodecsExport } = exportRuntime.useExport();
+  const {
+    startExport: startPreviewCacheExport,
+    stopExport: stopPreviewCacheExport,
+    completeExport: completePreviewCacheExport,
+  } = exportRuntime.useExport();
 
   useEffect(() => {
     saveRuntime.configureProjectStore();
@@ -442,6 +484,80 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     setLoading(false);
     setExportPreparationStep(null);
   }, [setExportPreparationStep, setLoading, setProcessing]);
+
+  useEffect(() => {
+    previewCacheStatusRef.current = previewCacheStatus;
+  }, [previewCacheStatus]);
+
+  useEffect(() => {
+    previewCacheKeyRef.current = previewCacheKey;
+  }, [previewCacheKey]);
+
+  useEffect(() => {
+    const shouldKeepCache = useAndroidPreviewCacheForPlayback;
+    const currentEntry = previewCacheEntryRef.current;
+    const shouldInvalidate =
+      !shouldKeepCache
+      || (currentEntry !== null && currentEntry.cacheKey !== previewCacheKey);
+
+    if (!shouldInvalidate) {
+      return;
+    }
+
+    const previousUrl = currentEntry?.url ?? null;
+    const wasPreparing = previewCacheStatusRef.current === 'preparing';
+    const hadReadyCache = previewCacheStatusRef.current === 'ready' && currentEntry !== null;
+
+    previewCacheGenerationRef.current += 1;
+    previewCachePlaybackActiveRef.current = false;
+    previewCacheEntryRef.current = null;
+    previewCacheStatusRef.current = 'idle';
+    setPreviewCacheStatus('idle');
+    setPreviewLoadingLabel(undefined);
+
+    if (previewCacheVideoRef.current) {
+      try {
+        previewCacheVideoRef.current.pause();
+        previewCacheVideoRef.current.removeAttribute('src');
+        previewCacheVideoRef.current.load();
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (wasPreparing) {
+      stopPreviewCacheExport({ silent: true, reason: 'superseded' });
+    }
+
+    if (previousUrl) {
+      try {
+        URL.revokeObjectURL(previousUrl);
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (hadReadyCache || wasPreparing) {
+      logInfo('RENDER', 'preview.cache.invalidated', {
+        reason: shouldKeepCache ? 'timeline-updated' : 'android-preview-cache-disabled',
+        fallback: 'live-element-preview',
+      });
+    }
+  }, [logInfo, previewCacheKey, stopPreviewCacheExport, useAndroidPreviewCacheForPlayback]);
+
+  useEffect(() => {
+    return () => {
+      const previewCacheUrl = previewCacheEntryRef.current?.url;
+      if (!previewCacheUrl) {
+        return;
+      }
+      try {
+        URL.revokeObjectURL(previewCacheUrl);
+      } catch {
+        /* ignore */
+      }
+    };
+  }, []);
 
   const handleExportCompleteUi = useCallback(() => {
     logInfo('RENDER', '[DIAG-UI] export complete callback received', {
@@ -594,6 +710,16 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     requestPreviewAudioRouteRefreshRef,
     primePreviewAudioOnlyTracksAtTimeRef,
     endFinalizedRef,
+    previewCacheEnabled: useAndroidPreviewCacheForPlayback,
+    previewCacheKeyRef,
+    previewCacheStatusRef,
+    previewCacheEntryRef,
+    previewCacheVideoRef,
+    previewCacheGenerationRef,
+    previewCachePlaybackActiveRef,
+    previewCacheHasBuiltOnceRef,
+    setPreviewCacheStatus,
+    setPreviewLoadingLabel,
     previewPlatformPolicy,
     platformCapabilities,
     setVideoDuration,
@@ -621,6 +747,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     startWebCodecsExport,
     stopWebCodecsExport,
     completeWebCodecsExport,
+    startPreviewCacheExport,
+    stopPreviewCacheExport,
+    completePreviewCacheExport,
     logInfo,
     logWarn,
     logDebug,
@@ -1647,9 +1776,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   }, [mediaItems, bgm, narrations, stopAll, clearAllMedia, clearAllAudio, resetCaptions, resetUI]);
 
   const {
-    handleSeekStart,
-    handleSeekChange,
-    handleSeekEnd,
+    handleSeekStart: handleLiveSeekStart,
+    handleSeekChange: handleLiveSeekChange,
+    handleSeekEnd: handleLiveSeekEnd,
   } = previewRuntime.usePreviewSeekController({
     mediaItemsRef,
     mediaElementsRef,
@@ -1690,6 +1819,110 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     preparePreviewAudioNodesForTime,
     primePreviewAudioOnlyTracksAtTime,
   });
+
+  const shouldHandleSeekWithPreviewCache = useCallback(() => {
+    return previewCacheStatusRef.current === 'ready'
+      && useAndroidPreviewCacheForPlayback
+      && !!previewCacheEntryRef.current
+      && !!previewCacheVideoRef.current;
+  }, [useAndroidPreviewCacheForPlayback]);
+
+  const handleSeekStart = useCallback(() => {
+    if (!shouldHandleSeekWithPreviewCache()) {
+      handleLiveSeekStart();
+      return;
+    }
+
+    const previewCacheVideo = previewCacheVideoRef.current;
+    if (!previewCacheVideo) {
+      handleLiveSeekStart();
+      return;
+    }
+
+    wasPlayingBeforeSeekRef.current = isPlayingRef.current;
+    isSeekingRef.current = true;
+    previewCachePlaybackActiveRef.current = false;
+
+    if (reqIdRef.current !== null) {
+      cancelAnimationFrame(reqIdRef.current);
+      reqIdRef.current = null;
+    }
+
+    try {
+      previewCacheVideo.pause();
+    } catch {
+      /* ignore */
+    }
+  }, [handleLiveSeekStart, isPlayingRef, shouldHandleSeekWithPreviewCache]);
+
+  const handleSeekChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!shouldHandleSeekWithPreviewCache()) {
+      handleLiveSeekChange(event);
+      return;
+    }
+
+    const previewCacheVideo = previewCacheVideoRef.current;
+    if (!previewCacheVideo) {
+      handleLiveSeekChange(event);
+      return;
+    }
+
+    const time = Math.max(0, Math.min(parseFloat(event.target.value), totalDurationRef.current));
+    currentTimeRef.current = time;
+    setCurrentTime(time);
+
+    try {
+      if (Math.abs(previewCacheVideo.currentTime - time) > 0.01) {
+        previewCacheVideo.currentTime = time;
+      }
+    } catch {
+      /* ignore */
+    }
+
+    renderFrame(time, false);
+  }, [handleLiveSeekChange, renderFrame, setCurrentTime, shouldHandleSeekWithPreviewCache, totalDurationRef]);
+
+  const handleSeekEnd = useCallback(() => {
+    if (!shouldHandleSeekWithPreviewCache()) {
+      handleLiveSeekEnd();
+      return;
+    }
+
+    const previewCacheVideo = previewCacheVideoRef.current;
+    if (!previewCacheVideo) {
+      handleLiveSeekEnd();
+      return;
+    }
+
+    const targetTime = Math.max(0, Math.min(currentTimeRef.current, totalDurationRef.current));
+    isSeekingRef.current = false;
+
+    try {
+      if (Math.abs(previewCacheVideo.currentTime - targetTime) > 0.01) {
+        previewCacheVideo.currentTime = targetTime;
+      }
+    } catch {
+      /* ignore */
+    }
+
+    if (wasPlayingBeforeSeekRef.current) {
+      wasPlayingBeforeSeekRef.current = false;
+      previewCachePlaybackActiveRef.current = true;
+      startTimeRef.current = performance.now() - targetTime * 1000;
+      isPlayingRef.current = true;
+      void previewCacheVideo.play().then(() => {
+        loop(false, loopIdRef.current);
+      }).catch(() => {
+        previewCachePlaybackActiveRef.current = false;
+        renderFrame(targetTime, false);
+      });
+      return;
+    }
+
+    wasPlayingBeforeSeekRef.current = false;
+    previewCachePlaybackActiveRef.current = false;
+    renderFrame(targetTime, false);
+  }, [handleLiveSeekEnd, isPlayingRef, loop, renderFrame, shouldHandleSeekWithPreviewCache, totalDurationRef]);
 
   // --- 再生/一時停止トグル ---
   // 目的: 再生中なら停止、停止中なら再生を開始
@@ -1745,6 +1978,15 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     currentTimeRef.current = 0;
     endFinalizedRef.current = false;
 
+    if (previewCacheStatusRef.current === 'ready' && previewCacheVideoRef.current) {
+      try {
+        previewCacheVideoRef.current.pause();
+        previewCacheVideoRef.current.currentTime = 0;
+      } catch {
+        /* ignore */
+      }
+    }
+
     // [TV] 全メディアを安全に巻き戻し (DOM要素を維持したままリセット)
     // 各ビデオをtrimStart位置にリセット（0ではなく実際の開始位置へ）
     for (const item of mediaItemsRef.current) {
@@ -1794,6 +2036,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     cancelPendingPausedSeekWait,
     cancelPendingSeekPlaybackPrepare,
     detachGlobalSeekEndListeners,
+    previewCacheVideoRef,
   ]);
 
   // --- エクスポート開始ハンドラ ---
@@ -1908,6 +2151,18 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     setActiveHelpSection(null);
   }, []);
 
+  const hiddenPreviewCacheStyle = useMemo<React.CSSProperties>(() => ({
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    width: '320px',
+    height: '240px',
+    opacity: 0.001,
+    pointerEvents: 'none',
+    zIndex: -100,
+    visibility: 'visible',
+  }), []);
+
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans pb-24 select-none relative">
       <Toast message={toastMessage} onClose={clearToast} />
@@ -1922,6 +2177,13 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         onRefAssign={handleMediaRefAssign}
         onSeeked={handleSeeked}
         onVideoLoadedData={handleVideoLoadedData}
+      />
+      <video
+        ref={previewCacheVideoRef}
+        playsInline
+        preload="auto"
+        crossOrigin="anonymous"
+        style={hiddenPreviewCacheStyle}
       />
 
       {/* AI Modal */}
@@ -2102,6 +2364,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
                 isPlaying={isPlaying}
                 isProcessing={isProcessing}
                 isLoading={isLoading}
+                loadingLabel={previewLoadingLabel}
                 exportPreparationStep={exportPreparationStep}
                 exportUrl={exportUrl}
                 exportExt={exportExt}

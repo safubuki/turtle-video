@@ -51,6 +51,10 @@ import {
   resolvePreviewAudioGain,
   resolvePreviewBgmGain,
 } from './usePreviewAudioSession';
+import type {
+  PreviewCacheEntry,
+  PreviewCacheStatus,
+} from './androidPreviewCache';
 
 type LogFn = (category: LogCategory, message: string, details?: Record<string, unknown>) => void;
 
@@ -97,6 +101,16 @@ interface UsePreviewEngineParams {
   requestPreviewAudioRouteRefreshRef: MutableRefObject<() => void>;
   primePreviewAudioOnlyTracksAtTimeRef: MutableRefObject<(playbackTime: number) => void>;
   endFinalizedRef: MutableRefObject<boolean>;
+  previewCacheEnabled?: boolean;
+  previewCacheKeyRef?: MutableRefObject<string | null>;
+  previewCacheStatusRef?: MutableRefObject<PreviewCacheStatus>;
+  previewCacheEntryRef?: MutableRefObject<PreviewCacheEntry | null>;
+  previewCacheVideoRef?: MutableRefObject<HTMLVideoElement | null>;
+  previewCacheGenerationRef?: MutableRefObject<number>;
+  previewCachePlaybackActiveRef?: MutableRefObject<boolean>;
+  previewCacheHasBuiltOnceRef?: MutableRefObject<boolean>;
+  setPreviewCacheStatus?: (status: PreviewCacheStatus) => void;
+  setPreviewLoadingLabel?: (label?: string) => void;
   previewPlatformPolicy: PreviewPlatformPolicy;
   platformCapabilities: Pick<PlatformCapabilities, 'isAndroid' | 'isIosSafari'>;
   setVideoDuration: (id: string, duration: number) => void;
@@ -124,6 +138,9 @@ interface UsePreviewEngineParams {
   startWebCodecsExport: UseExportReturn['startExport'];
   stopWebCodecsExport: UseExportReturn['stopExport'];
   completeWebCodecsExport: UseExportReturn['completeExport'];
+  startPreviewCacheExport?: UseExportReturn['startExport'];
+  stopPreviewCacheExport?: UseExportReturn['stopExport'];
+  completePreviewCacheExport?: UseExportReturn['completeExport'];
   logInfo: LogFn;
   logWarn: LogFn;
   logDebug: LogFn;
@@ -138,6 +155,13 @@ interface UsePreviewEngineResult {
   loop: (isExportMode: boolean, myLoopId: number) => void;
   startEngine: (fromTime: number, isExportMode: boolean) => Promise<void>;
 }
+
+type PreviewEngineMode =
+  | 'idle'
+  | 'preview'
+  | 'export'
+  | 'preview-cache-build'
+  | 'preview-cache-playback';
 
 const resetNativeMediaAudioState = (mediaEl: HTMLMediaElement) => {
   mediaEl.defaultMuted = false;
@@ -230,7 +254,7 @@ const PREVIEW_START_READY_SYNC_TOLERANCE_SEC = 0.05;
 // Android preview の trim 済み video 先頭だけは厳しめに currentTime を合わせてカクつきを抑える。
 const PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC = 0.05;
 const PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC = 0.25;
-const PREVIEW_ANDROID_BOUNDARY_DRAW_DRIFT_ALLOWANCE_SEC = 0.25;
+const PREVIEW_ANDROID_BOUNDARY_DRAW_DRIFT_ALLOWANCE_SEC = 0.08;
 const PREVIEW_ANDROID_MAX_VISUAL_BRIDGE_FRAMES = 2;
 const TRIMMED_ENTRY_SOFT_DRIFT_ALLOWANCE_SEC = 0.35;
 const PREVIEW_ANDROID_BGM_SOFT_SYNC_TOLERANCE_SEC = 0.3;
@@ -401,6 +425,81 @@ const waitForPreviewStartVideoReady = async (
   });
 };
 
+const waitForPreviewCacheVideoReady = async (
+  videoElement: HTMLVideoElement,
+  targetTime: number,
+  shouldContinue: () => boolean,
+): Promise<void> => {
+  if (videoElement.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME && !videoElement.seeking) {
+    if (Math.abs(videoElement.currentTime - targetTime) <= PREVIEW_START_READY_SYNC_TOLERANCE_SEC) {
+      return;
+    }
+  }
+
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = () => {
+      videoElement.removeEventListener('seeked', onReady);
+      videoElement.removeEventListener('loadeddata', onReady);
+      videoElement.removeEventListener('canplay', onReady);
+      videoElement.removeEventListener('error', onReady);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+    };
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+
+    const onReady = () => {
+      if (!shouldContinue()) {
+        finish();
+        return;
+      }
+
+      if (videoElement.readyState === 0 && !videoElement.error) {
+        try {
+          videoElement.load();
+        } catch {
+          /* ignore */
+        }
+      }
+
+      if (videoElement.readyState < MIN_VIDEO_READY_STATE_FOR_SEEK || videoElement.seeking) {
+        return;
+      }
+
+      const drift = Math.abs(videoElement.currentTime - targetTime);
+      if (drift > PREVIEW_START_READY_SYNC_TOLERANCE_SEC) {
+        try {
+          videoElement.currentTime = targetTime;
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
+
+      if (videoElement.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME) {
+        finish();
+      }
+    };
+
+    timeoutId = setTimeout(finish, PREVIEW_START_READY_TIMEOUT_MS);
+    videoElement.addEventListener('seeked', onReady);
+    videoElement.addEventListener('loadeddata', onReady);
+    videoElement.addEventListener('canplay', onReady);
+    videoElement.addEventListener('error', onReady);
+    onReady();
+  });
+};
+
 export function usePreviewEngine({
   captions,
   captionSettings,
@@ -438,6 +537,16 @@ export function usePreviewEngine({
   requestPreviewAudioRouteRefreshRef,
   primePreviewAudioOnlyTracksAtTimeRef,
   endFinalizedRef,
+  previewCacheEnabled,
+  previewCacheKeyRef,
+  previewCacheStatusRef,
+  previewCacheEntryRef,
+  previewCacheVideoRef,
+  previewCacheGenerationRef,
+  previewCachePlaybackActiveRef,
+  previewCacheHasBuiltOnceRef,
+  setPreviewCacheStatus,
+  setPreviewLoadingLabel,
   previewPlatformPolicy,
   platformCapabilities,
   setVideoDuration,
@@ -465,6 +574,9 @@ export function usePreviewEngine({
   startWebCodecsExport,
   stopWebCodecsExport,
   completeWebCodecsExport,
+  startPreviewCacheExport,
+  stopPreviewCacheExport,
+  completePreviewCacheExport,
   logInfo,
   logWarn,
   logDebug,
@@ -472,7 +584,20 @@ export function usePreviewEngine({
   const safeSetPreviewPlaying = (playing: boolean) => {
     setPreviewPlaying(playing);
   };
+  const previewCacheEnabledFlag = previewCacheEnabled ?? false;
+  const previewCacheKeyRefValue = previewCacheKeyRef ?? { current: null };
+  const previewCacheStatusRefValue = previewCacheStatusRef ?? { current: 'idle' as PreviewCacheStatus };
+  const previewCacheEntryRefValue = previewCacheEntryRef ?? { current: null as PreviewCacheEntry | null };
+  const previewCacheVideoRefValue = previewCacheVideoRef ?? { current: null as HTMLVideoElement | null };
+  const previewCacheGenerationRefValue = previewCacheGenerationRef ?? { current: 0 };
+  const previewCachePlaybackActiveRefValue = previewCachePlaybackActiveRef ?? { current: false };
+  const previewCacheHasBuiltOnceRefValue = previewCacheHasBuiltOnceRef ?? { current: false };
+  const setPreviewCacheStatusValue = setPreviewCacheStatus ?? (() => undefined);
+  const setPreviewLoadingLabelValue = setPreviewLoadingLabel ?? (() => undefined);
+  const activePreviewModeRef = useRef<PreviewEngineMode>('idle');
   const currentExportSessionIdRef = useRef<string | null>(null);
+  const currentPreviewCacheBuildSessionIdRef = useRef<string | null>(null);
+  const pendingPreviewCacheBuildResolverRef = useRef<((success: boolean) => void) | null>(null);
   const androidPreviewRecoveryRef = useRef<Record<string, {
     active: boolean;
     reason: string;
@@ -695,6 +820,215 @@ export function usePreviewEngine({
     [logInfo, logWarn, mediaItemsRef, totalDurationRef, waitForVideoMetadata],
   );
 
+  const hasReadyPreviewCache = useCallback(() => {
+    return previewCacheEnabledFlag
+      && previewCacheStatusRefValue.current === 'ready'
+      && !!previewCacheEntryRefValue.current
+      && previewCacheEntryRefValue.current.cacheKey === previewCacheKeyRefValue.current
+      && !!previewCacheVideoRefValue.current;
+  }, []);
+
+  const startPreviewCachePlayback = async (fromTime: number): Promise<boolean> => {
+    if (!hasReadyPreviewCache()) {
+      return false;
+    }
+
+    const previewCacheVideo = previewCacheVideoRefValue.current;
+    const previewCacheEntry = previewCacheEntryRefValue.current;
+    if (!previewCacheVideo || !previewCacheEntry) {
+      return false;
+    }
+
+    activePreviewModeRef.current = 'preview-cache-playback';
+    previewCachePlaybackActiveRefValue.current = true;
+    safeSetPreviewPlaying(true);
+    setPreviewCacheStatusValue('ready');
+    setPreviewLoadingLabelValue(undefined);
+
+    const targetTime = Math.max(0, Math.min(fromTime, previewCacheEntry.duration));
+    currentTimeRef.current = targetTime;
+    setCurrentTime(targetTime);
+
+    if (previewCacheVideo.src !== previewCacheEntry.url) {
+      previewCacheVideo.src = previewCacheEntry.url;
+    }
+
+    if (previewCacheVideo.readyState === 0 && !previewCacheVideo.error) {
+      try {
+        previewCacheVideo.load();
+      } catch {
+        /* ignore */
+      }
+    }
+
+    await waitForPreviewCacheVideoReady(
+      previewCacheVideo,
+      targetTime,
+      () => activePreviewModeRef.current === 'preview-cache-playback' && !isSeekingRef.current,
+    );
+
+    if (activePreviewModeRef.current !== 'preview-cache-playback') {
+      return false;
+    }
+
+    if (Math.abs(previewCacheVideo.currentTime - targetTime) > PREVIEW_START_READY_SYNC_TOLERANCE_SEC) {
+      try {
+        previewCacheVideo.currentTime = targetTime;
+      } catch {
+        /* ignore */
+      }
+    }
+
+    renderFrame(targetTime, false, false);
+
+    isPlayingRef.current = true;
+    play();
+    try {
+      await previewCacheVideo.play();
+    } catch (error) {
+      previewCachePlaybackActiveRefValue.current = false;
+      activePreviewModeRef.current = 'preview';
+      logWarn('RENDER', 'preview.cache.failed', {
+        reason: error instanceof Error ? error.message : String(error),
+        fallback: 'live-element-preview',
+      });
+      return false;
+    }
+
+    setLoading(false);
+    startTimeRef.current = getStandardPreviewNow() - targetTime * 1000;
+    logInfo('RENDER', 'preview.cache.play', {
+      globalTimeMs: Math.round(targetTime * 1000),
+      totalDurationMs: Math.round(totalDurationRef.current * 1000),
+    });
+    return true;
+  };
+
+  const buildPreviewCache = async (myLoopId: number): Promise<boolean> => {
+    if (
+      !previewCacheEnabledFlag
+      || !startPreviewCacheExport
+      || !canvasRef.current
+      || !masterDestRef.current
+      || !previewCacheKeyRefValue.current
+    ) {
+      return false;
+    }
+
+    const sessionId = createPreviewExportSessionId();
+    const cacheKey = previewCacheKeyRefValue.current;
+    const generation = previewCacheGenerationRefValue.current + 1;
+    previewCacheGenerationRefValue.current = generation;
+    currentPreviewCacheBuildSessionIdRef.current = sessionId;
+    activePreviewModeRef.current = 'preview-cache-build';
+    previewCachePlaybackActiveRefValue.current = false;
+    previewCacheStatusRefValue.current = 'preparing';
+    setPreviewCacheStatusValue('preparing');
+    setPreviewLoadingLabelValue(previewCacheHasBuiltOnceRefValue.current ? 'プレビューを更新中...' : 'プレビュー準備中...');
+    setLoading(true);
+    safeSetPreviewPlaying(false);
+    isPlayingRef.current = false;
+    pause();
+    logInfo('RENDER', 'preview.cache.start', {
+      cacheKey,
+      totalDurationMs: Math.round(totalDurationRef.current * 1000),
+    });
+
+    return await new Promise<boolean>((resolve) => {
+      const settle = (success: boolean) => {
+        if (pendingPreviewCacheBuildResolverRef.current) {
+          pendingPreviewCacheBuildResolverRef.current = null;
+        }
+        if (currentPreviewCacheBuildSessionIdRef.current === sessionId) {
+          currentPreviewCacheBuildSessionIdRef.current = null;
+        }
+        resolve(success);
+      };
+
+      pendingPreviewCacheBuildResolverRef.current = settle;
+
+      startPreviewCacheExport(
+        canvasRef,
+        masterDestRef,
+        (url) => {
+          const isCurrentBuild =
+            currentPreviewCacheBuildSessionIdRef.current === sessionId
+            && previewCacheGenerationRefValue.current === generation
+            && previewCacheKeyRefValue.current === cacheKey;
+          if (!isCurrentBuild) {
+            try {
+              URL.revokeObjectURL(url);
+            } catch {
+              /* ignore */
+            }
+            settle(false);
+            return;
+          }
+
+          const previousUrl = previewCacheEntryRefValue.current?.url;
+          previewCacheEntryRefValue.current = {
+            url,
+            duration: totalDurationRef.current,
+            cacheKey,
+            createdAt: Date.now(),
+          };
+          previewCacheHasBuiltOnceRefValue.current = true;
+          previewCacheStatusRefValue.current = 'ready';
+          setPreviewCacheStatusValue('ready');
+          setPreviewLoadingLabelValue(undefined);
+          setLoading(false);
+
+          if (previousUrl && previousUrl !== url) {
+            try {
+              URL.revokeObjectURL(previousUrl);
+            } catch {
+              /* ignore */
+            }
+          }
+
+          const previewCacheVideo = previewCacheVideoRefValue.current;
+          if (previewCacheVideo && previewCacheVideo.src !== url) {
+            previewCacheVideo.pause();
+            previewCacheVideo.src = url;
+            previewCacheVideo.load();
+          }
+
+          logInfo('RENDER', 'preview.cache.ready', {
+            totalDurationMs: Math.round(totalDurationRef.current * 1000),
+          });
+          settle(true);
+        },
+        (message) => {
+          if (currentPreviewCacheBuildSessionIdRef.current !== sessionId) {
+            settle(false);
+            return;
+          }
+
+          previewCacheStatusRefValue.current = 'failed';
+          setPreviewCacheStatusValue('failed');
+          setPreviewLoadingLabelValue(undefined);
+          setLoading(false);
+          logWarn('RENDER', 'preview.cache.failed', {
+            reason: message,
+            fallback: 'live-element-preview',
+          });
+          settle(false);
+        },
+        {
+          mediaItems: mediaItemsRef.current,
+          bgm: bgmRef.current,
+          narrations: narrationsRef.current,
+          totalDuration: totalDurationRef.current,
+          getPlaybackTimeSec: () => currentTimeRef.current,
+          onAudioPreRenderComplete: () => {
+            startTimeRef.current = getStandardPreviewNow();
+            loop(true, myLoopId);
+          },
+        },
+      );
+    });
+  };
+
   const renderFrame = useCallback(
     (time: number, isActivePlaying = false, _isExporting = false) => {
       try {
@@ -703,6 +1037,17 @@ export function usePreviewEngine({
         const ctx = canvas.getContext('2d');
         if (!ctx) return false;
         let didUpdateCanvas = false;
+
+        if (!_isExporting && hasReadyPreviewCache()) {
+          const previewCacheVideo = previewCacheVideoRefValue.current;
+          if (previewCacheVideo?.readyState && previewCacheVideo.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME) {
+            ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            ctx.drawImage(previewCacheVideo, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            return true;
+          }
+        }
 
         const currentItems = mediaItemsRef.current;
         const currentBgm = bgmRef.current;
@@ -1092,7 +1437,11 @@ export function usePreviewEngine({
                   preseekCompleted: !!preseekState?.completed,
                   preseekDrift,
                 });
-                if (entryState.holdFrameCount > 1) {
+                const boundaryLogState = trimmedEntryLogStateRef.current[activeId]
+                  ?? { preseekMissLogged: false, holdSuppressedLogged: false, startLatencyLogged: false, boundaryEnterAtMs: null };
+                trimmedEntryLogStateRef.current[activeId] = boundaryLogState;
+                if (entryState.holdFrameCount > 1 && !boundaryLogState.holdSuppressedLogged) {
+                  boundaryLogState.holdSuppressedLogged = true;
                   logWarn('RENDER', 'preview.trimmedEntry.holdFrame.warning', {
                     segmentIndex: activeIndex,
                     holdFrameCount: entryState.holdFrameCount,
@@ -1490,9 +1839,16 @@ export function usePreviewEngine({
                   !hasExportPlayFailure &&
                   !(
                     isAndroidPreviewPlayback
-                    && localTime <= 0.3
-                    && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
-                    && Math.abs(videoEl.currentTime - targetTime) <= PREVIEW_ANDROID_BOUNDARY_DRAW_DRIFT_ALLOWANCE_SEC
+                    && (
+                      (
+                        conf.trimStart > 0.001
+                        && localTime <= 0.3
+                      ) || (
+                        localTime <= 0.3
+                        && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+                        && Math.abs(videoEl.currentTime - targetTime) <= PREVIEW_ANDROID_BOUNDARY_DRAW_DRIFT_ALLOWANCE_SEC
+                      )
+                    )
                   ) &&
                   Math.abs(videoEl.currentTime - targetTime) > syncThreshold
                 ) {
@@ -2284,6 +2640,7 @@ export function usePreviewEngine({
 
   const stopAll = useCallback(() => {
     currentExportSessionIdRef.current = null;
+    currentPreviewCacheBuildSessionIdRef.current = null;
     logDebug('SYSTEM', 'stopAll呼び出し', { previousLoopId: loopIdRef.current, isPlayingRef: isPlayingRef.current });
 
     loopIdRef.current += 1;
@@ -2291,7 +2648,9 @@ export function usePreviewEngine({
     isPlayingRef.current = false;
     audioResumeWaitFramesRef.current = 0;
     activeVideoIdRef.current = null;
+    previewCachePlaybackActiveRefValue.current = false;
     setLoading(false);
+    setPreviewLoadingLabelValue(undefined);
     safeSetPreviewPlaying(false);
 
     isSeekingRef.current = false;
@@ -2316,6 +2675,14 @@ export function usePreviewEngine({
     }
 
     silencePreviewBgmOutput(mediaElementsRef, gainNodesRef, audioCtxRef);
+
+    if (previewCacheVideoRefValue.current) {
+      try {
+        previewCacheVideoRefValue.current.pause();
+      } catch {
+        /* ignore */
+      }
+    }
 
     Object.entries(mediaElementsRef.current).forEach(([id, el]) => {
       if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO')) {
@@ -2344,13 +2711,23 @@ export function usePreviewEngine({
       });
     }
 
+    const previousMode = activePreviewModeRef.current;
+    activePreviewModeRef.current = 'idle';
+    pendingPreviewCacheBuildResolverRef.current?.(false);
+
+    if (previousMode === 'preview-cache-build') {
+      stopPreviewCacheExport?.({ silent: true, reason: 'user' });
+      return;
+    }
+
     const hasActiveRecorder = !!(recorderRef.current && recorderRef.current.state !== 'inactive');
     if (hasActiveRecorder) {
       recorderRef.current!.stop();
-    } else {
+    } else if (previousMode === 'export') {
       stopWebCodecsExport({ reason: 'user' });
     }
   }, [
+    activePreviewModeRef,
     activeVideoIdRef,
     audioCtxRef,
     audioResumeWaitFramesRef,
@@ -2365,19 +2742,32 @@ export function usePreviewEngine({
     logDebug,
     loopIdRef,
     mediaElementsRef,
+    previewCachePlaybackActiveRef,
+    previewCacheVideoRef,
     pendingSeekRef,
     pendingSeekTimeoutRef,
+    pendingPreviewCacheBuildResolverRef,
     previewPlaybackAttemptRef,
     recorderRef,
     reqIdRef,
     seekingVideosRef,
     setLoading,
     stopWebCodecsExport,
+    stopPreviewCacheExport,
+    setPreviewLoadingLabel,
     wasPlayingBeforeSeekRef,
   ]);
 
   const stopPreviewMediaAtTimelineEnd = useCallback(() => {
     silencePreviewBgmOutput(mediaElementsRef, gainNodesRef, audioCtxRef);
+
+    if (previewCacheVideoRefValue.current) {
+      try {
+        previewCacheVideoRefValue.current.pause();
+      } catch {
+        /* ignore */
+      }
+    }
 
     Object.entries(mediaElementsRef.current).forEach(([id, el]) => {
       if (!el || (el.tagName !== 'VIDEO' && el.tagName !== 'AUDIO')) {
@@ -2432,6 +2822,8 @@ export function usePreviewEngine({
 
     audioResumeWaitFramesRef.current = 0;
     activeVideoIdRef.current = null;
+    activePreviewModeRef.current = 'idle';
+    previewCachePlaybackActiveRefValue.current = false;
     previewPlaybackAttemptRef.current += 1;
     loopIdRef.current += 1;
     isPlayingRef.current = false;
@@ -2455,6 +2847,7 @@ export function usePreviewEngine({
       resetBoundaryDiagnosticsState();
     }, 300);
   }, [
+    activePreviewModeRef,
     activeVideoIdRef,
     audioResumeWaitFramesRef,
     currentTimeRef,
@@ -2462,6 +2855,8 @@ export function usePreviewEngine({
     isPlayingRef,
     loopIdRef,
     pause,
+    previewCachePlaybackActiveRef,
+    previewCacheVideoRef,
     previewPlaybackAttemptRef,
     renderFrame,
     reqIdRef,
@@ -2517,6 +2912,32 @@ export function usePreviewEngine({
         return;
       }
 
+      if (!isExportMode && activePreviewModeRef.current === 'preview-cache-playback') {
+        const previewCacheVideo = previewCacheVideoRefValue.current;
+        if (!previewCacheVideo) {
+          previewCachePlaybackActiveRefValue.current = false;
+          activePreviewModeRef.current = 'preview';
+          reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
+          return;
+        }
+
+        const playbackTime = Math.max(0, Math.min(previewCacheVideo.currentTime, totalDurationRef.current));
+        const reachedPreviewEnd =
+          totalDurationRef.current > 0
+          && (previewCacheVideo.ended || playbackTime >= totalDurationRef.current - PREVIEW_END_THRESHOLD_SEC);
+
+        if (reachedPreviewEnd) {
+          finalizePreviewAtTimelineEnd(myLoopId);
+          return;
+        }
+
+        setCurrentTime(playbackTime);
+        currentTimeRef.current = playbackTime;
+        renderFrame(playbackTime, true, false);
+        reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
+        return;
+      }
+
       const now = getStandardPreviewNow();
       const diagnostics = previewTimelineDiagnosticsRef.current;
       let frameGapMs: number | null = null;
@@ -2543,8 +2964,12 @@ export function usePreviewEngine({
         // stopAll() を呼ぶと外部 recorderRef が null のため stopWebCodecsExport({ reason: 'user' }) が
         // 走り、blob 生成後の callback が誤ってキャンセル扱いで抑止されてしまう。
         if (isExportMode) {
-        safeSetPreviewPlaying(false);
-          completeWebCodecsExport();
+          safeSetPreviewPlaying(false);
+          if (activePreviewModeRef.current === 'preview-cache-build') {
+            completePreviewCacheExport?.();
+          } else {
+            completeWebCodecsExport();
+          }
         } else {
           stopAll();
         }
@@ -2657,8 +3082,11 @@ export function usePreviewEngine({
       stopAll,
       toDisplayTime,
       completeWebCodecsExport,
+      completePreviewCacheExport,
       finalizePreviewAtTimelineEnd,
       totalDurationRef,
+      previewCachePlaybackActiveRef,
+      previewCacheVideoRef,
     ],
   );
 
@@ -2738,12 +3166,14 @@ export function usePreviewEngine({
       const exportSessionId = isExportMode ? createPreviewExportSessionId() : null;
 
       if (isExportMode) {
+        activePreviewModeRef.current = 'export';
         safeSetPreviewPlaying(false);
         currentExportSessionIdRef.current = exportSessionId;
         setProcessing(true);
         setExportPreparationStep(1);
         clearExport();
       } else {
+        activePreviewModeRef.current = 'preview';
         setProcessing(false);
         safeSetPreviewPlaying(true);
         setExportPreparationStep(null);
@@ -2777,6 +3207,30 @@ export function usePreviewEngine({
       let previewPlaybackAttempt = previewPlaybackAttemptRef.current;
 
       if (!isExportMode) {
+        if (previewCacheEnabledFlag) {
+          const usedExistingCache = await startPreviewCachePlayback(fromTime);
+          if (usedExistingCache) {
+            loop(false, myLoopId);
+            return;
+          }
+
+          const builtPreviewCache = await buildPreviewCache(myLoopId);
+          if (myLoopId !== loopIdRef.current) {
+            return;
+          }
+
+          if (builtPreviewCache) {
+            const startedPreviewCachePlayback = await startPreviewCachePlayback(fromTime);
+            if (startedPreviewCachePlayback) {
+              loop(false, myLoopId);
+              return;
+            }
+          }
+
+          activePreviewModeRef.current = 'preview';
+          previewCachePlaybackActiveRefValue.current = false;
+        }
+
         const blockingVideos = collectPlaybackBlockingVideos(mediaItemsRef.current, fromTime);
         if (blockingVideos.length > 0) {
           let playbackReady = false;

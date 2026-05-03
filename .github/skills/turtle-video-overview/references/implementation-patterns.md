@@ -260,6 +260,21 @@
 
 ---
 
+### 2-21. Android standard preview は single preview cache video を優先する
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/components/sections/PreviewSection.tsx`, `src/flavors/standard/preview/androidPreviewCache.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`
+- **問題**: Android Chrome / WebView 相当で複数 video timeline を live 切り替えすると、初回 2 本目の遅延や video-to-video 境界の引っかかりが残りやすい
+- **対策**:
+  - Android + video 2 本以上 + 非 export の standard preview では timeline から preview cache key を作り、cache miss 時は preview 専用の仮合成動画を先に生成する
+  - cache 生成完了後は hidden preview cache `<video>` 1 本だけを再生し、loop / seek / paused redraw もその `currentTime` を source of truth にする
+  - cache miss / 更新中は `PreviewSection` の loading overlay 文言を「プレビュー準備中...」「プレビューを更新中...」へ差し替え、失敗時だけ `preview.cache.failed` を出して live-element-preview へ fallback する
+- **注意**:
+  - cache key には mediaItems の並び・trim・fade・caption・BGM・narration・canvas size を含め、編集後は invalidate して古い blob URL を必ず revoke する
+  - この cache は preview 専用で、`exportUrl` / export FSM / `apple-safari` runtime とは混ぜない
+  - live fallback 側では Android の sync threshold / drift guard / holdFrame warning 抑制だけを最小修正し、境界到達後の場当たり seek を増やさない
+
+---
+
 ## 3. AudioContext 管理
 
 ### 3-0. iOS Safari プレビュー BGM 経路安定化
