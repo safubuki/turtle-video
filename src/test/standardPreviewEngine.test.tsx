@@ -945,7 +945,7 @@ describe('standard preview engine', () => {
       } as MediaElementsRef,
     });
 
-    hook.result.current.renderFrame(0.4, true, false);
+    hook.result.current.renderFrame(0.6, true, false);
 
     expect(videoElement.currentTime).toBeCloseTo(0);
     expect(videoElement.muted).toBe(true);
@@ -993,8 +993,8 @@ describe('standard preview engine', () => {
       } as MediaElementsRef,
     });
 
-    hook.result.current.renderFrame(0.4, true, false);
-    expect(assignedCurrentTime).toBeCloseTo(1.2);
+    hook.result.current.renderFrame(0.6, true, false);
+    expect(assignedCurrentTime).toBeCloseTo(0.75);
     expect(seekAssignCount).toBe(1);
 
     assignedCurrentTime = nextVideo.trimStart + 0.02;
@@ -1122,7 +1122,7 @@ describe('standard preview engine', () => {
     });
 
     hook.result.current.renderFrame(0.75, true, false);
-    expect(assignedCurrentTime).toBeCloseTo(1.2);
+    expect(assignedCurrentTime).toBeCloseTo(0.75);
     expect(seekAssignCount).toBe(1);
 
     assignedCurrentTime = 1.28;
