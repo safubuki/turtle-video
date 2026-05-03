@@ -102,7 +102,7 @@ interface UsePreviewEngineParams {
   setVideoDuration: (id: string, duration: number) => void;
   setCurrentTime: (time: number) => void;
   setProcessing: (processing: boolean) => void;
-  setPreviewPlaying?: (playing: boolean) => void;
+  setPreviewPlaying: (playing: boolean) => void;
   setLoading: (loading: boolean) => void;
   setExportPreparationStep: (step: ExportPreparationStep | null) => void;
   setExportUrl: (url: string | null) => void;
@@ -470,7 +470,7 @@ export function usePreviewEngine({
   logDebug,
 }: UsePreviewEngineParams): UsePreviewEngineResult {
   const safeSetPreviewPlaying = (playing: boolean) => {
-    setPreviewPlaying?.(playing);
+    setPreviewPlaying(playing);
   };
   const currentExportSessionIdRef = useRef<string | null>(null);
   const androidPreviewRecoveryRef = useRef<Record<string, {
@@ -2785,7 +2785,6 @@ export function usePreviewEngine({
             playbackReady = await ensureVideoMetadataReady(blockingVideos, fromTime);
           } finally {
             setLoading(false);
-    safeSetPreviewPlaying(false);
           }
 
           if (myLoopId !== loopIdRef.current) {
