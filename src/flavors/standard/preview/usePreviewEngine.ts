@@ -22,7 +22,8 @@ import { collectPlaybackBlockingVideos, findActiveTimelineItem } from '../../../
 import { isCaptionActiveAtTime } from '../../../utils/captionTimeline';
 import { getExportFrameTiming, resolveExportDuration } from '../../../utils/exportTimeline';
 import {
-  ANDROID_PREVIEW_DRIFT_FIX_THRESHOLD_SEC,
+  ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC,
+  ANDROID_PREVIEW_SOFT_DRAW_DRIFT_THRESHOLD_SEC,
   ANDROID_PREVIEW_TIGHT_SYNC_THRESHOLD_SEC,
   EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC,
   getPreviewAudioOutputMode,
@@ -258,8 +259,9 @@ const PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC = 0.25;
 const PREVIEW_ANDROID_BOUNDARY_DRAW_DRIFT_ALLOWANCE_SEC = ANDROID_PREVIEW_TIGHT_SYNC_THRESHOLD_SEC;
 // 3 フレーム（≒50ms@60fps）維持することで次動画の warming-up 時間を確保する。
 const PREVIEW_ANDROID_MAX_VISUAL_BRIDGE_FRAMES = 3;
-const TRIMMED_ENTRY_SOFT_DRIFT_ALLOWANCE_SEC = 0.35;
+const TRIMMED_ENTRY_SOFT_DRIFT_ALLOWANCE_SEC = ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC;
 const PREVIEW_ANDROID_BGM_SOFT_SYNC_TOLERANCE_SEC = 0.3;
+const PREVIEW_ANDROID_ACTIVE_SEEK_COOLDOWN_MS = 500;
 // 次動画の境界 700ms 前から silent play を開始してデコーダを warm-up する。
 const ANDROID_PREVIEW_NEXT_VIDEO_PREROLL_LEAD_SEC = 0.7;
 // trimStart がこの値を超えない（先頭付近の）動画は自然再生で既にデコーダが warm なため、
@@ -624,6 +626,7 @@ export function usePreviewEngine({
     attempts: number;
   }>>({});
   const androidPreviewHoldLogAtRef = useRef<Record<string, number>>({});
+  const androidPreviewLastSeekAtRef = useRef<Record<string, number>>({});
   const androidTrimPreseekRef = useRef<Record<string, {
     targetTime: number;
     requestedAt: number;
@@ -1148,6 +1151,8 @@ export function usePreviewEngine({
         let holdFrame = false;
         let shouldBlackoutFadeTail = false;
         let shouldSkipAndroidPreviewActiveDraw = false;
+        let allowAndroidPreviewActiveSoftDraw = false;
+        let forceDrawAndroidPreviewActiveVideo = false;
         if (activeId && activeIndex !== -1) {
           const bridgeState = androidVisualBridgeStateRef.current;
           if (bridgeState.activeId !== activeId) {
@@ -1177,17 +1182,9 @@ export function usePreviewEngine({
 
           if (activeItem.type === 'video') {
             const activeEl = mediaElementsRef.current[activeId] as HTMLVideoElement | undefined;
-            const shouldHoldForAndroidPreviewNotDrawable = isAndroidPreviewPlayback
-              && (
-                !activeEl
-                || activeEl.seeking
-                || activeEl.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
-                || activeEl.videoWidth <= 0
-                || activeEl.videoHeight <= 0
-              );
 
             if (!activeEl) {
-              if (shouldHoldForAndroidPreviewNotDrawable) {
+              if (isAndroidPreviewPlayback) {
                 holdFrame = true;
                 shouldSkipAndroidPreviewActiveDraw = true;
                 logAndroidPreviewHold(activeId, time);
@@ -1198,6 +1195,14 @@ export function usePreviewEngine({
             } else {
               const targetTime = (activeItem.trimStart || 0) + localTime;
               const trimStart = activeItem.trimStart || 0;
+              const trimmedDrift = Math.abs(activeEl.currentTime - targetTime);
+              const canAttemptAndroidPreviewSoftDrawBase =
+                isAndroidPreviewPlayback
+                && isActivePlaying
+                && !activeEl.paused
+                && activeEl.videoWidth > 0
+                && activeEl.videoHeight > 0
+                && trimmedDrift < ANDROID_PREVIEW_SOFT_DRAW_DRIFT_THRESHOLD_SEC;
               const warmupState = androidBoundaryWarmupRef.current[activeId];
               const isAndroidBoundaryWarmupEnabled = false;
               if (isAndroidPreviewPlayback && isAndroidBoundaryWarmupEnabled && localTime >= 0 && localTime <= 0.12) {
@@ -1385,7 +1390,6 @@ export function usePreviewEngine({
               lastTrimmedEntryActiveIdRef.current = activeId;
               const preseekState = androidTrimPreseekRef.current[activeId];
               const preseekDrift = Math.abs(activeEl.currentTime - targetTime);
-              const trimmedDrift = Math.abs(activeEl.currentTime - targetTime);
               const isPreseekReadyEntry =
                 !!preseekState?.completed
                 && activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
@@ -1401,6 +1405,7 @@ export function usePreviewEngine({
                 && trimmedDrift < 0.2;
               if (
                 shouldHoldTrimmedVideoHead
+                && !canAttemptAndroidPreviewSoftDrawBase
                 && !isPreseekReadyEntry
                 && !isPlayableTrimmedEntry
                 && (
@@ -1434,6 +1439,8 @@ export function usePreviewEngine({
                   entryState.holdFrameCount += 1;
                 } else {
                   holdFrame = false;
+                  shouldSkipAndroidPreviewActiveDraw = false;
+                  forceDrawAndroidPreviewActiveVideo = !isDrawablePlaying;
                 }
                 logInfo('RENDER', '[DIAG-PREVIEW-BOUNDARY] Android trimmed entry hold', {
                   activeId,
@@ -1453,6 +1460,7 @@ export function usePreviewEngine({
                   holdFrameCount: entryState.holdFrameCount,
                   preseekCompleted: !!preseekState?.completed,
                   preseekDrift,
+                  forceDrawActiveVideo: forceDrawAndroidPreviewActiveVideo,
                 });
                 const boundaryLogState = trimmedEntryLogStateRef.current[activeId]
                   ?? { preseekMissLogged: false, holdSuppressedLogged: false, startLatencyLogged: false, boundaryEnterAtMs: null };
@@ -1533,19 +1541,36 @@ export function usePreviewEngine({
                 };
               }
               let didApplyAndroidPreviewDriftFix = false;
+              const shouldHoldForAndroidPreviewNotDrawable = isAndroidPreviewPlayback
+                && !canAttemptAndroidPreviewSoftDrawBase
+                && !forceDrawAndroidPreviewActiveVideo
+                && (
+                  activeEl.seeking
+                  || activeEl.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+                  || activeEl.videoWidth <= 0
+                  || activeEl.videoHeight <= 0
+                );
+              allowAndroidPreviewActiveSoftDraw =
+                (canAttemptAndroidPreviewSoftDrawBase || forceDrawAndroidPreviewActiveVideo)
+                && !shouldSkipAndroidPreviewActiveDraw;
               if (
                 isAndroidPreviewPlayback
                 && activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
                 && !activeEl.seeking
                 && !isTrimmedEntry
-                && Math.abs(activeEl.currentTime - targetTime) > TRIMMED_ENTRY_SOFT_DRIFT_ALLOWANCE_SEC
-                && Math.abs(activeEl.currentTime - targetTime) > ANDROID_PREVIEW_DRIFT_FIX_THRESHOLD_SEC
+                && trimmedDrift > TRIMMED_ENTRY_SOFT_DRIFT_ALLOWANCE_SEC
               ) {
-                activeEl.currentTime = targetTime;
-                holdFrame = true;
-                shouldSkipAndroidPreviewActiveDraw = true;
-                didApplyAndroidPreviewDriftFix = true;
-                logAndroidPreviewHold(activeId, time, activeEl);
+                const now = Date.now();
+                const lastSeekAt = androidPreviewLastSeekAtRef.current[activeId] ?? 0;
+                if (now - lastSeekAt >= PREVIEW_ANDROID_ACTIVE_SEEK_COOLDOWN_MS) {
+                  activeEl.currentTime = targetTime;
+                  androidPreviewLastSeekAtRef.current[activeId] = now;
+                  holdFrame = true;
+                  shouldSkipAndroidPreviewActiveDraw = true;
+                  didApplyAndroidPreviewDriftFix = true;
+                  allowAndroidPreviewActiveSoftDraw = false;
+                  logAndroidPreviewHold(activeId, time, activeEl);
+                }
               }
               const hasFrame =
                 activeEl.readyState >= 2 &&
@@ -1568,11 +1593,13 @@ export function usePreviewEngine({
                 fps: FPS,
               });
 
-              const shouldHoldActiveVideoFrame = !hasFrame
+              const shouldHoldActiveVideoFrame = !allowAndroidPreviewActiveSoftDraw && (
+                !hasFrame
                 || shouldHoldForAndroidPreviewNotDrawable
                 || needsCorrection
                 || shouldHoldForVideoEnd
-                || shouldHoldForImageToVideoTransition;
+                || shouldHoldForImageToVideoTransition
+              );
 
               const shouldBypassHoldForReadyActiveVideo =
                 isAndroidPreviewPlayback
@@ -1849,28 +1876,38 @@ export function usePreviewEngine({
                     videoEl.currentTime = targetTime;
                   }
                 }
-                const shouldDeferTrimmedHeadSync =
+                  const shouldDeferTrimmedHeadSync =
                   // trimStart 付き clip の head は hold 優先で安定させる。ここで currentTime correction を強制すると
                   // Android fallback が boundary 到達後の場当たり seek に戻りやすい。
-                  isAndroidPreviewPlayback
-                  && conf.trimStart > 0.001
-                  && localTime <= 0.3;
+                    isAndroidPreviewPlayback
+                    && conf.trimStart > 0.001
+                    && localTime <= 0.3;
+                  const androidPreviewSyncThreshold = isAndroidPreviewPlayback
+                    ? Math.max(syncThreshold, ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC)
+                    : syncThreshold;
 
-                if (
-                  !shouldDeferTrimmedHeadSync &&
-                  !isVideoSeeking &&
+                  if (
+                    !shouldDeferTrimmedHeadSync &&
+                    !isVideoSeeking &&
                   !shouldHoldVideoAtClipEnd &&
                   !hasExportPlayFailure &&
                   !(
-                    isAndroidPreviewPlayback
-                    && localTime <= 0.3
-                    && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
-                    && Math.abs(videoEl.currentTime - targetTime) <= PREVIEW_ANDROID_BOUNDARY_DRAW_DRIFT_ALLOWANCE_SEC
-                  ) &&
-                  Math.abs(videoEl.currentTime - targetTime) > syncThreshold
-                ) {
-                  videoEl.currentTime = targetTime;
-                }
+                      isAndroidPreviewPlayback
+                      && localTime <= 0.3
+                      && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+                      && Math.abs(videoEl.currentTime - targetTime) <= PREVIEW_ANDROID_BOUNDARY_DRAW_DRIFT_ALLOWANCE_SEC
+                    ) &&
+                    Math.abs(videoEl.currentTime - targetTime) > androidPreviewSyncThreshold
+                  ) {
+                    const nowMs = Date.now();
+                    const lastSeekAtMs = androidPreviewLastSeekAtRef.current[id] || 0;
+                    if (!isAndroidPreviewPlayback || nowMs - lastSeekAtMs >= PREVIEW_ANDROID_ACTIVE_SEEK_COOLDOWN_MS) {
+                      videoEl.currentTime = targetTime;
+                      if (isAndroidPreviewPlayback) {
+                        androidPreviewLastSeekAtRef.current[id] = nowMs;
+                      }
+                    }
+                  }
                 if (
                   !shouldStabilizeImageToVideoTransition &&
                   videoEl.paused &&
@@ -1920,7 +1957,8 @@ export function usePreviewEngine({
                   videoHeight: videoEl.videoHeight,
                   videoCurrentTime: videoEl.currentTime,
                   targetTime,
-                  syncThresholdSec: ANDROID_PREVIEW_DRIFT_FIX_THRESHOLD_SEC,
+                  syncThresholdSec: ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC,
+                  softDrawDriftThresholdSec: ANDROID_PREVIEW_SOFT_DRAW_DRIFT_THRESHOLD_SEC,
                 });
                 if (androidRecoveryDecision.shouldRecover) {
                   const now = Date.now();
@@ -1944,7 +1982,11 @@ export function usePreviewEngine({
                       try { videoEl.load(); } catch { /* ignore */ }
                     }
                     if (androidRecoveryDecision.shouldResyncTime && !videoEl.seeking && videoEl.readyState >= 1) {
-                      videoEl.currentTime = targetTime;
+                      const lastSeekAtMs = androidPreviewLastSeekAtRef.current[id] || 0;
+                      if (now - lastSeekAtMs >= PREVIEW_ANDROID_ACTIVE_SEEK_COOLDOWN_MS) {
+                        videoEl.currentTime = targetTime;
+                        androidPreviewLastSeekAtRef.current[id] = now;
+                      }
                     }
                     if (
                       androidRecoveryDecision.shouldRetryPlay
@@ -1980,7 +2022,12 @@ export function usePreviewEngine({
             const isVideoReady = isVideo
               ? videoEl.readyState >= 2 && !videoEl.seeking
               : false;
-            const isReady = isVideo ? isVideoReady : imgEl.complete;
+            const canSoftDrawActiveVideo =
+              isVideo
+              && id === activeId
+              && allowAndroidPreviewActiveSoftDraw
+              && !shouldSkipAndroidPreviewActiveDraw;
+            const isReady = isVideo ? (isVideoReady || canSoftDrawActiveVideo) : imgEl.complete;
             const shouldSkipVideoDrawForFadeTail =
               isVideo
               && id === activeId
@@ -2016,12 +2063,51 @@ export function usePreviewEngine({
                 }
 
                 ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-                ctx.drawImage(element as CanvasImageSource, -elemW / 2, -elemH / 2, elemW, elemH);
-                ctx.restore();
-                ctx.globalAlpha = 1.0;
-                didUpdateCanvas = true;
+                let restoredAfterSoftDrawFailure = false;
+                try {
+                  ctx.drawImage(element as CanvasImageSource, -elemW / 2, -elemH / 2, elemW, elemH);
+                  if (canSoftDrawActiveVideo) {
+                    logInfo('RENDER', 'Android active soft draw allowed', {
+                      activeId: id,
+                      readyState: videoEl.readyState,
+                      paused: videoEl.paused,
+                      seeking: videoEl.seeking,
+                      videoCurrentTime: videoEl.currentTime,
+                      targetTime: activeId === id && activeIndex !== -1 ? (conf.trimStart || 0) + localTime : null,
+                      forceDrawActiveVideo: forceDrawAndroidPreviewActiveVideo,
+                    });
+                  }
+                  didUpdateCanvas = true;
+                } catch (error) {
+                  if (!canSoftDrawActiveVideo) {
+                    throw error;
+                  }
+                  ctx.restore();
+                  restoredAfterSoftDrawFailure = true;
+                  ctx.globalAlpha = 1.0;
+                  if (lastDrawableFrameRef.current) {
+                    ctx.drawImage(lastDrawableFrameRef.current as CanvasImageSource, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                    didUpdateCanvas = true;
+                  }
+                  holdFrame = true;
+                  shouldSkipAndroidPreviewActiveDraw = true;
+                  logWarn('RENDER', 'Android active soft draw fallback to previous frame', {
+                    activeId: id,
+                    readyState: videoEl.readyState,
+                    paused: videoEl.paused,
+                    seeking: videoEl.seeking,
+                    error: error instanceof Error ? error.message : String(error),
+                    usedPreviousFrame: !!lastDrawableFrameRef.current,
+                  });
+                } finally {
+                  if (!restoredAfterSoftDrawFailure) {
+                    ctx.restore();
+                  }
+                  ctx.globalAlpha = 1.0;
+                }
                 if (
-                  isAndroidPreviewPlayback
+                  didUpdateCanvas
+                  && isAndroidPreviewPlayback
                   && !_isExporting
                   && isVideo
                   && id === activeId

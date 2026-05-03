@@ -141,6 +141,7 @@ export interface AndroidPreviewRecoveryDecisionOptions {
   targetTime: number;
   syncThresholdSec?: number;
   readyStateFloor?: number;
+  softDrawDriftThresholdSec?: number;
 }
 
 export interface AndroidPreviewRecoveryDecision {
@@ -159,6 +160,8 @@ const MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME: HTMLMediaElement['readyState'] =
     : 2;
 export const ANDROID_PREVIEW_TIGHT_SYNC_THRESHOLD_SEC = 0.08;
 export const ANDROID_PREVIEW_DRIFT_FIX_THRESHOLD_SEC = ANDROID_PREVIEW_TIGHT_SYNC_THRESHOLD_SEC;
+export const ANDROID_PREVIEW_SOFT_DRAW_DRIFT_THRESHOLD_SEC = 0.25;
+export const ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC = 0.45;
 export const EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC = 0.004;
 
 /**
@@ -689,7 +692,9 @@ export function getAndroidPreviewRecoveryDecision(
   options: AndroidPreviewRecoveryDecisionOptions,
 ): AndroidPreviewRecoveryDecision {
   const readyStateFloor = options.readyStateFloor ?? MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME;
-  const syncThresholdSec = options.syncThresholdSec ?? ANDROID_PREVIEW_DRIFT_FIX_THRESHOLD_SEC;
+  const syncThresholdSec = options.syncThresholdSec ?? ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC;
+  const softDrawDriftThresholdSec =
+    options.softDrawDriftThresholdSec ?? ANDROID_PREVIEW_SOFT_DRAW_DRIFT_THRESHOLD_SEC;
   const empty: AndroidPreviewRecoveryDecision = {
     shouldRecover: false,
     shouldHoldFrame: false,
@@ -701,6 +706,13 @@ export function getAndroidPreviewRecoveryDecision(
   if (!options.isAndroid || options.isIosSafari) return empty;
   if (options.isExporting || !options.isActivePlaying || options.isUserSeeking) return empty;
   if (options.videoPaused) return { ...empty, shouldRecover: true, shouldHoldFrame: true, shouldRetryPlay: true, shouldRebaseClockAfterReady: true, reason: 'paused-during-playback' };
+  if (
+    options.videoWidth > 0
+    && options.videoHeight > 0
+    && Math.abs(options.videoCurrentTime - options.targetTime) < softDrawDriftThresholdSec
+  ) {
+    return empty;
+  }
   if (options.videoSeeking) return { ...empty, shouldRecover: true, shouldHoldFrame: true, shouldRebaseClockAfterReady: true, reason: 'seeking-during-playback' };
   if (options.videoReadyState < readyStateFloor) return { ...empty, shouldRecover: true, shouldHoldFrame: true, shouldRebaseClockAfterReady: true, reason: 'ready-state-low' };
   if (options.videoWidth <= 0 || options.videoHeight <= 0) return { ...empty, shouldRecover: true, shouldHoldFrame: true, shouldRebaseClockAfterReady: true, reason: 'dimension-zero' };

@@ -286,6 +286,18 @@
   - preroll により境界到達時に次動画が trimStart を若干超えている場合、active 化後に active section の sync（`shouldDeferTrimmedHeadSync`）が補正する。これは small backward seek on warm decoder なので許容範囲内
   - active video の `shouldHoldTrimmedVideoHead`（trimmed head 0.25s hold）との組み合わせで seamless に移行できる
 
+### 2-23. Android standard preview は active video の soft draw を優先して hold を長引かせない
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/previewPlatform.ts`, `src/test/standardPreviewEngine.test.tsx`, `src/test/previewPlatform.test.ts`
+- **問題**: Android Chrome では active video が実際には再生継続して `currentTime` も進んでいるのに、`readyState=1` や `seeking=true` が残ることがあり、保守的な hold / recovery 判定だけで canvas 描画を止めると「動画は動いているのに preview だけ固まる」状態になる
+- **対策**:
+  - Android `standard` preview の非 export / 非 seek 再生中は、`videoWidth|videoHeight > 0`・`paused === false`・`|currentTime - targetTime| < 0.25s` を満たす active video を soft drawable とみなし、`readyState` / `seeking` だけでは hold しない
+  - trimmed entry hold は最大 3 フレームに制限し、その後は `readyState=1` / `seeking=true` でも active video の `drawImage` を試す
+  - active playback 中の `currentTime` 補正は drift `0.45s` 超かつ `!seeking` かつ前回 seek から 500ms 以上経過した場合だけに抑え、draw 失敗時のみ直前フレームへ fallback する
+- **注意**:
+  - この緩和は Android `standard` preview の live draw 専用。iOS Safari、export、audio routing、inactive reset には広げない
+  - `drawImage` 失敗時は前フレーム fallback を許容するが、`readyState` / `seeking` の見かけだけで active video の描画を止める挙動へ戻さない
+
 ---
 
 ## 3. AudioContext 管理

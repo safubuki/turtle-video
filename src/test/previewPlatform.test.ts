@@ -765,19 +765,23 @@ describe('preview platform helpers', () => {
     ).toBe(false);
   });
 
-  it('Android recovery decision helper は paused/seeking/readyState不足/dimension/drift を判定する', () => {
+  it('Android recovery decision helper は paused/dimension/大きいdrift を判定し、同期済み active video は hold しない', () => {
     expect(getAndroidPreviewRecoveryDecision({
       isAndroid: true, isIosSafari: false, isExporting: false, isActivePlaying: true, isUserSeeking: false,
       videoPaused: true, videoSeeking: false, videoReadyState: 4, videoWidth: 1920, videoHeight: 1080, videoCurrentTime: 1, targetTime: 1,
     }).reason).toBe('paused-during-playback');
-    expect(getAndroidPreviewRecoveryDecision({
+    const seekingButSynced = getAndroidPreviewRecoveryDecision({
       isAndroid: true, isIosSafari: false, isExporting: false, isActivePlaying: true, isUserSeeking: false,
       videoPaused: false, videoSeeking: true, videoReadyState: 4, videoWidth: 1920, videoHeight: 1080, videoCurrentTime: 1, targetTime: 1,
-    }).reason).toBe('seeking-during-playback');
-    expect(getAndroidPreviewRecoveryDecision({
+    });
+    expect(seekingButSynced.reason).toBeNull();
+    expect(seekingButSynced.shouldHoldFrame).toBe(false);
+    const lowReadyStateButSynced = getAndroidPreviewRecoveryDecision({
       isAndroid: true, isIosSafari: false, isExporting: false, isActivePlaying: true, isUserSeeking: false,
       videoPaused: false, videoSeeking: false, videoReadyState: 1, videoWidth: 1920, videoHeight: 1080, videoCurrentTime: 1, targetTime: 1,
-    }).reason).toBe('ready-state-low');
+    });
+    expect(lowReadyStateButSynced.reason).toBeNull();
+    expect(lowReadyStateButSynced.shouldHoldFrame).toBe(false);
     expect(getAndroidPreviewRecoveryDecision({
       isAndroid: true, isIosSafari: false, isExporting: false, isActivePlaying: true, isUserSeeking: false,
       videoPaused: false, videoSeeking: false, videoReadyState: 4, videoWidth: 0, videoHeight: 1080, videoCurrentTime: 1, targetTime: 1,
