@@ -158,6 +158,31 @@ interface UsePreviewEngineResult {
   startEngine: (fromTime: number, isExportMode: boolean) => Promise<void>;
 }
 
+type BoundaryPhase =
+  | 'idle'
+  | 'preparing-next'
+  | 'bridging'
+  | 'committed'
+  | 'failed-soft';
+
+interface AndroidBoundaryState {
+  boundaryId: string;
+  previousId: string | null;
+  nextId: string;
+  segmentIndex: number;
+  boundaryTimeSec: number;
+  trimStartSec: number;
+  phase: BoundaryPhase;
+  seekInFlight: boolean;
+  committed: boolean;
+  lastStableFrame: ImageBitmap | null;
+}
+
+interface AndroidBoundaryRuntimeState extends AndroidBoundaryState {
+  lastLoggedPhase: BoundaryPhase | null;
+  seekCleanup: (() => void) | null;
+}
+
 type PreviewEngineMode =
   | 'idle'
   | 'preview'
@@ -257,13 +282,9 @@ const PREVIEW_START_READY_SYNC_TOLERANCE_SEC = 0.05;
 const PREVIEW_ANDROID_TRIMMED_VIDEO_SYNC_TOLERANCE_SEC = 0.05;
 const PREVIEW_ANDROID_TRIMMED_VIDEO_HEAD_HOLD_WINDOW_SEC = 0.25;
 const PREVIEW_ANDROID_BOUNDARY_DRAW_DRIFT_ALLOWANCE_SEC = ANDROID_PREVIEW_TIGHT_SYNC_THRESHOLD_SEC;
-const PREVIEW_ANDROID_BOUNDARY_ADVANCE_READY_THRESHOLD_MS = 20;
-const PREVIEW_ANDROID_BOUNDARY_LAG_THRESHOLD_MS = 80;
-const PREVIEW_ANDROID_BOUNDARY_VISUAL_BLEND_HOLD_MS = 80;
-const PREVIEW_ANDROID_BOUNDARY_VISUAL_BLEND_MAX_MS = 180;
-const PREVIEW_ANDROID_BOUNDARY_CLOCK_ABSORB_MAX_MS = 120;
-const PREVIEW_ANDROID_BOUNDARY_CLOCK_ABSORB_PER_FRAME_MS = 24;
 const PREVIEW_ANDROID_BOUNDARY_CORRECTION_GRACE_SEC = 0.3;
+const PREVIEW_ANDROID_BOUNDARY_SAFE_SEEK_EPSILON_SEC = 0.08;
+const PREVIEW_ANDROID_BOUNDARY_COMMIT_DRIFT_TOLERANCE_SEC = 0.10;
 const TRIMMED_ENTRY_SOFT_DRIFT_ALLOWANCE_SEC = ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC;
 const PREVIEW_ANDROID_BGM_SOFT_SYNC_TOLERANCE_SEC = 0.3;
 const PREVIEW_ANDROID_ACTIVE_SEEK_COOLDOWN_MS = 500;
@@ -347,19 +368,12 @@ const requestVideoPlayWithRetry = (
   tryPlay(1);
 };
 
-const getAndroidBoundaryPreviousFrameAlpha = (elapsedMs: number): number => {
-  if (elapsedMs <= PREVIEW_ANDROID_BOUNDARY_VISUAL_BLEND_HOLD_MS) {
-    return 1;
-  }
-
-  return Math.max(
-    0,
-    1 - (
-      (elapsedMs - PREVIEW_ANDROID_BOUNDARY_VISUAL_BLEND_HOLD_MS)
-      / (PREVIEW_ANDROID_BOUNDARY_VISUAL_BLEND_MAX_MS - PREVIEW_ANDROID_BOUNDARY_VISUAL_BLEND_HOLD_MS)
-    ),
-  );
-};
+const canDrawVideo = (video: HTMLVideoElement): boolean => (
+  video.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+  && !video.seeking
+  && video.videoWidth > 0
+  && video.videoHeight > 0
+);
 
 /**
  * standard preview の startEngine で、active video が seek 完了・描画可能 readyState に入るまで短時間待機する。
@@ -670,6 +684,7 @@ export function usePreviewEngine({
   }>>({});
   const lastTrimmedEntryActiveIdRef = useRef<string | null>(null);
   const lastDrawableFrameRef = useRef<ImageBitmap | null>(null);
+  const androidBoundaryStateRef = useRef<AndroidBoundaryRuntimeState | null>(null);
   const androidNextVideoPrerollRef = useRef<Record<string, {
     armed: boolean;
     startedAtMs: number | null;
@@ -707,6 +722,14 @@ export function usePreviewEngine({
     lastShouldSuppressEndClear: null,
   });
   const previewLogModeRef = useRef<PreviewLogMode>(resolvePreviewLogMode());
+  const clearAndroidBoundaryState = useCallback(() => {
+    try {
+      androidBoundaryStateRef.current?.seekCleanup?.();
+    } catch {
+      /* ignore cleanup errors */
+    }
+    androidBoundaryStateRef.current = null;
+  }, []);
   const resetBoundaryDiagnosticsState = useCallback(() => {
     previewTimelineDiagnosticsRef.current.lastRafNowMs = null;
     previewTimelineDiagnosticsRef.current.lastSegmentIndex = -1;
@@ -716,7 +739,8 @@ export function usePreviewEngine({
     trimmedEntryLogStateRef.current = {};
     androidNextVideoPrerollRef.current = {};
     androidBoundarySmoothPlanRef.current = null;
-  }, []);
+    clearAndroidBoundaryState();
+  }, [clearAndroidBoundaryState]);
   const logAndroidBoundarySmoothPlan = useCallback(
     (activeEl: HTMLVideoElement | undefined, trimStart: number) => {
       const plan = androidBoundarySmoothPlanRef.current;
@@ -828,13 +852,61 @@ export function usePreviewEngine({
   );
   const shouldDeferAndroidBoundaryCurrentTimeCorrection = useCallback(
     (videoId: string | null, localTimeSec: number) => {
-      const boundaryPlan = androidBoundarySmoothPlanRef.current;
-      return !!boundaryPlan
+      const boundaryState = androidBoundaryStateRef.current;
+      return !!boundaryState
         && !!videoId
-        && boundaryPlan.activeId === videoId
-        && boundaryPlan.prerollArmed
+        && boundaryState.nextId === videoId
         && localTimeSec >= 0
         && localTimeSec <= PREVIEW_ANDROID_BOUNDARY_CORRECTION_GRACE_SEC;
+    },
+    [],
+  );
+  const requestSafeSeek = useCallback(
+    (
+      state: AndroidBoundaryRuntimeState,
+      video: HTMLVideoElement,
+      targetSec: number,
+    ) => {
+      if (state.seekInFlight) return;
+      if (Math.abs(video.currentTime - targetSec) < PREVIEW_ANDROID_BOUNDARY_SAFE_SEEK_EPSILON_SEC) return;
+
+      state.seekInFlight = true;
+      state.phase = state.committed ? 'bridging' : 'preparing-next';
+      let finished = false;
+
+      // どれか 1 つのイベントで seek 終了扱いにしたら、残りの listener も明示的に外す。
+      const cleanup = () => {
+        video.removeEventListener('seeked', finish);
+        video.removeEventListener('loadeddata', finish);
+        video.removeEventListener('canplay', finish);
+        video.removeEventListener('error', finish);
+      };
+
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        cleanup();
+        state.seekCleanup = null;
+        state.seekInFlight = false;
+        if (!state.committed) {
+          state.phase = 'bridging';
+        }
+      };
+
+      state.seekCleanup = cleanup;
+
+      video.addEventListener('seeked', finish, { once: true });
+      video.addEventListener('loadeddata', finish, { once: true });
+      video.addEventListener('canplay', finish, { once: true });
+      video.addEventListener('error', finish, { once: true });
+
+      try {
+        video.currentTime = targetSec;
+      } catch {
+        cleanup();
+        state.seekCleanup = null;
+        state.seekInFlight = false;
+      }
     },
     [],
   );
@@ -1361,6 +1433,77 @@ export function usePreviewEngine({
                 && activeEl.videoWidth > 0
                 && activeEl.videoHeight > 0
                 && activeVideoDrift < ANDROID_PREVIEW_SOFT_DRAW_DRIFT_THRESHOLD_SEC;
+              const shouldTrackAndroidBoundary =
+                isAndroidPreviewPlayback
+                && activeItem.type === 'video'
+                && previousItem?.type === 'video'
+                && localTime >= 0
+                && (
+                  localTime <= PREVIEW_ANDROID_BOUNDARY_CORRECTION_GRACE_SEC
+                  || (
+                    androidBoundaryStateRef.current?.nextId === activeId
+                    && !androidBoundaryStateRef.current.committed
+                  )
+                );
+              let boundaryState = androidBoundaryStateRef.current;
+              if (!shouldTrackAndroidBoundary) {
+                if (boundaryState?.nextId === activeId) {
+                  clearAndroidBoundaryState();
+                  boundaryState = null;
+                }
+              } else {
+                const boundaryId = `${activeIndex}:${previousItem?.id ?? 'none'}->${activeId}`;
+                if (!boundaryState || boundaryState.boundaryId !== boundaryId) {
+                  clearAndroidBoundaryState();
+                  boundaryState = {
+                    boundaryId,
+                    previousId: previousItem?.id ?? null,
+                    nextId: activeId,
+                    segmentIndex: activeIndex,
+                    boundaryTimeSec: time - localTime,
+                    trimStartSec: trimStart,
+                    phase: 'preparing-next',
+                    seekInFlight: false,
+                    committed: false,
+                    lastStableFrame: lastDrawableFrameRef.current,
+                    lastLoggedPhase: null,
+                    seekCleanup: null,
+                  };
+                  androidBoundaryStateRef.current = boundaryState;
+                } else if (!boundaryState.lastStableFrame && lastDrawableFrameRef.current) {
+                  boundaryState.lastStableFrame = lastDrawableFrameRef.current;
+                }
+              }
+              const canCommitAndroidBoundary =
+                !!boundaryState
+                && canDrawVideo(activeEl)
+                && !boundaryState.seekInFlight
+                && activeVideoDrift <= PREVIEW_ANDROID_BOUNDARY_COMMIT_DRIFT_TOLERANCE_SEC;
+              if (boundaryState && canCommitAndroidBoundary) {
+                boundaryState.committed = true;
+                boundaryState.phase = 'committed';
+              } else if (boundaryState) {
+                boundaryState.phase = boundaryState.seekInFlight ? 'bridging' : 'preparing-next';
+              }
+              if (boundaryState && boundaryState.lastLoggedPhase !== boundaryState.phase) {
+                boundaryState.lastLoggedPhase = boundaryState.phase;
+                const boundaryLogMessage = boundaryState.committed
+                  ? 'canCommit true → commitNextVideo'
+                  : 'canCommit false → drawLastStableFrame';
+                logInfo('RENDER', boundaryLogMessage, {
+                  boundaryId: boundaryState.boundaryId,
+                  segmentIndex: boundaryState.segmentIndex,
+                  previousId: boundaryState.previousId,
+                  nextId: boundaryState.nextId,
+                  phase: boundaryState.phase,
+                  seekInFlight: boundaryState.seekInFlight,
+                  drift: activeVideoDrift,
+                  readyState: activeEl.readyState,
+                  seeking: activeEl.seeking,
+                  targetTime,
+                  videoCurrentTime: activeEl.currentTime,
+                });
+              }
               const warmupState = androidBoundaryWarmupRef.current[activeId];
               const isAndroidBoundaryWarmupEnabled = false;
               if (isAndroidPreviewPlayback && isAndroidBoundaryWarmupEnabled && localTime >= 0 && localTime <= 0.12) {
@@ -1387,11 +1530,7 @@ export function usePreviewEngine({
               const entryState = androidTrimEntryStateRef.current[activeId]
                 ?? { didHardSeek: false, didRebaseClock: false, holdFrameCount: 0 };
               androidTrimEntryStateRef.current[activeId] = entryState;
-              const isAndroidVideoToVideoBoundary =
-                isAndroidPreviewPlayback
-                && activeItem.type === 'video'
-                && previousItem?.type === 'video'
-                && localTime >= 0;
+              const isAndroidVideoToVideoBoundary = shouldTrackAndroidBoundary;
               if (isAndroidVideoToVideoBoundary) {
                 const currentPlan = androidBoundarySmoothPlanRef.current;
                 if (
@@ -1426,92 +1565,23 @@ export function usePreviewEngine({
                 time >= totalDurationRef.current - PREVIEW_END_THRESHOLD_SEC;
               const isLastTimelineItem = activeIndex === currentItems.length - 1;
               const holdAndroidPreviewFrame = () => {
-                const shouldUseVisualBridge =
-                  isAndroidVideoToVideoBoundary
-                  && !isTimelineEnd
-                  && !!lastDrawableFrameRef.current
-                  && localTime >= 0
-                  && localTime <= PREVIEW_ANDROID_BOUNDARY_VISUAL_BLEND_MAX_MS / 1000
-                  && (
-                    activeEl.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
-                    || activeEl.seeking
-                    || currentTimeAdvancedMs < PREVIEW_ANDROID_BOUNDARY_ADVANCE_READY_THRESHOLD_MS
-                    || activeVideoDrift > 0.10
-                  );
-                if (shouldUseVisualBridge) {
-                  const elapsedMs = Math.min(
-                    PREVIEW_ANDROID_BOUNDARY_VISUAL_BLEND_MAX_MS,
-                    Math.max(0, Math.round(localTime * 1000)),
-                  );
-                  const previousFrameAlpha = getAndroidBoundaryPreviousFrameAlpha(elapsedMs);
-                  const canDrawActiveVideo =
-                    activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
-                    && !activeEl.seeking
-                    && activeEl.videoWidth > 0
-                    && activeEl.videoHeight > 0;
-                  if (canDrawActiveVideo) {
-                    ctx.globalAlpha = 1.0;
-                    ctx.drawImage(activeEl, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-                  }
-                  ctx.globalAlpha = previousFrameAlpha;
-                  ctx.drawImage(lastDrawableFrameRef.current as CanvasImageSource, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                const stableFrame = boundaryState?.lastStableFrame ?? lastDrawableFrameRef.current;
+                if (stableFrame) {
                   ctx.globalAlpha = 1.0;
+                  ctx.drawImage(stableFrame as CanvasImageSource, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
                   didUpdateCanvas = true;
-                  bridgeState.bridgeFrameCount += 1;
-                  if (boundarySmoothPlan) {
-                    boundarySmoothPlan.usedVisualBlend = true;
-                    boundarySmoothPlan.visualBlendMs = Math.max(boundarySmoothPlan.visualBlendMs, elapsedMs);
-                  }
-                  logInfo('RENDER', '[DIAG-BOUNDARY-VISUAL-BRIDGE]', {
-                    previousId: previousItem?.id ?? null,
-                    activeId,
-                    localTime,
-                    trimStart,
-                    readyState: activeEl.readyState,
-                    paused: activeEl.paused,
-                    seeking: activeEl.seeking,
-                    videoCurrentTime: activeEl.currentTime,
-                    targetTime,
-                    currentTimeAdvancedMs,
-                    bridgeFrameCount: bridgeState.bridgeFrameCount,
-                    usedVisualBridge: true,
-                    isTimelineEnd,
-                    isLastTimelineItem,
-                    didRebaseClock: entryState.didRebaseClock,
-                    didHardSeek: entryState.didHardSeek,
-                  });
                 }
                 holdFrame = true;
                 shouldSkipAndroidPreviewActiveDraw = true;
+                allowAndroidPreviewActiveSoftDraw = false;
+                forceDrawAndroidPreviewActiveVideo = false;
+                if (isAndroidVideoToVideoBoundary && boundaryState && !boundaryState.committed) {
+                  boundaryState.phase = boundaryState.seekInFlight ? 'bridging' : 'failed-soft';
+                }
                 logAndroidPreviewHold(activeId, time, activeEl);
               };
               const shouldDeferBoundaryCurrentTimeCorrection =
                 shouldDeferAndroidBoundaryCurrentTimeCorrection(activeId, localTime);
-              if (
-                boundarySmoothPlan
-                && localTime >= 0
-                && localTime <= PREVIEW_ANDROID_BOUNDARY_VISUAL_BLEND_MAX_MS / 1000
-                && !!lastDrawableFrameRef.current
-              ) {
-                const boundaryLagMs = Math.max(0, (targetTime - activeEl.currentTime) * 1000);
-                const remainingClockAbsorbMs =
-                  PREVIEW_ANDROID_BOUNDARY_CLOCK_ABSORB_MAX_MS - boundarySmoothPlan.clockAbsorbMs;
-                if (
-                  remainingClockAbsorbMs > 0
-                  && boundaryLagMs >= PREVIEW_ANDROID_BOUNDARY_LAG_THRESHOLD_MS
-                  && (activeEl.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME || activeEl.seeking)
-                ) {
-                  const absorbMs = Math.min(
-                    PREVIEW_ANDROID_BOUNDARY_CLOCK_ABSORB_PER_FRAME_MS,
-                    remainingClockAbsorbMs,
-                    boundaryLagMs - PREVIEW_ANDROID_BOUNDARY_LAG_THRESHOLD_MS,
-                  );
-                  if (absorbMs > 0) {
-                    startTimeRef.current += absorbMs;
-                    boundarySmoothPlan.clockAbsorbMs += absorbMs;
-                  }
-                }
-              }
               const shouldHoldTrimmedVideoHead =
                 isAndroidPreviewPlayback
                 && activeItem.type === 'video'
@@ -1669,18 +1739,15 @@ export function usePreviewEngine({
                   entryState.didRebaseClock = true;
                 }
                 const isDrawablePlaying =
-                  activeEl.readyState >= 3
-                  && !activeEl.paused
-                  && !activeEl.seeking
-                  && activeEl.videoWidth > 0
-                  && activeEl.videoHeight > 0;
-                if (!isDrawablePlaying && entryState.holdFrameCount < 3) {
+                  canDrawVideo(activeEl)
+                  && !activeEl.paused;
+                if (!isDrawablePlaying) {
                   holdAndroidPreviewFrame();
                   entryState.holdFrameCount += 1;
                 } else {
                   holdFrame = false;
                   shouldSkipAndroidPreviewActiveDraw = false;
-                  forceDrawAndroidPreviewActiveVideo = !isDrawablePlaying;
+                  forceDrawAndroidPreviewActiveVideo = false;
                 }
                 logInfo('RENDER', '[DIAG-PREVIEW-BOUNDARY] Android trimmed entry hold', {
                   activeId,
@@ -1788,23 +1855,29 @@ export function usePreviewEngine({
               }
               let didApplyAndroidPreviewDriftFix = false;
               const shouldHoldForAndroidPreviewNotDrawable = isAndroidPreviewPlayback
-                && !canAttemptAndroidPreviewSoftDrawBase
-                && !forceDrawAndroidPreviewActiveVideo
+                && !canDrawVideo(activeEl)
                 && (
                   activeEl.seeking
                   || activeEl.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
                   || activeEl.videoWidth <= 0
                   || activeEl.videoHeight <= 0
                 );
-              allowAndroidPreviewActiveSoftDraw =
-                (canAttemptAndroidPreviewSoftDrawBase || forceDrawAndroidPreviewActiveVideo)
-                && !shouldSkipAndroidPreviewActiveDraw;
+              if (boundaryState && !canCommitAndroidBoundary) {
+                holdAndroidPreviewFrame();
+                if (
+                  !boundaryState.seekInFlight
+                  && Math.abs(activeEl.currentTime - targetTime) >= PREVIEW_ANDROID_BOUNDARY_SAFE_SEEK_EPSILON_SEC
+                ) {
+                  requestSafeSeek(boundaryState, activeEl, targetTime);
+                }
+              }
               if (
                 isAndroidPreviewPlayback
                 && activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
                 && !activeEl.seeking
                 && !isTrimmedEntry
                 && !shouldDeferBoundaryCurrentTimeCorrection
+                && !boundaryState
                 && activeVideoDrift > TRIMMED_ENTRY_SOFT_DRIFT_ALLOWANCE_SEC
               ) {
                 const now = Date.now();
@@ -2370,9 +2443,16 @@ export function usePreviewEngine({
                   && id === activeId
                   && typeof createImageBitmap === 'function'
                 ) {
+                  const boundaryIdForBitmap = androidBoundaryStateRef.current?.boundaryId ?? null;
                   void createImageBitmap(canvas).then((bitmap) => {
                     lastDrawableFrameRef.current?.close?.();
                     lastDrawableFrameRef.current = bitmap;
+                    if (
+                      boundaryIdForBitmap
+                      && androidBoundaryStateRef.current?.boundaryId === boundaryIdForBitmap
+                    ) {
+                      androidBoundaryStateRef.current.lastStableFrame = bitmap;
+                    }
                   }).catch(() => {});
                 }
               }
