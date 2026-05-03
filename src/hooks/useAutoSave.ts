@@ -23,7 +23,7 @@ export type AutoSaveIntervalOption = 0 | 1 | 2 | 5;
 export const DEFAULT_AUTO_SAVE_INTERVAL: AutoSaveIntervalOption = 2;
 const AUTO_SAVE_RETURN_CHECK_DELAY_MS = 80;
 
-type AutoSaveRunResult = 'saved' | 'failed' | 'skipped-processing' | 'skipped-nochange' | 'skipped-empty';
+type AutoSaveRunResult = 'saved' | 'failed' | 'skipped-processing' | 'skipped-preview' | 'skipped-nochange' | 'skipped-empty';
 type AutoSaveRunOptions = {
   force?: boolean;
 };
@@ -98,6 +98,7 @@ export function useAutoSave() {
   
   // エクスポート中かどうか
   const isProcessing = useUIStore((s) => s.isProcessing);
+  const isPreviewPlaying = useUIStore((s) => s.isPreviewPlaying);
   
   const saveProjectAuto = useProjectStore((s) => s.saveProjectAuto);
   const lastAutoSave = useProjectStore((s) => s.lastAutoSave);
@@ -208,6 +209,10 @@ export function useAutoSave() {
     if (useUIStore.getState().isProcessing) {
       return 'skipped-processing';
     }
+    if (useUIStore.getState().isPreviewPlaying) {
+      useLogStore.getState().debug('SYSTEM', 'preview再生中のため自動保存を延期');
+      return 'skipped-preview';
+    }
     
     const currentHash = computeHash();
     
@@ -275,7 +280,7 @@ export function useAutoSave() {
     useProjectStore.getState().updateAutoSaveRuntime({ status: 'running' });
     try {
       const result = await performAutoSaveRef.current(options);
-      if (result !== 'skipped-processing' && result !== 'failed') {
+      if (result !== 'skipped-processing' && result !== 'skipped-preview' && result !== 'failed') {
         const now = new Date();
         const activityAt = now.toISOString();
         hasObservedAutoSaveActivityRef.current = true;
@@ -287,7 +292,7 @@ export function useAutoSave() {
         return;
       }
       useProjectStore.getState().updateAutoSaveRuntime({
-        status: result === 'skipped-processing' ? 'paused-processing' : 'failed',
+        status: (result === 'skipped-processing' || result === 'skipped-preview') ? 'paused-processing' : 'failed',
       });
     } finally {
       isAutoSaveRunningRef.current = false;
@@ -351,7 +356,9 @@ export function useAutoSave() {
 
     // 初回起動時は少し遅延してから保存情報を更新
     const initTimeout = window.setTimeout(() => {
-      useProjectStore.getState().refreshSaveInfo();
+      if (!useUIStore.getState().isPreviewPlaying) {
+        useProjectStore.getState().refreshSaveInfo();
+      }
     }, 1000);
 
     const intervalMs = autoSaveMinutes * 60 * 1000;
@@ -495,7 +502,7 @@ export function useAutoSave() {
   
   useEffect(() => {
     if (autoSaveMinutes === 0) return;
-    if (isProcessing) return;
+    if (isProcessing || isPreviewPlaying) return;
     if (document.visibilityState === 'hidden') return;
 
     const intervalMs = autoSaveMinutes * 60 * 1000;
@@ -511,7 +518,7 @@ export function useAutoSave() {
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [autoSaveMinutes, isProcessing, lastAutoSave, runAutoSave]);
+  }, [autoSaveMinutes, isPreviewPlaying, isProcessing, lastAutoSave, runAutoSave]);
 
   useEffect(() => {
     if (autoSaveRestartToken === handledAutoSaveRestartTokenRef.current) return;

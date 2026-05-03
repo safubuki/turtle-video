@@ -18,6 +18,7 @@ import { useMediaStore } from '../../stores/mediaStore';
 import { useAudioStore } from '../../stores/audioStore';
 import { useCaptionStore } from '../../stores/captionStore';
 import { useLogStore } from '../../stores/logStore';
+import { useUIStore } from '../../stores/uiStore';
 import type { SaveSlot } from '../../utils/indexedDB';
 import {
   getAutoSaveInterval,
@@ -204,6 +205,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, onBeforeLoadPr
   const restoreCaptions = useCaptionStore((s) => s.restoreFromSave);
   
   // 現在編集中のデータがあるかどうか
+  const isPreviewPlaying = useUIStore((s) => s.isPreviewPlaying);
   const hasCurrentData = mediaItems.length > 0 || bgm !== null || narrations.length > 0 || captions.length > 0;
   
   // 保存データがあるかどうか
@@ -273,15 +275,17 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, onBeforeLoadPr
   // 初回表示時に保存情報を更新
   useEffect(() => {
     if (isOpen) {
-      void refreshSaveInfo();
-      void refreshSaveHealth(saveRuntime.getPersistenceHealth);
+      if (!isPreviewPlaying) {
+        void refreshSaveInfo();
+        void refreshSaveHealth(saveRuntime.getPersistenceHealth);
+      }
       setMode('menu');
       setSelectedSlot(null);
       setAutoSaveIntervalState(getAutoSaveInterval());
       setShowHelp(false);
       setRelativeTimeNowMs(Date.now());
     }
-  }, [isOpen, refreshSaveHealth, refreshSaveInfo, saveRuntime]);
+  }, [isOpen, isPreviewPlaying, refreshSaveHealth, refreshSaveInfo, saveRuntime]);
 
   useEffect(() => {
     if (!isOpen) return;
