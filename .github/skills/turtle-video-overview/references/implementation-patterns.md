@@ -303,6 +303,19 @@
   - `drawImage` 失敗時は前フレーム fallback を許容するが、長時間 hold や shared workaround に戻さない
   - active video の hard resync は grace 窓の後にだけ許可し、境界直後の `currentTime` 書き戻しを増やさない
 
+### 2-24. Android standard preview の video 境界は canDrawVideo + safe seek で commit する
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **問題**: Android Chrome の live preview で `readyState=1` や `seeking=true` の次動画を境界直後に draw すると、瞬停・黒画面・2 本目の立ち上がり遅延が残りやすかった。`clockAbsorbMs` や soft draw / force draw のような ms 調整系 workaround は端末性能依存で不安定だった。
+- **対策**:
+  - `canDrawVideo()` を source of truth にして、`readyState >= HAVE_CURRENT_DATA`・`!seeking`・`videoWidth/Height > 0` を満たす video だけを canvas に描画する
+  - Android `standard` preview の `video -> video` 境界では `AndroidBoundaryState` を持ち、`canCommit` が成立するまでは active draw を止めて前回の stable frame を維持する
+  - 境界中のズレ補正は `requestSafeSeek()` 1 本に寄せ、`seekInFlight` 中の追加 seek と `clockAbsorbMs` による preview clock 歪みを止める
+- **注意**:
+  - `readyState < 2` または `seeking=true` の video を draw する workaround を戻さない
+  - 境界直後の sync 補正は `canCommit` 判定を優先し、毎フレーム `currentTime` を書き戻さない
+  - この制御は Android / PC 系の `standard` preview 専用で、`apple-safari` runtime や export pipeline には広げない
+
 ---
 
 ## 3. AudioContext 管理
