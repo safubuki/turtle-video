@@ -1845,3 +1845,13 @@
 - **注意点**:
   - free-running preroll / hard seek / visual bridge 復活や holdFrame 許容拡大で隠蔽しない。
   - Android preview 専用条件に閉じ、export/iOS/通常 preview の reset 挙動を変えない。
+
+### 13-95. Preview runtime の `usePreviewEngine` 契約は flavor 間で同期する
+
+- **ファイル**: `src/components/turtle-video/usePreviewEngine.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/components/TurtleVideo.tsx`
+- **問題**:
+  - standard flavor 側で `setPreviewPlaying` を必須パラメータに追加したあと、ベース runtime 側の `UsePreviewEngineParams` が未更新だと、`PreviewRuntime` の関数型が不一致になり CI の `tsc` が失敗する。
+- **対策**:
+  - runtime 契約として使っているベース側 `UsePreviewEngineParams` にも同じ `setPreviewPlaying` を追加し、`previewRuntime.usePreviewEngine(...)` の呼び出しオブジェクトと整合させる。
+- **注意点**:
+  - flavor 実装だけ更新しても型契約が分岐して破綻するため、`usePreviewEngine` の引数追加時はベース/標準の両実装を同時に点検する。

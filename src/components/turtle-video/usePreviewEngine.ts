@@ -90,6 +90,7 @@ interface UsePreviewEngineParams {
   setVideoDuration: (id: string, duration: number) => void;
   setCurrentTime: (time: number) => void;
   setProcessing: (processing: boolean) => void;
+  setPreviewPlaying: (playing: boolean) => void;
   setLoading: (loading: boolean) => void;
   setExportPreparationStep: (step: ExportPreparationStep | null) => void;
   setExportUrl: (url: string | null) => void;
