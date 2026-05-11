@@ -288,6 +288,7 @@ const PREVIEW_ANDROID_BOUNDARY_COMMIT_DRIFT_TOLERANCE_SEC = 0.10;
 const TRIMMED_ENTRY_SOFT_DRIFT_ALLOWANCE_SEC = ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC;
 const PREVIEW_ANDROID_BGM_SOFT_SYNC_TOLERANCE_SEC = 0.3;
 const STANDARD_PREVIEW_NEXT_VIDEO_PRELOAD_LEAD_SEC = 3.0;
+const STANDARD_PREVIEW_NEXT_VIDEO_PRELOAD_LOAD_MIN_LEAD_SEC = 0.25;
 const STANDARD_PREVIEW_NEXT_VIDEO_PRELOAD_SYNC_TOLERANCE_SEC = 0.1;
 // 描画不能時に last stable frame を許容する上限。問題を hold で隠さないよう 200ms で打ち切る。
 const PREVIEW_ANDROID_PASSIVE_HOLD_MAX_SEC = 0.2;
@@ -700,6 +701,10 @@ export function usePreviewEngine({
     targetStartSec: number;
     armLoopId: number;
   }>>({});
+  const standardBoundaryPrebufferRef = useRef<Record<string, {
+    boundaryKey: string;
+    kickedAtMs: number;
+  }>>({});
   const androidVisualBridgeStateRef = useRef<{ previousId: string | null; activeId: string | null; bridgeFrameCount: number; }>({
     previousId: null,
     activeId: null,
@@ -747,6 +752,7 @@ export function usePreviewEngine({
     lastTrimmedEntryActiveIdRef.current = null;
     trimmedEntryLogStateRef.current = {};
     androidNextVideoPrerollRef.current = {};
+    standardBoundaryPrebufferRef.current = {};
     androidBoundarySmoothPlanRef.current = null;
     androidPreviewRecoveredSegmentRef.current = {};
     clearAndroidBoundaryState();
@@ -2047,20 +2053,41 @@ export function usePreviewEngine({
             const nextElement = mediaElementsRef.current[immediateNextItem.id] as HTMLVideoElement | undefined;
             if (nextElement) {
               standardBoundaryPreloadNextVideoId = immediateNextItem.id;
+              const nextStart = immediateNextItem.trimStart || 0;
+              const boundaryKey = `${activeItemForPreload.id}->${immediateNextItem.id}:${nextStart}`;
+              const prebufferState = standardBoundaryPrebufferRef.current[immediateNextItem.id];
+              const hasKickedCurrentBoundary = prebufferState?.boundaryKey === boundaryKey;
               const didUpgradePreload = nextElement.preload !== 'auto';
               if (nextElement.preload !== 'auto') {
                 nextElement.preload = 'auto';
               }
-              if (didUpgradePreload && nextElement.readyState === 0 && !nextElement.error) {
+              const shouldKickCurrentFrameLoad =
+                !hasKickedCurrentBoundary
+                && remainingTime > STANDARD_PREVIEW_NEXT_VIDEO_PRELOAD_LOAD_MIN_LEAD_SEC
+                && nextElement.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+                && !nextElement.seeking
+                && !nextElement.error;
+              if (
+                (didUpgradePreload && nextElement.readyState === 0 && !nextElement.error)
+                || shouldKickCurrentFrameLoad
+              ) {
                 try { nextElement.load(); } catch { /* ignore */ }
+              }
+              if (shouldKickCurrentFrameLoad) {
+                standardBoundaryPrebufferRef.current[immediateNextItem.id] = {
+                  boundaryKey,
+                  kickedAtMs: Date.now(),
+                };
               }
               if (
                 !nextElement.seeking
                 && nextElement.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
                 && (nextElement.paused || nextElement.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME)
               ) {
-                const nextStart = immediateNextItem.trimStart || 0;
-                if (Math.abs(nextElement.currentTime - nextStart) > STANDARD_PREVIEW_NEXT_VIDEO_PRELOAD_SYNC_TOLERANCE_SEC) {
+                if (
+                  shouldKickCurrentFrameLoad
+                  || Math.abs(nextElement.currentTime - nextStart) > STANDARD_PREVIEW_NEXT_VIDEO_PRELOAD_SYNC_TOLERANCE_SEC
+                ) {
                   nextElement.currentTime = nextStart;
                 }
               }

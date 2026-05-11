@@ -1864,6 +1864,7 @@
   - 一方で過去の free-running silent preroll や active 境界直後の hard seek は、trimStart 付き素材で currentTime の先行・seek 残留を起こしやすい。
 - **対策**:
   - standard preview かつ直後が video の video -> video 境界だけ、境界 3 秒前から next video を `preload="auto"` に戻し、metadata 取得済みなら paused のまま `trimStart` へ合わせる。
+  - `preload="auto"` へ戻しても `readyState=1` のまま止まるブラウザがあるため、境界まで 250ms 以上残っている場合は同一境界で 1 回だけ `load()` と `trimStart` seek を明示し、current frame 取得を開始させる。
   - active 化後の `play()` は `readyState>=1` で要求し、`readyState>=2` 待ちによるデコード開始遅延を避ける。
   - これは paused prebuffer であり、muted play による free-running preroll、visual bridge、active hard seek は復活させない。
 - **注意点**:

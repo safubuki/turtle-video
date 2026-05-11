@@ -1141,6 +1141,46 @@ describe('standard preview engine', () => {
     expect(videoElement.play).not.toHaveBeenCalled();
   });
 
+  it('standard preview は metadata ready の next video に current frame 取得を1回だけキックする', () => {
+    const currentVideo = createVideoItem({
+      id: 'video-1',
+      duration: 1,
+      trimStart: 0,
+      trimEnd: 1,
+    });
+    const videoItem = createVideoItem({
+      id: 'video-2',
+      duration: 2,
+      trimStart: 1.2,
+      trimEnd: 3.2,
+    });
+    const currentVideoElement = createMockVideoElement();
+    currentVideoElement.readyState = 2;
+    currentVideoElement.seeking = false;
+    currentVideoElement.paused = false;
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 1;
+    videoElement.seeking = false;
+    videoElement.paused = true;
+    videoElement.currentTime = 1.2;
+
+    const { hook } = setupRenderFrameHarness({
+      mediaItems: [currentVideo, videoItem],
+      mediaElements: {
+        [currentVideo.id]: currentVideoElement as unknown as HTMLVideoElement,
+        [videoItem.id]: videoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+    });
+
+    hook.result.current.renderFrame(0.6, true, false);
+    hook.result.current.renderFrame(0.7, true, false);
+
+    expect(videoElement.load).toHaveBeenCalledTimes(1);
+    expect(videoElement.currentTime).toBeCloseTo(1.2);
+    expect(videoElement.preload).toBe('auto');
+    expect(videoElement.play).not.toHaveBeenCalled();
+  });
+
   it('Android preview は境界直後 500ms 以内の大きな drift でも recovery seek しない', () => {
     const currentVideo = createVideoItem({
       id: 'video-1',
