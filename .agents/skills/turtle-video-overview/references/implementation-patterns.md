@@ -1855,3 +1855,17 @@
   - runtime 契約として使っているベース側 `UsePreviewEngineParams` にも同じ `setPreviewPlaying` を追加し、`previewRuntime.usePreviewEngine(...)` の呼び出しオブジェクトと整合させる。
 - **注意点**:
   - flavor 実装だけ更新しても型契約が分岐して破綻するため、`usePreviewEngine` の引数追加時はベース/標準の両実装を同時に点検する。
+
+### 13-96. Standard preview の video -> video 境界は free-running preroll ではなく paused prebuffer で準備する
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **問題**:
+  - standard preview で境界前の next video 準備をすべて止めると、次動画が `preload=metadata` / `readyState=1` のまま active 化し、`play()` までのデコード開始が遅れて数100msのつなぎ目停止として見える。
+  - 一方で過去の free-running silent preroll や active 境界直後の hard seek は、trimStart 付き素材で currentTime の先行・seek 残留を起こしやすい。
+- **対策**:
+  - standard preview かつ直後が video の video -> video 境界だけ、境界 3 秒前から next video を `preload="auto"` に戻し、metadata 取得済みなら paused のまま `trimStart` へ合わせる。
+  - active 化後の `play()` は `readyState>=1` で要求し、`readyState>=2` 待ちによるデコード開始遅延を避ける。
+  - これは paused prebuffer であり、muted play による free-running preroll、visual bridge、active hard seek は復活させない。
+- **注意点**:
+  - image -> video や image gap を挟む future video へ広げると、画像区間中の不要 seek / load が増えるため、直後の video -> video に限定する。
+  - `preload="auto"` にした next video は inactive cleanup で即 `metadata` に戻さず、境界まで current data を保持する。

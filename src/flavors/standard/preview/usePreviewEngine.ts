@@ -287,6 +287,8 @@ const PREVIEW_ANDROID_BOUNDARY_SAFE_SEEK_EPSILON_SEC = 0.08;
 const PREVIEW_ANDROID_BOUNDARY_COMMIT_DRIFT_TOLERANCE_SEC = 0.10;
 const TRIMMED_ENTRY_SOFT_DRIFT_ALLOWANCE_SEC = ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC;
 const PREVIEW_ANDROID_BGM_SOFT_SYNC_TOLERANCE_SEC = 0.3;
+const STANDARD_PREVIEW_NEXT_VIDEO_PRELOAD_LEAD_SEC = 3.0;
+const STANDARD_PREVIEW_NEXT_VIDEO_PRELOAD_SYNC_TOLERANCE_SEC = 0.1;
 // 描画不能時に last stable frame を許容する上限。問題を hold で隠さないよう 200ms で打ち切る。
 const PREVIEW_ANDROID_PASSIVE_HOLD_MAX_SEC = 0.2;
 // recovery seek は Android Chrome の seek 連打を避けるため 1 秒以上あける。
@@ -301,6 +303,7 @@ const PREVIEW_START_READY_POLL_INTERVAL_MS = 40;
 const PREVIEW_START_READY_TIMEOUT_MS = 800;
 const DISPLAY_TIME_CLAMP_EPSILON_SEC = 0.001;
 const PREVIEW_DETAILED_TICK_LOG_INTERVAL_MS = 500;
+const MIN_VIDEO_READY_STATE_FOR_PLAY = MIN_VIDEO_READY_STATE_FOR_SEEK;
 
 type PreviewLogMode = 'smooth' | 'detailed';
 
@@ -346,6 +349,7 @@ const requestVideoPlayWithRetry = (
   videoElement: HTMLVideoElement,
   shouldContinue: () => boolean,
   retryIntervalMs = PREVIEW_PLAY_RETRY_INTERVAL_MS,
+  minReadyState = MIN_VIDEO_READY_STATE_FOR_PLAY,
 ) => {
   const tryPlay = (currentAttempt: number) => {
     if (!shouldContinue() || !videoElement.paused) return;
@@ -356,7 +360,7 @@ const requestVideoPlayWithRetry = (
         /* ignore */
       }
     }
-    if (videoElement.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME && !videoElement.seeking) {
+    if (videoElement.readyState >= minReadyState && !videoElement.seeking) {
       videoElement.play().catch(() => {
         // play() の失敗要因は毎回変わりうるため、次回 retry 時に readyState / seeking を再評価する。
         if (currentAttempt < PREVIEW_PLAY_RETRY_MAX_ATTEMPTS) {
@@ -1279,12 +1283,14 @@ export function usePreviewEngine({
         let localTime = 0;
         let activeIndex = -1;
         const currentLoopId = loopIdRef.current;
-        const isAndroidPreviewPlayback =
-          platformCapabilities.isAndroid
-          && !platformCapabilities.isIosSafari
+        const isStandardLivePreviewPlayback =
+          !platformCapabilities.isIosSafari
           && isActivePlaying
           && !_isExporting
           && !isSeekingRef.current;
+        const isAndroidPreviewPlayback =
+          platformCapabilities.isAndroid
+          && isStandardLivePreviewPlayback;
         const active = findActiveTimelineItem(currentItems, time, totalDurationRef.current);
         if (active) {
           activeId = active.id;
@@ -2026,7 +2032,42 @@ export function usePreviewEngine({
         }
 
         const nextVideoItem = findNextVideoItem(currentItems, activeIndex);
-        // Emergency fix: Android preview boundary preroll/warmup/preseek is intentionally disabled.
+        let standardBoundaryPreloadNextVideoId: string | null = null;
+        if (isStandardLivePreviewPlayback && activeIndex !== -1) {
+          const activeItemForPreload = currentItems[activeIndex];
+          const immediateNextItem = activeIndex + 1 < currentItems.length
+            ? currentItems[activeIndex + 1]
+            : null;
+          const remainingTime = Math.max(0, (activeItemForPreload?.duration ?? 0) - localTime);
+          if (
+            activeItemForPreload?.type === 'video'
+            && immediateNextItem?.type === 'video'
+            && remainingTime <= STANDARD_PREVIEW_NEXT_VIDEO_PRELOAD_LEAD_SEC
+          ) {
+            const nextElement = mediaElementsRef.current[immediateNextItem.id] as HTMLVideoElement | undefined;
+            if (nextElement) {
+              standardBoundaryPreloadNextVideoId = immediateNextItem.id;
+              const didUpgradePreload = nextElement.preload !== 'auto';
+              if (nextElement.preload !== 'auto') {
+                nextElement.preload = 'auto';
+              }
+              if (didUpgradePreload && nextElement.readyState === 0 && !nextElement.error) {
+                try { nextElement.load(); } catch { /* ignore */ }
+              }
+              if (
+                !nextElement.seeking
+                && nextElement.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
+                && (nextElement.paused || nextElement.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME)
+              ) {
+                const nextStart = immediateNextItem.trimStart || 0;
+                if (Math.abs(nextElement.currentTime - nextStart) > STANDARD_PREVIEW_NEXT_VIDEO_PRELOAD_SYNC_TOLERANCE_SEC) {
+                  nextElement.currentTime = nextStart;
+                }
+              }
+            }
+          }
+        }
+        // silent preroll/warmup state machine は停止したまま、境界前の load/preseek だけ行う。
 
         const allowExtendedFutureVideoPrewarm = !activeId || currentItems[activeIndex]?.type !== 'video';
         let nearestFutureVideoId: string | null = null;
@@ -2539,6 +2580,7 @@ export function usePreviewEngine({
                 isAndroidPreviewPlayback
                 && id === nextVideoItem?.id
                 && !!warmupState?.preseeked;
+              const isStandardBoundaryPreloadNext = id === standardBoundaryPreloadNextVideoId;
 
               // Android standard preview: 次動画の境界 450ms 前からデコーダを silent play で warm-up する。
               // preroll 開始位置は trimStart - prerollLeadSec とし、境界到達時に currentTime が trimStart に揃うようにする。
@@ -2561,7 +2603,7 @@ export function usePreviewEngine({
                 videoEl.play().catch(() => { });
               }
 
-              if (!shouldKeepVideoPrewarmed && id !== activeVideoIdRef.current) {
+              if (!shouldKeepVideoPrewarmed && !isStandardBoundaryPreloadNext && id !== activeVideoIdRef.current) {
                 delete androidNextVideoPrerollRef.current[id];
                 videoEl.preload = 'metadata';
               }

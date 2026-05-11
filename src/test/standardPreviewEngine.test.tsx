@@ -337,14 +337,18 @@ describe('standard preview engine', () => {
     audioContext?: AudioContext | null;
     currentTime?: number;
     totalDuration?: number;
+    platformCapabilities?: Partial<PlatformCapabilities>;
   }) {
     const mediaItems = options?.mediaItems ?? [createVideoItem()];
     const mediaElements = options?.mediaElements ?? {};
     const canvasContext = createMockCanvasContext();
     const logInfo = vi.fn();
     const logWarn = vi.fn();
+    const platformCapabilities = getStandardPreviewPlatformCapabilities(
+      createCapabilities(options?.platformCapabilities),
+    );
     const previewPlatformPolicy = standardPreviewRuntime.getPreviewPlatformPolicy(
-      getStandardPreviewPlatformCapabilities(createCapabilities()),
+      platformCapabilities,
     );
 
     const hook = renderHook(() =>
@@ -390,7 +394,7 @@ describe('standard preview engine', () => {
         primePreviewAudioOnlyTracksAtTimeRef: createRef(() => {}),
         endFinalizedRef: createRef(false),
         previewPlatformPolicy,
-        platformCapabilities: { isAndroid: true, isIosSafari: false },
+        platformCapabilities,
         setVideoDuration: vi.fn(),
         setCurrentTime: vi.fn(),
         setProcessing: vi.fn(),
@@ -988,6 +992,50 @@ describe('standard preview engine', () => {
     expect(didUpdateCanvas).toBe(true);
   });
 
+  it('Android preview は metadata ready の paused 境界 active video に即 play を要求する', () => {
+    const leadVideo = createVideoItem({
+      id: 'video-1',
+      duration: 1,
+      trimStart: 0,
+      trimEnd: 1,
+    });
+    const nextVideo = createVideoItem({
+      id: 'video-2',
+      duration: 2,
+      trimStart: 1.2,
+      trimEnd: 3.2,
+    });
+    const leadVideoElement = createMockVideoElement();
+    leadVideoElement.readyState = 2;
+    leadVideoElement.seeking = false;
+    leadVideoElement.paused = false;
+    const nextVideoElement = createMockVideoElement();
+    nextVideoElement.readyState = 1;
+    nextVideoElement.seeking = false;
+    nextVideoElement.paused = true;
+    nextVideoElement.currentTime = 1.22;
+
+    const { canvasContext, hook } = setupRenderFrameHarness({
+      mediaItems: [leadVideo, nextVideo],
+      mediaElements: {
+        [leadVideo.id]: leadVideoElement as unknown as HTMLVideoElement,
+        [nextVideo.id]: nextVideoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+    });
+
+    const didUpdateCanvas = hook.result.current.renderFrame(1.05, true, false);
+
+    expect(nextVideoElement.play).toHaveBeenCalledTimes(1);
+    expect(canvasContext.drawImage).not.toHaveBeenCalledWith(
+      nextVideoElement,
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+    );
+    expect(didUpdateCanvas).toBe(false);
+  });
+
   it('Android preview は clip 境界前でも次の video を preseek しない', () => {
     const imageItem = createImageItem({ id: 'image-gap', duration: 1 });
     const videoItem = createVideoItem({
@@ -1014,7 +1062,7 @@ describe('standard preview engine', () => {
     expect(videoElement.currentTime).toBeCloseTo(0.2);
   });
 
-  it('Android preview の next video preroll は無効で、境界前に currentTime を動かさない', () => {
+  it('standard preview は video -> video 境界前に次 video を trimStart へ prebuffer する', () => {
     const currentVideo = createVideoItem({
       id: 'video-1',
       duration: 1,
@@ -1034,7 +1082,7 @@ describe('standard preview engine', () => {
     const videoElement = createMockVideoElement();
     videoElement.readyState = 2;
     videoElement.seeking = false;
-    videoElement.paused = false;
+    videoElement.paused = true;
     videoElement.currentTime = 0.4;
 
     const { hook } = setupRenderFrameHarness({
@@ -1047,10 +1095,50 @@ describe('standard preview engine', () => {
 
     hook.result.current.renderFrame(0.6, true, false);
 
-    expect(videoElement.currentTime).toBeCloseTo(0.4);
+    expect(videoElement.currentTime).toBeCloseTo(0);
     expect(videoElement.muted).toBe(false);
     expect(videoElement.defaultMuted).toBe(false);
-    expect(videoElement.preload).toBe('metadata');
+    expect(videoElement.preload).toBe('auto');
+    expect(videoElement.play).not.toHaveBeenCalled();
+  });
+
+  it('standard preview は非 Android でも video -> video 境界前に次 video を prebuffer する', () => {
+    const currentVideo = createVideoItem({
+      id: 'video-1',
+      duration: 1,
+      trimStart: 0,
+      trimEnd: 1,
+    });
+    const videoItem = createVideoItem({
+      id: 'video-2',
+      duration: 2,
+      trimStart: 1.2,
+      trimEnd: 3.2,
+    });
+    const currentVideoElement = createMockVideoElement();
+    currentVideoElement.readyState = 2;
+    currentVideoElement.seeking = false;
+    currentVideoElement.paused = false;
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 2;
+    videoElement.seeking = false;
+    videoElement.paused = true;
+    videoElement.currentTime = 0.4;
+
+    const { hook } = setupRenderFrameHarness({
+      mediaItems: [currentVideo, videoItem],
+      mediaElements: {
+        [currentVideo.id]: currentVideoElement as unknown as HTMLVideoElement,
+        [videoItem.id]: videoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      platformCapabilities: { isAndroid: false },
+    });
+
+    hook.result.current.renderFrame(0.6, true, false);
+
+    expect(videoElement.currentTime).toBeCloseTo(1.2);
+    expect(videoElement.preload).toBe('auto');
+    expect(videoElement.play).not.toHaveBeenCalled();
   });
 
   it('Android preview は境界直後 500ms 以内の大きな drift でも recovery seek しない', () => {
@@ -1240,7 +1328,7 @@ describe('standard preview engine', () => {
     nowSpy.mockRestore();
   });
 
-  it('Android preview は非アクティブ next video を metadata 未取得でも preroll/load しない', () => {
+  it('standard preview は metadata 未取得の next video を load だけ開始し currentTime は動かさない', () => {
     const currentVideo = createVideoItem({
       id: 'video-1',
       duration: 1,
@@ -1270,8 +1358,9 @@ describe('standard preview engine', () => {
 
     notReadyHarness.hook.result.current.renderFrame(0.75, true, false);
 
-    expect(notReadyVideo.load).toHaveBeenCalledTimes(0);
+    expect(notReadyVideo.load).toHaveBeenCalledTimes(1);
     expect(notReadyVideo.currentTime).toBeCloseTo(0.2);
+    expect(notReadyVideo.preload).toBe('auto');
 
     const seekingVideo = createMockVideoElement();
     seekingVideo.readyState = 1;
@@ -1290,6 +1379,7 @@ describe('standard preview engine', () => {
     seekingHarness.hook.result.current.renderFrame(0.75, true, false);
 
     expect(seekingVideo.currentTime).toBeCloseTo(0.4);
+    expect(seekingVideo.preload).toBe('auto');
   });
 
   it('Android preview startEngine は inactive reset に直近の次 video だけを渡す', async () => {
