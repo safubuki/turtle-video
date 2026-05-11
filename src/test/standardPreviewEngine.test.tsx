@@ -532,6 +532,7 @@ describe('standard preview engine', () => {
     videoElement.readyState = 2;
     videoElement.seeking = false;
     videoElement.paused = false;
+    videoElement.currentTime = 5.95;
     const canvas = {
       getContext: vi.fn(() => canvasContext),
     } as unknown as HTMLCanvasElement;
@@ -594,7 +595,7 @@ describe('standard preview engine', () => {
     expect(setCurrentTime).toHaveBeenCalledWith(6);
     expect(currentTimeRef.current).toBe(6);
     expect(canvas.getContext).toHaveBeenCalledWith('2d');
-    expect(videoElement.currentTime).toBeCloseTo(5.999, 3);
+    expect(videoElement.currentTime).toBeCloseTo(5.95, 3);
     expect(videoElement.pause).toHaveBeenCalled();
     expect(bgmElement.pause).toHaveBeenCalled();
     expect(narrationElement.pause).toHaveBeenCalled();
@@ -930,6 +931,44 @@ describe('standard preview engine', () => {
 
     expect(canvasContext.drawImage).toHaveBeenCalled();
     expect(nextVideoElement.currentTime).toBeCloseTo(1.25);
+    expect(didUpdateCanvas).toBe(true);
+  });
+
+  it('preview 終端では最終フレームへ強制 seek せず現在の drawable frame を固定する', () => {
+    const videoItem = createVideoItem({
+      id: 'video-end',
+      duration: 1,
+      originalDuration: 1,
+      trimStart: 0,
+      trimEnd: 1,
+    });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 2;
+    videoElement.seeking = false;
+    videoElement.paused = false;
+    videoElement.currentTime = 0.92;
+    videoElement.duration = 1;
+
+    const { canvasContext, hook } = setupRenderFrameHarness({
+      mediaItems: [videoItem],
+      mediaElements: {
+        [videoItem.id]: videoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      totalDuration: 1,
+      platformCapabilities: { isAndroid: false },
+    });
+
+    const didUpdateCanvas = hook.result.current.renderFrame(0.99, true, false);
+
+    expect(videoElement.currentTime).toBeCloseTo(0.92);
+    expect(videoElement.pause).toHaveBeenCalledTimes(1);
+    expect(canvasContext.drawImage).toHaveBeenCalledWith(
+      videoElement,
+      0,
+      0,
+      expect.any(Number),
+      expect.any(Number),
+    );
     expect(didUpdateCanvas).toBe(true);
   });
 

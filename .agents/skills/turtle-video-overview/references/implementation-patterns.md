@@ -1870,3 +1870,16 @@
 - **注意点**:
   - image -> video や image gap を挟む future video へ広げると、画像区間中の不要 seek / load が増えるため、直後の video -> video に限定する。
   - `preload="auto"` にした next video は inactive cleanup で即 `metadata` に戻さず、境界まで current data を保持する。
+### 13-97. Preview 終端では final seek ではなく現在の drawable frame を固定する
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **問題**:
+  - 通常 preview のタイムライン終端で、最後に `duration - 0.001` へ強制 seek すると、再生の最後だけ 1 フレーム飛んだように見えることがある。
+  - video -> video 境界の paused prebuffer が効いていても、終端の final seek は別経路なので、境界カクつき解消後も終端だけ違和感が残る。
+- **対策**:
+  - 非 export の再生中 preview が終端 window に入った場合は、active video を pause し、現在 drawable なフレームをそのまま Canvas に描いて保持する。
+  - この経路では final video time への `currentTime` 強制代入を行わない。export / 明示的な停止後描画の終端合わせとは分離する。
+  - BGM の終端 mute は `endFinalizedRef` 確定後に限定し、通常 `renderFrame()` の終端直前 fade 値を不用意に 0 へ潰さない。
+- **注意点**:
+  - video -> video の paused prebuffer、Android recovery seek、trimStart 直後の sync 抑制、image -> video export stabilization は残す。
+  - free-running preroll、visual bridge、Android boundary warmup、previous-frame bitmap bridge は復活させない。
