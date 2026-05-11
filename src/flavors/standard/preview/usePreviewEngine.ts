@@ -1347,6 +1347,7 @@ export function usePreviewEngine({
         let shouldSkipAndroidPreviewActiveDraw = false;
         let allowAndroidPreviewActiveSoftDraw = false;
         let forceDrawAndroidPreviewActiveVideo = false;
+        let shouldPlayAndroidPreviewActiveVideoAfterDraw = false;
         if (activeId && activeIndex !== -1) {
           const bridgeState = androidVisualBridgeStateRef.current;
           if (bridgeState.activeId !== activeId) {
@@ -1863,22 +1864,13 @@ export function usePreviewEngine({
 
               const shouldBypassHoldForReadyActiveVideo =
                 isAndroidPreviewPlayback
-                && activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
-                && !activeEl.seeking
-                && activeEl.videoWidth > 0
-                && activeEl.videoHeight > 0
+                && canDrawVideo(activeEl)
                 && activeEl.paused;
 
               if (shouldBypassHoldForReadyActiveVideo) {
                 holdFrame = false;
                 shouldSkipAndroidPreviewActiveDraw = false;
-                if (activeEl.paused) {
-                  requestVideoPlayWithRetry(activeEl, () =>
-                    isPlayingRef.current
-                    && !isSeekingRef.current
-                    && loopIdRef.current === currentLoopId,
-                  );
-                }
+                shouldPlayAndroidPreviewActiveVideoAfterDraw = true;
                 logInfo('RENDER', '[DIAG-BOUNDARY-ACTIVE] Android active video ready', {
                   activeId,
                   localTime,
@@ -1925,6 +1917,7 @@ export function usePreviewEngine({
                 && !activeEl.seeking
                 && (localTime > 0.3 || Math.abs(activeEl.currentTime - targetTime) > PREVIEW_ANDROID_BOUNDARY_DRAW_DRIFT_ALLOWANCE_SEC)
                 && activeEl.paused
+                && !shouldPlayAndroidPreviewActiveVideoAfterDraw
               ) {
                 requestVideoPlayWithRetry(activeEl, () =>
                   isPlayingRef.current
@@ -2175,16 +2168,20 @@ export function usePreviewEngine({
                   !shouldHoldVideoAtClipEnd &&
                   !hasExportPlayFailure
                 ) {
-                  if (
+                  const canPlayAndroidPreviewActiveVideoAfterDraw =
                     isAndroidPreviewPlayback
                     && !isVideoSeeking
-                    && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
-                  ) {
-                    requestVideoPlayWithRetry(videoEl, () =>
-                      isPlayingRef.current
-                      && !isSeekingRef.current
-                      && loopIdRef.current === currentLoopId,
-                    );
+                    && canDrawVideo(videoEl);
+                  if (isAndroidPreviewPlayback) {
+                    if (canPlayAndroidPreviewActiveVideoAfterDraw) {
+                      shouldPlayAndroidPreviewActiveVideoAfterDraw = true;
+                    } else {
+                      requestVideoPlayWithRetry(videoEl, () =>
+                        isPlayingRef.current
+                        && !isSeekingRef.current
+                        && loopIdRef.current === currentLoopId,
+                      );
+                    }
                   } else {
                     videoEl.play().then(() => {
                       if (_isExporting) {
@@ -2280,6 +2277,7 @@ export function usePreviewEngine({
                     }
                     if (
                       androidRecoveryDecision.shouldRetryPlay
+                      && !shouldPlayAndroidPreviewActiveVideoAfterDraw
                       && !isVideoSeeking
                       && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
                     ) {
@@ -2390,6 +2388,19 @@ export function usePreviewEngine({
                     usedPreviousFrame: !!lastDrawableFrameRef.current,
                   });
                 } finally {
+                  if (
+                    shouldPlayAndroidPreviewActiveVideoAfterDraw
+                    && isVideo
+                    && id === activeId
+                    && videoEl.paused
+                  ) {
+                    shouldPlayAndroidPreviewActiveVideoAfterDraw = false;
+                    requestVideoPlayWithRetry(videoEl, () =>
+                      isPlayingRef.current
+                      && !isSeekingRef.current
+                      && loopIdRef.current === currentLoopId,
+                    );
+                  }
                   if (!restoredAfterSoftDrawFailure) {
                     ctx.restore();
                   }
