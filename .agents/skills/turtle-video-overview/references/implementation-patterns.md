@@ -1883,3 +1883,17 @@
 - **注意点**:
   - video -> video の paused prebuffer、Android recovery seek、trimStart 直後の sync 抑制、image -> video export stabilization は残す。
   - free-running preroll、visual bridge、Android boundary warmup、previous-frame bitmap bridge は復活させない。
+
+### 13-98. Standard preview 開始直後の同期描画は active video を止めない
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **問題**:
+  - `startEngine()` で active video に `play()` を要求した直後、同期用の `renderFrame(fromTime, false, false)` を呼ぶと paused-preview 分岐が同じ active video を `pause()` する。
+  - その結果、単一動画でも `play -> pause -> loop で play 再要求` の周期が入り、開始直後の一時停止や小さなコマ飛びとして見える。
+- **対策**:
+  - standard preview の開始直後は `renderFrame(fromTime, true, false)` として描画し、loop 中と同じ active 再生扱いにする。
+  - active video の実再生開始を待つ追加 timeout や paused 状態に基づく wall clock 補正は入れず、既存の短い 50ms settle と通常 loop に任せる。
+  - 回帰テストでは `play()` 後に同じ開始フレーム由来の `pause()` が呼ばれないことを呼び出し順で確認する。
+- **注意点**:
+  - この対策は preview 開始直後の pause 循環を切るためのもの。video -> video 境界の準備は paused prebuffer / inactive reset 保護の既存方針と分けて扱う。
+  - カクつき対策として長い `playing` 待機や startTime 補正を足すと、単一動画の開始ディレイを悪化させるため慎重に評価する。

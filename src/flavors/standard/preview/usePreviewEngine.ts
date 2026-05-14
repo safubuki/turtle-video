@@ -3518,9 +3518,10 @@ export function usePreviewEngine({
             && !isExportMode,
         });
 
-        const shouldRenderAsActivePreview =
-          !isExportMode && previewPlatformPolicy.muteNativeMediaWhenAudioRouted;
-        renderFrame(fromTime, shouldRenderAsActivePreview, isExportMode);
+        // 直前に requestVideoPlayWithRetry で active video の play() を要求済み。
+        // ここで paused-preview として描画すると renderFrame 側が active video を pause し、
+        // play -> pause -> loop で play 再要求の周期が発生して開始直後の引っかかりになる。
+        renderFrame(fromTime, true, isExportMode);
 
         await new Promise((r) => setTimeout(r, 50));
       }

@@ -489,6 +489,29 @@ describe('standard preview engine', () => {
     expect(play).toHaveBeenCalledTimes(1);
   });
 
+  it('standard preview 開始直後の同期描画は active video を再 pause しない', async () => {
+    const canvasContext = createMockCanvasContext();
+    const canvas = {
+      getContext: vi.fn(() => canvasContext),
+    } as unknown as HTMLCanvasElement;
+    const { videoElement, hook } = setupPreviewEngineHarness({ canvas });
+
+    videoElement.seeking = false;
+    videoElement.readyState = 2;
+
+    const startPromise = hook.result.current.startEngine(0, false);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(TEST_PREVIEW_START_SETTLE_MS);
+    await startPromise;
+
+    expect(videoElement.play).toHaveBeenCalledTimes(1);
+    const playOrder = videoElement.play.mock.invocationCallOrder[0];
+    const pauseCallsAfterPlay = videoElement.pause.mock.invocationCallOrder.filter(
+      (callOrder) => callOrder > playOrder,
+    );
+    expect(pauseCallsAfterPlay).toHaveLength(0);
+  });
+
   it('Android preview startEngine は BGM があっても active video 開始後に audio-only prime を試す', async () => {
     const bgm: AudioTrack = {
       file: new File([''], 'bgm.mp3', { type: 'audio/mpeg' }),
