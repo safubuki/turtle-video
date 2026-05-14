@@ -1180,7 +1180,9 @@ describe('standard preview engine', () => {
     expect(videoElement.play).not.toHaveBeenCalled();
   });
 
-  it('standard preview は metadata ready の next video に current frame 取得を1回だけキックする', () => {
+  it('standard preview は metadata ready の next video に対し破壊的な load() を呼ばない', () => {
+    // readyState=1 (HAVE_METADATA) のときに load() を呼ぶと readyState が 0 へ戻ってしまい
+    // 境界到達直前のスタッタを誘発するため、preload="auto" 維持と trimStart 合わせだけに留める。
     const currentVideo = createVideoItem({
       id: 'video-1',
       duration: 1,
@@ -1214,7 +1216,7 @@ describe('standard preview engine', () => {
     hook.result.current.renderFrame(0.6, true, false);
     hook.result.current.renderFrame(0.7, true, false);
 
-    expect(videoElement.load).toHaveBeenCalledTimes(1);
+    expect(videoElement.load).not.toHaveBeenCalled();
     expect(videoElement.currentTime).toBeCloseTo(1.2);
     expect(videoElement.preload).toBe('auto');
     expect(videoElement.play).not.toHaveBeenCalled();

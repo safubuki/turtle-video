@@ -254,9 +254,9 @@ const MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME = 2;
 const PREVIEW_START_READY_SYNC_TOLERANCE_SEC = 0.05;
 // Android preview の trim 済み video 先頭だけは厳しめに currentTime を合わせてカクつきを抑える。
 const PREVIEW_ANDROID_BGM_SOFT_SYNC_TOLERANCE_SEC = 0.3;
-const STANDARD_PREVIEW_NEXT_VIDEO_PRELOAD_LEAD_SEC = 3.0;
-const STANDARD_PREVIEW_NEXT_VIDEO_PRELOAD_LOAD_MIN_LEAD_SEC = 0.25;
-const STANDARD_PREVIEW_NEXT_VIDEO_PRELOAD_SYNC_TOLERANCE_SEC = 0.1;
+// 次動画を trimStart に合わせ直す際の許容ずれ。ブラウザの自然な buffering を尊重しつつ
+// 大きく外れているときだけ補正する。
+const STANDARD_PREVIEW_NEXT_VIDEO_PREWARM_DRIFT_TOLERANCE_SEC = 0.05;
 // 描画不能時に last stable frame を許容する上限。問題を hold で隠さないよう 200ms で打ち切る。
 const PREVIEW_ANDROID_PASSIVE_HOLD_MAX_SEC = 0.2;
 // recovery seek は Android Chrome の seek 連打を避けるため 1 秒以上あける。
@@ -632,10 +632,6 @@ export function usePreviewEngine({
   const androidPreviewHoldLogAtRef = useRef<Record<string, number>>({});
   const androidPreviewLastSeekAtRef = useRef<Record<string, number>>({});
   const androidPreviewRecoveredSegmentRef = useRef<Record<string, string>>({});
-  const standardBoundaryPrebufferRef = useRef<Record<string, {
-    boundaryKey: string;
-    kickedAtMs: number;
-  }>>({});
   const previewTimelineDiagnosticsRef = useRef<{
     lastRafNowMs: number | null;
     lastSegmentIndex: number;
@@ -653,7 +649,6 @@ export function usePreviewEngine({
     previewTimelineDiagnosticsRef.current.lastSegmentIndex = -1;
     previewTimelineDiagnosticsRef.current.lastTickLogAtMs = null;
     previewTimelineDiagnosticsRef.current.lastShouldSuppressEndClear = null;
-    standardBoundaryPrebufferRef.current = {};
     androidPreviewRecoveredSegmentRef.current = {};
   }, []);
   const maybeAssignAndroidPreviewSeek = useCallback((
@@ -1482,58 +1477,42 @@ export function usePreviewEngine({
           }
         }
 
-        let standardBoundaryPreloadNextVideoId: string | null = null;
+        // video -> video 境界では、次動画 element を境界までの残り時間に依存せず常に preload="auto"
+        // で trimStart に合わせて待機させる。これにより境界到達時に .load() で readyState を 0 へ
+        // 戻すような破壊的再フェッチを必要としない (端末性能や負荷に依存しない不変条件)。
+        // image -> video 境界は Android Chrome の seek 挙動を考慮し対象外とする (旧挙動を踏襲)。
+        let standardImmediateNextVideoId: string | null = null;
         if (isStandardLivePreviewPlayback && activeIndex !== -1) {
-          const activeItemForPreload = currentItems[activeIndex];
+          const activeItemForPrewarm = currentItems[activeIndex];
           const immediateNextItem = activeIndex + 1 < currentItems.length
             ? currentItems[activeIndex + 1]
             : null;
-          const remainingTime = Math.max(0, (activeItemForPreload?.duration ?? 0) - localTime);
           if (
-            activeItemForPreload?.type === 'video'
+            activeItemForPrewarm?.type === 'video'
             && immediateNextItem?.type === 'video'
-            && remainingTime <= STANDARD_PREVIEW_NEXT_VIDEO_PRELOAD_LEAD_SEC
           ) {
             const nextElement = mediaElementsRef.current[immediateNextItem.id] as HTMLVideoElement | undefined;
             if (nextElement) {
-              standardBoundaryPreloadNextVideoId = immediateNextItem.id;
+              standardImmediateNextVideoId = immediateNextItem.id;
               const nextStart = immediateNextItem.trimStart || 0;
-              const boundaryKey = `${activeItemForPreload.id}->${immediateNextItem.id}:${nextStart}`;
-              const prebufferState = standardBoundaryPrebufferRef.current[immediateNextItem.id];
-              const hasKickedCurrentBoundary = prebufferState?.boundaryKey === boundaryKey;
-              const didUpgradePreload = nextElement.preload !== 'auto';
               if (nextElement.preload !== 'auto') {
                 nextElement.preload = 'auto';
               }
-              const shouldKickCurrentFrameLoad =
-                !hasKickedCurrentBoundary
-                && remainingTime > STANDARD_PREVIEW_NEXT_VIDEO_PRELOAD_LOAD_MIN_LEAD_SEC
-                && nextElement.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
-                && !nextElement.seeking
-                && !nextElement.error;
-              if (
-                (didUpgradePreload && nextElement.readyState === 0 && !nextElement.error)
-                || shouldKickCurrentFrameLoad
-              ) {
+              // .load() は readyState を 0 にリセットする破壊的操作なので、自然復旧目的
+              // (まだ何も読まれていない、かつエラーも無い) のときだけ初回ロードを促す。
+              if (nextElement.readyState === 0 && !nextElement.error) {
                 try { nextElement.load(); } catch { /* ignore */ }
               }
-              if (shouldKickCurrentFrameLoad) {
-                standardBoundaryPrebufferRef.current[immediateNextItem.id] = {
-                  boundaryKey,
-                  kickedAtMs: Date.now(),
-                };
-              }
+              // 停止中で seek 完了済みなら、trimStart から大きく外れたときだけ静かに合わせる。
+              // 再生中の動画 (= 直前 clip と入れ替わる直前) は触らずに browser の buffering に任せる。
               if (
-                !nextElement.seeking
+                nextElement.paused
+                && !nextElement.seeking
                 && nextElement.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
-                && (nextElement.paused || nextElement.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME)
+                && Math.abs(nextElement.currentTime - nextStart)
+                  > STANDARD_PREVIEW_NEXT_VIDEO_PREWARM_DRIFT_TOLERANCE_SEC
               ) {
-                if (
-                  shouldKickCurrentFrameLoad
-                  || Math.abs(nextElement.currentTime - nextStart) > STANDARD_PREVIEW_NEXT_VIDEO_PRELOAD_SYNC_TOLERANCE_SEC
-                ) {
-                  nextElement.currentTime = nextStart;
-                }
+                nextElement.currentTime = nextStart;
               }
             }
           }
@@ -1978,7 +1957,7 @@ export function usePreviewEngine({
                 isActivePlaying,
                 timeSinceVideoEndSec,
               });
-              const isStandardBoundaryPreloadNext = id === standardBoundaryPreloadNextVideoId;
+              const isStandardImmediateNextVideo = id === standardImmediateNextVideoId;
 
               if (shouldRecoverAudioOnlyAfterBoundary) {
                 const ctx = audioCtxRef.current;
@@ -1996,7 +1975,7 @@ export function usePreviewEngine({
                 videoEl.play().catch(() => { });
               }
 
-              if (!shouldKeepVideoPrewarmed && !isStandardBoundaryPreloadNext && id !== activeVideoIdRef.current) {
+              if (!shouldKeepVideoPrewarmed && !isStandardImmediateNextVideo && id !== activeVideoIdRef.current) {
                 videoEl.preload = 'metadata';
               }
 
