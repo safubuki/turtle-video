@@ -273,7 +273,7 @@ const DISPLAY_TIME_CLAMP_EPSILON_SEC = 0.001;
 const PREVIEW_DETAILED_TICK_LOG_INTERVAL_MS = 500;
 const MIN_VIDEO_READY_STATE_FOR_PLAY = MIN_VIDEO_READY_STATE_FOR_SEEK;
 
-type PreviewLogMode = 'smooth' | 'detailed';
+type PreviewLogMode = 'smooth' | 'detailed' | 'boundary';
 
 const resolvePreviewLogMode = (): PreviewLogMode => {
   if (typeof globalThis === 'undefined') {
@@ -283,6 +283,9 @@ const resolvePreviewLogMode = (): PreviewLogMode => {
   const mode = globalThis.localStorage?.getItem('preview.log.mode');
   if (mode === 'detailed') {
     return 'detailed';
+  }
+  if (mode === 'boundary') {
+    return 'boundary';
   }
 
   return 'smooth';
@@ -304,6 +307,35 @@ const createPreviewExportSessionId = (): string => {
   previewExportSessionSequence += 1;
   return `preview-export-${Date.now()}-${previewExportSessionSequence}`;
 };
+interface BoundaryDiagState {
+  boundaryGlobalTimeMs: number;
+  enterRafNowMs: number;
+  previousId: string | null;
+  activeId: string | null;
+  segmentIndex: number;
+  trimStart: number;
+  readyStateAtBoundary: number | null;
+  seekingAtBoundary: boolean | null;
+  pausedAtBoundary: boolean | null;
+  currentTimeAtBoundary: number | null;
+  targetTimeAtBoundary: number | null;
+  driftAtBoundaryMs: number | null;
+  prerollArmed: boolean;
+  maxFrameGapMs: number;
+  holdFrameCount: number;
+  isAutoSaveRunningAtBoundary: boolean;
+  isProjectSavingAtBoundary: boolean;
+  isProjectLoadingAtBoundary: boolean;
+  samplePhasesDone: Set<string>;
+  smoothPlanEmitted: boolean;
+  currentTimeAt100ms: number | null;
+  readyStateAt100ms: number | null;
+  seekingAt100ms: boolean | null;
+  pausedAt100ms: boolean | null;
+  readyStateAt200ms: number | null;
+  seekingAt200ms: boolean | null;
+}
+
 // Android 実機で一発 play が落ちても数回は吸収するための retry 設定。
 const PREVIEW_PLAY_RETRY_INTERVAL_MS = 160;
 const PREVIEW_PLAY_RETRY_MAX_ATTEMPTS = 4;
@@ -637,11 +669,15 @@ export function usePreviewEngine({
     lastSegmentIndex: number;
     lastTickLogAtMs: number | null;
     lastShouldSuppressEndClear: boolean | null;
+    activeBoundary: BoundaryDiagState | null;
+    beforeBoundarySampled: boolean;
   }>({
     lastRafNowMs: null,
     lastSegmentIndex: -1,
     lastTickLogAtMs: null,
     lastShouldSuppressEndClear: null,
+    activeBoundary: null,
+    beforeBoundarySampled: false,
   });
   const previewLogModeRef = useRef<PreviewLogMode>(resolvePreviewLogMode());
   const resetBoundaryDiagnosticsState = useCallback(() => {
@@ -649,6 +685,8 @@ export function usePreviewEngine({
     previewTimelineDiagnosticsRef.current.lastSegmentIndex = -1;
     previewTimelineDiagnosticsRef.current.lastTickLogAtMs = null;
     previewTimelineDiagnosticsRef.current.lastShouldSuppressEndClear = null;
+    previewTimelineDiagnosticsRef.current.activeBoundary = null;
+    previewTimelineDiagnosticsRef.current.beforeBoundarySampled = false;
     androidPreviewRecoveredSegmentRef.current = {};
   }, []);
   const maybeAssignAndroidPreviewSeek = useCallback((
@@ -1358,6 +1396,9 @@ export function usePreviewEngine({
                 if (shouldHoldForAndroidPreviewNotDrawable) {
                   shouldSkipAndroidPreviewActiveDraw = true;
                   logAndroidPreviewHold(activeId, time, activeEl);
+                  if (previewTimelineDiagnosticsRef.current.activeBoundary !== null) {
+                    previewTimelineDiagnosticsRef.current.activeBoundary.holdFrameCount += 1;
+                  }
                 } else {
                   logInfo('RENDER', shouldPreferBlackoutAtFadeTail ? 'fade tail blackout' : 'active video frame hold', {
                     videoId: activeId,
@@ -2863,6 +2904,218 @@ export function usePreviewEngine({
           });
         }
       }
+      const isAndroidLivePreview =
+        platformCapabilities.isAndroid && !platformCapabilities.isIosSafari && !isExportMode;
+
+      // Update max frame gap for active boundary
+      if (diagnostics.activeBoundary !== null && frameGapMs !== null) {
+        diagnostics.activeBoundary.maxFrameGapMs = Math.max(
+          diagnostics.activeBoundary.maxFrameGapMs,
+          frameGapMs,
+        );
+      }
+      // Check boundary phase samples (100ms, 200ms, 300ms)
+      if (
+        diagnostics.activeBoundary !== null &&
+        !diagnostics.activeBoundary.smoothPlanEmitted &&
+        isAndroidLivePreview
+      ) {
+        const ab = diagnostics.activeBoundary;
+        const elapsedSinceBoundary = now - ab.enterRafNowMs;
+        const activeSegmentItem =
+          resolvedSegmentIndex >= 0 ? mediaItemsRef.current[resolvedSegmentIndex] : null;
+        const activeEl =
+          activeSegmentItem?.type === 'video'
+            ? (mediaElementsRef.current[activeSegmentItem.id] as HTMLVideoElement | undefined)
+            : undefined;
+
+        // Capture 100ms snapshot
+        if (elapsedSinceBoundary >= 100 && !ab.samplePhasesDone.has('after-100ms')) {
+          ab.samplePhasesDone.add('after-100ms');
+          ab.currentTimeAt100ms = activeEl?.currentTime ?? null;
+          ab.readyStateAt100ms = activeEl?.readyState ?? null;
+          ab.seekingAt100ms = activeEl?.seeking ?? null;
+          ab.pausedAt100ms = activeEl?.paused ?? null;
+          if (previewLogModeRef.current === 'boundary') {
+            logInfo('RENDER', 'preview.boundary.sample.after-100ms', {
+              previousId: ab.previousId,
+              activeId: ab.activeId,
+              globalTimeMs: Math.round(globalTimeSec * 1000),
+              localTimeMs: resolvedSegment ? Math.round(resolvedSegment.localTime * 1000) : null,
+              targetTime: ab.trimStart,
+              videoCurrentTime: ab.currentTimeAt100ms,
+              driftMs: ab.currentTimeAt100ms !== null
+                ? Math.round(Math.abs(ab.currentTimeAt100ms - ab.trimStart) * 1000)
+                : null,
+              readyState: ab.readyStateAt100ms,
+              paused: ab.pausedAt100ms,
+              seeking: ab.seekingAt100ms,
+              holdFrame: ab.holdFrameCount,
+            });
+          }
+        }
+        // Capture 200ms snapshot
+        if (elapsedSinceBoundary >= 200 && !ab.samplePhasesDone.has('after-200ms')) {
+          ab.samplePhasesDone.add('after-200ms');
+          ab.readyStateAt200ms = activeEl?.readyState ?? null;
+          ab.seekingAt200ms = activeEl?.seeking ?? null;
+          if (previewLogModeRef.current === 'boundary') {
+            logInfo('RENDER', 'preview.boundary.sample.after-200ms', {
+              previousId: ab.previousId,
+              activeId: ab.activeId,
+              globalTimeMs: Math.round(globalTimeSec * 1000),
+              localTimeMs: resolvedSegment ? Math.round(resolvedSegment.localTime * 1000) : null,
+              targetTime: ab.trimStart,
+              videoCurrentTime: activeEl?.currentTime ?? null,
+              driftMs: activeEl !== undefined
+                ? Math.round(Math.abs(activeEl.currentTime - ab.trimStart) * 1000)
+                : null,
+              readyState: activeEl?.readyState ?? null,
+              paused: activeEl?.paused ?? null,
+              seeking: activeEl?.seeking ?? null,
+              holdFrame: ab.holdFrameCount,
+            });
+          }
+        }
+        // Capture 300ms snapshot + emit smoothPlan + judgement
+        if (elapsedSinceBoundary >= 300 && !ab.samplePhasesDone.has('after-300ms')) {
+          ab.samplePhasesDone.add('after-300ms');
+          ab.smoothPlanEmitted = true;
+          const currentTimeAt300ms = activeEl?.currentTime ?? null;
+          const currentTimeAdvancedAt100ms =
+            ab.currentTimeAt100ms !== null && ab.currentTimeAtBoundary !== null
+              ? Math.round((ab.currentTimeAt100ms - ab.currentTimeAtBoundary) * 1000)
+              : null;
+          const projectState = useProjectStore.getState();
+
+          if (previewLogModeRef.current === 'boundary') {
+            logInfo('RENDER', 'preview.boundary.sample.after-300ms', {
+              previousId: ab.previousId,
+              activeId: ab.activeId,
+              globalTimeMs: Math.round(globalTimeSec * 1000),
+              localTimeMs: resolvedSegment ? Math.round(resolvedSegment.localTime * 1000) : null,
+              targetTime: ab.trimStart,
+              videoCurrentTime: currentTimeAt300ms,
+              readyState: activeEl?.readyState ?? null,
+              paused: activeEl?.paused ?? null,
+              seeking: activeEl?.seeking ?? null,
+              holdFrame: ab.holdFrameCount,
+            });
+          }
+
+          logInfo('RENDER', 'preview.boundary.smoothPlan', {
+            segmentIndex: ab.segmentIndex,
+            previousId: ab.previousId,
+            activeId: ab.activeId,
+            boundaryGlobalTimeMs: ab.boundaryGlobalTimeMs,
+            // preroll state
+            prerollArmed: ab.prerollArmed,
+            prerollStartedAtMs: null,
+            prerollTargetSec: ab.trimStart,
+            prerollLeadSec: null,
+            activeTrimStartSec: ab.trimStart,
+            // boundary state
+            activeReadyStateAtBoundary: ab.readyStateAtBoundary,
+            activeSeekingAtBoundary: ab.seekingAtBoundary,
+            activePausedAtBoundary: ab.pausedAtBoundary,
+            activeCurrentTimeAtBoundary: ab.currentTimeAtBoundary,
+            activeTargetTimeAtBoundary: ab.targetTimeAtBoundary,
+            activeDriftAtBoundaryMs: ab.driftAtBoundaryMs,
+            // 100ms state
+            currentTimeAdvancedAt100ms,
+            readyStateAt100ms: ab.readyStateAt100ms,
+            seekingAt100ms: ab.seekingAt100ms,
+            pausedAt100ms: ab.pausedAt100ms,
+            // 200ms state
+            readyStateAt200ms: ab.readyStateAt200ms,
+            seekingAt200ms: ab.seekingAt200ms,
+            // visual blend (not implemented, report as false/0)
+            usedVisualBlend: false,
+            visualBlendMs: 0,
+            usedPreviousFrameHold: ab.holdFrameCount > 0,
+            holdFrameCount: ab.holdFrameCount,
+            // clock absorb (not implemented)
+            clockAbsorbMs: 0,
+            // rAF gap
+            maxFrameGapMsAroundBoundary: Math.round(ab.maxFrameGapMs),
+            // I/O state
+            isPreviewPlaying: true,
+            isAutoSaveRunning: projectState.autoSaveRuntimeStatus === 'running',
+            isProjectSaving: projectState.isSaving,
+            isProjectLoading: projectState.isLoading,
+          });
+
+          // Determine judgement result
+          const reasons: string[] = [];
+          let result: string = 'unknown';
+          const isAutoSaveRunning = projectState.autoSaveRuntimeStatus === 'running';
+          const isProjectSaving = projectState.isSaving;
+          const isProjectLoading = projectState.isLoading;
+          if (ab.maxFrameGapMs >= 50) {
+            result = 'likely-frame-gap';
+            reasons.push(`maxFrameGapMs=${Math.round(ab.maxFrameGapMs)} >= 50`);
+          }
+          if (
+            currentTimeAdvancedAt100ms !== null &&
+            currentTimeAdvancedAt100ms < 20 &&
+            (
+              (ab.readyStateAtBoundary !== null && ab.readyStateAtBoundary < 2) ||
+              (ab.readyStateAt100ms !== null && ab.readyStateAt100ms < 2) ||
+              ab.seekingAtBoundary === true ||
+              ab.seekingAt100ms === true
+            )
+          ) {
+            if (result === 'unknown') result = 'likely-decoder-late';
+            reasons.push(
+              `currentTimeAdvancedAt100ms=${currentTimeAdvancedAt100ms}<20, readyStateAtBoundary=${ab.readyStateAtBoundary}, readyStateAt100ms=${ab.readyStateAt100ms}, seeking=${ab.seekingAt100ms}`,
+            );
+          }
+          if (ab.readyStateAt200ms !== null && ab.readyStateAt200ms < 2 || ab.seekingAt200ms === true) {
+            if (result === 'unknown') result = 'likely-decoder-late';
+            reasons.push(
+              `readyStateAt200ms=${ab.readyStateAt200ms}, seekingAt200ms=${ab.seekingAt200ms} (still not ready at 200ms)`,
+            );
+          }
+          if (ab.driftAtBoundaryMs !== null && ab.driftAtBoundaryMs > 100) {
+            if (result === 'unknown') result = 'likely-preroll-misaligned';
+            reasons.push(
+              `driftAtBoundaryMs=${ab.driftAtBoundaryMs}>100 (currentTime=${ab.currentTimeAtBoundary}, trimStart=${ab.trimStart})`,
+            );
+          }
+          if (isAutoSaveRunning || isProjectSaving || isProjectLoading) {
+            if (result === 'unknown') result = 'likely-io-interference';
+            reasons.push(
+              `io: autoSave=${isAutoSaveRunning}, saving=${isProjectSaving}, loading=${isProjectLoading}`,
+            );
+          }
+          if (result === 'unknown' || reasons.length === 0) {
+            result = 'minor-platform-limit';
+            reasons.push('all metrics within acceptable range');
+          }
+
+          logInfo('RENDER', 'preview.boundary.judgement', {
+            previousId: ab.previousId,
+            activeId: ab.activeId,
+            result,
+            reasons,
+            maxFrameGapMs: Math.round(ab.maxFrameGapMs),
+            currentTimeAdvancedAt100ms,
+            activeDriftAtBoundaryMs: ab.driftAtBoundaryMs,
+            readyStateAt200ms: ab.readyStateAt200ms,
+            seekingAt200ms: ab.seekingAt200ms,
+            visualBlendMs: 0,
+            clockAbsorbMs: 0,
+            prerollArmed: ab.prerollArmed,
+            prerollTargetSec: ab.trimStart,
+            activeTrimStartSec: ab.trimStart,
+            isAutoSaveRunning,
+            isProjectSaving,
+            isProjectLoading,
+          });
+
+          diagnostics.activeBoundary = null;
+        }
+      }
       if (previewLogModeRef.current === 'detailed') {
         const lastTickAt = diagnostics.lastTickLogAtMs ?? 0;
         if (now - lastTickAt >= PREVIEW_DETAILED_TICK_LOG_INTERVAL_MS) {
@@ -2911,9 +3164,82 @@ export function usePreviewEngine({
               activePaused: activeVideoElement?.paused ?? null,
               activeCurrentTime: activeVideoElement?.currentTime ?? null,
             });
+
+            // Setup activeBoundary diagnostics for video→video Android boundary
+            if (
+              isAndroidLivePreview &&
+              resolvedSegmentIndex >= 0 &&
+              diagnostics.lastSegmentIndex >= 0
+            ) {
+              const enteringItem = mediaItemsRef.current[resolvedSegmentIndex];
+              const exitingItem = mediaItemsRef.current[diagnostics.lastSegmentIndex];
+              if (enteringItem?.type === 'video' && exitingItem?.type === 'video') {
+                const activeEl = mediaElementsRef.current[enteringItem.id] as HTMLVideoElement | undefined;
+                const trimStart = enteringItem.trimStart || 0;
+                const currentTimeAtBoundary = activeEl?.currentTime ?? null;
+                const driftAtBoundaryMs =
+                  currentTimeAtBoundary !== null
+                    ? Math.round(Math.abs(currentTimeAtBoundary - trimStart) * 1000)
+                    : null;
+                const prerollArmed = driftAtBoundaryMs !== null && driftAtBoundaryMs <= 50;
+                const projectState = useProjectStore.getState();
+                diagnostics.activeBoundary = {
+                  boundaryGlobalTimeMs: Math.round(globalTimeSec * 1000),
+                  enterRafNowMs: now,
+                  previousId: exitingItem.id,
+                  activeId: enteringItem.id,
+                  segmentIndex: resolvedSegmentIndex,
+                  trimStart,
+                  readyStateAtBoundary: activeEl?.readyState ?? null,
+                  seekingAtBoundary: activeEl?.seeking ?? null,
+                  pausedAtBoundary: activeEl?.paused ?? null,
+                  currentTimeAtBoundary,
+                  targetTimeAtBoundary: trimStart,
+                  driftAtBoundaryMs,
+                  prerollArmed,
+                  maxFrameGapMs: frameGapMs ?? 0,
+                  holdFrameCount: 0,
+                  isAutoSaveRunningAtBoundary: projectState.autoSaveRuntimeStatus === 'running',
+                  isProjectSavingAtBoundary: projectState.isSaving,
+                  isProjectLoadingAtBoundary: projectState.isLoading,
+                  samplePhasesDone: new Set(),
+                  smoothPlanEmitted: false,
+                  currentTimeAt100ms: null,
+                  readyStateAt100ms: null,
+                  seekingAt100ms: null,
+                  pausedAt100ms: null,
+                  readyStateAt200ms: null,
+                  seekingAt200ms: null,
+                };
+                if (previewLogModeRef.current === 'boundary') {
+                  logInfo('RENDER', 'preview.boundary.sample.enter', {
+                    previousId: exitingItem.id,
+                    activeId: enteringItem.id,
+                    globalTimeMs: Math.round(globalTimeSec * 1000),
+                    localTimeMs: resolvedSegment ? Math.round(resolvedSegment.localTime * 1000) : null,
+                    targetTime: trimStart,
+                    videoCurrentTime: currentTimeAtBoundary,
+                    driftMs: driftAtBoundaryMs,
+                    readyState: activeEl?.readyState ?? null,
+                    paused: activeEl?.paused ?? null,
+                    seeking: activeEl?.seeking ?? null,
+                    videoWidth: activeEl?.videoWidth ?? null,
+                    videoHeight: activeEl?.videoHeight ?? null,
+                    canDrawVideo: activeEl != null
+                      ? (activeEl.readyState >= 2 && !activeEl.seeking && activeEl.videoWidth > 0)
+                      : null,
+                    holdFrame: false,
+                    usedVisualBlend: false,
+                    clockAbsorbMs: 0,
+                    frameGapMs: frameGapMs ?? 0,
+                  });
+                }
+              }
+            }
           }
         }
         diagnostics.lastSegmentIndex = resolvedSegmentIndex;
+        diagnostics.beforeBoundarySampled = false;
       }
       if (previewLogModeRef.current === 'detailed' && segmentChanged) {
         logInfo('RENDER', 'preview.timeline.segmentResolved', {
@@ -2924,6 +3250,55 @@ export function usePreviewEngine({
       }
       setCurrentTime(globalTimeSec);
       currentTimeRef.current = globalTimeSec;
+
+      // Emit 'before-500ms' boundary sample in boundary log mode
+      if (
+        previewLogModeRef.current === 'boundary' &&
+        isAndroidLivePreview &&
+        !diagnostics.beforeBoundarySampled &&
+        resolvedSegmentIndex >= 0
+      ) {
+        const currentItem = mediaItemsRef.current[resolvedSegmentIndex];
+        const nextItem =
+          resolvedSegmentIndex + 1 < mediaItemsRef.current.length
+            ? mediaItemsRef.current[resolvedSegmentIndex + 1]
+            : null;
+        if (currentItem?.type === 'video' && nextItem?.type === 'video' && resolvedSegment) {
+          const remainingTimeSec = currentItem.duration - resolvedSegment.localTime;
+          if (remainingTimeSec > 0 && remainingTimeSec <= 0.5) {
+            diagnostics.beforeBoundarySampled = true;
+            const activeEl =
+              mediaElementsRef.current[currentItem.id] as HTMLVideoElement | undefined;
+            const trimStart = currentItem.trimStart || 0;
+            const targetTime = trimStart + resolvedSegment.localTime;
+            logInfo('RENDER', 'preview.boundary.sample.before-500ms', {
+              previousId: null,
+              activeId: currentItem.id,
+              globalTimeMs: Math.round(globalTimeSec * 1000),
+              localTimeMs: Math.round(resolvedSegment.localTime * 1000),
+              targetTime,
+              videoCurrentTime: activeEl?.currentTime ?? null,
+              driftMs: activeEl !== undefined
+                ? Math.round(Math.abs(activeEl.currentTime - targetTime) * 1000)
+                : null,
+              readyState: activeEl?.readyState ?? null,
+              paused: activeEl?.paused ?? null,
+              seeking: activeEl?.seeking ?? null,
+              videoWidth: activeEl?.videoWidth ?? null,
+              videoHeight: activeEl?.videoHeight ?? null,
+              canDrawVideo: activeEl != null
+                ? (activeEl.readyState >= 2 && !activeEl.seeking && activeEl.videoWidth > 0)
+                : null,
+              holdFrame: false,
+              usedVisualBlend: false,
+              clockAbsorbMs: 0,
+              frameGapMs: frameGapMs ?? 0,
+              remainingTimeSec: Math.round(remainingTimeSec * 1000),
+            });
+          }
+        }
+      }
+
       renderFrame(renderTimeSec, true, isExportMode);
       reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
     },

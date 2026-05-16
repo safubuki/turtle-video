@@ -29,6 +29,8 @@ interface SettingsModalProps {
 }
 
 const API_KEY_STORAGE_KEY = 'turtle-video-gemini-api-key';
+const PREVIEW_LOG_MODE_STORAGE_KEY = 'preview.log.mode';
+
 const OFFLINE_MODE_ENABLE_CONFIRM_MESSAGE = [
   'オフラインモードを有効にすると、以後はこの端末内だけで動作します。',
   '',
@@ -140,6 +142,18 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
   const touchStartScrollTopRef = useRef(0);
   const touchDeltaYRef = useRef(0);
   const swipeCloseEligibleRef = useRef(false);
+  const previewLogModeAtLoadRef = useRef<string | null>(null);
+
+  // ページロード時点の preview.log.mode を一度だけキャプチャ
+  if (previewLogModeAtLoadRef.current === null) {
+    try {
+      previewLogModeAtLoadRef.current = localStorage.getItem(PREVIEW_LOG_MODE_STORAGE_KEY) ?? 'smooth';
+    } catch {
+      previewLogModeAtLoadRef.current = 'smooth';
+    }
+  }
+
+  const [previewLogMode, setPreviewLogMode] = useState<string>('smooth');
 
   const isMobileViewport = () => {
     if (typeof window === 'undefined') return false;
@@ -172,6 +186,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
       setShowKey(false);
       setCopied(false);
       setActiveInfoPanel(null);
+      // モーダルを開くたびに localStorage の現在値を反映
+      try {
+        setPreviewLogMode(localStorage.getItem(PREVIEW_LOG_MODE_STORAGE_KEY) ?? 'smooth');
+      } catch {
+        setPreviewLogMode('smooth');
+      }
       // ログタブを開いたらエラーフラグをクリア
       if (activeTab === 'logs') {
         clearErrorFlag();
@@ -301,6 +321,19 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
     setApiKey('');
     setStoredApiKey('');
     setSaved(false);
+  };
+
+  const handlePreviewLogModeChange = (mode: string) => {
+    try {
+      if (mode === 'smooth') {
+        localStorage.removeItem(PREVIEW_LOG_MODE_STORAGE_KEY);
+      } else {
+        localStorage.setItem(PREVIEW_LOG_MODE_STORAGE_KEY, mode);
+      }
+    } catch {
+      // localStorage が使えない環境では何もしない
+    }
+    setPreviewLogMode(mode);
   };
 
   const handleOfflineModeToggle = (enabled: boolean) => {
@@ -717,6 +750,53 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
                     有効
                   </button>
                 </div>
+              </div>
+
+              <div className="bg-gray-800 rounded-lg p-4 space-y-3">
+                <div className="space-y-1">
+                  <div className="text-sm font-bold text-gray-100">プレビューログモード</div>
+                  <p className="text-xs text-gray-300 leading-relaxed">
+                    Android実機での映像切替診断に使用します。「境界診断」にすると
+                    video→video 境界付近の詳細ログが記録されます。
+                  </p>
+                  <p className="text-xs text-gray-500 leading-relaxed">
+                    ※ 変更後はページをリロードしてから操作してください。
+                  </p>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {(
+                    [
+                      { value: 'smooth', label: '標準' },
+                      { value: 'boundary', label: '境界診断' },
+                      { value: 'detailed', label: '詳細' },
+                    ] as const
+                  ).map(({ value, label }) => (
+                    <button
+                      key={value}
+                      onClick={() => handlePreviewLogModeChange(value)}
+                      className={`${SETTINGS_TOGGLE_BUTTON_BASE} ${
+                        previewLogMode === value
+                          ? SETTINGS_OFF_BUTTON_ACTIVE
+                          : SETTINGS_TOGGLE_BUTTON_INACTIVE
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {previewLogMode !== (previewLogModeAtLoadRef.current ?? 'smooth') && (
+                  <div className="flex items-center justify-between gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2">
+                    <p className="text-xs text-amber-300">
+                      ⚠️ 変更を適用するにはリロードが必要です
+                    </p>
+                    <button
+                      onClick={() => window.location.reload()}
+                      className="shrink-0 rounded-md bg-amber-500 px-3 py-1 text-xs font-bold text-black hover:bg-amber-400 transition"
+                    >
+                      リロード
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="bg-gray-800 rounded-lg p-4 space-y-3">

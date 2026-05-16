@@ -1760,4 +1760,156 @@ describe('standard preview engine', () => {
     expect(stopWebCodecsExport).not.toHaveBeenCalled();
   });
 
+  it('Android video→video 境界で preview.boundary.smoothPlan が1回だけ出る', () => {
+    vi.useFakeTimers();
+    const video1 = createVideoItem({ id: 'v1', duration: 5, trimStart: 0, trimEnd: 5 });
+    const video2 = createVideoItem({ id: 'v2', duration: 5, trimStart: 1, trimEnd: 6 });
+    const el1 = createMockVideoElement();
+    el1.readyState = 4;
+    el1.seeking = false;
+    el1.paused = false;
+    const el2 = createMockVideoElement();
+    el2.readyState = 4;
+    el2.seeking = false;
+    el2.paused = false;
+    el2.currentTime = 1;
+
+    const nowRef = { current: 1000 };
+    vi.spyOn(playbackClock, 'getStandardPreviewNow').mockImplementation(() => nowRef.current);
+
+    const { hook, logInfo } = setupRenderFrameHarness({
+      mediaItems: [video1, video2],
+      mediaElements: {
+        v1: el1 as unknown as HTMLVideoElement,
+        v2: el2 as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      currentTime: 2.0,
+      totalDuration: 10,
+    });
+
+    // 1回目 loop: now=1000ms, startTime=0 → elapsed=1.0s → video1 セグメント (index=0)
+    nowRef.current = 1000;
+    hook.result.current.loop(false, 1);
+
+    // 2回目 loop: now=6000ms → elapsed=6.0s → video2 セグメント (index=1) → segmentChanged
+    nowRef.current = 6000;
+    hook.result.current.loop(false, 1);
+
+    // 3回目 loop: now=6400ms → 400ms後 → after-300ms phase を超えてsmoPlanとjudgementが出る
+    nowRef.current = 6400;
+    hook.result.current.loop(false, 1);
+
+    const smoothPlanCount = logInfo.mock.calls.filter(([, msg]) => msg === 'preview.boundary.smoothPlan').length;
+    expect(smoothPlanCount).toBe(1);
+  });
+
+  it('Android video→video 境界で preview.boundary.judgement が出る', () => {
+    vi.useFakeTimers();
+    const video1 = createVideoItem({ id: 'v1', duration: 5, trimStart: 0, trimEnd: 5 });
+    const video2 = createVideoItem({ id: 'v2', duration: 5, trimStart: 1, trimEnd: 6 });
+    const el1 = createMockVideoElement();
+    el1.readyState = 4;
+    el1.seeking = false;
+    el1.paused = false;
+    const el2 = createMockVideoElement();
+    el2.readyState = 4;
+    el2.seeking = false;
+    el2.paused = false;
+    el2.currentTime = 1;
+
+    const nowRef = { current: 1000 };
+    vi.spyOn(playbackClock, 'getStandardPreviewNow').mockImplementation(() => nowRef.current);
+
+    const { hook, logInfo } = setupRenderFrameHarness({
+      mediaItems: [video1, video2],
+      mediaElements: {
+        v1: el1 as unknown as HTMLVideoElement,
+        v2: el2 as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      currentTime: 2.0,
+      totalDuration: 10,
+    });
+
+    nowRef.current = 1000;
+    hook.result.current.loop(false, 1);
+
+    nowRef.current = 6000;
+    hook.result.current.loop(false, 1);
+
+    nowRef.current = 6400;
+    hook.result.current.loop(false, 1);
+
+    const judgementCount = logInfo.mock.calls.filter(([, msg]) => msg === 'preview.boundary.judgement').length;
+    expect(judgementCount).toBe(1);
+  });
+
+  it('iOS Safari では Android 境界診断ログが出ない', () => {
+    vi.useFakeTimers();
+    const video1 = createVideoItem({ id: 'v1', duration: 5, trimStart: 0, trimEnd: 5 });
+    const video2 = createVideoItem({ id: 'v2', duration: 5, trimStart: 1, trimEnd: 6 });
+    const el1 = createMockVideoElement();
+    el1.readyState = 4;
+    const el2 = createMockVideoElement();
+    el2.readyState = 4;
+    el2.currentTime = 1;
+
+    const nowRef = { current: 1000 };
+    vi.spyOn(playbackClock, 'getStandardPreviewNow').mockImplementation(() => nowRef.current);
+
+    const { hook, logInfo } = setupRenderFrameHarness({
+      mediaItems: [video1, video2],
+      mediaElements: {
+        v1: el1 as unknown as HTMLVideoElement,
+        v2: el2 as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      currentTime: 2.0,
+      totalDuration: 10,
+      platformCapabilities: { isAndroid: false, isIosSafari: true },
+    });
+
+    nowRef.current = 1000;
+    hook.result.current.loop(false, 1);
+    nowRef.current = 6000;
+    hook.result.current.loop(false, 1);
+    nowRef.current = 6400;
+    hook.result.current.loop(false, 1);
+
+    expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.boundary.smoothPlan')).toBe(false);
+    expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.boundary.judgement')).toBe(false);
+  });
+
+  it('export モードでは Android preview 境界診断が出ない', () => {
+    vi.useFakeTimers();
+    const video1 = createVideoItem({ id: 'v1', duration: 5, trimStart: 0, trimEnd: 5 });
+    const video2 = createVideoItem({ id: 'v2', duration: 5, trimStart: 1, trimEnd: 6 });
+    const el1 = createMockVideoElement();
+    el1.readyState = 4;
+    const el2 = createMockVideoElement();
+    el2.readyState = 4;
+    el2.currentTime = 1;
+
+    const nowRef = { current: 1000 };
+    vi.spyOn(playbackClock, 'getStandardPreviewNow').mockImplementation(() => nowRef.current);
+
+    const { hook, logInfo } = setupRenderFrameHarness({
+      mediaItems: [video1, video2],
+      mediaElements: {
+        v1: el1 as unknown as HTMLVideoElement,
+        v2: el2 as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      currentTime: 2.0,
+      totalDuration: 10,
+    });
+
+    nowRef.current = 1000;
+    hook.result.current.loop(true, 1); // isExportMode = true
+    nowRef.current = 6000;
+    hook.result.current.loop(true, 1);
+    nowRef.current = 6400;
+    hook.result.current.loop(true, 1);
+
+    expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.boundary.smoothPlan')).toBe(false);
+    expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.boundary.judgement')).toBe(false);
+  });
+
 });
