@@ -1897,3 +1897,17 @@
 - **注意点**:
   - この対策は preview 開始直後の pause 循環を切るためのもの。video -> video 境界の準備は paused prebuffer / inactive reset 保護の既存方針と分けて扱う。
   - カクつき対策として長い `playing` 待機や startTime 補正を足すと、単一動画の開始ディレイを悪化させるため慎重に評価する。
+
+### 13-99. Android standard preview の境界診断ログは `boundary`/`detailed` モードに限定する
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **問題**:
+  - Android 実機の video -> video 境界原因を切り分けるための `preview.boundary.smoothPlan` / `preview.boundary.judgement` / sample ログを通常再生中にも組み立てると、境界直後のコンソール出力自体が軽い FPS 低下や引っかかり要因になり得る。
+- **対策**:
+  - 既定の `preview.log.mode=smooth` では Android 境界診断ログを出さず、`boundary` または `detailed` のときだけ active boundary state を生成する。
+  - `boundary` モードでは `preview.boundary.sample` に `phase` を載せ、`before-500ms` / `enter` / `after-100ms` / `after-200ms` / `after-300ms` を確認できるようにする。
+  - `smoothPlan` には prebuffer の開始時刻・target・lead、boundary/100ms/200ms 状態、hold count、clock absorb、I/O 状態を載せる。visual bridge は standard preview では無効なので `[DIAG-BOUNDARY-VISUAL-BRIDGE]` は disabled として出す。
+  - `preview.android.boundary.passive-switch` も Android live preview かつ診断モード時に限定し、export / iOS Safari へ漏らさない。
+- **注意点**:
+  - この変更は診断ログの出力条件と内容だけを変える。preroll lead time、hold window、sync threshold、visual bridge、hard seek、export 経路は変更しない。
+  - 実機で切り分けるときは再生前に `localStorage.setItem('preview.log.mode', 'boundary')` を設定し、確認後は `localStorage.removeItem('preview.log.mode')` で通常の軽いログに戻す。

@@ -167,9 +167,19 @@ function createMockCanvasContext() {
 describe('standard preview engine', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    try {
+      globalThis.localStorage?.removeItem('preview.log.mode');
+    } catch {
+      // ignore
+    }
   });
 
   afterEach(() => {
+    try {
+      globalThis.localStorage?.removeItem('preview.log.mode');
+    } catch {
+      // ignore
+    }
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
@@ -1762,6 +1772,7 @@ describe('standard preview engine', () => {
 
   it('Android video→video 境界で preview.boundary.smoothPlan が1回だけ出る', () => {
     vi.useFakeTimers();
+    globalThis.localStorage?.setItem('preview.log.mode', 'boundary');
     const video1 = createVideoItem({ id: 'v1', duration: 5, trimStart: 0, trimEnd: 5 });
     const video2 = createVideoItem({ id: 'v2', duration: 5, trimStart: 1, trimEnd: 6 });
     const el1 = createMockVideoElement();
@@ -1805,6 +1816,7 @@ describe('standard preview engine', () => {
 
   it('Android video→video 境界で preview.boundary.judgement が出る', () => {
     vi.useFakeTimers();
+    globalThis.localStorage?.setItem('preview.log.mode', 'boundary');
     const video1 = createVideoItem({ id: 'v1', duration: 5, trimStart: 0, trimEnd: 5 });
     const video2 = createVideoItem({ id: 'v2', duration: 5, trimStart: 1, trimEnd: 6 });
     const el1 = createMockVideoElement();
@@ -1843,6 +1855,97 @@ describe('standard preview engine', () => {
     expect(judgementCount).toBe(1);
   });
 
+  it('preview.log.mode=smooth では Android 境界診断ログを出さない', () => {
+    vi.useFakeTimers();
+    globalThis.localStorage?.setItem('preview.log.mode', 'smooth');
+    const video1 = createVideoItem({ id: 'v1', duration: 5, trimStart: 0, trimEnd: 5 });
+    const video2 = createVideoItem({ id: 'v2', duration: 5, trimStart: 1, trimEnd: 6 });
+    const el1 = createMockVideoElement();
+    el1.readyState = 4;
+    el1.seeking = false;
+    el1.paused = false;
+    const el2 = createMockVideoElement();
+    el2.readyState = 4;
+    el2.seeking = false;
+    el2.paused = false;
+    el2.currentTime = 1;
+
+    const nowRef = { current: 1000 };
+    vi.spyOn(playbackClock, 'getStandardPreviewNow').mockImplementation(() => nowRef.current);
+
+    const { hook, logInfo } = setupRenderFrameHarness({
+      mediaItems: [video1, video2],
+      mediaElements: {
+        v1: el1 as unknown as HTMLVideoElement,
+        v2: el2 as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      currentTime: 2.0,
+      totalDuration: 10,
+    });
+
+    nowRef.current = 1000;
+    hook.result.current.loop(false, 1);
+    nowRef.current = 6000;
+    hook.result.current.loop(false, 1);
+    nowRef.current = 6400;
+    hook.result.current.loop(false, 1);
+
+    expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.boundary.smoothPlan')).toBe(false);
+    expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.boundary.judgement')).toBe(false);
+    expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.android.boundary.passive-switch')).toBe(false);
+    expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.boundary.sample')).toBe(false);
+  });
+
+  it('preview.log.mode=boundary では video→video 境界サンプルログが出る', () => {
+    vi.useFakeTimers();
+    globalThis.localStorage?.setItem('preview.log.mode', 'boundary');
+    const video1 = createVideoItem({ id: 'v1', duration: 5, trimStart: 0, trimEnd: 5 });
+    const video2 = createVideoItem({ id: 'v2', duration: 5, trimStart: 1, trimEnd: 6 });
+    const el1 = createMockVideoElement();
+    el1.readyState = 4;
+    el1.seeking = false;
+    el1.paused = false;
+    el1.currentTime = 4.5;
+    const el2 = createMockVideoElement();
+    el2.readyState = 4;
+    el2.seeking = false;
+    el2.paused = false;
+    el2.currentTime = 1;
+
+    const nowRef = { current: 4500 };
+    vi.spyOn(playbackClock, 'getStandardPreviewNow').mockImplementation(() => nowRef.current);
+
+    const { hook, logInfo } = setupRenderFrameHarness({
+      mediaItems: [video1, video2],
+      mediaElements: {
+        v1: el1 as unknown as HTMLVideoElement,
+        v2: el2 as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      currentTime: 4.5,
+      totalDuration: 10,
+    });
+
+    nowRef.current = 4500;
+    hook.result.current.loop(false, 1);
+    nowRef.current = 5000;
+    hook.result.current.loop(false, 1);
+    nowRef.current = 5100;
+    hook.result.current.loop(false, 1);
+    nowRef.current = 5200;
+    hook.result.current.loop(false, 1);
+    nowRef.current = 5300;
+    hook.result.current.loop(false, 1);
+
+    const phases = logInfo.mock.calls
+      .filter(([, msg]) => msg === 'preview.boundary.sample')
+      .map(([, , details]) => details?.phase);
+    expect(phases).toContain('before-500ms');
+    expect(phases).toContain('enter');
+    expect(phases).toContain('after-100ms');
+    expect(phases).toContain('after-200ms');
+    expect(phases).toContain('after-300ms');
+  });
+
   it('iOS Safari では Android 境界診断ログが出ない', () => {
     vi.useFakeTimers();
     const video1 = createVideoItem({ id: 'v1', duration: 5, trimStart: 0, trimEnd: 5 });
@@ -1876,6 +1979,7 @@ describe('standard preview engine', () => {
 
     expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.boundary.smoothPlan')).toBe(false);
     expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.boundary.judgement')).toBe(false);
+    expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.android.boundary.passive-switch')).toBe(false);
   });
 
   it('export モードでは Android preview 境界診断が出ない', () => {
@@ -1910,6 +2014,7 @@ describe('standard preview engine', () => {
 
     expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.boundary.smoothPlan')).toBe(false);
     expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.boundary.judgement')).toBe(false);
+    expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.android.boundary.passive-switch')).toBe(false);
   });
 
 });
