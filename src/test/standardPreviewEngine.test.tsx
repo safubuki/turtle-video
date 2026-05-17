@@ -1855,6 +1855,61 @@ describe('standard preview engine', () => {
     expect(judgementCount).toBe(1);
   });
 
+  it('Android video→video 境界で preview.nextVideo.startLatency が出る', () => {
+    vi.useFakeTimers();
+    globalThis.localStorage?.setItem('preview.log.mode', 'boundary');
+    const video1 = createVideoItem({ id: 'v1', duration: 5, trimStart: 0, trimEnd: 5 });
+    const video2 = createVideoItem({ id: 'v2', duration: 5, trimStart: 1, trimEnd: 6 });
+    const el1 = createMockVideoElement();
+    el1.readyState = 4;
+    el1.seeking = false;
+    el1.paused = false;
+    const el2 = createMockVideoElement();
+    el2.readyState = 4;
+    el2.seeking = false;
+    el2.paused = true;
+    el2.currentTime = 1;
+
+    const nowRef = { current: 1000 };
+    vi.spyOn(playbackClock, 'getStandardPreviewNow').mockImplementation(() => nowRef.current);
+
+    const { hook, logInfo } = setupRenderFrameHarness({
+      mediaItems: [video1, video2],
+      mediaElements: {
+        v1: el1 as unknown as HTMLVideoElement,
+        v2: el2 as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      currentTime: 2.0,
+      totalDuration: 10,
+    });
+
+    nowRef.current = 1000;
+    hook.result.current.loop(false, 1);
+
+    nowRef.current = 6000;
+    hook.result.current.loop(false, 1);
+
+    el2.paused = false;
+    el2.currentTime = 1.04;
+    nowRef.current = 6100;
+    hook.result.current.loop(false, 1);
+
+    el2.currentTime = 1.3;
+    nowRef.current = 6400;
+    hook.result.current.loop(false, 1);
+
+    const startLatencyCall = logInfo.mock.calls.find(([, msg]) => msg === 'preview.nextVideo.startLatency');
+    expect(startLatencyCall).toBeDefined();
+    expect(startLatencyCall?.[2]).toMatchObject({
+      previousId: 'v1',
+      activeId: 'v2',
+      currentTimeAdvancedAt100ms: 40,
+      activePausedAtBoundary: true,
+      pausedAt100ms: false,
+      readyStateAt100ms: 4,
+    });
+  });
+
   it('preview.log.mode=smooth では Android 境界診断ログを出さない', () => {
     vi.useFakeTimers();
     globalThis.localStorage?.setItem('preview.log.mode', 'smooth');
@@ -1892,6 +1947,7 @@ describe('standard preview engine', () => {
 
     expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.boundary.smoothPlan')).toBe(false);
     expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.boundary.judgement')).toBe(false);
+    expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.nextVideo.startLatency')).toBe(false);
     expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.android.boundary.passive-switch')).toBe(false);
     expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.boundary.sample')).toBe(false);
   });
@@ -1979,6 +2035,7 @@ describe('standard preview engine', () => {
 
     expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.boundary.smoothPlan')).toBe(false);
     expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.boundary.judgement')).toBe(false);
+    expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.nextVideo.startLatency')).toBe(false);
     expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.android.boundary.passive-switch')).toBe(false);
   });
 
@@ -2014,6 +2071,7 @@ describe('standard preview engine', () => {
 
     expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.boundary.smoothPlan')).toBe(false);
     expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.boundary.judgement')).toBe(false);
+    expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.nextVideo.startLatency')).toBe(false);
     expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.android.boundary.passive-switch')).toBe(false);
   });
 

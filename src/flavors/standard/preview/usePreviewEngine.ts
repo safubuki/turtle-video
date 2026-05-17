@@ -340,6 +340,7 @@ interface BoundaryDiagState {
   samplePhasesDone: Set<string>;
   smoothPlanEmitted: boolean;
   currentTimeAt100ms: number | null;
+  targetTimeAt100ms: number | null;
   readyStateAt100ms: number | null;
   seekingAt100ms: boolean | null;
   pausedAt100ms: boolean | null;
@@ -2989,12 +2990,13 @@ export function usePreviewEngine({
         // Capture 100ms snapshot
         if (elapsedSinceBoundary >= 100 && !ab.samplePhasesDone.has('after-100ms')) {
           ab.samplePhasesDone.add('after-100ms');
+          const sampleTargetTime = ab.trimStart + (resolvedSegment?.localTime ?? 0);
           ab.currentTimeAt100ms = activeEl?.currentTime ?? null;
+          ab.targetTimeAt100ms = sampleTargetTime;
           ab.readyStateAt100ms = activeEl?.readyState ?? null;
           ab.seekingAt100ms = activeEl?.seeking ?? null;
           ab.pausedAt100ms = activeEl?.paused ?? null;
           if (previewLogModeRef.current === 'boundary') {
-            const sampleTargetTime = ab.trimStart + (resolvedSegment?.localTime ?? 0);
             logInfo('RENDER', 'preview.boundary.sample', {
               phase: 'after-100ms',
               previousId: ab.previousId,
@@ -3059,6 +3061,10 @@ export function usePreviewEngine({
             ab.currentTimeAt100ms !== null && ab.currentTimeAtBoundary !== null
               ? Math.round((ab.currentTimeAt100ms - ab.currentTimeAtBoundary) * 1000)
               : null;
+          const estimatedStartLatencyMsAt100ms =
+            ab.currentTimeAt100ms !== null && ab.targetTimeAt100ms !== null
+              ? Math.max(0, Math.round((ab.targetTimeAt100ms - ab.currentTimeAt100ms) * 1000))
+              : null;
           const projectState = useProjectStore.getState();
 
           if (previewLogModeRef.current === 'boundary') {
@@ -3116,6 +3122,7 @@ export function usePreviewEngine({
             activeDriftAtBoundaryMs: ab.driftAtBoundaryMs,
             // 100ms state
             currentTimeAdvancedAt100ms,
+            estimatedStartLatencyMsAt100ms,
             readyStateAt100ms: ab.readyStateAt100ms,
             seekingAt100ms: ab.seekingAt100ms,
             pausedAt100ms: ab.pausedAt100ms,
@@ -3137,6 +3144,29 @@ export function usePreviewEngine({
               ab.isAutoSaveRunningAtBoundary || projectState.autoSaveRuntimeStatus === 'running',
             isProjectSaving: ab.isProjectSavingAtBoundary || projectState.isSaving,
             isProjectLoading: ab.isProjectLoadingAtBoundary || projectState.isLoading,
+          });
+
+          logInfo('RENDER', 'preview.nextVideo.startLatency', {
+            previousId: ab.previousId,
+            activeId: ab.activeId,
+            segmentIndex: ab.segmentIndex,
+            boundaryGlobalTimeMs: ab.boundaryGlobalTimeMs,
+            estimatedStartLatencyMsAt100ms,
+            currentTimeAdvancedAt100ms,
+            activeCurrentTimeAtBoundary: ab.currentTimeAtBoundary,
+            activeTargetTimeAtBoundary: ab.targetTimeAtBoundary,
+            currentTimeAt100ms: ab.currentTimeAt100ms,
+            targetTimeAt100ms: ab.targetTimeAt100ms,
+            activePausedAtBoundary: ab.pausedAtBoundary,
+            pausedAt100ms: ab.pausedAt100ms,
+            activeReadyStateAtBoundary: ab.readyStateAtBoundary,
+            readyStateAt100ms: ab.readyStateAt100ms,
+            activeSeekingAtBoundary: ab.seekingAtBoundary,
+            seekingAt100ms: ab.seekingAt100ms,
+            prerollArmed: ab.prerollArmed,
+            prerollTargetSec: ab.prerollTargetSec,
+            activeTrimStartSec: ab.trimStart,
+            maxFrameGapMsAroundBoundary: Math.round(ab.maxFrameGapMs),
           });
 
           // Determine judgement result
@@ -3195,6 +3225,7 @@ export function usePreviewEngine({
             reasons,
             maxFrameGapMs: Math.round(ab.maxFrameGapMs),
             currentTimeAdvancedAt100ms,
+            estimatedStartLatencyMsAt100ms,
             activeDriftAtBoundaryMs: ab.driftAtBoundaryMs,
             readyStateAt200ms: ab.readyStateAt200ms,
             seekingAt200ms: ab.seekingAt200ms,
@@ -3317,6 +3348,7 @@ export function usePreviewEngine({
                   pausedAt100ms: null,
                   readyStateAt200ms: null,
                   seekingAt200ms: null,
+                  targetTimeAt100ms: null,
                 };
                 if (previewLogModeRef.current === 'boundary') {
                   logInfo('RENDER', 'preview.boundary.sample', {
@@ -3402,7 +3434,7 @@ export function usePreviewEngine({
               usedVisualBlend: false,
               clockAbsorbMs: 0,
               frameGapMs: frameGapMs ?? 0,
-              remainingTimeSec: Math.round(remainingTimeSec * 1000),
+              remainingTimeMs: Math.round(remainingTimeSec * 1000),
             });
           }
         }

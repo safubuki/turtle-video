@@ -1907,6 +1907,7 @@
   - 既定の `preview.log.mode=smooth` では Android 境界診断ログを出さず、`boundary` または `detailed` のときだけ active boundary state を生成する。
   - `boundary` モードでは `preview.boundary.sample` に `phase` を載せ、`before-500ms` / `enter` / `after-100ms` / `after-200ms` / `after-300ms` を確認できるようにする。
   - `smoothPlan` には prebuffer の開始時刻・target・lead、boundary/100ms/200ms 状態、hold count、clock absorb、I/O 状態を載せる。visual bridge は standard preview では無効なので `[DIAG-BOUNDARY-VISUAL-BRIDGE]` は disabled として出す。
+  - `preview.nextVideo.startLatency` には境界時と 100ms 時点の `currentTime` / target / paused / readyState を載せ、decoder は間に合っているが次動画の実再生開始だけが少し遅いケースを切り分ける。
   - `preview.android.boundary.passive-switch` も Android live preview かつ診断モード時に限定し、export / iOS Safari へ漏らさない。
   - 設定モーダルの「プレビューログモード」で `標準` / `境界診断` / `詳細` の用途を説明し、再生中の変更は停止して再生し直すと次の preview 開始から反映されることを案内する。
 - **注意点**:
