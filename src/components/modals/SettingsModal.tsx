@@ -45,7 +45,7 @@ const PREVIEW_LOG_MODE_OPTIONS: ReadonlyArray<{
   {
     value: 'boundary',
     label: '境界診断',
-    description: 'video→video 境界の前後だけ記録し、引っかかり原因を分類します。',
+    description: 'プレビュー再生中のvideo→video 境界前後を記録し、引っかかり原因を分類します。Android実機での映像切替診断に有効です。',
   },
   {
     value: 'detailed',
@@ -782,9 +782,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
 
               <div className="bg-gray-800 rounded-lg p-4 space-y-3">
                 <div className="space-y-1">
-                  <div className="text-sm font-bold text-gray-100">プレビューログモード</div>
+                  <div className="text-sm font-bold text-gray-100">ログモード</div>
                   <p className="text-xs text-gray-300 leading-relaxed">
-                    Android実機での映像切替診断に使用します。設定変更後は次のプレビュー開始から反映されます。
+                    ログの記録量を調整します。設定変更後は次のプレビュー開始から反映されます。
                   </p>
                   <p className="text-xs text-gray-500 leading-relaxed">
                     ※ すでに再生中の場合は、プレビューを停止して再生し直してください。

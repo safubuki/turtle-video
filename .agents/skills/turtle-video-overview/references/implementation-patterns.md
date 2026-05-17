@@ -1909,7 +1909,7 @@
   - `smoothPlan` には prebuffer の開始時刻・target・lead、boundary/100ms/200ms 状態、hold count、clock absorb、I/O 状態を載せる。visual bridge は standard preview では無効なので `[DIAG-BOUNDARY-VISUAL-BRIDGE]` は disabled として出す。
   - `preview.nextVideo.startLatency` には境界時と 100ms 時点の `currentTime` / target / paused / readyState を載せ、decoder は間に合っているが次動画の実再生開始だけが少し遅いケースを切り分ける。
   - `preview.android.boundary.passive-switch` も Android live preview かつ診断モード時に限定し、export / iOS Safari へ漏らさない。
-  - 設定モーダルの「プレビューログモード」で `標準` / `境界診断` / `詳細` の用途を説明し、再生中の変更は停止して再生し直すと次の preview 開始から反映されることを案内する。
+  - 設定モーダルの「ログモード」で `標準` / `境界診断` / `詳細` の用途を説明し、再生中の変更は停止して再生し直すと次の preview 開始から反映されることを案内する。
 - **注意点**:
   - この変更は診断ログの出力条件と内容だけを変える。preroll lead time、hold window、sync threshold、visual bridge、hard seek、export 経路は変更しない。
   - 実機で切り分けるときは設定画面で「境界診断」を選ぶか、再生前に `localStorage.setItem('preview.log.mode', 'boundary')` を設定し、確認後は「標準」または `localStorage.removeItem('preview.log.mode')` で通常の軽いログに戻す。
