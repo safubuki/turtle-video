@@ -30,6 +30,42 @@ interface SettingsModalProps {
 
 const API_KEY_STORAGE_KEY = 'turtle-video-gemini-api-key';
 const PREVIEW_LOG_MODE_STORAGE_KEY = 'preview.log.mode';
+type PreviewLogMode = 'smooth' | 'boundary' | 'detailed';
+
+const PREVIEW_LOG_MODE_OPTIONS: ReadonlyArray<{
+  value: PreviewLogMode;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: 'smooth',
+    label: '標準',
+    description: '通常確認向け。境界診断ログを抑えて、プレビューへの負荷を最小にします。',
+  },
+  {
+    value: 'boundary',
+    label: '境界診断',
+    description: 'video→video 境界の前後だけ記録し、引っかかり原因を分類します。',
+  },
+  {
+    value: 'detailed',
+    label: '詳細',
+    description: 'タイムライン詳細も記録します。開発調査用で、実機では重くなる場合があります。',
+  },
+];
+
+const readStoredPreviewLogMode = (): PreviewLogMode => {
+  try {
+    const mode = localStorage.getItem(PREVIEW_LOG_MODE_STORAGE_KEY);
+    if (mode === 'boundary' || mode === 'detailed') {
+      return mode;
+    }
+  } catch {
+    // localStorage が使えない環境では既定値に戻す
+  }
+
+  return 'smooth';
+};
 
 const OFFLINE_MODE_ENABLE_CONFIRM_MESSAGE = [
   'オフラインモードを有効にすると、以後はこの端末内だけで動作します。',
@@ -142,18 +178,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
   const touchStartScrollTopRef = useRef(0);
   const touchDeltaYRef = useRef(0);
   const swipeCloseEligibleRef = useRef(false);
-  const previewLogModeAtLoadRef = useRef<string | null>(null);
+  const previewLogModeAtLoadRef = useRef<PreviewLogMode | null>(null);
 
   // ページロード時点の preview.log.mode を一度だけキャプチャ
   if (previewLogModeAtLoadRef.current === null) {
-    try {
-      previewLogModeAtLoadRef.current = localStorage.getItem(PREVIEW_LOG_MODE_STORAGE_KEY) ?? 'smooth';
-    } catch {
-      previewLogModeAtLoadRef.current = 'smooth';
-    }
+    previewLogModeAtLoadRef.current = readStoredPreviewLogMode();
   }
 
-  const [previewLogMode, setPreviewLogMode] = useState<string>('smooth');
+  const [previewLogMode, setPreviewLogMode] = useState<PreviewLogMode>('smooth');
 
   const isMobileViewport = () => {
     if (typeof window === 'undefined') return false;
@@ -187,11 +219,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
       setCopied(false);
       setActiveInfoPanel(null);
       // モーダルを開くたびに localStorage の現在値を反映
-      try {
-        setPreviewLogMode(localStorage.getItem(PREVIEW_LOG_MODE_STORAGE_KEY) ?? 'smooth');
-      } catch {
-        setPreviewLogMode('smooth');
-      }
+      setPreviewLogMode(readStoredPreviewLogMode());
       // ログタブを開いたらエラーフラグをクリア
       if (activeTab === 'logs') {
         clearErrorFlag();
@@ -323,7 +351,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
     setSaved(false);
   };
 
-  const handlePreviewLogModeChange = (mode: string) => {
+  const handlePreviewLogModeChange = (mode: PreviewLogMode) => {
     try {
       if (mode === 'smooth') {
         localStorage.removeItem(PREVIEW_LOG_MODE_STORAGE_KEY);
@@ -756,21 +784,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
                 <div className="space-y-1">
                   <div className="text-sm font-bold text-gray-100">プレビューログモード</div>
                   <p className="text-xs text-gray-300 leading-relaxed">
-                    Android実機での映像切替診断に使用します。「境界診断」にすると
-                    video→video 境界付近の詳細ログが記録されます。
+                    Android実機での映像切替診断に使用します。設定変更後は次のプレビュー開始から反映されます。
                   </p>
                   <p className="text-xs text-gray-500 leading-relaxed">
-                    ※ 変更後はページをリロードしてから操作してください。
+                    ※ すでに再生中の場合は、プレビューを停止して再生し直してください。
                   </p>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
-                  {(
-                    [
-                      { value: 'smooth', label: '標準' },
-                      { value: 'boundary', label: '境界診断' },
-                      { value: 'detailed', label: '詳細' },
-                    ] as const
-                  ).map(({ value, label }) => (
+                  {PREVIEW_LOG_MODE_OPTIONS.map(({ value, label }) => (
                     <button
                       key={value}
                       onClick={() => handlePreviewLogModeChange(value)}
@@ -784,10 +805,21 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
                     </button>
                   ))}
                 </div>
+                <div className="space-y-1.5 text-[11px] leading-relaxed text-gray-400">
+                  {PREVIEW_LOG_MODE_OPTIONS.map(({ value, label, description }) => (
+                    <p
+                      key={value}
+                      className={previewLogMode === value ? 'text-blue-100' : undefined}
+                    >
+                      <span className="font-semibold text-gray-200">{label}</span>
+                      <span className="ml-1">{description}</span>
+                    </p>
+                  ))}
+                </div>
                 {previewLogMode !== (previewLogModeAtLoadRef.current ?? 'smooth') && (
                   <div className="flex items-center justify-between gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2">
                     <p className="text-xs text-amber-300">
-                      ⚠️ 変更を適用するにはリロードが必要です
+                      変更は次のプレビュー開始時に反映されます。反映が不安定な場合はリロードしてください。
                     </p>
                     <button
                       onClick={() => window.location.reload()}
