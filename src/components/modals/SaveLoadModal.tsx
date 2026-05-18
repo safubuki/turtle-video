@@ -25,7 +25,7 @@ import {
   setAutoSaveInterval,
   type AutoSaveIntervalOption,
 } from '../../hooks/useAutoSave';
-import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../../constants';
+import { useCanvasStore } from '../../stores/canvasStore';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 import type { ProjectPersistenceHealthSnapshot } from '../../stores/projectPersistenceHealth';
 
@@ -133,6 +133,8 @@ function getSaveFailureCategoryLabel(category: SaveFailureCategory | undefined):
 }
 
 export default function SaveLoadModal({ isOpen, onClose, onToast, onBeforeLoadProject, appFlavor, saveRuntime }: SaveLoadModalProps) {
+  const canvasWidth = useCanvasStore((s) => s.width);
+  const canvasHeight = useCanvasStore((s) => s.height);
   const [mode, setMode] = useState<ModalMode>('menu');
   const [selectedSlot, setSelectedSlot] = useState<SaveSlot | null>(null);
   const [autoSaveInterval, setAutoSaveIntervalState] = useState<AutoSaveIntervalOption>(getAutoSaveInterval);
@@ -423,17 +425,17 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, onBeforeLoadPr
    */
   const handleGenerateColorImage = (color: 'black' | 'white') => {
     const canvas = document.createElement('canvas');
-    canvas.width = CANVAS_WIDTH;
-    canvas.height = CANVAS_HEIGHT;
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
     const ctx = canvas.getContext('2d');
     if (!ctx) {
       onToast('画像の生成に失敗しました', 'error');
       return;
     }
-    
+
     ctx.fillStyle = color === 'black' ? '#000000' : '#FFFFFF';
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-    
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
     // PNGとしてダウンロード
     canvas.toBlob(async (blob) => {
       if (!blob) {
@@ -445,14 +447,14 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, onBeforeLoadPr
         const result = await saveRuntime.saveBlobWithClientFileStrategy({
           blob,
           descriptor: {
-            filename: `${color === 'black' ? '黒' : '白'}画像_${CANVAS_WIDTH}x${CANVAS_HEIGHT}.png`,
+            filename: `${color === 'black' ? '黒' : '白'}画像_${canvasWidth}x${canvasHeight}.png`,
             mimeType: 'image/png',
             description: 'PNG 画像',
           },
           supportsShowSaveFilePicker,
         });
 
-        useLogStore.getState().info('MEDIA', `${color === 'black' ? '黒' : '白'}画像を生成 (${CANVAS_WIDTH}x${CANVAS_HEIGHT})`, {
+        useLogStore.getState().info('MEDIA', `${color === 'black' ? '黒' : '白'}画像を生成 (${canvasWidth}x${canvasHeight})`, {
           saveStrategy: result.strategy,
         });
         onToast(
@@ -723,7 +725,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, onBeforeLoadPr
                   <div className="space-y-1.5">
                     <div className="font-semibold text-orange-100">素材</div>
                     <ul className="list-disc ml-4 space-y-1">
-                      <li>素材生成では 1280x720 の黒画像・白画像を作成できます。</li>
+                      <li>素材生成では現在のプロジェクトキャンバスサイズに合わせた黒画像・白画像を作成できます。</li>
                       <li>動画のつなぎや背景用のプレースホルダー素材として利用できます。</li>
                     </ul>
                   </div>
@@ -916,7 +918,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, onBeforeLoadPr
               <div className="flex items-center gap-2 mb-3">
                 <Image size={14} className="text-gray-400" />
                 <span className="text-sm text-gray-400">素材生成</span>
-                <span className="text-xs text-gray-500">({CANVAS_WIDTH}×{CANVAS_HEIGHT}px)</span>
+                <span className="text-xs text-gray-500">({canvasWidth}×{canvasHeight}px)</span>
               </div>
               <div className="flex gap-2">
                 <button

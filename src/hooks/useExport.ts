@@ -4,7 +4,7 @@
  * @description WebCodecs APIとmp4-muxerを使用して、編集内容をMP4ファイルとして書き出すためのカスタムフック。
  */
 import { useState, useRef, useCallback } from 'react';
-import { FPS, EXPORT_VIDEO_BITRATE } from '../constants';
+import { FPS, computeExportVideoBitrate } from '../constants';
 import * as Mp4Muxer from 'mp4-muxer';
 import type { AudioTrack, NarrationClip } from '../types';
 import { useLogStore } from '../stores/logStore';
@@ -1217,11 +1217,15 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         return;
       }
 
+      const exportVideoBitrate = computeExportVideoBitrate(
+        canvasRef.current.width,
+        canvasRef.current.height,
+      );
       logInfo('エクスポートを開始', {
         width: canvasRef.current.width,
         height: canvasRef.current.height,
         fps: FPS,
-        bitrate: EXPORT_VIDEO_BITRATE
+        bitrate: exportVideoBitrate,
       });
       exportPhaseRef.current = 'preparing';
       logInfo('[EXPORT-FSM] transition', {
@@ -1511,7 +1515,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
               },
               exportConfig: {
                 fps: FPS,
-                videoBitrate: EXPORT_VIDEO_BITRATE,
+                videoBitrate: exportVideoBitrate,
               },
               supportedMediaRecorderProfile,
               diagnostics: {
@@ -1572,7 +1576,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           codec: 'avc1.4d002a', // Main Profile, Level 4.2 (widely supported)
           width,
           height,
-          bitrate: EXPORT_VIDEO_BITRATE,
+          bitrate: exportVideoBitrate,
           framerate: FPS,
         });
 
@@ -2272,7 +2276,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           removeEventListener: () => { },
           dispatchEvent: () => true,
           audioBitsPerSecond: 128000,
-          videoBitsPerSecond: EXPORT_VIDEO_BITRATE
+          videoBitsPerSecond: exportVideoBitrate
         } as unknown as MediaRecorder;
 
         // 音声プリレンダリング完了を通知 — エクスポート用の再生ループを開始させる

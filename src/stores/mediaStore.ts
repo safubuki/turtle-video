@@ -35,6 +35,7 @@ interface MediaState {
 
   // Video specific
   setVideoDuration: (id: string, originalDuration: number) => void;
+  setMediaSourceDimensions: (id: string, sourceWidth: number, sourceHeight: number) => void;
   updateVideoTrim: (id: string, type: 'start' | 'end', value: number) => void;
 
   // Image specific
@@ -155,6 +156,24 @@ export const useMediaStore = create<MediaState>()(
             mediaItems: updated,
             totalDuration: calculateTotalDuration(updated),
           };
+        });
+      },
+
+      // Set source dimensions (called when video/image metadata loads)
+      setMediaSourceDimensions: (id, sourceWidth, sourceHeight) => {
+        if (!Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight)
+          || sourceWidth <= 0 || sourceHeight <= 0) {
+          return;
+        }
+        set((state) => {
+          const updated = state.mediaItems.map((item) => {
+            if (item.id !== id) return item;
+            if (item.sourceWidth === sourceWidth && item.sourceHeight === sourceHeight) {
+              return item;
+            }
+            return { ...item, sourceWidth, sourceHeight };
+          });
+          return { mediaItems: updated };
         });
       },
 

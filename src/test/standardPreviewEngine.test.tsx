@@ -153,7 +153,9 @@ function createMockAudioElement() {
 
 function createMockCanvasContext() {
   return {
+    canvas: { width: 1920, height: 1080 },
     fillRect: vi.fn(),
+    clearRect: vi.fn(),
     drawImage: vi.fn(),
     save: vi.fn(),
     restore: vi.fn(),

@@ -1,8 +1,6 @@
 import { useCallback, useRef, type MutableRefObject } from 'react';
 
 import {
-  CANVAS_HEIGHT,
-  CANVAS_WIDTH,
   FPS,
 } from '../../../constants';
 import type {
@@ -795,6 +793,9 @@ export function usePreviewEngine({
         const duration = videoEl.duration;
         if (!isNaN(duration) && duration !== Infinity) {
           setVideoDuration(id, duration);
+          if (videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
+            useMediaStore.getState().setMediaSourceDimensions(id, videoEl.videoWidth, videoEl.videoHeight);
+          }
           logInfo('MEDIA', `ビデオロード完了: ${id.substring(0, 8)}...`, {
             duration: Math.round(duration * 10) / 10,
             readyState: videoEl.readyState,
@@ -1132,10 +1133,10 @@ export function usePreviewEngine({
         if (!_isExporting && hasReadyPreviewCache()) {
           const previewCacheVideo = previewCacheVideoRefValue.current;
           if (previewCacheVideo?.readyState && previewCacheVideo.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME) {
-            ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
             ctx.fillStyle = '#000000';
-            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-            ctx.drawImage(previewCacheVideo, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+            ctx.drawImage(previewCacheVideo, 0, 0, ctx.canvas.width, ctx.canvas.height);
             return true;
           }
         }
@@ -1316,7 +1317,7 @@ export function usePreviewEngine({
               ) {
                 activeEl.pause();
                 ctx.globalAlpha = 1.0;
-                ctx.drawImage(activeEl, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                ctx.drawImage(activeEl, 0, 0, ctx.canvas.width, ctx.canvas.height);
                 didUpdateCanvas = true;
                 holdFrame = true;
                 shouldSkipAndroidPreviewActiveDraw = true;
@@ -1537,7 +1538,7 @@ export function usePreviewEngine({
             previewTimelineDiagnosticsRef.current.lastShouldSuppressEndClear = false;
             ctx.globalAlpha = 1.0;
             ctx.fillStyle = '#000000';
-            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
             didUpdateCanvas = true;
           }
         }
@@ -1905,10 +1906,10 @@ export function usePreviewEngine({
                 const userX = conf.positionX || 0;
                 const userY = conf.positionY || 0;
 
-                const baseScale = Math.min(CANVAS_WIDTH / elemW, CANVAS_HEIGHT / elemH);
+                const baseScale = Math.min(ctx.canvas.width / elemW, ctx.canvas.height / elemH);
 
                 ctx.save();
-                ctx.translate(CANVAS_WIDTH / 2 + userX, CANVAS_HEIGHT / 2 + userY);
+                ctx.translate(ctx.canvas.width / 2 + userX, ctx.canvas.height / 2 + userY);
                 ctx.scale(baseScale * scaleFactor, baseScale * scaleFactor);
 
                 let alpha = 1.0;
@@ -2143,9 +2144,9 @@ export function usePreviewEngine({
             if (effectivePosition === 'top') {
               y = padding + fontSize / 2;
             } else if (effectivePosition === 'center') {
-              y = CANVAS_HEIGHT / 2;
+              y = ctx.canvas.height / 2;
             } else {
-              y = CANVAS_HEIGHT - padding - fontSize / 2;
+              y = ctx.canvas.height - padding - fontSize / 2;
             }
 
             const captionDuration = activeCaption.endTime - activeCaption.startTime;
@@ -2185,7 +2186,7 @@ export function usePreviewEngine({
             ctx.textBaseline = 'middle';
 
             const blurStrength = Math.max(0, currentCaptionSettings.blur);
-            const centerX = CANVAS_WIDTH / 2;
+            const centerX = ctx.canvas.width / 2;
             const drawCaptionGlyph = (
               x: number,
               yPos: number,
