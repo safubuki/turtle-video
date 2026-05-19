@@ -2041,6 +2041,98 @@ describe('standard preview engine', () => {
     expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.android.boundary.passive-switch')).toBe(false);
   });
 
+  it('video fadeOut 中は drawImage をスキップせず globalAlpha で滑らかにフェードする', () => {
+    // 回帰テスト: shouldBlackoutVideoFadeTail が true になると drawImage がスキップされ
+    // 突然黒画面になる問題の修正を検証する。
+    // fadeOutDuration=2s, duration=4s, localTime=3.0s → fadeOut 半分地点、alpha=0.5
+    const videoItem = createVideoItem({
+      id: 'video-fade',
+      duration: 4,
+      originalDuration: 4,
+      trimStart: 0,
+      trimEnd: 4,
+      fadeOut: true,
+      fadeOutDuration: 2,
+    });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 2;
+    videoElement.seeking = false;
+    videoElement.paused = false;
+    videoElement.currentTime = 3.0;
+
+    const { canvasContext, hook } = setupRenderFrameHarness({
+      mediaItems: [videoItem],
+      mediaElements: {
+        [videoItem.id]: videoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      totalDuration: 4,
+      platformCapabilities: { isAndroid: false },
+    });
+
+    // drawImage 呼び出し時点での globalAlpha をキャプチャする
+    let alphaAtDraw: number | undefined;
+    (canvasContext.drawImage as ReturnType<typeof vi.fn>).mockImplementation((..._args: unknown[]) => {
+      alphaAtDraw = canvasContext.globalAlpha as number;
+    });
+
+    const didUpdateCanvas = hook.result.current.renderFrame(3.0, true, false);
+
+    expect(canvasContext.drawImage).toHaveBeenCalledWith(
+      videoElement,
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+    );
+    expect(didUpdateCanvas).toBe(true);
+    expect(alphaAtDraw).toBeCloseTo(0.5);
+  });
+
+  it('video fadeIn 中は drawImage をスキップせず globalAlpha で滑らかにフェードする', () => {
+    // 回帰テスト: fadeIn の先頭でも drawImage が必ず呼ばれ、0→1 の alpha で描画されることを確認する。
+    // fadeInDuration=2s, duration=4s, localTime=1.0s → fadeIn 半分地点、alpha=0.5
+    const videoItem = createVideoItem({
+      id: 'video-fadein',
+      duration: 4,
+      originalDuration: 4,
+      trimStart: 0,
+      trimEnd: 4,
+      fadeIn: true,
+      fadeInDuration: 2,
+    });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 2;
+    videoElement.seeking = false;
+    videoElement.paused = false;
+    videoElement.currentTime = 1.0;
+
+    const { canvasContext, hook } = setupRenderFrameHarness({
+      mediaItems: [videoItem],
+      mediaElements: {
+        [videoItem.id]: videoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      totalDuration: 4,
+      platformCapabilities: { isAndroid: false },
+    });
+
+    let alphaAtDraw: number | undefined;
+    (canvasContext.drawImage as ReturnType<typeof vi.fn>).mockImplementation((..._args: unknown[]) => {
+      alphaAtDraw = canvasContext.globalAlpha as number;
+    });
+
+    const didUpdateCanvas = hook.result.current.renderFrame(1.0, true, false);
+
+    expect(canvasContext.drawImage).toHaveBeenCalledWith(
+      videoElement,
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+    );
+    expect(didUpdateCanvas).toBe(true);
+    expect(alphaAtDraw).toBeCloseTo(0.5);
+  });
+
   it('export モードでは Android preview 境界診断が出ない', () => {
     vi.useFakeTimers();
     const video1 = createVideoItem({ id: 'v1', duration: 5, trimStart: 0, trimEnd: 5 });

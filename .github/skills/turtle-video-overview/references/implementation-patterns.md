@@ -344,6 +344,19 @@
   - drawable 条件は `readyState >= 2`、`!seeking`、`videoWidth/Height > 0` を維持し、未準備 video の force draw へ戻さない
   - draw 後の `play()` は再生開始要求の順序変更であり、固定 ms 遅延・preroll・hard seek の再導入ではない
 
+### 2-27. standard preview の fadeOut/fadeIn は black-tail guard を無効にして globalAlpha のみで描画する
+
+- **ファイル**: `src/flavors/standard/preview/previewPlatform.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **問題**: `shouldBlackoutVideoFadeTail()` が fadeOut 終端付近（最大 0.5 秒）で `true` を返すと、`shouldSkipVideoDrawForFadeTail = true` になり active video の `drawImage` がスキップされて突然黒画面になる。`ctx.globalAlpha` による滑らかなフェードが実行されない
+- **対策**:
+  - standard preview 向けの `shouldBlackoutVideoFadeTail` を常に `false` を返すよう変更（方針B）
+  - 黒背景は `shouldClearCanvas` の通常経路で描かれるため、1.「黒で canvas clear」→ 2.「active media を globalAlpha 付きで drawImage」の順序で自然なフェードが実現される
+  - `shouldBlackoutFadeTail = false` 固定により `shouldSkipVideoDrawForFadeTail` も常に `false` となり、drawImage スキップは発生しない
+- **注意**:
+  - `isInFadeOutRegion` による `holdFrame` ガード（fadeOut 中は `!isInFadeOutRegion = false` → holdFrame が設定されない）は引き続き機能しており、videoが描画可能な場合は必ず描画される
+  - apple-safari flavor の `shouldBlackoutVideoFadeTail` は変更しない（flavor 分離）
+  - 黒残り問題が再発する場合は drawImage スキップではなく `alpha < 0.001` の後段で処理すること
+
 ---
 
 ## 3. AudioContext 管理
