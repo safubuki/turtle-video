@@ -1914,12 +1914,19 @@ export function usePreviewEngine({
                 ctx.scale(baseScale * scaleFactor, baseScale * scaleFactor);
 
                 let alpha = 1.0;
-                const fadeInDur = conf.fadeInDuration || 1.0;
-                const fadeOutDur = conf.fadeOutDuration || 1.0;
+                let fadeInDur = conf.fadeIn ? (conf.fadeInDuration || 1.0) : 0;
+                let fadeOutDur = conf.fadeOut ? (conf.fadeOutDuration || 1.0) : 0;
+                // フェード時間のクランプ（フェードイン + フェードアウト > クリップ長の場合に按分）。
+                // export と同じロジックを使い、プレビューと書き出しでフェード挙動を一致させる。
+                if (fadeInDur + fadeOutDur > conf.duration && conf.duration > 0) {
+                  const ratio = conf.duration / (fadeInDur + fadeOutDur);
+                  fadeInDur *= ratio;
+                  fadeOutDur *= ratio;
+                }
 
-                if (conf.fadeIn && localTime < fadeInDur) {
+                if (fadeInDur > 0 && localTime < fadeInDur) {
                   alpha = localTime / fadeInDur;
-                } else if (conf.fadeOut && localTime > conf.duration - fadeOutDur) {
+                } else if (fadeOutDur > 0 && localTime > conf.duration - fadeOutDur) {
                   const remaining = conf.duration - localTime;
                   alpha = remaining / fadeOutDur;
                 }
