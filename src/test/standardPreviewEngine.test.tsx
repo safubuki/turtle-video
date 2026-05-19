@@ -2071,7 +2071,7 @@ describe('standard preview engine', () => {
 
     // drawImage 呼び出し時点での globalAlpha をキャプチャする
     let alphaAtDraw: number | undefined;
-    (canvasContext.drawImage as ReturnType<typeof vi.fn>).mockImplementation((..._args: unknown[]) => {
+    (canvasContext.drawImage as ReturnType<typeof vi.fn>).mockImplementation(() => {
       alphaAtDraw = canvasContext.globalAlpha as number;
     });
 
@@ -2116,7 +2116,7 @@ describe('standard preview engine', () => {
     });
 
     let alphaAtDraw: number | undefined;
-    (canvasContext.drawImage as ReturnType<typeof vi.fn>).mockImplementation((..._args: unknown[]) => {
+    (canvasContext.drawImage as ReturnType<typeof vi.fn>).mockImplementation(() => {
       alphaAtDraw = canvasContext.globalAlpha as number;
     });
 
