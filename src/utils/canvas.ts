@@ -54,17 +54,13 @@ export function calculateFitScale(
 }
 
 /**
- * 0..1 を smoothstep (3t^2 - 2t^3) で滑らかにする。
- * 線形フェードに比べ知覚的なザラつきが減り、一般的な動画編集ソフトの
- * フェード曲線に近い印象になる。
- */
-export function smoothstep(t: number): number {
-  const clamped = Math.max(0, Math.min(1, t));
-  return clamped * clamped * (3 - 2 * clamped);
-}
-
-/**
- * フェードアルファ値を計算（smoothstep でイージング）
+ * フェードアルファ値を計算（線形補間）
+ *
+ * 一般的な動画編集ソフトと同様、フェード期間中の経過時間にアルファ値を比例させる。
+ * イージング曲線 (smoothstep など) は一見滑らかに見えても、開始/終了付近のアルファ変化が
+ * 知覚できないほど小さくなり「フェードが始まらない / 終わらない」印象を与えるため、
+ * プレビューでは線形が最も自然に映る。
+ *
  * @param localTime - ローカル再生時間
  * @param duration - 総再生時間
  * @param fadeIn - フェードイン有効
@@ -82,9 +78,9 @@ export function calculateFadeAlpha(
   let alpha = 1.0;
 
   if (fadeIn && localTime < fadeDuration) {
-    alpha = smoothstep(localTime / fadeDuration);
+    alpha = localTime / fadeDuration;
   } else if (fadeOut && localTime > duration - fadeDuration) {
-    alpha = smoothstep((duration - localTime) / fadeDuration);
+    alpha = (duration - localTime) / fadeDuration;
   }
 
   return Math.max(0, Math.min(1, alpha));

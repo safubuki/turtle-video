@@ -541,9 +541,7 @@ export function shouldBlackoutVideoFadeTail(
   }
 
   const remainingClipTime = Math.max(0, clipDuration - Math.max(0, options.clipLocalTime));
-  // smoothstep フェード曲線下では tail のアルファ低下が早いため、ノイジーな最暗部を
-  // 黒で覆い隠す閾値を広めに取る (時間比 12% を末尾の黒置換ウィンドウとして使用)。
-  const blackoutAlphaThreshold = options.blackoutAlphaThreshold ?? 0.12;
+  const blackoutAlphaThreshold = options.blackoutAlphaThreshold ?? 0.05;
   const minBlackoutWindowSec = options.minBlackoutWindowSec ?? (1 / 60);
   const maxBlackoutWindowSec = options.maxBlackoutWindowSec ?? 0.5;
   const alphaDerivedWindowSec = fadeOutDuration * blackoutAlphaThreshold;
