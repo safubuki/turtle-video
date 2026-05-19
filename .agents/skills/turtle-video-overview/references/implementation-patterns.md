@@ -157,6 +157,18 @@
   - Android 分岐に閉じる（iOS Safari / export ルートへ波及させない）
   - preroll 失敗時は warning を残して診断可能にする
 
+### 0-12. プレビュー再生中の video フェードアウト終端は黒クリア優先を無効化する
+
+- **ファイル**: `src/components/turtle-video/usePreviewEngine.ts`
+- **背景**:
+  - `shouldBlackoutVideoFadeTail` は終端の残像対策として有効だが、再生中にも適用するとフェードアウトが途中で急に黒へ落ち、プレビューで「徐々に消える」見え方が損なわれる
+  - 特にフェード長が短いクリップでは、終端保護の黒クリアが体感上ほぼ全量を上書きし、フェードが効いていないように見える
+- **実装指針**:
+  - `shouldSkipVideoDrawForFadeTail` は停止時/保持時（`!isActivePlaying`）に限定する
+  - 再生中は `ctx.globalAlpha` による通常フェード描画を維持し、終端残像対策だけを最小範囲に閉じる
+- **注意点**:
+  - 終端黒フレーム防止の既存ロジックは維持し、export や iOS/Android 分岐の挙動は変更しない
+
 ## 1. スクロール/スワイプ誤操作防止
 
 ### 1-1. モーダル表示時のボディスクロールロック

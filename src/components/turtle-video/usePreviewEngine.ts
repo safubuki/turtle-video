@@ -823,7 +823,11 @@ export function usePreviewEngine({
             const shouldSkipVideoDrawForFadeTail =
               isVideo
               && id === activeId
-              && shouldBlackoutFadeTail;
+              && shouldBlackoutFadeTail
+              // フェード中のプレビュー再生では alpha で自然に減衰させる。
+              // 黒クリア優先は停止時/保持時のみ有効化し、
+              // 「フェードアウトが即座に黒へ落ちる」退行を防ぐ。
+              && !isActivePlaying;
 
             if (isReady && !shouldSkipVideoDrawForFadeTail) {
               const elemW = isVideo ? videoEl.videoWidth : imgEl.naturalWidth;
