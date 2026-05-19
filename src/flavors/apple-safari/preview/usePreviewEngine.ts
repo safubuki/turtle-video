@@ -3,6 +3,7 @@ import { useCallback, type MutableRefObject } from 'react';
 import {
   FPS,
 } from '../../../constants';
+import { createCaptionGlyphCanvas, smoothstep } from '../../../utils/canvas';
 import type {
   AudioTrack,
   Caption,
@@ -845,10 +846,10 @@ export function usePreviewEngine({
                 const fadeOutDur = conf.fadeOutDuration || 1.0;
 
                 if (conf.fadeIn && localTime < fadeInDur) {
-                  alpha = localTime / fadeInDur;
+                  alpha = smoothstep(localTime / fadeInDur);
                 } else if (conf.fadeOut && localTime > conf.duration - fadeOutDur) {
                   const remaining = conf.duration - localTime;
-                  alpha = remaining / fadeOutDur;
+                  alpha = smoothstep(remaining / fadeOutDur);
                 }
 
                 ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
@@ -1059,45 +1060,40 @@ export function usePreviewEngine({
             let fadeOutAlpha = 1.0;
 
             if (useFadeIn && captionLocalTime < fadeInDur) {
-              fadeInAlpha = captionLocalTime / fadeInDur;
+              fadeInAlpha = smoothstep(captionLocalTime / fadeInDur);
             }
             if (useFadeOut && captionLocalTime > captionDuration - fadeOutDur) {
               const remaining = captionDuration - captionLocalTime;
-              fadeOutAlpha = remaining / fadeOutDur;
+              fadeOutAlpha = smoothstep(remaining / fadeOutDur);
             }
 
             const alpha = Math.max(0, Math.min(1, fadeInAlpha * fadeOutAlpha));
 
             ctx.save();
-            ctx.globalAlpha = alpha;
             ctx.font = `bold ${fontSize}px ${fontFamily}`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
 
             const blurStrength = Math.max(0, currentCaptionSettings.blur);
             const centerX = ctx.canvas.width / 2;
-            const drawCaptionGlyph = (
-              x: number,
-              yPos: number,
-              localAlpha: number,
-              options?: { stroke?: boolean; fill?: boolean },
-            ) => {
+
+            // フェード時の輪郭残りを防ぐため、stroke+fill を 1 枚のオフスクリーン Canvas に
+            // 100% の不透明度で合成してから、メインキャンバスへ globalAlpha 付きで転写する。
+            const glyphCanvas = createCaptionGlyphCanvas({
+              text: activeCaption.text,
+              font: `bold ${fontSize}px ${fontFamily}`,
+              fillColor: currentCaptionSettings.fontColor,
+              strokeColor: currentCaptionSettings.strokeColor,
+              strokeWidth: currentCaptionSettings.strokeWidth,
+            });
+            const glyphW = glyphCanvas.width;
+            const glyphH = glyphCanvas.height;
+            const drawGlyphAt = (cx: number, cy: number, localAlpha: number) => {
               const clamped = Math.max(0, Math.min(1, localAlpha));
               if (clamped <= 0) return;
               didUpdateCanvas = true;
               ctx.globalAlpha = alpha * clamped;
-              const drawStroke = options?.stroke ?? true;
-              const drawFill = options?.fill ?? true;
-              if (drawStroke) {
-                ctx.strokeStyle = currentCaptionSettings.strokeColor;
-                ctx.lineWidth = currentCaptionSettings.strokeWidth * 2;
-                ctx.lineJoin = 'round';
-                ctx.strokeText(activeCaption.text, x, yPos);
-              }
-              if (drawFill) {
-                ctx.fillStyle = currentCaptionSettings.fontColor;
-                ctx.fillText(activeCaption.text, x, yPos);
-              }
+              ctx.drawImage(glyphCanvas, cx - glyphW / 2, cy - glyphH / 2);
             };
 
             if (shouldUseCaptionBlurFallback(previewPlatformPolicy, blurStrength)) {
@@ -1118,27 +1114,24 @@ export function usePreviewEngine({
                   const angle = (Math.PI * 2 * i) / samplesPerRing;
                   const offsetX = Math.cos(angle) * radius;
                   const offsetY = Math.sin(angle) * radius;
-                  drawCaptionGlyph(centerX + offsetX, y + offsetY, sampleAlpha, { stroke: false, fill: true });
+                  drawGlyphAt(centerX + offsetX, y + offsetY, sampleAlpha);
                 }
               }
 
               ctx.globalCompositeOperation = prevComposite;
 
-              const coreFillAlpha = Math.max(0.35, 0.88 - blurNorm * 0.45);
-              const coreStrokeAlpha = Math.max(0, 0.9 - blurNorm * 1.4);
-
-              if (coreFillAlpha > 0.01) {
-                drawCaptionGlyph(centerX, y, coreFillAlpha, { stroke: false, fill: true });
-              }
-              if (coreStrokeAlpha > 0.01) {
-                drawCaptionGlyph(centerX, y, coreStrokeAlpha, { stroke: true, fill: false });
+              // 中央のクリスプなコア層。stroke と fill は glyphCanvas 内で既に合成済みのため、
+              // 単一のアルファ値で同期してフェードする (輪郭だけ残る現象を回避)。
+              const coreAlpha = Math.max(0.35, 0.9 - blurNorm * 0.45);
+              if (coreAlpha > 0.01) {
+                drawGlyphAt(centerX, y, coreAlpha);
               }
               ctx.restore();
               continue;
             }
 
             ctx.filter = blurStrength > 0 ? `blur(${blurStrength}px)` : 'none';
-            drawCaptionGlyph(centerX, y, 1);
+            drawGlyphAt(centerX, y, 1);
             ctx.restore();
           }
         }
