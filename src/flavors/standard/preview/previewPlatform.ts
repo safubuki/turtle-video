@@ -513,33 +513,14 @@ export function shouldHoldVideoFrameAtClipEnd(
 }
 
 /**
- * フェードアウト終端で動画フレームを保持すると、低頻度で「黒へ落ち切る直前の最終フレーム」が残留する。
- * ほぼ黒になるはずの tail では holdFrame より黒クリアを優先すべきかを返す。
+ * standard preview では fadeOut 中も必ず動画/画像を ctx.globalAlpha で描画し黒背景へ自然に合成する。
+ * black-tail guard を有効にすると drawImage がスキップされて突然黒画面になるため、
+ * standard preview 向けにはこの判定を常に false とし、滑らかなアルファフェードを維持する。
  */
 export function shouldBlackoutVideoFadeTail(
-  options: FadeTailBlackoutGuardOptions,
+  _options: FadeTailBlackoutGuardOptions,
 ): boolean {
-  if (!options.fadeOut) {
-    return false;
-  }
-
-  const clipDuration = Math.max(0, options.clipDuration);
-  const fadeOutDuration = Math.max(0, options.fadeOutDuration);
-  if (clipDuration <= 0 || fadeOutDuration <= 0) {
-    return false;
-  }
-
-  const remainingClipTime = Math.max(0, clipDuration - Math.max(0, options.clipLocalTime));
-  const blackoutAlphaThreshold = options.blackoutAlphaThreshold ?? 0.05;
-  const minBlackoutWindowSec = options.minBlackoutWindowSec ?? (1 / 60);
-  const maxBlackoutWindowSec = options.maxBlackoutWindowSec ?? 0.5;
-  const alphaDerivedWindowSec = fadeOutDuration * blackoutAlphaThreshold;
-  const blackoutWindowSec = Math.min(
-    maxBlackoutWindowSec,
-    Math.max(minBlackoutWindowSec, alphaDerivedWindowSec),
-  );
-
-  return remainingClipTime <= blackoutWindowSec;
+  return false;
 }
 
 /**
