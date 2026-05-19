@@ -1263,11 +1263,11 @@ describe('preview platform helpers', () => {
     ).toBe(true);
   });
 
-  it('フェード終端の低アルファ帯（時間比 < 12% 閾値）では黒クリアを優先する', () => {
-    // remaining=0.10s, fadeOutDuration=1s → 時間比=0.10 (< 0.12 閾値) → 黒クリア
+  it('フェード終端の低アルファ帯（alpha < 閾値）では黒クリアを優先する', () => {
+    // remaining=0.04s, fadeOutDuration=1s → alpha=0.04 (< 0.05 閾値) → 黒クリア
     expect(
       shouldBlackoutVideoFadeTail({
-        clipLocalTime: 1.90,
+        clipLocalTime: 1.96,
         clipDuration: 2,
         fadeOut: true,
         fadeOutDuration: 1,
@@ -1276,10 +1276,10 @@ describe('preview platform helpers', () => {
   });
 
   it('フェード終端の blackout window 境界外ではフレーム保持を許可する', () => {
-    // remaining=0.13s, fadeOutDuration=1s → 時間比=0.13 (> 0.12 閾値) → 保持許可
+    // remaining=0.06s, fadeOutDuration=1s → alpha=0.06 (> 0.05 閾値) → 保持許可
     expect(
       shouldBlackoutVideoFadeTail({
-        clipLocalTime: 1.87,
+        clipLocalTime: 1.94,
         clipDuration: 2,
         fadeOut: true,
         fadeOutDuration: 1,
@@ -1299,7 +1299,7 @@ describe('preview platform helpers', () => {
   });
 
   it('長いフェードでも alphaDerivedWindow が maxBlackoutWindowSec で制限される', () => {
-    // fadeOutDuration=20s → alphaDerivedWindowSec = 20 * 0.12 = 2.4s
+    // fadeOutDuration=20s → alphaDerivedWindowSec = 20 * 0.05 = 1.0s
     // maxBlackoutWindowSec = 0.5s で制限 → blackoutWindowSec = 0.5s
     // remaining=0.51s > 0.5s → false
     expect(

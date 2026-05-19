@@ -3,7 +3,7 @@ import { useCallback, type MutableRefObject } from 'react';
 import {
   FPS,
 } from '../../constants';
-import { createCaptionGlyphCanvas, smoothstep } from '../../utils/canvas';
+import { createCaptionGlyphCanvas } from '../../utils/canvas';
 import type {
   AudioTrack,
   Caption,
@@ -844,10 +844,10 @@ export function usePreviewEngine({
                 const fadeOutDur = conf.fadeOutDuration || 1.0;
 
                 if (conf.fadeIn && localTime < fadeInDur) {
-                  alpha = smoothstep(localTime / fadeInDur);
+                  alpha = localTime / fadeInDur;
                 } else if (conf.fadeOut && localTime > conf.duration - fadeOutDur) {
                   const remaining = conf.duration - localTime;
-                  alpha = smoothstep(remaining / fadeOutDur);
+                  alpha = remaining / fadeOutDur;
                 }
 
                 ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
@@ -1058,11 +1058,11 @@ export function usePreviewEngine({
             let fadeOutAlpha = 1.0;
 
             if (useFadeIn && captionLocalTime < fadeInDur) {
-              fadeInAlpha = smoothstep(captionLocalTime / fadeInDur);
+              fadeInAlpha = captionLocalTime / fadeInDur;
             }
             if (useFadeOut && captionLocalTime > captionDuration - fadeOutDur) {
               const remaining = captionDuration - captionLocalTime;
-              fadeOutAlpha = smoothstep(remaining / fadeOutDur);
+              fadeOutAlpha = remaining / fadeOutDur;
             }
 
             const alpha = Math.max(0, Math.min(1, fadeInAlpha * fadeOutAlpha));
