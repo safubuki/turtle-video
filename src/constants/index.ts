@@ -6,14 +6,16 @@
 import type { VoiceOption } from '../types';
 
 // キャンバス設定
-// CANVAS_WIDTH / CANVAS_HEIGHT は「上限値」かつ既定値として残す（互換性のため）。
-// 実際のエクスポートキャンバスサイズはソース動画に応じて canvasStore で動的に決定される。
+// プレビュー描画は軽量に保つため 1280×720 を上限とする。
+// 書き出し時のみソース動画の解像度に応じて 1920×1080 まで動的に拡大する。
 export const MAX_CANVAS_WIDTH = 1920;
 export const MAX_CANVAS_HEIGHT = 1080;
-export const DEFAULT_CANVAS_WIDTH = MAX_CANVAS_WIDTH;
-export const DEFAULT_CANVAS_HEIGHT = MAX_CANVAS_HEIGHT;
-export const CANVAS_WIDTH = MAX_CANVAS_WIDTH;
-export const CANVAS_HEIGHT = MAX_CANVAS_HEIGHT;
+export const MAX_PREVIEW_CANVAS_WIDTH = 1280;
+export const MAX_PREVIEW_CANVAS_HEIGHT = 720;
+export const DEFAULT_CANVAS_WIDTH = MAX_PREVIEW_CANVAS_WIDTH;
+export const DEFAULT_CANVAS_HEIGHT = MAX_PREVIEW_CANVAS_HEIGHT;
+export const CANVAS_WIDTH = MAX_PREVIEW_CANVAS_WIDTH;
+export const CANVAS_HEIGHT = MAX_PREVIEW_CANVAS_HEIGHT;
 export const FPS = 30;
 
 // フェード設定

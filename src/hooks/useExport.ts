@@ -5,6 +5,7 @@
  */
 import { useState, useRef, useCallback } from 'react';
 import { FPS, computeExportVideoBitrate } from '../constants';
+import { useCanvasStore } from '../stores/canvasStore';
 import * as Mp4Muxer from 'mp4-muxer';
 import type { AudioTrack, NarrationClip } from '../types';
 import { useLogStore } from '../stores/logStore';
@@ -1217,15 +1218,10 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         return;
       }
 
-      const exportVideoBitrate = computeExportVideoBitrate(
-        canvasRef.current.width,
-        canvasRef.current.height,
-      );
       logInfo('エクスポートを開始', {
-        width: canvasRef.current.width,
-        height: canvasRef.current.height,
+        previewWidth: canvasRef.current.width,
+        previewHeight: canvasRef.current.height,
         fps: FPS,
-        bitrate: exportVideoBitrate,
       });
       exportPhaseRef.current = 'preparing';
       logInfo('[EXPORT-FSM] transition', {
@@ -1460,6 +1456,29 @@ export function createUseExport(config: UseExportRuntimeConfig) {
       };
 
       try {
+        // キャンバスをエクスポート用の高解像度モードへ切り替える。
+        // プレビュー時は軽量サイズ（〜720p）で描画し、エクスポート時のみ最大 1080p で書き出す。
+        // React 再レンダリング前に captureStream が呼ばれる可能性があるため、
+        // canvas 要素の width/height は ref 経由で即座に書き換える。
+        useCanvasStore.getState().beginExportMode();
+        const { exportWidth, exportHeight } = useCanvasStore.getState();
+        if (canvasRef.current.width !== exportWidth) {
+          canvasRef.current.width = exportWidth;
+        }
+        if (canvasRef.current.height !== exportHeight) {
+          canvasRef.current.height = exportHeight;
+        }
+
+        const exportVideoBitrate = computeExportVideoBitrate(
+          canvasRef.current.width,
+          canvasRef.current.height,
+        );
+        logInfo('エクスポート用キャンバスサイズへ切替', {
+          width: canvasRef.current.width,
+          height: canvasRef.current.height,
+          bitrate: exportVideoBitrate,
+        });
+
         const strategyOrder = config.resolveExportStrategyOrder({
           isIosSafari,
           supportedMediaRecorderProfile,
@@ -2693,6 +2712,17 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         exportPhaseRef.current = 'idle';
         silentAbortRef.current = false;
         setIsProcessing(false);
+        // キャンバスをプレビューサイズへ戻す（プレビュー描画を軽量に保つ）。
+        useCanvasStore.getState().endExportMode();
+        const { previewWidth, previewHeight } = useCanvasStore.getState();
+        if (canvasRef.current) {
+          if (canvasRef.current.width !== previewWidth) {
+            canvasRef.current.width = previewWidth;
+          }
+          if (canvasRef.current.height !== previewHeight) {
+            canvasRef.current.height = previewHeight;
+          }
+        }
       }
     },
     [completeExport, stopExport, updatePreparationStep]

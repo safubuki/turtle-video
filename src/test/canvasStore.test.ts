@@ -10,20 +10,20 @@ import {
   DEFAULT_CANVAS_HEIGHT,
   MAX_CANVAS_WIDTH,
   MAX_CANVAS_HEIGHT,
+  MAX_PREVIEW_CANVAS_WIDTH,
+  MAX_PREVIEW_CANVAS_HEIGHT,
   EXPORT_VIDEO_BITRATE,
   EXPORT_VIDEO_BITRATE_MIN,
 } from '../constants';
 
 describe('computeCanvasSizeFromSource', () => {
-  it('returns default 1920x1080 when source dimensions are invalid', () => {
-    expect(computeCanvasSizeFromSource(0, 0)).toEqual({
-      width: DEFAULT_CANVAS_WIDTH,
-      height: DEFAULT_CANVAS_HEIGHT,
-    });
-    expect(computeCanvasSizeFromSource(NaN, 720)).toEqual({
-      width: DEFAULT_CANVAS_WIDTH,
-      height: DEFAULT_CANVAS_HEIGHT,
-    });
+  it('returns landscape fallback when source dimensions are invalid', () => {
+    const fallback = computeCanvasSizeFromSource(0, 0);
+    expect(fallback.width).toBe(MAX_CANVAS_WIDTH);
+    expect(fallback.height).toBe(MAX_CANVAS_HEIGHT);
+    const nanFallback = computeCanvasSizeFromSource(NaN, 720);
+    expect(nanFallback.width).toBe(MAX_CANVAS_WIDTH);
+    expect(nanFallback.height).toBe(MAX_CANVAS_HEIGHT);
   });
 
   it('uses source dimensions when within cap (landscape)', () => {
@@ -37,7 +37,7 @@ describe('computeCanvasSizeFromSource', () => {
     });
   });
 
-  it('caps source dimensions to 1920x1080 maintaining aspect ratio', () => {
+  it('caps source dimensions to 1920x1080 maintaining aspect ratio (export cap)', () => {
     expect(computeCanvasSizeFromSource(3840, 2160)).toEqual({
       width: 1920,
       height: 1080,
@@ -48,19 +48,28 @@ describe('computeCanvasSizeFromSource', () => {
     });
   });
 
-  it('falls back to default 1920x1080 for portrait sources (landscape-only policy)', () => {
-    expect(computeCanvasSizeFromSource(1080, 1920)).toEqual({
-      width: DEFAULT_CANVAS_WIDTH,
-      height: DEFAULT_CANVAS_HEIGHT,
-    });
+  it('falls back to landscape default for portrait sources (landscape-only policy)', () => {
+    const result = computeCanvasSizeFromSource(1080, 1920);
+    expect(result.width).toBe(MAX_CANVAS_WIDTH);
+    expect(result.height).toBe(MAX_CANVAS_HEIGHT);
   });
 
   it('preserves non-16:9 landscape aspect ratios', () => {
-    // 4:3 source 1024x768
     expect(computeCanvasSizeFromSource(1024, 768)).toEqual({
       width: 1024,
       height: 768,
     });
+  });
+
+  it('caps preview at 1280x720 when given preview limits', () => {
+    const result = computeCanvasSizeFromSource(
+      1920,
+      1080,
+      MAX_PREVIEW_CANVAS_WIDTH,
+      MAX_PREVIEW_CANVAS_HEIGHT,
+    );
+    expect(result.width).toBe(1280);
+    expect(result.height).toBe(720);
   });
 
   it('produces even width/height values (H.264 requirement)', () => {
@@ -75,29 +84,56 @@ describe('useCanvasStore', () => {
     useCanvasStore.getState().resetCanvasSize();
   });
 
-  it('defaults to 1920x1080', () => {
-    const { width, height } = useCanvasStore.getState();
-    expect(width).toBe(MAX_CANVAS_WIDTH);
-    expect(height).toBe(MAX_CANVAS_HEIGHT);
+  it('defaults to preview size 1280x720 with separate export cap of 1920x1080', () => {
+    const state = useCanvasStore.getState();
+    expect(state.width).toBe(DEFAULT_CANVAS_WIDTH);
+    expect(state.height).toBe(DEFAULT_CANVAS_HEIGHT);
+    expect(state.previewWidth).toBe(MAX_PREVIEW_CANVAS_WIDTH);
+    expect(state.previewHeight).toBe(MAX_PREVIEW_CANVAS_HEIGHT);
+    expect(state.exportWidth).toBe(MAX_CANVAS_WIDTH);
+    expect(state.exportHeight).toBe(MAX_CANVAS_HEIGHT);
+    expect(state.isExportMode).toBe(false);
   });
 
-  it('applyFromSource updates dimensions according to source', () => {
-    useCanvasStore.getState().applyFromSource(1280, 720);
-    expect(useCanvasStore.getState().width).toBe(1280);
-    expect(useCanvasStore.getState().height).toBe(720);
+  it('applyFromSource updates both preview and export sizes independently', () => {
+    useCanvasStore.getState().applyFromSource(1920, 1080);
+    const state = useCanvasStore.getState();
+    expect(state.previewWidth).toBe(1280);
+    expect(state.previewHeight).toBe(720);
+    expect(state.exportWidth).toBe(1920);
+    expect(state.exportHeight).toBe(1080);
+    // current visible size is preview while not in export mode
+    expect(state.width).toBe(1280);
+    expect(state.height).toBe(720);
   });
 
-  it('applyFromSource caps oversized sources', () => {
-    useCanvasStore.getState().applyFromSource(3840, 2160);
-    expect(useCanvasStore.getState().width).toBe(1920);
-    expect(useCanvasStore.getState().height).toBe(1080);
+  it('beginExportMode switches current size to export dimensions', () => {
+    useCanvasStore.getState().applyFromSource(1920, 1080);
+    useCanvasStore.getState().beginExportMode();
+    const state = useCanvasStore.getState();
+    expect(state.isExportMode).toBe(true);
+    expect(state.width).toBe(1920);
+    expect(state.height).toBe(1080);
   });
 
-  it('resetCanvasSize returns to default', () => {
-    useCanvasStore.getState().applyFromSource(1280, 720);
+  it('endExportMode restores preview dimensions', () => {
+    useCanvasStore.getState().applyFromSource(1920, 1080);
+    useCanvasStore.getState().beginExportMode();
+    useCanvasStore.getState().endExportMode();
+    const state = useCanvasStore.getState();
+    expect(state.isExportMode).toBe(false);
+    expect(state.width).toBe(1280);
+    expect(state.height).toBe(720);
+  });
+
+  it('resetCanvasSize returns to defaults and exits export mode', () => {
+    useCanvasStore.getState().applyFromSource(1920, 1080);
+    useCanvasStore.getState().beginExportMode();
     useCanvasStore.getState().resetCanvasSize();
-    expect(useCanvasStore.getState().width).toBe(DEFAULT_CANVAS_WIDTH);
-    expect(useCanvasStore.getState().height).toBe(DEFAULT_CANVAS_HEIGHT);
+    const state = useCanvasStore.getState();
+    expect(state.isExportMode).toBe(false);
+    expect(state.width).toBe(DEFAULT_CANVAS_WIDTH);
+    expect(state.height).toBe(DEFAULT_CANVAS_HEIGHT);
   });
 });
 
@@ -106,9 +142,7 @@ describe('computeExportVideoBitrate', () => {
     expect(computeExportVideoBitrate(1920, 1080)).toBe(EXPORT_VIDEO_BITRATE);
   });
 
-  it('scales down proportionally for smaller resolutions', () => {
-    // 1280x720 has ~44% of the pixels of 1920x1080
-    // but minimum is 6 Mbps so the 1280x720 result is the floor
+  it('scales down proportionally for smaller resolutions but respects min', () => {
     const bitrate = computeExportVideoBitrate(1280, 720);
     expect(bitrate).toBeGreaterThanOrEqual(EXPORT_VIDEO_BITRATE_MIN);
     expect(bitrate).toBeLessThanOrEqual(EXPORT_VIDEO_BITRATE);
