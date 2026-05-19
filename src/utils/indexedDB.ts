@@ -59,6 +59,9 @@ export interface SerializedMediaItem {
   positionY: number;
   isTransformOpen: boolean;
   isLocked: boolean;
+  // ソース動画の解像度（エクスポートキャンバスサイズの動的決定に使用）
+  sourceWidth?: number;
+  sourceHeight?: number;
 }
 
 // 保存されるオーディオトラックのシリアライズ形式

@@ -3,7 +3,7 @@
  * @author Turtle Village
  * @description 編集中の動画をリアルタイムでプレビュー再生、シーク、およびファイルへの書き出しを行うセクションコンポーネント。
  */
-import React, { RefObject, useEffect, useMemo, useRef, useState } from 'react';
+import React, { RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Play,
   Pause,
@@ -21,6 +21,7 @@ import type { ExportPreparationStep } from '../../hooks/useExport';
 import type { AppFlavor } from '../../app/resolveAppFlavor';
 import { getPreviewRuntimeNotice } from '../../app/appFlavorUi';
 import { useLogStore } from '../../stores/logStore';
+import { useCanvasStore } from '../../stores/canvasStore';
 
 const PREVIEW_ICON_BUTTON_BASE =
   'relative overflow-hidden p-3 lg:p-4 rounded-full border transition-[transform,background-color,color,box-shadow,filter] duration-200 shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed';
@@ -130,6 +131,20 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   formatTime,
 }) => {
   const log = useLogStore.getState();
+  const canvasWidth = useCanvasStore((s) => s.width);
+  const canvasHeight = useCanvasStore((s) => s.height);
+  // canvas.width / canvas.height をセットすると内容がクリアされるので、
+  // 実際にサイズが変わるときだけ書き換える（毎レンダリングでの再代入を避ける）。
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    if (canvas.width !== canvasWidth) {
+      canvas.width = canvasWidth;
+    }
+    if (canvas.height !== canvasHeight) {
+      canvas.height = canvasHeight;
+    }
+  }, [canvasWidth, canvasHeight, canvasRef]);
   const [exportPhase, setExportPhase] = useState<ExportPhase>('preparing');
   const [isCapturePressed, setIsCapturePressed] = useState(false);
   const lastObservedTimeRef = useRef<number>(currentTime);
@@ -377,8 +392,6 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
       <div className="relative aspect-video bg-black w-full group">
         <canvas
           ref={canvasRef}
-          width={1280}
-          height={720}
           className="w-full h-full object-contain"
         />
         {mediaItems.length === 0 && (

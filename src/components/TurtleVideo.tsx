@@ -12,8 +12,6 @@ import type { SectionHelpKey } from '../constants/sectionHelp';
 import type { PreviewRuntime } from './turtle-video/previewRuntime';
 import type { SaveRuntime } from './turtle-video/saveRuntime';
 import {
-  CANVAS_WIDTH,
-  CANVAS_HEIGHT,
   VOICE_OPTIONS,
   GEMINI_API_BASE_URL,
   GEMINI_SCRIPT_MODEL,
@@ -21,6 +19,7 @@ import {
   GEMINI_TTS_MODEL,
   TTS_SAMPLE_RATE,
 } from '../constants';
+import { useCanvasStore } from '../stores/canvasStore';
 
 import type { ExportPreparationStep } from '../hooks/useExport';
 import { usePreventUnload } from '../hooks/usePreventUnload';
@@ -80,6 +79,12 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   usePreventUnload();
 
   // === Zustand Stores ===
+  // Canvas Store (動的キャンバスサイズ)
+  const canvasWidth = useCanvasStore((s) => s.width);
+  const canvasHeight = useCanvasStore((s) => s.height);
+  const resetCanvasSize = useCanvasStore((s) => s.resetCanvasSize);
+  const applyCanvasFromSource = useCanvasStore((s) => s.applyFromSource);
+
   // Media Store
   const mediaItems = useMediaStore((s) => s.mediaItems);
   const totalDuration = useMediaStore((s) => s.totalDuration);
@@ -354,11 +359,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       narrations,
       captions,
       captionSettings,
-      canvasWidth: CANVAS_WIDTH,
-      canvasHeight: CANVAS_HEIGHT,
+      canvasWidth,
+      canvasHeight,
       fps: 30,
     }),
-    [bgm, captionSettings, captions, mediaItems, narrations],
+    [bgm, captionSettings, captions, mediaItems, narrations, canvasWidth, canvasHeight],
   );
   const supportsShowSaveFilePicker = platformCapabilities.supportsShowSaveFilePicker;
   const supportsShowOpenFilePicker = platformCapabilities.supportsShowOpenFilePicker;
@@ -400,6 +405,19 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     setEditingNarrationId(null);
     closeAiModal();
   }, [offlineMode, showAiModal, closeAiModal]);
+
+  // --- 動的キャンバスサイズ: 最初のビデオメディアの解像度に応じて
+  // エクスポート用キャンバスサイズを更新する（1920×1080 上限、横向き固定）。
+  useEffect(() => {
+    const firstVideo = mediaItems.find((item) => item.type === 'video');
+    if (!firstVideo) {
+      resetCanvasSize();
+      return;
+    }
+    if (firstVideo.sourceWidth && firstVideo.sourceHeight) {
+      applyCanvasFromSource(firstVideo.sourceWidth, firstVideo.sourceHeight);
+    }
+  }, [mediaItems, resetCanvasSize, applyCanvasFromSource]);
 
   // --- メモリ監視（10秒ごと） ---
   useEffect(() => {
@@ -1766,9 +1784,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     if (canvasRef.current) {
       const ctx = canvasRef.current.getContext('2d');
       if (ctx) {
-        ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
         ctx.fillStyle = '#000000';
-        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
       }
     }
   }, [mediaItems, bgm, narrations, stopAll, clearAllMedia, clearAllAudio, resetCaptions, resetUI]);
@@ -2153,13 +2171,13 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     position: 'fixed',
     top: 0,
     left: 0,
-    width: `${CANVAS_WIDTH}px`,
-    height: `${CANVAS_HEIGHT}px`,
+    width: `${canvasWidth}px`,
+    height: `${canvasHeight}px`,
     opacity: 0.001,
     pointerEvents: 'none',
     zIndex: -100,
     visibility: 'visible',
-  }), []);
+  }), [canvasWidth, canvasHeight]);
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans pb-24 select-none relative">

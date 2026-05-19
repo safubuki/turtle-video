@@ -37,6 +37,9 @@ export interface MediaItem {
   positionY: number;
   isTransformOpen: boolean;
   isLocked: boolean;
+  // ソース動画の解像度（エクスポート用キャンバスサイズの動的決定に使用）
+  sourceWidth?: number;
+  sourceHeight?: number;
 }
 
 // オーディオトラック (BGM/ナレーション共通)

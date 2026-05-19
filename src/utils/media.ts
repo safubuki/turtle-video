@@ -6,6 +6,7 @@
 
 import type { MediaItem } from '../types';
 import { useLogStore } from '../stores/logStore';
+import { MAX_CANVAS_WIDTH } from '../constants';
 
 /**
  * ID生成用カウンター（同一ミリ秒内での重複を防止）
@@ -165,7 +166,7 @@ export function validateScale(scale: number, min: number = 0.5, max: number = 3.
  * @param limit - 上限/下限
  * @returns 検証された位置値
  */
-export function validatePosition(position: number, limit: number = 1280): number {
+export function validatePosition(position: number, limit: number = MAX_CANVAS_WIDTH): number {
   if (isNaN(position)) return 0;
   return Math.max(-limit, Math.min(limit, position));
 }
