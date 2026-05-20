@@ -2133,6 +2133,247 @@ describe('standard preview engine', () => {
     expect(alphaAtDraw).toBeCloseTo(0.5);
   });
 
+  it('video fadeOut 描画前にキャンバスを黒で fillRect クリアして残像を防ぐ', () => {
+    // 回帰テスト: フェード時に前フレームの video が残っていると alpha=0.5 で重ね描き
+    // しても 0.5*new + 0.5*old = 旧フレームと同色のため「フェードしているように見えない」。
+    // drawImage の直前に fillRect(black, alpha=1) でキャンバスを必ずクリアすることを検証。
+    const videoItem = createVideoItem({
+      id: 'video-fade',
+      duration: 4,
+      originalDuration: 4,
+      trimStart: 0,
+      trimEnd: 4,
+      fadeOut: true,
+      fadeOutDuration: 2,
+    });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 2;
+    videoElement.seeking = false;
+    videoElement.paused = false;
+    videoElement.currentTime = 3.0;
+
+    const { canvasContext, hook } = setupRenderFrameHarness({
+      mediaItems: [videoItem],
+      mediaElements: {
+        [videoItem.id]: videoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      totalDuration: 4,
+      platformCapabilities: { isAndroid: false },
+    });
+
+    const callOrder: Array<{ name: 'fillRect' | 'drawImage'; alpha: number }> = [];
+    (canvasContext.fillRect as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      callOrder.push({ name: 'fillRect', alpha: canvasContext.globalAlpha as number });
+    });
+    (canvasContext.drawImage as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      callOrder.push({ name: 'drawImage', alpha: canvasContext.globalAlpha as number });
+    });
+
+    hook.result.current.renderFrame(3.0, true, false);
+
+    const firstFill = callOrder.find((c) => c.name === 'fillRect');
+    const firstDraw = callOrder.find((c) => c.name === 'drawImage');
+    expect(firstFill).toBeDefined();
+    expect(firstDraw).toBeDefined();
+    // fillRect が drawImage よりも前に呼ばれていること
+    expect(callOrder.indexOf(firstFill!)).toBeLessThan(callOrder.indexOf(firstDraw!));
+    // 黒塗り時は globalAlpha=1.0 であること
+    expect(firstFill!.alpha).toBeCloseTo(1.0);
+    // drawImage 時は fadeOut alpha=0.5 であること
+    expect(firstDraw!.alpha).toBeCloseTo(0.5);
+  });
+
+  it('video fadeIn 描画前にキャンバスを黒で fillRect クリアして残像を防ぐ', () => {
+    // 回帰テスト: fadeIn でも fadeOut と同様に毎フレーム黒クリアが必要。
+    const videoItem = createVideoItem({
+      id: 'video-fadein',
+      duration: 4,
+      originalDuration: 4,
+      trimStart: 0,
+      trimEnd: 4,
+      fadeIn: true,
+      fadeInDuration: 2,
+    });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 2;
+    videoElement.seeking = false;
+    videoElement.paused = false;
+    videoElement.currentTime = 1.0;
+
+    const { canvasContext, hook } = setupRenderFrameHarness({
+      mediaItems: [videoItem],
+      mediaElements: {
+        [videoItem.id]: videoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      totalDuration: 4,
+      platformCapabilities: { isAndroid: false },
+    });
+
+    const callOrder: Array<{ name: 'fillRect' | 'drawImage'; alpha: number }> = [];
+    (canvasContext.fillRect as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      callOrder.push({ name: 'fillRect', alpha: canvasContext.globalAlpha as number });
+    });
+    (canvasContext.drawImage as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      callOrder.push({ name: 'drawImage', alpha: canvasContext.globalAlpha as number });
+    });
+
+    hook.result.current.renderFrame(1.0, true, false);
+
+    const firstFill = callOrder.find((c) => c.name === 'fillRect');
+    const firstDraw = callOrder.find((c) => c.name === 'drawImage');
+    expect(firstFill).toBeDefined();
+    expect(firstDraw).toBeDefined();
+    expect(callOrder.indexOf(firstFill!)).toBeLessThan(callOrder.indexOf(firstDraw!));
+    expect(firstFill!.alpha).toBeCloseTo(1.0);
+    expect(firstDraw!.alpha).toBeCloseTo(0.5);
+  });
+
+  it('タイムライン末尾 (last 30ms) でも fadeOut alpha を反映して描画する', () => {
+    // 回帰テスト: isTimelineEnd 内の freezeFrame ロジックが fadeOut alpha を無視して
+    // alpha=1.0 で video を上書き描画していると、最後の数十 ms で video が一瞬全強度に戻り
+    // 「フェードアウトが効いていない」見え方になる。
+    // duration=4s, fadeOutDuration=2s, totalDuration=4s, time=3.99s → fadeOut 末尾
+    //   localTime=3.99 → alpha=(4 - 3.99)/2=0.005 になるはず。
+    const videoItem = createVideoItem({
+      id: 'video-fade-tail',
+      duration: 4,
+      originalDuration: 4,
+      trimStart: 0,
+      trimEnd: 4,
+      fadeOut: true,
+      fadeOutDuration: 2,
+    });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 4;
+    videoElement.seeking = false;
+    videoElement.paused = false;
+    videoElement.currentTime = 3.99;
+    videoElement.duration = 4;
+    videoElement.ended = false;
+
+    const { canvasContext, hook } = setupRenderFrameHarness({
+      mediaItems: [videoItem],
+      mediaElements: {
+        [videoItem.id]: videoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      totalDuration: 4,
+      platformCapabilities: { isAndroid: false },
+    });
+
+    const drawAlphas: number[] = [];
+    (canvasContext.drawImage as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      drawAlphas.push(canvasContext.globalAlpha as number);
+    });
+
+    hook.result.current.renderFrame(3.99, true, false);
+
+    expect(drawAlphas.length).toBeGreaterThan(0);
+    // alpha=1.0 で描画されていたら freezeFrame が fade を無視していることになる
+    expect(drawAlphas.every((a) => a < 0.5)).toBe(true);
+    // 期待値: (4 - 3.99) / 2 = 0.005
+    expect(Math.min(...drawAlphas)).toBeLessThan(0.05);
+  });
+
+  it('複数クリップで 2 番目クリップの fadeIn が描画される', () => {
+    // 回帰テスト: clip1(no fade, 4s) -> clip2(fadeIn=1s, 4s)
+    // 時刻 4.5s (clip2 の localTime=0.5) で alpha=0.5 になることを確認。
+    const clip1 = createVideoItem({
+      id: 'video-1',
+      duration: 4,
+      originalDuration: 4,
+      trimStart: 0,
+      trimEnd: 4,
+    });
+    const clip2 = createVideoItem({
+      id: 'video-2',
+      duration: 4,
+      originalDuration: 4,
+      trimStart: 0,
+      trimEnd: 4,
+      fadeIn: true,
+      fadeInDuration: 1,
+    });
+
+    const el1 = createMockVideoElement();
+    el1.readyState = 4;
+    el1.seeking = false;
+    el1.paused = true;
+    el1.currentTime = 4.0;
+
+    const el2 = createMockVideoElement();
+    el2.readyState = 4;
+    el2.seeking = false;
+    el2.paused = false;
+    el2.currentTime = 0.5;
+    el2.duration = 4;
+
+    const { canvasContext, hook } = setupRenderFrameHarness({
+      mediaItems: [clip1, clip2],
+      mediaElements: {
+        [clip1.id]: el1 as unknown as HTMLVideoElement,
+        [clip2.id]: el2 as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      totalDuration: 8,
+      platformCapabilities: { isAndroid: false },
+    });
+
+    const drawCalls: Array<{ source: unknown; alpha: number }> = [];
+    (canvasContext.drawImage as ReturnType<typeof vi.fn>).mockImplementation((src) => {
+      drawCalls.push({ source: src, alpha: canvasContext.globalAlpha as number });
+    });
+
+    hook.result.current.renderFrame(4.5, true, false);
+
+    // clip2 が alpha=0.5 で描画されていること
+    const clip2Draws = drawCalls.filter((d) => d.source === el2);
+    expect(clip2Draws.length).toBeGreaterThan(0);
+    expect(clip2Draws[0].alpha).toBeCloseTo(0.5);
+  });
+
+  it('タイムライン末尾でも fadeIn alpha を反映して描画する', () => {
+    // 回帰テスト: 短いクリップ(1s)で fadeIn=1s だと fadeIn region が duration いっぱいに広がる。
+    // duration=1s, fadeIn=true, fadeInDuration=1s, time=0.99s
+    //   localTime=0.99 → alpha=0.99/1.0=0.99 (まだ fadeIn 中)
+    // ただし isTimelineEnd の freezeFrame が alpha=1.0 で上書きすると 0.99 ではなく 1.0 になる。
+    const videoItem = createVideoItem({
+      id: 'video-fade-in-tail',
+      duration: 1,
+      originalDuration: 1,
+      trimStart: 0,
+      trimEnd: 1,
+      fadeIn: true,
+      fadeInDuration: 1,
+    });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 4;
+    videoElement.seeking = false;
+    videoElement.paused = false;
+    videoElement.currentTime = 0.99;
+    videoElement.duration = 1;
+    videoElement.ended = false;
+
+    const { canvasContext, hook } = setupRenderFrameHarness({
+      mediaItems: [videoItem],
+      mediaElements: {
+        [videoItem.id]: videoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      totalDuration: 1,
+      platformCapabilities: { isAndroid: false },
+    });
+
+    const drawAlphas: number[] = [];
+    (canvasContext.drawImage as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      drawAlphas.push(canvasContext.globalAlpha as number);
+    });
+
+    hook.result.current.renderFrame(0.99, true, false);
+
+    expect(drawAlphas.length).toBeGreaterThan(0);
+    // 期待値 ~0.99 (1.0 で描画されたら freezeFrame が fade を無視している)
+    expect(Math.max(...drawAlphas)).toBeLessThan(1.0);
+    expect(Math.max(...drawAlphas)).toBeCloseTo(0.99, 2);
+  });
+
   it('export モードでは Android preview 境界診断が出ない', () => {
     vi.useFakeTimers();
     const video1 = createVideoItem({ id: 'v1', duration: 5, trimStart: 0, trimEnd: 5 });

@@ -1239,10 +1239,16 @@ export function usePreviewEngine({
             fadeOutDuration: activeFadeOutDur,
           });
 
+          const activeFadeInDur = activeItem.fadeInDuration || 1.0;
           const isInFadeOutRegion =
             activeItem.type === 'video' &&
             activeItem.fadeOut &&
             localTime > activeItem.duration - activeFadeOutDur;
+          const isInFadeInRegion =
+            activeItem.type === 'video' &&
+            activeItem.fadeIn &&
+            localTime < activeFadeInDur;
+          const isInFadeRegion = isInFadeInRegion || isInFadeOutRegion;
 
           if (activeItem.type === 'video' && hasExplicitFadeToBlack && shouldPreferBlackoutAtFadeTail) {
             shouldBlackoutFadeTail = true;
@@ -1257,7 +1263,7 @@ export function usePreviewEngine({
                 shouldSkipAndroidPreviewActiveDraw = true;
                 logAndroidPreviewHold(activeId, time);
               }
-              if (!shouldPreferBlackoutAtFadeTail && !isInFadeOutRegion) {
+              if (!shouldPreferBlackoutAtFadeTail && !isInFadeRegion) {
                 holdFrame = true;
               }
             } else {
@@ -1311,6 +1317,9 @@ export function usePreviewEngine({
                 !_isExporting
                 && isActivePlaying
                 && isTimelineEnd
+                // フェード途中で freezeFrame を alpha=1.0 で上書きすると fade が見えなくなるため、
+                // fadeIn / fadeOut の途中であれば下流の通常 drawImage パス (line ~1916) に処理を委ねる。
+                && !isInFadeRegion
                 && activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
                 && !activeEl.seeking
                 && activeEl.videoWidth > 0
@@ -1416,7 +1425,10 @@ export function usePreviewEngine({
               }
 
               if (shouldHoldActiveVideoFrame) {
-                if (!shouldPreferBlackoutAtFadeTail && !isInFadeOutRegion) {
+                // fade 中 (fadeIn / fadeOut) は holdFrame で前フレームを保持すると
+                // 旧 clip の絵柄が透けて見え、フェードが効いていないように見える。
+                // fade 中は canvas を毎フレーム黒クリアして alpha 付きで描画するパスへ委ねる。
+                if (!shouldPreferBlackoutAtFadeTail && !isInFadeRegion) {
                   holdFrame = true;
                 }
                 if (shouldHoldForAndroidPreviewNotDrawable) {
