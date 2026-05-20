@@ -260,13 +260,17 @@ export function usePreviewVisibilityLifecycle({
       });
 
       if (!recoveryPlan.shouldKeepRunning) {
+        // readyState=1 (HAVE_METADATA) で load() を呼ぶと readyState が 0 へ戻り
+        // currentTime もリセットされる。バックグラウンド復帰後に動画が固まる原因に
+        // なるため、本当にデータを失った readyState=0 のときだけ再ロードする。
         Object.values(mediaElementsRef.current).forEach((el) => {
-          if ((el.tagName === 'VIDEO' || el.tagName === 'AUDIO') && (el as HTMLMediaElement).readyState < 2) {
-            try {
-              (el as HTMLMediaElement).load();
-            } catch {
-              // ignore
-            }
+          if (el.tagName !== 'VIDEO' && el.tagName !== 'AUDIO') return;
+          const mediaEl = el as HTMLMediaElement;
+          if (mediaEl.readyState !== 0 || mediaEl.error) return;
+          try {
+            mediaEl.load();
+          } catch {
+            // ignore
           }
         });
       }
