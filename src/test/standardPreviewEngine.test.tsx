@@ -2365,6 +2365,49 @@ describe('standard preview engine', () => {
     expect(firstFill).toBeLessThan(firstDraw);
   });
 
+  it('Android プレビュー再生中の image fadeOut でも canvas を黒クリアする (型制約バグ修正)', () => {
+    // 回帰テスト: isInFadeRegion が type === 'video' を要求しているため、
+    // 画像クリップで shouldSuppressEndClear が解除されず fade が見えない問題を防ぐ。
+    const imageItem = createImageItem({
+      id: 'image-fade-android',
+      duration: 4,
+      originalDuration: 4,
+      fadeOut: true,
+      fadeOutDuration: 2,
+    });
+    const imageEl = {
+      tagName: 'IMG',
+      complete: true,
+      naturalWidth: 1920,
+      naturalHeight: 1080,
+    } as unknown as HTMLImageElement;
+
+    const { canvasContext, hook } = setupRenderFrameHarness({
+      mediaItems: [imageItem],
+      mediaElements: {
+        [imageItem.id]: imageEl as unknown as HTMLImageElement,
+      } as MediaElementsRef,
+      totalDuration: 4,
+      platformCapabilities: { isAndroid: true, isIosSafari: false },
+    });
+
+    const order: Array<'fillRect' | 'drawImage'> = [];
+    (canvasContext.fillRect as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      order.push('fillRect');
+    });
+    (canvasContext.drawImage as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      order.push('drawImage');
+    });
+
+    hook.result.current.renderFrame(3.0, true, false);
+
+    const firstFill = order.indexOf('fillRect');
+    const firstDraw = order.indexOf('drawImage');
+    expect(firstFill).toBeGreaterThanOrEqual(0);
+    expect(firstDraw).toBeGreaterThanOrEqual(0);
+    expect(firstFill).toBeLessThan(firstDraw);
+  });
+
   it('Android プレビュー再生中で fade 外の通常区間では endClear が依然 suppress される (退行防止)', () => {
     // fade 中だけ suppress を解除する設計を担保する。fade 外では従来通り
     // Android クリップ境界のチラつき対策として endClear が suppress されること。

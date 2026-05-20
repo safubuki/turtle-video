@@ -1245,12 +1245,13 @@ export function usePreviewEngine({
           });
 
           const activeFadeInDur = activeItem.fadeInDuration || 1.0;
+          // fade region は video / image の両方に適用される (MediaItem 共通プロパティ)。
+          // type==='video' に絞ると画像クリップで fade region が拾われず、
+          // 下流の shouldSuppressEndClear / freezeFrame / holdFrame ガードが効かなくなる。
           isInFadeOutRegion =
-            activeItem.type === 'video' &&
             activeItem.fadeOut &&
             localTime > activeItem.duration - activeFadeOutDur;
           isInFadeInRegion =
-            activeItem.type === 'video' &&
             activeItem.fadeIn &&
             localTime < activeFadeInDur;
           isInFadeRegion = isInFadeInRegion || isInFadeOutRegion;
