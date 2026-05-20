@@ -1026,7 +1026,13 @@ export function usePreviewEngine({
           for (const activeCaption of activeCaptions) {
             const fontSizeMap = { small: 32, medium: 48, large: 64, xlarge: 80 };
             const effectiveFontSizeKey = activeCaption.overrideFontSize ?? currentCaptionSettings.fontSize;
-            const fontSize = fontSizeMap[effectiveFontSizeKey];
+            const baseFontSize = fontSizeMap[effectiveFontSizeKey];
+
+            // プレビューは 720p、エクスポートは 1080p で同じ canvas を使い回すため、
+            // 1080p を基準にスケールしておくと「プレビューで見たまま export される (WYSIWYG)」になる。
+            const CAPTION_REFERENCE_HEIGHT = 1080;
+            const captionScale = Math.max(0.1, ctx.canvas.height / CAPTION_REFERENCE_HEIGHT);
+            const fontSize = Math.max(1, baseFontSize * captionScale);
 
             const fontFamilyMap = {
               gothic: 'sans-serif',
@@ -1036,7 +1042,7 @@ export function usePreviewEngine({
             const fontFamily = fontFamilyMap[effectiveFontStyle];
 
             const effectivePosition = activeCaption.overridePosition ?? currentCaptionSettings.position;
-            const padding = 50;
+            const padding = 50 * captionScale;
             let y: number;
             if (effectivePosition === 'top') {
               y = padding + fontSize / 2;
@@ -1081,7 +1087,9 @@ export function usePreviewEngine({
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
 
-            const blurStrength = Math.max(0, currentCaptionSettings.blur);
+            // strokeWidth / blur も fontSize と同じスケールで縮小し、プレビュー/export で太さの比率を保つ。
+            const scaledStrokeWidth = Math.max(0, currentCaptionSettings.strokeWidth * captionScale);
+            const blurStrength = Math.max(0, currentCaptionSettings.blur * captionScale);
             const centerX = ctx.canvas.width / 2;
 
             // フェード時の輪郭残りを防ぐため、stroke+fill を 1 枚のオフスクリーン Canvas に
@@ -1091,7 +1099,7 @@ export function usePreviewEngine({
               font: `bold ${fontSize}px ${fontFamily}`,
               fillColor: currentCaptionSettings.fontColor,
               strokeColor: currentCaptionSettings.strokeColor,
-              strokeWidth: currentCaptionSettings.strokeWidth,
+              strokeWidth: scaledStrokeWidth,
             });
             const glyphW = glyphCanvas.width;
             const glyphH = glyphCanvas.height;

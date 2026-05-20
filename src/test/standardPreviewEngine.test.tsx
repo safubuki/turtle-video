@@ -151,9 +151,9 @@ function createMockAudioElement() {
   return createMockMediaElement('AUDIO');
 }
 
-function createMockCanvasContext() {
+function createMockCanvasContext(canvasSize: { width: number; height: number } = { width: 1920, height: 1080 }) {
   return {
-    canvas: { width: 1920, height: 1080 },
+    canvas: { width: canvasSize.width, height: canvasSize.height },
     fillRect: vi.fn(),
     clearRect: vi.fn(),
     drawImage: vi.fn(),
