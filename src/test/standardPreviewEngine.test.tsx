@@ -2274,6 +2274,134 @@ describe('standard preview engine', () => {
     expect(Math.min(...drawAlphas)).toBeLessThan(0.05);
   });
 
+  it('Android プレビュー再生中の fadeOut でも canvas を黒クリアする (shouldSuppressEndClear バイパス)', () => {
+    // 回帰テスト (0df405e 退行): shouldSuppressEndClear が Android playback 中
+    // 常に endClear を抑止していたため、fadeOut でも前フレームが残留し
+    // result = 0.5*V + 0.5*previousV = V となって fade が見えなくなっていた。
+    // fade 中は suppress を解除し、毎フレーム黒クリアされることを検証する。
+    const videoItem = createVideoItem({
+      id: 'video-fade-android',
+      duration: 4,
+      originalDuration: 4,
+      trimStart: 0,
+      trimEnd: 4,
+      fadeOut: true,
+      fadeOutDuration: 2,
+    });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 4;
+    videoElement.seeking = false;
+    videoElement.paused = false;
+    videoElement.currentTime = 3.0;
+    videoElement.duration = 4;
+
+    const { canvasContext, hook } = setupRenderFrameHarness({
+      mediaItems: [videoItem],
+      mediaElements: {
+        [videoItem.id]: videoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      totalDuration: 4,
+      platformCapabilities: { isAndroid: true, isIosSafari: false },
+    });
+
+    const order: Array<'fillRect' | 'drawImage'> = [];
+    (canvasContext.fillRect as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      order.push('fillRect');
+    });
+    (canvasContext.drawImage as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      order.push('drawImage');
+    });
+
+    hook.result.current.renderFrame(3.0, true, false);
+
+    // fadeOut 中なので fillRect (黒クリア) が drawImage より前に必ず呼ばれること
+    const firstFill = order.indexOf('fillRect');
+    const firstDraw = order.indexOf('drawImage');
+    expect(firstFill).toBeGreaterThanOrEqual(0);
+    expect(firstDraw).toBeGreaterThanOrEqual(0);
+    expect(firstFill).toBeLessThan(firstDraw);
+  });
+
+  it('Android プレビュー再生中の fadeIn でも canvas を黒クリアする', () => {
+    const videoItem = createVideoItem({
+      id: 'video-fadein-android',
+      duration: 4,
+      originalDuration: 4,
+      trimStart: 0,
+      trimEnd: 4,
+      fadeIn: true,
+      fadeInDuration: 2,
+    });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 4;
+    videoElement.seeking = false;
+    videoElement.paused = false;
+    videoElement.currentTime = 1.0;
+    videoElement.duration = 4;
+
+    const { canvasContext, hook } = setupRenderFrameHarness({
+      mediaItems: [videoItem],
+      mediaElements: {
+        [videoItem.id]: videoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      totalDuration: 4,
+      platformCapabilities: { isAndroid: true, isIosSafari: false },
+    });
+
+    const order: Array<'fillRect' | 'drawImage'> = [];
+    (canvasContext.fillRect as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      order.push('fillRect');
+    });
+    (canvasContext.drawImage as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      order.push('drawImage');
+    });
+
+    hook.result.current.renderFrame(1.0, true, false);
+
+    const firstFill = order.indexOf('fillRect');
+    const firstDraw = order.indexOf('drawImage');
+    expect(firstFill).toBeGreaterThanOrEqual(0);
+    expect(firstDraw).toBeGreaterThanOrEqual(0);
+    expect(firstFill).toBeLessThan(firstDraw);
+  });
+
+  it('Android プレビュー再生中で fade 外の通常区間では endClear が依然 suppress される (退行防止)', () => {
+    // fade 中だけ suppress を解除する設計を担保する。fade 外では従来通り
+    // Android クリップ境界のチラつき対策として endClear が suppress されること。
+    const videoItem = createVideoItem({
+      id: 'video-no-fade-android',
+      duration: 4,
+      originalDuration: 4,
+      trimStart: 0,
+      trimEnd: 4,
+      fadeIn: false,
+      fadeOut: false,
+    });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 4;
+    videoElement.seeking = false;
+    videoElement.paused = false;
+    videoElement.currentTime = 2.0;
+    videoElement.duration = 4;
+
+    const { canvasContext, hook, logInfo } = setupRenderFrameHarness({
+      mediaItems: [videoItem],
+      mediaElements: {
+        [videoItem.id]: videoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      totalDuration: 4,
+      platformCapabilities: { isAndroid: true, isIosSafari: false },
+    });
+
+    // fade 外の中盤 (localTime=2.0, fadeIn/Out 共に false)
+    hook.result.current.renderFrame(2.0, true, false);
+
+    const suppressed = logInfo.mock.calls.some(([, msg]) => msg === 'preview.endClear.suppressed');
+    expect(suppressed).toBe(true);
+    // suppress されているので fillRect は呼ばれていないはず
+    expect((canvasContext.fillRect as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
   it('複数クリップで 2 番目クリップの fadeIn が描画される', () => {
     // 回帰テスト: clip1(no fade, 4s) -> clip2(fadeIn=1s, 4s)
     // 時刻 4.5s (clip2 の localTime=0.5) で alpha=0.5 になることを確認。

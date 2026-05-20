@@ -1227,6 +1227,11 @@ export function usePreviewEngine({
         let shouldBlackoutFadeTail = false;
         let shouldSkipAndroidPreviewActiveDraw = false;
         let shouldPlayAndroidPreviewActiveVideoAfterDraw = false;
+        // fade 中であるかは canvas clear 制御 (line ~1530 の shouldSuppressEndClear) でも参照するため、
+        // active item ブロックの外で初期化しておき、active が無いときは false で扱う。
+        let isInFadeInRegion = false;
+        let isInFadeOutRegion = false;
+        let isInFadeRegion = false;
         if (activeId && activeIndex !== -1) {
           const activeItem = currentItems[activeIndex];
           const previousItem = activeIndex > 0 ? currentItems[activeIndex - 1] : null;
@@ -1240,15 +1245,15 @@ export function usePreviewEngine({
           });
 
           const activeFadeInDur = activeItem.fadeInDuration || 1.0;
-          const isInFadeOutRegion =
+          isInFadeOutRegion =
             activeItem.type === 'video' &&
             activeItem.fadeOut &&
             localTime > activeItem.duration - activeFadeOutDur;
-          const isInFadeInRegion =
+          isInFadeInRegion =
             activeItem.type === 'video' &&
             activeItem.fadeIn &&
             localTime < activeFadeInDur;
-          const isInFadeRegion = isInFadeInRegion || isInFadeOutRegion;
+          isInFadeRegion = isInFadeInRegion || isInFadeOutRegion;
 
           if (activeItem.type === 'video' && hasExplicitFadeToBlack && shouldPreferBlackoutAtFadeTail) {
             shouldBlackoutFadeTail = true;
@@ -1520,7 +1525,15 @@ export function usePreviewEngine({
             && hasActiveItem
             && isBeforeTimelineEnd
             && !endFinalizedRef.current
-            && !shouldBlackoutFadeTail;
+            && !shouldBlackoutFadeTail
+            // fade 中 (fadeIn / fadeOut) は毎フレーム黒クリア + alpha 描画で
+            // 仕様通りの「黒へ落とす / 黒から立ち上げる」を実現する必要があるため、
+            // Android end-clear suppression を fade region では無効化する。
+            // これを外すと canvas 上に直前フレーム (= 同じ動画) が残留し、
+            // alpha 付き drawImage の math が
+            //   result = 0.5*V + 0.5*previousV = V
+            // となって fade が視認できない (0df405e 退行).
+            && !isInFadeRegion;
           if (shouldSuppressEndClear) {
             if (previewTimelineDiagnosticsRef.current.lastShouldSuppressEndClear !== true) {
               logInfo('RENDER', 'preview.endClear.suppressed', {

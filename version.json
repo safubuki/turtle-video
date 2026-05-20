@@ -1,20 +1,21 @@
 {
-  "version": "5.1.2",
+  "version": "5.1.3",
   "history": {
-    "previousVersion": "5.1.1",
-    "summary": "プレビュー再生のフェードイン・フェードアウトをタイムライン末尾でも正しく反映するよう修正しました。タイムライン終端近傍の凍結フレーム上書きが fade alpha を無視して全不透明で描画していた退行を解消し、設定した秒数どおりに最後まで滑らかにフェードするようにしました。",
+    "previousVersion": "5.1.2",
+    "summary": "Android プレビュー再生中の canvas 黒クリア抑止 (shouldSuppressEndClear) がフェード描画も巻き込んでいた退行を修正しました。fade region では suppress を解除し、毎フレーム黒クリア → alpha 付き drawImage の単一パスを必ず通すようにすることで、エクスポートと同じ秒数・カーブで fade を視認できるようにしています。",
+    "history": "v5.1.2 で freezeFrame / holdFrame を整理した後も Android プレビューだけで fade が表示されない症状が残っていた根本原因は、commit 0df405e で shouldSuppressEndClear のガードが !hasExplicitFadeToBlack から (常に false の) !shouldBlackoutFadeTail に置き換えられ、ガードが事実上消失していたこと。これにより Android playback では毎フレーム canvas が前フレーム残留となり、alpha 付き drawImage の math が result = a*V + (1-a)*V = V となって fade が見えなくなっていた。",
     "highlights": [
       {
-        "title": "タイムライン末尾のフェードアウト退行を修正",
-        "description": "クリップ末尾の最後の数十 ms で動画が一瞬全強度に戻り、フェードアウトが効いていないように見える問題を修正しました。"
+        "title": "Android プレビュー fade 退行を修正",
+        "description": "Android のクリップ境界チラつき対策 (shouldSuppressEndClear) が fade 中も canvas クリアを止めていた問題を修正。fade region では必ず黒クリアを通すようにしました。"
       },
       {
-        "title": "短いクリップのフェードインを修正",
-        "description": "フェードイン時間がクリップ長と同じくらい長い場合でも、最後まで設定した秒数どおりに滑らかにフェードするようにしました。"
+        "title": "エクスポートとプレビューの fade 挙動を完全一致",
+        "description": "v5.1.2 までの末尾フリーズフレーム / hold ガードの整理と合わせ、プレビュー描画パスをエクスポート時と同じ単一パスへ統一しました。"
       },
       {
-        "title": "プレビューのフェード描画パスを統一",
-        "description": "フェード中は freezeFrame ロジックを介さず、毎フレーム黒クリア → alpha 付き drawImage という単一パスで安定描画するようにしました。"
+        "title": "Android クリップ境界の安定化は維持",
+        "description": "fade region 以外では従来通り endClear suppression が働き、Android のクリップ境界における黒フラッシュ防止挙動はそのまま維持されます。"
       }
     ]
   }
