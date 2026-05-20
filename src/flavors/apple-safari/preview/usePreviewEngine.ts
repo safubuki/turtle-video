@@ -1024,10 +1024,11 @@ export function usePreviewEngine({
             (c) => isCaptionActiveAtTime(c, time),
           );
           for (const activeCaption of activeCaptions) {
-            // fontSize は 1080p export を基準にした絶対 px (medium = 5.19% of 1080 ≒ YouTube 相当)。
+            // fontSize は 1080p export を基準にした絶対 px (medium = 10.37% of 1080)。
             // 解像度に応じて captionScale で按分するため、SNS 等で異なるサイズの画面で
             // 再生されても「フレームに対する文字の比率」は常に同じになる (WYSIWYG)。
-            const fontSizeMap = { small: 40, medium: 56, large: 74, xlarge: 92 };
+            // SNS 縦動画 / TikTok / 解説動画など読みやすさ重視の大きめサイズを既定とする。
+            const fontSizeMap = { small: 80, medium: 112, large: 148, xlarge: 184 };
             const effectiveFontSizeKey = activeCaption.overrideFontSize ?? currentCaptionSettings.fontSize;
             const baseFontSize = fontSizeMap[effectiveFontSizeKey];
 
