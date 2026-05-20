@@ -1,20 +1,20 @@
 {
-  "version": "5.1.2",
+  "version": "5.1.4",
   "history": {
-    "previousVersion": "5.1.1",
-    "summary": "プレビュー再生のフェードイン・フェードアウトをタイムライン末尾でも正しく反映するよう修正しました。タイムライン終端近傍の凍結フレーム上書きが fade alpha を無視して全不透明で描画していた退行を解消し、設定した秒数どおりに最後まで滑らかにフェードするようにしました。",
+    "previousVersion": "5.1.3",
+    "summary": "プレビュー画面のフェードイン・フェードアウト退行を完全に修正しました。これまでの v5.1.2 / v5.1.3 修正に加え、isInFadeRegion 判定が type === 'video' に限定されていたため画像クリップのフェードが拾われない問題、および Android end-clear suppression の解除条件を画像クリップでも有効にする修正を適用しています。",
     "highlights": [
       {
-        "title": "タイムライン末尾のフェードアウト退行を修正",
-        "description": "クリップ末尾の最後の数十 ms で動画が一瞬全強度に戻り、フェードアウトが効いていないように見える問題を修正しました。"
+        "title": "画像クリップのフェードも canvas クリアを通すよう修正",
+        "description": "isInFadeRegion 判定の type==='video' 制約を外し、画像クリップの fadeIn/fadeOut でも shouldSuppressEndClear が正しく解除されるようにしました。"
       },
       {
-        "title": "短いクリップのフェードインを修正",
-        "description": "フェードイン時間がクリップ長と同じくらい長い場合でも、最後まで設定した秒数どおりに滑らかにフェードするようにしました。"
+        "title": "Android プレビューの fade 退行を完全修復",
+        "description": "v5.1.3 で導入した shouldSuppressEndClear の fade region ガードを、video / image 両方のメディアタイプで一貫して適用するようにしました。"
       },
       {
-        "title": "プレビューのフェード描画パスを統一",
-        "description": "フェード中は freezeFrame ロジックを介さず、毎フレーム黒クリア → alpha 付き drawImage という単一パスで安定描画するようにしました。"
+        "title": "エクスポートとプレビューの fade 挙動完全一致を担保",
+        "description": "freezeFrame / holdFrame / endClear suppression の全パスで fade region 判定を統一し、プレビューとエクスポートで同一の fade レンダリングパスを通すようにしました。"
       }
     ]
   }
