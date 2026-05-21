@@ -1,20 +1,20 @@
 {
-  "version": "5.1.11",
+  "version": "5.1.12",
   "history": {
-    "previousVersion": "5.1.10",
-    "summary": "iPhone/iPad Safari でプレビュー再生時に「2 本目以降の動画」や「動画→画像→動画」の組み合わせで 2 本目の動画が真っ黒のまま再生されない退行を修正しました。動画→動画の境界で新しい動画の読み込み完了を待ってから再生するキックを 1 回だけ仕掛けるようにし、メタデータ未到達で取りこぼされるケースを防いでいます。修正の影響は iOS Safari 経路のみで、Android/PC のプレビュー処理には変更を入れていません。",
+    "previousVersion": "5.1.11",
+    "summary": "v5.1.11 で導入した iOS Safari 動画境界キックが、新しい active video の currentTime を上書きすることで「音は鳴るのに映像が固まる」副作用を引き起こしていたため、キックの方針を見直しました。境界の瞬間に video が paused 状態のときだけ play() を仕掛けるようにし、currentTime の上書きは行わないようにしました。Standard (Android/PC) には引き続き影響を与えていません。",
     "highlights": [
       {
-        "title": "iOS Safari の動画→動画境界で 2 本目以降が黒画面のまま固まる退行を修正",
-        "description": "iPhone/iPad Safari のプレビュー再生で、2 本目の動画に切り替わる瞬間に readyState がまだ低いと後続フレームの自動 play() に取りこぼされ、画面が黒いまま固まる事象を修正しました。境界の瞬間にだけ load → seek → 準備でき次第 play() するキックを 1 度だけ仕掛けて取りこぼしを救済します。"
+        "title": "iOS Safari 境界キックで currentTime を触らないように修正 (映像が固まり音だけ流れる退行を回避)",
+        "description": "v5.1.11 で導入した境界キックが、新しい active video の currentTime を targetTime に揃え直していたため、iOS Safari 側で seeking=true のまま戻らず「音は鳴るのに映像が前フレームで固まる」退行を発生させていました。境界キックは play() のみ仕掛け、シーク同期は既存の prebuffer block と sync block に任せるよう責務を分離しました。"
       },
       {
-        "title": "iOS Safari の画像→動画境界でも同じ取りこぼしを救済",
-        "description": "動画→画像→動画 のような複合的な並びでも、画像区間明けの動画が同様に黒画面で固まることがあったため、同じ境界キックで救済対象に含めています。"
+        "title": "境界キックを paused 状態の video に限定 (prewarm 済みの再生中動画への干渉を排除)",
+        "description": "BGM 等のあるシーンで video2 が無音 prewarm で既に再生中になっているケースで、境界キックが余計な play() / リスナー追加を実行しないようガードを追加しました。これにより prewarm 済みの再生中の video には境界キックがまったく介入しません。"
       },
       {
-        "title": "Android/PC プレビューには影響しない iOS Safari 専用修正",
-        "description": "本修正は apple-safari flavor のプレビューエンジンの中だけで完結しており、Android/PC で動いている standard flavor の挙動には変更が入っていません。境界キックは isIosSafari かつ非エクスポート時のみ発火します。"
+        "title": "Android/PC プレビューには変更なし (apple-safari flavor 内でのみ完結)",
+        "description": "本修正は src/flavors/apple-safari/preview/usePreviewEngine.ts のみを変更しており、Android/PC で動いている standard flavor の挙動には変更が入っていません。境界キックは isIosSafari かつ非エクスポート時のみ発火します。"
       }
     ]
   }

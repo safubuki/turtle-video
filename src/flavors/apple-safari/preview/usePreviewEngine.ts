@@ -729,17 +729,20 @@ export function usePreviewEngine({
               }
 
               // iOS Safari の動画→動画 / 画像→動画 境界では、新しい active video が
-              // 「paused のまま readyState=0/1」の状態に取り残されることがある。
-              // 後続フレームの synchronous play() は readyState >= 1 を要求するため、
-              // メタデータ未到達の瞬間に取りこぼされると、canvas は holdFrame で前フレームを
-              // 維持するか、最終的に黒クリアされたまま固まる退行が発生する。
-              // 境界の瞬間だけ、load → seek → 準備でき次第 play() を 1 回キックして
-              // synchronous ループへ合流させる。Standard (Android/PC) には影響しない。
+              // 「paused のまま readyState=0/1」の状態に取り残され、後続フレームの
+              // synchronous play() (readyState >= 1 必須) を取りこぼして黒画面で
+              // 固まる退行が発生する。境界の瞬間に paused 状態の場合だけ play() を
+              // キックする。currentTime は触らない（プレイ中の動画の currentTime を
+              // 上書きすると iOS Safari が seeking=true のまま戻らず、音は鳴るのに
+              // 映像が前フレームで固まる退行を引き起こす）。シーク同期は既存の
+              // prebuffer block (line 652-672) と既存 sync block に任せる。
+              // Standard (Android/PC) には影響しない。
               if (
                 becameActiveOnThisFrame
                 && platformCapabilities.isIosSafari
                 && !_isExporting
                 && !isSeekingRef.current
+                && videoEl.paused
               ) {
                 const scheduledAttempt = previewPlaybackAttemptRef.current;
                 const attemptBoundaryPlay = () => {
@@ -758,16 +761,13 @@ export function usePreviewEngine({
                   }
                 };
 
-                if (Math.abs(videoEl.currentTime - targetTime) > 0.1) {
-                  try { videoEl.currentTime = targetTime; } catch { /* ignore */ }
-                }
-
-                if (!videoEl.seeking && videoEl.readyState >= 1 && videoEl.paused) {
+                if (!videoEl.seeking && videoEl.readyState >= 1) {
                   attemptBoundaryPlay();
                 }
 
-                // メタデータ未到達 / seek 中の場合に備え、最初に届いた準備完了イベントで
-                // 1 回だけ play() を試みる。{ once: true } で自然にクリーンアップされる。
+                // readyState が 0/1 で seek 中のとき向けに、最初に届いた準備完了
+                // イベントで 1 回だけ play() を試みる。{ once: true } で自然に
+                // クリーンアップされ、すでに playing 中の動画には影響しない。
                 videoEl.addEventListener('loadedmetadata', attemptBoundaryPlay, { once: true });
                 videoEl.addEventListener('loadeddata', attemptBoundaryPlay, { once: true });
                 videoEl.addEventListener('canplay', attemptBoundaryPlay, { once: true });
