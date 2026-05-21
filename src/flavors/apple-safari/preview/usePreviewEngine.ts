@@ -713,7 +713,9 @@ export function usePreviewEngine({
                   hasExportPlayFailure,
                 });
 
-              if (isActivePlaying && activeVideoIdRef.current !== id) {
+              const becameActiveOnThisFrame =
+                isActivePlaying && activeVideoIdRef.current !== id;
+              if (becameActiveOnThisFrame) {
                 activeVideoIdRef.current = id;
               }
 
@@ -724,6 +726,61 @@ export function usePreviewEngine({
                   videoRecoveryAttemptsRef.current[id] = now;
                   try { videoEl.load(); } catch { /* ignore */ }
                 }
+              }
+
+              // iOS Safari の動画→動画 / 画像→動画 境界では、新しい active video が
+              // 「paused のまま readyState=0/1」の状態に取り残されることがある。
+              // 後続フレームの synchronous play() は readyState >= 1 を要求するため、
+              // メタデータ未到達の瞬間に取りこぼされると、canvas は holdFrame で前フレームを
+              // 維持するか、最終的に黒クリアされたまま固まる退行が発生する。
+              // 境界の瞬間だけ、load → seek → 準備でき次第 play() を 1 回キックして
+              // synchronous ループへ合流させる。Standard (Android/PC) には影響しない。
+              if (
+                becameActiveOnThisFrame
+                && platformCapabilities.isIosSafari
+                && !_isExporting
+                && !isSeekingRef.current
+              ) {
+                const scheduledAttempt = previewPlaybackAttemptRef.current;
+                const attemptBoundaryPlay = () => {
+                  if (!shouldAttemptDeferredPreviewPlay({
+                    isCurrentAttempt: scheduledAttempt === previewPlaybackAttemptRef.current,
+                    isPlaying: isPlayingRef.current,
+                    isSeeking: isSeekingRef.current,
+                    mediaSeeking: videoEl.seeking,
+                    readyState: videoEl.readyState,
+                    minReadyState: 1,
+                  })) {
+                    return;
+                  }
+                  if (videoEl.paused) {
+                    videoEl.play().catch(() => { });
+                  }
+                };
+
+                if (Math.abs(videoEl.currentTime - targetTime) > 0.1) {
+                  try { videoEl.currentTime = targetTime; } catch { /* ignore */ }
+                }
+
+                if (!videoEl.seeking && videoEl.readyState >= 1 && videoEl.paused) {
+                  attemptBoundaryPlay();
+                }
+
+                // メタデータ未到達 / seek 中の場合に備え、最初に届いた準備完了イベントで
+                // 1 回だけ play() を試みる。{ once: true } で自然にクリーンアップされる。
+                videoEl.addEventListener('loadedmetadata', attemptBoundaryPlay, { once: true });
+                videoEl.addEventListener('loadeddata', attemptBoundaryPlay, { once: true });
+                videoEl.addEventListener('canplay', attemptBoundaryPlay, { once: true });
+                videoEl.addEventListener('seeked', attemptBoundaryPlay, { once: true });
+
+                logInfo('RENDER', 'iOS Safari preview video 境界キック', {
+                  videoId: id.substring(0, 8),
+                  readyState: videoEl.readyState,
+                  paused: videoEl.paused,
+                  seeking: videoEl.seeking,
+                  currentTime: Math.round(videoEl.currentTime * 100) / 100,
+                  targetTime: Math.round(targetTime * 100) / 100,
+                });
               }
 
               const isUserSeeking = isSeekingRef.current;
