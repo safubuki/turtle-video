@@ -1244,12 +1244,13 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
           }),
           { type: 'audio/wav' },
         );
+        const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
         if (editingNarrationId) {
           replaceNarrationAudio(editingNarrationId, {
             file: narrationFile,
             url: blobUrl,
             blobUrl,
-            duration: audio.duration,
+            duration,
             sourceType: 'ai',
             isAiEditable: true,
             aiScript,
@@ -1268,7 +1269,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               file: narrationFile,
               url: blobUrl,
               blobUrl,
-              duration: audio.duration,
+              duration,
               startTime: currentTimeRef.current,
               sourceType: 'ai',
               aiScript,
@@ -1507,7 +1508,21 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     clearExport();
     const url = URL.createObjectURL(file);
     const audio = new Audio(url);
+    let settled = false;
+    // メタデータ読み込みがハングしたときに blob URL を残さないためのタイムアウト保険
+    const timeoutId = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      audio.onloadedmetadata = null;
+      audio.onerror = null;
+      URL.revokeObjectURL(url);
+      showToast('BGM の読み込みに失敗しました');
+    }, 15000);
     audio.onloadedmetadata = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
       setBgm({
         file,
         url,
@@ -1518,11 +1533,18 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         fadeOut: false,
         fadeInDuration: 2.0,
         fadeOutDuration: 2.0,
-        duration: audio.duration,
+        duration,
         isAi: false,
       });
     };
-  }, [pausePreviewBeforeEdit, setBgm, clearExport]);
+    audio.onerror = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      URL.revokeObjectURL(url);
+      showToast('BGM の読み込みに失敗しました');
+    };
+  }, [pausePreviewBeforeEdit, setBgm, clearExport, showToast]);
 
   // --- ナレーションアップロードハンドラ ---
   // 目的: ナレーションファイルを読み込みストアに設定
@@ -1539,13 +1561,29 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       new Promise((resolve, reject) => {
         const url = URL.createObjectURL(file);
         const audio = new Audio(url);
+        let settled = false;
+        // メタデータ読み込みハング時に blob URL を残さないためのタイムアウト保険
+        const timeoutId = window.setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          audio.onloadedmetadata = null;
+          audio.onerror = null;
+          URL.revokeObjectURL(url);
+          reject(new Error(`音声メタデータ読み込みタイムアウト: ${file.name}`));
+        }, 15000);
 
         audio.onloadedmetadata = () => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timeoutId);
           const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
           resolve({ file, url, duration });
         };
 
         audio.onerror = () => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timeoutId);
           URL.revokeObjectURL(url);
           reject(new Error(`音声メタデータ読み込み失敗: ${file.name}`));
         };

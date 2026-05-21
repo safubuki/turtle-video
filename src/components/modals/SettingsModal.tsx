@@ -173,6 +173,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
   const apikeyScrollRef = useRef<HTMLDivElement>(null);
   const settingsScrollRef = useRef<HTMLDivElement>(null);
   const logContainerRef = useRef<HTMLDivElement>(null);
+  // setCopied(false) を遅延実行するタイマー。アンマウント時に setState 警告を防ぐためにクリーンアップする
+  const copiedResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartXRef = useRef<number | null>(null);
   const touchStartYRef = useRef<number | null>(null);
   const touchStartScrollTopRef = useRef(0);
@@ -217,6 +219,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
       setSaved(false);
       setShowKey(false);
       setCopied(false);
+      if (copiedResetTimerRef.current) {
+        clearTimeout(copiedResetTimerRef.current);
+        copiedResetTimerRef.current = null;
+      }
       setActiveInfoPanel(null);
       // モーダルを開くたびに localStorage の現在値を反映
       setPreviewLogMode(readStoredPreviewLogMode());
@@ -230,6 +236,16 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
+
+  // アンマウント時に copied リセットタイマーをクリアし、setState警告を防ぐ
+  useEffect(() => {
+    return () => {
+      if (copiedResetTimerRef.current) {
+        clearTimeout(copiedResetTimerRef.current);
+        copiedResetTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     activeInfoPanelRef.current = activeInfoPanel;
@@ -396,12 +412,22 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
     return key.slice(0, 4) + '●'.repeat(key.length - 8) + key.slice(-4);
   };
 
+  const scheduleCopiedReset = () => {
+    if (copiedResetTimerRef.current) {
+      clearTimeout(copiedResetTimerRef.current);
+    }
+    copiedResetTimerRef.current = setTimeout(() => {
+      copiedResetTimerRef.current = null;
+      setCopied(false);
+    }, 2000);
+  };
+
   const handleCopyLogs = async () => {
     const logsJson = exportLogs();
     try {
       await navigator.clipboard.writeText(logsJson);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      scheduleCopiedReset();
     } catch {
       // フォールバック
       const textarea = document.createElement('textarea');
@@ -411,7 +437,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
       document.execCommand('copy');
       document.body.removeChild(textarea);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      scheduleCopiedReset();
     }
   };
 
