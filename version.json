@@ -1,20 +1,20 @@
 {
-  "version": "5.1.12",
+  "version": "5.1.13",
   "history": {
-    "previousVersion": "5.1.11",
-    "summary": "v5.1.11 で導入した iOS Safari 動画境界キックが、新しい active video の currentTime を上書きすることで「音は鳴るのに映像が固まる」副作用を引き起こしていたため、キックの方針を見直しました。境界の瞬間に video が paused 状態のときだけ play() を仕掛けるようにし、currentTime の上書きは行わないようにしました。Standard (Android/PC) には引き続き影響を与えていません。",
+    "previousVersion": "5.1.12",
+    "summary": "iPhone/iPad Safari のプレビューで「BGM 無しの単独動画では音が出ない」問題を修正しました。iOS Safari は AudioContext が running 状態のとき、createMediaElementSource で WebAudio に接続していない HTMLMediaElement の native audio を抑制する挙動があるため、単独動画でも常に WebAudio 経路を確立するように変更しました。これで「BGM 有無で音が出たり出なかったり」という不安定さがなくなります。修正は apple-safari flavor 内で閉じており、Android/PC の standard flavor には変更を入れていません。",
     "highlights": [
       {
-        "title": "iOS Safari 境界キックで currentTime を触らないように修正 (映像が固まり音だけ流れる退行を回避)",
-        "description": "v5.1.11 で導入した境界キックが、新しい active video の currentTime を targetTime に揃え直していたため、iOS Safari 側で seeking=true のまま戻らず「音は鳴るのに映像が前フレームで固まる」退行を発生させていました。境界キックは play() のみ仕掛け、シーク同期は既存の prebuffer block と sync block に任せるよう責務を分離しました。"
+        "title": "iOS Safari 単独動画でも音声が鳴るように修正 (WebAudio 経路の強制)",
+        "description": "iOS Safari は AudioContext を起動した瞬間、WebAudio に繋がない HTMLMediaElement の native 音声を暗黙に抑制することがあるため、BGM/narration が無い単独動画でも常に createMediaElementSource で WebAudio 経路を確立するようにしました。これで「BGM 有り時は鳴るのに BGM 無し時は鳴らない」「v5.1.12 で映像は出るが音が出ない」といった不安定さが解消されます。"
       },
       {
-        "title": "境界キックを paused 状態の video に限定 (prewarm 済みの再生中動画への干渉を排除)",
-        "description": "BGM 等のあるシーンで video2 が無音 prewarm で既に再生中になっているケースで、境界キックが余計な play() / リスナー追加を実行しないようガードを追加しました。これにより prewarm 済みの再生中の video には境界キックがまったく介入しません。"
+        "title": "1 本目 / 2 本目の動画とも音声が出力される (BGM 無しシナリオ)",
+        "description": "動画 2 本のプレビューで、1 本目から音声が再生され、2 本目に切り替わっても音声が継続するようになります。WebAudio gain はクリップごとに既存ロジック (setTargetAtTime, fadeIn/fadeOut) でコントロールされ、境界での音量管理も既存挙動が維持されます。"
       },
       {
         "title": "Android/PC プレビューには変更なし (apple-safari flavor 内でのみ完結)",
-        "description": "本修正は src/flavors/apple-safari/preview/usePreviewEngine.ts のみを変更しており、Android/PC で動いている standard flavor の挙動には変更が入っていません。境界キックは isIosSafari かつ非エクスポート時のみ発火します。"
+        "description": "本修正は src/flavors/apple-safari/preview/previewPlatform.ts の getPreviewAudioOutputMode のみを変更しており、Standard flavor (Android/PC) の audio 経路には影響を与えません。standard 側は単独動画では引き続き native 経路を維持します。"
       }
     ]
   }

@@ -368,7 +368,14 @@ export function getPreviewAudioOutputMode(
   }
 
   if (!options.isExporting && options.sourceType === 'video') {
-    return 'native';
+    // iOS Safari (muteNativeMediaWhenAudioRouted=true) では AudioContext が
+    // running 状態のとき、createMediaElementSource() で WebAudio 経路に接続して
+    // いない HTMLMediaElement の native audio が抑制されるケースが観測される。
+    // 単独 video でも WebAudio 経路を確立しておくことで、「BGM の有無で audio 経路
+    // が分岐し、BGM 無し時だけ音が出ない」という不安定さを排除する。
+    // 呼び出し元 (preparePreviewAudioNodesForTime / render loop active branch) は
+    // outputMode === 'webaudio' のとき ensureAudioNodeForElement() を呼ぶ。
+    return policy.muteNativeMediaWhenAudioRouted ? 'webaudio' : 'native';
   }
 
   if (Math.abs(options.desiredVolume - 1) > 0.001) {

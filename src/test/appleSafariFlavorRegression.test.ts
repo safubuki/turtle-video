@@ -191,6 +191,36 @@ describe('apple-safari flavor regression', () => {
     expect(shouldReinitializeAudioRoute(previewPolicy, false)).toBe(true);
   });
 
+  it('apple-safari preview は BGM 無しの単独 video でも WebAudio 経路を強制し audio node 作成を促す', () => {
+    const previewCapabilities = getAppleSafariPreviewPlatformCapabilities(createCapabilities());
+    const previewPolicy = appleSafariPreviewRuntime.getPreviewPlatformPolicy(previewCapabilities);
+
+    // BGM/narration なしの単一 video が active。audibleSourceCount=1 だが、
+    // iOS Safari では AudioContext running 中に native audio が抑制されるため、
+    // 常に WebAudio 経路を確立して audio node を作らせる必要がある。
+    const routingPlan = getPreviewAudioRoutingPlan(previewPolicy, {
+      isExporting: false,
+      candidates: [
+        {
+          id: 'video-1',
+          hasAudioNode: false,
+          desiredVolume: 1,
+          sourceType: 'video',
+        },
+      ],
+    });
+
+    expect(routingPlan).toEqual([
+      {
+        id: 'video-1',
+        hasAudioNode: false,
+        desiredVolume: 1,
+        audibleSourceCount: 1,
+        outputMode: 'webaudio',
+      },
+    ]);
+  });
+
   it('apple-safari export は MediaRecorder 優先と pre-render fallback で音声保持経路を固定する', () => {
     const exportCapabilities = getAppleSafariExportPlatformCapabilities(createCapabilities());
 
