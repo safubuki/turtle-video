@@ -429,4 +429,42 @@ describe('apple-safari preview engine boundary kick', () => {
       logInfo.mock.calls.some(([, message]) => message === 'iOS Safari preview video 境界キック'),
     ).toBe(false);
   });
+
+  it('prewarm 済みで既に再生中の動画には境界キックを掛けない (currentTime も触らない)', () => {
+    const video1 = createVideoItem({ id: 'v1', duration: 2 });
+    const video2 = createVideoItem({ id: 'v2', duration: 2 });
+    const video1El = createMockVideoElement();
+    const video2El = createMockVideoElement();
+    video1El.readyState = 4;
+    video1El.paused = false;
+    // v2 は無音 prewarm で既に paused=false / readyState=4 / currentTime が trimStart より先へ進んだ状態。
+    // BGM 経路で active 化前に silent-play されたケースを模す。
+    video2El.readyState = 4;
+    video2El.paused = false;
+    video2El.currentTime = 0.35;
+
+    const activeVideoIdRef = createRef<string | null>('v1');
+
+    const { hook, logInfo } = setupRenderFrameHarness({
+      mediaItems: [video1, video2],
+      mediaElements: {
+        [video1.id]: video1El as unknown as HTMLVideoElement,
+        [video2.id]: video2El as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      activeVideoIdRef,
+    });
+
+    hook.result.current.renderFrame(2.05, true, false);
+
+    // 既に再生中なので追加の play() は呼ばない、currentTime も上書きしない、
+    // リスナーも仕掛けない。currentTime の上書きは iOS Safari で seeking=true のまま
+    // 戻らず、音だけ鳴って映像が固まる退行を引き起こすため避ける。
+    expect(video2El.play).not.toHaveBeenCalled();
+    expect(video2El.currentTime).toBeCloseTo(0.35);
+    expect(video2El.listenerCount('canplay')).toBe(0);
+    expect(video2El.listenerCount('seeked')).toBe(0);
+    expect(
+      logInfo.mock.calls.some(([, message]) => message === 'iOS Safari preview video 境界キック'),
+    ).toBe(false);
+  });
 });
