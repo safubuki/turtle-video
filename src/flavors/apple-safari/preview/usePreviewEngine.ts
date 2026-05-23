@@ -1542,7 +1542,29 @@ export function usePreviewEngine({
 
     const hasActiveRecorder = !!(recorderRef.current && recorderRef.current.state !== 'inactive');
     if (hasActiveRecorder) {
-      recorderRef.current!.stop();
+      // iOS Safari の MediaRecorder.stop() は、事前に requestData() を呼んで
+      // バッファをフラッシュしないと、最後のチャンクが届かず onstop が発火しない
+      // ケースが実機テストで観測された。その結果「100% まで進んでもダウンロード
+      // ボタンに切り替わらない」退行になる。abort 経路と同じ「requestData() →
+      // 短い遅延 → stop()」の手順で呼び、確実に onstop と onRecordingStop
+      // コールバックを発火させる。
+      const recorder = recorderRef.current!;
+      try {
+        recorder.requestData();
+      } catch {
+        /* ignore */
+      }
+      // 180ms は abort 経路と同じ値。短すぎると iOS Safari でフラッシュが
+      // 間に合わないことがあるので、同じ間隔を採用する。
+      setTimeout(() => {
+        if (recorder.state !== 'inactive') {
+          try {
+            recorder.stop();
+          } catch {
+            /* ignore */
+          }
+        }
+      }, 180);
     } else {
       stopWebCodecsExport({ reason: 'user' });
     }

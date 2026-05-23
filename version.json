@@ -1,20 +1,24 @@
 {
-  "version": "5.1.14",
+  "version": "5.1.15",
   "history": {
-    "previousVersion": "5.1.13",
-    "summary": "v5.1.13 で「BGM 無し動画でも WebAudio 経路を確立する」修正を入れたところ、副作用で「2 本目の動画が 1 フレーム目で固まって音だけ流れる」退行が再発しました。iOS Safari は createMediaElementSource() 接続済みの video を gain=0 で silent 再生すると視覚フレームの decode を停止する挙動が観測されたため、apple-safari preview から silent prewarm を完全に廃止し、active 化のタイミングで境界キックが play() を担う単一経路に統一しました。境界での短い音声ギャップは stutter 許容前提として受け入れます。",
+    "previousVersion": "5.1.14",
+    "summary": "iPhone/iPad Safari でエクスポート時、100% に到達してもダウンロードボタン (緑) に切り替わらず作成中ボタン (青) のままだった問題を修正しました。stopAll() が MediaRecorder の停止に requestData() を介さず stop() だけを直接呼んでいたため、iOS Safari 側で onstop が発火せず onRecordingStop コールバックが届かない退行になっていました。abort 経路と同じ「requestData() → 180ms 遅延 → stop()」手順に揃え、Android と同じく作成完了時に緑のダウンロードボタンが表示されるようにしました。あわせてアプリ内文言を「検証モード」から「動作モード」に、「ダウンロード導線」を「ダウンロード手順」に変更しています。プレビュー経路には一切手を入れていません。",
     "highlights": [
       {
-        "title": "iOS Safari の silent prewarm を完全廃止 (映像が 1 フレーム目で固まる退行を解消)",
-        "description": "iOS Safari は createMediaElementSource() 接続済みの video を gain=0 / native volume=0 で silent 再生すると、視覚フレームの decode を停止し「音は鳴るのに 1 フレーム目で映像が固まる」現象を引き起こすことが分かりました。apple-safari preview engine の startup prewarm 経路と render loop 経路の両方から silent play() を取り除き、active 化のタイミングで境界キックが fresh play() を呼ぶ単一経路にしました。"
+        "title": "iOS Safari の export 100% 後にダウンロードボタンへ切り替わるよう修正",
+        "description": "apple-safari preview engine の stopAll() が、export 終端で MediaRecorder.stop() を直接呼んでいたため、iOS Safari の MediaRecorder 仕様 (バッファフラッシュ前の stop は onstop を発火しないケースがある) で onstop が呼ばれず、setExportUrl が届かない退行になっていました。abort 経路と同じ「requestData() → 180ms 遅延 → stop()」手順に統一し、確実に onstop と onRecordingStop コールバックを発火させて、Android と同じく緑のダウンロードボタンへ切り替わるようにしました。"
       },
       {
-        "title": "境界での短い音声ギャップは stutter 許容前提として受け入れる",
-        "description": "silent prewarm を廃止することで、境界では新しい active video が paused 状態から play() するため、立ち上がり (~50ms) の短い音声ギャップが生じます。これは「動画と動画のつなぎ目で stutter を許容する」前提に合わせた割り切りです。視覚フレームの freeze 退行を防ぐことを優先しました。"
+        "title": "Apple Safari の UI 文言を「検証モード」から「動作モード」へ変更",
+        "description": "アプリ内バッジ、ヘルプ、保存/プレビューの案内文すべてを「Apple Safari 検証モード」から「Apple Safari 動作モード」に統一しました。実機検証で安定動作が確認できたフェーズに合わせた文言整備です。"
       },
       {
-        "title": "Android/PC プレビューには変更なし (apple-safari flavor 内でのみ完結)",
-        "description": "本修正は src/flavors/apple-safari/preview/previewPlatform.ts の shouldPrimeFutureInactiveVideoInPreview と src/flavors/apple-safari/preview/usePreviewEngine.ts の startEngine prewarm 経路のみを変更しており、Standard flavor (Android/PC) の挙動には変更を入れていません。standard 側はそもそも silent prewarm を実行しません (muteNativeMediaWhenAudioRouted=false)。"
+        "title": "「ダウンロード導線」を「ダウンロード手順」に修正 (日本語の自然化)",
+        "description": "「導線」という用語は UI 案内文として違和感があるため、「通常のダウンロード手順」「ダウンロード手順」のように分かりやすい表現に置き換えました。"
+      },
+      {
+        "title": "プレビューには変更なし (v5.1.14 で安定した動作を維持)",
+        "description": "今回の修正は apple-safari preview engine の stopAll() 内の MediaRecorder 停止手順と UI 文言のみで、プレビュー再生経路 (境界キック、WebAudio ルーティング、silent prewarm 廃止) には一切手を入れていません。v5.1.14 までで成立したプレビュー安定動作を維持します。安定動作の維持方針は Docs/2026-05-23_ios-safari-preview-stabilization-overview.md に明文化しました。"
       }
     ]
   }
