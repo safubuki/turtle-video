@@ -1915,7 +1915,13 @@ export function usePreviewEngine({
                 isExporting: false,
               });
               el.currentTime = item.trimStart || 0;
-              el.play().catch(() => {});
+              // iOS Safari は createMediaElementSource() 接続済みの video を
+              // gain=0 / native volume=0 で silent 再生すると、視覚フレームの
+              // decode を停止し「音は鳴るのに 1 フレーム目で映像が固まる」
+              // 退行を引き起こす。startup での silent prewarm play() は廃止し、
+              // 境界キックの play() に統一する。currentTime の位置合わせと
+              // audio 経路の確立 (sourceNode + applyPreviewAudioOutputState) だけ
+              // 実施しておく。
             }
           }
         }

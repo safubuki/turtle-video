@@ -16,6 +16,7 @@ import {
   getPreviewAudioRoutingPlan,
   getVisibilityRecoveryPlan,
   shouldBundlePreviewStartForWebAudioMix,
+  shouldPrimeFutureInactiveVideoInPreview,
   shouldRecoverAudioOnlyAfterVideoBoundary,
   shouldReinitializeAudioRoute,
   shouldResumeAudioContextOnVisibilityReturn,
@@ -189,6 +190,37 @@ describe('apple-safari flavor regression', () => {
 
     expect(shouldResumeAudioContextOnVisibilityReturn(previewPolicy, 'interrupted')).toBe(true);
     expect(shouldReinitializeAudioRoute(previewPolicy, false)).toBe(true);
+  });
+
+  it('apple-safari preview は silent prewarm を完全に廃止する (iOS Safari の映像 freeze 退行回避)', () => {
+    const previewCapabilities = getAppleSafariPreviewPlatformCapabilities(createCapabilities());
+    const previewPolicy = appleSafariPreviewRuntime.getPreviewPlatformPolicy(previewCapabilities);
+
+    // iOS Safari は createMediaElementSource() 接続済みの video を gain=0 で silent
+    // 再生すると、視覚フレームの decode を停止し「音は流れるのに 1 フレーム目で映像が
+    // 固まる」退行を起こす。そのため future video の silent prewarm は全条件で
+    // 無効化する。境界キックが active 化のタイミングで play() を担う。
+    expect(
+      shouldPrimeFutureInactiveVideoInPreview(previewPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        isActivePlaying: true,
+        shouldKeepVideoPrewarmed: true,
+        timeUntilVideoStartSec: 0.2,
+      }),
+    ).toBe(false);
+
+    // 画像区間中の next video でも silent prewarm は行わない (同じ freeze リスクが
+    // あるため)。境界キックが boundary で fresh play() を起動する。
+    expect(
+      shouldPrimeFutureInactiveVideoInPreview(previewPolicy, {
+        hasAudioNode: true,
+        isExporting: false,
+        isActivePlaying: true,
+        shouldKeepVideoPrewarmed: true,
+        timeUntilVideoStartSec: 1.5,
+      }),
+    ).toBe(false);
   });
 
   it('apple-safari preview は BGM 無しの単独 video でも WebAudio 経路を強制し audio node 作成を促す', () => {

@@ -240,11 +240,20 @@ export function shouldAvoidPauseInactiveVideoInPreview(
 
 /**
  * iOS Safari preview で future video の silent prewarm を開始すべきかを返す。
- * 画像ギャップ中の次動画は active 化前に play しておき、切替時の AudioSession 破壊を避ける。
+ *
+ * 以前は「切替時の AudioSession 破壊を避ける」目的で gain=0 のまま active 前に
+ * 再生していたが、iOS Safari は `createMediaElementSource()` 接続済みの video を
+ * silent (gain≈0 / native volume=0) 再生すると、視覚フレームの decode を停止し、
+ * 後で gain を立ち上げても「音は流れるのに 1 フレーム目で映像が固まる」現象を
+ * 引き起こすことが実機テストで確認された。
+ *
+ * そのため silent prewarm は廃止し、active 化のタイミングで境界キック (boundary
+ * kick) が play() を呼ぶ単一経路に統一する。境界での短い音声ギャップは
+ * 「stutter を許容する」前提で受け入れる。
  */
 export function shouldPrimeFutureInactiveVideoInPreview(
-  policy: PreviewPlatformPolicy,
-  options: {
+  _policy: PreviewPlatformPolicy,
+  _options: {
     hasAudioNode: boolean;
     isExporting: boolean;
     isActivePlaying: boolean;
@@ -252,18 +261,7 @@ export function shouldPrimeFutureInactiveVideoInPreview(
     timeUntilVideoStartSec?: number | null;
   },
 ): boolean {
-  const isFutureVideo =
-    options.timeUntilVideoStartSec !== null
-    && options.timeUntilVideoStartSec !== undefined
-    && options.timeUntilVideoStartSec >= 0;
-
-  return options.shouldKeepVideoPrewarmed
-    && isFutureVideo
-    && shouldAvoidPauseInactiveVideoInPreview(policy, {
-      hasAudioNode: options.hasAudioNode,
-      isExporting: options.isExporting,
-      isActivePlaying: options.isActivePlaying,
-    });
+  return false;
 }
 
 /**
