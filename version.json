@@ -1,20 +1,20 @@
 {
-  "version": "5.1.12",
+  "version": "5.1.14",
   "history": {
-    "previousVersion": "5.1.11",
-    "summary": "v5.1.11 で導入した iOS Safari 動画境界キックが、新しい active video の currentTime を上書きすることで「音は鳴るのに映像が固まる」副作用を引き起こしていたため、キックの方針を見直しました。境界の瞬間に video が paused 状態のときだけ play() を仕掛けるようにし、currentTime の上書きは行わないようにしました。Standard (Android/PC) には引き続き影響を与えていません。",
+    "previousVersion": "5.1.13",
+    "summary": "v5.1.13 で「BGM 無し動画でも WebAudio 経路を確立する」修正を入れたところ、副作用で「2 本目の動画が 1 フレーム目で固まって音だけ流れる」退行が再発しました。iOS Safari は createMediaElementSource() 接続済みの video を gain=0 で silent 再生すると視覚フレームの decode を停止する挙動が観測されたため、apple-safari preview から silent prewarm を完全に廃止し、active 化のタイミングで境界キックが play() を担う単一経路に統一しました。境界での短い音声ギャップは stutter 許容前提として受け入れます。",
     "highlights": [
       {
-        "title": "iOS Safari 境界キックで currentTime を触らないように修正 (映像が固まり音だけ流れる退行を回避)",
-        "description": "v5.1.11 で導入した境界キックが、新しい active video の currentTime を targetTime に揃え直していたため、iOS Safari 側で seeking=true のまま戻らず「音は鳴るのに映像が前フレームで固まる」退行を発生させていました。境界キックは play() のみ仕掛け、シーク同期は既存の prebuffer block と sync block に任せるよう責務を分離しました。"
+        "title": "iOS Safari の silent prewarm を完全廃止 (映像が 1 フレーム目で固まる退行を解消)",
+        "description": "iOS Safari は createMediaElementSource() 接続済みの video を gain=0 / native volume=0 で silent 再生すると、視覚フレームの decode を停止し「音は鳴るのに 1 フレーム目で映像が固まる」現象を引き起こすことが分かりました。apple-safari preview engine の startup prewarm 経路と render loop 経路の両方から silent play() を取り除き、active 化のタイミングで境界キックが fresh play() を呼ぶ単一経路にしました。"
       },
       {
-        "title": "境界キックを paused 状態の video に限定 (prewarm 済みの再生中動画への干渉を排除)",
-        "description": "BGM 等のあるシーンで video2 が無音 prewarm で既に再生中になっているケースで、境界キックが余計な play() / リスナー追加を実行しないようガードを追加しました。これにより prewarm 済みの再生中の video には境界キックがまったく介入しません。"
+        "title": "境界での短い音声ギャップは stutter 許容前提として受け入れる",
+        "description": "silent prewarm を廃止することで、境界では新しい active video が paused 状態から play() するため、立ち上がり (~50ms) の短い音声ギャップが生じます。これは「動画と動画のつなぎ目で stutter を許容する」前提に合わせた割り切りです。視覚フレームの freeze 退行を防ぐことを優先しました。"
       },
       {
         "title": "Android/PC プレビューには変更なし (apple-safari flavor 内でのみ完結)",
-        "description": "本修正は src/flavors/apple-safari/preview/usePreviewEngine.ts のみを変更しており、Android/PC で動いている standard flavor の挙動には変更が入っていません。境界キックは isIosSafari かつ非エクスポート時のみ発火します。"
+        "description": "本修正は src/flavors/apple-safari/preview/previewPlatform.ts の shouldPrimeFutureInactiveVideoInPreview と src/flavors/apple-safari/preview/usePreviewEngine.ts の startEngine prewarm 経路のみを変更しており、Standard flavor (Android/PC) の挙動には変更を入れていません。standard 側はそもそも silent prewarm を実行しません (muteNativeMediaWhenAudioRouted=false)。"
       }
     ]
   }

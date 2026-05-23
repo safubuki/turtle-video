@@ -2,19 +2,19 @@ import { describe, expect, it } from 'vitest';
 import versionData from '../../version.json';
 
 describe('version metadata', () => {
-  it('v5.1.12 の現在バージョンと iOS Safari 境界キック currentTime 上書き修正の変更概要を持つ', () => {
-    expect(versionData.version).toBe('5.1.12');
-    expect(versionData.history.previousVersion).toBe('5.1.11');
+  it('v5.1.14 の現在バージョンと iOS Safari silent prewarm 完全廃止の変更概要を持つ', () => {
+    expect(versionData.version).toBe('5.1.14');
+    expect(versionData.history.previousVersion).toBe('5.1.13');
     expect(versionData.history.summary).toContain('iOS Safari');
-    expect(versionData.history.summary).toContain('currentTime');
+    expect(versionData.history.summary).toContain('silent prewarm');
     expect(versionData.history.highlights).toHaveLength(3);
     expect(versionData.history.highlights).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          title: 'iOS Safari 境界キックで currentTime を触らないように修正 (映像が固まり音だけ流れる退行を回避)',
+          title: 'iOS Safari の silent prewarm を完全廃止 (映像が 1 フレーム目で固まる退行を解消)',
         }),
         expect.objectContaining({
-          title: '境界キックを paused 状態の video に限定 (prewarm 済みの再生中動画への干渉を排除)',
+          title: '境界での短い音声ギャップは stutter 許容前提として受け入れる',
         }),
         expect.objectContaining({
           title: 'Android/PC プレビューには変更なし (apple-safari flavor 内でのみ完結)',

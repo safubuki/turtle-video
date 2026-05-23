@@ -115,6 +115,24 @@ describe('preview runtime isolation', () => {
       sourceType: 'video',
     })).toBe('webaudio');
 
+    // iOS Safari 単独 video (BGM/narration なし) でも WebAudio 経路を強制する。
+    // AudioContext running 状態で native 経路の audio が抑制される iOS Safari の
+    // 挙動を回避し、「BGM 有無で audio が出たり出なかったり」する不安定さを防ぐ。
+    expect(getStandardPreviewAudioOutputMode(standardPolicy, {
+      hasAudioNode: false,
+      isExporting: false,
+      audibleSourceCount: 1,
+      desiredVolume: 1,
+      sourceType: 'video',
+    })).toBe('native');
+    expect(getAppleSafariPreviewAudioOutputMode(appleSafariPolicy, {
+      hasAudioNode: false,
+      isExporting: false,
+      audibleSourceCount: 1,
+      desiredVolume: 1,
+      sourceType: 'video',
+    })).toBe('webaudio');
+
     expect(getStandardFutureVideoAudioProbeTimes([
       { type: 'image', duration: 1 },
       { type: 'video', duration: 2 },
