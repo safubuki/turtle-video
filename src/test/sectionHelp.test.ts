@@ -17,10 +17,10 @@ function getHelpDescription(
 }
 
 describe('sectionHelp support messaging', () => {
-  it('app help は iPhone Safari を非対応ではなく検証中として案内する', () => {
+  it('app help は iPhone Safari を非対応ではなく動作モードとして案内する', () => {
     const description = getHelpDescription('app', '動作確認機種');
 
-    expect(description).toContain('検証中');
+    expect(description).toContain('動作モード');
     expect(description).not.toContain('非対応');
   });
 
@@ -39,7 +39,7 @@ describe('sectionHelp support messaging', () => {
     expect(fallbackPreviewDescription).toContain('標準ダウンロード');
   });
 
-  it('apple-safari help は Safari 検証モード向けの案内を出す', () => {
+  it('apple-safari help は Safari 動作モード向けの案内を出す', () => {
     const appDescription = getHelpDescription('app', '動作確認機種', {
       appFlavor: 'apple-safari',
       supportsShowSaveFilePicker: false,
@@ -49,7 +49,7 @@ describe('sectionHelp support messaging', () => {
       supportsShowSaveFilePicker: false,
     });
 
-    expect(appDescription).toContain('安定動作優先の検証モード');
+    expect(appDescription).toContain('安定動作優先の動作モード');
     expect(previewDescription).toContain('共有メニュー');
   });
 });

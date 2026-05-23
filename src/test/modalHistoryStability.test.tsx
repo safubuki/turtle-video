@@ -412,7 +412,7 @@ describe('modal history stability', () => {
 
     fireEvent.click(getByLabelText('保存・素材の説明'));
 
-    expect(getByText('Apple Safari 検証モード')).toBeTruthy();
+    expect(getByText('Apple Safari 動作モード')).toBeTruthy();
     expect(getByText(/通常タブ、ホーム画面追加、プライベートブラウズ/)).toBeTruthy();
   });
 });

@@ -15,7 +15,7 @@ describe('header flavor badge placement', () => {
 
     expect(screen.getByRole('heading', { name: 'タートルビデオ' })).toBeInTheDocument();
     expect(screen.queryByText('標準モード')).not.toBeInTheDocument();
-    expect(screen.queryByText('Apple Safari 検証モード')).not.toBeInTheDocument();
-    expect(screen.queryByText('Safari検証')).not.toBeInTheDocument();
+    expect(screen.queryByText('Apple Safari 動作モード')).not.toBeInTheDocument();
+    expect(screen.queryByText('Safari動作')).not.toBeInTheDocument();
   });
 });

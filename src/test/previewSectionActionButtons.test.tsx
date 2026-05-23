@@ -239,8 +239,8 @@ describe('PreviewSection action buttons', () => {
       supportsShowSaveFilePicker: false,
     });
 
-    expect(screen.getByText('Apple Safari 検証モード')).toBeInTheDocument();
-    expect(screen.getByText(/共有メニューまたは標準ダウンロード導線/)).toBeInTheDocument();
+    expect(screen.getByText('Apple Safari 動作モード')).toBeInTheDocument();
+    expect(screen.getByText(/共有メニュー、または通常のダウンロード手順/)).toBeInTheDocument();
   });
 
   it('export 完了後に processing=false なら download ボタンを表示する', () => {
