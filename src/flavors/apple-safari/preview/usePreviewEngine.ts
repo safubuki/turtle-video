@@ -129,6 +129,7 @@ interface UsePreviewEngineParams {
   resetInactiveVideos: () => void;
   startWebCodecsExport: UseExportReturn['startExport'];
   stopWebCodecsExport: UseExportReturn['stopExport'];
+  completeWebCodecsExport: UseExportReturn['completeExport'];
   startPreviewCacheExport?: UseExportReturn['startExport'];
   stopPreviewCacheExport?: UseExportReturn['stopExport'];
   completePreviewCacheExport?: UseExportReturn['completeExport'];
@@ -255,6 +256,7 @@ export function usePreviewEngine({
   resetInactiveVideos,
   startWebCodecsExport,
   stopWebCodecsExport,
+  completeWebCodecsExport,
   logInfo,
   logWarn,
   logDebug,
@@ -1540,22 +1542,22 @@ export function usePreviewEngine({
       });
     }
 
+    // stopAll は「ユーザー中断」「preview 自然終了」「export 完了 callback の
+    // 後片付け」など多用途で呼ばれる。export の自然完了経路は
+    // loop() の natural-end ハンドラ側で completeWebCodecsExport() / recorder.stop()
+    // を直接呼ぶように変更したため、ここでは「中断要求」と「すでに inactive な
+    // recorder のクリーンアップ」だけを担う。
     const hasActiveRecorder = !!(recorderRef.current && recorderRef.current.state !== 'inactive');
     if (hasActiveRecorder) {
-      // iOS Safari の MediaRecorder.stop() は、事前に requestData() を呼んで
-      // バッファをフラッシュしないと、最後のチャンクが届かず onstop が発火しない
-      // ケースが実機テストで観測された。その結果「100% まで進んでもダウンロード
-      // ボタンに切り替わらない」退行になる。abort 経路と同じ「requestData() →
-      // 短い遅延 → stop()」の手順で呼び、確実に onstop と onRecordingStop
-      // コールバックを発火させる。
+      // 中断要求側 (handleStop 等) から到達したケース。iOS Safari は
+      // recorder.stop() の前に requestData() でバッファをフラッシュしないと
+      // onstop が発火しないケースがあるため、abort 経路と同じ手順で停止する。
       const recorder = recorderRef.current!;
       try {
         recorder.requestData();
       } catch {
         /* ignore */
       }
-      // 180ms は abort 経路と同じ値。短すぎると iOS Safari でフラッシュが
-      // 間に合わないことがあるので、同じ間隔を採用する。
       setTimeout(() => {
         if (recorder.state !== 'inactive') {
           try {
@@ -1720,7 +1722,57 @@ export function usePreviewEngine({
           finalizeAtEnd();
           return;
         }
-        stopAll();
+
+        // === export 自然完了経路 ===
+        // ここで stopAll() を呼んでしまうと:
+        //  - MediaRecorder 経路: recorder.stop() の前に他要素が pause/cleanup
+        //    されて iOS Safari の onstop 不発に繋がる
+        //  - WebCodecs 経路: stopWebCodecsExport({reason:'user'}) で
+        //    exportCancelReasonRef='user' が立ち、notifyRecordingStop が
+        //    callback を suppress するため setExportUrl が呼ばれずに
+        //    「保存ファイルを作成中」のまま固まる
+        // 自然完了では「completeExport (WebCodecs)」または
+        // 「recorder.requestData()→stop()（MediaRecorder）」を直接呼んで、
+        // UI クリーンアップは onRecordingStop callback の側に任せる。
+        setCurrentTime(totalDurationRef.current);
+        currentTimeRef.current = totalDurationRef.current;
+        isPlayingRef.current = false;
+        if (reqIdRef.current) {
+          cancelAnimationFrame(reqIdRef.current);
+          reqIdRef.current = null;
+        }
+
+        const hasActiveRecorder = !!(recorderRef.current && recorderRef.current.state !== 'inactive');
+        if (hasActiveRecorder) {
+          // MediaRecorder 経路。iOS Safari は requestData() でバッファを
+          // フラッシュしてから 180ms 遅延で stop() する手順でないと onstop が
+          // 発火しないケースが観測されている (abort 経路と同じパターン)。
+          const recorder = recorderRef.current!;
+          logInfo('RENDER', 'iOS Safari: natural end -> MediaRecorder requestData+stop', {
+            recorderState: recorder.state,
+          });
+          try {
+            recorder.requestData();
+          } catch {
+            /* ignore */
+          }
+          setTimeout(() => {
+            if (recorder.state !== 'inactive') {
+              try {
+                recorder.stop();
+              } catch {
+                /* ignore */
+              }
+            }
+          }, 180);
+        } else {
+          // WebCodecs 経路。completeWebCodecsExport は
+          // exportCancelReasonRef='none' を維持したまま reader 群を cancel し、
+          // encoder finalize → notifyRecordingStop → onRecordingStop callback
+          // の自然完了チェーンに繋がる。
+          logInfo('RENDER', 'iOS Safari: natural end -> completeWebCodecsExport');
+          completeWebCodecsExport();
+        }
         return;
       }
       setCurrentTime(clampedElapsed);
@@ -1729,15 +1781,18 @@ export function usePreviewEngine({
       reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
     },
     [
+      completeWebCodecsExport,
       currentTimeRef,
       endFinalizedRef,
       isPlayingRef,
       logDebug,
+      logInfo,
       logWarn,
       loopIdRef,
       mediaElementsRef,
       mediaItemsRef,
       pause,
+      recorderRef,
       renderFrame,
       reqIdRef,
       setCurrentTime,

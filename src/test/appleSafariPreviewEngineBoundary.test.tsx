@@ -256,6 +256,7 @@ describe('apple-safari preview engine boundary kick', () => {
         resetInactiveVideos: vi.fn(),
         startWebCodecsExport: vi.fn(),
         stopWebCodecsExport: vi.fn(),
+        completeWebCodecsExport: vi.fn(),
         logInfo,
         logWarn,
         logDebug: vi.fn(),
@@ -568,6 +569,7 @@ describe('apple-safari preview engine boundary kick', () => {
         resetInactiveVideos: vi.fn(),
         startWebCodecsExport: vi.fn(),
         stopWebCodecsExport,
+        completeWebCodecsExport: vi.fn(),
         logInfo,
         logWarn,
         logDebug: vi.fn(),
@@ -680,6 +682,7 @@ describe('apple-safari preview engine boundary kick', () => {
         resetInactiveVideos: vi.fn(),
         startWebCodecsExport: vi.fn(),
         stopWebCodecsExport,
+        completeWebCodecsExport: vi.fn(),
         logInfo: vi.fn(),
         logWarn: vi.fn(),
         logDebug: vi.fn(),
@@ -693,5 +696,255 @@ describe('apple-safari preview engine boundary kick', () => {
     expect(recorderMock.stop).not.toHaveBeenCalled();
     // 通常停止 (preview 終了等) は従来通り stopWebCodecsExport にフォールバック
     expect(stopWebCodecsExport).toHaveBeenCalledWith({ reason: 'user' });
+  });
+
+  it('export 自然終了で active な MediaRecorder には requestData()→180ms 遅延→stop() を呼び stopWebCodecsExport は呼ばない', () => {
+    // export 自然終了 (totalDuration 到達) では、stopAll() ではなく loop() の natural-end
+    // ハンドラが直接 requestData/stop を呼ぶ。これにより iOS Safari でも onstop が
+    // 確実に発火し、onRecordingStop callback で setExportUrl が走ってダウンロードボタン
+    // (緑) へ切り替わる。stopWebCodecsExport({reason:'user'}) は呼ばないため callback
+    // suppression が起きない。
+    const video1 = createVideoItem({ id: 'v1', duration: 6 });
+    const video1El = createMockVideoElement();
+    video1El.readyState = 4;
+    video1El.paused = false;
+    video1El.currentTime = 5.95;
+
+    const recorderMock = {
+      state: 'recording' as RecordingState,
+      requestData: vi.fn(),
+      stop: vi.fn(() => {
+        recorderMock.state = 'inactive';
+      }),
+    };
+    const recorderRef = createRef<MediaRecorder | null>(
+      recorderMock as unknown as MediaRecorder,
+    );
+
+    const canvasContext = createMockCanvasContext();
+    const logInfo = vi.fn();
+    const stopWebCodecsExport = vi.fn();
+    const completeWebCodecsExport = vi.fn();
+    const platformCapabilities = getAppleSafariPreviewPlatformCapabilities(createCapabilities());
+    const previewPlatformPolicy = appleSafariPreviewRuntime.getPreviewPlatformPolicy(
+      platformCapabilities,
+    );
+
+    vi.spyOn(Date, 'now').mockReturnValue(6500); // elapsed = 6.5s >= totalDuration=6s
+    vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => {});
+
+    const hook = renderHook(() =>
+      usePreviewEngine({
+        captions: [] as Caption[],
+        captionSettings: { enabled: false } as unknown as CaptionSettings,
+        mediaItemsRef: createRef([video1]),
+        bgmRef: createRef<AudioTrack | null>(null),
+        narrationsRef: createRef<NarrationClip[]>([]),
+        captionsRef: createRef<Caption[]>([]),
+        captionSettingsRef: createRef({ enabled: false } as unknown as CaptionSettings),
+        totalDurationRef: createRef(6),
+        currentTimeRef: createRef(5.95),
+        canvasRef: createRef({
+          getContext: vi.fn(() => canvasContext),
+        } as unknown as HTMLCanvasElement),
+        mediaElementsRef: createRef({
+          [video1.id]: video1El as unknown as HTMLVideoElement,
+        } as MediaElementsRef),
+        audioCtxRef: createRef(null),
+        sourceNodesRef: createRef({}),
+        gainNodesRef: createRef({}),
+        masterDestRef: createRef(null),
+        audioRoutingModeRef: createRef<'preview' | 'export'>('export'),
+        reqIdRef: createRef<number | null>(42),
+        startTimeRef: createRef(0),
+        audioResumeWaitFramesRef: createRef(0),
+        recorderRef,
+        loopIdRef: createRef(1),
+        isPlayingRef: createRef(true),
+        isSeekingRef: createRef(false),
+        isSeekPlaybackPreparingRef: createRef(false),
+        activeVideoIdRef: createRef<string | null>('v1'),
+        videoRecoveryAttemptsRef: createRef({}),
+        exportPlayFailedRef: createRef({}),
+        exportFallbackSeekAtRef: createRef({}),
+        seekingVideosRef: createRef(new Set<string>()),
+        pendingSeekRef: createRef<number | null>(null),
+        wasPlayingBeforeSeekRef: createRef(false),
+        pendingSeekTimeoutRef: createRef<ReturnType<typeof setTimeout> | null>(null),
+        previewPlaybackAttemptRef: createRef(1),
+        requestPreviewAudioRouteRefreshRef: createRef(() => { }),
+        primePreviewAudioOnlyTracksAtTimeRef: createRef(() => { }),
+        endFinalizedRef: createRef(false),
+        previewPlatformPolicy,
+        platformCapabilities,
+        setVideoDuration: vi.fn(),
+        setCurrentTime: vi.fn(),
+        setProcessing: vi.fn(),
+        setLoading: vi.fn(),
+        setExportPreparationStep: vi.fn(),
+        setExportUrl: vi.fn(),
+        setExportExt: vi.fn(),
+        clearExport: vi.fn(),
+        setError: vi.fn(),
+        play: vi.fn(),
+        pause: vi.fn(),
+        getAudioContext: vi.fn(),
+        cancelPendingPausedSeekWait: vi.fn(),
+        cancelPendingSeekPlaybackPrepare: vi.fn(),
+        detachGlobalSeekEndListeners: vi.fn(),
+        ensureAudioNodeForElement: vi.fn(() => false),
+        detachAudioNode: vi.fn(),
+        preparePreviewAudioNodesForTime: vi.fn(() => ({
+          activeVideoId: null,
+          audibleSourceCount: 0,
+          requiresWebAudio: false,
+        })),
+        preparePreviewAudioNodesForUpcomingVideos: vi.fn(),
+        primePreviewAudioOnlyTracksAtTime: vi.fn(),
+        resetInactiveVideos: vi.fn(),
+        startWebCodecsExport: vi.fn(),
+        stopWebCodecsExport,
+        completeWebCodecsExport,
+        logInfo,
+        logWarn: vi.fn(),
+        logDebug: vi.fn(),
+      }),
+    );
+
+    // loop を export モードで起動 (myLoopId=1, loopIdRef=1 で一致)
+    hook.result.current.loop(true, 1);
+
+    // requestData() は即時発火
+    expect(recorderMock.requestData).toHaveBeenCalledTimes(1);
+    // 180ms 未満では stop() は呼ばれない
+    expect(recorderMock.stop).not.toHaveBeenCalled();
+    // stopWebCodecsExport / completeWebCodecsExport はどちらも呼ばない
+    // (MediaRecorder 経路では recorder.stop() の onstop → onRecordingStop callback で UI を更新)
+    expect(stopWebCodecsExport).not.toHaveBeenCalled();
+    expect(completeWebCodecsExport).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(180);
+
+    // 180ms 後に recorder.stop() が呼ばれる
+    expect(recorderMock.stop).toHaveBeenCalledTimes(1);
+    // ログにも natural end → MediaRecorder の経路情報が残る
+    expect(
+      logInfo.mock.calls.some(([, msg]) => msg === 'iOS Safari: natural end -> MediaRecorder requestData+stop'),
+    ).toBe(true);
+  });
+
+  it('export 自然終了で recorder が無い (WebCodecs 経路) 場合は completeWebCodecsExport を呼び stopWebCodecsExport は呼ばない', () => {
+    // WebCodecs 経路 (recorder が null または inactive) の natural end では、
+    // stopWebCodecsExport({reason:'user'}) を呼ぶと exportCancelReasonRef='user' に
+    // なり notifyRecordingStop が callback を suppress するため、setExportUrl が
+    // 走らずダウンロードボタンへ切り替わらない退行になる。completeWebCodecsExport()
+    // を呼ぶことで cancelReason='none' のまま reader を cancel し、WebCodecs encoder
+    // を自然完了させる。
+    const video1 = createVideoItem({ id: 'v1', duration: 6 });
+    const video1El = createMockVideoElement();
+    video1El.readyState = 4;
+    video1El.paused = false;
+    video1El.currentTime = 5.95;
+
+    const canvasContext = createMockCanvasContext();
+    const logInfo = vi.fn();
+    const stopWebCodecsExport = vi.fn();
+    const completeWebCodecsExport = vi.fn();
+    const platformCapabilities = getAppleSafariPreviewPlatformCapabilities(createCapabilities());
+    const previewPlatformPolicy = appleSafariPreviewRuntime.getPreviewPlatformPolicy(
+      platformCapabilities,
+    );
+
+    vi.spyOn(Date, 'now').mockReturnValue(6500); // elapsed = 6.5s >= totalDuration=6s
+    vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => {});
+
+    const hook = renderHook(() =>
+      usePreviewEngine({
+        captions: [] as Caption[],
+        captionSettings: { enabled: false } as unknown as CaptionSettings,
+        mediaItemsRef: createRef([video1]),
+        bgmRef: createRef<AudioTrack | null>(null),
+        narrationsRef: createRef<NarrationClip[]>([]),
+        captionsRef: createRef<Caption[]>([]),
+        captionSettingsRef: createRef({ enabled: false } as unknown as CaptionSettings),
+        totalDurationRef: createRef(6),
+        currentTimeRef: createRef(5.95),
+        canvasRef: createRef({
+          getContext: vi.fn(() => canvasContext),
+        } as unknown as HTMLCanvasElement),
+        mediaElementsRef: createRef({
+          [video1.id]: video1El as unknown as HTMLVideoElement,
+        } as MediaElementsRef),
+        audioCtxRef: createRef(null),
+        sourceNodesRef: createRef({}),
+        gainNodesRef: createRef({}),
+        masterDestRef: createRef(null),
+        audioRoutingModeRef: createRef<'preview' | 'export'>('export'),
+        reqIdRef: createRef<number | null>(42),
+        startTimeRef: createRef(0),
+        audioResumeWaitFramesRef: createRef(0),
+        recorderRef: createRef<MediaRecorder | null>(null), // ← recorder なし (WebCodecs 経路)
+        loopIdRef: createRef(1),
+        isPlayingRef: createRef(true),
+        isSeekingRef: createRef(false),
+        isSeekPlaybackPreparingRef: createRef(false),
+        activeVideoIdRef: createRef<string | null>('v1'),
+        videoRecoveryAttemptsRef: createRef({}),
+        exportPlayFailedRef: createRef({}),
+        exportFallbackSeekAtRef: createRef({}),
+        seekingVideosRef: createRef(new Set<string>()),
+        pendingSeekRef: createRef<number | null>(null),
+        wasPlayingBeforeSeekRef: createRef(false),
+        pendingSeekTimeoutRef: createRef<ReturnType<typeof setTimeout> | null>(null),
+        previewPlaybackAttemptRef: createRef(1),
+        requestPreviewAudioRouteRefreshRef: createRef(() => { }),
+        primePreviewAudioOnlyTracksAtTimeRef: createRef(() => { }),
+        endFinalizedRef: createRef(false),
+        previewPlatformPolicy,
+        platformCapabilities,
+        setVideoDuration: vi.fn(),
+        setCurrentTime: vi.fn(),
+        setProcessing: vi.fn(),
+        setLoading: vi.fn(),
+        setExportPreparationStep: vi.fn(),
+        setExportUrl: vi.fn(),
+        setExportExt: vi.fn(),
+        clearExport: vi.fn(),
+        setError: vi.fn(),
+        play: vi.fn(),
+        pause: vi.fn(),
+        getAudioContext: vi.fn(),
+        cancelPendingPausedSeekWait: vi.fn(),
+        cancelPendingSeekPlaybackPrepare: vi.fn(),
+        detachGlobalSeekEndListeners: vi.fn(),
+        ensureAudioNodeForElement: vi.fn(() => false),
+        detachAudioNode: vi.fn(),
+        preparePreviewAudioNodesForTime: vi.fn(() => ({
+          activeVideoId: null,
+          audibleSourceCount: 0,
+          requiresWebAudio: false,
+        })),
+        preparePreviewAudioNodesForUpcomingVideos: vi.fn(),
+        primePreviewAudioOnlyTracksAtTime: vi.fn(),
+        resetInactiveVideos: vi.fn(),
+        startWebCodecsExport: vi.fn(),
+        stopWebCodecsExport,
+        completeWebCodecsExport,
+        logInfo,
+        logWarn: vi.fn(),
+        logDebug: vi.fn(),
+      }),
+    );
+
+    hook.result.current.loop(true, 1);
+
+    // completeWebCodecsExport() が呼ばれる (自然完了)
+    expect(completeWebCodecsExport).toHaveBeenCalledTimes(1);
+    // stopWebCodecsExport は呼ばれない (callback suppression 回避のため)
+    expect(stopWebCodecsExport).not.toHaveBeenCalled();
+    // ログにも natural end → WebCodecs の経路情報が残る
+    expect(
+      logInfo.mock.calls.some(([, msg]) => msg === 'iOS Safari: natural end -> completeWebCodecsExport'),
+    ).toBe(true);
   });
 });

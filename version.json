@@ -1,24 +1,24 @@
 {
-  "version": "5.1.15",
+  "version": "5.1.16",
   "history": {
-    "previousVersion": "5.1.14",
-    "summary": "iPhone/iPad Safari でエクスポート時、100% に到達してもダウンロードボタン (緑) に切り替わらず作成中ボタン (青) のままだった問題を修正しました。stopAll() が MediaRecorder の停止に requestData() を介さず stop() だけを直接呼んでいたため、iOS Safari 側で onstop が発火せず onRecordingStop コールバックが届かない退行になっていました。abort 経路と同じ「requestData() → 180ms 遅延 → stop()」手順に揃え、Android と同じく作成完了時に緑のダウンロードボタンが表示されるようにしました。あわせてアプリ内文言を「検証モード」から「動作モード」に、「ダウンロード導線」を「ダウンロード手順」に変更しています。プレビュー経路には一切手を入れていません。",
+    "previousVersion": "5.1.15",
+    "summary": "iPhone/iPad Safari でエクスポートが 100% に到達してもダウンロードボタンへ切り替わらない問題を、根本原因まで遡って修正しました。apple-safari preview engine は loop() の natural-end ハンドラで stopAll() を呼んでいたため、WebCodecs 経路では stopWebCodecsExport({reason:'user'}) が exportCancelReasonRef='user' をセットして onRecordingStop callback を suppress し、MediaRecorder 経路では recorder.stop() の前に video/audio 要素が pause/cleanup されて iOS Safari の onstop 不発に繋がっていました。loop() の natural-end ハンドラを「stopAll() ではなく、recorder.requestData()→stop() (MediaRecorder) または completeWebCodecsExport() (WebCodecs)」を直接呼ぶ単一経路にすることで、確実に onRecordingStop callback まで届くようにしました。プレビューの動作には変更を入れていません。",
     "highlights": [
       {
-        "title": "iOS Safari の export 100% 後にダウンロードボタンへ切り替わるよう修正",
-        "description": "apple-safari preview engine の stopAll() が、export 終端で MediaRecorder.stop() を直接呼んでいたため、iOS Safari の MediaRecorder 仕様 (バッファフラッシュ前の stop は onstop を発火しないケースがある) で onstop が呼ばれず、setExportUrl が届かない退行になっていました。abort 経路と同じ「requestData() → 180ms 遅延 → stop()」手順に統一し、確実に onstop と onRecordingStop コールバックを発火させて、Android と同じく緑のダウンロードボタンへ切り替わるようにしました。"
+        "title": "export 自然完了経路を loop() に集約し WebCodecs/MediaRecorder ごとに正しい完了 API を呼ぶよう修正",
+        "description": "従来は export 完了で stopAll() を呼んでいましたが、これが WebCodecs 経路では stopWebCodecsExport({reason:'user'}) を発火し callback suppression を引き起こし、MediaRecorder 経路では video/audio の pause が iOS Safari の onstop 不発を引き起こしていました。loop() の natural-end で「recorder があれば requestData() + 180ms 遅延 + stop()」「recorder が無ければ completeWebCodecsExport()」を直接呼ぶ単一経路にし、onRecordingStop callback が必ず届くようにしました。"
       },
       {
-        "title": "Apple Safari の UI 文言を「検証モード」から「動作モード」へ変更",
-        "description": "アプリ内バッジ、ヘルプ、保存/プレビューの案内文すべてを「Apple Safari 検証モード」から「Apple Safari 動作モード」に統一しました。実機検証で安定動作が確認できたフェーズに合わせた文言整備です。"
+        "title": "apple-safari preview engine に completeWebCodecsExport パラメータを追加 (standard と同じ完了 API を受け取れるように)",
+        "description": "standard flavor は completeWebCodecsExport を受け取って自然完了で呼んでいましたが、apple-safari は受け取ってすらいませんでした。Param と destructure を追加して TurtleVideo.tsx 側から受け取れるようにし、WebCodecs 経路でも cancelReason='none' のまま自然完了できるようにしました。"
       },
       {
-        "title": "「ダウンロード導線」を「ダウンロード手順」に修正 (日本語の自然化)",
-        "description": "「導線」という用語は UI 案内文として違和感があるため、「通常のダウンロード手順」「ダウンロード手順」のように分かりやすい表現に置き換えました。"
+        "title": "stopAll() は中断要求の責務に専念 (MediaRecorder 完了は loop() に委譲)",
+        "description": "stopAll() の MediaRecorder 停止経路は handleStop など中断要求の経路から呼ばれた場合の保険として残しつつ、export 自然完了は loop() 側に移しました。これで「中断」と「自然完了」の経路が明確に分離されます。"
       },
       {
         "title": "プレビューには変更なし (v5.1.14 で安定した動作を維持)",
-        "description": "今回の修正は apple-safari preview engine の stopAll() 内の MediaRecorder 停止手順と UI 文言のみで、プレビュー再生経路 (境界キック、WebAudio ルーティング、silent prewarm 廃止) には一切手を入れていません。v5.1.14 までで成立したプレビュー安定動作を維持します。安定動作の維持方針は Docs/2026-05-23_ios-safari-preview-stabilization-overview.md に明文化しました。"
+        "description": "今回の修正は src/flavors/apple-safari/preview/usePreviewEngine.ts の loop()/stopAll() / param interface と回帰テストのみで、プレビュー再生経路 (境界キック、WebAudio ルーティング、silent prewarm 廃止) には一切手を入れていません。"
       }
     ]
   }
