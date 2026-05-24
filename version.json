@@ -1,24 +1,24 @@
 {
-  "version": "5.1.16",
+  "version": "5.1.17",
   "history": {
-    "previousVersion": "5.1.15",
-    "summary": "iPhone/iPad Safari でエクスポートが 100% に到達してもダウンロードボタンへ切り替わらない問題を、根本原因まで遡って修正しました。apple-safari preview engine は loop() の natural-end ハンドラで stopAll() を呼んでいたため、WebCodecs 経路では stopWebCodecsExport({reason:'user'}) が exportCancelReasonRef='user' をセットして onRecordingStop callback を suppress し、MediaRecorder 経路では recorder.stop() の前に video/audio 要素が pause/cleanup されて iOS Safari の onstop 不発に繋がっていました。loop() の natural-end ハンドラを「stopAll() ではなく、recorder.requestData()→stop() (MediaRecorder) または completeWebCodecsExport() (WebCodecs)」を直接呼ぶ単一経路にすることで、確実に onRecordingStop callback まで届くようにしました。プレビューの動作には変更を入れていません。",
+    "previousVersion": "5.1.16",
+    "summary": "iPhone Safari でエクスポート完了後にダウンロードボタン (緑) へ切り替わらない問題を、iOS Safari MediaRecorder の onstop 不発に対する watchdog で根本的に救済しました。実機テストで recorder.stop() を呼んでも state は inactive になるが onstop イベントが発火しないケースが観測されたため、iosSafariMediaRecorder.ts に「8 秒タイムアウト + state=inactive 検出 + chunks からの手動 blob 構築」watchdog を追加しました。さらに recorder.onstop / recorder.onerror / chunks=0 のエラー経路を Promise reject から callbacks.onRecordingError + finishResolve へ統一し、await 側で握りつぶされていたエラーで UI が固まる退行も解消しました。",
     "highlights": [
       {
-        "title": "export 自然完了経路を loop() に集約し WebCodecs/MediaRecorder ごとに正しい完了 API を呼ぶよう修正",
-        "description": "従来は export 完了で stopAll() を呼んでいましたが、これが WebCodecs 経路では stopWebCodecsExport({reason:'user'}) を発火し callback suppression を引き起こし、MediaRecorder 経路では video/audio の pause が iOS Safari の onstop 不発を引き起こしていました。loop() の natural-end で「recorder があれば requestData() + 180ms 遅延 + stop()」「recorder が無ければ completeWebCodecsExport()」を直接呼ぶ単一経路にし、onRecordingStop callback が必ず届くようにしました。"
+        "title": "iOS Safari MediaRecorder の onstop 不発に対する watchdog を追加 (UI が「保存ファイルを作成中」のまま固まる退行を救出)",
+        "description": "iOS Safari は recorder.stop() を呼んでも onstop イベントが発火しないことが実機で観測されました。8 秒タイムアウトの watchdog と、recorder.state が inactive に遷移したことを 200ms 間隔の state monitor で検出するセーフティネットを追加し、watchdog が chunks から手動で blob を構築して onRecordingStop callback を発火させることで、UI を「保存ファイルを作成中」のまま固まらせない手当をしました。chunks が空のままでも onRecordingError を発火させて UI をエラー状態へ復帰させます。"
       },
       {
-        "title": "apple-safari preview engine に completeWebCodecsExport パラメータを追加 (standard と同じ完了 API を受け取れるように)",
-        "description": "standard flavor は completeWebCodecsExport を受け取って自然完了で呼んでいましたが、apple-safari は受け取ってすらいませんでした。Param と destructure を追加して TurtleVideo.tsx 側から受け取れるようにし、WebCodecs 経路でも cancelReason='none' のまま自然完了できるようにしました。"
+        "title": "MediaRecorder 戦略のエラー経路を Promise reject から callbacks.onRecordingError へ統一",
+        "description": "recorder.onerror や chunks=0 で従来は Promise reject を返していたため、await 側で握りつぶされて UI が固まる退行が起きていました。これらを callbacks.onRecordingError(message) + finishResolve() に統一し、エラー時も必ず UI が「作成中」から復帰するようにしました。"
       },
       {
-        "title": "stopAll() は中断要求の責務に専念 (MediaRecorder 完了は loop() に委譲)",
-        "description": "stopAll() の MediaRecorder 停止経路は handleStop など中断要求の経路から呼ばれた場合の保険として残しつつ、export 自然完了は loop() 側に移しました。これで「中断」と「自然完了」の経路が明確に分離されます。"
+        "title": "apple-safari startEngine の startWebCodecsExport 呼び出しに .catch() を追加",
+        "description": "万一 startWebCodecsExport が unhandled rejection を起こしても UI を中断状態へ戻せるよう、preview engine 側でも防御的に .catch() を仕掛けました。多層防御により「保存ファイルを作成中」固まりを 3 段階で救出する構造になっています。"
       },
       {
         "title": "プレビューには変更なし (v5.1.14 で安定した動作を維持)",
-        "description": "今回の修正は src/flavors/apple-safari/preview/usePreviewEngine.ts の loop()/stopAll() / param interface と回帰テストのみで、プレビュー再生経路 (境界キック、WebAudio ルーティング、silent prewarm 廃止) には一切手を入れていません。"
+        "description": "今回の修正は iosSafariMediaRecorder.ts (エクスポート) と apple-safari startEngine の onResult ハンドラのみで、プレビュー再生経路 (境界キック、WebAudio ルーティング、silent prewarm 廃止) には一切手を入れていません。"
       }
     ]
   }
