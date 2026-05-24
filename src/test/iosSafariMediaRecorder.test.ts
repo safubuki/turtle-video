@@ -364,4 +364,217 @@ describe('runIosSafariMediaRecorderStrategy', () => {
     expect(audioContext.createOscillator).not.toHaveBeenCalled();
     expect(createObjectUrlSpy).toHaveBeenCalled();
   });
+
+  it('iOS Safari で onstop が発火せず state=inactive のままでも watchdog が chunks から blob を作って完了させる', async () => {
+    // 実機 iOS Safari で観測される「recorder.stop() を呼んでも onstop が発火しない」
+    // ケースの再現テスト。stop() は呼ばれたが onstop イベントが届かない状態で、
+    // watchdog (8 秒タイムアウト) が chunks から blob を組み立てて onRecordingStop
+    // を発火させ、UI が「保存ファイルを作成中」のまま固まらないことを保証する。
+    const videoTrack: FakeTrack = {
+      kind: 'video',
+      readyState: 'live',
+      stop: vi.fn(),
+      requestFrame: vi.fn(),
+    };
+    const recorderAudioTrack: FakeTrack = {
+      kind: 'audio',
+      readyState: 'live',
+      stop: vi.fn(),
+    };
+    const sourceAudioTrack: FakeTrack = {
+      kind: 'audio',
+      readyState: 'live',
+      stop: vi.fn(),
+      clone: () => recorderAudioTrack,
+    };
+    const { canvas } = createCanvasDouble(videoTrack);
+    const callbacks = createCallbacks();
+    const state = createStateSetters();
+    const recorderRef = { current: null as MediaRecorder | null };
+    const onAudioPreRenderComplete = vi.fn();
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:ios-watchdog');
+
+    class StuckMediaRecorder {
+      state: RecordingState = 'inactive';
+      ondataavailable: ((event: BlobEvent) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onstop: (() => void) | null = null;
+      readonly start = vi.fn((timeslice?: number) => {
+        this.state = 'recording';
+        this.timeslice = timeslice;
+        // 250ms ごとに chunks を投入する (timeslice 動作の擬似再現)
+        setTimeout(() => {
+          this.ondataavailable?.({ data: new Blob(['frame1']) } as BlobEvent);
+        }, 250);
+      });
+      readonly pause = vi.fn(() => {
+        this.state = 'paused';
+      });
+      readonly resume = vi.fn(() => {
+        this.state = 'recording';
+      });
+      readonly requestData = vi.fn(() => {
+        // requestData() でも chunks に追加するが onstop は発火しない
+        this.ondataavailable?.({ data: new Blob(['final']) } as BlobEvent);
+      });
+      // iOS Safari 退行の再現: stop() を呼んでも state は inactive になるが
+      // onstop は発火しない。
+      readonly stop = vi.fn(() => {
+        this.state = 'inactive';
+        // onstop?.() は意図的に呼ばない
+      });
+      timeslice?: number;
+
+      constructor(
+        readonly stream: MediaStream,
+        readonly options?: MediaRecorderOptions,
+      ) {}
+    }
+
+    vi.stubGlobal('MediaRecorder', StuckMediaRecorder as unknown as typeof MediaRecorder);
+
+    const promise = runIosSafariMediaRecorderStrategy({
+      canvas,
+      masterDest: {
+        stream: new FakeMediaStream([sourceAudioTrack]),
+      } as unknown as MediaStreamAudioDestinationNode,
+      audioContext: createAudioContextDouble(),
+      signal: new AbortController().signal,
+      audioSources: {
+        mediaItems: [],
+        bgm: null,
+        narrations: [],
+        totalDuration: 1,
+        onAudioPreRenderComplete,
+      },
+      callbacks,
+      state,
+      refs: {
+        recorderRef,
+      },
+      exportConfig: {
+        fps: 30,
+        videoBitrate: 1_000_000,
+      },
+      supportedMediaRecorderProfile: {
+        mimeType: 'video/mp4',
+        extension: 'mp4',
+      },
+    });
+
+    // recorder.start() の setTimeout(250) で chunks を入れる
+    await vi.advanceTimersByTimeAsync(250);
+    // signal は abort されないので、natural-end ハンドラ相当: 外部から stop() を呼ぶ
+    const recorder = recorderRef.current as unknown as StuckMediaRecorder;
+    recorder.requestData(); // chunks 追加
+    recorder.stop(); // state=inactive にする (onstop は発火しない)
+
+    // state monitor (200ms interval) が inactive を検出して watchdog を arm
+    await vi.advanceTimersByTimeAsync(200);
+    // watchdog timeout (8000ms) を経過させる
+    await vi.advanceTimersByTimeAsync(8000);
+
+    await promise;
+
+    // watchdog が onRecordingStop を発火させた
+    expect(state.setExportUrl).toHaveBeenCalledWith('blob:ios-watchdog');
+    expect(state.setExportExt).toHaveBeenCalledWith('mp4');
+    expect(callbacks.onRecordingStop).toHaveBeenCalledWith('blob:ios-watchdog', 'mp4');
+    expect(callbacks.onRecordingError).not.toHaveBeenCalled();
+  });
+
+  it('iOS Safari で onstop が発火せず chunks も空のままなら watchdog が onRecordingError を発火して UI を救出する', async () => {
+    // 最悪パターン: stop() を呼んでも onstop が発火せず chunks も空のままだと、
+    // 何も発火しないと UI は「保存ファイルを作成中」のまま固まる。watchdog が
+    // onRecordingError を発火して UI をエラー状態に戻すことを保証する。
+    const videoTrack: FakeTrack = {
+      kind: 'video',
+      readyState: 'live',
+      stop: vi.fn(),
+      requestFrame: vi.fn(),
+    };
+    const recorderAudioTrack: FakeTrack = {
+      kind: 'audio',
+      readyState: 'live',
+      stop: vi.fn(),
+    };
+    const sourceAudioTrack: FakeTrack = {
+      kind: 'audio',
+      readyState: 'live',
+      stop: vi.fn(),
+      clone: () => recorderAudioTrack,
+    };
+    const { canvas } = createCanvasDouble(videoTrack);
+    const callbacks = createCallbacks();
+    const state = createStateSetters();
+    const recorderRef = { current: null as MediaRecorder | null };
+
+    class EmptyStuckMediaRecorder {
+      state: RecordingState = 'inactive';
+      ondataavailable: ((event: BlobEvent) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onstop: (() => void) | null = null;
+      readonly start = vi.fn(() => {
+        this.state = 'recording';
+      });
+      readonly pause = vi.fn();
+      readonly resume = vi.fn();
+      readonly requestData = vi.fn(); // chunks には何も入れない
+      readonly stop = vi.fn(() => {
+        this.state = 'inactive';
+        // onstop?.() は呼ばない
+      });
+      timeslice?: number;
+
+      constructor(
+        readonly stream: MediaStream,
+        readonly options?: MediaRecorderOptions,
+      ) {}
+    }
+
+    vi.stubGlobal('MediaRecorder', EmptyStuckMediaRecorder as unknown as typeof MediaRecorder);
+
+    const promise = runIosSafariMediaRecorderStrategy({
+      canvas,
+      masterDest: {
+        stream: new FakeMediaStream([sourceAudioTrack]),
+      } as unknown as MediaStreamAudioDestinationNode,
+      audioContext: createAudioContextDouble(),
+      signal: new AbortController().signal,
+      audioSources: {
+        mediaItems: [],
+        bgm: null,
+        narrations: [],
+        totalDuration: 1,
+        onAudioPreRenderComplete: vi.fn(),
+      },
+      callbacks,
+      state,
+      refs: {
+        recorderRef,
+      },
+      exportConfig: {
+        fps: 30,
+        videoBitrate: 1_000_000,
+      },
+      supportedMediaRecorderProfile: {
+        mimeType: 'video/mp4',
+        extension: 'mp4',
+      },
+    });
+
+    const recorder = recorderRef.current as unknown as EmptyStuckMediaRecorder;
+    recorder.stop();
+
+    await vi.advanceTimersByTimeAsync(200);
+    await vi.advanceTimersByTimeAsync(8000);
+
+    await promise;
+
+    // chunks 空 → onRecordingStop は発火しない、onRecordingError が発火する
+    expect(callbacks.onRecordingStop).not.toHaveBeenCalled();
+    expect(callbacks.onRecordingError).toHaveBeenCalledWith(
+      expect.stringContaining('iOS Safari'),
+    );
+  });
 });

@@ -2284,7 +2284,14 @@ export function usePreviewEngine({
       startTimeRef.current = Date.now() - fromTime * 1000;
 
       if (isExportMode && canvasRef.current && masterDestRef.current) {
-        startWebCodecsExport(
+        // startWebCodecsExport は async (Promise<void>) を返すため、内部で発生した
+        // 例外 (MediaRecorder 戦略の reject 等) を握りつぶさないように .catch() で
+        // 確実に UI を中断状態へ戻す。catch が無いと「保存ファイルを作成中」のまま
+        // 固まる退行の原因になる。
+        // startWebCodecsExport は内部で async として実装されているため、戻り値は
+        // 実体上 Promise になる。型定義上は void なので一旦 unknown を経由して
+        // PromiseLike として扱い、reject が握りつぶされて UI が固まる退行を防ぐ。
+        const exportResult = startWebCodecsExport(
           canvasRef,
           masterDestRef,
           (url, ext) => {
@@ -2314,7 +2321,19 @@ export function usePreviewEngine({
               loop(isExportMode, myLoopId);
             },
           },
-        );
+        ) as unknown as Promise<void> | void;
+        if (exportResult && typeof (exportResult as { catch?: unknown }).catch === 'function') {
+          (exportResult as Promise<void>).catch((err: unknown) => {
+            logWarn('RENDER', 'iOS Safari: startWebCodecsExport rejected; recovering UI state', {
+              error: err instanceof Error ? err.message : String(err),
+            });
+            setProcessing(false);
+            setExportPreparationStep(null);
+            pause();
+            stopAll();
+            setError('動画ファイルの作成に失敗しました。少し時間を置いてからやり直してください。');
+          });
+        }
       } else {
         loop(isExportMode, myLoopId);
       }

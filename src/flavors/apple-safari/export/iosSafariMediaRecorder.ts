@@ -186,17 +186,75 @@ export async function runIosSafariMediaRecorderStrategy(
     let recorder: MediaRecorder | null = null;
     let pausedByVisibility = false;
     let visibilityListenersAttached = false;
+    let stopWatchdogTimer: ReturnType<typeof setTimeout> | null = null;
+    let onstopFired = false;
 
     const finishResolve = () => {
       if (settled) return;
       settled = true;
+      if (stopWatchdogTimer !== null) {
+        clearTimeout(stopWatchdogTimer);
+        stopWatchdogTimer = null;
+      }
       resolve();
     };
 
-    const finishReject = (error: Error) => {
-      if (settled) return;
-      settled = true;
-      reject(error);
+    // 以前は finishReject 経由で Promise を reject していたが、await 側で
+    // catch されておらず「保存ファイルを作成中」のまま UI が固まる退行の原因
+    // になっていたため、エラー経路は callbacks.onRecordingError + finishResolve
+    // に統一した。Promise reject は使わない。reject 参照は今後の defensive 用に
+    // 残すが、現状の経路では呼び出さない。
+    void reject;
+
+    /**
+     * iOS Safari の MediaRecorder は recorder.stop() を呼んでも onstop が
+     * 発火しない / 大きく遅延するケースが実機で観測される。stop() を呼んでから
+     * STOP_WATCHDOG_TIMEOUT_MS 経っても onstop が来なかった場合は、それまでに
+     * 累積した chunks から手動で blob を作って onRecordingStop を発火させる。
+     * 「保存ファイルを作成中」のまま固まってダウンロードボタンに切り替わらない
+     * 退行を防ぐためのフェイルセーフ。
+     */
+    const STOP_WATCHDOG_TIMEOUT_MS = 8000;
+    const armStopWatchdog = () => {
+      if (stopWatchdogTimer !== null) return;
+      stopWatchdogTimer = setTimeout(() => {
+        stopWatchdogTimer = null;
+        if (onstopFired || settled) return;
+        log.warn('RENDER', 'iOS Safari: MediaRecorder onstop did not fire in time, force-completing', {
+          exportSessionId,
+          probe,
+          chunks: chunks.length,
+          recorderState: recorder?.state ?? 'unknown',
+        });
+        // 手動で onstop と同じ後処理を実行する
+        try {
+          cleanup();
+        } catch {
+          /* ignore */
+        }
+        refs.recorderRef.current = null;
+        if (chunks.length === 0) {
+          // chunks が空なら成功失敗の判別不能。エラーコールバックで UI を救出する。
+          callbacks.onRecordingError?.(
+            'iOS Safari の動画書き出しが完了通知を返しませんでした。少し時間を置いてからやり直してください。',
+          );
+          finishResolve();
+          return;
+        }
+        const blob = new Blob(chunks, { type: profile.mimeType || 'video/mp4' });
+        const url = URL.createObjectURL(blob);
+        state.setExportUrl(url);
+        state.setExportExt(profile.extension);
+        log.info('RENDER', 'iOS Safari: MediaRecorder export completed (watchdog path)', {
+          exportSessionId,
+          probe,
+          chunks: chunks.length,
+          blobSizeBytes: blob.size,
+          extension: profile.extension,
+        });
+        callbacks.onRecordingStop(url, profile.extension);
+        finishResolve();
+      }, STOP_WATCHDOG_TIMEOUT_MS);
     };
 
     const handleRecorderVisibilityChange = () => {
@@ -292,6 +350,8 @@ export async function runIosSafariMediaRecorderStrategy(
           if (recorder && recorder.state !== 'inactive') {
             try {
               recorder.stop();
+              // iOS Safari の onstop 不発に備え、stop() 呼び出し後に watchdog を起動
+              armStopWatchdog();
             } catch {
               // ignore
             }
@@ -331,16 +391,44 @@ export async function runIosSafariMediaRecorderStrategy(
     };
 
     recorder.onerror = () => {
+      // recorder.onerror も finishReject にしていたが、await 側に catch が無く
+      // 「保存ファイルを作成中」固まりの原因になっていた。onRecordingError で
+      // UI を救出してから finishResolve する。
+      log.warn('RENDER', 'iOS Safari: MediaRecorder error event', {
+        exportSessionId,
+        probe,
+        recorderState: recorder?.state ?? 'unknown',
+      });
+      if (stopWatchdogTimer !== null) {
+        clearTimeout(stopWatchdogTimer);
+        stopWatchdogTimer = null;
+      }
       cleanup();
-      finishReject(new Error('MediaRecorder recording failed'));
+      callbacks.onRecordingError?.('iOS Safari の動画書き出し中にエラーが発生しました。');
+      finishResolve();
     };
 
     recorder.onstop = () => {
+      onstopFired = true;
+      if (stopWatchdogTimer !== null) {
+        clearTimeout(stopWatchdogTimer);
+        stopWatchdogTimer = null;
+      }
       cleanup();
       refs.recorderRef.current = null;
 
       if (chunks.length === 0) {
-        finishReject(new Error('MediaRecorder produced no output data'));
+        // 以前は finishReject していたが、await 側で catch されないため
+        // 「保存ファイルを作成中」のまま UI が固まる退行になっていた。
+        // onRecordingError で UI を救出してから finishResolve でクリーンに抜ける。
+        log.warn('RENDER', 'iOS Safari: MediaRecorder produced no output data (onstop chunks=0)', {
+          exportSessionId,
+          probe,
+        });
+        callbacks.onRecordingError?.(
+          'iOS Safari の動画書き出しでデータが取得できませんでした。少し時間を置いてからやり直してください。',
+        );
+        finishResolve();
         return;
       }
 
@@ -371,6 +459,20 @@ export async function runIosSafariMediaRecorderStrategy(
       }
       preRenderedAudio?.startPlayback();
       startedSuccessfully = true;
+      // iOS Safari は recorder.stop() が外部 (preview engine の natural-end ハンドラ等)
+      // から呼ばれて state が 'inactive' になっても onstop が発火しないケースが
+      // 観測されるため、state を監視して inactive 検出時にウォッチドッグを起動する。
+      // onAbort 経由でも armStopWatchdog が呼ばれるが、これがフェイルセーフになる。
+      const stateMonitorTimer = setInterval(() => {
+        if (settled || onstopFired) {
+          clearInterval(stateMonitorTimer);
+          return;
+        }
+        if (recorder && recorder.state === 'inactive') {
+          clearInterval(stateMonitorTimer);
+          armStopWatchdog();
+        }
+      }, 200);
       log.info('RENDER', 'iOS Safari: MediaRecorder export ready', {
         exportSessionId,
         probe,
