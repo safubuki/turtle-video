@@ -214,9 +214,15 @@ export async function runIosSafariMediaRecorderStrategy(
      * 「保存ファイルを作成中」のまま固まってダウンロードボタンに切り替わらない
      * 退行を防ぐためのフェイルセーフ。
      */
-    const STOP_WATCHDOG_TIMEOUT_MS = 8000;
+    const STOP_WATCHDOG_TIMEOUT_MS = 3000;
     const armStopWatchdog = () => {
       if (stopWatchdogTimer !== null) return;
+      log.info('RENDER', 'iOS Safari: arm stop watchdog', {
+        exportSessionId,
+        chunksAccumulated: chunks.length,
+        recorderState: recorder?.state ?? 'unknown',
+        timeoutMs: STOP_WATCHDOG_TIMEOUT_MS,
+      });
       stopWatchdogTimer = setTimeout(() => {
         stopWatchdogTimer = null;
         if (onstopFired || settled) return;
@@ -349,9 +355,8 @@ export async function runIosSafariMediaRecorderStrategy(
           abortStopTimer = null;
           if (recorder && recorder.state !== 'inactive') {
             try {
+              // monkey-patch された recorder.stop が armStopWatchdog を呼ぶ
               recorder.stop();
-              // iOS Safari の onstop 不発に備え、stop() 呼び出し後に watchdog を起動
-              armStopWatchdog();
             } catch {
               // ignore
             }
@@ -383,6 +388,29 @@ export async function runIosSafariMediaRecorderStrategy(
 
     signal.addEventListener('abort', onAbort, { once: true });
     addVisibilityListeners();
+
+    // recorder.stop() を monkey-patch して、誰が呼んでも必ず watchdog を arm する。
+    // 外部 (preview engine の natural-end など) から stop() が呼ばれた場合でも
+    // iOS Safari の onstop 不発に備えてフェイルセーフを起動できるようにする。
+    const originalStop = recorder.stop.bind(recorder);
+    recorder.stop = () => {
+      log.info('RENDER', 'iOS Safari: recorder.stop invoked (any caller)', {
+        exportSessionId,
+        chunksAccumulated: chunks.length,
+        recorderState: recorder?.state ?? 'unknown',
+      });
+      // stop() 呼び出しと同時に watchdog を arm。onstop が正常に発火すれば
+      // watchdog の中で onstopFired=true を見て早期 return する。
+      armStopWatchdog();
+      try {
+        originalStop();
+      } catch (err) {
+        log.warn('RENDER', 'iOS Safari: recorder.stop threw', {
+          exportSessionId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    };
 
     recorder.ondataavailable = (event: BlobEvent) => {
       if (event.data && event.data.size > 0) {
@@ -459,20 +487,8 @@ export async function runIosSafariMediaRecorderStrategy(
       }
       preRenderedAudio?.startPlayback();
       startedSuccessfully = true;
-      // iOS Safari は recorder.stop() が外部 (preview engine の natural-end ハンドラ等)
-      // から呼ばれて state が 'inactive' になっても onstop が発火しないケースが
-      // 観測されるため、state を監視して inactive 検出時にウォッチドッグを起動する。
-      // onAbort 経由でも armStopWatchdog が呼ばれるが、これがフェイルセーフになる。
-      const stateMonitorTimer = setInterval(() => {
-        if (settled || onstopFired) {
-          clearInterval(stateMonitorTimer);
-          return;
-        }
-        if (recorder && recorder.state === 'inactive') {
-          clearInterval(stateMonitorTimer);
-          armStopWatchdog();
-        }
-      }, 200);
+      // recorder.stop() を monkey-patch しているため、誰が呼んでも armStopWatchdog
+      // が確実に起動する。別途 state monitor は不要。
       log.info('RENDER', 'iOS Safari: MediaRecorder export ready', {
         exportSessionId,
         probe,

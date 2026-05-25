@@ -14,7 +14,7 @@ import type {
 } from '../../../types';
 import type { ExportPreparationStep, UseExportReturn } from '../../../hooks/useExport';
 import type { LogCategory } from '../../../stores/logStore';
-import { useMediaStore } from '../../../stores';
+import { useMediaStore, useUIStore } from '../../../stores';
 import type { PlatformCapabilities } from '../../../utils/platform';
 import { collectPlaybackBlockingVideos, findActiveTimelineItem } from '../../../utils/playbackTimeline';
 import { isCaptionActiveAtTime } from '../../../utils/captionTimeline';
@@ -1773,6 +1773,38 @@ export function usePreviewEngine({
           logInfo('RENDER', 'iOS Safari: natural end -> completeWebCodecsExport');
           completeWebCodecsExport();
         }
+
+        // 最終フェイルセーフ: natural-end から 30 秒経っても UI に exportUrl が
+        // 来ない and isProcessing が解除されていない場合、強制的に「作成中」表示を
+        // 解除してエラーを出す。recorder.onstop 不発 + strategy watchdog 不発 +
+        // 想定外の例外、いずれのケースでも UI は必ず復帰する。
+        const guardLoopId = myLoopId;
+        setTimeout(() => {
+          // 早期 return 条件:
+          //  - 別の export/preview セッションが始まった (loopId 更新)
+          //  - exportUrl が既にセットされた (緑ボタン表示済み)
+          //  - isProcessing が既に解除された (handleStop 等で UI 既復帰)
+          if (guardLoopId !== loopIdRef.current) {
+            return;
+          }
+          try {
+            const uiState = useUIStore.getState();
+            if (uiState.exportUrl || !uiState.isProcessing) {
+              return;
+            }
+          } catch {
+            /* useUIStore アクセス失敗時は guard を継続して念のため復帰させる */
+          }
+          logWarn('RENDER', 'iOS Safari: export finalization guard timeout — forcing UI cleanup', {
+            guardLoopId,
+            currentLoopId: loopIdRef.current,
+          });
+          setProcessing(false);
+          setExportPreparationStep(null);
+          pause();
+          stopAll();
+          setError('動画ファイルの作成がタイムアウトしました。少し時間を置いてからやり直してください。');
+        }, 30000);
         return;
       }
       setCurrentTime(clampedElapsed);

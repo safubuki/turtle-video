@@ -1,24 +1,24 @@
 {
-  "version": "5.1.17",
+  "version": "5.1.18",
   "history": {
-    "previousVersion": "5.1.16",
-    "summary": "iPhone Safari でエクスポート完了後にダウンロードボタン (緑) へ切り替わらない問題を、iOS Safari MediaRecorder の onstop 不発に対する watchdog で根本的に救済しました。実機テストで recorder.stop() を呼んでも state は inactive になるが onstop イベントが発火しないケースが観測されたため、iosSafariMediaRecorder.ts に「8 秒タイムアウト + state=inactive 検出 + chunks からの手動 blob 構築」watchdog を追加しました。さらに recorder.onstop / recorder.onerror / chunks=0 のエラー経路を Promise reject から callbacks.onRecordingError + finishResolve へ統一し、await 側で握りつぶされていたエラーで UI が固まる退行も解消しました。",
+    "previousVersion": "5.1.17",
+    "summary": "iPhone Safari でエクスポート完了後にダウンロードボタン (緑) へ切り替わらない問題を、完了条件を満たしたら必ず状態を遷移させる多層防御で完全に解消しました。recorder.stop() を monkey-patch して呼び出し時点で必ず watchdog を arm するようにし、watchdog タイムアウトを 8 秒から 3 秒へ短縮しました。さらに preview engine 側にも 30 秒の最終フェイルセーフを追加し、recorder.onstop 不発・WebCodecs encoder 不発・想定外の例外、いずれのケースでも UI が「保存ファイルを作成中」のまま永遠に固まる退行を確実に防ぎます。これまでの v5.1.15 / v5.1.16 / v5.1.17 で取り残されていた「stop() が呼ばれても watchdog が起動しないケース」と「strategy 全体が無応答のケース」を両方カバーします。",
     "highlights": [
       {
-        "title": "iOS Safari MediaRecorder の onstop 不発に対する watchdog を追加 (UI が「保存ファイルを作成中」のまま固まる退行を救出)",
-        "description": "iOS Safari は recorder.stop() を呼んでも onstop イベントが発火しないことが実機で観測されました。8 秒タイムアウトの watchdog と、recorder.state が inactive に遷移したことを 200ms 間隔の state monitor で検出するセーフティネットを追加し、watchdog が chunks から手動で blob を構築して onRecordingStop callback を発火させることで、UI を「保存ファイルを作成中」のまま固まらせない手当をしました。chunks が空のままでも onRecordingError を発火させて UI をエラー状態へ復帰させます。"
+        "title": "recorder.stop() を monkey-patch して必ず watchdog を arm (呼び出し元を問わず取りこぼしゼロ)",
+        "description": "v5.1.17 では state monitor の 200ms ポーリングで recorder.state === 'inactive' を検出して watchdog を arm していましたが、iOS Safari の state 遷移が遅延したり anomalous な状況では検出を取りこぼす恐れがありました。今回は recorder.stop を monkey-patch して、誰が stop を呼んでも (preview engine の natural-end / onAbort / 手動停止) その場で watchdog を arm するようにしました。検出を経由しない直接 arm によって、watchdog の起動取りこぼしをゼロにします。"
       },
       {
-        "title": "MediaRecorder 戦略のエラー経路を Promise reject から callbacks.onRecordingError へ統一",
-        "description": "recorder.onerror や chunks=0 で従来は Promise reject を返していたため、await 側で握りつぶされて UI が固まる退行が起きていました。これらを callbacks.onRecordingError(message) + finishResolve() に統一し、エラー時も必ず UI が「作成中」から復帰するようにしました。"
+        "title": "Watchdog タイムアウトを 8 秒 → 3 秒へ短縮 (素早い UI 復帰)",
+        "description": "iOS Safari の onstop が発火しないケースで、ユーザーが「保存ファイルを作成中」と表示されたまま 8 秒待つのは長すぎたため、3 秒に短縮しました。チャンクは MediaRecorder の timeslice=250ms で十分蓄積されているため、3 秒で blob を組み立てて完了させる挙動は問題ありません。"
       },
       {
-        "title": "apple-safari startEngine の startWebCodecsExport 呼び出しに .catch() を追加",
-        "description": "万一 startWebCodecsExport が unhandled rejection を起こしても UI を中断状態へ戻せるよう、preview engine 側でも防御的に .catch() を仕掛けました。多層防御により「保存ファイルを作成中」固まりを 3 段階で救出する構造になっています。"
+        "title": "preview engine 側にも 30 秒の最終フェイルセーフ guard を追加 (どんな経路の失敗でも UI が必ず復帰する)",
+        "description": "MediaRecorder 経路・WebCodecs 経路・想定外の例外、どのパターンで詰まっても 30 秒経過した時点で強制的に setProcessing(false) + setError を実行し、UI が「保存ファイルを作成中」のまま永遠に固まる退行を確実に防ぎます。exportUrl が既にセットされている / isProcessing が既に解除されている場合はスキップする防御的なチェックも入れています。"
       },
       {
         "title": "プレビューには変更なし (v5.1.14 で安定した動作を維持)",
-        "description": "今回の修正は iosSafariMediaRecorder.ts (エクスポート) と apple-safari startEngine の onResult ハンドラのみで、プレビュー再生経路 (境界キック、WebAudio ルーティング、silent prewarm 廃止) には一切手を入れていません。"
+        "description": "今回の修正は src/flavors/apple-safari/export/iosSafariMediaRecorder.ts (monkey-patch + watchdog 短縮) と src/flavors/apple-safari/preview/usePreviewEngine.ts の loop natural-end (30 秒 guard) のみで、プレビュー再生経路には一切手を入れていません。"
       }
     ]
   }

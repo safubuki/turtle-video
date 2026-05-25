@@ -367,9 +367,10 @@ describe('runIosSafariMediaRecorderStrategy', () => {
 
   it('iOS Safari で onstop が発火せず state=inactive のままでも watchdog が chunks から blob を作って完了させる', async () => {
     // 実機 iOS Safari で観測される「recorder.stop() を呼んでも onstop が発火しない」
-    // ケースの再現テスト。stop() は呼ばれたが onstop イベントが届かない状態で、
-    // watchdog (8 秒タイムアウト) が chunks から blob を組み立てて onRecordingStop
-    // を発火させ、UI が「保存ファイルを作成中」のまま固まらないことを保証する。
+    // ケースの再現テスト。stop() は monkey-patch されており、呼び出すと同時に
+    // watchdog (3 秒タイムアウト) が arm される。3 秒経っても onstop が来なかった
+    // 場合は chunks から blob を組み立てて onRecordingStop を発火させ、UI が
+    // 「保存ファイルを作成中」のまま固まらないことを保証する。
     const videoTrack: FakeTrack = {
       kind: 'video',
       readyState: 'live',
@@ -467,12 +468,12 @@ describe('runIosSafariMediaRecorderStrategy', () => {
     // signal は abort されないので、natural-end ハンドラ相当: 外部から stop() を呼ぶ
     const recorder = recorderRef.current as unknown as StuckMediaRecorder;
     recorder.requestData(); // chunks 追加
-    recorder.stop(); // state=inactive にする (onstop は発火しない)
+    // recorder.stop() は monkey-patch されており、呼び出すと同時に watchdog が
+    // arm される。state monitor の検出を待たずに直接 watchdog が起動する。
+    recorder.stop();
 
-    // state monitor (200ms interval) が inactive を検出して watchdog を arm
-    await vi.advanceTimersByTimeAsync(200);
-    // watchdog timeout (8000ms) を経過させる
-    await vi.advanceTimersByTimeAsync(8000);
+    // watchdog timeout (3000ms) を経過させる
+    await vi.advanceTimersByTimeAsync(3000);
 
     await promise;
 
@@ -564,10 +565,10 @@ describe('runIosSafariMediaRecorderStrategy', () => {
     });
 
     const recorder = recorderRef.current as unknown as EmptyStuckMediaRecorder;
+    // monkey-patch された stop() が watchdog を arm する
     recorder.stop();
 
-    await vi.advanceTimersByTimeAsync(200);
-    await vi.advanceTimersByTimeAsync(8000);
+    await vi.advanceTimersByTimeAsync(3000);
 
     await promise;
 
