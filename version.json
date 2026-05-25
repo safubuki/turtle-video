@@ -1,24 +1,24 @@
 {
-  "version": "5.1.18",
+  "version": "5.2.0",
   "history": {
-    "previousVersion": "5.1.17",
-    "summary": "iPhone Safari でエクスポート完了後にダウンロードボタン (緑) へ切り替わらない問題を、完了条件を満たしたら必ず状態を遷移させる多層防御で完全に解消しました。recorder.stop() を monkey-patch して呼び出し時点で必ず watchdog を arm するようにし、watchdog タイムアウトを 8 秒から 3 秒へ短縮しました。さらに preview engine 側にも 30 秒の最終フェイルセーフを追加し、recorder.onstop 不発・WebCodecs encoder 不発・想定外の例外、いずれのケースでも UI が「保存ファイルを作成中」のまま永遠に固まる退行を確実に防ぎます。これまでの v5.1.15 / v5.1.16 / v5.1.17 で取り残されていた「stop() が呼ばれても watchdog が起動しないケース」と「strategy 全体が無応答のケース」を両方カバーします。",
+    "previousVersion": "5.1.18",
+    "summary": "iOS Safari でプレビューとエクスポートが成功する状態を確定しました。エクスポート完了時は、Blob URL・拡張子・正の Blob サイズが確認できた後にだけ UI callback を通し、青い「作成中」表示から緑のダウンロードボタンへ遷移します。TurtleVideo では main export hook の recorderRef を preview engine に渡すよう明確化し、iOS Safari の自然終端時に実際の MediaRecorder を requestData()/stop() できるようにしました。Docs は specs / architecture / guides / reports / handovers / review に分類し、2026-05-26 の成功状態と復旧手順を Docs/2026-05-26_success_ios-safari-preview-export.md に記録しました。",
     "highlights": [
       {
-        "title": "recorder.stop() を monkey-patch して必ず watchdog を arm (呼び出し元を問わず取りこぼしゼロ)",
-        "description": "v5.1.17 では state monitor の 200ms ポーリングで recorder.state === 'inactive' を検出して watchdog を arm していましたが、iOS Safari の state 遷移が遅延したり anomalous な状況では検出を取りこぼす恐れがありました。今回は recorder.stop を monkey-patch して、誰が stop を呼んでも (preview engine の natural-end / onAbort / 手動停止) その場で watchdog を arm するようにしました。検出を経由しない直接 arm によって、watchdog の起動取りこぼしをゼロにします。"
+        "title": "iOS Safari preview/export success baseline",
+        "description": "iOS Safari でプレビュー表示とエクスポート完了後の緑ダウンロードボタン表示が成功する状態を v5.2.0 の基準として整理しました。"
       },
       {
-        "title": "Watchdog タイムアウトを 8 秒 → 3 秒へ短縮 (素早い UI 復帰)",
-        "description": "iOS Safari の onstop が発火しないケースで、ユーザーが「保存ファイルを作成中」と表示されたまま 8 秒待つのは長すぎたため、3 秒に短縮しました。チャンクは MediaRecorder の timeslice=250ms で十分蓄積されているため、3 秒で blob を組み立てて完了させる挙動は問題ありません。"
+        "title": "Main export recorderRef wiring",
+        "description": "TurtleVideo が main export hook の recorderRef を preview engine に渡すことで、iOS Safari の自然終了時に実際の MediaRecorder を停止し、Blob URL を UI に届けられるようにしました。"
       },
       {
-        "title": "preview engine 側にも 30 秒の最終フェイルセーフ guard を追加 (どんな経路の失敗でも UI が必ず復帰する)",
-        "description": "MediaRecorder 経路・WebCodecs 経路・想定外の例外、どのパターンで詰まっても 30 秒経過した時点で強制的に setProcessing(false) + setError を実行し、UI が「保存ファイルを作成中」のまま永遠に固まる退行を確実に防ぎます。exportUrl が既にセットされている / isProcessing が既に解除されている場合はスキップする防御的なチェックも入れています。"
+        "title": "Confirmed-download-only UI transition",
+        "description": "Blob URL、拡張子、正の blobSizeBytes、非 abort または自然終端を確認してから UI をダウンロード可能状態へ遷移させます。"
       },
       {
-        "title": "プレビューには変更なし (v5.1.14 で安定した動作を維持)",
-        "description": "今回の修正は src/flavors/apple-safari/export/iosSafariMediaRecorder.ts (monkey-patch + watchdog 短縮) と src/flavors/apple-safari/preview/usePreviewEngine.ts の loop natural-end (30 秒 guard) のみで、プレビュー再生経路には一切手を入れていません。"
+        "title": "Docs classification and recovery memo",
+        "description": "Docs 配下を分類フォルダへ整理し、Docs/2026-05-26_success_ios-safari-preview-export.md に成功状態、処理内容、復旧チェックリストを記録しました。"
       }
     ]
   }

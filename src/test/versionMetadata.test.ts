@@ -2,28 +2,28 @@ import { describe, expect, it } from 'vitest';
 import versionData from '../../version.json';
 
 describe('version metadata', () => {
-  it('v5.1.18 の現在バージョンと iOS Safari export 完了の多層防御の変更概要を持つ', () => {
-    expect(versionData.version).toBe('5.1.18');
-    expect(versionData.history.previousVersion).toBe('5.1.17');
-    expect(versionData.history.summary).toContain('iPhone Safari');
-    expect(versionData.history.summary).toContain('monkey-patch');
-    expect(versionData.history.summary).toContain('watchdog');
+  it('v5.2.0 の現在バージョンと iOS Safari success baseline の変更概要を持つ', () => {
+    expect(versionData.version).toBe('5.2.0');
+    expect(versionData.history.previousVersion).toBe('5.1.18');
+    expect(versionData.history.summary).toContain('iOS Safari');
+    expect(versionData.history.summary).toContain('緑のダウンロードボタン');
+    expect(versionData.history.summary).toContain('Docs/2026-05-26_success_ios-safari-preview-export.md');
     expect(versionData.history.highlights).toHaveLength(4);
     expect(versionData.history.highlights).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          title: 'recorder.stop() を monkey-patch して必ず watchdog を arm (呼び出し元を問わず取りこぼしゼロ)',
+          title: 'iOS Safari preview/export success baseline',
         }),
         expect.objectContaining({
-          title: 'Watchdog タイムアウトを 8 秒 → 3 秒へ短縮 (素早い UI 復帰)',
+          title: 'Main export recorderRef wiring',
         }),
         expect.objectContaining({
-          title: 'preview engine 側にも 30 秒の最終フェイルセーフ guard を追加 (どんな経路の失敗でも UI が必ず復帰する)',
+          title: 'Confirmed-download-only UI transition',
         }),
         expect.objectContaining({
-          title: 'プレビューには変更なし (v5.1.14 で安定した動作を維持)',
+          title: 'Docs classification and recovery memo',
         }),
-      ])
+      ]),
     );
   });
 });

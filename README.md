@@ -199,6 +199,12 @@ turtle-video/
 ├── .agents/skills/      # GPT Codex向け Agent Skills
 ├── .agent/skills/       # Google Gemini向け Agent Skills
 ├── Docs/                # ドキュメント
+│   ├── architecture/    # platform / runtime architecture notes
+│   ├── guides/          # developer and workflow guides
+│   ├── handovers/       # handover notes
+│   ├── reports/         # investigation and fix reports
+│   ├── review/          # review criteria
+│   └── specs/           # design specs and implementation plans
 ├── public/              # 静的アセット
 ├── scripts/             # 開発・運用スクリプト
 ├── src/
@@ -221,8 +227,8 @@ turtle-video/
 - TypeScript strict モードを使用
 - ESLint + Prettier でコードフォーマット
 - コンポーネントは React.memo で最適化
-- 開発用スクリプトは `package.json` の `scripts` を正本とし、動画解析手順は `Docs/developer_guide.md` を参照
-- platform 分岐の図解は `Docs/platform-route-diagram.md` を参照
+- 開発用スクリプトは `package.json` の `scripts` を正本とし、動画解析手順は `Docs/guides/developer_guide.md` を参照
+- platform 分岐の図解は `Docs/architecture/platform-route-diagram.md` を参照
 
 ### 新機能の追加
 

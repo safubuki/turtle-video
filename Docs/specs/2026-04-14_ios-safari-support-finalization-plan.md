@@ -702,11 +702,11 @@ Phase 5 は Track A と Track B の完了を待って開始します。これに
 
 ### リポジトリ内
 
-- `Docs/2026-03-11_report_ios.md`
-- `Docs/handover-ios-preview-video-bgm-2026-03-13.md`
-- `Docs/ios-safari-audio-export-fix-report.md`
-- `Docs/2026-04-12_プラットフォーム分離再設計方針.md`
-- `Docs/2026-04-12_プラットフォーム分離構造概要.md`
+- `Docs/reports/2026-03-11_report_ios.md`
+- `Docs/handovers/handover-ios-preview-video-bgm-2026-03-13.md`
+- `Docs/reports/ios-safari-audio-export-fix-report.md`
+- `Docs/specs/2026-04-12_プラットフォーム分離再設計方針.md`
+- `Docs/architecture/2026-04-12_プラットフォーム分離構造概要.md`
 - `spec.md`
 
 ### Web 参照

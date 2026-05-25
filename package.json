@@ -1,6 +1,6 @@
 {
   "name": "turtle-video",
-  "version": "1.0.0",
+  "version": "5.2.0",
   "type": "module",
   "description": "タートルビデオ動画編集",
   "scripts": {

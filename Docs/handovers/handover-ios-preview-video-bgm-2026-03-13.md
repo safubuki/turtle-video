@@ -71,7 +71,7 @@
 - `src/utils/previewPlatform.ts`
 - `src/test/previewPlatform.test.ts`
 - `.agents/skills/turtle-video-overview/references/ios-preview-audio-prewarm-2026-03-13.md`
-- `Docs/ios-safari-audio-export-fix-report.md`
+- `Docs/reports/ios-safari-audio-export-fix-report.md`
 
 ## 8. 検証状況
 

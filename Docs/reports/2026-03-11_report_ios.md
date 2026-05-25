@@ -260,7 +260,7 @@ export interface PlatformCapabilities {
 | capability 判定 / strategy 選択 / 保存経路の pure logic | 自動確認済み | `src/test/platform.test.ts`, `src/test/exportStrategyResolver.test.ts`, `src/test/fileSave.test.ts` |
 | プレビュー / export policy の pure logic | 自動確認済み | `src/test/previewPlatform.test.ts`, `src/test/useExport.test.ts`, `src/test/iosSafariMediaRecorder.test.ts` |
 | TypeScript / build | 確認済み | `npm run build` |
-| iOS Safari の音声付きエクスポート | 部分確認済み | `Docs/ios-safari-audio-export-fix-report.md` の iPhone Safari 実機結果 |
+| iOS Safari の音声付きエクスポート | 部分確認済み | `Docs/reports/ios-safari-audio-export-fix-report.md` の iPhone Safari 実機結果 |
 | iOS Safari の手動保存 / 自動保存 / 読込 | 未確認 | IndexedDB は共通経路のまま。Safari 通常タブ / ホーム画面追加 / 再起動後保持の通し確認が残る |
 | サポート表記 | 「非対応」から「検証中」へ更新 | `README.md`, `src/constants/sectionHelp.ts` |
 
