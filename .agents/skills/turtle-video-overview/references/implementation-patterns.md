@@ -169,6 +169,18 @@
 - **注意点**:
   - 終端黒フレーム防止の既存ロジックは維持し、export や iOS/Android 分岐の挙動は変更しない
 
+### 0-13. iOS Safari export completion UI trusts only confirmed downloadable results
+
+- **Files**: `src/hooks/useExport.ts`, `src/flavors/apple-safari/export/iosSafariMediaRecorder.ts`, `src/hooks/export-strategies/types.ts`
+- **Issue**: iOS Safari MediaRecorder can create a valid Blob URL after the export loop reaches the natural end, while stale `cancelReason='user'` remains in the export FSM. If the UI callback is suppressed in that state, the preview button stays in the blue "creating video" state even though a downloadable result exists.
+- **Approach**:
+  - MediaRecorder completion callbacks must include `ExportRecordingResult` metadata: `source`, `blobSizeBytes`, and `signalAborted`.
+  - `useExport` may recover from stale user-cancel only when the result is confirmed downloadable (`url`, `ext`, positive blob size) and either the timeline is at natural end or iOS MediaRecorder reports `signalAborted === false`.
+  - User-initiated aborts keep `signalAborted === true`; even if a partial Blob arrives later, the UI callback remains suppressed and the green download button is not shown.
+- **Caution**:
+  - Do not broaden this recovery to Android/standard preview cleanup. Keep it inside export completion notification logic so iOS preview quality and Android preview behavior remain unchanged.
+  - The green download button is controlled by the UI store `exportUrl`, so every successful export path must deliver the UI callback after the Blob URL is actually created.
+
 ## 1. スクロール/スワイプ誤操作防止
 
 ### 1-1. モーダル表示時のボディスクロールロック

@@ -252,7 +252,14 @@ describe('runIosSafariMediaRecorderStrategy', () => {
     expect(onAudioPreRenderComplete).toHaveBeenCalled();
     expect(state.setExportUrl).toHaveBeenCalledWith('blob:ios-export');
     expect(state.setExportExt).toHaveBeenCalledWith('mp4');
-    expect(callbacks.onRecordingStop).toHaveBeenCalledWith('blob:ios-export', 'mp4');
+    expect(callbacks.onRecordingStop).toHaveBeenCalledWith(
+      'blob:ios-export',
+      'mp4',
+      expect.objectContaining({
+        source: 'media-recorder',
+        signalAborted: false,
+      }),
+    );
     expect(videoTrack.requestFrame).toHaveBeenCalled();
   expect(videoTrack.stop).toHaveBeenCalled();
   expect(recorderAudioTrack.stop).toHaveBeenCalled();
@@ -360,7 +367,14 @@ describe('runIosSafariMediaRecorderStrategy', () => {
     expect(preRenderedAudio.cleanup).toHaveBeenCalledTimes(1);
     expect(preRenderedTrack.stop).toHaveBeenCalled();
     expect(state.setExportUrl).toHaveBeenCalledWith('blob:ios-export-prerendered');
-    expect(callbacks.onRecordingStop).toHaveBeenCalledWith('blob:ios-export-prerendered', 'mp4');
+    expect(callbacks.onRecordingStop).toHaveBeenCalledWith(
+      'blob:ios-export-prerendered',
+      'mp4',
+      expect.objectContaining({
+        source: 'media-recorder',
+        signalAborted: false,
+      }),
+    );
     expect(audioContext.createOscillator).not.toHaveBeenCalled();
     expect(createObjectUrlSpy).toHaveBeenCalled();
   });
@@ -480,7 +494,14 @@ describe('runIosSafariMediaRecorderStrategy', () => {
     // watchdog が onRecordingStop を発火させた
     expect(state.setExportUrl).toHaveBeenCalledWith('blob:ios-watchdog');
     expect(state.setExportExt).toHaveBeenCalledWith('mp4');
-    expect(callbacks.onRecordingStop).toHaveBeenCalledWith('blob:ios-watchdog', 'mp4');
+    expect(callbacks.onRecordingStop).toHaveBeenCalledWith(
+      'blob:ios-watchdog',
+      'mp4',
+      expect.objectContaining({
+        source: 'media-recorder',
+        signalAborted: false,
+      }),
+    );
     expect(callbacks.onRecordingError).not.toHaveBeenCalled();
   });
 

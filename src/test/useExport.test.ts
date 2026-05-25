@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ExportRecordingResult } from '../hooks/export-strategies/types';
 import type { PlatformCapabilities } from '../utils/platform';
 
 const { mockGetPlatformCapabilities, mockRunIosSafariMediaRecorderStrategy } = vi.hoisted(() => ({
@@ -73,6 +74,12 @@ function createStartExportArgs() {
     onRecordingError: vi.fn(),
   };
 }
+
+type RecordingStopCallback = (
+  url: string,
+  ext: string,
+  result?: ExportRecordingResult,
+) => void;
 
 describe('useExport', () => {
   beforeEach(() => {
@@ -441,6 +448,369 @@ describe('useExport', () => {
       await Promise.resolve();
     });
     expect(args.onRecordingError).not.toHaveBeenCalled();
+  });
+
+  it('MediaRecorder 完了 callback 中の stopExport({ reason: "user" }) は完了済み扱いで abort しない', async () => {
+    mockGetPlatformCapabilities.mockReturnValue(
+      createPlatformCapabilities({
+        isIOS: true,
+        isSafari: true,
+        isIosSafari: true,
+        supportsMp4MediaRecorder: true,
+        supportedMediaRecorderProfile: {
+          mimeType: 'video/mp4',
+          extension: 'mp4',
+        },
+      }),
+    );
+
+    let capturedSignal: AbortSignal | null = null;
+    mockRunIosSafariMediaRecorderStrategy.mockImplementation(
+      ({
+        callbacks,
+        signal,
+      }: {
+        callbacks: { onRecordingStop: (url: string, ext: string) => void };
+        signal: AbortSignal;
+      }) =>
+        new Promise<boolean>((resolve) => {
+          capturedSignal = signal;
+          callbacks.onRecordingStop('blob:ios-complete', 'mp4');
+          resolve(true);
+        }),
+    );
+
+    const { result } = renderHook(() => useAppleSafariExport());
+    const args = createStartExportArgs();
+    args.onRecordingStop.mockImplementation(() => {
+      result.current.stopExport({ reason: 'user' });
+    });
+
+    await act(async () => {
+      await result.current.startExport(
+        args.canvasRef,
+        args.masterDestRef,
+        args.onRecordingStop,
+        args.onRecordingError,
+        {
+          mediaItems: [],
+          bgm: null,
+          narrations: [],
+          totalDuration: 10,
+          getPlaybackTimeSec: () => 10,
+        },
+      );
+    });
+
+    if (!capturedSignal) {
+      throw new Error('AbortSignal was not captured');
+    }
+    expect((capturedSignal as AbortSignal).aborted).toBe(false);
+    expect(args.onRecordingStop).toHaveBeenCalledWith('blob:ios-complete', 'mp4');
+    expect(args.onRecordingError).not.toHaveBeenCalled();
+    expect(result.current.isProcessing).toBe(false);
+  });
+
+  it('終端到達後の stale user cancel は有効な MediaRecorder URL を UI callback へ届ける', async () => {
+    mockGetPlatformCapabilities.mockReturnValue(
+      createPlatformCapabilities({
+        isIOS: true,
+        isSafari: true,
+        isIosSafari: true,
+        supportsMp4MediaRecorder: true,
+        supportedMediaRecorderProfile: {
+          mimeType: 'video/mp4',
+          extension: 'mp4',
+        },
+      }),
+    );
+
+    let capturedCallbacks:
+      | { onRecordingStop: (url: string, ext: string) => void }
+      | null = null;
+    let resolveStrategy: ((handled: boolean) => void) | undefined;
+    mockRunIosSafariMediaRecorderStrategy.mockImplementation(
+      ({
+        callbacks,
+      }: {
+        callbacks: { onRecordingStop: (url: string, ext: string) => void };
+      }) =>
+        new Promise<boolean>((resolve) => {
+          capturedCallbacks = callbacks;
+          resolveStrategy = resolve;
+        }),
+    );
+
+    const { result } = renderHook(() => useAppleSafariExport());
+    const args = createStartExportArgs();
+
+    await act(async () => {
+      result.current.startExport(
+        args.canvasRef,
+        args.masterDestRef,
+        args.onRecordingStop,
+        args.onRecordingError,
+        {
+          mediaItems: [],
+          bgm: null,
+          narrations: [],
+          totalDuration: 10,
+          getPlaybackTimeSec: () => 10,
+        },
+      );
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(result.current.isProcessing).toBe(true);
+    });
+
+    act(() => {
+      result.current.stopExport({ reason: 'user' });
+    });
+
+    if (!capturedCallbacks || !resolveStrategy) {
+      throw new Error('MediaRecorder strategy was not captured');
+    }
+    const strategyCallbacks = capturedCallbacks as { onRecordingStop: (url: string, ext: string) => void };
+    const strategyResolver = resolveStrategy as (handled: boolean) => void;
+
+    await act(async () => {
+      strategyCallbacks.onRecordingStop('blob:ios-after-natural-end', 'mp4');
+      strategyResolver(true);
+      await Promise.resolve();
+    });
+
+    expect(args.onRecordingStop).toHaveBeenCalledWith('blob:ios-after-natural-end', 'mp4');
+    expect(args.onRecordingError).not.toHaveBeenCalled();
+    expect(result.current.isProcessing).toBe(false);
+  });
+
+  it('iOS MediaRecorder の非 abort 完了は再生時刻が終端未満でも stale user cancel から復旧して通知する', async () => {
+    mockGetPlatformCapabilities.mockReturnValue(
+      createPlatformCapabilities({
+        isIOS: true,
+        isSafari: true,
+        isIosSafari: true,
+        supportsMp4MediaRecorder: true,
+        supportedMediaRecorderProfile: {
+          mimeType: 'video/mp4',
+          extension: 'mp4',
+        },
+      }),
+    );
+
+    let capturedCallbacks: { onRecordingStop: RecordingStopCallback } | null = null;
+    let resolveStrategy: ((handled: boolean) => void) | undefined;
+    mockRunIosSafariMediaRecorderStrategy.mockImplementation(
+      ({
+        callbacks,
+      }: {
+        callbacks: { onRecordingStop: RecordingStopCallback };
+      }) =>
+        new Promise<boolean>((resolve) => {
+          capturedCallbacks = callbacks;
+          resolveStrategy = resolve;
+        }),
+    );
+
+    const { result } = renderHook(() => useAppleSafariExport());
+    const args = createStartExportArgs();
+
+    await act(async () => {
+      result.current.startExport(
+        args.canvasRef,
+        args.masterDestRef,
+        args.onRecordingStop,
+        args.onRecordingError,
+        {
+          mediaItems: [],
+          bgm: null,
+          narrations: [],
+          totalDuration: 10,
+          getPlaybackTimeSec: () => 5,
+        },
+      );
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(result.current.isProcessing).toBe(true);
+    });
+
+    act(() => {
+      result.current.stopExport({ reason: 'user' });
+    });
+
+    if (!capturedCallbacks || !resolveStrategy) {
+      throw new Error('MediaRecorder strategy was not captured');
+    }
+    const strategyCallbacks = capturedCallbacks as { onRecordingStop: RecordingStopCallback };
+    const strategyResolver = resolveStrategy as (handled: boolean) => void;
+
+    await act(async () => {
+      strategyCallbacks.onRecordingStop('blob:ios-confirmed-complete', 'mp4', {
+        source: 'media-recorder',
+        blobSizeBytes: 1024,
+        signalAborted: false,
+      });
+      strategyResolver(true);
+      await Promise.resolve();
+    });
+
+    expect(args.onRecordingStop).toHaveBeenCalledWith('blob:ios-confirmed-complete', 'mp4');
+    expect(args.onRecordingError).not.toHaveBeenCalled();
+    expect(result.current.isProcessing).toBe(false);
+  });
+
+  it('iOS MediaRecorder の abort 後 callback は Blob があっても UI callback へ届けない', async () => {
+    mockGetPlatformCapabilities.mockReturnValue(
+      createPlatformCapabilities({
+        isIOS: true,
+        isSafari: true,
+        isIosSafari: true,
+        supportsMp4MediaRecorder: true,
+        supportedMediaRecorderProfile: {
+          mimeType: 'video/mp4',
+          extension: 'mp4',
+        },
+      }),
+    );
+
+    let capturedCallbacks: { onRecordingStop: RecordingStopCallback } | null = null;
+    let resolveStrategy: ((handled: boolean) => void) | undefined;
+    mockRunIosSafariMediaRecorderStrategy.mockImplementation(
+      ({
+        callbacks,
+      }: {
+        callbacks: { onRecordingStop: RecordingStopCallback };
+      }) =>
+        new Promise<boolean>((resolve) => {
+          capturedCallbacks = callbacks;
+          resolveStrategy = resolve;
+        }),
+    );
+
+    const { result } = renderHook(() => useAppleSafariExport());
+    const args = createStartExportArgs();
+
+    await act(async () => {
+      result.current.startExport(
+        args.canvasRef,
+        args.masterDestRef,
+        args.onRecordingStop,
+        args.onRecordingError,
+        {
+          mediaItems: [],
+          bgm: null,
+          narrations: [],
+          totalDuration: 10,
+          getPlaybackTimeSec: () => 5,
+        },
+      );
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(result.current.isProcessing).toBe(true);
+    });
+
+    act(() => {
+      result.current.stopExport({ reason: 'user' });
+    });
+
+    if (!capturedCallbacks || !resolveStrategy) {
+      throw new Error('MediaRecorder strategy was not captured');
+    }
+    const strategyCallbacks = capturedCallbacks as { onRecordingStop: RecordingStopCallback };
+    const strategyResolver = resolveStrategy as (handled: boolean) => void;
+
+    await act(async () => {
+      strategyCallbacks.onRecordingStop('blob:ios-aborted-partial', 'mp4', {
+        source: 'media-recorder',
+        blobSizeBytes: 1024,
+        signalAborted: true,
+      });
+      strategyResolver(true);
+      await Promise.resolve();
+    });
+
+    expect(args.onRecordingStop).not.toHaveBeenCalled();
+    expect(result.current.isProcessing).toBe(false);
+  });
+
+  it('終端前の user cancel では MediaRecorder URL callback を抑止する', async () => {
+    mockGetPlatformCapabilities.mockReturnValue(
+      createPlatformCapabilities({
+        isIOS: true,
+        isSafari: true,
+        isIosSafari: true,
+        supportsMp4MediaRecorder: true,
+        supportedMediaRecorderProfile: {
+          mimeType: 'video/mp4',
+          extension: 'mp4',
+        },
+      }),
+    );
+
+    let capturedCallbacks:
+      | { onRecordingStop: (url: string, ext: string) => void }
+      | null = null;
+    let resolveStrategy: ((handled: boolean) => void) | undefined;
+    mockRunIosSafariMediaRecorderStrategy.mockImplementation(
+      ({
+        callbacks,
+      }: {
+        callbacks: { onRecordingStop: (url: string, ext: string) => void };
+      }) =>
+        new Promise<boolean>((resolve) => {
+          capturedCallbacks = callbacks;
+          resolveStrategy = resolve;
+        }),
+    );
+
+    const { result } = renderHook(() => useAppleSafariExport());
+    const args = createStartExportArgs();
+
+    await act(async () => {
+      result.current.startExport(
+        args.canvasRef,
+        args.masterDestRef,
+        args.onRecordingStop,
+        args.onRecordingError,
+        {
+          mediaItems: [],
+          bgm: null,
+          narrations: [],
+          totalDuration: 10,
+          getPlaybackTimeSec: () => 5,
+        },
+      );
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(result.current.isProcessing).toBe(true);
+    });
+
+    act(() => {
+      result.current.stopExport({ reason: 'user' });
+    });
+
+    if (!capturedCallbacks || !resolveStrategy) {
+      throw new Error('MediaRecorder strategy was not captured');
+    }
+    const strategyCallbacks = capturedCallbacks as { onRecordingStop: (url: string, ext: string) => void };
+    const strategyResolver = resolveStrategy as (handled: boolean) => void;
+
+    await act(async () => {
+      strategyCallbacks.onRecordingStop('blob:ios-cancelled-before-end', 'mp4');
+      strategyResolver(true);
+      await Promise.resolve();
+    });
+
+    expect(args.onRecordingStop).not.toHaveBeenCalled();
+    expect(result.current.isProcessing).toBe(false);
   });
 
   it('clearExportUrl は保持中の Blob URL を解放して state を空にする', () => {

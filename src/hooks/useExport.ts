@@ -25,6 +25,7 @@ import { createDiagnosticId } from '../utils/diagnostics';
 import type {
   ExportAudioSources,
   ExportPreparationStep,
+  ExportRecordingResult,
   ExportSessionDiagnostics,
   MediaRecorderExportStrategyRunner,
   PreRenderedRecorderAudioSource,
@@ -36,6 +37,7 @@ export type {
   ExportAudioSources,
   ExportAudioSourceResolution,
   ExportPreparationStep,
+  ExportRecordingResult,
   ExportSessionDiagnostics,
   MediaRecorderExportStrategyRunner,
   PreRenderedRecorderAudioSource,
@@ -1255,26 +1257,80 @@ export function createUseExport(config: UseExportRuntimeConfig) {
       });
       const audioDecodeCache = new Map<string, Promise<AudioBuffer | null>>();
       let hasNotifiedRecordingStop = false;
-      const notifyRecordingStop = (url: string, ext: string) => {
-        if (hasNotifiedRecordingStop) return;
-        if (exportCancelReasonRef.current === 'user') {
+      const notifyRecordingStop = (url: string, ext: string, result?: ExportRecordingResult) => {
+        if (hasNotifiedRecordingStop) return false;
+        const hasPositiveBlob =
+          typeof result?.blobSizeBytes === 'number'
+            ? result.blobSizeBytes > 0
+            : true;
+        const hasDownloadableResult = Boolean(url && ext && hasPositiveBlob);
+        const isConfirmedMediaRecorderCompletion =
+          hasDownloadableResult
+          && result?.source === 'media-recorder'
+          && result.signalAborted === false;
+        if (!hasDownloadableResult) {
           logWarn('[EXPORT-FSM] transition', {
             exportSessionId,
             from: exportPhaseRef.current,
             to: exportPhaseRef.current,
-            reason: 'callback suppressed',
+            reason: 'callback suppressed - result is not downloadable',
             cancelReason: exportCancelReasonRef.current,
             hasExportUrl: Boolean(exportUrl),
+            hasDownloadableResult,
+            recordingResult: result ?? null,
           });
           return false;
         }
+        if (exportCancelReasonRef.current === 'user') {
+          const playbackTimeSec = audioSources?.getPlaybackTimeSec?.();
+          const isAtNaturalEnd =
+            hasDownloadableResult
+            && typeof playbackTimeSec === 'number'
+            && Number.isFinite(playbackTimeSec)
+            && Number.isFinite(audioSources?.totalDuration)
+            && (audioSources?.totalDuration ?? 0) > 0
+            && playbackTimeSec >= (audioSources?.totalDuration ?? 0) - 0.1;
+
+          if (!isAtNaturalEnd && !isConfirmedMediaRecorderCompletion) {
+            logWarn('[EXPORT-FSM] transition', {
+              exportSessionId,
+              from: exportPhaseRef.current,
+              to: exportPhaseRef.current,
+              reason: 'callback suppressed',
+              cancelReason: exportCancelReasonRef.current,
+              hasExportUrl: Boolean(exportUrl),
+              hasDownloadableResult,
+              recordingResult: result ?? null,
+            });
+            return false;
+          }
+
+          logWarn('[EXPORT-FSM] transition', {
+            exportSessionId,
+            from: exportPhaseRef.current,
+            to: exportPhaseRef.current,
+            reason: isConfirmedMediaRecorderCompletion
+              ? 'recovered stale user-cancel after confirmed MediaRecorder completion'
+              : 'recovered stale user-cancel after natural end',
+            cancelReason: exportCancelReasonRef.current,
+            hasExportUrl: Boolean(exportUrl),
+            hasDownloadableResult,
+            playbackTimeSec,
+            totalDuration: audioSources?.totalDuration,
+            recordingResult: result ?? null,
+          });
+          exportCancelReasonRef.current = 'none';
+        }
         hasNotifiedRecordingStop = true;
+        const previousPhase = exportPhaseRef.current;
+        exportPhaseRef.current = 'completed';
+        exportCompletedRef.current = true;
         logInfo('[EXPORT-FSM] transition', {
-          from: exportPhaseRef.current,
-          to: exportPhaseRef.current,
+          from: previousPhase,
+          to: 'completed',
           reason: 'callback invoked',
           cancelReason: exportCancelReasonRef.current,
-          hasExportUrl: Boolean(exportUrl),
+          hasExportUrl: hasDownloadableResult,
         });
         onRecordingStop(url, ext);
         return true;
@@ -2617,7 +2673,11 @@ export function createUseExport(config: UseExportRuntimeConfig) {
               urlPresent: Boolean(url),
               ext: 'mp4',
             });
-            const callbackDelivered = notifyRecordingStop(url, 'mp4');
+            const callbackDelivered = notifyRecordingStop(url, 'mp4', {
+              source: 'webcodecs',
+              blobSizeBytes: blob.size,
+              signalAborted: signal.aborted,
+            });
             if (!callbackDelivered) {
               exportCompletedRef.current = false;
               URL.revokeObjectURL(url);

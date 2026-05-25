@@ -80,8 +80,14 @@ export interface ExportAudioSources {
 }
 
 export interface ExportCallbacks {
-  onRecordingStop: (url: string, ext: string) => void;
+  onRecordingStop: (url: string, ext: string, result?: ExportRecordingResult) => void;
   onRecordingError?: (message: string) => void;
+}
+
+export interface ExportRecordingResult {
+  source: 'media-recorder' | 'webcodecs';
+  blobSizeBytes?: number;
+  signalAborted?: boolean;
 }
 
 export interface ExportStateSetters {

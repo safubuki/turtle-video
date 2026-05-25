@@ -258,7 +258,11 @@ export async function runIosSafariMediaRecorderStrategy(
           blobSizeBytes: blob.size,
           extension: profile.extension,
         });
-        callbacks.onRecordingStop(url, profile.extension);
+        callbacks.onRecordingStop(url, profile.extension, {
+          source: 'media-recorder',
+          blobSizeBytes: blob.size,
+          signalAborted: signal.aborted,
+        });
         finishResolve();
       }, STOP_WATCHDOG_TIMEOUT_MS);
     };
@@ -473,7 +477,11 @@ export async function runIosSafariMediaRecorderStrategy(
         extension: profile.extension,
       });
 
-      callbacks.onRecordingStop(url, profile.extension);
+      callbacks.onRecordingStop(url, profile.extension, {
+        source: 'media-recorder',
+        blobSizeBytes: blob.size,
+        signalAborted: signal.aborted,
+      });
       finishResolve();
     };
 
