@@ -171,10 +171,11 @@
 
 ### 0-13. iOS Safari export completion UI trusts only confirmed downloadable results
 
-- **Files**: `src/hooks/useExport.ts`, `src/flavors/apple-safari/export/iosSafariMediaRecorder.ts`, `src/hooks/export-strategies/types.ts`
+- **Files**: `src/hooks/useExport.ts`, `src/components/TurtleVideo.tsx`, `src/flavors/apple-safari/export/iosSafariMediaRecorder.ts`, `src/hooks/export-strategies/types.ts`
 - **Issue**: iOS Safari MediaRecorder can create a valid Blob URL after the export loop reaches the natural end, while stale `cancelReason='user'` remains in the export FSM. If the UI callback is suppressed in that state, the preview button stays in the blue "creating video" state even though a downloadable result exists.
 - **Approach**:
   - MediaRecorder completion callbacks must include `ExportRecordingResult` metadata: `source`, `blobSizeBytes`, and `signalAborted`.
+  - `TurtleVideo` must pass the recorderRef returned by the main `exportRuntime.useExport()` call into `previewRuntime.usePreviewEngine()`. The iOS Safari natural-end path uses this ref to stop/requestData from the active MediaRecorder; a local or preview-cache ref leaves export finalization waiting and prevents `exportUrl` from reaching the UI.
   - `useExport` may recover from stale user-cancel only when the result is confirmed downloadable (`url`, `ext`, positive blob size) and either the timeline is at natural end or iOS MediaRecorder reports `signalAborted === false`.
   - User-initiated aborts keep `signalAborted === true`; even if a partial Blob arrives later, the UI callback remains suppressed and the green download button is not shown.
 - **Caution**:

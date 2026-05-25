@@ -248,7 +248,6 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const needsResyncAfterVisibilityRef = useRef(false);
   const audioResumeWaitFramesRef = useRef(0);
   const lastVisibilityRefreshAtRef = useRef(0);
-  const recorderRef = useRef<MediaRecorder | null>(null);
   const loopIdRef = useRef(0); // ループの世代を追跡
   const isPlayingRef = useRef(false); // 再生状態を即座に反映するRef
   const isSeekingRef = useRef(false); // シーク中フラグ
@@ -384,7 +383,12 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   }, [mediaItems]);
 
   // Hooks
-  const { startExport: startWebCodecsExport, stopExport: stopWebCodecsExport, completeExport: completeWebCodecsExport } = exportRuntime.useExport();
+  const {
+    recorderRef,
+    startExport: startWebCodecsExport,
+    stopExport: stopWebCodecsExport,
+    completeExport: completeWebCodecsExport,
+  } = exportRuntime.useExport();
   const {
     startExport: startPreviewCacheExport,
     stopExport: stopPreviewCacheExport,
