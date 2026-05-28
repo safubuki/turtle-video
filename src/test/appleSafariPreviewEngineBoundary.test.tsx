@@ -340,6 +340,35 @@ describe('apple-safari preview engine boundary kick', () => {
     ).toBe(true);
   });
 
+  it('画像区間中の次動画は silent play せず paused のまま current frame を先読みする', () => {
+    const video1 = createVideoItem({ id: 'v1', duration: 2 });
+    const imageGap = createImageItem({ id: 'img', duration: 1 });
+    const video2 = createVideoItem({ id: 'v2', duration: 2 });
+    const video1El = createMockVideoElement();
+    const video2El = createMockVideoElement();
+    video1El.readyState = 4;
+    video2El.readyState = 1;
+    video2El.paused = true;
+    video2El.currentTime = 0;
+
+    const { hook } = setupRenderFrameHarness({
+      mediaItems: [video1, imageGap, video2],
+      mediaElements: {
+        [video1.id]: video1El as unknown as HTMLVideoElement,
+        [video2.id]: video2El as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      activeVideoIdRef: createRef<string | null>(null),
+    });
+
+    // image 区間終盤で next video が HAVE_METADATA 止まりの場合、play() は使わず
+    // trimStart 直後へ小さく seek して current frame の取得だけを促す。
+    hook.result.current.renderFrame(2.75, true, false);
+
+    expect(video2El.play).not.toHaveBeenCalled();
+    expect(video2El.currentTime).toBeGreaterThan(0);
+    expect(video2El.currentTime).toBeLessThan(0.01);
+  });
+
   it('境界キックの canplay リスナー発火で 2 本目の動画を play() する', () => {
     const video1 = createVideoItem({ id: 'v1', duration: 2 });
     const video2 = createVideoItem({ id: 'v2', duration: 2 });

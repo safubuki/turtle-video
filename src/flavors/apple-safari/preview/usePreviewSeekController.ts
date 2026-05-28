@@ -601,7 +601,9 @@ export function usePreviewSeekController({
               if (gainNode && audioCtxRef.current) {
                 gainNode.gain.setValueAtTime(0, audioCtxRef.current.currentTime);
               }
-              element.play().catch(() => {});
+              if (Math.abs(element.currentTime - (item.trimStart || 0)) > 0.1) {
+                element.currentTime = item.trimStart || 0;
+              }
             }
           }
         }

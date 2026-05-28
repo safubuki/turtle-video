@@ -265,6 +265,63 @@ export function shouldPrimeFutureInactiveVideoInPreview(
 }
 
 /**
+ * iOS Safari preview の video -> image -> video では、画像区間中の次動画が
+ * HAVE_METADATA のまま境界に入ると、active 化後の play() は通っても Canvas に
+ * 描ける current frame が間に合わず、黒画面または静止画で固まったように見える。
+ *
+ * silent play prewarm は映像 freeze の退行源なので使わず、paused のまま trimStart
+ * 直後へごく小さく seek して current frame 取得だけを促す。
+ */
+export function getIosSafariImageToVideoPrebufferTarget(
+  policy: PreviewPlatformPolicy,
+  options: {
+    isExporting: boolean;
+    isActivePlaying: boolean;
+    activeItemType: 'video' | 'image' | null;
+    nextItemType: 'video' | 'image' | null;
+    timeUntilVideoStartSec: number;
+    videoReadyState: HTMLMediaElement['readyState'];
+    isVideoPaused: boolean;
+    isVideoSeeking: boolean;
+    currentTime: number;
+    trimStart: number;
+    clipDuration: number;
+    prebufferWindowSec?: number;
+    nudgeSec?: number;
+  },
+): number | null {
+  const prebufferWindowSec = options.prebufferWindowSec ?? 3;
+  if (
+    !policy.muteNativeMediaWhenAudioRouted
+    || options.isExporting
+    || !options.isActivePlaying
+    || options.activeItemType !== 'image'
+    || options.nextItemType !== 'video'
+    || options.timeUntilVideoStartSec < 0
+    || options.timeUntilVideoStartSec > prebufferWindowSec
+    || !options.isVideoPaused
+    || options.isVideoSeeking
+    || options.videoReadyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+  ) {
+    return null;
+  }
+
+  const trimStart = Number.isFinite(options.trimStart)
+    ? Math.max(0, options.trimStart)
+    : 0;
+  const clipDuration = Number.isFinite(options.clipDuration)
+    ? Math.max(0, options.clipDuration)
+    : 0;
+  const nudgeSec = options.nudgeSec ?? 0.001;
+  const canNudgeInsideClip = clipDuration > nudgeSec * 2;
+  const target = canNudgeInsideClip
+    ? trimStart + nudgeSec
+    : trimStart;
+
+  return Math.abs(options.currentTime - target) > 0.0001 ? target : null;
+}
+
+/**
  * iOS Safari preview では単一音源時のみ native 出力へ逃がし、複数同時再生時は WebAudio mix を使う。
  */
 /**

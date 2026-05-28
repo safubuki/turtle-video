@@ -20,6 +20,7 @@ import { collectPlaybackBlockingVideos, findActiveTimelineItem } from '../../../
 import { isCaptionActiveAtTime } from '../../../utils/captionTimeline';
 import {
   EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC,
+  getIosSafariImageToVideoPrebufferTarget,
   getPreviewAudioOutputMode,
   getPreviewVideoSyncThreshold,
   shouldAttemptDeferredPreviewPlay,
@@ -664,7 +665,25 @@ export function usePreviewEngine({
                 }
                 if (nextElement.paused || nextElement.readyState < 2) {
                   const nextStart = nextItem.trimStart || 0;
-                  if (Math.abs(nextElement.currentTime - nextStart) > 0.1) {
+                  const iosImageGapPrebufferTarget = getIosSafariImageToVideoPrebufferTarget(
+                    previewPlatformPolicy,
+                    {
+                      isExporting: _isExporting,
+                      isActivePlaying,
+                      activeItemType: activeItem.type,
+                      nextItemType: nextItem.type,
+                      timeUntilVideoStartSec: remainingTime,
+                      videoReadyState: nextElement.readyState,
+                      isVideoPaused: nextElement.paused,
+                      isVideoSeeking: nextElement.seeking,
+                      currentTime: nextElement.currentTime,
+                      trimStart: nextStart,
+                      clipDuration: nextItem.duration,
+                    },
+                  );
+                  if (iosImageGapPrebufferTarget !== null) {
+                    nextElement.currentTime = iosImageGapPrebufferTarget;
+                  } else if (Math.abs(nextElement.currentTime - nextStart) > 0.1) {
                     nextElement.currentTime = nextStart;
                   }
                 }

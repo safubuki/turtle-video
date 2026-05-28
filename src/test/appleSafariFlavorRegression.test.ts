@@ -13,6 +13,7 @@ import {
 } from '../flavors/apple-safari/appleSafariPreviewRuntime';
 import {
   getFutureVideoAudioProbeTimes,
+  getIosSafariImageToVideoPrebufferTarget,
   getPreviewAudioRoutingPlan,
   getVisibilityRecoveryPlan,
   shouldBundlePreviewStartForWebAudioMix,
@@ -221,6 +222,59 @@ describe('apple-safari flavor regression', () => {
         timeUntilVideoStartSec: 1.5,
       }),
     ).toBe(false);
+  });
+
+  it('apple-safari preview は画像区間中の次動画を silent play せず paused prebuffer する', () => {
+    const previewCapabilities = getAppleSafariPreviewPlatformCapabilities(createCapabilities());
+    const previewPolicy = appleSafariPreviewRuntime.getPreviewPlatformPolicy(previewCapabilities);
+
+    expect(
+      getIosSafariImageToVideoPrebufferTarget(previewPolicy, {
+        isExporting: false,
+        isActivePlaying: true,
+        activeItemType: 'image',
+        nextItemType: 'video',
+        timeUntilVideoStartSec: 0.25,
+        videoReadyState: 1,
+        isVideoPaused: true,
+        isVideoSeeking: false,
+        currentTime: 0,
+        trimStart: 0,
+        clipDuration: 2,
+      }),
+    ).toBeCloseTo(0.001);
+
+    expect(
+      getIosSafariImageToVideoPrebufferTarget(previewPolicy, {
+        isExporting: false,
+        isActivePlaying: true,
+        activeItemType: 'video',
+        nextItemType: 'video',
+        timeUntilVideoStartSec: 0.25,
+        videoReadyState: 1,
+        isVideoPaused: true,
+        isVideoSeeking: false,
+        currentTime: 0,
+        trimStart: 0,
+        clipDuration: 2,
+      }),
+    ).toBeNull();
+
+    expect(
+      getIosSafariImageToVideoPrebufferTarget(previewPolicy, {
+        isExporting: false,
+        isActivePlaying: true,
+        activeItemType: 'image',
+        nextItemType: 'video',
+        timeUntilVideoStartSec: 0.25,
+        videoReadyState: 2,
+        isVideoPaused: true,
+        isVideoSeeking: false,
+        currentTime: 0,
+        trimStart: 0,
+        clipDuration: 2,
+      }),
+    ).toBeNull();
   });
 
   it('apple-safari preview は BGM 無しの単独 video でも WebAudio 経路を強制し audio node 作成を促す', () => {
