@@ -20,6 +20,7 @@ import { collectPlaybackBlockingVideos, findActiveTimelineItem } from '../../../
 import { isCaptionActiveAtTime } from '../../../utils/captionTimeline';
 import {
   EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC,
+  getIosSafariImageToVideoNativeKeepAliveVolume,
   getIosSafariImageToVideoPrebufferTarget,
   getPreviewAudioOutputMode,
   getPreviewVideoSyncThreshold,
@@ -163,6 +164,7 @@ const applyPreviewAudioOutputState = (
     desiredVolume: number;
     audibleSourceCount: number;
     isExporting: boolean;
+    nativeKeepAliveVolume?: number;
   },
 ) => {
   const sourceType = mediaEl.tagName === 'AUDIO' ? 'audio' : 'video';
@@ -183,7 +185,7 @@ const applyPreviewAudioOutputState = (
   if (shouldMuteNative && options.hasAudioNode) {
     mediaEl.defaultMuted = false;
     mediaEl.muted = false;
-    mediaEl.volume = 0;
+    mediaEl.volume = Math.max(0, Math.min(1, options.nativeKeepAliveVolume ?? 0));
   } else {
     mediaEl.defaultMuted = shouldMuteNative;
     mediaEl.muted = shouldMuteNative;
@@ -982,6 +984,17 @@ export function usePreviewEngine({
                   desiredVolume: vol,
                   audibleSourceCount: vol > 0 ? activePreviewAudioSourceCount : 0,
                   isExporting: _isExporting,
+                  nativeKeepAliveVolume: getIosSafariImageToVideoNativeKeepAliveVolume(
+                    previewPlatformPolicy,
+                    {
+                      isExporting: _isExporting,
+                      isActivePlaying,
+                      activeItemType: conf.type,
+                      previousItemType: activeIndex > 0 ? currentItems[activeIndex - 1]?.type ?? null : null,
+                      desiredVolume: vol,
+                      clipLocalTime: localTime,
+                    },
+                  ),
                 });
 
                 if (outputMode === 'native' && hasAudioNode) {

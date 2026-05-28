@@ -322,6 +322,42 @@ export function getIosSafariImageToVideoPrebufferTarget(
 }
 
 /**
+ * iOS Safari では WebAudio 経路で動画音声が流れていても、video element 側の
+ * native volume が完全に 0 のままだと、画像 -> 動画直後に映像 decode だけが
+ * 止まり、音声だけ進むことがある。画像 -> 動画の立ち上がりだけ微小音量を残し、
+ * video pipeline を audible 扱いにする。
+ */
+export function getIosSafariImageToVideoNativeKeepAliveVolume(
+  policy: PreviewPlatformPolicy,
+  options: {
+    isExporting: boolean;
+    isActivePlaying: boolean;
+    activeItemType: 'video' | 'image' | null;
+    previousItemType: 'video' | 'image' | null;
+    desiredVolume: number;
+    clipLocalTime: number;
+    keepAliveWindowSec?: number;
+    keepAliveVolume?: number;
+  },
+): number {
+  const keepAliveWindowSec = options.keepAliveWindowSec ?? 1.2;
+  if (
+    !policy.muteNativeMediaWhenAudioRouted
+    || options.isExporting
+    || !options.isActivePlaying
+    || options.activeItemType !== 'video'
+    || options.previousItemType !== 'image'
+    || options.desiredVolume <= 0
+    || options.clipLocalTime < 0
+    || options.clipLocalTime > keepAliveWindowSec
+  ) {
+    return 0;
+  }
+
+  return options.keepAliveVolume ?? 0.001;
+}
+
+/**
  * iOS Safari preview では単一音源時のみ native 出力へ逃がし、複数同時再生時は WebAudio mix を使う。
  */
 /**

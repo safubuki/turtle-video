@@ -13,6 +13,7 @@ import {
 } from '../flavors/apple-safari/appleSafariPreviewRuntime';
 import {
   getFutureVideoAudioProbeTimes,
+  getIosSafariImageToVideoNativeKeepAliveVolume,
   getIosSafariImageToVideoPrebufferTarget,
   getPreviewAudioRoutingPlan,
   getVisibilityRecoveryPlan,
@@ -275,6 +276,44 @@ describe('apple-safari flavor regression', () => {
         clipDuration: 2,
       }),
     ).toBeNull();
+  });
+
+  it('apple-safari preview は画像→動画直後だけ native video に微小 keep-alive 音量を残す', () => {
+    const previewCapabilities = getAppleSafariPreviewPlatformCapabilities(createCapabilities());
+    const previewPolicy = appleSafariPreviewRuntime.getPreviewPlatformPolicy(previewCapabilities);
+
+    expect(
+      getIosSafariImageToVideoNativeKeepAliveVolume(previewPolicy, {
+        isExporting: false,
+        isActivePlaying: true,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        desiredVolume: 1,
+        clipLocalTime: 0.2,
+      }),
+    ).toBeCloseTo(0.001);
+
+    expect(
+      getIosSafariImageToVideoNativeKeepAliveVolume(previewPolicy, {
+        isExporting: false,
+        isActivePlaying: true,
+        activeItemType: 'video',
+        previousItemType: 'video',
+        desiredVolume: 1,
+        clipLocalTime: 0.2,
+      }),
+    ).toBe(0);
+
+    expect(
+      getIosSafariImageToVideoNativeKeepAliveVolume(previewPolicy, {
+        isExporting: false,
+        isActivePlaying: true,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        desiredVolume: 1,
+        clipLocalTime: 1.5,
+      }),
+    ).toBe(0);
   });
 
   it('apple-safari preview は BGM 無しの単独 video でも WebAudio 経路を強制し audio node 作成を促す', () => {

@@ -1941,16 +1941,20 @@
   - この変更は診断ログの出力条件と内容だけを変える。preroll lead time、hold window、sync threshold、visual bridge、hard seek、export 経路は変更しない。
   - 実機で切り分けるときは設定画面で「境界診断」を選ぶか、再生前に `localStorage.setItem('preview.log.mode', 'boundary')` を設定し、確認後は「標準」または `localStorage.removeItem('preview.log.mode')` で通常の軽いログに戻す。
 
-### 13-100. iOS Safari preview の video -> image -> video は paused prebuffer で current frame だけ先読みする
+### 13-100. iOS Safari preview の video -> image -> video は paused prebuffer と微小 native keep-alive で復帰させる
 
-- **ファイル**: `src/flavors/apple-safari/preview/previewPlatform.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewSeekController.ts`, `src/test/appleSafariPreviewEngineBoundary.test.tsx`, `src/test/appleSafariFlavorRegression.test.ts`
+- **ファイル**: `src/flavors/apple-safari/preview/previewPlatform.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewSeekController.ts`, `src/components/media/MediaResourceLoader.tsx`, `src/test/appleSafariPreviewEngineBoundary.test.tsx`, `src/test/appleSafariFlavorRegression.test.ts`, `src/test/mediaResourceLoader.test.tsx`
 - **問題**:
   - video -> image -> video の画像区間中、次動画が `HAVE_METADATA` のまま境界へ入ると、active 化後の `play()` が通っても Canvas に描ける current frame が間に合わず、黒画面または静止画で固まったように見えることがある。
   - 一方で future video を gain=0 / native volume=0 の silent play で prewarm すると、iOS Safari では映像 decode が止まり、過去に「音は流れるのに映像が固まる」退行を起こした。
+  - WebAudio 経路で動画音声だけ流れている場合でも、video element 側の native volume が完全に 0 のままだと、画像 -> 動画直後に映像 decode だけが復帰しないことがある。
 - **対策**:
   - iOS Safari preview かつ active item が image、次 item が video、次動画が paused / `readyState < HAVE_CURRENT_DATA` の場合だけ、画像区間中に `trimStart + 0.001s` へ小さく seek して current frame 取得を促す。
   - この準備では `play()` を呼ばない。active 化した瞬間の再生開始は既存の境界キックに任せる。
+  - active item が video、previous item が image、動画音量が有効、かつ clip local time が 1.2 秒以内の場合だけ、WebAudio mix は維持しつつ native video volume を `0.001` にして video pipeline を audible 扱いにする。
+  - `MediaResourceLoader` の iOS Safari video は `webkit-playsinline` を付け、親 wrapper を `overflow: visible` にして clipped parent 内に閉じ込めない。
   - seek 再開経路に残っていた future video の silent `play()` も止め、gain=0 のまま再生する経路を再導入しない。
 - **注意点**:
   - active video になった後の `currentTime` 上書きは iOS Safari で `seeking=true` 残留や映像 freeze を誘発するため、今回の小さな seek は「まだ image 区間で inactive next video」の間だけに限定する。
+  - native keep-alive は 0.001 の短時間・画像 -> 動画直後に限定し、通常の WebAudio 音量制御や BGM mix へ広げない。
   - video -> video 境界、export、standard/Android preview には広げない。
