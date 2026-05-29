@@ -111,6 +111,12 @@ const MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME: HTMLMediaElement['readyState'] =
     : 2;
 export const EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC = 0.004;
 
+// iOS Safari preview の gesture credit 付与に使う native volume。
+// 0.001 ≈ -60dB で可聴域以下だが、`muted=false` と合わせて
+// 「unmuted で play() された」と iOS に認識させ、後続 play() を解禁する。
+// `volume=0` だと iOS が muted 相当と見なし unmuted credit が付かない。
+export const PREVIEW_GESTURE_CREDIT_NATIVE_VOLUME = 0.001;
+
 /**
  * プラットフォーム capability から、プレビュー制御用の方針を組み立てる。
  */
@@ -265,6 +271,32 @@ export function shouldPrimeFutureInactiveVideoInPreview(
 }
 
 /**
+ * iOS Safari preview で future video に gesture credit を付与すべきかを返す。
+ *
+ * iOS Safari は「ユーザー操作 (gesture) 内で一度も unmuted `play()` されていない
+ * video 要素」の後続 `play()` を拒否することがある。`startEngine` の prewarm では
+ * v5.1.14 で silent prewarm play() を全廃したため、`fromTime` 時点の active 動画
+ * 以外は gesture credit を得られず、画像 -> 動画境界での初回 `play()` が拒否されて
+ * paused のまま固まる (黒画面 / 映像かたまり)。これが「初回まとめ追加 (動画→画像→
+ * 動画) で再現し、2 動画を一度再生してから差し込むと再現しない」差の主因。
+ *
+ * 復活させるのは v5.1.14 で freeze 退行を起こした「gain=0 の持続 silent play」では
+ * なく、native volume を可聴域以下 (0.001) にした上での短い `play()` -> 即 `pause()`。
+ * gesture credit だけを取り、持続再生はしない (オーバービュー 3.3 が示す audible 代案)。
+ */
+export function shouldGrantPreviewGestureCreditToFutureVideo(
+  policy: PreviewPlatformPolicy,
+  options: {
+    isExporting: boolean;
+    isFutureVideo: boolean;
+  },
+): boolean {
+  return policy.muteNativeMediaWhenAudioRouted
+    && !options.isExporting
+    && options.isFutureVideo;
+}
+
+/**
  * iOS Safari preview の video -> image -> video では、画像区間中の次動画が
  * HAVE_METADATA のまま境界に入ると、active 化後の play() は通っても Canvas に
  * 描ける current frame が間に合わず、黒画面または静止画で固まったように見える。
@@ -326,6 +358,14 @@ export function getIosSafariImageToVideoPrebufferTarget(
  * native volume が完全に 0 のままだと、画像 -> 動画直後に映像 decode だけが
  * 止まり、音声だけ進むことがある。画像 -> 動画の立ち上がりだけ微小音量を残し、
  * video pipeline を audible 扱いにする。
+ *
+ * この keep-alive の目的は「映像 decode pipeline の維持」であり、ユーザーが
+ * 意図する音量とは独立している。そのため `desiredVolume` では分岐しない:
+ *  - mute された動画 (desiredVolume=0) でも、画像 -> 動画直後の decode 抑止は
+ *    起こるため、0.001 (≈ -60dB / 可聴域以下) を当てて decode だけ起こす。
+ *  - fade-in 先頭フレーム (desiredVolume=0) でも同様に decode を立ち上げる。
+ * WebAudio 側の gain は呼び出し元で別途 desiredVolume に従って制御されるため、
+ * mute / fade の音量挙動は崩れない (native 0.001 は実質無音)。
  */
 export function getIosSafariImageToVideoNativeKeepAliveVolume(
   policy: PreviewPlatformPolicy,
@@ -347,7 +387,6 @@ export function getIosSafariImageToVideoNativeKeepAliveVolume(
     || !options.isActivePlaying
     || options.activeItemType !== 'video'
     || options.previousItemType !== 'image'
-    || options.desiredVolume <= 0
     || options.clipLocalTime < 0
     || options.clipLocalTime > keepAliveWindowSec
   ) {

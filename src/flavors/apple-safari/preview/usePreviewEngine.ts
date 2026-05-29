@@ -20,11 +20,13 @@ import { collectPlaybackBlockingVideos, findActiveTimelineItem } from '../../../
 import { isCaptionActiveAtTime } from '../../../utils/captionTimeline';
 import {
   EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC,
+  PREVIEW_GESTURE_CREDIT_NATIVE_VOLUME,
   getIosSafariImageToVideoNativeKeepAliveVolume,
   getIosSafariImageToVideoPrebufferTarget,
   getPreviewAudioOutputMode,
   getPreviewVideoSyncThreshold,
   shouldAttemptDeferredPreviewPlay,
+  shouldGrantPreviewGestureCreditToFutureVideo,
   shouldBlackoutVideoFadeTail,
   shouldBundlePreviewStartForWebAudioMix,
   shouldHoldFrameForImageToVideoExportTransition,
@@ -2063,6 +2065,51 @@ export function usePreviewEngine({
               // 境界キックの play() に統一する。currentTime の位置合わせと
               // audio 経路の確立 (sourceNode + applyPreviewAudioOutputState) だけ
               // 実施しておく。
+            }
+          }
+
+          // gesture credit pass:
+          // iOS Safari は「gesture 内で一度も unmuted play() されていない video」の
+          // 後続 play() を拒否することがある。active 動画以外は上の prewarm で
+          // play() しないため、画像 -> 動画境界の初回 play() が拒否されて固まる。
+          // ここで future video だけ、native volume を可聴域以下 (0.001) にして
+          // 短く play() -> 即 pause() し、gesture credit だけ取得する。
+          // v5.1.14 で freeze を起こした「gain=0 の持続 silent play」とは異なり、
+          // 持続再生はしない。位置ずれは画像区間中の prebuffer / 境界 sync が補正する。
+          prewarmCursor = 0;
+          for (const item of mediaItemsRef.current) {
+            const itemStart = prewarmCursor;
+            prewarmCursor += Math.max(0, item.duration);
+            if (item.type !== 'video') continue;
+            const isFutureVideo = itemStart - fromTime > 0.0005;
+            if (
+              !shouldGrantPreviewGestureCreditToFutureVideo(previewPlatformPolicy, {
+                isExporting: false,
+                isFutureVideo,
+              })
+            ) {
+              continue;
+            }
+            const creditEl = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
+            if (!creditEl) continue;
+            try {
+              creditEl.defaultMuted = false;
+              creditEl.muted = false;
+              creditEl.volume = PREVIEW_GESTURE_CREDIT_NATIVE_VOLUME;
+              const creditPlay = creditEl.play();
+              if (creditPlay && typeof creditPlay.then === 'function') {
+                creditPlay
+                  .then(() => {
+                    // gesture credit を取得したら即 pause。持続 silent play
+                    // (v5.1.14 freeze) は再現させない。
+                    try { creditEl.pause(); } catch { /* ignore */ }
+                  })
+                  .catch(() => {
+                    // autoplay 拒否時は credit 未取得だが無害 (従来同様の挙動)。
+                  });
+              }
+            } catch {
+              /* ignore */
             }
           }
         }

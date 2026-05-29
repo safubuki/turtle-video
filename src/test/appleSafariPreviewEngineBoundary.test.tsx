@@ -143,6 +143,17 @@ function createMockVideoElement() {
   return element;
 }
 
+function createMockAudioContext() {
+  return {
+    state: 'running' as AudioContextState,
+    currentTime: 0,
+    destination: {} as AudioDestinationNode,
+    onstatechange: null as null | (() => void),
+    resume: vi.fn(() => Promise.resolve()),
+    suspend: vi.fn(() => Promise.resolve()),
+  } as unknown as AudioContext;
+}
+
 function createMockCanvasContext() {
   return {
     canvas: { width: 1280, height: 720 },
@@ -174,10 +185,13 @@ describe('apple-safari preview engine boundary kick', () => {
     activeVideoIdRef?: MutableRefObject<string | null>;
     isPlayingRef?: MutableRefObject<boolean>;
     isSeekingRef?: MutableRefObject<boolean>;
+    getAudioContext?: () => AudioContext;
   }) {
     const canvasContext = createMockCanvasContext();
     const logInfo = vi.fn();
     const logWarn = vi.fn();
+    const play = vi.fn();
+    const pause = vi.fn();
     const platformCapabilities = getAppleSafariPreviewPlatformCapabilities(createCapabilities());
     const previewPlatformPolicy = appleSafariPreviewRuntime.getPreviewPlatformPolicy(
       platformCapabilities,
@@ -238,9 +252,9 @@ describe('apple-safari preview engine boundary kick', () => {
         setExportExt: vi.fn(),
         clearExport: vi.fn(),
         setError: vi.fn(),
-        play: vi.fn(),
-        pause: vi.fn(),
-        getAudioContext: vi.fn(),
+        play,
+        pause,
+        getAudioContext: options.getAudioContext ?? vi.fn(),
         cancelPendingPausedSeekWait: vi.fn(),
         cancelPendingSeekPlaybackPrepare: vi.fn(),
         detachGlobalSeekEndListeners: vi.fn(),
@@ -263,7 +277,7 @@ describe('apple-safari preview engine boundary kick', () => {
       }),
     );
 
-    return { canvasContext, hook, logInfo, logWarn, activeVideoIdRef };
+    return { canvasContext, hook, logInfo, logWarn, activeVideoIdRef, play, pause };
   }
 
   it('動画→動画境界で 2 本目の active video に対し 1 度だけ境界キックを掛ける', () => {
@@ -367,6 +381,66 @@ describe('apple-safari preview engine boundary kick', () => {
     expect(video2El.play).not.toHaveBeenCalled();
     expect(video2El.currentTime).toBeGreaterThan(0);
     expect(video2El.currentTime).toBeLessThan(0.01);
+  });
+
+  it('preview startEngine は future video に gesture credit (play→pause) を付与する', async () => {
+    const rafSpy = vi
+      .spyOn(globalThis, 'requestAnimationFrame')
+      .mockImplementation(() => 1 as unknown as number);
+    vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => { });
+
+    try {
+      const video1 = createVideoItem({ id: 'v1', duration: 2 });
+      const imageGap = createImageItem({ id: 'img', duration: 1 });
+      const video2 = createVideoItem({ id: 'v2', duration: 2 });
+      const video1El = createMockVideoElement();
+      const video2El = createMockVideoElement();
+      // メタデータ済み (readyState=2) で待機を発生させない。
+      video1El.readyState = 2;
+      video1El.duration = 2;
+      video2El.readyState = 2;
+      video2El.duration = 2;
+
+      // gesture credit は play() 呼び出し時点の native volume / muted で決まる
+      // (renderFrame が後段で音量を正規化するため、呼び出し時点の値を捕捉する)。
+      const creditPlayVolumes: number[] = [];
+      const creditPlayMuted: boolean[] = [];
+      video2El.play.mockImplementation(() => {
+        creditPlayVolumes.push(video2El.volume);
+        creditPlayMuted.push(video2El.muted);
+        video2El.paused = false;
+        return Promise.resolve();
+      });
+
+      const { hook, play } = setupRenderFrameHarness({
+        mediaItems: [video1, imageGap, video2],
+        mediaElements: {
+          [video1.id]: video1El as unknown as HTMLVideoElement,
+          [video2.id]: video2El as unknown as HTMLVideoElement,
+        } as MediaElementsRef,
+        activeVideoIdRef: createRef<string | null>(null),
+        getAudioContext: () => createMockAudioContext(),
+      });
+
+      const startPromise = hook.result.current.startEngine(0, false);
+      // startEngine 内の各 await / setTimeout(50ms) を消化する。
+      await vi.advanceTimersByTimeAsync(100);
+      await startPromise;
+
+      // future video (v2) は gesture 内で credit 用に play() される。
+      expect(video2El.play).toHaveBeenCalled();
+      // credit 取得後は持続再生せず pause() で戻す (v5.1.14 freeze を再現させない)。
+      expect(video2El.pause).toHaveBeenCalled();
+      expect(video2El.paused).toBe(true);
+      // credit 用の play() は可聴域以下 (0.001) かつ unmuted で呼ばれている
+      // (volume=0 / muted=true だと unmuted credit が付かない)。
+      expect(creditPlayVolumes.some((v) => Math.abs(v - 0.001) < 0.0005)).toBe(true);
+      expect(creditPlayMuted.every((m) => m === false)).toBe(true);
+      // engine 全体の再生も開始している。
+      expect(play).toHaveBeenCalled();
+    } finally {
+      rafSpy.mockRestore();
+    }
   });
 
   it('境界キックの canplay リスナー発火で 2 本目の動画を play() する', () => {

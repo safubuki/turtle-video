@@ -1951,10 +1951,28 @@
 - **対策**:
   - iOS Safari preview かつ active item が image、次 item が video、次動画が paused / `readyState < HAVE_CURRENT_DATA` の場合だけ、画像区間中に `trimStart + 0.001s` へ小さく seek して current frame 取得を促す。
   - この準備では `play()` を呼ばない。active 化した瞬間の再生開始は既存の境界キックに任せる。
-  - active item が video、previous item が image、動画音量が有効、かつ clip local time が 1.2 秒以内の場合だけ、WebAudio mix は維持しつつ native video volume を `0.001` にして video pipeline を audible 扱いにする。
+  - active item が video、previous item が image、かつ clip local time が 1.2 秒以内の場合だけ、WebAudio mix は維持しつつ native video volume を `0.001` にして video pipeline を audible 扱いにする。
   - `MediaResourceLoader` の iOS Safari video は `webkit-playsinline` を付け、親 wrapper を `overflow: visible` にして clipped parent 内に閉じ込めない。
   - seek 再開経路に残っていた future video の silent `play()` も止め、gain=0 のまま再生する経路を再導入しない。
 - **注意点**:
   - active video になった後の `currentTime` 上書きは iOS Safari で `seeking=true` 残留や映像 freeze を誘発するため、今回の小さな seek は「まだ image 区間で inactive next video」の間だけに限定する。
   - native keep-alive は 0.001 の短時間・画像 -> 動画直後に限定し、通常の WebAudio 音量制御や BGM mix へ広げない。
+  - keep-alive の目的は「映像 decode pipeline の維持」であり、ユーザー音量とは独立。`desiredVolume` では分岐させない (mute 動画 / fade-in 先頭フレーム = desiredVolume 0 でも decode 抑止は起こるため、0.001 を当てて decode だけ起こす)。WebAudio 側 gain は別途 desiredVolume に従うので mute/fade の音量挙動は崩れない。
   - video -> video 境界、export、standard/Android preview には広げない。
+
+### 13-101. iOS Safari preview は future video へ gesture credit を audible play→pause で付与する
+
+- **ファイル**: `src/flavors/apple-safari/preview/previewPlatform.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/test/appleSafariPreviewEngineBoundary.test.tsx`, `src/test/appleSafariFlavorRegression.test.ts`
+- **問題**:
+  - iOS Safari は「ユーザー操作 (gesture) 内で一度も unmuted `play()` されていない video 要素」の後続 `play()` を拒否することがある。
+  - `startEngine` の prewarm では v5.1.14 で silent prewarm play() を全廃したため、`fromTime` 時点の active 動画以外は gesture credit を得られず、画像 -> 動画境界での初回 `play()` (境界キック) が拒否されて paused のまま固まる (黒画面 / 映像かたまり)。
+  - これが「初回まとめ追加 (動画→画像→動画) で再現し、2 動画を一度再生してから差し込むと再現しない」差の主因。後者は先のプレビューで credit を獲得済みのため。
+  - 13-100 の prebuffer / keep-alive は decode 側を助けるが、gesture credit は復元しない。
+- **対策**:
+  - `shouldGrantPreviewGestureCreditToFutureVideo()` で「iOS preview かつ非 export かつ future video」を判定する helper を追加する。
+  - `startEngine`（gesture 内）の prewarm 直後に future video だけを 1 巡し、native volume を可聴域以下 (`PREVIEW_GESTURE_CREDIT_NATIVE_VOLUME = 0.001`)・`muted=false` にして短く `play()` -> 即 `pause()` し、gesture credit だけ取得する。
+  - v5.1.14 で freeze を起こした「gain=0 の持続 silent play」とは異なり、持続再生はしない (オーバービュー 3.3 が示す audible 代案)。位置ずれは画像区間中の prebuffer / 境界 sync が補正する。
+- **注意点**:
+  - `volume=0` だと iOS が muted 相当と見なし unmuted credit が付かないため、必ず 0.001 (>0) + `muted=false` で play() する。
+  - credit 取得 (`play()` 解決) 後は必ず `pause()` で戻す。持続再生させると v5.1.14 の映像 freeze が再発する。
+  - export / standard / Android preview には広げない。**実機での最終確認が必要**な領域 (fragile な prewarm play() 経路) のため、回帰時はまずこの pass の有無を疑う。
