@@ -18,6 +18,7 @@ import {
   getPreviewAudioRoutingPlan,
   getVisibilityRecoveryPlan,
   shouldBundlePreviewStartForWebAudioMix,
+  shouldGrantPreviewGestureCreditToFutureVideo,
   shouldPrimeFutureInactiveVideoInPreview,
   shouldRecoverAudioOnlyAfterVideoBoundary,
   shouldReinitializeAudioRoute,
@@ -314,6 +315,73 @@ describe('apple-safari flavor regression', () => {
         clipLocalTime: 1.5,
       }),
     ).toBe(0);
+
+    // keep-alive の目的は映像 decode pipeline の維持であり、ユーザー音量とは独立。
+    // mute 動画 (desiredVolume=0) でも画像 -> 動画直後の decode 抑止は起こるため、
+    // 0.001 を当てて decode だけ起こす (native 0.001 は実質無音)。
+    expect(
+      getIosSafariImageToVideoNativeKeepAliveVolume(previewPolicy, {
+        isExporting: false,
+        isActivePlaying: true,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        desiredVolume: 0,
+        clipLocalTime: 0.2,
+      }),
+    ).toBeCloseTo(0.001);
+
+    // fade-in 先頭フレーム (desiredVolume=0) でも decode を立ち上げる。
+    expect(
+      getIosSafariImageToVideoNativeKeepAliveVolume(previewPolicy, {
+        isExporting: false,
+        isActivePlaying: true,
+        activeItemType: 'video',
+        previousItemType: 'image',
+        desiredVolume: 0,
+        clipLocalTime: 0,
+      }),
+    ).toBeCloseTo(0.001);
+  });
+
+  it('apple-safari preview は future video にだけ gesture credit を付与する (active/past/non-iOS は対象外)', () => {
+    const previewCapabilities = getAppleSafariPreviewPlatformCapabilities(createCapabilities());
+    const previewPolicy = appleSafariPreviewRuntime.getPreviewPlatformPolicy(previewCapabilities);
+
+    // future video: gesture 内で一度も play() されないため credit を付与する。
+    expect(
+      shouldGrantPreviewGestureCreditToFutureVideo(previewPolicy, {
+        isExporting: false,
+        isFutureVideo: true,
+      }),
+    ).toBe(true);
+
+    // active / past video は対象外 (active は別経路で play() 済み)。
+    expect(
+      shouldGrantPreviewGestureCreditToFutureVideo(previewPolicy, {
+        isExporting: false,
+        isFutureVideo: false,
+      }),
+    ).toBe(false);
+
+    // export 経路では gesture credit pass を動かさない。
+    expect(
+      shouldGrantPreviewGestureCreditToFutureVideo(previewPolicy, {
+        isExporting: true,
+        isFutureVideo: true,
+      }),
+    ).toBe(false);
+
+    // standard (非 iOS) policy では常に false。
+    const standardPolicy = appleSafariPreviewRuntime.getPreviewPlatformPolicy({
+      ...previewCapabilities,
+      isIosSafari: false,
+    });
+    expect(
+      shouldGrantPreviewGestureCreditToFutureVideo(standardPolicy, {
+        isExporting: false,
+        isFutureVideo: true,
+      }),
+    ).toBe(false);
   });
 
   it('apple-safari preview は BGM 無しの単独 video でも WebAudio 経路を強制し audio node 作成を促す', () => {
