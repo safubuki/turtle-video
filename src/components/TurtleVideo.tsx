@@ -1888,6 +1888,20 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const handleSeekStart = useCallback(() => {
     if (!shouldHandleSeekWithPreviewCache()) {
       handleLiveSeekStart();
+      // iOS Safari: シーク操作で再生を止め、自動再開せず手動で再開する仕様にする。
+      // handleLiveSeekStart() は再生中だった場合に wasPlayingBeforeSeekRef を立てつつ
+      // メディアを pause する。
+      if (platformCapabilities.isIosSafari) {
+        if (wasPlayingBeforeSeekRef.current) {
+          // UI の再生状態も一時停止へ揃える（再生/一時停止ボタンを「再生(▶)」表示にする）。
+          pause();
+        }
+        // controller の自動再開分岐 (handleSeekEnd 内 wasPlaying 判定) を無効化する。
+        // これにより slider 由来の seek end も、window グローバル seek end リスナー
+        // (handleSeekEndCallbackRef 経由で controller の handleSeekEnd を直接呼ぶ) も、
+        // どちらの経路でも再開せず一時停止フレーム描画へ落ちる。
+        wasPlayingBeforeSeekRef.current = false;
+      }
       return;
     }
 
@@ -1911,7 +1925,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     } catch {
       /* ignore */
     }
-  }, [handleLiveSeekStart, isPlayingRef, shouldHandleSeekWithPreviewCache]);
+  }, [handleLiveSeekStart, isPlayingRef, pause, platformCapabilities.isIosSafari, shouldHandleSeekWithPreviewCache, wasPlayingBeforeSeekRef]);
 
   const handleSeekChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     if (!shouldHandleSeekWithPreviewCache()) {

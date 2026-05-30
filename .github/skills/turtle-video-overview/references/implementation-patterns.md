@@ -2098,3 +2098,16 @@
 - **注意**:
   - caption 用の固定オフセット補正（±0.2s など）は導入しない。素材依存で逆効果になるため、まず timestamp 基準の一致を優先する。
   - iOS Safari export 経路は既存戦略を維持し、今回の時刻固定は standard runtime の export ループへ限定する。
+
+### 13-76. iOS Safari は再生中のシークで一時停止し、自動再開せず UI の再生状態も揃える
+
+- **対象ファイル**: `src/components/TurtleVideo.tsx`（`handleSeekStart`）
+- **問題**:
+  - seek controller は本来「スクラブ後に自動再開」する設計（`wasPlayingBeforeSeekRef` を見て seek end で `proceedWithPlayback()`）。PC/Android では機能するが、iOS Safari では seek end の再開が prepare 待ち後の非同期 `video.play()` になり、ユーザージェスチャー文脈を外れて reject されるため、実際には一時停止のまま。
+  - 一方で UI ストアの `isPlaying` は seek ライフサイクル中 `true` のままなので、「実際は一時停止なのにボタンは再生中(⏸)表示」という不整合になり、再生/一時停止ボタンを 2 回押さないと再生できない退行に見える。
+- **対応パターン**:
+  - iOS Safari (`platformCapabilities.isIosSafari`) では、`handleSeekStart` で `handleLiveSeekStart()` 実行後に「seek 開始時点で再生中だったか」を `wasPlayingBeforeSeekRef.current` で判定し、再生中だったら UI ストアの `pause()` を呼んでボタンを「再生(▶)」表示へ揃える。
+  - 同じ `handleSeekStart` 内で `wasPlayingBeforeSeekRef.current = false` を立て、controller の自動再開分岐（`handleSeekEnd` 内 `wasPlaying` 判定）を無効化する。これで seek end が「一時停止フレーム描画」パスへ落ち、手動再開（再生ボタン押下 → `togglePlay` → `startEngine`）に統一される。
+- **注意**:
+  - 自動再開の抑止は必ず **seek start** 側で行う。seek end には slider 由来 (`onPointerUp` 等) と window グローバルリスナー (`attachGlobalSeekEndListeners` → `handleSeekEndCallbackRef` 経由で controller の `handleSeekEnd` を直接呼ぶ) の 2 経路があり、seek end 側だけで倒すとグローバル経路で再開が漏れる。
+  - 本変更は iOS Safari 限定。standard (PC/Android) はスクラブ後の自動再開が正常動作しているため挙動を変えない。preview cache 経路（Android）も対象外。
