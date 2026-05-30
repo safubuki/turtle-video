@@ -2437,12 +2437,53 @@ export function usePreviewEngine({
               // (getVideoPlaybackQuality の droppedVideoFrames など) / readyState /
               // buffered 先読み量 / 再生時刻を記録する。rAF 描画ループの外 (1Hz) なので
               // 録画フレーム生成には影響しない。loopId が変わったら自動停止する。
+              const diagNow = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
               const diagLoopId = myLoopId;
-              const diagStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+              const diagStartedAt = diagNow();
               let diagPrevDropped = 0;
+              let diagDroppedSum = 0; // 計測期間中に増えた dropped フレームの合計
+              let diagLastTotal = 0;
+              let diagSeekCount = 0;
+              let diagWasSeeking = false;
+              let diagMinBufferedLead = Number.POSITIVE_INFINITY;
+              let diagMinReadyState = 4;
+              let diagSampleCount = 0;
+              let diagQualitySupported = false;
+              let diagVerdictEmitted = false;
+
+              // 計測終了時に「原因①(デコーダ落ち) / ②(キャプチャ・エンコード側)」を
+              // 1 行で判定して出す。端末ログでは [DIAG-VERDICT] の行だけ見れば良い。
+              const diagEmitVerdict = () => {
+                if (diagVerdictEmitted) return;
+                diagVerdictEmitted = true;
+                let verdict: string;
+                if (!diagQualitySupported) {
+                  verdict =
+                    diagMinBufferedLead < 1 || diagMinReadyState < 3 || diagSeekCount > 0
+                      ? '原因①寄り=バッファ不足/シーク発生 (dropは計測不可)'
+                      : '原因②寄り=バッファ正常だが dropは計測不可';
+                } else if (diagDroppedSum >= 10) {
+                  verdict = `原因①=デコーダがコマ落ち drop合計${diagDroppedSum}/total約${diagLastTotal}`;
+                } else {
+                  verdict = `原因②=デコーダ正常→キャプチャ/エンコード側 drop合計${diagDroppedSum}`;
+                }
+                logWarn('RENDER', `[DIAG-VERDICT] ${verdict}`, {
+                  droppedSum: diagDroppedSum,
+                  qualitySupported: diagQualitySupported,
+                  minBufferedLeadSec: Number.isFinite(diagMinBufferedLead)
+                    ? Math.round(diagMinBufferedLead * 100) / 100
+                    : null,
+                  minReadyState: diagMinReadyState,
+                  seekCount: diagSeekCount,
+                  samples: diagSampleCount,
+                  totalVideoFrames: diagLastTotal,
+                });
+              };
+
               const diagTimer = setInterval(() => {
-                const elapsedMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - diagStartedAt;
+                const elapsedMs = diagNow() - diagStartedAt;
                 if (diagLoopId !== loopIdRef.current || elapsedMs > 25000) {
+                  diagEmitVerdict();
                   clearInterval(diagTimer);
                   return;
                 }
@@ -2459,26 +2500,45 @@ export function usePreviewEngine({
                 } catch {
                   /* ignore */
                 }
-                const dropped = quality?.droppedVideoFrames ?? 0;
-                const droppedDelta = dropped - diagPrevDropped;
+                const bufferedLead = bufferedEndSec - el.currentTime;
+                const dropped = quality ? quality.droppedVideoFrames : 0;
+                const droppedDelta = quality ? dropped - diagPrevDropped : 0;
                 diagPrevDropped = dropped;
-                // メッセージに経過秒を含めて一意にする（logStore の重複抑制 10 秒で
-                // 1Hz ログが間引かれるのを防ぐ）。
-                logInfo('RENDER', `[DIAG-EXPORT-FIRSTCLIP] active video 計測 (+${Math.round(elapsedMs / 1000)}s)`, {
-                  elapsedMs: Math.round(elapsedMs),
-                  activeVideoId: activeId ? activeId.substring(0, 8) : null,
-                  playbackTimeSec: Math.round(currentTimeRef.current * 100) / 100,
-                  videoCurrentTime: Math.round(el.currentTime * 100) / 100,
-                  bufferedLeadSec: Math.round((bufferedEndSec - el.currentTime) * 100) / 100,
-                  readyState: el.readyState,
-                  paused: el.paused,
-                  seeking: el.seeking,
-                  droppedVideoFrames: quality ? quality.droppedVideoFrames : null,
-                  droppedVideoFramesDelta: quality ? droppedDelta : null,
-                  totalVideoFrames: quality ? quality.totalVideoFrames : null,
-                  corruptedVideoFrames: quality ? quality.corruptedVideoFrames : null,
-                  audioContextState: audioCtxRef.current?.state ?? 'none',
-                });
+
+                diagSampleCount += 1;
+                if (quality) {
+                  diagQualitySupported = true;
+                  diagDroppedSum += Math.max(0, droppedDelta);
+                  diagLastTotal = quality.totalVideoFrames;
+                }
+                if (Number.isFinite(bufferedLead)) {
+                  diagMinBufferedLead = Math.min(diagMinBufferedLead, bufferedLead);
+                }
+                diagMinReadyState = Math.min(diagMinReadyState, el.readyState);
+                if (el.seeking && !diagWasSeeking) diagSeekCount += 1;
+                diagWasSeeking = el.seeking;
+
+                const sec = Math.round(elapsedMs / 1000);
+                // 目視しやすい短い 1 行サマリ。drop= が出だしで連続して 0 より大きいなら
+                // 原因① (デコーダ落ち)、ずっと 0 なら原因② が濃厚。
+                logInfo(
+                  'RENDER',
+                  `[DIAG-FIRSTCLIP] +${sec}s drop=${quality ? droppedDelta : 'NA'} buf=${Math.round(bufferedLead * 10) / 10}s rs=${el.readyState}${el.seeking ? ' SEEK' : ''}`,
+                  {
+                    elapsedMs: Math.round(elapsedMs),
+                    activeVideoId: activeId ? activeId.substring(0, 8) : null,
+                    playbackTimeSec: Math.round(currentTimeRef.current * 100) / 100,
+                    videoCurrentTime: Math.round(el.currentTime * 100) / 100,
+                    bufferedLeadSec: Math.round(bufferedLead * 100) / 100,
+                    readyState: el.readyState,
+                    paused: el.paused,
+                    seeking: el.seeking,
+                    droppedVideoFrames: quality ? quality.droppedVideoFrames : null,
+                    droppedVideoFramesDelta: quality ? droppedDelta : null,
+                    totalVideoFrames: quality ? quality.totalVideoFrames : null,
+                    audioContextState: audioCtxRef.current?.state ?? 'none',
+                  },
+                );
               }, 1000);
             },
           },
