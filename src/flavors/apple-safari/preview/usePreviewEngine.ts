@@ -1675,7 +1675,7 @@ export function usePreviewEngine({
         return;
       }
 
-      const now = Date.now();
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
       const elapsed = (now - startTimeRef.current) / 1000;
       const clampedElapsed = Math.min(elapsed, totalDurationRef.current);
 
@@ -2392,7 +2392,7 @@ export function usePreviewEngine({
         primePreviewAudioOnlyTracksAtTime(fromTime);
       }
 
-      startTimeRef.current = Date.now() - fromTime * 1000;
+      startTimeRef.current = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - fromTime * 1000;
 
       if (isExportMode && canvasRef.current && masterDestRef.current) {
         // startWebCodecsExport は async (Promise<void>) を返すため、内部で発生した
@@ -2428,7 +2428,7 @@ export function usePreviewEngine({
             getPlaybackTimeSec: () => currentTimeRef.current,
             onPreparationStepChange: setExportPreparationStep,
             onAudioPreRenderComplete: () => {
-              startTimeRef.current = Date.now() - fromTime * 1000;
+              startTimeRef.current = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - fromTime * 1000;
               loop(isExportMode, myLoopId);
             },
           },

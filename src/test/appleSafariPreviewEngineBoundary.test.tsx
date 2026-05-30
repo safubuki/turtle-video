@@ -834,6 +834,8 @@ describe('apple-safari preview engine boundary kick', () => {
     );
 
     vi.spyOn(Date, 'now').mockReturnValue(6500); // elapsed = 6.5s >= totalDuration=6s
+    // loop の時刻基準は performance.now() 優先のため、こちらも揃えて elapsed=6.5s を再現する
+    vi.spyOn(performance, 'now').mockReturnValue(6500);
     vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => {});
 
     const hook = renderHook(() =>
@@ -959,6 +961,8 @@ describe('apple-safari preview engine boundary kick', () => {
     );
 
     vi.spyOn(Date, 'now').mockReturnValue(6500); // elapsed = 6.5s >= totalDuration=6s
+    // loop の時刻基準は performance.now() 優先のため、こちらも揃えて elapsed=6.5s を再現する
+    vi.spyOn(performance, 'now').mockReturnValue(6500);
     vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => {});
 
     const hook = renderHook(() =>

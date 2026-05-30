@@ -2050,16 +2050,19 @@
   - 手動保存で autosave cadence の基準をリセットする場合も、正確な「前回 auto 保存日時」は `lastAutoSave` 側で保持し続ける
   - 手動保存直後の `autoSaveRuntimeStatus` は autosave 成功扱いにせず、待機状態へ戻して「直近の自動保存が完了した」と誤表示しない
 
-### 13-72. standard preview の再生時刻計測は `performance.now()` を優先し、Android/PC のコマ落ち体感を抑える
+### 13-72. preview/export の再生時刻計測は `performance.now()` を優先し、コマ落ち体感を抑える
 
-- **対象ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`
+- **対象ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`
 - **問題**:
-  - standard preview の再生ループが `Date.now()` 基準だと、端末やブラウザ負荷時の時刻分解能・ドリフトの影響で描画間隔が粗くなり、Android/PC で「パラパラ漫画」のように見えるケースがある。
+  - 再生ループが `Date.now()` 基準だと、端末やブラウザ負荷時の時刻分解能・ドリフトの影響で描画間隔が粗くなり、「パラパラ漫画」のように見えるケースがある。
+  - apple-safari は preview ループがそのまま real-time canvas capture (MediaRecorder) の描画も駆動するため、time base の揺れが書き出し動画の微小カクツキにも乗る。
 - **対応パターン**:
-  - standard preview の loop 時刻計測と `startTimeRef` 初期化を `performance.now()` 優先へ変更する（fallback は `Date.now()`）。
+  - loop 時刻計測と `startTimeRef` 初期化を `performance.now()` 優先へ変更する（fallback は `Date.now()`）。loop の `now` と `startTimeRef` は必ず同じ time base で揃える。
   - monotonic な高精度時刻を使い、フレーム進行の微小な揺れを減らす。
-- **注意**:
-  - 本変更は `src/flavors/standard/preview/` のみで適用し、`src/flavors/apple-safari/preview/` には適用しない（Safari 経路の挙動非変更を維持）。
+- **経緯 / 注意**:
+  - 当初は standard のみに適用し apple-safari は「Safari 経路の挙動非変更を維持」のため見送っていたが、iOS Safari export のカクツキ低減要望を受けて apple-safari にも同一パターンを適用した。
+  - `performance.now()` は iOS Safari でも古くから利用可能で monotonic なため、`Date.now()` からの置換は挙動安全。loop と `startTimeRef` の time base を必ず一致させること（混在すると elapsed 計算が壊れる）。
+  - 各 flavor の recovery/throttle 用 `Date.now()`（`videoRecoveryAttemptsRef` 等）は対象外。time base 計測のみ置換する。
 
 ### 13-73. Android の動画・画像追加は `showOpenFilePicker()` より hidden file input を優先する
 
