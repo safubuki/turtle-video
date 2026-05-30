@@ -2430,6 +2430,56 @@ export function usePreviewEngine({
             onAudioPreRenderComplete: () => {
               startTimeRef.current = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - fromTime * 1000;
               loop(isExportMode, myLoopId);
+
+              // [DIAG-EXPORT-FIRSTCLIP] iOS Safari の「BGM あり + 動画→静止画→動画で
+              // 1本目の出だし約20秒だけコマ落ち」を実機ログで切り分けるための計測。
+              // 録画開始から 25 秒間、1 秒ごとに active video の decode 品質
+              // (getVideoPlaybackQuality の droppedVideoFrames など) / readyState /
+              // buffered 先読み量 / 再生時刻を記録する。rAF 描画ループの外 (1Hz) なので
+              // 録画フレーム生成には影響しない。loopId が変わったら自動停止する。
+              const diagLoopId = myLoopId;
+              const diagStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+              let diagPrevDropped = 0;
+              const diagTimer = setInterval(() => {
+                const elapsedMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - diagStartedAt;
+                if (diagLoopId !== loopIdRef.current || elapsedMs > 25000) {
+                  clearInterval(diagTimer);
+                  return;
+                }
+                const activeId = activeVideoIdRef.current;
+                const el = activeId
+                  ? (mediaElementsRef.current[activeId] as HTMLVideoElement | undefined)
+                  : undefined;
+                if (!el) return;
+                const quality =
+                  typeof el.getVideoPlaybackQuality === 'function' ? el.getVideoPlaybackQuality() : null;
+                let bufferedEndSec = 0;
+                try {
+                  bufferedEndSec = el.buffered.length > 0 ? el.buffered.end(el.buffered.length - 1) : 0;
+                } catch {
+                  /* ignore */
+                }
+                const dropped = quality?.droppedVideoFrames ?? 0;
+                const droppedDelta = dropped - diagPrevDropped;
+                diagPrevDropped = dropped;
+                // メッセージに経過秒を含めて一意にする（logStore の重複抑制 10 秒で
+                // 1Hz ログが間引かれるのを防ぐ）。
+                logInfo('RENDER', `[DIAG-EXPORT-FIRSTCLIP] active video 計測 (+${Math.round(elapsedMs / 1000)}s)`, {
+                  elapsedMs: Math.round(elapsedMs),
+                  activeVideoId: activeId ? activeId.substring(0, 8) : null,
+                  playbackTimeSec: Math.round(currentTimeRef.current * 100) / 100,
+                  videoCurrentTime: Math.round(el.currentTime * 100) / 100,
+                  bufferedLeadSec: Math.round((bufferedEndSec - el.currentTime) * 100) / 100,
+                  readyState: el.readyState,
+                  paused: el.paused,
+                  seeking: el.seeking,
+                  droppedVideoFrames: quality ? quality.droppedVideoFrames : null,
+                  droppedVideoFramesDelta: quality ? droppedDelta : null,
+                  totalVideoFrames: quality ? quality.totalVideoFrames : null,
+                  corruptedVideoFrames: quality ? quality.corruptedVideoFrames : null,
+                  audioContextState: audioCtxRef.current?.state ?? 'none',
+                });
+              }, 1000);
             },
           },
         ) as unknown as Promise<void> | void;
