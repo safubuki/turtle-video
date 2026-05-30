@@ -2149,6 +2149,46 @@ export function usePreviewEngine({
           }
         });
 
+        // gesture credit pass (export):
+        // iOS Safari は「gesture 内で一度も unmuted play() されていない video」の
+        // 後続 play() を拒否する。プレビューを一度も再生せずにエクスポートすると、
+        // 2 本目以降（画像→動画境界で初めて active になる video）の play() が拒否され
+        // 「映像が固まって音声だけ流れる」退行になる（プレビュー再生済みだと preview 側
+        // の credit pass で解消されるため再現しない）。エクスポート開始のユーザー
+        // ジェスチャー起点のここで future video を短く play()→即 pause() し、gesture
+        // credit だけ取得しておく（preview 経路 と同じ手法・最初の await より前で実行）。
+        if (previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
+          let exportCreditCursor = 0;
+          for (const item of mediaItemsRef.current) {
+            const itemStart = exportCreditCursor;
+            exportCreditCursor += Math.max(0, item.duration);
+            if (item.type !== 'video') continue;
+            const isFutureVideo = itemStart - fromTime > 0.0005;
+            if (!isFutureVideo) continue;
+            const creditEl = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
+            if (!creditEl) continue;
+            try {
+              creditEl.defaultMuted = false;
+              creditEl.muted = false;
+              creditEl.volume = PREVIEW_GESTURE_CREDIT_NATIVE_VOLUME;
+              const creditPlay = creditEl.play();
+              if (creditPlay && typeof creditPlay.then === 'function') {
+                creditPlay
+                  .then(() => {
+                    // credit 取得後は即 pause。実際の録画中の音量・再生は
+                    // renderFrame 側の export 音声制御に委ねる（持続再生はしない）。
+                    try { creditEl.pause(); } catch { /* ignore */ }
+                  })
+                  .catch(() => {
+                    // 拒否時は credit 未取得だが無害（従来同様に固まる可能性は残る）。
+                  });
+              }
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+
         const audioPreloadPromises: Promise<void>[] = [];
 
         const prepareAudioTrack = (track: AudioTrack | null, trackId: string): Promise<void> => {
@@ -2430,116 +2470,6 @@ export function usePreviewEngine({
             onAudioPreRenderComplete: () => {
               startTimeRef.current = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - fromTime * 1000;
               loop(isExportMode, myLoopId);
-
-              // [DIAG-EXPORT-FIRSTCLIP] iOS Safari の「BGM あり + 動画→静止画→動画で
-              // 1本目の出だし約20秒だけコマ落ち」を実機ログで切り分けるための計測。
-              // 録画開始から 25 秒間、1 秒ごとに active video の decode 品質
-              // (getVideoPlaybackQuality の droppedVideoFrames など) / readyState /
-              // buffered 先読み量 / 再生時刻を記録する。rAF 描画ループの外 (1Hz) なので
-              // 録画フレーム生成には影響しない。loopId が変わったら自動停止する。
-              const diagNow = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
-              const diagLoopId = myLoopId;
-              const diagStartedAt = diagNow();
-              let diagPrevDropped = 0;
-              let diagDroppedSum = 0; // 計測期間中に増えた dropped フレームの合計
-              let diagLastTotal = 0;
-              let diagSeekCount = 0;
-              let diagWasSeeking = false;
-              let diagMinBufferedLead = Number.POSITIVE_INFINITY;
-              let diagMinReadyState = 4;
-              let diagSampleCount = 0;
-              let diagQualitySupported = false;
-              let diagVerdictEmitted = false;
-
-              // 計測終了時に「原因①(デコーダ落ち) / ②(キャプチャ・エンコード側)」を
-              // 1 行で判定して出す。端末ログでは [DIAG-VERDICT] の行だけ見れば良い。
-              const diagEmitVerdict = () => {
-                if (diagVerdictEmitted) return;
-                diagVerdictEmitted = true;
-                let verdict: string;
-                if (!diagQualitySupported) {
-                  verdict =
-                    diagMinBufferedLead < 1 || diagMinReadyState < 3 || diagSeekCount > 0
-                      ? '原因①寄り=バッファ不足/シーク発生 (dropは計測不可)'
-                      : '原因②寄り=バッファ正常だが dropは計測不可';
-                } else if (diagDroppedSum >= 10) {
-                  verdict = `原因①=デコーダがコマ落ち drop合計${diagDroppedSum}/total約${diagLastTotal}`;
-                } else {
-                  verdict = `原因②=デコーダ正常→キャプチャ/エンコード側 drop合計${diagDroppedSum}`;
-                }
-                logWarn('RENDER', `[DIAG-VERDICT] ${verdict}`, {
-                  droppedSum: diagDroppedSum,
-                  qualitySupported: diagQualitySupported,
-                  minBufferedLeadSec: Number.isFinite(diagMinBufferedLead)
-                    ? Math.round(diagMinBufferedLead * 100) / 100
-                    : null,
-                  minReadyState: diagMinReadyState,
-                  seekCount: diagSeekCount,
-                  samples: diagSampleCount,
-                  totalVideoFrames: diagLastTotal,
-                });
-              };
-
-              const diagTimer = setInterval(() => {
-                const elapsedMs = diagNow() - diagStartedAt;
-                if (diagLoopId !== loopIdRef.current || elapsedMs > 25000) {
-                  diagEmitVerdict();
-                  clearInterval(diagTimer);
-                  return;
-                }
-                const activeId = activeVideoIdRef.current;
-                const el = activeId
-                  ? (mediaElementsRef.current[activeId] as HTMLVideoElement | undefined)
-                  : undefined;
-                if (!el) return;
-                const quality =
-                  typeof el.getVideoPlaybackQuality === 'function' ? el.getVideoPlaybackQuality() : null;
-                let bufferedEndSec = 0;
-                try {
-                  bufferedEndSec = el.buffered.length > 0 ? el.buffered.end(el.buffered.length - 1) : 0;
-                } catch {
-                  /* ignore */
-                }
-                const bufferedLead = bufferedEndSec - el.currentTime;
-                const dropped = quality ? quality.droppedVideoFrames : 0;
-                const droppedDelta = quality ? dropped - diagPrevDropped : 0;
-                diagPrevDropped = dropped;
-
-                diagSampleCount += 1;
-                if (quality) {
-                  diagQualitySupported = true;
-                  diagDroppedSum += Math.max(0, droppedDelta);
-                  diagLastTotal = quality.totalVideoFrames;
-                }
-                if (Number.isFinite(bufferedLead)) {
-                  diagMinBufferedLead = Math.min(diagMinBufferedLead, bufferedLead);
-                }
-                diagMinReadyState = Math.min(diagMinReadyState, el.readyState);
-                if (el.seeking && !diagWasSeeking) diagSeekCount += 1;
-                diagWasSeeking = el.seeking;
-
-                const sec = Math.round(elapsedMs / 1000);
-                // 目視しやすい短い 1 行サマリ。drop= が出だしで連続して 0 より大きいなら
-                // 原因① (デコーダ落ち)、ずっと 0 なら原因② が濃厚。
-                logInfo(
-                  'RENDER',
-                  `[DIAG-FIRSTCLIP] +${sec}s drop=${quality ? droppedDelta : 'NA'} buf=${Math.round(bufferedLead * 10) / 10}s rs=${el.readyState}${el.seeking ? ' SEEK' : ''}`,
-                  {
-                    elapsedMs: Math.round(elapsedMs),
-                    activeVideoId: activeId ? activeId.substring(0, 8) : null,
-                    playbackTimeSec: Math.round(currentTimeRef.current * 100) / 100,
-                    videoCurrentTime: Math.round(el.currentTime * 100) / 100,
-                    bufferedLeadSec: Math.round(bufferedLead * 100) / 100,
-                    readyState: el.readyState,
-                    paused: el.paused,
-                    seeking: el.seeking,
-                    droppedVideoFrames: quality ? quality.droppedVideoFrames : null,
-                    droppedVideoFramesDelta: quality ? droppedDelta : null,
-                    totalVideoFrames: quality ? quality.totalVideoFrames : null,
-                    audioContextState: audioCtxRef.current?.state ?? 'none',
-                  },
-                );
-              }, 1000);
             },
           },
         ) as unknown as Promise<void> | void;

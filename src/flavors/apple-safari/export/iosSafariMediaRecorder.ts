@@ -39,8 +39,35 @@ export async function runIosSafariMediaRecorderStrategy(
     return false;
   }
 
-  const canvasStream = canvas.captureStream(exportConfig.fps);
-  const canvasVideoTrack = canvasStream.getVideoTracks()[0] as RequestFrameCapableTrack | undefined;
+  // [capture mode] iOS Safari MediaRecorder の映像取り込み。
+  // captureStream(fps) の自動供給に「加えて」requestFrame を定期実行すると、
+  // フレームが二重供給され、CFR ではない MediaRecorder では取り込みフレーム間隔が
+  // 不揃いになる。これが「デコードは正常 (getVideoPlaybackQuality drop=0) なのに
+  // 書き出し映像だけカクつく」原因 (実装パターン 13-13 / WebCodecs 経路で実証済)。
+  // requestFrame が使える環境では captureStream(0) の手動モードにして自動供給を止め、
+  // frame pump 単一供給へ統一する。静止画区間でも pump がフレームを供給するため
+  // 尺ズレは起きない。requestFrame 非対応環境は従来どおり captureStream(fps) 自動供給。
+  let canvasStream: MediaStream;
+  let canvasVideoTrack: RequestFrameCapableTrack | undefined;
+  let canvasCaptureMode: 'manual-requestFrame' | 'auto-fps';
+  const manualCanvasStream = canvas.captureStream(0);
+  const manualCanvasTrack = manualCanvasStream.getVideoTracks()[0] as RequestFrameCapableTrack | undefined;
+  if (manualCanvasTrack && typeof manualCanvasTrack.requestFrame === 'function') {
+    canvasStream = manualCanvasStream;
+    canvasVideoTrack = manualCanvasTrack;
+    canvasCaptureMode = 'manual-requestFrame';
+  } else {
+    manualCanvasStream.getTracks().forEach((track) => {
+      try {
+        track.stop();
+      } catch {
+        // ignore
+      }
+    });
+    canvasStream = canvas.captureStream(exportConfig.fps);
+    canvasVideoTrack = canvasStream.getVideoTracks()[0] as RequestFrameCapableTrack | undefined;
+    canvasCaptureMode = 'auto-fps';
+  }
   const sourceAudioStream = preRenderedAudio?.stream ?? masterDest.stream;
   const sourceAudioTracks = sourceAudioStream.getAudioTracks();
   const liveAudioTracks = sourceAudioTracks.filter((track) => track.readyState === 'live');
@@ -77,7 +104,13 @@ export async function runIosSafariMediaRecorderStrategy(
     ...recorderAudioTracks,
   ]);
 
-  if (canvasVideoTrack && typeof canvasVideoTrack.requestFrame === 'function') {
+  // manual モード (captureStream(0)) のときだけ pump を回す。auto-fps モードでは
+  // 自動供給に任せ、ここで requestFrame を併用しない（二重供給回避）。
+  if (
+    canvasCaptureMode === 'manual-requestFrame'
+    && canvasVideoTrack
+    && typeof canvasVideoTrack.requestFrame === 'function'
+  ) {
     const frameIntervalMs = Math.max(16, Math.round(1000 / exportConfig.fps));
     framePumpTimer = setInterval(() => {
       try {
@@ -175,6 +208,7 @@ export async function runIosSafariMediaRecorderStrategy(
     sourceAudioTrackStates: sourceAudioTracks.map((track) => track.readyState),
     recorderAudioTrackCount: recorderAudioTracks.length,
     hasCanvasFramePump: !!framePumpTimer,
+    canvasCaptureMode,
     hasPreRenderedAudio: !!preRenderedAudio,
   });
 

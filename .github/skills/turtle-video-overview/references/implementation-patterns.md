@@ -2111,3 +2111,31 @@
 - **注意**:
   - 自動再開の抑止は必ず **seek start** 側で行う。seek end には slider 由来 (`onPointerUp` 等) と window グローバルリスナー (`attachGlobalSeekEndListeners` → `handleSeekEndCallbackRef` 経由で controller の `handleSeekEnd` を直接呼ぶ) の 2 経路があり、seek end 側だけで倒すとグローバル経路で再開が漏れる。
   - 本変更は iOS Safari 限定。standard (PC/Android) はスクラブ後の自動再開が正常動作しているため挙動を変えない。preview cache 経路（Android）も対象外。
+
+### 13-77. iOS Safari MediaRecorder の映像取り込みは captureStream(0)+requestFrame 単一供給にする
+
+- **対象ファイル**: `src/flavors/apple-safari/export/iosSafariMediaRecorder.ts`, `src/test/iosSafariMediaRecorder.test.ts`
+- **問題**:
+  - iOS Safari export (MediaRecorder 経路) で `canvas.captureStream(fps)` の自動供給に加えて `setInterval(requestFrame)` を併用しており、フレームが二重供給されていた。
+  - CFR ではない MediaRecorder では取り込みフレーム間隔が不揃いになり、「動画のデコードは正常（`getVideoPlaybackQuality().droppedVideoFrames` の増分がほぼ 0 ＝ 原因②）」なのに**書き出し映像だけカクつく**。実機診断で原因②（キャプチャ/エンコード側）と確定。BGM ありで OfflineAudioContext プリレンダー経路に入ると顕在化しやすい。
+- **対応パターン**:
+  - `requestFrame` が使える環境では `canvas.captureStream(0)` の手動モードへ切替え、自動供給を止めて frame pump 単一供給に統一する（WebCodecs 経路の 13-13 と同じ方針を MediaRecorder 経路にも適用）。
+  - 静止画区間でも pump がフレームを供給するため尺ズレは起きない。`requestFrame` 非対応環境は従来どおり `captureStream(fps)` 自動供給へフォールバック。
+  - 起動ログに `canvasCaptureMode`（`manual-requestFrame` / `auto-fps`）を出して現場診断可能にする。
+- **注意**:
+  - manual モードのときだけ pump (`setInterval(requestFrame)`) を回す。auto-fps フォールバック時は pump を回さない（再度の二重供給防止）。
+  - abort / visibility / start 時の単発 `requestFrame` フラッシュは両モードで維持してよい（連続供給ではないため二重供給にならない）。
+
+### 13-78. プレビュー未再生のままエクスポートする場合、export 開始ジェスチャーで future video に gesture credit を与える
+
+- **対象ファイル**: `src/flavors/apple-safari/preview/usePreviewEngine.ts`（`startEngine` の `isExportMode` 分岐）
+- **問題**:
+  - iOS Safari は「ユーザージェスチャー内で一度も unmuted `play()` されていない video 要素」の後続 `play()` を拒否する。
+  - 一度もプレビュー再生せずに（動画→画像→動画を読み込んで即）エクスポートすると、2 本目以降（画像→動画境界で初めて active になる video）の `play()` が拒否され、**映像が固まったまま音声だけ流れる**。プレビューを一度再生すると preview 側 credit pass（`shouldGrantPreviewGestureCreditToFutureVideo`）で credit 取得済みになるため再現しない。
+  - 既存 credit pass は preview 分岐 (`isExporting:false`) にしか無く、export 分岐には無かった。
+- **対応パターン**:
+  - `startEngine` の `isExportMode` 分岐で、最初の `await`（音声プリロード）より**前**に future video を `muted=false / volume=PREVIEW_GESTURE_CREDIT_NATIVE_VOLUME(0.001)` で短く `play()`→即 `pause()` し、gesture credit だけ取得する（preview 経路と同手法）。
+  - `handleExport → startEngine(0, true)` は同期的に呼ばれるため、await 前で実行すればジェスチャー起点として credit を得られる。
+- **注意**:
+  - credit pass は iOS (`muteNativeMediaWhenAudioRouted`) 限定。録画される音声はプリレンダー buffer 側で、native 要素音声は recorder ストリームに含まれないため 0.001 の native 音量は書き出しに混入しない。
+  - credit play で進んだ currentTime は画像区間中の prebuffer / 境界 sync が補正するので別途巻き戻し不要。
