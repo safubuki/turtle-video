@@ -457,6 +457,9 @@ export async function runIosSafariMediaRecorderStrategy(
     };
 
     recorder.onerror = () => {
+      // watchdog などで既に force-complete 済みの場合は、遅延発火した onerror で
+      // onRecordingError を二重呼び出ししないよう抜ける。
+      if (settled) return;
       // recorder.onerror も finishReject にしていたが、await 側に catch が無く
       // 「保存ファイルを作成中」固まりの原因になっていた。onRecordingError で
       // UI を救出してから finishResolve する。
@@ -476,6 +479,11 @@ export async function runIosSafariMediaRecorderStrategy(
 
     recorder.onstop = () => {
       onstopFired = true;
+      // watchdog が先に force-complete (settled=true) した後で、iOS Safari の
+      // onstop が大きく遅延して発火するケースに備える。ガードが無いと blob と
+      // URL.createObjectURL を二重生成して片方の objectURL がリークし、
+      // onRecordingStop も二重呼び出しになる。settled 済みなら抜ける。
+      if (settled) return;
       if (stopWatchdogTimer !== null) {
         clearTimeout(stopWatchdogTimer);
         stopWatchdogTimer = null;
