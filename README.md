@@ -43,9 +43,9 @@
 - 実行ログの確認、コピー、JSON出力、クリア
 - Google AI Studio / Gemini API の利用上限に関する注意表示
 
-## すぐに使う（GitHub Pages）
+## すぐに使う（Cloudflare Pages）
 
-- 公開URL: `https://safubuki.github.io/turtle-video-playground/`
+- 公開URL: `https://turtle-video.pages.dev/`
 - URLにアクセスするだけで利用できます（インストール不要）。
 - 動作確認機種:
   - スマホ: Pixel 6a（Android・Chrome）
@@ -71,8 +71,8 @@
 
 ### 必要環境
 
-- Node.js 18+
-- npm または yarn
+- Node.js 20+（Vite 7 の要件。CI も Node 20 でビルド）
+- npm（`package-lock.json` を同梱。CI は `npm ci` を使用）
 
 ### インストール
 
@@ -140,11 +140,11 @@ npm run test:coverage
 - `npm run test:run`: テスト一括実行
 - `npm run preview`: ビルド結果をローカル確認
 
-## 導入手順
+## Agent Skills（AIエディタ連携）
 
-### Step 1: 環境別セットアップ（保存先の確認）
+このリポジトリには開発支援用の Agent Skills を同梱しています。読み込まれるディレクトリは利用する AI エディタ・ツールごとに異なります（いずれもリポジトリに含まれており、`npm run skills:sync` で内容を同期します）。
 
-Agent Skills は、使用する AI エディタ・ツールによって読み込まれるディレクトリが異なります。プロジェクトのルートディレクトリに以下のフォルダを作成してください。
+### 対応ツールと読み込みディレクトリ
 
 #### GitHub Copilot
 
@@ -168,17 +168,22 @@ Agent Skills は、使用する AI エディタ・ツールによって読み込
 - **設定**: 不要。ディレクトリが存在するだけで自動認識されます。
 
 > [!NOTE]
-> GPT Codex は `.agents`（複数形）、Google Gemini は `.agent`（単数形）と異なる点に注意してください。
+> GPT Codex は `.agents`（複数形）、Google Gemini は `.agent`（単数形）でディレクトリ名が異なります。
 
 ### このプロジェクトで使う主なスキル
 - `bug-analysis`
 - `bugfix-guard`
 - `elite-ux-architect`
 - `implementation-plan`
+- `issue-specialist`
 - `media-video-analyzer`
 - `readme-generator`
+- `release-version-manager`
 - `skills-generator`
+- `skills-sync-guard`
+- `test-improvement`
 - `turtle-video-overview`
+- `turtle-video-platform-targeting`
 - `user-guide`
 
 ## 技術スタック
@@ -188,6 +193,8 @@ Agent Skills は、使用する AI エディタ・ツールによって読み込
 - **スタイリング**: Tailwind CSS 4
 - **状態管理**: Zustand
 - **アイコン**: Lucide React
+- **PWA**: vite-plugin-pwa（Workbox）
+- **動画書き出し**: WebCodecs / MediaRecorder + mp4-muxer
 - **テスト**: Vitest + Testing Library
 - **AI API**: Google Gemini API (text/speech generation)
 
@@ -208,8 +215,10 @@ turtle-video/
 ├── public/              # 静的アセット
 ├── scripts/             # 開発・運用スクリプト
 ├── src/
+│   ├── app/             # アプリ起動シェルとプラットフォーム（flavor）判定
 │   ├── components/      # UIコンポーネント（common/media/modals/sections）
 │   ├── constants/       # 定数定義
+│   ├── flavors/         # プラットフォーム別実装（standard / apple-safari）
 │   ├── hooks/           # カスタムフック
 │   ├── stores/          # Zustandストア
 │   ├── test/            # テストコード
