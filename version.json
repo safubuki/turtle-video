@@ -1,24 +1,32 @@
 {
-  "version": "5.2.0",
+  "version": "5.3.0",
   "history": {
-    "previousVersion": "5.1.18",
-    "summary": "iOS Safari でプレビューとエクスポートが成功する状態を確定しました。エクスポート完了時は、Blob URL・拡張子・正の Blob サイズが確認できた後にだけ UI callback を通し、青い「作成中」表示から緑のダウンロードボタンへ遷移します。TurtleVideo では main export hook の recorderRef を preview engine に渡すよう明確化し、iOS Safari の自然終端時に実際の MediaRecorder を requestData()/stop() できるようにしました。Docs は specs / architecture / guides / reports / handovers / review に分類し、2026-05-26 の成功状態と復旧手順を Docs/2026-05-26_success_ios-safari-preview-export.md に記録しました。",
+    "previousVersion": "4.1.0",
+    "summary": "iPhone / iPad の Safari に正式対応し、プレビュー再生と動画書き出しが iOS Safari でも利用できるようになりました。あわせて端末ごとの動作最適化（プラットフォーム分離）、書き出し画質の向上、キャプションの WYSIWYG 化、PWA・保存まわりの安定化など、v4.1.0 以降の主要な改善を取り込みました。",
     "highlights": [
       {
-        "title": "iOS Safari preview/export success baseline",
-        "description": "iOS Safari でプレビュー表示とエクスポート完了後の緑ダウンロードボタン表示が成功する状態を v5.2.0 の基準として整理しました。"
+        "title": "iOS Safari 対応",
+        "description": "iPhone / iPad の Safari でプレビュー再生と動画書き出しに対応しました。書き出し完了後はダウンロードボタンへ確実に遷移します。"
       },
       {
-        "title": "Main export recorderRef wiring",
-        "description": "TurtleVideo が main export hook の recorderRef を preview engine に渡すことで、iOS Safari の自然終了時に実際の MediaRecorder を停止し、Blob URL を UI に届けられるようにしました。"
+        "title": "端末別の動作最適化",
+        "description": "PC / Android（標準）と Apple Safari の動作経路を分離し、端末ごとに最適なプレビュー・書き出し・保存を行うようにしました。"
       },
       {
-        "title": "Confirmed-download-only UI transition",
-        "description": "Blob URL、拡張子、正の blobSizeBytes、非 abort または自然終端を確認してから UI をダウンロード可能状態へ遷移させます。"
+        "title": "書き出し画質の向上",
+        "description": "書き出し時に動的なキャンバスサイズと高ビットレートを採用し、最大 1080p で高画質に出力できるようにしました。"
       },
       {
-        "title": "Docs classification and recovery memo",
-        "description": "Docs 配下を分類フォルダへ整理し、Docs/2026-05-26_success_ios-safari-preview-export.md に成功状態、処理内容、復旧チェックリストを記録しました。"
+        "title": "キャプションの WYSIWYG 化",
+        "description": "プレビューと書き出しでキャプションの見た目（サイズ比率・位置）を統一し、表示と仕上がりのズレを解消しました。"
+      },
+      {
+        "title": "PWA・保存の安定化",
+        "description": "アプリ更新の適用処理を安定化し、プロジェクト保存（IndexedDB）の健全性管理を追加しました。"
+      },
+      {
+        "title": "プレビュー再生の安定化",
+        "description": "動画の切り替わり（境界）での黒画面・カクつき・フェードの不具合を改善し、再生品質を高めました。"
       }
     ]
   }
