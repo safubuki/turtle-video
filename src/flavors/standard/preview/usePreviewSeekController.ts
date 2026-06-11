@@ -1,4 +1,4 @@
-import { useCallback, useEffect, type ChangeEvent, type MutableRefObject } from 'react';
+import { useCallback, useEffect, useRef, type ChangeEvent, type MutableRefObject } from 'react';
 
 import { SEEK_THROTTLE_MS } from '../../../constants';
 import type { MediaItem } from '../../../types';
@@ -61,8 +61,14 @@ interface UsePreviewSeekControllerResult {
   handleSeekStart: () => void;
   handleSeekChange: (event: ChangeEvent<HTMLInputElement>) => void;
   handleSeekEnd: () => void;
-  syncVideoToTime: (time: number, options?: { force?: boolean }) => void;
+  syncVideoToTime: (time: number, options?: { force?: boolean; interrupt?: boolean }) => void;
 }
+
+// 進行中 seek と同一ターゲットへの currentTime 再代入は seek の cancel/restart になり、
+// Android Chrome のデコーダ失速の引き金になるため省略する (interrupt 指定時を除く)。
+const FORCE_SEEK_DEDUPE_EPSILON_SEC = 0.005;
+// スクラブ中、seeked が返らないまま固まったとみなして割り込み再シークするまでの時間。
+const SCRUB_STUCK_SEEK_KICK_MS = 400;
 
 export function usePreviewSeekController({
   mediaItemsRef,
@@ -104,6 +110,60 @@ export function usePreviewSeekController({
   preparePreviewAudioNodesForTime,
   primePreviewAudioOnlyTracksAtTime,
 }: UsePreviewSeekControllerParams): UsePreviewSeekControllerResult {
+  const lastRequestedSeekTargetRef = useRef<Record<string, number>>({});
+  const scrubSeekWaitRef = useRef<{ element: HTMLVideoElement; cleanup: () => void } | null>(null);
+  const scrubStuckKickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const assignVideoSeekTarget = useCallback((
+    videoElement: HTMLVideoElement,
+    id: string,
+    targetTime: number,
+    options?: { interrupt?: boolean },
+  ) => {
+    if (!options?.interrupt && videoElement.seeking) {
+      const lastTarget = lastRequestedSeekTargetRef.current[id];
+      if (
+        lastTarget !== undefined
+        && Math.abs(lastTarget - targetTime) < FORCE_SEEK_DEDUPE_EPSILON_SEC
+      ) {
+        // 進行中の seek が既に同じターゲットへ向かっている。再代入はキャンセル/再発行になるだけ。
+        return;
+      }
+    }
+    videoElement.currentTime = targetTime;
+    lastRequestedSeekTargetRef.current[id] = targetTime;
+  }, []);
+
+  const cleanupScrubSeekWait = useCallback(() => {
+    if (scrubStuckKickTimerRef.current) {
+      clearTimeout(scrubStuckKickTimerRef.current);
+      scrubStuckKickTimerRef.current = null;
+    }
+    scrubSeekWaitRef.current?.cleanup();
+    scrubSeekWaitRef.current = null;
+  }, []);
+
+  const findVideoElementAtTimelineTime = useCallback((targetTimelineTime: number): HTMLVideoElement | null => {
+    let accumulatedTime = 0;
+    for (const item of mediaItemsRef.current) {
+      if (targetTimelineTime >= accumulatedTime && targetTimelineTime < accumulatedTime + item.duration) {
+        if (item.type === 'video') {
+          return (mediaElementsRef.current[item.id] as HTMLVideoElement | undefined) ?? null;
+        }
+        return null;
+      }
+      accumulatedTime += item.duration;
+    }
+
+    if (mediaItemsRef.current.length > 0 && targetTimelineTime >= totalDurationRef.current) {
+      const lastItem = mediaItemsRef.current[mediaItemsRef.current.length - 1];
+      if (lastItem.type === 'video') {
+        return (mediaElementsRef.current[lastItem.id] as HTMLVideoElement | undefined) ?? null;
+      }
+    }
+    return null;
+  }, [mediaElementsRef, mediaItemsRef, totalDurationRef]);
+
   const requestVideoPlayWithRetry = useCallback((videoElement: HTMLVideoElement, retryIntervalMs = 160) => {
     const maxRetryCount = 4;
     const tryPlay = (attempt: number) => {
@@ -122,7 +182,7 @@ export function usePreviewSeekController({
     tryPlay(1);
   }, [isPlayingRef, isSeekingRef]);
 
-  const syncVideoToTime = useCallback((time: number, options?: { force?: boolean }) => {
+  const syncVideoToTime = useCallback((time: number, options?: { force?: boolean; interrupt?: boolean }) => {
     const force = options?.force ?? false;
     const seekThreshold = force ? 0.01 : 0.1;
     let accumulatedTime = 0;
@@ -144,7 +204,7 @@ export function usePreviewSeekController({
               const targetTime = (item.trimStart || 0) + localTime;
               const drift = Math.abs(videoElement.currentTime - targetTime);
               if (drift > seekThreshold && (force || !videoElement.seeking)) {
-                videoElement.currentTime = targetTime;
+                assignVideoSeekTarget(videoElement, item.id, targetTime, { interrupt: options?.interrupt });
               }
             }
           }
@@ -178,10 +238,10 @@ export function usePreviewSeekController({
             if (shouldForceEndAlign) {
               const isAhead = videoElement.currentTime > targetTime + endAlignThreshold;
               if (!videoElement.seeking && (drift > endAlignThreshold || isAhead)) {
-                videoElement.currentTime = targetTime;
+                assignVideoSeekTarget(videoElement, lastItem.id, targetTime, { interrupt: options?.interrupt });
               }
             } else if (drift > seekThreshold && (force || !videoElement.seeking)) {
-              videoElement.currentTime = targetTime;
+              assignVideoSeekTarget(videoElement, lastItem.id, targetTime, { interrupt: options?.interrupt });
             }
           }
         }
@@ -193,7 +253,62 @@ export function usePreviewSeekController({
     }
 
     activeVideoIdRef.current = null;
-  }, [activeVideoIdRef, mediaElementsRef, mediaItemsRef, totalDurationRef]);
+  }, [activeVideoIdRef, assignVideoSeekTarget, mediaElementsRef, mediaItemsRef, totalDurationRef]);
+
+  // スクラブ中に対象 video が前の seek を処理中の間は、seeked 完了駆動で最新ターゲットだけを
+  // 適用する。時間スロットルだけだと遅いデコーダへ seek が殺到し、固着の引き金になる。
+  // seeked が SCRUB_STUCK_SEEK_KICK_MS 返らなければ、割り込み再シークで叩き起こす。
+  const armScrubSeekWait = useCallback((videoElement: HTMLVideoElement) => {
+    if (scrubSeekWaitRef.current && scrubSeekWaitRef.current.element !== videoElement) {
+      cleanupScrubSeekWait();
+    }
+    if (!scrubSeekWaitRef.current) {
+      const onSeeked = () => {
+        cleanupScrubSeekWait();
+        if (!isSeekingRef.current) return;
+        const pendingTime = pendingSeekRef.current;
+        if (pendingTime === null) return;
+        pendingSeekRef.current = null;
+        lastSeekTimeRef.current = getStandardPreviewNow();
+        syncVideoToTime(pendingTime);
+        renderFrame(pendingTime, false);
+      };
+      videoElement.addEventListener('seeked', onSeeked, { once: true });
+      scrubSeekWaitRef.current = {
+        element: videoElement,
+        cleanup: () => videoElement.removeEventListener('seeked', onSeeked),
+      };
+    }
+    if (!scrubStuckKickTimerRef.current) {
+      const armKickTimer = () => {
+        scrubStuckKickTimerRef.current = setTimeout(() => {
+          scrubStuckKickTimerRef.current = null;
+          if (!isSeekingRef.current) {
+            cleanupScrubSeekWait();
+            return;
+          }
+          if (!videoElement.seeking) return;
+          const pendingTime = pendingSeekRef.current ?? currentTimeRef.current;
+          pendingSeekRef.current = null;
+          lastSeekTimeRef.current = getStandardPreviewNow();
+          syncVideoToTime(pendingTime, { force: true, interrupt: true });
+          renderFrame(pendingTime, false);
+          if (isSeekingRef.current && videoElement.seeking) {
+            armKickTimer();
+          }
+        }, SCRUB_STUCK_SEEK_KICK_MS);
+      };
+      armKickTimer();
+    }
+  }, [
+    cleanupScrubSeekWait,
+    currentTimeRef,
+    isSeekingRef,
+    lastSeekTimeRef,
+    pendingSeekRef,
+    renderFrame,
+    syncVideoToTime,
+  ]);
 
   const renderPausedPreviewFrameAtTime = useCallback((targetTime: number) => {
     const clampedTime = Math.max(0, Math.min(targetTime, totalDurationRef.current));
@@ -292,6 +407,7 @@ export function usePreviewSeekController({
   const handleSeekStart = useCallback(() => {
     cancelPendingSeekPlaybackPrepare();
     cancelPendingPausedSeekWait();
+    cleanupScrubSeekWait();
     if (isSeekingRef.current) return;
 
     wasPlayingBeforeSeekRef.current = isPlayingRef.current;
@@ -323,6 +439,7 @@ export function usePreviewSeekController({
     attachGlobalSeekEndListeners,
     cancelPendingPausedSeekWait,
     cancelPendingSeekPlaybackPrepare,
+    cleanupScrubSeekWait,
     isPlayingRef,
     isSeekingRef,
     mediaElementsRef,
@@ -363,6 +480,21 @@ export function usePreviewSeekController({
     setCurrentTime(time);
     currentTimeRef.current = time;
 
+    // 対象 video が前の seek を処理中なら、時間スロットルではなく seeked 完了駆動で
+    // 最新ターゲットだけを適用する (seek 殺到はデコーダ固着の引き金)。
+    const scrubTargetVideoElement = findVideoElementAtTimelineTime(time);
+    if (scrubTargetVideoElement?.seeking) {
+      pendingSeekRef.current = time;
+      if (pendingSeekTimeoutRef.current) {
+        clearTimeout(pendingSeekTimeoutRef.current);
+        pendingSeekTimeoutRef.current = null;
+      }
+      armScrubSeekWait(scrubTargetVideoElement);
+      renderFrame(time, false);
+      return;
+    }
+    cleanupScrubSeekWait();
+
     const timeSinceLastSeek = now - lastSeekTimeRef.current;
     if (timeSinceLastSeek < SEEK_THROTTLE_MS) {
       pendingSeekRef.current = time;
@@ -392,10 +524,13 @@ export function usePreviewSeekController({
     syncVideoToTime(time);
     renderFrame(time, false);
   }, [
+    armScrubSeekWait,
     cancelPendingPausedSeekWait,
     cancelPendingSeekPlaybackPrepare,
+    cleanupScrubSeekWait,
     currentTimeRef,
     endFinalizedRef,
+    findVideoElementAtTimelineTime,
     isPlayingRef,
     isSeekPlaybackPreparingRef,
     isSeekingRef,
@@ -416,6 +551,7 @@ export function usePreviewSeekController({
 
     cancelPendingSeekPlaybackPrepare();
     detachGlobalSeekEndListeners();
+    cleanupScrubSeekWait();
     if (pendingSeekTimeoutRef.current) {
       clearTimeout(pendingSeekTimeoutRef.current);
       pendingSeekTimeoutRef.current = null;
@@ -438,27 +574,6 @@ export function usePreviewSeekController({
 
     isSeekingRef.current = false;
     wasPlayingBeforeSeekRef.current = false;
-
-    const findActiveVideoAtTime = (targetTimelineTime: number): HTMLVideoElement | null => {
-      let accumulatedTime = 0;
-      for (const item of mediaItemsRef.current) {
-        if (targetTimelineTime >= accumulatedTime && targetTimelineTime < accumulatedTime + item.duration) {
-          if (item.type === 'video') {
-            return (mediaElementsRef.current[item.id] as HTMLVideoElement | undefined) ?? null;
-          }
-          return null;
-        }
-        accumulatedTime += item.duration;
-      }
-
-      if (mediaItemsRef.current.length > 0 && targetTimelineTime >= totalDurationRef.current) {
-        const lastItem = mediaItemsRef.current[mediaItemsRef.current.length - 1];
-        if (lastItem.type === 'video') {
-          return (mediaElementsRef.current[lastItem.id] as HTMLVideoElement | undefined) ?? null;
-        }
-      }
-      return null;
-    };
 
     if (wasPlaying) {
       isSeekPlaybackPreparingRef.current = true;
@@ -630,7 +745,7 @@ export function usePreviewSeekController({
       };
 
       syncVideoToTime(time, { force: true });
-      const activeVideoElement = findActiveVideoAtTime(time);
+      const activeVideoElement = findVideoElementAtTimelineTime(time);
       if (activeVideoElement) {
         const prepareStartedAt = Date.now();
         const minPrepareMs = 220;
@@ -707,26 +822,7 @@ export function usePreviewSeekController({
       renderFrame(targetTime, false);
     };
 
-    let activeVideoElement: HTMLVideoElement | null = null;
-    let accumulatedTime = 0;
-    for (const item of mediaItemsRef.current) {
-      if (time >= accumulatedTime && time < accumulatedTime + item.duration) {
-        if (item.type === 'video') {
-          const element = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
-          activeVideoElement = element ?? null;
-        }
-        break;
-      }
-      accumulatedTime += item.duration;
-    }
-
-    if (!activeVideoElement && mediaItemsRef.current.length > 0 && time >= totalDurationRef.current) {
-      const lastItem = mediaItemsRef.current[mediaItemsRef.current.length - 1];
-      if (lastItem.type === 'video') {
-        const element = mediaElementsRef.current[lastItem.id] as HTMLVideoElement | undefined;
-        activeVideoElement = element ?? null;
-      }
-    }
+    const activeVideoElement = findVideoElementAtTimelineTime(time);
 
     if (activeVideoElement && activeVideoElement.seeking) {
       const settleGeneration = seekSettleGenerationRef.current;
@@ -765,8 +861,10 @@ export function usePreviewSeekController({
     audioCtxRef,
     cancelPendingPausedSeekWait,
     cancelPendingSeekPlaybackPrepare,
+    cleanupScrubSeekWait,
     currentTimeRef,
     detachGlobalSeekEndListeners,
+    findVideoElementAtTimelineTime,
     gainNodesRef,
     isPlayingRef,
     isSeekPlaybackPreparingRef,
@@ -805,6 +903,10 @@ export function usePreviewSeekController({
   useEffect(() => {
     handleSeekEndCallbackRef.current = handleSeekEnd;
   }, [handleSeekEnd, handleSeekEndCallbackRef]);
+
+  useEffect(() => () => {
+    cleanupScrubSeekWait();
+  }, [cleanupScrubSeekWait]);
 
   return {
     handleSeekStart,

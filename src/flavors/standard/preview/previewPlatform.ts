@@ -700,3 +700,87 @@ export function getAndroidPreviewRecoveryDecision(
   if (Math.abs(options.videoCurrentTime - options.targetTime) > syncThresholdSec) return { ...empty, shouldRecover: true, shouldHoldFrame: true, shouldResyncTime: true, shouldRebaseClockAfterReady: true, reason: 'timeline-drift' };
   return empty;
 }
+
+// 再生中の active video が seeking / readyState 低のまま固まったと判断するまでの時間。
+// 通常のシーク完了 (数十〜300ms 程度) を誤検知しないよう余裕を持たせる。
+export const STANDARD_PREVIEW_STALL_KICK_AFTER_MS = 900;
+// watchdog kick (currentTime 再代入) の最小間隔。seek 連打で固着を悪化させない。
+export const STANDARD_PREVIEW_STALL_KICK_INTERVAL_MS = 1200;
+
+export type StandardPreviewStallKickReason = 'seek-stuck' | 'ready-state-stuck';
+
+export interface StandardPreviewStallKickOptions {
+  isExporting: boolean;
+  isActivePlaying: boolean;
+  isUserSeeking: boolean;
+  videoSeeking: boolean;
+  videoReadyState: number;
+  videoHasError: boolean;
+  stalledForMs: number;
+  sinceLastKickMs: number;
+  kickAfterMs?: number;
+  kickIntervalMs?: number;
+}
+
+export interface StandardPreviewStallKickDecision {
+  shouldKick: boolean;
+  reason: StandardPreviewStallKickReason | null;
+}
+
+/**
+ * 再生中の active video のデコーダ固着 (seeking のまま戻らない / readyState が上がらない) を検出し、
+ * currentTime の割り込み再代入 (= 進行中シークのキャンセルと再発行) で叩き起こすべきかを判定する。
+ * `.load()` は readyState を 0 に戻す破壊的操作で過去に退行を起こしたため、watchdog では使わない。
+ */
+export function getStandardPreviewStallKickDecision(
+  options: StandardPreviewStallKickOptions,
+): StandardPreviewStallKickDecision {
+  const none: StandardPreviewStallKickDecision = { shouldKick: false, reason: null };
+  const kickAfterMs = options.kickAfterMs ?? STANDARD_PREVIEW_STALL_KICK_AFTER_MS;
+  const kickIntervalMs = options.kickIntervalMs ?? STANDARD_PREVIEW_STALL_KICK_INTERVAL_MS;
+
+  if (options.isExporting || !options.isActivePlaying || options.isUserSeeking) return none;
+  if (options.videoHasError) return none;
+
+  const isStalled =
+    options.videoSeeking
+    || options.videoReadyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME;
+  if (!isStalled) return none;
+  if (options.stalledForMs < kickAfterMs) return none;
+  if (options.sinceLastKickMs < kickIntervalMs) return none;
+
+  if (options.videoSeeking) return { shouldKick: true, reason: 'seek-stuck' };
+  // readyState 0 はメタデータ未取得で seek 先が定まらないため、既存の load() 回復経路に委ねる。
+  if (options.videoReadyState >= 1) return { shouldKick: true, reason: 'ready-state-stuck' };
+  return none;
+}
+
+export interface FadeStallSnapshotFrameOptions {
+  isExporting: boolean;
+  isVideoDrawable: boolean;
+  isInFadeRegion: boolean;
+  shouldBlackoutFadeTail: boolean;
+  activeVideoId: string | null;
+  snapshotVideoId: string | null;
+  snapshotWidth: number;
+  snapshotHeight: number;
+}
+
+/**
+ * fade region 中は holdFrame による canvas 保持を使えない (旧フレームが透けて見えるため毎フレーム
+ * 黒クリアする) が、デコーダ固着で実フレームが無いと純粋な黒が出続けてブラックアウトに見える。
+ * その場合に限り、直前にキャプチャした非黒スナップショットへ fade alpha を掛けて描画してよいかを返す。
+ * fade 終端の明示的ブラックアウト (shouldBlackoutFadeTail) は仕様通り黒を優先する。
+ */
+export function shouldDrawFadeStallSnapshotFrame(
+  options: FadeStallSnapshotFrameOptions,
+): boolean {
+  return !options.isExporting
+    && !options.isVideoDrawable
+    && options.isInFadeRegion
+    && !options.shouldBlackoutFadeTail
+    && options.activeVideoId !== null
+    && options.snapshotVideoId === options.activeVideoId
+    && options.snapshotWidth > 0
+    && options.snapshotHeight > 0;
+}

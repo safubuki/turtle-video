@@ -9,6 +9,7 @@ import { getPlatformCapabilities } from '../../utils/platform';
 
 interface MediaItemResourceProps {
   item: MediaItem;
+  videoPreload: 'auto' | 'metadata';
   hiddenStyle: React.CSSProperties;
   onRefAssign: (id: string, el: HTMLVideoElement | HTMLImageElement | HTMLAudioElement | null) => void;
   onElementLoaded: (id: string, el: HTMLVideoElement | HTMLImageElement | HTMLAudioElement) => void;
@@ -18,7 +19,7 @@ interface MediaItemResourceProps {
 }
 
 const MediaItemResource = memo<MediaItemResourceProps>(
-  ({ item, hiddenStyle, onRefAssign, onElementLoaded, onSeeked, onVideoLoadedData, onError }) => {
+  ({ item, videoPreload, hiddenStyle, onRefAssign, onElementLoaded, onSeeked, onVideoLoadedData, onError }) => {
     if (item.type === 'video') {
       return (
         <video
@@ -33,7 +34,7 @@ const MediaItemResource = memo<MediaItemResourceProps>(
           onLoadedData={onVideoLoadedData}
           onSeeked={onSeeked}
           onError={onError}
-          preload="auto"
+          preload={videoPreload}
           playsInline
           crossOrigin="anonymous"
           style={hiddenStyle}
@@ -51,14 +52,29 @@ const MediaItemResource = memo<MediaItemResourceProps>(
       />
     );
   },
-  (prev, next) => prev.item.id === next.item.id && prev.item.url === next.item.url
+  (prev, next) =>
+    prev.item.id === next.item.id
+    && prev.item.url === next.item.url
+    && prev.videoPreload === next.videoPreload
 );
 
 MediaItemResource.displayName = 'MediaItemResource';
 
 const MediaResourceLoader = memo<MediaResourceLoaderProps>(
   ({ mediaItems, bgm, narrations, onElementLoaded, onRefAssign, onSeeked, onVideoLoadedData }) => {
-    const { isIosSafari } = getPlatformCapabilities();
+    const { isIosSafari, isAndroid } = getPlatformCapabilities();
+
+    // Android はクリップ数が多いと一律 preload="auto" がデコーダ/メモリ圧迫の温床になるため、
+    // 先頭動画以外は metadata に抑える。再生中の直近 next はプレビューエンジンが auto へ昇格させる。
+    // iOS Safari / PC は従来どおり auto を維持する。
+    const firstVideoId = useMemo(
+      () => mediaItems.find((m) => m.type === 'video')?.id ?? null,
+      [mediaItems],
+    );
+    const resolveVideoPreload = (item: MediaItem): 'auto' | 'metadata' =>
+      isAndroid && !isIosSafari && item.type === 'video' && item.id !== firstVideoId
+        ? 'metadata'
+        : 'auto';
     const hiddenStyle: React.CSSProperties = useMemo(() => ({
       position: 'fixed',
       top: 0,
@@ -111,6 +127,7 @@ const MediaResourceLoader = memo<MediaResourceLoaderProps>(
           <MediaItemResource
             key={item.id}
             item={item}
+            videoPreload={resolveVideoPreload(item)}
             hiddenStyle={hiddenStyle}
             onRefAssign={onRefAssign}
             onElementLoaded={onElementLoaded}

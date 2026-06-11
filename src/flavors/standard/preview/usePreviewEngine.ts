@@ -35,6 +35,8 @@ import {
   shouldMuteNativeMediaElement,
   shouldPrimeFutureInactiveVideoInPreview,
   getAndroidPreviewRecoveryDecision,
+  getStandardPreviewStallKickDecision,
+  shouldDrawFadeStallSnapshotFrame,
   shouldRecoverAudioOnlyAfterVideoBoundary,
   shouldReinitializeAudioRoute,
   shouldRetryAudioOnlyPrimeAtPreviewStart,
@@ -264,6 +266,15 @@ const PREVIEW_ANDROID_RECOVERY_MIN_INTERVAL_MS = 1000;
 const PREVIEW_ANDROID_RECOVERY_DRIFT_THRESHOLD_SEC = 0.8;
 // 境界通過直後 500ms は media clock の自然再生に任せ、recovery seek を抑止する。
 const PREVIEW_ANDROID_RECOVERY_SKIP_AFTER_BOUNDARY_SEC = 0.5;
+// recovery seek は最低間隔 (1秒) を守りつつ、1 segment あたり最大 3 回まで再試行を許可する。
+// 旧実装の「1 回限り」は、その 1 回が失敗すると区間まるごとフリーズする穴があった。
+const PREVIEW_ANDROID_RECOVERY_MAX_SEEKS_PER_SEGMENT = 3;
+// stall watchdog の状態は rAF の連続性 (250ms 以内の再評価) を前提に保持する。
+// それ以上途切れたら境界跨ぎ・タブ非表示などとみなし、stall 計測をやり直す。
+const PREVIEW_STALL_STATE_CONTINUITY_MS = 250;
+// fade 用の非黒スナップショットは 200ms ごとに取り直す (毎フレームの drawImage 二重化を避ける)。
+const PREVIEW_FADE_STALL_SNAPSHOT_INTERVAL_MS = 200;
+const PREVIEW_FADE_STALL_HOLD_LOG_INTERVAL_MS = 1000;
 const PREVIEW_END_THRESHOLD_SEC = 0.03;
 // 再生開始直後は seeked / canplay の到着を数フレームだけ待ち、遅ければ loop を止めない。
 const PREVIEW_START_READY_POLL_INTERVAL_MS = 40;
@@ -682,7 +693,22 @@ export function usePreviewEngine({
   }>>({});
   const androidPreviewHoldLogAtRef = useRef<Record<string, number>>({});
   const androidPreviewLastSeekAtRef = useRef<Record<string, number>>({});
-  const androidPreviewRecoveredSegmentRef = useRef<Record<string, string>>({});
+  const androidPreviewRecoveredSegmentRef = useRef<Record<string, { key: string; count: number }>>({});
+  // 再生中 active video の seeking / readyState 固着を検出する watchdog の per-video 状態。
+  const videoStallWatchdogRef = useRef<Record<string, {
+    stalledSinceMs: number;
+    lastKickAtMs: number;
+    kickCount: number;
+    lastSeenAtMs: number;
+  }>>({});
+  // fade region 中のデコーダ固着時に黒の代わりに描く、直前の正常フレームのスナップショット。
+  const fadeStallSnapshotRef = useRef<{
+    videoId: string | null;
+    canvas: HTMLCanvasElement | null;
+    capturedAtMs: number;
+  }>({ videoId: null, canvas: null, capturedAtMs: 0 });
+  const fadeStallHoldLogAtRef = useRef<Record<string, number>>({});
+  const previewPlayFailureLogAtRef = useRef<Record<string, number>>({});
   const standardNextVideoPrebufferDiagRef = useRef<Record<string, NextVideoPrebufferDiagState>>({});
   const previewTimelineDiagnosticsRef = useRef<{
     lastRafNowMs: number | null;
@@ -709,6 +735,13 @@ export function usePreviewEngine({
     previewTimelineDiagnosticsRef.current.beforeBoundarySampled = false;
     androidPreviewRecoveredSegmentRef.current = {};
     standardNextVideoPrebufferDiagRef.current = {};
+    videoStallWatchdogRef.current = {};
+    // canvas の確保は再利用し、参照情報だけ無効化する。
+    fadeStallSnapshotRef.current = {
+      videoId: null,
+      canvas: fadeStallSnapshotRef.current.canvas,
+      capturedAtMs: 0,
+    };
   }, []);
   const maybeAssignAndroidPreviewSeek = useCallback((
     {
@@ -736,7 +769,14 @@ export function usePreviewEngine({
     try {
       videoEl.currentTime = targetTime;
       androidPreviewLastSeekAtRef.current[videoId] = Date.now();
-      androidPreviewRecoveredSegmentRef.current[videoId] = segmentRecoveryKey;
+      const previousRecovery = androidPreviewRecoveredSegmentRef.current[videoId];
+      const recoverySeekCount = previousRecovery?.key === segmentRecoveryKey
+        ? previousRecovery.count + 1
+        : 1;
+      androidPreviewRecoveredSegmentRef.current[videoId] = {
+        key: segmentRecoveryKey,
+        count: recoverySeekCount,
+      };
       logWarn('RENDER', 'preview.android.seek-assignment', {
         reason,
         videoId,
@@ -745,6 +785,7 @@ export function usePreviewEngine({
         currentTimeBefore,
         drift,
         sinceLastSeekMs,
+        recoverySeekCount,
       });
       return true;
     } catch {
@@ -786,6 +827,46 @@ export function usePreviewEngine({
       });
     },
     [logInfo],
+  );
+  // active video の正常フレームを定期スナップショットし、fade region 中のデコーダ固着時に
+  // 黒クリアの代わりへ流用する。出力 canvas に収まるサイズへ縮小してメモリを抑える。
+  const captureFadeStallSnapshot = useCallback(
+    (videoId: string, videoEl: HTMLVideoElement, maxWidth: number, maxHeight: number) => {
+      const now = Date.now();
+      const snapshot = fadeStallSnapshotRef.current;
+      if (
+        snapshot.videoId === videoId
+        && now - snapshot.capturedAtMs < PREVIEW_FADE_STALL_SNAPSHOT_INTERVAL_MS
+      ) {
+        return;
+      }
+      const videoWidth = videoEl.videoWidth;
+      const videoHeight = videoEl.videoHeight;
+      if (videoWidth <= 0 || videoHeight <= 0 || maxWidth <= 0 || maxHeight <= 0) {
+        return;
+      }
+      const scale = Math.min(1, maxWidth / videoWidth, maxHeight / videoHeight);
+      const width = Math.max(1, Math.round(videoWidth * scale));
+      const height = Math.max(1, Math.round(videoHeight * scale));
+      try {
+        let canvas = snapshot.canvas;
+        // サイズ変更は canvas 内容を破壊するため、既存スナップショットを温存して新規確保する。
+        if (!canvas || canvas.width !== width || canvas.height !== height) {
+          canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+        }
+        const snapshotCtx = canvas.getContext('2d');
+        if (!snapshotCtx) {
+          return;
+        }
+        snapshotCtx.drawImage(videoEl, 0, 0, width, height);
+        fadeStallSnapshotRef.current = { videoId, canvas, capturedAtMs: now };
+      } catch {
+        // drawImage は decode 状態次第で失敗しうる。失敗時は直前のスナップショットを維持する。
+      }
+    },
+    [],
   );
   const handleMediaElementLoaded = useCallback(
     (id: string, element: HTMLVideoElement | HTMLImageElement | HTMLAudioElement) => {
@@ -1790,14 +1871,31 @@ export function usePreviewEngine({
                         delete exportFallbackSeekAtRef.current[id];
                       }
                     }).catch((err) => {
-                      if (_isExporting && !exportPlayFailedRef.current[id]) {
-                        exportPlayFailedRef.current[id] = true;
-                        exportFallbackSeekAtRef.current[id] = 0;
-                        logWarn('RENDER', 'エクスポート中の動画再生開始に失敗。シーク同期フォールバックへ切替', {
+                      if (_isExporting) {
+                        if (!exportPlayFailedRef.current[id]) {
+                          exportPlayFailedRef.current[id] = true;
+                          exportFallbackSeekAtRef.current[id] = 0;
+                          logWarn('RENDER', 'エクスポート中の動画再生開始に失敗。シーク同期フォールバックへ切替', {
+                            videoId: id,
+                            error: err instanceof Error ? err.message : String(err),
+                          });
+                        }
+                        return;
+                      }
+                      // preview では一発失敗で区間が paused のまま固まらないよう retry へ繋ぐ。
+                      const nowMs = Date.now();
+                      if (nowMs - (previewPlayFailureLogAtRef.current[id] ?? 0) > 2000) {
+                        previewPlayFailureLogAtRef.current[id] = nowMs;
+                        logWarn('RENDER', 'preview.play.failed: retrying', {
                           videoId: id,
                           error: err instanceof Error ? err.message : String(err),
                         });
                       }
+                      requestVideoPlayWithRetry(videoEl, () =>
+                        isPlayingRef.current
+                        && !isSeekingRef.current
+                        && loopIdRef.current === currentLoopId,
+                      );
                     });
                   }
                 }
@@ -1851,16 +1949,21 @@ export function usePreviewEngine({
                       const lastSeekAtMs = androidPreviewLastSeekAtRef.current[id] || 0;
                       const sinceLastSeekMs = now - lastSeekAtMs;
                       const segmentRecoveryKey = `${activeIndex}:${id}`;
-                      const alreadyRecoveredSegment =
-                        androidPreviewRecoveredSegmentRef.current[id] === segmentRecoveryKey;
-                      // recovery seek は Android passive preview の最後の手段で、1 segment あたり 1 回だけ許可する。
+                      const segmentRecoveryState = androidPreviewRecoveredSegmentRef.current[id];
+                      const segmentRecoverySeekCount =
+                        segmentRecoveryState?.key === segmentRecoveryKey
+                          ? segmentRecoveryState.count
+                          : 0;
+                      // recovery seek は Android passive preview の最後の手段。最低 1 秒間隔を守りつつ、
+                      // drift が解消しない限り 1 segment あたり最大 N 回まで再試行する
+                      // (1 回限りだと、その seek 自体が失敗したとき区間まるごとフリーズする)。
                       if (
                         localTime >= 0
                         &&
                         sinceLastSeekMs >= PREVIEW_ANDROID_RECOVERY_MIN_INTERVAL_MS
                         && activeVideoDrift >= PREVIEW_ANDROID_RECOVERY_DRIFT_THRESHOLD_SEC
                         && localTime > PREVIEW_ANDROID_RECOVERY_SKIP_AFTER_BOUNDARY_SEC
-                        && !alreadyRecoveredSegment
+                        && segmentRecoverySeekCount < PREVIEW_ANDROID_RECOVERY_MAX_SEEKS_PER_SEGMENT
                       ) {
                         maybeAssignAndroidPreviewSeek({
                           videoEl,
@@ -1898,6 +2001,72 @@ export function usePreviewEngine({
                   }
                   primePreviewAudioOnlyTracksAtTimeRef.current(currentTimeRef.current);
                 }
+
+                // stall watchdog: seeking のまま戻らない / readyState が上がらないデコーダ固着は、
+                // Android recovery (`!seeking` ガード付き) では一切叩き起こせないため、
+                // 一定時間継続したら currentTime の割り込み再代入でシークを再発行する (PC / Android 共通)。
+                if (!_isExporting) {
+                  const watchdogNowMs = Date.now();
+                  const stallStates = videoStallWatchdogRef.current;
+                  const isStalledNow =
+                    videoEl.seeking
+                    || videoEl.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME;
+                  if (!isStalledNow) {
+                    if (stallStates[id]) {
+                      delete stallStates[id];
+                    }
+                  } else {
+                    let stallState = stallStates[id];
+                    // 前回評価から間が空いていたら (境界跨ぎ / タブ非表示など) 計測をやり直す。
+                    if (
+                      !stallState
+                      || watchdogNowMs - stallState.lastSeenAtMs > PREVIEW_STALL_STATE_CONTINUITY_MS
+                    ) {
+                      stallState = {
+                        stalledSinceMs: watchdogNowMs,
+                        lastKickAtMs: 0,
+                        kickCount: 0,
+                        lastSeenAtMs: watchdogNowMs,
+                      };
+                      stallStates[id] = stallState;
+                    }
+                    stallState.lastSeenAtMs = watchdogNowMs;
+                    const stallKickDecision = getStandardPreviewStallKickDecision({
+                      isExporting: _isExporting,
+                      isActivePlaying,
+                      isUserSeeking,
+                      videoSeeking: videoEl.seeking,
+                      videoReadyState: videoEl.readyState,
+                      videoHasError: !!videoEl.error,
+                      stalledForMs: watchdogNowMs - stallState.stalledSinceMs,
+                      sinceLastKickMs: stallState.lastKickAtMs === 0
+                        ? Number.POSITIVE_INFINITY
+                        : watchdogNowMs - stallState.lastKickAtMs,
+                    });
+                    if (stallKickDecision.shouldKick) {
+                      stallState.lastKickAtMs = watchdogNowMs;
+                      stallState.kickCount += 1;
+                      // Android recovery seek の最低間隔判定とも整合させる。
+                      androidPreviewLastSeekAtRef.current[id] = watchdogNowMs;
+                      const currentTimeBeforeKick = videoEl.currentTime;
+                      try {
+                        videoEl.currentTime = targetTime;
+                        logWarn('RENDER', 'preview.stall.watchdog.kick', {
+                          videoId: id,
+                          reason: stallKickDecision.reason,
+                          kickCount: stallState.kickCount,
+                          stalledForMs: watchdogNowMs - stallState.stalledSinceMs,
+                          targetTime,
+                          currentTimeBefore: currentTimeBeforeKick,
+                          readyState: videoEl.readyState,
+                          seeking: videoEl.seeking,
+                        });
+                      } catch {
+                        /* ignore */
+                      }
+                    }
+                  }
+                }
               } else if (!isActivePlaying && !isUserSeeking) {
                 if (!videoEl.paused) {
                   videoEl.pause();
@@ -1924,10 +2093,40 @@ export function usePreviewEngine({
               isVideo
               && id === activeId
               && shouldSkipAndroidPreviewActiveDraw;
+            // fade region 中は canvas を毎フレーム黒クリアするため holdFrame で前フレームを残せない。
+            // デコーダ固着で実フレームが無いときは、直前の非黒スナップショットに fade alpha を
+            // 掛けて描画し、ブラックアウト固着を防ぐ。
+            const fadeStallSnapshot = fadeStallSnapshotRef.current;
+            const shouldUseFadeStallSnapshot =
+              isVideo
+              && id === activeId
+              && !shouldSkipVideoDrawForAndroidHold
+              && shouldDrawFadeStallSnapshotFrame({
+                isExporting: _isExporting,
+                isVideoDrawable:
+                  isVideoReady && videoEl.videoWidth > 0 && videoEl.videoHeight > 0,
+                isInFadeRegion,
+                shouldBlackoutFadeTail,
+                activeVideoId: activeId,
+                snapshotVideoId: fadeStallSnapshot.videoId,
+                snapshotWidth: fadeStallSnapshot.canvas?.width ?? 0,
+                snapshotHeight: fadeStallSnapshot.canvas?.height ?? 0,
+              });
+            const stallSnapshotCanvas = shouldUseFadeStallSnapshot
+              ? fadeStallSnapshot.canvas
+              : null;
 
-            if (isReady && !shouldSkipVideoDrawForFadeTail && !shouldSkipVideoDrawForAndroidHold) {
-              const elemW = isVideo ? videoEl.videoWidth : imgEl.naturalWidth;
-              const elemH = isVideo ? videoEl.videoHeight : imgEl.naturalHeight;
+            if (
+              (isReady || stallSnapshotCanvas)
+              && !shouldSkipVideoDrawForFadeTail
+              && !shouldSkipVideoDrawForAndroidHold
+            ) {
+              const elemW = stallSnapshotCanvas
+                ? stallSnapshotCanvas.width
+                : isVideo ? videoEl.videoWidth : imgEl.naturalWidth;
+              const elemH = stallSnapshotCanvas
+                ? stallSnapshotCanvas.height
+                : isVideo ? videoEl.videoHeight : imgEl.naturalHeight;
               if (elemW && elemH) {
                 const scaleFactor = conf.scale || 1.0;
                 const userX = conf.positionX || 0;
@@ -1959,8 +2158,34 @@ export function usePreviewEngine({
 
                 ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
                 try {
-                  ctx.drawImage(element as CanvasImageSource, -elemW / 2, -elemH / 2, elemW, elemH);
+                  ctx.drawImage(
+                    (stallSnapshotCanvas ?? element) as CanvasImageSource,
+                    -elemW / 2,
+                    -elemH / 2,
+                    elemW,
+                    elemH,
+                  );
                   didUpdateCanvas = true;
+                  if (isVideo && id === activeId && !_isExporting) {
+                    if (stallSnapshotCanvas) {
+                      const nowMs = Date.now();
+                      if (
+                        nowMs - (fadeStallHoldLogAtRef.current[id] ?? 0)
+                        >= PREVIEW_FADE_STALL_HOLD_LOG_INTERVAL_MS
+                      ) {
+                        fadeStallHoldLogAtRef.current[id] = nowMs;
+                        logInfo('RENDER', 'preview.fade.stallSnapshotHold', {
+                          videoId: id,
+                          readyState: videoEl.readyState,
+                          seeking: videoEl.seeking,
+                          timelineTime: time,
+                          snapshotAgeMs: nowMs - fadeStallSnapshot.capturedAtMs,
+                        });
+                      }
+                    } else {
+                      captureFadeStallSnapshot(id, videoEl, ctx.canvas.width, ctx.canvas.height);
+                    }
+                  }
                 } finally {
                   if (
                     shouldPlayAndroidPreviewActiveVideoAfterDraw

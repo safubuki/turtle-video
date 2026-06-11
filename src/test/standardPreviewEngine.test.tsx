@@ -1382,7 +1382,7 @@ describe('standard preview engine', () => {
     expect(videoElement.currentTime).toBeCloseTo(0.2);
   });
 
-  it('Android preview は境界後の大きな drift だけを 1 セグメント 1 回だけ recovery seek する', () => {
+  it('Android preview は境界後の大きな drift を最低 1 秒間隔・1 セグメント最大 3 回まで recovery seek する', () => {
     const currentVideo = createVideoItem({
       id: 'video-1',
       duration: 1,
@@ -1431,16 +1431,40 @@ describe('standard preview engine', () => {
         reason: 'timeline-drift',
         videoId: nextVideo.id,
         segmentIndex: 1,
+        recoverySeekCount: 1,
       }),
     );
 
+    // 最低間隔 (1s) 未満では drift が残っていても再実行しない。
     assignedCurrentTime = 0.3;
-    nowSpy.mockReturnValue(3_200);
-    // 同一 segment 内では 2 回目の大きな drift を検知しても recovery seek を再実行しない。
-    hook.result.current.renderFrame(1.8, true, false);
+    nowSpy.mockReturnValue(2_900);
+    hook.result.current.renderFrame(1.75, true, false);
 
     expect(assignedCurrentTime).toBeCloseTo(0.3);
     expect(seekAssignCount).toBe(1);
+
+    // 1 秒以上空けても drift が解消しなければ再試行する (旧実装の 1 回限りでは
+    // その seek 自体が失敗したとき区間まるごとフリーズした)。
+    nowSpy.mockReturnValue(3_200);
+    hook.result.current.renderFrame(1.8, true, false);
+
+    expect(assignedCurrentTime).toBeCloseTo(2.0);
+    expect(seekAssignCount).toBe(2);
+
+    assignedCurrentTime = 0.4;
+    nowSpy.mockReturnValue(4_400);
+    hook.result.current.renderFrame(1.85, true, false);
+
+    expect(assignedCurrentTime).toBeCloseTo(2.05);
+    expect(seekAssignCount).toBe(3);
+
+    // 上限 (3 回) に達したら同一 segment では打ち止めにして seek 連打を避ける。
+    assignedCurrentTime = 0.5;
+    nowSpy.mockReturnValue(5_600);
+    hook.result.current.renderFrame(1.9, true, false);
+
+    expect(assignedCurrentTime).toBeCloseTo(0.5);
+    expect(seekAssignCount).toBe(3);
     nowSpy.mockRestore();
   });
 

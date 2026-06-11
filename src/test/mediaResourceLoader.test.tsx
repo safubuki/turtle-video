@@ -10,12 +10,12 @@ vi.mock('../utils/platform', () => ({
   getPlatformCapabilities: () => getPlatformCapabilitiesMock(),
 }));
 
-function createVideoItem(): MediaItem {
+function createVideoItem(id = 'video-1'): MediaItem {
   return {
-    id: 'video-1',
+    id,
     file: new File([''], 'clip.mp4', { type: 'video/mp4' }),
     type: 'video',
-    url: 'blob:video-1',
+    url: `blob:${id}`,
     volume: 1,
     isMuted: false,
     fadeIn: false,
@@ -61,5 +61,45 @@ describe('MediaResourceLoader', () => {
     expect(wrapper.style.width).toBe('1px');
     expect(video?.getAttribute('webkit-playsinline')).toBe('');
     expect(video?.style.opacity).toBe('0.01');
+  });
+
+  it('Android では先頭動画のみ preload=auto、それ以外は metadata に抑える', () => {
+    getPlatformCapabilitiesMock.mockReturnValue({ isIosSafari: false, isAndroid: true });
+
+    const { container } = render(
+      <MediaResourceLoader
+        mediaItems={[createVideoItem('video-1'), createVideoItem('video-2')]}
+        bgm={null}
+        narrations={[]}
+        onElementLoaded={vi.fn()}
+        onRefAssign={vi.fn()}
+        onSeeked={vi.fn()}
+        onVideoLoadedData={vi.fn()}
+      />,
+    );
+
+    const videos = container.querySelectorAll('video');
+    expect(videos[0]?.getAttribute('preload')).toBe('auto');
+    expect(videos[1]?.getAttribute('preload')).toBe('metadata');
+  });
+
+  it('Android 以外 (PC / iOS Safari) は全動画 preload=auto を維持する', () => {
+    getPlatformCapabilitiesMock.mockReturnValue({ isIosSafari: false, isAndroid: false });
+
+    const { container } = render(
+      <MediaResourceLoader
+        mediaItems={[createVideoItem('video-1'), createVideoItem('video-2')]}
+        bgm={null}
+        narrations={[]}
+        onElementLoaded={vi.fn()}
+        onRefAssign={vi.fn()}
+        onSeeked={vi.fn()}
+        onVideoLoadedData={vi.fn()}
+      />,
+    );
+
+    const videos = container.querySelectorAll('video');
+    expect(videos[0]?.getAttribute('preload')).toBe('auto');
+    expect(videos[1]?.getAttribute('preload')).toBe('auto');
   });
 });
