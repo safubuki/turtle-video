@@ -203,6 +203,9 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   const [stampIndex, setStampIndex] = useState(0);
   const [stampMode, setStampMode] = useState<'alternate' | 'chain'>('alternate');
   const [stampPhase, setStampPhase] = useState<'start' | 'end'>('start');
+  // 連続モードのキャプション間隔（終了位置 + 間隔 = 次の開始位置）
+  const [stampGapSec, setStampGapSec] = useState(0.2);
+  const [isStampGapCustom, setIsStampGapCustom] = useState(false);
   const stampTarget = stampActive ? captions[stampIndex] : undefined;
 
   // 現在のプレビュー位置にかかっている（または直後の）キャプションから開始する
@@ -272,7 +275,15 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
     });
     const next = captions[stampIndex + 1];
     if (next) {
-      onUpdateCaptionLive(next.id, { startTime: at });
+      // 次の開始は「終了位置 + 設定した間隔」
+      const nextStart = Math.round((at + stampGapSec) * 10) / 10;
+      const nextUpdates: Partial<Omit<Caption, 'id'>> = { startTime: nextStart };
+      // 間隔で開始が終了を追い越す場合は最低 0.5 秒の表示時間を確保する
+      if (next.endTime < nextStart + 0.5) {
+        const minEnd = nextStart + 0.5;
+        nextUpdates.endTime = totalDuration > 0 ? Math.min(minEnd, totalDuration) : minEnd;
+      }
+      onUpdateCaptionLive(next.id, nextUpdates);
       setStampIndex(stampIndex + 1);
     } else {
       setStampActive(false);
@@ -753,7 +764,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                   <Timer className="w-3.5 h-3.5" /> ② タイミング打ち
                 </span>
                 <span className={`block text-[9px] leading-tight mt-0.5 ${stampActive ? 'text-yellow-100' : 'text-gray-500'}`}>
-                  {captions.length < 2 ? 'キャプション2件以上で使用可' : stampActive ? 'タップで終了' : '再生しながら切り替えを確定'}
+                  {captions.length < 2 ? 'キャプション2件以上で使用可' : stampActive ? 'タップで終了' : '再生しながら表示タイミングを設定'}
                 </span>
               </button>
             </div>
@@ -971,10 +982,10 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
               </button>
               <button
                 onClick={onTogglePlay}
-                className="h-9 w-11 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-100 flex items-center justify-center transition"
+                className="w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur text-white flex items-center justify-center transition-transform active:scale-95"
                 title={isPlaying ? '一時停止' : '再生'}
               >
-                {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
               </button>
               <button
                 onClick={() => onSeekBy(1)}
@@ -984,6 +995,47 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                 +1s
               </button>
             </div>
+            {/* 連続モード: キャプション間隔（終了 + 間隔 = 次の開始） */}
+            {stampMode === 'chain' && (
+              <div className="flex items-center gap-1.5 text-[10px] md:text-xs">
+                <span className="text-gray-400 shrink-0">間隔:</span>
+                <button
+                  onClick={() => { setIsStampGapCustom(false); setStampGapSec(0); }}
+                  className={`px-2.5 py-1 rounded transition ${!isStampGapCustom && stampGapSec === 0 ? 'bg-yellow-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'}`}
+                >
+                  なし
+                </button>
+                <button
+                  onClick={() => { setIsStampGapCustom(false); setStampGapSec(0.2); }}
+                  className={`px-2.5 py-1 rounded transition ${!isStampGapCustom && stampGapSec === 0.2 ? 'bg-yellow-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'}`}
+                >
+                  200ms
+                </button>
+                <button
+                  onClick={() => setIsStampGapCustom(true)}
+                  className={`px-2.5 py-1 rounded transition ${isStampGapCustom ? 'bg-yellow-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'}`}
+                >
+                  カスタム
+                </button>
+                {isStampGapCustom && (
+                  <>
+                    <input
+                      type="number"
+                      min={0}
+                      max={10}
+                      step={0.1}
+                      value={stampGapSec}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        if (!Number.isNaN(val)) setStampGapSec(Math.max(0, Math.min(10, Math.round(val * 10) / 10)));
+                      }}
+                      className="w-14 bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-center focus:outline-none focus:border-yellow-500"
+                    />
+                    <span className="text-gray-500">秒</span>
+                  </>
+                )}
+              </div>
+            )}
             {/* 操作行: モードごとのボタン */}
             {stampMode === 'alternate' ? (
               <div className="flex gap-2">

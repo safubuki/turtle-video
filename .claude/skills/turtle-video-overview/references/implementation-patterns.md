@@ -2084,3 +2084,13 @@
   - export 音声は ranges の start でスケジュールし、overlap 区間に линеramp のクロスフェードエンベロープを追加（プレビューと聴感一致）。
   - overlap は双方クリップに 0.15 秒残すようクランプ。iOS はトランジション無視の逐次のまま（ディゾルブ入りプロジェクトは終端が短縮ぶん切れる縮退・要 iOS 展開時対応）。
 - **注意**: renderFrame の peer 処理は「id === overlapPeerId」のときだけ走る完全付加パス。トランジションなしでは activeId 選択含め従来と同一挙動になることを崩さない。
+
+### 13-110. トランジション/タイミング打ちの UI 仕上げとヘルプ更新
+
+- **ファイル**: `src/components/sections/ClipsSection.tsx`, `src/components/sections/CaptionSection.tsx`, `src/components/modals/CaptionBulkAddModal.tsx`, `src/constants/sectionHelp.ts`
+- **内容**:
+  - トランジションコネクタはカード間で上下対称の余白（py-0.5 + mt-1.5）。下カードに密着していたのは意図ではなく余白調整漏れ。
+  - タイミング打ち連続モードに間隔設定（なし/200ms/カスタム 0〜10 秒）。「区切って次へ」= 現在キャプションの終了を打ち、次の開始は終了+間隔（開始が終了を追い越す場合は表示 0.5 秒を自動確保）。
+  - 打鍵バーの再生/一時停止ボタンは PreviewSection と同一仕様（rounded-full bg-white/20 + fill-current）。
+  - まとめて入力の ？ヘルプは他モーダルヘルプと同様の閉じ方（アンバー枠 + 右上 X）。
+  - sectionHelp.ts に Android/PC 版機能を追記（clips: コピー/トランジション、bgm: 複数BGM、narration: コピー、caption: まとめて入力・タイミング打ち・まとめてずらす・フォント/カスタム値）。新規ヘルプ項目は visuals 省略可。

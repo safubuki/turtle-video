@@ -158,7 +158,19 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
           </div>
 
           {showFormatHelp && (
-            <div className="text-[10px] md:text-xs text-gray-300 bg-gray-800/70 border border-gray-700 rounded-lg p-2.5 space-y-1">
+            <div className="text-[10px] md:text-xs text-gray-300 bg-gray-900 border border-amber-500/50 rounded-xl p-3 space-y-1.5 shadow-xl">
+              <div className="flex items-center justify-between">
+                <span className="text-amber-200 font-semibold flex items-center gap-1">
+                  <CircleHelp className="w-3.5 h-3.5" /> 時間指定と AI 連携の使い方
+                </span>
+                <button
+                  onClick={() => setShowFormatHelp(false)}
+                  className="p-1 rounded-lg border border-amber-500/40 text-amber-200 hover:bg-amber-500/10 transition"
+                  aria-label="ヘルプを閉じる"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
               <div className="text-yellow-300 font-semibold">行ごとの時間指定（任意）</div>
               <div>
                 行頭（または行末）に <code className="bg-gray-700 px-1 rounded">[開始-終了]</code> を付けると、その時間で配置されます:

@@ -196,9 +196,15 @@ export function getSectionHelpContent(context: SectionHelpContext): Record<Secti
         visuals: ['unlock_button', 'lock_button_red'],
       },
       {
-        title: '並び替え・削除',
-        description: '各クリップは上下移動と削除ができます。',
+        title: '並び替え・コピー・削除',
+        description:
+          '各クリップは上下移動と削除ができます。青いコピーボタンで同じクリップを直後に複製でき、同じ動画から別のシーンを切り出すときに便利です（Android/PC版）。',
         visuals: ['move_up_button', 'move_down_button', 'delete_button'],
+      },
+      {
+        title: 'トランジション（Android/PC版）',
+        description:
+          'カードとカードの間の「トランジション」ボタンから、切り替え効果（ディゾルブ／フェード黒／フェード白）と時間（0.5〜2秒）を設定できます。ディゾルブは前の動画が流れたまま次が重なって始まるため、重なりのぶん動画全体が少し短くなります。フェードは長さを変えません。',
       },
       {
         title: '個別パネルの鍵',
@@ -233,6 +239,11 @@ export function getSectionHelpContent(context: SectionHelpContext): Record<Secti
         title: '追加ボタン',
         description: 'BGMファイルを追加できます。',
         visuals: ['add_green_button'],
+      },
+      {
+        title: '複数のBGM（Android/PC版）',
+        description:
+          '複数の曲を追加してシーンごとに切り替えられます。追加した曲は動画の長さに合わせて自動配置され、ナレーションと同じように開始位置・トリミング・音量・フェード・コピーを個別に調整できます。',
       },
       {
         title: 'セクションの鍵アイコン',
@@ -276,6 +287,11 @@ export function getSectionHelpContent(context: SectionHelpContext): Record<Secti
         title: 'セクションの鍵アイコン',
         description: 'ナレーションの追加・削除・調整をロックできます。',
         visuals: ['unlock_button', 'lock_button_red'],
+      },
+      {
+        title: 'コピー（Android/PC版）',
+        description:
+          '青いコピーボタンでナレーションを複製できます。複製はトリミング後の末尾に続けて配置されるので、長い音声を分割して好きなタイミングに配置するときに便利です。',
       },
       {
         title: '並び替え・編集・削除・保存',
@@ -339,6 +355,26 @@ export function getSectionHelpContent(context: SectionHelpContext): Record<Secti
         title: '表示時間',
         description: '開始時間・終了時間はスライダーや数値で調整し、現在位置ボタンでプレビューの現在位置に設定できます。',
         visuals: ['start_chip', 'duration_chip', 'current_pin_chip', 'slider_demo'],
+      },
+      {
+        title: '① まとめて入力・編集（Android/PC版）',
+        description:
+          '歌詞や長い字幕を複数行まとめて追加・編集できます。1行が1キャプションになり、行頭の [開始-終了] で時間も指定できます。AI用プロンプト（？ヘルプ内）を使えば、動画をAIに解析させて出力をそのまま貼り付けることもできます。',
+      },
+      {
+        title: '② タイミング打ち（Android/PC版）',
+        description:
+          '再生しながらボタンを押すだけでキャプションの表示タイミングを確定できます。交互モード（開始→終了を交互に確定）と連続モード（区切ると同時に次が始まる・間隔設定可）があり、-1s/+1s と再生ボタンで微調整できます。',
+      },
+      {
+        title: '時間をまとめてずらす（Android/PC版）',
+        description:
+          '映像を途中に差し込んだときなどに、選んだカード以降のキャプションを一括で前後にずらせます。',
+      },
+      {
+        title: 'フォント・カスタム値（Android/PC版）',
+        description:
+          '字体は端末に実在するシステムフォントから選べます（PCでは全フォント読み込みも可）。サイズと位置は「カスタム」で数値・XY座標を自由に指定できます。',
       },
     ],
   },

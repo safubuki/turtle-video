@@ -29,7 +29,7 @@ const ClipTransitionConnector: React.FC<{
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="flex flex-col items-center -my-1">
+    <div className="flex flex-col items-center py-0.5">
       <button
         onClick={() => setOpen((prev) => !prev)}
         disabled={disabled}
@@ -45,7 +45,7 @@ const ClipTransitionConnector: React.FC<{
           : 'トランジション'}
       </button>
       {open && (
-        <div className="w-full mt-1 mb-1 p-2 bg-gray-800/80 border border-purple-500/30 rounded-lg space-y-1.5 text-[10px]">
+        <div className="w-full mt-1.5 mb-0.5 p-2 bg-gray-800/80 border border-purple-500/30 rounded-lg space-y-1.5 text-[10px]">
           <div className="flex gap-1">
             <button
               onClick={() => {
