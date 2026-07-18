@@ -2175,3 +2175,18 @@
   - タイミング打ちは `withPreviewPause` を通さない生の `updateCaption` を使う（再生継続が前提の機能。他のキャプション編集は従来どおり pause を通す）。
   - `SerializedNarrationClip` にフェード 4 フィールド、`ProjectData` に `bgmClips` を追加済み。復元は `restoreFromSave(..., bgmClips?)` の第 5 引数。
   - iOS への展開時は BgmSection の分岐解除 + apple-safari エンジンのクリップフェード対応 + 拡張フォント UI 解放が必要。
+
+### 13-104. キャプション重点ブラッシュアップ（F5）: 時間記法ラウンドトリップと 2 フェーズタイミング打ち
+
+- **ファイル**: `src/utils/captionBulkInput.ts`, `src/utils/captionStyle.ts`, `src/components/modals/CaptionBulkAddModal.tsx`, `src/components/sections/CaptionSection.tsx`, `Docs/specs/2026-07-18_f5-caption-brushup.md`
+- **内容**:
+  - **時間記法**: 行頭 `[MM:SS.s-MM:SS.s]` プレフィックスのみ時間指定として解釈（`@` は歌詞と衝突するため不採用）。本文中の記号には反応しない。`formatCaptionsAsBulkText()` → `parseBulkCaptionInput()` がラウンドトリップし、外部 AI にこの形式で出力させて貼り付ける運用を想定。
+  - **まとめて編集**: 既存キャプションを時間記法テキストへプリフィルし、反映は「行順マージ」（`captionStore.replaceCaptions`）。同じ行位置は id を保持して個別 override を維持、追加行は新規、消えた行は削除。
+  - **割付オプション**: キャプション間隔 0/0.3/0.5 秒（既定 0.3）、1 行あたり表示秒数はステッパー+数値入力（0.5〜30 秒）。
+  - **タイミング打ち v2**: 開始対象は現在の再生位置から自動選択 + ◀▶ ナビ。2 フェーズ方式（「区切って次へ」=終了と次開始を同時確定 / 「終了だけ」→「ここから開始」=間を空ける）。`onUpdateCaptionLive`（withPreviewPause を通さない生 updateCaption）を使い再生を止めない。
+  - **フォント UI**: 固定 3（ゴシック/明朝/丸ゴシック `PINNED_CAPTION_FONT_OPTIONS`）+ ドロップダウン（`DROPDOWN_CAPTION_FONT_OPTIONS`）。カードグリッドは廃止。
+  - **カスタム値**: `CaptionSettings.fontSizeCustom`（px @1080p、24〜240）と `positionCustom`（% XY・テキスト中心）。解決は `captionStyle.ts`（優先度: 個別 override プリセット > 一括カスタム > 一括プリセット）。standard エンジンのみ描画反映（iOS はプリセット縮退）。
+- **注意**:
+  - `captionStore.restoreFromSave` は `{ ...initialSettings, ...saved }` で新フィールドを既定値補完する（旧データ互換）。
+  - すべて standard 限定ゲート（13-103 の定石どおり `usePlatformCapabilities().isIosSafari`）。
+  - 均等割りは「全行が時間なし」のときだけ適用。明示時間の行が混在すると逐次配置へフォールバック（仕様書に明記）。

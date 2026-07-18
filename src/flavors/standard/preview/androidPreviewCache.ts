@@ -116,6 +116,8 @@ export function createAndroidPreviewCacheKey(
       bulkFadeOut: input.captionSettings.bulkFadeOut,
       bulkFadeInDuration: input.captionSettings.bulkFadeInDuration,
       bulkFadeOutDuration: input.captionSettings.bulkFadeOutDuration,
+      fontSizeCustom: input.captionSettings.fontSizeCustom ?? null,
+      positionCustom: input.captionSettings.positionCustom ?? null,
     },
   });
 }

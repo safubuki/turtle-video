@@ -79,6 +79,15 @@ export const BASIC_CAPTION_FONT_OPTIONS = CAPTION_FONT_OPTIONS.filter((o) => !o.
 /** 拡張フォント（standard フレーバー限定 UI） */
 export const EXTENDED_CAPTION_FONT_OPTIONS = CAPTION_FONT_OPTIONS.filter((o) => o.extended);
 
+/** standard の固定表示 3 種（ゴシック/明朝/丸ゴシック）。それ以外はドロップダウンで選択 */
+const PINNED_VALUES: CaptionFontStyle[] = ['gothic', 'mincho', 'rounded'];
+export const PINNED_CAPTION_FONT_OPTIONS = CAPTION_FONT_OPTIONS.filter((o) =>
+  PINNED_VALUES.includes(o.value),
+);
+export const DROPDOWN_CAPTION_FONT_OPTIONS = CAPTION_FONT_OPTIONS.filter(
+  (o) => !PINNED_VALUES.includes(o.value),
+);
+
 /** 指定の字体が拡張フォントかどうか */
 export function isExtendedCaptionFontStyle(style: CaptionFontStyle | undefined | null): boolean {
   return EXTENDED_CAPTION_FONT_OPTIONS.some((o) => o.value === style);

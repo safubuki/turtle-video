@@ -23,6 +23,12 @@ interface CaptionState {
   addCaption: (text: string, startTime: number, endTime: number) => void;
   /** 一括追加（歌詞・長文字幕向け）。各要素に一括フェード等の既定値を適用して末尾へ追加する */
   addCaptions: (items: { text: string; startTime: number; endTime: number }[]) => void;
+  /**
+   * まとめて編集の反映（全置き換え）。id 付き要素は既存キャプションの
+   * 個別スタイル・フェードを維持したままテキスト/時間だけ更新し、
+   * id なし要素は新規作成、指定されなかった既存キャプションは削除する。
+   */
+  replaceCaptions: (items: { id?: string; text: string; startTime: number; endTime: number }[]) => void;
   updateCaption: (id: string, updates: Partial<Omit<Caption, 'id'>>) => void;
   removeCaption: (id: string) => void;
   moveCaption: (id: string, direction: 'up' | 'down') => void;
@@ -37,6 +43,10 @@ interface CaptionState {
   setStrokeWidth: (width: number) => void;
   setPosition: (position: CaptionPosition) => void;
   setBlur: (blur: number) => void;
+  /** 一括カスタムサイズ（px @1080p 基準）。null でプリセットへ戻す */
+  setFontSizeCustom: (value: number | null) => void;
+  /** 一括カスタム位置（% XY）。null でプリセットへ戻す */
+  setPositionCustom: (value: { x: number; y: number } | null) => void;
 
   // === 一括フェード設定 ===
   setBulkFadeIn: (enabled: boolean) => void;
@@ -73,6 +83,9 @@ const initialSettings: CaptionSettings = {
   bulkFadeOut: false,
   bulkFadeInDuration: 0.5,
   bulkFadeOutDuration: 0.5,
+  // 一括カスタム値（standard フレーバー限定機能）
+  fontSizeCustom: null,
+  positionCustom: null,
 };
 
 // ID生成
@@ -131,6 +144,41 @@ export const useCaptionStore = create<CaptionState>()(
           }),
           false,
           'addCaptions'
+        );
+      },
+
+      replaceCaptions: (items) => {
+        useLogStore.getState().info('MEDIA', 'キャプションをまとめて反映', { count: items.length });
+        return set(
+          (state) => {
+            const byId = new Map(state.captions.map((c) => [c.id, c]));
+            return {
+              captions: items.map((item) => {
+                const existing = item.id ? byId.get(item.id) : undefined;
+                if (existing) {
+                  // 個別スタイル・フェード設定を維持したままテキスト/時間だけ更新
+                  return {
+                    ...existing,
+                    text: item.text,
+                    startTime: item.startTime,
+                    endTime: item.endTime,
+                  };
+                }
+                return {
+                  id: generateId(),
+                  text: item.text,
+                  startTime: item.startTime,
+                  endTime: item.endTime,
+                  fadeIn: state.settings.bulkFadeIn,
+                  fadeOut: state.settings.bulkFadeOut,
+                  fadeInDuration: state.settings.bulkFadeInDuration,
+                  fadeOutDuration: state.settings.bulkFadeOutDuration,
+                };
+              }),
+            };
+          },
+          false,
+          'replaceCaptions'
         );
       },
 
@@ -248,6 +296,24 @@ export const useCaptionStore = create<CaptionState>()(
           'setBlur'
         ),
 
+      setFontSizeCustom: (fontSizeCustom) =>
+        set(
+          (state) => ({
+            settings: { ...state.settings, fontSizeCustom },
+          }),
+          false,
+          'setFontSizeCustom'
+        ),
+
+      setPositionCustom: (positionCustom) =>
+        set(
+          (state) => ({
+            settings: { ...state.settings, positionCustom },
+          }),
+          false,
+          'setPositionCustom'
+        ),
+
       // === 一括フェード設定 ===
       // 要望対応: 一括設定は「個別設定がOFFのもの」に対してのみ適用し、
       // 既存の個別設定（ONになっているもの）や、決定済みの時間を勝手に変更しない。
@@ -314,7 +380,8 @@ export const useCaptionStore = create<CaptionState>()(
         set(
           {
             captions: newCaptions,
-            settings: newSettings,
+            // 旧バージョンの保存データに無い新フィールドは初期値で補完する
+            settings: { ...initialSettings, ...newSettings },
             isLocked: newIsLocked,
           },
           false,

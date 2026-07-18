@@ -187,8 +187,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const captionSettings = useCaptionStore((s) => s.settings);
   const isCaptionLocked = useCaptionStore((s) => s.isLocked);
   const addCaption = useCaptionStore((s) => s.addCaption);
-  const addCaptions = useCaptionStore((s) => s.addCaptions);
+  const replaceCaptions = useCaptionStore((s) => s.replaceCaptions);
   const updateCaption = useCaptionStore((s) => s.updateCaption);
+  const setCaptionFontSizeCustom = useCaptionStore((s) => s.setFontSizeCustom);
+  const setCaptionPositionCustom = useCaptionStore((s) => s.setPositionCustom);
   const removeCaption = useCaptionStore((s) => s.removeCaption);
   const moveCaption = useCaptionStore((s) => s.moveCaption);
   const setCaptionEnabled = useCaptionStore((s) => s.setEnabled);
@@ -2507,8 +2509,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onSetBulkFadeOutDuration={withPreviewPause('set-caption-bulk-fade-out-duration', setBulkFadeOutDuration)}
               onOpenHelp={() => openSectionHelp('caption')}
               formatTime={formatTime}
-              onAddCaptions={withPreviewPause('bulk-add-captions', addCaptions)}
+              onApplyCaptions={withPreviewPause('bulk-apply-captions', replaceCaptions)}
               onUpdateCaptionLive={updateCaption}
+              onSetFontSizeCustom={withPreviewPause('set-caption-font-size-custom', setCaptionFontSizeCustom)}
+              onSetPositionCustom={withPreviewPause('set-caption-position-custom', setCaptionPositionCustom)}
             />
 
           </div>

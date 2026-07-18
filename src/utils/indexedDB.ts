@@ -139,6 +139,9 @@ export interface SerializedCaptionSettings {
   bulkFadeOut: boolean;
   bulkFadeInDuration: number;
   bulkFadeOutDuration: number;
+  // 一括カスタム値（standard フレーバー限定機能・任意）
+  fontSizeCustom?: number | null;
+  positionCustom?: { x: number; y: number } | null;
 }
 
 // プロジェクトデータ全体

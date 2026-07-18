@@ -10,6 +10,7 @@ import {
   CircleHelp,
   Plus,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Type,
   Eye,
@@ -24,11 +25,18 @@ import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import {
   BASIC_CAPTION_FONT_OPTIONS,
-  EXTENDED_CAPTION_FONT_OPTIONS,
-  isExtendedCaptionFontStyle,
+  DROPDOWN_CAPTION_FONT_OPTIONS,
+  PINNED_CAPTION_FONT_OPTIONS,
 } from '../../utils/captionFontCatalog';
-import CaptionBulkAddModal from '../modals/CaptionBulkAddModal';
-import type { BulkCaptionPlan } from '../../utils/captionBulkInput';
+import {
+  CAPTION_FONT_SIZE_CUSTOM_MAX,
+  CAPTION_FONT_SIZE_CUSTOM_MIN,
+  CAPTION_FONT_SIZE_PRESETS,
+  CAPTION_POSITION_CUSTOM_DEFAULT,
+  clampCustomFontSize,
+  clampPositionPercent,
+} from '../../utils/captionStyle';
+import CaptionBulkAddModal, { type BulkCaptionApplyItem } from '../modals/CaptionBulkAddModal';
 
 interface CaptionSectionProps {
   captions: Caption[];
@@ -46,6 +54,8 @@ interface CaptionSectionProps {
   onSetFontStyle: (style: CaptionFontStyle) => void;
   onSetPosition: (position: CaptionPosition) => void;
   onSetBlur: (blur: number) => void;
+  onSetFontSizeCustom: (value: number | null) => void;
+  onSetPositionCustom: (value: { x: number; y: number } | null) => void;
   onSetBulkFadeIn: (enabled: boolean) => void;
   onSetBulkFadeOut: (enabled: boolean) => void;
   onSetBulkFadeInDuration: (duration: number) => void;
@@ -53,7 +63,8 @@ interface CaptionSectionProps {
   onOpenHelp: () => void;
   // 一括入力・タイミング打ち（standard フレーバー限定）
   formatTime: (seconds: number) => string;
-  onAddCaptions: (items: BulkCaptionPlan[]) => void;
+  /** まとめて入力/編集の反映（全置き換え・行順マージ） */
+  onApplyCaptions: (items: BulkCaptionApplyItem[]) => void;
   /** プレビューを一時停止せずにキャプションを更新する（タイミング打ち用） */
   onUpdateCaptionLive: (id: string, updates: Partial<Omit<Caption, 'id'>>) => void;
 }
@@ -77,56 +88,110 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   onSetFontStyle,
   onSetPosition,
   onSetBlur,
+  onSetFontSizeCustom,
+  onSetPositionCustom,
   onSetBulkFadeIn,
   onSetBulkFadeOut,
   onSetBulkFadeInDuration,
   onSetBulkFadeOutDuration,
   onOpenHelp,
   formatTime,
-  onAddCaptions,
+  onApplyCaptions,
   onUpdateCaptionLive,
 }) => {
   const [isOpen, setIsOpen] = useState(true);
   const [showStyleSettings, setShowStyleSettings] = useState(false);
   const [newText, setNewText] = useState('');
-  // 拡張フォント（システムフォント）は standard フレーバー（Android/PC）限定
+  // 拡張機能（システムフォント/一括入力/タイミング打ち/カスタム値）は standard フレーバー（Android/PC）限定
   const { isIosSafari } = usePlatformCapabilities();
   const supportsExtendedFonts = !isIosSafari;
-  const isExtendedFontSelected = isExtendedCaptionFontStyle(settings.fontStyle);
-  const [showMoreFonts, setShowMoreFonts] = useState(false);
-  const moreFontsVisible = supportsExtendedFonts && (showMoreFonts || isExtendedFontSelected);
-  // 一括入力・タイミング打ち（standard フレーバー限定）
   const supportsBulkInput = !isIosSafari;
   const [showBulkModal, setShowBulkModal] = useState(false);
+
+  // フォント: 固定 3（ゴシック/明朝/丸ゴシック）+ ドロップダウン
+  const dropdownFontValue = DROPDOWN_CAPTION_FONT_OPTIONS.some((o) => o.value === settings.fontStyle)
+    ? settings.fontStyle
+    : '';
+
+  // カスタムサイズ/位置（standard 限定）
+  const isCustomFontSize = settings.fontSizeCustom != null;
+  const isCustomPosition = settings.positionCustom != null;
+  const customPosition = settings.positionCustom ?? CAPTION_POSITION_CUSTOM_DEFAULT;
+
+  // === タイミング打ち v2 ===
+  // フェーズ: 'end' = 対象の終わりを待っている / 'start' = 対象の始まりを待っている
   const [stampActive, setStampActive] = useState(false);
   const [stampIndex, setStampIndex] = useState(0);
+  const [stampPhase, setStampPhase] = useState<'end' | 'start'>('end');
   const stampTarget = stampActive ? captions[stampIndex] : undefined;
 
+  // 現在のプレビュー位置にかかっている（または直後の）キャプションから開始する
   const startStampMode = () => {
-    setStampIndex(0);
+    const idx = captions.findIndex((c) => c.endTime > currentTime + 0.05);
+    setStampIndex(idx >= 0 ? idx : Math.max(0, captions.length - 1));
+    setStampPhase('end');
     setStampActive(true);
   };
 
-  // タイミング打ち: 現在の再生位置で「対象の終了」と「次の開始」を確定して次へ進む
-  const handleStamp = () => {
+  const moveStampTarget = (delta: number) => {
+    setStampIndex((prev) => Math.max(0, Math.min(captions.length - 1, prev + delta)));
+    setStampPhase('end');
+  };
+
+  const stampNow = () => Math.round(currentTime * 10) / 10;
+
+  // 「区切って次へ」: 終了＝次の開始を同時に確定（間なし）
+  const handleStampSplit = () => {
     const target = captions[stampIndex];
     if (!target) {
       setStampActive(false);
       return;
     }
-    // 対象の開始位置より前では区切れない（endTime <= startTime を防ぐ）
-    if (currentTime <= target.startTime + 0.1) return;
-    const stampAt = Math.round(currentTime * 10) / 10;
+    if (currentTime <= target.startTime + 0.1) return; // 開始より前では区切れない
+    const at = stampNow();
     onUpdateCaptionLive(target.id, {
-      endTime: totalDuration > 0 ? Math.min(stampAt, totalDuration) : stampAt,
+      endTime: totalDuration > 0 ? Math.min(at, totalDuration) : at,
     });
     const next = captions[stampIndex + 1];
     if (next) {
-      onUpdateCaptionLive(next.id, { startTime: stampAt });
+      onUpdateCaptionLive(next.id, { startTime: at });
       setStampIndex(stampIndex + 1);
+      setStampPhase('end');
     } else {
       setStampActive(false);
     }
+  };
+
+  // 「終了だけ」: 終了のみ確定し、次のキャプションの開始待ちへ（間を空けたいとき）
+  const handleStampEndOnly = () => {
+    const target = captions[stampIndex];
+    if (!target) {
+      setStampActive(false);
+      return;
+    }
+    if (currentTime <= target.startTime + 0.1) return;
+    const at = stampNow();
+    onUpdateCaptionLive(target.id, {
+      endTime: totalDuration > 0 ? Math.min(at, totalDuration) : at,
+    });
+    if (captions[stampIndex + 1]) {
+      setStampIndex(stampIndex + 1);
+      setStampPhase('start');
+    } else {
+      setStampActive(false);
+    }
+  };
+
+  // 「ここから開始」: 対象の開始を確定して終了待ちへ
+  const handleStampStart = () => {
+    const target = captions[stampIndex];
+    if (!target) {
+      setStampActive(false);
+      return;
+    }
+    if (currentTime >= target.endTime - 0.1) return; // 終了より後には開始を置けない
+    onUpdateCaptionLive(target.id, { startTime: stampNow() });
+    setStampPhase('end');
   };
 
   const handleAddCaption = () => {
@@ -160,8 +225,10 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
     { value: 'xlarge', label: '特大' },
   ];
 
-  const fontStyleOptions: { value: CaptionFontStyle; label: string }[] =
-    BASIC_CAPTION_FONT_OPTIONS.map(({ value, label }) => ({ value, label }));
+  // 固定表示フォント: standard は 3 種（ゴシック/明朝/丸ゴシック）+ ドロップダウン、iOS は従来の 2 種
+  const fontStyleOptions = supportsExtendedFonts
+    ? PINNED_CAPTION_FONT_OPTIONS
+    : BASIC_CAPTION_FONT_OPTIONS;
 
   const positionOptions: { value: CaptionPosition; label: string }[] = [
     { value: 'top', label: '上部' },
@@ -250,35 +317,19 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                 {/* ■ スタイル設定 */}
                 <div className="space-y-2">
                   <div className="text-[10px] md:text-xs text-yellow-400 font-bold">■ スタイル設定</div>
-                  {/* 文字サイズ */}
+                  {/* 文字サイズ: プリセット + カスタム値（standard のみ） */}
                   <div className="flex items-center gap-2 text-[10px] md:text-xs">
                     <span className="text-gray-400 w-16">サイズ:</span>
                     <div className="flex gap-1 flex-1">
                       {fontSizeOptions.map((opt) => (
                         <button
                           key={opt.value}
-                          onClick={() => onSetFontSize(opt.value)}
+                          onClick={() => {
+                            onSetFontSizeCustom(null);
+                            onSetFontSize(opt.value);
+                          }}
                           disabled={isLocked}
-                          className={`flex-1 max-w-[4rem] py-1 rounded transition ${settings.fontSize === opt.value
-                            ? 'bg-yellow-500 text-gray-900'
-                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                            } disabled:opacity-50`}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  {/* 字体 */}
-                  <div className="flex items-center gap-2 text-[10px] md:text-xs">
-                    <span className="text-gray-400 w-16">字体:</span>
-                    <div className="flex gap-1 flex-1">
-                      {fontStyleOptions.map((opt) => (
-                        <button
-                          key={opt.value}
-                          onClick={() => onSetFontStyle(opt.value)}
-                          disabled={isLocked}
-                          className={`flex-1 max-w-[4rem] py-1 rounded transition ${settings.fontStyle === opt.value
+                          className={`flex-1 max-w-[4rem] py-1 rounded transition ${!isCustomFontSize && settings.fontSize === opt.value
                             ? 'bg-yellow-500 text-gray-900'
                             : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                             } disabled:opacity-50`}
@@ -288,53 +339,108 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                       ))}
                       {supportsExtendedFonts && (
                         <button
-                          onClick={() => setShowMoreFonts((prev) => !prev)}
+                          onClick={() => {
+                            if (!isCustomFontSize) {
+                              onSetFontSizeCustom(CAPTION_FONT_SIZE_PRESETS[settings.fontSize]);
+                            }
+                          }}
                           disabled={isLocked}
-                          className={`flex-1 max-w-[4rem] py-1 rounded transition ${isExtendedFontSelected
+                          className={`flex-1 max-w-[4.5rem] py-1 rounded transition ${isCustomFontSize
                             ? 'bg-yellow-500 text-gray-900'
                             : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                             } disabled:opacity-50`}
-                          title="端末のシステムフォントから選ぶ"
+                          title="サイズを数値で自由に指定"
                         >
-                          その他{moreFontsVisible ? '▲' : '▼'}
+                          カスタム
                         </button>
                       )}
                     </div>
                   </div>
-                  {/* 拡張フォント（システムフォント）カード */}
-                  {moreFontsVisible && (
-                    <div className="grid grid-cols-2 gap-1.5 pl-16">
-                      {EXTENDED_CAPTION_FONT_OPTIONS.map((opt) => (
+                  {/* カスタムサイズ入力 */}
+                  {supportsExtendedFonts && isCustomFontSize && (
+                    <div className="flex items-center gap-2 text-[10px] md:text-xs pl-16">
+                      <SwipeProtectedSlider
+                        min={CAPTION_FONT_SIZE_CUSTOM_MIN}
+                        max={CAPTION_FONT_SIZE_CUSTOM_MAX}
+                        step={2}
+                        value={settings.fontSizeCustom ?? CAPTION_FONT_SIZE_PRESETS.medium}
+                        onChange={(val) => onSetFontSizeCustom(clampCustomFontSize(val))}
+                        disabled={isLocked}
+                        className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
+                      />
+                      <input
+                        type="number"
+                        min={CAPTION_FONT_SIZE_CUSTOM_MIN}
+                        max={CAPTION_FONT_SIZE_CUSTOM_MAX}
+                        step={2}
+                        value={Math.round(settings.fontSizeCustom ?? CAPTION_FONT_SIZE_PRESETS.medium)}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          if (!Number.isNaN(val)) onSetFontSizeCustom(clampCustomFontSize(val));
+                        }}
+                        disabled={isLocked}
+                        className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500 disabled:opacity-50"
+                      />
+                      <span className="text-gray-500 whitespace-nowrap">px</span>
+                    </div>
+                  )}
+                  {/* 字体: 固定3（ゴシック/明朝/丸ゴシック）+ ドロップダウン（standard のみ） */}
+                  <div className="flex items-center gap-2 text-[10px] md:text-xs">
+                    <span className="text-gray-400 w-16">字体:</span>
+                    <div className="flex gap-1 flex-1 items-stretch">
+                      {fontStyleOptions.map((opt) => (
                         <button
                           key={opt.value}
                           onClick={() => onSetFontStyle(opt.value)}
                           disabled={isLocked}
-                          className={`px-2 py-1.5 rounded-lg border text-left transition ${settings.fontStyle === opt.value
-                            ? 'bg-yellow-500/20 border-yellow-500 text-yellow-200'
-                            : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
+                          className={`flex-1 max-w-[4.5rem] py-1 rounded transition ${settings.fontStyle === opt.value
+                            ? 'bg-yellow-500 text-gray-900'
+                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                             } disabled:opacity-50`}
+                          style={{ fontFamily: opt.family }}
                         >
-                          <span className="block text-[9px] text-gray-400">{opt.label}</span>
-                          <span
-                            className="block text-sm leading-tight truncate"
-                            style={{ fontFamily: opt.family }}
-                          >
-                            あア亜 Aa1
-                          </span>
+                          {opt.label}
                         </button>
                       ))}
+                      {supportsExtendedFonts && (
+                        <select
+                          value={dropdownFontValue}
+                          onChange={(e) => {
+                            const value = e.target.value as CaptionFontStyle | '';
+                            if (value) onSetFontStyle(value);
+                          }}
+                          disabled={isLocked}
+                          className={`flex-1 max-w-[5.5rem] py-1 px-1 rounded transition text-[10px] md:text-xs border-0 focus:outline-none focus:ring-1 focus:ring-yellow-500 ${dropdownFontValue
+                            ? 'bg-yellow-500 text-gray-900 font-semibold'
+                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                            } disabled:opacity-50`}
+                          title="その他のシステムフォントから選ぶ"
+                        >
+                          <option value="" disabled>
+                            その他▾
+                          </option>
+                          {DROPDOWN_CAPTION_FONT_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value} style={{ fontFamily: opt.family }}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                     </div>
-                  )}
-                  {/* 位置 */}
+                  </div>
+                  {/* 位置: プリセット + カスタム XY（standard のみ） */}
                   <div className="flex items-center gap-2 text-[10px] md:text-xs">
                     <span className="text-gray-400 w-16">位置:</span>
                     <div className="flex gap-1 flex-1">
                       {positionOptions.map((opt) => (
                         <button
                           key={opt.value}
-                          onClick={() => onSetPosition(opt.value)}
+                          onClick={() => {
+                            onSetPositionCustom(null);
+                            onSetPosition(opt.value);
+                          }}
                           disabled={isLocked}
-                          className={`flex-1 max-w-[4rem] py-1 rounded transition ${settings.position === opt.value
+                          className={`flex-1 max-w-[4rem] py-1 rounded transition ${!isCustomPosition && settings.position === opt.value
                             ? 'bg-yellow-500 text-gray-900'
                             : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                             } disabled:opacity-50`}
@@ -342,8 +448,83 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                           {opt.label}
                         </button>
                       ))}
+                      {supportsExtendedFonts && (
+                        <button
+                          onClick={() => {
+                            if (!isCustomPosition) {
+                              onSetPositionCustom({ ...CAPTION_POSITION_CUSTOM_DEFAULT });
+                            }
+                          }}
+                          disabled={isLocked}
+                          className={`flex-1 max-w-[4.5rem] py-1 rounded transition ${isCustomPosition
+                            ? 'bg-yellow-500 text-gray-900'
+                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                            } disabled:opacity-50`}
+                          title="XY 座標で自由に配置"
+                        >
+                          カスタム
+                        </button>
+                      )}
                     </div>
                   </div>
+                  {/* カスタム位置入力（キャンバスに対する % / テキスト中心） */}
+                  {supportsExtendedFonts && isCustomPosition && (
+                    <div className="space-y-1.5 pl-16">
+                      <div className="flex items-center gap-2 text-[10px] md:text-xs">
+                        <span className="text-gray-500 w-4">X</span>
+                        <SwipeProtectedSlider
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={customPosition.x}
+                          onChange={(val) => onSetPositionCustom({ ...customPosition, x: clampPositionPercent(val) })}
+                          disabled={isLocked}
+                          className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
+                        />
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={Math.round(customPosition.x)}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value);
+                            if (!Number.isNaN(val)) onSetPositionCustom({ ...customPosition, x: clampPositionPercent(val) });
+                          }}
+                          disabled={isLocked}
+                          className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500 disabled:opacity-50"
+                        />
+                        <span className="text-gray-500">%</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px] md:text-xs">
+                        <span className="text-gray-500 w-4">Y</span>
+                        <SwipeProtectedSlider
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={customPosition.y}
+                          onChange={(val) => onSetPositionCustom({ ...customPosition, y: clampPositionPercent(val) })}
+                          disabled={isLocked}
+                          className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
+                        />
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={Math.round(customPosition.y)}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value);
+                            if (!Number.isNaN(val)) onSetPositionCustom({ ...customPosition, y: clampPositionPercent(val) });
+                          }}
+                          disabled={isLocked}
+                          className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500 disabled:opacity-50"
+                        />
+                        <span className="text-gray-500">%</span>
+                      </div>
+                      <div className="text-[9px] text-gray-500">X=50 が中央、Y=0 が最上部（テキスト中心の位置）</div>
+                    </div>
+                  )}
                   {/* ぼかし */}
                   <div className="flex items-center gap-2 text-[10px] md:text-xs">
                     <span className="text-gray-400 w-16">ぼかし:</span>
@@ -424,27 +605,37 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
             )}
           </div>
 
-          {/* 一括入力・タイミング打ち（standard フレーバー限定） */}
+          {/* STEP フロー: ①まとめて入力 → ②タイミング打ち（standard フレーバー限定） */}
           {supportsBulkInput && (
             <div className="flex gap-2">
               <button
                 onClick={() => setShowBulkModal(true)}
                 disabled={isLocked}
-                className="flex-1 h-8 md:h-9 bg-gray-800 hover:bg-gray-700 border border-yellow-600/40 text-yellow-300 rounded-lg text-xs md:text-sm flex items-center justify-center gap-1.5 transition disabled:opacity-50"
-                title="歌詞や長い字幕を複数行まとめて追加"
+                className="flex-1 py-1.5 bg-gray-800 hover:bg-gray-700 border border-yellow-600/40 text-yellow-300 rounded-lg transition disabled:opacity-50"
+                title="歌詞や長い字幕を複数行まとめて追加・編集"
               >
-                <ListPlus className="w-3.5 h-3.5" /> まとめて入力
+                <span className="flex items-center justify-center gap-1.5 text-xs md:text-sm">
+                  <ListPlus className="w-3.5 h-3.5" /> ① まとめて入力{captions.length > 0 ? '・編集' : ''}
+                </span>
+                <span className="block text-[9px] text-gray-500 leading-tight mt-0.5">
+                  歌詞や字幕を一括で追加・編集
+                </span>
               </button>
               <button
                 onClick={() => (stampActive ? setStampActive(false) : startStampMode())}
                 disabled={isLocked || captions.length < 2}
-                className={`flex-1 h-8 md:h-9 rounded-lg text-xs md:text-sm flex items-center justify-center gap-1.5 transition disabled:opacity-50 ${stampActive
+                className={`flex-1 py-1.5 rounded-lg transition disabled:opacity-50 ${stampActive
                   ? 'bg-yellow-600 text-white'
                   : 'bg-gray-800 hover:bg-gray-700 border border-yellow-600/40 text-yellow-300'
                   }`}
-                title="再生しながらボタン1つでキャプションの切り替わりタイミングを決める（キャプション2件以上）"
+                title="再生しながらキャプションの切り替わりタイミングを確定する"
               >
-                <Timer className="w-3.5 h-3.5" /> タイミング打ち
+                <span className="flex items-center justify-center gap-1.5 text-xs md:text-sm">
+                  <Timer className="w-3.5 h-3.5" /> ② タイミング打ち
+                </span>
+                <span className={`block text-[9px] leading-tight mt-0.5 ${stampActive ? 'text-yellow-100' : 'text-gray-500'}`}>
+                  {captions.length < 2 ? 'キャプション2件以上で使用可' : stampActive ? 'タップで終了' : '再生しながら切り替えを確定'}
+                </span>
               </button>
             </div>
           )}
@@ -497,42 +688,85 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
         </div>
       )}
 
-      {/* 一括入力モーダル */}
+      {/* 一括入力/編集モーダル */}
       {showBulkModal && (
         <CaptionBulkAddModal
+          captions={captions}
           totalDuration={totalDuration}
           currentTime={currentTime}
           formatTime={formatTime}
-          onAddCaptions={onAddCaptions}
+          onApplyCaptions={onApplyCaptions}
           onClose={() => setShowBulkModal(false)}
         />
       )}
 
-      {/* タイミング打ちバー（画面下部固定・動画を見ながら押せる） */}
+      {/* タイミング打ちバー v2（画面下部固定・動画を見ながら押せる） */}
       {stampActive && stampTarget && (
-        <div className="fixed bottom-0 inset-x-0 z-[250] bg-gray-900/95 border-t border-yellow-600/40 backdrop-blur px-3 py-2.5 shadow-2xl">
-          <div className="max-w-3xl mx-auto flex items-center gap-2">
-            <div className="min-w-0 flex-1">
-              <div className="text-[10px] text-yellow-400">
-                タイミング打ち {stampIndex + 1}/{captions.length}（再生位置: {formatTime(currentTime)}）
+        <div className="fixed bottom-0 inset-x-0 z-[250] bg-gray-900/95 border-t border-yellow-600/40 backdrop-blur px-3 py-2 shadow-2xl">
+          <div className="max-w-3xl mx-auto space-y-1.5">
+            {/* 情報行: 対象ナビ + 再生位置 + 終了 */}
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => moveStampTarget(-1)}
+                disabled={stampIndex === 0}
+                className="p-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 disabled:opacity-30 transition"
+                title="前のキャプションへ"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <div className="min-w-0 flex-1 text-center">
+                <div className="text-[10px] text-yellow-400">
+                  {stampIndex + 1}/{captions.length}（再生位置: {formatTime(currentTime)}）
+                </div>
+                <div className="text-xs md:text-sm text-gray-200 truncate">
+                  「{stampTarget.text}」の
+                  <span className="text-yellow-300">{stampPhase === 'end' ? '終わり' : '始まり'}</span>
+                  で押す
+                </div>
               </div>
-              <div className="text-xs md:text-sm text-gray-200 truncate">
-                「{stampTarget.text}」の<span className="text-yellow-300">終わり</span>で押す
-              </div>
+              <button
+                onClick={() => moveStampTarget(1)}
+                disabled={stampIndex >= captions.length - 1}
+                className="p-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 disabled:opacity-30 transition"
+                title="次のキャプションへ"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setStampActive(false)}
+                className="p-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 transition"
+                title="タイミング打ちを終了"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
-            <button
-              onClick={handleStamp}
-              className="h-11 px-4 md:px-6 bg-yellow-600 hover:bg-yellow-500 active:bg-yellow-400 text-white rounded-xl text-sm md:text-base font-bold shrink-0 transition"
-            >
-              ⏱ ここで区切る
-            </button>
-            <button
-              onClick={() => setStampActive(false)}
-              className="h-11 px-2.5 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-xl shrink-0 transition"
-              title="タイミング打ちを終了"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            {/* 操作行: フェーズごとのボタン */}
+            {stampPhase === 'end' ? (
+              <div className="flex gap-2">
+                <button
+                  onClick={handleStampSplit}
+                  className="flex-1 h-11 bg-yellow-600 hover:bg-yellow-500 active:bg-yellow-400 text-white rounded-xl text-sm md:text-base font-bold transition"
+                  title="終了と次の開始を同時に確定（間を空けない）"
+                >
+                  ⏭ 区切って次へ
+                </button>
+                <button
+                  onClick={handleStampEndOnly}
+                  className="h-11 px-3 md:px-5 bg-gray-700 hover:bg-gray-600 text-gray-100 rounded-xl text-xs md:text-sm font-semibold transition"
+                  title="終了だけ確定し、次の開始は別のタイミングで押す（間を空ける）"
+                >
+                  ∥ 終了だけ
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={handleStampStart}
+                className="w-full h-11 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-400 text-white rounded-xl text-sm md:text-base font-bold transition"
+                title="このキャプションの開始位置を現在の再生位置に確定"
+              >
+                ▶ ここから開始
+              </button>
+            )}
           </div>
         </div>
       )}

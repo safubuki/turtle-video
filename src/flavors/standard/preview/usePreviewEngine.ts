@@ -14,6 +14,7 @@ import type {
 } from '../../../types';
 import type { ExportPreparationStep, UseExportReturn } from '../../../hooks/export-strategies/types';
 import { resolveCaptionFontFamily } from '../../../utils/captionFontCatalog';
+import { resolveCaptionAnchor, resolveCaptionBaseFontSize } from '../../../utils/captionStyle';
 import type { LogCategory } from '../../../stores/logStore';
 import { useMediaStore } from '../../../stores';
 import { useProjectStore } from '../../../stores/projectStore';
@@ -2390,10 +2391,8 @@ export function usePreviewEngine({
             // fontSize は 1080p export を基準にした絶対 px (medium = 7.41% of 1080)。
             // 解像度に応じて captionScale で按分するため、SNS 等で異なるサイズの画面で
             // 再生されても「フレームに対する文字の比率」は常に同じになる (WYSIWYG)。
-            // 各段階 ~1.4 倍ずつ拡大する読みやすさ重視のサイズスケール。
-            const fontSizeMap = { small: 56, medium: 80, large: 112, xlarge: 148 };
-            const effectiveFontSizeKey = activeCaption.overrideFontSize ?? currentCaptionSettings.fontSize;
-            const baseFontSize = fontSizeMap[effectiveFontSizeKey];
+            // プリセット + 一括カスタム値（fontSizeCustom）の解決は captionStyle.ts に集約。
+            const baseFontSize = resolveCaptionBaseFontSize(activeCaption, currentCaptionSettings);
 
             // プレビューは 720p、エクスポートは 1080p で同じ canvas を使い回すため、
             // 1080p を基準にスケールしておくと「プレビューで見たまま export される (WYSIWYG)」になる。
@@ -2406,16 +2405,15 @@ export function usePreviewEngine({
             const effectiveFontStyle = activeCaption.overrideFontStyle ?? currentCaptionSettings.fontStyle;
             const fontFamily = resolveCaptionFontFamily(effectiveFontStyle);
 
-            const effectivePosition = activeCaption.overridePosition ?? currentCaptionSettings.position;
+            // 位置はプリセット（上中下）+ 一括カスタム XY（positionCustom）を解決
             const padding = 50 * captionScale;
-            let y: number;
-            if (effectivePosition === 'top') {
-              y = padding + fontSize / 2;
-            } else if (effectivePosition === 'center') {
-              y = ctx.canvas.height / 2;
-            } else {
-              y = ctx.canvas.height - padding - fontSize / 2;
-            }
+            const captionAnchor = resolveCaptionAnchor(activeCaption, currentCaptionSettings, {
+              canvasWidth: ctx.canvas.width,
+              canvasHeight: ctx.canvas.height,
+              fontSize,
+              padding,
+            });
+            const y = captionAnchor.y;
 
             const captionDuration = activeCaption.endTime - activeCaption.startTime;
             const captionLocalTime = time - activeCaption.startTime;
@@ -2455,7 +2453,7 @@ export function usePreviewEngine({
             // strokeWidth / blur も fontSize と同じスケールで縮小し、プレビュー/export で太さの比率を保つ。
             const scaledStrokeWidth = Math.max(0, currentCaptionSettings.strokeWidth * captionScale);
             const blurStrength = Math.max(0, currentCaptionSettings.blur * captionScale);
-            const centerX = ctx.canvas.width / 2;
+            const centerX = captionAnchor.x;
 
             // フェード時の輪郭残りを防ぐため、stroke+fill を 1 枚のオフスクリーン Canvas に
             // 100% の不透明度で合成してから、メインキャンバスへ globalAlpha 付きで転写する。

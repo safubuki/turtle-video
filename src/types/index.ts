@@ -177,4 +177,7 @@ export interface CaptionSettings {
   bulkFadeOut: boolean;
   bulkFadeInDuration: number;
   bulkFadeOutDuration: number;
+  // 一括カスタム値（standard フレーバー限定機能。null/未設定 = プリセット使用）
+  fontSizeCustom?: number | null;                    // px @1080p 基準（24〜240）
+  positionCustom?: { x: number; y: number } | null;  // % (0-100)、テキスト中心
 }

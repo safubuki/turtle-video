@@ -278,4 +278,33 @@ describe('captionStore', () => {
       expect(captions3[0].overrideFadeInDuration).toBe(1.5);
     });
   });
+
+  describe('replaceCaptions', () => {
+    it('keeps ids and per-caption overrides for matched items, adds and removes the rest', () => {
+      useCaptionStore.setState({ captions: [] });
+      useCaptionStore.getState().addCaption('元1', 0, 3);
+      useCaptionStore.getState().addCaption('元2', 3, 6);
+      useCaptionStore.getState().addCaption('元3', 6, 9);
+      const [c1, c2] = useCaptionStore.getState().captions;
+      useCaptionStore.getState().updateCaption(c1.id, { overrideFontStyle: 'mincho' });
+
+      useCaptionStore.getState().replaceCaptions([
+        { id: c1.id, text: '更新1', startTime: 0, endTime: 2.5 },
+        { id: c2.id, text: '更新2', startTime: 2.8, endTime: 5 },
+        { text: '新規', startTime: 5.3, endTime: 8 },
+      ]);
+
+      const captions = useCaptionStore.getState().captions;
+      expect(captions).toHaveLength(3);
+      expect(captions[0].id).toBe(c1.id);
+      expect(captions[0].text).toBe('更新1');
+      expect(captions[0].endTime).toBe(2.5);
+      // 個別スタイルは維持される
+      expect(captions[0].overrideFontStyle).toBe('mincho');
+      expect(captions[1].id).toBe(c2.id);
+      // 新規行は新しい id
+      expect(captions[2].id).not.toBe(c1.id);
+      expect(captions[2].text).toBe('新規');
+    });
+  });
 });

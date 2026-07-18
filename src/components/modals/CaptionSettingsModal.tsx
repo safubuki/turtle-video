@@ -3,7 +3,7 @@
  * @author Turtle Village
  * @description キャプション個別スタイル設定のモーダル。一括設定を上書き（Override）するためのUI。
  */
-import React, { useState } from 'react';
+import React from 'react';
 import { X } from 'lucide-react';
 import type { Caption, CaptionPosition, CaptionSize, CaptionFontStyle } from '../../types';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
@@ -11,8 +11,8 @@ import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import {
   BASIC_CAPTION_FONT_OPTIONS,
-  EXTENDED_CAPTION_FONT_OPTIONS,
-  isExtendedCaptionFontStyle,
+  DROPDOWN_CAPTION_FONT_OPTIONS,
+  PINNED_CAPTION_FONT_OPTIONS,
 } from '../../utils/captionFontCatalog';
 
 interface CaptionSettingsModalProps {
@@ -58,18 +58,19 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
     { value: 'xlarge', label: '特大' },
   ];
 
-  // 字体オプション（基本）
-  const fontStyleOptions: { value: FontStyleOption; label: string }[] = [
-    { value: 'default', label: 'デフォルト' },
-    ...BASIC_CAPTION_FONT_OPTIONS.map(({ value, label }) => ({ value, label })),
-  ];
-
   // 拡張フォント（システムフォント）は standard フレーバー（Android/PC）限定
   const { isIosSafari } = usePlatformCapabilities();
   const supportsExtendedFonts = !isIosSafari;
-  const isExtendedFontSelected = isExtendedCaptionFontStyle(caption.overrideFontStyle);
-  const [showMoreFonts, setShowMoreFonts] = useState(false);
-  const moreFontsVisible = supportsExtendedFonts && (showMoreFonts || isExtendedFontSelected);
+
+  // 字体オプション: デフォルト + 固定（standard は 3 種 / iOS は 2 種）
+  const fontStyleOptions: { value: FontStyleOption; label: string }[] = [
+    { value: 'default', label: 'デフォルト' },
+    ...(supportsExtendedFonts ? PINNED_CAPTION_FONT_OPTIONS : BASIC_CAPTION_FONT_OPTIONS)
+      .map(({ value, label }) => ({ value, label })),
+  ];
+  const dropdownFontValue = DROPDOWN_CAPTION_FONT_OPTIONS.some((o) => o.value === caption.overrideFontStyle)
+    ? caption.overrideFontStyle
+    : '';
 
   // 配置オプション
   const positionOptions: { value: PositionOption; label: string }[] = [
@@ -177,10 +178,10 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                 ))}
               </div>
             </div>
-            {/* 字体 */}
+            {/* 字体: デフォルト + 固定 + ドロップダウン（standard のみ） */}
             <div className="flex items-center gap-2 text-[10px]">
               <span className="text-gray-400 w-16">字体:</span>
-              <div className="flex gap-1 flex-1">
+              <div className="flex gap-1 flex-1 items-stretch">
                 {fontStyleOptions.map((opt) => (
                   <button
                     key={opt.value}
@@ -191,39 +192,30 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                   </button>
                 ))}
                 {supportsExtendedFonts && (
-                  <button
-                    onClick={() => setShowMoreFonts((prev) => !prev)}
-                    className={getButtonClass(isExtendedFontSelected)}
-                    title="端末のシステムフォントから選ぶ"
+                  <select
+                    value={dropdownFontValue}
+                    onChange={(e) => {
+                      const value = e.target.value as CaptionFontStyle | '';
+                      if (value) handleFontStyleChange(value);
+                    }}
+                    className={`flex-1 py-1 px-0.5 rounded transition text-[10px] border-0 focus:outline-none focus:ring-1 focus:ring-yellow-500 ${dropdownFontValue
+                      ? 'bg-yellow-500 text-gray-900 font-semibold'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      }`}
+                    title="その他のシステムフォントから選ぶ"
                   >
-                    その他{moreFontsVisible ? '▲' : '▼'}
-                  </button>
+                    <option value="" disabled>
+                      その他▾
+                    </option>
+                    {DROPDOWN_CAPTION_FONT_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value} style={{ fontFamily: opt.family }}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
                 )}
               </div>
             </div>
-            {/* 拡張フォント（システムフォント）カード */}
-            {moreFontsVisible && (
-              <div className="grid grid-cols-2 gap-1.5 pl-16 text-[10px]">
-                {EXTENDED_CAPTION_FONT_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    onClick={() => handleFontStyleChange(opt.value)}
-                    className={`px-2 py-1.5 rounded-lg border text-left transition ${caption.overrideFontStyle === opt.value
-                      ? 'bg-yellow-500/20 border-yellow-500 text-yellow-200'
-                      : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
-                      }`}
-                  >
-                    <span className="block text-[9px] text-gray-400">{opt.label}</span>
-                    <span
-                      className="block text-sm leading-tight truncate"
-                      style={{ fontFamily: opt.family }}
-                    >
-                      あア亜 Aa1
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
             {/* 位置 */}
             <div className="flex items-center gap-2 text-[10px]">
               <span className="text-gray-400 w-16">位置:</span>
