@@ -1,71 +1,98 @@
 ---
 name: bug-analysis
-description: 不具合発生時の体系的な解析・報告を行うスキル。現象の整理、原因分析、改善案の提示、アクションプランの策定を構造化されたフォーマットで出力する。「バグを調査して」「不具合が発生した」「エラーを分析」「問題を解析」「デバッグして」「原因を調べて」「障害報告」「バグレポート」「動かない」「おかしい」「壊れた」「落ちる」「クラッシュ」「表示が変」「エラーが出る」「bug」「error」「debug」「fix」「issue」「troubleshoot」などで発火。
+description: 不具合調査時に scripts/bug_analysis_collect.py で環境、Git状態、検証コマンド、関連ファイル、ログ断片を定型収集し、AIが証拠の評価、原因仮説、優先度、改善案を判断する。「バグを調査」「不具合」「エラーを分析」「原因を調べて」「debug」「troubleshoot」などで発火。
 ---
 
-# Bug Analysis Skill
+# Bug Analysis
 
 ## スキル読み込み通知
 
-このスキルが読み込まれたら、必ず以下の通知をユーザーに表示してください：
+このスキルを使用するときは、ユーザーへ次を通知する：
 
-> 💡 **Bug Analysis スキルを読み込みました**  
-> 不具合の体系的な解析と報告を行います。
+> **Bug Analysis スキルを読み込みました** — 定型的な証拠収集をスクリプトで行い、原因判断と対応案の評価をAIが行います。
 
-## When to Use
+## 役割分担
 
-- アプリケーションで不具合が発生したとき
-- エラーの原因を特定・分析したいとき
-- 不具合の報告書を作成したいとき
-- 複数の問題が同時に発生していて整理が必要なとき
-- 修正方針とアクションプランを立てたいとき
-- 「なんか動かない」「おかしな挙動をしている」とき
-- 過去の修正実績を参考に類似の問題を解決したいとき
+| 領域 | 担当 |
+|---|---|
+| 再現条件、期待動作、調査範囲の確認 | AI |
+| 環境・Git状態・検証候補・関連ファイル・ログ断片の収集と整形 | `scripts/bug_analysis_collect.py` |
+| 観測事実と推論の分離、根本原因、深刻度、修正案、追加調査の判断 | AI |
 
-## 解析手順
+スクリプト出力は候補抽出であり、原因の確定ではない。コード、ログ、再現結果で裏付けられない内容を事実として報告しない。
 
-不具合の報告と解析を以下の手順で行います。
+## 実行環境
 
-### Step 1: 現象の確認
+Python 3.10 以上の標準ライブラリだけを使用する。最初に確認する：
 
-まず、以下の情報を収集します：
+```bash
+python --version
+python3 --version
+```
 
-1. **ユーザーの報告内容**: 何が起こっているか
-2. **再現手順**: どの操作で発生するか
-3. **エラーメッセージ**: コンソールやUIに表示されるエラー
-4. **影響範囲**: どの機能に影響があるか
-5. **発生環境**: ブラウザ、OS、デバイス情報
+Python がない場合は、インストールを勝手に行わず、「インストールする」「手動調査に切り替える」「スクリプト実行を後回しにする」からユーザーに選んでもらう。
 
-> 💡 ユーザーが「動かない」「おかしい」など曖昧な報告の場合、まず再現手順の特定を優先する。ログ（設定モーダル → ログタブ）も確認する。
+## 手順
 
-### Step 2: 概要レポートの作成
+### Step 1: 調査条件を整理する
 
-収集した情報をもとに、構造化されたレポートを作成します。概要レポート、詳細解析、アクションプランのテンプレートは以下を参照してください：
+次を既知情報から埋め、不足が解析を妨げる場合だけ確認する：現象、期待動作、再現手順、エラー文、発生環境、影響範囲、直前の変更。ログファイルはユーザーが指定したものだけを入力する。
 
-📄 **[assets/report-template.md](assets/report-template.md)**
+### Step 2: 定型収集を実行する
 
-テンプレートには以下のセクションが含まれています：
-- 概要レポート（日時・深刻度・問題一覧）
-- 個別不具合の詳細解析（現象・原因・改善案）
-- アクションプラン（優先順序・対応手順・再発防止策）
+標準出力だけで確認する基本形：
 
-### Step 3: 各不具合の詳細解析
+```bash
+python .agents/skills/bug-analysis/scripts/bug_analysis_collect.py --project-root . --request "<現象または依頼>" --error-text "<エラー文>"
+```
 
-テンプレートの「個別不具合の詳細」セクションに従い、各不具合について現象・原因・改善案を記述します。
+既知の対象やログを追加する場合は `--path` と `--log-file` を繰り返す：
 
-### Step 4: アクションプランの策定
+```bash
+python .agents/skills/bug-analysis/scripts/bug_analysis_collect.py --project-root . --request "<依頼>" --path src/example.ts --log-file logs/app.log --format json
+```
 
-テンプレートの「アクションプラン」セクションに従い、優先順序を決定し、対応手順と再発防止策をまとめます。
+ファイル出力前のドライランと本実行：
 
-## 本プロジェクト固有の調査リファレンス
+```bash
+python .agents/skills/bug-analysis/scripts/bug_analysis_collect.py --project-root . --request "<依頼>" --output .bug-analysis/report.md --dry-run
+python .agents/skills/bug-analysis/scripts/bug_analysis_collect.py --project-root . --request "<依頼>" --output .bug-analysis/report.md
+```
 
-よくある不具合の原因パターン、深刻度の判断基準、ログの活用方法、過去の修正実例は以下を参照してください：
+既存出力を置き換える必要がある場合だけ `--force` を使う。`.github/skills` または `.claude/skills` から読み込んだ場合はスクリプトパスを読み替える。
 
-📄 **[references/investigation-guide.md](references/investigation-guide.md)**
+### Step 3: AIが証拠を評価する
 
-## 出力例
+1. `observations` とログ断片を再現可能な事実として確認する。
+2. `candidate_files` と `verification_commands` は候補として扱い、必要なファイルだけ追加で読む。
+3. 原因仮説ごとに支持証拠、反証、未確認事項、確信度を示す。
+4. 情報不足なら、最小の追加ログ、再現操作、テストを提案する。
+5. 深刻度と修正優先度は影響、再現率、回避策、データ損失・セキュリティの有無からAIが判断する。
 
-過去の不具合修正の実例は以下のドキュメントを参照してください：
+### Step 4: 報告する
 
-- [preview-blackout-fix-v1.4.0.md](../../../Docs/preview-blackout-fix-v1.4.0.md): プレビュー黒画面修正
-- [preview-pause-fix-v1.4.1.md](../../../Docs/preview-pause-fix-v1.4.1.md): プレビュー一時停止修正
+[assets/report-template.md](assets/report-template.md) を使い、観測事実と推論を明確に分離する。プロジェクト固有の既知パターンが必要な場合だけ [references/investigation-guide.md](references/investigation-guide.md) を読む。
+
+## 入出力と失敗時の扱い
+
+- 入力: プロジェクトルート、依頼文、任意のエラー文・既知パス・明示ログファイル
+- 出力: UTF-8 の Markdown または安定したキー構造の JSON。標準出力が既定
+- 終了コード: `0` 成功、`1` 入力・読込・出力エラー、`2` CLI 引数エラー
+- 機密対策: 一般的なトークン・パスワード表現をログ断片からマスクし、`.env`、鍵、認証ディレクトリを自動走査しない
+- スクリプトは読み取り専用。`--output` 指定時だけレポートを書き込む
+
+詳細は [references/script-contract.md](references/script-contract.md) を参照する。
+
+## スクリプト更新条件
+
+- 対象言語、除外ディレクトリ、検証コマンドの規約が変わった
+- JSON 出力契約やログマスク規則を変える必要がある
+- 同じ機械的な探索・整形を2回以上手作業で補った
+- 誤検出または見逃しが再現可能な入力で確認された
+
+## 参照
+
+- [scripts/bug_analysis_collect.py](scripts/bug_analysis_collect.py) — 定型証拠収集
+- [references/script-contract.md](references/script-contract.md) — 入出力契約
+- [assets/report-template.md](assets/report-template.md) — AIが仕上げる解析レポート
+- [references/investigation-guide.md](references/investigation-guide.md) — プロジェクト固有の追加調査
