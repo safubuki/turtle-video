@@ -5,6 +5,7 @@
  */
 
 import { useLogStore } from '../stores/logStore';
+import type { CaptionFontStyle } from '../types';
 
 const DB_NAME = 'turtle-video-db';
 const DB_VERSION = 1;
@@ -98,6 +99,11 @@ export interface SerializedNarrationClip {
   aiScript?: string;
   aiVoice?: string;
   aiVoiceStyle?: string;
+  // クリップ範囲基準フェード（BGM クリップ用・任意）
+  fadeIn?: boolean;
+  fadeOut?: boolean;
+  fadeInDuration?: number;
+  fadeOutDuration?: number;
 }
 
 // 保存されるキャプションの形式
@@ -111,7 +117,7 @@ export interface SerializedCaption {
   fadeInDuration: number;
   fadeOutDuration: number;
   overridePosition?: 'top' | 'center' | 'bottom';
-  overrideFontStyle?: 'gothic' | 'mincho';
+  overrideFontStyle?: CaptionFontStyle;
   overrideFontSize?: 'small' | 'medium' | 'large' | 'xlarge';
   overrideFadeIn?: 'on' | 'off';
   overrideFadeOut?: 'on' | 'off';
@@ -123,7 +129,7 @@ export interface SerializedCaption {
 export interface SerializedCaptionSettings {
   enabled: boolean;
   fontSize: 'small' | 'medium' | 'large' | 'xlarge';
-  fontStyle: 'gothic' | 'mincho';
+  fontStyle: CaptionFontStyle;
   fontColor: string;
   strokeColor: string;
   strokeWidth: number;
@@ -149,6 +155,9 @@ export interface ProjectData {
   bgm: SerializedAudioTrack | null;
   isBgmLocked: boolean;
   narrations: SerializedNarrationClip[];
+  // 複数 BGM クリップ（standard フレーバー限定機能・任意）。
+  // 存在する場合、bgm フィールドは先頭クリップの近似ミラー（iOS/旧版互換用）
+  bgmClips?: SerializedNarrationClip[];
   narration?: SerializedAudioTrack | null;
   isNarrationLocked: boolean;
   

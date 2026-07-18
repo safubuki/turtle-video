@@ -376,4 +376,51 @@ describe('mediaStore', () => {
       expect(mediaItems[0].duration).toBeGreaterThanOrEqual(0.5);
     });
   });
+
+  describe('duplicateMediaItem', () => {
+    it('should insert an independent copy right after the source item', async () => {
+      const { addMediaItems } = useMediaStore.getState();
+      const fileA = new File(['aaa'], 'a.mp4', { type: 'video/mp4' });
+      const fileB = new File(['bbb'], 'b.mp4', { type: 'video/mp4' });
+      await addMediaItems([fileA, fileB]);
+
+      const [itemA] = useMediaStore.getState().mediaItems;
+      useMediaStore.getState().updateMediaItem(itemA.id, {
+        trimStart: 1,
+        trimEnd: 4,
+        duration: 3,
+        originalDuration: 10,
+        scale: 1.5,
+        volume: 0.8,
+      });
+
+      useMediaStore.getState().duplicateMediaItem(itemA.id);
+
+      const items = useMediaStore.getState().mediaItems;
+      expect(items).toHaveLength(3);
+      // 複製は元の直後に挿入される
+      expect(items[0].id).toBe(itemA.id);
+      const copy = items[1];
+      expect(copy.id).not.toBe(itemA.id);
+      expect(copy.url).not.toBe(items[0].url);
+      expect(copy.file).toBe(items[0].file);
+      // 設定が引き継がれる
+      expect(copy.trimStart).toBe(1);
+      expect(copy.trimEnd).toBe(4);
+      expect(copy.scale).toBe(1.5);
+      expect(copy.volume).toBe(0.8);
+      // 開閉/ロック状態は複製しない
+      expect(copy.isTransformOpen).toBe(false);
+      expect(copy.isLocked).toBe(false);
+      // totalDuration が再計算される
+      expect(useMediaStore.getState().totalDuration).toBeCloseTo(3 + 3 + items[2].duration);
+    });
+
+    it('should do nothing for unknown id', async () => {
+      const { addMediaItems } = useMediaStore.getState();
+      await addMediaItems([new File(['x'], 'x.mp4', { type: 'video/mp4' })]);
+      useMediaStore.getState().duplicateMediaItem('missing');
+      expect(useMediaStore.getState().mediaItems).toHaveLength(1);
+    });
+  });
 });

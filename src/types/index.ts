@@ -76,7 +76,22 @@ export interface NarrationClip {
   aiScript?: string;
   aiVoice?: VoiceId;
   aiVoiceStyle?: string;
+  // クリップ範囲基準のフェード（任意・省略時 false）。
+  // 主に BGM クリップ（BgmClip）で使用する。standard フレーバーの
+  // preview / export エンジンのみが解釈する（iOS では無視される）。
+  fadeIn?: boolean;
+  fadeOut?: boolean;
+  fadeInDuration?: number;
+  fadeOutDuration?: number;
 }
+
+/**
+ * BGM クリップ（複数 BGM 対応・standard フレーバー限定機能）。
+ * タイムライン配置・トリム・音量の扱いは NarrationClip と完全に同形で、
+ * 再生・書き出しパイプラインへはナレーション配列にマージされて流れる。
+ * UI 上は BGM セクションで独立管理される。
+ */
+export type BgmClip = NarrationClip;
 
 // メディア要素の参照型
 export type MediaElementsRef = Record<string, HTMLVideoElement | HTMLImageElement | HTMLAudioElement>;
@@ -136,7 +151,16 @@ export type CaptionPosition = 'top' | 'center' | 'bottom';
 export type CaptionSize = 'small' | 'medium' | 'large' | 'xlarge';
 
 // キャプションフォントスタイル
-export type CaptionFontStyle = 'gothic' | 'mincho';
+// gothic / mincho が基本 2 択。rounded 以降はシステムフォント拡張（standard フレーバーの UI でのみ選択可能。
+// 描画は utils/captionFontCatalog.ts の resolveCaptionFontFamily() で全フレーバー共通に解決し、
+// 未知値は sans-serif へフォールバックする）
+export type CaptionFontStyle =
+  | 'gothic'
+  | 'mincho'
+  | 'rounded'
+  | 'handwriting'
+  | 'mono'
+  | 'system';
 
 // キャプション設定
 export interface CaptionSettings {

@@ -6,7 +6,7 @@
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import type { MediaItem, AudioTrack, Caption, CaptionSettings, NarrationClip } from '../types';
+import type { MediaItem, AudioTrack, BgmClip, Caption, CaptionSettings, NarrationClip } from '../types';
 import {
   getProjectPersistenceAdapter,
   type ProjectData,
@@ -202,7 +202,8 @@ interface ProjectState {
     isNarrationLocked: boolean,
     captions: Caption[],
     captionSettings: CaptionSettings,
-    isCaptionsLocked: boolean
+    isCaptionsLocked: boolean,
+    bgmClips?: BgmClip[]
   ) => Promise<void>;
 
   saveProjectAuto: (
@@ -214,7 +215,8 @@ interface ProjectState {
     isNarrationLocked: boolean,
     captions: Caption[],
     captionSettings: CaptionSettings,
-    isCaptionsLocked: boolean
+    isCaptionsLocked: boolean,
+    bgmClips?: BgmClip[]
   ) => Promise<boolean>;
 
   loadProjectFromSlot: (slot: SaveSlot) => Promise<{
@@ -227,6 +229,7 @@ interface ProjectState {
     captions: Caption[];
     captionSettings: CaptionSettings;
     isCaptionsLocked: boolean;
+    bgmClips: BgmClip[];
   } | null>;
 
   deleteAllSaves: () => Promise<void>;
@@ -351,6 +354,28 @@ function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
   };
 }
 
+// 複数 BGM クリップ使用時、iOS / 旧バージョン互換のため先頭クリップを
+// レガシー単一 BGM（AudioTrack）形式へ近似変換してミラー保存する。
+function deriveLegacyBgmMirror(bgmClips: BgmClip[]): AudioTrack | null {
+  const first = bgmClips[0];
+  if (!first) return null;
+  const trimStart = Number.isFinite(first.trimStart) ? Math.max(0, first.trimStart) : 0;
+  return {
+    file: first.file,
+    url: first.url,
+    blobUrl: first.blobUrl,
+    startPoint: trimStart,
+    delay: Math.max(0, first.startTime),
+    volume: first.volume,
+    fadeIn: first.fadeIn ?? false,
+    fadeOut: first.fadeOut ?? false,
+    fadeInDuration: first.fadeInDuration ?? 2.0,
+    fadeOutDuration: first.fadeOutDuration ?? 2.0,
+    duration: first.duration,
+    isAi: false,
+  };
+}
+
 async function serializeAudioTrack(track: AudioTrack): Promise<SerializedAudioTrack> {
   let fileData: ArrayBuffer | null = null;
   let blobData: ArrayBuffer | undefined;
@@ -464,6 +489,10 @@ async function serializeNarrationClip(clip: NarrationClip): Promise<SerializedNa
     aiScript: clip.aiScript,
     aiVoice: clip.aiVoice,
     aiVoiceStyle: clip.aiVoiceStyle,
+    fadeIn: clip.fadeIn,
+    fadeOut: clip.fadeOut,
+    fadeInDuration: clip.fadeInDuration,
+    fadeOutDuration: clip.fadeOutDuration,
   };
 }
 
@@ -506,6 +535,10 @@ function deserializeNarrationClip(data: SerializedNarrationClip): NarrationClip 
     aiScript: data.aiScript,
     aiVoice: data.aiVoice as NarrationClip['aiVoice'],
     aiVoiceStyle: data.aiVoiceStyle,
+    fadeIn: data.fadeIn,
+    fadeOut: data.fadeOut,
+    fadeInDuration: data.fadeInDuration,
+    fadeOutDuration: data.fadeOutDuration,
   };
 }
 
@@ -590,7 +623,8 @@ export const useProjectStore = create<ProjectState>()(
         isNarrationLocked,
         captions,
         captionSettings,
-        isCaptionsLocked
+        isCaptionsLocked,
+        bgmClips = []
       ) => {
         const operationId = createDiagnosticId('manual-save');
         set({ isSaving: true });
@@ -605,7 +639,10 @@ export const useProjectStore = create<ProjectState>()(
         try {
           const projectData = await enqueueProjectSave(async () => {
             const serializedMediaItems = await Promise.all(mediaItems.map(serializeMediaItem));
-            const serializedBgm = bgm ? await serializeAudioTrack(bgm) : null;
+            // bgmClips がある場合は先頭クリップのミラーを bgm として保存（iOS/旧版互換）
+            const effectiveBgm = bgmClips.length > 0 ? deriveLegacyBgmMirror(bgmClips) : bgm;
+            const serializedBgm = effectiveBgm ? await serializeAudioTrack(effectiveBgm) : null;
+            const serializedBgmClips = await Promise.all(bgmClips.map(serializeNarrationClip));
             const serializedNarrations = await Promise.all(narrations.map(serializeNarrationClip));
             const serializedCaptions = captions.map(serializeCaption);
 
@@ -622,6 +659,7 @@ export const useProjectStore = create<ProjectState>()(
               captions: serializedCaptions,
               captionSettings,
               isCaptionsLocked,
+              bgmClips: serializedBgmClips,
             };
 
             await getProjectPersistenceAdapter().saveProject(nextProjectData);
@@ -670,9 +708,10 @@ export const useProjectStore = create<ProjectState>()(
         isNarrationLocked,
         captions,
         captionSettings,
-        isCaptionsLocked
+        isCaptionsLocked,
+        bgmClips = []
       ) => {
-        if (mediaItems.length === 0 && !bgm && narrations.length === 0 && captions.length === 0) {
+        if (mediaItems.length === 0 && !bgm && bgmClips.length === 0 && narrations.length === 0 && captions.length === 0) {
           return false;
         }
 
@@ -689,7 +728,10 @@ export const useProjectStore = create<ProjectState>()(
         try {
           const projectData = await enqueueProjectSave(async () => {
             const serializedMediaItems = await Promise.all(mediaItems.map(serializeMediaItem));
-            const serializedBgm = bgm ? await serializeAudioTrack(bgm) : null;
+            // bgmClips がある場合は先頭クリップのミラーを bgm として保存（iOS/旧版互換）
+            const effectiveBgm = bgmClips.length > 0 ? deriveLegacyBgmMirror(bgmClips) : bgm;
+            const serializedBgm = effectiveBgm ? await serializeAudioTrack(effectiveBgm) : null;
+            const serializedBgmClips = await Promise.all(bgmClips.map(serializeNarrationClip));
             const serializedNarrations = await Promise.all(narrations.map(serializeNarrationClip));
             const serializedCaptions = captions.map(serializeCaption);
 
@@ -706,6 +748,7 @@ export const useProjectStore = create<ProjectState>()(
               captions: serializedCaptions,
               captionSettings,
               isCaptionsLocked,
+              bgmClips: serializedBgmClips,
             };
 
             await getProjectPersistenceAdapter().saveProject(nextProjectData);
@@ -773,6 +816,7 @@ export const useProjectStore = create<ProjectState>()(
 
           const mediaItems = data.mediaItems.map(deserializeMediaItem);
           const bgm = data.bgm ? deserializeAudioTrack(data.bgm) : null;
+          const bgmClips = (data.bgmClips ?? []).map(deserializeNarrationClip);
           const narrations = (data.narrations && data.narrations.length > 0)
             ? data.narrations.map(deserializeNarrationClip)
             : (data.narration ? [convertLegacyNarrationToClip(deserializeAudioTrack(data.narration))] : []);
@@ -783,6 +827,7 @@ export const useProjectStore = create<ProjectState>()(
             slot,
             mediaCount: mediaItems.length,
             hasBgm: !!bgm,
+            bgmClipCount: bgmClips.length,
             narrationCount: narrations.length,
             captionCount: captions.length,
             savedAt: data.savedAt,
@@ -799,6 +844,7 @@ export const useProjectStore = create<ProjectState>()(
             captions,
             captionSettings: data.captionSettings,
             isCaptionsLocked: data.isCaptionsLocked,
+            bgmClips,
           };
         } catch (error) {
           useLogStore.getState().error('SYSTEM', 'プロジェクト読み込み失敗', {

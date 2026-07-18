@@ -195,6 +195,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, onBeforeLoadPr
   const isClipsLocked = useMediaStore((s) => s.isClipsLocked);
   const bgm = useAudioStore((s) => s.bgm);
   const isBgmLocked = useAudioStore((s) => s.isBgmLocked);
+  const bgmClips = useAudioStore((s) => s.bgmClips);
   const narrations = useAudioStore((s) => s.narrations);
   const isNarrationLocked = useAudioStore((s) => s.isNarrationLocked);
   const captions = useCaptionStore((s) => s.captions);
@@ -483,7 +484,8 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, onBeforeLoadPr
       isNarrationLocked,
       captions,
       captionSettings,
-      isCaptionsLocked
+      isCaptionsLocked,
+      bgmClips
     );
     useLogStore.getState().info('SYSTEM', 'プロジェクトを手動保存', {
       mediaCount: mediaItems.length,
@@ -597,7 +599,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, onBeforeLoadPr
       if (data) {
         // 各ストアに復元
         restoreMediaItems(data.mediaItems, data.isClipsLocked);
-        restoreAudio(data.bgm, data.isBgmLocked, data.narrations, data.isNarrationLocked);
+        restoreAudio(data.bgm, data.isBgmLocked, data.narrations, data.isNarrationLocked, data.bgmClips);
         restoreCaptions(data.captions, data.captionSettings, data.isCaptionsLocked);
         useLogStore.getState().info('SYSTEM', `プロジェクトを読み込み (${slot === 'auto' ? '自動保存' : '手動保存'})`, {
           mediaCount: data.mediaItems.length,

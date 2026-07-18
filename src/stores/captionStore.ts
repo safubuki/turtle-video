@@ -21,6 +21,8 @@ interface CaptionState {
 
   // === キャプション操作 ===
   addCaption: (text: string, startTime: number, endTime: number) => void;
+  /** 一括追加（歌詞・長文字幕向け）。各要素に一括フェード等の既定値を適用して末尾へ追加する */
+  addCaptions: (items: { text: string; startTime: number; endTime: number }[]) => void;
   updateCaption: (id: string, updates: Partial<Omit<Caption, 'id'>>) => void;
   removeCaption: (id: string) => void;
   moveCaption: (id: string, direction: 'up' | 'down') => void;
@@ -105,6 +107,30 @@ export const useCaptionStore = create<CaptionState>()(
           }),
           false,
           'addCaption'
+        );
+      },
+
+      addCaptions: (items) => {
+        if (items.length === 0) return;
+        useLogStore.getState().info('MEDIA', 'キャプションを一括追加', { count: items.length });
+        return set(
+          (state) => ({
+            captions: [
+              ...state.captions,
+              ...items.map((item) => ({
+                id: generateId(),
+                text: item.text,
+                startTime: item.startTime,
+                endTime: item.endTime,
+                fadeIn: state.settings.bulkFadeIn,
+                fadeOut: state.settings.bulkFadeOut,
+                fadeInDuration: state.settings.bulkFadeInDuration,
+                fadeOutDuration: state.settings.bulkFadeOutDuration,
+              })),
+            ],
+          }),
+          false,
+          'addCaptions'
         );
       },
 

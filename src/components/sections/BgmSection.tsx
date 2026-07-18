@@ -5,9 +5,11 @@
  */
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Upload, Lock, Unlock, Music, Volume2, Timer, ChevronDown, ChevronRight, RefreshCw, CircleHelp, Trash2 } from 'lucide-react';
-import type { AudioTrack } from '../../types';
+import type { AudioTrack, BgmClip } from '../../types';
 import { getAudioUploadAccept } from '../../utils/platform';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
+import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
+import BgmClipList from './BgmClipList';
 
 interface BgmSectionProps {
   bgm: AudioTrack | null;
@@ -25,6 +27,11 @@ interface BgmSectionProps {
   onUpdateFadeOutDuration: (duration: number) => void;
   formatTime: (seconds: number) => string;
   onOpenHelp: () => void;
+  // 複数 BGM（standard フレーバー限定）
+  bgmClips: BgmClip[];
+  currentTime: number;
+  onAddBgmClips: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onBeforeBgmClipEdit: (reason: string) => void;
 }
 
 /**
@@ -46,10 +53,18 @@ const BgmSection: React.FC<BgmSectionProps> = ({
   onUpdateFadeOutDuration,
   formatTime,
   onOpenHelp,
+  bgmClips,
+  currentTime,
+  onAddBgmClips,
+  onBeforeBgmClipEdit,
 }) => {
   const [isOpen, setIsOpen] = useState(true);
   const prevBgmUrlRef = useRef<string | null>(bgm?.url ?? null);
+  const prevBgmClipCountRef = useRef(bgmClips.length);
   const audioFileAccept = getAudioUploadAccept();
+  // 複数 BGM は standard フレーバー（Android/PC）限定。iOS Safari は従来の単一 BGM UI を維持する。
+  const { isIosSafari } = usePlatformCapabilities();
+  const isMultiBgm = !isIosSafari;
 
   // スワイプ保護用ハンドラ
   const handleStartPointChange = useCallback(
@@ -73,6 +88,14 @@ const BgmSection: React.FC<BgmSectionProps> = ({
     prevBgmUrlRef.current = currentBgmUrl;
   }, [bgm?.url]);
 
+  // BGM クリップが追加されたらセクションを開く
+  useEffect(() => {
+    if (bgmClips.length > prevBgmClipCountRef.current) {
+      setIsOpen(true);
+    }
+    prevBgmClipCountRef.current = bgmClips.length;
+  }, [bgmClips.length]);
+
   return (
     <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
       <div
@@ -85,6 +108,11 @@ const BgmSection: React.FC<BgmSectionProps> = ({
             2
           </span>
           <span>BGM</span>
+          {isMultiBgm && bgmClips.length > 0 && (
+            <span className="text-[10px] md:text-xs text-purple-300 font-normal ml-1">
+              ({bgmClips.length}曲)
+            </span>
+          )}
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -113,14 +141,27 @@ const BgmSection: React.FC<BgmSectionProps> = ({
             <input
               type="file"
               accept={audioFileAccept}
+              multiple={isMultiBgm}
               className="hidden"
-              onChange={onBgmUpload}
+              onChange={isMultiBgm ? onAddBgmClips : onBgmUpload}
               disabled={isBgmLocked}
             />
           </label>
         </div>
       </div>
-      {isOpen && bgm && (
+      {/* 複数 BGM クリップリスト（standard フレーバー限定） */}
+      {isOpen && isMultiBgm && (
+        <BgmClipList
+          clips={bgmClips}
+          isLocked={isBgmLocked}
+          totalDuration={totalDuration}
+          currentTime={currentTime}
+          formatTime={formatTime}
+          onBeforeEdit={onBeforeBgmClipEdit}
+        />
+      )}
+      {/* レガシー単一 BGM UI（iOS Safari 用。standard ではクリップへ自動移行されるため通常表示されない） */}
+      {isOpen && !isMultiBgm && bgm && (
         <div className="p-4 bg-purple-900/10 border border-purple-500/20 m-3 rounded-xl space-y-3">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-purple-200 text-xs md:text-sm font-medium truncate min-w-0">

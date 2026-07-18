@@ -18,6 +18,7 @@ import {
   RefreshCw,
   ArrowUp,
   ArrowDown,
+  Copy,
   Trash2,
   MapPin,
   FileAudio,
@@ -27,6 +28,8 @@ import {
 import type { NarrationClip } from '../../types';
 import { getAudioUploadAccept } from '../../utils/platform';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
+import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
+import { useAudioStore } from '../../stores/audioStore';
 
 interface NarrationSectionProps {
   narrations: NarrationClip[];
@@ -77,6 +80,10 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
   const [openTrimMap, setOpenTrimMap] = useState<Record<string, boolean>>({});
   const prevNarrationCountRef = useRef(narrations.length);
   const audioFileAccept = getAudioUploadAccept();
+  // 簡単コピーは standard フレーバー（Android/PC）限定機能
+  const { isIosSafari } = usePlatformCapabilities();
+  const duplicateNarration = useAudioStore((s) => s.duplicateNarration);
+  const canDuplicate = !isIosSafari;
 
   const handleStartTimeChange = useCallback(
     (id: string, val: number) => onUpdateStartTime(id, String(val)),
@@ -248,6 +255,16 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                     >
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>
+                    {canDuplicate && (
+                      <button
+                        onClick={() => duplicateNarration(clip.id)}
+                        disabled={isNarrationLocked || !(clip.file instanceof File)}
+                        className="px-2 py-1 bg-blue-900/30 hover:bg-blue-900/50 text-blue-300 rounded border border-blue-800/50 disabled:opacity-30 text-[10px] transition"
+                        title="このナレーションをコピー（トリム後の末尾に続けて配置）"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                     <button
                       onClick={() => onRemoveNarration(clip.id)}
                       disabled={isNarrationLocked}

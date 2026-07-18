@@ -122,6 +122,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const toggleBgmLock = useAudioStore((s) => s.toggleBgmLock);
   const removeBgm = useAudioStore((s) => s.removeBgm);
 
+  // 複数 BGM クリップ（standard フレーバー限定機能）
+  const bgmClips = useAudioStore((s) => s.bgmClips);
+  const addBgmClip = useAudioStore((s) => s.addBgmClip);
+  const migrateLegacyBgmToClips = useAudioStore((s) => s.migrateLegacyBgmToClips);
+
   const narrations = useAudioStore((s) => s.narrations);
   const isNarrationLocked = useAudioStore((s) => s.isNarrationLocked);
   const addNarration = useAudioStore((s) => s.addNarration);
@@ -182,6 +187,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const captionSettings = useCaptionStore((s) => s.settings);
   const isCaptionLocked = useCaptionStore((s) => s.isLocked);
   const addCaption = useCaptionStore((s) => s.addCaption);
+  const addCaptions = useCaptionStore((s) => s.addCaptions);
   const updateCaption = useCaptionStore((s) => s.updateCaption);
   const removeCaption = useCaptionStore((s) => s.removeCaption);
   const moveCaption = useCaptionStore((s) => s.moveCaption);
@@ -340,6 +346,22 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     () => previewRuntime.getPreviewPlatformPolicy(platformCapabilities),
     [platformCapabilities, previewRuntime]
   );
+
+  // BGM クリップ（複数BGM・standard 限定）はナレーションと同形のクリップとして
+  // 同じ再生・書き出しパイプライン（loader / engine / export音声ソース）へマージして流す。
+  // iOS Safari（apple-safari）ではマージしない（BGM クリップは無視される）。
+  const pipelineNarrations = useMemo(() => {
+    if (platformCapabilities.isIosSafari || bgmClips.length === 0) return narrations;
+    return [...narrations, ...bgmClips];
+  }, [bgmClips, narrations, platformCapabilities.isIosSafari]);
+
+  // レガシー単一 BGM を standard フレーバーではクリップ形式へ自動移行する
+  useEffect(() => {
+    if (platformCapabilities.isIosSafari) return;
+    if (bgm && bgmClips.length === 0) {
+      migrateLegacyBgmToClips(totalDuration);
+    }
+  }, [bgm, bgmClips.length, migrateLegacyBgmToClips, platformCapabilities.isIosSafari, totalDuration]);
   const useAndroidPreviewCacheForPlayback = useMemo(
     () => previewRuntime.shouldUsePreviewCache({
       isAndroid: platformCapabilities.isAndroid,
@@ -353,14 +375,14 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     () => previewRuntime.createPreviewCacheKey({
       mediaItems,
       bgm,
-      narrations,
+      narrations: pipelineNarrations,
       captions,
       captionSettings,
       canvasWidth,
       canvasHeight,
       fps: 30,
     }),
-    [bgm, captionSettings, captions, mediaItems, narrations, canvasWidth, canvasHeight, previewRuntime],
+    [bgm, captionSettings, captions, mediaItems, pipelineNarrations, canvasWidth, canvasHeight, previewRuntime],
   );
   const supportsShowSaveFilePicker = platformCapabilities.supportsShowSaveFilePicker;
   const supportsShowOpenFilePicker = platformCapabilities.supportsShowOpenFilePicker;
@@ -676,7 +698,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     previewPlatformPolicy,
     isIosSafari: platformCapabilities.isIosSafari,
     bgm,
-    narrations,
+    narrations: pipelineNarrations,
     isProcessing,
     getAudioContext,
     logInfo,
@@ -813,8 +835,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   // --- ナレーション状態の同期 ---
   // 目的: ナレーショントラックの最新状態をRefに保持
   useEffect(() => {
-    narrationsRef.current = narrations;
-  }, [narrations]);
+    narrationsRef.current = pipelineNarrations;
+  }, [pipelineNarrations]);
 
   // --- コンポーネントアンマウント時のクリーンアップ ---
   // 目的: メモリリークを防止し、リソースを適切に解放
@@ -1548,6 +1570,66 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     };
   }, [pausePreviewBeforeEdit, setBgm, clearExport, showToast]);
 
+  // --- BGM クリップ追加ハンドラ（複数BGM・standard フレーバー限定） ---
+  // 目的: 複数の BGM ファイルを読み込み、動画の長さへ自動フィットさせてクリップとして追加
+  const handleAddBgmClips = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    e.target.value = '';
+    pausePreviewBeforeEdit('add-bgm-clip');
+    clearExport();
+
+    const loadBgmMeta = (file: File): Promise<{ file: File; url: string; duration: number }> =>
+      new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const audio = new Audio(url);
+        let settled = false;
+        // メタデータ読み込みハング時に blob URL を残さないためのタイムアウト保険
+        const timeoutId = window.setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          audio.onloadedmetadata = null;
+          audio.onerror = null;
+          URL.revokeObjectURL(url);
+          reject(new Error(`音声メタデータ読み込みタイムアウト: ${file.name}`));
+        }, 15000);
+
+        audio.onloadedmetadata = () => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timeoutId);
+          const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+          resolve({ file, url, duration });
+        };
+
+        audio.onerror = () => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timeoutId);
+          URL.revokeObjectURL(url);
+          reject(new Error(`音声メタデータ読み込み失敗: ${file.name}`));
+        };
+      });
+
+    void (async () => {
+      let failedCount = 0;
+
+      for (const file of files) {
+        try {
+          const { url, duration } = await loadBgmMeta(file);
+          addBgmClip({ file, url, duration }, totalDurationRef.current);
+        } catch {
+          failedCount += 1;
+        }
+      }
+
+      if (failedCount > 0) {
+        showToast(`BGM ${failedCount}件の読み込みに失敗しました`);
+      }
+    })();
+  }, [pausePreviewBeforeEdit, clearExport, addBgmClip, showToast]);
+
   // --- ナレーションアップロードハンドラ ---
   // 目的: ナレーションファイルを読み込みストアに設定
   const handleNarrationUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1780,7 +1862,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   // --- 全クリア処理 ---
   // 目的: 全てのメディア・オーディオ・キャプションを削除し初期状態に戻す
   const handleClearAll = useCallback(() => {
-    if (mediaItems.length === 0 && !bgm && narrations.length === 0) return;
+    if (mediaItems.length === 0 && !bgm && bgmClips.length === 0 && narrations.length === 0) return;
 
     // 確認ダイアログを表示
     const confirmed = window.confirm('すべてのメディア、BGM、ナレーションをクリアします。よろしいですか？');
@@ -1829,7 +1911,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
       }
     }
-  }, [mediaItems, bgm, narrations, stopAll, clearAllMedia, clearAllAudio, resetCaptions, resetUI]);
+  }, [mediaItems, bgm, bgmClips, narrations, stopAll, clearAllMedia, clearAllAudio, resetCaptions, resetUI]);
 
   const {
     handleSeekStart: handleLiveSeekStart,
@@ -2248,7 +2330,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         key={reloadKey}
         mediaItems={mediaItems}
         bgm={bgm}
-        narrations={narrations}
+        narrations={pipelineNarrations}
         onElementLoaded={handleMediaElementLoaded}
         onRefAssign={handleMediaRefAssign}
         onSeeked={handleSeeked}
@@ -2372,6 +2454,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onUpdateFadeOutDuration={withPreviewPause('update-bgm-fade-out-duration', updateBgmFadeOutDuration)}
               formatTime={formatTime}
               onOpenHelp={() => openSectionHelp('bgm')}
+              bgmClips={bgmClips}
+              currentTime={currentTime}
+              onAddBgmClips={handleAddBgmClips}
+              onBeforeBgmClipEdit={pausePreviewBeforeEdit}
             />
 
             {/* 3. NARRATION SETTINGS */}
@@ -2420,6 +2506,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onSetBulkFadeInDuration={withPreviewPause('set-caption-bulk-fade-in-duration', setBulkFadeInDuration)}
               onSetBulkFadeOutDuration={withPreviewPause('set-caption-bulk-fade-out-duration', setBulkFadeOutDuration)}
               onOpenHelp={() => openSectionHelp('caption')}
+              formatTime={formatTime}
+              onAddCaptions={withPreviewPause('bulk-add-captions', addCaptions)}
+              onUpdateCaptionLive={updateCaption}
             />
 
           </div>
@@ -2433,7 +2522,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
                 supportsShowSaveFilePicker={supportsShowSaveFilePicker}
                 mediaItems={mediaItems}
                 bgm={bgm}
-                narrations={narrations}
+                narrations={pipelineNarrations}
                 canvasRef={canvasRef}
                 currentTime={currentTime}
                 totalDuration={totalDuration}

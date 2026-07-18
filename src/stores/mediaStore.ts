@@ -14,6 +14,7 @@ import type { MediaItem } from '../types';
 import {
   createMediaItem,
   calculateTotalDuration,
+  generateId,
   validateTrim,
   validateScale,
   validatePosition,
@@ -29,6 +30,7 @@ interface MediaState {
 
   // Actions
   addMediaItems: (files: File[]) => Promise<void>;
+  duplicateMediaItem: (id: string) => void;
   removeMediaItem: (id: string) => void;
   moveMediaItem: (index: number, direction: 'up' | 'down') => void;
   updateMediaItem: (id: string, updates: Partial<MediaItem>) => void;
@@ -87,6 +89,38 @@ export const useMediaStore = create<MediaState>()(
         set((state) => {
           const updated = [...state.mediaItems, ...newItems];
           useLogStore.getState().info('MEDIA', 'メディアアイテム追加完了', { totalItems: updated.length, totalDuration: calculateTotalDuration(updated) });
+          return {
+            mediaItems: updated,
+            totalDuration: calculateTotalDuration(updated),
+          };
+        });
+      },
+
+      // Duplicate media item (Android/PC 向け簡単コピー)
+      // 独立した ObjectURL を発行し、元アイテムの直後へ挿入する。
+      duplicateMediaItem: (id) => {
+        set((state) => {
+          const index = state.mediaItems.findIndex((m) => m.id === id);
+          if (index < 0) return state;
+          const source = state.mediaItems[index];
+          const copy: MediaItem = {
+            ...source,
+            id: generateId(),
+            url: URL.createObjectURL(source.file),
+            isTransformOpen: false,
+            isLocked: false,
+          };
+          useLogStore.getState().info('MEDIA', 'メディアアイテムを複製', {
+            sourceId: source.id,
+            newId: copy.id,
+            fileName: source.file.name,
+            type: source.type,
+          });
+          const updated = [
+            ...state.mediaItems.slice(0, index + 1),
+            copy,
+            ...state.mediaItems.slice(index + 1),
+          ];
           return {
             mediaItems: updated,
             totalDuration: calculateTotalDuration(updated),

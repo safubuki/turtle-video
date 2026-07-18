@@ -2159,3 +2159,19 @@
   - flat config は同一ルールキーを後勝ちマージするため、同じファイル集合へ `no-restricted-imports` 系を追加するときは既存の設定オブジェクトへパターンを追記する（新オブジェクト分割すると既存制限が消える）。
   - `hooks/export-strategies/`（resolver / types / decodeAudioProbe）と `utils/exportTimeline` 等の純ロジックは引き続き両フレーバー共有。ここを変更する場合のみ両フレーバーの export 回帰確認が必要。
   - Android 側の export 改造は `src/flavors/standard/export/exportEngine.ts` を自由に編集してよい（iOS Safari へは波及しない）。フォーク直後は iOS 専用の死にコード（`isIosSafari` 分岐）が standard 側にも残っているが、capabilities ピン留めで実行されないため、カスタマイズ時に順次削ってよい。
+
+### 13-103. Android 機能拡張パック（F1〜F4）は standard 限定機能として capabilities Context とクリップパイプライン再利用で実装する
+
+- **ファイル**: `src/utils/captionFontCatalog.ts`, `src/utils/captionBulkInput.ts`, `src/stores/audioStore.ts`, `src/stores/mediaStore.ts`, `src/stores/captionStore.ts`, `src/components/sections/BgmClipList.tsx`, `src/components/modals/CaptionBulkAddModal.tsx`, `Docs/specs/2026-07-18_*.md`
+- **内容**（詳細仕様は Docs/specs/2026-07-18_android-feature-pack-overview.md）:
+  - **F1 フォント拡張**: `CaptionFontStyle` に rounded/handwriting/mono/system を追加。解決は `captionFontCatalog.ts` の `resolveCaptionFontFamily()` が単一ソース（未知値は sans-serif フォールバック）。apple-safari / 凍結レガシーエンジンには型互換フォールバックのみ追加（挙動不変）。
+  - **F2 簡単コピー**: `mediaStore.duplicateMediaItem`（直後挿入・新 ObjectURL）/ `audioStore.duplicateNarration`（トリム後末尾へ連続配置）。
+  - **F3 複数 BGM**: `BgmClip = NarrationClip`（optional クリップ範囲フェード付き）。`audioStore.bgmClips` + 自動フィット（`resolveBgmClipAutoFit`）。再生/書き出しは TurtleVideo の `pipelineNarrations`（narrations + bgmClips マージ）としてナレーションパイプラインをそのまま流用。レガシー単一 bgm は standard 起動時に `migrateLegacyBgmToClips()` で自動移行し、保存時は先頭クリップを `deriveLegacyBgmMirror()` で bgm フィールドへミラー（iOS/旧版は 1 曲目のみ再生の縮退動作）。
+  - **F4 一括キャプション**: `captionBulkInput.ts`（均等割り/固定秒の純ロジック）+ `CaptionBulkAddModal` + タイミング打ちバー（`onUpdateCaptionLive` = プレビュー停止なしの updateCaption を使用）。
+- **Android 限定ゲートの定石**:
+  - UI 出し分けは `usePlatformCapabilities().isIosSafari`（standard では常に false にピン留め）で行い、UA 直接判定はしない。
+  - 挙動変更は standard フレーバー所有ファイルのみ。共有型・永続化は additive（optional フィールド/追加値）に限定し、iOS で開いてもクラッシュしない縮退動作を必ず用意する。
+- **注意**:
+  - タイミング打ちは `withPreviewPause` を通さない生の `updateCaption` を使う（再生継続が前提の機能。他のキャプション編集は従来どおり pause を通す）。
+  - `SerializedNarrationClip` にフェード 4 フィールド、`ProjectData` に `bgmClips` を追加済み。復元は `restoreFromSave(..., bgmClips?)` の第 5 引数。
+  - iOS への展開時は BgmSection の分岐解除 + apple-safari エンジンのクリップフェード対応 + 拡張フォント UI 解放が必要。

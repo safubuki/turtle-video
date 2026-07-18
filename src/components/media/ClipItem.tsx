@@ -7,6 +7,7 @@ import React, { useCallback, useState } from 'react';
 import {
   ArrowUp,
   ArrowDown,
+  Copy,
   Trash2,
   MonitorPlay,
   Image as ImageIcon,
@@ -38,6 +39,8 @@ export interface ClipItemProps {
   mediaElement: HTMLVideoElement | HTMLImageElement | null;
   onMoveUp: () => void;
   onMoveDown: () => void;
+  /** 簡単コピー（standard フレーバーのみ供給される。未供給時はボタン非表示） */
+  onDuplicate?: () => void;
   onRemove: () => void;
   onToggleLock: () => void;
   onToggleTransformPanel: () => void;
@@ -67,6 +70,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
   mediaElement,
   onMoveUp,
   onMoveDown,
+  onDuplicate,
   onRemove,
   onToggleLock,
   onToggleTransformPanel,
@@ -144,6 +148,16 @@ const ClipItem: React.FC<ClipItemProps> = ({
           >
             <ArrowDown className="w-3 h-3" />
           </button>
+          {onDuplicate && (
+            <button
+              onClick={onDuplicate}
+              disabled={isDisabled}
+              className="px-2 py-1 bg-blue-900/30 hover:bg-blue-900/50 text-blue-300 rounded border border-blue-800/50 disabled:opacity-30 text-[10px] transition"
+              title="このクリップをコピー（直後に複製を挿入）"
+            >
+              <Copy className="w-3 h-3" />
+            </button>
+          )}
           <button
             onClick={onRemove}
             disabled={isDisabled}

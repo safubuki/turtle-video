@@ -713,7 +713,28 @@ async function offlineRenderAudio(
     const playDuration = Math.min(trimmedDuration, totalDuration - clipStart);
     if (playDuration <= 0) return;
 
-    gain.gain.setValueAtTime(Math.max(0, Math.min(2.5, clip.volume)), clipStart);
+    const clipVol = Math.max(0, Math.min(2.5, clip.volume));
+    const clipFadeInDur = clip.fadeIn ? Math.min(clip.fadeInDuration || 1, playDuration) : 0;
+    const clipFadeOutDur = clip.fadeOut ? Math.min(clip.fadeOutDuration || 1, playDuration) : 0;
+
+    if (clipFadeInDur > 0 || clipFadeOutDur > 0) {
+      // クリップ範囲基準のフェードエンベロープ（BGM クリップ用の任意フィールド）
+      const clipEnd = clipStart + playDuration;
+      gain.gain.setValueAtTime(0, 0);
+      if (clipFadeInDur > 0) {
+        gain.gain.setValueAtTime(0, clipStart);
+        gain.gain.linearRampToValueAtTime(clipVol, clipStart + clipFadeInDur);
+      } else {
+        gain.gain.setValueAtTime(clipVol, clipStart);
+      }
+      if (clipFadeOutDur > 0) {
+        const fadeOutStart = Math.max(clipStart + clipFadeInDur, clipEnd - clipFadeOutDur);
+        gain.gain.setValueAtTime(clipVol, fadeOutStart);
+        gain.gain.linearRampToValueAtTime(0, clipEnd);
+      }
+    } else {
+      gain.gain.setValueAtTime(clipVol, clipStart);
+    }
     source.start(clipStart, trimStart, playDuration);
     scheduledSources++;
   }

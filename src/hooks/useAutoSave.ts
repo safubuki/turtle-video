@@ -90,6 +90,7 @@ export function useAutoSave() {
   const isClipsLocked = useMediaStore((s) => s.isClipsLocked);
   const bgm = useAudioStore((s) => s.bgm);
   const isBgmLocked = useAudioStore((s) => s.isBgmLocked);
+  const bgmClips = useAudioStore((s) => s.bgmClips);
   const narrations = useAudioStore((s) => s.narrations);
   const isNarrationLocked = useAudioStore((s) => s.isNarrationLocked);
   const captions = useCaptionStore((s) => s.captions);
@@ -146,6 +147,22 @@ export function useAutoSave() {
         bgm.duration,
         bgm.isAi,
       ].join(':') : 'none',
+      bgmClips.length,
+      bgmClips.map((n) => [
+        n.id,
+        n.file?.name ?? '',
+        n.url,
+        n.startTime,
+        n.volume,
+        n.isMuted,
+        n.duration,
+        n.trimStart,
+        n.trimEnd,
+        n.fadeIn ?? false,
+        n.fadeOut ?? false,
+        n.fadeInDuration ?? '',
+        n.fadeOutDuration ?? '',
+      ].join(':')).join(','),
       narrations.length,
       narrations.map((n) => [
         n.id,
@@ -192,6 +209,7 @@ export function useAutoSave() {
   }, [
     mediaItems,
     bgm,
+    bgmClips,
     narrations,
     captions,
     captionSettings,
@@ -222,7 +240,7 @@ export function useAutoSave() {
     }
     
     // データがない場合はスキップ
-    if (mediaItems.length === 0 && !bgm && narrations.length === 0 && captions.length === 0) {
+    if (mediaItems.length === 0 && !bgm && bgmClips.length === 0 && narrations.length === 0 && captions.length === 0) {
       return 'skipped-empty';
     }
     
@@ -235,7 +253,8 @@ export function useAutoSave() {
       isNarrationLocked,
       captions,
       captionSettings,
-      isCaptionsLocked
+      isCaptionsLocked,
+      bgmClips
     );
 
     if (!saved) {
@@ -260,6 +279,7 @@ export function useAutoSave() {
     isClipsLocked,
     bgm,
     isBgmLocked,
+    bgmClips,
     narrations,
     isNarrationLocked,
     captions,

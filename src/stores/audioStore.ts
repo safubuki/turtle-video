@@ -6,7 +6,7 @@
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import type { AudioTrack, NarrationClip, NarrationSourceType } from '../types';
+import type { AudioTrack, BgmClip, NarrationClip, NarrationSourceType } from '../types';
 import { revokeObjectUrl } from '../utils';
 import { useLogStore } from './logStore';
 
@@ -24,9 +24,12 @@ interface CreateNarrationClipParams {
 }
 
 interface AudioState {
-  // BGM
+  // BGM（レガシー単一トラック。standard フレーバーでは bgmClips へ自動移行される）
   bgm: AudioTrack | null;
   isBgmLocked: boolean;
+
+  // BGM クリップ（複数 BGM 対応・standard フレーバー限定機能）
+  bgmClips: BgmClip[];
 
   // Narrations
   narrations: NarrationClip[];
@@ -44,8 +47,26 @@ interface AudioState {
   toggleBgmLock: () => void;
   removeBgm: () => void;
 
+  // BGM clip actions（複数 BGM・standard フレーバー限定）
+  /** 自動フィット付きで BGM クリップを追加する。totalDuration は現在の動画全体の長さ */
+  addBgmClip: (params: { file: File; url: string; duration: number }, totalDuration: number) => void;
+  duplicateBgmClip: (id: string) => void;
+  updateBgmClipStartTime: (id: string, value: number) => void;
+  updateBgmClipVolume: (id: string, value: number) => void;
+  toggleBgmClipMute: (id: string) => void;
+  updateBgmClipTrim: (id: string, edge: 'start' | 'end', value: number) => void;
+  toggleBgmClipFadeIn: (id: string, enabled: boolean) => void;
+  toggleBgmClipFadeOut: (id: string, enabled: boolean) => void;
+  updateBgmClipFadeInDuration: (id: string, duration: number) => void;
+  updateBgmClipFadeOutDuration: (id: string, duration: number) => void;
+  moveBgmClip: (id: string, direction: 'up' | 'down') => void;
+  removeBgmClip: (id: string) => void;
+  /** レガシー単一 BGM を bgmClips へ移行する（standard フレーバーの起動/復元時） */
+  migrateLegacyBgmToClips: (totalDuration: number) => void;
+
   // Narration actions
   addNarration: (clip: NarrationClip) => void;
+  duplicateNarration: (id: string) => void;
   updateNarrationStartTime: (id: string, value: number) => void;
   updateNarrationVolume: (id: string, value: number) => void;
   toggleNarrationMute: (id: string) => void;
@@ -68,12 +89,52 @@ interface AudioState {
     bgm: AudioTrack | null,
     isBgmLocked: boolean,
     narrations: NarrationClip[],
-    isNarrationLocked: boolean
+    isNarrationLocked: boolean,
+    bgmClips?: BgmClip[]
   ) => void;
 }
 
 function generateNarrationId(): string {
   return `narration_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function generateBgmClipId(): string {
+  return `bgmclip_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/** 既存 BGM クリップ群の実効末尾（タイムライン上で最後に音が終わる時刻）を返す */
+export function resolveBgmClipsCoverageEnd(clips: BgmClip[]): number {
+  return clips.reduce((end, clip) => {
+    const trimStart = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
+    const trimEnd = Number.isFinite(clip.trimEnd)
+      ? Math.max(trimStart, Math.min(clip.duration, clip.trimEnd))
+      : clip.duration;
+    return Math.max(end, clip.startTime + Math.max(0, trimEnd - trimStart));
+  }, 0);
+}
+
+/**
+ * 自動フィット: 追加する BGM クリップの開始位置とトリム終了を決める。
+ * - 開始位置は既存クリップの実効末尾（連続配置・重なりなし）
+ * - トリム終了は「動画の残り時間」にぴったり収まるよう調整
+ * - 動画が無い/残り時間が無い場合はトリムしない（後から動画を足すケースを妨げない）
+ */
+export function resolveBgmClipAutoFit(
+  existingClips: BgmClip[],
+  sourceDuration: number,
+  totalDuration: number,
+): { startTime: number; trimStart: number; trimEnd: number } {
+  const startTime = resolveBgmClipsCoverageEnd(existingClips);
+  const safeDuration = Math.max(0, sourceDuration);
+  const remaining = totalDuration - startTime;
+  if (totalDuration <= 0 || remaining <= 0) {
+    return { startTime, trimStart: 0, trimEnd: safeDuration };
+  }
+  return {
+    startTime,
+    trimStart: 0,
+    trimEnd: Math.min(safeDuration, remaining),
+  };
 }
 
 function revokeNarrationUrls(clips: NarrationClip[]): void {
@@ -151,6 +212,7 @@ export const useAudioStore = create<AudioState>()(
       // Initial state
       bgm: null,
       isBgmLocked: false,
+      bgmClips: [],
       narrations: [],
       isNarrationLocked: false,
 
@@ -231,6 +293,196 @@ export const useAudioStore = create<AudioState>()(
         set({ bgm: null });
       },
 
+      // === BGM clip actions（複数 BGM・standard フレーバー限定） ===
+      addBgmClip: (params, totalDuration) => {
+        set((state) => {
+          const fit = resolveBgmClipAutoFit(state.bgmClips, params.duration, totalDuration);
+          const clip: BgmClip = normalizeNarrationClip({
+            id: generateBgmClipId(),
+            sourceType: 'file',
+            file: params.file,
+            url: params.url,
+            startTime: fit.startTime,
+            volume: 1.0,
+            isMuted: false,
+            trimStart: fit.trimStart,
+            trimEnd: fit.trimEnd,
+            duration: Math.max(0, params.duration),
+            isAiEditable: false,
+            fadeIn: false,
+            fadeOut: false,
+            fadeInDuration: 2.0,
+            fadeOutDuration: 2.0,
+          });
+          useLogStore.getState().info('AUDIO', 'BGMクリップを追加', {
+            id: clip.id,
+            fileName: params.file.name,
+            startTime: clip.startTime,
+            trimEnd: clip.trimEnd,
+            totalDuration,
+          });
+          return { bgmClips: [...state.bgmClips, clip] };
+        });
+      },
+
+      duplicateBgmClip: (id) => {
+        set((state) => {
+          const source = state.bgmClips.find((clip) => clip.id === id);
+          if (!source || !(source.file instanceof File)) return state;
+          const trimStart = Number.isFinite(source.trimStart) ? Math.max(0, source.trimStart) : 0;
+          const trimEnd = Number.isFinite(source.trimEnd)
+            ? Math.max(trimStart, Math.min(source.duration, source.trimEnd))
+            : source.duration;
+          const copy: BgmClip = normalizeNarrationClip({
+            ...source,
+            id: generateBgmClipId(),
+            url: URL.createObjectURL(source.file),
+            startTime: source.startTime + Math.max(0, trimEnd - trimStart),
+          });
+          useLogStore.getState().info('AUDIO', 'BGMクリップを複製', {
+            sourceId: source.id,
+            newId: copy.id,
+          });
+          return { bgmClips: [...state.bgmClips, copy] };
+        });
+      },
+
+      updateBgmClipStartTime: (id, value) => {
+        set((state) => ({
+          bgmClips: state.bgmClips.map((clip) => (
+            clip.id === id ? normalizeNarrationClip({ ...clip, startTime: Math.max(0, value) }) : clip
+          )),
+        }));
+      },
+
+      updateBgmClipVolume: (id, value) => {
+        set((state) => ({
+          bgmClips: state.bgmClips.map((clip) => (
+            clip.id === id
+              ? normalizeNarrationClip({ ...clip, volume: Math.max(0, Math.min(2.5, value)) })
+              : clip
+          )),
+        }));
+      },
+
+      toggleBgmClipMute: (id) => {
+        set((state) => ({
+          bgmClips: state.bgmClips.map((clip) => (
+            clip.id === id ? normalizeNarrationClip({ ...clip, isMuted: !clip.isMuted }) : clip
+          )),
+        }));
+      },
+
+      updateBgmClipTrim: (id, edge, value) => {
+        set((state) => ({
+          bgmClips: state.bgmClips.map((clip) => {
+            if (clip.id !== id) return clip;
+            const minGap = 0.05;
+            const duration = Math.max(0, clip.duration);
+            const trimStart = Number.isFinite(clip.trimStart) ? clip.trimStart : 0;
+            const trimEnd = Number.isFinite(clip.trimEnd) ? clip.trimEnd : duration;
+            if (edge === 'start') {
+              const nextStart = Math.max(0, Math.min(value, trimEnd - minGap));
+              return normalizeNarrationClip({ ...clip, trimStart: nextStart });
+            }
+            const nextEnd = Math.min(duration, Math.max(value, trimStart + minGap));
+            return normalizeNarrationClip({ ...clip, trimEnd: nextEnd });
+          }),
+        }));
+      },
+
+      toggleBgmClipFadeIn: (id, enabled) => {
+        set((state) => ({
+          bgmClips: state.bgmClips.map((clip) => (
+            clip.id === id ? { ...clip, fadeIn: enabled } : clip
+          )),
+        }));
+      },
+
+      toggleBgmClipFadeOut: (id, enabled) => {
+        set((state) => ({
+          bgmClips: state.bgmClips.map((clip) => (
+            clip.id === id ? { ...clip, fadeOut: enabled } : clip
+          )),
+        }));
+      },
+
+      updateBgmClipFadeInDuration: (id, duration) => {
+        set((state) => ({
+          bgmClips: state.bgmClips.map((clip) => (
+            clip.id === id ? { ...clip, fadeInDuration: duration } : clip
+          )),
+        }));
+      },
+
+      updateBgmClipFadeOutDuration: (id, duration) => {
+        set((state) => ({
+          bgmClips: state.bgmClips.map((clip) => (
+            clip.id === id ? { ...clip, fadeOutDuration: duration } : clip
+          )),
+        }));
+      },
+
+      moveBgmClip: (id, direction) => {
+        set((state) => {
+          const idx = state.bgmClips.findIndex((clip) => clip.id === id);
+          if (idx < 0) return state;
+          const target = direction === 'up' ? idx - 1 : idx + 1;
+          if (target < 0 || target >= state.bgmClips.length) return state;
+          const next = [...state.bgmClips];
+          [next[idx], next[target]] = [next[target], next[idx]];
+          return { bgmClips: next };
+        });
+      },
+
+      removeBgmClip: (id) => {
+        const clip = get().bgmClips.find((item) => item.id === id);
+        if (clip?.url) {
+          useLogStore.getState().info('AUDIO', 'BGMクリップを削除', { id });
+          revokeObjectUrl(clip.url);
+        }
+        set((state) => ({
+          bgmClips: state.bgmClips.filter((item) => item.id !== id),
+        }));
+      },
+
+      migrateLegacyBgmToClips: (totalDuration) => {
+        set((state) => {
+          if (!state.bgm || state.bgmClips.length > 0) return state;
+          const bgm = state.bgm;
+          const trimStart = Math.max(0, bgm.startPoint);
+          const availableTimeline = totalDuration > 0
+            ? Math.max(0, totalDuration - Math.max(0, bgm.delay))
+            : Number.POSITIVE_INFINITY;
+          const trimEnd = Math.min(bgm.duration, trimStart + availableTimeline);
+          const clip: BgmClip = normalizeNarrationClip({
+            id: generateBgmClipId(),
+            sourceType: 'file',
+            file: bgm.file,
+            url: bgm.url, // URL の所有権をクリップへ移す（revoke しない）
+            blobUrl: bgm.blobUrl,
+            startTime: Math.max(0, bgm.delay),
+            volume: bgm.volume,
+            isMuted: false,
+            trimStart,
+            trimEnd: trimEnd > trimStart ? trimEnd : bgm.duration,
+            duration: bgm.duration,
+            isAiEditable: false,
+            fadeIn: bgm.fadeIn,
+            fadeOut: bgm.fadeOut,
+            fadeInDuration: bgm.fadeInDuration,
+            fadeOutDuration: bgm.fadeOutDuration,
+          });
+          useLogStore.getState().info('AUDIO', 'レガシーBGMをクリップ形式へ移行', {
+            newId: clip.id,
+            startTime: clip.startTime,
+            trimStart: clip.trimStart,
+            trimEnd: clip.trimEnd,
+          });
+          return { bgm: null, bgmClips: [clip] };
+        });
+      },
+
       // === Narration actions ===
       addNarration: (clip) => {
         useLogStore.getState().info('AUDIO', 'ナレーションを追加', {
@@ -241,6 +493,37 @@ export const useAudioStore = create<AudioState>()(
           duration: clip.duration,
         });
         set((state) => ({ narrations: [...state.narrations, normalizeNarrationClip(clip)] }));
+      },
+
+      // ナレーションを複製（Android/PC 向け簡単コピー）。
+      // 独立した ObjectURL を発行し、元クリップのトリム後末尾へ連続配置する（重なり回避）。
+      duplicateNarration: (id) => {
+        set((state) => {
+          const source = state.narrations.find((clip) => clip.id === id);
+          if (!source) return state;
+          if (!(source.file instanceof File)) {
+            useLogStore.getState().warn('AUDIO', 'ナレーション複製をスキップ（File 実体なし）', { id });
+            return state;
+          }
+          const trimStart = Number.isFinite(source.trimStart) ? Math.max(0, source.trimStart) : 0;
+          const trimEnd = Number.isFinite(source.trimEnd)
+            ? Math.max(trimStart, Math.min(source.duration, source.trimEnd))
+            : source.duration;
+          const effectiveLength = Math.max(0, trimEnd - trimStart);
+          const copy: NarrationClip = normalizeNarrationClip({
+            ...source,
+            id: generateNarrationId(),
+            url: URL.createObjectURL(source.file),
+            startTime: source.startTime + effectiveLength,
+          });
+          useLogStore.getState().info('AUDIO', 'ナレーションを複製', {
+            sourceId: source.id,
+            newId: copy.id,
+            fileName: source.file.name,
+            startTime: copy.startTime,
+          });
+          return { narrations: [...state.narrations, copy] };
+        });
       },
 
       updateNarrationStartTime: (id, value) => {
@@ -363,33 +646,38 @@ export const useAudioStore = create<AudioState>()(
 
       // === Clear all ===
       clearAllAudio: () => {
-        const { bgm, narrations } = get();
+        const { bgm, bgmClips, narrations } = get();
         useLogStore.getState().info('AUDIO', '全オーディオをクリア', {
           hasBgm: !!bgm,
+          bgmClipCount: bgmClips.length,
           narrationCount: narrations.length,
         });
 
         if (bgm?.url) revokeObjectUrl(bgm.url);
+        revokeNarrationUrls(bgmClips);
         revokeNarrationUrls(narrations);
 
         set({
           bgm: null,
           isBgmLocked: false,
+          bgmClips: [],
           narrations: [],
           isNarrationLocked: false,
         });
       },
 
       // === Restore from save ===
-      restoreFromSave: (newBgm, newIsBgmLocked, newNarrations, newIsNarrationLocked) => {
-        const { bgm, narrations } = get();
+      restoreFromSave: (newBgm, newIsBgmLocked, newNarrations, newIsNarrationLocked, newBgmClips = []) => {
+        const { bgm, bgmClips, narrations } = get();
 
         if (bgm?.url) revokeObjectUrl(bgm.url);
+        revokeNarrationUrls(bgmClips);
         revokeNarrationUrls(narrations);
 
         set({
           bgm: newBgm,
           isBgmLocked: newIsBgmLocked,
+          bgmClips: newBgmClips.map((clip) => normalizeNarrationClip(clip)),
           narrations: newNarrations.map((clip) => normalizeNarrationClip(clip)),
           isNarrationLocked: newIsNarrationLocked,
         });

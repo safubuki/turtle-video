@@ -221,4 +221,137 @@ describe('audioStore', () => {
       expect(state.isNarrationLocked).toBe(false);
     });
   });
+
+  describe('duplicateNarration', () => {
+    it('should append an independent copy placed right after the trimmed end', () => {
+      const source = createMockNarrationClip({
+        id: 'nar-src',
+        startTime: 10,
+        duration: 30,
+        trimStart: 5,
+        trimEnd: 20,
+        volume: 1.2,
+      });
+      useAudioStore.setState({ narrations: [source] });
+
+      useAudioStore.getState().duplicateNarration('nar-src');
+
+      const narrations = useAudioStore.getState().narrations;
+      expect(narrations).toHaveLength(2);
+      const copy = narrations[1];
+      expect(copy.id).not.toBe(source.id);
+      expect(copy.url).not.toBe(source.url);
+      // トリム後実効長 15 秒ぶん後ろへ連続配置
+      expect(copy.startTime).toBeCloseTo(10 + 15);
+      expect(copy.trimStart).toBe(5);
+      expect(copy.trimEnd).toBe(20);
+      expect(copy.volume).toBeCloseTo(1.2);
+    });
+
+    it('should skip duplication when file is not a File instance', () => {
+      const source = createMockNarrationClip({
+        id: 'nar-nofile',
+        file: { name: 'ghost.mp3' },
+      });
+      useAudioStore.setState({ narrations: [source] });
+
+      useAudioStore.getState().duplicateNarration('nar-nofile');
+
+      expect(useAudioStore.getState().narrations).toHaveLength(1);
+    });
+  });
+
+  describe('bgmClips (multi-BGM)', () => {
+    beforeEach(() => {
+      useAudioStore.setState({ bgm: null, bgmClips: [], narrations: [] });
+    });
+
+    it('auto-fits the first clip to the video length', () => {
+      const file = new File([''], 'song1.mp3', { type: 'audio/mpeg' });
+      useAudioStore.getState().addBgmClip({ file, url: 'blob:song1', duration: 120 }, 30);
+
+      const clips = useAudioStore.getState().bgmClips;
+      expect(clips).toHaveLength(1);
+      expect(clips[0].startTime).toBe(0);
+      expect(clips[0].trimStart).toBe(0);
+      // 動画 30 秒にぴったり収まるようトリム
+      expect(clips[0].trimEnd).toBeCloseTo(30);
+      expect(clips[0].fadeIn).toBe(false);
+    });
+
+    it('places the second clip after the first and fits the remaining time', () => {
+      const fileA = new File([''], 'a.mp3', { type: 'audio/mpeg' });
+      const fileB = new File([''], 'b.mp3', { type: 'audio/mpeg' });
+      useAudioStore.getState().addBgmClip({ file: fileA, url: 'blob:a', duration: 20 }, 60);
+      useAudioStore.getState().addBgmClip({ file: fileB, url: 'blob:b', duration: 100 }, 60);
+
+      const clips = useAudioStore.getState().bgmClips;
+      expect(clips).toHaveLength(2);
+      // 1 本目はソース 20 秒 < 動画 60 秒なのでトリムなし
+      expect(clips[0].trimEnd).toBeCloseTo(20);
+      // 2 本目は 1 本目の末尾 (20s) から開始し、残り 40 秒に収まる
+      expect(clips[1].startTime).toBeCloseTo(20);
+      expect(clips[1].trimEnd).toBeCloseTo(40);
+    });
+
+    it('does not trim when there is no video yet', () => {
+      const file = new File([''], 'solo.mp3', { type: 'audio/mpeg' });
+      useAudioStore.getState().addBgmClip({ file, url: 'blob:solo', duration: 45 }, 0);
+
+      const clips = useAudioStore.getState().bgmClips;
+      expect(clips[0].trimEnd).toBeCloseTo(45);
+    });
+
+    it('duplicates a clip right after its trimmed end with an independent url', () => {
+      const file = new File([''], 'dup.mp3', { type: 'audio/mpeg' });
+      useAudioStore.getState().addBgmClip({ file, url: 'blob:dup', duration: 30 }, 100);
+      const original = useAudioStore.getState().bgmClips[0];
+
+      useAudioStore.getState().duplicateBgmClip(original.id);
+
+      const clips = useAudioStore.getState().bgmClips;
+      expect(clips).toHaveLength(2);
+      expect(clips[1].id).not.toBe(original.id);
+      expect(clips[1].url).not.toBe(original.url);
+      expect(clips[1].startTime).toBeCloseTo(original.startTime + 30);
+    });
+
+    it('migrates the legacy single bgm into a clip once', () => {
+      const legacy = createMockAudioTrack({
+        startPoint: 5,
+        delay: 2,
+        volume: 1.5,
+        fadeIn: true,
+        duration: 90,
+      });
+      useAudioStore.setState({ bgm: legacy, bgmClips: [] });
+
+      useAudioStore.getState().migrateLegacyBgmToClips(40);
+
+      const state = useAudioStore.getState();
+      expect(state.bgm).toBeNull();
+      expect(state.bgmClips).toHaveLength(1);
+      const clip = state.bgmClips[0];
+      expect(clip.startTime).toBe(2);
+      expect(clip.trimStart).toBe(5);
+      // 残りタイムライン 38 秒ぶん: trimEnd = 5 + 38 = 43
+      expect(clip.trimEnd).toBeCloseTo(43);
+      expect(clip.volume).toBeCloseTo(1.5);
+      expect(clip.fadeIn).toBe(true);
+
+      // 既にクリップがある場合は再移行しない
+      useAudioStore.setState({ bgm: createMockAudioTrack() });
+      useAudioStore.getState().migrateLegacyBgmToClips(40);
+      expect(useAudioStore.getState().bgmClips).toHaveLength(1);
+    });
+
+    it('restoreFromSave restores bgmClips and clearAllAudio clears them', () => {
+      const clip = createMockNarrationClip({ id: 'bgmclip-1', url: 'blob:restored' });
+      useAudioStore.getState().restoreFromSave(null, false, [], false, [clip]);
+      expect(useAudioStore.getState().bgmClips).toHaveLength(1);
+
+      useAudioStore.getState().clearAllAudio();
+      expect(useAudioStore.getState().bgmClips).toHaveLength(0);
+    });
+  });
 });

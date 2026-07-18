@@ -7,6 +7,8 @@ import React, { useRef } from 'react';
 import { Upload, Lock, Unlock, CircleHelp } from 'lucide-react';
 import type { MediaItem } from '../../types';
 import ClipItem from '../media/ClipItem';
+import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
+import { useMediaStore } from '../../stores/mediaStore';
 
 interface ClipsSectionProps {
   mediaItems: MediaItem[];
@@ -65,6 +67,10 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   onOpenHelp,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // 簡単コピーは standard フレーバー（Android/PC）限定機能
+  const { isIosSafari } = usePlatformCapabilities();
+  const duplicateMediaItem = useMediaStore((s) => s.duplicateMediaItem);
+  const canDuplicate = !isIosSafari;
 
   const handleAddClick = () => {
     if (isClipsLocked) return;
@@ -137,6 +143,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             mediaElement={mediaElements[v.id] || null}
             onMoveUp={() => onMoveMedia(i, 'up')}
             onMoveDown={() => onMoveMedia(i, 'down')}
+            onDuplicate={canDuplicate ? () => duplicateMediaItem(v.id) : undefined}
             onRemove={() => onRemoveMedia(v.id)}
             onToggleLock={() => onToggleMediaLock(v.id)}
             onToggleTransformPanel={() => onToggleTransformPanel(v.id)}

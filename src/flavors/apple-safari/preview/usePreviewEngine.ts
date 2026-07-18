@@ -7,6 +7,7 @@ import { createCaptionGlyphCanvas } from '../../../utils/canvas';
 import type {
   AudioTrack,
   Caption,
+  CaptionFontStyle,
   CaptionSettings,
   MediaElementsRef,
   MediaItem,
@@ -1131,12 +1132,13 @@ export function usePreviewEngine({
             const captionScale = Math.max(0.1, ctx.canvas.height / CAPTION_REFERENCE_HEIGHT);
             const fontSize = Math.max(1, baseFontSize * captionScale);
 
-            const fontFamilyMap = {
+            const fontFamilyMap: Partial<Record<CaptionFontStyle, string>> = {
               gothic: 'sans-serif',
               mincho: '"游明朝", "Yu Mincho", "ヒラギノ明朝 ProN", "Hiragino Mincho ProN", serif',
             };
             const effectiveFontStyle = activeCaption.overrideFontStyle ?? currentCaptionSettings.fontStyle;
-            const fontFamily = fontFamilyMap[effectiveFontStyle];
+            // 拡張フォント（standard 限定機能）の値を含むプロジェクトでも描画不能にならないよう sans-serif へフォールバック
+            const fontFamily = fontFamilyMap[effectiveFontStyle] ?? 'sans-serif';
 
             const effectivePosition = activeCaption.overridePosition ?? currentCaptionSettings.position;
             const padding = 50 * captionScale;

@@ -13,6 +13,7 @@ import type {
   NarrationClip,
 } from '../../../types';
 import type { ExportPreparationStep, UseExportReturn } from '../../../hooks/export-strategies/types';
+import { resolveCaptionFontFamily } from '../../../utils/captionFontCatalog';
 import type { LogCategory } from '../../../stores/logStore';
 import { useMediaStore } from '../../../stores';
 import { useProjectStore } from '../../../stores/projectStore';
@@ -2402,12 +2403,8 @@ export function usePreviewEngine({
             const captionScale = Math.max(0.1, ctx.canvas.height / CAPTION_REFERENCE_HEIGHT);
             const fontSize = Math.max(1, baseFontSize * captionScale);
 
-            const fontFamilyMap = {
-              gothic: 'sans-serif',
-              mincho: '"游明朝", "Yu Mincho", "ヒラギノ明朝 ProN", "Hiragino Mincho ProN", serif',
-            };
             const effectiveFontStyle = activeCaption.overrideFontStyle ?? currentCaptionSettings.fontStyle;
-            const fontFamily = fontFamilyMap[effectiveFontStyle];
+            const fontFamily = resolveCaptionFontFamily(effectiveFontStyle);
 
             const effectivePosition = activeCaption.overridePosition ?? currentCaptionSettings.position;
             const padding = 50 * captionScale;
@@ -2735,6 +2732,20 @@ export function usePreviewEngine({
             }
 
             let vol = clip.isMuted ? 0 : clampPreviewAudioGain(clip.volume);
+            // クリップ範囲基準のフェード（BGM クリップ用の任意フィールド。未指定なら無効）
+            if (vol > 0 && clip.fadeIn) {
+              const fadeInDur = clip.fadeInDuration || 1;
+              if (clipTime < fadeInDur) {
+                vol *= Math.max(0, clipTime / fadeInDur);
+              }
+            }
+            if (vol > 0 && clip.fadeOut) {
+              const fadeOutDur = clip.fadeOutDuration || 1;
+              const remainingInClip = playableDuration - clipTime;
+              if (remainingInClip < fadeOutDur) {
+                vol *= Math.max(0, remainingInClip / fadeOutDur);
+              }
+            }
             if (element.seeking || holdAudioThisFrame) {
               vol = 0;
             }
