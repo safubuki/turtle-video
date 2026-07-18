@@ -954,8 +954,8 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                 <X className="w-4 h-4" />
               </button>
             </div>
-            {/* モード切替 + プレビュー微調整（1秒戻る/再生・一時停止/1秒進む） */}
-            <div className="flex items-center gap-1.5">
+            {/* モード切替 + 間隔（連続時）+ プレビュー微調整（1秒戻る/再生・一時停止/1秒進む） */}
+            <div className="flex items-center gap-1.5 flex-wrap">
               <div className="flex rounded-lg overflow-hidden border border-gray-700 shrink-0 text-[10px] md:text-xs">
                 <button
                   onClick={() => switchStampMode('alternate')}
@@ -967,11 +967,50 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                 <button
                   onClick={() => switchStampMode('chain')}
                   className={`px-2 py-1.5 transition ${stampMode === 'chain' ? 'bg-yellow-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'}`}
-                  title="連続モード: 終了＝次の開始を同時に確定（間の無い連続字幕向け）"
+                  title="連続モード: 終了＝次の開始を同時に確定（間隔設定可）"
                 >
                   連続
                 </button>
               </div>
+              {/* 間隔（連続モードのみ・モード切替の右横）。カスタム入力欄は常時確保して幅が変わらないようにする */}
+              {stampMode === 'chain' && (
+                <div className="flex items-center gap-1 ml-1.5 text-[10px] md:text-xs shrink-0">
+                  <span className="text-gray-400">間隔:</span>
+                  <button
+                    onClick={() => { setIsStampGapCustom(false); setStampGapSec(0); }}
+                    className={`px-2 py-1 rounded transition ${!isStampGapCustom && stampGapSec === 0 ? 'bg-yellow-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'}`}
+                  >
+                    なし
+                  </button>
+                  <button
+                    onClick={() => { setIsStampGapCustom(false); setStampGapSec(0.2); }}
+                    className={`px-2 py-1 rounded transition ${!isStampGapCustom && stampGapSec === 0.2 ? 'bg-yellow-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'}`}
+                  >
+                    200ms
+                  </button>
+                  <button
+                    onClick={() => setIsStampGapCustom(true)}
+                    className={`px-2 py-1 rounded transition ${isStampGapCustom ? 'bg-yellow-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'}`}
+                  >
+                    カスタム
+                  </button>
+                  <input
+                    type="number"
+                    min={0}
+                    max={10}
+                    step={0.1}
+                    value={stampGapSec}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value);
+                      if (!Number.isNaN(val)) setStampGapSec(Math.max(0, Math.min(10, Math.round(val * 10) / 10)));
+                    }}
+                    disabled={!isStampGapCustom}
+                    className="w-14 bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-center focus:outline-none focus:border-yellow-500 disabled:opacity-40"
+                    title="カスタム間隔（秒）"
+                  />
+                  <span className={isStampGapCustom ? 'text-gray-500' : 'text-gray-600'}>秒</span>
+                </div>
+              )}
               <div className="flex-1" />
               <button
                 onClick={() => onSeekBy(-1)}
@@ -995,47 +1034,6 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                 +1s
               </button>
             </div>
-            {/* 連続モード: キャプション間隔（終了 + 間隔 = 次の開始） */}
-            {stampMode === 'chain' && (
-              <div className="flex items-center gap-1.5 text-[10px] md:text-xs">
-                <span className="text-gray-400 shrink-0">間隔:</span>
-                <button
-                  onClick={() => { setIsStampGapCustom(false); setStampGapSec(0); }}
-                  className={`px-2.5 py-1 rounded transition ${!isStampGapCustom && stampGapSec === 0 ? 'bg-yellow-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'}`}
-                >
-                  なし
-                </button>
-                <button
-                  onClick={() => { setIsStampGapCustom(false); setStampGapSec(0.2); }}
-                  className={`px-2.5 py-1 rounded transition ${!isStampGapCustom && stampGapSec === 0.2 ? 'bg-yellow-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'}`}
-                >
-                  200ms
-                </button>
-                <button
-                  onClick={() => setIsStampGapCustom(true)}
-                  className={`px-2.5 py-1 rounded transition ${isStampGapCustom ? 'bg-yellow-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'}`}
-                >
-                  カスタム
-                </button>
-                {isStampGapCustom && (
-                  <>
-                    <input
-                      type="number"
-                      min={0}
-                      max={10}
-                      step={0.1}
-                      value={stampGapSec}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value);
-                        if (!Number.isNaN(val)) setStampGapSec(Math.max(0, Math.min(10, Math.round(val * 10) / 10)));
-                      }}
-                      className="w-14 bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-center focus:outline-none focus:border-yellow-500"
-                    />
-                    <span className="text-gray-500">秒</span>
-                  </>
-                )}
-              </div>
-            )}
             {/* 操作行: モードごとのボタン */}
             {stampMode === 'alternate' ? (
               <div className="flex gap-2">
