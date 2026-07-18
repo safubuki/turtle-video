@@ -1,4 +1,4 @@
-import type { UseExportReturn } from '../../hooks/useExport';
+import type { UseExportReturn } from '../../hooks/export-strategies/types';
 
 export interface ExportRuntime {
   useExport: () => UseExportReturn;

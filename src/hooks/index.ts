@@ -15,8 +15,11 @@ export type { UseAudioContextReturn } from './useAudioContext';
 export { usePlayback } from './usePlayback';
 export type { UsePlaybackReturn } from './usePlayback';
 
-export { createUseExport } from './useExport';
-export type { UseExportReturn, UseExportRuntimeConfig } from './useExport';
+// エクスポートエンジンはフレーバー別に物理分離されている:
+//   standard      → src/flavors/standard/export/exportEngine.ts
+//   apple-safari  → src/flavors/apple-safari/export/exportEngine.ts
+// 共有契約型は ./export-strategies/types を参照。
+export type { UseExportReturn, UseExportRuntimeConfig } from './export-strategies/types';
 
 export { useAiNarration } from './useAiNarration';
 export type { UseAiNarrationReturn } from './useAiNarration';

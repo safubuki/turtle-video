@@ -21,6 +21,9 @@ export function getAppleSafariPreviewPlatformCapabilities(
 export const appleSafariPreviewRuntime: PreviewRuntime = {
   getPlatformCapabilities: getAppleSafariPreviewPlatformCapabilities,
   getPreviewPlatformPolicy,
+  // iOS Safari ではプレビューキャッシュを一切使わない（Android 専用機構）
+  shouldUsePreviewCache: () => false,
+  createPreviewCacheKey: () => 'preview-cache-disabled:apple-safari',
   useInactiveVideoManager,
   usePreviewAudioSession,
   usePreviewEngine,

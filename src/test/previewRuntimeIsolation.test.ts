@@ -51,6 +51,25 @@ const createCapabilities = (
 });
 
 describe('preview runtime isolation', () => {
+  it('preview cache functions are flavor-scoped (Android-only mechanism)', async () => {
+    const { shouldUseAndroidPreviewCache, createAndroidPreviewCacheKey } = await import(
+      '../flavors/standard/preview/androidPreviewCache'
+    );
+    expect(standardPreviewRuntime.shouldUsePreviewCache).toBe(shouldUseAndroidPreviewCache);
+    expect(standardPreviewRuntime.createPreviewCacheKey).toBe(createAndroidPreviewCacheKey);
+
+    // apple-safari は入力にかかわらず常にプレビューキャッシュ無効
+    expect(appleSafariPreviewRuntime.shouldUsePreviewCache({
+      isAndroid: true,
+      isIosSafari: false,
+      isExportMode: false,
+      mediaItems: [],
+    })).toBe(false);
+    expect(standardPreviewRuntime.shouldUsePreviewCache).not.toBe(
+      appleSafariPreviewRuntime.shouldUsePreviewCache,
+    );
+  });
+
   it('active runtimes use flavor-owned preview hook modules', () => {
     expect(standardPreviewRuntime.useInactiveVideoManager).not.toBe(sharedUseInactiveVideoManager);
     expect(standardPreviewRuntime.usePreviewAudioSession).not.toBe(sharedUsePreviewAudioSession);

@@ -5,7 +5,7 @@
  */
 import React, { memo, useMemo } from 'react';
 import type { MediaResourceLoaderProps, MediaItem } from '../../types';
-import { getPlatformCapabilities } from '../../utils/platform';
+import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 
 interface MediaItemResourceProps {
   item: MediaItem;
@@ -62,7 +62,7 @@ MediaItemResource.displayName = 'MediaItemResource';
 
 const MediaResourceLoader = memo<MediaResourceLoaderProps>(
   ({ mediaItems, bgm, narrations, onElementLoaded, onRefAssign, onSeeked, onVideoLoadedData }) => {
-    const { isIosSafari, isAndroid } = getPlatformCapabilities();
+    const { isIosSafari, isAndroid } = usePlatformCapabilities();
 
     // Android はクリップ数が多いと一律 preload="auto" がデコーダ/メモリ圧迫の温床になるため、
     // 先頭動画以外は metadata に抑える。再生中の直近 next はプレビューエンジンが auto へ昇格させる。

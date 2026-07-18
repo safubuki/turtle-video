@@ -21,7 +21,7 @@ import {
 } from '../constants';
 import { useCanvasStore } from '../stores/canvasStore';
 
-import type { ExportPreparationStep } from '../hooks/useExport';
+import type { ExportPreparationStep } from '../hooks/export-strategies/types';
 import { usePreventUnload } from '../hooks/usePreventUnload';
 import { useProjectStore } from '../stores/projectStore';
 
@@ -49,12 +49,10 @@ import AiModal from './modals/AiModal';
 import SettingsModal, { getStoredApiKey } from './modals/SettingsModal';
 import SaveLoadModal from './modals/SaveLoadModal';
 import SectionHelpModal from './modals/SectionHelpModal';
-import {
-  createAndroidPreviewCacheKey,
-  shouldUseAndroidPreviewCache,
-  type PreviewCacheEntry,
-  type PreviewCacheStatus,
-} from '../flavors/standard/preview/androidPreviewCache';
+import type {
+  PreviewCacheEntry,
+  PreviewCacheStatus,
+} from './turtle-video/previewCacheContract';
 
 // API キー取得関数（localStorage優先、フォールバックで環境変数）
 const getApiKey = (): string => {
@@ -343,16 +341,16 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     [platformCapabilities, previewRuntime]
   );
   const useAndroidPreviewCacheForPlayback = useMemo(
-    () => shouldUseAndroidPreviewCache({
+    () => previewRuntime.shouldUsePreviewCache({
       isAndroid: platformCapabilities.isAndroid,
       isIosSafari: platformCapabilities.isIosSafari,
       isExportMode: false,
       mediaItems,
     }),
-    [mediaItems, platformCapabilities.isAndroid, platformCapabilities.isIosSafari],
+    [mediaItems, platformCapabilities.isAndroid, platformCapabilities.isIosSafari, previewRuntime],
   );
   const previewCacheKey = useMemo(
-    () => createAndroidPreviewCacheKey({
+    () => previewRuntime.createPreviewCacheKey({
       mediaItems,
       bgm,
       narrations,
@@ -362,7 +360,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       canvasHeight,
       fps: 30,
     }),
-    [bgm, captionSettings, captions, mediaItems, narrations, canvasWidth, canvasHeight],
+    [bgm, captionSettings, captions, mediaItems, narrations, canvasWidth, canvasHeight, previewRuntime],
   );
   const supportsShowSaveFilePicker = platformCapabilities.supportsShowSaveFilePicker;
   const supportsShowOpenFilePicker = platformCapabilities.supportsShowOpenFilePicker;

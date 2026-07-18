@@ -1,3 +1,12 @@
+/**
+ * ==================== 凍結（FROZEN / LEGACY） ====================
+ * このファイルはランタイムでは使用されていない。standard / apple-safari の
+ * フレーバー分離時に src/flavors/<flavor>/ 配下へフォーク済みで、現在は
+ * PreviewRuntime の契約型（typeof 参照）とテストからのみ参照される。
+ * 動作を変更したい場合はここではなく、対象フレーバーの
+ * src/flavors/standard/... または src/flavors/apple-safari/... を編集すること。
+ * ================================================================
+ */
 import { useCallback, type MutableRefObject } from 'react';
 
 import {
@@ -12,7 +21,7 @@ import type {
   MediaItem,
   NarrationClip,
 } from '../../types';
-import type { ExportPreparationStep, UseExportReturn } from '../../hooks/useExport';
+import type { ExportPreparationStep, UseExportReturn } from '../../hooks/export-strategies/types';
 import type { LogCategory } from '../../stores/logStore';
 import { useMediaStore } from '../../stores';
 import type { PlatformCapabilities } from '../../utils/platform';

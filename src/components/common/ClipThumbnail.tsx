@@ -5,7 +5,7 @@
  * 画像はそのまま、動画は先頭フレームをキャプチャして表示する。
  */
 import React, { useRef, useEffect, useState } from 'react';
-import { getPlatformCapabilities } from '../../utils/platform';
+import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 
 interface ClipThumbnailProps {
   file: File;
@@ -33,6 +33,7 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({ file, type }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [ready, setReady] = useState(false);
   const urlRef = useRef<string | null>(null);
+  const { isIosSafari } = usePlatformCapabilities();
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -40,7 +41,6 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({ file, type }) => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     setReady(false);
-    const { isIosSafari } = getPlatformCapabilities();
 
     let cancelled = false;
     let activeVideo: HTMLVideoElement | null = null;
@@ -422,7 +422,7 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({ file, type }) => {
       detachActiveVideo = null;
       revokeUrl();
     };
-  }, [file, type]);
+  }, [file, type, isIosSafari]);
 
   return (
     <canvas

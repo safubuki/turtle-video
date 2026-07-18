@@ -1,4 +1,8 @@
 import type { PreviewRuntime } from '../../components/turtle-video/previewRuntime';
+import {
+  createAndroidPreviewCacheKey,
+  shouldUseAndroidPreviewCache,
+} from './preview/androidPreviewCache';
 import { useInactiveVideoManager } from './preview/useInactiveVideoManager';
 import { usePreviewAudioSession } from './preview/usePreviewAudioSession';
 import { usePreviewEngine } from './preview/usePreviewEngine';
@@ -20,6 +24,8 @@ export function getStandardPreviewPlatformCapabilities(
 export const standardPreviewRuntime: PreviewRuntime = {
   getPlatformCapabilities: getStandardPreviewPlatformCapabilities,
   getPreviewPlatformPolicy,
+  shouldUsePreviewCache: shouldUseAndroidPreviewCache,
+  createPreviewCacheKey: createAndroidPreviewCacheKey,
   useInactiveVideoManager,
   usePreviewAudioSession,
   usePreviewEngine,

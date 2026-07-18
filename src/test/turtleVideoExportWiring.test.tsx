@@ -6,7 +6,7 @@ import TurtleVideo from '../components/TurtleVideo';
 import type { ExportRuntime } from '../components/turtle-video/exportRuntime';
 import type { PreviewRuntime } from '../components/turtle-video/previewRuntime';
 import type { SaveRuntime } from '../components/turtle-video/saveRuntime';
-import type { UseExportReturn } from '../hooks/useExport';
+import type { UseExportReturn } from '../hooks/export-strategies/types';
 import type { PlatformCapabilities } from '../utils/platform';
 import { getPreviewPlatformPolicy } from '../utils/previewPlatform';
 import {
@@ -78,6 +78,8 @@ function createPreviewRuntime(
   return {
     getPlatformCapabilities: vi.fn(() => capabilities),
     getPreviewPlatformPolicy,
+    shouldUsePreviewCache: vi.fn(() => false),
+    createPreviewCacheKey: vi.fn(() => 'preview-cache-key-test'),
     useInactiveVideoManager: vi.fn(() => ({
       resetInactiveVideos: vi.fn(),
     })),

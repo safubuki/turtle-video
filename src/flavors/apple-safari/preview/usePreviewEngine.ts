@@ -12,7 +12,7 @@ import type {
   MediaItem,
   NarrationClip,
 } from '../../../types';
-import type { ExportPreparationStep, UseExportReturn } from '../../../hooks/useExport';
+import type { ExportPreparationStep, UseExportReturn } from '../../../hooks/export-strategies/types';
 import type { LogCategory } from '../../../stores/logStore';
 import { useMediaStore, useUIStore } from '../../../stores';
 import type { PlatformCapabilities } from '../../../utils/platform';

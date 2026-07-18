@@ -1,37 +1,42 @@
 ﻿/**
- * @file useExport.ts
+ * @file exportEngine.ts (apple-safari flavor)
  * @author Turtle Village
- * @description WebCodecs APIとmp4-muxerを使用して、編集内容をMP4ファイルとして書き出すためのカスタムフック。
+ * @description iOS Safari (apple-safari) フレーバー専用のエクスポートエンジン。
+ * standard フレーバーとは物理的に分離されており、このファイルの変更は
+ * Android / PC のエクスポートに影響しない。共有するのは
+ * src/hooks/export-strategies/ の契約型・純ロジックのみ。
  */
 import { useState, useRef, useCallback } from 'react';
-import { FPS, computeExportVideoBitrate } from '../constants';
-import { useCanvasStore } from '../stores/canvasStore';
+import { FPS, computeExportVideoBitrate } from '../../../constants';
+import { useCanvasStore } from '../../../stores/canvasStore';
 import * as Mp4Muxer from 'mp4-muxer';
-import type { AudioTrack, NarrationClip } from '../types';
-import { useLogStore } from '../stores/logStore';
-import type { PlatformCapabilities } from '../utils/platform';
+import type { AudioTrack, NarrationClip } from '../../../types';
+import { useLogStore } from '../../../stores/logStore';
 import {
   getExportFrameTiming,
   resolveExportCanvasFrameBurstCount,
   resolveExportDuration,
-} from '../utils/exportTimeline';
-import { inspectMp4Durations } from '../utils/mp4Duration';
+} from '../../../utils/exportTimeline';
+import { inspectMp4Durations } from '../../../utils/mp4Duration';
 import {
   shouldUseOfflineAudioPreRender,
   resolveWebCodecsAudioCaptureStrategy,
-} from './export-strategies/exportStrategyResolver';
-import { probeDecodeAudioData } from './export-strategies/decodeAudioProbe';
-import { createDiagnosticId } from '../utils/diagnostics';
+} from '../../../hooks/export-strategies/exportStrategyResolver';
+import { probeDecodeAudioData } from '../../../hooks/export-strategies/decodeAudioProbe';
+import { createDiagnosticId } from '../../../utils/diagnostics';
 import type {
   ExportAudioSources,
+  ExportCancelReason,
   ExportPreparationStep,
   ExportRecordingResult,
   ExportSessionDiagnostics,
-  MediaRecorderExportStrategyRunner,
+  ExportStopReason,
   PreRenderedRecorderAudioSource,
   ResolveExportAudioSource,
-  ResolveExportStrategyOrder,
-} from './export-strategies/types';
+  UseExportReturn,
+  UseExportRuntimeConfig,
+} from '../../../hooks/export-strategies/types';
+import { clampAudioTrackVolume } from '../../../hooks/export-strategies/types';
 
 export type {
   ExportAudioSources,
@@ -43,11 +48,11 @@ export type {
   PreRenderedRecorderAudioSource,
   ResolveExportAudioSource,
   ResolveExportStrategyOrder,
-} from './export-strategies/types';
+} from '../../../hooks/export-strategies/types';
 export {
   EXPORT_PREPARATION_STEP_LABELS,
   EXPORT_PREPARATION_TOTAL_STEPS,
-} from './export-strategies/types';
+} from '../../../hooks/export-strategies/types';
 
 function durationUsToSampleCount(durationUs: number, sampleRate: number): number {
   return Math.max(0, Math.round((durationUs / 1e6) * sampleRate));
@@ -57,13 +62,6 @@ function durationUsToSampleCount(durationUs: number, sampleRate: number): number
 // 1ms を超える audio / video / container の尺差は Teams 投稿後の速度異常再発リスクが高いため、
 // export 完了前に明示的に検出する。
 const DURATION_DIFF_THRESHOLD_US = 1000;
-const AUDIO_TRACK_MIN_VOLUME = 0;
-const AUDIO_TRACK_MAX_VOLUME = 2.5;
-
-export function clampAudioTrackVolume(volume: number): number {
-  return Math.max(AUDIO_TRACK_MIN_VOLUME, Math.min(AUDIO_TRACK_MAX_VOLUME, volume));
-}
-
 export function getAudioDecodeCacheKey(file: File): string {
   return [
     file.name,
@@ -141,45 +139,7 @@ async function probeExportBlobUrl(url: string): Promise<{
  * useExport - 動画書き出しロジックを提供するフック
  * WebCodecs API + mp4-muxer を使用した標準MP4（非断片化）エクスポート機能
  */
-export interface UseExportReturn {
-  // State
-  isProcessing: boolean;
-  setIsProcessing: React.Dispatch<React.SetStateAction<boolean>>;
-  exportUrl: string | null;
-  setExportUrl: React.Dispatch<React.SetStateAction<string | null>>;
-  exportExt: string | null;
-  setExportExt: React.Dispatch<React.SetStateAction<string | null>>;
-
-  // Refs
-  // MediaRecorderは使用しないため削除し、代わりに停止用フラグ等を管理するRefなどを内部で持つが、
-  // 外部インターフェースとしては startExport/cancel 等があればよい。
-  // 互換性のため、recorderRef は一旦削除せず null を返すか、あるいは型定義を変更する。
-  // ここではAPI互換性を保つため残すが、実体は使用しない。
-  recorderRef: React.MutableRefObject<MediaRecorder | null>;
-
-  // Methods
-  startExport: (
-    canvasRef: React.MutableRefObject<HTMLCanvasElement | null>,
-    masterDestRef: React.MutableRefObject<MediaStreamAudioDestinationNode | null>,
-    onRecordingStop: (url: string, ext: string) => void,
-    onRecordingError?: (message: string) => void,
-    audioSources?: ExportAudioSources  // iOS Safari: OfflineAudioContext用音声ソース
-  ) => void;
-  completeExport: () => void; // 正常終了要求（abortせずにflush/finalizeへ進める）
-  stopExport: (options?: { silent?: boolean; reason?: ExportStopReason }) => void; // 明示的な停止メソッドを追加
-  clearExportUrl: () => void;
-}
-
-export type ExportCancelReason = 'none' | 'user' | 'superseded' | 'unmount' | 'error';
-export type ExportStopReason = Exclude<ExportCancelReason, 'none' | 'error'>;
 type ExportPhase = 'idle' | 'preparing' | 'rendering' | 'finalizing' | 'completed' | 'failed' | 'cancelled';
-
-export interface UseExportRuntimeConfig {
-  getPlatformCapabilities: () => PlatformCapabilities;
-  resolveExportStrategyOrder: ResolveExportStrategyOrder;
-  resolveExportAudioSource?: ResolveExportAudioSource;
-  runMediaRecorderStrategy?: MediaRecorderExportStrategyRunner;
-}
 
 /**
  * iOS Safari フォールバック: <video> 要素を使って動画ファイルから音声をリアルタイム抽出する。

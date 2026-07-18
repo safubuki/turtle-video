@@ -1,5 +1,5 @@
 import { saveBlobWithClientFileStrategy } from '../../utils/fileSave';
-import { getPlatformCapabilities } from '../../utils/platform';
+import type { getPlatformCapabilities } from '../../utils/platform';
 import type { ProjectPersistenceHealthSnapshot } from '../../stores/projectPersistenceHealth';
 
 export interface SaveRuntime {

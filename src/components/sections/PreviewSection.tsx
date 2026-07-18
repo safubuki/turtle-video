@@ -17,7 +17,7 @@ import {
   CircleHelp,
 } from 'lucide-react';
 import type { MediaItem, AudioTrack, NarrationClip } from '../../types';
-import type { ExportPreparationStep } from '../../hooks/useExport';
+import type { ExportPreparationStep } from '../../hooks/export-strategies/types';
 import type { AppFlavor } from '../../app/resolveAppFlavor';
 import { getPreviewRuntimeNotice } from '../../app/appFlavorUi';
 import { useLogStore } from '../../stores/logStore';

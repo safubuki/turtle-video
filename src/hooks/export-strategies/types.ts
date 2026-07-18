@@ -1,6 +1,6 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import type { AudioTrack, MediaItem, NarrationClip } from '../../types';
-import type { MediaRecorderProfile } from '../../utils/platform';
+import type { MediaRecorderProfile, PlatformCapabilities } from '../../utils/platform';
 
 export type ExportStrategyId = 'ios-safari-mediarecorder' | 'webcodecs-mp4';
 export const EXPORT_PREPARATION_STEP_ORDER = [
@@ -126,3 +126,54 @@ export interface IosSafariMediaRecorderStrategyContext {
 export type MediaRecorderExportStrategyRunner = (
   context: IosSafariMediaRecorderStrategyContext,
 ) => Promise<boolean>;
+
+export type ExportCancelReason = 'none' | 'user' | 'superseded' | 'unmount' | 'error';
+export type ExportStopReason = Exclude<ExportCancelReason, 'none' | 'error'>;
+
+/**
+ * useExport - 動画書き出しフックの公開インターフェース。
+ * standard / apple-safari 両フレーバーのエクスポートエンジンはこの契約を満たす。
+ * ここを変更すると両フレーバーに影響するため、変更時は両エンジンの整合を確認すること。
+ */
+export interface UseExportReturn {
+  // State
+  isProcessing: boolean;
+  setIsProcessing: Dispatch<SetStateAction<boolean>>;
+  exportUrl: string | null;
+  setExportUrl: Dispatch<SetStateAction<string | null>>;
+  exportExt: string | null;
+  setExportExt: Dispatch<SetStateAction<string | null>>;
+
+  // Refs
+  // MediaRecorderは使用しないため削除し、代わりに停止用フラグ等を管理するRefなどを内部で持つが、
+  // 外部インターフェースとしては startExport/cancel 等があればよい。
+  // ここではAPI互換性を保つため残すが、実体は使用しない。
+  recorderRef: MutableRefObject<MediaRecorder | null>;
+
+  // Methods
+  startExport: (
+    canvasRef: MutableRefObject<HTMLCanvasElement | null>,
+    masterDestRef: MutableRefObject<MediaStreamAudioDestinationNode | null>,
+    onRecordingStop: (url: string, ext: string) => void,
+    onRecordingError?: (message: string) => void,
+    audioSources?: ExportAudioSources  // iOS Safari: OfflineAudioContext用音声ソース
+  ) => void;
+  completeExport: () => void; // 正常終了要求（abortせずにflush/finalizeへ進める）
+  stopExport: (options?: { silent?: boolean; reason?: ExportStopReason }) => void; // 明示的な停止メソッドを追加
+  clearExportUrl: () => void;
+}
+
+export interface UseExportRuntimeConfig {
+  getPlatformCapabilities: () => PlatformCapabilities;
+  resolveExportStrategyOrder: ResolveExportStrategyOrder;
+  resolveExportAudioSource?: ResolveExportAudioSource;
+  runMediaRecorderStrategy?: MediaRecorderExportStrategyRunner;
+}
+
+const AUDIO_TRACK_MIN_VOLUME = 0;
+const AUDIO_TRACK_MAX_VOLUME = 2.5;
+
+/** 音量クランプは両フレーバー共通のドメインルール（プラットフォーム依存なし） */
+export function clampAudioTrackVolume(volume: number): number {
+  return Math.max(AUDIO_TRACK_MIN_VOLUME, Math.min(AUDIO_TRACK_MAX_VOLUME, volume));
+}

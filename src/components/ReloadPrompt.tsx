@@ -3,10 +3,10 @@ import { useRegisterSW } from 'virtual:pwa-register/react';
 import { useOfflineModeStore } from '../stores/offlineModeStore';
 import { useUpdateStore } from '../stores/updateStore';
 import { RefreshCw, X } from 'lucide-react';
-import { getPlatformCapabilities } from '../utils/platform';
+import { usePlatformCapabilities } from '../app/PlatformCapabilitiesContext';
 
 const ReloadPromptInner: React.FC = () => {
-    const { isIosSafari } = getPlatformCapabilities();
+    const { isIosSafari } = usePlatformCapabilities();
     const storeNeedRefresh = useUpdateStore((state) => state.needRefresh);
     const isApplyingUpdate = useUpdateStore((state) => state.isApplyingUpdate);
     const registration = useUpdateStore((state) => state.registration);

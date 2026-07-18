@@ -20,7 +20,7 @@ vi.mock('../flavors/apple-safari/export/iosSafariMediaRecorder', () => ({
   runIosSafariMediaRecorderStrategy: mockRunIosSafariMediaRecorderStrategy,
 }));
 
-import { clampAudioTrackVolume } from '../hooks/useExport';
+import { clampAudioTrackVolume } from '../hooks/export-strategies/types';
 import { useExport as useAppleSafariExport } from '../flavors/apple-safari/export/useExport';
 import { useExport as useStandardExport } from '../flavors/standard/export/useExport';
 

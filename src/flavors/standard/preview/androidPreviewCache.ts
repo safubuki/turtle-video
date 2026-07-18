@@ -1,30 +1,14 @@
+import type { MediaItem } from '../../../types';
 import type {
-  AudioTrack,
-  Caption,
-  CaptionSettings,
-  MediaItem,
-  NarrationClip,
-} from '../../../types';
+  CreatePreviewCacheKeyInput,
+  ShouldUsePreviewCacheInput,
+} from '../../../components/turtle-video/previewCacheContract';
 
-export type PreviewCacheStatus = 'idle' | 'preparing' | 'ready' | 'failed';
-
-export interface PreviewCacheEntry {
-  url: string;
-  duration: number;
-  cacheKey: string;
-  createdAt: number;
-}
-
-interface CreateAndroidPreviewCacheKeyInput {
-  mediaItems: MediaItem[];
-  bgm: AudioTrack | null;
-  narrations: NarrationClip[];
-  captions: Caption[];
-  captionSettings: CaptionSettings;
-  canvasWidth: number;
-  canvasHeight: number;
-  fps: number;
-}
+// キャッシュ関連の型はフレーバー中立の契約（previewCacheContract）が単一ソース。
+export type {
+  PreviewCacheEntry,
+  PreviewCacheStatus,
+} from '../../../components/turtle-video/previewCacheContract';
 
 export function countVideoItems(mediaItems: MediaItem[]): number {
   return mediaItems.reduce((count, item) => count + (item.type === 'video' ? 1 : 0), 0);
@@ -34,12 +18,7 @@ export function countVideoItems(mediaItems: MediaItem[]): number {
 // 完全無効化する。従来の live preview 方式を使う。
 const ENABLE_ANDROID_PREVIEW_CACHE = false;
 
-export function shouldUseAndroidPreviewCache(input: {
-  isAndroid: boolean;
-  isIosSafari: boolean;
-  isExportMode: boolean;
-  mediaItems: MediaItem[];
-}): boolean {
+export function shouldUseAndroidPreviewCache(input: ShouldUsePreviewCacheInput): boolean {
   if (!ENABLE_ANDROID_PREVIEW_CACHE) {
     return false;
   }
@@ -50,7 +29,7 @@ export function shouldUseAndroidPreviewCache(input: {
 }
 
 export function createAndroidPreviewCacheKey(
-  input: CreateAndroidPreviewCacheKeyInput,
+  input: CreatePreviewCacheKeyInput,
 ): string {
   return JSON.stringify({
     version: 1,

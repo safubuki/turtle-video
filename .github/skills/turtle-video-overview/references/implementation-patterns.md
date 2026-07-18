@@ -1026,6 +1026,7 @@
 | **停止→再生終端** | `startEngine` で `resetInactiveVideos()` を実行、`shouldGuardNearEnd` + `endFinalizedRef` で非アクティブ描画の黒クリア抑止、`shouldHoldForVideoEnd` でビデオ自然終了時の holdFrame 強制、`isEndedNearEnd` で ended ビデオへの play()/sync 抑止 |
 | **キャプチャ** | 再生中は一時停止してからCanvasをキャプチャ。ObjectURLは`setTimeout`で解放 |
 | **エラー** | 3 層防御: ErrorBoundary（コンポーネント）、グローバルハンドラ（window）、try-catch（個別処理） |
+| **フレーバー分離** | export エンジンは `src/flavors/<flavor>/export/exportEngine.ts` に物理フォーク済み。共有コード→flavors の import、flavor 相互 import、共有コンポーネントでの `getPlatformCapabilities()` 直接呼び出しは ESLint で禁止。共有コンポーネントの UA 判定は `usePlatformCapabilities()`（PlatformCapabilitiesContext）経由。凍結レガシー（`components/turtle-video/usePreview*` / `utils/previewPlatform` / `utils/iosSafariAudio`）は編集禁止 |
 
 ## 12. Dev Script Pattern (media-video-analyzer STT)
 
@@ -2139,3 +2140,22 @@
 - **注意**:
   - credit pass は iOS (`muteNativeMediaWhenAudioRouted`) 限定。録画される音声はプリレンダー buffer 側で、native 要素音声は recorder ストリームに含まれないため 0.001 の native 音量は書き出しに混入しない。
   - credit play で進んだ currentTime は画像区間中の prebuffer / 境界 sync が補正するので別途巻き戻し不要。
+
+### 13-102. フレーバー分離を物理化し import 境界を ESLint とテストで機械強制する
+
+- **ファイル**: `src/flavors/standard/export/exportEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`, `src/hooks/export-strategies/types.ts`, `src/app/PlatformCapabilitiesContext.tsx`, `src/components/turtle-video/previewCacheContract.ts`, `eslint.config.cjs`, `src/test/exportRuntimeIsolation.test.ts`, `src/test/previewRuntimeIsolation.test.ts`
+- **背景**:
+  - preview はフレーバー別フォーク済みだったが、export は共有ファクトリ `src/hooks/useExport.ts`（2,800行）を両フレーバーが注入設定だけ変えて共用しており、Android 向け変更が iOS Safari export に波及し得た。
+  - 共有コンポーネント（`MediaResourceLoader` / `ClipThumbnail` / `ReloadPrompt`）が `getPlatformCapabilities()` を直接呼び UA 判定しており、フレーバーのピン留め（standard は常に `isIosSafari=false`）が効かない経路があった。
+  - 共有の `TurtleVideo.tsx` が `flavors/standard/preview/androidPreviewCache` を直接 import しており、共有→フレーバー依存の境界違反が実在した。
+- **対応**:
+  - `src/hooks/useExport.ts` を削除し、`createUseExport` エンジン本体を `src/flavors/<flavor>/export/exportEngine.ts` へ物理フォーク。共有契約（`UseExportReturn` / `UseExportRuntimeConfig` / `ExportCancelReason` / `ExportStopReason` / `clampAudioTrackVolume`）は `src/hooks/export-strategies/types.ts` に集約。
+  - `PlatformCapabilitiesContext` を新設し、`StandardApp` / `AppleSafariApp` がフレーバー固定 capabilities を Provider で配布。共有コンポーネントは `usePlatformCapabilities()` で受け取る（Provider 外はテスト救済のため素の判定へフォールバック）。
+  - プレビューキャッシュは `previewCacheContract.ts` の中立型 + `PreviewRuntime.shouldUsePreviewCache / createPreviewCacheKey` 経由に変更。apple-safari runtime は常に無効のスタブを返す。
+  - ESLint（flat config）で境界を機械強制: flavor 相互 import 禁止 / 共有コード→flavors import 禁止 / 共有コンポーネントでの `getPlatformCapabilities` 値 import 禁止 / 凍結レガシー実装の値 import 禁止（`allowTypeImports: true`）。
+  - `exportRuntimeIsolation.test.ts` にエンジン物理分離アサーション、`previewRuntimeIsolation.test.ts` にプレビューキャッシュのフレーバー分離アサーションを追加。
+- **注意点**:
+  - `src/components/turtle-video/usePreview*` / `src/utils/previewPlatform.ts` / `src/utils/iosSafariAudio.ts` は凍結レガシー（ランタイム未使用、PreviewRuntime の typeof 契約参照とテスト専用）。動作変更は必ず `src/flavors/<flavor>/preview/` を編集する。
+  - flat config は同一ルールキーを後勝ちマージするため、同じファイル集合へ `no-restricted-imports` 系を追加するときは既存の設定オブジェクトへパターンを追記する（新オブジェクト分割すると既存制限が消える）。
+  - `hooks/export-strategies/`（resolver / types / decodeAudioProbe）と `utils/exportTimeline` 等の純ロジックは引き続き両フレーバー共有。ここを変更する場合のみ両フレーバーの export 回帰確認が必要。
+  - Android 側の export 改造は `src/flavors/standard/export/exportEngine.ts` を自由に編集してよい（iOS Safari へは波及しない）。フォーク直後は iOS 専用の死にコード（`isIosSafari` 分岐）が standard 側にも残っているが、capabilities ピン留めで実行されないため、カスタマイズ時に順次削ってよい。
