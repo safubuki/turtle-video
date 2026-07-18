@@ -3,7 +3,7 @@
  * @author Turtle Village
  * @description テキストキャプションの追加、編集、削除を行うセクション。タイムライン上での表示タイミングやスタイル（サイズ、位置）の設定UIを提供する。
  */
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   Lock,
   Unlock,
@@ -165,6 +165,28 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   const [shiftFromIndex, setShiftFromIndex] = useState(-1);
   const stepShiftAmount = (delta: number) => {
     setShiftAmount((prev) => Math.max(0.5, Math.min(600, Math.round((prev + delta) * 2) / 2)));
+  };
+  // −/＋ の長押しで加速（400ms 後から 100ms 間隔で 1 秒ずつ）
+  const shiftHoldTimerRef = useRef<number | null>(null);
+  const shiftHoldIntervalRef = useRef<number | null>(null);
+  const stopShiftHold = () => {
+    if (shiftHoldTimerRef.current !== null) {
+      window.clearTimeout(shiftHoldTimerRef.current);
+      shiftHoldTimerRef.current = null;
+    }
+    if (shiftHoldIntervalRef.current !== null) {
+      window.clearInterval(shiftHoldIntervalRef.current);
+      shiftHoldIntervalRef.current = null;
+    }
+  };
+  const startShiftHold = (direction: 1 | -1) => {
+    stopShiftHold();
+    stepShiftAmount(direction * 0.5);
+    shiftHoldTimerRef.current = window.setTimeout(() => {
+      shiftHoldIntervalRef.current = window.setInterval(() => {
+        stepShiftAmount(direction * 1);
+      }, 100);
+    }, 400);
   };
   const applyShift = (direction: 1 | -1) => {
     const delta = Math.abs(shiftAmount) * direction;
@@ -759,19 +781,44 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
               </div>
               <div className="flex items-center gap-1.5">
                 <button
-                  onClick={() => stepShiftAmount(-0.5)}
+                  onPointerDown={() => !isLocked && startShiftHold(-1)}
+                  onPointerUp={stopShiftHold}
+                  onPointerLeave={stopShiftHold}
+                  onPointerCancel={stopShiftHold}
+                  onContextMenu={(e) => e.preventDefault()}
                   disabled={isLocked}
-                  className="w-7 h-7 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 flex items-center justify-center transition disabled:opacity-50"
-                  aria-label="ずらす秒数を0.5秒減らす"
+                  className="w-7 h-7 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 flex items-center justify-center transition disabled:opacity-50 select-none"
+                  aria-label="ずらす秒数を減らす（長押しで加速）"
+                  title="長押しで早く減ります"
                 >
                   <Minus className="w-3 h-3" />
                 </button>
-                <span className="w-12 text-center text-gray-200 font-mono">{shiftAmount}秒</span>
-                <button
-                  onClick={() => stepShiftAmount(0.5)}
+                <input
+                  type="number"
+                  min={0.1}
+                  max={600}
+                  step={0.5}
+                  value={shiftAmount}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value);
+                    if (!Number.isNaN(val)) {
+                      setShiftAmount(Math.max(0.1, Math.min(600, Math.round(val * 10) / 10)));
+                    }
+                  }}
                   disabled={isLocked}
-                  className="w-7 h-7 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 flex items-center justify-center transition disabled:opacity-50"
-                  aria-label="ずらす秒数を0.5秒増やす"
+                  className="w-14 bg-gray-700 border border-gray-600 rounded px-1 py-0.5 text-center font-mono focus:outline-none focus:border-yellow-500 disabled:opacity-50"
+                />
+                <span className="text-gray-500 shrink-0">秒</span>
+                <button
+                  onPointerDown={() => !isLocked && startShiftHold(1)}
+                  onPointerUp={stopShiftHold}
+                  onPointerLeave={stopShiftHold}
+                  onPointerCancel={stopShiftHold}
+                  onContextMenu={(e) => e.preventDefault()}
+                  disabled={isLocked}
+                  className="w-7 h-7 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 flex items-center justify-center transition disabled:opacity-50 select-none"
+                  aria-label="ずらす秒数を増やす（長押しで加速）"
+                  title="長押しで早く増えます"
                 >
                   <Plus className="w-3 h-3" />
                 </button>

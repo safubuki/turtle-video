@@ -37,6 +37,10 @@ import type {
   UseExportRuntimeConfig,
 } from '../../../hooks/export-strategies/types';
 import { clampAudioTrackVolume } from '../../../hooks/export-strategies/types';
+import {
+  computeTransitionTimelineRanges,
+  getClipOverlapToNext,
+} from '../../../utils/transitionTimeline';
 
 export type {
   ExportAudioSources,
@@ -399,6 +403,10 @@ async function offlineRenderAudio(
 ): Promise<AudioBuffer | null> {
   const { mediaItems, bgm, narrations, totalDuration } = sources;
   if (totalDuration <= 0) return null;
+  // ディゾルブ（重ねる）トランジションのオーバーラップを考慮した各クリップの開始時刻
+  const mediaRangeByItemId = new Map(
+    computeTransitionTimelineRanges(mediaItems).map((range) => [range.id, range]),
+  );
   sources.onPreparationStepChange?.(3);
 
   const log = useLogStore.getState();
@@ -586,7 +594,8 @@ async function offlineRenderAudio(
         gain.connect(offlineCtx.destination);
 
         const vol = item.volume;
-        const clipStart = timelinePosition;
+        const mediaRange = mediaRangeByItemId.get(item.id);
+        const clipStart = mediaRange?.start ?? timelinePosition;
         const clipEnd = clipStart + item.duration;
 
         // フェード時間のクランプ（重なった場合に按分）
@@ -608,6 +617,24 @@ async function offlineRenderAudio(
         }
         if (fadeOutDur > 0) {
           gain.gain.setValueAtTime(vol, clipEnd - fadeOutDur);
+          gain.gain.linearRampToValueAtTime(0, clipEnd);
+        }
+
+        // ディゾルブ(重ねる)の音声クロスフェード（プレビューと同じ聴こえ方にする）。
+        // 既存のクリップフェードと重複した場合はランプが上書きされるが、併用は稀なため近似として許容する。
+        const rangeIndex = mediaRange?.index ?? -1;
+        const overlapOutSec = rangeIndex >= 0 && rangeIndex < mediaItems.length - 1
+          ? getClipOverlapToNext(item, mediaItems[rangeIndex + 1])
+          : 0;
+        const overlapInSec = rangeIndex > 0
+          ? getClipOverlapToNext(mediaItems[rangeIndex - 1], item)
+          : 0;
+        if (overlapInSec > 0) {
+          gain.gain.setValueAtTime(0, clipStart);
+          gain.gain.linearRampToValueAtTime(vol, clipStart + overlapInSec);
+        }
+        if (overlapOutSec > 0) {
+          gain.gain.setValueAtTime(vol, clipEnd - overlapOutSec);
           gain.gain.linearRampToValueAtTime(0, clipEnd);
         }
 
@@ -636,7 +663,13 @@ async function offlineRenderAudio(
         timelinePosition: Math.round(timelinePosition * 100) / 100,
       });
     }
-    timelinePosition += item.duration;
+    {
+      const advanceRange = mediaRangeByItemId.get(item.id);
+      const advanceOverlap = advanceRange && advanceRange.index < mediaItems.length - 1
+        ? getClipOverlapToNext(item, mediaItems[advanceRange.index + 1])
+        : 0;
+      timelinePosition = (advanceRange?.start ?? timelinePosition) + item.duration - advanceOverlap;
+    }
   }
 
   // Helper: BGM/ナレーションのスケジューリング

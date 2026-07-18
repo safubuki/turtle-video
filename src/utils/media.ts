@@ -5,6 +5,7 @@
  */
 
 import type { MediaItem } from '../types';
+import { calculateTotalDurationWithTransitions } from './transitionTimeline';
 import { useLogStore } from '../stores/logStore';
 import { MAX_CANVAS_WIDTH } from '../constants';
 
@@ -82,10 +83,9 @@ export async function createMediaItem(file: File): Promise<MediaItem> {
  * @returns 総再生時間（秒）
  */
 export function calculateTotalDuration(items: MediaItem[]): number {
-  return items.reduce(
-    (acc, item) => acc + (Number.isFinite(item.duration) ? item.duration : 0),
-    0
-  );
+  // ディゾルブ（重ねる）トランジションのオーバーラップぶん短くなる。
+  // トランジション未使用時は従来の単純合計と完全一致する。
+  return calculateTotalDurationWithTransitions(items);
 }
 
 /**

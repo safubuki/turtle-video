@@ -372,14 +372,21 @@ export function getPreviewAudioOutputMode(
     isExporting: boolean;
     audibleSourceCount: number;
     desiredVolume: number;
+    /** フェード適用前の基準音量。増幅（>100%）判定に使う（フェード中の経路切替を防ぐ） */
+    baseVolume?: number;
     sourceType?: 'video' | 'audio';
   },
 ): PreviewAudioOutputMode {
+  // HTMLMediaElement.volume は 1.0 が上限のため、増幅（>100%）は native 経路では表現できない。
+  // 増幅が設定された動画だけ WebAudio 経路（gain）へルーティングして反映する。
+  const wantsAmplification = (options.baseVolume ?? options.desiredVolume) > 1.001;
+
   if (options.hasAudioNode) {
     if (
       !options.isExporting
       && options.sourceType === 'video'
       && options.audibleSourceCount <= 1
+      && !wantsAmplification
     ) {
       return 'native';
     }
@@ -391,7 +398,7 @@ export function getPreviewAudioOutputMode(
   }
 
   if (!options.isExporting && options.sourceType === 'video') {
-    return 'native';
+    return wantsAmplification ? 'webaudio' : 'native';
   }
 
   if (Math.abs(options.desiredVolume - 1) > 0.001) {

@@ -2059,3 +2059,28 @@
   - 一括入力モーダルは外側クリックで閉じない。AI 音声解析→時間記法出力の依頼プロンプト定数 `AI_CAPTION_ANALYSIS_PROMPT` をヘルプ内でコピー可能。
   - 間隔プリセットは なし/200ms/カスタム（`BULK_CAPTION_GAP_PRESETS_SEC`、既定 0.2s）。
   - select の option には明示的に `bg-gray-800 text-gray-200` を付ける（select 本体の強調色が option リストへ継承されて見づらくなるのを防ぐ）。
+
+### 13-108. クリップ間トランジションはタイムライン長を変えないオーバーレイ方式、プレビュー音量増幅は WebAudio 経路へ
+
+- **ファイル**: `src/utils/clipTransitions.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/previewPlatform.ts`, `src/components/sections/ClipsSection.tsx`, `Docs/specs/2026-07-18_f6-clip-transitions.md`
+- **トランジション（standard 限定）**:
+  - `MediaItem.transitionToNext`（ディゾルブ/フェード黒/フェード白 × 0.5/1/2 秒）。カード間のコネクタ UI から設定。
+  - **クリップをオーバーラップさせない**設計: ディゾルブは現クリップ終端 d 秒で次クリップ（プリロール済み要素）のフレームをアルファ合成、フェードは境界前後 d/2 秒の色板ディップ。ON/OFF で totalDuration・音声・キャプションが一切変化しない（不整合を構造的に排除）。
+  - 描画は standard renderFrame（プレビュー=エクスポート同一 WYSIWYG）。次クリップ未準備時はフェード黒へ縮退。純ロジックは `clipTransitions.ts`（テスト済み）。
+  - 永続化は `SerializedMediaItem.transitionToNext`（additive）。cache key / autoSave ハッシュにも追加済み。
+- **音量増幅バグ修正**:
+  - 原因: standard preview の動画音声は native 経路で `HTMLMediaElement.volume` 上限 1.0 のため、100% 超（最大250%）が無視されていた（export は gain で効く）。
+  - 修正: `getPreviewAudioOutputMode` に `baseVolume`（フェード前の基準音量）を追加し、基準音量 >100% の動画のみ WebAudio 経路へルーティング。100% 以下は従来どおり native（挙動不変）。フェードで瞬間音量が下がっても経路が揺れないよう判定は baseVolume で行う。
+- **注意**: 動画音声の経路切替は fragile 領域。増幅設定時のみ webaudio になるため、増幅なしプロジェクトの音声挙動は完全に従来どおり。
+
+### 13-109. ディゾルブは本物のオーバーラップ（総時間短縮）にし、タイムライン計算を transitionTimeline に単一化
+
+- **ファイル**: `src/utils/transitionTimeline.ts`, `src/utils/media.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `usePreviewSeekController.ts`, `usePreviewVisibilityLifecycle.ts`, `usePreviewAudioSession.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/components/TurtleVideo.tsx`
+- **内容**（13-108 の静止フレーム式ディゾルブをユーザー要望で置換）:
+  - ディゾルブ = 次クリップが d 秒早く始まるオーバーラップ。総再生時間は d 秒短くなる。フェード(黒/白)は従来どおり時間不変のディップ。
+  - タイムライン計算は `transitionTimeline.ts` が単一ソース: ranges / totalDuration / active 判定（オーバーラップ窓は後のクリップ優先）/ cursor 前進量。`calculateTotalDuration`（mediaStore）もここへ委譲。**トランジション未使用時は逐次加算と完全一致**（テスト保証）。
+  - エンジン renderFrame: overlap 窓で前クリップを peer として「inactive 分岐の先頭で特別処理」（描画継続・play 継続・音声クロスフェードアウト、通常の pause/prewarm をスキップ）。アクティブ（次クリップ）は draw alpha と音量に crossIn を乗算。
+  - seek controller / visibility lifecycle の `accumulatedTime += item.duration` は `getTimelineAdvanceForItem(items, items.indexOf(item))` へ置換（境界の累積ズレ防止。overlap 窓の一致判定は先勝ち=前クリップで許容）。
+  - export 音声は ranges の start でスケジュールし、overlap 区間に линеramp のクロスフェードエンベロープを追加（プレビューと聴感一致）。
+  - overlap は双方クリップに 0.15 秒残すようクランプ。iOS はトランジション無視の逐次のまま（ディゾルブ入りプロジェクトは終端が短縮ぶん切れる縮退・要 iOS 展開時対応）。
+- **注意**: renderFrame の peer 処理は「id === overlapPeerId」のときだけ走る完全付加パス。トランジションなしでは activeId 選択含め従来と同一挙動になることを崩さない。

@@ -132,6 +132,7 @@ export function useAutoSave() {
         m.positionY,
         m.isTransformOpen,
         m.isLocked,
+        m.transitionToNext ? `${m.transitionToNext.type}@${m.transitionToNext.duration}` : '',
       ].join(':')).join(','),
       bgm ? [
         bgm.file?.name ?? '',

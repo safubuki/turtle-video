@@ -9,6 +9,7 @@ import {
   type PreviewPlatformPolicy,
 } from './previewPlatform';
 import { getStandardPreviewNow } from './playbackClock';
+import { getTimelineAdvanceForItem } from '../../../utils/transitionTimeline';
 
 interface PreparedPreviewAudioNodesResult {
   activeVideoId: string | null;
@@ -152,7 +153,7 @@ export function usePreviewSeekController({
         }
         return null;
       }
-      accumulatedTime += item.duration;
+      accumulatedTime += getTimelineAdvanceForItem(mediaItemsRef.current, mediaItemsRef.current.indexOf(item));
     }
 
     if (mediaItemsRef.current.length > 0 && targetTimelineTime >= totalDurationRef.current) {
@@ -214,7 +215,7 @@ export function usePreviewSeekController({
         }
         return;
       }
-      accumulatedTime += item.duration;
+      accumulatedTime += getTimelineAdvanceForItem(mediaItemsRef.current, mediaItemsRef.current.indexOf(item));
     }
 
     const items = mediaItemsRef.current;
@@ -327,7 +328,7 @@ export function usePreviewSeekController({
         }
         break;
       }
-      accumulatedTime += item.duration;
+      accumulatedTime += getTimelineAdvanceForItem(mediaItemsRef.current, mediaItemsRef.current.indexOf(item));
     }
 
     if (!activeVideoElement && mediaItemsRef.current.length > 0 && clampedTime >= totalDurationRef.current) {
@@ -662,7 +663,7 @@ export function usePreviewSeekController({
             }
             break;
           }
-          accumulatedTime += item.duration;
+          accumulatedTime += getTimelineAdvanceForItem(mediaItemsRef.current, mediaItemsRef.current.indexOf(item));
         }
 
         if (shouldBundlePreviewStart && activeVideoElementForBundledStart) {

@@ -2,6 +2,7 @@ import { useEffect, type MutableRefObject } from 'react';
 
 import type { AudioTrack, MediaElementsRef, MediaItem, NarrationClip } from '../../../types';
 import type { LogCategory } from '../../../stores/logStore';
+import { getTimelineAdvanceForItem } from '../../../utils/transitionTimeline';
 import {
   getPageHidePausePlan,
   getVisibilityRecoveryPlan,
@@ -109,7 +110,7 @@ export function usePreviewVisibilityLifecycle({
             }
           }
         }
-        accumulatedTime += item.duration;
+        accumulatedTime += getTimelineAdvanceForItem(mediaItemsRef.current, mediaItemsRef.current.indexOf(item));
       }
       activeVideoIdRef.current = activeVideoId;
 

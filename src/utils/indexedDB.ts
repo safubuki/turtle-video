@@ -63,6 +63,8 @@ export interface SerializedMediaItem {
   // ソース動画の解像度（エクスポートキャンバスサイズの動的決定に使用）
   sourceWidth?: number;
   sourceHeight?: number;
+  // 次のクリップへのトランジション（standard フレーバー限定機能・任意）
+  transitionToNext?: { type: 'dissolve' | 'fade-black' | 'fade-white'; duration: number } | null;
 }
 
 // 保存されるオーディオトラックのシリアライズ形式

@@ -30,6 +30,7 @@ import { captureCanvasAsImage, waitForPreviewFrameSettled } from '../utils/canva
 import { preserveOriginalFileName, resolveAiNarrationFileName } from '../utils/fileNames';
 import { saveObjectUrlWithClientFileStrategy } from '../utils/fileSave';
 import { openFilesWithPicker, shouldUseMediaOpenFilePicker } from '../utils/platform';
+import { computeTransitionTimelineRanges } from '../utils/transitionTimeline';
 
 // Zustand Stores
 import { useMediaStore, useAudioStore, useUIStore, useCaptionStore, useLogStore, createNarrationClip } from '../stores';
@@ -393,14 +394,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const refreshSaveHealth = useProjectStore((s) => s.refreshSaveHealth);
 
   const mediaTimelineRanges = useMemo(() => {
-    let timelineStart = 0;
+    // ディゾルブ（重ねる）トランジションのオーバーラップを考慮（store の totalDuration と同一規約）
     const ranges: Record<string, { start: number; end: number }> = {};
-    for (const item of mediaItems) {
-      const duration = Number.isFinite(item.duration) ? Math.max(0, item.duration) : 0;
-      const start = timelineStart;
-      const end = start + duration;
-      ranges[item.id] = { start, end };
-      timelineStart = end;
+    for (const range of computeTransitionTimelineRanges(mediaItems)) {
+      ranges[range.id] = { start: range.start, end: range.end };
     }
     return ranges;
   }, [mediaItems]);

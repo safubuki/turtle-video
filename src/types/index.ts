@@ -15,6 +15,14 @@ export interface VoiceOption {
   desc: string;
 }
 
+// クリップ間トランジション（standard フレーバー限定機能。
+// タイムライン長は変えず、境界の見た目だけを変える。詳細は utils/clipTransitions.ts）
+export type ClipTransitionType = 'dissolve' | 'fade-black' | 'fade-white';
+export interface ClipTransition {
+  type: ClipTransitionType;
+  duration: number; // 秒（0.5 / 1 / 2）
+}
+
 // メディアアイテム (動画/画像)
 export interface MediaItem {
   id: string;
@@ -40,6 +48,8 @@ export interface MediaItem {
   // ソース動画の解像度（エクスポート用キャンバスサイズの動的決定に使用）
   sourceWidth?: number;
   sourceHeight?: number;
+  // 次のクリップへのトランジション（standard 限定・任意。最後のクリップでは無視）
+  transitionToNext?: ClipTransition | null;
 }
 
 // オーディオトラック (BGM/ナレーション共通)

@@ -323,6 +323,7 @@ async function serializeMediaItem(item: MediaItem): Promise<SerializedMediaItem>
     isLocked: item.isLocked,
     sourceWidth: item.sourceWidth,
     sourceHeight: item.sourceHeight,
+    transitionToNext: item.transitionToNext ?? null,
   };
 }
 
@@ -351,6 +352,7 @@ function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
     isLocked: data.isLocked,
     sourceWidth: data.sourceWidth,
     sourceHeight: data.sourceHeight,
+    transitionToNext: data.transitionToNext ?? null,
   };
 }
 

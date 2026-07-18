@@ -2,7 +2,7 @@ import { useCallback, useEffect, type MutableRefObject } from 'react';
 
 import type { AudioTrack, MediaElementsRef, MediaItem, NarrationClip } from '../../../types';
 import type { LogCategory } from '../../../stores/logStore';
-import { findActiveTimelineItem } from '../../../utils/playbackTimeline';
+import { findActiveTimelineItemWithTransitions } from '../../../utils/transitionTimeline';
 import {
   getPreviewAudioRoutingPlan,
   shouldAttemptDeferredPreviewPlay,
@@ -251,7 +251,7 @@ export function usePreviewAudioSession({
       sourceType: 'video' | 'audio';
     }> = [];
 
-    const active = findActiveTimelineItem(currentItems, time, totalDurationRef.current);
+    const active = findActiveTimelineItemWithTransitions(currentItems, time, totalDurationRef.current);
     if (active && active.index !== -1) {
       const activeItem = currentItems[active.index];
       if (activeItem?.type === 'video' && !activeItem.isMuted && activeItem.volume > 0) {

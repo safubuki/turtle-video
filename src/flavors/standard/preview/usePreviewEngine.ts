@@ -15,11 +15,21 @@ import type {
 import type { ExportPreparationStep, UseExportReturn } from '../../../hooks/export-strategies/types';
 import { resolveCaptionFontFamily } from '../../../utils/captionFontCatalog';
 import { resolveCaptionAnchor, resolveCaptionBaseFontSize } from '../../../utils/captionStyle';
+import {
+  getIncomingTransitionOverlay,
+  getOutgoingTransitionOverlay,
+} from '../../../utils/clipTransitions';
+import {
+  computeTransitionTimelineRanges,
+  findActiveTimelineItemWithTransitions,
+  getClipOverlapToNext,
+  getTimelineAdvanceForItem,
+} from '../../../utils/transitionTimeline';
 import type { LogCategory } from '../../../stores/logStore';
 import { useMediaStore } from '../../../stores';
 import { useProjectStore } from '../../../stores/projectStore';
 import type { PlatformCapabilities } from '../../../utils/platform';
-import { collectPlaybackBlockingVideos, findActiveTimelineItem } from '../../../utils/playbackTimeline';
+import { collectPlaybackBlockingVideos } from '../../../utils/playbackTimeline';
 import { isCaptionActiveAtTime } from '../../../utils/captionTimeline';
 import { getExportFrameTiming, resolveExportDuration } from '../../../utils/exportTimeline';
 import {
@@ -209,6 +219,7 @@ const applyPreviewAudioOutputState = (
     desiredVolume: number;
     audibleSourceCount: number;
     isExporting: boolean;
+    baseVolume?: number;
   },
 ) => {
   const sourceType = mediaEl.tagName === 'AUDIO' ? 'audio' : 'video';
@@ -217,6 +228,7 @@ const applyPreviewAudioOutputState = (
     isExporting: options.isExporting,
     audibleSourceCount: options.audibleSourceCount,
     desiredVolume: options.desiredVolume,
+    baseVolume: options.baseVolume,
     sourceType,
   });
   const shouldMuteNative =
@@ -1228,14 +1240,11 @@ export function usePreviewEngine({
         const currentItems = mediaItemsRef.current;
         const currentBgm = bgmRef.current;
         const currentNarrations = narrationsRef.current;
+        // ディゾルブ（重ねる）トランジションのオーバーラップを考慮したタイムライン区間
         const timelineRanges = new Map<string, { start: number; end: number }>();
-        let timelineCursor = 0;
-        currentItems.forEach((item) => {
-          const start = timelineCursor;
-          const end = start + Math.max(0, item.duration);
-          timelineRanges.set(item.id, { start, end });
-          timelineCursor = end;
-        });
+        for (const rangeEntry of computeTransitionTimelineRanges(currentItems)) {
+          timelineRanges.set(rangeEntry.id, { start: rangeEntry.start, end: rangeEntry.end });
+        }
 
         let activeId: string | null = null;
         let localTime = 0;
@@ -1249,7 +1258,7 @@ export function usePreviewEngine({
         const isAndroidPreviewPlayback =
           platformCapabilities.isAndroid
           && isStandardLivePreviewPlayback;
-        const active = findActiveTimelineItem(currentItems, time, totalDurationRef.current);
+        const active = findActiveTimelineItemWithTransitions(currentItems, time, totalDurationRef.current);
         if (active) {
           activeId = active.id;
           activeIndex = active.index;
@@ -1264,6 +1273,36 @@ export function usePreviewEngine({
             localTime = Math.max(0, lastItem.duration - 0.001);
           }
         }
+        // === ディゾルブ(重ねる)のオーバーラップ判定 ===
+        // 窓内では「前のクリップ」を準アクティブ(peer)として描画・再生継続し、
+        // 映像は次クリップを上にクロスフェード、音声は双方をクロスフェードする。
+        let overlapPeerId: string | null = null;
+        let overlapPeerLocalTime: number | null = null;
+        let overlapCrossInAlpha: number | null = null;
+        let overlapAudioCrossIn: number | null = null;
+        let overlapAudioCrossOut = 0;
+        if (activeId && activeIndex > 0) {
+          const prevOverlapItem = currentItems[activeIndex - 1];
+          const prevOverlapRange = timelineRanges.get(prevOverlapItem.id);
+          const activeOverlapRange = timelineRanges.get(activeId);
+          const overlapSec = getClipOverlapToNext(prevOverlapItem, currentItems[activeIndex]);
+          if (
+            overlapSec > 0
+            && prevOverlapRange
+            && activeOverlapRange
+            && time >= activeOverlapRange.start
+            && time < prevOverlapRange.end - 0.001
+          ) {
+            const elapsedInOverlap = time - activeOverlapRange.start;
+            const overlapRatio = Math.max(0, Math.min(1, elapsedInOverlap / overlapSec));
+            overlapPeerId = prevOverlapItem.id;
+            overlapPeerLocalTime = time - prevOverlapRange.start;
+            overlapCrossInAlpha = overlapRatio;
+            overlapAudioCrossIn = overlapRatio;
+            overlapAudioCrossOut = 1 - overlapRatio;
+          }
+        }
+
         const holdAudioThisFrame = isActivePlaying && audioResumeWaitFramesRef.current > 0;
         const isNearTimelineStart =
           currentItems.length > 0 &&
@@ -1277,6 +1316,12 @@ export function usePreviewEngine({
           if (activeIndex !== -1) {
             const activeItem = currentItems[activeIndex];
             if (activeItem?.type === 'video' && !activeItem.isMuted && activeItem.volume > 0) {
+              count += 1;
+            }
+          }
+          if (overlapPeerId) {
+            const peerItem = currentItems.find((item) => item.id === overlapPeerId);
+            if (peerItem?.type === 'video' && !peerItem.isMuted && peerItem.volume > 0) {
               count += 1;
             }
           }
@@ -2158,6 +2203,10 @@ export function usePreviewEngine({
                   alpha = remaining / fadeOutDur;
                 }
 
+                // ディゾルブ(重ねる): 前クリップの上へクロスフェードで重なる
+                if (id === activeId && overlapCrossInAlpha !== null) {
+                  alpha *= overlapCrossInAlpha;
+                }
                 ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
                 try {
                   ctx.drawImage(
@@ -2223,6 +2272,10 @@ export function usePreviewEngine({
                   const remaining = conf.duration - localTime;
                   vol *= remaining / fadeOutDur;
                 }
+                // ディゾルブ(重ねる): 音声もクロスフェードイン
+                if (overlapAudioCrossIn !== null) {
+                  vol *= overlapAudioCrossIn;
+                }
 
                 if (
                   !hasAudioNode &&
@@ -2231,6 +2284,7 @@ export function usePreviewEngine({
                     isExporting: _isExporting,
                     audibleSourceCount: vol > 0 ? activePreviewAudioSourceCount : 0,
                     desiredVolume: vol,
+                    baseVolume: conf.isMuted ? 0 : conf.volume,
                     sourceType: 'video',
                   }) === 'webaudio'
                 ) {
@@ -2245,6 +2299,7 @@ export function usePreviewEngine({
                   desiredVolume: vol,
                   audibleSourceCount: vol > 0 ? activePreviewAudioSourceCount : 0,
                   isExporting: _isExporting,
+                  baseVolume: conf.isMuted ? 0 : conf.volume,
                 });
 
                 if (outputMode === 'native' && hasAudioNode) {
@@ -2276,6 +2331,71 @@ export function usePreviewEngine({
               }
             }
           } else {
+            // === ディゾルブ(重ねる)中の前クリップ(peer)処理 ===
+            // overlap 窓では前クリップを描画（下層）・再生継続し、音声をフェードアウトする。
+            // 通常の inactive 処理（pause / prewarm / reset）はスキップする。
+            if (id === overlapPeerId && overlapPeerLocalTime !== null) {
+              const peerIsVideo = conf.type === 'video';
+              const peerVideoEl = element as HTMLVideoElement;
+              const peerImageEl = element as HTMLImageElement;
+              if (peerIsVideo && isActivePlaying && peerVideoEl.paused && !peerVideoEl.seeking && peerVideoEl.readyState >= 2) {
+                peerVideoEl.play().catch(() => { /* ignore */ });
+              }
+              if (peerIsVideo && !isActivePlaying) {
+                const peerTarget = (conf.trimStart || 0) + overlapPeerLocalTime;
+                if (
+                  peerVideoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
+                  && !peerVideoEl.seeking
+                  && Math.abs(peerVideoEl.currentTime - peerTarget) > 0.3
+                ) {
+                  try { peerVideoEl.currentTime = peerTarget; } catch { /* ignore */ }
+                }
+              }
+              const peerReady = peerIsVideo
+                ? peerVideoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME && peerVideoEl.videoWidth > 0
+                : peerImageEl.naturalWidth > 0;
+              if (peerReady) {
+                const peerW = peerIsVideo ? peerVideoEl.videoWidth : peerImageEl.naturalWidth;
+                const peerH = peerIsVideo ? peerVideoEl.videoHeight : peerImageEl.naturalHeight;
+                if (peerW && peerH) {
+                  const peerBase = Math.min(ctx.canvas.width / peerW, ctx.canvas.height / peerH);
+                  ctx.save();
+                  ctx.translate(
+                    ctx.canvas.width / 2 + (conf.positionX || 0),
+                    ctx.canvas.height / 2 + (conf.positionY || 0),
+                  );
+                  ctx.scale(peerBase * (conf.scale || 1), peerBase * (conf.scale || 1));
+                  ctx.globalAlpha = 1.0;
+                  try {
+                    ctx.drawImage(element as CanvasImageSource, -peerW / 2, -peerH / 2, peerW, peerH);
+                    didUpdateCanvas = true;
+                  } catch {
+                    /* ignore */
+                  } finally {
+                    ctx.restore();
+                    ctx.globalAlpha = 1.0;
+                  }
+                }
+              }
+              if (peerIsVideo) {
+                const peerGainNode = gainNodesRef.current[id];
+                const peerHasNode = !!sourceNodesRef.current[id];
+                let peerVol = (conf.isMuted ? 0 : conf.volume) * overlapAudioCrossOut;
+                if (!isActivePlaying || holdAudioThisFrame) peerVol = 0;
+                const peerMode = applyPreviewAudioOutputState(previewPlatformPolicy, peerVideoEl, {
+                  hasAudioNode: peerHasNode,
+                  desiredVolume: peerVol,
+                  audibleSourceCount: peerVol > 0 ? activePreviewAudioSourceCount : 0,
+                  isExporting: _isExporting,
+                  baseVolume: conf.isMuted ? 0 : conf.volume,
+                });
+                const peerGainValue = peerMode === 'native' ? 0 : peerVol;
+                if (peerGainNode && audioCtxRef.current) {
+                  peerGainNode.gain.setTargetAtTime(peerGainValue, audioCtxRef.current.currentTime, 0.05);
+                }
+              }
+              return;
+            }
             if (conf.type === 'video') {
               const videoEl = element as HTMLVideoElement;
               const hasVideoAudioNode = !!sourceNodesRef.current[id];
@@ -2372,6 +2492,50 @@ export function usePreviewEngine({
         const exportFrameTiming = (_isExporting && exportDurationAlignment && exportFrameIndex !== null && exportFrameIndex < exportDurationAlignment.frameCount)
           ? getExportFrameTiming(exportDurationAlignment, FPS, exportFrameIndex)
           : null;
+        // === クリップ間トランジション描画（standard 限定機能・タイムライン長は不変） ===
+        // ディゾルブ: 現クリップの終端 d 秒で次クリップのフレームを重ねる
+        // フェード(黒/白): 境界の前後 d/2 秒で色板をディップさせる
+        if (activeId) {
+          const transitionActiveIndex = currentItems.findIndex((item) => item.id === activeId);
+          const transitionActiveItem = transitionActiveIndex >= 0 ? currentItems[transitionActiveIndex] : null;
+          const transitionActiveRange = transitionActiveItem
+            ? timelineRanges.get(transitionActiveItem.id)
+            : undefined;
+          if (transitionActiveItem && transitionActiveRange) {
+            const drawTransitionColorOverlay = (color: string, alpha: number) => {
+              const clamped = Math.max(0, Math.min(1, alpha));
+              if (clamped <= 0) return;
+              ctx.save();
+              ctx.globalAlpha = clamped;
+              ctx.fillStyle = color;
+              ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+              ctx.restore();
+              ctx.globalAlpha = 1.0;
+              didUpdateCanvas = true;
+            };
+
+            // フェード(黒/白)のディップのみ（ディゾルブは overlap 方式で peer/active 描画に統合済み）
+            const outgoing = transitionActiveItem.transitionToNext;
+            if (outgoing && transitionActiveIndex < currentItems.length - 1) {
+              const overlay = getOutgoingTransitionOverlay(outgoing, transitionActiveRange.end - time);
+              if (overlay) {
+                drawTransitionColorOverlay(overlay.color, overlay.alpha);
+              }
+            }
+
+            const transitionPrevItem = transitionActiveIndex > 0
+              ? currentItems[transitionActiveIndex - 1]
+              : null;
+            const incoming = transitionPrevItem?.transitionToNext;
+            if (incoming) {
+              const overlayIn = getIncomingTransitionOverlay(incoming, time - transitionActiveRange.start);
+              if (overlayIn) {
+                drawTransitionColorOverlay(overlayIn.color, overlayIn.alpha);
+              }
+            }
+          }
+        }
+
         if (currentCaptionSettings.enabled && currentCaptions.length > 0) {
           const activeCaptions = currentCaptions.filter(
             (c) => isCaptionActiveAtTime(c, time),
@@ -3197,7 +3361,7 @@ export function usePreviewEngine({
         : null;
       const globalTimeSec = exportFrameTiming ? (exportFrameTiming.timestampUs / 1e6) : clampedElapsed;
       const renderTimeSec = toDisplayTime(globalTimeSec);
-      const resolvedSegment = findActiveTimelineItem(mediaItemsRef.current, renderTimeSec, totalDuration);
+      const resolvedSegment = findActiveTimelineItemWithTransitions(mediaItemsRef.current, renderTimeSec, totalDuration);
       const resolvedSegmentIndex = resolvedSegment?.index ?? -1;
       const resolvedLocalTimeMs = resolvedSegment ? Math.round(resolvedSegment.localTime * 1000) : null;
       const segmentChanged = resolvedSegmentIndex !== diagnostics.lastSegmentIndex;
@@ -4209,7 +4373,7 @@ export function usePreviewEngine({
             }
             break;
           }
-          t += item.duration;
+          t += getTimelineAdvanceForItem(mediaItemsRef.current, index);
         }
 
         const nextVideoItem = findNextVideoItem(mediaItemsRef.current, activeItemIndex);
