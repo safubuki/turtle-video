@@ -2103,6 +2103,15 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     }
   }, [clearGeneratedExport, isPlaying, currentTime, totalDuration, stopAll, pause, startEngine]);
 
+  // --- タイミング打ち用の相対シーク ---
+  // 目的: タイミング打ちバーの「-1s / +1s」からシークバーと同じ経路でプレビュー位置を動かす
+  const handleStampSeekBy = useCallback((deltaSec: number) => {
+    const target = Math.max(0, Math.min(totalDurationRef.current, currentTimeRef.current + deltaSec));
+    handleSeekStart();
+    handleSeekChange({ target: { value: String(target) } } as React.ChangeEvent<HTMLInputElement>);
+    handleSeekEnd();
+  }, [handleSeekChange, handleSeekEnd, handleSeekStart]);
+
   // --- 停止ハンドラ ---
   // 目的: 再生を停止し、時刻を0にリセット（リソースのリロードは行わない）
   // 改善: 以前はhandleReloadResourcesを呼んでいたが、DOM破棄により動画切り替え時にクラッシュするため
@@ -2512,6 +2521,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               formatTime={formatTime}
               onApplyCaptions={withPreviewPause('bulk-apply-captions', replaceCaptions)}
               onShiftCaptions={withPreviewPause('shift-captions', shiftCaptions)}
+              isPlaying={isPlaying}
+              onTogglePlay={togglePlay}
+              onSeekBy={handleStampSeekBy}
               onUpdateCaptionLive={updateCaption}
               onSetFontSizeCustom={withPreviewPause('set-caption-font-size-custom', setCaptionFontSizeCustom)}
               onSetPositionCustom={withPreviewPause('set-caption-position-custom', setCaptionPositionCustom)}

@@ -325,9 +325,10 @@ describe('captionStore', () => {
       expect(captions[2]).toMatchObject({ startTime: 13, endTime: 15 });
     });
 
-    it('shifts only captions starting at/after fromTime', () => {
+    it('shifts only cards at/after fromIndex (card-based)', () => {
       setup();
-      useCaptionStore.getState().shiftCaptions(2, 5);
+      // [2] のカード（index=1）以降をずらす
+      useCaptionStore.getState().shiftCaptions(2, 1);
       const captions = useCaptionStore.getState().captions;
       expect(captions[0]).toMatchObject({ startTime: 0, endTime: 3 }); // 変更なし
       expect(captions[1]).toMatchObject({ startTime: 7, endTime: 10 });

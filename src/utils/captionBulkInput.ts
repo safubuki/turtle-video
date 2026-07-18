@@ -28,9 +28,10 @@ export const BULK_CAPTION_FIXED_DURATION_SEC = 3;
 /** 表示秒数の可変範囲 */
 export const BULK_CAPTION_DURATION_MIN_SEC = 0.5;
 export const BULK_CAPTION_DURATION_MAX_SEC = 30;
-/** キャプション間の間隔の選択肢（秒）。既定は 0.3 秒 */
-export const BULK_CAPTION_GAP_OPTIONS_SEC = [0, 0.3, 0.5] as const;
-export const BULK_CAPTION_DEFAULT_GAP_SEC = 0.3;
+/** キャプション間の間隔プリセット（秒）。これ以外は「カスタム」で自由入力。既定は 0.2 秒 */
+export const BULK_CAPTION_GAP_PRESETS_SEC = [0, 0.2] as const;
+export const BULK_CAPTION_DEFAULT_GAP_SEC = 0.2;
+export const BULK_CAPTION_GAP_MAX_SEC = 10;
 
 /** 割付時に保証する最小表示秒数 */
 const MIN_CAPTION_DURATION_SEC = 0.5;

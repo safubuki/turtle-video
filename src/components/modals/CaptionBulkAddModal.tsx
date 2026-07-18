@@ -8,7 +8,7 @@
  * - キャプション間の間隔（0/0.3/0.5秒）と 1 行あたりの表示秒数（0.5〜30秒）を調整できる。
  */
 import React, { useMemo, useState } from 'react';
-import { X, ListPlus, Minus, Plus, CircleHelp } from 'lucide-react';
+import { X, ListPlus, Minus, Plus, CircleHelp, Copy, Check } from 'lucide-react';
 import type { Caption } from '../../types';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 import {
@@ -16,7 +16,8 @@ import {
   BULK_CAPTION_DURATION_MAX_SEC,
   BULK_CAPTION_DURATION_MIN_SEC,
   BULK_CAPTION_FIXED_DURATION_SEC,
-  BULK_CAPTION_GAP_OPTIONS_SEC,
+  BULK_CAPTION_GAP_MAX_SEC,
+  BULK_CAPTION_GAP_PRESETS_SEC,
   clampDuration,
   formatCaptionsAsBulkText,
   parseBulkCaptionInput,
@@ -41,6 +42,25 @@ interface CaptionBulkAddModalProps {
   onClose: () => void;
 }
 
+/**
+ * 外部 AI（動画/音声の音声解析ができるもの）に貼り付ける依頼プロンプト。
+ * Turtle Video の時間記法で出力させることで、結果をそのまま一括入力に貼り付けられる。
+ */
+export const AI_CAPTION_ANALYSIS_PROMPT = `この動画（または音声）ファイルの音声を解析し、歌詞・ナレーション・セリフを聞き取って、発話タイミング付きの字幕データを作成してください。
+
+出力形式（この形式の行だけを出力すること）:
+[開始-終了] テキスト
+
+ルール:
+- 時間は 分:秒 形式で小数1桁まで（例: [00:03.0-00:07.5] こんにちは）
+- 1行 = 1つの字幕。時間順に並べる
+- 間奏や無音区間の行は作らない
+- 説明文・前置き・コードブロック記号など、字幕行以外は一切出力しない
+
+出力例:
+[00:00.0-00:04.0] 明日はきっといい日になる
+[00:04.2-00:08.0] 空を見上げて歩き出そう`;
+
 const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
   captions,
   totalDuration,
@@ -58,6 +78,18 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
   const [gapSec, setGapSec] = useState<number>(BULK_CAPTION_DEFAULT_GAP_SEC);
   const [fixedDuration, setFixedDuration] = useState<number>(BULK_CAPTION_FIXED_DURATION_SEC);
   const [showFormatHelp, setShowFormatHelp] = useState(false);
+  const [isCustomGap, setIsCustomGap] = useState(false);
+  const [promptCopied, setPromptCopied] = useState(false);
+
+  const handleCopyAiPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(AI_CAPTION_ANALYSIS_PROMPT);
+      setPromptCopied(true);
+      window.setTimeout(() => setPromptCopied(false), 2000);
+    } catch {
+      // clipboard 不可の環境ではプロンプト全文をヘルプに表示済みのため黙って握りつぶす
+    }
+  };
 
   const lines = useMemo(() => parseBulkCaptionInput(text), [text]);
   const hasExplicitTimes = lines.some((line) => line.explicitStart !== undefined);
@@ -94,14 +126,9 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
     }`;
 
   return (
-    <div
-      className="fixed inset-0 bg-black/70 flex items-end md:items-center justify-center z-[300] md:p-4"
-      onClick={onClose}
-    >
-      <div
-        className="bg-gray-900 rounded-t-2xl md:rounded-2xl border border-gray-700 w-full md:max-w-lg shadow-2xl max-h-[92vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 bg-black/70 flex items-end md:items-center justify-center z-[300] md:p-4">
+      {/* 誤操作防止のため、モーダル外のクリック/ドロップでは閉じない（× かキャンセルで閉じる） */}
+      <div className="bg-gray-900 rounded-t-2xl md:rounded-2xl border border-gray-700 w-full md:max-w-lg shadow-2xl max-h-[92vh] flex flex-col">
         {/* ヘッダー */}
         <div className="flex items-center justify-between p-4 border-b border-gray-700 shrink-0">
           <h2 className="text-sm md:text-base font-bold flex items-center gap-2 text-yellow-400">
@@ -141,8 +168,31 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
               </code>
               <div>
                 時間は「分:秒」または「秒」。時間なしの行は前の行に続けて自動配置。
-                本文中の記号（@ や [ ]）は自由に使えます。
-                外部の AI に「この形式で歌詞と時間を出力して」と頼んで貼り付けるのもおすすめです。
+                本文中の記号（@ や [ ]）は自由に使えます。行末に付けることもできます。
+              </div>
+              <div className="pt-1 border-t border-gray-700/60 space-y-1">
+                <div className="text-yellow-300 font-semibold">AI に音声解析させて字幕を作る</div>
+                <div>
+                  動画/音声を扱える AI にファイルと下のプロンプトを渡すと、この形式で字幕が返ってくるので、
+                  そのまま上の入力欄へ貼り付けられます。
+                </div>
+                <textarea
+                  readOnly
+                  value={AI_CAPTION_ANALYSIS_PROMPT}
+                  rows={3}
+                  className="w-full bg-gray-950 border border-gray-700 rounded px-2 py-1 text-[9px] text-gray-400 resize-y focus:outline-none"
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+                <button
+                  onClick={handleCopyAiPrompt}
+                  className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] transition ${promptCopied
+                    ? 'bg-emerald-700 text-white'
+                    : 'bg-gray-700 hover:bg-gray-600 text-gray-200'
+                    }`}
+                >
+                  {promptCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  {promptCopied ? 'コピーしました' : 'プロンプトをコピー'}
+                </button>
               </div>
             </div>
           )}
@@ -208,23 +258,51 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
               </button>
             </div>
 
-            {/* キャプション間の間隔 */}
+            {/* キャプション間の間隔: なし / 200ms / カスタム */}
             <div className="flex items-center gap-2 text-[10px] md:text-xs">
               <span className="text-gray-400 w-24 shrink-0 leading-tight">
                 キャプション
                 <br />
                 の間隔
               </span>
-              <div className="flex gap-1.5 flex-1">
-                {BULK_CAPTION_GAP_OPTIONS_SEC.map((gap) => (
+              <div className="flex gap-1.5 flex-1 items-center">
+                {BULK_CAPTION_GAP_PRESETS_SEC.map((gap) => (
                   <button
                     key={gap}
-                    onClick={() => setGapSec(gap)}
-                    className={segButtonClass(gapSec === gap)}
+                    onClick={() => {
+                      setIsCustomGap(false);
+                      setGapSec(gap);
+                    }}
+                    className={segButtonClass(!isCustomGap && gapSec === gap)}
                   >
                     {gap === 0 ? 'なし' : `${Math.round(gap * 1000)}ms`}
                   </button>
                 ))}
+                <button
+                  onClick={() => setIsCustomGap(true)}
+                  className={segButtonClass(isCustomGap)}
+                >
+                  カスタム
+                </button>
+                {isCustomGap && (
+                  <>
+                    <input
+                      type="number"
+                      min={0}
+                      max={BULK_CAPTION_GAP_MAX_SEC}
+                      step={0.1}
+                      value={gapSec}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        if (!Number.isNaN(val)) {
+                          setGapSec(Math.max(0, Math.min(BULK_CAPTION_GAP_MAX_SEC, val)));
+                        }
+                      }}
+                      className="w-14 h-8 bg-gray-800 border border-gray-700 rounded-lg px-1 text-center text-sm focus:outline-none focus:border-yellow-500"
+                    />
+                    <span className="text-gray-500 shrink-0">秒</span>
+                  </>
+                )}
               </div>
             </div>
 

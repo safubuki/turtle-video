@@ -2048,3 +2048,14 @@
   - `shiftCaptions(deltaSec, fromTime=0)`: fromTime 以降に開始するキャプションを一括移動（映像差し込み後の調整用）。開始 0 未満クランプ・表示時間維持。UI は「まとめてずらす」行（全部/現在位置以降 + 秒数 + 早める/遅らせる）。standard 限定。
   - 時間記法は前置 `[t1-t2] text` が標準（プリフィル出力もこれ）だが、後置 `text [t1-t2]` も parse で許容。両方ある行は前置優先で行末括弧は本文扱い。
   - 一括入力モーダルの日本語ラベルは `<br/>` で明示改行し、単語の途中で折り返さない（「表示時/間」のような不自然な改行の再発防止）。
+
+### 13-107. タイミング打ちは交互/連続の 2 モード + トランスポート、シフトはカード基準
+
+- **ファイル**: `src/components/sections/CaptionSection.tsx`, `src/components/modals/CaptionBulkAddModal.tsx`, `src/stores/captionStore.ts`, `src/components/TurtleVideo.tsx`
+- **内容**（実機フィードバック反映・詳細は f5 仕様書 改訂 v4）:
+  - タイミング打ちはモード制: 交互（開始→終了をワンボタン切替で確定・既定）/ 連続（終了=次開始の同時確定）。「終了だけ」ボタンは廃止。バーに -1s/再生・一時停止/+1s のトランスポートと ⇄ フェーズ手動切替を備え、打ち直しに対応。
+  - トランスポートの相対シークは `handleStampSeekBy()` が `handleSeekStart/Change/End` のシークバー経路を合成イベントで再利用する（独自シーク実装を作らない）。
+  - `shiftCaptions(deltaSec, fromIndex)` は**配列インデックス基準**（「[n] のカード以降」）。再生位置基準は分かりにくいため廃止。
+  - 一括入力モーダルは外側クリックで閉じない。AI 音声解析→時間記法出力の依頼プロンプト定数 `AI_CAPTION_ANALYSIS_PROMPT` をヘルプ内でコピー可能。
+  - 間隔プリセットは なし/200ms/カスタム（`BULK_CAPTION_GAP_PRESETS_SEC`、既定 0.2s）。
+  - select の option には明示的に `bg-gray-800 text-gray-200` を付ける（select 本体の強調色が option リストへ継承されて見づらくなるのを防ぐ）。

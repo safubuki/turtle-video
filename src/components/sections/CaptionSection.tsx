@@ -18,6 +18,10 @@ import {
   ListPlus,
   Timer,
   X,
+  Play,
+  Pause,
+  Minus,
+  ArrowLeftRight,
 } from 'lucide-react';
 import type { Caption, CaptionSettings, CaptionPosition, CaptionSize, CaptionFontStyle } from '../../types';
 import CaptionItem from '../media/CaptionItem';
@@ -70,8 +74,12 @@ interface CaptionSectionProps {
   formatTime: (seconds: number) => string;
   /** まとめて入力/編集の反映（全置き換え・行順マージ） */
   onApplyCaptions: (items: BulkCaptionApplyItem[]) => void;
-  /** キャプションの一括時間シフト（fromTime 以降を deltaSec ずらす） */
-  onShiftCaptions: (deltaSec: number, fromTime?: number) => void;
+  /** キャプションの一括時間シフト（一覧の fromIndex 番目のカード以降を deltaSec ずらす） */
+  onShiftCaptions: (deltaSec: number, fromIndex?: number) => void;
+  /** タイミング打ちの微調整用プレビュー操作 */
+  isPlaying: boolean;
+  onTogglePlay: () => void;
+  onSeekBy: (deltaSec: number) => void;
   /** プレビューを一時停止せずにキャプションを更新する（タイミング打ち用） */
   onUpdateCaptionLive: (id: string, updates: Partial<Omit<Caption, 'id'>>) => void;
 }
@@ -106,6 +114,9 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   onApplyCaptions,
   onShiftCaptions,
   onUpdateCaptionLive,
+  isPlaying,
+  onTogglePlay,
+  onSeekBy,
 }) => {
   const [isOpen, setIsOpen] = useState(true);
   const [showStyleSettings, setShowStyleSettings] = useState(false);
@@ -148,61 +159,85 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   const isCustomPosition = settings.positionCustom != null;
   const customPosition = settings.positionCustom ?? CAPTION_POSITION_CUSTOM_DEFAULT;
 
-  // === 一括シフト（映像の差し込み/削除後の時間調整） ===
+  // === 一括シフト（映像の差し込み/削除後の時間調整・カード基準） ===
   const [shiftAmount, setShiftAmount] = useState(1.0);
-  const [shiftScope, setShiftScope] = useState<'all' | 'after'>('all');
+  // -1 = 全部、それ以外 = そのカード以降（そのカードを含む）
+  const [shiftFromIndex, setShiftFromIndex] = useState(-1);
+  const stepShiftAmount = (delta: number) => {
+    setShiftAmount((prev) => Math.max(0.5, Math.min(600, Math.round((prev + delta) * 2) / 2)));
+  };
   const applyShift = (direction: 1 | -1) => {
     const delta = Math.abs(shiftAmount) * direction;
     if (delta === 0) return;
-    onShiftCaptions(delta, shiftScope === 'after' ? currentTime : 0);
+    const fromIndex = shiftFromIndex >= 0 && shiftFromIndex < captions.length ? shiftFromIndex : 0;
+    onShiftCaptions(delta, shiftFromIndex < 0 ? 0 : fromIndex);
   };
 
-  // === タイミング打ち v2 ===
-  // フェーズ: 'end' = 対象の終わりを待っている / 'start' = 対象の始まりを待っている
+  // === タイミング打ち v3 ===
+  // モード:
+  //   alternate（交互）: ワンボタンで 開始→終了→開始… と切り替えながら確定（歌詞・間のある説明向け）
+  //   chain（連続）: 終了＝次の開始を同時確定（間の無い連続字幕向け）
   const [stampActive, setStampActive] = useState(false);
   const [stampIndex, setStampIndex] = useState(0);
-  const [stampPhase, setStampPhase] = useState<'end' | 'start'>('end');
+  const [stampMode, setStampMode] = useState<'alternate' | 'chain'>('alternate');
+  const [stampPhase, setStampPhase] = useState<'start' | 'end'>('start');
   const stampTarget = stampActive ? captions[stampIndex] : undefined;
 
   // 現在のプレビュー位置にかかっている（または直後の）キャプションから開始する
   const startStampMode = () => {
     const idx = captions.findIndex((c) => c.endTime > currentTime + 0.05);
     setStampIndex(idx >= 0 ? idx : Math.max(0, captions.length - 1));
-    setStampPhase('end');
+    setStampPhase(stampMode === 'alternate' ? 'start' : 'end');
     setStampActive(true);
   };
 
   const moveStampTarget = (delta: number) => {
     setStampIndex((prev) => Math.max(0, Math.min(captions.length - 1, prev + delta)));
-    setStampPhase('end');
+    setStampPhase(stampMode === 'alternate' ? 'start' : 'end');
+  };
+
+  const switchStampMode = (mode: 'alternate' | 'chain') => {
+    setStampMode(mode);
+    setStampPhase(mode === 'alternate' ? 'start' : 'end');
   };
 
   const stampNow = () => Math.round(currentTime * 10) / 10;
 
-  // 「区切って次へ」: 終了＝次の開始を同時に確定（間なし）
-  const handleStampSplit = () => {
+  // 交互モード: 開始→終了→（次のカードの）開始→… とワンボタンで確定する。
+  // 打ち直したいときは -1秒/一時停止で戻り、⇄ でフェーズを切り替えて同じ場所を再確定できる。
+  const handleStampAlternate = () => {
     const target = captions[stampIndex];
     if (!target) {
       setStampActive(false);
       return;
     }
-    if (currentTime <= target.startTime + 0.1) return; // 開始より前では区切れない
     const at = stampNow();
-    onUpdateCaptionLive(target.id, {
-      endTime: totalDuration > 0 ? Math.min(at, totalDuration) : at,
-    });
-    const next = captions[stampIndex + 1];
-    if (next) {
-      onUpdateCaptionLive(next.id, { startTime: at });
-      setStampIndex(stampIndex + 1);
+    if (stampPhase === 'start') {
+      if (totalDuration > 0 && at >= totalDuration - 0.1) return;
+      const updates: Partial<Omit<Caption, 'id'>> = { startTime: at };
+      // 開始を後ろへ動かして終了を追い越す場合は、最低 0.5 秒の表示時間を確保する
+      const minEnd = at + 0.5;
+      if (target.endTime < minEnd) {
+        updates.endTime = totalDuration > 0 ? Math.min(minEnd, totalDuration) : minEnd;
+      }
+      onUpdateCaptionLive(target.id, updates);
       setStampPhase('end');
     } else {
-      setStampActive(false);
+      if (at <= target.startTime + 0.1) return; // 開始より前では終了できない
+      onUpdateCaptionLive(target.id, {
+        endTime: totalDuration > 0 ? Math.min(at, totalDuration) : at,
+      });
+      if (captions[stampIndex + 1]) {
+        setStampIndex(stampIndex + 1);
+        setStampPhase('start');
+      } else {
+        setStampActive(false);
+      }
     }
   };
 
-  // 「終了だけ」: 終了のみ確定し、次のキャプションの開始待ちへ（間を空けたいとき）
-  const handleStampEndOnly = () => {
+  // 連続モード: 終了＝次の開始を同時に確定（間なし）
+  const handleStampChain = () => {
     const target = captions[stampIndex];
     if (!target) {
       setStampActive(false);
@@ -213,24 +248,13 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
     onUpdateCaptionLive(target.id, {
       endTime: totalDuration > 0 ? Math.min(at, totalDuration) : at,
     });
-    if (captions[stampIndex + 1]) {
+    const next = captions[stampIndex + 1];
+    if (next) {
+      onUpdateCaptionLive(next.id, { startTime: at });
       setStampIndex(stampIndex + 1);
-      setStampPhase('start');
     } else {
       setStampActive(false);
     }
-  };
-
-  // 「ここから開始」: 対象の開始を確定して終了待ちへ
-  const handleStampStart = () => {
-    const target = captions[stampIndex];
-    if (!target) {
-      setStampActive(false);
-      return;
-    }
-    if (currentTime >= target.endTime - 0.1) return; // 終了より後には開始を置けない
-    onUpdateCaptionLive(target.id, { startTime: stampNow() });
-    setStampPhase('end');
   };
 
   const handleAddCaption = () => {
@@ -336,7 +360,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
       {isOpen && (
         <div className="p-3 lg:p-4 space-y-3">
           {/* スタイル/フェード一括設定 */}
-          <div className="bg-gray-800/50 rounded-lg border border-gray-700/50">
+          <div className="bg-gray-800/50 rounded-xl border border-gray-600/70">
             <button
               onClick={() => setShowStyleSettings(!showStyleSettings)}
               className="w-full p-2 flex items-center justify-between text-xs md:text-sm text-gray-400 hover:text-white transition"
@@ -455,20 +479,21 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                             }`}
                           title="その他のシステムフォントから選ぶ（端末に実在するもののみ表示）"
                         >
-                          <option value="" disabled>
+                          <option value="" disabled className="bg-gray-800 text-gray-500">
                             その他▾
                           </option>
                           {availableDropdownFonts.map((opt) => (
-                            <option key={opt.value} value={opt.value} style={{ fontFamily: opt.family }}>
+                            <option key={opt.value} value={opt.value} className="bg-gray-800 text-gray-200" style={{ fontFamily: opt.family }}>
                               {opt.label}
                             </option>
                           ))}
                           {localFontFamilies.length > 0 && (
-                            <optgroup label="端末のフォント">
+                            <optgroup label="端末のフォント" className="bg-gray-800 text-gray-400">
                               {localFontFamilies.map((family) => (
                                 <option
                                   key={family}
                                   value={createLocalFontValue(family)}
+                                  className="bg-gray-800 text-gray-200"
                                   style={{ fontFamily: family }}
                                 >
                                   {family}
@@ -477,7 +502,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                             </optgroup>
                           )}
                           {!dropdownHasSelected && (
-                            <option value={dropdownFontValue} style={{ fontFamily: resolveCaptionFontFamily(dropdownFontValue) }}>
+                            <option value={dropdownFontValue} className="bg-gray-800 text-gray-200" style={{ fontFamily: resolveCaptionFontFamily(dropdownFontValue) }}>
                               {selectedLocalFamily ?? dropdownFontValue}
                             </option>
                           )}
@@ -675,6 +700,8 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
             )}
           </div>
 
+          {/* 入力ツール群（枠でグルーピング） */}
+          <div className="space-y-2 border border-gray-700/60 rounded-xl p-2 bg-gray-900/40">
           {/* STEP フロー: ①まとめて入力 → ②タイミング打ち（standard フレーバー限定） */}
           {supportsBulkInput && (
             <div className="flex gap-2">
@@ -710,50 +737,61 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
             </div>
           )}
 
-          {/* 一括シフト（standard のみ・キャプションがあるとき） */}
+          {/* 一括シフト（standard のみ・キャプションがあるとき）: カード基準で時間を前後にずらす */}
           {supportsBulkInput && captions.length > 0 && (
-            <div className="flex items-center gap-1.5 text-[10px] md:text-xs bg-gray-800/50 rounded-lg border border-gray-700/50 px-2 py-1.5">
-              <span className="text-gray-400 shrink-0">まとめてずらす:</span>
-              <select
-                value={shiftScope}
-                onChange={(e) => setShiftScope(e.target.value as 'all' | 'after')}
-                disabled={isLocked}
-                className="bg-gray-700 text-gray-300 rounded px-1 py-1 text-[10px] md:text-xs focus:outline-none focus:ring-1 focus:ring-yellow-500 disabled:opacity-50"
-                title="ずらす対象"
-              >
-                <option value="all">全部</option>
-                <option value="after">現在位置以降</option>
-              </select>
-              <input
-                type="number"
-                min={0.1}
-                max={600}
-                step={0.5}
-                value={shiftAmount}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  if (!Number.isNaN(val)) setShiftAmount(Math.max(0.1, Math.min(600, Math.abs(val))));
-                }}
-                disabled={isLocked}
-                className="w-12 bg-gray-700 border border-gray-600 rounded px-1 py-0.5 text-right focus:outline-none focus:border-yellow-500 disabled:opacity-50"
-              />
-              <span className="text-gray-500 shrink-0">秒</span>
-              <button
-                onClick={() => applyShift(-1)}
-                disabled={isLocked}
-                className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-gray-200 transition disabled:opacity-50"
-                title={`${shiftScope === 'after' ? '現在位置以降' : '全部'}のキャプションを ${shiftAmount} 秒早める`}
-              >
-                <ChevronLeft className="w-3.5 h-3.5 inline" />早める
-              </button>
-              <button
-                onClick={() => applyShift(1)}
-                disabled={isLocked}
-                className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-gray-200 transition disabled:opacity-50"
-                title={`${shiftScope === 'after' ? '現在位置以降' : '全部'}のキャプションを ${shiftAmount} 秒遅らせる`}
-              >
-                遅らせる<ChevronRight className="w-3.5 h-3.5 inline" />
-              </button>
+            <div className="space-y-1.5 text-[10px] md:text-xs bg-gray-800/50 rounded-lg border border-gray-700/50 px-2 py-1.5">
+              <div className="flex items-center gap-1.5">
+                <span className="text-gray-400 shrink-0">時間をまとめてずらす:</span>
+                <select
+                  value={shiftFromIndex}
+                  onChange={(e) => setShiftFromIndex(Number(e.target.value))}
+                  disabled={isLocked}
+                  className="flex-1 min-w-0 bg-gray-700 text-gray-300 rounded px-1 py-1 text-[10px] md:text-xs focus:outline-none focus:ring-1 focus:ring-yellow-500 disabled:opacity-50"
+                  title="ずらす対象のキャプションカード"
+                >
+                  <option value={-1} className="bg-gray-800 text-gray-200">すべてのカード</option>
+                  {captions.map((c, i) => (
+                    <option key={c.id} value={i} className="bg-gray-800 text-gray-200">
+                      [{i + 1}] {c.text.slice(0, 8)}{c.text.length > 8 ? '…' : ''} 以降
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => stepShiftAmount(-0.5)}
+                  disabled={isLocked}
+                  className="w-7 h-7 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 flex items-center justify-center transition disabled:opacity-50"
+                  aria-label="ずらす秒数を0.5秒減らす"
+                >
+                  <Minus className="w-3 h-3" />
+                </button>
+                <span className="w-12 text-center text-gray-200 font-mono">{shiftAmount}秒</span>
+                <button
+                  onClick={() => stepShiftAmount(0.5)}
+                  disabled={isLocked}
+                  className="w-7 h-7 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 flex items-center justify-center transition disabled:opacity-50"
+                  aria-label="ずらす秒数を0.5秒増やす"
+                >
+                  <Plus className="w-3 h-3" />
+                </button>
+                <button
+                  onClick={() => applyShift(-1)}
+                  disabled={isLocked}
+                  className="flex-1 px-2 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-gray-200 transition disabled:opacity-50"
+                  title="対象カードの時間を早める（前へ移動）"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5 inline" />早める
+                </button>
+                <button
+                  onClick={() => applyShift(1)}
+                  disabled={isLocked}
+                  className="flex-1 px-2 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-gray-200 transition disabled:opacity-50"
+                  title="対象カードの時間を遅らせる（後ろへ移動）"
+                >
+                  遅らせる<ChevronRight className="w-3.5 h-3.5 inline" />
+                </button>
+              </div>
             </div>
           )}
 
@@ -778,9 +816,10 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
               <Plus className="w-3 h-3" /> 追加
             </button>
           </div>
+          </div>
 
           {/* キャプション一覧 */}
-          <div className="space-y-2 min-h-14 lg:min-h-[4.5rem] max-h-44 lg:max-h-[15rem] overflow-y-auto custom-scrollbar">
+          <div className="space-y-2 min-h-14 lg:min-h-[4.5rem] max-h-80 lg:max-h-[26rem] overflow-y-auto custom-scrollbar">
             {captions.length === 0 ? (
               <div className="text-center py-2 lg:py-2.5 min-h-12 lg:min-h-14 text-gray-600 text-xs md:text-sm border-2 border-dashed border-gray-800 rounded flex items-center justify-center">
                 キャプションがありません
@@ -857,31 +896,75 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                 <X className="w-4 h-4" />
               </button>
             </div>
-            {/* 操作行: フェーズごとのボタン */}
-            {stampPhase === 'end' ? (
-              <div className="flex gap-2">
+            {/* モード切替 + プレビュー微調整（1秒戻る/再生・一時停止/1秒進む） */}
+            <div className="flex items-center gap-1.5">
+              <div className="flex rounded-lg overflow-hidden border border-gray-700 shrink-0 text-[10px] md:text-xs">
                 <button
-                  onClick={handleStampSplit}
-                  className="flex-1 h-11 bg-yellow-600 hover:bg-yellow-500 active:bg-yellow-400 text-white rounded-xl text-sm md:text-base font-bold transition"
-                  title="終了と次の開始を同時に確定（間を空けない）"
+                  onClick={() => switchStampMode('alternate')}
+                  className={`px-2 py-1.5 transition ${stampMode === 'alternate' ? 'bg-yellow-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'}`}
+                  title="交互モード: ワンボタンで 開始→終了→開始… と確定（間のある歌詞・説明向け）"
                 >
-                  ⏭ 区切って次へ
+                  交互
                 </button>
                 <button
-                  onClick={handleStampEndOnly}
-                  className="h-11 px-3 md:px-5 bg-gray-700 hover:bg-gray-600 text-gray-100 rounded-xl text-xs md:text-sm font-semibold transition"
-                  title="終了だけ確定し、次の開始は別のタイミングで押す（間を空ける）"
+                  onClick={() => switchStampMode('chain')}
+                  className={`px-2 py-1.5 transition ${stampMode === 'chain' ? 'bg-yellow-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'}`}
+                  title="連続モード: 終了＝次の開始を同時に確定（間の無い連続字幕向け）"
                 >
-                  ∥ 終了だけ
+                  連続
+                </button>
+              </div>
+              <div className="flex-1" />
+              <button
+                onClick={() => onSeekBy(-1)}
+                className="h-9 px-2.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 text-[10px] md:text-xs font-mono transition"
+                title="1秒戻る"
+              >
+                -1s
+              </button>
+              <button
+                onClick={onTogglePlay}
+                className="h-9 w-11 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-100 flex items-center justify-center transition"
+                title={isPlaying ? '一時停止' : '再生'}
+              >
+                {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+              </button>
+              <button
+                onClick={() => onSeekBy(1)}
+                className="h-9 px-2.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 text-[10px] md:text-xs font-mono transition"
+                title="1秒進む"
+              >
+                +1s
+              </button>
+            </div>
+            {/* 操作行: モードごとのボタン */}
+            {stampMode === 'alternate' ? (
+              <div className="flex gap-2">
+                <button
+                  onClick={handleStampAlternate}
+                  className={`flex-1 h-11 text-white rounded-xl text-sm md:text-base font-bold transition ${stampPhase === 'start'
+                    ? 'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-400'
+                    : 'bg-yellow-600 hover:bg-yellow-500 active:bg-yellow-400'
+                    }`}
+                  title={stampPhase === 'start' ? 'このキャプションの開始位置を現在の再生位置に確定' : 'このキャプションの終了位置を現在の再生位置に確定'}
+                >
+                  {stampPhase === 'start' ? '▶ ここから開始' : '⏹ ここで終了'}
+                </button>
+                <button
+                  onClick={() => setStampPhase((prev) => (prev === 'start' ? 'end' : 'start'))}
+                  className="h-11 px-3 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-xl transition"
+                  title="開始/終了を切り替える（打ち直したいとき: -1s で戻って切り替えてもう一度押す）"
+                >
+                  <ArrowLeftRight className="w-4 h-4" />
                 </button>
               </div>
             ) : (
               <button
-                onClick={handleStampStart}
-                className="w-full h-11 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-400 text-white rounded-xl text-sm md:text-base font-bold transition"
-                title="このキャプションの開始位置を現在の再生位置に確定"
+                onClick={handleStampChain}
+                className="w-full h-11 bg-yellow-600 hover:bg-yellow-500 active:bg-yellow-400 text-white rounded-xl text-sm md:text-base font-bold transition"
+                title="終了と次の開始を同時に確定（間を空けない）"
               >
-                ▶ ここから開始
+                ⏭ 区切って次へ
               </button>
             )}
           </div>

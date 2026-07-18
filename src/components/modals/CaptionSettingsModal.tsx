@@ -215,16 +215,16 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                       }`}
                     title="その他のシステムフォントから選ぶ（端末に実在するもののみ表示）"
                   >
-                    <option value="" disabled>
+                    <option value="" disabled className="bg-gray-800 text-gray-500">
                       その他▾
                     </option>
                     {modalDropdownOptions.map((opt) => (
-                      <option key={opt.value} value={opt.value} style={{ fontFamily: opt.family }}>
+                      <option key={opt.value} value={opt.value} className="bg-gray-800 text-gray-200" style={{ fontFamily: opt.family }}>
                         {opt.label}
                       </option>
                     ))}
                     {!dropdownHasSelected && (
-                      <option value={dropdownFontValue} style={{ fontFamily: resolveCaptionFontFamily(dropdownFontValue) }}>
+                      <option value={dropdownFontValue} className="bg-gray-800 text-gray-200" style={{ fontFamily: resolveCaptionFontFamily(dropdownFontValue) }}>
                         {selectedLocalFamily ?? dropdownFontValue}
                       </option>
                     )}

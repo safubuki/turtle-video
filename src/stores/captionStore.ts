@@ -31,10 +31,10 @@ interface CaptionState {
   replaceCaptions: (items: { id?: string; text: string; startTime: number; endTime: number }[]) => void;
   /**
    * キャプションを一括で時間シフトする（映像の差し込み/削除後の調整用）。
-   * fromTime 以降に開始するキャプションだけを deltaSec ずらす（既定は全部）。
+   * 一覧の fromIndex 番目のカード以降（そのカードを含む）を deltaSec ずらす（既定は全部）。
    * 開始が 0 未満にならないようクランプし、表示時間（長さ）は維持する。
    */
-  shiftCaptions: (deltaSec: number, fromTime?: number) => void;
+  shiftCaptions: (deltaSec: number, fromIndex?: number) => void;
   updateCaption: (id: string, updates: Partial<Omit<Caption, 'id'>>) => void;
   removeCaption: (id: string) => void;
   moveCaption: (id: string, direction: 'up' | 'down') => void;
@@ -188,13 +188,13 @@ export const useCaptionStore = create<CaptionState>()(
         );
       },
 
-      shiftCaptions: (deltaSec, fromTime = 0) => {
+      shiftCaptions: (deltaSec, fromIndex = 0) => {
         if (!Number.isFinite(deltaSec) || deltaSec === 0) return;
-        useLogStore.getState().info('MEDIA', 'キャプションを一括シフト', { deltaSec, fromTime });
+        useLogStore.getState().info('MEDIA', 'キャプションを一括シフト', { deltaSec, fromIndex });
         return set(
           (state) => ({
-            captions: state.captions.map((c) => {
-              if (c.startTime < fromTime) return c;
+            captions: state.captions.map((c, index) => {
+              if (index < fromIndex) return c;
               const duration = Math.max(0, c.endTime - c.startTime);
               const newStart = Math.max(0, Math.round((c.startTime + deltaSec) * 10) / 10);
               return { ...c, startTime: newStart, endTime: newStart + duration };
