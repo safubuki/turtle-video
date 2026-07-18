@@ -134,7 +134,7 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
             <div className="text-[10px] md:text-xs text-gray-300 bg-gray-800/70 border border-gray-700 rounded-lg p-2.5 space-y-1">
               <div className="text-yellow-300 font-semibold">行ごとの時間指定（任意）</div>
               <div>
-                行頭に <code className="bg-gray-700 px-1 rounded">[開始-終了]</code> を付けると、その時間で配置されます:
+                行頭（または行末）に <code className="bg-gray-700 px-1 rounded">[開始-終了]</code> を付けると、その時間で配置されます:
               </div>
               <code className="block bg-gray-950 rounded px-2 py-1 text-emerald-300">
                 [00:03.0-00:07.5] 明日はいい日になるさ
@@ -174,7 +174,11 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
 
             {/* 1 行あたりの表示時間（ステッパー + 直接入力） */}
             <div className="flex items-center gap-2 text-[10px] md:text-xs">
-              <span className="text-gray-400 w-28 shrink-0">1行あたりの表示時間</span>
+              <span className="text-gray-400 w-24 shrink-0 leading-tight">
+                1行あたりの
+                <br />
+                表示時間
+              </span>
               <button
                 onClick={() => stepDuration(-0.5)}
                 className="w-8 h-8 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-200 flex items-center justify-center transition"
@@ -206,7 +210,11 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
 
             {/* キャプション間の間隔 */}
             <div className="flex items-center gap-2 text-[10px] md:text-xs">
-              <span className="text-gray-400 w-28 shrink-0">キャプションの間隔</span>
+              <span className="text-gray-400 w-24 shrink-0 leading-tight">
+                キャプション
+                <br />
+                の間隔
+              </span>
               <div className="flex gap-1.5 flex-1">
                 {BULK_CAPTION_GAP_OPTIONS_SEC.map((gap) => (
                   <button

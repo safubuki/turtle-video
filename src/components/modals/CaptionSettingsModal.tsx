@@ -11,8 +11,11 @@ import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import {
   BASIC_CAPTION_FONT_OPTIONS,
-  DROPDOWN_CAPTION_FONT_OPTIONS,
-  PINNED_CAPTION_FONT_OPTIONS,
+  getAvailableDropdownFontOptions,
+  getAvailablePinnedFontOptions,
+  getLocalFontFamilyFromValue,
+  isExtendedCaptionFontStyle,
+  resolveCaptionFontFamily,
 } from '../../utils/captionFontCatalog';
 
 interface CaptionSettingsModalProps {
@@ -62,15 +65,23 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
   const { isIosSafari } = usePlatformCapabilities();
   const supportsExtendedFonts = !isIosSafari;
 
-  // 字体オプション: デフォルト + 固定（standard は 3 種 / iOS は 2 種）
+  // 字体オプション: デフォルト + 基本 2（モーダルは幅が狭いため固定は 2 つに抑え、残りはドロップダウンへ）
   const fontStyleOptions: { value: FontStyleOption; label: string }[] = [
     { value: 'default', label: 'デフォルト' },
-    ...(supportsExtendedFonts ? PINNED_CAPTION_FONT_OPTIONS : BASIC_CAPTION_FONT_OPTIONS)
-      .map(({ value, label }) => ({ value, label })),
+    ...BASIC_CAPTION_FONT_OPTIONS.map(({ value, label }) => ({ value, label })),
   ];
-  const dropdownFontValue = DROPDOWN_CAPTION_FONT_OPTIONS.some((o) => o.value === caption.overrideFontStyle)
-    ? caption.overrideFontStyle
-    : '';
+  // ドロップダウン: 実在する丸ゴシック + 実在するその他フォント
+  const modalDropdownOptions = [
+    ...getAvailablePinnedFontOptions().filter((o) => o.extended),
+    ...getAvailableDropdownFontOptions(),
+  ];
+  const isDropdownFontSelected = caption.overrideFontStyle !== undefined
+    && isExtendedCaptionFontStyle(caption.overrideFontStyle)
+    && !BASIC_CAPTION_FONT_OPTIONS.some((o) => o.value === caption.overrideFontStyle);
+  const dropdownFontValue = isDropdownFontSelected ? (caption.overrideFontStyle ?? '') : '';
+  const dropdownHasSelected = !dropdownFontValue
+    || modalDropdownOptions.some((o) => o.value === dropdownFontValue);
+  const selectedLocalFamily = getLocalFontFamilyFromValue(caption.overrideFontStyle ?? '');
 
   // 配置オプション
   const positionOptions: { value: PositionOption; label: string }[] = [
@@ -198,20 +209,25 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                       const value = e.target.value as CaptionFontStyle | '';
                       if (value) handleFontStyleChange(value);
                     }}
-                    className={`flex-1 py-1 px-0.5 rounded transition text-[10px] border-0 focus:outline-none focus:ring-1 focus:ring-yellow-500 ${dropdownFontValue
-                      ? 'bg-yellow-500 text-gray-900 font-semibold'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    className={`flex-1 min-w-0 py-1 px-0.5 rounded transition text-[10px] bg-gray-700 focus:outline-none focus:ring-1 focus:ring-yellow-500 ${dropdownFontValue
+                      ? 'text-yellow-300 ring-1 ring-yellow-500/70 font-semibold'
+                      : 'text-gray-300 hover:bg-gray-600'
                       }`}
-                    title="その他のシステムフォントから選ぶ"
+                    title="その他のシステムフォントから選ぶ（端末に実在するもののみ表示）"
                   >
                     <option value="" disabled>
                       その他▾
                     </option>
-                    {DROPDOWN_CAPTION_FONT_OPTIONS.map((opt) => (
+                    {modalDropdownOptions.map((opt) => (
                       <option key={opt.value} value={opt.value} style={{ fontFamily: opt.family }}>
                         {opt.label}
                       </option>
                     ))}
+                    {!dropdownHasSelected && (
+                      <option value={dropdownFontValue} style={{ fontFamily: resolveCaptionFontFamily(dropdownFontValue) }}>
+                        {selectedLocalFamily ?? dropdownFontValue}
+                      </option>
+                    )}
                   </select>
                 )}
               </div>

@@ -184,3 +184,24 @@ describe('planBulkCaptions (gap & explicit times)', () => {
     expect(plans[0]).toMatchObject({ startTime: 0, endTime: 5 });
   });
 });
+
+describe('parseBulkCaptionInput (suffix notation)', () => {
+  it('parses trailing [start-end] notation', () => {
+    expect(parseBulkCaptionInput('明日はいい日になるさ [00:03-00:07.5]')).toEqual([
+      { text: '明日はいい日になるさ', explicitStart: 3, explicitEnd: 7.5 },
+    ]);
+  });
+
+  it('prefers prefix notation when both are present', () => {
+    // 行頭形式が優先され、行末の [ ] は本文扱い
+    expect(parseBulkCaptionInput('[00:01-00:02] 本文 [00:10-00:20]')).toEqual([
+      { text: '本文 [00:10-00:20]', explicitStart: 1, explicitEnd: 2 },
+    ]);
+  });
+
+  it('treats invalid trailing brackets as body text', () => {
+    expect(parseBulkCaptionInput('コーラス [サビ]')).toEqual([
+      { text: 'コーラス [サビ]' },
+    ]);
+  });
+});

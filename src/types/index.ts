@@ -151,16 +151,18 @@ export type CaptionPosition = 'top' | 'center' | 'bottom';
 export type CaptionSize = 'small' | 'medium' | 'large' | 'xlarge';
 
 // キャプションフォントスタイル
-// gothic / mincho が基本 2 択。rounded 以降はシステムフォント拡張（standard フレーバーの UI でのみ選択可能。
-// 描画は utils/captionFontCatalog.ts の resolveCaptionFontFamily() で全フレーバー共通に解決し、
-// 未知値は sans-serif へフォールバックする）
+// gothic / mincho が基本 2 択。それ以外はシステムフォント拡張（standard フレーバーの UI でのみ選択可能。
+// カタログは utils/captionFontCatalog.ts が単一ソース）。
+// `local:<ファミリ名>` は Local Font Access API（PC）で選んだ端末フォントを表す。
+// 描画は resolveCaptionFontFamily() で全フレーバー共通に解決し、未知値は sans-serif へフォールバックする。
 export type CaptionFontStyle =
   | 'gothic'
   | 'mincho'
   | 'rounded'
   | 'handwriting'
   | 'mono'
-  | 'system';
+  | 'system'
+  | (string & {});
 
 // キャプション設定
 export interface CaptionSettings {

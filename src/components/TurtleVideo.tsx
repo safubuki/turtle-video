@@ -188,6 +188,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const isCaptionLocked = useCaptionStore((s) => s.isLocked);
   const addCaption = useCaptionStore((s) => s.addCaption);
   const replaceCaptions = useCaptionStore((s) => s.replaceCaptions);
+  const shiftCaptions = useCaptionStore((s) => s.shiftCaptions);
   const updateCaption = useCaptionStore((s) => s.updateCaption);
   const setCaptionFontSizeCustom = useCaptionStore((s) => s.setFontSizeCustom);
   const setCaptionPositionCustom = useCaptionStore((s) => s.setPositionCustom);
@@ -2510,6 +2511,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onOpenHelp={() => openSectionHelp('caption')}
               formatTime={formatTime}
               onApplyCaptions={withPreviewPause('bulk-apply-captions', replaceCaptions)}
+              onShiftCaptions={withPreviewPause('shift-captions', shiftCaptions)}
               onUpdateCaptionLive={updateCaption}
               onSetFontSizeCustom={withPreviewPause('set-caption-font-size-custom', setCaptionFontSizeCustom)}
               onSetPositionCustom={withPreviewPause('set-caption-position-custom', setCaptionPositionCustom)}

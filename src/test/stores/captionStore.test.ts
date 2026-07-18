@@ -307,4 +307,46 @@ describe('captionStore', () => {
       expect(captions[2].text).toBe('新規');
     });
   });
+
+  describe('shiftCaptions', () => {
+    const setup = () => {
+      useCaptionStore.setState({ captions: [] });
+      useCaptionStore.getState().addCaption('A', 0, 3);
+      useCaptionStore.getState().addCaption('B', 5, 8);
+      useCaptionStore.getState().addCaption('C', 10, 12);
+    };
+
+    it('shifts all captions preserving durations', () => {
+      setup();
+      useCaptionStore.getState().shiftCaptions(3);
+      const captions = useCaptionStore.getState().captions;
+      expect(captions[0]).toMatchObject({ startTime: 3, endTime: 6 });
+      expect(captions[1]).toMatchObject({ startTime: 8, endTime: 11 });
+      expect(captions[2]).toMatchObject({ startTime: 13, endTime: 15 });
+    });
+
+    it('shifts only captions starting at/after fromTime', () => {
+      setup();
+      useCaptionStore.getState().shiftCaptions(2, 5);
+      const captions = useCaptionStore.getState().captions;
+      expect(captions[0]).toMatchObject({ startTime: 0, endTime: 3 }); // 変更なし
+      expect(captions[1]).toMatchObject({ startTime: 7, endTime: 10 });
+      expect(captions[2]).toMatchObject({ startTime: 12, endTime: 14 });
+    });
+
+    it('clamps negative shifts at 0 while preserving duration', () => {
+      setup();
+      useCaptionStore.getState().shiftCaptions(-2);
+      const captions = useCaptionStore.getState().captions;
+      expect(captions[0]).toMatchObject({ startTime: 0, endTime: 3 }); // 0 でクランプ・長さ維持
+      expect(captions[1]).toMatchObject({ startTime: 3, endTime: 6 });
+    });
+
+    it('ignores zero/invalid deltas', () => {
+      setup();
+      useCaptionStore.getState().shiftCaptions(0);
+      useCaptionStore.getState().shiftCaptions(Number.NaN);
+      expect(useCaptionStore.getState().captions[0]).toMatchObject({ startTime: 0, endTime: 3 });
+    });
+  });
 });

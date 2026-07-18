@@ -3,7 +3,7 @@
  * @author Turtle Village
  * @description テキストキャプションの追加、編集、削除を行うセクション。タイムライン上での表示タイミングやスタイル（サイズ、位置）の設定UIを提供する。
  */
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Lock,
   Unlock,
@@ -25,9 +25,14 @@ import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import {
   BASIC_CAPTION_FONT_OPTIONS,
-  DROPDOWN_CAPTION_FONT_OPTIONS,
-  PINNED_CAPTION_FONT_OPTIONS,
+  createLocalFontValue,
+  getAvailableDropdownFontOptions,
+  getAvailablePinnedFontOptions,
+  getLocalFontFamilyFromValue,
+  isExtendedCaptionFontStyle,
+  resolveCaptionFontFamily,
 } from '../../utils/captionFontCatalog';
+import { queryLocalFontFamilies, supportsLocalFontAccess } from '../../utils/fontAvailability';
 import {
   CAPTION_FONT_SIZE_CUSTOM_MAX,
   CAPTION_FONT_SIZE_CUSTOM_MIN,
@@ -65,6 +70,8 @@ interface CaptionSectionProps {
   formatTime: (seconds: number) => string;
   /** まとめて入力/編集の反映（全置き換え・行順マージ） */
   onApplyCaptions: (items: BulkCaptionApplyItem[]) => void;
+  /** キャプションの一括時間シフト（fromTime 以降を deltaSec ずらす） */
+  onShiftCaptions: (deltaSec: number, fromTime?: number) => void;
   /** プレビューを一時停止せずにキャプションを更新する（タイミング打ち用） */
   onUpdateCaptionLive: (id: string, updates: Partial<Omit<Caption, 'id'>>) => void;
 }
@@ -97,6 +104,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   onOpenHelp,
   formatTime,
   onApplyCaptions,
+  onShiftCaptions,
   onUpdateCaptionLive,
 }) => {
   const [isOpen, setIsOpen] = useState(true);
@@ -108,15 +116,46 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   const supportsBulkInput = !isIosSafari;
   const [showBulkModal, setShowBulkModal] = useState(false);
 
-  // フォント: 固定 3（ゴシック/明朝/丸ゴシック）+ ドロップダウン
-  const dropdownFontValue = DROPDOWN_CAPTION_FONT_OPTIONS.some((o) => o.value === settings.fontStyle)
-    ? settings.fontStyle
-    : '';
+  // フォント: 固定（ゴシック/明朝 + 実在すれば丸ゴシック）+ 実在フォントのみのドロップダウン
+  const availablePinnedFonts = useMemo(() => getAvailablePinnedFontOptions(), []);
+  const availableDropdownFonts = useMemo(() => getAvailableDropdownFontOptions(), []);
+  // Local Font Access API（PC の Chromium 系のみ）で読み込んだ端末フォント
+  const [localFontFamilies, setLocalFontFamilies] = useState<string[]>([]);
+  const [localFontsLoading, setLocalFontsLoading] = useState(false);
+  const canLoadLocalFonts = supportsExtendedFonts && supportsLocalFontAccess();
+  const handleLoadLocalFonts = async () => {
+    if (localFontsLoading) return;
+    setLocalFontsLoading(true);
+    try {
+      setLocalFontFamilies(await queryLocalFontFamilies());
+    } finally {
+      setLocalFontsLoading(false);
+    }
+  };
+
+  const selectedLocalFamily = getLocalFontFamilyFromValue(settings.fontStyle);
+  const isPinnedFontSelected = availablePinnedFonts.some((o) => o.value === settings.fontStyle)
+    || BASIC_CAPTION_FONT_OPTIONS.some((o) => o.value === settings.fontStyle);
+  const isDropdownFontSelected = !isPinnedFontSelected && isExtendedCaptionFontStyle(settings.fontStyle);
+  const dropdownFontValue = isDropdownFontSelected ? settings.fontStyle : '';
+  // 復元データ等で「選択中だが一覧に無い」値も表示できるよう補完する
+  const dropdownHasSelected = !dropdownFontValue
+    || availableDropdownFonts.some((o) => o.value === dropdownFontValue)
+    || (selectedLocalFamily !== null && localFontFamilies.includes(selectedLocalFamily));
 
   // カスタムサイズ/位置（standard 限定）
   const isCustomFontSize = settings.fontSizeCustom != null;
   const isCustomPosition = settings.positionCustom != null;
   const customPosition = settings.positionCustom ?? CAPTION_POSITION_CUSTOM_DEFAULT;
+
+  // === 一括シフト（映像の差し込み/削除後の時間調整） ===
+  const [shiftAmount, setShiftAmount] = useState(1.0);
+  const [shiftScope, setShiftScope] = useState<'all' | 'after'>('all');
+  const applyShift = (direction: 1 | -1) => {
+    const delta = Math.abs(shiftAmount) * direction;
+    if (delta === 0) return;
+    onShiftCaptions(delta, shiftScope === 'after' ? currentTime : 0);
+  };
 
   // === タイミング打ち v2 ===
   // フェーズ: 'end' = 対象の終わりを待っている / 'start' = 対象の始まりを待っている
@@ -225,9 +264,9 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
     { value: 'xlarge', label: '特大' },
   ];
 
-  // 固定表示フォント: standard は 3 種（ゴシック/明朝/丸ゴシック）+ ドロップダウン、iOS は従来の 2 種
+  // 固定表示フォント: standard は「基本 2 + 実在する丸ゴシック」+ ドロップダウン、iOS は従来の 2 種
   const fontStyleOptions = supportsExtendedFonts
-    ? PINNED_CAPTION_FONT_OPTIONS
+    ? [...BASIC_CAPTION_FONT_OPTIONS, ...availablePinnedFonts.filter((o) => o.extended)]
     : BASIC_CAPTION_FONT_OPTIONS;
 
   const positionOptions: { value: CaptionPosition; label: string }[] = [
@@ -384,16 +423,16 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                       <span className="text-gray-500 whitespace-nowrap">px</span>
                     </div>
                   )}
-                  {/* 字体: 固定3（ゴシック/明朝/丸ゴシック）+ ドロップダウン（standard のみ） */}
+                  {/* 字体: 固定（基本 2 + 実在する丸ゴシック）+ 実在フォントのみのドロップダウン（standard のみ） */}
                   <div className="flex items-center gap-2 text-[10px] md:text-xs">
                     <span className="text-gray-400 w-16">字体:</span>
-                    <div className="flex gap-1 flex-1 items-stretch">
+                    <div className="flex gap-1 flex-1 items-stretch min-w-0">
                       {fontStyleOptions.map((opt) => (
                         <button
                           key={opt.value}
                           onClick={() => onSetFontStyle(opt.value)}
                           disabled={isLocked}
-                          className={`flex-1 max-w-[4.5rem] py-1 rounded transition ${settings.fontStyle === opt.value
+                          className={`flex-1 min-w-0 px-0.5 py-1 rounded transition whitespace-nowrap ${settings.fontStyle === opt.value
                             ? 'bg-yellow-500 text-gray-900'
                             : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                             } disabled:opacity-50`}
@@ -410,24 +449,55 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                             if (value) onSetFontStyle(value);
                           }}
                           disabled={isLocked}
-                          className={`flex-1 max-w-[5.5rem] py-1 px-1 rounded transition text-[10px] md:text-xs border-0 focus:outline-none focus:ring-1 focus:ring-yellow-500 ${dropdownFontValue
-                            ? 'bg-yellow-500 text-gray-900 font-semibold'
-                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                            } disabled:opacity-50`}
-                          title="その他のシステムフォントから選ぶ"
+                          className={`flex-1 min-w-0 max-w-[7.5rem] py-1 px-1 rounded transition text-[10px] md:text-xs bg-gray-700 focus:outline-none focus:ring-1 focus:ring-yellow-500 disabled:opacity-50 ${dropdownFontValue
+                            ? 'text-yellow-300 ring-1 ring-yellow-500/70 font-semibold'
+                            : 'text-gray-300 hover:bg-gray-600'
+                            }`}
+                          title="その他のシステムフォントから選ぶ（端末に実在するもののみ表示）"
                         >
                           <option value="" disabled>
                             その他▾
                           </option>
-                          {DROPDOWN_CAPTION_FONT_OPTIONS.map((opt) => (
+                          {availableDropdownFonts.map((opt) => (
                             <option key={opt.value} value={opt.value} style={{ fontFamily: opt.family }}>
                               {opt.label}
                             </option>
                           ))}
+                          {localFontFamilies.length > 0 && (
+                            <optgroup label="端末のフォント">
+                              {localFontFamilies.map((family) => (
+                                <option
+                                  key={family}
+                                  value={createLocalFontValue(family)}
+                                  style={{ fontFamily: family }}
+                                >
+                                  {family}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {!dropdownHasSelected && (
+                            <option value={dropdownFontValue} style={{ fontFamily: resolveCaptionFontFamily(dropdownFontValue) }}>
+                              {selectedLocalFamily ?? dropdownFontValue}
+                            </option>
+                          )}
                         </select>
                       )}
                     </div>
                   </div>
+                  {/* PC: 端末の全フォント読み込み（Local Font Access API 対応環境のみ） */}
+                  {canLoadLocalFonts && localFontFamilies.length === 0 && (
+                    <div className="pl-16">
+                      <button
+                        onClick={handleLoadLocalFonts}
+                        disabled={isLocked || localFontsLoading}
+                        className="text-[10px] text-blue-300 hover:text-blue-200 underline underline-offset-2 disabled:opacity-50"
+                        title="この PC にインストールされている全フォントを選択肢に追加します（許可が必要）"
+                      >
+                        {localFontsLoading ? '読み込み中…' : '＋ この端末の全フォントから選ぶ（PC）'}
+                      </button>
+                    </div>
+                  )}
                   {/* 位置: プリセット + カスタム XY（standard のみ） */}
                   <div className="flex items-center gap-2 text-[10px] md:text-xs">
                     <span className="text-gray-400 w-16">位置:</span>
@@ -636,6 +706,53 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                 <span className={`block text-[9px] leading-tight mt-0.5 ${stampActive ? 'text-yellow-100' : 'text-gray-500'}`}>
                   {captions.length < 2 ? 'キャプション2件以上で使用可' : stampActive ? 'タップで終了' : '再生しながら切り替えを確定'}
                 </span>
+              </button>
+            </div>
+          )}
+
+          {/* 一括シフト（standard のみ・キャプションがあるとき） */}
+          {supportsBulkInput && captions.length > 0 && (
+            <div className="flex items-center gap-1.5 text-[10px] md:text-xs bg-gray-800/50 rounded-lg border border-gray-700/50 px-2 py-1.5">
+              <span className="text-gray-400 shrink-0">まとめてずらす:</span>
+              <select
+                value={shiftScope}
+                onChange={(e) => setShiftScope(e.target.value as 'all' | 'after')}
+                disabled={isLocked}
+                className="bg-gray-700 text-gray-300 rounded px-1 py-1 text-[10px] md:text-xs focus:outline-none focus:ring-1 focus:ring-yellow-500 disabled:opacity-50"
+                title="ずらす対象"
+              >
+                <option value="all">全部</option>
+                <option value="after">現在位置以降</option>
+              </select>
+              <input
+                type="number"
+                min={0.1}
+                max={600}
+                step={0.5}
+                value={shiftAmount}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  if (!Number.isNaN(val)) setShiftAmount(Math.max(0.1, Math.min(600, Math.abs(val))));
+                }}
+                disabled={isLocked}
+                className="w-12 bg-gray-700 border border-gray-600 rounded px-1 py-0.5 text-right focus:outline-none focus:border-yellow-500 disabled:opacity-50"
+              />
+              <span className="text-gray-500 shrink-0">秒</span>
+              <button
+                onClick={() => applyShift(-1)}
+                disabled={isLocked}
+                className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-gray-200 transition disabled:opacity-50"
+                title={`${shiftScope === 'after' ? '現在位置以降' : '全部'}のキャプションを ${shiftAmount} 秒早める`}
+              >
+                <ChevronLeft className="w-3.5 h-3.5 inline" />早める
+              </button>
+              <button
+                onClick={() => applyShift(1)}
+                disabled={isLocked}
+                className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-gray-200 transition disabled:opacity-50"
+                title={`${shiftScope === 'after' ? '現在位置以降' : '全部'}のキャプションを ${shiftAmount} 秒遅らせる`}
+              >
+                遅らせる<ChevronRight className="w-3.5 h-3.5 inline" />
               </button>
             </div>
           )}

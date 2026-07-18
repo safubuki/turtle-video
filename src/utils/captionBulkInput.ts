@@ -35,9 +35,11 @@ export const BULK_CAPTION_DEFAULT_GAP_SEC = 0.3;
 /** 割付時に保証する最小表示秒数 */
 const MIN_CAPTION_DURATION_SEC = 0.5;
 
-// 行頭の時間記法: [MM:SS-MM:SS] / [MM:SS.s~MM:SS.s] / [63.5-70] など。
-// 「行頭が [ で始まり、かつ中身が時間ペアとして解釈できる場合のみ」時間指定として扱う。
+// 時間記法: [MM:SS-MM:SS] / [MM:SS.s~MM:SS.s] / [63.5-70] など。
+// 行頭（推奨・プリフィル形式）または行末に置ける。中身が時間ペアとして
+// 解釈できる場合のみ時間指定として扱い、本文中の記号には反応しない。
 const TIME_PREFIX_PATTERN = /^\[\s*([0-9:.]+)\s*[-~]\s*([0-9:.]+)\s*\]\s*(.*)$/;
+const TIME_SUFFIX_PATTERN = /^(.*?)\s*\[\s*([0-9:.]+)\s*[-~]\s*([0-9:.]+)\s*\]$/;
 
 /** "MM:SS" / "MM:SS.s" / "HH:MM:SS" / "秒数" を秒へ変換する。解釈できなければ null */
 export function parseTimeNotation(value: string): number | null {
@@ -73,11 +75,22 @@ export function parseBulkCaptionInput(input: string): BulkCaptionLine[] {
     const line = raw.trim();
     if (!line) continue;
 
-    const match = line.match(TIME_PREFIX_PATTERN);
-    if (match) {
-      const start = parseTimeNotation(match[1]);
-      const end = parseTimeNotation(match[2]);
-      const text = match[3].trim();
+    const prefixMatch = line.match(TIME_PREFIX_PATTERN);
+    if (prefixMatch) {
+      const start = parseTimeNotation(prefixMatch[1]);
+      const end = parseTimeNotation(prefixMatch[2]);
+      const text = prefixMatch[3].trim();
+      if (start !== null && end !== null && end > start && text) {
+        lines.push({ text, explicitStart: start, explicitEnd: end });
+        continue;
+      }
+    }
+    // 行末形式（テキスト [開始-終了]）も許容する
+    const suffixMatch = line.match(TIME_SUFFIX_PATTERN);
+    if (suffixMatch) {
+      const start = parseTimeNotation(suffixMatch[2]);
+      const end = parseTimeNotation(suffixMatch[3]);
+      const text = suffixMatch[1].trim();
       if (start !== null && end !== null && end > start && text) {
         lines.push({ text, explicitStart: start, explicitEnd: end });
         continue;

@@ -2190,3 +2190,24 @@
   - `captionStore.restoreFromSave` は `{ ...initialSettings, ...saved }` で新フィールドを既定値補完する（旧データ互換）。
   - すべて standard 限定ゲート（13-103 の定石どおり `usePlatformCapabilities().isIosSafari`）。
   - 均等割りは「全行が時間なし」のときだけ適用。明示時間の行が混在すると逐次配置へフォールバック（仕様書に明記）。
+
+### 13-105. キャプションフォントは canvas 実在判定 + Local Font Access で「実在するものだけ」を出す
+
+- **ファイル**: `src/utils/fontAvailability.ts`, `src/utils/captionFontCatalog.ts`, `src/components/sections/CaptionSection.tsx`, `src/components/modals/CaptionSettingsModal.tsx`
+- **問題**: フォントスタックのフォールバック頼みだと「手書き風を選んだのに手書きにならない」偽装エントリが生まれる。Android Chrome にはフォント列挙 API が無い。
+- **対策**:
+  - `isFontFamilyAvailable()`: 候補ファミリ前置スタックと総称ファミリ単体の canvas 文字幅を比較して実在判定（monospace/serif/sans-serif の 3 基準、結果キャッシュ、canvas 不可環境は false）。
+  - カタログは候補 ~15 種（Word/Excel 系日本語フォント中心）に `detectFamilies` を持たせ、`getAvailableDropdownFontOptions()` / `getAvailablePinnedFontOptions()` が実在分のみ返す（detector 注入可能でテスト容易）。
+  - PC（Chromium）は `queryLocalFonts` で全インストールフォントを読み込み、`local:<family>` 形式の CaptionFontStyle として保存。`resolveCaptionFontFamily()` が `local:` プレフィックスを解決。`CaptionFontStyle` は `(string & {})` で開放済み。
+  - 旧 'handwriting' は `legacyOnly`（UI 非表示・描画互換のみ）。丸ゴシック固定ボタンも実在時のみ表示。
+- **注意**:
+  - 選択中スタイルは「全面黄色背景」ではなく黄色リング+文字色アクセント（ユーザーフィードバック反映）。
+  - `local:` 値を含むプロジェクトを他端末/iOS で開くと sans-serif 縮退（クラッシュしない）。
+
+### 13-106. キャプション一括シフトと時間記法の前置/後置許容
+
+- **ファイル**: `src/stores/captionStore.ts`, `src/components/sections/CaptionSection.tsx`, `src/utils/captionBulkInput.ts`, `src/components/modals/CaptionBulkAddModal.tsx`
+- **内容**:
+  - `shiftCaptions(deltaSec, fromTime=0)`: fromTime 以降に開始するキャプションを一括移動（映像差し込み後の調整用）。開始 0 未満クランプ・表示時間維持。UI は「まとめてずらす」行（全部/現在位置以降 + 秒数 + 早める/遅らせる）。standard 限定。
+  - 時間記法は前置 `[t1-t2] text` が標準（プリフィル出力もこれ）だが、後置 `text [t1-t2]` も parse で許容。両方ある行は前置優先で行末括弧は本文扱い。
+  - 一括入力モーダルの日本語ラベルは `<br/>` で明示改行し、単語の途中で折り返さない（「表示時/間」のような不自然な改行の再発防止）。
