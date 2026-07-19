@@ -155,6 +155,9 @@ export interface Caption {
   // 個別カスタム値（standard フレーバー限定。一括設定の fontSizeCustom / positionCustom と同等）
   overrideFontSizeCustom?: number;                  // px @1080p 基準（24〜240）。プリセット override より優先
   overridePositionCustom?: { x: number; y: number }; // % (0-100)、テキスト中心。プリセット override より優先
+  // 時分割表示（text が複数行のとき）の任意設定（standard フレーバー限定）
+  sequentialFadeMode?: 'card' | 'line'; // フェード適用単位: card=カード全体（既定）/ line=行ごと
+  sequentialGapSec?: number;            // 行間の無表示間隔（秒、0〜5。既定 0）
 }
 
 // キャプション位置

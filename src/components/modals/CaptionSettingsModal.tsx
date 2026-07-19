@@ -26,6 +26,12 @@ import {
   clampCustomFontSize,
   clampPositionPercent,
 } from '../../utils/captionStyle';
+import {
+  SEQUENTIAL_GAP_MAX_SEC,
+  clampSequentialGapSec,
+  isSequentialCaption,
+  resolveSequentialCaptionSegments,
+} from '../../utils/captionTimeline';
 import { queryLocalFontFamilies, supportsLocalFontAccess } from '../../utils/fontAvailability';
 
 interface CaptionSettingsModalProps {
@@ -65,6 +71,17 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
   const isCustomFontSize = caption.overrideFontSizeCustom != null;
   const isCustomPosition = caption.overridePositionCustom != null;
   const customPosition = caption.overridePositionCustom ?? CAPTION_POSITION_CUSTOM_DEFAULT;
+
+  // 時分割（複数行の順次表示）設定
+  const isSequential = isSequentialCaption(caption);
+  const sequentialFadeMode = caption.sequentialFadeMode ?? 'card';
+  const sequentialGapSec = clampSequentialGapSec(caption.sequentialGapSec ?? 0);
+  const SEQUENTIAL_GAP_PRESETS: ReadonlyArray<{ value: number; label: string }> = [
+    { value: 0, label: 'なし' },
+    { value: 0.2, label: '200ms' },
+  ];
+  const isPresetSequentialGap = SEQUENTIAL_GAP_PRESETS.some((p) => p.value === sequentialGapSec);
+  const [isCustomSequentialGap, setIsCustomSequentialGap] = useState(!isPresetSequentialGap);
 
   // サイズオプション
   const fontSizeOptions: { value: SizeOption; label: string }[] = [
@@ -486,6 +503,88 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
               </button>
             )}
           </div>
+
+          {/* ■ 時分割設定（複数行テキストのカードのみ） */}
+          {isSequential && (
+            <div className="space-y-2 pt-3 border-t border-gray-700">
+              <div className="text-[10px] text-emerald-300 font-bold">
+                ■ 時分割設定（{resolveSequentialCaptionSegments(caption).length}行を順番に表示）
+              </div>
+              {/* フェードの適用単位 */}
+              <div className="flex items-center gap-2 text-[10px]">
+                <span className="text-gray-400 w-16">フェード:</span>
+                <div className="flex gap-1 flex-1">
+                  <button
+                    onClick={() => onUpdate(caption.id, { sequentialFadeMode: undefined })}
+                    className={getButtonClass(sequentialFadeMode === 'card')}
+                    title="カード全体でフェード（最初の行の頭でイン、最後の行の尻でアウト）"
+                  >
+                    カード全体
+                  </button>
+                  <button
+                    onClick={() => onUpdate(caption.id, { sequentialFadeMode: 'line' })}
+                    className={getButtonClass(sequentialFadeMode === 'line')}
+                    title="行ごとにフェード（各行の表示開始でイン、表示終了でアウト）"
+                  >
+                    行ごと
+                  </button>
+                </div>
+              </div>
+              <p className="text-[9px] text-gray-500 pl-16">
+                フェードの ON/OFF と時間は上のフェード設定（または一括設定）に従います
+              </p>
+              {/* 行の間隔 */}
+              <div className="flex items-center gap-2 text-[10px]">
+                <span className="text-gray-400 w-16">行の間隔:</span>
+                <div className="flex gap-1 flex-1 items-center">
+                  {SEQUENTIAL_GAP_PRESETS.map((preset) => (
+                    <button
+                      key={preset.value}
+                      onClick={() => {
+                        setIsCustomSequentialGap(false);
+                        onUpdate(caption.id, {
+                          sequentialGapSec: preset.value === 0 ? undefined : preset.value,
+                        });
+                      }}
+                      className={getButtonClass(!isCustomSequentialGap && sequentialGapSec === preset.value)}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setIsCustomSequentialGap(true)}
+                    className={getButtonClass(isCustomSequentialGap)}
+                  >
+                    カスタム
+                  </button>
+                  {isCustomSequentialGap && (
+                    <>
+                      <input
+                        type="number"
+                        min={0}
+                        max={SEQUENTIAL_GAP_MAX_SEC}
+                        step={0.1}
+                        value={sequentialGapSec}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          if (!Number.isNaN(val)) {
+                            onUpdate(caption.id, {
+                              sequentialGapSec: clampSequentialGapSec(val) || undefined,
+                            });
+                          }
+                        }}
+                        className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500"
+                      />
+                      <span className="text-gray-500 shrink-0">秒</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              <p className="text-[9px] text-gray-500 pl-16">
+                行と行の間に何も表示しない間隔を挟みます（表示時間内で自動調整）
+              </p>
+            </div>
+          )}
 
           <p className="text-[9px] text-gray-500 pt-2">
             ※「デフォルト」選択時は一括設定の値に従います

@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BULK_CAPTION_FIXED_DURATION_SEC,
   assignBulkCaptionIds,
+  collapseBlankLineBlocks,
   formatCaptionsAsBulkText,
   parseBulkCaptionInput,
   parseTimeNotation,
@@ -289,5 +290,49 @@ describe('sequential caption round-trip (⏎ marker)', () => {
 
   it('decodes ⏎ in plain lines without time notation', () => {
     expect(parseBulkCaptionInput('あ⏎い')).toEqual([{ text: 'あ\nい' }]);
+  });
+});
+
+describe('collapseBlankLineBlocks (空行で区切るモード)', () => {
+  it('collapses blank-line separated blocks into ⏎-joined single lines', () => {
+    const input = 'この工場では\n最先端の設備で\n開発しています\n\n次の説明';
+    expect(collapseBlankLineBlocks(input)).toBe(
+      'この工場では⏎最先端の設備で⏎開発しています\n次の説明',
+    );
+  });
+
+  it('keeps time notation on the first line of a block usable', () => {
+    const collapsed = collapseBlankLineBlocks('[00:01-00:07] あ\nい\n\nう');
+    const parsed = parseBulkCaptionInput(collapsed);
+    expect(parsed[0]).toEqual({ text: 'あ\nい', explicitStart: 1, explicitEnd: 7 });
+    expect(parsed[1]).toEqual({ text: 'う' });
+  });
+
+  it('ignores leading/trailing blank lines and multiple separators', () => {
+    expect(collapseBlankLineBlocks('\n\nあ\n\n\n\nい\n\n')).toBe('あ\nい');
+  });
+});
+
+describe('planBulkCaptions (時分割カードの行数加重)', () => {
+  it('gives a multi-line card N× the fixed duration', () => {
+    const plans = planBulkCaptions(
+      [{ text: 'あ\nい\nう' }, { text: 'え' }],
+      'fixed',
+      { startTime: 0, totalDuration: 60, fixedDurationSec: 3 },
+    );
+    // 3 行の時分割カードは 3 × 3 = 9 秒、単一行は 3 秒
+    expect(plans[0]).toMatchObject({ startTime: 0, endTime: 9 });
+    expect(plans[1]).toMatchObject({ startTime: 9, endTime: 12 });
+  });
+
+  it('weights even distribution by displayed line count', () => {
+    const plans = planBulkCaptions(
+      [{ text: 'あ\nい\nう' }, { text: 'え' }],
+      'even',
+      { startTime: 0, totalDuration: 40 },
+    );
+    // 重み 3:1 → 30 秒 / 10 秒
+    expect(plans[0]).toMatchObject({ startTime: 0, endTime: 30 });
+    expect(plans[1]).toMatchObject({ startTime: 30, endTime: 40 });
   });
 });

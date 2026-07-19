@@ -128,6 +128,9 @@ export interface SerializedCaption {
   // 個別カスタム値（standard フレーバー限定・任意）
   overrideFontSizeCustom?: number;
   overridePositionCustom?: { x: number; y: number };
+  // 時分割表示の任意設定（standard フレーバー限定・任意）
+  sequentialFadeMode?: 'card' | 'line';
+  sequentialGapSec?: number;
 }
 
 // キャプション設定の形式

@@ -64,6 +64,38 @@ export function decodeSequentialLinesFromBulkText(text: string): string {
     .join('\n');
 }
 
+/**
+ * 「空行で区切る」モード用の前処理。
+ * 空行で区切られたブロックを 1 行（= 1 カード）へ畳み、ブロック内の改行は
+ * ⏎ マーカーに変換する（複数行ブロック = 時分割カード）。
+ * 先頭/末尾の時間記法はブロックの 1 行目/最終行に付いたまま解釈される。
+ */
+export function collapseBlankLineBlocks(input: string): string {
+  const collapsed: string[] = [];
+  let currentBlock: string[] = [];
+  const flush = () => {
+    if (currentBlock.length > 0) {
+      collapsed.push(currentBlock.join(SEQUENTIAL_LINE_MARKER));
+      currentBlock = [];
+    }
+  };
+  for (const raw of input.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) {
+      flush();
+      continue;
+    }
+    currentBlock.push(line);
+  }
+  flush();
+  return collapsed.join('\n');
+}
+
+/** カードの表示行数（時分割の行数。単一行なら 1）を返す。時間配分の加重に使う */
+export function countSequentialLines(text: string): number {
+  return Math.max(1, text.split('\n').filter((line) => line.trim().length > 0).length);
+}
+
 /** "MM:SS" / "MM:SS.s" / "HH:MM:SS" / "秒数" を秒へ変換する。解釈できなければ null */
 export function parseTimeNotation(value: string): number | null {
   const trimmed = value.trim();
@@ -144,9 +176,11 @@ export function formatCaptionsAsBulkText(
 /**
  * 一括キャプションの割付を計算する。
  * - 時間記法付き行はその時間をそのまま使用し、後続の自動割付はその終了+間隔から続ける。
- * - even: 全行が時間なしで残り時間が足りる場合のみ、startTime〜動画末尾を等分
- *         （行間に gapSec の間隔を空ける）。
- * - fixed（または even 不成立時）: 直前の終了 + gapSec から fixedDurationSec 秒で連続配置。
+ * - 時分割カード（text に改行を含む）は表示行数で加重する
+ *   （「1行あたりの表示時間」は画面に出る 1 行を基準にする）。
+ * - even: 全行が時間なしで残り時間が足りる場合のみ、startTime〜動画末尾を行数加重で分配
+ *         （カード間に gapSec の間隔を空ける）。
+ * - fixed（または even 不成立時）: 直前の終了 + gapSec から fixedDurationSec × 行数 で連続配置。
  *   totalDuration が正の場合は末尾でクリップし、収まらない行は打ち切る。
  */
 export function planBulkCaptions(
@@ -169,16 +203,24 @@ export function planBulkCaptions(
   const fixedDuration = clampDuration(options.fixedDurationSec ?? BULK_CAPTION_FIXED_DURATION_SEC);
   const gap = Math.max(0, options.gapSec ?? 0);
 
+  // 時分割カード（複数行）は行数ぶんの時間を与える（「1行あたりの表示時間」を表示行基準にする）
+  const weights = lines.map((line) => countSequentialLines(line.text));
+  const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+
   const hasExplicit = lines.some((line) => line.explicitStart !== undefined);
   const remaining = totalDuration - startTime;
-  const evenNeeded = lines.length * MIN_CAPTION_DURATION_SEC + gap * (lines.length - 1);
+  const evenNeeded = totalWeight * MIN_CAPTION_DURATION_SEC + gap * (lines.length - 1);
   const useEven = mode === 'even' && !hasExplicit && totalDuration > 0 && remaining >= evenNeeded;
 
   if (useEven) {
-    const slot = (remaining - gap * (lines.length - 1)) / lines.length;
+    const usable = remaining - gap * (lines.length - 1);
+    let accumulated = 0;
     return lines.map((line, index) => {
-      const start = startTime + (slot + gap) * index;
-      const end = index === lines.length - 1 ? totalDuration : start + slot;
+      const start = startTime + (usable * accumulated) / totalWeight + gap * index;
+      accumulated += weights[index];
+      const end = index === lines.length - 1
+        ? totalDuration
+        : startTime + (usable * accumulated) / totalWeight + gap * index;
       return { text: line.text, startTime: round1(start), endTime: round1(end) };
     });
   }
@@ -186,7 +228,7 @@ export function planBulkCaptions(
   // 逐次配置（fixed / even フォールバック / 時間記法混在）
   const plans: BulkCaptionPlan[] = [];
   let cursor = startTime;
-  for (const line of lines) {
+  for (const [index, line] of lines.entries()) {
     if (line.explicitStart !== undefined && line.explicitEnd !== undefined) {
       plans.push({
         text: line.text,
@@ -197,7 +239,7 @@ export function planBulkCaptions(
       continue;
     }
 
-    let end = cursor + fixedDuration;
+    let end = cursor + fixedDuration * weights[index];
     if (totalDuration > 0) {
       if (cursor >= totalDuration - MIN_CAPTION_DURATION_SEC / 2) {
         // 末尾に収まらない行は打ち切り（残り行は追加しない）

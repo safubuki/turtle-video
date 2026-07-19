@@ -72,6 +72,8 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
     || caption.overrideFadeOut
     || caption.overrideFontSizeCustom != null
     || caption.overridePositionCustom
+    || caption.sequentialFadeMode
+    || caption.sequentialGapSec != null
   );
 
   // スワイプ保護用ハンドラ

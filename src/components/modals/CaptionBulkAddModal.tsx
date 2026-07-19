@@ -20,6 +20,7 @@ import {
   BULK_CAPTION_GAP_PRESETS_SEC,
   assignBulkCaptionIds,
   clampDuration,
+  collapseBlankLineBlocks,
   formatCaptionsAsBulkText,
   parseBulkCaptionInput,
   planBulkCaptions,
@@ -81,6 +82,8 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
   const [showFormatHelp, setShowFormatHelp] = useState(false);
   const [isCustomGap, setIsCustomGap] = useState(false);
   const [promptCopied, setPromptCopied] = useState(false);
+  // 行の区切り方: line = 1行1カード（従来） / block = 空行区切り（複数行ブロック = 時分割カード）
+  const [splitMode, setSplitMode] = useState<'line' | 'block'>('line');
 
   const handleCopyAiPrompt = async () => {
     try {
@@ -92,7 +95,10 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
     }
   };
 
-  const lines = useMemo(() => parseBulkCaptionInput(text), [text]);
+  const lines = useMemo(
+    () => parseBulkCaptionInput(splitMode === 'block' ? collapseBlankLineBlocks(text) : text),
+    [text, splitMode],
+  );
   const hasExplicitTimes = lines.some((line) => line.explicitStart !== undefined);
   const startTime = fromCurrent ? currentTime : 0;
   const plans = useMemo(
@@ -142,9 +148,18 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
         <div className="p-4 space-y-3 overflow-y-auto custom-scrollbar">
           <div className="text-[10px] md:text-xs text-gray-400 flex items-start gap-1.5">
             <span>
-              <span className="text-yellow-300">1 行が 1 キャプション</span>です（空行は無視）。
+              {splitMode === 'line' ? (
+                <>
+                  <span className="text-yellow-300">1 行が 1 キャプション</span>です（空行は無視）。
+                </>
+              ) : (
+                <>
+                  <span className="text-emerald-300">空行までのまとまりが 1 キャプション</span>です。
+                  まとまり内の複数行は表示時間を分け合い、1 行ずつ順番に表示されます（時分割）。
+                </>
+              )}
               {isEditing
-                ? ' 行の追加・削除・文言や時間の変更がそのままキャプションに反映されます。'
+                ? ' 追加・削除・文言や時間の変更がそのままキャプションに反映されます。'
                 : ' 歌詞や字幕を貼り付けてください。'}
             </span>
             <button
@@ -154,6 +169,27 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
             >
               <CircleHelp className="w-3.5 h-3.5" />
             </button>
+          </div>
+
+          {/* 行の区切り方（1行=1カード / 空行区切り=時分割カード） */}
+          <div className="flex items-center gap-2 text-[10px] md:text-xs">
+            <span className="text-gray-400 shrink-0">区切り方</span>
+            <div className="flex gap-1.5 flex-1">
+              <button
+                onClick={() => setSplitMode('line')}
+                className={segButtonClass(splitMode === 'line')}
+                title="1 行ごとに別々のキャプションカードを作ります"
+              >
+                1行 = 1カード
+              </button>
+              <button
+                onClick={() => setSplitMode('block')}
+                className={segButtonClass(splitMode === 'block')}
+                title="空行で区切ったまとまりを 1 枚のカードにし、まとまり内の複数行は 1 行ずつ順番に表示します（時分割）"
+              >
+                空行で区切る（時分割）
+              </button>
+            </div>
           </div>
 
           {showFormatHelp && (
@@ -215,7 +251,9 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder={'例:\n夜空に浮かぶ\n小さな星たちが\n[00:10-00:15] そっと瞬いた'}
+            placeholder={splitMode === 'line'
+              ? '例:\n夜空に浮かぶ\n小さな星たちが\n[00:10-00:15] そっと瞬いた'
+              : '例:\nこの工場では\n最先端の生産設備で\n効率的に開発をしています\n\n次の説明のまとまり…'}
             rows={7}
             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-yellow-500 resize-y font-mono"
           />
@@ -344,15 +382,25 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
                 )}
               </div>
               <div className="max-h-36 overflow-y-auto custom-scrollbar space-y-1 bg-gray-800/50 rounded-lg p-2 border border-gray-700/50">
-                {plans.map((plan, index) => (
-                  <div key={index} className="flex items-center gap-2 text-[10px] md:text-xs">
-                    <span className="text-gray-500 font-mono w-6 shrink-0 text-right">{index + 1}</span>
-                    <span className="text-gray-400 font-mono shrink-0">
-                      {formatTime(plan.startTime)} - {formatTime(plan.endTime)}
-                    </span>
-                    <span className="text-gray-200 truncate">{plan.text}</span>
-                  </div>
-                ))}
+                {plans.map((plan, index) => {
+                  const isSequentialPlan = plan.text.includes('\n');
+                  return (
+                    <div key={index} className="flex items-center gap-2 text-[10px] md:text-xs">
+                      <span className="text-gray-500 font-mono w-6 shrink-0 text-right">{index + 1}</span>
+                      <span className="text-gray-400 font-mono shrink-0">
+                        {formatTime(plan.startTime)} - {formatTime(plan.endTime)}
+                      </span>
+                      {isSequentialPlan && (
+                        <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1 py-0.5 rounded shrink-0">
+                          時分割
+                        </span>
+                      )}
+                      <span className="text-gray-200 truncate">
+                        {plan.text.split('\n').join(' ⏎ ')}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

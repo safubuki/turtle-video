@@ -580,6 +580,8 @@ function serializeCaption(caption: Caption): SerializedCaption {
     overrideFadeOutDuration: caption.overrideFadeOutDuration,
     overrideFontSizeCustom: caption.overrideFontSizeCustom,
     overridePositionCustom: caption.overridePositionCustom,
+    sequentialFadeMode: caption.sequentialFadeMode,
+    sequentialGapSec: caption.sequentialGapSec,
   };
 }
 
@@ -602,6 +604,8 @@ function deserializeCaption(data: SerializedCaption): Caption {
     overrideFadeOutDuration: data.overrideFadeOutDuration,
     overrideFontSizeCustom: data.overrideFontSizeCustom,
     overridePositionCustom: data.overridePositionCustom,
+    sequentialFadeMode: data.sequentialFadeMode,
+    sequentialGapSec: data.sequentialGapSec,
   };
 }
 

@@ -2123,3 +2123,17 @@
   - 時分割キャプションの行区切りは「text 内の改行」が唯一のソース。まとめて編集経由では必ず ⏎ マーカー経由で往復させること（生の改行を混ぜると 1 行 = 1 カードの前提が壊れる）。
   - キャプションの新 override フィールドを追加する場合は types / indexedDB / projectStore serialize/deserialize / captionStyle 解決 / モーダル UI / バッジ判定（CaptionItem の hasOverride）を揃って更新する。
   - エクスポートのフレーム破棄は「エンコーダ飽和時のみ」の安全弁。SOFT/HARD 上限を下げすぎると通常書き出しでもフレームが欠け、上げすぎるとメモリ暴走に戻る。
+
+### 13-113. 時分割キャプションの拡張（空行区切り入力 / フェード適用単位 / 行間隔）
+
+- **ファイル**: `src/utils/captionTimeline.ts`, `src/utils/captionBulkInput.ts`, `src/components/modals/CaptionBulkAddModal.tsx`, `src/components/modals/CaptionSettingsModal.tsx`, `src/components/media/CaptionItem.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/types/index.ts`, `src/utils/indexedDB.ts`, `src/stores/projectStore.ts`
+- **内容**（13-112 の時分割キャプションを機能拡張）:
+  - **まとめて入力の「区切り方」トグル**: 「1行=1カード」（従来）/「空行で区切る（時分割）」。後者は `collapseBlankLineBlocks()` が空行区切りのブロックを ⏎ 結合の 1 行へ畳んでから既存の `parseBulkCaptionInput()` に通す（時間記法はブロック 1 行目/最終行に付けたまま解釈される）。割付プレビューは時分割カードに「時分割」バッジ + ⏎ 区切り表示。
+  - **時間配分の行数加重**: `planBulkCaptions()` は時分割カード（text に改行）を表示行数で加重する。fixed = fixedDurationSec × 行数、even = 行数比で分配（`countSequentialLines()`）。単一行のみの場合は従来と完全一致（テスト保証）。
+  - **フェード適用単位** `Caption.sequentialFadeMode`（'card' 既定 / 'line'）: 'line' は各行区間の頭/尻でフェードし、行区間が短い場合はフェード時間を按分クランプ。renderFrame のフェード基準区間（fadeBasisStart/End）を displaySegment に切り替えるだけで、フェード ON/OFF・時間は既存の個別/一括設定に従う。
+  - **行の間隔** `Caption.sequentialGapSec`（0〜5 秒・既定 0）: 行間に無表示のギャップを挟む。`resolveSequentialCaptionSegments()` が間隔を確保してから文字数比配分し、収まらない場合は各行の最低表示 0.1 秒を守る範囲へ自動縮小。ギャップ中は `resolveCaptionDisplaySegment()` が null を返し、エンジンは描画をスキップする。
+  - **UI**: 個別設定モーダルに「時分割設定」セクション（フェード: カード全体/行ごと、行の間隔: なし/200ms/カスタム）。時分割カードのみ表示。
+- **注意**:
+  - エンジンの caption 描画は `resolveCaptionDisplaySegment()` が唯一の入口（text 直接参照へ戻さない）。null はギャップ中の正常値。
+  - 「1行あたりの表示時間」の意味は「画面に表示される 1 行あたり」。planBulkCaptions の加重を外すと時分割カードだけ極端に早送りになる。
+  - sequentialFadeMode / sequentialGapSec は既定値のとき undefined で保存する（'card'/0 を明示保存しない）。

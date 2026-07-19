@@ -30,7 +30,7 @@ import { useMediaStore } from '../../../stores';
 import { useProjectStore } from '../../../stores/projectStore';
 import type { PlatformCapabilities } from '../../../utils/platform';
 import { collectPlaybackBlockingVideos } from '../../../utils/playbackTimeline';
-import { isCaptionActiveAtTime, resolveCaptionDisplayText } from '../../../utils/captionTimeline';
+import { isCaptionActiveAtTime, resolveCaptionDisplaySegment } from '../../../utils/captionTimeline';
 import { getExportFrameTiming, resolveExportDuration } from '../../../utils/exportTimeline';
 import {
   ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC,
@@ -2549,6 +2549,10 @@ export function usePreviewEngine({
             (c) => isCaptionActiveAtTime(c, time),
           );
           for (const activeCaption of activeCaptions) {
+            // 複数行テキストは時分割（文字数比で配分した 1 行）を順次表示する。
+            // 行間ギャップ（sequentialGapSec）中は何も描画しない
+            const displaySegment = resolveCaptionDisplaySegment(activeCaption, time);
+            if (!displaySegment) continue;
             if (_isExporting && exportFrameTiming && time <= 3) {
               logInfo('RENDER', '[DIAG-CAPTION-EXPORT-TIMING]', {
                 frameIndex: exportFrameIndex,
@@ -2587,8 +2591,14 @@ export function usePreviewEngine({
             });
             const y = captionAnchor.y;
 
-            const captionDuration = activeCaption.endTime - activeCaption.startTime;
-            const captionLocalTime = time - activeCaption.startTime;
+            // フェード基準区間: 既定はカード全体（最初の行の頭・最後の行の尻）。
+            // 時分割 + sequentialFadeMode='line' のときは行区間ごとにフェードする
+            const useLineFadeBasis = displaySegment.isSequential
+              && activeCaption.sequentialFadeMode === 'line';
+            const fadeBasisStart = useLineFadeBasis ? displaySegment.startTime : activeCaption.startTime;
+            const fadeBasisEnd = useLineFadeBasis ? displaySegment.endTime : activeCaption.endTime;
+            const captionDuration = fadeBasisEnd - fadeBasisStart;
+            const captionLocalTime = time - fadeBasisStart;
 
             const useFadeIn = activeCaption.overrideFadeIn !== undefined
               ? activeCaption.overrideFadeIn === 'on'
@@ -2597,12 +2607,23 @@ export function usePreviewEngine({
               ? activeCaption.overrideFadeOut === 'on'
               : currentCaptionSettings.bulkFadeOut;
 
-            const fadeInDur = activeCaption.overrideFadeIn === 'on' && activeCaption.overrideFadeInDuration !== undefined
+            let fadeInDur = activeCaption.overrideFadeIn === 'on' && activeCaption.overrideFadeInDuration !== undefined
               ? activeCaption.overrideFadeInDuration
               : (currentCaptionSettings.bulkFadeInDuration || 1.0);
-            const fadeOutDur = activeCaption.overrideFadeOut === 'on' && activeCaption.overrideFadeOutDuration !== undefined
+            let fadeOutDur = activeCaption.overrideFadeOut === 'on' && activeCaption.overrideFadeOutDuration !== undefined
               ? activeCaption.overrideFadeOutDuration
               : (currentCaptionSettings.bulkFadeOutDuration || 1.0);
+
+            // 行ごとフェードでは短い行区間をフェードが食い潰さないよう按分クランプする
+            if (useLineFadeBasis && captionDuration > 0) {
+              const inEffective = useFadeIn ? fadeInDur : 0;
+              const outEffective = useFadeOut ? fadeOutDur : 0;
+              if (inEffective + outEffective > captionDuration) {
+                const ratio = captionDuration / (inEffective + outEffective);
+                fadeInDur *= ratio;
+                fadeOutDur *= ratio;
+              }
+            }
 
             let fadeInAlpha = 1.0;
             let fadeOutAlpha = 1.0;
@@ -2630,8 +2651,7 @@ export function usePreviewEngine({
             // フェード時の輪郭残りを防ぐため、stroke+fill を 1 枚のオフスクリーン Canvas に
             // 100% の不透明度で合成してから、メインキャンバスへ globalAlpha 付きで転写する。
             const glyphCanvas = createCaptionGlyphCanvas({
-              // 複数行テキストは時分割（文字数比で配分した 1 行）を順次表示する
-              text: resolveCaptionDisplayText(activeCaption, time),
+              text: displaySegment.text,
               font: `bold ${fontSize}px ${fontFamily}`,
               fillColor: currentCaptionSettings.fontColor,
               strokeColor: currentCaptionSettings.strokeColor,
