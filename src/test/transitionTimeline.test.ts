@@ -102,4 +102,33 @@ describe('findActiveTimelineItemWithTransitions', () => {
   it('falls back to the last clip at/after the total duration', () => {
     expect(findActiveTimelineItemWithTransitions(items, 18, total)?.id).toBe('b');
   });
+
+  it('accepts precomputed ranges and returns the same result', () => {
+    const ranges = computeTransitionTimelineRanges(items);
+    expect(findActiveTimelineItemWithTransitions(items, 9, total, ranges)?.id).toBe('b');
+    expect(findActiveTimelineItemWithTransitions(items, 7, total, ranges)?.id).toBe('a');
+  });
+
+  it('prioritizes a metadata-pending (duration=0) leading video over later clips (regression guard)', () => {
+    // 読み込み中の先頭動画（duration=0）は time=0 で優先される既存仕様。
+    // 後勝ちルールで後続クリップに上書きされてはならない（トランジション未使用でも同様）
+    const pendingFirst = [
+      makeItem({ id: 'loading', duration: 0 }),
+      makeItem({ id: 'image', type: 'image', duration: 5 }),
+    ];
+    const active = findActiveTimelineItemWithTransitions(pendingFirst, 0, 5);
+    expect(active?.id).toBe('loading');
+    expect(active?.localTime).toBe(0);
+  });
+
+  it('prioritizes a metadata-pending video at its own start time mid-timeline', () => {
+    const midPending = [
+      makeItem({ id: 'a', duration: 5 }),
+      makeItem({ id: 'loading', duration: 0 }),
+      makeItem({ id: 'c', duration: 5 }),
+    ];
+    expect(findActiveTimelineItemWithTransitions(midPending, 5, 10)?.id).toBe('loading');
+    // 手前のクリップ再生中は通常どおりそのクリップが勝つ
+    expect(findActiveTimelineItemWithTransitions(midPending, 4.9995, 10)?.id).toBe('a');
+  });
 });

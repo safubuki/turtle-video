@@ -92,8 +92,9 @@ export function findActiveTimelineItemWithTransitions(
   items: MediaItem[],
   time: number,
   totalDuration: number,
+  precomputedRanges?: TransitionTimelineRange[],
 ): ActiveTimelineItemWithTransitions | null {
-  const ranges = computeTransitionTimelineRanges(items);
+  const ranges = precomputedRanges ?? computeTransitionTimelineRanges(items);
   let match: ActiveTimelineItemWithTransitions | null = null;
 
   for (let i = 0; i < items.length; i++) {
@@ -102,8 +103,11 @@ export function findActiveTimelineItemWithTransitions(
     const itemDuration = normalizeDuration(item.duration);
 
     if (itemDuration <= 0) {
-      if (item.type === 'video' && Math.abs(time - range.start) < EPSILON && !match) {
-        match = { id: item.id, index: i, localTime: 0 };
+      // metadata 未確定（duration=0）の動画はここで確定させる（先勝ち）。
+      // 後勝ちのオーバーラップ規約より優先し、後続クリップに上書きさせない
+      // （playbackTimeline.findActiveTimelineItem と同じ規約）。
+      if (item.type === 'video' && Math.abs(time - range.start) < EPSILON) {
+        return match ?? { id: item.id, index: i, localTime: 0 };
       }
       continue;
     }

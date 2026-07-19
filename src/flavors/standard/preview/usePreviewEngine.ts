@@ -1240,9 +1240,11 @@ export function usePreviewEngine({
         const currentItems = mediaItemsRef.current;
         const currentBgm = bgmRef.current;
         const currentNarrations = narrationsRef.current;
-        // ディゾルブ（重ねる）トランジションのオーバーラップを考慮したタイムライン区間
+        // ディゾルブ（重ねる）トランジションのオーバーラップを考慮したタイムライン区間。
+        // レンジ計算は 1 フレーム 1 回に抑え、active 判定へも同じ結果を渡す（GC 負荷対策）
+        const timelineRangeList = computeTransitionTimelineRanges(currentItems);
         const timelineRanges = new Map<string, { start: number; end: number }>();
-        for (const rangeEntry of computeTransitionTimelineRanges(currentItems)) {
+        for (const rangeEntry of timelineRangeList) {
           timelineRanges.set(rangeEntry.id, { start: rangeEntry.start, end: rangeEntry.end });
         }
 
@@ -1258,7 +1260,12 @@ export function usePreviewEngine({
         const isAndroidPreviewPlayback =
           platformCapabilities.isAndroid
           && isStandardLivePreviewPlayback;
-        const active = findActiveTimelineItemWithTransitions(currentItems, time, totalDurationRef.current);
+        const active = findActiveTimelineItemWithTransitions(
+          currentItems,
+          time,
+          totalDurationRef.current,
+          timelineRangeList,
+        );
         if (active) {
           activeId = active.id;
           activeIndex = active.index;
@@ -1775,14 +1782,15 @@ export function usePreviewEngine({
           }
         }
 
-        Object.keys(mediaElementsRef.current).forEach((id) => {
-          if (id === 'bgm' || id.startsWith('narration:')) return;
-
+        // タイムライン配列順に処理する（マウント順の Object.keys だと並べ替え後に
+        // ディゾルブの描画順が逆転し、前クリップ(peer)が次クリップの上へ被さる）。
+        // 配列順なら peer（activeIndex-1）が先に下層へ描かれ、active が上に重なる。
+        currentItems.forEach((conf) => {
+          const id = conf.id;
           const element = mediaElementsRef.current[id];
           const gainNode = gainNodesRef.current[id];
-          const conf = currentItems.find((v) => v.id === id);
 
-          if (!element || !conf) return;
+          if (!element) return;
 
           if (id === activeId) {
             const shouldStabilizeImageToVideoTransition =

@@ -18,6 +18,7 @@ import {
   BULK_CAPTION_FIXED_DURATION_SEC,
   BULK_CAPTION_GAP_MAX_SEC,
   BULK_CAPTION_GAP_PRESETS_SEC,
+  assignBulkCaptionIds,
   clampDuration,
   formatCaptionsAsBulkText,
   parseBulkCaptionInput,
@@ -107,11 +108,9 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
 
   const handleApply = () => {
     if (plans.length === 0) return;
-    // 行順マージ: i 行目は既存 i 番目のキャプションの id を引き継ぐ（個別スタイル維持）
-    onApplyCaptions(plans.map((plan, index) => ({
-      id: captions[index]?.id,
-      ...plan,
-    })));
+    // 未編集行をアンカーに既存キャプションの id を引き継ぐ（個別スタイル維持）。
+    // 単純な行番号マッチングだと行削除で以降のスタイルが 1 つ隣へずれる。
+    onApplyCaptions(assignBulkCaptionIds(plans, captions));
     onClose();
   };
 

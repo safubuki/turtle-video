@@ -193,6 +193,93 @@ export function planBulkCaptions(
   return plans;
 }
 
+/**
+ * まとめて編集の反映時に、各プラン行へ引き継ぐ既存キャプション id を決める。
+ * 単純な行番号マッチングだと行削除で以降の個別スタイルが 1 つ隣へずれるため、
+ * 「未編集の行（テキストと 0.1 秒精度の時間が一致）」を順序保持のアンカーとして
+ * 先に対応付け、アンカー間に残った行だけを位置順で対応付ける。
+ * - 行削除: 削除行のキャプションはどのプランにも対応せず破棄される（ずれない）
+ * - 文言/時間の変更: 前後のアンカーに挟まれた同位置の行として id を維持する
+ * - 行追加: 対応する既存が無いので id なし（新規作成）になる
+ */
+export function assignBulkCaptionIds(
+  plans: BulkCaptionPlan[],
+  captions: { id: string; text: string; startTime: number; endTime: number }[],
+): (BulkCaptionPlan & { id?: string })[] {
+  const isUnmodifiedPair = (
+    plan: BulkCaptionPlan,
+    caption: { text: string; startTime: number; endTime: number },
+  ): boolean =>
+    plan.text === caption.text
+    && plan.startTime === round1(caption.startTime)
+    && plan.endTime === round1(caption.endTime);
+
+  // 1. 未編集行を順序を保ったまま貪欲にアンカーとして対応付ける
+  const anchorCaptionIndexByPlan = new Array<number>(plans.length).fill(-1);
+  let searchFrom = 0;
+  plans.forEach((plan, planIndex) => {
+    for (let i = searchFrom; i < captions.length; i++) {
+      if (isUnmodifiedPair(plan, captions[i])) {
+        anchorCaptionIndexByPlan[planIndex] = i;
+        searchFrom = i + 1;
+        break;
+      }
+    }
+  });
+
+  // 2. アンカー間の未対応行を「テキスト一致優先 → 残りは位置順」で対応付ける
+  //    （テキスト一致を先に取ることで、行挿入時に新規行が既存 id を吸わない）
+  const result: (BulkCaptionPlan & { id?: string })[] = new Array(plans.length);
+  let planFrom = 0;
+  let captionFrom = 0;
+  const fillGap = (planEnd: number, captionEnd: number) => {
+    const gapPlanCount = planEnd - planFrom;
+    if (gapPlanCount <= 0) return;
+    const gapCaptions = captions.slice(captionFrom, Math.max(captionFrom, captionEnd));
+    const captionTaken = new Array<boolean>(gapCaptions.length).fill(false);
+    const assignedCaption = new Array<number>(gapPlanCount).fill(-1);
+
+    // pass 1: テキストのみ一致（時間だけ編集された行）を順序を保って対応付ける
+    let textSearchFrom = 0;
+    for (let p = 0; p < gapPlanCount; p++) {
+      for (let c = textSearchFrom; c < gapCaptions.length; c++) {
+        if (!captionTaken[c] && gapCaptions[c].text === plans[planFrom + p].text) {
+          assignedCaption[p] = c;
+          captionTaken[c] = true;
+          textSearchFrom = c + 1;
+          break;
+        }
+      }
+    }
+
+    // pass 2: 残りを位置順で対応付ける（全行編集時のフォールバック）
+    let zipFrom = 0;
+    for (let p = 0; p < gapPlanCount; p++) {
+      if (assignedCaption[p] >= 0) continue;
+      while (zipFrom < gapCaptions.length && captionTaken[zipFrom]) zipFrom++;
+      if (zipFrom < gapCaptions.length) {
+        assignedCaption[p] = zipFrom;
+        captionTaken[zipFrom] = true;
+      }
+    }
+
+    for (let p = 0; p < gapPlanCount; p++) {
+      const caption = assignedCaption[p] >= 0 ? gapCaptions[assignedCaption[p]] : undefined;
+      result[planFrom + p] = caption ? { id: caption.id, ...plans[planFrom + p] } : { ...plans[planFrom + p] };
+    }
+  };
+  plans.forEach((plan, planIndex) => {
+    const captionIndex = anchorCaptionIndexByPlan[planIndex];
+    if (captionIndex < 0) return;
+    fillGap(planIndex, captionIndex);
+    result[planIndex] = { id: captions[captionIndex].id, ...plan };
+    planFrom = planIndex + 1;
+    captionFrom = captionIndex + 1;
+  });
+  fillGap(plans.length, captions.length);
+  return result;
+}
+
 export function clampDuration(value: number): number {
   if (!Number.isFinite(value)) return BULK_CAPTION_FIXED_DURATION_SEC;
   return Math.max(BULK_CAPTION_DURATION_MIN_SEC, Math.min(BULK_CAPTION_DURATION_MAX_SEC, value));

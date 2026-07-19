@@ -359,13 +359,15 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     return [...narrations, ...bgmClips];
   }, [bgmClips, narrations, platformCapabilities.isIosSafari]);
 
-  // レガシー単一 BGM を standard フレーバーではクリップ形式へ自動移行する
+  // レガシー単一 BGM を standard フレーバーではクリップ形式へ自動移行する。
+  // bgmClips が既にある場合も呼ぶ（保存/復元で併存する iOS 互換ミラー bgm を
+  // ストア側で破棄し、1 曲目の二重再生を防ぐ）。
   useEffect(() => {
     if (platformCapabilities.isIosSafari) return;
-    if (bgm && bgmClips.length === 0) {
+    if (bgm) {
       migrateLegacyBgmToClips(totalDuration);
     }
-  }, [bgm, bgmClips.length, migrateLegacyBgmToClips, platformCapabilities.isIosSafari, totalDuration]);
+  }, [bgm, migrateLegacyBgmToClips, platformCapabilities.isIosSafari, totalDuration]);
   const useAndroidPreviewCacheForPlayback = useMemo(
     () => previewRuntime.shouldUsePreviewCache({
       isAndroid: platformCapabilities.isAndroid,

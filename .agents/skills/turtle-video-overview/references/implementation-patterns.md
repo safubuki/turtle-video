@@ -2094,3 +2094,17 @@
   - 打鍵バーの再生/一時停止ボタンは PreviewSection と同一仕様（rounded-full bg-white/20 + fill-current）。
   - まとめて入力の ？ヘルプは他モーダルヘルプと同様の閉じ方（アンバー枠 + 右上 X）。
   - sectionHelp.ts に Android/PC 版機能を追記（clips: コピー/トランジション、bgm: 複数BGM、narration: コピー、caption: まとめて入力・タイミング打ち・まとめてずらす・フォント/カスタム値）。新規ヘルプ項目は visuals 省略可。
+
+### 13-111. 複数BGM/ディゾルブ/一括編集まわりの5件の不具合修正（二重再生・描画順・先頭動画・スタイルずれ・小粒）
+
+- **ファイル**: `src/stores/audioStore.ts`, `src/components/TurtleVideo.tsx`, `src/utils/transitionTimeline.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/utils/captionBulkInput.ts`, `src/components/modals/CaptionBulkAddModal.tsx`, `src/components/sections/CaptionSection.tsx`
+- **問題と対策**:
+  - **BGM二重再生**: 保存時に iOS/旧版互換で bgmClips の 1 曲目を `deriveLegacyBgmMirror()` でレガシー `bgm` にミラー保存するため、復元後は `bgm`（ミラー）と `bgmClips` が併存し、standard では 1 曲目がミラー経路とクリップ経路の両方で再生されていた（プレビュー/エクスポート共通）。→ `migrateLegacyBgmToClips()` を「bgmClips がある場合はミラー bgm を破棄（URL がクリップと非共有なら revoke）」に拡張し、TurtleVideo の移行 effect も `bgmClips.length === 0` 条件を外して bgm があれば常に呼ぶ（iOS はミラーが本体なので従来どおり effect 自体をスキップ）。
+  - **並べ替え後のディゾルブ描画順逆転**: renderFrame の要素ループが `Object.keys(mediaElementsRef.current)`（マウント順）だったため、クリップ上下移動後は peer（前クリップ、α=1.0）が active（次クリップ、crossIn α）より後に描かれて被さることがあった。→ `currentItems`（タイムライン配列順）でループし、peer→active の描画順を常に保証。
+  - **metadata未確定の先頭動画スキップ**: `findActiveTimelineItemWithTransitions()` の後勝ちループが、duration=0 の動画の match を後続クリップで上書きしていた（旧 `findActiveTimelineItem` は先勝ち return で優先）。→ duration=0 の動画が range.start±EPSILON に一致したら即 return する先勝ちへ復元（トランジション未使用時も同関数を通るため必須）。
+  - **まとめて編集の行削除でスタイルずれ**: 反映時の id 引き継ぎが単純な行番号マッチングで、行削除で以降の個別スタイルが 1 つ隣へずれた。→ `assignBulkCaptionIds()`（captionBulkInput.ts）を新設。「未編集行（テキスト+0.1秒丸め時間が一致）」を順序保持アンカーにし、アンカー間はテキスト一致優先→残りを位置順で対応付け。行削除は破棄、文言/時間変更は id 維持、行挿入は新規になる。
+  - **小粒**: CaptionSection の一括シフト長押しタイマーにアンマウント時クリーンアップ（useEffect）を追加。renderFrame の `computeTransitionTimelineRanges()` 二重計算を 1 回に統合し、結果を `findActiveTimelineItemWithTransitions()` の第4引数（precomputedRanges）へ渡す形に変更（GC 負荷軽減）。
+- **注意**:
+  - `bgm` と `bgmClips` の併存は「復元直後の一時状態」のみが正。standard で bgm を再生経路に足す変更をする場合はミラー破棄の移行を壊さないこと。iOS(apple-safari) は逆にミラー bgm が唯一の BGM ソース。
+  - renderFrame の要素ループ順は描画仕様（peer 下層 → active 上層）を担っている。Object.keys 系の反復へ戻さない。
+  - `findActiveTimelineItemWithTransitions` の duration=0 先勝ちは playbackTimeline と同一規約。後勝ちはオーバーラップ窓（duration>0 同士）にのみ適用する。

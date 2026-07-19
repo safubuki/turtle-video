@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BULK_CAPTION_FIXED_DURATION_SEC,
+  assignBulkCaptionIds,
   formatCaptionsAsBulkText,
   parseBulkCaptionInput,
   parseTimeNotation,
@@ -203,5 +204,67 @@ describe('parseBulkCaptionInput (suffix notation)', () => {
     expect(parseBulkCaptionInput('コーラス [サビ]')).toEqual([
       { text: 'コーラス [サビ]' },
     ]);
+  });
+});
+
+describe('assignBulkCaptionIds', () => {
+  const caption = (id: string, text: string, startTime: number, endTime: number) => ({
+    id,
+    text,
+    startTime,
+    endTime,
+  });
+  const plan = (text: string, startTime: number, endTime: number) => ({ text, startTime, endTime });
+
+  it('keeps ids for unmodified rows after deleting a middle row (regression guard)', () => {
+    // 行 2 を削除しても、以降のキャプションのスタイル（id）が 1 つ隣へずれない
+    const captions = [
+      caption('c1', 'あ', 0, 3),
+      caption('c2', 'い', 3, 6),
+      caption('c3', 'う', 6, 9),
+    ];
+    const plans = [plan('あ', 0, 3), plan('う', 6, 9)];
+    const result = assignBulkCaptionIds(plans, captions);
+    expect(result[0].id).toBe('c1');
+    expect(result[1].id).toBe('c3');
+  });
+
+  it('keeps the id of an edited row between anchors', () => {
+    const captions = [
+      caption('c1', 'あ', 0, 3),
+      caption('c2', 'い', 3, 6),
+      caption('c3', 'う', 6, 9),
+    ];
+    const plans = [plan('あ', 0, 3), plan('い（修正）', 3, 6.5), plan('う', 6.6, 9)];
+    // 3 行目は時間も変えたのでアンカーではないが、位置合わせで id を維持する
+    const result = assignBulkCaptionIds(plans, captions);
+    expect(result[0].id).toBe('c1');
+    expect(result[1].id).toBe('c2');
+    expect(result[2].id).toBe('c3');
+  });
+
+  it('assigns no id to inserted rows', () => {
+    const captions = [caption('c1', 'あ', 0, 3), caption('c2', 'い', 3, 6)];
+    const plans = [plan('あ', 0, 3), plan('新規', 3, 4), plan('い', 4, 6)];
+    const result = assignBulkCaptionIds(plans, captions);
+    expect(result[0].id).toBe('c1');
+    expect(result[1].id).toBeUndefined();
+    // 「い」は時間を変えたのでアンカーにならないが、位置合わせで新規行の後の既存 c2 と対応する
+    expect(result[2].id).toBe('c2');
+  });
+
+  it('falls back to positional matching when every row was edited', () => {
+    const captions = [caption('c1', 'あ', 0, 3), caption('c2', 'い', 3, 6)];
+    const plans = [plan('あ！', 0, 3.5), plan('い！', 3.5, 6)];
+    const result = assignBulkCaptionIds(plans, captions);
+    expect(result[0].id).toBe('c1');
+    expect(result[1].id).toBe('c2');
+  });
+
+  it('matches captions whose stored times have sub-0.1s precision', () => {
+    // プリフィルは 0.1 秒精度に丸めて表示されるため、未編集行は丸め比較で一致する
+    const captions = [caption('c1', 'あ', 0.04, 2.96)];
+    const plans = [plan('あ', 0, 3)];
+    expect(assignBulkCaptionIds(plans, captions)[0].id).toBe('c1');
   });
 });

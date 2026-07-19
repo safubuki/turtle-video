@@ -339,10 +339,31 @@ describe('audioStore', () => {
       expect(clip.volume).toBeCloseTo(1.5);
       expect(clip.fadeIn).toBe(true);
 
-      // 既にクリップがある場合は再移行しない
-      useAudioStore.setState({ bgm: createMockAudioTrack() });
+      // 既にクリップがある場合は再移行せず、互換ミラー bgm を破棄する
+      // （保存→再読込で 1 曲目が二重再生になる回帰の防止）
+      useAudioStore.setState({ bgm: createMockAudioTrack({ url: 'blob:mirror' }) });
       useAudioStore.getState().migrateLegacyBgmToClips(40);
       expect(useAudioStore.getState().bgmClips).toHaveLength(1);
+      expect(useAudioStore.getState().bgm).toBeNull();
+    });
+
+    it('discards the restored iOS-compat mirror bgm when bgmClips exist', () => {
+      const clip = createMockNarrationClip({ id: 'bgmclip-1', url: 'blob:clip-1' });
+      useAudioStore.getState().restoreFromSave(
+        createMockAudioTrack({ url: 'blob:mirror' }),
+        false,
+        [],
+        false,
+        [clip]
+      );
+      expect(useAudioStore.getState().bgm).not.toBeNull();
+
+      useAudioStore.getState().migrateLegacyBgmToClips(40);
+
+      const state = useAudioStore.getState();
+      expect(state.bgm).toBeNull();
+      expect(state.bgmClips).toHaveLength(1);
+      expect(state.bgmClips[0].id).toBe('bgmclip-1');
     });
 
     it('restoreFromSave restores bgmClips and clearAllAudio clears them', () => {

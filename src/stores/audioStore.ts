@@ -448,7 +448,21 @@ export const useAudioStore = create<AudioState>()(
 
       migrateLegacyBgmToClips: (totalDuration) => {
         set((state) => {
-          if (!state.bgm || state.bgmClips.length > 0) return state;
+          if (!state.bgm) return state;
+          if (state.bgmClips.length > 0) {
+            // 保存データには iOS/旧版互換のため bgmClips の 1 曲目を近似した
+            // ミラー bgm が併存する。standard ではミラーを再生経路に残すと
+            // 1 曲目が二重再生になるため、ここで破棄する（URL はクリップと
+            // 独立に発行されているため、クリップ側と共有していない場合のみ解放）。
+            const clipUrls = new Set(state.bgmClips.map((clip) => clip.url));
+            if (state.bgm.url && !clipUrls.has(state.bgm.url)) {
+              revokeObjectUrl(state.bgm.url);
+            }
+            useLogStore.getState().info('AUDIO', '互換ミラーBGMを破棄（bgmClipsを使用）', {
+              bgmClipCount: state.bgmClips.length,
+            });
+            return { bgm: null };
+          }
           const bgm = state.bgm;
           const trimStart = Math.max(0, bgm.startPoint);
           const availableTimeline = totalDuration > 0

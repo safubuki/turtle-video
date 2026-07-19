@@ -3,7 +3,7 @@
  * @author Turtle Village
  * @description テキストキャプションの追加、編集、削除を行うセクション。タイムライン上での表示タイミングやスタイル（サイズ、位置）の設定UIを提供する。
  */
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Lock,
   Unlock,
@@ -188,6 +188,17 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
       }, 100);
     }, 400);
   };
+  // 長押し中にアンマウントされてもタイマー/インターバルを確実に解除する
+  useEffect(() => () => {
+    if (shiftHoldTimerRef.current !== null) {
+      window.clearTimeout(shiftHoldTimerRef.current);
+      shiftHoldTimerRef.current = null;
+    }
+    if (shiftHoldIntervalRef.current !== null) {
+      window.clearInterval(shiftHoldIntervalRef.current);
+      shiftHoldIntervalRef.current = null;
+    }
+  }, []);
   const applyShift = (direction: 1 | -1) => {
     const delta = Math.abs(shiftAmount) * direction;
     if (delta === 0) return;
