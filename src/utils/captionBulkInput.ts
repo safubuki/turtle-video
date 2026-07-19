@@ -42,6 +42,28 @@ const MIN_CAPTION_DURATION_SEC = 0.5;
 const TIME_PREFIX_PATTERN = /^\[\s*([0-9:.]+)\s*[-~]\s*([0-9:.]+)\s*\]\s*(.*)$/;
 const TIME_SUFFIX_PATTERN = /^(.*?)\s*\[\s*([0-9:.]+)\s*[-~]\s*([0-9:.]+)\s*\]$/;
 
+/**
+ * 時分割キャプション（複数行の順次表示）の行区切りマーカー。
+ * まとめて入力/編集は「1 行 = 1 キャプション」のため、カード内改行は
+ * ⏎ に変換して 1 行に畳み、反映時に改行へ戻す（ロスレス往復）。
+ */
+export const SEQUENTIAL_LINE_MARKER = '⏎';
+
+/** カード内改行を ⏎ マーカーへ畳む（まとめて編集のプリフィル用） */
+export function encodeSequentialLinesForBulkText(text: string): string {
+  return text.split('\n').map((line) => line.trim()).filter((line) => line.length > 0).join(SEQUENTIAL_LINE_MARKER);
+}
+
+/** ⏎ マーカーをカード内改行へ戻す（まとめて入力の反映用） */
+export function decodeSequentialLinesFromBulkText(text: string): string {
+  if (!text.includes(SEQUENTIAL_LINE_MARKER)) return text;
+  return text
+    .split(SEQUENTIAL_LINE_MARKER)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .join('\n');
+}
+
 /** "MM:SS" / "MM:SS.s" / "HH:MM:SS" / "秒数" を秒へ変換する。解釈できなければ null */
 export function parseTimeNotation(value: string): number | null {
   const trimmed = value.trim();
@@ -80,7 +102,7 @@ export function parseBulkCaptionInput(input: string): BulkCaptionLine[] {
     if (prefixMatch) {
       const start = parseTimeNotation(prefixMatch[1]);
       const end = parseTimeNotation(prefixMatch[2]);
-      const text = prefixMatch[3].trim();
+      const text = decodeSequentialLinesFromBulkText(prefixMatch[3].trim());
       if (start !== null && end !== null && end > start && text) {
         lines.push({ text, explicitStart: start, explicitEnd: end });
         continue;
@@ -91,13 +113,13 @@ export function parseBulkCaptionInput(input: string): BulkCaptionLine[] {
     if (suffixMatch) {
       const start = parseTimeNotation(suffixMatch[2]);
       const end = parseTimeNotation(suffixMatch[3]);
-      const text = suffixMatch[1].trim();
+      const text = decodeSequentialLinesFromBulkText(suffixMatch[1].trim());
       if (start !== null && end !== null && end > start && text) {
         lines.push({ text, explicitStart: start, explicitEnd: end });
         continue;
       }
     }
-    lines.push({ text: line });
+    lines.push({ text: decodeSequentialLinesFromBulkText(line) });
   }
   return lines;
 }
@@ -115,7 +137,7 @@ export function formatCaptionsAsBulkText(
   captions: { text: string; startTime: number; endTime: number }[],
 ): string {
   return captions
-    .map((c) => `[${formatTimeNotation(c.startTime)}-${formatTimeNotation(c.endTime)}] ${c.text}`)
+    .map((c) => `[${formatTimeNotation(c.startTime)}-${formatTimeNotation(c.endTime)}] ${encodeSequentialLinesForBulkText(c.text)}`)
     .join('\n');
 }
 

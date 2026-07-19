@@ -2100,6 +2100,48 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           });
         };
 
+        // === VideoEncoder バックプレッシャー制御 ===
+        // 1080p のロング動画では、エンコーダが一時的に追いつかないと encode 待ち行列が
+        // 無制限に伸び、メモリ/GPU リソースの枯渇で書き出しが途中でハングすることがある。
+        // リアルタイム供給（TrackProcessor）は HARD 上限でフレームを破棄して realtime 進行を
+        // 維持し（出力時間は変えない）、キャッチアップ系ループは SOFT 上限で drain を待つ。
+        const VIDEO_ENCODE_QUEUE_SOFT_LIMIT = 30; // 約1秒分
+        const VIDEO_ENCODE_QUEUE_HARD_LIMIT = 90; // 約3秒分
+        let backpressureDroppedFrames = 0;
+        let lastBackpressureLogAtMs = 0;
+
+        const waitForVideoEncoderQueueDrain = async (limit: number) => {
+          while (
+            !signal.aborted
+            && videoEncoder.state === 'configured'
+            && videoEncoder.encodeQueueSize > limit
+          ) {
+            await new Promise<void>((resolve) => {
+              const timer = setTimeout(finish, 100);
+              function finish() {
+                clearTimeout(timer);
+                try { videoEncoder.removeEventListener('dequeue', finish); } catch { /* ignore */ }
+                resolve();
+              }
+              try {
+                videoEncoder.addEventListener('dequeue', finish, { once: true });
+              } catch { /* dequeue イベント未対応環境はタイマーのみで待つ */ }
+            });
+          }
+        };
+
+        const noteBackpressureDrop = () => {
+          backpressureDroppedFrames++;
+          const now = Date.now();
+          if (now - lastBackpressureLogAtMs > 5000) {
+            lastBackpressureLogAtMs = now;
+            useLogStore.getState().warn('RENDER', 'VideoEncoder 飽和のためフレームを破棄（ハング防止）', {
+              droppedTotal: backpressureDroppedFrames,
+              encodeQueueSize: videoEncoder.encodeQueueSize,
+            });
+          }
+        };
+
         const processVideoWithTrackProcessor = async () => {
           let frameIndex = 0;
           const isKeyFrame = (index: number) => index === 0 || index % FPS === 0;
@@ -2127,6 +2169,14 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                 const originalFrame = value as VideoFrame;
                 if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
                   originalFrame.close();
+                  continue;
+                }
+
+                // エンコーダ飽和時はこのフレームを破棄して待ち行列の暴走を防ぐ
+                // （count ベースの CFR 再タイムスタンプなので、供給が減った場合と同じ扱いになる）
+                if (videoEncoder.encodeQueueSize >= VIDEO_ENCODE_QUEUE_HARD_LIMIT) {
+                  originalFrame.close();
+                  noteBackpressureDrop();
                   continue;
                 }
 
@@ -2167,6 +2217,9 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             if (!signal.aborted && completionRequestedRef.current && expectedVideoFrames !== null && frameIndex < expectedVideoFrames && videoEncoder.state === 'configured') {
               const missingFrames = expectedVideoFrames - frameIndex;
               for (let i = 0; i < missingFrames; i++) {
+                // 一括補完で待ち行列を溢れさせない（realtime 進行は終わっているため待って良い）
+                await waitForVideoEncoderQueueDrain(VIDEO_ENCODE_QUEUE_SOFT_LIMIT);
+                if (signal.aborted || videoEncoder.state !== 'configured') break;
                 const frameTiming = resolvedExportDuration
                   ? getExportFrameTiming(resolvedExportDuration, FPS, frameIndex)
                   : {
@@ -2220,6 +2273,11 @@ export function createUseExport(config: UseExportRuntimeConfig) {
 
               if (videoEncoder.state === 'configured' && framesToEncode > 0) {
                 for (let i = 0; i < framesToEncode; i++) {
+                  // エンコーダ飽和時はバーストを中断（未達分は次のポーリングで追いつく）
+                  if (videoEncoder.encodeQueueSize >= VIDEO_ENCODE_QUEUE_HARD_LIMIT) {
+                    noteBackpressureDrop();
+                    break;
+                  }
                   const frameTiming = resolvedExportDuration
                     ? getExportFrameTiming(resolvedExportDuration, FPS, frameIndex)
                     : {
@@ -2447,6 +2505,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           audioEncoderQueueSize: audioEncoder.encodeQueueSize,
           videoEncoderState: videoEncoder.state,
           videoEncoderQueueSize: videoEncoder.encodeQueueSize,
+          backpressureDroppedFrames,
           encodedVideoEndUs,
           muxedAudioEndUs,
           exportDurationUs: Number.isFinite(exportDurationUs) ? exportDurationUs : null,

@@ -125,6 +125,9 @@ export interface SerializedCaption {
   overrideFadeOut?: 'on' | 'off';
   overrideFadeInDuration?: number;
   overrideFadeOutDuration?: number;
+  // 個別カスタム値（standard フレーバー限定・任意）
+  overrideFontSizeCustom?: number;
+  overridePositionCustom?: { x: number; y: number };
 }
 
 // キャプション設定の形式

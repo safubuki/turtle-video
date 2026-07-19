@@ -152,6 +152,9 @@ export interface Caption {
   overrideFadeOut?: 'on' | 'off';       // 個別フェードアウト（デフォルト=undefined）
   overrideFadeInDuration?: number;      // 個別フェードイン時間（デフォルト=undefined）
   overrideFadeOutDuration?: number;     // 個別フェードアウト時間（デフォルト=undefined）
+  // 個別カスタム値（standard フレーバー限定。一括設定の fontSizeCustom / positionCustom と同等）
+  overrideFontSizeCustom?: number;                  // px @1080p 基準（24〜240）。プリセット override より優先
+  overridePositionCustom?: { x: number; y: number }; // % (0-100)、テキスト中心。プリセット override より優先
 }
 
 // キャプション位置

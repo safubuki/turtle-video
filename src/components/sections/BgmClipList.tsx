@@ -137,6 +137,19 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
               </div>
             </div>
 
+            {/* タイムライン上の再生区間（この曲がどこからどこまで鳴るか） */}
+            <div className="flex items-center gap-1.5 text-[10px] md:text-xs bg-purple-900/20 border border-purple-500/20 rounded px-2 py-1">
+              <span className="text-purple-300 shrink-0">♪ 再生区間:</span>
+              <span className="text-purple-100 font-mono">
+                {formatTime(clip.startTime)} 〜 {formatTime(clip.startTime + playableDuration)}
+              </span>
+              {totalDuration > 0 && clip.startTime + playableDuration > totalDuration + 0.05 && (
+                <span className="text-amber-400 ml-auto shrink-0" title="動画の末尾を超えた部分は書き出されません">
+                  ⚠ 動画末尾超え
+                </span>
+              )}
+            </div>
+
             {/* 開始位置 */}
             <div className="space-y-1">
               <div className="flex items-center justify-between text-[10px] md:text-xs text-gray-400">

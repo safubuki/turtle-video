@@ -3,7 +3,11 @@
  * @description Tests for dynamic canvas size resolution and computed export bitrate.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useCanvasStore, computeCanvasSizeFromSource } from '../stores/canvasStore';
+import {
+  useCanvasStore,
+  computeCanvasSizeFromSource,
+  resolveExportCanvasSize,
+} from '../stores/canvasStore';
 import {
   computeExportVideoBitrate,
   DEFAULT_CANVAS_WIDTH,
@@ -148,6 +152,44 @@ describe('useCanvasStore', () => {
     expect(state.isExportMode).toBe(false);
     expect(state.width).toBe(DEFAULT_CANVAS_WIDTH);
     expect(state.height).toBe(DEFAULT_CANVAS_HEIGHT);
+  });
+});
+
+describe('export quality mode', () => {
+  beforeEach(() => {
+    useCanvasStore.getState().resetCanvasSize();
+    useCanvasStore.getState().setExportQuality('auto');
+  });
+
+  it('resolveExportCanvasSize maps quality modes to sizes', () => {
+    // auto はソース基準（上限 1920×1080）
+    expect(resolveExportCanvasSize('auto', 1280, 720)).toEqual({ width: 1280, height: 720 });
+    expect(resolveExportCanvasSize('auto', 3840, 2160)).toEqual({ width: 1920, height: 1080 });
+    expect(resolveExportCanvasSize('auto', null, null)).toEqual({ width: MAX_CANVAS_WIDTH, height: MAX_CANVAS_HEIGHT });
+    // 固定モードはソースに依存しない
+    expect(resolveExportCanvasSize('fhd', 640, 360)).toEqual({ width: 1920, height: 1080 });
+    expect(resolveExportCanvasSize('hd', 3840, 2160)).toEqual({ width: 1280, height: 720 });
+  });
+
+  it('fhd forces 1920x1080 export even for low-res sources', () => {
+    useCanvasStore.getState().setExportQuality('fhd');
+    useCanvasStore.getState().applyFromSource(854, 480);
+    const state = useCanvasStore.getState();
+    expect(state.exportWidth).toBe(1920);
+    expect(state.exportHeight).toBe(1080);
+    // プレビューはソース基準のまま
+    expect(state.previewWidth).toBe(854);
+  });
+
+  it('changing quality after applyFromSource recomputes export size', () => {
+    useCanvasStore.getState().applyFromSource(854, 480);
+    expect(useCanvasStore.getState().exportWidth).toBe(854);
+    useCanvasStore.getState().setExportQuality('hd');
+    expect(useCanvasStore.getState().exportWidth).toBe(1280);
+    expect(useCanvasStore.getState().exportHeight).toBe(720);
+    // auto に戻すとソース基準へ復帰
+    useCanvasStore.getState().setExportQuality('auto');
+    expect(useCanvasStore.getState().exportWidth).toBe(854);
   });
 });
 

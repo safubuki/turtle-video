@@ -72,11 +72,16 @@ interface VideoEncoderInit {
 declare class VideoEncoder {
     constructor(init: VideoEncoderInit);
     state: "configured" | "unconfigured" | "closed";
+    /** 未処理のエンコード要求数。バックプレッシャー制御に使う */
+    readonly encodeQueueSize: number;
+    ondequeue: ((this: VideoEncoder, ev: Event) => void) | null;
     configure(config: VideoEncoderConfig): void;
     encode(frame: VideoFrame, options?: VideoEncoderEncodeOptions): void;
     flush(): Promise<void>;
     reset(): void;
     close(): void;
+    addEventListener(type: 'dequeue', listener: (ev: Event) => void, options?: boolean | AddEventListenerOptions): void;
+    removeEventListener(type: 'dequeue', listener: (ev: Event) => void, options?: boolean | EventListenerOptions): void;
     static isConfigSupported(config: VideoEncoderConfig): Promise<VideoEncoderSupport>;
 }
 

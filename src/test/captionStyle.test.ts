@@ -39,6 +39,18 @@ describe('resolveCaptionBaseFontSize', () => {
     expect(clampCustomFontSize(5)).toBe(24);
     expect(clampCustomFontSize(999)).toBe(240);
   });
+
+  it('per-caption custom px wins over every other source', () => {
+    expect(resolveCaptionBaseFontSize(
+      { overrideFontSize: 'large', overrideFontSizeCustom: 64 },
+      { fontSize: 'medium', fontSizeCustom: 100 },
+    )).toBe(64);
+    // クランプも適用される
+    expect(resolveCaptionBaseFontSize(
+      { overrideFontSizeCustom: 999 },
+      { fontSize: 'medium', fontSizeCustom: null },
+    )).toBe(240);
+  });
 });
 
 describe('resolveCaptionAnchor', () => {
@@ -67,5 +79,13 @@ describe('resolveCaptionAnchor', () => {
   it('clamps custom percentages into 0-100', () => {
     expect(clampPositionPercent(-10)).toBe(0);
     expect(clampPositionPercent(140)).toBe(100);
+  });
+
+  it('per-caption custom XY wins over override preset and bulk custom', () => {
+    expect(resolveCaptionAnchor(
+      { overridePosition: 'center', overridePositionCustom: { x: 10, y: 20 } },
+      { position: 'bottom', positionCustom: { x: 25, y: 10 } },
+      layout,
+    )).toEqual({ x: 192, y: 216 });
   });
 });

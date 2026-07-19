@@ -19,6 +19,38 @@ import {
   MAX_PREVIEW_CANVAS_HEIGHT,
 } from '../constants';
 
+/**
+ * 出力品質モード。
+ * - auto: 先頭動画のソース解像度に合わせる（従来挙動・上限 1920×1080）
+ * - fhd:  常に 1920×1080 で書き出す
+ * - hd:   常に 1280×720 で書き出す
+ */
+export type ExportQuality = 'auto' | 'fhd' | 'hd';
+
+export const EXPORT_QUALITY_STORAGE_KEY = 'turtle-video-export-quality';
+
+export function readStoredExportQuality(): ExportQuality {
+  try {
+    const value = localStorage.getItem(EXPORT_QUALITY_STORAGE_KEY);
+    if (value === 'fhd' || value === 'hd') return value;
+  } catch {
+    // localStorage が使えない環境では既定値
+  }
+  return 'auto';
+}
+
+function persistExportQuality(quality: ExportQuality): void {
+  try {
+    if (quality === 'auto') {
+      localStorage.removeItem(EXPORT_QUALITY_STORAGE_KEY);
+    } else {
+      localStorage.setItem(EXPORT_QUALITY_STORAGE_KEY, quality);
+    }
+  } catch {
+    // localStorage が使えない環境では何もしない
+  }
+}
+
 interface CanvasState {
   /** 現在キャンバス要素が取るサイズ（プレビュー時は preview*、エクスポート時は export*）。 */
   width: number;
@@ -31,8 +63,15 @@ interface CanvasState {
   exportHeight: number;
   /** 現在エクスポートモードか。プレビューサイズへの自動戻しに使う。 */
   isExportMode: boolean;
+  /** 出力品質モード（localStorage に永続化） */
+  exportQuality: ExportQuality;
+  /** 直近に適用したソース動画の解像度（品質モード変更時の再計算用） */
+  lastSourceWidth: number | null;
+  lastSourceHeight: number | null;
   /** ソース動画の解像度を入力し、プレビュー/エクスポート両方のサイズを更新する。 */
   applyFromSource: (sourceWidth: number, sourceHeight: number) => void;
+  /** 出力品質モードを変更し、エクスポートサイズを再計算する。 */
+  setExportQuality: (quality: ExportQuality) => void;
   /** ストアを既定状態へ戻す。 */
   resetCanvasSize: () => void;
   /** 書き出し開始時に呼び出し、キャンバスを高解像度モードへ切り替える。 */
@@ -109,6 +148,30 @@ function roundToEven(value: number): number {
   return rounded % 2 === 0 ? rounded : rounded + 1;
 }
 
+/** 固定解像度モードのサイズ定義（16:9） */
+const FIXED_EXPORT_SIZES: Record<Exclude<ExportQuality, 'auto'>, { width: number; height: number }> = {
+  fhd: { width: 1920, height: 1080 },
+  hd: { width: 1280, height: 720 },
+};
+
+/**
+ * 出力品質モードとソース解像度からエクスポートサイズを解決する。
+ * auto はソース基準（従来挙動・上限 1920×1080）、fhd/hd は固定サイズ。
+ */
+export function resolveExportCanvasSize(
+  quality: ExportQuality,
+  sourceWidth: number | null,
+  sourceHeight: number | null,
+): { width: number; height: number } {
+  if (quality !== 'auto') {
+    return { ...FIXED_EXPORT_SIZES[quality] };
+  }
+  if (sourceWidth != null && sourceHeight != null) {
+    return computeCanvasSizeFromSource(sourceWidth, sourceHeight, MAX_CANVAS_WIDTH, MAX_CANVAS_HEIGHT);
+  }
+  return { width: MAX_CANVAS_WIDTH, height: MAX_CANVAS_HEIGHT };
+}
+
 export const useCanvasStore = create<CanvasState>()(
   devtools((set, get) => ({
     width: DEFAULT_CANVAS_WIDTH,
@@ -118,6 +181,9 @@ export const useCanvasStore = create<CanvasState>()(
     exportWidth: MAX_CANVAS_WIDTH,
     exportHeight: MAX_CANVAS_HEIGHT,
     isExportMode: false,
+    exportQuality: readStoredExportQuality(),
+    lastSourceWidth: null,
+    lastSourceHeight: null,
     applyFromSource: (sourceWidth, sourceHeight) => {
       const previewSize = computeCanvasSizeFromSource(
         sourceWidth,
@@ -125,14 +191,11 @@ export const useCanvasStore = create<CanvasState>()(
         MAX_PREVIEW_CANVAS_WIDTH,
         MAX_PREVIEW_CANVAS_HEIGHT,
       );
-      const exportSize = computeCanvasSizeFromSource(
-        sourceWidth,
-        sourceHeight,
-        MAX_CANVAS_WIDTH,
-        MAX_CANVAS_HEIGHT,
-      );
+      const exportSize = resolveExportCanvasSize(get().exportQuality, sourceWidth, sourceHeight);
       const isExportMode = get().isExportMode;
       set({
+        lastSourceWidth: sourceWidth,
+        lastSourceHeight: sourceHeight,
         previewWidth: previewSize.width,
         previewHeight: previewSize.height,
         exportWidth: exportSize.width,
@@ -141,13 +204,29 @@ export const useCanvasStore = create<CanvasState>()(
         height: isExportMode ? exportSize.height : previewSize.height,
       });
     },
+    setExportQuality: (quality) => {
+      persistExportQuality(quality);
+      const { lastSourceWidth, lastSourceHeight, isExportMode, width, height } = get();
+      const exportSize = resolveExportCanvasSize(quality, lastSourceWidth, lastSourceHeight);
+      set({
+        exportQuality: quality,
+        exportWidth: exportSize.width,
+        exportHeight: exportSize.height,
+        width: isExportMode ? exportSize.width : width,
+        height: isExportMode ? exportSize.height : height,
+      });
+    },
     resetCanvasSize: () => set({
       width: DEFAULT_CANVAS_WIDTH,
       height: DEFAULT_CANVAS_HEIGHT,
       previewWidth: DEFAULT_CANVAS_WIDTH,
       previewHeight: DEFAULT_CANVAS_HEIGHT,
-      exportWidth: MAX_CANVAS_WIDTH,
-      exportHeight: MAX_CANVAS_HEIGHT,
+      ...(() => {
+        const size = resolveExportCanvasSize(get().exportQuality, null, null);
+        return { exportWidth: size.width, exportHeight: size.height };
+      })(),
+      lastSourceWidth: null,
+      lastSourceHeight: null,
       isExportMode: false,
     }),
     beginExportMode: () => {

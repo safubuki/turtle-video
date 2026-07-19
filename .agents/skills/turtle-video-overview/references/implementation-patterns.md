@@ -2108,3 +2108,18 @@
   - `bgm` と `bgmClips` の併存は「復元直後の一時状態」のみが正。standard で bgm を再生経路に足す変更をする場合はミラー破棄の移行を壊さないこと。iOS(apple-safari) は逆にミラー bgm が唯一の BGM ソース。
   - renderFrame の要素ループ順は描画仕様（peer 下層 → active 上層）を担っている。Object.keys 系の反復へ戻さない。
   - `findActiveTimelineItemWithTransitions` の duration=0 先勝ちは playbackTimeline と同一規約。後勝ちはオーバーラップ窓（duration>0 同士）にのみ適用する。
+
+### 13-112. BGM区間表示 / 時分割キャプション / 個別設定同等化 / 出力品質設定 / 1080pエクスポート安定化
+
+- **ファイル**: `src/components/sections/BgmClipList.tsx`, `src/utils/captionTimeline.ts`, `src/components/media/CaptionItem.tsx`, `src/utils/captionBulkInput.ts`, `src/components/modals/CaptionSettingsModal.tsx`, `src/utils/captionStyle.ts`, `src/types/index.ts`, `src/utils/indexedDB.ts`, `src/stores/projectStore.ts`, `src/stores/canvasStore.ts`, `src/components/modals/SettingsModal.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/types/webcodecs.d.ts`
+- **内容**:
+  - **BGM再生区間表示**: BGM クリップカードに「♪ 再生区間: 開始 〜 終了」を常時表示。実効末尾が totalDuration を超える場合は「動画末尾超え」警告を出す。
+  - **時分割キャプション（複数行の順次表示）**: キャプション text に改行が含まれる場合、カードの表示時間 [startTime, endTime) を行ごとの**文字数比**で自動配分し 1 行ずつ順次表示する。純ロジックは `captionTimeline.ts`（`resolveSequentialCaptionSegments` / `resolveCaptionDisplayText`）、描画は renderFrame の glyph text 置換のみ（プレビュー/エクスポート共通）。フェードはカード全体に従来どおり適用。CaptionItem は textarea 編集（Ctrl+Enter 確定）+ 行別時間の一覧 + 「時分割 N行」バッジ。**まとめて入力/編集との往復はカード内改行を `⏎` マーカーに畳んで 1 行 = 1 カードを維持**（`encodeSequentialLinesForBulkText` / `decodeSequentialLinesFromBulkText`）。新しい Caption フィールドは追加していない（text の改行が唯一のソース）。
+  - **個別設定の一括設定同等化**: `Caption.overrideFontSizeCustom`（px）/ `overridePositionCustom`（%XY）を追加し、解決優先度は「個別カスタム > 個別プリセット > 一括カスタム > 一括プリセット」（`captionStyle.ts` 単一ソース、テストあり）。CaptionSettingsModal にカスタムサイズ/位置 UI と Local Font Access のローカルフォント読み込みを追加（standard 限定、iOS はプリセットのみ）。シリアライズは projectStore / indexedDB 両方に追加済み。
+  - **プレビュー BGM/ナレーションのフェード堅牢化**: processNarrationClip で gainNode が無い（AudioContext 再生成後の `createMediaElementSource` 再作成は必ず失敗する等）場合、フェード込み音量を `element.volume` に直接反映する native フォールバックを追加。element.volume はソースノード経由の出力にも作用する。
+  - **出力品質設定**: `canvasStore.exportQuality`（auto/fhd/hd、localStorage `turtle-video-export-quality` 永続化）。auto=先頭動画基準（従来・上限 1920×1080）、fhd=1920×1080 固定、hd=1280×720 固定。`resolveExportCanvasSize()` が単一ソース。設定 UI は SettingsModal の設定タブ。プレビューサイズには影響しない。
+  - **1080p ロング動画のエクスポートハング対策**: `videoEncoder.encode()` にバックプレッシャー制御を追加。リアルタイム供給（TrackProcessor）は HARD 上限（90 フレーム ≈3 秒）でフレーム破棄して realtime 進行を維持（出力時間は不変・count ベース CFR なので供給減と同じ扱い）、末尾補完ループは SOFT 上限（30）で `dequeue` イベント待ち。破棄数は 5 秒スロットルで warn ログ + flush 時サマリー。`webcodecs.d.ts` に `encodeQueueSize` / `dequeue` を追加。
+- **注意**:
+  - 時分割キャプションの行区切りは「text 内の改行」が唯一のソース。まとめて編集経由では必ず ⏎ マーカー経由で往復させること（生の改行を混ぜると 1 行 = 1 カードの前提が壊れる）。
+  - キャプションの新 override フィールドを追加する場合は types / indexedDB / projectStore serialize/deserialize / captionStyle 解決 / モーダル UI / バッジ判定（CaptionItem の hasOverride）を揃って更新する。
+  - エクスポートのフレーム破棄は「エンコーダ飽和時のみ」の安全弁。SOFT/HARD 上限を下げすぎると通常書き出しでもフレームが欠け、上げすぎるとメモリ暴走に戻る。

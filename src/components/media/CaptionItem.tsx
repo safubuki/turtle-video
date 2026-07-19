@@ -1,8 +1,12 @@
 import React, { useState, useCallback } from 'react';
-import { Trash2, Edit2, Check, X, MapPin, Settings, ArrowUp, ArrowDown } from 'lucide-react';
+import { Trash2, Edit2, Check, X, MapPin, Settings, ArrowUp, ArrowDown, ListVideo } from 'lucide-react';
 import type { Caption } from '../../types';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import CaptionSettingsModal from '../modals/CaptionSettingsModal';
+import {
+  isSequentialCaption,
+  resolveSequentialCaptionSegments,
+} from '../../utils/captionTimeline';
 
 interface CaptionItemProps {
   caption: Caption;
@@ -35,8 +39,14 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
   const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   const handleSave = () => {
-    if (editText.trim()) {
-      onUpdate(caption.id, { text: editText.trim() });
+    // 複数行は時分割表示（1 行ずつ順次表示）として保存する。空行は除去
+    const normalized = editText
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .join('\n');
+    if (normalized) {
+      onUpdate(caption.id, { text: normalized });
     }
     setIsEditing(false);
   };
@@ -48,6 +58,21 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
 
   // 現在時刻がこのキャプションの範囲内かどうか
   const isActive = currentTime >= caption.startTime && currentTime < caption.endTime;
+
+  // 複数行テキスト = 時分割表示（1 行ずつ文字数比で順次表示）
+  const isSequential = isSequentialCaption(caption);
+  const sequentialSegments = isSequential ? resolveSequentialCaptionSegments(caption) : [];
+
+  // 個別設定（override）が 1 つでも有効か
+  const hasOverride = Boolean(
+    caption.overridePosition
+    || caption.overrideFontStyle
+    || caption.overrideFontSize
+    || caption.overrideFadeIn
+    || caption.overrideFadeOut
+    || caption.overrideFontSizeCustom != null
+    || caption.overridePositionCustom
+  );
 
   // スワイプ保護用ハンドラ
   const handleStartTimeChange = useCallback(
@@ -80,8 +105,17 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <span className="text-xs md:text-sm text-gray-500 font-mono">[{index + 1}]</span>
+          {/* 時分割表示（複数行を順次表示）のバッジ */}
+          {isSequential && (
+            <span
+              className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"
+              title="複数行を表示時間内で 1 行ずつ順番に表示します（文字数で自動配分）"
+            >
+              <ListVideo className="w-2.5 h-2.5" /> 時分割 {sequentialSegments.length}行
+            </span>
+          )}
           {/* 個別設定が有効な場合にバッジ表示 */}
-          {(caption.overridePosition || caption.overrideFontStyle || caption.overrideFontSize || caption.overrideFadeIn || caption.overrideFadeOut) && (
+          {hasOverride && (
             <span className="text-[9px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded">
               個別設定
             </span>
@@ -111,7 +145,7 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
             onClick={() => setShowSettingsModal(true)}
             disabled={isLocked}
             className={`px-2 py-1 rounded border text-[10px] transition disabled:opacity-50 ${
-              caption.overridePosition || caption.overrideFontStyle || caption.overrideFontSize || caption.overrideFadeIn || caption.overrideFadeOut
+              hasOverride
                 ? 'bg-yellow-500/20 border-yellow-500/50 text-yellow-300 hover:bg-yellow-500/30'
                 : 'bg-gray-700 hover:bg-gray-600 border-gray-600 text-gray-300'
             }`}
@@ -159,19 +193,36 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
         </div>
       </div>
 
-      {/* テキスト */}
+      {/* テキスト（改行で複数行にすると 1 行ずつ順番に表示される時分割カードになる） */}
       {isEditing ? (
-        <input
-          type="text"
-          value={editText}
-          onChange={(e) => setEditText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleSave();
-            if (e.key === 'Escape') handleCancel();
-          }}
-          className="w-full bg-gray-700 border border-yellow-500 rounded px-2 py-1 text-sm text-white focus:outline-none mb-2"
-          autoFocus
-        />
+        <div className="mb-2">
+          <textarea
+            value={editText}
+            onChange={(e) => setEditText(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter は改行（複数行=時分割）。確定は Ctrl/Cmd+Enter か ✓ ボタン
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSave();
+              if (e.key === 'Escape') handleCancel();
+            }}
+            rows={Math.min(5, Math.max(2, editText.split('\n').length + 1))}
+            className="w-full bg-gray-700 border border-yellow-500 rounded px-2 py-1 text-sm text-white focus:outline-none resize-y"
+            autoFocus
+          />
+          <p className="text-[9px] text-gray-500 mt-0.5">
+            改行して複数行にすると、表示時間内で 1 行ずつ順番に表示されます（文字数で自動配分）。Ctrl+Enter で確定
+          </p>
+        </div>
+      ) : isSequential ? (
+        <div className="mb-2 space-y-0.5">
+          {sequentialSegments.map((segment, i) => (
+            <div key={i} className="flex items-center gap-2 text-sm md:text-base text-white min-w-0">
+              <span className="text-[9px] text-yellow-400/80 font-mono shrink-0 w-20 text-right">
+                {segment.startTime.toFixed(1)}-{segment.endTime.toFixed(1)}秒
+              </span>
+              <span className="truncate" title={segment.text}>{segment.text}</span>
+            </div>
+          ))}
+        </div>
       ) : (
         <p className="text-sm md:text-base text-white mb-2 truncate" title={caption.text}>
           "{caption.text}"

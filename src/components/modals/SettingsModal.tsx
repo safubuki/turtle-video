@@ -14,6 +14,7 @@ import { useLogStore } from '../../stores';
 import { useUIStore } from '../../stores/uiStore';
 import { useOfflineModeStore } from '../../stores/offlineModeStore';
 import { useUpdateStore } from '../../stores/updateStore';
+import { useCanvasStore, type ExportQuality } from '../../stores/canvasStore';
 import type { LogEntry } from '../../stores';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 
@@ -66,6 +67,28 @@ const readStoredPreviewLogMode = (): PreviewLogMode => {
 
   return 'smooth';
 };
+
+const EXPORT_QUALITY_OPTIONS: ReadonlyArray<{
+  value: ExportQuality;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: 'auto',
+    label: '自動',
+    description: '先頭の動画クリップの解像度に合わせます（上限 1920×1080）。',
+  },
+  {
+    value: 'fhd',
+    label: 'フルHD',
+    description: '常に 1920×1080 で書き出します。低解像度の素材は引き伸ばされます。',
+  },
+  {
+    value: 'hd',
+    label: 'HD',
+    description: '常に 1280×720 で書き出します。ファイルが軽く、書き出しも安定します。',
+  },
+];
 
 const OFFLINE_MODE_ENABLE_CONFIRM_MESSAGE = [
   'オフラインモードを有効にすると、以後はこの端末内だけで動作します。',
@@ -206,6 +229,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
   const showToast = useUIStore((s) => s.showToast);
   const offlineMode = useOfflineModeStore((s) => s.offlineMode);
   const setOfflineMode = useOfflineModeStore((s) => s.setOfflineMode);
+  // 動画の出力品質（書き出し解像度）
+  const exportQuality = useCanvasStore((s) => s.exportQuality);
+  const setExportQuality = useCanvasStore((s) => s.setExportQuality);
+  const exportWidth = useCanvasStore((s) => s.exportWidth);
+  const exportHeight = useCanvasStore((s) => s.exportHeight);
   const checkForUpdate = useUpdateStore((s) => s.checkForUpdate);
   const clearUpdateSignals = useUpdateStore((s) => s.clearUpdateSignals);
   const isCheckingForUpdate = useUpdateStore((s) => s.isCheckingForUpdate);
@@ -804,6 +832,45 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
                     有効
                   </button>
                 </div>
+              </div>
+
+              <div className="bg-gray-800 rounded-lg p-4 space-y-3">
+                <div className="space-y-1">
+                  <div className="text-sm font-bold text-gray-100">動画の出力品質</div>
+                  <p className="text-xs text-gray-300 leading-relaxed">
+                    保存（書き出し）する動画の解像度を選びます。上限は 1920×1080 です。
+                  </p>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {EXPORT_QUALITY_OPTIONS.map(({ value, label }) => (
+                    <button
+                      key={value}
+                      onClick={() => setExportQuality(value)}
+                      className={`${SETTINGS_TOGGLE_BUTTON_BASE} ${
+                        exportQuality === value
+                          ? SETTINGS_OFF_BUTTON_ACTIVE
+                          : SETTINGS_TOGGLE_BUTTON_INACTIVE
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="space-y-1.5 text-[11px] leading-relaxed text-gray-400">
+                  {EXPORT_QUALITY_OPTIONS.map(({ value, label, description }) => (
+                    <p
+                      key={value}
+                      className={exportQuality === value ? 'text-blue-100' : undefined}
+                    >
+                      <span className="font-semibold text-gray-200">{label}</span>
+                      <span className="ml-1">{description}</span>
+                    </p>
+                  ))}
+                </div>
+                <p className="text-[11px] text-gray-500 leading-relaxed">
+                  現在の書き出しサイズ: {exportWidth}×{exportHeight}
+                  ※ プレビューの画質には影響しません。長い動画で書き出しが不安定な場合は HD (1280×720) をお試しください。
+                </p>
               </div>
 
               <div className="bg-gray-800 rounded-lg p-4 space-y-3">

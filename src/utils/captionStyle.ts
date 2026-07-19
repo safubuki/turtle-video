@@ -35,12 +35,15 @@ export function clampPositionPercent(value: number): number {
 
 /**
  * ベースフォントサイズ（px @1080p 基準）を解決する。
- * 優先度: 個別 override（プリセット）> 一括カスタム値 > 一括プリセット
+ * 優先度: 個別カスタム値 > 個別 override（プリセット）> 一括カスタム値 > 一括プリセット
  */
 export function resolveCaptionBaseFontSize(
-  caption: Pick<Caption, 'overrideFontSize'>,
+  caption: Pick<Caption, 'overrideFontSize' | 'overrideFontSizeCustom'>,
   settings: Pick<CaptionSettings, 'fontSize' | 'fontSizeCustom'>,
 ): number {
+  if (caption.overrideFontSizeCustom != null) {
+    return clampCustomFontSize(caption.overrideFontSizeCustom);
+  }
   if (caption.overrideFontSize) {
     return CAPTION_FONT_SIZE_PRESETS[caption.overrideFontSize];
   }
@@ -52,10 +55,10 @@ export function resolveCaptionBaseFontSize(
 
 /**
  * テキスト中心のアンカー座標を解決する。
- * 優先度: 個別 override（プリセット）> 一括カスタム XY > 一括プリセット
+ * 優先度: 個別カスタム XY > 個別 override（プリセット）> 一括カスタム XY > 一括プリセット
  */
 export function resolveCaptionAnchor(
-  caption: Pick<Caption, 'overridePosition'>,
+  caption: Pick<Caption, 'overridePosition' | 'overridePositionCustom'>,
   settings: Pick<CaptionSettings, 'position' | 'positionCustom'>,
   layout: {
     canvasWidth: number;
@@ -65,6 +68,13 @@ export function resolveCaptionAnchor(
   },
 ): { x: number; y: number } {
   const { canvasWidth, canvasHeight, fontSize, padding } = layout;
+
+  if (caption.overridePositionCustom) {
+    return {
+      x: (canvasWidth * clampPositionPercent(caption.overridePositionCustom.x)) / 100,
+      y: (canvasHeight * clampPositionPercent(caption.overridePositionCustom.y)) / 100,
+    };
+  }
 
   if (!caption.overridePosition && settings.positionCustom) {
     return {

@@ -181,6 +181,10 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
                 時間は「分:秒」または「秒」。時間なしの行は前の行に続けて自動配置。
                 本文中の記号（@ や [ ]）は自由に使えます。行末に付けることもできます。
               </div>
+              <div>
+                本文中の <code className="bg-gray-700 px-1 rounded">⏎</code> は「時分割カード」の行区切りです。
+                1 枚のカード内で ⏎ 区切りの文が表示時間を分け合い、1 行ずつ順番に表示されます。
+              </div>
               <div className="pt-1 border-t border-gray-700/60 space-y-1">
                 <div className="text-yellow-300 font-semibold">AI に音声解析させて字幕を作る</div>
                 <div>

@@ -30,7 +30,7 @@ import { useMediaStore } from '../../../stores';
 import { useProjectStore } from '../../../stores/projectStore';
 import type { PlatformCapabilities } from '../../../utils/platform';
 import { collectPlaybackBlockingVideos } from '../../../utils/playbackTimeline';
-import { isCaptionActiveAtTime } from '../../../utils/captionTimeline';
+import { isCaptionActiveAtTime, resolveCaptionDisplayText } from '../../../utils/captionTimeline';
 import { getExportFrameTiming, resolveExportDuration } from '../../../utils/exportTimeline';
 import {
   ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC,
@@ -2630,7 +2630,8 @@ export function usePreviewEngine({
             // フェード時の輪郭残りを防ぐため、stroke+fill を 1 枚のオフスクリーン Canvas に
             // 100% の不透明度で合成してから、メインキャンバスへ globalAlpha 付きで転写する。
             const glyphCanvas = createCaptionGlyphCanvas({
-              text: activeCaption.text,
+              // 複数行テキストは時分割（文字数比で配分した 1 行）を順次表示する
+              text: resolveCaptionDisplayText(activeCaption, time),
               font: `bold ${fontSize}px ${fontFamily}`,
               fillColor: currentCaptionSettings.fontColor,
               strokeColor: currentCaptionSettings.strokeColor,
@@ -2932,6 +2933,13 @@ export function usePreviewEngine({
               if (Math.abs(currentGain - effectiveGain) > 0.01) {
                 gainNode.gain.setTargetAtTime(effectiveGain, audioCtxRef.current.currentTime, 0.1);
               }
+            } else if (outputMode !== 'native') {
+              // WebAudio ノードが作れない環境（AudioContext 再生成後の
+              // createMediaElementSource 失敗など）では gain が存在せず、
+              // このままだと音量もフェードも一切反映されない。
+              // element.volume はソースノード経由の出力にも作用するため、
+              // フェード込みの音量を native 側へ直接反映してフォールバックする。
+              element.volume = Math.max(0, Math.min(1, vol));
             }
           } else {
             applyPreviewAudioOutputState(previewPlatformPolicy, element, {

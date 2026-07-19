@@ -578,6 +578,8 @@ function serializeCaption(caption: Caption): SerializedCaption {
     overrideFadeOut: caption.overrideFadeOut,
     overrideFadeInDuration: caption.overrideFadeInDuration,
     overrideFadeOutDuration: caption.overrideFadeOutDuration,
+    overrideFontSizeCustom: caption.overrideFontSizeCustom,
+    overridePositionCustom: caption.overridePositionCustom,
   };
 }
 
@@ -598,6 +600,8 @@ function deserializeCaption(data: SerializedCaption): Caption {
     overrideFadeOut: data.overrideFadeOut,
     overrideFadeInDuration: data.overrideFadeInDuration,
     overrideFadeOutDuration: data.overrideFadeOutDuration,
+    overrideFontSizeCustom: data.overrideFontSizeCustom,
+    overridePositionCustom: data.overridePositionCustom,
   };
 }
 

@@ -268,3 +268,26 @@ describe('assignBulkCaptionIds', () => {
     expect(assignBulkCaptionIds(plans, captions)[0].id).toBe('c1');
   });
 });
+
+describe('sequential caption round-trip (⏎ marker)', () => {
+  it('encodes card-internal newlines as ⏎ in bulk text and decodes back', () => {
+    const captions = [
+      { text: 'この工場では\n最先端の設備で\n開発しています', startTime: 0, endTime: 12 },
+      { text: '単一行', startTime: 12, endTime: 15 },
+    ];
+    const text = formatCaptionsAsBulkText(captions);
+    // 1 カード = 1 行のまま（改行はマーカーに畳まれる）
+    expect(text.split('\n')).toHaveLength(2);
+    expect(text).toContain('この工場では⏎最先端の設備で⏎開発しています');
+
+    const parsed = parseBulkCaptionInput(text);
+    expect(parsed[0].text).toBe('この工場では\n最先端の設備で\n開発しています');
+    expect(parsed[0].explicitStart).toBe(0);
+    expect(parsed[0].explicitEnd).toBe(12);
+    expect(parsed[1].text).toBe('単一行');
+  });
+
+  it('decodes ⏎ in plain lines without time notation', () => {
+    expect(parseBulkCaptionInput('あ⏎い')).toEqual([{ text: 'あ\nい' }]);
+  });
+});
