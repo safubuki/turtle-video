@@ -132,12 +132,62 @@ describe('resolveNonIosExportTimelineTimeSec', () => {
 });
 
 describe('resolveExportCanvasFrameBurstCount', () => {
-  it('encodes at most one canvas frame per poll even if multiple frames are pending', () => {
+  it('keeps the legacy single-frame limit when catch-up capacity is omitted', () => {
     expect(
       resolveExportCanvasFrameBurstCount({
         pendingFrameCount: 4,
       }),
     ).toBe(1);
+  });
+
+  it('catches up all pending CFR frames when the encoder queue has capacity', () => {
+    expect(
+      resolveExportCanvasFrameBurstCount({
+        pendingFrameCount: 4,
+        maxFramesPerPoll: 90,
+      }),
+    ).toBe(4);
+  });
+
+  it('limits catch-up to the remaining encoder queue capacity', () => {
+    expect(
+      resolveExportCanvasFrameBurstCount({
+        pendingFrameCount: 12,
+        maxFramesPerPoll: 3,
+      }),
+    ).toBe(3);
+  });
+
+  it('does not enqueue frames when the encoder queue is full', () => {
+    expect(
+      resolveExportCanvasFrameBurstCount({
+        pendingFrameCount: 12,
+        maxFramesPerPoll: 0,
+      }),
+    ).toBe(0);
+  });
+
+  it('keeps a 30fps timeline complete when 1080p load slows polling to 15fps', () => {
+    const expectedFrames = Math.ceil(127.1 * 30);
+    let encodedFrames = 0;
+
+    // 添付された FHD 出力では約 15.2fps しか Canvas を取り込めず、旧実装は
+    // ここで 1 枚ずつしか処理しないため残り約半分を末尾の黒 Canvas で埋めていた。
+    for (let targetFrameCount = 1; targetFrameCount <= expectedFrames; targetFrameCount += 2) {
+      encodedFrames += resolveExportCanvasFrameBurstCount({
+        pendingFrameCount: targetFrameCount - encodedFrames,
+        maxFramesPerPoll: 90,
+      });
+    }
+
+    if (encodedFrames < expectedFrames) {
+      encodedFrames += resolveExportCanvasFrameBurstCount({
+        pendingFrameCount: expectedFrames - encodedFrames,
+        maxFramesPerPoll: 90,
+      });
+    }
+
+    expect(encodedFrames).toBe(expectedFrames);
   });
 
   it('returns zero when there is no pending frame', () => {

@@ -71,12 +71,52 @@ function createHdlr(handlerType: string): Uint8Array {
   return createBox('hdlr', payload);
 }
 
-function createTrack(handlerType: string, timescale: number, duration: number): Uint8Array {
-  return createBox('trak', createBox('mdia', concatBytes(createMdhd(timescale, duration), createHdlr(handlerType))));
+function createTkhd(width: number, height: number): Uint8Array {
+  const payload = new Uint8Array(84);
+  const view = new DataView(payload.buffer);
+  view.setUint8(0, 0);
+  view.setUint32(76, width * 0x1_0000);
+  view.setUint32(80, height * 0x1_0000);
+  return createBox('tkhd', payload);
 }
 
-function createTrackV1(handlerType: string, timescale: number, duration: number): Uint8Array {
-  return createBox('trak', createBox('mdia', concatBytes(createMdhdV1(timescale, duration), createHdlr(handlerType))));
+function createTkhdV1(width: number, height: number): Uint8Array {
+  const payload = new Uint8Array(96);
+  const view = new DataView(payload.buffer);
+  view.setUint8(0, 1);
+  view.setUint32(88, width * 0x1_0000);
+  view.setUint32(92, height * 0x1_0000);
+  return createBox('tkhd', payload);
+}
+
+function createTrack(
+  handlerType: string,
+  timescale: number,
+  duration: number,
+  dimensions?: { width: number; height: number },
+): Uint8Array {
+  return createBox(
+    'trak',
+    concatBytes(
+      ...(dimensions ? [createTkhd(dimensions.width, dimensions.height)] : []),
+      createBox('mdia', concatBytes(createMdhd(timescale, duration), createHdlr(handlerType))),
+    ),
+  );
+}
+
+function createTrackV1(
+  handlerType: string,
+  timescale: number,
+  duration: number,
+  dimensions?: { width: number; height: number },
+): Uint8Array {
+  return createBox(
+    'trak',
+    concatBytes(
+      ...(dimensions ? [createTkhdV1(dimensions.width, dimensions.height)] : []),
+      createBox('mdia', concatBytes(createMdhdV1(timescale, duration), createHdlr(handlerType))),
+    ),
+  );
 }
 
 describe('inspectMp4Durations', () => {
@@ -87,7 +127,7 @@ describe('inspectMp4Durations', () => {
         'moov',
         concatBytes(
           createMvhd(1000, 10010),
-          createTrack('vide', 30000, 300300),
+          createTrack('vide', 30000, 300300, { width: 1920, height: 1080 }),
           createTrack('soun', 48000, 480480),
         ),
       ),
@@ -98,6 +138,8 @@ describe('inspectMp4Durations', () => {
       containerDurationUs: 10_010_000,
       videoDurationUs: 10_010_000,
       audioDurationUs: 10_010_000,
+      videoWidth: 1920,
+      videoHeight: 1080,
     });
   });
 
@@ -108,7 +150,7 @@ describe('inspectMp4Durations', () => {
         'moov',
         concatBytes(
           createMvhdV1(1000, 10010),
-          createTrackV1('vide', 30000, 300300),
+          createTrackV1('vide', 30000, 300300, { width: 1280, height: 720 }),
           createTrackV1('soun', 48000, 480480),
         ),
       ),
@@ -119,6 +161,29 @@ describe('inspectMp4Durations', () => {
       containerDurationUs: 10_010_000,
       videoDurationUs: 10_010_000,
       audioDurationUs: 10_010_000,
+      videoWidth: 1280,
+      videoHeight: 720,
+    });
+  });
+
+  it('複数 video track がある場合は最長 track の解像度を採用する', () => {
+    const bytes = concatBytes(
+      createBox(
+        'moov',
+        concatBytes(
+          createMvhd(1000, 10000),
+          createTrack('vide', 1000, 1000, { width: 320, height: 180 }),
+          createTrack('vide', 1000, 10000, { width: 1920, height: 1080 }),
+        ),
+      ),
+    );
+
+    expect(inspectMp4Durations(toArrayBuffer(bytes))).toEqual({
+      containerDurationUs: 10_000_000,
+      videoDurationUs: 10_000_000,
+      audioDurationUs: null,
+      videoWidth: 1920,
+      videoHeight: 1080,
     });
   });
 
@@ -133,6 +198,8 @@ describe('inspectMp4Durations', () => {
       containerDurationUs: 10_010_000,
       videoDurationUs: null,
       audioDurationUs: null,
+      videoWidth: null,
+      videoHeight: null,
     });
   });
 
@@ -147,6 +214,8 @@ describe('inspectMp4Durations', () => {
       containerDurationUs: 5_000_000,
       videoDurationUs: null,
       audioDurationUs: null,
+      videoWidth: null,
+      videoHeight: null,
     });
   });
 

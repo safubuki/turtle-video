@@ -2151,3 +2151,18 @@
 - **注意**:
   - Canvas の `width` / `height` 変更は描画バッファをクリアする。リサイズ後にエクスポート描画ループが再描画する既存順序を維持する。
   - エンコーダー寸法を export mode へ切り替える前に読み取らない。品質モード追加・変更時は、ストアの解決値だけでなくエンコーダーへ渡る最終実寸までテストする。
+
+### 13-115. 標準エクスポートは高解像度負荷で遅れた Canvas 取得をその場で CFR 補完し、MP4 実解像度を保存前に検証する
+
+- **ファイル**: `src/flavors/standard/export/exportEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`, `src/utils/exportTimeline.ts`, `src/utils/mp4Duration.ts`, `src/test/exportTimeline.test.ts`, `src/test/mp4Duration.test.ts`
+- **実測した問題**:
+  - 127.1 秒の添付出力は自動/FHD指定とも実ファイルが 1280×720 で、黒区間は自動が 100.53 秒付近、FHDが 64.53 秒付近から末尾まで連続していた。
+  - standard の manual Canvas 取得は 1 poll につき 1 フレームへ固定されていたため、同じメインスレッド上の 1080p 描画で timer が約 15fps まで遅れてもタイムラインだけは実時間の 30fps で進行し、不足した約半分を終了時の黒い Canvas で補完していた。
+- **対策**:
+  - standard 経路では `pendingFrameCount` を encoder queue の残容量（HARD 上限 90）まで 1 poll 内で CFR 補完する。通常時は 1 枚、描画遅延時だけ複数枚となり、未処理フレームを末尾へ持ち越さない。
+  - `resolveExportCanvasFrameBurstCount()` は `maxFramesPerPoll` 省略時に従来の 1 枚制限を維持し、apple-safari 経路へ standard の catch-up 方針を波及させない。
+  - MP4 の `tkhd`（16.16 fixed-point）から video track の実 width/height を読み戻し、設定したエクスポート寸法と一致しない場合は成功扱いにせずエラーにする。standard と apple-safari の WebCodecs 経路で共通の保存前ガードとする。
+- **注意**:
+  - catch-up は encoder queue の空き以内に限定し、1080p ロング動画向けのバックプレッシャー上限を迂回しない。
+  - 負荷で描画 callback 自体が 30fps 未満になった区間は同一 Canvas の CFR 複製を含むが、タイムライン尺を末尾の単一フレームへ偏らせるより時間位置と音声同期を優先する。
+  - 出力寸法検証は muxer 設定値ではなく完成 MP4 の track header を根拠にする。検証不能または不一致のファイルをユーザーへ渡さない。

@@ -25,6 +25,11 @@ export interface NonIosExportTimelineTimeInput {
 
 export interface ExportCanvasFrameBurstInput {
   pendingFrameCount: number;
+  /**
+   * 1 回のポーリングで取り込める最大フレーム数。
+   * 省略時は従来どおり 1 とし、明示的に catch-up を許可した経路だけ複数枚を返す。
+   */
+  maxFramesPerPoll?: number;
 }
 
 const DURATION_EPSILON = 1e-9;
@@ -183,5 +188,9 @@ export function resolveExportCanvasFrameBurstCount(
     return 0;
   }
 
-  return 1;
+  const safeMaxFramesPerPoll = Number.isFinite(input.maxFramesPerPoll)
+    ? Math.max(0, Math.floor(input.maxFramesPerPoll as number))
+    : 1;
+
+  return Math.min(safePendingFrameCount, safeMaxFramesPerPoll);
 }

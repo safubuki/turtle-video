@@ -2,6 +2,8 @@ export interface Mp4DurationSummary {
   containerDurationUs: number | null;
   videoDurationUs: number | null;
   audioDurationUs: number | null;
+  videoWidth: number | null;
+  videoHeight: number | null;
 }
 
 interface Mp4Box {
@@ -80,16 +82,55 @@ function readDurationUsFromFullBox(view: DataView, contentStart: number, end: nu
   return null;
 }
 
-function inspectTrackDuration(view: DataView, start: number, end: number): { handlerType: string | null; durationUs: number | null } {
+function readVideoDimensionsFromTkhd(
+  view: DataView,
+  contentStart: number,
+  end: number,
+): { width: number; height: number } | null {
+  if (contentStart + 4 > end) return null;
+
+  const version = view.getUint8(contentStart);
+  const widthOffset = version === 1
+    ? contentStart + 88
+    : version === 0
+      ? contentStart + 76
+      : null;
+  if (widthOffset === null || widthOffset + 8 > end) return null;
+
+  // tkhd の width / height は unsigned 16.16 fixed-point。
+  const width = view.getUint32(widthOffset) / 0x1_0000;
+  const height = view.getUint32(widthOffset + 4) / 0x1_0000;
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+
+  return {
+    width: Math.round(width),
+    height: Math.round(height),
+  };
+}
+
+function inspectTrackDuration(view: DataView, start: number, end: number): {
+  handlerType: string | null;
+  durationUs: number | null;
+  width: number | null;
+  height: number | null;
+} {
   let handlerType: string | null = null;
   let durationUs: number | null = null;
+  let width: number | null = null;
+  let height: number | null = null;
   let offset = start;
 
   while (offset < end) {
     const box = readBox(view, offset, end);
     if (!box) break;
 
-    if (box.type === 'mdia') {
+    if (box.type === 'tkhd') {
+      const dimensions = readVideoDimensionsFromTkhd(view, box.contentStart, box.end);
+      width = dimensions?.width ?? null;
+      height = dimensions?.height ?? null;
+    } else if (box.type === 'mdia') {
       let mdiaOffset = box.contentStart;
       while (mdiaOffset < box.end) {
         const mdiaBox = readBox(view, mdiaOffset, box.end);
@@ -108,7 +149,7 @@ function inspectTrackDuration(view: DataView, start: number, end: number): { han
     offset = box.end;
   }
 
-  return { handlerType, durationUs };
+  return { handlerType, durationUs, width, height };
 }
 
 export function inspectMp4Durations(buffer: ArrayBuffer): Mp4DurationSummary | null {
@@ -117,6 +158,8 @@ export function inspectMp4Durations(buffer: ArrayBuffer): Mp4DurationSummary | n
     containerDurationUs: null,
     videoDurationUs: null,
     audioDurationUs: null,
+    videoWidth: null,
+    videoHeight: null,
   };
 
   let offset = 0;
@@ -137,9 +180,11 @@ export function inspectMp4Durations(buffer: ArrayBuffer): Mp4DurationSummary | n
           if (track.handlerType === 'vide' && track.durationUs !== null) {
             // longest track を採用しておくと、補助トラックや重複メタデータが混ざっても
             // 実際の再生総尺を短く誤判定しにくい。
-            summary.videoDurationUs = summary.videoDurationUs !== null
-              ? Math.max(summary.videoDurationUs, track.durationUs)
-              : track.durationUs;
+            if (summary.videoDurationUs === null || track.durationUs > summary.videoDurationUs) {
+              summary.videoDurationUs = track.durationUs;
+              summary.videoWidth = track.width;
+              summary.videoHeight = track.height;
+            }
           } else if (track.handlerType === 'soun' && track.durationUs !== null) {
             // audio も同様に最長尺を保持し、mux 後の総尺差分検査を過小評価しないようにする。
             summary.audioDurationUs = summary.audioDurationUs !== null

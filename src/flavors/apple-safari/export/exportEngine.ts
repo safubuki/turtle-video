@@ -2468,13 +2468,28 @@ export function createUseExport(config: UseExportRuntimeConfig) {
 
         // バッファ取得とBlob作成
         const { buffer } = muxer.target;
+        const muxDurationSummary = inspectMp4Durations(buffer);
+
+        if (
+          !muxDurationSummary
+          || muxDurationSummary.videoWidth !== width
+          || muxDurationSummary.videoHeight !== height
+        ) {
+          const actualWidth = muxDurationSummary?.videoWidth ?? null;
+          const actualHeight = muxDurationSummary?.videoHeight ?? null;
+          useLogStore.getState().error('RENDER', '[DIAG-RESOLUTION] mux後の解像度不一致', {
+            expectedWidth: width,
+            expectedHeight: height,
+            actualWidth,
+            actualHeight,
+            bufferBytes: buffer.byteLength,
+          });
+          throw new Error(
+            `出力動画の解像度を検証できませんでした (設定: ${width}x${height}, 実ファイル: ${actualWidth ?? 'unknown'}x${actualHeight ?? 'unknown'})`,
+          );
+        }
 
         if (Number.isFinite(exportDurationUs)) {
-          const muxDurationSummary = inspectMp4Durations(buffer);
-          if (!muxDurationSummary) {
-            throw new Error(`MP4ファイルからduration情報を読み取れませんでした。mux 処理に問題がある可能性があります (bufferBytes: ${buffer.byteLength})`);
-          }
-
           const {
             containerDurationUs,
             videoDurationUs,
