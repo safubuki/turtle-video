@@ -2137,3 +2137,17 @@
   - エンジンの caption 描画は `resolveCaptionDisplaySegment()` が唯一の入口（text 直接参照へ戻さない）。null はギャップ中の正常値。
   - 「1行あたりの表示時間」の意味は「画面に表示される 1 行あたり」。planBulkCaptions の加重を外すと時分割カードだけ極端に早送りになる。
   - sequentialFadeMode / sequentialGapSec は既定値のとき undefined で保存する（'card'/0 を明示保存しない）。
+
+### 13-114. 出力品質の解像度は Canvas リサイズ後の実寸を muxer / VideoEncoder へ渡す
+
+- **ファイル**: `src/stores/canvasStore.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`, `src/test/canvasStore.test.ts`
+- **問題**:
+  - export 開始前のプレビュー Canvas 寸法（通常 1280×720）を先にローカル変数へ保持し、その後 Canvas だけを FHD（1920×1080）へ変更すると、MP4 muxer と `VideoEncoder.configure()` は古い 1280×720 のままになる。
+  - この状態では設定 UI と Canvas は FHD を示していても、生成ファイルのプロパティは HD になり、入力フレームとエンコーダー設定の寸法不一致によって環境依存のスケーリング不安定も起こり得る。
+- **対策**:
+  - `applyExportCanvasSize()` で Canvas の `width` / `height` を目標値へ変更し、変更後の実寸を同じ呼び出しから返す。
+  - muxer、`VideoEncoder.configure()`、ビットレート計算、MediaRecorder 設定、診断ログはすべて返された同一の `width` / `height` を使う。
+  - standard と apple-safari の WebCodecs fallback の両方で同じ契約を維持する。
+- **注意**:
+  - Canvas の `width` / `height` 変更は描画バッファをクリアする。リサイズ後にエクスポート描画ループが再描画する既存順序を維持する。
+  - エンコーダー寸法を export mode へ切り替える前に読み取らない。品質モード追加・変更時は、ストアの解決値だけでなくエンコーダーへ渡る最終実寸までテストする。

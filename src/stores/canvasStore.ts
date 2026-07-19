@@ -172,6 +172,31 @@ export function resolveExportCanvasSize(
   return { width: MAX_CANVAS_WIDTH, height: MAX_CANVAS_HEIGHT };
 }
 
+/**
+ * Canvas を書き出し解像度へ切り替え、エンコーダーへ渡す実寸を返す。
+ *
+ * Canvas の width / height を変更すると描画バッファが再作成されるため、
+ * 変更前のプレビュー寸法を muxer / VideoEncoder に保持しないよう、
+ * リサイズと実寸取得を必ず同じ処理で行う。
+ */
+export function applyExportCanvasSize(
+  canvas: Pick<HTMLCanvasElement, 'width' | 'height'>,
+  targetWidth: number,
+  targetHeight: number,
+): { width: number; height: number } {
+  if (canvas.width !== targetWidth) {
+    canvas.width = targetWidth;
+  }
+  if (canvas.height !== targetHeight) {
+    canvas.height = targetHeight;
+  }
+
+  return {
+    width: canvas.width,
+    height: canvas.height,
+  };
+}
+
 export const useCanvasStore = create<CanvasState>()(
   devtools((set, get) => ({
     width: DEFAULT_CANVAS_WIDTH,

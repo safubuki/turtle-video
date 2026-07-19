@@ -4,6 +4,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
+  applyExportCanvasSize,
   useCanvasStore,
   computeCanvasSizeFromSource,
   resolveExportCanvasSize,
@@ -191,6 +192,21 @@ describe('export quality mode', () => {
     useCanvasStore.getState().setExportQuality('auto');
     expect(useCanvasStore.getState().exportWidth).toBe(854);
   });
+
+  it.each([
+    ['fhd', 1920, 1080],
+    ['hd', 1280, 720],
+  ] as const)(
+    '%s applies the selected size before returning encoder dimensions',
+    (_quality, targetWidth, targetHeight) => {
+      const canvas = { width: 854, height: 480 };
+
+      const encoderSize = applyExportCanvasSize(canvas, targetWidth, targetHeight);
+
+      expect(canvas).toEqual({ width: targetWidth, height: targetHeight });
+      expect(encoderSize).toEqual({ width: targetWidth, height: targetHeight });
+    },
+  );
 });
 
 describe('computeExportVideoBitrate', () => {

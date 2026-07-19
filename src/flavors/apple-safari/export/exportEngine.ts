@@ -8,7 +8,7 @@
  */
 import { useState, useRef, useCallback } from 'react';
 import { FPS, computeExportVideoBitrate } from '../../../constants';
-import { useCanvasStore } from '../../../stores/canvasStore';
+import { applyExportCanvasSize, useCanvasStore } from '../../../stores/canvasStore';
 import * as Mp4Muxer from 'mp4-muxer';
 import type { AudioTrack, NarrationClip } from '../../../types';
 import { useLogStore } from '../../../stores/logStore';
@@ -1297,8 +1297,6 @@ export function createUseExport(config: UseExportRuntimeConfig) {
       };
 
       const canvas = canvasRef.current;
-      const width = canvas.width;
-      const height = canvas.height;
       const audioContext = masterDestRef.current.context;
       const audioTrack = masterDestRef.current.stream.getAudioTracks()[0] || null;
       const hasLiveAudioTrack = !!audioTrack && audioTrack.readyState === 'live';
@@ -1478,20 +1476,12 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         // canvas 要素の width/height は ref 経由で即座に書き換える。
         useCanvasStore.getState().beginExportMode();
         const { exportWidth, exportHeight } = useCanvasStore.getState();
-        if (canvasRef.current.width !== exportWidth) {
-          canvasRef.current.width = exportWidth;
-        }
-        if (canvasRef.current.height !== exportHeight) {
-          canvasRef.current.height = exportHeight;
-        }
+        const { width, height } = applyExportCanvasSize(canvas, exportWidth, exportHeight);
 
-        const exportVideoBitrate = computeExportVideoBitrate(
-          canvasRef.current.width,
-          canvasRef.current.height,
-        );
+        const exportVideoBitrate = computeExportVideoBitrate(width, height);
         logInfo('エクスポート用キャンバスサイズへ切替', {
-          width: canvasRef.current.width,
-          height: canvasRef.current.height,
+          width,
+          height,
           bitrate: exportVideoBitrate,
         });
 
