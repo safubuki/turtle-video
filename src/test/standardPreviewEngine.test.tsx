@@ -530,6 +530,12 @@ describe('standard preview engine', () => {
     audioSources.onVideoFrameSubmitted?.(225);
     hook.result.current.loop(true, loopIdRef.current);
     expect(completeWebCodecsExport).toHaveBeenCalledTimes(1);
+    // 終端では表示上の現在時刻を総尺へスナップする（最終フレーム開始時刻 7.466s のまま
+    // 止めると formatTime の floor で「0:07 / 0:07」等の 1 秒ズレに見える回帰の防止）。
+    // エクスポート済みファイルの尺には影響しない（UI 表示のみ）。
+    expect(currentTimeRef.current).toBeCloseTo(7.5, 3);
+    const finalSetCurrentTimeCall = setCurrentTime.mock.calls[setCurrentTime.mock.calls.length - 1];
+    expect(finalSetCurrentTimeCall?.[0]).toBeCloseTo(7.5, 3);
   });
 
   it('preview 再生開始では exportUrl を clear しない', async () => {

@@ -2197,3 +2197,62 @@
   - まとめて入力モードをUI stateだけ切り替えない。表示テキストを変換しないと、旧モードの構造が新モードでも残る回帰が再発する。
   - 音声の現在位置はタイムライン時刻、trimEnd は音源内時刻。両者を直接代入せず、startTime と trimStart のオフセットを必ず考慮する。
   - BGM末尾フィットは選択クリップだけを変更し、`bgm` / `bgmClips` の互換ミラー契約には触れない。
+
+### 13-118. 出力解像度検証の緩和（検証不能で書き出しを破棄しない）
+
+- **ファイル**: `src/utils/exportTimeline.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`, `src/test/exportTimeline.test.ts`
+- **問題**:
+  - 13-115 で追加した mux 後の解像度検証（フルHD/HD/自動モード対応時）が「`inspectMp4Durations` が解像度を読み取れない（null）」ケースも `throw` していたため、生成 MP4 自体は正しくても検証不能を理由に完成した書き出しごと破棄され、**エクスポートが全くできなくなる**回帰につながっていた。旧コードは `!muxDurationSummary || videoWidth !== width || videoHeight !== height` を無条件で失敗にしていた。
+- **対策**:
+  - 判定を純ロジック `resolveExportResolutionVerdict()`（`exportTimeline.ts`）へ切り出し、3値で扱う: `match`（一致・正常）/ `mismatch`（実解像度が確実に食い違う→失敗）/ `unverified`（解像度を読み取れない→**書き出しは継続し警告に留める**）。
+  - エンコーダー / muxer には常に設定済みの width/height が入るため、パーサー側の限界（null）を根拠に良好な書き出しを捨てない。`mismatch`（実値が読めて食い違う）だけを `throw` にする。
+  - standard / apple-safari の両フレーバーで同一の判定関数を共有。duration 差分検査は `muxDurationSummary` が非 null のときだけ実行するようガードを追加。
+- **注意**:
+  - 解像度検証を再び「読み取れない=失敗」に戻さない。tkhd を読めない正常ファイルでも書き出しを通す契約が回帰防止の要点。
+  - duration 差分の ±1ms hard-throw（`DURATION_DIFF_THRESHOLD_US`）は本対応の対象外で従来どおり。ここを触る場合は AAC プライミング遅延で audio track が伸びる実測を確認する。
+  - 実解像度が確実に食い違う `mismatch` は引き続き失敗にする（不正ファイルはユーザーへ渡さない 13-115 の意図を維持）。
+
+### 13-119. フレーム駆動エクスポートの停滞ウォッチドッグ（「書き出し準備中」ハング対策）
+
+- **ファイル**: `src/utils/exportTimeline.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/test/exportTimeline.test.ts`
+- **問題**:
+  - 13-116 で導入した「画像のみ export のフレーム駆動ペーシング」（`shouldUseFrameDrivenExportPacing`）は、VideoEncoder へのフレーム投入が進まないとタイムラインも進まない設計。何らかの理由（エンコーダーがエラー状態へ落ちる、投入が始まらない等）で `submitted` が増えないと、`currentTime` が 0 秒付近から進まず、UI が「書き出し準備中…（N秒経過）」のまま永久にハングする（`exportPhase` は `currentTime` の前進でしか rendering へ遷移しないため）。短い動画でも数分止まる症状。**画像のみ構成で発生**。
+- **対策**:
+  - 純ロジック `evaluateFrameDrivenExportStall()`（`exportTimeline.ts`）を追加。最後に `submitted` が増えてから `FRAME_DRIVEN_EXPORT_STALL_TIMEOUT_MS`(=2000ms) を超えて停滞したら `stalled=true` を返す。
+  - preview loop はフレーム駆動待機の直前でウォッチドッグを評価し、停滞検知時は `frameDrivenExportForcedWallClockRef` を立てて**壁時計ペーシングへフォールバック**する。壁時計は投入数に依存しないため、以後タイムラインは必ず前進し、終端で `completeWebCodecsExport()` に到達して正常完了またはエラーで確実に終わる。フォールバック時は `startTimeRef` を投入済みフレーム分だけ巻き戻して連続させる。
+  - フォールバック用フラグ/停滞計測 ref は export 開始（`startEngine` の isExportMode 分岐）・`onAudioPreRenderComplete`・`stopAll` の各所でリセットする。
+  - 併せて VideoEncoder の `error` コールバックを `console.error` だけでなく logStore へ記録し、投入停止の根因（エンコーダー障害）を診断可能にした。
+- **注意**:
+  - ウォッチドッグは 2 秒の「投入ゼロ前進」でだけ発火する安全弁。正常なフレーム駆動進行（1 投入ごとに前進）には一切干渉しない（既存の画像のみ回帰テストが緑のまま）。
+  - 停滞閾値を短くしすぎると、重い 1080p 描画で一時的に投入が遅れただけでも壁時計へ落ちてしまう。フレーム駆動の同期性が壊れない範囲で調整する。
+  - フォールバック後にフレーム駆動へ戻さない（1 回の export セッション内は片道）。復帰させると再度停滞し得る。
+
+### 13-120. エクスポート終端で現在時刻を総尺へスナップ（「0:04 / 0:05」表示ズレ対策）
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **問題**:
+  - standard の export 終端（`loop` 内 `clampedElapsed >= totalDuration` 分岐）は `completeWebCodecsExport()` を呼ぶだけで `currentTime` を更新せず、最後に描画した「最終フレーム開始時刻」（例 5秒/150fの frame149 = 4.966s）で止まっていた。
+  - `formatTime()` は `Math.floor` 秒表示のため、`4.966s` は `0:04`、総尺 `5.0s` は `0:05` となり、シークバーは右端なのに「**0:04 / 0:05**」と 1 秒ズレて見えた。preview 終端（`finalizePreviewAtTimelineEnd`）は総尺へスナップ済み、apple-safari の export 終端も `setCurrentTime(totalDuration)` 済みで、**standard の export 終端だけが未スナップ**だった。
+- **対策**:
+  - standard の export 終端分岐で `completeWebCodecsExport()`（/ `completePreviewCacheExport()`）呼び出し前に `currentTimeRef.current = totalDuration; setCurrentTime(totalDuration)` を実行し、他経路（preview / apple-safari）と表示を揃える。
+- **影響確認**:
+  - **エクスポート済みファイルの尺には影響しない**。映像は `expectedVideoFrames` 全数（150枚）をエンコードし、最終フレームの `duration` は `getExportFrameTiming` で `exportDurationUs` まで延長されるため、MP4 の video track / container 尺は総尺どおり（13-115 の保存前検証も通過）。本件は **UI 表示のみ**の修正。
+- **注意**:
+  - スナップは終端到達時（`clampedElapsed >= totalDuration`）にだけ行う。途中フレームの時刻計算（フレーム駆動 timestamp）には手を入れない。
+  - export 完了後の `stopAll()` は currentTime をリセットしないため、スナップした総尺表示は保持される。
+
+### 13-121. エクスポート中に BGM/ナレーションがスピーカーから聞こえる問題（native 音声漏れ）
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardExportNativeAudioSilence.test.ts`
+- **問題**:
+  - PC(standard) のエクスポートでは、出力音声を OfflineAudioContext（`offlineRenderAudio`）で**別途生成**して AudioEncoder に供給する（`webCodecsAudioCaptureStrategy='pre-rendered'`）。一方で render loop は export 中もライブの BGM/ナレーション `<audio>` 要素を `.play()` する。
+  - ライブ要素は export 中に WebAudio ソースノードを作らない（`ensurePreviewAudioGainNode` は `if (!_isExporting && !hasAudioNode)` でのみ生成）。ソースノードが無いと要素のスピーカー出力が横取りされず、PC ポリシー（`muteNativeMediaDuringExportWhenAudioRouted=false`）では `applyPreviewAudioOutputState` が `muted=false / volume=1` にしていたため、**export 中に BGM がスピーカーから漏れて聞こえていた**。加えて 13-112 の narration フェード native フォールバック（`element.volume = vol`）も export 中に音を出していた。
+  - **出力ファイルの音声には無関係**（file の音声は OfflineAudioContext 由来）。あくまで「作成中にスピーカーから聞こえるだけ」の副作用。
+- **対策**:
+  - `applyPreviewAudioOutputState` に「export 中 + webaudio モード + WebAudio ノード無し」= キャプチャ対象外の要素は必ず `muted=true / volume=0` にするガード（`shouldSilenceUncapturedDuringExport`）を追加。
+  - narration の native フォールバックも `element.volume = _isExporting ? 0 : ...` にして export 中は無音化。
+  - `applyPreviewAudioOutputState` を `export` し、モック要素での回帰テストを追加。
+- **注意**:
+  - **出力音声には触れない**。OfflineAudioContext のミックス（BGM/ナレーション/動画音声）はそのままファイルへ入る。無音化するのは「キャプチャされないライブ要素」だけ。
+  - script-processor フォールバック（offline 失敗時のライブ捕捉）は WebAudio グラフ（ソースノード有り）から拾うため、ソースノード**無し**要素の無音化は捕捉に影響しない。
+  - Android は既存の `muteNativeMediaDuringExportWhenAudioRouted=isAndroid=true` で従来から無音。iOS Safari は別フレーバーで本変更の対象外。

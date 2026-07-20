@@ -16,6 +16,7 @@ import {
   getExportFrameTiming,
   resolveExportCanvasFrameBurstCount,
   resolveExportDuration,
+  resolveExportResolutionVerdict,
 } from '../../../utils/exportTimeline';
 import { inspectMp4Durations } from '../../../utils/mp4Duration';
 import {
@@ -2470,13 +2471,19 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         const { buffer } = muxer.target;
         const muxDurationSummary = inspectMp4Durations(buffer);
 
-        if (
-          !muxDurationSummary
-          || muxDurationSummary.videoWidth !== width
-          || muxDurationSummary.videoHeight !== height
-        ) {
-          const actualWidth = muxDurationSummary?.videoWidth ?? null;
-          const actualHeight = muxDurationSummary?.videoHeight ?? null;
+        // 解像度検証: エンコーダー / muxer には width / height を設定済みなので、
+        // ここで「実ファイルの解像度が確実に食い違っている」場合だけ書き出しを失敗にする。
+        // パーサーが解像度を読み取れなかった（null）ケースは、正常なファイルでも起こり得る
+        // パーサー側の限界であり、検証不能を理由に完成した書き出しを破棄しない（警告に留める）。
+        const actualWidth = muxDurationSummary?.videoWidth ?? null;
+        const actualHeight = muxDurationSummary?.videoHeight ?? null;
+        const resolutionVerdict = resolveExportResolutionVerdict({
+          expectedWidth: width,
+          expectedHeight: height,
+          actualWidth,
+          actualHeight,
+        });
+        if (resolutionVerdict === 'mismatch') {
           useLogStore.getState().error('RENDER', '[DIAG-RESOLUTION] mux後の解像度不一致', {
             expectedWidth: width,
             expectedHeight: height,
@@ -2485,11 +2492,19 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             bufferBytes: buffer.byteLength,
           });
           throw new Error(
-            `出力動画の解像度を検証できませんでした (設定: ${width}x${height}, 実ファイル: ${actualWidth ?? 'unknown'}x${actualHeight ?? 'unknown'})`,
+            `出力動画の解像度が設定と一致しません (設定: ${width}x${height}, 実ファイル: ${actualWidth}x${actualHeight})`,
           );
         }
+        if (resolutionVerdict === 'unverified') {
+          useLogStore.getState().warn('RENDER', '[DIAG-RESOLUTION] mux後の解像度を検証できませんでした（書き出しは継続）', {
+            expectedWidth: width,
+            expectedHeight: height,
+            hasSummary: !!muxDurationSummary,
+            bufferBytes: buffer.byteLength,
+          });
+        }
 
-        if (Number.isFinite(exportDurationUs)) {
+        if (Number.isFinite(exportDurationUs) && muxDurationSummary) {
           const {
             containerDurationUs,
             videoDurationUs,

@@ -36,6 +36,7 @@ import {
   resolveExportDuration,
   resolveFrameDrivenExportTimeSec,
   shouldUseFrameDrivenExportPacing,
+  evaluateFrameDrivenExportStall,
 } from '../../../utils/exportTimeline';
 import {
   ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC,
@@ -216,7 +217,7 @@ const silencePreviewBgmOutput = (
   }
 };
 
-const applyPreviewAudioOutputState = (
+export const applyPreviewAudioOutputState = (
   policy: PreviewPlatformPolicy,
   mediaEl: HTMLMediaElement,
   options: {
@@ -243,9 +244,20 @@ const applyPreviewAudioOutputState = (
         isExporting: options.isExporting,
       });
 
+  // エクスポート中に WebAudio ノードを持たない要素は、ソースノードで
+  // スピーカー出力が横取りされないため native 再生がそのまま漏れる。
+  // 出力音声は OfflineAudioContext で別途生成されており、この要素の live 再生は
+  // ファイルに入らない（＝スピーカーから聞こえるだけ）ため、必ず無音にする。
+  const shouldSilenceUncapturedDuringExport =
+    options.isExporting && outputMode === 'webaudio' && !options.hasAudioNode;
+
   if (shouldMuteNative && options.hasAudioNode) {
     mediaEl.defaultMuted = false;
     mediaEl.muted = false;
+    mediaEl.volume = 0;
+  } else if (shouldSilenceUncapturedDuringExport) {
+    mediaEl.defaultMuted = true;
+    mediaEl.muted = true;
     mediaEl.volume = 0;
   } else {
     mediaEl.defaultMuted = shouldMuteNative;
@@ -295,6 +307,10 @@ const PREVIEW_STALL_STATE_CONTINUITY_MS = 250;
 const PREVIEW_FADE_STALL_SNAPSHOT_INTERVAL_MS = 200;
 const PREVIEW_FADE_STALL_HOLD_LOG_INTERVAL_MS = 1000;
 const PREVIEW_END_THRESHOLD_SEC = 0.03;
+// フレーム駆動エクスポートで VideoEncoder への投入が停滞したとみなすまでの許容時間。
+// これを超えて投入数が進まない場合は壁時計ペーシングへフォールバックし、
+// 「書き出し準備中」から進まないハングを防ぐ。
+const FRAME_DRIVEN_EXPORT_STALL_TIMEOUT_MS = 2000;
 // 再生開始直後は seeked / canplay の到着を数フレームだけ待ち、遅ければ loop を止めない。
 const PREVIEW_START_READY_POLL_INTERVAL_MS = 40;
 const PREVIEW_START_READY_TIMEOUT_MS = 800;
@@ -703,6 +719,10 @@ export function usePreviewEngine({
   const frameDrivenExportEnabledRef = useRef(false);
   const frameDrivenExportSubmittedCountRef = useRef(0);
   const frameDrivenExportLastRenderedCountRef = useRef<number | null>(null);
+  // フレーム駆動ウォッチドッグ: 投入数が進まないまま停滞したら壁時計へフォールバックする。
+  const frameDrivenExportStallObservedCountRef = useRef(0);
+  const frameDrivenExportStallLastAdvanceAtMsRef = useRef(0);
+  const frameDrivenExportForcedWallClockRef = useRef(false);
   const currentPreviewCacheBuildSessionIdRef = useRef<string | null>(null);
   const pendingPreviewCacheBuildResolverRef = useRef<((success: boolean) => void) | null>(null);
   const androidPreviewRecoveryRef = useRef<Record<string, {
@@ -2967,7 +2987,10 @@ export function usePreviewEngine({
               // このままだと音量もフェードも一切反映されない。
               // element.volume はソースノード経由の出力にも作用するため、
               // フェード込みの音量を native 側へ直接反映してフォールバックする。
-              element.volume = Math.max(0, Math.min(1, vol));
+              // ただしエクスポート中は出力音声を OfflineAudioContext で別途生成しており、
+              // ソースノードの無い native 要素の再生はファイルに入らず「スピーカーから
+              // 音が漏れるだけ」になるため、必ず無音（volume=0）にする。
+              element.volume = _isExporting ? 0 : Math.max(0, Math.min(1, vol));
             }
           } else {
             applyPreviewAudioOutputState(previewPlatformPolicy, element, {
@@ -3064,6 +3087,9 @@ export function usePreviewEngine({
     frameDrivenExportEnabledRef.current = false;
     frameDrivenExportSubmittedCountRef.current = 0;
     frameDrivenExportLastRenderedCountRef.current = null;
+    frameDrivenExportStallObservedCountRef.current = 0;
+    frameDrivenExportStallLastAdvanceAtMsRef.current = 0;
+    frameDrivenExportForcedWallClockRef.current = false;
     currentPreviewCacheBuildSessionIdRef.current = null;
     logDebug('SYSTEM', 'stopAll呼び出し', { previousLoopId: loopIdRef.current, isPlayingRef: isPlayingRef.current });
 
@@ -3369,11 +3395,44 @@ export function usePreviewEngine({
         frameGapMs = now - diagnostics.lastRafNowMs;
       }
       diagnostics.lastRafNowMs = now;
-      const wallClockElapsed = (now - startTimeRef.current) / 1000;
-      const useFrameDrivenExportTime = isExportMode && frameDrivenExportEnabledRef.current;
       const submittedFrameCount = frameDrivenExportSubmittedCountRef.current;
+
+      // フレーム駆動ウォッチドッグ: VideoEncoder への投入が一定時間進まない場合は
+      // フレーム駆動を諦めて壁時計ペーシングへフォールバックする。これにより、
+      // 何らかの理由で投入が停滞しても「書き出し準備中」から進まないハングを防ぐ。
+      if (
+        isExportMode
+        && frameDrivenExportEnabledRef.current
+        && !frameDrivenExportForcedWallClockRef.current
+      ) {
+        const stall = evaluateFrameDrivenExportStall({
+          enabled: true,
+          submittedFrameCount,
+          lastObservedSubmittedFrameCount: frameDrivenExportStallObservedCountRef.current,
+          lastAdvanceAtMs: frameDrivenExportStallLastAdvanceAtMsRef.current,
+          nowMs: now,
+          stallTimeoutMs: FRAME_DRIVEN_EXPORT_STALL_TIMEOUT_MS,
+        });
+        frameDrivenExportStallObservedCountRef.current = submittedFrameCount;
+        frameDrivenExportStallLastAdvanceAtMsRef.current = stall.nextLastAdvanceAtMs;
+        if (stall.stalled) {
+          frameDrivenExportForcedWallClockRef.current = true;
+          // 壁時計をフレーム駆動の到達点から連続させ、既に投入済みのフレーム分を巻き戻さない。
+          startTimeRef.current = now - (submittedFrameCount / FPS) * 1000;
+          logWarn('RENDER', 'standard.export.pacing.watchdog', {
+            reason: 'frame-driven submission stalled; falling back to wall-clock',
+            submittedFrameCount,
+            stallTimeoutMs: FRAME_DRIVEN_EXPORT_STALL_TIMEOUT_MS,
+          });
+        }
+      }
+
+      const useFrameDrivenExportTime =
+        isExportMode
+        && frameDrivenExportEnabledRef.current
+        && !frameDrivenExportForcedWallClockRef.current;
       const elapsed = resolveFrameDrivenExportTimeSec({
-        wallClockTimeSec: wallClockElapsed,
+        wallClockTimeSec: (now - startTimeRef.current) / 1000,
         submittedFrameCount,
         fps: FPS,
         enabled: useFrameDrivenExportTime,
@@ -3396,6 +3455,12 @@ export function usePreviewEngine({
         // stopAll() を呼ぶと外部 recorderRef が null のため stopWebCodecsExport({ reason: 'user' }) が
         // 走り、blob 生成後の callback が誤ってキャンセル扱いで抑止されてしまう。
         if (isExportMode) {
+          // 表示上の現在時刻を総尺へスナップする。フレーム駆動/壁時計とも最終描画時刻は
+          // 最後のフレーム開始時刻（例 4.967s）で止まり、formatTime の floor で「0:04 / 0:05」の
+          // ように 1 秒ズレて見えるため、preview 終端（finalizePreviewAtTimelineEnd）と同様に
+          // 総尺へ合わせる。エクスポート済みファイルの尺には影響しない（表示のみ）。
+          currentTimeRef.current = totalDuration;
+          setCurrentTime(totalDuration);
           safeSetPreviewPlaying(false);
           if (activePreviewModeRef.current === 'preview-cache-build') {
             completePreviewCacheExport?.();
@@ -4058,6 +4123,9 @@ export function usePreviewEngine({
         });
         frameDrivenExportSubmittedCountRef.current = 0;
         frameDrivenExportLastRenderedCountRef.current = null;
+        frameDrivenExportStallObservedCountRef.current = 0;
+        frameDrivenExportStallLastAdvanceAtMsRef.current = 0;
+        frameDrivenExportForcedWallClockRef.current = false;
         logInfo('RENDER', 'standard.export.pacing.selected', {
           mode: frameDrivenExportEnabledRef.current ? 'video-frame-driven' : 'wall-clock',
           fromTime,
@@ -4635,6 +4703,10 @@ export function usePreviewEngine({
             onAudioPreRenderComplete: () => {
               frameDrivenExportSubmittedCountRef.current = 0;
               frameDrivenExportLastRenderedCountRef.current = null;
+              // ウォッチドッグの停滞計測は実際の映像ループ開始時刻から始める。
+              frameDrivenExportStallObservedCountRef.current = 0;
+              frameDrivenExportStallLastAdvanceAtMsRef.current = getStandardPreviewNow();
+              frameDrivenExportForcedWallClockRef.current = false;
               startTimeRef.current = getStandardPreviewNow() - fromTime * 1000;
               loop(isExportMode, myLoopId);
             },

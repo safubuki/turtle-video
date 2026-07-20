@@ -45,6 +45,44 @@ export interface FrameDrivenExportPacingDecisionInput {
   mediaItemTypes: readonly string[];
 }
 
+export interface ExportResolutionValidationInput {
+  /** VideoEncoder / muxer に設定した書き出し幅 */
+  expectedWidth: number;
+  expectedHeight: number;
+  /** 完成 MP4 の tkhd から読み取れた実解像度（読み取れない場合は null） */
+  actualWidth: number | null;
+  actualHeight: number | null;
+}
+
+export type ExportResolutionValidationVerdict =
+  /** 実解像度が設定と一致（正常） */
+  | 'match'
+  /** 実解像度が設定と明確に食い違う（書き出しを失敗にする） */
+  | 'mismatch'
+  /** 実解像度を読み取れなかった（パーサー側の限界。書き出しは継続し警告に留める） */
+  | 'unverified';
+
+/**
+ * 完成 MP4 の実解像度と設定値を突き合わせて判定する純ロジック。
+ *
+ * エンコーダー / muxer には常に expected の width / height を設定済みのため、
+ * 「実ファイルの解像度が確実に食い違っている」場合だけ 'mismatch'（失敗）とし、
+ * パーサーが解像度を読み取れなかった場合は 'unverified'（継続）として、
+ * 検証不能を理由に完成した書き出しを破棄しない。
+ */
+export function resolveExportResolutionVerdict(
+  input: ExportResolutionValidationInput,
+): ExportResolutionValidationVerdict {
+  const { expectedWidth, expectedHeight, actualWidth, actualHeight } = input;
+  if (actualWidth === null || actualHeight === null) {
+    return 'unverified';
+  }
+  if (actualWidth !== expectedWidth || actualHeight !== expectedHeight) {
+    return 'mismatch';
+  }
+  return 'match';
+}
+
 const DURATION_EPSILON = 1e-9;
 
 function sanitizePlaybackTimeSec(timeSec: number): number | null {
@@ -224,6 +262,70 @@ export function resolveFrameDrivenExportTimeSec(
     ? Math.max(0, Math.floor(input.submittedFrameCount))
     : 0;
   return safeSubmittedFrameCount / safeFps;
+}
+
+/**
+ * フレーム駆動エクスポートが「投入フレーム数の増加待ち」で長時間停滞したかを判定する
+ * ウォッチドッグの純ロジック。
+ *
+ * フレーム駆動では VideoEncoder への投入が進まないとタイムラインも進まない。
+ * 何らかの理由で投入が停滞すると `submitted` が増えず、書き出しが 0 秒付近で
+ * 永久にハングする（「書き出し準備中」から進まない）。これを避けるため、
+ * 最後に投入数が増えてから `stallTimeoutMs` を超えて停滞したら true を返し、
+ * 呼び出し側は壁時計ペーシングへフォールバックして確実に前進させる。
+ */
+export interface FrameDrivenExportStallInput {
+  /** フレーム駆動が有効か（無効なら停滞判定はしない） */
+  enabled: boolean;
+  /** 現在の投入フレーム数 */
+  submittedFrameCount: number;
+  /** 前回観測した投入フレーム数 */
+  lastObservedSubmittedFrameCount: number;
+  /** 前回投入数が変化した時刻（ms, 単調増加時計） */
+  lastAdvanceAtMs: number;
+  /** 現在時刻（ms, 単調増加時計） */
+  nowMs: number;
+  /** 停滞とみなすまでの許容時間（ms） */
+  stallTimeoutMs: number;
+}
+
+export interface FrameDrivenExportStallDecision {
+  /** 投入数が前回から進んだか */
+  advanced: boolean;
+  /** 停滞タイムアウトを超えたか（true なら壁時計へフォールバックすべき） */
+  stalled: boolean;
+  /** 更新後に保持すべき「最後に進んだ時刻」 */
+  nextLastAdvanceAtMs: number;
+}
+
+export function evaluateFrameDrivenExportStall(
+  input: FrameDrivenExportStallInput,
+): FrameDrivenExportStallDecision {
+  const {
+    enabled,
+    submittedFrameCount,
+    lastObservedSubmittedFrameCount,
+    lastAdvanceAtMs,
+    nowMs,
+    stallTimeoutMs,
+  } = input;
+
+  if (!enabled) {
+    return { advanced: false, stalled: false, nextLastAdvanceAtMs: nowMs };
+  }
+
+  const advanced = submittedFrameCount !== lastObservedSubmittedFrameCount;
+  if (advanced) {
+    return { advanced: true, stalled: false, nextLastAdvanceAtMs: nowMs };
+  }
+
+  const safeTimeout = Number.isFinite(stallTimeoutMs) && stallTimeoutMs > 0
+    ? stallTimeoutMs
+    : Number.POSITIVE_INFINITY;
+  const elapsedSinceAdvanceMs = nowMs - lastAdvanceAtMs;
+  const stalled = elapsedSinceAdvanceMs >= safeTimeout;
+
+  return { advanced: false, stalled, nextLastAdvanceAtMs: lastAdvanceAtMs };
 }
 
 /**

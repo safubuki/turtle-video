@@ -8,6 +8,8 @@ import {
   shouldUseFrameDrivenExportPacing,
   resolveExportPlaybackTimeSec,
   resolveExportDuration,
+  resolveExportResolutionVerdict,
+  evaluateFrameDrivenExportStall,
 } from '../utils/exportTimeline';
 import { isCaptionActiveAtTime } from '../utils/captionTimeline';
 import type { Caption } from '../types';
@@ -278,6 +280,118 @@ describe('shouldUseFrameDrivenExportPacing', () => {
       fromTimeSec: 0,
       mediaItemTypes: [],
     })).toBe(false);
+  });
+});
+
+describe('resolveExportResolutionVerdict', () => {
+  it('一致する解像度は match（正常）', () => {
+    expect(resolveExportResolutionVerdict({
+      expectedWidth: 1920,
+      expectedHeight: 1080,
+      actualWidth: 1920,
+      actualHeight: 1080,
+    })).toBe('match');
+    expect(resolveExportResolutionVerdict({
+      expectedWidth: 1280,
+      expectedHeight: 720,
+      actualWidth: 1280,
+      actualHeight: 720,
+    })).toBe('match');
+  });
+
+  it('実解像度が明確に食い違う場合だけ mismatch（書き出し失敗）', () => {
+    expect(resolveExportResolutionVerdict({
+      expectedWidth: 1920,
+      expectedHeight: 1080,
+      actualWidth: 1280,
+      actualHeight: 720,
+    })).toBe('mismatch');
+    expect(resolveExportResolutionVerdict({
+      expectedWidth: 1920,
+      expectedHeight: 1080,
+      actualWidth: 1920,
+      actualHeight: 1088,
+    })).toBe('mismatch');
+  });
+
+  it('解像度を読み取れない場合は unverified（検証不能を理由に破棄しない）', () => {
+    // 回帰: フルHD/HD/自動モード追加時、パーサーが解像度を返さないと
+    // 完成した書き出しごと破棄され、エクスポートが全くできなくなっていた。
+    expect(resolveExportResolutionVerdict({
+      expectedWidth: 1920,
+      expectedHeight: 1080,
+      actualWidth: null,
+      actualHeight: null,
+    })).toBe('unverified');
+    expect(resolveExportResolutionVerdict({
+      expectedWidth: 1920,
+      expectedHeight: 1080,
+      actualWidth: 1920,
+      actualHeight: null,
+    })).toBe('unverified');
+    expect(resolveExportResolutionVerdict({
+      expectedWidth: 1920,
+      expectedHeight: 1080,
+      actualWidth: null,
+      actualHeight: 1080,
+    })).toBe('unverified');
+  });
+});
+
+describe('evaluateFrameDrivenExportStall', () => {
+  it('投入数が進んだら advanced=true・停滞計測をリセットする', () => {
+    const decision = evaluateFrameDrivenExportStall({
+      enabled: true,
+      submittedFrameCount: 5,
+      lastObservedSubmittedFrameCount: 4,
+      lastAdvanceAtMs: 1000,
+      nowMs: 9999,
+      stallTimeoutMs: 2000,
+    });
+    expect(decision.advanced).toBe(true);
+    expect(decision.stalled).toBe(false);
+    expect(decision.nextLastAdvanceAtMs).toBe(9999);
+  });
+
+  it('停滞が閾値未満なら stalled=false・最後に進んだ時刻を保持する', () => {
+    const decision = evaluateFrameDrivenExportStall({
+      enabled: true,
+      submittedFrameCount: 3,
+      lastObservedSubmittedFrameCount: 3,
+      lastAdvanceAtMs: 1000,
+      nowMs: 1000 + 1999,
+      stallTimeoutMs: 2000,
+    });
+    expect(decision.advanced).toBe(false);
+    expect(decision.stalled).toBe(false);
+    expect(decision.nextLastAdvanceAtMs).toBe(1000);
+  });
+
+  it('停滞が閾値以上なら stalled=true（壁時計フォールバックの合図）', () => {
+    // 回帰: 画像のみエクスポートで VideoEncoder への投入が停滞すると
+    // タイムラインが 0 秒付近で止まり「書き出し準備中」から進まなくなっていた。
+    const decision = evaluateFrameDrivenExportStall({
+      enabled: true,
+      submittedFrameCount: 1,
+      lastObservedSubmittedFrameCount: 1,
+      lastAdvanceAtMs: 1000,
+      nowMs: 1000 + 2000,
+      stallTimeoutMs: 2000,
+    });
+    expect(decision.stalled).toBe(true);
+    expect(decision.nextLastAdvanceAtMs).toBe(1000);
+  });
+
+  it('無効時は常に stalled=false（フレーム駆動でない経路に干渉しない）', () => {
+    const decision = evaluateFrameDrivenExportStall({
+      enabled: false,
+      submittedFrameCount: 0,
+      lastObservedSubmittedFrameCount: 0,
+      lastAdvanceAtMs: 0,
+      nowMs: 999999,
+      stallTimeoutMs: 2000,
+    });
+    expect(decision.stalled).toBe(false);
   });
 });
 
