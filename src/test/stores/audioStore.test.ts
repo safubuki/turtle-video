@@ -3,7 +3,11 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useAudioStore } from '../../stores/audioStore';
+import {
+  resolveAudioClipEndAtTimelineTime,
+  resolveAudioClipFitToTimelineEnd,
+  useAudioStore,
+} from '../../stores/audioStore';
 import type { AudioTrack, NarrationClip } from '../../types';
 
 const createMockAudioTrack = (overrides: Partial<AudioTrack> = {}): AudioTrack => ({
@@ -200,6 +204,59 @@ describe('audioStore', () => {
       const afterEnd = useAudioStore.getState().narrations[0];
       expect(afterEnd.trimEnd).toBeCloseTo(10, 2);
     });
+
+    it('sets the narration timeline end using trimStart and startTime offsets', () => {
+      const clip = createMockNarrationClip({
+        startTime: 10,
+        duration: 30,
+        trimStart: 5,
+        trimEnd: 30,
+      });
+      useAudioStore.setState({ narrations: [clip] });
+
+      useAudioStore.getState().setNarrationEndTime(clip.id, 18);
+
+      expect(useAudioStore.getState().narrations[0].trimEnd).toBeCloseTo(13);
+    });
+  });
+
+  describe('audio clip timeline adjustment', () => {
+    it('converts a timeline end into a source-relative trim end', () => {
+      const clip = createMockNarrationClip({
+        startTime: 10,
+        duration: 30,
+        trimStart: 5,
+        trimEnd: 25,
+      });
+      expect(resolveAudioClipEndAtTimelineTime(clip, 18)).toEqual({ trimEnd: 13 });
+      expect(resolveAudioClipEndAtTimelineTime(clip, 10)).toBeNull();
+    });
+
+    it('trims an overflowing clip without changing its start position', () => {
+      const clip = createMockNarrationClip({
+        startTime: 20,
+        duration: 100,
+        trimStart: 5,
+        trimEnd: 100,
+      });
+      expect(resolveAudioClipFitToTimelineEnd(clip, 60)).toEqual({
+        startTime: 20,
+        trimEnd: 45,
+      });
+    });
+
+    it('moves a short clip later while preserving its effective duration', () => {
+      const clip = createMockNarrationClip({
+        startTime: 0,
+        duration: 20,
+        trimStart: 0,
+        trimEnd: 20,
+      });
+      expect(resolveAudioClipFitToTimelineEnd(clip, 60)).toEqual({
+        startTime: 40,
+        trimEnd: 20,
+      });
+    });
   });
 
   describe('clearAllAudio', () => {
@@ -292,6 +349,29 @@ describe('audioStore', () => {
       // 2 本目は 1 本目の末尾 (20s) から開始し、残り 40 秒に収まる
       expect(clips[1].startTime).toBeCloseTo(20);
       expect(clips[1].trimEnd).toBeCloseTo(40);
+    });
+
+    it('fits only the selected BGM clip to the video end', () => {
+      const first = createMockNarrationClip({
+        id: 'bgmclip-first',
+        startTime: 0,
+        duration: 20,
+        trimEnd: 20,
+      });
+      const second = createMockNarrationClip({
+        id: 'bgmclip-second',
+        startTime: 20,
+        duration: 100,
+        trimEnd: 100,
+      });
+      useAudioStore.setState({ bgmClips: [first, second] });
+
+      useAudioStore.getState().fitBgmClipToTimelineEnd(second.id, 60);
+
+      const clips = useAudioStore.getState().bgmClips;
+      expect(clips[0]).toEqual(first);
+      expect(clips[1].startTime).toBe(20);
+      expect(clips[1].trimEnd).toBe(40);
     });
 
     it('does not trim when there is no video yet', () => {

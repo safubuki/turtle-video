@@ -2182,3 +2182,18 @@
 - **注意**:
   - 静止画 export の進行基準を再び壁時計へ戻したり、1 回の描画から複数 timestamp を生成すると、画像・キャプション・フェードが BGM より早く終わる問題が再発する。
   - 7.5 秒・30fps の回帰テストでは、195 枚投入時が約 6.5 秒、225 枚投入後だけが完了条件であることを確認する。
+
+### 13-117. まとめて入力の可逆モード変換 / 個別設定クリア / 音声終了位置のプレビュー反映
+
+- **ファイル**: `src/utils/captionBulkInput.ts`, `src/components/modals/CaptionBulkAddModal.tsx`, `src/utils/captionIndividualSettings.ts`, `src/components/media/CaptionItem.tsx`, `src/components/modals/CaptionSettingsModal.tsx`, `src/stores/audioStore.ts`, `src/components/sections/BgmClipList.tsx`, `src/components/sections/NarrationSection.tsx`
+- **内容**:
+  - **まとめて入力3モード**: `line`（1行カード）/ `hybrid`（通常行はカード、`+ ` 行だけ直前カードの時分割）/ `block`（空行区切り）。`convertBulkCaptionTextMode()` が切替時に入力欄自体を変換し、block→line では内部行を独立カードへ展開、line→block ではカード間へ空行を補って意図しない全行結合を防ぐ。既存 `⏎` は後方互換入力として解釈するが、新UIでは表示・入力させない。
+  - **時分割のスマホ入力**: hybrid を既定にし、「時分割行を追加」でカーソル行の次へ `+ ` 行を挿入。通常カードと時分割カードを同じ入力内で混在できる。
+  - **時間記法だけ除去**: `stripBulkCaptionTimeNotations()` は有効な前置/後置 `[開始-終了]` のみを除去し、文章・空行・`+ ` 構造・通常の角括弧を維持する。
+  - **個別設定クリア**: `captionIndividualSettings.ts` が個別設定バッジ判定と全クリア対象の単一ソース。本文/開始/終了/カード本来の fade 値は残し、override と sequential 固有設定だけを undefined に戻す。
+  - **音声のタイムライン終了調整**: `resolveAudioClipEndAtTimelineTime()` が `trimEnd = trimStart + (timelineEnd - startTime)` の座標変換を担当。BGM/ナレーションとも現在のプレビュー位置を開始・終了へ反映できる。`resolveAudioClipFitToTimelineEnd()` はBGMが動画末尾を超える場合はトリムし、短い場合は実効長を保って後ろへ移動する。
+- **注意**:
+  - `Caption.text` 内の実改行が時分割の保存上の唯一のソースである契約は不変。`+ ` / `⏎` / 空行はまとめて入力UI内の一時記法で、反映時は必ず実改行へ正規化する。
+  - まとめて入力モードをUI stateだけ切り替えない。表示テキストを変換しないと、旧モードの構造が新モードでも残る回帰が再発する。
+  - 音声の現在位置はタイムライン時刻、trimEnd は音源内時刻。両者を直接代入せず、startTime と trimStart のオフセットを必ず考慮する。
+  - BGM末尾フィットは選択クリップだけを変更し、`bgm` / `bgmClips` の互換ミラー契約には触れない。

@@ -7,8 +7,8 @@
  *   編集して反映すると行順で既存キャプションへマージされる（個別スタイルは維持）。
  * - キャプション間の間隔（0/0.3/0.5秒）と 1 行あたりの表示秒数（0.5〜30秒）を調整できる。
  */
-import React, { useMemo, useState } from 'react';
-import { X, ListPlus, Minus, Plus, CircleHelp, Copy, Check } from 'lucide-react';
+import React, { useMemo, useRef, useState } from 'react';
+import { X, ListPlus, Minus, Plus, CircleHelp, Copy, Check, Clock, CornerDownRight } from 'lucide-react';
 import type { Caption } from '../../types';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 import {
@@ -20,11 +20,14 @@ import {
   BULK_CAPTION_GAP_PRESETS_SEC,
   assignBulkCaptionIds,
   clampDuration,
-  collapseBlankLineBlocks,
+  convertBulkCaptionTextMode,
   formatCaptionsAsBulkText,
+  normalizeBulkCaptionText,
   parseBulkCaptionInput,
   planBulkCaptions,
+  stripBulkCaptionTimeNotations,
   type BulkCaptionAllocationMode,
+  type BulkCaptionSplitMode,
 } from '../../utils/captionBulkInput';
 
 export interface BulkCaptionApplyItem {
@@ -74,7 +77,7 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
   useDisableBodyScroll(true);
 
   const isEditing = captions.length > 0;
-  const [text, setText] = useState(() => (isEditing ? formatCaptionsAsBulkText(captions) : ''));
+  const [text, setText] = useState(() => (isEditing ? formatCaptionsAsBulkText(captions, 'hybrid') : ''));
   const [mode, setMode] = useState<BulkCaptionAllocationMode>('even');
   const [fromCurrent, setFromCurrent] = useState(false);
   const [gapSec, setGapSec] = useState<number>(BULK_CAPTION_DEFAULT_GAP_SEC);
@@ -82,8 +85,9 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
   const [showFormatHelp, setShowFormatHelp] = useState(false);
   const [isCustomGap, setIsCustomGap] = useState(false);
   const [promptCopied, setPromptCopied] = useState(false);
-  // 行の区切り方: line = 1行1カード（従来） / block = 空行区切り（複数行ブロック = 時分割カード）
-  const [splitMode, setSplitMode] = useState<'line' | 'block'>('line');
+  // 通常の1行カードを保ちつつ、必要な行だけ `+ ` で時分割にできる混在モードを既定にする。
+  const [splitMode, setSplitMode] = useState<BulkCaptionSplitMode>('hybrid');
+  const textAreaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleCopyAiPrompt = async () => {
     try {
@@ -96,7 +100,7 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
   };
 
   const lines = useMemo(
-    () => parseBulkCaptionInput(splitMode === 'block' ? collapseBlankLineBlocks(text) : text),
+    () => parseBulkCaptionInput(normalizeBulkCaptionText(text, splitMode)),
     [text, splitMode],
   );
   const hasExplicitTimes = lines.some((line) => line.explicitStart !== undefined);
@@ -122,6 +126,33 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
 
   const stepDuration = (delta: number) => {
     setFixedDuration((prev) => clampDuration(Math.round((prev + delta) * 2) / 2));
+  };
+
+  const handleSplitModeChange = (nextMode: BulkCaptionSplitMode) => {
+    if (nextMode === splitMode) return;
+    setText((current) => convertBulkCaptionTextMode(current, splitMode, nextMode));
+    setSplitMode(nextMode);
+  };
+
+  const handleInsertSequentialLine = () => {
+    if (!text.trim()) return;
+    const converted = splitMode === 'hybrid'
+      ? text
+      : convertBulkCaptionTextMode(text, splitMode, 'hybrid');
+    const textarea = textAreaRef.current;
+    const cursor = splitMode === 'hybrid' && textarea
+      ? (textarea.selectionEnd ?? converted.length)
+      : converted.length;
+    const nextLineAt = converted.indexOf('\n', cursor);
+    const insertAt = nextLineAt >= 0 ? nextLineAt : converted.length;
+    const nextText = `${converted.slice(0, insertAt)}\n+ ${converted.slice(insertAt)}`;
+    const nextCursor = insertAt + 3;
+    setSplitMode('hybrid');
+    setText(nextText);
+    window.requestAnimationFrame(() => {
+      textAreaRef.current?.focus();
+      textAreaRef.current?.setSelectionRange(nextCursor, nextCursor);
+    });
   };
 
   const segButtonClass = (selected: boolean) =>
@@ -152,6 +183,11 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
                 <>
                   <span className="text-yellow-300">1 行が 1 キャプション</span>です（空行は無視）。
                 </>
+              ) : splitMode === 'hybrid' ? (
+                <>
+                  通常は<span className="text-yellow-300">1 行が 1 キャプション</span>、
+                  <span className="text-emerald-300">「+ 」で始めた行だけ直前カードの時分割</span>になります。
+                </>
               ) : (
                 <>
                   <span className="text-emerald-300">空行までのまとまりが 1 キャプション</span>です。
@@ -171,23 +207,30 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
             </button>
           </div>
 
-          {/* 行の区切り方（1行=1カード / 空行区切り=時分割カード） */}
-          <div className="flex items-center gap-2 text-[10px] md:text-xs">
-            <span className="text-gray-400 shrink-0">区切り方</span>
-            <div className="flex gap-1.5 flex-1">
+          {/* 行の区切り方。切替時はテキストも変換し、表示と解釈を一致させる。 */}
+          <div className="space-y-1.5 text-[10px] md:text-xs">
+            <span className="text-gray-400">カードの作り方</span>
+            <div className="grid grid-cols-3 gap-1.5">
               <button
-                onClick={() => setSplitMode('line')}
+                onClick={() => handleSplitModeChange('line')}
                 className={segButtonClass(splitMode === 'line')}
                 title="1 行ごとに別々のキャプションカードを作ります"
               >
-                1行 = 1カード
+                1行カード
               </button>
               <button
-                onClick={() => setSplitMode('block')}
+                onClick={() => handleSplitModeChange('hybrid')}
+                className={segButtonClass(splitMode === 'hybrid')}
+                title="通常は1行1カード。+ で始めた行だけ直前カード内で順番に表示します"
+              >
+                混在（おすすめ）
+              </button>
+              <button
+                onClick={() => handleSplitModeChange('block')}
                 className={segButtonClass(splitMode === 'block')}
                 title="空行で区切ったまとまりを 1 枚のカードにし、まとまり内の複数行は 1 行ずつ順番に表示します（時分割）"
               >
-                空行で区切る（時分割）
+                空行で時分割
               </button>
             </div>
           </div>
@@ -218,8 +261,8 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
                 本文中の記号（@ や [ ]）は自由に使えます。行末に付けることもできます。
               </div>
               <div>
-                本文中の <code className="bg-gray-700 px-1 rounded">⏎</code> は「時分割カード」の行区切りです。
-                1 枚のカード内で ⏎ 区切りの文が表示時間を分け合い、1 行ずつ順番に表示されます。
+                混在モードでは、行頭に <code className="bg-gray-700 px-1 rounded">+ </code> を付けた行が
+                直前カードの続きになり、1 行ずつ順番に表示されます。「時分割行を追加」ボタンでも入力できます。
               </div>
               <div className="pt-1 border-t border-gray-700/60 space-y-1">
                 <div className="text-yellow-300 font-semibold">AI に音声解析させて字幕を作る</div>
@@ -249,14 +292,38 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
           )}
 
           <textarea
+            ref={textAreaRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder={splitMode === 'line'
               ? '例:\n夜空に浮かぶ\n小さな星たちが\n[00:10-00:15] そっと瞬いた'
+              : splitMode === 'hybrid'
+                ? '例:\n通常カード\n時分割の1行目\n+ 時分割の2行目\n次の通常カード'
               : '例:\nこの工場では\n最先端の生産設備で\n効率的に開発をしています\n\n次の説明のまとまり…'}
             rows={7}
             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-yellow-500 resize-y font-mono"
           />
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={handleInsertSequentialLine}
+              disabled={!text.trim()}
+              className="min-h-9 px-3 rounded-lg bg-emerald-900/40 border border-emerald-600/40 text-emerald-200 hover:bg-emerald-900/60 disabled:opacity-40 text-xs flex items-center gap-1.5 transition"
+              title="カーソルのある行の次に、同じカード内で順番に表示する行を追加します"
+            >
+              <CornerDownRight className="w-3.5 h-3.5" /> 時分割行を追加
+            </button>
+            <button
+              type="button"
+              onClick={() => setText((current) => stripBulkCaptionTimeNotations(current))}
+              disabled={!text.trim()}
+              className="min-h-9 px-3 rounded-lg bg-gray-700 border border-gray-600 text-gray-200 hover:bg-gray-600 disabled:opacity-40 text-xs flex items-center gap-1.5 transition"
+              title="[開始-終了] だけを削除し、文章とカード構造を残します"
+            >
+              <Clock className="w-3.5 h-3.5" /> 時間指定だけ消す
+            </button>
+          </div>
 
           {/* 割付方法（時間記法がある行はそのまま使われる） */}
           <div className="space-y-2">
@@ -396,7 +463,7 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
                         </span>
                       )}
                       <span className="text-gray-200 truncate">
-                        {plan.text.split('\n').join(' ⏎ ')}
+                        {plan.text.split('\n').join(' → ')}
                       </span>
                     </div>
                   );

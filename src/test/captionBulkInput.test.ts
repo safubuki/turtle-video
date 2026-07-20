@@ -7,11 +7,14 @@ import {
   BULK_CAPTION_FIXED_DURATION_SEC,
   assignBulkCaptionIds,
   collapseBlankLineBlocks,
+  convertBulkCaptionTextMode,
   formatCaptionsAsBulkText,
+  normalizeBulkCaptionText,
   parseBulkCaptionInput,
   parseTimeNotation,
   planBulkCaptions,
   splitCaptionLines,
+  stripBulkCaptionTimeNotations,
 } from '../utils/captionBulkInput';
 
 describe('splitCaptionLines', () => {
@@ -334,5 +337,59 @@ describe('planBulkCaptions (時分割カードの行数加重)', () => {
     // 重み 3:1 → 30 秒 / 10 秒
     expect(plans[0]).toMatchObject({ startTime: 0, endTime: 30 });
     expect(plans[1]).toMatchObject({ startTime: 30, endTime: 40 });
+  });
+});
+
+describe('bulk caption split mode conversion', () => {
+  it('supports normal cards and a time-split card in the same hybrid input', () => {
+    const normalized = normalizeBulkCaptionText(
+      '通常カードA\n時分割A\n+ 時分割B\n+ 時分割C\n通常カードB',
+      'hybrid',
+    );
+    expect(parseBulkCaptionInput(normalized)).toEqual([
+      { text: '通常カードA' },
+      { text: '時分割A\n時分割B\n時分割C' },
+      { text: '通常カードB' },
+    ]);
+  });
+
+  it('expands a blank-line time-split block when returning to one-line cards', () => {
+    const input = '[00:01-00:07] 1行目\n2行目\n3行目\n\n次のカード';
+    expect(convertBulkCaptionTextMode(input, 'block', 'line')).toBe(
+      '[00:01-00:07] 1行目\n2行目\n3行目\n次のカード',
+    );
+  });
+
+  it('keeps one-line cards separate when switching to blank-line mode', () => {
+    expect(convertBulkCaptionTextMode('A\nB\nC', 'line', 'block')).toBe('A\n\nB\n\nC');
+  });
+
+  it('preserves time-split structure between hybrid and blank-line modes', () => {
+    const hybrid = '[00:01-00:07] A\n+ B\nC';
+    const block = convertBulkCaptionTextMode(hybrid, 'hybrid', 'block');
+    expect(block).toBe('[00:01-00:07] A\nB\n\nC');
+    expect(convertBulkCaptionTextMode(block, 'block', 'hybrid')).toBe(hybrid);
+  });
+
+  it('formats existing sequential captions without exposing the legacy marker in hybrid mode', () => {
+    const text = formatCaptionsAsBulkText([
+      { text: 'A\nB', startTime: 1, endTime: 7 },
+      { text: 'C', startTime: 7, endTime: 9 },
+    ], 'hybrid');
+    expect(text).toBe('[00:01.0-00:07.0] A\n+ B\n[00:07.0-00:09.0] C');
+    expect(text).not.toContain('⏎');
+    expect(parseBulkCaptionInput(normalizeBulkCaptionText(text, 'hybrid'))[0].text).toBe('A\nB');
+  });
+});
+
+describe('stripBulkCaptionTimeNotations', () => {
+  it('removes only valid prefix and suffix time notations while preserving sentences and layout', () => {
+    const input = '[00:01-00:04] 最初\n+ 続き\n\n最後 [00:05-00:08]';
+    expect(stripBulkCaptionTimeNotations(input)).toBe('最初\n+ 続き\n\n最後');
+  });
+
+  it('keeps invalid time ranges and ordinary brackets as text', () => {
+    const input = '[サビ] 本文\n[00:10-00:05] 逆転';
+    expect(stripBulkCaptionTimeNotations(input)).toBe(input);
   });
 });

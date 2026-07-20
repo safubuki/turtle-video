@@ -49,6 +49,8 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
   const updateBgmClipVolume = useAudioStore((s) => s.updateBgmClipVolume);
   const toggleBgmClipMute = useAudioStore((s) => s.toggleBgmClipMute);
   const updateBgmClipTrim = useAudioStore((s) => s.updateBgmClipTrim);
+  const setBgmClipEndTime = useAudioStore((s) => s.setBgmClipEndTime);
+  const fitBgmClipToTimelineEnd = useAudioStore((s) => s.fitBgmClipToTimelineEnd);
   const toggleBgmClipFadeIn = useAudioStore((s) => s.toggleBgmClipFadeIn);
   const toggleBgmClipFadeOut = useAudioStore((s) => s.toggleBgmClipFadeOut);
   const updateBgmClipFadeInDuration = useAudioStore((s) => s.updateBgmClipFadeInDuration);
@@ -83,6 +85,10 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
           ? Math.max(trimStart, Math.min(clip.duration, clip.trimEnd))
           : clip.duration;
         const playableDuration = Math.max(0.05, trimEnd - trimStart);
+        const timelineEnd = clip.startTime + playableDuration;
+        const canSetCurrentAsEnd = currentTime >= clip.startTime + 0.05;
+        const isFittedToTimelineEnd = totalDuration > 0
+          && Math.abs(timelineEnd - totalDuration) < 0.05;
         const isTrimOpen = openTrimMap[clip.id] ?? false;
         const isFadeOpen = openFadeMap[clip.id] ?? false;
         const fadeIn = clip.fadeIn ?? false;
@@ -141,13 +147,46 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
             <div className="flex items-center gap-1.5 text-[10px] md:text-xs bg-purple-900/20 border border-purple-500/20 rounded px-2 py-1">
               <span className="text-purple-300 shrink-0">♪ 再生区間:</span>
               <span className="text-purple-100 font-mono">
-                {formatTime(clip.startTime)} 〜 {formatTime(clip.startTime + playableDuration)}
+                {formatTime(clip.startTime)} 〜 {formatTime(timelineEnd)}
               </span>
-              {totalDuration > 0 && clip.startTime + playableDuration > totalDuration + 0.05 && (
+              {totalDuration > 0 && timelineEnd > totalDuration + 0.05 && (
                 <span className="text-amber-400 ml-auto shrink-0" title="動画の末尾を超えた部分は書き出されません">
                   ⚠ 動画末尾超え
                 </span>
               )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 text-[10px] md:text-xs">
+              <span className="text-gray-500 mr-0.5">プレビュー位置を反映:</span>
+              <button
+                type="button"
+                onClick={withEdit('set-bgm-clip-start-current', () => updateBgmClipStartTime(clip.id, currentTime))}
+                disabled={isLocked}
+                className="min-h-9 px-2.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 hover:border-purple-500/60 hover:text-purple-200 disabled:opacity-30 flex items-center gap-1 transition"
+                title={`現在位置(${formatTime(currentTime)})を再生開始に設定`}
+              >
+                <MapPin className="w-3.5 h-3.5" /> 開始
+              </button>
+              <button
+                type="button"
+                onClick={withEdit('set-bgm-clip-end-current', () => setBgmClipEndTime(clip.id, currentTime))}
+                disabled={isLocked || !canSetCurrentAsEnd}
+                className="min-h-9 px-2.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 hover:border-purple-500/60 hover:text-purple-200 disabled:opacity-30 flex items-center gap-1 transition"
+                title={canSetCurrentAsEnd
+                  ? `現在位置(${formatTime(currentTime)})を再生終了に設定`
+                  : '開始位置より後ろへプレビューを移動してください'}
+              >
+                <MapPin className="w-3.5 h-3.5" /> 終了
+              </button>
+              <button
+                type="button"
+                onClick={withEdit('fit-bgm-clip-to-timeline-end', () => fitBgmClipToTimelineEnd(clip.id, totalDuration))}
+                disabled={isLocked || totalDuration <= 0 || isFittedToTimelineEnd}
+                className="min-h-9 px-2.5 rounded-lg bg-purple-900/30 border border-purple-600/40 text-purple-200 hover:bg-purple-900/50 disabled:opacity-30 flex items-center gap-1 transition"
+                title="このBGMだけをトリムまたは再配置し、再生終了を動画末尾へ合わせます"
+              >
+                動画末尾に合わせる
+              </button>
             </div>
 
             {/* 開始位置 */}
@@ -166,14 +205,6 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
                   disabled={isLocked}
                   className="flex-1 accent-purple-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
                 />
-                <button
-                  onClick={withEdit('set-bgm-clip-start-current', () => updateBgmClipStartTime(clip.id, currentTime))}
-                  disabled={isLocked}
-                  className="p-1 text-gray-400 hover:text-purple-300 disabled:opacity-30"
-                  title={`現在位置(${formatTime(currentTime)})を開始位置に設定`}
-                >
-                  <MapPin className="w-3.5 h-3.5" />
-                </button>
                 <input
                   type="number"
                   min="0"

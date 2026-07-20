@@ -243,7 +243,7 @@ export function getSectionHelpContent(context: SectionHelpContext): Record<Secti
       {
         title: '複数のBGM（Android/PC版）',
         description:
-          '複数の曲を追加してシーンごとに切り替えられます。追加した曲は動画の長さに合わせて自動配置され、ナレーションと同じように開始位置・トリミング・音量・フェード・コピーを個別に調整できます。',
+          '複数の曲を追加してシーンごとに切り替えられます。追加した曲は動画の長さに合わせて自動配置され、開始位置・トリミング・音量・フェード・コピーを個別に調整できます。「開始」「終了」でプレビュー位置を反映し、「動画末尾に合わせる」で選んだ曲だけを末尾へ自動調整できます。',
       },
       {
         title: 'セクションの鍵アイコン',
@@ -301,8 +301,8 @@ export function getSectionHelpContent(context: SectionHelpContext): Record<Secti
         visuals: ['move_up_button', 'move_down_button', 'edit_button', 'delete_button', 'save_button'],
       },
       {
-        title: '開始位置',
-        description: '開始位置は数値入力・スライダーのほか、現在位置ボタンでプレビューの現在位置に設定できます。',
+        title: '開始・終了位置',
+        description: '開始位置は数値入力・スライダーで調整できます。「開始」「終了」ボタンでは、プレビューの現在位置をそのナレーションの再生開始・終了へ反映できます。',
         visuals: ['start_chip', 'current_pin_chip', 'slider_demo'],
       },
       {
@@ -348,7 +348,7 @@ export function getSectionHelpContent(context: SectionHelpContext): Record<Secti
       {
         title: '個別設定（歯車マーク）',
         description:
-          '歯車マークを押すと、キャプションごとの個別設定を開けます。サイズ、字体、位置、フェードを個別に調整でき、一括設定を使っていても個別設定で上書きできます。',
+          '歯車マークを押すと、キャプションごとの個別設定を開けます。サイズ、字体、位置、フェードを個別に調整でき、一括設定を使っていても個別設定で上書きできます。「この個別設定をクリア」で本文と表示時間を残したまま、そのカードだけ一括設定へ戻せます。',
         visuals: ['settings_button', 'slider_demo'],
       },
       {
@@ -359,7 +359,7 @@ export function getSectionHelpContent(context: SectionHelpContext): Record<Secti
       {
         title: '① まとめて入力・編集（Android/PC版）',
         description:
-          '歌詞や長い字幕を複数行まとめて追加・編集できます。1行が1キャプションになり、行頭の [開始-終了] で時間も指定できます。AI用プロンプト（？ヘルプ内）を使えば、動画をAIに解析させて出力をそのまま貼り付けることもできます。',
+          '歌詞や長い字幕を複数行まとめて追加・編集できます。通常は1行が1カードで、「混在」では + で始めた行だけを直前カードの時分割行にできます。時分割行の挿入ボタン、[開始-終了] の時間指定、文章を残す「時間指定だけ消す」も利用できます。',
       },
       {
         title: '② タイミング打ち（Android/PC版）',

@@ -60,6 +60,7 @@ describe('NarrationSection offline mode', () => {
         onSaveNarration={vi.fn()}
         onUpdateStartTime={vi.fn()}
         onSetStartTimeToCurrent={vi.fn()}
+        onSetEndTimeToCurrent={vi.fn()}
         onUpdateVolume={vi.fn()}
         onToggleMute={vi.fn()}
         onUpdateTrimStart={vi.fn()}

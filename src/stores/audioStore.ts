@@ -55,6 +55,10 @@ interface AudioState {
   updateBgmClipVolume: (id: string, value: number) => void;
   toggleBgmClipMute: (id: string) => void;
   updateBgmClipTrim: (id: string, edge: 'start' | 'end', value: number) => void;
+  /** タイムライン上の終了位置を指定し、音源内の trimEnd へ変換する */
+  setBgmClipEndTime: (id: string, timelineEnd: number) => void;
+  /** 選択した BGM だけを動画末尾で終わるようトリム／再配置する */
+  fitBgmClipToTimelineEnd: (id: string, totalDuration: number) => void;
   toggleBgmClipFadeIn: (id: string, enabled: boolean) => void;
   toggleBgmClipFadeOut: (id: string, enabled: boolean) => void;
   updateBgmClipFadeInDuration: (id: string, duration: number) => void;
@@ -71,6 +75,8 @@ interface AudioState {
   updateNarrationVolume: (id: string, value: number) => void;
   toggleNarrationMute: (id: string) => void;
   updateNarrationTrim: (id: string, edge: 'start' | 'end', value: number) => void;
+  /** タイムライン上の終了位置を指定し、音源内の trimEnd へ変換する */
+  setNarrationEndTime: (id: string, timelineEnd: number) => void;
   updateNarrationMeta: (id: string, updates: Partial<NarrationClip>) => void;
   replaceNarrationAudio: (
     id: string,
@@ -134,6 +140,71 @@ export function resolveBgmClipAutoFit(
     startTime,
     trimStart: 0,
     trimEnd: Math.min(safeDuration, remaining),
+  };
+}
+
+const MIN_AUDIO_CLIP_DURATION_SEC = 0.05;
+
+function resolveClipTrimBounds(clip: NarrationClip): {
+  duration: number;
+  trimStart: number;
+  trimEnd: number;
+} {
+  const duration = Number.isFinite(clip.duration) ? Math.max(0, clip.duration) : 0;
+  const trimStart = Number.isFinite(clip.trimStart)
+    ? Math.max(0, Math.min(duration, clip.trimStart))
+    : 0;
+  const trimEnd = Number.isFinite(clip.trimEnd)
+    ? Math.max(trimStart, Math.min(duration, clip.trimEnd))
+    : duration;
+  return { duration, trimStart, trimEnd };
+}
+
+/** タイムライン上の終了時刻から、同じ開始位置を保った音源内 trimEnd を求める。 */
+export function resolveAudioClipEndAtTimelineTime(
+  clip: NarrationClip,
+  timelineEnd: number,
+): { trimEnd: number } | null {
+  if (!Number.isFinite(timelineEnd)) return null;
+  const startTime = Number.isFinite(clip.startTime) ? Math.max(0, clip.startTime) : 0;
+  const { duration, trimStart } = resolveClipTrimBounds(clip);
+  const requestedPlayableDuration = timelineEnd - startTime;
+  if (requestedPlayableDuration < MIN_AUDIO_CLIP_DURATION_SEC) return null;
+  const trimEnd = Math.min(duration, trimStart + requestedPlayableDuration);
+  if (trimEnd - trimStart < MIN_AUDIO_CLIP_DURATION_SEC) return null;
+  return { trimEnd };
+}
+
+/**
+ * クリップの実効終了を動画末尾へ合わせる。
+ * 音源が十分長ければ開始位置を保ってトリムし、短ければ実効長を保って後ろへ移動する。
+ */
+export function resolveAudioClipFitToTimelineEnd(
+  clip: NarrationClip,
+  totalDuration: number,
+): { startTime: number; trimEnd: number } | null {
+  if (!Number.isFinite(totalDuration) || totalDuration < MIN_AUDIO_CLIP_DURATION_SEC) return null;
+  const { duration, trimStart, trimEnd } = resolveClipTrimBounds(clip);
+  const maxPlayableDuration = duration - trimStart;
+  if (maxPlayableDuration < MIN_AUDIO_CLIP_DURATION_SEC) return null;
+
+  const startTime = Number.isFinite(clip.startTime) ? Math.max(0, clip.startTime) : 0;
+  const durationFromCurrentStart = totalDuration - startTime;
+  if (
+    durationFromCurrentStart >= MIN_AUDIO_CLIP_DURATION_SEC
+    && durationFromCurrentStart <= maxPlayableDuration
+  ) {
+    return { startTime, trimEnd: trimStart + durationFromCurrentStart };
+  }
+
+  const currentPlayableDuration = Math.max(
+    MIN_AUDIO_CLIP_DURATION_SEC,
+    Math.min(maxPlayableDuration, trimEnd - trimStart),
+  );
+  const playableDuration = Math.min(currentPlayableDuration, totalDuration);
+  return {
+    startTime: Math.max(0, totalDuration - playableDuration),
+    trimEnd: trimStart + playableDuration,
   };
 }
 
@@ -391,6 +462,26 @@ export const useAudioStore = create<AudioState>()(
         }));
       },
 
+      setBgmClipEndTime: (id, timelineEnd) => {
+        set((state) => ({
+          bgmClips: state.bgmClips.map((clip) => {
+            if (clip.id !== id) return clip;
+            const update = resolveAudioClipEndAtTimelineTime(clip, timelineEnd);
+            return update ? normalizeNarrationClip({ ...clip, ...update }) : clip;
+          }),
+        }));
+      },
+
+      fitBgmClipToTimelineEnd: (id, totalDuration) => {
+        set((state) => ({
+          bgmClips: state.bgmClips.map((clip) => {
+            if (clip.id !== id) return clip;
+            const update = resolveAudioClipFitToTimelineEnd(clip, totalDuration);
+            return update ? normalizeNarrationClip({ ...clip, ...update }) : clip;
+          }),
+        }));
+      },
+
       toggleBgmClipFadeIn: (id, enabled) => {
         set((state) => ({
           bgmClips: state.bgmClips.map((clip) => (
@@ -582,6 +673,16 @@ export const useAudioStore = create<AudioState>()(
 
             const nextEnd = Math.min(duration, Math.max(value, trimStart + minGap));
             return normalizeNarrationClip({ ...clip, trimEnd: nextEnd });
+          }),
+        }));
+      },
+
+      setNarrationEndTime: (id, timelineEnd) => {
+        set((state) => ({
+          narrations: state.narrations.map((clip) => {
+            if (clip.id !== id) return clip;
+            const update = resolveAudioClipEndAtTimelineTime(clip, timelineEnd);
+            return update ? normalizeNarrationClip({ ...clip, ...update }) : clip;
           }),
         }));
       },

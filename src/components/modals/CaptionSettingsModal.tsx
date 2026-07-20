@@ -4,7 +4,7 @@
  * @description キャプション個別スタイル設定のモーダル。一括設定を上書き（Override）するためのUI。
  */
 import React, { useEffect, useState } from 'react';
-import { X } from 'lucide-react';
+import { RotateCcw, X } from 'lucide-react';
 import type { Caption, CaptionPosition, CaptionSize, CaptionFontStyle } from '../../types';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
@@ -33,6 +33,10 @@ import {
   resolveSequentialCaptionSegments,
 } from '../../utils/captionTimeline';
 import { queryLocalFontFamilies, supportsLocalFontAccess } from '../../utils/fontAvailability';
+import {
+  createClearedCaptionIndividualSettings,
+  hasCaptionIndividualSettings,
+} from '../../utils/captionIndividualSettings';
 
 interface CaptionSettingsModalProps {
   caption: Caption;
@@ -82,6 +86,13 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
   ];
   const isPresetSequentialGap = SEQUENTIAL_GAP_PRESETS.some((p) => p.value === sequentialGapSec);
   const [isCustomSequentialGap, setIsCustomSequentialGap] = useState(!isPresetSequentialGap);
+  const hasIndividualSettings = hasCaptionIndividualSettings(caption);
+
+  const handleClearIndividualSettings = () => {
+    if (!hasIndividualSettings) return;
+    onUpdate(caption.id, createClearedCaptionIndividualSettings());
+    onClose();
+  };
 
   // サイズオプション
   const fontSizeOptions: { value: SizeOption; label: string }[] = [
@@ -240,7 +251,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
       onClick={onClose}
     >
       <div
-        className="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-sm shadow-2xl"
+        className="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-sm shadow-2xl max-h-[92vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* ヘッダー */}
@@ -257,7 +268,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
         </div>
 
         {/* コンテンツ */}
-        <div className="p-4 space-y-3">
+        <div className="p-4 space-y-3 overflow-y-auto custom-scrollbar">
           {/* ■ スタイル設定 */}
           <div className="space-y-2">
             <div className="text-[10px] text-yellow-400 font-bold">■ スタイル設定</div>
@@ -589,6 +600,21 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
           <p className="text-[9px] text-gray-500 pt-2">
             ※「デフォルト」選択時は一括設定の値に従います
           </p>
+
+          <div className="pt-3 border-t border-gray-700">
+            <button
+              type="button"
+              onClick={handleClearIndividualSettings}
+              disabled={!hasIndividualSettings}
+              className="w-full min-h-11 px-3 rounded-lg border border-gray-600 bg-gray-800 text-gray-200 hover:bg-gray-700 hover:border-yellow-500/60 disabled:opacity-40 disabled:hover:bg-gray-800 disabled:hover:border-gray-600 transition flex items-center justify-center gap-2 text-xs"
+              title="本文と表示時間は残し、このキャプションだけ個別設定を初期化します"
+            >
+              <RotateCcw className="w-4 h-4" /> この個別設定をクリア
+            </button>
+            <p className="text-[9px] text-gray-500 text-center mt-1">
+              本文と開始・終了時間は変更しません
+            </p>
+          </div>
         </div>
       </div>
     </div>

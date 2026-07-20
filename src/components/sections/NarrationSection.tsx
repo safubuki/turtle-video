@@ -46,6 +46,7 @@ interface NarrationSectionProps {
   onSaveNarration: (id: string) => void;
   onUpdateStartTime: (id: string, value: string) => void;
   onSetStartTimeToCurrent: (id: string) => void;
+  onSetEndTimeToCurrent: (id: string) => void;
   onUpdateVolume: (id: string, value: string) => void;
   onToggleMute: (id: string) => void;
   onUpdateTrimStart: (id: string, value: string) => void;
@@ -69,6 +70,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
   onSaveNarration,
   onUpdateStartTime,
   onSetStartTimeToCurrent,
+  onSetEndTimeToCurrent,
   onUpdateVolume,
   onToggleMute,
   onUpdateTrimStart,
@@ -201,6 +203,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
               : clip.duration;
             const playableDuration = Math.max(0.05, trimEnd - trimStart);
             const rawEndTime = clip.startTime + playableDuration;
+            const canSetCurrentAsEnd = currentTime >= clip.startTime + 0.05;
             const hasEndMarker = totalDuration > 0;
             const clampedEndTime = hasEndMarker
               ? Math.max(0, Math.min(totalDuration, rawEndTime))
@@ -314,14 +317,6 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                         className="w-full accent-indigo-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
                       />
                     </div>
-                    <button
-                      onClick={() => onSetStartTimeToCurrent(clip.id)}
-                      disabled={isNarrationLocked}
-                      className="p-1 text-gray-400 hover:text-indigo-300 disabled:opacity-30"
-                      title={`現在位置(${formatTime(currentTime)})を開始位置に設定`}
-                    >
-                      <MapPin className="w-3.5 h-3.5" />
-                    </button>
                     <input
                       type="number"
                       min="0"
@@ -334,6 +329,30 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                     />
                     <span className="text-[10px] md:text-xs text-gray-500">秒</span>
                   </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5 text-[10px] md:text-xs">
+                  <span className="text-gray-500 mr-0.5">プレビュー位置を反映:</span>
+                  <button
+                    type="button"
+                    onClick={() => onSetStartTimeToCurrent(clip.id)}
+                    disabled={isNarrationLocked}
+                    className="min-h-9 px-2.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 hover:border-indigo-500/60 hover:text-indigo-200 disabled:opacity-30 flex items-center gap-1 transition"
+                    title={`現在位置(${formatTime(currentTime)})を再生開始に設定`}
+                  >
+                    <MapPin className="w-3.5 h-3.5" /> 開始
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onSetEndTimeToCurrent(clip.id)}
+                    disabled={isNarrationLocked || !canSetCurrentAsEnd}
+                    className="min-h-9 px-2.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 hover:border-indigo-500/60 hover:text-indigo-200 disabled:opacity-30 flex items-center gap-1 transition"
+                    title={canSetCurrentAsEnd
+                      ? `現在位置(${formatTime(currentTime)})を再生終了に設定`
+                      : '開始位置より後ろへプレビューを移動してください'}
+                  >
+                    <MapPin className="w-3.5 h-3.5" /> 終了
+                  </button>
                 </div>
 
                 <button

@@ -8,6 +8,7 @@
  */
 
 export type BulkCaptionAllocationMode = 'even' | 'fixed';
+export type BulkCaptionSplitMode = 'line' | 'hybrid' | 'block';
 
 export interface BulkCaptionLine {
   text: string;
@@ -48,6 +49,8 @@ const TIME_SUFFIX_PATTERN = /^(.*?)\s*\[\s*([0-9:.]+)\s*[-~]\s*([0-9:.]+)\s*\]$/
  * ⏎ に変換して 1 行に畳み、反映時に改行へ戻す（ロスレス往復）。
  */
 export const SEQUENTIAL_LINE_MARKER = '⏎';
+/** 混在モードで「直前カードの次の表示行」を表す、スマホでも入力しやすい接頭辞 */
+export const HYBRID_CONTINUATION_PREFIX = '+ ';
 
 /** カード内改行を ⏎ マーカーへ畳む（まとめて編集のプリフィル用） */
 export function encodeSequentialLinesForBulkText(text: string): string {
@@ -64,6 +67,86 @@ export function decodeSequentialLinesFromBulkText(text: string): string {
     .join('\n');
 }
 
+function splitSequentialMarkerLines(line: string): string[] {
+  return line
+    .split(SEQUENTIAL_LINE_MARKER)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+}
+
+/** 入力モードごとの見た目を、カード単位の表示行配列へ変換する。 */
+function collectBulkCaptionGroups(input: string, mode: BulkCaptionSplitMode): string[][] {
+  const groups: string[][] = [];
+
+  if (mode === 'block') {
+    let current: string[] = [];
+    const flush = () => {
+      if (current.length > 0) groups.push(current);
+      current = [];
+    };
+    for (const raw of input.split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line) {
+        flush();
+        continue;
+      }
+      current.push(...splitSequentialMarkerLines(line));
+    }
+    flush();
+    return groups;
+  }
+
+  for (const raw of input.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+
+    if (mode === 'hybrid') {
+      const continuationMatch = line.match(/^\+\s+(.+)$/);
+      if (continuationMatch && groups.length > 0) {
+        groups[groups.length - 1].push(...splitSequentialMarkerLines(continuationMatch[1]));
+        continue;
+      }
+    }
+
+    groups.push(splitSequentialMarkerLines(line));
+  }
+  return groups.filter((group) => group.length > 0);
+}
+
+function renderBulkCaptionGroups(groups: string[][], mode: BulkCaptionSplitMode): string {
+  if (mode === 'line') return groups.flat().join('\n');
+  if (mode === 'block') return groups.map((group) => group.join('\n')).join('\n\n');
+
+  return groups
+    .map((group) => group
+      .map((line, index) => (index === 0 ? line : `${HYBRID_CONTINUATION_PREFIX}${line}`))
+      .join('\n'))
+    .join('\n');
+}
+
+/**
+ * UI上の入力を、既存パーサーが扱う「1カード=1行、内部改行=⏎」形式へ正規化する。
+ * 保存形式は従来どおり Caption.text 内の実改行であり、この記法自体は保存しない。
+ */
+export function normalizeBulkCaptionText(input: string, mode: BulkCaptionSplitMode): string {
+  return collectBulkCaptionGroups(input, mode)
+    .map((group) => group.join(SEQUENTIAL_LINE_MARKER))
+    .join('\n');
+}
+
+/**
+ * 入力欄のモードを切り替える際、カード構造を保ちながら表示記法を変換する。
+ * line へ切り替えた場合だけ、時分割の各表示行を独立カードへ展開する。
+ */
+export function convertBulkCaptionTextMode(
+  input: string,
+  from: BulkCaptionSplitMode,
+  to: BulkCaptionSplitMode,
+): string {
+  if (from === to) return input;
+  return renderBulkCaptionGroups(collectBulkCaptionGroups(input, from), to);
+}
+
 /**
  * 「空行で区切る」モード用の前処理。
  * 空行で区切られたブロックを 1 行（= 1 カード）へ畳み、ブロック内の改行は
@@ -71,24 +154,7 @@ export function decodeSequentialLinesFromBulkText(text: string): string {
  * 先頭/末尾の時間記法はブロックの 1 行目/最終行に付いたまま解釈される。
  */
 export function collapseBlankLineBlocks(input: string): string {
-  const collapsed: string[] = [];
-  let currentBlock: string[] = [];
-  const flush = () => {
-    if (currentBlock.length > 0) {
-      collapsed.push(currentBlock.join(SEQUENTIAL_LINE_MARKER));
-      currentBlock = [];
-    }
-  };
-  for (const raw of input.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line) {
-      flush();
-      continue;
-    }
-    currentBlock.push(line);
-  }
-  flush();
-  return collapsed.join('\n');
+  return normalizeBulkCaptionText(input, 'block');
 }
 
 /** カードの表示行数（時分割の行数。単一行なら 1）を返す。時間配分の加重に使う */
@@ -156,6 +222,35 @@ export function parseBulkCaptionInput(input: string): BulkCaptionLine[] {
   return lines;
 }
 
+/**
+ * 有効な時間記法だけを入力欄から除去する。文章・空行・混在モードの `+ ` は維持する。
+ * 時刻として解釈できない角括弧や、開始 >= 終了の記法は本文として残す。
+ */
+export function stripBulkCaptionTimeNotations(input: string): string {
+  return input.split(/\r?\n/).map((raw) => {
+    const line = raw.trim();
+    if (!line) return raw;
+
+    const prefixMatch = line.match(TIME_PREFIX_PATTERN);
+    if (prefixMatch) {
+      const start = parseTimeNotation(prefixMatch[1]);
+      const end = parseTimeNotation(prefixMatch[2]);
+      const text = prefixMatch[3].trim();
+      if (start !== null && end !== null && end > start && text) return text;
+    }
+
+    const suffixMatch = line.match(TIME_SUFFIX_PATTERN);
+    if (suffixMatch) {
+      const start = parseTimeNotation(suffixMatch[2]);
+      const end = parseTimeNotation(suffixMatch[3]);
+      const text = suffixMatch[1].trim();
+      if (start !== null && end !== null && end > start && text) return text;
+    }
+
+    return raw;
+  }).join('\n');
+}
+
 /** 後方互換: 単純な行分割（時間記法は本文扱い） */
 export function splitCaptionLines(input: string): string[] {
   return input
@@ -167,10 +262,26 @@ export function splitCaptionLines(input: string): string[] {
 /** 既存キャプションを時間記法付きテキストへ整形する（まとめて編集のプリフィル用） */
 export function formatCaptionsAsBulkText(
   captions: { text: string; startTime: number; endTime: number }[],
+  splitMode: BulkCaptionSplitMode = 'line',
 ): string {
-  return captions
-    .map((c) => `[${formatTimeNotation(c.startTime)}-${formatTimeNotation(c.endTime)}] ${encodeSequentialLinesForBulkText(c.text)}`)
-    .join('\n');
+  // 既存呼び出しとの互換性: line の既定出力は従来どおり 1カード=1物理行とする。
+  if (splitMode === 'line') {
+    return captions
+      .map((caption) => `[${formatTimeNotation(caption.startTime)}-${formatTimeNotation(caption.endTime)}] ${encodeSequentialLinesForBulkText(caption.text)}`)
+      .join('\n');
+  }
+  const groups = captions.map((caption) => {
+    const lines = caption.text
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    if (lines.length === 0) return [];
+    return [
+      `[${formatTimeNotation(caption.startTime)}-${formatTimeNotation(caption.endTime)}] ${lines[0]}`,
+      ...lines.slice(1),
+    ];
+  }).filter((group) => group.length > 0);
+  return renderBulkCaptionGroups(groups, splitMode);
 }
 
 /**

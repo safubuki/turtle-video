@@ -7,6 +7,7 @@ import {
   isSequentialCaption,
   resolveSequentialCaptionSegments,
 } from '../../utils/captionTimeline';
+import { hasCaptionIndividualSettings } from '../../utils/captionIndividualSettings';
 
 interface CaptionItemProps {
   caption: Caption;
@@ -63,18 +64,8 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
   const isSequential = isSequentialCaption(caption);
   const sequentialSegments = isSequential ? resolveSequentialCaptionSegments(caption) : [];
 
-  // 個別設定（override）が 1 つでも有効か
-  const hasOverride = Boolean(
-    caption.overridePosition
-    || caption.overrideFontStyle
-    || caption.overrideFontSize
-    || caption.overrideFadeIn
-    || caption.overrideFadeOut
-    || caption.overrideFontSizeCustom != null
-    || caption.overridePositionCustom
-    || caption.sequentialFadeMode
-    || caption.sequentialGapSec != null
-  );
+  // バッジとクリア対象は共通ユーティリティを単一ソースにする。
+  const hasOverride = hasCaptionIndividualSettings(caption);
 
   // スワイプ保護用ハンドラ
   const handleStartTimeChange = useCallback(

@@ -135,6 +135,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const updateNarrationVolume = useAudioStore((s) => s.updateNarrationVolume);
   const toggleNarrationMute = useAudioStore((s) => s.toggleNarrationMute);
   const updateNarrationTrim = useAudioStore((s) => s.updateNarrationTrim);
+  const setNarrationEndTime = useAudioStore((s) => s.setNarrationEndTime);
   const updateNarrationMeta = useAudioStore((s) => s.updateNarrationMeta);
   const replaceNarrationAudio = useAudioStore((s) => s.replaceNarrationAudio);
   const moveNarration = useAudioStore((s) => s.moveNarration);
@@ -1740,6 +1741,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     updateNarrationStartTime(id, currentTimeRef.current);
   }, [pausePreviewBeforeEdit, updateNarrationStartTime]);
 
+  const handleSetNarrationEndToCurrent = useCallback((id: string) => {
+    pausePreviewBeforeEdit('set-narration-end-to-current');
+    setNarrationEndTime(id, currentTimeRef.current);
+  }, [pausePreviewBeforeEdit, setNarrationEndTime]);
+
   const handleUpdateNarrationVolume = useCallback((id: string, val: string) => {
     const numVal = parseFloat(val);
     if (isNaN(numVal)) return;
@@ -2487,6 +2493,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onSaveNarration={handleSaveNarration}
               onUpdateStartTime={handleUpdateNarrationStart}
               onSetStartTimeToCurrent={handleSetNarrationStartToCurrent}
+              onSetEndTimeToCurrent={handleSetNarrationEndToCurrent}
               onUpdateVolume={handleUpdateNarrationVolume}
               onToggleMute={handleToggleNarrationMute}
               onUpdateTrimStart={handleUpdateNarrationTrimStart}
