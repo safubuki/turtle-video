@@ -176,6 +176,9 @@ export interface ProjectData {
   captions: SerializedCaption[];
   captionSettings: SerializedCaptionSettings;
   isCaptionsLocked: boolean;
+
+  // 出力の向き（'landscape'=16:9 / 'portrait'=9:16）。任意・既定 landscape（旧データ後方互換）。
+  aspectRatio?: 'landscape' | 'portrait';
 }
 
 /**

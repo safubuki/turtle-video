@@ -4,6 +4,7 @@ import {
   FPS,
 } from '../../../constants';
 import { createCaptionGlyphCanvas } from '../../../utils/canvas';
+import { resolveMediaBaseScale } from '../../../stores/canvasStore';
 import type {
   AudioTrack,
   Caption,
@@ -918,7 +919,14 @@ export function usePreviewEngine({
                 const userX = conf.positionX || 0;
                 const userY = conf.positionY || 0;
 
-                const baseScale = Math.min(ctx.canvas.width / elemW, ctx.canvas.height / elemH);
+                // 縦(9:16)キャンバスは横素材を cover 配置、横(16:9)は従来どおり contain。
+                const baseScale = resolveMediaBaseScale({
+                  canvasWidth: ctx.canvas.width,
+                  canvasHeight: ctx.canvas.height,
+                  elementWidth: elemW,
+                  elementHeight: elemH,
+                  mode: ctx.canvas.height > ctx.canvas.width ? 'cover' : 'contain',
+                });
 
                 ctx.save();
                 ctx.translate(ctx.canvas.width / 2 + userX, ctx.canvas.height / 2 + userY);

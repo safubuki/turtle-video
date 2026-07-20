@@ -38,6 +38,7 @@ import {
   shouldUseFrameDrivenExportPacing,
   evaluateFrameDrivenExportStall,
 } from '../../../utils/exportTimeline';
+import { resolveMediaBaseScale } from '../../../stores/canvasStore';
 import {
   ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC,
   ANDROID_PREVIEW_SOFT_DRAW_DRIFT_THRESHOLD_SEC,
@@ -2215,7 +2216,15 @@ export function usePreviewEngine({
                 const userX = conf.positionX || 0;
                 const userY = conf.positionY || 0;
 
-                const baseScale = Math.min(ctx.canvas.width / elemW, ctx.canvas.height / elemH);
+                // 縦(9:16)キャンバスは横素材を「縦フレームを埋める」cover 配置、
+                // 横(16:9)キャンバスは従来どおり contain。Canvas 寸法から向きを判定する。
+                const baseScale = resolveMediaBaseScale({
+                  canvasWidth: ctx.canvas.width,
+                  canvasHeight: ctx.canvas.height,
+                  elementWidth: elemW,
+                  elementHeight: elemH,
+                  mode: ctx.canvas.height > ctx.canvas.width ? 'cover' : 'contain',
+                });
 
                 ctx.save();
                 ctx.translate(ctx.canvas.width / 2 + userX, ctx.canvas.height / 2 + userY);
@@ -2394,7 +2403,13 @@ export function usePreviewEngine({
                 const peerW = peerIsVideo ? peerVideoEl.videoWidth : peerImageEl.naturalWidth;
                 const peerH = peerIsVideo ? peerVideoEl.videoHeight : peerImageEl.naturalHeight;
                 if (peerW && peerH) {
-                  const peerBase = Math.min(ctx.canvas.width / peerW, ctx.canvas.height / peerH);
+                  const peerBase = resolveMediaBaseScale({
+                    canvasWidth: ctx.canvas.width,
+                    canvasHeight: ctx.canvas.height,
+                    elementWidth: peerW,
+                    elementHeight: peerH,
+                    mode: ctx.canvas.height > ctx.canvas.width ? 'cover' : 'contain',
+                  });
                   ctx.save();
                   ctx.translate(
                     ctx.canvas.width / 2 + (conf.positionX || 0),

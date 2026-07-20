@@ -11,6 +11,7 @@ import { useCaptionStore } from '../stores/captionStore';
 import { useProjectStore } from '../stores/projectStore';
 import { useUIStore } from '../stores/uiStore';
 import { useLogStore } from '../stores/logStore';
+import { useCanvasStore } from '../stores/canvasStore';
 
 /** 自動保存間隔の設定キー */
 export const AUTO_SAVE_INTERVAL_KEY = 'turtle-video-auto-save-interval';
@@ -96,6 +97,8 @@ export function useAutoSave() {
   const captions = useCaptionStore((s) => s.captions);
   const captionSettings = useCaptionStore((s) => s.settings);
   const isCaptionsLocked = useCaptionStore((s) => s.isLocked);
+  // 出力の向き（プロジェクトごとに保持）。変更で自動保存が走るよう変更検知に含める。
+  const aspectRatio = useCanvasStore((s) => s.aspectRatio);
   
   // エクスポート中かどうか
   const isProcessing = useUIStore((s) => s.isProcessing);
@@ -205,6 +208,7 @@ export function useAutoSave() {
       isBgmLocked,
       isNarrationLocked,
       isCaptionsLocked,
+      aspectRatio,
     ];
     return parts.join('|');
   }, [
@@ -218,6 +222,7 @@ export function useAutoSave() {
     isBgmLocked,
     isNarrationLocked,
     isCaptionsLocked,
+    aspectRatio,
   ]);
   
   /**

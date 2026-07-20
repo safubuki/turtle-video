@@ -25,6 +25,7 @@ import { useLogStore } from './logStore';
 import { createDiagnosticId } from '../utils/diagnostics';
 import versionData from '../../version.json';
 import { useUIStore } from './uiStore';
+import { useCanvasStore, type AspectRatio } from './canvasStore';
 
 export function getProjectStoreErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -670,6 +671,7 @@ export const useProjectStore = create<ProjectState>()(
               captionSettings,
               isCaptionsLocked,
               bgmClips: serializedBgmClips,
+              aspectRatio: useCanvasStore.getState().aspectRatio,
             };
 
             await getProjectPersistenceAdapter().saveProject(nextProjectData);
@@ -759,6 +761,7 @@ export const useProjectStore = create<ProjectState>()(
               captionSettings,
               isCaptionsLocked,
               bgmClips: serializedBgmClips,
+              aspectRatio: useCanvasStore.getState().aspectRatio,
             };
 
             await getProjectPersistenceAdapter().saveProject(nextProjectData);
@@ -832,6 +835,11 @@ export const useProjectStore = create<ProjectState>()(
             : (data.narration ? [convertLegacyNarrationToClip(deserializeAudioTrack(data.narration))] : []);
           const captions = data.captions.map(deserializeCaption);
 
+          // 出力の向きを復元（旧データは landscape 後方互換）。
+          // メディア寸法の反映（applyFromSource）より前に向きを確定させておく。
+          const loadedAspectRatio: AspectRatio = data.aspectRatio === 'portrait' ? 'portrait' : 'landscape';
+          useCanvasStore.getState().setAspectRatio(loadedAspectRatio);
+
           useLogStore.getState().info('SYSTEM', 'プロジェクト読み込み完了', {
             operationId,
             slot,
@@ -840,6 +848,7 @@ export const useProjectStore = create<ProjectState>()(
             bgmClipCount: bgmClips.length,
             narrationCount: narrations.length,
             captionCount: captions.length,
+            aspectRatio: loadedAspectRatio,
             savedAt: data.savedAt,
           });
           set({ isLoading: false });

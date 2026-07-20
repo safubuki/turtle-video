@@ -5,15 +5,16 @@
  */
 import React, { useRef, useEffect, useCallback } from 'react';
 import type { MediaItem } from '../../types';
-import { useCanvasStore } from '../../stores/canvasStore';
+import { useCanvasStore, resolveMediaBaseScale } from '../../stores/canvasStore';
 
 interface MiniPreviewProps {
   item: MediaItem;
   mediaElement: HTMLVideoElement | HTMLImageElement | null;
 }
 
-const MINI_CANVAS_WIDTH = 96;
-const MINI_CANVAS_HEIGHT = 54;
+// ミニプレビューの枠。向きに合わせて長辺 96 を基準にする（横=96×54 / 縦=54×96）。
+const MINI_CANVAS_LONG = 96;
+const MINI_CANVAS_SHORT = 54;
 
 /**
  * ミニプレビューコンポーネント
@@ -21,6 +22,11 @@ const MINI_CANVAS_HEIGHT = 54;
  */
 const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
   const projectCanvasWidth = useCanvasStore((s) => s.width);
+  const projectCanvasHeight = useCanvasStore((s) => s.height);
+  // 出力の向きに合わせてミニ枠と配置モードを決める（メインプレビューと一致させる）。
+  const isPortrait = projectCanvasHeight > projectCanvasWidth;
+  const miniCanvasWidth = isPortrait ? MINI_CANVAS_SHORT : MINI_CANVAS_LONG;
+  const miniCanvasHeight = isPortrait ? MINI_CANVAS_LONG : MINI_CANVAS_SHORT;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number | null>(null);
@@ -51,10 +57,10 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
 
     // 背景をクリア
     ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, MINI_CANVAS_WIDTH, MINI_CANVAS_HEIGHT);
+    ctx.fillRect(0, 0, miniCanvasWidth, miniCanvasHeight);
 
     // スケール比率 (プレビュー枠サイズ / オリジナルサイズ)
-    const previewRatio = MINI_CANVAS_WIDTH / projectCanvasWidth;
+    const previewRatio = miniCanvasWidth / projectCanvasWidth;
 
     // メディアの元サイズを取得
     let elemW = 0;
@@ -70,8 +76,14 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
     }
 
     if (elemW > 0 && elemH > 0) {
-      // アスペクト比を維持するための基本スケール (object-contain相当)
-      const baseScale = Math.min(MINI_CANVAS_WIDTH / elemW, MINI_CANVAS_HEIGHT / elemH);
+      // 縦(9:16)は cover（縦フレームを埋める）、横(16:9)は contain。メインプレビューと一致させる。
+      const baseScale = resolveMediaBaseScale({
+        canvasWidth: miniCanvasWidth,
+        canvasHeight: miniCanvasHeight,
+        elementWidth: elemW,
+        elementHeight: elemH,
+        mode: isPortrait ? 'cover' : 'contain',
+      });
 
       // トランスフォーム適用
       ctx.save();
@@ -81,7 +93,7 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
       const userY = currentItem.positionY * previewRatio;
 
       // 中心基準で移動とスケール
-      ctx.translate(MINI_CANVAS_WIDTH / 2 + userX, MINI_CANVAS_HEIGHT / 2 + userY);
+      ctx.translate(miniCanvasWidth / 2 + userX, miniCanvasHeight / 2 + userY);
       ctx.scale(baseScale * currentItem.scale, baseScale * currentItem.scale);
 
       // メディアを描画 (中心基準なので -w/2, -h/2)
@@ -104,8 +116,8 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
     // 境界線を描画（プレビュー範囲を示す）
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
     ctx.lineWidth = 1;
-    ctx.strokeRect(0, 0, MINI_CANVAS_WIDTH, MINI_CANVAS_HEIGHT);
-  }, [mediaElement, projectCanvasWidth]); // itemへの依存を削除
+    ctx.strokeRect(0, 0, miniCanvasWidth, miniCanvasHeight);
+  }, [mediaElement, projectCanvasWidth, miniCanvasWidth, miniCanvasHeight, isPortrait]); // itemへの依存を削除
 
   useEffect(() => {
     itemRef.current = item;
@@ -232,9 +244,9 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
       <div className="relative bg-black">
         <canvas
           ref={canvasRef}
-          width={MINI_CANVAS_WIDTH}
-          height={MINI_CANVAS_HEIGHT}
-          className="block w-full"
+          width={miniCanvasWidth}
+          height={miniCanvasHeight}
+          className={isPortrait ? 'block mx-auto h-32' : 'block w-full'}
         />
 
         {/* トランスフォーム情報オーバーレイ */}

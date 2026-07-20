@@ -389,7 +389,15 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
           )}
         </div>
       </div>
-      <div className="relative aspect-video bg-black w-full group">
+      <div
+        className={
+          canvasHeight > canvasWidth
+            // 縦(9:16): 高さ上限つきで中央に収める（画面が縦長になりすぎないよう max-height を設定）。
+            ? 'relative aspect-[9/16] bg-black group mx-auto max-h-[70vh] h-[70vh] max-w-full'
+            // 横(16:9): 従来どおり。
+            : 'relative aspect-video bg-black w-full group'
+        }
+      >
         <canvas
           ref={canvasRef}
           className="w-full h-full object-contain"

@@ -8,6 +8,7 @@ import {
   useCanvasStore,
   computeCanvasSizeFromSource,
   resolveExportCanvasSize,
+  resolveMediaBaseScale,
 } from '../stores/canvasStore';
 import {
   computeExportVideoBitrate,
@@ -226,5 +227,101 @@ describe('computeExportVideoBitrate', () => {
 
   it('returns max bitrate for invalid dimensions', () => {
     expect(computeExportVideoBitrate(0, 0)).toBe(EXPORT_VIDEO_BITRATE);
+  });
+});
+
+describe('aspect ratio (portrait 9:16) support', () => {
+  beforeEach(() => {
+    useCanvasStore.getState().setAspectRatio('landscape');
+    useCanvasStore.getState().resetCanvasSize();
+    useCanvasStore.getState().setExportQuality('auto');
+  });
+
+  it('computeCanvasSizeFromSource portrait: 縦ソースはそのまま 9:16 枠に内包', () => {
+    // 9:16 縦ソース（1080x1920 上限内）
+    expect(computeCanvasSizeFromSource(1080, 1920, MAX_CANVAS_WIDTH, MAX_CANVAS_HEIGHT, 'portrait'))
+      .toEqual({ width: 1080, height: 1920 });
+    // 縦長だが 9:16 より細い（例 1000x1920）→ 高さ基準で 9:16 枠へ広げる
+    const tall = computeCanvasSizeFromSource(1000, 1920, MAX_CANVAS_WIDTH, MAX_CANVAS_HEIGHT, 'portrait');
+    expect(tall.height).toBe(1920);
+    expect(tall.width % 2).toBe(0);
+  });
+
+  it('computeCanvasSizeFromSource portrait: 横ソースは既定 9:16 枠へフォールバック', () => {
+    expect(computeCanvasSizeFromSource(1920, 1080, MAX_CANVAS_WIDTH, MAX_CANVAS_HEIGHT, 'portrait'))
+      .toEqual({ width: 1080, height: 1920 });
+  });
+
+  it('resolveExportCanvasSize portrait: fhd=1080x1920 / hd=720x1280', () => {
+    expect(resolveExportCanvasSize('fhd', 640, 360, 'portrait')).toEqual({ width: 1080, height: 1920 });
+    expect(resolveExportCanvasSize('hd', 1920, 1080, 'portrait')).toEqual({ width: 720, height: 1280 });
+    // auto でソース未知なら向きの既定枠（縦）
+    expect(resolveExportCanvasSize('auto', null, null, 'portrait')).toEqual({ width: 1080, height: 1920 });
+  });
+
+  it('landscape の既定挙動は不変（回帰ガード）', () => {
+    expect(resolveExportCanvasSize('fhd', 640, 360)).toEqual({ width: 1920, height: 1080 });
+    expect(resolveExportCanvasSize('hd', 3840, 2160)).toEqual({ width: 1280, height: 720 });
+    expect(computeCanvasSizeFromSource(1920, 1080)).toEqual({ width: 1920, height: 1080 });
+  });
+
+  it('setAspectRatio(portrait) がプレビュー/エクスポート寸法を縦へ再計算する', () => {
+    useCanvasStore.getState().setExportQuality('fhd');
+    useCanvasStore.getState().applyFromSource(1920, 1080); // 横ソース
+    // landscape 時
+    expect(useCanvasStore.getState().exportWidth).toBe(1920);
+    expect(useCanvasStore.getState().exportHeight).toBe(1080);
+    // 縦へ切替
+    useCanvasStore.getState().setAspectRatio('portrait');
+    const s = useCanvasStore.getState();
+    expect(s.aspectRatio).toBe('portrait');
+    expect(s.exportWidth).toBe(1080);
+    expect(s.exportHeight).toBe(1920);
+    // プレビューも縦（横ソースは既定 9:16 枠へ）
+    expect(s.previewWidth).toBeLessThan(s.previewHeight);
+  });
+
+  it('setAspectRatio(portrait) 後の resetCanvasSize は縦の既定枠を保つ', () => {
+    useCanvasStore.getState().setAspectRatio('portrait');
+    useCanvasStore.getState().resetCanvasSize();
+    const s = useCanvasStore.getState();
+    expect(s.aspectRatio).toBe('portrait');
+    // プレビュー既定枠は縦（幅 < 高さ）
+    expect(s.previewWidth).toBeLessThan(s.previewHeight);
+  });
+});
+
+describe('resolveMediaBaseScale', () => {
+  // 縦 canvas(1080x1920) に横素材(1920x1080)を cover: 高さを合わせ左右はみ出し
+  it('cover は短辺を合わせて枠を埋める（横素材を縦フレームへ）', () => {
+    const scale = resolveMediaBaseScale({
+      canvasWidth: 1080, canvasHeight: 1920, elementWidth: 1920, elementHeight: 1080, mode: 'cover',
+    });
+    // cover = max(1080/1920, 1920/1080) = max(0.5625, 1.777) = 1.777...
+    expect(scale).toBeCloseTo(1920 / 1080, 4);
+    // 素材の描画高さ = 1080 * 1.777 = 1920（縦を埋める）、幅は 1920*1.777 > 1080（左右カット）
+    expect(1080 * scale).toBeCloseTo(1920, 1);
+    expect(1920 * scale).toBeGreaterThan(1080);
+  });
+
+  it('contain は全体が収まる（従来の横挙動）', () => {
+    const scale = resolveMediaBaseScale({
+      canvasWidth: 1920, canvasHeight: 1080, elementWidth: 1920, elementHeight: 1080, mode: 'contain',
+    });
+    // 16:9 素材を 16:9 枠へ → ぴったり 1.0
+    expect(scale).toBeCloseTo(1, 4);
+  });
+
+  it('縦素材を縦 canvas に cover（同比率）はぴったり', () => {
+    const scale = resolveMediaBaseScale({
+      canvasWidth: 1080, canvasHeight: 1920, elementWidth: 1080, elementHeight: 1920, mode: 'cover',
+    });
+    expect(scale).toBeCloseTo(1, 4);
+  });
+
+  it('不正な素材寸法は 1 を返す（防御）', () => {
+    expect(resolveMediaBaseScale({
+      canvasWidth: 1080, canvasHeight: 1920, elementWidth: 0, elementHeight: 0, mode: 'cover',
+    })).toBe(1);
   });
 });

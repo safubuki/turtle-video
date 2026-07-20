@@ -2256,3 +2256,19 @@
   - **出力音声には触れない**。OfflineAudioContext のミックス（BGM/ナレーション/動画音声）はそのままファイルへ入る。無音化するのは「キャプチャされないライブ要素」だけ。
   - script-processor フォールバック（offline 失敗時のライブ捕捉）は WebAudio グラフ（ソースノード有り）から拾うため、ソースノード**無し**要素の無音化は捕捉に影響しない。
   - Android は既存の `muteNativeMediaDuringExportWhenAudioRouted=isAndroid=true` で従来から無音。iOS Safari は別フレーバーで本変更の対象外。
+
+### 13-122. 縦画面（9:16）出力対応（アスペクト比の向き切替）
+
+- **ファイル**: `src/stores/canvasStore.ts`, `src/components/sections/ClipsSection.tsx`, `src/components/sections/PreviewSection.tsx`, `src/components/common/MiniPreview.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/utils/indexedDB.ts`, `src/stores/projectStore.ts`, `src/hooks/useAutoSave.ts`, `src/test/canvasStore.test.ts`
+- **内容**:
+  - **向き（aspectRatio）を canvasStore に追加**: `'landscape'(16:9・既定) | 'portrait'(9:16)`。`setAspectRatio()` でプレビュー/エクスポート寸法を再計算。`getTargetAspect()` が単一ソース。寸法算出（`computeCanvasSizeFromSource` / `resolveExportCanvasSize`）に `aspectRatio` 引数（既定 landscape で後方互換）を追加し、`FIXED_EXPORT_SIZES` を向き別（portrait fhd=1080×1920 / hd=720×1280）に拡張。**canvasStore が唯一の寸法ソース**なので、プレビュー/カード/エクスポートは width/height を読むだけで自動追従する。
+  - **cover 配置（縦フレームを埋める）**: 縦(9:16)モードでは横素材を「縦幅を合わせ左右カット」で初期配置する。純ロジック `resolveMediaBaseScale({..., mode})`（`canvasStore.ts`）を追加し、描画側は `mode = canvas.height > canvas.width ? 'cover' : 'contain'` で分岐。横(16:9)は従来どおり contain で**1px も挙動を変えない**。scale(拡大)/positionX/Y(XY) は baseScale に乗るだけで不変。standard は主描画＋peer/dissolve の2箇所、apple-safari は1箇所、MiniPreview（ミニ枠も向きで 96×54⇄54×96 に）を差し替え。
+  - **UI トグル**: 「動画・画像」セクションのタイトルバー（ClipsSection）に横/縦セグメントトグル（`RectangleHorizontal`/`RectangleVertical`）。`useCanvasStore` の `aspectRatio`/`setAspectRatio` に接続。
+  - **プレビュー枠**: PreviewSection の canvas ラッパを向きで切替（横=`aspect-video`、縦=`aspect-[9/16]` + `max-h-[70vh]` 中央）。
+  - **永続化（per-project）**: `ProjectData.aspectRatio?`（任意・旧データは landscape 後方互換）。projectStore の save は `useCanvasStore.getState().aspectRatio` を書き出し、`loadProjectFromSlot` は `setAspectRatio(data.aspectRatio ?? 'landscape')` で復元（メディア反映前に向きを確定）。useAutoSave の変更検知ハッシュに `aspectRatio` を追加。exportQuality（localStorage・per-user）とは独立。
+  - **エクスポート**: `beginExportMode()` が返す exportWidth/exportHeight に自動追従するため export エンジンは変更不要。13-114/13-115 の実寸受け渡し・保存前解像度検証は縦寸法でもそのまま通る（縦の tkhd も既存パーサで OK）。
+- **注意**:
+  - **landscape の挙動は完全不変**（cover は canvas が縦のときだけ、寸法既定は landscape）。既存 16:9 プロジェクトへ影響なし（canvasStore.test.ts の landscape 期待値が回帰ガード）。
+  - 描画の向き判定は Canvas 実寸（`height > width`）を根拠にする。store の aspectRatio と Canvas 実寸は常に整合（縦モードは必ず w<h を返す）。
+  - 向き切替時に XY/scale の値は保持する（枠が変わるので見え方は変わるが値は壊さない）。cover 既定で横素材は左右カットになり、左右調整だけで収まる想定。
+  - 新 override 的フィールドと同様、`aspectRatio` は types/indexedDB/projectStore(save+load)/useAutoSave ハッシュを揃って更新する。

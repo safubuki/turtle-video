@@ -4,11 +4,12 @@
  * @description 動画・画像クリップの管理を行うセクション。アップロード、並び替え、各クリップの基本操作（削除、複製）を提供するリストビュー。
  */
 import React, { useRef, useState } from 'react';
-import { Upload, Lock, Unlock, CircleHelp, ArrowDownUp } from 'lucide-react';
+import { Upload, Lock, Unlock, CircleHelp, ArrowDownUp, RectangleHorizontal, RectangleVertical } from 'lucide-react';
 import type { ClipTransition, MediaItem } from '../../types';
 import ClipItem from '../media/ClipItem';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import { useMediaStore } from '../../stores/mediaStore';
+import { useCanvasStore } from '../../stores/canvasStore';
 import {
   CLIP_TRANSITION_DEFAULT_DURATION,
   CLIP_TRANSITION_DURATION_OPTIONS,
@@ -163,6 +164,9 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   // 簡単コピーは standard フレーバー（Android/PC）限定機能
   const { isIosSafari } = usePlatformCapabilities();
+  // 出力の向き（16:9 横 / 9:16 縦）。プロジェクトごとに保持され、プレビュー/カード/エクスポートに反映される。
+  const aspectRatio = useCanvasStore((s) => s.aspectRatio);
+  const setAspectRatio = useCanvasStore((s) => s.setAspectRatio);
   const duplicateMediaItem = useMediaStore((s) => s.duplicateMediaItem);
   const updateMediaItem = useMediaStore((s) => s.updateMediaItem);
   const canDuplicate = !isIosSafari;
@@ -196,6 +200,31 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
           </button>
         </h2>
         <div className="flex items-center gap-1.5 shrink-0">
+          {/* 出力の向き切替（16:9 横 / 9:16 縦）。既定は横。 */}
+          <div
+            className="flex items-center rounded-lg border border-gray-700 bg-gray-800/70 p-0.5"
+            role="group"
+            aria-label="出力の向き"
+          >
+            <button
+              type="button"
+              onClick={() => setAspectRatio('landscape')}
+              aria-pressed={aspectRatio === 'landscape'}
+              title="横画面 (16:9)"
+              className={`p-1 rounded-md transition ${aspectRatio === 'landscape' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
+            >
+              <RectangleHorizontal className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setAspectRatio('portrait')}
+              aria-pressed={aspectRatio === 'portrait'}
+              title="縦画面 (9:16)"
+              className={`p-1 rounded-md transition ${aspectRatio === 'portrait' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
+            >
+              <RectangleVertical className="w-4 h-4" />
+            </button>
+          </div>
           <button
             onClick={onToggleClipsLock}
             className={`p-1 rounded-lg transition ${isClipsLocked ? 'bg-red-500/20 text-red-400' : 'bg-gray-700 text-gray-300 hover:text-white hover:bg-gray-600'}`}
