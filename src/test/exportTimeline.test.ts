@@ -4,6 +4,8 @@ import {
   getExportFrameTiming,
   resolveExportCanvasFrameBurstCount,
   resolveNonIosExportTimelineTimeSec,
+  resolveFrameDrivenExportTimeSec,
+  shouldUseFrameDrivenExportPacing,
   resolveExportPlaybackTimeSec,
   resolveExportDuration,
 } from '../utils/exportTimeline';
@@ -204,6 +206,78 @@ describe('resolveExportCanvasFrameBurstCount', () => {
         pendingFrameCount: Number.NaN,
       }),
     ).toBe(0);
+  });
+});
+
+describe('resolveFrameDrivenExportTimeSec', () => {
+  it('keeps image and caption timing tied to frames submitted to VideoEncoder', () => {
+    expect(resolveFrameDrivenExportTimeSec({
+      wallClockTimeSec: 7.5,
+      submittedFrameCount: 195,
+      fps: 30,
+      enabled: true,
+    })).toBe(6.5);
+
+    expect(resolveFrameDrivenExportTimeSec({
+      wallClockTimeSec: 9.2,
+      submittedFrameCount: 225,
+      fps: 30,
+      enabled: true,
+    })).toBe(7.5);
+  });
+
+  it('keeps the wall-clock path for video timelines and normal preview', () => {
+    expect(resolveFrameDrivenExportTimeSec({
+      wallClockTimeSec: 5.75,
+      submittedFrameCount: 90,
+      fps: 30,
+      enabled: false,
+    })).toBe(5.75);
+  });
+
+  it('normalizes invalid frame progress without advancing the export timeline', () => {
+    expect(resolveFrameDrivenExportTimeSec({
+      wallClockTimeSec: 5,
+      submittedFrameCount: Number.NaN,
+      fps: 30,
+      enabled: true,
+    })).toBe(0);
+  });
+});
+
+describe('shouldUseFrameDrivenExportPacing', () => {
+  it('enables frame-driven pacing for a full export made only from images', () => {
+    expect(shouldUseFrameDrivenExportPacing({
+      isExportMode: true,
+      fromTimeSec: 0,
+      mediaItemTypes: ['image', 'image'],
+    })).toBe(true);
+  });
+
+  it('keeps video timelines on the existing wall-clock path', () => {
+    expect(shouldUseFrameDrivenExportPacing({
+      isExportMode: true,
+      fromTimeSec: 0,
+      mediaItemTypes: ['image', 'video'],
+    })).toBe(false);
+  });
+
+  it('does not affect normal preview, partial starts, or empty timelines', () => {
+    expect(shouldUseFrameDrivenExportPacing({
+      isExportMode: false,
+      fromTimeSec: 0,
+      mediaItemTypes: ['image'],
+    })).toBe(false);
+    expect(shouldUseFrameDrivenExportPacing({
+      isExportMode: true,
+      fromTimeSec: 1,
+      mediaItemTypes: ['image'],
+    })).toBe(false);
+    expect(shouldUseFrameDrivenExportPacing({
+      isExportMode: true,
+      fromTimeSec: 0,
+      mediaItemTypes: [],
+    })).toBe(false);
   });
 });
 

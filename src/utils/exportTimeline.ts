@@ -32,6 +32,19 @@ export interface ExportCanvasFrameBurstInput {
   maxFramesPerPoll?: number;
 }
 
+export interface FrameDrivenExportTimeInput {
+  wallClockTimeSec: number;
+  submittedFrameCount: number;
+  fps: number;
+  enabled: boolean;
+}
+
+export interface FrameDrivenExportPacingDecisionInput {
+  isExportMode: boolean;
+  fromTimeSec: number;
+  mediaItemTypes: readonly string[];
+}
+
 const DURATION_EPSILON = 1e-9;
 
 function sanitizePlaybackTimeSec(timeSec: number): number | null {
@@ -193,4 +206,37 @@ export function resolveExportCanvasFrameBurstCount(
     : 1;
 
   return Math.min(safePendingFrameCount, safeMaxFramesPerPoll);
+}
+
+/**
+ * 静止画のみの standard export では、壁時計ではなく VideoEncoder へ正常投入した
+ * フレーム数から次に描画する時刻を決める。
+ * 動画を含む経路や通常 preview は enabled=false で従来の壁時計を維持する。
+ */
+export function resolveFrameDrivenExportTimeSec(
+  input: FrameDrivenExportTimeInput,
+): number {
+  const safeWallClockTimeSec = sanitizePlaybackTimeSec(input.wallClockTimeSec) ?? 0;
+  if (!input.enabled) return safeWallClockTimeSec;
+
+  const safeFps = Number.isFinite(input.fps) && input.fps > 0 ? input.fps : 30;
+  const safeSubmittedFrameCount = Number.isFinite(input.submittedFrameCount)
+    ? Math.max(0, Math.floor(input.submittedFrameCount))
+    : 0;
+  return safeSubmittedFrameCount / safeFps;
+}
+
+/**
+ * HTMLVideoElement の実デコードを必要としない静止画タイムラインだけを、
+ * VideoEncoder のフレーム投入駆動へ切り替える。動画を含む場合は既存の壁時計再生を守る。
+ */
+export function shouldUseFrameDrivenExportPacing(
+  input: FrameDrivenExportPacingDecisionInput,
+): boolean {
+  return input.isExportMode
+    && Number.isFinite(input.fromTimeSec)
+    && input.fromTimeSec >= 0
+    && input.fromTimeSec <= 1e-9
+    && input.mediaItemTypes.length > 0
+    && input.mediaItemTypes.every((type) => type === 'image');
 }

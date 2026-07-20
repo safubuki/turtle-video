@@ -2166,3 +2166,19 @@
   - catch-up は encoder queue の空き以内に限定し、1080p ロング動画向けのバックプレッシャー上限を迂回しない。
   - 負荷で描画 callback 自体が 30fps 未満になった区間は同一 Canvas の CFR 複製を含むが、タイムライン尺を末尾の単一フレームへ偏らせるより時間位置と音声同期を優先する。
   - 出力寸法検証は muxer 設定値ではなく完成 MP4 の track header を根拠にする。検証不能または不一致のファイルをユーザーへ渡さない。
+
+### 13-116. PC の静止画エクスポートは Canvas 描画時刻を VideoEncoder のフレーム投入へ同期する
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/hooks/export-strategies/types.ts`, `src/utils/exportTimeline.ts`, `src/test/standardPreviewEngine.test.tsx`, `src/test/exportTimeline.test.ts`
+- **実測した問題**:
+  - 7.5 秒・fadeOut 1 秒の添付 FHD 出力は総尺と 1920×1080 を満たした一方、輝度低下が約 5.47 秒、ほぼ黒が約 5.8 秒から始まり、6.5 秒から始まるべきフェードが約 1 秒早かった。
+  - BGM は OfflineAudioContext で総尺どおり生成されるが、画像・キャプション・フェードは壁時計で進むため、PC の 1080p Canvas 描画が 30fps に追いつかないと映像時刻だけ先行した。
+  - 13-115 の catch-up は不足フレームへ同じ時点の Canvas を複製するため映像尺は直るが、重い描画で先行したフェード画像を過去の CFR timestamp へ複製し、終端には黒い最終 Canvas が残る。
+- **対策**:
+  - standard の「静止画だけ・先頭から」の export に限り、壁時計ではなく `VideoEncoder.encode()` へ正常投入したフレーム数から次の Canvas 描画時刻を決める。
+  - 同じ投入数の待機中は 1080p Canvas を再描画せず、投入が 1 枚進んだ次の rAF で次時刻を描く。各 Canvas 描画と CFR フレーム投入を 1 対 1 に保つ。
+  - `output` callback 完了待ちは H.264 の内部バッファリングで停止し得るため使わない。投入後の同期通知と encoder queue の既存バックプレッシャーを組み合わせる。
+  - 動画を含む export、途中時刻からの開始、通常 preview、apple-safari 経路は従来の壁時計方式を維持する。
+- **注意**:
+  - 静止画 export の進行基準を再び壁時計へ戻したり、1 回の描画から複数 timestamp を生成すると、画像・キャプション・フェードが BGM より早く終わる問題が再発する。
+  - 7.5 秒・30fps の回帰テストでは、195 枚投入時が約 6.5 秒、225 枚投入後だけが完了条件であることを確認する。

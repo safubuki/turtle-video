@@ -77,6 +77,11 @@ export interface ExportAudioSources {
    * 映像フレーム供給数をタイムライン進行に追従させるために使用する。
    */
   getPlaybackTimeSec?: () => number;
+  /**
+   * VideoEncoder へ正常投入した映像フレーム数を通知する。
+   * 静止画のみの standard export で、各 Canvas 描画とエンコード投入を1対1に同期するために使う。
+   */
+  onVideoFrameSubmitted?: (submittedFrameCount: number) => void;
 }
 
 export interface ExportCallbacks {

@@ -201,6 +201,7 @@ describe('standard preview engine', () => {
     reqId?: number | null;
     loopId?: number;
     isPlaying?: boolean;
+    enableWebCodecsExport?: boolean;
   }) {
     const mediaItems = options?.mediaItems ?? [createVideoItem()];
     const mediaItem = mediaItems[0];
@@ -221,6 +222,9 @@ describe('standard preview engine', () => {
     const pause = vi.fn();
     const resetInactiveVideos = vi.fn();
     const clearExport = vi.fn();
+    const startWebCodecsExport = vi.fn();
+    const completeWebCodecsExport = vi.fn();
+    const logInfo = vi.fn();
     const primePreviewAudioOnlyTracksAtTimeSpy =
       options?.primePreviewAudioOnlyTracksAtTime ?? vi.fn<(playbackTime: number) => void>();
     const totalDurationRef = createRef(
@@ -255,7 +259,11 @@ describe('standard preview engine', () => {
         } as unknown as AudioContext)),
         sourceNodesRef: createRef({}),
         gainNodesRef: createRef(options?.gainNodes ?? {}),
-        masterDestRef: createRef(null),
+        masterDestRef: createRef(
+          options?.enableWebCodecsExport
+            ? ({} as MediaStreamAudioDestinationNode)
+            : null,
+        ),
         audioRoutingModeRef: createRef<'preview' | 'export'>('preview'),
         reqIdRef,
         startTimeRef,
@@ -313,10 +321,10 @@ describe('standard preview engine', () => {
         preparePreviewAudioNodesForUpcomingVideos: vi.fn(),
         primePreviewAudioOnlyTracksAtTime: primePreviewAudioOnlyTracksAtTimeSpy,
         resetInactiveVideos,
-        startWebCodecsExport: vi.fn(),
+        startWebCodecsExport,
         stopWebCodecsExport: vi.fn(),
-        completeWebCodecsExport: vi.fn(),
-        logInfo: vi.fn(),
+        completeWebCodecsExport,
+        logInfo,
         logWarn: vi.fn(),
         logDebug: vi.fn(),
       }),
@@ -335,6 +343,9 @@ describe('standard preview engine', () => {
       loopIdRef,
       totalDurationRef,
       resetInactiveVideos,
+      startWebCodecsExport,
+      completeWebCodecsExport,
+      logInfo,
       primePreviewAudioOnlyTracksAtTime: primePreviewAudioOnlyTracksAtTimeSpy,
       hook,
     };
@@ -466,6 +477,59 @@ describe('standard preview engine', () => {
     expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
     expect(setCurrentTime).toHaveBeenCalledWith(2);
     expect(play).toHaveBeenCalledTimes(1);
+  });
+
+  it('image-only export advances image, caption, and fade timing one submitted frame at a time', async () => {
+    const imageItem = createImageItem({ duration: 7.5, fadeOut: true, fadeOutDuration: 1 });
+    const canvas = {
+      getContext: vi.fn(() => createMockCanvasContext()),
+    } as unknown as HTMLCanvasElement;
+    vi.spyOn(playbackClock, 'getStandardPreviewNow').mockReturnValue(7500);
+    const {
+      hook,
+      loopIdRef,
+      currentTimeRef,
+      setCurrentTime,
+      startWebCodecsExport,
+      completeWebCodecsExport,
+      logInfo,
+    } = setupPreviewEngineHarness({
+      mediaItems: [imageItem],
+      mediaElements: {},
+      totalDuration: 7.5,
+      canvas,
+      enableWebCodecsExport: true,
+    });
+
+    const startPromise = hook.result.current.startEngine(0, true);
+    await vi.advanceTimersByTimeAsync(300);
+    await startPromise;
+
+    expect(startWebCodecsExport).toHaveBeenCalledTimes(1);
+    expect(logInfo).toHaveBeenCalledWith(
+      'RENDER',
+      'standard.export.pacing.selected',
+      expect.objectContaining({ mode: 'video-frame-driven', hasVideo: false }),
+    );
+
+    const audioSources = startWebCodecsExport.mock.calls[0]?.[4];
+    expect(audioSources).toBeDefined();
+    audioSources.onAudioPreRenderComplete?.();
+    audioSources.onVideoFrameSubmitted?.(195);
+    hook.result.current.loop(true, loopIdRef.current);
+
+    expect(currentTimeRef.current).toBeCloseTo(6.5, 3);
+    const lastSetCurrentTimeCall = setCurrentTime.mock.calls[setCurrentTime.mock.calls.length - 1];
+    expect(lastSetCurrentTimeCall?.[0]).toBeCloseTo(6.5, 3);
+    expect(completeWebCodecsExport).not.toHaveBeenCalled();
+
+    const updateCountAtFrame195 = setCurrentTime.mock.calls.length;
+    hook.result.current.loop(true, loopIdRef.current);
+    expect(setCurrentTime).toHaveBeenCalledTimes(updateCountAtFrame195);
+
+    audioSources.onVideoFrameSubmitted?.(225);
+    hook.result.current.loop(true, loopIdRef.current);
+    expect(completeWebCodecsExport).toHaveBeenCalledTimes(1);
   });
 
   it('preview 再生開始では exportUrl を clear しない', async () => {

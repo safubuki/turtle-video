@@ -31,7 +31,12 @@ import { useProjectStore } from '../../../stores/projectStore';
 import type { PlatformCapabilities } from '../../../utils/platform';
 import { collectPlaybackBlockingVideos } from '../../../utils/playbackTimeline';
 import { isCaptionActiveAtTime, resolveCaptionDisplaySegment } from '../../../utils/captionTimeline';
-import { getExportFrameTiming, resolveExportDuration } from '../../../utils/exportTimeline';
+import {
+  getExportFrameTiming,
+  resolveExportDuration,
+  resolveFrameDrivenExportTimeSec,
+  shouldUseFrameDrivenExportPacing,
+} from '../../../utils/exportTimeline';
 import {
   ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC,
   ANDROID_PREVIEW_SOFT_DRAW_DRIFT_THRESHOLD_SEC,
@@ -695,6 +700,9 @@ export function usePreviewEngine({
   const setPreviewLoadingLabelValue = setPreviewLoadingLabel ?? (() => undefined);
   const activePreviewModeRef = useRef<PreviewEngineMode>('idle');
   const currentExportSessionIdRef = useRef<string | null>(null);
+  const frameDrivenExportEnabledRef = useRef(false);
+  const frameDrivenExportSubmittedCountRef = useRef(0);
+  const frameDrivenExportLastRenderedCountRef = useRef<number | null>(null);
   const currentPreviewCacheBuildSessionIdRef = useRef<string | null>(null);
   const pendingPreviewCacheBuildResolverRef = useRef<((success: boolean) => void) | null>(null);
   const androidPreviewRecoveryRef = useRef<Record<string, {
@@ -3053,6 +3061,9 @@ export function usePreviewEngine({
 
   const stopAll = useCallback(() => {
     currentExportSessionIdRef.current = null;
+    frameDrivenExportEnabledRef.current = false;
+    frameDrivenExportSubmittedCountRef.current = 0;
+    frameDrivenExportLastRenderedCountRef.current = null;
     currentPreviewCacheBuildSessionIdRef.current = null;
     logDebug('SYSTEM', 'stopAll呼び出し', { previousLoopId: loopIdRef.current, isPlayingRef: isPlayingRef.current });
 
@@ -3358,7 +3369,15 @@ export function usePreviewEngine({
         frameGapMs = now - diagnostics.lastRafNowMs;
       }
       diagnostics.lastRafNowMs = now;
-      const elapsed = (now - startTimeRef.current) / 1000;
+      const wallClockElapsed = (now - startTimeRef.current) / 1000;
+      const useFrameDrivenExportTime = isExportMode && frameDrivenExportEnabledRef.current;
+      const submittedFrameCount = frameDrivenExportSubmittedCountRef.current;
+      const elapsed = resolveFrameDrivenExportTimeSec({
+        wallClockTimeSec: wallClockElapsed,
+        submittedFrameCount,
+        fps: FPS,
+        enabled: useFrameDrivenExportTime,
+      });
       const totalDuration = totalDurationRef.current;
       const clampedElapsed = Math.min(elapsed, totalDuration);
       const reachedPreviewEnd =
@@ -3386,6 +3405,15 @@ export function usePreviewEngine({
         } else {
           stopAll();
         }
+        return;
+      }
+      if (
+        useFrameDrivenExportTime
+        && frameDrivenExportLastRenderedCountRef.current === submittedFrameCount
+      ) {
+        // 同じフレームのエンコーダー投入待ち中は、重い 1080p Canvas を再描画しない。
+        // VideoEncoder への投入が進んだ次の rAF で次時刻を描く。
+        reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
         return;
       }
       const exportDurationAlignment = isExportMode ? resolveExportDuration(totalDuration, FPS) : null;
@@ -3916,6 +3944,9 @@ export function usePreviewEngine({
       }
 
       renderFrame(renderTimeSec, true, isExportMode);
+      if (useFrameDrivenExportTime) {
+        frameDrivenExportLastRenderedCountRef.current = submittedFrameCount;
+      }
       reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
     },
     [
@@ -4020,6 +4051,19 @@ export function usePreviewEngine({
       const exportSessionId = isExportMode ? createPreviewExportSessionId() : null;
 
       if (isExportMode) {
+        frameDrivenExportEnabledRef.current = shouldUseFrameDrivenExportPacing({
+          isExportMode,
+          fromTimeSec: fromTime,
+          mediaItemTypes: mediaItemsRef.current.map((item) => item.type),
+        });
+        frameDrivenExportSubmittedCountRef.current = 0;
+        frameDrivenExportLastRenderedCountRef.current = null;
+        logInfo('RENDER', 'standard.export.pacing.selected', {
+          mode: frameDrivenExportEnabledRef.current ? 'video-frame-driven' : 'wall-clock',
+          fromTime,
+          mediaItemCount: mediaItemsRef.current.length,
+          hasVideo: mediaItemsRef.current.some((item) => item.type === 'video'),
+        });
         activePreviewModeRef.current = 'export';
         safeSetPreviewPlaying(false);
         currentExportSessionIdRef.current = exportSessionId;
@@ -4579,8 +4623,18 @@ export function usePreviewEngine({
             narrations: narrationsRef.current,
             totalDuration: totalDurationRef.current,
             getPlaybackTimeSec: () => currentTimeRef.current,
+            onVideoFrameSubmitted: (submittedFrameCount) => {
+              if (
+                currentExportSessionIdRef.current === exportSessionId
+                && frameDrivenExportEnabledRef.current
+              ) {
+                frameDrivenExportSubmittedCountRef.current = submittedFrameCount;
+              }
+            },
             onPreparationStepChange: setExportPreparationStep,
             onAudioPreRenderComplete: () => {
+              frameDrivenExportSubmittedCountRef.current = 0;
+              frameDrivenExportLastRenderedCountRef.current = null;
               startTimeRef.current = getStandardPreviewNow() - fromTime * 1000;
               loop(isExportMode, myLoopId);
             },

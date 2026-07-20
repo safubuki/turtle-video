@@ -1645,10 +1645,15 @@ export function createUseExport(config: UseExportRuntimeConfig) {
 
         // 2. VideoEncoder の設定
         let encodedVideoEndUs = 0;
+        let videoEncoderSubmittedFrames = 0;
+        let videoEncoderOutputFrames = 0;
         let muxedAudioEndUs = 0;
         let finalAudioInputSamples = 0;
         const videoEncoder = new VideoEncoder({
-          output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+          output: (chunk, meta) => {
+            muxer.addVideoChunk(chunk, meta);
+            videoEncoderOutputFrames += 1;
+          },
           error: (e) => console.error('VideoEncoder error:', e),
         });
         videoEncoder.configure({
@@ -1658,6 +1663,10 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           bitrate: exportVideoBitrate,
           framerate: FPS,
         });
+        const noteVideoFrameSubmitted = () => {
+          videoEncoderSubmittedFrames += 1;
+          audioSources?.onVideoFrameSubmitted?.(videoEncoderSubmittedFrames);
+        };
 
         // 3. AudioEncoder の設定（常に作成する）
         let audioEncoderOutputChunks = 0;
@@ -2193,6 +2202,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
 
                   // エンコード
                   videoEncoder.encode(newFrame, { keyFrame: isKeyFrame(frameIndex) });
+                  noteVideoFrameSubmitted();
 
                   // クローズ
                   newFrame.close();
@@ -2222,6 +2232,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                   duration: frameTiming.durationUs,
                 });
                 videoEncoder.encode(frame, { keyFrame: isKeyFrame(frameIndex) });
+                noteVideoFrameSubmitted();
                 frame.close();
                 frameIndex++;
               }
@@ -2289,6 +2300,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                     duration: frameTiming.durationUs,
                   });
                   videoEncoder.encode(frame, { keyFrame: isKeyFrame(frameIndex) });
+                  noteVideoFrameSubmitted();
                   frame.close();
                   frameIndex++;
                 }
@@ -2504,6 +2516,8 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           audioEncoderQueueSize: audioEncoder.encodeQueueSize,
           videoEncoderState: videoEncoder.state,
           videoEncoderQueueSize: videoEncoder.encodeQueueSize,
+          videoEncoderSubmittedFrames,
+          videoEncoderOutputFrames,
           backpressureDroppedFrames,
           encodedVideoEndUs,
           muxedAudioEndUs,
