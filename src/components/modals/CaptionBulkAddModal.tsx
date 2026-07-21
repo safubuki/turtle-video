@@ -7,7 +7,7 @@
  *   編集して反映すると行順で既存キャプションへマージされる（個別スタイルは維持）。
  * - キャプション間の間隔（0/0.3/0.5秒）と 1 行あたりの表示秒数（0.5〜30秒）を調整できる。
  */
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { X, ListPlus, Minus, Plus, CircleHelp, Copy, Check, Clock, CornerDownRight } from 'lucide-react';
 import type { Caption } from '../../types';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
@@ -89,6 +89,119 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
   const [splitMode, setSplitMode] = useState<BulkCaptionSplitMode>('hybrid');
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
 
+  // === 下部モーダル共通挙動（他の設定モーダルと統一）==========================
+  // 1) スマホの戻るキー / 端末バックジェスチャーで閉じる（history state を1段積む）
+  // 2) 上部（ヘッダー領域）を下スワイプで閉じる。長文入力の textarea とは競合させないため、
+  //    スワイプ判定はヘッダー領域だけに付け、コンテンツ側には付けない。
+  const onCloseRef = useRef(onClose);
+  const modalHistoryIdRef = useRef<string | null>(null);
+  const closedByPopstateRef = useRef(false);
+  const touchStartXRef = useRef<number | null>(null);
+  const touchStartYRef = useRef<number | null>(null);
+  const touchDeltaYRef = useRef(0);
+  const swipeCloseEligibleRef = useRef(false);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  const isMobileViewport = useCallback(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(max-width: 767px)').matches;
+  }, []);
+
+  // 戻るキー閉じ（他モーダルと同じ history state 方式）
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const stateId = `caption-bulk-modal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    modalHistoryIdRef.current = stateId;
+    closedByPopstateRef.current = false;
+
+    const currentState =
+      window.history.state && typeof window.history.state === 'object'
+        ? (window.history.state as Record<string, unknown>)
+        : {};
+    window.history.pushState({ ...currentState, __captionBulkModal: stateId }, '');
+
+    const handlePopState = () => {
+      closedByPopstateRef.current = true;
+      onCloseRef.current();
+    };
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      const current =
+        window.history.state && typeof window.history.state === 'object'
+          ? (window.history.state as Record<string, unknown>)
+          : null;
+      const ownStateOnTop = Boolean(
+        modalHistoryIdRef.current &&
+          current &&
+          current.__captionBulkModal === modalHistoryIdRef.current,
+      );
+      // 自分の履歴 state が先頭のときだけ戻す（多重 pop を避ける）
+      if (!closedByPopstateRef.current && ownStateOnTop) {
+        window.history.back();
+      }
+      modalHistoryIdRef.current = null;
+      closedByPopstateRef.current = false;
+    };
+  }, []);
+
+  const resetTouchTracking = useCallback(() => {
+    touchStartXRef.current = null;
+    touchStartYRef.current = null;
+    touchDeltaYRef.current = 0;
+    swipeCloseEligibleRef.current = false;
+  }, []);
+
+  const handleHeaderTouchStart = useCallback(
+    (event: React.TouchEvent<HTMLDivElement>) => {
+      if (!isMobileViewport() || event.touches.length !== 1) {
+        resetTouchTracking();
+        return;
+      }
+      const touch = event.touches[0];
+      touchStartXRef.current = touch.clientX;
+      touchStartYRef.current = touch.clientY;
+      touchDeltaYRef.current = 0;
+      swipeCloseEligibleRef.current = true;
+    },
+    [isMobileViewport, resetTouchTracking],
+  );
+
+  const handleHeaderTouchMove = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    if (
+      !swipeCloseEligibleRef.current ||
+      touchStartXRef.current === null ||
+      touchStartYRef.current === null ||
+      event.touches.length !== 1
+    ) {
+      return;
+    }
+    const touch = event.touches[0];
+    const deltaX = touch.clientX - touchStartXRef.current;
+    const deltaY = touch.clientY - touchStartYRef.current;
+    touchDeltaYRef.current = deltaY;
+
+    // 下方向かつ縦優位のスワイプだけを閉じる操作として扱う
+    const isVerticalDownSwipe = deltaY > 0 && Math.abs(deltaY) > Math.abs(deltaX);
+    if (!isVerticalDownSwipe) {
+      swipeCloseEligibleRef.current = false;
+      return;
+    }
+    event.preventDefault();
+  }, []);
+
+  const handleHeaderTouchEnd = useCallback(() => {
+    if (swipeCloseEligibleRef.current && touchDeltaYRef.current > 72) {
+      onCloseRef.current();
+    }
+    resetTouchTracking();
+  }, [resetTouchTracking]);
+  // ==========================================================================
+
   const handleCopyAiPrompt = async () => {
     try {
       await navigator.clipboard.writeText(AI_CAPTION_ANALYSIS_PROMPT);
@@ -165,14 +278,31 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
     <div className="fixed inset-0 bg-black/70 flex items-end md:items-center justify-center z-[300] md:p-4">
       {/* 誤操作防止のため、モーダル外のクリック/ドロップでは閉じない（× かキャンセルで閉じる） */}
       <div className="bg-gray-900 rounded-t-2xl md:rounded-2xl border border-gray-700 w-full md:max-w-lg shadow-2xl max-h-[92vh] flex flex-col">
-        {/* ヘッダー */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-700 shrink-0">
-          <h2 className="text-sm md:text-base font-bold flex items-center gap-2 text-yellow-400">
-            <ListPlus className="w-4 h-4" /> {isEditing ? 'キャプションをまとめて編集' : 'キャプションをまとめて入力'}
-          </h2>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-700 rounded-lg transition">
-            <X className="w-4 h-4" />
-          </button>
+        {/* 上部（ドラッグハンドル + ヘッダー）: この領域の下スワイプだけで閉じる */}
+        <div
+          className="shrink-0"
+          onTouchStart={handleHeaderTouchStart}
+          onTouchMove={handleHeaderTouchMove}
+          onTouchEnd={handleHeaderTouchEnd}
+          onTouchCancel={resetTouchTracking}
+        >
+          <div className="md:hidden pt-2 px-4">
+            <div className="mx-auto h-1 w-12 rounded-full bg-gray-600/80" />
+          </div>
+          {/* ヘッダー */}
+          <div className="flex items-center justify-between p-4 border-b border-gray-700">
+            <h2 className="text-sm md:text-base font-bold flex items-center gap-2 text-yellow-400">
+              <ListPlus className="w-4 h-4" /> {isEditing ? 'キャプションをまとめて編集' : 'キャプションをまとめて入力'}
+            </h2>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg border border-gray-600/80 bg-gray-800/80 text-gray-200 hover:text-white hover:bg-gray-700 hover:border-gray-500 transition"
+              title="閉じる"
+              aria-label="閉じる"
+            >
+              <X className="w-[18px] h-[18px]" />
+            </button>
+          </div>
         </div>
 
         {/* コンテンツ */}

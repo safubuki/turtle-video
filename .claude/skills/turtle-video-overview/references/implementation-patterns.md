@@ -2305,3 +2305,17 @@
   - decodeAudioData 失敗（未対応コーデック等）は `status='error'` で**波形を出さず静かに従来スライダーだけ残す**（ユーザー操作は止めない）。
   - しきい値は auto（平均 RMS 比）既定。固定 threshold も渡せる。無音検出のパラメータ（窓幅/最小継続/端マージン/上限）は `SilenceDetectionOptions` に集約し、回帰は `audioWaveform.test.ts`（区切り検出・端除外・短い谷無視・完全無音・上限で長い間優先）で固定。
   - ObjectURL は新規作成しない（File.arrayBuffer 優先、fetch のレスポンスも URL を作らない）ため解放対象なし。
+
+### 13-125. キャプションまとめて入力モーダルを下部モーダル共通挙動へ統一（上部スワイプ閉じ＋戻るキー閉じ＋閉じるボタン明確化）
+
+- **ファイル**: `src/components/modals/CaptionBulkAddModal.tsx`, `src/test/captionBulkAddModal.test.tsx`, `src/test/modalHistoryStability.test.tsx`
+- **問題**: スマホで下から出る「キャプションをまとめて入力/編集」モーダルだけが、他の設定系モーダル（SettingsModal 等）と挙動が揃っておらず、①下スワイプで閉じられない ②端末の戻る操作で閉じられない ③閉じる × ボタンが素っ気なく気づきにくい、という差があった。
+- **対策**（横断的注意点「下部モーダル」に準拠。ただし本モーダルは長文 textarea を持つ特殊事情がある）:
+  - **上部（ヘッダー領域）だけを下スワイプで閉じる**: SettingsModal はシート全体に touch ハンドラを付け `scrollTop<=0` を条件に閉じるが、CaptionBulkAddModal は **ドラッグハンドル＋ヘッダーを包む上部 div にだけ** `onTouchStart/Move/End/Cancel` を付ける。これによりコンテンツ内の textarea スクロール／編集ジェスチャーと一切競合しない（ユーザー要望「画面上部だけを下スワイプで閉じる」に一致）。判定は「縦優位の下方向 72px 超」。
+  - **戻るキー閉じ**: 他モーダルと同じ `history.pushState({__captionBulkModal: id})` ＋ `popstate` 方式。クリーンアップ時は自分の state が先頭のときだけ `history.back()`（多重 pop 回避）。`onClose` は ref 経由参照で、親再描画では effect を再実行しない（依存配列 `[]`）。
+  - **ドラッグハンドル**: モバイルのみ `md:hidden` の丸バーをヘッダー上に追加（他シートと同じ見た目）。
+  - **閉じるボタン**: 素の `hover:bg-gray-700` から SettingsModal と同じ枠付きスタイル（`border border-gray-600/80 bg-gray-800/80 ...`）＋ `aria-label="閉じる"`／`title="閉じる"` に変更し視認性を上げる。
+- **注意**:
+  - スワイプ判定を**ヘッダー領域限定**にするのが肝。シート全体に付けると textarea や各種操作と競合する（この差が SettingsModal 実装との意図的な違い）。
+  - 回帰ガード: `modalHistoryStability.test.tsx` に「親再描画で history.back を呼ばない」「popstate で閉じる」、`captionBulkAddModal.test.tsx` に「閉じるボタンで onClose」を追加。
+  - 他の下から出るモーダル（AiModal/SaveLoadModal/SectionHelp 等）は既に同挙動。まだ揃っていない下部モーダルがあれば同パターンで統一する（将来的には共通フックへ抽出する余地あり。現状は各モーダル内インライン実装が既定）。

@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import CaptionBulkAddModal from '../components/modals/CaptionBulkAddModal';
 
-const renderModal = (onApplyCaptions = vi.fn()) => {
+const renderModal = (onApplyCaptions = vi.fn(), onClose = vi.fn()) => {
   render(
     <CaptionBulkAddModal
       captions={[]}
@@ -10,7 +10,7 @@ const renderModal = (onApplyCaptions = vi.fn()) => {
       currentTime={0}
       formatTime={(seconds) => `${seconds.toFixed(1)}s`}
       onApplyCaptions={onApplyCaptions}
-      onClose={vi.fn()}
+      onClose={onClose}
     />,
   );
   return onApplyCaptions;
@@ -54,6 +54,15 @@ describe('CaptionBulkAddModal split modes', () => {
     fireEvent.click(screen.getByRole('button', { name: /時間指定だけ消す/ }));
 
     expect((textarea as HTMLTextAreaElement).value).toBe('本文\n+ 続き\n[注釈] 残す');
+  });
+
+  it('exposes an accessible close button that calls onClose', () => {
+    const onClose = vi.fn();
+    renderModal(vi.fn(), onClose);
+
+    fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -5,6 +5,7 @@ import type { ProjectPersistenceHealthSnapshot } from '../stores/projectPersiste
 import type { SaveFailureInfo } from '../stores/projectStore';
 import SettingsModal from '../components/modals/SettingsModal';
 import SaveLoadModal from '../components/modals/SaveLoadModal';
+import CaptionBulkAddModal from '../components/modals/CaptionBulkAddModal';
 
 let autoSaveIntervalValue = 1;
 
@@ -414,5 +415,56 @@ describe('modal history stability', () => {
 
     expect(getByText('Apple Safari 動作モード')).toBeTruthy();
     expect(getByText(/通常タブ、ホーム画面追加、プライベートブラウズ/)).toBeTruthy();
+  });
+
+  it('CaptionBulkAddModal は親の再描画で history.back を呼ばない', () => {
+    const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {});
+    const { rerender, unmount } = render(
+      <CaptionBulkAddModal
+        captions={[]}
+        totalDuration={30}
+        currentTime={0}
+        formatTime={(seconds) => `${seconds.toFixed(1)}s`}
+        onApplyCaptions={() => {}}
+        onClose={() => {}}
+      />,
+    );
+
+    rerender(
+      <CaptionBulkAddModal
+        captions={[]}
+        totalDuration={30}
+        currentTime={0}
+        formatTime={(seconds) => `${seconds.toFixed(1)}s`}
+        onApplyCaptions={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+
+    expect(backSpy).not.toHaveBeenCalled();
+
+    unmount();
+    backSpy.mockRestore();
+  });
+
+  it('CaptionBulkAddModal は端末の戻る操作（popstate）で閉じる', () => {
+    const onClose = vi.fn();
+    const { unmount } = render(
+      <CaptionBulkAddModal
+        captions={[]}
+        totalDuration={30}
+        currentTime={0}
+        formatTime={(seconds) => `${seconds.toFixed(1)}s`}
+        onApplyCaptions={() => {}}
+        onClose={onClose}
+      />,
+    );
+
+    act(() => {
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    unmount();
   });
 });
