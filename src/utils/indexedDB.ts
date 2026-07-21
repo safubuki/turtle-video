@@ -60,6 +60,8 @@ export interface SerializedMediaItem {
   positionY: number;
   /** 90度単位の時計回り回転（0 / 90 / 180 / 270）。旧データには存在しないため任意 */
   rotation?: number;
+  /** クリップ単位のぼかし強度（0〜30px @1080p基準）。旧データには存在しないため任意 */
+  blur?: number;
   isTransformOpen: boolean;
   isLocked: boolean;
   // ソース動画の解像度（エクスポートキャンバスサイズの動的決定に使用）

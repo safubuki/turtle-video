@@ -162,6 +162,7 @@ function createMockCanvasContext(canvasSize: { width: number; height: number } =
     translate: vi.fn(),
     scale: vi.fn(),
     globalAlpha: 1,
+    filter: 'none',
     fillStyle: '#000000',
   } as unknown as CanvasRenderingContext2D;
 }
@@ -455,6 +456,30 @@ describe('standard preview engine', () => {
 
     return { canvasContext, hook, logInfo, logWarn };
   }
+
+  it('カードのぼかしを標準preview/export共通Canvasへ適用し、描画後に解除する', () => {
+    const imageItem = createImageItem({ id: 'blurred-image', blur: 15, duration: 2 });
+    const imageElement = {
+      tagName: 'IMG',
+      complete: true,
+      naturalWidth: 1920,
+      naturalHeight: 1080,
+    } as unknown as HTMLImageElement;
+    const { canvasContext, hook } = setupRenderFrameHarness({
+      mediaItems: [imageItem],
+      mediaElements: { [imageItem.id]: imageElement } as MediaElementsRef,
+      totalDuration: 2,
+    });
+    let filterAtDraw = '';
+    (canvasContext.drawImage as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      filterAtDraw = canvasContext.filter;
+    });
+
+    hook.result.current.renderFrame(0.5, true, false);
+
+    expect(filterAtDraw).toBe('blur(15px)');
+    expect(canvasContext.filter).toBe('none');
+  });
 
   it('paused seek 後は active video 準備完了を待ってから再生を始める', async () => {
     const { videoElement, requestAnimationFrameSpy, setCurrentTime, play, hook } =

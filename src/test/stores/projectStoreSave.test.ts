@@ -533,6 +533,7 @@ describe('projectStore save behavior', () => {
       createMediaItem('standard-video.mp4', 'video'),
       createMediaItem('still.png', 'image'),
     ];
+    mediaItems[0].blur = 12;
     const bgm = createAudioTrack('bgm.mp3', {
       delay: 1.25,
       volume: 0.65,
@@ -595,6 +596,7 @@ describe('projectStore save behavior', () => {
     const lastSaveCall = mocks.saveProject.mock.calls[mocks.saveProject.mock.calls.length - 1];
     const savedProjectData = lastSaveCall?.[0] as ProjectData;
     expect(savedProjectData.mediaItems).toHaveLength(2);
+    expect(savedProjectData.mediaItems[0].blur).toBe(12);
     expect(savedProjectData.narrations[0].aiScript).toBe('こんにちは、タートルビデオです。');
     expect(savedProjectData.captions[0].overrideFontStyle).toBe('mincho');
     expect(savedProjectData.captionSettings.position).toBe('center');
@@ -609,6 +611,8 @@ describe('projectStore save behavior', () => {
     }
 
     expect(loaded.mediaItems.map((item) => item.file.name)).toEqual(['standard-video.mp4', 'still.png']);
+    expect(loaded.mediaItems[0].blur).toBe(12);
+    expect(loaded.mediaItems[1].blur).toBe(0);
     expect(loaded.isClipsLocked).toBe(true);
     expect(loaded.bgm?.file.name).toBe('bgm.mp3');
     expect(loaded.bgm?.delay).toBeCloseTo(1.25);

@@ -654,6 +654,12 @@ describe('useAutoSave', () => {
     });
     expect(saveProjectAuto).toHaveBeenCalledTimes(2);
 
+    act(() => useMediaStore.getState().updateBlur('video-1', 12));
+    await act(async () => {
+      await result.current.performAutoSave();
+    });
+    expect(saveProjectAuto).toHaveBeenCalledTimes(3);
+
     const captionChanges = [
       { overrideFontSizeCustom: 96 },
       { overridePositionCustom: { x: 32, y: 68 } },
@@ -673,7 +679,7 @@ describe('useAutoSave', () => {
       });
     }
 
-    expect(saveProjectAuto).toHaveBeenCalledTimes(6);
+    expect(saveProjectAuto).toHaveBeenCalledTimes(7);
   });
 
   it('クリップセクションロックの変更も自動保存の差分として検知する', async () => {

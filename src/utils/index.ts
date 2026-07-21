@@ -47,6 +47,9 @@ export {
   normalizeRotation,
   getNextRotation,
   resolveRotatedFitDimensions,
+  normalizeMediaBlur,
+  resolveMediaBlurFilter,
+  MAX_MEDIA_BLUR,
 } from './canvas';
 
 // 再生タイムライン判定

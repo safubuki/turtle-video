@@ -39,7 +39,11 @@ import {
   evaluateFrameDrivenExportStall,
 } from '../../../utils/exportTimeline';
 import { resolveMediaBaseScale } from '../../../stores/canvasStore';
-import { normalizeRotation, resolveRotatedFitDimensions } from '../../../utils/canvas';
+import {
+  normalizeRotation,
+  resolveMediaBlurFilter,
+  resolveRotatedFitDimensions,
+} from '../../../utils/canvas';
 import {
   ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC,
   ANDROID_PREVIEW_SOFT_DRAW_DRIFT_THRESHOLD_SEC,
@@ -1498,7 +1502,15 @@ export function usePreviewEngine({
               ) {
                 activeEl.pause();
                 ctx.globalAlpha = 1.0;
-                ctx.drawImage(activeEl, 0, 0, ctx.canvas.width, ctx.canvas.height);
+                ctx.save();
+                ctx.filter = resolveMediaBlurFilter(activeItem.blur, ctx.canvas.width, ctx.canvas.height);
+                try {
+                  ctx.drawImage(activeEl, 0, 0, ctx.canvas.width, ctx.canvas.height);
+                } finally {
+                  ctx.restore();
+                  ctx.filter = 'none';
+                  ctx.globalAlpha = 1.0;
+                }
                 didUpdateCanvas = true;
                 holdFrame = true;
                 shouldSkipAndroidPreviewActiveDraw = true;
@@ -2233,6 +2245,7 @@ export function usePreviewEngine({
                 });
 
                 ctx.save();
+                ctx.filter = resolveMediaBlurFilter(conf.blur, ctx.canvas.width, ctx.canvas.height);
                 ctx.translate(ctx.canvas.width / 2 + userX, ctx.canvas.height / 2 + userY);
                 if (rotationDeg !== 0) {
                   ctx.rotate((rotationDeg * Math.PI) / 180);
@@ -2306,6 +2319,7 @@ export function usePreviewEngine({
                     );
                   }
                   ctx.restore();
+                  ctx.filter = 'none';
                   ctx.globalAlpha = 1.0;
                 }
               }
@@ -2422,6 +2436,7 @@ export function usePreviewEngine({
                     mode: ctx.canvas.height > ctx.canvas.width ? 'cover' : 'contain',
                   });
                   ctx.save();
+                  ctx.filter = resolveMediaBlurFilter(conf.blur, ctx.canvas.width, ctx.canvas.height);
                   ctx.translate(
                     ctx.canvas.width / 2 + (conf.positionX || 0),
                     ctx.canvas.height / 2 + (conf.positionY || 0),
@@ -2438,6 +2453,7 @@ export function usePreviewEngine({
                     /* ignore */
                   } finally {
                     ctx.restore();
+                    ctx.filter = 'none';
                     ctx.globalAlpha = 1.0;
                   }
                 }

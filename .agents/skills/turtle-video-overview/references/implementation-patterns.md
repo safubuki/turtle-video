@@ -2337,3 +2337,19 @@
   - 監査時の最終確認は `npm run quality:gate`（全テスト・lint・production build）を通す。今回の基準値は 71 test files / 653 tests。
 - **監査後も残る既知制約**:
   - 13-109 のとおり、standard でディゾルブを設定したプロジェクトを iOS フレーバーで開くと、共有 `totalDuration` はオーバーラップ分だけ短い一方、iOS 描画は逐次再生のため終端が切れる。iOS 側の総尺だけ伸ばすとキャプション・音声の時刻契約も変わるため、既存の安定した preview/export へ混ぜず、フレーバー別タイムライン方針と実機受け入れ条件を決めて別対応する。
+
+### 13-127. クリップ単位の動画・画像ぼかし（0〜30pxスライダー）
+
+- **ファイル**: `src/types/index.ts`, `src/utils/canvas.ts`, `src/utils/indexedDB.ts`, `src/utils/media.ts`, `src/hooks/useAutoSave.ts`, `src/stores/mediaStore.ts`, `src/stores/projectStore.ts`, `src/components/media/ClipItem.tsx`, `src/components/common/MiniPreview.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/androidPreviewCache.ts`
+- **データ契約**:
+  - `MediaItem.blur?: number` は1080p基準のpx値。0〜30へ `normalizeMediaBlur()` で正規化し、未定義の旧プロジェクトは0（ぼかしなし）として読み込む。
+  - 新規カードは `blur: 0`。保存/読込、IndexedDB型、自動保存ハッシュ、Android preview cache署名を必ず同時に更新する。
+- **UI/UX**:
+  - 各カードの「位置・サイズ・回転・ぼかし調整」内に、`SwipeProtectedSlider`（0〜30、1刻み）と個別リセットを配置する。0は数値でなく「なし」と表示し、左右に「くっきり」「強くぼかす」の意味ラベルを置く。
+  - `SwipeProtectedSlider` は `ariaLabel` を受け取り、ぼかしスライダーを支援技術から識別できるようにする。変更時は他のtransformと同様にプレビューを安全に一時停止し、生成済み出力を無効化する。
+- **描画とエクスポート**:
+  - `resolveMediaBlurFilter(blur, canvasWidth, canvasHeight)` が1080p基準値をCanvas実寸へ比例変換する。横/縦とも長辺1920・短辺1080を基準とし、FHD横/縦は同じ見た目、HD・ミニプレビューは解像度比で縮小する。
+  - 描画サイトは standard 主描画＋終端freeze＋dissolve peer、apple-safari主描画、MiniPreview。`ctx.save()` 内で `ctx.filter` を設定し、`ctx.restore()` 後に明示的に `ctx.filter='none'` へ戻す。これを怠ると次カード、字幕、枠線までぼける。
+  - エクスポートはpreview Canvasを収録する既存設計のため、別の書き出し処理へfilterを重複追加しない。standard/Apple Safariの共通描画テストで、draw時のfilter値と描画後の解除を固定する。
+- **回帰ガード**:
+  - `mediaBlur.test.ts`（正規化・横縦/FHD/HD/ミニ縮尺）、`mediaStore.test.ts`（カード単位更新・上限下限・単独リセット）、`projectStoreSave.test.ts`（フレーバー間保存往復と旧データ既定値）、`useAutoSave.test.tsx`、`androidPreviewCache.test.ts`、両preview engineテスト、`clipsSectionPicker.test.tsx`でカバーする。

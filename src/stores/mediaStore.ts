@@ -20,6 +20,7 @@ import {
   validatePosition,
   revokeObjectUrl,
   getNextRotation,
+  normalizeMediaBlur,
 } from '../utils';
 import { useLogStore } from './logStore';
 
@@ -49,7 +50,9 @@ interface MediaState {
   updatePosition: (id: string, axis: 'x' | 'y', value: number) => void;
   /** クリップの回転を 90 度単位で1段階進める（0→90→180→270→0 の巡回） */
   rotateClip: (id: string) => void;
-  resetTransform: (id: string, type: 'scale' | 'x' | 'y' | 'rotation') => void;
+  /** クリップ単位のぼかし強度を更新（0〜30px @1080p基準） */
+  updateBlur: (id: string, blur: number) => void;
+  resetTransform: (id: string, type: 'scale' | 'x' | 'y' | 'rotation' | 'blur') => void;
   toggleTransformPanel: (id: string) => void;
 
   // Audio
@@ -282,6 +285,16 @@ export const useMediaStore = create<MediaState>()(
         }));
       },
 
+      // Transform - Blur（1080p基準px。preview/exportではCanvas実寸へ比例変換）
+      updateBlur: (id, blur) => {
+        const normalized = normalizeMediaBlur(blur);
+        set((state) => ({
+          mediaItems: state.mediaItems.map((item) =>
+            item.id === id ? { ...item, blur: normalized } : item
+          ),
+        }));
+      },
+
       // Reset transform
       resetTransform: (id, type) => {
         set((state) => ({
@@ -291,6 +304,7 @@ export const useMediaStore = create<MediaState>()(
             if (type === 'x') return { ...item, positionX: 0 };
             if (type === 'y') return { ...item, positionY: 0 };
             if (type === 'rotation') return { ...item, rotation: 0 };
+            if (type === 'blur') return { ...item, blur: 0 };
             return item;
           }),
         }));

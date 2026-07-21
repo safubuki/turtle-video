@@ -14,6 +14,7 @@ interface SwipeProtectedSliderProps {
   onChange: (value: number) => void;
   disabled?: boolean;
   className?: string;
+  ariaLabel?: string;
 }
 
 /**
@@ -31,6 +32,7 @@ export const SwipeProtectedSlider: React.FC<SwipeProtectedSliderProps> = ({
   onChange,
   disabled = false,
   className = '',
+  ariaLabel,
 }) => {
   const handleRestore = useCallback(
     (restoredValue: number) => {
@@ -67,6 +69,7 @@ export const SwipeProtectedSlider: React.FC<SwipeProtectedSliderProps> = ({
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
       disabled={disabled}
+      aria-label={ariaLabel}
       className={className}
     />
   );

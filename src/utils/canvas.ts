@@ -6,6 +6,39 @@
 
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../constants';
 
+/** メディアぼかしの最大値（1080p基準px） */
+export const MAX_MEDIA_BLUR = 30;
+
+/**
+ * 保存データやUIから渡るメディアぼかし値を安全な範囲へ正規化する。
+ * 旧プロジェクトでは未定義のため 0（ぼかしなし）として扱う。
+ */
+export function normalizeMediaBlur(blur: number | undefined | null): number {
+  if (typeof blur !== 'number' || !Number.isFinite(blur)) return 0;
+  return Math.max(0, Math.min(MAX_MEDIA_BLUR, blur));
+}
+
+/**
+ * 1080p基準のメディアぼかし値を現在のCanvas実寸へ合わせた filter 文字列へ変換する。
+ * 横/縦どちらでも長辺1920・短辺1080を基準にするため、preview/exportの見た目が揃う。
+ */
+export function resolveMediaBlurFilter(
+  blur: number | undefined | null,
+  canvasWidth: number,
+  canvasHeight: number,
+): string {
+  const normalized = normalizeMediaBlur(blur);
+  if (normalized <= 0) return 'none';
+
+  const longSide = Math.max(canvasWidth, canvasHeight);
+  const shortSide = Math.min(canvasWidth, canvasHeight);
+  const scale = Number.isFinite(longSide) && Number.isFinite(shortSide) && longSide > 0 && shortSide > 0
+    ? Math.min(longSide / 1920, shortSide / 1080)
+    : 1;
+  const pixels = Number((normalized * scale).toFixed(3));
+  return pixels > 0 ? `blur(${pixels}px)` : 'none';
+}
+
 /**
  * Canvasをクリア（黒で塗りつぶし）
  * @param ctx - CanvasRenderingContext2D

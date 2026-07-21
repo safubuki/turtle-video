@@ -26,7 +26,7 @@ import { createDiagnosticId } from '../utils/diagnostics';
 import versionData from '../../version.json';
 import { useUIStore } from './uiStore';
 import { useCanvasStore, type AspectRatio } from './canvasStore';
-import { normalizeRotation } from '../utils/canvas';
+import { normalizeMediaBlur, normalizeRotation } from '../utils/canvas';
 
 export function getProjectStoreErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -322,6 +322,7 @@ async function serializeMediaItem(item: MediaItem): Promise<SerializedMediaItem>
     positionX: item.positionX,
     positionY: item.positionY,
     rotation: normalizeRotation(item.rotation),
+    blur: normalizeMediaBlur(item.blur),
     isTransformOpen: item.isTransformOpen,
     isLocked: item.isLocked,
     sourceWidth: item.sourceWidth,
@@ -352,6 +353,7 @@ function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
     positionX: data.positionX,
     positionY: data.positionY,
     rotation: normalizeRotation(data.rotation),
+    blur: normalizeMediaBlur(data.blur),
     isTransformOpen: data.isTransformOpen,
     isLocked: data.isLocked,
     sourceWidth: data.sourceWidth,

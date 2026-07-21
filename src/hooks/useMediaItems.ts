@@ -103,6 +103,7 @@ export function useMediaItems(): UseMediaItemsReturn {
             positionX: 0,
             positionY: 0,
             rotation: 0,
+            blur: 0,
             isTransformOpen: false,
             isLocked: false,
           };

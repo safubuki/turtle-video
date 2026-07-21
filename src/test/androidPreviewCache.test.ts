@@ -101,6 +101,10 @@ describe('android preview cache helpers', () => {
       createVideoItem('v1'),
       { ...createVideoItem('v2'), trimStart: 0.5 },
     ];
+    const blurChangedItems = [
+      createVideoItem('v1'),
+      { ...createVideoItem('v2'), blur: 12 },
+    ];
 
     const keyA = createAndroidPreviewCacheKey({
       mediaItems: baseItems,
@@ -122,9 +126,20 @@ describe('android preview cache helpers', () => {
       canvasHeight: 720,
       fps: 30,
     });
+    const keyC = createAndroidPreviewCacheKey({
+      mediaItems: blurChangedItems,
+      bgm,
+      narrations,
+      captions,
+      captionSettings,
+      canvasWidth: 1280,
+      canvasHeight: 720,
+      fps: 30,
+    });
 
     expect(countVideoItems(baseItems)).toBe(2);
     expect(keyA).not.toBe(keyB);
+    expect(keyA).not.toBe(keyC);
   });
 
   it('Android standard preview policy は live fallback の sync threshold を厳しめにする', () => {

@@ -123,7 +123,8 @@ interface ClipsSectionProps {
   onUpdateMediaScale: (id: string, value: string | number) => void;
   onUpdateMediaPosition: (id: string, axis: 'x' | 'y', value: string) => void;
   onRotateMedia: (id: string) => void;
-  onResetMediaSetting: (id: string, type: 'scale' | 'x' | 'y' | 'rotation') => void;
+  onUpdateMediaBlur: (id: string, value: number) => void;
+  onResetMediaSetting: (id: string, type: 'scale' | 'x' | 'y' | 'rotation' | 'blur') => void;
   onUpdateMediaVolume: (id: string, value: number) => void;
   onToggleMediaMute: (id: string) => void;
   onToggleMediaFadeIn: (id: string, checked: boolean) => void;
@@ -154,6 +155,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   onUpdateMediaScale,
   onUpdateMediaPosition,
   onRotateMedia,
+  onUpdateMediaBlur,
   onResetMediaSetting,
   onUpdateMediaVolume,
   onToggleMediaMute,
@@ -280,6 +282,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             onUpdateScale={(value) => onUpdateMediaScale(v.id, value)}
             onUpdatePosition={(axis, value) => onUpdateMediaPosition(v.id, axis, value)}
             onRotate={() => onRotateMedia(v.id)}
+            onUpdateBlur={(value) => onUpdateMediaBlur(v.id, value)}
             onResetSetting={(type) => onResetMediaSetting(v.id, type)}
             onUpdateVolume={(value) => onUpdateMediaVolume(v.id, value)}
             onToggleMute={() => onToggleMediaMute(v.id)}

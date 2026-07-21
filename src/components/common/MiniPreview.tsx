@@ -6,7 +6,11 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import type { MediaItem } from '../../types';
 import { useCanvasStore, resolveMediaBaseScale } from '../../stores/canvasStore';
-import { normalizeRotation, resolveRotatedFitDimensions } from '../../utils/canvas';
+import {
+  normalizeRotation,
+  resolveMediaBlurFilter,
+  resolveRotatedFitDimensions,
+} from '../../utils/canvas';
 
 interface MiniPreviewProps {
   item: MediaItem;
@@ -57,6 +61,7 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
     }
 
     // 背景をクリア
+    ctx.filter = 'none';
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, miniCanvasWidth, miniCanvasHeight);
 
@@ -91,6 +96,7 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
 
       // トランスフォーム適用
       ctx.save();
+      ctx.filter = resolveMediaBlurFilter(currentItem.blur, miniCanvasWidth, miniCanvasHeight);
 
       // 位置計算: プレビュー比率に合わせて縮小
       const userX = currentItem.positionX * previewRatio;
@@ -118,6 +124,7 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
       }
 
       ctx.restore();
+      ctx.filter = 'none';
     }
 
     // 境界線を描画（プレビュー範囲を示す）

@@ -165,6 +165,7 @@ function createMockCanvasContext() {
     translate: vi.fn(),
     scale: vi.fn(),
     globalAlpha: 1,
+    filter: 'none',
     fillStyle: '#000000',
   } as unknown as CanvasRenderingContext2D;
 }
@@ -279,6 +280,29 @@ describe('apple-safari preview engine boundary kick', () => {
 
     return { canvasContext, hook, logInfo, logWarn, activeVideoIdRef, play, pause };
   }
+
+  it('カードのぼかしをApple Safari Canvasへ縮尺反映し、後続描画へ漏らさない', () => {
+    const imageItem = createImageItem({ id: 'blurred-image', blur: 15, duration: 2 });
+    const imageElement = {
+      tagName: 'IMG',
+      complete: true,
+      naturalWidth: 1920,
+      naturalHeight: 1080,
+    } as unknown as HTMLImageElement;
+    const { canvasContext, hook } = setupRenderFrameHarness({
+      mediaItems: [imageItem],
+      mediaElements: { [imageItem.id]: imageElement } as MediaElementsRef,
+    });
+    let filterAtDraw = '';
+    (canvasContext.drawImage as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      filterAtDraw = canvasContext.filter;
+    });
+
+    hook.result.current.renderFrame(0.5, true, false);
+
+    expect(filterAtDraw).toBe('blur(10px)');
+    expect(canvasContext.filter).toBe('none');
+  });
 
   it('動画→動画境界で 2 本目の active video に対し 1 度だけ境界キックを掛ける', () => {
     const video1 = createVideoItem({ id: 'v1', duration: 2 });

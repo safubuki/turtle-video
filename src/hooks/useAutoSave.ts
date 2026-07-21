@@ -134,6 +134,7 @@ export function useAutoSave() {
         m.positionX,
         m.positionY,
         m.rotation ?? 0,
+        m.blur ?? 0,
         m.isTransformOpen,
         m.isLocked,
         m.transitionToNext ? `${m.transitionToNext.type}@${m.transitionToNext.duration}` : '',

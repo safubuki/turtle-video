@@ -97,6 +97,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const updateScale = useMediaStore((s) => s.updateScale);
   const updatePosition = useMediaStore((s) => s.updatePosition);
   const rotateClip = useMediaStore((s) => s.rotateClip);
+  const updateBlur = useMediaStore((s) => s.updateBlur);
   const resetTransform = useMediaStore((s) => s.resetTransform);
   const toggleTransformPanel = useMediaStore((s) => s.toggleTransformPanel);
   const updateVolume = useMediaStore((s) => s.updateVolume);
@@ -1473,9 +1474,16 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     rotateClip(id);
   }, [pausePreviewBeforeEdit, rotateClip]);
 
+  // --- ぼかし更新ハンドラ ---
+  // 目的: 動画・画像カードごとのぼかし強度を変更
+  const handleUpdateMediaBlur = useCallback((id: string, value: number) => {
+    pausePreviewBeforeEdit('update-media-blur');
+    updateBlur(id, value);
+  }, [pausePreviewBeforeEdit, updateBlur]);
+
   // --- 設定リセットハンドラ ---
-  // 目的: スケール・位置・回転を初期値にリセット
-  const handleResetMediaSetting = useCallback((id: string, type: 'scale' | 'x' | 'y' | 'rotation') => {
+  // 目的: スケール・位置・回転・ぼかしを初期値にリセット
+  const handleResetMediaSetting = useCallback((id: string, type: 'scale' | 'x' | 'y' | 'rotation' | 'blur') => {
     pausePreviewBeforeEdit('reset-media-transform');
     resetTransform(id, type);
   }, [pausePreviewBeforeEdit, resetTransform]);
@@ -2453,6 +2461,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onUpdateMediaScale={handleUpdateMediaScale}
               onUpdateMediaPosition={handleUpdateMediaPosition}
               onRotateMedia={handleRotateMedia}
+              onUpdateMediaBlur={handleUpdateMediaBlur}
               onResetMediaSetting={handleResetMediaSetting}
               onUpdateMediaVolume={withPreviewPause('update-media-volume', updateVolume)}
               onToggleMediaMute={withPreviewPause('toggle-media-mute', toggleMute)}

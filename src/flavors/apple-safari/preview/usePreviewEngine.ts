@@ -5,7 +5,11 @@ import {
 } from '../../../constants';
 import { createCaptionGlyphCanvas } from '../../../utils/canvas';
 import { resolveMediaBaseScale } from '../../../stores/canvasStore';
-import { normalizeRotation, resolveRotatedFitDimensions } from '../../../utils/canvas';
+import {
+  normalizeRotation,
+  resolveMediaBlurFilter,
+  resolveRotatedFitDimensions,
+} from '../../../utils/canvas';
 import type {
   AudioTrack,
   Caption,
@@ -934,6 +938,7 @@ export function usePreviewEngine({
                 });
 
                 ctx.save();
+                ctx.filter = resolveMediaBlurFilter(conf.blur, ctx.canvas.width, ctx.canvas.height);
                 ctx.translate(ctx.canvas.width / 2 + userX, ctx.canvas.height / 2 + userY);
                 if (rotationDeg !== 0) {
                   ctx.rotate((rotationDeg * Math.PI) / 180);
@@ -959,10 +964,14 @@ export function usePreviewEngine({
                 }
 
                 ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-                ctx.drawImage(element as CanvasImageSource, -elemW / 2, -elemH / 2, elemW, elemH);
-                ctx.restore();
-                ctx.globalAlpha = 1.0;
-                didUpdateCanvas = true;
+                try {
+                  ctx.drawImage(element as CanvasImageSource, -elemW / 2, -elemH / 2, elemW, elemH);
+                  didUpdateCanvas = true;
+                } finally {
+                  ctx.restore();
+                  ctx.filter = 'none';
+                  ctx.globalAlpha = 1.0;
+                }
               }
             }
 

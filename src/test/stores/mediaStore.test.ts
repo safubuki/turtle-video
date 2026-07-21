@@ -475,4 +475,44 @@ describe('mediaStore', () => {
       expect(item.positionX).toBe(40);
     });
   });
+
+  describe('updateBlur / resetTransform(blur)', () => {
+    it('カードごとにぼかしを更新し、0〜30の範囲へ収める', async () => {
+      const { addMediaItems } = useMediaStore.getState();
+      await addMediaItems([
+        new File(['a'], 'a.png', { type: 'image/png' }),
+        new File(['b'], 'b.png', { type: 'image/png' }),
+      ]);
+      const [first, second] = useMediaStore.getState().mediaItems;
+
+      expect(first.blur).toBe(0);
+      useMediaStore.getState().updateBlur(first.id, 18);
+      expect(useMediaStore.getState().mediaItems[0].blur).toBe(18);
+      expect(useMediaStore.getState().mediaItems[1].blur).toBe(second.blur);
+
+      useMediaStore.getState().updateBlur(first.id, 100);
+      expect(useMediaStore.getState().mediaItems[0].blur).toBe(30);
+      useMediaStore.getState().updateBlur(first.id, -5);
+      expect(useMediaStore.getState().mediaItems[0].blur).toBe(0);
+    });
+
+    it('ぼかしだけをリセットし、位置・サイズ・回転は維持する', async () => {
+      const { addMediaItems } = useMediaStore.getState();
+      await addMediaItems([new File(['x'], 'x.mp4', { type: 'video/mp4' })]);
+      const id = useMediaStore.getState().mediaItems[0].id;
+
+      useMediaStore.getState().updateScale(id, 1.5);
+      useMediaStore.getState().updatePosition(id, 'x', 40);
+      useMediaStore.getState().rotateClip(id);
+      useMediaStore.getState().updateBlur(id, 14);
+      useMediaStore.getState().resetTransform(id, 'blur');
+
+      expect(useMediaStore.getState().mediaItems[0]).toMatchObject({
+        blur: 0,
+        scale: 1.5,
+        positionX: 40,
+        rotation: 90,
+      });
+    });
+  });
 });

@@ -17,6 +17,7 @@ import {
   Unlock,
   RotateCcw,
   RotateCw,
+  Blend,
   ZoomIn,
   Move,
   ChevronDown,
@@ -51,7 +52,8 @@ export interface ClipItemProps {
   onUpdatePosition: (axis: 'x' | 'y', value: string) => void;
   /** クリップを 90 度単位で時計回りに回転（0→90→180→270→0） */
   onRotate: () => void;
-  onResetSetting: (type: 'scale' | 'x' | 'y' | 'rotation') => void;
+  onUpdateBlur: (value: number) => void;
+  onResetSetting: (type: 'scale' | 'x' | 'y' | 'rotation' | 'blur') => void;
   onUpdateVolume: (value: number) => void;
   onToggleMute: () => void;
   onToggleFadeIn: (checked: boolean) => void;
@@ -82,6 +84,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
   onUpdateScale,
   onUpdatePosition,
   onRotate,
+  onUpdateBlur,
   onResetSetting,
   onUpdateVolume,
   onToggleMute,
@@ -101,6 +104,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
   const handleScale = useCallback((val: number) => onUpdateScale(val), [onUpdateScale]);
   const handlePositionX = useCallback((val: number) => onUpdatePosition('x', String(val)), [onUpdatePosition]);
   const handlePositionY = useCallback((val: number) => onUpdatePosition('y', String(val)), [onUpdatePosition]);
+  const handleBlur = useCallback((val: number) => onUpdateBlur(val), [onUpdateBlur]);
   const handleImageDuration = useCallback((val: number) => onUpdateImageDuration(String(val)), [onUpdateImageDuration]);
   const handleVolume = useCallback((val: number) => onUpdateVolume(val), [onUpdateVolume]);
   const formatTimelineTime = useCallback((seconds: number): string => {
@@ -286,7 +290,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
         ) : (
           <ChevronRight className="w-3 h-3" />
         )}
-        <span>位置・サイズ・回転調整</span>
+        <span>位置・サイズ・回転・ぼかし調整</span>
       </button>
 
       {/* 調整パネル (アコーディオン) */}
@@ -411,6 +415,39 @@ const ClipItem: React.FC<ClipItemProps> = ({
               <RotateCw className="w-3.5 h-3.5" />
               <span>90°回転</span>
             </button>
+          </div>
+
+          {/* ぼかし（カード単位・1080p基準） */}
+          <div className="flex flex-col gap-1 border-t border-gray-700/50 pt-2 mt-1">
+            <div className="flex items-center justify-between text-[10px] text-gray-400">
+              <div className="flex items-center gap-1">
+                <Blend className="w-3 h-3" />
+                <span>ぼかし: {(v.blur ?? 0) > 0 ? `${Math.round(v.blur ?? 0)} px` : 'なし'}</span>
+              </div>
+              <button
+                onClick={() => onResetSetting('blur')}
+                disabled={isDisabled || (v.blur ?? 0) === 0}
+                title="ぼかしをリセット"
+                aria-label="ぼかしをリセット"
+                className="hover:text-white disabled:opacity-30"
+              >
+                <RotateCcw className="w-3 h-3" />
+              </button>
+            </div>
+            <SwipeProtectedSlider
+              min={0}
+              max={30}
+              step={1}
+              value={v.blur ?? 0}
+              onChange={handleBlur}
+              disabled={isDisabled}
+              ariaLabel="ぼかし強度"
+              className="w-full accent-cyan-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+            />
+            <div className="flex justify-between text-[9px] text-gray-600" aria-hidden="true">
+              <span>くっきり</span>
+              <span>強くぼかす</span>
+            </div>
           </div>
 
           {/* ミニプレビュー */}
