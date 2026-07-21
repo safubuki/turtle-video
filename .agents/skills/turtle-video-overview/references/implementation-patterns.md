@@ -2319,3 +2319,21 @@
   - スワイプ判定を**ヘッダー領域限定**にするのが肝。シート全体に付けると textarea や各種操作と競合する（この差が SettingsModal 実装との意図的な違い）。
   - 回帰ガード: `modalHistoryStability.test.tsx` に「親再描画で history.back を呼ばない」「popstate で閉じる」、`captionBulkAddModal.test.tsx` に「閉じるボタンで onClose」を追加。
   - 他の下から出るモーダル（AiModal/SaveLoadModal/SectionHelp 等）は既に同挙動。まだ揃っていない下部モーダルがあれば同パターンで統一する（将来的には共通フックへ抽出する余地あり。現状は各モーダル内インライン実装が既定）。
+
+### 13-126. 最近追加機能の品質監査（波形の非同期競合・自動保存差分・一括モーダルA11y）
+
+- **ファイル**: `src/hooks/useNarrationWaveform.ts`, `src/hooks/useAutoSave.ts`, `src/components/modals/CaptionBulkAddModal.tsx`, `src/test/useNarrationWaveform.test.tsx`, `src/test/useAutoSave.test.tsx`, `src/test/captionBulkAddModal.test.tsx`, `vite.config.ts`
+- **波形デコードの競合修正**:
+  - `useNarrationWaveform` のキャンセル状態は複数 effect で共有する ref にしない。クリップ A の cleanup 後、クリップ B の effect が ref を `false` に戻すと、遅れて完了した A が B の波形を上書きできるため、**effect ごとのローカル `cancelled` フラグ**を使う。
+  - 回帰テストは「A を開始→B へ切替→B を先に完了→A を後から完了」の順序を明示的に作り、最終表示が B のままであることを固定する。波形上の無音候補はトリム操作へ直結するため、単なる表示ずれではなく誤トリム防止のガードでもある。
+- **自動保存の変更検知**:
+  - プロジェクトへ保存するフィールドを追加したら、保存/読込だけでなく `useAutoSave.computeHash` も同時に更新する。今回 `MediaItem.rotation` と `Caption.overrideFontSizeCustom` / `overridePositionCustom` / `sequentialFadeMode` / `sequentialGapSec` の欠落を補完した。
+  - 定期保存は現状 `force=true` だが、手動実行や将来の非強制経路でも正しく差分検知できることをテストする。`undefined` は旧データと同じ既定値になる表現へ正規化する。
+- **一括モーダルのUI/UX**:
+  - シート本体に `role="dialog"` / `aria-modal="true"` / 見出しとの `aria-labelledby` を付け、Escape でも閉じられるようにする。右上の閉じる操作はモバイルで 44px のタップ領域を確保する。
+  - 戻るキー用 history state と Escape は独立した入口だが、どちらも最新の `onCloseRef` を呼ぶ。親の再描画でリスナーや history state を積み直さない。
+- **テスト実行安定性**:
+  - jsdom の重量UIテストを多数並列実行すると、単独では1秒前後のテストでも既定5秒を超えることがある。`testTimeout=15_000` とし、実処理の無限待ちを許さず、負荷による誤失敗だけを吸収する。
+  - 監査時の最終確認は `npm run quality:gate`（全テスト・lint・production build）を通す。今回の基準値は 71 test files / 653 tests。
+- **監査後も残る既知制約**:
+  - 13-109 のとおり、standard でディゾルブを設定したプロジェクトを iOS フレーバーで開くと、共有 `totalDuration` はオーバーラップ分だけ短い一方、iOS 描画は逐次再生のため終端が切れる。iOS 側の総尺だけ伸ばすとキャプション・音声の時刻契約も変わるため、既存の安定した preview/export へ混ぜず、フレーバー別タイムライン方針と実機受け入れ条件を決めて別対応する。

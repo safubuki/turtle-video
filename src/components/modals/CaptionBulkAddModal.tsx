@@ -105,6 +105,16 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
     onCloseRef.current = onClose;
   }, [onClose]);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      event.preventDefault();
+      onCloseRef.current();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const isMobileViewport = useCallback(() => {
     if (typeof window === 'undefined') return false;
     return window.matchMedia('(max-width: 767px)').matches;
@@ -277,7 +287,12 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
   return (
     <div className="fixed inset-0 bg-black/70 flex items-end md:items-center justify-center z-[300] md:p-4">
       {/* 誤操作防止のため、モーダル外のクリック/ドロップでは閉じない（× かキャンセルで閉じる） */}
-      <div className="bg-gray-900 rounded-t-2xl md:rounded-2xl border border-gray-700 w-full md:max-w-lg shadow-2xl max-h-[92vh] flex flex-col">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="caption-bulk-modal-title"
+        className="bg-gray-900 rounded-t-2xl md:rounded-2xl border border-gray-700 w-full md:max-w-lg shadow-2xl max-h-[92vh] flex flex-col"
+      >
         {/* 上部（ドラッグハンドル + ヘッダー）: この領域の下スワイプだけで閉じる */}
         <div
           className="shrink-0"
@@ -291,12 +306,15 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
           </div>
           {/* ヘッダー */}
           <div className="flex items-center justify-between p-4 border-b border-gray-700">
-            <h2 className="text-sm md:text-base font-bold flex items-center gap-2 text-yellow-400">
+            <h2
+              id="caption-bulk-modal-title"
+              className="text-sm md:text-base font-bold flex items-center gap-2 text-yellow-400"
+            >
               <ListPlus className="w-4 h-4" /> {isEditing ? 'キャプションをまとめて編集' : 'キャプションをまとめて入力'}
             </h2>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg border border-gray-600/80 bg-gray-800/80 text-gray-200 hover:text-white hover:bg-gray-700 hover:border-gray-500 transition"
+              className="min-h-11 min-w-11 flex items-center justify-center rounded-lg border border-gray-600/80 bg-gray-800/80 text-gray-200 hover:text-white hover:bg-gray-700 hover:border-gray-500 transition"
               title="閉じる"
               aria-label="閉じる"
             >

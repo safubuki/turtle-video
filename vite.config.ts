@@ -73,6 +73,9 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
+    // jsdom の重いテスト群を並列実行した際だけ既定 5 秒を超える誤失敗を防ぐ。
+    // 単体実行では 1 秒未満で完了するため、処理の遅延を隠す目的ではない。
+    testTimeout: 15_000,
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
     coverage: {

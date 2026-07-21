@@ -602,6 +602,80 @@ describe('useAutoSave', () => {
     expect(saveProjectAuto).toHaveBeenCalledTimes(2);
   });
 
+  it('回転とキャプション個別設定を自動保存の差分として検知する', async () => {
+    const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
+    const saveProjectAuto = vi.fn().mockResolvedValue(true);
+    const mediaFile = new File(['video'], 'clip.mp4', { type: 'video/mp4' });
+
+    act(() => {
+      useProjectStore.setState({
+        refreshSaveInfo,
+        saveProjectAuto,
+        isSaving: false,
+        lastManualSave: null,
+      });
+      useMediaStore.setState({
+        mediaItems: [{
+          id: 'video-1',
+          file: mediaFile,
+          type: 'video',
+          url: 'blob:video-1',
+          volume: 1,
+          isMuted: false,
+          fadeIn: false,
+          fadeOut: false,
+          fadeInDuration: 0.5,
+          fadeOutDuration: 0.5,
+          duration: 5,
+          originalDuration: 10,
+          trimStart: 0,
+          trimEnd: 5,
+          scale: 1,
+          positionX: 0,
+          positionY: 0,
+          rotation: 0,
+          isTransformOpen: false,
+          isLocked: false,
+        }],
+        isClipsLocked: false,
+      });
+    });
+
+    const { result } = renderHook(() => useAutoSave());
+
+    await act(async () => {
+      await result.current.performAutoSave();
+    });
+    expect(saveProjectAuto).toHaveBeenCalledTimes(1);
+
+    act(() => useMediaStore.getState().rotateClip('video-1'));
+    await act(async () => {
+      await result.current.performAutoSave();
+    });
+    expect(saveProjectAuto).toHaveBeenCalledTimes(2);
+
+    const captionChanges = [
+      { overrideFontSizeCustom: 96 },
+      { overridePositionCustom: { x: 32, y: 68 } },
+      { sequentialFadeMode: 'line' as const },
+      { sequentialGapSec: 0.4 },
+    ];
+    for (const change of captionChanges) {
+      act(() => {
+        useCaptionStore.setState((state) => ({
+          captions: state.captions.map((caption) => (
+            caption.id === 'caption-1' ? { ...caption, ...change } : caption
+          )),
+        }));
+      });
+      await act(async () => {
+        await result.current.performAutoSave();
+      });
+    }
+
+    expect(saveProjectAuto).toHaveBeenCalledTimes(6);
+  });
+
   it('クリップセクションロックの変更も自動保存の差分として検知する', async () => {
     const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
     const saveProjectAuto = vi.fn().mockResolvedValue(true);

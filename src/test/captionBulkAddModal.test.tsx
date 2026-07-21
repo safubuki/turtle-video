@@ -17,6 +17,16 @@ const renderModal = (onApplyCaptions = vi.fn(), onClose = vi.fn()) => {
 };
 
 describe('CaptionBulkAddModal split modes', () => {
+  it('exposes dialog semantics and closes with Escape', () => {
+    const onClose = vi.fn();
+    renderModal(vi.fn(), onClose);
+
+    expect(screen.getByRole('dialog', { name: 'キャプションをまとめて入力' })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('restores blank-line time-split input to one line per card', () => {
     renderModal();
     fireEvent.click(screen.getByRole('button', { name: '空行で時分割' }));
@@ -65,4 +75,3 @@ describe('CaptionBulkAddModal split modes', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
-

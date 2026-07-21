@@ -133,6 +133,7 @@ export function useAutoSave() {
         m.scale,
         m.positionX,
         m.positionY,
+        m.rotation ?? 0,
         m.isTransformOpen,
         m.isLocked,
         m.transitionToNext ? `${m.transitionToNext.type}@${m.transitionToNext.duration}` : '',
@@ -202,6 +203,12 @@ export function useAutoSave() {
         c.overrideFadeOut ?? '',
         c.overrideFadeInDuration ?? '',
         c.overrideFadeOutDuration ?? '',
+        c.overrideFontSizeCustom ?? '',
+        c.overridePositionCustom
+          ? `${c.overridePositionCustom.x},${c.overridePositionCustom.y}`
+          : '',
+        c.sequentialFadeMode ?? '',
+        c.sequentialGapSec ?? '',
       ].join(':')).join(','),
       JSON.stringify(captionSettings),
       isClipsLocked,

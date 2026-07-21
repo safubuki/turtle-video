@@ -11,7 +11,7 @@
  * 再オープンや再レンダリングで毎回デコードし直さない。AudioContext は専用の 1 個を遅延生成し、
  * 再生用の AudioContext（useAudioContext）とは分離する（再生の resume/suspend に干渉しないため）。
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { NarrationClip } from '../types';
 import {
   computeWaveformPeaks,
@@ -104,10 +104,12 @@ export function useNarrationWaveform(
   // 最新の enabled/clip をエフェクト内から参照するための ref は使わず、
   // cacheKey を依存にして「ソースが変わったときだけ」再デコードする。
   const cacheKey = buildCacheKey(clip);
-  const abortRef = useRef<boolean>(false);
 
   useEffect(() => {
-    abortRef.current = false;
+    // エフェクトごとに独立したキャンセル状態を持つ。
+    // ref を共有すると、clip A の cleanup 後に clip B が false へ戻した時点で
+    // A の遅いデコード結果が B の表示を上書きできてしまう。
+    let cancelled = false;
 
     if (!enabled) {
       setData({ status: 'idle', peaks: null, splitPoints: [], decodedDuration: 0 });
@@ -133,12 +135,12 @@ export function useNarrationWaveform(
         if (!ctx) throw new Error('AudioContext unavailable');
 
         const arrayBuffer = await loadClipArrayBuffer(clip);
-        if (abortRef.current) return;
+        if (cancelled) return;
         if (!arrayBuffer) throw new Error('audio source unavailable');
 
         // decodeAudioData は渡した ArrayBuffer を detach するため slice(0) でコピーを渡す
         const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
-        if (abortRef.current) return;
+        if (cancelled) return;
 
         const channels: Float32Array[] = [];
         for (let c = 0; c < audioBuffer.numberOfChannels; c++) {
@@ -155,7 +157,7 @@ export function useNarrationWaveform(
         };
         waveformCache.set(cacheKey, result);
 
-        if (abortRef.current) return;
+        if (cancelled) return;
         setData({
           status: 'ready',
           peaks,
@@ -163,7 +165,7 @@ export function useNarrationWaveform(
           decodedDuration: audioBuffer.duration,
         });
       } catch (error) {
-        if (abortRef.current) return;
+        if (cancelled) return;
         useLogStore.getState().warn('AUDIO', 'ナレーション波形のデコードに失敗', {
           clipId: clip.id,
           error: error instanceof Error ? error.message : String(error),
@@ -173,7 +175,7 @@ export function useNarrationWaveform(
     })();
 
     return () => {
-      abortRef.current = true;
+      cancelled = true;
     };
     // clip はソースが変わると cacheKey も変わるため、cacheKey / enabled のみを依存にする
     // （この構成ではソース識別子 = cacheKey が clip の実質的な依存を代表する）。
