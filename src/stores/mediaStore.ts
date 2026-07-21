@@ -18,7 +18,8 @@ import {
   validateTrim,
   validateScale,
   validatePosition,
-  revokeObjectUrl
+  revokeObjectUrl,
+  getNextRotation,
 } from '../utils';
 import { useLogStore } from './logStore';
 
@@ -46,7 +47,9 @@ interface MediaState {
   // Transform
   updateScale: (id: string, scale: number) => void;
   updatePosition: (id: string, axis: 'x' | 'y', value: number) => void;
-  resetTransform: (id: string, type: 'scale' | 'x' | 'y') => void;
+  /** クリップの回転を 90 度単位で1段階進める（0→90→180→270→0 の巡回） */
+  rotateClip: (id: string) => void;
+  resetTransform: (id: string, type: 'scale' | 'x' | 'y' | 'rotation') => void;
   toggleTransformPanel: (id: string) => void;
 
   // Audio
@@ -270,6 +273,15 @@ export const useMediaStore = create<MediaState>()(
         }));
       },
 
+      // Transform - Rotation（90 度単位で1段階進める。0→90→180→270→0）
+      rotateClip: (id) => {
+        set((state) => ({
+          mediaItems: state.mediaItems.map((item) =>
+            item.id === id ? { ...item, rotation: getNextRotation(item.rotation) } : item
+          ),
+        }));
+      },
+
       // Reset transform
       resetTransform: (id, type) => {
         set((state) => ({
@@ -278,6 +290,7 @@ export const useMediaStore = create<MediaState>()(
             if (type === 'scale') return { ...item, scale: 1.0 };
             if (type === 'x') return { ...item, positionX: 0 };
             if (type === 'y') return { ...item, positionY: 0 };
+            if (type === 'rotation') return { ...item, rotation: 0 };
             return item;
           }),
         }));

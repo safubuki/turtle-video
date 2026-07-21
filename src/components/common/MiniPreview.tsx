@@ -6,6 +6,7 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import type { MediaItem } from '../../types';
 import { useCanvasStore, resolveMediaBaseScale } from '../../stores/canvasStore';
+import { normalizeRotation, resolveRotatedFitDimensions } from '../../utils/canvas';
 
 interface MiniPreviewProps {
   item: MediaItem;
@@ -76,12 +77,15 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
     }
 
     if (elemW > 0 && elemH > 0) {
+      const rotationDeg = normalizeRotation(currentItem.rotation);
+      // 90/270 度回転では縦横が入れ替わるため fit 計算には回転後寸法を使う（メインプレビューと一致）。
+      const fitDims = resolveRotatedFitDimensions(elemW, elemH, rotationDeg);
       // 縦(9:16)は cover（縦フレームを埋める）、横(16:9)は contain。メインプレビューと一致させる。
       const baseScale = resolveMediaBaseScale({
         canvasWidth: miniCanvasWidth,
         canvasHeight: miniCanvasHeight,
-        elementWidth: elemW,
-        elementHeight: elemH,
+        elementWidth: fitDims.width,
+        elementHeight: fitDims.height,
         mode: isPortrait ? 'cover' : 'contain',
       });
 
@@ -92,8 +96,11 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
       const userX = currentItem.positionX * previewRatio;
       const userY = currentItem.positionY * previewRatio;
 
-      // 中心基準で移動とスケール
+      // 中心基準で移動・回転・スケール（メインプレビューと同じ順序）
       ctx.translate(miniCanvasWidth / 2 + userX, miniCanvasHeight / 2 + userY);
+      if (rotationDeg !== 0) {
+        ctx.rotate((rotationDeg * Math.PI) / 180);
+      }
       ctx.scale(baseScale * currentItem.scale, baseScale * currentItem.scale);
 
       // メディアを描画 (中心基準なので -w/2, -h/2)
@@ -252,7 +259,7 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
         {/* トランスフォーム情報オーバーレイ */}
         <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-2 py-1 text-[10px] text-gray-300 flex justify-between">
           <span>Scale: {(item.scale * 100).toFixed(0)}%</span>
-          <span>X: {item.positionX} Y: {item.positionY}</span>
+          <span>{(item.rotation || 0) !== 0 ? `${item.rotation}° ` : ''}X: {item.positionX} Y: {item.positionY}</span>
         </div>
       </div>
     </div>

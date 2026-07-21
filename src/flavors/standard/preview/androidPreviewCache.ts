@@ -55,6 +55,7 @@ export function createAndroidPreviewCacheKey(
       scale: item.scale,
       positionX: item.positionX,
       positionY: item.positionY,
+      rotation: item.rotation ?? 0,
       fileName: item.file?.name ?? null,
       fileType: item.file?.type ?? null,
       fileSize: item.file instanceof File ? item.file.size : null,

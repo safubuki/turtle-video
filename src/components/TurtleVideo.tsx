@@ -96,6 +96,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const updateImageDuration = useMediaStore((s) => s.updateImageDuration);
   const updateScale = useMediaStore((s) => s.updateScale);
   const updatePosition = useMediaStore((s) => s.updatePosition);
+  const rotateClip = useMediaStore((s) => s.rotateClip);
   const resetTransform = useMediaStore((s) => s.resetTransform);
   const toggleTransformPanel = useMediaStore((s) => s.toggleTransformPanel);
   const updateVolume = useMediaStore((s) => s.updateVolume);
@@ -1465,9 +1466,16 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     updatePosition(id, axis, val);
   }, [pausePreviewBeforeEdit, updatePosition]);
 
+  // --- 回転更新ハンドラ ---
+  // 目的: メディアを 90 度単位で時計回りに回転（0→90→180→270→0）
+  const handleRotateMedia = useCallback((id: string) => {
+    pausePreviewBeforeEdit('rotate-media');
+    rotateClip(id);
+  }, [pausePreviewBeforeEdit, rotateClip]);
+
   // --- 設定リセットハンドラ ---
-  // 目的: スケールまたは位置を初期値にリセット
-  const handleResetMediaSetting = useCallback((id: string, type: 'scale' | 'x' | 'y') => {
+  // 目的: スケール・位置・回転を初期値にリセット
+  const handleResetMediaSetting = useCallback((id: string, type: 'scale' | 'x' | 'y' | 'rotation') => {
     pausePreviewBeforeEdit('reset-media-transform');
     resetTransform(id, type);
   }, [pausePreviewBeforeEdit, resetTransform]);
@@ -2444,6 +2452,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onUpdateImageDuration={handleUpdateImageDuration}
               onUpdateMediaScale={handleUpdateMediaScale}
               onUpdateMediaPosition={handleUpdateMediaPosition}
+              onRotateMedia={handleRotateMedia}
               onResetMediaSetting={handleResetMediaSetting}
               onUpdateMediaVolume={withPreviewPause('update-media-volume', updateVolume)}
               onToggleMediaMute={withPreviewPause('toggle-media-mute', toggleMute)}

@@ -39,6 +39,7 @@ import {
   evaluateFrameDrivenExportStall,
 } from '../../../utils/exportTimeline';
 import { resolveMediaBaseScale } from '../../../stores/canvasStore';
+import { normalizeRotation, resolveRotatedFitDimensions } from '../../../utils/canvas';
 import {
   ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC,
   ANDROID_PREVIEW_SOFT_DRAW_DRIFT_THRESHOLD_SEC,
@@ -2215,19 +2216,27 @@ export function usePreviewEngine({
                 const scaleFactor = conf.scale || 1.0;
                 const userX = conf.positionX || 0;
                 const userY = conf.positionY || 0;
+                const rotationDeg = normalizeRotation(conf.rotation);
+
+                // 90/270 度回転では素材の縦横がキャンバス上で入れ替わるため、
+                // fit 計算には回転後の実効寸法を渡す（回転しても cover/contain が成立する）。
+                const fitDims = resolveRotatedFitDimensions(elemW, elemH, rotationDeg);
 
                 // 縦(9:16)キャンバスは横素材を「縦フレームを埋める」cover 配置、
                 // 横(16:9)キャンバスは従来どおり contain。Canvas 寸法から向きを判定する。
                 const baseScale = resolveMediaBaseScale({
                   canvasWidth: ctx.canvas.width,
                   canvasHeight: ctx.canvas.height,
-                  elementWidth: elemW,
-                  elementHeight: elemH,
+                  elementWidth: fitDims.width,
+                  elementHeight: fitDims.height,
                   mode: ctx.canvas.height > ctx.canvas.width ? 'cover' : 'contain',
                 });
 
                 ctx.save();
                 ctx.translate(ctx.canvas.width / 2 + userX, ctx.canvas.height / 2 + userY);
+                if (rotationDeg !== 0) {
+                  ctx.rotate((rotationDeg * Math.PI) / 180);
+                }
                 ctx.scale(baseScale * scaleFactor, baseScale * scaleFactor);
 
                 let alpha = 1.0;
@@ -2403,11 +2412,13 @@ export function usePreviewEngine({
                 const peerW = peerIsVideo ? peerVideoEl.videoWidth : peerImageEl.naturalWidth;
                 const peerH = peerIsVideo ? peerVideoEl.videoHeight : peerImageEl.naturalHeight;
                 if (peerW && peerH) {
+                  const peerRotationDeg = normalizeRotation(conf.rotation);
+                  const peerFitDims = resolveRotatedFitDimensions(peerW, peerH, peerRotationDeg);
                   const peerBase = resolveMediaBaseScale({
                     canvasWidth: ctx.canvas.width,
                     canvasHeight: ctx.canvas.height,
-                    elementWidth: peerW,
-                    elementHeight: peerH,
+                    elementWidth: peerFitDims.width,
+                    elementHeight: peerFitDims.height,
                     mode: ctx.canvas.height > ctx.canvas.width ? 'cover' : 'contain',
                   });
                   ctx.save();
@@ -2415,6 +2426,9 @@ export function usePreviewEngine({
                     ctx.canvas.width / 2 + (conf.positionX || 0),
                     ctx.canvas.height / 2 + (conf.positionY || 0),
                   );
+                  if (peerRotationDeg !== 0) {
+                    ctx.rotate((peerRotationDeg * Math.PI) / 180);
+                  }
                   ctx.scale(peerBase * (conf.scale || 1), peerBase * (conf.scale || 1));
                   ctx.globalAlpha = 1.0;
                   try {

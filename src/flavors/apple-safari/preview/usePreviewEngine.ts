@@ -5,6 +5,7 @@ import {
 } from '../../../constants';
 import { createCaptionGlyphCanvas } from '../../../utils/canvas';
 import { resolveMediaBaseScale } from '../../../stores/canvasStore';
+import { normalizeRotation, resolveRotatedFitDimensions } from '../../../utils/canvas';
 import type {
   AudioTrack,
   Caption,
@@ -918,18 +919,25 @@ export function usePreviewEngine({
                 const scaleFactor = conf.scale || 1.0;
                 const userX = conf.positionX || 0;
                 const userY = conf.positionY || 0;
+                const rotationDeg = normalizeRotation(conf.rotation);
+
+                // 90/270 度回転では素材の縦横が入れ替わるため fit 計算には回転後寸法を使う。
+                const fitDims = resolveRotatedFitDimensions(elemW, elemH, rotationDeg);
 
                 // 縦(9:16)キャンバスは横素材を cover 配置、横(16:9)は従来どおり contain。
                 const baseScale = resolveMediaBaseScale({
                   canvasWidth: ctx.canvas.width,
                   canvasHeight: ctx.canvas.height,
-                  elementWidth: elemW,
-                  elementHeight: elemH,
+                  elementWidth: fitDims.width,
+                  elementHeight: fitDims.height,
                   mode: ctx.canvas.height > ctx.canvas.width ? 'cover' : 'contain',
                 });
 
                 ctx.save();
                 ctx.translate(ctx.canvas.width / 2 + userX, ctx.canvas.height / 2 + userY);
+                if (rotationDeg !== 0) {
+                  ctx.rotate((rotationDeg * Math.PI) / 180);
+                }
                 ctx.scale(baseScale * scaleFactor, baseScale * scaleFactor);
 
                 let alpha = 1.0;

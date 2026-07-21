@@ -102,6 +102,7 @@ export function useMediaItems(): UseMediaItemsReturn {
             scale: 1.0,
             positionX: 0,
             positionY: 0,
+            rotation: 0,
             isTransformOpen: false,
             isLocked: false,
           };

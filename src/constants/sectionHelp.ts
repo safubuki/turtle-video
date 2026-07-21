@@ -218,9 +218,9 @@ export function getSectionHelpContent(context: SectionHelpContext): Record<Secti
         visuals: ['trim_chip', 'duration_chip', 'slider_demo'],
       },
       {
-        title: '位置・サイズ調整',
+        title: '位置・サイズ・回転調整',
         description:
-          'この項目は折りたたみ表示です。開くと黒帯除去、拡大縮小、位置X/Yの調整ができます。黒帯除去は微細な上下の隙間を目立ちにくくする設定です。拡大縮小・位置の調整はスライダーで行え、くるくるアイコンでデフォルト値に戻せます。',
+          'この項目は折りたたみ表示です。開くと黒帯除去、拡大縮小、位置X/Y、回転の調整ができます。黒帯除去は微細な上下の隙間を目立ちにくくする設定です。拡大縮小・位置の調整はスライダーで行え、くるくるアイコンでデフォルト値に戻せます。回転は「90°回転」ボタンを押すたびに0°→90°→180°→270°→0°と切り替わり、縦横が逆になった動画・画像を直すのに使えます。',
         visuals: ['blackbar_toggle_chip', 'scale_chip', 'position_chip', 'reset_button', 'slider_demo'],
       },
       {

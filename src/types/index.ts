@@ -43,6 +43,8 @@ export interface MediaItem {
   scale: number;
   positionX: number;
   positionY: number;
+  /** 90度単位の時計回り回転（0 / 90 / 180 / 270）。未定義は 0 とみなす（旧データ後方互換） */
+  rotation?: number;
   isTransformOpen: boolean;
   isLocked: boolean;
   // ソース動画の解像度（エクスポート用キャンバスサイズの動的決定に使用）

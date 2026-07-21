@@ -58,6 +58,8 @@ export interface SerializedMediaItem {
   scale: number;
   positionX: number;
   positionY: number;
+  /** 90度単位の時計回り回転（0 / 90 / 180 / 270）。旧データには存在しないため任意 */
+  rotation?: number;
   isTransformOpen: boolean;
   isLocked: boolean;
   // ソース動画の解像度（エクスポートキャンバスサイズの動的決定に使用）

@@ -44,6 +44,9 @@ export {
   isMediaReady,
   safeSetVideoTime,
   captureCanvasAsImage,
+  normalizeRotation,
+  getNextRotation,
+  resolveRotatedFitDimensions,
 } from './canvas';
 
 // 再生タイムライン判定

@@ -16,6 +16,7 @@ import {
   Lock,
   Unlock,
   RotateCcw,
+  RotateCw,
   ZoomIn,
   Move,
   ChevronDown,
@@ -48,7 +49,9 @@ export interface ClipItemProps {
   onUpdateImageDuration: (value: string) => void;
   onUpdateScale: (value: string | number) => void;
   onUpdatePosition: (axis: 'x' | 'y', value: string) => void;
-  onResetSetting: (type: 'scale' | 'x' | 'y') => void;
+  /** クリップを 90 度単位で時計回りに回転（0→90→180→270→0） */
+  onRotate: () => void;
+  onResetSetting: (type: 'scale' | 'x' | 'y' | 'rotation') => void;
   onUpdateVolume: (value: number) => void;
   onToggleMute: () => void;
   onToggleFadeIn: (checked: boolean) => void;
@@ -78,6 +81,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
   onUpdateImageDuration,
   onUpdateScale,
   onUpdatePosition,
+  onRotate,
   onResetSetting,
   onUpdateVolume,
   onToggleMute,
@@ -282,7 +286,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
         ) : (
           <ChevronRight className="w-3 h-3" />
         )}
-        <span>位置・サイズ調整</span>
+        <span>位置・サイズ・回転調整</span>
       </button>
 
       {/* 調整パネル (アコーディオン) */}
@@ -381,6 +385,32 @@ const ClipItem: React.FC<ClipItemProps> = ({
               disabled={isDisabled}
               className="w-full accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
             />
+          </div>
+
+          {/* 回転 (90度単位) */}
+          <div className="flex flex-col gap-1 border-t border-gray-700/50 pt-2 mt-1">
+            <div className="flex items-center justify-between text-[10px] text-gray-400">
+              <div className="flex items-center gap-1">
+                <RotateCw className="w-3 h-3" /> 回転: {v.rotation || 0}°
+              </div>
+              <button
+                onClick={() => onResetSetting('rotation')}
+                disabled={isDisabled}
+                title="リセット"
+                className="hover:text-white disabled:opacity-30"
+              >
+                <RotateCcw className="w-3 h-3" />
+              </button>
+            </div>
+            <button
+              onClick={onRotate}
+              disabled={isDisabled}
+              title="90度ずつ回転（縦横の入れ替えに）"
+              className="flex items-center justify-center gap-1.5 w-full py-1.5 rounded bg-gray-700 hover:bg-gray-600 border border-gray-600 text-gray-200 text-[11px] font-medium transition disabled:opacity-40 disabled:pointer-events-none"
+            >
+              <RotateCw className="w-3.5 h-3.5" />
+              <span>90°回転</span>
+            </button>
           </div>
 
           {/* ミニプレビュー */}

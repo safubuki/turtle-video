@@ -21,6 +21,7 @@ function renderClipsSection(overrides: Partial<ComponentProps<typeof ClipsSectio
     onUpdateImageDuration: vi.fn(),
     onUpdateMediaScale: vi.fn(),
     onUpdateMediaPosition: vi.fn(),
+    onRotateMedia: vi.fn(),
     onResetMediaSetting: vi.fn(),
     onUpdateMediaVolume: vi.fn(),
     onToggleMediaMute: vi.fn(),

@@ -2137,3 +2137,154 @@
   - エンジンの caption 描画は `resolveCaptionDisplaySegment()` が唯一の入口（text 直接参照へ戻さない）。null はギャップ中の正常値。
   - 「1行あたりの表示時間」の意味は「画面に表示される 1 行あたり」。planBulkCaptions の加重を外すと時分割カードだけ極端に早送りになる。
   - sequentialFadeMode / sequentialGapSec は既定値のとき undefined で保存する（'card'/0 を明示保存しない）。
+
+### 13-114. 出力品質の解像度は Canvas リサイズ後の実寸を muxer / VideoEncoder へ渡す
+
+- **ファイル**: `src/stores/canvasStore.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`, `src/test/canvasStore.test.ts`
+- **問題**:
+  - export 開始前のプレビュー Canvas 寸法（通常 1280×720）を先にローカル変数へ保持し、その後 Canvas だけを FHD（1920×1080）へ変更すると、MP4 muxer と `VideoEncoder.configure()` は古い 1280×720 のままになる。
+  - この状態では設定 UI と Canvas は FHD を示していても、生成ファイルのプロパティは HD になり、入力フレームとエンコーダー設定の寸法不一致によって環境依存のスケーリング不安定も起こり得る。
+- **対策**:
+  - `applyExportCanvasSize()` で Canvas の `width` / `height` を目標値へ変更し、変更後の実寸を同じ呼び出しから返す。
+  - muxer、`VideoEncoder.configure()`、ビットレート計算、MediaRecorder 設定、診断ログはすべて返された同一の `width` / `height` を使う。
+  - standard と apple-safari の WebCodecs fallback の両方で同じ契約を維持する。
+- **注意**:
+  - Canvas の `width` / `height` 変更は描画バッファをクリアする。リサイズ後にエクスポート描画ループが再描画する既存順序を維持する。
+  - エンコーダー寸法を export mode へ切り替える前に読み取らない。品質モード追加・変更時は、ストアの解決値だけでなくエンコーダーへ渡る最終実寸までテストする。
+
+### 13-115. 標準エクスポートは高解像度負荷で遅れた Canvas 取得をその場で CFR 補完し、MP4 実解像度を保存前に検証する
+
+- **ファイル**: `src/flavors/standard/export/exportEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`, `src/utils/exportTimeline.ts`, `src/utils/mp4Duration.ts`, `src/test/exportTimeline.test.ts`, `src/test/mp4Duration.test.ts`
+- **実測した問題**:
+  - 127.1 秒の添付出力は自動/FHD指定とも実ファイルが 1280×720 で、黒区間は自動が 100.53 秒付近、FHDが 64.53 秒付近から末尾まで連続していた。
+  - standard の manual Canvas 取得は 1 poll につき 1 フレームへ固定されていたため、同じメインスレッド上の 1080p 描画で timer が約 15fps まで遅れてもタイムラインだけは実時間の 30fps で進行し、不足した約半分を終了時の黒い Canvas で補完していた。
+- **対策**:
+  - standard 経路では `pendingFrameCount` を encoder queue の残容量（HARD 上限 90）まで 1 poll 内で CFR 補完する。通常時は 1 枚、描画遅延時だけ複数枚となり、未処理フレームを末尾へ持ち越さない。
+  - `resolveExportCanvasFrameBurstCount()` は `maxFramesPerPoll` 省略時に従来の 1 枚制限を維持し、apple-safari 経路へ standard の catch-up 方針を波及させない。
+  - MP4 の `tkhd`（16.16 fixed-point）から video track の実 width/height を読み戻し、設定したエクスポート寸法と一致しない場合は成功扱いにせずエラーにする。standard と apple-safari の WebCodecs 経路で共通の保存前ガードとする。
+- **注意**:
+  - catch-up は encoder queue の空き以内に限定し、1080p ロング動画向けのバックプレッシャー上限を迂回しない。
+  - 負荷で描画 callback 自体が 30fps 未満になった区間は同一 Canvas の CFR 複製を含むが、タイムライン尺を末尾の単一フレームへ偏らせるより時間位置と音声同期を優先する。
+  - 出力寸法検証は muxer 設定値ではなく完成 MP4 の track header を根拠にする。検証不能または不一致のファイルをユーザーへ渡さない。
+
+### 13-116. PC の静止画エクスポートは Canvas 描画時刻を VideoEncoder のフレーム投入へ同期する
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/hooks/export-strategies/types.ts`, `src/utils/exportTimeline.ts`, `src/test/standardPreviewEngine.test.tsx`, `src/test/exportTimeline.test.ts`
+- **実測した問題**:
+  - 7.5 秒・fadeOut 1 秒の添付 FHD 出力は総尺と 1920×1080 を満たした一方、輝度低下が約 5.47 秒、ほぼ黒が約 5.8 秒から始まり、6.5 秒から始まるべきフェードが約 1 秒早かった。
+  - BGM は OfflineAudioContext で総尺どおり生成されるが、画像・キャプション・フェードは壁時計で進むため、PC の 1080p Canvas 描画が 30fps に追いつかないと映像時刻だけ先行した。
+  - 13-115 の catch-up は不足フレームへ同じ時点の Canvas を複製するため映像尺は直るが、重い描画で先行したフェード画像を過去の CFR timestamp へ複製し、終端には黒い最終 Canvas が残る。
+- **対策**:
+  - standard の「静止画だけ・先頭から」の export に限り、壁時計ではなく `VideoEncoder.encode()` へ正常投入したフレーム数から次の Canvas 描画時刻を決める。
+  - 同じ投入数の待機中は 1080p Canvas を再描画せず、投入が 1 枚進んだ次の rAF で次時刻を描く。各 Canvas 描画と CFR フレーム投入を 1 対 1 に保つ。
+  - `output` callback 完了待ちは H.264 の内部バッファリングで停止し得るため使わない。投入後の同期通知と encoder queue の既存バックプレッシャーを組み合わせる。
+  - 動画を含む export、途中時刻からの開始、通常 preview、apple-safari 経路は従来の壁時計方式を維持する。
+- **注意**:
+  - 静止画 export の進行基準を再び壁時計へ戻したり、1 回の描画から複数 timestamp を生成すると、画像・キャプション・フェードが BGM より早く終わる問題が再発する。
+  - 7.5 秒・30fps の回帰テストでは、195 枚投入時が約 6.5 秒、225 枚投入後だけが完了条件であることを確認する。
+
+### 13-117. まとめて入力の可逆モード変換 / 個別設定クリア / 音声終了位置のプレビュー反映
+
+- **ファイル**: `src/utils/captionBulkInput.ts`, `src/components/modals/CaptionBulkAddModal.tsx`, `src/utils/captionIndividualSettings.ts`, `src/components/media/CaptionItem.tsx`, `src/components/modals/CaptionSettingsModal.tsx`, `src/stores/audioStore.ts`, `src/components/sections/BgmClipList.tsx`, `src/components/sections/NarrationSection.tsx`
+- **内容**:
+  - **まとめて入力3モード**: `line`（1行カード）/ `hybrid`（通常行はカード、`+ ` 行だけ直前カードの時分割）/ `block`（空行区切り）。`convertBulkCaptionTextMode()` が切替時に入力欄自体を変換し、block→line では内部行を独立カードへ展開、line→block ではカード間へ空行を補って意図しない全行結合を防ぐ。既存 `⏎` は後方互換入力として解釈するが、新UIでは表示・入力させない。
+  - **時分割のスマホ入力**: hybrid を既定にし、「時分割行を追加」でカーソル行の次へ `+ ` 行を挿入。通常カードと時分割カードを同じ入力内で混在できる。
+  - **時間記法だけ除去**: `stripBulkCaptionTimeNotations()` は有効な前置/後置 `[開始-終了]` のみを除去し、文章・空行・`+ ` 構造・通常の角括弧を維持する。
+  - **個別設定クリア**: `captionIndividualSettings.ts` が個別設定バッジ判定と全クリア対象の単一ソース。本文/開始/終了/カード本来の fade 値は残し、override と sequential 固有設定だけを undefined に戻す。
+  - **音声のタイムライン終了調整**: `resolveAudioClipEndAtTimelineTime()` が `trimEnd = trimStart + (timelineEnd - startTime)` の座標変換を担当。BGM/ナレーションとも現在のプレビュー位置を開始・終了へ反映できる。`resolveAudioClipFitToTimelineEnd()` はBGMが動画末尾を超える場合はトリムし、短い場合は実効長を保って後ろへ移動する。
+- **注意**:
+  - `Caption.text` 内の実改行が時分割の保存上の唯一のソースである契約は不変。`+ ` / `⏎` / 空行はまとめて入力UI内の一時記法で、反映時は必ず実改行へ正規化する。
+  - まとめて入力モードをUI stateだけ切り替えない。表示テキストを変換しないと、旧モードの構造が新モードでも残る回帰が再発する。
+  - 音声の現在位置はタイムライン時刻、trimEnd は音源内時刻。両者を直接代入せず、startTime と trimStart のオフセットを必ず考慮する。
+  - BGM末尾フィットは選択クリップだけを変更し、`bgm` / `bgmClips` の互換ミラー契約には触れない。
+
+### 13-118. 出力解像度検証の緩和（検証不能で書き出しを破棄しない）
+
+- **ファイル**: `src/utils/exportTimeline.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`, `src/test/exportTimeline.test.ts`
+- **問題**:
+  - 13-115 で追加した mux 後の解像度検証（フルHD/HD/自動モード対応時）が「`inspectMp4Durations` が解像度を読み取れない（null）」ケースも `throw` していたため、生成 MP4 自体は正しくても検証不能を理由に完成した書き出しごと破棄され、**エクスポートが全くできなくなる**回帰につながっていた。旧コードは `!muxDurationSummary || videoWidth !== width || videoHeight !== height` を無条件で失敗にしていた。
+- **対策**:
+  - 判定を純ロジック `resolveExportResolutionVerdict()`（`exportTimeline.ts`）へ切り出し、3値で扱う: `match`（一致・正常）/ `mismatch`（実解像度が確実に食い違う→失敗）/ `unverified`（解像度を読み取れない→**書き出しは継続し警告に留める**）。
+  - エンコーダー / muxer には常に設定済みの width/height が入るため、パーサー側の限界（null）を根拠に良好な書き出しを捨てない。`mismatch`（実値が読めて食い違う）だけを `throw` にする。
+  - standard / apple-safari の両フレーバーで同一の判定関数を共有。duration 差分検査は `muxDurationSummary` が非 null のときだけ実行するようガードを追加。
+- **注意**:
+  - 解像度検証を再び「読み取れない=失敗」に戻さない。tkhd を読めない正常ファイルでも書き出しを通す契約が回帰防止の要点。
+  - duration 差分の ±1ms hard-throw（`DURATION_DIFF_THRESHOLD_US`）は本対応の対象外で従来どおり。ここを触る場合は AAC プライミング遅延で audio track が伸びる実測を確認する。
+  - 実解像度が確実に食い違う `mismatch` は引き続き失敗にする（不正ファイルはユーザーへ渡さない 13-115 の意図を維持）。
+
+### 13-119. フレーム駆動エクスポートの停滞ウォッチドッグ（「書き出し準備中」ハング対策）
+
+- **ファイル**: `src/utils/exportTimeline.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/test/exportTimeline.test.ts`
+- **問題**:
+  - 13-116 で導入した「画像のみ export のフレーム駆動ペーシング」（`shouldUseFrameDrivenExportPacing`）は、VideoEncoder へのフレーム投入が進まないとタイムラインも進まない設計。何らかの理由（エンコーダーがエラー状態へ落ちる、投入が始まらない等）で `submitted` が増えないと、`currentTime` が 0 秒付近から進まず、UI が「書き出し準備中…（N秒経過）」のまま永久にハングする（`exportPhase` は `currentTime` の前進でしか rendering へ遷移しないため）。短い動画でも数分止まる症状。**画像のみ構成で発生**。
+- **対策**:
+  - 純ロジック `evaluateFrameDrivenExportStall()`（`exportTimeline.ts`）を追加。最後に `submitted` が増えてから `FRAME_DRIVEN_EXPORT_STALL_TIMEOUT_MS`(=2000ms) を超えて停滞したら `stalled=true` を返す。
+  - preview loop はフレーム駆動待機の直前でウォッチドッグを評価し、停滞検知時は `frameDrivenExportForcedWallClockRef` を立てて**壁時計ペーシングへフォールバック**する。壁時計は投入数に依存しないため、以後タイムラインは必ず前進し、終端で `completeWebCodecsExport()` に到達して正常完了またはエラーで確実に終わる。フォールバック時は `startTimeRef` を投入済みフレーム分だけ巻き戻して連続させる。
+  - フォールバック用フラグ/停滞計測 ref は export 開始（`startEngine` の isExportMode 分岐）・`onAudioPreRenderComplete`・`stopAll` の各所でリセットする。
+  - 併せて VideoEncoder の `error` コールバックを `console.error` だけでなく logStore へ記録し、投入停止の根因（エンコーダー障害）を診断可能にした。
+- **注意**:
+  - ウォッチドッグは 2 秒の「投入ゼロ前進」でだけ発火する安全弁。正常なフレーム駆動進行（1 投入ごとに前進）には一切干渉しない（既存の画像のみ回帰テストが緑のまま）。
+  - 停滞閾値を短くしすぎると、重い 1080p 描画で一時的に投入が遅れただけでも壁時計へ落ちてしまう。フレーム駆動の同期性が壊れない範囲で調整する。
+  - フォールバック後にフレーム駆動へ戻さない（1 回の export セッション内は片道）。復帰させると再度停滞し得る。
+
+### 13-120. エクスポート終端で現在時刻を総尺へスナップ（「0:04 / 0:05」表示ズレ対策）
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **問題**:
+  - standard の export 終端（`loop` 内 `clampedElapsed >= totalDuration` 分岐）は `completeWebCodecsExport()` を呼ぶだけで `currentTime` を更新せず、最後に描画した「最終フレーム開始時刻」（例 5秒/150fの frame149 = 4.966s）で止まっていた。
+  - `formatTime()` は `Math.floor` 秒表示のため、`4.966s` は `0:04`、総尺 `5.0s` は `0:05` となり、シークバーは右端なのに「**0:04 / 0:05**」と 1 秒ズレて見えた。preview 終端（`finalizePreviewAtTimelineEnd`）は総尺へスナップ済み、apple-safari の export 終端も `setCurrentTime(totalDuration)` 済みで、**standard の export 終端だけが未スナップ**だった。
+- **対策**:
+  - standard の export 終端分岐で `completeWebCodecsExport()`（/ `completePreviewCacheExport()`）呼び出し前に `currentTimeRef.current = totalDuration; setCurrentTime(totalDuration)` を実行し、他経路（preview / apple-safari）と表示を揃える。
+- **影響確認**:
+  - **エクスポート済みファイルの尺には影響しない**。映像は `expectedVideoFrames` 全数（150枚）をエンコードし、最終フレームの `duration` は `getExportFrameTiming` で `exportDurationUs` まで延長されるため、MP4 の video track / container 尺は総尺どおり（13-115 の保存前検証も通過）。本件は **UI 表示のみ**の修正。
+- **注意**:
+  - スナップは終端到達時（`clampedElapsed >= totalDuration`）にだけ行う。途中フレームの時刻計算（フレーム駆動 timestamp）には手を入れない。
+  - export 完了後の `stopAll()` は currentTime をリセットしないため、スナップした総尺表示は保持される。
+
+### 13-121. エクスポート中に BGM/ナレーションがスピーカーから聞こえる問題（native 音声漏れ）
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardExportNativeAudioSilence.test.ts`
+- **問題**:
+  - PC(standard) のエクスポートでは、出力音声を OfflineAudioContext（`offlineRenderAudio`）で**別途生成**して AudioEncoder に供給する（`webCodecsAudioCaptureStrategy='pre-rendered'`）。一方で render loop は export 中もライブの BGM/ナレーション `<audio>` 要素を `.play()` する。
+  - ライブ要素は export 中に WebAudio ソースノードを作らない（`ensurePreviewAudioGainNode` は `if (!_isExporting && !hasAudioNode)` でのみ生成）。ソースノードが無いと要素のスピーカー出力が横取りされず、PC ポリシー（`muteNativeMediaDuringExportWhenAudioRouted=false`）では `applyPreviewAudioOutputState` が `muted=false / volume=1` にしていたため、**export 中に BGM がスピーカーから漏れて聞こえていた**。加えて 13-112 の narration フェード native フォールバック（`element.volume = vol`）も export 中に音を出していた。
+  - **出力ファイルの音声には無関係**（file の音声は OfflineAudioContext 由来）。あくまで「作成中にスピーカーから聞こえるだけ」の副作用。
+- **対策**:
+  - `applyPreviewAudioOutputState` に「export 中 + webaudio モード + WebAudio ノード無し」= キャプチャ対象外の要素は必ず `muted=true / volume=0` にするガード（`shouldSilenceUncapturedDuringExport`）を追加。
+  - narration の native フォールバックも `element.volume = _isExporting ? 0 : ...` にして export 中は無音化。
+  - `applyPreviewAudioOutputState` を `export` し、モック要素での回帰テストを追加。
+- **注意**:
+  - **出力音声には触れない**。OfflineAudioContext のミックス（BGM/ナレーション/動画音声）はそのままファイルへ入る。無音化するのは「キャプチャされないライブ要素」だけ。
+  - script-processor フォールバック（offline 失敗時のライブ捕捉）は WebAudio グラフ（ソースノード有り）から拾うため、ソースノード**無し**要素の無音化は捕捉に影響しない。
+  - Android は既存の `muteNativeMediaDuringExportWhenAudioRouted=isAndroid=true` で従来から無音。iOS Safari は別フレーバーで本変更の対象外。
+
+### 13-122. 縦画面（9:16）出力対応（アスペクト比の向き切替）
+
+- **ファイル**: `src/stores/canvasStore.ts`, `src/components/sections/ClipsSection.tsx`, `src/components/sections/PreviewSection.tsx`, `src/components/common/MiniPreview.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/utils/indexedDB.ts`, `src/stores/projectStore.ts`, `src/hooks/useAutoSave.ts`, `src/test/canvasStore.test.ts`
+- **内容**:
+  - **向き（aspectRatio）を canvasStore に追加**: `'landscape'(16:9・既定) | 'portrait'(9:16)`。`setAspectRatio()` でプレビュー/エクスポート寸法を再計算。`getTargetAspect()` が単一ソース。寸法算出（`computeCanvasSizeFromSource` / `resolveExportCanvasSize`）に `aspectRatio` 引数（既定 landscape で後方互換）を追加し、`FIXED_EXPORT_SIZES` を向き別（portrait fhd=1080×1920 / hd=720×1280）に拡張。**canvasStore が唯一の寸法ソース**なので、プレビュー/カード/エクスポートは width/height を読むだけで自動追従する。
+  - **cover 配置（縦フレームを埋める）**: 縦(9:16)モードでは横素材を「縦幅を合わせ左右カット」で初期配置する。純ロジック `resolveMediaBaseScale({..., mode})`（`canvasStore.ts`）を追加し、描画側は `mode = canvas.height > canvas.width ? 'cover' : 'contain'` で分岐。横(16:9)は従来どおり contain で**1px も挙動を変えない**。scale(拡大)/positionX/Y(XY) は baseScale に乗るだけで不変。standard は主描画＋peer/dissolve の2箇所、apple-safari は1箇所、MiniPreview（ミニ枠も向きで 96×54⇄54×96 に）を差し替え。
+  - **UI トグル**: 「動画・画像」セクションのタイトルバー（ClipsSection）に横/縦セグメントトグル（`RectangleHorizontal`/`RectangleVertical`）。`useCanvasStore` の `aspectRatio`/`setAspectRatio` に接続。
+  - **プレビュー枠**: PreviewSection の canvas ラッパを向きで切替（横=`aspect-video`、縦=`aspect-[9/16]` + `max-h-[70vh]` 中央）。
+  - **永続化（per-project）**: `ProjectData.aspectRatio?`（任意・旧データは landscape 後方互換）。projectStore の save は `useCanvasStore.getState().aspectRatio` を書き出し、`loadProjectFromSlot` は `setAspectRatio(data.aspectRatio ?? 'landscape')` で復元（メディア反映前に向きを確定）。useAutoSave の変更検知ハッシュに `aspectRatio` を追加。exportQuality（localStorage・per-user）とは独立。
+  - **エクスポート**: `beginExportMode()` が返す exportWidth/exportHeight に自動追従するため export エンジンは変更不要。13-114/13-115 の実寸受け渡し・保存前解像度検証は縦寸法でもそのまま通る（縦の tkhd も既存パーサで OK）。
+- **注意**:
+  - **landscape の挙動は完全不変**（cover は canvas が縦のときだけ、寸法既定は landscape）。既存 16:9 プロジェクトへ影響なし（canvasStore.test.ts の landscape 期待値が回帰ガード）。
+  - 描画の向き判定は Canvas 実寸（`height > width`）を根拠にする。store の aspectRatio と Canvas 実寸は常に整合（縦モードは必ず w<h を返す）。
+  - 向き切替時に XY/scale の値は保持する（枠が変わるので見え方は変わるが値は壊さない）。cover 既定で横素材は左右カットになり、左右調整だけで収まる想定。
+  - 新 override 的フィールドと同様、`aspectRatio` は types/indexedDB/projectStore(save+load)/useAutoSave ハッシュを揃って更新する。
+
+### 13-123. クリップ単位の90度回転（縦横入れ替え・0/90/180/270巡回）
+
+- **ファイル**: `src/utils/canvas.ts`, `src/types/index.ts`, `src/utils/indexedDB.ts`, `src/utils/media.ts`, `src/hooks/useMediaItems.ts`, `src/stores/mediaStore.ts`, `src/stores/projectStore.ts`, `src/components/TurtleVideo.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/media/ClipItem.tsx`, `src/components/common/MiniPreview.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/androidPreviewCache.ts`, `src/test/canvasRotation.test.ts`, `src/test/stores/mediaStore.test.ts`
+- **内容**:
+  - **要件**: 「位置・サイズ調整」パネル内に「回転」を追加。縦撮り動画が横になっている等を素早く直す用途。ボタン1回で 90°→180°→270°→0° を巡回（スライダー微調整はしない）。画像・動画どちらも、カード単位で対応。
+  - **データモデル**: `MediaItem.rotation?: number`（90度単位・時計回り。**任意**で旧データは 0 とみなす）。`SerializedMediaItem.rotation?` も追加。新規作成の既定は 0（`media.ts` / `useMediaItems.ts`）。projectStore の save/load は `normalizeRotation()` を通して 0/90/180/270 に丸めて往復。
+  - **純ロジックは canvas.ts に集約**（フレーバー中立・共有 util）: `normalizeRotation(x)` は任意値（負値/360超/端数/NaN/undefined）を 0/90/180/270 へ丸める。`getNextRotation(x)` は次角へ1段。`resolveRotatedFitDimensions(w,h,rot)` は 90/270 のとき w/h を入れ替えて返す。**回転時は fit 計算に入れ替え後寸法を渡す**のが要（cover/contain が回転後も成立）。
+  - **描画（13-122 と同じ4サイトを差し替え）**: standard 主描画＋dissolve/peer、apple-safari 主描画、MiniPreview。各サイトで `resolveRotatedFitDimensions` を `resolveMediaBaseScale` に渡し、`ctx.translate` 後・`ctx.scale` 前に `ctx.rotate((deg*π)/180)`（deg=0 のときは rotate を呼ばず従来と完全一致）。**export はこれら preview Canvas を captureStream するため描画変更は export へ自動波及**（export エンジンは無変更）。
+  - **ストア/配線**: `mediaStore.rotateClip(id)`（`getNextRotation`）と `resetTransform(id,'rotation')` を追加（reset の type を `'scale'|'x'|'y'|'rotation'` へ拡張）。TurtleVideo に `handleRotateMedia`（`pausePreviewBeforeEdit('rotate-media')` 経由）を追加し、ClipsSection→ClipItem へ `onRotate`/`onRotateMedia` を伝搬。ClipItem のパネル末尾（縦方向スライダーとミニプレビューの間）に「回転: N°」表示＋リセット＋「90°回転」ボタン（`RotateCw`）を配置。
+  - **Android preview cache 署名**: `androidPreviewCache.ts` の cache-key スナップショットに `rotation` を追加（回転変更でキャッシュが正しく無効化される。現状 `ENABLE_ANDROID_PREVIEW_CACHE=false` だが署名の正しさとして先行対応）。
+- **注意**:
+  - **rotation=0（既定）では描画は 1px も変わらない**（rotate を呼ばない分岐 + fit 寸法も非入れ替え）。既存プロジェクト・全既存テストに影響なし。
+  - `rotation` は 13-122 の `aspectRatio` と同様「types / indexedDB / projectStore(save+load, normalize往復) / 既定値(media.ts, useMediaItems.ts) / androidPreviewCache 署名」を**揃って**更新するのが定石。片方だけだと保存往復や Android 経路で欠落する。
+  - 回転の純ロジックは必ず `canvas.ts` の共有 helper を通す（フレーバー物理分離のため描画コードは4箇所に重複。角度計算をインライン化すると preview/export/MiniPreview/トランジションで挙動が食い違う）。回帰ガードは `canvasRotation.test.ts`（純ロジック不変条件）＋ `mediaStore.test.ts`（巡回とリセット）。
+  - 90/270 回転は scale/positionX/Y と直交（回転はキャンバス中心基準で XY 移動より前に適用され、baseScale に乗るだけ）。ユーザーは回転→必要なら scale/XY で微調整の想定。

@@ -87,6 +87,57 @@ export function calculateFadeAlpha(
 }
 
 /**
+ * 回転角を 90 度単位の {0, 90, 180, 270} に正規化する。
+ *
+ * 保存データや UI から渡る任意の数値（負値・360 以上・端数・NaN・undefined）を、
+ * 描画で扱える 4 値のいずれかへ丸める。旧データには `rotation` が無いため 0 を既定とする。
+ *
+ * @param rotation - 任意の回転角（度）。undefined 可
+ * @returns 0 / 90 / 180 / 270 のいずれか
+ */
+export function normalizeRotation(rotation: number | undefined | null): 0 | 90 | 180 | 270 {
+  if (typeof rotation !== 'number' || !Number.isFinite(rotation)) return 0;
+  // 90 度単位に丸めてから 0..359 の範囲へ正規化（負値も安全に扱う）
+  const snapped = Math.round(rotation / 90) * 90;
+  const wrapped = ((snapped % 360) + 360) % 360;
+  return wrapped as 0 | 90 | 180 | 270;
+}
+
+/**
+ * 「回転ボタンを1回押したときの次の角度」を返す（0 → 90 → 180 → 270 → 0 の巡回）。
+ *
+ * @param rotation - 現在の回転角（度）。undefined 可
+ * @returns 次の回転角（0 / 90 / 180 / 270）
+ */
+export function getNextRotation(rotation: number | undefined | null): 0 | 90 | 180 | 270 {
+  return normalizeRotation(normalizeRotation(rotation) + 90);
+}
+
+/**
+ * 回転を考慮したメディアの「実効寸法」を返す。
+ *
+ * 90 度・270 度回転では素材の縦横がキャンバス上で入れ替わるため、
+ * cover/contain のフィット計算（{@link resolveMediaBaseScale} 等）には
+ * この入れ替え後の寸法を渡す必要がある。0 度・180 度では元の寸法のまま。
+ *
+ * @param elementWidth - 素材の元の幅
+ * @param elementHeight - 素材の元の高さ
+ * @param rotation - 回転角（度）。undefined 可
+ * @returns フィット計算に使うべき実効的な {width, height}
+ */
+export function resolveRotatedFitDimensions(
+  elementWidth: number,
+  elementHeight: number,
+  rotation: number | undefined | null,
+): { width: number; height: number } {
+  const normalized = normalizeRotation(rotation);
+  if (normalized === 90 || normalized === 270) {
+    return { width: elementHeight, height: elementWidth };
+  }
+  return { width: elementWidth, height: elementHeight };
+}
+
+/**
  * メディア要素をCanvas中央に描画
  * @param ctx - CanvasRenderingContext2D
  * @param element - 描画するビデオまたは画像要素

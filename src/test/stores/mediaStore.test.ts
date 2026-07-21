@@ -423,4 +423,56 @@ describe('mediaStore', () => {
       expect(useMediaStore.getState().mediaItems).toHaveLength(1);
     });
   });
+
+  describe('rotateClip / resetTransform(rotation)', () => {
+    it('cycles rotation 0 → 90 → 180 → 270 → 0 on repeated calls', async () => {
+      const { addMediaItems, rotateClip } = useMediaStore.getState();
+      await addMediaItems([new File(['x'], 'x.mp4', { type: 'video/mp4' })]);
+      const id = useMediaStore.getState().mediaItems[0].id;
+
+      expect(useMediaStore.getState().mediaItems[0].rotation).toBe(0);
+      rotateClip(id);
+      expect(useMediaStore.getState().mediaItems[0].rotation).toBe(90);
+      rotateClip(id);
+      expect(useMediaStore.getState().mediaItems[0].rotation).toBe(180);
+      rotateClip(id);
+      expect(useMediaStore.getState().mediaItems[0].rotation).toBe(270);
+      rotateClip(id);
+      expect(useMediaStore.getState().mediaItems[0].rotation).toBe(0);
+    });
+
+    it('normalizes a legacy item without rotation before advancing', async () => {
+      const { addMediaItems, rotateClip } = useMediaStore.getState();
+      await addMediaItems([new File(['x'], 'x.mp4', { type: 'video/mp4' })]);
+      const id = useMediaStore.getState().mediaItems[0].id;
+      // 旧データ相当: rotation を未定義に戻す
+      useMediaStore.setState((s) => ({
+        mediaItems: s.mediaItems.map((m) =>
+          m.id === id ? { ...m, rotation: undefined } : m
+        ),
+      }));
+
+      rotateClip(id);
+      expect(useMediaStore.getState().mediaItems[0].rotation).toBe(90);
+    });
+
+    it('reset(rotation) returns rotation to 0 without touching scale/position', async () => {
+      const { addMediaItems, rotateClip, updateScale, updatePosition, resetTransform } =
+        useMediaStore.getState();
+      await addMediaItems([new File(['x'], 'x.mp4', { type: 'video/mp4' })]);
+      const id = useMediaStore.getState().mediaItems[0].id;
+
+      rotateClip(id);
+      rotateClip(id);
+      updateScale(id, 1.5);
+      updatePosition(id, 'x', 40);
+      expect(useMediaStore.getState().mediaItems[0].rotation).toBe(180);
+
+      resetTransform(id, 'rotation');
+      const item = useMediaStore.getState().mediaItems[0];
+      expect(item.rotation).toBe(0);
+      expect(item.scale).toBe(1.5);
+      expect(item.positionX).toBe(40);
+    });
+  });
 });

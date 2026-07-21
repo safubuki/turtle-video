@@ -2272,3 +2272,19 @@
   - 描画の向き判定は Canvas 実寸（`height > width`）を根拠にする。store の aspectRatio と Canvas 実寸は常に整合（縦モードは必ず w<h を返す）。
   - 向き切替時に XY/scale の値は保持する（枠が変わるので見え方は変わるが値は壊さない）。cover 既定で横素材は左右カットになり、左右調整だけで収まる想定。
   - 新 override 的フィールドと同様、`aspectRatio` は types/indexedDB/projectStore(save+load)/useAutoSave ハッシュを揃って更新する。
+
+### 13-123. クリップ単位の90度回転（縦横入れ替え・0/90/180/270巡回）
+
+- **ファイル**: `src/utils/canvas.ts`, `src/types/index.ts`, `src/utils/indexedDB.ts`, `src/utils/media.ts`, `src/hooks/useMediaItems.ts`, `src/stores/mediaStore.ts`, `src/stores/projectStore.ts`, `src/components/TurtleVideo.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/media/ClipItem.tsx`, `src/components/common/MiniPreview.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/androidPreviewCache.ts`, `src/test/canvasRotation.test.ts`, `src/test/stores/mediaStore.test.ts`
+- **内容**:
+  - **要件**: 「位置・サイズ調整」パネル内に「回転」を追加。縦撮り動画が横になっている等を素早く直す用途。ボタン1回で 90°→180°→270°→0° を巡回（スライダー微調整はしない）。画像・動画どちらも、カード単位で対応。
+  - **データモデル**: `MediaItem.rotation?: number`（90度単位・時計回り。**任意**で旧データは 0 とみなす）。`SerializedMediaItem.rotation?` も追加。新規作成の既定は 0（`media.ts` / `useMediaItems.ts`）。projectStore の save/load は `normalizeRotation()` を通して 0/90/180/270 に丸めて往復。
+  - **純ロジックは canvas.ts に集約**（フレーバー中立・共有 util）: `normalizeRotation(x)` は任意値（負値/360超/端数/NaN/undefined）を 0/90/180/270 へ丸める。`getNextRotation(x)` は次角へ1段。`resolveRotatedFitDimensions(w,h,rot)` は 90/270 のとき w/h を入れ替えて返す。**回転時は fit 計算に入れ替え後寸法を渡す**のが要（cover/contain が回転後も成立）。
+  - **描画（13-122 と同じ4サイトを差し替え）**: standard 主描画＋dissolve/peer、apple-safari 主描画、MiniPreview。各サイトで `resolveRotatedFitDimensions` を `resolveMediaBaseScale` に渡し、`ctx.translate` 後・`ctx.scale` 前に `ctx.rotate((deg*π)/180)`（deg=0 のときは rotate を呼ばず従来と完全一致）。**export はこれら preview Canvas を captureStream するため描画変更は export へ自動波及**（export エンジンは無変更）。
+  - **ストア/配線**: `mediaStore.rotateClip(id)`（`getNextRotation`）と `resetTransform(id,'rotation')` を追加（reset の type を `'scale'|'x'|'y'|'rotation'` へ拡張）。TurtleVideo に `handleRotateMedia`（`pausePreviewBeforeEdit('rotate-media')` 経由）を追加し、ClipsSection→ClipItem へ `onRotate`/`onRotateMedia` を伝搬。ClipItem のパネル末尾（縦方向スライダーとミニプレビューの間）に「回転: N°」表示＋リセット＋「90°回転」ボタン（`RotateCw`）を配置。
+  - **Android preview cache 署名**: `androidPreviewCache.ts` の cache-key スナップショットに `rotation` を追加（回転変更でキャッシュが正しく無効化される。現状 `ENABLE_ANDROID_PREVIEW_CACHE=false` だが署名の正しさとして先行対応）。
+- **注意**:
+  - **rotation=0（既定）では描画は 1px も変わらない**（rotate を呼ばない分岐 + fit 寸法も非入れ替え）。既存プロジェクト・全既存テストに影響なし。
+  - `rotation` は 13-122 の `aspectRatio` と同様「types / indexedDB / projectStore(save+load, normalize往復) / 既定値(media.ts, useMediaItems.ts) / androidPreviewCache 署名」を**揃って**更新するのが定石。片方だけだと保存往復や Android 経路で欠落する。
+  - 回転の純ロジックは必ず `canvas.ts` の共有 helper を通す（フレーバー物理分離のため描画コードは4箇所に重複。角度計算をインライン化すると preview/export/MiniPreview/トランジションで挙動が食い違う）。回帰ガードは `canvasRotation.test.ts`（純ロジック不変条件）＋ `mediaStore.test.ts`（巡回とリセット）。
+  - 90/270 回転は scale/positionX/Y と直交（回転はキャンバス中心基準で XY 移動より前に適用され、baseScale に乗るだけ）。ユーザーは回転→必要なら scale/XY で微調整の想定。

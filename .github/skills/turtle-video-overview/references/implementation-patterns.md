@@ -3,6 +3,186 @@
 本プロジェクトに組み込まれている実装パターン・ワークアラウンド・注意すべきポイントを網羅的にまとめたドキュメントです。新機能の追加や既存コードの変更時に必ず確認してください。
 
 ---
+## 0. Recent Notes
+
+### 0-1. iOS Safari preview の遅延 `play()` は再生試行世代で無効化する
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **背景**:
+  - 同じ操作でも preview の成功率が揺れる場合、`seeked` / `canplay` を待っている古い `play()` callback が、次の seek や再生再開の後に遅れて発火していることがある
+  - `isPlayingRef` だけでは「今の再生試行か」を識別できず、seek 中断や 0 秒戻しの直後に stale callback が割り込む
+- **実装指針**:
+  - `previewPlaybackAttemptRef` のような世代 ref を持ち、`stopAll()`, `handleSeekStart()`, preview の新規 `startEngine()`, `handleSeekEnd()` の再開時に必ずインクリメントする
+  - 遅延 `play()` は helper で `isCurrentAttempt && isPlaying && !isSeeking && !mediaSeeking && readyState >= minReadyState` をまとめて判定する
+  - seek 開始時は video だけでなく audio-only 要素も pause し、drag 中の古い再生状態を一旦切る
+- **注意点**:
+  - iOS Safari では `canplay` 自体が遅延到達することがあるため、listener を外すだけでは不十分で、発火後の no-op ガードが必要
+  - timeout fallback で `play()` を再試行する場合も同じ世代 helper を使わないと、seek 直後の race が再発する
+
+
+### 0-2. iOS Safari preview の future video prewarm は「画像区間中の次動画」を例外維持する
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **背景**:
+  - 遠い future video の prewarm を一律 `0.35s` に制限すると、画像クリップが 350ms を超える一般的なタイムラインで次動画が事前 `play()` 対象から外れる
+  - `renderFrame()` は対象外になった inactive video を `pause()` するだけで、後から lead window に入っても rAF 外で再 prime されないため、iOS Safari の gesture credit を失った `play()` に逆戻りしやすい
+- **実装指針**:
+  - `shouldKeepInactiveVideoPrewarmed()` では、通常は lead window で future video を絞りつつ、**現在が画像/無動画区間で、かつ最も近い次動画** だけは距離に関係なく prewarm 維持を許可する
+  - `startEngine()` / seek 再開 (`proceedWithPlayback`) / `renderFrame()` で同じ「最も近い future video」判定を共有し、初回 prime と維持判定が食い違わないようにする
+- **注意点**:
+  - 例外維持を許可するのは次動画 1 本だけに留め、2 本目以降の future video まで走らせない
+  - active video 再生中まで例外を広げると、元の「遠い future video が BGM と競合する」問題を再発させやすい
+
+### 0-3. iOS Safari の動画音声 + BGM preview は単一 WebAudio mix に寄せる
+
+- **ファイル**: `src/utils/iosSafariAudio.ts`, `src/utils/previewPlatform.ts`, `src/components/TurtleVideo.tsx`, `src/hooks/useExport.ts`
+- **背景**:
+  - iOS Safari では動画要素のネイティブ音声と BGM/ナレーション要素を別経路で同時再生すると、AudioSession 競合で preview が無音化することがある
+  - Android / PC の既存 preview / export は安定しているため、共通処理ではなく iOS Safari 専用分岐に閉じる必要がある
+- **実装指針**:
+  - iOS Safari 判定は `src/utils/platform.ts` の関数に集約し、呼び出し側へ UA 判定を散らさない
+  - preview では `src/utils/iosSafariAudio.ts` の判定で「動画音声 + audio-only」が同時に鳴る場合だけ video も WebAudio へ寄せ、`masterDest` / `ctx.destination` に一本化する
+  - `createMediaElementSource()` は `sourceElementsRef` と `sourceNodesRef` を使って同一 element へ 1 回だけ作成する
+  - Safari 専用ログとして、判定結果・AudioContext state・gain 値・export route・失敗理由を残す
+- **注意**:
+  - Android / PC の既存ルートは変更しない。iOS Safari 専用 helper を経由して分岐させる
+  - Safari 対応を理由に `previewPlatform` 全体の既定挙動を変えず、影響範囲を iOS 条件に限定する
+
+### 0-4. 非アクティブ復帰の preview は blur / pagehide 先行でも再同期前提で扱う
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **背景**:
+  - Android / PC では別アプリ遷移やタブ移動の際、`visibilitychange(hidden)` より先に `blur` や `pagehide` が届くことがある
+  - hidden 側イベントだけで `needsResyncAfterVisibilityRef` を立てていると、復帰時に `isPlayingRef` は再生中のままでもメディア要素が pause / decoder reset 済みで、ブラックアウトや `play()` 不安定が再発しやすい
+- **実装指針**:
+  - 復帰判定は `getVisibilityRecoveryPlan()` にまとめ、`resumedFromHidden` と `needsResyncFromLifecycle` の両方を見る
+  - `blur` 先行時も、再生中 / 処理中なら `needsResyncAfterVisibilityRef` を立てて復帰時の `resyncMediaElementsToCurrentTime()` を保証する
+  - `pagehide` では `visibilitychange(hidden)` と同様に pending seek を落とし、実行中メディアを pause して UI 再生状態も整える
+- **注意点**:
+  - `blur` だけで即 pause するとファイルピッカーや保存ダイアログでも再生が止まりやすいので、blur では「再同期予約」までに留める
+  - 可視復帰時の `load()` は停止中だけに限定し、再生中は `resync + renderFrame` で復旧させる
+
+### 0-5. export 音声は iOS/非 iOS とも OfflineAudioContext を先行プリレンダリングし、非 iOS はフレーム境界へ揃える
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/hooks/export-strategies/exportStrategyResolver.ts`, `src/test/exportStrategyResolver.test.ts`
+- **背景**:
+  - 非 iOS の warmup-only 経路では、端末負荷やリアルタイム音声キャプチャの揺れ次第で export 品質が不安定になりやすい
+  - Android / PC では 30fps 出力でも、再生タイムラインがフレーム境界に揃っていないと「ところどころ引っかかる」見え方になりやすい
+- **実装指針**:
+  - `shouldUseOfflineAudioPreRender()` は platform を問わず `hasAudioSources` だけで判定し、iOS / Android / PC すべてで export 開始前に音声を確定生成する
+  - 非 iOS の export 再生ループは `1 / FPS` のフレーム境界へ時間をスナップし、Canvas に描く映像時刻と CFR エンコード時刻を揃える
+  - TrackProcessor / ScriptProcessor は OfflineAudioContext が失敗した場合のフォールバックとして維持する
+- **注意点**:
+  - iOS Safari の MediaRecorder 経路はそのまま維持し、非 iOS の滑らかさ対策を iOS 側へ波及させない
+  - 非 iOS の時刻スナップは export ループだけに閉じ、通常 preview の再生体感は変えない
+
+### 0-6. 非 iOS export の時間進行は壁時計ではなく決定的なフレームカウンタで進める（旧方針）
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/exportFrameTiming.ts`, `src/test/exportFrameTiming.test.ts`
+- **背景**:
+  - `Date.now()` ベースで `elapsed` を切り下げるだけでは、rAF の遅延やメインスレッド負荷が大きいと描画時刻自体が飛び、30fps 出力でも motion が所々で引っかかったように見えることがある
+  - 非 iOS export は OfflineAudioContext で音声を先行確定できるため、映像側もリアルタイム追従より「1 フレームずつ確実に進める」方が安定しやすいと判断していた
+- **実装指針**:
+  - 非 iOS export では `fromTime + renderedFrameCount / FPS` を現在時刻として使い、壁時計ではなくフレームカウンタから `renderFrame()` の描画時刻を決める
+  - export 開始時と `onAudioPreRenderComplete` 後にフレームカウンタを必ずリセットし、準備時間や一時停止の遅れがタイムライン進行へ混ざらないようにする
+  - フレームカウンタは `stopAll()` でもクリアし、次回 preview / export セッションへ持ち越さない
+- **注意点**:
+  - この方針は 2026-03-23 時点で非 iOS 実機/実ブラウザでカクつき悪化報告があり、現行実装では採用しない
+  - 進行基準を frame index に寄せても、実デコード/描画準備が追いつかないケースまでは吸収できない
+
+### 0-7. 非 iOS export の滑らかさ制御は壁時計ベースへ戻し、音声プリレンダリングのみ維持する
+
+- **ファイル**: `src/components/TurtleVideo.tsx`
+- **背景**:
+  - 非 iOS export を決定的なフレームカウンタ進行へ寄せると、rAF の遅延そのものは吸収できても、実ブラウザの動画デコードや Canvas 描画の準備が追いつかない場面で同一実フレームの取り込みが増え、結果として出力の体感がかえってカクつくケースがある
+  - 一方で OfflineAudioContext による音声プリレンダリング自体は export 品質安定化に有効なため、その経路は維持する必要がある
+- **実装指針**:
+  - 非 iOS export の映像時刻は `Date.now()` ベースの既存進行へ戻しつつ、`1 / FPS` 単位のフレーム境界スナップは残して CFR エンコード時刻と概ね揃える
+  - OfflineAudioContext の先行プリレンダリング判定や `onAudioPreRenderComplete` 後の開始時刻リセットは従来どおり維持する
+- **注意点**:
+  - 非 iOS の滑らかさ問題を再調整する場合でも、映像の時間進行変更と音声プリレンダリング変更は切り離して評価する
+  - iOS Safari の MediaRecorder 経路や preview 再生の時間管理には波及させない
+
+### 0-8. Teams 向け export は決定的なフレーム列を維持しつつ、最終フレームだけで総尺を合わせる
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/utils/exportTimeline.ts`, `src/test/exportTimeline.test.ts`
+- **背景**:
+  - Teams デスクトップへの投稿後は再エンコード時の音声・映像の総尺差に敏感で、1 フレーム未満の延長でも「少し遅い」見え方へ繋がることがある
+  - 一方で全フレームの timestamp を実時間ベースへ戻すと、過去に潰した VFR ジッターが再発しやすい
+- **実装指針**:
+  - フレーム順序ベースの決定的 timestamp 採番は維持し、通常フレームの並びは壊さない
+  - export の総尺は raw timeline duration に合わせ、必要な端数は **最後の 1 フレームだけ** の duration で吸収する
+  - 音声のプリレンダリング長・AudioEncoder の終端 clamp も raw duration 基準へ揃え、映像側の切り上げ尺へ引っ張られないようにする
+- **注意点**:
+  - Teams 対策だからといって preview や iOS Safari MediaRecorder 経路へ同じ補正を広げない
+  - 総尺合わせを理由に `frameCount` 自体を減らすと最後の静止保持が欠けるため、フレーム数は維持して duration 配分だけを調整する
+
+### 0-9. Teams 向け export の音声 clamp / プリレンダ長も raw timeline duration へ揃える
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/utils/exportTimeline.ts`, `src/test/exportTimeline.test.ts`
+- **背景**:
+  - 映像だけ raw duration 基準へ戻しても、音声の clamp や OfflineAudioContext のプリレンダ長が `alignedDuration` のままだと、結局コンテナ上の総尺が CFR 切り上げ値へ寄ってしまう
+  - その状態では Teams デスクトップ再エンコード時に AV 総尺差の補正が入り、以前抑えられていた「少し遅い」見え方が再発しやすい
+- **実装指針**:
+  - `expectedVideoFrames` は `ceil(totalDuration * FPS)` のまま維持し、映像フレーム数は減らさない
+  - `getExportFrameTiming()` の最終フレーム duration、`maxAudioTimestampUs`、`feedPreRenderedAudio()` へ渡す最大長、`offlineRenderAudio()` へ渡す `totalDuration` は **すべて raw timeline duration 基準** に揃える
+  - 通常フレームの timestamp / duration は決定的な CFR 採番を維持し、端数吸収は最終フレームだけへ閉じる
+- **注意点**:
+  - `alignedDurationSec` / `alignedDurationUs` は frame count 診断やデバッグ用途として残っていても、Teams 対策の実処理基準に混ぜない
+  - raw duration へ戻す修正は export 専用で、preview の再生・シーク・停止や iOS Safari workaround へ波及させない
+
+### 0-10. Android preview 境界の next video warmup は「実行済み状態」を必須にする
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`
+- **背景**:
+  - `readyState=4` かつ次動画が存在していても、境界前 warmup が未実行だと `preview.trimmedEntry.preseekMiss` / `preview.nextVideo.startLatency` が再発し、境界直後の進みが鈍って `drift` が増える
+  - 特に Android は decoder warmup が未完了のまま active 昇格すると、最初の 100ms 前後で停止体感が残りやすい
+- **実装指針**:
+  - 境界 500ms 前から next video warmup を開始し、`warmupExecuted` / `warmupCompleted` / `preseekCompleted` / `decoderWarmupCompleted` を state で保持する
+  - `preview.preflight.ready` は上記 4 フラグが true になるまで成功扱いにしない（Android + 次動画ありの場合）
+  - 境界ログで warmup state を必ず出し、active 昇格時の state 持ち越し成否（`stateCarriedToActive` / `stateLost`）を診断可能にする
+- **注意点**:
+  - holdFrame 条件や drift 閾値の緩和だけで品質問題を覆い隠さない
+  - warmup 失敗時は warning を残し、次動画デコード未準備のまま smooth 扱いにしない
+
+### 0-11. Android preview 境界は warmup フラグではなく実 video 状態と preroll で扱う
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/useInactiveVideoManager.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **背景**:
+  - Android preview の境界で warmup 系フラグが false 固定になり、実際には preroll 済みでも stateLost / preseekMiss 判定に引っ張られていた
+- **実装指針**:
+  - preflight では next video を `trimStart - 0.35s` へ合わせて `muted + playsInline + play()` で preroll し、readyState / currentTime / paused / seeking など実要素状態を基準に判定する
+  - Android preview の inactive reset では active / next / previous を `protectedVideoIds` として除外し、境界前後の準備状態を壊さない
+- **注意点**:
+  - Android 分岐に閉じる（iOS Safari / export ルートへ波及させない）
+  - preroll 失敗時は warning を残して診断可能にする
+
+### 0-12. プレビュー再生中の video フェードアウト終端は黒クリア優先を無効化する
+
+- **ファイル**: `src/components/turtle-video/usePreviewEngine.ts`
+- **背景**:
+  - `shouldBlackoutVideoFadeTail` は終端の残像対策として有効だが、再生中にも適用するとフェードアウトが途中で急に黒へ落ち、プレビューで「徐々に消える」見え方が損なわれる
+  - 特にフェード長が短いクリップでは、終端保護の黒クリアが体感上ほぼ全量を上書きし、フェードが効いていないように見える
+- **実装指針**:
+  - `shouldSkipVideoDrawForFadeTail` は停止時/保持時（`!isActivePlaying`）に限定する
+  - 再生中は `ctx.globalAlpha` による通常フェード描画を維持し、終端残像対策だけを最小範囲に閉じる
+- **注意点**:
+  - 終端黒フレーム防止の既存ロジックは維持し、export や iOS/Android 分岐の挙動は変更しない
+
+### 0-13. iOS Safari export completion UI trusts only confirmed downloadable results
+
+- **Files**: `src/hooks/useExport.ts`, `src/components/TurtleVideo.tsx`, `src/flavors/apple-safari/export/iosSafariMediaRecorder.ts`, `src/hooks/export-strategies/types.ts`
+- **Issue**: iOS Safari MediaRecorder can create a valid Blob URL after the export loop reaches the natural end, while stale `cancelReason='user'` remains in the export FSM. If the UI callback is suppressed in that state, the preview button stays in the blue "creating video" state even though a downloadable result exists.
+- **Approach**:
+  - 2026-05-26 success baseline: iOS Safari preview and export both work. The successful export path reaches natural timeline end, stops the active MediaRecorder, creates a Blob URL, clears processing, and transitions the preview action area from the blue creating state to the green download button.
+  - MediaRecorder completion callbacks must include `ExportRecordingResult` metadata: `source`, `blobSizeBytes`, and `signalAborted`.
+  - `TurtleVideo` must pass the recorderRef returned by the main `exportRuntime.useExport()` call into `previewRuntime.usePreviewEngine()`. The iOS Safari natural-end path uses this ref to stop/requestData from the active MediaRecorder; a local or preview-cache ref leaves export finalization waiting and prevents `exportUrl` from reaching the UI.
+  - `useExport` may recover from stale user-cancel only when the result is confirmed downloadable (`url`, `ext`, positive blob size) and either the timeline is at natural end or iOS MediaRecorder reports `signalAborted === false`.
+  - User-initiated aborts keep `signalAborted === true`; even if a partial Blob arrives later, the UI callback remains suppressed and the green download button is not shown.
+  - Recovery memo: `Docs/2026-05-26_success_ios-safari-preview-export.md`.
+- **Caution**:
+  - Do not broaden this recovery to Android/standard preview cleanup. Keep it inside export completion notification logic so iOS preview quality and Android preview behavior remain unchanged.
+  - The green download button is controlled by the UI store `exportUrl`, so every successful export path must deliver the UI callback after the Blob URL is actually created.
 
 ## 1. スクロール/スワイプ誤操作防止
 
@@ -31,14 +211,13 @@
 
 ### 2-1. タブ復帰時の Canvas 自動リフレッシュ
 
-- **ファイル**: `src/components/TurtleVideo.tsx`, `src/components/turtle-video/usePreviewVisibilityLifecycle.ts`
+- **ファイル**: `src/components/TurtleVideo.tsx`
 - **問題**: タブ切り替え後に Canvas が黒画面のまま
 - **対策**:
-  - `usePreviewVisibilityLifecycle` で `visibilitychange` / `blur` / `focus` / `pagehide` / `pageshow` を一括管理する
-  - `document.visibilityState === 'visible'` で `requestAnimationFrame(() => renderFrame(...))` を実行する
-  - `readyState < 2` のメディア要素には `element.load()` で再読み込みする
-  - `previewPlatform` の recovery policy を hook 内で再利用し、platform 判定と lifecycle 処理を分離する
-- **注意**: lifecycle hook には refs と副作用 callback だけを渡し、platform ごとの差分は `previewPlatform` 側へ残す
+  - `visibilitychange` イベントで Page Visibility API を監視
+  - `document.visibilityState === 'visible'` で `requestAnimationFrame(() => renderFrame(...))` を実行
+  - `readyState < 2` のメディア要素には `element.load()` で再読み込み
+- **注意**: `visibilitychange` リスナーのクリーンアップを必ず行う
 
 ### 2-2. メディアリソースの可視配置（display: none 回避）
 
@@ -80,391 +259,17 @@
 
 ### 2-6. Android再生中シークの遅延change競合対策
 
-- **ファイル**: `src/components/TurtleVideo.tsx`, `src/components/turtle-video/usePreviewSeekController.ts`
+- **ファイル**: `src/components/TurtleVideo.tsx`（`handleSeekChange`, `handleSeekEnd`）
 - **問題**: Android でシーク終了（`pointerup`/`touchend`）後に `change` が遅延発火すると、シーク再開準備と競合して `renderFrame(..., false)` が走り、再生のカクつきやブラックアウトが発生する
 - **対策**:
-  - `usePreviewSeekController` に `handleSeekChange` / `handleSeekEnd` / `syncVideoToTime` / paused frame redraw を集約する
   - `handleSeekChange` は `isSeekingRef.current === false` の場合、再生状態を維持したまま `syncVideoToTime(..., { force: true })` で同期する
   - `cancelPendingSeekPlaybackPrepare()` / `cancelPendingPausedSeekWait()` はアクティブなシークセッション中にのみ実行し、遅延 `change` で再開準備を破壊しない
   - `handleSeekEnd` の再生再開時刻は固定値ではなく `currentTimeRef.current` から再取得し、遅延イベントで更新された最終シーク位置を取りこぼさない
-- **注意**: シークセッション外イベントで `renderFrame(..., false)` を実行すると、再生中動画を誤って `pause()` しやすい。seek 復帰待機の cleanup は `cancelSeekPlaybackPrepareRef` と global seek listener の両方から中断できる構造を維持する
-
-### 2-7. standard preview 再生クロック統一
-
-- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/usePreviewSeekController.ts`, `src/flavors/standard/preview/playbackClock.ts`
-- **問題**: standard preview で再生ループは `performance.now()` 基準なのに、シーク中の `change` とシーク復帰後の再開時刻が `Date.now()` 基準のままだと、Android でシーク後に `startTimeRef` が壊れ、1 秒刻みのようなカクついた再生になりやすい
-- **対策**:
-  - standard preview の再生ループ・再生開始・シーク復帰で使う現在時刻を `getStandardPreviewNow()` に統一する
-  - throttled seek の timeout callback で更新する `lastSeekTimeRef` も `getStandardPreviewNow()` に合わせ、`SEEK_THROTTLE_MS` 判定へ `Date.now()` を混在させない
-  - `startTimeRef` を更新する箇所は loop 側と同じ time origin を必ず使い、片側だけ `performance.now()` / `Date.now()` を混在させない
-- **注意**: この統一は `standard` flavor の preview 専用。apple-safari 側は別 runtime の前提で `Date.now()` ベースのまま管理しているため、shared helper へ戻さず flavor-owned boundary で閉じる
-
-### 2-8. エクスポート時の画像→動画境界ちらつき対策
-
-- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`
-- **問題**: エクスポート中、画像クリップから動画クリップへ切り替わる瞬間だけ黒フレームが一瞬挟まることがある
-- **原因**:
-  - 次の動画が prewarm 済みだと `holdFrame` 判定時点では `readyState >= 2` に見える
-  - しかし直後の export 安定化処理で `currentTime` 補正が入り、そのフレームでは `seeking` になって描画できない
-  - `holdFrame=false` のまま先に黒クリアされると、画像→動画境界だけ一瞬ちらつく
-- **対策**:
-  - `shouldHoldFrameForImageToVideoExportTransition()` で「画像→動画の export 安定化ウィンドウ中に、まだそのフレームは描画不能か」を判定する
-  - `renderFrame` の `holdFrame` 判定にこの条件を加え、動画が同期・seek 完了するまで直前の画像フレームを保持する
-- **注意**:
-  - この保持は `isExporting && previousItemType === 'image'` の短い安定化区間に限定する。動画→動画や通常 preview に広げると、既存の sync / fade tail / blackout 対策へ影響しやすい
-  - 画像→動画境界の seek 補正しきい値は `EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC` を single source of truth とし、保持判定と `currentTime` 補正の両方で共有する
-
-### 2-9. standard preview の stop / paused seek 後の再生待機
-
-- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`
-- **問題**: standard preview で停止直後や paused seek 直後に再生を押すと、active video がまだ `seeking` / `readyState < 2` のまま `play()` を投げて失敗し、Android で音飛び・映像飛びのままループだけ進みやすい
-- **対策**:
-  - standard preview の `startEngine()` では、active video の `currentTime` を合わせた直後に `seeked` / `loadeddata` / `canplay` を待ち、描画可能フレームが揃うまで loop 開始を遅らせる
-  - 再生開始自体は `requestVideoPlayWithRetry()` で retry 付きにし、stop 後・paused seek 後でも `play()` の一発失敗で置き去りにしない
-  - 待機と retry の継続条件には `loopIdRef`・`previewPlaybackAttemptRef`・`isSeekingRef` を使い、古い再生試行が新しい再生を上書きしないようにする
-- **注意**: この待機は `standard` flavor の preview start 専用。shared や `apple-safari` 側へ共通化すると flavor ごとの再生ポリシー差分を再び混ぜやすいため、runtime-owned boundary のまま閉じる
-
-### 2-10. standard preview の active seek 中は visibility 復帰で seek cleanup を横取りしない
-
-- **ファイル**: `src/flavors/standard/preview/usePreviewVisibilityLifecycle.ts`, `src/test/standardPreviewVisibilityLifecycle.test.tsx`
-- **問題**: Android でシーク中に `visibilitychange` / `focus` / `pageshow` が挟まると、可視復帰側が paused seek の待機解除や paused frame 再描画を先に実行し、`handleSeekEnd` の復帰シーケンスと競合しやすい
-- **対策**:
-  - standard preview の visibility lifecycle は `isSeekingRef.current === true` の間、可視復帰で `cancelPendingSeekPlaybackPrepare()` / `cancelPendingPausedSeekWait()` / paused frame 再描画を実行しない
-  - seek セッション完了後の `handleSeekEnd` / `handleSeekChange` に最終フレーム同期を委ね、visibility 復帰は必要な resync フラグだけ保持する
-- **注意**: このガードは Android/PC 向け `standard` preview 専用。shared 側で一律に paused frame 再描画を止めるのではなく、flavor-owned lifecycle hook で seek 中だけ defer する
-
-### 2-11. standard preview の image → trimStart あり video 開始直後の hold 強化
-
-- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
-- **問題**: Android preview で `video -> image -> trimmed video` の境界に入った直後、trimStart 付き動画の先頭フレームがまだ安定しておらず、開始 0.2 秒だけカクつきやすい
-- **対策**:
-  - `renderFrame` で `previousItem?.type === 'image'` かつ `activeItem.trimStart > 0` の short window（`localTime <= 0.25`）だけ専用ガードを有効にする
-  - その間は `currentTime` を `trimStart + localTime` へ 0.03 秒精度で強めに合わせ、補正したフレームは `holdFrame` + `shouldSkipAndroidPreviewActiveDraw` で描画を止める
-  - `readyState < 2` / `seeking` / `videoWidth|videoHeight <= 0` でまだ描画不能なら、動画を無理に出さず直前フレーム保持を優先する
-- **注意**: この安定化は Android/PC 向け `standard` preview のみ。audio / export / seek / visibility へ波及させず、`image -> trimmed video` の開始 0.2 秒だけに閉じる
-
-### 2-12. standard preview の image 終端 0.5 秒 preseek + trimmed video 先頭 0.2 秒 hold
-
-- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
-- **問題**: Android preview の `video -> image -> trimmed video` で、trimmed video 側に入ってから補正すると境界の 1 フレーム目だけカクつきや停止感が残りやすい
-- **対策**:
-  - 画像クリップ再生中、残り 0.5 秒以内に次が `trimStart > 0` の video なら、次 video 要素を `trimStart` へ先に寄せる
-  - trimmed video がアクティブ化した直後も、先頭 0.2 秒だけ `trimStart + localTime` に安定するまで `holdFrame` + `shouldSkipAndroidPreviewActiveDraw` で描画を止める
-  - 補正は `readyState >= 1 && !seeking` のときだけ行い、audio / export / seek / visibility の別経路は変更しない
-- **注意**: この対策は Android/PC 向け `standard` preview の image 境界専用。一般の video prewarm や iOS Safari runtime に広げない
-
-### 2-13. standard preview の video 境界 0.6 秒 preseek + trimmed head 0.25 秒 hold + BGM soft sync
-
-- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/usePreviewAudioSession.ts`, `src/test/standardPreviewEngine.test.tsx`
-- **問題**: Android preview で同一動画を複数クリップに分けると、`video -> video` 境界や `trimStart > 0` の clip 先頭で seek が遅れ、固まり・黒フレームが出やすい。さらに BGM 追加時は BGM 側の同期準備が active video の再生開始と競合し、一部 clip が paused / ready 不足のまま進みやすい
-- **対策**:
-  - active clip の終了 0.6 秒前から、次の `video` clip を `nextItem.trimStart || 0` へ preseek する。`image -> video` だけでなく `video -> video` も対象にする
-  - `trimStart > 0` の active video は clip 先頭 0.25 秒だけ `trimStart + localTime` に十分近づくまで `holdFrame` + `shouldSkipAndroidPreviewActiveDraw` で保持する
-  - Android standard preview の BGM は `play()` / `currentTime` を soft sync するだけに留め、readyState や失敗を理由に active video の描画・再生開始を止めない
-  - preview start の audio-only prime も WebAudio node 前提にせず、native `<audio>` 要素が存在すれば BGM / narration を個別に頭出しできるようにする
-- **注意**:
-  - 対策は `standard` flavor の Android preview 再生中かつ非 export / 非 seek に限定する
-  - iOS Safari、export、seek controller、visibility lifecycle には広げない
-  - BGM soft sync では active video 用の WebAudio 準備や待機条件を増やさず、失敗時も fire-and-forget を維持する
-
-### 2-14. standard preview の Android inactive reset は next video 1 本だけ seek する
-
-- **ファイル**: `src/flavors/standard/preview/useInactiveVideoManager.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardInactiveVideoManager.test.tsx`, `src/test/standardPreviewEngine.test.tsx`
-- **問題**: Android preview で動画数が 3〜4 本に増えると、inactive video 全体へ `pause()` + `currentTime` reset を繰り返してデコーダ負荷が上がり、active video が固まってシークバーだけ進みやすい
-- **対策**:
-  - `resetInactiveVideos()` は Android preview 時だけ `{ nextVideoId, isAndroidPreview }` を受け取り、active でも next でもない inactive video には `pause()` だけを行う
-  - `usePreviewEngine` は active clip 以降で最初に来る `video` だけを `nextVideoId` として渡し、image gap を挟んでも遠い future video まで seek しない
-  - Android preview の next video preseek は直近 1 本だけに留め、BGM 側の prime 失敗や待機で active video 開始を止めない既存方針を維持する
-- **注意**:
-  - この制限は `standard` flavor の Android preview 専用。`apple-safari`、export、seek controller、visibility lifecycle へ波及させない
-  - inactive video の `currentTime` を戻してよいのは active clip の次に来る video 1 本だけで、過去 clip や 2 本以上先の future video は pause-only を保つ
-
-### 2-15. 編集操作の直前で shared preview loop を止める
-
-- **ファイル**: `src/components/TurtleVideo.tsx`, `src/components/modals/SaveLoadModal.tsx`
-- **問題**: Android standard preview は再生中にメディア構成や trim / caption / BGM / narration を変えると、`currentTime`・`readyState`・timeline 再計算が競合して、シークバーだけ進む / 動画が固まる / 黒画面になる再現が残りやすい
-- **対策**:
-  - shared `TurtleVideo.tsx` に `pausePreviewBeforeEdit(reason)` を置き、再生中の編集操作直前に `pause()`、`isPlayingRef.current = false`、`requestAnimationFrame` の cancel だけを行う
-  - メディア追加/削除/並び替え、trim、duration、scale / position、volume / mute / fade、BGM・ナレーション・キャプション編集、プロジェクト読み込みの直前でこのガードを呼ぶ
-  - `SaveLoadModal` の読み込み確定直前にも callback を挟み、project load が shared preview loop と競合しないようにする
-- **注意**:
-  - 自動 resume はしない。再開はユーザーの再生操作に委ねる
-  - `usePreviewEngine` / `usePreviewSeekController` / `apple-safari` runtime には処理を戻さず、shared UI 層の編集導線で止める
-  - export 中は既存処理を優先し、このガードだけで export フローを止めない
-
-### 2-16. standard preview の timeline 終端は totalDuration 基準で media を同時停止する
-
-- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
-- **問題**: standard preview で最後の映像 clip の終端調整を待ってから停止すると、timeline は終端に見えても `bgm` / `narration:*` の `<audio>` が 0.5〜1 秒ほど流れ続けることがある
-- **対策**:
-  - preview loop の終了判定は最後の clip 状態ではなく `totalDurationRef.current` を単一基準にし、`totalDuration - 0.03` 以降は終端到達として扱う
-  - 終端到達時は `currentTimeRef.current` と UI の currentTime を `totalDuration` に clamp してから `renderFrame(totalDuration, false, false)` を実行する
-  - その直後に `mediaElementsRef.current` 内の `VIDEO` / `AUDIO` を一括 `pause()` し、`bgm` と `narration:*` も例外なく同時停止する
-  - 停止後は `isPlayingRef.current = false`、`pause()`、`cancelAnimationFrame(reqIdRef.current)` を行い、次の preview loop を予約しない
-- **注意**:
-  - この終端停止は `standard` flavor の preview 専用。`apple-safari`、export、seek controller、visibility lifecycle には広げない
-  - BGM の fadeOut 設定や音源自体の長さは変更せず、preview timeline の終端だけを source of truth にする
-
-### 2-17. standard preview の BGM fade は renderFrame で毎フレーム上書きする
-
-- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
-- **問題**: standard preview では BGM が native `<audio>` 再生に残る経路があり、終端停止だけを追加すると fadeIn / fadeOut の計算結果が毎フレーム `bgm.volume` に反映されず、動画終端前に音量が下がらないことがある
-- **対策**:
-  - `renderFrame` 内で preview 中だけ `computePreviewBgmVolume()` を使い、`bgm.delay` 基準の fadeIn と `totalDurationRef.current` 基準の fadeOut を毎フレーム再計算する
-  - 計算結果は `mediaElementsRef.current.bgm.volume` と `gainNodesRef.current.bgm.gain` の両方へ反映し、native / WebAudio のどちらでも同じ fade カーブに揃える
-  - `stopAll()` では BGM を pause する前に volume / gain を 0 に落とし、timeline 終端で BGM だけ残留しないようにする
-- **注意**:
-  - fadeOut の基準は BGM ファイル終端ではなく preview timeline の `totalDuration`
-  - export と `apple-safari` runtime には広げず、`standard` preview の render loop 内だけで閉じる
-
----
-
-### 2-18. export 完了 UI は exportUrl を残したまま processing/loading を先に戻す
-
-- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/components/sections/PreviewSection.tsx`, `src/hooks/useExport.ts`, `src/test/previewSectionActionButtons.test.tsx`
-- **問題**: standard export 完了時に `exportUrl` が入っても `processing/loading` の解除が遅れると、PreviewSection の action area が「作成中」のまま残り、download ボタンが出ないことがある
-- **対策**:
-  - standard preview の export 完了/失敗 callback では `setProcessing(false)` と `setLoading(false)` を必ず行い、`setExportPreparationStep(null)` で準備表示も解除する
-  - PreviewSection の download ボタンは `!isProcessing && exportUrl` 条件でのみ描画し、export 完了後に安定して通常ボタンから切り替える
-  - shared offline audio export の BGM / narration scheduling は `track.volume` を `0..2.5` に clamp して、UI slider の上限を超える異常値を export gain に流さない
-- **注意**:
-  - `exportUrl` は成功時に保持し、編集操作や明示 stop 以外では直後に消さない
-  - この UI 復旧は shared preview/export facade と standard preview callback の範囲に留め、iOS Safari runtime や save/load 導線には広げない
-
----
-
-### 2-19. standard preview の BGM / narration 100%超は GainNode を source of truth にする
-
-- **ファイル**: `src/flavors/standard/preview/usePreviewAudioSession.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
-- **問題**: `HTMLAudioElement.volume` は 1.0 を超えて増幅できないため、standard preview で BGM / narration の 250% 指定が 100% と同じ音量に聞こえることがある
-- **対策**:
-  - standard preview の audio-only track は BGM / narration ともに `ensureAudioNodeForElement()` で GainNode を確保し、実音量は gain に反映する
-  - `<audio>` 要素の native volume は常に 1 を維持し、0..2.5 の UI 値と BGM fadeIn / fadeOut は GainNode 側で計算する
-  - Android preview の BGM soft sync は `play()` / `currentTime` のみ従来どおり使い、増幅経路だけを GainNode に寄せる
-- **注意**:
-  - この増幅は `standard` flavor preview 専用で、`apple-safari` runtime や export pipeline には広げない
-  - narration volume も 0..2.5 に clamp し、1.0 上限で切り捨てない
-
----
-
-### 2-20. export 完了コールバックは session 一致時だけ UI を更新する
-
-- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/components/sections/PreviewSection.tsx`, `src/test/previewSectionActionButtons.test.tsx`
-- **問題**: export 完了直後に古い callback や長い準備表示が重なると、初回 export で download ボタンが消えたり、`3/10` のまま止まって見えることがある
-- **対策**:
-  - standard preview の export 開始ごとに session id を払い出し、成功 / 失敗 callback は現在の session と一致した場合だけ `exportUrl` / `processing` / `loading` / `exportPreparationStep` を更新する
-  - PreviewSection の準備表示は内部 step 数を直接見せず、4〜5 段階の文言 + 経過秒数 + 補足説明に変換して表示する
-- **注意**:
-  - 古い export 結果の破棄は開始時の `clearExport()` に限定し、成功 callback 後に `exportUrl` を消さない
-  - 経過秒数表示は UI だけの変更で、export pipeline の分割や中断条件は変更しない
-
----
-
-### 2-21. Android standard preview は single preview cache video を優先する（**無効化済み**）
-
-- **ファイル**: `src/components/TurtleVideo.tsx`, `src/components/sections/PreviewSection.tsx`, `src/flavors/standard/preview/androidPreviewCache.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`
-- **問題**: Android Chrome / WebView 相当で複数 video timeline を live 切り替えすると、初回 2 本目の遅延や video-to-video 境界の引っかかりが残りやすい
-- **対策（現在は無効化）**:
-  - Android + video 2 本以上 + 非 export の standard preview では timeline から preview cache key を作り、cache miss 時は preview 専用の仮合成動画を先に生成していた
-  - cache 生成完了後は hidden preview cache `<video>` 1 本だけを再生し、loop / seek / paused redraw もその `currentTime` を source of truth にしていた
-- **無効化理由 (2026-05)**: Android 実機で preview 用動画生成中および生成物にブラックアウトが発生した。プレビュー前に重い WebCodecs/OfflineAudioContext/Muxer エクスポート処理が走ることで体感が悪化するため、`ENABLE_ANDROID_PREVIEW_CACHE = false` で完全無効化し live preview 方式へ戻した。
-- **注意**:
-  - `shouldUseAndroidPreviewCache` は `ENABLE_ANDROID_PREVIEW_CACHE = false` により常に `false` を返す。再度有効化する場合はこの定数を `true` に戻し、実機で十分にテストすること
-  - **絶対に守ること**: `preview.cache.start / preview.cache.ready / preview.cache.play` が通常プレビューで出ないこと。`startPreviewCacheExport` / `startWebCodecsExport` を preview 開始時に呼ばないこと
-  - live fallback 側の境界安定化は 2-22 (Android next-video preroll) と 2-23 (time-based visual blend + clock absorb) で対応する
-
-### 2-22. Android standard preview の次動画 450ms preroll で境界 warm-up（preroll 開始位置修正済み）
-
-- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
-- **問題**: Android preview で `video -> video` の即時切替を行うと、境界直後に次動画が `readyState=1 / seeking=true` のまま 100〜250ms 立ち上がらず、`currentTime` も進まないため stutter が見えやすい。さらに pre-roll lead 分だけ先行した `currentTime` が境界で描画され、補正や seek が入ってカクつき・巻き戻り感が出る問題もあった。
-- **対策**:
-  - `standard` flavor の Android preview / 非 export / 非 seek / active 再生中かつ **即次の `video -> video` 境界** だけで `timeUntilNextBoundary <= 0.45s` の next video を preroll 対象にする。image gap や iOS Safari には広げない
-  - preroll 開始位置は `trimStart` ではなく `max(0, trimStart - prerollLeadSec)` とする。これにより境界到達時に `currentTime ≒ trimStart` になり、先行描画とその後の補正起因のカクつきが解消される
-  - `armAndroidNextVideoPreroll()` で next video に `muted=true`, `playsInline=true`, `preload='auto'` を付け、`trimStart - prerollLeadSec` へ **1 回だけ** 合わせてから `seeked` / `canplay` / `loadeddata` を待ち、silent `play()` のまま hidden/inactive で維持する
-  - preroll 済みの next video は境界直前に `pause()` / `currentTime` 再設定をしない。active 化直後も 300ms は `currentTime` 補正を抑止し、cold seek のやり直しに戻さない
-  - `preview.preflight.ready`, `preview.timeline.tick`, `preview.boundary.smoothPlan` で preroll 状態と境界メトリクスを記録する
-- **注意**:
-  - preroll を active clip の「次に来る 1 本」へ限定する方針は 2-14 の inactive reset 制限とセットで維持する
-  - preroll を shared / apple-safari / export へ広げると runtime ownership が崩れるため、`src/flavors/standard/preview/` のまま閉じる
-  - 境界直前の再 seek を戻すと decoder が再び cold start しやすいので禁止
-  - `trimStart = 0` の場合は `max(0, 0 - 0.45) = 0` となり従来と同じ挙動（trimStart が 0 の動画は影響なし）
-
-### 2-23. Android standard preview は active video の soft draw を優先して hold を長引かせない
-
-- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/previewPlatform.ts`, `src/test/standardPreviewEngine.test.tsx`, `src/test/previewPlatform.test.ts`
-- **問題**: Android Chrome では preroll 後でも境界直後の 1〜2 フレームだけ `readyState=1` / `seeking=true` / `currentTimeAdvanced<20ms` が残ることがあり、単純 hold だけでは「前フレームで一瞬止まる」見え方になる
-- **対策**:
-  - Android `standard` preview の非 export / 非 seek 再生中は、`videoWidth|videoHeight > 0`・`paused === false`・`|currentTime - targetTime| < 0.25s` を満たす active video を soft drawable とみなし、`readyState` / `seeking` だけでは hold しない
-  - `video -> video` 境界では last drawable frame を `ImageBitmap` として保持し、0〜80ms は前フレーム 100%、80〜180ms は前フレーム alpha を 1→0 に落とす短い visual blend を使う。active video が draw 可能なら下に描いて reveal する
-  - それでも次動画が `targetTime` より 80ms 以上遅れ、`readyState < 2` または `seeking=true` の場合だけ、`startTimeRef` を 1 boundary あたり最大 120ms まで後ろへずらして preview clock を吸収する
-  - 各境界ごとに `preview.boundary.smoothPlan` を 1 回だけ出し、`currentTimeAdvancedAt100ms`, `usedVisualBlend`, `visualBlendMs`, `clockAbsorbMs` を確認できるようにする
-- **注意**:
-  - visual blend は Android `standard` preview の live draw 専用で、最長 180ms を超えて前フレームを固定しない
-  - `drawImage` 失敗時は前フレーム fallback を許容するが、長時間 hold や shared workaround に戻さない
-  - active video の hard resync は grace 窓の後にだけ許可し、境界直後の `currentTime` 書き戻しを増やさない
-
-### 2-24. Android standard preview の video 境界は canDrawVideo + safe seek で commit する
-
-- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
-- **問題**: Android Chrome の live preview で `readyState=1` や `seeking=true` の次動画を境界直後に draw すると、瞬停・黒画面・2 本目の立ち上がり遅延が残りやすかった。`clockAbsorbMs` や soft draw / force draw のような ms 調整系 workaround は端末性能依存で不安定だった。
-- **対策**:
-  - `canDrawVideo()` を source of truth にして、`readyState >= HAVE_CURRENT_DATA`・`!seeking`・`videoWidth/Height > 0` を満たす video だけを canvas に描画する
-  - Android `standard` preview の `video -> video` 境界では `AndroidBoundaryState` を持ち、`canCommit` が成立するまでは active draw を止めて前回の stable frame を維持する
-  - 境界中のズレ補正は `requestSafeSeek()` 1 本に寄せ、`seekInFlight` 中の追加 seek と `clockAbsorbMs` による preview clock 歪みを止める
-- **注意**:
-  - `readyState < 2` または `seeking=true` の video を draw する workaround を戻さない
-  - 境界直後の sync 補正は `canCommit` 判定を優先し、毎フレーム `currentTime` を書き戻さない
-  - この制御は Android / PC 系の `standard` preview 専用で、`apple-safari` runtime や export pipeline には広げない
-
-### 2-25. Android standard preview は境界 smoothing を止めて passive 再生へ戻す
-
-- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/useInactiveVideoManager.ts`, `src/test/standardPreviewEngine.test.tsx`, `src/test/standardInactiveVideoManager.test.tsx`
-- **問題**: Android preview で preroll / warmup / safe seek / trimmed entry hold / active drift 補正が複数経路で競合し、active video が `seeking=true` / `readyState=1` に張り付いて動画区間の大半が holdFrame に潰れていた
-- **対策**:
-  - Android `standard` preview の通常再生では `preview.boundary.smoothPlan` 系の境界 smoothing を使わず、境界では active segment の切替と描画対象の選択だけを行う
-  - 非アクティブ next video の preroll / muted play / prewarm / preseek は行わず、`currentTime` 補正は再生開始・ユーザー seek・停止中 preview を除いて禁止する
-  - 再生中の recovery seek は `drift >= 0.8s`、前回 seek から 1000ms 以上、境界通過後 500ms 超、1 segment 1 回までに制限し、実行時だけ `preview.android.seek-assignment` を出す
-  - 境界通過時は `preview.android.boundary.passive-switch` を出し、描画不能時の last stable frame 保持も先頭 200ms 以内に限定する
-  - Android preview の inactive reset は active / previous / next を `protectedVideoIds` で保護し、warmup のための事前再生はしない
-- **注意**:
-  - この回復方針は Android / PC 系の `standard` preview 専用で、`apple-safari` runtime、export、shared UI へ広げない
-  - 2-22〜2-24 の smoothing 系 workaround は再有効化せず、まず「最後まで普通に見られる」状態を優先する
-  - `preview.android.seek-assignment` が通常再生で連発する場合は、細かい drift 補正を戻さず recovery 条件の逸脱を疑う
-
-### 2-26. Android standard preview の drawable paused active video は draw を先に行い、その後で play を要求する
-
-- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
-- **問題**: Android Chrome では video 境界直後に次動画が `readyState>=2`・`!seeking`・`videoWidth/Height>0`・`currentTime` 整合済みでも `paused=true` の瞬間があり、draw 前に `play()` を優先すると切替直後の黒化が見えやすかった
-- **対策**:
-  - Android `standard` preview の active video が `canDrawVideo()`（`readyState >= 2`、`!seeking`、`videoWidth/Height > 0`）を満たす drawable 条件なら、`paused === true` を描画禁止条件にしない
-  - 同条件の active video に対する `play()` 要求は render loop 前半の制御分岐では即時実行せず、`drawImage(activeEl)` 成功後に 1 本化して要求する
-  - 既存の passive-switch 方針は維持し、`preview.boundary.smoothPlan`・`canCommit false → drawLastStableFrame`・追加 seek workaround は復活させない
-- **注意**:
-  - この順序変更は `src/flavors/standard/preview/` の Android standard preview だけに閉じる。`apple-safari` runtime / export / save runtime には広げない
-  - drawable 条件は `readyState >= 2`、`!seeking`、`videoWidth/Height > 0` を維持し、未準備 video の force draw へ戻さない
-  - draw 後の `play()` は再生開始要求の順序変更であり、固定 ms 遅延・preroll・hard seek の再導入ではない
-
-### 2-27. standard preview の fadeOut/fadeIn は black-tail guard を無効にして globalAlpha のみで描画する
-
-- **ファイル**: `src/flavors/standard/preview/previewPlatform.ts`, `src/test/standardPreviewEngine.test.tsx`
-- **問題**: `shouldBlackoutVideoFadeTail()` が fadeOut 終端付近（最大 0.5 秒）で `true` を返すと、`shouldSkipVideoDrawForFadeTail = true` になり active video の `drawImage` がスキップされて突然黒画面になる。`ctx.globalAlpha` による滑らかなフェードが実行されない
-- **対策**:
-  - standard preview 向けの `shouldBlackoutVideoFadeTail` を常に `false` を返すよう変更（方針B）
-  - 黒背景は `shouldClearCanvas` の通常経路で描かれるため、1.「黒で canvas clear」→ 2.「active media を globalAlpha 付きで drawImage」の順序で自然なフェードが実現される
-  - `shouldBlackoutFadeTail = false` 固定により `shouldSkipVideoDrawForFadeTail` も常に `false` となり、drawImage スキップは発生しない
-- **注意**:
-  - `isInFadeOutRegion` による `holdFrame` ガード（fadeOut 中は `!isInFadeOutRegion = false` → holdFrame が設定されない）は引き続き機能しており、videoが描画可能な場合は必ず描画される
-  - apple-safari flavor の `shouldBlackoutVideoFadeTail` は変更しない（flavor 分離）
-  - 黒残り問題が再発する場合は drawImage スキップではなく `alpha < 0.001` の後段で処理すること
+- **注意**: シークセッション外イベントで `renderFrame(..., false)` を実行すると、再生中動画を誤って `pause()` しやすい
 
 ---
 
 ## 3. AudioContext 管理
-
-### 3-0. iOS Safari プレビュー BGM 経路安定化
-
-- **ファイル**: `src/components/TurtleVideo.tsx`（`handleMediaRefAssign`, `renderFrame`, `refreshPreviewAudioRoute`, `startEngine`, `stopAll`, シーク復帰部）, `src/utils/previewPlatform.ts`
-- **問題**: iOS Safari のプレビューで BGM（audio-only 要素）が画像区間で鳴らない、動画区間でも任意のタイミングで途切れる、動画→画像遷移で無音化する
-- **原因（Phase 1）**: BGM まで `native fallback`（`audibleSourceCount <= 1` 時の単一音源ネイティブ再生）に入り、`native` と `WebAudio` の経路が画像⇔動画境界で揺れていた。加えて、ノードの遅延作成が `requestPreviewAudioRouteRefresh`（`suspend/resume`）を発動し、再生中の全音源が中断されていた
-- **原因（Phase 2）**: iOS Safari の `play()` がユーザージェスチャーのクレジット失効後（`requestAnimationFrame` コールバック内）に呼ばれると AudioSession を破壊し、AudioContext が `interrupted` 状態に遷移する。非アクティブビデオの `pause()` → アクティブ化時の `play()` サイクルがクリップ境界（画像→動画）で発生し、BGM の WebAudio 経路ごと断絶していた
-- **対策**:
-  - **Phase 1 対策（維持）**:
-    - **audio-only ノードの即時作成**: `handleMediaRefAssign` で `<audio>` 要素が割り当てられた時点で `ensureAudioNodeForElement` を呼び、WebAudio ノードを即座に作成する。`renderFrame` 内の遅延作成 → route refresh を排除
-    - **audio-only の route refresh 除外**: `processAudioTrack`（BGM）と `processNarrationClip` で `ensureAudioNodeForElement` が呼ばれた場合でも `requestPreviewAudioRouteRefreshRef.current()` を呼ばない
-    - **BGM/ナレーション追加時のビデオノード事前作成**: `useEffect` で `preparePreviewAudioNodesForTime` + `preparePreviewAudioNodesForUpcomingVideos` を呼び、全ビデオのノードを先行作成
-    - **route refresh の安全化**: ① 旧 native 要素を即座に mute、② `resume()` 試行、③ 必要時のみ `suspend/resume`、④ GainNode 再接続、⑤ `audioResumeWaitFramesRef` 非設定
-  - **Phase 2 対策（追加）**:
-    - **ビデオ要素のジェスチャー内事前 play()**: `startEngine` 内（ユーザージェスチャーのクレジットあり）で全ビデオ要素を GainNode=0 の状態で `play()` する。`renderFrame` 内での `play()` 呼び出しが不要になり、AudioSession 破壊を回避
-    - **非アクティブビデオの avoidPausePlay**: WebAudio ノードを持つ非アクティブビデオは再生中 `pause()` しない。GainNode=0 で無音のまま再生を維持し、アクティブ化時に gain を上げるだけで済む
-    - **AudioContext statechange 回復ハンドラ**: `startEngine` で `ctx.onstatechange` を設定し、AudioContext が `interrupted` に遷移した場合に自動 `resume()` を試みる。`stopAll` でクリア
-    - **renderFrame レベルの AudioContext 健全性チェック**: BGM 処理の直前に AudioContext の state を確認し、`running` でなければ `resume()` を fire-and-forget で呼ぶ
-    - **シーク復帰時のビデオ事前 play()**: `proceedWithPlayback`（シーク完了後の再生再開）でも `resetInactiveVideos()` の後に全ビデオ要素を事前 `play()` する（シーク操作はジェスチャーなのでクレジットあり）
-- **合格条件**: 途中BGM追加直後、画像区間へシーク、動画区間へシークの 3 ケースで無音・遅延・二重経路がなく、可聴な native は動画区間で 1 系統以下、画像区間で 0 系統
-- **注意**:
-  - 可視復帰時の route refresh（`visibilitychange` 経由）は引き続き有効
-  - `avoidPausePlay` パターン（WebAudio 接続済み audio-only 要素の `pause()/play()` サイクル回避）は維持。ビデオ要素にも同パターンを適用
-  - `startEngine` 冒頭の初回 `suspend/resume` は変更なし
-  - ビデオの事前 play() は GainNode=0 かつ native volume=0 で行うため、可聴出力への影響なし
-  - 非アクティブビデオは再生を継続するが、アクティブ化時の sync ロジック (`currentTime` 補正) で位置が修正される
-  - **Phase 3 対策（v5.x デグレ修正）**:
-    - **原因**: `getPreviewAudioOutputMode` で `audibleSourceCount <= 1` 時に `native` を返す変更（commit `3b45e79`）が iOS Safari にも適用され、`detachAudioNode` で `createMediaElementSource()` 済みのノードが破棄されていた。一度切り離すと再接続不可のため動画音声が永久に失われた
-    - **対策**: `getPreviewAudioOutputMode` で `hasAudioNode=true` 時の `native` 復帰を iOS Safari (`muteNativeMediaWhenAudioRouted`) では無効化。iOS では常に `webaudio` を返す
-    - **重要な設計制約**: `startEngine` の事前 play() で遠い将来のビデオまで play() してはならない。ソース終端に到達して ended/paused 状態になると、アクティブ化時の rAF 内 `play()` が pause→play サイクルとなり AudioSession を破壊する。`shouldKeepInactiveVideoPrewarmed` の距離制限は意図的な設計であり、cold-start play()（初回 play()）は rAF 内でも問題ない
-    - **PC/Android への影響**: なし。`muteNativeMediaWhenAudioRouted`（iOS Safari のみ true）で分岐しており、PC/Android の再生・エクスポート経路は変更されない
-
-### 3-0a. AudioSession / InactiveVideoManager の分離継続
-
-- **ファイル**: `src/components/turtle-video/usePreviewAudioSession.ts`, `src/components/turtle-video/useInactiveVideoManager.ts`, `src/components/TurtleVideo.tsx`
-- **問題**: `TurtleVideo.tsx` に audio node 管理、route refresh、audio-only prime、非アクティブ video reset が残ると、Phase 2b の flavor 分離前に iOS Safari 回帰を再混入させやすい
-- **対策**:
-  - `usePreviewAudioSession` へ `detachAudioNode`, `ensureAudioNodeForElement`, `preparePreviewAudioNodesForTime`, `preparePreviewAudioNodesForUpcomingVideos`, `primePreviewAudioOnlyTracksAtTime`, `handleMediaRefAssign` を移した
-  - `requestPreviewAudioRouteRefreshRef` と `primePreviewAudioOnlyTracksAtTimeRef` の更新も hook 側へ集約し、render loop/startEngine からの呼び出し契約だけを残した
-  - `useInactiveVideoManager` へ `resetInactiveVideos` を移し、seek/startEngine 復帰と inactive reset の契約を明示化した
-- **注意**:
-  - `renderFrame` / `startEngine` の実行順序は変えない。今回の段階では責務移動のみで、prewarm 判定ロジック自体は shared loop に残す
-  - iOS Safari の one-shot `createMediaElementSource()` 制約があるため、hook 化後も DOM 要素差し替え時以外に `detachAudioNode` を増やさない
-
-### 3-0b. PreviewEngine の抽出完了
-
-- **ファイル**: `src/components/turtle-video/usePreviewEngine.ts`, `src/components/TurtleVideo.tsx`
-- **問題**: `TurtleVideo.tsx` に `renderFrame`, metadata wait, export preload, `startEngine`, `loop`, `stopAll` が残ると、Phase 2b の flavor 分離時に shared UI 層と preview runtime 層が再結合し、Safari 向け修正の影響範囲が広いままになる
-- **対策**:
-  - `usePreviewEngine` へ `handleMediaElementLoaded`, `handleSeeked`, `handleVideoLoadedData`, `renderFrame`, `stopAll`, `loop`, `startEngine` を移した
-  - `usePreviewEngine` には policy, refs, audio session/inactive manager 契約だけを注入し、`TurtleVideo.tsx` では hook の戻り値を wiring する形に戻した
-  - metadata wait と export preload を含む start-up/shutdown 経路も hook 側へ閉じ込め、Phase 2b では runtime flavor ごとの差し替え対象を `usePreviewEngine` 周辺へ限定できるようにした
-- **注意**:
-  - `usePreviewEngine` の呼び出し位置は `usePreviewVisibilityLifecycle` と `usePreviewSeekController` より前に置き、`renderFrame` / `loop` / `startEngine` を downstream hooks へ注入する順序を維持する
-  - shared の policy (`previewPlatform.ts`) はそのまま入力に使い、Phase 2a では挙動変更ではなく責務移動に留める
-
-### 3-0c. Preview runtime 注入境界の追加
-
-- **ファイル**: `src/components/turtle-video/previewRuntime.ts`, `src/flavors/standard/standardPreviewRuntime.ts`, `src/flavors/apple-safari/appleSafariPreviewRuntime.ts`, `src/flavors/standard/StandardApp.tsx`, `src/flavors/apple-safari/AppleSafariApp.tsx`
-- **問題**: Phase 2a 完了後も `TurtleVideo.tsx` が preview hook の import 元を固定していると、Phase 2b で flavor ごとの preview 実装へ差し替える際に shared 側を再度大きく編集する必要がある
-- **対策**:
-  - `PreviewRuntime` インターフェースを追加し、preview policy と preview hooks 一式を flavor 側から注入する構造へ変えた
-  - `StandardApp` と `AppleSafariApp` はそれぞれ `standardPreviewRuntime` / `appleSafariPreviewRuntime` を `TurtleVideo` へ渡すだけの薄い adapter にした
-  - 現段階では両 flavor とも shared 実装を再利用し、挙動変更なしで差し替え境界だけを先に固定した
-- **注意**:
-  - ここでは runtime 注入境界の追加だけに留め、Safari 専用の preview 実装差し替えは次段で行う
-  - `previewRuntime.usePreviewEngine(...)` などの hook 呼び出し順は flavor ごとに変えず、shared wiring 層の呼び出し順だけを契約として維持する
-
-### 3-0d. Preview capability 解決の runtime 側移管
-
-- **ファイル**: `src/components/TurtleVideo.tsx`, `src/components/turtle-video/previewRuntime.ts`, `src/flavors/standard/standardPreviewRuntime.ts`, `src/flavors/apple-safari/appleSafariPreviewRuntime.ts`, `src/test/previewRuntimeCapabilities.test.ts`
-- **問題**: preview hook の注入境界だけでは、shared の `TurtleVideo.tsx` がまだ `getPlatformCapabilities()` を直接呼んでおり、preview branch の根拠が shared 側に残っていた
-- **対策**:
-  - `PreviewRuntime` に `getPlatformCapabilities()` を追加し、`TurtleVideo.tsx` は runtime が返す capability だけを見る構造へ変更した
-  - `standardPreviewRuntime` は `isIosSafari=false` / `audioContextMayInterrupt=false` に正規化し、standard line が Apple Safari 分岐へ入らないことを明示した
-  - `appleSafariPreviewRuntime` は `isIosSafari=true` / `audioContextMayInterrupt=true` / `isAndroid=false` に正規化し、Apple line が preview の Safari 分岐を必ず選ぶようにした
-  - `previewRuntimeCapabilities.test.ts` を追加し、両 flavor の capability 正規化を固定した
-- **注意**:
-  - ここで分けたのは capability 解決までで、`usePreviewEngine` / `usePreviewAudioSession` の中身自体はまだ shared 実装である
-  - flavor の capability 正規化は preview 分岐の固定が目的であり、保存 API 対応などの実環境 capability は base capability の値を維持する
-
-### 3-0e. Preview runtime 実体の flavor 側移設完了
-
-- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/usePreviewAudioSession.ts`, `src/flavors/standard/preview/usePreviewSeekController.ts`, `src/flavors/standard/preview/usePreviewVisibilityLifecycle.ts`, `src/flavors/standard/preview/useInactiveVideoManager.ts`, `src/flavors/standard/preview/previewPlatform.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewAudioSession.ts`, `src/flavors/apple-safari/preview/usePreviewSeekController.ts`, `src/flavors/apple-safari/preview/usePreviewVisibilityLifecycle.ts`, `src/flavors/apple-safari/preview/useInactiveVideoManager.ts`, `src/flavors/apple-safari/preview/previewPlatform.ts`, `src/flavors/apple-safari/preview/iosSafariAudio.ts`, `src/flavors/standard/standardPreviewRuntime.ts`, `src/flavors/apple-safari/appleSafariPreviewRuntime.ts`, `src/test/previewRuntimeIsolation.test.ts`
-- **問題**: capability 解決まで runtime 側へ寄せても、active runtime が shared preview hooks / shared preview policy を import し続ける限り、Safari preview 修正は standard preview の実装変更と分離できない
-- **対策**:
-  - standard / apple-safari の両 flavor 配下に preview hook 群、preview policy、`iosSafariAudio` helper を複製し、`standardPreviewRuntime` / `appleSafariPreviewRuntime` がそれぞれ自系統の modules を参照するように切り替えた
-  - `previewRuntimeIsolation.test.ts` を追加し、両 runtime が shared preview hooks と shared preview policy factory を参照しないこと、および standard と apple-safari が別々の module identity を持つことを固定した
-- **注意**:
-  - Phase 2b 完了以降、preview 関連の修正は原則として `src/flavors/standard/preview/` または `src/flavors/apple-safari/preview/` のどちらかに入れる。`src/components/turtle-video/` 側の preview hooks は Phase 2a の抽出基準として残るが、active runtime の実体ではない
-  - 次段の Phase 3 では、この flavor-owned preview audio 実装を起点に AudioContext 回避策と one-shot `createMediaElementSource()` 制約を apple-safari line へさらに閉じ込める
-
-### 3-0f. standard preview audio から Safari workaround を退避
-
-- **ファイル**: `src/flavors/standard/preview/previewPlatform.ts`, `src/flavors/standard/preview/usePreviewAudioSession.ts`, `src/flavors/standard/preview/iosSafariAudio.ts`（削除）, `src/test/previewRuntimeIsolation.test.ts`
-- **問題**: Phase 2b 完了直後の standard preview audio 実装は flavor-owned file になっていても、Safari 向け mixed-audio helper、future-video probe、route refresh 依存をまだ保持しており、Phase 3 の境界が曖昧だった
-- **対策**:
-  - standard 側 `previewPlatform.ts` では `iosSafariAudio` helper 依存を外し、preview の mixed video 出力・future-video probe・route reinitialize 判定を standard 前提の簡素な方針へ置き換えた
-  - standard 側 `usePreviewAudioSession.ts` では route refresh ref を no-op にし、Safari 専用の mixed-audio logging と future-video probe scheduling を削除した
-  - standard 側 `previewPlatform.ts` で visibility 復帰時の AudioContext resume、resume retry、audio resume wait frame を無効化し、これらの回復経路を apple-safari 側だけへ残した
-  - standard 側 `iosSafariAudio.ts` を削除し、one-shot `createMediaElementSource()` 制約を参照する helper を apple-safari preview 内部へ閉じ込めた
-  - `previewRuntimeIsolation.test.ts` に standard と apple-safari の audio policy divergence を追加し、出力方針・probe・visibility resume・resume retry・route refresh 判定の差を回帰テストで固定した
-- **注意**:
-  - `createMediaElementSource()` の one-shot 制約や AudioContext workaround は引き続き apple-safari 側で扱う。standard 側へ再流入させない
-  - 将来 standard 側で prewarm や route refresh が必要になっても、apple-safari helper を流用せず standard 要件として明示的に設計し直す
 
 ### 3-1. 遅延初期化 + ユーザージェスチャー要件
 
@@ -516,16 +321,6 @@
 
 - **ファイル**: `src/stores/logStore.ts`, `src/components/TurtleVideo.tsx`
 - **対策**: 10 秒間隔で `performance.memory`（Chrome 限定）からヒープ使用量を取得・記録
-
-### 4-5. Android picker 由来メディアの保存スナップショット
-
-- **ファイル**: `src/utils/media.ts`, `src/stores/mediaStore.ts`, `src/stores/projectStore.ts`, `src/types/index.ts`
-- **問題**: Android の picker 経由 `File` は後段の手動保存 / 自動保存時に再読込できず、`blob:` URL fetch も失敗することがある
-- **対策**:
-  - メディア追加直後に `file.arrayBuffer()` を読み、アプリ管理の `File` と `ObjectURL` を作成して `MediaItem.fileData` に保持する
-  - `serializeMediaItem()` は `item.fileData` を最優先で使い、未保持時だけ `file/url` fallback を使う
-  - `deserializeMediaItem()` でも `fileData` を `MediaItem` に戻し、保存済みプロジェクトの再保存で再読込に依存しない
-- **注意**: 新たに `createObjectURL` する URL は既存の `remove/clear/restore` 経路で解放される前提を崩さない
 
 ---
 
@@ -611,14 +406,9 @@
 
 ### 8-1. IndexedDB によるプロジェクト保存
 
-- **ファイル**: `src/stores/projectPersistence.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`
-- **対策**:
-  - `src/utils/indexedDB.ts` は Promise ベースの永続化ラッパーとして維持し、`'auto'` / `'manual'` の 2 スロット方式を提供する
-  - `src/stores/projectPersistence.ts` で `ProjectPersistenceAdapter` を定義し、`projectStore` は direct import ではなく adapter 経由で save / load / delete / info / file byte conversion を呼ぶ
-  - flavor は `src/components/turtle-video/saveRuntime.ts` から projectStore へ adapter を登録する
-- **注意**:
-  - いまの standard / apple-safari は同じ IndexedDB adapter を再利用するが、将来要件差が出ても shared UI や schema を触らずに差し替える
-  - `request.onerror` と `request.onsuccess` の両方ハンドリングが必要。トランザクション後に `db.close()`
+- **ファイル**: `src/utils/indexedDB.ts`
+- **対策**: Promise ベースのラッパー。`'auto'` / `'manual'` の 2 スロット方式
+- **注意**: `request.onerror` と `request.onsuccess` の両方ハンドリングが必要。トランザクション後に `db.close()`
 
 ### 8-2. メディアファイルのシリアライズ
 
@@ -629,16 +419,15 @@
 
 ### 8-3. 自動保存（変更検知付き）
 
-- **ファイル**: `src/hooks/useAutoSave.ts`, `src/flavors/standard/StandardApp.tsx`, `src/flavors/apple-safari/AppleSafariApp.tsx`
-- **対策**: メディア ID・音量・トリム値等を連結したハッシュで変更検知。空データ時とエクスポート中はスキップ
-- **注意**:
-  - エクスポート中（`isProcessing`）は保存をスキップ（動画品質保護）
-  - AppShell は flavor app 側に内包し、save runtime による projectStore adapter 登録後に autosave が開始される順序を維持する
+- **ファイル**: `src/hooks/useAutoSave.ts`
+- **対策**: 保存対象のメディア/BGM/ナレーション/キャプション属性を連結したハッシュで変更検知。少なくとも動画の `trimStart` / `trimEnd` に加え、`scale` / `positionX` / `positionY` の transform 変更も差分として扱う。空データ時とエクスポート中はスキップ
+- **注意**: エクスポート中（`isProcessing`）は保存をスキップ（動画品質保護）
 
 ### 8-4. ページ離脱防止
 
 - **ファイル**: `src/hooks/usePreventUnload.ts`
 - **対策**: `beforeunload` イベントで `e.preventDefault()` + `e.returnValue` 設定（複数ストアのデータ有無を確認）
+
 
 ### 8-5. 手動保存の容量不足リカバリ
 
@@ -649,6 +438,20 @@
   - 手動保存時に容量不足を検知した場合、`auto` は自動削除せず失敗を返す
   - UI 側で「自動保存を削除して続行」確認を出し、ユーザー同意時のみ `auto` 削除後に手動保存を再試行
 - **注意**: `auto` 削除は明示同意時のみ実行し、勝手に復元ポイントを失わないようにする
+
+### 8-6. 自動保存失敗時は変更検知ハッシュを進めない
+
+- **ファイル**: `src/hooks/useAutoSave.ts`, `src/stores/projectStore.ts`, `src/test/useAutoSave.test.tsx`
+- **背景**:
+  - `saveProjectAuto()` は失敗を store に記録して呼び出し元へ例外を投げない設計のため、hook 側が戻り値なしで「成功」と見なすと、IndexedDB 失敗後でも `lastSaveHashRef` だけ進んでしまう
+  - その状態では内容が変わらない限り次回以降が `skipped-nochange` になり、保存日時表示だけ古いまま固定される
+- **実装指針**:
+  - `saveProjectAuto()` は成功/失敗を boolean で返し、`useAutoSave()` は成功時だけ変更検知ハッシュを更新する
+  - 失敗時は `autoSaveError` / `lastSaveFailure` を保持したまま、次周期で同じ内容を再試行できるようにする
+- **注意**:
+  - 自動保存は silent failure になりやすいので、hook 側で「保存 API を await した」ことと「実際に保存できた」ことを分けて扱う
+  - `skipped-processing` だけでなく、失敗ケースでも catch-up 判定の基準時刻を不用意に進めない
+
 
 ---
 
@@ -719,12 +522,14 @@
   - `renderFrame` で「補正シークが必要なフレーム」を事前に `holdFrame` 扱いにし、黒クリアを回避（**エクスポート時のみ適用、通常再生には影響させない**）
   - iOS Safari のエクスポート時は動画同期しきい値を緩和（通常 0.5 秒 / Safari エクスポート時 1.2 秒）
   - iOS Safari の通常再生時は同期しきい値を 1.0 秒に緩和し、過剰なシークによるカクつきを防止
+  - iOS Safari MediaRecorder 経路では live `masterDest.stream` へ依存せず、`OfflineAudioContext` で事前レンダリングした `AudioBuffer` を `MediaStreamAudioDestinationNode` 経由の専用録音ストリームに変換して録音へ渡す。`画像 -> 動画` 境界で video 要素の `play()` 立ち上がりが遅れても、録音音声はそこで途切れない
 - **注意**:
   - クリップ切替直後のみ厳密同期（0.05 秒）を維持し、それ以外は過剰なシークを避ける
   - `OfflineAudioContext` はリアルタイムではなく最大速度でレンダリングするため、メインスレッド負荷の影響を受けない
   - `decodeAudioData` が失敗した音声ソース（画像アイテム、音声トラックなし等）は自動的にスキップ（各ソースのデコード成否をログ出力）
   - フェード時間の重複（短いクリップ）は按分で自動クランプ
   - BGM/ナレーションのフェードアウトはプロジェクト終端からの相対位置で計算
+  - iOS MediaRecorder がプリレンダ済み音声ストリームを使う場合は、strategy 側で `recorder.start()` 後に `preRenderedAudio.startPlayback()` を呼び、その後 `onAudioPreRenderComplete` で export ループを開始する。録音開始前に音声だけ先走らせない
 
 ### 9-8. Platform capability 判定の共通化
 
@@ -749,37 +554,29 @@
 
 ### 9-10. Export strategy resolver による iOS 経路の分離
 
-- **ファイル**: `src/components/turtle-video/exportRuntime.ts`, `src/hooks/useExport.ts`, `src/hooks/export-strategies/exportStrategyResolver.ts`, `src/flavors/standard/export/useExport.ts`, `src/flavors/standard/standardExportRuntime.ts`, `src/flavors/apple-safari/export/useExport.ts`, `src/flavors/apple-safari/export/iosSafariMediaRecorder.ts`, `src/flavors/apple-safari/appleSafariExportRuntime.ts`, `src/test/exportStrategyResolver.test.ts`, `src/test/exportRuntimeIsolation.test.ts`, `src/test/exportRuntimeCapabilities.test.ts`, `src/test/iosSafariMediaRecorder.test.ts`, `src/test/useExport.test.ts`
-- **問題**: `useExport.ts` に iOS Safari MediaRecorder 経路と標準 WebCodecs 経路の選択・実装が混在し続けると、Safari 固有ワークアラウンドを standard line へ再混入させやすく、Phase 4 の「runtime 二系統化」が export だけ未完了になる
+- **ファイル**: `src/hooks/useExport.ts`, `src/hooks/export-strategies/exportStrategyResolver.ts`, `src/hooks/export-strategies/iosSafariMediaRecorder.ts`, `src/test/exportStrategyResolver.test.ts`, `src/test/iosSafariMediaRecorder.test.ts`, `src/test/useExport.test.ts`
+- **問題**: `useExport.ts` に iOS Safari MediaRecorder 経路と標準 WebCodecs 経路の選択・実装が混在し、分岐条件の変更時に iOS 固有ワークアラウンドを WebCodecs 側へ誤って波及させやすかった。加えて、分離後に片方の経路だけが壊れても自動検知しづらかった
 - **対策**:
-  - `src/components/turtle-video/exportRuntime.ts` を注入境界とし、`StandardApp` / `AppleSafariApp` から `standardExportRuntime` / `appleSafariExportRuntime` を `TurtleVideo.tsx` へ渡す
-  - shared の `src/hooks/useExport.ts` は `createUseExport()` facade に縮退させ、WebCodecs MP4 本体、offline audio pre-render、AudioEncoder/muxer/duration 整合の共通 core だけを持つ
-  - strategy order と capability 正規化は `src/flavors/standard/export/useExport.ts` / `src/flavors/apple-safari/export/useExport.ts` が所有し、standard は `webcodecs-mp4` 固定、apple-safari は `ios-safari-mediarecorder -> webcodecs-mp4` 順を返す
-  - iOS Safari の MediaRecorder 経路は `src/flavors/apple-safari/export/iosSafariMediaRecorder.ts` に閉じ込め、keep-alive 音声、visibility pause/resume、requestData 後 stop 遅延は standard line から完全に分離する
-  - `shouldUseOfflineAudioPreRender()` は Safari 専用処理へ戻さず、`shared export pre-render strategy` として残す。resolver は offline rendered / TrackProcessor / ScriptProcessor の純粋分岐だけを担当する
-  - `src/test/exportRuntimeIsolation.test.ts` と `src/test/exportRuntimeCapabilities.test.ts` で flavor-owned export hook と capability divergence を固定し、`src/test/iosSafariMediaRecorder.test.ts` / `src/test/useExport.test.ts` で strategy/hook 契約を継続検証する
+  - strategy resolver で優先経路を決め、`useExport.ts` は選択と共通セッション初期化を担当する
+  - iOS Safari の MediaRecorder 経路は `iosSafariMediaRecorder.ts` に切り出し、keep-alive 音声、visibility pause/resume、requestData 後 stop 遅延を strategy 側へ閉じ込める
+  - resolver には WebCodecs 側の音声キャプチャ分岐（offline rendered / TrackProcessor / ScriptProcessor）も寄せ、純粋ロジックを `src/test/exportStrategyResolver.test.ts` で自動検証する
+  - iOS strategy は `src/test/iosSafariMediaRecorder.test.ts` で、fallback、成功時の callback 伝播、track cleanup を検証する
+  - `src/test/useExport.test.ts` では hook 契約として、iOS 優先起動、fallback 時の WebCodecs 移行、stop/abort、Blob URL 解放を薄く確認し、strategy 分離後のオーケストレーション回帰を拾う
 - **注意**:
-  - iOS 固有の録画回避策を追加する場合は shared core や `TurtleVideo.tsx` に直接条件を戻さず、まず apple-safari export runtime / strategy に寄せる
-  - `shouldUseOfflineAudioPreRender()` は現時点では quality 目的の shared 契約であり、Safari 専用に戻す場合は非 Safari export 品質への影響を先に検証する
+  - iOS 固有の録画回避策を追加する場合は `useExport.ts` に直接条件を戻さず、まず strategy / resolver へ寄せる
   - WebCodecs 側の CFR、AudioEncoder 終端クランプ、TrackProcessor / ScriptProcessor fallback の順序は既存どおり維持する
 
 ### 9-11. Capability ベースの保存/ダウンロード経路統一
 
-- **ファイル**: `src/utils/fileSave.ts`, `src/app/appFlavorUi.ts`, `src/components/Header.tsx`, `src/components/TurtleVideo.tsx`, `src/components/sections/PreviewSection.tsx`, `src/components/modals/SettingsModal.tsx`, `src/components/modals/SaveLoadModal.tsx`, `src/components/modals/SectionHelpModal.tsx`, `src/components/turtle-video/saveRuntime.ts`, `src/flavors/standard/standardSaveRuntime.ts`, `src/flavors/apple-safari/appleSafariSaveRuntime.ts`, `src/flavors/standard/StandardApp.tsx`, `src/flavors/apple-safari/AppleSafariApp.tsx`, `src/constants/sectionHelp.ts`, `src/test/fileSave.test.ts`, `src/test/previewSectionActionButtons.test.tsx`, `src/test/modalHistoryStability.test.tsx`, `src/test/headerFlavorBadgePlacement.test.tsx`
+- **ファイル**: `src/utils/fileSave.ts`, `src/components/TurtleVideo.tsx`, `src/components/modals/SaveLoadModal.tsx`, `src/constants/sectionHelp.ts`, `src/test/fileSave.test.ts`
 - **問題**: エクスポート動画、AI ナレーション保存、生成画像保存で `showSaveFilePicker` と `a[download]` の分岐が重複し、iOS Safari 向けの保存導線や完了メッセージを調整するたびに複数箇所を直す必要があった。ヘルプ文言も iPhone を一律非対応扱いのままで、現状の保存方針とずれていた
 - **対策**:
   - `src/utils/fileSave.ts` に `file-picker` / `anchor-download` の resolver と保存 helper を追加し、caller 側はファイル名・MIME・通知文言だけを持つ
-  - `TurtleVideo.tsx` の動画ダウンロードとナレーション保存は shared helper を直接使い、`SaveLoadModal.tsx` の生成画像保存と capability 判定は save runtime 経由へ寄せる
-  - `src/app/appFlavorUi.ts` に flavor badge / support summary / download guidance / preview notice / save guidance を集約し、shared UI の copy 生成を single source of truth 化する
-  - `StandardApp.tsx` / `AppleSafariApp.tsx` から `appFlavor` を shared UI へ注入し、`PreviewSection.tsx` / `SettingsModal.tsx` / `SaveLoadModal.tsx` / `SectionHelpModal.tsx` は platform 直判定ではなく `appFlavor` と capability を受けて描画する
-  - グローバルヘッダー `Header.tsx` のタイトル表示は従来どおり維持し、flavor badge は設定モーダルの履歴ボタン右へ移して環境表示を局所化する
+  - `TurtleVideo.tsx` の動画ダウンロードとナレーション保存、`SaveLoadModal.tsx` の生成画像保存を同じ helper に寄せる
   - `src/test/fileSave.test.ts` で strategy 選択、object URL 保存、blob 保存の回帰を自動検証する
-  - `sectionHelp.ts` は `getSectionHelpContent(context)` で flavor-aware に生成し、SaveLoadModal の help と合わせて iPhone / iPad Safari を「安定動作優先の検証モード」として案内し、保存ダイアログ対応の有無で挙動が分かれること、手動保存 / 自動保存 / 読込の確認観点を明示する
-  - `src/test/previewSectionActionButtons.test.tsx` と `src/test/modalHistoryStability.test.tsx` で Safari 向け preview/save guidance が UI 上に出ることを固定する
+  - `sectionHelp.ts` と SaveLoadModal のヘルプでは、iPhone / iPad Safari を「正式対応に向けて検証中」とし、保存ダイアログ対応の有無で挙動が分かれること、手動保存 / 自動保存 / 読込の確認観点を明示する
 - **注意**:
   - 保存データ本体は引き続き IndexedDB の共通経路を使い、iOS Safari 向けの保存領域 fork は実機不具合が出るまで追加しない
-  - 保存 UI から platform capability や `fileSave.ts` の import を直接増やさず、saveRuntime に寄せて flavor-owned boundary を維持する
-  - ヘルプやバッジの文言を増やすときは `appFlavorUi.ts` と `getSectionHelpContent(context)` を先に更新し、shared component 内で `isIosSafari` を再導入しない
   - 新しいダウンロード導線を増やす場合は個別に `showSaveFilePicker` を判定せず、まず `fileSave.ts` の helper を再利用する
 
 ### 9-12. サポート表記は「検証中」と「正式対応」を分けて扱う
@@ -794,136 +591,9 @@
   - 「正式対応済み」へ切り替えるのは、保存 / 読込 / 設定まで含む iOS Safari の主要受け入れ条件を実機で確認した後に限る
   - ドキュメント上の表記変更だけで Phase 完了扱いにせず、必ず test/build と実機確認ステータスをセットで更新する
 
-### 9-13. Teams 向け export 総尺は `resolveExportDuration()` を唯一の決定元にする
+---
 
-- **ファイル**: `src/hooks/useExport.ts`, `src/utils/exportTimeline.ts`, `src/utils/mp4Duration.ts`, `src/test/exportTimeline.test.ts`, `src/test/mp4Duration.test.ts`
-- **問題**:
-  - export 終端の決定が映像フレーム数、音声クランプ、mux 後確認で分散すると、Teams 投稿後に audio / video / container の尺ずれが再発しやすい
-  - 中間フレームの duration を触ると CFR が崩れ、Android / PC の既存安定処理まで巻き込みやすい
-- **対策**:
-  - `resolveExportDuration()` を最終 `exportDuration` の唯一の決定元にし、`useExport.ts` ではその値だけを映像終端・音声終端・mux 後検査へ渡す
-  - 映像は `getExportFrameTiming()` で CFR を維持し、端数調整は最後のフレーム duration だけに閉じる
-  - 音声は `feedPreRenderedAudio()` で最終尺超過を clamp し、`finalizeAudioForExport()` で不足分を無音 pad してから `AudioEncoder.flush()` する
-  - `inspectMp4Durations()` で mux 後の container / video / audio duration を再検査し、差分が 1ms を超えたら失敗扱いにする
-- **注意**:
-  - この整合処理は export finalize / encode / mux に閉じ込め、iOS Safari preview、WebAudio ルーティング、無音対策、通常プレビュー処理へ共通化しない
-  - Teams 対策と iOS Safari 対策を同じ分岐で混ぜず、iOS MediaRecorder strategy には持ち込まない
-
-### 9-14. Flavor 単位の回帰テストで preview/export と schema 互換を固定する
-
-- **ファイル**: `src/test/standardFlavorRegression.test.ts`, `src/test/appleSafariFlavorRegression.test.ts`, `src/test/stores/projectStoreSave.test.ts`, `src/test/previewRuntimeIsolation.test.ts`, `src/test/exportRuntimeIsolation.test.ts`, `src/test/previewRuntimeCapabilities.test.ts`, `src/test/exportRuntimeCapabilities.test.ts`
-- **問題**: runtime 分離後も shared helper だけをテストしていると、Android/PC 修正で apple-safari line が壊れても検知が遅れる。逆に Safari fix が standard line を巻き込んでも、hook identity や capability 正規化だけではユーザーシナリオの差分を捕まえきれない
-- **対策**:
-  - `standardFlavorRegression.test.ts` で standard preview の image gap 後の第2動画到達、BGM routing、visibility 復帰方針、WebCodecs audio capture path を固定する
-  - `appleSafariFlavorRegression.test.ts` で apple-safari preview の video -> image -> video、BGM mixed routing、future probe、visibility hide/show、seek 復帰、MediaRecorder 優先 export path を固定する
-  - `projectStoreSave.test.ts` で shared project schema round-trip と legacy narration compatibility を検証し、runtime を分けても保存データ互換が崩れないことを固定する
-  - runtime identity/capability テスト (`previewRuntimeIsolation` / `exportRuntimeIsolation` / `previewRuntimeCapabilities` / `exportRuntimeCapabilities`) は境界監視として維持し、新規の flavor regression tests と役割分担する
-- **注意**:
-  - 新しい preview/export workaround を追加するときは、shared helper 単体テストだけで済ませず、必ず standard か apple-safari のどちらに属する回帰テストへ追加する
-  - shared schema の変更時は store/save 系テストで round-trip と後方互換の両方を確認し、片方だけ通っても完了扱いにしない
-
-### 9-15. standard preview/export の BGM 200%+ と export 完了 UI は state/gain を分離して扱う
-
-- **ファイル**: `src/flavors/standard/preview/usePreviewAudioSession.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/hooks/useExport.ts`, `src/components/TurtleVideo.tsx`, `src/components/sections/PreviewSection.tsx`, `src/hooks/export-strategies/types.ts`
-- **問題**:
-  - standard preview で BGM の `HTMLAudioElement.volume` だけを見ると 1.0 が上限のため、200% 以上の設定差が消える
-  - export 完了後も preview 再生や stop 操作で `exportUrl` を消すと、ダウンロードボタンが現れない/消える
-  - OfflineAudioContext や mux finalize が長いと UI 上は「100% / 保存ファイル作成中」のままでも、成功 state へ戻らず download ボタンが出ないことがある
-- **対策**:
-  - standard preview の BGM 実効音量は `resolvePreviewBgmGain()` で 0..2.5 に統一し、WebAudio gain があるときは gain 側へ直接反映、`HTMLAudioElement.volume` は gain node が無い場合の 0..1 fallback に限定する
-  - shared export は `clampAudioTrackVolume()` の 0..2.5 を BGM scheduling と fade の基準に使い、`ExportPreparationStep` は 10 段階へ拡張して decode / mix / encode / finalize の前後で更新する
-  - `clearExport()` は新しい export 開始時だけ実行し、export 成功後は `setExportUrl()` を優先して保持する。shared の `TurtleVideo.tsx` でも `exportUrl` 監視で `processing/loading/preparation` を確実に解除し、active runtime の callback 差分を吸収する
-  - `useExport.ts` の成功経路は object URL 生成完了後に `onRecordingStop(url, ext)` を 1 回だけ呼ぶ。`PreviewSection` は `exportUrl` を `isProcessing` より優先表示し、100% 到達後に URL 未生成なら「保存ファイルを作成中...」へ切り替える
-  - MP4 finalize は `Blob.size > 0` / `URL.createObjectURL(blob)` / `onRecordingStop(url, ext)` の完了まで成功扱いにしない。どこかで失敗した場合は `export finalize failed` をログし、error callback で UI をエラーへ戻す
-  - shared の `TurtleVideo.tsx` は `exportUrl` 到達時だけでなく `isProcessing` が false に戻った時点でも `loading` と `exportPreparationStep` を解除し、runtime ごとの差分で「保存ファイルを作成中...」が残り続けないようにする
-  - `PreviewSection` のユーザー向け文言は `書き出し準備中...` / `映像を書き出し中... {percent}%` / `保存ファイルを作成中...` に統一し、`フレーム待機中` は内部状態に留めて UI へ出さない
-  - export セッション中の動画音声 decode は `file.name:size:lastModified:type` key の cache で再利用し、同一動画を複数 clip に分けても `decodeAudioData` / `<video>` fallback を毎回やり直さない
-  - `PreviewSection` の finalizing timeout は「100% 到達後に 30 秒以上 URL が出ない」ケースだけを監視し、timeout 時は `stopExport({ silent: true })` と `processing/loading/preparation` の解除、エラーメッセージ表示を同時に行う
-- **注意**:
-  - 100% 超の preview 音量差は standard flavor 専用の WebAudio gain で実現し、apple-safari runtime や shared UI に platform 直判定を戻さない
-  - export 完了後の `exportUrl` は stop/preview 再開では消さず、timeout やユーザー停止で export を中断するときも silent abort を使って不要な「中断されました」エラーで上書きしない
-
-### 9-16. export finalize 成功後は Blob probe と UI 成功遷移を最優先し、timeout は警告だけに留める
-
-- **ファイル**: `src/hooks/useExport.ts`, `src/components/TurtleVideo.tsx`, `src/components/sections/PreviewSection.tsx`
-- **問題**:
-  - `Muxer finalize 完了` と `エクスポート完了 最終結果` まで到達しても、Blob URL / `exportUrl` の受け渡しが遅れると緑のダウンロードボタンが出ない
-  - finalizing 中の UI timeout が stop/abort を呼ぶと、完成済み MP4 の success callback が後段で潰れる
-- **対策**:
-  - `useExport.ts` は `Blob.size > 0` を確認した後に Object URL を作成し、`[DIAG-BLOB]` で blob size/type と metadata probe を記録してから `onRecordingStop(url, 'mp4')` を 1 回だけ呼ぶ
-  - shared の `TurtleVideo.tsx` は `exportUrl` 到達時に `[DIAG-UI] export complete callback received` を記録し、`processing/loading/exportPreparationStep` を必ず解除する
-  - finalizing 30 秒超過は `showToast('保存ファイルの作成に時間がかかっています...')` の警告に留め、成功済み export を abort しない
-  - `PreviewSection` の action button は `exportUrl ? Download : isProcessing ? Processing : Create` の優先順を固定する
-- **注意**:
-  - finalizing 完了前に user cancel した場合だけ success callback を抑止し、自然終端や finalize 済みセッションでは callback を落とさない
-  - Blob metadata probe は診断専用で、失敗しても export 自体は成功扱いを維持する。失敗扱いにするのは `Blob.size <= 0` の場合だけ
-
-### 9-17. export cancel reason は user / superseded / unmount を分離し、成功 URL は user cancel 以外で潰さない
-
-- **ファイル**: `src/hooks/useExport.ts`, `src/components/TurtleVideo.tsx`, `src/components/sections/PreviewSection.tsx`
-- **問題**:
-  - Blob / Object URL 作成後でも、自然終端や後続 cleanup の stop が user cancel 扱いになると `onRecordingStop(url, ext)` が抑止され、download ボタンへ遷移できない
-  - Preview UI 側が `exportUrl` より `isProcessing` を先に見続けると、成功 URL が届いても finalizing 表示が残りやすい
-- **対策**:
-  - shared export は boolean の `userCancelled` ではなく `ExportCancelReason = 'none' | 'user' | 'superseded' | 'unmount'` を持ち、停止ボタン経由だけ `reason: 'user'` を設定する
-  - Object URL 生成後は `cancelReason === 'user'` のときだけ success callback を抑止し、その場で URL を revoke する。`superseded` / `unmount` / 自然終端では callback を通して UI 成功遷移を優先する
-  - `TurtleVideo.tsx` は `exportUrl` 到達時の UI 解除を helper に集約し、`processing/loading/exportPreparationStep` の解除と `[DIAG-UI] export complete callback received` を同じ成功経路で扱う
-  - `PreviewSection` は `Boolean(exportUrl)` を単一の優先フラグとして action button / finalizing timer の両方で使い、success URL がある間は download ボタンを最優先表示する
-- **注意**:
-  - `stopExport()` のデフォルト理由は system cleanup 側 (`superseded`) として扱い、明示キャンセルだけ呼び出し側から `reason: 'user'` を渡す
-  - success callback を抑止したセッションでは、生成済み Object URL を必ず revoke してダウンロード導線だけが残る中途半端な state を作らない
-
-### 9-18. natural end へ入った export は後段 stop を user cancel に昇格させず、timeout は UI エラー表示だけに留める
-
-- **ファイル**: `src/hooks/useExport.ts`, `src/components/TurtleVideo.tsx`, `src/components/sections/PreviewSection.tsx`, `src/test/useExport.test.ts`
-- **問題**:
-  - standard preview/export の cleanup が natural end 後に `stopExport({ reason: 'user' })` を重ねると、Blob / Object URL 作成成功後の callback が誤って user cancel 扱いになる
-  - finalizing timeout が強い停止処理へ繋がると、成功済み export の download 導線まで巻き込んで壊しやすい
-- **対策**:
-  - shared export core は `completionRequestedRef` / `finalizeRequestedRef` / `exportPhaseRef === 'finalizing'` を見て、natural end 進行中の user stop を no-op にし、abort や cancelReason 上書きをさせない
-  - `[EXPORT-FSM] transition` は export session 単位で `exportSessionId` を付与し、`export start` / `natural end reached` / `cancel requested` / `callback invoked|suppressed` / `failed` などの遷移だけを記録する
-  - shared の `TurtleVideo.tsx` は finalizing timeout で `stopExport()` を呼ばず、`setError('保存ファイルの作成に時間がかかっています。ログを確認してください。')` だけを出して成功 URL の到着余地を残す
-- **注意**:
-  - natural end に入った後は、後段の cleanup が `reason: 'user'` を投げても成功 callback を潰さないことを優先する
-  - timeout 文言は UI 側のエラー表示に留め、成功 URL の revoke や `exportCompletedRef` の巻き戻しをしない
-
-### 9-19. export ループの終端では stopAll() ではなく completeWebCodecsExport() を呼ぶ
-
-- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/components/turtle-video/usePreviewEngine.ts`, `src/components/TurtleVideo.tsx`, `src/hooks/useExport.ts`
-- **問題**:
-  - export モードで `clampedElapsed >= totalDuration` になるとループが `stopAll()` を呼ぶ
-  - `stopAll()` は外部 `recorderRef`（TurtleVideo.tsx の `useRef<MediaRecorder | null>(null)`）を確認するが、WebCodecs export 中はこの ref が null のため `stopWebCodecsExport({ reason: 'user' })` ルートへ入る
-  - `cancelReason` が `'user'` に汚染され、その後 blob/URL が正常生成されても `callback suppressed by explicit user cancel` で `onRecordingStop` が抑止される
-  - UI 側の `exportUrl` / `exportFinalizing` が更新されず、ダウンロードボタンへの遷移が起きない
-- **対策**:
-  - `UseExportReturn['completeExport']` を `completeWebCodecsExport` として両 `usePreviewEngine` の props に追加
-  - `TurtleVideo.tsx` で `completeExport` を抽出して渡す
-  - ループの `clampedElapsed >= totalDuration` 分岐で `isExportMode` の場合は `completeWebCodecsExport()` を呼ぶ（`stopAll()` を呼ばない）
-  - 保険として `useExport.ts` の最終化部分に安全網を追加: `cancelReasonAtUrl === 'user'` でも `blob.size > 0` なら `cancelReason` を `'none'` に復旧してコールバックを通す
-- **注意**:
-  - `recorderRef` は TurtleVideo.tsx（外部）と useExport.ts（内部）で **別々の ref**。`stopAll()` が参照するのは外部のもの。WebCodecs export では外部 ref は常に null なので `stopAll()` を export 終端で呼ぶと必ず `stopExport({ reason: 'user' })` ルートへ入る
-  - `completeWebCodecsExport()` は `completionRequestedRef` / `finalizeRequestedRef` / `exportFinalizingRef` を立て、エンコード pipeline に正常終了を通知する
-  - 成功コールバック（`onRecordingStop`）内で `stopAll()` を呼ぶことは問題ない。その時点では `exportPhaseRef === 'completed'` のため `stopExport` は早期 return する
-
-### 9-20. 停止・再生・編集操作で生成済み exportUrl を破棄してダウンロードボタンを消す
-
-- **ファイル**: `src/components/TurtleVideo.tsx`
-- **問題**:
-  - エクスポート完了後にダウンロードボタンが表示された後、停止ボタンや再生ボタンを押しても `exportUrl` が残り続け、ダウンロードボタンが消えない
-  - 編集操作（メディア追加・削除・並び替え、トリム変更、音量変更、BGM変更、ナレーション変更など）でも古いダウンロードボタンが残る
-- **対策**:
-  - `TurtleVideo.tsx` に `clearGeneratedExport(reason)` 共通ヘルパーを追加。`clearExport()` を呼んで `exportUrl/exportExt` を削除し、`exportCompletedRef` / `exportFinalizingUiRef` / `exportFinalizeWarningShownRef` をリセットする
-  - `handleStop` の非 processing パスで先頭に `clearGeneratedExport('stop-button')` を呼ぶ
-  - `togglePlay` のデバウンスチェック通過後に `clearGeneratedExport('play-toggle')` を呼ぶ
-  - `pausePreviewBeforeEdit` の先頭（`isProcessing || !isPlayingRef.current` ガードの前）に `clearGeneratedExport('edit:${reason}')` を呼ぶ。再生中でなくても編集操作であればクリアする
-  - `isProcessing === true` のとき `clearGeneratedExport` は何もしない（エクスポート中断は既存の `stopWebCodecsExport` ルートに任せる）
-  - ダウンロードボタン押下では `clearExport()` しない（同じ生成結果を再ダウンロードできる）
-- **注意**:
-  - `clearExport()` を直接呼ばず必ず `clearGeneratedExport()` 経由を使うこと。Blob URL の revoke と exportExt のクリアが clearExport に集約されているため
-  - 既存の編集ハンドラ（addMediaItems, setBgm, addNarration など）が直接 `clearExport()` を呼んでいる箇所は redundant になるが削除不要（`pausePreviewBeforeEdit` → `clearGeneratedExport` → `clearExport` の後で exportUrl が null なので idempotent）
-  - 9-15 の「export 完了後の `exportUrl` は stop/preview 再開では消さず」という旧方針は、今回の変更で撤回済み
-
-
+## 9.5. プレビューキャプチャ
 
 ### 9.5-1. CanvasフレームのPNGキャプチャ
 
@@ -935,7 +605,7 @@
   - `URL.createObjectURL(blob)` で一時URLを生成し、`<a>` 要素のクリックでダウンロードをトリガー
   - ObjectURLは `setTimeout(() => URL.revokeObjectURL(url), 1000)` で確実に解放
 - **ファイル名规則**: `turtle_capture_{time}_{timestamp}.png`（例: `turtle_capture_1m30s_1738900000000.png`）
-- **UI**: PreviewSectionの再生コントロール横にCameraアイコンボタンを配置
+- **UI**: PreviewSectionの再生コントロール横にCameraアイコンボタンを配置する。停止とキャプチャの通常配色は既存のグレー系を維持し、キャプチャだけ押下後 0.42 秒のエメラルド系フラッシュ + 外側ハローで反応感を返す
 - **注意**: エクスポート中（`isProcessing`）はキャプチャ不可。メディアがない場合も無効
 
 ## 10. 状態管理パターン
@@ -1011,15 +681,18 @@
 | **WebCodecs** | `VideoFrame` は `close()` しないとメモリリーク。CFR 強制が重要 |
 | **Safari Export** | iOS Safari では OfflineAudioContext による音声プリレンダリング方式を使用。メインAudioContextで`decodeAudioData`を実行し、`f32-planar`形式のAudioDataをAudioEncoderに直接供給する。**重要**: iOS Safari の `decodeAudioData` はビデオコンテナ(.mov/.mp4)をデコードできない（`EncodingError`）ため、`extractAudioViaVideoElement()` で `<video>` 要素経由のリアルタイム音声抽出にフォールバックする。muxer/AudioEncoder は常に音声付きで初期化。OfflineAudioContext 失敗時は ScriptProcessorNode にフォールバック |
 | **タブ切替** | `visibilitychange` で hidden 時は通常再生を明示一時停止（`isPlayingRef=false` + `pause()`）、復帰時に Canvas 再描画と必要なメディア再同期を実行 |
-| **下部モーダル** | 下から開くモーダルは `history.pushState` + `popstate` で戻るキー閉じを実装し、モバイルでは `scrollTop=0` かつ縦下スワイプ（72px超）で閉じる。クリーンアップ時は自分の履歴 state が先頭のときのみ `history.back()` する |
+| **下部モーダル** | 下から開くモーダルは `history.pushState` + `popstate` で戻るキー閉じを実装し、モバイルでは `scrollTop=0` かつ縦下スワイプ（72px超）で閉じる。長文入力を持つモーダルでは、`textarea` / テキスト入力など編集用フィールドから始まったタッチを閉じる判定の対象外にして、原稿スクロールと誤競合しないようにする。クリーンアップ時は自分の履歴 state が先頭のときのみ `history.back()` する |
 | **AIナレーション(TTS)** | 声の調子は先頭に `（スタイル指示）` として付与し、TTS 指示で「括弧内は発話しない」を明示する。実際に読ませる本文は括弧の後ろのみ |
 | **AIナレーション(原稿文量)** | 原稿生成は長さモードを秒数目安で統一する。`短め=約5秒（20〜35文字）` / `中くらい=約10秒（35〜60文字）` / `長め=約20秒（100〜140文字）` をプロンプトで明示し、過剰な長文化を防ぐ |
-| **自動保存タイマー** | `setInterval` は最新状態Refを参照して固定周期で実行し、編集状態の変化でタイマーを再生成しない。`visibilitychange/focus/pageshow` 復帰時に経過時間超過なら追いつき保存を実行し、保存間隔変更は custom event + `storage` で即時反映する |
+| **オフラインモード** | `offlineModeStore` を localStorage 永続化し、AIナレーション入口・Gemini 呼び出し・更新確認を一元ガードする。オフライン中の AI 追加/編集ボタンは disabled にして「押してエラー」ではなく「押せない」挙動へ寄せ、既存ナレーションの移動や削除は止めない。UI文言は「インターネット接続が必要な機能を使わない」ことを示し、ブラウザ/OSレベルの完全遮断ではないと明記する。ON 切替時だけ注意ダイアログを必須にし、OFF 復帰時は service worker 登録済みなら即時更新確認、未登録なら登録完了後に 1 回だけ更新確認する |
+| **手動更新確認** | 設定タブの更新確認は `updateStore.checkForUpdate()` に集約し、更新検知時だけ既存の `ReloadPrompt` / `needRefresh` 表示を使う。更新が無いときだけ短い通知を出し、オフラインモード中はボタンを disabled にして実行自体を止める。`ReloadPrompt` の横幅は iOS Safari だけ左右余白付きの可変幅にして画面外にはみ出させず、Android / desktop の右下レイアウトは維持する |
+| **設定モーダル操作** | API キー保存やオフラインモード切替のような設定変更は、その場で完了状態や警告を表示してモーダルを閉じない。説明文は短く保ち、無効/有効トグルや更新ボタンで分かる状態を重ねて説明しない。設定タブの操作ボタンは 無効=青系 / 有効=オレンジ系 の大きめトグルにし、ソフトウェア更新の手動確認は同サイズの青ボタンを中央寄せで置く。`history.pushState` を使うモーダルは最新の `onClose` を ref で参照し、親再描画だけで effect が張り直されて `history.back()` しないようにする |
+| **自動保存タイマー** | `setInterval` は最新状態Refを参照して固定周期で実行し、編集状態の変化でタイマーを再生成しない。差分ハッシュは保存対象の実フィールドに合わせ、`trim` の後に `scale/position` だけ変わったケースも見逃さない。`visibilitychange/focus/pageshow` 復帰時は短い遅延でイベントを集約してから経過時間を判定し、手動保存中は追いつき保存を走らせない。手動保存成功時は現在ハッシュを自動保存の基準にも反映し、直後の重複 auto save を防ぐ。保存間隔変更は custom event + `storage` で即時反映する |
 | **ヘッダーモーダル遷移** | 設定/保存ボタン押下でモーダルを開く前に、通常プレビュー再生中なら `stopAll() + pause()` で明示一時停止する。再生継続のまま開くとモバイルでタップ競合し、モーダルが瞬時に閉じる誤動作を誘発しやすい |
 | **先頭フレーム描画** | `time <= 0.05` の先頭付近は、`エクスポート中` または `非再生時` に限ってキャンバスを強制クリアし、終端フレーム残像（終端キャプション）との重なりを防ぐ。通常再生開始時は保持ロジックを優先して黒フラッシュを回避する |
 | **モバイル** | スライダー誤操作を `useSwipeProtectedValue` で防止。`playsInline` 必須 |
 | **レスポンシブ** | モバイル既存スタイルは変更禁止。`md:` / `lg:` バリアントのみ追加で対応 |
-| **IndexedDB** | `File → ArrayBuffer → File` のラウンドトリップが必要。大容量データに注意。容量不足時は`auto`を自動削除せず、確認後のみ削除リトライする |
+| **IndexedDB** | `File → ArrayBuffer → File` のラウンドトリップが必要。大容量データに注意。容量不足時は`auto`を自動削除せず、確認後のみ削除リトライする。保存失敗は `lastSaveFailure` に reason / recoveryAction / storageEstimate を残し、復旧導線を UI から再実行できるようにする。`File` 読み出し失敗時は `file.arrayBuffer` / `FileReader` / object URL fetch の順に救済し、素材名付きで失敗理由を残す |
 | **Zustand** | `getState()` で React 外アクセス可能。Ref+State 並行管理でリアルタイム値と再レンダリングを両立 |
 | **再生ループ** | `loopIdRef` で世代管理。古いループの自動停止メカニズムが重要 |
 | **シーク終端** | `time >= totalDuration` で最終クリップにフォールバックし黒画面を防止 |
@@ -1526,620 +1199,784 @@
   - 00テンプレートではラベル固定を避け、種別確定は後段のAI整理で行う
   - 実運用テンプレートとスキル資産の4系統を同時更新し、再同期で仕様が戻らないようにする
 
-### 13-33. Narration clip trimStart/trimEnd support
+### 13-33. ナレーションクリップの trimStart/trimEnd 対応
 
-- **Files**: `src/types/index.ts`, `src/stores/audioStore.ts`, `src/components/sections/NarrationSection.tsx`, `src/components/TurtleVideo.tsx`, `src/hooks/useExport.ts`, `src/stores/projectStore.ts`, `src/hooks/useAutoSave.ts`
-- **Issue**: Long narration reuse needs per-clip in/out trim without implementing waveform split.
-- **Pattern**:
-  - Add `trimStart` / `trimEnd` to `NarrationClip` and initialize on clip creation.
-  - Normalize and clamp in store updates (`updateNarrationTrim`) with a minimum gap to avoid invalid ranges.
-  - In preview playback and visibility resync, map timeline time to source time with `sourceTime = trimStart + clipTime`.
-  - In export scheduling, use `source.start(clipStart, trimStart, playDuration)` where `playDuration` is computed from trimmed duration and timeline remainder.
-  - Persist trim fields in project save/load with backward-compatible defaults for legacy data.
-  - Include trim fields in auto-save change detection hash.
-  - In narration UI, expose trim sliders/inputs and show duration based on trimmed range.
-- **Note**: Loading the same narration source multiple times with per-clip trim is a practical substitute for dedicated split functionality.
+- **ファイル**: `src/types/index.ts`, `src/stores/audioStore.ts`, `src/components/sections/NarrationSection.tsx`, `src/components/TurtleVideo.tsx`, `src/hooks/useExport.ts`, `src/stores/projectStore.ts`, `src/hooks/useAutoSave.ts`
+- **問題**: 波形分割機能を実装せずに、長いナレーション素材をクリップ単位の入出点トリムで再利用したい。
+- **対策**:
+  - `NarrationClip` に `trimStart` / `trimEnd` を追加し、クリップ作成時に初期化する。
+  - ストア更新（`updateNarrationTrim`）で最小間隔を保った正規化・クランプを行い、無効レンジを防ぐ。
+  - プレビュー再生と可視範囲再同期で、`sourceTime = trimStart + clipTime` によりタイムライン時刻をソース時刻へ変換する。
+  - エクスポート時は `source.start(clipStart, trimStart, playDuration)` を使い、`playDuration` はトリム後尺と残りタイムラインから算出する。
+  - trim項目はプロジェクト保存/読込に永続化し、旧データは後方互換デフォルトで補完する。
+  - trim項目を自動保存の差分検知ハッシュに含める。
+  - ナレーションUIに trim スライダー/入力を追加し、表示尺はトリム後レンジ基準で表示する。
+- **注意**: 同一ナレーション素材を複数クリップとして配置し、クリップごとに trim する運用は、専用分割機能の実用的代替になる。
 
-### 13-34. Narration trim controls as collapsed accordion (default closed)
+### 13-34. ナレーショントリム操作を折りたたみ化（初期は閉じる）
 
-- **Files**: `src/components/sections/NarrationSection.tsx`
-- **Issue**: Narration card became visually dense when trim controls were always visible.
-- **Pattern**:
-  - Keep `startTime` and `volume` controls always visible for primary operation.
-  - Move `trimStart` / `trimEnd` controls into a per-clip accordion (`openTrimMap`) and default it to closed.
-  - Reuse chevron-style toggle pattern consistent with clip settings panels.
-- **Note**: This keeps the common workflow simple while preserving advanced trim editing on demand.
+- **ファイル**: `src/components/sections/NarrationSection.tsx`
+- **問題**: trim 操作を常時表示すると、ナレーションカードの情報密度が高くなりすぎる。
+- **対策**:
+  - 主要操作の `startTime` と `volume` は常時表示のまま維持する。
+  - `trimStart` / `trimEnd` はクリップ単位アコーディオン（`openTrimMap`）に移し、初期は閉じる。
+  - クリップ設定パネルと同じシェブロントグルの操作パターンを再利用する。
+- **注意**: 日常操作を簡潔に保ちつつ、必要時だけ詳細トリム編集を開ける構成にする。
 
-### 13-35. Narration help content sync with trim-accordion UI
+### 13-35. ナレーションヘルプをトリム折りたたみUIに同期
 
-- **Files**: `src/constants/sectionHelp.ts`
-- **Issue**: Help modal text lagged behind narration UI after trim controls became collapsible.
-- **Pattern**:
-  - Remove stale help visuals (e.g., narration `settings_button`) that no longer exist in the actual row controls.
-  - Add explicit help item for trim controls being inside a collapsed section.
-  - Clarify that `startTime` and `volume` are always visible for normal workflow.
-- **Note**: Keep help descriptions aligned with current UI to reduce onboarding confusion and false bug reports.
+- **ファイル**: `src/constants/sectionHelp.ts`
+- **問題**: trim 操作を折りたたみにした後、ヘルプ文面が実UIより古い内容のままになっていた。
+- **対策**:
+  - 実UI行操作に存在しない古いヘルプ表現（例: narration `settings_button`）を削除する。
+  - trim 操作が折りたたみ内にあることを明示したヘルプ項目を追加する。
+  - 通常操作として `startTime` と `volume` が常時表示である点を明記する。
+- **注意**: ヘルプ説明を実UIに同期し、導入時の混乱や誤報告を減らす。
 
-### 13-36. Narration per-clip mute (preview/export/save)
+### 13-36. ナレーションのクリップ単位ミュート（プレビュー/エクスポート/保存）
 
-- **Files**: `src/types/index.ts`, `src/stores/audioStore.ts`, `src/components/sections/NarrationSection.tsx`, `src/components/TurtleVideo.tsx`, `src/hooks/useExport.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/hooks/useAutoSave.ts`
-- **Issue**: Narration card mute button existed visually but did not mute playback/export output.
-- **Pattern**:
-  - Add `isMuted` to `NarrationClip` and normalize with backward-compatible default (`false`).
-  - Add store action `toggleNarrationMute` and wire it to narration card speaker button.
-  - In preview playback, use effective volume `clip.isMuted ? 0 : clip.volume`.
-  - In export audio scheduling, skip muted narration clips to prevent mixed output.
-  - Persist `isMuted` in project save/load and include it in auto-save change hash.
-- **Note**: Keep slider value while muted so unmute restores previous level.
+- **ファイル**: `src/types/index.ts`, `src/stores/audioStore.ts`, `src/components/sections/NarrationSection.tsx`, `src/components/TurtleVideo.tsx`, `src/hooks/useExport.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/hooks/useAutoSave.ts`
+- **問題**: ナレーションカードのミュートボタンは見た目だけで、実際のプレビュー/書き出し音声に反映されていなかった。
+- **対策**:
+  - `NarrationClip` に `isMuted` を追加し、後方互換デフォルト（`false`）で正規化する。
+  - ストアに `toggleNarrationMute` を追加し、カードのスピーカーボタンへ接続する。
+  - プレビュー再生では有効音量を `clip.isMuted ? 0 : clip.volume` とする。
+  - エクスポート音声スケジューリングでは、ミュート中のナレーションクリップを混音対象から除外する。
+  - `isMuted` をプロジェクト保存/読込に永続化し、自動保存差分ハッシュにも含める。
+- **注意**: ミュート中もスライダー値は保持し、解除時に元の音量へ戻せるようにする。
 
-### 13-37. Unified volume range 0-250% for video/BGM/narration
+### 13-37. 動画/BGM/ナレーションの音量レンジを0-250%に統一
 
-- **Files**: `src/components/media/ClipItem.tsx`, `src/components/sections/BgmSection.tsx`, `src/components/sections/NarrationSection.tsx`, `src/stores/mediaStore.ts`, `src/stores/audioStore.ts`, `src/stores/projectStore.ts`, `src/hooks/useExport.ts`
-- **Issue**: Volume control upper bound was inconsistent (some paths capped at 200%).
-- **Pattern**:
-  - Standardize max gain to `2.5` (250%) across UI sliders, store clamps, restore path, and export mix path.
-  - Keep default volume at `1.0` and percentage label as `Math.round(volume * 100)`.
-  - Ensure tests verify clamping at `2.5` for BGM and narration.
-- **Note**: Perceived loudness is logarithmic; 200% amplitude (~+6 dB) is not perceived as "twice as loud".
+- **ファイル**: `src/components/media/ClipItem.tsx`, `src/components/sections/BgmSection.tsx`, `src/components/sections/NarrationSection.tsx`, `src/stores/mediaStore.ts`, `src/stores/audioStore.ts`, `src/stores/projectStore.ts`, `src/hooks/useExport.ts`
+- **問題**: 音量上限が経路ごとに不一致で、一部は200%に制限されていた。
+- **対策**:
+  - UIスライダー、ストアのクランプ、復元経路、エクスポート混音経路の上限を `2.5`（250%）に統一する。
+  - 既定値は `1.0` を維持し、表示ラベルは `Math.round(volume * 100)` を使う。
+  - BGM/ナレーションの上限クランプ（`2.5`）をテストで検証する。
+- **注意**: 体感音量は対数的なので、振幅200%（約+6 dB）は知覚上の「2倍の大きさ」とは一致しない。
 
-### 13-38. Narration save UX improvement for Android/fallback download
+### 13-38. Android/フォールバック向けナレーション保存UX改善
 
-- **Files**: `src/components/TurtleVideo.tsx`, `src/components/sections/NarrationSection.tsx`
-- **Issue**: On Android fallback download, first save had no clear result dialog and second save could show confusing overwrite prompt.
-- **Pattern**:
-  - Replace direct `<a download>` in narration card with delegated save handler.
-  - Generate unique timestamped filename per save to avoid overwrite-confirm confusion.
-  - Use `showSaveFilePicker` when available; otherwise fallback to anchor download.
-  - Show explicit user feedback (`alert` + toast) after save start/completion/cancel.
-- **Note**: Fallback path cannot detect actual OS-level completion reliably; communicate "save started" clearly.
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/components/sections/NarrationSection.tsx`
+- **問題**: Androidのフォールバック保存で、初回保存結果が分かりにくく、2回目保存時に上書き確認が混乱を招くことがあった。
+- **対策**:
+  - ナレーションカードの直接 `<a download>` をやめ、共通保存ハンドラ経由に統一する。
+  - 保存時の提案ファイル名は元のファイル名を維持し、勝手な rename はしない。
+  - `showSaveFilePicker` 対応時はそれを使い、非対応時はアンカーダウンロードへフォールバックする。
+  - 保存開始/完了/キャンセルで明示的なユーザー通知（`alert` + toast）を出す。
+- **注意**:
+  - フォールバック経路ではOSレベル完了を厳密検知できないため、「保存開始」を明確に伝える。
+  - 同名ファイルの扱いはブラウザ/OS側の保存UIに委ねる。
 
-### 13-39. Clipsヘルプ文言の整理（表示区間 / 位置・サイズ / 折りたたみ案内）
+### 13-39. Gemini APIキー送信経路の強化（クエリパラメータ -> ヘッダー）
 
-- **Files**: `src/constants/sectionHelp.ts`
-- **Issue**:
-  - 動画・画像ヘルプで「表示時間・位置・サイズ」の粒度が広く、動画トリミングと画像表示時間の違いが伝わりにくい
-  - 「黒帯除去」が独立項目のため、実UIの「位置・サイズ調整」パネルとの対応が分かりにくい
-  - 「位置・サイズ調整」「音量・フェード設定」が折りたたみ表示であることがヘルプ本文に明示されていなかった
-- **Pattern**:
-  - 項目名を `表示区間（動画：トリミング・画像：表示時間）` に統一し、動画は開始/終了トリミング、画像は常時表示時間調整を明記
-  - `黒帯除去` を `位置・サイズ調整` に統合し、黒帯除去・拡大縮小・位置調整を1項目で説明
-  - `位置・サイズ調整` と `音量・フェード設定` の説明文に「折りたたみ表示のため開いて使う」旨を追記
-- **Note**: ヘルプ文言は `sectionHelp.ts` を単一ソースとして更新し、UIの開閉仕様と常に同期する。
-
-### 13-40. Clipsヘルプの表記統一とリセットアイコン説明の明確化
-
-- **Files**: `src/constants/sectionHelp.ts`
-- **Issue**:
-  - 表示区間タイトルの区切り表記を `／` に統一したい
-  - 黒帯除去の目的（微細な上下隙間を目立ちにくくする）がヘルプで弱く、必要性が伝わりにくい
-  - 拡大縮小/位置/音量にある「くるくる」アイコンの意味（デフォルト値へ戻す）が項目ごとに明確でない
-- **Pattern**:
-  - タイトルを `表示区間（動画：トリミング／画像：表示時間）` に更新
-  - 位置・サイズ調整の説明に、黒帯除去の目的とスライダー調整可能である旨を追記
-  - 位置・サイズ調整に `reset_button` 視覚トークンを追加し、くるくるアイコンでデフォルト値へ戻せることを明記
-  - 音量・フェード設定も「くるくるアイコンでデフォルト値に戻す」表現へ統一
-- **Note**: ヘルプ文言とアイコン説明は、実UIラベル・実アイコン挙動（デフォルト値復帰）と常に一致させる。
-
-### 13-41. ヘルプの閉じる `×` ボタン視認性を軽微に向上
-
-- **Files**: `src/components/modals/SectionHelpModal.tsx`, `src/components/modals/AiModal.tsx`, `src/components/modals/SaveLoadModal.tsx`, `src/components/modals/SettingsModal.tsx`
-- **Issue**:
-  - セクションヘルプや各モーダル内ヘルプの `×` ボタンが小さく、視認しづらい
-- **Pattern**:
-  - ヘルプ `×` ボタンの余白をわずかに拡大し、アイコンを `18px` に統一
-  - 背景と細い境界線を追加して、ヘルプカード配色を保ったままコントラストを上げる
-  - クリックハンドラと文言は変えず、見た目クラスのみ調整する
-- **Note**: 通常モーダル本体の閉じるボタンには影響させず、ヘルプ機能の `×` のみを対象にする。
-
-### 13-42. 保存・素材 / 設定モーダルの本体 `×` をヘルプ同系に統一
-
-- **Files**: `src/components/modals/SaveLoadModal.tsx`, `src/components/modals/SettingsModal.tsx`
-- **Issue**:
-  - モーダル本体ヘッダーの `×` がプレーン表示で、ヘルプ側の `×` と視認性・見た目の統一感が不足していた
-- **Pattern**:
-  - `SaveLoadModal` と `SettingsModal` の本体 `×` に、ヘルプ同系の枠付き・背景付きスタイルを適用
-  - アイコンサイズを `18px` に統一し、`title` / `aria-label` を付与して操作意図を明確化
-  - 閉じる処理（`onClose`）は変更せず、表示スタイルのみ調整
-- **Note**: 本体モーダルの閉じる導線をヘルプ系UIと揃えることで、視認性を上げつつ学習コストを下げる。
-
-### 13-43. BGMヘルプ表記の明確化とフェード秒数プリセットの統一案内
-
-- **Files**: `src/constants/sectionHelp.ts`
-- **Issue**:
-  - BGM項目で「遅延」という単語だけだと、タイムライン上の開始タイミング調整であることが伝わりにくい
-  - フェード秒数の選択肢（0.5秒/1秒/2秒）がヘルプ本文から分かりにくい
-- **Pattern**:
-  - BGM項目名を `開始位置・開始タイミング（遅延）` に変更し、説明文も同表記へ統一
-  - BGMのフェード説明に `0.5秒・1秒・2秒の3つ` を明記
-  - 動画・画像（clips）とキャプションのフェード説明にも同じ3段階プリセットを明記し、横断的な理解を揃える
-- **Note**: フェード秒数の仕様変更があった場合は、`sectionHelp.ts` の該当3セクション（clips/bgm/caption）を同時更新する。
-
-### 13-44. ナレーションヘルプ文言の実運用寄り強化（AI生成/複数管理/トリミング）
-
-- **Files**: `src/constants/sectionHelp.ts`, `src/components/sections/NarrationSection.tsx`
-- **Issue**:
-  - ナレーションヘルプの `AI / 追加` 説明が短く、AI生成の用途やファイル追加との使い分けが伝わりにくい
-  - 複数ナレーションを重ねて運用できる点、AI生成音声の保存先（PC/スマホ）が明示されていなかった
-  - `現在位置ボタン` の説明が抽象的で、プレビュー現在位置への反映であることが伝わりにくい
-  - 実UIの `切り出し設定` とヘルプ側の意図を合わせるため、`トリミング設定` に統一したい
-- **Pattern**:
-  - ナレーションの subtitle と `AI / 追加` 説明を、`AIで好みのナレーション生成 + 事前音声追加 + 複数設定可能` が伝わる文章へ更新
-  - `並び替え・編集・削除・保存` 説明に、AI生成ナレーションをPC/スマホへ保存できることを追記
-  - `開始位置` 説明を `プレビューの現在位置に設定` と明記
-  - 実UIラベル（`NarrationSection.tsx`）とヘルプ項目名（`sectionHelp.ts`）を `トリミング設定` に統一し、開始/終了ラベルも `トリミング開始/終了` に揃える
-  - トリミング説明に、長いナレーションを複数に分割してタイミング調整や声質合わせに使える旨を追記
-- **Note**: 実UIラベル変更時はヘルプ文言も同時更新し、項目名の不一致を作らない。
-
-### 13-45. キャプション表示アイコン説明の明確化と現在位置文言の統一
-
-- **Files**: `src/constants/sectionHelp.ts`
-- **Issue**:
-  - キャプションの `表示アイコン / 鍵アイコン` 表現だと、目アイコンの意味を直感的に伝えづらい
-  - 表示アイコンをOFFにしたときの影響（プレビュー/出力動画の非表示）がヘルプで明示されていなかった
-  - `現在位置ボタンでも設定` の表現が曖昧で、どの現在位置か分かりづらい
-- **Pattern**:
-  - 項目名を `表示アイコン（目のマークのアイコン）` に変更
-  - 説明に「OFF時はキャプションがすべて非表示になり、出力動画にも表示されない」挙動を明記
-  - `表示時間` の説明を `現在位置ボタンでプレビューの現在位置に設定` へ統一
-- **Note**: `現在位置` を使う説明は、ナレーション/キャプションで同じ言い回しを使って理解負荷を下げる。
-
-### 13-46. キャプションヘルプの再編（一括設定と個別設定の役割明確化）
-
-- **Files**: `src/constants/sectionHelp.ts`
-- **Issue**:
-  - キャプションヘルプで「一括設定」と「個別設定」の役割が分散し、どこで何を設定するか把握しづらい
-  - 既存の `位置・サイズ調整` と `フェード設定` が、上位説明と重複していた
-  - 各行の歯車・鉛筆アイコンでできる操作（個別設定・本文編集）が十分に説明されていなかった
-- **Pattern**:
-  - 項目3として `スタイル・フェードの一括設定` を追加し、サイズ/字体/位置/ぼかし + フェード（0.5秒・1秒・2秒）をまとめて説明
-  - 一括設定項目に `slider_demo` を追加して、スライド操作イメージを表示
-  - `各キャプションの操作` に、歯車での個別設定（サイズ/字体/位置/フェード）と一括設定からの個別上書き可を明記
-  - `各キャプションの操作` に、鉛筆ボタンで本文編集できる説明を追加し、`slider_demo` も追加
-  - 重複する `位置・サイズ調整` / `フェード設定` 項目は削除して構成を整理
-- **Note**: キャプション設定の説明変更時は、「一括設定」「各キャプションの操作」「表示時間」の3項目の関係を同時に確認する。
-
-### 13-47. キャプション項目順の再整理（操作と個別設定の分離）
-
-- **Files**: `src/constants/sectionHelp.ts`
-- **Issue**:
-  - `各キャプションの操作` に個別設定説明が混在し、項目の役割が分かりにくかった
-  - キャプション項目の並びを `4:各キャプションの操作 / 5:個別設定 / 6:表示時間` にしたい要望があった
-  - 一括設定説明で位置は `X/Y` ではなく `位置` の表現に統一したい
-- **Pattern**:
-  - `各キャプションの操作` は移動・削除・鉛筆編集に限定し、歯車説明を分離
-  - 新規項目 `個別設定（歯車マーク）` を追加し、サイズ/字体/位置/フェードの個別調整と一括設定からの上書きを明記
-  - `個別設定（歯車マーク）` に `slider_demo` を追加し、個別設定でもスライド操作できることを可視化
-  - 項目順を `1追加 / 2表示アイコン / 3一括設定 / 4各キャプションの操作 / 5個別設定 / 6表示時間` に整理
-- **Note**: キャプションヘルプは「一括設定」と「個別設定」を別項目として維持し、説明の重複を避ける。
-
-### 13-48. プレビューヘルプの順序調整と作成中注意文の明確化
-
-- **Files**: `src/constants/sectionHelp.ts`
-- **Issue**:
-  - プレビューヘルプで `一括クリア` の優先度を下げたい要望があり、4番目へ移動が必要
-  - `動画ファイルを作成` 中のタブ切り替え/非アクティブ化で作成不良になり得る注意点が未記載
-  - `作成後のダウンロード` の説明で、戻る先ボタン名をより丁寧に明示したい
-- **Pattern**:
-  - プレビュー項目順を `停止・再生・キャプチャ` → `動画ファイルを作成` → `作成後のダウンロード` → `一括クリア` に変更
-  - `動画ファイルを作成` 説明に「作成中のタブ切り替え/非アクティブ化で正しく作成できない場合がある」を追記
-  - `作成後のダウンロード` 説明を「停止/再生を押すと動画ファイルを作成ボタンに戻り」へ更新
-- **Note**: プレビュー導線の文言変更時は、実ボタンラベル（`動画ファイルを作成`）との一致を優先する。
-
-### 13-49. プレビューヘルプ文言の断定化と表記統一
-
-- **Files**: `src/constants/sectionHelp.ts`
-- **Issue**:
-  - 作成中のタブ切り替え/非アクティブ化の注意文が「場合があります」で弱く、禁止意図が伝わりにくい
-  - 戻る先ボタン名を文中で明示する際に、ラベルとしての視認性を上げたい
-  - 一括クリア説明を、対象列挙ではなく「動画作成状態のクリア + 全初期化」の意味で伝えたい
-- **Pattern**:
-  - 注意文を「正しく作成できません」と断定表現へ変更
-  - 戻る先を「停止/再生を押すと『動画ファイルを作成』ボタンに戻り」と鍵括弧付きで表記
-  - 一括クリア説明を「動画作成状態をクリアしてすべて初期状態に戻せます」に更新
-- **Note**: 強い注意文にする項目は、実際に失敗し得る操作条件に限定して記載する。
-
-### 13-50. ヘッダー右側に全体ヘルプ導線を追加（PCモーダル / スマホ下スライド）
-
-- **Files**: `src/components/Header.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`
-- **Issue**:
-  - セクション別ヘルプはあるが、アプリ全体の概要・使い方をまとめて確認する導線がヘッダーに無かった
-  - 初見ユーザー向けに、機能概要/5ステップ手順/動作確認機種/注意点を一箇所で案内したい
-- **Pattern**:
-  - ヘッダーの歯車（設定）右側に、既存ヘルプと同系スタイルの `?` ボタンを追加（モバイル/PC両方）
-  - クリック時は `SectionHelpModal` を `app` セクションで開き、既存同様に PC は中央モーダル、スマホは下からスライドで表示
-  - `sectionHelp.ts` に `app` セクションを追加し、以下を順に掲載:
-    - ソフト概要（端的説明）
-    - 主要機能（箇条書き）
-    - 使い方5ステップ
-    - 動作確認機種（Pixel 6a / Ryzen 5 5500 + RTX3060 12GB、注記付き）
-    - 全体注意点（適宜保存・自動保存活用）
-    - 使い方のコツ（追加案内）
-  - 説明文で改行を使えるよう、`SectionHelpModal` の本文を `whitespace-pre-line` 表示に対応
-- **Note**: 全体ヘルプはセクション操作説明と役割が異なるため、ヘッダー導線として独立管理する。
-
-### 13-51. 全体ヘルプ「使い方（5ステップ）」をセクション配色に合わせた視覚ガイドへ強化
-
-- **Files**: `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`
-- **Issue**:
-  - 全体ヘルプの5ステップがテキスト列挙のみで、実際のセクション配色（青/紫/藍/黄/緑）との対応が直感的に伝わりにくかった
-  - ステップ説明をもう少し丁寧で自然な文章にしたい要望があった
-- **Pattern**:
-  - `SectionHelpVisualId` に `app_step_*`（clips/bgm/narration/caption/preview）を追加し、全体ヘルプの5ステップを visual token で描画
-  - `sectionHelp.ts` の「使い方（5ステップ）」は導入文 + `visuals` 指定へ変更し、本文の行番号リスト依存を解消
-  - `SectionHelpModal` 側で各 `app_step_*` をフル幅カードとして描画し、番号バッジとタイトル色をセクション見出し色に統一
-  - 各ステップ文言を、追加→調整→確認→作成/ダウンロードの流れが伝わる文に更新
-- **Note**: 5ステップ文言を更新する際は、`sectionHelp.ts` と `SectionHelpModal.tsx` の `app_step_*` 描画を同時に見直し、表示順と色対応を崩さない。
-
-### 13-52. 全体ヘルプの概要文を実利用シーン寄りに校正し、5ステップ説明文の文字サイズを統一
-
-- **Files**: `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`
-- **Issue**:
-  - 全体ヘルプ「使い方（5ステップ）」の説明文が他項目より小さく、読みづらい
-  - 概要文を、モバイル利用/PWA/オフライン利用/OSS活用まで含めた案内へ改善したい
-- **Pattern**:
-  - `SectionHelpModal` の `app_step_*` 説明文クラスを `text-xs md:text-sm` に変更し、ヘルプ本文の標準サイズへ統一
-  - `sectionHelp.ts` の `app > 概要` を複数文に再構成し、実際の利用シーンと価値（レスポンシブ、PWA、AI活用、GPLv3）を自然な流れで記載
-- **Note**: 全体ヘルプ本文は `whitespace-pre-line` 表示を前提に、長文は改行で段落分けして可読性を維持する。
-
-### 13-53. 全体ヘルプのライセンス案内を拡張し、OSSライセンス一覧をアコーディオン化
-
-- **Files**: `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`
-- **Issue**:
-  - 全体ヘルプ内でライセンス説明を独立項目として示したい
-  - 使用OSSとライセンス形態を、折りたたみで見やすく提示したい
-- **Pattern**:
-  - `SectionHelpItem` に `accordions`（title + items）を追加し、任意項目で折りたたみデータを保持できる構造に拡張
-  - `SectionHelpModal` 側で `details/summary` によるアコーディオン描画を追加し、一覧表示を省スペース化
-  - `app` セクションに `ライセンス` 項目を追加し、GPLv3の概要を簡潔に案内
-  - 同項目内に「本番依存（直接）」「開発依存（直接）」「間接依存を含む集計」の3アコーディオンを配置
-  - 直接依存のライセンスは `package.json` + `node_modules/<pkg>/package.json` を参照し、集計値は `node_modules` 全体のユニークパッケージで算出
-- **Note**: 依存パッケージ更新時は、`ライセンス` 項目の直接依存一覧と集計値を同期して更新する。
-
-### 13-54. ライセンス説明を「改変しやすさ重視」の表現へ調整
-
-- **Files**: `src/constants/sectionHelp.ts`
-- **Issue**:
-  - GPLv3説明が義務寄りの印象になり、個人/社内の改変利用を後押しするメッセージが弱かった
-- **Pattern**:
-  - `ライセンス` 説明に「個人や社内で再頒布を伴わない場合は自由に改変して利用可能」を明記
-  - AI活用で自分好みに改変することを推奨する文章を追加
-  - 一方で、外部配布時のみGPLv3条件（ソース公開・同ライセンス継承等）が必要である点は簡潔に維持
-- **Note**: 法的な厳密判断は README / LICENSE を正本とし、ヘルプ文言は運用上の分かりやすさを優先する。
-
-### 13-55. 保存・素材ヘルプを「保存」と「素材」に分割し、IndexedDB保存仕様を明記
-
-- **Files**: `src/components/modals/SaveLoadModal.tsx`
-- **Issue**:
-  - 「保存・素材の使い方」が単一リストで、保存機能と素材生成機能の説明が混在していた
-  - 保存先（ブラウザ上のIndexedDB）や保存保持条件、定期上書きの意図が明確でなかった
-- **Pattern**:
-  - ヘルプ本文を `保存` と `素材` の2セクションへ分割し、間に区切り線を配置
-  - `保存` セクションに以下を明記:
-    - 保存先はブラウザ上の `IndexedDB`
-    - ブラウザ/アプリを閉じても保持される
-    - 自動保存は定期上書きで、保存データが増え続けにくい（ローカル領域を圧迫しにくい）
-  - `素材` セクションには黒/白画像生成と用途を簡潔に記載
-- **Note**: 保存仕様が変わった場合は、ヘルプ文の「保存先」「保持条件」「上書き動作」を同時更新する。
-
-### 13-56. 設定ヘルプに Google AI Studio の利用上限注意（※）を追記
-
-- **Files**: `src/components/modals/SettingsModal.tsx`
-- **Issue**:
-  - 設定ヘルプに、Google AI Studio / Gemini API の利用上限超過時の挙動（一定時間待機）が明記されていなかった
-- **Pattern**:
-  - 設定ヘルプの説明リスト直下に、`※` 付きの補足文を追加
-  - 文言は「レート制限・日次上限などに到達すると一時的に利用できなくなり、一定時間待って再試行が必要」を簡潔に案内
-- **Note**: 上限仕様は提供元側で更新され得るため、必要に応じてヘルプ文言を最新仕様に合わせて更新する。
-
-### 13-57. READMEをヘルプ仕様に同期し、公開URLを `turtle-video-playground` へ更新
-
-- **Files**: `README.md`
-- **Issue**:
-  - READMEの機能説明が最新のヘルプ内容（各セクションの操作項目・注意事項）と一部乖離していた
-  - 公開URLを新しいパスへ更新する必要があった
-- **Pattern**:
-  - `機能` セクションを、動画・画像/BGM/ナレーション/キャプション/プレビュー/保存・素材/設定 の最新ヘルプ項目に合わせて再構成
-  - `使い方（ヘルプ準拠）` を追加し、5ステップ導線と注意事項を明記
-  - `すぐに使う（GitHub Pages）` の公開URLを `https://safubuki.github.io/turtle-video-playground/` に更新
-  - 動作確認機種と iPhone 非対応注記を、全体ヘルプ表記に合わせて統一
-- **Note**: ヘルプ文言を更新した場合は、README の機能説明と使い方セクションも同時に同期する。
-
-### 13-58. READMEのスキル導入手順を環境別ディレクトリ運用へ再編し、スクリプト一覧を最小化
-
-- **Files**: `README.md`
-- **Issue**:
-  - スキル導入説明が長く、環境ごとの保存先差分（`.github/.agents/.agent`）が直感的に把握しづらかった
-  - 「よく使うスクリプト」が詳細寄りで、日常利用の最小セットを素早く参照しづらかった
-  - プロジェクト構造が実フォルダ（特に Agent Skills の3系統）を十分に反映できていなかった
-- **Pattern**:
-  - `## 導入手順` を新設し、Step 1 として環境別セットアップを整理
-  - GitHub Copilot / GPT Codex / Google Gemini の利用ディレクトリと自動認識条件を明示
-  - `.agents`（Codex）と `.agent`（Gemini）の差異を `NOTE` で注意喚起
-  - `よく使うスクリプト` を `dev/build/test:run/preview` の最小セットへ簡略化
-  - `プロジェクト構造` をトップレベル起点の最新構成（`.github/skills`, `.agents/skills`, `.agent/skills` 含む）へ更新
-- **Note**: Agent Skills の運用先を変更した場合は、READMEの導入手順・プロジェクト構造・関連ドキュメントを同時更新する。
-
-### 13-59. Gemini APIキー転送の堅牢化（クエリ文字列→ヘッダー）
-
-- **対象ファイル**: `src/components/TurtleVideo.tsx`, `src/hooks/useAiNarration.ts`
-- **問題**:
-  - Gemini API 呼び出しでリクエスト URL に `?key=...` を付与していたため、URL 経由でAPIキーが意図せず露出するリスクがあった。
-- **対応パターン**:
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/hooks/useAiNarration.ts`
+- **問題**: Gemini API呼び出しで `?key=...` をURLに付与しており、URL露出経路からの漏えいリスクが高まる。
+- **対策**:
   - エンドポイント形式は `${GEMINI_API_BASE_URL}/{model}:generateContent`（クエリキーなし）を維持する。
-  - APIキーは `x-goog-api-key` リクエストヘッダーで送信する。
-  - 外部 Gemini 呼び出しに `referrerPolicy: 'no-referrer'` を設定する。
-  - 動作・パフォーマンスのリグレッションを避けるため、リクエストボディのスキーマとフォールバックフローは変更しない。
-- **注意**: 今後 Gemini を統合する際は、APIキーをクエリパラメータに含めないこと。
+  - APIキーは `x-goog-api-key` リクエストヘッダーで送る。
+  - Gemini向け外部リクエストに `referrerPolicy: 'no-referrer'` を設定する。
+  - 既存のリクエストボディ仕様とフォールバック動作は維持し、挙動/性能デグレを避ける。
+- **注意**: 今後のGemini連携でも、APIキーをクエリパラメータに載せない。
 
-### 13-60. Playgroundリポジトリへの手動同期ワークフロー（コピーベース・履歴マージなし）
+### 13-40. キャプションヘルプの位置チップは厳密XY表現を避ける
 
-- **対象ファイル**: `.github/workflows/manual-sync-from-dev.yml`
+- **ファイル**: `src/components/modals/SectionHelpModal.tsx`
+- **問題**: キャプションヘルプのチップが `位置X/Y` 表記で、実際の操作意図（厳密座標指定ではない）とズレていた。
+- **対策**:
+  - キャプションスタイル案内のチップ文言は `位置` にする。
+  - 移動アイコンは視覚連想のため維持しつつ、過度に座標を想起させる文言を避ける。
+- **注意**: ヘルプラベルは内部パラメータ名ではなく、実運用での操作粒度に合わせる。
+
+### 13-41. アプリヘルプ「主要な機能」にスワイプ誤操作防止の要約を追加
+
+- **ファイル**: `src/constants/sectionHelp.ts`
+- **問題**: ヘルプ上位サマリーにモバイルでのスライダー誤操作防止が記載されず、値が戻る挙動が意図不明に見えていた。
+- **対策**:
+  - `主要な機能` 配下に、誤操作防止の説明を1項目追加する。
+  - スワイプ方向とタッチ時間による判定、および誤操作時に値が自動復元される点をユーザー向け表現で明記する。
+- **注意**: 文言は `useSwipeProtectedValue` の実挙動と一致させ、過剰な期待を生まない。
+
+### 13-42. Androidでのクリップ編集後の手動保存失敗を堅牢化（IDBトランザクション後始末 + 復旧経路）
+
+- **ファイル**: `src/utils/indexedDB.ts`, `src/components/modals/SaveLoadModal.tsx`
 - **問題**:
-  - 公開 Playground リポジトリでは、アップストリームのコミット履歴を公開先に露出させずに「最新の開発ファイル」だけを反映させたい場合がある。
-  - 通常の merge/rebase 同期では意図しないコミットグラフが漏洩し、リポジトリ固有ファイルのコンフリクトリスクも高まる。
-- **対応パターン**:
-  - `workflow_dispatch` のみ使用し、メンテナーが任意のタイミングで手動実行する。
-  - ソースを `--depth=1` でクローンし、`rsync -a --delete` でファイルをコピー同期する（git 履歴同期ではない）。
-  - `--delete` 実行時に同期ワークフロー自身が削除されないよう `--exclude '.github/workflows/manual-sync-from-dev.yml'` を指定する。
-  - ステージング済み変更がある場合のみコミットし、差分がない場合は空コミットを作らずに終了する。
-  - コミットメッセージのタイムスタンプには `TZ=Asia/Tokyo` を使用し、同期コミットメッセージに `JTC` ラベルを付与する。
-  - 同期プッシュ後、GitHub Actions API 経由で `deploy.yml` をディスパッチし、手動同期直後にデプロイを自動実行する。
+  - Androidでタイムラインのトリム/尺編集後に手動保存が失敗し、一度失敗すると連続して失敗しやすかった。
+  - IndexedDB失敗経路でDBクローズが漏れる場合があり、容量復旧UIが古い `hasAutoSave` 状態に依存していた。
+- **対策**:
+  - IndexedDBラッパー（`saveProject` / `loadProject` / `deleteProject`）で、`oncomplete` / `onabort` / `onerror` / request error の全終端経路で idempotent ガード付きDBクローズを徹底する。
+  - 書き込み/削除の成功判定は request success ではなく `transaction.oncomplete`（コミット確定）で行う。
+  - 手動保存の容量エラー時は `refreshSaveInfo()` 後に必ず `confirmAutoDeleteForSave` へ誘導し、ローカル保存情報が古くても復旧経路を維持する。
 - **注意**:
-  - Playground 専用ファイル（例: `CNAME`、リポジトリ固有のワークフロー）が存在する場合は、`--delete` を有効にする前に明示的な `--exclude` エントリを追加すること。
+  - IndexedDBは request success だけではコミット確定を保証しないため、トランザクション完了で確定判定する。
+  - 復旧UXを `lastAutoSave` のキャッシュ値だけに依存させない。
 
-### 13-61. AIレビューでは防御コードだけで仕様変更を断定しない
+### 13-43. 音声エンコーダー（AudioEncoder）出力チャンクの終端クランプ（Teams向け最小保険）
 
-- **対象ファイル**: `AGENTS.md`, `Docs/review/README.md`, `Docs/review/functional-review-checklist.md`, `Docs/review/non-functional-and-regression-checklist.md`
+- **ファイル**: `src/hooks/useExport.ts`
 - **問題**:
-  - `??`, optional chaining, null guard などの防御コードだけを見ると、実際には必須前提のデータまで optional 仕様だと誤読しやすい。
-  - その結果、型・テスト・スキーマが示す現行契約とずれた仮説ベースの指摘が高優先度で出ることがある。
-- **対応パターン**:
-  - レビュー時は PR本文、Issue、`spec.md`、差分に加え、型・スキーマ・保存/読込コード・既存テストから現行契約を確認する。
-  - 到達可能性が確認できないケースは、断定指摘ではなく前提付きの open question として扱う。
-  - findings が 1 件だけでも、要件充足・デグレ・非機能の主要観点を確認した結果を短く添える。
+  - 一部環境では、`maxAudioTimestampUs` を超えるAACチャンクが終端に残り、再生側（Teamsデスクトップ）で再エンコード/再パッケージ時に体感遅延が出るケースがある
+  - 合計尺差分は小さくても、終端の扱い差で「わずかにスロー」に見えることがある
+- **対策**:
+  - `AudioEncoder` の `output` でチャンクごとに `timestamp/duration` を検査し、`maxAudioTimestampUs` 超過分をスキップまたはクランプする
+  - 部分超過チャンクは `copyTo` + `muxer.addAudioChunkRaw(..., clippedDurationUs, ...)` で有効区間だけMuxする
+  - `chunk.duration` が取れない場合に備えて、AAC 1024サンプル基準のフォールバック長を使う
+  - クランプ/スキップ件数と切り詰め時間をDIAGログへ出し、実動画で追跡可能にする
+- **解消確認（2026-03-05）**:
+  - 本対応後、Teamsデスクトップで再生時の「わずかにスローに見える遅延」は再現しなくなった
+- **なぜ解消したか**:
+  - 以前は、動画末尾で音声チャンクが `maxAudioTimestampUs` をわずかに超えるケースが残り、Teams側の再パッケージ/再エンコードで終端タイミング補正が入ることで体感遅延につながっていた
+  - 終端を事前にクランプして「音声終端が動画タイムライン内に収まる」状態を保証したため、Teams側での補正余地が減り、見かけ上のスロー再生が消えた
 - **注意**:
-  - `Docs/review/` は詳細基準であり、入口としてルート `AGENTS.md` から明示参照する。
-  - `Docs/review/` を置くだけでは、Codex が常に自動参照する前提ではない。
+  - 既存のエクスポート方式（WebCodecs + mp4-muxer）は維持し、コンテナ全面変更はしない
+  - 本対応は「終端超過の抑制」が目的で、解像度・FPS・音量レンジなど他仕様には影響しない
 
-### 13-62. 設定モーダルの履歴導線は「表示条件」と「状態遷移」を両方ガードする
+### 13-44. 開始トリミング時のエクスポート黒画面防止（先頭フレーム事前同期）
 
-- **対象ファイル**: `src/components/modals/SettingsModal.tsx`
+- **ファイル**: `src/components/TurtleVideo.tsx`
 - **問題**:
-  - `version.json` に `history` が無いビルドで履歴ボタンを表示したままだと、押下しても何も出ない一方で、内部状態だけが `history` へ進んで戻る操作を 1 回余分に消費し得る。
-- **対応パターン**:
-  - `history` が無い場合は履歴ボタン自体を表示しない。
-  - あわせて、情報パネル切り替えロジック側でも `history` への遷移を拒否し、UI 表示条件と内部状態を一致させる。
-  - 状態遷移は小さな純関数に切り出して、履歴あり/なしの両方をユニットテストで確認する。
+  - 開始トリミング（`trimStart > 0`）した動画で、エクスポート開始時に動画要素を `currentTime = 0` へ初期化していたため、タイムライン先頭（`t=0`）で必要なソース時刻（`trimStart`）との差分が大きくなり、補正シークが連続して黒フレーム化しやすかった
+  - 停止後に書き出す経路では、先頭フレーム準備待ちが不足するとプレビュー/保存動画とも黒画面になり得た
+- **対策**:
+  - エクスポート開始時の動画初期位置を `0` ではなく各クリップの `trimStart` に揃える
+  - エクスポート開始時に `currentTimeRef` を開始時刻へ同期し、フレーム供給側の時刻計算を安定化する
+  - iOS Safari 限定だった「先頭動画フレーム準備待ち（`loadeddata`/`canplay`/`seeked`）」を全ブラウザに適用し、先頭フレーム確定後に録画処理へ進む
 - **注意**:
-  - `popstate` による戻る操作は、見えていない履歴パネルを閉じるだけの無駄な遷移を挟まないこと。
+  - 開始トリム案件では、エクスポート前に `trimStart` 位置へ事前同期しないと黒画面が再発しやすい
+  - `setCurrentTime(...)` だけでは不十分で、`currentTimeRef` も同時に更新しないとエクスポートの目標フレーム数計算とズレる
 
-### 13-63. モーダルの領域外クリック挙動は用途で分ける（AIのみ閉じない）
+### 13-45. エクスポート中の `video.play()` 失敗時フォールバック（音声のみ進行で映像静止を回避）
 
-- **対象ファイル**: `src/components/modals/AiModal.tsx`, `src/components/modals/SettingsModal.tsx`, `src/components/modals/SaveLoadModal.tsx`, `src/components/modals/SectionHelpModal.tsx`, `src/components/modals/CaptionSettingsModal.tsx`
+- **ファイル**: `src/components/TurtleVideo.tsx`
 - **問題**:
-  - モーダルごとに backdrop クリック/タップ時の挙動が揺れると、誤操作時の期待が崩れる。
-  - 特に AIナレーションは文字入力の途中内容を失いやすく、領域外クリックで閉じると事故コストが高い。
-- **対応パターン**:
-  - `AiModal` は領域外クリック/タップでは閉じない。
-  - `SettingsModal`、`SectionHelpModal`、`SaveLoadModal`、`CaptionSettingsModal` は領域外クリック/タップで閉じる。
-  - 閉じるモーダルは backdrop 側で `onClose`、本体側で `stopPropagation()` を明示し、意図しないバブリングを防ぐ。
+  - 環境によってはエクスポート中の `video.play()` が失敗し、タイムライン時刻だけ進む一方で動画要素が停止し続け、出力が「音声は進むが映像は静止画」の状態になる
+  - 失敗状態で通常のドリフト補正シークを継続すると `seeking` が連続して描画更新が止まりやすい
+- **対策**:
+  - エクスポート中の `play()` 失敗を動画IDごとに検知し、失敗した要素をフォールバックモードへ切り替える
+  - フォールバック中は通常のドリフト補正（高頻度シーク）を止め、90ms間隔で制限した受動シーク同期を行う
+  - 初回失敗時にログを出して、環境依存の再生開始失敗を追跡できるようにする
 - **注意**:
-  - 入力途中の破壊コストが高いモーダルだけは「閉じない」を選び、その他は操作の軽さを優先する。
-  - 新しいモーダルを追加する際は、入力破壊リスクの有無を基準に backdrop 方針を先に決める。
+  - フォールバックは「完全停止の回避」が目的で、通常再生経路（`play()` 成功時）の画質/同期特性は維持する
+  - シーク実行間隔を短くし過ぎると `seeking` 連続で逆に静止化しやすいため、間隔制御が必須
 
-### 13-64. iOS Safari preview 音声は単一音源なら native fallback を使う
+### 13-46. 長い開始トリミング時のエクスポート静止化対策（trimStart 到達待ちの厳密化）
+
+- **ファイル**: `src/components/TurtleVideo.tsx`
+- **問題**:
+  - `trimStart` が大きい動画では、先頭フレーム準備待ちが「`readyState>=2 && !seeking`」のみだと、目標時刻へ未到達でも待機が解除される場合がある
+  - その状態でエクスポート再生を開始すると、補正シークが過密になり、音声だけ進んで映像が静止しやすい
+- **対策**:
+  - 先頭フレーム待機条件に `|currentTime - trimStart| <= 0.05` を追加し、目標時刻到達まで待つ
+  - 待機中に未到達の場合は再シークを再試行する
+  - 待機タイムアウトを `1500ms -> 4000ms` へ延長して長い開始トリミングにも対応
+  - エクスポート時の同期しきい値を緩和（`iOS: 1.2s / 非iOS: 0.5s`）し、過剰な補正シークを抑える
+- **注意**:
+  - 開始トリミングが大きいケースでは、`readyState` だけでなく目標時刻到達の確認が必須
+  - 補正しきい値を厳しくし過ぎると `seeking` が連続して描画が止まりやすい
+
+### 13-47. Codex向けPRレビュー運用の固定化（`AGENTS.md` + `Docs/review` + 軽量PRテンプレート）
+
+- **ファイル**: `AGENTS.md`, `Docs/review/README.md`, `Docs/review/functional-review-checklist.md`, `Docs/review/non-functional-and-regression-checklist.md`, `.github/pull_request_template.md`
+- **問題**:
+  - AIレビューの指示が散在していると、文法・作法中心の指摘に寄りやすく、要件充足・デグレ・非機能観点が抜けやすい
+  - PR本文の粒度が揃わないと、レビュアが変更意図と影響範囲を読み取りにくい
+- **対策**:
+  - ルート `AGENTS.md` に、Codexレビュー時の言語、優先順位、出力形式を固定する
+  - 具体的なレビュー観点は `Docs/review/` に分離し、機能要件と非機能・デグレ観点を明示する
+  - `.github/pull_request_template.md` は Markdown ベースでさらに軽量にし、`何を変えたか` `なぜ変えたか` `見てほしい点` `確認メモ` の最小構成にする
+  - PR本文が薄い場合も、レビュー側が差分・Issue・`spec.md` から意図を再構成して観点を補完する
+- **注意**:
+  - GitHub の PR テンプレートは Issue Forms のような YAML フォームではなく Markdown 前提で設計する
+  - 個人開発では、PR作成者に要件整理を過剰に要求せず、「困りごと」や「作りたい方向」だけでもレビューが回るようにする
+
+### 13-48. 設定モーダルに前回タグ差分の概要履歴を追加（軽量な履歴カード）
+
+- **ファイル**: `src/components/modals/SettingsModal.tsx`, `version.json`
+- **問題**:
+  - バージョン番号だけでは、更新後に何が変わったかが設定画面から分かりにくい
+  - 全履歴を設定画面に載せると重くなり、APIキー設定やログ確認の主導線を邪魔しやすい
+- **対策**:
+  - 設定タイトル横に履歴ボタンを追加し、ヘルプと同じ位置に補助カードとして表示する
+  - 配色はヘルプの暖色系と分け、客観情報として薄いライトグレー系で静かに見せる
+  - `version.json` に `history` を追加し、前回タグから今回バージョンまでの概要だけを保持する
+  - 全履歴配列にはせず、`previousVersion` + `summary` + `highlights` の最小構成にして運用負荷を抑える
+  - `history` が無いビルドでは履歴ボタン自体を表示せず、内部の情報パネル状態も `history` に遷移させない
+- **注意**:
+  - 履歴カードは要約レベルに留め、詳細な技術メモや全変更一覧は載せない
+  - `version.json` のファイル名は維持し、既存参照や保存データ上のバージョン利用箇所への波及を最小化する
+  - `popstate` による戻る操作では、見えていない履歴パネルを閉じるだけの無駄な状態遷移を作らない
+
+### 13-49. リリース用バージョン更新スキルの追加（差分収集 + `version.json` 更新補助）
+
+- **ファイル**: `.agents/skills/release-version-manager/SKILL.md`, `.agents/skills/release-version-manager/scripts/collect-release-context.ps1`, `.agents/skills/release-version-manager/scripts/update-version-json.mjs`, `.github/skills/release-version-manager/SKILL.md`
+- **問題**:
+  - バージョン更新時に、最新タグ・コミット・差分を毎回手作業で確認すると抜けや揺れが出やすい
+  - `version.json` の `history` を都度手編集すると、粒度や形式がぶれやすい
+- **対策**:
+  - `release-version-manager` スキルを追加し、タグ取得、差分収集、AI要約、`version.json` 更新、検証、タグ運用を段階化する
+  - 差分収集は PowerShell スクリプトで `safe.directory` を付けて Git 情報を収集し、Windows 環境でも扱いやすくする
+  - `update-version-json.mjs` は dry-run を既定にし、確認後にだけ `--write` で反映する
+- **注意**:
+  - `git push` / `git push --tags` はスキル内でも必ずユーザー確認を挟む
+  - `version.json` には全履歴ではなく最新差分だけを保持する前提を崩さない
+  - 実運用で参照される `.agents/skills` 側と、共有元の `.github/skills` 側は同一内容を維持する
+
+### 13-50. AIレビューでは「防御コード」と「現行契約」を切り分けて評価する
+
+- **ファイル**: `AGENTS.md`, `Docs/review/README.md`, `Docs/review/functional-review-checklist.md`, `Docs/review/non-functional-and-regression-checklist.md`
+- **問題**:
+  - 防御コード（`??`, optional chaining, null guard など）だけを見ると、実際には必須前提のデータまで optional 仕様だと誤認してレビューしやすい
+  - その結果、型・テスト・スキーマが示す現行契約とずれた仮説ベース指摘が高優先度で出ることがある
+- **対策**:
+  - レビュー時は PR本文、Issue、`spec.md`、差分だけでなく、型・スキーマ・保存/読込コード・既存テストで現行契約を確認する
+  - 到達可能性が確認できない懸念は、断定せず前提付きの open question として扱う
+  - findings が 1 件だけでも、要件充足・デグレ・非機能の主要観点を確認した結果を短く添える
+- **注意**:
+  - `Docs/review/` は詳細基準であり、入口としてルート `AGENTS.md` から明示参照する
+  - `Docs/review/` を置くだけでは、Codex が常に自動参照する前提ではない
+
+### 13-51. モーダルの領域外クリック挙動は用途で分ける（AIのみ閉じない）
+
+- **ファイル**: `src/components/modals/AiModal.tsx`, `src/components/modals/SettingsModal.tsx`, `src/components/modals/SaveLoadModal.tsx`, `src/components/modals/SectionHelpModal.tsx`, `src/components/modals/CaptionSettingsModal.tsx`
+- **問題**:
+  - モーダルごとに backdrop クリック/タップ時の挙動が揺れると、誤操作時の期待が崩れる
+  - 特に AIナレーションは文字入力中の内容を失いやすく、領域外クリックで閉じると事故コストが高い
+- **対策**:
+  - `AiModal` は領域外クリック/タップでは閉じない
+  - `SettingsModal`、`SectionHelpModal`、`SaveLoadModal`、`CaptionSettingsModal` は領域外クリック/タップで閉じる
+  - 閉じるモーダルは backdrop 側で `onClose`、本体側で `stopPropagation()` を明示して、意図せぬバブリングを防ぐ
+- **注意**:
+  - 入力途中の破壊コストが高いモーダルだけは「閉じない」を選び、その他は操作の軽さを優先する
+  - モーダル追加時は、入力破壊リスクの有無を基準に backdrop 方針を先に決める
+### 13-64. iOS Safari preview 音声は「単一音源かつ音量1倍」のときだけ native fallback を使う
 
 - **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
 - **問題**:
   - iOS Safari で attach 時に全音源を一律 `muted` 化すると、単一音源の preview でも無音になるケースがある
-  - 一方で動画音声 + BGM + ナレーションの同時再生では、従来どおり WebAudio mix が必要
+  - ただし native `HTMLMediaElement.volume` 経路は、BGM 音量変更やフェードを正しく反映できず、音量が 1 以外のときに preview と export がずれる
 - **対策**:
   - `getPreviewAudioOutputMode()` で iOS Safari の preview 音声出力モードを判定する
-  - preview 中の可聴音源が 1 つだけなら native 出力へ逃がし、GainNode 側は 0 にする
-  - 複数同時再生または export では従来どおり WebAudio mix を使い、native 側を mute する
+  - `audibleSourceCount === 1` かつ `desiredVolume === 1` のときだけ `native` を返し、それ以外は `webaudio` を返す
+  - export 中、複数同時再生、AudioNode 接続済み、または音量変更ありの経路では常に WebAudio mix を使う
   - `stopAll()` と media attach 時には native の `muted` / `volume` を初期状態へ戻す
 - **注意**:
   - iOS Safari preview の無音修正は `handleMediaRefAssign` の一律 mute へ戻さず、必ず output mode helper 経由で調整する
-  - 単一音源 preview の音量は native `HTMLMediaElement.volume` に寄せるため、Safari 専用の preview 回避は export 音声経路へ混ぜない
+  - BGM やナレーションの音量が 1 以外なら、単一音源でも native fallback へ逃がさない
 
-### 13-65. 自動保存失敗時は catch-up 再試行の基準時刻を進めない
+### 13-65. iOS Safari の動画サムネイルは offscreen DOM + prime 再生で黒化を避ける
 
-- **対象ファイル**: `src/hooks/useAutoSave.ts`, `src/test/useAutoSave.test.tsx`
+- **ファイル**: `src/components/common/ClipThumbnail.tsx`, `src/test/clipThumbnail.test.tsx`
 - **問題**:
-  - `saveProjectAuto()` が失敗しても `lastAutoSaveActivityAtRef` を更新すると、タブ復帰直後やエクスポート終了直後の catch-up 保存が次の保存間隔まで抑止される
-- **対応パターン**:
-  - `failed` は `skipped-processing` と同じく「活動なし」とみなし、`lastAutoSaveActivityAtRef` を更新しない
-  - `focus` / `visibilitychange` / `pageshow` を契機にした catch-up 保存テストで、失敗直後でも同内容を即再試行できることを維持する
-- **注意**:
-  - 自動保存結果の種類を増やす場合は、変更検知ハッシュを進めるかだけでなく、catch-up 判定用の活動時刻を進めるかも必ずセットで決める
-
-### 13-66. `pagehide` 先行時の export は入力メディアを即 pause しない
-
-- **対象ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
-- **問題**:
-  - 環境によっては `pagehide` が `visibilitychange(hidden)` より先に発火する
-  - この瞬間に export 中でも `pauseAllMediaElements()` を実行すると、export ループが hidden 側で止まる前に入力動画/音声だけ pause され、出力ファイルへ黒フレームや無音区間が混入しうる
-- **対応パターン**:
-  - `pagehide` では通常 preview だけ入力メディアを pause し、export 中は hidden 側の停止契機へ委ねる
-  - 判定は `getPageHidePausePlan()` に切り出し、pure helper として回帰テストで固定する
-- **注意**:
-  - `visibilitychange(hidden)` 側の停止・復帰契約は維持し、`pagehide` だけを別扱いして race を潰す
-
-### 13-67. 非 iOS export のフレーム供給時刻は「描画済みフレーム」を基準にする
-
-- **対象ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/exportTimeline.ts`, `src/test/exportTimeline.test.ts`
-- **問題**:
-  - Canvas 直接 `VideoFrame` 化の export 経路では、エンコーダー側の目標フレーム数が `currentTimeRef` を参照している
-  - その値が `renderFrame()` 完了前に進むと、次フレームとしてまだ描画されていない古い Canvas を拾い、重複フレームと取りこぼしが混在して元動画よりカクついて見える
-- **対応パターン**:
-  - export ループでは `renderFrame()` の戻り値で Canvas 更新有無を受け取り、`holdFrame` などで描画内容を維持したフレームでは `lastRenderedExportTimeRef` を進めない
-  - 非 iOS の WebCodecs export では、その描画済み時刻を `getPlaybackTimeSec()` の優先値として使う
-  - iOS Safari は既存 MediaRecorder strategy との責務分離を維持し、従来どおり `currentTime` 基準を残す
-  - 時刻選択ロジックは `resolveExportPlaybackTimeSec(currentTime, lastRenderedTime, preferRenderedTime)` に切り出し、pure test で platform 分岐と fallback を固定する
-- **注意**:
-  - export 進行時刻を publish する ref と、実際に Canvas へ描画済みの時刻は同一とは限らないため、Canvas 直接エンコードでは「描画完了後の時刻」を参照する
-  - preview 再生や iOS export まで同じ ref に統一すると既存経路へ副作用が出やすいので、適用範囲は非 iOS export のみに留める
-
-### 13-68. 自動保存タイマーは復帰時に再アームし、間隔変更でも経過時間を捨てない
-
-- **対象ファイル**: `src/hooks/useAutoSave.ts`, `src/test/useAutoSave.test.tsx`
-- **問題**:
-  - タブ非アクティブ化や BFCache 復帰の環境では、`setInterval` が停止したまま戻ることがあり、その後の自動保存が再開されないことがある
-  - 自動保存間隔を 5 分→1 分などへ短く変更した時に、タイマー再生成で `lastAutoSaveActivityAtRef` を現在時刻へ戻すと、新しい間隔で既に overdue でも保存が先送りされる
-
-### 13-69. PWA 更新適用は多重実行を防ぎ、意図的な reload では beforeunload を出さない
-
-- **対象ファイル**: `src/stores/updateStore.ts`, `src/components/ReloadPrompt.tsx`, `src/components/modals/SettingsModal.tsx`, `src/hooks/usePreventUnload.ts`, `src/test/stores/updateStore.test.ts`, `src/test/usePreventUnload.test.tsx`
-- **問題**:
-  - `vite-plugin-pwa` の prompt モードでは、waiting service worker への `skipWaiting` 後に `controlling` を契機として reload が走る
-  - この時に更新適用ボタンを連続で押せると reload 要求が多重化し、編集中データに対する `beforeunload` 確認も重なって見えやすい
-- **対応パターン**:
-  - `updateStore` に `isApplyingUpdate` を持たせ、更新適用は store の単一ラッパー経由で 1 回だけ通す
-  - 更新適用開始時に `needRefresh` を閉じ、`ReloadPrompt` と `SettingsModal` の更新ボタンは `isApplyingUpdate` 中に無効化する
-  - `usePreventUnload` は通常の編集中離脱では従来どおり警告するが、PWA 更新適用中だけは警告を出さず、意図した reload を素通しする
-- **注意**:
-  - 手動更新導線を増やしても、service worker 更新適用は UI から直接 hook を呼ばず store ラッパーへ集約する
-  - 更新適用中の状態は reload 成功時に自然終了する前提なので、失敗時だけ再試行できるよう `needRefresh` を戻す
-- **対応パターン**:
-  - 復帰契機（`visibilitychange` / `focus` / `pageshow`）では catch-up 判定の前に、hidden/pagehide をまたいだ時だけ interval を再アームする
-  - 再アーム時は「今から丸ごと1周期」ではなく、`lastAutoSaveActivityAtRef` から見た残り時間だけ待ってから通常 cadence へ戻す
-  - 復帰時点で既に期限超過なら残り待ち時間は 0 とみなし、catch-up 保存で即座に追いついたうえで通常 cadence を再開する
-  - interval の再生成や保存間隔変更では `lastAutoSaveActivityAtRef` をリセットせず、最後に保存できた時刻を保持したまま overdue 判定する
-  - 自動保存実行直前の export 判定は `useUIStore.getState().isProcessing` で最新値を参照し、エクスポート中保存を確実に抑止する
-- **注意**:
-  - 復帰のたびに無条件で interval を張り直すと、通常の `focus` でも次回保存時刻を後ろ倒ししやすい。hidden / pagehide を経た時だけ再アームする
-  - export 中に interval を再アームしても保存自体は走らない契約を維持し、resume 後の catch-up 保存と競合させない
-
-### 13-69. 自動保存のクリップロック検知は `mediaStore.isClipsLocked` を唯一の正状態として読む
-
-- **対象ファイル**: `src/hooks/useAutoSave.ts`, `src/stores/mediaStore.ts`, `src/test/useAutoSave.test.tsx`
-- **問題**:
-  - 以前の実装では `mediaStore` に旧 save/restore 契約との互換用 alias `isLocked` が残っており、通常操作の `toggleClipsLock()` では `isClipsLocked` だけが更新されていた
-  - 自動保存が alias 側を読んでいたため、クリップセクションロックの変更がハッシュにも保存データにも反映されず、編集中の変更なのに `skipped-nochange` 扱いで autosave が止まっていた
-- **対応パターン**:
-  - クリップセクションロックの参照元は `useMediaStore((s) => s.isClipsLocked)` に統一した
-  - `mediaStore` 側では `toggleClipsLock()` / `clearAllMedia()` / `restoreFromSave()` で alias `isLocked` も同期し、旧参照が残っても状態が乖離しないようにした
-  - テストは `setState({ isClipsLocked: ... })` で実ストア契約に合わせ、ロック切り替え後に autosave が再度走ることを明示的に固定した
-- **注意**:
-  - `MediaItem.isLocked`（個別クリップロック）と `mediaStore.isClipsLocked`（セクションロック）は別概念なので混同しない
-  - Zustand テストで存在しない state key を直接差し込むと、今回のような selector typo を見逃すため、実ストアの state shape に合わせる
-
-### 13-70. 自動保存表示は「前回成功保存時刻」ではなく「最後に autosave cadence が進んだ時刻」を基準にする
-
-### 13-71. App 入口で runtime flavor を一度だけ解決する
-
-- **ファイル**: `src/App.tsx`, `src/app/resolveAppFlavor.ts`, `src/app/AppShell.tsx`, `src/flavors/standard/StandardApp.tsx`, `src/flavors/apple-safari/AppleSafariApp.tsx`
-- **問題**: `TurtleVideo.tsx` のような下位実装へ platform 判定が流れ込むと、iOS Safari 向け回避策が Android/PC の既定経路へ混ざりやすい
+  - iPhone Safari では、`document.createElement('video')` で作った未配置 video から即座に `drawImage()` すると、iPhone 撮影動画で黒いサムネイルになることがある
+  - `loadedmetadata` / `seeked` だけではフレームのデコード完了を保証できず、キャンバス描画だけが先行しやすい
 - **対策**:
-  - App 入口で `resolveAppFlavor()` により runtime flavor を一度だけ決定する
-  - 選択した flavor だけを `React.lazy()` で読み込み、未使用 flavor を初期ロードしない
-  - Phase 1 では両 flavor とも `TurtleVideo` を adapter として共有し、以後のフェーズで runtime を段階的に分離する
+  - iOS Safari だけ、サムネイル生成用 video を一時的に offscreen DOM へ追加し、`loadeddata` / `canplay` / `seeked` と短い待機でフレーム準備を待つ
+  - `playsinline` / `webkit-playsinline` を付けた muted video を一度だけ短く `play()` して、ネイティブデコーダにフレーム確定を促す
+  - prime 再生で時刻がずれた場合は、目標時刻へ再シークしてからキャンバスへ描画する
 - **注意**:
-  - 下位 shared モジュールで `isIosSafari` の直参照を増やさず、flavor 境界は App 入口に保つ
-  - `AppShell` のような共通ラッパーへ残すのは、ErrorBoundary、自動保存、orientation lock など platform 非依存の責務に限定する
+  - この workaround は iOS Safari 限定で適用し、Android / PC の既存サムネイル経路には波及させない
+  - offscreen 配置した video はサムネイル確定後すぐに `pause()` と DOM 解除を行い、不要なデコーダ保持を避ける
 
-- **対象ファイル**: `src/hooks/useAutoSave.ts`, `src/stores/projectStore.ts`, `src/components/modals/SaveLoadModal.tsx`, `src/test/useAutoSave.test.tsx`, `src/test/modalHistoryStability.test.tsx`
+### 13-66. 動画クリップ終端の `ended -> play()` 巻き戻りは途中クリップでもガードする
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
 - **問題**:
-  - autosave が `skipped-nochange` / `skipped-empty` で正常に1周期進んでいても、UI が `projectStore.lastAutoSave`（最後に実保存できた時刻）だけを見ていると、5分設定でも「7分前」などと表示され、停止と見分けがつかない
-  - アプリ起動直後に IndexedDB 上の前回 autosave が既に期限超過していても、in-memory timer を現在時刻で初期化すると catch-up 保存が先送りされる
-- **対応パターン**:
-  - `projectStore` に `lastAutoSaveActivityAt` / `autoSaveRuntimeStatus` / `autoSaveRestartToken` を持たせ、autosave hook から「最後に cadence が進んだ時刻」と実行状態を更新する
-  - 起動直後は、まだ runtime 側で autosave 実績がない場合に限って `lastAutoSave` を活動基準へ同期し、既に期限超過なら catch-up 保存を速やかに走らせる
-  - 保存モーダルの主表示は `lastAutoSaveActivityAt` を使い、`lastAutoSave` は「前回保存日時」として別行に分ける。活動時刻が interval を超過したら「要確認」と再始動ボタンを表示する
+  - 動画の直後に画像が続くタイムラインで、動画要素がクリップ終端よりわずかに先に `ended` になると、再生ループが `play()` を再実行して `position 0` へ巻き戻すことがある
+  - その直後は `seeking=true` で `drawImage()` がスキップされるため、PC Edge や Android を含む非iOS経路でも「動画 -> 画像」の境界に黒フレームが挟まり得る
+- **対策**:
+  - `shouldHoldVideoFrameAtClipEnd()` で「クリップ残り時間」と「動画 currentTime/ended 状態」を合わせて判定し、タイムライン終端だけでなく各クリップ終端でも最終フレーム保持へ倒す
+  - export fallback seek、通常の同期シーク、`play()` 再始動の全てで同じ helper を参照し、境界条件のずれを防ぐ
+  - helper の pure logic は `src/test/previewPlatform.test.ts` で自動検証する
 - **注意**:
-  - `refreshSaveInfo()` は保存先 DB の最終保存時刻しか知らないため、`skipped-nochange` などで進んだ runtime 活動時刻を上書きしない
-  - 手動保存で autosave cadence の基準をリセットする場合も、正確な「前回 auto 保存日時」は `lastAutoSave` 側で保持し続ける
-  - 手動保存直後の `autoSaveRuntimeStatus` は autosave 成功扱いにせず、待機状態へ戻して「直近の自動保存が完了した」と誤表示しない
+  - 終端ガードを「タイムライン全体の最後」だけに限定すると、途中クリップの切り替わりで同種の黒フレームが再発する
+  - クリップ終端ガードは動画の自然終了そのものを止めるのではなく、終端直前の再始動だけを抑止する
 
-### 13-72. preview/export の再生時刻計測は `performance.now()` を優先し、コマ落ち体感を抑える
+### 13-67. `OfflineAudioContext` の事前音声プリレンダリングは iOS Safari 専用に閉じる
 
-- **対象ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`
+- **ファイル**: `src/hooks/useExport.ts`, `src/hooks/export-strategies/exportStrategyResolver.ts`, `src/test/exportStrategyResolver.test.ts`
 - **問題**:
-  - 再生ループが `Date.now()` 基準だと、端末やブラウザ負荷時の時刻分解能・ドリフトの影響で描画間隔が粗くなり、「パラパラ漫画」のように見えるケースがある。
-  - apple-safari は preview ループがそのまま real-time canvas capture (MediaRecorder) の描画も駆動するため、time base の揺れが書き出し動画の微小カクツキにも乗る。
-- **対応パターン**:
-  - loop 時刻計測と `startTimeRef` 初期化を `performance.now()` 優先へ変更する（fallback は `Date.now()`）。loop の `now` と `startTimeRef` は必ず同じ time base で揃える。
-  - monotonic な高精度時刻を使い、フレーム進行の微小な揺れを減らす。
-- **経緯 / 注意**:
-  - 当初は standard のみに適用し apple-safari は「Safari 経路の挙動非変更を維持」のため見送っていたが、iOS Safari export のカクツキ低減要望を受けて apple-safari にも同一パターンを適用した。
-  - `performance.now()` は iOS Safari でも古くから利用可能で monotonic なため、`Date.now()` からの置換は挙動安全。loop と `startTimeRef` の time base を必ず一致させること（混在すると elapsed 計算が壊れる）。
-  - 各 flavor の recovery/throttle 用 `Date.now()`（`videoRecoveryAttemptsRef` 等）は対象外。time base 計測のみ置換する。
-
-### 13-73. Android の動画・画像追加は `showOpenFilePicker()` より hidden file input を優先する
-
-- **対象ファイル**: `src/components/TurtleVideo.tsx`, `src/components/sections/ClipsSection.tsx`
-- **問題**:
-  - Android Chrome で `showOpenFilePicker()` を使うと Files / ダウンロード寄りの一覧 UI になりやすく、写真・動画のサムネイル picker を開きたい要件と相性が悪い。
-- **対応パターン**:
-  - 動画・画像追加ボタンの picker 分岐は shared capability を見て決めつつ、Android では `showOpenFilePicker()` を無効化して既存の hidden `<input type="file" accept="image/*,video/*" multiple>` を使う。
-  - PC など Android 以外では既存の `showOpenFilePicker()` 経路を維持し、音声追加や保存/読み込み picker には波及させない。
+  - Safari 向けの音声プリレンダリングを非iOSにも広げると、PC/Android のエクスポートが「先に音声準備、その後映像開始」の待機型フローへ変わり、既存の体感挙動を壊しやすい
+  - 分離方針が曖昧なままだと、Safari 向け回避策が Edge / Android の標準経路へ混入する
+- **対策**:
+  - `shouldUseOfflineAudioPreRender()` で `OfflineAudioContext` の先行実行条件を `isIosSafari && hasAudioSources` に限定する
+  - PC/Android は従来どおり TrackProcessor / ScriptProcessor のリアルタイム音声キャプチャを優先し、エクスポート再生ループを早く開始する
+  - resolver の pure logic は `src/test/exportStrategyResolver.test.ts` で自動検証する
 - **注意**:
-  - Android 判定は shared UI 側で直接増やさず、runtime から渡された capability をもとに `TurtleVideo.tsx` 側で経路を決める。
-  - `capture` は付けず、OS / Chrome / 端末設定によって picker 表示が変わる前提で「サムネイル一覧が出やすい経路」を優先する。
+  - Safari のために追加した「事前音声処理」は resolver で隔離し、`useExport.ts` に無条件で広げない
+  - 体感フローの変更もデグレとして扱い、PC/Android の既定経路は明示的に守る
 
-### 13-74. Promise の resolve ハンドラ保持は `null` より `undefined + 明示型` で固定する
+### 13-68. Android の停止後 0 秒復帰は `seeked` / `canplay` 待ちで先頭動画フレームを描く
 
-- **対象ファイル**: `src/test/useExport.test.ts`
+- **ファイル**: `src/components/TurtleVideo.tsx`
 - **問題**:
-  - Vitest の `mockImplementation` 内で `new Promise<boolean>((resolve) => ...)` の `resolve` を外側変数へ退避する際、`null` union のまま扱うと TypeScript の制御フロー解析で呼び出し地点が `never` 扱いになり、`This expression is not callable` を起こすことがある。
-- **対応パターン**:
-  - 退避変数を `((handled: boolean) => void) | undefined` とし、利用前ガード後に `const strategyResolver: (handled: boolean) => void = resolveStrategy` のように明示型で受ける。
+  - Android で `動画 -> 画像 -> 動画 -> 画像` のタイムラインを停止して 0 秒へ戻すと、先頭動画を `trimStart` へ戻した直後は `seeking` または `readyState < 2` のままになりやすい
+  - その状態で停止経路が即座に `renderFrame(0, false)` すると、キャンバス黒クリアだけが先に走り、先頭動画フレームが未描画のまま次回再生開始へ持ち越される
+- **対策**:
+  - 停止後の 0 秒描画は `renderPausedPreviewFrameAtTime(0)` に集約し、先頭動画が `seeked` / `loadeddata` / `canplay` を満たすまで paused フレーム描画を待つ
+  - `pendingPausedSeekWaitRef` は単純な `seeked` listener 参照ではなく `cleanup` 関数保持に変え、停止・シーク・再開のどの経路からでも確実に待機解除できるようにする
+  - `handleStop` では seek 世代と pending wait をクリアしてから 0 秒描画へ入れ、古い seek 待ちが先頭フレーム復帰を邪魔しないようにする
 - **注意**:
-  - Promise の `resolve` は `boolean | PromiseLike<boolean>` を受けられるため、テスト意図が boolean 解決で固定されている場合は受け側関数型を明示しておく。
+  - Android / PC / iOS の platform policy 分岐には混ぜず、停止後の paused preview 初期化ロジックとして `TurtleVideo.tsx` 側で閉じる
+  - 停止直後の 0 秒描画は「黒クリア優先」ではなく「先頭動画フレーム準備優先」で扱わないと、最初の動画だけ黒いまま再生されやすい
 
-### 13-75. export 時の caption 判定時刻は「エンコード対象フレーム timestamp」に固定する
+### 13-69. 動画コンテナ音声のフォールバック抽出は無音 gain 経由で real destination へ接続する
 
-- **対象ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/utils/captionTimeline.ts`, `src/test/exportTimeline.test.ts`
+- **ファイル**: `src/hooks/useExport.ts`
 - **問題**:
-  - export ループが壁時計由来の `elapsed` をそのまま caption 判定へ流すと、エンコーダーへ渡す `VideoFrame.timestamp` と表示判定時刻が一致せず、字幕だけ 0.1〜0.3 秒遅れて見えることがある。
-- **対応パターン**:
-  - standard export の `renderFrame()` には `getExportFrameTiming(resolveExportDuration(...), FPS, frameIndex)` から算出した `timestampUs / 1e6` を渡し、Canvas 描画時刻を encoded timestamp と一致させる。
-  - caption の表示判定は `isCaptionActiveAtTime()` helper に統一し、preview / export の双方で同じ `[start, end)` 判定を使う。
-  - export 診断ログ `[DIAG-CAPTION-EXPORT-TIMING]` では frame timestamp・caption 境界・isActive を同一レコードへ出力し、時刻基準の不一致を早期検出する。
+  - `decodeAudioData` が動画コンテナ音声の抽出に失敗したときは `extractAudioViaVideoElement()` で `ScriptProcessorNode` にフォールバックする
+  - このとき `ScriptProcessorNode` を `MediaStreamDestination` だけへつなぐと、環境によって `onaudioprocess` が発火せず、抽出結果が空になって書き出し音声が無音化しやすい
+- **対策**:
+  - フォールバック抽出では `ScriptProcessorNode -> silent GainNode -> AudioContext.destination` の経路を使い、実デスティネーション到達でコールバック発火を保証する
+  - `GainNode.gain = 0` と `outputBuffer` の無音書き込みを併用し、スピーカーへの漏れを防ぎつつ PCM 抽出だけを維持する
 - **注意**:
-  - caption 用の固定オフセット補正（±0.2s など）は導入しない。素材依存で逆効果になるため、まず timestamp 基準の一致を優先する。
-  - iOS Safari export 経路は既存戦略を維持し、今回の時刻固定は standard runtime の export ループへ限定する。
-
-### 13-76. iOS Safari は再生中のシークで一時停止し、自動再開せず UI の再生状態も揃える
-
-- **対象ファイル**: `src/components/TurtleVideo.tsx`（`handleSeekStart`）
+  - これは Safari 専用分岐ではなく「動画コンテナ音声抽出フォールバック」の共有処理として扱う
+  - `MediaStreamDestination` への接続だけで無音化を防ごうとすると、PC / Android / iOS いずれでも抽出失敗を招く可能性がある
+### 13-70. 可視復帰では paused preview の待機状態を clear してから settled frame を描く
+- **ファイル**: `src/components/TurtleVideo.tsx`
+- **背景**:
+  - タブ非アクティブ化や `visibilitychange` 復帰の前後で、seek 再開待ちや paused frame wait が残ると、古い `seeked` / `canplay` callback が後から発火して黒フレームや不安定描画を起こしやすい
+  - 通常再生中でない復帰では `renderFrame()` を即時実行すると、まだ `readyState < 2` / `seeking` の動画を掴んでしまう
+- **対策**:
+  - hidden 入りでは `cancelPendingSeekPlaybackPrepare()` と `cancelPendingPausedSeekWait()` を先に流し、stale な preview callback を残さない
+  - `blur` が `visibilitychange(hidden)` より先に来る環境でも同じ待機解除を先行し、古い `seeked` / `canplay` callback が復帰直後に割り込まないようにする
+  - visible 復帰で停止中なら `renderFrame()` 直描きではなく `renderPausedPreviewFrameAtTime()` を使い、`seeked` / `loadeddata` / `canplay` 完了後に paused frame を再描画する
+  - `renderPausedPreviewFrameAtTime()` 側でも `readyState === 0` の動画には `load()` を掛け直してから `syncVideoToTime(..., { force: true })` し、タブ復帰直後の黒画面を避ける
+- **注意**:
+  - この修正は preview visibility 復帰に閉じ、export strategy や `useExport.ts` には波及させない
+### 13-71. 保存失敗は原因分類を保持し、UI から復旧アクションを再実行できるようにする
+- **ファイル**: `src/stores/projectStore.ts`, `src/components/modals/SaveLoadModal.tsx`, `src/utils/indexedDB.ts`
 - **問題**:
-  - seek controller は本来「スクラブ後に自動再開」する設計（`wasPlayingBeforeSeekRef` を見て seek end で `proceedWithPlayback()`）。PC/Android では機能するが、iOS Safari では seek end の再開が prepare 待ち後の非同期 `video.play()` になり、ユーザージェスチャー文脈を外れて reject されるため、実際には一時停止のまま。
-  - 一方で UI ストアの `isPlaying` は seek ライフサイクル中 `true` のままなので、「実際は一時停止なのにボタンは再生中(⏸)表示」という不整合になり、再生/一時停止ボタンを 2 回押さないと再生できない退行に見える。
-- **対応パターン**:
-  - iOS Safari (`platformCapabilities.isIosSafari`) では、`handleSeekStart` で `handleLiveSeekStart()` 実行後に「seek 開始時点で再生中だったか」を `wasPlayingBeforeSeekRef.current` で判定し、再生中だったら UI ストアの `pause()` を呼んでボタンを「再生(▶)」表示へ揃える。
-  - 同じ `handleSeekStart` 内で `wasPlayingBeforeSeekRef.current = false` を立て、controller の自動再開分岐（`handleSeekEnd` 内 `wasPlaying` 判定）を無効化する。これで seek end が「一時停止フレーム描画」パスへ落ち、手動再開（再生ボタン押下 → `togglePlay` → `startEngine`）に統一される。
+  - 手動保存で `保存に失敗しました` が一度出ると、その後も同じ underlying failure が続いても generic error toast しか出ず、ユーザーからは「何を消せば戻るのか」「DB を初期化すべきか」が分からない
+  - `AbortError` / `UnknownError` のような IndexedDB 失敗は容量不足と別経路でも起きるが、従来は監視情報が残らず、復旧手段も auto save 削除しか見えない
+- **対策**:
+  - `projectStore` で保存失敗時に `lastSaveFailure` を構築し、`reason` / `recoveryAction` / `storageEstimate` を保持する
+  - 復旧アクションは `quota / near quota -> delete-auto-and-retry`、`IndexedDB transaction error -> delete-auto-and-retry or reset-database-and-retry`、`素材シリアライズ失敗 -> inspect-media` に分類する
+  - `SaveLoadModal` に直近の保存失敗カードを出し、推奨対応を表示する。手動保存失敗後は `lastSaveFailure` を参照して `confirmAutoDeleteForSave` または `confirmResetDbForSave` へ遷移する
+  - `resetProjectDatabase()` で保存用 IndexedDB 全体を delete できるようにし、DB 初期化後に同じ編集中データで manual save を再試行できるようにする
+  - manual/auto save 成功時、auto save 削除時、DB 初期化時は `lastSaveFailure` を clear し、古いエラー監視状態を持ち越さない
+  - `File` 直読みが失敗した素材は object URL fetch へフォールバックし、それでも失敗した場合は `メディア「foo.mp4」` のように素材名付きエラーへ変換して、どの素材が壊れているかを UI / ログから追えるようにする
 - **注意**:
-  - 自動再開の抑止は必ず **seek start** 側で行う。seek end には slider 由来 (`onPointerUp` 等) と window グローバルリスナー (`attachGlobalSeekEndListeners` → `handleSeekEndCallbackRef` 経由で controller の `handleSeekEnd` を直接呼ぶ) の 2 経路があり、seek end 側だけで倒すとグローバル経路で再開が漏れる。
-  - 本変更は iOS Safari 限定。standard (PC/Android) はスクラブ後の自動再開が正常動作しているため挙動を変えない。preview cache 経路（Android）も対象外。
+  - DB 初期化は保存履歴を消す最終手段であり、現在編集中の state は React/Zustand 側に残っている前提でのみ案内する
+  - `inspect-media` は素材 Blob / File 読み出し失敗系を想定しており、DB 初期化では解決しないため別導線に分ける
 
-### 13-77. iOS Safari MediaRecorder の映像取り込みは captureStream(0)+requestFrame 単一供給にする
-
-- **対象ファイル**: `src/flavors/apple-safari/export/iosSafariMediaRecorder.ts`, `src/test/iosSafariMediaRecorder.test.ts`
+### 13-72. メディア追加時のファイル名は app 側で rename せず、対応ブラウザでは open file picker を優先する
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/components/sections/ClipsSection.tsx`, `src/utils/platform.ts`
 - **問題**:
-  - iOS Safari export (MediaRecorder 経路) で `canvas.captureStream(fps)` の自動供給に加えて `setInterval(requestFrame)` を併用しており、フレームが二重供給されていた。
-  - CFR ではない MediaRecorder では取り込みフレーム間隔が不揃いになり、「動画のデコードは正常（`getVideoPlaybackQuality().droppedVideoFrames` の増分がほぼ 0 ＝ 原因②）」なのに**書き出し映像だけカクつく**。実機診断で原因②（キャプチャ/エンコード側）と確定。BGM ありで OfflineAudioContext プリレンダー経路に入ると顕在化しやすい。
-- **対応パターン**:
-  - `requestFrame` が使える環境では `canvas.captureStream(0)` の手動モードへ切替え、自動供給を止めて frame pump 単一供給に統一する（WebCodecs 経路の 13-13 と同じ方針を MediaRecorder 経路にも適用）。
-  - 静止画区間でも pump がフレームを供給するため尺ズレは起きない。`requestFrame` 非対応環境は従来どおり `captureStream(fps)` 自動供給へフォールバック。
-  - 起動ログに `canvasCaptureMode`（`manual-requestFrame` / `auto-fps`）を出して現場診断可能にする。
+  - `input[type=file]` 経由のメディア追加では、ブラウザ/OS によっては元ファイル名ではなく数値ベースの一時名が `File.name` として渡ることがある
+  - app 側で rename しているように見えやすく、ユーザーが元ファイルとの対応を見失う
+- **対策**:
+  - クリップ追加ボタンは、`showOpenFilePicker` が使えるブラウザではそちらを優先し、`getFile()` で取得した `File` をそのまま `mediaStore` へ渡す
+  - `showOpenFilePicker` 非対応環境だけ従来の hidden file input にフォールバックする
+  - 追加後の表示名は引き続き `file.name` をそのまま使い、app 側で別名へ変換しない
 - **注意**:
-  - manual モードのときだけ pump (`setInterval(requestFrame)`) を回す。auto-fps フォールバック時は pump を回さない（再度の二重供給防止）。
-  - abort / visibility / start 時の単発 `requestFrame` フラッシュは両モードで維持してよい（連続供給ではないため二重供給にならない）。
+  - `showOpenFilePicker` 非対応ブラウザでは、ブラウザ/OS が返した `File.name` より元の名前を復元できない場合がある
+  - この制約は特にモバイルの写真/動画ライブラリ選択で出やすく、app 側だけでは完全には補正できない
 
-### 13-78. プレビュー未再生のままエクスポートする場合、export 開始ジェスチャーで future video に gesture credit を与える
-
-- **対象ファイル**: `src/flavors/apple-safari/preview/usePreviewEngine.ts`（`startEngine` の `isExportMode` 分岐）
+### 13-73. iOS Safari preview の複数音源開始は audio-only を先に起動し、通過済み video は止める
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
 - **問題**:
-  - iOS Safari は「ユーザージェスチャー内で一度も unmuted `play()` されていない video 要素」の後続 `play()` を拒否する。
-  - 一度もプレビュー再生せずに（動画→画像→動画を読み込んで即）エクスポートすると、2 本目以降（画像→動画境界で初めて active になる video）の `play()` が拒否され、**映像が固まったまま音声だけ流れる**。プレビューを一度再生すると preview 側 credit pass（`shouldGrantPreviewGestureCreditToFutureVideo`）で credit 取得済みになるため再現しない。
-  - 既存 credit pass は preview 分岐 (`isExporting:false`) にしか無く、export 分岐には無かった。
-- **対応パターン**:
-  - `startEngine` の `isExportMode` 分岐で、最初の `await`（音声プリロード）より**前**に future video を `muted=false / volume=PREVIEW_GESTURE_CREDIT_NATIVE_VOLUME(0.001)` で短く `play()`→即 `pause()` し、gesture credit だけ取得する（preview 経路と同手法）。
-  - `handleExport → startEngine(0, true)` は同期的に呼ばれるため、await 前で実行すればジェスチャー起点として credit を得られる。
+  - iOS Safari で `動画 + BGM` のような複数可聴ソースを 0 秒から開始すると、動画側が先に `play()` して AudioSession の主導権を取り、BGM が鳴り始めないことがある
+  - 逆に、通過済みの video を gain=0 のまま走らせ続けると、`動画 -> 静止画` の境界後も BGM へ周期的な干渉が出ることがある
+- **対策**:
+  - `preparePreviewAudioNodesForTime()` で「現在時刻の可聴 source 数」「active video の有無」「WebAudio mix 必要性」を返し、`shouldBundlePreviewStartForWebAudioMix()` で bundled start の要否を決める
+  - bundled start が必要な場合は、`primePreviewAudioOnlyTracksAtTime()` で BGM / narration の `seeked` / `canplay` を待ちながら先に起動し、active video は最後に開始する
+  - iOS preview の prewarm 対象は「現在以降の video」に限定し、render loop 中も通過済み video は pause して future/current video だけを維持する
 - **注意**:
-  - credit pass は iOS (`muteNativeMediaWhenAudioRouted`) 限定。録画される音声はプリレンダー buffer 側で、native 要素音声は recorder ストリームに含まれないため 0.001 の native 音量は書き出しに混入しない。
-  - credit play で進んだ currentTime は画像区間中の prebuffer / 境界 sync が補正するので別途巻き戻し不要。
+  - iOS Safari の無音対策で「全 video を常時走らせる」方向へ戻すと、静止画区間の BGM が揺れやすい
+  - ただし future video まで止めると、画像区間から次の video へ入る際に gesture credit を失いやすいので、past video と future video は分けて扱う
+  - `動画 -> 静止画` の境界では just-ended video を短い grace だけ prewarm 維持し、実際に pause した直後は `AudioContext.resume()` と `primePreviewAudioOnlyTracksAtTime()` で audio-only を再点火する
+
+### 13-74. iOS Safari preview の future video prewarm は「直近の切替候補」だけに絞る
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **問題**:
+  - iOS Safari で BGM / narration と video を混在再生するとき、future video をすべて gain=0 のまま `play()` すると、遠い将来の video まで AudioSession / デコード資源を消費し、結果として「動画だけ」「BGMだけ」は動くのに、両方同時だとどちらかが不安定になることがある
+  - startEngine / seek 再開直後の一括 prewarm は gesture credit を確保しやすい一方で、対象を広げすぎると release 品質の安定性を落とす
+- **対策**:
+  - `shouldKeepInactiveVideoPrewarmed()` に `timeUntilVideoStartSec` と lead window を追加し、遠い future video は prewarm 維持対象から外す
+  - `renderFrame()` の inactive video 制御だけでなく、`startEngine()` / seek 再開時の事前 `play()` ループにも同じ helper を使い、直近の切替候補だけを無音 prewarm する
+  - これにより、最小限の gesture credit 維持は残しつつ、複数 video の常時再生による BGM 干渉を抑える
+- **注意**:
+  - lead window を広げすぎると再び「遠い future video まで走る」状態へ戻り、狭めすぎると画像区間→動画区間の立ち上がりが悪化する
+  - iOS Safari preview の安定性を優先する場合は、「すべてを滑らかにする」より「今必要な video だけ確実に鳴らす」方針を維持する
+
+### 13-75. 自動保存の経過判定は『実際に保存を再開できる時刻』を基準にし、export 見送り後は即 catch-up する
+
+- **ファイル**: `src/hooks/useAutoSave.ts`
+- **問題**:
+  - 自動保存タイマーの tick 時点で export 中だと保存自体は見送るが、その時刻を次回判定基準にしてしまうと、export 終了後も次の1周期が来るまで保存が再開されない
+  - Android / PC では長めの export や復帰操作のあとに「1分設定でもいつまでも auto save されない」体感につながりやすい
+- **対策**:
+  - 自動保存の経過判定は `lastAutoSaveActivityAtRef` のような『実際に保存可能だった最新時刻』で管理し、`skipped-processing` では更新しない
+  - `isProcessing` が `true -> false` に戻った直後、かつ保存間隔を超過していれば短い遅延で catch-up save を実行する
+  - `visibilitychange` / `focus` / `pageshow` 復帰時も同じ基準で overdue 判定し、hidden 中の見送りを持ち越さない
+- **注意**:
+  - export 中だけ保存を避け、通常の no-change / empty 判定では基準時刻を更新して次周期までの待機へ戻す
+  - iOS Safari preview の再生制御とは分離し、保存再開ロジックだけを `useAutoSave.ts` に閉じる
+
+### 13-76. `OfflineAudioContext` の先行プリレンダリング条件は resolver で iOS Safari に限定する
+
+- **ファイル**: `src/hooks/export-strategies/exportStrategyResolver.ts`, `src/hooks/useExport.ts`, `src/test/exportStrategyResolver.test.ts`
+- **問題**:
+  - Safari 向け回避策のはずの `OfflineAudioContext` 事前レンダリング条件が `hasAudioSources` だけだと、Android / PC でも常に音声準備待ちが入って export 準備時間が長くなる
+  - 条件が hook 本体に散ると、iOS Safari 専用の責務境界が崩れて再発しやすい
+- **対策**:
+  - `shouldUseOfflineAudioPreRender()` の入力に `isIosSafari` を含め、`isIosSafari && hasAudioSources` のときだけ true を返す
+  - `useExport.ts` 側は resolver の結果だけを参照し、Android / PC は従来どおり WebCodecs のリアルタイム音声キャプチャ経路へ進める
+  - resolver の pure logic をテストで固定し、非iOSへの漏れを自動検知する
+- **注意**:
+  - iOS Safari export の音声安定化には必要なため、条件を削るのではなく resolver へ閉じ込めて platform 分岐を明示する
+  - preview 側の iOS Safari workaround と混線させず、export strategy の責務として維持する
+
+### 13-77. フェードアウト終端で動画フレームが欠けたら hold より黒クリアを優先する
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **問題**:
+  - Android / PC では、トリミング済み動画のフェードアウト終端でデコーダが最後の `seeked` / `ended` に寄ると、`holdFrame` が直前の可視フレームを保持してしまい「黒へ落ち切る直前に最終フレームが残る」ことがある
+  - このとき audio routing や native mute を触ると、過去に対策した Teams 共有時の遅延回避まで壊すリスクがある
+- **対策**:
+  - `shouldBlackoutVideoFadeTail()` で「fade alpha がほぼ 0 の tail」だけを pure に判定し、その区間でフレーム未確定なら `holdFrame` ではなくキャンバス黒クリアを優先する
+  - 修正は `renderFrame()` の描画判定に閉じ、既存の `shouldHoldVideoFrameAtClipEnd()` / audio node / native mute 制御は変更しない
+- **注意**:
+  - フェード中盤まで黒クリアへ倒すと、正当なフェード途中フレームまで欠けて見えるため、alpha が十分下がった末尾だけに限定する
+  - Teams 向けの muted / WebAudio 経路は既存 helper に委ね、描画不具合の修正を音声制御へ波及させない
+  - 末尾 tail に入ったら「フレーム欠落時だけ黒、取得できたら描画」にすると黒↔最終フレームが交互に出て点滅しやすい。terminal window に入ったら描画自体を黒へ揃え、終端品質を優先する
+
+### 13-78. export 音声の事前プリレンダリングは全環境で先行実行し、非 iOS はフレーム境界へ揃えて滑らかさを守る
+
+- **ファイル**: `src/hooks/export-strategies/exportStrategyResolver.ts`, `src/hooks/useExport.ts`, `src/test/exportStrategyResolver.test.ts`
+- **問題**:
+  - 非 iOS を warmup-only + リアルタイム音声キャプチャ優先へ戻した状態では、端末やブラウザ差で export 品質が安定せず、音声も映像も滑らかさが揺れやすい
+  - CFR 30fps でエンコードしていても、Canvas 描画側の時刻がフレーム境界に揃っていないと motion が微妙に引っかかって見える
+- **対策**:
+  - `shouldUseOfflineAudioPreRender()` を `hasAudioSources` ベースへ戻し、Android / PC / iOS すべてで export 前に音声をプリレンダリングする
+  - 非 iOS の export ループでは `elapsed` を `1 / FPS` 単位へ切り下げ、`renderFrame()` が CFR の出力フレームと同じ時刻を描くようにする
+  - WebCodecs 側の TrackProcessor / ScriptProcessor は OfflineAudioContext 失敗時のフォールバックとして残し、完全撤去はしない
+  - resolver テストで「非 iOS も事前プリレンダリングへ戻す」境界を固定する
+- **注意**:
+  - iOS Safari 固有の MediaRecorder / keep-alive / preview workaround は従来どおり維持し、非 iOS 向けの時刻スナップを iOS 条件へ混ぜない
+  - フレーム境界スナップは export のみに適用し、通常 preview のシークや再生の追従性は維持する
+
+### 13-79. export の live audio track は存在有無だけでなく `readyState === 'live'` まで判定する
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/hooks/export-strategies/exportStrategyResolver.ts`, `src/test/exportStrategyResolver.test.ts`
+- **問題**:
+  - `MediaStreamAudioDestinationNode.stream.getAudioTracks()[0]` が取得できても、環境や直前の録画停止手順によっては track がすでに `ended` のことがある
+  - この状態を単なる「audio track あり」とみなして TrackProcessor 高速経路へ進むと、Android / PC でも音声 0 chunk のまま無音 mp4 になり得る
+- **対策**:
+  - export 開始時に `audioTrack.readyState === 'live'` を `hasLiveAudioTrack` として切り出し、**WebCodecs 音声キャプチャ戦略の判定**と診断ログで共有する
+  - live でない track は TrackProcessor 高速経路に使わず、ScriptProcessor / オフライン補完側へ倒す
+  - 診断ログにも `audioTrackReadyState` を残し、無音再発時に live/ended のどちらだったか追えるようにする
+- **注意**:
+  - Android / PC の速度最適化は「track が live な通常ケース」でのみ TrackProcessor を使う
+  - iOS 側の事前プリレンダリング条件にはこの判定を混ぜず、platform 条件を分離して保つ
+
+### 13-80. export 尺はタイムライン値ではなく CFR フレーム境界へ切り上げて音声終端も同じ長さへ合わせる
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/utils/exportTimeline.ts`, `src/test/exportTimeline.test.ts`
+- **問題**:
+  - WebCodecs export は 30fps の CFR で映像フレーム数を離散化するため、`totalDuration` がフレーム境界に乗らない案件では `frameCount / FPS` と音声長が数ms〜十数msずれることがある
+  - この差分が小さくても、Teams 側が「音声と動画にズレあり」と見なして再パッケージ時に補正し、わずかな遅延やスロー再生感として再発する場合がある
+- **対策**:
+  - `alignExportDurationToFrameGrid()` で export 尺を `ceil(totalDuration * FPS) / FPS` へ切り上げ、映像フレーム数とコンテナ上の最終動画時刻を先に確定する
+  - `useExport.ts` では `expectedVideoFrames`、`maxAudioTimestampUs`、`OfflineAudioContext` のプリレンダ長、`feedPreRenderedAudio()` の上限長に同じ aligned duration を共有し、動画・音声の終端を必ず一致させる
+  - 診断ログにも raw duration と aligned duration を残し、境界ズレの再発を追跡できるようにする
+- **注意**:
+  - 端数を切り捨てると末尾コンテンツを欠く可能性があるため、必ず切り上げる
+  - 修正は export 専用に閉じ、preview 再生の時間進行や iOS Safari MediaRecorder 分岐の責務は変えない
+
+### 13-81. Android export の `画像 -> 動画` 境界は短時間だけ再生開始を抑止し、時刻同期を優先する
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **問題**:
+  - Android で export 中に `画像 -> 動画` へ切り替わる瞬間、動画デコーダの立ち上がりと `play()` 再開が競合し、境界付近で映像が乱れる（プレビュー中は出にくいが書き出し結果で再現しやすい）ことがある
+  - このタイミングで通常の再生再開ロジックをそのまま適用すると、同期補正と再生開始が同時に走り、境界フレームが不安定になりやすい
+- **対策**:
+  - `shouldStabilizeImageToVideoTransitionDuringExport()` を追加し、export かつ `画像 -> 動画` の先頭 120ms だけ安定化モードに入る
+  - 安定化モードでは `play()` 再開を抑止し、`currentTime` を目標時刻へ強めに合わせることで、境界直後のフレーム確定を優先する
+  - 判定ロジックは utility 化して `previewPlatform` テストで固定し、将来のしきい値変更でも回帰を検知できるようにする
+- **注意**:
+  - 対策は export 中の境界区間に限定し、通常 preview や動画→動画遷移には適用しない
+  - 安定化ウィンドウを広げすぎると動画の立ち上がり体感を損なうため、最小限（120ms）を維持する
+  - この安定化は Android export 専用に維持し、PC 非 iOS export には広げない。PC では v4.1.0 比較でコマ飛び要因になりやすいため、通常の同期制御へ戻す
+
+### 13-82. 自動保存は起動/アクティブ復帰で即時トリガーし、定周期 tick では差分有無に関係なく保存を試行する
+
+- **ファイル**: `src/hooks/useAutoSave.ts`, `src/test/useAutoSave.test.tsx`
+- **問題**:
+  - 自動保存が差分検知と overdue 判定に依存しすぎると、起動直後・復帰直後・設定変更直後に保存が走らず、実運用で「自動保存が止まっている」体感になりやすい
+  - 差分なしスキップが続くと、復旧用スナップショットの更新が止まり、万一の破損時に最新寄りの復旧点を失う
+- **対策**:
+  - `visibilitychange` / `focus` / `pageshow` と初期タイマー開始時に prompt save を必ず発火する
+  - `runAutoSave({ force: true })` を定周期 timer / 復帰 catch-up / export 終了後 catch-up に適用し、差分有無に関係なく保存を試行する
+  - export 中 (`isProcessing`) だけは従来どおり保存を抑止し、処理終了後に catch-up で再開する
+- **注意点**:
+  - 強制保存は IndexedDB 書き込み回数が増えるため、将来最適化する場合でも「起動・復帰直後の prompt save」と「export 中のみ抑止」の契約は維持する
+  - `runAutoSave` の `force` パラメータを変更する場合は、`useAutoSave.test.tsx` のライフサイクル系テストを必ず更新して回帰を防ぐ
+
+### 13-83. 自動保存の復帰契機は「即時保存固定」ではなく overdue 判定で cadence を守る
+
+- **ファイル**: `src/hooks/useAutoSave.ts`, `src/test/useAutoSave.test.tsx`
+- **問題**:
+  - `visibilitychange` / `focus` / `pageshow` のたびに prompt save を強制すると、設定間隔（例: 5分）より短い周期で `savedAt` が更新され、保存UIが「たった今」に張り付きやすい
+  - 保存自体は成功していても、ユーザーからは「常時保存されているのか」「設定間隔が効いているのか」が判別しづらい
+- **対策**:
+  - 復帰契機の catch-up は `forcePromptSave` を使わず、`lastAutoSaveActivityAtRef` と設定間隔による overdue 判定でのみ実行する
+  - 非アクティブ復帰時は残り時間を維持するタイマー再開（timeout -> interval）を優先し、期限前は保存を走らせない
+  - 定周期 tick の `runAutoSave({ force: true })` は維持し、設定間隔どおりの強制保存契約を継続する
+- **注意点**:
+  - 保存失敗時は `lastAutoSaveActivityAtRef` を更新しないため、復帰イベントで overdue と判定されれば即時再試行が走る（失敗回復優先）
+  - 復帰即保存を戻したい場合は UI 表示要件（「n分前」表示）との整合を再定義してから反映する
+
+### 13-84. 保存モーダルの相対時刻は Date.now 基準で計算し、表示中だけ 30 秒ごとに更新する
+
+- **ファイル**: `src/components/modals/SaveLoadModal.tsx`, `src/test/modalHistoryStability.test.tsx`
+- **問題**:
+  - モーダルを開いたままだと React の再描画契機がなく、`たった今` / `3分前` などの相対時刻表示が固定される
+  - 端末時計ズレで `savedAt` が未来時刻になると、負の差分をそのまま扱うと不自然な表示になりやすい
+- **対策**:
+  - `formatDateTime()` を `Date.now()`（注入可能な `nowMs`）基準で差分計算し、負の差分は `0` に丸めて `たった今` として扱う
+  - SaveLoadModal が開いている間だけ `setInterval(30_000)` で相対時刻更新用 state を更新し、閉じたら即 cleanup する
+  - テストで「表示中に `たった今` -> `3分前` へ遷移すること」と「未来時刻が `たった今` 表示になること」を固定する
+- **注意点**:
+  - この更新は表示専用であり、保存タイミングや auto save cadence そのものは変更しない
+  - interval はモーダル表示中に限定し、閉じた状態での不要な再描画を発生させない
+### 13-85. 非 iOS export は壁時計ベースを維持しつつ、描画時刻の先行を 1 フレームまでに制限する
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/exportTimeline.ts`, `src/test/exportTimeline.test.ts`
+- **問題**:
+  - `Date.now()` を `1 / FPS` へ切り下げるだけの非 iOS export では、`requestAnimationFrame` が 2 フレーム以上遅れた瞬間に中間フレームを描かずに後ろの時刻へ飛び、PC / Android でコマ飛びのように見えやすい
+  - 一方で完全なフレームカウンタ進行へ戻すと、実デコードが追いつかない場面で同一フレームの連続取り込みが増え、別経路のカクつきを再発させやすい
+- **対策**:
+  - 非 iOS export のループ時刻は壁時計を `1 / FPS` に切り下げた値を基準にしつつ、`lastRenderedExportTimeRef + 1 / FPS` を上限にして 1 ループで 1 フレームまでしか先行させない
+  - `lastRenderedExportTimeRef` は実際に Canvas が更新されたときだけ進め、hold frame 中は次ループでも同じ export 時刻を再試行する
+  - これにより `v5` の音声・export 経路修正を維持したまま、rAF 遅延起因の中間フレーム欠落だけを抑制する
+- **注意点**:
+  - iOS Safari の別 export ルートには適用しない
+  - export frame 数の基準を `currentTimeRef` へ戻すと再び render 済み時刻とのズレが広がるため、capture 側は引き続き `resolveExportPlaybackTimeSec()` で描画済み時刻を優先する
+
+### 13-86. manual canvas export は 1 poll で同じキャンバスを複数回 encode しない
+
+- **ファイル**: `src/hooks/useExport.ts`, `src/utils/exportTimeline.ts`, `src/test/exportTimeline.test.ts`
+- **問題**:
+  - PC / Android の WebCodecs export は `VideoFrame(canvas)` を setTimeout poll で取り込むため、render 側が少し遅れたときに pending frame 数だけ同じキャンバスを一気に複製 encode しやすい
+  - `v5` では render 側の保護ロジックが増えたぶん、この catch-up burst が `v4.1.0` より起きやすくなり、見た目のカクつきとして表れやすい
+- **対策**:
+  - manual canvas export では pending frame 数が複数あっても、1 回の poll で encode するのは 1 フレームに制限する
+  - これにより encoder が「同じ時点のキャンバス」を連続複製する burst を避け、render loop の追従結果をそのまま CFR 出力へ乗せやすくする
+- **注意点**:
+  - これは iOS Safari MediaRecorder 経路には適用しない
+  - 滑らかさ優先の変更なので、export wall-clock 時間がわずかに伸びても frame burst を再許可しない
+### 13-87. iOS Safari preview の future video prewarm は「keep」だけでなく silent prime まで行う
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **問題**:
+  - `shouldKeepInactiveVideoPrewarmed()` だけでは、future video が paused のままでも「prewarm 対象」と判定される。
+  - 画像ギャップ中に次動画が paused のままだと、active 化した瞬間の `play()` が iOS Safari の AudioSession を壊し、動画音声と BGM がまとめて無音化することがある。
+- **実装**:
+  - `shouldAvoidPauseInactiveVideoInPreview()` で、iOS preview 中に AudioNode 済み inactive video の `pause()` を避ける条件を helper 化する。
+  - `shouldPrimeFutureInactiveVideoInPreview()` で、prewarm 対象の future video を silent prime すべき条件を helper 化し、`renderFrame()` 側で `currentTime=trimStart` と `play()` を行う。
+  - 判定は iOS Safari preview に閉じ、PC / Android / export の既存 pause 制御は変えない。
+- **注意**:
+  - iOS 無音対策を helper ではなく `TurtleVideo.tsx` の局所条件だけで戻すと、後続の export / non-iOS 調整で再び上書きされやすい。
+  - `pause()` 回避と future video の silent prime はセットで扱い、「keep しているのに paused のまま」という中途半端な状態を作らない。
+### 13-88. iOS Safari preview の stop -> play 復帰は AudioSession 初期化より先に stopAll を済ませる
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **問題**:
+  - iOS Safari preview では、`AudioContext.resume()` / `suspend()` / `resume()` で音声経路を立て直した直後に `stopAll()` が全メディアを `pause()` すると、作り直した AudioSession を自分で崩して再び無音化することがある。
+  - 特に停止ボタン後の再生や先頭再生では、この順序差だけで「初回から無音」「数秒後に BGM だけ復帰」のような不安定さが出やすい。
+- **実装**:
+  - `shouldStopBeforePreviewAudioRouteInit()` で iOS preview だけ `stopAll()` を audio route 初期化より前へ移す条件を helper 化する。
+  - `shouldRecoverAudioOnlyAfterVideoBoundary()` で `video -> image` 境界直後の短い窓だけ audio-only を再 prime する条件を helper 化し、BGM/ナレーションの復帰を早める。
+  - Android / PC と iOS export は従来順序を維持し、今回の変更は preview の iOS 条件にだけ閉じる。
+- **注意**:
+  - `stopAll()` の順序変更を共有経路へ広げると、Android / PC の再生・export 初期化順序まで変わるので避ける。
+  - `video -> image` 境界の recovery は短い窓に限定し、通常の audio-only 再生ループを乗っ取らない。
+### 13-89. iOS Safari preview 開始直後の `renderFrame(..., false)` は active media を再 pause するので避ける
+
+- **ファイル**: `src/components/TurtleVideo.tsx`
+- **問題**:
+  - preview 開始処理で active video / BGM / narration を `play()` した直後に `renderFrame(fromTime, false)` を呼ぶと、そのフレーム内の通常 paused-preview 分岐が active media を再度 `pause()` してしまう。
+  - iOS Safari ではこの直後の pause -> play 循環が AudioSession を壊しやすく、「停止後の初回再生が無音」「video -> image -> video で次動画が鳴らない」の再発要因になる。
+- **実装**:
+  - iOS preview (`muteNativeMediaWhenAudioRouted=true`) では、開始直後の同期用 `renderFrame()` も active 扱いで呼び、初回フレームが active media を止めないようにする。
+  - `resetInactiveVideos()` も iOS WebAudio 済み video には pause を打たず、paused の要素だけ trimStart へ戻す。
+- **注意**:
+  - Android / PC の paused-preview 描画フローはそのまま維持し、この回避策を共有経路へ広げない。
+  - iOS のみ render/pause 条件を変える場合は、startEngine / seek resume / inactive reset の 3 箇所をセットで確認する。
+
+### 13-90. iOS Safari preview の静止画始まりはループ開始直前に audio-only prime を 1 回だけ再試行する
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **背景**:
+  - 先頭が静止画で BGM / narration だけが鳴るケースでは、preview 開始条件が `primePreviewAudioOnlyTracksAtTime()` の成功に依存する。
+  - stop 復帰直後は media element の `readyState` と seek 完了が揃う前に最初の prime が走ることがあり、その 1 回を取りこぼすと静止画区間だけ無音のまま進み、次の動画開始でだけ音が復帰する。
+- **実装方針**:
+  - `shouldRetryAudioOnlyPrimeAtPreviewStart()` で「iOS Safari preview かつ active video なし、かつ WebAudio 経路あり」のときだけ再 prime する helper を追加する。
+  - `startEngine()` では最初の同期描画と seek の settle 待ちが終わった直後、ループ開始前に 1 回だけ `primePreviewAudioOnlyTracksAtTime(fromTime)` を再実行する。
+- **注意点**:
+  - retry 条件を `previewPlatform.ts` に寄せ、Android / PC / export では必ず `false` になるテストを入れて共有経路への漏れを防ぐ。
+  - これは「静止画先頭の audio-only 起動を安定させる」ための補強であり、動画側の start 順や boundary recovery と混ぜて一般化しない。
+
+### 13-91. Android preview の active video が pause/seek 残留した場合は即時リカバリする
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/utils/previewPlatform.ts`, `src/test/previewPlatform.test.ts`
+- **問題**:
+  - Android preview で active video が `paused=true` や `seeking=true` に残留すると、Canvas 側は再生中の想定で進む一方で映像デコーダが追従せず、ブラックアウト・カクつき・音飛びを誘発しやすい。
+- **対策**:
+  - `shouldRecoverAndroidPreviewVideoPlayback()` を追加し、Android preview かつ active 再生中だけ「pause/seek/readyState不足」を復帰対象として判定する。
+  - `usePreviewEngine` の active video 制御で上記判定が true の場合、短い間隔で `load()` / `play()` を再試行してデコーダ停止を自己回復させる。
+  - export/iOS/ユーザーseek中には適用しないガードを helper 側に集約する。
+- **注意点**:
+  - 復帰再試行間隔を短くしすぎると `play()` 連打で逆効果になるため、約 220ms の最小間隔を維持する。
+  - Android preview 専用ロジックを共通経路へ広げない。
+
+### 13-92. Android trimmed entry は preseek 完了条件を「hidden play の実進行」まで含めて判定する
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`
+- **問題**:
+  - `readyState=4` と trimStart 近傍への seek 完了だけでは、Android 実機で境界直後にデコーダが立ち上がらず、`preseekMiss` / `startLatency` / 大きな drift が残る。
+- **対策**:
+  - `androidTrimPreseekRef` に `firstAdvancedAtSec` を持たせ、`currentTime` が target から実際に前進した時刻を記録する。
+  - `preseek.completed` は `readyState>=3 && !seeking && !paused && drawable && drift<=0.12` に加え、`currentTimeAdvancedMs>=80` を満たした時のみ true にする。
+  - start/stop/finalize で boundary 診断状態を明示的にリセットし、`frameGap` などのセッション跨ぎ偽陽性を防ぐ。
+- **注意点**:
+  - 境界 300ms 以内は clock rebase を抑制し、`drift>400ms` かつ drawable でない破綻時に限定する。
+  - drawable かつ再生中 (`readyState>=3 && !paused && !seeking`) の場合は holdFrame を優先しない。
+
+### 13-93. Android trimmed boundary では active/next の warmup 完了を厳格化し、drawable 時の hold を禁止する
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`
+- **問題**:
+  - 境界直前まで preseek/warmup を実施していても、active 側で `preseeked=false` 相当の状態が残ると `preseekMiss` と `startLatency` が再発しやすい。
+  - drawable (`readyState>=3 && !paused && !seeking && videoWidth/Height>0`) なフレームでも hold を発動すると、境界で瞬停として知覚される。
+- **対策**:
+  - trimmed entry の `isPreseekReadyEntry` 判定に `activeWarmupState.preseeked` と `decoderWarmupCompleted` を追加し、active 昇格時に warmup 未完了を明確に弾く。
+  - `preview.trimmedEntry.preseekMiss` に warmup 実行/完了、active ready/paused/seeking を添えて「未実行か状態喪失か」を切り分け可能にする。
+  - 境界前 warmup は `trimStart-0.3s` 起点で hidden muted play を行い、`currentTime` が 80ms 以上前進した実績が確認できた場合のみ `decoderWarmupCompleted=true` にする。
+  - drawable 時は `holdFrame=false` を維持し、diagnostic の hold 表示も実際の挙動に一致させる。
+- **注意点**:
+  - この対策は Android preview 専用で、iOS/PC の共有経路や完了後 freeze の見た目ロジックは変更しない。
+  - warmup 状態を trimStart 変更時に reset する際は `warmupStartAtSec` も同時に初期化し、古い進行量を再利用しない。
+
+### 13-94. Android preview 境界では next video を pause/reset せず、再生中の endClear と warmup 警告を抑制する
+
+- **ファイル**: `src/flavors/standard/preview/useInactiveVideoManager.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardInactiveVideoManager.test.tsx`
+- **問題**:
+  - Android preview で next video を inactive reset 時に `pause + trimStart seek` すると、境界時に `activePaused=true` となって start latency が増大し、引っかかりが発生する。
+  - 再生中タイムライン途中でも `preview.endClear.executed` が走ると、黒化/瞬停を誘発する。
+  - `nextPrerollArmed=false`（warmup 無効）でも `warmup.stateLost` / `preseekMiss` を warn し続けると、真因分析を阻害する。
+- **対策**:
+  - `useInactiveVideoManager` で Android preview 時は `nextVideoId` と `protectedVideoIds` を preserve 対象にし、pause/reset の両方を回避する。
+  - `usePreviewEngine` の endClear 抑制条件を「isActivePlaying かつ active item が存在し、timeline end 前で、`shouldBlackoutFadeTail=false`」へ統一して再生中 clear を禁止する。
+  - Android boundary warmup 無効時は `preview.warmup.stateLost` と `preview.trimmedEntry.preseekMiss` の warn を発火させない。
+- **注意点**:
+  - free-running preroll / hard seek / visual bridge 復活や holdFrame 許容拡大で隠蔽しない。
+  - Android preview 専用条件に閉じ、export/iOS/通常 preview の reset 挙動を変えない。
+
+### 13-95. Preview runtime の `usePreviewEngine` 契約は flavor 間で同期する
+
+- **ファイル**: `src/components/turtle-video/usePreviewEngine.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/components/TurtleVideo.tsx`
+- **問題**:
+  - standard flavor 側で `setPreviewPlaying` を必須パラメータに追加したあと、ベース runtime 側の `UsePreviewEngineParams` が未更新だと、`PreviewRuntime` の関数型が不一致になり CI の `tsc` が失敗する。
+- **対策**:
+  - runtime 契約として使っているベース側 `UsePreviewEngineParams` にも同じ `setPreviewPlaying` を追加し、`previewRuntime.usePreviewEngine(...)` の呼び出しオブジェクトと整合させる。
+- **注意点**:
+  - flavor 実装だけ更新しても型契約が分岐して破綻するため、`usePreviewEngine` の引数追加時はベース/標準の両実装を同時に点検する。
+
+### 13-96. Standard preview の video -> video 境界は free-running preroll ではなく paused prebuffer で準備する
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **問題**:
+  - standard preview で境界前の next video 準備をすべて止めると、次動画が `preload=metadata` / `readyState=1` のまま active 化し、`play()` までのデコード開始が遅れて数100msのつなぎ目停止として見える。
+  - 一方で過去の free-running silent preroll や active 境界直後の hard seek は、trimStart 付き素材で currentTime の先行・seek 残留を起こしやすい。
+- **対策**:
+  - standard preview かつ直後が video の video -> video 境界だけ、境界 3 秒前から next video を `preload="auto"` に戻し、metadata 取得済みなら paused のまま `trimStart` へ合わせる。
+  - `preload="auto"` へ戻しても `readyState=1` のまま止まるブラウザがあるため、境界まで 250ms 以上残っている場合は同一境界で 1 回だけ `load()` と `trimStart` seek を明示し、current frame 取得を開始させる。
+  - active 化後の `play()` は `readyState>=1` で要求し、`readyState>=2` 待ちによるデコード開始遅延を避ける。
+  - これは paused prebuffer であり、muted play による free-running preroll、visual bridge、active hard seek は復活させない。
+- **注意点**:
+  - image -> video や image gap を挟む future video へ広げると、画像区間中の不要 seek / load が増えるため、直後の video -> video に限定する。
+  - `preload="auto"` にした next video は inactive cleanup で即 `metadata` に戻さず、境界まで current data を保持する。
+### 13-97. Preview 終端では final seek ではなく現在の drawable frame を固定する
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **問題**:
+  - 通常 preview のタイムライン終端で、最後に `duration - 0.001` へ強制 seek すると、再生の最後だけ 1 フレーム飛んだように見えることがある。
+  - video -> video 境界の paused prebuffer が効いていても、終端の final seek は別経路なので、境界カクつき解消後も終端だけ違和感が残る。
+- **対策**:
+  - 非 export の再生中 preview が終端 window に入った場合は、active video を pause し、現在 drawable なフレームをそのまま Canvas に描いて保持する。
+  - この経路では final video time への `currentTime` 強制代入を行わない。export / 明示的な停止後描画の終端合わせとは分離する。
+  - BGM の終端 mute は `endFinalizedRef` 確定後に限定し、通常 `renderFrame()` の終端直前 fade 値を不用意に 0 へ潰さない。
+- **注意点**:
+  - video -> video の paused prebuffer、Android recovery seek、trimStart 直後の sync 抑制、image -> video export stabilization は残す。
+  - free-running preroll、visual bridge、Android boundary warmup、previous-frame bitmap bridge は復活させない。
+
+### 13-98. Standard preview 開始直後の同期描画は active video を止めない
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **問題**:
+  - `startEngine()` で active video に `play()` を要求した直後、同期用の `renderFrame(fromTime, false, false)` を呼ぶと paused-preview 分岐が同じ active video を `pause()` する。
+  - その結果、単一動画でも `play -> pause -> loop で play 再要求` の周期が入り、開始直後の一時停止や小さなコマ飛びとして見える。
+- **対策**:
+  - standard preview の開始直後は `renderFrame(fromTime, true, false)` として描画し、loop 中と同じ active 再生扱いにする。
+  - active video の実再生開始を待つ追加 timeout や paused 状態に基づく wall clock 補正は入れず、既存の短い 50ms settle と通常 loop に任せる。
+  - 回帰テストでは `play()` 後に同じ開始フレーム由来の `pause()` が呼ばれないことを呼び出し順で確認する。
+- **注意点**:
+  - この対策は preview 開始直後の pause 循環を切るためのもの。video -> video 境界の準備は paused prebuffer / inactive reset 保護の既存方針と分けて扱う。
+  - カクつき対策として長い `playing` 待機や startTime 補正を足すと、単一動画の開始ディレイを悪化させるため慎重に評価する。
+
+### 13-99. Android standard preview の境界診断ログは `boundary`/`detailed` モードに限定する
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/components/modals/SettingsModal.tsx`, `src/test/standardPreviewEngine.test.tsx`
+- **問題**:
+  - Android 実機の video -> video 境界原因を切り分けるための `preview.boundary.smoothPlan` / `preview.boundary.judgement` / sample ログを通常再生中にも組み立てると、境界直後のコンソール出力自体が軽い FPS 低下や引っかかり要因になり得る。
+- **対策**:
+  - 既定の `preview.log.mode=smooth` では Android 境界診断ログを出さず、`boundary` または `detailed` のときだけ active boundary state を生成する。
+  - `boundary` モードでは `preview.boundary.sample` に `phase` を載せ、`before-500ms` / `enter` / `after-100ms` / `after-200ms` / `after-300ms` を確認できるようにする。
+  - `smoothPlan` には prebuffer の開始時刻・target・lead、boundary/100ms/200ms 状態、hold count、clock absorb、I/O 状態を載せる。visual bridge は standard preview では無効なので `[DIAG-BOUNDARY-VISUAL-BRIDGE]` は disabled として出す。
+  - `preview.nextVideo.startLatency` には境界時と 100ms 時点の `currentTime` / target / paused / readyState を載せ、decoder は間に合っているが次動画の実再生開始だけが少し遅いケースを切り分ける。
+  - `preview.android.boundary.passive-switch` も Android live preview かつ診断モード時に限定し、export / iOS Safari へ漏らさない。
+  - 設定モーダルの「ログモード」で `標準` / `境界診断` / `詳細` の用途を説明し、再生中の変更は停止して再生し直すと次の preview 開始から反映されることを案内する。
+- **注意点**:
+  - この変更は診断ログの出力条件と内容だけを変える。preroll lead time、hold window、sync threshold、visual bridge、hard seek、export 経路は変更しない。
+  - 実機で切り分けるときは設定画面で「境界診断」を選ぶか、再生前に `localStorage.setItem('preview.log.mode', 'boundary')` を設定し、確認後は「標準」または `localStorage.removeItem('preview.log.mode')` で通常の軽いログに戻す。
+
+### 13-100. iOS Safari preview の video -> image -> video は paused prebuffer と微小 native keep-alive で復帰させる
+
+- **ファイル**: `src/flavors/apple-safari/preview/previewPlatform.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewSeekController.ts`, `src/components/media/MediaResourceLoader.tsx`, `src/test/appleSafariPreviewEngineBoundary.test.tsx`, `src/test/appleSafariFlavorRegression.test.ts`, `src/test/mediaResourceLoader.test.tsx`
+- **問題**:
+  - video -> image -> video の画像区間中、次動画が `HAVE_METADATA` のまま境界へ入ると、active 化後の `play()` が通っても Canvas に描ける current frame が間に合わず、黒画面または静止画で固まったように見えることがある。
+  - 一方で future video を gain=0 / native volume=0 の silent play で prewarm すると、iOS Safari では映像 decode が止まり、過去に「音は流れるのに映像が固まる」退行を起こした。
+  - WebAudio 経路で動画音声だけ流れている場合でも、video element 側の native volume が完全に 0 のままだと、画像 -> 動画直後に映像 decode だけが復帰しないことがある。
+- **対策**:
+  - iOS Safari preview かつ active item が image、次 item が video、次動画が paused / `readyState < HAVE_CURRENT_DATA` の場合だけ、画像区間中に `trimStart + 0.001s` へ小さく seek して current frame 取得を促す。
+  - この準備では `play()` を呼ばない。active 化した瞬間の再生開始は既存の境界キックに任せる。
+  - active item が video、previous item が image、かつ clip local time が 1.2 秒以内の場合だけ、WebAudio mix は維持しつつ native video volume を `0.001` にして video pipeline を audible 扱いにする。
+  - `MediaResourceLoader` の iOS Safari video は `webkit-playsinline` を付け、親 wrapper を `overflow: visible` にして clipped parent 内に閉じ込めない。
+  - seek 再開経路に残っていた future video の silent `play()` も止め、gain=0 のまま再生する経路を再導入しない。
+- **注意点**:
+  - active video になった後の `currentTime` 上書きは iOS Safari で `seeking=true` 残留や映像 freeze を誘発するため、今回の小さな seek は「まだ image 区間で inactive next video」の間だけに限定する。
+  - native keep-alive は 0.001 の短時間・画像 -> 動画直後に限定し、通常の WebAudio 音量制御や BGM mix へ広げない。
+  - keep-alive の目的は「映像 decode pipeline の維持」であり、ユーザー音量とは独立。`desiredVolume` では分岐させない (mute 動画 / fade-in 先頭フレーム = desiredVolume 0 でも decode 抑止は起こるため、0.001 を当てて decode だけ起こす)。WebAudio 側 gain は別途 desiredVolume に従うので mute/fade の音量挙動は崩れない。
+  - video -> video 境界、export、standard/Android preview には広げない。
+
+### 13-101. iOS Safari preview は future video へ gesture credit を audible play→pause で付与する
+
+- **ファイル**: `src/flavors/apple-safari/preview/previewPlatform.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/test/appleSafariPreviewEngineBoundary.test.tsx`, `src/test/appleSafariFlavorRegression.test.ts`
+- **問題**:
+  - iOS Safari は「ユーザー操作 (gesture) 内で一度も unmuted `play()` されていない video 要素」の後続 `play()` を拒否することがある。
+  - `startEngine` の prewarm では v5.1.14 で silent prewarm play() を全廃したため、`fromTime` 時点の active 動画以外は gesture credit を得られず、画像 -> 動画境界での初回 `play()` (境界キック) が拒否されて paused のまま固まる (黒画面 / 映像かたまり)。
+  - これが「初回まとめ追加 (動画→画像→動画) で再現し、2 動画を一度再生してから差し込むと再現しない」差の主因。後者は先のプレビューで credit を獲得済みのため。
+  - 13-100 の prebuffer / keep-alive は decode 側を助けるが、gesture credit は復元しない。
+- **対策**:
+  - `shouldGrantPreviewGestureCreditToFutureVideo()` で「iOS preview かつ非 export かつ future video」を判定する helper を追加する。
+  - `startEngine`（gesture 内）の prewarm 直後に future video だけを 1 巡し、native volume を可聴域以下 (`PREVIEW_GESTURE_CREDIT_NATIVE_VOLUME = 0.001`)・`muted=false` にして短く `play()` -> 即 `pause()` し、gesture credit だけ取得する。
+  - v5.1.14 で freeze を起こした「gain=0 の持続 silent play」とは異なり、持続再生はしない (オーバービュー 3.3 が示す audible 代案)。位置ずれは画像区間中の prebuffer / 境界 sync が補正する。
+- **注意点**:
+  - `volume=0` だと iOS が muted 相当と見なし unmuted credit が付かないため、必ず 0.001 (>0) + `muted=false` で play() する。
+  - credit 取得 (`play()` 解決) 後は必ず `pause()` で戻す。持続再生させると v5.1.14 の映像 freeze が再発する。
+  - export / standard / Android preview には広げない。**実機での最終確認が必要**な領域 (fragile な prewarm play() 経路) のため、回帰時はまずこの pass の有無を疑う。
 
 ### 13-102. フレーバー分離を物理化し import 境界を ESLint とテストで機械強制する
 
@@ -2257,3 +2094,197 @@
   - 打鍵バーの再生/一時停止ボタンは PreviewSection と同一仕様（rounded-full bg-white/20 + fill-current）。
   - まとめて入力の ？ヘルプは他モーダルヘルプと同様の閉じ方（アンバー枠 + 右上 X）。
   - sectionHelp.ts に Android/PC 版機能を追記（clips: コピー/トランジション、bgm: 複数BGM、narration: コピー、caption: まとめて入力・タイミング打ち・まとめてずらす・フォント/カスタム値）。新規ヘルプ項目は visuals 省略可。
+
+### 13-111. 複数BGM/ディゾルブ/一括編集まわりの5件の不具合修正（二重再生・描画順・先頭動画・スタイルずれ・小粒）
+
+- **ファイル**: `src/stores/audioStore.ts`, `src/components/TurtleVideo.tsx`, `src/utils/transitionTimeline.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/utils/captionBulkInput.ts`, `src/components/modals/CaptionBulkAddModal.tsx`, `src/components/sections/CaptionSection.tsx`
+- **問題と対策**:
+  - **BGM二重再生**: 保存時に iOS/旧版互換で bgmClips の 1 曲目を `deriveLegacyBgmMirror()` でレガシー `bgm` にミラー保存するため、復元後は `bgm`（ミラー）と `bgmClips` が併存し、standard では 1 曲目がミラー経路とクリップ経路の両方で再生されていた（プレビュー/エクスポート共通）。→ `migrateLegacyBgmToClips()` を「bgmClips がある場合はミラー bgm を破棄（URL がクリップと非共有なら revoke）」に拡張し、TurtleVideo の移行 effect も `bgmClips.length === 0` 条件を外して bgm があれば常に呼ぶ（iOS はミラーが本体なので従来どおり effect 自体をスキップ）。
+  - **並べ替え後のディゾルブ描画順逆転**: renderFrame の要素ループが `Object.keys(mediaElementsRef.current)`（マウント順）だったため、クリップ上下移動後は peer（前クリップ、α=1.0）が active（次クリップ、crossIn α）より後に描かれて被さることがあった。→ `currentItems`（タイムライン配列順）でループし、peer→active の描画順を常に保証。
+  - **metadata未確定の先頭動画スキップ**: `findActiveTimelineItemWithTransitions()` の後勝ちループが、duration=0 の動画の match を後続クリップで上書きしていた（旧 `findActiveTimelineItem` は先勝ち return で優先）。→ duration=0 の動画が range.start±EPSILON に一致したら即 return する先勝ちへ復元（トランジション未使用時も同関数を通るため必須）。
+  - **まとめて編集の行削除でスタイルずれ**: 反映時の id 引き継ぎが単純な行番号マッチングで、行削除で以降の個別スタイルが 1 つ隣へずれた。→ `assignBulkCaptionIds()`（captionBulkInput.ts）を新設。「未編集行（テキスト+0.1秒丸め時間が一致）」を順序保持アンカーにし、アンカー間はテキスト一致優先→残りを位置順で対応付け。行削除は破棄、文言/時間変更は id 維持、行挿入は新規になる。
+  - **小粒**: CaptionSection の一括シフト長押しタイマーにアンマウント時クリーンアップ（useEffect）を追加。renderFrame の `computeTransitionTimelineRanges()` 二重計算を 1 回に統合し、結果を `findActiveTimelineItemWithTransitions()` の第4引数（precomputedRanges）へ渡す形に変更（GC 負荷軽減）。
+- **注意**:
+  - `bgm` と `bgmClips` の併存は「復元直後の一時状態」のみが正。standard で bgm を再生経路に足す変更をする場合はミラー破棄の移行を壊さないこと。iOS(apple-safari) は逆にミラー bgm が唯一の BGM ソース。
+  - renderFrame の要素ループ順は描画仕様（peer 下層 → active 上層）を担っている。Object.keys 系の反復へ戻さない。
+  - `findActiveTimelineItemWithTransitions` の duration=0 先勝ちは playbackTimeline と同一規約。後勝ちはオーバーラップ窓（duration>0 同士）にのみ適用する。
+
+### 13-112. BGM区間表示 / 時分割キャプション / 個別設定同等化 / 出力品質設定 / 1080pエクスポート安定化
+
+- **ファイル**: `src/components/sections/BgmClipList.tsx`, `src/utils/captionTimeline.ts`, `src/components/media/CaptionItem.tsx`, `src/utils/captionBulkInput.ts`, `src/components/modals/CaptionSettingsModal.tsx`, `src/utils/captionStyle.ts`, `src/types/index.ts`, `src/utils/indexedDB.ts`, `src/stores/projectStore.ts`, `src/stores/canvasStore.ts`, `src/components/modals/SettingsModal.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/types/webcodecs.d.ts`
+- **内容**:
+  - **BGM再生区間表示**: BGM クリップカードに「♪ 再生区間: 開始 〜 終了」を常時表示。実効末尾が totalDuration を超える場合は「動画末尾超え」警告を出す。
+  - **時分割キャプション（複数行の順次表示）**: キャプション text に改行が含まれる場合、カードの表示時間 [startTime, endTime) を行ごとの**文字数比**で自動配分し 1 行ずつ順次表示する。純ロジックは `captionTimeline.ts`（`resolveSequentialCaptionSegments` / `resolveCaptionDisplayText`）、描画は renderFrame の glyph text 置換のみ（プレビュー/エクスポート共通）。フェードはカード全体に従来どおり適用。CaptionItem は textarea 編集（Ctrl+Enter 確定）+ 行別時間の一覧 + 「時分割 N行」バッジ。**まとめて入力/編集との往復はカード内改行を `⏎` マーカーに畳んで 1 行 = 1 カードを維持**（`encodeSequentialLinesForBulkText` / `decodeSequentialLinesFromBulkText`）。新しい Caption フィールドは追加していない（text の改行が唯一のソース）。
+  - **個別設定の一括設定同等化**: `Caption.overrideFontSizeCustom`（px）/ `overridePositionCustom`（%XY）を追加し、解決優先度は「個別カスタム > 個別プリセット > 一括カスタム > 一括プリセット」（`captionStyle.ts` 単一ソース、テストあり）。CaptionSettingsModal にカスタムサイズ/位置 UI と Local Font Access のローカルフォント読み込みを追加（standard 限定、iOS はプリセットのみ）。シリアライズは projectStore / indexedDB 両方に追加済み。
+  - **プレビュー BGM/ナレーションのフェード堅牢化**: processNarrationClip で gainNode が無い（AudioContext 再生成後の `createMediaElementSource` 再作成は必ず失敗する等）場合、フェード込み音量を `element.volume` に直接反映する native フォールバックを追加。element.volume はソースノード経由の出力にも作用する。
+  - **出力品質設定**: `canvasStore.exportQuality`（auto/fhd/hd、localStorage `turtle-video-export-quality` 永続化）。auto=先頭動画基準（従来・上限 1920×1080）、fhd=1920×1080 固定、hd=1280×720 固定。`resolveExportCanvasSize()` が単一ソース。設定 UI は SettingsModal の設定タブ。プレビューサイズには影響しない。
+  - **1080p ロング動画のエクスポートハング対策**: `videoEncoder.encode()` にバックプレッシャー制御を追加。リアルタイム供給（TrackProcessor）は HARD 上限（90 フレーム ≈3 秒）でフレーム破棄して realtime 進行を維持（出力時間は不変・count ベース CFR なので供給減と同じ扱い）、末尾補完ループは SOFT 上限（30）で `dequeue` イベント待ち。破棄数は 5 秒スロットルで warn ログ + flush 時サマリー。`webcodecs.d.ts` に `encodeQueueSize` / `dequeue` を追加。
+- **注意**:
+  - 時分割キャプションの行区切りは「text 内の改行」が唯一のソース。まとめて編集経由では必ず ⏎ マーカー経由で往復させること（生の改行を混ぜると 1 行 = 1 カードの前提が壊れる）。
+  - キャプションの新 override フィールドを追加する場合は types / indexedDB / projectStore serialize/deserialize / captionStyle 解決 / モーダル UI / バッジ判定（CaptionItem の hasOverride）を揃って更新する。
+  - エクスポートのフレーム破棄は「エンコーダ飽和時のみ」の安全弁。SOFT/HARD 上限を下げすぎると通常書き出しでもフレームが欠け、上げすぎるとメモリ暴走に戻る。
+
+### 13-113. 時分割キャプションの拡張（空行区切り入力 / フェード適用単位 / 行間隔）
+
+- **ファイル**: `src/utils/captionTimeline.ts`, `src/utils/captionBulkInput.ts`, `src/components/modals/CaptionBulkAddModal.tsx`, `src/components/modals/CaptionSettingsModal.tsx`, `src/components/media/CaptionItem.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/types/index.ts`, `src/utils/indexedDB.ts`, `src/stores/projectStore.ts`
+- **内容**（13-112 の時分割キャプションを機能拡張）:
+  - **まとめて入力の「区切り方」トグル**: 「1行=1カード」（従来）/「空行で区切る（時分割）」。後者は `collapseBlankLineBlocks()` が空行区切りのブロックを ⏎ 結合の 1 行へ畳んでから既存の `parseBulkCaptionInput()` に通す（時間記法はブロック 1 行目/最終行に付けたまま解釈される）。割付プレビューは時分割カードに「時分割」バッジ + ⏎ 区切り表示。
+  - **時間配分の行数加重**: `planBulkCaptions()` は時分割カード（text に改行）を表示行数で加重する。fixed = fixedDurationSec × 行数、even = 行数比で分配（`countSequentialLines()`）。単一行のみの場合は従来と完全一致（テスト保証）。
+  - **フェード適用単位** `Caption.sequentialFadeMode`（'card' 既定 / 'line'）: 'line' は各行区間の頭/尻でフェードし、行区間が短い場合はフェード時間を按分クランプ。renderFrame のフェード基準区間（fadeBasisStart/End）を displaySegment に切り替えるだけで、フェード ON/OFF・時間は既存の個別/一括設定に従う。
+  - **行の間隔** `Caption.sequentialGapSec`（0〜5 秒・既定 0）: 行間に無表示のギャップを挟む。`resolveSequentialCaptionSegments()` が間隔を確保してから文字数比配分し、収まらない場合は各行の最低表示 0.1 秒を守る範囲へ自動縮小。ギャップ中は `resolveCaptionDisplaySegment()` が null を返し、エンジンは描画をスキップする。
+  - **UI**: 個別設定モーダルに「時分割設定」セクション（フェード: カード全体/行ごと、行の間隔: なし/200ms/カスタム）。時分割カードのみ表示。
+- **注意**:
+  - エンジンの caption 描画は `resolveCaptionDisplaySegment()` が唯一の入口（text 直接参照へ戻さない）。null はギャップ中の正常値。
+  - 「1行あたりの表示時間」の意味は「画面に表示される 1 行あたり」。planBulkCaptions の加重を外すと時分割カードだけ極端に早送りになる。
+  - sequentialFadeMode / sequentialGapSec は既定値のとき undefined で保存する（'card'/0 を明示保存しない）。
+
+### 13-114. 出力品質の解像度は Canvas リサイズ後の実寸を muxer / VideoEncoder へ渡す
+
+- **ファイル**: `src/stores/canvasStore.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`, `src/test/canvasStore.test.ts`
+- **問題**:
+  - export 開始前のプレビュー Canvas 寸法（通常 1280×720）を先にローカル変数へ保持し、その後 Canvas だけを FHD（1920×1080）へ変更すると、MP4 muxer と `VideoEncoder.configure()` は古い 1280×720 のままになる。
+  - この状態では設定 UI と Canvas は FHD を示していても、生成ファイルのプロパティは HD になり、入力フレームとエンコーダー設定の寸法不一致によって環境依存のスケーリング不安定も起こり得る。
+- **対策**:
+  - `applyExportCanvasSize()` で Canvas の `width` / `height` を目標値へ変更し、変更後の実寸を同じ呼び出しから返す。
+  - muxer、`VideoEncoder.configure()`、ビットレート計算、MediaRecorder 設定、診断ログはすべて返された同一の `width` / `height` を使う。
+  - standard と apple-safari の WebCodecs fallback の両方で同じ契約を維持する。
+- **注意**:
+  - Canvas の `width` / `height` 変更は描画バッファをクリアする。リサイズ後にエクスポート描画ループが再描画する既存順序を維持する。
+  - エンコーダー寸法を export mode へ切り替える前に読み取らない。品質モード追加・変更時は、ストアの解決値だけでなくエンコーダーへ渡る最終実寸までテストする。
+
+### 13-115. 標準エクスポートは高解像度負荷で遅れた Canvas 取得をその場で CFR 補完し、MP4 実解像度を保存前に検証する
+
+- **ファイル**: `src/flavors/standard/export/exportEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`, `src/utils/exportTimeline.ts`, `src/utils/mp4Duration.ts`, `src/test/exportTimeline.test.ts`, `src/test/mp4Duration.test.ts`
+- **実測した問題**:
+  - 127.1 秒の添付出力は自動/FHD指定とも実ファイルが 1280×720 で、黒区間は自動が 100.53 秒付近、FHDが 64.53 秒付近から末尾まで連続していた。
+  - standard の manual Canvas 取得は 1 poll につき 1 フレームへ固定されていたため、同じメインスレッド上の 1080p 描画で timer が約 15fps まで遅れてもタイムラインだけは実時間の 30fps で進行し、不足した約半分を終了時の黒い Canvas で補完していた。
+- **対策**:
+  - standard 経路では `pendingFrameCount` を encoder queue の残容量（HARD 上限 90）まで 1 poll 内で CFR 補完する。通常時は 1 枚、描画遅延時だけ複数枚となり、未処理フレームを末尾へ持ち越さない。
+  - `resolveExportCanvasFrameBurstCount()` は `maxFramesPerPoll` 省略時に従来の 1 枚制限を維持し、apple-safari 経路へ standard の catch-up 方針を波及させない。
+  - MP4 の `tkhd`（16.16 fixed-point）から video track の実 width/height を読み戻し、設定したエクスポート寸法と一致しない場合は成功扱いにせずエラーにする。standard と apple-safari の WebCodecs 経路で共通の保存前ガードとする。
+- **注意**:
+  - catch-up は encoder queue の空き以内に限定し、1080p ロング動画向けのバックプレッシャー上限を迂回しない。
+  - 負荷で描画 callback 自体が 30fps 未満になった区間は同一 Canvas の CFR 複製を含むが、タイムライン尺を末尾の単一フレームへ偏らせるより時間位置と音声同期を優先する。
+  - 出力寸法検証は muxer 設定値ではなく完成 MP4 の track header を根拠にする。検証不能または不一致のファイルをユーザーへ渡さない。
+
+### 13-116. PC の静止画エクスポートは Canvas 描画時刻を VideoEncoder のフレーム投入へ同期する
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/hooks/export-strategies/types.ts`, `src/utils/exportTimeline.ts`, `src/test/standardPreviewEngine.test.tsx`, `src/test/exportTimeline.test.ts`
+- **実測した問題**:
+  - 7.5 秒・fadeOut 1 秒の添付 FHD 出力は総尺と 1920×1080 を満たした一方、輝度低下が約 5.47 秒、ほぼ黒が約 5.8 秒から始まり、6.5 秒から始まるべきフェードが約 1 秒早かった。
+  - BGM は OfflineAudioContext で総尺どおり生成されるが、画像・キャプション・フェードは壁時計で進むため、PC の 1080p Canvas 描画が 30fps に追いつかないと映像時刻だけ先行した。
+  - 13-115 の catch-up は不足フレームへ同じ時点の Canvas を複製するため映像尺は直るが、重い描画で先行したフェード画像を過去の CFR timestamp へ複製し、終端には黒い最終 Canvas が残る。
+- **対策**:
+  - standard の「静止画だけ・先頭から」の export に限り、壁時計ではなく `VideoEncoder.encode()` へ正常投入したフレーム数から次の Canvas 描画時刻を決める。
+  - 同じ投入数の待機中は 1080p Canvas を再描画せず、投入が 1 枚進んだ次の rAF で次時刻を描く。各 Canvas 描画と CFR フレーム投入を 1 対 1 に保つ。
+  - `output` callback 完了待ちは H.264 の内部バッファリングで停止し得るため使わない。投入後の同期通知と encoder queue の既存バックプレッシャーを組み合わせる。
+  - 動画を含む export、途中時刻からの開始、通常 preview、apple-safari 経路は従来の壁時計方式を維持する。
+- **注意**:
+  - 静止画 export の進行基準を再び壁時計へ戻したり、1 回の描画から複数 timestamp を生成すると、画像・キャプション・フェードが BGM より早く終わる問題が再発する。
+  - 7.5 秒・30fps の回帰テストでは、195 枚投入時が約 6.5 秒、225 枚投入後だけが完了条件であることを確認する。
+
+### 13-117. まとめて入力の可逆モード変換 / 個別設定クリア / 音声終了位置のプレビュー反映
+
+- **ファイル**: `src/utils/captionBulkInput.ts`, `src/components/modals/CaptionBulkAddModal.tsx`, `src/utils/captionIndividualSettings.ts`, `src/components/media/CaptionItem.tsx`, `src/components/modals/CaptionSettingsModal.tsx`, `src/stores/audioStore.ts`, `src/components/sections/BgmClipList.tsx`, `src/components/sections/NarrationSection.tsx`
+- **内容**:
+  - **まとめて入力3モード**: `line`（1行カード）/ `hybrid`（通常行はカード、`+ ` 行だけ直前カードの時分割）/ `block`（空行区切り）。`convertBulkCaptionTextMode()` が切替時に入力欄自体を変換し、block→line では内部行を独立カードへ展開、line→block ではカード間へ空行を補って意図しない全行結合を防ぐ。既存 `⏎` は後方互換入力として解釈するが、新UIでは表示・入力させない。
+  - **時分割のスマホ入力**: hybrid を既定にし、「時分割行を追加」でカーソル行の次へ `+ ` 行を挿入。通常カードと時分割カードを同じ入力内で混在できる。
+  - **時間記法だけ除去**: `stripBulkCaptionTimeNotations()` は有効な前置/後置 `[開始-終了]` のみを除去し、文章・空行・`+ ` 構造・通常の角括弧を維持する。
+  - **個別設定クリア**: `captionIndividualSettings.ts` が個別設定バッジ判定と全クリア対象の単一ソース。本文/開始/終了/カード本来の fade 値は残し、override と sequential 固有設定だけを undefined に戻す。
+  - **音声のタイムライン終了調整**: `resolveAudioClipEndAtTimelineTime()` が `trimEnd = trimStart + (timelineEnd - startTime)` の座標変換を担当。BGM/ナレーションとも現在のプレビュー位置を開始・終了へ反映できる。`resolveAudioClipFitToTimelineEnd()` はBGMが動画末尾を超える場合はトリムし、短い場合は実効長を保って後ろへ移動する。
+- **注意**:
+  - `Caption.text` 内の実改行が時分割の保存上の唯一のソースである契約は不変。`+ ` / `⏎` / 空行はまとめて入力UI内の一時記法で、反映時は必ず実改行へ正規化する。
+  - まとめて入力モードをUI stateだけ切り替えない。表示テキストを変換しないと、旧モードの構造が新モードでも残る回帰が再発する。
+  - 音声の現在位置はタイムライン時刻、trimEnd は音源内時刻。両者を直接代入せず、startTime と trimStart のオフセットを必ず考慮する。
+  - BGM末尾フィットは選択クリップだけを変更し、`bgm` / `bgmClips` の互換ミラー契約には触れない。
+
+### 13-118. 出力解像度検証の緩和（検証不能で書き出しを破棄しない）
+
+- **ファイル**: `src/utils/exportTimeline.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`, `src/test/exportTimeline.test.ts`
+- **問題**:
+  - 13-115 で追加した mux 後の解像度検証（フルHD/HD/自動モード対応時）が「`inspectMp4Durations` が解像度を読み取れない（null）」ケースも `throw` していたため、生成 MP4 自体は正しくても検証不能を理由に完成した書き出しごと破棄され、**エクスポートが全くできなくなる**回帰につながっていた。旧コードは `!muxDurationSummary || videoWidth !== width || videoHeight !== height` を無条件で失敗にしていた。
+- **対策**:
+  - 判定を純ロジック `resolveExportResolutionVerdict()`（`exportTimeline.ts`）へ切り出し、3値で扱う: `match`（一致・正常）/ `mismatch`（実解像度が確実に食い違う→失敗）/ `unverified`（解像度を読み取れない→**書き出しは継続し警告に留める**）。
+  - エンコーダー / muxer には常に設定済みの width/height が入るため、パーサー側の限界（null）を根拠に良好な書き出しを捨てない。`mismatch`（実値が読めて食い違う）だけを `throw` にする。
+  - standard / apple-safari の両フレーバーで同一の判定関数を共有。duration 差分検査は `muxDurationSummary` が非 null のときだけ実行するようガードを追加。
+- **注意**:
+  - 解像度検証を再び「読み取れない=失敗」に戻さない。tkhd を読めない正常ファイルでも書き出しを通す契約が回帰防止の要点。
+  - duration 差分の ±1ms hard-throw（`DURATION_DIFF_THRESHOLD_US`）は本対応の対象外で従来どおり。ここを触る場合は AAC プライミング遅延で audio track が伸びる実測を確認する。
+  - 実解像度が確実に食い違う `mismatch` は引き続き失敗にする（不正ファイルはユーザーへ渡さない 13-115 の意図を維持）。
+
+### 13-119. フレーム駆動エクスポートの停滞ウォッチドッグ（「書き出し準備中」ハング対策）
+
+- **ファイル**: `src/utils/exportTimeline.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/test/exportTimeline.test.ts`
+- **問題**:
+  - 13-116 で導入した「画像のみ export のフレーム駆動ペーシング」（`shouldUseFrameDrivenExportPacing`）は、VideoEncoder へのフレーム投入が進まないとタイムラインも進まない設計。何らかの理由（エンコーダーがエラー状態へ落ちる、投入が始まらない等）で `submitted` が増えないと、`currentTime` が 0 秒付近から進まず、UI が「書き出し準備中…（N秒経過）」のまま永久にハングする（`exportPhase` は `currentTime` の前進でしか rendering へ遷移しないため）。短い動画でも数分止まる症状。**画像のみ構成で発生**。
+- **対策**:
+  - 純ロジック `evaluateFrameDrivenExportStall()`（`exportTimeline.ts`）を追加。最後に `submitted` が増えてから `FRAME_DRIVEN_EXPORT_STALL_TIMEOUT_MS`(=2000ms) を超えて停滞したら `stalled=true` を返す。
+  - preview loop はフレーム駆動待機の直前でウォッチドッグを評価し、停滞検知時は `frameDrivenExportForcedWallClockRef` を立てて**壁時計ペーシングへフォールバック**する。壁時計は投入数に依存しないため、以後タイムラインは必ず前進し、終端で `completeWebCodecsExport()` に到達して正常完了またはエラーで確実に終わる。フォールバック時は `startTimeRef` を投入済みフレーム分だけ巻き戻して連続させる。
+  - フォールバック用フラグ/停滞計測 ref は export 開始（`startEngine` の isExportMode 分岐）・`onAudioPreRenderComplete`・`stopAll` の各所でリセットする。
+  - 併せて VideoEncoder の `error` コールバックを `console.error` だけでなく logStore へ記録し、投入停止の根因（エンコーダー障害）を診断可能にした。
+- **注意**:
+  - ウォッチドッグは 2 秒の「投入ゼロ前進」でだけ発火する安全弁。正常なフレーム駆動進行（1 投入ごとに前進）には一切干渉しない（既存の画像のみ回帰テストが緑のまま）。
+  - 停滞閾値を短くしすぎると、重い 1080p 描画で一時的に投入が遅れただけでも壁時計へ落ちてしまう。フレーム駆動の同期性が壊れない範囲で調整する。
+  - フォールバック後にフレーム駆動へ戻さない（1 回の export セッション内は片道）。復帰させると再度停滞し得る。
+
+### 13-120. エクスポート終端で現在時刻を総尺へスナップ（「0:04 / 0:05」表示ズレ対策）
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **問題**:
+  - standard の export 終端（`loop` 内 `clampedElapsed >= totalDuration` 分岐）は `completeWebCodecsExport()` を呼ぶだけで `currentTime` を更新せず、最後に描画した「最終フレーム開始時刻」（例 5秒/150fの frame149 = 4.966s）で止まっていた。
+  - `formatTime()` は `Math.floor` 秒表示のため、`4.966s` は `0:04`、総尺 `5.0s` は `0:05` となり、シークバーは右端なのに「**0:04 / 0:05**」と 1 秒ズレて見えた。preview 終端（`finalizePreviewAtTimelineEnd`）は総尺へスナップ済み、apple-safari の export 終端も `setCurrentTime(totalDuration)` 済みで、**standard の export 終端だけが未スナップ**だった。
+- **対策**:
+  - standard の export 終端分岐で `completeWebCodecsExport()`（/ `completePreviewCacheExport()`）呼び出し前に `currentTimeRef.current = totalDuration; setCurrentTime(totalDuration)` を実行し、他経路（preview / apple-safari）と表示を揃える。
+- **影響確認**:
+  - **エクスポート済みファイルの尺には影響しない**。映像は `expectedVideoFrames` 全数（150枚）をエンコードし、最終フレームの `duration` は `getExportFrameTiming` で `exportDurationUs` まで延長されるため、MP4 の video track / container 尺は総尺どおり（13-115 の保存前検証も通過）。本件は **UI 表示のみ**の修正。
+- **注意**:
+  - スナップは終端到達時（`clampedElapsed >= totalDuration`）にだけ行う。途中フレームの時刻計算（フレーム駆動 timestamp）には手を入れない。
+  - export 完了後の `stopAll()` は currentTime をリセットしないため、スナップした総尺表示は保持される。
+
+### 13-121. エクスポート中に BGM/ナレーションがスピーカーから聞こえる問題（native 音声漏れ）
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardExportNativeAudioSilence.test.ts`
+- **問題**:
+  - PC(standard) のエクスポートでは、出力音声を OfflineAudioContext（`offlineRenderAudio`）で**別途生成**して AudioEncoder に供給する（`webCodecsAudioCaptureStrategy='pre-rendered'`）。一方で render loop は export 中もライブの BGM/ナレーション `<audio>` 要素を `.play()` する。
+  - ライブ要素は export 中に WebAudio ソースノードを作らない（`ensurePreviewAudioGainNode` は `if (!_isExporting && !hasAudioNode)` でのみ生成）。ソースノードが無いと要素のスピーカー出力が横取りされず、PC ポリシー（`muteNativeMediaDuringExportWhenAudioRouted=false`）では `applyPreviewAudioOutputState` が `muted=false / volume=1` にしていたため、**export 中に BGM がスピーカーから漏れて聞こえていた**。加えて 13-112 の narration フェード native フォールバック（`element.volume = vol`）も export 中に音を出していた。
+  - **出力ファイルの音声には無関係**（file の音声は OfflineAudioContext 由来）。あくまで「作成中にスピーカーから聞こえるだけ」の副作用。
+- **対策**:
+  - `applyPreviewAudioOutputState` に「export 中 + webaudio モード + WebAudio ノード無し」= キャプチャ対象外の要素は必ず `muted=true / volume=0` にするガード（`shouldSilenceUncapturedDuringExport`）を追加。
+  - narration の native フォールバックも `element.volume = _isExporting ? 0 : ...` にして export 中は無音化。
+  - `applyPreviewAudioOutputState` を `export` し、モック要素での回帰テストを追加。
+- **注意**:
+  - **出力音声には触れない**。OfflineAudioContext のミックス（BGM/ナレーション/動画音声）はそのままファイルへ入る。無音化するのは「キャプチャされないライブ要素」だけ。
+  - script-processor フォールバック（offline 失敗時のライブ捕捉）は WebAudio グラフ（ソースノード有り）から拾うため、ソースノード**無し**要素の無音化は捕捉に影響しない。
+  - Android は既存の `muteNativeMediaDuringExportWhenAudioRouted=isAndroid=true` で従来から無音。iOS Safari は別フレーバーで本変更の対象外。
+
+### 13-122. 縦画面（9:16）出力対応（アスペクト比の向き切替）
+
+- **ファイル**: `src/stores/canvasStore.ts`, `src/components/sections/ClipsSection.tsx`, `src/components/sections/PreviewSection.tsx`, `src/components/common/MiniPreview.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/utils/indexedDB.ts`, `src/stores/projectStore.ts`, `src/hooks/useAutoSave.ts`, `src/test/canvasStore.test.ts`
+- **内容**:
+  - **向き（aspectRatio）を canvasStore に追加**: `'landscape'(16:9・既定) | 'portrait'(9:16)`。`setAspectRatio()` でプレビュー/エクスポート寸法を再計算。`getTargetAspect()` が単一ソース。寸法算出（`computeCanvasSizeFromSource` / `resolveExportCanvasSize`）に `aspectRatio` 引数（既定 landscape で後方互換）を追加し、`FIXED_EXPORT_SIZES` を向き別（portrait fhd=1080×1920 / hd=720×1280）に拡張。**canvasStore が唯一の寸法ソース**なので、プレビュー/カード/エクスポートは width/height を読むだけで自動追従する。
+  - **cover 配置（縦フレームを埋める）**: 縦(9:16)モードでは横素材を「縦幅を合わせ左右カット」で初期配置する。純ロジック `resolveMediaBaseScale({..., mode})`（`canvasStore.ts`）を追加し、描画側は `mode = canvas.height > canvas.width ? 'cover' : 'contain'` で分岐。横(16:9)は従来どおり contain で**1px も挙動を変えない**。scale(拡大)/positionX/Y(XY) は baseScale に乗るだけで不変。standard は主描画＋peer/dissolve の2箇所、apple-safari は1箇所、MiniPreview（ミニ枠も向きで 96×54⇄54×96 に）を差し替え。
+  - **UI トグル**: 「動画・画像」セクションのタイトルバー（ClipsSection）に横/縦セグメントトグル（`RectangleHorizontal`/`RectangleVertical`）。`useCanvasStore` の `aspectRatio`/`setAspectRatio` に接続。
+  - **プレビュー枠**: PreviewSection の canvas ラッパを向きで切替（横=`aspect-video`、縦=`aspect-[9/16]` + `max-h-[70vh]` 中央）。
+  - **永続化（per-project）**: `ProjectData.aspectRatio?`（任意・旧データは landscape 後方互換）。projectStore の save は `useCanvasStore.getState().aspectRatio` を書き出し、`loadProjectFromSlot` は `setAspectRatio(data.aspectRatio ?? 'landscape')` で復元（メディア反映前に向きを確定）。useAutoSave の変更検知ハッシュに `aspectRatio` を追加。exportQuality（localStorage・per-user）とは独立。
+  - **エクスポート**: `beginExportMode()` が返す exportWidth/exportHeight に自動追従するため export エンジンは変更不要。13-114/13-115 の実寸受け渡し・保存前解像度検証は縦寸法でもそのまま通る（縦の tkhd も既存パーサで OK）。
+- **注意**:
+  - **landscape の挙動は完全不変**（cover は canvas が縦のときだけ、寸法既定は landscape）。既存 16:9 プロジェクトへ影響なし（canvasStore.test.ts の landscape 期待値が回帰ガード）。
+  - 描画の向き判定は Canvas 実寸（`height > width`）を根拠にする。store の aspectRatio と Canvas 実寸は常に整合（縦モードは必ず w<h を返す）。
+  - 向き切替時に XY/scale の値は保持する（枠が変わるので見え方は変わるが値は壊さない）。cover 既定で横素材は左右カットになり、左右調整だけで収まる想定。
+  - 新 override 的フィールドと同様、`aspectRatio` は types/indexedDB/projectStore(save+load)/useAutoSave ハッシュを揃って更新する。
+
+### 13-123. クリップ単位の90度回転（縦横入れ替え・0/90/180/270巡回）
+
+- **ファイル**: `src/utils/canvas.ts`, `src/types/index.ts`, `src/utils/indexedDB.ts`, `src/utils/media.ts`, `src/hooks/useMediaItems.ts`, `src/stores/mediaStore.ts`, `src/stores/projectStore.ts`, `src/components/TurtleVideo.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/media/ClipItem.tsx`, `src/components/common/MiniPreview.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/androidPreviewCache.ts`, `src/test/canvasRotation.test.ts`, `src/test/stores/mediaStore.test.ts`
+- **内容**:
+  - **要件**: 「位置・サイズ調整」パネル内に「回転」を追加。縦撮り動画が横になっている等を素早く直す用途。ボタン1回で 90°→180°→270°→0° を巡回（スライダー微調整はしない）。画像・動画どちらも、カード単位で対応。
+  - **データモデル**: `MediaItem.rotation?: number`（90度単位・時計回り。**任意**で旧データは 0 とみなす）。`SerializedMediaItem.rotation?` も追加。新規作成の既定は 0（`media.ts` / `useMediaItems.ts`）。projectStore の save/load は `normalizeRotation()` を通して 0/90/180/270 に丸めて往復。
+  - **純ロジックは canvas.ts に集約**（フレーバー中立・共有 util）: `normalizeRotation(x)` は任意値（負値/360超/端数/NaN/undefined）を 0/90/180/270 へ丸める。`getNextRotation(x)` は次角へ1段。`resolveRotatedFitDimensions(w,h,rot)` は 90/270 のとき w/h を入れ替えて返す。**回転時は fit 計算に入れ替え後寸法を渡す**のが要（cover/contain が回転後も成立）。
+  - **描画（13-122 と同じ4サイトを差し替え）**: standard 主描画＋dissolve/peer、apple-safari 主描画、MiniPreview。各サイトで `resolveRotatedFitDimensions` を `resolveMediaBaseScale` に渡し、`ctx.translate` 後・`ctx.scale` 前に `ctx.rotate((deg*π)/180)`（deg=0 のときは rotate を呼ばず従来と完全一致）。**export はこれら preview Canvas を captureStream するため描画変更は export へ自動波及**（export エンジンは無変更）。
+  - **ストア/配線**: `mediaStore.rotateClip(id)`（`getNextRotation`）と `resetTransform(id,'rotation')` を追加（reset の type を `'scale'|'x'|'y'|'rotation'` へ拡張）。TurtleVideo に `handleRotateMedia`（`pausePreviewBeforeEdit('rotate-media')` 経由）を追加し、ClipsSection→ClipItem へ `onRotate`/`onRotateMedia` を伝搬。ClipItem のパネル末尾（縦方向スライダーとミニプレビューの間）に「回転: N°」表示＋リセット＋「90°回転」ボタン（`RotateCw`）を配置。
+  - **Android preview cache 署名**: `androidPreviewCache.ts` の cache-key スナップショットに `rotation` を追加（回転変更でキャッシュが正しく無効化される。現状 `ENABLE_ANDROID_PREVIEW_CACHE=false` だが署名の正しさとして先行対応）。
+- **注意**:
+  - **rotation=0（既定）では描画は 1px も変わらない**（rotate を呼ばない分岐 + fit 寸法も非入れ替え）。既存プロジェクト・全既存テストに影響なし。
+  - `rotation` は 13-122 の `aspectRatio` と同様「types / indexedDB / projectStore(save+load, normalize往復) / 既定値(media.ts, useMediaItems.ts) / androidPreviewCache 署名」を**揃って**更新するのが定石。片方だけだと保存往復や Android 経路で欠落する。
+  - 回転の純ロジックは必ず `canvas.ts` の共有 helper を通す（フレーバー物理分離のため描画コードは4箇所に重複。角度計算をインライン化すると preview/export/MiniPreview/トランジションで挙動が食い違う）。回帰ガードは `canvasRotation.test.ts`（純ロジック不変条件）＋ `mediaStore.test.ts`（巡回とリセット）。
+  - 90/270 回転は scale/positionX/Y と直交（回転はキャンバス中心基準で XY 移動より前に適用され、baseScale に乗るだけ）。ユーザーは回転→必要なら scale/XY で微調整の想定。
