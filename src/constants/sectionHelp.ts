@@ -312,6 +312,11 @@ export function getSectionHelpContent(context: SectionHelpContext): Record<Secti
         visuals: ['trim_chip', 'duration_chip', 'slider_demo'],
       },
       {
+        title: '音量波形と無音の区切り検出',
+        description:
+          'トリミング設定を開くと、そのナレーションの音量波形が表示されます（Android・パソコン向け）。緑と赤の縦線が現在のトリミング開始・終了位置です。音量がはっきり落ちている「文の区切り」は黄色い縦線で自動検出され、タップして「開始に」「終了に」を選ぶと、その位置へトリミングを合わせられます。波形を見ながら区切りのよい場所で分割できます。',
+      },
+      {
         title: '音量調整',
         description: '音量は常時表示です。スライダーで調整し、スピーカーアイコンでミュートON/OFF切替、くるくるアイコンでデフォルト値に戻せます。',
         visuals: ['volume_chip', 'mute_button', 'reset_button', 'slider_demo'],

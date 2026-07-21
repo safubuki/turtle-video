@@ -236,19 +236,6 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
             disabled={isLocked}
             className="flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
           />
-          <button
-            onClick={() => {
-              const val = Math.round(currentTime * 10) / 10;
-              if (val >= 0 && val < caption.endTime) {
-                onUpdate(caption.id, { startTime: val });
-              }
-            }}
-            disabled={isLocked}
-            className="p-1 text-gray-400 hover:text-yellow-400 disabled:opacity-50 disabled:hover:text-gray-400"
-            title="現在位置を開始時間に設定"
-          >
-            <MapPin size={12} />
-          </button>
           <input
             type="number"
             min={0}
@@ -279,19 +266,6 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
             disabled={isLocked}
             className="flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
           />
-          <button
-            onClick={() => {
-              const val = Math.round(currentTime * 10) / 10;
-              if (val > caption.startTime) {
-                onUpdate(caption.id, { endTime: val });
-              }
-            }}
-            disabled={isLocked}
-            className="p-1 text-gray-400 hover:text-yellow-400 disabled:opacity-50 disabled:hover:text-gray-400"
-            title="現在位置を終了時間に設定"
-          >
-            <MapPin size={12} />
-          </button>
           <input
             type="number"
             min={caption.startTime + 0.1}
@@ -308,6 +282,39 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
             className="w-12 bg-gray-700 border border-gray-600 rounded px-1 text-right text-white focus:outline-none focus:border-yellow-500 disabled:opacity-50"
           />
           <span className="text-gray-500">秒</span>
+        </div>
+
+        {/* プレビュー位置を反映（BGM/ナレーションと同じ形式で分かりやすく） */}
+        <div className="flex flex-wrap items-center gap-1.5 text-[10px] md:text-xs">
+          <span className="text-gray-500 mr-0.5">プレビュー位置を反映:</span>
+          <button
+            type="button"
+            onClick={() => {
+              const val = Math.round(currentTime * 10) / 10;
+              if (val >= 0 && val < caption.endTime) {
+                onUpdate(caption.id, { startTime: val });
+              }
+            }}
+            disabled={isLocked || !(Math.round(currentTime * 10) / 10 < caption.endTime)}
+            className="min-h-9 px-2.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 hover:border-yellow-500/60 hover:text-yellow-200 disabled:opacity-30 flex items-center gap-1 transition"
+            title="現在位置を開始時間に設定"
+          >
+            <MapPin className="w-3.5 h-3.5" /> 開始
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const val = Math.round(currentTime * 10) / 10;
+              if (val > caption.startTime) {
+                onUpdate(caption.id, { endTime: val });
+              }
+            }}
+            disabled={isLocked || !(Math.round(currentTime * 10) / 10 > caption.startTime)}
+            className="min-h-9 px-2.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 hover:border-yellow-500/60 hover:text-yellow-200 disabled:opacity-30 flex items-center gap-1 transition"
+            title="現在位置を終了時間に設定"
+          >
+            <MapPin className="w-3.5 h-3.5" /> 終了
+          </button>
         </div>
       </div>
 

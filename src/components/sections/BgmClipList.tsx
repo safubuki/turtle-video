@@ -185,7 +185,7 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
                 className="min-h-9 px-2.5 rounded-lg bg-purple-900/30 border border-purple-600/40 text-purple-200 hover:bg-purple-900/50 disabled:opacity-30 flex items-center gap-1 transition"
                 title="このBGMだけをトリムまたは再配置し、再生終了を動画末尾へ合わせます"
               >
-                動画末尾に合わせる
+                動画末尾合わせ
               </button>
             </div>
 

@@ -36,7 +36,7 @@ describe('BgmClipList timeline adjustment', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '動画末尾に合わせる' }));
+    fireEvent.click(screen.getByRole('button', { name: '動画末尾合わせ' }));
 
     expect(onBeforeEdit).toHaveBeenCalledWith('fit-bgm-clip-to-timeline-end');
     expect(useAudioStore.getState().bgmClips[0].trimEnd).toBe(40);

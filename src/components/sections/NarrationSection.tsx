@@ -30,6 +30,7 @@ import { getAudioUploadAccept } from '../../utils/platform';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import { useAudioStore } from '../../stores/audioStore';
+import NarrationWaveform from '../media/NarrationWaveform';
 
 interface NarrationSectionProps {
   narrations: NarrationClip[];
@@ -375,6 +376,19 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
 
                 {isTrimOpen && (
                   <div className="px-2 mb-1 space-y-2 border-t border-gray-700/50 pt-2 mt-1 bg-gray-900/30 rounded p-2">
+                    {/* 音量波形 + 無音区切り検出（standard フレーバー限定。iOS はデコード失敗しうるため非表示） */}
+                    {!isIosSafari && (
+                      <NarrationWaveform
+                        clip={clip}
+                        enabled={isTrimOpen}
+                        disabled={isNarrationLocked}
+                        trimStart={trimStart}
+                        trimEnd={trimEnd}
+                        onSetTrimStart={(value) => onUpdateTrimStart(clip.id, String(value))}
+                        onSetTrimEnd={(value) => onUpdateTrimEnd(clip.id, String(value))}
+                        formatTime={formatTime}
+                      />
+                    )}
                     <div className="space-y-1">
                       <div className="flex items-center justify-between text-[10px] md:text-xs text-gray-400">
                         <span>トリミング開始: {formatTime(trimStart)}</span>

@@ -2288,3 +2288,20 @@
   - `rotation` は 13-122 の `aspectRatio` と同様「types / indexedDB / projectStore(save+load, normalize往復) / 既定値(media.ts, useMediaItems.ts) / androidPreviewCache 署名」を**揃って**更新するのが定石。片方だけだと保存往復や Android 経路で欠落する。
   - 回転の純ロジックは必ず `canvas.ts` の共有 helper を通す（フレーバー物理分離のため描画コードは4箇所に重複。角度計算をインライン化すると preview/export/MiniPreview/トランジションで挙動が食い違う）。回帰ガードは `canvasRotation.test.ts`（純ロジック不変条件）＋ `mediaStore.test.ts`（巡回とリセット）。
   - 90/270 回転は scale/positionX/Y と直交（回転はキャンバス中心基準で XY 移動より前に適用され、baseScale に乗るだけ）。ユーザーは回転→必要なら scale/XY で微調整の想定。
+
+### 13-124. ナレーションの音量波形表示＋無音区切り自動検出トリミング（standard 限定）
+
+- **ファイル**: `src/utils/audioWaveform.ts`, `src/hooks/useNarrationWaveform.ts`, `src/components/media/NarrationWaveform.tsx`, `src/components/sections/NarrationSection.tsx`, `src/constants/sectionHelp.ts`, `src/test/audioWaveform.test.ts`
+- **要件**: ナレーションは文の区切りで音量が落ちるので、その位置で区切って使いたい。トリミング設定に音量波形を静的表示し、どこでトリムしようとしているかを ⇔（開始/終了カーソル）で可視化。さらに周囲より明らかに音量が落ちた「間」を自動検出し、タップで「開始に/終了に」トリム反映できるようにする。
+- **アーキテクチャ（純ロジック / デコード / 描画 を分離）**:
+  - **純ロジック `audioWaveform.ts`**（AudioBuffer 非依存でテスト可能）: `computeWaveformPeaks(pcm, buckets)`（バケット単位の最大絶対振幅・正規化しない＝相対音量をそのまま見せる）、`detectSilenceSplitPoints(pcm, opts)`（窓 RMS→auto しきい値=平均RMS×0.35 未満の連続窓を無音ラン化→`minSilenceSec` 未満と端マージン内を除外→多すぎる場合は「間が長い順」に上限 24 へ絞り時刻昇順で返す）、`mixToMono(channels)`。
+  - **デコード hook `useNarrationWaveform.ts`**（standard 限定）: `clip.file`(File) 優先、無ければ `blobUrl/url` を fetch→**専用 AudioContext**（再生用と分離。resume/suspend 非干渉）で `decodeAudioData`→peaks/split をモジュール Map にキャッシュ（キー = id+size+lastModified+duration+src。AI 再生成やファイル差し替えで自動失効）。`enabled=false`（パネル閉/iOS）ではデコードしない。失敗時 `status='error'`。
+  - **描画 `NarrationWaveform.tsx`**（memo 化）: Canvas に波形（トリム範囲内=インディゴ／外=グレー、振幅は sqrt で小音量も視認可）＋トリム範囲ハイライト＋無音候補の黄縦線＋トリム開始(緑)/終了(赤)カーソルを描画。ResizeObserver で幅追従・dpr 対応（上限2）。無音候補は当たり判定を広げた透明ボタンで、タップで「開始に/終了に」小パネルを出す。値反映は既存の `onUpdateTrimStart/End(clip.id, String(sec))`（audioStore.updateNarrationTrim）を**そのまま再利用**（新規ストア配線なし）。
+  - **配線**: `NarrationSection` のトリムパネル先頭に `!isIosSafari` 条件で差し込むだけ（`usePlatformCapabilities().isIosSafari` は既存）。
+- **決定事項（ユーザー確認済み）**: ①分割候補は既存 trimStart/trimEnd を動かす方式（クリップ複製しない）。②standard フレーバー（Android/PC）限定。iOS Safari は従来 UI のまま（decodeAudioData がビデオ以外でも失敗しうるため。横断注意点の Safari Export 参照）。
+- **注意**:
+  - 波形は**トリムパネルを開いたときだけ**デコード（`enabled=isTrimOpen && !isIosSafari`）。閉じている間・iOS では一切デコードせず、既存挙動に影響なし。
+  - 専用 decode AudioContext はモジュールに 1 個だけ遅延生成（ブラウザの同時 AudioContext 上限対策）。再生用 `useAudioContext` とは別物なので、波形デコードが再生の AudioSession に干渉しない。
+  - decodeAudioData 失敗（未対応コーデック等）は `status='error'` で**波形を出さず静かに従来スライダーだけ残す**（ユーザー操作は止めない）。
+  - しきい値は auto（平均 RMS 比）既定。固定 threshold も渡せる。無音検出のパラメータ（窓幅/最小継続/端マージン/上限）は `SilenceDetectionOptions` に集約し、回帰は `audioWaveform.test.ts`（区切り検出・端除外・短い谷無視・完全無音・上限で長い間優先）で固定。
+  - ObjectURL は新規作成しない（File.arrayBuffer 優先、fetch のレスポンスも URL を作らない）ため解放対象なし。
