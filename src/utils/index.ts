@@ -48,7 +48,10 @@ export {
   getNextRotation,
   resolveRotatedFitDimensions,
   normalizeMediaBlur,
+  prepareUniformMediaBlurSource,
+  resolveMediaBlurPixels,
   resolveMediaBlurFilter,
+  resolveUniformMediaBlurSize,
   MAX_MEDIA_BLUR,
 } from './canvas';
 

@@ -1,11 +1,42 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import CaptionBulkAddModal from '../components/modals/CaptionBulkAddModal';
+import type { Caption } from '../types';
 
 const renderModal = (onApplyCaptions = vi.fn(), onClose = vi.fn()) => {
   render(
     <CaptionBulkAddModal
       captions={[]}
+      totalDuration={30}
+      currentTime={0}
+      formatTime={(seconds) => `${seconds.toFixed(1)}s`}
+      onApplyCaptions={onApplyCaptions}
+      onClose={onClose}
+    />,
+  );
+  return onApplyCaptions;
+};
+
+const createCaption = (overrides: Partial<Caption> = {}): Caption => ({
+  id: 'caption-1',
+  text: '1行目\n2行目',
+  startTime: 1,
+  endTime: 7,
+  fadeIn: false,
+  fadeOut: false,
+  fadeInDuration: 1,
+  fadeOutDuration: 1,
+  ...overrides,
+});
+
+const renderEditingModal = (
+  captions: Caption[],
+  onApplyCaptions = vi.fn(),
+  onClose = vi.fn(),
+) => {
+  render(
+    <CaptionBulkAddModal
+      captions={captions}
       totalDuration={30}
       currentTime={0}
       formatTime={(seconds) => `${seconds.toFixed(1)}s`}
@@ -52,6 +83,47 @@ describe('CaptionBulkAddModal split modes', () => {
       '時分割A\n時分割B',
       '通常B',
     ]);
+  });
+
+  it('時間付き時分割カードから + を削除すると別カードとして反映する', () => {
+    const onApply = renderEditingModal([createCaption()]);
+    const textarea = screen.getByPlaceholderText(/通常カード/) as HTMLTextAreaElement;
+    expect(textarea.value).toBe('[00:01.0-00:07.0] 1行目\n+ 2行目');
+
+    fireEvent.change(textarea, {
+      target: { value: '[00:01.0-00:07.0] 1行目\n2行目' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '2件を反映' }));
+
+    expect(onApply).toHaveBeenCalledTimes(1);
+    expect(onApply.mock.calls[0][0]).toEqual([
+      expect.objectContaining({ id: 'caption-1', text: '1行目', startTime: 1, endTime: 7 }),
+      expect.objectContaining({ text: '2行目', startTime: 7.2, endTime: 10.2 }),
+    ]);
+    expect(onApply.mock.calls[0][0][1].id).toBeUndefined();
+  });
+
+  it('時分割ボタンでカーソル位置から後半を + 行へ移し、下部へスクロールする', async () => {
+    renderModal();
+    const textarea = screen.getByPlaceholderText(/通常カード/) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: '前半後半' } });
+    textarea.focus();
+    textarea.setSelectionRange(2, 2);
+    Object.defineProperty(textarea, 'scrollHeight', {
+      configurable: true,
+      value: 480,
+    });
+    textarea.scrollTop = 0;
+
+    fireEvent.click(screen.getByRole('button', { name: /時分割行を追加/ }));
+
+    expect(textarea.value).toBe('前半\n+ 後半');
+    await waitFor(() => {
+      expect(textarea.selectionStart).toBe(5);
+      expect(textarea.selectionEnd).toBe(5);
+      expect(textarea.scrollTop).toBe(480);
+    });
   });
 
   it('removes only time notation from the text area', () => {

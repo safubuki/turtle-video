@@ -281,7 +281,7 @@ describe('apple-safari preview engine boundary kick', () => {
     return { canvasContext, hook, logInfo, logWarn, activeVideoIdRef, play, pause };
   }
 
-  it('カードのぼかしをApple Safari Canvasへ縮尺反映し、後続描画へ漏らさない', () => {
+  it('Apple Safariの画像ぼかしはfilterに依存せず素材内を平均化し、後続描画へ漏らさない', () => {
     const imageItem = createImageItem({ id: 'blurred-image', blur: 15, duration: 2 });
     const imageElement = {
       tagName: 'IMG',
@@ -293,14 +293,17 @@ describe('apple-safari preview engine boundary kick', () => {
       mediaItems: [imageItem],
       mediaElements: { [imageItem.id]: imageElement } as MediaElementsRef,
     });
-    let filterAtDraw = '';
-    (canvasContext.drawImage as ReturnType<typeof vi.fn>).mockImplementation(() => {
-      filterAtDraw = canvasContext.filter;
+    let sourceAtDraw: CanvasImageSource | null = null;
+    (canvasContext.drawImage as ReturnType<typeof vi.fn>).mockImplementation((source) => {
+      sourceAtDraw = source as CanvasImageSource;
     });
 
     hook.result.current.renderFrame(0.5, true, false);
 
-    expect(filterAtDraw).toBe('blur(10px)');
+    expect(sourceAtDraw).toBeInstanceOf(HTMLCanvasElement);
+    expect(sourceAtDraw).not.toBe(imageElement);
+    const blurredCanvas = sourceAtDraw as unknown as HTMLCanvasElement;
+    expect(blurredCanvas.width).toBeLessThan(imageElement.naturalWidth);
     expect(canvasContext.filter).toBe('none');
   });
 

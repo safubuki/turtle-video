@@ -9,8 +9,10 @@ import {
   collapseBlankLineBlocks,
   convertBulkCaptionTextMode,
   formatCaptionsAsBulkText,
+  insertSequentialLineAtCursor,
   normalizeBulkCaptionText,
   parseBulkCaptionInput,
+  parseBulkCaptionText,
   parseTimeNotation,
   planBulkCaptions,
   splitCaptionLines,
@@ -380,6 +382,25 @@ describe('bulk caption split mode conversion', () => {
     expect(text).not.toContain('⏎');
     expect(parseBulkCaptionInput(normalizeBulkCaptionText(text, 'hybrid'))[0].text).toBe('A\nB');
   });
+
+  it('時間付き親行でも + を外した次行を必ず別カードとして解析する', () => {
+    expect(parseBulkCaptionText(
+      '[00:01.0-00:07.0] 1行目\n2行目\n+ 3行目',
+      'hybrid',
+    )).toEqual([
+      { text: '1行目', explicitStart: 1, explicitEnd: 7 },
+      { text: '2行目\n3行目' },
+    ]);
+  });
+
+  it('カーソル位置から後半を + の時分割行へ移し、キャレット位置を返す', () => {
+    const result = insertSequentialLineAtCursor('前半後半', 2);
+    expect(result).toEqual({
+      text: '前半\n+ 後半',
+      cursor: 5,
+    });
+  });
+
 });
 
 describe('stripBulkCaptionTimeNotations', () => {

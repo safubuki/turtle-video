@@ -8,7 +8,8 @@ import type { MediaItem } from '../../types';
 import { useCanvasStore, resolveMediaBaseScale } from '../../stores/canvasStore';
 import {
   normalizeRotation,
-  resolveMediaBlurFilter,
+  prepareUniformMediaBlurSource,
+  resolveMediaBlurPixels,
   resolveRotatedFitDimensions,
 } from '../../utils/canvas';
 
@@ -93,10 +94,25 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
         elementHeight: fitDims.height,
         mode: isPortrait ? 'cover' : 'contain',
       });
+      const renderScale = baseScale * currentItem.scale;
+      const blurPixels = resolveMediaBlurPixels(
+        currentItem.blur,
+        miniCanvasWidth,
+        miniCanvasHeight,
+      );
+      const drawSource = blurPixels > 0
+        ? prepareUniformMediaBlurSource(
+            mediaElement,
+            elemW,
+            elemH,
+            blurPixels,
+            renderScale,
+          )
+        : mediaElement;
 
       // トランスフォーム適用
       ctx.save();
-      ctx.filter = resolveMediaBlurFilter(currentItem.blur, miniCanvasWidth, miniCanvasHeight);
+      ctx.filter = 'none';
 
       // 位置計算: プレビュー比率に合わせて縮小
       const userX = currentItem.positionX * previewRatio;
@@ -107,17 +123,17 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
       if (rotationDeg !== 0) {
         ctx.rotate((rotationDeg * Math.PI) / 180);
       }
-      ctx.scale(baseScale * currentItem.scale, baseScale * currentItem.scale);
+      ctx.scale(renderScale, renderScale);
 
       // メディアを描画 (中心基準なので -w/2, -h/2)
       try {
         if (currentItem.type === 'video') {
           const video = mediaElement as HTMLVideoElement;
           if (video.readyState >= 2) {
-            ctx.drawImage(video, -elemW / 2, -elemH / 2, elemW, elemH);
+            ctx.drawImage(drawSource, -elemW / 2, -elemH / 2, elemW, elemH);
           }
         } else {
-          ctx.drawImage(mediaElement, -elemW / 2, -elemH / 2, elemW, elemH);
+          ctx.drawImage(drawSource, -elemW / 2, -elemH / 2, elemW, elemH);
         }
       } catch {
         // 描画エラーは無視

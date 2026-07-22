@@ -22,8 +22,8 @@ import {
   clampDuration,
   convertBulkCaptionTextMode,
   formatCaptionsAsBulkText,
-  normalizeBulkCaptionText,
-  parseBulkCaptionInput,
+  insertSequentialLineAtCursor,
+  parseBulkCaptionText,
   planBulkCaptions,
   stripBulkCaptionTimeNotations,
   type BulkCaptionAllocationMode,
@@ -88,6 +88,7 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
   // 通常の1行カードを保ちつつ、必要な行だけ `+ ` で時分割にできる混在モードを既定にする。
   const [splitMode, setSplitMode] = useState<BulkCaptionSplitMode>('hybrid');
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
+  const hasTextAreaBeenFocusedRef = useRef(false);
 
   // === 下部モーダル共通挙動（他の設定モーダルと統一）==========================
   // 1) スマホの戻るキー / 端末バックジェスチャーで閉じる（history state を1段積む）
@@ -96,6 +97,7 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
   const onCloseRef = useRef(onClose);
   const modalHistoryIdRef = useRef<string | null>(null);
   const closedByPopstateRef = useRef(false);
+  const historyEffectGenerationRef = useRef(0);
   const touchStartXRef = useRef<number | null>(null);
   const touchStartYRef = useRef<number | null>(null);
   const touchDeltaYRef = useRef(0);
@@ -123,15 +125,27 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
   // 戻るキー閉じ（他モーダルと同じ history state 方式）
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const stateId = `caption-bulk-modal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    modalHistoryIdRef.current = stateId;
-    closedByPopstateRef.current = false;
+    const effectGeneration = historyEffectGenerationRef.current + 1;
+    historyEffectGenerationRef.current = effectGeneration;
 
-    const currentState =
+    const initialState =
       window.history.state && typeof window.history.state === 'object'
         ? (window.history.state as Record<string, unknown>)
         : {};
-    window.history.pushState({ ...currentState, __captionBulkModal: stateId }, '');
+    const existingStateId = modalHistoryIdRef.current;
+    const canReuseStrictModeState = Boolean(
+      existingStateId && initialState.__captionBulkModal === existingStateId,
+    );
+    const stateId = canReuseStrictModeState
+      ? existingStateId!
+      : `caption-bulk-modal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    modalHistoryIdRef.current = stateId;
+    closedByPopstateRef.current = false;
+
+    // StrictMode の 2 回目の setup では同じ履歴 state を再利用する。
+    if (!canReuseStrictModeState) {
+      window.history.pushState({ ...initialState, __captionBulkModal: stateId }, '');
+    }
 
     const handlePopState = () => {
       closedByPopstateRef.current = true;
@@ -141,21 +155,24 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
 
     return () => {
       window.removeEventListener('popstate', handlePopState);
-      const current =
-        window.history.state && typeof window.history.state === 'object'
-          ? (window.history.state as Record<string, unknown>)
-          : null;
-      const ownStateOnTop = Boolean(
-        modalHistoryIdRef.current &&
-          current &&
-          current.__captionBulkModal === modalHistoryIdRef.current,
-      );
-      // 自分の履歴 state が先頭のときだけ戻す（多重 pop を避ける）
-      if (!closedByPopstateRef.current && ownStateOnTop) {
-        window.history.back();
-      }
-      modalHistoryIdRef.current = null;
-      closedByPopstateRef.current = false;
+      // StrictMode の cleanup -> setup を識別するため、履歴を戻す判断を
+      // microtask まで遅延し、実際のアンマウント時だけ実行する。
+      void Promise.resolve().then(() => {
+        if (historyEffectGenerationRef.current !== effectGeneration) return;
+
+        const current =
+          window.history.state && typeof window.history.state === 'object'
+            ? (window.history.state as Record<string, unknown>)
+            : null;
+        const ownStateOnTop = Boolean(current && current.__captionBulkModal === stateId);
+        if (!closedByPopstateRef.current && ownStateOnTop) {
+          window.history.back();
+        }
+        if (modalHistoryIdRef.current === stateId) {
+          modalHistoryIdRef.current = null;
+        }
+        closedByPopstateRef.current = false;
+      });
     };
   }, []);
 
@@ -223,7 +240,7 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
   };
 
   const lines = useMemo(
-    () => parseBulkCaptionInput(normalizeBulkCaptionText(text, splitMode)),
+    () => parseBulkCaptionText(text, splitMode),
     [text, splitMode],
   );
   const hasExplicitTimes = lines.some((line) => line.explicitStart !== undefined);
@@ -259,22 +276,28 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
 
   const handleInsertSequentialLine = () => {
     if (!text.trim()) return;
+    const textarea = textAreaRef.current;
+    const sourceCursor = textarea && hasTextAreaBeenFocusedRef.current
+      ? (textarea.selectionStart ?? text.length)
+      : text.length;
     const converted = splitMode === 'hybrid'
       ? text
       : convertBulkCaptionTextMode(text, splitMode, 'hybrid');
-    const textarea = textAreaRef.current;
-    const cursor = splitMode === 'hybrid' && textarea
-      ? (textarea.selectionEnd ?? converted.length)
-      : converted.length;
-    const nextLineAt = converted.indexOf('\n', cursor);
-    const insertAt = nextLineAt >= 0 ? nextLineAt : converted.length;
-    const nextText = `${converted.slice(0, insertAt)}\n+ ${converted.slice(insertAt)}`;
-    const nextCursor = insertAt + 3;
+    // モード変換で `+ ` や空行が増減しても、カーソルより前の変換結果の長さから
+    // hybrid上の分割位置を復元する。hybrid時は元の位置をそのまま使用する。
+    const convertedCursor = splitMode === 'hybrid'
+      ? sourceCursor
+      : convertBulkCaptionTextMode(text.slice(0, sourceCursor), splitMode, 'hybrid').length;
+    const insertion = insertSequentialLineAtCursor(converted, convertedCursor);
     setSplitMode('hybrid');
-    setText(nextText);
+    setText(insertion.text);
     window.requestAnimationFrame(() => {
-      textAreaRef.current?.focus();
-      textAreaRef.current?.setSelectionRange(nextCursor, nextCursor);
+      const currentTextarea = textAreaRef.current;
+      if (!currentTextarea) return;
+      currentTextarea.focus();
+      currentTextarea.setSelectionRange(insertion.cursor, insertion.cursor);
+      // 長文入力では作業位置が末尾側にあるため、更新後の下部を確実に表示する。
+      currentTextarea.scrollTop = currentTextarea.scrollHeight;
     });
   };
 
@@ -410,7 +433,8 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
               </div>
               <div>
                 混在モードでは、行頭に <code className="bg-gray-700 px-1 rounded">+ </code> を付けた行が
-                直前カードの続きになり、1 行ずつ順番に表示されます。「時分割行を追加」ボタンでも入力できます。
+                直前カードの続きになり、1 行ずつ順番に表示されます。「時分割行を追加」では、
+                カーソル位置で文章を分けて後半を時分割行へ移せます。
               </div>
               <div className="pt-1 border-t border-gray-700/60 space-y-1">
                 <div className="text-yellow-300 font-semibold">AI に音声解析させて字幕を作る</div>
@@ -443,6 +467,9 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
             ref={textAreaRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
+            onFocus={() => {
+              hasTextAreaBeenFocusedRef.current = true;
+            }}
             placeholder={splitMode === 'line'
               ? '例:\n夜空に浮かぶ\n小さな星たちが\n[00:10-00:15] そっと瞬いた'
               : splitMode === 'hybrid'
@@ -458,7 +485,7 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
               onClick={handleInsertSequentialLine}
               disabled={!text.trim()}
               className="min-h-9 px-3 rounded-lg bg-emerald-900/40 border border-emerald-600/40 text-emerald-200 hover:bg-emerald-900/60 disabled:opacity-40 text-xs flex items-center gap-1.5 transition"
-              title="カーソルのある行の次に、同じカード内で順番に表示する行を追加します"
+              title="カーソル位置で文章を分け、後半を「+ 」の時分割行へ移します"
             >
               <CornerDownRight className="w-3.5 h-3.5" /> 時分割行を追加
             </button>

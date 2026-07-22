@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppFlavor } from '../app/resolveAppFlavor';
@@ -221,6 +222,39 @@ afterEach(() => {
 });
 
 describe('modal history stability', () => {
+  it('CaptionBulkAddModal は StrictMode の effect 再実行で閉じない', async () => {
+    const onClose = vi.fn();
+    const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {
+      void Promise.resolve().then(() => window.dispatchEvent(new PopStateEvent('popstate')));
+    });
+    const { getByRole, unmount } = render(
+      <StrictMode>
+        <CaptionBulkAddModal
+          captions={[]}
+          totalDuration={30}
+          currentTime={0}
+          formatTime={(seconds) => `${seconds.toFixed(1)}s`}
+          onApplyCaptions={() => {}}
+          onClose={onClose}
+        />
+      </StrictMode>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(getByRole('dialog', { name: 'キャプションをまとめて入力' })).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(backSpy).not.toHaveBeenCalled();
+
+    unmount();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    backSpy.mockRestore();
+  });
+
   it('SettingsModal は親の再描画で history.back を呼ばない', () => {
     const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {});
     const { rerender, unmount } = render(<SettingsModal appFlavor={defaultAppFlavor} isOpen={true} onClose={() => {}} />);

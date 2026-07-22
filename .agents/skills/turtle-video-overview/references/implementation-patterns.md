@@ -2353,3 +2353,38 @@
   - エクスポートはpreview Canvasを収録する既存設計のため、別の書き出し処理へfilterを重複追加しない。standard/Apple Safariの共通描画テストで、draw時のfilter値と描画後の解除を固定する。
 - **回帰ガード**:
   - `mediaBlur.test.ts`（正規化・横縦/FHD/HD/ミニ縮尺）、`mediaStore.test.ts`（カード単位更新・上限下限・単独リセット）、`projectStoreSave.test.ts`（フレーバー間保存往復と旧データ既定値）、`useAutoSave.test.tsx`、`androidPreviewCache.test.ts`、両preview engineテスト、`clipsSectionPicker.test.tsx`でカバーする。
+
+### 13-128. まとめて編集の時分割解除保証とカーソル位置分割
+
+- **ファイル**: `src/utils/captionBulkInput.ts`, `src/components/modals/CaptionBulkAddModal.tsx`, `src/test/captionBulkInput.test.ts`, `src/test/captionBulkAddModal.test.tsx`
+- **問題**:
+  - 既存の時間付き時分割カードをまとめて編集し、継続行の `+ ` を削除しても、利用者からは元カード配下の時分割として残るように見えるケースがあった。時間記法・モード正規化・ID引継ぎを別々に追う必要があり、契約を固定するUI回帰テストも無かった。
+  - 「時分割行を追加」はカーソルのある行末へ空の `+ ` 行を挿入しており、カーソル位置から後半の文章を移せなかった。DOM更新後のスクロール復元もなく、長文入力欄が上へ戻っていた。
+- **対策**:
+  - `parseBulkCaptionText(input, mode)` を表示モード込みの単一解析入口にする。hybridでは時間記法の有無に関係なく、物理行先頭に `+ ` がある場合だけ直前カードの継続行とし、`+ ` を外した行は必ず別カードとして計画・反映する。
+  - `insertSequentialLineAtCursor()` を純ロジック化し、`前半｜後半` を `前半\n+ 後半` へ変換する。文章は削除せず、返した `cursor` を使って `+ ` 直後へキャレットを復元する。
+  - モード変換が必要な場合は、カーソルより前の部分も同じ変換へ通した長さからhybrid上の分割位置を求める。入力欄を一度も触っていない場合だけ末尾追加へフォールバックする。
+  - React更新後の `requestAnimationFrame` でtextareaへフォーカスと選択位置を戻し、`scrollTop = scrollHeight` で長文入力の下部を表示する。
+- **回帰ガード**:
+  - 時間付き親行の `+ ` 削除が2カード（元IDを維持する1件＋新規1件）になること、後続の `+ ` は新しい直前カードへ属すること、カーソル分割後の全文・キャレット・下部スクロールをpure/UI両テストで固定する。
+
+### 13-129. まとめて入力モーダルのStrictMode即時クローズ防止
+
+- **ファイル**: `src/components/modals/CaptionBulkAddModal.tsx`, `src/test/modalHistoryStability.test.tsx`
+- **原因**: React StrictMode の開発時 effect 再実行（setup→cleanup→setup）で、最初の cleanup が同期的に `history.back()` を呼んでいた。ブラウザの `popstate` は遅れて届くため、2回目の setup が登録したリスナーが古い戻るイベントを受け、開いた直後に `onClose` を実行していた。
+- **対策**:
+  - effect 世代番号を持ち、cleanup の履歴復元判断を microtask まで遅延する。直後に再 setup された世代の cleanup は何もしない。
+  - StrictMode の2回目の setup では、先頭にある自分の `__captionBulkModal` stateを再利用し、同じモーダルの履歴を二重に積まない。
+  - 実際のアンマウントでは世代が変わらないため、自分の state が先頭の場合だけ従来どおり `history.back()` する。端末の戻る操作による `popstate` 閉じも維持する。
+- **回帰ガード**: `StrictMode` でモーダルを描画し、`history.back()` が非同期 `popstate` を発生させる実ブラウザ相当の条件でも、表示直後に閉じず履歴を戻さないことを固定する。
+
+### 13-130. 画像端が黒くなるぼかしの均一平均化
+
+- **ファイル**: `src/utils/canvas.ts`, `src/components/common/MiniPreview.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/test/mediaBlur.test.ts`, `src/test/standardPreviewEngine.test.tsx`, `src/test/appleSafariPreviewEngineBoundary.test.tsx`
+- **原因**: `CanvasRenderingContext2D.filter = blur(...)` は画像の境界外を透明ピクセルとしてサンプリングする。黒背景へ合成すると画像端が暗くにじみ、透明余白を持つPNG・contain配置・強いぼかしほど目立つ。Safari系ではCanvas filter自体の互換性差もある。
+- **対策**:
+  - 画像はCanvas filterを使わず、素材の範囲内だけを一時Canvasへ縮小描画し、元の表示サイズへ高品質補間で拡大する。素材内の画素を全体に均一平均化するため、素材外の黒背景をぼかしへ混ぜない。
+  - 平均化用Canvasは素材オブジェクト単位でWeakMap再利用し、ぼかし強度と実描画scaleから縮小寸法を決める（最大縮小率32）。カード単位の0〜30設定、1080p基準の見た目は維持する。
+  - standardの動画は従来のCanvas filterを維持する。動画フレームは通常不透明で品質面の利点があり、終端freezeも同じ経路を保つ。Apple SafariとMiniPreviewは画像・動画ともfilter非依存の平均化方式にし、互換性を優先する。
+  - standard/Apple Safariのexportはpreview Canvasを収録するため、この描画変更がそのまま書き出しへ反映される。別export処理へ重複実装しない。
+- **回帰ガード**: ぼかしpx換算・平均化Canvas寸法・素材とは別の縮小Canvasを描画元にすること・描画後もfilterが`none`であることをpure/両preview engineテストで固定する。13-127の「全素材をfilterで描く」記述は本項で画像とSafari経路について置き換える。

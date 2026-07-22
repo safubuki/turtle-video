@@ -7,7 +7,8 @@ import { createCaptionGlyphCanvas } from '../../../utils/canvas';
 import { resolveMediaBaseScale } from '../../../stores/canvasStore';
 import {
   normalizeRotation,
-  resolveMediaBlurFilter,
+  prepareUniformMediaBlurSource,
+  resolveMediaBlurPixels,
   resolveRotatedFitDimensions,
 } from '../../../utils/canvas';
 import type {
@@ -936,14 +937,29 @@ export function usePreviewEngine({
                   elementHeight: fitDims.height,
                   mode: ctx.canvas.height > ctx.canvas.width ? 'cover' : 'contain',
                 });
+                const renderScale = baseScale * scaleFactor;
+                const blurPixels = resolveMediaBlurPixels(
+                  conf.blur,
+                  ctx.canvas.width,
+                  ctx.canvas.height,
+                );
+                const drawSource = blurPixels > 0
+                  ? prepareUniformMediaBlurSource(
+                      element as CanvasImageSource,
+                      elemW,
+                      elemH,
+                      blurPixels,
+                      renderScale,
+                    )
+                  : element as CanvasImageSource;
 
                 ctx.save();
-                ctx.filter = resolveMediaBlurFilter(conf.blur, ctx.canvas.width, ctx.canvas.height);
+                ctx.filter = 'none';
                 ctx.translate(ctx.canvas.width / 2 + userX, ctx.canvas.height / 2 + userY);
                 if (rotationDeg !== 0) {
                   ctx.rotate((rotationDeg * Math.PI) / 180);
                 }
-                ctx.scale(baseScale * scaleFactor, baseScale * scaleFactor);
+                ctx.scale(renderScale, renderScale);
 
                 let alpha = 1.0;
                 let fadeInDur = conf.fadeIn ? (conf.fadeInDuration || 1.0) : 0;
@@ -965,7 +981,7 @@ export function usePreviewEngine({
 
                 ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
                 try {
-                  ctx.drawImage(element as CanvasImageSource, -elemW / 2, -elemH / 2, elemW, elemH);
+                  ctx.drawImage(drawSource, -elemW / 2, -elemH / 2, elemW, elemH);
                   didUpdateCanvas = true;
                 } finally {
                   ctx.restore();

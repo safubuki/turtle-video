@@ -52,6 +52,31 @@ export const SEQUENTIAL_LINE_MARKER = '⏎';
 /** 混在モードで「直前カードの次の表示行」を表す、スマホでも入力しやすい接頭辞 */
 export const HYBRID_CONTINUATION_PREFIX = '+ ';
 
+export interface SequentialLineInsertion {
+  text: string;
+  /** 挿入した `+ ` の直後。UIはここへキャレットを戻す。 */
+  cursor: number;
+}
+
+/**
+ * カーソル位置で本文を分け、後半を混在モードの時分割行へ移す。
+ * 選択範囲がある場合も文章を失わないよう、選択開始位置を分割点として全文を保持する。
+ */
+export function insertSequentialLineAtCursor(
+  input: string,
+  cursorPosition: number,
+): SequentialLineInsertion {
+  const requestedCursor = Number.isFinite(cursorPosition)
+    ? Math.trunc(cursorPosition)
+    : input.length;
+  const cursor = Math.max(0, Math.min(input.length, requestedCursor));
+  const prefix = `\n${HYBRID_CONTINUATION_PREFIX}`;
+  return {
+    text: `${input.slice(0, cursor)}${prefix}${input.slice(cursor)}`,
+    cursor: cursor + prefix.length,
+  };
+}
+
 /** カード内改行を ⏎ マーカーへ畳む（まとめて編集のプリフィル用） */
 export function encodeSequentialLinesForBulkText(text: string): string {
   return text.split('\n').map((line) => line.trim()).filter((line) => line.length > 0).join(SEQUENTIAL_LINE_MARKER);
@@ -132,6 +157,17 @@ export function normalizeBulkCaptionText(input: string, mode: BulkCaptionSplitMo
   return collectBulkCaptionGroups(input, mode)
     .map((group) => group.join(SEQUENTIAL_LINE_MARKER))
     .join('\n');
+}
+
+/**
+ * 表示モードを考慮して一括入力を解析する単一入口。
+ * hybridでは、時間記法の有無に関係なく `+ ` のない物理行は必ず新しいカードになる。
+ */
+export function parseBulkCaptionText(
+  input: string,
+  mode: BulkCaptionSplitMode,
+): BulkCaptionLine[] {
+  return parseBulkCaptionInput(normalizeBulkCaptionText(input, mode));
 }
 
 /**

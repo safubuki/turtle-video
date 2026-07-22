@@ -457,7 +457,7 @@ describe('standard preview engine', () => {
     return { canvasContext, hook, logInfo, logWarn };
   }
 
-  it('カードのぼかしを標準preview/export共通Canvasへ適用し、描画後に解除する', () => {
+  it('画像ぼかしは素材外の黒背景を混ぜず、標準preview/export共通Canvasへ平均化描画する', () => {
     const imageItem = createImageItem({ id: 'blurred-image', blur: 15, duration: 2 });
     const imageElement = {
       tagName: 'IMG',
@@ -470,14 +470,17 @@ describe('standard preview engine', () => {
       mediaElements: { [imageItem.id]: imageElement } as MediaElementsRef,
       totalDuration: 2,
     });
-    let filterAtDraw = '';
-    (canvasContext.drawImage as ReturnType<typeof vi.fn>).mockImplementation(() => {
-      filterAtDraw = canvasContext.filter;
+    let sourceAtDraw: CanvasImageSource | null = null;
+    (canvasContext.drawImage as ReturnType<typeof vi.fn>).mockImplementation((source) => {
+      sourceAtDraw = source as CanvasImageSource;
     });
 
     hook.result.current.renderFrame(0.5, true, false);
 
-    expect(filterAtDraw).toBe('blur(15px)');
+    expect(sourceAtDraw).toBeInstanceOf(HTMLCanvasElement);
+    expect(sourceAtDraw).not.toBe(imageElement);
+    const blurredCanvas = sourceAtDraw as unknown as HTMLCanvasElement;
+    expect(blurredCanvas.width).toBeLessThan(imageElement.naturalWidth);
     expect(canvasContext.filter).toBe('none');
   });
 

@@ -18,6 +18,23 @@ export function normalizeMediaBlur(blur: number | undefined | null): number {
   return Math.max(0, Math.min(MAX_MEDIA_BLUR, blur));
 }
 
+/** 1080p 基準のぼかし値を現在の Canvas 上のピクセル数へ変換する。 */
+export function resolveMediaBlurPixels(
+  blur: number | undefined | null,
+  canvasWidth: number,
+  canvasHeight: number,
+): number {
+  const normalized = normalizeMediaBlur(blur);
+  if (normalized <= 0) return 0;
+
+  const longSide = Math.max(canvasWidth, canvasHeight);
+  const shortSide = Math.min(canvasWidth, canvasHeight);
+  const scale = Number.isFinite(longSide) && Number.isFinite(shortSide) && longSide > 0 && shortSide > 0
+    ? Math.min(longSide / 1920, shortSide / 1080)
+    : 1;
+  return Number((normalized * scale).toFixed(3));
+}
+
 /**
  * 1080p基準のメディアぼかし値を現在のCanvas実寸へ合わせた filter 文字列へ変換する。
  * 横/縦どちらでも長辺1920・短辺1080を基準にするため、preview/exportの見た目が揃う。
@@ -27,16 +44,87 @@ export function resolveMediaBlurFilter(
   canvasWidth: number,
   canvasHeight: number,
 ): string {
-  const normalized = normalizeMediaBlur(blur);
-  if (normalized <= 0) return 'none';
-
-  const longSide = Math.max(canvasWidth, canvasHeight);
-  const shortSide = Math.min(canvasWidth, canvasHeight);
-  const scale = Number.isFinite(longSide) && Number.isFinite(shortSide) && longSide > 0 && shortSide > 0
-    ? Math.min(longSide / 1920, shortSide / 1080)
-    : 1;
-  const pixels = Number((normalized * scale).toFixed(3));
+  const pixels = resolveMediaBlurPixels(blur, canvasWidth, canvasHeight);
   return pixels > 0 ? `blur(${pixels}px)` : 'none';
+}
+
+const uniformMediaBlurCanvasBySource = new WeakMap<object, HTMLCanvasElement>();
+
+/**
+ * Canvas filter が素材外の透明ピクセルをぼかしへ混ぜることを避けるため、
+ * 素材内部だけを縮小平均化する際の作業サイズを返す。
+ */
+export function resolveUniformMediaBlurSize(
+  sourceWidth: number,
+  sourceHeight: number,
+  blurPixels: number,
+  renderScale: number,
+): { width: number; height: number } {
+  const safeWidth = Math.max(1, Math.round(Number.isFinite(sourceWidth) ? sourceWidth : 1));
+  const safeHeight = Math.max(1, Math.round(Number.isFinite(sourceHeight) ? sourceHeight : 1));
+  if (!Number.isFinite(blurPixels) || blurPixels <= 0) {
+    return { width: safeWidth, height: safeHeight };
+  }
+
+  const safeRenderScale = Number.isFinite(renderScale) && Math.abs(renderScale) > 0.0001
+    ? Math.abs(renderScale)
+    : 1;
+  const sourceBlurPixels = blurPixels / safeRenderScale;
+  const reduction = Math.min(32, Math.max(1, 1 + sourceBlurPixels * 0.5));
+  return {
+    width: Math.max(1, Math.round(safeWidth / reduction)),
+    height: Math.max(1, Math.round(safeHeight / reduction)),
+  };
+}
+
+/**
+ * 素材の範囲内だけを縮小平均化した描画元を作る。
+ * 画像端の外側（透明）を参照しないため、黒背景へのにじみを抑えられる。
+ */
+export function prepareUniformMediaBlurSource(
+  source: CanvasImageSource,
+  sourceWidth: number,
+  sourceHeight: number,
+  blurPixels: number,
+  renderScale: number,
+): CanvasImageSource {
+  if (
+    blurPixels <= 0
+    || sourceWidth <= 0
+    || sourceHeight <= 0
+    || typeof document === 'undefined'
+    || (typeof source !== 'object' && typeof source !== 'function')
+  ) {
+    return source;
+  }
+
+  const { width, height } = resolveUniformMediaBlurSize(
+    sourceWidth,
+    sourceHeight,
+    blurPixels,
+    renderScale,
+  );
+  let scratchCanvas = uniformMediaBlurCanvasBySource.get(source as object);
+  if (!scratchCanvas) {
+    scratchCanvas = document.createElement('canvas');
+    uniformMediaBlurCanvasBySource.set(source as object, scratchCanvas);
+  }
+  if (scratchCanvas.width !== width) scratchCanvas.width = width;
+  if (scratchCanvas.height !== height) scratchCanvas.height = height;
+
+  const scratchCtx = scratchCanvas.getContext('2d');
+  if (!scratchCtx) return source;
+  scratchCtx.filter = 'none';
+  scratchCtx.globalAlpha = 1;
+  scratchCtx.clearRect(0, 0, width, height);
+  scratchCtx.imageSmoothingEnabled = true;
+  scratchCtx.imageSmoothingQuality = 'high';
+  try {
+    scratchCtx.drawImage(source, 0, 0, width, height);
+    return scratchCanvas;
+  } catch {
+    return source;
+  }
 }
 
 /**

@@ -41,6 +41,8 @@ import {
 import { resolveMediaBaseScale } from '../../../stores/canvasStore';
 import {
   normalizeRotation,
+  prepareUniformMediaBlurSource,
+  resolveMediaBlurPixels,
   resolveMediaBlurFilter,
   resolveRotatedFitDimensions,
 } from '../../../utils/canvas';
@@ -2243,14 +2245,32 @@ export function usePreviewEngine({
                   elementHeight: fitDims.height,
                   mode: ctx.canvas.height > ctx.canvas.width ? 'cover' : 'contain',
                 });
+                const renderScale = baseScale * scaleFactor;
+                const rawDrawSource = (stallSnapshotCanvas ?? element) as CanvasImageSource;
+                const blurPixels = resolveMediaBlurPixels(
+                  conf.blur,
+                  ctx.canvas.width,
+                  ctx.canvas.height,
+                );
+                const drawSource = !isVideo && blurPixels > 0
+                  ? prepareUniformMediaBlurSource(
+                      rawDrawSource,
+                      elemW,
+                      elemH,
+                      blurPixels,
+                      renderScale,
+                    )
+                  : rawDrawSource;
 
                 ctx.save();
-                ctx.filter = resolveMediaBlurFilter(conf.blur, ctx.canvas.width, ctx.canvas.height);
+                ctx.filter = isVideo
+                  ? resolveMediaBlurFilter(conf.blur, ctx.canvas.width, ctx.canvas.height)
+                  : 'none';
                 ctx.translate(ctx.canvas.width / 2 + userX, ctx.canvas.height / 2 + userY);
                 if (rotationDeg !== 0) {
                   ctx.rotate((rotationDeg * Math.PI) / 180);
                 }
-                ctx.scale(baseScale * scaleFactor, baseScale * scaleFactor);
+                ctx.scale(renderScale, renderScale);
 
                 let alpha = 1.0;
                 let fadeInDur = conf.fadeIn ? (conf.fadeInDuration || 1.0) : 0;
@@ -2277,7 +2297,7 @@ export function usePreviewEngine({
                 ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
                 try {
                   ctx.drawImage(
-                    (stallSnapshotCanvas ?? element) as CanvasImageSource,
+                    drawSource,
                     -elemW / 2,
                     -elemH / 2,
                     elemW,
@@ -2435,8 +2455,25 @@ export function usePreviewEngine({
                     elementHeight: peerFitDims.height,
                     mode: ctx.canvas.height > ctx.canvas.width ? 'cover' : 'contain',
                   });
+                  const peerRenderScale = peerBase * (conf.scale || 1);
+                  const peerBlurPixels = resolveMediaBlurPixels(
+                    conf.blur,
+                    ctx.canvas.width,
+                    ctx.canvas.height,
+                  );
+                  const peerDrawSource = !peerIsVideo && peerBlurPixels > 0
+                    ? prepareUniformMediaBlurSource(
+                        element as CanvasImageSource,
+                        peerW,
+                        peerH,
+                        peerBlurPixels,
+                        peerRenderScale,
+                      )
+                    : element as CanvasImageSource;
                   ctx.save();
-                  ctx.filter = resolveMediaBlurFilter(conf.blur, ctx.canvas.width, ctx.canvas.height);
+                  ctx.filter = peerIsVideo
+                    ? resolveMediaBlurFilter(conf.blur, ctx.canvas.width, ctx.canvas.height)
+                    : 'none';
                   ctx.translate(
                     ctx.canvas.width / 2 + (conf.positionX || 0),
                     ctx.canvas.height / 2 + (conf.positionY || 0),
@@ -2444,10 +2481,10 @@ export function usePreviewEngine({
                   if (peerRotationDeg !== 0) {
                     ctx.rotate((peerRotationDeg * Math.PI) / 180);
                   }
-                  ctx.scale(peerBase * (conf.scale || 1), peerBase * (conf.scale || 1));
+                  ctx.scale(peerRenderScale, peerRenderScale);
                   ctx.globalAlpha = 1.0;
                   try {
-                    ctx.drawImage(element as CanvasImageSource, -peerW / 2, -peerH / 2, peerW, peerH);
+                    ctx.drawImage(peerDrawSource, -peerW / 2, -peerH / 2, peerW, peerH);
                     didUpdateCanvas = true;
                   } catch {
                     /* ignore */
