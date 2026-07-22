@@ -142,6 +142,49 @@ describe('android preview cache helpers', () => {
     expect(keyA).not.toBe(keyC);
   });
 
+  it('キャプションの個別縁・色・ぼかし変更で cache key が変わる', () => {
+    const caption: Caption = {
+      id: 'caption-1',
+      text: '本文',
+      startTime: 0,
+      endTime: 2,
+      fadeIn: false,
+      fadeOut: false,
+      fadeInDuration: 0.5,
+      fadeOutDuration: 0.5,
+    };
+    const captionSettings: CaptionSettings = {
+      enabled: true,
+      fontSize: 'medium',
+      fontStyle: 'gothic',
+      fontColor: '#FFFFFF',
+      strokeColor: '#000000',
+      strokeWidth: 2,
+      position: 'bottom',
+      blur: 0,
+      bulkFadeIn: false,
+      bulkFadeOut: false,
+      bulkFadeInDuration: 0.5,
+      bulkFadeOutDuration: 0.5,
+    };
+    const createKey = (captions: Caption[]) => createAndroidPreviewCacheKey({
+      mediaItems: [createVideoItem('v1')],
+      bgm: null,
+      narrations: [],
+      captions,
+      captionSettings,
+      canvasWidth: 1280,
+      canvasHeight: 720,
+      fps: 30,
+    });
+    const baseKey = createKey([caption]);
+
+    expect(createKey([{ ...caption, overrideFontColor: '#123456' }])).not.toBe(baseKey);
+    expect(createKey([{ ...caption, overrideStrokeColor: '#ABCDEF' }])).not.toBe(baseKey);
+    expect(createKey([{ ...caption, overrideStrokeWidth: 6.5 }])).not.toBe(baseKey);
+    expect(createKey([{ ...caption, overrideBlur: 2.5 }])).not.toBe(baseKey);
+  });
+
   it('Android standard preview policy は live fallback の sync threshold を厳しめにする', () => {
     const policy = getPreviewPlatformPolicy({
       isAndroid: true,

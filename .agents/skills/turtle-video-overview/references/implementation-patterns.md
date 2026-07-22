@@ -2388,3 +2388,56 @@
   - standardの動画は従来のCanvas filterを維持する。動画フレームは通常不透明で品質面の利点があり、終端freezeも同じ経路を保つ。Apple SafariとMiniPreviewは画像・動画ともfilter非依存の平均化方式にし、互換性を優先する。
   - standard/Apple Safariのexportはpreview Canvasを収録するため、この描画変更がそのまま書き出しへ反映される。別export処理へ重複実装しない。
 - **回帰ガード**: ぼかしpx換算・平均化Canvas寸法・素材とは別の縮小Canvasを描画元にすること・描画後もfilterが`none`であることをpure/両preview engineテストで固定する。13-127の「全素材をfilterで描く」記述は本項で画像とSafari経路について置き換える。
+
+### 13-131. キャプションの縁幅・縁色・文字本体色の一括設定UI
+
+- **ファイル**: `src/components/sections/CaptionSection.tsx`, `src/components/TurtleVideo.tsx`, `src/stores/captionStore.ts`, `src/utils/captionStyle.ts`, `src/constants/sectionHelp.ts`, `src/test/captionStyleControls.test.tsx`, `src/test/captionGlyphStyle.test.ts`, `src/test/captionStyle.test.ts`, `src/test/stores/captionStore.test.ts`
+- **既存契約**: `CaptionSettings`、IndexedDB保存形式、projectStore、自動保存ハッシュ、standard/Apple Safariのキャプション描画には `fontColor` / `strokeColor` / `strokeWidth` が既に存在していた。新フィールドや描画分岐は追加せず、欠けていたUI配線を既存setterへ接続することでpreview/exportの安定経路を維持する。
+- **UI/UX**:
+  - 一括スタイル設定の「字体」とその端末フォント読込導線の直下へ、「文字の縁・色」グループを配置する。調整順は **縁の幅 → 縁の色 → 文字本体** とし、その後に位置・ぼかしが続く。字体と文字装飾が連続し、縁関連の2項目も隣接するため認知負荷が小さい。
+  - 縁幅は1080p基準で0〜20px、0.5px刻み。モバイル誤操作防止の `SwipeProtectedSlider` と数値入力を同期し、どちらからも設定できる。setterと保存復元の両方で `clampCaptionStrokeWidth()` を通す。
+  - 縁色・文字本体色はネイティブカラーピッカーと16進数テキスト入力を併設する。`#RGB` / `#RRGGBB` を受け付け、確定時に大文字6桁へ正規化。不正な途中入力は赤枠で示し、blur時に直前値へ戻す。Enter確定・Escape取消・ARIAラベル・ロック時disabledに対応する。
+  - 新規プロジェクト／全リセット時の既定は `fontColor=#FFFFFF`（白い文字本体）、`strokeColor=#000000`（黒い縁）、`strokeWidth=2`。既存保存データに色がある場合はその値を維持する。
+- **描画・保存注意**:
+  - `createCaptionGlyphCanvas()` はstrokeを先、その上にfillを描き、`lineWidth = strokeWidth * 2` とする既存契約。UI表示の「縁幅」は片側の太さであり、このCanvas契約を変えない。
+  - exportはpreview Canvasを収録するため、UIから既存settingsを更新すれば両フレーバーの書き出しへ自動反映される。exportエンジンへ色・幅処理を重複追加しない。
+- **回帰ガード**: UI配置順、スライダー／数値入力、カラーピッカー／16進数入力、ロック状態、幅クランプ、既定色、Canvasのstroke→fill描画順と色・lineWidthをテストする。
+
+### 13-132. キャプション詳細設定の段階開示・音声件数・視覚ヘルプ
+
+- **ファイル**: `src/components/sections/CaptionSection.tsx`, `src/components/sections/BgmSection.tsx`, `src/components/sections/NarrationSection.tsx`, `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`, `src/test/captionStyleControls.test.tsx`, `src/test/bgmSectionCount.test.tsx`, `src/test/narrationSectionOfflineMode.test.tsx`, `src/test/sectionHelp.test.ts`
+- **段階開示の規約**:
+  - キャプションの「スタイル/フェード一括設定」と、その中の「文字の縁・色」は初期状態を閉じる。閉じている間だけタイトル右側へ `（開いて設定）` を表示し、開いた後は非表示にする。開状態は内容と下向きシェブロンで十分伝わるため、`（設定を閉じる）` は追加しない。
+  - 補助文言は `aria-hidden` とし、ボタンのアクセシブル名を実際のタイトルから変えない。ボタンには `aria-expanded` / `aria-controls` を付け、キーボード・支援技術でも状態を判定できるようにする。
+  - 「文字の縁・色」は字体と端末フォント導線の直下に維持する。設定内容の順序（縁の幅→縁の色→文字本体）、既定値、preview/exportへ流れる既存設定契約は13-131から変更しない。
+- **件数表示**:
+  - キャプションに合わせ、BGMとナレーションも登録済みのときだけタイトル右側へ `(n件)` を表示する。BGMはstandardの `bgmClips.length`、Apple Safariの単一BGMは `bgm ? 1 : 0` を使い、フレーバーごとのデータ契約を混在させない。
+  - 件数は配列・既存値から描画時に導出し、重複するローカル状態を持たない。
+- **ヘルプ規約**:
+  - 実UIの表記（`スタイル/フェード一括設定`、`文字の縁・色`、`① まとめて入力・編集`、`② タイミング打ち`、`早める`、`遅らせる` 等）をそのまま使い、別名・旧名を作らない。
+  - 新しい操作は文章だけで済ませず、`SectionHelpVisualId` と `renderVisualToken()` に実ボタンの色・枠・アイコン・ラベルを模した見本を追加する。BGM/ナレーション件数、コピー、キャプションの2段アコーディオン、縁幅・色、まとめて入力、タイミング打ち、一括シフト、カスタムフォント導線を視覚化する。
+- **回帰ガード**: 閉状態だけに補助文言が出ること、二段目を開くまで縁・色入力がDOMへ出ないこと、BGM/ナレーションが `(n件)` を表示すること、最近追加したヘルプ項目が視覚トークンを持つことを固定する。表示専用変更なのでpreview/export描画処理へ分岐を追加しない。
+
+### 13-133. キャプション個別設定の縁幅・色・ぼかし同等化
+
+- **ファイル**: `src/types/index.ts`, `src/utils/indexedDB.ts`, `src/stores/projectStore.ts`, `src/hooks/useAutoSave.ts`, `src/utils/captionStyle.ts`, `src/utils/captionIndividualSettings.ts`, `src/components/common/CaptionColorField.tsx`, `src/components/modals/CaptionSettingsModal.tsx`, `src/components/media/CaptionItem.tsx`, `src/components/sections/CaptionSection.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/androidPreviewCache.ts`
+- **データ契約**:
+  - `Caption.overrideFontColor` / `overrideStrokeColor` / `overrideStrokeWidth` / `overrideBlur` はカード単位の任意上書き。`undefined` は一括設定の継承を表し、0pxの縁・0のぼかしも有効な個別値なので判定はtruthyではなく `!= null` を使う。
+  - 保存・読込、IndexedDB型、自動保存ハッシュ、Android preview cache署名、個別設定バッジと「この個別設定をクリア」を同時に更新する。旧保存データは全フィールドが未定義なので、見た目を変えず一括設定へフォールバックする。
+- **単一解決経路**:
+  - `resolveCaptionGlyphStyle(caption, settings)` が文字本体色・縁色・縁幅・ぼかしの「個別値 > 一括値」を解決する。縁幅は0〜20px・0.5px刻み、ぼかしは0〜5px・0.1px刻みへ正規化する。
+  - standard / Apple Safari の両preview engineは同じ解決結果を使う。exportはpreview Canvasを収録する既存WYSIWYG経路なので、export engineへ重複分岐を追加しない。凍結済み `src/components/turtle-video/usePreviewEngine.ts` は変更しない。
+- **UI/UX**:
+  - `CaptionSettingsModal` は一括設定と同じ順序（サイズ→字体→文字の縁・色→位置→ぼかし→フェード）にする。「文字の縁・色」は初期閉状態で、閉じている間だけ `（開いて設定）` を表示する。
+  - 未設定時は一括設定の実効値を入力欄へ表示し、操作した項目だけ個別上書きにする。「文字の縁・色を一括設定に戻す」「ぼかしを一括設定に戻す」で部分解除でき、従来の「この個別設定をクリア」では全個別値を解除する。
+  - 色入力は一括・個別で共通の `CaptionColorField` を使い、カラーピッカー、`#RGB` / `#RRGGBB`、Enter確定、Escape取消、不正値復元の挙動を揃える。ID/ARIA接頭辞を分け、背後の一括設定DOMとIDが重複しないようにする。
+- **回帰ガード**: アコーディオン初期状態、継承値表示、個別値更新・部分解除、全解除、純解決ロジック、保存往復、自動保存差分、cache key、ヘルプをテストする。全体品質ゲートで両preview/export回帰を確認する。
+
+### 13-134. キャプション一括移動をプレビュー現在位置へ整列
+
+- **ファイル**: `src/components/sections/CaptionSection.tsx`, `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`, `src/test/captionStyleControls.test.tsx`, `src/test/sectionHelp.test.ts`
+- **操作契約**:
+  - 「すべてのカード」では先頭カード、「指定カード以降」では指定カードの `startTime` を基準にし、プレビュー現在位置との差分を0.1秒単位で既存の `shiftCaptions(deltaSec, fromIndex)` へ渡す。
+  - 終了位置、各カードの表示時間、カード間隔は差分移動で自動的に維持する。動画・ナレーション・BGMのストアやタイムラインには波及させない。
+  - プレビュー現在位置への整列を主操作、従来の秒数入力と「早める」「遅らせる」を微調整として併存させる。すでに一致している場合はボタンを無効化し、実行前の移動差分と実行結果をテキスト／`aria-live`で示す。
+- **回帰ガード**: 全カードと指定カード以降の正負差分、同一時刻のno-op、従来の秒数移動、ヘルプ上のキャプション限定説明をテストする。既存のプレビュー停止ラッパーを経由し、preview/exportエンジンや保存形式へ新しい分岐を追加しない。

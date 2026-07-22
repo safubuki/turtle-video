@@ -4,9 +4,16 @@
  * @description キャプション個別スタイル設定のモーダル。一括設定を上書き（Override）するためのUI。
  */
 import React, { useEffect, useState } from 'react';
-import { RotateCcw, X } from 'lucide-react';
-import type { Caption, CaptionPosition, CaptionSize, CaptionFontStyle } from '../../types';
+import { ChevronDown, ChevronRight, RotateCcw, X } from 'lucide-react';
+import type {
+  Caption,
+  CaptionPosition,
+  CaptionSettings,
+  CaptionSize,
+  CaptionFontStyle,
+} from '../../types';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
+import CaptionColorField from '../common/CaptionColorField';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import {
@@ -23,8 +30,14 @@ import {
   CAPTION_FONT_SIZE_CUSTOM_MIN,
   CAPTION_FONT_SIZE_PRESETS,
   CAPTION_POSITION_CUSTOM_DEFAULT,
+  CAPTION_STROKE_WIDTH_MAX,
+  CAPTION_STROKE_WIDTH_MIN,
+  CAPTION_STROKE_WIDTH_STEP,
+  clampCaptionBlur,
+  clampCaptionStrokeWidth,
   clampCustomFontSize,
   clampPositionPercent,
+  resolveCaptionGlyphStyle,
 } from '../../utils/captionStyle';
 import {
   SEQUENTIAL_GAP_MAX_SEC,
@@ -40,6 +53,7 @@ import {
 
 interface CaptionSettingsModalProps {
   caption: Caption;
+  settings: CaptionSettings;
   onClose: () => void;
   onUpdate: (id: string, updates: Partial<Omit<Caption, 'id'>>) => void;
 }
@@ -55,6 +69,7 @@ type FadeOption = 'default' | 'on' | 'off';
  */
 const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
   caption,
+  settings,
   onClose,
   onUpdate,
 }) => {
@@ -75,6 +90,11 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
   const isCustomFontSize = caption.overrideFontSizeCustom != null;
   const isCustomPosition = caption.overridePositionCustom != null;
   const customPosition = caption.overridePositionCustom ?? CAPTION_POSITION_CUSTOM_DEFAULT;
+  const [showOutlineColorSettings, setShowOutlineColorSettings] = useState(false);
+  const effectiveGlyphStyle = resolveCaptionGlyphStyle(caption, settings);
+  const hasOutlineColorOverride = caption.overrideStrokeWidth != null
+    || caption.overrideStrokeColor != null
+    || caption.overrideFontColor != null;
 
   // 時分割（複数行の順次表示）設定
   const isSequential = isSequentialCaption(caption);
@@ -208,6 +228,14 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
     });
   };
 
+  const handleClearOutlineColorSettings = () => {
+    onUpdate(caption.id, {
+      overrideStrokeWidth: undefined,
+      overrideStrokeColor: undefined,
+      overrideFontColor: undefined,
+    });
+  };
+
   const handleFadeInChange = (value: FadeOption) => {
     onUpdate(caption.id, {
       overrideFadeIn: value === 'default' ? undefined : value,
@@ -253,15 +281,20 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
       <div
         className="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-sm shadow-2xl max-h-[92vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="caption-individual-settings-title"
       >
         {/* ヘッダー */}
         <div className="flex items-center justify-between p-4 border-b border-gray-700">
-          <h2 className="text-sm font-bold flex items-center gap-2">
+          <h2 id="caption-individual-settings-title" className="text-sm font-bold flex items-center gap-2">
             ⚙️ キャプション個別設定
           </h2>
           <button
             onClick={onClose}
             className="p-1.5 hover:bg-gray-700 rounded-lg transition"
+            title="閉じる"
+            aria-label="キャプション個別設定を閉じる"
           >
             <X className="w-4 h-4" />
           </button>
@@ -392,6 +425,97 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                 </button>
               </div>
             )}
+            {/* 文字の縁・色: 一括設定と同じ段階開示・操作順 */}
+            <div className="rounded-lg border border-gray-700/70 bg-gray-900/30">
+              <button
+                type="button"
+                onClick={() => setShowOutlineColorSettings((open) => !open)}
+                aria-expanded={showOutlineColorSettings}
+                aria-controls="caption-individual-outline-color-settings"
+                className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-[10px] text-gray-400 transition hover:bg-gray-800/45 hover:text-white"
+              >
+                <span className="flex min-w-0 items-center gap-2 font-semibold">
+                  <span className="whitespace-nowrap">文字の縁・色</span>
+                  {!showOutlineColorSettings && (
+                    <span aria-hidden="true" className="whitespace-nowrap text-[9px] font-normal text-gray-500">
+                      （開いて設定）
+                    </span>
+                  )}
+                </span>
+                {showOutlineColorSettings ? (
+                  <ChevronDown className="h-3 w-3 shrink-0" />
+                ) : (
+                  <ChevronRight className="h-3 w-3 shrink-0" />
+                )}
+              </button>
+              {showOutlineColorSettings && (
+                <div id="caption-individual-outline-color-settings" className="space-y-2 border-t border-gray-700/60 px-2 pb-2 pt-2">
+                  <div className="flex items-center gap-2 text-[10px]">
+                    <label className="text-gray-400 w-16 shrink-0" htmlFor="caption-individual-stroke-width">
+                      縁の幅:
+                    </label>
+                    <SwipeProtectedSlider
+                      min={CAPTION_STROKE_WIDTH_MIN}
+                      max={CAPTION_STROKE_WIDTH_MAX}
+                      step={CAPTION_STROKE_WIDTH_STEP}
+                      value={effectiveGlyphStyle.strokeWidth}
+                      onChange={(value) => onUpdate(caption.id, {
+                        overrideStrokeWidth: clampCaptionStrokeWidth(value),
+                      })}
+                      ariaLabel="個別キャプションの縁の幅"
+                      className="min-w-0 flex-1 cursor-pointer accent-yellow-500 h-1 bg-gray-600 rounded appearance-none"
+                    />
+                    <input
+                      id="caption-individual-stroke-width"
+                      type="number"
+                      min={CAPTION_STROKE_WIDTH_MIN}
+                      max={CAPTION_STROKE_WIDTH_MAX}
+                      step={CAPTION_STROKE_WIDTH_STEP}
+                      value={effectiveGlyphStyle.strokeWidth}
+                      onChange={(event) => {
+                        const value = Number.parseFloat(event.target.value);
+                        if (Number.isFinite(value)) {
+                          onUpdate(caption.id, {
+                            overrideStrokeWidth: clampCaptionStrokeWidth(value),
+                          });
+                        }
+                      }}
+                      aria-label="個別キャプションの縁の幅（数値）"
+                      className="w-14 rounded-md border border-gray-600 bg-gray-700 px-1.5 py-1 text-right focus:border-yellow-500 focus:outline-none focus:ring-1 focus:ring-yellow-500/40"
+                    />
+                    <span className="text-gray-500">px</span>
+                  </div>
+                  <CaptionColorField
+                    label="縁の色"
+                    value={effectiveGlyphStyle.strokeColor}
+                    fallback="#000000"
+                    idPrefix="caption-individual"
+                    ariaLabelPrefix="個別キャプション"
+                    onChange={(color) => onUpdate(caption.id, { overrideStrokeColor: color })}
+                  />
+                  <CaptionColorField
+                    label="文字本体"
+                    value={effectiveGlyphStyle.fontColor}
+                    fallback="#FFFFFF"
+                    idPrefix="caption-individual"
+                    ariaLabelPrefix="個別キャプション"
+                    onChange={(color) => onUpdate(caption.id, { overrideFontColor: color })}
+                  />
+                  <p className="pl-[4.5rem] text-[9px] leading-relaxed text-gray-500">
+                    変更した項目だけ、このカードの個別設定として一括設定より優先します。
+                  </p>
+                  {hasOutlineColorOverride && (
+                    <button
+                      type="button"
+                      onClick={handleClearOutlineColorSettings}
+                      className="text-[9px] text-gray-500 hover:text-yellow-400 transition"
+                    >
+                      文字の縁・色を一括設定に戻す
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
             {/* 位置: プリセット + カスタム XY（standard のみ・一括設定と同等） */}
             <div className="flex items-center gap-2 text-[10px]">
               <span className="text-gray-400 w-16">位置:</span>
@@ -447,6 +571,33 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                 ))}
                 <div className="text-[9px] text-gray-500">X=50 が中央、Y=0 が最上部（テキスト中心の位置）</div>
               </div>
+            )}
+            {/* ぼかし: 未設定時は一括設定の値を表示し、変更時だけ個別上書き */}
+            <div className="flex items-center gap-2 text-[10px]">
+              <span className="text-gray-400 w-16">ぼかし:</span>
+              <SwipeProtectedSlider
+                min={0}
+                max={50}
+                step={1}
+                value={effectiveGlyphStyle.blur * 10}
+                onChange={(value) => onUpdate(caption.id, {
+                  overrideBlur: clampCaptionBlur(value / 10),
+                })}
+                ariaLabel="個別キャプションのぼかし"
+                className="flex-1 cursor-pointer accent-yellow-500 h-1 bg-gray-600 rounded appearance-none"
+              />
+              <span className="w-8 text-right whitespace-nowrap text-gray-400">
+                {effectiveGlyphStyle.blur.toFixed(1)}
+              </span>
+            </div>
+            {caption.overrideBlur != null && (
+              <button
+                type="button"
+                onClick={() => onUpdate(caption.id, { overrideBlur: undefined })}
+                className="pl-16 text-[9px] text-gray-500 hover:text-yellow-400 transition"
+              >
+                ぼかしを一括設定に戻す
+              </button>
             )}
           </div>
 

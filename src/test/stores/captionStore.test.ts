@@ -30,6 +30,15 @@ describe('captionStore', () => {
   });
 
   describe('settings property', () => {
+    it('reset時の既定表示は黒い縁と白い文字本体になる', () => {
+      useCaptionStore.getState().resetCaptions();
+
+      const { settings } = useCaptionStore.getState();
+      expect(settings.fontColor).toBe('#FFFFFF');
+      expect(settings.strokeColor).toBe('#000000');
+      expect(settings.strokeWidth).toBe(2);
+    });
+
     it('should have settings property accessible', () => {
       const { settings } = useCaptionStore.getState();
       expect(settings).toBeDefined();
@@ -62,6 +71,16 @@ describe('captionStore', () => {
       
       const { settings } = useCaptionStore.getState();
       expect(settings.fontColor).toBe('#FF0000');
+    });
+
+    it('should clamp stroke width to the supported range and step', () => {
+      const { setStrokeWidth } = useCaptionStore.getState();
+
+      setStrokeWidth(21);
+      expect(useCaptionStore.getState().settings.strokeWidth).toBe(20);
+
+      setStrokeWidth(3.26);
+      expect(useCaptionStore.getState().settings.strokeWidth).toBe(3.5);
     });
 
     it('should update settings when setBulkFadeIn is called', () => {

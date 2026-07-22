@@ -10,6 +10,10 @@ export function hasCaptionIndividualSettings(caption: Caption): boolean {
     caption.overridePosition
     || caption.overrideFontStyle
     || caption.overrideFontSize
+    || caption.overrideFontColor != null
+    || caption.overrideStrokeColor != null
+    || caption.overrideStrokeWidth != null
+    || caption.overrideBlur != null
     || caption.overrideFadeIn
     || caption.overrideFadeOut
     || caption.overrideFadeInDuration != null
@@ -27,6 +31,10 @@ export function createClearedCaptionIndividualSettings(): Partial<Omit<Caption, 
     overridePosition: undefined,
     overrideFontStyle: undefined,
     overrideFontSize: undefined,
+    overrideFontColor: undefined,
+    overrideStrokeColor: undefined,
+    overrideStrokeWidth: undefined,
+    overrideBlur: undefined,
     overrideFadeIn: undefined,
     overrideFadeOut: undefined,
     overrideFadeInDuration: undefined,
@@ -37,4 +45,3 @@ export function createClearedCaptionIndividualSettings(): Partial<Omit<Caption, 
     sequentialGapSec: undefined,
   };
 }
-

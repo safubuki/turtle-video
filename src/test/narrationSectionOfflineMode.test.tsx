@@ -67,10 +67,11 @@ describe('NarrationSection offline mode', () => {
         onUpdateTrimEnd={vi.fn()}
         formatTime={(value) => `${value.toFixed(1)}s`}
         onOpenHelp={vi.fn()}
-      />,
+      />
     );
 
     expect(screen.getByRole('button', { name: 'AI' })).toBeDisabled();
+    expect(screen.getByText('(2件)')).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('ナレーション'));
 

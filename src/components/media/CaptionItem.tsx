@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { Trash2, Edit2, Check, X, MapPin, Settings, ArrowUp, ArrowDown, ListVideo } from 'lucide-react';
-import type { Caption } from '../../types';
+import type { Caption, CaptionSettings } from '../../types';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import CaptionSettingsModal from '../modals/CaptionSettingsModal';
 import {
@@ -11,6 +11,7 @@ import { hasCaptionIndividualSettings } from '../../utils/captionIndividualSetti
 
 interface CaptionItemProps {
   caption: Caption;
+  settings: CaptionSettings;
   index: number;
   totalCaptions: number;
   totalDuration: number;
@@ -26,6 +27,7 @@ interface CaptionItemProps {
  */
 const CaptionItem: React.FC<CaptionItemProps> = ({
   caption,
+  settings,
   index,
   totalCaptions,
   totalDuration,
@@ -322,6 +324,7 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
       {showSettingsModal && (
         <CaptionSettingsModal
           caption={caption}
+          settings={settings}
           onClose={() => setShowSettingsModal(false)}
           onUpdate={onUpdate}
         />

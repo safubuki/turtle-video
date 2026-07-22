@@ -565,6 +565,10 @@ describe('projectStore save behavior', () => {
       overridePosition: 'center' as const,
       overrideFontStyle: 'mincho' as const,
       overrideFontSize: 'large' as const,
+      overrideFontColor: '#123456',
+      overrideStrokeColor: '#ABCDEF',
+      overrideStrokeWidth: 6.5,
+      overrideBlur: 2.5,
       overrideFadeIn: 'on' as const,
       overrideFadeOut: 'off' as const,
     }];
@@ -599,6 +603,10 @@ describe('projectStore save behavior', () => {
     expect(savedProjectData.mediaItems[0].blur).toBe(12);
     expect(savedProjectData.narrations[0].aiScript).toBe('こんにちは、タートルビデオです。');
     expect(savedProjectData.captions[0].overrideFontStyle).toBe('mincho');
+    expect(savedProjectData.captions[0].overrideFontColor).toBe('#123456');
+    expect(savedProjectData.captions[0].overrideStrokeColor).toBe('#ABCDEF');
+    expect(savedProjectData.captions[0].overrideStrokeWidth).toBe(6.5);
+    expect(savedProjectData.captions[0].overrideBlur).toBe(2.5);
     expect(savedProjectData.captionSettings.position).toBe('center');
 
     mocks.loadProject.mockResolvedValueOnce(savedProjectData);
@@ -630,6 +638,10 @@ describe('projectStore save behavior', () => {
     expect(loaded.isCaptionsLocked).toBe(true);
     expect(loaded.captions[0].overridePosition).toBe('center');
     expect(loaded.captions[0].overrideFontStyle).toBe('mincho');
+    expect(loaded.captions[0].overrideFontColor).toBe('#123456');
+    expect(loaded.captions[0].overrideStrokeColor).toBe('#ABCDEF');
+    expect(loaded.captions[0].overrideStrokeWidth).toBe(6.5);
+    expect(loaded.captions[0].overrideBlur).toBe(2.5);
     expect(loaded.captions[0].overrideFadeIn).toBe('on');
   });
 

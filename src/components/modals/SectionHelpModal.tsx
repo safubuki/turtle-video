@@ -34,6 +34,11 @@ import {
   Plus,
   Move,
   ZoomIn,
+  Copy,
+  ChevronLeft,
+  ChevronRight,
+  ListPlus,
+  Crosshair,
 } from 'lucide-react';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 import {
@@ -119,9 +124,10 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
     historyStateIdRef.current = stateId;
     closedByPopstateRef.current = false;
 
-    const currentState = (window.history.state && typeof window.history.state === 'object')
-      ? window.history.state as Record<string, unknown>
-      : {};
+    const currentState =
+      window.history.state && typeof window.history.state === 'object'
+        ? (window.history.state as Record<string, unknown>)
+        : {};
     window.history.pushState({ ...currentState, __sectionHelpModal: stateId }, '');
 
     const handlePopState = () => {
@@ -134,9 +140,10 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
     return () => {
       window.removeEventListener('popstate', handlePopState);
 
-      const current = (window.history.state && typeof window.history.state === 'object')
-        ? window.history.state as Record<string, unknown>
-        : null;
+      const current =
+        window.history.state && typeof window.history.state === 'object'
+          ? (window.history.state as Record<string, unknown>)
+          : null;
       const ownStateOnTop = Boolean(
         historyStateIdRef.current &&
         current &&
@@ -184,7 +191,12 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
   };
 
   const handleSheetTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
-    if (!swipeCloseEligibleRef.current || touchStartXRef.current === null || touchStartYRef.current === null || event.touches.length !== 1) {
+    if (
+      !swipeCloseEligibleRef.current ||
+      touchStartXRef.current === null ||
+      touchStartYRef.current === null ||
+      event.touches.length !== 1
+    ) {
       return;
     }
 
@@ -215,7 +227,8 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
 
   const help = getSectionHelpContent({ appFlavor, supportsShowSaveFilePicker })[section];
   const accent = sectionAccentClass[section];
-  const chipBaseClass = 'inline-flex items-center gap-1 rounded-lg border text-[10px] md:text-xs leading-none';
+  const chipBaseClass =
+    'inline-flex items-center gap-1 rounded-lg border text-[10px] md:text-xs leading-none';
 
   const renderVisualToken = (token: SectionHelpVisualId, index: number) => {
     switch (token) {
@@ -229,7 +242,9 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
                 </span>
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-blue-200">動画・画像</div>
-                  <p className="text-xs md:text-sm text-gray-200 leading-relaxed">動画・画像を追加し、並び順や表示区間を整えます。</p>
+                  <p className="text-xs md:text-sm text-gray-200 leading-relaxed">
+                    動画・画像を追加し、並び順や表示区間を整えます。
+                  </p>
                 </div>
               </div>
             </div>
@@ -245,7 +260,9 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
                 </span>
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-purple-200">BGM</div>
-                  <p className="text-xs md:text-sm text-gray-200 leading-relaxed">BGMを追加し、開始タイミングや音量を調整して動画を盛り上げます。</p>
+                  <p className="text-xs md:text-sm text-gray-200 leading-relaxed">
+                    BGMを追加し、開始タイミングや音量を調整して動画を盛り上げます。
+                  </p>
                 </div>
               </div>
             </div>
@@ -261,7 +278,9 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
                 </span>
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-indigo-200">ナレーション</div>
-                  <p className="text-xs md:text-sm text-gray-200 leading-relaxed">AI生成でも、あらかじめ用意した音声ファイルでもナレーションを追加できます。</p>
+                  <p className="text-xs md:text-sm text-gray-200 leading-relaxed">
+                    AI生成でも、あらかじめ用意した音声ファイルでもナレーションを追加できます。
+                  </p>
                 </div>
               </div>
             </div>
@@ -277,7 +296,9 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
                 </span>
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-yellow-200">キャプション</div>
-                  <p className="text-xs md:text-sm text-gray-200 leading-relaxed">キャプションを追加し、サイズや字体、位置、フェードなどを整えて見やすく仕上げます。</p>
+                  <p className="text-xs md:text-sm text-gray-200 leading-relaxed">
+                    キャプションを追加し、サイズや字体、位置、フェードなどを整えて見やすく仕上げます。
+                  </p>
                 </div>
               </div>
             </div>
@@ -293,7 +314,9 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
                 </span>
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-green-200">プレビュー</div>
-                  <p className="text-xs md:text-sm text-gray-200 leading-relaxed">プレビューで確認後、「動画ファイルを作成」してダウンロードすれば完了です。</p>
+                  <p className="text-xs md:text-sm text-gray-200 leading-relaxed">
+                    プレビューで確認後、「動画ファイルを作成」してダウンロードすれば完了です。
+                  </p>
                 </div>
               </div>
             </div>
@@ -301,55 +324,230 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
         );
       case 'add_green_button':
         return (
-          <span key={`${token}-${index}`} className={`${chipBaseClass} px-2.5 py-1 bg-emerald-700 border-emerald-500/45 text-white font-semibold`}>
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} px-2.5 py-1 bg-emerald-700 border-emerald-500/45 text-white font-semibold`}
+          >
             <Upload className="w-3 h-3" /> 追加
           </span>
         );
       case 'add_yellow_button':
         return (
-          <span key={`${token}-${index}`} className={`${chipBaseClass} px-2.5 py-1 bg-yellow-700 border-yellow-500/45 text-yellow-100 font-semibold`}>
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} px-2.5 py-1 bg-yellow-700 border-yellow-500/45 text-yellow-100 font-semibold`}
+          >
             <Plus className="w-3 h-3" /> 追加
           </span>
         );
       case 'ai_add_button':
         return (
-          <span key={`${token}-${index}`} className={`${chipBaseClass} px-2.5 py-1 bg-linear-to-r from-indigo-600 to-blue-600 border-indigo-400/45 text-white font-semibold`}>
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} px-2.5 py-1 bg-linear-to-r from-indigo-600 to-blue-600 border-indigo-400/45 text-white font-semibold`}
+          >
             <Sparkles className="w-3 h-3" /> AI
           </span>
         );
+      case 'bgm_count_label':
+        return (
+          <span
+            key={`${token}-${index}`}
+            className="inline-flex items-center gap-1 text-sm font-bold text-purple-300"
+          >
+            BGM <span className="text-[10px] font-normal text-purple-300 md:text-xs">(2件)</span>
+          </span>
+        );
+      case 'narration_count_label':
+        return (
+          <span
+            key={`${token}-${index}`}
+            className="inline-flex items-center gap-1 text-sm font-bold text-indigo-300"
+          >
+            ナレーション{' '}
+            <span className="text-[10px] font-normal text-indigo-300 md:text-xs">(2件)</span>
+          </span>
+        );
+      case 'copy_button':
+        return (
+          <span
+            key={`${token}-${index}`}
+            className="inline-flex h-7 w-7 items-center justify-center rounded border border-blue-800/50 bg-blue-900/30 text-blue-300"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </span>
+        );
+      case 'caption_style_accordion':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="basis-full w-full rounded-lg border border-gray-600/70 bg-gray-800/50 px-2 py-2 text-gray-300"
+          >
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <span className="flex min-w-0 items-center gap-2">
+                <Type className="h-3 w-3 shrink-0" />
+                <span className="whitespace-nowrap">スタイル/フェード一括設定</span>
+                <span className="whitespace-nowrap text-[9px] text-gray-500">（開いて設定）</span>
+              </span>
+              <ChevronRight className="h-3 w-3 shrink-0" />
+            </div>
+          </div>
+        );
+      case 'caption_outline_color_accordion':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="basis-full w-full rounded-lg border border-gray-700/70 bg-gray-900/30 px-2 py-2 text-gray-300"
+          >
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <span className="flex min-w-0 items-center gap-2 font-semibold">
+                <span className="whitespace-nowrap">文字の縁・色</span>
+                <span className="whitespace-nowrap text-[9px] font-normal text-gray-500">
+                  （開いて設定）
+                </span>
+              </span>
+              <ChevronRight className="h-3 w-3 shrink-0" />
+            </div>
+          </div>
+        );
+      case 'caption_outline_controls':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="basis-full w-full space-y-2 rounded-lg border border-gray-700/70 bg-gray-900/30 px-2 py-2 text-[10px] text-gray-300 md:text-xs"
+          >
+            <div className="flex items-center gap-2">
+              <span className="w-14 shrink-0 text-gray-400">縁の幅:</span>
+              <div className="relative h-4 flex-1">
+                <div className="absolute inset-x-0 top-1.5 h-1 rounded-full bg-gray-700" />
+                <div className="absolute left-[35%] top-0 h-4 w-4 -translate-x-1/2 rounded-full border border-gray-300 bg-gray-100" />
+              </div>
+              <span className="rounded border border-gray-600 bg-gray-700 px-1.5 py-1">2</span>
+              <span className="text-gray-500">px</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-gray-400">縁の色</span>
+              <span className="h-6 w-8 rounded border border-gray-500 bg-black" />
+              <span className="rounded border border-gray-600 bg-gray-700 px-1.5 py-1 font-mono">
+                #000000
+              </span>
+              <span className="ml-1 text-gray-400">文字本体</span>
+              <span className="h-6 w-8 rounded border border-gray-500 bg-white" />
+              <span className="rounded border border-gray-600 bg-gray-700 px-1.5 py-1 font-mono">
+                #FFFFFF
+              </span>
+            </div>
+          </div>
+        );
+      case 'bulk_caption_button':
+        return (
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} px-3 py-2 border-yellow-600/40 bg-gray-800 text-yellow-300`}
+          >
+            <ListPlus className="h-3.5 w-3.5" /> ① まとめて入力・編集
+          </span>
+        );
+      case 'timing_caption_button':
+        return (
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} px-3 py-2 border-yellow-600/40 bg-gray-800 text-yellow-300`}
+          >
+            <Timer className="h-3.5 w-3.5" /> ② タイミング打ち
+          </span>
+        );
+      case 'shift_caption_controls':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="basis-full w-full rounded-lg border border-gray-700/50 bg-gray-800/50 p-2 text-[10px] text-gray-300 md:text-xs"
+          >
+            <div className="mb-1.5 text-gray-400">
+              時間をまとめてずらす:{' '}
+              <span className="rounded bg-gray-700 px-1.5 py-1">すべてのカード</span>
+            </div>
+            <div className="mb-1.5 flex items-center justify-center gap-1 rounded border border-yellow-500/50 bg-yellow-600/15 px-2 py-1.5 text-yellow-200">
+              <Crosshair className="h-3.5 w-3.5" /> 現在位置（0:12.3）に先頭を合わせる
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-gray-500">微調整:</span>
+              <span className="rounded bg-gray-700 px-2 py-1">1 秒</span>
+              <span className="flex-1 rounded bg-gray-700 px-2 py-1 text-center">
+                <ChevronLeft className="inline h-3.5 w-3.5" />
+                早める
+              </span>
+              <span className="flex-1 rounded bg-gray-700 px-2 py-1 text-center">
+                遅らせる
+                <ChevronRight className="inline h-3.5 w-3.5" />
+              </span>
+            </div>
+          </div>
+        );
+      case 'caption_custom_controls':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="flex basis-full w-full flex-wrap items-center gap-1.5 text-[10px] md:text-xs"
+          >
+            <span className="rounded bg-gray-700 px-2 py-1 text-gray-300">カスタム</span>
+            <span className="rounded bg-gray-700 px-2 py-1 text-gray-300">その他▾</span>
+            <span className="text-blue-300 underline underline-offset-2">
+              ＋ この端末の全フォントから選ぶ（PC）
+            </span>
+          </div>
+        );
       case 'unlock_button':
         return (
-          <span key={`${token}-${index}`} className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-gray-600 bg-gray-700 text-gray-300">
+          <span
+            key={`${token}-${index}`}
+            className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-gray-600 bg-gray-700 text-gray-300"
+          >
             <Unlock className="w-3.5 h-3.5" />
           </span>
         );
       case 'lock_button_red':
         return (
-          <span key={`${token}-${index}`} className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-red-500/45 bg-red-500/20 text-red-300">
+          <span
+            key={`${token}-${index}`}
+            className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-red-500/45 bg-red-500/20 text-red-300"
+          >
             <Lock className="w-3.5 h-3.5" />
           </span>
         );
       case 'eye_on_button':
         return (
-          <span key={`${token}-${index}`} className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-yellow-500/45 bg-yellow-500/20 text-yellow-300">
+          <span
+            key={`${token}-${index}`}
+            className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-yellow-500/45 bg-yellow-500/20 text-yellow-300"
+          >
             <Eye className="w-3.5 h-3.5" />
           </span>
         );
       case 'eye_off_button':
         return (
-          <span key={`${token}-${index}`} className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-gray-600 bg-gray-700 text-gray-300">
+          <span
+            key={`${token}-${index}`}
+            className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-gray-600 bg-gray-700 text-gray-300"
+          >
             <EyeOff className="w-3.5 h-3.5" />
           </span>
         );
       case 'move_up_button':
         return (
-          <span key={`${token}-${index}`} className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-gray-600 bg-gray-700/60 text-gray-200">
+          <span
+            key={`${token}-${index}`}
+            className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-gray-600 bg-gray-700/60 text-gray-200"
+          >
             <ArrowUp className="w-3.5 h-3.5" />
           </span>
         );
       case 'move_down_button':
         return (
-          <span key={`${token}-${index}`} className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-gray-600 bg-gray-700/60 text-gray-200">
+          <span
+            key={`${token}-${index}`}
+            className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-gray-600 bg-gray-700/60 text-gray-200"
+          >
             <ArrowDown className="w-3.5 h-3.5" />
           </span>
         );
@@ -409,25 +607,37 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
         );
       case 'trim_chip':
         return (
-          <span key={`${token}-${index}`} className={`${chipBaseClass} px-2 py-1 border-blue-500/40 bg-blue-500/10 text-blue-200`}>
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} px-2 py-1 border-blue-500/40 bg-blue-500/10 text-blue-200`}
+          >
             <Timer className="w-3 h-3" /> トリム
           </span>
         );
       case 'duration_chip':
         return (
-          <span key={`${token}-${index}`} className={`${chipBaseClass} px-2 py-1 border-blue-500/40 bg-blue-500/10 text-blue-200`}>
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} px-2 py-1 border-blue-500/40 bg-blue-500/10 text-blue-200`}
+          >
             <Timer className="w-3 h-3" /> 表示時間
           </span>
         );
       case 'start_chip':
         return (
-          <span key={`${token}-${index}`} className={`${chipBaseClass} px-2 py-1 border-indigo-500/40 bg-indigo-500/10 text-indigo-200`}>
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} px-2 py-1 border-indigo-500/40 bg-indigo-500/10 text-indigo-200`}
+          >
             <Timer className="w-3 h-3" /> 開始位置
           </span>
         );
       case 'delay_chip':
         return (
-          <span key={`${token}-${index}`} className={`${chipBaseClass} px-2 py-1 border-purple-500/40 bg-purple-500/10 text-purple-200`}>
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} px-2 py-1 border-purple-500/40 bg-purple-500/10 text-purple-200`}
+          >
             <Timer className="w-3 h-3" /> 遅延
           </span>
         );
@@ -464,19 +674,28 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
         );
       case 'scale_chip':
         return (
-          <span key={`${token}-${index}`} className={`${chipBaseClass} px-2 py-1 border-blue-500/40 bg-blue-500/10 text-blue-200`}>
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} px-2 py-1 border-blue-500/40 bg-blue-500/10 text-blue-200`}
+          >
             <ZoomIn className="w-3 h-3" /> 拡大率
           </span>
         );
       case 'position_chip':
         return (
-          <span key={`${token}-${index}`} className={`${chipBaseClass} px-2 py-1 border-blue-500/40 bg-blue-500/10 text-blue-200`}>
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} px-2 py-1 border-blue-500/40 bg-blue-500/10 text-blue-200`}
+          >
             <Move className="w-3 h-3" /> 位置
           </span>
         );
       case 'blackbar_toggle_chip':
         return (
-          <span key={`${token}-${index}`} className={`${chipBaseClass} px-2 py-1 border-blue-500/40 bg-blue-500/10 text-blue-200`}>
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} px-2 py-1 border-blue-500/40 bg-blue-500/10 text-blue-200`}
+          >
             <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded border border-blue-300/70 bg-blue-400/20">
               <Check className="w-2.5 h-2.5" />
             </span>
@@ -485,31 +704,46 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
         );
       case 'size_chip':
         return (
-          <span key={`${token}-${index}`} className={`${chipBaseClass} px-2 py-1 border-yellow-500/40 bg-yellow-500/10 text-yellow-200`}>
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} px-2 py-1 border-yellow-500/40 bg-yellow-500/10 text-yellow-200`}
+          >
             <Type className="w-3 h-3" /> サイズ
           </span>
         );
       case 'blur_chip':
         return (
-          <span key={`${token}-${index}`} className={`${chipBaseClass} px-2 py-1 border-yellow-500/40 bg-yellow-500/10 text-yellow-200`}>
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} px-2 py-1 border-yellow-500/40 bg-yellow-500/10 text-yellow-200`}
+          >
             <Sparkles className="w-3 h-3" /> ぼかし
           </span>
         );
       case 'fade_in_chip':
         return (
-          <span key={`${token}-${index}`} className={`${chipBaseClass} px-2 py-1 border-blue-500/40 bg-blue-500/10 text-blue-200`}>
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} px-2 py-1 border-blue-500/40 bg-blue-500/10 text-blue-200`}
+          >
             フェードイン
           </span>
         );
       case 'fade_out_chip':
         return (
-          <span key={`${token}-${index}`} className={`${chipBaseClass} px-2 py-1 border-blue-500/40 bg-blue-500/10 text-blue-200`}>
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} px-2 py-1 border-blue-500/40 bg-blue-500/10 text-blue-200`}
+          >
             フェードアウト
           </span>
         );
       case 'fade_in_checkbox':
         return (
-          <span key={`${token}-${index}`} className={`${chipBaseClass} px-2 py-1 border-blue-500/40 bg-blue-500/10 text-blue-200`}>
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} px-2 py-1 border-blue-500/40 bg-blue-500/10 text-blue-200`}
+          >
             <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded border border-blue-300/70 bg-blue-400/20">
               <Check className="w-2.5 h-2.5" />
             </span>
@@ -518,7 +752,10 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
         );
       case 'fade_out_checkbox':
         return (
-          <span key={`${token}-${index}`} className={`${chipBaseClass} px-2 py-1 border-blue-500/40 bg-blue-500/10 text-blue-200`}>
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} px-2 py-1 border-blue-500/40 bg-blue-500/10 text-blue-200`}
+          >
             <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded border border-blue-300/70 bg-blue-400/20">
               <Check className="w-2.5 h-2.5" />
             </span>
@@ -527,13 +764,19 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
         );
       case 'style_chip':
         return (
-          <span key={`${token}-${index}`} className={`${chipBaseClass} px-2 py-1 border-yellow-500/40 bg-yellow-500/10 text-yellow-200`}>
-            <Type className="w-3 h-3" /> スタイル一括設定
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} px-2 py-1 border-yellow-500/40 bg-yellow-500/10 text-yellow-200`}
+          >
+            <Type className="w-3 h-3" /> スタイル/フェード一括設定
           </span>
         );
       case 'current_pin_chip':
         return (
-          <span key={`${token}-${index}`} className={`${chipBaseClass} px-2 py-1 border-indigo-500/40 bg-indigo-500/10 text-indigo-200`}>
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} px-2 py-1 border-indigo-500/40 bg-indigo-500/10 text-indigo-200`}
+          >
             <MapPin className="w-3 h-3" /> 現在位置に設定
           </span>
         );
@@ -566,19 +809,28 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
         );
       case 'clear_button':
         return (
-          <span key={`${token}-${index}`} className={`${chipBaseClass} px-2.5 py-1 border-gray-600 bg-gray-700/50 text-gray-200 font-medium`}>
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} px-2.5 py-1 border-gray-600 bg-gray-700/50 text-gray-200 font-medium`}
+          >
             <RotateCcw className="w-3 h-3" /> 一括クリア
           </span>
         );
       case 'export_button':
         return (
-          <span key={`${token}-${index}`} className={`${chipBaseClass} px-3 py-1.5 rounded-full border-blue-500/60 bg-blue-600 text-white font-semibold`}>
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} px-3 py-1.5 rounded-full border-blue-500/60 bg-blue-600 text-white font-semibold`}
+          >
             動画ファイルを作成
           </span>
         );
       case 'download_button':
         return (
-          <span key={`${token}-${index}`} className={`${chipBaseClass} px-3 py-1.5 rounded-full border-green-500/60 bg-green-600 text-white font-semibold`}>
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} px-3 py-1.5 rounded-full border-green-500/60 bg-green-600 text-white font-semibold`}
+          >
             <Download className="w-3 h-3" /> ダウンロード
           </span>
         );
@@ -624,7 +876,9 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
         </div>
         <div className="p-4 border-b border-gray-700 flex items-center justify-between bg-gray-850">
           <div className="flex items-center gap-2 min-w-0">
-            <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs border shrink-0 ${accent}`}>
+            <span
+              className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs border shrink-0 ${accent}`}
+            >
               <CircleHelp className="w-3.5 h-3.5" />
               ヘルプ
             </span>
@@ -650,17 +904,24 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
 
           <div className="space-y-3">
             {help.items.map((item, index) => (
-              <div key={`${item.title}-${index}`} className="rounded-xl border border-gray-700 bg-gray-800/45 p-3">
+              <div
+                key={`${item.title}-${index}`}
+                className="rounded-xl border border-gray-700 bg-gray-800/45 p-3"
+              >
                 <div className="flex items-start gap-3">
                   <span className="mt-0.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-700 text-[10px] font-bold text-gray-200 shrink-0">
                     {index + 1}
                   </span>
                   <div className="min-w-0 flex-1 space-y-1">
                     <div className="text-sm font-semibold text-white">{item.title}</div>
-                    <p className="text-xs md:text-sm text-gray-300 leading-relaxed whitespace-pre-line">{item.description}</p>
+                    <p className="text-xs md:text-sm text-gray-300 leading-relaxed whitespace-pre-line">
+                      {item.description}
+                    </p>
                     {item.visuals && item.visuals.length > 0 && (
                       <div className="flex flex-wrap w-full gap-1.5 pt-1">
-                        {item.visuals.map((visual, visualIndex) => renderVisualToken(visual, visualIndex))}
+                        {item.visuals.map((visual, visualIndex) =>
+                          renderVisualToken(visual, visualIndex)
+                        )}
                       </div>
                     )}
                     {item.accordions && item.accordions.length > 0 && (
@@ -677,7 +938,10 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
                             <div className="px-3 pb-2">
                               <ul className="space-y-1">
                                 {accordion.items.map((line, lineIndex) => (
-                                  <li key={`${item.title}-accordion-${accordionIndex}-line-${lineIndex}`} className="text-[11px] md:text-xs text-gray-300 leading-relaxed">
+                                  <li
+                                    key={`${item.title}-accordion-${accordionIndex}-line-${lineIndex}`}
+                                    className="text-[11px] md:text-xs text-gray-300 leading-relaxed"
+                                  >
                                     ・{line}
                                   </li>
                                 ))}
@@ -699,4 +963,3 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
 };
 
 export default React.memo(SectionHelpModal);
-

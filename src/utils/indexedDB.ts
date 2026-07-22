@@ -125,6 +125,10 @@ export interface SerializedCaption {
   overridePosition?: 'top' | 'center' | 'bottom';
   overrideFontStyle?: CaptionFontStyle;
   overrideFontSize?: 'small' | 'medium' | 'large' | 'xlarge';
+  overrideFontColor?: string;
+  overrideStrokeColor?: string;
+  overrideStrokeWidth?: number;
+  overrideBlur?: number;
   overrideFadeIn?: 'on' | 'off';
   overrideFadeOut?: 'on' | 'off';
   overrideFadeInDuration?: number;

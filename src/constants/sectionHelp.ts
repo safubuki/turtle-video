@@ -5,10 +5,7 @@
  */
 
 import type { AppFlavor } from '../app/resolveAppFlavor';
-import {
-  getAppFlavorSupportSummary,
-  getDownloadHelpSentence,
-} from '../app/appFlavorUi';
+import { getAppFlavorSupportSummary, getDownloadHelpSentence } from '../app/appFlavorUi';
 
 export type SectionHelpKey = 'app' | 'clips' | 'bgm' | 'narration' | 'caption' | 'preview';
 
@@ -21,6 +18,16 @@ export type SectionHelpVisualId =
   | 'add_green_button'
   | 'add_yellow_button'
   | 'ai_add_button'
+  | 'bgm_count_label'
+  | 'narration_count_label'
+  | 'copy_button'
+  | 'caption_style_accordion'
+  | 'caption_outline_color_accordion'
+  | 'caption_outline_controls'
+  | 'bulk_caption_button'
+  | 'timing_caption_button'
+  | 'shift_caption_controls'
+  | 'caption_custom_controls'
   | 'unlock_button'
   | 'lock_button_red'
   | 'eye_on_button'
@@ -80,341 +87,408 @@ export interface SectionHelpContext {
   supportsShowSaveFilePicker: boolean;
 }
 
-export function getSectionHelpContent(context: SectionHelpContext): Record<SectionHelpKey, SectionHelpDefinition> {
+export function getSectionHelpContent(
+  context: SectionHelpContext
+): Record<SectionHelpKey, SectionHelpDefinition> {
   const downloadHelpSentence = getDownloadHelpSentence(context);
   const appFlavorSupportSummary = getAppFlavorSupportSummary(context.appFlavor);
 
   return {
-  app: {
-    title: 'タートルビデオの使い方',
-    subtitle: '',
-    items: [
-      {
-        title: '概要',
-        description:
-          'タートルビデオは、旅行や出張などのちょっとした隙間時間にも、自宅で落ち着いて動画を作成したいときにも便利な動画編集ソフトです。\nレスポンシブデザインにより、スマホ・PCそれぞれに最適化された表示で編集できます。\nPWA（プログレッシブウェブアプリ）なので、スマホではアプリのような感覚で使え、AI機能を利用しなければオフラインでも利用できます。\nAI機能を活用すれば、より魅力的な動画に仕上げることができます。\nさらにオープンソース（GPLv3ライセンス）なので、AIであなた好みに改変して活用できます（※ライセンスの詳細は後述）。\nいつもあなたのそばに、タートルビデオを是非ご活用ください🐢',
-      },
-      {
-        title: '主要な機能',
-        description:
-          '・動画・画像の追加、並び替え、トリミング/表示時間調整\n・BGMの追加と開始タイミング・音量・フェード調整\n・ナレーション（AI生成/音声追加）とタイミング調整\n・キャプションの追加、一括設定、個別設定\n・プレビュー確認、動画ファイル作成、ダウンロード\n・自動保存/手動保存と読み込み\n・スマホで縦方向にスワイプ中にスライダーへ触れても、操作方向とタッチ時間を判定し、誤操作と判断した場合は設定値を自動的に元へ戻します',
-      },
-      {
-        title: '使い方（5ステップ）',
-        description:
-          '初めてでも、次の5ステップでかんたんに動画を作成できます。',
-        visuals: ['app_step_clips', 'app_step_bgm', 'app_step_narration', 'app_step_caption', 'app_step_preview'],
-      },
-      {
-        title: '動作確認機種',
-        description:
-          'スマホ: Pixel 6a（Android・Chrome）\nPC: Windows / CPU Ryzen 5 5500 / GPU RTX3060 12GB\n※動作確認は手持ちの機種でのみ実施しています。もし、動作しない場合はご了承ください。\n'
-          + `※${appFlavorSupportSummary}`,
-      },
-      {
-        title: '注意事項',
-        description: '長い編集や複雑な編集は、動作が不安定になることがあります。手動、自動保存を活用してください。',
-      },
-      {
-        title: 'ライセンス',
-        description:
-          'タートルビデオは GNU General Public License v3.0（GPLv3）で公開されています。\n個人や社内で再頒布を伴わない場合は、自由に改変して利用可能です。ぜひAIなどを活用して、自分好みに改変して利用してみてください。\n改変版を外部に配布する場合は、ソースコード公開や同ライセンス継承など、GPLv3の条件に従う必要があります。\n詳細は README と LICENSE を確認してください。',
-        accordions: [
-          {
-            title: '使用ライセンス一覧（本番依存 / 直接）',
-            items: [
-              '@tailwindcss/postcss (^4.1.18): MIT',
-              'lucide-react (^0.563.0): ISC',
-              'mp4-muxer (^5.2.2): MIT',
-              'react (^19.2.4): MIT',
-              'react-dom (^19.2.4): MIT',
-              'zustand (^5.0.10): MIT',
-            ],
-          },
-          {
-            title: '使用ライセンス一覧（開発依存 / 直接）',
-            items: [
-              '@testing-library/jest-dom (^6.9.1): MIT',
-              '@testing-library/react (^16.3.2): MIT',
-              '@testing-library/user-event (^14.6.1): MIT',
-              '@types/react (^19.2.10): MIT',
-              '@types/react-dom (^19.2.3): MIT',
-              '@typescript-eslint/eslint-plugin (^8.54.0): MIT',
-              '@typescript-eslint/parser (^8.54.0): MIT',
-              '@vitejs/plugin-react (^5.1.2): MIT',
-              'autoprefixer (^10.4.23): MIT',
-              'eslint (^9.39.2): MIT',
-              'eslint-config-prettier (^10.1.8): MIT',
-              'jsdom (^27.4.0): MIT',
-              'postcss (^8.5.6): MIT',
-              'prettier (^3.8.1): MIT',
-              'sharp (^0.34.5): Apache-2.0',
-              'tailwindcss (^4.1.18): MIT',
-              'typescript (^5.9.3): Apache-2.0',
-              'vite (^7.3.1): MIT',
-              'vite-plugin-pwa (^1.2.0): MIT',
-              'vitest (^4.0.18): MIT',
-            ],
-          },
-          {
-            title: '使用ライセンス一覧（間接依存を含む集計）',
-            items: [
-              '調査範囲: node_modules のユニークパッケージ 537 件',
-              'MIT: 463件',
-              'Apache-2.0: 21件',
-              'ISC: 21件',
-              'BSD-2-Clause: 11件',
-              'BSD-3-Clause: 6件',
-              'BlueOak-1.0.0: 4件',
-              'MIT-0: 2件',
-              'MPL-2.0: 2件',
-              'Apache-2.0 AND LGPL-3.0-or-later: 1件',
-              'Python-2.0: 1件',
-              'CC-BY-4.0: 1件',
-              '(AFL-2.1 OR BSD-3-Clause): 1件',
-              'CC0-1.0: 1件',
-              '0BSD: 1件',
-              '(MIT OR CC0-1.0): 1件',
-            ],
-          },
-        ],
-      },
-    ],
-  },
-  clips: {
-    title: '動画・画像の使い方',
-    subtitle: '素材の追加、並び替え、表示調整をこのセクションで行います。',
-    items: [
-      {
-        title: '追加ボタン',
-        description: '動画・画像ファイルを複数選択して一括追加できます。',
-        visuals: ['add_green_button'],
-      },
-      {
-        title: 'セクションの鍵アイコン',
-        description: 'セクション全体をロックして誤操作を防止できます。',
-        visuals: ['unlock_button', 'lock_button_red'],
-      },
-      {
-        title: '並び替え・コピー・削除',
-        description:
-          '各クリップは上下移動と削除ができます。青いコピーボタンで同じクリップを直後に複製でき、同じ動画から別のシーンを切り出すときに便利です（Android/PC版）。',
-        visuals: ['move_up_button', 'move_down_button', 'delete_button'],
-      },
-      {
-        title: 'トランジション（Android/PC版）',
-        description:
-          'カードとカードの間の「トランジション」ボタンから、切り替え効果（ディゾルブ／フェード黒／フェード白）と時間（0.5〜2秒）を設定できます。ディゾルブは前の動画が流れたまま次が重なって始まるため、重なりのぶん動画全体が少し短くなります。フェードは長さを変えません。',
-      },
-      {
-        title: '個別パネルの鍵',
-        description: '各クリップだけを個別にロックできます。',
-        visuals: ['item_unlock_chip', 'item_lock_chip'],
-      },
-      {
-        title: '表示区間（動画：トリミング／画像：表示時間）',
-        description:
-          '動画は開始・終了位置を指定してトリミングできます。画像は表示時間を常時調整できます。どちらもスライダーで操作できます。',
-        visuals: ['trim_chip', 'duration_chip', 'slider_demo'],
-      },
-      {
-        title: '位置・サイズ・回転・ぼかし調整',
-        description:
-          'この項目は折りたたみ表示です。開くと黒帯除去、拡大縮小、位置X/Y、回転、ぼかしをカードごとに調整できます。ぼかしは0（なし）〜30pxで、背景に使う素材や一部のカードだけを柔らかく見せたいときに便利です。拡大縮小・位置・ぼかしはスライダーで行え、くるくるアイコンでデフォルト値に戻せます。回転は「90°回転」ボタンを押すたびに0°→90°→180°→270°→0°と切り替わります。',
-        visuals: ['blackbar_toggle_chip', 'scale_chip', 'position_chip', 'blur_chip', 'reset_button', 'slider_demo'],
-      },
-      {
-        title: '音量・フェード設定',
-        description:
-          'この項目は折りたたみ表示です。開くとスピーカーでミュート切替、くるくるアイコンでデフォルト値に戻せます。動画・画像のフェードはチェックON時のみ有効で、秒数は0.5秒・1秒・2秒の3つから設定できます。',
-        visuals: ['volume_chip', 'mute_button', 'reset_button', 'fade_in_checkbox', 'fade_out_checkbox', 'slider_demo'],
-      },
-    ],
-  },
-  bgm: {
-    title: 'BGMの使い方',
-    subtitle: 'BGMの追加、配置、音量、フェードを細かく調整できます。',
-    items: [
-      {
-        title: '追加ボタン',
-        description: 'BGMファイルを追加できます。',
-        visuals: ['add_green_button'],
-      },
-      {
-        title: '複数のBGM（Android/PC版）',
-        description:
-          '複数の曲を追加してシーンごとに切り替えられます。追加した曲は動画の長さに合わせて自動配置され、開始位置・トリミング・音量・フェード・コピーを個別に調整できます。「開始」「終了」でプレビュー位置を反映し、「動画末尾に合わせる」で選んだ曲だけを末尾へ自動調整できます。',
-      },
-      {
-        title: 'セクションの鍵アイコン',
-        description: 'BGM設定をロックして誤操作を防止できます。',
-        visuals: ['unlock_button', 'lock_button_red'],
-      },
-      {
-        title: 'パネル内の削除',
-        description: 'BGMを削除する場合は、パネル内のゴミ箱ボタンを使います。',
-        visuals: ['delete_button'],
-      },
-      {
-        title: '開始位置・開始タイミング（遅延）',
-        description: 'BGM内の開始位置と、動画タイムライン上の開始タイミング（遅延）を設定できます。',
-        visuals: ['start_chip', 'delay_chip', 'slider_demo'],
-      },
-      {
-        title: '音量調整',
-        description: '音量を調整し、スピーカーアイコンでミュートON/OFF切替、くるくるアイコンでデフォルト値に戻せます。',
-        visuals: ['volume_chip', 'mute_button', 'reset_button', 'slider_demo'],
-      },
-      {
-        title: 'フェード設定',
-        description:
-          'チェックを入れるとフェードイン/フェードアウトが有効になり、秒数は0.5秒・1秒・2秒の3つから設定できます。',
-        visuals: ['fade_in_checkbox', 'fade_out_checkbox', 'slider_demo'],
-      },
-    ],
-  },
-  narration: {
-    title: 'ナレーションの使い方',
-    subtitle: 'AIボタンと追加ボタンを使って、複数のナレーションを重ねて管理します。',
-    items: [
-      {
-        title: 'AI / 追加ボタン',
-        description:
-          'AIで好みのナレーションを生成できます。あらかじめ用意した音声ファイルを追加することもでき、複数のナレーションを重ねて設定できます。',
-        visuals: ['ai_add_button', 'add_green_button'],
-      },
-      {
-        title: 'セクションの鍵アイコン',
-        description: 'ナレーションの追加・削除・調整をロックできます。',
-        visuals: ['unlock_button', 'lock_button_red'],
-      },
-      {
-        title: 'コピー（Android/PC版）',
-        description:
-          '青いコピーボタンでナレーションを複製できます。複製はトリミング後の末尾に続けて配置されるので、長い音声を分割して好きなタイミングに配置するときに便利です。',
-      },
-      {
-        title: '並び替え・編集・削除・保存',
-        description:
-          '各ナレーションを上下移動、編集、削除できます。保存ボタンを使うと、AIで生成したナレーションをパソコンやスマホに保存できます。'
-          + `${downloadHelpSentence}`,
-        visuals: ['move_up_button', 'move_down_button', 'edit_button', 'delete_button', 'save_button'],
-      },
-      {
-        title: '開始・終了位置',
-        description: '開始位置は数値入力・スライダーで調整できます。「開始」「終了」ボタンでは、プレビューの現在位置をそのナレーションの再生開始・終了へ反映できます。',
-        visuals: ['start_chip', 'current_pin_chip', 'slider_demo'],
-      },
-      {
-        title: 'トリミング設定（折りたたみ）',
-        description:
-          'トリミング開始/終了は「トリミング設定」を開いたときだけ表示されます。長いナレーションを複数に分割して、タイミングを調整したり、声質を合わせたいときに便利です。',
-        visuals: ['trim_chip', 'duration_chip', 'slider_demo'],
-      },
-      {
-        title: '音量波形と無音の区切り検出',
-        description:
-          'トリミング設定を開くと、そのナレーションの音量波形が表示されます（Android・パソコン向け）。緑と赤の縦線が現在のトリミング開始・終了位置です。音量がはっきり落ちている「文の区切り」は黄色い縦線で自動検出され、タップして「開始に」「終了に」を選ぶと、その位置へトリミングを合わせられます。波形を見ながら区切りのよい場所で分割できます。',
-      },
-      {
-        title: '音量調整',
-        description: '音量は常時表示です。スライダーで調整し、スピーカーアイコンでミュートON/OFF切替、くるくるアイコンでデフォルト値に戻せます。',
-        visuals: ['volume_chip', 'mute_button', 'reset_button', 'slider_demo'],
-      },
-    ],
-  },
-  caption: {
-    title: 'キャプションの使い方',
-    subtitle: '追加、表示ON/OFF、一括設定、個別設定をまとめて管理できます。',
-    items: [
-      {
-        title: '追加ボタン',
-        description: '入力したテキストをキャプションとして追加できます。',
-        visuals: ['add_yellow_button'],
-      },
-      {
-        title: '表示アイコン（目のマークのアイコン）',
-        description:
-          '表示アイコンをOFFに設定すると、キャプションを設定していてもすべてOFF表示になり、出力した動画にも表示されません。鍵アイコンで編集ロックを切り替えます。',
-        visuals: ['eye_on_button', 'eye_off_button', 'unlock_button', 'lock_button_red'],
-      },
-      {
-        title: 'スタイル・フェードの一括設定',
-        description:
-          'ここで全キャプション共通の設定をまとめて行えます。サイズ、字体、位置、ぼかしなどのスタイルに加えて、フェード（0.5秒・1秒・2秒）も一括で設定できます。',
-        visuals: ['style_chip', 'size_chip', 'position_chip', 'blur_chip', 'fade_in_checkbox', 'fade_out_checkbox', 'slider_demo'],
-      },
-      {
-        title: '各キャプションの操作',
-        description:
-          '上下移動、削除、編集を各行のボタンで行えます。鉛筆の編集ボタンでキャプション内容を編集できます。',
-        visuals: ['move_up_button', 'move_down_button', 'edit_button', 'delete_button'],
-      },
-      {
-        title: '個別設定（歯車マーク）',
-        description:
-          '歯車マークを押すと、キャプションごとの個別設定を開けます。サイズ、字体、位置、フェードを個別に調整でき、一括設定を使っていても個別設定で上書きできます。「この個別設定をクリア」で本文と表示時間を残したまま、そのカードだけ一括設定へ戻せます。',
-        visuals: ['settings_button', 'slider_demo'],
-      },
-      {
-        title: '表示時間',
-        description: '開始時間・終了時間はスライダーや数値で調整し、現在位置ボタンでプレビューの現在位置に設定できます。',
-        visuals: ['start_chip', 'duration_chip', 'current_pin_chip', 'slider_demo'],
-      },
-      {
-        title: '① まとめて入力・編集（Android/PC版）',
-        description:
-          '歌詞や長い字幕を複数行まとめて追加・編集できます。通常は1行が1カードで、「混在」では + で始めた行だけを直前カードの時分割行にできます。時分割行の挿入ボタン、[開始-終了] の時間指定、文章を残す「時間指定だけ消す」も利用できます。',
-      },
-      {
-        title: '② タイミング打ち（Android/PC版）',
-        description:
-          '再生しながらボタンを押すだけでキャプションの表示タイミングを確定できます。交互モード（開始→終了を交互に確定）と連続モード（区切ると同時に次が始まる・間隔設定可）があり、-1s/+1s と再生ボタンで微調整できます。',
-      },
-      {
-        title: '時間をまとめてずらす（Android/PC版）',
-        description:
-          '映像を途中に差し込んだときなどに、選んだカード以降のキャプションを一括で前後にずらせます。',
-      },
-      {
-        title: 'フォント・カスタム値（Android/PC版）',
-        description:
-          '字体は端末に実在するシステムフォントから選べます（PCでは全フォント読み込みも可）。サイズと位置は「カスタム」で数値・XY座標を自由に指定できます。',
-      },
-    ],
-  },
-  preview: {
-    title: 'プレビューの使い方',
-    subtitle: '再生確認、書き出し、ダウンロードをこのセクションで行います。',
-    items: [
-      {
-        title: '停止・再生・キャプチャ',
-        description: '停止と再生でプレビュー操作ができ、キャプチャは現在の表示内容を画像として保存できます。',
-        visuals: ['stop_button', 'play_button', 'capture_button'],
-      },
-      {
-        title: '動画ファイルを作成',
-        description: '動画ファイルを作成できます。作成中にタブを切り替えたり画面を非アクティブにすると、動画を正しく作成できません。',
-        visuals: ['export_button'],
-      },
-      {
-        title: '作成後のダウンロード',
-        description:
-          '作成完了後はダウンロードできます。'
-          + `${downloadHelpSentence}停止/再生を押すと「動画ファイルを作成」ボタンに戻り、再作成も可能です。`,
-        visuals: ['download_button'],
-      },
-      {
-        title: '一括クリア',
-        description: '一括クリアで動画作成状態をクリアしてすべて初期状態に戻せます。',
-        visuals: ['clear_button'],
-      },
-    ],
-  },
+    app: {
+      title: 'タートルビデオの使い方',
+      subtitle: '',
+      items: [
+        {
+          title: '概要',
+          description:
+            'タートルビデオは、旅行や出張などのちょっとした隙間時間にも、自宅で落ち着いて動画を作成したいときにも便利な動画編集ソフトです。\nレスポンシブデザインにより、スマホ・PCそれぞれに最適化された表示で編集できます。\nPWA（プログレッシブウェブアプリ）なので、スマホではアプリのような感覚で使え、AI機能を利用しなければオフラインでも利用できます。\nAI機能を活用すれば、より魅力的な動画に仕上げることができます。\nさらにオープンソース（GPLv3ライセンス）なので、AIであなた好みに改変して活用できます（※ライセンスの詳細は後述）。\nいつもあなたのそばに、タートルビデオを是非ご活用ください🐢',
+        },
+        {
+          title: '主要な機能',
+          description:
+            '・動画・画像の追加、並び替え、トリミング/表示時間調整\n・BGMの追加と開始タイミング・音量・フェード調整\n・ナレーション（AI生成/音声追加）とタイミング調整\n・キャプションの追加、一括設定、個別設定\n・プレビュー確認、動画ファイル作成、ダウンロード\n・自動保存/手動保存と読み込み\n・スマホで縦方向にスワイプ中にスライダーへ触れても、操作方向とタッチ時間を判定し、誤操作と判断した場合は設定値を自動的に元へ戻します',
+        },
+        {
+          title: '使い方（5ステップ）',
+          description: '初めてでも、次の5ステップでかんたんに動画を作成できます。',
+          visuals: [
+            'app_step_clips',
+            'app_step_bgm',
+            'app_step_narration',
+            'app_step_caption',
+            'app_step_preview',
+          ],
+        },
+        {
+          title: '動作確認機種',
+          description:
+            'スマホ: Pixel 6a（Android・Chrome）\nPC: Windows / CPU Ryzen 5 5500 / GPU RTX3060 12GB\n※動作確認は手持ちの機種でのみ実施しています。もし、動作しない場合はご了承ください。\n' +
+            `※${appFlavorSupportSummary}`,
+        },
+        {
+          title: '注意事項',
+          description:
+            '長い編集や複雑な編集は、動作が不安定になることがあります。手動、自動保存を活用してください。',
+        },
+        {
+          title: 'ライセンス',
+          description:
+            'タートルビデオは GNU General Public License v3.0（GPLv3）で公開されています。\n個人や社内で再頒布を伴わない場合は、自由に改変して利用可能です。ぜひAIなどを活用して、自分好みに改変して利用してみてください。\n改変版を外部に配布する場合は、ソースコード公開や同ライセンス継承など、GPLv3の条件に従う必要があります。\n詳細は README と LICENSE を確認してください。',
+          accordions: [
+            {
+              title: '使用ライセンス一覧（本番依存 / 直接）',
+              items: [
+                '@tailwindcss/postcss (^4.1.18): MIT',
+                'lucide-react (^0.563.0): ISC',
+                'mp4-muxer (^5.2.2): MIT',
+                'react (^19.2.4): MIT',
+                'react-dom (^19.2.4): MIT',
+                'zustand (^5.0.10): MIT',
+              ],
+            },
+            {
+              title: '使用ライセンス一覧（開発依存 / 直接）',
+              items: [
+                '@testing-library/jest-dom (^6.9.1): MIT',
+                '@testing-library/react (^16.3.2): MIT',
+                '@testing-library/user-event (^14.6.1): MIT',
+                '@types/react (^19.2.10): MIT',
+                '@types/react-dom (^19.2.3): MIT',
+                '@typescript-eslint/eslint-plugin (^8.54.0): MIT',
+                '@typescript-eslint/parser (^8.54.0): MIT',
+                '@vitejs/plugin-react (^5.1.2): MIT',
+                'autoprefixer (^10.4.23): MIT',
+                'eslint (^9.39.2): MIT',
+                'eslint-config-prettier (^10.1.8): MIT',
+                'jsdom (^27.4.0): MIT',
+                'postcss (^8.5.6): MIT',
+                'prettier (^3.8.1): MIT',
+                'sharp (^0.34.5): Apache-2.0',
+                'tailwindcss (^4.1.18): MIT',
+                'typescript (^5.9.3): Apache-2.0',
+                'vite (^7.3.1): MIT',
+                'vite-plugin-pwa (^1.2.0): MIT',
+                'vitest (^4.0.18): MIT',
+              ],
+            },
+            {
+              title: '使用ライセンス一覧（間接依存を含む集計）',
+              items: [
+                '調査範囲: node_modules のユニークパッケージ 537 件',
+                'MIT: 463件',
+                'Apache-2.0: 21件',
+                'ISC: 21件',
+                'BSD-2-Clause: 11件',
+                'BSD-3-Clause: 6件',
+                'BlueOak-1.0.0: 4件',
+                'MIT-0: 2件',
+                'MPL-2.0: 2件',
+                'Apache-2.0 AND LGPL-3.0-or-later: 1件',
+                'Python-2.0: 1件',
+                'CC-BY-4.0: 1件',
+                '(AFL-2.1 OR BSD-3-Clause): 1件',
+                'CC0-1.0: 1件',
+                '0BSD: 1件',
+                '(MIT OR CC0-1.0): 1件',
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    clips: {
+      title: '動画・画像の使い方',
+      subtitle: '素材の追加、並び替え、表示調整をこのセクションで行います。',
+      items: [
+        {
+          title: '追加ボタン',
+          description: '動画・画像ファイルを複数選択して一括追加できます。',
+          visuals: ['add_green_button'],
+        },
+        {
+          title: 'セクションの鍵アイコン',
+          description: 'セクション全体をロックして誤操作を防止できます。',
+          visuals: ['unlock_button', 'lock_button_red'],
+        },
+        {
+          title: '並び替え・コピー・削除',
+          description:
+            '各クリップは上下移動と削除ができます。青いコピーボタンで同じクリップを直後に複製でき、同じ動画から別のシーンを切り出すときに便利です（Android/PC版）。',
+          visuals: ['move_up_button', 'move_down_button', 'delete_button'],
+        },
+        {
+          title: 'トランジション（Android/PC版）',
+          description:
+            'カードとカードの間の「トランジション」ボタンから、切り替え効果（ディゾルブ／フェード黒／フェード白）と時間（0.5〜2秒）を設定できます。ディゾルブは前の動画が流れたまま次が重なって始まるため、重なりのぶん動画全体が少し短くなります。フェードは長さを変えません。',
+        },
+        {
+          title: '個別パネルの鍵',
+          description: '各クリップだけを個別にロックできます。',
+          visuals: ['item_unlock_chip', 'item_lock_chip'],
+        },
+        {
+          title: '表示区間（動画：トリミング／画像：表示時間）',
+          description:
+            '動画は開始・終了位置を指定してトリミングできます。画像は表示時間を常時調整できます。どちらもスライダーで操作できます。',
+          visuals: ['trim_chip', 'duration_chip', 'slider_demo'],
+        },
+        {
+          title: '位置・サイズ・回転・ぼかし調整',
+          description:
+            'この項目は折りたたみ表示です。開くと黒帯除去、拡大縮小、位置X/Y、回転、ぼかしをカードごとに調整できます。ぼかしは0（なし）〜30pxで、背景に使う素材や一部のカードだけを柔らかく見せたいときに便利です。拡大縮小・位置・ぼかしはスライダーで行え、くるくるアイコンでデフォルト値に戻せます。回転は「90°回転」ボタンを押すたびに0°→90°→180°→270°→0°と切り替わります。',
+          visuals: [
+            'blackbar_toggle_chip',
+            'scale_chip',
+            'position_chip',
+            'blur_chip',
+            'reset_button',
+            'slider_demo',
+          ],
+        },
+        {
+          title: '音量・フェード設定',
+          description:
+            'この項目は折りたたみ表示です。開くとスピーカーでミュート切替、くるくるアイコンでデフォルト値に戻せます。動画・画像のフェードはチェックON時のみ有効で、秒数は0.5秒・1秒・2秒の3つから設定できます。',
+          visuals: [
+            'volume_chip',
+            'mute_button',
+            'reset_button',
+            'fade_in_checkbox',
+            'fade_out_checkbox',
+            'slider_demo',
+          ],
+        },
+      ],
+    },
+    bgm: {
+      title: 'BGMの使い方',
+      subtitle: 'BGMの追加、配置、音量、フェードを細かく調整できます。',
+      items: [
+        {
+          title: '追加ボタン',
+          description: 'BGMファイルを追加できます。',
+          visuals: ['add_green_button'],
+        },
+        {
+          title: '複数のBGM（Android/PC版）',
+          description:
+            '複数の曲を追加してシーンごとに切り替えられます。タイトル右側の「(n件)」で登録数を確認できます。追加した曲は動画の長さに合わせて自動配置され、開始位置・トリミング・音量・フェード・コピーを個別に調整できます。「開始」「終了」でプレビュー位置を反映し、「動画末尾に合わせる」で選んだ曲だけを末尾へ自動調整できます。',
+          visuals: ['bgm_count_label', 'copy_button'],
+        },
+        {
+          title: 'セクションの鍵アイコン',
+          description: 'BGM設定をロックして誤操作を防止できます。',
+          visuals: ['unlock_button', 'lock_button_red'],
+        },
+        {
+          title: 'パネル内の削除',
+          description: 'BGMを削除する場合は、パネル内のゴミ箱ボタンを使います。',
+          visuals: ['delete_button'],
+        },
+        {
+          title: '開始位置・開始タイミング（遅延）',
+          description:
+            'BGM内の開始位置と、動画タイムライン上の開始タイミング（遅延）を設定できます。',
+          visuals: ['start_chip', 'delay_chip', 'slider_demo'],
+        },
+        {
+          title: '音量調整',
+          description:
+            '音量を調整し、スピーカーアイコンでミュートON/OFF切替、くるくるアイコンでデフォルト値に戻せます。',
+          visuals: ['volume_chip', 'mute_button', 'reset_button', 'slider_demo'],
+        },
+        {
+          title: 'フェード設定',
+          description:
+            'チェックを入れるとフェードイン/フェードアウトが有効になり、秒数は0.5秒・1秒・2秒の3つから設定できます。',
+          visuals: ['fade_in_checkbox', 'fade_out_checkbox', 'slider_demo'],
+        },
+      ],
+    },
+    narration: {
+      title: 'ナレーションの使い方',
+      subtitle: 'AIボタンと追加ボタンを使って、複数のナレーションを重ねて管理します。',
+      items: [
+        {
+          title: 'AI / 追加ボタン',
+          description:
+            'AIで好みのナレーションを生成できます。あらかじめ用意した音声ファイルを追加することもでき、複数のナレーションを重ねて設定できます。',
+          visuals: ['ai_add_button', 'add_green_button'],
+        },
+        {
+          title: 'タイトルの登録件数',
+          description:
+            'ナレーションを登録すると、タイトル右側の「(n件)」で現在の登録数を確認できます。',
+          visuals: ['narration_count_label'],
+        },
+        {
+          title: 'セクションの鍵アイコン',
+          description: 'ナレーションの追加・削除・調整をロックできます。',
+          visuals: ['unlock_button', 'lock_button_red'],
+        },
+        {
+          title: 'コピー（Android/PC版）',
+          description:
+            '青いコピーボタンでナレーションを複製できます。複製はトリミング後の末尾に続けて配置されるので、長い音声を分割して好きなタイミングに配置するときに便利です。',
+          visuals: ['copy_button'],
+        },
+        {
+          title: '並び替え・編集・削除・保存',
+          description:
+            '各ナレーションを上下移動、編集、削除できます。保存ボタンを使うと、AIで生成したナレーションをパソコンやスマホに保存できます。' +
+            `${downloadHelpSentence}`,
+          visuals: [
+            'move_up_button',
+            'move_down_button',
+            'edit_button',
+            'delete_button',
+            'save_button',
+          ],
+        },
+        {
+          title: '開始・終了位置',
+          description:
+            '開始位置は数値入力・スライダーで調整できます。「開始」「終了」ボタンでは、プレビューの現在位置をそのナレーションの再生開始・終了へ反映できます。',
+          visuals: ['start_chip', 'current_pin_chip', 'slider_demo'],
+        },
+        {
+          title: 'トリミング設定（折りたたみ）',
+          description:
+            'トリミング開始/終了は「トリミング設定」を開いたときだけ表示されます。長いナレーションを複数に分割して、タイミングを調整したり、声質を合わせたいときに便利です。',
+          visuals: ['trim_chip', 'duration_chip', 'slider_demo'],
+        },
+        {
+          title: '音量波形と無音の区切り検出',
+          description:
+            'トリミング設定を開くと、そのナレーションの音量波形が表示されます（Android・パソコン向け）。緑と赤の縦線が現在のトリミング開始・終了位置です。音量がはっきり落ちている「文の区切り」は黄色い縦線で自動検出され、タップして「開始に」「終了に」を選ぶと、その位置へトリミングを合わせられます。波形を見ながら区切りのよい場所で分割できます。',
+        },
+        {
+          title: '音量調整',
+          description:
+            '音量は常時表示です。スライダーで調整し、スピーカーアイコンでミュートON/OFF切替、くるくるアイコンでデフォルト値に戻せます。',
+          visuals: ['volume_chip', 'mute_button', 'reset_button', 'slider_demo'],
+        },
+      ],
+    },
+    caption: {
+      title: 'キャプションの使い方',
+      subtitle: '追加、表示ON/OFF、一括設定、個別設定をまとめて管理できます。',
+      items: [
+        {
+          title: '追加ボタン',
+          description: '入力したテキストをキャプションとして追加できます。',
+          visuals: ['add_yellow_button'],
+        },
+        {
+          title: '表示アイコン（目のマークのアイコン）',
+          description:
+            '表示アイコンをOFFに設定すると、キャプションを設定していてもすべてOFF表示になり、出力した動画にも表示されません。鍵アイコンで編集ロックを切り替えます。',
+          visuals: ['eye_on_button', 'eye_off_button', 'unlock_button', 'lock_button_red'],
+        },
+        {
+          title: 'スタイル/フェード一括設定',
+          description:
+            '閉じているときはタイトル右側に「（開いて設定）」と表示されます。押すと、全キャプション共通のサイズ、字体、位置、ぼかし、フェード（0.5秒・1秒・2秒）をまとめて設定できます。開いた後は「（開いて設定）」が消え、下向き矢印で開いている状態を示します。',
+          visuals: [
+            'caption_style_accordion',
+            'size_chip',
+            'position_chip',
+            'blur_chip',
+            'fade_in_checkbox',
+            'fade_out_checkbox',
+          ],
+        },
+        {
+          title: '文字の縁・色',
+          description:
+            '「スタイル/フェード一括設定」を開き、字体の下にある「文字の縁・色」（開いて設定）を押します。「縁の幅」はスライダーまたは数値入力で調整でき、「縁の色」と「文字本体」は色見本または#RRGGBB形式で指定できます。初期値は白い文字本体と黒い縁です。',
+          visuals: ['caption_outline_color_accordion', 'caption_outline_controls'],
+        },
+        {
+          title: '各キャプションの操作',
+          description:
+            '上下移動、削除、編集を各行のボタンで行えます。鉛筆の編集ボタンでキャプション内容を編集できます。',
+          visuals: ['move_up_button', 'move_down_button', 'edit_button', 'delete_button'],
+        },
+        {
+          title: '個別設定（歯車マーク）',
+          description:
+            '歯車マークを押すと、キャプションごとの個別設定を開けます。サイズ、字体、文字の縁幅・縁色・文字本体色、位置、ぼかし、フェードを個別に調整でき、変更した項目だけ一括設定より優先されます。「文字の縁・色」は「（開いて設定）」を押して開きます。「この個別設定をクリア」で本文と表示時間を残したまま、そのカードだけ一括設定へ戻せます。',
+          visuals: [
+            'settings_button',
+            'caption_outline_color_accordion',
+            'caption_outline_controls',
+            'blur_chip',
+            'slider_demo',
+          ],
+        },
+        {
+          title: '表示時間',
+          description:
+            '開始時間・終了時間はスライダーや数値で調整し、現在位置ボタンでプレビューの現在位置に設定できます。',
+          visuals: ['start_chip', 'duration_chip', 'current_pin_chip', 'slider_demo'],
+        },
+        {
+          title: 'まとめて入力・編集（Android/PC版）',
+          description:
+            'キャプションがないときは「① まとめて入力」、登録済みのときは「① まとめて入力・編集」と表示されます。歌詞や長い字幕を複数行まとめて追加・編集できます。通常は1行が1カードで、「混在」では + で始めた行だけを直前カードの時分割行にできます。「＋ 時分割行を挿入」、[開始-終了]の時間指定、文章を残す「時間指定だけ消す」も利用できます。',
+          visuals: ['bulk_caption_button'],
+        },
+        {
+          title: '② タイミング打ち（Android/PC版）',
+          description:
+            '再生しながらボタンを押すだけでキャプションの表示タイミングを確定できます。交互モード（開始→終了を交互に確定）と連続モード（区切ると同時に次が始まる・間隔設定可）があり、-1s/+1s と再生ボタンで微調整できます。',
+          visuals: ['timing_caption_button'],
+        },
+        {
+          title: '時間をまとめてずらす（Android/PC版）',
+          description:
+            '対象を選び、「現在位置（0:00.0）に先頭を合わせる」を押すと、対象範囲の最初のキャプションがプレビューの現在位置から始まるように一括移動します。各カードの表示時間と間隔は維持され、終了位置の指定は不要です。従来の秒数指定と「早める」「遅らせる」は微調整に利用できます。動画・ナレーション・BGMは移動しません。',
+          visuals: ['shift_caption_controls'],
+        },
+        {
+          title: 'フォント・カスタム値（Android/PC版）',
+          description:
+            '字体は「その他▾」から端末に実在するシステムフォントを選べます（PCでは「＋ この端末の全フォントから選ぶ（PC）」も利用可）。サイズと位置は「カスタム」で数値・XY座標を自由に指定できます。',
+          visuals: ['caption_custom_controls'],
+        },
+      ],
+    },
+    preview: {
+      title: 'プレビューの使い方',
+      subtitle: '再生確認、書き出し、ダウンロードをこのセクションで行います。',
+      items: [
+        {
+          title: '停止・再生・キャプチャ',
+          description:
+            '停止と再生でプレビュー操作ができ、キャプチャは現在の表示内容を画像として保存できます。',
+          visuals: ['stop_button', 'play_button', 'capture_button'],
+        },
+        {
+          title: '動画ファイルを作成',
+          description:
+            '動画ファイルを作成できます。作成中にタブを切り替えたり画面を非アクティブにすると、動画を正しく作成できません。',
+          visuals: ['export_button'],
+        },
+        {
+          title: '作成後のダウンロード',
+          description:
+            '作成完了後はダウンロードできます。' +
+            `${downloadHelpSentence}停止/再生を押すと「動画ファイルを作成」ボタンに戻り、再作成も可能です。`,
+          visuals: ['download_button'],
+        },
+        {
+          title: '一括クリア',
+          description: '一括クリアで動画作成状態をクリアしてすべて初期状態に戻せます。',
+          visuals: ['clear_button'],
+        },
+      ],
+    },
   };
 }
 
-export const SECTION_HELP_CONTENT: Record<SectionHelpKey, SectionHelpDefinition> = getSectionHelpContent({
-  appFlavor: 'standard',
-  supportsShowSaveFilePicker: false,
-});
+export const SECTION_HELP_CONTENT: Record<SectionHelpKey, SectionHelpDefinition> =
+  getSectionHelpContent({
+    appFlavor: 'standard',
+    supportsShowSaveFilePicker: false,
+  });

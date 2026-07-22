@@ -663,6 +663,10 @@ describe('useAutoSave', () => {
     const captionChanges = [
       { overrideFontSizeCustom: 96 },
       { overridePositionCustom: { x: 32, y: 68 } },
+      { overrideFontColor: '#123456' },
+      { overrideStrokeColor: '#ABCDEF' },
+      { overrideStrokeWidth: 6.5 },
+      { overrideBlur: 2.5 },
       { sequentialFadeMode: 'line' as const },
       { sequentialGapSec: 0.4 },
     ];
@@ -679,7 +683,7 @@ describe('useAutoSave', () => {
       });
     }
 
-    expect(saveProjectAuto).toHaveBeenCalledTimes(7);
+    expect(saveProjectAuto).toHaveBeenCalledTimes(3 + captionChanges.length);
   });
 
   it('クリップセクションロックの変更も自動保存の差分として検知する', async () => {

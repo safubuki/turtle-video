@@ -152,6 +152,10 @@ export interface Caption {
   overridePosition?: CaptionPosition;   // 個別配置（デフォルト=undefined）
   overrideFontStyle?: CaptionFontStyle; // 個別字体（デフォルト=undefined）
   overrideFontSize?: CaptionSize;       // 個別サイズ（デフォルト=undefined）
+  overrideFontColor?: string;           // 個別文字本体色（デフォルト=undefined）
+  overrideStrokeColor?: string;         // 個別縁色（デフォルト=undefined）
+  overrideStrokeWidth?: number;         // 個別縁幅 px @1080p 基準（デフォルト=undefined）
+  overrideBlur?: number;                // 個別ぼかし 0〜5px（デフォルト=undefined）
   overrideFadeIn?: 'on' | 'off';        // 個別フェードイン（デフォルト=undefined）
   overrideFadeOut?: 'on' | 'off';       // 個別フェードアウト（デフォルト=undefined）
   overrideFadeInDuration?: number;      // 個別フェードイン時間（デフォルト=undefined）

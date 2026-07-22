@@ -20,12 +20,44 @@ export const CAPTION_FONT_SIZE_PRESETS: Record<CaptionSize, number> = {
 export const CAPTION_FONT_SIZE_CUSTOM_MIN = 24;
 export const CAPTION_FONT_SIZE_CUSTOM_MAX = 240;
 
+/** キャプション縁幅の可変範囲（px @1080p 基準） */
+export const CAPTION_STROKE_WIDTH_MIN = 0;
+export const CAPTION_STROKE_WIDTH_MAX = 20;
+export const CAPTION_STROKE_WIDTH_STEP = 0.5;
+export const CAPTION_BLUR_MIN = 0;
+export const CAPTION_BLUR_MAX = 5;
+export const CAPTION_BLUR_STEP = 0.1;
+
 /** カスタム位置の既定値（% / テキスト中心）。下部プリセット相当 */
 export const CAPTION_POSITION_CUSTOM_DEFAULT = { x: 50, y: 85 };
 
 export function clampCustomFontSize(value: number): number {
   if (!Number.isFinite(value)) return CAPTION_FONT_SIZE_PRESETS.medium;
   return Math.max(CAPTION_FONT_SIZE_CUSTOM_MIN, Math.min(CAPTION_FONT_SIZE_CUSTOM_MAX, value));
+}
+
+export function clampCaptionStrokeWidth(value: number): number {
+  if (!Number.isFinite(value)) return 2;
+  const clamped = Math.max(CAPTION_STROKE_WIDTH_MIN, Math.min(CAPTION_STROKE_WIDTH_MAX, value));
+  return Math.round(clamped / CAPTION_STROKE_WIDTH_STEP) * CAPTION_STROKE_WIDTH_STEP;
+}
+
+export function clampCaptionBlur(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  const clamped = Math.max(CAPTION_BLUR_MIN, Math.min(CAPTION_BLUR_MAX, value));
+  return Math.round(clamped / CAPTION_BLUR_STEP) * CAPTION_BLUR_STEP;
+}
+
+export function resolveCaptionGlyphStyle(
+  caption: Pick<Caption, 'overrideFontColor' | 'overrideStrokeColor' | 'overrideStrokeWidth' | 'overrideBlur'>,
+  settings: Pick<CaptionSettings, 'fontColor' | 'strokeColor' | 'strokeWidth' | 'blur'>,
+): { fontColor: string; strokeColor: string; strokeWidth: number; blur: number } {
+  return {
+    fontColor: caption.overrideFontColor ?? settings.fontColor,
+    strokeColor: caption.overrideStrokeColor ?? settings.strokeColor,
+    strokeWidth: clampCaptionStrokeWidth(caption.overrideStrokeWidth ?? settings.strokeWidth),
+    blur: clampCaptionBlur(caption.overrideBlur ?? settings.blur),
+  };
 }
 
 export function clampPositionPercent(value: number): number {

@@ -5,10 +5,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   CAPTION_FONT_SIZE_PRESETS,
+  clampCaptionStrokeWidth,
   clampCustomFontSize,
   clampPositionPercent,
   resolveCaptionBaseFontSize,
   resolveCaptionAnchor,
+  resolveCaptionGlyphStyle,
 } from '../utils/captionStyle';
 
 const layout = { canvasWidth: 1920, canvasHeight: 1080, fontSize: 80, padding: 50 };
@@ -50,6 +52,42 @@ describe('resolveCaptionBaseFontSize', () => {
       { overrideFontSizeCustom: 999 },
       { fontSize: 'medium', fontSizeCustom: null },
     )).toBe(240);
+  });
+});
+
+describe('clampCaptionStrokeWidth', () => {
+  it('縁幅を0〜20pxの0.5px刻みに正規化する', () => {
+    expect(clampCaptionStrokeWidth(-1)).toBe(0);
+    expect(clampCaptionStrokeWidth(4.26)).toBe(4.5);
+    expect(clampCaptionStrokeWidth(99)).toBe(20);
+    expect(clampCaptionStrokeWidth(Number.NaN)).toBe(2);
+  });
+});
+
+describe('resolveCaptionGlyphStyle', () => {
+  const settings = {
+    fontColor: '#FFFFFF',
+    strokeColor: '#000000',
+    strokeWidth: 4,
+    blur: 1.5,
+  };
+
+  it('個別値がない項目は一括設定へフォールバックする', () => {
+    expect(resolveCaptionGlyphStyle({}, settings)).toEqual(settings);
+  });
+
+  it('設定された項目だけ個別値を優先し、範囲外の幅とぼかしを正規化する', () => {
+    expect(resolveCaptionGlyphStyle({
+      overrideFontColor: '#123456',
+      overrideStrokeColor: '#ABCDEF',
+      overrideStrokeWidth: 99,
+      overrideBlur: -1,
+    }, settings)).toEqual({
+      fontColor: '#123456',
+      strokeColor: '#ABCDEF',
+      strokeWidth: 20,
+      blur: 0,
+    });
   });
 });
 

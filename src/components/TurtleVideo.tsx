@@ -201,6 +201,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const setCaptionEnabled = useCaptionStore((s) => s.setEnabled);
   const setCaptionFontSize = useCaptionStore((s) => s.setFontSize);
   const setCaptionFontStyle = useCaptionStore((s) => s.setFontStyle);
+  const setCaptionFontColor = useCaptionStore((s) => s.setFontColor);
+  const setCaptionStrokeColor = useCaptionStore((s) => s.setStrokeColor);
+  const setCaptionStrokeWidth = useCaptionStore((s) => s.setStrokeWidth);
   const setCaptionPosition = useCaptionStore((s) => s.setPosition);
   const setCaptionBlur = useCaptionStore((s) => s.setBlur);
   const setBulkFadeIn = useCaptionStore((s) => s.setBulkFadeIn);
@@ -2535,6 +2538,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onSetEnabled={withPreviewPause('set-caption-enabled', setCaptionEnabled)}
               onSetFontSize={withPreviewPause('set-caption-font-size', setCaptionFontSize)}
               onSetFontStyle={withPreviewPause('set-caption-font-style', setCaptionFontStyle)}
+              onSetFontColor={withPreviewPause('set-caption-font-color', setCaptionFontColor)}
+              onSetStrokeColor={withPreviewPause('set-caption-stroke-color', setCaptionStrokeColor)}
+              onSetStrokeWidth={withPreviewPause('set-caption-stroke-width', setCaptionStrokeWidth)}
               onSetPosition={withPreviewPause('set-caption-position', setCaptionPosition)}
               onSetBlur={withPreviewPause('set-caption-blur', setCaptionBlur)}
               onSetBulkFadeIn={withPreviewPause('set-caption-bulk-fade-in', setBulkFadeIn)}

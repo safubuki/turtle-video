@@ -14,7 +14,11 @@ import type {
 } from '../../../types';
 import type { ExportPreparationStep, UseExportReturn } from '../../../hooks/export-strategies/types';
 import { resolveCaptionFontFamily } from '../../../utils/captionFontCatalog';
-import { resolveCaptionAnchor, resolveCaptionBaseFontSize } from '../../../utils/captionStyle';
+import {
+  resolveCaptionAnchor,
+  resolveCaptionBaseFontSize,
+  resolveCaptionGlyphStyle,
+} from '../../../utils/captionStyle';
 import {
   getIncomingTransitionOverlay,
   getOutgoingTransitionOverlay,
@@ -2753,9 +2757,11 @@ export function usePreviewEngine({
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
 
+            // 個別値が未設定の項目だけ一括設定へフォールバックする。
+            const glyphStyle = resolveCaptionGlyphStyle(activeCaption, currentCaptionSettings);
             // strokeWidth / blur も fontSize と同じスケールで縮小し、プレビュー/export で太さの比率を保つ。
-            const scaledStrokeWidth = Math.max(0, currentCaptionSettings.strokeWidth * captionScale);
-            const blurStrength = Math.max(0, currentCaptionSettings.blur * captionScale);
+            const scaledStrokeWidth = glyphStyle.strokeWidth * captionScale;
+            const blurStrength = glyphStyle.blur * captionScale;
             const centerX = captionAnchor.x;
 
             // フェード時の輪郭残りを防ぐため、stroke+fill を 1 枚のオフスクリーン Canvas に
@@ -2763,8 +2769,8 @@ export function usePreviewEngine({
             const glyphCanvas = createCaptionGlyphCanvas({
               text: displaySegment.text,
               font: `bold ${fontSize}px ${fontFamily}`,
-              fillColor: currentCaptionSettings.fontColor,
-              strokeColor: currentCaptionSettings.strokeColor,
+              fillColor: glyphStyle.fontColor,
+              strokeColor: glyphStyle.strokeColor,
               strokeWidth: scaledStrokeWidth,
             });
             const glyphW = glyphCanvas.width;

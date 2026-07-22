@@ -4,7 +4,19 @@
  * @description BGM（バックグラウンドミュージック）のアップロード、音量調整、フェード設定、削除を行うセクションコンポーネント。
  */
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Upload, Lock, Unlock, Music, Volume2, Timer, ChevronDown, ChevronRight, RefreshCw, CircleHelp, Trash2 } from 'lucide-react';
+import {
+  Upload,
+  Lock,
+  Unlock,
+  Music,
+  Volume2,
+  Timer,
+  ChevronDown,
+  ChevronRight,
+  RefreshCw,
+  CircleHelp,
+  Trash2,
+} from 'lucide-react';
 import type { AudioTrack, BgmClip } from '../../types';
 import { getAudioUploadAccept } from '../../utils/platform';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
@@ -65,6 +77,7 @@ const BgmSection: React.FC<BgmSectionProps> = ({
   // 複数 BGM は standard フレーバー（Android/PC）限定。iOS Safari は従来の単一 BGM UI を維持する。
   const { isIosSafari } = usePlatformCapabilities();
   const isMultiBgm = !isIosSafari;
+  const bgmItemCount = isMultiBgm ? bgmClips.length : bgm ? 1 : 0;
 
   // スワイプ保護用ハンドラ
   const handleStartPointChange = useCallback(
@@ -108,9 +121,9 @@ const BgmSection: React.FC<BgmSectionProps> = ({
             2
           </span>
           <span>BGM</span>
-          {isMultiBgm && bgmClips.length > 0 && (
+          {bgmItemCount > 0 && (
             <span className="text-[10px] md:text-xs text-purple-300 font-normal ml-1">
-              ({bgmClips.length}曲)
+              ({bgmItemCount}件)
             </span>
           )}
           <button
@@ -246,7 +259,9 @@ const BgmSection: React.FC<BgmSectionProps> = ({
               disabled={isBgmLocked}
               className={`flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isBgmLocked ? '' : 'cursor-pointer'}`}
             />
-            <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right">{Math.round(bgm.volume * 100)}%</span>
+            <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right">
+              {Math.round(bgm.volume * 100)}%
+            </span>
             <button
               onClick={() => onUpdateVolume('1')}
               disabled={isBgmLocked}
@@ -285,7 +300,11 @@ const BgmSection: React.FC<BgmSectionProps> = ({
                 disabled={isBgmLocked || !bgm.fadeIn}
                 className={`flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isBgmLocked || !bgm.fadeIn ? '' : 'cursor-pointer'}`}
               />
-              <span className={`w-8 text-right whitespace-nowrap ${isBgmLocked || !bgm.fadeIn ? 'text-gray-600' : 'text-gray-400'}`}>{bgm.fadeInDuration}秒</span>
+              <span
+                className={`w-8 text-right whitespace-nowrap ${isBgmLocked || !bgm.fadeIn ? 'text-gray-600' : 'text-gray-400'}`}
+              >
+                {bgm.fadeInDuration}秒
+              </span>
             </div>
 
             {/* フェードアウト */}
@@ -314,7 +333,11 @@ const BgmSection: React.FC<BgmSectionProps> = ({
                 disabled={isBgmLocked || !bgm.fadeOut}
                 className={`flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isBgmLocked || !bgm.fadeOut ? '' : 'cursor-pointer'}`}
               />
-              <span className={`w-8 text-right whitespace-nowrap ${isBgmLocked || !bgm.fadeOut ? 'text-gray-600' : 'text-gray-400'}`}>{bgm.fadeOutDuration}秒</span>
+              <span
+                className={`w-8 text-right whitespace-nowrap ${isBgmLocked || !bgm.fadeOut ? 'text-gray-600' : 'text-gray-400'}`}
+              >
+                {bgm.fadeOutDuration}秒
+              </span>
             </div>
           </div>
         </div>

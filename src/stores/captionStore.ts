@@ -7,6 +7,7 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import type { Caption, CaptionSettings, CaptionPosition, CaptionSize, CaptionFontStyle } from '../types';
+import { clampCaptionStrokeWidth } from '../utils/captionStyle';
 import { useLogStore } from './logStore';
 
 interface CaptionState {
@@ -295,7 +296,7 @@ export const useCaptionStore = create<CaptionState>()(
       setStrokeWidth: (strokeWidth) =>
         set(
           (state) => ({
-            settings: { ...state.settings, strokeWidth },
+            settings: { ...state.settings, strokeWidth: clampCaptionStrokeWidth(strokeWidth) },
           }),
           false,
           'setStrokeWidth'
@@ -404,7 +405,11 @@ export const useCaptionStore = create<CaptionState>()(
           {
             captions: newCaptions,
             // 旧バージョンの保存データに無い新フィールドは初期値で補完する
-            settings: { ...initialSettings, ...newSettings },
+            settings: {
+              ...initialSettings,
+              ...newSettings,
+              strokeWidth: clampCaptionStrokeWidth(newSettings.strokeWidth ?? initialSettings.strokeWidth),
+            },
             isLocked: newIsLocked,
           },
           false,

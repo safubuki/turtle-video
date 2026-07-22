@@ -22,8 +22,15 @@ import {
   Pause,
   Minus,
   ArrowLeftRight,
+  Crosshair,
 } from 'lucide-react';
-import type { Caption, CaptionSettings, CaptionPosition, CaptionSize, CaptionFontStyle } from '../../types';
+import type {
+  Caption,
+  CaptionSettings,
+  CaptionPosition,
+  CaptionSize,
+  CaptionFontStyle,
+} from '../../types';
 import CaptionItem from '../media/CaptionItem';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
@@ -42,10 +49,15 @@ import {
   CAPTION_FONT_SIZE_CUSTOM_MIN,
   CAPTION_FONT_SIZE_PRESETS,
   CAPTION_POSITION_CUSTOM_DEFAULT,
+  CAPTION_STROKE_WIDTH_MAX,
+  CAPTION_STROKE_WIDTH_MIN,
+  CAPTION_STROKE_WIDTH_STEP,
+  clampCaptionStrokeWidth,
   clampCustomFontSize,
   clampPositionPercent,
 } from '../../utils/captionStyle';
 import CaptionBulkAddModal, { type BulkCaptionApplyItem } from '../modals/CaptionBulkAddModal';
+import CaptionColorField from '../common/CaptionColorField';
 
 interface CaptionSectionProps {
   captions: Caption[];
@@ -61,6 +73,9 @@ interface CaptionSectionProps {
   onSetEnabled: (enabled: boolean) => void;
   onSetFontSize: (size: CaptionSize) => void;
   onSetFontStyle: (style: CaptionFontStyle) => void;
+  onSetFontColor: (color: string) => void;
+  onSetStrokeColor: (color: string) => void;
+  onSetStrokeWidth: (width: number) => void;
   onSetPosition: (position: CaptionPosition) => void;
   onSetBlur: (blur: number) => void;
   onSetFontSizeCustom: (value: number | null) => void;
@@ -101,6 +116,9 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   onSetEnabled,
   onSetFontSize,
   onSetFontStyle,
+  onSetFontColor,
+  onSetStrokeColor,
+  onSetStrokeWidth,
   onSetPosition,
   onSetBlur,
   onSetFontSizeCustom,
@@ -120,6 +138,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(true);
   const [showStyleSettings, setShowStyleSettings] = useState(false);
+  const [showOutlineColorSettings, setShowOutlineColorSettings] = useState(false);
   const [newText, setNewText] = useState('');
   // 拡張機能（システムフォント/一括入力/タイミング打ち/カスタム値）は standard フレーバー（Android/PC）限定
   const { isIosSafari } = usePlatformCapabilities();
@@ -145,14 +164,17 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   };
 
   const selectedLocalFamily = getLocalFontFamilyFromValue(settings.fontStyle);
-  const isPinnedFontSelected = availablePinnedFonts.some((o) => o.value === settings.fontStyle)
-    || BASIC_CAPTION_FONT_OPTIONS.some((o) => o.value === settings.fontStyle);
-  const isDropdownFontSelected = !isPinnedFontSelected && isExtendedCaptionFontStyle(settings.fontStyle);
+  const isPinnedFontSelected =
+    availablePinnedFonts.some((o) => o.value === settings.fontStyle) ||
+    BASIC_CAPTION_FONT_OPTIONS.some((o) => o.value === settings.fontStyle);
+  const isDropdownFontSelected =
+    !isPinnedFontSelected && isExtendedCaptionFontStyle(settings.fontStyle);
   const dropdownFontValue = isDropdownFontSelected ? settings.fontStyle : '';
   // 復元データ等で「選択中だが一覧に無い」値も表示できるよう補完する
-  const dropdownHasSelected = !dropdownFontValue
-    || availableDropdownFonts.some((o) => o.value === dropdownFontValue)
-    || (selectedLocalFamily !== null && localFontFamilies.includes(selectedLocalFamily));
+  const dropdownHasSelected =
+    !dropdownFontValue ||
+    availableDropdownFonts.some((o) => o.value === dropdownFontValue) ||
+    (selectedLocalFamily !== null && localFontFamilies.includes(selectedLocalFamily));
 
   // カスタムサイズ/位置（standard 限定）
   const isCustomFontSize = settings.fontSizeCustom != null;
@@ -163,6 +185,28 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   const [shiftAmount, setShiftAmount] = useState(1.0);
   // -1 = 全部、それ以外 = そのカード以降（そのカードを含む）
   const [shiftFromIndex, setShiftFromIndex] = useState(-1);
+  const [shiftAlignmentFeedback, setShiftAlignmentFeedback] = useState('');
+  const normalizedShiftFromIndex =
+    shiftFromIndex >= 0 && shiftFromIndex < captions.length ? shiftFromIndex : 0;
+  const shiftAnchorCaption = captions[normalizedShiftFromIndex];
+  const shiftAlignmentTarget = Number.isFinite(currentTime)
+    ? Math.max(0, Math.round(currentTime * 10) / 10)
+    : 0;
+  const shiftAlignmentDelta = shiftAnchorCaption
+    ? Math.round((shiftAlignmentTarget - shiftAnchorCaption.startTime) * 10) / 10
+    : 0;
+  const isShiftAlignmentCurrent = Math.abs(shiftAlignmentDelta) < 0.05;
+  const formatShiftPosition = (seconds: number) => {
+    const safeSeconds = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds * 10) / 10) : 0;
+    const minutes = Math.floor(safeSeconds / 60);
+    const secondsInMinute = (safeSeconds % 60).toFixed(1).padStart(4, '0');
+    return `${minutes}:${secondsInMinute}`;
+  };
+  const formatSignedShift = (seconds: number) =>
+    `${seconds >= 0 ? '+' : '−'}${Math.abs(seconds).toFixed(1)}秒`;
+  useEffect(() => {
+    setShiftAlignmentFeedback('');
+  }, [normalizedShiftFromIndex, shiftAlignmentTarget]);
   const stepShiftAmount = (delta: number) => {
     setShiftAmount((prev) => Math.max(0.5, Math.min(600, Math.round((prev + delta) * 2) / 2)));
   };
@@ -189,21 +233,32 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
     }, 400);
   };
   // 長押し中にアンマウントされてもタイマー/インターバルを確実に解除する
-  useEffect(() => () => {
-    if (shiftHoldTimerRef.current !== null) {
-      window.clearTimeout(shiftHoldTimerRef.current);
-      shiftHoldTimerRef.current = null;
-    }
-    if (shiftHoldIntervalRef.current !== null) {
-      window.clearInterval(shiftHoldIntervalRef.current);
-      shiftHoldIntervalRef.current = null;
-    }
-  }, []);
+  useEffect(
+    () => () => {
+      if (shiftHoldTimerRef.current !== null) {
+        window.clearTimeout(shiftHoldTimerRef.current);
+        shiftHoldTimerRef.current = null;
+      }
+      if (shiftHoldIntervalRef.current !== null) {
+        window.clearInterval(shiftHoldIntervalRef.current);
+        shiftHoldIntervalRef.current = null;
+      }
+    },
+    []
+  );
   const applyShift = (direction: 1 | -1) => {
     const delta = Math.abs(shiftAmount) * direction;
     if (delta === 0) return;
-    const fromIndex = shiftFromIndex >= 0 && shiftFromIndex < captions.length ? shiftFromIndex : 0;
-    onShiftCaptions(delta, shiftFromIndex < 0 ? 0 : fromIndex);
+    setShiftAlignmentFeedback('');
+    onShiftCaptions(delta, normalizedShiftFromIndex);
+  };
+  const alignShiftStartToCurrentTime = () => {
+    if (!shiftAnchorCaption || isShiftAlignmentCurrent) return;
+    const delta = shiftAlignmentDelta;
+    onShiftCaptions(delta, normalizedShiftFromIndex);
+    setShiftAlignmentFeedback(
+      `対象の先頭を ${formatShiftPosition(shiftAlignmentTarget)} に合わせました（${formatSignedShift(delta)}）`
+    );
   };
 
   // === タイミング打ち v3 ===
@@ -377,10 +432,11 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
           {/* 表示/非表示トグル */}
           <button
             onClick={() => onSetEnabled(!settings.enabled)}
-            className={`p-1.5 rounded-lg transition ${settings.enabled
-              ? 'bg-yellow-500/20 text-yellow-400'
-              : 'bg-gray-700 text-gray-400 hover:text-white hover:bg-gray-600'
-              }`}
+            className={`p-1.5 rounded-lg transition ${
+              settings.enabled
+                ? 'bg-yellow-500/20 text-yellow-400'
+                : 'bg-gray-700 text-gray-400 hover:text-white hover:bg-gray-600'
+            }`}
             title={settings.enabled ? 'キャプションを非表示' : 'キャプションを表示'}
           >
             {settings.enabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
@@ -388,12 +444,15 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
           {/* ロック */}
           <button
             onClick={onToggleLock}
-            className={`p-1.5 rounded-lg transition ${isLocked
-              ? 'bg-red-500/20 text-red-400'
-              : 'bg-gray-700 text-gray-400 hover:text-white hover:bg-gray-600'
-              }`}
+            className={`p-1.5 rounded-lg transition ${
+              isLocked
+                ? 'bg-red-500/20 text-red-400'
+                : 'bg-gray-700 text-gray-400 hover:text-white hover:bg-gray-600'
+            }`}
             title={isLocked ? 'ロック解除' : 'ロック'}
-            aria-label={isLocked ? 'キャプションセクションのロックを解除' : 'キャプションセクションをロック'}
+            aria-label={
+              isLocked ? 'キャプションセクションのロックを解除' : 'キャプションセクションをロック'
+            }
           >
             {isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
           </button>
@@ -406,12 +465,23 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
           {/* スタイル/フェード一括設定 */}
           <div className="bg-gray-800/50 rounded-xl border border-gray-600/70">
             <button
-              onClick={() => setShowStyleSettings(!showStyleSettings)}
+              type="button"
+              onClick={() => setShowStyleSettings((open) => !open)}
+              aria-expanded={showStyleSettings}
+              aria-controls="caption-style-settings"
               className="w-full p-2 flex items-center justify-between text-xs md:text-sm text-gray-400 hover:text-white transition"
             >
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 items-center gap-2">
                 <Type className="w-3 h-3" />
-                <span>スタイル/フェード一括設定</span>
+                <span className="whitespace-nowrap">スタイル/フェード一括設定</span>
+                {!showStyleSettings && (
+                  <span
+                    aria-hidden="true"
+                    className="whitespace-nowrap text-[9px] font-normal text-gray-500 md:text-[10px]"
+                  >
+                    （開いて設定）
+                  </span>
+                )}
               </div>
               {showStyleSettings ? (
                 <ChevronDown className="w-3 h-3" />
@@ -420,10 +490,12 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
               )}
             </button>
             {showStyleSettings && (
-              <div className="px-3 pb-3 space-y-3">
+              <div id="caption-style-settings" className="px-3 pb-3 space-y-3">
                 {/* ■ スタイル設定 */}
                 <div className="space-y-2">
-                  <div className="text-[10px] md:text-xs text-yellow-400 font-bold">■ スタイル設定</div>
+                  <div className="text-[10px] md:text-xs text-yellow-400 font-bold">
+                    ■ スタイル設定
+                  </div>
                   {/* 文字サイズ: プリセット + カスタム値（standard のみ） */}
                   <div className="flex items-center gap-2 text-[10px] md:text-xs">
                     <span className="text-gray-400 w-16">サイズ:</span>
@@ -436,10 +508,11 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                             onSetFontSize(opt.value);
                           }}
                           disabled={isLocked}
-                          className={`flex-1 max-w-[4rem] py-1 rounded transition ${!isCustomFontSize && settings.fontSize === opt.value
-                            ? 'bg-yellow-500 text-gray-900'
-                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                            } disabled:opacity-50`}
+                          className={`flex-1 max-w-[4rem] py-1 rounded transition ${
+                            !isCustomFontSize && settings.fontSize === opt.value
+                              ? 'bg-yellow-500 text-gray-900'
+                              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                          } disabled:opacity-50`}
                         >
                           {opt.label}
                         </button>
@@ -452,10 +525,11 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                             }
                           }}
                           disabled={isLocked}
-                          className={`flex-1 max-w-[4.5rem] py-1 rounded transition ${isCustomFontSize
-                            ? 'bg-yellow-500 text-gray-900'
-                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                            } disabled:opacity-50`}
+                          className={`flex-1 max-w-[4.5rem] py-1 rounded transition ${
+                            isCustomFontSize
+                              ? 'bg-yellow-500 text-gray-900'
+                              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                          } disabled:opacity-50`}
                           title="サイズを数値で自由に指定"
                         >
                           カスタム
@@ -480,7 +554,9 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                         min={CAPTION_FONT_SIZE_CUSTOM_MIN}
                         max={CAPTION_FONT_SIZE_CUSTOM_MAX}
                         step={2}
-                        value={Math.round(settings.fontSizeCustom ?? CAPTION_FONT_SIZE_PRESETS.medium)}
+                        value={Math.round(
+                          settings.fontSizeCustom ?? CAPTION_FONT_SIZE_PRESETS.medium
+                        )}
                         onChange={(e) => {
                           const val = parseFloat(e.target.value);
                           if (!Number.isNaN(val)) onSetFontSizeCustom(clampCustomFontSize(val));
@@ -500,10 +576,11 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                           key={opt.value}
                           onClick={() => onSetFontStyle(opt.value)}
                           disabled={isLocked}
-                          className={`flex-1 min-w-0 px-0.5 py-1 rounded transition whitespace-nowrap ${settings.fontStyle === opt.value
-                            ? 'bg-yellow-500 text-gray-900'
-                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                            } disabled:opacity-50`}
+                          className={`flex-1 min-w-0 px-0.5 py-1 rounded transition whitespace-nowrap ${
+                            settings.fontStyle === opt.value
+                              ? 'bg-yellow-500 text-gray-900'
+                              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                          } disabled:opacity-50`}
                           style={{ fontFamily: opt.family }}
                         >
                           {opt.label}
@@ -517,17 +594,23 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                             if (value) onSetFontStyle(value);
                           }}
                           disabled={isLocked}
-                          className={`flex-1 min-w-0 max-w-[7.5rem] py-1 px-1 rounded transition text-[10px] md:text-xs bg-gray-700 focus:outline-none focus:ring-1 focus:ring-yellow-500 disabled:opacity-50 ${dropdownFontValue
-                            ? 'text-yellow-300 ring-1 ring-yellow-500/70 font-semibold'
-                            : 'text-gray-300 hover:bg-gray-600'
-                            }`}
+                          className={`flex-1 min-w-0 max-w-[7.5rem] py-1 px-1 rounded transition text-[10px] md:text-xs bg-gray-700 focus:outline-none focus:ring-1 focus:ring-yellow-500 disabled:opacity-50 ${
+                            dropdownFontValue
+                              ? 'text-yellow-300 ring-1 ring-yellow-500/70 font-semibold'
+                              : 'text-gray-300 hover:bg-gray-600'
+                          }`}
                           title="その他のシステムフォントから選ぶ（端末に実在するもののみ表示）"
                         >
                           <option value="" disabled className="bg-gray-800 text-gray-500">
                             その他▾
                           </option>
                           {availableDropdownFonts.map((opt) => (
-                            <option key={opt.value} value={opt.value} className="bg-gray-800 text-gray-200" style={{ fontFamily: opt.family }}>
+                            <option
+                              key={opt.value}
+                              value={opt.value}
+                              className="bg-gray-800 text-gray-200"
+                              style={{ fontFamily: opt.family }}
+                            >
                               {opt.label}
                             </option>
                           ))}
@@ -546,7 +629,11 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                             </optgroup>
                           )}
                           {!dropdownHasSelected && (
-                            <option value={dropdownFontValue} className="bg-gray-800 text-gray-200" style={{ fontFamily: resolveCaptionFontFamily(dropdownFontValue) }}>
+                            <option
+                              value={dropdownFontValue}
+                              className="bg-gray-800 text-gray-200"
+                              style={{ fontFamily: resolveCaptionFontFamily(dropdownFontValue) }}
+                            >
                               {selectedLocalFamily ?? dropdownFontValue}
                             </option>
                           )}
@@ -563,10 +650,98 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                         className="text-[10px] text-blue-300 hover:text-blue-200 underline underline-offset-2 disabled:opacity-50"
                         title="この PC にインストールされている全フォントを選択肢に追加します（許可が必要）"
                       >
-                        {localFontsLoading ? '読み込み中…' : '＋ この端末の全フォントから選ぶ（PC）'}
+                        {localFontsLoading
+                          ? '読み込み中…'
+                          : '＋ この端末の全フォントから選ぶ（PC）'}
                       </button>
                     </div>
                   )}
+                  {/* 字体の仕上げ: デフォルトで困らない詳細設定は段階的に開示する */}
+                  <div className="rounded-lg border border-gray-700/70 bg-gray-900/30">
+                    <button
+                      type="button"
+                      onClick={() => setShowOutlineColorSettings((open) => !open)}
+                      aria-expanded={showOutlineColorSettings}
+                      aria-controls="caption-outline-color-settings"
+                      className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-[10px] text-gray-400 transition hover:bg-gray-800/45 hover:text-white md:text-xs"
+                    >
+                      <span className="flex min-w-0 items-center gap-2 font-semibold">
+                        <span className="whitespace-nowrap">文字の縁・色</span>
+                        {!showOutlineColorSettings && (
+                          <span
+                            aria-hidden="true"
+                            className="whitespace-nowrap text-[9px] font-normal text-gray-500 md:text-[10px]"
+                          >
+                            （開いて設定）
+                          </span>
+                        )}
+                      </span>
+                      {showOutlineColorSettings ? (
+                        <ChevronDown className="h-3 w-3 shrink-0" />
+                      ) : (
+                        <ChevronRight className="h-3 w-3 shrink-0" />
+                      )}
+                    </button>
+                    {showOutlineColorSettings && (
+                      <div
+                        id="caption-outline-color-settings"
+                        className="space-y-2 border-t border-gray-700/60 px-2 pb-2 pt-2"
+                      >
+                        <div className="flex items-center gap-2 text-[10px] md:text-xs">
+                          <label
+                            className="text-gray-400 w-16 shrink-0"
+                            htmlFor="caption-stroke-width"
+                          >
+                            縁の幅:
+                          </label>
+                          <SwipeProtectedSlider
+                            min={CAPTION_STROKE_WIDTH_MIN}
+                            max={CAPTION_STROKE_WIDTH_MAX}
+                            step={CAPTION_STROKE_WIDTH_STEP}
+                            value={clampCaptionStrokeWidth(settings.strokeWidth)}
+                            onChange={(value) => onSetStrokeWidth(clampCaptionStrokeWidth(value))}
+                            disabled={isLocked}
+                            ariaLabel="キャプションの縁の幅"
+                            className={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
+                          />
+                          <input
+                            id="caption-stroke-width"
+                            type="number"
+                            min={CAPTION_STROKE_WIDTH_MIN}
+                            max={CAPTION_STROKE_WIDTH_MAX}
+                            step={CAPTION_STROKE_WIDTH_STEP}
+                            value={clampCaptionStrokeWidth(settings.strokeWidth)}
+                            onChange={(event) => {
+                              const value = Number.parseFloat(event.target.value);
+                              if (Number.isFinite(value))
+                                onSetStrokeWidth(clampCaptionStrokeWidth(value));
+                            }}
+                            disabled={isLocked}
+                            aria-label="キャプションの縁の幅（数値）"
+                            className="w-14 rounded-md border border-gray-600 bg-gray-700 px-1.5 py-1 text-right focus:border-yellow-500 focus:outline-none focus:ring-1 focus:ring-yellow-500/40 disabled:opacity-50"
+                          />
+                          <span className="text-gray-500">px</span>
+                        </div>
+                        <CaptionColorField
+                          label="縁の色"
+                          value={settings.strokeColor}
+                          fallback="#000000"
+                          disabled={isLocked}
+                          onChange={onSetStrokeColor}
+                        />
+                        <CaptionColorField
+                          label="文字本体"
+                          value={settings.fontColor}
+                          fallback="#FFFFFF"
+                          disabled={isLocked}
+                          onChange={onSetFontColor}
+                        />
+                        <p className="pl-[4.5rem] text-[9px] leading-relaxed text-gray-500">
+                          色見本を押すか、#RRGGBB 形式で直接入力できます。
+                        </p>
+                      </div>
+                    )}
+                  </div>
                   {/* 位置: プリセット + カスタム XY（standard のみ） */}
                   <div className="flex items-center gap-2 text-[10px] md:text-xs">
                     <span className="text-gray-400 w-16">位置:</span>
@@ -579,10 +754,11 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                             onSetPosition(opt.value);
                           }}
                           disabled={isLocked}
-                          className={`flex-1 max-w-[4rem] py-1 rounded transition ${!isCustomPosition && settings.position === opt.value
-                            ? 'bg-yellow-500 text-gray-900'
-                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                            } disabled:opacity-50`}
+                          className={`flex-1 max-w-[4rem] py-1 rounded transition ${
+                            !isCustomPosition && settings.position === opt.value
+                              ? 'bg-yellow-500 text-gray-900'
+                              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                          } disabled:opacity-50`}
                         >
                           {opt.label}
                         </button>
@@ -595,10 +771,11 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                             }
                           }}
                           disabled={isLocked}
-                          className={`flex-1 max-w-[4.5rem] py-1 rounded transition ${isCustomPosition
-                            ? 'bg-yellow-500 text-gray-900'
-                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                            } disabled:opacity-50`}
+                          className={`flex-1 max-w-[4.5rem] py-1 rounded transition ${
+                            isCustomPosition
+                              ? 'bg-yellow-500 text-gray-900'
+                              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                          } disabled:opacity-50`}
                           title="XY 座標で自由に配置"
                         >
                           カスタム
@@ -616,7 +793,9 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                           max={100}
                           step={1}
                           value={customPosition.x}
-                          onChange={(val) => onSetPositionCustom({ ...customPosition, x: clampPositionPercent(val) })}
+                          onChange={(val) =>
+                            onSetPositionCustom({ ...customPosition, x: clampPositionPercent(val) })
+                          }
                           disabled={isLocked}
                           className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
                         />
@@ -628,7 +807,11 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                           value={Math.round(customPosition.x)}
                           onChange={(e) => {
                             const val = parseFloat(e.target.value);
-                            if (!Number.isNaN(val)) onSetPositionCustom({ ...customPosition, x: clampPositionPercent(val) });
+                            if (!Number.isNaN(val))
+                              onSetPositionCustom({
+                                ...customPosition,
+                                x: clampPositionPercent(val),
+                              });
                           }}
                           disabled={isLocked}
                           className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500 disabled:opacity-50"
@@ -642,7 +825,9 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                           max={100}
                           step={1}
                           value={customPosition.y}
-                          onChange={(val) => onSetPositionCustom({ ...customPosition, y: clampPositionPercent(val) })}
+                          onChange={(val) =>
+                            onSetPositionCustom({ ...customPosition, y: clampPositionPercent(val) })
+                          }
                           disabled={isLocked}
                           className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
                         />
@@ -654,14 +839,20 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                           value={Math.round(customPosition.y)}
                           onChange={(e) => {
                             const val = parseFloat(e.target.value);
-                            if (!Number.isNaN(val)) onSetPositionCustom({ ...customPosition, y: clampPositionPercent(val) });
+                            if (!Number.isNaN(val))
+                              onSetPositionCustom({
+                                ...customPosition,
+                                y: clampPositionPercent(val),
+                              });
                           }}
                           disabled={isLocked}
                           className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500 disabled:opacity-50"
                         />
                         <span className="text-gray-500">%</span>
                       </div>
-                      <div className="text-[9px] text-gray-500">X=50 が中央、Y=0 が最上部（テキスト中心の位置）</div>
+                      <div className="text-[9px] text-gray-500">
+                        X=50 が中央、Y=0 が最上部（テキスト中心の位置）
+                      </div>
                     </div>
                   )}
                   {/* ぼかし */}
@@ -676,18 +867,26 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                       disabled={isLocked}
                       className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isLocked ? '' : 'cursor-pointer'}`}
                     />
-                    <span className={`w-8 text-right whitespace-nowrap ${isLocked ? 'text-gray-600' : 'text-gray-400'}`}>{settings.blur.toFixed(1)}</span>
+                    <span
+                      className={`w-8 text-right whitespace-nowrap ${isLocked ? 'text-gray-600' : 'text-gray-400'}`}
+                    >
+                      {settings.blur.toFixed(1)}
+                    </span>
                   </div>
                 </div>
                 {/* ■ フェード一括設定 */}
                 <div className="space-y-2 pt-2 border-t border-gray-700/50">
-                  <div className="text-[10px] md:text-xs text-yellow-400 font-bold">■ フェード一括設定（個別ON優先）</div>
+                  <div className="text-[10px] md:text-xs text-yellow-400 font-bold">
+                    ■ フェード一括設定（個別ON優先）
+                  </div>
                   {/* フェード設定 - 1行表示 */}
                   {/* フェード一括設定 - レイアウト改善 */}
                   <div className="flex flex-col gap-2 mt-2 text-[10px] md:text-xs">
                     {/* フェードイン */}
                     <div className="flex items-center gap-2">
-                      <label className={`flex items-center gap-1 w-24 justify-start ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}>
+                      <label
+                        className={`flex items-center gap-1 w-24 justify-start ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
+                      >
                         <input
                           type="checkbox"
                           checked={settings.bulkFadeIn}
@@ -701,7 +900,13 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                         min={0}
                         max={2}
                         step={1}
-                        value={settings.bulkFadeInDuration === 0.5 ? 0 : settings.bulkFadeInDuration === 1.0 ? 1 : 2}
+                        value={
+                          settings.bulkFadeInDuration === 0.5
+                            ? 0
+                            : settings.bulkFadeInDuration === 1.0
+                              ? 1
+                              : 2
+                        }
                         onChange={(val) => {
                           const steps = [0.5, 1.0, 2.0];
                           onSetBulkFadeInDuration(steps[val]);
@@ -709,12 +914,18 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                         disabled={isLocked || !settings.bulkFadeIn}
                         className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isLocked || !settings.bulkFadeIn ? '' : 'cursor-pointer'}`}
                       />
-                      <span className={`w-8 text-right whitespace-nowrap ${isLocked || !settings.bulkFadeIn ? 'text-gray-600' : 'text-gray-400'}`}>{settings.bulkFadeInDuration}秒</span>
+                      <span
+                        className={`w-8 text-right whitespace-nowrap ${isLocked || !settings.bulkFadeIn ? 'text-gray-600' : 'text-gray-400'}`}
+                      >
+                        {settings.bulkFadeInDuration}秒
+                      </span>
                     </div>
 
                     {/* フェードアウト */}
                     <div className="flex items-center gap-2">
-                      <label className={`flex items-center gap-1 w-24 justify-start ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}>
+                      <label
+                        className={`flex items-center gap-1 w-24 justify-start ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
+                      >
                         <input
                           type="checkbox"
                           checked={settings.bulkFadeOut}
@@ -728,7 +939,13 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                         min={0}
                         max={2}
                         step={1}
-                        value={settings.bulkFadeOutDuration === 0.5 ? 0 : settings.bulkFadeOutDuration === 1.0 ? 1 : 2}
+                        value={
+                          settings.bulkFadeOutDuration === 0.5
+                            ? 0
+                            : settings.bulkFadeOutDuration === 1.0
+                              ? 1
+                              : 2
+                        }
                         onChange={(val) => {
                           const steps = [0.5, 1.0, 2.0];
                           onSetBulkFadeOutDuration(steps[val]);
@@ -736,7 +953,11 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                         disabled={isLocked || !settings.bulkFadeOut}
                         className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isLocked || !settings.bulkFadeOut ? '' : 'cursor-pointer'}`}
                       />
-                      <span className={`w-8 text-right whitespace-nowrap ${isLocked || !settings.bulkFadeOut ? 'text-gray-600' : 'text-gray-400'}`}>{settings.bulkFadeOutDuration}秒</span>
+                      <span
+                        className={`w-8 text-right whitespace-nowrap ${isLocked || !settings.bulkFadeOut ? 'text-gray-600' : 'text-gray-400'}`}
+                      >
+                        {settings.bulkFadeOutDuration}秒
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -746,145 +967,184 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
 
           {/* 入力ツール群（枠でグルーピング） */}
           <div className="space-y-2 border border-gray-700/60 rounded-xl p-2 bg-gray-900/40">
-          {/* STEP フロー: ①まとめて入力 → ②タイミング打ち（standard フレーバー限定） */}
-          {supportsBulkInput && (
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowBulkModal(true)}
-                disabled={isLocked}
-                className="flex-1 py-1.5 bg-gray-800 hover:bg-gray-700 border border-yellow-600/40 text-yellow-300 rounded-lg transition disabled:opacity-50"
-                title="歌詞や長い字幕を複数行まとめて追加・編集"
-              >
-                <span className="flex items-center justify-center gap-1.5 text-xs md:text-sm">
-                  <ListPlus className="w-3.5 h-3.5" /> ① まとめて入力{captions.length > 0 ? '・編集' : ''}
-                </span>
-                <span className="block text-[9px] text-gray-500 leading-tight mt-0.5">
-                  歌詞や字幕を一括で追加・編集
-                </span>
-              </button>
-              <button
-                onClick={() => (stampActive ? setStampActive(false) : startStampMode())}
-                disabled={isLocked || captions.length < 2}
-                className={`flex-1 py-1.5 rounded-lg transition disabled:opacity-50 ${stampActive
-                  ? 'bg-yellow-600 text-white'
-                  : 'bg-gray-800 hover:bg-gray-700 border border-yellow-600/40 text-yellow-300'
+            {/* STEP フロー: ①まとめて入力 → ②タイミング打ち（standard フレーバー限定） */}
+            {supportsBulkInput && (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowBulkModal(true)}
+                  disabled={isLocked}
+                  className="flex-1 py-1.5 bg-gray-800 hover:bg-gray-700 border border-yellow-600/40 text-yellow-300 rounded-lg transition disabled:opacity-50"
+                  title="歌詞や長い字幕を複数行まとめて追加・編集"
+                >
+                  <span className="flex items-center justify-center gap-1.5 text-xs md:text-sm">
+                    <ListPlus className="w-3.5 h-3.5" /> ① まとめて入力
+                    {captions.length > 0 ? '・編集' : ''}
+                  </span>
+                  <span className="block text-[9px] text-gray-500 leading-tight mt-0.5">
+                    歌詞や字幕を一括で追加・編集
+                  </span>
+                </button>
+                <button
+                  onClick={() => (stampActive ? setStampActive(false) : startStampMode())}
+                  disabled={isLocked || captions.length < 2}
+                  className={`flex-1 py-1.5 rounded-lg transition disabled:opacity-50 ${
+                    stampActive
+                      ? 'bg-yellow-600 text-white'
+                      : 'bg-gray-800 hover:bg-gray-700 border border-yellow-600/40 text-yellow-300'
                   }`}
-                title="再生しながらキャプションの切り替わりタイミングを確定する"
+                  title="再生しながらキャプションの切り替わりタイミングを確定する"
+                >
+                  <span className="flex items-center justify-center gap-1.5 text-xs md:text-sm">
+                    <Timer className="w-3.5 h-3.5" /> ② タイミング打ち
+                  </span>
+                  <span
+                    className={`block text-[9px] leading-tight mt-0.5 ${stampActive ? 'text-yellow-100' : 'text-gray-500'}`}
+                  >
+                    {captions.length < 2
+                      ? 'キャプション2件以上で使用可'
+                      : stampActive
+                        ? 'タップで終了'
+                        : '再生しながら表示タイミングを設定'}
+                  </span>
+                </button>
+              </div>
+            )}
+
+            {/* 一括シフト（standard のみ・キャプションがあるとき）: カード基準で時間を前後にずらす */}
+            {supportsBulkInput && captions.length > 0 && (
+              <div className="space-y-1.5 text-[10px] md:text-xs bg-gray-800/50 rounded-lg border border-gray-700/50 px-2 py-1.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-gray-400 shrink-0">時間をまとめてずらす:</span>
+                  <select
+                    value={shiftFromIndex}
+                    onChange={(e) => {
+                      setShiftFromIndex(Number(e.target.value));
+                      setShiftAlignmentFeedback('');
+                    }}
+                    disabled={isLocked}
+                    className="flex-1 min-w-0 bg-gray-700 text-gray-300 rounded px-1 py-1 text-[10px] md:text-xs focus:outline-none focus:ring-1 focus:ring-yellow-500 disabled:opacity-50"
+                    aria-label="ずらす対象のキャプションカード"
+                    title="ずらす対象のキャプションカード"
+                  >
+                    <option value={-1} className="bg-gray-800 text-gray-200">
+                      すべてのカード
+                    </option>
+                    {captions.map((c, i) => (
+                      <option key={c.id} value={i} className="bg-gray-800 text-gray-200">
+                        [{i + 1}] {c.text.slice(0, 8)}
+                        {c.text.length > 8 ? '…' : ''} 以降
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  onClick={alignShiftStartToCurrentTime}
+                  disabled={isLocked || isShiftAlignmentCurrent}
+                  className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg border border-yellow-500/50 bg-yellow-600/15 px-2 py-2 font-medium text-yellow-200 transition hover:bg-yellow-600/25 focus:outline-none focus:ring-2 focus:ring-yellow-500/70 disabled:cursor-not-allowed disabled:border-gray-700 disabled:bg-gray-800/60 disabled:text-gray-500 disabled:opacity-70"
+                  aria-describedby="caption-shift-alignment-status"
+                  title="対象範囲の最初のキャプションをプレビューの現在位置へ移動"
+                >
+                  <Crosshair className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  現在位置（{formatShiftPosition(shiftAlignmentTarget)}）に先頭を合わせる
+                </button>
+                <p
+                  id="caption-shift-alignment-status"
+                  className="min-h-4 text-[9px] leading-4 text-gray-500 md:text-[10px]"
+                  aria-live="polite"
+                >
+                  {shiftAlignmentFeedback ||
+                    (isShiftAlignmentCurrent
+                      ? '対象の先頭は、すでにプレビューの現在位置に合っています。'
+                      : `対象の先頭 ${formatShiftPosition(shiftAnchorCaption?.startTime ?? 0)} → ${formatShiftPosition(shiftAlignmentTarget)}（${formatSignedShift(shiftAlignmentDelta)}）`)}
+                </p>
+                <div className="flex items-center gap-1.5 border-t border-gray-700/60 pt-1.5">
+                  <span className="shrink-0 text-gray-500">秒数で微調整:</span>
+                  <button
+                    onPointerDown={() => !isLocked && startShiftHold(-1)}
+                    onPointerUp={stopShiftHold}
+                    onPointerLeave={stopShiftHold}
+                    onPointerCancel={stopShiftHold}
+                    onContextMenu={(e) => e.preventDefault()}
+                    disabled={isLocked}
+                    className="w-7 h-7 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 flex items-center justify-center transition disabled:opacity-50 select-none"
+                    aria-label="ずらす秒数を減らす（長押しで加速）"
+                    title="長押しで早く減ります"
+                  >
+                    <Minus className="w-3 h-3" />
+                  </button>
+                  <input
+                    type="number"
+                    min={0.1}
+                    max={600}
+                    step={0.5}
+                    value={shiftAmount}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value);
+                      if (!Number.isNaN(val)) {
+                        setShiftAmount(Math.max(0.1, Math.min(600, Math.round(val * 10) / 10)));
+                      }
+                    }}
+                    disabled={isLocked}
+                    className="w-14 bg-gray-700 border border-gray-600 rounded px-1 py-0.5 text-center font-mono focus:outline-none focus:border-yellow-500 disabled:opacity-50"
+                  />
+                  <span className="text-gray-500 shrink-0">秒</span>
+                  <button
+                    onPointerDown={() => !isLocked && startShiftHold(1)}
+                    onPointerUp={stopShiftHold}
+                    onPointerLeave={stopShiftHold}
+                    onPointerCancel={stopShiftHold}
+                    onContextMenu={(e) => e.preventDefault()}
+                    disabled={isLocked}
+                    className="w-7 h-7 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 flex items-center justify-center transition disabled:opacity-50 select-none"
+                    aria-label="ずらす秒数を増やす（長押しで加速）"
+                    title="長押しで早く増えます"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={() => applyShift(-1)}
+                    disabled={isLocked}
+                    className="flex-1 px-2 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-gray-200 transition disabled:opacity-50"
+                    title="対象カードの時間を早める（前へ移動）"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5 inline" />
+                    早める
+                  </button>
+                  <button
+                    onClick={() => applyShift(1)}
+                    disabled={isLocked}
+                    className="flex-1 px-2 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-gray-200 transition disabled:opacity-50"
+                    title="対象カードの時間を遅らせる（後ろへ移動）"
+                  >
+                    遅らせる
+                    <ChevronRight className="w-3.5 h-3.5 inline" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 新規キャプション追加 */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newText}
+                onChange={(e) => setNewText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleAddCaption();
+                }}
+                placeholder="キャプションテキストを入力..."
+                disabled={isLocked}
+                className="flex-1 h-9 md:h-10 bg-gray-800 border border-gray-700 rounded-lg px-3 text-sm md:text-sm text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500 disabled:opacity-50"
+              />
+              <button
+                onClick={handleAddCaption}
+                disabled={isLocked || !newText.trim()}
+                className="h-9 md:h-10 bg-yellow-600 hover:bg-yellow-500 text-white px-3 lg:px-4 rounded-lg text-xs md:text-sm font-semibold whitespace-nowrap flex items-center gap-1 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <span className="flex items-center justify-center gap-1.5 text-xs md:text-sm">
-                  <Timer className="w-3.5 h-3.5" /> ② タイミング打ち
-                </span>
-                <span className={`block text-[9px] leading-tight mt-0.5 ${stampActive ? 'text-yellow-100' : 'text-gray-500'}`}>
-                  {captions.length < 2 ? 'キャプション2件以上で使用可' : stampActive ? 'タップで終了' : '再生しながら表示タイミングを設定'}
-                </span>
+                <Plus className="w-3 h-3" /> 追加
               </button>
             </div>
-          )}
-
-          {/* 一括シフト（standard のみ・キャプションがあるとき）: カード基準で時間を前後にずらす */}
-          {supportsBulkInput && captions.length > 0 && (
-            <div className="space-y-1.5 text-[10px] md:text-xs bg-gray-800/50 rounded-lg border border-gray-700/50 px-2 py-1.5">
-              <div className="flex items-center gap-1.5">
-                <span className="text-gray-400 shrink-0">時間をまとめてずらす:</span>
-                <select
-                  value={shiftFromIndex}
-                  onChange={(e) => setShiftFromIndex(Number(e.target.value))}
-                  disabled={isLocked}
-                  className="flex-1 min-w-0 bg-gray-700 text-gray-300 rounded px-1 py-1 text-[10px] md:text-xs focus:outline-none focus:ring-1 focus:ring-yellow-500 disabled:opacity-50"
-                  title="ずらす対象のキャプションカード"
-                >
-                  <option value={-1} className="bg-gray-800 text-gray-200">すべてのカード</option>
-                  {captions.map((c, i) => (
-                    <option key={c.id} value={i} className="bg-gray-800 text-gray-200">
-                      [{i + 1}] {c.text.slice(0, 8)}{c.text.length > 8 ? '…' : ''} 以降
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <button
-                  onPointerDown={() => !isLocked && startShiftHold(-1)}
-                  onPointerUp={stopShiftHold}
-                  onPointerLeave={stopShiftHold}
-                  onPointerCancel={stopShiftHold}
-                  onContextMenu={(e) => e.preventDefault()}
-                  disabled={isLocked}
-                  className="w-7 h-7 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 flex items-center justify-center transition disabled:opacity-50 select-none"
-                  aria-label="ずらす秒数を減らす（長押しで加速）"
-                  title="長押しで早く減ります"
-                >
-                  <Minus className="w-3 h-3" />
-                </button>
-                <input
-                  type="number"
-                  min={0.1}
-                  max={600}
-                  step={0.5}
-                  value={shiftAmount}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    if (!Number.isNaN(val)) {
-                      setShiftAmount(Math.max(0.1, Math.min(600, Math.round(val * 10) / 10)));
-                    }
-                  }}
-                  disabled={isLocked}
-                  className="w-14 bg-gray-700 border border-gray-600 rounded px-1 py-0.5 text-center font-mono focus:outline-none focus:border-yellow-500 disabled:opacity-50"
-                />
-                <span className="text-gray-500 shrink-0">秒</span>
-                <button
-                  onPointerDown={() => !isLocked && startShiftHold(1)}
-                  onPointerUp={stopShiftHold}
-                  onPointerLeave={stopShiftHold}
-                  onPointerCancel={stopShiftHold}
-                  onContextMenu={(e) => e.preventDefault()}
-                  disabled={isLocked}
-                  className="w-7 h-7 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 flex items-center justify-center transition disabled:opacity-50 select-none"
-                  aria-label="ずらす秒数を増やす（長押しで加速）"
-                  title="長押しで早く増えます"
-                >
-                  <Plus className="w-3 h-3" />
-                </button>
-                <button
-                  onClick={() => applyShift(-1)}
-                  disabled={isLocked}
-                  className="flex-1 px-2 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-gray-200 transition disabled:opacity-50"
-                  title="対象カードの時間を早める（前へ移動）"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5 inline" />早める
-                </button>
-                <button
-                  onClick={() => applyShift(1)}
-                  disabled={isLocked}
-                  className="flex-1 px-2 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-gray-200 transition disabled:opacity-50"
-                  title="対象カードの時間を遅らせる（後ろへ移動）"
-                >
-                  遅らせる<ChevronRight className="w-3.5 h-3.5 inline" />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* 新規キャプション追加 */}
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={newText}
-              onChange={(e) => setNewText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleAddCaption();
-              }}
-              placeholder="キャプションテキストを入力..."
-              disabled={isLocked}
-              className="flex-1 h-9 md:h-10 bg-gray-800 border border-gray-700 rounded-lg px-3 text-sm md:text-sm text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500 disabled:opacity-50"
-            />
-            <button
-              onClick={handleAddCaption}
-              disabled={isLocked || !newText.trim()}
-              className="h-9 md:h-10 bg-yellow-600 hover:bg-yellow-500 text-white px-3 lg:px-4 rounded-lg text-xs md:text-sm font-semibold whitespace-nowrap flex items-center gap-1 transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Plus className="w-3 h-3" /> 追加
-            </button>
-          </div>
           </div>
 
           {/* キャプション一覧 */}
@@ -898,6 +1158,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                 <CaptionItem
                   key={caption.id}
                   caption={caption}
+                  settings={settings}
                   index={index}
                   totalCaptions={captions.length}
                   totalDuration={totalDuration}
@@ -945,7 +1206,9 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                 </div>
                 <div className="text-xs md:text-sm text-gray-200 truncate">
                   「{stampTarget.text}」の
-                  <span className="text-yellow-300">{stampPhase === 'end' ? '終わり' : '始まり'}</span>
+                  <span className="text-yellow-300">
+                    {stampPhase === 'end' ? '終わり' : '始まり'}
+                  </span>
                   で押す
                 </div>
               </div>
@@ -988,13 +1251,19 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                 <div className="flex items-center gap-1 ml-1.5 text-[10px] md:text-xs shrink-0">
                   <span className="text-gray-400">間隔:</span>
                   <button
-                    onClick={() => { setIsStampGapCustom(false); setStampGapSec(0); }}
+                    onClick={() => {
+                      setIsStampGapCustom(false);
+                      setStampGapSec(0);
+                    }}
                     className={`px-2 py-1 rounded transition ${!isStampGapCustom && stampGapSec === 0 ? 'bg-yellow-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'}`}
                   >
                     なし
                   </button>
                   <button
-                    onClick={() => { setIsStampGapCustom(false); setStampGapSec(0.2); }}
+                    onClick={() => {
+                      setIsStampGapCustom(false);
+                      setStampGapSec(0.2);
+                    }}
                     className={`px-2 py-1 rounded transition ${!isStampGapCustom && stampGapSec === 0.2 ? 'bg-yellow-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'}`}
                   >
                     200ms
@@ -1013,7 +1282,8 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                     value={stampGapSec}
                     onChange={(e) => {
                       const val = parseFloat(e.target.value);
-                      if (!Number.isNaN(val)) setStampGapSec(Math.max(0, Math.min(10, Math.round(val * 10) / 10)));
+                      if (!Number.isNaN(val))
+                        setStampGapSec(Math.max(0, Math.min(10, Math.round(val * 10) / 10)));
                     }}
                     disabled={!isStampGapCustom}
                     className="w-14 bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-center focus:outline-none focus:border-yellow-500 disabled:opacity-40"
@@ -1035,7 +1305,11 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                 className="w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur text-white flex items-center justify-center transition-transform active:scale-95"
                 title={isPlaying ? '一時停止' : '再生'}
               >
-                {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
+                {isPlaying ? (
+                  <Pause className="w-4 h-4 fill-current" />
+                ) : (
+                  <Play className="w-4 h-4 fill-current ml-0.5" />
+                )}
               </button>
               <button
                 onClick={() => onSeekBy(1)}
@@ -1050,11 +1324,16 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
               <div className="flex gap-2">
                 <button
                   onClick={handleStampAlternate}
-                  className={`flex-1 h-11 text-white rounded-xl text-sm md:text-base font-bold transition ${stampPhase === 'start'
-                    ? 'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-400'
-                    : 'bg-yellow-600 hover:bg-yellow-500 active:bg-yellow-400'
-                    }`}
-                  title={stampPhase === 'start' ? 'このキャプションの開始位置を現在の再生位置に確定' : 'このキャプションの終了位置を現在の再生位置に確定'}
+                  className={`flex-1 h-11 text-white rounded-xl text-sm md:text-base font-bold transition ${
+                    stampPhase === 'start'
+                      ? 'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-400'
+                      : 'bg-yellow-600 hover:bg-yellow-500 active:bg-yellow-400'
+                  }`}
+                  title={
+                    stampPhase === 'start'
+                      ? 'このキャプションの開始位置を現在の再生位置に確定'
+                      : 'このキャプションの終了位置を現在の再生位置に確定'
+                  }
                 >
                   {stampPhase === 'start' ? '▶ ここから開始' : '⏹ ここで終了'}
                 </button>

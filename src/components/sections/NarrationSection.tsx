@@ -129,6 +129,11 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
             3
           </span>
           <span className="truncate">ナレーション</span>
+          {narrations.length > 0 && (
+            <span className="shrink-0 text-[10px] font-normal text-indigo-300 md:text-xs">
+              ({narrations.length}件)
+            </span>
+          )}
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -146,7 +151,11 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
             onClick={onToggleNarrationLock}
             className={`p-1 rounded-lg transition ${isNarrationLocked ? 'bg-red-500/20 text-red-400' : 'bg-gray-700 text-gray-300 hover:text-white hover:bg-gray-600'}`}
             title={isNarrationLocked ? 'ロック解除' : 'ロック'}
-            aria-label={isNarrationLocked ? 'ナレーションセクションのロックを解除' : 'ナレーションセクションをロック'}
+            aria-label={
+              isNarrationLocked
+                ? 'ナレーションセクションのロックを解除'
+                : 'ナレーションセクションをロック'
+            }
           >
             {isNarrationLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
           </button>
@@ -209,21 +218,31 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
             const clampedEndTime = hasEndMarker
               ? Math.max(0, Math.min(totalDuration, rawEndTime))
               : 0;
-            const endMarkerPercent = hasEndMarker
-              ? (clampedEndTime / totalDuration) * 100
-              : 0;
+            const endMarkerPercent = hasEndMarker ? (clampedEndTime / totalDuration) * 100 : 0;
             const isEndOverflow = rawEndTime > totalDuration;
 
             return (
-              <div key={clip.id} className="p-3 bg-indigo-900/10 border border-indigo-500/20 rounded-xl space-y-3">
+              <div
+                key={clip.id}
+                className="p-3 bg-indigo-900/10 border border-indigo-500/20 rounded-xl space-y-3"
+              >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="text-xs text-gray-500 font-mono shrink-0">[{index + 1}]</span>
-                    {isAi ? <Mic className="w-3.5 h-3.5 text-indigo-400 shrink-0" /> : <FileAudio className="w-3.5 h-3.5 text-cyan-400 shrink-0" />}
-                    <span className="text-xs md:text-sm text-indigo-100 truncate" title={clip.file.name}>
+                    {isAi ? (
+                      <Mic className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                    ) : (
+                      <FileAudio className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                    )}
+                    <span
+                      className="text-xs md:text-sm text-indigo-100 truncate"
+                      title={clip.file.name}
+                    >
                       {clip.file.name}
                     </span>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${isAi ? 'bg-indigo-500/20 text-indigo-200' : 'bg-cyan-500/20 text-cyan-200'}`}>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${isAi ? 'bg-indigo-500/20 text-indigo-200' : 'bg-cyan-500/20 text-cyan-200'}`}
+                    >
                       {isAi ? 'AI' : 'FILE'}
                     </span>
                   </div>
@@ -348,9 +367,11 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                     onClick={() => onSetEndTimeToCurrent(clip.id)}
                     disabled={isNarrationLocked || !canSetCurrentAsEnd}
                     className="min-h-9 px-2.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 hover:border-indigo-500/60 hover:text-indigo-200 disabled:opacity-30 flex items-center gap-1 transition"
-                    title={canSetCurrentAsEnd
-                      ? `現在位置(${formatTime(currentTime)})を再生終了に設定`
-                      : '開始位置より後ろへプレビューを移動してください'}
+                    title={
+                      canSetCurrentAsEnd
+                        ? `現在位置(${formatTime(currentTime)})を再生終了に設定`
+                        : '開始位置より後ろへプレビューを移動してください'
+                    }
                   >
                     <MapPin className="w-3.5 h-3.5" /> 終了
                   </button>
@@ -456,7 +477,11 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                     className={`p-1 rounded transition ${clip.isMuted ? 'bg-red-500/20 text-red-300' : 'text-gray-400 hover:text-white'} disabled:opacity-50`}
                     title={clip.isMuted ? 'ミュート解除' : 'ミュート'}
                   >
-                    {clip.isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                    {clip.isMuted ? (
+                      <VolumeX className="w-3.5 h-3.5" />
+                    ) : (
+                      <Volume2 className="w-3.5 h-3.5" />
+                    )}
                   </button>
                   <SwipeProtectedSlider
                     min={0}
@@ -465,9 +490,11 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                     value={clip.volume}
                     onChange={(val) => handleVolumeChange(clip.id, val)}
                     disabled={isNarrationLocked || clip.isMuted}
-                    className={`flex-1 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${(isNarrationLocked || clip.isMuted) ? '' : 'cursor-pointer'}`}
+                    className={`flex-1 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isNarrationLocked || clip.isMuted ? '' : 'cursor-pointer'}`}
                   />
-                  <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right">{Math.round(clip.volume * 100)}%</span>
+                  <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right">
+                    {Math.round(clip.volume * 100)}%
+                  </span>
                   <button
                     onClick={() => onUpdateVolume(clip.id, '1')}
                     disabled={isNarrationLocked}
