@@ -21,6 +21,7 @@ export type SectionHelpVisualId =
   | 'bgm_count_label'
   | 'narration_count_label'
   | 'copy_button'
+  | 'bgm_auto_extend_toggle'
   | 'caption_style_accordion'
   | 'caption_outline_color_accordion'
   | 'caption_outline_controls'
@@ -61,6 +62,7 @@ export type SectionHelpVisualId =
   | 'stop_button'
   | 'play_button'
   | 'capture_button'
+  | 'thumbnail_controls'
   | 'clear_button'
   | 'export_button'
   | 'download_button'
@@ -229,8 +231,8 @@ export function getSectionHelpContent(
         {
           title: '表示区間（動画：トリミング／画像：表示時間）',
           description:
-            '動画は開始・終了位置を指定してトリミングできます。画像は表示時間を常時調整できます。どちらもスライダーで操作できます。',
-          visuals: ['trim_chip', 'duration_chip', 'slider_demo'],
+            '動画は開始・終了位置を指定してトリミングできます。「プレビュー位置を反映」の「開始」「終了」を押すと、映像を確認した現在位置を対象カードのトリム位置へ設定できます。操作後は短くなった動画全体を基準にプレビュー位置と表示区間が更新されます。画像は表示時間を常時調整でき、どちらもスライダーでも操作できます。',
+          visuals: ['trim_chip', 'current_pin_chip', 'duration_chip', 'slider_demo'],
         },
         {
           title: '位置・サイズ・回転・ぼかし調整',
@@ -272,8 +274,14 @@ export function getSectionHelpContent(
         {
           title: '複数のBGM（Android/PC版）',
           description:
-            '複数の曲を追加してシーンごとに切り替えられます。タイトル右側の「(n件)」で登録数を確認できます。追加した曲は動画の長さに合わせて自動配置され、開始位置・トリミング・音量・フェード・コピーを個別に調整できます。「開始」「終了」でプレビュー位置を反映し、「動画末尾に合わせる」で選んだ曲だけを末尾へ自動調整できます。',
-          visuals: ['bgm_count_label', 'copy_button'],
+            '複数の曲を追加してシーンごとに切り替えられます。タイトル右側の「(n件)」で登録数を確認できます。追加した曲は動画の長さに合わせて自動配置され、開始位置・トリミング・音量・フェード・コピーを個別に調整できます。「開始」「終了」でプレビュー位置を反映できます。動画を短くすると末尾のBGMは「動画尺に自動調整」または「自動休止」になり、削除されません。動画を長く戻すと元の再生区間まで自動で復帰します。',
+          visuals: ['bgm_count_label', 'current_pin_chip', 'copy_button'],
+        },
+        {
+          title: '動画末尾まで自動延長（Android/PC版）',
+          description:
+            '動画内で最後に始まるBGMは「動画末尾まで自動延長」が初期状態でONです。動画・画像を追加して尺が長くなると、元音源の続きを使い、足りない場合は同じ範囲を繰り返して末尾まで鳴らします。意図的に末尾を無音にする場合はチェックをOFFにしてください。',
+          visuals: ['bgm_auto_extend_toggle'],
         },
         {
           title: 'セクションの鍵アイコン',
@@ -461,8 +469,14 @@ export function getSectionHelpContent(
         {
           title: '停止・再生・キャプチャ',
           description:
-            '停止と再生でプレビュー操作ができ、キャプチャは現在の表示内容を画像として保存できます。',
+            '停止と再生でプレビュー操作ができ、キャプチャは現在位置を再描画してから表示内容を画像として保存します。シーク直後でもプレビューと保存画像が揃うように処理します。',
           visuals: ['stop_button', 'play_button', 'capture_button'],
+        },
+        {
+          title: '動画サムネイル（Android/PC版）',
+          description:
+            'プレビューを好みの位置へ動かして「現在位置をサムネイルに設定」を押すと、選択画像と時刻をプロジェクトに保存できます。「自動に戻す」で先頭寄りの自動候補へ戻せます。書き出しの安定性を守るためエンコード周期は変更しません。ファイル一覧に表示する画像はOS側が選ぶため、アプリ内の選択画像と異なる場合があります。',
+          visuals: ['thumbnail_controls'],
         },
         {
           title: '動画ファイルを作成',

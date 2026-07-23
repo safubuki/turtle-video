@@ -37,6 +37,7 @@ import {
 } from '../../stores/projectPersistence';
 import { appleSafariSaveRuntime } from '../../flavors/apple-safari/appleSafariSaveRuntime';
 import { standardSaveRuntime } from '../../flavors/standard/standardSaveRuntime';
+import { useCanvasStore } from '../../stores/canvasStore';
 
 const defaultCaptionSettings: CaptionSettings = {
   enabled: true,
@@ -390,6 +391,27 @@ describe('projectStore save behavior', () => {
     }
     expect(loaded.mediaItems[0].file.name).toBe('original-name.mp4');
     expect(loaded.mediaItems[0].fileData).toBe(savedProjectData.mediaItems[0].fileData);
+  });
+
+  it('任意サムネイルの時刻と縮小画像を保存・復元する', async () => {
+    const mediaItems = [createMediaItem('thumbnail-source.mp4', 'video')];
+    useCanvasStore.getState().setVideoThumbnail(2.5, 'data:image/jpeg;base64,thumbnail');
+    mocks.saveProject.mockResolvedValue(undefined);
+
+    await useProjectStore.getState().saveProjectManual(
+      mediaItems, false, null, false, [], false, [], defaultCaptionSettings, false,
+    );
+
+    const lastCall = mocks.saveProject.mock.calls[mocks.saveProject.mock.calls.length - 1];
+    const saved = lastCall?.[0] as ProjectData;
+    expect(saved.videoThumbnailTime).toBe(2.5);
+    expect(saved.videoThumbnailDataUrl).toBe('data:image/jpeg;base64,thumbnail');
+
+    useCanvasStore.getState().clearVideoThumbnail();
+    mocks.loadProject.mockResolvedValue(saved);
+    await useProjectStore.getState().loadProjectFromSlot('manual');
+    expect(useCanvasStore.getState().videoThumbnailTime).toBe(2.5);
+    expect(useCanvasStore.getState().videoThumbnailDataUrl).toBe('data:image/jpeg;base64,thumbnail');
   });
 
   it('resetSaveDatabase は保存情報と失敗状態を初期化する', async () => {

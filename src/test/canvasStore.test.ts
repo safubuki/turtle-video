@@ -325,3 +325,19 @@ describe('resolveMediaBaseScale', () => {
     })).toBe(1);
   });
 });
+
+describe('video thumbnail state', () => {
+  it('設定・解除・リセットでサムネイル状態を管理する', () => {
+    useCanvasStore.getState().setVideoThumbnail(2.5, 'data:image/jpeg;base64,thumb');
+    expect(useCanvasStore.getState().videoThumbnailTime).toBe(2.5);
+    expect(useCanvasStore.getState().videoThumbnailDataUrl).toContain('data:image/jpeg');
+
+    useCanvasStore.getState().clearVideoThumbnail();
+    expect(useCanvasStore.getState().videoThumbnailTime).toBeNull();
+
+    useCanvasStore.getState().setVideoThumbnail(1, 'data:image/jpeg;base64,again');
+    useCanvasStore.getState().resetCanvasSize();
+    expect(useCanvasStore.getState().videoThumbnailTime).toBeNull();
+    expect(useCanvasStore.getState().videoThumbnailDataUrl).toBeNull();
+  });
+});

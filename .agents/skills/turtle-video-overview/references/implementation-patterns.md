@@ -2441,3 +2441,69 @@
   - 終了位置、各カードの表示時間、カード間隔は差分移動で自動的に維持する。動画・ナレーション・BGMのストアやタイムラインには波及させない。
   - プレビュー現在位置への整列を主操作、従来の秒数入力と「早める」「遅らせる」を微調整として併存させる。すでに一致している場合はボタンを無効化し、実行前の移動差分と実行結果をテキスト／`aria-live`で示す。
 - **回帰ガード**: 全カードと指定カード以降の正負差分、同一時刻のno-op、従来の秒数移動、ヘルプ上のキャプション限定説明をテストする。既存のプレビュー停止ラッパーを経由し、preview/exportエンジンや保存形式へ新しい分岐を追加しない。
+
+### 13-135. BGM動画尺自動追従・動画トリム現在位置反映・詳細診断ログ
+
+- **ファイル**: `src/utils/bgmTimeline.ts`, `src/utils/videoTrimTimeline.ts`, `src/components/TurtleVideo.tsx`, `src/components/sections/BgmClipList.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/media/ClipItem.tsx`, `src/stores/logStore.ts`, `src/constants/sectionHelp.ts`
+- **BGMの非破壊自動追従**:
+  - `resolveEffectiveBgmTimeline(bgmClips, totalDuration)` が保存済み `startTime` / `trimStart` / `trimEnd` を変更せず、現在の動画尺内だけで鳴る `playbackClips` を導出する。`pipelineNarrations` へはナレーションとこの実効BGMだけを渡し、preview / Android preview cache / exportの既存共通経路へ同じ区間を流す。
+  - 動画末尾で切れるBGMは実効 `trimEnd` を短縮するため、フェードアウトも動画末尾基準で完了する。開始位置が動画末尾以降ならパイプラインから除外するが、ストアから削除しない。動画を再び長くすると元の区間まで自動復帰する。
+  - BGMカードは実効区間を表示し、部分短縮は「動画尺に自動調整」、全体が範囲外なら「自動休止」と示す。隙間・重なり・並び順は元設定を尊重し、自動詰め直しを行わない。
+  - **禁止事項**: 動画尺変更effectから `updateBgmClipTrim()` や `fitBgmClipToTimelineEnd()` を呼んで保存値を上書きしない。短縮時に範囲外BGMを削除しない。どちらも再延長時の復帰を壊す。
+- **動画トリムの現在位置変換**:
+  - `resolveVideoTrimAtPreviewPosition()` は対象カードのtransition考慮済み `timelineRange.start` を使い、`sourceTime = trimStart + (currentTime - range.start)` でソース時刻へ変換する。カード範囲外と最小0.1秒を残せない位置ではボタンを無効にする。
+  - 開始設定後は選んだフレームが新しいカード先頭になるため、プレビュー時刻を変更前の `timelineRange.start` へ戻す。終了設定は選択したタイムライン位置を維持する。次回操作は更新後のmediaItems / totalDuration / transition rangesを使う。
+- **ログモード契約**:
+  - 設定画面の `preview.log.mode` をアプリ共通の記録量として使う。ログストアは `DEBUG` を `detailed` 以外で早期returnし、標準/境界診断では呼出側も詳細オブジェクトの組み立てを省略して、ログ配列更新・JSON化・sessionStorage書き込みを行わない。
+  - 詳細モードではBGM実効計画、動画トリム変換前後、BGM編集、メディアぼかし、キャプション個別設定を記録する。本文そのものは保存せず、キャプションは変更フィールドと文字数だけを残す。
+  - `boundary` は既存のプレビュー境界INFO診断を維持する専用モードであり、一般DEBUGは記録しない。DEBUGの連続操作は500msだけ重複抑制し、WARN/ERROR/INFOの10秒抑制契約は維持する。
+- **回帰ガード**: BGM 15→6→12→15秒の短縮・休止・復帰、元設定不変、動画タイムライン→ソース時刻変換、対象範囲外、ログモード別DEBUG保存、UIバッジと開始/終了ルーティングをテストする。保存形式とiOS用レガシーBGMミラーは変更しない。
+
+### 13-136. BGM末尾自動延長・キャプチャ時刻同期・動画サムネイル候補
+
+- **ファイル**: `src/utils/bgmTimeline.ts`, `src/components/sections/BgmClipList.tsx`, `src/utils/canvas.ts`, `src/components/TurtleVideo.tsx`, `src/components/sections/PreviewSection.tsx`, `src/components/common/ClipThumbnail.tsx`, `src/stores/canvasStore.ts`, `src/stores/projectStore.ts`
+- **BGM末尾補完**:
+  - 現在の動画尺内で開始しているBGMのうち、開始位置が最も後ろの1件だけを末尾補完対象にする。保存済みクリップを更新せず、`resolveEffectiveBgmTimeline()` がpreview/export共通パイプライン用の派生区間を生成する。
+  - 追加時の動画尺合わせで自動トリムされたBGMは、まず元音源の残りまで連続再生する。まだ尺が余る場合だけトリム範囲を合成IDの派生クリップとして繰り返す。途中区間のfadeOutと繰り返し区間のfadeInを外し、末尾区間だけ元のfadeOutを保持する。
+  - `autoExtendToTimelineEnd` は省略時ON。各カードの「動画末尾まで自動延長」でOFFにでき、最後のBGMをOFFにしても前のBGMへ補完対象をフォールバックさせない。意図的な無音を尊重する。
+  - `wasAutoTrimmedOnAdd` は追加時自動トリムと利用者の手動トリムを区別する。トリムスライダー／終了位置操作後はfalseにし、利用者が選んだ範囲をループ単位として扱う。
+- **キャプチャ同期**:
+  - キャプチャ開始時の`currentTimeRef`を固定し、停止後に`renderFrame(targetTime, false)`を明示実行する。そこで発生したvideo seekを待ち、同じ時刻を再描画して2回のrAF後にCanvasを読む。
+  - 単に「呼出時点でseeking中の要素」を待つだけでは、停止時に残った古いCanvasを更新できない。待機には上限を設け、デコード失敗でもUIを停止させない。
+- **サムネイル契約**:
+  - `canvasStore`に選択時刻と320px縮小JPEG Data URLを保持し、プロジェクト保存／復元・自動保存差分・一括リセットへ含める。プレビュー直下の「現在位置をサムネイルに設定」「自動に戻す」で操作し、設定画像をアプリ内で確認できる。
+  - 手動設定と「自動に戻す」は、サムネイル状態だけでなく生成済み`exportUrl`も`clearGeneratedExport()`で破棄する。これを省くと、UIは自動表示でも手動設定時に生成した古い動画Blobをダウンロードできる。サムネイル変更は必ず再書き出しを必要とする編集操作として扱う。
+  - サムネイル選択はWebCodecsのキーフレーム周期へ介入させない。任意位置の追加キーフレームはOSのカバー画像採用を保証しない一方、エンコーダー負荷と書き出し停止リスクを増やすため、安定していたフレーム0＋1秒間隔を維持する。MediaRecorder経路とOSのファイル一覧は任意カバー画像を保証できないため、UIとヘルプでOS依存を明記する。
+  - クリップカードの自動サムネイルも0.2秒を第一候補にし、ほぼ黒なら0.5秒、1秒、先頭、中央へフォールバックする。黒帯を含む素材を誤判定しにくいよう、全画素の3%以上が閾値を超えるかで判定する。
+- **書き出し後の資源解放**:
+  - `VideoEncoder` / `AudioEncoder` はflush直後、完了callbackを返す前に明示closeする。正常終了だけでなく中断・失敗のfinallyでも再確認する。
+  - codecの`flush()`には30秒の上限を設け、ブラウザ実装がPromiseを返さない場合も永続的な「書き出し中」にせず、失敗通知とfinally解放へ移る。
+  - Canvas capture streamの全trackとreaderはfinallyでも停止／cancelし、エラー経路でハードウェア資源を残さない。クリップカード用videoも`pause()`、`src`解除、`load()`まで実行する。
+  - キャプチャのseek待機がtimeoutした場合は`seeked` listenerとrAFを破棄し、後から古い操作の再描画が走らないようにする。
+- **回帰ガード**: 0〜8秒／8〜15秒のBGMを20秒へ伸ばすループ、OFF時の無補完、追加時自動トリムの元音源継続、seek前後の2回描画、timeout後のlistener破棄、codec／stream／reader解放、保存型・UIヘルプをテストし、全preview/export品質ゲートを通す。
+
+### 13-137. エクスポート後の通常プレビューで発生する周期ブラックアウト
+
+- **確認した現象**:
+  - 画面録画のプレビュー領域だけを計測すると、黒フレームは約0.5秒間隔で1〜5フレーム発生し、周囲のUIは表示されたままだった。非黒フレーム間では素材動画自体が進んでおり、動画全体の停止や画面録画側のブラックアウトではない。
+  - PC向けstandard previewの同期閾値`previewSyncThresholdSec`も0.5秒であり、発生周期と一致した。
+- **原因**:
+  - `renderFrame()`内のactive video時刻補正がexportだけでなく通常previewにも適用されていた。export直後のデコーダー復帰が遅れてwall clockとの差が0.5秒を超えると`video.currentTime = targetTime`が発火し、そのseekによる復号待ちが次の0.5秒差を生むため、周期的な黒フレーム取り込みが継続した。
+  - サムネイル操作は連続exportを誘発してデコーダー／エンコーダー負荷を高めるきっかけだが、手動サムネイル画像そのものが黒フレームを生成していたわけではない。
+- **実装方針**:
+  - standard通常previewでは再生中video要素の自然再生を優先し、wall clock差を理由にactive videoを強制seekしない。フレーム時刻を厳密に合わせる一般的な`currentTime`補正はexport時だけに限定する。
+  - 明示シーク、再生開始位置合わせ、Android専用stall recovery、動画境界prebufferは別用途なので維持する。exportの同期品質も従来どおり維持する。
+  - 13-136のcodec／stream／reader解放と組み合わせ、負荷の残留と、残留負荷をきっかけにした周期seekの両方を防ぐ。
+- **回帰ガード**: 非Androidの通常previewで0.5秒を超えるdriftを与えても`currentTime`代入が0回であること、同条件のexportでは1回補正されることをstandard preview engineテストで固定する。
+
+### 13-138. エクスポート後の停止／再生反復でプレビューが再生不能になる競合
+
+- **確認した状態遷移**:
+  - export完了callbackがプレビューUIを先に操作し、その後でexport engineの`finally`がcodec・reader・Canvasサイズを解放していた。この短い間に停止／再生でき、後片付けと次のpreview開始が競合していた。
+  - 共通`stopAll()`は通常previewの停止時にも`stopWebCodecsExport({ reason: 'user' })`を呼び、export FSMを不要に`cancelled`へ遷移させていた。完了callback内でもsessionを閉じた直後に再度export停止／完了へ入る余地があった。
+  - 停止ボタンが動画を先頭へseekした直後、`startEngine()`が同じ`currentTime`を無条件で再代入していた。終端までexportした直後はデコーダー復帰が遅いため、同一seekの中断・再発行を反復すると`seeking`／`readyState`の回復を妨げる。
+- **実装方針**:
+  - export完了結果はexport Promiseのsettle、すなわちengineの`finally`完了後にUIへ反映する。完了結果とcleanupの双方が揃うまで停止状態へ戻さない。
+  - `stopAll()`からexport停止へ進むのは、呼出時点が`export`モードかつ有効なexport sessionを保持している場合だけに限定する。通常preview停止と完了済みexportの再停止を分離する。
+  - stop／play時の動画・音声・preview cache巻き戻しは、現在位置との差が10msを超える場合だけ`currentTime`を代入する。既に同じ位置へ向かうseekはそのまま完了させる。
+- **回帰ガード**: 同一先頭位置からのpreview開始でseek代入0回、通常previewの停止／再生3反復でexport停止0回、export完了UIがexport Promise解決前に復旧せず解決後に1回だけ復旧することをstandard preview engineテストで固定する。

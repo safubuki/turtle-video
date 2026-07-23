@@ -1,5 +1,5 @@
 import type { MutableRefObject } from 'react';
-import { cleanup, render } from '@testing-library/react';
+import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import TurtleVideo from '../components/TurtleVideo';
@@ -16,6 +16,11 @@ import {
   useMediaStore,
   useUIStore,
 } from '../stores';
+import { useCanvasStore } from '../stores/canvasStore';
+
+const capturedUi = vi.hoisted(() => ({
+  previewProps: null as Record<string, unknown> | null,
+}));
 
 vi.mock('../components/common/Toast', () => ({ default: () => null }));
 vi.mock('../components/common/ErrorMessage', () => ({ default: () => null }));
@@ -25,7 +30,12 @@ vi.mock('../components/sections/ClipsSection', () => ({ default: () => null }));
 vi.mock('../components/sections/BgmSection', () => ({ default: () => null }));
 vi.mock('../components/sections/NarrationSection', () => ({ default: () => null }));
 vi.mock('../components/sections/CaptionSection', () => ({ default: () => null }));
-vi.mock('../components/sections/PreviewSection', () => ({ default: () => null }));
+vi.mock('../components/sections/PreviewSection', () => ({
+  default: (props: Record<string, unknown>) => {
+    capturedUi.previewProps = props;
+    return null;
+  },
+}));
 vi.mock('../components/modals/AiModal', () => ({ default: () => null }));
 vi.mock('../components/modals/SettingsModal', () => ({
   default: () => null,
@@ -122,6 +132,8 @@ function resetStores() {
   useCaptionStore.getState().resetCaptions();
   useUIStore.getState().resetUI();
   useLogStore.getState().clearLogs();
+  useCanvasStore.getState().clearVideoThumbnail();
+  capturedUi.previewProps = null;
 }
 
 beforeEach(() => {
@@ -174,5 +186,39 @@ describe('TurtleVideo export wiring', () => {
 
     expect(previewEngineParams.current?.recorderRef).toBe(mainRecorderRef);
     expect(previewEngineParams.current?.recorderRef).not.toBe(previewCacheRecorderRef);
+  });
+
+  it('自動に戻すと手動サムネイルと生成済みexportを同時に破棄する', () => {
+    const capabilities = createIosSafariCapabilities();
+    const exportHook = createExportHookResult({ current: null });
+    const exportRuntime: ExportRuntime = {
+      useExport: vi.fn(() => exportHook),
+    };
+    const previewRuntime = createPreviewRuntime(capabilities, () => {});
+    const saveRuntime: SaveRuntime = {
+      configureProjectStore: vi.fn(),
+      getPlatformCapabilities: vi.fn(() => capabilities),
+      getPersistenceHealth: vi.fn(() => Promise.resolve(null)),
+      saveBlobWithClientFileStrategy: vi.fn(() => Promise.resolve({ strategy: 'anchor-download' as const })),
+    };
+    useCanvasStore.getState().setVideoThumbnail(2.5, 'data:image/jpeg;base64,manual');
+    useUIStore.setState({ exportUrl: 'blob:manual-thumbnail-export', exportExt: 'mp4' });
+
+    render(
+      <TurtleVideo
+        appFlavor="standard"
+        previewRuntime={previewRuntime}
+        exportRuntime={exportRuntime}
+        saveRuntime={saveRuntime}
+      />,
+    );
+
+    const onClearVideoThumbnail = capturedUi.previewProps?.onClearVideoThumbnail as (() => void) | undefined;
+    expect(onClearVideoThumbnail).toBeTypeOf('function');
+    act(() => onClearVideoThumbnail?.());
+
+    expect(useCanvasStore.getState().videoThumbnailTime).toBeNull();
+    expect(useCanvasStore.getState().videoThumbnailDataUrl).toBeNull();
+    expect(useUIStore.getState().exportUrl).toBeNull();
   });
 });

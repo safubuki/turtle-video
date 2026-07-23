@@ -31,10 +31,25 @@ function createImageItem(overrides: Partial<MediaItem> = {}): MediaItem {
   };
 }
 
+function createVideoItem(overrides: Partial<MediaItem> = {}): MediaItem {
+  return createImageItem({
+    id: 'video-1',
+    file: new File(['video'], 'video.mp4', { type: 'video/mp4' }),
+    type: 'video',
+    duration: 8,
+    originalDuration: 12,
+    trimStart: 2,
+    trimEnd: 10,
+    isTransformOpen: false,
+    ...overrides,
+  });
+}
+
 function renderClipsSection(overrides: Partial<ComponentProps<typeof ClipsSection>> = {}) {
   const props: ComponentProps<typeof ClipsSection> = {
     mediaItems: [],
     mediaTimelineRanges: {},
+    currentTime: 0,
     isClipsLocked: false,
     mediaElements: {},
     onToggleClipsLock: vi.fn(),
@@ -46,6 +61,7 @@ function renderClipsSection(overrides: Partial<ComponentProps<typeof ClipsSectio
     onToggleMediaLock: vi.fn(),
     onToggleTransformPanel: vi.fn(),
     onUpdateVideoTrim: vi.fn(),
+    onSetVideoTrimToCurrent: vi.fn(),
     onUpdateImageDuration: vi.fn(),
     onUpdateMediaScale: vi.fn(),
     onUpdateMediaPosition: vi.fn(),
@@ -116,6 +132,22 @@ describe('ClipsSection media picker routing', () => {
     });
 
     expect(onUpdateMediaBlur).toHaveBeenCalledWith('image-1', 12);
+  });
+
+  it('対象動画の表示区間内ではプレビュー位置を開始・終了へ反映できる', () => {
+    const onSetVideoTrimToCurrent = vi.fn();
+    renderClipsSection({
+      mediaItems: [createVideoItem()],
+      mediaTimelineRanges: { 'video-1': { start: 5, end: 13 } },
+      currentTime: 8,
+      onSetVideoTrimToCurrent,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '開始' }));
+    fireEvent.click(screen.getByRole('button', { name: '終了' }));
+
+    expect(onSetVideoTrimToCurrent).toHaveBeenNthCalledWith(1, 'video-1', 'start');
+    expect(onSetVideoTrimToCurrent).toHaveBeenNthCalledWith(2, 'video-1', 'end');
   });
 
   it('showOpenFilePicker 経路を無効化したときは hidden input を使う', () => {

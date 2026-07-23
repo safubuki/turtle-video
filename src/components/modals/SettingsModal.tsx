@@ -41,7 +41,7 @@ const PREVIEW_LOG_MODE_OPTIONS: ReadonlyArray<{
   {
     value: 'smooth',
     label: '標準',
-    description: '通常確認向け。境界診断ログを抑えて、プレビューへの負荷を最小にします。',
+    description: '通常利用向け。詳細な操作・境界診断ログを抑えて、動作への負荷を最小にします。',
   },
   {
     value: 'boundary',
@@ -51,7 +51,7 @@ const PREVIEW_LOG_MODE_OPTIONS: ReadonlyArray<{
   {
     value: 'detailed',
     label: '詳細',
-    description: 'タイムライン詳細も記録します。開発調査用で、実機では重くなる場合があります。',
+    description: 'タイムラインと編集操作の詳細を記録します。問題の再現調査用で、実機では重くなる場合があります。',
   },
 ];
 
@@ -877,7 +877,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
                 <div className="space-y-1">
                   <div className="text-sm font-bold text-gray-100">ログモード</div>
                   <p className="text-xs text-gray-300 leading-relaxed">
-                    ログの記録量を調整します。設定変更後は次のプレビュー開始から反映されます。
+                    ログの記録量を調整します。編集操作にはすぐ反映され、プレビュー診断は次の再生開始から反映されます。
                   </p>
                   <p className="text-xs text-gray-500 leading-relaxed">
                     ※ すでに再生中の場合は、プレビューを停止して再生し直してください。

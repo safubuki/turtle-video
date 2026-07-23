@@ -130,6 +130,7 @@ describe('ClipThumbnail', () => {
     expect(createdVideo?.getAttribute('webkit-playsinline')).toBe('');
     expect(appendSpy.mock.calls.some(([node]) => node === createdVideo)).toBe(true);
     expect(removeSpy.mock.calls.some(([node]) => node === createdVideo)).toBe(true);
+    expect(createdVideo?.getAttribute('src')).toBeNull();
   });
 
   it('iOS Safari 以外では DOM 配置や再生 prime を行わない', async () => {
@@ -146,5 +147,6 @@ describe('ClipThumbnail', () => {
     expect(createdVideo).not.toBeNull();
     expect(playSpy).not.toHaveBeenCalled();
     expect(appendSpy.mock.calls.some(([node]) => node === createdVideo)).toBe(false);
+    expect(createdVideo?.getAttribute('src')).toBeNull();
   });
 });

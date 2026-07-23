@@ -501,6 +501,8 @@ async function serializeNarrationClip(clip: NarrationClip): Promise<SerializedNa
     fadeOut: clip.fadeOut,
     fadeInDuration: clip.fadeInDuration,
     fadeOutDuration: clip.fadeOutDuration,
+    autoExtendToTimelineEnd: clip.autoExtendToTimelineEnd,
+    wasAutoTrimmedOnAdd: clip.wasAutoTrimmedOnAdd,
   };
 }
 
@@ -547,6 +549,8 @@ function deserializeNarrationClip(data: SerializedNarrationClip): NarrationClip 
     fadeOut: data.fadeOut,
     fadeInDuration: data.fadeInDuration,
     fadeOutDuration: data.fadeOutDuration,
+    autoExtendToTimelineEnd: data.autoExtendToTimelineEnd,
+    wasAutoTrimmedOnAdd: data.wasAutoTrimmedOnAdd,
   };
 }
 
@@ -685,6 +689,8 @@ export const useProjectStore = create<ProjectState>()(
               isCaptionsLocked,
               bgmClips: serializedBgmClips,
               aspectRatio: useCanvasStore.getState().aspectRatio,
+              videoThumbnailTime: useCanvasStore.getState().videoThumbnailTime,
+              videoThumbnailDataUrl: useCanvasStore.getState().videoThumbnailDataUrl,
             };
 
             await getProjectPersistenceAdapter().saveProject(nextProjectData);
@@ -775,6 +781,8 @@ export const useProjectStore = create<ProjectState>()(
               isCaptionsLocked,
               bgmClips: serializedBgmClips,
               aspectRatio: useCanvasStore.getState().aspectRatio,
+              videoThumbnailTime: useCanvasStore.getState().videoThumbnailTime,
+              videoThumbnailDataUrl: useCanvasStore.getState().videoThumbnailDataUrl,
             };
 
             await getProjectPersistenceAdapter().saveProject(nextProjectData);
@@ -852,6 +860,14 @@ export const useProjectStore = create<ProjectState>()(
           // メディア寸法の反映（applyFromSource）より前に向きを確定させておく。
           const loadedAspectRatio: AspectRatio = data.aspectRatio === 'portrait' ? 'portrait' : 'landscape';
           useCanvasStore.getState().setAspectRatio(loadedAspectRatio);
+          if (typeof data.videoThumbnailTime === 'number' && data.videoThumbnailDataUrl) {
+            useCanvasStore.getState().setVideoThumbnail(
+              Math.max(0, data.videoThumbnailTime),
+              data.videoThumbnailDataUrl,
+            );
+          } else {
+            useCanvasStore.getState().clearVideoThumbnail();
+          }
 
           useLogStore.getState().info('SYSTEM', 'プロジェクト読み込み完了', {
             operationId,

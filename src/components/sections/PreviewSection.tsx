@@ -14,6 +14,7 @@ import {
   MonitorPlay,
   AlertCircle,
   Camera,
+  ImageIcon,
   CircleHelp,
 } from 'lucide-react';
 import type { MediaItem, AudioTrack, NarrationClip } from '../../types';
@@ -93,6 +94,10 @@ interface PreviewSectionProps {
   onDownload: () => void;
   onClearAll: () => void;
   onCapture: () => void;
+  videoThumbnailTime?: number | null;
+  videoThumbnailDataUrl?: string | null;
+  onSetVideoThumbnail?: () => void;
+  onClearVideoThumbnail?: () => void;
   onExportFinalizeTimeout?: () => void;
   onOpenHelp: () => void;
   formatTime: (seconds: number) => string;
@@ -126,6 +131,10 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   onDownload,
   onClearAll,
   onCapture,
+  videoThumbnailTime = null,
+  videoThumbnailDataUrl = null,
+  onSetVideoThumbnail = () => {},
+  onClearVideoThumbnail = () => {},
   onExportFinalizeTimeout,
   onOpenHelp,
   formatTime,
@@ -545,6 +554,48 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
           >
             <Camera className="w-5 h-5 lg:w-6 lg:h-6" />
           </button>
+        </div>
+        <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+          <div className="flex items-center gap-3">
+            <div className="w-24 aspect-video shrink-0 overflow-hidden rounded-lg border border-gray-700 bg-black flex items-center justify-center">
+              {videoThumbnailDataUrl ? (
+                <img src={videoThumbnailDataUrl} alt="設定中の動画サムネイル" className="h-full w-full object-contain" />
+              ) : (
+                <ImageIcon className="h-6 w-6 text-gray-700" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-emerald-200">動画サムネイル</p>
+              <p className="mt-0.5 text-[10px] md:text-xs text-gray-500">
+                {videoThumbnailTime == null
+                  ? '自動（先頭寄りの黒を避けた候補）'
+                  : `設定位置 ${formatTime(videoThumbnailTime)}`}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={onSetVideoThumbnail}
+                  disabled={mediaItems.length === 0 || isProcessing || isLoading}
+                  className="min-h-9 rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-3 text-[10px] md:text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-40"
+                >
+                  現在位置をサムネイルに設定
+                </button>
+                {videoThumbnailTime != null && (
+                  <button
+                    type="button"
+                    onClick={onClearVideoThumbnail}
+                    disabled={isProcessing}
+                    className="min-h-9 rounded-lg border border-gray-700 bg-gray-800 px-3 text-[10px] md:text-xs text-gray-300 hover:bg-gray-700 disabled:opacity-40"
+                  >
+                    自動に戻す
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+          <p className="mt-2 text-[10px] leading-relaxed text-gray-600">
+            ファイル一覧の表示画像はOS側の仕様により、設定画像と異なる場合があります。
+          </p>
         </div>
         <div className="mt-6 flex flex-col gap-4">
           <div className="flex items-center justify-between gap-4">

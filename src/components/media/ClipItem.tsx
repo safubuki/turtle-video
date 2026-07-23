@@ -25,16 +25,19 @@ import {
   Volume2,
   VolumeX,
   RefreshCw,
+  MapPin,
 } from 'lucide-react';
 import type { MediaItem } from '../../types';
 import MiniPreview from '../common/MiniPreview';
 import ClipThumbnail from '../common/ClipThumbnail';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import { useCanvasStore } from '../../stores/canvasStore';
+import { canSetVideoTrimAtPreviewPosition } from '../../utils/videoTrimTimeline';
 
 export interface ClipItemProps {
   item: MediaItem;
   timelineRange: { start: number; end: number };
+  currentTime: number;
   index: number;
   totalItems: number;
   isClipsLocked: boolean;
@@ -47,6 +50,7 @@ export interface ClipItemProps {
   onToggleLock: () => void;
   onToggleTransformPanel: () => void;
   onUpdateVideoTrim: (type: 'start' | 'end', value: string) => void;
+  onSetVideoTrimToCurrent: (type: 'start' | 'end') => void;
   onUpdateImageDuration: (value: string) => void;
   onUpdateScale: (value: string | number) => void;
   onUpdatePosition: (axis: 'x' | 'y', value: string) => void;
@@ -69,6 +73,7 @@ export interface ClipItemProps {
 const ClipItem: React.FC<ClipItemProps> = ({
   item: v,
   timelineRange,
+  currentTime,
   index: i,
   totalItems,
   isClipsLocked,
@@ -80,6 +85,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
   onToggleLock,
   onToggleTransformPanel,
   onUpdateVideoTrim,
+  onSetVideoTrimToCurrent,
   onUpdateImageDuration,
   onUpdateScale,
   onUpdatePosition,
@@ -97,6 +103,8 @@ const ClipItem: React.FC<ClipItemProps> = ({
   const canvasWidth = useCanvasStore((s) => s.width);
   const canvasHeight = useCanvasStore((s) => s.height);
   const isDisabled = isClipsLocked || v.isLocked;
+  const canSetCurrentAsTrimStart = canSetVideoTrimAtPreviewPosition(v, timelineRange, currentTime, 'start');
+  const canSetCurrentAsTrimEnd = canSetVideoTrimAtPreviewPosition(v, timelineRange, currentTime, 'end');
 
   // スワイプ保護用コールバック
   const handleTrimStart = useCallback((val: number) => onUpdateVideoTrim('start', String(val)), [onUpdateVideoTrim]);
@@ -191,6 +199,31 @@ const ClipItem: React.FC<ClipItemProps> = ({
             <span>
               トリミング: {v.trimStart.toFixed(2)}s - {v.trimEnd.toFixed(2)}s
             </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5 text-[10px] md:text-xs">
+            <span className="text-gray-500 mr-0.5">プレビュー位置を反映:</span>
+            <button
+              type="button"
+              onClick={() => onSetVideoTrimToCurrent('start')}
+              disabled={isDisabled || !canSetCurrentAsTrimStart}
+              className="min-h-9 px-2.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 hover:border-green-500/60 hover:text-green-200 disabled:opacity-30 flex items-center gap-1 transition"
+              title={canSetCurrentAsTrimStart
+                ? `現在位置(${formatTimelineTime(currentTime)})をトリミング開始に設定`
+                : 'この動画カードの表示区間内へプレビューを移動してください'}
+            >
+              <MapPin className="w-3.5 h-3.5" /> 開始
+            </button>
+            <button
+              type="button"
+              onClick={() => onSetVideoTrimToCurrent('end')}
+              disabled={isDisabled || !canSetCurrentAsTrimEnd}
+              className="min-h-9 px-2.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 hover:border-red-500/60 hover:text-red-200 disabled:opacity-30 flex items-center gap-1 transition"
+              title={canSetCurrentAsTrimEnd
+                ? `現在位置(${formatTimelineTime(currentTime)})をトリミング終了に設定`
+                : 'この動画カードの表示区間内へプレビューを移動してください'}
+            >
+              <MapPin className="w-3.5 h-3.5" /> 終了
+            </button>
           </div>
           {/* 開始位置 */}
           <div className="flex items-center gap-2 text-[10px]">
@@ -416,7 +449,6 @@ const ClipItem: React.FC<ClipItemProps> = ({
               <span>90°回転</span>
             </button>
           </div>
-
           {/* ぼかし（カード単位・1080p基準） */}
           <div className="flex flex-col gap-1 border-t border-gray-700/50 pt-2 mt-1">
             <div className="flex items-center justify-between text-[10px] text-gray-400">

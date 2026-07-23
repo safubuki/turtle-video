@@ -26,14 +26,16 @@ import { usePreventUnload } from '../hooks/usePreventUnload';
 import { useProjectStore } from '../stores/projectStore';
 
 // Utils
-import { captureCanvasAsImage, waitForPreviewFrameSettled } from '../utils/canvas';
+import { captureCanvasAsImage, createVideoThumbnailDataUrl, waitForPreviewFrameSettled } from '../utils/canvas';
 import { preserveOriginalFileName, resolveAiNarrationFileName } from '../utils/fileNames';
 import { saveObjectUrlWithClientFileStrategy } from '../utils/fileSave';
 import { openFilesWithPicker, shouldUseMediaOpenFilePicker } from '../utils/platform';
 import { computeTransitionTimelineRanges } from '../utils/transitionTimeline';
+import { resolveEffectiveBgmTimeline } from '../utils/bgmTimeline';
+import { resolveVideoTrimAtPreviewPosition } from '../utils/videoTrimTimeline';
 
 // Zustand Stores
-import { useMediaStore, useAudioStore, useUIStore, useCaptionStore, useLogStore, createNarrationClip } from '../stores';
+import { useMediaStore, useAudioStore, useUIStore, useCaptionStore, useLogStore, createNarrationClip, isDetailedLoggingEnabled } from '../stores';
 import { useOfflineModeStore } from '../stores/offlineModeStore';
 
 // コンポーネント
@@ -83,6 +85,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const canvasHeight = useCanvasStore((s) => s.height);
   const resetCanvasSize = useCanvasStore((s) => s.resetCanvasSize);
   const applyCanvasFromSource = useCanvasStore((s) => s.applyFromSource);
+  const videoThumbnailTime = useCanvasStore((s) => s.videoThumbnailTime);
+  const videoThumbnailDataUrl = useCanvasStore((s) => s.videoThumbnailDataUrl);
+  const setVideoThumbnail = useCanvasStore((s) => s.setVideoThumbnail);
+  const clearVideoThumbnail = useCanvasStore((s) => s.clearVideoThumbnail);
 
   // Media Store
   const mediaItems = useMediaStore((s) => s.mediaItems);
@@ -360,10 +366,34 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   // BGM クリップ（複数BGM・standard 限定）はナレーションと同形のクリップとして
   // 同じ再生・書き出しパイプライン（loader / engine / export音声ソース）へマージして流す。
   // iOS Safari（apple-safari）ではマージしない（BGM クリップは無視される）。
+  const effectiveBgmTimeline = useMemo(
+    () => resolveEffectiveBgmTimeline(bgmClips, totalDuration),
+    [bgmClips, totalDuration],
+  );
+
   const pipelineNarrations = useMemo(() => {
     if (platformCapabilities.isIosSafari || bgmClips.length === 0) return narrations;
-    return [...narrations, ...bgmClips];
-  }, [bgmClips, narrations, platformCapabilities.isIosSafari]);
+    return [...narrations, ...effectiveBgmTimeline.playbackClips];
+  }, [bgmClips.length, effectiveBgmTimeline.playbackClips, narrations, platformCapabilities.isIosSafari]);
+
+  useEffect(() => {
+    if (bgmClips.length === 0 || !isDetailedLoggingEnabled()) return;
+    logDebug('AUDIO', 'BGM動画尺自動追従を再計算', {
+      totalDuration,
+      clips: effectiveBgmTimeline.states.map((state) => ({
+        id: state.source.id,
+        authoredStart: state.source.startTime,
+        authoredEnd: state.authoredEnd,
+        effectiveStart: state.effectiveStart,
+        effectiveEnd: state.effectiveEnd,
+        inactive: state.isInactive,
+        trimmedByTimeline: state.isTrimmedByTimeline,
+        autoExtended: state.isAutoExtended,
+        repeatCount: state.repeatCount,
+        autoExtendEnabled: state.source.autoExtendToTimelineEnd !== false,
+      })),
+    });
+  }, [bgmClips.length, effectiveBgmTimeline.states, logDebug, totalDuration]);
 
   // レガシー単一 BGM を standard フレーバーではクリップ形式へ自動移行する。
   // bgmClips が既にある場合も呼ぶ（保存/復元で併存する iOS 互換ミラー bgm を
@@ -1443,6 +1473,40 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     [pausePreviewBeforeEdit, updateVideoTrim, mediaItems]
   );
 
+  const handleSetVideoTrimToCurrent = useCallback((id: string, type: 'start' | 'end') => {
+    const item = mediaItems.find((candidate) => candidate.id === id);
+    const timelineRange = mediaTimelineRanges[id];
+    if (!item || item.type !== 'video' || !timelineRange) return;
+
+    const resolved = resolveVideoTrimAtPreviewPosition(item, timelineRange, currentTime);
+    if (!resolved) return;
+
+    const beforeTotalDuration = totalDuration;
+    handleUpdateVideoTrim(id, type, String(resolved.sourceTime));
+    const updatedState = useMediaStore.getState();
+    const updatedItem = updatedState.mediaItems.find((candidate) => candidate.id === id);
+
+    if (type === 'start') {
+      currentTimeRef.current = timelineRange.start;
+      setCurrentTime(timelineRange.start);
+    }
+
+    logDebug('MEDIA', 'プレビュー位置から動画トリムを設定', {
+      id,
+      type,
+      previewTime: currentTime,
+      timelineStart: timelineRange.start,
+      timelineEnd: timelineRange.end,
+      sourceTime: resolved.sourceTime,
+      previousTrimStart: item.trimStart,
+      previousTrimEnd: item.trimEnd,
+      nextTrimStart: updatedItem?.trimStart,
+      nextTrimEnd: updatedItem?.trimEnd,
+      previousTotalDuration: beforeTotalDuration,
+      nextTotalDuration: updatedState.totalDuration,
+    });
+  }, [currentTime, handleUpdateVideoTrim, logDebug, mediaItems, mediaTimelineRanges, setCurrentTime, totalDuration]);
+
   // --- 画像表示時間更新ハンドラ ---
   // 目的: 画像クリップの表示時間を変更
   const handleUpdateImageDuration = useCallback((id: string, newDuration: string) => {
@@ -1531,8 +1595,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     delete sourceElementsRef.current[id];
 
     removeMediaItem(id);
+    if (mediaItems.length === 1 && mediaItems[0]?.id === id) {
+      clearVideoThumbnail();
+    }
     delete mediaElementsRef.current[id];
-  }, [pausePreviewBeforeEdit, removeMediaItem]);
+  }, [clearVideoThumbnail, mediaItems, pausePreviewBeforeEdit, removeMediaItem]);
 
   // --- トランスフォームパネル開閉ハンドラ ---
   // 目的: スケール・位置設定UIの表示/非表示を切り替え
@@ -2169,7 +2236,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     if (previewCacheStatusRef.current === 'ready' && previewCacheVideoRef.current) {
       try {
         previewCacheVideoRef.current.pause();
-        previewCacheVideoRef.current.currentTime = 0;
+        if (Math.abs(previewCacheVideoRef.current.currentTime) > 0.01) {
+          previewCacheVideoRef.current.currentTime = 0;
+        }
       } catch {
         /* ignore */
       }
@@ -2183,7 +2252,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         try {
           const videoEl = el as HTMLVideoElement;
           videoEl.pause();
-          videoEl.currentTime = item.trimStart || 0;
+          const targetTime = item.trimStart || 0;
+          if (Math.abs(videoEl.currentTime - targetTime) > 0.01) {
+            videoEl.currentTime = targetTime;
+          }
         } catch (e) {
           /* ignore */
         }
@@ -2200,7 +2272,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         try {
           const audioEl = el as HTMLAudioElement;
           audioEl.pause();
-          audioEl.currentTime = 0;
+          if (Math.abs(audioEl.currentTime) > 0.01) {
+            audioEl.currentTime = 0;
+          }
         } catch (e) {
           /* ignore */
         }
@@ -2307,6 +2381,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     if (isProcessing) return;
 
     // 再生中の場合は一時停止
+    const targetTime = Math.max(0, Math.min(currentTimeRef.current, totalDurationRef.current));
     const wasPlaying = isPlayingRef.current;
     if (wasPlaying) {
       stopAll();
@@ -2324,9 +2399,13 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     // 追いつく前に描画されることがあり、保存画像が画面より 1 フレーム前になる。
     // 進行中のシーク完了と再描画を待ってから読み取り、画面の確定フレームと一致させる。
     // （通常再生で終端に来た場合は seeking 中の要素が無いためほぼ素通り＝従来挙動）
-    await waitForPreviewFrameSettled(mediaElementsRef.current);
+    await waitForPreviewFrameSettled(
+      mediaElementsRef.current,
+      500,
+      () => renderFrame(targetTime, false),
+    );
 
-    const timestamp = formatTime(currentTimeRef.current).replace(':', 'm') + 's';
+    const timestamp = formatTime(targetTime).replace(':', 'm') + 's';
     const filename = `turtle_capture_${timestamp}_${Date.now()}`;
     const success = await captureCanvasAsImage(canvas, filename);
 
@@ -2335,7 +2414,37 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     } else {
       showToast('キャプチャに失敗しました');
     }
-  }, [mediaItems.length, isProcessing, stopAll, pause, showToast, formatTime]);
+  }, [mediaItems.length, isProcessing, stopAll, pause, renderFrame, showToast, formatTime]);
+
+  const handleSetVideoThumbnail = useCallback(async () => {
+    if (mediaItems.length === 0 || isProcessing) return;
+    const targetTime = Math.max(0, Math.min(currentTimeRef.current, totalDurationRef.current));
+    if (isPlayingRef.current) {
+      stopAll();
+      pause();
+    }
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    await waitForPreviewFrameSettled(
+      mediaElementsRef.current,
+      500,
+      () => renderFrame(targetTime, false),
+    );
+    const dataUrl = createVideoThumbnailDataUrl(canvas);
+    if (!dataUrl) {
+      showToast('サムネイルの設定に失敗しました');
+      return;
+    }
+    clearGeneratedExport('thumbnail:set-current');
+    setVideoThumbnail(targetTime, dataUrl);
+    showToast('現在位置をサムネイルに設定しました');
+  }, [clearGeneratedExport, isProcessing, mediaItems.length, pause, renderFrame, setVideoThumbnail, showToast, stopAll]);
+
+  const handleClearVideoThumbnail = useCallback(() => {
+    clearGeneratedExport('thumbnail:restore-auto');
+    clearVideoThumbnail();
+    showToast('サムネイルを自動に戻しました');
+  }, [clearGeneratedExport, clearVideoThumbnail, showToast]);
 
   const openSectionHelp = useCallback((section: SectionHelpKey) => {
     setActiveHelpSection(section);
@@ -2449,6 +2558,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
             <ClipsSection
               mediaItems={mediaItems}
               mediaTimelineRanges={mediaTimelineRanges}
+              currentTime={currentTime}
               isClipsLocked={isClipsLocked}
               mediaElements={mediaElementsRef.current as Record<string, HTMLVideoElement | HTMLImageElement>}
               onToggleClipsLock={withPreviewPause('toggle-clips-lock', toggleClipsLock)}
@@ -2460,6 +2570,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onToggleMediaLock={withPreviewPause('toggle-media-lock', toggleItemLock)}
               onToggleTransformPanel={withPreviewPause('toggle-transform-panel', handleToggleTransformPanel)}
               onUpdateVideoTrim={handleUpdateVideoTrim}
+              onSetVideoTrimToCurrent={handleSetVideoTrimToCurrent}
               onUpdateImageDuration={handleUpdateImageDuration}
               onUpdateMediaScale={handleUpdateMediaScale}
               onUpdateMediaPosition={handleUpdateMediaPosition}
@@ -2590,6 +2701,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
                 onDownload={handleDownload}
                 onClearAll={handleClearAll}
                 onCapture={handleCapture}
+                videoThumbnailTime={videoThumbnailTime}
+                videoThumbnailDataUrl={videoThumbnailDataUrl}
+                onSetVideoThumbnail={handleSetVideoThumbnail}
+                onClearVideoThumbnail={handleClearVideoThumbnail}
                 onExportFinalizeTimeout={handleExportFinalizeTimeout}
                 onOpenHelp={() => openSectionHelp('preview')}
                 formatTime={formatTime}

@@ -22,7 +22,7 @@ import {
   getNextRotation,
   normalizeMediaBlur,
 } from '../utils';
-import { useLogStore } from './logStore';
+import { isDetailedLoggingEnabled, useLogStore } from './logStore';
 
 interface MediaState {
   // State
@@ -219,6 +219,10 @@ export const useMediaStore = create<MediaState>()(
 
       // Update video trim
       updateVideoTrim: (id, type, value) => {
+        const shouldLogDetails = isDetailedLoggingEnabled();
+        const before = shouldLogDetails
+          ? get().mediaItems.find((item) => item.id === id)
+          : undefined;
         set((state) => {
           const updated = state.mediaItems.map((item) => {
             if (item.id !== id) return item;
@@ -237,6 +241,20 @@ export const useMediaStore = create<MediaState>()(
             totalDuration: calculateTotalDuration(updated),
           };
         });
+        if (shouldLogDetails) {
+          const nextState = get();
+          const after = nextState.mediaItems.find((item) => item.id === id);
+          useLogStore.getState().debug('MEDIA', '動画トリム値を更新', {
+            id,
+            type,
+            requestedValue: value,
+            previousTrimStart: before?.trimStart,
+            previousTrimEnd: before?.trimEnd,
+            nextTrimStart: after?.trimStart,
+            nextTrimEnd: after?.trimEnd,
+            totalDuration: nextState.totalDuration,
+          });
+        }
       },
 
       // Update image duration
@@ -293,6 +311,13 @@ export const useMediaStore = create<MediaState>()(
             item.id === id ? { ...item, blur: normalized } : item
           ),
         }));
+        if (isDetailedLoggingEnabled()) {
+          useLogStore.getState().debug('MEDIA', 'メディアぼかしを更新', {
+            id,
+            requestedBlur: blur,
+            normalizedBlur: normalized,
+          });
+        }
       },
 
       // Reset transform

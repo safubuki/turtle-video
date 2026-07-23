@@ -99,6 +99,8 @@ export function useAutoSave() {
   const isCaptionsLocked = useCaptionStore((s) => s.isLocked);
   // 出力の向き（プロジェクトごとに保持）。変更で自動保存が走るよう変更検知に含める。
   const aspectRatio = useCanvasStore((s) => s.aspectRatio);
+  const videoThumbnailTime = useCanvasStore((s) => s.videoThumbnailTime);
+  const videoThumbnailDataUrl = useCanvasStore((s) => s.videoThumbnailDataUrl);
   
   // エクスポート中かどうか
   const isProcessing = useUIStore((s) => s.isProcessing);
@@ -168,6 +170,8 @@ export function useAutoSave() {
         n.fadeOut ?? false,
         n.fadeInDuration ?? '',
         n.fadeOutDuration ?? '',
+        n.autoExtendToTimelineEnd ?? true,
+        n.wasAutoTrimmedOnAdd ?? false,
       ].join(':')).join(','),
       narrations.length,
       narrations.map((n) => [
@@ -221,6 +225,8 @@ export function useAutoSave() {
       isNarrationLocked,
       isCaptionsLocked,
       aspectRatio,
+      videoThumbnailTime ?? 'auto-thumbnail',
+      videoThumbnailDataUrl ?? '',
     ];
     return parts.join('|');
   }, [
@@ -235,6 +241,8 @@ export function useAutoSave() {
     isNarrationLocked,
     isCaptionsLocked,
     aspectRatio,
+    videoThumbnailTime,
+    videoThumbnailDataUrl,
   ]);
   
   /**

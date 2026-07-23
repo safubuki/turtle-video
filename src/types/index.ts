@@ -97,6 +97,10 @@ export interface NarrationClip {
   fadeOut?: boolean;
   fadeInDuration?: number;
   fadeOutDuration?: number;
+  /** BGM専用: 動画尺末尾まで派生再生区間を自動延長する（省略時true）。 */
+  autoExtendToTimelineEnd?: boolean;
+  /** BGM専用: 追加時に動画尺へ合わせてtrimEndを自動短縮したか。 */
+  wasAutoTrimmedOnAdd?: boolean;
 }
 
 /**

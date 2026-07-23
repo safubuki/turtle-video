@@ -9,6 +9,12 @@
 import { useState, useRef, useCallback } from 'react';
 import { FPS, computeExportVideoBitrate } from '../../../constants';
 import { applyExportCanvasSize, useCanvasStore } from '../../../stores/canvasStore';
+import {
+  cancelExportReader,
+  closeExportCodec,
+  flushExportCodecWithTimeout,
+  stopExportMediaStream,
+} from '../../../utils/exportResourceCleanup';
 import * as Mp4Muxer from 'mp4-muxer';
 import type { AudioTrack, NarrationClip } from '../../../types';
 import { useLogStore } from '../../../stores/logStore';
@@ -1461,6 +1467,9 @@ export function createUseExport(config: UseExportRuntimeConfig) {
       let scriptProcessorNode: ScriptProcessorNode | null = null;
       let scriptProcessorSource: MediaStreamAudioSourceNode | null = null;
       let canvasFramePumpTimer: ReturnType<typeof setInterval> | null = null;
+      let videoEncoderForCleanup: VideoEncoder | null = null;
+      let audioEncoderForCleanup: AudioEncoder | null = null;
+      let canvasStreamForCleanup: MediaStream | null = null;
       let preRenderedAudioBuffer: AudioBuffer | null = null;
       let preRenderedAudioPrepared = false;
       let preRenderedAudioPromise: Promise<AudioBuffer | null> | null = null;
@@ -1668,6 +1677,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             console.error('VideoEncoder error:', e);
           },
         });
+        videoEncoderForCleanup = videoEncoder;
         videoEncoder.configure({
           codec: 'avc1.4d002a', // Main Profile, Level 4.2 (widely supported)
           width,
@@ -1766,6 +1776,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             console.error('AudioEncoder error:', e);
           },
         });
+        audioEncoderForCleanup = audioEncoder;
         const audioEncoderConfig = {
           codec: 'mp4a.40.2' as const, // AAC-LC
           sampleRate: audioContext.sampleRate,
@@ -1920,6 +1931,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           }
 
           canvasStream = selectedCanvasStream;
+          canvasStreamForCleanup = selectedCanvasStream;
 
           if (captureMode === 'manual-requestFrame') {
             const framePumpIntervalMs = 16;
@@ -2536,10 +2548,10 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           exportDurationUs: Number.isFinite(exportDurationUs) ? exportDurationUs : null,
           offlineAudioDone,
         });
-        await videoEncoder.flush();
+        await flushExportCodecWithTimeout(videoEncoder, 'VideoEncoder');
         useLogStore.getState().info('RENDER', '[DIAG-7b] VideoEncoder flush 完了');
         try {
-          await audioEncoder.flush();
+          await flushExportCodecWithTimeout(audioEncoder, 'AudioEncoder');
           useLogStore.getState().info('RENDER', '[DIAG-7c] AudioEncoder flush 完了', {
             outputChunksAfterFlush: audioEncoderOutputChunks,
             outputBytesAfterFlush: audioEncoderOutputBytes,
@@ -2557,6 +2569,15 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             audioEncoderState: audioEncoder.state,
           });
         }
+
+        // flush 後すぐにハードウェアエンコーダーを解放する。完了 callback より後の
+        // finally / GC まで保持すると、直後のプレビュー動画デコードと競合しやすい。
+        const videoEncoderClosedAfterFlush = closeExportCodec(videoEncoderForCleanup);
+        const audioEncoderClosedAfterFlush = closeExportCodec(audioEncoderForCleanup);
+        useLogStore.getState().info('RENDER', '[DIAG-7d] WebCodecs エンコーダー解放', {
+          videoEncoderClosed: videoEncoderClosedAfterFlush,
+          audioEncoderClosed: audioEncoderClosedAfterFlush,
+        });
 
         if (Number.isFinite(exportDurationUs)) {
           const audioVideoDiffUs = Math.abs(muxedAudioEndUs - encodedVideoEndUs);
@@ -2604,15 +2625,8 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           clearInterval(canvasFramePumpTimer);
           canvasFramePumpTimer = null;
         }
-        if (canvasStream) {
-          canvasStream.getTracks().forEach((track) => {
-            try {
-              track.stop();
-            } catch (e) {
-              /* ignore */
-            }
-          });
-        }
+        stopExportMediaStream(canvasStream);
+        canvasStreamForCleanup = null;
 
         // バッファ取得とBlob作成
         const { buffer } = muxer.target;
@@ -2884,9 +2898,28 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         if (scriptProcessorSource) {
           try { scriptProcessorSource.disconnect(); } catch (e) { /* ignore */ }
         }
-        // リソース解放などはGCに任せるが、明示的なcloseも可
-        // controllerはstopExportでabort済み
-        // ReaderのキャンセルもstopExportで実施済み
+        // 正常終了・中断・例外の全経路で、ブラウザの動画/音声ハードウェア資源を
+        // 明示解放する。特にエラー経路では成功側の stream.stop() へ到達しない。
+        const cancelledVideoReader = cancelExportReader(videoReaderRef.current);
+        const cancelledAudioReader = cancelExportReader(audioReaderRef.current);
+        const stoppedStreamTracks = stopExportMediaStream(canvasStreamForCleanup);
+        const videoEncoderClosed = closeExportCodec(videoEncoderForCleanup);
+        const audioEncoderClosed = closeExportCodec(audioEncoderForCleanup);
+        if (
+          cancelledVideoReader
+          || cancelledAudioReader
+          || stoppedStreamTracks > 0
+          || videoEncoderClosed
+          || audioEncoderClosed
+        ) {
+          useLogStore.getState().info('RENDER', '[DIAG-CLEANUP] 書き出し資源を解放', {
+            cancelledVideoReader,
+            cancelledAudioReader,
+            stoppedStreamTracks,
+            videoEncoderClosed,
+            audioEncoderClosed,
+          });
+        }
         abortControllerRef.current = null;
         videoReaderRef.current = null;
         audioReaderRef.current = null;

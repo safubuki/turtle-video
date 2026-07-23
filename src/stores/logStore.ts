@@ -13,6 +13,23 @@ export type LogLevel = 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
 // ログカテゴリ
 export type LogCategory = 'MEDIA' | 'RENDER' | 'AUDIO' | 'SYSTEM' | 'GLOBAL';
 
+export type LogRecordingMode = 'smooth' | 'boundary' | 'detailed';
+
+/** 設定画面のログモードを、プレビュー以外の診断ログでも共通利用する。 */
+export function getLogRecordingMode(): LogRecordingMode {
+    try {
+        const mode = globalThis.localStorage?.getItem('preview.log.mode');
+        if (mode === 'boundary' || mode === 'detailed') return mode;
+    } catch {
+        // localStorage が使えない環境では標準モードへ戻す
+    }
+    return 'smooth';
+}
+
+export function isDetailedLoggingEnabled(): boolean {
+    return getLogRecordingMode() === 'detailed';
+}
+
 // ログエントリ
 export interface LogEntry {
     id: string;
@@ -191,12 +208,17 @@ export const useLogStore = create<LogState>()(
             memoryStats: loadMemoryStats(),
 
             log: (level, category, message, details) => {
+                if (level === 'DEBUG' && !isDetailedLoggingEnabled()) return;
                 const now = Date.now();
-                const logKey = `${level}:${category}:${message}`;
+                const detailScope = typeof details?.id === 'string'
+                    ? `:${details.id}:${String(details.type ?? details.edge ?? '')}`
+                    : '';
+                const logKey = `${level}:${category}:${message}${detailScope}`;
                 const { lastLogKey, lastLogTime, entries } = get();
+                const duplicateSuppressMs = level === 'DEBUG' ? 500 : DUPLICATE_SUPPRESS_MS;
 
                 // 重複抑制: 同じログが短時間に連続する場合はスキップ
-                if (logKey === lastLogKey && now - lastLogTime < DUPLICATE_SUPPRESS_MS) {
+                if (logKey === lastLogKey && now - lastLogTime < duplicateSuppressMs) {
                     return;
                 }
 

@@ -107,6 +107,10 @@ interface CanvasState {
   exportQuality: ExportQuality;
   /** 出力の向き（プロジェクトごとに保持。既定は landscape=16:9）。 */
   aspectRatio: AspectRatio;
+  /** ユーザーが選んだ動画サムネイルのタイムライン時刻。nullは自動。 */
+  videoThumbnailTime: number | null;
+  /** UI確認・プロジェクト保存用の縮小JPEG Data URL。 */
+  videoThumbnailDataUrl: string | null;
   /** 直近に適用したソース動画の解像度（品質モード変更時の再計算用） */
   lastSourceWidth: number | null;
   lastSourceHeight: number | null;
@@ -116,6 +120,8 @@ interface CanvasState {
   setExportQuality: (quality: ExportQuality) => void;
   /** 出力の向きを変更し、プレビュー/エクスポートサイズを再計算する。 */
   setAspectRatio: (aspectRatio: AspectRatio) => void;
+  setVideoThumbnail: (time: number, dataUrl: string) => void;
+  clearVideoThumbnail: () => void;
   /** ストアを既定状態へ戻す。 */
   resetCanvasSize: () => void;
   /** 書き出し開始時に呼び出し、キャンバスを高解像度モードへ切り替える。 */
@@ -286,6 +292,8 @@ export const useCanvasStore = create<CanvasState>()(
     isExportMode: false,
     exportQuality: readStoredExportQuality(),
     aspectRatio: 'landscape',
+    videoThumbnailTime: null,
+    videoThumbnailDataUrl: null,
     lastSourceWidth: null,
     lastSourceHeight: null,
     applyFromSource: (sourceWidth, sourceHeight) => {
@@ -344,6 +352,11 @@ export const useCanvasStore = create<CanvasState>()(
         height: isExportMode ? exportSize.height : previewSize.height,
       });
     },
+    setVideoThumbnail: (time, dataUrl) => set({
+      videoThumbnailTime: Number.isFinite(time) ? Math.max(0, time) : 0,
+      videoThumbnailDataUrl: dataUrl,
+    }),
+    clearVideoThumbnail: () => set({ videoThumbnailTime: null, videoThumbnailDataUrl: null }),
     resetCanvasSize: () => set((state) => {
       const previewSize = computeCanvasSizeFromSource(
         0, 0, MAX_PREVIEW_CANVAS_WIDTH, MAX_PREVIEW_CANVAS_HEIGHT, state.aspectRatio,
@@ -359,6 +372,8 @@ export const useCanvasStore = create<CanvasState>()(
         lastSourceWidth: null,
         lastSourceHeight: null,
         isExportMode: false,
+        videoThumbnailTime: null,
+        videoThumbnailDataUrl: null,
       };
     }),
     beginExportMode: () => {

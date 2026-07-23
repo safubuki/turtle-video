@@ -8,7 +8,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import type { AudioTrack, BgmClip, NarrationClip, NarrationSourceType } from '../types';
 import { revokeObjectUrl } from '../utils';
-import { useLogStore } from './logStore';
+import { isDetailedLoggingEnabled, useLogStore } from './logStore';
 
 interface CreateNarrationClipParams {
   file: File | { name: string };
@@ -55,6 +55,7 @@ interface AudioState {
   updateBgmClipVolume: (id: string, value: number) => void;
   toggleBgmClipMute: (id: string) => void;
   updateBgmClipTrim: (id: string, edge: 'start' | 'end', value: number) => void;
+  toggleBgmClipAutoExtend: (id: string, enabled: boolean) => void;
   /** タイムライン上の終了位置を指定し、音源内の trimEnd へ変換する */
   setBgmClipEndTime: (id: string, timelineEnd: number) => void;
   /** 選択した BGM だけを動画末尾で終わるようトリム／再配置する */
@@ -384,6 +385,8 @@ export const useAudioStore = create<AudioState>()(
             fadeOut: false,
             fadeInDuration: 2.0,
             fadeOutDuration: 2.0,
+            autoExtendToTimelineEnd: true,
+            wasAutoTrimmedOnAdd: fit.trimEnd < Math.max(0, params.duration) - 0.001,
           });
           useLogStore.getState().info('AUDIO', 'BGMクリップを追加', {
             id: clip.id,
@@ -424,6 +427,13 @@ export const useAudioStore = create<AudioState>()(
             clip.id === id ? normalizeNarrationClip({ ...clip, startTime: Math.max(0, value) }) : clip
           )),
         }));
+        if (isDetailedLoggingEnabled()) {
+          useLogStore.getState().debug('AUDIO', 'BGM開始位置を更新', {
+            id,
+            requestedStartTime: value,
+            startTime: get().bgmClips.find((clip) => clip.id === id)?.startTime,
+          });
+        }
       },
 
       updateBgmClipVolume: (id, value) => {
@@ -442,6 +452,12 @@ export const useAudioStore = create<AudioState>()(
             clip.id === id ? normalizeNarrationClip({ ...clip, isMuted: !clip.isMuted }) : clip
           )),
         }));
+        if (isDetailedLoggingEnabled()) {
+          useLogStore.getState().debug('AUDIO', 'BGMミュートを切替', {
+            id,
+            isMuted: get().bgmClips.find((clip) => clip.id === id)?.isMuted,
+          });
+        }
       },
 
       updateBgmClipTrim: (id, edge, value) => {
@@ -454,12 +470,22 @@ export const useAudioStore = create<AudioState>()(
             const trimEnd = Number.isFinite(clip.trimEnd) ? clip.trimEnd : duration;
             if (edge === 'start') {
               const nextStart = Math.max(0, Math.min(value, trimEnd - minGap));
-              return normalizeNarrationClip({ ...clip, trimStart: nextStart });
+              return normalizeNarrationClip({ ...clip, trimStart: nextStart, wasAutoTrimmedOnAdd: false });
             }
             const nextEnd = Math.min(duration, Math.max(value, trimStart + minGap));
-            return normalizeNarrationClip({ ...clip, trimEnd: nextEnd });
+            return normalizeNarrationClip({ ...clip, trimEnd: nextEnd, wasAutoTrimmedOnAdd: false });
           }),
         }));
+        if (isDetailedLoggingEnabled()) {
+          const updated = get().bgmClips.find((clip) => clip.id === id);
+          useLogStore.getState().debug('AUDIO', 'BGMトリム値を更新', {
+            id,
+            edge,
+            requestedValue: value,
+            trimStart: updated?.trimStart,
+            trimEnd: updated?.trimEnd,
+          });
+        }
       },
 
       setBgmClipEndTime: (id, timelineEnd) => {
@@ -467,9 +493,30 @@ export const useAudioStore = create<AudioState>()(
           bgmClips: state.bgmClips.map((clip) => {
             if (clip.id !== id) return clip;
             const update = resolveAudioClipEndAtTimelineTime(clip, timelineEnd);
-            return update ? normalizeNarrationClip({ ...clip, ...update }) : clip;
+            return update ? normalizeNarrationClip({ ...clip, ...update, wasAutoTrimmedOnAdd: false }) : clip;
           }),
         }));
+        if (isDetailedLoggingEnabled()) {
+          const updated = get().bgmClips.find((clip) => clip.id === id);
+          useLogStore.getState().debug('AUDIO', 'BGM終了位置を更新', {
+            id,
+            timelineEnd,
+            startTime: updated?.startTime,
+            trimStart: updated?.trimStart,
+            trimEnd: updated?.trimEnd,
+          });
+        }
+      },
+
+      toggleBgmClipAutoExtend: (id, enabled) => {
+        set((state) => ({
+          bgmClips: state.bgmClips.map((clip) => (
+            clip.id === id ? { ...clip, autoExtendToTimelineEnd: enabled } : clip
+          )),
+        }));
+        if (isDetailedLoggingEnabled()) {
+          useLogStore.getState().debug('AUDIO', 'BGM末尾自動延長を更新', { id, enabled });
+        }
       },
 
       fitBgmClipToTimelineEnd: (id, totalDuration) => {
@@ -477,7 +524,7 @@ export const useAudioStore = create<AudioState>()(
           bgmClips: state.bgmClips.map((clip) => {
             if (clip.id !== id) return clip;
             const update = resolveAudioClipFitToTimelineEnd(clip, totalDuration);
-            return update ? normalizeNarrationClip({ ...clip, ...update }) : clip;
+            return update ? normalizeNarrationClip({ ...clip, ...update, wasAutoTrimmedOnAdd: false }) : clip;
           }),
         }));
       },
@@ -496,6 +543,9 @@ export const useAudioStore = create<AudioState>()(
             clip.id === id ? { ...clip, fadeOut: enabled } : clip
           )),
         }));
+        if (isDetailedLoggingEnabled()) {
+          useLogStore.getState().debug('AUDIO', 'BGMフェードアウトを更新', { id, enabled });
+        }
       },
 
       updateBgmClipFadeInDuration: (id, duration) => {
@@ -512,6 +562,9 @@ export const useAudioStore = create<AudioState>()(
             clip.id === id ? { ...clip, fadeOutDuration: duration } : clip
           )),
         }));
+        if (isDetailedLoggingEnabled()) {
+          useLogStore.getState().debug('AUDIO', 'BGMフェードアウト時間を更新', { id, duration });
+        }
       },
 
       moveBgmClip: (id, direction) => {

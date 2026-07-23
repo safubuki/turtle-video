@@ -3,7 +3,7 @@
  * @description キャプチャ前のフレーム確定待ち（waitForPreviewFrameSettled）の挙動テスト。
  *   シークで終端へ移動した直後に保存画像が 1 フレーム前になる問題への対策を検証する。
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { waitForPreviewFrameSettled } from '../utils/canvas';
 
 function makeVideo(seeking: boolean): HTMLVideoElement {
@@ -39,9 +39,31 @@ describe('waitForPreviewFrameSettled', () => {
     await expect(waitForPreviewFrameSettled({ v }, 30)).resolves.toBeUndefined();
   });
 
+  it('timeout 後は seek listener を破棄して遅延再描画しない', async () => {
+    const v = makeVideo(true);
+    const renderTargetFrame = vi.fn();
+    await waitForPreviewFrameSettled({ v }, 30, renderTargetFrame);
+
+    v.dispatchEvent(new Event('seeked'));
+    await Promise.resolve();
+
+    expect(renderTargetFrame).toHaveBeenCalledTimes(1);
+  });
+
   it('画像・音声要素はシーク待ちの対象にしない', async () => {
     const img = document.createElement('img');
     const audio = document.createElement('audio');
     await expect(waitForPreviewFrameSettled({ img, audio })).resolves.toBeUndefined();
+  });
+
+  it('対象時刻をseek前後に再描画してから解決する', async () => {
+    const v = makeVideo(true);
+    const renderTargetFrame = vi.fn();
+    const pending = waitForPreviewFrameSettled({ v }, 5000, renderTargetFrame);
+
+    expect(renderTargetFrame).toHaveBeenCalledTimes(1);
+    v.dispatchEvent(new Event('seeked'));
+    await pending;
+    expect(renderTargetFrame).toHaveBeenCalledTimes(2);
   });
 });

@@ -108,6 +108,7 @@ const ClipTransitionConnector: React.FC<{
 interface ClipsSectionProps {
   mediaItems: MediaItem[];
   mediaTimelineRanges: Record<string, { start: number; end: number }>;
+  currentTime: number;
   isClipsLocked: boolean;
   mediaElements: Record<string, HTMLVideoElement | HTMLImageElement>;
   onToggleClipsLock: () => void;
@@ -119,6 +120,7 @@ interface ClipsSectionProps {
   onToggleMediaLock: (id: string) => void;
   onToggleTransformPanel: (id: string) => void;
   onUpdateVideoTrim: (id: string, type: 'start' | 'end', value: string) => void;
+  onSetVideoTrimToCurrent: (id: string, type: 'start' | 'end') => void;
   onUpdateImageDuration: (id: string, value: string) => void;
   onUpdateMediaScale: (id: string, value: string | number) => void;
   onUpdateMediaPosition: (id: string, axis: 'x' | 'y', value: string) => void;
@@ -140,6 +142,7 @@ interface ClipsSectionProps {
 const ClipsSection: React.FC<ClipsSectionProps> = ({
   mediaItems,
   mediaTimelineRanges,
+  currentTime,
   isClipsLocked,
   mediaElements,
   onToggleClipsLock,
@@ -151,6 +154,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   onToggleMediaLock,
   onToggleTransformPanel,
   onUpdateVideoTrim,
+  onSetVideoTrimToCurrent,
   onUpdateImageDuration,
   onUpdateMediaScale,
   onUpdateMediaPosition,
@@ -267,6 +271,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
           <ClipItem
             item={v}
             timelineRange={mediaTimelineRanges[v.id] ?? { start: 0, end: v.duration }}
+            currentTime={currentTime}
             index={i}
             totalItems={mediaItems.length}
             isClipsLocked={isClipsLocked}
@@ -278,6 +283,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             onToggleLock={() => onToggleMediaLock(v.id)}
             onToggleTransformPanel={() => onToggleTransformPanel(v.id)}
             onUpdateVideoTrim={(type, value) => onUpdateVideoTrim(v.id, type, value)}
+            onSetVideoTrimToCurrent={(type) => onSetVideoTrimToCurrent(v.id, type)}
             onUpdateImageDuration={(value) => onUpdateImageDuration(v.id, value)}
             onUpdateScale={(value) => onUpdateMediaScale(v.id, value)}
             onUpdatePosition={(axis, value) => onUpdateMediaPosition(v.id, axis, value)}

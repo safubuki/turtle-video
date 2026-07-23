@@ -16,7 +16,7 @@ export { useUIStore } from './uiStore';
 export { useCaptionStore } from './captionStore';
 
 // Log Store
-export { useLogStore, getSystemInfo } from './logStore';
+export { useLogStore, getSystemInfo, isDetailedLoggingEnabled } from './logStore';
 export type { LogEntry, LogLevel, LogCategory, SystemInfo, MemoryStats } from './logStore';
 
 // Project Store

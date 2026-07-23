@@ -418,41 +418,67 @@ export function createCaptionGlyphCanvas(options: CaptionGlyphOptions): HTMLCanv
 export function waitForPreviewFrameSettled(
   mediaElements: Record<string, HTMLVideoElement | HTMLImageElement | HTMLAudioElement>,
   timeoutMs = 400,
+  renderTargetFrame?: () => void,
 ): Promise<void> {
-  const seekingVideos = Object.values(mediaElements).filter(
-    (el): el is HTMLVideoElement => el instanceof HTMLVideoElement && el.seeking,
-  );
+  return new Promise<void>((resolve) => {
+    let finished = false;
+    let firstAnimationFrame: number | null = null;
+    let secondAnimationFrame: number | null = null;
+    const seekListenerCleanups: Array<() => void> = [];
 
-  const waitSeeked: Promise<void> =
-    seekingVideos.length === 0
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      window.clearTimeout(timeoutId);
+      seekListenerCleanups.forEach((cleanup) => cleanup());
+      if (firstAnimationFrame !== null && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(firstAnimationFrame);
+      }
+      if (secondAnimationFrame !== null && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(secondAnimationFrame);
+      }
+      resolve();
+    };
+
+    // 停止直前のCanvasが1フレーム古い場合に備え、まず対象時刻を明示描画する。
+    renderTargetFrame?.();
+    const seekingVideos = Object.values(mediaElements).filter(
+      (el): el is HTMLVideoElement => el instanceof HTMLVideoElement && el.seeking,
+    );
+
+    const waitSeeked = seekingVideos.length === 0
       ? Promise.resolve()
-      : Promise.all(
-          seekingVideos.map(
-            (video) =>
-              new Promise<void>((resolve) => {
-                const onSeeked = () => {
-                  video.removeEventListener('seeked', onSeeked);
-                  resolve();
-                };
-                video.addEventListener('seeked', onSeeked, { once: true });
-              }),
-          ),
-        ).then(() => undefined);
+      : Promise.all(seekingVideos.map((video) => new Promise<void>((resolveSeek) => {
+          let settled = false;
+          const settleSeek = () => {
+            if (settled) return;
+            settled = true;
+            video.removeEventListener('seeked', onSeeked);
+            resolveSeek();
+          };
+          const onSeeked = () => settleSeek();
+          seekListenerCleanups.push(settleSeek);
+          video.addEventListener('seeked', onSeeked, { once: true });
+        }))).then(() => undefined);
 
-  const settled = waitSeeked.then(
-    () =>
-      new Promise<void>((resolve) => {
-        // seeked 後、エンジンの再描画（rAF）が走ってキャンバスが更新されるのを待つ。
-        if (typeof requestAnimationFrame === 'function') {
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-        } else {
-          resolve();
-        }
-      }),
-  );
-
-  const timeout = new Promise<void>((resolve) => setTimeout(resolve, timeoutMs));
-  return Promise.race([settled, timeout]);
+    const timeoutId = window.setTimeout(finish, timeoutMs);
+    void waitSeeked.then(() => {
+      if (finished) return;
+      // seek完了でvideoのデコード済みフレームが更新された後、同じ時刻を再描画する。
+      renderTargetFrame?.();
+      if (typeof requestAnimationFrame !== 'function') {
+        finish();
+        return;
+      }
+      firstAnimationFrame = requestAnimationFrame(() => {
+        firstAnimationFrame = null;
+        secondAnimationFrame = requestAnimationFrame(() => {
+          secondAnimationFrame = null;
+          finish();
+        });
+      });
+    });
+  });
 }
 
 /**
@@ -495,4 +521,27 @@ export function captureCanvasAsImage(
       resolve(false);
     }
   });
+}
+
+/** プロジェクト内で確認・保存する軽量な動画サムネイルJPEGを生成する。 */
+export function createVideoThumbnailDataUrl(
+  source: HTMLCanvasElement,
+  maxWidth = 320,
+  quality = 0.82,
+): string | null {
+  if (source.width <= 0 || source.height <= 0) return null;
+  const scale = Math.min(1, maxWidth / source.width);
+  const width = Math.max(1, Math.round(source.width * scale));
+  const height = Math.max(1, Math.round(source.height * scale));
+  const thumbnail = document.createElement('canvas');
+  thumbnail.width = width;
+  thumbnail.height = height;
+  const context = thumbnail.getContext('2d');
+  if (!context) return null;
+  context.drawImage(source, 0, 0, width, height);
+  try {
+    return thumbnail.toDataURL('image/jpeg', quality);
+  } catch {
+    return null;
+  }
 }

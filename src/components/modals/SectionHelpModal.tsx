@@ -39,6 +39,7 @@ import {
   ChevronRight,
   ListPlus,
   Crosshair,
+  ImageIcon,
 } from 'lucide-react';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 import {
@@ -375,6 +376,18 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
             className="inline-flex h-7 w-7 items-center justify-center rounded border border-blue-800/50 bg-blue-900/30 text-blue-300"
           >
             <Copy className="h-3.5 w-3.5" />
+          </span>
+        );
+      case 'bgm_auto_extend_toggle':
+        return (
+          <span
+            key={`${token}-${index}`}
+            className="inline-flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2.5 py-2 text-xs text-sky-100"
+          >
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded-sm bg-sky-500 text-white">
+              <Check className="h-3 w-3" />
+            </span>
+            動画末尾まで自動延長
           </span>
         );
       case 'caption_style_accordion':
@@ -806,6 +819,23 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
           >
             <Camera className="w-4 h-4" />
           </span>
+        );
+      case 'thumbnail_controls':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="basis-full flex items-center gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-2"
+          >
+            <span className="inline-flex h-10 w-16 items-center justify-center rounded border border-gray-600 bg-black text-gray-500">
+              <ImageIcon className="h-4 w-4" />
+            </span>
+            <span className="inline-flex min-h-8 items-center rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-2 text-[10px] font-semibold text-emerald-100 md:text-xs">
+              現在位置をサムネイルに設定
+            </span>
+            <span className="inline-flex min-h-8 items-center rounded-lg border border-gray-600 bg-gray-800 px-2 text-[10px] text-gray-300 md:text-xs">
+              自動に戻す
+            </span>
+          </div>
         );
       case 'clear_button':
         return (

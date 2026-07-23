@@ -8,7 +8,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import type { Caption, CaptionSettings, CaptionPosition, CaptionSize, CaptionFontStyle } from '../types';
 import { clampCaptionStrokeWidth } from '../utils/captionStyle';
-import { useLogStore } from './logStore';
+import { isDetailedLoggingEnabled, useLogStore } from './logStore';
 
 interface CaptionState {
   // キャプション一覧
@@ -100,7 +100,7 @@ const generateId = () => `caption_${Date.now()}_${Math.random().toString(36).sli
 
 export const useCaptionStore = create<CaptionState>()(
   devtools(
-    (set) => ({
+    (set, get) => ({
       // Initial state
       captions: [],
       settings: { ...initialSettings },
@@ -206,7 +206,7 @@ export const useCaptionStore = create<CaptionState>()(
         );
       },
 
-      updateCaption: (id, updates) =>
+      updateCaption: (id, updates) => {
         set(
           (state) => ({
             captions: state.captions
@@ -214,7 +214,22 @@ export const useCaptionStore = create<CaptionState>()(
           }),
           false,
           'updateCaption'
-        ),
+        );
+        if (isDetailedLoggingEnabled()) {
+          const updated = get().captions.find((caption) => caption.id === id);
+          useLogStore.getState().debug('MEDIA', 'キャプション個別設定を更新', {
+            id,
+            changedFields: Object.keys(updates),
+            textLength: typeof updates.text === 'string' ? updates.text.length : undefined,
+            startTime: updated?.startTime,
+            endTime: updated?.endTime,
+            overrideStrokeWidth: updated?.overrideStrokeWidth,
+            overrideStrokeColor: updated?.overrideStrokeColor,
+            overrideFontColor: updated?.overrideFontColor,
+            overrideBlur: updated?.overrideBlur,
+          });
+        }
+      },
 
       removeCaption: (id) => {
         useLogStore.getState().info('MEDIA', 'キャプションを削除', { id });

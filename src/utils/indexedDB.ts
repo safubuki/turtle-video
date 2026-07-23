@@ -110,6 +110,8 @@ export interface SerializedNarrationClip {
   fadeOut?: boolean;
   fadeInDuration?: number;
   fadeOutDuration?: number;
+  autoExtendToTimelineEnd?: boolean;
+  wasAutoTrimmedOnAdd?: boolean;
 }
 
 // 保存されるキャプションの形式
@@ -187,6 +189,9 @@ export interface ProjectData {
 
   // 出力の向き（'landscape'=16:9 / 'portrait'=9:16）。任意・既定 landscape（旧データ後方互換）。
   aspectRatio?: 'landscape' | 'portrait';
+  /** 任意の動画サムネイル（旧データは未設定＝自動）。 */
+  videoThumbnailTime?: number | null;
+  videoThumbnailDataUrl?: string | null;
 }
 
 /**

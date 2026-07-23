@@ -203,6 +203,7 @@ describe('standard preview engine', () => {
     loopId?: number;
     isPlaying?: boolean;
     enableWebCodecsExport?: boolean;
+    recorder?: MediaRecorder | null;
   }) {
     const mediaItems = options?.mediaItems ?? [createVideoItem()];
     const mediaItem = mediaItems[0];
@@ -224,6 +225,7 @@ describe('standard preview engine', () => {
     const resetInactiveVideos = vi.fn();
     const clearExport = vi.fn();
     const startWebCodecsExport = vi.fn();
+    const stopWebCodecsExport = vi.fn();
     const completeWebCodecsExport = vi.fn();
     const logInfo = vi.fn();
     const primePreviewAudioOnlyTracksAtTimeSpy =
@@ -269,7 +271,7 @@ describe('standard preview engine', () => {
         reqIdRef,
         startTimeRef,
         audioResumeWaitFramesRef: createRef(0),
-        recorderRef: createRef<MediaRecorder | null>(null),
+        recorderRef: createRef<MediaRecorder | null>(options?.recorder ?? null),
         loopIdRef,
         isPlayingRef,
         isSeekingRef: createRef(false),
@@ -323,7 +325,7 @@ describe('standard preview engine', () => {
         primePreviewAudioOnlyTracksAtTime: primePreviewAudioOnlyTracksAtTimeSpy,
         resetInactiveVideos,
         startWebCodecsExport,
-        stopWebCodecsExport: vi.fn(),
+        stopWebCodecsExport,
         completeWebCodecsExport,
         logInfo,
         logWarn: vi.fn(),
@@ -345,6 +347,7 @@ describe('standard preview engine', () => {
       totalDurationRef,
       resetInactiveVideos,
       startWebCodecsExport,
+      stopWebCodecsExport,
       completeWebCodecsExport,
       logInfo,
       primePreviewAudioOnlyTracksAtTime: primePreviewAudioOnlyTracksAtTimeSpy,
@@ -620,6 +623,98 @@ describe('standard preview engine', () => {
       (callOrder) => callOrder > playOrder,
     );
     expect(pauseCallsAfterPlay).toHaveLength(0);
+  });
+
+  it('stop 後の再生開始で既に同じ先頭位置へ向かっている video を再シークしない', async () => {
+    const { mediaItem, videoElement, hook } = setupPreviewEngineHarness();
+    let currentVideoTime = mediaItem.trimStart;
+    let seekAssignmentCount = 0;
+    Object.defineProperty(videoElement, 'currentTime', {
+      configurable: true,
+      get: () => currentVideoTime,
+      set: (value: number) => {
+        seekAssignmentCount += 1;
+        currentVideoTime = value;
+      },
+    });
+    videoElement.seeking = false;
+    videoElement.readyState = 2;
+
+    const startPromise = hook.result.current.startEngine(0, false);
+    await vi.advanceTimersByTimeAsync(TEST_PREVIEW_START_SETTLE_MS);
+    await startPromise;
+
+    expect(seekAssignmentCount).toBe(0);
+    expect(videoElement.play).toHaveBeenCalledTimes(1);
+  });
+
+  it('通常 preview の停止を繰り返しても export 停止状態を変更しない', async () => {
+    const {
+      mediaItem,
+      videoElement,
+      hook,
+      stopWebCodecsExport,
+    } = setupPreviewEngineHarness();
+    videoElement.currentTime = mediaItem.trimStart;
+    videoElement.seeking = false;
+    videoElement.readyState = 2;
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const startPromise = hook.result.current.startEngine(0, false);
+      await vi.advanceTimersByTimeAsync(TEST_PREVIEW_START_SETTLE_MS);
+      await startPromise;
+      hook.result.current.stopAll();
+    }
+
+    expect(videoElement.play).toHaveBeenCalledTimes(3);
+    expect(stopWebCodecsExport).not.toHaveBeenCalled();
+  });
+
+  it('export 完了 UI は export Promise の cleanup 後に復旧し、完了済み export を再停止しない', async () => {
+    const canvas = {
+      getContext: vi.fn(() => createMockCanvasContext()),
+    } as unknown as HTMLCanvasElement;
+    const {
+      hook,
+      startWebCodecsExport,
+      stopWebCodecsExport,
+      pause,
+    } = setupPreviewEngineHarness({
+      canvas,
+      enableWebCodecsExport: true,
+      mediaItems: [createImageItem({ duration: 2 })],
+      mediaElements: {},
+      totalDuration: 2,
+    });
+    const exportRunControl: {
+      resolve?: () => void;
+      onRecordingStop?: (url: string, ext: string) => void;
+    } = {};
+    startWebCodecsExport.mockImplementation((
+      _canvasRef,
+      _masterDestRef,
+      callback,
+    ) => {
+      exportRunControl.onRecordingStop = callback;
+      return new Promise<void>((resolve) => {
+        exportRunControl.resolve = resolve;
+      });
+    });
+
+    const startPromise = hook.result.current.startEngine(0, true);
+    await vi.advanceTimersByTimeAsync(300);
+    await startPromise;
+
+    expect(exportRunControl.onRecordingStop).toBeDefined();
+    exportRunControl.onRecordingStop?.('blob:completed-export', 'mp4');
+    await Promise.resolve();
+    expect(pause).not.toHaveBeenCalled();
+
+    exportRunControl.resolve?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(pause).toHaveBeenCalledTimes(1);
+    expect(stopWebCodecsExport).not.toHaveBeenCalled();
   });
 
   it('Android preview startEngine は BGM があっても active video 開始後に audio-only prime を試す', async () => {
@@ -1272,6 +1367,64 @@ describe('standard preview engine', () => {
     expect(videoElement.defaultMuted).toBe(false);
     expect(videoElement.preload).toBe('auto');
     expect(videoElement.play).not.toHaveBeenCalled();
+  });
+
+  it('通常previewの再生中は0.5秒以上のclock driftでもactive videoを強制seekせず、exportだけ補正する', () => {
+    const mediaItem = createVideoItem({
+      id: 'video-drift',
+      duration: 4,
+      trimStart: 0,
+      trimEnd: 4,
+    });
+    const createTrackedVideo = () => {
+      const videoElement = createMockVideoElement();
+      videoElement.readyState = 2;
+      videoElement.seeking = false;
+      videoElement.paused = false;
+      let assignedCurrentTime = 0.1;
+      let seekAssignCount = 0;
+      Object.defineProperty(videoElement, 'currentTime', {
+        configurable: true,
+        get: () => assignedCurrentTime,
+        set: (value: number) => {
+          assignedCurrentTime = value;
+          seekAssignCount += 1;
+        },
+      });
+      return {
+        videoElement,
+        getAssignedCurrentTime: () => assignedCurrentTime,
+        getSeekAssignCount: () => seekAssignCount,
+      };
+    };
+
+    const liveVideo = createTrackedVideo();
+    const liveHarness = setupRenderFrameHarness({
+      mediaItems: [mediaItem],
+      mediaElements: {
+        [mediaItem.id]: liveVideo.videoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      platformCapabilities: { isAndroid: false },
+    });
+
+    liveHarness.hook.result.current.renderFrame(0.7, true, false);
+
+    expect(liveVideo.getAssignedCurrentTime()).toBeCloseTo(0.1);
+    expect(liveVideo.getSeekAssignCount()).toBe(0);
+
+    const exportVideo = createTrackedVideo();
+    const exportHarness = setupRenderFrameHarness({
+      mediaItems: [mediaItem],
+      mediaElements: {
+        [mediaItem.id]: exportVideo.videoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      platformCapabilities: { isAndroid: false },
+    });
+
+    exportHarness.hook.result.current.renderFrame(0.7, true, true);
+
+    expect(exportVideo.getAssignedCurrentTime()).toBeCloseTo(0.7);
+    expect(exportVideo.getSeekAssignCount()).toBe(1);
   });
 
   it('standard preview は非 Android でも video -> video 境界前に次 video を prebuffer する', () => {

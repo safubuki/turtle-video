@@ -23,23 +23,52 @@ describe('BgmClipList timeline adjustment', () => {
     useAudioStore.setState({ bgmClips: [{ ...clip }] });
   });
 
-  it('fits the selected clip to the video end from the UI', () => {
-    const onBeforeEdit = vi.fn();
-    render(
+  it('動画尺に合わせて表示区間を自動短縮し、元のトリム値は保持する', () => {
+    const { rerender } = render(
       <BgmClipList
         clips={useAudioStore.getState().bgmClips}
         isLocked={false}
         totalDuration={60}
         currentTime={50}
         formatTime={(seconds) => `${seconds.toFixed(1)}s`}
-        onBeforeEdit={onBeforeEdit}
+        onBeforeEdit={vi.fn()}
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '動画末尾合わせ' }));
+    expect(screen.getByText('20.0s 〜 60.0s')).toBeInTheDocument();
+    expect(screen.getByText('動画尺に自動調整')).toBeInTheDocument();
+    expect(useAudioStore.getState().bgmClips[0].trimEnd).toBe(100);
 
-    expect(onBeforeEdit).toHaveBeenCalledWith('fit-bgm-clip-to-timeline-end');
-    expect(useAudioStore.getState().bgmClips[0].trimEnd).toBe(40);
+    rerender(
+      <BgmClipList
+        clips={useAudioStore.getState().bgmClips}
+        isLocked={false}
+        totalDuration={130}
+        currentTime={50}
+        formatTime={(seconds) => `${seconds.toFixed(1)}s`}
+        onBeforeEdit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('20.0s 〜 130.0s')).toBeInTheDocument();
+    expect(screen.getAllByText('末尾まで自動延長').length).toBeGreaterThan(0);
+    expect(screen.queryByText('動画尺に自動調整')).not.toBeInTheDocument();
+  });
+
+  it('動画尺より後ろのBGMは削除せず自動休止する', () => {
+    render(
+      <BgmClipList
+        clips={useAudioStore.getState().bgmClips}
+        isLocked={false}
+        totalDuration={10}
+        currentTime={5}
+        formatTime={(seconds) => `${seconds.toFixed(1)}s`}
+        onBeforeEdit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('自動休止')).toBeInTheDocument();
+    expect(useAudioStore.getState().bgmClips).toHaveLength(1);
   });
 
   it('sets the playback end to the current preview position', () => {

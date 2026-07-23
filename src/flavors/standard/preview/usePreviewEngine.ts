@@ -51,7 +51,6 @@ import {
   resolveRotatedFitDimensions,
 } from '../../../utils/canvas';
 import {
-  ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC,
   ANDROID_PREVIEW_SOFT_DRAW_DRIFT_THRESHOLD_SEC,
   EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC,
   getPreviewAudioOutputMode,
@@ -326,6 +325,9 @@ const FRAME_DRIVEN_EXPORT_STALL_TIMEOUT_MS = 2000;
 // 再生開始直後は seeked / canplay の到着を数フレームだけ待ち、遅ければ loop を止めない。
 const PREVIEW_START_READY_POLL_INTERVAL_MS = 40;
 const PREVIEW_START_READY_TIMEOUT_MS = 800;
+// stop -> play で同じ再生位置を再代入すると、直前の seek を中断して新しい seek が始まる。
+// export 直後はデコーダーの復帰に時間がかかるため、微小差は現在の seek をそのまま完了させる。
+const PREVIEW_START_SEEK_DEDUPE_TOLERANCE_SEC = 0.01;
 const DISPLAY_TIME_CLAMP_EPSILON_SEC = 0.001;
 const PREVIEW_DETAILED_TICK_LOG_INTERVAL_MS = 500;
 const MIN_VIDEO_READY_STATE_FOR_PLAY = MIN_VIDEO_READY_STATE_FOR_SEEK;
@@ -1920,32 +1922,21 @@ export function usePreviewEngine({
                     videoEl.currentTime = targetTime;
                   }
                 }
-                  const shouldDeferTrimmedHeadSync =
-                  // trimStart 付き clip の head は hold 優先で安定させる。ここで currentTime correction を強制すると
-                  // Android fallback が boundary 到達後の場当たり seek に戻りやすい。
-                    isAndroidPreviewPlayback
-                    && conf.trimStart > 0.001
-                    && localTime <= 0.3;
-                  const androidPreviewSyncThreshold = isAndroidPreviewPlayback
-                    ? Math.max(syncThreshold, ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC)
-                    : syncThreshold;
-
-                  if (
-                    !isAndroidPreviewPlayback &&
-                    !shouldDeferTrimmedHeadSync &&
-                    !isVideoSeeking &&
-                    !shouldHoldVideoAtClipEnd &&
-                    !hasExportPlayFailure &&
-                    !(
-                      isAndroidPreviewPlayback
-                      && localTime <= 0.3
-                      && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
-                      && Math.abs(videoEl.currentTime - targetTime) <= ANDROID_PREVIEW_SOFT_DRAW_DRIFT_THRESHOLD_SEC
-                  ) &&
-                    Math.abs(videoEl.currentTime - targetTime) > androidPreviewSyncThreshold
-                  ) {
-                    videoEl.currentTime = targetTime;
-                  }
+                // 通常プレビューは video 要素の自然再生を優先する。
+                // wall clock との差をここで強制 seek すると、export 直後などデコーダー復帰が遅い場面で
+                // syncThreshold ごとに seek が再発し、シーク中の黒フレームを周期的に取り込んでしまう。
+                // フレーム時刻を厳密に合わせる currentTime 補正は export にだけ限定する。
+                const shouldCorrectExportVideoTime =
+                  _isExporting
+                  && !isAndroidPreviewPlayback
+                  && !shouldStabilizeImageToVideoTransition
+                  && !isVideoSeeking
+                  && !shouldHoldVideoAtClipEnd
+                  && !hasExportPlayFailure
+                  && Math.abs(videoEl.currentTime - targetTime) > syncThreshold;
+                if (shouldCorrectExportVideoTime) {
+                  videoEl.currentTime = targetTime;
+                }
                 if (
                   !shouldStabilizeImageToVideoTransition &&
                   videoEl.paused &&
@@ -3171,6 +3162,10 @@ export function usePreviewEngine({
   }, [currentTimeRef, isPlayingRef, isSeekPlaybackPreparingRef, isSeekingRef, renderFrame]);
 
   const stopAll = useCallback(() => {
+    const previousMode = activePreviewModeRef.current;
+    const hadActiveExportSession =
+      previousMode === 'export'
+      && currentExportSessionIdRef.current !== null;
     currentExportSessionIdRef.current = null;
     frameDrivenExportEnabledRef.current = false;
     frameDrivenExportSubmittedCountRef.current = 0;
@@ -3249,12 +3244,18 @@ export function usePreviewEngine({
       });
     }
 
-    const previousMode = activePreviewModeRef.current;
     activePreviewModeRef.current = 'idle';
     pendingPreviewCacheBuildResolverRef.current?.(false);
 
     if (previousMode === 'preview-cache-build') {
       stopPreviewCacheExport?.({ silent: true, reason: 'user' });
+      return;
+    }
+
+    // 通常 preview の停止で export hook を cancelled へ遷移させない。
+    // export 完了 callback は先に session を閉じてから stopAll() を呼ぶため、
+    // 完了済み export への stop/complete 再入もここで遮断できる。
+    if (!hadActiveExportSession) {
       return;
     }
 
@@ -4601,7 +4602,12 @@ export function usePreviewEngine({
               if (videoEl) {
                 const localTime = fromTime - t;
                 const targetTime = (item.trimStart || 0) + localTime;
-                videoEl.currentTime = targetTime;
+                if (
+                  Math.abs(videoEl.currentTime - targetTime)
+                  > PREVIEW_START_SEEK_DEDUPE_TOLERANCE_SEC
+                ) {
+                  videoEl.currentTime = targetTime;
+                }
                 activeVideoIdRef.current = item.id;
                 activeVideoElForBundledStart = videoEl;
                 activeVideoTargetTime = targetTime;
@@ -4738,40 +4744,59 @@ export function usePreviewEngine({
       });
 
       if (isExportMode && canvasRef.current && masterDestRef.current) {
-        startWebCodecsExport(
-          canvasRef,
-          masterDestRef,
-          (url, ext) => {
-            if (currentExportSessionIdRef.current !== exportSessionId) {
+        type PendingExportOutcome =
+          | { kind: 'success'; url: string; ext: string }
+          | { kind: 'error'; message: string };
+        let pendingExportOutcome: PendingExportOutcome | null = null;
+        let exportRunSettled = false;
+        let exportOutcomeFinalized = false;
+
+        const finalizeExportOutcomeAfterCleanup = () => {
+          if (!exportRunSettled || !pendingExportOutcome || exportOutcomeFinalized) {
+            return;
+          }
+          exportOutcomeFinalized = true;
+          const outcome = pendingExportOutcome;
+
+          if (currentExportSessionIdRef.current !== exportSessionId) {
+            if (outcome.kind === 'success') {
               try {
-                URL.revokeObjectURL(url);
+                URL.revokeObjectURL(outcome.url);
               } catch {
                 // ignore
               }
-              return;
             }
-            setExportUrl(url);
-            setExportExt(ext as 'mp4' | 'webm');
-            setProcessing(false);
-            setLoading(false);
-    safeSetPreviewPlaying(false);
-            setExportPreparationStep(null);
-            currentExportSessionIdRef.current = null;
-            pause();
-            stopAll();
+            return;
+          }
+
+          if (outcome.kind === 'success') {
+            setExportUrl(outcome.url);
+            setExportExt(outcome.ext as 'mp4' | 'webm');
+          }
+          setProcessing(false);
+          setLoading(false);
+          safeSetPreviewPlaying(false);
+          setExportPreparationStep(null);
+          // session を先に閉じることで、表示停止用 stopAll() から完了済み
+          // export の stop/complete が再度呼ばれないようにする。
+          currentExportSessionIdRef.current = null;
+          pause();
+          stopAll();
+          if (outcome.kind === 'error') {
+            setError(outcome.message);
+          }
+        };
+
+        const exportRun = startWebCodecsExport(
+          canvasRef,
+          masterDestRef,
+          (url, ext) => {
+            pendingExportOutcome = { kind: 'success', url, ext };
+            finalizeExportOutcomeAfterCleanup();
           },
           (message) => {
-            if (currentExportSessionIdRef.current !== exportSessionId) {
-              return;
-            }
-            setProcessing(false);
-            setLoading(false);
-    safeSetPreviewPlaying(false);
-            setExportPreparationStep(null);
-            currentExportSessionIdRef.current = null;
-            pause();
-            stopAll();
-            setError(message);
+            pendingExportOutcome = { kind: 'error', message };
+            finalizeExportOutcomeAfterCleanup();
           },
           {
             mediaItems: mediaItemsRef.current,
@@ -4800,6 +4825,25 @@ export function usePreviewEngine({
             },
           },
         );
+        void Promise.resolve(exportRun)
+          .catch((error) => {
+            if (!pendingExportOutcome) {
+              pendingExportOutcome = {
+                kind: 'error',
+                message: error instanceof Error
+                  ? error.message
+                  : '動画ファイルの作成に失敗しました',
+              };
+            }
+          })
+          .finally(() => {
+            exportRunSettled = true;
+            logDebug('RENDER', 'export cleanup settled before preview UI recovery', {
+              exportSessionId,
+              hasPendingOutcome: pendingExportOutcome !== null,
+            });
+            finalizeExportOutcomeAfterCleanup();
+          });
       } else {
         loop(isExportMode, myLoopId);
       }

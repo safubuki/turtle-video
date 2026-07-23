@@ -110,6 +110,27 @@ describe('PreviewSection action buttons', () => {
     expect(captureButton.className).not.toContain('animate-preview-capture-press');
   });
 
+  it('現在位置のサムネイル設定と自動へ戻す操作を表示する', () => {
+    const onSetVideoThumbnail = vi.fn();
+    const onClearVideoThumbnail = vi.fn();
+    renderPreviewSection({
+      videoThumbnailTime: 2.5,
+      videoThumbnailDataUrl: 'data:image/jpeg;base64,thumb',
+      onSetVideoThumbnail,
+      onClearVideoThumbnail,
+    });
+
+    expect(screen.getByAltText('設定中の動画サムネイル')).toHaveAttribute(
+      'src',
+      'data:image/jpeg;base64,thumb',
+    );
+    expect(screen.getByText('設定位置 2.5s')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '現在位置をサムネイルに設定' }));
+    fireEvent.click(screen.getByRole('button', { name: '自動に戻す' }));
+    expect(onSetVideoThumbnail).toHaveBeenCalledTimes(1);
+    expect(onClearVideoThumbnail).toHaveBeenCalledTimes(1);
+  });
+
   it('準備中はグルーピングされた準備文言を表示する', () => {
     renderPreviewSection({
       isProcessing: true,

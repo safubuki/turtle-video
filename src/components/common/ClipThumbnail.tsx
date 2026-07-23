@@ -68,6 +68,28 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({ file, type }) => {
       intervalIds.clear();
     };
 
+    const releaseActiveVideo = () => {
+      const video = activeVideo;
+      try {
+        video?.pause();
+      } catch {
+        // ignore
+      }
+      detachActiveVideo?.();
+      detachActiveVideo = null;
+      if (video) {
+        // DOM から外すだけではデコーダーと blob URL の読み込みが残る環境がある。
+        // src を空にして load() し、カード用サムネイル生成後に明示的に解放する。
+        try {
+          video.removeAttribute('src');
+          video.load();
+        } catch {
+          // ignore
+        }
+      }
+      activeVideo = null;
+    };
+
     const url = URL.createObjectURL(file);
     urlRef.current = url;
 
@@ -203,6 +225,29 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({ file, type }) => {
       ctx.fill();
     };
 
+    const hasVisibleVideoPixels = (): boolean => {
+      try {
+        const pixels = ctx.getImageData(0, 0, THUMB_WIDTH, THUMB_HEIGHT).data;
+        let visible = 0;
+        let opaque = 0;
+        const required = Math.max(1, Math.floor((pixels.length / 4) * 0.03));
+        for (let i = 0; i < pixels.length; i += 4) {
+          if (pixels[i + 3] > 0) opaque += 1;
+          const luminance = pixels[i] * 0.2126 + pixels[i + 1] * 0.7152 + pixels[i + 2] * 0.0722;
+          if (luminance > 14) {
+            visible += 1;
+            if (visible >= required) return true;
+          }
+        }
+        // jsdomや一部制限環境で画素読取が空の場合は、描画成功を優先する。
+        if (opaque === 0) return true;
+        return false;
+      } catch {
+        // getImageDataを利用できない環境では従来どおり描画成功を採用する。
+        return true;
+      }
+    };
+
     const waitForDecodedFrame = async (video: FrameAwareVideo): Promise<void> => {
       if (cancelled) return;
 
@@ -313,10 +358,12 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({ file, type }) => {
       if (!Number.isFinite(duration) || duration <= 0) return [0];
 
       const maxSeek = Math.max(0, duration - 0.05);
-      const head = Math.min(1, duration * 0.1, maxSeek);
+      const head = Math.min(0.2, duration * 0.05, maxSeek);
+      const halfSecond = Math.min(0.5, maxSeek);
+      const oneSecond = Math.min(1, maxSeek);
       const middle = Math.min(duration * 0.5, maxSeek);
 
-      return Array.from(new Set([head, 0, middle].map((value) => Math.max(0, value))));
+      return Array.from(new Set([head, halfSecond, oneSecond, 0, middle].map((value) => Math.max(0, value))));
     };
 
     if (type === 'image') {
@@ -360,7 +407,7 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({ file, type }) => {
             drawVideoFallback();
             setReady(true);
           }
-          detachCaptureVideo?.();
+          releaseActiveVideo();
           revokeUrl();
           return;
         }
@@ -378,7 +425,7 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({ file, type }) => {
 
           for (let retry = 0; retry < VIDEO_DRAW_RETRY_COUNT; retry++) {
             if (cancelled) break;
-            if (drawCentered(video, video.videoWidth, video.videoHeight)) {
+            if (drawCentered(video, video.videoWidth, video.videoHeight) && hasVisibleVideoPixels()) {
               captured = true;
               break;
             }
@@ -394,14 +441,7 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({ file, type }) => {
           }
           setReady(true);
         }
-        try {
-          video.pause();
-        } catch {
-          // ignore
-        }
-        detachCaptureVideo?.();
-        detachActiveVideo = null;
-        activeVideo = null;
+        releaseActiveVideo();
         revokeUrl();
       };
 
@@ -412,14 +452,7 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({ file, type }) => {
       cancelled = true;
       clearAllTimeouts();
       clearAllIntervals();
-      try {
-        activeVideo?.pause();
-      } catch {
-        // ignore
-      }
-      detachActiveVideo?.();
-      activeVideo = null;
-      detachActiveVideo = null;
+      releaseActiveVideo();
       revokeUrl();
     };
   }, [file, type, isIosSafari]);
