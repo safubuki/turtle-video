@@ -342,3 +342,22 @@ export function shouldUseFrameDrivenExportPacing(
     && input.mediaItemTypes.length > 0
     && input.mediaItemTypes.every((type) => type === 'image');
 }
+
+/**
+ * canvas.captureStream() で得た MediaStream の全トラックを停止する純ヘルパー。
+ *
+ * エクスポートは共有プレビュー Canvas から captureStream でフレームを吸い出すため、
+ * この停止漏れが起きると、停止したはずのキャプチャトラックが Canvas に紐づいたまま残り、
+ * 以降の通常プレビューでカクつき・黒フレーム・静止画化を招く。成功／中断／失敗／unmount の
+ * いずれの終了経路でも呼べるよう、null 安全かつ冪等（各 track.stop は個別に例外を握り潰す）にする。
+ */
+export function stopCanvasCaptureStream(stream: MediaStream | null | undefined): void {
+  if (!stream) return;
+  stream.getTracks().forEach((track) => {
+    try {
+      track.stop();
+    } catch {
+      /* ignore */
+    }
+  });
+}
