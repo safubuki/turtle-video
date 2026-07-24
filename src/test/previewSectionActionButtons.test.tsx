@@ -55,6 +55,11 @@ function renderPreviewSection(overrides?: Partial<React.ComponentProps<typeof Pr
     onExportFinalizeTimeout: vi.fn(),
     onOpenHelp: vi.fn(),
     formatTime: (seconds: number) => `${seconds.toFixed(1)}s`,
+    projectPosterMode: 'auto',
+    projectPosterTimelineTime: 0.2,
+    projectPosterDataUrl: null,
+    onSetProjectPosterFromCurrent: vi.fn(),
+    onResetProjectPosterToAuto: vi.fn(),
     ...overrides,
   };
 

@@ -54,6 +54,14 @@ export interface MediaItem {
   sourceHeight?: number;
   // 次のクリップへのトランジション（standard 限定・任意。最後のクリップでは無視）
   transitionToNext?: ClipTransition | null;
+  /**
+   * 動画サムネイルの設定モード（動画のみ。旧データは auto 扱い）
+   * - auto: 有効開始位置から 0.2 秒後（短い場合は中央）
+   * - manual: ユーザーが指定した元動画上の時刻
+   */
+  thumbnailMode?: 'auto' | 'manual';
+  /** サムネイル取得位置（元動画上の秒。trim 後の相対時刻ではない） */
+  thumbnailSourceTime?: number;
 }
 
 // オーディオトラック (BGM/ナレーション共通)

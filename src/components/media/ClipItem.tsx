@@ -32,7 +32,10 @@ import MiniPreview from '../common/MiniPreview';
 import ClipThumbnail from '../common/ClipThumbnail';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import { useCanvasStore } from '../../stores/canvasStore';
-import { canSetVideoTrimFromPreviewPosition } from '../../utils/media';
+import {
+  canSetVideoTrimFromPreviewPosition,
+  resolveMediaThumbnailSourceTime,
+} from '../../utils/media';
 
 export interface ClipItemProps {
   item: MediaItem;
@@ -145,6 +148,16 @@ const ClipItem: React.FC<ClipItemProps> = ({
       type: 'end',
     });
 
+  // リスト用サムネはクリップ単位の自動位置（有効開始+0.2s）。
+  // プロジェクト全体のポスター設定はプレビューセクション側（複数クリップ合成前提）。
+  const thumbnailSourceTime = v.type === 'video' ? resolveMediaThumbnailSourceTime({
+    ...v,
+    thumbnailMode: 'auto',
+  }) : undefined;
+  const thumbnailRangeEnd = v.type === 'video'
+    ? (v.trimEnd > v.trimStart ? v.trimEnd : (v.originalDuration > 0 ? v.originalDuration : undefined))
+    : undefined;
+
   return (
     <div className="bg-gray-800 p-3 lg:p-4 rounded-xl border border-gray-700/50 relative group">
       <div className="flex justify-between items-center mb-3">
@@ -152,7 +165,13 @@ const ClipItem: React.FC<ClipItemProps> = ({
           <span className="bg-gray-900 text-gray-500 w-5 h-5 md:w-6 md:h-6 flex items-center justify-center rounded-full text-[10px] md:text-xs font-mono shrink-0">
             {i + 1}
           </span>
-          <ClipThumbnail file={v.file} type={v.type} />
+          <ClipThumbnail
+            file={v.file}
+            type={v.type}
+            sourceTime={thumbnailSourceTime}
+            rangeStart={v.type === 'video' ? v.trimStart : undefined}
+            rangeEnd={thumbnailRangeEnd}
+          />
           {v.type === 'image' ? (
             <ImageIcon className="w-3 h-3 md:w-4 md:h-4 text-yellow-500 shrink-0" />
           ) : (

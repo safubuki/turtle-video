@@ -377,6 +377,163 @@ describe('mediaStore', () => {
     });
   });
 
+  describe('video thumbnail mode', () => {
+    it('setVideoDuration initializes auto thumbnail at +0.2s', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          {
+            id: 'a',
+            type: 'video',
+            duration: 0,
+            originalDuration: 0,
+            trimStart: 0,
+            trimEnd: 0,
+            thumbnailMode: 'auto',
+          } as any,
+        ],
+        totalDuration: 0,
+      });
+
+      useMediaStore.getState().setVideoDuration('a', 10);
+      const item = useMediaStore.getState().mediaItems[0];
+      expect(item.thumbnailMode).toBe('auto');
+      expect(item.thumbnailSourceTime).toBeCloseTo(0.2);
+    });
+
+    it('setVideoThumbnailManual switches to manual and stores source time', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          {
+            id: 'a',
+            type: 'video',
+            duration: 10,
+            originalDuration: 10,
+            trimStart: 0,
+            trimEnd: 10,
+            thumbnailMode: 'auto',
+            thumbnailSourceTime: 0.2,
+          } as any,
+        ],
+      });
+
+      const ok = useMediaStore.getState().setVideoThumbnailManual('a', 3.5);
+      expect(ok).toBe(true);
+      const item = useMediaStore.getState().mediaItems[0];
+      expect(item.thumbnailMode).toBe('manual');
+      expect(item.thumbnailSourceTime).toBeCloseTo(3.5);
+    });
+
+    it('rejects manual set outside trim range without changing mode', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          {
+            id: 'a',
+            type: 'video',
+            duration: 5,
+            originalDuration: 10,
+            trimStart: 2,
+            trimEnd: 7,
+            thumbnailMode: 'auto',
+            thumbnailSourceTime: 2.2,
+          } as any,
+        ],
+      });
+
+      const ok = useMediaStore.getState().setVideoThumbnailManual('a', 1.0);
+      expect(ok).toBe(false);
+      const item = useMediaStore.getState().mediaItems[0];
+      expect(item.thumbnailMode).toBe('auto');
+      expect(item.thumbnailSourceTime).toBeCloseTo(2.2);
+    });
+
+    it('resetVideoThumbnailToAuto recomputes from current trim start', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          {
+            id: 'a',
+            type: 'video',
+            duration: 6,
+            originalDuration: 10,
+            trimStart: 2,
+            trimEnd: 8,
+            thumbnailMode: 'manual',
+            thumbnailSourceTime: 5,
+          } as any,
+        ],
+      });
+
+      useMediaStore.getState().resetVideoThumbnailToAuto('a');
+      const item = useMediaStore.getState().mediaItems[0];
+      expect(item.thumbnailMode).toBe('auto');
+      expect(item.thumbnailSourceTime).toBeCloseTo(2.2);
+    });
+
+    it('trim out of manual range falls back to auto', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          {
+            id: 'a',
+            type: 'video',
+            duration: 10,
+            originalDuration: 10,
+            trimStart: 0,
+            trimEnd: 10,
+            thumbnailMode: 'manual',
+            thumbnailSourceTime: 1,
+          } as any,
+        ],
+        totalDuration: 10,
+      });
+
+      useMediaStore.getState().updateVideoTrim('a', 'start', 3);
+      const item = useMediaStore.getState().mediaItems[0];
+      expect(item.thumbnailMode).toBe('auto');
+      expect(item.thumbnailSourceTime).toBeCloseTo(3.2);
+    });
+
+    it('trim keeps manual when still in range', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          {
+            id: 'a',
+            type: 'video',
+            duration: 10,
+            originalDuration: 10,
+            trimStart: 0,
+            trimEnd: 10,
+            thumbnailMode: 'manual',
+            thumbnailSourceTime: 5,
+          } as any,
+        ],
+        totalDuration: 10,
+      });
+
+      useMediaStore.getState().updateVideoTrim('a', 'start', 2);
+      const item = useMediaStore.getState().mediaItems[0];
+      expect(item.thumbnailMode).toBe('manual');
+      expect(item.thumbnailSourceTime).toBeCloseTo(5);
+    });
+  });
+
+  describe('project poster', () => {
+    it('setProjectPosterManual stores mode, time, and image', () => {
+      useMediaStore.getState().setProjectPosterManual(3.5, 'data:image/jpeg;base64,xx');
+      const s = useMediaStore.getState();
+      expect(s.projectPosterMode).toBe('manual');
+      expect(s.projectPosterTimelineTime).toBeCloseTo(3.5);
+      expect(s.projectPosterDataUrl).toBe('data:image/jpeg;base64,xx');
+    });
+
+    it('resetProjectPosterToAuto uses timeline 0.2 and optional image', () => {
+      useMediaStore.getState().setProjectPosterManual(5, 'data:image/jpeg;base64,old');
+      useMediaStore.getState().resetProjectPosterToAuto(12, 'data:image/jpeg;base64,auto');
+      const s = useMediaStore.getState();
+      expect(s.projectPosterMode).toBe('auto');
+      expect(s.projectPosterTimelineTime).toBeCloseTo(0.2);
+      expect(s.projectPosterDataUrl).toBe('data:image/jpeg;base64,auto');
+    });
+  });
+
   describe('duplicateMediaItem', () => {
     it('should insert an independent copy right after the source item', async () => {
       const { addMediaItems } = useMediaStore.getState();

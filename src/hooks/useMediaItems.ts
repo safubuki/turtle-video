@@ -106,6 +106,8 @@ export function useMediaItems(): UseMediaItemsReturn {
             blur: 0,
             isTransformOpen: false,
             isLocked: false,
+            thumbnailMode: isImage ? undefined : 'auto',
+            thumbnailSourceTime: undefined,
           };
         });
         setMediaItems((prev) => [...prev, ...newItems]);

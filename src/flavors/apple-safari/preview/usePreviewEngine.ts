@@ -2525,6 +2525,7 @@ export function usePreviewEngine({
             narrations: narrationsRef.current,
             totalDuration: totalDurationRef.current,
             getPlaybackTimeSec: () => currentTimeRef.current,
+            coverArtJpegDataUrl: useMediaStore.getState().projectPosterDataUrl,
             onPreparationStepChange: setExportPreparationStep,
             onAudioPreRenderComplete: () => {
               startTimeRef.current = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - fromTime * 1000;

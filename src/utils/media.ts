@@ -76,6 +76,9 @@ export async function createMediaItem(file: File): Promise<MediaItem> {
     blur: 0,
     isTransformOpen: false,
     isLocked: false,
+    // 動画は自動サムネイル。元動画尺確定後に sourceTime を埋める
+    thumbnailMode: isImage ? undefined : 'auto',
+    thumbnailSourceTime: undefined,
   };
 }
 
@@ -229,6 +232,256 @@ export function canSetVideoTrimFromPreviewPosition(params: {
   minDuration?: number;
 }): boolean {
   return computeVideoTrimFromPreviewPosition(params) !== null;
+}
+
+/** 自動サムネイル: クリップ有効開始からの既定オフセット（秒） */
+export const AUTO_THUMBNAIL_OFFSET_SEC = 0.2;
+
+/** 自動サムネイル再試行: 有効開始からのオフセット候補（秒） */
+export const AUTO_THUMBNAIL_RETRY_OFFSETS_SEC = [0.2, 0.3, 0.5] as const;
+
+/**
+ * 自動サムネイルの元動画上時刻を計算する。
+ * 常に sourceTrimStart + 0.2s を基準とし、有効尺が 0.2s 以下なら中央を使う。
+ * 終端そのものにはならないよう、デコード可能な範囲へわずかに寄せる。
+ */
+export function computeAutoThumbnailSourceTime(
+  sourceTrimStart: number,
+  sourceTrimEnd: number
+): number {
+  const start = Number.isFinite(sourceTrimStart) ? Math.max(0, sourceTrimStart) : 0;
+  const end = Number.isFinite(sourceTrimEnd) ? Math.max(start, sourceTrimEnd) : start;
+  const duration = end - start;
+  if (duration <= 0) return start;
+
+  // 終端ちょうどは黒/未デコードになりやすいので僅かに手前へ
+  const maxSeek = Math.max(start, end - Math.min(0.05, duration * 0.25));
+
+  if (duration > AUTO_THUMBNAIL_OFFSET_SEC) {
+    return Math.min(start + AUTO_THUMBNAIL_OFFSET_SEC, maxSeek);
+  }
+
+  // 短いクリップ: 中央付近
+  return Math.min(start + duration / 2, maxSeek);
+}
+
+/**
+ * サムネイル取得位置が有効トリム範囲内か。
+ * 契約: sourceTrimStart <= time < sourceTrimEnd
+ */
+export function isThumbnailSourceTimeInRange(
+  sourceTime: number,
+  sourceTrimStart: number,
+  sourceTrimEnd: number
+): boolean {
+  if (!Number.isFinite(sourceTime)) return false;
+  const start = Number.isFinite(sourceTrimStart) ? sourceTrimStart : 0;
+  const end = Number.isFinite(sourceTrimEnd) ? sourceTrimEnd : start;
+  return sourceTime >= start && sourceTime < end;
+}
+
+/**
+ * トリム変更後のサムネイル mode / 時刻を解決する。
+ * - manual かつ範囲内: 維持
+ * - manual かつ範囲外: auto へフォールバックし再計算
+ * - auto: 常に現在の有効開始から再計算
+ */
+export function resolveThumbnailAfterTrimChange(params: {
+  mode?: 'auto' | 'manual';
+  thumbnailSourceTime?: number;
+  sourceTrimStart: number;
+  sourceTrimEnd: number;
+}): {
+  thumbnailMode: 'auto' | 'manual';
+  thumbnailSourceTime: number;
+  fellBackToAuto: boolean;
+} {
+  const mode = params.mode === 'manual' ? 'manual' : 'auto';
+  if (
+    mode === 'manual'
+    && params.thumbnailSourceTime != null
+    && isThumbnailSourceTimeInRange(
+      params.thumbnailSourceTime,
+      params.sourceTrimStart,
+      params.sourceTrimEnd
+    )
+  ) {
+    return {
+      thumbnailMode: 'manual',
+      thumbnailSourceTime: params.thumbnailSourceTime,
+      fellBackToAuto: false,
+    };
+  }
+
+  return {
+    thumbnailMode: 'auto',
+    thumbnailSourceTime: computeAutoThumbnailSourceTime(
+      params.sourceTrimStart,
+      params.sourceTrimEnd
+    ),
+    fellBackToAuto: mode === 'manual',
+  };
+}
+
+/**
+ * プレビュー上のクリップ相対位置から、手動サムネイル用の元動画時刻を計算する。
+ * @returns 範囲外・無効なら null
+ */
+export function computeThumbnailSourceTimeFromPreviewPosition(params: {
+  sourceTrimStart: number;
+  sourceTrimEnd: number;
+  originalDuration: number;
+  /** クリップ有効区間先頭からの相対秒 */
+  previewPosition: number;
+}): number | null {
+  const originalDuration = Number.isFinite(params.originalDuration)
+    ? Math.max(0, params.originalDuration)
+    : 0;
+  if (originalDuration <= 0) return null;
+
+  const sourceTrimStart = Number.isFinite(params.sourceTrimStart)
+    ? Math.max(0, Math.min(params.sourceTrimStart, originalDuration))
+    : 0;
+  const sourceTrimEnd = Number.isFinite(params.sourceTrimEnd)
+    ? Math.max(sourceTrimStart, Math.min(params.sourceTrimEnd, originalDuration))
+    : originalDuration;
+  const playable = sourceTrimEnd - sourceTrimStart;
+  if (playable <= 0) return null;
+  if (!Number.isFinite(params.previewPosition)) return null;
+  if (params.previewPosition < 0 || params.previewPosition > playable) return null;
+
+  const sourceTime = sourceTrimStart + params.previewPosition;
+  // 終端ちょうどは < end 契約から外れるため僅かに手前へ
+  if (sourceTime >= sourceTrimEnd) {
+    return Math.max(sourceTrimStart, sourceTrimEnd - 0.001);
+  }
+  return sourceTime;
+}
+
+/**
+ * プレビュー現在位置から動画サムネイルを手動設定できるか。
+ * そのクリップの表示区間内にプレビューがあること。
+ */
+export function canSetVideoThumbnailFromPreviewPosition(params: {
+  sourceTrimStart: number;
+  sourceTrimEnd: number;
+  originalDuration: number;
+  previewPosition: number;
+}): boolean {
+  return computeThumbnailSourceTimeFromPreviewPosition(params) !== null;
+}
+
+/**
+ * サムネイル生成のシーク候補列を構築する。
+ * 主時刻 → 有効開始からの再試行オフセット → 中央。いずれも有効範囲内にクランプ。
+ */
+export function buildThumbnailSeekCandidates(params: {
+  primarySourceTime: number;
+  sourceTrimStart: number;
+  sourceTrimEnd: number;
+  /** video.duration。未取得時は sourceTrimEnd を上限に使う */
+  mediaDuration?: number;
+}): number[] {
+  const start = Number.isFinite(params.sourceTrimStart) ? Math.max(0, params.sourceTrimStart) : 0;
+  const end = Number.isFinite(params.sourceTrimEnd) ? Math.max(start, params.sourceTrimEnd) : start;
+  const mediaEnd = Number.isFinite(params.mediaDuration) && (params.mediaDuration as number) > 0
+    ? (params.mediaDuration as number)
+    : end;
+  const hardEnd = Math.min(end, mediaEnd);
+  const range = hardEnd - start;
+  if (range <= 0) {
+    const t = Number.isFinite(params.primarySourceTime) ? Math.max(0, params.primarySourceTime) : 0;
+    return [t];
+  }
+
+  const maxSeek = Math.max(start, hardEnd - Math.min(0.05, range * 0.25));
+  const clamp = (t: number) => Math.max(start, Math.min(t, maxSeek));
+
+  const primary = clamp(
+    Number.isFinite(params.primarySourceTime) ? params.primarySourceTime : start + AUTO_THUMBNAIL_OFFSET_SEC
+  );
+  const fromStartOffsets = AUTO_THUMBNAIL_RETRY_OFFSETS_SEC.map((offset) => clamp(start + offset));
+  // 主時刻から少し後ろへも再試行（手動設定の描画失敗向け）
+  const fromPrimary = [0, 0.1, 0.3].map((delta) => clamp(primary + delta));
+  const middle = clamp(start + range / 2);
+
+  return Array.from(new Set([primary, ...fromPrimary, ...fromStartOffsets, middle]));
+}
+
+/**
+ * MediaItem から表示用のサムネイル元動画時刻を解決する。
+ * 未設定・auto は有効開始から自動計算。manual は保持値（範囲外なら自動へ）。
+ */
+export function resolveMediaThumbnailSourceTime(item: {
+  type: 'video' | 'image';
+  thumbnailMode?: 'auto' | 'manual';
+  thumbnailSourceTime?: number;
+  trimStart: number;
+  trimEnd: number;
+  originalDuration: number;
+}): number | undefined {
+  if (item.type !== 'video') return undefined;
+  const end = item.trimEnd > item.trimStart
+    ? item.trimEnd
+    : (item.originalDuration > 0 ? item.originalDuration : item.trimStart);
+  const resolved = resolveThumbnailAfterTrimChange({
+    mode: item.thumbnailMode,
+    thumbnailSourceTime: item.thumbnailSourceTime,
+    sourceTrimStart: item.trimStart,
+    sourceTrimEnd: end,
+  });
+  return resolved.thumbnailSourceTime;
+}
+
+/**
+ * プロジェクト全体のポスター（アプリ内プレビュー用サムネ）の自動時刻。
+ * タイムライン先頭付近の黒/未描画を避け、0.2s（短い作品は中央）を使う。
+ * ※エクスプローラー等の OS アイコンとは別物（export コンテナへは埋め込まない）。
+ */
+export function computeAutoProjectPosterTimelineTime(totalDuration: number): number {
+  const d = Number.isFinite(totalDuration) ? Math.max(0, totalDuration) : 0;
+  if (d <= 0) return 0;
+  if (d > AUTO_THUMBNAIL_OFFSET_SEC) {
+    return Math.min(AUTO_THUMBNAIL_OFFSET_SEC, Math.max(0, d - 0.05));
+  }
+  return Math.min(d / 2, Math.max(0, d - 0.001));
+}
+
+/**
+ * プレビュー Canvas からポスター画像（JPEG data URL）を生成する。
+ * - UI 表示と MP4 cover art 埋め込みの両方に使う
+ * - maxWidth 既定 1280（エクスプローラー/プレイヤー向けに十分な解像度）
+ * 失敗時は null。
+ */
+export function createPosterDataUrlFromCanvas(
+  canvas: HTMLCanvasElement,
+  maxWidth = 1280,
+  quality = 0.88
+): string | null {
+  try {
+    if (!canvas || canvas.width <= 0 || canvas.height <= 0) return null;
+    const scale = Math.min(1, maxWidth / canvas.width);
+    const w = Math.max(1, Math.round(canvas.width * scale));
+    const h = Math.max(1, Math.round(canvas.height * scale));
+    const off = document.createElement('canvas');
+    off.width = w;
+    off.height = h;
+    const ctx = off.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(canvas, 0, 0, w, h);
+    return off.toDataURL('image/jpeg', quality);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * UI 用に縮小したポスター data URL を作る（一覧・プレビュー欄）。
+ */
+export function createPosterPreviewDataUrlFromCanvas(
+  canvas: HTMLCanvasElement,
+): string | null {
+  return createPosterDataUrlFromCanvas(canvas, 320, 0.75);
 }
 
 /**

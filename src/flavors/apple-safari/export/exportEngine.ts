@@ -26,6 +26,7 @@ import {
   stopCanvasCaptureStream,
 } from '../../../utils/exportTimeline';
 import { inspectMp4Durations } from '../../../utils/mp4Duration';
+import { injectMp4CoverArtFromDataUrl } from '../../../utils/mp4CoverArt';
 import {
   shouldUseOfflineAudioPreRender,
   resolveWebCodecsAudioCaptureStrategy,
@@ -2592,13 +2593,25 @@ export function createUseExport(config: UseExportRuntimeConfig) {
 
         if (buffer.byteLength > 0) {
           exportFinalizingRef.current = true;
-          const blob = new Blob([buffer], { type: 'video/mp4' });
+          const coverInject = injectMp4CoverArtFromDataUrl(
+            buffer,
+            audioSources?.coverArtJpegDataUrl ?? null,
+          );
+          if (coverInject.injected) {
+            logInfo('[DIAG-COVER] cover art embedded into MP4', {
+              originalBytes: buffer.byteLength,
+              finalBytes: coverInject.buffer.byteLength,
+            });
+          }
+          const finalBuffer = coverInject.buffer;
+          const blob = new Blob([finalBuffer], { type: 'video/mp4' });
           if (blob.size <= 0) {
             throw new Error('書き出し結果が空です');
           }
           logInfo('[DIAG-BLOB] export blob created', {
             blobSize: blob.size,
             blobType: blob.type,
+            coverArtInjected: coverInject.injected,
           });
           let url: string;
           try {

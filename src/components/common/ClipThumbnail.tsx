@@ -2,14 +2,24 @@
  * @file ClipThumbnail.tsx
  * @author Turtle Village
  * @description メディアクリップのサムネイルを表示する軽量コンポーネント。
- * 画像はそのまま、動画は先頭フレームをキャプチャして表示する。
+ * 画像はそのまま、動画は指定時刻（未指定時は先頭付近ヒューリスティック）のフレームをキャプチャして表示する。
  */
 import React, { useRef, useEffect, useState } from 'react';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
+import { buildThumbnailSeekCandidates } from '../../utils/media';
 
 interface ClipThumbnailProps {
   file: File;
   type: 'video' | 'image';
+  /**
+   * 元動画上のサムネイル取得時刻（秒）。
+   * 未指定時は従来どおり duration ベースの先頭/中央ヒューリスティック。
+   */
+  sourceTime?: number;
+  /** 有効トリム開始（元動画秒）。再試行候補の下限 */
+  rangeStart?: number;
+  /** 有効トリム終了（元動画秒）。再試行候補の上限 */
+  rangeEnd?: number;
 }
 
 const THUMB_WIDTH = 48;
@@ -29,7 +39,13 @@ type FrameAwareVideo = HTMLVideoElement & {
  * クリップサムネイルコンポーネント
  * ヘッダー付近にメディアの小さなプレビューを表示する
  */
-const ClipThumbnail: React.FC<ClipThumbnailProps> = ({ file, type }) => {
+const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
+  file,
+  type,
+  sourceTime,
+  rangeStart,
+  rangeEnd,
+}) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [ready, setReady] = useState(false);
   const urlRef = useRef<string | null>(null);
@@ -310,6 +326,21 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({ file, type }) => {
     };
 
     const buildSeekCandidates = (duration: number): number[] => {
+      // 明示時刻がある場合は有効範囲内の再試行列（開始+0.2/0.3/0.5 等）を使う
+      if (sourceTime != null && Number.isFinite(sourceTime)) {
+        const start = rangeStart != null && Number.isFinite(rangeStart) ? Math.max(0, rangeStart) : 0;
+        const end = rangeEnd != null && Number.isFinite(rangeEnd) && rangeEnd > start
+          ? rangeEnd
+          : (Number.isFinite(duration) && duration > 0 ? duration : start + 1);
+        return buildThumbnailSeekCandidates({
+          primarySourceTime: sourceTime,
+          sourceTrimStart: start,
+          sourceTrimEnd: end,
+          mediaDuration: duration,
+        });
+      }
+
+      // 後方互換: 未指定時は先頭付近 → 0 → 中央
       if (!Number.isFinite(duration) || duration <= 0) return [0];
 
       const maxSeek = Math.max(0, duration - 0.05);
@@ -422,7 +453,8 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({ file, type }) => {
       detachActiveVideo = null;
       revokeUrl();
     };
-  }, [file, type, isIosSafari]);
+    // sourceTime / 範囲変更で再生成。古い非同期結果は cancelled で破棄
+  }, [file, type, isIosSafari, sourceTime, rangeStart, rangeEnd]);
 
   return (
     <canvas

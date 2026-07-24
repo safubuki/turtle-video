@@ -598,7 +598,11 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, onBeforeLoadPr
       const data = await loadProjectFromSlot(slot);
       if (data) {
         // 各ストアに復元
-        restoreMediaItems(data.mediaItems, data.isClipsLocked);
+        restoreMediaItems(data.mediaItems, data.isClipsLocked, {
+          mode: data.projectPosterMode,
+          timelineTime: data.projectPosterTimelineTime,
+          dataUrl: data.projectPosterDataUrl,
+        });
         restoreAudio(
           data.bgm,
           data.isBgmLocked,

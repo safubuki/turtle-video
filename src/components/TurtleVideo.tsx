@@ -31,7 +31,11 @@ import { preserveOriginalFileName, resolveAiNarrationFileName } from '../utils/f
 import { saveObjectUrlWithClientFileStrategy } from '../utils/fileSave';
 import { openFilesWithPicker, shouldUseMediaOpenFilePicker } from '../utils/platform';
 import { computeTransitionTimelineRanges } from '../utils/transitionTimeline';
-import { computeVideoTrimFromPreviewPosition } from '../utils/media';
+import {
+  computeVideoTrimFromPreviewPosition,
+  computeAutoProjectPosterTimelineTime,
+  createPosterDataUrlFromCanvas,
+} from '../utils/media';
 
 // Zustand Stores
 import { useMediaStore, useAudioStore, useUIStore, useCaptionStore, useLogStore, createNarrationClip } from '../stores';
@@ -94,6 +98,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const moveMediaItem = useMediaStore((s) => s.moveMediaItem);
   const setVideoDuration = useMediaStore((s) => s.setVideoDuration);
   const updateVideoTrim = useMediaStore((s) => s.updateVideoTrim);
+  const setProjectPosterManual = useMediaStore((s) => s.setProjectPosterManual);
+  const resetProjectPosterToAuto = useMediaStore((s) => s.resetProjectPosterToAuto);
+  const projectPosterMode = useMediaStore((s) => s.projectPosterMode);
+  const projectPosterTimelineTime = useMediaStore((s) => s.projectPosterTimelineTime);
+  const projectPosterDataUrl = useMediaStore((s) => s.projectPosterDataUrl);
   const updateImageDuration = useMediaStore((s) => s.updateImageDuration);
   const updateScale = useMediaStore((s) => s.updateScale);
   const updatePosition = useMediaStore((s) => s.updatePosition);
@@ -1505,10 +1514,23 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       let val = parseFloat(value);
       if (isNaN(val)) val = 0;
 
+      const before = mediaItems.find((v) => v.id === id);
+      const wasManual = before?.type === 'video' && before.thumbnailMode === 'manual';
+
       pausePreviewBeforeEdit('update-video-trim');
 
-      // ストアを更新
+      // ストアを更新（手動サムネイルが範囲外なら auto へフォールバック）
       updateVideoTrim(id, type, val);
+
+      if (wasManual) {
+        const after = useMediaStore.getState().mediaItems.find((v) => v.id === id);
+        if (after?.thumbnailMode !== 'manual') {
+          showToast(
+            '手動設定した位置がトリミング範囲外になったため、サムネイルを自動設定に戻しました。',
+            5000
+          );
+        }
+      }
 
       // 対象動画の再生位置をトリミング位置に合わせる
       const item = mediaItems.find((v) => v.id === id);
@@ -1524,7 +1546,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         }
       }
     },
-    [pausePreviewBeforeEdit, updateVideoTrim, mediaItems]
+    [pausePreviewBeforeEdit, updateVideoTrim, mediaItems, showToast]
   );
 
   // --- プレビュー現在位置 → 動画トリム開始/終了 ---
@@ -1546,8 +1568,19 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       });
       if (!nextTrim) return;
 
+      const wasManual = item.thumbnailMode === 'manual';
       pausePreviewBeforeEdit(`set-video-trim-from-current-${type}`);
       updateVideoTrim(id, type, type === 'start' ? nextTrim.start : nextTrim.end);
+
+      if (wasManual) {
+        const after = useMediaStore.getState().mediaItems.find((v) => v.id === id);
+        if (after?.thumbnailMode !== 'manual') {
+          showToast(
+            '手動設定した位置がトリミング範囲外になったため、サムネイルを自動設定に戻しました。',
+            5000
+          );
+        }
+      }
 
       // タイムライン位置を新しい有効範囲内へ補正
       // - 開始点変更: そのフレームが新クリップ先頭になるのでクリップ先頭へ
@@ -1587,8 +1620,68 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       updateVideoTrim,
       setCurrentTime,
       renderFrame,
+      showToast,
     ]
   );
+
+  // --- プロジェクトポスター（アプリ内サムネ）をプレビュー現在フレームで手動設定 ---
+  // タイムライン全体の現在位置を対象にする（複数クリップ合成後の1本の動画として扱う）。
+  // ※エクスプローラーのファイルアイコンには埋め込まれない（OS が動画から別途生成する）。
+  const handleSetProjectPosterFromCurrent = useCallback(() => {
+    if (mediaItems.length === 0 || totalDuration <= 0) return;
+    pausePreviewBeforeEdit('set-project-poster-from-current');
+    // 停止描画を確定してからキャプチャ（再生中のブレ防止）
+    requestAnimationFrame(() => {
+      renderFrame(currentTimeRef.current, false);
+      requestAnimationFrame(() => {
+        const canvas = canvasRef.current;
+        const dataUrl = canvas ? createPosterDataUrlFromCanvas(canvas) : null;
+        if (!dataUrl) {
+          showToast('サムネイル画像の取得に失敗しました。もう一度お試しください。', 4000);
+          return;
+        }
+        setProjectPosterManual(currentTimeRef.current, dataUrl);
+        showToast('現在のフレームをプロジェクトのサムネイルに設定しました。', 3000);
+      });
+    });
+  }, [
+    mediaItems.length,
+    totalDuration,
+    pausePreviewBeforeEdit,
+    renderFrame,
+    setProjectPosterManual,
+    showToast,
+  ]);
+
+  // --- プロジェクトポスターを自動（タイムライン先頭+0.2s 付近）へ戻す ---
+  const handleResetProjectPosterToAuto = useCallback(() => {
+    if (mediaItems.length === 0) {
+      resetProjectPosterToAuto(0, null);
+      return;
+    }
+    pausePreviewBeforeEdit('reset-project-poster-to-auto');
+    const autoTime = computeAutoProjectPosterTimelineTime(totalDuration);
+    currentTimeRef.current = autoTime;
+    setCurrentTime(autoTime);
+    // 自動位置へシークしてから描画・キャプチャ
+    requestAnimationFrame(() => {
+      renderFrame(autoTime, false);
+      requestAnimationFrame(() => {
+        const canvas = canvasRef.current;
+        const dataUrl = canvas ? createPosterDataUrlFromCanvas(canvas) : null;
+        resetProjectPosterToAuto(totalDuration, dataUrl);
+        showToast('サムネイルを自動設定（先頭付近）に戻しました。', 3000);
+      });
+    });
+  }, [
+    mediaItems.length,
+    totalDuration,
+    pausePreviewBeforeEdit,
+    setCurrentTime,
+    renderFrame,
+    resetProjectPosterToAuto,
+    showToast,
+  ]);
 
   // --- 画像表示時間更新ハンドラ ---
   // 目的: 画像クリップの表示時間を変更
@@ -2750,6 +2843,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
                 onExportFinalizeTimeout={handleExportFinalizeTimeout}
                 onOpenHelp={() => openSectionHelp('preview')}
                 formatTime={formatTime}
+                projectPosterMode={projectPosterMode}
+                projectPosterTimelineTime={projectPosterTimelineTime}
+                projectPosterDataUrl={projectPosterDataUrl}
+                onSetProjectPosterFromCurrent={handleSetProjectPosterFromCurrent}
+                onResetProjectPosterToAuto={handleResetProjectPosterToAuto}
               />
             </div>
           </div>

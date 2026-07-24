@@ -69,6 +69,10 @@ export interface SerializedMediaItem {
   sourceHeight?: number;
   // 次のクリップへのトランジション（standard フレーバー限定機能・任意）
   transitionToNext?: { type: 'dissolve' | 'fade-black' | 'fade-white'; duration: number } | null;
+  /** 動画サムネイル設定モード（任意・旧データは auto） */
+  thumbnailMode?: 'auto' | 'manual';
+  /** サムネイル取得位置（元動画上の秒・任意） */
+  thumbnailSourceTime?: number;
 }
 
 // 保存されるオーディオトラックのシリアライズ形式
@@ -192,6 +196,15 @@ export interface ProjectData {
 
   // 出力の向き（'landscape'=16:9 / 'portrait'=9:16）。任意・既定 landscape（旧データ後方互換）。
   aspectRatio?: 'landscape' | 'portrait';
+
+  /**
+   * プロジェクト全体のポスター（アプリ内プレビュー用）。
+   * OS エクスプローラーの動画アイコンとは別（MP4 への埋め込みなし）。
+   */
+  projectPosterMode?: 'auto' | 'manual';
+  projectPosterTimelineTime?: number;
+  /** 小さい JPEG data URL（任意） */
+  projectPosterDataUrl?: string | null;
 }
 
 /**

@@ -21,14 +21,28 @@ import {
   revokeObjectUrl,
   getNextRotation,
   normalizeMediaBlur,
+  computeAutoThumbnailSourceTime,
+  resolveThumbnailAfterTrimChange,
+  computeAutoProjectPosterTimelineTime,
 } from '../utils';
 import { useLogStore } from './logStore';
+
+export type ProjectPosterMode = 'auto' | 'manual';
 
 interface MediaState {
   // State
   mediaItems: MediaItem[];
   totalDuration: number;
   isClipsLocked: boolean;
+  /**
+   * プロジェクト全体のポスター（アプリ内表示用）。
+   * 出力 MP4 のエクスプローラーアイコンとは別（埋め込みなし）。
+   */
+  projectPosterMode: ProjectPosterMode;
+  /** タイムライン上の秒 */
+  projectPosterTimelineTime: number;
+  /** 小さい JPEG data URL（表示用・任意） */
+  projectPosterDataUrl: string | null;
 
   // Actions
   addMediaItems: (files: File[]) => Promise<void>;
@@ -41,6 +55,20 @@ interface MediaState {
   setVideoDuration: (id: string, originalDuration: number) => void;
   setMediaSourceDimensions: (id: string, sourceWidth: number, sourceHeight: number) => void;
   updateVideoTrim: (id: string, type: 'start' | 'end', value: number) => void;
+  /**
+   * プレビュー等で指定した元動画時刻を手動サムネイルに設定する。
+   * @returns 成功時 true。範囲外・非動画など無効時は false（モードは変更しない）
+   */
+  setVideoThumbnailManual: (id: string, sourceTime: number) => boolean;
+  /** サムネイルを自動設定（開始+0.2s）へ戻す */
+  resetVideoThumbnailToAuto: (id: string) => void;
+
+  /** プロジェクトポスターをプレビュー現在フレームで手動設定 */
+  setProjectPosterManual: (timelineTime: number, dataUrl: string | null) => void;
+  /** プロジェクトポスターを自動（タイムライン先頭付近）へ戻す */
+  resetProjectPosterToAuto: (totalDuration: number, dataUrl?: string | null) => void;
+  /** ポスター画像だけ更新（自動再キャプチャ用） */
+  setProjectPosterDataUrl: (dataUrl: string | null) => void;
 
   // Image specific
   updateImageDuration: (id: string, duration: number) => void;
@@ -74,7 +102,15 @@ interface MediaState {
 
   // Restore
   isLocked: boolean;
-  restoreFromSave: (items: MediaItem[], isLocked: boolean) => void;
+  restoreFromSave: (
+    items: MediaItem[],
+    isLocked: boolean,
+    poster?: {
+      mode?: ProjectPosterMode;
+      timelineTime?: number;
+      dataUrl?: string | null;
+    }
+  ) => void;
 }
 
 export const useMediaStore = create<MediaState>()(
@@ -84,6 +120,9 @@ export const useMediaStore = create<MediaState>()(
       mediaItems: [],
       totalDuration: 0,
       isClipsLocked: false,
+      projectPosterMode: 'auto',
+      projectPosterTimelineTime: 0.2,
+      projectPosterDataUrl: null,
 
       // Add media items
       addMediaItems: async (files) => {
@@ -178,18 +217,43 @@ export const useMediaStore = create<MediaState>()(
       setVideoDuration: (id, originalDuration) => {
         useLogStore.getState().info('MEDIA', '動画の長さを設定', { id, originalDuration });
         set((state) => {
-          const updated = state.mediaItems.map((item) => {
+          const updated = state.mediaItems.map((item): MediaItem => {
             if (item.id !== id) return item;
             const isInitialized = item.originalDuration > 0;
             const newTrimStart = isInitialized ? item.trimStart : 0;
             const newTrimEnd = isInitialized && item.trimEnd > 0 ? item.trimEnd : originalDuration;
             const newDuration = newTrimEnd - newTrimStart;
+            if (item.type !== 'video') {
+              return {
+                ...item,
+                originalDuration,
+                trimStart: newTrimStart,
+                trimEnd: newTrimEnd,
+                duration: newDuration > 0 ? newDuration : originalDuration,
+              };
+            }
+            // 初回尺確定・auto は開始+0.2s。manual は範囲外なら auto へ
+            const thumb = resolveThumbnailAfterTrimChange({
+              mode: item.thumbnailMode,
+              thumbnailSourceTime: item.thumbnailSourceTime,
+              sourceTrimStart: newTrimStart,
+              sourceTrimEnd: newTrimEnd,
+            });
+            // 初回 or 明示 auto は常に自動位置を確定（manual 維持は上記で範囲内のみ）
+            const useAuto =
+              item.thumbnailMode !== 'manual'
+              || !isInitialized
+              || thumb.fellBackToAuto;
             return {
               ...item,
               originalDuration,
               trimStart: newTrimStart,
               trimEnd: newTrimEnd,
               duration: newDuration > 0 ? newDuration : originalDuration,
+              thumbnailMode: useAuto ? 'auto' : 'manual',
+              thumbnailSourceTime: useAuto
+                ? computeAutoThumbnailSourceTime(newTrimStart, newTrimEnd)
+                : (item.thumbnailSourceTime ?? thumb.thumbnailSourceTime),
             };
           });
           return {
@@ -225,11 +289,35 @@ export const useMediaStore = create<MediaState>()(
             const start = type === 'start' ? value : item.trimStart;
             const end = type === 'end' ? value : item.trimEnd;
             const validated = validateTrim(start, end, item.originalDuration);
+            if (item.type !== 'video') {
+              return {
+                ...item,
+                trimStart: validated.start,
+                trimEnd: validated.end,
+                duration: validated.duration,
+              };
+            }
+            // 手動位置が範囲外なら auto へ。auto は開始+0.2s を再計算
+            const thumb = resolveThumbnailAfterTrimChange({
+              mode: item.thumbnailMode,
+              thumbnailSourceTime: item.thumbnailSourceTime,
+              sourceTrimStart: validated.start,
+              sourceTrimEnd: validated.end,
+            });
+            if (thumb.fellBackToAuto) {
+              useLogStore.getState().info('MEDIA', '手動サムネイルが範囲外のため自動へ戻した', {
+                id,
+                previousTime: item.thumbnailSourceTime,
+                newTime: thumb.thumbnailSourceTime,
+              });
+            }
             return {
               ...item,
               trimStart: validated.start,
               trimEnd: validated.end,
               duration: validated.duration,
+              thumbnailMode: thumb.thumbnailMode,
+              thumbnailSourceTime: thumb.thumbnailSourceTime,
             };
           });
           return {
@@ -237,6 +325,89 @@ export const useMediaStore = create<MediaState>()(
             totalDuration: calculateTotalDuration(updated),
           };
         });
+      },
+
+      setVideoThumbnailManual: (id, sourceTime) => {
+        if (!Number.isFinite(sourceTime)) return false;
+        let applied = false;
+        set((state) => {
+          const updated = state.mediaItems.map((item) => {
+            if (item.id !== id || item.type !== 'video') return item;
+            const end = item.trimEnd > item.trimStart
+              ? item.trimEnd
+              : (item.originalDuration > 0 ? item.originalDuration : item.trimStart);
+            if (sourceTime < item.trimStart || sourceTime >= end) {
+              return item;
+            }
+            applied = true;
+            useLogStore.getState().info('MEDIA', '動画サムネイルを手動設定', {
+              id,
+              sourceTime,
+              previousMode: item.thumbnailMode ?? 'auto',
+            });
+            return {
+              ...item,
+              thumbnailMode: 'manual' as const,
+              thumbnailSourceTime: sourceTime,
+            };
+          });
+          return applied ? { mediaItems: updated } : state;
+        });
+        return applied;
+      },
+
+      resetVideoThumbnailToAuto: (id) => {
+        set((state) => {
+          const updated = state.mediaItems.map((item) => {
+            if (item.id !== id || item.type !== 'video') return item;
+            const end = item.trimEnd > item.trimStart
+              ? item.trimEnd
+              : (item.originalDuration > 0 ? item.originalDuration : item.trimStart);
+            const thumbnailSourceTime = computeAutoThumbnailSourceTime(item.trimStart, end);
+            useLogStore.getState().info('MEDIA', '動画サムネイルを自動設定に戻す', {
+              id,
+              thumbnailSourceTime,
+              previousMode: item.thumbnailMode ?? 'auto',
+            });
+            return {
+              ...item,
+              thumbnailMode: 'auto' as const,
+              thumbnailSourceTime,
+            };
+          });
+          return { mediaItems: updated };
+        });
+      },
+
+      setProjectPosterManual: (timelineTime, dataUrl) => {
+        if (!Number.isFinite(timelineTime)) return;
+        const t = Math.max(0, timelineTime);
+        useLogStore.getState().info('MEDIA', 'プロジェクトポスターを手動設定', {
+          timelineTime: t,
+          hasImage: Boolean(dataUrl),
+        });
+        set({
+          projectPosterMode: 'manual',
+          projectPosterTimelineTime: t,
+          projectPosterDataUrl: dataUrl,
+        });
+      },
+
+      resetProjectPosterToAuto: (totalDuration, dataUrl = null) => {
+        const t = computeAutoProjectPosterTimelineTime(totalDuration);
+        useLogStore.getState().info('MEDIA', 'プロジェクトポスターを自動設定に戻す', {
+          timelineTime: t,
+          hasImage: Boolean(dataUrl),
+        });
+        set({
+          projectPosterMode: 'auto',
+          projectPosterTimelineTime: t,
+          projectPosterDataUrl: dataUrl ?? null,
+        });
+      },
+
+      setProjectPosterDataUrl: (dataUrl) => {
+        set({ projectPosterDataUrl: dataUrl });
       },
 
       // Update image duration
@@ -400,20 +571,36 @@ export const useMediaStore = create<MediaState>()(
         const { mediaItems } = get();
         useLogStore.getState().info('MEDIA', '全メディアをクリア', { itemCount: mediaItems.length });
         mediaItems.forEach((item) => revokeObjectUrl(item.url));
-        set({ mediaItems: [], totalDuration: 0, isClipsLocked: false, isLocked: false });
+        set({
+          mediaItems: [],
+          totalDuration: 0,
+          isClipsLocked: false,
+          isLocked: false,
+          projectPosterMode: 'auto',
+          projectPosterTimelineTime: 0.2,
+          projectPosterDataUrl: null,
+        });
       },
 
       // Restore from save (isLockedのエイリアス)
       isLocked: false,
-      restoreFromSave: (items, isLocked) => {
+      restoreFromSave: (items, isLocked, poster) => {
         const { mediaItems } = get();
         // 既存のURLを解放
         mediaItems.forEach((item) => revokeObjectUrl(item.url));
+        const totalDuration = calculateTotalDuration(items);
+        const mode = poster?.mode === 'manual' ? 'manual' as const : 'auto' as const;
+        const timelineTime = Number.isFinite(poster?.timelineTime)
+          ? Math.max(0, poster!.timelineTime as number)
+          : computeAutoProjectPosterTimelineTime(totalDuration);
         set({
           mediaItems: items,
-          totalDuration: calculateTotalDuration(items),
+          totalDuration,
           isClipsLocked: isLocked,
           isLocked,
+          projectPosterMode: mode,
+          projectPosterTimelineTime: timelineTime,
+          projectPosterDataUrl: poster?.dataUrl ?? null,
         });
       },
     }),

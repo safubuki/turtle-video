@@ -82,6 +82,13 @@ export interface ExportAudioSources {
    * 静止画のみの standard export で、各 Canvas 描画とエンコード投入を1対1に同期するために使う。
    */
   onVideoFrameSubmitted?: (submittedFrameCount: number) => void;
+  /**
+   * プロジェクトポスター（JPEG data URL）。
+   * - MP4 の cover art（moov/udta/meta/ilst/covr）へ埋め込み
+   * - 先頭キーフレームの差し替え（シェルが映像先頭を読む場合向け）
+   * 未設定時は埋め込み・差し替えしない。
+   */
+  coverArtJpegDataUrl?: string | null;
 }
 
 export interface ExportCallbacks {

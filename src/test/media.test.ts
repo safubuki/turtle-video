@@ -13,6 +13,14 @@ import {
   MIN_VIDEO_TRIM_DURATION_SEC,
   computeVideoTrimFromPreviewPosition,
   canSetVideoTrimFromPreviewPosition,
+  AUTO_THUMBNAIL_OFFSET_SEC,
+  computeAutoThumbnailSourceTime,
+  isThumbnailSourceTimeInRange,
+  resolveThumbnailAfterTrimChange,
+  computeThumbnailSourceTimeFromPreviewPosition,
+  canSetVideoThumbnailFromPreviewPosition,
+  buildThumbnailSeekCandidates,
+  computeAutoProjectPosterTimelineTime,
   validateScale,
   validatePosition,
 } from '../utils/media';
@@ -312,6 +320,113 @@ describe('computeVideoTrimFromPreviewPosition', () => {
         type: 'start',
       })
     ).toBe(false);
+  });
+});
+
+describe('video thumbnail auto/manual (Issue #208)', () => {
+  it('auto time is sourceTrimStart + 0.2 for untrimmed and trimmed clips', () => {
+    expect(computeAutoThumbnailSourceTime(0, 10)).toBeCloseTo(AUTO_THUMBNAIL_OFFSET_SEC);
+    // 開始を 2s にトリム → 2.2s
+    expect(computeAutoThumbnailSourceTime(2, 10)).toBeCloseTo(2.2);
+  });
+
+  it('uses midpoint for very short clips instead of going out of range', () => {
+    // 有効尺 0.1s → 中央 0.05
+    expect(computeAutoThumbnailSourceTime(1, 1.1)).toBeCloseTo(1.05, 2);
+    // 有効尺ちょうど 0.2s 以下
+    const t = computeAutoThumbnailSourceTime(0, 0.15);
+    expect(t).toBeGreaterThanOrEqual(0);
+    expect(t).toBeLessThan(0.15);
+  });
+
+  it('keeps manual when still in range after trim, falls back when outside', () => {
+    const keep = resolveThumbnailAfterTrimChange({
+      mode: 'manual',
+      thumbnailSourceTime: 3,
+      sourceTrimStart: 1,
+      sourceTrimEnd: 8,
+    });
+    expect(keep).toEqual({
+      thumbnailMode: 'manual',
+      thumbnailSourceTime: 3,
+      fellBackToAuto: false,
+    });
+
+    const fallback = resolveThumbnailAfterTrimChange({
+      mode: 'manual',
+      thumbnailSourceTime: 0.5,
+      sourceTrimStart: 2,
+      sourceTrimEnd: 8,
+    });
+    expect(fallback.thumbnailMode).toBe('auto');
+    expect(fallback.fellBackToAuto).toBe(true);
+    expect(fallback.thumbnailSourceTime).toBeCloseTo(2.2);
+  });
+
+  it('auto always recomputes from current trim start', () => {
+    const resolved = resolveThumbnailAfterTrimChange({
+      mode: 'auto',
+      thumbnailSourceTime: 0.2,
+      sourceTrimStart: 5,
+      sourceTrimEnd: 12,
+    });
+    expect(resolved.thumbnailMode).toBe('auto');
+    expect(resolved.thumbnailSourceTime).toBeCloseTo(5.2);
+    expect(resolved.fellBackToAuto).toBe(false);
+  });
+
+  it('manual thumbnail from preview uses source absolute time', () => {
+    // trim 2-8, preview 1.5s into clip → source 3.5
+    const t = computeThumbnailSourceTimeFromPreviewPosition({
+      sourceTrimStart: 2,
+      sourceTrimEnd: 8,
+      originalDuration: 10,
+      previewPosition: 1.5,
+    });
+    expect(t).toBeCloseTo(3.5);
+    expect(
+      canSetVideoThumbnailFromPreviewPosition({
+        sourceTrimStart: 2,
+        sourceTrimEnd: 8,
+        originalDuration: 10,
+        previewPosition: 1.5,
+      })
+    ).toBe(true);
+    expect(
+      canSetVideoThumbnailFromPreviewPosition({
+        sourceTrimStart: 2,
+        sourceTrimEnd: 8,
+        originalDuration: 10,
+        previewPosition: -0.1,
+      })
+    ).toBe(false);
+  });
+
+  it('range check uses half-open [start, end)', () => {
+    expect(isThumbnailSourceTimeInRange(2, 2, 8)).toBe(true);
+    expect(isThumbnailSourceTimeInRange(7.99, 2, 8)).toBe(true);
+    expect(isThumbnailSourceTimeInRange(8, 2, 8)).toBe(false);
+    expect(isThumbnailSourceTimeInRange(1.9, 2, 8)).toBe(false);
+  });
+
+  it('seek candidates stay within trim range and prefer primary time', () => {
+    const candidates = buildThumbnailSeekCandidates({
+      primarySourceTime: 2.2,
+      sourceTrimStart: 2,
+      sourceTrimEnd: 5,
+      mediaDuration: 10,
+    });
+    expect(candidates[0]).toBeCloseTo(2.2);
+    for (const t of candidates) {
+      expect(t).toBeGreaterThanOrEqual(2);
+      expect(t).toBeLessThan(5);
+    }
+  });
+
+  it('project poster auto time uses timeline 0.2s (not per-clip)', () => {
+    expect(computeAutoProjectPosterTimelineTime(10)).toBeCloseTo(0.2);
+    expect(computeAutoProjectPosterTimelineTime(0.1)).toBeCloseTo(0.05);
+    expect(computeAutoProjectPosterTimelineTime(0)).toBe(0);
   });
 });
 

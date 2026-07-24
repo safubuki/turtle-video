@@ -27,6 +27,7 @@ import { createDiagnosticId } from '../utils/diagnostics';
 import versionData from '../../version.json';
 import { useUIStore } from './uiStore';
 import { useCanvasStore, type AspectRatio } from './canvasStore';
+import { useMediaStore } from './mediaStore';
 import { normalizeMediaBlur, normalizeRotation } from '../utils/canvas';
 
 export function getProjectStoreErrorMessage(error: unknown): string {
@@ -234,6 +235,9 @@ interface ProjectState {
     isCaptionsLocked: boolean;
     bgmClips: BgmClip[];
     bgmAutoAdjustToTimeline: boolean;
+    projectPosterMode: 'auto' | 'manual';
+    projectPosterTimelineTime?: number;
+    projectPosterDataUrl: string | null;
   } | null>;
 
   deleteAllSaves: () => Promise<void>;
@@ -330,11 +334,23 @@ async function serializeMediaItem(item: MediaItem): Promise<SerializedMediaItem>
     sourceWidth: item.sourceWidth,
     sourceHeight: item.sourceHeight,
     transitionToNext: item.transitionToNext ?? null,
+    thumbnailMode: item.type === 'video'
+      ? (item.thumbnailMode === 'manual' ? 'manual' : 'auto')
+      : undefined,
+    thumbnailSourceTime: item.type === 'video' && Number.isFinite(item.thumbnailSourceTime)
+      ? item.thumbnailSourceTime
+      : undefined,
   };
 }
 
 function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
   const file = getProjectPersistenceAdapter().arrayBufferToFile(data.fileData, data.fileName, data.fileType);
+  const thumbnailMode = data.type === 'video'
+    ? (data.thumbnailMode === 'manual' ? 'manual' as const : 'auto' as const)
+    : undefined;
+  const thumbnailSourceTime = data.type === 'video' && Number.isFinite(data.thumbnailSourceTime)
+    ? (data.thumbnailSourceTime as number)
+    : undefined;
   return {
     id: data.id,
     file,
@@ -361,6 +377,8 @@ function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
     sourceWidth: data.sourceWidth,
     sourceHeight: data.sourceHeight,
     transitionToNext: data.transitionToNext ?? null,
+    thumbnailMode,
+    thumbnailSourceTime,
   };
 }
 
@@ -688,6 +706,9 @@ export const useProjectStore = create<ProjectState>()(
               bgmClips: serializedBgmClips,
               bgmAutoAdjustToTimeline: useAudioStore.getState().bgmAutoAdjustToTimeline !== false,
               aspectRatio: useCanvasStore.getState().aspectRatio,
+              projectPosterMode: useMediaStore.getState().projectPosterMode,
+              projectPosterTimelineTime: useMediaStore.getState().projectPosterTimelineTime,
+              projectPosterDataUrl: useMediaStore.getState().projectPosterDataUrl,
             };
 
             await getProjectPersistenceAdapter().saveProject(nextProjectData);
@@ -779,6 +800,9 @@ export const useProjectStore = create<ProjectState>()(
               bgmClips: serializedBgmClips,
               bgmAutoAdjustToTimeline: useAudioStore.getState().bgmAutoAdjustToTimeline !== false,
               aspectRatio: useCanvasStore.getState().aspectRatio,
+              projectPosterMode: useMediaStore.getState().projectPosterMode,
+              projectPosterTimelineTime: useMediaStore.getState().projectPosterTimelineTime,
+              projectPosterDataUrl: useMediaStore.getState().projectPosterDataUrl,
             };
 
             await getProjectPersistenceAdapter().saveProject(nextProjectData);
@@ -882,6 +906,11 @@ export const useProjectStore = create<ProjectState>()(
             isCaptionsLocked: data.isCaptionsLocked,
             bgmClips,
             bgmAutoAdjustToTimeline: data.bgmAutoAdjustToTimeline !== false,
+            projectPosterMode: data.projectPosterMode === 'manual' ? 'manual' as const : 'auto' as const,
+            projectPosterTimelineTime: Number.isFinite(data.projectPosterTimelineTime)
+              ? Math.max(0, data.projectPosterTimelineTime as number)
+              : undefined,
+            projectPosterDataUrl: data.projectPosterDataUrl ?? null,
           };
         } catch (error) {
           useLogStore.getState().error('SYSTEM', 'プロジェクト読み込み失敗', {

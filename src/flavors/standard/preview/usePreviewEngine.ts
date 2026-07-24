@@ -5458,6 +5458,8 @@ export function usePreviewEngine({
             narrations: narrationsRef.current,
             totalDuration: totalDurationRef.current,
             getPlaybackTimeSec: () => currentTimeRef.current,
+            // プロジェクトポスター → MP4 cover art / 先頭キーフレーム（動画サムネイルの標準手法）
+            coverArtJpegDataUrl: useMediaStore.getState().projectPosterDataUrl,
             onVideoFrameSubmitted: (submittedFrameCount) => {
               if (
                 currentExportSessionIdRef.current === exportSessionId

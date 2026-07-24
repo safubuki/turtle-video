@@ -27,6 +27,11 @@ import {
 } from '../../../utils/exportTimeline';
 import { inspectMp4Durations } from '../../../utils/mp4Duration';
 import {
+  createExportVideoFrame,
+  injectMp4CoverArtFromDataUrl,
+  loadCoverArtImageBitmap,
+} from '../../../utils/mp4CoverArt';
+import {
   shouldUseOfflineAudioPreRender,
   resolveWebCodecsAudioCaptureStrategy,
 } from '../../../hooks/export-strategies/exportStrategyResolver';
@@ -1653,6 +1658,17 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         }
 
         updatePreparationStep(audioSources, 8);
+
+        // プロジェクトポスター（カバーアート）を先読み。
+        // 1) 先頭キーフレーム差し替え 2) finalize 後の covr 埋め込み に使う。
+        const coverArtBitmap = await loadCoverArtImageBitmap(audioSources?.coverArtJpegDataUrl ?? null);
+        if (coverArtBitmap || audioSources?.coverArtJpegDataUrl) {
+          logInfo('[DIAG-COVER] cover art prepared for export', {
+            hasBitmap: Boolean(coverArtBitmap),
+            hasDataUrl: Boolean(audioSources?.coverArtJpegDataUrl),
+          });
+        }
+
         // 1. Muxerの初期化 (ArrayBufferTarget -> メモリ上に構築)
         // 音声は常にセットアップする（iOS Safariでは audioTrack が取得できないケースでも
         // ScriptProcessorNode 経由で音声データをキャプチャするため）
@@ -2274,11 +2290,14 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                     durationUs: Math.round(1e6 / FPS),
                   };
                 encodedVideoEndUs = Math.max(encodedVideoEndUs, frameTiming.timestampUs + frameTiming.durationUs);
-                const frame = new VideoFrame(canvas, {
-                  timestamp: frameTiming.timestampUs,
-                  duration: frameTiming.durationUs,
+                const frame = createExportVideoFrame({
+                  canvas,
+                  posterBitmap: coverArtBitmap,
+                  frameIndex,
+                  timestampUs: frameTiming.timestampUs,
+                  durationUs: frameTiming.durationUs,
                 });
-                videoEncoder.encode(frame, { keyFrame: isKeyFrame(frameIndex) });
+                videoEncoder.encode(frame, { keyFrame: frameIndex === 0 ? true : isKeyFrame(frameIndex) });
                 noteVideoFrameSubmitted();
                 frame.close();
                 frameIndex++;
@@ -2342,11 +2361,15 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                       durationUs: Math.round(1e6 / FPS),
                     };
                   encodedVideoEndUs = Math.max(encodedVideoEndUs, frameTiming.timestampUs + frameTiming.durationUs);
-                  const frame = new VideoFrame(canvas, {
-                    timestamp: frameTiming.timestampUs,
-                    duration: frameTiming.durationUs,
+                  // 先頭フレームはポスターをキーフレームとして差し替え（シェルが先頭を読む場合に効く）
+                  const frame = createExportVideoFrame({
+                    canvas,
+                    posterBitmap: coverArtBitmap,
+                    frameIndex,
+                    timestampUs: frameTiming.timestampUs,
+                    durationUs: frameTiming.durationUs,
                   });
-                  videoEncoder.encode(frame, { keyFrame: isKeyFrame(frameIndex) });
+                  videoEncoder.encode(frame, { keyFrame: frameIndex === 0 ? true : isKeyFrame(frameIndex) });
                   noteVideoFrameSubmitted();
                   frame.close();
                   frameIndex++;
@@ -2373,6 +2396,12 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           } catch (e) {
             if (!isAbortError(e)) {
               console.error('Video processing error (canvas):', e);
+            }
+          } finally {
+            try {
+              coverArtBitmap?.close();
+            } catch {
+              // ignore
             }
           }
         };
@@ -2740,13 +2769,26 @@ export function createUseExport(config: UseExportRuntimeConfig) {
 
         if (buffer.byteLength > 0) {
           exportFinalizingRef.current = true;
-          const blob = new Blob([buffer], { type: 'video/mp4' });
+          // 標準の動画サムネイル手法: コンテナへ cover art (covr) を埋め込む
+          const coverInject = injectMp4CoverArtFromDataUrl(
+            buffer,
+            audioSources?.coverArtJpegDataUrl ?? null,
+          );
+          if (coverInject.injected) {
+            logInfo('[DIAG-COVER] cover art embedded into MP4', {
+              originalBytes: buffer.byteLength,
+              finalBytes: coverInject.buffer.byteLength,
+            });
+          }
+          const finalBuffer = coverInject.buffer;
+          const blob = new Blob([finalBuffer], { type: 'video/mp4' });
           if (blob.size <= 0) {
             throw new Error('書き出し結果が空です');
           }
           logInfo('[DIAG-BLOB] export blob created', {
             blobSize: blob.size,
             blobType: blob.type,
+            coverArtInjected: coverInject.injected,
           });
           let url: string;
           try {

@@ -701,6 +701,7 @@
 | **エラー** | 3 層防御: ErrorBoundary（コンポーネント）、グローバルハンドラ（window）、try-catch（個別処理） |
 | **フレーバー分離** | export エンジンは `src/flavors/<flavor>/export/exportEngine.ts` に物理フォーク済み。共有コード→flavors の import、flavor 相互 import、共有コンポーネントでの `getPlatformCapabilities()` 直接呼び出しは ESLint で禁止。共有コンポーネントの UA 判定は `usePlatformCapabilities()`（PlatformCapabilitiesContext）経由。凍結レガシー（`components/turtle-video/usePreview*` / `utils/previewPlatform` / `utils/iosSafariAudio`）は編集禁止 |
 | **export後preview（#209）** | 共有 `<video>` を同一要素のまま `load()` / hard src で直しても Chromium decoder wedge が残ることがある（表面の readyState 4 は信用しない）。本命は MediaResourceLoader remount（`reloadKey++` + MediaElementSource detach、13-141）。13-135〜140 は保険。成功/失敗/中断の全経路で remount を要求する |
+| **動画サムネ（#208）** | アプリ内ポスターだけでは OS アイコンは変わらない。export で **covr 埋め込み + 先頭 KF 差し替え**（13-146）が本命。**ユーザー確認済み成功事例**。設定後の再書き出し必須 |
 
 ## 12. Dev Script Pattern (media-video-analyzer STT)
 
@@ -2648,4 +2649,70 @@ export 終了（成功/失敗/中断）
 - **UI**: BGM リスト上部に「動画尺に合わせて自動調整」チェック（ON/OFF バッジ）。ロック中は変更不可
 - **永続化**: ProjectData.bgmAutoAdjustToTimeline（任意・旧データは true）。save/load/autoSave ハッシュに含む
 - **注意**: 設定値自体は ON/OFF どちらでも尺変更で書き換えない。プレビュー=エクスポート同一契約
+
+### 13-144. 動画サムネイルの自動設定・手動設定切替（Issue #208）
+
+- **ファイル**: `src/utils/media.ts`, `src/types/index.ts`, `src/stores/mediaStore.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/hooks/useAutoSave.ts`, `src/components/common/ClipThumbnail.tsx`, `src/components/media/ClipItem.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, `src/test/media.test.ts`, `src/test/stores/mediaStore.test.ts`
+- **要件**: 動画クリップごとにサムネイルを **自動**（有効開始+0.2秒）または **手動**（プレビュー現在フレーム）で切り替え、何度でも往復できる。
+- **データ契約**:
+  - `MediaItem.thumbnailMode?: 'auto' | 'manual'`（旧データは auto）
+  - `MediaItem.thumbnailSourceTime?: number`（**元動画上の絶対秒**。トリム後の相対時刻ではない）
+  - 画像クリップは未使用。永続化・autoSave ハッシュ・シリアライズを揃えて更新する。
+- **計算契約（純ロジック `media.ts`）**:
+  - 自動: `sourceTrimStart + 0.2`（有効尺 ≤0.2s なら中央）。終端そのものにはしない。
+  - 手動: `sourceTime = sourceTrimStart + previewPosition`（クリップ表示区間内のときのみ）
+  - トリム後: 手動が範囲外なら auto へフォールバックし再計算。範囲内なら manual 維持。
+  - 再試行候補: 主時刻 → +0.1/+0.3 → 開始+0.2/0.3/0.5 → 中央（いずれも有効範囲内）
+- **UI**: 動画カードのトリミング欄にモード表示（自動/手動）、「現在のフレームをサムネイルに設定」「再設定」「自動設定に戻す」。プレビューがそのクリップ区間内にないときは設定ボタン disabled。
+- **非同期**: サムネイル画像自体はストアに持たず、`ClipThumbnail` が `sourceTime` 変更で再生成。effect の `cancelled` で古い生成結果を破棄（mode/時刻のレースは store 側の最新値のみが正）。
+- **注意**:
+  - 先頭 0 秒固定のサムネは黒フレームになりやすいため、自動は常に +0.2s（トリム有無を問わず同じルール）。
+  - 手動設定失敗時は mode を manual に確定しない（`setVideoThumbnailManual` が false）。
+  - iOS Safari の offscreen DOM + prime 再生（13-65）は維持し、`sourceTime` シーク後も同じ経路で描画する。
+
+### 13-145. プロジェクト全体ポスター（プレビュー UI）とエクスプローラーサムネの責務分離
+
+- **ファイル**: `src/stores/mediaStore.ts`, `src/utils/media.ts`, `src/components/sections/PreviewSection.tsx`, `src/components/TurtleVideo.tsx`, `src/components/media/ClipItem.tsx`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/hooks/useAutoSave.ts`, `src/constants/sectionHelp.ts`
+- **調査結果（ユーザー報告: 手動設定してもエクスプローラーの大アイコンが変わらない）**:
+  1. Issue #208 の実装は **編集 UI 用**（クリップ一覧の小サムネ / 後にプロジェクトポスター）であり、**export の MP4 コンテナへポスターフレームや cover メタデータを一切書き込んでいない**。
+  2. `mp4-muxer` は映像・音声チャンクのみを mux する。`fastStart: 'in-memory'` はあるが、Windows シェルが読む「代表フレーム指定」ではない。
+  3. Windows エクスプローラーの動画サムネイルは **OS（Media Foundation 等）が再生ストリームから独自にフレームを抽出**して生成する。ブラウザからの通常 MP4 書き出しでは、ユーザー指定フレームをエクスプローラーに強制できない。
+  4. クリップ単位の手動設定は「複数クリップを1本に合成した完成動画」の代表フレームというユーザー意図ともズレていた。
+- **対策（アプリ内 UX）**:
+  - **プロジェクト全体ポスター**を `mediaStore` に追加: `projectPosterMode` / `projectPosterTimelineTime` / `projectPosterDataUrl`（小さい JPEG）。
+  - 設定 UI を **プレビューセクション**へ移動（合成後タイムラインの現在フレームをキャプチャ）。
+  - 小さい画像プレビュー + **自動/手動バッジ + タイムライン時刻**を常時表示。
+  - クリップカード側の手動設定 UI は撤去。リスト用 `ClipThumbnail` はクリップ自動位置（開始+0.2s）のみ。
+  - 永続化: `ProjectData.projectPoster*`、autoSave ハッシュ、restore 第3引数。
+- **注意**: ポスター dataUrl は表示用の縮小 JPEG。フル解像度 PNG を毎保存しない。
+
+### 13-146. 動画サムネイルの標準手法（cover art + 先頭キーフレーム）を export へ接続【成功事例・ユーザー確認済み】
+
+- **ファイル**: `src/utils/mp4CoverArt.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/hooks/export-strategies/types.ts`, `src/components/sections/PreviewSection.tsx`, `src/stores/mediaStore.ts`, `src/test/mp4CoverArt.test.ts`
+- **Issue**: #208（プロジェクト全体ポスター）+ エクスプローラー等で手動設定フレームがサムネとして出ない問題
+- **汎用的な仕組み（業界標準の 2 系統）**:
+  1. **Cover art（コンテナメタデータ）**: MP4 の `moov/udta/meta/ilst/covr` に JPEG を格納。FFmpeg の attached_pic / TagEditor と同系統。プレイヤーや一部ビューアが「動画サムネイル」として読む。
+  2. **先頭キーフレーム（映像トラック）**: Windows エクスプローラー等のシェルはメタデータより **映像ストリームのフレーム抽出**を優先することが多い。先頭が黒だと別位置を探すため、先頭 IDR を意図した画像にすると効く場合がある。
+- **失敗→成功の経緯**:
+  - 当初はアプリ内 UI（クリップ一覧 / プレビュー小画像）だけに mode・時刻・dataUrl を持たせ、**export の MP4 には何も書いていなかった**。
+  - そのため「手動設定したのにエクスプローラーの大アイコンが変わらない」は、設定ミスではなく **ファイル側にサムネ情報が無い**ことが原因だった。
+  - 標準手法どおり **① covr 埋め込み + ② 先頭キーフレーム差し替え** を WebCodecs finalize 後／encode 時に接続した。
+- **実装**:
+  - `injectMp4CoverArt` / `injectMp4CoverArtFromDataUrl`: finalize 後の ArrayBuffer に covr を挿入し、moov 肥大分だけ `stco/co64` を補正。
+  - `createExportVideoFrame`: frameIndex===0 のときポスター ImageBitmap をエクスポート解像度へ cover 配置してキーフレーム化。
+  - `ExportAudioSources.coverArtJpegDataUrl` に `projectPosterDataUrl` を渡し、standard / apple-safari の WebCodecs 完了時に埋め込み。
+  - UI はプレビュー下でプロジェクト全体ポスターを自動/手動設定（複数クリップ合成後のタイムライン基準）。
+  - ポスター JPEG は最大 1280px・品質 0.88（UI と export 共用）。
+- **成功確認（2026-07・ユーザー実機）**:
+  - プレビューで手動設定 → **再書き出し** → ダウンロードした MP4 をエクスプローラー等で確認し、**選択したフレームが動画サムネイルとして表示されること**を確認済み。
+  - 「凄いよこれもできた」として成功事例に記録する。
+- **運用上の必須手順**:
+  1. プレビュー位置を決める
+  2. 「現在のフレームをサムネイルに設定」（小プレビュー + 手動バッジ）
+  3. **その後に「動画ファイルを作成」**（古いファイルは更新されない）
+- **注意**:
+  - OS/ビューアによっては cover art を無視し、動画途中フレームをアイコンにする場合がある。その場合も先頭キーフレーム差し替えが補助になる。
+  - エクスプローラーのサムネキャッシュが古いと古いまま見えることがある（フォルダ更新・キャッシュクリア）。
+  - MediaRecorder のみの経路（稀）では covr 注入は WebCodecs finalize 側と同等に揃えること。
+  - 回帰時は「UI だけ直して export に載せない」再発を疑う（13-145 の責務分離と本項をセットで読む）。
 
