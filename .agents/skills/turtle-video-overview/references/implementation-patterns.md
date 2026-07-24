@@ -2620,3 +2620,22 @@ export 終了（成功/失敗/中断）
 - apple-safari は optional 契約のみ（本症状の主対象は standard / PC・Android）。再現したら同じ remount をフレーバー内で有効化する。
 - 13-135〜140 の解放・stall・hard reset は **保険・補助**として残し、本命は remount。再発時はまず「同一要素を直し続けていないか」を疑う。
 - [[export-recovery-2026-07-20]] と同系統。Issue #209。
+
+### 13-142. プレビュー現在位置から動画の開始・終了トリミングを設定（Issue #207）
+
+- **ファイル**: src/utils/media.ts, src/components/media/ClipItem.tsx, src/components/sections/ClipsSection.tsx, src/components/TurtleVideo.tsx, src/constants/sectionHelp.ts, src/test/media.test.ts
+- **要件**: プレビューで映像を確認しながら、現在位置を動画クリップのトリミング開始点 / 終了点へ反映したい。再トリミングでも元動画 0 秒基準へ戻らず、現在の有効区間を基準に計算する。
+- **計算契約**:
+  - 元動画上の時刻: sourcePosition = sourceTrimStart + previewPosition（previewPosition はクリップ表示区間先頭からの相対秒）
+  - 開始点設定: newTrimStart = sourcePosition, newTrimEnd は据え置き
+  - 終了点設定: newTrimEnd = sourcePosition, newTrimStart は据え置き
+  - 最低尺 MIN_VIDEO_TRIM_DURATION_SEC（0.1秒）未満・範囲外は null（ボタン disabled。勝手にクランプしない）
+- **実装**:
+  - 純ロジック computeVideoTrimFromPreviewPosition / canSetVideoTrimFromPreviewPosition を media.ts に追加（テスト済み）
+  - ClipItem のトリム UI に BGM/ナレーションと同系の「プレビュー位置を反映: 開始 / 終了」ボタン
+  - handleSetVideoTrimFromCurrent は再生を一時停止し、updateVideoTrim で totalDuration を再計算、タイムライン位置を新範囲内へ補正（開始点→クリップ先頭、終了点→終端直前）、video 要素も source 時刻へシークして renderFrame を即時反映
+- **注意**:
+  - 既存のスライダー/数値入力によるトリム経路は維持（今回は「現在位置から設定」を追加）
+  - 表示上の相対時刻と元動画上の絶対時刻を混同しない。再トリム時に trimStart を無視して 0 から計算しない
+  - プレビューとエクスポートは同じ trimStart/trimEnd を参照する既存契約のまま
+

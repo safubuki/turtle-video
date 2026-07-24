@@ -35,6 +35,7 @@ function renderClipsSection(overrides: Partial<ComponentProps<typeof ClipsSectio
   const props: ComponentProps<typeof ClipsSection> = {
     mediaItems: [],
     mediaTimelineRanges: {},
+    currentTime: 0,
     isClipsLocked: false,
     mediaElements: {},
     onToggleClipsLock: vi.fn(),
@@ -46,6 +47,7 @@ function renderClipsSection(overrides: Partial<ComponentProps<typeof ClipsSectio
     onToggleMediaLock: vi.fn(),
     onToggleTransformPanel: vi.fn(),
     onUpdateVideoTrim: vi.fn(),
+    onSetVideoTrimFromCurrent: vi.fn(),
     onUpdateImageDuration: vi.fn(),
     onUpdateMediaScale: vi.fn(),
     onUpdateMediaPosition: vi.fn(),

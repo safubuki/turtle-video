@@ -129,6 +129,9 @@ export function swapArrayItems<T>(arr: T[], fromIndex: number, toIndex: number):
   return copy;
 }
 
+/** 動画トリム後に許可する最低尺（秒）。スライダー/検証と同一。 */
+export const MIN_VIDEO_TRIM_DURATION_SEC = 0.1;
+
 /**
  * トリム値を検証・調整
  * @param start - 開始位置
@@ -141,13 +144,91 @@ export function validateTrim(
   end: number,
   maxDuration: number
 ): { start: number; end: number; duration: number } {
-  const safeStart = Math.max(0, Math.min(start, end - 0.1));
-  const safeEnd = Math.max(safeStart + 0.1, Math.min(end, maxDuration));
+  const minDuration = MIN_VIDEO_TRIM_DURATION_SEC;
+  const safeStart = Math.max(0, Math.min(start, end - minDuration));
+  const safeEnd = Math.max(safeStart + minDuration, Math.min(end, maxDuration));
   return {
     start: safeStart,
     end: safeEnd,
     duration: safeEnd - safeStart,
   };
+}
+
+/**
+ * プレビュー上の動画内相対位置から、新しい source trim を計算する。
+ *
+ * 既にトリミング済みでも `sourceTrimStart + previewPosition` を基準にするため、
+ * 再トリミングで元動画 0 秒基準に戻ったり誤差が蓄積したりしない。
+ *
+ * - 開始点設定: newStart = sourceTrimStart + previewPosition, newEnd は据え置き
+ * - 終了点設定: newEnd = sourceTrimStart + previewPosition, newStart は据え置き
+ *
+ * @returns 新しい trim。最低尺未満・範囲外など無効な場合は null
+ */
+export function computeVideoTrimFromPreviewPosition(params: {
+  sourceTrimStart: number;
+  sourceTrimEnd: number;
+  originalDuration: number;
+  /** クリップ内の相対位置（現在の有効区間先頭からの秒数） */
+  previewPosition: number;
+  type: 'start' | 'end';
+  minDuration?: number;
+}): { start: number; end: number; duration: number } | null {
+  const minDuration = params.minDuration ?? MIN_VIDEO_TRIM_DURATION_SEC;
+  const originalDuration = Number.isFinite(params.originalDuration)
+    ? Math.max(0, params.originalDuration)
+    : 0;
+  if (originalDuration < minDuration) return null;
+
+  const sourceTrimStart = Number.isFinite(params.sourceTrimStart)
+    ? Math.max(0, Math.min(params.sourceTrimStart, originalDuration))
+    : 0;
+  const sourceTrimEnd = Number.isFinite(params.sourceTrimEnd)
+    ? Math.max(sourceTrimStart, Math.min(params.sourceTrimEnd, originalDuration))
+    : originalDuration;
+  const playableDuration = sourceTrimEnd - sourceTrimStart;
+  if (playableDuration < minDuration) return null;
+
+  if (!Number.isFinite(params.previewPosition)) return null;
+  // 現在の有効区間内にクランプ（区間外の指定は無効扱い）
+  if (params.previewPosition < 0 || params.previewPosition > playableDuration) {
+    return null;
+  }
+
+  // 浮動小数点の蓄積を避けるため、元動画上の絶対位置を一度だけ合成する
+  const sourcePosition = sourceTrimStart + params.previewPosition;
+
+  let newStart: number;
+  let newEnd: number;
+  if (params.type === 'start') {
+    newStart = sourcePosition;
+    newEnd = sourceTrimEnd;
+  } else {
+    newStart = sourceTrimStart;
+    newEnd = sourcePosition;
+  }
+
+  // 最低尺を下回る・逆転する設定は許可しない（勝手にクランプしない）
+  if (newEnd - newStart < minDuration) {
+    return null;
+  }
+
+  return validateTrim(newStart, newEnd, originalDuration);
+}
+
+/**
+ * プレビュー現在位置から動画トリムを設定できるか判定する。
+ * UI のボタン disabled と同一条件。
+ */
+export function canSetVideoTrimFromPreviewPosition(params: {
+  sourceTrimStart: number;
+  sourceTrimEnd: number;
+  originalDuration: number;
+  previewPosition: number;
+  type: 'start' | 'end';
+  minDuration?: number;
+}): boolean {
+  return computeVideoTrimFromPreviewPosition(params) !== null;
 }
 
 /**

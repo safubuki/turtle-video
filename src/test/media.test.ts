@@ -10,6 +10,9 @@ import {
   getActiveMediaItem,
   swapArrayItems,
   validateTrim,
+  MIN_VIDEO_TRIM_DURATION_SEC,
+  computeVideoTrimFromPreviewPosition,
+  canSetVideoTrimFromPreviewPosition,
   validateScale,
   validatePosition,
 } from '../utils/media';
@@ -181,6 +184,134 @@ describe('validateTrim', () => {
   it('should clamp end to maxDuration', () => {
     const result = validateTrim(2, 15, 10);
     expect(result.end).toBeLessThanOrEqual(10);
+  });
+});
+
+describe('computeVideoTrimFromPreviewPosition', () => {
+  it('sets start from preview position relative to current trim', () => {
+    // 元 0-10s を 2-8s にトリム済み。プレビュー上 2s → 元動画 4s を新開始点に
+    const result = computeVideoTrimFromPreviewPosition({
+      sourceTrimStart: 2,
+      sourceTrimEnd: 8,
+      originalDuration: 10,
+      previewPosition: 2,
+      type: 'start',
+    });
+    expect(result).toEqual({ start: 4, end: 8, duration: 4 });
+  });
+
+  it('sets end from preview position relative to current trim', () => {
+    const result = computeVideoTrimFromPreviewPosition({
+      sourceTrimStart: 2,
+      sourceTrimEnd: 8,
+      originalDuration: 10,
+      previewPosition: 3,
+      type: 'end',
+    });
+    expect(result).toEqual({ start: 2, end: 5, duration: 3 });
+  });
+
+  it('supports repeated re-trimming without resetting to source 0', () => {
+    // 1回目: 2-8 → 4-8
+    const first = computeVideoTrimFromPreviewPosition({
+      sourceTrimStart: 2,
+      sourceTrimEnd: 8,
+      originalDuration: 10,
+      previewPosition: 2,
+      type: 'start',
+    });
+    expect(first).not.toBeNull();
+    // 2回目: 4-8 のプレビュー 1s → 元 5s 開始
+    const second = computeVideoTrimFromPreviewPosition({
+      sourceTrimStart: first!.start,
+      sourceTrimEnd: first!.end,
+      originalDuration: 10,
+      previewPosition: 1,
+      type: 'start',
+    });
+    expect(second).toEqual({ start: 5, end: 8, duration: 3 });
+  });
+
+  it('does not move the opposite edge when setting start or end', () => {
+    const startOnly = computeVideoTrimFromPreviewPosition({
+      sourceTrimStart: 1,
+      sourceTrimEnd: 9,
+      originalDuration: 12,
+      previewPosition: 2,
+      type: 'start',
+    });
+    expect(startOnly?.end).toBe(9);
+
+    const endOnly = computeVideoTrimFromPreviewPosition({
+      sourceTrimStart: 1,
+      sourceTrimEnd: 9,
+      originalDuration: 12,
+      previewPosition: 4,
+      type: 'end',
+    });
+    expect(endOnly?.start).toBe(1);
+  });
+
+  it('rejects settings shorter than minimum duration', () => {
+    const tooShortStart = computeVideoTrimFromPreviewPosition({
+      sourceTrimStart: 0,
+      sourceTrimEnd: 5,
+      originalDuration: 10,
+      previewPosition: 5 - MIN_VIDEO_TRIM_DURATION_SEC / 2,
+      type: 'start',
+    });
+    expect(tooShortStart).toBeNull();
+
+    const tooShortEnd = computeVideoTrimFromPreviewPosition({
+      sourceTrimStart: 0,
+      sourceTrimEnd: 5,
+      originalDuration: 10,
+      previewPosition: MIN_VIDEO_TRIM_DURATION_SEC / 2,
+      type: 'end',
+    });
+    expect(tooShortEnd).toBeNull();
+  });
+
+  it('rejects preview positions outside the current playable range', () => {
+    expect(
+      computeVideoTrimFromPreviewPosition({
+        sourceTrimStart: 2,
+        sourceTrimEnd: 8,
+        originalDuration: 10,
+        previewPosition: -0.1,
+        type: 'start',
+      })
+    ).toBeNull();
+    expect(
+      computeVideoTrimFromPreviewPosition({
+        sourceTrimStart: 2,
+        sourceTrimEnd: 8,
+        originalDuration: 10,
+        previewPosition: 6.1,
+        type: 'end',
+      })
+    ).toBeNull();
+  });
+
+  it('canSetVideoTrimFromPreviewPosition mirrors null checks', () => {
+    expect(
+      canSetVideoTrimFromPreviewPosition({
+        sourceTrimStart: 2,
+        sourceTrimEnd: 8,
+        originalDuration: 10,
+        previewPosition: 2,
+        type: 'start',
+      })
+    ).toBe(true);
+    expect(
+      canSetVideoTrimFromPreviewPosition({
+        sourceTrimStart: 2,
+        sourceTrimEnd: 8,
+        originalDuration: 10,
+        previewPosition: 5.95,
+        type: 'start',
+      })
+    ).toBe(false);
   });
 });
 

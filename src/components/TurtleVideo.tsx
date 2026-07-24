@@ -31,6 +31,7 @@ import { preserveOriginalFileName, resolveAiNarrationFileName } from '../utils/f
 import { saveObjectUrlWithClientFileStrategy } from '../utils/fileSave';
 import { openFilesWithPicker, shouldUseMediaOpenFilePicker } from '../utils/platform';
 import { computeTransitionTimelineRanges } from '../utils/transitionTimeline';
+import { computeVideoTrimFromPreviewPosition } from '../utils/media';
 
 // Zustand Stores
 import { useMediaStore, useAudioStore, useUIStore, useCaptionStore, useLogStore, createNarrationClip } from '../stores';
@@ -1526,6 +1527,69 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     [pausePreviewBeforeEdit, updateVideoTrim, mediaItems]
   );
 
+  // --- プレビュー現在位置 → 動画トリム開始/終了 ---
+  // 目的: プレビューで確認したフレームを、元動画上の trimStart/trimEnd へ反映する
+  // 計算: sourcePosition = sourceTrimStart + previewPosition（再トリムでも有効区間基準）
+  const handleSetVideoTrimFromCurrent = useCallback(
+    (id: string, type: 'start' | 'end') => {
+      const item = mediaItems.find((v) => v.id === id);
+      if (!item || item.type !== 'video') return;
+
+      const range = mediaTimelineRanges[id] ?? { start: 0, end: item.duration };
+      const previewPosition = currentTimeRef.current - range.start;
+      const nextTrim = computeVideoTrimFromPreviewPosition({
+        sourceTrimStart: item.trimStart,
+        sourceTrimEnd: item.trimEnd,
+        originalDuration: item.originalDuration,
+        previewPosition,
+        type,
+      });
+      if (!nextTrim) return;
+
+      pausePreviewBeforeEdit(`set-video-trim-from-current-${type}`);
+      updateVideoTrim(id, type, type === 'start' ? nextTrim.start : nextTrim.end);
+
+      // タイムライン位置を新しい有効範囲内へ補正
+      // - 開始点変更: そのフレームが新クリップ先頭になるのでクリップ先頭へ
+      // - 終了点変更: ちょうど終端だと次クリップ扱いになるため、終端直前へ
+      const newTimelineStart = range.start;
+      const newTimelineEnd = range.start + nextTrim.duration;
+      let nextTimelineTime: number;
+      if (type === 'start') {
+        nextTimelineTime = newTimelineStart;
+      } else {
+        nextTimelineTime = Math.max(newTimelineStart, Math.min(currentTimeRef.current, newTimelineEnd - 0.001));
+      }
+      // プロジェクト全体が短くなった場合も totalDuration を超えない
+      const clampedTimelineTime = Math.max(0, Math.min(nextTimelineTime, newTimelineEnd));
+      currentTimeRef.current = clampedTimelineTime;
+      setCurrentTime(clampedTimelineTime);
+
+      const el = mediaElementsRef.current[id] as HTMLVideoElement | undefined;
+      if (el && el.tagName === 'VIDEO' && !el.seeking) {
+        const seekTime = type === 'start'
+          ? nextTrim.start
+          : Math.max(nextTrim.start, nextTrim.end - 0.1);
+        if (Number.isFinite(seekTime)) {
+          el.currentTime = Math.max(0, Math.min(item.originalDuration, seekTime));
+        }
+      }
+
+      // 尺変更後のプレビューを即時反映
+      requestAnimationFrame(() => {
+        renderFrame(currentTimeRef.current, false);
+      });
+    },
+    [
+      mediaItems,
+      mediaTimelineRanges,
+      pausePreviewBeforeEdit,
+      updateVideoTrim,
+      setCurrentTime,
+      renderFrame,
+    ]
+  );
+
   // --- 画像表示時間更新ハンドラ ---
   // 目的: 画像クリップの表示時間を変更
   const handleUpdateImageDuration = useCallback((id: string, newDuration: string) => {
@@ -2540,6 +2604,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
             <ClipsSection
               mediaItems={mediaItems}
               mediaTimelineRanges={mediaTimelineRanges}
+              currentTime={currentTime}
               isClipsLocked={isClipsLocked}
               mediaElements={mediaElementsRef.current as Record<string, HTMLVideoElement | HTMLImageElement>}
               onToggleClipsLock={withPreviewPause('toggle-clips-lock', toggleClipsLock)}
@@ -2551,6 +2616,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onToggleMediaLock={withPreviewPause('toggle-media-lock', toggleItemLock)}
               onToggleTransformPanel={withPreviewPause('toggle-transform-panel', handleToggleTransformPanel)}
               onUpdateVideoTrim={handleUpdateVideoTrim}
+              onSetVideoTrimFromCurrent={handleSetVideoTrimFromCurrent}
               onUpdateImageDuration={handleUpdateImageDuration}
               onUpdateMediaScale={handleUpdateMediaScale}
               onUpdateMediaPosition={handleUpdateMediaPosition}
