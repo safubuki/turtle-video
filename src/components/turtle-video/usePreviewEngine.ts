@@ -142,6 +142,8 @@ interface UsePreviewEngineParams {
   logInfo: LogFn;
   logWarn: LogFn;
   logDebug: LogFn;
+  /** Issue #209: export 後に共有 media DOM を remount する（standard 実装が利用）。 */
+  remountSharedPreviewMedia?: () => Promise<'ready' | 'timeout' | 'cancelled'>;
 }
 
 interface UsePreviewEngineResult {

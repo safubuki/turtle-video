@@ -176,6 +176,11 @@ interface UsePreviewEngineParams {
   logInfo: LogFn;
   logWarn: LogFn;
   logDebug: LogFn;
+  /**
+   * エクスポート後に共有 <video>/<audio> DOM を作り直す（MediaResourceLoader remount）。
+   * 同一要素上の hard src reset では Chromium の decoder wedge が再発するため Issue #209 の本命経路。
+   */
+  remountSharedPreviewMedia?: () => Promise<'ready' | 'timeout' | 'cancelled'>;
 }
 
 interface UsePreviewEngineResult {
@@ -354,10 +359,30 @@ const PREVIEW_DECODE_STALL_RECOVER_AFTER_MS = 300;
 const PREVIEW_DECODE_STALL_RECOVER_THROTTLE_MS = 1200;
 
 /**
+ * 再生中 active video が「Canvas に描ける状態でない」まま張り付いているか。
+ * Issue #209 再発: readyState1+seeking 固着で videoCT だけ進む。
+ * paused 単体は stall に含めない（hard reset 直後の pause を再 reset ループにしない）。
+ * paused 放置は play() 経路で扱う。
+ */
+export function isActiveVideoUndrawableForStall(input: {
+  readyState: number;
+  seeking: boolean;
+  paused?: boolean;
+  videoWidth: number;
+  videoHeight: number;
+}): boolean {
+  if (input.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME) return true;
+  if (input.seeking) return true;
+  if (input.videoWidth <= 0 || input.videoHeight <= 0) return true;
+  return false;
+}
+
+/**
  * 再生中 active video のデコード停止を検知し、load() による decoder リセットで復旧すべきか判定する純ロジック。
  *
- * 症状（Issue #209 / エクスポート後プレビュー）: `readyState` が 1 以下・`seeking:true` のまま張り付き、
- * `currentTime` は進むのに描画可能フレーム（readyState≥2）が来ず、約500msごとに黒フレームが点滅する。
+ * 症状（Issue #209 / エクスポート後プレビュー）:
+ * - `readyState` が低い / `seeking` 残留 / 寸法 0 / paused 残留で描画不能
+ * - wall-clock（スライダー）は進むのに映像が更新されない
  * 通常の seek は短時間で settle するため、stall 継続時間が猶予を超え、かつ throttle 間隔を空けたときだけ
  * recover する（`seeked` 待ちの正常状態を誤って壊さない）。
  *
@@ -370,6 +395,10 @@ export function shouldRecoverDecodeStalledActiveVideo(input: {
   hasError: boolean;
   readyState: number;
   seeking: boolean;
+  /** 省略時は readyState<=1 && seeking のみ（後方互換）。指定時は描画不能条件を広く見る。 */
+  paused?: boolean;
+  videoWidth?: number;
+  videoHeight?: number;
   nowMs: number;
   stallSinceMs: number | null;
   lastRecoverAtMs: number;
@@ -379,8 +408,19 @@ export function shouldRecoverDecodeStalledActiveVideo(input: {
   if (!input.isActivePlaying || input.isExporting || input.isUserSeeking || input.hasError) {
     return false;
   }
-  // stall とみなす条件: 描画可能フレーム未満（readyState<=1）かつ seek 継続中。
-  const isStalled = input.readyState <= 1 && input.seeking;
+  const useExtended =
+    input.paused !== undefined
+    || input.videoWidth !== undefined
+    || input.videoHeight !== undefined;
+  const isStalled = useExtended
+    ? isActiveVideoUndrawableForStall({
+      readyState: input.readyState,
+      seeking: input.seeking,
+      paused: input.paused ?? false,
+      videoWidth: input.videoWidth ?? 0,
+      videoHeight: input.videoHeight ?? 0,
+    })
+    : (input.readyState <= 1 && input.seeking);
   if (!isStalled || input.stallSinceMs === null) return false;
   const grace = input.stallGraceMs ?? PREVIEW_DECODE_STALL_RECOVER_AFTER_MS;
   const throttle = input.throttleMs ?? PREVIEW_DECODE_STALL_RECOVER_THROTTLE_MS;
@@ -388,6 +428,221 @@ export function shouldRecoverDecodeStalledActiveVideo(input: {
   if (input.nowMs - input.lastRecoverAtMs < throttle) return false;
   return true;
 }
+
+/** エクスポート直後の video decoder リセットで metadata 待ちに使う既定タイムアウト。 */
+export const POST_EXPORT_VIDEO_RESET_TIMEOUT_MS = 4500;
+/** 再生中の seek-stall 復旧を急かす（ログ実測では 300ms 猶予でも recover が間に合わず黒点滅が継続）。 */
+const PREVIEW_DECODE_STALL_RECOVER_AFTER_MS_POST_EXPORT = 180;
+/**
+ * post-export guard 中に連続で描画できたフレーム数。
+ * 2026-07-24 previewlog2: 8 フレーム（~80ms）で clear すると直後に readyState1+seeking 再 wedge。
+ * remount 後も短い偽 drawable を弾くため多めに取る。
+ */
+export const POST_EXPORT_DRAWABLE_FRAMES_TO_CLEAR_GUARD = 45;
+/** remount 完了待ちの既定タイムアウト（MediaResourceLoader 再生成 + metadata）。 */
+export const POST_EXPORT_MEDIA_REMOUNT_TIMEOUT_MS = 5000;
+
+export type ResetSharedPreviewVideoMode = 'load' | 'hard';
+
+/**
+ * remount 後に共有 video が mediaElementsRef に揃い、metadata が立つまで待つ（Issue #209）。
+ * TurtleVideo の setReloadKey + 本 helper で、同一 DOM 上の hard reset では潰せない decoder wedge を回避する。
+ */
+export async function waitForSharedPreviewMediaRemount(options: {
+  getVideoItems: () => Array<{ id: string; trimStart?: number }>;
+  getVideoElement: (id: string) => HTMLVideoElement | undefined;
+  shouldContinue: () => boolean;
+  timeoutMs?: number;
+  pollMs?: number;
+}): Promise<'ready' | 'timeout' | 'cancelled'> {
+  const timeoutMs = options.timeoutMs ?? POST_EXPORT_MEDIA_REMOUNT_TIMEOUT_MS;
+  const pollMs = options.pollMs ?? 40;
+  const waitUntil = Date.now() + timeoutMs;
+
+  while (Date.now() < waitUntil) {
+    if (!options.shouldContinue()) return 'cancelled';
+    const videos = options.getVideoItems();
+    if (videos.length === 0) return 'ready';
+
+    let allReady = true;
+    for (const item of videos) {
+      const el = options.getVideoElement(item.id);
+      if (!el || el.readyState < MIN_VIDEO_READY_STATE_FOR_SEEK || el.error) {
+        allReady = false;
+        break;
+      }
+    }
+    if (allReady) {
+      for (const item of videos) {
+        const el = options.getVideoElement(item.id);
+        if (!el) continue;
+        const target = Number.isFinite(item.trimStart) ? Math.max(0, item.trimStart!) : 0;
+        try {
+          if (Math.abs(el.currentTime - target) > PREVIEW_START_READY_SYNC_TOLERANCE_SEC) {
+            el.currentTime = target;
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      return 'ready';
+    }
+    await new Promise<void>((r) => setTimeout(r, pollMs));
+  }
+  return options.shouldContinue() ? 'timeout' : 'cancelled';
+}
+
+/**
+ * 共有 <video> の decoder をリセットし、目標時刻へ seek 完了まで待つ（Issue #209）。
+ *
+ * - `load`: src を維持したまま load()（MediaElementSource を壊さない軽量経路）
+ * - `hard`: src を一度外して再設定し、Chrome の wedge した decoder を作り直す。
+ *   2026-07-24 実機ログでは load のみの eager reset 後も再生 1 秒で readyState1+seeking 固着したため hard を本命にする。
+ *   previewlog2 では hard でも再 wedge するため、主経路は MediaResourceLoader remount（waitForSharedPreviewMediaRemount）。
+ */
+export async function resetSharedPreviewVideoElement(
+  videoElement: HTMLVideoElement,
+  targetTime: number,
+  shouldContinue: () => boolean,
+  timeoutMs = POST_EXPORT_VIDEO_RESET_TIMEOUT_MS,
+  mode: ResetSharedPreviewVideoMode = 'hard',
+): Promise<'ready' | 'timeout' | 'cancelled'> {
+  const safeTarget = Number.isFinite(targetTime) ? Math.max(0, targetTime) : 0;
+  const preservedSrc =
+    videoElement.getAttribute('src')
+    || videoElement.currentSrc
+    || '';
+
+  try {
+    videoElement.pause();
+  } catch {
+    /* ignore */
+  }
+
+  try {
+    if (mode === 'hard' && preservedSrc) {
+      // decoder を完全に捨てる。MediaElementSource は element に紐づくため src 再設定は安全。
+      videoElement.removeAttribute('src');
+      videoElement.load();
+      await new Promise<void>((r) => setTimeout(r, 0));
+      if (!shouldContinue()) return 'cancelled';
+      videoElement.src = preservedSrc;
+      videoElement.preload = 'auto';
+      videoElement.load();
+    } else {
+      videoElement.load();
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const waitUntil = Date.now() + timeoutMs;
+  const pollMs = 40;
+
+  // metadata 待ち
+  while (Date.now() < waitUntil) {
+    if (!shouldContinue()) return 'cancelled';
+    if (videoElement.error) return 'timeout';
+    if (videoElement.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK) break;
+    await new Promise<void>((r) => setTimeout(r, pollMs));
+  }
+  if (!shouldContinue()) return 'cancelled';
+  if (videoElement.readyState < MIN_VIDEO_READY_STATE_FOR_SEEK) return 'timeout';
+
+  try {
+    if (Math.abs(videoElement.currentTime - safeTarget) > PREVIEW_START_READY_SYNC_TOLERANCE_SEC) {
+      videoElement.currentTime = safeTarget;
+    }
+  } catch {
+    /* ignore */
+  }
+
+  // seek + 描画可能フレーム待ち（readyState>=2 かつ寸法あり、seeking でない）
+  while (Date.now() < waitUntil) {
+    if (!shouldContinue()) return 'cancelled';
+    if (videoElement.error) return 'timeout';
+    const drift = Math.abs(videoElement.currentTime - safeTarget);
+    if (
+      !videoElement.seeking
+      && videoElement.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+      && videoElement.videoWidth > 0
+      && videoElement.videoHeight > 0
+      && drift <= PREVIEW_START_READY_SYNC_TOLERANCE_SEC
+    ) {
+      // デコーダを温める: 無音で一瞬 play→pause（描画可能を維持したまま）
+      try {
+        const prevMuted = videoElement.muted;
+        videoElement.muted = true;
+        await videoElement.play().catch(() => undefined);
+        if (!shouldContinue()) return 'cancelled';
+        videoElement.pause();
+        videoElement.muted = prevMuted;
+        if (Math.abs(videoElement.currentTime - safeTarget) > PREVIEW_START_READY_SYNC_TOLERANCE_SEC) {
+          videoElement.currentTime = safeTarget;
+          await new Promise<void>((r) => setTimeout(r, 40));
+        }
+      } catch {
+        /* ignore */
+      }
+      if (
+        !videoElement.seeking
+        && videoElement.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+        && videoElement.videoWidth > 0
+      ) {
+        return 'ready';
+      }
+    }
+    await new Promise<void>((r) => setTimeout(r, pollMs));
+  }
+  return shouldContinue() ? 'timeout' : 'cancelled';
+}
+
+/**
+ * 同期版 hard reset（renderFrame 内から呼ぶ）。await できないため load/src 再設定だけ行い、
+ * 次フレーム以降の readyState 上昇に任せる。
+ */
+export function kickHardResetPreviewVideoElement(
+  videoElement: HTMLVideoElement,
+  targetTime: number,
+): void {
+  const preservedSrc =
+    videoElement.getAttribute('src')
+    || videoElement.currentSrc
+    || '';
+  try {
+    videoElement.pause();
+  } catch {
+    /* ignore */
+  }
+  try {
+    if (preservedSrc) {
+      videoElement.removeAttribute('src');
+      videoElement.load();
+      videoElement.src = preservedSrc;
+      videoElement.preload = 'auto';
+    }
+    videoElement.load();
+  } catch {
+    /* ignore */
+  }
+  const reseek = () => {
+    try {
+      if (videoElement.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK && Number.isFinite(targetTime)) {
+        videoElement.currentTime = Math.max(0, targetTime);
+      }
+    } catch {
+      /* ignore */
+    }
+    videoElement.removeEventListener('loadedmetadata', reseek);
+    videoElement.removeEventListener('loadeddata', reseek);
+  };
+  videoElement.addEventListener('loadedmetadata', reseek);
+  videoElement.addEventListener('loadeddata', reseek);
+  window.setTimeout(reseek, 80);
+}
+
+/** hard reset 直後の play 抑止時間。decoder が metadata を上げる前に play すると再 wedge しやすい。 */
+export const POST_EXPORT_PLAY_SUPPRESS_AFTER_HARD_RESET_MS = 350;
 
 // フレーム駆動エクスポートで VideoEncoder への投入が停滞したとみなすまでの許容時間。
 // これを超えて投入数が進まない場合は壁時計ペーシングへフォールバックし、
@@ -775,6 +1030,7 @@ export function usePreviewEngine({
   logInfo,
   logWarn,
   logDebug,
+  remountSharedPreviewMedia,
 }: UsePreviewEngineParams): UsePreviewEngineResult {
   const safeSetPreviewPlaying = (playing: boolean) => {
     setPreviewPlaying(playing);
@@ -837,11 +1093,16 @@ export function usePreviewEngine({
   // stall を最初に観測した時刻と、直近に load() 復旧を試みた時刻を video 単位で保持する。
   const videoDecodeStallSinceRef = useRef<Record<string, number>>({});
   const videoDecodeStallRecoverAtRef = useRef<Record<string, number>>({});
-  // 直近に（この preview セッションより前に）エクスポートを実行したか。
-  // エクスポートは同じ <video> 要素を消費して decoder を wedge させ、次の通常プレビューで
-  // readyState 1・seeking 固着の黒フレーム点滅を起こす（Issue #209）。true のときは
-  // 次の通常 preview 開始時に participating video を load() で decoder ごとリセットする。
+  // 直近にエクスポートを実行したか。true の間は post-export guard 有効。
+  // **最初の描画可能フレームが連続で揃うまで clear しない**（2026-07-24 ログ:
+  // eager reset 完了で即 clear → 5 秒後の play で startEngine 再 reset が走らず黒点滅）。
   const exportRanSinceLastPreviewRef = useRef(false);
+  // remount が未完了のとき true。同一 DOM 上 hard reset では wedge が再発するため必須（previewlog2）。
+  const postExportNeedsRemountRef = useRef(false);
+  // post-export guard 中に連続で canDraw できたフレーム数。
+  const postExportDrawableStreakRef = useRef(0);
+  // hard reset 直後は play() を短時間抑止して再 wedge を防ぐ。
+  const videoHardResetAtRef = useRef<Record<string, number>>({});
   const standardNextVideoPrebufferDiagRef = useRef<Record<string, NextVideoPrebufferDiagState>>({});
   const previewTimelineDiagnosticsRef = useRef<{
     lastRafNowMs: number | null;
@@ -1544,59 +1805,94 @@ export function usePreviewEngine({
               const safeEndTime = trimStart + Math.max(0, activeItem.duration - 0.001);
 
               // === デコード停止の検知と復旧（Issue #209）===
-              // エクスポート後などに active video が readyState 1・seeking のまま張り付き、
-              // currentTime だけ進んで描画可能フレームが来ず黒フレーム点滅する現象を、
-              // 一定時間継続を確認してから load()+reseek で復旧する。boundary/hold 判定と同じ
-              // 確実に到達するパスに置く（描画/再生パスの分岐に依存しない）。
+              // previewlog2: preflight readyState4 → 短時間 drawable → readyState1+seeking 再 wedge。
+              // remount が本命。同一要素 hard reset は保険。isActivePlaying に加え isPlayingRef も見る。
               {
                 const nowStallMs = Date.now();
+                const postExportGuard = exportRanSinceLastPreviewRef.current;
+                const playingForStall =
+                  isActivePlaying || (isPlayingRef.current && !_isExporting);
                 const isDecodeStallCandidate =
-                  isActivePlaying
+                  playingForStall
                   && !_isExporting
                   && !isSeekingRef.current
                   && !activeEl.error
-                  && activeEl.readyState <= 1
-                  && activeEl.seeking;
+                  && isActiveVideoUndrawableForStall({
+                    readyState: activeEl.readyState,
+                    seeking: activeEl.seeking,
+                    paused: activeEl.paused,
+                    videoWidth: activeEl.videoWidth,
+                    videoHeight: activeEl.videoHeight,
+                  });
                 if (isDecodeStallCandidate) {
                   if (videoDecodeStallSinceRef.current[activeId] === undefined) {
                     videoDecodeStallSinceRef.current[activeId] = nowStallMs;
                   }
+                  postExportDrawableStreakRef.current = 0;
                 } else {
                   delete videoDecodeStallSinceRef.current[activeId];
+                  // remount 未完了の間は guard を落とさない（偽 drawable で clear して再 wedge した実測あり）
+                  if (
+                    postExportGuard
+                    && !postExportNeedsRemountRef.current
+                    && playingForStall
+                    && !_isExporting
+                    && activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+                    && !activeEl.seeking
+                    && activeEl.videoWidth > 0
+                    && activeEl.videoHeight > 0
+                  ) {
+                    postExportDrawableStreakRef.current += 1;
+                    if (postExportDrawableStreakRef.current >= POST_EXPORT_DRAWABLE_FRAMES_TO_CLEAR_GUARD) {
+                      exportRanSinceLastPreviewRef.current = false;
+                      postExportDrawableStreakRef.current = 0;
+                      logInfo('RENDER', 'preview.postExport.guardCleared', {
+                        videoId: activeId,
+                        reason: 'consecutive drawable frames after export remount',
+                        requiredFrames: POST_EXPORT_DRAWABLE_FRAMES_TO_CLEAR_GUARD,
+                      });
+                    }
+                  }
                 }
                 if (
                   shouldRecoverDecodeStalledActiveVideo({
-                    isActivePlaying,
+                    isActivePlaying: playingForStall,
                     isExporting: _isExporting,
                     isUserSeeking: isSeekingRef.current,
                     hasError: !!activeEl.error,
                     readyState: activeEl.readyState,
                     seeking: activeEl.seeking,
+                    paused: activeEl.paused,
+                    videoWidth: activeEl.videoWidth,
+                    videoHeight: activeEl.videoHeight,
                     nowMs: nowStallMs,
                     stallSinceMs: videoDecodeStallSinceRef.current[activeId] ?? null,
                     lastRecoverAtMs: videoDecodeStallRecoverAtRef.current[activeId] ?? 0,
+                    stallGraceMs: postExportGuard
+                      ? PREVIEW_DECODE_STALL_RECOVER_AFTER_MS_POST_EXPORT
+                      : PREVIEW_DECODE_STALL_RECOVER_AFTER_MS,
                   })
                 ) {
                   videoDecodeStallRecoverAtRef.current[activeId] = nowStallMs;
                   videoRecoveryAttemptsRef.current[activeId] = nowStallMs;
                   delete videoDecodeStallSinceRef.current[activeId];
-                  logWarn('RENDER', 'preview.decodeStall.recover', {
+                  // メッセージに時刻を含め DUPLICATE_SUPPRESS(10s) で recover ログが消えないようにする
+                  logInfo('RENDER', `preview.decodeStall.recover@${nowStallMs}`, {
                     videoId: activeId,
                     readyState: activeEl.readyState,
                     seeking: activeEl.seeking,
                     paused: activeEl.paused,
+                    videoWidth: activeEl.videoWidth,
+                    videoHeight: activeEl.videoHeight,
                     videoCurrentTime: Math.round(activeEl.currentTime * 10000) / 10000,
                     reseekTarget: Math.round(targetTime * 10000) / 10000,
                     localTime: Math.round(localTime * 10000) / 10000,
+                    mode: postExportNeedsRemountRef.current ? 'hard-fallback-needs-remount' : 'hard',
+                    postExportGuard,
+                    needsRemount: postExportNeedsRemountRef.current,
                   });
-                  try {
-                    activeEl.load();
-                    if (Number.isFinite(targetTime)) {
-                      activeEl.currentTime = Math.max(0, targetTime);
-                    }
-                  } catch {
-                    /* ignore */
-                  }
+                  videoHardResetAtRef.current[activeId] = nowStallMs;
+                  kickHardResetPreviewVideoElement(activeEl, targetTime);
                 }
               }
 
@@ -1829,7 +2125,15 @@ export function usePreviewEngine({
         const shouldSuppressAndroidPreviewClear =
           isAndroidPreviewPlayback
           && holdFrame;
+        // post-export 中に holdFrame でも黒クリアすると、直前の endClear 黒が保持され黒点滅になる。
+        // Android と同様、描画不能 hold 中はクリアを抑止して前フレームを残す。
+        const shouldSuppressPostExportHoldClear =
+          exportRanSinceLastPreviewRef.current
+          && isActivePlaying
+          && holdFrame
+          && !shouldBlackoutFadeTail;
         const shouldClearCanvas = !shouldSuppressAndroidPreviewClear
+          && !shouldSuppressPostExportHoldClear
           && (
             shouldForceStartClear
             || shouldBlackoutFadeTail
@@ -2083,13 +2387,23 @@ export function usePreviewEngine({
                   ) {
                     videoEl.currentTime = targetTime;
                   }
-                if (
-                  !shouldStabilizeImageToVideoTransition &&
-                  videoEl.paused &&
-                  videoEl.readyState >= 1 &&
-                  !shouldHoldVideoAtClipEnd &&
-                  !hasExportPlayFailure
-                ) {
+                const msSinceHardReset = Date.now() - (videoHardResetAtRef.current[id] ?? 0);
+                const suppressPlayAfterHardReset =
+                  msSinceHardReset < POST_EXPORT_PLAY_SUPPRESS_AFTER_HARD_RESET_MS;
+                // seeking 固着中や hard reset 直後の play() は decoder を再 wedge させる（Issue #209 ログ）。
+                const canRequestPlay =
+                  !shouldStabilizeImageToVideoTransition
+                  && videoEl.paused
+                  && videoEl.readyState >= 1
+                  && !shouldHoldVideoAtClipEnd
+                  && !hasExportPlayFailure
+                  && !isVideoSeeking
+                  && !suppressPlayAfterHardReset
+                  && !(
+                    exportRanSinceLastPreviewRef.current
+                    && videoEl.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+                  );
+                if (canRequestPlay) {
                   const canPlayAndroidPreviewActiveVideoAfterDraw =
                     isAndroidPreviewPlayback
                     && !isVideoSeeking
@@ -3336,6 +3650,7 @@ export function usePreviewEngine({
     exportFallbackSeekAtRef.current = {};
     videoDecodeStallSinceRef.current = {};
     videoDecodeStallRecoverAtRef.current = {};
+    videoHardResetAtRef.current = {};
     resetBoundaryDiagnosticsState();
 
     if (pendingSeekTimeoutRef.current) {
@@ -3392,6 +3707,25 @@ export function usePreviewEngine({
     activePreviewModeRef.current = 'idle';
     pendingPreviewCacheBuildResolverRef.current?.(false);
 
+    // export セッション後（または export 中断後）は gain を preview destination へ戻す。
+    // 次の startEngine まで export 経路のまま残ると、停止中のスクラブでも音が masterDest にだけ流れる。
+    // configureAudioRouting は後段定義のため、ここは同等ロジックをインラインする。
+    if (exportRanSinceLastPreviewRef.current || previousMode === 'export' || previousMode === 'preview-cache-build') {
+      const audioCtx = audioCtxRef.current;
+      if (audioCtx) {
+        audioRoutingModeRef.current = 'preview';
+        Object.keys(gainNodesRef.current).forEach((id) => {
+          const gain = gainNodesRef.current[id];
+          try {
+            gain.disconnect();
+            gain.connect(audioCtx.destination);
+          } catch {
+            /* ignore */
+          }
+        });
+      }
+    }
+
     if (previousMode === 'preview-cache-build') {
       stopPreviewCacheExport?.({ silent: true, reason: 'user' });
       return;
@@ -3408,6 +3742,7 @@ export function usePreviewEngine({
     activeVideoIdRef,
     audioCtxRef,
     audioResumeWaitFramesRef,
+    audioRoutingModeRef,
     cancelPendingPausedSeekWait,
     cancelPendingSeekPlaybackPrepare,
     detachGlobalSeekEndListeners,
@@ -3689,6 +4024,26 @@ export function usePreviewEngine({
           currentTimeRef.current = totalDuration;
           setCurrentTime(totalDuration);
           safeSetPreviewPlaying(false);
+          // finalize（mux/encode flush）中も video を再生し続けると ended 残留や decoder 圧迫が
+          // 次プレビューを壊す（Issue #209）。complete 前に共有 media を即停止する。
+          // stopAll() は呼ばない（user cancel 扱いで complete を潰すため）。
+          try {
+            silencePreviewBgmOutput(mediaElementsRef, gainNodesRef, audioCtxRef);
+            Object.entries(mediaElementsRef.current).forEach(([id, el]) => {
+              if (!el || (el.tagName !== 'VIDEO' && el.tagName !== 'AUDIO')) return;
+              if (id === 'bgm') return;
+              try {
+                const mediaEl = el as HTMLMediaElement;
+                mediaEl.pause();
+                resetNativeMediaAudioState(mediaEl);
+              } catch {
+                /* ignore */
+              }
+            });
+            configureAudioRouting(false);
+          } catch {
+            /* ignore */
+          }
           if (activePreviewModeRef.current === 'preview-cache-build') {
             completePreviewCacheExport?.();
           } else {
@@ -4242,8 +4597,14 @@ export function usePreviewEngine({
       reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
     },
     [
+      audioCtxRef,
+      completePreviewCacheExport,
+      completeWebCodecsExport,
+      configureAudioRouting,
       currentTimeRef,
       endFinalizedRef,
+      finalizePreviewAtTimelineEnd,
+      gainNodesRef,
       isPlayingRef,
       logDebug,
       logWarn,
@@ -4251,18 +4612,15 @@ export function usePreviewEngine({
       mediaElementsRef,
       mediaItemsRef,
       pause,
+      previewCachePlaybackActiveRef,
+      previewCacheVideoRef,
       renderFrame,
       reqIdRef,
       setCurrentTime,
       startTimeRef,
       stopAll,
       toDisplayTime,
-      completeWebCodecsExport,
-      completePreviewCacheExport,
-      finalizePreviewAtTimelineEnd,
       totalDurationRef,
-      previewCachePlaybackActiveRef,
-      previewCacheVideoRef,
     ],
   );
 
@@ -4338,30 +4696,51 @@ export function usePreviewEngine({
       }
       resetBoundaryDiagnosticsState();
 
-      // エクスポート直後の最初の通常プレビューでは、共有 <video> 要素の decoder が
-      // wedge して readyState 1・seeking 固着の黒フレーム点滅を起こすことがある（Issue #209）。
-      // ループ開始前に participating video を load() で decoder ごとリセットし、
-      // クリーンな状態から warmup シーク→再生へ入る。エクスポート経路（isExportMode）や
-      // 通常の stop/play では実行しない（毎回の再デコード遅延を避ける）。
+      // エクスポート後: MediaResourceLoader remount で共有 <video> を作り直してから再生へ進む。
+      // 同一 DOM 上の hard src reset は previewlog2 で ready 直後に再 wedge したため本命にしない。
+      // フラグは「remount 後の描画可能フレームが連続したとき」だけ落とす（ここでは落とさない）。
       if (!isExportMode && exportRanSinceLastPreviewRef.current) {
-        exportRanSinceLastPreviewRef.current = false;
-        let resetCount = 0;
-        for (const item of mediaItemsRef.current) {
-          if (item.type !== 'video') continue;
-          const el = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
-          if (!el) continue;
-          try {
-            el.pause();
-            el.load();
-            resetCount += 1;
-          } catch {
-            /* ignore */
+        postExportDrawableStreakRef.current = 0;
+        const resetGeneration = loopIdRef.current;
+        const shouldContinueReset = () => loopIdRef.current === resetGeneration;
+        if (postExportNeedsRemountRef.current && remountSharedPreviewMedia) {
+          const remountResult = await remountSharedPreviewMedia();
+          if (!shouldContinueReset()) {
+            return;
           }
+          if (remountResult === 'ready' || remountResult === 'timeout') {
+            postExportNeedsRemountRef.current = false;
+          }
+          logInfo('RENDER', 'preview.postExport.mediaRemount', {
+            result: remountResult,
+            phase: 'startEngine-preview',
+            flagKept: true,
+            reason: 'remount shared MediaResourceLoader after export (decoder wedge on same element)',
+          });
+        } else if (postExportNeedsRemountRef.current) {
+          // remount 未配線時のフォールバック（同一要素 hard reset）
+          const resetJobs: Promise<'ready' | 'timeout' | 'cancelled'>[] = [];
+          for (const item of mediaItemsRef.current) {
+            if (item.type !== 'video') continue;
+            const el = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
+            if (!el) continue;
+            const target = Number.isFinite(item.trimStart) ? Math.max(0, item.trimStart) : 0;
+            resetJobs.push(resetSharedPreviewVideoElement(el, target, shouldContinueReset, POST_EXPORT_VIDEO_RESET_TIMEOUT_MS, 'hard'));
+          }
+          const results = await Promise.all(resetJobs);
+          if (!shouldContinueReset()) {
+            return;
+          }
+          postExportNeedsRemountRef.current = false;
+          logInfo('RENDER', 'preview.postExport.videoDecoderReset', {
+            resetCount: results.length,
+            readyCount: results.filter((r) => r === 'ready').length,
+            timeoutCount: results.filter((r) => r === 'timeout').length,
+            mode: 'hard-fallback',
+            phase: 'startEngine-preview',
+            reason: 'remount unavailable; awaited hard decoder reset (flag kept until drawable streak)',
+          });
         }
-        logInfo('RENDER', 'preview.postExport.videoDecoderReset', {
-          resetCount,
-          reason: 'reset shared video decoders after export to avoid post-export preview stall',
-        });
       }
 
       const myLoopId = loopIdRef.current;
@@ -4387,8 +4766,10 @@ export function usePreviewEngine({
         });
         activePreviewModeRef.current = 'export';
         // エクスポートは共有 <video> 要素を消費して decoder を wedge させ得る。
-        // 次の通常プレビュー開始時に decoder をリセットするためのフラグを立てる（Issue #209）。
+        // 次の通常プレビューで描画可能になるまで post-export guard を維持する（Issue #209）。
         exportRanSinceLastPreviewRef.current = true;
+        postExportNeedsRemountRef.current = true;
+        postExportDrawableStreakRef.current = 0;
         safeSetPreviewPlaying(false);
         currentExportSessionIdRef.current = exportSessionId;
         setProcessing(true);
@@ -4936,11 +5317,58 @@ export function usePreviewEngine({
             setExportExt(ext as 'mp4' | 'webm');
             setProcessing(false);
             setLoading(false);
-    safeSetPreviewPlaying(false);
+            safeSetPreviewPlaying(false);
             setExportPreparationStep(null);
             currentExportSessionIdRef.current = null;
             pause();
             stopAll();
+            // export 完了直後に preview 音声経路へ戻し、共有 MediaResourceLoader を remount する。
+            // 同一 <video> の hard reset は ready 後に再 wedge するため本命にしない（Issue #209 / previewlog2）。
+            configureAudioRouting(false);
+            exportRanSinceLastPreviewRef.current = true;
+            postExportNeedsRemountRef.current = true;
+            postExportDrawableStreakRef.current = 0;
+            const recoverGeneration = loopIdRef.current;
+            void (async () => {
+              const shouldContinue = () => loopIdRef.current === recoverGeneration;
+              if (remountSharedPreviewMedia) {
+                const remountResult = await remountSharedPreviewMedia();
+                if (!shouldContinue()) return;
+                if (remountResult === 'ready' || remountResult === 'timeout') {
+                  postExportNeedsRemountRef.current = false;
+                }
+                logInfo('RENDER', 'preview.postExport.mediaRemount', {
+                  result: remountResult,
+                  phase: 'export-complete-callback',
+                  flagKept: true,
+                  reason: 'eager remount after export success; guard until drawable streak',
+                });
+              } else {
+                const jobs: Promise<unknown>[] = [];
+                for (const item of mediaItemsRef.current) {
+                  if (item.type !== 'video') continue;
+                  const el = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
+                  if (!el) continue;
+                  const target = Number.isFinite(item.trimStart) ? Math.max(0, item.trimStart) : 0;
+                  jobs.push(resetSharedPreviewVideoElement(el, target, shouldContinue, POST_EXPORT_VIDEO_RESET_TIMEOUT_MS, 'hard'));
+                }
+                await Promise.all(jobs);
+                if (!shouldContinue()) return;
+                postExportNeedsRemountRef.current = false;
+                logInfo('RENDER', 'preview.postExport.videoDecoderReset', {
+                  mode: 'hard-fallback',
+                  phase: 'export-complete-callback',
+                  flagKept: true,
+                  reason: 'remount unavailable; eager hard reset',
+                });
+              }
+              try {
+                const t = Math.max(0, Math.min(currentTimeRef.current, totalDurationRef.current));
+                renderFrame(t, false, false);
+              } catch {
+                /* ignore */
+              }
+            })();
           },
           (message) => {
             if (currentExportSessionIdRef.current !== exportSessionId) {
@@ -4948,11 +5376,50 @@ export function usePreviewEngine({
             }
             setProcessing(false);
             setLoading(false);
-    safeSetPreviewPlaying(false);
+            safeSetPreviewPlaying(false);
             setExportPreparationStep(null);
             currentExportSessionIdRef.current = null;
             pause();
             stopAll();
+            configureAudioRouting(false);
+            exportRanSinceLastPreviewRef.current = true;
+            postExportNeedsRemountRef.current = true;
+            postExportDrawableStreakRef.current = 0;
+            const recoverGeneration = loopIdRef.current;
+            void (async () => {
+              const shouldContinue = () => loopIdRef.current === recoverGeneration;
+              if (remountSharedPreviewMedia) {
+                const remountResult = await remountSharedPreviewMedia();
+                if (!shouldContinue()) return;
+                if (remountResult === 'ready' || remountResult === 'timeout') {
+                  postExportNeedsRemountRef.current = false;
+                }
+                logInfo('RENDER', 'preview.postExport.mediaRemount', {
+                  result: remountResult,
+                  phase: 'export-error-callback',
+                  flagKept: true,
+                  reason: 'eager remount after export failure',
+                });
+              } else {
+                const jobs: Promise<unknown>[] = [];
+                for (const item of mediaItemsRef.current) {
+                  if (item.type !== 'video') continue;
+                  const el = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
+                  if (!el) continue;
+                  const target = Number.isFinite(item.trimStart) ? Math.max(0, item.trimStart) : 0;
+                  jobs.push(resetSharedPreviewVideoElement(el, target, shouldContinue, POST_EXPORT_VIDEO_RESET_TIMEOUT_MS, 'hard'));
+                }
+                await Promise.all(jobs);
+                if (!shouldContinue()) return;
+                postExportNeedsRemountRef.current = false;
+              }
+              try {
+                const t = Math.max(0, Math.min(currentTimeRef.current, totalDurationRef.current));
+                renderFrame(t, false, false);
+              } catch {
+                /* ignore */
+              }
+            })();
             setError(message);
           },
           {
@@ -5017,6 +5484,7 @@ export function usePreviewEngine({
       previewPlatformPolicy,
       previewPlaybackAttemptRef,
       primePreviewAudioOnlyTracksAtTime,
+      remountSharedPreviewMedia,
       renderFrame,
       resetInactiveVideos,
       setCurrentTime,

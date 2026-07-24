@@ -700,6 +700,7 @@
 | **キャプチャ** | 再生中は一時停止してからCanvasをキャプチャ。ObjectURLは`setTimeout`で解放 |
 | **エラー** | 3 層防御: ErrorBoundary（コンポーネント）、グローバルハンドラ（window）、try-catch（個別処理） |
 | **フレーバー分離** | export エンジンは `src/flavors/<flavor>/export/exportEngine.ts` に物理フォーク済み。共有コード→flavors の import、flavor 相互 import、共有コンポーネントでの `getPlatformCapabilities()` 直接呼び出しは ESLint で禁止。共有コンポーネントの UA 判定は `usePlatformCapabilities()`（PlatformCapabilitiesContext）経由。凍結レガシー（`components/turtle-video/usePreview*` / `utils/previewPlatform` / `utils/iosSafariAudio`）は編集禁止 |
+| **export後preview（#209）** | 共有 `<video>` を同一要素のまま `load()` / hard src で直しても Chromium decoder wedge が残ることがある（表面の readyState 4 は信用しない）。本命は MediaResourceLoader remount（`reloadKey++` + MediaElementSource detach、13-141）。13-135〜140 は保険。成功/失敗/中断の全経路で remount を要求する |
 
 ## 12. Dev Script Pattern (media-video-analyzer STT)
 
@@ -2320,6 +2321,128 @@
   - 回帰ガード: `modalHistoryStability.test.tsx` に「親再描画で history.back を呼ばない」「popstate で閉じる」、`captionBulkAddModal.test.tsx` に「閉じるボタンで onClose」を追加。
   - 他の下から出るモーダル（AiModal/SaveLoadModal/SectionHelp 等）は既に同挙動。まだ揃っていない下部モーダルがあれば同パターンで統一する（将来的には共通フックへ抽出する余地あり。現状は各モーダル内インライン実装が既定）。
 
+### 13-126. 最近追加機能の品質監査（波形の非同期競合・自動保存差分・一括モーダルA11y）
+
+- **ファイル**: `src/hooks/useNarrationWaveform.ts`, `src/hooks/useAutoSave.ts`, `src/components/modals/CaptionBulkAddModal.tsx`, `src/test/useNarrationWaveform.test.tsx`, `src/test/useAutoSave.test.tsx`, `src/test/captionBulkAddModal.test.tsx`, `vite.config.ts`
+- **波形デコードの競合修正**:
+  - `useNarrationWaveform` のキャンセル状態は複数 effect で共有する ref にしない。クリップ A の cleanup 後、クリップ B の effect が ref を `false` に戻すと、遅れて完了した A が B の波形を上書きできるため、**effect ごとのローカル `cancelled` フラグ**を使う。
+  - 回帰テストは「A を開始→B へ切替→B を先に完了→A を後から完了」の順序を明示的に作り、最終表示が B のままであることを固定する。波形上の無音候補はトリム操作へ直結するため、単なる表示ずれではなく誤トリム防止のガードでもある。
+- **自動保存の変更検知**:
+  - プロジェクトへ保存するフィールドを追加したら、保存/読込だけでなく `useAutoSave.computeHash` も同時に更新する。今回 `MediaItem.rotation` と `Caption.overrideFontSizeCustom` / `overridePositionCustom` / `sequentialFadeMode` / `sequentialGapSec` の欠落を補完した。
+  - 定期保存は現状 `force=true` だが、手動実行や将来の非強制経路でも正しく差分検知できることをテストする。`undefined` は旧データと同じ既定値になる表現へ正規化する。
+- **一括モーダルのUI/UX**:
+  - シート本体に `role="dialog"` / `aria-modal="true"` / 見出しとの `aria-labelledby` を付け、Escape でも閉じられるようにする。右上の閉じる操作はモバイルで 44px のタップ領域を確保する。
+  - 戻るキー用 history state と Escape は独立した入口だが、どちらも最新の `onCloseRef` を呼ぶ。親の再描画でリスナーや history state を積み直さない。
+- **テスト実行安定性**:
+  - jsdom の重量UIテストを多数並列実行すると、単独では1秒前後のテストでも既定5秒を超えることがある。`testTimeout=15_000` とし、実処理の無限待ちを許さず、負荷による誤失敗だけを吸収する。
+  - 監査時の最終確認は `npm run quality:gate`（全テスト・lint・production build）を通す。今回の基準値は 71 test files / 653 tests。
+- **監査後も残る既知制約**:
+  - 13-109 のとおり、standard でディゾルブを設定したプロジェクトを iOS フレーバーで開くと、共有 `totalDuration` はオーバーラップ分だけ短い一方、iOS 描画は逐次再生のため終端が切れる。iOS 側の総尺だけ伸ばすとキャプション・音声の時刻契約も変わるため、既存の安定した preview/export へ混ぜず、フレーバー別タイムライン方針と実機受け入れ条件を決めて別対応する。
+
+### 13-127. クリップ単位の動画・画像ぼかし（0〜30pxスライダー）
+
+- **ファイル**: `src/types/index.ts`, `src/utils/canvas.ts`, `src/utils/indexedDB.ts`, `src/utils/media.ts`, `src/hooks/useAutoSave.ts`, `src/stores/mediaStore.ts`, `src/stores/projectStore.ts`, `src/components/media/ClipItem.tsx`, `src/components/common/MiniPreview.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/androidPreviewCache.ts`
+- **データ契約**:
+  - `MediaItem.blur?: number` は1080p基準のpx値。0〜30へ `normalizeMediaBlur()` で正規化し、未定義の旧プロジェクトは0（ぼかしなし）として読み込む。
+  - 新規カードは `blur: 0`。保存/読込、IndexedDB型、自動保存ハッシュ、Android preview cache署名を必ず同時に更新する。
+- **UI/UX**:
+  - 各カードの「位置・サイズ・回転・ぼかし調整」内に、`SwipeProtectedSlider`（0〜30、1刻み）と個別リセットを配置する。0は数値でなく「なし」と表示し、左右に「くっきり」「強くぼかす」の意味ラベルを置く。
+  - `SwipeProtectedSlider` は `ariaLabel` を受け取り、ぼかしスライダーを支援技術から識別できるようにする。変更時は他のtransformと同様にプレビューを安全に一時停止し、生成済み出力を無効化する。
+- **描画とエクスポート**:
+  - `resolveMediaBlurFilter(blur, canvasWidth, canvasHeight)` が1080p基準値をCanvas実寸へ比例変換する。横/縦とも長辺1920・短辺1080を基準とし、FHD横/縦は同じ見た目、HD・ミニプレビューは解像度比で縮小する。
+  - 描画サイトは standard 主描画＋終端freeze＋dissolve peer、apple-safari主描画、MiniPreview。`ctx.save()` 内で `ctx.filter` を設定し、`ctx.restore()` 後に明示的に `ctx.filter='none'` へ戻す。これを怠ると次カード、字幕、枠線までぼける。
+  - エクスポートはpreview Canvasを収録する既存設計のため、別の書き出し処理へfilterを重複追加しない。standard/Apple Safariの共通描画テストで、draw時のfilter値と描画後の解除を固定する。
+- **回帰ガード**:
+  - `mediaBlur.test.ts`（正規化・横縦/FHD/HD/ミニ縮尺）、`mediaStore.test.ts`（カード単位更新・上限下限・単独リセット）、`projectStoreSave.test.ts`（フレーバー間保存往復と旧データ既定値）、`useAutoSave.test.tsx`、`androidPreviewCache.test.ts`、両preview engineテスト、`clipsSectionPicker.test.tsx`でカバーする。
+
+### 13-128. まとめて編集の時分割解除保証とカーソル位置分割
+
+- **ファイル**: `src/utils/captionBulkInput.ts`, `src/components/modals/CaptionBulkAddModal.tsx`, `src/test/captionBulkInput.test.ts`, `src/test/captionBulkAddModal.test.tsx`
+- **問題**:
+  - 既存の時間付き時分割カードをまとめて編集し、継続行の `+ ` を削除しても、利用者からは元カード配下の時分割として残るように見えるケースがあった。時間記法・モード正規化・ID引継ぎを別々に追う必要があり、契約を固定するUI回帰テストも無かった。
+  - 「時分割行を追加」はカーソルのある行末へ空の `+ ` 行を挿入しており、カーソル位置から後半の文章を移せなかった。DOM更新後のスクロール復元もなく、長文入力欄が上へ戻っていた。
+- **対策**:
+  - `parseBulkCaptionText(input, mode)` を表示モード込みの単一解析入口にする。hybridでは時間記法の有無に関係なく、物理行先頭に `+ ` がある場合だけ直前カードの継続行とし、`+ ` を外した行は必ず別カードとして計画・反映する。
+  - `insertSequentialLineAtCursor()` を純ロジック化し、`前半｜後半` を `前半\n+ 後半` へ変換する。文章は削除せず、返した `cursor` を使って `+ ` 直後へキャレットを復元する。
+  - モード変換が必要な場合は、カーソルより前の部分も同じ変換へ通した長さからhybrid上の分割位置を求める。入力欄を一度も触っていない場合だけ末尾追加へフォールバックする。
+  - React更新後の `requestAnimationFrame` でtextareaへフォーカスと選択位置を戻し、`scrollTop = scrollHeight` で長文入力の下部を表示する。
+- **回帰ガード**:
+  - 時間付き親行の `+ ` 削除が2カード（元IDを維持する1件＋新規1件）になること、後続の `+ ` は新しい直前カードへ属すること、カーソル分割後の全文・キャレット・下部スクロールをpure/UI両テストで固定する。
+
+### 13-129. まとめて入力モーダルのStrictMode即時クローズ防止
+
+- **ファイル**: `src/components/modals/CaptionBulkAddModal.tsx`, `src/test/modalHistoryStability.test.tsx`
+- **原因**: React StrictMode の開発時 effect 再実行（setup→cleanup→setup）で、最初の cleanup が同期的に `history.back()` を呼んでいた。ブラウザの `popstate` は遅れて届くため、2回目の setup が登録したリスナーが古い戻るイベントを受け、開いた直後に `onClose` を実行していた。
+- **対策**:
+  - effect 世代番号を持ち、cleanup の履歴復元判断を microtask まで遅延する。直後に再 setup された世代の cleanup は何もしない。
+  - StrictMode の2回目の setup では、先頭にある自分の `__captionBulkModal` stateを再利用し、同じモーダルの履歴を二重に積まない。
+  - 実際のアンマウントでは世代が変わらないため、自分の state が先頭の場合だけ従来どおり `history.back()` する。端末の戻る操作による `popstate` 閉じも維持する。
+- **回帰ガード**: `StrictMode` でモーダルを描画し、`history.back()` が非同期 `popstate` を発生させる実ブラウザ相当の条件でも、表示直後に閉じず履歴を戻さないことを固定する。
+
+### 13-130. 画像端が黒くなるぼかしの均一平均化
+
+- **ファイル**: `src/utils/canvas.ts`, `src/components/common/MiniPreview.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/test/mediaBlur.test.ts`, `src/test/standardPreviewEngine.test.tsx`, `src/test/appleSafariPreviewEngineBoundary.test.tsx`
+- **原因**: `CanvasRenderingContext2D.filter = blur(...)` は画像の境界外を透明ピクセルとしてサンプリングする。黒背景へ合成すると画像端が暗くにじみ、透明余白を持つPNG・contain配置・強いぼかしほど目立つ。Safari系ではCanvas filter自体の互換性差もある。
+- **対策**:
+  - 画像はCanvas filterを使わず、素材の範囲内だけを一時Canvasへ縮小描画し、元の表示サイズへ高品質補間で拡大する。素材内の画素を全体に均一平均化するため、素材外の黒背景をぼかしへ混ぜない。
+  - 平均化用Canvasは素材オブジェクト単位でWeakMap再利用し、ぼかし強度と実描画scaleから縮小寸法を決める（最大縮小率32）。カード単位の0〜30設定、1080p基準の見た目は維持する。
+  - standardの動画は従来のCanvas filterを維持する。動画フレームは通常不透明で品質面の利点があり、終端freezeも同じ経路を保つ。Apple SafariとMiniPreviewは画像・動画ともfilter非依存の平均化方式にし、互換性を優先する。
+  - standard/Apple Safariのexportはpreview Canvasを収録するため、この描画変更がそのまま書き出しへ反映される。別export処理へ重複実装しない。
+- **回帰ガード**: ぼかしpx換算・平均化Canvas寸法・素材とは別の縮小Canvasを描画元にすること・描画後もfilterが`none`であることをpure/両preview engineテストで固定する。13-127の「全素材をfilterで描く」記述は本項で画像とSafari経路について置き換える。
+
+### 13-131. キャプションの縁幅・縁色・文字本体色の一括設定UI
+
+- **ファイル**: `src/components/sections/CaptionSection.tsx`, `src/components/TurtleVideo.tsx`, `src/stores/captionStore.ts`, `src/utils/captionStyle.ts`, `src/constants/sectionHelp.ts`, `src/test/captionStyleControls.test.tsx`, `src/test/captionGlyphStyle.test.ts`, `src/test/captionStyle.test.ts`, `src/test/stores/captionStore.test.ts`
+- **既存契約**: `CaptionSettings`、IndexedDB保存形式、projectStore、自動保存ハッシュ、standard/Apple Safariのキャプション描画には `fontColor` / `strokeColor` / `strokeWidth` が既に存在していた。新フィールドや描画分岐は追加せず、欠けていたUI配線を既存setterへ接続することでpreview/exportの安定経路を維持する。
+- **UI/UX**:
+  - 一括スタイル設定の「字体」とその端末フォント読込導線の直下へ、「文字の縁・色」グループを配置する。調整順は **縁の幅 → 縁の色 → 文字本体** とし、その後に位置・ぼかしが続く。字体と文字装飾が連続し、縁関連の2項目も隣接するため認知負荷が小さい。
+  - 縁幅は1080p基準で0〜20px、0.5px刻み。モバイル誤操作防止の `SwipeProtectedSlider` と数値入力を同期し、どちらからも設定できる。setterと保存復元の両方で `clampCaptionStrokeWidth()` を通す。
+  - 縁色・文字本体色はネイティブカラーピッカーと16進数テキスト入力を併設する。`#RGB` / `#RRGGBB` を受け付け、確定時に大文字6桁へ正規化。不正な途中入力は赤枠で示し、blur時に直前値へ戻す。Enter確定・Escape取消・ARIAラベル・ロック時disabledに対応する。
+  - 新規プロジェクト／全リセット時の既定は `fontColor=#FFFFFF`（白い文字本体）、`strokeColor=#000000`（黒い縁）、`strokeWidth=2`。既存保存データに色がある場合はその値を維持する。
+- **描画・保存注意**:
+  - `createCaptionGlyphCanvas()` はstrokeを先、その上にfillを描き、`lineWidth = strokeWidth * 2` とする既存契約。UI表示の「縁幅」は片側の太さであり、このCanvas契約を変えない。
+  - exportはpreview Canvasを収録するため、UIから既存settingsを更新すれば両フレーバーの書き出しへ自動反映される。exportエンジンへ色・幅処理を重複追加しない。
+- **回帰ガード**: UI配置順、スライダー／数値入力、カラーピッカー／16進数入力、ロック状態、幅クランプ、既定色、Canvasのstroke→fill描画順と色・lineWidthをテストする。
+
+### 13-132. キャプション詳細設定の段階開示・音声件数・視覚ヘルプ
+
+- **ファイル**: `src/components/sections/CaptionSection.tsx`, `src/components/sections/BgmSection.tsx`, `src/components/sections/NarrationSection.tsx`, `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`, `src/test/captionStyleControls.test.tsx`, `src/test/bgmSectionCount.test.tsx`, `src/test/narrationSectionOfflineMode.test.tsx`, `src/test/sectionHelp.test.ts`
+- **段階開示の規約**:
+  - キャプションの「スタイル/フェード一括設定」と、その中の「文字の縁・色」は初期状態を閉じる。閉じている間だけタイトル右側へ `（開いて設定）` を表示し、開いた後は非表示にする。開状態は内容と下向きシェブロンで十分伝わるため、`（設定を閉じる）` は追加しない。
+  - 補助文言は `aria-hidden` とし、ボタンのアクセシブル名を実際のタイトルから変えない。ボタンには `aria-expanded` / `aria-controls` を付け、キーボード・支援技術でも状態を判定できるようにする。
+  - 「文字の縁・色」は字体と端末フォント導線の直下に維持する。設定内容の順序（縁の幅→縁の色→文字本体）、既定値、preview/exportへ流れる既存設定契約は13-131から変更しない。
+- **件数表示**:
+  - キャプションに合わせ、BGMとナレーションも登録済みのときだけタイトル右側へ `(n件)` を表示する。BGMはstandardの `bgmClips.length`、Apple Safariの単一BGMは `bgm ? 1 : 0` を使い、フレーバーごとのデータ契約を混在させない。
+  - 件数は配列・既存値から描画時に導出し、重複するローカル状態を持たない。
+- **ヘルプ規約**:
+  - 実UIの表記（`スタイル/フェード一括設定`、`文字の縁・色`、`① まとめて入力・編集`、`② タイミング打ち`、`早める`、`遅らせる` 等）をそのまま使い、別名・旧名を作らない。
+  - 新しい操作は文章だけで済ませず、`SectionHelpVisualId` と `renderVisualToken()` に実ボタンの色・枠・アイコン・ラベルを模した見本を追加する。BGM/ナレーション件数、コピー、キャプションの2段アコーディオン、縁幅・色、まとめて入力、タイミング打ち、一括シフト、カスタムフォント導線を視覚化する。
+- **回帰ガード**: 閉状態だけに補助文言が出ること、二段目を開くまで縁・色入力がDOMへ出ないこと、BGM/ナレーションが `(n件)` を表示すること、最近追加したヘルプ項目が視覚トークンを持つことを固定する。表示専用変更なのでpreview/export描画処理へ分岐を追加しない。
+
+### 13-133. キャプション個別設定の縁幅・色・ぼかし同等化
+
+- **ファイル**: `src/types/index.ts`, `src/utils/indexedDB.ts`, `src/stores/projectStore.ts`, `src/hooks/useAutoSave.ts`, `src/utils/captionStyle.ts`, `src/utils/captionIndividualSettings.ts`, `src/components/common/CaptionColorField.tsx`, `src/components/modals/CaptionSettingsModal.tsx`, `src/components/media/CaptionItem.tsx`, `src/components/sections/CaptionSection.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/androidPreviewCache.ts`
+- **データ契約**:
+  - `Caption.overrideFontColor` / `overrideStrokeColor` / `overrideStrokeWidth` / `overrideBlur` はカード単位の任意上書き。`undefined` は一括設定の継承を表し、0pxの縁・0のぼかしも有効な個別値なので判定はtruthyではなく `!= null` を使う。
+  - 保存・読込、IndexedDB型、自動保存ハッシュ、Android preview cache署名、個別設定バッジと「この個別設定をクリア」を同時に更新する。旧保存データは全フィールドが未定義なので、見た目を変えず一括設定へフォールバックする。
+- **単一解決経路**:
+  - `resolveCaptionGlyphStyle(caption, settings)` が文字本体色・縁色・縁幅・ぼかしの「個別値 > 一括値」を解決する。縁幅は0〜20px・0.5px刻み、ぼかしは0〜5px・0.1px刻みへ正規化する。
+  - standard / Apple Safari の両preview engineは同じ解決結果を使う。exportはpreview Canvasを収録する既存WYSIWYG経路なので、export engineへ重複分岐を追加しない。凍結済み `src/components/turtle-video/usePreviewEngine.ts` は変更しない。
+- **UI/UX**:
+  - `CaptionSettingsModal` は一括設定と同じ順序（サイズ→字体→文字の縁・色→位置→ぼかし→フェード）にする。「文字の縁・色」は初期閉状態で、閉じている間だけ `（開いて設定）` を表示する。
+  - 未設定時は一括設定の実効値を入力欄へ表示し、操作した項目だけ個別上書きにする。「文字の縁・色を一括設定に戻す」「ぼかしを一括設定に戻す」で部分解除でき、従来の「この個別設定をクリア」では全個別値を解除する。
+  - 色入力は一括・個別で共通の `CaptionColorField` を使い、カラーピッカー、`#RGB` / `#RRGGBB`、Enter確定、Escape取消、不正値復元の挙動を揃える。ID/ARIA接頭辞を分け、背後の一括設定DOMとIDが重複しないようにする。
+- **回帰ガード**: アコーディオン初期状態、継承値表示、個別値更新・部分解除、全解除、純解決ロジック、保存往復、自動保存差分、cache key、ヘルプをテストする。全体品質ゲートで両preview/export回帰を確認する。
+
+### 13-134. キャプション一括移動をプレビュー現在位置へ整列
+
+- **ファイル**: `src/components/sections/CaptionSection.tsx`, `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`, `src/test/captionStyleControls.test.tsx`, `src/test/sectionHelp.test.ts`
+- **操作契約**:
+  - 「すべてのカード」では先頭カード、「指定カード以降」では指定カードの `startTime` を基準にし、プレビュー現在位置との差分を0.1秒単位で既存の `shiftCaptions(deltaSec, fromIndex)` へ渡す。
+  - 終了位置、各カードの表示時間、カード間隔は差分移動で自動的に維持する。動画・ナレーション・BGMのストアやタイムラインには波及させない。
+  - プレビュー現在位置への整列を主操作、従来の秒数入力と「早める」「遅らせる」を微調整として併存させる。すでに一致している場合はボタンを無効化し、実行前の移動差分と実行結果をテキスト／`aria-live`で示す。
+- **回帰ガード**: 全カードと指定カード以降の正負差分、同一時刻のno-op、従来の秒数移動、ヘルプ上のキャプション限定説明をテストする。既存のプレビュー停止ラッパーを経由し、preview/exportエンジンや保存形式へ新しい分岐を追加しない。
+
 ### 13-135. エクスポート終了時のCanvasキャプチャトラック解放（プレビュー破損対策・Issue #209）
 
 - **ファイル**: `src/utils/exportTimeline.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`, `src/test/stopCanvasCaptureStream.test.ts`
@@ -2378,3 +2501,122 @@
   - フラグはエクスポート開始〜次の通常プレビュー開始まで保持。間の複数 `stopAll` では消えない（`stopAll` は当フラグを触らない）。
   - apple-safari は本症状の再現報告が無いため未適用。再現したら同じ「export→preview 遷移リセット」をフレーバー内へ移植する。
   - 13-135/13-136/13-137 とセット。[[export-recovery-2026-07-20]] [[android-preview-blackout-seek-stall]]。
+
+### 13-139. エクスポート後プレビュー再発対策＝完了即時 decoder リセット + await load + 描画不能 stall 拡張（Issue #209 再発）
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/components/TurtleVideo.tsx`, `src/test/strandedPreviewVideoReset.test.ts`
+- **再発要因（13-135〜138 後も残った穴）**:
+  1. **load() が fire-and-forget**: 次プレビュー開始時に `pause()+load()` するだけで metadata/seek を待たず、直後の currentTime 代入が無視され seek-stall が再発。
+  2. **復旧が「次の再生」依存**: export 完了後のスクラブ/静止プレビューではリセットが走らず、壊れた decoder のまま。
+  3. **export 終端〜finalize 中も video 再生継続**: mux 完了まで ended 残留と decoder 圧迫が進む。
+  4. **export 中断 (停止ボタン) が stopAll しない**: media が再生したまま残る。
+  5. **stall 判定が狭い**: `readyState<=1 && seeking` 以外の paused 残留 / 寸法0 では「静止画のままスライダーだけ進む」が復旧されない。
+  6. **audio routing が export のまま**: stopAll 後も gain が masterDest 接続のまま残ることがある。
+- **対策**:
+  - `resetSharedPreviewVideoElement()`: `load()` → metadata 待ち → target seek → drawable 待ちを **await**（純関数として export・テスト可能）。
+  - `startEngine` の post-export 分岐で全 video を **Promise.all で await** してから warmup/再生へ進む。
+  - export 成功/失敗コールバックで **即時** `configureAudioRouting(false)` + decoder リセット + 現在位置の paused 再描画（次 play を待たない）。
+  - export タイムライン終端で complete 前に全 media を pause（stopAll は呼ばない＝user cancel 汚染を避ける）。
+  - `handleStop` の export 中断経路でも `stopAll()` を呼び media を止める。
+  - `stopAll` で export 後は gain を `ctx.destination` へ戻す。
+  - stall を `isActiveVideoUndrawableForStall`（readyState 不足 / seeking / 寸法0 / paused）へ拡張。load 後の reseek は loadedmetadata 待ち。
+- **注意**:
+  - 出力 MP4 には非干渉。通常 stop/play では await リセットしない（export 後フラグ時のみ）。
+  - apple-safari は本再発の主対象外。standard に閉じる。
+  - 13-135〜138 とセット。実機では export 完了後すぐ再生・シーク・停止→再生を確認する。
+
+### 13-140. エクスポート後黒点滅のログ根拠修正＝guard 即 clear 禁止 + hard src 再設定 + 描画不能 hold の黒クリア抑止（Issue #209 再発・2026-07-24 ログ）
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/strandedPreviewVideoReset.test.ts`, `Docs/2026-07-24-previewlog.log`
+- **実機ログで確定した事実**（Edge/Chrome PC）:
+  1. export 完了で `preview.postExport.videoDecoderReset`（eager）は発火する。
+  2. しかしフラグを即 `false` にしていたため、数秒後の play で **startEngine 再 reset が走らない**。
+  3. `preview.preflight.ready` は `activeVideoReadyState:4 / activeTrimDrift:0` と健全に見える。
+  4. 再生約 1 秒後から `active video frame hold` が連発し、**`readyState:1, seeking:true`** のまま `videoCT` が wall-clock と並走（描画不能・黒点滅）。
+  5. `preview.decodeStall.recover` は **1 度も出ない**（load のみ復旧・play 再要求が wedge を悪化）。
+- **対策**:
+  - **post-export guard**: `exportRanSinceLastPreviewRef` は eager/startEngine では落とさない。**描画可能フレームが連続 N 回**（`POST_EXPORT_DRAWABLE_FRAMES_TO_CLEAR_GUARD`）して初めて `preview.postExport.guardCleared`。
+  - **hard reset**: `resetSharedPreviewVideoElement(..., 'hard')` が src を外して再設定し decoder を作り直す。startEngine / export 完了コールバックは hard を await。
+  - **再生中復旧**: undrawable 継続で `kickHardResetPreviewVideoElement` + `preview.decodeStall.recover`（INFO）。hard 直後は play を 350ms 抑止。seeking 固着中は play しない。
+  - **黒クリア抑止**: post-export guard 中の holdFrame では PC でも canvas 黒クリアを抑止（直前 endClear 黒の保持＝黒点滅を防ぐ）。
+- **注意**:
+  - 検証時は **ハードリロード**（Service Worker キャッシュ回避）を推奨。
+  - 再発時は `preview.postExport.videoDecoderReset`（phase/mode）、`preview.decodeStall.recover`、`preview.postExport.guardCleared` の有無を確認。
+  - 13-135〜139 とセット。
+
+### 13-141. エクスポート後プレビュー破損の根治＝MediaResourceLoader remount（Issue #209 / previewlog2）【実機確認済み】
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/components/turtle-video/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/test/strandedPreviewVideoReset.test.ts`, `Docs/2026-07-24-previewlog2.log`
+- **症状**（PC Edge/Chrome・Android でも同系統）:
+  - 動画ファイル作成（export）の **成功 / 失敗 / 中断（停止）のいずれの後も**、通常プレビューが壊れる。
+  - 典型: 黒フレーム点滅・カクつき・**映像が静止したままスライダーだけ進む**。停止→再生を繰り返しても復旧しない。
+- **bisect 知見**:
+  - `403c281`（v5.1.0）までは動作。
+  - `f0041e8`（v5.2.0 iOS baseline）時点で既に再現。
+  - iOS/Android 対応とキャンバス 720p/1080p 分離（`5742123` 付近）以降、**preview と export が同一の共有 `<video>` / Canvas を消費する経路**が本命。古いコミットへの全面ロールバックは仕様差が大きく危険。現代コードへ「要素を作り直す」だけを移植するのが正しい。
+- **根因（要約）**:
+  - export は共有プレビューの `<video>` を終端まで seek/play し、WebCodecs 側は `canvas.captureStream()` で同じ Canvas を吸い出す。
+  - 終了後も **同じ HTMLVideoElement インスタンス**を次のプレビューで再利用する。
+  - Chromium 系では、この要素の内部 decoder が **表面的には健全に見えても内部 wedge** することがある（`readyState` が一瞬 4 でも、直後に `readyState:1 + seeking:true` で固着し、`videoCT` だけ wall-clock と並走）。
+  - **同一 DOM 上で `load()` や src の付け外しをしても、wedge した decoder を完全には捨て切れない**ケースがある（previewlog2 で確定）。
+
+#### なぜ今までの試行ではダメだったか（13-135〜140）
+
+段階的に対策を積んだが、いずれも **「同じ HTMLVideoElement を直して使う」前提**だったため、decoder wedge の再発を止め切れなかった。
+
+| 段階 | やったこと | 効いた部分 | ダメだった理由 |
+|------|------------|------------|----------------|
+| **13-135** | export 終了全経路で `canvas.captureStream()` トラックを `stop()` | キャプチャトラック残留による Canvas 汚染の一因を除去 | トラック解放だけでは **video 要素側の decoder wedge** は直らない。点滅・静止の本命が残る |
+| **13-136** | warmup で `ended` / 大幅先行 currentTime を検知して `load()` | export 直後に ended のまま先頭へ巻き戻す典型ケースを改善 | preflight が健全（readyState 4・currentTime≈0）に見えるケースでは発火せず。**再生開始後**に wedge する経路を拾えない |
+| **13-137** | 再生中 `readyState<=1 && seeking` を 300ms 監視して `load()` 復旧 | 理論上は stall を自己回復できる | 実機では `preview.decodeStall.recover` が**発火しない/遅い**。RAF 経路差で取りこぼし。復旧しても同じ要素に再 wedge |
+| **13-138** | export→次 preview で participating video を先回り `pause()+load()` | 「次 play まで待つ」穴を減らし、preflight 前にリセット意図を入れた | fire-and-forget の `load()` だと metadata/seek を待たず、直後の currentTime 代入が無視され seek-stall が再発 |
+| **13-139** | `load()` を await・export 完了即時リセット・stall 判定拡張・export 中断で stopAll | 中断経路・スクラブ経路・狭い stall 判定の穴を塞いだ | **同一要素上の awaited load** でも Chromium の wedge が残るケースあり |
+| **13-140** | hard src 再設定 + guard を drawable 連続 N フレームまで落とさない + hold 中の黒クリア抑止 | 偽の「健全 readyState 4」でガードを即 clear する問題を修正。一瞬の drawable で安心しなくなる | **previewlog2**: hard reset は `result=ready` を返しても、約 0.5 秒後に `readyState:1+seeking` で再 wedge。**同一 DOM 上の src 付け外しでは内部 decoder を捨て切れない** |
+| （共通） | 黒クリア抑止・holdFrame・stall 閾値調整などの見た目/タイミング緩和 | 症状を弱く見せることはある | **壊れた要素を使い続ける限り**、スライダー進行と映像停止の乖離は再発する |
+
+**失敗パターンの共通点**:
+1. **表面指標が嘘をつく** — preflight の `readyState:4` / hard reset の `ready` は「今フレームが取れるかも」であって「今後も decoder が健全」ではない。
+2. **短い偽 drawable でガードを外す** — 連続 8 フレーム（~80ms）程度では、直後の再 wedge を防げない（→ 45 フレームへ引き上げ）。
+3. **要素を殺さず直そうとする** — `load()` / hard src / reseek / play 再要求は、wedge した Chromium decoder に対して不十分なことがある。play 連打はむしろ悪化し得る。
+4. **export 終了経路の一部だけ直す** — 成功パスだけ直しても、中断・失敗後に同じ共有要素が残れば再発する。
+
+#### なぜ remount ならうまくいったか
+
+- **方針転換**: 壊れた decoder を「直す」のではなく、**MediaResourceLoader を `reloadKey++` で unmount/remount し、新しい `<video>` DOM を割り当てる**。
+- 新しい要素には export で疲弊した decoder 状態が引き継がれない。metadata 取得 → trimStart へ seek → その後に warmup/play する。
+- remount 前に **全 `MediaElementSource` / gain を detach** する（`createMediaElementSource` は要素に 1 回制約。古い要素のノードを残したまま DOM を捨てると音声経路が破綻する）。
+- export 成功 / 失敗 / 中断（停止）/ 次の preview `startEngine` の**全経路**で remount を要求し、`postExportNeedsRemountRef` が落ちるまで post-export guard を clear しない。
+- drawable 連続要件を **45 フレーム**（`POST_EXPORT_DRAWABLE_FRAMES_TO_CLEAR_GUARD`）にし、短い偽 drawable での早期 clear を防ぐ。
+- remount 未配線時のみ hard reset をフォールバック。再生中 stall は hard kick + ユニークログ（保険）。
+
+```
+export 終了（成功/失敗/中断）
+  → detach MediaElementSource
+  → reloadKey++（MediaResourceLoader remount）
+  → 新 <video> が mediaElementsRef に載るまで待つ
+  → trimStart へ seek
+  → 連続 drawable を確認してから post-export guard を clear
+  → 通常 preview へ復帰
+```
+
+#### 実装の要点
+
+- `TurtleVideo.remountSharedPreviewMedia()`: pause → audio detach → `setReloadKey` → metadata 待ち → trimStart seek。ログ `preview.postExport.mediaRemount.wait`。
+- standard `usePreviewEngine`: `postExportNeedsRemountRef` / `exportRanSinceLastPreviewRef`。export 開始で立て、remount 成功後に落とす。`waitForSharedPreviewMediaRemount` はテスト可能な純 helper。
+- `UsePreviewEngineParams.remountSharedPreviewMedia?` は base / standard / apple-safari で optional 契約を揃え、PreviewRuntime の型不一致を防ぐ。
+- MediaResourceLoader は `key={reloadKey}` で丸ごと再生成。
+
+#### 実機確認
+
+- **2026-07 時点で実機確認済み**（ユーザー確認）: remount 経路導入後、export 後のプレビュー破損（黒点滅・静止＋スライダー進行）が解消。
+- 検証時は **ハードリロード**推奨（Service Worker キャッシュ回避）。
+- 再発調査ログ: `preview.postExport.mediaRemount` / `mediaRemount.wait` の `result=ready`、`preview.postExport.guardCleared`、`active video frame hold` の再発有無。
+
+#### 注意
+
+- 出力 MP4 の中身には非干渉（解放・要素再生成は export 完了後の preview 復帰専用）。
+- 403c281 への全面ロールバックはしない。remount のみを現代コードへ移植する方針を維持する。
+- 通常の stop/play では remount しない（export 後フラグ時のみ。毎回の再マウントは開始遅延と音声再 attach コストが増える）。
+- apple-safari は optional 契約のみ（本症状の主対象は standard / PC・Android）。再現したら同じ remount をフレーバー内で有効化する。
+- 13-135〜140 の解放・stall・hard reset は **保険・補助**として残し、本命は remount。再発時はまず「同一要素を直し続けていないか」を疑う。
+- [[export-recovery-2026-07-20]] と同系統。Issue #209。

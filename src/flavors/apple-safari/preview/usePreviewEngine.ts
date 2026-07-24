@@ -149,6 +149,8 @@ interface UsePreviewEngineParams {
   logInfo: LogFn;
   logWarn: LogFn;
   logDebug: LogFn;
+  /** Issue #209: standard 向け remount 契約。apple-safari では未使用（optional）。 */
+  remountSharedPreviewMedia?: () => Promise<'ready' | 'timeout' | 'cancelled'>;
 }
 
 interface UsePreviewEngineResult {

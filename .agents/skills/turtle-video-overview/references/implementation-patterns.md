@@ -700,6 +700,7 @@
 | **キャプチャ** | 再生中は一時停止してからCanvasをキャプチャ。ObjectURLは`setTimeout`で解放 |
 | **エラー** | 3 層防御: ErrorBoundary（コンポーネント）、グローバルハンドラ（window）、try-catch（個別処理） |
 | **フレーバー分離** | export エンジンは `src/flavors/<flavor>/export/exportEngine.ts` に物理フォーク済み。共有コード→flavors の import、flavor 相互 import、共有コンポーネントでの `getPlatformCapabilities()` 直接呼び出しは ESLint で禁止。共有コンポーネントの UA 判定は `usePlatformCapabilities()`（PlatformCapabilitiesContext）経由。凍結レガシー（`components/turtle-video/usePreview*` / `utils/previewPlatform` / `utils/iosSafariAudio`）は編集禁止 |
+| **export後preview（#209）** | 共有 `<video>` を同一要素のまま `load()` / hard src で直しても Chromium decoder wedge が残ることがある（表面の readyState 4 は信用しない）。本命は MediaResourceLoader remount（`reloadKey++` + MediaElementSource detach、13-141）。13-135〜140 は保険。成功/失敗/中断の全経路で remount を要求する |
 
 ## 12. Dev Script Pattern (media-video-analyzer STT)
 
@@ -2500,3 +2501,122 @@
   - フラグはエクスポート開始〜次の通常プレビュー開始まで保持。間の複数 `stopAll` では消えない（`stopAll` は当フラグを触らない）。
   - apple-safari は本症状の再現報告が無いため未適用。再現したら同じ「export→preview 遷移リセット」をフレーバー内へ移植する。
   - 13-135/13-136/13-137 とセット。[[export-recovery-2026-07-20]] [[android-preview-blackout-seek-stall]]。
+
+### 13-139. エクスポート後プレビュー再発対策＝完了即時 decoder リセット + await load + 描画不能 stall 拡張（Issue #209 再発）
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/components/TurtleVideo.tsx`, `src/test/strandedPreviewVideoReset.test.ts`
+- **再発要因（13-135〜138 後も残った穴）**:
+  1. **load() が fire-and-forget**: 次プレビュー開始時に `pause()+load()` するだけで metadata/seek を待たず、直後の currentTime 代入が無視され seek-stall が再発。
+  2. **復旧が「次の再生」依存**: export 完了後のスクラブ/静止プレビューではリセットが走らず、壊れた decoder のまま。
+  3. **export 終端〜finalize 中も video 再生継続**: mux 完了まで ended 残留と decoder 圧迫が進む。
+  4. **export 中断 (停止ボタン) が stopAll しない**: media が再生したまま残る。
+  5. **stall 判定が狭い**: `readyState<=1 && seeking` 以外の paused 残留 / 寸法0 では「静止画のままスライダーだけ進む」が復旧されない。
+  6. **audio routing が export のまま**: stopAll 後も gain が masterDest 接続のまま残ることがある。
+- **対策**:
+  - `resetSharedPreviewVideoElement()`: `load()` → metadata 待ち → target seek → drawable 待ちを **await**（純関数として export・テスト可能）。
+  - `startEngine` の post-export 分岐で全 video を **Promise.all で await** してから warmup/再生へ進む。
+  - export 成功/失敗コールバックで **即時** `configureAudioRouting(false)` + decoder リセット + 現在位置の paused 再描画（次 play を待たない）。
+  - export タイムライン終端で complete 前に全 media を pause（stopAll は呼ばない＝user cancel 汚染を避ける）。
+  - `handleStop` の export 中断経路でも `stopAll()` を呼び media を止める。
+  - `stopAll` で export 後は gain を `ctx.destination` へ戻す。
+  - stall を `isActiveVideoUndrawableForStall`（readyState 不足 / seeking / 寸法0 / paused）へ拡張。load 後の reseek は loadedmetadata 待ち。
+- **注意**:
+  - 出力 MP4 には非干渉。通常 stop/play では await リセットしない（export 後フラグ時のみ）。
+  - apple-safari は本再発の主対象外。standard に閉じる。
+  - 13-135〜138 とセット。実機では export 完了後すぐ再生・シーク・停止→再生を確認する。
+
+### 13-140. エクスポート後黒点滅のログ根拠修正＝guard 即 clear 禁止 + hard src 再設定 + 描画不能 hold の黒クリア抑止（Issue #209 再発・2026-07-24 ログ）
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/strandedPreviewVideoReset.test.ts`, `Docs/2026-07-24-previewlog.log`
+- **実機ログで確定した事実**（Edge/Chrome PC）:
+  1. export 完了で `preview.postExport.videoDecoderReset`（eager）は発火する。
+  2. しかしフラグを即 `false` にしていたため、数秒後の play で **startEngine 再 reset が走らない**。
+  3. `preview.preflight.ready` は `activeVideoReadyState:4 / activeTrimDrift:0` と健全に見える。
+  4. 再生約 1 秒後から `active video frame hold` が連発し、**`readyState:1, seeking:true`** のまま `videoCT` が wall-clock と並走（描画不能・黒点滅）。
+  5. `preview.decodeStall.recover` は **1 度も出ない**（load のみ復旧・play 再要求が wedge を悪化）。
+- **対策**:
+  - **post-export guard**: `exportRanSinceLastPreviewRef` は eager/startEngine では落とさない。**描画可能フレームが連続 N 回**（`POST_EXPORT_DRAWABLE_FRAMES_TO_CLEAR_GUARD`）して初めて `preview.postExport.guardCleared`。
+  - **hard reset**: `resetSharedPreviewVideoElement(..., 'hard')` が src を外して再設定し decoder を作り直す。startEngine / export 完了コールバックは hard を await。
+  - **再生中復旧**: undrawable 継続で `kickHardResetPreviewVideoElement` + `preview.decodeStall.recover`（INFO）。hard 直後は play を 350ms 抑止。seeking 固着中は play しない。
+  - **黒クリア抑止**: post-export guard 中の holdFrame では PC でも canvas 黒クリアを抑止（直前 endClear 黒の保持＝黒点滅を防ぐ）。
+- **注意**:
+  - 検証時は **ハードリロード**（Service Worker キャッシュ回避）を推奨。
+  - 再発時は `preview.postExport.videoDecoderReset`（phase/mode）、`preview.decodeStall.recover`、`preview.postExport.guardCleared` の有無を確認。
+  - 13-135〜139 とセット。
+
+### 13-141. エクスポート後プレビュー破損の根治＝MediaResourceLoader remount（Issue #209 / previewlog2）【実機確認済み】
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/components/turtle-video/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/test/strandedPreviewVideoReset.test.ts`, `Docs/2026-07-24-previewlog2.log`
+- **症状**（PC Edge/Chrome・Android でも同系統）:
+  - 動画ファイル作成（export）の **成功 / 失敗 / 中断（停止）のいずれの後も**、通常プレビューが壊れる。
+  - 典型: 黒フレーム点滅・カクつき・**映像が静止したままスライダーだけ進む**。停止→再生を繰り返しても復旧しない。
+- **bisect 知見**:
+  - `403c281`（v5.1.0）までは動作。
+  - `f0041e8`（v5.2.0 iOS baseline）時点で既に再現。
+  - iOS/Android 対応とキャンバス 720p/1080p 分離（`5742123` 付近）以降、**preview と export が同一の共有 `<video>` / Canvas を消費する経路**が本命。古いコミットへの全面ロールバックは仕様差が大きく危険。現代コードへ「要素を作り直す」だけを移植するのが正しい。
+- **根因（要約）**:
+  - export は共有プレビューの `<video>` を終端まで seek/play し、WebCodecs 側は `canvas.captureStream()` で同じ Canvas を吸い出す。
+  - 終了後も **同じ HTMLVideoElement インスタンス**を次のプレビューで再利用する。
+  - Chromium 系では、この要素の内部 decoder が **表面的には健全に見えても内部 wedge** することがある（`readyState` が一瞬 4 でも、直後に `readyState:1 + seeking:true` で固着し、`videoCT` だけ wall-clock と並走）。
+  - **同一 DOM 上で `load()` や src の付け外しをしても、wedge した decoder を完全には捨て切れない**ケースがある（previewlog2 で確定）。
+
+#### なぜ今までの試行ではダメだったか（13-135〜140）
+
+段階的に対策を積んだが、いずれも **「同じ HTMLVideoElement を直して使う」前提**だったため、decoder wedge の再発を止め切れなかった。
+
+| 段階 | やったこと | 効いた部分 | ダメだった理由 |
+|------|------------|------------|----------------|
+| **13-135** | export 終了全経路で `canvas.captureStream()` トラックを `stop()` | キャプチャトラック残留による Canvas 汚染の一因を除去 | トラック解放だけでは **video 要素側の decoder wedge** は直らない。点滅・静止の本命が残る |
+| **13-136** | warmup で `ended` / 大幅先行 currentTime を検知して `load()` | export 直後に ended のまま先頭へ巻き戻す典型ケースを改善 | preflight が健全（readyState 4・currentTime≈0）に見えるケースでは発火せず。**再生開始後**に wedge する経路を拾えない |
+| **13-137** | 再生中 `readyState<=1 && seeking` を 300ms 監視して `load()` 復旧 | 理論上は stall を自己回復できる | 実機では `preview.decodeStall.recover` が**発火しない/遅い**。RAF 経路差で取りこぼし。復旧しても同じ要素に再 wedge |
+| **13-138** | export→次 preview で participating video を先回り `pause()+load()` | 「次 play まで待つ」穴を減らし、preflight 前にリセット意図を入れた | fire-and-forget の `load()` だと metadata/seek を待たず、直後の currentTime 代入が無視され seek-stall が再発 |
+| **13-139** | `load()` を await・export 完了即時リセット・stall 判定拡張・export 中断で stopAll | 中断経路・スクラブ経路・狭い stall 判定の穴を塞いだ | **同一要素上の awaited load** でも Chromium の wedge が残るケースあり |
+| **13-140** | hard src 再設定 + guard を drawable 連続 N フレームまで落とさない + hold 中の黒クリア抑止 | 偽の「健全 readyState 4」でガードを即 clear する問題を修正。一瞬の drawable で安心しなくなる | **previewlog2**: hard reset は `result=ready` を返しても、約 0.5 秒後に `readyState:1+seeking` で再 wedge。**同一 DOM 上の src 付け外しでは内部 decoder を捨て切れない** |
+| （共通） | 黒クリア抑止・holdFrame・stall 閾値調整などの見た目/タイミング緩和 | 症状を弱く見せることはある | **壊れた要素を使い続ける限り**、スライダー進行と映像停止の乖離は再発する |
+
+**失敗パターンの共通点**:
+1. **表面指標が嘘をつく** — preflight の `readyState:4` / hard reset の `ready` は「今フレームが取れるかも」であって「今後も decoder が健全」ではない。
+2. **短い偽 drawable でガードを外す** — 連続 8 フレーム（~80ms）程度では、直後の再 wedge を防げない（→ 45 フレームへ引き上げ）。
+3. **要素を殺さず直そうとする** — `load()` / hard src / reseek / play 再要求は、wedge した Chromium decoder に対して不十分なことがある。play 連打はむしろ悪化し得る。
+4. **export 終了経路の一部だけ直す** — 成功パスだけ直しても、中断・失敗後に同じ共有要素が残れば再発する。
+
+#### なぜ remount ならうまくいったか
+
+- **方針転換**: 壊れた decoder を「直す」のではなく、**MediaResourceLoader を `reloadKey++` で unmount/remount し、新しい `<video>` DOM を割り当てる**。
+- 新しい要素には export で疲弊した decoder 状態が引き継がれない。metadata 取得 → trimStart へ seek → その後に warmup/play する。
+- remount 前に **全 `MediaElementSource` / gain を detach** する（`createMediaElementSource` は要素に 1 回制約。古い要素のノードを残したまま DOM を捨てると音声経路が破綻する）。
+- export 成功 / 失敗 / 中断（停止）/ 次の preview `startEngine` の**全経路**で remount を要求し、`postExportNeedsRemountRef` が落ちるまで post-export guard を clear しない。
+- drawable 連続要件を **45 フレーム**（`POST_EXPORT_DRAWABLE_FRAMES_TO_CLEAR_GUARD`）にし、短い偽 drawable での早期 clear を防ぐ。
+- remount 未配線時のみ hard reset をフォールバック。再生中 stall は hard kick + ユニークログ（保険）。
+
+```
+export 終了（成功/失敗/中断）
+  → detach MediaElementSource
+  → reloadKey++（MediaResourceLoader remount）
+  → 新 <video> が mediaElementsRef に載るまで待つ
+  → trimStart へ seek
+  → 連続 drawable を確認してから post-export guard を clear
+  → 通常 preview へ復帰
+```
+
+#### 実装の要点
+
+- `TurtleVideo.remountSharedPreviewMedia()`: pause → audio detach → `setReloadKey` → metadata 待ち → trimStart seek。ログ `preview.postExport.mediaRemount.wait`。
+- standard `usePreviewEngine`: `postExportNeedsRemountRef` / `exportRanSinceLastPreviewRef`。export 開始で立て、remount 成功後に落とす。`waitForSharedPreviewMediaRemount` はテスト可能な純 helper。
+- `UsePreviewEngineParams.remountSharedPreviewMedia?` は base / standard / apple-safari で optional 契約を揃え、PreviewRuntime の型不一致を防ぐ。
+- MediaResourceLoader は `key={reloadKey}` で丸ごと再生成。
+
+#### 実機確認
+
+- **2026-07 時点で実機確認済み**（ユーザー確認）: remount 経路導入後、export 後のプレビュー破損（黒点滅・静止＋スライダー進行）が解消。
+- 検証時は **ハードリロード**推奨（Service Worker キャッシュ回避）。
+- 再発調査ログ: `preview.postExport.mediaRemount` / `mediaRemount.wait` の `result=ready`、`preview.postExport.guardCleared`、`active video frame hold` の再発有無。
+
+#### 注意
+
+- 出力 MP4 の中身には非干渉（解放・要素再生成は export 完了後の preview 復帰専用）。
+- 403c281 への全面ロールバックはしない。remount のみを現代コードへ移植する方針を維持する。
+- 通常の stop/play では remount しない（export 後フラグ時のみ。毎回の再マウントは開始遅延と音声再 attach コストが増える）。
+- apple-safari は optional 契約のみ（本症状の主対象は standard / PC・Android）。再現したら同じ remount をフレーバー内で有効化する。
+- 13-135〜140 の解放・stall・hard reset は **保険・補助**として残し、本命は remount。再発時はまず「同一要素を直し続けていないか」を疑う。
+- [[export-recovery-2026-07-20]] と同系統。Issue #209。

@@ -713,6 +713,88 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     logWarn,
   });
 
+  // Issue #209: export 後は共有 <video> を DOM remount して decoder を作り直す。
+  // 同一要素の hard src 再設定は previewlog2 で ready 直後に readyState1+seeking 再 wedge した。
+  // flavors への import は ESLint 境界違反のため待ちロジックはここに閉じる（pure helper は engine 側テスト用）。
+  const mediaRemountGenerationRef = useRef(0);
+  const remountSharedPreviewMedia = useCallback(async (): Promise<'ready' | 'timeout' | 'cancelled'> => {
+    const generation = ++mediaRemountGenerationRef.current;
+    const timeoutMs = 5000;
+    const pollMs = 40;
+
+    Object.values(mediaElementsRef.current).forEach((el) => {
+      if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO')) {
+        try {
+          (el as HTMLMediaElement).pause();
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+
+    // MediaElementSource は要素に 1 回だけ。古い要素のノードを破棄してから DOM を作り直す。
+    Object.keys(sourceNodesRef.current).forEach((id) => {
+      try {
+        detachAudioNode(id);
+      } catch {
+        /* ignore */
+      }
+    });
+    Object.keys(pendingAudioDetachTimersRef.current).forEach((id) => {
+      clearTimeout(pendingAudioDetachTimersRef.current[id]);
+      delete pendingAudioDetachTimersRef.current[id];
+    });
+    sourceElementsRef.current = {};
+
+    setReloadKey((k) => k + 1);
+
+    const waitUntil = Date.now() + timeoutMs;
+    let result: 'ready' | 'timeout' | 'cancelled' = 'timeout';
+    while (Date.now() < waitUntil) {
+      if (mediaRemountGenerationRef.current !== generation) {
+        result = 'cancelled';
+        break;
+      }
+      const videos = mediaItemsRef.current.filter((item) => item.type === 'video');
+      if (videos.length === 0) {
+        result = 'ready';
+        break;
+      }
+      let allReady = true;
+      for (const item of videos) {
+        const el = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
+        if (!el || el.readyState < 1 || el.error) {
+          allReady = false;
+          break;
+        }
+      }
+      if (allReady) {
+        for (const item of videos) {
+          const el = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
+          if (!el) continue;
+          const target = Number.isFinite(item.trimStart) ? Math.max(0, item.trimStart) : 0;
+          try {
+            if (Math.abs(el.currentTime - target) > 0.05) {
+              el.currentTime = target;
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+        result = 'ready';
+        break;
+      }
+      await new Promise<void>((r) => setTimeout(r, pollMs));
+    }
+
+    logInfo('RENDER', 'preview.postExport.mediaRemount.wait', {
+      result,
+      generation,
+      videoCount: mediaItemsRef.current.filter((item) => item.type === 'video').length,
+    });
+    return result;
+  }, [detachAudioNode, logInfo]);
+
   const {
     handleMediaElementLoaded,
     handleSeeked,
@@ -801,6 +883,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     logInfo,
     logWarn,
     logDebug,
+    remountSharedPreviewMedia,
   });
 
   // --- 状態同期: Zustandの状態をRefに同期 ---
@@ -2142,11 +2225,17 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   //       安全な停止・巻き戻し処理に変更
   const handleStop = useCallback(() => {
     // export 中の停止は「プレビューを 0 秒へ戻す」ではなく、中断要求と UI 復旧を優先する。
-    // 実際の停止/cleanup は export 側の abort 経路でも継続されるため、ここでは state を先に戻して表示を止める。
+    // ただし共有 video を再生したまま残すと decoder が wedge し、次プレビューが壊れる（Issue #209）。
+    // abort に加えて stopAll で media を止め、preview 側の post-export リセット対象フラグ経路へ乗せる。
     if (isProcessing) {
       // 停止ボタン押下は user cancel 扱いだが、download 導線を消したいだけなので追加エラーは出さず状態だけ静かに復旧する。
       stopWebCodecsExport({ silent: true, reason: 'user' });
       clearExportUiState();
+      stopAll();
+      pause();
+      // export 中断後も共有 video の decoder wedge を避けるため remount（Issue #209）。
+      // startEngine 側でも needsRemount なら待つが、スクラブ前に DOM を先に直す。
+      void remountSharedPreviewMedia();
       return;
     }
 
@@ -2212,10 +2301,12 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     renderPausedPreviewFrameAtTimeRef.current(0);
   }, [
     clearGeneratedExport,
+    clearExportUiState,
     isProcessing,
     stopAll,
     stopWebCodecsExport,
     pause,
+    remountSharedPreviewMedia,
     setProcessing,
     setPreviewPlaying,
     setLoading,
