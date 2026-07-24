@@ -17,6 +17,7 @@ import {
   resolveExportCanvasFrameBurstCount,
   resolveExportDuration,
   resolveExportResolutionVerdict,
+  stopCanvasCaptureStream,
 } from '../../../utils/exportTimeline';
 import { inspectMp4Durations } from '../../../utils/mp4Duration';
 import {
@@ -1101,6 +1102,10 @@ export function createUseExport(config: UseExportRuntimeConfig) {
     const abortControllerRef = useRef<AbortController | null>(null);
     const videoReaderRef = useRef<ReadableStreamDefaultReader<VideoFrame> | null>(null);
     const audioReaderRef = useRef<ReadableStreamDefaultReader<AudioData> | null>(null);
+    // canvas.captureStream() で生成した映像トラック。共有プレビュー Canvas に紐づくため、
+    // 成功・中断・失敗・unmount のいずれの終了経路でも必ず stop してプレビューへ残さない。
+    // ref に保持することで、値を宣言した内側スコープ外（stopExport / 終端 finally）からも解放できる。
+    const canvasCaptureStreamRef = useRef<MediaStream | null>(null);
     const completionRequestedRef = useRef(false);
     const silentAbortRef = useRef(false);
     const finalizeRequestedRef = useRef(false);
@@ -1112,6 +1117,16 @@ export function createUseExport(config: UseExportRuntimeConfig) {
 
     // 互換性維持のためのダミーRef（実際には使用しない）
     const recorderRef = useRef<MediaRecorder | null>(null);
+
+    // Canvas キャプチャストリームの全トラックを停止し、ref をクリアする。
+    // 呼び出しは冪等で、どの終了経路（成功・中断・失敗・unmount）から呼んでも安全。
+    const releaseCanvasCaptureStream = useCallback(() => {
+      const stream = canvasCaptureStreamRef.current;
+      if (!stream) return;
+      canvasCaptureStreamRef.current = null;
+      stopCanvasCaptureStream(stream);
+    }, []);
+
     const updatePreparationStep = useCallback(
       (audioSources: ExportAudioSources | undefined, step: ExportPreparationStep) => {
         audioSources?.onPreparationStepChange?.(step);
@@ -1178,8 +1193,10 @@ export function createUseExport(config: UseExportRuntimeConfig) {
       audioReaderRef.current.cancel().catch(() => { });
       audioReaderRef.current = null;
     }
+    // 中断時は Canvas キャプチャトラックを即時停止し、共有プレビュー Canvas への残留を防ぐ。
+    releaseCanvasCaptureStream();
     setIsProcessing(false);
-  }, [exportUrl]);
+  }, [exportUrl, releaseCanvasCaptureStream]);
 
   // 正常終了要求（abortではなく、読み取りループを自然終了させる）
   const completeExport = useCallback(() => {
@@ -1853,7 +1870,6 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         // 4. ストリームの取得と処理
         let videoReader: ReadableStreamDefaultReader<VideoFrame> | null = null;
         let audioReader: ReadableStreamDefaultReader<AudioData> | null = null;
-        let canvasStream: MediaStream | null = null;
         const videoCaptureStartedAtMs = Date.now();
         let requestedCanvasFrames = 0;
         let requestCanvasFrame: (() => void) | null = null;
@@ -1919,7 +1935,9 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             }
           }
 
-          canvasStream = selectedCanvasStream;
+          // 共有プレビュー Canvas に紐づくキャプチャトラック。ref に持たせ、
+          // 内側スコープを抜けても終端 finally / stopExport から必ず停止できるようにする。
+          canvasCaptureStreamRef.current = selectedCanvasStream;
 
           if (captureMode === 'manual-requestFrame') {
             const framePumpIntervalMs = 16;
@@ -2604,15 +2622,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           clearInterval(canvasFramePumpTimer);
           canvasFramePumpTimer = null;
         }
-        if (canvasStream) {
-          canvasStream.getTracks().forEach((track) => {
-            try {
-              track.stop();
-            } catch (e) {
-              /* ignore */
-            }
-          });
-        }
+        releaseCanvasCaptureStream();
 
         // バッファ取得とBlob作成
         const { buffer } = muxer.target;
@@ -2876,6 +2886,10 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           clearInterval(canvasFramePumpTimer);
           canvasFramePumpTimer = null;
         }
+        // Canvas キャプチャトラックの最終保険。成功パスでは既に停止済みだが、
+        // 中断・失敗・例外・unmount で success パスの stop を経由しない場合でも、
+        // ここで必ず解放して共有プレビュー Canvas にトラックを残さない（冪等）。
+        releaseCanvasCaptureStream();
         // ScriptProcessorNodeのクリーンアップ（エラー時の保険）
         if (scriptProcessorNode) {
           scriptProcessorNode.onaudioprocess = null;
@@ -2912,7 +2926,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         }
       }
     },
-    [completeExport, stopExport, updatePreparationStep]
+    [completeExport, releaseCanvasCaptureStream, stopExport, updatePreparationStep]
   );
 
   // エクスポートURLクリア

@@ -2356,8 +2356,19 @@ export function usePreviewEngine({
           const firstVideo = mediaElementsRef.current[firstItem.id] as HTMLVideoElement | undefined;
           if (firstVideo) {
             const targetTime = firstItem.trimStart || 0;
+            // エクスポート等で active video を終端まで再生した直後は要素が ended（readyState 高・
+            // currentTime≒尺末）で残る。この位置から先頭へ巻き戻すと逆方向シークが settle せず、
+            // preflight 早期判定→ループ側の毎フレーム再シークで黒フレーム点滅を起こす（Issue #209）。
+            // ended（または target を大きく超えた位置）で残っている場合は load() で decoder を
+            // 一度クリーンにリセットしてから warmup シークを待たせる。0.5s は通常の warmup シーク幅を
+            // 超える明らかな取り残しだけを対象にするための余裕。
+            const STRANDED_SEEK_RESET_THRESHOLD_SEC = 0.5;
+            const shouldResetStrandedVideo =
+              firstVideo.readyState === 0
+              || firstVideo.ended
+              || firstVideo.currentTime > targetTime + STRANDED_SEEK_RESET_THRESHOLD_SEC;
             try {
-              if (firstVideo.readyState === 0) {
+              if (shouldResetStrandedVideo) {
                 firstVideo.load();
               }
               if (Math.abs(firstVideo.currentTime - targetTime) > 0.01) {

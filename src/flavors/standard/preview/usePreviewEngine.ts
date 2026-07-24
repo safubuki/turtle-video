@@ -319,6 +319,76 @@ const PREVIEW_STALL_STATE_CONTINUITY_MS = 250;
 const PREVIEW_FADE_STALL_SNAPSHOT_INTERVAL_MS = 200;
 const PREVIEW_FADE_STALL_HOLD_LOG_INTERVAL_MS = 1000;
 const PREVIEW_END_THRESHOLD_SEC = 0.03;
+// プレビュー開始時、active/先頭 video が warmup 目標より大きく先行した位置（エクスポート等で
+// 終端まで再生され ended で残った状態）にある場合に load() で decoder をリセットする閾値。
+// 通常の warmup シーク（±0.2s 程度）では発火せず、明らかな取り残し（終端付近）だけを対象にする。
+const PREVIEW_STRANDED_SEEK_RESET_THRESHOLD_SEC = 0.5;
+
+/**
+ * プレビュー開始 warmup で、active/先頭 video の decoder を load() でリセットすべきか判定する純ロジック。
+ *
+ * - `readyState === 0`: メタデータ未取得。従来どおり load() で読み込ませる。
+ * - `ended` もしくは warmup 目標を大きく超えた currentTime: エクスポート等で終端まで再生された
+ *   取り残し状態。この位置から先頭へ巻き戻すと Chrome で逆方向シークが settle せず、
+ *   preflight 早期判定→ループ側の毎フレーム再シークで黒フレーム点滅を起こす（Issue #209）。
+ *   load() で一度クリーンにリセットしてから warmup シークを待たせる。
+ */
+export function shouldResetStrandedPreviewVideo(input: {
+  readyState: number;
+  ended: boolean;
+  currentTime: number;
+  warmupTargetTime: number;
+  strandedThresholdSec?: number;
+}): boolean {
+  const threshold = input.strandedThresholdSec ?? PREVIEW_STRANDED_SEEK_RESET_THRESHOLD_SEC;
+  if (input.readyState === 0) return true;
+  if (input.ended) return true;
+  return input.currentTime > input.warmupTargetTime + threshold;
+}
+
+// active video のデコード停止（readyState が 1 以下 + seeking のまま）が「継続している」と
+// みなすまでの猶予。通常の seek は数十〜百数十ms で settle するため、これを超えて
+// readyState が上がらない場合だけを異常な stall として recover 対象にする。
+const PREVIEW_DECODE_STALL_RECOVER_AFTER_MS = 300;
+// recover（load()+reseek）の最短間隔。連続再試行で load ループに陥らないよう throttle する。
+const PREVIEW_DECODE_STALL_RECOVER_THROTTLE_MS = 1200;
+
+/**
+ * 再生中 active video のデコード停止を検知し、load() による decoder リセットで復旧すべきか判定する純ロジック。
+ *
+ * 症状（Issue #209 / エクスポート後プレビュー）: `readyState` が 1 以下・`seeking:true` のまま張り付き、
+ * `currentTime` は進むのに描画可能フレーム（readyState≥2）が来ず、約500msごとに黒フレームが点滅する。
+ * 通常の seek は短時間で settle するため、stall 継続時間が猶予を超え、かつ throttle 間隔を空けたときだけ
+ * recover する（`seeked` 待ちの正常状態を誤って壊さない）。
+ *
+ * @returns recover すべきなら true。呼び出し側は load()+目標への reseek を行う。
+ */
+export function shouldRecoverDecodeStalledActiveVideo(input: {
+  isActivePlaying: boolean;
+  isExporting: boolean;
+  isUserSeeking: boolean;
+  hasError: boolean;
+  readyState: number;
+  seeking: boolean;
+  nowMs: number;
+  stallSinceMs: number | null;
+  lastRecoverAtMs: number;
+  stallGraceMs?: number;
+  throttleMs?: number;
+}): boolean {
+  if (!input.isActivePlaying || input.isExporting || input.isUserSeeking || input.hasError) {
+    return false;
+  }
+  // stall とみなす条件: 描画可能フレーム未満（readyState<=1）かつ seek 継続中。
+  const isStalled = input.readyState <= 1 && input.seeking;
+  if (!isStalled || input.stallSinceMs === null) return false;
+  const grace = input.stallGraceMs ?? PREVIEW_DECODE_STALL_RECOVER_AFTER_MS;
+  const throttle = input.throttleMs ?? PREVIEW_DECODE_STALL_RECOVER_THROTTLE_MS;
+  if (input.nowMs - input.stallSinceMs < grace) return false;
+  if (input.nowMs - input.lastRecoverAtMs < throttle) return false;
+  return true;
+}
+
 // フレーム駆動エクスポートで VideoEncoder への投入が停滞したとみなすまでの許容時間。
 // これを超えて投入数が進まない場合は壁時計ペーシングへフォールバックし、
 // 「書き出し準備中」から進まないハングを防ぐ。
@@ -763,6 +833,15 @@ export function usePreviewEngine({
   }>({ videoId: null, canvas: null, capturedAtMs: 0 });
   const fadeStallHoldLogAtRef = useRef<Record<string, number>>({});
   const previewPlayFailureLogAtRef = useRef<Record<string, number>>({});
+  // active video のデコード停止（readyState<=1 + seeking 継続）を検知するための状態。
+  // stall を最初に観測した時刻と、直近に load() 復旧を試みた時刻を video 単位で保持する。
+  const videoDecodeStallSinceRef = useRef<Record<string, number>>({});
+  const videoDecodeStallRecoverAtRef = useRef<Record<string, number>>({});
+  // 直近に（この preview セッションより前に）エクスポートを実行したか。
+  // エクスポートは同じ <video> 要素を消費して decoder を wedge させ、次の通常プレビューで
+  // readyState 1・seeking 固着の黒フレーム点滅を起こす（Issue #209）。true のときは
+  // 次の通常 preview 開始時に participating video を load() で decoder ごとリセットする。
+  const exportRanSinceLastPreviewRef = useRef(false);
   const standardNextVideoPrebufferDiagRef = useRef<Record<string, NextVideoPrebufferDiagState>>({});
   const previewTimelineDiagnosticsRef = useRef<{
     lastRafNowMs: number | null;
@@ -1463,6 +1542,64 @@ export function usePreviewEngine({
                 totalDurationRef.current > 0 &&
                 time >= totalDurationRef.current - 0.05;
               const safeEndTime = trimStart + Math.max(0, activeItem.duration - 0.001);
+
+              // === デコード停止の検知と復旧（Issue #209）===
+              // エクスポート後などに active video が readyState 1・seeking のまま張り付き、
+              // currentTime だけ進んで描画可能フレームが来ず黒フレーム点滅する現象を、
+              // 一定時間継続を確認してから load()+reseek で復旧する。boundary/hold 判定と同じ
+              // 確実に到達するパスに置く（描画/再生パスの分岐に依存しない）。
+              {
+                const nowStallMs = Date.now();
+                const isDecodeStallCandidate =
+                  isActivePlaying
+                  && !_isExporting
+                  && !isSeekingRef.current
+                  && !activeEl.error
+                  && activeEl.readyState <= 1
+                  && activeEl.seeking;
+                if (isDecodeStallCandidate) {
+                  if (videoDecodeStallSinceRef.current[activeId] === undefined) {
+                    videoDecodeStallSinceRef.current[activeId] = nowStallMs;
+                  }
+                } else {
+                  delete videoDecodeStallSinceRef.current[activeId];
+                }
+                if (
+                  shouldRecoverDecodeStalledActiveVideo({
+                    isActivePlaying,
+                    isExporting: _isExporting,
+                    isUserSeeking: isSeekingRef.current,
+                    hasError: !!activeEl.error,
+                    readyState: activeEl.readyState,
+                    seeking: activeEl.seeking,
+                    nowMs: nowStallMs,
+                    stallSinceMs: videoDecodeStallSinceRef.current[activeId] ?? null,
+                    lastRecoverAtMs: videoDecodeStallRecoverAtRef.current[activeId] ?? 0,
+                  })
+                ) {
+                  videoDecodeStallRecoverAtRef.current[activeId] = nowStallMs;
+                  videoRecoveryAttemptsRef.current[activeId] = nowStallMs;
+                  delete videoDecodeStallSinceRef.current[activeId];
+                  logWarn('RENDER', 'preview.decodeStall.recover', {
+                    videoId: activeId,
+                    readyState: activeEl.readyState,
+                    seeking: activeEl.seeking,
+                    paused: activeEl.paused,
+                    videoCurrentTime: Math.round(activeEl.currentTime * 10000) / 10000,
+                    reseekTarget: Math.round(targetTime * 10000) / 10000,
+                    localTime: Math.round(localTime * 10000) / 10000,
+                  });
+                  try {
+                    activeEl.load();
+                    if (Number.isFinite(targetTime)) {
+                      activeEl.currentTime = Math.max(0, targetTime);
+                    }
+                  } catch {
+                    /* ignore */
+                  }
+                }
+              }
+
               const shouldForceEndFrameAlign =
                 _isExporting &&
                 !isActivePlaying &&
@@ -3197,6 +3334,8 @@ export function usePreviewEngine({
     pendingSeekRef.current = null;
     exportPlayFailedRef.current = {};
     exportFallbackSeekAtRef.current = {};
+    videoDecodeStallSinceRef.current = {};
+    videoDecodeStallRecoverAtRef.current = {};
     resetBoundaryDiagnosticsState();
 
     if (pendingSeekTimeoutRef.current) {
@@ -4199,6 +4338,32 @@ export function usePreviewEngine({
       }
       resetBoundaryDiagnosticsState();
 
+      // エクスポート直後の最初の通常プレビューでは、共有 <video> 要素の decoder が
+      // wedge して readyState 1・seeking 固着の黒フレーム点滅を起こすことがある（Issue #209）。
+      // ループ開始前に participating video を load() で decoder ごとリセットし、
+      // クリーンな状態から warmup シーク→再生へ入る。エクスポート経路（isExportMode）や
+      // 通常の stop/play では実行しない（毎回の再デコード遅延を避ける）。
+      if (!isExportMode && exportRanSinceLastPreviewRef.current) {
+        exportRanSinceLastPreviewRef.current = false;
+        let resetCount = 0;
+        for (const item of mediaItemsRef.current) {
+          if (item.type !== 'video') continue;
+          const el = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
+          if (!el) continue;
+          try {
+            el.pause();
+            el.load();
+            resetCount += 1;
+          } catch {
+            /* ignore */
+          }
+        }
+        logInfo('RENDER', 'preview.postExport.videoDecoderReset', {
+          resetCount,
+          reason: 'reset shared video decoders after export to avoid post-export preview stall',
+        });
+      }
+
       const myLoopId = loopIdRef.current;
       logDebug('RENDER', 'ループID取得', { myLoopId });
       const exportSessionId = isExportMode ? createPreviewExportSessionId() : null;
@@ -4221,6 +4386,9 @@ export function usePreviewEngine({
           hasVideo: mediaItemsRef.current.some((item) => item.type === 'video'),
         });
         activePreviewModeRef.current = 'export';
+        // エクスポートは共有 <video> 要素を消費して decoder を wedge させ得る。
+        // 次の通常プレビュー開始時に decoder をリセットするためのフラグを立てる（Issue #209）。
+        exportRanSinceLastPreviewRef.current = true;
         safeSetPreviewPlaying(false);
         currentExportSessionIdRef.current = exportSessionId;
         setProcessing(true);
@@ -4534,8 +4702,22 @@ export function usePreviewEngine({
           if (firstVideo) {
             const targetTime = firstItem.trimStart || 0;
             const initialWarmupTarget = Math.max(0, targetTime - 0.2);
+            // エクスポート等で active video を終端まで再生した直後は、要素が ended
+            // （readyState 4・currentTime≒尺末）で残る。この状態から先頭へ currentTime を
+            // 巻き戻しても、Chrome では ended 由来の readyState 4 を一瞬保持したまま逆方向シークが
+            // 走り、preflight が「準備済み(readyState≥2)」と早期判定→ループ開始後にシークが未完了の
+            // まま currentTime を毎フレーム再代入し続け、シークが settle せず readyState が 1 へ落ちて
+            // 約500msごとの黒フレーム点滅になる（Issue #209）。
+            // ended（または target から大きく先行した位置）で残っている場合は load() で
+            // デコーダを一度クリーンにリセットしてから warmup シークを待つ。
+            const shouldResetStrandedVideo = shouldResetStrandedPreviewVideo({
+              readyState: firstVideo.readyState,
+              ended: firstVideo.ended,
+              currentTime: firstVideo.currentTime,
+              warmupTargetTime: initialWarmupTarget,
+            });
             try {
-              if (firstVideo.readyState === 0) {
+              if (shouldResetStrandedVideo) {
                 firstVideo.load();
               }
               if (Math.abs(firstVideo.currentTime - initialWarmupTarget) > 0.01) {

@@ -2319,3 +2319,62 @@
   - スワイプ判定を**ヘッダー領域限定**にするのが肝。シート全体に付けると textarea や各種操作と競合する（この差が SettingsModal 実装との意図的な違い）。
   - 回帰ガード: `modalHistoryStability.test.tsx` に「親再描画で history.back を呼ばない」「popstate で閉じる」、`captionBulkAddModal.test.tsx` に「閉じるボタンで onClose」を追加。
   - 他の下から出るモーダル（AiModal/SaveLoadModal/SectionHelp 等）は既に同挙動。まだ揃っていない下部モーダルがあれば同パターンで統一する（将来的には共通フックへ抽出する余地あり。現状は各モーダル内インライン実装が既定）。
+
+### 13-135. エクスポート終了時のCanvasキャプチャトラック解放（プレビュー破損対策・Issue #209）
+
+- **ファイル**: `src/utils/exportTimeline.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`, `src/test/stopCanvasCaptureStream.test.ts`
+- **問題**: WebCodecs export は共有プレビュー Canvas から `canvas.captureStream()` でフレームを吸い出すが、`canvasStream` を **内側スコープの局所変数**で保持し、停止処理が **成功パスの try 内**にしか無かった。中断・失敗・例外・unmount では停止漏れとなり、停止したはずのキャプチャトラックが Canvas に紐づいたまま残留。以降の通常プレビューでカクつき・黒フレーム・静止画化（スライダーだけ進む）を招いた。PC/スマホ双方で再現し、停止・再生を繰り返しても復旧しなかった。
+- **対策**:
+  - 純ヘルパー `stopCanvasCaptureStream(stream)` を **フレーバー中立の `utils/exportTimeline.ts`** に追加（null 安全・冪等・各 `track.stop` を個別 catch）。standard / apple-safari の両 export engine から共有 import（フレーバー境界を越えない）。
+  - 局所変数 `canvasStream` を廃止し、`canvasCaptureStreamRef` に昇格。内側スコープ外（`stopExport` / 終端 `finally`）からも解放できるようにする。
+  - `releaseCanvasCaptureStream()`（ref を読み → クリア → `stopCanvasCaptureStream`）を **成功パス・終端 `finally`・`stopExport`（中断/complete）** の全経路で呼び、成功／中断／失敗／unmount のどの終了経路でも必ずトラックを停止する。
+  - iOS Safari の MediaRecorder 経路（`iosSafariMediaRecorder.ts`）は既に `cleanupStreams()` を onstop/onerror/abort watchdog の全経路で呼んでおり変更不要。
+- **注意**:
+  - 出力 MP4 の中身は不変（停止処理はキャプチャ完了後の解放のみ、映像/音声生成へ非干渉）。凍結済み `src/components/turtle-video/usePreviewEngine.ts` は変更しない。
+  - 今後 export に新しいキャプチャストリームや早期 return / throw 経路を足す場合は、必ず `releaseCanvasCaptureStream()` が全終了経路を通ることを確認する（局所変数での stop 限定に戻さない）。
+  - [[export-recovery-2026-07-20]] の一連の export 復旧対応と同系統。プレビュー破損の再発時はまず本項と canvasStream 解放経路を確認する。
+
+### 13-136. エクスポート後プレビューの黒フレーム点滅＝ended video の逆方向シーク未 settle（Issue #209 追加対応）
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/test/strandedPreviewVideoReset.test.ts`
+- **問題（13-135 の Canvas トラック解放だけでは残った本命症状）**:
+  - 実機ログで、エクスポート直後のプレビュー再生中に active video が **`readyState:1, seeking:true` のまま**張り付き、`active video frame hold` を毎フレーム出し続け、約500msごとに黒フレームが点滅した（PC/Chromium で再現）。
+  - 原因: エクスポートは active video を**終端まで再生**するため、要素が `ended`（readyState 4・currentTime≒尺末）で残る。次のプレビュー開始 warmup で先頭へ `currentTime` を巻き戻しても、Chrome は ended 由来の readyState 4 を一瞬保持したまま逆方向シークを走らせる。warmup は当時 `readyState === 0` のときしか `load()` せず、readyState 4 では **preflight が「準備済み」と早期判定**→ループ開始後にシークが未 settle のまま `play()` とドリフト補正シークが競合し、シークが完了せず readyState が 1 へ落ちて黒フレーム点滅になる。
+- **対策**:
+  - warmup の `load()` 条件を `shouldResetStrandedPreviewVideo({ readyState, ended, currentTime, warmupTargetTime })` に置換。`readyState===0` に加え、**`ended` もしくは warmup 目標を 0.5s 超で先行**している「取り残し」を検知したら `load()` で decoder を一度クリーンにリセットしてから warmup シークを待つ。これにより loop 開始時に drift≈0・readyState≥2 が保証され、`play()` が traction を得て毎フレーム再シーク（thrash）が起きない。
+  - standard は純ロジック `shouldResetStrandedPreviewVideo`（`usePreviewEngine.ts` から export・テスト可能）に集約。apple-safari は同等条件をフレーバー内にインライン（クロス import はフレーバー境界違反のため不可）。
+- **注意**:
+  - 通常の warmup シーク幅（±0.2s 程度）や健全な準備済み video では発火しない（既存の開始挙動・尺・出力へ非干渉）。
+  - `load()` は readyState を 0 に落とす破壊的操作だが、直後の warmup await（`loadeddata`/`canplay`/`seeked`）が正しく readyState≥2 まで待つため、開始がわずかに遅れるだけで絵は安定する。
+  - 13-135（Canvas キャプチャトラックの全経路解放）と本項はセット。エクスポート後プレビュー破損の再発時は、まず active video が `ended`/`seeking` で張り付いていないかログで確認する（`active video frame hold` の `readyState`/`seeking`）。[[export-recovery-2026-07-20]]
+
+### 13-137. エクスポート後プレビューの黒フレーム点滅＝再生中 active video のデコード停止を検知して load() 復旧（Issue #209 本命）
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/strandedPreviewVideoReset.test.ts`
+- **確定した症状（実機ログ）**:
+  - エクスポート後のプレビューで active video が **`readyState:1, seeking:true, ended:false` のまま張り付く**。`videoCT`（要素の currentTime）は wall-clock と ほぼ 1:1 で進む（＝再生クロックは動く）のに、描画可能フレーム（readyState≥2）が来ず `active video frame hold` を出し続け、約500msごとに黒フレームが点滅する。PC/Chromium(Edge) で確定再現。
+  - 13-136 の `ended` 取り残しリセットは発火せず（preflight は readyState 4・currentTime≒0 で健全に見える）、stall は**再生開始後**に発生する。correction seek は `!isVideoSeeking` ガードで再代入せず、play ブロックは `paused` 要求で対象外＝ループは何も再シークしていない。Chromium 側で seek が settle せず decoder が wedge した状態。
+- **対策（純ロジック＋ループ内復旧）**:
+  - `shouldRecoverDecodeStalledActiveVideo({ isActivePlaying, isExporting, isUserSeeking, hasError, readyState, seeking, nowMs, stallSinceMs, lastRecoverAtMs })` を追加。`readyState<=1 && seeking` が **300ms 継続**し、かつ前回復旧から **1200ms** 空いているときだけ true。export / user seek / error / 非再生は対象外。
+  - renderFrame の active video 分岐で stall 継続時刻（`videoDecodeStallSinceRef`）を追跡し、判定成立時に `videoEl.load()` + 目標時刻へ reseek して decoder をリセット。`preview.decodeStall.recover` を warn ログ。二重 load 防止のため `videoRecoveryAttemptsRef` も同時刻でスタンプ。`stopAll` で両 ref をクリア。
+- **注意**:
+  - 復旧は「stall を一定時間確認してから」なので、正常な短時間 seek（`seeked` 待ち）を誤って壊さない。`load()` は decoder wedge に対する正しいリセットであり、盲目的な再生ボタン強制リロードとは異なる。
+  - 300ms 猶予のため初回にわずかな黒が出てから復旧する。将来 export 終了時点で participating video を先回りリセットできれば flicker ゼロ化できるが、通常 stop/play の再デコード遅延を招かないよう export 経路限定にすること。
+  - apple-safari 側は本症状の再現報告が無いため未適用（iOS の delicate な audio/video 経路への波及を避ける）。再現したら同じ純ロジックをフレーバー内へインライン移植する（クロス import 不可）。
+  - 13-135（Canvas トラック解放）・13-136（ended リセット）とセット。[[export-recovery-2026-07-20]] [[android-preview-blackout-seek-stall]] と同系統の seek-stall。
+
+### 13-138. エクスポート後プレビュー黒点滅の決定打＝export→preview 遷移で video decoder を先回りリセット（Issue #209）
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/strandedPreviewVideoReset.test.ts`
+- **背景**: 13-137 の「再生中 stall 検知→復旧」だけでは実機で `preview.decodeStall.recover` が**発火せず**点滅が残った（loop の到達パス差 / RAF 実効レートの影響で反応が遅い/取りこぼす）。stall を待って治すのではなく、**wedge が起きる前に確実に潰す**設計へ変更。
+- **確定挙動（実機ログ）**: エクスポート後の通常プレビューで、`preview.preflight.ready` が `activeVideoReadyState:4 / preseekWaitMs:null`（＝健全に見えて待たない）→ 再生開始後に active video が `readyState:1, seeking:true, ended:false` で固着、`videoCT` は進むのに描画フレームが来ず約500msごとに黒点滅。共有 `<video>` 要素の decoder がエクスポートで wedge した状態。
+- **対策（主・決定打）**:
+  - `exportRanSinceLastPreviewRef` を追加。`startEngine` の export 分岐で **true** を立てる。
+  - `startEngine` の **通常プレビュー分岐（`!isExportMode`）で、フラグが立っていれば participating video を `pause()`+`load()`** で decoder ごとリセットし、フラグを落とす（`preview.postExport.videoDecoderReset` ログ）。以降 preflight/warmup が readyState 0 から正しく `loadeddata/canplay/seeked` を待つため、ループ開始時にはクリーンな decoder になっている。
+  - 通常の stop/play・export 経路では実行しない（毎回の再デコード遅延を避ける）。
+- **対策（副・保険）**: 13-137 の stall 検知＋`load()`復旧は残すが、**確実に到達する boundary/hold 判定パス（pass1）へ移設**（描画/再生パス pass2 依存をやめた）。純ロジックは `shouldRecoverDecodeStalledActiveVideo`（`readyState<=1 && seeking` が 300ms 継続・throttle 1200ms）。`stopAll` で stall 用 ref をクリア。
+- **注意**:
+  - `load()` は破壊的（readyState→0）だが、直後の warmup await が readyState≥2 まで待つので開始が僅かに遅れるだけで絵は安定する。出力 MP4・尺には非干渉。
+  - フラグはエクスポート開始〜次の通常プレビュー開始まで保持。間の複数 `stopAll` では消えない（`stopAll` は当フラグを触らない）。
+  - apple-safari は本症状の再現報告が無いため未適用。再現したら同じ「export→preview 遷移リセット」をフレーバー内へ移植する。
+  - 13-135/13-136/13-137 とセット。[[export-recovery-2026-07-20]] [[android-preview-blackout-seek-stall]]。
