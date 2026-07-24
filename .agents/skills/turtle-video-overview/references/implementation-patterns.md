@@ -2639,3 +2639,13 @@ export 終了（成功/失敗/中断）
   - 表示上の相対時刻と元動画上の絶対時刻を混同しない。再トリム時に trimStart を無視して 0 から計算しない
   - プレビューとエクスポートは同じ trimStart/trimEnd を参照する既存契約のまま
 
+### 13-143. 動画尺変更に合わせた BGM 有効区間の自動調整（Issue #206）+ ON/OFF
+
+- **ファイル**: src/stores/audioStore.ts, BgmClipList, projectStore/indexedDB, preview/export, useAutoSave, tests
+- **既定**: bgmAutoAdjustToTimeline = true（動画尺連動 ON）
+- **ON**: resolveBgmClipsEffectivePlayback の末尾合わせ（中間は設定維持・末尾は D へ短縮/延長）
+- **OFF**: 各クリップ独立の min(設定終端, D) のみ。末尾延長しない（「ここからここまで」固定用）
+- **UI**: BGM リスト上部に「動画尺に合わせて自動調整」チェック（ON/OFF バッジ）。ロック中は変更不可
+- **永続化**: ProjectData.bgmAutoAdjustToTimeline（任意・旧データは true）。save/load/autoSave ハッシュに含む
+- **注意**: 設定値自体は ON/OFF どちらでも尺変更で書き換えない。プレビュー=エクスポート同一契約
+

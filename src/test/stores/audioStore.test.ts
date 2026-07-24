@@ -6,6 +6,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   resolveAudioClipEndAtTimelineTime,
   resolveAudioClipFitToTimelineEnd,
+  resolveEffectiveAudioClipPlayback,
+  resolveBgmClipsEffectivePlayback,
   useAudioStore,
 } from '../../stores/audioStore';
 import type { AudioTrack, NarrationClip } from '../../types';
@@ -256,6 +258,159 @@ describe('audioStore', () => {
         startTime: 40,
         trimEnd: 20,
       });
+    });
+
+    it('fits the last active BGM to video end and disables later clips (D=6)', () => {
+      // BGM1: 0-8s, BGM2: 8-15s, video shortened to 6s
+      const bgm1 = createMockNarrationClip({
+        id: 'bgmclip_1',
+        startTime: 0,
+        duration: 30,
+        trimStart: 0,
+        trimEnd: 8,
+      });
+      const bgm2 = createMockNarrationClip({
+        id: 'bgmclip_2',
+        startTime: 8,
+        duration: 30,
+        trimStart: 0,
+        trimEnd: 7,
+      });
+
+      const map = resolveBgmClipsEffectivePlayback([bgm1, bgm2], 6);
+      const e1 = map.get('bgmclip_1')!;
+      const e2 = map.get('bgmclip_2')!;
+
+      // 末尾の有効 BGM として自動末尾合わせ（手動操作不要）
+      expect(e1.isDisabled).toBe(false);
+      expect(e1.isTailFitToTimeline).toBe(true);
+      expect(e1.isClampedByTimeline).toBe(true);
+      expect(e1.effectiveTimelineEnd).toBe(6);
+      expect(e1.configuredTimelineEnd).toBe(8);
+
+      expect(e2.isDisabled).toBe(true);
+      expect(e2.configuredTimelineEnd).toBe(15);
+      expect(e2.configuredPlayableDuration).toBe(7);
+    });
+
+    it('restores middle BGM settings and tail-fits the last active clip (D=12, D=20)', () => {
+      const bgm1 = createMockNarrationClip({
+        id: 'bgmclip_1',
+        startTime: 0,
+        duration: 30,
+        trimStart: 0,
+        trimEnd: 8,
+      });
+      const bgm2 = createMockNarrationClip({
+        id: 'bgmclip_2',
+        startTime: 8,
+        duration: 30,
+        trimStart: 0,
+        trimEnd: 7, // configured 8-15
+      });
+
+      // D=12: BGM1 は設定 0-8 に復元、BGM2 は 8-12 へ末尾合わせ
+      const at12 = resolveBgmClipsEffectivePlayback([bgm1, bgm2], 12);
+      expect(at12.get('bgmclip_1')!.effectiveTimelineEnd).toBe(8);
+      expect(at12.get('bgmclip_1')!.isClampedByTimeline).toBe(false);
+      expect(at12.get('bgmclip_1')!.isTailFitToTimeline).toBe(false);
+      expect(at12.get('bgmclip_2')!.isDisabled).toBe(false);
+      expect(at12.get('bgmclip_2')!.isTailFitToTimeline).toBe(true);
+      expect(at12.get('bgmclip_2')!.effectiveTimelineEnd).toBe(12);
+      expect(at12.get('bgmclip_2')!.isClampedByTimeline).toBe(true);
+
+      // D=20: BGM2 は設定 15 を超えて 20 まで自動延長（音源 30s あり）
+      const at20 = resolveBgmClipsEffectivePlayback([bgm1, bgm2], 20);
+      expect(at20.get('bgmclip_1')!.effectiveTimelineEnd).toBe(8);
+      expect(at20.get('bgmclip_2')!.effectiveTimelineEnd).toBe(20);
+      expect(at20.get('bgmclip_2')!.isExtendedByTimeline).toBe(true);
+      expect(at20.get('bgmclip_2')!.configuredTimelineEnd).toBe(15);
+
+      // 設定値自体は不変（復元の根拠）
+      expect(bgm1.trimEnd).toBe(8);
+      expect(bgm2.trimEnd).toBe(7);
+    });
+
+    it('does not accumulate error when shortening and restoring repeatedly', () => {
+      const clips = [
+        createMockNarrationClip({
+          id: 'bgmclip_a',
+          startTime: 0,
+          duration: 40,
+          trimStart: 0,
+          trimEnd: 8,
+        }),
+        createMockNarrationClip({
+          id: 'bgmclip_b',
+          startTime: 8,
+          duration: 40,
+          trimStart: 0,
+          trimEnd: 7,
+        }),
+      ];
+      for (let i = 0; i < 20; i++) {
+        const short = resolveBgmClipsEffectivePlayback(clips, 6);
+        expect(short.get('bgmclip_a')!.effectiveTimelineEnd).toBe(6);
+        expect(short.get('bgmclip_a')!.configuredTimelineEnd).toBe(8);
+        expect(short.get('bgmclip_b')!.isDisabled).toBe(true);
+
+        const mid = resolveBgmClipsEffectivePlayback(clips, 12);
+        expect(mid.get('bgmclip_a')!.effectiveTimelineEnd).toBe(8);
+        expect(mid.get('bgmclip_b')!.effectiveTimelineEnd).toBe(12);
+
+        const long = resolveBgmClipsEffectivePlayback(clips, 20);
+        expect(long.get('bgmclip_b')!.effectiveTimelineEnd).toBe(20);
+        expect(clips[0].trimEnd).toBe(8);
+        expect(clips[1].trimEnd).toBe(7);
+      }
+    });
+
+    it('single-clip resolve still only clamps (no extend) for narrations', () => {
+      const narration = createMockNarrationClip({
+        startTime: 0,
+        duration: 30,
+        trimStart: 0,
+        trimEnd: 10,
+      });
+      const result = resolveEffectiveAudioClipPlayback(narration, 20);
+      expect(result.effectiveTimelineEnd).toBe(10);
+      expect(result.isExtendedByTimeline).toBe(false);
+    });
+
+    it('autoAdjust=false keeps configured ends without tail extension', () => {
+      const bgm1 = createMockNarrationClip({
+        id: 'bgmclip_1',
+        startTime: 0,
+        duration: 30,
+        trimStart: 0,
+        trimEnd: 8,
+      });
+      const bgm2 = createMockNarrationClip({
+        id: 'bgmclip_2',
+        startTime: 8,
+        duration: 30,
+        trimStart: 0,
+        trimEnd: 7, // configured 8-15
+      });
+
+      const offAt20 = resolveBgmClipsEffectivePlayback([bgm1, bgm2], 20, { autoAdjust: false });
+      expect(offAt20.get('bgmclip_1')!.effectiveTimelineEnd).toBe(8);
+      expect(offAt20.get('bgmclip_2')!.effectiveTimelineEnd).toBe(15);
+      expect(offAt20.get('bgmclip_2')!.isExtendedByTimeline).toBe(false);
+      expect(offAt20.get('bgmclip_2')!.isTailFitToTimeline).toBe(false);
+
+      // ON なら末尾延長されることと対比
+      const onAt20 = resolveBgmClipsEffectivePlayback([bgm1, bgm2], 20, { autoAdjust: true });
+      expect(onAt20.get('bgmclip_2')!.effectiveTimelineEnd).toBe(20);
+      expect(onAt20.get('bgmclip_2')!.isExtendedByTimeline).toBe(true);
+    });
+
+    it('setBgmAutoAdjustToTimeline toggles the store flag (default true)', () => {
+      expect(useAudioStore.getState().bgmAutoAdjustToTimeline).toBe(true);
+      useAudioStore.getState().setBgmAutoAdjustToTimeline(false);
+      expect(useAudioStore.getState().bgmAutoAdjustToTimeline).toBe(false);
+      useAudioStore.getState().setBgmAutoAdjustToTimeline(true);
+      expect(useAudioStore.getState().bgmAutoAdjustToTimeline).toBe(true);
     });
   });
 

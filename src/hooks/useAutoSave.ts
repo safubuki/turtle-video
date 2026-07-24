@@ -92,6 +92,7 @@ export function useAutoSave() {
   const bgm = useAudioStore((s) => s.bgm);
   const isBgmLocked = useAudioStore((s) => s.isBgmLocked);
   const bgmClips = useAudioStore((s) => s.bgmClips);
+  const bgmAutoAdjustToTimeline = useAudioStore((s) => s.bgmAutoAdjustToTimeline);
   const narrations = useAudioStore((s) => s.narrations);
   const isNarrationLocked = useAudioStore((s) => s.isNarrationLocked);
   const captions = useCaptionStore((s) => s.captions);
@@ -154,6 +155,7 @@ export function useAutoSave() {
         bgm.isAi,
       ].join(':') : 'none',
       bgmClips.length,
+      bgmAutoAdjustToTimeline ? '1' : '0',
       bgmClips.map((n) => [
         n.id,
         n.file?.name ?? '',
@@ -227,6 +229,7 @@ export function useAutoSave() {
     mediaItems,
     bgm,
     bgmClips,
+    bgmAutoAdjustToTimeline,
     narrations,
     captions,
     captionSettings,

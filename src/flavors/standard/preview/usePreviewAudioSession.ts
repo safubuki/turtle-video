@@ -2,6 +2,12 @@ import { useCallback, useEffect, type MutableRefObject } from 'react';
 
 import type { AudioTrack, MediaElementsRef, MediaItem, NarrationClip } from '../../../types';
 import type { LogCategory } from '../../../stores/logStore';
+import {
+  isBgmClipId,
+  resolveBgmClipsEffectivePlayback,
+  resolvePipelineClipEffectivePlayback,
+  useAudioStore,
+} from '../../../stores/audioStore';
 import { findActiveTimelineItemWithTransitions } from '../../../utils/transitionTimeline';
 import {
   getPreviewAudioRoutingPlan,
@@ -297,6 +303,12 @@ export function usePreviewAudioSession({
       }
     }
 
+    const bgmAutoAdjust = useAudioStore.getState().bgmAutoAdjustToTimeline;
+    const bgmEffectiveMap = resolveBgmClipsEffectivePlayback(
+      currentNarrations.filter((item) => isBgmClipId(item.id)),
+      totalDurationRef.current,
+      { autoAdjust: bgmAutoAdjust },
+    );
     for (const clip of currentNarrations) {
       if (clip.isMuted || clip.volume <= 0) {
         continue;
@@ -308,14 +320,17 @@ export function usePreviewAudioSession({
         continue;
       }
 
-      const trimStart = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
-      const trimEnd = Number.isFinite(clip.trimEnd)
-        ? Math.max(trimStart, Math.min(clip.duration, clip.trimEnd))
-        : clip.duration;
-      const playableDuration = Math.max(0, trimEnd - trimStart);
-      const clipTime = time - clip.startTime;
+      const effective = resolvePipelineClipEffectivePlayback(
+        clip,
+        currentNarrations,
+        totalDurationRef.current,
+        bgmEffectiveMap,
+        bgmAutoAdjust,
+      );
+      if (effective.isDisabled) continue;
+      const clipTime = time - effective.startTime;
 
-      if (clipTime >= 0 && clipTime <= playableDuration) {
+      if (clipTime >= 0 && clipTime <= effective.effectivePlayableDuration) {
         candidates.push({
           id: trackId,
           desiredVolume: clip.volume,
@@ -405,6 +420,12 @@ export function usePreviewAudioSession({
     }
 
     const currentNarrations = narrationsRef.current;
+    const bgmAutoAdjust = useAudioStore.getState().bgmAutoAdjustToTimeline;
+    const bgmEffectiveMap = resolveBgmClipsEffectivePlayback(
+      currentNarrations.filter((item) => isBgmClipId(item.id)),
+      totalDurationRef.current,
+      { autoAdjust: bgmAutoAdjust },
+    );
     for (const clip of currentNarrations) {
       if (clip.isMuted || clip.volume <= 0) {
         continue;
@@ -416,18 +437,21 @@ export function usePreviewAudioSession({
         continue;
       }
 
-      const trimStart = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
-      const trimEnd = Number.isFinite(clip.trimEnd)
-        ? Math.max(trimStart, Math.min(clip.duration, clip.trimEnd))
-        : clip.duration;
-      const playableDuration = Math.max(0, trimEnd - trimStart);
-      const clipTime = playbackTime - clip.startTime;
-      if (clipTime >= 0 && clipTime <= playableDuration) {
-        const sourceTime = trimStart + clipTime;
+      const effective = resolvePipelineClipEffectivePlayback(
+        clip,
+        currentNarrations,
+        totalDurationRef.current,
+        bgmEffectiveMap,
+        bgmAutoAdjust,
+      );
+      if (effective.isDisabled) continue;
+      const clipTime = playbackTime - effective.startTime;
+      if (clipTime >= 0 && clipTime <= effective.effectivePlayableDuration) {
+        const sourceTime = effective.trimStart + clipTime;
         primePreviewMediaElementPlayback(narEl, sourceTime, 0.5);
       }
     }
-  }, [bgmRef, mediaElementsRef, narrationsRef, primePreviewMediaElementPlayback, sourceNodesRef]);
+  }, [bgmRef, mediaElementsRef, narrationsRef, primePreviewMediaElementPlayback, sourceNodesRef, totalDurationRef]);
 
   useEffect(() => {
     primePreviewAudioOnlyTracksAtTimeRef.current = primePreviewAudioOnlyTracksAtTime;

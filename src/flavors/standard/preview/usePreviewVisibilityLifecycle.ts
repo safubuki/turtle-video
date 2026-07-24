@@ -2,6 +2,12 @@ import { useEffect, type MutableRefObject } from 'react';
 
 import type { AudioTrack, MediaElementsRef, MediaItem, NarrationClip } from '../../../types';
 import type { LogCategory } from '../../../stores/logStore';
+import {
+  isBgmClipId,
+  resolveBgmClipsEffectivePlayback,
+  resolvePipelineClipEffectivePlayback,
+  useAudioStore,
+} from '../../../stores/audioStore';
 import { getTimelineAdvanceForItem } from '../../../utils/transitionTimeline';
 import {
   getPageHidePausePlan,
@@ -142,19 +148,31 @@ export function usePreviewVisibilityLifecycle({
         }
       };
 
+      const pipelineClips = narrationsRef.current;
+      const bgmAutoAdjust = useAudioStore.getState().bgmAutoAdjustToTimeline;
+      const bgmEffectiveMap = resolveBgmClipsEffectivePlayback(
+        pipelineClips.filter((item) => isBgmClipId(item.id)),
+        totalDurationRef.current,
+        { autoAdjust: bgmAutoAdjust },
+      );
+
       const resyncNarrationClip = (clip: NarrationClip) => {
         const trackId = `narration:${clip.id}`;
         const element = mediaElementsRef.current[trackId] as HTMLAudioElement | undefined;
         if (!element) return;
 
-        const trimStart = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
-        const trimEnd = Number.isFinite(clip.trimEnd)
-          ? Math.max(trimStart, Math.min(clip.duration, clip.trimEnd))
-          : clip.duration;
-        const playableDuration = Math.max(0, trimEnd - trimStart);
-        const clipTime = currentTime - clip.startTime;
-        const trackTime = trimStart + clipTime;
-        const inRange = clipTime >= 0 && clipTime <= playableDuration;
+        const effective = resolvePipelineClipEffectivePlayback(
+          clip,
+          pipelineClips,
+          totalDurationRef.current,
+          bgmEffectiveMap,
+          bgmAutoAdjust,
+        );
+        const clipTime = currentTime - effective.startTime;
+        const trackTime = effective.trimStart + clipTime;
+        const inRange = !effective.isDisabled
+          && clipTime >= 0
+          && clipTime <= effective.effectivePlayableDuration;
 
         if (!inRange) {
           if (!element.paused) {
@@ -178,7 +196,7 @@ export function usePreviewVisibilityLifecycle({
       };
 
       resyncAudioTrack(bgmRef.current, 'bgm');
-      narrationsRef.current.forEach((clip) => resyncNarrationClip(clip));
+      pipelineClips.forEach((clip) => resyncNarrationClip(clip));
     };
 
     const restoreTimelineClockAfterHidden = (): boolean => {

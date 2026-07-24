@@ -11,6 +11,12 @@ import { FPS, computeExportVideoBitrate } from '../../../constants';
 import { applyExportCanvasSize, useCanvasStore } from '../../../stores/canvasStore';
 import * as Mp4Muxer from 'mp4-muxer';
 import type { AudioTrack, NarrationClip } from '../../../types';
+import {
+  isBgmClipId,
+  resolveBgmClipsEffectivePlayback,
+  resolvePipelineClipEffectivePlayback,
+  useAudioStore,
+} from '../../../stores/audioStore';
 import { useLogStore } from '../../../stores/logStore';
 import {
   getExportFrameTiming,
@@ -724,7 +730,13 @@ async function offlineRenderAudio(
   if (bgm) {
     await scheduleAudioTrack(bgm, 'BGM');
   }
-  // 3. Narrations
+  // 3. Narrations（BGM クリップ含む）。自動調整 ON 時は末尾を D へ合わせる。
+  const bgmAutoAdjust = useAudioStore.getState().bgmAutoAdjustToTimeline;
+  const bgmEffectiveMap = resolveBgmClipsEffectivePlayback(
+    narrations.filter((item) => isBgmClipId(item.id)),
+    totalDuration,
+    { autoAdjust: bgmAutoAdjust },
+  );
   async function scheduleNarrationClip(clip: NarrationClip): Promise<void> {
     if (signal.aborted) return;
     if (!clip.url || clip.duration <= 0) return;
@@ -739,13 +751,18 @@ async function offlineRenderAudio(
     source.connect(gain);
     gain.connect(offlineCtx.destination);
 
-    const clipStart = Math.max(0, clip.startTime);
-    const trimStart = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
-    const trimEnd = Number.isFinite(clip.trimEnd)
-      ? Math.max(trimStart, Math.min(clip.duration, clip.trimEnd))
-      : clip.duration;
-    const trimmedDuration = Math.max(0, trimEnd - trimStart);
-    const playDuration = Math.min(trimmedDuration, totalDuration - clipStart);
+    // 設定区間は保持し、動画尺 D で有効区間のみ再生（Issue #206・プレビューと同一契約）
+    const effective = resolvePipelineClipEffectivePlayback(
+      clip,
+      narrations,
+      totalDuration,
+      bgmEffectiveMap,
+      bgmAutoAdjust,
+    );
+    if (effective.isDisabled) return;
+    const clipStart = effective.startTime;
+    const trimStart = effective.trimStart;
+    const playDuration = effective.effectivePlayableDuration;
     if (playDuration <= 0) return;
 
     const clipVol = Math.max(0, Math.min(2.5, clip.volume));

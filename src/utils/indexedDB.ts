@@ -177,6 +177,11 @@ export interface ProjectData {
   // 複数 BGM クリップ（standard フレーバー限定機能・任意）。
   // 存在する場合、bgm フィールドは先頭クリップの近似ミラー（iOS/旧版互換用）
   bgmClips?: SerializedNarrationClip[];
+  /**
+   * 動画尺に合わせて BGM 有効区間を自動調整するか（任意・既定 true）。
+   * 旧データに無い場合は true として読む。
+   */
+  bgmAutoAdjustToTimeline?: boolean;
   narration?: SerializedAudioTrack | null;
   isNarrationLocked: boolean;
   

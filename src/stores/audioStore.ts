@@ -30,6 +30,11 @@ interface AudioState {
 
   // BGM クリップ（複数 BGM 対応・standard フレーバー限定機能）
   bgmClips: BgmClip[];
+  /**
+   * 動画尺 D に合わせて BGM 有効区間を自動調整するか（既定 true）。
+   * OFF のときは設定区間をそのまま使い、末尾合わせ延長は行わない。
+   */
+  bgmAutoAdjustToTimeline: boolean;
 
   // Narrations
   narrations: NarrationClip[];
@@ -67,6 +72,8 @@ interface AudioState {
   removeBgmClip: (id: string) => void;
   /** レガシー単一 BGM を bgmClips へ移行する（standard フレーバーの起動/復元時） */
   migrateLegacyBgmToClips: (totalDuration: number) => void;
+  /** 動画尺連動の BGM 自動調整 ON/OFF（既定 ON） */
+  setBgmAutoAdjustToTimeline: (enabled: boolean) => void;
 
   // Narration actions
   addNarration: (clip: NarrationClip) => void;
@@ -96,7 +103,8 @@ interface AudioState {
     isBgmLocked: boolean,
     narrations: NarrationClip[],
     isNarrationLocked: boolean,
-    bgmClips?: BgmClip[]
+    bgmClips?: BgmClip[],
+    bgmAutoAdjustToTimeline?: boolean,
   ) => void;
 }
 
@@ -145,7 +153,9 @@ export function resolveBgmClipAutoFit(
 
 const MIN_AUDIO_CLIP_DURATION_SEC = 0.05;
 
-function resolveClipTrimBounds(clip: NarrationClip): {
+function resolveClipTrimBounds(
+  clip: Pick<NarrationClip, 'duration' | 'trimStart' | 'trimEnd'>,
+): {
   duration: number;
   trimStart: number;
   trimEnd: number;
@@ -206,6 +216,254 @@ export function resolveAudioClipFitToTimelineEnd(
     startTime: Math.max(0, totalDuration - playableDuration),
     trimEnd: trimStart + playableDuration,
   };
+}
+
+/**
+ * 動画尺 D に対するクリップの「設定区間」と「有効区間」を解決する。
+ *
+ * - 設定区間: ユーザーが保存した start / trim（破壊しない）
+ * - 有効区間: 再生・書き出しで使う一時的な区間
+ *
+ * 単体（ナレーション等）: effectiveEnd = min(configuredEnd, D)
+ * BGM 複数（resolveBgmClipsEffectivePlayback）: 末尾の有効クリップだけ D へ自動末尾合わせ
+ * （短縮も延長も。音源長の範囲内）。中間クリップは設定終端を維持。
+ *
+ * 動画尺が戻れば設定区間から自動復元される（ストア値を書き換えない）。
+ */
+export interface EffectiveAudioClipPlayback {
+  startTime: number;
+  trimStart: number;
+  configuredTrimEnd: number;
+  configuredPlayableDuration: number;
+  configuredTimelineEnd: number;
+  /** 有効な再生尺（秒）。無効時は 0 */
+  effectivePlayableDuration: number;
+  /** タイムライン上の有効終了位置 */
+  effectiveTimelineEnd: number;
+  /** 有効再生に対応する音源内 trimEnd */
+  effectiveTrimEnd: number;
+  /** start が動画終端以降、または有効尺が最低未満 */
+  isDisabled: boolean;
+  /** 動画尺により設定終端より短くなっている */
+  isClampedByTimeline: boolean;
+  /** 動画尺により設定終端より長くなっている（末尾合わせ延長） */
+  isExtendedByTimeline: boolean;
+  /** このクリップが「末尾合わせ」対象（最後の有効 BGM） */
+  isTailFitToTimeline: boolean;
+}
+
+/** BGM クリップ ID（pipeline 上でナレーションと区別する） */
+export function isBgmClipId(id: string): boolean {
+  return typeof id === 'string' && id.startsWith('bgmclip_');
+}
+
+function buildEffectivePlayback(params: {
+  startTime: number;
+  trimStart: number;
+  configuredTrimEnd: number;
+  configuredPlayableDuration: number;
+  configuredTimelineEnd: number;
+  sourceMaxPlayable: number;
+  /** 目標とするタイムライン終了（クランプ or 末尾合わせ後） */
+  targetTimelineEnd: number;
+  totalDuration: number;
+  minDurationSec: number;
+  isTailFitToTimeline: boolean;
+}): EffectiveAudioClipPlayback {
+  const {
+    startTime,
+    trimStart,
+    configuredTrimEnd,
+    configuredPlayableDuration,
+    configuredTimelineEnd,
+    sourceMaxPlayable,
+    targetTimelineEnd,
+    totalDuration,
+    minDurationSec,
+    isTailFitToTimeline,
+  } = params;
+
+  if (totalDuration <= 0 || startTime >= totalDuration) {
+    return {
+      startTime,
+      trimStart,
+      configuredTrimEnd,
+      configuredPlayableDuration,
+      configuredTimelineEnd,
+      effectivePlayableDuration: 0,
+      effectiveTimelineEnd: Math.min(configuredTimelineEnd, Math.max(0, totalDuration)),
+      effectiveTrimEnd: trimStart,
+      isDisabled: true,
+      isClampedByTimeline: configuredPlayableDuration > 0 || startTime > totalDuration,
+      isExtendedByTimeline: false,
+      isTailFitToTimeline: false,
+    };
+  }
+
+  // 音源長を超えて延長しない
+  const maxTimelineEnd = startTime + Math.max(0, sourceMaxPlayable);
+  const clampedTargetEnd = Math.max(startTime, Math.min(targetTimelineEnd, totalDuration, maxTimelineEnd));
+  const rawPlayable = Math.max(0, clampedTargetEnd - startTime);
+  const isDisabled = rawPlayable < minDurationSec;
+  const effectivePlayableDuration = isDisabled ? 0 : rawPlayable;
+  const effectiveTimelineEnd = isDisabled ? startTime : startTime + effectivePlayableDuration;
+  const isClampedByTimeline = effectiveTimelineEnd + 1e-6 < configuredTimelineEnd;
+  const isExtendedByTimeline = effectiveTimelineEnd > configuredTimelineEnd + 1e-6;
+
+  return {
+    startTime,
+    trimStart,
+    configuredTrimEnd,
+    configuredPlayableDuration,
+    configuredTimelineEnd,
+    effectivePlayableDuration,
+    effectiveTimelineEnd,
+    effectiveTrimEnd: trimStart + effectivePlayableDuration,
+    isDisabled,
+    isClampedByTimeline,
+    isExtendedByTimeline,
+    isTailFitToTimeline: isTailFitToTimeline && !isDisabled,
+  };
+}
+
+/**
+ * 単体クリップ用（ナレーション等）。末尾延長はしない。
+ * effectiveEnd = min(configuredEnd, D)
+ */
+export function resolveEffectiveAudioClipPlayback(
+  clip: Pick<NarrationClip, 'startTime' | 'trimStart' | 'trimEnd' | 'duration'>,
+  totalDuration: number,
+  minDurationSec: number = MIN_AUDIO_CLIP_DURATION_SEC,
+): EffectiveAudioClipPlayback {
+  const startTime = Number.isFinite(clip.startTime) ? Math.max(0, clip.startTime) : 0;
+  const { duration, trimStart, trimEnd: configuredTrimEnd } = resolveClipTrimBounds(clip);
+  const configuredPlayableDuration = Math.max(0, configuredTrimEnd - trimStart);
+  const configuredTimelineEnd = startTime + configuredPlayableDuration;
+  const safeTotal = Number.isFinite(totalDuration) ? Math.max(0, totalDuration) : 0;
+  const sourceMaxPlayable = Math.max(0, duration - trimStart);
+
+  return buildEffectivePlayback({
+    startTime,
+    trimStart,
+    configuredTrimEnd,
+    configuredPlayableDuration,
+    configuredTimelineEnd,
+    sourceMaxPlayable,
+    targetTimelineEnd: Math.min(configuredTimelineEnd, safeTotal),
+    totalDuration: safeTotal,
+    minDurationSec,
+    isTailFitToTimeline: false,
+  });
+}
+
+export interface ResolveBgmClipsEffectiveOptions {
+  /**
+   * true（既定）: 末尾 BGM を D へ自動末尾合わせ（短縮/延長）。
+   * false: 各クリップを設定どおり（動画外は min(設定, D) のみ。延長なし）。
+   */
+  autoAdjust?: boolean;
+  minDurationSec?: number;
+}
+
+/**
+ * 複数 BGM 用。設定区間は保持し、動画尺 D に対する有効区間だけを決める。
+ *
+ * autoAdjust=true（既定）のルール:
+ * 1. start >= D → 一時無効（設定は残す）
+ * 2. 中間の有効 BGM → end = min(設定終端, D)（延長しない・隙間/重なりは維持）
+ * 3. 最後の有効 BGM → end = D へ自動末尾合わせ（短縮・延長。音源長まで）
+ *
+ * autoAdjust=false:
+ * - 各クリップ独立で min(設定終端, D)。末尾延長なし。ユーザー設定を尊重。
+ */
+export function resolveBgmClipsEffectivePlayback(
+  clips: Array<Pick<NarrationClip, 'id' | 'startTime' | 'trimStart' | 'trimEnd' | 'duration'>>,
+  totalDuration: number,
+  options: ResolveBgmClipsEffectiveOptions = {},
+): Map<string, EffectiveAudioClipPlayback> {
+  const autoAdjust = options.autoAdjust !== false;
+  const minDurationSec = options.minDurationSec ?? MIN_AUDIO_CLIP_DURATION_SEC;
+  const safeTotal = Number.isFinite(totalDuration) ? Math.max(0, totalDuration) : 0;
+  const result = new Map<string, EffectiveAudioClipPlayback>();
+
+  // OFF: 設定区間ベース（単体クランプのみ・延長なし）
+  if (!autoAdjust) {
+    for (const clip of clips) {
+      result.set(clip.id, resolveEffectiveAudioClipPlayback(clip, safeTotal, minDurationSec));
+    }
+    return result;
+  }
+
+  // 開始時刻順（同刻は配列順）で「末尾の有効クリップ」を決める
+  const ordered = clips.map((clip, index) => ({ clip, index }));
+  ordered.sort((a, b) => {
+    const aStart = Number.isFinite(a.clip.startTime) ? a.clip.startTime : 0;
+    const bStart = Number.isFinite(b.clip.startTime) ? b.clip.startTime : 0;
+    if (aStart !== bStart) return aStart - bStart;
+    return a.index - b.index;
+  });
+
+  let tailId: string | null = null;
+  for (const { clip } of ordered) {
+    const start = Number.isFinite(clip.startTime) ? Math.max(0, clip.startTime) : 0;
+    if (safeTotal > 0 && start < safeTotal) {
+      tailId = clip.id;
+    }
+  }
+
+  for (const clip of clips) {
+    const startTime = Number.isFinite(clip.startTime) ? Math.max(0, clip.startTime) : 0;
+    const { duration, trimStart, trimEnd: configuredTrimEnd } = resolveClipTrimBounds(clip);
+    const configuredPlayableDuration = Math.max(0, configuredTrimEnd - trimStart);
+    const configuredTimelineEnd = startTime + configuredPlayableDuration;
+    const sourceMaxPlayable = Math.max(0, duration - trimStart);
+    const isTail = clip.id === tailId;
+
+    // 末尾クリップは D へ合わせる。中間は設定終端を超えて延長しない。
+    const targetTimelineEnd = isTail
+      ? safeTotal
+      : Math.min(configuredTimelineEnd, safeTotal);
+
+    result.set(
+      clip.id,
+      buildEffectivePlayback({
+        startTime,
+        trimStart,
+        configuredTrimEnd,
+        configuredPlayableDuration,
+        configuredTimelineEnd,
+        sourceMaxPlayable,
+        targetTimelineEnd,
+        totalDuration: safeTotal,
+        minDurationSec,
+        isTailFitToTimeline: isTail,
+      }),
+    );
+  }
+
+  return result;
+}
+
+/**
+ * プレビュー/エクスポートの pipeline（narrations + bgmClips）向け。
+ * BGM は複数クリップ規約（autoAdjust 依存）、それ以外は単体クランプ。
+ */
+export function resolvePipelineClipEffectivePlayback(
+  clip: Pick<NarrationClip, 'id' | 'startTime' | 'trimStart' | 'trimEnd' | 'duration'>,
+  pipelineClips: Array<Pick<NarrationClip, 'id' | 'startTime' | 'trimStart' | 'trimEnd' | 'duration'>>,
+  totalDuration: number,
+  bgmEffectiveCache?: Map<string, EffectiveAudioClipPlayback>,
+  autoAdjust: boolean = true,
+): EffectiveAudioClipPlayback {
+  if (!isBgmClipId(clip.id)) {
+    return resolveEffectiveAudioClipPlayback(clip, totalDuration);
+  }
+  const map = bgmEffectiveCache ?? resolveBgmClipsEffectivePlayback(
+    pipelineClips.filter((item) => isBgmClipId(item.id)),
+    totalDuration,
+    { autoAdjust },
+  );
+  return map.get(clip.id) ?? resolveEffectiveAudioClipPlayback(clip, totalDuration);
 }
 
 function revokeNarrationUrls(clips: NarrationClip[]): void {
@@ -284,6 +542,7 @@ export const useAudioStore = create<AudioState>()(
       bgm: null,
       isBgmLocked: false,
       bgmClips: [],
+      bgmAutoAdjustToTimeline: true,
       narrations: [],
       isNarrationLocked: false,
 
@@ -537,6 +796,12 @@ export const useAudioStore = create<AudioState>()(
         }));
       },
 
+      setBgmAutoAdjustToTimeline: (enabled) => {
+        const next = Boolean(enabled);
+        useLogStore.getState().info('AUDIO', 'BGM動画尺自動調整を変更', { enabled: next });
+        set({ bgmAutoAdjustToTimeline: next });
+      },
+
       migrateLegacyBgmToClips: (totalDuration) => {
         set((state) => {
           if (!state.bgm) return state;
@@ -776,13 +1041,21 @@ export const useAudioStore = create<AudioState>()(
           bgm: null,
           isBgmLocked: false,
           bgmClips: [],
+          bgmAutoAdjustToTimeline: true,
           narrations: [],
           isNarrationLocked: false,
         });
       },
 
       // === Restore from save ===
-      restoreFromSave: (newBgm, newIsBgmLocked, newNarrations, newIsNarrationLocked, newBgmClips = []) => {
+      restoreFromSave: (
+        newBgm,
+        newIsBgmLocked,
+        newNarrations,
+        newIsNarrationLocked,
+        newBgmClips = [],
+        newBgmAutoAdjustToTimeline,
+      ) => {
         const { bgm, bgmClips, narrations } = get();
 
         if (bgm?.url) revokeObjectUrl(bgm.url);
@@ -793,6 +1066,7 @@ export const useAudioStore = create<AudioState>()(
           bgm: newBgm,
           isBgmLocked: newIsBgmLocked,
           bgmClips: newBgmClips.map((clip) => normalizeNarrationClip(clip)),
+          bgmAutoAdjustToTimeline: newBgmAutoAdjustToTimeline !== false,
           narrations: newNarrations.map((clip) => normalizeNarrationClip(clip)),
           isNarrationLocked: newIsNarrationLocked,
         });

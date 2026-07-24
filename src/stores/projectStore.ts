@@ -22,6 +22,7 @@ import type {
   ProjectPersistenceMode,
 } from './projectPersistenceHealth';
 import { useLogStore } from './logStore';
+import { useAudioStore } from './audioStore';
 import { createDiagnosticId } from '../utils/diagnostics';
 import versionData from '../../version.json';
 import { useUIStore } from './uiStore';
@@ -232,6 +233,7 @@ interface ProjectState {
     captionSettings: CaptionSettings;
     isCaptionsLocked: boolean;
     bgmClips: BgmClip[];
+    bgmAutoAdjustToTimeline: boolean;
   } | null>;
 
   deleteAllSaves: () => Promise<void>;
@@ -684,6 +686,7 @@ export const useProjectStore = create<ProjectState>()(
               captionSettings,
               isCaptionsLocked,
               bgmClips: serializedBgmClips,
+              bgmAutoAdjustToTimeline: useAudioStore.getState().bgmAutoAdjustToTimeline !== false,
               aspectRatio: useCanvasStore.getState().aspectRatio,
             };
 
@@ -774,6 +777,7 @@ export const useProjectStore = create<ProjectState>()(
               captionSettings,
               isCaptionsLocked,
               bgmClips: serializedBgmClips,
+              bgmAutoAdjustToTimeline: useAudioStore.getState().bgmAutoAdjustToTimeline !== false,
               aspectRatio: useCanvasStore.getState().aspectRatio,
             };
 
@@ -877,6 +881,7 @@ export const useProjectStore = create<ProjectState>()(
             captionSettings: data.captionSettings,
             isCaptionsLocked: data.isCaptionsLocked,
             bgmClips,
+            bgmAutoAdjustToTimeline: data.bgmAutoAdjustToTimeline !== false,
           };
         } catch (error) {
           useLogStore.getState().error('SYSTEM', 'プロジェクト読み込み失敗', {

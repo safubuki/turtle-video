@@ -20,7 +20,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import type { BgmClip } from '../../types';
-import { useAudioStore } from '../../stores/audioStore';
+import { resolveBgmClipsEffectivePlayback, useAudioStore } from '../../stores/audioStore';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 
 interface BgmClipListProps {
@@ -57,6 +57,8 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
   const updateBgmClipFadeOutDuration = useAudioStore((s) => s.updateBgmClipFadeOutDuration);
   const moveBgmClip = useAudioStore((s) => s.moveBgmClip);
   const removeBgmClip = useAudioStore((s) => s.removeBgmClip);
+  const bgmAutoAdjustToTimeline = useAudioStore((s) => s.bgmAutoAdjustToTimeline);
+  const setBgmAutoAdjustToTimeline = useAudioStore((s) => s.setBgmAutoAdjustToTimeline);
 
   const withEdit = useCallback(
     <T extends unknown[]>(reason: string, fn: (...args: T) => void) =>
@@ -77,8 +79,44 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
     );
   }
 
+  // 自動調整 ON: 末尾 BGM を D へ合わせる / OFF: 設定どおり
+  const effectiveById = resolveBgmClipsEffectivePlayback(clips, totalDuration, {
+    autoAdjust: bgmAutoAdjustToTimeline,
+  });
+
   return (
     <div className="p-3 space-y-3 max-h-96 lg:max-h-128 overflow-y-auto custom-scrollbar">
+      <label
+        className={`inline-flex items-center gap-2 text-[10px] md:text-xs select-none whitespace-nowrap ${
+          isLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer text-gray-300'
+        }`}
+        title={
+          bgmAutoAdjustToTimeline
+            ? '動画尺に合わせて末尾のBGMを自動で合わせます'
+            : '設定した区間のまま再生します'
+        }
+      >
+        <input
+          type="checkbox"
+          className="accent-purple-500 w-3.5 h-3.5 shrink-0"
+          checked={bgmAutoAdjustToTimeline}
+          disabled={isLocked}
+          onChange={(e) => {
+            onBeforeEdit('toggle-bgm-auto-adjust');
+            setBgmAutoAdjustToTimeline(e.target.checked);
+          }}
+        />
+        <span>動画尺に合わせて自動調整</span>
+        <span
+          className={`px-1.5 py-0.5 rounded border text-[9px] shrink-0 ${
+            bgmAutoAdjustToTimeline
+              ? 'border-emerald-600/50 bg-emerald-900/30 text-emerald-300'
+              : 'border-gray-600 bg-gray-800 text-gray-400'
+          }`}
+        >
+          {bgmAutoAdjustToTimeline ? 'ON' : 'OFF'}
+        </span>
+      </label>
       {clips.map((clip, index) => {
         const trimStart = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
         const trimEnd = Number.isFinite(clip.trimEnd)
@@ -86,8 +124,10 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
           : clip.duration;
         const playableDuration = Math.max(0.05, trimEnd - trimStart);
         const timelineEnd = clip.startTime + playableDuration;
+        const effective = effectiveById.get(clip.id)!;
         const canSetCurrentAsEnd = currentTime >= clip.startTime + 0.05;
-        const isFittedToTimelineEnd = totalDuration > 0
+        // 手動固定は「設定値」を書き換える操作。設定が既に末尾なら不要（有効区間の自動合わせとは別）。
+        const isSettingsFittedToTimelineEnd = totalDuration > 0
           && Math.abs(timelineEnd - totalDuration) < 0.05;
         const isTrimOpen = openTrimMap[clip.id] ?? false;
         const isFadeOpen = openFadeMap[clip.id] ?? false;
@@ -97,7 +137,12 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
         const fadeOutDuration = clip.fadeOutDuration ?? 2.0;
 
         return (
-          <div key={clip.id} className="p-3 bg-purple-900/10 border border-purple-500/20 rounded-xl space-y-3">
+          <div
+            key={clip.id}
+            className={`p-3 bg-purple-900/10 border border-purple-500/20 rounded-xl space-y-3 ${
+              effective.isDisabled ? 'opacity-55' : ''
+            }`}
+          >
             {/* ヘッダー行 */}
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
@@ -106,6 +151,14 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
                 <span className="text-xs md:text-sm text-purple-100 truncate" title={clip.file.name}>
                   {clip.file.name}
                 </span>
+                {effective.isDisabled && (
+                  <span
+                    className="shrink-0 text-[9px] md:text-[10px] px-1.5 py-0.5 rounded bg-gray-800 border border-gray-600 text-gray-400"
+                    title="動画尺の外側のため再生されません"
+                  >
+                    無効
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 <button
@@ -143,15 +196,53 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
               </div>
             </div>
 
-            {/* タイムライン上の再生区間（この曲がどこからどこまで鳴るか） */}
-            <div className="flex items-center gap-1.5 text-[10px] md:text-xs bg-purple-900/20 border border-purple-500/20 rounded px-2 py-1">
-              <span className="text-purple-300 shrink-0">♪ 再生区間:</span>
-              <span className="text-purple-100 font-mono">
-                {formatTime(clip.startTime)} 〜 {formatTime(timelineEnd)}
-              </span>
-              {totalDuration > 0 && timelineEnd > totalDuration + 0.05 && (
-                <span className="text-amber-400 ml-auto shrink-0" title="動画の末尾を超えた部分は書き出されません">
-                  ⚠ 動画末尾超え
+            {/* タイムライン上の再生区間 */}
+            <div className="flex flex-col gap-1 text-[10px] md:text-xs bg-purple-900/20 border border-purple-500/20 rounded px-2 py-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-purple-300 shrink-0">♪ 再生区間:</span>
+                {effective.isDisabled ? (
+                  <span className="text-gray-400 font-mono">
+                    設定 {formatTime(clip.startTime)} 〜 {formatTime(timelineEnd)}
+                  </span>
+                ) : effective.isClampedByTimeline || effective.isExtendedByTimeline ? (
+                  <span className="text-purple-100 font-mono">
+                    {formatTime(clip.startTime)} 〜 {formatTime(effective.effectiveTimelineEnd)}
+                    <span className="text-gray-500 ml-1">
+                      設定 {formatTime(timelineEnd)}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="text-purple-100 font-mono">
+                    {formatTime(clip.startTime)} 〜 {formatTime(effective.effectiveTimelineEnd)}
+                  </span>
+                )}
+              </div>
+              {effective.isDisabled && (
+                <span className="text-amber-400/90">
+                  動画尺の外側のため再生されません
+                </span>
+              )}
+              {bgmAutoAdjustToTimeline
+                && !effective.isDisabled
+                && effective.isTailFitToTimeline
+                && effective.isClampedByTimeline && (
+                <span className="text-emerald-400/90">
+                  動画末尾まで自動調整中
+                </span>
+              )}
+              {bgmAutoAdjustToTimeline
+                && !effective.isDisabled
+                && effective.isTailFitToTimeline
+                && effective.isExtendedByTimeline && (
+                <span className="text-emerald-400/90">
+                  動画末尾まで自動延長中
+                </span>
+              )}
+              {!effective.isDisabled && effective.isClampedByTimeline && (
+                !(bgmAutoAdjustToTimeline && effective.isTailFitToTimeline)
+              ) && (
+                <span className="text-amber-400/90">
+                  有効区間は動画末尾まで
                 </span>
               )}
             </div>
@@ -181,11 +272,15 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
               <button
                 type="button"
                 onClick={withEdit('fit-bgm-clip-to-timeline-end', () => fitBgmClipToTimelineEnd(clip.id, totalDuration))}
-                disabled={isLocked || totalDuration <= 0 || isFittedToTimelineEnd}
+                disabled={isLocked || totalDuration <= 0 || isSettingsFittedToTimelineEnd}
                 className="min-h-9 px-2.5 rounded-lg bg-purple-900/30 border border-purple-600/40 text-purple-200 hover:bg-purple-900/50 disabled:opacity-30 flex items-center gap-1 transition"
-                title="このBGMだけをトリムまたは再配置し、再生終了を動画末尾へ合わせます"
+                title={
+                  isSettingsFittedToTimelineEnd
+                    ? '設定上の終了はすでに動画末尾です'
+                    : '設定値を動画末尾へ書き換えます'
+                }
               >
-                動画末尾合わせ
+                設定を末尾に固定
               </button>
             </div>
 

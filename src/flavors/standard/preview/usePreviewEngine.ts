@@ -31,6 +31,12 @@ import {
 } from '../../../utils/transitionTimeline';
 import type { LogCategory } from '../../../stores/logStore';
 import { useMediaStore } from '../../../stores';
+import {
+  isBgmClipId,
+  resolveBgmClipsEffectivePlayback,
+  resolvePipelineClipEffectivePlayback,
+  useAudioStore,
+} from '../../../stores/audioStore';
 import { useProjectStore } from '../../../stores/projectStore';
 import type { PlatformCapabilities } from '../../../utils/platform';
 import { collectPlaybackBlockingVideos } from '../../../utils/playbackTimeline';
@@ -1720,17 +1726,26 @@ export function usePreviewEngine({
             }
           }
 
+          const bgmAutoAdjust = useAudioStore.getState().bgmAutoAdjustToTimeline;
+          const bgmEffectiveForCount = resolveBgmClipsEffectivePlayback(
+            currentNarrations.filter((item) => isBgmClipId(item.id)),
+            totalDurationRef.current,
+            { autoAdjust: bgmAutoAdjust },
+          );
           for (const clip of currentNarrations) {
             if (clip.isMuted || clip.volume <= 0) {
               continue;
             }
-            const trimStart = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
-            const trimEnd = Number.isFinite(clip.trimEnd)
-              ? Math.max(trimStart, Math.min(clip.duration, clip.trimEnd))
-              : clip.duration;
-            const playableDuration = Math.max(0, trimEnd - trimStart);
-            const clipTime = time - clip.startTime;
-            if (clipTime >= 0 && clipTime <= playableDuration) {
+            const effective = resolvePipelineClipEffectivePlayback(
+              clip,
+              currentNarrations,
+              totalDurationRef.current,
+              bgmEffectiveForCount,
+              bgmAutoAdjust,
+            );
+            if (effective.isDisabled) continue;
+            const clipTime = time - effective.startTime;
+            if (clipTime >= 0 && clipTime <= effective.effectivePlayableDuration) {
               count += 1;
             }
           }
@@ -3430,6 +3445,14 @@ export function usePreviewEngine({
           }
         };
 
+        // BGM は自動調整 ON 時のみ末尾合わせ。1 フレームで Map を共有する。
+        const bgmAutoAdjust = useAudioStore.getState().bgmAutoAdjustToTimeline;
+        const bgmEffectiveMap = resolveBgmClipsEffectivePlayback(
+          currentNarrations.filter((item) => isBgmClipId(item.id)),
+          totalDurationRef.current,
+          { autoAdjust: bgmAutoAdjust },
+        );
+
         const processNarrationClip = (clip: NarrationClip) => {
           const trackId = `narration:${clip.id}`;
           const element = mediaElementsRef.current[trackId] as HTMLAudioElement;
@@ -3439,12 +3462,19 @@ export function usePreviewEngine({
 
           if (!element) return;
 
-          const trimStart = Number.isFinite(clip.trimStart) ? Math.max(0, clip.trimStart) : 0;
-          const trimEnd = Number.isFinite(clip.trimEnd) ? Math.max(trimStart, Math.min(clip.duration, clip.trimEnd)) : clip.duration;
-          const playableDuration = Math.max(0, trimEnd - trimStart);
-          const clipTime = time - clip.startTime;
+          // 設定区間はストアに保持し、動画尺 D で有効区間だけを適用（Issue #206）
+          const effective = resolvePipelineClipEffectivePlayback(
+            clip,
+            currentNarrations,
+            totalDurationRef.current,
+            bgmEffectiveMap,
+            bgmAutoAdjust,
+          );
+          const trimStart = effective.trimStart;
+          const playableDuration = effective.effectivePlayableDuration;
+          const clipTime = time - effective.startTime;
           const sourceTime = trimStart + clipTime;
-          const inRange = clipTime >= 0 && clipTime <= playableDuration;
+          const inRange = !effective.isDisabled && clipTime >= 0 && clipTime <= playableDuration;
 
           const avoidNarPause = hasAudioNode
             && previewPlatformPolicy.muteNativeMediaWhenAudioRouted

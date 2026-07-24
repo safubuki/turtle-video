@@ -599,7 +599,14 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, onBeforeLoadPr
       if (data) {
         // 各ストアに復元
         restoreMediaItems(data.mediaItems, data.isClipsLocked);
-        restoreAudio(data.bgm, data.isBgmLocked, data.narrations, data.isNarrationLocked, data.bgmClips);
+        restoreAudio(
+          data.bgm,
+          data.isBgmLocked,
+          data.narrations,
+          data.isNarrationLocked,
+          data.bgmClips,
+          data.bgmAutoAdjustToTimeline,
+        );
         restoreCaptions(data.captions, data.captionSettings, data.isCaptionsLocked);
         useLogStore.getState().info('SYSTEM', `プロジェクトを読み込み (${slot === 'auto' ? '自動保存' : '手動保存'})`, {
           mediaCount: data.mediaItems.length,
