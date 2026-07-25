@@ -2771,3 +2771,19 @@ export 終了（成功/失敗/中断）
   - `useEffect` の依存にある `shiftAlignmentTarget` も凍結値になるため、エクスポート中は `shiftAlignmentFeedback` の不要なクリアが走らない（意図どおり）。
   - `isExporting` は任意 prop（既定 `false`）。既存テストや他の呼び出し元へ影響しない。
 - **テスト**: 凍結・非消失・終了後の復帰・通常プレビュー時の更新・一括移動機能の維持を `captionStyleControls.test.tsx` で網羅。修正を戻すと 3 件が落ちることを確認済み（回帰検知が効く）。
+
+### 13-150. 設定アコーディオン見出しのカード化と「（開いて設定）」表示の全体統一（Issue #214）
+
+- **ファイル**: `src/components/common/SettingsAccordionHeader.tsx`（新規）, `src/components/media/ClipItem.tsx`, `src/components/sections/BgmClipList.tsx`, `src/components/sections/NarrationSection.tsx`, `src/components/sections/CaptionSection.tsx`, `src/components/modals/CaptionSettingsModal.tsx`, `src/test/settingsAccordionHeader.test.tsx`
+- **問題**: ナレーションのトリミング設定・BGM のトリミング/フェード設定・クリップの調整/音量フェード設定は「矢印 + テキスト」だけの素の開閉ボタンで、閉じた状態では設定項目だと気付きにくかった。一方でキャプションの「スタイル/フェード一括設定」「文字の縁・色」だけが枠付きカード + 「（開いて設定）」の段階開示になっており、アプリ内で見た目のルールが割れていた。
+- **対策**:
+  - 共通コンポーネント `SettingsAccordionHeader`（`React.memo`）を新設し、キャプション側の既存デザインを唯一の実装として抽出する。見出しは `w-full` のボタンで、左に任意アイコン + 設定名、閉じているときだけ `（開いて設定）`（`aria-hidden`）、右に `ChevronDown`/`ChevronRight` を出す。
+  - 呼び出し側は `rounded-lg border border-gray-700/70 bg-gray-900/30` のカード枠で「見出し + 展開部」を包み、展開部には `border-t border-gray-700/60` を付けて見出しと本文を仕切る。展開部には `controlsId` と同じ `id` を必ず付与する（`aria-controls` の解決先）。
+  - 対象は 8 箇所: ナレーション トリミング設定 / BGM トリミング設定・フェード設定 / クリップ 位置・サイズ・回転・ぼかし調整・音量(フェード)設定 / キャプション スタイル・フェード一括設定・文字の縁・色 / キャプション個別設定モーダルの文字の縁・色。既存の 3 箇所は共通コンポーネントへ差し替え、実装の重複を解消した。
+  - **並び順**: BGM は「音量設定 → トリミング設定 → フェード設定」、ナレーションは「音量設定 → トリミング設定」に統一する（ユーザー指摘により音量を先頭へ移動）。音量は常時表示の 1 行コントロール、トリミング/フェードは折りたたみカードなので、よく触る音量を上に置く。
+- **注意**:
+  - **表示のみの変更**であり、開閉 state の持ち方（`openTrimMap` / `openFadeMap` / `v.isTransformOpen` / `isSettingsOpen` / `showStyleSettings` 等）と設定値の保存動作は一切変えていない。今後の変更でも state を共通コンポーネント側へ引き上げないこと（クリップ単位の Map 管理や store 由来の値が混在しているため）。
+  - `disabled`（ロック中）は `disabled:hover:` を明示的に打ち消しており、ロック中に見出しがホバーで白くならない。ロック挙動を変えるときはここも合わせる。
+  - `controlsId` はクリップ単位のアコーディオンでは必ず `clip.id` / `v.id` を含めて一意にする。同一 id が複数出ると `aria-controls` が壊れる。
+  - 新しいアコーディオンを追加するときは素の `<button>` + Chevron を書かず、必ず本コンポーネントを使う。
+- **テスト**: `settingsAccordionHeader.test.tsx` で「閉じているときだけ（開いて設定）が出る」「`aria-expanded` が開閉に追従する」「見出し全体のクリックで開閉が通知される」「`disabled` 時は発火しない」を共通コンポーネント単体で、加えて BGM（トリミング/フェード）とナレーション（トリミング）の実利用箇所で `aria-controls` の解決先が実在することまで検証する。

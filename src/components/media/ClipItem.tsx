@@ -20,8 +20,6 @@ import {
   Blend,
   ZoomIn,
   Move,
-  ChevronDown,
-  ChevronRight,
   Volume2,
   VolumeX,
   RefreshCw,
@@ -30,6 +28,7 @@ import {
 import type { MediaItem } from '../../types';
 import MiniPreview from '../common/MiniPreview';
 import ClipThumbnail from '../common/ClipThumbnail';
+import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import { useCanvasStore } from '../../stores/canvasStore';
 import {
@@ -356,23 +355,20 @@ const ClipItem: React.FC<ClipItemProps> = ({
         </div>
       )}
 
-      {/* 調整パネル開閉ボタン */}
-      <button
-        onClick={onToggleTransformPanel}
-        disabled={isDisabled}
-        className="text-xs md:text-sm flex items-center gap-1 text-gray-400 hover:text-white mb-2 disabled:opacity-50"
-      >
-        {v.isTransformOpen ? (
-          <ChevronDown className="w-3 h-3" />
-        ) : (
-          <ChevronRight className="w-3 h-3" />
-        )}
-        <span>位置・サイズ・回転・ぼかし調整</span>
-      </button>
-
       {/* 調整パネル (アコーディオン) */}
-      {v.isTransformOpen && (
-        <div className="px-2 mb-2 space-y-2 border-t border-gray-700/50 pt-2 mt-2 bg-gray-900/30 rounded p-2">
+      <div className="mb-2 rounded-lg border border-gray-700/70 bg-gray-900/30">
+        <SettingsAccordionHeader
+          title="位置・サイズ・回転・ぼかし調整"
+          isOpen={v.isTransformOpen}
+          disabled={isDisabled}
+          controlsId={`clip-transform-settings-${v.id}`}
+          onToggle={onToggleTransformPanel}
+        />
+        {v.isTransformOpen && (
+        <div
+          id={`clip-transform-settings-${v.id}`}
+          className="px-2 pb-2 space-y-2 border-t border-gray-700/60 pt-2"
+        >
           {/* 拡大率 */}
           <div className="flex flex-col gap-1">
             <div className="flex items-center justify-between text-[10px] text-gray-400">
@@ -530,26 +526,23 @@ const ClipItem: React.FC<ClipItemProps> = ({
           {/* ミニプレビュー */}
           <MiniPreview item={v} mediaElement={mediaElement} />
         </div>
-      )}
-
-      {/* 設定パネル開閉ボタン (音量・フェード) */}
-      <button
-        onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-        disabled={isDisabled}
-        className="text-xs md:text-sm flex items-center gap-1 text-gray-400 hover:text-white mb-2 disabled:opacity-50 mt-2"
-      >
-        {isSettingsOpen ? (
-          <ChevronDown className="w-3 h-3" />
-        ) : (
-          <ChevronRight className="w-3 h-3" />
         )}
-        {/* Sliders Icon removed as per user request */}
-        <span>{v.type === 'video' ? '音量・フェード設定' : 'フェード設定'}</span>
-      </button>
+        </div>
 
-      {/* 設定パネル (アコーディオン) */}
-      {isSettingsOpen && (
-        <div className="px-2 mb-2 space-y-3 border-t border-gray-700/50 pt-2 mt-2 bg-gray-900/30 rounded p-2">
+      {/* 設定パネル (アコーディオン: 音量・フェード) */}
+      <div className="mb-2 rounded-lg border border-gray-700/70 bg-gray-900/30">
+        <SettingsAccordionHeader
+          title={v.type === 'video' ? '音量・フェード設定' : 'フェード設定'}
+          isOpen={isSettingsOpen}
+          disabled={isDisabled}
+          controlsId={`clip-audio-settings-${v.id}`}
+          onToggle={() => setIsSettingsOpen(!isSettingsOpen)}
+        />
+        {isSettingsOpen && (
+        <div
+          id={`clip-audio-settings-${v.id}`}
+          className="px-2 pb-2 space-y-3 border-t border-gray-700/60 pt-2"
+        >
           {/* 音量設定 (動画のみ) */}
           {v.type === 'video' && (
             <div className="bg-gray-800/50 p-2 rounded-lg flex items-center gap-2">
@@ -643,7 +636,8 @@ const ClipItem: React.FC<ClipItemProps> = ({
             </div>
           </div>
         </div>
-      )}
+        )}
+        </div>
     </div>
   );
 };

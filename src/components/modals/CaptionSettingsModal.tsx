@@ -4,7 +4,7 @@
  * @description キャプション個別スタイル設定のモーダル。一括設定を上書き（Override）するためのUI。
  */
 import React, { useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, RotateCcw, X } from 'lucide-react';
+import { RotateCcw, X } from 'lucide-react';
 import type {
   Caption,
   CaptionPosition,
@@ -14,6 +14,7 @@ import type {
 } from '../../types';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import CaptionColorField from '../common/CaptionColorField';
+import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import {
@@ -427,27 +428,12 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
             )}
             {/* 文字の縁・色: 一括設定と同じ段階開示・操作順 */}
             <div className="rounded-lg border border-gray-700/70 bg-gray-900/30">
-              <button
-                type="button"
-                onClick={() => setShowOutlineColorSettings((open) => !open)}
-                aria-expanded={showOutlineColorSettings}
-                aria-controls="caption-individual-outline-color-settings"
-                className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-[10px] text-gray-400 transition hover:bg-gray-800/45 hover:text-white"
-              >
-                <span className="flex min-w-0 items-center gap-2 font-semibold">
-                  <span className="whitespace-nowrap">文字の縁・色</span>
-                  {!showOutlineColorSettings && (
-                    <span aria-hidden="true" className="whitespace-nowrap text-[9px] font-normal text-gray-500">
-                      （開いて設定）
-                    </span>
-                  )}
-                </span>
-                {showOutlineColorSettings ? (
-                  <ChevronDown className="h-3 w-3 shrink-0" />
-                ) : (
-                  <ChevronRight className="h-3 w-3 shrink-0" />
-                )}
-              </button>
+              <SettingsAccordionHeader
+                title="文字の縁・色"
+                isOpen={showOutlineColorSettings}
+                controlsId="caption-individual-outline-color-settings"
+                onToggle={() => setShowOutlineColorSettings((open) => !open)}
+              />
               {showOutlineColorSettings && (
                 <div id="caption-individual-outline-color-settings" className="space-y-2 border-t border-gray-700/60 px-2 pb-2 pt-2">
                   <div className="flex items-center gap-2 text-[10px]">

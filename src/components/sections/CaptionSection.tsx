@@ -32,6 +32,7 @@ import type {
   CaptionFontStyle,
 } from '../../types';
 import CaptionItem from '../media/CaptionItem';
+import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import {
@@ -481,33 +482,18 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
         <div className="p-3 lg:p-4 space-y-3">
           {/* スタイル/フェード一括設定 */}
           <div className="bg-gray-800/50 rounded-xl border border-gray-600/70">
-            <button
-              type="button"
-              onClick={() => setShowStyleSettings((open) => !open)}
-              aria-expanded={showStyleSettings}
-              aria-controls="caption-style-settings"
-              className="w-full p-2 flex items-center justify-between text-xs md:text-sm text-gray-400 hover:text-white transition"
-            >
-              <div className="flex min-w-0 items-center gap-2">
-                <Type className="w-3 h-3" />
-                <span className="whitespace-nowrap">スタイル/フェード一括設定</span>
-                {!showStyleSettings && (
-                  <span
-                    aria-hidden="true"
-                    className="whitespace-nowrap text-[9px] font-normal text-gray-500 md:text-[10px]"
-                  >
-                    （開いて設定）
-                  </span>
-                )}
-              </div>
-              {showStyleSettings ? (
-                <ChevronDown className="w-3 h-3" />
-              ) : (
-                <ChevronRight className="w-3 h-3" />
-              )}
-            </button>
+            <SettingsAccordionHeader
+              title="スタイル/フェード一括設定"
+              icon={<Type className="w-3 h-3 shrink-0" />}
+              isOpen={showStyleSettings}
+              controlsId="caption-style-settings"
+              onToggle={() => setShowStyleSettings((open) => !open)}
+            />
             {showStyleSettings && (
-              <div id="caption-style-settings" className="px-3 pb-3 space-y-3">
+              <div
+                id="caption-style-settings"
+                className="px-3 pb-3 pt-2 space-y-3 border-t border-gray-700/60"
+              >
                 {/* ■ スタイル設定 */}
                 <div className="space-y-2">
                   <div className="text-[10px] md:text-xs text-yellow-400 font-bold">
@@ -675,30 +661,12 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                   )}
                   {/* 字体の仕上げ: デフォルトで困らない詳細設定は段階的に開示する */}
                   <div className="rounded-lg border border-gray-700/70 bg-gray-900/30">
-                    <button
-                      type="button"
-                      onClick={() => setShowOutlineColorSettings((open) => !open)}
-                      aria-expanded={showOutlineColorSettings}
-                      aria-controls="caption-outline-color-settings"
-                      className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-[10px] text-gray-400 transition hover:bg-gray-800/45 hover:text-white md:text-xs"
-                    >
-                      <span className="flex min-w-0 items-center gap-2 font-semibold">
-                        <span className="whitespace-nowrap">文字の縁・色</span>
-                        {!showOutlineColorSettings && (
-                          <span
-                            aria-hidden="true"
-                            className="whitespace-nowrap text-[9px] font-normal text-gray-500 md:text-[10px]"
-                          >
-                            （開いて設定）
-                          </span>
-                        )}
-                      </span>
-                      {showOutlineColorSettings ? (
-                        <ChevronDown className="h-3 w-3 shrink-0" />
-                      ) : (
-                        <ChevronRight className="h-3 w-3 shrink-0" />
-                      )}
-                    </button>
+                    <SettingsAccordionHeader
+                      title="文字の縁・色"
+                      isOpen={showOutlineColorSettings}
+                      controlsId="caption-outline-color-settings"
+                      onToggle={() => setShowOutlineColorSettings((open) => !open)}
+                    />
                     {showOutlineColorSettings && (
                       <div
                         id="caption-outline-color-settings"
