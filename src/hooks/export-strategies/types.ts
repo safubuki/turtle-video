@@ -78,6 +78,16 @@ export interface ExportAudioSources {
    */
   getPlaybackTimeSec?: () => number;
   /**
+   * render loop が「実際に Canvas へ描画した」最後のフレーム番号を返す（未描画なら null）。
+   *
+   * 【Issue #215】export の描画は rAF 上で走るため、1080p や初回書き出しでは
+   * 30fps を割り込むことがある。一方 getPlaybackTimeSec の壁時計は減速しないため、
+   * 時刻だけを基準にすると「まだ描いていない時刻の分」まで同じ Canvas を複製投入し、
+   * 映像トラックだけが総フレーム数へ早く到達して残りが黒画面になる。
+   * 描画済みフレーム番号を基準にすることで描画と投入を 1:1 に保つ。
+   */
+  getRenderedVideoFrameIndex?: () => number | null;
+  /**
    * VideoEncoder へ正常投入した映像フレーム数を通知する。
    * 静止画のみの standard export で、各 Canvas 描画とエンコード投入を1対1に同期するために使う。
    */

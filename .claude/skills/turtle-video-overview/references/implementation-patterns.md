@@ -701,6 +701,7 @@
 | **エラー** | 3 層防御: ErrorBoundary（コンポーネント）、グローバルハンドラ（window）、try-catch（個別処理） |
 | **フレーバー分離** | export エンジンは `src/flavors/<flavor>/export/exportEngine.ts` に物理フォーク済み。共有コード→flavors の import、flavor 相互 import、共有コンポーネントでの `getPlatformCapabilities()` 直接呼び出しは ESLint で禁止。共有コンポーネントの UA 判定は `usePlatformCapabilities()`（PlatformCapabilitiesContext）経由。凍結レガシー（`components/turtle-video/usePreview*` / `utils/previewPlatform` / `utils/iosSafariAudio`）は編集禁止 |
 | **export後preview（#209）** | 共有 `<video>` を同一要素のまま `load()` / hard src で直しても Chromium decoder wedge が残ることがある（表面の readyState 4 は信用しない）。本命は MediaResourceLoader remount（`reloadKey++` + MediaElementSource detach、13-141）。13-135〜140 は保険。成功/失敗/中断の全経路で remount を要求する |
+| **動画サムネ（#208）** | アプリ内ポスターだけでは OS アイコンは変わらない。export で **covr 埋め込み + 先頭 KF 差し替え**（13-146）が本命。**ユーザー確認済み成功事例**。設定後の再書き出し必須 |
 
 ## 12. Dev Script Pattern (media-video-analyzer STT)
 
@@ -2620,3 +2621,138 @@ export 終了（成功/失敗/中断）
 - apple-safari は optional 契約のみ（本症状の主対象は standard / PC・Android）。再現したら同じ remount をフレーバー内で有効化する。
 - 13-135〜140 の解放・stall・hard reset は **保険・補助**として残し、本命は remount。再発時はまず「同一要素を直し続けていないか」を疑う。
 - [[export-recovery-2026-07-20]] と同系統。Issue #209。
+
+### 13-142. プレビュー現在位置から動画の開始・終了トリミングを設定（Issue #207）
+
+- **ファイル**: src/utils/media.ts, src/components/media/ClipItem.tsx, src/components/sections/ClipsSection.tsx, src/components/TurtleVideo.tsx, src/constants/sectionHelp.ts, src/test/media.test.ts
+- **要件**: プレビューで映像を確認しながら、現在位置を動画クリップのトリミング開始点 / 終了点へ反映したい。再トリミングでも元動画 0 秒基準へ戻らず、現在の有効区間を基準に計算する。
+- **計算契約**:
+  - 元動画上の時刻: sourcePosition = sourceTrimStart + previewPosition（previewPosition はクリップ表示区間先頭からの相対秒）
+  - 開始点設定: newTrimStart = sourcePosition, newTrimEnd は据え置き
+  - 終了点設定: newTrimEnd = sourcePosition, newTrimStart は据え置き
+  - 最低尺 MIN_VIDEO_TRIM_DURATION_SEC（0.1秒）未満・範囲外は null（ボタン disabled。勝手にクランプしない）
+- **実装**:
+  - 純ロジック computeVideoTrimFromPreviewPosition / canSetVideoTrimFromPreviewPosition を media.ts に追加（テスト済み）
+  - ClipItem のトリム UI に BGM/ナレーションと同系の「プレビュー位置を反映: 開始 / 終了」ボタン
+  - handleSetVideoTrimFromCurrent は再生を一時停止し、updateVideoTrim で totalDuration を再計算、タイムライン位置を新範囲内へ補正（開始点→クリップ先頭、終了点→終端直前）、video 要素も source 時刻へシークして renderFrame を即時反映
+- **注意**:
+  - 既存のスライダー/数値入力によるトリム経路は維持（今回は「現在位置から設定」を追加）
+  - 表示上の相対時刻と元動画上の絶対時刻を混同しない。再トリム時に trimStart を無視して 0 から計算しない
+  - プレビューとエクスポートは同じ trimStart/trimEnd を参照する既存契約のまま
+
+### 13-143. 動画尺変更に合わせた BGM 有効区間の自動調整（Issue #206）+ ON/OFF
+
+- **ファイル**: src/stores/audioStore.ts, BgmClipList, projectStore/indexedDB, preview/export, useAutoSave, tests
+- **既定**: bgmAutoAdjustToTimeline = true（動画尺連動 ON）
+- **ON**: resolveBgmClipsEffectivePlayback の末尾合わせ（中間は設定維持・末尾は D へ短縮/延長）
+- **OFF**: 各クリップ独立の min(設定終端, D) のみ。末尾延長しない（「ここからここまで」固定用）
+- **UI**: BGM リスト上部に「動画尺に合わせて自動調整」チェック（ON/OFF バッジ）。ロック中は変更不可
+- **永続化**: ProjectData.bgmAutoAdjustToTimeline（任意・旧データは true）。save/load/autoSave ハッシュに含む
+- **注意**: 設定値自体は ON/OFF どちらでも尺変更で書き換えない。プレビュー=エクスポート同一契約
+
+### 13-144. 動画サムネイルの自動設定・手動設定切替（Issue #208）
+
+- **ファイル**: `src/utils/media.ts`, `src/types/index.ts`, `src/stores/mediaStore.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/hooks/useAutoSave.ts`, `src/components/common/ClipThumbnail.tsx`, `src/components/media/ClipItem.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, `src/test/media.test.ts`, `src/test/stores/mediaStore.test.ts`
+- **要件**: 動画クリップごとにサムネイルを **自動**（有効開始+0.2秒）または **手動**（プレビュー現在フレーム）で切り替え、何度でも往復できる。
+- **データ契約**:
+  - `MediaItem.thumbnailMode?: 'auto' | 'manual'`（旧データは auto）
+  - `MediaItem.thumbnailSourceTime?: number`（**元動画上の絶対秒**。トリム後の相対時刻ではない）
+  - 画像クリップは未使用。永続化・autoSave ハッシュ・シリアライズを揃えて更新する。
+- **計算契約（純ロジック `media.ts`）**:
+  - 自動: `sourceTrimStart + 0.2`（有効尺 ≤0.2s なら中央）。終端そのものにはしない。
+  - 手動: `sourceTime = sourceTrimStart + previewPosition`（クリップ表示区間内のときのみ）
+  - トリム後: 手動が範囲外なら auto へフォールバックし再計算。範囲内なら manual 維持。
+  - 再試行候補: 主時刻 → +0.1/+0.3 → 開始+0.2/0.3/0.5 → 中央（いずれも有効範囲内）
+- **UI**: 動画カードのトリミング欄にモード表示（自動/手動）、「現在のフレームをサムネイルに設定」「再設定」「自動設定に戻す」。プレビューがそのクリップ区間内にないときは設定ボタン disabled。
+- **非同期**: サムネイル画像自体はストアに持たず、`ClipThumbnail` が `sourceTime` 変更で再生成。effect の `cancelled` で古い生成結果を破棄（mode/時刻のレースは store 側の最新値のみが正）。
+- **注意**:
+  - 先頭 0 秒固定のサムネは黒フレームになりやすいため、自動は常に +0.2s（トリム有無を問わず同じルール）。
+  - 手動設定失敗時は mode を manual に確定しない（`setVideoThumbnailManual` が false）。
+  - iOS Safari の offscreen DOM + prime 再生（13-65）は維持し、`sourceTime` シーク後も同じ経路で描画する。
+
+### 13-145. プロジェクト全体ポスター（プレビュー UI）とエクスプローラーサムネの責務分離
+
+- **ファイル**: `src/stores/mediaStore.ts`, `src/utils/media.ts`, `src/components/sections/PreviewSection.tsx`, `src/components/TurtleVideo.tsx`, `src/components/media/ClipItem.tsx`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/hooks/useAutoSave.ts`, `src/constants/sectionHelp.ts`
+- **調査結果（ユーザー報告: 手動設定してもエクスプローラーの大アイコンが変わらない）**:
+  1. Issue #208 の実装は **編集 UI 用**（クリップ一覧の小サムネ / 後にプロジェクトポスター）であり、**export の MP4 コンテナへポスターフレームや cover メタデータを一切書き込んでいない**。
+  2. `mp4-muxer` は映像・音声チャンクのみを mux する。`fastStart: 'in-memory'` はあるが、Windows シェルが読む「代表フレーム指定」ではない。
+  3. Windows エクスプローラーの動画サムネイルは **OS（Media Foundation 等）が再生ストリームから独自にフレームを抽出**して生成する。ブラウザからの通常 MP4 書き出しでは、ユーザー指定フレームをエクスプローラーに強制できない。
+  4. クリップ単位の手動設定は「複数クリップを1本に合成した完成動画」の代表フレームというユーザー意図ともズレていた。
+- **対策（アプリ内 UX）**:
+  - **プロジェクト全体ポスター**を `mediaStore` に追加: `projectPosterMode` / `projectPosterTimelineTime` / `projectPosterDataUrl`（小さい JPEG）。
+  - 設定 UI を **プレビューセクション**へ移動（合成後タイムラインの現在フレームをキャプチャ）。
+  - 小さい画像プレビュー + **自動/手動バッジ + タイムライン時刻**を常時表示。
+  - クリップカード側の手動設定 UI は撤去。リスト用 `ClipThumbnail` はクリップ自動位置（開始+0.2s）のみ。
+  - 永続化: `ProjectData.projectPoster*`、autoSave ハッシュ、restore 第3引数。
+- **注意**: ポスター dataUrl は表示用の縮小 JPEG。フル解像度 PNG を毎保存しない。
+
+### 13-146. 動画サムネイルの標準手法（cover art + 先頭キーフレーム）を export へ接続【成功事例・ユーザー確認済み】
+
+- **ファイル**: `src/utils/mp4CoverArt.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/hooks/export-strategies/types.ts`, `src/components/sections/PreviewSection.tsx`, `src/stores/mediaStore.ts`, `src/test/mp4CoverArt.test.ts`
+- **Issue**: #208（プロジェクト全体ポスター）+ エクスプローラー等で手動設定フレームがサムネとして出ない問題
+- **汎用的な仕組み（業界標準の 2 系統）**:
+  1. **Cover art（コンテナメタデータ）**: MP4 の `moov/udta/meta/ilst/covr` に JPEG を格納。FFmpeg の attached_pic / TagEditor と同系統。プレイヤーや一部ビューアが「動画サムネイル」として読む。
+  2. **先頭キーフレーム（映像トラック）**: Windows エクスプローラー等のシェルはメタデータより **映像ストリームのフレーム抽出**を優先することが多い。先頭が黒だと別位置を探すため、先頭 IDR を意図した画像にすると効く場合がある。
+- **失敗→成功の経緯**:
+  - 当初はアプリ内 UI（クリップ一覧 / プレビュー小画像）だけに mode・時刻・dataUrl を持たせ、**export の MP4 には何も書いていなかった**。
+  - そのため「手動設定したのにエクスプローラーの大アイコンが変わらない」は、設定ミスではなく **ファイル側にサムネ情報が無い**ことが原因だった。
+  - 標準手法どおり **① covr 埋め込み + ② 先頭キーフレーム差し替え** を WebCodecs finalize 後／encode 時に接続した。
+- **実装**:
+  - `injectMp4CoverArt` / `injectMp4CoverArtFromDataUrl`: finalize 後の ArrayBuffer に covr を挿入し、moov 肥大分だけ `stco/co64` を補正。
+  - `createExportVideoFrame`: frameIndex===0 のときポスター ImageBitmap をエクスポート解像度へ cover 配置してキーフレーム化。
+  - `ExportAudioSources.coverArtJpegDataUrl` に `projectPosterDataUrl` を渡し、standard / apple-safari の WebCodecs 完了時に埋め込み。
+  - UI はプレビュー下でプロジェクト全体ポスターを自動/手動設定（複数クリップ合成後のタイムライン基準）。
+  - ポスター JPEG は最大 1280px・品質 0.88（UI と export 共用）。
+- **成功確認（2026-07・ユーザー実機）**:
+  - プレビューで手動設定 → **再書き出し** → ダウンロードした MP4 をエクスプローラー等で確認し、**選択したフレームが動画サムネイルとして表示されること**を確認済み。
+  - 「凄いよこれもできた」として成功事例に記録する。
+- **運用上の必須手順**:
+  1. プレビュー位置を決める
+  2. 「現在のフレームをサムネイルに設定」（小プレビュー + 手動バッジ）
+  3. **その後に「動画ファイルを作成」**（古いファイルは更新されない）
+- **注意**:
+  - OS/ビューアによっては cover art を無視し、動画途中フレームをアイコンにする場合がある。その場合も先頭キーフレーム差し替えが補助になる。
+  - エクスプローラーのサムネキャッシュが古いと古いまま見えることがある（フォルダ更新・キャッシュクリア）。
+  - MediaRecorder のみの経路（稀）では covr 注入は WebCodecs finalize 側と同等に揃えること。
+  - 回帰時は「UI だけ直して export に載せない」再発を疑う（13-145 の責務分離と本項をセットで読む）。
+
+
+### 13-147. エクスポートで映像だけが早く終了して黒画面になる＝フレーム投入を「描画実績」へ同期（Issue #215）
+
+- **ファイル**: `src/utils/exportTimeline.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/hooks/export-strategies/types.ts`, `src/test/exportTimeline.test.ts`
+- **症状**: プレビュー 20 秒のプロジェクトを書き出すと、出力ファイルの尺は 20 秒なのに**映像だけ約 17 秒で終わって黒画面**になり、ナレーションだけが最後まで続く。映像が早送りされたように見える。毎回は再現せず、**初回書き出しで出やすい／再書き出しすると直る**。
+- **原因（standard / Canvas 直接キャプチャ経路）**:
+  - export の描画は render loop（`requestAnimationFrame`）上で走るが、映像フレームの投入上限 `getTargetVideoFrameCount()` は**壁時計由来のタイムライン時刻**から `floor(t * FPS) + 1` で算出していた。
+  - 1080p や初回書き出し（デコード未ウォーム・JIT / GPU パイプライン未最適化）では rAF が 30fps を割り込む。壁時計は減速しないため「時刻は 17s まで進んだ＝510 フレーム投入してよい」と判断され、**実際には描かれていない時刻の分まで同じ Canvas を複製投入**する。
+  - 結果、映像トラックだけが `expectedVideoFrames` へ早く到達してループが `break` し、以降は映像が無いまま（黒画面）、オフラインでプリレンダリング済みの音声だけが総尺まで流れる。音声は rAF に依存しないため尺が縮まない＝AV ズレとして観測される。
+  - 再書き出しで直るのは、2 回目以降はデコードキャッシュ（`audioDecodeCache`）とパイプラインが温まり rAF が 30fps を維持できるため。
+- **対策**:
+  - `resolveExportVideoFrameBudget()`（純ロジック）を追加し、投入上限を**「render loop が実際に描画したフレーム番号 + 1」**に固定する。描画が遅れれば投入も遅れ、映像時刻と出力フレームが 1:1 で対応する。
+  - render loop 側は `renderFrame()` 実行直後に `exportRenderedFrameIndexRef` へ描画済みフレーム番号を記録し、`ExportAudioSources.getRenderedVideoFrameIndex` で export へ公開する。
+  - 終端は従来どおり `forceToEnd`（`completionRequested`）で総フレーム数まで一括許可し、**出力尺は総尺のまま維持**する（映像を短くしない）。
+  - 描画実績が取れない場合のみ描画済み時刻から換算し、まだ 1 フレームも描いていない間は先頭フレームだけを許可する。
+- **注意**:
+  - 投入上限を再び「壁時計時刻」基準へ戻さない。壁時計は rAF の遅延を吸収しないため本不具合が再発する。
+  - `forceToEnd` の末尾補完は尺合わせの生命線。ここを削ると今度は**出力尺自体**が短くなる。
+  - 静止画のみのフレーム駆動ペーシング（13 系 / `shouldUseFrameDrivenExportPacing`）とは別経路。あちらは投入数がタイムラインを駆動する逆向きの関係なので混同しない。
+  - `videoCaptureStartedAtMs` による壁時計フォールバックは standard / apple-safari とも本対応で廃止済み。復活させないこと。
+  - **standard と apple-safari の両フレーバーに同一の欠陥があったため両方修正している**（`useManualCanvasFrames = true` で同じ Canvas 直接キャプチャ経路を通る）。片方だけ直すと iOS 側で再発する。standard は描画フレーム番号を、apple-safari は描画済み時刻をフレーム番号へ換算して報告する。
+  - 実機確認は未実施（PC / スマートフォン、動画1本・複数動画・動画+画像、ナレーション/BGM 有無の組み合わせ）。
+
+### 13-148. 【未対応・調査済み】エクスポート動画が「一瞬詰まって→飛ぶ」＝壁時計タイムライン + 同一Canvasの重複投入
+
+- **ファイル（原因箇所）**: `src/flavors/standard/preview/usePreviewEngine.ts`（`exportFrameIndex` の算出）, `src/flavors/standard/export/exportEngine.ts`（`processVideoWithCanvasFrames` の burst ループ）
+- **症状（ユーザー報告 2026-07-25）**: エクスポートした動画が、度々**一瞬詰まったように止まってから飛ぶように早送り**になる。全体の再生時間には大きく影響しない。Issue #215（映像が早く終わり黒画面）とは**別現象**。
+- **メカニズム（2 つが同時に起きる）**:
+  1. **content jump（飛び）**: export の render loop は `exportFrameIndex = floor(clampedElapsed * FPS)` と**壁時計**でタイムライン位置を決める。rAF が GC / デコードで 150ms 止まると、壁時計は 4〜5 フレーム進むため、render loop はその間のタイムライン位置を**まるごと描かずに飛ばす**。
+  2. **freeze（詰まり）**: `processVideoWithCanvasFrames` の burst ループ（`for (let i = 0; i < framesToEncode; i++)`）は**同期ループで、途中に await が無い**ため render loop が割り込めない。`createExportVideoFrame(canvas, ...)` は都度 Canvas をスナップショットするが、中身は変わらないので**バイト同一のフレームが連番タイムスタンプで複数枚**出力される。
+  - つまり「同じ絵が N 枚（詰まり）→ 内容が N フレーム分ワープ（早送り）」となる。総フレーム数は `expectedVideoFrames` に一致するため**尺は変わらない**（報告と一致）。
+- **シミュレーション実測（20秒/30fps、120フレームごとに150msストール）**:
+  - 現状（壁時計）: content jump 9 回 / 最大ギャップ 5 フレーム / 重複バースト 9 回（最大 5 枚）
+  - フレーム数駆動（`submittedFrameCount / FPS`）へ変更した場合: jump 0 回・重複 0 枚（600/600 フレームは維持）
+- **burst 上限に注意**: `resolveExportCanvasFrameBurstCount` の上限は encoder queue の空き＝最大 `VIDEO_ENCODE_QUEUE_HARD_LIMIT`(90) で、理論上 **1 バーストで 3 秒分の同一フレーム**が出得る。
+- **対応方針の候補と制約**:
+  - 本命は「タイムライン時刻をフレーム数駆動へ寄せる」（`resolveFrameDrivenExportTimeSec` は既に存在するが `shouldUseFrameDrivenExportPacing` で**静止画のみ**に限定されている）。
+  - ただし `export-quality-regression-2026-03-27.md` に、**動画で描画済み時刻ベース pacing を採用したらカクつきが悪化して差し戻した**履歴がある（`holdFrame` 発生時に export 時刻が止まるため）。同じ轍を踏まないこと。
+  - 代替案として「描画が進んでいない間は新規フレームを投入しない（重複投入だけ抑制）」もあるが、これは詰まりのみ緩和し content jump は残る**部分対策**。
+- **現状の判断（2026-07-25）**: Issue #215 の修正で投入上限が「描画実績 + 1」になり、壁時計先行による大量重複は構造的に減っている。**まず #215 を実機確認し、この吃音がどの程度残るかを測ってから**次の手を決める（複数変更の同時投入は 2026-03-27 の切り分け困難を再来させるため避ける）。

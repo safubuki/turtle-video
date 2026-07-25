@@ -23,6 +23,7 @@ import {
   resolveExportCanvasFrameBurstCount,
   resolveExportDuration,
   resolveExportResolutionVerdict,
+  resolveExportVideoFrameBudget,
   stopCanvasCaptureStream,
 } from '../../../utils/exportTimeline';
 import { inspectMp4Durations } from '../../../utils/mp4Duration';
@@ -1436,6 +1437,14 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         if (!Number.isFinite(raw)) return null;
         return Math.max(0, raw);
       };
+      // 【Issue #215】render loop が実際に描画済みのフレーム番号（未描画/未提供なら null）。
+      // 映像フレームの投入をこの描画実績へ同期させ、壁時計先行による早期終了を防ぐ。
+      const getRenderedVideoFrameIndex = (): number | null => {
+        if (!audioSources?.getRenderedVideoFrameIndex) return null;
+        const raw = audioSources.getRenderedVideoFrameIndex();
+        if (raw === null || !Number.isFinite(raw) || raw < 0) return null;
+        return Math.floor(raw);
+      };
 
       // ScriptProcessorNode用（OfflineAudioContext失敗時のフォールバック）
       let scriptProcessorNode: ScriptProcessorNode | null = null;
@@ -1813,20 +1822,26 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         // 4. ストリームの取得と処理
         let videoReader: ReadableStreamDefaultReader<VideoFrame> | null = null;
         let audioReader: ReadableStreamDefaultReader<AudioData> | null = null;
-        const videoCaptureStartedAtMs = Date.now();
         let requestedCanvasFrames = 0;
         let requestCanvasFrame: (() => void) | null = null;
         const getTargetVideoFrameCount = (forceToEnd: boolean): number | null => {
           if (expectedVideoFrames === null) return null;
-          if (forceToEnd || completionRequestedRef.current) return expectedVideoFrames;
 
-          const playbackTimeSec = getPlaybackTimeSec();
-          if (playbackTimeSec !== null) {
-            return Math.min(expectedVideoFrames, Math.max(1, Math.floor(playbackTimeSec * FPS) + 1));
-          }
+          // 【Issue #215】投入上限は「render loop が実際に描画したフレーム」を基準にする。
+          // 壁時計時刻を基準にすると、rAF が 30fps を割り込んだ分だけ未描画時刻のフレームを
+          // 複製投入してしまい、映像だけが早く総フレーム数へ到達して黒画面になる。
+          const renderedFrameIndex = getRenderedVideoFrameIndex();
+          const renderedPlaybackTimeSec = renderedFrameIndex === null
+            ? getPlaybackTimeSec()
+            : null;
 
-          const elapsedSec = (Date.now() - videoCaptureStartedAtMs) / 1000;
-          return Math.min(expectedVideoFrames, Math.max(1, Math.floor(elapsedSec * FPS) + 1));
+          return resolveExportVideoFrameBudget({
+            expectedVideoFrames,
+            forceToEnd: forceToEnd || completionRequestedRef.current,
+            renderedFrameIndex,
+            renderedPlaybackTimeSec,
+            fps: FPS,
+          });
         };
         const pumpCanvasFrames = (forceToEnd: boolean) => {
           if (!requestCanvasFrame) return;

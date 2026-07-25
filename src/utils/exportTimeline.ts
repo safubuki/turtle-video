@@ -343,6 +343,69 @@ export function shouldUseFrameDrivenExportPacing(
     && input.mediaItemTypes.every((type) => type === 'image');
 }
 
+export interface ExportVideoFrameBudgetInput {
+  /** 尺から確定した総フレーム数（未確定なら null） */
+  expectedVideoFrames: number | null;
+  /**
+   * 終端まで詰め切る要求（completionRequested / 明示 forceToEnd）。
+   * true なら残りをすべて投入して映像尺を総尺へ揃える。
+   */
+  forceToEnd: boolean;
+  /** render loop が最後に「実際に描画した」タイムライン時刻（未描画なら null） */
+  renderedPlaybackTimeSec: number | null;
+  /** render loop が最後に描画したフレーム番号（未描画なら null） */
+  renderedFrameIndex: number | null;
+  fps: number;
+}
+
+/**
+ * Canvas 直接キャプチャ経路で「次に何フレームまで投入してよいか」を決める純ロジック。
+ *
+ * 【Issue #215】映像だけが予定より早く終了して黒画面になる不具合の対策。
+ *
+ * 従来はタイムライン時刻（壁時計由来の currentTime）だけから
+ * `floor(t * fps) + 1` を上限にしていた。しかし export の描画は rAF 上で走るため、
+ * 1080p や初回書き出し（デコード未ウォーム / JIT 未最適化）では rAF が 30fps を割り込む。
+ * 壁時計は減速しないので「時刻は 17s まで進んだ = 510 フレーム投入してよい」と判断され、
+ * 実際には描かれていない時刻の分まで**同じ Canvas を複製して**投入してしまう。
+ * 結果として映像トラックだけが総フレーム数へ早く到達し、以降は映像が無い（黒画面）まま
+ * オフラインで用意済みの音声だけが総尺まで流れる。
+ *
+ * そこで投入上限を「render loop が実際に描画したフレーム番号 + 1」に固定する。
+ * 描画が遅れれば投入も遅れるため、映像時刻と出力フレームが 1:1 で対応し、
+ * 映像の早期終了と黒画面が発生しない。終端は forceToEnd の末尾補完で総尺へ揃える。
+ */
+export function resolveExportVideoFrameBudget(
+  input: ExportVideoFrameBudgetInput,
+): number | null {
+  const { expectedVideoFrames, forceToEnd, renderedFrameIndex, renderedPlaybackTimeSec } = input;
+  if (expectedVideoFrames === null || !Number.isFinite(expectedVideoFrames)) {
+    return null;
+  }
+  const safeExpected = Math.max(1, Math.floor(expectedVideoFrames));
+  if (forceToEnd) {
+    return safeExpected;
+  }
+
+  const safeFps = Number.isFinite(input.fps) && input.fps > 0 ? input.fps : 30;
+
+  // 実際に描画済みのフレーム番号を最優先で使う（描画と投入を 1:1 に保つ）。
+  if (renderedFrameIndex !== null && Number.isFinite(renderedFrameIndex) && renderedFrameIndex >= 0) {
+    return Math.min(safeExpected, Math.floor(renderedFrameIndex) + 1);
+  }
+
+  // フレーム番号が未提供の場合のみ、描画済み時刻から換算する。
+  const sanitizedRenderedTime = renderedPlaybackTimeSec === null
+    ? null
+    : sanitizePlaybackTimeSec(renderedPlaybackTimeSec);
+  if (sanitizedRenderedTime !== null) {
+    return Math.min(safeExpected, Math.max(1, Math.floor(sanitizedRenderedTime * safeFps) + 1));
+  }
+
+  // render loop がまだ 1 フレームも描いていない間は先頭フレームだけを許可する。
+  return 1;
+}
+
 /**
  * canvas.captureStream() で得た MediaStream の全トラックを停止する純ヘルパー。
  *

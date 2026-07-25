@@ -1,4 +1,4 @@
-import { useCallback, type MutableRefObject } from 'react';
+import { useCallback, useRef, type MutableRefObject } from 'react';
 
 import {
   FPS,
@@ -277,6 +277,10 @@ export function usePreviewEngine({
   logWarn,
   logDebug,
 }: UsePreviewEngineParams): UsePreviewEngineResult {
+  // 【Issue #215】export の render loop が実際に描画した最後のタイムライン時刻（未描画は null）。
+  // 映像フレームの投入をこの描画実績へ同期させ、壁時計先行による早期終了を防ぐ。
+  const exportRenderedTimeSecRef = useRef<number | null>(null);
+
   const handleMediaElementLoaded = useCallback(
     (id: string, element: HTMLVideoElement | HTMLImageElement | HTMLAudioElement) => {
       if (element.tagName === 'VIDEO') {
@@ -1571,6 +1575,7 @@ export function usePreviewEngine({
   }, [currentTimeRef, isPlayingRef, isSeekPlaybackPreparingRef, isSeekingRef, renderFrame]);
 
   const stopAll = useCallback(() => {
+    exportRenderedTimeSecRef.current = null;
     logDebug('SYSTEM', 'stopAll呼び出し', { previousLoopId: loopIdRef.current, isPlayingRef: isPlayingRef.current });
 
     loopIdRef.current += 1;
@@ -1892,6 +1897,12 @@ export function usePreviewEngine({
       setCurrentTime(clampedElapsed);
       currentTimeRef.current = clampedElapsed;
       renderFrame(clampedElapsed, true, isExportMode);
+      // 【Issue #215】実際に描画できた時刻を export へ公開する。
+      // export のフレーム投入をこの描画実績に同期させ、rAF が 30fps を割り込んだときに
+      // 未描画時刻のフレームまで複製投入して映像だけ早く終わるのを防ぐ。
+      if (isExportMode) {
+        exportRenderedTimeSecRef.current = clampedElapsed;
+      }
       reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
     },
     [
@@ -2525,9 +2536,18 @@ export function usePreviewEngine({
             narrations: narrationsRef.current,
             totalDuration: totalDurationRef.current,
             getPlaybackTimeSec: () => currentTimeRef.current,
+            // 【Issue #215】実描画済み時刻をフレーム番号へ換算して返し、
+            // 映像フレームの投入を描画実績へ同期させる（未描画は null）。
+            getRenderedVideoFrameIndex: () => {
+              const rendered = exportRenderedTimeSecRef.current;
+              if (rendered === null || !Number.isFinite(rendered) || rendered < 0) return null;
+              return Math.floor(rendered * FPS);
+            },
             coverArtJpegDataUrl: useMediaStore.getState().projectPosterDataUrl,
             onPreparationStepChange: setExportPreparationStep,
             onAudioPreRenderComplete: () => {
+              // 【Issue #215】実描画実績は loop 開始時点から数え直す。
+              exportRenderedTimeSecRef.current = null;
               startTimeRef.current = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - fromTime * 1000;
               loop(isExportMode, myLoopId);
             },

@@ -9,6 +9,7 @@ import {
   resolveExportPlaybackTimeSec,
   resolveExportDuration,
   resolveExportResolutionVerdict,
+  resolveExportVideoFrameBudget,
   evaluateFrameDrivenExportStall,
 } from '../utils/exportTimeline';
 import { isCaptionActiveAtTime } from '../utils/captionTimeline';
@@ -335,6 +336,129 @@ describe('resolveExportResolutionVerdict', () => {
       actualWidth: null,
       actualHeight: 1080,
     })).toBe('unverified');
+  });
+});
+
+describe('resolveExportVideoFrameBudget', () => {
+  const FPS = 30;
+
+  it('尺未確定（expectedVideoFrames=null）なら null を返す', () => {
+    expect(resolveExportVideoFrameBudget({
+      expectedVideoFrames: null,
+      forceToEnd: false,
+      renderedFrameIndex: 10,
+      renderedPlaybackTimeSec: null,
+      fps: FPS,
+    })).toBeNull();
+  });
+
+  it('描画済みフレーム番号 +1 までを投入上限にする', () => {
+    expect(resolveExportVideoFrameBudget({
+      expectedVideoFrames: 600,
+      forceToEnd: false,
+      renderedFrameIndex: 149,
+      renderedPlaybackTimeSec: null,
+      fps: FPS,
+    })).toBe(150);
+  });
+
+  it('render loop が未描画（null）なら先頭フレームだけを許可する', () => {
+    expect(resolveExportVideoFrameBudget({
+      expectedVideoFrames: 600,
+      forceToEnd: false,
+      renderedFrameIndex: null,
+      renderedPlaybackTimeSec: null,
+      fps: FPS,
+    })).toBe(1);
+  });
+
+  it('フレーム番号が無い場合のみ描画済み時刻から換算する', () => {
+    expect(resolveExportVideoFrameBudget({
+      expectedVideoFrames: 600,
+      forceToEnd: false,
+      renderedFrameIndex: null,
+      renderedPlaybackTimeSec: 5,
+      fps: FPS,
+    })).toBe(151);
+  });
+
+  it('forceToEnd なら総フレーム数まで一括で許可する（末尾補完）', () => {
+    expect(resolveExportVideoFrameBudget({
+      expectedVideoFrames: 600,
+      forceToEnd: true,
+      renderedFrameIndex: 400,
+      renderedPlaybackTimeSec: null,
+      fps: FPS,
+    })).toBe(600);
+  });
+
+  it('描画実績が総フレーム数を超えても総フレーム数で頭打ちにする', () => {
+    expect(resolveExportVideoFrameBudget({
+      expectedVideoFrames: 600,
+      forceToEnd: false,
+      renderedFrameIndex: 9999,
+      renderedPlaybackTimeSec: null,
+      fps: FPS,
+    })).toBe(600);
+  });
+
+  it('負値・非有限の描画実績は未描画として扱う', () => {
+    expect(resolveExportVideoFrameBudget({
+      expectedVideoFrames: 600,
+      forceToEnd: false,
+      renderedFrameIndex: -1,
+      renderedPlaybackTimeSec: null,
+      fps: FPS,
+    })).toBe(1);
+    expect(resolveExportVideoFrameBudget({
+      expectedVideoFrames: 600,
+      forceToEnd: false,
+      renderedFrameIndex: Number.NaN,
+      renderedPlaybackTimeSec: null,
+      fps: FPS,
+    })).toBe(1);
+  });
+
+  it('【Issue #215 回帰】rAF が 30fps を割り込んでも映像が早期に総フレーム数へ到達しない', () => {
+    // 20 秒 / 30fps = 600 フレームのプロジェクト。
+    // render loop は rAF 上で 20fps しか回らないが、壁時計は 30fps 相当で進む。
+    const expectedVideoFrames = 600;
+    const totalDurationSec = 20;
+    const renderedFps = 20;
+
+    let submittedFrames = 0;
+    let renderedFrameIndex: number | null = null;
+
+    // 壁時計が総尺に達するまでの各ポーリングをシミュレートする。
+    for (let tickMs = 0; tickMs < totalDurationSec * 1000; tickMs += 16) {
+      const wallClockSec = tickMs / 1000;
+      // render loop は 20fps でしか描画できない。
+      const drawn = Math.floor(wallClockSec * renderedFps);
+      renderedFrameIndex = drawn > 0 ? Math.min(drawn - 1, expectedVideoFrames - 1) : null;
+
+      const budget = resolveExportVideoFrameBudget({
+        expectedVideoFrames,
+        forceToEnd: false,
+        renderedFrameIndex,
+        renderedPlaybackTimeSec: null,
+        fps: FPS,
+      });
+      submittedFrames = Math.max(submittedFrames, Math.min(budget ?? 0, expectedVideoFrames));
+    }
+
+    // 壁時計基準の旧実装なら 600 フレームへ到達し、残り区間が黒画面になっていた。
+    // 描画実績基準では描けた分（20fps × 約20秒 ≒ 399 フレーム）までしか投入しない。
+    expect(submittedFrames).toBeLessThan(expectedVideoFrames);
+    expect(submittedFrames).toBe(399);
+
+    // 終端では forceToEnd で総尺へ揃うため、出力尺は 20 秒のまま維持される。
+    expect(resolveExportVideoFrameBudget({
+      expectedVideoFrames,
+      forceToEnd: true,
+      renderedFrameIndex,
+      renderedPlaybackTimeSec: null,
+      fps: FPS,
+    })).toBe(expectedVideoFrames);
   });
 });
 

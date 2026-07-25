@@ -2716,3 +2716,43 @@ export 終了（成功/失敗/中断）
   - MediaRecorder のみの経路（稀）では covr 注入は WebCodecs finalize 側と同等に揃えること。
   - 回帰時は「UI だけ直して export に載せない」再発を疑う（13-145 の責務分離と本項をセットで読む）。
 
+
+### 13-147. エクスポートで映像だけが早く終了して黒画面になる＝フレーム投入を「描画実績」へ同期（Issue #215）
+
+- **ファイル**: `src/utils/exportTimeline.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/hooks/export-strategies/types.ts`, `src/test/exportTimeline.test.ts`
+- **症状**: プレビュー 20 秒のプロジェクトを書き出すと、出力ファイルの尺は 20 秒なのに**映像だけ約 17 秒で終わって黒画面**になり、ナレーションだけが最後まで続く。映像が早送りされたように見える。毎回は再現せず、**初回書き出しで出やすい／再書き出しすると直る**。
+- **原因（standard / Canvas 直接キャプチャ経路）**:
+  - export の描画は render loop（`requestAnimationFrame`）上で走るが、映像フレームの投入上限 `getTargetVideoFrameCount()` は**壁時計由来のタイムライン時刻**から `floor(t * FPS) + 1` で算出していた。
+  - 1080p や初回書き出し（デコード未ウォーム・JIT / GPU パイプライン未最適化）では rAF が 30fps を割り込む。壁時計は減速しないため「時刻は 17s まで進んだ＝510 フレーム投入してよい」と判断され、**実際には描かれていない時刻の分まで同じ Canvas を複製投入**する。
+  - 結果、映像トラックだけが `expectedVideoFrames` へ早く到達してループが `break` し、以降は映像が無いまま（黒画面）、オフラインでプリレンダリング済みの音声だけが総尺まで流れる。音声は rAF に依存しないため尺が縮まない＝AV ズレとして観測される。
+  - 再書き出しで直るのは、2 回目以降はデコードキャッシュ（`audioDecodeCache`）とパイプラインが温まり rAF が 30fps を維持できるため。
+- **対策**:
+  - `resolveExportVideoFrameBudget()`（純ロジック）を追加し、投入上限を**「render loop が実際に描画したフレーム番号 + 1」**に固定する。描画が遅れれば投入も遅れ、映像時刻と出力フレームが 1:1 で対応する。
+  - render loop 側は `renderFrame()` 実行直後に `exportRenderedFrameIndexRef` へ描画済みフレーム番号を記録し、`ExportAudioSources.getRenderedVideoFrameIndex` で export へ公開する。
+  - 終端は従来どおり `forceToEnd`（`completionRequested`）で総フレーム数まで一括許可し、**出力尺は総尺のまま維持**する（映像を短くしない）。
+  - 描画実績が取れない場合のみ描画済み時刻から換算し、まだ 1 フレームも描いていない間は先頭フレームだけを許可する。
+- **注意**:
+  - 投入上限を再び「壁時計時刻」基準へ戻さない。壁時計は rAF の遅延を吸収しないため本不具合が再発する。
+  - `forceToEnd` の末尾補完は尺合わせの生命線。ここを削ると今度は**出力尺自体**が短くなる。
+  - 静止画のみのフレーム駆動ペーシング（13 系 / `shouldUseFrameDrivenExportPacing`）とは別経路。あちらは投入数がタイムラインを駆動する逆向きの関係なので混同しない。
+  - `videoCaptureStartedAtMs` による壁時計フォールバックは standard / apple-safari とも本対応で廃止済み。復活させないこと。
+  - **standard と apple-safari の両フレーバーに同一の欠陥があったため両方修正している**（`useManualCanvasFrames = true` で同じ Canvas 直接キャプチャ経路を通る）。片方だけ直すと iOS 側で再発する。standard は描画フレーム番号を、apple-safari は描画済み時刻をフレーム番号へ換算して報告する。
+  - 実機確認は未実施（PC / スマートフォン、動画1本・複数動画・動画+画像、ナレーション/BGM 有無の組み合わせ）。
+
+### 13-148. 【未対応・調査済み】エクスポート動画が「一瞬詰まって→飛ぶ」＝壁時計タイムライン + 同一Canvasの重複投入
+
+- **ファイル（原因箇所）**: `src/flavors/standard/preview/usePreviewEngine.ts`（`exportFrameIndex` の算出）, `src/flavors/standard/export/exportEngine.ts`（`processVideoWithCanvasFrames` の burst ループ）
+- **症状（ユーザー報告 2026-07-25）**: エクスポートした動画が、度々**一瞬詰まったように止まってから飛ぶように早送り**になる。全体の再生時間には大きく影響しない。Issue #215（映像が早く終わり黒画面）とは**別現象**。
+- **メカニズム（2 つが同時に起きる）**:
+  1. **content jump（飛び）**: export の render loop は `exportFrameIndex = floor(clampedElapsed * FPS)` と**壁時計**でタイムライン位置を決める。rAF が GC / デコードで 150ms 止まると、壁時計は 4〜5 フレーム進むため、render loop はその間のタイムライン位置を**まるごと描かずに飛ばす**。
+  2. **freeze（詰まり）**: `processVideoWithCanvasFrames` の burst ループ（`for (let i = 0; i < framesToEncode; i++)`）は**同期ループで、途中に await が無い**ため render loop が割り込めない。`createExportVideoFrame(canvas, ...)` は都度 Canvas をスナップショットするが、中身は変わらないので**バイト同一のフレームが連番タイムスタンプで複数枚**出力される。
+  - つまり「同じ絵が N 枚（詰まり）→ 内容が N フレーム分ワープ（早送り）」となる。総フレーム数は `expectedVideoFrames` に一致するため**尺は変わらない**（報告と一致）。
+- **シミュレーション実測（20秒/30fps、120フレームごとに150msストール）**:
+  - 現状（壁時計）: content jump 9 回 / 最大ギャップ 5 フレーム / 重複バースト 9 回（最大 5 枚）
+  - フレーム数駆動（`submittedFrameCount / FPS`）へ変更した場合: jump 0 回・重複 0 枚（600/600 フレームは維持）
+- **burst 上限に注意**: `resolveExportCanvasFrameBurstCount` の上限は encoder queue の空き＝最大 `VIDEO_ENCODE_QUEUE_HARD_LIMIT`(90) で、理論上 **1 バーストで 3 秒分の同一フレーム**が出得る。
+- **対応方針の候補と制約**:
+  - 本命は「タイムライン時刻をフレーム数駆動へ寄せる」（`resolveFrameDrivenExportTimeSec` は既に存在するが `shouldUseFrameDrivenExportPacing` で**静止画のみ**に限定されている）。
+  - ただし `export-quality-regression-2026-03-27.md` に、**動画で描画済み時刻ベース pacing を採用したらカクつきが悪化して差し戻した**履歴がある（`holdFrame` 発生時に export 時刻が止まるため）。同じ轍を踏まないこと。
+  - 代替案として「描画が進んでいない間は新規フレームを投入しない（重複投入だけ抑制）」もあるが、これは詰まりのみ緩和し content jump は残る**部分対策**。
+- **現状の判断（2026-07-25）**: Issue #215 の修正で投入上限が「描画実績 + 1」になり、壁時計先行による大量重複は構造的に減っている。**まず #215 を実機確認し、この吃音がどの程度残るかを測ってから**次の手を決める（複数変更の同時投入は 2026-03-27 の切り分け困難を再来させるため避ける）。

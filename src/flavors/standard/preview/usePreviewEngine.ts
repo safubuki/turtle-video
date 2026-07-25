@@ -1061,6 +1061,8 @@ export function usePreviewEngine({
   const activePreviewModeRef = useRef<PreviewEngineMode>('idle');
   const currentExportSessionIdRef = useRef<string | null>(null);
   const frameDrivenExportEnabledRef = useRef(false);
+  // 【Issue #215】export の render loop が実際に描画した最後のフレーム番号（未描画は null）。
+  const exportRenderedFrameIndexRef = useRef<number | null>(null);
   const frameDrivenExportSubmittedCountRef = useRef(0);
   const frameDrivenExportLastRenderedCountRef = useRef<number | null>(null);
   // フレーム駆動ウォッチドッグ: 投入数が進まないまま停滞したら壁時計へフォールバックする。
@@ -3654,6 +3656,7 @@ export function usePreviewEngine({
   const stopAll = useCallback(() => {
     currentExportSessionIdRef.current = null;
     frameDrivenExportEnabledRef.current = false;
+    exportRenderedFrameIndexRef.current = null;
     frameDrivenExportSubmittedCountRef.current = 0;
     frameDrivenExportLastRenderedCountRef.current = null;
     frameDrivenExportStallObservedCountRef.current = 0;
@@ -4621,6 +4624,12 @@ export function usePreviewEngine({
       }
 
       renderFrame(renderTimeSec, true, isExportMode);
+      // 【Issue #215】実際に描画できたフレーム番号を export へ公開する。
+      // export のフレーム投入はこの実績に同期させ、rAF が 30fps を割り込んだときに
+      // 未描画時刻のフレームまで複製投入して映像だけ早く終わるのを防ぐ。
+      if (isExportMode && exportFrameIndex !== null) {
+        exportRenderedFrameIndexRef.current = exportFrameIndex;
+      }
       if (useFrameDrivenExportTime) {
         frameDrivenExportLastRenderedCountRef.current = submittedFrameCount;
       }
@@ -4783,6 +4792,7 @@ export function usePreviewEngine({
           fromTimeSec: fromTime,
           mediaItemTypes: mediaItemsRef.current.map((item) => item.type),
         });
+        exportRenderedFrameIndexRef.current = null;
         frameDrivenExportSubmittedCountRef.current = 0;
         frameDrivenExportLastRenderedCountRef.current = null;
         frameDrivenExportStallObservedCountRef.current = 0;
@@ -5458,6 +5468,8 @@ export function usePreviewEngine({
             narrations: narrationsRef.current,
             totalDuration: totalDurationRef.current,
             getPlaybackTimeSec: () => currentTimeRef.current,
+            // 【Issue #215】実描画済みフレーム番号を返し、映像フレームの投入を描画実績へ同期させる。
+            getRenderedVideoFrameIndex: () => exportRenderedFrameIndexRef.current,
             // プロジェクトポスター → MP4 cover art / 先頭キーフレーム（動画サムネイルの標準手法）
             coverArtJpegDataUrl: useMediaStore.getState().projectPosterDataUrl,
             onVideoFrameSubmitted: (submittedFrameCount) => {
@@ -5470,6 +5482,8 @@ export function usePreviewEngine({
             },
             onPreparationStepChange: setExportPreparationStep,
             onAudioPreRenderComplete: () => {
+              // 【Issue #215】実描画実績は loop 開始時点から数え直す。
+              exportRenderedFrameIndexRef.current = null;
               frameDrivenExportSubmittedCountRef.current = 0;
               frameDrivenExportLastRenderedCountRef.current = null;
               // ウォッチドッグの停滞計測は実際の映像ループ開始時刻から始める。
