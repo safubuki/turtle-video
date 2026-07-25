@@ -29,6 +29,17 @@ export function isCaptionActiveAtTime(caption: Caption, timeSec: number): boolea
   return timeSec >= caption.startTime && timeSec < caption.endTime;
 }
 
+/**
+ * 「現在位置に先頭を合わせる」で表示・適用する整列先の時刻（秒）を求める。
+ *
+ * 0 未満へは丸めず、0.1 秒刻みへ量子化する。非有限値は 0 とする。
+ * 【Issue #216】エクスポート中の凍結表示でも同じ量子化を使うため純関数として切り出す。
+ */
+export function resolveShiftAlignmentTarget(currentTimeSec: number): number {
+  if (!Number.isFinite(currentTimeSec)) return 0;
+  return Math.max(0, Math.round(currentTimeSec * 10) / 10);
+}
+
 /** 時分割表示の対象行へ分割する（空行は除去）。1 行以下なら時分割しない */
 export function splitSequentialCaptionLines(text: string): string[] {
   return text

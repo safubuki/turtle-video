@@ -56,6 +56,7 @@ import {
   clampCustomFontSize,
   clampPositionPercent,
 } from '../../utils/captionStyle';
+import { resolveShiftAlignmentTarget } from '../../utils/captionTimeline';
 import CaptionBulkAddModal, { type BulkCaptionApplyItem } from '../modals/CaptionBulkAddModal';
 import CaptionColorField from '../common/CaptionColorField';
 
@@ -65,6 +66,13 @@ interface CaptionSectionProps {
   isLocked: boolean;
   totalDuration: number;
   currentTime: number;
+  /**
+   * エクスポート（動画ファイル作成）中かどうか。
+   * 【Issue #216】エクスポート中は currentTime がフレームごとに更新されるため、
+   * 「現在位置に先頭を合わせる」の時刻表示が細かく切り替わってチラつく。
+   * true の間は表示を消さず、エクスポート開始直前の値を保持する。
+   */
+  isExporting?: boolean;
   onToggleLock: () => void;
   onAddCaption: (text: string, startTime: number, endTime: number) => void;
   onUpdateCaption: (id: string, updates: Partial<Omit<Caption, 'id'>>) => void;
@@ -108,6 +116,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   isLocked,
   totalDuration,
   currentTime,
+  isExporting = false,
   onToggleLock,
   onAddCaption,
   onUpdateCaption,
@@ -189,9 +198,17 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   const normalizedShiftFromIndex =
     shiftFromIndex >= 0 && shiftFromIndex < captions.length ? shiftFromIndex : 0;
   const shiftAnchorCaption = captions[normalizedShiftFromIndex];
-  const shiftAlignmentTarget = Number.isFinite(currentTime)
-    ? Math.max(0, Math.round(currentTime * 10) / 10)
-    : 0;
+  const liveShiftAlignmentTarget = resolveShiftAlignmentTarget(currentTime);
+  // 【Issue #216】エクスポート中は表示を凍結する。
+  // 開始直前の値を ref に保持し、エクスポート終了・中断・失敗のいずれでも
+  // isExporting が false に戻れば自動的にライブ更新へ復帰する。
+  const frozenShiftAlignmentTargetRef = useRef(liveShiftAlignmentTarget);
+  if (!isExporting) {
+    frozenShiftAlignmentTargetRef.current = liveShiftAlignmentTarget;
+  }
+  const shiftAlignmentTarget = isExporting
+    ? frozenShiftAlignmentTargetRef.current
+    : liveShiftAlignmentTarget;
   const shiftAlignmentDelta = shiftAnchorCaption
     ? Math.round((shiftAlignmentTarget - shiftAnchorCaption.startTime) * 10) / 10
     : 0;

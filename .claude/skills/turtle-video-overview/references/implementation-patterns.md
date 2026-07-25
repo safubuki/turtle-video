@@ -2756,3 +2756,18 @@ export 終了（成功/失敗/中断）
   - ただし `export-quality-regression-2026-03-27.md` に、**動画で描画済み時刻ベース pacing を採用したらカクつきが悪化して差し戻した**履歴がある（`holdFrame` 発生時に export 時刻が止まるため）。同じ轍を踏まないこと。
   - 代替案として「描画が進んでいない間は新規フレームを投入しない（重複投入だけ抑制）」もあるが、これは詰まりのみ緩和し content jump は残る**部分対策**。
 - **現状の判断（2026-07-25）**: Issue #215 の修正で投入上限が「描画実績 + 1」になり、壁時計先行による大量重複は構造的に減っている。**まず #215 を実機確認し、この吃音がどの程度残るかを測ってから**次の手を決める（複数変更の同時投入は 2026-03-27 の切り分け困難を再来させるため避ける）。
+
+### 13-149. エクスポート中は「現在位置に先頭を合わせる」の時刻表示を凍結する（Issue #216）
+
+- **ファイル**: `src/utils/captionTimeline.ts`, `src/components/sections/CaptionSection.tsx`, `src/components/TurtleVideo.tsx`, `src/test/captionTimeline.test.ts`, `src/test/captionStyleControls.test.tsx`
+- **問題**: 「キャプションの時間をまとめてずらす」内の「現在位置（0:08.3）に先頭を合わせる」表示は `currentTime` を 0.1 秒刻みで表示する。エクスポート中は render loop が `currentTime` をフレームごとに更新するため、表示が細かく切り替わってチラつき内容を確認しづらい。
+- **対策**:
+  - `resolveShiftAlignmentTarget()` を `captionTimeline.ts` へ純関数として切り出す（0.1 秒量子化・負値と非有限値は 0）。表示と適用で同じ値を使う。
+  - `CaptionSection` に任意 prop `isExporting` を追加。`isExporting === false` のときだけ ref へ最新値を書き込み、`true` の間は ref の値を表示する。**表示項目は消さず、エクスポート開始直前の値を維持**する。
+  - `TurtleVideo` から `isExporting={isProcessing}`（`useUIStore` の `isProcessing`）を渡す。
+- **なぜ ref か**: `isProcessing` は完了・中断・失敗のすべての経路で `false` へ戻る（export callback / `stopExport` / エラー経路）ため、**復帰処理を個別に書かなくても自動でライブ更新へ戻る**。追加の state や effect を持たないので、凍結解除の取りこぼしが構造的に起きない。
+- **注意**:
+  - 凍結するのは**この整列表示だけ**。タイミング打ち（`stampNow`）、キャプション追加時の開始位置、`CaptionItem` / `CaptionBulkAddModal` へ渡す `currentTime` は従来どおりライブ値を使う（エクスポート中はそもそも操作しないが、prop を一括で凍結すると通常操作に波及する）。
+  - `useEffect` の依存にある `shiftAlignmentTarget` も凍結値になるため、エクスポート中は `shiftAlignmentFeedback` の不要なクリアが走らない（意図どおり）。
+  - `isExporting` は任意 prop（既定 `false`）。既存テストや他の呼び出し元へ影響しない。
+- **テスト**: 凍結・非消失・終了後の復帰・通常プレビュー時の更新・一括移動機能の維持を `captionStyleControls.test.tsx` で網羅。修正を戻すと 3 件が落ちることを確認済み（回帰検知が効く）。

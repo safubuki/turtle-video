@@ -2780,6 +2780,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               isLocked={isCaptionLocked}
               totalDuration={totalDuration}
               currentTime={currentTime}
+              // 【Issue #216】エクスポート中は「現在位置に先頭を合わせる」の時刻表示を凍結する
+              isExporting={isProcessing}
               onToggleLock={withPreviewPause('toggle-caption-lock', toggleCaptionLock)}
               onAddCaption={withPreviewPause('add-caption', addCaption)}
               onUpdateCaption={withPreviewPause('update-caption', updateCaption)}

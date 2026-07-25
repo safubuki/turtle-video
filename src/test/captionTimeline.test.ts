@@ -10,6 +10,7 @@ import {
   resolveCaptionDisplaySegment,
   resolveCaptionDisplayText,
   resolveSequentialCaptionSegments,
+  resolveShiftAlignmentTarget,
   splitSequentialCaptionLines,
 } from '../utils/captionTimeline';
 import type { Caption } from '../types';
@@ -32,6 +33,23 @@ describe('isCaptionActiveAtTime', () => {
     expect(isCaptionActiveAtTime(caption, 2)).toBe(true);
     expect(isCaptionActiveAtTime(caption, 4.99)).toBe(true);
     expect(isCaptionActiveAtTime(caption, 5)).toBe(false);
+  });
+});
+
+describe('resolveShiftAlignmentTarget', () => {
+  it('0.1 秒刻みへ量子化する', () => {
+    expect(resolveShiftAlignmentTarget(8.34)).toBe(8.3);
+    expect(resolveShiftAlignmentTarget(8.35)).toBe(8.4);
+    expect(resolveShiftAlignmentTarget(0)).toBe(0);
+  });
+
+  it('負値は 0 に丸める', () => {
+    expect(resolveShiftAlignmentTarget(-1.5)).toBe(0);
+  });
+
+  it('非有限値は 0 とする', () => {
+    expect(resolveShiftAlignmentTarget(Number.NaN)).toBe(0);
+    expect(resolveShiftAlignmentTarget(Number.POSITIVE_INFINITY)).toBe(0);
   });
 });
 

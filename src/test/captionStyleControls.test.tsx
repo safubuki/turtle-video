@@ -203,4 +203,126 @@ describe('CaptionSection bulk timing alignment', () => {
 
     expect(props.onShiftCaptions).toHaveBeenCalledWith(1, 0);
   });
+
+  // 【Issue #216】エクスポート中の現在位置表示の凍結
+  describe('エクスポート中の現在位置表示（Issue #216）', () => {
+    const buildProps = (
+      overrides: Partial<ComponentProps<typeof CaptionSection>>
+    ): ComponentProps<typeof CaptionSection> => ({
+      captions,
+      settings: {
+        enabled: true,
+        fontSize: 'medium',
+        fontStyle: 'gothic',
+        fontColor: '#FFFFFF',
+        strokeColor: '#000000',
+        strokeWidth: 2,
+        position: 'bottom',
+        blur: 0,
+        bulkFadeIn: false,
+        bulkFadeOut: false,
+        bulkFadeInDuration: 0.5,
+        bulkFadeOutDuration: 0.5,
+      },
+      isLocked: false,
+      totalDuration: 20,
+      currentTime: 3,
+      onToggleLock: vi.fn(),
+      onAddCaption: vi.fn(),
+      onUpdateCaption: vi.fn(),
+      onRemoveCaption: vi.fn(),
+      onMoveCaption: vi.fn(),
+      onSetEnabled: vi.fn(),
+      onSetFontSize: vi.fn(),
+      onSetFontStyle: vi.fn(),
+      onSetFontColor: vi.fn(),
+      onSetStrokeColor: vi.fn(),
+      onSetStrokeWidth: vi.fn(),
+      onSetPosition: vi.fn(),
+      onSetBlur: vi.fn(),
+      onSetFontSizeCustom: vi.fn(),
+      onSetPositionCustom: vi.fn(),
+      onSetBulkFadeIn: vi.fn(),
+      onSetBulkFadeOut: vi.fn(),
+      onSetBulkFadeInDuration: vi.fn(),
+      onSetBulkFadeOutDuration: vi.fn(),
+      onOpenHelp: vi.fn(),
+      formatTime: (seconds: number) => `${seconds.toFixed(1)}s`,
+      onApplyCaptions: vi.fn(),
+      onShiftCaptions: vi.fn(),
+      isPlaying: false,
+      onTogglePlay: vi.fn(),
+      onSeekBy: vi.fn(),
+      onUpdateCaptionLive: vi.fn(),
+      ...overrides,
+    });
+
+    it('エクスポート中は currentTime が進んでも表示を更新しない', () => {
+      const props = buildProps({ currentTime: 3, isExporting: false });
+      const { rerender } = render(<CaptionSection {...props} />);
+      expect(
+        screen.getByRole('button', { name: '現在位置（0:03.0）に先頭を合わせる' })
+      ).toBeInTheDocument();
+
+      // エクスポート開始（開始直前の値 3.0 を維持する）
+      rerender(<CaptionSection {...buildProps({ currentTime: 3, isExporting: true })} />);
+      // エクスポート中に再生位置が進んでも表示は 0:03.0 のまま
+      rerender(<CaptionSection {...buildProps({ currentTime: 12.7, isExporting: true })} />);
+
+      expect(
+        screen.getByRole('button', { name: '現在位置（0:03.0）に先頭を合わせる' })
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: '現在位置（0:12.7）に先頭を合わせる' })
+      ).not.toBeInTheDocument();
+    });
+
+    it('エクスポート中も表示項目自体は消えない', () => {
+      const { rerender } = render(
+        <CaptionSection {...buildProps({ currentTime: 3, isExporting: false })} />
+      );
+      rerender(<CaptionSection {...buildProps({ currentTime: 9.9, isExporting: true })} />);
+
+      expect(screen.getByText('対象の先頭 0:02.0 → 0:03.0（+1.0秒）')).toBeInTheDocument();
+    });
+
+    it('エクスポート終了後は現在位置との連動が再開する', () => {
+      const { rerender } = render(
+        <CaptionSection {...buildProps({ currentTime: 3, isExporting: false })} />
+      );
+      rerender(<CaptionSection {...buildProps({ currentTime: 12.7, isExporting: true })} />);
+      // 完了・中断・失敗のいずれでも isExporting が false へ戻る
+      rerender(<CaptionSection {...buildProps({ currentTime: 12.7, isExporting: false })} />);
+
+      expect(
+        screen.getByRole('button', { name: '現在位置（0:12.7）に先頭を合わせる' })
+      ).toBeInTheDocument();
+    });
+
+    it('通常のプレビュー中（非エクスポート）は従来どおり更新される', () => {
+      const { rerender } = render(
+        <CaptionSection {...buildProps({ currentTime: 3, isExporting: false })} />
+      );
+      rerender(<CaptionSection {...buildProps({ currentTime: 6.5, isExporting: false })} />);
+
+      expect(
+        screen.getByRole('button', { name: '現在位置（0:06.5）に先頭を合わせる' })
+      ).toBeInTheDocument();
+    });
+
+    it('エクスポート中でも一括時間移動の適用そのものは動作する', () => {
+      const props = buildProps({ currentTime: 3, isExporting: false });
+      const { rerender } = render(<CaptionSection {...props} />);
+      const exportingProps = buildProps({
+        currentTime: 12.7,
+        isExporting: true,
+        onShiftCaptions: props.onShiftCaptions,
+      });
+      rerender(<CaptionSection {...exportingProps} />);
+
+      // 凍結された表示値（3.0）を基準に適用される
+      fireEvent.click(screen.getByRole('button', { name: '現在位置（0:03.0）に先頭を合わせる' }));
+      expect(exportingProps.onShiftCaptions).toHaveBeenCalledWith(1, 0);
+    });
+  });
 });
