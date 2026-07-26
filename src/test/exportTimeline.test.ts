@@ -257,21 +257,11 @@ describe('shouldUseFrameDrivenExportPacing', () => {
     })).toBe(true);
   });
 
-  it('【回帰】動画を含むタイムラインは壁時計のままにする', () => {
-    // フレーム駆動はタイムラインを実時間から切り離すが、<video> は実時間で
-    // 再生され続けるため、rAF が遅れると currentTime が targetTime を追い越し、
-    // 同期補正のシークで巻き戻る → 再バッファで投入が止まる、の悪循環になる。
-    // 実機では「数秒単位で進んだり戻ったりする」出力になった（2026-07-27）。
+  it('keeps video timelines on the existing wall-clock path', () => {
     expect(shouldUseFrameDrivenExportPacing({
       isExportMode: true,
       fromTimeSec: 0,
       mediaItemTypes: ['image', 'video'],
-    })).toBe(false);
-
-    expect(shouldUseFrameDrivenExportPacing({
-      isExportMode: true,
-      fromTimeSec: 0,
-      mediaItemTypes: ['video'],
     })).toBe(false);
   });
 
@@ -574,4 +564,3 @@ describe('isCaptionActiveAtTime', () => {
     expect(isCaptionActiveAtTime(caption, atEnd)).toBe(false);
   });
 });
-

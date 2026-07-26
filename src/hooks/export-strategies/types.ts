@@ -1,6 +1,7 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import type { AudioTrack, MediaItem, NarrationClip } from '../../types';
 import type { MediaRecorderProfile, PlatformCapabilities } from '../../utils/platform';
+import type { ExportFrameProfileSummary } from '../../utils/exportFrameProfiler';
 
 export type ExportStrategyId = 'ios-safari-mediarecorder' | 'webcodecs-mp4';
 export const EXPORT_PREPARATION_STEP_ORDER = [
@@ -88,22 +89,6 @@ export interface ExportAudioSources {
    */
   getRenderedVideoFrameIndex?: () => number | null;
   /**
-   * render loop が「1 フレーム描き終えた直後」に呼ばれるコールバックを登録する。
-   *
-   * 【なぜ必要か（2026-07-27）】Canvas 直接キャプチャは 16ms タイマーで Canvas を
-   * ポーリングしていたが、このタイマーは rAF と非同期に回る。そのため
-   * 「フレーム N の枠」へ投入するときに Canvas 上にあるのが本当に N の絵とは限らず、
-   * render loop が既に先へ進んだ後の絵や、同じ絵を複数回掴むことが起きていた。
-   * 投入**枚数**は `getRenderedVideoFrameIndex` で正しく制限できても、
-   * 投入する**中身**はこれでは保証できない（これが「映像が早送り／進んだり戻ったり」の正体）。
-   *
-   * 描画直後に同期的に捕まえることで、フレーム番号と絵が 1:1 で対応する。
-   * 登録解除用の関数を返す。
-   */
-  setRenderedFrameSink?: (
-    sink: ((frameIndex: number) => void) | null,
-  ) => void;
-  /**
    * render loop の描画実績を返す（Issue #215 の再発調査用の計測）。
    *
    * 完了時のフレーム総数はどの異常経路でも一致してしまうため、
@@ -113,26 +98,28 @@ export interface ExportAudioSources {
   getRenderedFrameStats?: () => {
     /** 実際に描かれた相異なるフレーム番号の数 */
     distinctRenderedFrames: number;
-    /**
-     * 実際に描画が走った回数。番号が連番でも 1 回の rAF で複数フレームぶん
-     * 時刻が進めば描画回数はそのぶん少なくなる（＝残りは複製投入）。
-     */
-    renderCallCount?: number;
     /** 最後に描いたフレーム番号（未描画なら null） */
     lastRenderedFrameIndex: number | null;
     /** 描画が連番で進まなかった回数（＝描画が飛んだ回数） */
     renderSkipCount: number;
     /** 一度も描かれなかったフレームの総数 */
     skippedFrames: number;
-    /** フレーム駆動ペーシングで進んだ rAF ティック数 */
-    frameDrivenTicks?: number;
     /**
-     * 壁時計ペーシングで進んだ rAF ティック数。
-     * フレーム駆動が有効なはずなのにここが大きい場合は、
-     * ウォッチドッグが停滞を検出して壁時計へフォールバックしている。
+     * 実際に描画が走った回数。番号が連番でも 1 回の rAF で複数フレームぶん
+     * 時刻が進めば描画回数はそのぶん少なくなる（＝残りは複製投入）。
      */
-    wallClockTicks?: number;
+    renderCallCount?: number;
   };
+  /**
+   * エクスポート 1 フレームの内訳（描画 / エンコード / その他）の実測値を返す。
+   * 「プレビューは滑らかなのに書き出しだけ 20fps へ落ちる」原因の切り分けに使う。
+   */
+  getFrameProfile?: () => ExportFrameProfileSummary;
+  /**
+   * VideoEncoder への投入時間の計測を開始する。戻り値を呼ぶと終了として集計される。
+   * 描画側（render loop）と同じプロファイラへ積算される。
+   */
+  beginEncodeMeasure?: () => () => void;
   /**
    * VideoEncoder へ正常投入した映像フレーム数を通知する。
    * 静止画のみの standard export で、各 Canvas 描画とエンコード投入を1対1に同期するために使う。

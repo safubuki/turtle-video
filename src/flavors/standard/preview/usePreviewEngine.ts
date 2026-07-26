@@ -51,6 +51,7 @@ import {
   evaluateFrameDrivenExportStall,
 } from '../../../utils/exportTimeline';
 import { createRenderedFrameTracker } from '../../../utils/exportDiagnostics';
+import { createExportFrameProfiler } from '../../../utils/exportFrameProfiler';
 import { resolveMediaBaseScale } from '../../../stores/canvasStore';
 import {
   normalizeRotation,
@@ -1078,11 +1079,9 @@ export function usePreviewEngine({
   // 【#215 再発調査】実際に描かれた「相異なる」フレーム番号を数える。
   // 投入数との差が「同じ画の複製投入」＝映像が止まって見える量になる。
   const exportRenderedFrameTrackerRef = useRef(createRenderedFrameTracker());
-  // フレーム駆動ペーシングが実際に使われた rAF ティック数（診断用）。
-  const exportFrameDrivenTickStatsRef = useRef({ frameDrivenTicks: 0, wallClockTicks: 0 });
-  // 描画直後にフレームを捕まえるシンク（export が登録する）。
-  // ポーリングでは Canvas 上の絵とフレーム番号がずれるため、描画と同期して投入する。
-  const exportRenderedFrameSinkRef = useRef<((frameIndex: number) => void) | null>(null);
+  // エクスポート 1 フレームの内訳（描画 / エンコード / その他）を実測する。
+  // 「プレビューは滑らかなのに書き出しだけ遅い」原因を数字で切り分けるため。
+  const exportFrameProfilerRef = useRef(createExportFrameProfiler(() => getStandardPreviewNow()));
   const frameDrivenExportSubmittedCountRef = useRef(0);
   const frameDrivenExportLastRenderedCountRef = useRef<number | null>(null);
   // フレーム駆動ウォッチドッグ: 投入数が進まないまま停滞したら壁時計へフォールバックする。
@@ -3685,9 +3684,6 @@ export function usePreviewEngine({
   const stopAll = useCallback(() => {
     currentExportSessionIdRef.current = null;
     frameDrivenExportEnabledRef.current = false;
-    // 停止時にシンクを外す。残しておくと次のセッションの render loop が
-    // 前回の export へフレームを投入してしまう。
-    exportRenderedFrameSinkRef.current = null;
     exportRenderedFrameIndexRef.current = null;
     frameDrivenExportSubmittedCountRef.current = 0;
     frameDrivenExportLastRenderedCountRef.current = null;
@@ -4022,6 +4018,10 @@ export function usePreviewEngine({
         frameGapMs = now - diagnostics.lastRafNowMs;
       }
       diagnostics.lastRafNowMs = now;
+      if (isExportMode) {
+        // rAF が実際にどの間隔で回っているかを記録する。
+        exportFrameProfilerRef.current.noteTick(now);
+      }
       const submittedFrameCount = frameDrivenExportSubmittedCountRef.current;
 
       // フレーム駆動ウォッチドッグ: VideoEncoder への投入が一定時間進まない場合は
@@ -4058,14 +4058,6 @@ export function usePreviewEngine({
         isExportMode
         && frameDrivenExportEnabledRef.current
         && !frameDrivenExportForcedWallClockRef.current;
-      if (isExportMode) {
-        // フレーム駆動が実際に効いているかを記録する（完了時の診断で使う）。
-        if (useFrameDrivenExportTime) {
-          exportFrameDrivenTickStatsRef.current.frameDrivenTicks += 1;
-        } else {
-          exportFrameDrivenTickStatsRef.current.wallClockTicks += 1;
-        }
-      }
       const elapsed = resolveFrameDrivenExportTimeSec({
         wallClockTimeSec: (now - startTimeRef.current) / 1000,
         submittedFrameCount,
@@ -4663,7 +4655,12 @@ export function usePreviewEngine({
         }
       }
 
+      // 描画時間を実測する（エクスポート時のみ。プレビューには影響させない）。
+      const endDrawMeasure = isExportMode
+        ? exportFrameProfilerRef.current.begin('draw')
+        : null;
       renderFrame(renderTimeSec, true, isExportMode);
+      endDrawMeasure?.();
       // 【Issue #215】実際に描画できたフレーム番号を export へ公開する。
       // export のフレーム投入はこの実績に同期させ、rAF が 30fps を割り込んだときに
       // 未描画時刻のフレームまで複製投入して映像だけ早く終わるのを防ぐ。
@@ -4671,10 +4668,6 @@ export function usePreviewEngine({
         exportRenderedFrameIndexRef.current = exportFrameIndex;
         // 【#215 再発調査】描いたフレーム番号を記録する（重複・飛びをここで検出する）。
         exportRenderedFrameTrackerRef.current.note(exportFrameIndex);
-        // 描き終えた直後に、その絵のまま VideoEncoder へ投入する。
-        // ここを 16ms タイマーのポーリングに任せると、投入時点の Canvas が
-        // 別時刻の絵になっていて映像が乱れる（2026-07-27 に実機で確認）。
-        exportRenderedFrameSinkRef.current?.(exportFrameIndex);
       }
       if (useFrameDrivenExportTime) {
         frameDrivenExportLastRenderedCountRef.current = submittedFrameCount;
@@ -5516,26 +5509,23 @@ export function usePreviewEngine({
             getPlaybackTimeSec: () => currentTimeRef.current,
             // 【Issue #215】実描画済みフレーム番号を返し、映像フレームの投入を描画実績へ同期させる。
             getRenderedVideoFrameIndex: () => exportRenderedFrameIndexRef.current,
-            // 描画直後にフレームを捕まえるシンクの登録口（ポーリングずれ対策）。
-            setRenderedFrameSink: (sink) => {
-              exportRenderedFrameSinkRef.current = sink;
-            },
             // 【#215 再発調査】完了時の原因切り分け用。実際に描けた枚数と飛んだ枚数を返す。
             getRenderedFrameStats: () => {
               const tracker = exportRenderedFrameTrackerRef.current;
-              const tickStats = exportFrameDrivenTickStatsRef.current;
               return {
                 distinctRenderedFrames: tracker.getDistinctCount(),
                 renderCallCount: tracker.getRenderCallCount(),
                 lastRenderedFrameIndex: tracker.getLastIndex(),
                 renderSkipCount: tracker.getSkipCount(),
                 skippedFrames: tracker.getSkippedFrames(),
-                // フレーム駆動が実際に効いたティック数。wallClockTicks が多いなら
-                // ウォッチドッグで壁時計へフォールバックしている（＝停滞が起きている）。
-                frameDrivenTicks: tickStats.frameDrivenTicks,
-                wallClockTicks: tickStats.wallClockTicks,
               };
             },
+            // 1 フレームの内訳（描画 / エンコード / その他）を実測して返す。
+            // 「プレビューは滑らかなのに書き出しだけ遅い」原因の切り分けに使う。
+            getFrameProfile: () =>
+              exportFrameProfilerRef.current.summarize(getStandardPreviewNow()),
+            // VideoEncoder への投入時間を計測する（export 側から呼ぶ）。
+            beginEncodeMeasure: () => exportFrameProfilerRef.current.begin('encode'),
             // プロジェクトポスター → MP4 cover art / 先頭キーフレーム（動画サムネイルの標準手法）
             coverArtJpegDataUrl: useMediaStore.getState().projectPosterDataUrl,
             onVideoFrameSubmitted: (submittedFrameCount) => {
@@ -5551,8 +5541,7 @@ export function usePreviewEngine({
               // 【Issue #215】実描画実績は loop 開始時点から数え直す。
               exportRenderedFrameIndexRef.current = null;
               exportRenderedFrameTrackerRef.current.reset();
-              exportFrameDrivenTickStatsRef.current = { frameDrivenTicks: 0, wallClockTicks: 0 };
-              exportRenderedFrameSinkRef.current = null;
+              exportFrameProfilerRef.current.reset(getStandardPreviewNow());
               frameDrivenExportSubmittedCountRef.current = 0;
               frameDrivenExportLastRenderedCountRef.current = null;
               // ウォッチドッグの停滞計測は実際の映像ループ開始時刻から始める。

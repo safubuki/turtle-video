@@ -331,20 +331,6 @@ export function evaluateFrameDrivenExportStall(
 /**
  * HTMLVideoElement の実デコードを必要としない静止画タイムラインだけを、
  * VideoEncoder のフレーム投入駆動へ切り替える。動画を含む場合は既存の壁時計再生を守る。
- *
- * 【動画へ広げてはいけない理由（2026-07-27 実機で再確認）】
- * フレーム駆動はタイムラインを実時間から切り離す（`elapsed = submitted / fps`）。
- * ところが `<video>` 要素は実時間で再生され続けるため、rAF が 30fps を割り込むと
- * タイムラインだけが実時間の 0.7 倍などに遅れ、`video.currentTime` が
- * `targetTime` を常に追い越す。すると export の同期補正（needsCorrection）が
- * 毎フレーム**シークで巻き戻し**、シークのたびに再バッファで投入が止まり、
- * さらにタイムラインが遅れる、という悪循環になる。
- * 実際に動画を含む書き出しへ適用したところ、コンテナのフレーム時刻は
- * 完全な CFR（1190 枚・全て 1/30 秒間隔・単調増加）のまま、**中身が数秒単位で
- * 進んだり戻ったりする**出力になった。
- * 静止画にはこの実時間クロックが無いため同じ問題は起きない。
- *
- * 動画側の「映像が早送りになる」問題は、ここではなく描画・投入側で解決すること。
  */
 export function shouldUseFrameDrivenExportPacing(
   input: FrameDrivenExportPacingDecisionInput,

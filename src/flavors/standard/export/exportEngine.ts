@@ -27,6 +27,7 @@ import {
   stopCanvasCaptureStream,
 } from '../../../utils/exportTimeline';
 import { diagnoseExportFrameFlow } from '../../../utils/exportDiagnostics';
+import { classifyExportBottleneck } from '../../../utils/exportFrameProfiler';
 import { inspectMp4Durations } from '../../../utils/mp4Duration';
 import {
   createExportVideoFrame,
@@ -2342,49 +2343,6 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           const framePollInterval = 16;
           const isKeyFrame = (index: number) => index === 0 || index % FPS === 0;
 
-          /**
-           * Canvas の現在の絵を 1 フレームとして投入する。
-           * 呼び出した瞬間の Canvas をそのまま VideoFrame にするので、
-           * **描画直後に呼ぶこと**が中身の正しさを保証する条件になる。
-           */
-          const submitCurrentCanvasFrame = (): boolean => {
-            if (videoEncoder.state !== 'configured') return false;
-            if (expectedVideoFrames !== null && frameIndex >= expectedVideoFrames) return false;
-            if (videoEncoder.encodeQueueSize >= VIDEO_ENCODE_QUEUE_HARD_LIMIT) {
-              noteBackpressureDrop();
-              return false;
-            }
-
-            const frameTiming = resolvedExportDuration
-              ? getExportFrameTiming(resolvedExportDuration, FPS, frameIndex)
-              : {
-                timestampUs: Math.round(frameIndex * (1e6 / FPS)),
-                durationUs: Math.round(1e6 / FPS),
-              };
-            encodedVideoEndUs = Math.max(encodedVideoEndUs, frameTiming.timestampUs + frameTiming.durationUs);
-            const frame = createExportVideoFrame({
-              canvas,
-              posterBitmap: coverArtBitmap,
-              frameIndex,
-              timestampUs: frameTiming.timestampUs,
-              durationUs: frameTiming.durationUs,
-            });
-            videoEncoder.encode(frame, { keyFrame: frameIndex === 0 ? true : isKeyFrame(frameIndex) });
-            noteVideoFrameSubmitted();
-            frame.close();
-            frameIndex++;
-            return true;
-          };
-
-          // 【本命の投入経路】render loop が 1 フレーム描き終えた直後に同期的に呼ばれる。
-          // ここで捕まえれば「フレーム番号 = Canvas 上の絵」が必ず一致する。
-          // 16ms タイマーのポーリングだと、投入時点の Canvas が別時刻の絵になり、
-          // 映像が早送り・進んだり戻ったりする（2026-07-27 実機で確認）。
-          audioSources?.setRenderedFrameSink?.(() => {
-            if (signal.aborted) return;
-            submitCurrentCanvasFrame();
-          });
-
           try {
             while (!signal.aborted) {
               if (completionRequestedRef.current) {
@@ -2396,27 +2354,51 @@ export function createUseExport(config: UseExportRuntimeConfig) {
               if (signal.aborted) break;
               if (completionRequestedRef.current && expectedVideoFrames === null) break;
 
-              // 通常の投入は render loop 側のシンク（描画直後）が担当する。
-              // ここで Canvas をポーリングして投入すると、投入時点の Canvas が
-              // 別時刻の絵になり映像が乱れるため、**定常状態では投入しない**。
-              //
-              // このループが投入するのは終了要求後の末尾補完だけ。
-              // 終端では render loop が既に止まっており、Canvas は最終フレームで
-              // 固定されているので、複製投入しても中身は正しい。
-              if (completionRequestedRef.current) {
-                const targetFrameCount = getTargetVideoFrameCount(true);
-                const pendingFrameCount = targetFrameCount === null ? 0 : targetFrameCount - frameIndex;
-                const availableEncoderQueueCapacity = Math.max(
-                  0,
-                  VIDEO_ENCODE_QUEUE_HARD_LIMIT - videoEncoder.encodeQueueSize,
-                );
-                const framesToEncode = resolveExportCanvasFrameBurstCount({
-                  pendingFrameCount,
-                  maxFramesPerPoll: availableEncoderQueueCapacity,
-                });
+              const forceToEnd = completionRequestedRef.current;
+              const targetFrameCount = getTargetVideoFrameCount(forceToEnd);
+              const pendingFrameCount = targetFrameCount === null ? 1 : targetFrameCount - frameIndex;
+              // render loop とこの timer は同じメインスレッド上で動く。1080p 描画で timer が
+              // 30fps 未満へ遅延した場合も、タイムライン時刻までの CFR フレームをその場で
+              // 補完し、未処理分を末尾（最後の Canvas）へ持ち越さない。
+              // encoder queue の空きだけを上限にして、バックプレッシャーの安全弁は維持する。
+              const availableEncoderQueueCapacity = Math.max(
+                0,
+                VIDEO_ENCODE_QUEUE_HARD_LIMIT - videoEncoder.encodeQueueSize,
+              );
+              const framesToEncode = resolveExportCanvasFrameBurstCount({
+                pendingFrameCount,
+                maxFramesPerPoll: availableEncoderQueueCapacity,
+              });
+
+              if (videoEncoder.state === 'configured' && framesToEncode > 0) {
                 for (let i = 0; i < framesToEncode; i++) {
-                  if (!submitCurrentCanvasFrame()) break;
-                  tailFilledFrames++;
+                  // エンコーダ飽和時はバーストを中断（未達分は次のポーリングで追いつく）
+                  if (videoEncoder.encodeQueueSize >= VIDEO_ENCODE_QUEUE_HARD_LIMIT) {
+                    noteBackpressureDrop();
+                    break;
+                  }
+                  const frameTiming = resolvedExportDuration
+                    ? getExportFrameTiming(resolvedExportDuration, FPS, frameIndex)
+                    : {
+                      timestampUs: Math.round(frameIndex * (1e6 / FPS)),
+                      durationUs: Math.round(1e6 / FPS),
+                    };
+                  encodedVideoEndUs = Math.max(encodedVideoEndUs, frameTiming.timestampUs + frameTiming.durationUs);
+                  // 先頭フレームはポスターをキーフレームとして差し替え（シェルが先頭を読む場合に効く）
+                  const frame = createExportVideoFrame({
+                    canvas,
+                    posterBitmap: coverArtBitmap,
+                    frameIndex,
+                    timestampUs: frameTiming.timestampUs,
+                    durationUs: frameTiming.durationUs,
+                  });
+                  // VideoFrame 生成 + encode の所要時間を計測する（ボトルネック切り分け用）。
+                  const endEncodeMeasure = audioSources?.beginEncodeMeasure?.();
+                  videoEncoder.encode(frame, { keyFrame: frameIndex === 0 ? true : isKeyFrame(frameIndex) });
+                  endEncodeMeasure?.();
+                  noteVideoFrameSubmitted();
+                  frame.close();
+                  frameIndex++;
                 }
               }
 
@@ -2442,12 +2424,6 @@ export function createUseExport(config: UseExportRuntimeConfig) {
               console.error('Video processing error (canvas):', e);
             }
           } finally {
-            // シンクを外す。残すと停止後も render loop から投入され続ける。
-            try {
-              audioSources?.setRenderedFrameSink?.(null);
-            } catch {
-              // ignore
-            }
             try {
               coverArtBitmap?.close();
             } catch {
@@ -2672,12 +2648,6 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             lastRenderedFrameIndex: flowSnapshot.lastRenderedFrameIndex,
             renderSkipCount: renderStats?.renderSkipCount ?? null,
             skippedFrames: renderStats?.skippedFrames ?? null,
-            // 実際に描画が走った回数。submittedFrames との差が「複製投入」。
-            renderCallCount: renderStats?.renderCallCount ?? null,
-            // ペーシングの実績。wallClockTicks が大きいならウォッチドッグで
-            // 壁時計へフォールバックしている（＝投入が停滞している）。
-            frameDrivenTicks: renderStats?.frameDrivenTicks ?? null,
-            wallClockTicks: renderStats?.wallClockTicks ?? null,
             elapsedWallClockSec: Number(elapsedWallClockSec.toFixed(2)),
             totalDurationSec: exportDurationSec ?? 0,
             fps: FPS,
@@ -2687,6 +2657,43 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             logInfo('[DIAG-215] フレーム収支 正常', payload);
           } else {
             useLogStore.getState().warn('RENDER', '[DIAG-215] フレーム収支 異常', payload);
+          }
+
+          // ============================================================
+          // [DIAG-PERF] 1 フレームの内訳（描画 / エンコード / その他）
+          // ------------------------------------------------------------
+          // 「プレビューは滑らかなのに書き出しだけ 20fps へ落ちる」原因の切り分け。
+          //   draw-bound   : Canvas 描画が重い
+          //   encode-bound : VideoEncoder への投入が重い
+          //   raf-starved  : どちらも軽いのに rAF が回っていない（ブラウザ側の事情）
+          // ============================================================
+          const profile = audioSources?.getFrameProfile?.();
+          if (profile) {
+            const bottleneck = classifyExportBottleneck(profile, FPS);
+            const perfPayload = {
+              bottleneck,
+              summary: profile.summary,
+              effectiveFps: Number(profile.effectiveFps.toFixed(2)),
+              drawRatio: Number(profile.drawRatio.toFixed(3)),
+              encodeRatio: Number(profile.encodeRatio.toFixed(3)),
+              otherRatio: Number(profile.otherRatio.toFixed(3)),
+              drawCount: profile.draw.count,
+              drawAvgMs: Number((profile.draw.count > 0 ? profile.draw.totalMs / profile.draw.count : 0).toFixed(2)),
+              drawMaxMs: Number(profile.draw.maxMs.toFixed(2)),
+              encodeCount: profile.encode.count,
+              encodeAvgMs: Number((profile.encode.count > 0 ? profile.encode.totalMs / profile.encode.count : 0).toFixed(2)),
+              encodeMaxMs: Number(profile.encode.maxMs.toFixed(2)),
+              tickGapAvgMs: Number((profile.tickGap.count > 0 ? profile.tickGap.totalMs / profile.tickGap.count : 0).toFixed(2)),
+              tickGapMaxMs: Number(profile.tickGap.maxMs.toFixed(2)),
+              canvasWidth: width,
+              canvasHeight: height,
+              fps: FPS,
+            };
+            if (bottleneck === 'healthy') {
+              logInfo('[DIAG-PERF] フレーム処理時間 正常', perfPayload);
+            } else {
+              useLogStore.getState().warn('RENDER', '[DIAG-PERF] フレーム処理時間 ボトルネック検出', perfPayload);
+            }
           }
         } catch (diagError) {
           // 診断は書き出しの成否に影響させない
@@ -2719,15 +2726,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           offlineAudioDone,
         });
         await videoEncoder.flush();
-        // flush 後の出力数を明示する。DIAG-7 の videoEncoderOutputFrames は flush 前の
-        // スナップショットで、キュー滞留分だけ投入数より小さく見える（＝欠落ではない）。
-        // ここで submitted と一致していれば全フレームがエンコードされている。
-        useLogStore.getState().info('RENDER', '[DIAG-7b] VideoEncoder flush 完了', {
-          videoEncoderSubmittedFrames,
-          videoEncoderOutputFramesAfterFlush: videoEncoderOutputFrames,
-          missingAfterFlush: videoEncoderSubmittedFrames - videoEncoderOutputFrames,
-          videoEncoderQueueSize: videoEncoder.encodeQueueSize,
-        });
+        useLogStore.getState().info('RENDER', '[DIAG-7b] VideoEncoder flush 完了');
         try {
           await audioEncoder.flush();
           useLogStore.getState().info('RENDER', '[DIAG-7c] AudioEncoder flush 完了', {
