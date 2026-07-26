@@ -97,19 +97,25 @@ export interface ExportAudioSources {
   getRenderedFrameStats?: () => {
     /** 実際に描かれた相異なるフレーム番号の数 */
     distinctRenderedFrames: number;
+    /**
+     * 実際に描画が走った回数。番号が連番でも 1 回の rAF で複数フレームぶん
+     * 時刻が進めば描画回数はそのぶん少なくなる（＝残りは複製投入）。
+     */
+    renderCallCount?: number;
     /** 最後に描いたフレーム番号（未描画なら null） */
     lastRenderedFrameIndex: number | null;
     /** 描画が連番で進まなかった回数（＝描画が飛んだ回数） */
     renderSkipCount: number;
     /** 一度も描かれなかったフレームの総数 */
     skippedFrames: number;
+    /** フレーム駆動ペーシングで進んだ rAF ティック数 */
+    frameDrivenTicks?: number;
     /**
-     * 壁時計ペーシングの減速が働いた rAF ティック数。
-     * 0 より大きいなら「減速していなければ映像が早送りになっていた」ことを意味する。
+     * 壁時計ペーシングで進んだ rAF ティック数。
+     * フレーム駆動が有効なはずなのにここが大きい場合は、
+     * ウォッチドッグが停滞を検出して壁時計へフォールバックしている。
      */
-    pacingThrottledTicks?: number;
-    /** 壁時計より遅らせた累計秒数（＝書き出しが伸びたぶん） */
-    pacingTotalDeferredSec?: number;
+    wallClockTicks?: number;
   };
   /**
    * VideoEncoder へ正常投入した映像フレーム数を通知する。

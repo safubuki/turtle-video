@@ -49,7 +49,6 @@ import {
   resolveFrameDrivenExportTimeSec,
   shouldUseFrameDrivenExportPacing,
   evaluateFrameDrivenExportStall,
-  resolveThrottledExportTimelineSec,
 } from '../../../utils/exportTimeline';
 import { createRenderedFrameTracker } from '../../../utils/exportDiagnostics';
 import { resolveMediaBaseScale } from '../../../stores/canvasStore';
@@ -1079,9 +1078,8 @@ export function usePreviewEngine({
   // 【#215 再発調査】実際に描かれた「相異なる」フレーム番号を数える。
   // 投入数との差が「同じ画の複製投入」＝映像が止まって見える量になる。
   const exportRenderedFrameTrackerRef = useRef(createRenderedFrameTracker());
-  // 【映像早送り対策】減速後のタイムライン時刻と、減速がどれだけ働いたかの統計。
-  const exportThrottledTimelineSecRef = useRef<number | null>(null);
-  const exportPacingThrottleStatsRef = useRef({ throttledTicks: 0, totalDeferredSec: 0 });
+  // フレーム駆動ペーシングが実際に使われた rAF ティック数（診断用）。
+  const exportFrameDrivenTickStatsRef = useRef({ frameDrivenTicks: 0, wallClockTicks: 0 });
   const frameDrivenExportSubmittedCountRef = useRef(0);
   const frameDrivenExportLastRenderedCountRef = useRef<number | null>(null);
   // フレーム駆動ウォッチドッグ: 投入数が進まないまま停滞したら壁時計へフォールバックする。
@@ -4054,35 +4052,20 @@ export function usePreviewEngine({
         isExportMode
         && frameDrivenExportEnabledRef.current
         && !frameDrivenExportForcedWallClockRef.current;
-      const rawElapsed = resolveFrameDrivenExportTimeSec({
+      if (isExportMode) {
+        // フレーム駆動が実際に効いているかを記録する（完了時の診断で使う）。
+        if (useFrameDrivenExportTime) {
+          exportFrameDrivenTickStatsRef.current.frameDrivenTicks += 1;
+        } else {
+          exportFrameDrivenTickStatsRef.current.wallClockTicks += 1;
+        }
+      }
+      const elapsed = resolveFrameDrivenExportTimeSec({
         wallClockTimeSec: (now - startTimeRef.current) / 1000,
         submittedFrameCount,
         fps: FPS,
         enabled: useFrameDrivenExportTime,
       });
-
-      // 【映像早送り対策】動画を含む書き出しは壁時計でタイムラインを進めているため、
-      // rAF が 30fps を割り込むと 1 ティックあたりの前進量が大きくなり、映像だけが
-      // 早送りになって素材が先に尽きる（以降は黒画面／音声だけ総尺まで流れる）。
-      // 1 ティックの前進量を 1 フレームぶんに制限し、映像を等速で書き出す。
-      // 描画が追いついている間は壁時計と一致するので、正常時の挙動は変わらない。
-      const shouldThrottleExportPacing = isExportMode && !useFrameDrivenExportTime;
-      const pacing = resolveThrottledExportTimelineSec({
-        wallClockElapsedSec: rawElapsed,
-        lastTimelineSec: exportThrottledTimelineSecRef.current,
-        fps: FPS,
-        maxFramesPerTick: 1,
-        enabled: shouldThrottleExportPacing,
-      });
-      const elapsed = pacing.timelineSec;
-      if (shouldThrottleExportPacing) {
-        exportThrottledTimelineSecRef.current = elapsed;
-        if (pacing.throttled) {
-          exportPacingThrottleStatsRef.current.throttledTicks += 1;
-          exportPacingThrottleStatsRef.current.totalDeferredSec += pacing.deferredSec;
-        }
-      }
-
       const totalDuration = totalDurationRef.current;
       const clampedElapsed = Math.min(elapsed, totalDuration);
       const reachedPreviewEnd =
@@ -5526,16 +5509,17 @@ export function usePreviewEngine({
             // 【#215 再発調査】完了時の原因切り分け用。実際に描けた枚数と飛んだ枚数を返す。
             getRenderedFrameStats: () => {
               const tracker = exportRenderedFrameTrackerRef.current;
-              const throttle = exportPacingThrottleStatsRef.current;
+              const tickStats = exportFrameDrivenTickStatsRef.current;
               return {
                 distinctRenderedFrames: tracker.getDistinctCount(),
+                renderCallCount: tracker.getRenderCallCount(),
                 lastRenderedFrameIndex: tracker.getLastIndex(),
                 renderSkipCount: tracker.getSkipCount(),
                 skippedFrames: tracker.getSkippedFrames(),
-                // 【映像早送り対策】減速がどれだけ働いたか。
-                // throttledTicks が多いほど「壁時計のままなら早送りになっていた」ことを意味する。
-                pacingThrottledTicks: throttle.throttledTicks,
-                pacingTotalDeferredSec: throttle.totalDeferredSec,
+                // フレーム駆動が実際に効いたティック数。wallClockTicks が多いなら
+                // ウォッチドッグで壁時計へフォールバックしている（＝停滞が起きている）。
+                frameDrivenTicks: tickStats.frameDrivenTicks,
+                wallClockTicks: tickStats.wallClockTicks,
               };
             },
             // プロジェクトポスター → MP4 cover art / 先頭キーフレーム（動画サムネイルの標準手法）
@@ -5553,8 +5537,7 @@ export function usePreviewEngine({
               // 【Issue #215】実描画実績は loop 開始時点から数え直す。
               exportRenderedFrameIndexRef.current = null;
               exportRenderedFrameTrackerRef.current.reset();
-              exportThrottledTimelineSecRef.current = null;
-              exportPacingThrottleStatsRef.current = { throttledTicks: 0, totalDeferredSec: 0 };
+              exportFrameDrivenTickStatsRef.current = { frameDrivenTicks: 0, wallClockTicks: 0 };
               frameDrivenExportSubmittedCountRef.current = 0;
               frameDrivenExportLastRenderedCountRef.current = null;
               // ウォッチドッグの停滞計測は実際の映像ループ開始時刻から始める。

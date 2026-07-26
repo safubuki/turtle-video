@@ -27,6 +27,12 @@ export interface ExportFrameFlowSnapshot {
   submittedFrames: number;
   /** render loop が実際に描いた「相異なる」タイムラインフレーム番号の数 */
   distinctRenderedFrames: number;
+  /**
+   * render loop が実際に描画を実行した回数。
+   * 番号が連番でも 1 回の rAF で複数フレームぶん進めば描画回数はそのぶん少ない。
+   * 未提供（旧経路）なら distinctRenderedFrames を使う。
+   */
+  renderCallCount?: number;
   /** 完了要求後に尺を揃えるため末尾で複製したフレーム数 */
   tailFilledFrames: number;
   /** エンコーダー飽和で投入を見送った回数 */
@@ -84,7 +90,13 @@ export function diagnoseExportFrameFlow(
   snapshot: ExportFrameFlowSnapshot,
 ): ExportFrameFlowDiagnosis {
   const submitted = safeCount(snapshot.submittedFrames);
-  const distinct = safeCount(snapshot.distinctRenderedFrames);
+  const distinctNumbers = safeCount(snapshot.distinctRenderedFrames);
+  // 実際に描画が走った回数を優先する。番号の連続性だけでは
+  // 「1 回の描画で複数フレームぶん時刻が進んだ」ケースを見逃す。
+  const distinct =
+    snapshot.renderCallCount === undefined
+      ? distinctNumbers
+      : Math.min(distinctNumbers, safeCount(snapshot.renderCallCount));
   const tailFilled = safeCount(snapshot.tailFilledFrames);
   const dropped = safeCount(snapshot.backpressureDroppedFrames);
   const elapsed = Number.isFinite(snapshot.elapsedWallClockSec)
@@ -226,6 +238,16 @@ export interface RenderedFrameTracker {
   getSkipCount(): number;
   /** 飛んだフレームの総数（＝描かれなかったフレーム数） */
   getSkippedFrames(): number;
+  /**
+   * `note` が呼ばれた回数（＝実際の描画回数）。
+   *
+   * 【重要】`distinctCount` と混同しないこと。壁時計ペーシングでは
+   * 1 回の rAF で複数フレームぶん時刻が進むため、番号は連番のまま増えても
+   * **実際の描画は 1 回**ということが起こる。この場合 skipCount は 0 のままで
+   * 「正常」に見えてしまう（実際に一度この誤診を出した）。
+   * `renderCallCount < distinctCount` なら、その差が「描かれていないフレーム」。
+   */
+  getRenderCallCount(): number;
   reset(): void;
 }
 
@@ -234,12 +256,17 @@ export function createRenderedFrameTracker(): RenderedFrameTracker {
   let lastIndex: number | null = null;
   let skipCount = 0;
   let skippedFrames = 0;
+  let renderCallCount = 0;
 
   return {
     note(frameIndex: number): void {
       if (!Number.isFinite(frameIndex)) return;
       const index = Math.floor(frameIndex);
       if (index < 0) return;
+
+      // 実際に描画が走った回数は、番号の連続性とは独立に数える。
+      renderCallCount += 1;
+
       // 同じ番号の再描画・巻き戻りは「新しいフレーム」ではない
       if (lastIndex !== null && index <= lastIndex) return;
 
@@ -255,11 +282,13 @@ export function createRenderedFrameTracker(): RenderedFrameTracker {
     getLastIndex: () => lastIndex,
     getSkipCount: () => skipCount,
     getSkippedFrames: () => skippedFrames,
+    getRenderCallCount: () => renderCallCount,
     reset(): void {
       distinctCount = 0;
       lastIndex = null;
       skipCount = 0;
       skippedFrames = 0;
+      renderCallCount = 0;
     },
   };
 }

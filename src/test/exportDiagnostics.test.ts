@@ -201,6 +201,47 @@ describe('createRenderedFrameTracker', () => {
     expect(tracker.getSkippedFrames()).toBe(0);
   });
 
+  it('【回帰】連番でも「1回の描画で複数フレーム進んだ」ケースを検出する', () => {
+    // 実測ログで誤診した状況の再現。壁時計ペーシングでは rAF 1 回につき
+    // 複数フレームぶん時刻が進むため、番号は 0,2,4,... と連番風に増えるが
+    // 実際の描画は 1 回ずつしかない。旧実装は skipCount で拾おうとしたが、
+    // 番号が飛んでも「飛び」として数えるだけで「複製投入」は見抜けなかった。
+    const tracker = createRenderedFrameTracker();
+    // 1190 フレームぶんの時刻を 812 回の描画で消化した状況
+    let index = 0;
+    for (let call = 0; call < 812; call++) {
+      tracker.note(index);
+      index += Math.round(1190 / 812);
+    }
+
+    // 実際の描画回数は 812 回しかない
+    expect(tracker.getRenderCallCount()).toBe(812);
+
+    const diagnosis = diagnoseExportFrameFlow({
+      submittedFrames: 1190,
+      distinctRenderedFrames: tracker.getDistinctCount(),
+      renderCallCount: tracker.getRenderCallCount(),
+      tailFilledFrames: 0,
+      backpressureDroppedFrames: 0,
+      expectedVideoFrames: 1190,
+      lastRenderedFrameIndex: tracker.getLastIndex(),
+      elapsedWallClockSec: 40,
+      totalDurationSec: 39.64,
+      fps: FPS,
+    });
+
+    // renderCallCount を使うので「正常」とは判定しない
+    expect(diagnosis.verdict).toBe('duplicate-submission');
+    expect(diagnosis.duplicateSubmissions).toBe(1190 - 812);
+    // 約 12.6 秒ぶんが同じ画の使い回し（報告された「24秒付近で終わる」と整合）
+    expect(diagnosis.estimatedFrozenSec).toBeCloseTo(12.6, 0);
+  });
+
+  it('renderCallCount を渡さない旧経路では distinctRenderedFrames を使う', () => {
+    const result = diagnoseExportFrameFlow(baseSnapshot({ renderCallCount: undefined }));
+    expect(result.verdict).toBe('healthy');
+  });
+
   it('書き出し1回ぶんの流れを再現できる（rAF が落ちたケース）', () => {
     // 30fps 目標で 2 フレームに 1 回しか描けなかった状況
     const tracker = createRenderedFrameTracker();

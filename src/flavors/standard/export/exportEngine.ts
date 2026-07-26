@@ -2616,6 +2616,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           const flowSnapshot = {
             submittedFrames: videoEncoderSubmittedFrames,
             distinctRenderedFrames: renderStats?.distinctRenderedFrames ?? 0,
+            renderCallCount: renderStats?.renderCallCount,
             tailFilledFrames,
             backpressureDroppedFrames,
             expectedVideoFrames,
@@ -2643,13 +2644,12 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             lastRenderedFrameIndex: flowSnapshot.lastRenderedFrameIndex,
             renderSkipCount: renderStats?.renderSkipCount ?? null,
             skippedFrames: renderStats?.skippedFrames ?? null,
-            // 【映像早送り対策】減速が働いた回数と、そのぶん伸びた秒数。
-            // throttledTicks > 0 なら、減速なしでは映像が早送りになっていた。
-            pacingThrottledTicks: renderStats?.pacingThrottledTicks ?? null,
-            pacingTotalDeferredSec:
-              renderStats?.pacingTotalDeferredSec === undefined
-                ? null
-                : Number(renderStats.pacingTotalDeferredSec.toFixed(2)),
+            // 実際に描画が走った回数。submittedFrames との差が「複製投入」。
+            renderCallCount: renderStats?.renderCallCount ?? null,
+            // ペーシングの実績。wallClockTicks が大きいならウォッチドッグで
+            // 壁時計へフォールバックしている（＝投入が停滞している）。
+            frameDrivenTicks: renderStats?.frameDrivenTicks ?? null,
+            wallClockTicks: renderStats?.wallClockTicks ?? null,
             elapsedWallClockSec: Number(elapsedWallClockSec.toFixed(2)),
             totalDurationSec: exportDurationSec ?? 0,
             fps: FPS,
@@ -2691,7 +2691,15 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           offlineAudioDone,
         });
         await videoEncoder.flush();
-        useLogStore.getState().info('RENDER', '[DIAG-7b] VideoEncoder flush 完了');
+        // flush 後の出力数を明示する。DIAG-7 の videoEncoderOutputFrames は flush 前の
+        // スナップショットで、キュー滞留分だけ投入数より小さく見える（＝欠落ではない）。
+        // ここで submitted と一致していれば全フレームがエンコードされている。
+        useLogStore.getState().info('RENDER', '[DIAG-7b] VideoEncoder flush 完了', {
+          videoEncoderSubmittedFrames,
+          videoEncoderOutputFramesAfterFlush: videoEncoderOutputFrames,
+          missingAfterFlush: videoEncoderSubmittedFrames - videoEncoderOutputFrames,
+          videoEncoderQueueSize: videoEncoder.encodeQueueSize,
+        });
         try {
           await audioEncoder.flush();
           useLogStore.getState().info('RENDER', '[DIAG-7c] AudioEncoder flush 完了', {

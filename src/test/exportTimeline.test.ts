@@ -11,7 +11,6 @@ import {
   resolveExportResolutionVerdict,
   resolveExportVideoFrameBudget,
   evaluateFrameDrivenExportStall,
-  resolveThrottledExportTimelineSec,
 } from '../utils/exportTimeline';
 import { isCaptionActiveAtTime } from '../utils/captionTimeline';
 import type { Caption } from '../types';
@@ -258,12 +257,21 @@ describe('shouldUseFrameDrivenExportPacing', () => {
     })).toBe(true);
   });
 
-  it('keeps video timelines on the existing wall-clock path', () => {
+  it('動画を含むタイムラインもフレーム駆動にする（映像の早送り防止）', () => {
+    // 壁時計のままだと rAF が 30fps を割り込んだとき 1 ティックで複数フレームぶん
+    // 時刻が進み、中間が描かれないまま同じ Canvas を複製投入してしまう。
+    // 結果、動画素材が尺より早く尽きて以降が静止／黒画面になる。
     expect(shouldUseFrameDrivenExportPacing({
       isExportMode: true,
       fromTimeSec: 0,
       mediaItemTypes: ['image', 'video'],
-    })).toBe(false);
+    })).toBe(true);
+
+    expect(shouldUseFrameDrivenExportPacing({
+      isExportMode: true,
+      fromTimeSec: 0,
+      mediaItemTypes: ['video'],
+    })).toBe(true);
   });
 
   it('does not affect normal preview, partial starts, or empty timelines', () => {
@@ -566,166 +574,3 @@ describe('isCaptionActiveAtTime', () => {
   });
 });
 
-describe('resolveThrottledExportTimelineSec', () => {
-  const FPS = 30;
-  const FRAME_SEC = 1 / FPS;
-
-  it('enabled=false なら壁時計をそのまま返す（プレビューや静止画フレーム駆動は不変）', () => {
-    const result = resolveThrottledExportTimelineSec({
-      wallClockElapsedSec: 5,
-      lastTimelineSec: 1,
-      fps: FPS,
-      maxFramesPerTick: 1,
-      enabled: false,
-    });
-    expect(result.timelineSec).toBe(5);
-    expect(result.throttled).toBe(false);
-    expect(result.deferredSec).toBe(0);
-  });
-
-  it('初回（前回時刻なし）は壁時計をそのまま使う', () => {
-    const result = resolveThrottledExportTimelineSec({
-      wallClockElapsedSec: 0,
-      lastTimelineSec: null,
-      fps: FPS,
-      maxFramesPerTick: 1,
-      enabled: true,
-    });
-    expect(result.timelineSec).toBe(0);
-    expect(result.throttled).toBe(false);
-  });
-
-  it('描画が追いついている間は壁時計と一致する（正常時の挙動は変えない）', () => {
-    // 前回 1.000s、壁時計 1.030s → 1 フレーム(0.0333s)以内なので減速不要
-    const result = resolveThrottledExportTimelineSec({
-      wallClockElapsedSec: 1.03,
-      lastTimelineSec: 1.0,
-      fps: FPS,
-      maxFramesPerTick: 1,
-      enabled: true,
-    });
-    expect(result.timelineSec).toBeCloseTo(1.03, 6);
-    expect(result.throttled).toBe(false);
-  });
-
-  it('壁時計が先行したら 1 フレームぶんに制限する', () => {
-    // rAF が遅れて壁時計は 1.20s まで飛んだが、前進は 1 フレームぶんに抑える
-    const result = resolveThrottledExportTimelineSec({
-      wallClockElapsedSec: 1.2,
-      lastTimelineSec: 1.0,
-      fps: FPS,
-      maxFramesPerTick: 1,
-      enabled: true,
-    });
-    expect(result.timelineSec).toBeCloseTo(1.0 + FRAME_SEC, 6);
-    expect(result.throttled).toBe(true);
-    expect(result.deferredSec).toBeCloseTo(1.2 - (1.0 + FRAME_SEC), 6);
-  });
-
-  it('maxFramesPerTick で許容する前進量を変えられる', () => {
-    const result = resolveThrottledExportTimelineSec({
-      wallClockElapsedSec: 5,
-      lastTimelineSec: 1.0,
-      fps: FPS,
-      maxFramesPerTick: 3,
-      enabled: true,
-    });
-    expect(result.timelineSec).toBeCloseTo(1.0 + 3 * FRAME_SEC, 6);
-  });
-
-  it('時刻を巻き戻さない（前回時刻より手前は返さない）', () => {
-    const result = resolveThrottledExportTimelineSec({
-      wallClockElapsedSec: 0.5,
-      lastTimelineSec: 1.0,
-      fps: FPS,
-      maxFramesPerTick: 1,
-      enabled: true,
-    });
-    // 壁時計が巻き戻っても timelineSec は上限計算に従う（進みすぎないことだけを保証する）
-    expect(result.timelineSec).toBeLessThanOrEqual(1.0 + FRAME_SEC);
-  });
-
-  it('不正な入力でも壊れない', () => {
-    const nan = resolveThrottledExportTimelineSec({
-      wallClockElapsedSec: Number.NaN,
-      lastTimelineSec: 1,
-      fps: 0,
-      maxFramesPerTick: 0,
-      enabled: true,
-    });
-    expect(Number.isFinite(nan.timelineSec)).toBe(true);
-  });
-
-  it('【回帰】20.5fps しか描けない状況でも映像が早送りにならない', () => {
-    // 実測ログの再現: 目標 30fps に対し rAF は 20.5fps しか回らない。
-    // 壁時計のままだと 1 ティックで 1/20.5 秒進み、39.64 秒の素材が
-    // 約 27 秒相当で尽きて以降が黒画面になる（報告された症状）。
-    const totalDuration = 39.64;
-    const actualRafFps = 20.5;
-    const tickIntervalSec = 1 / actualRafFps;
-
-    // --- 減速なし（現状の不具合） ---
-    let wallClock = 0;
-    let ticks = 0;
-    while (wallClock < totalDuration) {
-      wallClock += tickIntervalSec;
-      ticks += 1;
-    }
-    // 描画機会は約 813 回しかないのに、タイムラインは 39.64 秒ぶん進んでしまう
-    expect(ticks).toBeLessThan(totalDuration * 30);
-    // → 1 ティックあたり 1/30 秒より大きく進む = 早送り
-    expect(totalDuration / ticks).toBeGreaterThan(1 / 30);
-
-    // --- 減速あり（本修正） ---
-    let timeline: number | null = null;
-    let throttledTicks = 0;
-    let simulatedWallClock = 0;
-    for (let i = 0; i < ticks; i++) {
-      simulatedWallClock += tickIntervalSec;
-      const result = resolveThrottledExportTimelineSec({
-        wallClockElapsedSec: simulatedWallClock,
-        lastTimelineSec: timeline,
-        fps: 30,
-        maxFramesPerTick: 1,
-        enabled: true,
-      });
-      if (result.throttled) throttledTicks += 1;
-      timeline = result.timelineSec;
-    }
-
-    // 減速が働き、同じティック数ではタイムラインが総尺へ到達しない
-    // （＝映像が早送りされず、書き出しに実時間がかかるだけになる）
-    expect(throttledTicks).toBeGreaterThan(0);
-    expect(timeline).not.toBeNull();
-    expect(timeline as number).toBeLessThan(totalDuration);
-    // 1 ティックあたりの前進は 1 フレームぶんを超えない
-    // （初回ティックだけは前回時刻が無く壁時計をそのまま採用するため、その 1 回ぶんを許容する）
-    const firstTickSec = tickIntervalSec;
-    expect(((timeline as number) - firstTickSec) / (ticks - 1)).toBeLessThanOrEqual(1 / 30 + 1e-9);
-
-    // 減速なしなら 39.64 秒ぶん進んでいたのに対し、減速後は約 27 秒相当に留まる。
-    // これは「素材が尽きて黒画面になっていたぶん」がそのまま抑えられたことを意味する。
-    expect(timeline as number).toBeCloseTo(ticks / 30, 1);
-  });
-
-  it('【回帰】描画が十分速いときは減速が一度も働かない', () => {
-    // 60fps で回れれば 30fps 目標には常に追いつくので、挙動は従来どおり
-    let timeline: number | null = null;
-    let throttledTicks = 0;
-    let wallClock = 0;
-    for (let i = 0; i < 600; i++) {
-      wallClock += 1 / 60;
-      const result = resolveThrottledExportTimelineSec({
-        wallClockElapsedSec: wallClock,
-        lastTimelineSec: timeline,
-        fps: 30,
-        maxFramesPerTick: 1,
-        enabled: true,
-      });
-      if (result.throttled) throttledTicks += 1;
-      timeline = result.timelineSec;
-    }
-    expect(throttledTicks).toBe(0);
-    expect(timeline).toBeCloseTo(10, 5);
-  });
-});
