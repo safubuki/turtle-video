@@ -329,24 +329,22 @@ export function evaluateFrameDrivenExportStall(
 }
 
 /**
- * タイムラインを「VideoEncoder への投入フレーム数」で駆動するかを決める。
+ * HTMLVideoElement の実デコードを必要としない静止画タイムラインだけを、
+ * VideoEncoder のフレーム投入駆動へ切り替える。動画を含む場合は既存の壁時計再生を守る。
  *
- * 【背景】従来は静止画のみのタイムラインに限定していた（動画は壁時計のまま）。
- * しかし壁時計のままだと、rAF が 30fps を割り込んだとき（1080p 素材の実測 20.3fps）
- * 1 ティックで複数フレームぶん時刻が進み、その中間が描かれないまま
- * **同じ Canvas を複製して**タイムスタンプだけ 30fps で振ることになる。
- * 結果、動画素材の中身は 20fps 相当でしか進まないのに尺は 30fps で消費され、
- * 素材が先に尽きて以降が静止／黒画面になる（音声はオフライン生成なので正常なまま）。
+ * 【動画へ広げてはいけない理由（2026-07-27 実機で再確認）】
+ * フレーム駆動はタイムラインを実時間から切り離す（`elapsed = submitted / fps`）。
+ * ところが `<video>` 要素は実時間で再生され続けるため、rAF が 30fps を割り込むと
+ * タイムラインだけが実時間の 0.7 倍などに遅れ、`video.currentTime` が
+ * `targetTime` を常に追い越す。すると export の同期補正（needsCorrection）が
+ * 毎フレーム**シークで巻き戻し**、シークのたびに再バッファで投入が止まり、
+ * さらにタイムラインが遅れる、という悪循環になる。
+ * 実際に動画を含む書き出しへ適用したところ、コンテナのフレーム時刻は
+ * 完全な CFR（1190 枚・全て 1/30 秒間隔・単調増加）のまま、**中身が数秒単位で
+ * 進んだり戻ったりする**出力になった。
+ * 静止画にはこの実時間クロックが無いため同じ問題は起きない。
  *
- * フレーム駆動にすると「1 フレーム投入されたら 1 フレームぶん時刻を進める」ので、
- * rAF が遅くても映像の中身とタイムスタンプが 1:1 で対応する。
- * 代償は書き出しの所要実時間が伸びることだけ。
- *
- * 【デコード待ちで止まらないこと】動画ではデコード待ち（holdFrame）で投入が
- * 一時的に止まりうるが、`evaluateFrameDrivenExportStall` のウォッチドッグが
- * 一定時間の停滞を検出して壁時計へフォールバックするため、ハングはしない。
- * （2026-03-27 に差し戻した「holdFrame でタイムラインが止まりカクつく」実装とは
- * この安全弁の有無が異なる。）
+ * 動画側の「映像が早送りになる」問題は、ここではなく描画・投入側で解決すること。
  */
 export function shouldUseFrameDrivenExportPacing(
   input: FrameDrivenExportPacingDecisionInput,
@@ -355,7 +353,8 @@ export function shouldUseFrameDrivenExportPacing(
     && Number.isFinite(input.fromTimeSec)
     && input.fromTimeSec >= 0
     && input.fromTimeSec <= 1e-9
-    && input.mediaItemTypes.length > 0;
+    && input.mediaItemTypes.length > 0
+    && input.mediaItemTypes.every((type) => type === 'image');
 }
 
 export interface ExportVideoFrameBudgetInput {

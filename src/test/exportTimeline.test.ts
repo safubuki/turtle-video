@@ -257,21 +257,22 @@ describe('shouldUseFrameDrivenExportPacing', () => {
     })).toBe(true);
   });
 
-  it('動画を含むタイムラインもフレーム駆動にする（映像の早送り防止）', () => {
-    // 壁時計のままだと rAF が 30fps を割り込んだとき 1 ティックで複数フレームぶん
-    // 時刻が進み、中間が描かれないまま同じ Canvas を複製投入してしまう。
-    // 結果、動画素材が尺より早く尽きて以降が静止／黒画面になる。
+  it('【回帰】動画を含むタイムラインは壁時計のままにする', () => {
+    // フレーム駆動はタイムラインを実時間から切り離すが、<video> は実時間で
+    // 再生され続けるため、rAF が遅れると currentTime が targetTime を追い越し、
+    // 同期補正のシークで巻き戻る → 再バッファで投入が止まる、の悪循環になる。
+    // 実機では「数秒単位で進んだり戻ったりする」出力になった（2026-07-27）。
     expect(shouldUseFrameDrivenExportPacing({
       isExportMode: true,
       fromTimeSec: 0,
       mediaItemTypes: ['image', 'video'],
-    })).toBe(true);
+    })).toBe(false);
 
     expect(shouldUseFrameDrivenExportPacing({
       isExportMode: true,
       fromTimeSec: 0,
       mediaItemTypes: ['video'],
-    })).toBe(true);
+    })).toBe(false);
   });
 
   it('does not affect normal preview, partial starts, or empty timelines', () => {

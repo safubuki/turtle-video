@@ -2342,6 +2342,49 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           const framePollInterval = 16;
           const isKeyFrame = (index: number) => index === 0 || index % FPS === 0;
 
+          /**
+           * Canvas の現在の絵を 1 フレームとして投入する。
+           * 呼び出した瞬間の Canvas をそのまま VideoFrame にするので、
+           * **描画直後に呼ぶこと**が中身の正しさを保証する条件になる。
+           */
+          const submitCurrentCanvasFrame = (): boolean => {
+            if (videoEncoder.state !== 'configured') return false;
+            if (expectedVideoFrames !== null && frameIndex >= expectedVideoFrames) return false;
+            if (videoEncoder.encodeQueueSize >= VIDEO_ENCODE_QUEUE_HARD_LIMIT) {
+              noteBackpressureDrop();
+              return false;
+            }
+
+            const frameTiming = resolvedExportDuration
+              ? getExportFrameTiming(resolvedExportDuration, FPS, frameIndex)
+              : {
+                timestampUs: Math.round(frameIndex * (1e6 / FPS)),
+                durationUs: Math.round(1e6 / FPS),
+              };
+            encodedVideoEndUs = Math.max(encodedVideoEndUs, frameTiming.timestampUs + frameTiming.durationUs);
+            const frame = createExportVideoFrame({
+              canvas,
+              posterBitmap: coverArtBitmap,
+              frameIndex,
+              timestampUs: frameTiming.timestampUs,
+              durationUs: frameTiming.durationUs,
+            });
+            videoEncoder.encode(frame, { keyFrame: frameIndex === 0 ? true : isKeyFrame(frameIndex) });
+            noteVideoFrameSubmitted();
+            frame.close();
+            frameIndex++;
+            return true;
+          };
+
+          // 【本命の投入経路】render loop が 1 フレーム描き終えた直後に同期的に呼ばれる。
+          // ここで捕まえれば「フレーム番号 = Canvas 上の絵」が必ず一致する。
+          // 16ms タイマーのポーリングだと、投入時点の Canvas が別時刻の絵になり、
+          // 映像が早送り・進んだり戻ったりする（2026-07-27 実機で確認）。
+          audioSources?.setRenderedFrameSink?.(() => {
+            if (signal.aborted) return;
+            submitCurrentCanvasFrame();
+          });
+
           try {
             while (!signal.aborted) {
               if (completionRequestedRef.current) {
@@ -2353,48 +2396,27 @@ export function createUseExport(config: UseExportRuntimeConfig) {
               if (signal.aborted) break;
               if (completionRequestedRef.current && expectedVideoFrames === null) break;
 
-              const forceToEnd = completionRequestedRef.current;
-              const targetFrameCount = getTargetVideoFrameCount(forceToEnd);
-              const pendingFrameCount = targetFrameCount === null ? 1 : targetFrameCount - frameIndex;
-              // render loop とこの timer は同じメインスレッド上で動く。1080p 描画で timer が
-              // 30fps 未満へ遅延した場合も、タイムライン時刻までの CFR フレームをその場で
-              // 補完し、未処理分を末尾（最後の Canvas）へ持ち越さない。
-              // encoder queue の空きだけを上限にして、バックプレッシャーの安全弁は維持する。
-              const availableEncoderQueueCapacity = Math.max(
-                0,
-                VIDEO_ENCODE_QUEUE_HARD_LIMIT - videoEncoder.encodeQueueSize,
-              );
-              const framesToEncode = resolveExportCanvasFrameBurstCount({
-                pendingFrameCount,
-                maxFramesPerPoll: availableEncoderQueueCapacity,
-              });
-
-              if (videoEncoder.state === 'configured' && framesToEncode > 0) {
+              // 通常の投入は render loop 側のシンク（描画直後）が担当する。
+              // ここで Canvas をポーリングして投入すると、投入時点の Canvas が
+              // 別時刻の絵になり映像が乱れるため、**定常状態では投入しない**。
+              //
+              // このループが投入するのは終了要求後の末尾補完だけ。
+              // 終端では render loop が既に止まっており、Canvas は最終フレームで
+              // 固定されているので、複製投入しても中身は正しい。
+              if (completionRequestedRef.current) {
+                const targetFrameCount = getTargetVideoFrameCount(true);
+                const pendingFrameCount = targetFrameCount === null ? 0 : targetFrameCount - frameIndex;
+                const availableEncoderQueueCapacity = Math.max(
+                  0,
+                  VIDEO_ENCODE_QUEUE_HARD_LIMIT - videoEncoder.encodeQueueSize,
+                );
+                const framesToEncode = resolveExportCanvasFrameBurstCount({
+                  pendingFrameCount,
+                  maxFramesPerPoll: availableEncoderQueueCapacity,
+                });
                 for (let i = 0; i < framesToEncode; i++) {
-                  // エンコーダ飽和時はバーストを中断（未達分は次のポーリングで追いつく）
-                  if (videoEncoder.encodeQueueSize >= VIDEO_ENCODE_QUEUE_HARD_LIMIT) {
-                    noteBackpressureDrop();
-                    break;
-                  }
-                  const frameTiming = resolvedExportDuration
-                    ? getExportFrameTiming(resolvedExportDuration, FPS, frameIndex)
-                    : {
-                      timestampUs: Math.round(frameIndex * (1e6 / FPS)),
-                      durationUs: Math.round(1e6 / FPS),
-                    };
-                  encodedVideoEndUs = Math.max(encodedVideoEndUs, frameTiming.timestampUs + frameTiming.durationUs);
-                  // 先頭フレームはポスターをキーフレームとして差し替え（シェルが先頭を読む場合に効く）
-                  const frame = createExportVideoFrame({
-                    canvas,
-                    posterBitmap: coverArtBitmap,
-                    frameIndex,
-                    timestampUs: frameTiming.timestampUs,
-                    durationUs: frameTiming.durationUs,
-                  });
-                  videoEncoder.encode(frame, { keyFrame: frameIndex === 0 ? true : isKeyFrame(frameIndex) });
-                  noteVideoFrameSubmitted();
-                  frame.close();
-                  frameIndex++;
+                  if (!submitCurrentCanvasFrame()) break;
+                  tailFilledFrames++;
                 }
               }
 
@@ -2420,6 +2442,12 @@ export function createUseExport(config: UseExportRuntimeConfig) {
               console.error('Video processing error (canvas):', e);
             }
           } finally {
+            // シンクを外す。残すと停止後も render loop から投入され続ける。
+            try {
+              audioSources?.setRenderedFrameSink?.(null);
+            } catch {
+              // ignore
+            }
             try {
               coverArtBitmap?.close();
             } catch {

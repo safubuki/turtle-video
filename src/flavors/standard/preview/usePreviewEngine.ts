@@ -1080,6 +1080,9 @@ export function usePreviewEngine({
   const exportRenderedFrameTrackerRef = useRef(createRenderedFrameTracker());
   // フレーム駆動ペーシングが実際に使われた rAF ティック数（診断用）。
   const exportFrameDrivenTickStatsRef = useRef({ frameDrivenTicks: 0, wallClockTicks: 0 });
+  // 描画直後にフレームを捕まえるシンク（export が登録する）。
+  // ポーリングでは Canvas 上の絵とフレーム番号がずれるため、描画と同期して投入する。
+  const exportRenderedFrameSinkRef = useRef<((frameIndex: number) => void) | null>(null);
   const frameDrivenExportSubmittedCountRef = useRef(0);
   const frameDrivenExportLastRenderedCountRef = useRef<number | null>(null);
   // フレーム駆動ウォッチドッグ: 投入数が進まないまま停滞したら壁時計へフォールバックする。
@@ -3682,6 +3685,9 @@ export function usePreviewEngine({
   const stopAll = useCallback(() => {
     currentExportSessionIdRef.current = null;
     frameDrivenExportEnabledRef.current = false;
+    // 停止時にシンクを外す。残しておくと次のセッションの render loop が
+    // 前回の export へフレームを投入してしまう。
+    exportRenderedFrameSinkRef.current = null;
     exportRenderedFrameIndexRef.current = null;
     frameDrivenExportSubmittedCountRef.current = 0;
     frameDrivenExportLastRenderedCountRef.current = null;
@@ -4665,6 +4671,10 @@ export function usePreviewEngine({
         exportRenderedFrameIndexRef.current = exportFrameIndex;
         // 【#215 再発調査】描いたフレーム番号を記録する（重複・飛びをここで検出する）。
         exportRenderedFrameTrackerRef.current.note(exportFrameIndex);
+        // 描き終えた直後に、その絵のまま VideoEncoder へ投入する。
+        // ここを 16ms タイマーのポーリングに任せると、投入時点の Canvas が
+        // 別時刻の絵になっていて映像が乱れる（2026-07-27 に実機で確認）。
+        exportRenderedFrameSinkRef.current?.(exportFrameIndex);
       }
       if (useFrameDrivenExportTime) {
         frameDrivenExportLastRenderedCountRef.current = submittedFrameCount;
@@ -5506,6 +5516,10 @@ export function usePreviewEngine({
             getPlaybackTimeSec: () => currentTimeRef.current,
             // 【Issue #215】実描画済みフレーム番号を返し、映像フレームの投入を描画実績へ同期させる。
             getRenderedVideoFrameIndex: () => exportRenderedFrameIndexRef.current,
+            // 描画直後にフレームを捕まえるシンクの登録口（ポーリングずれ対策）。
+            setRenderedFrameSink: (sink) => {
+              exportRenderedFrameSinkRef.current = sink;
+            },
             // 【#215 再発調査】完了時の原因切り分け用。実際に描けた枚数と飛んだ枚数を返す。
             getRenderedFrameStats: () => {
               const tracker = exportRenderedFrameTrackerRef.current;
@@ -5538,6 +5552,7 @@ export function usePreviewEngine({
               exportRenderedFrameIndexRef.current = null;
               exportRenderedFrameTrackerRef.current.reset();
               exportFrameDrivenTickStatsRef.current = { frameDrivenTicks: 0, wallClockTicks: 0 };
+              exportRenderedFrameSinkRef.current = null;
               frameDrivenExportSubmittedCountRef.current = 0;
               frameDrivenExportLastRenderedCountRef.current = null;
               // ウォッチドッグの停滞計測は実際の映像ループ開始時刻から始める。

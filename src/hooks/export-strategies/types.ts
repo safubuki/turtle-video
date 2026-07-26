@@ -88,6 +88,22 @@ export interface ExportAudioSources {
    */
   getRenderedVideoFrameIndex?: () => number | null;
   /**
+   * render loop が「1 フレーム描き終えた直後」に呼ばれるコールバックを登録する。
+   *
+   * 【なぜ必要か（2026-07-27）】Canvas 直接キャプチャは 16ms タイマーで Canvas を
+   * ポーリングしていたが、このタイマーは rAF と非同期に回る。そのため
+   * 「フレーム N の枠」へ投入するときに Canvas 上にあるのが本当に N の絵とは限らず、
+   * render loop が既に先へ進んだ後の絵や、同じ絵を複数回掴むことが起きていた。
+   * 投入**枚数**は `getRenderedVideoFrameIndex` で正しく制限できても、
+   * 投入する**中身**はこれでは保証できない（これが「映像が早送り／進んだり戻ったり」の正体）。
+   *
+   * 描画直後に同期的に捕まえることで、フレーム番号と絵が 1:1 で対応する。
+   * 登録解除用の関数を返す。
+   */
+  setRenderedFrameSink?: (
+    sink: ((frameIndex: number) => void) | null,
+  ) => void;
+  /**
    * render loop の描画実績を返す（Issue #215 の再発調査用の計測）。
    *
    * 完了時のフレーム総数はどの異常経路でも一致してしまうため、
