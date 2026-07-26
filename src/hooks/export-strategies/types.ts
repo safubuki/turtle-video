@@ -103,6 +103,13 @@ export interface ExportAudioSources {
     renderSkipCount: number;
     /** 一度も描かれなかったフレームの総数 */
     skippedFrames: number;
+    /**
+     * 壁時計ペーシングの減速が働いた rAF ティック数。
+     * 0 より大きいなら「減速していなければ映像が早送りになっていた」ことを意味する。
+     */
+    pacingThrottledTicks?: number;
+    /** 壁時計より遅らせた累計秒数（＝書き出しが伸びたぶん） */
+    pacingTotalDeferredSec?: number;
   };
   /**
    * VideoEncoder へ正常投入した映像フレーム数を通知する。

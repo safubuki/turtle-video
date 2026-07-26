@@ -2643,6 +2643,13 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             lastRenderedFrameIndex: flowSnapshot.lastRenderedFrameIndex,
             renderSkipCount: renderStats?.renderSkipCount ?? null,
             skippedFrames: renderStats?.skippedFrames ?? null,
+            // 【映像早送り対策】減速が働いた回数と、そのぶん伸びた秒数。
+            // throttledTicks > 0 なら、減速なしでは映像が早送りになっていた。
+            pacingThrottledTicks: renderStats?.pacingThrottledTicks ?? null,
+            pacingTotalDeferredSec:
+              renderStats?.pacingTotalDeferredSec === undefined
+                ? null
+                : Number(renderStats.pacingTotalDeferredSec.toFixed(2)),
             elapsedWallClockSec: Number(elapsedWallClockSec.toFixed(2)),
             totalDurationSec: exportDurationSec ?? 0,
             fps: FPS,

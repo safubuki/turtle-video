@@ -343,6 +343,84 @@ export function shouldUseFrameDrivenExportPacing(
     && input.mediaItemTypes.every((type) => type === 'image');
 }
 
+export interface ExportWallClockPacingInput {
+  /** 壁時計から求めた経過秒（従来の値） */
+  wallClockElapsedSec: number;
+  /** 直前の rAF で確定したタイムライン時刻（初回は null） */
+  lastTimelineSec: number | null;
+  /** 目標 fps */
+  fps: number;
+  /**
+   * 1 回の rAF で進めてよい最大フレーム数。
+   * 1 なら「rAF 1 回につき 1 フレーム」＝完全なフレーム同期になる。
+   */
+  maxFramesPerTick: number;
+  /** 減速を有効にするか（false なら壁時計をそのまま返す） */
+  enabled: boolean;
+}
+
+export interface ExportWallClockPacingResult {
+  /** 実際に採用するタイムライン時刻（秒） */
+  timelineSec: number;
+  /** 壁時計より遅らせた量（秒）。0 より大きいほど描画が追いつけていない */
+  deferredSec: number;
+  /** このティックで減速が働いたか */
+  throttled: boolean;
+}
+
+/**
+ * 壁時計ペーシングのタイムライン時刻を「実際の描画レート」に合わせて減速させる。
+ *
+ * 【背景】動画を含む書き出しはフレーム駆動ではなく壁時計で時刻を進めている。
+ * export の描画は rAF 上で走るため 1080p 素材では 30fps を割り込む（実測 20.5fps）。
+ * 壁時計は減速しないので、rAF 1 回あたり 1/30 秒ではなく 1/20.5 秒ぶん時刻が飛び、
+ * **映像だけが約 1.5 倍速で早送り**になる。素材が先に尽きて `ended` へ到達し、
+ * 残りは黒画面のまま、オフライン生成済みの音声だけが総尺まで流れる。
+ * （投入フレーム数は連番タイムスタンプで揃うため、フレーム収支の診断では正常に見える。）
+ *
+ * ここでは 1 ティックあたりの前進量を `maxFramesPerTick / fps` 秒に制限する。
+ * rAF が落ちても時刻は 1 フレームぶんずつしか進まないので、映像は等速で書き出される。
+ * 描画が間に合っている間は壁時計と一致するため、正常時の挙動は変わらない。
+ * 代償は書き出しの所要実時間が伸びることだけで、出力尺・内容は正しくなる。
+ *
+ * 注意: 時刻を「止める」のではなく「進めすぎない」だけなので、
+ * デコード待ち（holdFrame）でタイムラインが停止してカクつく問題は起こさない。
+ */
+export function resolveThrottledExportTimelineSec(
+  input: ExportWallClockPacingInput,
+): ExportWallClockPacingResult {
+  const wallClockSec = sanitizePlaybackTimeSec(input.wallClockElapsedSec) ?? 0;
+
+  if (!input.enabled) {
+    return { timelineSec: wallClockSec, deferredSec: 0, throttled: false };
+  }
+
+  const safeFps = Number.isFinite(input.fps) && input.fps > 0 ? input.fps : 30;
+  const safeMaxFrames = Number.isFinite(input.maxFramesPerTick) && input.maxFramesPerTick > 0
+    ? input.maxFramesPerTick
+    : 1;
+  const lastSec = sanitizePlaybackTimeSec(input.lastTimelineSec ?? Number.NaN);
+
+  // 初回（前回時刻が無い）は壁時計をそのまま使う。
+  if (lastSec === null) {
+    return { timelineSec: wallClockSec, deferredSec: 0, throttled: false };
+  }
+
+  const maxAdvanceSec = safeMaxFrames / safeFps;
+  const cappedSec = lastSec + maxAdvanceSec;
+
+  // 壁時計が上限より手前なら描画が追いついている（減速不要）。
+  if (wallClockSec <= cappedSec) {
+    return { timelineSec: wallClockSec, deferredSec: 0, throttled: false };
+  }
+
+  return {
+    timelineSec: cappedSec,
+    deferredSec: wallClockSec - cappedSec,
+    throttled: true,
+  };
+}
+
 export interface ExportVideoFrameBudgetInput {
   /** 尺から確定した総フレーム数（未確定なら null） */
   expectedVideoFrames: number | null;
