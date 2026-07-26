@@ -50,6 +50,7 @@ import {
   shouldUseFrameDrivenExportPacing,
   evaluateFrameDrivenExportStall,
 } from '../../../utils/exportTimeline';
+import { createRenderedFrameTracker } from '../../../utils/exportDiagnostics';
 import { resolveMediaBaseScale } from '../../../stores/canvasStore';
 import {
   normalizeRotation,
@@ -1074,6 +1075,9 @@ export function usePreviewEngine({
   const frameDrivenExportEnabledRef = useRef(false);
   // 【Issue #215】export の render loop が実際に描画した最後のフレーム番号（未描画は null）。
   const exportRenderedFrameIndexRef = useRef<number | null>(null);
+  // 【#215 再発調査】実際に描かれた「相異なる」フレーム番号を数える。
+  // 投入数との差が「同じ画の複製投入」＝映像が止まって見える量になる。
+  const exportRenderedFrameTrackerRef = useRef(createRenderedFrameTracker());
   const frameDrivenExportSubmittedCountRef = useRef(0);
   const frameDrivenExportLastRenderedCountRef = useRef<number | null>(null);
   // フレーム駆動ウォッチドッグ: 投入数が進まないまま停滞したら壁時計へフォールバックする。
@@ -4649,6 +4653,8 @@ export function usePreviewEngine({
       // 未描画時刻のフレームまで複製投入して映像だけ早く終わるのを防ぐ。
       if (isExportMode && exportFrameIndex !== null) {
         exportRenderedFrameIndexRef.current = exportFrameIndex;
+        // 【#215 再発調査】描いたフレーム番号を記録する（重複・飛びをここで検出する）。
+        exportRenderedFrameTrackerRef.current.note(exportFrameIndex);
       }
       if (useFrameDrivenExportTime) {
         frameDrivenExportLastRenderedCountRef.current = submittedFrameCount;
@@ -5490,6 +5496,16 @@ export function usePreviewEngine({
             getPlaybackTimeSec: () => currentTimeRef.current,
             // 【Issue #215】実描画済みフレーム番号を返し、映像フレームの投入を描画実績へ同期させる。
             getRenderedVideoFrameIndex: () => exportRenderedFrameIndexRef.current,
+            // 【#215 再発調査】完了時の原因切り分け用。実際に描けた枚数と飛んだ枚数を返す。
+            getRenderedFrameStats: () => {
+              const tracker = exportRenderedFrameTrackerRef.current;
+              return {
+                distinctRenderedFrames: tracker.getDistinctCount(),
+                lastRenderedFrameIndex: tracker.getLastIndex(),
+                renderSkipCount: tracker.getSkipCount(),
+                skippedFrames: tracker.getSkippedFrames(),
+              };
+            },
             // プロジェクトポスター → MP4 cover art / 先頭キーフレーム（動画サムネイルの標準手法）
             coverArtJpegDataUrl: useMediaStore.getState().projectPosterDataUrl,
             onVideoFrameSubmitted: (submittedFrameCount) => {
@@ -5504,6 +5520,7 @@ export function usePreviewEngine({
             onAudioPreRenderComplete: () => {
               // 【Issue #215】実描画実績は loop 開始時点から数え直す。
               exportRenderedFrameIndexRef.current = null;
+              exportRenderedFrameTrackerRef.current.reset();
               frameDrivenExportSubmittedCountRef.current = 0;
               frameDrivenExportLastRenderedCountRef.current = null;
               // ウォッチドッグの停滞計測は実際の映像ループ開始時刻から始める。

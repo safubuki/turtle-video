@@ -88,6 +88,23 @@ export interface ExportAudioSources {
    */
   getRenderedVideoFrameIndex?: () => number | null;
   /**
+   * render loop の描画実績を返す（Issue #215 の再発調査用の計測）。
+   *
+   * 完了時のフレーム総数はどの異常経路でも一致してしまうため、
+   * 「実際に描かれた相異なるフレーム数」を投入数と別に取得して原因を切り分ける。
+   * 投入数との差が「同じ画の複製投入」＝映像が止まって見える量になる。
+   */
+  getRenderedFrameStats?: () => {
+    /** 実際に描かれた相異なるフレーム番号の数 */
+    distinctRenderedFrames: number;
+    /** 最後に描いたフレーム番号（未描画なら null） */
+    lastRenderedFrameIndex: number | null;
+    /** 描画が連番で進まなかった回数（＝描画が飛んだ回数） */
+    renderSkipCount: number;
+    /** 一度も描かれなかったフレームの総数 */
+    skippedFrames: number;
+  };
+  /**
    * VideoEncoder へ正常投入した映像フレーム数を通知する。
    * 静止画のみの standard export で、各 Canvas 描画とエンコード投入を1対1に同期するために使う。
    */

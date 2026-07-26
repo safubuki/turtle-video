@@ -26,6 +26,7 @@ import {
   resolveExportVideoFrameBudget,
   stopCanvasCaptureStream,
 } from '../../../utils/exportTimeline';
+import { diagnoseExportFrameFlow } from '../../../utils/exportDiagnostics';
 import { inspectMp4Durations } from '../../../utils/mp4Duration';
 import {
   createExportVideoFrame,
@@ -2186,6 +2187,11 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         const VIDEO_ENCODE_QUEUE_HARD_LIMIT = 90; // 約3秒分
         let backpressureDroppedFrames = 0;
         let lastBackpressureLogAtMs = 0;
+        // 【#215 再発調査】完了要求後に「描かずに」複製して尺を埋めた枚数。
+        // 後半が静止する症状はここが大きくなる。
+        let tailFilledFrames = 0;
+        // 実効描画 fps を出すため、映像処理の開始時刻を控える。
+        const videoProcessingStartedAtMs = performance.now();
 
         const waitForVideoEncoderQueueDrain = async (limit: number) => {
           while (
@@ -2314,6 +2320,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                 });
                 videoEncoder.encode(frame, { keyFrame: frameIndex === 0 ? true : isKeyFrame(frameIndex) });
                 noteVideoFrameSubmitted();
+                tailFilledFrames++;
                 frame.close();
                 frameIndex++;
               }
@@ -2592,6 +2599,67 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         }
 
         updatePreparationStep(audioSources, 10);
+
+        // ============================================================
+        // [DIAG-215] フレーム収支の診断（映像が止まる症状の原因切り分け）
+        // ------------------------------------------------------------
+        // 完了時の総フレーム数はどの異常経路でも尺と一致してしまうため、
+        // 「実際に描かれた相異なるフレーム数」を投入数と別に取って突き合わせる。
+        //   投入数 - 実描画数 = 同じ画の複製投入（＝映像が止まって見える量）
+        // ============================================================
+        try {
+          const renderStats = audioSources?.getRenderedFrameStats?.() ?? null;
+          const elapsedWallClockSec = Math.max(
+            0,
+            (performance.now() - videoProcessingStartedAtMs) / 1000,
+          );
+          const flowSnapshot = {
+            submittedFrames: videoEncoderSubmittedFrames,
+            distinctRenderedFrames: renderStats?.distinctRenderedFrames ?? 0,
+            tailFilledFrames,
+            backpressureDroppedFrames,
+            expectedVideoFrames,
+            lastRenderedFrameIndex: renderStats?.lastRenderedFrameIndex ?? null,
+            elapsedWallClockSec,
+            totalDurationSec: exportDurationSec ?? 0,
+            fps: FPS,
+          };
+          const diagnosis = diagnoseExportFrameFlow(flowSnapshot);
+          const payload = {
+            verdict: diagnosis.verdict,
+            summary: diagnosis.summary,
+            submittedFrames: flowSnapshot.submittedFrames,
+            distinctRenderedFrames: flowSnapshot.distinctRenderedFrames,
+            duplicateSubmissions: diagnosis.duplicateSubmissions,
+            estimatedFrozenSec: Number(diagnosis.estimatedFrozenSec.toFixed(2)),
+            effectiveRenderFps: Number(diagnosis.effectiveRenderFps.toFixed(2)),
+            renderCoverageRatio:
+              diagnosis.renderCoverageRatio === null
+                ? null
+                : Number(diagnosis.renderCoverageRatio.toFixed(3)),
+            tailFilledFrames,
+            backpressureDroppedFrames,
+            expectedVideoFrames,
+            lastRenderedFrameIndex: flowSnapshot.lastRenderedFrameIndex,
+            renderSkipCount: renderStats?.renderSkipCount ?? null,
+            skippedFrames: renderStats?.skippedFrames ?? null,
+            elapsedWallClockSec: Number(elapsedWallClockSec.toFixed(2)),
+            totalDurationSec: exportDurationSec ?? 0,
+            fps: FPS,
+            captureMode: useManualCanvasFrames ? 'manual-canvas' : 'track-processor',
+          };
+          if (diagnosis.verdict === 'healthy') {
+            logInfo('[DIAG-215] フレーム収支 正常', payload);
+          } else {
+            useLogStore.getState().warn('RENDER', '[DIAG-215] フレーム収支 異常', payload);
+          }
+        } catch (diagError) {
+          // 診断は書き出しの成否に影響させない
+          useLogStore.getState().warn('RENDER', '[DIAG-215] フレーム収支の診断に失敗', {
+            error: diagError instanceof Error ? diagError.message : String(diagError),
+          });
+        }
+
         // ============================================================
         // [DIAG-7] フラッシュ前の最終状態
         // ============================================================
