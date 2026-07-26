@@ -15,6 +15,7 @@ import type {
   CaptionSettings,
   MediaItem,
   NarrationClip,
+  VideoTitleSettings,
 } from '../../types';
 
 export type PreviewCacheStatus = 'idle' | 'preparing' | 'ready' | 'failed';
@@ -39,6 +40,11 @@ export interface CreatePreviewCacheKeyInput {
   narrations: NarrationClip[];
   captions: Caption[];
   captionSettings: CaptionSettings;
+  /**
+   * 動画タイトル（Issue #211）。焼き込み済みキャッシュ動画に含まれる要素なので、
+   * タイトルを変更したらキャッシュが必ず無効化されるようキーへ含める。
+   */
+  videoTitle: VideoTitleSettings;
   canvasWidth: number;
   canvasHeight: number;
   fps: number;

@@ -3,6 +3,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import CaptionSection from '../components/sections/CaptionSection';
 import type { Caption } from '../types';
+import { DEFAULT_VIDEO_TITLE_SETTINGS } from '../utils/videoTitle';
 
 function renderCaptionSection(
   overrides: Partial<ComponentProps<typeof CaptionSection>> = {},
@@ -24,6 +25,7 @@ function renderCaptionSection(
       bulkFadeInDuration: 0.5,
       bulkFadeOutDuration: 0.5,
     },
+    videoTitle: { ...DEFAULT_VIDEO_TITLE_SETTINGS },
     isLocked: false,
     totalDuration: 10,
     currentTime: 0,
@@ -54,12 +56,15 @@ function renderCaptionSection(
     onTogglePlay: vi.fn(),
     onSeekBy: vi.fn(),
     onUpdateCaptionLive: vi.fn(),
+    onUpdateVideoTitle: vi.fn(),
+    onSetVideoTitleRange: vi.fn(),
+    onResetVideoTitle: vi.fn(),
     ...overrides,
   };
 
   render(<CaptionSection {...props} />);
   if (openOutlineSettings) {
-    fireEvent.click(screen.getByRole('button', { name: 'スタイル/フェード一括設定' }));
+    fireEvent.click(screen.getByRole('button', { name: 'キャプション スタイル/フェードの一括設定' }));
     fireEvent.click(screen.getByRole('button', { name: '文字の縁・色' }));
   }
   return props;
@@ -68,7 +73,7 @@ function renderCaptionSection(
 describe('CaptionSection outline and color controls', () => {
   it('詳細設定は閉じている間だけ「（開いて設定）」を表示する', () => {
     renderCaptionSection({}, false);
-    const styleButton = screen.getByRole('button', { name: 'スタイル/フェード一括設定' });
+    const styleButton = screen.getByRole('button', { name: 'キャプション スタイル/フェードの一括設定' });
 
     expect(styleButton).toHaveAttribute('aria-expanded', 'false');
     expect(within(styleButton).getByText('（開いて設定）')).toBeInTheDocument();
@@ -162,7 +167,7 @@ describe('CaptionSection bulk timing alignment', () => {
     const props = renderCaptionSection({ captions, currentTime: 8.34 }, false);
 
     expect(screen.getByText('対象の先頭 0:02.0 → 0:08.3（+6.3秒）')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '現在位置（0:08.3）に先頭を合わせる' }));
+    fireEvent.click(screen.getByRole('button', { name: '現在位置に先頭を合わせる' }));
 
     expect(props.onShiftCaptions).toHaveBeenCalledWith(6.3, 0);
     expect(screen.getByText('対象の先頭を 0:08.3 に合わせました（+6.3秒）')).toBeInTheDocument();
@@ -176,7 +181,7 @@ describe('CaptionSection bulk timing alignment', () => {
     });
     expect(screen.getByText('対象の先頭 0:05.0 → 0:01.2（−3.8秒）')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '現在位置（0:01.2）に先頭を合わせる' }));
+    fireEvent.click(screen.getByRole('button', { name: '現在位置に先頭を合わせる' }));
 
     expect(props.onShiftCaptions).toHaveBeenCalledWith(-3.8, 1);
   });
@@ -184,7 +189,7 @@ describe('CaptionSection bulk timing alignment', () => {
   it('対象の先頭が現在位置に合っているときは操作を無効にする', () => {
     const props = renderCaptionSection({ captions, currentTime: 2 }, false);
     const alignButton = screen.getByRole('button', {
-      name: '現在位置（0:02.0）に先頭を合わせる',
+      name: '現在位置に先頭を合わせる',
     });
 
     expect(alignButton).toBeDisabled();
@@ -224,6 +229,7 @@ describe('CaptionSection bulk timing alignment', () => {
         bulkFadeInDuration: 0.5,
         bulkFadeOutDuration: 0.5,
       },
+      videoTitle: { ...DEFAULT_VIDEO_TITLE_SETTINGS },
       isLocked: false,
       totalDuration: 20,
       currentTime: 3,
@@ -254,27 +260,32 @@ describe('CaptionSection bulk timing alignment', () => {
       onTogglePlay: vi.fn(),
       onSeekBy: vi.fn(),
       onUpdateCaptionLive: vi.fn(),
+      onUpdateVideoTitle: vi.fn(),
+      onSetVideoTitleRange: vi.fn(),
+      onResetVideoTitle: vi.fn(),
       ...overrides,
     });
 
+    // ボタン文言からは時刻を外したため、凍結の検証は説明文（aria-live）で行う
     it('エクスポート中は currentTime が進んでも表示を更新しない', () => {
       const props = buildProps({ currentTime: 3, isExporting: false });
       const { rerender } = render(<CaptionSection {...props} />);
-      expect(
-        screen.getByRole('button', { name: '現在位置（0:03.0）に先頭を合わせる' })
-      ).toBeInTheDocument();
+      expect(screen.getByText('対象の先頭 0:02.0 → 0:03.0（+1.0秒）')).toBeInTheDocument();
 
       // エクスポート開始（開始直前の値 3.0 を維持する）
       rerender(<CaptionSection {...buildProps({ currentTime: 3, isExporting: true })} />);
       // エクスポート中に再生位置が進んでも表示は 0:03.0 のまま
       rerender(<CaptionSection {...buildProps({ currentTime: 12.7, isExporting: true })} />);
 
-      expect(
-        screen.getByRole('button', { name: '現在位置（0:03.0）に先頭を合わせる' })
-      ).toBeInTheDocument();
-      expect(
-        screen.queryByRole('button', { name: '現在位置（0:12.7）に先頭を合わせる' })
-      ).not.toBeInTheDocument();
+      expect(screen.getByText('対象の先頭 0:02.0 → 0:03.0（+1.0秒）')).toBeInTheDocument();
+      expect(screen.queryByText(/0:12\.7/)).not.toBeInTheDocument();
+    });
+
+    it('ボタン文言には現在位置の時刻を含めない（チラつき・幅の抑制）', () => {
+      render(<CaptionSection {...buildProps({ currentTime: 3, isExporting: false })} />);
+      const alignButton = screen.getByRole('button', { name: '現在位置に先頭を合わせる' });
+      expect(alignButton).toBeInTheDocument();
+      expect(alignButton.textContent).not.toMatch(/\d:\d\d\.\d/);
     });
 
     it('エクスポート中も表示項目自体は消えない', () => {
@@ -294,9 +305,7 @@ describe('CaptionSection bulk timing alignment', () => {
       // 完了・中断・失敗のいずれでも isExporting が false へ戻る
       rerender(<CaptionSection {...buildProps({ currentTime: 12.7, isExporting: false })} />);
 
-      expect(
-        screen.getByRole('button', { name: '現在位置（0:12.7）に先頭を合わせる' })
-      ).toBeInTheDocument();
+      expect(screen.getByText('対象の先頭 0:02.0 → 0:12.7（+10.7秒）')).toBeInTheDocument();
     });
 
     it('通常のプレビュー中（非エクスポート）は従来どおり更新される', () => {
@@ -305,9 +314,7 @@ describe('CaptionSection bulk timing alignment', () => {
       );
       rerender(<CaptionSection {...buildProps({ currentTime: 6.5, isExporting: false })} />);
 
-      expect(
-        screen.getByRole('button', { name: '現在位置（0:06.5）に先頭を合わせる' })
-      ).toBeInTheDocument();
+      expect(screen.getByText('対象の先頭 0:02.0 → 0:06.5（+4.5秒）')).toBeInTheDocument();
     });
 
     it('エクスポート中でも一括時間移動の適用そのものは動作する', () => {
@@ -321,7 +328,7 @@ describe('CaptionSection bulk timing alignment', () => {
       rerender(<CaptionSection {...exportingProps} />);
 
       // 凍結された表示値（3.0）を基準に適用される
-      fireEvent.click(screen.getByRole('button', { name: '現在位置（0:03.0）に先頭を合わせる' }));
+      fireEvent.click(screen.getByRole('button', { name: '現在位置に先頭を合わせる' }));
       expect(exportingProps.onShiftCaptions).toHaveBeenCalledWith(1, 0);
     });
   });

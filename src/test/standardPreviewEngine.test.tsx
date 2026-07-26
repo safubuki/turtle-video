@@ -17,6 +17,7 @@ import type {
   NarrationClip,
 } from '../types';
 import type { PlatformCapabilities } from '../utils/platform';
+import { DEFAULT_VIDEO_TITLE_SETTINGS } from '../utils/videoTitle';
 
 const TEST_PREVIEW_START_SETTLE_MS = 60;
 
@@ -246,6 +247,8 @@ describe('standard preview engine', () => {
         narrationsRef: createRef<NarrationClip[]>(options?.narrations ?? []),
         captionsRef: createRef<Caption[]>([]),
         captionSettingsRef: createRef({} as CaptionSettings),
+        videoTitle: DEFAULT_VIDEO_TITLE_SETTINGS,
+        videoTitleRef: createRef(DEFAULT_VIDEO_TITLE_SETTINGS),
         totalDurationRef,
         currentTimeRef,
         canvasRef: createRef<HTMLCanvasElement | null>(options?.canvas ?? null),
@@ -384,6 +387,8 @@ describe('standard preview engine', () => {
         narrationsRef: createRef<NarrationClip[]>(options?.narrations ?? []),
         captionsRef: createRef<Caption[]>([]),
         captionSettingsRef: createRef({} as CaptionSettings),
+        videoTitle: DEFAULT_VIDEO_TITLE_SETTINGS,
+        videoTitleRef: createRef(DEFAULT_VIDEO_TITLE_SETTINGS),
         totalDurationRef: createRef(
           options?.totalDuration ?? mediaItems.reduce((sum, item) => sum + item.duration, 0),
         ),
@@ -1820,6 +1825,8 @@ describe('standard preview engine', () => {
         narrationsRef: createRef<NarrationClip[]>([]),
         captionsRef: createRef<Caption[]>([]),
         captionSettingsRef: createRef({} as CaptionSettings),
+        videoTitle: DEFAULT_VIDEO_TITLE_SETTINGS,
+        videoTitleRef: createRef(DEFAULT_VIDEO_TITLE_SETTINGS),
         totalDurationRef: createRef(6),
         currentTimeRef: createRef(0),
         canvasRef: createRef({

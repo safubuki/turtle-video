@@ -196,6 +196,57 @@ export type CaptionFontStyle =
   | 'system'
   | (string & {});
 
+/**
+ * 動画タイトル設定（Issue #211）。
+ *
+ * 通常キャプション（Caption[]）とは**完全に別管理**する 1 件だけの設定。
+ * キャプション一覧・時分割カード・まとめて入力・タイミング打ち・一括シフトの
+ * 対象には含めない（混在させない）。
+ *
+ * 既定は「中央・通常キャプションより大きめ」。描画は preview / export 共通の
+ * renderFrame が担当し、スタイル解決は utils/videoTitle.ts に集約する。
+ */
+export interface VideoTitleSettings {
+  /** タイトルを描画するか（文字列が空のときは enabled でも描画しない） */
+  enabled: boolean;
+  /** タイトル文字列（改行は複数行として中央揃えで描画する。時分割はしない） */
+  text: string;
+  /** 表示開始（秒） */
+  startTime: number;
+  /** 表示終了（秒） */
+  endTime: number;
+  fontStyle: CaptionFontStyle;
+  fontColor: string;
+  strokeColor: string;
+  /** 縁幅 px @1080p 基準 */
+  strokeWidth: number;
+  /**
+   * 文字サイズのプリセット（小/中/大/特大）。キャプションと同じ体系。
+   * `fontSizeCustom` が設定されている場合はそちらが優先される。
+   */
+  fontSize: CaptionSize;
+  /**
+   * カスタム文字サイズ px @1080p 基準（24〜240）。
+   * null/未設定でプリセットを使う。キャプションの `fontSizeCustom` と同じ扱い。
+   */
+  fontSizeCustom?: number | null;
+  /** プリセット位置（上/中央/下）。positionCustom が設定されている場合は無視される */
+  position: CaptionPosition;
+  /** カスタム位置 %（0-100・テキスト中心）。null/未設定でプリセットを使う */
+  positionCustom?: { x: number; y: number } | null;
+  /** 背景の帯の設定。タイトルは映像に重なるため視認性確保用 */
+  backgroundEnabled: boolean;
+  backgroundColor: string;
+  /** 背景の帯の不透明度（0〜1） */
+  backgroundOpacity: number;
+  /** 背景の帯の角丸半径 px @1080p 基準（0=角丸なし） */
+  backgroundRadius: number;
+  fadeIn: boolean;
+  fadeOut: boolean;
+  fadeInDuration: number;
+  fadeOutDuration: number;
+}
+
 // キャプション設定
 export interface CaptionSettings {
   enabled: boolean;

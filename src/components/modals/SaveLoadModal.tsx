@@ -611,7 +611,13 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, onBeforeLoadPr
           data.bgmClips,
           data.bgmAutoAdjustToTimeline,
         );
-        restoreCaptions(data.captions, data.captionSettings, data.isCaptionsLocked);
+        // 動画タイトル（Issue #211）も同時に復元する。旧データは既定値で補完済み
+        restoreCaptions(
+          data.captions,
+          data.captionSettings,
+          data.isCaptionsLocked,
+          data.videoTitle,
+        );
         useLogStore.getState().info('SYSTEM', `プロジェクトを読み込み (${slot === 'auto' ? '自動保存' : '手動保存'})`, {
           mediaCount: data.mediaItems.length,
           captionCount: data.captions.length,

@@ -76,6 +76,44 @@ afterEach(() => {
 });
 
 describe('PreviewSection action buttons', () => {
+  it('サムネイル設定は現在値を見出しに表示して初期状態では閉じている', () => {
+    renderPreviewSection();
+
+    const settingsButton = screen.getByRole('button', { name: /サムネイル設定/ });
+
+    expect(settingsButton).toHaveAttribute('aria-expanded', 'false');
+    expect(settingsButton).toHaveTextContent('自動');
+    expect(settingsButton).toHaveTextContent('0.2s');
+    expect(screen.queryByRole('button', { name: '現在のフレームをサムネイルに設定' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/完成1本の代表フレーム/)).not.toBeInTheDocument();
+  });
+
+  it('サムネイル設定を開くと設定操作を表示する', () => {
+    const onSetProjectPosterFromCurrent = vi.fn();
+    renderPreviewSection({ onSetProjectPosterFromCurrent });
+
+    const settingsButton = screen.getByRole('button', { name: /サムネイル設定/ });
+    fireEvent.click(settingsButton);
+
+    expect(settingsButton).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(screen.getByRole('button', { name: '現在のフレームをサムネイルに設定' }));
+    expect(onSetProjectPosterFromCurrent).toHaveBeenCalledTimes(1);
+  });
+
+  it('手動設定時は見出しに手動と設定時刻を表示する', () => {
+    renderPreviewSection({
+      projectPosterMode: 'manual',
+      projectPosterTimelineTime: 3.5,
+    });
+
+    const settingsButton = screen.getByRole('button', { name: /サムネイル設定/ });
+    expect(settingsButton).toHaveTextContent('手動');
+    expect(settingsButton).toHaveTextContent('3.5s');
+
+    fireEvent.click(settingsButton);
+    expect(screen.getByRole('button', { name: '自動設定に戻す' })).toBeInTheDocument();
+  });
+
   it('停止とキャプチャの既定スタイルを表示する', () => {
     renderPreviewSection();
 

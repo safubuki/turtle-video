@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useCaptionStore } from '../../stores/captionStore';
 import type { CaptionSettings } from '../../types';
+import { DEFAULT_VIDEO_TITLE_SETTINGS } from '../../utils/videoTitle';
 
 describe('captionStore', () => {
   beforeEach(() => {
@@ -25,6 +26,7 @@ describe('captionStore', () => {
         bulkFadeInDuration: 0.5,
         bulkFadeOutDuration: 0.5,
       },
+      title: { ...DEFAULT_VIDEO_TITLE_SETTINGS },
       isLocked: false,
     });
   });
@@ -36,7 +38,7 @@ describe('captionStore', () => {
       const { settings } = useCaptionStore.getState();
       expect(settings.fontColor).toBe('#FFFFFF');
       expect(settings.strokeColor).toBe('#000000');
-      expect(settings.strokeWidth).toBe(2);
+      expect(settings.strokeWidth).toBe(4);
     });
 
     it('should have settings property accessible', () => {
@@ -367,6 +369,99 @@ describe('captionStore', () => {
       useCaptionStore.getState().shiftCaptions(0);
       useCaptionStore.getState().shiftCaptions(Number.NaN);
       expect(useCaptionStore.getState().captions[0]).toMatchObject({ startTime: 0, endTime: 3 });
+    });
+  });
+  // === 動画タイトル（Issue #211・キャプションとは別管理） ===
+  describe('動画タイトル（Issue #211）', () => {
+    it('既定は中央・大きめ・空テキスト', () => {
+      const { title } = useCaptionStore.getState();
+      expect(title.position).toBe('center');
+      expect(title.text).toBe('');
+      expect(title.fontSize).toBe(DEFAULT_VIDEO_TITLE_SETTINGS.fontSize);
+    });
+
+    it('タイトルを更新してもキャプション一覧には混ざらない', () => {
+      const { addCaption, updateTitle } = useCaptionStore.getState();
+      addCaption('通常キャプション', 0, 2);
+      updateTitle({ text: '動画タイトル' });
+
+      const state = useCaptionStore.getState();
+      expect(state.title.text).toBe('動画タイトル');
+      expect(state.captions).toHaveLength(1);
+      expect(state.captions[0].text).toBe('通常キャプション');
+      expect(state.captions.some((c) => c.text === '動画タイトル')).toBe(false);
+    });
+
+    it('キャプション操作はタイトルを変更しない', () => {
+      useCaptionStore.getState().updateTitle({ text: 'タイトル', startTime: 1, endTime: 4 });
+      const before = useCaptionStore.getState().title;
+
+      useCaptionStore.getState().addCaption('あ', 0, 2);
+      useCaptionStore.getState().shiftCaptions(3);
+      useCaptionStore.getState().clearAllCaptions();
+
+      expect(useCaptionStore.getState().title).toEqual(before);
+    });
+
+    it('updateTitle は数値をクランプする', () => {
+      useCaptionStore.getState().updateTitle({ fontSizeCustom: 99999, strokeWidth: -3 });
+      const { title } = useCaptionStore.getState();
+      // カスタムサイズはキャプションと同じ 24〜240px にクランプされる
+      expect(title.fontSizeCustom).toBe(240);
+      expect(title.strokeWidth).toBe(0);
+    });
+
+    it('setTitleRange は開始・終了の逆転を防ぐ', () => {
+      useCaptionStore.getState().setTitleRange(6, 2);
+      const { title } = useCaptionStore.getState();
+      expect(title.endTime).toBeGreaterThan(title.startTime);
+    });
+
+    it('setTitleRange は totalDuration を超えない', () => {
+      useCaptionStore.getState().setTitleRange(0, 100, 8);
+      expect(useCaptionStore.getState().title.endTime).toBe(8);
+    });
+
+    it('resetTitle で既定値へ戻る', () => {
+      useCaptionStore.getState().updateTitle({ text: 'x', position: 'top' });
+      useCaptionStore.getState().resetTitle();
+      expect(useCaptionStore.getState().title).toEqual(DEFAULT_VIDEO_TITLE_SETTINGS);
+    });
+
+    it('resetCaptions はタイトルも既定値へ戻す', () => {
+      useCaptionStore.getState().updateTitle({ text: 'x' });
+      useCaptionStore.getState().resetCaptions();
+      expect(useCaptionStore.getState().title).toEqual(DEFAULT_VIDEO_TITLE_SETTINGS);
+    });
+
+    it('restoreFromSave はタイトル未対応の旧データでも既定値で復元できる', () => {
+      const settings: CaptionSettings = {
+        enabled: true,
+        fontSize: 'medium',
+        fontStyle: 'gothic',
+        fontColor: '#FFFFFF',
+        strokeColor: '#000000',
+        strokeWidth: 2,
+        position: 'bottom',
+        blur: 0,
+        bulkFadeIn: false,
+        bulkFadeOut: false,
+        bulkFadeInDuration: 0.5,
+        bulkFadeOutDuration: 0.5,
+      };
+      // 第4引数なし = タイトル未対応バージョンの保存データ
+      useCaptionStore.getState().restoreFromSave([], settings, false);
+      expect(useCaptionStore.getState().title).toEqual(DEFAULT_VIDEO_TITLE_SETTINGS);
+
+      // 保存済みタイトルがあれば復元する
+      useCaptionStore.getState().restoreFromSave([], settings, false, {
+        text: '保存されたタイトル',
+        position: 'top',
+      });
+      const restored = useCaptionStore.getState().title;
+      expect(restored.text).toBe('保存されたタイトル');
+      expect(restored.position).toBe('top');
+      expect(restored.fontSize).toBe(DEFAULT_VIDEO_TITLE_SETTINGS.fontSize);
     });
   });
 });

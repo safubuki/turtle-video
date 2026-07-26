@@ -126,5 +126,29 @@ export function createAndroidPreviewCacheKey(
       fontSizeCustom: input.captionSettings.fontSizeCustom ?? null,
       positionCustom: input.captionSettings.positionCustom ?? null,
     },
+    // 動画タイトル（Issue #211）もキャッシュ動画へ焼き込まれるためキーに含める。
+    // 含めないとタイトル変更が Android プレビューへ反映されない。
+    videoTitle: {
+      enabled: input.videoTitle.enabled,
+      text: input.videoTitle.text,
+      startTime: input.videoTitle.startTime,
+      endTime: input.videoTitle.endTime,
+      fontStyle: input.videoTitle.fontStyle,
+      fontColor: input.videoTitle.fontColor,
+      strokeColor: input.videoTitle.strokeColor,
+      strokeWidth: input.videoTitle.strokeWidth,
+      fontSize: input.videoTitle.fontSize,
+      fontSizeCustom: input.videoTitle.fontSizeCustom ?? null,
+      position: input.videoTitle.position,
+      positionCustom: input.videoTitle.positionCustom ?? null,
+      backgroundEnabled: input.videoTitle.backgroundEnabled,
+      backgroundColor: input.videoTitle.backgroundColor,
+      backgroundOpacity: input.videoTitle.backgroundOpacity,
+      backgroundRadius: input.videoTitle.backgroundRadius,
+      fadeIn: input.videoTitle.fadeIn,
+      fadeOut: input.videoTitle.fadeOut,
+      fadeInDuration: input.videoTitle.fadeInDuration,
+      fadeOutDuration: input.videoTitle.fadeOutDuration,
+    },
   });
 }

@@ -16,6 +16,7 @@ import type {
   NarrationClip,
 } from '../types';
 import type { PlatformCapabilities } from '../utils/platform';
+import { DEFAULT_VIDEO_TITLE_SETTINGS } from '../utils/videoTitle';
 
 function createCapabilities(
   overrides: Partial<PlatformCapabilities> = {},
@@ -211,6 +212,8 @@ describe('apple-safari preview engine boundary kick', () => {
         narrationsRef: createRef<NarrationClip[]>([]),
         captionsRef: createRef<Caption[]>([]),
         captionSettingsRef: createRef({ enabled: false } as unknown as CaptionSettings),
+        videoTitle: DEFAULT_VIDEO_TITLE_SETTINGS,
+        videoTitleRef: createRef(DEFAULT_VIDEO_TITLE_SETTINGS),
         totalDurationRef: createRef(totalDuration),
         currentTimeRef: createRef(0),
         canvasRef: createRef({
@@ -637,6 +640,8 @@ describe('apple-safari preview engine boundary kick', () => {
         narrationsRef: createRef<NarrationClip[]>([]),
         captionsRef: createRef<Caption[]>([]),
         captionSettingsRef: createRef({ enabled: false } as unknown as CaptionSettings),
+        videoTitle: DEFAULT_VIDEO_TITLE_SETTINGS,
+        videoTitleRef: createRef(DEFAULT_VIDEO_TITLE_SETTINGS),
         totalDurationRef: createRef(2),
         currentTimeRef: createRef(0),
         canvasRef: createRef({
@@ -750,6 +755,8 @@ describe('apple-safari preview engine boundary kick', () => {
         narrationsRef: createRef<NarrationClip[]>([]),
         captionsRef: createRef<Caption[]>([]),
         captionSettingsRef: createRef({ enabled: false } as unknown as CaptionSettings),
+        videoTitle: DEFAULT_VIDEO_TITLE_SETTINGS,
+        videoTitleRef: createRef(DEFAULT_VIDEO_TITLE_SETTINGS),
         totalDurationRef: createRef(2),
         currentTimeRef: createRef(0),
         canvasRef: createRef({
@@ -874,6 +881,8 @@ describe('apple-safari preview engine boundary kick', () => {
         narrationsRef: createRef<NarrationClip[]>([]),
         captionsRef: createRef<Caption[]>([]),
         captionSettingsRef: createRef({ enabled: false } as unknown as CaptionSettings),
+        videoTitle: DEFAULT_VIDEO_TITLE_SETTINGS,
+        videoTitleRef: createRef(DEFAULT_VIDEO_TITLE_SETTINGS),
         totalDurationRef: createRef(6),
         currentTimeRef: createRef(5.95),
         canvasRef: createRef({
@@ -1001,6 +1010,8 @@ describe('apple-safari preview engine boundary kick', () => {
         narrationsRef: createRef<NarrationClip[]>([]),
         captionsRef: createRef<Caption[]>([]),
         captionSettingsRef: createRef({ enabled: false } as unknown as CaptionSettings),
+        videoTitle: DEFAULT_VIDEO_TITLE_SETTINGS,
+        videoTitleRef: createRef(DEFAULT_VIDEO_TITLE_SETTINGS),
         totalDurationRef: createRef(6),
         currentTimeRef: createRef(5.95),
         canvasRef: createRef({

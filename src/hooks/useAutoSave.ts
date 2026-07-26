@@ -101,6 +101,8 @@ export function useAutoSave() {
   const captions = useCaptionStore((s) => s.captions);
   const captionSettings = useCaptionStore((s) => s.settings);
   const isCaptionsLocked = useCaptionStore((s) => s.isLocked);
+  // 動画タイトル（Issue #211）。キャプションとは別管理なので個別に変更検知へ含める
+  const videoTitle = useCaptionStore((s) => s.title);
   // 出力の向き（プロジェクトごとに保持）。変更で自動保存が走るよう変更検知に含める。
   const aspectRatio = useCanvasStore((s) => s.aspectRatio);
   
@@ -225,6 +227,7 @@ export function useAutoSave() {
         c.sequentialGapSec ?? '',
       ].join(':')).join(','),
       JSON.stringify(captionSettings),
+      JSON.stringify(videoTitle),
       isClipsLocked,
       isBgmLocked,
       isNarrationLocked,
@@ -242,6 +245,7 @@ export function useAutoSave() {
     narrations,
     captions,
     captionSettings,
+    videoTitle,
     isClipsLocked,
     isBgmLocked,
     isNarrationLocked,
@@ -269,8 +273,16 @@ export function useAutoSave() {
       return 'skipped-nochange';
     }
     
-    // データがない場合はスキップ
-    if (mediaItems.length === 0 && !bgm && bgmClips.length === 0 && narrations.length === 0 && captions.length === 0) {
+    // データがない場合はスキップ。
+    // 動画タイトル（Issue #211）だけが入力されている状態も「中身あり」として扱う
+    if (
+      mediaItems.length === 0 &&
+      !bgm &&
+      bgmClips.length === 0 &&
+      narrations.length === 0 &&
+      captions.length === 0 &&
+      videoTitle.text.trim().length === 0
+    ) {
       return 'skipped-empty';
     }
     
@@ -314,6 +326,7 @@ export function useAutoSave() {
     isNarrationLocked,
     captions,
     captionSettings,
+    videoTitle,
     isCaptionsLocked,
     saveProjectAuto,
   ]);

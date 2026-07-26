@@ -8,6 +8,7 @@ import {
   shouldUseAndroidPreviewCache,
 } from '../flavors/standard/preview/androidPreviewCache';
 import { getPreviewPlatformPolicy } from '../flavors/standard/preview/previewPlatform';
+import { DEFAULT_VIDEO_TITLE_SETTINGS } from '../utils/videoTitle';
 
 function createVideoItem(id: string): MediaItem {
   return {
@@ -112,6 +113,7 @@ describe('android preview cache helpers', () => {
       narrations,
       captions,
       captionSettings,
+      videoTitle: DEFAULT_VIDEO_TITLE_SETTINGS,
       canvasWidth: 1280,
       canvasHeight: 720,
       fps: 30,
@@ -122,6 +124,7 @@ describe('android preview cache helpers', () => {
       narrations,
       captions,
       captionSettings,
+      videoTitle: DEFAULT_VIDEO_TITLE_SETTINGS,
       canvasWidth: 1280,
       canvasHeight: 720,
       fps: 30,
@@ -132,6 +135,7 @@ describe('android preview cache helpers', () => {
       narrations,
       captions,
       captionSettings,
+      videoTitle: DEFAULT_VIDEO_TITLE_SETTINGS,
       canvasWidth: 1280,
       canvasHeight: 720,
       fps: 30,
@@ -173,6 +177,7 @@ describe('android preview cache helpers', () => {
       narrations: [],
       captions,
       captionSettings,
+      videoTitle: DEFAULT_VIDEO_TITLE_SETTINGS,
       canvasWidth: 1280,
       canvasHeight: 720,
       fps: 30,

@@ -164,6 +164,38 @@ export interface SerializedCaptionSettings {
   positionCustom?: { x: number; y: number } | null;
 }
 
+/**
+ * 動画タイトル設定の形式（Issue #211）。
+ * キャプションとは別管理のため captions / captionSettings とは独立したフィールドに保存する。
+ * 旧データ（タイトル未対応バージョン）には存在しないため全体を任意とし、
+ * 読み込み時は normalizeVideoTitleSettings() で既定値へフォールバックする。
+ */
+export interface SerializedVideoTitleSettings {
+  enabled: boolean;
+  text: string;
+  startTime: number;
+  endTime: number;
+  fontStyle: CaptionFontStyle;
+  fontColor: string;
+  strokeColor: string;
+  strokeWidth: number;
+  /** 文字サイズのプリセット（キャプションと同じ体系） */
+  fontSize: 'small' | 'medium' | 'large' | 'xlarge';
+  /** カスタム文字サイズ px @1080p 基準（任意・null でプリセット使用） */
+  fontSizeCustom?: number | null;
+  position: 'top' | 'center' | 'bottom';
+  positionCustom?: { x: number; y: number } | null;
+  backgroundEnabled: boolean;
+  backgroundColor: string;
+  backgroundOpacity: number;
+  /** 背景の帯の角丸半径 px @1080p 基準（任意・旧データは既定値で補完） */
+  backgroundRadius?: number;
+  fadeIn: boolean;
+  fadeOut: boolean;
+  fadeInDuration: number;
+  fadeOutDuration: number;
+}
+
 // プロジェクトデータ全体
 export interface ProjectData {
   slot: SaveSlot;
@@ -193,6 +225,12 @@ export interface ProjectData {
   captions: SerializedCaption[];
   captionSettings: SerializedCaptionSettings;
   isCaptionsLocked: boolean;
+
+  /**
+   * 動画タイトル（Issue #211・任意）。キャプションとは別管理。
+   * 旧データには無いため undefined を許容し、既定値へフォールバックする。
+   */
+  videoTitle?: SerializedVideoTitleSettings;
 
   // 出力の向き（'landscape'=16:9 / 'portrait'=9:16）。任意・既定 landscape（旧データ後方互換）。
   aspectRatio?: 'landscape' | 'portrait';

@@ -6,8 +6,23 @@
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import type { Caption, CaptionSettings, CaptionPosition, CaptionSize, CaptionFontStyle } from '../types';
-import { clampCaptionStrokeWidth } from '../utils/captionStyle';
+import type {
+  Caption,
+  CaptionSettings,
+  CaptionPosition,
+  CaptionSize,
+  CaptionFontStyle,
+  VideoTitleSettings,
+} from '../types';
+import { clampCaptionStrokeWidth, clampCustomFontSize } from '../utils/captionStyle';
+import {
+  DEFAULT_VIDEO_TITLE_SETTINGS,
+  clampVideoTitleBackgroundOpacity,
+  clampVideoTitleBackgroundRadius,
+  clampVideoTitleStrokeWidth,
+  normalizeVideoTitleRange,
+  normalizeVideoTitleSettings,
+} from '../utils/videoTitle';
 import { useLogStore } from './logStore';
 
 interface CaptionState {
@@ -16,6 +31,12 @@ interface CaptionState {
 
   // スタイル設定
   settings: CaptionSettings;
+
+  /**
+   * 動画タイトル設定（Issue #211）。
+   * captions とは別管理で、一覧・時分割・まとめて入力・一括シフトの対象外。
+   */
+  title: VideoTitleSettings;
 
   // ロック状態
   isLocked: boolean;
@@ -61,6 +82,14 @@ interface CaptionState {
   setBulkFadeInDuration: (duration: number) => void;
   setBulkFadeOutDuration: (duration: number) => void;
 
+  // === 動画タイトル設定（キャプションとは別管理） ===
+  /** 任意のフィールドだけ部分更新する。時間・数値は setter 側でクランプする */
+  updateTitle: (updates: Partial<VideoTitleSettings>) => void;
+  /** 表示開始・終了時間をまとめて設定する（逆転しないよう正規化する） */
+  setTitleRange: (startTime: number, endTime: number, totalDuration?: number) => void;
+  /** タイトル設定を既定値へ戻す */
+  resetTitle: () => void;
+
   // === ロック ===
   toggleLock: () => void;
 
@@ -71,7 +100,9 @@ interface CaptionState {
   restoreFromSave: (
     captions: Caption[],
     settings: CaptionSettings,
-    isLocked: boolean
+    isLocked: boolean,
+    /** 旧データ（タイトル未対応バージョン）では undefined。既定値で補完する */
+    title?: Partial<VideoTitleSettings> | null
   ) => void;
 }
 
@@ -82,7 +113,7 @@ const initialSettings: CaptionSettings = {
   fontStyle: 'gothic',
   fontColor: '#FFFFFF',
   strokeColor: '#000000',
-  strokeWidth: 2,
+  strokeWidth: 4,
   position: 'bottom',
   blur: 0, // ぼかし強度（0=なし）
   // 一括フェード設定
@@ -104,6 +135,7 @@ export const useCaptionStore = create<CaptionState>()(
       // Initial state
       captions: [],
       settings: { ...initialSettings },
+      title: { ...DEFAULT_VIDEO_TITLE_SETTINGS },
       isLocked: false,
 
       // === キャプション操作 ===
@@ -379,6 +411,55 @@ export const useCaptionStore = create<CaptionState>()(
           'setBulkFadeOutDuration'
         ),
 
+      // === 動画タイトル設定（キャプションとは別管理） ===
+      // 数値・時間は必ずクランプ／正規化を通し、保存・描画へ不正値が漏れないようにする。
+      updateTitle: (updates) =>
+        set(
+          (state) => {
+            const merged = { ...state.title, ...updates };
+            // 開始・終了のどちらかが指定された場合だけ範囲を再正規化する
+            const range =
+              updates.startTime !== undefined || updates.endTime !== undefined
+                ? normalizeVideoTitleRange(merged.startTime, merged.endTime)
+                : { startTime: merged.startTime, endTime: merged.endTime };
+            return {
+              title: {
+                ...merged,
+                startTime: range.startTime,
+                endTime: range.endTime,
+                // fontSize はプリセット（キャプションと同じ体系）。
+                // カスタム値のみクランプする
+                fontSizeCustom:
+                  merged.fontSizeCustom != null
+                    ? clampCustomFontSize(merged.fontSizeCustom)
+                    : null,
+                strokeWidth: clampVideoTitleStrokeWidth(merged.strokeWidth),
+                backgroundOpacity: clampVideoTitleBackgroundOpacity(merged.backgroundOpacity),
+                backgroundRadius: clampVideoTitleBackgroundRadius(merged.backgroundRadius),
+              },
+            };
+          },
+          false,
+          'updateTitle'
+        ),
+
+      setTitleRange: (startTime, endTime, totalDuration) =>
+        set(
+          (state) => ({
+            title: {
+              ...state.title,
+              ...normalizeVideoTitleRange(startTime, endTime, totalDuration),
+            },
+          }),
+          false,
+          'setTitleRange'
+        ),
+
+      resetTitle: () => {
+        useLogStore.getState().info('MEDIA', '動画タイトル設定をリセット');
+        return set({ title: { ...DEFAULT_VIDEO_TITLE_SETTINGS } }, false, 'resetTitle');
+      },
+
       // === ロック ===
       toggleLock: () =>
         set(
@@ -393,6 +474,7 @@ export const useCaptionStore = create<CaptionState>()(
           {
             captions: [],
             settings: { ...initialSettings },
+            title: { ...DEFAULT_VIDEO_TITLE_SETTINGS },
             isLocked: false,
           },
           false,
@@ -400,7 +482,7 @@ export const useCaptionStore = create<CaptionState>()(
         ),
 
       // === 復元 ===
-      restoreFromSave: (newCaptions, newSettings, newIsLocked) =>
+      restoreFromSave: (newCaptions, newSettings, newIsLocked, newTitle) =>
         set(
           {
             captions: newCaptions,
@@ -410,6 +492,8 @@ export const useCaptionStore = create<CaptionState>()(
               ...newSettings,
               strokeWidth: clampCaptionStrokeWidth(newSettings.strokeWidth ?? initialSettings.strokeWidth),
             },
+            // タイトル未対応バージョンの保存データは undefined → 既定値で補完
+            title: normalizeVideoTitleSettings(newTitle),
             isLocked: newIsLocked,
           },
           false,

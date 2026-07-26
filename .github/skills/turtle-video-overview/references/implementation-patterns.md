@@ -2787,3 +2787,44 @@ export 終了（成功/失敗/中断）
   - `controlsId` はクリップ単位のアコーディオンでは必ず `clip.id` / `v.id` を含めて一意にする。同一 id が複数出ると `aria-controls` が壊れる。
   - 新しいアコーディオンを追加するときは素の `<button>` + Chevron を書かず、必ず本コンポーネントを使う。
 - **テスト**: `settingsAccordionHeader.test.tsx` で「閉じているときだけ（開いて設定）が出る」「`aria-expanded` が開閉に追従する」「見出し全体のクリックで開閉が通知される」「`disabled` 時は発火しない」を共通コンポーネント単体で、加えて BGM（トリミング/フェード）とナレーション（トリミング）の実利用箇所で `aria-controls` の解決先が実在することまで検証する。
+
+### 13-151. キャプションとは別管理の動画タイトル（Issue #211）
+
+- **ファイル**: `src/types/index.ts`, `src/utils/videoTitle.ts`（新規）, `src/stores/captionStore.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/hooks/useAutoSave.ts`, `src/components/turtle-video/previewCacheContract.ts`, `src/components/turtle-video/usePreviewEngine.ts`（契約シグネチャのみ）, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/androidPreviewCache.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/components/sections/VideoTitleSettingsPanel.tsx`（新規）, `src/components/sections/CaptionSection.tsx`, `src/components/TurtleVideo.tsx`, `src/components/modals/SaveLoadModal.tsx`, `src/constants/sectionHelp.ts`, `src/test/videoTitle.test.ts`, `src/test/videoTitleDraw.test.ts`, `src/test/videoTitleSettingsPanel.test.tsx`, `src/test/stores/captionStore.test.ts`
+- **要件**: 動画タイトルを通常キャプションとは**別データ**として持つ。UI はキャプションカテゴリ先頭付近のアコーディオンで**初期状態は閉じる**。既定は中央・通常キャプションより大きい文字。表示開始/終了時間、フォント、文字色、背景、位置、サイズを調整でき、キャプション一覧や時分割カードとは混在させない。
+- **データ設計**:
+  - `VideoTitleSettings` は `Caption[]` とは独立した**単一オブジェクト**で `captionStore.title` に置く。`captions` 配列には一切入れない（`addCaption` / `replaceCaptions` / `shiftCaptions` / `clearAllCaptions` はタイトルに触らない）。
+  - **サイズ・字体・縁幅はキャプションと完全に同じ体系**にする（プリセット `CaptionSize` + `fontSizeCustom`、縁幅は `captionStyle.ts` の clamp を再利用）。タイトル専用の数値レンジを作らないこと。既定は `xlarge`(148px) で medium(80px) より大きいことをテストで固定している。
+  - **既定値**: 表示は 0〜4 秒、**開始フェード OFF / 終了フェード ON 1 秒**（頭からフル表示し、終わりだけなじませる）。背景の帯は OFF、角丸は 16px @1080p。
+  - setter は `updateTitle`（部分更新・数値クランプ）/ `setTitleRange`（開始終了の逆転防止 + `totalDuration` 収め）/ `resetTitle` の 3 本のみ。フィールドごとの setter は作らない（項目が多く増えるため）。
+- **リアルタイム反映（重要な落とし穴）**: 描画自体は `videoTitleRef` から読むが、**`videoTitle` を「値」としてもエンジンへ渡し、`renderFrame` の `useCallback` 依存に入れる**こと。ref だけだと再レンダーが起きず、**停止中のプレビューへ編集が反映されない**（キャプションが `captions` / `captionSettings` を値でも受け取っているのと同じ理由）。standard / apple-safari の両方で必要。回帰は `videoTitleLivePreview.test.tsx` が検知する（依存から外すと両フレーバーで落ちる）。
+  - このテストを書くときは **videoTitle 以外の依存をすべて同一参照に固定**すること。`captions: []` のように毎回新しい配列を渡すと renderFrame が常に作り直され、依存を外しても素通りするザルなテストになる。
+- **描画（preview = export の担保）**:
+  - `utils/videoTitle.ts` の `drawVideoTitleFrame(ctx, title, timeSec)` が**唯一の描画実装**で、standard / apple-safari **両フレーバーのエンジンが同じ関数を呼ぶ**。export は preview の `drawFrame` を再利用しているため、この 1 関数で「エクスポート結果がプレビューと一致する」が構造的に成立する。**フレーバー側に描画ロジックをコピーしないこと**。
+  - キャプションと同じ 1080p 基準スケール（`canvas.height / 1080` で按分）。サイズ・縁幅・余白すべてに掛ける。
+  - 文字は `createCaptionGlyphCanvas` で stroke+fill を 1 枚に不透明合成してから単一 `globalAlpha` で転写（フェード時に輪郭だけ残る現象の回避。13-131 と同じ理由）。
+  - **キャプションの後**（＝最前面）に描く。複数行は中央揃えで同時に全行を積み、**時分割はしない**（キャプションとの機能差別化）。
+  - 背景の帯は任意。`backgroundOpacity === 0` では何も打たない。角丸（`backgroundRadius`）指定時は `roundRect`、0 のときは従来どおり `fillRect`。**角丸半径も 1080p 基準でスケール**し、帯の短辺の半分でクランプする。`roundRect` 未対応環境では角丸なしへフォールバックする。
+- **保存経路（4 箇所すべて更新が必須）**:
+  1. `indexedDB.ts`: `SerializedVideoTitleSettings` + `ProjectData.videoTitle?`（**任意**。旧データは undefined）
+  2. `projectStore.ts`: 手動/自動の**両方**の save で `videoTitle: useCaptionStore.getState().title` を書く。呼び出し側の位置引数を増やさず、`bgmAutoAdjustToTimeline` / `aspectRatio` / `projectPoster*` と同じ「保存時にストアから直接読む」方式を踏襲した。load では `normalizeVideoTitleSettings(data.videoTitle)` で既定値へフォールバック。
+  3. `useAutoSave.ts`: 変更検知ハッシュへ `JSON.stringify(videoTitle)` を追加（入れないとタイトル変更が自動保存されない）。
+  4. `androidPreviewCache.ts` + `previewCacheContract.ts`: キャッシュキーへ全フィールドを含める（**入れないと Android でタイトル変更がプレビューへ反映されない**＝焼き込み済み動画が再利用されてしまう）。
+- **「中身なし」判定の拡張**: `projectStore.saveProjectAuto` と `useAutoSave.performAutoSave` の空プロジェクト早期 return に `videoTitle.text.trim()` を追加した。タイトルだけ入力した状態でも保存されるようにするため。片方だけ直すと「ハッシュは変わるが保存されない」不整合になるので**必ず両方**直す。
+- **凍結レガシーとの関係**: `PreviewRuntime` の型は `typeof usePreviewEngine`（= 凍結済み `src/components/turtle-video/usePreviewEngine.ts`）を参照しているため、契約を通すには**その凍結ファイルの `UsePreviewEngineParams` にもフィールドを追加**する必要がある。追加するのは型シグネチャだけで、凍結実装の描画は変更しない（コメントで明示済み）。フレーバーへ新しい ref を渡すときは毎回この 3 ファイル（契約 + standard + apple-safari）が揃っているか確認する。
+- **注意**:
+  - apple-safari は拡張フォント（standard 限定）を持たないが、`drawVideoTitleFrame` は `resolveCaptionFontFamily()` を通すため未知値は sans-serif へフォールバックする（13-103 と同じ扱い）。iOS で描画不能にはならない。
+  - 位置カスタム（XY %）は standard 限定 UI だが、**描画は両フレーバー共通**。iOS で開いた既存プロジェクトのカスタム位置も正しく描かれる。
+  - `restoreFromSave` の第 4 引数 `title` は任意。省略呼び出し（旧テスト・旧コード）でも既定値になるので後方互換。
+- **UI 構成（既存との統一を優先）**: `タイトル文字 → 開始/終了 → プレビュー位置を反映 → スタイル設定（アコーディオン）→ フェード → リセット`。
+  - 開始/終了は **`CaptionItem` と同じ操作感**（スライダー + 数値入力 + `MapPin` の「プレビュー位置を反映: [開始][終了]」）。スライダー上限は `totalDuration || 60`、反映可否も `Math.round(currentTime*10)/10` で同じ判定にする。
+  - 見た目（サイズ/字体/位置/縁・色/背景の帯）は**「スタイル設定」アコーディオンへ集約**し、`SettingsAccordionHeader` を使った入れ子アコーディオンにする（13-150 の統一ルールに従う）。初期状態は閉じる。
+  - **サイズと字体の UI は共通コンポーネントへ 1 本化**した: `common/CaptionFontSizeField.tsx`（小/中/大/特大 + カスタム数値）と `common/CaptionFontStyleField.tsx`（固定ボタン + 「その他▾」+ PC の全フォント読み込み）。キャプションの一括設定とタイトルの両方がこれを使う。**片方だけ独自実装に戻さないこと**（見た目が割れる）。
+  - 端末フォント（Local Font Access API）の一覧は `CaptionSection` が state を持ち、キャプションとタイトルへ props で配る。**1 回の読み込みで両方に反映**される。
+  - 同一画面に 2 つ並ぶため、共通コンポーネントは `idPrefix`（`caption` / `video-title`）で input/select の id を一意化する。
+  - 背景の帯には角丸（`backgroundRadius`）もスライダー + 数値で用意する。ラベルはキャプション側と区別するため「**タイトル背景の帯**」とする。
+  - 一括設定のアコーディオン名は「**キャプション スタイル/フェードの一括設定**」（タイトル側の「スタイル設定」と取り違えないようにするため）。
+  - 既定の縁幅はキャプション 4px / タイトル 5px（タイトルは文字が大きいぶん太くする）。
+  - **入れ子アコーディオンのテストでは見出し名の正規表現に `^` を付ける**こと。`/タイトル/` は「タイトル」「タイトル設定をリセット」の両方に当たるため `getByRole` が曖昧エラーになる。
+- **一括シフト UI（Issue #216 の後継）**: 「現在位置に先頭を合わせる」ボタンの文言に**時刻を含めない**。含めると再生中・エクスポート中に 0.1 秒ごとに文字が変わってチラつき、ボタン幅も大きく必要になる。時刻は下の `aria-live` 説明文だけで伝える（凍結ロジック自体は 13-149 のまま維持し、テストも説明文側で検証する）。ブロック全体は「キャプションカードをまとめて移動」の見出し付き枠で囲み、カード移動機能であることを示す。
+- **テスト**: `videoTitle.test.ts`（既定値・clamp・時間正規化・フェード按分・旧データ補完）、`videoTitleDraw.test.ts`（**720p/1080p でフレーム内比率が一致すること**＝WYSIWYG、非表示条件、複数行、背景帯、単一 alpha 転写）、`videoTitleSettingsPanel.test.tsx`（先頭配置・初期は閉・キャプション setter を呼ばない・ロック）、`captionStore.test.ts`（キャプション操作でタイトルが変わらない相互独立性）。

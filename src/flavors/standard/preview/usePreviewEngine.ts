@@ -11,6 +11,7 @@ import type {
   MediaElementsRef,
   MediaItem,
   NarrationClip,
+  VideoTitleSettings,
 } from '../../../types';
 import type { ExportPreparationStep, UseExportReturn } from '../../../hooks/export-strategies/types';
 import { resolveCaptionFontFamily } from '../../../utils/captionFontCatalog';
@@ -19,6 +20,7 @@ import {
   resolveCaptionBaseFontSize,
   resolveCaptionGlyphStyle,
 } from '../../../utils/captionStyle';
+import { drawVideoTitleFrame } from '../../../utils/videoTitle';
 import {
   getIncomingTransitionOverlay,
   getOutgoingTransitionOverlay,
@@ -105,11 +107,18 @@ interface PreparedPreviewAudioNodesResult {
 interface UsePreviewEngineParams {
   captions: Caption[];
   captionSettings: CaptionSettings;
+  /**
+   * 動画タイトル（Issue #211）。描画自体は videoTitleRef から読むが、
+   * 変更でプレビューを再描画させるため値としても受け取る（captionSettings と同じ理由）。
+   */
+  videoTitle: VideoTitleSettings;
   mediaItemsRef: MutableRefObject<MediaItem[]>;
   bgmRef: MutableRefObject<AudioTrack | null>;
   narrationsRef: MutableRefObject<NarrationClip[]>;
   captionsRef: MutableRefObject<Caption[]>;
   captionSettingsRef: MutableRefObject<CaptionSettings>;
+  /** 動画タイトル（Issue #211）。キャプションとは別管理で 1 件だけ描画する */
+  videoTitleRef: MutableRefObject<VideoTitleSettings>;
   totalDurationRef: MutableRefObject<number>;
   currentTimeRef: MutableRefObject<number>;
   canvasRef: MutableRefObject<HTMLCanvasElement | null>;
@@ -959,11 +968,13 @@ const waitForPreviewCacheVideoReady = async (
 export function usePreviewEngine({
   captions,
   captionSettings,
+  videoTitle,
   mediaItemsRef,
   bgmRef,
   narrationsRef,
   captionsRef,
   captionSettingsRef,
+  videoTitleRef,
   totalDurationRef,
   currentTimeRef,
   canvasRef,
@@ -3291,6 +3302,13 @@ export function usePreviewEngine({
           }
         }
 
+        // === 動画タイトル描画（Issue #211・キャプションとは別管理） ===
+        // キャプションの後（＝最前面）に描く。描画実装は utils/videoTitle.ts が単一ソースで、
+        // apple-safari エンジンからも同じ関数を呼ぶため preview と export が必ず一致する。
+        if (drawVideoTitleFrame(ctx, videoTitleRef.current, time)) {
+          didUpdateCanvas = true;
+        }
+
         const ensurePreviewAudioGainNode = (trackId: string, element: HTMLAudioElement) => {
           let gainNode = gainNodesRef.current[trackId];
           let hasAudioNode = !!sourceNodesRef.current[trackId];
@@ -3636,7 +3654,9 @@ export function usePreviewEngine({
         return false;
       }
     },
-    [captions, captionSettings, ensureAudioNodeForElement, logInfo, platformCapabilities, previewPlatformPolicy],
+    // videoTitle も依存に含める。含めないと renderFrame が再生成されず、
+    // 停止中のプレビューへタイトル変更がリアルタイム反映されない（キャプションと同じ扱い）
+    [captions, captionSettings, videoTitle, ensureAudioNodeForElement, logInfo, platformCapabilities, previewPlatformPolicy],
   );
 
   const handleSeeked = useCallback(() => {

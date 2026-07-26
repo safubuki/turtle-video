@@ -67,7 +67,7 @@ describe('sectionHelp support messaging', () => {
   });
 
   it('新しいキャプション設定は実画面と同じ表記と視覚見本で案内する', () => {
-    const styleDescription = getHelpDescription('caption', 'スタイル/フェード一括設定');
+    const styleDescription = getHelpDescription('caption', 'キャプション スタイル/フェードの一括設定');
     const outlineDescription = getHelpDescription('caption', '文字の縁・色');
     const individualDescription = getHelpDescription('caption', '個別設定（歯車マーク）');
 
@@ -76,7 +76,7 @@ describe('sectionHelp support messaging', () => {
     expect(outlineDescription).toContain('文字本体');
     expect(individualDescription).toContain('文字の縁幅・縁色・文字本体色');
     expect(individualDescription).toContain('ぼかし');
-    expect(getHelpVisuals('caption', 'スタイル/フェード一括設定')).toContain(
+    expect(getHelpVisuals('caption', 'キャプション スタイル/フェードの一括設定')).toContain(
       'caption_style_accordion'
     );
     expect(getHelpVisuals('caption', '文字の縁・色')).toEqual([
@@ -104,7 +104,7 @@ describe('sectionHelp support messaging', () => {
       'shift_caption_controls'
     );
     const shiftDescription = getHelpDescription('caption', '時間をまとめてずらす（Android/PC版）');
-    expect(shiftDescription).toContain('現在位置（0:00.0）に先頭を合わせる');
+    expect(shiftDescription).toContain('現在位置に先頭を合わせる');
     expect(shiftDescription).toContain('終了位置の指定は不要');
     expect(shiftDescription).toContain('動画・ナレーション・BGMは移動しません');
   });

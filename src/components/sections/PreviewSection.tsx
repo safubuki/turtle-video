@@ -24,6 +24,7 @@ import type { AppFlavor } from '../../app/resolveAppFlavor';
 import { getPreviewRuntimeNotice } from '../../app/appFlavorUi';
 import { useLogStore } from '../../stores/logStore';
 import { useCanvasStore } from '../../stores/canvasStore';
+import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 
 const PREVIEW_ICON_BUTTON_BASE =
   'relative overflow-hidden p-3 lg:p-4 rounded-full border transition-[transform,background-color,color,box-shadow,filter] duration-200 shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed';
@@ -160,6 +161,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   }, [canvasWidth, canvasHeight, canvasRef]);
   const [exportPhase, setExportPhase] = useState<ExportPhase>('preparing');
   const [isCapturePressed, setIsCapturePressed] = useState(false);
+  const [isPosterSettingsOpen, setIsPosterSettingsOpen] = useState(false);
   const lastObservedTimeRef = useRef<number>(currentTime);
   const hasExportProgressRef = useRef<boolean>(false);
   const flashTimeoutRef = useRef<number | null>(null);
@@ -445,75 +447,72 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
 
         {/* プロジェクト全体のサムネイル（ポスター）表示・設定 */}
         {mediaItems.length > 0 && !isProcessing && (
-          <div className="mb-3 rounded-xl border border-gray-700/60 bg-gray-850/80 px-3 py-2.5 space-y-2">
-            <div className="flex items-start gap-3">
+          <div className="mb-3 overflow-hidden rounded-lg border border-gray-700/70 bg-gray-850/80">
+            <SettingsAccordionHeader
+              title={`サムネイル設定（${projectPosterMode === 'manual' ? '手動' : '自動'}・${formatTime(projectPosterTimelineTime)}）`}
+              icon={<ImageIcon className="h-3.5 w-3.5 shrink-0" />}
+              isOpen={isPosterSettingsOpen}
+              controlsId="project-poster-settings"
+              onToggle={() => setIsPosterSettingsOpen((open) => !open)}
+            />
+
+            {isPosterSettingsOpen && (
               <div
-                className="shrink-0 w-20 h-12 rounded-md border border-gray-600/70 bg-black overflow-hidden flex items-center justify-center"
-                title={
-                  projectPosterMode === 'manual'
-                    ? `手動設定（${formatTime(projectPosterTimelineTime)}）`
-                    : `自動設定（${formatTime(projectPosterTimelineTime)}）`
-                }
+                id="project-poster-settings"
+                className="border-t border-gray-700/60 px-3 py-2.5"
               >
-                {projectPosterDataUrl ? (
-                  <img
-                    src={projectPosterDataUrl}
-                    alt="プロジェクトのサムネイル"
-                    className="w-full h-full object-contain"
-                  />
-                ) : (
-                  <span className="text-[9px] text-gray-500 px-1 text-center leading-tight">
-                    未表示
-                  </span>
-                )}
-              </div>
-              <div className="min-w-0 flex-1 space-y-1.5">
-                <div className="flex flex-wrap items-center gap-1.5 text-[10px] md:text-xs">
-                  <span className="text-gray-400">サムネイル</span>
-                  <span
-                    className={`px-1.5 py-0.5 rounded font-medium ${
+                <div className="flex items-start gap-3">
+                  <div
+                    className="flex h-12 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border border-gray-600/70 bg-black"
+                    title={
                       projectPosterMode === 'manual'
-                        ? 'bg-amber-900/40 text-amber-200 border border-amber-700/50'
-                        : 'bg-blue-900/40 text-blue-200 border border-blue-700/50'
-                    }`}
+                        ? `手動設定（${formatTime(projectPosterTimelineTime)}）`
+                        : `自動設定（${formatTime(projectPosterTimelineTime)}）`
+                    }
                   >
-                    {projectPosterMode === 'manual' ? '手動' : '自動'}
-                  </span>
-                  <span className="font-mono text-gray-500">
-                    {formatTime(projectPosterTimelineTime)}
-                  </span>
-                </div>
-                <p className="text-[9px] md:text-[10px] text-gray-500 leading-snug">
-                  完成1本の代表フレームです。書き出し時に MP4 へカバーアートとして埋め込み、先頭キーフレームにも反映します。設定後に「動画ファイルを作成」してください。
-                </p>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={onSetProjectPosterFromCurrent}
-                    disabled={mediaItems.length === 0 || isProcessing || isLoading}
-                    className="min-h-9 px-2.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 hover:border-amber-500/60 hover:text-amber-100 disabled:opacity-30 flex items-center gap-1 text-[10px] md:text-xs transition"
-                    title="プレビューに表示中のフレームをプロジェクトのサムネイルに設定"
-                  >
-                    <ImageIcon className="w-3.5 h-3.5" />
-                    {projectPosterMode === 'manual'
-                      ? '現在のフレームで再設定'
-                      : '現在のフレームをサムネイルに設定'}
-                  </button>
-                  {projectPosterMode === 'manual' && (
-                    <button
-                      type="button"
-                      onClick={onResetProjectPosterToAuto}
-                      disabled={isProcessing || isLoading}
-                      className="min-h-9 px-2.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 hover:border-blue-500/60 hover:text-blue-100 disabled:opacity-30 flex items-center gap-1 text-[10px] md:text-xs transition"
-                      title="タイムライン先頭付近（約0.2秒）のフレームを自動取得"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      自動設定に戻す
-                    </button>
-                  )}
+                    {projectPosterDataUrl ? (
+                      <img
+                        src={projectPosterDataUrl}
+                        alt="プロジェクトのサムネイル"
+                        className="h-full w-full object-contain"
+                      />
+                    ) : (
+                      <span className="px-1 text-center text-[9px] leading-tight text-gray-500">
+                        未表示
+                      </span>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={onSetProjectPosterFromCurrent}
+                        disabled={mediaItems.length === 0 || isProcessing || isLoading}
+                        className="flex min-h-9 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-[10px] text-gray-200 transition hover:border-amber-500/60 hover:text-amber-100 disabled:opacity-30 md:text-xs"
+                        title="プレビューに表示中のフレームをプロジェクトのサムネイルに設定"
+                      >
+                        <ImageIcon className="h-3.5 w-3.5" />
+                        {projectPosterMode === 'manual'
+                          ? '現在のフレームで再設定'
+                          : '現在のフレームをサムネイルに設定'}
+                      </button>
+                      {projectPosterMode === 'manual' && (
+                        <button
+                          type="button"
+                          onClick={onResetProjectPosterToAuto}
+                          disabled={isProcessing || isLoading}
+                          className="flex min-h-9 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-[10px] text-gray-200 transition hover:border-blue-500/60 hover:text-blue-100 disabled:opacity-30 md:text-xs"
+                          title="タイムライン先頭付近（約0.2秒）のフレームを自動取得"
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" />
+                          自動設定に戻す
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 

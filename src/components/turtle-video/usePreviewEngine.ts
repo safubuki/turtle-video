@@ -21,6 +21,7 @@ import type {
   MediaElementsRef,
   MediaItem,
   NarrationClip,
+  VideoTitleSettings,
 } from '../../types';
 import type { ExportPreparationStep, UseExportReturn } from '../../hooks/export-strategies/types';
 import type { LogCategory } from '../../stores/logStore';
@@ -60,11 +61,20 @@ interface PreparedPreviewAudioNodesResult {
 interface UsePreviewEngineParams {
   captions: Caption[];
   captionSettings: CaptionSettings;
+  /** 動画タイトル（Issue #211）。契約追随のみ。実装はフレーバー側 */
+  videoTitle: VideoTitleSettings;
   mediaItemsRef: MutableRefObject<MediaItem[]>;
   bgmRef: MutableRefObject<AudioTrack | null>;
   narrationsRef: MutableRefObject<NarrationClip[]>;
   captionsRef: MutableRefObject<Caption[]>;
   captionSettingsRef: MutableRefObject<CaptionSettings>;
+  /**
+   * 動画タイトル（Issue #211）。
+   * 本ファイルは凍結済みレガシー実装（フォーク元）だが、PreviewRuntime の契約型が
+   * `typeof usePreviewEngine` を参照しているため、シグネチャだけ追随させる。
+   * 実際の描画は src/flavors/<flavor>/preview/usePreviewEngine.ts が行う。
+   */
+  videoTitleRef: MutableRefObject<VideoTitleSettings>;
   totalDurationRef: MutableRefObject<number>;
   currentTimeRef: MutableRefObject<number>;
   canvasRef: MutableRefObject<HTMLCanvasElement | null>;

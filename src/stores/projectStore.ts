@@ -6,7 +6,15 @@
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import type { MediaItem, AudioTrack, BgmClip, Caption, CaptionSettings, NarrationClip } from '../types';
+import type {
+  MediaItem,
+  AudioTrack,
+  BgmClip,
+  Caption,
+  CaptionSettings,
+  NarrationClip,
+  VideoTitleSettings,
+} from '../types';
 import {
   getProjectPersistenceAdapter,
   type ProjectData,
@@ -28,7 +36,9 @@ import versionData from '../../version.json';
 import { useUIStore } from './uiStore';
 import { useCanvasStore, type AspectRatio } from './canvasStore';
 import { useMediaStore } from './mediaStore';
+import { useCaptionStore } from './captionStore';
 import { normalizeMediaBlur, normalizeRotation } from '../utils/canvas';
+import { normalizeVideoTitleSettings } from '../utils/videoTitle';
 
 export function getProjectStoreErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -233,6 +243,8 @@ interface ProjectState {
     captions: Caption[];
     captionSettings: CaptionSettings;
     isCaptionsLocked: boolean;
+    /** 動画タイトル（Issue #211）。旧データは既定値で補完済み */
+    videoTitle: VideoTitleSettings;
     bgmClips: BgmClip[];
     bgmAutoAdjustToTimeline: boolean;
     projectPosterMode: 'auto' | 'manual';
@@ -709,6 +721,11 @@ export const useProjectStore = create<ProjectState>()(
               projectPosterMode: useMediaStore.getState().projectPosterMode,
               projectPosterTimelineTime: useMediaStore.getState().projectPosterTimelineTime,
               projectPosterDataUrl: useMediaStore.getState().projectPosterDataUrl,
+              // 動画タイトル（Issue #211）。キャプションとは別管理なので
+              // captions / captionSettings とは独立したフィールドへ保存する。
+              // 呼び出し側の引数を増やさず、保存時にストアから直接読む
+              // （bgmAutoAdjustToTimeline / aspectRatio / projectPoster* と同じ方式）
+              videoTitle: useCaptionStore.getState().title,
             };
 
             await getProjectPersistenceAdapter().saveProject(nextProjectData);
@@ -760,7 +777,16 @@ export const useProjectStore = create<ProjectState>()(
         isCaptionsLocked,
         bgmClips = []
       ) => {
-        if (mediaItems.length === 0 && !bgm && bgmClips.length === 0 && narrations.length === 0 && captions.length === 0) {
+        // 動画タイトル（Issue #211）だけが入力されている状態も「中身あり」として保存する
+        const hasVideoTitleText = useCaptionStore.getState().title.text.trim().length > 0;
+        if (
+          mediaItems.length === 0 &&
+          !bgm &&
+          bgmClips.length === 0 &&
+          narrations.length === 0 &&
+          captions.length === 0 &&
+          !hasVideoTitleText
+        ) {
           return false;
         }
 
@@ -803,6 +829,11 @@ export const useProjectStore = create<ProjectState>()(
               projectPosterMode: useMediaStore.getState().projectPosterMode,
               projectPosterTimelineTime: useMediaStore.getState().projectPosterTimelineTime,
               projectPosterDataUrl: useMediaStore.getState().projectPosterDataUrl,
+              // 動画タイトル（Issue #211）。キャプションとは別管理なので
+              // captions / captionSettings とは独立したフィールドへ保存する。
+              // 呼び出し側の引数を増やさず、保存時にストアから直接読む
+              // （bgmAutoAdjustToTimeline / aspectRatio / projectPoster* と同じ方式）
+              videoTitle: useCaptionStore.getState().title,
             };
 
             await getProjectPersistenceAdapter().saveProject(nextProjectData);
@@ -904,6 +935,8 @@ export const useProjectStore = create<ProjectState>()(
             captions,
             captionSettings: data.captionSettings,
             isCaptionsLocked: data.isCaptionsLocked,
+            // 動画タイトル（Issue #211）。旧データには無いため既定値で補完する
+            videoTitle: normalizeVideoTitleSettings(data.videoTitle),
             bgmClips,
             bgmAutoAdjustToTimeline: data.bgmAutoAdjustToTimeline !== false,
             projectPosterMode: data.projectPosterMode === 'manual' ? 'manual' as const : 'auto' as const,

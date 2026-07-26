@@ -222,6 +222,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const setBulkFadeOutDuration = useCaptionStore((s) => s.setBulkFadeOutDuration);
   const toggleCaptionLock = useCaptionStore((s) => s.toggleLock);
   const resetCaptions = useCaptionStore((s) => s.resetCaptions);
+  // 動画タイトル（Issue #211・キャプションとは別管理）
+  const videoTitle = useCaptionStore((s) => s.title);
+  const updateVideoTitle = useCaptionStore((s) => s.updateTitle);
+  const setVideoTitleRange = useCaptionStore((s) => s.setTitleRange);
+  const resetVideoTitle = useCaptionStore((s) => s.resetTitle);
 
   // Log Store
   const logInfo = useLogStore((s) => s.info);
@@ -308,6 +313,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
   const captionsRef = useRef(captions);
   const captionSettingsRef = useRef(captionSettings);
+  const videoTitleRef = useRef(videoTitle);
 
   // --- 生成済み export クリアヘルパー ---
   // 停止・再生・編集操作時に呼び出し、古いダウンロードボタンを消す。
@@ -360,6 +366,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   // 描画が遅延実行されても最新状態を参照できるようにする
   captionsRef.current = captions;
   captionSettingsRef.current = captionSettings;
+  videoTitleRef.current = videoTitle;
 
   const platformCapabilities = useMemo(() => previewRuntime.getPlatformCapabilities(), [previewRuntime]);
   const previewPlatformPolicy = useMemo(
@@ -400,11 +407,13 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       narrations: pipelineNarrations,
       captions,
       captionSettings,
+      // タイトル（Issue #211）もキャッシュ動画へ焼き込まれるためキーに含める
+      videoTitle,
       canvasWidth,
       canvasHeight,
       fps: 30,
     }),
-    [bgm, captionSettings, captions, mediaItems, pipelineNarrations, canvasWidth, canvasHeight, previewRuntime],
+    [bgm, captionSettings, captions, videoTitle, mediaItems, pipelineNarrations, canvasWidth, canvasHeight, previewRuntime],
   );
   const supportsShowSaveFilePicker = platformCapabilities.supportsShowSaveFilePicker;
   const supportsShowOpenFilePicker = platformCapabilities.supportsShowOpenFilePicker;
@@ -816,11 +825,13 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   } = previewRuntime.usePreviewEngine({
     captions,
     captionSettings,
+    videoTitle,
     mediaItemsRef,
     bgmRef,
     narrationsRef,
     captionsRef,
     captionSettingsRef,
+    videoTitleRef,
     totalDurationRef,
     currentTimeRef,
     canvasRef,
@@ -2809,6 +2820,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onUpdateCaptionLive={updateCaption}
               onSetFontSizeCustom={withPreviewPause('set-caption-font-size-custom', setCaptionFontSizeCustom)}
               onSetPositionCustom={withPreviewPause('set-caption-position-custom', setCaptionPositionCustom)}
+              videoTitle={videoTitle}
+              onUpdateVideoTitle={withPreviewPause('update-video-title', updateVideoTitle)}
+              onSetVideoTitleRange={withPreviewPause('set-video-title-range', setVideoTitleRange)}
+              onResetVideoTitle={withPreviewPause('reset-video-title', resetVideoTitle)}
             />
 
           </div>
