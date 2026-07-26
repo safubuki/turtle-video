@@ -1,0 +1,168 @@
+/**
+ * キャプションのタイミング打ちバーにある無音区間ナビゲーションのテスト（Issue #217）。
+ *
+ * 固定する不変条件:
+ * - 「-1s」の左に「無音区間：前へ」、「+1s」の右に「無音区間：次へ」が並ぶこと
+ * - 押すと onSeekToSilenceBoundary が正しい方向で呼ばれること
+ * - 移動先が無い方向のボタンは無効になること（先頭・末尾で足踏みしない）
+ * - 既存の -1s / +1s / 再生ボタンを壊していないこと
+ */
+import type { ComponentProps } from 'react';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup } from '@testing-library/react';
+import CaptionSection from '../components/sections/CaptionSection';
+import type { Caption } from '../types';
+import { DEFAULT_VIDEO_TITLE_SETTINGS } from '../utils/videoTitle';
+
+// タイミング打ちはキャプション 2 件以上で使えるため、最低限の 2 件を用意する
+const captions: Caption[] = [
+  {
+    id: 'c1',
+    text: '1つ目',
+    startTime: 0,
+    endTime: 2,
+    fadeIn: false,
+    fadeOut: false,
+    fadeInDuration: 0.5,
+    fadeOutDuration: 0.5,
+  },
+  {
+    id: 'c2',
+    text: '2つ目',
+    startTime: 3,
+    endTime: 5,
+    fadeIn: false,
+    fadeOut: false,
+    fadeInDuration: 0.5,
+    fadeOutDuration: 0.5,
+  },
+];
+
+function renderStampBar(
+  overrides: Partial<ComponentProps<typeof CaptionSection>> = {},
+) {
+  const onSeekToSilenceBoundary = vi.fn();
+  const onSeekBy = vi.fn();
+
+  const props: ComponentProps<typeof CaptionSection> = {
+    captions,
+    settings: {
+      enabled: true,
+      fontSize: 'medium',
+      fontStyle: 'gothic',
+      fontColor: '#FFFFFF',
+      strokeColor: '#000000',
+      strokeWidth: 2,
+      position: 'bottom',
+      blur: 0,
+      bulkFadeIn: false,
+      bulkFadeOut: false,
+      bulkFadeInDuration: 0.5,
+      bulkFadeOutDuration: 0.5,
+    },
+    videoTitle: { ...DEFAULT_VIDEO_TITLE_SETTINGS },
+    isLocked: false,
+    onToggleLock: vi.fn(),
+    totalDuration: 10,
+    currentTime: 5,
+    onAddCaption: vi.fn(),
+    onUpdateCaption: vi.fn(),
+    onRemoveCaption: vi.fn(),
+    onMoveCaption: vi.fn(),
+    onSetEnabled: vi.fn(),
+    onSetFontSize: vi.fn(),
+    onSetFontStyle: vi.fn(),
+    onSetFontColor: vi.fn(),
+    onSetStrokeColor: vi.fn(),
+    onSetStrokeWidth: vi.fn(),
+    onSetPosition: vi.fn(),
+    onSetBlur: vi.fn(),
+    onSetBulkFadeIn: vi.fn(),
+    onSetBulkFadeOut: vi.fn(),
+    onSetBulkFadeInDuration: vi.fn(),
+    onSetBulkFadeOutDuration: vi.fn(),
+    onOpenHelp: vi.fn(),
+    formatTime: (s: number) => `${s.toFixed(1)}s`,
+    onApplyCaptions: vi.fn(),
+    onShiftCaptions: vi.fn(),
+    isPlaying: false,
+    onTogglePlay: vi.fn(),
+    onSeekBy,
+    onSeekToSilenceBoundary,
+    hasPrevSilenceBoundary: true,
+    hasNextSilenceBoundary: true,
+    onUpdateCaptionLive: vi.fn(),
+    onUpdateVideoTitle: vi.fn(),
+    onSetVideoTitleRange: vi.fn(),
+    onResetVideoTitle: vi.fn(),
+    onSetFontSizeCustom: vi.fn(),
+    onSetPositionCustom: vi.fn(),
+    ...overrides,
+  };
+
+  const result = render(<CaptionSection {...props} />);
+
+  // タイミング打ちモードへ入る（バーはこのモードでのみ表示される）
+  fireEvent.click(screen.getByRole('button', { name: /タイミング打ち/ }));
+
+  return { ...result, onSeekToSilenceBoundary, onSeekBy };
+}
+
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
+
+describe('タイミング打ちバーの無音区間ナビゲーション', () => {
+  it('「無音区間：前へ」で prev 方向へ移動を要求する', () => {
+    const { onSeekToSilenceBoundary } = renderStampBar();
+
+    fireEvent.click(screen.getByRole('button', { name: '無音区間：前へ' }));
+
+    expect(onSeekToSilenceBoundary).toHaveBeenCalledTimes(1);
+    expect(onSeekToSilenceBoundary).toHaveBeenCalledWith('prev');
+  });
+
+  it('「無音区間：次へ」で next 方向へ移動を要求する', () => {
+    const { onSeekToSilenceBoundary } = renderStampBar();
+
+    fireEvent.click(screen.getByRole('button', { name: '無音区間：次へ' }));
+
+    expect(onSeekToSilenceBoundary).toHaveBeenCalledTimes(1);
+    expect(onSeekToSilenceBoundary).toHaveBeenCalledWith('next');
+  });
+
+  it('-1s の左・+1s の右に並ぶ', () => {
+    renderStampBar();
+
+    const prevButton = screen.getByRole('button', { name: '無音区間：前へ' });
+    const nextButton = screen.getByRole('button', { name: '無音区間：次へ' });
+    const minusButton = screen.getByRole('button', { name: '-1s' });
+    const plusButton = screen.getByRole('button', { name: '+1s' });
+
+    // DOM 上の並び順を DOCUMENT_POSITION_FOLLOWING で確認する
+    const follows = (a: Element, b: Element) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+    expect(follows(prevButton, minusButton)).toBe(true);
+    expect(follows(plusButton, nextButton)).toBe(true);
+  });
+
+  it('移動先が無い方向のボタンは無効になる', () => {
+    renderStampBar({ hasPrevSilenceBoundary: false, hasNextSilenceBoundary: false });
+
+    expect(screen.getByRole('button', { name: '無音区間：前へ' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '無音区間：次へ' })).toBeDisabled();
+  });
+
+  it('既存の -1s / +1s は従来どおり動く', () => {
+    const { onSeekBy } = renderStampBar();
+
+    fireEvent.click(screen.getByRole('button', { name: '-1s' }));
+    expect(onSeekBy).toHaveBeenLastCalledWith(-1);
+
+    fireEvent.click(screen.getByRole('button', { name: '+1s' }));
+    expect(onSeekBy).toHaveBeenLastCalledWith(1);
+  });
+});

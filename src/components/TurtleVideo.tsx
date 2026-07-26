@@ -23,6 +23,8 @@ import { useCanvasStore } from '../stores/canvasStore';
 
 import type { ExportPreparationStep } from '../hooks/export-strategies/types';
 import { usePreventUnload } from '../hooks/usePreventUnload';
+import { useTimelineWaveform } from '../hooks/useTimelineWaveform';
+import { findAdjacentSilenceBoundary } from '../utils/timelineWaveform';
 import { useProjectStore } from '../stores/projectStore';
 
 // Utils
@@ -2378,14 +2380,50 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     }
   }, [clearGeneratedExport, isPlaying, currentTime, totalDuration, stopAll, pause, startEngine]);
 
-  // --- タイミング打ち用の相対シーク ---
-  // 目的: タイミング打ちバーの「-1s / +1s」からシークバーと同じ経路でプレビュー位置を動かす
-  const handleStampSeekBy = useCallback((deltaSec: number) => {
-    const target = Math.max(0, Math.min(totalDurationRef.current, currentTimeRef.current + deltaSec));
+  // --- 絶対時刻シーク ---
+  // 目的: 波形タップや無音区間ジャンプ（Issue #217）から、シークバーと同じ経路で
+  //       プレビュー位置を動かす。シークバー・波形・時刻表示がすべて同じ位置になる。
+  const handleSeekToTime = useCallback((time: number) => {
+    const target = Math.max(0, Math.min(totalDurationRef.current, time));
     handleSeekStart();
     handleSeekChange({ target: { value: String(target) } } as React.ChangeEvent<HTMLInputElement>);
     handleSeekEnd();
   }, [handleSeekChange, handleSeekEnd, handleSeekStart]);
+
+  // --- タイミング打ち用の相対シーク ---
+  // 目的: タイミング打ちバーの「-1s / +1s」からシークバーと同じ経路でプレビュー位置を動かす
+  const handleStampSeekBy = useCallback((deltaSec: number) => {
+    handleSeekToTime(currentTimeRef.current + deltaSec);
+  }, [handleSeekToTime]);
+
+  // --- 無音区間ナビゲーション（Issue #217） ---
+  // プレビューの波形とキャプションのタイミング打ちバーが同じ検出結果を使うよう、
+  // 波形フックはここで 1 度だけ呼び、結果を両方へ配る。
+  const supportsTimelineWaveform = !platformCapabilities.isIosSafari;
+  const timelineWaveform = useTimelineWaveform(
+    pipelineNarrations,
+    mediaItems,
+    totalDuration,
+    supportsTimelineWaveform && mediaItems.length > 0,
+  );
+
+  // 移動先には無音区間の開始・終了に加えて動画の先頭（0秒）・末尾も含まれる。
+  const handleSeekToSilenceBoundary = useCallback((direction: 'next' | 'prev') => {
+    const target = findAdjacentSilenceBoundary(
+      timelineWaveform.silences,
+      currentTimeRef.current,
+      direction,
+      totalDurationRef.current,
+    );
+    if (target === null) return;
+    handleSeekToTime(target);
+  }, [handleSeekToTime, timelineWaveform.silences]);
+
+  // ボタンの活性判定に使う（移動先が無ければ押せないようにする）
+  const hasPrevSilenceBoundary =
+    findAdjacentSilenceBoundary(timelineWaveform.silences, currentTime, 'prev', totalDuration) !== null;
+  const hasNextSilenceBoundary =
+    findAdjacentSilenceBoundary(timelineWaveform.silences, currentTime, 'next', totalDuration) !== null;
 
   // --- 停止ハンドラ ---
   // 目的: 再生を停止し、時刻を0にリセット（リソースのリロードは行わない）
@@ -2817,6 +2855,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               isPlaying={isPlaying}
               onTogglePlay={togglePlay}
               onSeekBy={handleStampSeekBy}
+              onSeekToSilenceBoundary={handleSeekToSilenceBoundary}
+              hasPrevSilenceBoundary={hasPrevSilenceBoundary}
+              hasNextSilenceBoundary={hasNextSilenceBoundary}
               onUpdateCaptionLive={updateCaption}
               onSetFontSizeCustom={withPreviewPause('set-caption-font-size-custom', setCaptionFontSizeCustom)}
               onSetPositionCustom={withPreviewPause('set-caption-position-custom', setCaptionPositionCustom)}
@@ -2851,6 +2892,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
                 onSeekChange={handleSeekChange}
                 onSeekStart={handleSeekStart}
                 onSeekEnd={handleSeekEnd}
+                onSeekToTime={handleSeekToTime}
+                supportsTimelineWaveform={supportsTimelineWaveform}
+                timelineWaveform={timelineWaveform}
                 onTogglePlay={togglePlay}
                 onStop={handleStop}
                 onExport={handleExport}

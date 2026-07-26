@@ -25,6 +25,8 @@ import { getPreviewRuntimeNotice } from '../../app/appFlavorUi';
 import { useLogStore } from '../../stores/logStore';
 import { useCanvasStore } from '../../stores/canvasStore';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
+import TimelineWaveform from '../media/TimelineWaveform';
+import type { TimelineWaveformData } from '../../hooks/useTimelineWaveform';
 
 const PREVIEW_ICON_BUTTON_BASE =
   'relative overflow-hidden p-3 lg:p-4 rounded-full border transition-[transform,background-color,color,box-shadow,filter] duration-200 shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed';
@@ -90,6 +92,15 @@ interface PreviewSectionProps {
   onSeekChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onSeekStart: () => void;
   onSeekEnd: () => void;
+  /** 波形タップ・無音区間ジャンプからの絶対時刻シーク（Issue #217） */
+  onSeekToTime: (time: number) => void;
+  /**
+   * シークバー直下の音量波形を出せる環境か。
+   * iOS Safari は decodeAudioData が不安定なため false（波形なしで従来どおり動く）。
+   */
+  supportsTimelineWaveform: boolean;
+  /** 波形データ（TurtleVideo が生成し、キャプションのタイミング打ちバーとも共有する） */
+  timelineWaveform: TimelineWaveformData;
   onTogglePlay: () => void;
   onStop: () => void;
   onExport: () => void;
@@ -129,6 +140,9 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   onSeekChange,
   onSeekStart,
   onSeekEnd,
+  onSeekToTime,
+  supportsTimelineWaveform,
+  timelineWaveform,
   onTogglePlay,
   onStop,
   onExport,
@@ -599,6 +613,21 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
             />
           )}
         </div>
+
+        {/*
+          音量波形と無音区間ナビゲーション（Issue #217）。
+          シークバーと同じ親（この padding 付きコンテナ）の直下に幅 100% で置くので、
+          左右の余白・左端・右端・同一時刻の横位置がシークバーと完全に一致する。
+        */}
+        <TimelineWaveform
+          waveform={timelineWaveform}
+          totalDuration={totalDuration}
+          currentTime={currentTime}
+          enabled={supportsTimelineWaveform && mediaItems.length > 0}
+          disabled={isProcessing}
+          onSeek={onSeekToTime}
+        />
+
         <div className="mt-4 flex justify-center gap-4 border-b border-gray-800 pb-6">
           <button
             type="button"

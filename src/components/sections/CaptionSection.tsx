@@ -23,6 +23,8 @@ import {
   Minus,
   ArrowLeftRight,
   Crosshair,
+  ChevronsLeft,
+  ChevronsRight,
 } from 'lucide-react';
 import type {
   Caption,
@@ -104,6 +106,15 @@ interface CaptionSectionProps {
   isPlaying: boolean;
   onTogglePlay: () => void;
   onSeekBy: (deltaSec: number) => void;
+  /**
+   * 無音区間の境界へ移動する（Issue #217）。
+   * 移動先には無音区間の開始・終了に加えて、動画の先頭（0秒）・末尾も含まれる。
+   */
+  onSeekToSilenceBoundary: (direction: 'next' | 'prev') => void;
+  /** 前方向に移動先があるか（無ければボタンを無効化する） */
+  hasPrevSilenceBoundary: boolean;
+  /** 後ろ方向に移動先があるか（無ければボタンを無効化する） */
+  hasNextSilenceBoundary: boolean;
   /** プレビューを一時停止せずにキャプションを更新する（タイミング打ち用） */
   onUpdateCaptionLive: (id: string, updates: Partial<Omit<Caption, 'id'>>) => void;
   // 動画タイトル（キャプションとは別管理）
@@ -153,6 +164,9 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   isPlaying,
   onTogglePlay,
   onSeekBy,
+  onSeekToSilenceBoundary,
+  hasPrevSilenceBoundary,
+  hasNextSilenceBoundary,
 }) => {
   const [isOpen, setIsOpen] = useState(true);
   const [showStyleSettings, setShowStyleSettings] = useState(false);
@@ -1151,6 +1165,22 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                 </div>
               )}
               <div className="flex-1" />
+              {/*
+                無音区間ナビゲーション（Issue #217）。
+                プレビューの波形と同じ検出結果を使い、無音区間の開始・終了に加えて
+                動画の先頭（0秒）・末尾へも移動できる。1つ目のキャプションを
+                動画の先頭から始めたいときに使う。
+              */}
+              <button
+                onClick={() => onSeekToSilenceBoundary('prev')}
+                disabled={!hasPrevSilenceBoundary}
+                className="h-9 px-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 text-[10px] md:text-xs transition flex items-center gap-0.5 disabled:opacity-30 disabled:hover:bg-gray-800"
+                title="前の無音区間の境界（動画の先頭を含む）へ移動"
+                aria-label="無音区間：前へ"
+              >
+                <ChevronsLeft className="w-3.5 h-3.5 shrink-0" />
+                <span className="whitespace-nowrap">無音区間：前へ</span>
+              </button>
               <button
                 onClick={() => onSeekBy(-1)}
                 className="h-9 px-2.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 text-[10px] md:text-xs font-mono transition"
@@ -1175,6 +1205,16 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                 title="1秒進む"
               >
                 +1s
+              </button>
+              <button
+                onClick={() => onSeekToSilenceBoundary('next')}
+                disabled={!hasNextSilenceBoundary}
+                className="h-9 px-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 text-[10px] md:text-xs transition flex items-center gap-0.5 disabled:opacity-30 disabled:hover:bg-gray-800"
+                title="次の無音区間の境界（動画の末尾を含む）へ移動"
+                aria-label="無音区間：次へ"
+              >
+                <span className="whitespace-nowrap">無音区間：次へ</span>
+                <ChevronsRight className="w-3.5 h-3.5 shrink-0" />
               </button>
             </div>
             {/* 操作行: モードごとのボタン */}
