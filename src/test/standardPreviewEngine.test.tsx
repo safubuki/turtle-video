@@ -571,6 +571,62 @@ describe('standard preview engine', () => {
     expect(finalSetCurrentTimeCall?.[0]).toBeCloseTo(7.5, 3);
   });
 
+  it('video export excludes VideoEncoder backpressure waits from the wall-clock timeline', async () => {
+    const videoItem = createVideoItem({
+      duration: 6,
+      originalDuration: 6,
+      trimStart: 0,
+      trimEnd: 6,
+    });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 4;
+    videoElement.seeking = false;
+    videoElement.currentTime = 0;
+    const canvas = {
+      getContext: vi.fn(() => createMockCanvasContext()),
+    } as unknown as HTMLCanvasElement;
+    let nowMs = 0;
+    vi.spyOn(playbackClock, 'getStandardPreviewNow').mockImplementation(() => nowMs);
+    const {
+      hook,
+      loopIdRef,
+      currentTimeRef,
+      startWebCodecsExport,
+    } = setupPreviewEngineHarness({
+      mediaItems: [videoItem],
+      mediaElements: {
+        [videoItem.id]: videoElement as unknown as HTMLVideoElement,
+      },
+      totalDuration: 6,
+      canvas,
+      enableWebCodecsExport: true,
+    });
+
+    const startPromise = hook.result.current.startEngine(0, true);
+    await vi.advanceTimersByTimeAsync(350);
+    await startPromise;
+
+    const audioSources = startWebCodecsExport.mock.calls[0]?.[4];
+    expect(audioSources).toBeDefined();
+    audioSources.onAudioPreRenderComplete?.();
+
+    nowMs = 1000;
+    hook.result.current.loop(true, loopIdRef.current);
+    expect(currentTimeRef.current).toBeCloseTo(1, 3);
+
+    audioSources.onVideoEncoderBackpressureChange?.(true);
+    expect(videoElement.pause).toHaveBeenCalled();
+
+    nowMs = 4000;
+    hook.result.current.loop(true, loopIdRef.current);
+    expect(currentTimeRef.current).toBeCloseTo(1, 3);
+
+    audioSources.onVideoEncoderBackpressureChange?.(false);
+    nowMs = 5000;
+    hook.result.current.loop(true, loopIdRef.current);
+    expect(currentTimeRef.current).toBeCloseTo(2, 3);
+  });
+
   it('preview 再生開始では exportUrl を clear しない', async () => {
     const { clearExport, hook } = setupPreviewEngineHarness();
 

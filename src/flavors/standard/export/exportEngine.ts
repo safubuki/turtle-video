@@ -2186,6 +2186,8 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         // 維持し（出力時間は変えない）、キャッチアップ系ループは SOFT 上限で drain を待つ。
         const VIDEO_ENCODE_QUEUE_SOFT_LIMIT = 30; // 約1秒分
         const VIDEO_ENCODE_QUEUE_HARD_LIMIT = 90; // 約3秒分
+        const hasTimelineVideo = audioSources?.mediaItems.some((item) => item.type === 'video') ?? false;
+        let isVideoBackpressurePaused = false;
         let backpressureDroppedFrames = 0;
         let lastBackpressureLogAtMs = 0;
         // 【#215 再発調査】完了要求後に「描かずに」複製して尺を埋めた枚数。
@@ -2214,6 +2216,46 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           }
         };
 
+        const setVideoBackpressurePaused = (paused: boolean) => {
+          if (!hasTimelineVideo || isVideoBackpressurePaused === paused) return;
+          isVideoBackpressurePaused = paused;
+          try {
+            audioSources?.onVideoEncoderBackpressureChange?.(paused);
+          } catch (error) {
+            // 進行通知の失敗で完成ファイルまで破棄しない。
+            useLogStore.getState().warn('RENDER', 'VideoEncoder backpressure 通知に失敗', {
+              paused,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+          logInfo('standard.export.videoBackpressure', {
+            paused,
+            encodeQueueSize: videoEncoder.encodeQueueSize,
+            highWaterMark: VIDEO_ENCODE_QUEUE_HARD_LIMIT,
+            lowWaterMark: VIDEO_ENCODE_QUEUE_SOFT_LIMIT,
+          });
+        };
+
+        const waitForVideoEncoderBackpressure = async () => {
+          if (
+            signal.aborted
+            || videoEncoder.state !== 'configured'
+            || videoEncoder.encodeQueueSize < VIDEO_ENCODE_QUEUE_HARD_LIMIT
+          ) {
+            return;
+          }
+
+          // 動画を含む export では、エンコーダーだけを待たせると <video> と壁時計が
+          // 先行し、完了時に未投入スロットが終端の黒い Canvas で埋まる。
+          // キューが十分に空くまで動画とタイムラインも同時に止める。
+          setVideoBackpressurePaused(true);
+          try {
+            await waitForVideoEncoderQueueDrain(VIDEO_ENCODE_QUEUE_SOFT_LIMIT);
+          } finally {
+            setVideoBackpressurePaused(false);
+          }
+        };
+
         const noteBackpressureDrop = () => {
           backpressureDroppedFrames++;
           const now = Date.now();
@@ -2238,6 +2280,8 @@ export function createUseExport(config: UseExportRuntimeConfig) {
               }
 
               await waitForVisibleIfNeeded();
+              if (signal.aborted) break;
+              await waitForVideoEncoderBackpressure();
               if (signal.aborted) break;
               if (completionRequestedRef.current && expectedVideoFrames === null) break;
               if (completionRequestedRef.current && expectedVideoFrames !== null && frameIndex >= expectedVideoFrames) break;
@@ -2352,6 +2396,8 @@ export function createUseExport(config: UseExportRuntimeConfig) {
 
               await waitForVisibleIfNeeded();
               if (signal.aborted) break;
+              await waitForVideoEncoderBackpressure();
+              if (signal.aborted) break;
               if (completionRequestedRef.current && expectedVideoFrames === null) break;
 
               const forceToEnd = completionRequestedRef.current;
@@ -2397,6 +2443,12 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                   videoEncoder.encode(frame, { keyFrame: frameIndex === 0 ? true : isKeyFrame(frameIndex) });
                   endEncodeMeasure?.();
                   noteVideoFrameSubmitted();
+                  if (forceToEnd) {
+                    // Canvas 直接経路でも、完了要求後に残りスロットを同じ最終 Canvas で
+                    // 埋めた枚数を診断へ反映する。従来は TrackProcessor 経路だけが数えており、
+                    // 実際には大量補完していても tailFilledFrames: 0 と誤診していた。
+                    tailFilledFrames++;
+                  }
                   frame.close();
                   frameIndex++;
                 }
@@ -2424,6 +2476,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
               console.error('Video processing error (canvas):', e);
             }
           } finally {
+            setVideoBackpressurePaused(false);
             try {
               coverArtBitmap?.close();
             } catch {

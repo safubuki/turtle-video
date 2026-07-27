@@ -126,6 +126,14 @@ export interface ExportAudioSources {
    */
   onVideoFrameSubmitted?: (submittedFrameCount: number) => void;
   /**
+   * VideoEncoder の待ち行列が上限へ達し、動画を含むリアルタイム export の
+   * タイムラインも一緒に待機させる必要があることを通知する。
+   *
+   * `true` の間は共有 <video> と壁時計タイムラインを停止し、`false` で
+   * 待機時間を壁時計の基準から除外して再開する。
+   */
+  onVideoEncoderBackpressureChange?: (paused: boolean) => void;
+  /**
    * プロジェクトポスター（JPEG data URL）。
    * - MP4 の cover art（moov/udta/meta/ilst/covr）へ埋め込み
    * - 先頭キーフレームの差し替え（シェルが映像先頭を読む場合向け）

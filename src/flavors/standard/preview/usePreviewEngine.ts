@@ -1082,6 +1082,10 @@ export function usePreviewEngine({
   // エクスポート 1 フレームの内訳（描画 / エンコード / その他）を実測する。
   // 「プレビューは滑らかなのに書き出しだけ遅い」原因を数字で切り分けるため。
   const exportFrameProfilerRef = useRef(createExportFrameProfiler(() => getStandardPreviewNow()));
+  // 動画を含む export で VideoEncoder が詰まった間だけ、共有 <video> と壁時計を
+  // 一緒に停止する。エンコーダーだけが遅れて終端の黒 Canvas を大量補完する回帰を防ぐ。
+  const exportBackpressurePausedRef = useRef(false);
+  const exportBackpressurePausedAtMsRef = useRef<number | null>(null);
   const frameDrivenExportSubmittedCountRef = useRef(0);
   const frameDrivenExportLastRenderedCountRef = useRef<number | null>(null);
   // フレーム駆動ウォッチドッグ: 投入数が進まないまま停滞したら壁時計へフォールバックする。
@@ -4022,6 +4026,12 @@ export function usePreviewEngine({
         // rAF が実際にどの間隔で回っているかを記録する。
         exportFrameProfilerRef.current.noteTick(now);
       }
+      if (isExportMode && exportBackpressurePausedRef.current) {
+        // requestAnimationFrame 自体は維持して中断・完了要求へ応答できるようにするが、
+        // 待機時間はタイムライン・Canvas・描画実績へ加算しない。
+        reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
+        return;
+      }
       const submittedFrameCount = frameDrivenExportSubmittedCountRef.current;
 
       // フレーム駆動ウォッチドッグ: VideoEncoder への投入が一定時間進まない場合は
@@ -4837,6 +4847,8 @@ export function usePreviewEngine({
         frameDrivenExportStallObservedCountRef.current = 0;
         frameDrivenExportStallLastAdvanceAtMsRef.current = 0;
         frameDrivenExportForcedWallClockRef.current = false;
+        exportBackpressurePausedRef.current = false;
+        exportBackpressurePausedAtMsRef.current = null;
         logInfo('RENDER', 'standard.export.pacing.selected', {
           mode: frameDrivenExportEnabledRef.current ? 'video-frame-driven' : 'wall-clock',
           fromTime,
@@ -5536,6 +5548,40 @@ export function usePreviewEngine({
                 frameDrivenExportSubmittedCountRef.current = submittedFrameCount;
               }
             },
+            onVideoEncoderBackpressureChange: (paused) => {
+              if (currentExportSessionIdRef.current !== exportSessionId) return;
+              const nowMs = getStandardPreviewNow();
+
+              if (paused) {
+                if (exportBackpressurePausedRef.current) return;
+                exportBackpressurePausedRef.current = true;
+                exportBackpressurePausedAtMsRef.current = nowMs;
+                Object.values(mediaElementsRef.current).forEach((element) => {
+                  if (element?.tagName !== 'VIDEO') return;
+                  try {
+                    (element as HTMLVideoElement).pause();
+                  } catch {
+                    /* ignore */
+                  }
+                });
+                logInfo('RENDER', 'standard.export.timeline.backpressurePaused', {
+                  globalTimeMs: Math.round(currentTimeRef.current * 1000),
+                });
+                return;
+              }
+
+              if (!exportBackpressurePausedRef.current) return;
+              const pausedAtMs = exportBackpressurePausedAtMsRef.current ?? nowMs;
+              const pausedDurationMs = Math.max(0, nowMs - pausedAtMs);
+              // 壁時計の原点を待機時間ぶん先へずらすことで、再開後の elapsed を連続させる。
+              startTimeRef.current += pausedDurationMs;
+              exportBackpressurePausedAtMsRef.current = null;
+              exportBackpressurePausedRef.current = false;
+              logInfo('RENDER', 'standard.export.timeline.backpressureResumed', {
+                globalTimeMs: Math.round(currentTimeRef.current * 1000),
+                pausedDurationMs: Math.round(pausedDurationMs),
+              });
+            },
             onPreparationStepChange: setExportPreparationStep,
             onAudioPreRenderComplete: () => {
               // 【Issue #215】実描画実績は loop 開始時点から数え直す。
@@ -5548,6 +5594,8 @@ export function usePreviewEngine({
               frameDrivenExportStallObservedCountRef.current = 0;
               frameDrivenExportStallLastAdvanceAtMsRef.current = getStandardPreviewNow();
               frameDrivenExportForcedWallClockRef.current = false;
+              exportBackpressurePausedRef.current = false;
+              exportBackpressurePausedAtMsRef.current = null;
               startTimeRef.current = getStandardPreviewNow() - fromTime * 1000;
               loop(isExportMode, myLoopId);
             },

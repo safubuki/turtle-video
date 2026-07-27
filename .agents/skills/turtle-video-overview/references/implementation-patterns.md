@@ -2839,3 +2839,24 @@ export 終了（成功/失敗/中断）
   - MP4 への反映方法を説明する長文は削除し、展開部にはサムネイル画像と既存の設定操作だけを残す。
 - **注意**: 変更対象は表示と開閉 state のみ。`projectPosterMode` / `projectPosterTimelineTime` / `projectPosterDataUrl` の保存契約、手動設定・自動復帰コールバック、export への cover art / 先頭キーフレーム反映には手を加えない。
 - **テスト**: `previewSectionActionButtons.test.tsx` で初期閉状態、見出しの自動/手動と時刻、展開後の手動設定操作、自動設定へ戻す操作、説明文が存在しないことを確認する。
+
+### 13-153. 動画エクスポートは VideoEncoder backpressure 中だけ壁時計と video を同時停止する
+
+- **ファイル**: `src/flavors/standard/export/exportEngine.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/hooks/export-strategies/types.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **実測した問題**:
+  - HD/30fps・39.64秒（画像4秒 + 動画35.64秒）の出力で、映像内容だけが約24秒で素材末尾へ到達し、以降は黒画面、音声とMP4のCFR timestampは39.64秒まで正常だった。
+  - rAFは約60fps、Canvas描画と`VideoEncoder.encode()`呼び出し自体も軽い一方、完了直前の`videoEncoder.encodeQueueSize`はHARD上限90に対して89だった。
+  - エンコーダーの実消化が30fpsを下回ると、直接Canvas経路はキュー上限で新規投入だけを止めるが、壁時計タイムラインと`<video>`は実時間で進み続けていた。タイムライン終端時に未投入だった約15秒分を、既に素材末尾へ到達した黒いCanvasで補完したため、コンテナ時刻だけ正常な早送り+黒画面になった。
+  - 直接Canvas経路の完了後補完は`tailFilledFrames`を加算していなかったため、実際には大量補完していても`tailFilledFrames: 0`と誤診されていた。
+- **対策**:
+  - キューがHARD上限へ達した場合、SOFT上限までdrainする間だけ`onVideoEncoderBackpressureChange(true)`を通知する。
+  - preview engineは通知中、共有`<video>`をpauseし、rAFは維持したままタイムライン更新とCanvas描画を止める。drain完了時は待機時間を`startTimeRef`へ加算して壁時計の原点を繰り下げ、連続したタイムライン位置から既存の動画再生経路で再開する。
+  - 通知は動画を含むstandard exportだけに限定する。画像のみexportの既存フレーム駆動ペーシング、apple-safari flavor、通常previewには波及させない。
+  - 直接Canvas経路でも完了要求後に投入した枚数を`tailFilledFrames`へ加算し、同じ誤診を防ぐ。
+- **既往対策との違い**:
+  - 動画export全体を投入枚数駆動へ変えない。通常時は既存の壁時計+native video再生を維持し、エンコーダーが実際に飽和した区間だけ両方を同時停止する。
+  - `video.currentTime`を毎フレーム巻き戻す方式ではないため、`needsCorrection`による連続seek・再バッファの悪循環を作らない。
+- **注意**:
+  - backpressure時にエンコーダーだけを待たせる実装へ戻さない。CFRの枚数・timestampが正常でも、各スロットへ描かれた映像内容だけが先行する。
+  - pause解除時に待機時間を`startTimeRef`から除外しないと、再開直後にタイムラインが待機秒数ぶんジャンプする。
+  - rAF自体は止めない。停止・中断・セッション世代変更へ応答できる状態を維持する。
