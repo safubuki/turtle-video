@@ -42,5 +42,8 @@ Docs/AgentSkillsBlog.md
 scripts/dev/requirements-empty.txt
 scripts/dev/__pycache__/
 
+# Local export output
+/output_movie/
+
 # Skill sync artifacts
 .skills-backups/

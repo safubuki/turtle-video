@@ -72,6 +72,7 @@ turtle-video/
 ├── Docs/                    # ドキュメント
 │   └── review/              # Codex向けPRレビュー基準
 ├── scripts/                 # ビルドスクリプト
+├── output_movie/            # ローカルの動画出力先（Git管理対象外）
 ├── spec.md                  # 仕様書 & 実装計画
 ├── version.json             # バージョン管理 + 前回タグからの差分概要
 ├── index.html               # エントリーHTML

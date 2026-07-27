@@ -52,3 +52,4 @@ description: Turtle Videoプロジェクトの全体像と実装パターンを�
 - [version.json](../../../version.json): 現在のバージョン情報
 - [package.json](../../../package.json): 依存関係・スクリプト一覧
 - [references/export-recovery-2026-07-20.md](references/export-recovery-2026-07-20.md): フルHD/HD/自動モード導入後のエクスポート復旧まとめ（解像度検証緩和・ハング対策ウォッチドッグ・秒数表示・音漏れ）
+- [references/export-video-backpressure-postmortem-2026-07-27.md](references/export-video-backpressure-postmortem-2026-07-27.md): 動画exportの早送り・後半黒画面について、失敗した対策、真因、backpressure同期による成功理由、実機確認、再発時の診断順序
