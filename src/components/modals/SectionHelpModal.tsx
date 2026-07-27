@@ -39,6 +39,7 @@ import {
   ChevronRight,
   ListPlus,
   Crosshair,
+  Captions,
 } from 'lucide-react';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 import {
@@ -366,6 +367,15 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
           >
             ナレーション{' '}
             <span className="text-[10px] font-normal text-indigo-300 md:text-xs">(2件)</span>
+          </span>
+        );
+      case 'narration_caption_button':
+        return (
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} border-yellow-500/45 bg-yellow-700/70 px-2.5 py-1.5 font-semibold text-yellow-50`}
+          >
+            <Captions className="h-3.5 w-3.5" /> キャプションカードを追加
           </span>
         );
       case 'copy_button':

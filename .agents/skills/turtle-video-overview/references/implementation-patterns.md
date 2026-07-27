@@ -2925,3 +2925,24 @@ export 終了（成功/失敗/中断）
   - 位置の簡単設定は `左下 → 右下 → 中央 → 左上 → 右上` の順。通常の四隅は左右 `9/91%`、上下 `15/85%` を基準とする。`resolveWatermarkPresetPosition()` は自然画像サイズ、倍率、マスクサイズ、回転後のバウンディングボックス、周辺ぼかしも確認し、大きな画像だけ可視領域の 87.5% 以上が残る位置まで中央側へ補正する。
   - 数値項目は縦長化を避け、`ラベル + リセット / スライダー / 数値入力` の 1 行グリッドにする。リセットはラベル直後へ統一し、既定値でも無効化せず `text-gray-200` で見える状態を保つ。ラベル列は最長ラベルが収まる幅（狭幅 5rem / `sm` 以上 5.75rem）、数値入力は表示値と単位が収まる幅（狭幅 5rem / `sm` 以上 5.5rem）に抑え、残りをスライダーの操作幅へ割り当てる。簡単設定の区切り線はボタン群の下へ置く。
   - `watermarkOverlay.test.ts`, `overlayStore.test.ts`, `overlaySection.test.tsx`, `projectStoreSave.test.ts` で時間範囲、描画条件、Object URL 解放、UI、保存復元、旧データ補完を固定する。
+
+### 13-157. AIナレーション原稿から個別編集可能な通常キャプションカードを生成（Issue #213）
+
+- **ファイル**: `src/utils/narrationCaptionPlan.ts`, `src/hooks/useNarrationWaveform.ts`, `src/utils/audioWaveform.ts`, `src/components/sections/NarrationSection.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`, `src/test/narrationCaptionPlan.test.ts`, `src/test/useNarrationWaveform.test.tsx`, `src/test/narrationSectionOfflineMode.test.tsx`
+- **設計判断**:
+  - 既存の時分割キャプションは、1カード内の改行行を文字数比で順次表示する方式で、各行の開始・終了を個別編集できない。Issue #213 は生成後の文字列と開始・終了を区間ごとに微調整するため、**通常キャプションカードを複数生成**する。
+  - 原稿の単一ソースは `NarrationClip.aiScript` のまま保持する。キャプション生成用には空白だけを正規化し、原稿自体は変更しない。
+- **分割・時間配分**:
+  - 改行のない長文も句点・読点等の自然な区切りを優先し、既定20文字程度で分割する。短すぎる末尾は前区間へ統合する。
+  - ナレーションの設定尺ではなく `resolveEffectiveAudioClipPlayback()` の実効再生区間を使い、動画終端で切れる音声へキャプションだけがはみ出さないようにする。
+  - まず各カードを文字数比で全実効区間へ隙間・重複なく配分する。短い音声では最小0.6秒を下回る細分化を結合する。この結果が波形解析に依存しない必須フォールバックとなる。
+  - standard版では対象ナレーション単体を `detectSilenceSplitPoints()` で解析し、文字数比の内部境界から1.25秒以内にある最寄りの無音区間を選ぶ。同距離なら長い無音を優先し、各カードの最小0.6秒を壊す候補、実効トリム外の候補、先頭・末尾候補は採用しない。
+  - 選んだ無音区間の中央でカードを連続させず、**前カードの終了を `silence.start`、次カードの開始を `silence.end`** にする。これにより `[silence.start, silence.end)` はどのカードにも含まれず、発話していない間はキャプションを表示しない。
+  - 無音候補の開始・中央・終了は音源内時刻なので、それぞれ `timelineStart + (sourceTime - trimStart)` でタイムラインへ写像する。解析失敗・候補なし・解析中の音源差し替え・apple-safari版では隙間のない文字数比をそのまま使う。
+- **波形解析の共有**:
+  - `analyzeNarrationWaveform()` を波形パネルとキャプション生成の共有入口とし、モジュールキャッシュに加えて進行中Promiseも共有する。同じ音源を同時に開いても二重デコードしない。
+  - 専用の遅延生成 `AudioContext` を使い、再生用AudioContextのresume/suspendへ干渉しない。Object URLも新規作成しない。iPhone/iPad Safariでは従来どおり波形デコードを実行しない。
+- **UI / 既存機能の再利用**:
+  - 保持原稿があるAIナレーションカード内に「キャプションカードを追加」を表示する。ナレーションまたはキャプションのロック中は無効化し、解析中は対象ボタンを「無音区間を解析中…」へ切り替えて二重実行を防ぐ。
+  - 追加は既存 `captionStore.addCaptions()` を使うため、個別編集、まとめて入力・編集、タイミング打ち、プレビュー/書き出し、手動/自動保存の契約を変更しない。新しい永続化フィールドや描画分岐は追加しない。
+- **回帰ガード**: 長文分割、原文保持、文字数比フォールバック時の区間全体被覆と境界連続性、短尺時の結合、選択した無音の開始〜終了がカード間の非表示ギャップになること、遠すぎる候補と最小表示時間違反の除外、トリム後の開始・中央・終了時刻の写像、非同期デコードの競合防止、ボタンの実行とロック状態をテストする。

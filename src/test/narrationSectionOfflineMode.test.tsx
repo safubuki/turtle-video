@@ -49,6 +49,7 @@ describe('NarrationSection offline mode', () => {
         narrations={narrations}
         offlineMode={true}
         isNarrationLocked={false}
+        isCaptionLocked={false}
         totalDuration={30}
         currentTime={0}
         onToggleNarrationLock={vi.fn()}
@@ -58,6 +59,7 @@ describe('NarrationSection offline mode', () => {
         onRemoveNarration={vi.fn()}
         onMoveNarration={vi.fn()}
         onSaveNarration={vi.fn()}
+        onAddCaptionsFromNarration={vi.fn()}
         onUpdateStartTime={vi.fn()}
         onSetStartTimeToCurrent={vi.fn()}
         onSetEndTimeToCurrent={vi.fn()}
@@ -77,5 +79,79 @@ describe('NarrationSection offline mode', () => {
 
     expect(screen.getByTitle('オフラインモードではAI編集できません')).toBeDisabled();
     expect(screen.getAllByTitle('下へ移動')[0]).toBeEnabled();
+  });
+
+  it('AI原稿があるカードからキャプション追加を実行し、キャプションロック中は無効化する', () => {
+    const onAddCaptionsFromNarration = vi.fn();
+    const aiClip = createNarrationClip({
+      id: 'ai-caption-source',
+      sourceType: 'ai',
+      isAiEditable: true,
+      aiScript: 'ナレーションと同じ原稿です。',
+    });
+
+    const { rerender } = render(
+      <NarrationSection
+        narrations={[aiClip]}
+        offlineMode={false}
+        isNarrationLocked={false}
+        isCaptionLocked={false}
+        totalDuration={30}
+        currentTime={0}
+        onToggleNarrationLock={vi.fn()}
+        onAddAiNarration={vi.fn()}
+        onEditAiNarration={vi.fn()}
+        onNarrationUpload={vi.fn()}
+        onRemoveNarration={vi.fn()}
+        onMoveNarration={vi.fn()}
+        onSaveNarration={vi.fn()}
+        onAddCaptionsFromNarration={onAddCaptionsFromNarration}
+        onUpdateStartTime={vi.fn()}
+        onSetStartTimeToCurrent={vi.fn()}
+        onSetEndTimeToCurrent={vi.fn()}
+        onUpdateVolume={vi.fn()}
+        onToggleMute={vi.fn()}
+        onUpdateTrimStart={vi.fn()}
+        onUpdateTrimEnd={vi.fn()}
+        formatTime={(value) => `${value.toFixed(1)}s`}
+        onOpenHelp={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('ナレーション'));
+    const addButton = screen.getByRole('button', { name: 'キャプションカードを追加' });
+    expect(addButton).toBeEnabled();
+    fireEvent.click(addButton);
+    expect(onAddCaptionsFromNarration).toHaveBeenCalledWith('ai-caption-source');
+
+    rerender(
+      <NarrationSection
+        narrations={[aiClip]}
+        offlineMode={false}
+        isNarrationLocked={false}
+        isCaptionLocked={true}
+        totalDuration={30}
+        currentTime={0}
+        onToggleNarrationLock={vi.fn()}
+        onAddAiNarration={vi.fn()}
+        onEditAiNarration={vi.fn()}
+        onNarrationUpload={vi.fn()}
+        onRemoveNarration={vi.fn()}
+        onMoveNarration={vi.fn()}
+        onSaveNarration={vi.fn()}
+        onAddCaptionsFromNarration={onAddCaptionsFromNarration}
+        onUpdateStartTime={vi.fn()}
+        onSetStartTimeToCurrent={vi.fn()}
+        onSetEndTimeToCurrent={vi.fn()}
+        onUpdateVolume={vi.fn()}
+        onToggleMute={vi.fn()}
+        onUpdateTrimStart={vi.fn()}
+        onUpdateTrimEnd={vi.fn()}
+        formatTime={(value) => `${value.toFixed(1)}s`}
+        onOpenHelp={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'キャプションカードを追加' })).toBeDisabled();
   });
 });

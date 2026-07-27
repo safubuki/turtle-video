@@ -20,6 +20,7 @@ export type SectionHelpVisualId =
   | 'ai_add_button'
   | 'bgm_count_label'
   | 'narration_count_label'
+  | 'narration_caption_button'
   | 'copy_button'
   | 'caption_style_accordion'
   | 'caption_outline_color_accordion'
@@ -351,6 +352,12 @@ export function getSectionHelpContent(
             'delete_button',
             'save_button',
           ],
+        },
+        {
+          title: 'AI原稿からキャプションカードを追加',
+          description:
+            'AIナレーションのカード内にあるボタンを押すと、保持している原稿を読みやすい長さに分け、実際のナレーション再生区間へ通常のキャプションカードとして追加します。Android/PC版では文字数比で求めた境界に近い無音区間を探し、前のカードを無音開始で終了、次のカードを無音終了の発話再開から表示します。発話していない間は字幕も表示されません。解析できない場合も文字数比で必ず作成し、追加後は各カードの文字と開始・終了を個別に微調整できます。',
+          visuals: ['narration_caption_button'],
         },
         {
           title: '開始・終了位置',

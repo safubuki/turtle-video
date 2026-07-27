@@ -1,0 +1,303 @@
+/**
+ * AI ナレーションの保持原稿から、個別編集できる通常キャプションカードを作る。
+ *
+ * 既存の「時分割キャプション」は 1 カード内の複数行を文字数比で表示するため、
+ * 行ごとの開始・終了を編集できない。ナレーション連携では通常カードへ展開し、
+ * 既存の個別編集・タイミング打ち・保存復元をそのまま利用する。
+ */
+
+export interface NarrationCaptionPlanItem {
+  text: string;
+  startTime: number;
+  endTime: number;
+}
+
+export interface NarrationSilenceBoundaryCandidate {
+  /** タイムライン上の無音区間中央（秒） */
+  time: number;
+  /** 無音区間の開始（秒） */
+  start?: number;
+  /** 無音区間の終了（秒） */
+  end?: number;
+  /** 無音区間の長さ（秒）。同距離の候補では長い方を優先する */
+  duration?: number;
+}
+
+export interface SnappedNarrationCaptionPlan {
+  plan: NarrationCaptionPlanItem[];
+  snappedBoundaryCount: number;
+}
+
+const DEFAULT_MAX_GRAPHEMES = 20;
+const DEFAULT_MIN_SEGMENT_DURATION_SEC = 0.6;
+const DEFAULT_MAX_SNAP_DISTANCE_SEC = 1.25;
+const STRONG_BREAK = /[。！？!?]/u;
+const SOFT_BREAK = /[、，,・：:；;\s]/u;
+
+const toGraphemes = (value: string): string[] => Array.from(value);
+
+export function normalizeNarrationCaptionText(text: string): string {
+  return text.replace(/\s+/gu, ' ').trim();
+}
+
+function findPreferredBreak(graphemes: string[], maxLength: number): number {
+  const lowerBound = Math.max(1, Math.floor(maxLength * 0.55));
+  for (let i = Math.min(maxLength, graphemes.length) - 1; i >= lowerBound - 1; i--) {
+    if (STRONG_BREAK.test(graphemes[i])) return i + 1;
+  }
+  for (let i = Math.min(maxLength, graphemes.length) - 1; i >= lowerBound - 1; i--) {
+    if (SOFT_BREAK.test(graphemes[i])) return i + 1;
+  }
+  return Math.min(maxLength, graphemes.length);
+}
+
+function mergeSmallTail(segments: string[], maxLength: number): string[] {
+  if (segments.length < 2) return segments;
+  const tail = segments[segments.length - 1];
+  const previous = segments[segments.length - 2];
+  const tailLength = toGraphemes(tail).length;
+  const combinedLength = toGraphemes(previous + tail).length;
+  if (tailLength >= Math.max(4, Math.floor(maxLength * 0.35))) return segments;
+  if (combinedLength > Math.ceil(maxLength * 1.35)) return segments;
+  return [...segments.slice(0, -2), `${previous}${tail}`];
+}
+
+export function splitNarrationCaptionText(
+  text: string,
+  maxGraphemes: number = DEFAULT_MAX_GRAPHEMES
+): string[] {
+  const normalized = normalizeNarrationCaptionText(text);
+  if (!normalized) return [];
+
+  const safeMax = Math.max(4, Math.floor(maxGraphemes));
+  const remaining = toGraphemes(normalized);
+  const segments: string[] = [];
+
+  while (remaining.length > safeMax) {
+    const breakAt = findPreferredBreak(remaining, safeMax);
+    const segment = remaining.splice(0, breakAt).join('').trim();
+    if (segment) segments.push(segment);
+    while (remaining[0] === ' ') remaining.shift();
+  }
+
+  const tail = remaining.join('').trim();
+  if (tail) segments.push(tail);
+  return mergeSmallTail(segments, safeMax);
+}
+
+function mergeSegmentsToLimit(segments: string[], limit: number): string[] {
+  const merged = [...segments];
+  while (merged.length > limit) {
+    let mergeAt = 0;
+    let smallestPairLength = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < merged.length - 1; i++) {
+      const pairLength = toGraphemes(merged[i] + merged[i + 1]).length;
+      if (pairLength < smallestPairLength) {
+        mergeAt = i;
+        smallestPairLength = pairLength;
+      }
+    }
+    merged.splice(mergeAt, 2, `${merged[mergeAt]}${merged[mergeAt + 1]}`);
+  }
+  return merged;
+}
+
+const roundMillis = (value: number): number => Math.round(value * 1000) / 1000;
+
+function resolveSilenceRange(candidate: NarrationSilenceBoundaryCandidate): {
+  time: number;
+  start: number;
+  end: number;
+  duration: number;
+} | null {
+  if (!Number.isFinite(candidate.time)) return null;
+  const suppliedDuration =
+    Number.isFinite(candidate.duration) && (candidate.duration ?? 0) > 0 ? candidate.duration! : 0;
+  const start = Number.isFinite(candidate.start)
+    ? candidate.start!
+    : candidate.time - suppliedDuration / 2;
+  const end = Number.isFinite(candidate.end)
+    ? candidate.end!
+    : candidate.time + suppliedDuration / 2;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+  return {
+    time: candidate.time,
+    start,
+    end,
+    duration: end - start,
+  };
+}
+
+/**
+ * 音源内時刻の無音候補を、トリムを考慮したタイムライン時刻へ写像する。
+ */
+export function mapNarrationSilencesToTimeline(params: {
+  silenceCandidates: NarrationSilenceBoundaryCandidate[];
+  timelineStart: number;
+  trimStart: number;
+  trimEnd: number;
+}): NarrationSilenceBoundaryCandidate[] {
+  const trimStart = Math.max(0, params.trimStart);
+  const trimEnd = Math.max(trimStart, params.trimEnd);
+  return params.silenceCandidates
+    .map(resolveSilenceRange)
+    .filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null)
+    .map((candidate) => ({
+      start: Math.max(trimStart, candidate.start),
+      end: Math.min(trimEnd, candidate.end),
+    }))
+    .filter((candidate) => candidate.end > candidate.start)
+    .map((candidate) => {
+      const start = roundMillis(params.timelineStart + (candidate.start - trimStart));
+      const end = roundMillis(params.timelineStart + (candidate.end - trimStart));
+      return {
+        time: roundMillis((start + end) / 2),
+        start,
+        end,
+        duration: roundMillis(end - start),
+      };
+    });
+}
+
+export function buildNarrationCaptionPlan(params: {
+  text: string;
+  startTime: number;
+  endTime: number;
+  maxGraphemes?: number;
+  minSegmentDurationSec?: number;
+}): NarrationCaptionPlanItem[] {
+  const startTime = Number.isFinite(params.startTime) ? Math.max(0, params.startTime) : 0;
+  const endTime = Number.isFinite(params.endTime) ? Math.max(startTime, params.endTime) : startTime;
+  const duration = endTime - startTime;
+  if (duration <= 0) return [];
+
+  const initialSegments = splitNarrationCaptionText(
+    params.text,
+    params.maxGraphemes ?? DEFAULT_MAX_GRAPHEMES
+  );
+  if (initialSegments.length === 0) return [];
+
+  const minSegmentDuration = Math.max(
+    0.1,
+    params.minSegmentDurationSec ?? DEFAULT_MIN_SEGMENT_DURATION_SEC
+  );
+  const maxSegmentsForDuration = Math.max(1, Math.floor(duration / minSegmentDuration));
+  const segments = mergeSegmentsToLimit(initialSegments, maxSegmentsForDuration);
+  const weights = segments.map((segment) => Math.max(1, toGraphemes(segment).length));
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+
+  let accumulatedWeight = 0;
+  return segments.map((text, index) => {
+    const segmentStart =
+      index === 0 ? startTime : startTime + (duration * accumulatedWeight) / totalWeight;
+    accumulatedWeight += weights[index];
+    const segmentEnd =
+      index === segments.length - 1
+        ? endTime
+        : startTime + (duration * accumulatedWeight) / totalWeight;
+    return {
+      text,
+      startTime: roundMillis(segmentStart),
+      endTime: roundMillis(segmentEnd),
+    };
+  });
+}
+
+/**
+ * 文字数比で作ったカード境界を、近傍の無音区間へ安全に吸着させる。
+ *
+ * 前カードを無音開始で終了し、次カードを無音終了から開始することで、
+ * 発話していない区間にはキャプションを表示しない。
+ * 最初と最後の時刻は変えず、前後カードの最小表示時間を守れる候補だけを採用する。
+ * 適切な候補がなければ、その境界は文字数比の時刻をそのまま維持する。
+ */
+export function snapNarrationCaptionPlanToSilences(params: {
+  plan: NarrationCaptionPlanItem[];
+  silenceCandidates: NarrationSilenceBoundaryCandidate[];
+  maxSnapDistanceSec?: number;
+  minSegmentDurationSec?: number;
+}): SnappedNarrationCaptionPlan {
+  const { plan } = params;
+  if (plan.length < 2) {
+    return {
+      plan: plan.map((item) => ({ ...item })),
+      snappedBoundaryCount: 0,
+    };
+  }
+
+  const maxSnapDistance = Math.max(0, params.maxSnapDistanceSec ?? DEFAULT_MAX_SNAP_DISTANCE_SEC);
+  const minSegmentDuration = Math.max(
+    0.1,
+    params.minSegmentDurationSec ?? DEFAULT_MIN_SEGMENT_DURATION_SEC
+  );
+  const timelineStart = plan[0].startTime;
+  const timelineEnd = plan[plan.length - 1].endTime;
+  const candidates = params.silenceCandidates
+    .map(resolveSilenceRange)
+    .filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null)
+    .map((candidate) => ({
+      time: roundMillis(candidate.time),
+      start: roundMillis(candidate.start),
+      end: roundMillis(candidate.end),
+      duration: roundMillis(candidate.duration),
+    }))
+    .filter(
+      (candidate) =>
+        candidate.start > timelineStart &&
+        candidate.end < timelineEnd &&
+        candidate.end > candidate.start
+    )
+    .sort((a, b) => a.time - b.time);
+
+  const boundaries = plan.slice(0, -1).map((item) => item.endTime);
+  const resolvedBoundaries: Array<{ previousEnd: number; nextStart: number }> = [];
+  let snappedBoundaryCount = 0;
+
+  boundaries.forEach((originalBoundary, index) => {
+    const currentCardStart = index === 0 ? timelineStart : resolvedBoundaries[index - 1].nextStart;
+    const remainingCardCount = plan.length - index - 1;
+    const earliestEnd = currentCardStart + minSegmentDuration;
+    const latestNextStart = timelineEnd - remainingCardCount * minSegmentDuration;
+
+    const bestCandidate = candidates
+      .filter(
+        (candidate) =>
+          candidate.start >= earliestEnd &&
+          candidate.end <= latestNextStart &&
+          Math.abs(candidate.time - originalBoundary) <= maxSnapDistance
+      )
+      .sort((a, b) => {
+        const distanceDiff =
+          Math.abs(a.time - originalBoundary) - Math.abs(b.time - originalBoundary);
+        if (Math.abs(distanceDiff) > 1e-6) return distanceDiff;
+        if (Math.abs(b.duration - a.duration) > 1e-6) return b.duration - a.duration;
+        return a.time - b.time;
+      })[0];
+
+    if (bestCandidate) {
+      resolvedBoundaries.push({
+        previousEnd: bestCandidate.start,
+        nextStart: bestCandidate.end,
+      });
+      snappedBoundaryCount += 1;
+      return;
+    }
+
+    const fallbackBoundary = roundMillis(
+      Math.min(latestNextStart, Math.max(earliestEnd, originalBoundary))
+    );
+    resolvedBoundaries.push({
+      previousEnd: fallbackBoundary,
+      nextStart: fallbackBoundary,
+    });
+  });
+
+  return {
+    plan: plan.map((item, index) => ({
+      ...item,
+      startTime: index === 0 ? timelineStart : resolvedBoundaries[index - 1].nextStart,
+      endTime: index === plan.length - 1 ? timelineEnd : resolvedBoundaries[index].previousEnd,
+    })),
+    snappedBoundaryCount,
+  };
+}

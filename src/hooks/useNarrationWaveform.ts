@@ -43,6 +43,7 @@ interface CachedWaveform {
 }
 
 const waveformCache = new Map<string, CachedWaveform>();
+const waveformPromiseCache = new Map<string, Promise<CachedWaveform>>();
 
 let decodeContext: AudioContext | null = null;
 function getDecodeContext(): AudioContext | null {
@@ -86,6 +87,51 @@ function buildCacheKey(clip: NarrationClip): string {
 }
 
 /**
+ * ナレーション音源を解析する共有 API。
+ * 波形パネルとキャプション生成の双方から同じキャッシュ／進行中 Promise を再利用する。
+ */
+export async function analyzeNarrationWaveform(
+  clip: NarrationClip,
+): Promise<Omit<NarrationWaveformData, 'status'>> {
+  const cacheKey = buildCacheKey(clip);
+  const cached = waveformCache.get(cacheKey);
+  if (cached) return cached;
+
+  const pending = waveformPromiseCache.get(cacheKey);
+  if (pending) return pending;
+
+  const analysisPromise = (async (): Promise<CachedWaveform> => {
+    const ctx = getDecodeContext();
+    if (!ctx) throw new Error('AudioContext unavailable');
+
+    const arrayBuffer = await loadClipArrayBuffer(clip);
+    if (!arrayBuffer) throw new Error('audio source unavailable');
+
+    // decodeAudioData は渡した ArrayBuffer を detach する実装があるためコピーを渡す。
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+    const channels: Float32Array[] = [];
+    for (let c = 0; c < audioBuffer.numberOfChannels; c++) {
+      channels.push(audioBuffer.getChannelData(c));
+    }
+    const pcm = mixToMono(channels, audioBuffer.sampleRate);
+    const result: CachedWaveform = {
+      peaks: computeWaveformPeaks(pcm, WAVEFORM_BUCKET_COUNT),
+      splitPoints: detectSilenceSplitPoints(pcm),
+      decodedDuration: audioBuffer.duration,
+    };
+    waveformCache.set(cacheKey, result);
+    return result;
+  })();
+
+  waveformPromiseCache.set(cacheKey, analysisPromise);
+  try {
+    return await analysisPromise;
+  } finally {
+    waveformPromiseCache.delete(cacheKey);
+  }
+}
+
+/**
  * ナレーションクリップの波形と分割候補を返す。
  * @param clip - 対象クリップ
  * @param enabled - false のときはデコードしない（パネルを閉じている / iOS など）
@@ -116,53 +162,18 @@ export function useNarrationWaveform(
       return;
     }
 
-    const cached = waveformCache.get(cacheKey);
-    if (cached) {
-      setData({
-        status: 'ready',
-        peaks: cached.peaks,
-        splitPoints: cached.splitPoints,
-        decodedDuration: cached.decodedDuration,
-      });
-      return;
-    }
-
     setData({ status: 'loading', peaks: null, splitPoints: [], decodedDuration: 0 });
 
     (async () => {
       try {
-        const ctx = getDecodeContext();
-        if (!ctx) throw new Error('AudioContext unavailable');
-
-        const arrayBuffer = await loadClipArrayBuffer(clip);
-        if (cancelled) return;
-        if (!arrayBuffer) throw new Error('audio source unavailable');
-
-        // decodeAudioData は渡した ArrayBuffer を detach するため slice(0) でコピーを渡す
-        const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
-        if (cancelled) return;
-
-        const channels: Float32Array[] = [];
-        for (let c = 0; c < audioBuffer.numberOfChannels; c++) {
-          channels.push(audioBuffer.getChannelData(c));
-        }
-        const pcm = mixToMono(channels, audioBuffer.sampleRate);
-        const peaks = computeWaveformPeaks(pcm, WAVEFORM_BUCKET_COUNT);
-        const splitPoints = detectSilenceSplitPoints(pcm);
-
-        const result: CachedWaveform = {
-          peaks,
-          splitPoints,
-          decodedDuration: audioBuffer.duration,
-        };
-        waveformCache.set(cacheKey, result);
+        const result = await analyzeNarrationWaveform(clip);
 
         if (cancelled) return;
         setData({
           status: 'ready',
-          peaks,
-          splitPoints,
-          decodedDuration: audioBuffer.duration,
+          peaks: result.peaks,
+          splitPoints: result.splitPoints,
+          decodedDuration: result.decodedDuration,
         });
       } catch (error) {
         if (cancelled) return;

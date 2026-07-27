@@ -24,6 +24,7 @@ import {
   FileAudio,
   Edit2,
   Save,
+  Captions,
 } from 'lucide-react';
 import type { NarrationClip } from '../../types';
 import { getAudioUploadAccept } from '../../utils/platform';
@@ -37,6 +38,7 @@ interface NarrationSectionProps {
   narrations: NarrationClip[];
   offlineMode: boolean;
   isNarrationLocked: boolean;
+  isCaptionLocked: boolean;
   totalDuration: number;
   currentTime: number;
   onToggleNarrationLock: () => void;
@@ -46,6 +48,8 @@ interface NarrationSectionProps {
   onRemoveNarration: (id: string) => void;
   onMoveNarration: (id: string, direction: 'up' | 'down') => void;
   onSaveNarration: (id: string) => void;
+  onAddCaptionsFromNarration: (id: string) => Promise<void>;
+  captionGeneratingNarrationId?: string | null;
   onUpdateStartTime: (id: string, value: string) => void;
   onSetStartTimeToCurrent: (id: string) => void;
   onSetEndTimeToCurrent: (id: string) => void;
@@ -61,6 +65,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
   narrations,
   offlineMode,
   isNarrationLocked,
+  isCaptionLocked,
   totalDuration,
   currentTime,
   onToggleNarrationLock,
@@ -70,6 +75,8 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
   onRemoveNarration,
   onMoveNarration,
   onSaveNarration,
+  onAddCaptionsFromNarration,
+  captionGeneratingNarrationId = null,
   onUpdateStartTime,
   onSetStartTimeToCurrent,
   onSetEndTimeToCurrent,
@@ -88,6 +95,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
   const { isIosSafari } = usePlatformCapabilities();
   const duplicateNarration = useAudioStore((s) => s.duplicateNarration);
   const canDuplicate = !isIosSafari;
+  const isAnyCaptionGenerationRunning = captionGeneratingNarrationId !== null;
 
   const handleStartTimeChange = useCallback(
     (id: string, val: number) => onUpdateStartTime(id, String(val)),
@@ -214,6 +222,8 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
               : clip.duration;
             const playableDuration = Math.max(0.05, trimEnd - trimStart);
             const rawEndTime = clip.startTime + playableDuration;
+            const canCreateCaptionRange =
+              totalDuration > clip.startTime && Math.min(rawEndTime, totalDuration) > clip.startTime;
             const canSetCurrentAsEnd = currentTime >= clip.startTime + 0.05;
             const hasEndMarker = totalDuration > 0;
             const clampedEndTime = hasEndMarker
@@ -221,6 +231,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
               : 0;
             const endMarkerPercent = hasEndMarker ? (clampedEndTime / totalDuration) * 100 : 0;
             const isEndOverflow = rawEndTime > totalDuration;
+            const isGeneratingCaptions = captionGeneratingNarrationId === clip.id;
 
             return (
               <div
@@ -309,6 +320,52 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                     )}
                   </div>
                 </div>
+
+                {isAi && clip.aiScript?.trim() && (
+                  <div className="rounded-lg border border-yellow-500/25 bg-yellow-500/5 p-2.5">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="text-[10px] font-semibold text-yellow-200 md:text-xs">
+                          ナレーション原稿をキャプションへ
+                        </div>
+                        <p className="mt-0.5 text-[10px] leading-relaxed text-gray-400 md:text-xs">
+                          {isIosSafari
+                            ? '音声区間に合わせた通常カードを作成し、文字と開始・終了を個別に調整できます。'
+                            : '文字数比を基準に、発話していない無音区間では字幕を消す通常カードを作成します。'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void onAddCaptionsFromNarration(clip.id)}
+                        disabled={
+                          isNarrationLocked ||
+                          isCaptionLocked ||
+                          !canCreateCaptionRange ||
+                          isAnyCaptionGenerationRunning
+                        }
+                        className="min-h-9 shrink-0 rounded-lg border border-yellow-500/45 bg-yellow-700/70 px-3 py-1.5 text-[10px] font-semibold text-yellow-50 transition hover:bg-yellow-600 disabled:cursor-not-allowed disabled:opacity-40 md:text-xs"
+                        title={
+                          isNarrationLocked
+                            ? 'ナレーションがロックされています'
+                            : isCaptionLocked
+                            ? 'キャプションがロックされています'
+                            : !canCreateCaptionRange
+                              ? 'ナレーションを動画の再生範囲内へ配置してください'
+                            : isGeneratingCaptions
+                              ? 'ナレーションの無音区間を解析しています'
+                            : isAnyCaptionGenerationRunning
+                              ? '別のナレーションのキャプションを生成しています'
+                            : '原稿を分割し、ナレーションの再生区間へキャプションカードを追加'
+                        }
+                      >
+                        <span className="flex items-center justify-center gap-1.5">
+                          <Captions className="h-3.5 w-3.5" />
+                          {isGeneratingCaptions ? '無音区間を解析中…' : 'キャプションカードを追加'}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-[10px] md:text-xs text-gray-400">

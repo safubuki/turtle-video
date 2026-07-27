@@ -35,6 +35,13 @@ import { saveObjectUrlWithClientFileStrategy } from '../utils/fileSave';
 import { openFilesWithPicker, shouldUseMediaOpenFilePicker } from '../utils/platform';
 import { computeTransitionTimelineRanges } from '../utils/transitionTimeline';
 import {
+  buildNarrationCaptionPlan,
+  mapNarrationSilencesToTimeline,
+  snapNarrationCaptionPlanToSilences,
+} from '../utils/narrationCaptionPlan';
+import { analyzeNarrationWaveform } from '../hooks/useNarrationWaveform';
+import { resolveEffectiveAudioClipPlayback } from '../stores/audioStore';
+import {
   computeVideoTrimFromPreviewPosition,
   computeAutoProjectPosterTimelineTime,
   createPosterDataUrlFromCanvas,
@@ -212,6 +219,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const captionSettings = useCaptionStore((s) => s.settings);
   const isCaptionLocked = useCaptionStore((s) => s.isLocked);
   const addCaption = useCaptionStore((s) => s.addCaption);
+  const addCaptions = useCaptionStore((s) => s.addCaptions);
   const replaceCaptions = useCaptionStore((s) => s.replaceCaptions);
   const shiftCaptions = useCaptionStore((s) => s.shiftCaptions);
   const updateCaption = useCaptionStore((s) => s.updateCaption);
@@ -264,6 +272,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const [exportPreparationStep, setExportPreparationStep] = useState<ExportPreparationStep | null>(null);
   const [previewCacheStatus, setPreviewCacheStatus] = useState<PreviewCacheStatus>('idle');
   const [previewLoadingLabel, setPreviewLoadingLabel] = useState<string | undefined>(undefined);
+  const [captionGeneratingNarrationId, setCaptionGeneratingNarrationId] = useState<string | null>(
+    null,
+  );
 
   // Ref
   const mediaItemsRef = useRef<MediaItem[]>([]);
@@ -282,6 +293,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const previewCacheGenerationRef = useRef(0);
   const previewCachePlaybackActiveRef = useRef(false);
   const previewCacheHasBuiltOnceRef = useRef(false);
+  const captionGeneratingNarrationIdRef = useRef<string | null>(null);
 
   // Audio Nodes
   const sourceNodesRef = useRef<Record<string, MediaElementAudioSourceNode>>({});
@@ -377,6 +389,140 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
     logInfo('SYSTEM', 'preview paused before edit', { reason });
   }, [clearGeneratedExport, isProcessing, pause, logInfo]);
+
+  const handleAddCaptionsFromNarration = useCallback(async (id: string) => {
+    if (captionGeneratingNarrationIdRef.current !== null) return;
+    if (isCaptionLocked) {
+      showToast('キャプションのロックを解除してから追加してください。');
+      return;
+    }
+    const clip = narrations.find((item) => item.id === id);
+    const script = clip?.aiScript?.trim();
+    if (!clip || !script) {
+      showToast('このナレーションにはキャプションに使える原稿がありません。');
+      return;
+    }
+
+    const playback = resolveEffectiveAudioClipPlayback(clip, totalDuration);
+    if (playback.isDisabled || playback.effectivePlayableDuration <= 0) {
+      showToast('ナレーションを動画の再生範囲内へ配置してから追加してください。');
+      return;
+    }
+
+    const initialPlan = buildNarrationCaptionPlan({
+      text: script,
+      startTime: playback.startTime,
+      endTime: playback.effectiveTimelineEnd,
+    });
+    if (initialPlan.length === 0) {
+      showToast('キャプションカードを作成できませんでした。');
+      return;
+    }
+
+    captionGeneratingNarrationIdRef.current = id;
+    setCaptionGeneratingNarrationId(id);
+
+    let waveformAnalysis: Awaited<ReturnType<typeof analyzeNarrationWaveform>> | null = null;
+    let analysisFailed = false;
+    try {
+      if (appFlavor === 'standard' && initialPlan.length > 1) {
+        try {
+          waveformAnalysis = await analyzeNarrationWaveform(clip);
+        } catch (error) {
+          analysisFailed = true;
+          logWarn('AUDIO', 'キャプション生成用のナレーション無音解析に失敗', {
+            clipId: clip.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      // 解析中に削除・再生成・トリミングされた場合は、現在のクリップ状態を基準に作り直す。
+      const currentClip = useAudioStore.getState().narrations.find((item) => item.id === id);
+      const currentScript = currentClip?.aiScript?.trim();
+      if (!currentClip || !currentScript) {
+        showToast('対象のナレーションが変更されたため、キャプションを追加しませんでした。');
+        return;
+      }
+      if (useCaptionStore.getState().isLocked) {
+        showToast('キャプションのロックを解除してから追加してください。');
+        return;
+      }
+      if (useAudioStore.getState().isNarrationLocked) {
+        showToast('ナレーションのロックを解除してから追加してください。');
+        return;
+      }
+
+      const currentPlayback = resolveEffectiveAudioClipPlayback(
+        currentClip,
+        useMediaStore.getState().totalDuration,
+      );
+      if (currentPlayback.isDisabled || currentPlayback.effectivePlayableDuration <= 0) {
+        showToast('ナレーションを動画の再生範囲内へ配置してから追加してください。');
+        return;
+      }
+
+      const basePlan = buildNarrationCaptionPlan({
+        text: currentScript,
+        startTime: currentPlayback.startTime,
+        endTime: currentPlayback.effectiveTimelineEnd,
+      });
+      if (basePlan.length === 0) {
+        showToast('キャプションカードを作成できませんでした。');
+        return;
+      }
+
+      const sourceUnchanged =
+        currentClip.file === clip.file &&
+        currentClip.url === clip.url &&
+        currentClip.blobUrl === clip.blobUrl &&
+        currentClip.duration === clip.duration;
+      const silenceCandidates =
+        waveformAnalysis && sourceUnchanged
+          ? mapNarrationSilencesToTimeline({
+              silenceCandidates: waveformAnalysis.splitPoints,
+              timelineStart: currentPlayback.startTime,
+              trimStart: currentPlayback.trimStart,
+              trimEnd: currentPlayback.effectiveTrimEnd,
+            })
+          : [];
+      const snapped = snapNarrationCaptionPlanToSilences({
+        plan: basePlan,
+        silenceCandidates,
+      });
+
+      pausePreviewBeforeEdit('add-narration-captions');
+      addCaptions(snapped.plan);
+      if (snapped.snappedBoundaryCount > 0) {
+        showToast(
+          `キャプションカードを${snapped.plan.length}枚追加し、${snapped.snappedBoundaryCount}箇所の無音区間を字幕なしにしました。各カードでさらに微調整できます。`,
+          5000,
+        );
+      } else if (analysisFailed) {
+        showToast(
+          `波形を解析できなかったため、文字数比でキャプションカードを${snapped.plan.length}枚追加しました。各カードで微調整できます。`,
+          5000,
+        );
+      } else {
+        showToast(
+          `文字数比を基準にキャプションカードを${snapped.plan.length}枚追加しました。各カードで微調整できます。`,
+          5000,
+        );
+      }
+    } finally {
+      captionGeneratingNarrationIdRef.current = null;
+      setCaptionGeneratingNarrationId(null);
+    }
+  }, [
+    addCaptions,
+    appFlavor,
+    isCaptionLocked,
+    logWarn,
+    narrations,
+    pausePreviewBeforeEdit,
+    showToast,
+    totalDuration,
+  ]);
 
   const withPreviewPause = useCallback(<T extends unknown[]>(reason: string, fn: (...args: T) => void) => {
     return (...args: T) => {
@@ -2962,6 +3108,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               narrations={narrations}
               offlineMode={offlineMode}
               isNarrationLocked={isNarrationLocked}
+              isCaptionLocked={isCaptionLocked}
               totalDuration={totalDuration}
               currentTime={currentTime}
               onToggleNarrationLock={withPreviewPause('toggle-narration-lock', toggleNarrationLock)}
@@ -2971,6 +3118,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onRemoveNarration={withPreviewPause('remove-narration', removeNarration)}
               onMoveNarration={withPreviewPause('move-narration', moveNarration)}
               onSaveNarration={handleSaveNarration}
+              onAddCaptionsFromNarration={handleAddCaptionsFromNarration}
+              captionGeneratingNarrationId={captionGeneratingNarrationId}
               onUpdateStartTime={handleUpdateNarrationStart}
               onSetStartTimeToCurrent={handleSetNarrationStartToCurrent}
               onSetEndTimeToCurrent={handleSetNarrationEndToCurrent}
