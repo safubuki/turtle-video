@@ -13,7 +13,13 @@ function getHelpDescription(
   if (!item) {
     throw new Error(`Help item not found: ${section} / ${title}`);
   }
-  return item.description;
+  return [
+    item.description,
+    ...(item.bullets ?? []),
+    ...(item.facts ?? []).flatMap((fact) => [fact.label, fact.description]),
+    ...(item.comparison?.rows ?? []).flatMap((row) => [row.label, row.description]),
+    item.note ?? '',
+  ].join('\n');
 }
 
 function getHelpVisuals(section: keyof ReturnType<typeof getSectionHelpContent>, title: string) {
@@ -26,6 +32,30 @@ function getHelpVisuals(section: keyof ReturnType<typeof getSectionHelpContent>,
 }
 
 describe('sectionHelp support messaging', () => {
+  it('各項目の導入文を短く保ち、詳しい説明は構造化する', () => {
+    const allHelp = getSectionHelpContent({
+      appFlavor: 'standard',
+      supportsShowSaveFilePicker: false,
+    });
+    const allItems = Object.values(allHelp).flatMap((section) => section.items);
+
+    for (const item of allItems) {
+      expect(item.description.length, item.title).toBeLessThanOrEqual(140);
+    }
+
+    const bgmHelp = allHelp.bgm.items.find(
+      (item) => item.title === '複数のBGM（Android/PC版）'
+    );
+    const waveformHelp = allHelp.preview.items.find(
+      (item) => item.title === '音量波形と無音区間'
+    );
+
+    expect(bgmHelp?.comparison?.rows).toHaveLength(2);
+    expect(waveformHelp?.facts?.length).toBeGreaterThanOrEqual(4);
+    expect(waveformHelp?.bullets?.length).toBeGreaterThanOrEqual(3);
+    expect(waveformHelp?.note).toContain('キャプション時刻は変わりません');
+  });
+
   it('app help は iPhone Safari を非対応ではなく動作モードとして案内する', () => {
     const description = getHelpDescription('app', '動作確認機種');
 
@@ -67,7 +97,10 @@ describe('sectionHelp support messaging', () => {
   });
 
   it('新しいキャプション設定は実画面と同じ表記と視覚見本で案内する', () => {
-    const styleDescription = getHelpDescription('caption', 'キャプション スタイル/フェードの一括設定');
+    const styleDescription = getHelpDescription(
+      'caption',
+      'キャプション スタイル/フェードの一括設定'
+    );
     const outlineDescription = getHelpDescription('caption', '文字の縁・色');
     const individualDescription = getHelpDescription('caption', '個別設定（歯車マーク）');
 
@@ -93,10 +126,24 @@ describe('sectionHelp support messaging', () => {
   });
 
   it('文章だけだった最近の機能にも操作部品の視覚見本を持たせる', () => {
+    expect(getHelpVisuals('clips', '動画の形式（横16:9／縦9:16）')).toContain(
+      'aspect_ratio_toggle'
+    );
+    expect(getHelpVisuals('clips', 'ウォーターマーク')).toContain('watermark_controls');
+    expect(getHelpVisuals('clips', 'トランジション（Android/PC版）')).toContain(
+      'transition_button'
+    );
+    expect(getHelpVisuals('clips', '位置・サイズ・回転・ぼかし調整')).toContain('rotate_button');
     expect(getHelpVisuals('bgm', '複数のBGM（Android/PC版）')).toEqual(
-      expect.arrayContaining(['bgm_count_label', 'copy_button'])
+      expect.arrayContaining(['bgm_count_label', 'bgm_auto_adjust_toggle', 'copy_button'])
     );
     expect(getHelpVisuals('narration', 'タイトルの登録件数')).toContain('narration_count_label');
+    expect(getHelpVisuals('narration', '音量波形と無音の区切り検出')).toContain(
+      'narration_waveform'
+    );
+    expect(getHelpVisuals('caption', 'タイトル（キャプションとは別管理）')).toContain(
+      'video_title_accordion'
+    );
     expect(getHelpVisuals('caption', '② タイミング打ち（Android/PC版）')).toContain(
       'timing_caption_button'
     );
@@ -107,5 +154,13 @@ describe('sectionHelp support messaging', () => {
     expect(shiftDescription).toContain('現在位置に先頭を合わせる');
     expect(shiftDescription).toContain('終了位置の指定は不要');
     expect(shiftDescription).toContain('動画・ナレーション・BGMは移動しません');
+    expect(getHelpVisuals('preview', '音量波形と無音区間')).toEqual([
+      'timeline_waveform',
+      'silence_nav_controls',
+    ]);
+    expect(getHelpVisuals('preview', 'サムネイル（プロジェクト全体）')).toEqual([
+      'poster_accordion',
+      'poster_actions',
+    ]);
   });
 });

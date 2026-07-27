@@ -40,6 +40,14 @@ import {
   ListPlus,
   Crosshair,
   Captions,
+  ArrowDownUp,
+  RectangleHorizontal,
+  RectangleVertical,
+  RotateCw,
+  Image as ImageIcon,
+  ChevronsLeft,
+  ChevronsRight,
+  AudioLines,
 } from 'lucide-react';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 import {
@@ -350,6 +358,92 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
             <Sparkles className="w-3 h-3" /> AI
           </span>
         );
+      case 'aspect_ratio_toggle':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="inline-flex items-center rounded-lg border border-gray-700 bg-gray-800/70 p-0.5"
+            aria-label="出力の向きの見本"
+          >
+            <span
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-blue-600 text-white"
+              title="横画面 (16:9)"
+            >
+              <RectangleHorizontal className="h-4 w-4" />
+            </span>
+            <span
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400"
+              title="縦画面 (9:16)"
+            >
+              <RectangleVertical className="h-4 w-4" />
+            </span>
+            <span className="px-2 text-[10px] text-gray-400 md:text-xs">横16:9／縦9:16</span>
+          </div>
+        );
+      case 'watermark_controls':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="basis-full w-full space-y-2 rounded-lg border border-gray-700/70 bg-gray-900/30 p-2 text-[10px] text-gray-300 md:text-xs"
+          >
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-gray-700 bg-gray-800/70 px-2 py-2">
+              <span className="flex items-center gap-2 font-semibold">
+                ウォーターマーク
+                <span className="text-[9px] font-normal text-gray-500">（開いて設定）</span>
+              </span>
+              <ChevronRight className="h-3.5 w-3.5" />
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="rounded-lg bg-blue-700 px-3 py-2 font-semibold text-white">
+                画像を選択
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/50 bg-emerald-500/10 px-2 py-2 text-emerald-300">
+                <Eye className="h-3.5 w-3.5" /> 表示中
+              </span>
+              {['左下', '右下', '中央', '左上', '右上'].map((label) => (
+                <span
+                  key={label}
+                  className="rounded-lg border border-gray-700 bg-gray-800 px-2 py-1.5 text-gray-300"
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
+          </div>
+        );
+      case 'transition_button':
+        return (
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} rounded-full border-purple-500/50 bg-purple-900/40 px-2.5 py-1 text-purple-200`}
+          >
+            <ArrowDownUp className="h-3 w-3" /> ディゾルブ 1秒
+          </span>
+        );
+      case 'range_pin_buttons':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="inline-flex flex-wrap items-center gap-1.5 text-[10px] text-gray-500 md:text-xs"
+          >
+            <span>プレビュー位置を反映:</span>
+            <span className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-gray-200">
+              <MapPin className="h-3.5 w-3.5" /> 開始
+            </span>
+            <span className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-gray-200">
+              <MapPin className="h-3.5 w-3.5" /> 終了
+            </span>
+          </div>
+        );
+      case 'rotate_button':
+        return (
+          <span
+            key={`${token}-${index}`}
+            className={`${chipBaseClass} border-gray-600 bg-gray-700 px-2.5 py-1.5 font-medium text-gray-200`}
+          >
+            <RotateCw className="h-3.5 w-3.5" /> 90°回転
+          </span>
+        );
       case 'bgm_count_label':
         return (
           <span
@@ -369,6 +463,21 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
             <span className="text-[10px] font-normal text-indigo-300 md:text-xs">(2件)</span>
           </span>
         );
+      case 'bgm_auto_adjust_toggle':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-900/35 px-2.5 py-2 text-[10px] text-gray-300 md:text-xs"
+          >
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-emerald-400/70 bg-emerald-500/20 text-emerald-200">
+              <Check className="h-3 w-3" />
+            </span>
+            動画尺に合わせて自動調整
+            <span className="rounded border border-emerald-600/50 bg-emerald-900/30 px-1.5 py-0.5 text-emerald-300">
+              ON
+            </span>
+          </div>
+        );
       case 'narration_caption_button':
         return (
           <span
@@ -377,6 +486,121 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
           >
             <Captions className="h-3.5 w-3.5" /> キャプションカードを追加
           </span>
+        );
+      case 'narration_waveform':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="basis-full w-full rounded-lg border border-gray-700/70 bg-gray-900/40 p-2"
+          >
+            <div className="relative h-12 overflow-hidden rounded bg-gray-950/80">
+              <div className="absolute inset-x-0 top-1/2 h-px bg-gray-700" />
+              <div className="absolute inset-0 flex items-center justify-around gap-px px-1">
+                {[18, 30, 12, 38, 24, 8, 34, 16, 28, 10, 36, 20].map((height, barIndex) => (
+                  <span
+                    key={barIndex}
+                    className="w-1 rounded-full bg-indigo-400/80"
+                    style={{ height }}
+                  />
+                ))}
+              </div>
+              <span className="absolute inset-y-0 left-[18%] w-px bg-emerald-400" />
+              <span className="absolute inset-y-0 right-[14%] w-px bg-red-400" />
+              <span className="absolute inset-y-0 left-[58%] w-px bg-yellow-400" />
+            </div>
+            <div className="mt-1 flex justify-between text-[9px] text-gray-500">
+              <span className="text-emerald-300">開始</span>
+              <span className="text-yellow-300">無音候補</span>
+              <span className="text-red-300">終了</span>
+            </div>
+          </div>
+        );
+      case 'video_title_accordion':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="basis-full w-full space-y-1.5 rounded-lg border border-gray-700/70 bg-gray-900/30 p-2 text-gray-300"
+          >
+            <div className="flex items-center justify-between text-xs">
+              <span className="flex items-center gap-2 font-semibold">
+                <Type className="h-3.5 w-3.5" />
+                タイトル
+                <span className="text-[9px] font-normal text-gray-500">（開いて設定）</span>
+              </span>
+              <ChevronRight className="h-3.5 w-3.5" />
+            </div>
+            <div className="flex items-center justify-between rounded border border-gray-700/70 bg-gray-950/30 px-2 py-1.5 text-[10px]">
+              <span className="font-semibold">スタイル設定</span>
+              <span className="text-gray-500">（開いて設定）</span>
+              <ChevronRight className="h-3 w-3" />
+            </div>
+          </div>
+        );
+      case 'timeline_waveform':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="basis-full w-full rounded-lg border border-gray-700/70 bg-gray-950/70 p-2"
+          >
+            <div className="relative flex h-12 items-center justify-around gap-px overflow-hidden rounded bg-gray-900 px-1">
+              <span className="absolute inset-y-0 left-[42%] w-[12%] bg-yellow-500/15" />
+              {[12, 24, 34, 18, 38, 26, 10, 8, 14, 30, 36, 20, 28, 16].map((height, barIndex) => (
+                <span
+                  key={barIndex}
+                  className="z-10 w-1 rounded-full bg-blue-400/75"
+                  style={{ height }}
+                />
+              ))}
+              <span className="absolute inset-y-0 left-[68%] w-px bg-white/90" />
+            </div>
+          </div>
+        );
+      case 'silence_nav_controls':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="flex basis-full w-full flex-wrap items-center gap-1.5 text-[10px] md:text-xs"
+          >
+            <span className="flex items-center gap-1 text-gray-400">
+              <AudioLines className="h-3.5 w-3.5 text-blue-300" /> 無音区間
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 py-1.5 text-gray-200">
+              <ChevronsLeft className="h-3.5 w-3.5" /> 無音区間：前へ
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 py-1.5 text-gray-200">
+              無音区間：次へ <ChevronsRight className="h-3.5 w-3.5" />
+            </span>
+          </div>
+        );
+      case 'poster_accordion':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="basis-full w-full rounded-lg border border-gray-700/70 bg-gray-850/80 px-2 py-2 text-xs text-gray-300"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2 font-semibold">
+                <ImageIcon className="h-3.5 w-3.5" />
+                サムネイル設定（手動・0:12）
+                <span className="text-[9px] font-normal text-gray-500">（開いて設定）</span>
+              </span>
+              <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+            </div>
+          </div>
+        );
+      case 'poster_actions':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="flex basis-full w-full flex-wrap items-center gap-1.5 text-[10px] md:text-xs"
+          >
+            <span className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-gray-200">
+              <ImageIcon className="h-3.5 w-3.5" /> 現在のフレームをサムネイルに設定
+            </span>
+            <span className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-gray-200">
+              <RefreshCw className="h-3.5 w-3.5" /> 自動設定に戻す
+            </span>
+          </div>
         );
       case 'copy_button':
         return (
@@ -396,7 +620,7 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
             <div className="flex items-center justify-between gap-2 text-xs">
               <span className="flex min-w-0 items-center gap-2">
                 <Type className="h-3 w-3 shrink-0" />
-                <span className="whitespace-nowrap">スタイル/フェード一括設定</span>
+                <span className="whitespace-nowrap">キャプション スタイル/フェードの一括設定</span>
                 <span className="whitespace-nowrap text-[9px] text-gray-500">（開いて設定）</span>
               </span>
               <ChevronRight className="h-3 w-3 shrink-0" />
@@ -478,7 +702,10 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
               <span className="rounded bg-gray-700 px-1.5 py-1">すべてのカード</span>
             </div>
             <div className="mb-1.5 flex items-center justify-center gap-1 rounded border border-yellow-500/50 bg-yellow-600/15 px-2 py-1.5 text-yellow-200">
-              <Crosshair className="h-3.5 w-3.5" /> 現在位置（0:12.3）に先頭を合わせる
+              <Crosshair className="h-3.5 w-3.5" /> 現在位置に先頭を合わせる
+            </div>
+            <div className="mb-1.5 text-center text-[9px] text-gray-500">
+              対象の先頭を現在位置 0:12.3 に合わせます
             </div>
             <div className="flex items-center gap-1.5">
               <span className="text-gray-500">微調整:</span>
@@ -922,11 +1149,76 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
                   <span className="mt-0.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-700 text-[10px] font-bold text-gray-200 shrink-0">
                     {index + 1}
                   </span>
-                  <div className="min-w-0 flex-1 space-y-1">
+                  <div className="min-w-0 flex-1 space-y-2">
                     <div className="text-sm font-semibold text-white">{item.title}</div>
-                    <p className="text-xs md:text-sm text-gray-300 leading-relaxed whitespace-pre-line">
+                    <p className="text-xs md:text-sm text-gray-300 leading-relaxed">
                       {item.description}
                     </p>
+                    {item.bullets && item.bullets.length > 0 && (
+                      <ul className="space-y-1.5 pl-4 text-xs leading-relaxed text-gray-300 marker:text-blue-400 md:text-sm">
+                        {item.bullets.map((bullet, bulletIndex) => (
+                          <li key={`${item.title}-bullet-${bulletIndex}`} className="pl-1">
+                            {bullet}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {item.facts && item.facts.length > 0 && (
+                      <dl className="grid gap-1.5 sm:grid-cols-2">
+                        {item.facts.map((fact, factIndex) => (
+                          <div
+                            key={`${item.title}-fact-${factIndex}`}
+                            className="rounded-lg border border-gray-700/80 bg-gray-900/45 px-2.5 py-2"
+                          >
+                            <dt className="text-[10px] font-semibold text-blue-300 md:text-xs">
+                              {fact.label}
+                            </dt>
+                            <dd className="mt-0.5 text-[11px] leading-relaxed text-gray-300 md:text-xs">
+                              {fact.description}
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                    )}
+                    {item.comparison && (
+                      <div className="overflow-hidden rounded-lg border border-gray-700/80">
+                        <table
+                          className="w-full table-fixed text-left text-[11px] md:text-xs"
+                          aria-label={item.comparison.caption}
+                        >
+                          <caption className="sr-only">{item.comparison.caption}</caption>
+                          <thead className="bg-gray-900/75 text-gray-400">
+                            <tr>
+                              <th scope="col" className="w-16 px-2.5 py-2 font-semibold md:w-20">
+                                設定
+                              </th>
+                              <th scope="col" className="px-2.5 py-2 font-semibold">
+                                動作
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-700/80 bg-gray-900/35 text-gray-300">
+                            {item.comparison.rows.map((row, rowIndex) => (
+                              <tr key={`${item.title}-comparison-${rowIndex}`}>
+                                <th
+                                  scope="row"
+                                  className="px-2.5 py-2 align-top font-semibold text-white"
+                                >
+                                  {row.label}
+                                </th>
+                                <td className="px-2.5 py-2 leading-relaxed">{row.description}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    {item.note && (
+                      <div className="rounded-lg border border-amber-500/25 bg-amber-500/8 px-2.5 py-2 text-[11px] leading-relaxed text-amber-100 md:text-xs">
+                        <span className="mr-1 font-semibold text-amber-300">ポイント:</span>
+                        {item.note}
+                      </div>
+                    )}
                     {item.visuals && item.visuals.length > 0 && (
                       <div className="flex flex-wrap w-full gap-1.5 pt-1">
                         {item.visuals.map((visual, visualIndex) =>

@@ -5,8 +5,22 @@
  */
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  X, Key, Eye, EyeOff, ExternalLink, CheckCircle, AlertCircle,
-  FileText, Copy, Download, Trash2, CheckCircle2, RefreshCw, CircleHelp, History, SlidersHorizontal
+  X,
+  Key,
+  Eye,
+  EyeOff,
+  ExternalLink,
+  CheckCircle,
+  AlertCircle,
+  FileText,
+  Copy,
+  Download,
+  Trash2,
+  CheckCircle2,
+  RefreshCw,
+  CircleHelp,
+  History,
+  SlidersHorizontal,
 } from 'lucide-react';
 import type { AppFlavor } from '../../app/resolveAppFlavor';
 import { getAppFlavorBadge } from '../../app/appFlavorUi';
@@ -46,7 +60,8 @@ const PREVIEW_LOG_MODE_OPTIONS: ReadonlyArray<{
   {
     value: 'boundary',
     label: '境界診断',
-    description: 'プレビュー再生中のvideo→video 境界前後を記録し、引っかかり原因を分類します。Android実機での映像切替診断に有効です。',
+    description:
+      'プレビュー再生中のvideo→video 境界前後を記録し、引っかかり原因を分類します。Android実機での映像切替診断に有効です。',
   },
   {
     value: 'detailed',
@@ -102,10 +117,8 @@ const OFFLINE_MODE_ENABLE_CONFIRM_MESSAGE = [
 
 const SETTINGS_TOGGLE_BUTTON_BASE =
   'flex min-h-[42px] items-center justify-center rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors';
-const SETTINGS_OFF_BUTTON_ACTIVE =
-  'border-blue-500/80 bg-blue-600 text-white hover:bg-blue-500';
-const SETTINGS_ON_BUTTON_ACTIVE =
-  'border-amber-400/80 bg-amber-500 text-black hover:bg-amber-400';
+const SETTINGS_OFF_BUTTON_ACTIVE = 'border-blue-500/80 bg-blue-600 text-white hover:bg-blue-500';
+const SETTINGS_ON_BUTTON_ACTIVE = 'border-amber-400/80 bg-amber-500 text-black hover:bg-amber-400';
 const SETTINGS_TOGGLE_BUTTON_INACTIVE =
   'border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800';
 const SETTINGS_ACTION_BUTTON =
@@ -157,11 +170,16 @@ export function getNextInfoPanel(
  */
 function getLogLevelColor(level: string): string {
   switch (level) {
-    case 'ERROR': return 'text-red-400';
-    case 'WARN': return 'text-yellow-400';
-    case 'INFO': return 'text-blue-400';
-    case 'DEBUG': return 'text-gray-500';
-    default: return 'text-gray-400';
+    case 'ERROR':
+      return 'text-red-400';
+    case 'WARN':
+      return 'text-yellow-400';
+    case 'INFO':
+      return 'text-blue-400';
+    case 'DEBUG':
+      return 'text-gray-500';
+    default:
+      return 'text-gray-400';
   }
 }
 
@@ -170,11 +188,16 @@ function getLogLevelColor(level: string): string {
  */
 function getLogLevelBg(level: string): string {
   switch (level) {
-    case 'ERROR': return 'bg-red-500/10';
-    case 'WARN': return 'bg-yellow-500/10';
-    case 'INFO': return 'bg-blue-500/10';
-    case 'DEBUG': return 'bg-gray-500/10';
-    default: return 'bg-gray-500/10';
+    case 'ERROR':
+      return 'bg-red-500/10';
+    case 'WARN':
+      return 'bg-yellow-500/10';
+    case 'INFO':
+      return 'bg-blue-500/10';
+    case 'DEBUG':
+      return 'bg-gray-500/10';
+    default:
+      return 'bg-gray-500/10';
   }
 }
 
@@ -285,17 +308,19 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
     modalHistoryIdRef.current = stateId;
     closedByPopstateRef.current = false;
 
-    const currentState = (window.history.state && typeof window.history.state === 'object')
-      ? window.history.state as Record<string, unknown>
-      : {};
+    const currentState =
+      window.history.state && typeof window.history.state === 'object'
+        ? (window.history.state as Record<string, unknown>)
+        : {};
     window.history.pushState({ ...currentState, __settingsModal: stateId }, '');
 
     const handlePopState = () => {
       if (activeInfoPanelRef.current) {
         setActiveInfoPanel(null);
-        const state = (window.history.state && typeof window.history.state === 'object')
-          ? window.history.state as Record<string, unknown>
-          : {};
+        const state =
+          window.history.state && typeof window.history.state === 'object'
+            ? (window.history.state as Record<string, unknown>)
+            : {};
         window.history.pushState({ ...state, __settingsModal: stateId }, '');
         return;
       }
@@ -307,9 +332,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
 
     return () => {
       window.removeEventListener('popstate', handlePopState);
-      const current = (window.history.state && typeof window.history.state === 'object')
-        ? window.history.state as Record<string, unknown>
-        : null;
+      const current =
+        window.history.state && typeof window.history.state === 'object'
+          ? (window.history.state as Record<string, unknown>)
+          : null;
       const ownStateOnTop = Boolean(
         modalHistoryIdRef.current &&
         current &&
@@ -351,7 +377,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
   };
 
   const handleSheetTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
-    if (!swipeCloseEligibleRef.current || touchStartXRef.current === null || touchStartYRef.current === null || event.touches.length !== 1) {
+    if (
+      !swipeCloseEligibleRef.current ||
+      touchStartXRef.current === null ||
+      touchStartYRef.current === null ||
+      event.touches.length !== 1
+    ) {
       return;
     }
 
@@ -487,14 +518,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
     const timeStr = date.toLocaleTimeString('ja-JP', {
       hour: '2-digit',
       minute: '2-digit',
-      second: '2-digit'
+      second: '2-digit',
     });
     const ms = date.getMilliseconds().toString().padStart(3, '0');
     return `${timeStr}.${ms}`;
   };
 
-  const errorCount = entries.filter(e => e.level === 'ERROR').length;
-  const warnCount = entries.filter(e => e.level === 'WARN').length;
+  const errorCount = entries.filter((e) => e.level === 'ERROR').length;
+  const warnCount = entries.filter((e) => e.level === 'WARN').length;
   const hasReleaseHistory = Boolean(APP_RELEASE_HISTORY);
   const toggleInfoPanel = (panel: Exclude<InfoPanelType, null>) => {
     setActiveInfoPanel((prev) => getNextInfoPanel(prev, panel, hasReleaseHistory));
@@ -521,9 +552,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
         {/* ヘッダー */}
         <div className="flex items-center justify-between p-4 border-b border-gray-700 shrink-0">
           <div className="flex items-center gap-2">
-            <h2 className="text-lg font-bold flex items-center gap-2">
-              ⚙️ 設定
-            </h2>
+            <h2 className="text-lg font-bold flex items-center gap-2">⚙️ 設定</h2>
             <button
               onClick={() => toggleInfoPanel('help')}
               className={`p-1 rounded-lg transition border ${
@@ -574,30 +603,36 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
         <div className="flex border-b border-gray-700 shrink-0">
           <button
             onClick={() => setActiveTab('apikey')}
-            className={`flex-1 py-3 px-2 text-xs font-bold flex items-center justify-center gap-1 transition ${activeTab === 'apikey'
-              ? 'text-white border-b-2 border-blue-500 bg-gray-800/50'
-              : 'text-gray-400 hover:text-white hover:bg-gray-800/30'
-              }`}
+            className={`flex-1 py-3 px-2 text-xs font-bold flex items-center justify-center gap-1 transition ${
+              activeTab === 'apikey'
+                ? 'text-white border-b-2 border-blue-500 bg-gray-800/50'
+                : 'text-gray-400 hover:text-white hover:bg-gray-800/30'
+            }`}
           >
             <Key className="w-4 h-4" />
             APIキー
           </button>
           <button
             onClick={() => setActiveTab('settings')}
-            className={`flex-1 py-3 px-2 text-xs font-bold flex items-center justify-center gap-1 transition ${activeTab === 'settings'
-              ? 'text-white border-b-2 border-blue-500 bg-gray-800/50'
-              : 'text-gray-400 hover:text-white hover:bg-gray-800/30'
-              }`}
+            className={`flex-1 py-3 px-2 text-xs font-bold flex items-center justify-center gap-1 transition ${
+              activeTab === 'settings'
+                ? 'text-white border-b-2 border-blue-500 bg-gray-800/50'
+                : 'text-gray-400 hover:text-white hover:bg-gray-800/30'
+            }`}
           >
             <SlidersHorizontal className="w-4 h-4" />
             各種設定
           </button>
           <button
-            onClick={() => { setActiveTab('logs'); clearErrorFlag(); }}
-            className={`flex-1 py-3 px-2 text-xs font-bold flex items-center justify-center gap-1 transition ${activeTab === 'logs'
-              ? 'text-white border-b-2 border-blue-500 bg-gray-800/50'
-              : 'text-gray-400 hover:text-white hover:bg-gray-800/30'
-              }`}
+            onClick={() => {
+              setActiveTab('logs');
+              clearErrorFlag();
+            }}
+            className={`flex-1 py-3 px-2 text-xs font-bold flex items-center justify-center gap-1 transition ${
+              activeTab === 'logs'
+                ? 'text-white border-b-2 border-blue-500 bg-gray-800/50'
+                : 'text-gray-400 hover:text-white hover:bg-gray-800/30'
+            }`}
           >
             <FileText className="w-4 h-4" />
             ログ
@@ -628,10 +663,25 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
                 <ol className="list-decimal ml-4 space-y-1 text-xs md:text-sm text-orange-50 leading-relaxed">
                   <li>APIキータブで Gemini APIキーを保存すると、AIナレーション機能が使えます。</li>
                   <li>APIキーはこのブラウザに保存されます。端末を変える場合は再設定が必要です。</li>
+                  <li>
+                    設定タブの「オフラインモード」は、AI機能とソフトウェア更新の通信を止めます。ONにするときだけ確認画面が表示されます。
+                  </li>
+                  <li>
+                    「動画の出力品質」は 自動／フルHD／HD
+                    から選べます。動画の横16:9／縦9:16は「動画・画像」セクション右上で切り替えます。
+                  </li>
+                  <li>
+                    「ログモード」は 標準／境界診断／詳細
+                    から選べます。境界診断を選んだ場合は、プレビューを停止して再生し直すと反映されます。
+                  </li>
+                  <li>
+                    「ソフトウェア更新を確認」で手動確認できます。オフラインモード中はこのボタンを使用できません。
+                  </li>
                   <li>ログタブでは実行ログ確認、コピー、JSON出力、クリアができます。</li>
                 </ol>
                 <p className="text-xs md:text-sm text-orange-100/95 leading-relaxed">
-                  ※ Google AI Studio / Gemini API には利用上限（レート制限・日次上限など）があります。一定量の利用を超えると一時的に利用できなくなり、一定時間待ってから再試行が必要です。
+                  ※ Google AI Studio / Gemini API
+                  には利用上限（レート制限・日次上限など）があります。一定量の利用を超えると一時的に利用できなくなり、一定時間待ってから再試行が必要です。
                 </p>
                 {offlineMode ? (
                   <span className="inline-flex items-center gap-1 text-xs md:text-sm text-orange-200/60">
@@ -639,15 +689,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
                     <ExternalLink className="w-3.5 h-3.5" />
                   </span>
                 ) : (
-                <a
-                  href="https://aistudio.google.com/app/apikey"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-xs md:text-sm text-orange-200 hover:text-orange-100 underline underline-offset-2"
-                >
-                  APIキー取得（Google AI Studio）
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </a>
+                  <a
+                    href="https://aistudio.google.com/app/apikey"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-xs md:text-sm text-orange-200 hover:text-orange-100 underline underline-offset-2"
+                  >
+                    APIキー取得（Google AI Studio）
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
                 )}
               </div>
             </div>
@@ -734,26 +784,24 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
                 </div>
               )}
               {!offlineMode && (
-              <a
-                href="https://aistudio.google.com/app/apikey"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white py-3 px-4 rounded-lg font-bold transition shadow-lg"
-              >
-                <ExternalLink className="w-4 h-4" />
-                Google AI Studio でAPIキーを取得
-              </a>
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white py-3 px-4 rounded-lg font-bold transition shadow-lg"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Google AI Studio でAPIキーを取得
+                </a>
               )}
 
               {/* APIキー入力 */}
               <div className="space-y-2">
-                <label className="block text-sm font-bold text-gray-300">
-                  Gemini APIキー
-                </label>
+                <label className="block text-sm font-bold text-gray-300">Gemini APIキー</label>
                 <div className="relative">
                   <input
                     type={showKey ? 'text' : 'password'}
-                    value={showKey ? apiKey : (apiKey ? maskApiKey(apiKey) : '')}
+                    value={showKey ? apiKey : apiKey ? maskApiKey(apiKey) : ''}
                     onChange={(e) => {
                       if (showKey) {
                         setApiKey(e.target.value);
@@ -868,8 +916,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
                   ))}
                 </div>
                 <p className="text-[11px] text-gray-500 leading-relaxed">
-                  現在の書き出しサイズ: {exportWidth}×{exportHeight}
-                  ※ プレビューの画質には影響しません。長い動画で書き出しが不安定な場合は HD (1280×720) をお試しください。
+                  現在の書き出しサイズ: {exportWidth}×{exportHeight}※
+                  プレビューの画質には影響しません。長い動画で書き出しが不安定な場合は HD (1280×720)
+                  をお試しください。
                 </p>
               </div>
 
@@ -954,9 +1003,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
             <div className="flex flex-col flex-1 overflow-hidden">
               {/* ステータス */}
               <div className="p-3 border-b border-gray-700 shrink-0">
-                <div className={`flex items-center gap-3 p-3 rounded-lg ${errorCount > 0 ? 'bg-red-500/10 border border-red-500/30' :
-                  'bg-green-500/10 border border-green-500/30'
-                  }`}>
+                <div
+                  className={`flex items-center gap-3 p-3 rounded-lg ${
+                    errorCount > 0
+                      ? 'bg-red-500/10 border border-red-500/30'
+                      : 'bg-green-500/10 border border-green-500/30'
+                  }`}
+                >
                   {errorCount > 0 ? (
                     <>
                       <AlertCircle className="w-5 h-5 text-red-400" />
@@ -974,7 +1027,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
                         <p className="font-bold text-green-400">正常動作中</p>
                         <p className="text-xs text-gray-400">
                           ログ: {entries.length}件
-                          {warnCount > 0 && <span className="text-yellow-400 ml-2">（ワーニングあり: {warnCount}件）</span>}
+                          {warnCount > 0 && (
+                            <span className="text-yellow-400 ml-2">
+                              （ワーニングあり: {warnCount}件）
+                            </span>
+                          )}
                         </p>
                       </div>
                     </>
@@ -988,28 +1045,21 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
                 className="flex-1 overflow-y-auto p-3 space-y-1 font-mono text-xs"
               >
                 {entries.length === 0 ? (
-                  <div className="text-center text-gray-500 py-8">
-                    ログはまだありません
-                  </div>
+                  <div className="text-center text-gray-500 py-8">ログはまだありません</div>
                 ) : (
                   [...entries].reverse().map((entry: LogEntry) => (
-                    <div
-                      key={entry.id}
-                      className={`p-2 rounded ${getLogLevelBg(entry.level)}`}
-                    >
+                    <div key={entry.id} className={`p-2 rounded ${getLogLevelBg(entry.level)}`}>
                       <div className="flex items-start gap-2">
                         <span className="text-gray-500 shrink-0">
                           {formatTimestamp(entry.timestamp)}
                         </span>
-                        <span className={`font-bold shrink-0 w-12 ${getLogLevelColor(entry.level)}`}>
+                        <span
+                          className={`font-bold shrink-0 w-12 ${getLogLevelColor(entry.level)}`}
+                        >
                           {entry.level}
                         </span>
-                        <span className="text-gray-400 shrink-0">
-                          [{entry.category}]
-                        </span>
-                        <span className="text-gray-200 break-all">
-                          {entry.message}
-                        </span>
+                        <span className="text-gray-400 shrink-0">[{entry.category}]</span>
+                        <span className="text-gray-200 break-all">{entry.message}</span>
                       </div>
                       {entry.details && Object.keys(entry.details).length > 0 && (
                         <div className="mt-1 ml-[7.5rem] text-gray-500 break-all">
@@ -1053,9 +1103,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
 
         {/* バージョン情報 & 更新確認 */}
         <div className="px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] md:pb-3 border-t border-gray-700 pt-3 shrink-0 flex flex-col items-center gap-2">
-          <span className="text-xs text-gray-500">
-            タートルビデオ v{APP_VERSION}
-          </span>
+          <span className="text-xs text-gray-500">タートルビデオ v{APP_VERSION}</span>
           <UpdateStatus />
         </div>
       </div>
@@ -1075,7 +1123,9 @@ const UpdateStatus: React.FC = () => {
     <div className="w-full bg-blue-500/10 border border-blue-500/30 rounded-lg p-2 flex items-center justify-between gap-2">
       <div className="flex items-center gap-2 text-blue-400">
         <RefreshCw className="w-4 h-4 animate-spin-slow" />
-        <span className="text-xs font-bold">{isApplyingUpdate ? '更新を適用中です' : '新しいバージョンがあります'}</span>
+        <span className="text-xs font-bold">
+          {isApplyingUpdate ? '更新を適用中です' : '新しいバージョンがあります'}
+        </span>
       </div>
       <button
         onClick={() => void updateServiceWorker(true)}
@@ -1089,4 +1139,3 @@ const UpdateStatus: React.FC = () => {
 };
 
 export default React.memo(SettingsModal);
-
