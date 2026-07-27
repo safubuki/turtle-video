@@ -29,6 +29,8 @@ vi.mock('../../utils/indexedDB', () => ({
 }));
 
 import { useProjectStore, isStorageQuotaError } from '../../stores/projectStore';
+import { useMediaStore } from '../../stores/mediaStore';
+import { useCanvasStore } from '../../stores/canvasStore';
 import {
   createIndexedDbProjectPersistenceAdapter,
   setProjectPersistenceAdapter,
@@ -163,6 +165,13 @@ describe('projectStore save behavior', () => {
       saveHealth: null,
       saveHealthError: null,
     });
+    useCanvasStore.getState().setAspectRatio('landscape');
+    useMediaStore.setState({
+      projectPosterMode: 'auto',
+      projectPosterTimelineTime: 0.2,
+      projectPosterDataUrl: null,
+      projectPosterAspectRatio: 'landscape',
+    });
   });
 
   it('手動保存で容量不足の場合は失敗を返し、自動保存は勝手に削除しない', async () => {
@@ -188,6 +197,74 @@ describe('projectStore save behavior', () => {
     expect(mocks.deleteProject).not.toHaveBeenCalled();
     expect(useProjectStore.getState().lastAutoSave).toBe('2026-02-17T00:00:00.000Z');
     expect(useProjectStore.getState().lastSaveFailure?.category).toBe('storage-quota');
+  });
+
+  it('縦向きの手動ポスターを向き・モード込みで保存復元する', async () => {
+    useCanvasStore.getState().setAspectRatio('portrait');
+    useMediaStore.setState({
+      projectPosterMode: 'manual',
+      projectPosterTimelineTime: 3.25,
+      projectPosterDataUrl: 'data:image/jpeg;base64,portrait',
+      projectPosterAspectRatio: 'portrait',
+    });
+    mocks.saveProject.mockResolvedValueOnce(undefined);
+
+    await useProjectStore.getState().saveProjectManual(
+      [],
+      false,
+      null,
+      false,
+      [],
+      false,
+      [],
+      defaultCaptionSettings,
+      false,
+    );
+
+    const saved = mocks.saveProject.mock.calls[mocks.saveProject.mock.calls.length - 1]?.[0] as ProjectData;
+    expect(saved.aspectRatio).toBe('portrait');
+    expect(saved.projectPosterMode).toBe('manual');
+    expect(saved.projectPosterTimelineTime).toBeCloseTo(3.25);
+    expect(saved.projectPosterDataUrl).toBe('data:image/jpeg;base64,portrait');
+    expect(saved.projectPosterAspectRatio).toBe('portrait');
+
+    mocks.loadProject.mockResolvedValueOnce(saved);
+    const loaded = await useProjectStore.getState().loadProjectFromSlot('manual');
+
+    expect(loaded?.projectPosterMode).toBe('manual');
+    expect(loaded?.projectPosterTimelineTime).toBeCloseTo(3.25);
+    expect(loaded?.projectPosterDataUrl).toBe('data:image/jpeg;base64,portrait');
+    expect(loaded?.projectPosterAspectRatio).toBe('portrait');
+  });
+
+  it('保存データ内の手動ポスター比率が動画形式と不一致なら読み込み時に自動へ戻す', async () => {
+    const mismatchedProject: ProjectData = {
+      slot: 'manual',
+      savedAt: '2026-07-27T00:00:00.000Z',
+      version: '5.3.0',
+      mediaItems: [],
+      isClipsLocked: false,
+      bgm: null,
+      isBgmLocked: false,
+      narrations: [],
+      isNarrationLocked: false,
+      captions: [],
+      captionSettings: defaultCaptionSettings,
+      isCaptionsLocked: false,
+      aspectRatio: 'portrait',
+      projectPosterMode: 'manual',
+      projectPosterTimelineTime: 4,
+      projectPosterDataUrl: 'data:image/jpeg;base64,landscape',
+      projectPosterAspectRatio: 'landscape',
+    };
+    mocks.loadProject.mockResolvedValueOnce(mismatchedProject);
+
+    const loaded = await useProjectStore.getState().loadProjectFromSlot('manual');
+
+    expect(loaded?.projectPosterMode).toBe('auto');
+    expect(loaded?.projectPosterTimelineTime).toBeUndefined();
+    expect(loaded?.projectPosterDataUrl).toBeNull();
+    expect(loaded?.projectPosterAspectRatio).toBe('portrait');
   });
 
   it('容量不足以外の手動保存失敗では再試行しない', async () => {

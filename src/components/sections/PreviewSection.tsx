@@ -24,6 +24,7 @@ import type { AppFlavor } from '../../app/resolveAppFlavor';
 import { getPreviewRuntimeNotice } from '../../app/appFlavorUi';
 import { useLogStore } from '../../stores/logStore';
 import { useCanvasStore } from '../../stores/canvasStore';
+import type { AspectRatio } from '../../stores/canvasStore';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import TimelineWaveform from '../media/TimelineWaveform';
 import type { TimelineWaveformData } from '../../hooks/useTimelineWaveform';
@@ -114,6 +115,7 @@ interface PreviewSectionProps {
   projectPosterMode: 'auto' | 'manual';
   projectPosterTimelineTime: number;
   projectPosterDataUrl: string | null;
+  projectPosterAspectRatio: AspectRatio;
   onSetProjectPosterFromCurrent: () => void;
   onResetProjectPosterToAuto: () => void;
 }
@@ -155,6 +157,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   projectPosterMode,
   projectPosterTimelineTime,
   projectPosterDataUrl,
+  projectPosterAspectRatio,
   onSetProjectPosterFromCurrent,
   onResetProjectPosterToAuto,
 }) => {
@@ -477,14 +480,18 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
               >
                 <div className="flex items-start gap-3">
                   <div
-                    className="flex h-12 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border border-gray-600/70 bg-black"
+                    className={`flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-gray-600/70 bg-black ${
+                      projectPosterAspectRatio === 'portrait'
+                        ? 'h-20 aspect-[9/16]'
+                        : 'h-12 aspect-video'
+                    }`}
                     title={
                       projectPosterMode === 'manual'
                         ? `手動設定（${formatTime(projectPosterTimelineTime)}）`
                         : `自動設定（${formatTime(projectPosterTimelineTime)}）`
                     }
                   >
-                    {projectPosterDataUrl ? (
+                    {projectPosterMode === 'manual' && projectPosterDataUrl ? (
                       <img
                         src={projectPosterDataUrl}
                         alt="プロジェクトのサムネイル"

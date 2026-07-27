@@ -42,6 +42,7 @@ function renderClipsSection(overrides: Partial<ComponentProps<typeof ClipsSectio
     onMediaUpload: vi.fn(),
     onOpenMediaPicker: vi.fn(),
     supportsShowOpenFilePicker: false,
+    onAspectRatioChange: vi.fn(),
     onMoveMedia: vi.fn(),
     onRemoveMedia: vi.fn(),
     onToggleMediaLock: vi.fn(),
@@ -135,5 +136,16 @@ describe('ClipsSection media picker routing', () => {
     } finally {
       inputClickSpy.mockRestore();
     }
+  });
+});
+
+describe('ClipsSection aspect ratio controls', () => {
+  it('縦画面ボタンから親の向き変更ハンドラを呼ぶ', () => {
+    const onAspectRatioChange = vi.fn();
+    renderClipsSection({ onAspectRatioChange });
+
+    fireEvent.click(screen.getByTitle('縦画面 (9:16)'));
+
+    expect(onAspectRatioChange).toHaveBeenCalledWith('portrait');
   });
 });

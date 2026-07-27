@@ -602,6 +602,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, onBeforeLoadPr
           mode: data.projectPosterMode,
           timelineTime: data.projectPosterTimelineTime,
           dataUrl: data.projectPosterDataUrl,
+          aspectRatio: data.projectPosterAspectRatio,
         });
         restoreAudio(
           data.bgm,

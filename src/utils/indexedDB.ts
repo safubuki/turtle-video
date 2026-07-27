@@ -243,6 +243,8 @@ export interface ProjectData {
   projectPosterTimelineTime?: number;
   /** 小さい JPEG data URL（任意） */
   projectPosterDataUrl?: string | null;
+  /** ポスター画像を生成した時点の出力向き（任意・旧データはプロジェクト向きへ補完） */
+  projectPosterAspectRatio?: 'landscape' | 'portrait';
 }
 
 /**

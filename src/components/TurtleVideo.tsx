@@ -20,6 +20,7 @@ import {
   TTS_SAMPLE_RATE,
 } from '../constants';
 import { useCanvasStore } from '../stores/canvasStore';
+import type { AspectRatio } from '../stores/canvasStore';
 
 import type { ExportPreparationStep } from '../hooks/export-strategies/types';
 import { usePreventUnload } from '../hooks/usePreventUnload';
@@ -88,6 +89,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   // Canvas Store (動的キャンバスサイズ)
   const canvasWidth = useCanvasStore((s) => s.width);
   const canvasHeight = useCanvasStore((s) => s.height);
+  const aspectRatio = useCanvasStore((s) => s.aspectRatio);
+  const setAspectRatio = useCanvasStore((s) => s.setAspectRatio);
   const resetCanvasSize = useCanvasStore((s) => s.resetCanvasSize);
   const applyCanvasFromSource = useCanvasStore((s) => s.applyFromSource);
 
@@ -105,6 +108,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const projectPosterMode = useMediaStore((s) => s.projectPosterMode);
   const projectPosterTimelineTime = useMediaStore((s) => s.projectPosterTimelineTime);
   const projectPosterDataUrl = useMediaStore((s) => s.projectPosterDataUrl);
+  const projectPosterAspectRatio = useMediaStore((s) => s.projectPosterAspectRatio);
+  const setProjectPosterDataUrl = useMediaStore((s) => s.setProjectPosterDataUrl);
+  const reconcileProjectPosterAspectRatio = useMediaStore(
+    (s) => s.reconcileProjectPosterAspectRatio,
+  );
   const updateImageDuration = useMediaStore((s) => s.updateImageDuration);
   const updateScale = useMediaStore((s) => s.updateScale);
   const updatePosition = useMediaStore((s) => s.updatePosition);
@@ -254,6 +262,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const narrationsRef = useRef<NarrationClip[]>([]);
   const totalDurationRef = useRef(0);
   const currentTimeRef = useRef(0);
+  const projectPosterCaptureGenerationRef = useRef(0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mediaElementsRef = useRef<Record<string, HTMLVideoElement | HTMLImageElement | HTMLAudioElement>>({});
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -1643,17 +1652,20 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const handleSetProjectPosterFromCurrent = useCallback(() => {
     if (mediaItems.length === 0 || totalDuration <= 0) return;
     pausePreviewBeforeEdit('set-project-poster-from-current');
+    const captureGeneration = ++projectPosterCaptureGenerationRef.current;
     // 停止描画を確定してからキャプチャ（再生中のブレ防止）
     requestAnimationFrame(() => {
+      if (projectPosterCaptureGenerationRef.current !== captureGeneration) return;
       renderFrame(currentTimeRef.current, false);
       requestAnimationFrame(() => {
+        if (projectPosterCaptureGenerationRef.current !== captureGeneration) return;
         const canvas = canvasRef.current;
         const dataUrl = canvas ? createPosterDataUrlFromCanvas(canvas) : null;
         if (!dataUrl) {
           showToast('サムネイル画像の取得に失敗しました。もう一度お試しください。', 4000);
           return;
         }
-        setProjectPosterManual(currentTimeRef.current, dataUrl);
+        setProjectPosterManual(currentTimeRef.current, dataUrl, aspectRatio);
         showToast('現在のフレームをプロジェクトのサムネイルに設定しました。', 3000);
       });
     });
@@ -1663,27 +1675,33 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     pausePreviewBeforeEdit,
     renderFrame,
     setProjectPosterManual,
+    aspectRatio,
     showToast,
   ]);
 
   // --- プロジェクトポスターを自動（タイムライン先頭+0.2s 付近）へ戻す ---
   const handleResetProjectPosterToAuto = useCallback(() => {
     if (mediaItems.length === 0) {
-      resetProjectPosterToAuto(0, null);
+      resetProjectPosterToAuto(0, null, aspectRatio);
       return;
     }
     pausePreviewBeforeEdit('reset-project-poster-to-auto');
+    const captureGeneration = ++projectPosterCaptureGenerationRef.current;
+    // 手動画像は操作直後に破棄する。自動位置の画像は書き出し用として非同期で再取得する。
+    resetProjectPosterToAuto(totalDuration, null, aspectRatio);
+    showToast('サムネイルを自動設定（先頭付近）に戻しました。', 3000);
     const autoTime = computeAutoProjectPosterTimelineTime(totalDuration);
     currentTimeRef.current = autoTime;
     setCurrentTime(autoTime);
     // 自動位置へシークしてから描画・キャプチャ
     requestAnimationFrame(() => {
+      if (projectPosterCaptureGenerationRef.current !== captureGeneration) return;
       renderFrame(autoTime, false);
       requestAnimationFrame(() => {
+        if (projectPosterCaptureGenerationRef.current !== captureGeneration) return;
         const canvas = canvasRef.current;
         const dataUrl = canvas ? createPosterDataUrlFromCanvas(canvas) : null;
-        resetProjectPosterToAuto(totalDuration, dataUrl);
-        showToast('サムネイルを自動設定（先頭付近）に戻しました。', 3000);
+        setProjectPosterDataUrl(dataUrl, aspectRatio);
       });
     });
   }, [
@@ -1693,7 +1711,62 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     setCurrentTime,
     renderFrame,
     resetProjectPosterToAuto,
+    setProjectPosterDataUrl,
+    aspectRatio,
     showToast,
+  ]);
+
+  // --- 動画形式（横/縦）変更時のプロジェクトポスター整合 ---
+  const handleAspectRatioChange = useCallback((nextAspectRatio: AspectRatio) => {
+    if (nextAspectRatio === aspectRatio) return;
+
+    pausePreviewBeforeEdit('change-aspect-ratio');
+    const captureGeneration = ++projectPosterCaptureGenerationRef.current;
+    setAspectRatio(nextAspectRatio);
+    const resetManual = reconcileProjectPosterAspectRatio(nextAspectRatio, totalDuration);
+    const posterState = useMediaStore.getState();
+
+    if (resetManual) {
+      showToast(
+        '動画形式を変更したため、比率の合わない手動サムネイルを自動設定に戻しました。',
+        4000,
+      );
+    }
+
+    // 自動モードは新しい比率の先頭付近フレームを再取得する。
+    if (posterState.projectPosterMode !== 'auto' || mediaItems.length === 0) return;
+    const autoTime = posterState.projectPosterTimelineTime;
+    currentTimeRef.current = autoTime;
+    setCurrentTime(autoTime);
+
+    requestAnimationFrame(() => {
+      if (projectPosterCaptureGenerationRef.current !== captureGeneration) return;
+      // PreviewSection の再描画を待つだけでなく、同フレーム内でも確実に新寸法へ揃える。
+      const canvas = canvasRef.current;
+      const canvasState = useCanvasStore.getState();
+      if (canvas) {
+        if (canvas.width !== canvasState.width) canvas.width = canvasState.width;
+        if (canvas.height !== canvasState.height) canvas.height = canvasState.height;
+      }
+      renderFrame(autoTime, false);
+      requestAnimationFrame(() => {
+        if (projectPosterCaptureGenerationRef.current !== captureGeneration) return;
+        const updatedCanvas = canvasRef.current;
+        const dataUrl = updatedCanvas ? createPosterDataUrlFromCanvas(updatedCanvas) : null;
+        setProjectPosterDataUrl(dataUrl, nextAspectRatio);
+      });
+    });
+  }, [
+    aspectRatio,
+    mediaItems.length,
+    pausePreviewBeforeEdit,
+    reconcileProjectPosterAspectRatio,
+    renderFrame,
+    setAspectRatio,
+    setCurrentTime,
+    setProjectPosterDataUrl,
+    showToast,
+    totalDuration,
   ]);
 
   // --- 画像表示時間更新ハンドラ ---
@@ -2148,6 +2221,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     const confirmed = window.confirm('すべてのメディア、BGM、ナレーションをクリアします。よろしいですか？');
     if (!confirmed) return;
 
+    projectPosterCaptureGenerationRef.current += 1;
     stopAll();
     pause();
     setProcessing(false);
@@ -2178,6 +2252,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
     // Zustand stores clear
     clearAllMedia();
+    reconcileProjectPosterAspectRatio(aspectRatio, 0);
     clearAllAudio();
     resetCaptions();
     resetUI();
@@ -2191,7 +2266,19 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
       }
     }
-  }, [mediaItems, bgm, bgmClips, narrations, stopAll, clearAllMedia, clearAllAudio, resetCaptions, resetUI]);
+  }, [
+    mediaItems,
+    bgm,
+    bgmClips,
+    narrations,
+    stopAll,
+    clearAllMedia,
+    reconcileProjectPosterAspectRatio,
+    aspectRatio,
+    clearAllAudio,
+    resetCaptions,
+    resetUI,
+  ]);
 
   const {
     handleSeekStart: handleLiveSeekStart,
@@ -2708,7 +2795,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       <SaveLoadModal
         isOpen={showProjectManager}
         onClose={() => setShowProjectManager(false)}
-        onBeforeLoadProject={() => pausePreviewBeforeEdit('load-project')}
+        onBeforeLoadProject={() => {
+          projectPosterCaptureGenerationRef.current += 1;
+          pausePreviewBeforeEdit('load-project');
+        }}
         appFlavor={appFlavor}
         onToast={(msg, type) => {
           if (type === 'error') {
@@ -2753,6 +2843,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onMediaUpload={handleMediaUpload}
               onOpenMediaPicker={handleOpenMediaPicker}
               supportsShowOpenFilePicker={shouldUseMediaPicker}
+              onAspectRatioChange={handleAspectRatioChange}
               onMoveMedia={handleMoveMedia}
               onRemoveMedia={handleRemoveMedia}
               onToggleMediaLock={withPreviewPause('toggle-media-lock', toggleItemLock)}
@@ -2907,6 +2998,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
                 projectPosterMode={projectPosterMode}
                 projectPosterTimelineTime={projectPosterTimelineTime}
                 projectPosterDataUrl={projectPosterDataUrl}
+                projectPosterAspectRatio={projectPosterAspectRatio}
                 onSetProjectPosterFromCurrent={handleSetProjectPosterFromCurrent}
                 onResetProjectPosterToAuto={handleResetProjectPosterToAuto}
               />

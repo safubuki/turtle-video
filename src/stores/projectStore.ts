@@ -250,6 +250,7 @@ interface ProjectState {
     projectPosterMode: 'auto' | 'manual';
     projectPosterTimelineTime?: number;
     projectPosterDataUrl: string | null;
+    projectPosterAspectRatio: AspectRatio;
   } | null>;
 
   deleteAllSaves: () => Promise<void>;
@@ -721,6 +722,7 @@ export const useProjectStore = create<ProjectState>()(
               projectPosterMode: useMediaStore.getState().projectPosterMode,
               projectPosterTimelineTime: useMediaStore.getState().projectPosterTimelineTime,
               projectPosterDataUrl: useMediaStore.getState().projectPosterDataUrl,
+              projectPosterAspectRatio: useMediaStore.getState().projectPosterAspectRatio,
               // 動画タイトル（Issue #211）。キャプションとは別管理なので
               // captions / captionSettings とは独立したフィールドへ保存する。
               // 呼び出し側の引数を増やさず、保存時にストアから直接読む
@@ -829,6 +831,7 @@ export const useProjectStore = create<ProjectState>()(
               projectPosterMode: useMediaStore.getState().projectPosterMode,
               projectPosterTimelineTime: useMediaStore.getState().projectPosterTimelineTime,
               projectPosterDataUrl: useMediaStore.getState().projectPosterDataUrl,
+              projectPosterAspectRatio: useMediaStore.getState().projectPosterAspectRatio,
               // 動画タイトル（Issue #211）。キャプションとは別管理なので
               // captions / captionSettings とは独立したフィールドへ保存する。
               // 呼び出し側の引数を増やさず、保存時にストアから直接読む
@@ -910,6 +913,14 @@ export const useProjectStore = create<ProjectState>()(
           // 出力の向きを復元（旧データは landscape 後方互換）。
           // メディア寸法の反映（applyFromSource）より前に向きを確定させておく。
           const loadedAspectRatio: AspectRatio = data.aspectRatio === 'portrait' ? 'portrait' : 'landscape';
+          const loadedPosterAspectRatio: AspectRatio = data.projectPosterAspectRatio === 'portrait'
+            ? 'portrait'
+            : data.projectPosterAspectRatio === 'landscape'
+              ? 'landscape'
+              : loadedAspectRatio;
+          const hasCompatibleManualPoster = data.projectPosterMode === 'manual'
+            && loadedPosterAspectRatio === loadedAspectRatio;
+          const hasCompatiblePosterImage = loadedPosterAspectRatio === loadedAspectRatio;
           useCanvasStore.getState().setAspectRatio(loadedAspectRatio);
 
           useLogStore.getState().info('SYSTEM', 'プロジェクト読み込み完了', {
@@ -921,6 +932,8 @@ export const useProjectStore = create<ProjectState>()(
             narrationCount: narrations.length,
             captionCount: captions.length,
             aspectRatio: loadedAspectRatio,
+            projectPosterAspectRatio: loadedPosterAspectRatio,
+            projectPosterMode: hasCompatibleManualPoster ? 'manual' : 'auto',
             savedAt: data.savedAt,
           });
           set({ isLoading: false });
@@ -939,11 +952,12 @@ export const useProjectStore = create<ProjectState>()(
             videoTitle: normalizeVideoTitleSettings(data.videoTitle),
             bgmClips,
             bgmAutoAdjustToTimeline: data.bgmAutoAdjustToTimeline !== false,
-            projectPosterMode: data.projectPosterMode === 'manual' ? 'manual' as const : 'auto' as const,
-            projectPosterTimelineTime: Number.isFinite(data.projectPosterTimelineTime)
+            projectPosterMode: hasCompatibleManualPoster ? 'manual' as const : 'auto' as const,
+            projectPosterTimelineTime: hasCompatibleManualPoster && Number.isFinite(data.projectPosterTimelineTime)
               ? Math.max(0, data.projectPosterTimelineTime as number)
               : undefined,
-            projectPosterDataUrl: data.projectPosterDataUrl ?? null,
+            projectPosterDataUrl: hasCompatiblePosterImage ? (data.projectPosterDataUrl ?? null) : null,
+            projectPosterAspectRatio: loadedAspectRatio,
           };
         } catch (error) {
           useLogStore.getState().error('SYSTEM', 'プロジェクト読み込み失敗', {

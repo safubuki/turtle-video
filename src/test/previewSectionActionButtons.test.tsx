@@ -67,6 +67,7 @@ function renderPreviewSection(overrides?: Partial<React.ComponentProps<typeof Pr
     projectPosterMode: 'auto',
     projectPosterTimelineTime: 0.2,
     projectPosterDataUrl: null,
+    projectPosterAspectRatio: 'landscape' as const,
     onSetProjectPosterFromCurrent: vi.fn(),
     onResetProjectPosterToAuto: vi.fn(),
     ...overrides,
@@ -121,6 +122,32 @@ describe('PreviewSection action buttons', () => {
 
     fireEvent.click(settingsButton);
     expect(screen.getByRole('button', { name: '自動設定に戻す' })).toBeInTheDocument();
+  });
+
+  it('縦向きポスターは9:16のプレビュー枠で表示する', () => {
+    renderPreviewSection({
+      projectPosterMode: 'manual',
+      projectPosterDataUrl: 'data:image/jpeg;base64,portrait',
+      projectPosterAspectRatio: 'portrait',
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /サムネイル設定/ }));
+
+    const poster = screen.getByRole('img', { name: 'プロジェクトのサムネイル' });
+    expect(poster.parentElement?.className).toContain('aspect-[9/16]');
+    expect(poster.parentElement?.className).not.toContain('aspect-video');
+  });
+
+  it('自動設定へ戻した後は保存用画像が残っていてもミニ画面をクリアする', () => {
+    renderPreviewSection({
+      projectPosterMode: 'auto',
+      projectPosterDataUrl: 'data:image/jpeg;base64,previous-manual',
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /サムネイル設定/ }));
+
+    expect(screen.queryByRole('img', { name: 'プロジェクトのサムネイル' })).not.toBeInTheDocument();
+    expect(screen.getByText('未表示')).toBeInTheDocument();
   });
 
   it('停止とキャプチャの既定スタイルを表示する', () => {

@@ -10,6 +10,7 @@ import ClipItem from '../media/ClipItem';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import { useMediaStore } from '../../stores/mediaStore';
 import { useCanvasStore } from '../../stores/canvasStore';
+import type { AspectRatio } from '../../stores/canvasStore';
 import {
   CLIP_TRANSITION_DEFAULT_DURATION,
   CLIP_TRANSITION_DURATION_OPTIONS,
@@ -115,6 +116,7 @@ interface ClipsSectionProps {
   onMediaUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onOpenMediaPicker: () => void;
   supportsShowOpenFilePicker: boolean;
+  onAspectRatioChange: (aspectRatio: AspectRatio) => void;
   onMoveMedia: (index: number, direction: 'up' | 'down') => void;
   onRemoveMedia: (id: string) => void;
   onToggleMediaLock: (id: string) => void;
@@ -149,6 +151,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   onMediaUpload,
   onOpenMediaPicker,
   supportsShowOpenFilePicker,
+  onAspectRatioChange,
   onMoveMedia,
   onRemoveMedia,
   onToggleMediaLock,
@@ -174,7 +177,6 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   const { isIosSafari } = usePlatformCapabilities();
   // 出力の向き（16:9 横 / 9:16 縦）。プロジェクトごとに保持され、プレビュー/カード/エクスポートに反映される。
   const aspectRatio = useCanvasStore((s) => s.aspectRatio);
-  const setAspectRatio = useCanvasStore((s) => s.setAspectRatio);
   const duplicateMediaItem = useMediaStore((s) => s.duplicateMediaItem);
   const updateMediaItem = useMediaStore((s) => s.updateMediaItem);
   const canDuplicate = !isIosSafari;
@@ -216,7 +218,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
           >
             <button
               type="button"
-              onClick={() => setAspectRatio('landscape')}
+              onClick={() => onAspectRatioChange('landscape')}
               aria-pressed={aspectRatio === 'landscape'}
               title="横画面 (16:9)"
               className={`p-1 rounded-md transition ${aspectRatio === 'landscape' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
@@ -225,7 +227,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setAspectRatio('portrait')}
+              onClick={() => onAspectRatioChange('portrait')}
               aria-pressed={aspectRatio === 'portrait'}
               title="縦画面 (9:16)"
               className={`p-1 rounded-md transition ${aspectRatio === 'portrait' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}

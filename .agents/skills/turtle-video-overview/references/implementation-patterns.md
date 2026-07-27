@@ -2882,3 +2882,23 @@ export 終了（成功/失敗/中断）
   - モバイルの可視ラベルは二重Chevron付きの「前」「次」へ短縮し、`aria-label`は「無音区間：前へ / 次へ」のまま維持する。`md`以上では従来の完全なラベルとflex配置へ戻す。
   - 専用行は`basis-full`でモード切替から分離する。個別ボタンを親の`flex-wrap`へ戻さない。
 - **テスト**: `captionStampSilenceNav.test.tsx`で、5操作が同じ専用コンテナ内にあり、モバイル用固定5列グリッドを持つことを検証する。既存の順序・移動方向・無効化・±1秒操作も維持する。
+
+### 13-155. プロジェクトサムネイルは生成時の動画形式を保存し、比率不一致を自動へ戻す（Issue #212）
+
+- **ファイル**: `src/stores/mediaStore.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/hooks/useAutoSave.ts`, `src/components/TurtleVideo.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/sections/PreviewSection.tsx`, `src/components/modals/SaveLoadModal.tsx`, `src/constants/sectionHelp.ts`, 関連テスト
+- **データ契約**:
+  - `projectPosterAspectRatio: 'landscape' | 'portrait'` をポスター生成時に更新し、手動/自動保存の両方・読込結果・`restoreFromSave`・自動保存ハッシュへ通す。
+  - 旧保存データで向きが未定義の場合は、保存されているプロジェクトの `aspectRatio` と同じ向きとして補完する。
+- **向き変更時**:
+  - `ClipsSection` から直接 `canvasStore.setAspectRatio` を呼ばず、`TurtleVideo` の統合ハンドラを通す。
+  - 手動ポスターの生成時向きと変更後の向きが異なる場合は、即座に `auto` へ戻して画像をクリアし、トーストで理由を通知する。
+  - 自動モードも古い比率の画像を残さず、新しい Canvas 寸法で先頭付近（約0.2秒）を再描画・再取得する。
+  - 2段の `requestAnimationFrame` キャプチャは世代番号で保護し、向きの連打・全クリア・プロジェクト読込後に古いキャプチャ結果を反映しない。
+- **読込時**:
+  - 保存された手動ポスター向きとプロジェクト向きが不一致なら、読込結果を `auto`・画像なしへ正規化する。UI 操作を経由しない不整合データも残さない。
+  - 自動ポスター画像も保存向きが不一致なら破棄し、復元後の自動取得対象とする。
+- **UI**:
+  - ポスター枠は横 `16:9` / 縦 `9:16` を生成時向きから切り替える。画像だけ `object-contain` にして横長の固定枠へ押し込まない。
+  - 見出しの「自動／手動」表示は常時維持し、形式変更による自動復帰が閉じた状態でも分かるようにする。
+  - ミニ画面は手動モードの画像だけを表示する。自動へ戻した直後に以前の手動画像を破棄し、自動用画像を書き出し向けに再取得してもミニ画面は「未表示」のままにする。
+- **テスト**: `mediaStore.test.ts`（不一致リセット・一致時維持・自動再取得待ち）、`projectStoreSave.test.ts`（縦手動ポスターの保存復元・不整合読込）、`previewSectionActionButtons.test.tsx`（9:16枠）、`clipsSectionPicker.test.tsx`（向き変更コールバック）で回帰を検知する。

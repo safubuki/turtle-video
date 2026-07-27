@@ -12,6 +12,10 @@ describe('mediaStore', () => {
       mediaItems: [],
       totalDuration: 0,
       isClipsLocked: false,
+      projectPosterMode: 'auto',
+      projectPosterTimelineTime: 0.2,
+      projectPosterDataUrl: null,
+      projectPosterAspectRatio: 'landscape',
     });
   });
 
@@ -517,20 +521,90 @@ describe('mediaStore', () => {
 
   describe('project poster', () => {
     it('setProjectPosterManual stores mode, time, and image', () => {
-      useMediaStore.getState().setProjectPosterManual(3.5, 'data:image/jpeg;base64,xx');
+      useMediaStore.getState().setProjectPosterManual(
+        3.5,
+        'data:image/jpeg;base64,xx',
+        'portrait',
+      );
       const s = useMediaStore.getState();
       expect(s.projectPosterMode).toBe('manual');
       expect(s.projectPosterTimelineTime).toBeCloseTo(3.5);
       expect(s.projectPosterDataUrl).toBe('data:image/jpeg;base64,xx');
+      expect(s.projectPosterAspectRatio).toBe('portrait');
     });
 
     it('resetProjectPosterToAuto uses timeline 0.2 and optional image', () => {
-      useMediaStore.getState().setProjectPosterManual(5, 'data:image/jpeg;base64,old');
-      useMediaStore.getState().resetProjectPosterToAuto(12, 'data:image/jpeg;base64,auto');
+      useMediaStore.getState().setProjectPosterManual(
+        5,
+        'data:image/jpeg;base64,old',
+        'landscape',
+      );
+      useMediaStore.getState().resetProjectPosterToAuto(
+        12,
+        'data:image/jpeg;base64,auto',
+        'portrait',
+      );
       const s = useMediaStore.getState();
       expect(s.projectPosterMode).toBe('auto');
       expect(s.projectPosterTimelineTime).toBeCloseTo(0.2);
       expect(s.projectPosterDataUrl).toBe('data:image/jpeg;base64,auto');
+      expect(s.projectPosterAspectRatio).toBe('portrait');
+    });
+
+    it('reconcileProjectPosterAspectRatio resets an incompatible manual poster to auto', () => {
+      useMediaStore.getState().setProjectPosterManual(
+        4,
+        'data:image/jpeg;base64,landscape',
+        'landscape',
+      );
+
+      const reset = useMediaStore
+        .getState()
+        .reconcileProjectPosterAspectRatio('portrait', 20);
+      const s = useMediaStore.getState();
+
+      expect(reset).toBe(true);
+      expect(s.projectPosterMode).toBe('auto');
+      expect(s.projectPosterTimelineTime).toBeCloseTo(0.2);
+      expect(s.projectPosterDataUrl).toBeNull();
+      expect(s.projectPosterAspectRatio).toBe('portrait');
+    });
+
+    it('reconcileProjectPosterAspectRatio preserves a compatible manual poster', () => {
+      useMediaStore.getState().setProjectPosterManual(
+        4,
+        'data:image/jpeg;base64,portrait',
+        'portrait',
+      );
+
+      const reset = useMediaStore
+        .getState()
+        .reconcileProjectPosterAspectRatio('portrait', 20);
+      const s = useMediaStore.getState();
+
+      expect(reset).toBe(false);
+      expect(s.projectPosterMode).toBe('manual');
+      expect(s.projectPosterTimelineTime).toBe(4);
+      expect(s.projectPosterDataUrl).toBe('data:image/jpeg;base64,portrait');
+      expect(s.projectPosterAspectRatio).toBe('portrait');
+    });
+
+    it('reconcileProjectPosterAspectRatio clears auto image for recapture in the new ratio', () => {
+      useMediaStore.getState().resetProjectPosterToAuto(
+        20,
+        'data:image/jpeg;base64,landscape-auto',
+        'landscape',
+      );
+
+      const reset = useMediaStore
+        .getState()
+        .reconcileProjectPosterAspectRatio('portrait', 20);
+      const s = useMediaStore.getState();
+
+      expect(reset).toBe(false);
+      expect(s.projectPosterMode).toBe('auto');
+      expect(s.projectPosterDataUrl).toBeNull();
+      expect(s.projectPosterAspectRatio).toBe('portrait');
     });
   });
 

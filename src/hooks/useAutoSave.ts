@@ -90,6 +90,7 @@ export function useAutoSave() {
   const mediaItems = useMediaStore((s) => s.mediaItems);
   const projectPosterMode = useMediaStore((s) => s.projectPosterMode);
   const projectPosterTimelineTime = useMediaStore((s) => s.projectPosterTimelineTime);
+  const projectPosterAspectRatio = useMediaStore((s) => s.projectPosterAspectRatio);
   // dataUrl は大きいのでハッシュは mode/time のみ（内容変更は set 時に mode/time も変わる）
   const isClipsLocked = useMediaStore((s) => s.isClipsLocked);
   const bgm = useAudioStore((s) => s.bgm);
@@ -149,6 +150,7 @@ export function useAutoSave() {
       ].join(':')).join(','),
       projectPosterMode,
       projectPosterTimelineTime,
+      projectPosterAspectRatio,
       bgm ? [
         bgm.file?.name ?? '',
         bgm.url,
@@ -239,6 +241,7 @@ export function useAutoSave() {
     mediaItems,
     projectPosterMode,
     projectPosterTimelineTime,
+    projectPosterAspectRatio,
     bgm,
     bgmClips,
     bgmAutoAdjustToTimeline,

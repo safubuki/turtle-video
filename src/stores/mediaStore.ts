@@ -11,6 +11,7 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import type { MediaItem } from '../types';
+import type { AspectRatio } from './canvasStore';
 import {
   createMediaItem,
   calculateTotalDuration,
@@ -43,6 +44,8 @@ interface MediaState {
   projectPosterTimelineTime: number;
   /** 小さい JPEG data URL（表示用・任意） */
   projectPosterDataUrl: string | null;
+  /** ポスター画像を生成した時点の出力向き */
+  projectPosterAspectRatio: AspectRatio;
 
   // Actions
   addMediaItems: (files: File[]) => Promise<void>;
@@ -64,11 +67,28 @@ interface MediaState {
   resetVideoThumbnailToAuto: (id: string) => void;
 
   /** プロジェクトポスターをプレビュー現在フレームで手動設定 */
-  setProjectPosterManual: (timelineTime: number, dataUrl: string | null) => void;
+  setProjectPosterManual: (
+    timelineTime: number,
+    dataUrl: string | null,
+    aspectRatio: AspectRatio,
+  ) => void;
   /** プロジェクトポスターを自動（タイムライン先頭付近）へ戻す */
-  resetProjectPosterToAuto: (totalDuration: number, dataUrl?: string | null) => void;
+  resetProjectPosterToAuto: (
+    totalDuration: number,
+    dataUrl?: string | null,
+    aspectRatio?: AspectRatio,
+  ) => void;
   /** ポスター画像だけ更新（自動再キャプチャ用） */
-  setProjectPosterDataUrl: (dataUrl: string | null) => void;
+  setProjectPosterDataUrl: (dataUrl: string | null, aspectRatio?: AspectRatio) => void;
+  /**
+   * 出力向き変更後のポスター状態を整合させる。
+   * 手動ポスターの向きが不一致なら自動へ戻し、自動ポスターは再取得待ちで画像をクリアする。
+   * @returns 手動設定を自動へ戻した場合 true
+   */
+  reconcileProjectPosterAspectRatio: (
+    aspectRatio: AspectRatio,
+    totalDuration: number,
+  ) => boolean;
 
   // Image specific
   updateImageDuration: (id: string, duration: number) => void;
@@ -109,6 +129,7 @@ interface MediaState {
       mode?: ProjectPosterMode;
       timelineTime?: number;
       dataUrl?: string | null;
+      aspectRatio?: AspectRatio;
     }
   ) => void;
 }
@@ -123,6 +144,7 @@ export const useMediaStore = create<MediaState>()(
       projectPosterMode: 'auto',
       projectPosterTimelineTime: 0.2,
       projectPosterDataUrl: null,
+      projectPosterAspectRatio: 'landscape',
 
       // Add media items
       addMediaItems: async (files) => {
@@ -379,35 +401,74 @@ export const useMediaStore = create<MediaState>()(
         });
       },
 
-      setProjectPosterManual: (timelineTime, dataUrl) => {
+      setProjectPosterManual: (timelineTime, dataUrl, aspectRatio) => {
         if (!Number.isFinite(timelineTime)) return;
         const t = Math.max(0, timelineTime);
         useLogStore.getState().info('MEDIA', 'プロジェクトポスターを手動設定', {
           timelineTime: t,
           hasImage: Boolean(dataUrl),
+          aspectRatio,
         });
         set({
           projectPosterMode: 'manual',
           projectPosterTimelineTime: t,
           projectPosterDataUrl: dataUrl,
+          projectPosterAspectRatio: aspectRatio,
         });
       },
 
-      resetProjectPosterToAuto: (totalDuration, dataUrl = null) => {
+      resetProjectPosterToAuto: (totalDuration, dataUrl = null, aspectRatio) => {
         const t = computeAutoProjectPosterTimelineTime(totalDuration);
         useLogStore.getState().info('MEDIA', 'プロジェクトポスターを自動設定に戻す', {
           timelineTime: t,
           hasImage: Boolean(dataUrl),
+          aspectRatio,
         });
-        set({
+        set((state) => ({
           projectPosterMode: 'auto',
           projectPosterTimelineTime: t,
           projectPosterDataUrl: dataUrl ?? null,
-        });
+          projectPosterAspectRatio: aspectRatio ?? state.projectPosterAspectRatio,
+        }));
       },
 
-      setProjectPosterDataUrl: (dataUrl) => {
-        set({ projectPosterDataUrl: dataUrl });
+      setProjectPosterDataUrl: (dataUrl, aspectRatio) => {
+        set((state) => ({
+          projectPosterDataUrl: dataUrl,
+          projectPosterAspectRatio: aspectRatio ?? state.projectPosterAspectRatio,
+        }));
+      },
+
+      reconcileProjectPosterAspectRatio: (aspectRatio, totalDuration) => {
+        let resetManual = false;
+        set((state) => {
+          if (
+            state.projectPosterMode === 'manual'
+            && state.projectPosterAspectRatio === aspectRatio
+          ) {
+            return state;
+          }
+          resetManual = state.projectPosterMode === 'manual';
+          const timelineTime = computeAutoProjectPosterTimelineTime(totalDuration);
+          useLogStore.getState().info(
+            'MEDIA',
+            resetManual
+              ? '動画形式変更で手動ポスターの比率が不一致のため自動へ戻した'
+              : '動画形式変更に合わせて自動ポスターを再取得',
+            {
+              previousAspectRatio: state.projectPosterAspectRatio,
+              aspectRatio,
+              timelineTime,
+            },
+          );
+          return {
+            projectPosterMode: 'auto',
+            projectPosterTimelineTime: timelineTime,
+            projectPosterDataUrl: null,
+            projectPosterAspectRatio: aspectRatio,
+          };
+        });
+        return resetManual;
       },
 
       // Update image duration
@@ -579,6 +640,7 @@ export const useMediaStore = create<MediaState>()(
           projectPosterMode: 'auto',
           projectPosterTimelineTime: 0.2,
           projectPosterDataUrl: null,
+          projectPosterAspectRatio: 'landscape',
         });
       },
 
@@ -590,9 +652,10 @@ export const useMediaStore = create<MediaState>()(
         mediaItems.forEach((item) => revokeObjectUrl(item.url));
         const totalDuration = calculateTotalDuration(items);
         const mode = poster?.mode === 'manual' ? 'manual' as const : 'auto' as const;
-        const timelineTime = Number.isFinite(poster?.timelineTime)
+        const timelineTime = mode === 'manual' && Number.isFinite(poster?.timelineTime)
           ? Math.max(0, poster!.timelineTime as number)
           : computeAutoProjectPosterTimelineTime(totalDuration);
+        const aspectRatio = poster?.aspectRatio === 'portrait' ? 'portrait' : 'landscape';
         set({
           mediaItems: items,
           totalDuration,
@@ -601,6 +664,7 @@ export const useMediaStore = create<MediaState>()(
           projectPosterMode: mode,
           projectPosterTimelineTime: timelineTime,
           projectPosterDataUrl: poster?.dataUrl ?? null,
+          projectPosterAspectRatio: aspectRatio,
         });
       },
     }),
