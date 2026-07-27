@@ -3,6 +3,7 @@
  *
  * 固定する不変条件:
  * - 「-1s」の左に「無音区間：前へ」、「+1s」の右に「無音区間：次へ」が並ぶこと
+ * - モバイルでは5操作を1行グリッドへ固定し、「次へ」だけを改行させないこと
  * - 押すと onSeekToSilenceBoundary が正しい方向で呼ばれること
  * - 移動先が無い方向のボタンは無効になること（先頭・末尾で足踏みしない）
  * - 既存の -1s / +1s / 再生ボタンを壊していないこと
@@ -147,6 +148,25 @@ describe('タイミング打ちバーの無音区間ナビゲーション', () =
 
     expect(follows(prevButton, minusButton)).toBe(true);
     expect(follows(plusButton, nextButton)).toBe(true);
+  });
+
+  it('モバイルでは5操作を専用の1行グリッドへ固定する', () => {
+    renderStampBar();
+
+    const transport = screen.getByTestId('caption-stamp-transport');
+    expect(transport).toHaveClass('basis-full');
+    expect(transport).toHaveClass(
+      'grid-cols-[minmax(0,1fr)_auto_auto_auto_minmax(0,1fr)]',
+    );
+    expect(transport).toContainElement(
+      screen.getByRole('button', { name: '無音区間：前へ' }),
+    );
+    expect(transport).toContainElement(screen.getByRole('button', { name: '-1s' }));
+    expect(transport).toContainElement(screen.getByTitle('再生'));
+    expect(transport).toContainElement(screen.getByRole('button', { name: '+1s' }));
+    expect(transport).toContainElement(
+      screen.getByRole('button', { name: '無音区間：次へ' }),
+    );
   });
 
   it('移動先が無い方向のボタンは無効になる', () => {

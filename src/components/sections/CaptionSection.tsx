@@ -1164,58 +1164,68 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                   <span className={isStampGapCustom ? 'text-gray-500' : 'text-gray-600'}>秒</span>
                 </div>
               )}
-              <div className="flex-1" />
+              <div className="hidden flex-1 md:block" />
               {/*
                 無音区間ナビゲーション（Issue #217）。
                 プレビューの波形と同じ検出結果を使い、無音区間の開始・終了に加えて
                 動画の先頭（0秒）・末尾へも移動できる。1つ目のキャプションを
                 動画の先頭から始めたいときに使う。
+
+                モバイルでは5操作を専用の1行グリッドへ固定する。親のflex-wrapへ
+                個別ボタンを置くと「次へ」だけが次行へ落ちるため、分離を崩さないこと。
               */}
-              <button
-                onClick={() => onSeekToSilenceBoundary('prev')}
-                disabled={!hasPrevSilenceBoundary}
-                className="h-9 px-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 text-[10px] md:text-xs transition flex items-center gap-0.5 disabled:opacity-30 disabled:hover:bg-gray-800"
-                title="前の無音区間の境界（動画の先頭を含む）へ移動"
-                aria-label="無音区間：前へ"
+              <div
+                data-testid="caption-stamp-transport"
+                className="grid basis-full grid-cols-[minmax(0,1fr)_auto_auto_auto_minmax(0,1fr)] items-center gap-1 pt-0.5 md:flex md:basis-auto md:gap-1.5 md:pt-0"
               >
-                <ChevronsLeft className="w-3.5 h-3.5 shrink-0" />
-                <span className="whitespace-nowrap">無音区間：前へ</span>
-              </button>
-              <button
-                onClick={() => onSeekBy(-1)}
-                className="h-9 px-2.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 text-[10px] md:text-xs font-mono transition"
-                title="1秒戻る"
-              >
-                -1s
-              </button>
-              <button
-                onClick={onTogglePlay}
-                className="w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur text-white flex items-center justify-center transition-transform active:scale-95"
-                title={isPlaying ? '一時停止' : '再生'}
-              >
-                {isPlaying ? (
-                  <Pause className="w-4 h-4 fill-current" />
-                ) : (
-                  <Play className="w-4 h-4 fill-current ml-0.5" />
-                )}
-              </button>
-              <button
-                onClick={() => onSeekBy(1)}
-                className="h-9 px-2.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 text-[10px] md:text-xs font-mono transition"
-                title="1秒進む"
-              >
-                +1s
-              </button>
-              <button
-                onClick={() => onSeekToSilenceBoundary('next')}
-                disabled={!hasNextSilenceBoundary}
-                className="h-9 px-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 text-[10px] md:text-xs transition flex items-center gap-0.5 disabled:opacity-30 disabled:hover:bg-gray-800"
-                title="次の無音区間の境界（動画の末尾を含む）へ移動"
-                aria-label="無音区間：次へ"
-              >
-                <span className="whitespace-nowrap">無音区間：次へ</span>
-                <ChevronsRight className="w-3.5 h-3.5 shrink-0" />
-              </button>
+                <button
+                  onClick={() => onSeekToSilenceBoundary('prev')}
+                  disabled={!hasPrevSilenceBoundary}
+                  className="flex h-9 min-w-0 items-center justify-center gap-0.5 rounded-lg bg-gray-800 px-1.5 text-[10px] text-gray-200 transition hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-gray-800 md:px-2 md:text-xs"
+                  title="前の無音区間の境界（動画の先頭を含む）へ移動"
+                  aria-label="無音区間：前へ"
+                >
+                  <ChevronsLeft className="h-3.5 w-3.5 shrink-0" />
+                  <span className="whitespace-nowrap md:hidden">前</span>
+                  <span className="hidden whitespace-nowrap md:inline">無音区間：前へ</span>
+                </button>
+                <button
+                  onClick={() => onSeekBy(-1)}
+                  className="h-9 rounded-lg bg-gray-800 px-2.5 font-mono text-[10px] text-gray-200 transition hover:bg-gray-700 md:text-xs"
+                  title="1秒戻る"
+                >
+                  -1s
+                </button>
+                <button
+                  onClick={onTogglePlay}
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-white backdrop-blur transition-transform hover:bg-white/30 active:scale-95"
+                  title={isPlaying ? '一時停止' : '再生'}
+                >
+                  {isPlaying ? (
+                    <Pause className="h-4 w-4 fill-current" />
+                  ) : (
+                    <Play className="ml-0.5 h-4 w-4 fill-current" />
+                  )}
+                </button>
+                <button
+                  onClick={() => onSeekBy(1)}
+                  className="h-9 rounded-lg bg-gray-800 px-2.5 font-mono text-[10px] text-gray-200 transition hover:bg-gray-700 md:text-xs"
+                  title="1秒進む"
+                >
+                  +1s
+                </button>
+                <button
+                  onClick={() => onSeekToSilenceBoundary('next')}
+                  disabled={!hasNextSilenceBoundary}
+                  className="flex h-9 min-w-0 items-center justify-center gap-0.5 rounded-lg bg-gray-800 px-1.5 text-[10px] text-gray-200 transition hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-gray-800 md:px-2 md:text-xs"
+                  title="次の無音区間の境界（動画の末尾を含む）へ移動"
+                  aria-label="無音区間：次へ"
+                >
+                  <span className="whitespace-nowrap md:hidden">次</span>
+                  <span className="hidden whitespace-nowrap md:inline">無音区間：次へ</span>
+                  <ChevronsRight className="h-3.5 w-3.5 shrink-0" />
+                </button>
+              </div>
             </div>
             {/* 操作行: モードごとのボタン */}
             {stampMode === 'alternate' ? (
