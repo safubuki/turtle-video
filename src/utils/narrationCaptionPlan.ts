@@ -26,11 +26,14 @@ export interface NarrationSilenceBoundaryCandidate {
 export interface SnappedNarrationCaptionPlan {
   plan: NarrationCaptionPlanItem[];
   snappedBoundaryCount: number;
+  silentGapCount: number;
 }
 
 const DEFAULT_MAX_GRAPHEMES = 20;
 const DEFAULT_MIN_SEGMENT_DURATION_SEC = 0.6;
 const DEFAULT_MAX_SNAP_DISTANCE_SEC = 1.25;
+const DEFAULT_MIN_SILENCE_FOR_GAP_SEC = 0.3;
+const DEFAULT_CAPTION_EDGE_PADDING_SEC = 0.1;
 const STRONG_BREAK = /[。！？!?]/u;
 const SOFT_BREAK = /[、，,・：:；;\s]/u;
 
@@ -206,8 +209,8 @@ export function buildNarrationCaptionPlan(params: {
 /**
  * 文字数比で作ったカード境界を、近傍の無音区間へ安全に吸着させる。
  *
- * 前カードを無音開始で終了し、次カードを無音終了から開始することで、
- * 発話していない区間にはキャプションを表示しない。
+ * 短い無音は中央でカードを切り替え、字幕を消さない。
+ * 明確な無音では発話終了後・発話開始前に少し余韻を残し、中央だけ字幕を消す。
  * 最初と最後の時刻は変えず、前後カードの最小表示時間を守れる候補だけを採用する。
  * 適切な候補がなければ、その境界は文字数比の時刻をそのまま維持する。
  */
@@ -216,12 +219,15 @@ export function snapNarrationCaptionPlanToSilences(params: {
   silenceCandidates: NarrationSilenceBoundaryCandidate[];
   maxSnapDistanceSec?: number;
   minSegmentDurationSec?: number;
+  minSilenceForGapSec?: number;
+  captionEdgePaddingSec?: number;
 }): SnappedNarrationCaptionPlan {
   const { plan } = params;
   if (plan.length < 2) {
     return {
       plan: plan.map((item) => ({ ...item })),
       snappedBoundaryCount: 0,
+      silentGapCount: 0,
     };
   }
 
@@ -229,6 +235,14 @@ export function snapNarrationCaptionPlanToSilences(params: {
   const minSegmentDuration = Math.max(
     0.1,
     params.minSegmentDurationSec ?? DEFAULT_MIN_SEGMENT_DURATION_SEC
+  );
+  const minSilenceForGap = Math.max(
+    0,
+    params.minSilenceForGapSec ?? DEFAULT_MIN_SILENCE_FOR_GAP_SEC
+  );
+  const captionEdgePadding = Math.max(
+    0,
+    params.captionEdgePaddingSec ?? DEFAULT_CAPTION_EDGE_PADDING_SEC
   );
   const timelineStart = plan[0].startTime;
   const timelineEnd = plan[plan.length - 1].endTime;
@@ -247,11 +261,41 @@ export function snapNarrationCaptionPlanToSilences(params: {
         candidate.end < timelineEnd &&
         candidate.end > candidate.start
     )
+    .map((candidate) => {
+      if (candidate.duration + 1e-6 < minSilenceForGap) {
+        return {
+          ...candidate,
+          previousEnd: candidate.time,
+          nextStart: candidate.time,
+          hasSilentGap: false,
+        };
+      }
+
+      const previousEnd = roundMillis(
+        Math.min(candidate.end, candidate.start + captionEdgePadding)
+      );
+      const nextStart = roundMillis(Math.max(candidate.start, candidate.end - captionEdgePadding));
+      if (nextStart <= previousEnd) {
+        return {
+          ...candidate,
+          previousEnd: candidate.time,
+          nextStart: candidate.time,
+          hasSilentGap: false,
+        };
+      }
+      return {
+        ...candidate,
+        previousEnd,
+        nextStart,
+        hasSilentGap: true,
+      };
+    })
     .sort((a, b) => a.time - b.time);
 
   const boundaries = plan.slice(0, -1).map((item) => item.endTime);
   const resolvedBoundaries: Array<{ previousEnd: number; nextStart: number }> = [];
   let snappedBoundaryCount = 0;
+  let silentGapCount = 0;
 
   boundaries.forEach((originalBoundary, index) => {
     const currentCardStart = index === 0 ? timelineStart : resolvedBoundaries[index - 1].nextStart;
@@ -262,8 +306,8 @@ export function snapNarrationCaptionPlanToSilences(params: {
     const bestCandidate = candidates
       .filter(
         (candidate) =>
-          candidate.start >= earliestEnd &&
-          candidate.end <= latestNextStart &&
+          candidate.previousEnd >= earliestEnd &&
+          candidate.nextStart <= latestNextStart &&
           Math.abs(candidate.time - originalBoundary) <= maxSnapDistance
       )
       .sort((a, b) => {
@@ -276,10 +320,11 @@ export function snapNarrationCaptionPlanToSilences(params: {
 
     if (bestCandidate) {
       resolvedBoundaries.push({
-        previousEnd: bestCandidate.start,
-        nextStart: bestCandidate.end,
+        previousEnd: bestCandidate.previousEnd,
+        nextStart: bestCandidate.nextStart,
       });
       snappedBoundaryCount += 1;
+      if (bestCandidate.hasSilentGap) silentGapCount += 1;
       return;
     }
 
@@ -299,5 +344,6 @@ export function snapNarrationCaptionPlanToSilences(params: {
       endTime: index === plan.length - 1 ? timelineEnd : resolvedBoundaries[index].previousEnd,
     })),
     snappedBoundaryCount,
+    silentGapCount,
   };
 }

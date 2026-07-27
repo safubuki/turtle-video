@@ -493,9 +493,14 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
       pausePreviewBeforeEdit('add-narration-captions');
       addCaptions(snapped.plan);
-      if (snapped.snappedBoundaryCount > 0) {
+      if (snapped.silentGapCount > 0) {
         showToast(
-          `キャプションカードを${snapped.plan.length}枚追加し、${snapped.snappedBoundaryCount}箇所の無音区間を字幕なしにしました。各カードでさらに微調整できます。`,
+          `キャプションカードを${snapped.plan.length}枚追加し、${snapped.snappedBoundaryCount}箇所を無音に合わせました。そのうち${snapped.silentGapCount}箇所は中央を字幕なしにしています。`,
+          5000,
+        );
+      } else if (snapped.snappedBoundaryCount > 0) {
+        showToast(
+          `キャプションカードを${snapped.plan.length}枚追加し、${snapped.snappedBoundaryCount}箇所を短い無音の中央で切り替えました。`,
           5000,
         );
       } else if (analysisFailed) {

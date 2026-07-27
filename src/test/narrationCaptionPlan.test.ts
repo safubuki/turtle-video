@@ -60,7 +60,7 @@ describe('narrationCaptionPlan', () => {
     expect(original).toBe('  1行目。\n\n2行目。  ');
   });
 
-  it('前カードを無音開始で終了し、次カードを無音終了から開始する', () => {
+  it('長い無音では前後0.1秒の余韻を残し、中央だけ字幕を消す', () => {
     const plan = [
       { text: '最初', startTime: 2, endTime: 5 },
       { text: '中間', startTime: 5, endTime: 8 },
@@ -77,14 +77,34 @@ describe('narrationCaptionPlan', () => {
     });
 
     expect(result.snappedBoundaryCount).toBe(2);
+    expect(result.silentGapCount).toBe(2);
     expect(result.plan).toEqual([
-      { text: '最初', startTime: 2, endTime: 4.9 },
-      { text: '中間', startTime: 5.3, endTime: 8.25 },
-      { text: '最後', startTime: 8.55, endTime: 11 },
+      { text: '最初', startTime: 2, endTime: 5 },
+      { text: '中間', startTime: 5.2, endTime: 8.35 },
+      { text: '最後', startTime: 8.45, endTime: 11 },
     ]);
-    expect(result.plan[1].startTime - result.plan[0].endTime).toBeCloseTo(0.4);
-    expect(result.plan[2].startTime - result.plan[1].endTime).toBeCloseTo(0.3);
+    expect(result.plan[1].startTime - result.plan[0].endTime).toBeCloseTo(0.2);
+    expect(result.plan[2].startTime - result.plan[1].endTime).toBeCloseTo(0.1);
     expect(result.plan.some((item) => item.startTime <= 5.1 && item.endTime > 5.1)).toBe(false);
+  });
+
+  it('0.3秒未満の短い無音では字幕を消さず、中央でカードを切り替える', () => {
+    const plan = [
+      { text: '前半', startTime: 0, endTime: 3 },
+      { text: '後半', startTime: 3, endTime: 6 },
+    ];
+
+    const result = snapNarrationCaptionPlanToSilences({
+      plan,
+      silenceCandidates: [{ time: 3, start: 2.9, end: 3.1, duration: 0.2 }],
+    });
+
+    expect(result.snappedBoundaryCount).toBe(1);
+    expect(result.silentGapCount).toBe(0);
+    expect(result.plan).toEqual([
+      { text: '前半', startTime: 0, endTime: 3 },
+      { text: '後半', startTime: 3, endTime: 6 },
+    ]);
   });
 
   it('遠すぎる無音候補は使わず文字数比の境界を維持する', () => {
