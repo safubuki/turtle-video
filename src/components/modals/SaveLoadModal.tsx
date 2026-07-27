@@ -17,6 +17,7 @@ import type { SaveRuntime } from '../turtle-video/saveRuntime';
 import { useMediaStore } from '../../stores/mediaStore';
 import { useAudioStore } from '../../stores/audioStore';
 import { useCaptionStore } from '../../stores/captionStore';
+import { useOverlayStore } from '../../stores/overlayStore';
 import { useLogStore } from '../../stores/logStore';
 import { useUIStore } from '../../stores/uiStore';
 import type { SaveSlot } from '../../utils/indexedDB';
@@ -201,15 +202,21 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, onBeforeLoadPr
   const captions = useCaptionStore((s) => s.captions);
   const captionSettings = useCaptionStore((s) => s.settings);
   const isCaptionsLocked = useCaptionStore((s) => s.isLocked);
+  const hasWatermarkImage = useOverlayStore((s) => s.watermark.file instanceof File);
   
   // ストアへの復元用アクション
   const restoreMediaItems = useMediaStore((s) => s.restoreFromSave);
   const restoreAudio = useAudioStore((s) => s.restoreFromSave);
   const restoreCaptions = useCaptionStore((s) => s.restoreFromSave);
+  const restoreWatermark = useOverlayStore((s) => s.restoreFromSave);
   
   // 現在編集中のデータがあるかどうか
   const isPreviewPlaying = useUIStore((s) => s.isPreviewPlaying);
-  const hasCurrentData = mediaItems.length > 0 || bgm !== null || narrations.length > 0 || captions.length > 0;
+  const hasCurrentData = mediaItems.length > 0
+    || bgm !== null
+    || narrations.length > 0
+    || captions.length > 0
+    || hasWatermarkImage;
   
   // 保存データがあるかどうか
   const hasAutoSave = lastAutoSave !== null;
@@ -619,6 +626,7 @@ export default function SaveLoadModal({ isOpen, onClose, onToast, onBeforeLoadPr
           data.isCaptionsLocked,
           data.videoTitle,
         );
+        restoreWatermark(data.watermarkOverlay);
         useLogStore.getState().info('SYSTEM', `プロジェクトを読み込み (${slot === 'auto' ? '自動保存' : '手動保存'})`, {
           mediaCount: data.mediaItems.length,
           captionCount: data.captions.length,

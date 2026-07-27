@@ -150,5 +150,23 @@ export function createAndroidPreviewCacheKey(
       fadeInDuration: input.videoTitle.fadeInDuration,
       fadeOutDuration: input.videoTitle.fadeOutDuration,
     },
+    watermarkOverlay: input.watermarkOverlay
+      ? {
+          enabled: input.watermarkOverlay.enabled,
+          fileName: input.watermarkOverlay.file?.name ?? null,
+          fileSize: input.watermarkOverlay.file?.size ?? null,
+          fileLastModified: input.watermarkOverlay.file?.lastModified ?? null,
+          startTime: input.watermarkOverlay.startTime,
+          endTime: input.watermarkOverlay.endTime,
+          positionX: input.watermarkOverlay.positionX,
+          positionY: input.watermarkOverlay.positionY,
+          size: input.watermarkOverlay.size,
+          opacity: input.watermarkOverlay.opacity,
+          rotation: input.watermarkOverlay.rotation,
+          mask: input.watermarkOverlay.mask,
+          maskSize: input.watermarkOverlay.maskSize,
+          feather: input.watermarkOverlay.feather,
+        }
+      : null,
   });
 }

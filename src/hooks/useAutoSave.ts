@@ -12,6 +12,7 @@ import { useProjectStore } from '../stores/projectStore';
 import { useUIStore } from '../stores/uiStore';
 import { useLogStore } from '../stores/logStore';
 import { useCanvasStore } from '../stores/canvasStore';
+import { useOverlayStore } from '../stores/overlayStore';
 
 /** 自動保存間隔の設定キー */
 export const AUTO_SAVE_INTERVAL_KEY = 'turtle-video-auto-save-interval';
@@ -104,6 +105,7 @@ export function useAutoSave() {
   const isCaptionsLocked = useCaptionStore((s) => s.isLocked);
   // 動画タイトル（Issue #211）。キャプションとは別管理なので個別に変更検知へ含める
   const videoTitle = useCaptionStore((s) => s.title);
+  const watermarkOverlay = useOverlayStore((s) => s.watermark);
   // 出力の向き（プロジェクトごとに保持）。変更で自動保存が走るよう変更検知に含める。
   const aspectRatio = useCanvasStore((s) => s.aspectRatio);
   
@@ -230,6 +232,22 @@ export function useAutoSave() {
       ].join(':')).join(','),
       JSON.stringify(captionSettings),
       JSON.stringify(videoTitle),
+      JSON.stringify({
+        enabled: watermarkOverlay.enabled,
+        fileName: watermarkOverlay.file?.name ?? '',
+        fileSize: watermarkOverlay.file?.size ?? 0,
+        fileLastModified: watermarkOverlay.file?.lastModified ?? 0,
+        startTime: watermarkOverlay.startTime,
+        endTime: watermarkOverlay.endTime,
+        positionX: watermarkOverlay.positionX,
+        positionY: watermarkOverlay.positionY,
+        size: watermarkOverlay.size,
+        opacity: watermarkOverlay.opacity,
+        rotation: watermarkOverlay.rotation,
+        mask: watermarkOverlay.mask,
+        maskSize: watermarkOverlay.maskSize,
+        feather: watermarkOverlay.feather,
+      }),
       isClipsLocked,
       isBgmLocked,
       isNarrationLocked,
@@ -249,6 +267,7 @@ export function useAutoSave() {
     captions,
     captionSettings,
     videoTitle,
+    watermarkOverlay,
     isClipsLocked,
     isBgmLocked,
     isNarrationLocked,
@@ -284,7 +303,8 @@ export function useAutoSave() {
       bgmClips.length === 0 &&
       narrations.length === 0 &&
       captions.length === 0 &&
-      videoTitle.text.trim().length === 0
+      videoTitle.text.trim().length === 0 &&
+      !(watermarkOverlay.file instanceof File)
     ) {
       return 'skipped-empty';
     }
@@ -330,6 +350,7 @@ export function useAutoSave() {
     captions,
     captionSettings,
     videoTitle,
+    watermarkOverlay,
     isCaptionsLocked,
     saveProjectAuto,
   ]);

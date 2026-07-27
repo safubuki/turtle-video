@@ -6,7 +6,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 
 import type { AppFlavor } from '../app/resolveAppFlavor';
-import type { MediaItem, AudioTrack, NarrationClip, NarrationScriptLength } from '../types';
+import type { MediaItem, AudioTrack, NarrationClip, NarrationScriptLength, WatermarkOverlay } from '../types';
 import type { ExportRuntime } from './turtle-video/exportRuntime';
 import type { SectionHelpKey } from '../constants/sectionHelp';
 import type { PreviewRuntime } from './turtle-video/previewRuntime';
@@ -41,7 +41,7 @@ import {
 } from '../utils/media';
 
 // Zustand Stores
-import { useMediaStore, useAudioStore, useUIStore, useCaptionStore, useLogStore, createNarrationClip } from '../stores';
+import { useMediaStore, useAudioStore, useUIStore, useCaptionStore, useOverlayStore, useLogStore, createNarrationClip } from '../stores';
 import { useOfflineModeStore } from '../stores/offlineModeStore';
 
 // コンポーネント
@@ -53,6 +53,7 @@ import ClipsSection from './sections/ClipsSection';
 import BgmSection from './sections/BgmSection';
 import NarrationSection from './sections/NarrationSection';
 import CaptionSection from './sections/CaptionSection';
+import OverlaySection from './sections/OverlaySection';
 import PreviewSection from './sections/PreviewSection';
 import AiModal from './modals/AiModal';
 import SettingsModal, { getStoredApiKey } from './modals/SettingsModal';
@@ -238,6 +239,14 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const setVideoTitleRange = useCaptionStore((s) => s.setTitleRange);
   const resetVideoTitle = useCaptionStore((s) => s.resetTitle);
 
+  // プロジェクト全体ウォーターマーク（Issue #210・カードとは独立）
+  const watermarkOverlay = useOverlayStore((s) => s.watermark);
+  const setWatermarkImage = useOverlayStore((s) => s.setWatermarkImage);
+  const updateWatermark = useOverlayStore((s) => s.updateWatermark);
+  const setWatermarkRange = useOverlayStore((s) => s.setWatermarkRange);
+  const removeWatermarkImage = useOverlayStore((s) => s.removeWatermarkImage);
+  const resetWatermark = useOverlayStore((s) => s.resetWatermark);
+
   // Log Store
   const logInfo = useLogStore((s) => s.info);
   const logWarn = useLogStore((s) => s.warn);
@@ -325,6 +334,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const captionsRef = useRef(captions);
   const captionSettingsRef = useRef(captionSettings);
   const videoTitleRef = useRef(videoTitle);
+  const watermarkOverlayRef = useRef<WatermarkOverlay>(watermarkOverlay);
+  const watermarkImageRef = useRef<HTMLImageElement | null>(null);
 
   // --- 生成済み export クリアヘルパー ---
   // 停止・再生・編集操作時に呼び出し、古いダウンロードボタンを消す。
@@ -374,10 +385,22 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     };
   }, [pausePreviewBeforeEdit]);
 
+  const handleWatermarkImageSelect = useCallback((file: File) => {
+    const supportedMimeTypes = new Set(['image/png', 'image/jpeg', 'image/webp']);
+    if (!supportedMimeTypes.has(file.type)) {
+      setError('ウォーターマークには PNG・JPEG・WebP 画像を選択してください');
+      return;
+    }
+    pausePreviewBeforeEdit('set-watermark-image');
+    setWatermarkImage(file, totalDuration);
+    showToast('ウォーターマーク画像を設定しました');
+  }, [pausePreviewBeforeEdit, setError, setWatermarkImage, showToast, totalDuration]);
+
   // 描画が遅延実行されても最新状態を参照できるようにする
   captionsRef.current = captions;
   captionSettingsRef.current = captionSettings;
   videoTitleRef.current = videoTitle;
+  watermarkOverlayRef.current = watermarkOverlay;
 
   const platformCapabilities = useMemo(() => previewRuntime.getPlatformCapabilities(), [previewRuntime]);
   const previewPlatformPolicy = useMemo(
@@ -420,11 +443,12 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       captionSettings,
       // タイトル（Issue #211）もキャッシュ動画へ焼き込まれるためキーに含める
       videoTitle,
+      watermarkOverlay,
       canvasWidth,
       canvasHeight,
       fps: 30,
     }),
-    [bgm, captionSettings, captions, videoTitle, mediaItems, pipelineNarrations, canvasWidth, canvasHeight, previewRuntime],
+    [bgm, captionSettings, captions, videoTitle, watermarkOverlay, mediaItems, pipelineNarrations, canvasWidth, canvasHeight, previewRuntime],
   );
   const supportsShowSaveFilePicker = platformCapabilities.supportsShowSaveFilePicker;
   const supportsShowOpenFilePicker = platformCapabilities.supportsShowOpenFilePicker;
@@ -837,12 +861,15 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     captions,
     captionSettings,
     videoTitle,
+    watermarkOverlay,
     mediaItemsRef,
     bgmRef,
     narrationsRef,
     captionsRef,
     captionSettingsRef,
     videoTitleRef,
+    watermarkOverlayRef,
+    watermarkImageRef,
     totalDurationRef,
     currentTimeRef,
     canvasRef,
@@ -2213,12 +2240,21 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   }, [pausePreviewBeforeHeaderModal]);
 
   // --- 全クリア処理 ---
-  // 目的: 全てのメディア・オーディオ・キャプションを削除し初期状態に戻す
+  // 目的: 全てのメディア・オーディオ・キャプション・ウォーターマークを削除し初期状態に戻す
   const handleClearAll = useCallback(() => {
-    if (mediaItems.length === 0 && !bgm && bgmClips.length === 0 && narrations.length === 0) return;
+    if (
+      mediaItems.length === 0
+      && !bgm
+      && bgmClips.length === 0
+      && narrations.length === 0
+      && captions.length === 0
+      && !watermarkOverlay.file
+    ) return;
 
     // 確認ダイアログを表示
-    const confirmed = window.confirm('すべてのメディア、BGM、ナレーションをクリアします。よろしいですか？');
+    const confirmed = window.confirm(
+      'すべてのメディア、ウォーターマーク、BGM、ナレーション、キャプションをクリアします。よろしいですか？',
+    );
     if (!confirmed) return;
 
     projectPosterCaptureGenerationRef.current += 1;
@@ -2255,6 +2291,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     reconcileProjectPosterAspectRatio(aspectRatio, 0);
     clearAllAudio();
     resetCaptions();
+    resetWatermark();
     resetUI();
     setReloadKey(0);
 
@@ -2271,12 +2308,15 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     bgm,
     bgmClips,
     narrations,
+    captions,
+    watermarkOverlay.file,
     stopAll,
     clearAllMedia,
     reconcileProjectPosterAspectRatio,
     aspectRatio,
     clearAllAudio,
     resetCaptions,
+    resetWatermark,
     resetUI,
   ]);
 
@@ -2763,6 +2803,22 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         crossOrigin="anonymous"
         style={hiddenPreviewCacheStyle}
       />
+      {watermarkOverlay.url && (
+        <img
+          ref={watermarkImageRef}
+          src={watermarkOverlay.url}
+          alt=""
+          aria-hidden="true"
+          style={hiddenPreviewCacheStyle}
+          onLoad={() => {
+            if (!isPlayingRef.current) {
+              requestAnimationFrame(() => {
+                renderFrame(currentTimeRef.current, false);
+              });
+            }
+          }}
+        />
+      )}
 
       {/* AI Modal */}
       <AiModal
@@ -2834,6 +2890,19 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
           <div className="space-y-6">
             {/* 1. CLIPS */}
             <ClipsSection
+              watermarkPanel={(
+                <OverlaySection
+                  watermark={watermarkOverlay}
+                  totalDuration={totalDuration}
+                  currentTime={currentTime}
+                  canvasWidth={canvasWidth}
+                  canvasHeight={canvasHeight}
+                  onImageSelect={handleWatermarkImageSelect}
+                  onUpdate={withPreviewPause('update-watermark', updateWatermark)}
+                  onSetRange={withPreviewPause('set-watermark-range', setWatermarkRange)}
+                  onRemoveImage={withPreviewPause('remove-watermark-image', removeWatermarkImage)}
+                />
+              )}
               mediaItems={mediaItems}
               mediaTimelineRanges={mediaTimelineRanges}
               currentTime={currentTime}

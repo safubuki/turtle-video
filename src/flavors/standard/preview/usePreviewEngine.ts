@@ -12,6 +12,7 @@ import type {
   MediaItem,
   NarrationClip,
   VideoTitleSettings,
+  WatermarkOverlay,
 } from '../../../types';
 import type { ExportPreparationStep, UseExportReturn } from '../../../hooks/export-strategies/types';
 import { resolveCaptionFontFamily } from '../../../utils/captionFontCatalog';
@@ -21,6 +22,7 @@ import {
   resolveCaptionGlyphStyle,
 } from '../../../utils/captionStyle';
 import { drawVideoTitleFrame } from '../../../utils/videoTitle';
+import { drawWatermarkOverlayFrame } from '../../../utils/watermarkOverlay';
 import {
   getIncomingTransitionOverlay,
   getOutgoingTransitionOverlay,
@@ -114,6 +116,8 @@ interface UsePreviewEngineParams {
    * 変更でプレビューを再描画させるため値としても受け取る（captionSettings と同じ理由）。
    */
   videoTitle: VideoTitleSettings;
+  /** ウォーターマーク。停止中の編集反映のため値としても受け取る */
+  watermarkOverlay?: WatermarkOverlay;
   mediaItemsRef: MutableRefObject<MediaItem[]>;
   bgmRef: MutableRefObject<AudioTrack | null>;
   narrationsRef: MutableRefObject<NarrationClip[]>;
@@ -121,6 +125,8 @@ interface UsePreviewEngineParams {
   captionSettingsRef: MutableRefObject<CaptionSettings>;
   /** 動画タイトル（Issue #211）。キャプションとは別管理で 1 件だけ描画する */
   videoTitleRef: MutableRefObject<VideoTitleSettings>;
+  watermarkOverlayRef?: MutableRefObject<WatermarkOverlay>;
+  watermarkImageRef?: MutableRefObject<HTMLImageElement | null>;
   totalDurationRef: MutableRefObject<number>;
   currentTimeRef: MutableRefObject<number>;
   canvasRef: MutableRefObject<HTMLCanvasElement | null>;
@@ -971,12 +977,15 @@ export function usePreviewEngine({
   captions,
   captionSettings,
   videoTitle,
+  watermarkOverlay,
   mediaItemsRef,
   bgmRef,
   narrationsRef,
   captionsRef,
   captionSettingsRef,
   videoTitleRef,
+  watermarkOverlayRef,
+  watermarkImageRef,
   totalDurationRef,
   currentTimeRef,
   canvasRef,
@@ -3320,6 +3329,15 @@ export function usePreviewEngine({
         if (drawVideoTitleFrame(ctx, videoTitleRef.current, time)) {
           didUpdateCanvas = true;
         }
+        // タイトルを含む既存合成の後へ置き、カード境界・トランジション中も継続表示する。
+        if (drawWatermarkOverlayFrame(
+          ctx,
+          watermarkOverlayRef?.current ?? watermarkOverlay,
+          watermarkImageRef?.current,
+          time,
+        )) {
+          didUpdateCanvas = true;
+        }
 
         const ensurePreviewAudioGainNode = (trackId: string, element: HTMLAudioElement) => {
           let gainNode = gainNodesRef.current[trackId];
@@ -3668,7 +3686,7 @@ export function usePreviewEngine({
     },
     // videoTitle も依存に含める。含めないと renderFrame が再生成されず、
     // 停止中のプレビューへタイトル変更がリアルタイム反映されない（キャプションと同じ扱い）
-    [captions, captionSettings, videoTitle, ensureAudioNodeForElement, logInfo, platformCapabilities, previewPlatformPolicy],
+    [captions, captionSettings, videoTitle, watermarkOverlay, ensureAudioNodeForElement, logInfo, platformCapabilities, previewPlatformPolicy],
   );
 
   const handleSeeked = useCallback(() => {

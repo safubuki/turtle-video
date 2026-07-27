@@ -2902,3 +2902,26 @@ export 終了（成功/失敗/中断）
   - 見出しの「自動／手動」表示は常時維持し、形式変更による自動復帰が閉じた状態でも分かるようにする。
   - ミニ画面は手動モードの画像だけを表示する。自動へ戻した直後に以前の手動画像を破棄し、自動用画像を書き出し向けに再取得してもミニ画面は「未表示」のままにする。
 - **テスト**: `mediaStore.test.ts`（不一致リセット・一致時維持・自動再取得待ち）、`projectStoreSave.test.ts`（縦手動ポスターの保存復元・不整合読込）、`previewSectionActionButtons.test.tsx`（9:16枠）、`clipsSectionPicker.test.tsx`（向き変更コールバック）で回帰を検知する。
+
+### 13-156. カードとは独立した範囲指定ウォーターマーク（Issue #210）
+
+- **ファイル**: `src/types/index.ts`, `src/stores/overlayStore.ts`, `src/utils/watermarkOverlay.ts`, `src/utils/indexedDB.ts`, `src/stores/projectStore.ts`, `src/hooks/useAutoSave.ts`, `src/hooks/usePreventUnload.ts`, `src/components/sections/OverlaySection.tsx`, `src/components/TurtleVideo.tsx`, `src/components/turtle-video/previewCacheContract.ts`, `src/components/turtle-video/usePreviewEngine.ts`（契約シグネチャのみ）, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/androidPreviewCache.ts`, 関連テスト
+- **データ契約**:
+  - `WatermarkOverlay` は `MediaItem[]` へ入れず、`overlayStore.watermark` に 1 件だけ保持する。開始・終了はプロジェクト時間であり、カード境界やトランジションの有無に依存しない。
+  - `enabled=false` は描画だけを止め、画像 `File` / Object URL と位置・倍率・透過度・回転・マスク形状/サイズ・周辺ぼかしを保持する。画像の削除とは区別する。
+  - 数値は `normalizeWatermarkOverlay()` / `normalizeWatermarkRange()` でクランプする。位置 0〜100%、自然画像サイズ基準の倍率 0.1〜3 倍、不透明度 0〜1、回転 -180〜180°、マスクサイズ 5〜100%、周辺ぼかし 0〜40px @1080p。
+  - 既定は X/Y 50%（中央）、倍率 1、透過なし（opacity 1）、回転 0°、四角マスク 100%、周辺ぼかし 0。各見た目項目は UI の `RotateCcw` から個別に戻せる。
+- **描画契約（preview = export）**:
+  - `drawWatermarkOverlayFrame()` が唯一の描画実装。standard / apple-safari の両 flavor が、トランジション・キャプション・動画タイトルの後に同じ関数を呼ぶ。export は preview の `drawFrame` を再利用するため WYSIWYG が構造的に成立する。
+  - 円形は中央 cover、角丸は短辺比率の角丸、周辺ぼかしはパディング付き一時 Canvas のマスク alpha を blur して `destination-in` 合成する。`maskSize` でマスク境界を画像外周より内側へ縮められるため、外周へ当たらず自然なフェザーを作れる。処理済み Canvas は画像と設定キーで 1 件キャッシュし、毎フレームの再生成を避ける。
+  - `watermarkOverlay` は ref だけでなく値としてもエンジンへ渡し、`renderFrame` の依存に含める。停止中に設定を変えた際の再描画を維持する。
+- **保存・メモリ管理**:
+  - `ProjectData.watermarkOverlay?` は旧データ互換の任意フィールド。Object URL は保存せず、ファイル名・MIME・`ArrayBuffer` と全調整値を保存する。
+  - 画像の置換・削除・復元・全クリアでは必ず古い Object URL を解放する。手動/自動保存、自動保存ハッシュ、「中身なし」判定、離脱防止を同時に更新する。
+  - Android preview cache は現在無効だが、将来の再有効化に備えてキャッシュキーへ画像メタデータと全調整値を含める。
+- **UI / テスト**:
+  - `OverlaySection` は独立カテゴリーにせず、`ClipsSection.watermarkPanel` として「動画・画像」のカード一覧先頭へ置く。初期状態は閉じ、アイコンなしの「ウォーターマーク」文字見出しだけを表示する。
+  - PNG / JPEG / WebP の選択、表示切替、開始・終了、位置 XY、倍率、透過度、回転、マスク形状/サイズ、周辺ぼかしを提供する。数値項目は `SwipeProtectedSlider` + 数値入力を同期し、「プレビュー位置を反映」は他カードと同じ UI を使う。
+  - 位置の簡単設定は `左下 → 右下 → 中央 → 左上 → 右上` の順。通常の四隅は左右 `9/91%`、上下 `15/85%` を基準とする。`resolveWatermarkPresetPosition()` は自然画像サイズ、倍率、マスクサイズ、回転後のバウンディングボックス、周辺ぼかしも確認し、大きな画像だけ可視領域の 87.5% 以上が残る位置まで中央側へ補正する。
+  - 数値項目は縦長化を避け、`ラベル + リセット / スライダー / 数値入力` の 1 行グリッドにする。リセットはラベル直後へ統一し、既定値でも無効化せず `text-gray-200` で見える状態を保つ。ラベル列は最長ラベルが収まる幅（狭幅 5rem / `sm` 以上 5.75rem）、数値入力は表示値と単位が収まる幅（狭幅 5rem / `sm` 以上 5.5rem）に抑え、残りをスライダーの操作幅へ割り当てる。簡単設定の区切り線はボタン群の下へ置く。
+  - `watermarkOverlay.test.ts`, `overlayStore.test.ts`, `overlaySection.test.tsx`, `projectStoreSave.test.ts` で時間範囲、描画条件、Object URL 解放、UI、保存復元、旧データ補完を固定する。

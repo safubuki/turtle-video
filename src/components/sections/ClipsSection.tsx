@@ -107,6 +107,8 @@ const ClipTransitionConnector: React.FC<{
 };
 
 interface ClipsSectionProps {
+  /** カードとは独立しているが、操作上は動画・画像に属する先頭設定 */
+  watermarkPanel?: React.ReactNode;
   mediaItems: MediaItem[];
   mediaTimelineRanges: Record<string, { start: number; end: number }>;
   currentTime: number;
@@ -142,6 +144,7 @@ interface ClipsSectionProps {
  * クリップセクションコンポーネント
  */
 const ClipsSection: React.FC<ClipsSectionProps> = ({
+  watermarkPanel,
   mediaItems,
   mediaTimelineRanges,
   currentTime,
@@ -263,6 +266,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
         </div>
       </div>
       <div className="p-3 lg:p-4 space-y-3 max-h-75 lg:max-h-128 overflow-y-auto custom-scrollbar">
+        {watermarkPanel}
         {mediaItems.length === 0 && (
           <div className="text-center py-8 text-gray-600 text-xs md:text-sm border-2 border-dashed border-gray-800 rounded">
             動画または画像ファイルを追加してください

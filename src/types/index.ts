@@ -247,6 +247,40 @@ export interface VideoTitleSettings {
   fadeOutDuration: number;
 }
 
+/** ウォーターマーク画像の切り抜き形状（Issue #210） */
+export type WatermarkMask = 'rectangle' | 'rounded' | 'circle';
+
+/**
+ * プロジェクト時間軸に属するウォーターマーク（Issue #210）。
+ *
+ * MediaItem のカード配列とは独立した 1 件のオーバーレイとして管理し、
+ * preview / export 共通の renderFrame で最前面へ描画する。
+ */
+export interface WatermarkOverlay {
+  file: File | null;
+  /** 選択中画像の Object URL。保存時は永続化せず fileData から再生成する */
+  url: string | null;
+  /** false にしても画像と各調整値は保持する */
+  enabled: boolean;
+  /** プロジェクト時間軸上の表示開始・終了（秒） */
+  startTime: number;
+  endTime: number;
+  /** 画像中心の位置（Canvas に対する %） */
+  positionX: number;
+  positionY: number;
+  /** 読み込んだ画像の自然サイズを 1 とする表示倍率 */
+  size: number;
+  /** 不透明度（0〜1） */
+  opacity: number;
+  /** 時計回りの回転角（度） */
+  rotation: number;
+  mask: WatermarkMask;
+  /** 画像領域に対するマスクの大きさ（%）。100 で画像外周と一致する */
+  maskSize: number;
+  /** マスク境界のぼかし幅 px @1080p 基準 */
+  feather: number;
+}
+
 // キャプション設定
 export interface CaptionSettings {
   enabled: boolean;

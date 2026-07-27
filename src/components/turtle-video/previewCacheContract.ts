@@ -16,6 +16,7 @@ import type {
   MediaItem,
   NarrationClip,
   VideoTitleSettings,
+  WatermarkOverlay,
 } from '../../types';
 
 export type PreviewCacheStatus = 'idle' | 'preparing' | 'ready' | 'failed';
@@ -45,6 +46,8 @@ export interface CreatePreviewCacheKeyInput {
    * タイトルを変更したらキャッシュが必ず無効化されるようキーへ含める。
    */
   videoTitle: VideoTitleSettings;
+  /** ウォーターマークも焼き込み対象なので変更時にキャッシュを無効化する */
+  watermarkOverlay?: WatermarkOverlay;
   canvasWidth: number;
   canvasHeight: number;
   fps: number;

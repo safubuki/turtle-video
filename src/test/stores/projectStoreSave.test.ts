@@ -31,6 +31,8 @@ vi.mock('../../utils/indexedDB', () => ({
 import { useProjectStore, isStorageQuotaError } from '../../stores/projectStore';
 import { useMediaStore } from '../../stores/mediaStore';
 import { useCanvasStore } from '../../stores/canvasStore';
+import { useOverlayStore } from '../../stores/overlayStore';
+import { DEFAULT_WATERMARK_OVERLAY } from '../../utils/watermarkOverlay';
 import {
   createIndexedDbProjectPersistenceAdapter,
   setProjectPersistenceAdapter,
@@ -172,6 +174,9 @@ describe('projectStore save behavior', () => {
       projectPosterDataUrl: null,
       projectPosterAspectRatio: 'landscape',
     });
+    useOverlayStore.setState({
+      watermark: { ...DEFAULT_WATERMARK_OVERLAY },
+    });
   });
 
   it('手動保存で容量不足の場合は失敗を返し、自動保存は勝手に削除しない', async () => {
@@ -235,6 +240,93 @@ describe('projectStore save behavior', () => {
     expect(loaded?.projectPosterTimelineTime).toBeCloseTo(3.25);
     expect(loaded?.projectPosterDataUrl).toBe('data:image/jpeg;base64,portrait');
     expect(loaded?.projectPosterAspectRatio).toBe('portrait');
+  });
+
+  it('ウォーターマーク画像と全調整値を手動保存・復元する', async () => {
+    const file = new File(['brand'], 'brand.png', { type: 'image/png' });
+    useOverlayStore.setState({
+      watermark: {
+        ...DEFAULT_WATERMARK_OVERLAY,
+        file,
+        url: 'blob:brand',
+        enabled: false,
+        startTime: 1.5,
+        endTime: 9.5,
+        positionX: 20,
+        positionY: 80,
+        size: 1.35,
+        opacity: 0.42,
+        rotation: -12,
+        mask: 'circle',
+        maskSize: 62,
+        feather: 8,
+      },
+    });
+    mocks.fileToArrayBuffer.mockResolvedValueOnce(new ArrayBuffer(5));
+    mocks.saveProject.mockResolvedValueOnce(undefined);
+
+    await useProjectStore.getState().saveProjectManual(
+      [],
+      false,
+      null,
+      false,
+      [],
+      false,
+      [],
+      defaultCaptionSettings,
+      false,
+    );
+
+    const saved = mocks.saveProject.mock.calls[mocks.saveProject.mock.calls.length - 1]?.[0] as ProjectData;
+    expect(saved.watermarkOverlay).toMatchObject({
+      fileName: 'brand.png',
+      fileType: 'image/png',
+      enabled: false,
+      startTime: 1.5,
+      endTime: 9.5,
+      positionX: 20,
+      positionY: 80,
+      size: 1.35,
+      opacity: 0.42,
+      rotation: -12,
+      mask: 'circle',
+      maskSize: 62,
+      feather: 8,
+    });
+
+    mocks.loadProject.mockResolvedValueOnce(saved);
+    const loaded = await useProjectStore.getState().loadProjectFromSlot('manual');
+    expect(loaded?.watermarkOverlay).toMatchObject({
+      enabled: false,
+      startTime: 1.5,
+      endTime: 9.5,
+      mask: 'circle',
+      maskSize: 62,
+      feather: 8,
+    });
+    expect(loaded?.watermarkOverlay.file?.name).toBe('brand.png');
+    expect(loaded?.watermarkOverlay.url).toMatch(/^blob:/);
+  });
+
+  it('旧保存データではウォーターマークを画像なしの既定値へ補完する', async () => {
+    const legacyProject: ProjectData = {
+      slot: 'manual',
+      savedAt: '2026-07-27T00:00:00.000Z',
+      version: '5.3.0',
+      mediaItems: [],
+      isClipsLocked: false,
+      bgm: null,
+      isBgmLocked: false,
+      narrations: [],
+      isNarrationLocked: false,
+      captions: [],
+      captionSettings: defaultCaptionSettings,
+      isCaptionsLocked: false,
+    };
+    mocks.loadProject.mockResolvedValueOnce(legacyProject);
+
+    const loaded = await useProjectStore.getState().loadProjectFromSlot('manual');
+    expect(loaded?.watermarkOverlay).toEqual(DEFAULT_WATERMARK_OVERLAY);
   });
 
   it('保存データ内の手動ポスター比率が動画形式と不一致なら読み込み時に自動へ戻す', async () => {

@@ -22,6 +22,7 @@ import type {
   MediaItem,
   NarrationClip,
   VideoTitleSettings,
+  WatermarkOverlay,
 } from '../../types';
 import type { ExportPreparationStep, UseExportReturn } from '../../hooks/export-strategies/types';
 import type { LogCategory } from '../../stores/logStore';
@@ -63,6 +64,8 @@ interface UsePreviewEngineParams {
   captionSettings: CaptionSettings;
   /** 動画タイトル（Issue #211）。契約追随のみ。実装はフレーバー側 */
   videoTitle: VideoTitleSettings;
+  /** Issue #210。契約追随のみ。描画は flavor 側 */
+  watermarkOverlay?: WatermarkOverlay;
   mediaItemsRef: MutableRefObject<MediaItem[]>;
   bgmRef: MutableRefObject<AudioTrack | null>;
   narrationsRef: MutableRefObject<NarrationClip[]>;
@@ -75,6 +78,10 @@ interface UsePreviewEngineParams {
    * 実際の描画は src/flavors/<flavor>/preview/usePreviewEngine.ts が行う。
    */
   videoTitleRef: MutableRefObject<VideoTitleSettings>;
+  /** Issue #210。契約追随のみ */
+  watermarkOverlayRef?: MutableRefObject<WatermarkOverlay>;
+  /** Issue #210。契約追随のみ */
+  watermarkImageRef?: MutableRefObject<HTMLImageElement | null>;
   totalDurationRef: MutableRefObject<number>;
   currentTimeRef: MutableRefObject<number>;
   canvasRef: MutableRefObject<HTMLCanvasElement | null>;

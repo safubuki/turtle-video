@@ -3,6 +3,7 @@ import useMediaStore from '../stores/mediaStore';
 import useAudioStore from '../stores/audioStore';
 import { useCaptionStore } from '../stores/captionStore';
 import { useUpdateStore } from '../stores/updateStore';
+import { useOverlayStore } from '../stores/overlayStore';
 
 /**
  * 編集中のデータがある場合にブラウザの離脱を防止するフック
@@ -12,6 +13,7 @@ export const usePreventUnload = () => {
     const bgm = useAudioStore((state) => state.bgm);
     const narrations = useAudioStore((state) => state.narrations);
     const captions = useCaptionStore((state) => state.captions);
+    const hasWatermark = useOverlayStore((state) => state.watermark.file instanceof File);
     const isApplyingUpdate = useUpdateStore((state) => state.isApplyingUpdate);
 
     useEffect(() => {
@@ -24,7 +26,8 @@ export const usePreventUnload = () => {
                 mediaItems.length > 0 ||
                 bgm !== null ||
                 narrations.length > 0 ||
-                captions.length > 0;
+                captions.length > 0 ||
+                hasWatermark;
 
             if (hasUnsavedChanges) {
                 e.preventDefault();
@@ -38,5 +41,5 @@ export const usePreventUnload = () => {
         return () => {
             window.removeEventListener('beforeunload', handleBeforeUnload);
         };
-    }, [mediaItems, bgm, narrations, captions, isApplyingUpdate]);
+    }, [mediaItems, bgm, narrations, captions, hasWatermark, isApplyingUpdate]);
 };

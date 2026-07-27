@@ -15,6 +15,9 @@ export { useUIStore } from './uiStore';
 // Caption Store
 export { useCaptionStore } from './captionStore';
 
+// Project-wide overlay store
+export { useOverlayStore } from './overlayStore';
+
 // Log Store
 export { useLogStore, getSystemInfo } from './logStore';
 export type { LogEntry, LogLevel, LogCategory, SystemInfo, MemoryStats } from './logStore';

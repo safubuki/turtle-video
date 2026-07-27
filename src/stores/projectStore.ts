@@ -14,6 +14,7 @@ import type {
   CaptionSettings,
   NarrationClip,
   VideoTitleSettings,
+  WatermarkOverlay,
 } from '../types';
 import {
   getProjectPersistenceAdapter,
@@ -23,6 +24,7 @@ import {
   type SerializedAudioTrack,
   type SerializedCaption,
   type SerializedNarrationClip,
+  type SerializedWatermarkOverlay,
 } from './projectPersistence';
 import type {
   ProjectLaunchContext,
@@ -37,8 +39,10 @@ import { useUIStore } from './uiStore';
 import { useCanvasStore, type AspectRatio } from './canvasStore';
 import { useMediaStore } from './mediaStore';
 import { useCaptionStore } from './captionStore';
+import { useOverlayStore } from './overlayStore';
 import { normalizeMediaBlur, normalizeRotation } from '../utils/canvas';
 import { normalizeVideoTitleSettings } from '../utils/videoTitle';
+import { normalizeWatermarkOverlay } from '../utils/watermarkOverlay';
 
 export function getProjectStoreErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -245,6 +249,8 @@ interface ProjectState {
     isCaptionsLocked: boolean;
     /** 動画タイトル（Issue #211）。旧データは既定値で補完済み */
     videoTitle: VideoTitleSettings;
+    /** 範囲指定ウォーターマーク（Issue #210）。旧データは画像なしで補完済み */
+    watermarkOverlay: WatermarkOverlay;
     bgmClips: BgmClip[];
     bgmAutoAdjustToTimeline: boolean;
     projectPosterMode: 'auto' | 'manual';
@@ -285,7 +291,7 @@ function enqueueProjectSave<T>(task: () => Promise<T>): Promise<T> {
 async function readSerializableFileData(params: {
   file: File;
   fallbackUrl?: string;
-  kind: 'メディア' | 'BGM' | 'ナレーション';
+  kind: 'メディア' | 'BGM' | 'ナレーション' | 'ウォーターマーク';
 }): Promise<ArrayBuffer> {
   const persistence = getProjectPersistenceAdapter();
   try {
@@ -313,6 +319,51 @@ async function readSerializableFileData(params: {
       + ` (${getProjectStoreErrorMessage(fileError)})`
     );
   }
+}
+
+async function serializeWatermarkOverlay(
+  overlay: WatermarkOverlay,
+): Promise<SerializedWatermarkOverlay | undefined> {
+  if (!(overlay.file instanceof File)) return undefined;
+  return {
+    fileName: overlay.file.name,
+    fileType: overlay.file.type,
+    fileLastModified: overlay.file.lastModified,
+    fileData: await readSerializableFileData({
+      file: overlay.file,
+      fallbackUrl: overlay.url ?? undefined,
+      kind: 'ウォーターマーク',
+    }),
+    enabled: overlay.enabled,
+    startTime: overlay.startTime,
+    endTime: overlay.endTime,
+    positionX: overlay.positionX,
+    positionY: overlay.positionY,
+    size: overlay.size,
+    opacity: overlay.opacity,
+    rotation: overlay.rotation,
+    mask: overlay.mask,
+    maskSize: overlay.maskSize,
+    feather: overlay.feather,
+  };
+}
+
+function deserializeWatermarkOverlay(
+  data: SerializedWatermarkOverlay | null | undefined,
+): WatermarkOverlay {
+  if (!data || !isValidArrayBuffer(data.fileData)) {
+    return normalizeWatermarkOverlay(undefined);
+  }
+  const file = getProjectPersistenceAdapter().arrayBufferToFile(
+    data.fileData,
+    data.fileName,
+    data.fileType,
+  );
+  return normalizeWatermarkOverlay({
+    ...data,
+    file,
+    url: URL.createObjectURL(file),
+  });
 }
 
 async function serializeMediaItem(item: MediaItem): Promise<SerializedMediaItem> {
@@ -702,6 +753,9 @@ export const useProjectStore = create<ProjectState>()(
             const serializedBgmClips = await Promise.all(bgmClips.map(serializeNarrationClip));
             const serializedNarrations = await Promise.all(narrations.map(serializeNarrationClip));
             const serializedCaptions = captions.map(serializeCaption);
+            const serializedWatermark = await serializeWatermarkOverlay(
+              useOverlayStore.getState().watermark,
+            );
 
             const nextProjectData: ProjectData = {
               slot: 'manual',
@@ -728,6 +782,7 @@ export const useProjectStore = create<ProjectState>()(
               // 呼び出し側の引数を増やさず、保存時にストアから直接読む
               // （bgmAutoAdjustToTimeline / aspectRatio / projectPoster* と同じ方式）
               videoTitle: useCaptionStore.getState().title,
+              watermarkOverlay: serializedWatermark,
             };
 
             await getProjectPersistenceAdapter().saveProject(nextProjectData);
@@ -781,13 +836,15 @@ export const useProjectStore = create<ProjectState>()(
       ) => {
         // 動画タイトル（Issue #211）だけが入力されている状態も「中身あり」として保存する
         const hasVideoTitleText = useCaptionStore.getState().title.text.trim().length > 0;
+        const hasWatermarkImage = useOverlayStore.getState().watermark.file instanceof File;
         if (
           mediaItems.length === 0 &&
           !bgm &&
           bgmClips.length === 0 &&
           narrations.length === 0 &&
           captions.length === 0 &&
-          !hasVideoTitleText
+          !hasVideoTitleText &&
+          !hasWatermarkImage
         ) {
           return false;
         }
@@ -811,6 +868,9 @@ export const useProjectStore = create<ProjectState>()(
             const serializedBgmClips = await Promise.all(bgmClips.map(serializeNarrationClip));
             const serializedNarrations = await Promise.all(narrations.map(serializeNarrationClip));
             const serializedCaptions = captions.map(serializeCaption);
+            const serializedWatermark = await serializeWatermarkOverlay(
+              useOverlayStore.getState().watermark,
+            );
 
             const nextProjectData: ProjectData = {
               slot: 'auto',
@@ -837,6 +897,7 @@ export const useProjectStore = create<ProjectState>()(
               // 呼び出し側の引数を増やさず、保存時にストアから直接読む
               // （bgmAutoAdjustToTimeline / aspectRatio / projectPoster* と同じ方式）
               videoTitle: useCaptionStore.getState().title,
+              watermarkOverlay: serializedWatermark,
             };
 
             await getProjectPersistenceAdapter().saveProject(nextProjectData);
@@ -950,6 +1011,8 @@ export const useProjectStore = create<ProjectState>()(
             isCaptionsLocked: data.isCaptionsLocked,
             // 動画タイトル（Issue #211）。旧データには無いため既定値で補完する
             videoTitle: normalizeVideoTitleSettings(data.videoTitle),
+            // ウォーターマーク（Issue #210）。旧データには無いため画像なしで補完する
+            watermarkOverlay: deserializeWatermarkOverlay(data.watermarkOverlay),
             bgmClips,
             bgmAutoAdjustToTimeline: data.bgmAutoAdjustToTimeline !== false,
             projectPosterMode: hasCompatibleManualPoster ? 'manual' as const : 'auto' as const,

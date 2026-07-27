@@ -148,4 +148,16 @@ describe('ClipsSection aspect ratio controls', () => {
 
     expect(onAspectRatioChange).toHaveBeenCalledWith('portrait');
   });
+
+  it('ウォーターマーク設定を動画・画像カード一覧の先頭へ配置する', () => {
+    renderClipsSection({
+      watermarkPanel: <div>ウォーターマーク設定パネル</div>,
+    });
+
+    const watermark = screen.getByText('ウォーターマーク設定パネル');
+    const emptyState = screen.getByText('動画または画像ファイルを追加してください');
+    expect(
+      watermark.compareDocumentPosition(emptyState) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
 });

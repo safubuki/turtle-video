@@ -196,6 +196,25 @@ export interface SerializedVideoTitleSettings {
   fadeOutDuration: number;
 }
 
+/** ウォーターマークの保存形式（Issue #210）。Object URL は保存しない */
+export interface SerializedWatermarkOverlay {
+  fileName: string;
+  fileType: string;
+  fileLastModified?: number;
+  fileData: ArrayBuffer;
+  enabled: boolean;
+  startTime: number;
+  endTime: number;
+  positionX: number;
+  positionY: number;
+  size: number;
+  opacity: number;
+  rotation: number;
+  mask: 'rectangle' | 'rounded' | 'circle';
+  maskSize?: number;
+  feather: number;
+}
+
 // プロジェクトデータ全体
 export interface ProjectData {
   slot: SaveSlot;
@@ -231,6 +250,12 @@ export interface ProjectData {
    * 旧データには無いため undefined を許容し、既定値へフォールバックする。
    */
   videoTitle?: SerializedVideoTitleSettings;
+
+  /**
+   * カードとは独立した範囲指定ウォーターマーク（Issue #210・任意）。
+   * 旧データは undefined のため画像なしの既定状態へ補完する。
+   */
+  watermarkOverlay?: SerializedWatermarkOverlay;
 
   // 出力の向き（'landscape'=16:9 / 'portrait'=9:16）。任意・既定 landscape（旧データ後方互換）。
   aspectRatio?: 'landscape' | 'portrait';

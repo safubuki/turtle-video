@@ -20,10 +20,12 @@ import type {
   MediaItem,
   NarrationClip,
   VideoTitleSettings,
+  WatermarkOverlay,
 } from '../../../types';
 import type { ExportPreparationStep, UseExportReturn } from '../../../hooks/export-strategies/types';
 import { resolveCaptionGlyphStyle } from '../../../utils/captionStyle';
 import { drawVideoTitleFrame } from '../../../utils/videoTitle';
+import { drawWatermarkOverlayFrame } from '../../../utils/watermarkOverlay';
 import type { LogCategory } from '../../../stores/logStore';
 import { useMediaStore, useUIStore } from '../../../stores';
 import type { PlatformCapabilities } from '../../../utils/platform';
@@ -75,6 +77,7 @@ interface UsePreviewEngineParams {
    * 変更でプレビューを再描画させるため値としても受け取る（captionSettings と同じ理由）。
    */
   videoTitle: VideoTitleSettings;
+  watermarkOverlay?: WatermarkOverlay;
   mediaItemsRef: MutableRefObject<MediaItem[]>;
   bgmRef: MutableRefObject<AudioTrack | null>;
   narrationsRef: MutableRefObject<NarrationClip[]>;
@@ -82,6 +85,8 @@ interface UsePreviewEngineParams {
   captionSettingsRef: MutableRefObject<CaptionSettings>;
   /** 動画タイトル（Issue #211）。キャプションとは別管理で 1 件だけ描画する */
   videoTitleRef: MutableRefObject<VideoTitleSettings>;
+  watermarkOverlayRef?: MutableRefObject<WatermarkOverlay>;
+  watermarkImageRef?: MutableRefObject<HTMLImageElement | null>;
   totalDurationRef: MutableRefObject<number>;
   currentTimeRef: MutableRefObject<number>;
   canvasRef: MutableRefObject<HTMLCanvasElement | null>;
@@ -223,12 +228,15 @@ export function usePreviewEngine({
   captions,
   captionSettings,
   videoTitle,
+  watermarkOverlay,
   mediaItemsRef,
   bgmRef,
   narrationsRef,
   captionsRef,
   captionSettingsRef,
   videoTitleRef,
+  watermarkOverlayRef,
+  watermarkImageRef,
   totalDurationRef,
   currentTimeRef,
   canvasRef,
@@ -1317,6 +1325,14 @@ export function usePreviewEngine({
         if (drawVideoTitleFrame(ctx, videoTitleRef.current, time)) {
           didUpdateCanvas = true;
         }
+        if (drawWatermarkOverlayFrame(
+          ctx,
+          watermarkOverlayRef?.current ?? watermarkOverlay,
+          watermarkImageRef?.current,
+          time,
+        )) {
+          didUpdateCanvas = true;
+        }
 
         const processAudioTrack = (track: AudioTrack | null, trackId: 'bgm') => {
           const element = mediaElementsRef.current[trackId] as HTMLAudioElement;
@@ -1577,7 +1593,7 @@ export function usePreviewEngine({
     },
     // videoTitle も依存に含める。含めないと renderFrame が再生成されず、
     // 停止中のプレビューへタイトル変更がリアルタイム反映されない（キャプションと同じ扱い）
-    [captions, captionSettings, videoTitle, ensureAudioNodeForElement, logInfo, platformCapabilities, previewPlatformPolicy],
+    [captions, captionSettings, videoTitle, watermarkOverlay, ensureAudioNodeForElement, logInfo, platformCapabilities, previewPlatformPolicy],
   );
 
   const handleSeeked = useCallback(() => {
