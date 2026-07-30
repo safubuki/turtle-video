@@ -35,6 +35,8 @@ interface UIState {
   aiScript: string;
   aiVoice: VoiceId;
   aiVoiceStyle: string;
+  /** ナレーション全体の場面・状況指示 */
+  aiNarrationScene: string;
   isAiLoading: boolean;
 
   // Actions - Toast & Error
@@ -65,6 +67,7 @@ interface UIState {
   setAiScript: (script: string) => void;
   setAiVoice: (voice: VoiceId) => void;
   setAiVoiceStyle: (style: string) => void;
+  setAiNarrationScene: (scene: string) => void;
   setAiLoading: (loading: boolean) => void;
   resetAiModal: () => void;
 
@@ -98,6 +101,7 @@ export const useUIStore = create<UIState>()(
       aiScript: '',
       aiVoice: 'Aoede' as const,
       aiVoiceStyle: '',
+      aiNarrationScene: '',
       isAiLoading: false,
 
       // === Toast & Error Actions ===
@@ -236,6 +240,10 @@ export const useUIStore = create<UIState>()(
         set({ aiVoiceStyle: style });
       },
 
+      setAiNarrationScene: (scene) => {
+        set({ aiNarrationScene: scene });
+      },
+
       setAiLoading: (loading) => {
         set({ isAiLoading: loading });
       },
@@ -247,6 +255,7 @@ export const useUIStore = create<UIState>()(
           aiScript: '',
           aiVoice: 'Aoede' as const,
           aiVoiceStyle: '',
+          aiNarrationScene: '',
           isAiLoading: false,
         });
       },
@@ -280,6 +289,7 @@ export const useUIStore = create<UIState>()(
           aiScript: '',
           aiVoice: 'Aoede' as const,
           aiVoiceStyle: '',
+          aiNarrationScene: '',
           isAiLoading: false,
         });
       },

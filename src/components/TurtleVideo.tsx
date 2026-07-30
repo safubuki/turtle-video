@@ -187,6 +187,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const aiScript = useUIStore((s) => s.aiScript);
   const aiVoice = useUIStore((s) => s.aiVoice);
   const aiVoiceStyle = useUIStore((s) => s.aiVoiceStyle);
+  const aiNarrationScene = useUIStore((s) => s.aiNarrationScene);
+  const setAiNarrationScene = useUIStore((s) => s.setAiNarrationScene);
   const isAiLoading = useUIStore((s) => s.isAiLoading);
 
   const clearToast = useUIStore((s) => s.clearToast);
@@ -397,7 +399,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       return;
     }
     const clip = narrations.find((item) => item.id === id);
-    const script = clip?.aiScript?.trim();
+    const { stripDeliveryMarkers } = await import('../utils/narrationDelivery');
+    const script = stripDeliveryMarkers(clip?.aiScript ?? '').trim();
     if (!clip || !script) {
       showToast('このナレーションにはキャプションに使える原稿がありません。');
       return;
@@ -439,7 +442,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
       // 解析中に削除・再生成・トリミングされた場合は、現在のクリップ状態を基準に作り直す。
       const currentClip = useAudioStore.getState().narrations.find((item) => item.id === id);
-      const currentScript = currentClip?.aiScript?.trim();
+      const currentScript = stripDeliveryMarkers(currentClip?.aiScript ?? '').trim();
       if (!currentClip || !currentScript) {
         showToast('対象のナレーションが変更されたため、キャプションを追加しませんでした。');
         return;
@@ -1393,25 +1396,25 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     }
     setAiLoading(true);
     try {
-      const transcript = aiScript.trim();
-      const styleText = aiVoiceStyle.trim();
-      const normalizedStyleText = styleText
-        // 先頭/末尾に括弧が入力されていても二重括弧にならないように整形
-        .replace(/^[\s()（）]+/, '')
-        .replace(/[\s()（）]+$/, '');
-      const styleDirectiveText = normalizedStyleText ? `（${normalizedStyleText}）` : '';
-      const styledText = `${styleDirectiveText}${transcript}`;
-      const styledPrompt = normalizedStyleText
-        ? [
-            'Generate Japanese TTS audio.',
-            'The leading parenthesized style directive is NOT part of narration and must never be spoken.',
-            'Speak only the narration body that follows the directive.',
-            'Do not add extra words.',
-            `Input: ${styledText}`,
-          ].join('\n')
-        : `Say the following Japanese text:\n${transcript}`;
-      const plainPrompt = `Say the following Japanese text:\n${transcript}`;
-      const strictPrompt = `TTS the following text exactly as written. Do not add any extra words.\n${transcript}`;
+      // 場面 + 区間語り口調を 1 本の TTS プロンプトへ（原稿は単一テキスト＋マーカー）
+      const { buildNarrationTtsPrompt, stripDeliveryMarkers } = await import('../utils/narrationDelivery');
+      const sceneText = (useUIStore.getState().aiNarrationScene || '').trim();
+      // 旧「声の調子」は場面未設定時のフォールバックとして残す
+      const legacyStyle = aiVoiceStyle.trim();
+      const effectiveScene = sceneText || legacyStyle;
+      const delivery = buildNarrationTtsPrompt({
+        scene: effectiveScene,
+        script: aiScript,
+      });
+      const plainText = delivery.plainText || stripDeliveryMarkers(aiScript).trim();
+      if (!plainText) {
+        setError('読み上げる原稿が空です。語り口調の記号だけの状態になっていないか確認してください。');
+        return;
+      }
+
+      const styledPrompt = delivery.prompt;
+      const plainPrompt = `Say the following Japanese text:\n${plainText}`;
+      const strictPrompt = `TTS the following text exactly as written. Do not add any extra words.\n${plainText}`;
 
       const requestTts = (text: string) =>
         fetch(`${GEMINI_API_BASE_URL}/${GEMINI_TTS_MODEL}:generateContent`, {
@@ -1468,7 +1471,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         };
       };
 
-      const attempts: TtsAttempt[] = styleText
+      const attempts: TtsAttempt[] = delivery.hasDeliveryControl
         ? [
             { label: 'style', prompt: styledPrompt, usedStyle: true },
             { label: 'plain', prompt: plainPrompt, usedStyle: false },
@@ -1538,8 +1541,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         throw new Error(`音声データを取得できませんでした${reasonSuffix}`);
       }
 
-      if (styleText && resolvedAttempt && !resolvedAttempt.usedStyle) {
-        showToast('声の調子指定は適用できなかったため、通常の読み上げで生成しました。', 5000);
+      if (delivery.hasDeliveryControl && resolvedAttempt && !resolvedAttempt.usedStyle) {
+        showToast('場面・語り口調の指定は適用できなかったため、通常の読み上げで生成しました。', 5000);
       }
 
       const binaryString = window.atob(resolvedInlineData.data);
@@ -1570,6 +1573,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
           { type: 'audio/wav' },
         );
         const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+        const sceneForSave = useUIStore.getState().aiNarrationScene || '';
         if (editingNarrationId) {
           replaceNarrationAudio(editingNarrationId, {
             file: narrationFile,
@@ -1581,11 +1585,13 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
             aiScript,
             aiVoice,
             aiVoiceStyle,
+            aiNarrationScene: sceneForSave,
           });
           updateNarrationMeta(editingNarrationId, {
             aiScript,
             aiVoice,
             aiVoiceStyle,
+            aiNarrationScene: sceneForSave,
           });
           setEditingNarrationId(null);
         } else {
@@ -1600,6 +1606,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               aiScript,
               aiVoice,
               aiVoiceStyle,
+              aiNarrationScene: sceneForSave,
             })
           );
         }
@@ -2355,8 +2362,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     setAiScript('');
     setAiPrompt('');
     setAiScriptLength('medium');
+    setAiVoiceStyle('');
+    setAiNarrationScene('');
     openAiModal();
-  }, [offlineMode, openAiModal, pausePreviewBeforeEdit, setAiPrompt, setAiScript]);
+  }, [offlineMode, openAiModal, pausePreviewBeforeEdit, setAiNarrationScene, setAiPrompt, setAiScript, setAiVoiceStyle]);
 
   const handleEditAiNarration = useCallback((id: string) => {
     if (offlineMode) return;
@@ -2372,8 +2381,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     setAiScriptLength(inferredLength);
     setAiVoice(target.aiVoice ?? 'Aoede');
     setAiVoiceStyle(target.aiVoiceStyle ?? '');
+    setAiNarrationScene(target.aiNarrationScene ?? '');
     openAiModal();
-  }, [narrations, offlineMode, openAiModal, pausePreviewBeforeEdit, setAiPrompt, setAiScript, setAiVoice, setAiVoiceStyle]);
+  }, [narrations, offlineMode, openAiModal, pausePreviewBeforeEdit, setAiNarrationScene, setAiPrompt, setAiScript, setAiVoice, setAiVoiceStyle]);
 
   const handleOpenSettingsModal = useCallback(() => {
     pausePreviewBeforeHeaderModal();
@@ -2980,6 +2990,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         aiScriptLength={aiScriptLength}
         aiVoice={aiVoice}
         aiVoiceStyle={aiVoiceStyle}
+        aiNarrationScene={aiNarrationScene}
         isAiLoading={isAiLoading}
         voiceOptions={VOICE_OPTIONS}
         onPromptChange={setAiPrompt}
@@ -2987,6 +2998,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         onScriptLengthChange={setAiScriptLength}
         onVoiceChange={setAiVoice}
         onVoiceStyleChange={setAiVoiceStyle}
+        onNarrationSceneChange={setAiNarrationScene}
         onGenerateScript={generateScript}
         onGenerateSpeech={generateSpeech}
       />

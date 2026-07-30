@@ -682,7 +682,7 @@
 | **Safari Export** | iOS Safari では OfflineAudioContext による音声プリレンダリング方式を使用。メインAudioContextで`decodeAudioData`を実行し、`f32-planar`形式のAudioDataをAudioEncoderに直接供給する。**重要**: iOS Safari の `decodeAudioData` はビデオコンテナ(.mov/.mp4)をデコードできない（`EncodingError`）ため、`extractAudioViaVideoElement()` で `<video>` 要素経由のリアルタイム音声抽出にフォールバックする。muxer/AudioEncoder は常に音声付きで初期化。OfflineAudioContext 失敗時は ScriptProcessorNode にフォールバック |
 | **タブ切替** | `visibilitychange` で hidden 時は通常再生を明示一時停止（`isPlayingRef=false` + `pause()`）、復帰時に Canvas 再描画と必要なメディア再同期を実行 |
 | **下部モーダル** | 下から開くモーダルは `history.pushState` + `popstate` で戻るキー閉じを実装し、モバイルでは `scrollTop=0` かつ縦下スワイプ（72px超）で閉じる。長文入力を持つモーダルでは、`textarea` / テキスト入力など編集用フィールドから始まったタッチを閉じる判定の対象外にして、原稿スクロールと誤競合しないようにする。クリーンアップ時は自分の履歴 state が先頭のときのみ `history.back()` する |
-| **AIナレーション(TTS)** | 声の調子は先頭に `（スタイル指示）` として付与し、TTS 指示で「括弧内は発話しない」を明示する。実際に読ませる本文は括弧の後ろのみ |
+| **AIナレーション(TTS)** | 場面＋区間語り口は `narrationDelivery.ts` で公式構造（Audio Profile / Scene / Director's Notes / Transcript）と英語 audio tags に変換する。UI の《語り口》は読み上げない。拒否時は素原稿へリトライ（13-2 / 13-162） |
 | **AIナレーション(原稿文量)** | 原稿生成は長さモードを秒数目安で統一する。`短め=約5秒（20〜35文字）` / `中くらい=約10秒（35〜60文字）` / `長め=約20秒（100〜140文字）` をプロンプトで明示し、過剰な長文化を防ぐ |
 | **オフラインモード** | `offlineModeStore` を localStorage 永続化し、AIナレーション入口・Gemini 呼び出し・更新確認を一元ガードする。オフライン中の AI 追加/編集ボタンは disabled にして「押してエラー」ではなく「押せない」挙動へ寄せ、既存ナレーションの移動や削除は止めない。UI文言は「インターネット接続が必要な機能を使わない」ことを示し、ブラウザ/OSレベルの完全遮断ではないと明記する。ON 切替時だけ注意ダイアログを必須にし、OFF 復帰時は service worker 登録済みなら即時更新確認、未登録なら登録完了後に 1 回だけ更新確認する |
 | **手動更新確認** | 設定タブの更新確認は `updateStore.checkForUpdate()` に集約し、更新検知時だけ既存の `ReloadPrompt` / `needRefresh` 表示を使う。更新が無いときだけ短い通知を出し、オフラインモード中はボタンを disabled にして実行自体を止める。`ReloadPrompt` の横幅は iOS Safari だけ左右余白付きの可変幅にして画面外にはみ出させず、Android / desktop の右下レイアウトは維持する |
@@ -2972,6 +2972,57 @@ export 終了（成功/失敗/中断）
 - **回帰ガード**:
   - 全項目の `description` を140文字以内に固定し、詳しい内容が構造化フィールドへ分離されていることをテストする。
   - BGMのON/OFF比較がアクセシブルな表として描画され、波形の要点・箇条書きが適切なHTML要素になることをコンポーネントテストで確認する。
+
+### 13-162. AIナレーションの場面指定と原稿内区間語り口調（単一入力欄）
+
+- **ファイル**: `src/utils/narrationDelivery.ts`, `src/components/modals/AiModal.tsx`, `src/components/TurtleVideo.tsx`, `src/stores/uiStore.ts`, `src/stores/audioStore.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/hooks/useAutoSave.ts`, `src/test/narrationDelivery.test.ts`
+- **要件**:
+  - 全体の場面・状況を指定できる
+  - 原稿は1つの入力欄で一括編集したまま、指定した文章まとまりごとに語り口調を変えられる
+  - よく使う語り口調は少数プリセット、それ以外は自由入力
+- **設計**:
+  - 入力欄分割はしない。語り口調は可視マーカー `《明るく》…《/》` / `《コミカルな声で》…《/》`（**コロン接頭は付けない**）。旧原稿の `《:…》` は読込互換のみ。
+  - 場面は `aiNarrationScene`（プリセット値 or 自由文）。旧 `aiVoiceStyle` は場面未設定時のフォールバック。
+  - TTS プロンプトは公式の **Scene / Sample Context / 短い [tag] 本文** 形式:
+    ```
+    Scene
+    The Corporate Studio.
+    Sample Context
+    Instructional E-learning. Measured pacing...
+    [informative] Welcome... [instruction] In this section... [reminder] Before we begin...
+    ```
+  - **audio tags は 1 語中心の短い英語**（公式例どおり）。長文の演技指示を `[...]` に入れない。
+    - プリセット: `bright` / `calm` / `clear` / `soft` / `emphasize`
+    - 自由入力: `toEnglishAudioTag()` で `comical` / `whispers` 等へマップ（未知は `expressive`）
+  - 場面プリセットは UI 用日本語 + TTS 用短い `sceneEn` / `styleEn` / `pacingEn`。保存は `scene` + `sampleContext` の JSON。
+  - `buildTaggedNarrationBody` は公式と同じインライン `[tag] text [tag] text`。
+  - 選択範囲/キャレットの語り口調解除は `unwrapRangeTone`。「すべて外す」も維持。
+  - キャプション生成は `stripDeliveryMarkers()` 後の平文のみ。
+- **UI/UX（スマホ）**:
+  - Step2: 語り口調チップ + 「選択の語り口を外す」。
+  - Step3: 場面プリセット（Scene/Sample Context プレビュー表示）→ 声。
+- **注意**:
+  - UI の《語り口》と TTS の短い `[tag]` は別物。API 直前に変換する。
+  - タグ直前に「角括弧は読み上げない」1 行のみ付与（公式の指示文読み上げ防止）。
+  - スタイル付きプロンプト拒否時は `TurtleVideo.generateSpeech` の素原稿リトライを維持（13-2）。
+
+### 13-161. AIナレーションの声は Gemini TTS 公式 30 声に合わせる
+
+- **ファイル**: `src/types/index.ts`, `src/constants/index.ts`, `src/components/modals/AiModal.tsx`, `src/test/voiceOptions.test.ts`
+- **調査結果**（Google AI for Developers / speech-generation、2026-07 時点）:
+  - Gemini TTS の prebuilt voice は **30 声**。`voice_name` と英語 trait が公式に定義されている。
+  - 旧実装は 5 声（Aoede / Kore / Puck / Fenrir / Charon）のみで、特徴説明も公式と不一致（例: Aoede を「親しみやすい標準」としていたが公式は **Breezy**）。
+  - 性別は Gemini API の voice 一覧には無いが、**Cloud Text-to-Speech の Gemini-TTS Voice options 表**に Female/Male がある（女性 14 / 男性 16）。
+- **対策**:
+  - `VOICE_OPTIONS` は公式 30 声。保持するのは `id`/`label`（voice_name）、`traitEn`/`desc`（公式 trait）、`gender`（Cloud TTS Female/Male）のみ。
+  - 年齢層・詳細な利用シーン説明など、公式にない推測フィールドは載せない。
+  - AI モーダルは「すべて／女性／男性」の性別フィルタのみ。セレクト表示は `【女性】Aoede — 軽やか（Breezy）`。
+  - フィルタ外の選択中声は `resolveVoiceSelectOptions` で先頭に残す。
+  - `voiceOptions.test.ts` で公式 30 声・性別・trait・推測フィールド非存在を回帰固定。
+- **注意**:
+  - API へ渡すのは従来どおり `prebuiltVoiceConfig.voiceName`。
+  - アプリ内サンプル再生は未実装。試聴は AI Studio リンクへ誘導。
+  - 公式 trait / 性別表が更新されたら `VOICE_OPTIONS` とテストの `OFFICIAL_VOICES` をセットで直す。
 
 ### 13-160. 動画タイトルのぼかしと縦画面（9:16）キャプション配置の調整
 

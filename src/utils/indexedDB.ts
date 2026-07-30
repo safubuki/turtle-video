@@ -109,6 +109,8 @@ export interface SerializedNarrationClip {
   aiScript?: string;
   aiVoice?: string;
   aiVoiceStyle?: string;
+  /** ナレーション全体の場面・状況（任意・旧データ互換） */
+  aiNarrationScene?: string;
   // クリップ範囲基準フェード（BGM クリップ用・任意）
   fadeIn?: boolean;
   fadeOut?: boolean;

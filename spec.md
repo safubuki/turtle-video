@@ -334,7 +334,7 @@ export type ExportStrategyId =
 |------|------|
 | スクリプト生成 | テーマからナレーション原稿を自動生成 |
 | 音声合成 (TTS) | 原稿から音声を生成 |
-| ボイス選択 | 5種類のAIボイスから選択 |
+| ボイス選択 | Gemini TTS 公式 30 声から選択（AI Studio と同一の voice_name / trait） |
 
 ### 7. プレビュー & 再生機能
 

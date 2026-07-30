@@ -3,9 +3,31 @@
  * @author Turtle Village
  * @description AIナレーションを生成するためのモーダルダイアログ。プロンプト入力、スクリプト生成、音声合成のフローを提供する。
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Sparkles, X, Loader, FileText, Mic, ChevronDown, CircleHelp, ExternalLink } from 'lucide-react';
-import type { VoiceOption, VoiceId, NarrationScriptLength } from '../../types';
+import type {
+  VoiceOption,
+  VoiceId,
+  NarrationScriptLength,
+  VoiceGenderFilter,
+} from '../../types';
+import {
+  formatVoiceOptionLabel,
+  getVoiceOption,
+  resolveVoiceSelectOptions,
+} from '../../constants';
+import {
+  NARRATION_SCENE_PRESETS,
+  NARRATION_TONE_PRESETS,
+  clearAllDeliveryMarkers,
+  decodeSceneSetting,
+  listAppliedToneLabels,
+  matchScenePresetId,
+  resolveSceneSetting,
+  unwrapRangeTone,
+  wrapRangeWithTone,
+  type NarrationScenePresetId,
+} from '../../utils/narrationDelivery';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 
 interface AiModalProps {
@@ -16,6 +38,7 @@ interface AiModalProps {
   aiScriptLength: NarrationScriptLength;
   aiVoice: VoiceId;
   aiVoiceStyle: string;
+  aiNarrationScene: string;
   isAiLoading: boolean;
   voiceOptions: VoiceOption[];
   onPromptChange: (value: string) => void;
@@ -23,6 +46,7 @@ interface AiModalProps {
   onScriptLengthChange: (value: NarrationScriptLength) => void;
   onVoiceChange: (value: VoiceId) => void;
   onVoiceStyleChange: (value: string) => void;
+  onNarrationSceneChange: (scene: string) => void;
   onGenerateScript: () => void;
   onGenerateSpeech: () => void;
 }
@@ -38,18 +62,30 @@ const AiModal: React.FC<AiModalProps> = ({
   aiScriptLength,
   aiVoice,
   aiVoiceStyle,
+  aiNarrationScene,
   isAiLoading,
   voiceOptions,
   onPromptChange,
   onScriptChange,
   onScriptLengthChange,
   onVoiceChange,
-  onVoiceStyleChange,
+  onVoiceStyleChange: _onVoiceStyleChange,
+  onNarrationSceneChange,
   onGenerateScript,
   onGenerateSpeech,
 }) => {
   // モーダル表示中は背景のスクロールを防止
   useDisableBodyScroll(isOpen);
+  /** 声一覧の性別絞り込み（すべて / 女性 / 男性） */
+  const [voiceGenderFilter, setVoiceGenderFilter] = useState<VoiceGenderFilter>('all');
+  /** 場面プリセット（custom 時は Scene / Sample Context を自由入力） */
+  const [scenePresetId, setScenePresetId] = useState<NarrationScenePresetId | 'custom'>('none');
+  const [customSceneLine, setCustomSceneLine] = useState('');
+  const [customSampleContext, setCustomSampleContext] = useState('');
+  /** 区間語り口調の自由入力 */
+  const [customToneText, setCustomToneText] = useState('');
+  const [selectionHint, setSelectionHint] = useState('');
+  const scriptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const showHelpRef = useRef(false);
   const modalHistoryIdRef = useRef<string | null>(null);
   const closedByPopstateRef = useRef(false);
@@ -70,81 +106,96 @@ const AiModal: React.FC<AiModalProps> = ({
     return window.matchMedia('(max-width: 767px)').matches;
   };
 
-  const tonePresets = [
-    { id: 'standard', label: '標準', value: '' },
-    { id: 'bright', label: '明るく', value: '明るく、親しみやすく' },
-    { id: 'calm', label: '落ち着いて', value: '落ち着いて、ゆっくり丁寧に' },
-  ] as const;
+  const voiceGenderFilterOptions: { id: VoiceGenderFilter; label: string }[] = [
+    { id: 'all', label: 'すべて' },
+    { id: 'female', label: '女性' },
+    { id: 'male', label: '男性' },
+  ];
 
-  const characterPresets = [
-    { id: 'youthful', label: '若々しい', value: '若々しく、軽やかに' },
-    { id: 'senior', label: '年配', value: '年配らしい深みのある調子で' },
-    { id: 'anime', label: 'アニメ調', value: 'アニメ風に、抑揚をつけて' },
-  ] as const;
+  const filteredVoiceOptions = useMemo(
+    () => resolveVoiceSelectOptions(voiceOptions, voiceGenderFilter, aiVoice),
+    [voiceOptions, voiceGenderFilter, aiVoice],
+  );
 
-  type TonePresetId = typeof tonePresets[number]['id'];
-  type CharacterPresetId = typeof characterPresets[number]['id'];
+  const selectedVoice =
+    getVoiceOption(aiVoice) ?? voiceOptions.find((v) => v.id === aiVoice) ?? null;
 
-  const cleanupStyleText = (text: string): string =>
-    text
-      .replace(/[。\s,、]{2,}/g, ' ')
-      .replace(/^[。\s,、]+/, '')
-      .replace(/[。\s,、]+$/, '')
-      .trim();
+  const filteredCount =
+    voiceGenderFilter === 'all'
+      ? voiceOptions.length
+      : voiceOptions.filter((v) => v.gender === voiceGenderFilter).length;
 
-  const removeStyleFragment = (text: string, fragment: string): string =>
-    cleanupStyleText(text.replace(fragment, ' '));
+  const appliedToneLabels = useMemo(() => listAppliedToneLabels(aiScript), [aiScript]);
 
-  const buildVoiceStyle = (
-    toneId: TonePresetId,
-    characterIds: CharacterPresetId[],
-    customText: string
-  ): string => {
-    const tone = tonePresets.find((item) => item.id === toneId)?.value.trim() ?? '';
-    const characterValues = characterPresets
-      .filter((item) => characterIds.includes(item.id))
-      .map((item) => item.value.trim())
-      .filter((value) => value.length > 0);
-    const custom = customText.trim();
-    const fragments = [tone, ...characterValues, custom].filter((value) => value.length > 0);
-    return fragments.join('。');
+  const activeSceneSetting = useMemo(() => {
+    if (scenePresetId === 'custom') {
+      return {
+        scene: customSceneLine.trim(),
+        sampleContext: customSampleContext.trim(),
+      };
+    }
+    const preset = NARRATION_SCENE_PRESETS.find((p) => p.id === scenePresetId);
+    return {
+      scene: preset?.scene ?? '',
+      sampleContext: preset?.sampleContext ?? '',
+    };
+  }, [scenePresetId, customSceneLine, customSampleContext]);
+
+  const applyScenePreset = (presetId: NarrationScenePresetId | 'custom') => {
+    setScenePresetId(presetId);
+    if (presetId === 'custom') {
+      onNarrationSceneChange(
+        resolveSceneSetting('custom', customSceneLine, customSampleContext),
+      );
+      return;
+    }
+    onNarrationSceneChange(resolveSceneSetting(presetId, '', ''));
   };
 
-  const parseVoiceStyle = (
-    value: string
-  ): { toneId: TonePresetId; characterIds: CharacterPresetId[]; customText: string } => {
-    const normalized = value.trim();
-    if (!normalized) {
-      return { toneId: 'standard', characterIds: [], customText: '' };
-    }
-
-    let remaining = normalized;
-    let toneId: TonePresetId = 'standard';
-    for (const preset of tonePresets) {
-      if (!preset.value) {
-        continue;
-      }
-      if (remaining.includes(preset.value)) {
-        toneId = preset.id;
-        remaining = removeStyleFragment(remaining, preset.value);
-        break;
-      }
-    }
-
-    const characterIds: CharacterPresetId[] = [];
-    for (const preset of characterPresets) {
-      if (remaining.includes(preset.value)) {
-        characterIds.push(preset.id);
-        remaining = removeStyleFragment(remaining, preset.value);
-      }
-    }
-
-    return { toneId, characterIds, customText: cleanupStyleText(remaining) };
+  const restoreCaret = (caret: number) => {
+    requestAnimationFrame(() => {
+      const ta = scriptTextareaRef.current;
+      if (!ta) return;
+      ta.focus();
+      ta.setSelectionRange(caret, caret);
+    });
   };
 
-  const [selectedTonePreset, setSelectedTonePreset] = useState<TonePresetId>('standard');
-  const [selectedCharacterPresets, setSelectedCharacterPresets] = useState<CharacterPresetId[]>([]);
-  const [customVoiceStyle, setCustomVoiceStyle] = useState('');
+  const applyToneToSelection = (toneLabel: string) => {
+    const el = scriptTextareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    if (start === end) {
+      setSelectionHint('原稿の中で範囲を選んでから、語り口調を押してください。');
+      return;
+    }
+    const { text, caret } = wrapRangeWithTone(aiScript, start, end, toneLabel);
+    onScriptChange(text);
+    setSelectionHint('');
+    restoreCaret(caret);
+  };
+
+  /** 選択範囲（またはキャレット位置）の語り口調マーカーを外す */
+  const removeToneFromSelection = () => {
+    const el = scriptTextareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    const { text, caret } = unwrapRangeTone(aiScript, start, end);
+    if (text === aiScript) {
+      setSelectionHint(
+        start === end
+          ? 'キャレットを《語り口》…《/》の内側に置くか、その範囲を選んでから解除してください。'
+          : '選択範囲に外せる語り口調がありません。',
+      );
+      return;
+    }
+    onScriptChange(text);
+    setSelectionHint('');
+    restoreCaret(caret);
+  };
+
   const [showHelp, setShowHelp] = useState(false);
 
   useEffect(() => {
@@ -195,12 +246,23 @@ const AiModal: React.FC<AiModalProps> = ({
     };
   }, [isOpen, onClose]);
 
+  // モーダルを開いたとき・場面設定が変わったときプリセット選択を同期
   useEffect(() => {
-    const parsedVoiceStyle = parseVoiceStyle(aiVoiceStyle);
-    setSelectedTonePreset(parsedVoiceStyle.toneId);
-    setSelectedCharacterPresets(parsedVoiceStyle.characterIds);
-    setCustomVoiceStyle(parsedVoiceStyle.customText);
-  }, [aiVoiceStyle, isOpen]);
+    if (!isOpen) return;
+    const matched = matchScenePresetId(aiNarrationScene);
+    setScenePresetId(matched);
+    if (matched === 'custom') {
+      const decoded = decodeSceneSetting(aiNarrationScene);
+      setCustomSceneLine(decoded.scene);
+      setCustomSampleContext(decoded.sampleContext);
+    } else if (!aiNarrationScene.trim() && aiVoiceStyle.trim()) {
+      // 旧「声の調子」のみあるデータは Sample Context として復元
+      setScenePresetId('custom');
+      setCustomSceneLine('');
+      setCustomSampleContext(aiVoiceStyle);
+      onNarrationSceneChange(resolveSceneSetting('custom', '', aiVoiceStyle));
+    }
+  }, [aiNarrationScene, aiVoiceStyle, isOpen, onNarrationSceneChange]);
 
   const resetTouchTracking = () => {
     touchStartXRef.current = null;
@@ -252,14 +314,6 @@ const AiModal: React.FC<AiModalProps> = ({
       onClose();
     }
     resetTouchTracking();
-  };
-
-  const syncVoiceStyle = (
-    toneId: TonePresetId,
-    characterIds: CharacterPresetId[],
-    customText: string
-  ) => {
-    onVoiceStyleChange(buildVoiceStyle(toneId, characterIds, customText));
   };
 
   if (!isOpen) return null;
@@ -330,8 +384,8 @@ const AiModal: React.FC<AiModalProps> = ({
               <ol className="list-decimal ml-4 space-y-1 text-xs md:text-sm text-orange-50 leading-relaxed">
                 <li>STEP 1: テーマを入れて「AI原稿を作成」。テーマは任意で、長さも選べます。</li>
                 <li>STEP 2: 原稿を直接編集。テーマを入れずに、Step2へ直接入力することもできます。</li>
-                <li>STEP 3: 声の選択と調子を決めて「AIナレーションを作成して追加」を押します。</li>
-                <li>声の調子の2段目は複数選択できます。自由入力は任意で追加できます。</li>
+                <li>STEP 2: 原稿を1つの欄で編集し、必要な箇所を選んで語り口調を付けます。</li>
+                <li>STEP 3: 場面（全体）と声を選んで「AIナレーションを作成して追加」を押します。</li>
               </ol>
             </div>
           )}
@@ -400,116 +454,265 @@ const AiModal: React.FC<AiModalProps> = ({
             </fieldset>
           </div>
           <div className="space-y-1.5 md:space-y-2">
-            <label className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
-              Step 2: 原稿編集（直接入力OK）
+            <label
+              htmlFor="ai-narration-script"
+              className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1"
+            >
+              Step 2: 原稿（1つの欄で編集）
             </label>
             <textarea
+              id="ai-narration-script"
+              ref={scriptTextareaRef}
               value={aiScript}
-              onChange={(e) => onScriptChange(e.target.value)}
-              placeholder="ここにそのままナレーション原稿を入力できます"
-              className="w-full h-44 md:h-48 bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm focus:outline-none focus:border-blue-500 resize-none"
+              onChange={(e) => {
+                onScriptChange(e.target.value);
+                if (selectionHint) setSelectionHint('');
+              }}
+              placeholder="ここにナレーション原稿を入力・貼り付けできます"
+              className="w-full h-40 md:h-44 bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm focus:outline-none focus:border-blue-500 resize-none"
             />
+
+            {/* 区間ごとの語り口調：選択範囲へ付与（入力欄は分割しない） */}
+            <div className="rounded-lg border border-gray-700/80 bg-gray-900/50 p-2.5 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-1.5">
+                <p className="text-[11px] md:text-xs font-semibold text-gray-300">
+                  選択した文章に語り口調
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={removeToneFromSelection}
+                    className="min-h-8 px-2 rounded-md text-[10px] md:text-[11px] font-semibold border border-gray-600 bg-gray-800 text-gray-200 hover:border-amber-400/70 hover:text-amber-100"
+                  >
+                    選択の語り口を外す
+                  </button>
+                  {appliedToneLabels.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onScriptChange(clearAllDeliveryMarkers(aiScript));
+                        setSelectionHint('');
+                      }}
+                      className="text-[10px] md:text-[11px] text-gray-400 underline underline-offset-2 hover:text-gray-200"
+                    >
+                      すべて外す
+                    </button>
+                  )}
+                </div>
+              </div>
+              <p className="text-[10px] text-gray-500 leading-relaxed">
+                原稿の一部を選んでからボタンを押します。スマホは長押しで範囲選択。解除は範囲を選ぶか《…》の中にカーソルを置いて「選択の語り口を外す」。
+              </p>
+              <div className="flex flex-wrap gap-1.5" role="group" aria-label="語り口調プリセット">
+                {NARRATION_TONE_PRESETS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => applyToneToSelection(preset.label)}
+                    className="min-h-9 px-2.5 rounded-lg text-[11px] md:text-xs font-semibold border border-gray-600 bg-gray-800 text-gray-100 hover:border-purple-400 hover:bg-purple-500/15 active:scale-[0.98] transition"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={customToneText}
+                  onChange={(e) => setCustomToneText(e.target.value)}
+                  placeholder="自由な語り口（例: 少し早口で）"
+                  className="min-w-0 flex-1 bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:border-blue-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!customToneText.trim()) {
+                      setSelectionHint('自由入力の語り口を書いてから適用してください。');
+                      return;
+                    }
+                    applyToneToSelection(customToneText.trim());
+                  }}
+                  className="shrink-0 min-h-9 px-3 rounded-lg text-[11px] md:text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white"
+                >
+                  適用
+                </button>
+              </div>
+              {selectionHint && (
+                <p className="text-[10px] text-amber-300/90" role="status">
+                  {selectionHint}
+                </p>
+              )}
+              {appliedToneLabels.length > 0 && (
+                <p className="text-[10px] text-gray-500">
+                  設定中: {appliedToneLabels.join(' / ')}（画面上は《語り口》…《/》。音声生成時は
+                  Scene / Sample Context と短い英語 [tag] 本文 形式へ変換）
+                </p>
+              )}
+            </div>
           </div>
+
           <div className="space-y-3 md:space-y-4">
             <div className="space-y-1.5 md:space-y-2">
               <label className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
-                Step 3: 声の設定
+                Step 3: 場面・声
               </label>
             </div>
+
+            {/* 全体の Scene / Sample Context（Google 公式 TTS 構成に対応） */}
+            <div className="space-y-1.5 md:space-y-2">
+              <span className="text-xs font-bold text-gray-400">場面・状況（全体）</span>
+              <div
+                className="flex flex-wrap gap-1.5"
+                role="group"
+                aria-label="場面プリセット"
+              >
+                {NARRATION_SCENE_PRESETS.map((preset) => {
+                  const active = scenePresetId === preset.id;
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => applyScenePreset(preset.id)}
+                      className={`min-h-9 px-2.5 rounded-lg text-[11px] md:text-xs font-semibold border transition ${
+                        active
+                          ? 'bg-indigo-500 text-white border-indigo-400'
+                          : 'bg-gray-900 text-gray-300 border-gray-700 hover:border-indigo-400/60'
+                      }`}
+                      aria-pressed={active}
+                    >
+                      {preset.label}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => applyScenePreset('custom')}
+                  className={`min-h-9 px-2.5 rounded-lg text-[11px] md:text-xs font-semibold border transition ${
+                    scenePresetId === 'custom'
+                      ? 'bg-indigo-500 text-white border-indigo-400'
+                      : 'bg-gray-900 text-gray-300 border-gray-700 hover:border-indigo-400/60'
+                  }`}
+                  aria-pressed={scenePresetId === 'custom'}
+                >
+                  自由入力
+                </button>
+              </div>
+              {scenePresetId === 'custom' && (
+                <div className="space-y-1.5">
+                  <input
+                    type="text"
+                    value={customSceneLine}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setCustomSceneLine(value);
+                      setScenePresetId('custom');
+                      onNarrationSceneChange(
+                        resolveSceneSetting('custom', value, customSampleContext),
+                      );
+                    }}
+                    placeholder="Scene（場所）例: 静かなスタジオ。"
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                  />
+                  <textarea
+                    value={customSampleContext}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setCustomSampleContext(value);
+                      setScenePresetId('custom');
+                      onNarrationSceneChange(
+                        resolveSceneSetting('custom', customSceneLine, value),
+                      );
+                    }}
+                    rows={2}
+                    placeholder="Sample Context（話し方）例: 操作説明。落ち着いたペースで、はっきりと親しみやすく。"
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 resize-none"
+                  />
+                </div>
+              )}
+              {(activeSceneSetting.scene || activeSceneSetting.sampleContext) && (
+                <div className="rounded-lg border border-gray-700/70 bg-gray-900/60 px-2.5 py-2 space-y-1 text-[10px] md:text-[11px] text-gray-400 leading-relaxed">
+                  {activeSceneSetting.scene && (
+                    <p>
+                      <span className="font-semibold text-gray-300">Scene</span>{' '}
+                      {activeSceneSetting.scene}
+                    </p>
+                  )}
+                  {activeSceneSetting.sampleContext && (
+                    <p>
+                      <span className="font-semibold text-gray-300">Sample Context</span>{' '}
+                      {activeSceneSetting.sampleContext}
+                    </p>
+                  )}
+                </div>
+              )}
+              <p className="text-[10px] text-gray-500 leading-relaxed">
+                Google TTS と同様に、場所（Scene）と話し方の方針（Sample Context）を指定します。区間の
+                [tag] と組み合わせて臨場感を出せます。
+              </p>
+            </div>
+
             <div className="space-y-1.5 md:space-y-2">
               <label className="text-xs font-bold text-gray-400 flex items-center gap-1">
                 声の選択
               </label>
+              <div
+                className="flex flex-wrap items-center gap-1.5"
+                role="group"
+                aria-label="声の性別で絞り込み"
+              >
+                {voiceGenderFilterOptions.map((opt) => {
+                  const active = voiceGenderFilter === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setVoiceGenderFilter(opt.id)}
+                      className={`min-h-9 px-3 rounded-lg text-[11px] md:text-xs font-semibold border transition ${
+                        active
+                          ? 'bg-blue-500 text-white border-blue-400'
+                          : 'bg-gray-900 text-gray-300 border-gray-700 hover:border-blue-500/50 hover:text-blue-100'
+                      }`}
+                      aria-pressed={active}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+                <span className="text-[10px] text-gray-500 ml-0.5">{filteredCount} 件</span>
+              </div>
               <div className="relative">
                 <select
                   value={aiVoice}
                   onChange={(e) => onVoiceChange(e.target.value as VoiceId)}
                   className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 pr-10 text-sm appearance-none focus:outline-none focus:border-blue-500 text-gray-100"
+                  aria-describedby="ai-voice-help"
                 >
-                  {voiceOptions.map((v) => (
+                  {filteredVoiceOptions.map((v) => (
                     <option key={v.id} value={v.id}>
-                      {v.label} - {v.desc}
+                      {formatVoiceOptionLabel(v)}
                     </option>
                   ))}
                 </select>
                 <ChevronDown className="w-4 h-4 absolute inset-y-0 right-3 my-auto text-gray-400 pointer-events-none" />
               </div>
-            </div>
-            <div className="space-y-1.5 md:space-y-2">
-              <label className="text-xs font-bold text-gray-400 flex items-center gap-1">
-                声の調子（オプション）
-              </label>
-              <fieldset className="space-y-1.5 md:space-y-2">
-                <legend className="sr-only">話し方の雰囲気</legend>
-                <div className="grid grid-cols-3 gap-1.5 md:gap-2">
-                  {tonePresets.map((preset) => (
-                    <label
-                      key={preset.id}
-                      className={`rounded-md border px-2 py-2 text-center text-[11px] md:text-xs font-semibold cursor-pointer transition-colors ${
-                        selectedTonePreset === preset.id
-                          ? 'border-purple-500 bg-purple-500/20 text-white'
-                          : 'border-gray-700 bg-gray-900/40 text-gray-200 hover:border-gray-500'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="voice-style-tone"
-                        checked={selectedTonePreset === preset.id}
-                        onChange={() => {
-                          setSelectedTonePreset(preset.id);
-                          syncVoiceStyle(preset.id, selectedCharacterPresets, customVoiceStyle);
-                        }}
-                        className="sr-only"
-                      />
-                      {preset.label}
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-              <fieldset className="space-y-1.5 md:space-y-2">
-                <legend className="sr-only">話し方のキャラクター</legend>
-                <div className="grid grid-cols-3 gap-1.5 md:gap-2">
-                  {characterPresets.map((preset) => {
-                    const selected = selectedCharacterPresets.includes(preset.id);
-                    return (
-                      <label
-                        key={preset.id}
-                        className={`rounded-md border px-2 py-2 text-center text-[11px] md:text-xs font-semibold cursor-pointer transition-colors ${
-                          selected
-                            ? 'border-cyan-500 bg-cyan-500/20 text-white'
-                            : 'border-gray-700 bg-gray-900/40 text-gray-200 hover:border-gray-500'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          name={`voice-style-character-${preset.id}`}
-                          checked={selected}
-                          onChange={() => {
-                            const nextCharacterPresets = selected
-                              ? selectedCharacterPresets.filter((id) => id !== preset.id)
-                              : [...selectedCharacterPresets, preset.id];
-                            setSelectedCharacterPresets(nextCharacterPresets);
-                            syncVoiceStyle(selectedTonePreset, nextCharacterPresets, customVoiceStyle);
-                          }}
-                          className="sr-only"
-                        />
-                        {preset.label}
-                      </label>
-                    );
-                  })}
-                </div>
-              </fieldset>
-              <input
-                type="text"
-                value={customVoiceStyle}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setCustomVoiceStyle(value);
-                  syncVoiceStyle(selectedTonePreset, selectedCharacterPresets, value);
-                }}
-                placeholder="追加ニュアンス（任意） 例: 少し低めで、ニュース番組のように"
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-              />
+              {selectedVoice && (
+                <p className="text-[10px] md:text-xs text-gray-400">
+                  選択中: {selectedVoice.gender === 'female' ? '女性' : '男性'} · {selectedVoice.label} —{' '}
+                  {selectedVoice.desc}
+                </p>
+              )}
+              <p id="ai-voice-help" className="text-[10px] md:text-xs text-gray-500 leading-relaxed">
+                公式 {voiceOptions.length} 声。試聴は{' '}
+                <a
+                  href="https://aistudio.google.com/generate-speech"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+                >
+                  AI Studio
+                </a>
+                で確認できます。
+              </p>
             </div>
           </div>
           <button

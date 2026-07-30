@@ -4,15 +4,69 @@
  * @description アプリケーション全体で使用される型定義（インターフェース、型エイリアス）。
  */
 
-// ボイスID (定数と連動)
-export type VoiceId = 'Aoede' | 'Kore' | 'Puck' | 'Fenrir' | 'Charon';
+/**
+ * Gemini TTS / Google AI Studio の prebuilt voice 名。
+ * 公式ドキュメント（speech-generation#voices）の 30 声と一致させる。
+ * @see https://ai.google.dev/gemini-api/docs/speech-generation#voices
+ */
+export type VoiceId =
+  | 'Zephyr'
+  | 'Puck'
+  | 'Charon'
+  | 'Kore'
+  | 'Fenrir'
+  | 'Leda'
+  | 'Orus'
+  | 'Aoede'
+  | 'Callirrhoe'
+  | 'Autonoe'
+  | 'Enceladus'
+  | 'Iapetus'
+  | 'Umbriel'
+  | 'Algieba'
+  | 'Despina'
+  | 'Erinome'
+  | 'Algenib'
+  | 'Rasalgethi'
+  | 'Laomedeia'
+  | 'Achernar'
+  | 'Alnilam'
+  | 'Schedar'
+  | 'Gacrux'
+  | 'Pulcherrima'
+  | 'Achird'
+  | 'Zubenelgenubi'
+  | 'Vindemiatrix'
+  | 'Sadachbia'
+  | 'Sadaltager'
+  | 'Sulafat';
 export type NarrationScriptLength = 'short' | 'medium' | 'long';
 
-// ボイスオプション
+/**
+ * 声の性別ラベル。
+ * Google Cloud Gemini-TTS の Voice options 表（Female / Male）に準拠。
+ * @see https://docs.cloud.google.com/text-to-speech/docs/gemini-tts#voice_options
+ */
+export type VoiceGender = 'female' | 'male';
+
+/** 声一覧の性別絞り込み（UI 用） */
+export type VoiceGenderFilter = 'all' | VoiceGender;
+
+// ボイスオプション（公式に公開されている項目のみ）
 export interface VoiceOption {
   id: VoiceId;
+  /** 表示名（公式 voice_name と同じ） */
   label: string;
+  /**
+   * 公式 trait の表示用。
+   * 英語 trait（Bright 等）の日本語訳 + 原文。
+   * @see https://ai.google.dev/gemini-api/docs/speech-generation#voices
+   */
   desc: string;
+  /** 性別（Cloud TTS 公式表） */
+  gender: VoiceGender;
+  /** 公式英語 trait（Bright 等） */
+  traitEn: string;
 }
 
 // クリップ間トランジション（standard フレーバー限定機能。
@@ -97,7 +151,13 @@ export interface NarrationClip {
   isAiEditable: boolean;
   aiScript?: string;
   aiVoice?: VoiceId;
+  /** 全体の話し方ニュアンス（旧。場面指定 aiNarrationScene と併用可） */
   aiVoiceStyle?: string;
+  /**
+   * ナレーション全体の場面・状況（例: 静かなスタジオで操作を説明している）。
+   * TTS の監督指示として使う。未設定は空。
+   */
+  aiNarrationScene?: string;
   // クリップ範囲基準のフェード（任意・省略時 false）。
   // 主に BGM クリップ（BgmClip）で使用する。standard フレーバーの
   // preview / export エンジンのみが解釈する（iOS では無視される）。

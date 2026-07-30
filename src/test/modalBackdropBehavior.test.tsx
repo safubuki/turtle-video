@@ -74,13 +74,23 @@ const renderAiModal = (onClose = vi.fn()) => {
       aiScriptLength="short"
       aiVoice="Aoede"
       aiVoiceStyle=""
+      aiNarrationScene=""
       isAiLoading={false}
-      voiceOptions={[{ id: 'Aoede', label: 'Aoede', desc: 'default' }]}
+      voiceOptions={[
+        {
+          id: 'Aoede',
+          label: 'Aoede',
+          desc: '軽やか（Breezy）',
+          gender: 'female',
+          traitEn: 'Breezy',
+        },
+      ]}
       onPromptChange={() => {}}
       onScriptChange={() => {}}
       onScriptLengthChange={() => {}}
       onVoiceChange={() => {}}
       onVoiceStyleChange={() => {}}
+      onNarrationSceneChange={() => {}}
       onGenerateScript={() => {}}
       onGenerateSpeech={() => {}}
     />

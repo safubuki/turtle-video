@@ -201,6 +201,7 @@ export function useAutoSave() {
         n.aiScript ?? '',
         n.aiVoice ?? '',
         n.aiVoiceStyle ?? '',
+        n.aiNarrationScene ?? '',
       ].join(':')).join(','),
       captions.length,
       captions.map((c) => [

@@ -21,6 +21,7 @@ interface CreateNarrationClipParams {
   aiScript?: string;
   aiVoice?: NarrationClip['aiVoice'];
   aiVoiceStyle?: string;
+  aiNarrationScene?: string;
 }
 
 interface AudioState {
@@ -87,7 +88,7 @@ interface AudioState {
   updateNarrationMeta: (id: string, updates: Partial<NarrationClip>) => void;
   replaceNarrationAudio: (
     id: string,
-    payload: Pick<NarrationClip, 'file' | 'url' | 'blobUrl' | 'duration' | 'sourceType' | 'isAiEditable' | 'aiScript' | 'aiVoice' | 'aiVoiceStyle'>
+    payload: Pick<NarrationClip, 'file' | 'url' | 'blobUrl' | 'duration' | 'sourceType' | 'isAiEditable' | 'aiScript' | 'aiVoice' | 'aiVoiceStyle' | 'aiNarrationScene'>
   ) => void;
   moveNarration: (id: string, direction: 'up' | 'down') => void;
   removeNarration: (id: string) => void;
@@ -513,6 +514,7 @@ export function createNarrationClip(params: CreateNarrationClipParams): Narratio
     aiScript: params.aiScript,
     aiVoice: params.aiVoice,
     aiVoiceStyle: params.aiVoiceStyle,
+    aiNarrationScene: params.aiNarrationScene,
   };
 }
 
@@ -982,6 +984,7 @@ export const useAudioStore = create<AudioState>()(
               aiScript: payload.aiScript,
               aiVoice: payload.aiVoice,
               aiVoiceStyle: payload.aiVoiceStyle,
+              aiNarrationScene: payload.aiNarrationScene,
             };
           }),
         }));
