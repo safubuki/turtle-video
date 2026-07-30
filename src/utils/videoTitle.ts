@@ -13,12 +13,17 @@
 import type { CaptionPosition, VideoTitleSettings } from '../types';
 import {
   CAPTION_FONT_SIZE_PRESETS,
+  CAPTION_PORTRAIT_BOTTOM_Y_PERCENT,
+  CAPTION_REFERENCE_SIZE,
   CAPTION_STROKE_WIDTH_MAX,
   CAPTION_STROKE_WIDTH_MIN,
   CAPTION_STROKE_WIDTH_STEP,
+  clampCaptionBlur,
   clampCaptionStrokeWidth,
   clampCustomFontSize,
   clampPositionPercent,
+  isPortraitCanvas,
+  resolveCaptionLayoutScale,
 } from './captionStyle';
 import { resolveCaptionFontFamily } from './captionFontCatalog';
 import { createCaptionGlyphCanvas } from './canvas';
@@ -77,6 +82,8 @@ export const DEFAULT_VIDEO_TITLE_SETTINGS: VideoTitleSettings = {
   backgroundColor: '#000000',
   backgroundOpacity: 0.45,
   backgroundRadius: 16,
+  /** キャプションと同じ 0〜5px。既定はぼかしなし */
+  blur: 0,
   // 開始フェードは OFF（頭から出す）、終了フェードは 1 秒でなじませる
   fadeIn: false,
   fadeOut: true,
@@ -102,6 +109,12 @@ export function resolveVideoTitleBaseFontSize(
 export function clampVideoTitleStrokeWidth(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_VIDEO_TITLE_SETTINGS.strokeWidth;
   return clampCaptionStrokeWidth(value);
+}
+
+/** ぼかしのクランプ。キャプションと同一の範囲（0〜5px・0.1 刻み） */
+export function clampVideoTitleBlur(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_VIDEO_TITLE_SETTINGS.blur;
+  return clampCaptionBlur(value);
 }
 
 export function clampVideoTitleBackgroundOpacity(value: number): number {
@@ -209,6 +222,10 @@ export function resolveVideoTitleAnchor(
     return { x, y: padding + blockHeight / 2 };
   }
   if (position === 'bottom') {
+    // キャプションと同じく、縦画面では下部プリセットをやや上へ寄せる
+    if (isPortraitCanvas(canvasWidth, canvasHeight)) {
+      return { x, y: (canvasHeight * CAPTION_PORTRAIT_BOTTOM_Y_PERCENT) / 100 };
+    }
     return { x, y: canvasHeight - padding - blockHeight / 2 };
   }
   return { x, y: canvasHeight / 2 };
@@ -250,11 +267,12 @@ export function resolveVideoTitleAlpha(
 }
 
 /**
- * タイトル描画のスケール基準（px @1080p）。キャプションと同じ基準を使う。
+ * タイトル描画のスケール基準（px @1080p）。キャプションと同じ短辺基準を使う。
  * プレビュー（720p）と export（1080p）で「フレームに対する文字の比率」を一致させ、
  * 「プレビューで見たまま export される（WYSIWYG）」を保証する。
+ * 縦画面でも横画面と同程度の文字サイズになるよう、高さではなく短辺を基準にする。
  */
-export const VIDEO_TITLE_REFERENCE_HEIGHT = 1080;
+export const VIDEO_TITLE_REFERENCE_HEIGHT = CAPTION_REFERENCE_SIZE;
 
 /** キャンバス端からの余白（px @1080p 基準）。キャプションと同じ 50px */
 const VIDEO_TITLE_PADDING = 50;
@@ -274,10 +292,11 @@ const VIDEO_TITLE_BACKGROUND_PADDING_Y_RATIO = 0.3;
  * 「エクスポート結果がプレビューと一致する」を構造的に担保する。
  *
  * 描画方針（キャプション実装 13-131 / 13-133 と揃える）:
- * - サイズ・縁幅・余白は 1080p 基準の値をキャンバス高さで按分する
+ * - サイズ・縁幅・余白・ぼかしは 1080p 基準の値をキャンバス短辺で按分する
  * - 文字は stroke + fill を 1 枚のオフスクリーン Canvas に不透明で合成してから
  *   globalAlpha 付きで転写する（フェード時に輪郭だけ残る現象を回避）
  * - 複数行は中央揃えで積み、時分割はしない（キャプションとの差別化）
+ * - ぼかしは通常 `ctx.filter`、iOS Safari 等では多重描画フォールバック
  *
  * @returns 実際に描画したら true（呼び出し側の didUpdateCanvas 判定に使う）
  */
@@ -285,6 +304,7 @@ export function drawVideoTitleFrame(
   ctx: CanvasRenderingContext2D,
   title: VideoTitleSettings | null | undefined,
   timeSec: number,
+  options?: { useBlurFallback?: boolean },
 ): boolean {
   if (!title) return false;
   if (!isVideoTitleActiveAtTime(title, timeSec)) return false;
@@ -299,9 +319,11 @@ export function drawVideoTitleFrame(
   const canvasHeight = ctx.canvas.height;
   if (canvasWidth <= 0 || canvasHeight <= 0) return false;
 
-  const scale = Math.max(0.1, canvasHeight / VIDEO_TITLE_REFERENCE_HEIGHT);
+  // 短辺基準。縦 9:16 で高さ基準だと文字が大きくなりすぎるため
+  const scale = resolveCaptionLayoutScale(canvasWidth, canvasHeight);
   const fontSize = Math.max(1, resolveVideoTitleBaseFontSize(title) * scale);
   const strokeWidth = clampVideoTitleStrokeWidth(title.strokeWidth) * scale;
+  const blurStrength = clampVideoTitleBlur(title.blur) * scale;
   const padding = VIDEO_TITLE_PADDING * scale;
   const lineHeight = fontSize * VIDEO_TITLE_LINE_HEIGHT_RATIO;
   const blockHeight = lineHeight * lines.length;
@@ -357,11 +379,62 @@ export function drawVideoTitleFrame(
     ctx.globalAlpha = alpha;
   }
 
-  // 文字（中央揃えで上から積む）
+  // 文字（中央揃えで上から積む）。ぼかしはキャプションと同じく filter または多重描画
   const firstLineCenterY = anchor.y - blockHeight / 2 + lineHeight / 2;
+  const useBlurFallback = Boolean(options?.useBlurFallback) && blurStrength > 0;
+
+  const drawGlyphAt = (
+    glyph: HTMLCanvasElement,
+    centerX: number,
+    centerY: number,
+    localAlpha: number,
+  ) => {
+    const clamped = Math.max(0, Math.min(1, localAlpha));
+    if (clamped <= 0) return;
+    ctx.globalAlpha = alpha * clamped;
+    ctx.drawImage(glyph, centerX - glyph.width / 2, centerY - glyph.height / 2);
+  };
+
   glyphCanvases.forEach((glyph, index) => {
     const centerY = firstLineCenterY + lineHeight * index;
-    ctx.drawImage(glyph, anchor.x - glyph.width / 2, centerY - glyph.height / 2);
+    const centerX = anchor.x;
+
+    if (useBlurFallback) {
+      // iOS Safari 向け: filter blur が効かないためキャプションと同じ多重描画
+      const blurNorm = Math.min(1, blurStrength / 5);
+      const ringCount = Math.max(3, Math.round(blurStrength * 3.5));
+      const samplesPerRing = 18;
+      const maxRadius = Math.max(1.5, blurStrength * 2.6);
+      const totalSamples = ringCount * samplesPerRing;
+      const prevComposite = ctx.globalCompositeOperation;
+
+      ctx.globalCompositeOperation = 'lighter';
+      for (let ring = 1; ring <= ringCount; ring++) {
+        const radius = (ring / ringCount) * maxRadius;
+        const ringWeight = Math.max(0.3, 1 - ((ring - 1) / Math.max(1, ringCount - 1)) * 0.55);
+        const sampleAlpha = ((0.95 + blurNorm * 0.55) * ringWeight) / totalSamples;
+        for (let i = 0; i < samplesPerRing; i++) {
+          const angle = (Math.PI * 2 * i) / samplesPerRing;
+          drawGlyphAt(
+            glyph,
+            centerX + Math.cos(angle) * radius,
+            centerY + Math.sin(angle) * radius,
+            sampleAlpha,
+          );
+        }
+      }
+      ctx.globalCompositeOperation = prevComposite;
+
+      const coreAlpha = Math.max(0.35, 0.9 - blurNorm * 0.45);
+      if (coreAlpha > 0.01) {
+        drawGlyphAt(glyph, centerX, centerY, coreAlpha);
+      }
+      return;
+    }
+
+    ctx.filter = blurStrength > 0 ? `blur(${blurStrength}px)` : 'none';
+    drawGlyphAt(glyph, centerX, centerY, 1);
+    ctx.filter = 'none';
   });
 
   ctx.restore();
@@ -392,6 +465,8 @@ export function normalizeVideoTitleSettings(
     strokeWidth: clampVideoTitleStrokeWidth(merged.strokeWidth),
     backgroundOpacity: clampVideoTitleBackgroundOpacity(merged.backgroundOpacity),
     backgroundRadius: clampVideoTitleBackgroundRadius(merged.backgroundRadius),
+    // 旧データ（ぼかし未対応）は undefined → 既定 0
+    blur: clampVideoTitleBlur(merged.blur ?? DEFAULT_VIDEO_TITLE_SETTINGS.blur),
     positionCustom: merged.positionCustom
       ? {
           x: clampPositionPercent(merged.positionCustom.x),

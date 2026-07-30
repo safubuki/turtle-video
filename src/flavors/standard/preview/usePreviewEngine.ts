@@ -20,6 +20,7 @@ import {
   resolveCaptionAnchor,
   resolveCaptionBaseFontSize,
   resolveCaptionGlyphStyle,
+  resolveCaptionLayoutScale,
 } from '../../../utils/captionStyle';
 import { drawVideoTitleFrame } from '../../../utils/videoTitle';
 import { drawWatermarkOverlayFrame } from '../../../utils/watermarkOverlay';
@@ -3178,18 +3179,16 @@ export function usePreviewEngine({
                 isActive: isCaptionActiveAtTime(activeCaption, time),
               });
             }
-            // fontSize は 1080p export を基準にした絶対 px (medium = 7.41% of 1080)。
-            // 解像度に応じて captionScale で按分するため、SNS 等で異なるサイズの画面で
-            // 再生されても「フレームに対する文字の比率」は常に同じになる (WYSIWYG)。
+            // fontSize は 1080p export を基準にした絶対 px (medium = 7.41% of 短辺 1080)。
+            // 短辺基準で按分するため、横 16:9 / 縦 9:16 でも「フレーム短辺に対する文字の比率」が揃う (WYSIWYG)。
+            // 高さだけを基準にすると縦画面で文字が約 1.78 倍になり見づらくなる。
             // プリセット + 一括カスタム値（fontSizeCustom）の解決は captionStyle.ts に集約。
             const baseFontSize = resolveCaptionBaseFontSize(activeCaption, currentCaptionSettings);
 
             // プレビューは 720p、エクスポートは 1080p で同じ canvas を使い回すため、
-            // 1080p を基準にスケールしておくと「プレビューで見たまま export される (WYSIWYG)」になる。
-            // 720p プレビュー時は fontSize/padding/stroke/blur を 0.667 倍に縮小し、
-            // export と同じキャンバス高さ比率で配置する。
-            const CAPTION_REFERENCE_HEIGHT = 1080;
-            const captionScale = Math.max(0.1, ctx.canvas.height / CAPTION_REFERENCE_HEIGHT);
+            // 短辺 1080 を基準にスケールすると「プレビューで見たまま export される (WYSIWYG)」になる。
+            // 720p プレビュー時は fontSize/padding/stroke/blur を 0.667 倍に縮小する。
+            const captionScale = resolveCaptionLayoutScale(ctx.canvas.width, ctx.canvas.height);
             const fontSize = Math.max(1, baseFontSize * captionScale);
 
             const effectiveFontStyle = activeCaption.overrideFontStyle ?? currentCaptionSettings.fontStyle;
@@ -3326,7 +3325,9 @@ export function usePreviewEngine({
         // === 動画タイトル描画（Issue #211・キャプションとは別管理） ===
         // キャプションの後（＝最前面）に描く。描画実装は utils/videoTitle.ts が単一ソースで、
         // apple-safari エンジンからも同じ関数を呼ぶため preview と export が必ず一致する。
-        if (drawVideoTitleFrame(ctx, videoTitleRef.current, time)) {
+        if (drawVideoTitleFrame(ctx, videoTitleRef.current, time, {
+          useBlurFallback: previewPlatformPolicy.needsCaptionBlurFallback,
+        })) {
           didUpdateCanvas = true;
         }
         // タイトルを含む既存合成の後へ置き、カード境界・トランジション中も継続表示する。

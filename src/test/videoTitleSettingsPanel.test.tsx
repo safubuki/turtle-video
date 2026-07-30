@@ -168,6 +168,18 @@ describe('VideoTitleSettingsPanel', () => {
     // 「カスタム」はサイズと位置の 2 か所（キャプションと同じ構成）
     expect(screen.getAllByRole('button', { name: 'カスタム' })).toHaveLength(2);
     expect(screen.getByLabelText('縁の幅:')).toBeInTheDocument();
+    // キャプションと同様のぼかしスライダー
+    expect(screen.getByLabelText('タイトルのぼかし')).toBeInTheDocument();
+  });
+
+  it('ぼかしスライダーを動かすと blur を更新する', () => {
+    const onUpdate = vi.fn();
+    render(<VideoTitleSettingsPanel {...buildPanelProps({ onUpdate })} />);
+    openTitle();
+    openStyle();
+
+    fireEvent.change(screen.getByLabelText('タイトルのぼかし'), { target: { value: '25' } });
+    expect(onUpdate).toHaveBeenCalledWith({ blur: 2.5 });
   });
 
   it('サイズはキャプションと同じプリセット + カスタムで操作できる', () => {

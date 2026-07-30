@@ -206,7 +206,7 @@ describe('drawVideoTitleFrame — プレビューとエクスポートの一致�
     expect(exported.y).toBeCloseTo(0.8, 5);
   });
 
-  it('文字サイズはフレーム高さにほぼ比例する（同じ見た目の比率）', () => {
+  it('文字サイズはフレーム短辺にほぼ比例する（同じ見た目の比率）', () => {
     const title = activeTitle({ fontSize: 'xlarge' });
     const preview = draw(title, 1, 1280, 720).drawImageCalls[0];
     const exported = draw(title, 1, 1920, 1080).drawImageCalls[0];
@@ -218,6 +218,34 @@ describe('drawVideoTitleFrame — プレビューとエクスポートの一致�
     expect(Math.abs(previewRatio - exportRatio)).toBeLessThan(0.02);
     // 幅も同様（フレームに対する文字の比率が解像度で大きく変わらない）
     expect(Math.abs(preview.width / 1280 - exported.width / 1920)).toBeLessThan(0.02);
+  });
+
+  it('縦画面でも短辺基準のため、横画面と同程度の文字サイズになる', () => {
+    const title = activeTitle({ fontSize: 'xlarge' });
+    const landscape = draw(title, 1, 1920, 1080).drawImageCalls[0];
+    const portrait = draw(title, 1, 1080, 1920).drawImageCalls[0];
+
+    // 短辺がどちらも 1080 なのでグリフ寸法はほぼ一致（高さ基準だと縦が約 1.78 倍になる）
+    expect(Math.abs(portrait.height - landscape.height)).toBeLessThan(4);
+    expect(Math.abs(portrait.width - landscape.width)).toBeLessThan(4);
+  });
+
+  it('ぼかし > 0 のとき filter に blur が設定される（標準経路）', () => {
+    const title = activeTitle({ blur: 2 });
+    const { ctx } = createStubContext(1920, 1080);
+    // filter を記録できるよう draw 前に差し替え
+    const filters: string[] = [];
+    Object.defineProperty(ctx, 'filter', {
+      configurable: true,
+      get() {
+        return filters[filters.length - 1] ?? 'none';
+      },
+      set(value: string) {
+        filters.push(value);
+      },
+    });
+    drawVideoTitleFrame(ctx as unknown as CanvasRenderingContext2D, title, 1);
+    expect(filters.some((f) => f.includes('blur('))).toBe(true);
   });
 });
 

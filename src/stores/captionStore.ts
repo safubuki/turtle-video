@@ -19,6 +19,7 @@ import {
   DEFAULT_VIDEO_TITLE_SETTINGS,
   clampVideoTitleBackgroundOpacity,
   clampVideoTitleBackgroundRadius,
+  clampVideoTitleBlur,
   clampVideoTitleStrokeWidth,
   normalizeVideoTitleRange,
   normalizeVideoTitleSettings,
@@ -436,6 +437,7 @@ export const useCaptionStore = create<CaptionState>()(
                 strokeWidth: clampVideoTitleStrokeWidth(merged.strokeWidth),
                 backgroundOpacity: clampVideoTitleBackgroundOpacity(merged.backgroundOpacity),
                 backgroundRadius: clampVideoTitleBackgroundRadius(merged.backgroundRadius),
+                blur: clampVideoTitleBlur(merged.blur),
               },
             };
           },

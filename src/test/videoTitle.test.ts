@@ -11,6 +11,7 @@ import {
   VIDEO_TITLE_MIN_DURATION_SEC,
   clampVideoTitleBackgroundOpacity,
   clampVideoTitleBackgroundRadius,
+  clampVideoTitleBlur,
   clampVideoTitleStrokeWidth,
   isVideoTitleActiveAtTime,
   normalizeVideoTitleRange,
@@ -22,8 +23,10 @@ import {
 } from '../utils/videoTitle';
 import {
   CAPTION_FONT_SIZE_PRESETS,
+  CAPTION_PORTRAIT_BOTTOM_Y_PERCENT,
   CAPTION_STROKE_WIDTH_MAX,
   CAPTION_STROKE_WIDTH_MIN,
+  clampCaptionBlur,
   clampCaptionStrokeWidth,
 } from '../utils/captionStyle';
 import type { VideoTitleSettings } from '../types';
@@ -62,6 +65,10 @@ describe('動画タイトルの既定値（Issue #211）', () => {
     expect(DEFAULT_VIDEO_TITLE_SETTINGS.fadeIn).toBe(false);
     expect(DEFAULT_VIDEO_TITLE_SETTINGS.fadeOut).toBe(true);
     expect(DEFAULT_VIDEO_TITLE_SETTINGS.fadeOutDuration).toBe(1);
+  });
+
+  it('既定のぼかしは 0（キャプションと同じく OFF）', () => {
+    expect(DEFAULT_VIDEO_TITLE_SETTINGS.blur).toBe(0);
   });
 
   it('既定では頭のフレームからフル表示される（開始フェードなし）', () => {
@@ -106,6 +113,13 @@ describe('clamp', () => {
     expect(clampVideoTitleBackgroundRadius(Number.NaN)).toBe(
       DEFAULT_VIDEO_TITLE_SETTINGS.backgroundRadius,
     );
+  });
+
+  it('ぼかしはキャプションと同じ範囲（0〜5px・0.1 刻み）', () => {
+    expect(clampVideoTitleBlur(1.24)).toBeCloseTo(1.2, 5);
+    expect(clampVideoTitleBlur(-1)).toBe(0);
+    expect(clampVideoTitleBlur(99)).toBe(5);
+    expect(clampVideoTitleBlur(2.5)).toBe(clampCaptionBlur(2.5));
   });
 });
 
@@ -173,6 +187,12 @@ describe('resolveVideoTitleAnchor', () => {
   it('上部・下部はブロック高さと余白を考慮する', () => {
     expect(resolveVideoTitleAnchor(baseTitle({ position: 'top' }), layout).y).toBe(150);
     expect(resolveVideoTitleAnchor(baseTitle({ position: 'bottom' }), layout).y).toBe(930);
+  });
+
+  it('縦画面の下部プリセットはキャプションと同じくやや上へ寄せる', () => {
+    const portrait = { canvasWidth: 1080, canvasHeight: 1920, blockHeight: 200, padding: 50 };
+    const y = resolveVideoTitleAnchor(baseTitle({ position: 'bottom' }), portrait).y;
+    expect(y).toBeCloseTo((1920 * CAPTION_PORTRAIT_BOTTOM_Y_PERCENT) / 100, 5);
   });
 
   it('カスタム XY はプリセットより優先される', () => {
@@ -250,6 +270,8 @@ describe('normalizeVideoTitleSettings（保存データの後方互換）', () =
     expect(restored.text).toBe('保存済み');
     expect(restored.position).toBe('center');
     expect(restored.fontSize).toBe(DEFAULT_VIDEO_TITLE_SETTINGS.fontSize);
+    // ぼかし未対応の旧データは blur=0 で補完
+    expect(restored.blur).toBe(0);
   });
 
   it('壊れた数値・時間は正規化する', () => {
@@ -257,12 +279,14 @@ describe('normalizeVideoTitleSettings（保存データの後方互換）', () =
       fontSizeCustom: 99999,
       strokeWidth: -10,
       backgroundOpacity: 42,
+      blur: 99,
       startTime: -5,
       endTime: -9,
       positionCustom: { x: 900, y: -20 },
     });
     expect(restored.fontSizeCustom).toBe(240);
     expect(restored.strokeWidth).toBe(0);
+    expect(restored.blur).toBe(5);
     expect(restored.backgroundOpacity).toBe(1);
     expect(restored.startTime).toBe(0);
     expect(restored.endTime).toBeGreaterThan(0);

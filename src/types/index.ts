@@ -241,6 +241,11 @@ export interface VideoTitleSettings {
   backgroundOpacity: number;
   /** 背景の帯の角丸半径 px @1080p 基準（0=角丸なし） */
   backgroundRadius: number;
+  /**
+   * ぼかし強度（0〜5px @1080p 基準、0=なし）。
+   * 通常キャプションの `CaptionSettings.blur` と同じ範囲・単位。
+   */
+  blur: number;
   fadeIn: boolean;
   fadeOut: boolean;
   fadeInDuration: number;

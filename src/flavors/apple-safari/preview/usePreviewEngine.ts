@@ -23,7 +23,12 @@ import type {
   WatermarkOverlay,
 } from '../../../types';
 import type { ExportPreparationStep, UseExportReturn } from '../../../hooks/export-strategies/types';
-import { resolveCaptionGlyphStyle } from '../../../utils/captionStyle';
+import {
+  CAPTION_PORTRAIT_BOTTOM_Y_PERCENT,
+  isPortraitCanvas,
+  resolveCaptionGlyphStyle,
+  resolveCaptionLayoutScale,
+} from '../../../utils/captionStyle';
 import { drawVideoTitleFrame } from '../../../utils/videoTitle';
 import { drawWatermarkOverlayFrame } from '../../../utils/watermarkOverlay';
 import type { LogCategory } from '../../../stores/logStore';
@@ -1185,18 +1190,16 @@ export function usePreviewEngine({
             (c) => isCaptionActiveAtTime(c, time),
           );
           for (const activeCaption of activeCaptions) {
-            // fontSize は 1080p export を基準にした絶対 px (medium = 7.41% of 1080)。
-            // 解像度に応じて captionScale で按分するため、SNS 等で異なるサイズの画面で
-            // 再生されても「フレームに対する文字の比率」は常に同じになる (WYSIWYG)。
+            // fontSize は 1080p export を基準にした絶対 px (medium = 7.41% of 短辺 1080)。
+            // 短辺基準で按分するため、横 16:9 / 縦 9:16 でも文字の見た目比率が揃う (WYSIWYG)。
             // 各段階 ~1.4 倍ずつ拡大する読みやすさ重視のサイズスケール。
             const fontSizeMap = { small: 56, medium: 80, large: 112, xlarge: 148 };
             const effectiveFontSizeKey = activeCaption.overrideFontSize ?? currentCaptionSettings.fontSize;
             const baseFontSize = fontSizeMap[effectiveFontSizeKey];
 
             // プレビューは 720p、エクスポートは 1080p で同じ canvas を使い回すため、
-            // 1080p を基準にスケールしておくと「プレビューで見たまま export される (WYSIWYG)」になる。
-            const CAPTION_REFERENCE_HEIGHT = 1080;
-            const captionScale = Math.max(0.1, ctx.canvas.height / CAPTION_REFERENCE_HEIGHT);
+            // 短辺 1080 を基準にスケールすると「プレビューで見たまま export される (WYSIWYG)」になる。
+            const captionScale = resolveCaptionLayoutScale(ctx.canvas.width, ctx.canvas.height);
             const fontSize = Math.max(1, baseFontSize * captionScale);
 
             const fontFamilyMap: Partial<Record<CaptionFontStyle, string>> = {
@@ -1214,6 +1217,9 @@ export function usePreviewEngine({
               y = padding + fontSize / 2;
             } else if (effectivePosition === 'center') {
               y = ctx.canvas.height / 2;
+            } else if (isPortraitCanvas(ctx.canvas.width, ctx.canvas.height)) {
+              // 縦画面は端寄りだと字幕が下すぎて見づらいため、既定をやや上へ
+              y = (ctx.canvas.height * CAPTION_PORTRAIT_BOTTOM_Y_PERCENT) / 100;
             } else {
               y = ctx.canvas.height - padding - fontSize / 2;
             }
@@ -1322,7 +1328,9 @@ export function usePreviewEngine({
         // === 動画タイトル描画（Issue #211・キャプションとは別管理） ===
         // 描画は utils/videoTitle.ts の共通実装を standard フレーバーと共有する。
         // 拡張フォント値（standard 限定）はキャプションと同様に sans-serif へフォールバックする。
-        if (drawVideoTitleFrame(ctx, videoTitleRef.current, time)) {
+        if (drawVideoTitleFrame(ctx, videoTitleRef.current, time, {
+          useBlurFallback: previewPlatformPolicy.needsCaptionBlurFallback,
+        })) {
           didUpdateCanvas = true;
         }
         if (drawWatermarkOverlayFrame(

@@ -2808,7 +2808,7 @@ export 終了（成功/失敗/中断）
   - このテストを書くときは **videoTitle 以外の依存をすべて同一参照に固定**すること。`captions: []` のように毎回新しい配列を渡すと renderFrame が常に作り直され、依存を外しても素通りするザルなテストになる。
 - **描画（preview = export の担保）**:
   - `utils/videoTitle.ts` の `drawVideoTitleFrame(ctx, title, timeSec)` が**唯一の描画実装**で、standard / apple-safari **両フレーバーのエンジンが同じ関数を呼ぶ**。export は preview の `drawFrame` を再利用しているため、この 1 関数で「エクスポート結果がプレビューと一致する」が構造的に成立する。**フレーバー側に描画ロジックをコピーしないこと**。
-  - キャプションと同じ 1080p 基準スケール（`canvas.height / 1080` で按分）。サイズ・縁幅・余白すべてに掛ける。
+  - キャプションと同じ 1080p 基準スケール（短辺 / 1080 で按分。詳細は 13-160）。サイズ・縁幅・余白・ぼかしすべてに掛ける。
   - 文字は `createCaptionGlyphCanvas` で stroke+fill を 1 枚に不透明合成してから単一 `globalAlpha` で転写（フェード時に輪郭だけ残る現象の回避。13-131 と同じ理由）。
   - **キャプションの後**（＝最前面）に描く。複数行は中央揃えで同時に全行を積み、**時分割はしない**（キャプションとの機能差別化）。
   - 背景の帯は任意。`backgroundOpacity === 0` では何も打たない。角丸（`backgroundRadius`）指定時は `roundRect`、0 のときは従来どおり `fillRect`。**角丸半径も 1080p 基準でスケール**し、帯の短辺の半分でクランプする。`roundRect` 未対応環境では角丸なしへフォールバックする。
@@ -2972,3 +2972,23 @@ export 終了（成功/失敗/中断）
 - **回帰ガード**:
   - 全項目の `description` を140文字以内に固定し、詳しい内容が構造化フィールドへ分離されていることをテストする。
   - BGMのON/OFF比較がアクセシブルな表として描画され、波形の要点・箇条書きが適切なHTML要素になることをコンポーネントテストで確認する。
+
+### 13-160. 動画タイトルのぼかしと縦画面（9:16）キャプション配置の調整
+
+- **ファイル**: `src/types/index.ts`, `src/utils/captionStyle.ts`, `src/utils/videoTitle.ts`, `src/stores/captionStore.ts`, `src/components/sections/VideoTitleSettingsPanel.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/androidPreviewCache.ts`, `src/constants/sectionHelp.ts`, 関連テスト
+- **タイトルぼかし**:
+  - `VideoTitleSettings.blur`（0〜5px @1080p・0.1 刻み）を追加。既定 0。キャプションの `CaptionSettings.blur` と同じ範囲・単位。
+  - UI はタイトル「スタイル設定」内の文字色の直後にスライダー（キャプション一括設定と同じ操作感）。
+  - 描画は `drawVideoTitleFrame` が単一ソース。通常は `ctx.filter = blur(...)`、iOS Safari 等は `useBlurFallback` でキャプションと同じ多重描画。
+  - 旧保存データ（blur 未定義）は `normalizeVideoTitleSettings` で 0 に補完。`updateTitle` / Android cache key にも含める。
+- **縦画面の文字サイズ**:
+  - 旧実装は `canvas.height / 1080` でスケールしていたため、縦 FHD（1080×1920）では約 1.78 倍になり文字が大きすぎた。
+  - `resolveCaptionLayoutScale(width, height)` が**短辺 / 1080** を返す。横 16:9 は従来どおり高さ基準と一致し、縦 9:16 は幅基準で横と同程度になる。
+  - standard / apple-safari のキャプション描画と `drawVideoTitleFrame` の両方で共有する。
+- **縦画面の下部位置**:
+  - `CAPTION_PORTRAIT_BOTTOM_Y_PERCENT = 80`（テキスト中心）。`resolveCaptionAnchor` / `resolveVideoTitleAnchor` の下部プリセット、および apple-safari の簡易位置計算で使用。
+  - 横画面の下部は従来どおり端寄り（padding + fontSize/2）。カスタム XY はユーザー指定を優先。
+- **注意**:
+  - スケール基準を再び「高さのみ」へ戻すと縦画面の文字肥大が再発する。
+  - タイトルぼかしをエンジン側に複製せず、`drawVideoTitleFrame` に閉じる（preview = export の担保）。
+  - 既存プロジェクトの下部プリセットは縦切替時に自動で 80% へ寄る（カスタム位置は変更しない）。

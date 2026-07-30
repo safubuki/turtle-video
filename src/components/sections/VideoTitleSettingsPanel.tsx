@@ -24,7 +24,11 @@ import type {
   getAvailableDropdownFontOptions,
   getAvailablePinnedFontOptions,
 } from '../../utils/captionFontCatalog';
-import { clampPositionPercent } from '../../utils/captionStyle';
+import {
+  CAPTION_BLUR_MAX,
+  CAPTION_BLUR_MIN,
+  clampPositionPercent,
+} from '../../utils/captionStyle';
 import {
   VIDEO_TITLE_BACKGROUND_OPACITY_MAX,
   VIDEO_TITLE_BACKGROUND_OPACITY_MIN,
@@ -38,6 +42,7 @@ import {
   VIDEO_TITLE_STROKE_WIDTH_STEP,
   clampVideoTitleBackgroundOpacity,
   clampVideoTitleBackgroundRadius,
+  clampVideoTitleBlur,
   clampVideoTitleStrokeWidth,
 } from '../../utils/videoTitle';
 
@@ -441,6 +446,26 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                   ariaLabelPrefix="タイトル"
                   onChange={(color) => onUpdate({ fontColor: color })}
                 />
+
+                {/* ぼかし: キャプションと同じ 0〜5（スライダーは 0.1 刻み） */}
+                <div className="flex items-center gap-2 text-[10px] md:text-xs">
+                  <span className="text-gray-400 w-16 shrink-0">ぼかし:</span>
+                  <SwipeProtectedSlider
+                    min={CAPTION_BLUR_MIN * 10}
+                    max={CAPTION_BLUR_MAX * 10}
+                    step={1}
+                    value={clampVideoTitleBlur(title.blur) * 10}
+                    onChange={(val) => onUpdate({ blur: clampVideoTitleBlur(val / 10) })}
+                    disabled={isLocked}
+                    ariaLabel="タイトルのぼかし"
+                    className={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isLocked ? '' : 'cursor-pointer'}`}
+                  />
+                  <span
+                    className={`w-8 text-right whitespace-nowrap ${isLocked ? 'text-gray-600' : 'text-gray-400'}`}
+                  >
+                    {clampVideoTitleBlur(title.blur).toFixed(1)}
+                  </span>
+                </div>
 
                 {/* 背景の帯 */}
                 <div className="space-y-2 pt-2 border-t border-gray-700/50">

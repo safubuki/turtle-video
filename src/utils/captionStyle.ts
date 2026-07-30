@@ -28,8 +28,45 @@ export const CAPTION_BLUR_MIN = 0;
 export const CAPTION_BLUR_MAX = 5;
 export const CAPTION_BLUR_STEP = 0.1;
 
-/** カスタム位置の既定値（% / テキスト中心）。下部プリセット相当 */
+/** カスタム位置の既定値（% / テキスト中心）。横画面の下部プリセット相当 */
 export const CAPTION_POSITION_CUSTOM_DEFAULT = { x: 50, y: 85 };
+
+/**
+ * 縦画面（9:16）時の下部プリセット Y 位置（%・テキスト中心）。
+ * 横画面の端寄り配置より上に置き、スマホ UI やセーフエリアで字幕が見づらくならないようにする。
+ */
+export const CAPTION_PORTRAIT_BOTTOM_Y_PERCENT = 80;
+
+/** 縦画面時のカスタム位置既定値（% / テキスト中心） */
+export const CAPTION_POSITION_CUSTOM_DEFAULT_PORTRAIT = {
+  x: 50,
+  y: CAPTION_PORTRAIT_BOTTOM_Y_PERCENT,
+};
+
+/**
+ * キャプション／タイトルのレイアウト基準（px）。
+ * 短辺を 1080 とみなしてスケールする（横 16:9 / 縦 9:16 で文字の見た目比率を揃える）。
+ * 高さだけを基準にすると縦画面で文字が約 1.78 倍になりすぎる。
+ */
+export const CAPTION_REFERENCE_SIZE = 1080;
+
+/**
+ * キャンバス寸法からレイアウトスケールを求める。
+ * 短辺 / 1080。プレビュー 720p と export 1080p の WYSIWYG を保ちつつ、
+ * 縦画面でも横画面と同程度の文字サイズになる。
+ */
+export function resolveCaptionLayoutScale(canvasWidth: number, canvasHeight: number): number {
+  const shortSide = Math.min(
+    Number.isFinite(canvasWidth) ? canvasWidth : 0,
+    Number.isFinite(canvasHeight) ? canvasHeight : 0,
+  );
+  return Math.max(0.1, shortSide / CAPTION_REFERENCE_SIZE);
+}
+
+/** キャンバスが縦長（9:16 等）かどうか */
+export function isPortraitCanvas(canvasWidth: number, canvasHeight: number): boolean {
+  return Number.isFinite(canvasWidth) && Number.isFinite(canvasHeight) && canvasHeight > canvasWidth;
+}
 
 export function clampCustomFontSize(value: number): number {
   if (!Number.isFinite(value)) return CAPTION_FONT_SIZE_PRESETS.medium;
@@ -122,6 +159,10 @@ export function resolveCaptionAnchor(
   }
   if (position === 'center') {
     return { x, y: canvasHeight / 2 };
+  }
+  // 縦画面は端寄りだと字幕が下すぎて見づらいため、既定をやや上へ寄せる
+  if (isPortraitCanvas(canvasWidth, canvasHeight)) {
+    return { x, y: (canvasHeight * CAPTION_PORTRAIT_BOTTOM_Y_PERCENT) / 100 };
   }
   return { x, y: canvasHeight - padding - fontSize / 2 };
 }

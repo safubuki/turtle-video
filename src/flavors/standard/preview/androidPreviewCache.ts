@@ -145,6 +145,7 @@ export function createAndroidPreviewCacheKey(
       backgroundColor: input.videoTitle.backgroundColor,
       backgroundOpacity: input.videoTitle.backgroundOpacity,
       backgroundRadius: input.videoTitle.backgroundRadius,
+      blur: input.videoTitle.blur,
       fadeIn: input.videoTitle.fadeIn,
       fadeOut: input.videoTitle.fadeOut,
       fadeInDuration: input.videoTitle.fadeInDuration,
