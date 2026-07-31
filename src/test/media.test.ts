@@ -21,6 +21,7 @@ import {
   canSetVideoThumbnailFromPreviewPosition,
   buildThumbnailSeekCandidates,
   computeAutoProjectPosterTimelineTime,
+  buildAutoProjectPosterContentKey,
   validateScale,
   validatePosition,
 } from '../utils/media';
@@ -427,6 +428,35 @@ describe('video thumbnail auto/manual (Issue #208)', () => {
     expect(computeAutoProjectPosterTimelineTime(10)).toBeCloseTo(0.2);
     expect(computeAutoProjectPosterTimelineTime(0.1)).toBeCloseTo(0.05);
     expect(computeAutoProjectPosterTimelineTime(0)).toBe(0);
+  });
+
+  it('auto project poster content key changes when order or leading duration changes', () => {
+    const base = {
+      type: 'video' as const,
+      duration: 5,
+      trimStart: 0,
+      trimEnd: 5,
+      scale: 1,
+      positionX: 0,
+      positionY: 0,
+      rotation: 0,
+      blur: 0,
+      playbackSpeed: 1 as const,
+      transitionToNext: null,
+    };
+    const a = { ...base, id: 'a' };
+    const b = { ...base, id: 'b', duration: 3, trimEnd: 3 };
+    const keyAb = buildAutoProjectPosterContentKey([a, b], 8, 'landscape');
+    const keyBa = buildAutoProjectPosterContentKey([b, a], 8, 'landscape');
+    const keyAbShort = buildAutoProjectPosterContentKey(
+      [{ ...a, duration: 2, trimEnd: 2 }, b],
+      5,
+      'landscape',
+    );
+    expect(keyAb).not.toBe(keyBa);
+    expect(keyAb).not.toBe(keyAbShort);
+    expect(keyAb).toBe(buildAutoProjectPosterContentKey([a, b], 8, 'landscape'));
+    expect(keyAb).not.toBe(buildAutoProjectPosterContentKey([a, b], 8, 'portrait'));
   });
 });
 

@@ -44,6 +44,7 @@ import { resolveEffectiveAudioClipPlayback } from '../stores/audioStore';
 import {
   computeVideoTrimFromPreviewPosition,
   computeAutoProjectPosterTimelineTime,
+  buildAutoProjectPosterContentKey,
   createPosterDataUrlFromCanvas,
 } from '../utils/media';
 import { computeTimelineDurationFromSource } from '../utils/playbackSpeed';
@@ -297,6 +298,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const totalDurationRef = useRef(0);
   const currentTimeRef = useRef(0);
   const projectPosterCaptureGenerationRef = useRef(0);
+  /** 自動ポスターの再キャプチャ判定用。並び替え・尺変更などでキーが変わったら先頭付近を取り直す */
+  const autoProjectPosterContentKeyRef = useRef<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mediaElementsRef = useRef<Record<string, HTMLVideoElement | HTMLImageElement | HTMLAudioElement>>({});
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -1142,6 +1145,81 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     return () => clearTimeout(timeoutId);
   }, [mediaItems.length, totalDuration, reloadKey, isPlaying, isProcessing, renderFrame, setCurrentTime]);
 
+  // --- 自動プロジェクトポスター: 先頭付近の内容が変わったら再キャプチャ ---
+  // 目的: 並び替え・追加・削除・尺/トリム変更で先頭付近の映像が変わっても、
+  //       自動モードなら書き出し用 dataUrl と UI を新しい先頭付近へ追従させる。
+  // 注意: 手動モードは触らない。再生/書き出し中はキーを進めず、停止後に再試行する。
+  useEffect(() => {
+    if (projectPosterMode !== 'auto') {
+      autoProjectPosterContentKeyRef.current = null;
+      return;
+    }
+
+    const contentKey = buildAutoProjectPosterContentKey(
+      mediaItems,
+      totalDuration,
+      aspectRatio,
+    );
+    if (contentKey === autoProjectPosterContentKeyRef.current) return;
+    if (isPlaying || isProcessing) return;
+
+    autoProjectPosterContentKeyRef.current = contentKey;
+    const captureGeneration = ++projectPosterCaptureGenerationRef.current;
+
+    if (mediaItems.length === 0 || totalDuration <= 0) {
+      resetProjectPosterToAuto(0, null, aspectRatio);
+      return;
+    }
+
+    const previousTime = currentTimeRef.current;
+    const autoTime = computeAutoProjectPosterTimelineTime(totalDuration);
+    // タイムライン時刻だけ先に合わせ、画像はキャプチャ完了まで旧値を残してチラつきを抑える
+    resetProjectPosterToAuto(
+      totalDuration,
+      useMediaStore.getState().projectPosterDataUrl,
+      aspectRatio,
+    );
+
+    const timeoutId = setTimeout(() => {
+      if (projectPosterCaptureGenerationRef.current !== captureGeneration) return;
+      if (useMediaStore.getState().projectPosterMode !== 'auto') return;
+
+      requestAnimationFrame(() => {
+        if (projectPosterCaptureGenerationRef.current !== captureGeneration) return;
+        renderFrame(autoTime, false);
+        requestAnimationFrame(() => {
+          if (projectPosterCaptureGenerationRef.current !== captureGeneration) return;
+          if (useMediaStore.getState().projectPosterMode !== 'auto') return;
+          const canvas = canvasRef.current;
+          const dataUrl = canvas ? createPosterDataUrlFromCanvas(canvas) : null;
+          setProjectPosterDataUrl(dataUrl, aspectRatio);
+
+          // プレビュー位置を動かさない（自動更新は裏で先頭付近だけ撮る）
+          if (Math.abs(previousTime - autoTime) > 0.001) {
+            currentTimeRef.current = previousTime;
+            setCurrentTime(previousTime);
+            renderFrame(previousTime, false);
+          }
+        });
+      });
+    }, 150);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [
+    projectPosterMode,
+    mediaItems,
+    totalDuration,
+    aspectRatio,
+    isPlaying,
+    isProcessing,
+    renderFrame,
+    resetProjectPosterToAuto,
+    setProjectPosterDataUrl,
+    setCurrentTime,
+  ]);
+
   // --- BGM状態の同期 ---
   // 目的: BGMトラックの最新状態をRefに保持
   useEffect(() => {
@@ -1885,6 +1963,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   // --- プロジェクトポスターを自動（タイムライン先頭+0.2s 付近）へ戻す ---
   const handleResetProjectPosterToAuto = useCallback(() => {
     if (mediaItems.length === 0) {
+      autoProjectPosterContentKeyRef.current = buildAutoProjectPosterContentKey(
+        [],
+        0,
+        aspectRatio,
+      );
       resetProjectPosterToAuto(0, null, aspectRatio);
       return;
     }
@@ -1892,6 +1975,12 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     const captureGeneration = ++projectPosterCaptureGenerationRef.current;
     // 手動画像は操作直後に破棄する。自動位置の画像は書き出し用として非同期で再取得する。
     resetProjectPosterToAuto(totalDuration, null, aspectRatio);
+    // 自動追従 effect と同じキーにして、直後の二重キャプチャを避ける
+    autoProjectPosterContentKeyRef.current = buildAutoProjectPosterContentKey(
+      mediaItems,
+      totalDuration,
+      aspectRatio,
+    );
     showToast('サムネイルを自動設定（先頭付近）に戻しました。', 3000);
     const autoTime = computeAutoProjectPosterTimelineTime(totalDuration);
     currentTimeRef.current = autoTime;
@@ -1908,7 +1997,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       });
     });
   }, [
-    mediaItems.length,
+    mediaItems,
     totalDuration,
     pausePreviewBeforeEdit,
     setCurrentTime,

@@ -43,6 +43,7 @@ export {
   buildThumbnailSeekCandidates,
   resolveMediaThumbnailSourceTime,
   computeAutoProjectPosterTimelineTime,
+  buildAutoProjectPosterContentKey,
   createPosterDataUrlFromCanvas,
   createPosterPreviewDataUrlFromCanvas,
   validateScale,

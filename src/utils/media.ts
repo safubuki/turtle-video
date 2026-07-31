@@ -482,6 +482,54 @@ export function computeAutoProjectPosterTimelineTime(totalDuration: number): num
 }
 
 /**
+ * 自動プロジェクトポスターが再キャプチャすべきかを判定するコンテンツ指紋。
+ * 先頭付近の見た目に影響する並び・尺・見た目調整が変わったらキーが変わる。
+ * 音量・ミュート・フェードなど見た目に無関係な項目は含めない。
+ */
+export function buildAutoProjectPosterContentKey(
+  items: ReadonlyArray<Pick<
+    MediaItem,
+    | 'id'
+    | 'type'
+    | 'duration'
+    | 'trimStart'
+    | 'trimEnd'
+    | 'scale'
+    | 'positionX'
+    | 'positionY'
+    | 'rotation'
+    | 'blur'
+    | 'playbackSpeed'
+    | 'transitionToNext'
+  >>,
+  totalDuration: number,
+  aspectRatio: string,
+): string {
+  const durationKey = Number.isFinite(totalDuration) ? totalDuration : 0;
+  const itemKeys = items.map((item) => {
+    const transition = item.transitionToNext;
+    const transitionKey = transition
+      ? `${transition.type}:${transition.duration}`
+      : '';
+    return [
+      item.id,
+      item.type,
+      item.duration,
+      item.trimStart,
+      item.trimEnd,
+      item.scale,
+      item.positionX,
+      item.positionY,
+      item.rotation ?? 0,
+      item.blur ?? 0,
+      item.playbackSpeed ?? 1,
+      transitionKey,
+    ].join(':');
+  });
+  return `${aspectRatio}|${durationKey}|${itemKeys.join('|')}`;
+}
+
+/**
  * プレビュー Canvas からポスター画像（JPEG data URL）を生成する。
  * - UI 表示と MP4 cover art 埋め込みの両方に使う
  * - maxWidth 既定 1280（エクスプローラー/プレイヤー向けに十分な解像度）

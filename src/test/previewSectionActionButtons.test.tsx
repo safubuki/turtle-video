@@ -138,10 +138,23 @@ describe('PreviewSection action buttons', () => {
     expect(poster.parentElement?.className).not.toContain('aspect-video');
   });
 
-  it('自動設定へ戻した後は保存用画像が残っていてもミニ画面をクリアする', () => {
+  it('自動設定でもキャプチャ済み画像があればミニ画面に表示する', () => {
     renderPreviewSection({
       projectPosterMode: 'auto',
-      projectPosterDataUrl: 'data:image/jpeg;base64,previous-manual',
+      projectPosterDataUrl: 'data:image/jpeg;base64,auto-frame',
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /サムネイル設定/ }));
+
+    const poster = screen.getByRole('img', { name: 'プロジェクトのサムネイル' });
+    expect(poster).toHaveAttribute('src', 'data:image/jpeg;base64,auto-frame');
+    expect(screen.queryByText('未表示')).not.toBeInTheDocument();
+  });
+
+  it('自動設定で画像が無いときは未表示にする', () => {
+    renderPreviewSection({
+      projectPosterMode: 'auto',
+      projectPosterDataUrl: null,
     });
 
     fireEvent.click(screen.getByRole('button', { name: /サムネイル設定/ }));

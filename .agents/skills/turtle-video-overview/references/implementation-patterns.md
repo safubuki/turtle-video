@@ -701,7 +701,7 @@
 | **エラー** | 3 層防御: ErrorBoundary（コンポーネント）、グローバルハンドラ（window）、try-catch（個別処理） |
 | **フレーバー分離** | export エンジンは `src/flavors/<flavor>/export/exportEngine.ts` に物理フォーク済み。共有コード→flavors の import、flavor 相互 import、共有コンポーネントでの `getPlatformCapabilities()` 直接呼び出しは ESLint で禁止。共有コンポーネントの UA 判定は `usePlatformCapabilities()`（PlatformCapabilitiesContext）経由。凍結レガシー（`components/turtle-video/usePreview*` / `utils/previewPlatform` / `utils/iosSafariAudio`）は編集禁止 |
 | **export後preview（#209）** | 共有 `<video>` を同一要素のまま `load()` / hard src で直しても Chromium decoder wedge が残ることがある（表面の readyState 4 は信用しない）。本命は MediaResourceLoader remount（`reloadKey++` + MediaElementSource detach、13-141）。13-135〜140 は保険。成功/失敗/中断の全経路で remount を要求する |
-| **動画サムネ（#208）** | アプリ内ポスターだけでは OS アイコンは変わらない。export で **covr 埋め込み + 先頭 KF 差し替え**（13-146）が本命。**ユーザー確認済み成功事例**。設定後の再書き出し必須 |
+| **動画サムネ（#208）** | アプリ内ポスターだけでは OS アイコンは変わらない。export で **covr 埋め込み + 先頭 KF 差し替え**（13-146）が本命。**ユーザー確認済み成功事例**。設定後の再書き出し必須。**自動モードは並び替え・先頭変更で dataUrl を再キャプチャ**（13-167） |
 | **倍速 export 映像** | rate=speed のみは途中切れ、毎フレーム seek は静止画化。**rate=1 連続 + 壁時計 Δt/speed（wall dilation）**が成功（13-166 / export-speed-video-wall-dilation-postmortem-2026-08-01）。プレビューの rate=speed と無理に一本化しない |
 
 ## 12. Dev Script Pattern (media-video-analyzer STT)
@@ -2901,8 +2901,25 @@ export 終了（成功/失敗/中断）
 - **UI**:
   - ポスター枠は横 `16:9` / 縦 `9:16` を生成時向きから切り替える。画像だけ `object-contain` にして横長の固定枠へ押し込まない。
   - 見出しの「自動／手動」表示は常時維持し、形式変更による自動復帰が閉じた状態でも分かるようにする。
-  - ミニ画面は手動モードの画像だけを表示する。自動へ戻した直後に以前の手動画像を破棄し、自動用画像を書き出し向けに再取得してもミニ画面は「未表示」のままにする。
+  - ミニ画面は `projectPosterDataUrl` があれば自動/手動とも表示する（13-167）。画像が無いときだけ「未表示」。
 - **テスト**: `mediaStore.test.ts`（不一致リセット・一致時維持・自動再取得待ち）、`projectStoreSave.test.ts`（縦手動ポスターの保存復元・不整合読込）、`previewSectionActionButtons.test.tsx`（9:16枠）、`clipsSectionPicker.test.tsx`（向き変更コールバック）で回帰を検知する。
+
+### 13-167. 自動プロジェクトポスターは先頭付近の内容変更に追従する
+
+- **ファイル**: `src/utils/media.ts`, `src/components/TurtleVideo.tsx`, `src/components/sections/PreviewSection.tsx`, `src/constants/sectionHelp.ts`, `src/test/media.test.ts`, `src/test/previewSectionActionButtons.test.tsx`
+- **問題**:
+  - プロジェクト全体サムネイルが「自動」でも、キャプチャ済み `projectPosterDataUrl` が固定のままだった。
+  - 画像追加・並び替えで先頭付近の映像が変わっても、UI と export（cover art / 先頭キーフレーム）が以前の先頭フレームを使い続けた。
+- **対策**:
+  - 純ロジック `buildAutoProjectPosterContentKey()` で並び・尺・トリム・見た目調整・アスペクト比の指紋を作る。
+  - `projectPosterMode === 'auto'` のとき、指紋が変わったら約 150ms 後にタイムライン先頭付近（約 0.2 秒）を再描画・再キャプチャする。
+  - 再生中・書き出し中は再キャプチャを保留し、停止後に同じ指紋差分で再試行する。
+  - キャプチャ中はプレビュー再生位置を恒久的に動かさない（一時描画後に元時刻へ戻す）。
+  - 手動モードは触らない。ミニ画面は dataUrl があるとき自動/手動とも表示する。
+- **注意**:
+  - 音量・ミュート・フェードなど見た目に無関係な更新では指紋を変えない（無駄な再キャプチャ防止）。
+  - 世代番号 `projectPosterCaptureGenerationRef` で向き変更・全クリア・読込・手動再設定とのレースを破棄する。
+  - 動画メタデータ未確定で duration=0 の間は総尺が伸びた時点で再度指紋が変わるため、確定後に取り直される。
 
 ### 13-156. カードとは独立した範囲指定ウォーターマーク（Issue #210）
 

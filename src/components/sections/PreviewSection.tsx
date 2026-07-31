@@ -520,7 +520,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
                         : `自動設定（${formatTime(projectPosterTimelineTime)}）`
                     }
                   >
-                    {projectPosterMode === 'manual' && projectPosterDataUrl ? (
+                    {projectPosterDataUrl ? (
                       <img
                         src={projectPosterDataUrl}
                         alt="プロジェクトのサムネイル"
