@@ -27,6 +27,13 @@ import {
   resolveCaptionFontFamily,
 } from '../../utils/captionFontCatalog';
 import {
+  CAPTION_BACKGROUND_DEFAULT,
+  CAPTION_BACKGROUND_OPACITY_MAX,
+  CAPTION_BACKGROUND_OPACITY_MIN,
+  CAPTION_BACKGROUND_OPACITY_STEP,
+  CAPTION_BACKGROUND_RADIUS_MAX,
+  CAPTION_BACKGROUND_RADIUS_MIN,
+  CAPTION_BACKGROUND_RADIUS_STEP,
   CAPTION_FONT_SIZE_CUSTOM_MAX,
   CAPTION_FONT_SIZE_CUSTOM_MIN,
   CAPTION_FONT_SIZE_PRESETS,
@@ -34,10 +41,13 @@ import {
   CAPTION_STROKE_WIDTH_MAX,
   CAPTION_STROKE_WIDTH_MIN,
   CAPTION_STROKE_WIDTH_STEP,
+  clampCaptionBackgroundOpacity,
+  clampCaptionBackgroundRadius,
   clampCaptionBlur,
   clampCaptionStrokeWidth,
   clampCustomFontSize,
   clampPositionPercent,
+  resolveCaptionBackgroundStyle,
   resolveCaptionGlyphStyle,
 } from '../../utils/captionStyle';
 import {
@@ -93,9 +103,14 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
   const customPosition = caption.overridePositionCustom ?? CAPTION_POSITION_CUSTOM_DEFAULT;
   const [showOutlineColorSettings, setShowOutlineColorSettings] = useState(false);
   const effectiveGlyphStyle = resolveCaptionGlyphStyle(caption, settings);
+  const effectiveBackgroundStyle = resolveCaptionBackgroundStyle(caption, settings);
   const hasOutlineColorOverride = caption.overrideStrokeWidth != null
     || caption.overrideStrokeColor != null
     || caption.overrideFontColor != null;
+  const hasBackgroundOverride = caption.overrideBackgroundEnabled != null
+    || caption.overrideBackgroundColor != null
+    || caption.overrideBackgroundOpacity != null
+    || caption.overrideBackgroundRadius != null;
 
   // 時分割（複数行の順次表示）設定
   const isSequential = isSequentialCaption(caption);
@@ -585,6 +600,129 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                 ぼかしを一括設定に戻す
               </button>
             )}
+
+            {/* 背景の帯: 一括設定と同じチェック + 詳細（未設定項目は一括を継承） */}
+            <div className="space-y-2 pt-2 border-t border-gray-700/50">
+              <label className="flex items-center gap-1.5 text-[10px] text-gray-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={effectiveBackgroundStyle.backgroundEnabled}
+                  onChange={(e) =>
+                    onUpdate(caption.id, { overrideBackgroundEnabled: e.target.checked })
+                  }
+                  className="accent-yellow-500 rounded cursor-pointer"
+                />
+                <span className="font-semibold">キャプション背景の帯</span>
+              </label>
+              {effectiveBackgroundStyle.backgroundEnabled && (
+                <div className="space-y-2">
+                  <CaptionColorField
+                    label="背景色"
+                    value={effectiveBackgroundStyle.backgroundColor}
+                    fallback={CAPTION_BACKGROUND_DEFAULT.backgroundColor}
+                    idPrefix={`caption-individual-bg-${caption.id}`}
+                    ariaLabelPrefix="個別キャプション"
+                    onChange={(color) =>
+                      onUpdate(caption.id, { overrideBackgroundColor: color })
+                    }
+                  />
+                  <div className="flex items-center gap-2 text-[10px]">
+                    <label
+                      className="text-gray-400 w-16 shrink-0"
+                      htmlFor={`caption-individual-bg-opacity-${caption.id}`}
+                    >
+                      濃さ:
+                    </label>
+                    <SwipeProtectedSlider
+                      min={CAPTION_BACKGROUND_OPACITY_MIN}
+                      max={CAPTION_BACKGROUND_OPACITY_MAX}
+                      step={CAPTION_BACKGROUND_OPACITY_STEP}
+                      value={effectiveBackgroundStyle.backgroundOpacity}
+                      onChange={(value) =>
+                        onUpdate(caption.id, {
+                          overrideBackgroundOpacity: clampCaptionBackgroundOpacity(value),
+                        })
+                      }
+                      ariaLabel="個別キャプション背景の濃さ"
+                      className="min-w-0 flex-1 cursor-pointer accent-yellow-500 h-1 bg-gray-600 rounded appearance-none"
+                    />
+                    <input
+                      id={`caption-individual-bg-opacity-${caption.id}`}
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={Math.round(effectiveBackgroundStyle.backgroundOpacity * 100)}
+                      onChange={(e) => {
+                        const value = Number.parseFloat(e.target.value);
+                        if (Number.isFinite(value)) {
+                          onUpdate(caption.id, {
+                            overrideBackgroundOpacity: clampCaptionBackgroundOpacity(value / 100),
+                          });
+                        }
+                      }}
+                      className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500"
+                    />
+                    <span className="text-gray-500">%</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px]">
+                    <label
+                      className="text-gray-400 w-16 shrink-0"
+                      htmlFor={`caption-individual-bg-radius-${caption.id}`}
+                    >
+                      角丸:
+                    </label>
+                    <SwipeProtectedSlider
+                      min={CAPTION_BACKGROUND_RADIUS_MIN}
+                      max={CAPTION_BACKGROUND_RADIUS_MAX}
+                      step={CAPTION_BACKGROUND_RADIUS_STEP}
+                      value={effectiveBackgroundStyle.backgroundRadius}
+                      onChange={(value) =>
+                        onUpdate(caption.id, {
+                          overrideBackgroundRadius: clampCaptionBackgroundRadius(value),
+                        })
+                      }
+                      ariaLabel="個別キャプション背景の角丸"
+                      className="min-w-0 flex-1 cursor-pointer accent-yellow-500 h-1 bg-gray-600 rounded appearance-none"
+                    />
+                    <input
+                      id={`caption-individual-bg-radius-${caption.id}`}
+                      type="number"
+                      min={CAPTION_BACKGROUND_RADIUS_MIN}
+                      max={CAPTION_BACKGROUND_RADIUS_MAX}
+                      step={CAPTION_BACKGROUND_RADIUS_STEP}
+                      value={effectiveBackgroundStyle.backgroundRadius}
+                      onChange={(e) => {
+                        const value = Number.parseFloat(e.target.value);
+                        if (Number.isFinite(value)) {
+                          onUpdate(caption.id, {
+                            overrideBackgroundRadius: clampCaptionBackgroundRadius(value),
+                          });
+                        }
+                      }}
+                      className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500"
+                    />
+                    <span className="text-gray-500">px</span>
+                  </div>
+                </div>
+              )}
+              {hasBackgroundOverride && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onUpdate(caption.id, {
+                      overrideBackgroundEnabled: undefined,
+                      overrideBackgroundColor: undefined,
+                      overrideBackgroundOpacity: undefined,
+                      overrideBackgroundRadius: undefined,
+                    })
+                  }
+                  className="text-[9px] text-gray-500 hover:text-yellow-400 transition"
+                >
+                  背景の帯を一括設定に戻す
+                </button>
+              )}
+            </div>
           </div>
 
           {/* ■ フェード設定 */}

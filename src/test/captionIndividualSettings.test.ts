@@ -24,6 +24,8 @@ describe('caption individual settings', () => {
     expect(hasCaptionIndividualSettings({ ...baseCaption, overrideStrokeWidth: 0 })).toBe(true);
     expect(hasCaptionIndividualSettings({ ...baseCaption, overrideFontColor: '#FFFFFF' })).toBe(true);
     expect(hasCaptionIndividualSettings({ ...baseCaption, overrideBlur: 0 })).toBe(true);
+    expect(hasCaptionIndividualSettings({ ...baseCaption, overrideBackgroundEnabled: false })).toBe(true);
+    expect(hasCaptionIndividualSettings({ ...baseCaption, overrideBackgroundColor: '#000000' })).toBe(true);
     expect(hasCaptionIndividualSettings({ ...baseCaption, sequentialGapSec: 0 })).toBe(true);
   });
 
@@ -35,6 +37,10 @@ describe('caption individual settings', () => {
       overrideStrokeColor: '#FF0000',
       overrideStrokeWidth: 6,
       overrideBlur: 2,
+      overrideBackgroundEnabled: true,
+      overrideBackgroundColor: '#111111',
+      overrideBackgroundOpacity: 0.5,
+      overrideBackgroundRadius: 8,
       overrideFadeOut: 'on',
       overrideFadeOutDuration: 1,
       sequentialFadeMode: 'line',

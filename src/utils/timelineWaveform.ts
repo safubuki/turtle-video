@@ -264,31 +264,94 @@ export function detectTimelineSilences(
 }
 
 /**
+ * タイミング打ちの「読みやすい位置へ調整」で使う定数。
+ * ナレーション原稿→キャプション生成の無音吸着（narrationCaptionPlan）と同じ値。
+ * - 0.3 秒未満の短い無音: 中央で切り替え、キャプション間に隙間を作らない
+ * - 0.3 秒以上: 終了を無音開始 +0.1 秒、開始を無音終了 -0.1 秒へ寄せる
+ *   （発話終了後の余韻・次発話前の先行表示＝読み疲れ防止）
+ */
+export const SILENCE_SEEK_MIN_FOR_GAP_SEC = 0.3;
+export const SILENCE_SEEK_EDGE_PADDING_SEC = 0.1;
+
+/**
+ * 無音境界へのシーク方式。
+ * - exact: 無音の開始・終了そのもの（波形ナビの既定）
+ * - comfortable: 読みやすい余白付き（タイミング打ちの任意オプション）
+ */
+export type SilenceSeekAdjustMode = 'exact' | 'comfortable';
+
+function roundSilenceSeekTime(sec: number): number {
+  return Math.round(sec * 1000) / 1000;
+}
+
+/**
+ * 1 つの無音区間から、シーク候補の時刻を返す。
+ * comfortable 時はナレーション連動キャプションと同じ余白ルールを適用する。
+ */
+export function resolveSilenceSeekTargets(
+  region: TimelineSilenceRegion,
+  adjustMode: SilenceSeekAdjustMode = 'exact',
+): number[] {
+  const start = region.silenceStart;
+  const end = region.silenceEnd;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return [];
+
+  if (adjustMode === 'exact') {
+    return [roundSilenceSeekTime(start), roundSilenceSeekTime(end)];
+  }
+
+  const duration =
+    Number.isFinite(region.duration) && region.duration > 0 ? region.duration : end - start;
+  const center = Number.isFinite(region.center)
+    ? region.center
+    : (start + end) / 2;
+
+  // 短い無音は中央 1 点だけ（キャプション間を空けない）
+  if (duration + 1e-6 < SILENCE_SEEK_MIN_FOR_GAP_SEC) {
+    return [roundSilenceSeekTime(center)];
+  }
+
+  const previousEnd = roundSilenceSeekTime(start + SILENCE_SEEK_EDGE_PADDING_SEC);
+  const nextStart = roundSilenceSeekTime(end - SILENCE_SEEK_EDGE_PADDING_SEC);
+  // 余白を確保できないほど短い場合は中央へフォールバック
+  if (nextStart <= previousEnd) {
+    return [roundSilenceSeekTime(center)];
+  }
+  return [previousEnd, nextStart];
+}
+
+/**
  * 移動先の候補となる時刻の一覧を、時刻昇順・重複なしで返す。
  *
  * 無音区間の開始・終了に加えて、**動画の先頭（0 秒）と末尾**を含める。
  * 先頭は「1 つ目のキャプションをここから始める」ためによく使う位置で、
  * 無音区間として検出されるとは限らないため明示的に候補へ入れる。
  *
+ * `adjustMode: 'comfortable'` のときは無音境界を読みやすい位置へずらす
+ * （短い無音は中央、長い無音は前後 0.1 秒の余白）。先頭・末尾はそのまま。
+ *
  * @param silences - 無音区間
  * @param totalDuration - タイムライン全長（秒）。0 以下なら端は加えない
  * @param epsilon - 同一時刻とみなす許容誤差（秒）
+ * @param adjustMode - exact（既定）または comfortable
  * @returns 移動候補の時刻（昇順・重複排除済み）
  */
 export function collectSeekBoundaries(
   silences: TimelineSilenceRegion[],
   totalDuration: number,
   epsilon: number = 0.05,
+  adjustMode: SilenceSeekAdjustMode = 'exact',
 ): number[] {
   const safeTotal = Number.isFinite(totalDuration) ? Math.max(0, totalDuration) : 0;
   const raw: number[] = [];
 
   // 動画の先頭・末尾。無音区間が無くても最低限ここへは移動できるようにする。
+  // 調整モードでも端は変えない（「動画の先頭から始める」用途を壊さない）。
   if (safeTotal > 0) {
     raw.push(0, safeTotal);
   }
   for (const region of silences) {
-    raw.push(region.silenceStart, region.silenceEnd);
+    raw.push(...resolveSilenceSeekTargets(region, adjustMode));
   }
 
   const sorted = raw
@@ -318,6 +381,7 @@ export function collectSeekBoundaries(
  * @param direction - 'next' なら後ろ方向、'prev' なら前方向
  * @param totalDuration - タイムライン全長（秒）。先頭・末尾を候補へ含めるために使う
  * @param epsilon - 同一とみなす許容誤差（秒）
+ * @param adjustMode - exact（既定）または comfortable
  * @returns 移動先の時刻（秒）。該当が無ければ null
  */
 export function findAdjacentSilenceBoundary(
@@ -326,8 +390,9 @@ export function findAdjacentSilenceBoundary(
   direction: 'next' | 'prev',
   totalDuration: number = 0,
   epsilon: number = 0.05,
+  adjustMode: SilenceSeekAdjustMode = 'exact',
 ): number | null {
-  const boundaries = collectSeekBoundaries(silences, totalDuration, epsilon);
+  const boundaries = collectSeekBoundaries(silences, totalDuration, epsilon, adjustMode);
   if (boundaries.length === 0) return null;
 
   if (direction === 'next') {

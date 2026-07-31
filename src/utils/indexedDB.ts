@@ -135,6 +135,11 @@ export interface SerializedCaption {
   overrideStrokeColor?: string;
   overrideStrokeWidth?: number;
   overrideBlur?: number;
+  /** 個別背景帯（旧データでは未定義 → 一括設定を継承） */
+  overrideBackgroundEnabled?: boolean;
+  overrideBackgroundColor?: string;
+  overrideBackgroundOpacity?: number;
+  overrideBackgroundRadius?: number;
   overrideFadeIn?: 'on' | 'off';
   overrideFadeOut?: 'on' | 'off';
   overrideFadeInDuration?: number;
@@ -157,6 +162,11 @@ export interface SerializedCaptionSettings {
   strokeWidth: number;
   position: 'top' | 'center' | 'bottom';
   blur: number; // ぼかし強度（0〜5px、0=なし）
+  /** キャプション背景帯（旧データでは未定義 → 読込時 OFF） */
+  backgroundEnabled?: boolean;
+  backgroundColor?: string;
+  backgroundOpacity?: number;
+  backgroundRadius?: number;
   bulkFadeIn: boolean;
   bulkFadeOut: boolean;
   bulkFadeInDuration: number;

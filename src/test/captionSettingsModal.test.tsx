@@ -12,6 +12,10 @@ const settings: CaptionSettings = {
   strokeWidth: 4,
   position: 'bottom',
   blur: 1.5,
+  backgroundEnabled: false,
+  backgroundColor: '#000000',
+  backgroundOpacity: 0.45,
+  backgroundRadius: 16,
   bulkFadeIn: false,
   bulkFadeOut: false,
   bulkFadeInDuration: 0.5,
@@ -45,6 +49,10 @@ describe('CaptionSettingsModal clear', () => {
       overrideStrokeColor: undefined,
       overrideStrokeWidth: undefined,
       overrideBlur: undefined,
+      overrideBackgroundEnabled: undefined,
+      overrideBackgroundColor: undefined,
+      overrideBackgroundOpacity: undefined,
+      overrideBackgroundRadius: undefined,
       overrideFadeOut: undefined,
       overrideFadeOutDuration: undefined,
       sequentialFadeMode: undefined,
@@ -92,6 +100,47 @@ describe('CaptionSettingsModal clear', () => {
     expect(onUpdate).toHaveBeenCalledWith('caption-1', { overrideStrokeWidth: 6.5 });
     expect(onUpdate).toHaveBeenCalledWith('caption-1', { overrideStrokeColor: '#123456' });
     expect(onUpdate).toHaveBeenCalledWith('caption-1', { overrideFontColor: '#FF00AA' });
+  });
+
+  it('背景の帯を個別でONにでき、一括設定へ戻せる', () => {
+    const caption: Caption = {
+      id: 'caption-1',
+      text: '本文',
+      startTime: 0,
+      endTime: 3,
+      fadeIn: false,
+      fadeOut: false,
+      fadeInDuration: 0.5,
+      fadeOutDuration: 0.5,
+    };
+    const onUpdate = vi.fn();
+    const { rerender } = render(
+      <CaptionSettingsModal caption={caption} settings={settings} onUpdate={onUpdate} onClose={vi.fn()} />,
+    );
+
+    expect(screen.queryByLabelText('個別キャプション背景の濃さ')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'キャプション背景の帯' }));
+    expect(onUpdate).toHaveBeenCalledWith('caption-1', { overrideBackgroundEnabled: true });
+
+    const enabledCaption: Caption = { ...caption, overrideBackgroundEnabled: true };
+    rerender(
+      <CaptionSettingsModal
+        caption={enabledCaption}
+        settings={settings}
+        onUpdate={onUpdate}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText('個別キャプション背景の濃さ')).toBeInTheDocument();
+    expect(screen.getByLabelText('個別キャプション背景の角丸')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '背景の帯を一括設定に戻す' }));
+    expect(onUpdate).toHaveBeenCalledWith('caption-1', {
+      overrideBackgroundEnabled: undefined,
+      overrideBackgroundColor: undefined,
+      overrideBackgroundOpacity: undefined,
+      overrideBackgroundRadius: undefined,
+    });
   });
 
   it('ぼかしを個別設定でき、縁・色とぼかしだけを一括設定へ戻せる', () => {

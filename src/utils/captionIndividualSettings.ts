@@ -14,6 +14,10 @@ export function hasCaptionIndividualSettings(caption: Caption): boolean {
     || caption.overrideStrokeColor != null
     || caption.overrideStrokeWidth != null
     || caption.overrideBlur != null
+    || caption.overrideBackgroundEnabled != null
+    || caption.overrideBackgroundColor != null
+    || caption.overrideBackgroundOpacity != null
+    || caption.overrideBackgroundRadius != null
     || caption.overrideFadeIn
     || caption.overrideFadeOut
     || caption.overrideFadeInDuration != null
@@ -35,6 +39,10 @@ export function createClearedCaptionIndividualSettings(): Partial<Omit<Caption, 
     overrideStrokeColor: undefined,
     overrideStrokeWidth: undefined,
     overrideBlur: undefined,
+    overrideBackgroundEnabled: undefined,
+    overrideBackgroundColor: undefined,
+    overrideBackgroundOpacity: undefined,
+    overrideBackgroundRadius: undefined,
     overrideFadeIn: undefined,
     overrideFadeOut: undefined,
     overrideFadeInDuration: undefined,

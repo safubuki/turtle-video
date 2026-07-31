@@ -26,6 +26,10 @@ import {
   ChevronsLeft,
   ChevronsRight,
 } from 'lucide-react';
+import {
+  findAdjacentSilenceBoundary,
+  type TimelineSilenceRegion,
+} from '../../utils/timelineWaveform';
 import type {
   Caption,
   CaptionSettings,
@@ -47,10 +51,19 @@ import {
 } from '../../utils/captionFontCatalog';
 import { queryLocalFontFamilies } from '../../utils/fontAvailability';
 import {
+  CAPTION_BACKGROUND_DEFAULT,
+  CAPTION_BACKGROUND_OPACITY_MAX,
+  CAPTION_BACKGROUND_OPACITY_MIN,
+  CAPTION_BACKGROUND_OPACITY_STEP,
+  CAPTION_BACKGROUND_RADIUS_MAX,
+  CAPTION_BACKGROUND_RADIUS_MIN,
+  CAPTION_BACKGROUND_RADIUS_STEP,
   CAPTION_POSITION_CUSTOM_DEFAULT,
   CAPTION_STROKE_WIDTH_MAX,
   CAPTION_STROKE_WIDTH_MIN,
   CAPTION_STROKE_WIDTH_STEP,
+  clampCaptionBackgroundOpacity,
+  clampCaptionBackgroundRadius,
   clampCaptionStrokeWidth,
   clampPositionPercent,
 } from '../../utils/captionStyle';
@@ -89,6 +102,10 @@ interface CaptionSectionProps {
   onSetStrokeWidth: (width: number) => void;
   onSetPosition: (position: CaptionPosition) => void;
   onSetBlur: (blur: number) => void;
+  onSetBackgroundEnabled: (enabled: boolean) => void;
+  onSetBackgroundColor: (color: string) => void;
+  onSetBackgroundOpacity: (opacity: number) => void;
+  onSetBackgroundRadius: (radius: number) => void;
   onSetFontSizeCustom: (value: number | null) => void;
   onSetPositionCustom: (value: { x: number; y: number } | null) => void;
   onSetBulkFadeIn: (enabled: boolean) => void;
@@ -109,12 +126,21 @@ interface CaptionSectionProps {
   /**
    * 無音区間の境界へ移動する（Issue #217）。
    * 移動先には無音区間の開始・終了に加えて、動画の先頭（0秒）・末尾も含まれる。
+   * `comfortAdjust: true` のときは読みやすい余白付き位置へ移動する。
    */
-  onSeekToSilenceBoundary: (direction: 'next' | 'prev') => void;
-  /** 前方向に移動先があるか（無ければボタンを無効化する） */
+  onSeekToSilenceBoundary: (
+    direction: 'next' | 'prev',
+    options?: { comfortAdjust?: boolean },
+  ) => void;
+  /** 前方向に移動先があるか（無ければボタンを無効化する）。exact 基準のフォールバック */
   hasPrevSilenceBoundary: boolean;
-  /** 後ろ方向に移動先があるか（無ければボタンを無効化する） */
+  /** 後ろ方向に移動先があるか（無ければボタンを無効化する）。exact 基準のフォールバック */
   hasNextSilenceBoundary: boolean;
+  /**
+   * タイミング打ちの無音ナビ用。渡されると「読みやすい位置へ調整」ON/OFF で
+   * 移動先の有無も同じルールで再計算する。
+   */
+  silenceRegions?: TimelineSilenceRegion[];
   /** プレビューを一時停止せずにキャプションを更新する（タイミング打ち用） */
   onUpdateCaptionLive: (id: string, updates: Partial<Omit<Caption, 'id'>>) => void;
   // 動画タイトル（キャプションとは別管理）
@@ -147,6 +173,10 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   onSetStrokeWidth,
   onSetPosition,
   onSetBlur,
+  onSetBackgroundEnabled,
+  onSetBackgroundColor,
+  onSetBackgroundOpacity,
+  onSetBackgroundRadius,
   onSetFontSizeCustom,
   onSetPositionCustom,
   onSetBulkFadeIn,
@@ -167,6 +197,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   onSeekToSilenceBoundary,
   hasPrevSilenceBoundary,
   hasNextSilenceBoundary,
+  silenceRegions = [],
 }) => {
   const [isOpen, setIsOpen] = useState(true);
   const [showStyleSettings, setShowStyleSettings] = useState(false);
@@ -298,7 +329,50 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   // 連続モードのキャプション間隔（終了位置 + 間隔 = 次の開始位置）
   const [stampGapSec, setStampGapSec] = useState(0.2);
   const [isStampGapCustom, setIsStampGapCustom] = useState(false);
+  /**
+   * 無音ナビを「読みやすい位置」へずらす（既定 OFF）。
+   * ナレーション連動キャプションと同じ: 長い無音は前後 0.1 秒の余白、短い無音は中央で間を空けない。
+   * セッション内の操作補助なので永続化しない。
+   */
+  const [stampSilenceComfortAdjust, setStampSilenceComfortAdjust] = useState(false);
   const stampTarget = stampActive ? captions[stampIndex] : undefined;
+
+  // 無音ナビの活性は調整モード込みでここで計算する（親の exact 判定とずれないようにする）
+  const stampSilenceSeekMode = stampSilenceComfortAdjust ? 'comfortable' : 'exact';
+  const stampHasPrevSilence =
+    findAdjacentSilenceBoundary(
+      silenceRegions,
+      currentTime,
+      'prev',
+      totalDuration,
+      0.05,
+      stampSilenceSeekMode,
+    ) !== null;
+  const stampHasNextSilence =
+    findAdjacentSilenceBoundary(
+      silenceRegions,
+      currentTime,
+      'next',
+      totalDuration,
+      0.05,
+      stampSilenceSeekMode,
+    ) !== null;
+
+  // silenceRegions 未配線かつ親が活性を渡している旧呼び出し向けのフォールバック
+  const effectiveHasPrevSilence =
+    silenceRegions.length > 0 || totalDuration > 0
+      ? stampHasPrevSilence
+      : hasPrevSilenceBoundary;
+  const effectiveHasNextSilence =
+    silenceRegions.length > 0 || totalDuration > 0
+      ? stampHasNextSilence
+      : hasNextSilenceBoundary;
+
+  const handleStampSeekToSilence = (direction: 'next' | 'prev') => {
+    onSeekToSilenceBoundary(direction, {
+      comfortAdjust: stampSilenceComfortAdjust,
+    });
+  };
 
   // 現在のプレビュー位置にかかっている（または直後の）キャプションから開始する
   const startStampMode = () => {
@@ -736,6 +810,107 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                     >
                       {settings.blur.toFixed(1)}
                     </span>
+                  </div>
+
+                  {/* キャプション背景の帯（タイトル背景帯と同じ操作感・既定 OFF） */}
+                  <div className="space-y-2 pt-2 border-t border-gray-700/50">
+                    <label
+                      className={`flex items-center gap-1.5 text-[10px] md:text-xs text-gray-300 ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={settings.backgroundEnabled}
+                        onChange={(e) => onSetBackgroundEnabled(e.target.checked)}
+                        disabled={isLocked}
+                        className="accent-yellow-500 rounded cursor-pointer disabled:opacity-50 disabled:cursor-default"
+                      />
+                      <span className="font-semibold">キャプション背景の帯</span>
+                    </label>
+                    {settings.backgroundEnabled && (
+                      <div className="space-y-2">
+                        <CaptionColorField
+                          label="背景色"
+                          value={settings.backgroundColor || CAPTION_BACKGROUND_DEFAULT.backgroundColor}
+                          fallback={CAPTION_BACKGROUND_DEFAULT.backgroundColor}
+                          disabled={isLocked}
+                          idPrefix="caption-bg"
+                          ariaLabelPrefix="キャプション"
+                          onChange={onSetBackgroundColor}
+                        />
+                        <div className="flex items-center gap-2 text-[10px] md:text-xs">
+                          <label className="text-gray-400 w-16 shrink-0" htmlFor="caption-bg-opacity">
+                            濃さ:
+                          </label>
+                          <SwipeProtectedSlider
+                            min={CAPTION_BACKGROUND_OPACITY_MIN}
+                            max={CAPTION_BACKGROUND_OPACITY_MAX}
+                            step={CAPTION_BACKGROUND_OPACITY_STEP}
+                            value={clampCaptionBackgroundOpacity(settings.backgroundOpacity)}
+                            onChange={(value) =>
+                              onSetBackgroundOpacity(clampCaptionBackgroundOpacity(value))
+                            }
+                            disabled={isLocked}
+                            ariaLabel="キャプション背景の濃さ"
+                            className={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
+                          />
+                          <input
+                            id="caption-bg-opacity"
+                            type="number"
+                            min={0}
+                            max={100}
+                            step={5}
+                            value={Math.round(
+                              clampCaptionBackgroundOpacity(settings.backgroundOpacity) * 100,
+                            )}
+                            onChange={(e) => {
+                              const value = Number.parseFloat(e.target.value);
+                              if (Number.isFinite(value)) {
+                                onSetBackgroundOpacity(
+                                  clampCaptionBackgroundOpacity(value / 100),
+                                );
+                              }
+                            }}
+                            disabled={isLocked}
+                            className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500 disabled:opacity-50"
+                          />
+                          <span className="text-gray-500">%</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[10px] md:text-xs">
+                          <label className="text-gray-400 w-16 shrink-0" htmlFor="caption-bg-radius">
+                            角丸:
+                          </label>
+                          <SwipeProtectedSlider
+                            min={CAPTION_BACKGROUND_RADIUS_MIN}
+                            max={CAPTION_BACKGROUND_RADIUS_MAX}
+                            step={CAPTION_BACKGROUND_RADIUS_STEP}
+                            value={clampCaptionBackgroundRadius(settings.backgroundRadius)}
+                            onChange={(value) =>
+                              onSetBackgroundRadius(clampCaptionBackgroundRadius(value))
+                            }
+                            disabled={isLocked}
+                            ariaLabel="キャプション背景の角丸"
+                            className={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
+                          />
+                          <input
+                            id="caption-bg-radius"
+                            type="number"
+                            min={CAPTION_BACKGROUND_RADIUS_MIN}
+                            max={CAPTION_BACKGROUND_RADIUS_MAX}
+                            step={CAPTION_BACKGROUND_RADIUS_STEP}
+                            value={clampCaptionBackgroundRadius(settings.backgroundRadius)}
+                            onChange={(e) => {
+                              const value = Number.parseFloat(e.target.value);
+                              if (Number.isFinite(value)) {
+                                onSetBackgroundRadius(clampCaptionBackgroundRadius(value));
+                              }
+                            }}
+                            disabled={isLocked}
+                            className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500 disabled:opacity-50"
+                          />
+                          <span className="text-gray-500">px</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
                 {/* ■ フェード一括設定 */}
@@ -1179,10 +1354,14 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                 className="grid basis-full grid-cols-[minmax(0,1fr)_auto_auto_auto_minmax(0,1fr)] items-center gap-1 pt-0.5 md:flex md:basis-auto md:gap-1.5 md:pt-0"
               >
                 <button
-                  onClick={() => onSeekToSilenceBoundary('prev')}
-                  disabled={!hasPrevSilenceBoundary}
+                  onClick={() => handleStampSeekToSilence('prev')}
+                  disabled={!effectiveHasPrevSilence}
                   className="flex h-9 min-w-0 items-center justify-center gap-0.5 rounded-lg bg-gray-800 px-1.5 text-[10px] text-gray-200 transition hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-gray-800 md:px-2 md:text-xs"
-                  title="前の無音区間の境界（動画の先頭を含む）へ移動"
+                  title={
+                    stampSilenceComfortAdjust
+                      ? '前の読みやすい位置（無音の余白付き／動画の先頭を含む）へ移動'
+                      : '前の無音区間の境界（動画の先頭を含む）へ移動'
+                  }
                   aria-label="無音区間：前へ"
                 >
                   <ChevronsLeft className="h-3.5 w-3.5 shrink-0" />
@@ -1215,10 +1394,14 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                   +1s
                 </button>
                 <button
-                  onClick={() => onSeekToSilenceBoundary('next')}
-                  disabled={!hasNextSilenceBoundary}
+                  onClick={() => handleStampSeekToSilence('next')}
+                  disabled={!effectiveHasNextSilence}
                   className="flex h-9 min-w-0 items-center justify-center gap-0.5 rounded-lg bg-gray-800 px-1.5 text-[10px] text-gray-200 transition hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-gray-800 md:px-2 md:text-xs"
-                  title="次の無音区間の境界（動画の末尾を含む）へ移動"
+                  title={
+                    stampSilenceComfortAdjust
+                      ? '次の読みやすい位置（無音の余白付き／動画の末尾を含む）へ移動'
+                      : '次の無音区間の境界（動画の末尾を含む）へ移動'
+                  }
                   aria-label="無音区間：次へ"
                 >
                   <span className="whitespace-nowrap md:hidden">次</span>
@@ -1226,6 +1409,23 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                   <ChevronsRight className="h-3.5 w-3.5 shrink-0" />
                 </button>
               </div>
+              {/*
+                無音ナビの読みやすい位置調整（既定 OFF）。
+                ナレーション→キャプション生成と同じ余白ルールを、手動のタイミング打ちへ任意で適用する。
+                波形側の「無音区間：前へ/次へ」は常に exact（そのまま）のまま。
+              */}
+              <label
+                className="flex basis-full cursor-pointer items-center gap-2 rounded-lg border border-gray-700/80 bg-gray-800/50 px-2 py-1.5 text-[10px] text-gray-200 md:basis-auto md:text-xs"
+                title="ONにすると、無音区間の開始・終了ぴったりではなく、発話の少し後まで残す／少し前から出す位置へ移動します。短い無音では間を空けません。"
+              >
+                <input
+                  type="checkbox"
+                  checked={stampSilenceComfortAdjust}
+                  onChange={(e) => setStampSilenceComfortAdjust(e.target.checked)}
+                  className="h-3.5 w-3.5 shrink-0 rounded border-gray-600 bg-gray-900 text-yellow-500 focus:ring-yellow-500/40"
+                />
+                <span className="min-w-0 font-medium leading-snug">読みやすい位置へ自動調整</span>
+              </label>
             </div>
             {/* 操作行: モードごとのボタン */}
             {stampMode === 'alternate' ? (

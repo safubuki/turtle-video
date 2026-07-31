@@ -25,7 +25,9 @@ import type {
 import type { ExportPreparationStep, UseExportReturn } from '../../../hooks/export-strategies/types';
 import {
   CAPTION_PORTRAIT_BOTTOM_Y_PERCENT,
+  drawCaptionBackgroundBand,
   isPortraitCanvas,
+  resolveCaptionBackgroundStyle,
   resolveCaptionGlyphStyle,
   resolveCaptionLayoutScale,
 } from '../../../utils/captionStyle';
@@ -1277,6 +1279,30 @@ export function usePreviewEngine({
             });
             const glyphW = glyphCanvas.width;
             const glyphH = glyphCanvas.height;
+
+            // 背景帯は文字の下に敷く（個別 override > 一括設定。既定 OFF）
+            const backgroundStyle = resolveCaptionBackgroundStyle(
+              activeCaption,
+              currentCaptionSettings,
+            );
+            if (
+              drawCaptionBackgroundBand(ctx, {
+                centerX,
+                centerY: y,
+                glyphWidth: glyphW,
+                glyphHeight: glyphH,
+                fontSize,
+                fadeAlpha: alpha,
+                backgroundEnabled: backgroundStyle.backgroundEnabled,
+                backgroundColor: backgroundStyle.backgroundColor,
+                backgroundOpacity: backgroundStyle.backgroundOpacity,
+                backgroundRadius: backgroundStyle.backgroundRadius,
+                layoutScale: captionScale,
+              })
+            ) {
+              didUpdateCanvas = true;
+            }
+
             const drawGlyphAt = (cx: number, cy: number, localAlpha: number) => {
               const clamped = Math.max(0, Math.min(1, localAlpha));
               if (clamped <= 0) return;

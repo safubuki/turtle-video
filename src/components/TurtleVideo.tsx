@@ -237,6 +237,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const setCaptionStrokeWidth = useCaptionStore((s) => s.setStrokeWidth);
   const setCaptionPosition = useCaptionStore((s) => s.setPosition);
   const setCaptionBlur = useCaptionStore((s) => s.setBlur);
+  const setCaptionBackgroundEnabled = useCaptionStore((s) => s.setBackgroundEnabled);
+  const setCaptionBackgroundColor = useCaptionStore((s) => s.setBackgroundColor);
+  const setCaptionBackgroundOpacity = useCaptionStore((s) => s.setBackgroundOpacity);
+  const setCaptionBackgroundRadius = useCaptionStore((s) => s.setBackgroundRadius);
   const setBulkFadeIn = useCaptionStore((s) => s.setBulkFadeIn);
   const setBulkFadeOut = useCaptionStore((s) => s.setBulkFadeOut);
   const setBulkFadeInDuration = useCaptionStore((s) => s.setBulkFadeInDuration);
@@ -2696,18 +2700,25 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   );
 
   // 移動先には無音区間の開始・終了に加えて動画の先頭（0秒）・末尾も含まれる。
-  const handleSeekToSilenceBoundary = useCallback((direction: 'next' | 'prev') => {
+  // タイミング打ちの「読みやすい位置へ調整」ON 時は comfortable モードで余白付き位置へ飛ぶ。
+  const handleSeekToSilenceBoundary = useCallback((
+    direction: 'next' | 'prev',
+    options?: { comfortAdjust?: boolean },
+  ) => {
+    const adjustMode = options?.comfortAdjust ? 'comfortable' : 'exact';
     const target = findAdjacentSilenceBoundary(
       timelineWaveform.silences,
       currentTimeRef.current,
       direction,
       totalDurationRef.current,
+      0.05,
+      adjustMode,
     );
     if (target === null) return;
     handleSeekToTime(target);
   }, [handleSeekToTime, timelineWaveform.silences]);
 
-  // ボタンの活性判定に使う（移動先が無ければ押せないようにする）
+  // ボタンの活性判定（exact 基準）。タイミング打ち側は comfort 時に CaptionSection 内でも再評価する。
   const hasPrevSilenceBoundary =
     findAdjacentSilenceBoundary(timelineWaveform.silences, currentTime, 'prev', totalDuration) !== null;
   const hasNextSilenceBoundary =
@@ -3170,6 +3181,22 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onSetStrokeWidth={withPreviewPause('set-caption-stroke-width', setCaptionStrokeWidth)}
               onSetPosition={withPreviewPause('set-caption-position', setCaptionPosition)}
               onSetBlur={withPreviewPause('set-caption-blur', setCaptionBlur)}
+              onSetBackgroundEnabled={withPreviewPause(
+                'set-caption-background-enabled',
+                setCaptionBackgroundEnabled,
+              )}
+              onSetBackgroundColor={withPreviewPause(
+                'set-caption-background-color',
+                setCaptionBackgroundColor,
+              )}
+              onSetBackgroundOpacity={withPreviewPause(
+                'set-caption-background-opacity',
+                setCaptionBackgroundOpacity,
+              )}
+              onSetBackgroundRadius={withPreviewPause(
+                'set-caption-background-radius',
+                setCaptionBackgroundRadius,
+              )}
               onSetBulkFadeIn={withPreviewPause('set-caption-bulk-fade-in', setBulkFadeIn)}
               onSetBulkFadeOut={withPreviewPause('set-caption-bulk-fade-out', setBulkFadeOut)}
               onSetBulkFadeInDuration={withPreviewPause('set-caption-bulk-fade-in-duration', setBulkFadeInDuration)}
@@ -3184,6 +3211,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onSeekToSilenceBoundary={handleSeekToSilenceBoundary}
               hasPrevSilenceBoundary={hasPrevSilenceBoundary}
               hasNextSilenceBoundary={hasNextSilenceBoundary}
+              silenceRegions={timelineWaveform.silences}
               onUpdateCaptionLive={updateCaption}
               onSetFontSizeCustom={withPreviewPause('set-caption-font-size-custom', setCaptionFontSizeCustom)}
               onSetPositionCustom={withPreviewPause('set-caption-position-custom', setCaptionPositionCustom)}

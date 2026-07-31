@@ -1,5 +1,5 @@
 import type { ComponentProps } from 'react';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import CaptionSection from '../components/sections/CaptionSection';
 import type { Caption } from '../types';
@@ -20,6 +20,10 @@ function renderCaptionSection(
       strokeWidth: 2,
       position: 'bottom',
       blur: 0,
+      backgroundEnabled: false,
+      backgroundColor: '#000000',
+      backgroundOpacity: 0.45,
+      backgroundRadius: 16,
       bulkFadeIn: false,
       bulkFadeOut: false,
       bulkFadeInDuration: 0.5,
@@ -42,6 +46,10 @@ function renderCaptionSection(
     onSetStrokeWidth: vi.fn(),
     onSetPosition: vi.fn(),
     onSetBlur: vi.fn(),
+    onSetBackgroundEnabled: vi.fn(),
+    onSetBackgroundColor: vi.fn(),
+    onSetBackgroundOpacity: vi.fn(),
+    onSetBackgroundRadius: vi.fn(),
     onSetFontSizeCustom: vi.fn(),
     onSetPositionCustom: vi.fn(),
     onSetBulkFadeIn: vi.fn(),
@@ -212,6 +220,43 @@ describe('CaptionSection bulk timing alignment', () => {
     expect(props.onShiftCaptions).toHaveBeenCalledWith(1, 0);
   });
 
+  it('キャプション背景の帯は既定 OFF で、ON 時だけ濃さ・角丸を表示する', () => {
+    const offProps = renderCaptionSection({}, true);
+    expect(screen.getByText('キャプション背景の帯')).toBeInTheDocument();
+    expect(screen.queryByLabelText('キャプション背景の濃さ')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'キャプション背景の帯' }));
+    expect(offProps.onSetBackgroundEnabled).toHaveBeenCalledWith(true);
+
+    // ON 状態だけを単独で描画
+    cleanup();
+    renderCaptionSection(
+      {
+        settings: {
+          enabled: true,
+          fontSize: 'medium',
+          fontStyle: 'gothic',
+          fontColor: '#FFFFFF',
+          strokeColor: '#000000',
+          strokeWidth: 2,
+          position: 'bottom',
+          blur: 0,
+          backgroundEnabled: true,
+          backgroundColor: '#000000',
+          backgroundOpacity: 0.45,
+          backgroundRadius: 16,
+          bulkFadeIn: false,
+          bulkFadeOut: false,
+          bulkFadeInDuration: 0.5,
+          bulkFadeOutDuration: 0.5,
+        },
+      },
+      true,
+    );
+    expect(screen.getByLabelText('キャプション背景の濃さ')).toBeInTheDocument();
+    expect(screen.getByLabelText('キャプション背景の角丸')).toBeInTheDocument();
+  });
+
   // 【Issue #216】エクスポート中の現在位置表示の凍結
   describe('エクスポート中の現在位置表示（Issue #216）', () => {
     const buildProps = (
@@ -227,6 +272,10 @@ describe('CaptionSection bulk timing alignment', () => {
         strokeWidth: 2,
         position: 'bottom',
         blur: 0,
+        backgroundEnabled: false,
+        backgroundColor: '#000000',
+        backgroundOpacity: 0.45,
+        backgroundRadius: 16,
         bulkFadeIn: false,
         bulkFadeOut: false,
         bulkFadeInDuration: 0.5,
@@ -249,6 +298,10 @@ describe('CaptionSection bulk timing alignment', () => {
       onSetStrokeWidth: vi.fn(),
       onSetPosition: vi.fn(),
       onSetBlur: vi.fn(),
+      onSetBackgroundEnabled: vi.fn(),
+      onSetBackgroundColor: vi.fn(),
+      onSetBackgroundOpacity: vi.fn(),
+      onSetBackgroundRadius: vi.fn(),
       onSetFontSizeCustom: vi.fn(),
       onSetPositionCustom: vi.fn(),
       onSetBulkFadeIn: vi.fn(),

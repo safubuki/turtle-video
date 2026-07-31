@@ -14,7 +14,13 @@ import type {
   CaptionFontStyle,
   VideoTitleSettings,
 } from '../types';
-import { clampCaptionStrokeWidth, clampCustomFontSize } from '../utils/captionStyle';
+import {
+  CAPTION_BACKGROUND_DEFAULT,
+  clampCaptionBackgroundOpacity,
+  clampCaptionBackgroundRadius,
+  clampCaptionStrokeWidth,
+  clampCustomFontSize,
+} from '../utils/captionStyle';
 import {
   DEFAULT_VIDEO_TITLE_SETTINGS,
   clampVideoTitleBackgroundOpacity,
@@ -72,6 +78,10 @@ interface CaptionState {
   setStrokeWidth: (width: number) => void;
   setPosition: (position: CaptionPosition) => void;
   setBlur: (blur: number) => void;
+  setBackgroundEnabled: (enabled: boolean) => void;
+  setBackgroundColor: (color: string) => void;
+  setBackgroundOpacity: (opacity: number) => void;
+  setBackgroundRadius: (radius: number) => void;
   /** 一括カスタムサイズ（px @1080p 基準）。null でプリセットへ戻す */
   setFontSizeCustom: (value: number | null) => void;
   /** 一括カスタム位置（% XY）。null でプリセットへ戻す */
@@ -117,6 +127,11 @@ const initialSettings: CaptionSettings = {
   strokeWidth: 4,
   position: 'bottom',
   blur: 0, // ぼかし強度（0=なし）
+  // 背景の帯（タイトル帯と同じ既定・既定は OFF）
+  backgroundEnabled: CAPTION_BACKGROUND_DEFAULT.backgroundEnabled,
+  backgroundColor: CAPTION_BACKGROUND_DEFAULT.backgroundColor,
+  backgroundOpacity: CAPTION_BACKGROUND_DEFAULT.backgroundOpacity,
+  backgroundRadius: CAPTION_BACKGROUND_DEFAULT.backgroundRadius,
   // 一括フェード設定
   bulkFadeIn: false,
   bulkFadeOut: false,
@@ -353,6 +368,51 @@ export const useCaptionStore = create<CaptionState>()(
           'setBlur'
         ),
 
+      setBackgroundEnabled: (backgroundEnabled) =>
+        set(
+          (state) => ({
+            settings: { ...state.settings, backgroundEnabled },
+          }),
+          false,
+          'setBackgroundEnabled'
+        ),
+
+      setBackgroundColor: (backgroundColor) =>
+        set(
+          (state) => ({
+            settings: {
+              ...state.settings,
+              backgroundColor: backgroundColor || CAPTION_BACKGROUND_DEFAULT.backgroundColor,
+            },
+          }),
+          false,
+          'setBackgroundColor'
+        ),
+
+      setBackgroundOpacity: (backgroundOpacity) =>
+        set(
+          (state) => ({
+            settings: {
+              ...state.settings,
+              backgroundOpacity: clampCaptionBackgroundOpacity(backgroundOpacity),
+            },
+          }),
+          false,
+          'setBackgroundOpacity'
+        ),
+
+      setBackgroundRadius: (backgroundRadius) =>
+        set(
+          (state) => ({
+            settings: {
+              ...state.settings,
+              backgroundRadius: clampCaptionBackgroundRadius(backgroundRadius),
+            },
+          }),
+          false,
+          'setBackgroundRadius'
+        ),
+
       setFontSizeCustom: (fontSizeCustom) =>
         set(
           (state) => ({
@@ -493,6 +553,16 @@ export const useCaptionStore = create<CaptionState>()(
               ...initialSettings,
               ...newSettings,
               strokeWidth: clampCaptionStrokeWidth(newSettings.strokeWidth ?? initialSettings.strokeWidth),
+              backgroundEnabled:
+                newSettings.backgroundEnabled ?? initialSettings.backgroundEnabled,
+              backgroundColor:
+                newSettings.backgroundColor || initialSettings.backgroundColor,
+              backgroundOpacity: clampCaptionBackgroundOpacity(
+                newSettings.backgroundOpacity ?? initialSettings.backgroundOpacity,
+              ),
+              backgroundRadius: clampCaptionBackgroundRadius(
+                newSettings.backgroundRadius ?? initialSettings.backgroundRadius,
+              ),
             },
             // タイトル未対応バージョンの保存データは undefined → 既定値で補完
             title: normalizeVideoTitleSettings(newTitle),

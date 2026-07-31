@@ -21,6 +21,10 @@ describe('captionStore', () => {
         strokeWidth: 2,
         position: 'bottom',
         blur: 0,
+        backgroundEnabled: false,
+        backgroundColor: '#000000',
+        backgroundOpacity: 0.45,
+        backgroundRadius: 16,
         bulkFadeIn: false,
         bulkFadeOut: false,
         bulkFadeInDuration: 0.5,
@@ -133,6 +137,10 @@ describe('captionStore', () => {
         strokeWidth: 4,
         position: 'top',
         blur: 1.5,
+        backgroundEnabled: true,
+        backgroundColor: '#111111',
+        backgroundOpacity: 0.5,
+        backgroundRadius: 12,
         bulkFadeIn: true,
         bulkFadeOut: true,
         bulkFadeInDuration: 1.0,
@@ -157,6 +165,10 @@ describe('captionStore', () => {
       expect(settings.strokeColor).toBe('#FF0000');
       expect(settings.strokeWidth).toBe(4);
       expect(settings.position).toBe('top');
+      expect(settings.backgroundEnabled).toBe(true);
+      expect(settings.backgroundColor).toBe('#111111');
+      expect(settings.backgroundOpacity).toBe(0.5);
+      expect(settings.backgroundRadius).toBe(12);
       expect(settings.blur).toBe(1.5);
       expect(settings.bulkFadeIn).toBe(true);
       expect(settings.bulkFadeOut).toBe(true);
@@ -165,6 +177,29 @@ describe('captionStore', () => {
       
       // Verify lock state was restored
       expect(isLocked).toBe(true);
+    });
+
+    it('restores missing background band fields as default OFF', () => {
+      const legacySettings = {
+        enabled: true,
+        fontSize: 'medium' as const,
+        fontStyle: 'gothic' as const,
+        fontColor: '#FFFFFF',
+        strokeColor: '#000000',
+        strokeWidth: 4,
+        position: 'bottom' as const,
+        blur: 0,
+        bulkFadeIn: false,
+        bulkFadeOut: false,
+        bulkFadeInDuration: 0.5,
+        bulkFadeOutDuration: 0.5,
+      };
+      useCaptionStore.getState().restoreFromSave([], legacySettings as CaptionSettings, false);
+      const { settings } = useCaptionStore.getState();
+      expect(settings.backgroundEnabled).toBe(false);
+      expect(settings.backgroundColor).toBe('#000000');
+      expect(settings.backgroundOpacity).toBe(0.45);
+      expect(settings.backgroundRadius).toBe(16);
     });
   });
 
@@ -228,6 +263,10 @@ describe('captionStore', () => {
         strokeWidth: 2,
         position: 'bottom',
         blur: 0,
+        backgroundEnabled: false,
+        backgroundColor: '#000000',
+        backgroundOpacity: 0.45,
+        backgroundRadius: 16,
         bulkFadeIn: false,
         bulkFadeOut: false,
         bulkFadeInDuration: 0.5,
@@ -444,6 +483,10 @@ describe('captionStore', () => {
         strokeWidth: 2,
         position: 'bottom',
         blur: 0,
+        backgroundEnabled: false,
+        backgroundColor: '#000000',
+        backgroundOpacity: 0.45,
+        backgroundRadius: 16,
         bulkFadeIn: false,
         bulkFadeOut: false,
         bulkFadeInDuration: 0.5,

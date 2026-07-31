@@ -428,4 +428,24 @@ describe('findAdjacentSilenceBoundary', () => {
     expect(findAdjacentSilenceBoundary(silences, 2, 'next', 10)).toBe(5);
     expect(findAdjacentSilenceBoundary(silences, 5, 'prev', 10)).toBe(2);
   });
+
+  it('comfortable では長い無音を前後 0.1 秒の余白位置へずらす', () => {
+    // silence 1〜2 / 5〜6 → 1.1, 1.9 / 5.1, 5.9
+    expect(collectSeekBoundaries(silences, 10, 0.05, 'comfortable')).toEqual([
+      0, 1.1, 1.9, 5.1, 5.9, 10,
+    ]);
+    expect(findAdjacentSilenceBoundary(silences, 0, 'next', 10, 0.05, 'comfortable')).toBe(1.1);
+    expect(findAdjacentSilenceBoundary(silences, 1.5, 'next', 10, 0.05, 'comfortable')).toBe(1.9);
+    expect(findAdjacentSilenceBoundary(silences, 3, 'next', 10, 0.05, 'comfortable')).toBe(5.1);
+  });
+
+  it('comfortable では短い無音を中央 1 点だけにし、間を空けない', () => {
+    const short: TimelineSilenceRegion[] = [
+      { silenceStart: 2.9, silenceEnd: 3.1, duration: 0.2, center: 3 },
+    ];
+    expect(collectSeekBoundaries(short, 10, 0.05, 'comfortable')).toEqual([0, 3, 10]);
+    expect(findAdjacentSilenceBoundary(short, 0, 'next', 10, 0.05, 'comfortable')).toBe(3);
+    // exact では開始・終了の 2 点
+    expect(collectSeekBoundaries(short, 10, 0.05, 'exact')).toEqual([0, 2.9, 3.1, 10]);
+  });
 });

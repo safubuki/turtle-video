@@ -224,6 +224,14 @@ export interface Caption {
   overrideStrokeColor?: string;         // 個別縁色（デフォルト=undefined）
   overrideStrokeWidth?: number;         // 個別縁幅 px @1080p 基準（デフォルト=undefined）
   overrideBlur?: number;                // 個別ぼかし 0〜5px（デフォルト=undefined）
+  /**
+   * 個別の背景帯。undefined の項目は一括設定（CaptionSettings.background*）を継承。
+   * enabled だけ true/false を指定し、色・濃さ・角丸は未設定のまま継承できる。
+   */
+  overrideBackgroundEnabled?: boolean;
+  overrideBackgroundColor?: string;
+  overrideBackgroundOpacity?: number;
+  overrideBackgroundRadius?: number;
   overrideFadeIn?: 'on' | 'off';        // 個別フェードイン（デフォルト=undefined）
   overrideFadeOut?: 'on' | 'off';       // 個別フェードアウト（デフォルト=undefined）
   overrideFadeInDuration?: number;      // 個別フェードイン時間（デフォルト=undefined）
@@ -356,6 +364,16 @@ export interface CaptionSettings {
   strokeWidth: number;
   position: CaptionPosition;
   blur: number; // ぼかし強度（0〜5px、0=なし）
+  /**
+   * キャプション背景の帯（動画タイトルの背景帯と同じ考え方）。
+   * 既定は OFF。ON のとき文字幅に合わせて半透明の帯を敷く。
+   */
+  backgroundEnabled: boolean;
+  backgroundColor: string;
+  /** 背景の帯の不透明度（0〜1） */
+  backgroundOpacity: number;
+  /** 背景の帯の角丸半径 px @1080p 基準（0=角丸なし） */
+  backgroundRadius: number;
   // 一括フェード設定
   bulkFadeIn: boolean;
   bulkFadeOut: boolean;

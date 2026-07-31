@@ -3043,3 +3043,31 @@ export 終了（成功/失敗/中断）
   - スケール基準を再び「高さのみ」へ戻すと縦画面の文字肥大が再発する。
   - タイトルぼかしをエンジン側に複製せず、`drawVideoTitleFrame` に閉じる（preview = export の担保）。
   - 既存プロジェクトの下部プリセットは縦切替時に自動で 80% へ寄る（カスタム位置は変更しない）。
+
+
+### 13-163. キャプション背景の帯（タイトル背景帯と同系統）
+
+- **ファイル**: `src/types/index.ts`, `src/utils/captionStyle.ts`, `src/stores/captionStore.ts`, `src/utils/indexedDB.ts`, `src/components/sections/CaptionSection.tsx`, `src/components/TurtleVideo.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/androidPreviewCache.ts`, `src/test/captionBackground.test.ts`
+- **要件**: キャプションにもタイトル同様の「背景の帯」を付けられる。既定は OFF。有効時は文字の実寸をカバーする黒透過帯。
+- **設計**:
+  - `CaptionSettings` に `backgroundEnabled` / `backgroundColor` / `backgroundOpacity` / `backgroundRadius`（既定: OFF / `#000000` / 0.45 / 16）。
+  - 描画は `drawCaptionBackgroundBand()` が単一ソース（standard / apple-safari 共通）。グリフ Canvas の幅・高さ + fontSize 比例余白で帯サイズを決める。
+  - UI は一括スタイル内「キャプション背景の帯」チェック。ON 時のみ色・濃さ・角丸を表示（タイトル帯と同じ操作感）。
+  - 旧保存データは restore 時に既定 OFF で補完。autoSave は `JSON.stringify(captionSettings)` で自動検知。
+- **注意**: 帯は文字の下に敷き、文字フェード α に乗算する。個別カード override は今回未対応（一括設定のみ）。
+
+### 13-164. タイミング打ちの無音ナビに「読みやすい位置へ自動調整」（既定 OFF）
+
+- **ファイル**: `src/utils/timelineWaveform.ts`, `src/components/sections/CaptionSection.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, `src/test/timelineWaveform.test.ts`, `src/test/captionStampSilenceNav.test.tsx`
+- **要件**: 無音区間ナビで開始・終了にぴったり合わせるだけでなく、ナレーション→キャプション生成と同じ読み疲れ防止ルールを任意で適用したい。既定は OFF。
+- **ルール**（`narrationCaptionPlan` の無音吸着と同じ定数）:
+  - `SILENCE_SEEK_MIN_FOR_GAP_SEC = 0.3` / `SILENCE_SEEK_EDGE_PADDING_SEC = 0.1`
+  - 短い無音（0.3 秒未満）: 中央 1 点だけ → キャプション間に隙間を作らない
+  - 長い無音: 終了用 = 無音開始 +0.1 秒、開始用 = 無音終了 −0.1 秒 → 発話後の余韻・次発話前の先行表示
+  - 動画の先頭（0）・末尾は常に exact（調整しない）
+- **実装**:
+  - 純関数 `resolveSilenceSeekTargets` / `collectSeekBoundaries(..., adjustMode)` / `findAdjacentSilenceBoundary(..., adjustMode)` に `exact | comfortable` を追加。
+  - タイミング打ちバーにチェック「読みやすい位置へ自動調整」（セッション state・永続化なし）。ON 時だけ `comfortAdjust: true` でシーク。
+  - 波形下の無音ナビは常に exact。タイミング打ちだけがオプションで comfortable。
+- **UX**: チェックは無音トランスポート直下。OFF 時は従来どおり無音境界そのものへ移動。ON 時に打鍵すると読みやすい位置がそのままキャプション時刻になる。
+- **注意**: 余白ルールを変えるときは narrationCaptionPlan の定数と揃える。波形ナビへ comfortable を広げない（聴き比べ用は exact が必要）。

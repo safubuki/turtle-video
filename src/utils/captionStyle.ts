@@ -28,6 +28,31 @@ export const CAPTION_BLUR_MIN = 0;
 export const CAPTION_BLUR_MAX = 5;
 export const CAPTION_BLUR_STEP = 0.1;
 
+/** キャプション背景帯の不透明度（タイトル帯と同じ範囲） */
+export const CAPTION_BACKGROUND_OPACITY_MIN = 0;
+export const CAPTION_BACKGROUND_OPACITY_MAX = 1;
+export const CAPTION_BACKGROUND_OPACITY_STEP = 0.05;
+
+/** キャプション背景帯の角丸半径 px @1080p 基準 */
+export const CAPTION_BACKGROUND_RADIUS_MIN = 0;
+export const CAPTION_BACKGROUND_RADIUS_MAX = 80;
+export const CAPTION_BACKGROUND_RADIUS_STEP = 1;
+
+/**
+ * 背景帯の余白（fontSize に対する比率）。
+ * 縦はグリフ Canvas 自体に縁取り分の高さがあるため、タイトル帯（0.3）より狭くする。
+ */
+export const CAPTION_BACKGROUND_PADDING_X_RATIO = 0.45;
+export const CAPTION_BACKGROUND_PADDING_Y_RATIO = 0.12;
+
+/** 背景帯の既定（OFF・黒 45%） */
+export const CAPTION_BACKGROUND_DEFAULT = {
+  backgroundEnabled: false,
+  backgroundColor: '#000000',
+  backgroundOpacity: 0.45,
+  backgroundRadius: 16,
+} as const;
+
 /** カスタム位置の既定値（% / テキスト中心）。横画面の下部プリセット相当 */
 export const CAPTION_POSITION_CUSTOM_DEFAULT = { x: 50, y: 85 };
 
@@ -85,6 +110,101 @@ export function clampCaptionBlur(value: number): number {
   return Math.round(clamped / CAPTION_BLUR_STEP) * CAPTION_BLUR_STEP;
 }
 
+export function clampCaptionBackgroundOpacity(value: number): number {
+  if (!Number.isFinite(value)) return CAPTION_BACKGROUND_DEFAULT.backgroundOpacity;
+  const clamped = Math.max(
+    CAPTION_BACKGROUND_OPACITY_MIN,
+    Math.min(CAPTION_BACKGROUND_OPACITY_MAX, value),
+  );
+  return (
+    Math.round(clamped / CAPTION_BACKGROUND_OPACITY_STEP) * CAPTION_BACKGROUND_OPACITY_STEP
+  );
+}
+
+export function clampCaptionBackgroundRadius(value: number): number {
+  if (!Number.isFinite(value)) return CAPTION_BACKGROUND_DEFAULT.backgroundRadius;
+  const clamped = Math.max(
+    CAPTION_BACKGROUND_RADIUS_MIN,
+    Math.min(CAPTION_BACKGROUND_RADIUS_MAX, value),
+  );
+  return (
+    Math.round(clamped / CAPTION_BACKGROUND_RADIUS_STEP) * CAPTION_BACKGROUND_RADIUS_STEP
+  );
+}
+
+/**
+ * キャプション文字の背後に背景帯を描く（preview / export 共通）。
+ * 文字グリフの実寸 + 余白で帯サイズを決め、文字をカバーする。
+ * @returns 描画したら true
+ */
+export function drawCaptionBackgroundBand(
+  ctx: CanvasRenderingContext2D,
+  options: {
+    centerX: number;
+    centerY: number;
+    glyphWidth: number;
+    glyphHeight: number;
+    /** スケール済みフォントサイズ（余白計算用） */
+    fontSize: number;
+    /** キャプション全体のフェード α */
+    fadeAlpha: number;
+    backgroundEnabled: boolean;
+    backgroundColor: string;
+    backgroundOpacity: number;
+    /** @1080p 基準の角丸。layoutScale でキャンバス寸法へ換算する */
+    backgroundRadius: number;
+    layoutScale: number;
+  },
+): boolean {
+  const {
+    centerX,
+    centerY,
+    glyphWidth,
+    glyphHeight,
+    fontSize,
+    fadeAlpha,
+    backgroundEnabled,
+    backgroundColor,
+    backgroundOpacity: rawOpacity,
+    backgroundRadius: rawRadius,
+    layoutScale,
+  } = options;
+
+  const backgroundOpacity = clampCaptionBackgroundOpacity(rawOpacity);
+  if (!backgroundEnabled || backgroundOpacity <= 0 || fadeAlpha <= 0) {
+    return false;
+  }
+  if (glyphWidth <= 0 || glyphHeight <= 0 || fontSize <= 0) {
+    return false;
+  }
+
+  const boxWidth = glyphWidth + fontSize * CAPTION_BACKGROUND_PADDING_X_RATIO * 2;
+  const boxHeight = glyphHeight + fontSize * CAPTION_BACKGROUND_PADDING_Y_RATIO * 2;
+  const boxX = centerX - boxWidth / 2;
+  const boxY = centerY - boxHeight / 2;
+  const radius = Math.min(
+    clampCaptionBackgroundRadius(rawRadius) * Math.max(0.1, layoutScale),
+    boxWidth / 2,
+    boxHeight / 2,
+  );
+
+  const prevAlpha = ctx.globalAlpha;
+  const prevFilter = ctx.filter;
+  ctx.filter = 'none';
+  ctx.globalAlpha = fadeAlpha * backgroundOpacity;
+  ctx.fillStyle = backgroundColor || CAPTION_BACKGROUND_DEFAULT.backgroundColor;
+  if (radius > 0 && typeof ctx.roundRect === 'function') {
+    ctx.beginPath();
+    ctx.roundRect(boxX, boxY, boxWidth, boxHeight, radius);
+    ctx.fill();
+  } else {
+    ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+  }
+  ctx.globalAlpha = prevAlpha;
+  ctx.filter = prevFilter;
+  return true;
+}
+
 export function resolveCaptionGlyphStyle(
   caption: Pick<Caption, 'overrideFontColor' | 'overrideStrokeColor' | 'overrideStrokeWidth' | 'overrideBlur'>,
   settings: Pick<CaptionSettings, 'fontColor' | 'strokeColor' | 'strokeWidth' | 'blur'>,
@@ -94,6 +214,43 @@ export function resolveCaptionGlyphStyle(
     strokeColor: caption.overrideStrokeColor ?? settings.strokeColor,
     strokeWidth: clampCaptionStrokeWidth(caption.overrideStrokeWidth ?? settings.strokeWidth),
     blur: clampCaptionBlur(caption.overrideBlur ?? settings.blur),
+  };
+}
+
+/**
+ * 背景帯の実効値を解決する。
+ * 優先度: 個別 override > 一括 CaptionSettings（未設定の項目だけ継承）。
+ */
+export function resolveCaptionBackgroundStyle(
+  caption: Pick<
+    Caption,
+    | 'overrideBackgroundEnabled'
+    | 'overrideBackgroundColor'
+    | 'overrideBackgroundOpacity'
+    | 'overrideBackgroundRadius'
+  >,
+  settings: Pick<
+    CaptionSettings,
+    'backgroundEnabled' | 'backgroundColor' | 'backgroundOpacity' | 'backgroundRadius'
+  >,
+): {
+  backgroundEnabled: boolean;
+  backgroundColor: string;
+  backgroundOpacity: number;
+  backgroundRadius: number;
+} {
+  return {
+    backgroundEnabled: caption.overrideBackgroundEnabled ?? settings.backgroundEnabled,
+    backgroundColor:
+      caption.overrideBackgroundColor
+      || settings.backgroundColor
+      || CAPTION_BACKGROUND_DEFAULT.backgroundColor,
+    backgroundOpacity: clampCaptionBackgroundOpacity(
+      caption.overrideBackgroundOpacity ?? settings.backgroundOpacity,
+    ),
+    backgroundRadius: clampCaptionBackgroundRadius(
+      caption.overrideBackgroundRadius ?? settings.backgroundRadius,
+    ),
   };
 }
 
