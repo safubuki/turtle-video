@@ -330,11 +330,11 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   const [stampGapSec, setStampGapSec] = useState(0.2);
   const [isStampGapCustom, setIsStampGapCustom] = useState(false);
   /**
-   * 無音ナビを「読みやすい位置」へずらす（既定 OFF）。
+   * 無音ナビを「読みやすい位置」へずらす（既定 ON）。
    * ナレーション連動キャプションと同じ: 長い無音は前後 0.1 秒の余白、短い無音は中央で間を空けない。
-   * セッション内の操作補助なので永続化しない。
+   * セッション内の操作補助なので永続化しない。exact にしたいときだけ OFF。
    */
-  const [stampSilenceComfortAdjust, setStampSilenceComfortAdjust] = useState(false);
+  const [stampSilenceComfortAdjust, setStampSilenceComfortAdjust] = useState(true);
   const stampTarget = stampActive ? captions[stampIndex] : undefined;
 
   // 無音ナビの活性は調整モード込みでここで計算する（親の exact 判定とずれないようにする）
@@ -1410,9 +1410,9 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                 </button>
               </div>
               {/*
-                無音ナビの読みやすい位置調整（既定 OFF）。
-                ナレーション→キャプション生成と同じ余白ルールを、手動のタイミング打ちへ任意で適用する。
-                波形側の「無音区間：前へ/次へ」は常に exact（そのまま）のまま。
+                無音ナビの読みやすい位置調整（既定 ON）。
+                ナレーション→キャプション生成と同じ余白ルールを、手動のタイミング打ちへ適用する。
+                exact（無音ぴったり）にしたいときだけ OFF。波形側のナビは常に exact のまま。
               */}
               <label
                 className="flex basis-full cursor-pointer items-center gap-2 rounded-lg border border-gray-700/80 bg-gray-800/50 px-2 py-1.5 text-[10px] text-gray-200 md:basis-auto md:text-xs"

@@ -3056,10 +3056,10 @@ export 終了（成功/失敗/中断）
   - 旧保存データは restore 時に既定 OFF で補完。autoSave は `JSON.stringify(captionSettings)` で自動検知。
 - **注意**: 帯は文字の下に敷き、文字フェード α に乗算する。個別カード override は今回未対応（一括設定のみ）。
 
-### 13-164. タイミング打ちの無音ナビに「読みやすい位置へ自動調整」（既定 OFF）
+### 13-164. タイミング打ちの無音ナビに「読みやすい位置へ自動調整」（既定 ON）
 
 - **ファイル**: `src/utils/timelineWaveform.ts`, `src/components/sections/CaptionSection.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, `src/test/timelineWaveform.test.ts`, `src/test/captionStampSilenceNav.test.tsx`
-- **要件**: 無音区間ナビで開始・終了にぴったり合わせるだけでなく、ナレーション→キャプション生成と同じ読み疲れ防止ルールを任意で適用したい。既定は OFF。
+- **要件**: 無音区間ナビで開始・終了にぴったり合わせるだけでなく、ナレーション→キャプション生成と同じ読み疲れ防止ルールを適用する。既定は **ON**。exact にしたいときだけ OFF。
 - **ルール**（`narrationCaptionPlan` の無音吸着と同じ定数）:
   - `SILENCE_SEEK_MIN_FOR_GAP_SEC = 0.3` / `SILENCE_SEEK_EDGE_PADDING_SEC = 0.1`
   - 短い無音（0.3 秒未満）: 中央 1 点だけ → キャプション間に隙間を作らない
@@ -3067,7 +3067,7 @@ export 終了（成功/失敗/中断）
   - 動画の先頭（0）・末尾は常に exact（調整しない）
 - **実装**:
   - 純関数 `resolveSilenceSeekTargets` / `collectSeekBoundaries(..., adjustMode)` / `findAdjacentSilenceBoundary(..., adjustMode)` に `exact | comfortable` を追加。
-  - タイミング打ちバーにチェック「読みやすい位置へ自動調整」（セッション state・永続化なし）。ON 時だけ `comfortAdjust: true` でシーク。
-  - 波形下の無音ナビは常に exact。タイミング打ちだけがオプションで comfortable。
-- **UX**: チェックは無音トランスポート直下。OFF 時は従来どおり無音境界そのものへ移動。ON 時に打鍵すると読みやすい位置がそのままキャプション時刻になる。
+  - タイミング打ちバーにチェック「読みやすい位置へ自動調整」（セッション state・永続化なし・**初期 true**）。OFF 時だけ exact。
+  - 波形下の無音ナビは常に exact。タイミング打ちだけが comfortable を既定にする。
+- **UX**: チェックは無音トランスポート直下。ON（既定）で打鍵すると読みやすい位置がそのままキャプション時刻になる。無音ぴったりへ合わせたいときだけ OFF。
 - **注意**: 余白ルールを変えるときは narrationCaptionPlan の定数と揃える。波形ナビへ comfortable を広げない（聴き比べ用は exact が必要）。

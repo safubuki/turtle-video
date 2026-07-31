@@ -7,7 +7,7 @@
  * - 押すと onSeekToSilenceBoundary が正しい方向で呼ばれること
  * - 移動先が無い方向のボタンは無効になること（先頭・末尾で足踏みしない）
  * - 既存の -1s / +1s / 再生ボタンを壊していないこと
- * - 「読みやすい位置へ自動調整」は既定 OFF で、ON 時は comfortAdjust 付きで呼ばれること
+ * - 「読みやすい位置へ自動調整」は既定 ON で、OFF 時は comfortAdjust: false になること
  */
 import type { ComponentProps } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
@@ -131,7 +131,7 @@ describe('タイミング打ちバーの無音区間ナビゲーション', () =
     fireEvent.click(screen.getByRole('button', { name: '無音区間：前へ' }));
 
     expect(onSeekToSilenceBoundary).toHaveBeenCalledTimes(1);
-    expect(onSeekToSilenceBoundary).toHaveBeenCalledWith('prev', { comfortAdjust: false });
+    expect(onSeekToSilenceBoundary).toHaveBeenCalledWith('prev', { comfortAdjust: true });
   });
 
   it('「無音区間：次へ」で next 方向へ移動を要求する', () => {
@@ -140,10 +140,10 @@ describe('タイミング打ちバーの無音区間ナビゲーション', () =
     fireEvent.click(screen.getByRole('button', { name: '無音区間：次へ' }));
 
     expect(onSeekToSilenceBoundary).toHaveBeenCalledTimes(1);
-    expect(onSeekToSilenceBoundary).toHaveBeenCalledWith('next', { comfortAdjust: false });
+    expect(onSeekToSilenceBoundary).toHaveBeenCalledWith('next', { comfortAdjust: true });
   });
 
-  it('「読みやすい位置へ自動調整」は既定 OFF で、ON にすると comfortAdjust 付きで移動する', () => {
+  it('「読みやすい位置へ自動調整」は既定 ON で、OFF にすると exact 移動になる', () => {
     const { onSeekToSilenceBoundary } = renderStampBar({
       silenceRegions: [
         { silenceStart: 1, silenceEnd: 2, duration: 1, center: 1.5 },
@@ -153,13 +153,13 @@ describe('タイミング打ちバーの無音区間ナビゲーション', () =
     const comfortToggle = screen.getByRole('checkbox', {
       name: /読みやすい位置へ自動調整/,
     });
-    expect(comfortToggle).not.toBeChecked();
-
-    fireEvent.click(comfortToggle);
     expect(comfortToggle).toBeChecked();
 
+    fireEvent.click(comfortToggle);
+    expect(comfortToggle).not.toBeChecked();
+
     fireEvent.click(screen.getByRole('button', { name: '無音区間：次へ' }));
-    expect(onSeekToSilenceBoundary).toHaveBeenLastCalledWith('next', { comfortAdjust: true });
+    expect(onSeekToSilenceBoundary).toHaveBeenLastCalledWith('next', { comfortAdjust: false });
   });
 
   it('-1s の左・+1s の右に並ぶ', () => {
