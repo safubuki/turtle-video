@@ -56,6 +56,12 @@ export interface TimelinePlacement {
   fadeInSec?: number;
   /** フェードアウト時間（秒）。0 以下ならフェードなし */
   fadeOutSec?: number;
+  /**
+   * タイムライン上での再生速度（動画倍速）。1 より大きいとソース尺より短い枠へ圧縮して貼る。
+   * 未指定・不正値は 1。ナレーション/BGM は通常 1 のまま。
+   * 例: ソース 10s・speed 2 → タイムライン 5s に全内容を詰める（見た目も密になる）。
+   */
+  playbackSpeed?: number;
 }
 
 export interface TimelineSilenceRegion {
@@ -86,6 +92,9 @@ export interface TimelineWaveformResult {
  * 各クリップの [sourceStart, sourceEnd) を timelineStart 起点へ線形リサンプリングしながら
  * 加算合成し、volume とフェードを掛ける。重なりは単純加算（実際のミキサーと同じ規約）。
  *
+ * playbackSpeed > 1 のとき、ソース尺はタイムライン上で 1/speed に圧縮して貼る
+ * （動画倍速プレビュー/書き出しと波形の見た目を一致させる）。
+ *
  * @param placements - 配置するクリップ（空なら無音バッファ）
  * @param totalDuration - タイムライン全長（秒）
  * @param sampleRate - 合成に使うサンプリングレート（Hz）
@@ -113,29 +122,36 @@ export function composeTimelinePcm(
     const srcDuration = srcSamples.length / srcRate;
     const sourceStart = clamp(placement.sourceStart, 0, srcDuration);
     const sourceEnd = clamp(placement.sourceEnd, sourceStart, srcDuration);
-    const playable = sourceEnd - sourceStart;
-    if (!(playable > 0)) continue;
+    const sourcePlayable = sourceEnd - sourceStart;
+    if (!(sourcePlayable > 0)) continue;
+
+    // タイムライン上の表示尺（倍速時はソースより短い）
+    const speedRaw = placement.playbackSpeed;
+    const speed = Number.isFinite(speedRaw) && (speedRaw as number) > 0
+      ? (speedRaw as number)
+      : 1;
+    const timelinePlayable = sourcePlayable / speed;
 
     const timelineStart = Math.max(0, placement.timelineStart);
     const writeStart = Math.round(timelineStart * safeRate);
     if (writeStart >= totalSamples) continue;
-    const writeEnd = Math.min(totalSamples, writeStart + Math.round(playable * safeRate));
+    const writeEnd = Math.min(totalSamples, writeStart + Math.round(timelinePlayable * safeRate));
     if (writeEnd <= writeStart) continue;
 
     const fadeIn = Math.max(0, placement.fadeInSec ?? 0);
     const fadeOut = Math.max(0, placement.fadeOutSec ?? 0);
 
     for (let i = writeStart; i < writeEnd; i++) {
-      // タイムライン位置 → クリップ内の経過秒 → 音源内の絶対秒
+      // タイムライン経過秒 → 音源は speed 倍で進む
       const elapsed = (i - writeStart) / safeRate;
-      const srcIndex = Math.floor((sourceStart + elapsed) * srcRate);
+      const srcIndex = Math.floor((sourceStart + elapsed * speed) * srcRate);
       if (srcIndex < 0 || srcIndex >= srcSamples.length) continue;
 
       let gain = volume;
       if (fadeIn > 0 && elapsed < fadeIn) {
         gain *= elapsed / fadeIn;
       }
-      const remaining = playable - elapsed;
+      const remaining = timelinePlayable - elapsed;
       if (fadeOut > 0 && remaining < fadeOut) {
         gain *= Math.max(0, remaining / fadeOut);
       }

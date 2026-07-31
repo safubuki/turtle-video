@@ -8,6 +8,11 @@ import type { MediaItem } from '../types';
 import { calculateTotalDurationWithTransitions } from './transitionTimeline';
 import { useLogStore } from '../stores/logStore';
 import { MAX_CANVAS_WIDTH } from '../constants';
+import {
+  computeTimelineDurationFromSource,
+  getVideoSourceClipDuration,
+  normalizeVideoPlaybackSpeed,
+} from './playbackSpeed';
 
 /**
  * ID生成用カウンター（同一ミリ秒内での重複を防止）
@@ -172,10 +177,15 @@ export function computeVideoTrimFromPreviewPosition(params: {
   sourceTrimStart: number;
   sourceTrimEnd: number;
   originalDuration: number;
-  /** クリップ内の相対位置（現在の有効区間先頭からの秒数） */
+  /**
+   * クリップ内の相対位置（タイムライン上・有効区間先頭からの秒数）。
+   * 倍速時もタイムライン秒。ソース上のオフセットは playbackSpeed を掛けて求める。
+   */
   previewPosition: number;
   type: 'start' | 'end';
   minDuration?: number;
+  /** 動画倍速。未指定は 1 */
+  playbackSpeed?: unknown;
 }): { start: number; end: number; duration: number } | null {
   const minDuration = params.minDuration ?? MIN_VIDEO_TRIM_DURATION_SEC;
   const originalDuration = Number.isFinite(params.originalDuration)
@@ -192,14 +202,17 @@ export function computeVideoTrimFromPreviewPosition(params: {
   const playableDuration = sourceTrimEnd - sourceTrimStart;
   if (playableDuration < minDuration) return null;
 
+  const speed = normalizeVideoPlaybackSpeed(params.playbackSpeed);
+  const timelinePlayable = playableDuration / speed;
+
   if (!Number.isFinite(params.previewPosition)) return null;
-  // 現在の有効区間内にクランプ（区間外の指定は無効扱い）
-  if (params.previewPosition < 0 || params.previewPosition > playableDuration) {
+  // 現在の有効区間内にクランプ（区間外の指定は無効扱い・タイムライン秒）
+  if (params.previewPosition < 0 || params.previewPosition > timelinePlayable) {
     return null;
   }
 
   // 浮動小数点の蓄積を避けるため、元動画上の絶対位置を一度だけ合成する
-  const sourcePosition = sourceTrimStart + params.previewPosition;
+  const sourcePosition = sourceTrimStart + params.previewPosition * speed;
 
   let newStart: number;
   let newEnd: number;
@@ -230,8 +243,26 @@ export function canSetVideoTrimFromPreviewPosition(params: {
   previewPosition: number;
   type: 'start' | 'end';
   minDuration?: number;
+  playbackSpeed?: unknown;
 }): boolean {
   return computeVideoTrimFromPreviewPosition(params) !== null;
+}
+
+/**
+ * ソース trim と速度から動画のタイムライン尺を算出する（store 更新の単一経路用）。
+ */
+export function computeVideoTimelineDurationFromTrim(params: {
+  trimStart: number;
+  trimEnd: number;
+  originalDuration?: number;
+  playbackSpeed?: unknown;
+}): number {
+  const source = getVideoSourceClipDuration({
+    trimStart: params.trimStart,
+    trimEnd: params.trimEnd,
+    originalDuration: params.originalDuration,
+  });
+  return computeTimelineDurationFromSource(source, params.playbackSpeed);
 }
 
 /** 自動サムネイル: クリップ有効開始からの既定オフセット（秒） */
@@ -331,8 +362,9 @@ export function computeThumbnailSourceTimeFromPreviewPosition(params: {
   sourceTrimStart: number;
   sourceTrimEnd: number;
   originalDuration: number;
-  /** クリップ有効区間先頭からの相対秒 */
+  /** クリップ有効区間先頭からの相対秒（タイムライン）。倍速時は speed を掛ける */
   previewPosition: number;
+  playbackSpeed?: unknown;
 }): number | null {
   const originalDuration = Number.isFinite(params.originalDuration)
     ? Math.max(0, params.originalDuration)
@@ -347,10 +379,12 @@ export function computeThumbnailSourceTimeFromPreviewPosition(params: {
     : originalDuration;
   const playable = sourceTrimEnd - sourceTrimStart;
   if (playable <= 0) return null;
+  const speed = normalizeVideoPlaybackSpeed(params.playbackSpeed);
+  const timelinePlayable = playable / speed;
   if (!Number.isFinite(params.previewPosition)) return null;
-  if (params.previewPosition < 0 || params.previewPosition > playable) return null;
+  if (params.previewPosition < 0 || params.previewPosition > timelinePlayable) return null;
 
-  const sourceTime = sourceTrimStart + params.previewPosition;
+  const sourceTime = sourceTrimStart + params.previewPosition * speed;
   // 終端ちょうどは < end 契約から外れるため僅かに手前へ
   if (sourceTime >= sourceTrimEnd) {
     return Math.max(sourceTrimStart, sourceTrimEnd - 0.001);

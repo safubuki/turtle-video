@@ -16,6 +16,7 @@
 
 import type { PlatformCapabilities } from './platform';
 import { resolveIosSafariSingleMixedAudio } from './iosSafariAudio';
+import { resolveVideoSafeEndSourceTime } from './playbackSpeed';
 
 export interface PreviewPlatformPolicy {
   previewSyncThresholdSec: number;
@@ -69,6 +70,8 @@ export interface VideoClipEndGuardOptions {
   clipLocalTime: number;
   clipDuration: number;
   trimStart: number;
+  playbackSpeed?: number;
+  trimEnd?: number;
   videoCurrentTime: number;
   videoEnded: boolean;
   isExporting?: boolean;
@@ -504,7 +507,12 @@ export function shouldHoldVideoFrameAtClipEnd(
     return false;
   }
 
-  const safeClipEndTime = options.trimStart + Math.max(0, clipDuration - 0.001);
+  const safeClipEndTime = resolveVideoSafeEndSourceTime({
+    trimStart: options.trimStart,
+    timelineDuration: clipDuration,
+    playbackSpeed: options.playbackSpeed,
+    trimEnd: options.trimEnd,
+  });
   // PC / Android export では、途中クリップ終端の hold が
   // requestAnimationFrame ベースの export 時刻停止を誘発しやすい。
   // ただし video -> video 境界だけは、切替瞬間の単発黒フレームを避けるため

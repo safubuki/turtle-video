@@ -97,6 +97,7 @@ turtle-video/
 - クリップ一覧の小サムネは動画ごと自動（有効開始+0.2秒）
 - ボリューム調整、ミュート
 - フェードイン/アウト（映像・音声）
+- **動画カードの再生速度（1x / 2x / 4x / 8x）**（**Android/PC・standard 限定**。スローは対象外）。タイムライン尺は `(trimEnd-trimStart)/速度`。プレビューは `playbackRate=speed`、**export 映像は rate=1 連続 + 壁時計 dilation（Δt/speed）**（途中切れ・seek 静止画化を避ける成功方式。詳細は implementation-patterns 13-166 と `export-speed-video-wall-dilation-postmortem-2026-08-01.md`）。音声も高速化（pitch-preserved キャプチャ）、ミュート時はソース音声なし。任意でバッジ表示（既定「N倍速」/ 英語「Nx」切替、位置プリセット＋微調整）
 - スケール調整（0.5倍〜3.0倍）、位置調整（X/Y）
 - 90度回転（クリップ単位・画像/動画共通。ボタンで 0→90→180→270→0 巡回。縦横入れ替えに対応）
 - ぼかし調整（クリップ単位・画像/動画共通。0〜30pxのスライダー、0はぼかしなし。プレビュー/書き出しの解像度へ比例反映）
@@ -182,7 +183,7 @@ Zustand を使用し、機能ごとにストアを分離しています。
 
 ## 主要な型定義
 
-- `MediaItem`: 動画/画像クリップの全プロパティ（`thumbnailMode` / `thumbnailSourceTime` を含む）
+- `MediaItem`: 動画/画像クリップの全プロパティ（`thumbnailMode` / `thumbnailSourceTime` / `playbackSpeed` / `showSpeedBadge` / バッジ位置を含む）
 - `AudioTrack`: BGM/ナレーションの共通型
 - `CaptionItem`: キャプションアイテム
 - `VoiceId` / `VoiceOption`: AIボイスの型

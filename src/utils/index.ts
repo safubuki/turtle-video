@@ -32,6 +32,7 @@ export {
   MIN_VIDEO_TRIM_DURATION_SEC,
   computeVideoTrimFromPreviewPosition,
   canSetVideoTrimFromPreviewPosition,
+  computeVideoTimelineDurationFromTrim,
   AUTO_THUMBNAIL_OFFSET_SEC,
   AUTO_THUMBNAIL_RETRY_OFFSETS_SEC,
   computeAutoThumbnailSourceTime,
@@ -75,6 +76,39 @@ export {
   findActiveTimelineItem,
   collectPlaybackBlockingVideos,
 } from './playbackTimeline';
+
+// 動画倍速
+export {
+  VIDEO_PLAYBACK_SPEEDS,
+  DEFAULT_VIDEO_PLAYBACK_SPEED,
+  DEFAULT_SPEED_BADGE_POSITION,
+  DEFAULT_SPEED_BADGE_LABEL_STYLE,
+  normalizeVideoPlaybackSpeed,
+  normalizeSpeedBadgeLabelStyle,
+  formatSpeedBadgeLabel,
+  resolveSpeedAwareVideoSyncThresholdSec,
+  resolveExportTimelineWallDivisorForItem,
+  wallDeltaToExportTimelineDelta,
+  resolveVideoElementPlaybackRateForContext,
+  getVideoSourceClipDuration,
+  computeTimelineDurationFromSource,
+  resolveVideoTimelineDuration,
+  resolveVideoSourceTime,
+  resolveVideoSafeEndSourceTime,
+  normalizeSpeedBadgePosition,
+  resolveSpeedBadgePresetPosition,
+  shouldDrawSpeedBadge,
+  drawSpeedBadgeFrame,
+  applyVideoElementPlaybackRate,
+} from './playbackSpeed';
+export type { SpeedBadgePositionPreset } from './playbackSpeed';
+
+// 倍速 export 用・音程維持タイムストレッチ
+export {
+  extractAndTimeCompressAudioBuffer,
+  timeStretchAudioBufferPreservePitch,
+  wsolaTimeStretchChannel,
+} from './audioTimeStretch';
 
 // プラットフォーム判定
 export {

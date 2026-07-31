@@ -34,6 +34,11 @@ import {
 } from '../../../hooks/export-strategies/exportStrategyResolver';
 import { probeDecodeAudioData } from '../../../hooks/export-strategies/decodeAudioProbe';
 import { createDiagnosticId } from '../../../utils/diagnostics';
+import {
+  getVideoSourceClipDuration,
+  normalizeVideoPlaybackSpeed,
+} from '../../../utils/playbackSpeed';
+import { capturePitchPreservedSpeedAudio } from '../../../utils/audioPitchPreservedCapture';
 import type {
   ExportAudioSources,
   ExportCancelReason,
@@ -587,7 +592,42 @@ async function offlineRenderAudio(
     if (signal.aborted) return null;
 
     if (item.type === 'video' && !item.isMuted && item.volume > 0) {
-      const audioBuffer = await decodeAudio(item.file, item.url, item.duration);
+      const playbackSpeed = normalizeVideoPlaybackSpeed(item.playbackSpeed);
+      const sourceClipDuration = getVideoSourceClipDuration(item);
+      const playSourceDuration = sourceClipDuration > 0 ? sourceClipDuration : item.duration;
+
+      let audioBuffer: AudioBuffer | null = null;
+      let usedPitchPreservedCapture = false;
+      if (
+        playbackSpeed > 1
+        && playSourceDuration > 0
+        && item.file instanceof File
+      ) {
+        audioBuffer = await capturePitchPreservedSpeedAudio({
+          file: item.file,
+          url: item.url,
+          trimStart: item.trimStart || 0,
+          sourceDurationSec: playSourceDuration,
+          speed: playbackSpeed,
+          audioContext: mainCtx,
+          signal,
+          onLog: (level, message, details) => {
+            if (level === 'warn') {
+              log.warn('RENDER', `[DIAG-SCHED] ${message}`, details);
+            } else {
+              log.info('RENDER', `[DIAG-SCHED] ${message}`, details);
+            }
+          },
+        });
+        usedPitchPreservedCapture = Boolean(audioBuffer);
+      }
+      if (!audioBuffer) {
+        const decodeHintDuration = item.originalDuration > 0
+          ? item.originalDuration
+          : playSourceDuration;
+        audioBuffer = await decodeAudio(item.file, item.url, decodeHintDuration);
+      }
+
       if (audioBuffer) {
         const source = offlineCtx.createBufferSource();
         source.buffer = audioBuffer;
@@ -621,7 +661,23 @@ async function offlineRenderAudio(
           gain.gain.linearRampToValueAtTime(0, clipEnd);
         }
 
-        source.start(clipStart, item.trimStart, item.duration);
+        let scheduleOffset = 0;
+        let scheduleDuration = audioBuffer.duration;
+        if (usedPitchPreservedCapture) {
+          scheduleOffset = 0;
+          scheduleDuration = Math.min(audioBuffer.duration, item.duration + 0.05);
+        } else if (playbackSpeed > 1 && playSourceDuration > 0) {
+          log.warn('RENDER', '[DIAG-SCHED] 音程維持キャプチャ失敗。playbackRate フォールバック（高音化あり）', {
+            playbackSpeed,
+          });
+          source.playbackRate.value = playbackSpeed;
+          scheduleOffset = item.trimStart;
+          scheduleDuration = playSourceDuration;
+        } else {
+          scheduleOffset = item.trimStart;
+          scheduleDuration = playSourceDuration > 0 ? playSourceDuration : item.duration;
+        }
+        source.start(clipStart, scheduleOffset, scheduleDuration);
         scheduledSources++;
 
         // [DIAG-SCHED] クリップスケジュール詳細
@@ -631,6 +687,10 @@ async function offlineRenderAudio(
           clipEnd: Math.round(clipEnd * 100) / 100,
           trimStart: item.trimStart,
           duration: Math.round(item.duration * 100) / 100,
+          playbackSpeed,
+          sourceClipDuration: Math.round(sourceClipDuration * 100) / 100,
+          usedPitchPreservedCapture,
+          scheduleDuration: Math.round(scheduleDuration * 100) / 100,
           volume: vol,
           bufferDuration: Math.round(audioBuffer.duration * 100) / 100,
           bufferSampleRate: audioBuffer.sampleRate,

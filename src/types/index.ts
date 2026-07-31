@@ -77,6 +77,12 @@ export interface ClipTransition {
   duration: number; // 秒（0.5 / 1 / 2）
 }
 
+/** 動画カードの再生速度（早送り。スローは第1版対象外） */
+export type VideoPlaybackSpeed = 1 | 2 | 4 | 8;
+
+/** 倍速バッジの表示言語（既定は日本語「N倍速」） */
+export type SpeedBadgeLabelStyle = 'ja' | 'en';
+
 // メディアアイテム (動画/画像)
 export interface MediaItem {
   id: string;
@@ -90,6 +96,10 @@ export interface MediaItem {
   fadeOut: boolean;
   fadeInDuration: number;   // フェードイン時間（秒）
   fadeOutDuration: number;  // フェードアウト時間（秒）
+  /**
+   * タイムライン上の表示尺（秒）。
+   * 動画は (trimEnd - trimStart) / playbackSpeed。画像はユーザー指定の表示時間。
+   */
   duration: number;
   originalDuration: number;
   trimStart: number;
@@ -116,6 +126,21 @@ export interface MediaItem {
   thumbnailMode?: 'auto' | 'manual';
   /** サムネイル取得位置（元動画上の秒。trim 後の相対時刻ではない） */
   thumbnailSourceTime?: number;
+  /**
+   * 動画の再生速度（1/2/4/8）。画像は未使用。旧データ・未定義は 1。
+   * @see Docs/specs/2026-08-01_video-playback-speed.md
+   */
+  playbackSpeed?: VideoPlaybackSpeed;
+  /** プレビュー/書き出しに倍速バッジを出すか（speed>1 のときのみ実際に描画） */
+  showSpeedBadge?: boolean;
+  /**
+   * バッジ文言: `ja` = 「2倍速」、`en` = 「2x」。未定義は ja。
+   */
+  speedBadgeLabelStyle?: SpeedBadgeLabelStyle;
+  /** バッジ中心の水平位置（0–100%）。未定義は右上寄り既定 */
+  speedBadgePositionX?: number;
+  /** バッジ中心の垂直位置（0–100%）。未定義は右上寄り既定 */
+  speedBadgePositionY?: number;
 }
 
 // オーディオトラック (BGM/ナレーション共通)

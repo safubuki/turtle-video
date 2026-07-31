@@ -10,7 +10,7 @@
  */
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import type { MediaItem } from '../types';
+import type { MediaItem, SpeedBadgeLabelStyle, VideoPlaybackSpeed } from '../types';
 import type { AspectRatio } from './canvasStore';
 import {
   createMediaItem,
@@ -25,6 +25,12 @@ import {
   computeAutoThumbnailSourceTime,
   resolveThumbnailAfterTrimChange,
   computeAutoProjectPosterTimelineTime,
+  computeVideoTimelineDurationFromTrim,
+  normalizeVideoPlaybackSpeed,
+  normalizeSpeedBadgeLabelStyle,
+  normalizeSpeedBadgePosition,
+  resolveSpeedBadgePresetPosition,
+  DEFAULT_SPEED_BADGE_LABEL_STYLE,
 } from '../utils';
 import { useLogStore } from './logStore';
 
@@ -106,6 +112,19 @@ interface MediaState {
   // Audio
   updateVolume: (id: string, volume: number) => void;
   toggleMute: (id: string) => void;
+  /** 動画の再生速度（1/2/4/8）。タイムライン尺を再計算する */
+  updateVideoPlaybackSpeed: (id: string, speed: VideoPlaybackSpeed) => void;
+  /** 倍速バッジ表示の ON/OFF */
+  updateVideoShowSpeedBadge: (id: string, show: boolean) => void;
+  /** バッジ文言スタイル（ja / en） */
+  updateVideoSpeedBadgeLabelStyle: (id: string, style: SpeedBadgeLabelStyle) => void;
+  /** 倍速バッジ位置（0–100%） */
+  updateVideoSpeedBadgePosition: (id: string, axis: 'x' | 'y', value: number) => void;
+  /** 倍速バッジ位置を四隅プリセットへ */
+  applyVideoSpeedBadgePreset: (
+    id: string,
+    preset: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right',
+  ) => void;
   /**
    * 動画クリップを一括ミュート/解除する。
    * 画像は音声がないため対象外。muted=true で全動画をミュート、false で全解除。
@@ -249,16 +268,22 @@ export const useMediaStore = create<MediaState>()(
             const isInitialized = item.originalDuration > 0;
             const newTrimStart = isInitialized ? item.trimStart : 0;
             const newTrimEnd = isInitialized && item.trimEnd > 0 ? item.trimEnd : originalDuration;
-            const newDuration = newTrimEnd - newTrimStart;
+            const sourceDuration = newTrimEnd - newTrimStart;
             if (item.type !== 'video') {
               return {
                 ...item,
                 originalDuration,
                 trimStart: newTrimStart,
                 trimEnd: newTrimEnd,
-                duration: newDuration > 0 ? newDuration : originalDuration,
+                duration: sourceDuration > 0 ? sourceDuration : originalDuration,
               };
             }
+            const timelineDuration = computeVideoTimelineDurationFromTrim({
+              trimStart: newTrimStart,
+              trimEnd: newTrimEnd > newTrimStart ? newTrimEnd : originalDuration,
+              originalDuration,
+              playbackSpeed: item.playbackSpeed,
+            });
             // 初回尺確定・auto は開始+0.2s。manual は範囲外なら auto へ
             const thumb = resolveThumbnailAfterTrimChange({
               mode: item.thumbnailMode,
@@ -276,7 +301,14 @@ export const useMediaStore = create<MediaState>()(
               originalDuration,
               trimStart: newTrimStart,
               trimEnd: newTrimEnd,
-              duration: newDuration > 0 ? newDuration : originalDuration,
+              duration: timelineDuration > 0
+                ? timelineDuration
+                : computeVideoTimelineDurationFromTrim({
+                  trimStart: 0,
+                  trimEnd: originalDuration,
+                  originalDuration,
+                  playbackSpeed: item.playbackSpeed,
+                }),
               thumbnailMode: useAuto ? 'auto' : 'manual',
               thumbnailSourceTime: useAuto
                 ? computeAutoThumbnailSourceTime(newTrimStart, newTrimEnd)
@@ -342,7 +374,12 @@ export const useMediaStore = create<MediaState>()(
               ...item,
               trimStart: validated.start,
               trimEnd: validated.end,
-              duration: validated.duration,
+              duration: computeVideoTimelineDurationFromTrim({
+                trimStart: validated.start,
+                trimEnd: validated.end,
+                originalDuration: item.originalDuration,
+                playbackSpeed: item.playbackSpeed,
+              }),
               thumbnailMode: thumb.thumbnailMode,
               thumbnailSourceTime: thumb.thumbnailSourceTime,
             };
@@ -570,6 +607,95 @@ export const useMediaStore = create<MediaState>()(
         set((state) => ({
           mediaItems: state.mediaItems.map((item) =>
             item.id === id ? { ...item, isMuted: !item.isMuted } : item
+          ),
+        }));
+      },
+
+      updateVideoPlaybackSpeed: (id, speed) => {
+        const nextSpeed = normalizeVideoPlaybackSpeed(speed);
+        useLogStore.getState().info('MEDIA', '動画再生速度を更新', { id, speed: nextSpeed });
+        set((state) => {
+          const updated = state.mediaItems.map((item) => {
+            if (item.id !== id || item.type !== 'video') return item;
+            return {
+              ...item,
+              playbackSpeed: nextSpeed,
+              duration: computeVideoTimelineDurationFromTrim({
+                trimStart: item.trimStart,
+                trimEnd: item.trimEnd,
+                originalDuration: item.originalDuration,
+                playbackSpeed: nextSpeed,
+              }),
+            };
+          });
+          return {
+            mediaItems: updated,
+            totalDuration: calculateTotalDuration(updated),
+          };
+        });
+      },
+
+      updateVideoShowSpeedBadge: (id, show) => {
+        set((state) => ({
+          mediaItems: state.mediaItems.map((item) => {
+            if (item.id !== id || item.type !== 'video') return item;
+            const pos = normalizeSpeedBadgePosition(
+              item.speedBadgePositionX,
+              item.speedBadgePositionY,
+            );
+            return {
+              ...item,
+              showSpeedBadge: Boolean(show),
+              // 初回 ON 時に既定位置・文言スタイルを埋める
+              speedBadgePositionX: item.speedBadgePositionX ?? pos.x,
+              speedBadgePositionY: item.speedBadgePositionY ?? pos.y,
+              speedBadgeLabelStyle:
+                item.speedBadgeLabelStyle ?? DEFAULT_SPEED_BADGE_LABEL_STYLE,
+            };
+          }),
+        }));
+      },
+
+      updateVideoSpeedBadgeLabelStyle: (id, style) => {
+        const next = normalizeSpeedBadgeLabelStyle(style);
+        set((state) => ({
+          mediaItems: state.mediaItems.map((item) =>
+            item.id === id && item.type === 'video'
+              ? { ...item, speedBadgeLabelStyle: next }
+              : item
+          ),
+        }));
+      },
+
+      updateVideoSpeedBadgePosition: (id, axis, value) => {
+        const safe = Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : 0;
+        set((state) => ({
+          mediaItems: state.mediaItems.map((item) => {
+            if (item.id !== id || item.type !== 'video') return item;
+            const pos = normalizeSpeedBadgePosition(
+              item.speedBadgePositionX,
+              item.speedBadgePositionY,
+            );
+            return {
+              ...item,
+              speedBadgePositionX: axis === 'x' ? safe : pos.x,
+              speedBadgePositionY: axis === 'y' ? safe : pos.y,
+            };
+          }),
+        }));
+      },
+
+      applyVideoSpeedBadgePreset: (id, preset) => {
+        const pos = resolveSpeedBadgePresetPosition(preset);
+        set((state) => ({
+          mediaItems: state.mediaItems.map((item) =>
+            item.id === id && item.type === 'video'
+              ? {
+                ...item,
+                speedBadgePositionX: pos.x,
+                speedBadgePositionY: pos.y,
+              }
+              : item
           ),
         }));
       },

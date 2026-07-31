@@ -8,6 +8,10 @@ import {
   shouldKeepInactiveVideoPrewarmed,
   type PreviewPlatformPolicy,
 } from './previewPlatform';
+import {
+  resolveVideoSafeEndSourceTime,
+  resolveVideoSourceTime,
+} from '../../../utils/playbackSpeed';
 
 interface PreparedPreviewAudioNodesResult {
   activeVideoId: string | null;
@@ -122,7 +126,7 @@ export function usePreviewSeekController({
             }
             if (videoElement.readyState >= 1) {
               const localTime = time - accumulatedTime;
-              const targetTime = (item.trimStart || 0) + localTime;
+              const targetTime = resolveVideoSourceTime({ trimStart: item.trimStart || 0, localTime, playbackSpeed: item.playbackSpeed });
               const drift = Math.abs(videoElement.currentTime - targetTime);
               if (drift > seekThreshold && (force || !videoElement.seeking)) {
                 videoElement.currentTime = targetTime;
@@ -152,7 +156,7 @@ export function usePreviewSeekController({
             }
           }
           if (videoElement.readyState >= 1) {
-            const targetTime = (lastItem.trimStart || 0) + Math.max(0, lastItem.duration - 0.001);
+            const targetTime = resolveVideoSafeEndSourceTime({ trimStart: lastItem.trimStart || 0, timelineDuration: lastItem.duration, playbackSpeed: lastItem.playbackSpeed, trimEnd: lastItem.trimEnd });
             const drift = Math.abs(videoElement.currentTime - targetTime);
             const endAlignThreshold = 0.0001;
             const shouldForceEndAlign = force || time >= totalDurationRef.current - 0.05;
@@ -477,7 +481,7 @@ export function usePreviewSeekController({
               const videoElement = mediaElementsRef.current[item.id] as HTMLVideoElement;
               if (videoElement) {
                 const localTime = playbackTime - accumulatedTime;
-                const targetTime = (item.trimStart || 0) + localTime;
+                const targetTime = resolveVideoSourceTime({ trimStart: item.trimStart || 0, localTime, playbackSpeed: item.playbackSpeed });
 
                 if (Math.abs(videoElement.currentTime - targetTime) > 0.05) {
                   videoElement.currentTime = targetTime;

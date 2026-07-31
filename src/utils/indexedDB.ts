@@ -73,6 +73,16 @@ export interface SerializedMediaItem {
   thumbnailMode?: 'auto' | 'manual';
   /** サムネイル取得位置（元動画上の秒・任意） */
   thumbnailSourceTime?: number;
+  /** 動画再生速度 1/2/4/8（任意・旧データは 1） */
+  playbackSpeed?: 1 | 2 | 4 | 8;
+  /** 倍速バッジ表示（任意・旧データは false） */
+  showSpeedBadge?: boolean;
+  /** バッジ文言 ja | en（任意・旧データは ja） */
+  speedBadgeLabelStyle?: 'ja' | 'en';
+  /** バッジ位置 X%（任意） */
+  speedBadgePositionX?: number;
+  /** バッジ位置 Y%（任意） */
+  speedBadgePositionY?: number;
 }
 
 // 保存されるオーディオトラックのシリアライズ形式

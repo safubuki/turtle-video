@@ -43,6 +43,13 @@ import { useOverlayStore } from './overlayStore';
 import { normalizeMediaBlur, normalizeRotation } from '../utils/canvas';
 import { normalizeVideoTitleSettings } from '../utils/videoTitle';
 import { normalizeWatermarkOverlay } from '../utils/watermarkOverlay';
+import {
+  computeVideoTimelineDurationFromTrim,
+  DEFAULT_SPEED_BADGE_LABEL_STYLE,
+  normalizeSpeedBadgeLabelStyle,
+  normalizeSpeedBadgePosition,
+  normalizeVideoPlaybackSpeed,
+} from '../utils';
 
 export function getProjectStoreErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -408,6 +415,19 @@ async function serializeMediaItem(item: MediaItem): Promise<SerializedMediaItem>
     thumbnailSourceTime: item.type === 'video' && Number.isFinite(item.thumbnailSourceTime)
       ? item.thumbnailSourceTime
       : undefined,
+    playbackSpeed: item.type === 'video'
+      ? normalizeVideoPlaybackSpeed(item.playbackSpeed)
+      : undefined,
+    showSpeedBadge: item.type === 'video' ? Boolean(item.showSpeedBadge) : undefined,
+    speedBadgeLabelStyle: item.type === 'video'
+      ? normalizeSpeedBadgeLabelStyle(item.speedBadgeLabelStyle)
+      : undefined,
+    speedBadgePositionX: item.type === 'video' && Number.isFinite(item.speedBadgePositionX)
+      ? item.speedBadgePositionX
+      : undefined,
+    speedBadgePositionY: item.type === 'video' && Number.isFinite(item.speedBadgePositionY)
+      ? item.speedBadgePositionY
+      : undefined,
   };
 }
 
@@ -419,6 +439,25 @@ function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
   const thumbnailSourceTime = data.type === 'video' && Number.isFinite(data.thumbnailSourceTime)
     ? (data.thumbnailSourceTime as number)
     : undefined;
+  const playbackSpeed = data.type === 'video'
+    ? normalizeVideoPlaybackSpeed(data.playbackSpeed)
+    : undefined;
+  const showSpeedBadge = data.type === 'video' ? Boolean(data.showSpeedBadge) : undefined;
+  const speedBadgeLabelStyle = data.type === 'video'
+    ? normalizeSpeedBadgeLabelStyle(data.speedBadgeLabelStyle ?? DEFAULT_SPEED_BADGE_LABEL_STYLE)
+    : undefined;
+  const badgePos = data.type === 'video'
+    ? normalizeSpeedBadgePosition(data.speedBadgePositionX, data.speedBadgePositionY)
+    : null;
+  // 動画は trim + speed から timeline 尺を再計算（旧データで speed 未保存でも 1 で一致）
+  const duration = data.type === 'video'
+    ? computeVideoTimelineDurationFromTrim({
+      trimStart: data.trimStart,
+      trimEnd: data.trimEnd,
+      originalDuration: data.originalDuration,
+      playbackSpeed,
+    })
+    : data.duration;
   return {
     id: data.id,
     file,
@@ -431,7 +470,7 @@ function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
     fadeOut: data.fadeOut,
     fadeInDuration: data.fadeInDuration,
     fadeOutDuration: data.fadeOutDuration,
-    duration: data.duration,
+    duration,
     originalDuration: data.originalDuration,
     trimStart: data.trimStart,
     trimEnd: data.trimEnd,
@@ -447,6 +486,11 @@ function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
     transitionToNext: data.transitionToNext ?? null,
     thumbnailMode,
     thumbnailSourceTime,
+    playbackSpeed,
+    showSpeedBadge,
+    speedBadgeLabelStyle,
+    speedBadgePositionX: badgePos?.x,
+    speedBadgePositionY: badgePos?.y,
   };
 }
 

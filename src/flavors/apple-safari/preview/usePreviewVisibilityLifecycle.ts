@@ -9,6 +9,7 @@ import {
   type PreviewPlatformPolicy,
 } from './previewPlatform';
 import { getAppleSafariPreviewDiagnosticDetails } from './previewDiagnostics';
+import { resolveVideoSourceTime } from '../../../utils/playbackSpeed';
 
 type LogFn = (category: LogCategory, message: string, details?: Record<string, unknown>) => void;
 
@@ -88,7 +89,7 @@ export function usePreviewVisibilityLifecycle({
           const videoElement = element as HTMLVideoElement;
           if (currentTime >= accumulatedTime && currentTime < accumulatedTime + item.duration) {
             const localTime = currentTime - accumulatedTime;
-            const targetTime = (item.trimStart || 0) + localTime;
+            const targetTime = resolveVideoSourceTime({ trimStart: item.trimStart || 0, localTime, playbackSpeed: item.playbackSpeed });
             if (
               !videoElement.seeking
               && videoElement.readyState >= 1

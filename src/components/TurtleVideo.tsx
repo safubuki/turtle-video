@@ -46,6 +46,7 @@ import {
   computeAutoProjectPosterTimelineTime,
   createPosterDataUrlFromCanvas,
 } from '../utils/media';
+import { computeTimelineDurationFromSource } from '../utils/playbackSpeed';
 
 // Zustand Stores
 import { useMediaStore, useAudioStore, useUIStore, useCaptionStore, useOverlayStore, useLogStore, createNarrationClip } from '../stores';
@@ -130,6 +131,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const toggleTransformPanel = useMediaStore((s) => s.toggleTransformPanel);
   const updateVolume = useMediaStore((s) => s.updateVolume);
   const toggleMute = useMediaStore((s) => s.toggleMute);
+  const updateVideoPlaybackSpeed = useMediaStore((s) => s.updateVideoPlaybackSpeed);
+  const updateVideoShowSpeedBadge = useMediaStore((s) => s.updateVideoShowSpeedBadge);
+  const updateVideoSpeedBadgeLabelStyle = useMediaStore((s) => s.updateVideoSpeedBadgeLabelStyle);
+  const updateVideoSpeedBadgePosition = useMediaStore((s) => s.updateVideoSpeedBadgePosition);
+  const applyVideoSpeedBadgePreset = useMediaStore((s) => s.applyVideoSpeedBadgePreset);
   const setAllVideosMuted = useMediaStore((s) => s.setAllVideosMuted);
   const toggleFadeIn = useMediaStore((s) => s.toggleFadeIn);
   const toggleFadeOut = useMediaStore((s) => s.toggleFadeOut);
@@ -1778,6 +1784,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         originalDuration: item.originalDuration,
         previewPosition,
         type,
+        playbackSpeed: item.playbackSpeed,
       });
       if (!nextTrim) return;
 
@@ -1798,8 +1805,13 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       // タイムライン位置を新しい有効範囲内へ補正
       // - 開始点変更: そのフレームが新クリップ先頭になるのでクリップ先頭へ
       // - 終了点変更: ちょうど終端だと次クリップ扱いになるため、終端直前へ
+      // nextTrim.duration はソース尺。タイムライン尺は倍速で割る
+      const timelineClipDuration = computeTimelineDurationFromSource(
+        nextTrim.duration,
+        item.playbackSpeed,
+      );
       const newTimelineStart = range.start;
-      const newTimelineEnd = range.start + nextTrim.duration;
+      const newTimelineEnd = range.start + timelineClipDuration;
       let nextTimelineTime: number;
       if (type === 'start') {
         nextTimelineTime = newTimelineStart;
@@ -3103,6 +3115,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onResetMediaSetting={handleResetMediaSetting}
               onUpdateMediaVolume={withPreviewPause('update-media-volume', updateVolume)}
               onToggleMediaMute={withPreviewPause('toggle-media-mute', toggleMute)}
+              onUpdateVideoPlaybackSpeed={withPreviewPause('update-video-playback-speed', updateVideoPlaybackSpeed)}
+              onUpdateVideoShowSpeedBadge={withPreviewPause('update-video-show-speed-badge', updateVideoShowSpeedBadge)}
+              onUpdateVideoSpeedBadgeLabelStyle={withPreviewPause('update-video-speed-badge-label-style', updateVideoSpeedBadgeLabelStyle)}
+              onUpdateVideoSpeedBadgePosition={withPreviewPause('update-video-speed-badge-position', updateVideoSpeedBadgePosition)}
+              onApplyVideoSpeedBadgePreset={withPreviewPause('apply-video-speed-badge-preset', applyVideoSpeedBadgePreset)}
               onSetAllVideosMuted={withPreviewPause('set-all-videos-muted', setAllVideosMuted)}
               onToggleMediaFadeIn={withPreviewPause('toggle-media-fade-in', toggleFadeIn)}
               onToggleMediaFadeOut={withPreviewPause('toggle-media-fade-out', toggleFadeOut)}

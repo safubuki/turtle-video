@@ -702,6 +702,7 @@
 | **フレーバー分離** | export エンジンは `src/flavors/<flavor>/export/exportEngine.ts` に物理フォーク済み。共有コード→flavors の import、flavor 相互 import、共有コンポーネントでの `getPlatformCapabilities()` 直接呼び出しは ESLint で禁止。共有コンポーネントの UA 判定は `usePlatformCapabilities()`（PlatformCapabilitiesContext）経由。凍結レガシー（`components/turtle-video/usePreview*` / `utils/previewPlatform` / `utils/iosSafariAudio`）は編集禁止 |
 | **export後preview（#209）** | 共有 `<video>` を同一要素のまま `load()` / hard src で直しても Chromium decoder wedge が残ることがある（表面の readyState 4 は信用しない）。本命は MediaResourceLoader remount（`reloadKey++` + MediaElementSource detach、13-141）。13-135〜140 は保険。成功/失敗/中断の全経路で remount を要求する |
 | **動画サムネ（#208）** | アプリ内ポスターだけでは OS アイコンは変わらない。export で **covr 埋め込み + 先頭 KF 差し替え**（13-146）が本命。**ユーザー確認済み成功事例**。設定後の再書き出し必須 |
+| **倍速 export 映像** | rate=speed のみは途中切れ、毎フレーム seek は静止画化。**rate=1 連続 + 壁時計 Δt/speed（wall dilation）**が成功（13-166 / export-speed-video-wall-dilation-postmortem-2026-08-01）。プレビューの rate=speed と無理に一本化しない |
 
 ## 12. Dev Script Pattern (media-video-analyzer STT)
 
@@ -3071,6 +3072,41 @@ export 終了（成功/失敗/中断）
   - 波形下の無音ナビは常に exact。タイミング打ちだけが comfortable を既定にする。
 - **UX**: チェックは無音トランスポート直下。ON（既定）で打鍵すると読みやすい位置がそのままキャプション時刻になる。無音ぴったりへ合わせたいときだけ OFF。
 - **注意**: 余白ルールを変えるときは narrationCaptionPlan の定数と揃える。波形ナビへ comfortable を広げない（聴き比べ用は exact が必要）。
+
+### 13-166. 動画カード倍速再生（1x / 2x / 4x / 8x）と速度バッジ【standard 限定】
+
+- **ファイル**: `src/utils/playbackSpeed.ts`, `src/types/index.ts`, `src/utils/media.ts`, `src/stores/mediaStore.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/hooks/useAutoSave.ts`, `src/components/media/ClipItem.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/TurtleVideo.tsx`, `src/flavors/standard/preview/*`, `src/flavors/standard/export/exportEngine.ts`, `Docs/specs/2026-08-01_video-playback-speed.md`, `src/test/playbackSpeed.test.ts`
+- **対象 flavor**: **standard（Android/PC）のみ**。`ClipsSection` は `usePlatformCapabilities().isIosSafari` が true のとき再生速度コールバックを渡さず UI を出さない（トランジション・簡単コピーと同型のゲート）。
+- **データ契約**:
+  - `MediaItem.playbackSpeed?: 1|2|4|8`（未定義=1）。画像は未使用。
+  - `item.duration` は **タイムライン尺** = `(trimEnd-trimStart)/speed`。ソース時刻 = `trimStart + localTime * speed`。
+  - バッジ: `showSpeedBadge` / `speedBadgeLabelStyle`（`ja` 既定 = 「2倍速」/ `en` = 「2x」）/ 位置 X|Y%。`speed>1` かつ表示 ON のときだけ描画。
+  - UI はカード最下部の「再生速度」アコーディオン（初期閉じ・アイコンなし・「（開いて設定）」）。
+  - 旧データは speed=1・バッジ OFF・ja。復元時は trim+speed から duration を再計算。
+- **プレビュー/エクスポート（standard）**:
+  - `resolveVideoSourceTime` を seek・再生・safe end に使用。
+  - **プレビュー映像**は `playbackRate=speed` + `preservesPitch` の連続再生（壁時計=タイムライン）。
+  - **エクスポート映像（倍速）**は **wall dilation**（2026-08 確定・**ユーザー実機で成功確認済み**）:
+    1. 共有 `<video>` は **常に `playbackRate=1` で連続再生**（native decode が追いつく速度）。
+    2. export ループのタイムラインは **壁時計 Δt / speed** で進める（`resolveExportTimelineWallDivisorForItem` + `wallDeltaToExportTimelineDelta`、`exportTimelineSecRef`）。ソース 16s・4x なら**実時間約 16s** かけてタイムライン 4s 分を描画する（待ちは長いが中身は最後まで動く）。
+    3. ソース時刻契約は不変: `sourceTime = trimStart + localTimeline * speed`。rate=1 と dilation が揃うため correction seek は稀。
+  - **採用しない方式**（実機で破綻済み・再導入禁止）:
+    - `playbackRate=speed` の連続再生のみ: デコード遅れでソース終端まで届かず**途中切れ**。
+    - paused + 毎フレーム seek 駆動: 連続 seek で**静止画化**（13-153 / [[export-video-backpressure-postmortem-2026-07-27]] と同系）。
+  - **エクスポート音声（倍速）**は一時 `<video>` の `preservesPitch` + `playbackRate` で PCM キャプチャ（`capturePitchPreservedSpeedAudio`）。失敗時のみ rate フォールバック。準備にソース尺ぶんの実時間がかかる。
+  - ミュートは既存 `isMuted`。`drawSpeedBadgeFrame` は最前面。
+- **なぜ wall dilation が効くか（要点）**:
+  - 出力の「速さ」は **video.playbackRate ではなくタイムライン時計側**で表現する。デコーダは常に 1x 連続再生のまま、壁時間だけソース尺ぶん使って全区間をスキャンする。
+  - 数式: `localTimeline = wall / speed` かつ `source = trimStart + localTimeline * speed` ⇒ `source ≈ trimStart + wall`。1x 再生と一致するため seek 連打が不要。
+  - 詳細な失敗経緯・不変条件・再発診断は [export-speed-video-wall-dilation-postmortem-2026-08-01.md](export-speed-video-wall-dilation-postmortem-2026-08-01.md) を参照。
+- **注意**:
+  - iOS 向けに UI を解放しない。iOS 展開時は apple-safari の preview/export 検証と UI ゲート解除が必要。
+  - キャプション/ナレ/タイトル/透かしの絶対時刻は第1版では自動比例しない（尺短縮時は手動調整）。
+  - スロー（1未満）は型に入れない。
+  - BGM の動画尺連動は `totalDuration` 変化に既存どおり追従。
+  - 倍速 export を `playbackRate=speed` のみ、または毎フレーム seek 駆動へ**絶対に戻さない**。
+  - backpressure 再開時は `exportLastWallNowMsRef` も更新し、待機時間を timeline に混ぜない。
+  - プレビューの rate=speed と export の rate=1+dilation は**意図的に別経路**。無理に一本化しない。
 
 ### 13-165. ウォーターマークフェード / キャプション一括削除 / 動画一括ミュート
 

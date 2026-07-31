@@ -143,6 +143,14 @@ interface ClipsSectionProps {
   onResetMediaSetting: (id: string, type: 'scale' | 'x' | 'y' | 'rotation' | 'blur') => void;
   onUpdateMediaVolume: (id: string, value: number) => void;
   onToggleMediaMute: (id: string) => void;
+  onUpdateVideoPlaybackSpeed?: (id: string, speed: 1 | 2 | 4 | 8) => void;
+  onUpdateVideoShowSpeedBadge?: (id: string, show: boolean) => void;
+  onUpdateVideoSpeedBadgeLabelStyle?: (id: string, style: 'ja' | 'en') => void;
+  onUpdateVideoSpeedBadgePosition?: (id: string, axis: 'x' | 'y', value: number) => void;
+  onApplyVideoSpeedBadgePreset?: (
+    id: string,
+    preset: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right',
+  ) => void;
   /** 動画クリップを一括ミュート/解除（画像は対象外） */
   onSetAllVideosMuted: (muted: boolean) => void;
   onToggleMediaFadeIn: (id: string, checked: boolean) => void;
@@ -181,6 +189,11 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   onResetMediaSetting,
   onUpdateMediaVolume,
   onToggleMediaMute,
+  onUpdateVideoPlaybackSpeed,
+  onUpdateVideoShowSpeedBadge,
+  onUpdateVideoSpeedBadgeLabelStyle,
+  onUpdateVideoSpeedBadgePosition,
+  onApplyVideoSpeedBadgePreset,
   onSetAllVideosMuted,
   onToggleMediaFadeIn,
   onToggleMediaFadeOut,
@@ -198,6 +211,8 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   const canDuplicate = !isIosSafari;
   // クリップ間トランジションは standard フレーバー（Android/PC）限定
   const supportsTransitions = !isIosSafari;
+  // 動画倍速は standard フレーバー（Android/PC）限定（apple-safari では UI 非表示）
+  const supportsPlaybackSpeed = !isIosSafari;
 
   // 一括ミュートは動画のみ（画像は音声なし）。全動画がミュートなら ON 表示。
   const videoItems = useMemo(
@@ -352,6 +367,31 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             onResetSetting={(type) => onResetMediaSetting(v.id, type)}
             onUpdateVolume={(value) => onUpdateMediaVolume(v.id, value)}
             onToggleMute={() => onToggleMediaMute(v.id)}
+            onUpdatePlaybackSpeed={
+              supportsPlaybackSpeed && onUpdateVideoPlaybackSpeed
+                ? (speed) => onUpdateVideoPlaybackSpeed(v.id, speed)
+                : undefined
+            }
+            onUpdateShowSpeedBadge={
+              supportsPlaybackSpeed && onUpdateVideoShowSpeedBadge
+                ? (show) => onUpdateVideoShowSpeedBadge(v.id, show)
+                : undefined
+            }
+            onUpdateSpeedBadgeLabelStyle={
+              supportsPlaybackSpeed && onUpdateVideoSpeedBadgeLabelStyle
+                ? (style) => onUpdateVideoSpeedBadgeLabelStyle(v.id, style)
+                : undefined
+            }
+            onUpdateSpeedBadgePosition={
+              supportsPlaybackSpeed && onUpdateVideoSpeedBadgePosition
+                ? (axis, value) => onUpdateVideoSpeedBadgePosition(v.id, axis, value)
+                : undefined
+            }
+            onApplySpeedBadgePreset={
+              supportsPlaybackSpeed && onApplyVideoSpeedBadgePreset
+                ? (preset) => onApplyVideoSpeedBadgePreset(v.id, preset)
+                : undefined
+            }
             onToggleFadeIn={(checked) => onToggleMediaFadeIn(v.id, checked)}
             onToggleFadeOut={(checked) => onToggleMediaFadeOut(v.id, checked)}
             onUpdateFadeInDuration={(duration) => onUpdateFadeInDuration(v.id, duration)}

@@ -27,6 +27,16 @@ import {
 import { drawVideoTitleFrame } from '../../../utils/videoTitle';
 import { drawWatermarkOverlayFrame } from '../../../utils/watermarkOverlay';
 import {
+  applyVideoElementPlaybackRate,
+  drawSpeedBadgeFrame,
+  resolveExportTimelineWallDivisorForItem,
+  resolveSpeedAwareVideoSyncThresholdSec,
+  resolveVideoElementPlaybackRateForContext,
+  resolveVideoSafeEndSourceTime,
+  resolveVideoSourceTime,
+  wallDeltaToExportTimelineDelta,
+} from '../../../utils/playbackSpeed';
+import {
   getIncomingTransitionOverlay,
   getOutgoingTransitionOverlay,
 } from '../../../utils/clipTransitions';
@@ -1098,6 +1108,9 @@ export function usePreviewEngine({
   // 一緒に停止する。エンコーダーだけが遅れて終端の黒 Canvas を大量補完する回帰を防ぐ。
   const exportBackpressurePausedRef = useRef(false);
   const exportBackpressurePausedAtMsRef = useRef<number | null>(null);
+  // 倍速 export: 映像は 1x 連続再生し、タイムラインだけ wall/speed で進める（seek 駆動は静止画化するため不採用）。
+  const exportTimelineSecRef = useRef(0);
+  const exportLastWallNowMsRef = useRef<number | null>(null);
   const frameDrivenExportSubmittedCountRef = useRef(0);
   const frameDrivenExportLastRenderedCountRef = useRef<number | null>(null);
   // フレーム駆動ウォッチドッグ: 投入数が進まないまま停滞したら壁時計へフォールバックする。
@@ -1841,7 +1854,15 @@ export function usePreviewEngine({
               }
             } else {
               const trimStart = activeItem.trimStart || 0;
-              const targetTime = trimStart + localTime;
+              const targetTime = resolveVideoSourceTime({ trimStart, localTime, playbackSpeed: activeItem.playbackSpeed });
+              // プレビュー: playbackRate=speed で連続再生。
+              // export: 常に rate=1 連続再生 + ループ側の壁時計 dilation（seek 駆動は静止画化）。
+              applyVideoElementPlaybackRate(
+                activeEl,
+                isActivePlaying
+                  ? resolveVideoElementPlaybackRateForContext(_isExporting, activeItem.playbackSpeed)
+                  : 1,
+              );
               const activeVideoDrift = Math.abs(activeEl.currentTime - targetTime);
               const isAndroidPassiveBoundaryWindow =
                 isAndroidPreviewPlayback
@@ -1854,7 +1875,7 @@ export function usePreviewEngine({
               const isNearTimelineEnd =
                 totalDurationRef.current > 0 &&
                 time >= totalDurationRef.current - 0.05;
-              const safeEndTime = trimStart + Math.max(0, activeItem.duration - 0.001);
+              const safeEndTime = resolveVideoSafeEndSourceTime({ trimStart, timelineDuration: activeItem.duration, playbackSpeed: activeItem.playbackSpeed, trimEnd: activeItem.trimEnd });
 
               // === デコード停止の検知と復旧（Issue #209）===
               // previewlog2: preflight readyState4 → 短時間 drawable → readyState1+seeking 再 wedge。
@@ -1953,10 +1974,13 @@ export function usePreviewEngine({
                 !isActivePlaying &&
                 isLastTimelineItem &&
                 isNearTimelineEnd;
-              const exportSyncThreshold = getPreviewVideoSyncThreshold(previewPlatformPolicy, {
-                isExporting: _isExporting,
-                hasExportPlayFailure: false,
-              });
+              const exportSyncThreshold = resolveSpeedAwareVideoSyncThresholdSec(
+                getPreviewVideoSyncThreshold(previewPlatformPolicy, {
+                  isExporting: _isExporting,
+                  hasExportPlayFailure: false,
+                }),
+                activeItem.playbackSpeed,
+              );
               const shouldHoldForImageToVideoTransition = shouldHoldFrameForImageToVideoExportTransition({
                 isExporting: _isExporting,
                 isAndroid: platformCapabilities.isAndroid,
@@ -1970,14 +1994,15 @@ export function usePreviewEngine({
                 syncToleranceSec: EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC,
               });
               const hasExportPlayFailure = _isExporting && !!exportPlayFailedRef.current[activeId];
+              // export も native 連続再生。過剰 seek は静止画化するため緩めしきい値のみ補正。
               const needsCorrection =
-                _isExporting &&
-                isActivePlaying &&
-                !isSeekingRef.current &&
-                !activeEl.seeking &&
-                !activeEl.paused &&
-                !hasExportPlayFailure &&
-                Math.abs(activeEl.currentTime - targetTime) > exportSyncThreshold;
+                _isExporting
+                && isActivePlaying
+                && !isSeekingRef.current
+                && !activeEl.seeking
+                && !activeEl.paused
+                && !hasExportPlayFailure
+                && activeVideoDrift > exportSyncThreshold;
 
               if (
                 !_isExporting
@@ -2046,6 +2071,8 @@ export function usePreviewEngine({
                 clipLocalTime: localTime,
                 clipDuration: activeItem.duration,
                 trimStart,
+                playbackSpeed: activeItem.playbackSpeed,
+                trimEnd: activeItem.trimEnd,
                 videoCurrentTime: activeEl.currentTime,
                 videoEnded: activeEl.ended,
                 isExporting: _isExporting,
@@ -2344,15 +2371,25 @@ export function usePreviewEngine({
               });
             if (conf.type === 'video') {
               const videoEl = element as HTMLVideoElement;
-              const targetTime = (conf.trimStart || 0) + localTime;
+              const targetTime = resolveVideoSourceTime({ trimStart: conf.trimStart || 0, localTime, playbackSpeed: conf.playbackSpeed });
+              // プレビュー: rate=speed。export: rate=1 + ループ壁時計 dilation。
+              if (isActivePlaying) {
+                applyVideoElementPlaybackRate(
+                  videoEl,
+                  resolveVideoElementPlaybackRateForContext(_isExporting, conf.playbackSpeed),
+                );
+              }
               const activeVideoDrift = Math.abs(videoEl.currentTime - targetTime);
               const hasExportPlayFailure = _isExporting && !!exportPlayFailedRef.current[id];
-              const syncThreshold = shouldStabilizeImageToVideoTransition
+              const baseSyncThreshold = shouldStabilizeImageToVideoTransition
                 ? 0.01
                 : getPreviewVideoSyncThreshold(previewPlatformPolicy, {
                   isExporting: _isExporting,
                   hasExportPlayFailure,
                 });
+              const syncThreshold = shouldStabilizeImageToVideoTransition
+                ? baseSyncThreshold
+                : resolveSpeedAwareVideoSyncThresholdSec(baseSyncThreshold, conf.playbackSpeed);
 
               if (isActivePlaying && activeVideoIdRef.current !== id) {
                 activeVideoIdRef.current = id;
@@ -2387,6 +2424,8 @@ export function usePreviewEngine({
                   clipLocalTime: localTime,
                   clipDuration: conf.duration,
                   trimStart: conf.trimStart || 0,
+                  playbackSpeed: conf.playbackSpeed,
+                  trimEnd: conf.trimEnd,
                   videoCurrentTime: videoEl.currentTime,
                   videoEnded: videoEl.ended,
                   isExporting: _isExporting,
@@ -2937,7 +2976,7 @@ export function usePreviewEngine({
                 peerVideoEl.play().catch(() => { /* ignore */ });
               }
               if (peerIsVideo && !isActivePlaying) {
-                const peerTarget = (conf.trimStart || 0) + overlapPeerLocalTime;
+                const peerTarget = resolveVideoSourceTime({ trimStart: conf.trimStart || 0, localTime: overlapPeerLocalTime, playbackSpeed: conf.playbackSpeed });
                 if (
                   peerVideoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
                   && !peerVideoEl.seeking
@@ -3080,6 +3119,8 @@ export function usePreviewEngine({
                 videoEl.preload = 'metadata';
               }
 
+              // 非アクティブは等倍に戻し、次クリップ active 化時の rate 残留を防ぐ
+              applyVideoElementPlaybackRate(videoEl, 1);
               if (!shouldKeepVideoPrewarmed && !avoidPausePlayForInactive && !videoEl.paused) {
                 videoEl.pause();
                 if (
@@ -3364,6 +3405,13 @@ export function usePreviewEngine({
           time,
         )) {
           didUpdateCanvas = true;
+        }
+        // 倍速バッジは最前面（ウォーターマークより上）
+        {
+          const badgeItem = activeIndex >= 0 ? currentItems[activeIndex] : null;
+          if (badgeItem?.type === 'video' && drawSpeedBadgeFrame(ctx, badgeItem)) {
+            didUpdateCanvas = true;
+          }
         }
 
         const ensurePreviewAudioGainNode = (trackId: string, element: HTMLAudioElement) => {
@@ -4100,7 +4148,10 @@ export function usePreviewEngine({
         if (stall.stalled) {
           frameDrivenExportForcedWallClockRef.current = true;
           // 壁時計をフレーム駆動の到達点から連続させ、既に投入済みのフレーム分を巻き戻さない。
-          startTimeRef.current = now - (submittedFrameCount / FPS) * 1000;
+          const resumedTimelineSec = submittedFrameCount / FPS;
+          startTimeRef.current = now - resumedTimelineSec * 1000;
+          exportTimelineSecRef.current = resumedTimelineSec;
+          exportLastWallNowMsRef.current = now;
           logWarn('RENDER', 'standard.export.pacing.watchdog', {
             reason: 'frame-driven submission stalled; falling back to wall-clock',
             submittedFrameCount,
@@ -4113,13 +4164,37 @@ export function usePreviewEngine({
         isExportMode
         && frameDrivenExportEnabledRef.current
         && !frameDrivenExportForcedWallClockRef.current;
-      const elapsed = resolveFrameDrivenExportTimeSec({
-        wallClockTimeSec: (now - startTimeRef.current) / 1000,
-        submittedFrameCount,
-        fps: FPS,
-        enabled: useFrameDrivenExportTime,
-      });
       const totalDuration = totalDurationRef.current;
+      let elapsed: number;
+      if (useFrameDrivenExportTime) {
+        elapsed = resolveFrameDrivenExportTimeSec({
+          wallClockTimeSec: (now - startTimeRef.current) / 1000,
+          submittedFrameCount,
+          fps: FPS,
+          enabled: true,
+        });
+      } else if (isExportMode) {
+        // 壁時計 dilation: 映像は 1x 連続再生し、タイムラインだけ active speed で縮める。
+        // （playbackRate=speed は途中切れ、seek 駆動は静止画化するため不採用）
+        if (exportLastWallNowMsRef.current == null) {
+          exportLastWallNowMsRef.current = now;
+        }
+        const wallDeltaSec = Math.max(0, (now - exportLastWallNowMsRef.current) / 1000);
+        exportLastWallNowMsRef.current = now;
+        const activeForClock = findActiveTimelineItemWithTransitions(
+          mediaItemsRef.current,
+          exportTimelineSecRef.current,
+          totalDuration,
+        );
+        const activeItemForClock = activeForClock
+          ? mediaItemsRef.current[activeForClock.index]
+          : null;
+        const wallDivisor = resolveExportTimelineWallDivisorForItem(activeItemForClock);
+        exportTimelineSecRef.current += wallDeltaToExportTimelineDelta(wallDeltaSec, wallDivisor);
+        elapsed = exportTimelineSecRef.current;
+      } else {
+        elapsed = (now - startTimeRef.current) / 1000;
+      }
       const clampedElapsed = Math.min(elapsed, totalDuration);
       const reachedPreviewEnd =
         !isExportMode &&
@@ -4680,7 +4755,7 @@ export function usePreviewEngine({
             const activeEl =
               mediaElementsRef.current[currentItem.id] as HTMLVideoElement | undefined;
             const trimStart = currentItem.trimStart || 0;
-            const targetTime = trimStart + resolvedSegment.localTime;
+            const targetTime = resolveVideoSourceTime({ trimStart, localTime: resolvedSegment.localTime, playbackSpeed: currentItem.playbackSpeed });
             logInfo('RENDER', 'preview.boundary.sample', {
               phase: 'before-500ms',
               previousId: currentItem.id,
@@ -4894,11 +4969,16 @@ export function usePreviewEngine({
         frameDrivenExportForcedWallClockRef.current = false;
         exportBackpressurePausedRef.current = false;
         exportBackpressurePausedAtMsRef.current = null;
+        exportTimelineSecRef.current = fromTime;
+        exportLastWallNowMsRef.current = null;
         logInfo('RENDER', 'standard.export.pacing.selected', {
-          mode: frameDrivenExportEnabledRef.current ? 'video-frame-driven' : 'wall-clock',
+          mode: frameDrivenExportEnabledRef.current ? 'video-frame-driven' : 'wall-clock-dilated',
           fromTime,
           mediaItemCount: mediaItemsRef.current.length,
           hasVideo: mediaItemsRef.current.some((item) => item.type === 'video'),
+          hasSpeedAbove1: mediaItemsRef.current.some(
+            (item) => item.type === 'video' && resolveExportTimelineWallDivisorForItem(item) > 1,
+          ),
         });
         activePreviewModeRef.current = 'export';
         // エクスポートは共有 <video> 要素を消費して decoder を wedge させ得る。
@@ -5299,7 +5379,7 @@ export function usePreviewEngine({
               const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
               if (videoEl) {
                 const localTime = fromTime - t;
-                const targetTime = (item.trimStart || 0) + localTime;
+                const targetTime = resolveVideoSourceTime({ trimStart: item.trimStart || 0, localTime, playbackSpeed: item.playbackSpeed });
                 videoEl.currentTime = targetTime;
                 activeVideoIdRef.current = item.id;
                 activeVideoElForBundledStart = videoEl;
@@ -5429,7 +5509,12 @@ export function usePreviewEngine({
         primePreviewAudioOnlyTracksAtTime(fromTime);
       }
 
-      startTimeRef.current = getStandardPreviewNow() - fromTime * 1000;
+      const engineStartNowMs = getStandardPreviewNow();
+      startTimeRef.current = engineStartNowMs - fromTime * 1000;
+      if (isExportMode) {
+        exportTimelineSecRef.current = fromTime;
+        exportLastWallNowMsRef.current = engineStartNowMs;
+      }
       logInfo('RENDER', 'preview.start', {
         globalTimeMs: Math.round(fromTime * 1000),
         totalDurationMs: Math.round(totalDurationRef.current * 1000),
@@ -5620,6 +5705,8 @@ export function usePreviewEngine({
               const pausedDurationMs = Math.max(0, nowMs - pausedAtMs);
               // 壁時計の原点を待機時間ぶん先へずらすことで、再開後の elapsed を連続させる。
               startTimeRef.current += pausedDurationMs;
+              // dilation 用の前回壁時刻も待機区間を捨て、再開直後の timeline ジャンプを防ぐ。
+              exportLastWallNowMsRef.current = nowMs;
               exportBackpressurePausedAtMsRef.current = null;
               exportBackpressurePausedRef.current = false;
               logInfo('RENDER', 'standard.export.timeline.backpressureResumed', {
@@ -5632,16 +5719,19 @@ export function usePreviewEngine({
               // 【Issue #215】実描画実績は loop 開始時点から数え直す。
               exportRenderedFrameIndexRef.current = null;
               exportRenderedFrameTrackerRef.current.reset();
-              exportFrameProfilerRef.current.reset(getStandardPreviewNow());
+              const loopStartNowMs = getStandardPreviewNow();
+              exportFrameProfilerRef.current.reset(loopStartNowMs);
               frameDrivenExportSubmittedCountRef.current = 0;
               frameDrivenExportLastRenderedCountRef.current = null;
               // ウォッチドッグの停滞計測は実際の映像ループ開始時刻から始める。
               frameDrivenExportStallObservedCountRef.current = 0;
-              frameDrivenExportStallLastAdvanceAtMsRef.current = getStandardPreviewNow();
+              frameDrivenExportStallLastAdvanceAtMsRef.current = loopStartNowMs;
               frameDrivenExportForcedWallClockRef.current = false;
               exportBackpressurePausedRef.current = false;
               exportBackpressurePausedAtMsRef.current = null;
-              startTimeRef.current = getStandardPreviewNow() - fromTime * 1000;
+              startTimeRef.current = loopStartNowMs - fromTime * 1000;
+              exportTimelineSecRef.current = fromTime;
+              exportLastWallNowMsRef.current = loopStartNowMs;
               loop(isExportMode, myLoopId);
             },
           },

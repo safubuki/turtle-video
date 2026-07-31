@@ -25,7 +25,7 @@ import {
   RefreshCw,
   MapPin,
 } from 'lucide-react';
-import type { MediaItem } from '../../types';
+import type { MediaItem, SpeedBadgeLabelStyle, VideoPlaybackSpeed } from '../../types';
 import MiniPreview from '../common/MiniPreview';
 import ClipThumbnail from '../common/ClipThumbnail';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
@@ -35,6 +35,14 @@ import {
   canSetVideoTrimFromPreviewPosition,
   resolveMediaThumbnailSourceTime,
 } from '../../utils/media';
+import {
+  VIDEO_PLAYBACK_SPEEDS,
+  getVideoSourceClipDuration,
+  normalizeSpeedBadgeLabelStyle,
+  normalizeVideoPlaybackSpeed,
+  resolveSpeedBadgePresetPosition,
+  type SpeedBadgePositionPreset,
+} from '../../utils/playbackSpeed';
 
 export interface ClipItemProps {
   item: MediaItem;
@@ -64,6 +72,11 @@ export interface ClipItemProps {
   onResetSetting: (type: 'scale' | 'x' | 'y' | 'rotation' | 'blur') => void;
   onUpdateVolume: (value: number) => void;
   onToggleMute: () => void;
+  onUpdatePlaybackSpeed?: (speed: VideoPlaybackSpeed) => void;
+  onUpdateShowSpeedBadge?: (show: boolean) => void;
+  onUpdateSpeedBadgeLabelStyle?: (style: SpeedBadgeLabelStyle) => void;
+  onUpdateSpeedBadgePosition?: (axis: 'x' | 'y', value: number) => void;
+  onApplySpeedBadgePreset?: (preset: SpeedBadgePositionPreset) => void;
   onToggleFadeIn: (checked: boolean) => void;
   onToggleFadeOut: (checked: boolean) => void;
   onUpdateFadeInDuration: (duration: number) => void;
@@ -98,15 +111,25 @@ const ClipItem: React.FC<ClipItemProps> = ({
   onResetSetting,
   onUpdateVolume,
   onToggleMute,
+  onUpdatePlaybackSpeed,
+  onUpdateShowSpeedBadge,
+  onUpdateSpeedBadgeLabelStyle,
+  onUpdateSpeedBadgePosition,
+  onApplySpeedBadgePreset,
   onToggleFadeIn,
   onToggleFadeOut,
   onUpdateFadeInDuration,
   onUpdateFadeOutDuration,
 }) => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  /** 再生速度アコーディオン（既定は閉じる） */
+  const [isPlaybackSpeedOpen, setIsPlaybackSpeedOpen] = useState(false);
   const canvasWidth = useCanvasStore((s) => s.width);
   const canvasHeight = useCanvasStore((s) => s.height);
   const isDisabled = isClipsLocked || v.isLocked;
+  const playbackSpeed = normalizeVideoPlaybackSpeed(v.playbackSpeed);
+  const speedBadgeLabelStyle = normalizeSpeedBadgeLabelStyle(v.speedBadgeLabelStyle);
+  const sourceClipDuration = v.type === 'video' ? getVideoSourceClipDuration(v) : 0;
 
   // スワイプ保護用コールバック
   const handleTrimStart = useCallback((val: number) => onUpdateVideoTrim('start', String(val)), [onUpdateVideoTrim]);
@@ -136,6 +159,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
       originalDuration: v.originalDuration,
       previewPosition: previewPositionInClip,
       type: 'start',
+      playbackSpeed: v.playbackSpeed,
     });
   const canSetTrimEndFromPreview = !isDisabled
     && v.type === 'video'
@@ -145,6 +169,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
       originalDuration: v.originalDuration,
       previewPosition: previewPositionInClip,
       type: 'end',
+      playbackSpeed: v.playbackSpeed,
     });
 
   // リスト用サムネはクリップ単位の自動位置（有効開始+0.2s）。
@@ -638,6 +663,168 @@ const ClipItem: React.FC<ClipItemProps> = ({
         </div>
         )}
         </div>
+
+      {/* 再生速度（アコーディオン・動画のみ・カード最下部・初期は閉じる） */}
+      {v.type === 'video' && onUpdatePlaybackSpeed && (
+        <div className="mb-0 rounded-lg border border-gray-700/70 bg-gray-900/30">
+          <SettingsAccordionHeader
+            title="再生速度"
+            isOpen={isPlaybackSpeedOpen}
+            disabled={isDisabled}
+            controlsId={`clip-playback-speed-${v.id}`}
+            onToggle={() => setIsPlaybackSpeedOpen(!isPlaybackSpeedOpen)}
+          />
+          {isPlaybackSpeedOpen && (
+            <div
+              id={`clip-playback-speed-${v.id}`}
+              className="px-2 pb-2 space-y-2 border-t border-gray-700/60 pt-2"
+            >
+              <div className="flex items-center justify-between text-[10px] md:text-xs text-gray-500">
+                <span>早送り（スローは未対応）</span>
+                <span className="font-mono text-gray-300">
+                  元 {sourceClipDuration.toFixed(1)}s → 表示 {v.duration.toFixed(1)}s
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {VIDEO_PLAYBACK_SPEEDS.map((speed) => (
+                  <button
+                    key={speed}
+                    type="button"
+                    disabled={isDisabled}
+                    onClick={() => onUpdatePlaybackSpeed(speed)}
+                    className={`min-h-8 px-2.5 rounded-lg border text-[11px] font-medium transition disabled:opacity-40 ${
+                      playbackSpeed === speed
+                        ? 'bg-amber-500/20 border-amber-500/60 text-amber-200'
+                        : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-500'
+                    }`}
+                    title={speed === 1 ? '等倍再生' : `${speed}倍速で再生・書き出し`}
+                  >
+                    {speed === 1 ? '等倍' : `${speed}倍速`}
+                  </button>
+                ))}
+              </div>
+              {onUpdateShowSpeedBadge && (
+                <div className="space-y-2">
+                  <label
+                    className={`flex items-center gap-1.5 text-[10px] text-gray-300 ${isDisabled ? 'opacity-50' : 'cursor-pointer'}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={Boolean(v.showSpeedBadge)}
+                      disabled={isDisabled || playbackSpeed === 1}
+                      onChange={(e) => onUpdateShowSpeedBadge(e.target.checked)}
+                      className="rounded accent-amber-500 w-3 h-3"
+                    />
+                    <span>
+                      プレビュー/書き出しに速度を表示
+                      {playbackSpeed === 1 ? '（等倍時は非表示）' : ''}
+                    </span>
+                  </label>
+                  {v.showSpeedBadge && playbackSpeed > 1 && (
+                    <>
+                      {onUpdateSpeedBadgeLabelStyle && (
+                        <div className="space-y-1">
+                          <div className="text-[10px] text-gray-500">表示形式</div>
+                          <div className="flex flex-wrap gap-1">
+                            <button
+                              type="button"
+                              disabled={isDisabled}
+                              onClick={() => onUpdateSpeedBadgeLabelStyle('ja')}
+                              className={`min-h-7 px-2 rounded border text-[10px] transition disabled:opacity-40 ${
+                                speedBadgeLabelStyle === 'ja'
+                                  ? 'border-amber-500/60 text-amber-200 bg-amber-500/10'
+                                  : 'border-gray-700 text-gray-400 hover:border-gray-500'
+                              }`}
+                            >
+                              日本語（{playbackSpeed}倍速）
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isDisabled}
+                              onClick={() => onUpdateSpeedBadgeLabelStyle('en')}
+                              className={`min-h-7 px-2 rounded border text-[10px] transition disabled:opacity-40 ${
+                                speedBadgeLabelStyle === 'en'
+                                  ? 'border-amber-500/60 text-amber-200 bg-amber-500/10'
+                                  : 'border-gray-700 text-gray-400 hover:border-gray-500'
+                              }`}
+                            >
+                              English（{playbackSpeed}x）
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {onUpdateSpeedBadgePosition && onApplySpeedBadgePreset && (
+                        <div className="bg-gray-900/40 rounded-lg p-2 space-y-2 border border-gray-700/50">
+                          <div className="flex flex-wrap gap-1">
+                            {(
+                              [
+                                ['top-left', '左上'],
+                                ['top-right', '右上'],
+                                ['bottom-left', '左下'],
+                                ['bottom-right', '右下'],
+                              ] as const
+                            ).map(([preset, label]) => {
+                              const pos = resolveSpeedBadgePresetPosition(preset as SpeedBadgePositionPreset);
+                              const isActive =
+                                Math.abs((v.speedBadgePositionX ?? 91) - pos.x) < 0.5
+                                && Math.abs((v.speedBadgePositionY ?? 12) - pos.y) < 0.5;
+                              return (
+                                <button
+                                  key={preset}
+                                  type="button"
+                                  disabled={isDisabled}
+                                  onClick={() => onApplySpeedBadgePreset(preset)}
+                                  className={`min-h-7 px-2 rounded border text-[10px] transition disabled:opacity-40 ${
+                                    isActive
+                                      ? 'border-amber-500/60 text-amber-200 bg-amber-500/10'
+                                      : 'border-gray-700 text-gray-400 hover:border-gray-500'
+                                  }`}
+                                >
+                                  {label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px]">
+                            <span className="text-gray-500 w-6">横</span>
+                            <SwipeProtectedSlider
+                              min={0}
+                              max={100}
+                              step={1}
+                              value={v.speedBadgePositionX ?? 91}
+                              onChange={(val) => onUpdateSpeedBadgePosition('x', val)}
+                              disabled={isDisabled}
+                              className="flex-1 accent-amber-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+                            />
+                            <span className="text-gray-400 w-8 text-right">
+                              {Math.round(v.speedBadgePositionX ?? 91)}%
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px]">
+                            <span className="text-gray-500 w-6">縦</span>
+                            <SwipeProtectedSlider
+                              min={0}
+                              max={100}
+                              step={1}
+                              value={v.speedBadgePositionY ?? 12}
+                              onChange={(val) => onUpdateSpeedBadgePosition('y', val)}
+                              disabled={isDisabled}
+                              className="flex-1 accent-amber-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+                            />
+                            <span className="text-gray-400 w-8 text-right">
+                              {Math.round(v.speedBadgePositionY ?? 12)}%
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

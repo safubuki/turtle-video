@@ -33,6 +33,14 @@ import {
 } from '../../../utils/captionStyle';
 import { drawVideoTitleFrame } from '../../../utils/videoTitle';
 import { drawWatermarkOverlayFrame } from '../../../utils/watermarkOverlay';
+import {
+  applyVideoElementPlaybackRate,
+  drawSpeedBadgeFrame,
+  normalizeVideoPlaybackSpeed,
+  resolveSpeedAwareVideoSyncThresholdSec,
+  resolveVideoSafeEndSourceTime,
+  resolveVideoSourceTime,
+} from '../../../utils/playbackSpeed';
 import type { LogCategory } from '../../../stores/logStore';
 import { useMediaStore, useUIStore } from '../../../stores';
 import type { PlatformCapabilities } from '../../../utils/platform';
@@ -542,20 +550,28 @@ export function usePreviewEngine({
                 holdFrame = true;
               }
             } else {
-              const targetTime = (activeItem.trimStart || 0) + localTime;
+              const targetTime = resolveVideoSourceTime({ trimStart: activeItem.trimStart || 0, localTime, playbackSpeed: activeItem.playbackSpeed });
+              // プレビュー/エクスポートとも playbackRate を合わせる（export で 1x のままだと seek 連打でカクつく）
+              applyVideoElementPlaybackRate(
+                activeEl,
+                isActivePlaying ? activeItem.playbackSpeed : 1,
+              );
               const isLastTimelineItem = activeIndex === currentItems.length - 1;
               const isNearTimelineEnd =
                 totalDurationRef.current > 0 &&
                 time >= totalDurationRef.current - 0.05;
-              const safeEndTime = (activeItem.trimStart || 0) + Math.max(0, activeItem.duration - 0.001);
+              const safeEndTime = resolveVideoSafeEndSourceTime({ trimStart: activeItem.trimStart || 0, timelineDuration: activeItem.duration, playbackSpeed: activeItem.playbackSpeed, trimEnd: activeItem.trimEnd });
               const shouldForceEndFrameAlign =
                 !isActivePlaying &&
                 isLastTimelineItem &&
                 isNearTimelineEnd;
-              const exportSyncThreshold = getPreviewVideoSyncThreshold(previewPlatformPolicy, {
-                isExporting: _isExporting,
-                hasExportPlayFailure: false,
-              });
+              const exportSyncThreshold = resolveSpeedAwareVideoSyncThresholdSec(
+                getPreviewVideoSyncThreshold(previewPlatformPolicy, {
+                  isExporting: _isExporting,
+                  hasExportPlayFailure: false,
+                }),
+                activeItem.playbackSpeed,
+              );
               const shouldHoldForImageToVideoTransition = shouldHoldFrameForImageToVideoExportTransition({
                 isExporting: _isExporting,
                 isAndroid: platformCapabilities.isAndroid,
@@ -569,6 +585,9 @@ export function usePreviewEngine({
                 syncToleranceSec: EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC,
               });
               const hasExportPlayFailure = _isExporting && !!exportPlayFailedRef.current[activeId];
+              const speedForSync = normalizeVideoPlaybackSpeed(activeItem.playbackSpeed);
+              const rateMatchesSpeed = Math.abs(activeEl.playbackRate - speedForSync) < 0.05;
+              const activeVideoDrift = Math.abs(activeEl.currentTime - targetTime);
               const needsCorrection =
                 _isExporting &&
                 isActivePlaying &&
@@ -576,7 +595,8 @@ export function usePreviewEngine({
                 !activeEl.seeking &&
                 !activeEl.paused &&
                 !hasExportPlayFailure &&
-                Math.abs(activeEl.currentTime - targetTime) > exportSyncThreshold;
+                !(speedForSync > 1 && rateMatchesSpeed && activeVideoDrift <= exportSyncThreshold * 1.5) &&
+                activeVideoDrift > exportSyncThreshold;
 
               if (shouldForceEndFrameAlign && activeEl.readyState >= 1 && !activeEl.seeking) {
                 const endAlignThreshold = 0.0001;
@@ -606,6 +626,8 @@ export function usePreviewEngine({
                 clipLocalTime: localTime,
                 clipDuration: activeItem.duration,
                 trimStart: activeItem.trimStart || 0,
+                playbackSpeed: activeItem.playbackSpeed,
+                trimEnd: activeItem.trimEnd,
                 videoCurrentTime: activeEl.currentTime,
                 videoEnded: activeEl.ended,
                 isExporting: _isExporting,
@@ -770,14 +792,22 @@ export function usePreviewEngine({
               });
             if (conf.type === 'video') {
               const videoEl = element as HTMLVideoElement;
-              const targetTime = (conf.trimStart || 0) + localTime;
+              const targetTime = resolveVideoSourceTime({ trimStart: conf.trimStart || 0, localTime, playbackSpeed: conf.playbackSpeed });
+              if (isActivePlaying) {
+                applyVideoElementPlaybackRate(videoEl, conf.playbackSpeed);
+              } else {
+                applyVideoElementPlaybackRate(videoEl, 1);
+              }
               const hasExportPlayFailure = _isExporting && !!exportPlayFailedRef.current[id];
-              const syncThreshold = shouldStabilizeImageToVideoTransition
+              const baseSyncThreshold = shouldStabilizeImageToVideoTransition
                 ? 0.01
                 : getPreviewVideoSyncThreshold(previewPlatformPolicy, {
                   isExporting: _isExporting,
                   hasExportPlayFailure,
                 });
+              const syncThreshold = shouldStabilizeImageToVideoTransition
+                ? baseSyncThreshold
+                : resolveSpeedAwareVideoSyncThresholdSec(baseSyncThreshold, conf.playbackSpeed);
 
               const becameActiveOnThisFrame =
                 isActivePlaying && activeVideoIdRef.current !== id;
@@ -869,6 +899,8 @@ export function usePreviewEngine({
                   clipLocalTime: localTime,
                   clipDuration: conf.duration,
                   trimStart: conf.trimStart || 0,
+                  playbackSpeed: conf.playbackSpeed,
+                  trimEnd: conf.trimEnd,
                   videoCurrentTime: videoEl.currentTime,
                   videoEnded: videoEl.ended,
                   isExporting: _isExporting,
@@ -1367,6 +1399,12 @@ export function usePreviewEngine({
         )) {
           didUpdateCanvas = true;
         }
+        {
+          const badgeItem = activeIndex >= 0 ? currentItems[activeIndex] : null;
+          if (badgeItem?.type === 'video' && drawSpeedBadgeFrame(ctx, badgeItem)) {
+            didUpdateCanvas = true;
+          }
+        }
 
         const processAudioTrack = (track: AudioTrack | null, trackId: 'bgm') => {
           const element = mediaElementsRef.current[trackId] as HTMLAudioElement;
@@ -1824,7 +1862,7 @@ export function usePreviewEngine({
                 try { videoEl.load(); } catch { /* ignore */ }
               }
               if (videoEl.readyState >= 1 && !videoEl.seeking) {
-                const targetTime = (lastItem.trimStart || 0) + Math.max(0, lastItem.duration - 0.001);
+                const targetTime = resolveVideoSafeEndSourceTime({ trimStart: lastItem.trimStart || 0, timelineDuration: lastItem.duration, playbackSpeed: lastItem.playbackSpeed, trimEnd: lastItem.trimEnd });
                 const endAlignThreshold = 0.0001;
                 const drift = Math.abs(videoEl.currentTime - targetTime);
                 const isAhead = videoEl.currentTime > targetTime + endAlignThreshold;
@@ -2511,7 +2549,7 @@ export function usePreviewEngine({
               const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
               if (videoEl) {
                 const localTime = fromTime - t;
-                const targetTime = (item.trimStart || 0) + localTime;
+                const targetTime = resolveVideoSourceTime({ trimStart: item.trimStart || 0, localTime, playbackSpeed: item.playbackSpeed });
                 videoEl.currentTime = targetTime;
                 activeVideoIdRef.current = item.id;
                 activeVideoElForBundledStart = videoEl;

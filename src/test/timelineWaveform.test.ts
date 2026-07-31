@@ -114,6 +114,30 @@ describe('composeTimelinePcm', () => {
     expect(sampleAt(muted, 1)).toBe(0);
   });
 
+  it('playbackSpeed=2 ではソース全内容をタイムライン半分の尺へ圧縮して貼る', () => {
+    // 0-2s にだけ音がある 4s 音源を、speed=2 で貼ると timeline 0-1s に 0-2s 分が入る
+    const pcm = buildConstantPcm(0, 4);
+    (pcm.samples as Float32Array).fill(1, 0, 2 * RATE);
+
+    const mixed = composeTimelinePcm(
+      [placement({
+        pcm,
+        sourceStart: 0,
+        sourceEnd: 4,
+        timelineStart: 0,
+        playbackSpeed: 2,
+      })],
+      4,
+      RATE,
+    );
+    // timeline 0.5s → source 1.0s（音あり）
+    expect(sampleAt(mixed, 0.5)).toBeCloseTo(1, 5);
+    // timeline 1.5s はクリップ外（timeline 尺は 4/2=2s までだが、1.5 は source 3s 相当＝無音）
+    expect(sampleAt(mixed, 1.5)).toBe(0);
+    // timeline 2.5s は配置終端より後ろ
+    expect(sampleAt(mixed, 2.5)).toBe(0);
+  });
+
   it('フェードイン・フェードアウトを反映する', () => {
     const mixed = composeTimelinePcm(
       [placement({ pcm: buildConstantPcm(1, 4), sourceEnd: 4, fadeInSec: 1, fadeOutSec: 1 })],

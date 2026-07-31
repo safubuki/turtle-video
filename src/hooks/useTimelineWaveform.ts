@@ -299,6 +299,8 @@ export function useTimelineWaveform(
       range.start.toFixed(3),
       item.trimStart.toFixed(3),
       item.trimEnd.toFixed(3),
+      item.duration.toFixed(3),
+      item.playbackSpeed ?? 1,
       item.isMuted ? 0 : item.volume,
       item.fadeIn ? item.fadeInDuration : 0,
       item.fadeOut ? item.fadeOutDuration : 0,
@@ -363,19 +365,29 @@ export function useTimelineWaveform(
 
           // 動画音声。トリムは元動画上の [trimStart, trimEnd]、
           // タイムライン位置はトランジション考慮済みの range.start を使う。
+          // playbackSpeed でソース尺→タイムライン尺へ圧縮（倍速時は波形も密になる）。
           for (const { item, range, decoded } of decodedVideo) {
             if (!decoded || decoded.samples.length === 0) continue;
+
+            const sourceStart = Math.max(0, item.trimStart);
+            const sourceEnd = item.trimEnd > item.trimStart
+              ? item.trimEnd
+              : (item.originalDuration > 0 ? item.originalDuration : item.trimStart);
+            const playbackSpeed = Number.isFinite(item.playbackSpeed) && (item.playbackSpeed as number) > 0
+              ? (item.playbackSpeed as number)
+              : 1;
 
             placements.push({
               id: item.id,
               kind: 'video',
               pcm: { samples: decoded.samples, sampleRate: decoded.sampleRate },
               timelineStart: range.start,
-              sourceStart: Math.max(0, item.trimStart),
-              sourceEnd: Math.max(item.trimStart, item.trimEnd),
+              sourceStart,
+              sourceEnd: Math.max(sourceStart, sourceEnd),
               volume: item.isMuted ? 0 : Math.max(0, item.volume),
               fadeInSec: item.fadeIn ? Math.max(0, item.fadeInDuration) : 0,
               fadeOutSec: item.fadeOut ? Math.max(0, item.fadeOutDuration) : 0,
+              playbackSpeed,
             });
           }
 

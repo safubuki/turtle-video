@@ -53,3 +53,4 @@ description: Turtle Videoプロジェクトの全体像と実装パターンを�
 - [package.json](../../../package.json): 依存関係・スクリプト一覧
 - [references/export-recovery-2026-07-20.md](references/export-recovery-2026-07-20.md): フルHD/HD/自動モード導入後のエクスポート復旧まとめ（解像度検証緩和・ハング対策ウォッチドッグ・秒数表示・音漏れ）
 - [references/export-video-backpressure-postmortem-2026-07-27.md](references/export-video-backpressure-postmortem-2026-07-27.md): 動画exportの早送り・後半黒画面について、失敗した対策、真因、backpressure同期による成功理由、実機確認、再発時の診断順序
+- [references/export-speed-video-wall-dilation-postmortem-2026-08-01.md](references/export-speed-video-wall-dilation-postmortem-2026-08-01.md): 倍速export映像の途中切れ／静止画化について、playbackRate=speed と seek駆動の失敗理由、wall dilation（rate=1 + 壁時計/speed）の成功理由、不変条件、再発診断

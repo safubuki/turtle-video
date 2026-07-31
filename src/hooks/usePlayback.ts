@@ -5,6 +5,7 @@
  */
 import { useState, useRef, useCallback } from 'react';
 import type { MediaItem, AudioTrack } from '../types';
+import { resolveVideoSourceTime } from '../utils/playbackSpeed';
 
 /**
  * usePlayback - 再生制御ロジックを提供するフック
@@ -133,7 +134,7 @@ export function usePlayback(): UsePlaybackReturn {
           if (id === activeId) {
             if (conf.type === 'video') {
               const videoEl = element as HTMLVideoElement;
-              const targetTime = (conf.trimStart || 0) + localTime;
+              const targetTime = resolveVideoSourceTime({ trimStart: conf.trimStart || 0, localTime, playbackSpeed: conf.playbackSpeed });
 
               if (isActivePlaying) {
                 if (Math.abs(videoEl.currentTime - targetTime) > 0.8) {

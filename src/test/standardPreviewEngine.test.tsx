@@ -225,6 +225,7 @@ describe('standard preview engine', () => {
     const resetInactiveVideos = vi.fn();
     const clearExport = vi.fn();
     const startWebCodecsExport = vi.fn();
+    const stopWebCodecsExport = vi.fn();
     const completeWebCodecsExport = vi.fn();
     const logInfo = vi.fn();
     const primePreviewAudioOnlyTracksAtTimeSpy =
@@ -326,7 +327,7 @@ describe('standard preview engine', () => {
         primePreviewAudioOnlyTracksAtTime: primePreviewAudioOnlyTracksAtTimeSpy,
         resetInactiveVideos,
         startWebCodecsExport,
-        stopWebCodecsExport: vi.fn(),
+        stopWebCodecsExport,
         completeWebCodecsExport,
         logInfo,
         logWarn: vi.fn(),
@@ -348,6 +349,7 @@ describe('standard preview engine', () => {
       totalDurationRef,
       resetInactiveVideos,
       startWebCodecsExport,
+      stopWebCodecsExport,
       completeWebCodecsExport,
       logInfo,
       primePreviewAudioOnlyTracksAtTime: primePreviewAudioOnlyTracksAtTimeSpy,
@@ -1858,100 +1860,52 @@ describe('standard preview engine', () => {
     expect(outsideWindowVideo.currentTime).toBeCloseTo(1.6);
   });
 
-  it('export モードでタイムライン終端に達したとき completeWebCodecsExport を呼び stopWebCodecsExport を呼ばない', () => {
+  it('export モードでタイムライン終端に達したとき completeWebCodecsExport を呼び stopWebCodecsExport を呼ばない', async () => {
     // タイムライン終端で stopAll() → stopWebCodecsExport({ reason: 'user' }) が誤呼び出しされ
     // blob 生成後の callback が抑止される問題の回帰テスト。
+    // export は壁時計 dilation（exportTimelineSec）で進むため、startEngine + 音声準備完了後に
+    // 壁時計を総尺ぶん進めて終端を到達させる。
     const mediaItem = createVideoItem({ id: 'video-1', duration: 6, trimStart: 0, trimEnd: 6 });
     const videoElement = createMockVideoElement();
     videoElement.readyState = 2;
     videoElement.seeking = false;
+    const canvas = {
+      getContext: vi.fn(() => createMockCanvasContext()),
+    } as unknown as HTMLCanvasElement;
 
-    // now=6000ms, startTime=0ms → clampedElapsed = 6 = totalDuration → 終端判定
-    vi.spyOn(playbackClock, 'getStandardPreviewNow').mockReturnValue(6000);
+    let nowMs = 0;
+    vi.spyOn(playbackClock, 'getStandardPreviewNow').mockImplementation(() => nowMs);
 
-    const completeWebCodecsExport = vi.fn();
-    const stopWebCodecsExport = vi.fn();
+    const {
+      hook,
+      loopIdRef,
+      startWebCodecsExport,
+      completeWebCodecsExport,
+      stopWebCodecsExport,
+    } = setupPreviewEngineHarness({
+      mediaItems: [mediaItem],
+      mediaElements: {
+        [mediaItem.id]: videoElement as unknown as HTMLVideoElement,
+      },
+      totalDuration: 6,
+      canvas,
+      enableWebCodecsExport: true,
+    });
 
-    renderHook(() =>
-      usePreviewEngine({
-        captions: [] as Caption[],
-        captionSettings: {} as CaptionSettings,
-        mediaItemsRef: createRef([mediaItem]),
-        bgmRef: createRef<AudioTrack | null>(null),
-        narrationsRef: createRef<NarrationClip[]>([]),
-        captionsRef: createRef<Caption[]>([]),
-        captionSettingsRef: createRef({} as CaptionSettings),
-        videoTitle: DEFAULT_VIDEO_TITLE_SETTINGS,
-        videoTitleRef: createRef(DEFAULT_VIDEO_TITLE_SETTINGS),
-        totalDurationRef: createRef(6),
-        currentTimeRef: createRef(0),
-        canvasRef: createRef({
-          getContext: vi.fn(() => createMockCanvasContext()),
-        } as unknown as HTMLCanvasElement),
-        mediaElementsRef: createRef({ [mediaItem.id]: videoElement as unknown as HTMLVideoElement } as MediaElementsRef),
-        audioCtxRef: createRef(null),
-        sourceNodesRef: createRef({}),
-        gainNodesRef: createRef({}),
-        masterDestRef: createRef(null),
-        audioRoutingModeRef: createRef<'preview' | 'export'>('preview'),
-        reqIdRef: createRef<number | null>(null),
-        startTimeRef: createRef(0),
-        audioResumeWaitFramesRef: createRef(0),
-        recorderRef: createRef<MediaRecorder | null>(null),
-        loopIdRef: createRef(1),
-        isPlayingRef: createRef(true),
-        isSeekingRef: createRef(false),
-        isSeekPlaybackPreparingRef: createRef(false),
-        activeVideoIdRef: createRef<string | null>(null),
-        videoRecoveryAttemptsRef: createRef({}),
-        exportPlayFailedRef: createRef({}),
-        exportFallbackSeekAtRef: createRef({}),
-        seekingVideosRef: createRef(new Set<string>()),
-        pendingSeekRef: createRef<number | null>(null),
-        wasPlayingBeforeSeekRef: createRef(false),
-        pendingSeekTimeoutRef: createRef<ReturnType<typeof setTimeout> | null>(null),
-        previewPlaybackAttemptRef: createRef(0),
-        requestPreviewAudioRouteRefreshRef: createRef(() => {}),
-        primePreviewAudioOnlyTracksAtTimeRef: createRef(() => {}),
-        endFinalizedRef: createRef(false),
-        previewPlatformPolicy: standardPreviewRuntime.getPreviewPlatformPolicy(
-          getStandardPreviewPlatformCapabilities(createCapabilities()),
-        ),
-        platformCapabilities: { isAndroid: true, isIosSafari: false },
-        setVideoDuration: vi.fn(),
-        setCurrentTime: vi.fn(),
-        setProcessing: vi.fn(),
-        setPreviewPlaying: vi.fn(),
-        setLoading: vi.fn(),
-        setExportPreparationStep: vi.fn(),
-        setExportUrl: vi.fn(),
-        setExportExt: vi.fn(),
-        clearExport: vi.fn(),
-        setError: vi.fn(),
-        play: vi.fn(),
-        pause: vi.fn(),
-        getAudioContext: vi.fn(),
-        cancelPendingPausedSeekWait: vi.fn(),
-        cancelPendingSeekPlaybackPrepare: vi.fn(),
-        detachGlobalSeekEndListeners: vi.fn(),
-        ensureAudioNodeForElement: vi.fn(() => false),
-        detachAudioNode: vi.fn(),
-        preparePreviewAudioNodesForTime: vi.fn(() => ({
-          activeVideoId: mediaItem.id,
-          audibleSourceCount: 1,
-          requiresWebAudio: false,
-        })),
-        preparePreviewAudioNodesForUpcomingVideos: vi.fn(),
-        primePreviewAudioOnlyTracksAtTime: vi.fn(),
-        resetInactiveVideos: vi.fn(),
-        startWebCodecsExport: vi.fn(),
-        stopWebCodecsExport,
-        completeWebCodecsExport,
-        logInfo: vi.fn(),
-        logWarn: vi.fn(),
-        logDebug: vi.fn(),
-      }),
-    ).result.current.loop(true, 1);
+    const startPromise = hook.result.current.startEngine(0, true);
+    await vi.advanceTimersByTimeAsync(350);
+    await startPromise;
+
+    const audioSources = startWebCodecsExport.mock.calls[0]?.[4];
+    expect(audioSources).toBeDefined();
+    audioSources.onAudioPreRenderComplete?.();
+
+    // startEngine 内の初期化 stopAll は export 開始前の掃除なので、終端判定の検証前にクリアする。
+    stopWebCodecsExport.mockClear();
+    completeWebCodecsExport.mockClear();
+
+    nowMs = 6000;
+    hook.result.current.loop(true, loopIdRef.current);
 
     expect(completeWebCodecsExport).toHaveBeenCalledTimes(1);
     expect(stopWebCodecsExport).not.toHaveBeenCalled();
