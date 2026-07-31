@@ -3,7 +3,15 @@
  * @author Turtle Village
  * @description 編集中の動画をリアルタイムでプレビュー再生、シーク、およびファイルへの書き出しを行うセクションコンポーネント。
  */
-import React, { RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  RefObject,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   Play,
   Pause,
@@ -28,6 +36,7 @@ import type { AspectRatio } from '../../stores/canvasStore';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import TimelineWaveform from '../media/TimelineWaveform';
 import type { TimelineWaveformData } from '../../hooks/useTimelineWaveform';
+import { useSwipeProtectedValue } from '../../hooks/useSwipeProtectedValue';
 
 const PREVIEW_ICON_BUTTON_BASE =
   'relative overflow-hidden p-3 lg:p-4 rounded-full border transition-[transform,background-color,color,box-shadow,filter] duration-200 shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed';
@@ -164,6 +173,26 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   const log = useLogStore.getState();
   const canvasWidth = useCanvasStore((s) => s.width);
   const canvasHeight = useCanvasStore((s) => s.height);
+
+  // シークバーは特殊な start/end ライフサイクルがあるため SwipeProtectedSlider は使わず、
+  // 同じ誤操作防止フックを合成する。タップでの位置ジャンプは許可（minTouchDuration=0）。
+  const restoreSeekOnVerticalScroll = useCallback(
+    (restoredTime: number) => {
+      onSeekChange({
+        target: { value: String(restoredTime) },
+      } as React.ChangeEvent<HTMLInputElement>);
+    },
+    [onSeekChange],
+  );
+  const {
+    onTouchStart: swipeSeekTouchStart,
+    onTouchMove: swipeSeekTouchMove,
+    onTouchEnd: swipeSeekTouchEnd,
+  } = useSwipeProtectedValue(currentTime, restoreSeekOnVerticalScroll, {
+    minMovement: 15,
+    minTouchDuration: 0,
+  });
+
   // canvas.width / canvas.height をセットすると内容がクリアされるので、
   // 実際にサイズが変わるときだけ書き換える（毎レンダリングでの再代入を避ける）。
   useLayoutEffect(() => {
@@ -603,15 +632,26 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
             onChange={onSeekChange}
             onPointerDown={onSeekStart}
             onMouseDown={onSeekStart}
-            onTouchStart={onSeekStart}
+            onTouchStart={(e) => {
+              swipeSeekTouchStart(e);
+              onSeekStart();
+            }}
+            onTouchMove={swipeSeekTouchMove}
             onPointerUp={onSeekEnd}
             onPointerCancel={onSeekEnd}
             onMouseUp={onSeekEnd}
-            onTouchEnd={onSeekEnd}
-            onTouchCancel={onSeekEnd}
+            onTouchEnd={(e) => {
+              swipeSeekTouchEnd(e);
+              onSeekEnd();
+            }}
+            onTouchCancel={(e) => {
+              swipeSeekTouchEnd(e);
+              onSeekEnd();
+            }}
             onBlur={onSeekEnd}
             className="absolute top-0 w-full h-full opacity-0 cursor-pointer z-10"
             disabled={mediaItems.length === 0 || isProcessing}
+            aria-label="プレビュー位置"
           />
           {!isProcessing && mediaItems.length > 0 && (
             <div

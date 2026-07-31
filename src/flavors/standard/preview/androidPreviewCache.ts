@@ -175,6 +175,10 @@ export function createAndroidPreviewCacheKey(
           mask: input.watermarkOverlay.mask,
           maskSize: input.watermarkOverlay.maskSize,
           feather: input.watermarkOverlay.feather,
+          fadeIn: input.watermarkOverlay.fadeIn,
+          fadeOut: input.watermarkOverlay.fadeOut,
+          fadeInDuration: input.watermarkOverlay.fadeInDuration,
+          fadeOutDuration: input.watermarkOverlay.fadeOutDuration,
         }
       : null,
   });

@@ -76,6 +76,7 @@ function renderStampBar(
     onUpdateCaption: vi.fn(),
     onRemoveCaption: vi.fn(),
     onMoveCaption: vi.fn(),
+    onClearAllCaptions: vi.fn(),
     onSetEnabled: vi.fn(),
     onSetFontSize: vi.fn(),
     onSetFontStyle: vi.fn(),

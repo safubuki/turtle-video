@@ -130,6 +130,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const toggleTransformPanel = useMediaStore((s) => s.toggleTransformPanel);
   const updateVolume = useMediaStore((s) => s.updateVolume);
   const toggleMute = useMediaStore((s) => s.toggleMute);
+  const setAllVideosMuted = useMediaStore((s) => s.setAllVideosMuted);
   const toggleFadeIn = useMediaStore((s) => s.toggleFadeIn);
   const toggleFadeOut = useMediaStore((s) => s.toggleFadeOut);
   const updateFadeInDuration = useMediaStore((s) => s.updateFadeInDuration);
@@ -229,6 +230,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const setCaptionPositionCustom = useCaptionStore((s) => s.setPositionCustom);
   const removeCaption = useCaptionStore((s) => s.removeCaption);
   const moveCaption = useCaptionStore((s) => s.moveCaption);
+  const clearAllCaptions = useCaptionStore((s) => s.clearAllCaptions);
   const setCaptionEnabled = useCaptionStore((s) => s.setEnabled);
   const setCaptionFontSize = useCaptionStore((s) => s.setFontSize);
   const setCaptionFontStyle = useCaptionStore((s) => s.setFontStyle);
@@ -3101,6 +3103,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onResetMediaSetting={handleResetMediaSetting}
               onUpdateMediaVolume={withPreviewPause('update-media-volume', updateVolume)}
               onToggleMediaMute={withPreviewPause('toggle-media-mute', toggleMute)}
+              onSetAllVideosMuted={withPreviewPause('set-all-videos-muted', setAllVideosMuted)}
               onToggleMediaFadeIn={withPreviewPause('toggle-media-fade-in', toggleFadeIn)}
               onToggleMediaFadeOut={withPreviewPause('toggle-media-fade-out', toggleFadeOut)}
               onUpdateFadeInDuration={withPreviewPause('update-media-fade-in-duration', updateFadeInDuration)}
@@ -3173,6 +3176,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onUpdateCaption={withPreviewPause('update-caption', updateCaption)}
               onRemoveCaption={withPreviewPause('remove-caption', removeCaption)}
               onMoveCaption={withPreviewPause('move-caption', moveCaption)}
+              onClearAllCaptions={withPreviewPause('clear-all-captions', clearAllCaptions)}
               onSetEnabled={withPreviewPause('set-caption-enabled', setCaptionEnabled)}
               onSetFontSize={withPreviewPause('set-caption-font-size', setCaptionFontSize)}
               onSetFontStyle={withPreviewPause('set-caption-font-style', setCaptionFontStyle)}

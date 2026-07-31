@@ -352,6 +352,11 @@ export interface WatermarkOverlay {
   maskSize: number;
   /** マスク境界のぼかし幅 px @1080p 基準 */
   feather: number;
+  /** 表示範囲先頭からのフェードイン（動画・画像クリップと同じ仕組み） */
+  fadeIn: boolean;
+  fadeOut: boolean;
+  fadeInDuration: number;
+  fadeOutDuration: number;
 }
 
 // キャプション設定

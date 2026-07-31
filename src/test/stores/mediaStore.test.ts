@@ -165,6 +165,41 @@ describe('mediaStore', () => {
     });
   });
 
+  describe('setAllVideosMuted', () => {
+    it('動画だけを一括ミュートし、画像は変更しない', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'v1', type: 'video', isMuted: false, duration: 5 } as any,
+          { id: 'i1', type: 'image', isMuted: false, duration: 5 } as any,
+          { id: 'v2', type: 'video', isMuted: false, duration: 5 } as any,
+        ],
+        totalDuration: 15,
+      });
+
+      useMediaStore.getState().setAllVideosMuted(true);
+
+      const { mediaItems } = useMediaStore.getState();
+      expect(mediaItems.find((m) => m.id === 'v1')?.isMuted).toBe(true);
+      expect(mediaItems.find((m) => m.id === 'v2')?.isMuted).toBe(true);
+      expect(mediaItems.find((m) => m.id === 'i1')?.isMuted).toBe(false);
+    });
+
+    it('一括ミュート解除で全動画の isMuted を false にする', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'v1', type: 'video', isMuted: true, duration: 5 } as any,
+          { id: 'v2', type: 'video', isMuted: true, duration: 5 } as any,
+        ],
+        totalDuration: 10,
+      });
+
+      useMediaStore.getState().setAllVideosMuted(false);
+
+      const { mediaItems } = useMediaStore.getState();
+      expect(mediaItems.every((m) => m.isMuted === false)).toBe(true);
+    });
+  });
+
   describe('clearAllMedia', () => {
     it('should clear all media items', () => {
       useMediaStore.setState({

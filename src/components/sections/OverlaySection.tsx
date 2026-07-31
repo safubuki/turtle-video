@@ -423,6 +423,86 @@ const OverlaySection = React.memo<OverlaySectionProps>(({
                   マスク範囲を小さくすると、画像の外周より内側で自然にぼかせます。
                 </p>
               </div>
+
+              {/* フェード（動画・画像クリップと同じ 0.5 / 1 / 2 秒ステップ） */}
+              <div className="space-y-2 rounded-lg border border-gray-700/70 bg-black/20 p-2">
+                <p className="text-[10px] font-semibold text-gray-300 md:text-xs">フェード</p>
+                <div className="flex flex-col gap-2 text-[10px] md:text-xs">
+                  <div className="flex items-center gap-2">
+                    <label className="flex w-24 cursor-pointer items-center justify-start gap-1">
+                      <input
+                        type="checkbox"
+                        checked={watermark.fadeIn}
+                        onChange={(e) => onUpdate({ fadeIn: e.target.checked })}
+                        className="cursor-pointer rounded accent-blue-500"
+                      />
+                      <span className="whitespace-nowrap">フェードイン</span>
+                    </label>
+                    <SwipeProtectedSlider
+                      min={0}
+                      max={2}
+                      step={1}
+                      value={
+                        watermark.fadeInDuration === 0.5
+                          ? 0
+                          : watermark.fadeInDuration === 1.0
+                            ? 1
+                            : 2
+                      }
+                      onChange={(val) => {
+                        const steps = [0.5, 1.0, 2.0];
+                        onUpdate({ fadeInDuration: steps[val] });
+                      }}
+                      disabled={!watermark.fadeIn}
+                      ariaLabel="ウォーターマークのフェードイン時間"
+                      className={`h-1 flex-1 appearance-none rounded bg-gray-600 accent-blue-500 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 disabled:opacity-50 ${watermark.fadeIn ? 'cursor-pointer' : ''}`}
+                    />
+                    <span
+                      className={`w-8 whitespace-nowrap text-right ${watermark.fadeIn ? 'text-gray-400' : 'text-gray-600'}`}
+                    >
+                      {watermark.fadeInDuration}秒
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="flex w-24 cursor-pointer items-center justify-start gap-1">
+                      <input
+                        type="checkbox"
+                        checked={watermark.fadeOut}
+                        onChange={(e) => onUpdate({ fadeOut: e.target.checked })}
+                        className="cursor-pointer rounded accent-blue-500"
+                      />
+                      <span className="whitespace-nowrap">フェードアウト</span>
+                    </label>
+                    <SwipeProtectedSlider
+                      min={0}
+                      max={2}
+                      step={1}
+                      value={
+                        watermark.fadeOutDuration === 0.5
+                          ? 0
+                          : watermark.fadeOutDuration === 1.0
+                            ? 1
+                            : 2
+                      }
+                      onChange={(val) => {
+                        const steps = [0.5, 1.0, 2.0];
+                        onUpdate({ fadeOutDuration: steps[val] });
+                      }}
+                      disabled={!watermark.fadeOut}
+                      ariaLabel="ウォーターマークのフェードアウト時間"
+                      className={`h-1 flex-1 appearance-none rounded bg-gray-600 accent-blue-500 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 disabled:opacity-50 ${watermark.fadeOut ? 'cursor-pointer' : ''}`}
+                    />
+                    <span
+                      className={`w-8 whitespace-nowrap text-right ${watermark.fadeOut ? 'text-gray-400' : 'text-gray-600'}`}
+                    >
+                      {watermark.fadeOutDuration}秒
+                    </span>
+                  </div>
+                </div>
+                <p className="text-[9px] leading-relaxed text-gray-500">
+                  表示範囲の開始・終了に合わせて、動画と同じようにフェードします。
+                </p>
+              </div>
             </>
           )}
         </div>

@@ -106,6 +106,11 @@ interface MediaState {
   // Audio
   updateVolume: (id: string, volume: number) => void;
   toggleMute: (id: string) => void;
+  /**
+   * 動画クリップを一括ミュート/解除する。
+   * 画像は音声がないため対象外。muted=true で全動画をミュート、false で全解除。
+   */
+  setAllVideosMuted: (muted: boolean) => void;
 
   // Fade
   toggleFadeIn: (id: string, enabled: boolean) => void;
@@ -565,6 +570,14 @@ export const useMediaStore = create<MediaState>()(
         set((state) => ({
           mediaItems: state.mediaItems.map((item) =>
             item.id === id ? { ...item, isMuted: !item.isMuted } : item
+          ),
+        }));
+      },
+
+      setAllVideosMuted: (muted) => {
+        set((state) => ({
+          mediaItems: state.mediaItems.map((item) =>
+            item.type === 'video' ? { ...item, isMuted: muted } : item
           ),
         }));
       },

@@ -267,9 +267,23 @@ export function getSectionHelpContent(
             '「画像を選択」で PNG・JPEG・WebP を追加します。',
             '表示範囲、位置、倍率、透過度、回転、マスク、周辺ぼかしを調整できます。',
             '位置は「左下・右下・中央・左上・右上」から簡単に選べます。',
+            'フェードイン／フェードアウトは動画と同じく 0.5・1・2 秒で設定でき、表示範囲の開始・終了に合わせてかかります。',
             '非表示にしても画像と設定は保持され、くるくるアイコンで各項目を初期値へ戻せます。',
           ],
-          visuals: ['watermark_controls', 'range_pin_buttons', 'reset_button', 'slider_demo'],
+          visuals: [
+            'watermark_controls',
+            'range_pin_buttons',
+            'reset_button',
+            'slider_demo',
+            'fade_in_checkbox',
+            'fade_out_checkbox',
+          ],
+        },
+        {
+          title: '一括ミュート（スピーカーアイコン）',
+          description:
+            'セクション右上・ロックボタンの左側にあるスピーカーアイコンで、登録中の動画をまとめてミュート／解除できます。画像は音声がないため対象外です。各カードの個別ミュートと同じ isMuted を更新します。',
+          visuals: ['mute_button'],
         },
         {
           title: '追加ボタン',
@@ -559,6 +573,12 @@ export function getSectionHelpContent(
           description:
             '表示アイコンをOFFに設定すると、キャプションを設定していてもすべてOFF表示になり、出力した動画にも表示されません。鍵アイコンで編集ロックを切り替えます。',
           visuals: ['eye_on_button', 'eye_off_button', 'unlock_button', 'lock_button_red'],
+        },
+        {
+          title: 'キャプション一括削除（ゴミ箱アイコン）',
+          description:
+            'セクションヘッダー（表示アイコンと鍵のあいだ）のゴミ箱アイコンで、設定中のキャプションをすべて削除できます。押すと確認ダイアログが出て、OK したときだけ削除されます。タイトル設定は削除しません。',
+          visuals: ['delete_button'],
         },
         {
           title: 'キャプション スタイル/フェードの一括設定',

@@ -17,6 +17,9 @@ export const WATERMARK_MASK_SIZE_MIN = 5;
 export const WATERMARK_MASK_SIZE_MAX = 100;
 export const WATERMARK_FEATHER_MIN = 0;
 export const WATERMARK_FEATHER_MAX = 40;
+/** 動画クリップと同じフェード時間ステップ（0.5 / 1 / 2 秒）向けの下限・上限 */
+export const WATERMARK_FADE_DURATION_MIN = 0.5;
+export const WATERMARK_FADE_DURATION_MAX = 2;
 export type WatermarkPositionPreset =
   | 'bottom-left'
   | 'bottom-right'
@@ -38,6 +41,10 @@ export const DEFAULT_WATERMARK_OVERLAY: WatermarkOverlay = {
   mask: 'rectangle',
   maskSize: 100,
   feather: 0,
+  fadeIn: false,
+  fadeOut: false,
+  fadeInDuration: 1.0,
+  fadeOutDuration: 1.0,
 };
 
 function clamp(value: unknown, min: number, max: number, fallback: number): number {
@@ -121,7 +128,54 @@ export function normalizeWatermarkOverlay(
       WATERMARK_FEATHER_MAX,
       DEFAULT_WATERMARK_OVERLAY.feather,
     ),
+    // 旧保存データに無い場合は OFF / 1 秒（見た目を変えない）
+    fadeIn: source.fadeIn === true,
+    fadeOut: source.fadeOut === true,
+    fadeInDuration: clamp(
+      source.fadeInDuration,
+      WATERMARK_FADE_DURATION_MIN,
+      WATERMARK_FADE_DURATION_MAX,
+      DEFAULT_WATERMARK_OVERLAY.fadeInDuration,
+    ),
+    fadeOutDuration: clamp(
+      source.fadeOutDuration,
+      WATERMARK_FADE_DURATION_MIN,
+      WATERMARK_FADE_DURATION_MAX,
+      DEFAULT_WATERMARK_OVERLAY.fadeOutDuration,
+    ),
   };
+}
+
+/**
+ * ウォーターマーク表示範囲内のローカル時刻からフェード係数（0〜1）を返す。
+ * 動画・画像クリップと同じ線形フェード。イン＋アウトが範囲より長いときは按分する。
+ */
+export function calculateWatermarkFadeAlpha(
+  overlay: Pick<
+    WatermarkOverlay,
+    'startTime' | 'endTime' | 'fadeIn' | 'fadeOut' | 'fadeInDuration' | 'fadeOutDuration'
+  >,
+  timeSec: number,
+): number {
+  const rangeDuration = Math.max(0, overlay.endTime - overlay.startTime);
+  if (rangeDuration <= 0) return 1;
+
+  const localTime = timeSec - overlay.startTime;
+  let fadeInDur = overlay.fadeIn ? overlay.fadeInDuration : 0;
+  let fadeOutDur = overlay.fadeOut ? overlay.fadeOutDuration : 0;
+  if (fadeInDur + fadeOutDur > rangeDuration) {
+    const ratio = rangeDuration / (fadeInDur + fadeOutDur);
+    fadeInDur *= ratio;
+    fadeOutDur *= ratio;
+  }
+
+  let alpha = 1;
+  if (fadeInDur > 0 && localTime < fadeInDur) {
+    alpha = localTime / fadeInDur;
+  } else if (fadeOutDur > 0 && localTime > rangeDuration - fadeOutDur) {
+    alpha = (rangeDuration - localTime) / fadeOutDur;
+  }
+  return Math.max(0, Math.min(1, alpha));
 }
 
 export function shouldDrawWatermarkOverlay(
@@ -332,10 +386,13 @@ export function drawWatermarkOverlayFrame(
   const centerX = ctx.canvas.width * (overlay.positionX / 100);
   const centerY = ctx.canvas.height * (overlay.positionY / 100);
 
+  const fadeAlpha = calculateWatermarkFadeAlpha(overlay, timeSec);
+
   ctx.save();
   ctx.translate(centerX, centerY);
   ctx.rotate((overlay.rotation * Math.PI) / 180);
-  ctx.globalAlpha = overlay.opacity;
+  // 透過度 × フェード（動画クリップと同じく globalAlpha で合成）
+  ctx.globalAlpha = overlay.opacity * fadeAlpha;
   ctx.drawImage(raster, -width / 2 - padX, -height / 2 - padY);
   ctx.restore();
   return true;

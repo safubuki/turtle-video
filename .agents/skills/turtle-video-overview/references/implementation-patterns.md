@@ -3071,3 +3071,18 @@ export 終了（成功/失敗/中断）
   - 波形下の無音ナビは常に exact。タイミング打ちだけが comfortable を既定にする。
 - **UX**: チェックは無音トランスポート直下。ON（既定）で打鍵すると読みやすい位置がそのままキャプション時刻になる。無音ぴったりへ合わせたいときだけ OFF。
 - **注意**: 余白ルールを変えるときは narrationCaptionPlan の定数と揃える。波形ナビへ comfortable を広げない（聴き比べ用は exact が必要）。
+
+### 13-165. ウォーターマークフェード / キャプション一括削除 / 動画一括ミュート
+
+- **ファイル**: `src/types/index.ts`, `src/utils/watermarkOverlay.ts`, `src/utils/indexedDB.ts`, `src/stores/projectStore.ts`, `src/hooks/useAutoSave.ts`, `src/flavors/standard/preview/androidPreviewCache.ts`, `src/components/sections/OverlaySection.tsx`, `src/stores/mediaStore.ts`, `src/stores/captionStore.ts`（既存 `clearAllCaptions`）, `src/components/sections/ClipsSection.tsx`, `src/components/sections/CaptionSection.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, 関連テスト
+- **ウォーターマークフェード**:
+  - `WatermarkOverlay` に `fadeIn` / `fadeOut` / `fadeInDuration` / `fadeOutDuration` を追加（動画クリップと同じ 0.5 / 1 / 2 秒ステップ）。旧データは OFF / 1 秒へ補完。
+  - `calculateWatermarkFadeAlpha()` が表示範囲内のローカル時刻で線形フェードし、イン＋アウトが範囲より長いときは按分する。`drawWatermarkOverlayFrame` は `opacity * fadeAlpha` を `globalAlpha` に乗算する（preview = export 共通経路）。
+  - 保存・自動保存ハッシュ・Android preview cache 署名・OverlaySection UI を同時更新する。
+- **キャプション一括削除**:
+  - セクションヘッダー（表示アイコンと鍵のあいだ）にゴミ箱ボタンを追加。`window.confirm` で件数付き確認し、OK 時のみ既存 `clearAllCaptions()` を呼ぶ。0 件・ロック中は disabled。動画タイトルは削除しない。
+- **動画一括ミュート**:
+  - `mediaStore.setAllVideosMuted(muted)` が `type === 'video'` の `isMuted` だけを一括更新（画像は対象外）。
+  - 「動画・画像」タイトル横に Volume2/VolumeX アイコン。全動画がミュートなら ON 表示で解除、それ以外は一括ミュート。動画無し・セクションロック中は disabled。
+  - 各カードの個別ミュートと同じ `isMuted` を触るため、プレビュー/export の既存音声経路へそのまま効く。
+- **回帰ガード**: `watermarkOverlay.test.ts`（正規化・フェード按分・描画 alpha）、`overlaySection.test.tsx`、`mediaStore.test.ts`、`clipsSectionPicker.test.tsx`、`captionStyleControls.test.tsx`（confirm OK/Cancel）。

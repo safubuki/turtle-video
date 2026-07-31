@@ -57,6 +57,7 @@ function renderClipsSection(overrides: Partial<ComponentProps<typeof ClipsSectio
     onResetMediaSetting: vi.fn(),
     onUpdateMediaVolume: vi.fn(),
     onToggleMediaMute: vi.fn(),
+    onSetAllVideosMuted: vi.fn(),
     onToggleMediaFadeIn: vi.fn(),
     onToggleMediaFadeOut: vi.fn(),
     onUpdateFadeInDuration: vi.fn(),
@@ -136,6 +137,62 @@ describe('ClipsSection media picker routing', () => {
     } finally {
       inputClickSpy.mockRestore();
     }
+  });
+});
+
+describe('ClipsSection bulk mute', () => {
+  function createVideoItem(id: string, isMuted = false): MediaItem {
+    return {
+      id,
+      file: new File(['video'], `${id}.mp4`, { type: 'video/mp4' }),
+      type: 'video',
+      url: `blob:${id}`,
+      volume: 1,
+      isMuted,
+      fadeIn: false,
+      fadeOut: false,
+      fadeInDuration: 1,
+      fadeOutDuration: 1,
+      duration: 5,
+      originalDuration: 5,
+      trimStart: 0,
+      trimEnd: 5,
+      scale: 1,
+      positionX: 0,
+      positionY: 0,
+      rotation: 0,
+      blur: 0,
+      isTransformOpen: false,
+      isLocked: false,
+    };
+  }
+
+  it('タイトル横の一括ミュートで全動画をミュートする', () => {
+    const { props } = renderClipsSection({
+      // MiniPreview（IntersectionObserver）を開かないよう transform は閉じる
+      mediaItems: [
+        createVideoItem('v1'),
+        createVideoItem('v2'),
+        createImageItem({ isTransformOpen: false }),
+      ],
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'すべての動画をミュート' }));
+    expect(props.onSetAllVideosMuted).toHaveBeenCalledWith(true);
+  });
+
+  it('全動画がミュート済みなら解除を呼ぶ', () => {
+    const { props } = renderClipsSection({
+      mediaItems: [createVideoItem('v1', true), createVideoItem('v2', true)],
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'すべての動画のミュートを解除' }));
+    expect(props.onSetAllVideosMuted).toHaveBeenCalledWith(false);
+  });
+
+  it('動画が無いときは一括ミュートボタンを無効化する', () => {
+    renderClipsSection({ mediaItems: [createImageItem({ isTransformOpen: false })] });
+    expect(screen.getByRole('button', { name: 'ミュート対象の動画がありません' })).toBeDisabled();
   });
 });
 

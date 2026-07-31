@@ -3,8 +3,18 @@
  * @author Turtle Village
  * @description 動画・画像クリップの管理を行うセクション。アップロード、並び替え、各クリップの基本操作（削除、複製）を提供するリストビュー。
  */
-import React, { useRef, useState } from 'react';
-import { Upload, Lock, Unlock, CircleHelp, ArrowDownUp, RectangleHorizontal, RectangleVertical } from 'lucide-react';
+import React, { useMemo, useRef, useState } from 'react';
+import {
+  Upload,
+  Lock,
+  Unlock,
+  CircleHelp,
+  ArrowDownUp,
+  RectangleHorizontal,
+  RectangleVertical,
+  Volume2,
+  VolumeX,
+} from 'lucide-react';
 import type { ClipTransition, MediaItem } from '../../types';
 import ClipItem from '../media/ClipItem';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
@@ -133,6 +143,8 @@ interface ClipsSectionProps {
   onResetMediaSetting: (id: string, type: 'scale' | 'x' | 'y' | 'rotation' | 'blur') => void;
   onUpdateMediaVolume: (id: string, value: number) => void;
   onToggleMediaMute: (id: string) => void;
+  /** 動画クリップを一括ミュート/解除（画像は対象外） */
+  onSetAllVideosMuted: (muted: boolean) => void;
   onToggleMediaFadeIn: (id: string, checked: boolean) => void;
   onToggleMediaFadeOut: (id: string, checked: boolean) => void;
   onUpdateFadeInDuration: (id: string, duration: number) => void;
@@ -169,6 +181,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   onResetMediaSetting,
   onUpdateMediaVolume,
   onToggleMediaMute,
+  onSetAllVideosMuted,
   onToggleMediaFadeIn,
   onToggleMediaFadeOut,
   onUpdateFadeInDuration,
@@ -185,6 +198,19 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   const canDuplicate = !isIosSafari;
   // クリップ間トランジションは standard フレーバー（Android/PC）限定
   const supportsTransitions = !isIosSafari;
+
+  // 一括ミュートは動画のみ（画像は音声なし）。全動画がミュートなら ON 表示。
+  const videoItems = useMemo(
+    () => mediaItems.filter((item) => item.type === 'video'),
+    [mediaItems],
+  );
+  const hasVideos = videoItems.length > 0;
+  const allVideosMuted = hasVideos && videoItems.every((item) => item.isMuted);
+
+  const handleBulkMuteClick = () => {
+    if (isClipsLocked || !hasVideos) return;
+    onSetAllVideosMuted(!allVideosMuted);
+  };
 
   const handleAddClick = () => {
     if (isClipsLocked) return;
@@ -238,6 +264,34 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
               <RectangleVertical className="w-4 h-4" />
             </button>
           </div>
+          {/* 一括ミュート（ロックの左側） */}
+          <button
+            type="button"
+            onClick={handleBulkMuteClick}
+            disabled={isClipsLocked || !hasVideos}
+            className={`p-1 rounded-lg transition ${
+              allVideosMuted
+                ? 'bg-red-500/20 text-red-400'
+                : 'bg-gray-700 text-gray-300 hover:text-white hover:bg-gray-600'
+            } disabled:cursor-not-allowed disabled:opacity-40`}
+            title={
+              !hasVideos
+                ? 'ミュート対象の動画がありません'
+                : allVideosMuted
+                  ? 'すべての動画のミュートを解除'
+                  : 'すべての動画をミュート'
+            }
+            aria-label={
+              !hasVideos
+                ? 'ミュート対象の動画がありません'
+                : allVideosMuted
+                  ? 'すべての動画のミュートを解除'
+                  : 'すべての動画をミュート'
+            }
+            aria-pressed={allVideosMuted}
+          >
+            {allVideosMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+          </button>
           <button
             onClick={onToggleClipsLock}
             className={`p-1 rounded-lg transition ${isClipsLocked ? 'bg-red-500/20 text-red-400' : 'bg-gray-700 text-gray-300 hover:text-white hover:bg-gray-600'}`}

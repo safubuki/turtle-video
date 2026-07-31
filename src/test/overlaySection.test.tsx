@@ -57,6 +57,15 @@ describe('OverlaySection', () => {
     expect(props.onSetRange).toHaveBeenCalledWith(3.2, 10, 10);
   });
 
+  it('フェードイン/アウトを動画と同じチェック＋時間スライダーで設定できる', () => {
+    const { props } = renderSection(true);
+    fireEvent.click(screen.getByLabelText('フェードイン'));
+    expect(props.onUpdate).toHaveBeenCalledWith({ fadeIn: true });
+
+    fireEvent.click(screen.getByLabelText('フェードアウト'));
+    expect(props.onUpdate).toHaveBeenCalledWith({ fadeOut: true });
+  });
+
   it('位置・倍率・透過・回転・ぼかしの既定値を個別に戻せる', () => {
     const { props } = renderSection(true, {
       positionX: 80,

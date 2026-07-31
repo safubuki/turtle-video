@@ -25,6 +25,7 @@ import {
   Crosshair,
   ChevronsLeft,
   ChevronsRight,
+  Trash2,
 } from 'lucide-react';
 import {
   findAdjacentSilenceBoundary,
@@ -94,6 +95,8 @@ interface CaptionSectionProps {
   onUpdateCaption: (id: string, updates: Partial<Omit<Caption, 'id'>>) => void;
   onRemoveCaption: (id: string) => void;
   onMoveCaption: (id: string, direction: 'up' | 'down') => void;
+  /** 設定中のキャプションをすべて削除（呼び出し側で確認ダイアログ済み想定） */
+  onClearAllCaptions: () => void;
   onSetEnabled: (enabled: boolean) => void;
   onSetFontSize: (size: CaptionSize) => void;
   onSetFontStyle: (style: CaptionFontStyle) => void;
@@ -165,6 +168,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   onUpdateCaption,
   onRemoveCaption,
   onMoveCaption,
+  onClearAllCaptions,
   onSetEnabled,
   onSetFontSize,
   onSetFontStyle,
@@ -528,6 +532,30 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
             title={settings.enabled ? 'キャプションを非表示' : 'キャプションを表示'}
           >
             {settings.enabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+          </button>
+          {/* キャプション一括削除（確認ダイアログ付き） */}
+          <button
+            type="button"
+            onClick={() => {
+              if (isLocked || captions.length === 0) return;
+              const confirmed = window.confirm(
+                `設定中のキャプション ${captions.length} 件をすべて削除します。よろしいですか？`,
+              );
+              if (!confirmed) return;
+              onClearAllCaptions();
+            }}
+            disabled={isLocked || captions.length === 0}
+            className="p-1.5 rounded-lg transition bg-gray-700 text-gray-400 hover:bg-red-500/20 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"
+            title={
+              captions.length === 0
+                ? '削除するキャプションがありません'
+                : isLocked
+                  ? 'ロック中は削除できません'
+                  : 'キャプションをすべて削除'
+            }
+            aria-label="キャプションをすべて削除"
+          >
+            <Trash2 className="w-4 h-4" />
           </button>
           {/* ロック */}
           <button

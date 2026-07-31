@@ -225,6 +225,11 @@ export interface SerializedWatermarkOverlay {
   mask: 'rectangle' | 'rounded' | 'circle';
   maskSize?: number;
   feather: number;
+  /** 任意・旧データは false / 1.0 で補完 */
+  fadeIn?: boolean;
+  fadeOut?: boolean;
+  fadeInDuration?: number;
+  fadeOutDuration?: number;
 }
 
 // プロジェクトデータ全体

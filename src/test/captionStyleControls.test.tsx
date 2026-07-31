@@ -38,6 +38,7 @@ function renderCaptionSection(
     onUpdateCaption: vi.fn(),
     onRemoveCaption: vi.fn(),
     onMoveCaption: vi.fn(),
+    onClearAllCaptions: vi.fn(),
     onSetEnabled: vi.fn(),
     onSetFontSize: vi.fn(),
     onSetFontStyle: vi.fn(),
@@ -80,6 +81,69 @@ function renderCaptionSection(
   }
   return props;
 }
+
+describe('CaptionSection bulk delete', () => {
+  it('確認ダイアログでOKしたときだけ一括削除する', () => {
+    const captions: Caption[] = [
+      {
+        id: 'c1',
+        text: 'A',
+        startTime: 0,
+        endTime: 2,
+        fadeIn: false,
+        fadeOut: false,
+        fadeInDuration: 0.5,
+        fadeOutDuration: 0.5,
+      },
+      {
+        id: 'c2',
+        text: 'B',
+        startTime: 2,
+        endTime: 4,
+        fadeIn: false,
+        fadeOut: false,
+        fadeInDuration: 0.5,
+        fadeOutDuration: 0.5,
+      },
+    ];
+    const props = renderCaptionSection({ captions }, false);
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'キャプションをすべて削除' }));
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(props.onClearAllCaptions).toHaveBeenCalledTimes(1);
+    confirmSpy.mockRestore();
+  });
+
+  it('確認をキャンセルしたら削除しない', () => {
+    const captions: Caption[] = [
+      {
+        id: 'c1',
+        text: 'A',
+        startTime: 0,
+        endTime: 2,
+        fadeIn: false,
+        fadeOut: false,
+        fadeInDuration: 0.5,
+        fadeOutDuration: 0.5,
+      },
+    ];
+    const props = renderCaptionSection({ captions }, false);
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'キャプションをすべて削除' }));
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(props.onClearAllCaptions).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it('キャプションが無いときは一括削除ボタンを無効化する', () => {
+    renderCaptionSection({ captions: [] }, false);
+    expect(screen.getByRole('button', { name: 'キャプションをすべて削除' })).toBeDisabled();
+  });
+});
 
 describe('CaptionSection outline and color controls', () => {
   it('詳細設定は閉じている間だけ「（開いて設定）」を表示する', () => {
@@ -290,6 +354,7 @@ describe('CaptionSection bulk timing alignment', () => {
       onUpdateCaption: vi.fn(),
       onRemoveCaption: vi.fn(),
       onMoveCaption: vi.fn(),
+      onClearAllCaptions: vi.fn(),
       onSetEnabled: vi.fn(),
       onSetFontSize: vi.fn(),
       onSetFontStyle: vi.fn(),

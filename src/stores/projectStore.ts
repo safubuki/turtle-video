@@ -345,6 +345,10 @@ async function serializeWatermarkOverlay(
     mask: overlay.mask,
     maskSize: overlay.maskSize,
     feather: overlay.feather,
+    fadeIn: overlay.fadeIn,
+    fadeOut: overlay.fadeOut,
+    fadeInDuration: overlay.fadeInDuration,
+    fadeOutDuration: overlay.fadeOutDuration,
   };
 }
 

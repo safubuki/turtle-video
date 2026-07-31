@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WatermarkOverlay } from '../types';
 import {
   DEFAULT_WATERMARK_OVERLAY,
+  calculateWatermarkFadeAlpha,
   drawWatermarkOverlayFrame,
   normalizeWatermarkOverlay,
   normalizeWatermarkRange,
@@ -60,7 +61,22 @@ describe('ウォーターマーク正規化', () => {
       maskSize: 5,
       feather: 40,
       mask: 'rectangle',
+      fadeIn: false,
+      fadeOut: false,
+      fadeInDuration: 1,
+      fadeOutDuration: 1,
     });
+  });
+
+  it('旧データにフェードが無くても OFF / 1秒で補完する', () => {
+    const normalized = normalizeWatermarkOverlay({
+      startTime: 0,
+      endTime: 4,
+    });
+    expect(normalized.fadeIn).toBe(false);
+    expect(normalized.fadeOut).toBe(false);
+    expect(normalized.fadeInDuration).toBe(1);
+    expect(normalized.fadeOutDuration).toBe(1);
   });
 
   it('表示範囲の逆転を防ぎ、プロジェクト尺へ収める', () => {
@@ -76,6 +92,43 @@ describe('ウォーターマーク正規化', () => {
       startTime: 0,
       endTime: DEFAULT_WATERMARK_OVERLAY.endTime,
     });
+  });
+});
+
+describe('ウォーターマークフェード', () => {
+  it('フェード無効時は常に 1', () => {
+    expect(calculateWatermarkFadeAlpha(activeOverlay({ fadeIn: false, fadeOut: false }), 2)).toBe(1);
+    expect(calculateWatermarkFadeAlpha(activeOverlay({ fadeIn: false, fadeOut: false }), 7.5)).toBe(1);
+  });
+
+  it('表示範囲の先頭・末尾で線形にフェードする', () => {
+    const overlay = activeOverlay({
+      startTime: 0,
+      endTime: 10,
+      fadeIn: true,
+      fadeOut: true,
+      fadeInDuration: 2,
+      fadeOutDuration: 2,
+    });
+    expect(calculateWatermarkFadeAlpha(overlay, 0)).toBeCloseTo(0, 5);
+    expect(calculateWatermarkFadeAlpha(overlay, 1)).toBeCloseTo(0.5, 5);
+    expect(calculateWatermarkFadeAlpha(overlay, 5)).toBeCloseTo(1, 5);
+    expect(calculateWatermarkFadeAlpha(overlay, 9)).toBeCloseTo(0.5, 5);
+    expect(calculateWatermarkFadeAlpha(overlay, 10)).toBeCloseTo(0, 5);
+  });
+
+  it('イン＋アウトが範囲より長いときは按分する', () => {
+    const overlay = activeOverlay({
+      startTime: 0,
+      endTime: 2,
+      fadeIn: true,
+      fadeOut: true,
+      fadeInDuration: 2,
+      fadeOutDuration: 2,
+    });
+    // 按分後は各 1 秒
+    expect(calculateWatermarkFadeAlpha(overlay, 0.5)).toBeCloseTo(0.5, 5);
+    expect(calculateWatermarkFadeAlpha(overlay, 1.5)).toBeCloseTo(0.5, 5);
   });
 });
 
@@ -124,6 +177,46 @@ describe('ウォーターマーク描画', () => {
     expect(rotate).toHaveBeenCalledWith(0);
     expect(outerDraw).toHaveBeenCalledTimes(1);
     expect(ctx.globalAlpha).toBe(1);
+  });
+
+  it('フェード中は透過度にフェード係数を掛けて描画する', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      drawImage: vi.fn(),
+      save: vi.fn(),
+      restore: vi.fn(),
+      beginPath: vi.fn(),
+      rect: vi.fn(),
+      closePath: vi.fn(),
+      fill: vi.fn(),
+      globalCompositeOperation: 'source-over',
+      fillStyle: '',
+      filter: 'none',
+    } as unknown as CanvasRenderingContext2D);
+
+    const ctx = {
+      canvas: { width: 1920, height: 1080 },
+      globalAlpha: 1,
+      save: vi.fn(),
+      restore: vi.fn(),
+      translate: vi.fn(),
+      rotate: vi.fn(),
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D;
+
+    // start=2, end=8, 時刻 3 → local 1s / fadeIn 2s → alpha 0.5, opacity 0.8 → 0.4
+    drawWatermarkOverlayFrame(
+      ctx,
+      activeOverlay({
+        opacity: 0.8,
+        fadeIn: true,
+        fadeInDuration: 2,
+        fadeOut: false,
+      }),
+      createImage(),
+      3,
+    );
+
+    expect(ctx.globalAlpha).toBeCloseTo(0.4, 5);
   });
 
   it('マスク範囲を画像外周より内側へ縮めて描画する', () => {
