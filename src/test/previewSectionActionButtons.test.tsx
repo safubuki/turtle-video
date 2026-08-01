@@ -94,6 +94,29 @@ afterEach(() => {
 });
 
 describe('PreviewSection action buttons', () => {
+  it('連続する画像カードはシークバー上でオレンジ系の濃淡により区切って表示する', () => {
+    const imageItems: MediaItem[] = [2, 3, 4].map((duration, index) => ({
+      ...mediaItem,
+      id: `image-${index + 1}`,
+      file: new File(['image'], `sample-${index + 1}.png`, { type: 'image/png' }),
+      type: 'image',
+      duration,
+      originalDuration: duration,
+      trimEnd: duration,
+    }));
+    const { container } = renderPreviewSection({
+      mediaItems: imageItems,
+      totalDuration: 9,
+    });
+
+    const segments = container.querySelector('.flex.w-full.h-full')?.children;
+
+    expect(segments).toHaveLength(3);
+    expect(segments?.[0]).toHaveClass('bg-yellow-600', 'border-r');
+    expect(segments?.[1]).toHaveClass('bg-orange-500', 'border-r');
+    expect(segments?.[2]).toHaveClass('bg-yellow-600', 'border-r');
+  });
+
   it('動画出力オプションは初期状態では閉じている', () => {
     renderPreviewSection();
 

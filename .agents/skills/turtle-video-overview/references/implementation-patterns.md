@@ -3180,3 +3180,10 @@ export 終了（成功/失敗/中断）
 - **対策**: モバイル上限を `max-h-[min(32rem,72svh)]` とし、最大512pxまで広げつつ、低い端末では画面高の72%に抑える。PCの `lg:max-h-128` は変更しない。
 - **注意**: ナレーション一覧は従来の300pxを維持する。カード自体の展開状態やstandard限定トランジションのflavor境界は変更しない。
 - **テスト**: `clipsSectionPicker.test.tsx` でモバイル上限とPC上限の両クラスを固定する。
+
+### 13-170. プレビューの連続画像カードはシークバー上で濃淡と境界を表示する
+
+- **ファイル**: `src/components/sections/PreviewSection.tsx`, `src/test/previewSectionActionButtons.test.tsx`
+- **問題**: 画像カードが連続すると、各区間が同じオレンジ色になり、プレビューのシークバー上でカード境界を判別しにくい。
+- **対策**: 画像区間の出現順で `bg-yellow-600` / `bg-orange-500` を交互に適用し、暗い右境界線も付ける。動画区間の青系交互表示は維持する。
+- **テスト**: 連続画像3区間がオレンジ系2色で交互に表示されることを `previewSectionActionButtons.test.tsx` で確認する。

@@ -199,6 +199,23 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   const canvasHeight = useCanvasStore((s) => s.height);
   const [isVideoOutputOptionsOpen, setIsVideoOutputOptionsOpen] = useState(false);
   const canAlphaWebm = useMemo(() => canAttemptAlphaWebmExport(), []);
+  const previewTimelineSegments = useMemo(() => {
+    let imageSegmentIndex = 0;
+
+    return mediaItems.map((item, index) => {
+      const segment = {
+        item,
+        index,
+        imageSegmentIndex: item.type === 'image' ? imageSegmentIndex : null,
+      };
+
+      if (item.type === 'image') {
+        imageSegmentIndex += 1;
+      }
+
+      return segment;
+    });
+  }, [mediaItems]);
   const areVideoOutputOptionsLocked = isProcessing || Boolean(exportUrl);
 
   const setContentMode = useCallback((contentMode: ExportContentMode) => {
@@ -594,13 +611,13 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
         <div className="relative h-8 w-full select-none">
           <div className="absolute top-3 w-full h-2 bg-gray-800 rounded-full overflow-hidden">
             <div className="flex w-full h-full opacity-60">
-              {mediaItems.map((v, i) => (
+              {previewTimelineSegments.map(({ item: v, index: i, imageSegmentIndex }) => (
                 <div
                   key={v.id}
                   style={{ width: `${(v.duration / totalDuration) * 100}%` }}
                   className={
                     v.type === 'image'
-                      ? 'bg-yellow-600'
+                      ? `${imageSegmentIndex !== null && imageSegmentIndex % 2 === 0 ? 'bg-yellow-600' : 'bg-orange-500'} border-r border-gray-950/35`
                       : i % 2 === 0
                         ? 'bg-blue-600'
                         : 'bg-blue-500'
