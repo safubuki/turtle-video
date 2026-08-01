@@ -1256,7 +1256,9 @@ export function createUseExport(config: UseExportRuntimeConfig) {
       masterDestRef: React.MutableRefObject<MediaStreamAudioDestinationNode | null>,
       onRecordingStop: (url: string, ext: string) => void,
       onRecordingError?: (message: string) => void,
-      audioSources?: ExportAudioSources
+      audioSources?: ExportAudioSources,
+      // Issue #114: standard 専用のキャプションのみ経路。apple-safari では未対応（第6引数は無視）。
+      _startOptions?: import('../../../hooks/export-strategies/types').StartExportOptions,
     ) => {
       const exportSessionId = createDiagnosticId('export');
       exportSessionIdRef.current = exportSessionId;

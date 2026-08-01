@@ -70,6 +70,14 @@ function renderPreviewSection(overrides?: Partial<React.ComponentProps<typeof Pr
     projectPosterAspectRatio: 'landscape' as const,
     onSetProjectPosterFromCurrent: vi.fn(),
     onResetProjectPosterToAuto: vi.fn(),
+    exportOutputOptions: {
+      contentMode: 'composite',
+      captionLayerFormat: 'black-matte-mp4',
+      includeSubtitles: true,
+      subtitleFormats: ['srt', 'vtt'],
+    },
+    onExportOutputOptionsChange: vi.fn(),
+    supportsCaptionLayerExport: true,
     ...overrides,
   };
 
@@ -86,41 +94,61 @@ afterEach(() => {
 });
 
 describe('PreviewSection action buttons', () => {
-  it('サムネイル設定は現在値を見出しに表示して初期状態では閉じている', () => {
+  it('動画出力オプションは初期状態では閉じている', () => {
     renderPreviewSection();
 
-    const settingsButton = screen.getByRole('button', { name: /サムネイル設定/ });
+    const settingsButton = screen.getByRole('button', { name: '動画出力オプション' });
 
     expect(settingsButton).toHaveAttribute('aria-expanded', 'false');
-    expect(settingsButton).toHaveTextContent('自動');
-    expect(settingsButton).toHaveTextContent('0.2s');
+    expect(screen.queryByText('サムネイル設定')).not.toBeInTheDocument();
+    expect(screen.queryByText('出力内容')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '現在のフレームをサムネイルに設定' })).not.toBeInTheDocument();
     expect(screen.queryByText(/完成1本の代表フレーム/)).not.toBeInTheDocument();
   });
 
-  it('サムネイル設定を開くと設定操作を表示する', () => {
+  it('動画出力オプションを開くとサムネイルと出力内容の設定を表示する', () => {
     const onSetProjectPosterFromCurrent = vi.fn();
     renderPreviewSection({ onSetProjectPosterFromCurrent });
 
-    const settingsButton = screen.getByRole('button', { name: /サムネイル設定/ });
+    const settingsButton = screen.getByRole('button', { name: '動画出力オプション' });
     fireEvent.click(settingsButton);
 
     expect(settingsButton).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('サムネイル設定')).toBeInTheDocument();
+    expect(screen.getByText('出力内容')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '現在のフレームをサムネイルに設定' }));
     expect(onSetProjectPosterFromCurrent).toHaveBeenCalledTimes(1);
   });
 
-  it('手動設定時は見出しに手動と設定時刻を表示する', () => {
+  it('キャプションが0件のときはキャプションのみを選択できない', () => {
+    const onExportOutputOptionsChange = vi.fn();
+    renderPreviewSection({
+      hasCaptionsForSubtitleExport: false,
+      onExportOutputOptionsChange,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '動画出力オプション' }));
+
+    const captionOnlyButton = screen.getByRole('button', { name: 'キャプションのみ' });
+    expect(captionOnlyButton).toBeDisabled();
+    expect(captionOnlyButton).toHaveAttribute(
+      'title',
+      'キャプションを1件以上追加すると選択できます',
+    );
+    expect(screen.getByText('キャプションを追加すると選択できます。')).toBeInTheDocument();
+    fireEvent.click(captionOnlyButton);
+    expect(onExportOutputOptionsChange).not.toHaveBeenCalled();
+  });
+
+  it('手動設定時はサムネイル設定内に手動と設定時刻を表示する', () => {
     renderPreviewSection({
       projectPosterMode: 'manual',
       projectPosterTimelineTime: 3.5,
     });
 
-    const settingsButton = screen.getByRole('button', { name: /サムネイル設定/ });
-    expect(settingsButton).toHaveTextContent('手動');
-    expect(settingsButton).toHaveTextContent('3.5s');
-
+    const settingsButton = screen.getByRole('button', { name: '動画出力オプション' });
     fireEvent.click(settingsButton);
+    expect(screen.getByText('手動・3.5s')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '自動設定に戻す' })).toBeInTheDocument();
   });
 
@@ -131,7 +159,7 @@ describe('PreviewSection action buttons', () => {
       projectPosterAspectRatio: 'portrait',
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /サムネイル設定/ }));
+    fireEvent.click(screen.getByRole('button', { name: '動画出力オプション' }));
 
     const poster = screen.getByRole('img', { name: 'プロジェクトのサムネイル' });
     expect(poster.parentElement?.className).toContain('aspect-[9/16]');
@@ -144,7 +172,7 @@ describe('PreviewSection action buttons', () => {
       projectPosterDataUrl: 'data:image/jpeg;base64,auto-frame',
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /サムネイル設定/ }));
+    fireEvent.click(screen.getByRole('button', { name: '動画出力オプション' }));
 
     const poster = screen.getByRole('img', { name: 'プロジェクトのサムネイル' });
     expect(poster).toHaveAttribute('src', 'data:image/jpeg;base64,auto-frame');
@@ -157,7 +185,7 @@ describe('PreviewSection action buttons', () => {
       projectPosterDataUrl: null,
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /サムネイル設定/ }));
+    fireEvent.click(screen.getByRole('button', { name: '動画出力オプション' }));
 
     expect(screen.queryByRole('img', { name: 'プロジェクトのサムネイル' })).not.toBeInTheDocument();
     expect(screen.getByText('未表示')).toBeInTheDocument();
@@ -364,6 +392,97 @@ describe('PreviewSection action buttons', () => {
 
     expect(onDownload).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('button', { name: '動画ファイルを作成' })).not.toBeInTheDocument();
+  });
+
+  it('生成済み動画のダウンロード表示中は動画出力オプションを変更できない', () => {
+    const onExportOutputOptionsChange = vi.fn();
+    const onSetProjectPosterFromCurrent = vi.fn();
+    renderPreviewSection({
+      exportUrl: 'blob:caption-layer',
+      exportExt: 'webm',
+      exportOutputOptions: {
+        contentMode: 'caption-layer',
+        captionLayerFormat: 'alpha-webm',
+        includeSubtitles: true,
+        subtitleFormats: ['srt', 'vtt'],
+      },
+      onExportOutputOptionsChange,
+      onSetProjectPosterFromCurrent,
+      hasCaptionsForSubtitleExport: true,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '動画出力オプション' }));
+
+    expect(screen.getByText('この設定で動画を作成済みです')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '現在のフレームをサムネイルに設定' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '完成動画' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'キャプションのみ' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /黒背景 MP4/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /白文字キー用 MP4/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /透過 WebM/ })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: /字幕ファイル/ })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: '完成動画' }));
+    fireEvent.click(screen.getByRole('button', { name: /黒背景 MP4/ }));
+    fireEvent.click(screen.getByRole('button', { name: '現在のフレームをサムネイルに設定' }));
+    expect(onExportOutputOptionsChange).not.toHaveBeenCalled();
+    expect(onSetProjectPosterFromCurrent).not.toHaveBeenCalled();
+  });
+
+  it('キャプションのみ設定で透過 WebM、黒背景、白文字キーの順に表示する', () => {
+    renderPreviewSection({
+      hasCaptionsForSubtitleExport: true,
+      exportOutputOptions: {
+        contentMode: 'caption-layer',
+        captionLayerFormat: 'black-matte-mp4',
+        includeSubtitles: true,
+        subtitleFormats: ['srt', 'vtt'],
+      },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '動画出力オプション' }));
+
+    const alpha = screen.getByRole('button', { name: /透過 WebM/ });
+    const black = screen.getByRole('button', { name: /黒背景 MP4/ });
+    const white = screen.getByRole('button', { name: /白文字キー用 MP4/ });
+    expect(
+      alpha.compareDocumentPosition(black) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      black.compareDocumentPosition(white) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByText('背景透過の WebM。別の動画に重ねて合成できます。')).toBeInTheDocument();
+    expect(screen.getByText('黒背景の通常キャプション。加算・スクリーン合成向けです。')).toBeInTheDocument();
+    expect(screen.getByText('黒背景に白文字。ルミナンスキー合成に使えます。')).toBeInTheDocument();
+    expect(screen.getByText('背景透過は WebM のみ。MP4 は黒背景または白文字キー用です。')).toBeInTheDocument();
+  });
+
+  it('字幕ファイルだけダウンロードを字幕ファイル設定内に表示する', () => {
+    const onDownloadSubtitles = vi.fn();
+    const { container } = renderPreviewSection({
+      hasCaptionsForSubtitleExport: true,
+      onDownloadSubtitles,
+      exportOutputOptions: {
+        contentMode: 'caption-layer',
+        captionLayerFormat: 'alpha-webm',
+        includeSubtitles: true,
+        subtitleFormats: ['srt', 'vtt'],
+      },
+    });
+
+    expect(
+      screen.queryByRole('button', { name: '字幕ファイルだけダウンロード' }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '動画出力オプション' }));
+
+    const downloadButton = screen.getByRole('button', {
+      name: '字幕ファイルだけダウンロード',
+    });
+    expect(container.querySelector('#video-output-options')).toContainElement(downloadButton);
+
+    fireEvent.click(downloadButton);
+    expect(onDownloadSubtitles).toHaveBeenCalledTimes(1);
   });
 
   it('exportUrl が空文字の間は download ボタンを表示しない', () => {

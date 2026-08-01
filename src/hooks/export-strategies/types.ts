@@ -1,5 +1,13 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
-import type { AudioTrack, MediaItem, NarrationClip } from '../../types';
+import type {
+  AudioTrack,
+  Caption,
+  CaptionSettings,
+  ExportOutputOptions,
+  MediaItem,
+  NarrationClip,
+  VideoTitleSettings,
+} from '../../types';
 import type { MediaRecorderProfile, PlatformCapabilities } from '../../utils/platform';
 import type { ExportFrameProfileSummary } from '../../utils/exportFrameProfiler';
 
@@ -198,6 +206,28 @@ export type ExportStopReason = Exclude<ExportCancelReason, 'none' | 'error'>;
  * standard / apple-safari 両フレーバーのエクスポートエンジンはこの契約を満たす。
  * ここを変更すると両フレーバーに影響するため、変更時は両エンジンの整合を確認すること。
  */
+/**
+ * キャプションのみ書き出し（Issue #114）に必要な描画入力。
+ * composite 経路では不要。startExport の第 6 引数 options で渡す。
+ */
+export interface CaptionLayerExportInput {
+  totalDurationSec: number;
+  captions: Caption[];
+  captionSettings: CaptionSettings;
+  videoTitle: VideoTitleSettings;
+  exportWidth: number;
+  exportHeight: number;
+  /** 準備ステップ表示を UI へ伝える（任意） */
+  onPreparationStepChange?: (step: ExportPreparationStep) => void;
+  /** 0〜1 の進捗（映像生成中） */
+  onProgress?: (ratio: number) => void;
+}
+
+export interface StartExportOptions {
+  output?: ExportOutputOptions;
+  captionLayer?: CaptionLayerExportInput;
+}
+
 export interface UseExportReturn {
   // State
   isProcessing: boolean;
@@ -219,7 +249,8 @@ export interface UseExportReturn {
     masterDestRef: MutableRefObject<MediaStreamAudioDestinationNode | null>,
     onRecordingStop: (url: string, ext: string) => void,
     onRecordingError?: (message: string) => void,
-    audioSources?: ExportAudioSources  // iOS Safari: OfflineAudioContext用音声ソース
+    audioSources?: ExportAudioSources,  // iOS Safari: OfflineAudioContext用音声ソース
+    options?: StartExportOptions,
   ) => void;
   completeExport: () => void; // 正常終了要求（abortせずにflush/finalizeへ進める）
   stopExport: (options?: { silent?: boolean; reason?: ExportStopReason }) => void; // 明示的な停止メソッドを追加

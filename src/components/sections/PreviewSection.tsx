@@ -26,7 +26,14 @@ import {
   Image as ImageIcon,
   RefreshCw,
 } from 'lucide-react';
-import type { MediaItem, AudioTrack, NarrationClip } from '../../types';
+import type {
+  MediaItem,
+  AudioTrack,
+  NarrationClip,
+  ExportContentMode,
+  CaptionLayerVideoFormat,
+  ExportOutputOptions,
+} from '../../types';
 import type { ExportPreparationStep } from '../../hooks/export-strategies/types';
 import type { AppFlavor } from '../../app/resolveAppFlavor';
 import { getPreviewRuntimeNotice } from '../../app/appFlavorUi';
@@ -37,6 +44,10 @@ import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import TimelineWaveform from '../media/TimelineWaveform';
 import type { TimelineWaveformData } from '../../hooks/useTimelineWaveform';
 import { useSwipeProtectedValue } from '../../hooks/useSwipeProtectedValue';
+import {
+  canAttemptAlphaWebmExport,
+  resolveCaptionLayerFormatDescriptor,
+} from '../../utils/captionLayerExport';
 
 const PREVIEW_ICON_BUTTON_BASE =
   'relative overflow-hidden p-3 lg:p-4 rounded-full border transition-[transform,background-color,color,box-shadow,filter] duration-200 shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed';
@@ -127,6 +138,14 @@ interface PreviewSectionProps {
   projectPosterAspectRatio: AspectRatio;
   onSetProjectPosterFromCurrent: () => void;
   onResetProjectPosterToAuto: () => void;
+  /** Issue #114: 書き出し内容（完成動画 / キャプションのみ） */
+  exportOutputOptions: ExportOutputOptions;
+  onExportOutputOptionsChange: (next: ExportOutputOptions) => void;
+  /** キャプションのみが使えるフレーバーか（standard のみ true） */
+  supportsCaptionLayerExport: boolean;
+  /** 字幕ファイルのみダウンロード（キャプションがあるとき） */
+  onDownloadSubtitles?: () => void;
+  hasCaptionsForSubtitleExport?: boolean;
 }
 
 /**
@@ -169,10 +188,39 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   projectPosterAspectRatio,
   onSetProjectPosterFromCurrent,
   onResetProjectPosterToAuto,
+  exportOutputOptions,
+  onExportOutputOptionsChange,
+  supportsCaptionLayerExport,
+  onDownloadSubtitles,
+  hasCaptionsForSubtitleExport = false,
 }) => {
   const log = useLogStore.getState();
   const canvasWidth = useCanvasStore((s) => s.width);
   const canvasHeight = useCanvasStore((s) => s.height);
+  const [isVideoOutputOptionsOpen, setIsVideoOutputOptionsOpen] = useState(false);
+  const canAlphaWebm = useMemo(() => canAttemptAlphaWebmExport(), []);
+  const areVideoOutputOptionsLocked = isProcessing || Boolean(exportUrl);
+
+  const setContentMode = useCallback((contentMode: ExportContentMode) => {
+    if (areVideoOutputOptionsLocked) return;
+    if (contentMode === 'caption-layer' && !hasCaptionsForSubtitleExport) return;
+    onExportOutputOptionsChange({ ...exportOutputOptions, contentMode });
+  }, [
+    areVideoOutputOptionsLocked,
+    exportOutputOptions,
+    hasCaptionsForSubtitleExport,
+    onExportOutputOptionsChange,
+  ]);
+
+  const setCaptionLayerFormat = useCallback((captionLayerFormat: CaptionLayerVideoFormat) => {
+    if (areVideoOutputOptionsLocked) return;
+    onExportOutputOptionsChange({ ...exportOutputOptions, captionLayerFormat });
+  }, [areVideoOutputOptionsLocked, exportOutputOptions, onExportOutputOptionsChange]);
+
+  const setIncludeSubtitles = useCallback((includeSubtitles: boolean) => {
+    if (areVideoOutputOptionsLocked) return;
+    onExportOutputOptionsChange({ ...exportOutputOptions, includeSubtitles });
+  }, [areVideoOutputOptionsLocked, exportOutputOptions, onExportOutputOptionsChange]);
 
   // シークバーは特殊な start/end ライフサイクルがあるため SwipeProtectedSlider は使わず、
   // 同じ誤操作防止フックを合成する。タップでの位置ジャンプは許可（minTouchDuration=0）。
@@ -207,7 +255,6 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   }, [canvasWidth, canvasHeight, canvasRef]);
   const [exportPhase, setExportPhase] = useState<ExportPhase>('preparing');
   const [isCapturePressed, setIsCapturePressed] = useState(false);
-  const [isPosterSettingsOpen, setIsPosterSettingsOpen] = useState(false);
   const lastObservedTimeRef = useRef<number>(currentTime);
   const hasExportProgressRef = useRef<boolean>(false);
   const flashTimeoutRef = useRef<number | null>(null);
@@ -355,15 +402,21 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     exportProcessingElapsedSec >= 3 ? `（${exportProcessingElapsedSec}秒経過）` : '';
 
   const exportButtonText = useMemo(() => {
-    if (!isProcessing) return '動画ファイルを作成';
+    const isCaptionLayer = exportOutputOptions.contentMode === 'caption-layer';
+    if (!isProcessing) {
+      return isCaptionLayer ? 'キャプションのみ書き出し' : '動画ファイルを作成';
+    }
     if (exportPhase === 'preparing') {
       return `書き出し準備中...${exportProcessingElapsedText}`;
     }
     if (exportPhase === 'finalizing') {
       return '保存ファイルを作成中...';
     }
-    return `映像を書き出し中... ${exportProgressPct.toFixed(0)}%`;
+    return isCaptionLayer
+      ? `キャプション書き出し中... ${exportProgressPct.toFixed(0)}%`
+      : `映像を書き出し中... ${exportProgressPct.toFixed(0)}%`;
   }, [
+    exportOutputOptions.contentMode,
     exportPhase,
     exportProcessingElapsedText,
     exportProgressPct,
@@ -378,8 +431,16 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     if (exportPhase === 'finalizing') {
       return '保存ファイルを作成中...';
     }
-    return '映像を書き出し中です。';
-  }, [exportPhase, exportProcessingElapsedText, isProcessing, preparationStageCopy.description]);
+    return exportOutputOptions.contentMode === 'caption-layer'
+      ? 'キャプション動画を書き出し中です。'
+      : '映像を書き出し中です。';
+  }, [
+    exportOutputOptions.contentMode,
+    exportPhase,
+    exportProcessingElapsedText,
+    isProcessing,
+    preparationStageCopy.description,
+  ]);
 
   const exportActionButton = exportButtonState === 'download' ? (
     <button
@@ -490,81 +551,6 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
           <span>{formatTime(currentTime)}</span>
           <span>{formatTime(totalDuration)}</span>
         </div>
-
-        {/* プロジェクト全体のサムネイル（ポスター）表示・設定 */}
-        {mediaItems.length > 0 && !isProcessing && (
-          <div className="mb-3 overflow-hidden rounded-lg border border-gray-700/70 bg-gray-850/80">
-            <SettingsAccordionHeader
-              title={`サムネイル設定（${projectPosterMode === 'manual' ? '手動' : '自動'}・${formatTime(projectPosterTimelineTime)}）`}
-              icon={<ImageIcon className="h-3.5 w-3.5 shrink-0" />}
-              isOpen={isPosterSettingsOpen}
-              controlsId="project-poster-settings"
-              onToggle={() => setIsPosterSettingsOpen((open) => !open)}
-            />
-
-            {isPosterSettingsOpen && (
-              <div
-                id="project-poster-settings"
-                className="border-t border-gray-700/60 px-3 py-2.5"
-              >
-                <div className="flex items-start gap-3">
-                  <div
-                    className={`flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-gray-600/70 bg-black ${
-                      projectPosterAspectRatio === 'portrait'
-                        ? 'h-20 aspect-[9/16]'
-                        : 'h-12 aspect-video'
-                    }`}
-                    title={
-                      projectPosterMode === 'manual'
-                        ? `手動設定（${formatTime(projectPosterTimelineTime)}）`
-                        : `自動設定（${formatTime(projectPosterTimelineTime)}）`
-                    }
-                  >
-                    {projectPosterDataUrl ? (
-                      <img
-                        src={projectPosterDataUrl}
-                        alt="プロジェクトのサムネイル"
-                        className="h-full w-full object-contain"
-                      />
-                    ) : (
-                      <span className="px-1 text-center text-[9px] leading-tight text-gray-500">
-                        未表示
-                      </span>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={onSetProjectPosterFromCurrent}
-                        disabled={mediaItems.length === 0 || isProcessing || isLoading}
-                        className="flex min-h-9 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-[10px] text-gray-200 transition hover:border-amber-500/60 hover:text-amber-100 disabled:opacity-30 md:text-xs"
-                        title="プレビューに表示中のフレームをプロジェクトのサムネイルに設定"
-                      >
-                        <ImageIcon className="h-3.5 w-3.5" />
-                        {projectPosterMode === 'manual'
-                          ? '現在のフレームで再設定'
-                          : '現在のフレームをサムネイルに設定'}
-                      </button>
-                      {projectPosterMode === 'manual' && (
-                        <button
-                          type="button"
-                          onClick={onResetProjectPosterToAuto}
-                          disabled={isProcessing || isLoading}
-                          className="flex min-h-9 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-[10px] text-gray-200 transition hover:border-blue-500/60 hover:text-blue-100 disabled:opacity-30 md:text-xs"
-                          title="タイムライン先頭付近（約0.2秒）のフレームを自動取得"
-                        >
-                          <RefreshCw className="h-3.5 w-3.5" />
-                          自動設定に戻す
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
 
         {isProcessing && (
           <div className="mb-3 rounded-xl border border-amber-400/40 bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-rose-500/10 px-3 py-2.5 lg:px-4 lg:py-3 shadow-[0_6px_20px_rgba(251,146,60,0.14)]">
@@ -710,6 +696,247 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
           </button>
         </div>
         <div className="mt-6 flex flex-col gap-4">
+          {/* サムネイルと動画書き出し設定を一か所にまとめる */}
+          {mediaItems.length > 0 && (
+            <div className="overflow-hidden rounded-lg border border-gray-700/70 bg-gray-850/80">
+              <SettingsAccordionHeader
+                title="動画出力オプション"
+                isOpen={isVideoOutputOptionsOpen}
+                controlsId="video-output-options"
+                onToggle={() => setIsVideoOutputOptionsOpen((open) => !open)}
+              />
+              {isVideoOutputOptionsOpen && (
+                <div
+                  id="video-output-options"
+                  className="space-y-4 border-t border-gray-700/60 px-3 py-3"
+                >
+                  {exportUrl && (
+                    <div className="rounded-lg border border-emerald-600/40 bg-emerald-950/30 px-3 py-2">
+                      <p className="text-[10px] font-semibold text-emerald-200 md:text-xs">
+                        この設定で動画を作成済みです
+                      </p>
+                      <p className="mt-0.5 text-[10px] leading-snug text-emerald-200/70 md:text-[11px]">
+                        設定変更には生成済み動画の解除が必要です。
+                      </p>
+                    </div>
+                  )}
+
+                  <section aria-labelledby="project-poster-heading">
+                    <div className="mb-2 flex flex-wrap items-baseline justify-between gap-1">
+                      <p
+                        id="project-poster-heading"
+                        className="text-[10px] font-medium text-gray-300 md:text-xs"
+                      >
+                        サムネイル設定
+                      </p>
+                      <span className="text-[9px] text-gray-500 md:text-[10px]">
+                        {projectPosterMode === 'manual' ? '手動' : '自動'}・{formatTime(projectPosterTimelineTime)}
+                      </span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <div
+                        className={`flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-gray-600/70 bg-black ${
+                          projectPosterAspectRatio === 'portrait'
+                            ? 'h-20 aspect-[9/16]'
+                            : 'h-12 aspect-video'
+                        }`}
+                        title={
+                          projectPosterMode === 'manual'
+                            ? `手動設定（${formatTime(projectPosterTimelineTime)}）`
+                            : `自動設定（${formatTime(projectPosterTimelineTime)}）`
+                        }
+                      >
+                        {projectPosterDataUrl ? (
+                          <img
+                            src={projectPosterDataUrl}
+                            alt="プロジェクトのサムネイル"
+                            className="h-full w-full object-contain"
+                          />
+                        ) : (
+                          <span className="px-1 text-center text-[9px] leading-tight text-gray-500">
+                            未表示
+                          </span>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={onSetProjectPosterFromCurrent}
+                            disabled={areVideoOutputOptionsLocked || isLoading}
+                            className="flex min-h-9 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-[10px] text-gray-200 transition hover:border-amber-500/60 hover:text-amber-100 disabled:cursor-not-allowed disabled:opacity-30 md:text-xs"
+                            title="プレビューに表示中のフレームをプロジェクトのサムネイルに設定"
+                          >
+                            <ImageIcon className="h-3.5 w-3.5" />
+                            {projectPosterMode === 'manual'
+                              ? '現在のフレームで再設定'
+                              : '現在のフレームをサムネイルに設定'}
+                          </button>
+                          {projectPosterMode === 'manual' && (
+                            <button
+                              type="button"
+                              onClick={onResetProjectPosterToAuto}
+                              disabled={areVideoOutputOptionsLocked || isLoading}
+                              className="flex min-h-9 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-[10px] text-gray-200 transition hover:border-blue-500/60 hover:text-blue-100 disabled:cursor-not-allowed disabled:opacity-30 md:text-xs"
+                              title="タイムライン先頭付近（約0.2秒）のフレームを自動取得"
+                            >
+                              <RefreshCw className="h-3.5 w-3.5" />
+                              自動設定に戻す
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  {supportsCaptionLayerExport && (
+                    <section
+                      aria-labelledby="export-content-heading"
+                      className="space-y-3 border-t border-gray-700/60 pt-3"
+                    >
+                      <div>
+                        <p
+                          id="export-content-heading"
+                          className="mb-1.5 text-[10px] font-medium text-gray-300 md:text-xs"
+                        >
+                          出力内容
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(
+                            [
+                              { value: 'composite' as const, label: '完成動画' },
+                              { value: 'caption-layer' as const, label: 'キャプションのみ' },
+                            ] as const
+                          ).map((option) => {
+                            const selected = exportOutputOptions.contentMode === option.value;
+                            const unavailableWithoutCaptions =
+                              option.value === 'caption-layer'
+                              && !hasCaptionsForSubtitleExport;
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                disabled={
+                                  areVideoOutputOptionsLocked
+                                  || unavailableWithoutCaptions
+                                }
+                                title={
+                                  unavailableWithoutCaptions
+                                    ? 'キャプションを1件以上追加すると選択できます'
+                                    : undefined
+                                }
+                                onClick={() => setContentMode(option.value)}
+                                className={`min-h-9 rounded-lg border px-2.5 text-[10px] transition disabled:cursor-not-allowed disabled:opacity-50 md:text-xs ${
+                                  selected
+                                    ? 'border-blue-500/70 bg-blue-600/25 text-blue-100'
+                                    : 'border-gray-700 bg-gray-800 text-gray-300 hover:border-gray-500 hover:text-white'
+                                }`}
+                              >
+                                {option.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <p className="mt-1.5 text-[10px] leading-snug text-gray-500 md:text-[11px]">
+                          ベース映像を含めず、キャプションと動画タイトルだけを書き出します。
+                        </p>
+                        {!hasCaptionsForSubtitleExport && (
+                          <p className="mt-1.5 text-[10px] leading-snug text-amber-300/80 md:text-[11px]">
+                            キャプションを追加すると選択できます。
+                          </p>
+                        )}
+                      </div>
+
+                      {exportOutputOptions.contentMode === 'caption-layer' && (
+                        <>
+                          <div>
+                            <p className="mb-1.5 text-[10px] font-medium text-gray-400 md:text-xs">
+                              キャプション動画の形式
+                            </p>
+                            <div className="flex flex-col gap-1.5">
+                              {(
+                                [
+                                  'alpha-webm',
+                                  'black-matte-mp4',
+                                  'luminance-key-mp4',
+                                ] as const
+                              ).map((format) => {
+                                const desc = resolveCaptionLayerFormatDescriptor(format);
+                                const unsupported = format === 'alpha-webm' && !canAlphaWebm;
+                                const disabled = areVideoOutputOptionsLocked || unsupported;
+                                const selected = exportOutputOptions.captionLayerFormat === format;
+                                return (
+                                  <button
+                                    key={format}
+                                    type="button"
+                                    disabled={disabled}
+                                    onClick={() => setCaptionLayerFormat(format)}
+                                    className={`rounded-lg border px-2.5 py-2 text-left transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                                      selected
+                                        ? 'border-emerald-500/60 bg-emerald-600/15 text-emerald-50'
+                                        : 'border-gray-700 bg-gray-800/80 text-gray-300 hover:border-gray-500'
+                                    }`}
+                                  >
+                                    <span className="block text-[11px] font-semibold md:text-xs">
+                                      {desc.label}
+                                      {unsupported ? '（この環境では非対応）' : ''}
+                                    </span>
+                                    <span className="mt-0.5 block text-[10px] leading-snug text-gray-500 md:text-[11px]">
+                                      {desc.description}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            <p className="mt-1.5 text-[10px] leading-snug text-gray-500 md:text-[11px]">
+                              背景透過は WebM のみ。MP4 は黒背景または白文字キー用です。
+                            </p>
+                          </div>
+                          <div className="rounded-lg border border-gray-700/80 bg-gray-800/50 px-2.5 py-2">
+                            <label
+                              className={`flex items-start gap-2 ${
+                                areVideoOutputOptionsLocked
+                                  ? 'cursor-not-allowed opacity-50'
+                                  : 'cursor-pointer'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                className="mt-0.5"
+                                disabled={areVideoOutputOptionsLocked}
+                                checked={exportOutputOptions.includeSubtitles}
+                                onChange={(e) => setIncludeSubtitles(e.target.checked)}
+                              />
+                              <span>
+                                <span className="block text-[11px] font-medium text-gray-200 md:text-xs">
+                                  字幕ファイル（SRT / VTT）も保存
+                                </span>
+                                <span className="mt-0.5 block text-[10px] leading-snug text-gray-500">
+                                  SRT / VTT を動画と一緒に保存し、他の編集ソフトで使えます。
+                                </span>
+                              </span>
+                            </label>
+                            {hasCaptionsForSubtitleExport &&
+                              onDownloadSubtitles &&
+                              !isProcessing && (
+                              <button
+                                type="button"
+                                onClick={onDownloadSubtitles}
+                                className="mt-2 w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-[10px] text-gray-300 transition hover:border-indigo-500/50 hover:text-indigo-100 md:text-xs"
+                              >
+                                字幕ファイルだけダウンロード
+                              </button>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </section>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center justify-between gap-4">
             <button
               onClick={onClearAll}
@@ -724,9 +951,15 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
             <div className="bg-yellow-900/30 border border-yellow-700/50 p-3 rounded-lg flex items-start gap-2 text-xs text-yellow-200">
               <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
               <div>
-                <p className="font-bold">重要: SNS投稿について</p>
+                <p className="font-bold">
+                  {exportOutputOptions.contentMode === 'caption-layer'
+                    ? '透過形式について'
+                    : '重要: SNS投稿について'}
+                </p>
                 <p>
-                  お使いのブラウザはMP4出力に非対応のため、互換性の高いWebM形式で保存しました。
+                  {exportOutputOptions.contentMode === 'caption-layer'
+                    ? '透過キャプションは WebM で保存されます（MP4 / H.264 は非対応）。'
+                    : 'お使いのブラウザはMP4出力に非対応のため、互換性の高いWebM形式で保存しました。'}
                 </p>
               </div>
             </div>

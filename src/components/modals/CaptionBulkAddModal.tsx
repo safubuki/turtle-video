@@ -1,7 +1,7 @@
 /**
  * @file CaptionBulkAddModal.tsx
  * @author Turtle Village
- * @description 長文キャプション（歌詞・字幕）の一括入力/一括編集モーダル（standard フレーバー限定）。
+ * @description 長文キャプション（歌詞・ナレーション等）の一括入力/一括編集モーダル（standard フレーバー限定）。
  * - 1 行 = 1 キャプション。行頭の `[開始-終了]` 時間記法で行ごとの時間指定が可能。
  * - 既存キャプションがある場合は時間記法付きテキストをプリフィルし、
  *   編集して反映すると行順で既存キャプションへマージされる（個別スタイルは維持）。
@@ -51,16 +51,16 @@ interface CaptionBulkAddModalProps {
  * 外部 AI（動画/音声の音声解析ができるもの）に貼り付ける依頼プロンプト。
  * Turtle Video の時間記法で出力させることで、結果をそのまま一括入力に貼り付けられる。
  */
-export const AI_CAPTION_ANALYSIS_PROMPT = `この動画（または音声）ファイルの音声を解析し、歌詞・ナレーション・セリフを聞き取って、発話タイミング付きの字幕データを作成してください。
+export const AI_CAPTION_ANALYSIS_PROMPT = `この動画（または音声）ファイルの音声を解析し、歌詞・ナレーション・セリフを聞き取って、発話タイミング付きのキャプションデータを作成してください。
 
 出力形式（この形式の行だけを出力すること）:
 [開始-終了] テキスト
 
 ルール:
 - 時間は 分:秒 形式で小数1桁まで（例: [00:03.0-00:07.5] こんにちは）
-- 1行 = 1つの字幕。時間順に並べる
+- 1行 = 1つのキャプション。時間順に並べる
 - 間奏や無音区間の行は作らない
-- 説明文・前置き・コードブロック記号など、字幕行以外は一切出力しない
+- 説明文・前置き・コードブロック記号など、キャプション行以外は一切出力しない
 
 出力例:
 [00:00.0-00:04.0] 明日はきっといい日になる
@@ -367,7 +367,7 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
               )}
               {isEditing
                 ? ' 追加・削除・文言や時間の変更がそのままキャプションに反映されます。'
-                : ' 歌詞や字幕を貼り付けてください。'}
+                : ' 歌詞やキャプションを貼り付けてください。'}
             </span>
             <button
               onClick={() => setShowFormatHelp((prev) => !prev)}
@@ -437,9 +437,9 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
                 カーソル位置で文章を分けて後半を時分割行へ移せます。
               </div>
               <div className="pt-1 border-t border-gray-700/60 space-y-1">
-                <div className="text-yellow-300 font-semibold">AI に音声解析させて字幕を作る</div>
+                <div className="text-yellow-300 font-semibold">AI に音声解析させてキャプションを作る</div>
                 <div>
-                  動画/音声を扱える AI にファイルと下のプロンプトを渡すと、この形式で字幕が返ってくるので、
+                  動画/音声を扱える AI にファイルと下のプロンプトを渡すと、この形式でキャプションが返ってくるので、
                   そのまま上の入力欄へ貼り付けられます。
                 </div>
                 <textarea

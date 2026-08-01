@@ -325,7 +325,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   // === タイミング打ち v3 ===
   // モード:
   //   alternate（交互）: ワンボタンで 開始→終了→開始… と切り替えながら確定（歌詞・間のある説明向け）
-  //   chain（連続）: 終了＝次の開始を同時確定（間の無い連続字幕向け）
+  //   chain（連続）: 終了＝次の開始を同時確定（間の無い連続キャプション向け）
   const [stampActive, setStampActive] = useState(false);
   const [stampIndex, setStampIndex] = useState(0);
   const [stampMode, setStampMode] = useState<'alternate' | 'chain'>('alternate');
@@ -1041,14 +1041,14 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                   onClick={() => setShowBulkModal(true)}
                   disabled={isLocked}
                   className="flex-1 py-1.5 bg-gray-800 hover:bg-gray-700 border border-yellow-600/40 text-yellow-300 rounded-lg transition disabled:opacity-50"
-                  title="歌詞や長い字幕を複数行まとめて追加・編集"
+                  title="歌詞や長いキャプションを複数行まとめて追加・編集"
                 >
                   <span className="flex items-center justify-center gap-1.5 text-xs md:text-sm">
                     <ListPlus className="w-3.5 h-3.5" /> ① まとめて入力
                     {captions.length > 0 ? '・編集' : ''}
                   </span>
                   <span className="block text-[9px] text-gray-500 leading-tight mt-0.5">
-                    歌詞や字幕を一括で追加・編集
+                    歌詞やキャプションを一括で追加・編集
                   </span>
                 </button>
                 <button
@@ -1199,26 +1199,35 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
               </div>
             )}
 
-            {/* 新規キャプション追加 */}
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={newText}
-                onChange={(e) => setNewText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleAddCaption();
-                }}
-                placeholder="キャプションテキストを入力..."
-                disabled={isLocked}
-                className="flex-1 h-9 md:h-10 bg-gray-800 border border-gray-700 rounded-lg px-3 text-sm md:text-sm text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500 disabled:opacity-50"
-              />
-              <button
-                onClick={handleAddCaption}
-                disabled={isLocked || !newText.trim()}
-                className="h-9 md:h-10 bg-yellow-600 hover:bg-yellow-500 text-white px-3 lg:px-4 rounded-lg text-xs md:text-sm font-semibold whitespace-nowrap flex items-center gap-1 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            {/* 単発キャプション追加 */}
+            <div className="space-y-1.5">
+              <label
+                htmlFor="single-caption-input"
+                className="block text-xs font-semibold text-yellow-400"
               >
-                <Plus className="w-3 h-3" /> 追加
-              </button>
+                単発キャプション
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id="single-caption-input"
+                  type="text"
+                  value={newText}
+                  onChange={(e) => setNewText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleAddCaption();
+                  }}
+                  placeholder="キャプションテキストを入力..."
+                  disabled={isLocked}
+                  className="flex-1 h-9 md:h-10 bg-gray-800 border border-gray-700 rounded-lg px-3 text-sm md:text-sm text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500 disabled:opacity-50"
+                />
+                <button
+                  onClick={handleAddCaption}
+                  disabled={isLocked || !newText.trim()}
+                  className="h-9 md:h-10 bg-yellow-600 hover:bg-yellow-500 text-white px-3 lg:px-4 rounded-lg text-xs md:text-sm font-semibold whitespace-nowrap flex items-center gap-1 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Plus className="w-3 h-3" /> 追加
+                </button>
+              </div>
             </div>
           </div>
 

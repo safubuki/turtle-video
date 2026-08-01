@@ -331,7 +331,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                         <p className="mt-0.5 text-[10px] leading-relaxed text-gray-400 md:text-xs">
                           {isIosSafari
                             ? '音声区間に合わせた通常カードを作成し、文字と開始・終了を個別に調整できます。'
-                            : '短い無音は中央で切り替え、0.3秒以上の無音は余韻を残して中央だけ字幕を消します。'}
+                            : '短い無音は中央で切り替え、0.3秒以上の無音は余韻を残して中央だけキャプションを消します。'}
                         </p>
                       </div>
                       <button

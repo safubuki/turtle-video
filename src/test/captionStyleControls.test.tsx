@@ -143,6 +143,16 @@ describe('CaptionSection bulk delete', () => {
     renderCaptionSection({ captions: [] }, false);
     expect(screen.getByRole('button', { name: 'キャプションをすべて削除' })).toBeDisabled();
   });
+
+  it('単発キャプションの入力欄に項目名を表示する', () => {
+    renderCaptionSection({}, false);
+
+    expect(screen.getByText('単発キャプション')).toHaveClass('text-yellow-400');
+    expect(screen.getByLabelText('単発キャプション')).toHaveAttribute(
+      'id',
+      'single-caption-input',
+    );
+  });
 });
 
 describe('CaptionSection outline and color controls', () => {

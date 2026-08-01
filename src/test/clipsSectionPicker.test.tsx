@@ -197,6 +197,15 @@ describe('ClipsSection bulk mute', () => {
 });
 
 describe('ClipsSection aspect ratio controls', () => {
+  it('スマホ表示ではカード1件とトランジションを確認しやすい一覧高さにする', () => {
+    const { container } = renderClipsSection();
+    const scrollArea = container.querySelector('.custom-scrollbar');
+
+    expect(scrollArea).not.toBeNull();
+    expect(scrollArea?.className).toContain('max-h-[min(32rem,72svh)]');
+    expect(scrollArea?.className).toContain('lg:max-h-128');
+  });
+
   it('縦画面ボタンから親の向き変更ハンドラを呼ぶ', () => {
     const onAspectRatioChange = vi.fn();
     renderClipsSection({ onAspectRatioChange });

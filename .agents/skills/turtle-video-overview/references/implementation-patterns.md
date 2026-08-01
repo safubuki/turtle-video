@@ -795,7 +795,7 @@
 
 - **ファイル**: `src/components/sections/NarrationSection.tsx`
 - **問題**: ナレーションが増えるとセクションが伸び続け、動画・画像セクションと操作感が不一致になる
-- **対策**: `max-h-75 lg:max-h-128 overflow-y-auto custom-scrollbar` を適用し、動画・画像セクションと同じ固定高さ + 内部スクロールに統一
+- **対策**: `max-h-75 lg:max-h-128 overflow-y-auto custom-scrollbar` を適用して内部スクロール化する。動画・画像セクションは後にモバイルだけ高さを拡張したため、現在はナレーションと完全同一ではない（13-169参照）。
 - **注意**: モバイルの誤操作防止のため、既存の `SwipeProtectedSlider` は維持する
 
 ### 13-4. ナレーションの複数ファイル一括追加
@@ -2136,6 +2136,8 @@
   - **フェード適用単位** `Caption.sequentialFadeMode`（'card' 既定 / 'line'）: 'line' は各行区間の頭/尻でフェードし、行区間が短い場合はフェード時間を按分クランプ。renderFrame のフェード基準区間（fadeBasisStart/End）を displaySegment に切り替えるだけで、フェード ON/OFF・時間は既存の個別/一括設定に従う。
   - **行の間隔** `Caption.sequentialGapSec`（0〜5 秒・既定 0）: 行間に無表示のギャップを挟む。`resolveSequentialCaptionSegments()` が間隔を確保してから文字数比配分し、収まらない場合は各行の最低表示 0.1 秒を守る範囲へ自動縮小。ギャップ中は `resolveCaptionDisplaySegment()` が null を返し、エンジンは描画をスキップする。
   - **UI**: 個別設定モーダルに「時分割設定」セクション（フェード: カード全体/行ごと、行の間隔: なし/200ms/カスタム）。時分割カードのみ表示。
+  - **追加欄の識別**: 通常の入力欄の直上に「単発キャプション」の見出しを表示し、まとめて入力・時分割操作と区別する。
+  - 「単発キャプション」の見出し色は、既存のキャプション見出しと同じオレンジ系で揃える。
 - **注意**:
   - エンジンの caption 描画は `resolveCaptionDisplaySegment()` が唯一の入口（text 直接参照へ戻さない）。null はギャップ中の正常値。
   - 「1行あたりの表示時間」の意味は「画面に表示される 1 行あたり」。planBulkCaptions の加重を外すと時分割カードだけ極端に早送りになる。
@@ -2842,11 +2844,11 @@ export 終了（成功/失敗/中断）
 - **ファイル**: `src/components/sections/PreviewSection.tsx`, `src/test/previewSectionActionButtons.test.tsx`
 - **問題**: プロジェクト全体のサムネイル設定は利用頻度が低い一方、プレビュー直下で説明文・画像・操作ボタンを常時表示していたため、主要な再生・書き出し操作より画面上の存在感が強くなっていた。
 - **対策**:
-  - `SettingsAccordionHeader` を使った初期状態が閉じたアコーディオンへ変更し、既存の設定アコーディオンと見た目・`aria-expanded` / `aria-controls` の契約を統一する。
-  - 閉じていても見出しに現在のモード（自動 / 手動）と設定時刻を表示し、詳細を開かなくても状態を判断できるようにする。
+  - `SettingsAccordionHeader` を使った初期状態が閉じた「動画出力オプション」へ格納し、出力内容・キャプション形式と同じアコーディオンに統合する。
+  - 展開後の「サムネイル設定」見出し横へ、現在のモード（自動 / 手動）と設定時刻を表示する。
   - MP4 への反映方法を説明する長文は削除し、展開部にはサムネイル画像と既存の設定操作だけを残す。
-- **注意**: 変更対象は表示と開閉 state のみ。`projectPosterMode` / `projectPosterTimelineTime` / `projectPosterDataUrl` の保存契約、手動設定・自動復帰コールバック、export への cover art / 先頭キーフレーム反映には手を加えない。
-- **テスト**: `previewSectionActionButtons.test.tsx` で初期閉状態、見出しの自動/手動と時刻、展開後の手動設定操作、自動設定へ戻す操作、説明文が存在しないことを確認する。
+- **注意**: `projectPosterMode` / `projectPosterTimelineTime` / `projectPosterDataUrl` の保存契約、手動設定・自動復帰コールバック、export への cover art / 先頭キーフレーム反映には手を加えない。生成済み `exportUrl` がある間は、生成物と設定の不一致を防ぐためサムネイル操作もロックする。
+- **テスト**: `previewSectionActionButtons.test.tsx` で初期閉状態、統合後にサムネイルと出力内容が同時に表示されること、自動/手動と時刻、手動設定操作、自動設定へ戻す操作、生成済み時のロックを確認する。
 
 ### 13-153. 動画エクスポートは VideoEncoder backpressure 中だけ壁時計と video を同時停止する
 
@@ -3139,3 +3141,42 @@ export 終了（成功/失敗/中断）
   - 「動画・画像」タイトル横に Volume2/VolumeX アイコン。全動画がミュートなら ON 表示で解除、それ以外は一括ミュート。動画無し・セクションロック中は disabled。
   - 各カードの個別ミュートと同じ `isMuted` を触るため、プレビュー/export の既存音声経路へそのまま効く。
 - **回帰ガード**: `watermarkOverlay.test.ts`（正規化・フェード按分・描画 alpha）、`overlaySection.test.tsx`、`mediaStore.test.ts`、`clipsSectionPicker.test.tsx`、`captionStyleControls.test.tsx`（confirm OK/Cancel）。
+
+### 13-168. キャプションのみ出力（Issue #114）— 透過 WebM/黒背景/キー用 + SRT/VTT【standard】
+
+- **ファイル**: `Docs/specs/2026-08-01_issue-114-caption-layer-export.md`, `src/types/index.ts`, `src/utils/captionLayerExport.ts`, `src/utils/captionSubtitle.ts`, `src/utils/captionLayerRender.ts`, `src/flavors/standard/export/captionLayerOfflineEncode.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/hooks/export-strategies/types.ts`, `src/components/sections/PreviewSection.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, `src/test/captionLayerExport.test.ts`, `src/test/captionSubtitle.test.ts`, `src/test/captionLayerRender.test.ts`
+- **要件（Issue #114 + プロユース補完）**:
+  - ベース映像を再圧縮せず、他ソフトで合成できるキャプションレイヤーだけを書き出す。
+  - 受け入れ: UI に「キャプションのみ」、出力にベース映像なし、alpha または黒背景。
+  - 追加: 汎用字幕 SRT / WebVTT。動画タイトルはレイヤー動画に含め、字幕キューからは除外（通常キャプションのみ）。
+- **設計**:
+  - `ExportContentMode`: `composite`（既定・完成焼き込み）/ `caption-layer`。
+  - `CaptionLayerVideoFormat`: `black-matte-mp4`（既定）/ `luminance-key-mp4`（黒背景+白文字）/ `alpha-webm`（透過・失敗時は黒背景へフォールバック）。
+  - **オフライン encode**: `<video>` 再生・音声プリレンダ不要。`frameIndex/FPS` で `drawCaptionLayerFrame` → WebCodecs MP4（映像のみ）または MediaRecorder WebM。
+  - **キャプション輪郭の高品質化**: キャプション単独 export だけは stroke + fill のグリフを 2 倍解像度のオフスクリーン Canvas へ描き、`imageSmoothingQuality='high'` で論理サイズへ縮小転写する。通常 preview/composite の見た目は変更しない。同一グリフは export セッション内でキャッシュし、毎フレームの高解像度 Canvas 再生成・GC による録画揺れを防ぐ。
+  - **圧縮品質**: 文字と透過境界は圧縮劣化が目立つため、caption-layer の MP4/WebM は通常 export の 2 倍ビットレートを要求し、MediaStreamTrack の `contentHint='detail'` を設定する。
+  - レイヤーに含める: 通常キャプション + 動画タイトル。含めない: ベース映像、トランジション、WM、倍速バッジ、音声。
+  - 字幕: `resolveSequentialCaptionSegments` と同じ時分割でキュー展開。スタイルは捨てる。
+  - UI は Preview の「動画出力オプション」アコーディオンへサムネイル設定とともに格納する。出力内容・キャプション形式は standard のみで、セッション state としてプロジェクト保存しない。
+  - 用語は、装飾して動画へ描画する文字を「キャプション」、SRT/VTT成果物だけを「字幕ファイル」と呼ぶ。「テロップ」はユーザー向けUIで使わない。
+  - キャプションが0件なら「キャプションのみ」を理由付き disabled にする。選択後に全削除された場合は、生成済みURLがない時点で `composite` へ戻す。生成済みURLがある間はダウンロード名・形式を壊さないため選択状態を保持する。
+  - 形式の表示順は利用頻度を優先して、透過 WebM → 黒背景 MP4 → 白文字キー用 MP4。既定値の黒背景MP4と非対応時フォールバックは維持する。
+  - `exportUrl` が存在して緑のダウンロードボタンを表示している間は、出力内容・形式・字幕同時出力・サムネイルを disabled にする。設定を変えるには停止または再生で生成済み URL を解除する。
+  - 標準的な MP4（H.264）は alpha を保持できないため、背景透過は WebM のみ。MP4 は黒背景または白文字キー用として UI 上でも明示する。
+  - 補足文はモバイルでも1行程度で読める短文にする。字幕ファイルの単独ダウンロードは字幕設定カード内へ置き、主操作列を増やさない。
+  - 説明は「何を出力するか」「どの合成に使うか」「字幕をどこで使えるか」のいずれかを一文で示し、用途を判断できる情報量にする。
+  - apple-safari は第6引数 `StartExportOptions` を無視（未対応）。完成動画経路は不変。
+- **注意**:
+  - 既定 composite の startEngine 経路・backpressure・尺合わせを caption-layer 分岐で壊さない。
+  - alpha WebM は環境差が大きい。非対応/失敗時は必ず黒背景 MP4 へ落とす。
+  - 高解像度グリフ倍率は `1〜3` にクランプする。倍率を上げる場合は画質だけでなく Canvas 上限・メモリ・MediaRecorder の実時間フレーム供給も確認する。
+  - ObjectURL は中断時に revoke。キャンバス寸法は export 後に preview サイズへ戻す。
+  - プレビュー再生は常に完成合成のまま（編集確認用）。キャプションのみは書き出し時だけ。
+
+### 13-169. スマホの動画・画像一覧は標準カード1件 + トランジションを確認できる高さにする
+
+- **ファイル**: `src/components/sections/ClipsSection.tsx`, `src/test/clipsSectionPicker.test.tsx`
+- **問題**: モバイルの一覧上限 `max-h-75`（300px）では、標準状態のクリップカード下部と次のトランジション操作が同時に見えず、一覧内スクロールが増えていた。
+- **対策**: モバイル上限を `max-h-[min(32rem,72svh)]` とし、最大512pxまで広げつつ、低い端末では画面高の72%に抑える。PCの `lg:max-h-128` は変更しない。
+- **注意**: ナレーション一覧は従来の300pxを維持する。カード自体の展開状態やstandard限定トランジションのflavor境界は変更しない。
+- **テスト**: `clipsSectionPicker.test.tsx` でモバイル上限とPC上限の両クラスを固定する。

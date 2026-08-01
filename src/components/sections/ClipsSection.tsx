@@ -334,7 +334,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
           />
         </div>
       </div>
-      <div className="p-3 lg:p-4 space-y-3 max-h-75 lg:max-h-128 overflow-y-auto custom-scrollbar">
+      <div className="p-3 lg:p-4 space-y-3 max-h-[min(32rem,72svh)] lg:max-h-128 overflow-y-auto custom-scrollbar">
         {watermarkPanel}
         {mediaItems.length === 0 && (
           <div className="text-center py-8 text-gray-600 text-xs md:text-sm border-2 border-dashed border-gray-800 rounded">

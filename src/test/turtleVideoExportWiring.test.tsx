@@ -1,5 +1,5 @@
 import type { MutableRefObject } from 'react';
-import { cleanup, render } from '@testing-library/react';
+import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import TurtleVideo from '../components/TurtleVideo';
@@ -17,6 +17,23 @@ import {
   useUIStore,
 } from '../stores';
 
+const previewPropsCapture = vi.hoisted(() => ({
+  current: null as null | {
+    exportOutputOptions: {
+      contentMode: 'composite' | 'caption-layer';
+      captionLayerFormat: 'black-matte-mp4' | 'luminance-key-mp4' | 'alpha-webm';
+      includeSubtitles: boolean;
+      subtitleFormats: ('srt' | 'vtt')[];
+    };
+    onExportOutputOptionsChange: (next: {
+      contentMode: 'composite' | 'caption-layer';
+      captionLayerFormat: 'black-matte-mp4' | 'luminance-key-mp4' | 'alpha-webm';
+      includeSubtitles: boolean;
+      subtitleFormats: ('srt' | 'vtt')[];
+    }) => void;
+  },
+}));
+
 vi.mock('../components/common/Toast', () => ({ default: () => null }));
 vi.mock('../components/common/ErrorMessage', () => ({ default: () => null }));
 vi.mock('../components/media/MediaResourceLoader', () => ({ default: () => null }));
@@ -25,7 +42,12 @@ vi.mock('../components/sections/ClipsSection', () => ({ default: () => null }));
 vi.mock('../components/sections/BgmSection', () => ({ default: () => null }));
 vi.mock('../components/sections/NarrationSection', () => ({ default: () => null }));
 vi.mock('../components/sections/CaptionSection', () => ({ default: () => null }));
-vi.mock('../components/sections/PreviewSection', () => ({ default: () => null }));
+vi.mock('../components/sections/PreviewSection', () => ({
+  default: (props: typeof previewPropsCapture.current) => {
+    previewPropsCapture.current = props;
+    return null;
+  },
+}));
 vi.mock('../components/modals/AiModal', () => ({ default: () => null }));
 vi.mock('../components/modals/SettingsModal', () => ({
   default: () => null,
@@ -132,10 +154,56 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   resetStores();
+  previewPropsCapture.current = null;
   vi.restoreAllMocks();
 });
 
 describe('TurtleVideo export wiring', () => {
+  it('選択後にキャプションが0件になったら完成動画へ戻す', async () => {
+    const capabilities = createIosSafariCapabilities();
+    const recorderRef: MutableRefObject<MediaRecorder | null> = { current: null };
+    const exportRuntime: ExportRuntime = {
+      useExport: vi.fn(() => createExportHookResult(recorderRef)),
+    };
+    const previewRuntime = createPreviewRuntime(capabilities, () => {});
+    const saveRuntime: SaveRuntime = {
+      configureProjectStore: vi.fn(),
+      getPlatformCapabilities: vi.fn(() => capabilities),
+      getPersistenceHealth: vi.fn(() => Promise.resolve(null)),
+      saveBlobWithClientFileStrategy: vi.fn(() => Promise.resolve({ strategy: 'anchor-download' as const })),
+    };
+    useCaptionStore.getState().addCaption('キャプション', 0, 1);
+
+    render(
+      <TurtleVideo
+        appFlavor="standard"
+        previewRuntime={previewRuntime}
+        exportRuntime={exportRuntime}
+        saveRuntime={saveRuntime}
+      />,
+    );
+
+    act(() => {
+      previewPropsCapture.current?.onExportOutputOptionsChange({
+        contentMode: 'caption-layer',
+        captionLayerFormat: 'alpha-webm',
+        includeSubtitles: true,
+        subtitleFormats: ['srt', 'vtt'],
+      });
+    });
+    await waitFor(() => {
+      expect(previewPropsCapture.current?.exportOutputOptions.contentMode).toBe('caption-layer');
+    });
+
+    act(() => {
+      useCaptionStore.getState().clearAllCaptions();
+    });
+
+    await waitFor(() => {
+      expect(previewPropsCapture.current?.exportOutputOptions.contentMode).toBe('composite');
+    });
+  });
+
   it('passes the main export recorderRef to the preview engine for iOS Safari finalization', () => {
     const capabilities = createIosSafariCapabilities();
     const mainRecorderRef: MutableRefObject<MediaRecorder | null> = { current: null };

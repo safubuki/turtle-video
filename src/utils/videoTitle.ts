@@ -26,7 +26,8 @@ import {
   resolveCaptionLayoutScale,
 } from './captionStyle';
 import { resolveCaptionFontFamily } from './captionFontCatalog';
-import { createCaptionGlyphCanvas } from './canvas';
+import { getOrCreateCaptionGlyphCanvas, normalizeCaptionGlyphPixelRatio } from './canvas';
+import type { CaptionGlyphCanvasCache } from './canvas';
 
 /**
  * タイトルの既定文字サイズプリセット。
@@ -97,7 +98,7 @@ export const DEFAULT_VIDEO_TITLE_SETTINGS: VideoTitleSettings = {
  * `resolveCaptionBaseFontSize()` と同じ考え方・同じ範囲（24〜240px）を使う。
  */
 export function resolveVideoTitleBaseFontSize(
-  title: Pick<VideoTitleSettings, 'fontSize' | 'fontSizeCustom'>,
+  title: Pick<VideoTitleSettings, 'fontSize' | 'fontSizeCustom'>
 ): number {
   if (title.fontSizeCustom != null) {
     return clampCustomFontSize(title.fontSizeCustom);
@@ -121,18 +122,22 @@ export function clampVideoTitleBackgroundOpacity(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_VIDEO_TITLE_SETTINGS.backgroundOpacity;
   const clamped = Math.max(
     VIDEO_TITLE_BACKGROUND_OPACITY_MIN,
-    Math.min(VIDEO_TITLE_BACKGROUND_OPACITY_MAX, value),
+    Math.min(VIDEO_TITLE_BACKGROUND_OPACITY_MAX, value)
   );
-  return Math.round(clamped / VIDEO_TITLE_BACKGROUND_OPACITY_STEP) * VIDEO_TITLE_BACKGROUND_OPACITY_STEP;
+  return (
+    Math.round(clamped / VIDEO_TITLE_BACKGROUND_OPACITY_STEP) * VIDEO_TITLE_BACKGROUND_OPACITY_STEP
+  );
 }
 
 export function clampVideoTitleBackgroundRadius(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_VIDEO_TITLE_SETTINGS.backgroundRadius;
   const clamped = Math.max(
     VIDEO_TITLE_BACKGROUND_RADIUS_MIN,
-    Math.min(VIDEO_TITLE_BACKGROUND_RADIUS_MAX, value),
+    Math.min(VIDEO_TITLE_BACKGROUND_RADIUS_MAX, value)
   );
-  return Math.round(clamped / VIDEO_TITLE_BACKGROUND_RADIUS_STEP) * VIDEO_TITLE_BACKGROUND_RADIUS_STEP;
+  return (
+    Math.round(clamped / VIDEO_TITLE_BACKGROUND_RADIUS_STEP) * VIDEO_TITLE_BACKGROUND_RADIUS_STEP
+  );
 }
 
 /** 時刻（秒）を 0.1 秒刻みへ量子化し、負値を 0 へ丸める */
@@ -150,7 +155,7 @@ function quantizeTime(value: number): number {
 export function normalizeVideoTitleRange(
   startTime: number,
   endTime: number,
-  totalDuration?: number,
+  totalDuration?: number
 ): { startTime: number; endTime: number } {
   const hasLimit = Number.isFinite(totalDuration) && (totalDuration as number) > 0;
   const limit = hasLimit ? quantizeTime(totalDuration as number) : null;
@@ -191,7 +196,7 @@ export function resolveVideoTitleLines(text: string): string[] {
  */
 export function isVideoTitleActiveAtTime(
   title: VideoTitleSettings | null | undefined,
-  timeSec: number,
+  timeSec: number
 ): boolean {
   if (!title || !title.enabled) return false;
   if (resolveVideoTitleLines(title.text).length === 0) return false;
@@ -205,7 +210,7 @@ export function isVideoTitleActiveAtTime(
  */
 export function resolveVideoTitleAnchor(
   title: Pick<VideoTitleSettings, 'position' | 'positionCustom'>,
-  layout: { canvasWidth: number; canvasHeight: number; blockHeight: number; padding: number },
+  layout: { canvasWidth: number; canvasHeight: number; blockHeight: number; padding: number }
 ): { x: number; y: number } {
   const { canvasWidth, canvasHeight, blockHeight, padding } = layout;
 
@@ -241,7 +246,7 @@ export function resolveVideoTitleAlpha(
     VideoTitleSettings,
     'startTime' | 'endTime' | 'fadeIn' | 'fadeOut' | 'fadeInDuration' | 'fadeOutDuration'
   >,
-  timeSec: number,
+  timeSec: number
 ): number {
   const duration = title.endTime - title.startTime;
   if (duration <= 0) return 0;
@@ -304,7 +309,11 @@ export function drawVideoTitleFrame(
   ctx: CanvasRenderingContext2D,
   title: VideoTitleSettings | null | undefined,
   timeSec: number,
-  options?: { useBlurFallback?: boolean },
+  options?: {
+    useBlurFallback?: boolean;
+    glyphPixelRatio?: number;
+    glyphCanvasCache?: CaptionGlyphCanvasCache;
+  }
 ): boolean {
   if (!title) return false;
   if (!isVideoTitleActiveAtTime(title, timeSec)) return false;
@@ -337,17 +346,27 @@ export function drawVideoTitleFrame(
 
   const fontFamily = resolveCaptionFontFamily(title.fontStyle);
   const font = `bold ${fontSize}px ${fontFamily}`;
+  const glyphPixelRatio = normalizeCaptionGlyphPixelRatio(options?.glyphPixelRatio);
 
   // 各行のグリフを先に作る（背景板の幅を実測値から決めるため）
-  const glyphCanvases = lines.map((line) =>
-    createCaptionGlyphCanvas({
-      text: line,
-      font,
-      fillColor: title.fontColor,
-      strokeColor: title.strokeColor,
-      strokeWidth,
-    }),
-  );
+  const glyphCanvases = lines.map((line) => {
+    const canvas = getOrCreateCaptionGlyphCanvas(
+      {
+        text: line,
+        font,
+        fillColor: title.fontColor,
+        strokeColor: title.strokeColor,
+        strokeWidth,
+        pixelRatio: glyphPixelRatio,
+      },
+      options?.glyphCanvasCache
+    );
+    return {
+      canvas,
+      width: canvas.width / glyphPixelRatio,
+      height: canvas.height / glyphPixelRatio,
+    };
+  });
 
   ctx.save();
   ctx.globalAlpha = alpha;
@@ -364,7 +383,7 @@ export function drawVideoTitleFrame(
     const radius = Math.min(
       clampVideoTitleBackgroundRadius(title.backgroundRadius) * scale,
       boxWidth / 2,
-      boxHeight / 2,
+      boxHeight / 2
     );
     ctx.globalAlpha = alpha * backgroundOpacity;
     ctx.fillStyle = title.backgroundColor;
@@ -384,15 +403,27 @@ export function drawVideoTitleFrame(
   const useBlurFallback = Boolean(options?.useBlurFallback) && blurStrength > 0;
 
   const drawGlyphAt = (
-    glyph: HTMLCanvasElement,
+    glyph: { canvas: HTMLCanvasElement; width: number; height: number },
     centerX: number,
     centerY: number,
-    localAlpha: number,
+    localAlpha: number
   ) => {
     const clamped = Math.max(0, Math.min(1, localAlpha));
     if (clamped <= 0) return;
     ctx.globalAlpha = alpha * clamped;
-    ctx.drawImage(glyph, centerX - glyph.width / 2, centerY - glyph.height / 2);
+    const previousSmoothing = ctx.imageSmoothingEnabled;
+    const previousSmoothingQuality = ctx.imageSmoothingQuality;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(
+      glyph.canvas,
+      centerX - glyph.width / 2,
+      centerY - glyph.height / 2,
+      glyph.width,
+      glyph.height
+    );
+    ctx.imageSmoothingEnabled = previousSmoothing;
+    ctx.imageSmoothingQuality = previousSmoothingQuality;
   };
 
   glyphCanvases.forEach((glyph, index) => {
@@ -419,7 +450,7 @@ export function drawVideoTitleFrame(
             glyph,
             centerX + Math.cos(angle) * radius,
             centerY + Math.sin(angle) * radius,
-            sampleAlpha,
+            sampleAlpha
           );
         }
       }
@@ -447,7 +478,7 @@ export function drawVideoTitleFrame(
  * 旧データ（タイトル未対応バージョン）は undefined なので既定値をそのまま返す。
  */
 export function normalizeVideoTitleSettings(
-  value: Partial<VideoTitleSettings> | null | undefined,
+  value: Partial<VideoTitleSettings> | null | undefined
 ): VideoTitleSettings {
   if (!value) return { ...DEFAULT_VIDEO_TITLE_SETTINGS };
   const merged = { ...DEFAULT_VIDEO_TITLE_SETTINGS, ...value };

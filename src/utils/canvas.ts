@@ -22,16 +22,17 @@ export function normalizeMediaBlur(blur: number | undefined | null): number {
 export function resolveMediaBlurPixels(
   blur: number | undefined | null,
   canvasWidth: number,
-  canvasHeight: number,
+  canvasHeight: number
 ): number {
   const normalized = normalizeMediaBlur(blur);
   if (normalized <= 0) return 0;
 
   const longSide = Math.max(canvasWidth, canvasHeight);
   const shortSide = Math.min(canvasWidth, canvasHeight);
-  const scale = Number.isFinite(longSide) && Number.isFinite(shortSide) && longSide > 0 && shortSide > 0
-    ? Math.min(longSide / 1920, shortSide / 1080)
-    : 1;
+  const scale =
+    Number.isFinite(longSide) && Number.isFinite(shortSide) && longSide > 0 && shortSide > 0
+      ? Math.min(longSide / 1920, shortSide / 1080)
+      : 1;
   return Number((normalized * scale).toFixed(3));
 }
 
@@ -42,7 +43,7 @@ export function resolveMediaBlurPixels(
 export function resolveMediaBlurFilter(
   blur: number | undefined | null,
   canvasWidth: number,
-  canvasHeight: number,
+  canvasHeight: number
 ): string {
   const pixels = resolveMediaBlurPixels(blur, canvasWidth, canvasHeight);
   return pixels > 0 ? `blur(${pixels}px)` : 'none';
@@ -58,7 +59,7 @@ export function resolveUniformMediaBlurSize(
   sourceWidth: number,
   sourceHeight: number,
   blurPixels: number,
-  renderScale: number,
+  renderScale: number
 ): { width: number; height: number } {
   const safeWidth = Math.max(1, Math.round(Number.isFinite(sourceWidth) ? sourceWidth : 1));
   const safeHeight = Math.max(1, Math.round(Number.isFinite(sourceHeight) ? sourceHeight : 1));
@@ -66,9 +67,8 @@ export function resolveUniformMediaBlurSize(
     return { width: safeWidth, height: safeHeight };
   }
 
-  const safeRenderScale = Number.isFinite(renderScale) && Math.abs(renderScale) > 0.0001
-    ? Math.abs(renderScale)
-    : 1;
+  const safeRenderScale =
+    Number.isFinite(renderScale) && Math.abs(renderScale) > 0.0001 ? Math.abs(renderScale) : 1;
   const sourceBlurPixels = blurPixels / safeRenderScale;
   const reduction = Math.min(32, Math.max(1, 1 + sourceBlurPixels * 0.5));
   return {
@@ -86,14 +86,14 @@ export function prepareUniformMediaBlurSource(
   sourceWidth: number,
   sourceHeight: number,
   blurPixels: number,
-  renderScale: number,
+  renderScale: number
 ): CanvasImageSource {
   if (
-    blurPixels <= 0
-    || sourceWidth <= 0
-    || sourceHeight <= 0
-    || typeof document === 'undefined'
-    || (typeof source !== 'object' && typeof source !== 'function')
+    blurPixels <= 0 ||
+    sourceWidth <= 0 ||
+    sourceHeight <= 0 ||
+    typeof document === 'undefined' ||
+    (typeof source !== 'object' && typeof source !== 'function')
   ) {
     return source;
   }
@@ -102,7 +102,7 @@ export function prepareUniformMediaBlurSource(
     sourceWidth,
     sourceHeight,
     blurPixels,
-    renderScale,
+    renderScale
   );
   let scratchCanvas = uniformMediaBlurCanvasBySource.get(source as object);
   if (!scratchCanvas) {
@@ -249,7 +249,7 @@ export function getNextRotation(rotation: number | undefined | null): 0 | 90 | 1
 export function resolveRotatedFitDimensions(
   elementWidth: number,
   elementHeight: number,
-  rotation: number | undefined | null,
+  rotation: number | undefined | null
 ): { width: number; height: number } {
   const normalized = normalizeRotation(rotation);
   if (normalized === 90 || normalized === 270) {
@@ -327,6 +327,49 @@ export interface CaptionGlyphOptions {
   fillColor: string;
   strokeColor: string;
   strokeWidth: number;
+  /**
+   * グリフ用オフスクリーン Canvas の内部解像度倍率。
+   * 1 より大きい値では高解像度で文字をラスタライズし、呼び出し側で論理サイズへ
+   * 縮小転写することで、透過動画の輪郭ジャギーを抑える。
+   */
+  pixelRatio?: number;
+}
+
+/** 極端な Canvas サイズやメモリ増加を避けるため、グリフの倍率は 1〜3 に制限する。 */
+export function normalizeCaptionGlyphPixelRatio(pixelRatio: number | undefined): number {
+  if (!Number.isFinite(pixelRatio)) return 1;
+  return Math.max(1, Math.min(3, pixelRatio as number));
+}
+
+/** 同一字幕を毎フレーム再ラスタライズしないための、export セッション単位キャッシュ。 */
+export type CaptionGlyphCanvasCache = Map<string, HTMLCanvasElement>;
+
+function buildCaptionGlyphCanvasCacheKey(options: CaptionGlyphOptions): string {
+  return JSON.stringify([
+    options.text,
+    options.font,
+    options.fillColor,
+    options.strokeColor,
+    options.strokeWidth,
+    normalizeCaptionGlyphPixelRatio(options.pixelRatio),
+  ]);
+}
+
+/**
+ * キャッシュが渡された場合だけ再利用する。通常 preview は従来どおり都度生成し、
+ * キャプション単独 export はセッションローカル Map を渡して高解像度 Canvas のGC負荷を抑える。
+ */
+export function getOrCreateCaptionGlyphCanvas(
+  options: CaptionGlyphOptions,
+  cache?: CaptionGlyphCanvasCache
+): HTMLCanvasElement {
+  if (!cache) return createCaptionGlyphCanvas(options);
+  const key = buildCaptionGlyphCanvasCacheKey(options);
+  const cached = cache.get(key);
+  if (cached) return cached;
+  const created = createCaptionGlyphCanvas(options);
+  cache.set(key, created);
+  return created;
 }
 
 /**
@@ -339,6 +382,7 @@ export interface CaptionGlyphOptions {
  */
 export function createCaptionGlyphCanvas(options: CaptionGlyphOptions): HTMLCanvasElement {
   const { text, font, fillColor, strokeColor, strokeWidth } = options;
+  const pixelRatio = normalizeCaptionGlyphPixelRatio(options.pixelRatio);
 
   const measureCanvas = document.createElement('canvas');
   const measureCtx = measureCanvas.getContext('2d');
@@ -371,15 +415,25 @@ export function createCaptionGlyphCanvas(options: CaptionGlyphOptions): HTMLCanv
   const height = Math.max(1, Math.ceil(ascent + descent) + paddingY * 2);
 
   const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
+  canvas.width = Math.max(1, Math.ceil(width * pixelRatio));
+  canvas.height = Math.max(1, Math.ceil(height * pixelRatio));
   const ctx = canvas.getContext('2d');
   if (!ctx) return canvas;
 
+  // Canvas の座標系は論理サイズのまま、内部ピクセルだけを増やす。
+  // export 側は drawImage の出力寸法を width / pixelRatio へ戻して高品質縮小する。
+  if (pixelRatio !== 1) {
+    ctx.scale(pixelRatio, pixelRatio);
+  }
   ctx.font = font;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.lineJoin = 'round';
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  // 対応ブラウザでは字間・字形最適化を明示する。未対応環境では単に無視される。
+  ctx.fontKerning = 'normal';
+  ctx.textRendering = 'optimizeLegibility';
 
   const centerX = width / 2;
   const centerY = height / 2;
@@ -417,10 +471,10 @@ export function createCaptionGlyphCanvas(options: CaptionGlyphOptions): HTMLCanv
  */
 export function waitForPreviewFrameSettled(
   mediaElements: Record<string, HTMLVideoElement | HTMLImageElement | HTMLAudioElement>,
-  timeoutMs = 400,
+  timeoutMs = 400
 ): Promise<void> {
   const seekingVideos = Object.values(mediaElements).filter(
-    (el): el is HTMLVideoElement => el instanceof HTMLVideoElement && el.seeking,
+    (el): el is HTMLVideoElement => el instanceof HTMLVideoElement && el.seeking
   );
 
   const waitSeeked: Promise<void> =
@@ -435,8 +489,8 @@ export function waitForPreviewFrameSettled(
                   resolve();
                 };
                 video.addEventListener('seeked', onSeeked, { once: true });
-              }),
-          ),
+              })
+          )
         ).then(() => undefined);
 
   const settled = waitSeeked.then(
@@ -448,7 +502,7 @@ export function waitForPreviewFrameSettled(
         } else {
           resolve();
         }
-      }),
+      })
   );
 
   const timeout = new Promise<void>((resolve) => setTimeout(resolve, timeoutMs));
@@ -468,29 +522,26 @@ export function captureCanvasAsImage(
   return new Promise((resolve) => {
     try {
       const name = filename || `turtle_capture_${Date.now()}`;
-      canvas.toBlob(
-        (blob) => {
-          if (!blob) {
-            resolve(false);
-            return;
-          }
-          const url = URL.createObjectURL(blob);
-          try {
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${name}.png`;
-            a.style.display = 'none';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            resolve(true);
-          } finally {
-            // ObjectURL を確実に解放
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
-          }
-        },
-        'image/png'
-      );
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          resolve(false);
+          return;
+        }
+        const url = URL.createObjectURL(blob);
+        try {
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${name}.png`;
+          a.style.display = 'none';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          resolve(true);
+        } finally {
+          // ObjectURL を確実に解放
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+      }, 'image/png');
     } catch {
       resolve(false);
     }

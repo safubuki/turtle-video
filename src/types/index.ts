@@ -231,6 +231,39 @@ export type TrackType = 'bgm' | 'narration';
 // エクスポート形式
 export type ExportFormat = 'mp4' | 'webm';
 
+/**
+ * 書き出しの内容モード（Issue #114）。
+ * - composite: 従来どおりベース映像へキャプションを焼き込む
+ * - caption-layer: キャプション + 動画タイトルのみ。ベース映像なし
+ */
+export type ExportContentMode = 'composite' | 'caption-layer';
+
+/**
+ * キャプションのみ書き出しの映像形式。
+ * - black-matte-mp4: 黒背景 + 通常スタイル（既定・互換重視）
+ * - luminance-key-mp4: 黒背景 + 白文字強制（他ソフトのルミナンスキー用）
+ * - alpha-webm: 透過 WebM（対応ブラウザのみ）
+ */
+export type CaptionLayerVideoFormat =
+  | 'black-matte-mp4'
+  | 'luminance-key-mp4'
+  | 'alpha-webm';
+
+/** 字幕ファイル形式（汎用規格） */
+export type CaptionSubtitleFormat = 'srt' | 'vtt';
+
+/**
+ * 書き出し出力オプション（Issue #114）。
+ * プロジェクト保存対象ではなく、セッション中の UI 選択。
+ */
+export interface ExportOutputOptions {
+  contentMode: ExportContentMode;
+  captionLayerFormat: CaptionLayerVideoFormat;
+  /** 動画と一緒に字幕ファイル（SRT/VTT）も生成するか */
+  includeSubtitles: boolean;
+  subtitleFormats: CaptionSubtitleFormat[];
+}
+
 // キャプション（字幕）
 export interface Caption {
   id: string;

@@ -6,7 +6,14 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 
 import type { AppFlavor } from '../app/resolveAppFlavor';
-import type { MediaItem, AudioTrack, NarrationClip, NarrationScriptLength, WatermarkOverlay } from '../types';
+import type {
+  MediaItem,
+  AudioTrack,
+  NarrationClip,
+  NarrationScriptLength,
+  WatermarkOverlay,
+  ExportOutputOptions,
+} from '../types';
 import type { ExportRuntime } from './turtle-video/exportRuntime';
 import type { SectionHelpKey } from '../constants/sectionHelp';
 import type { PreviewRuntime } from './turtle-video/previewRuntime';
@@ -31,7 +38,18 @@ import { useProjectStore } from '../stores/projectStore';
 // Utils
 import { captureCanvasAsImage, waitForPreviewFrameSettled } from '../utils/canvas';
 import { preserveOriginalFileName, resolveAiNarrationFileName } from '../utils/fileNames';
-import { saveObjectUrlWithClientFileStrategy } from '../utils/fileSave';
+import { saveBlobWithClientFileStrategy, saveObjectUrlWithClientFileStrategy } from '../utils/fileSave';
+import {
+  buildCaptionLayerVideoFileName,
+  buildCaptionSubtitleFileName,
+  DEFAULT_EXPORT_OUTPUT_OPTIONS,
+  normalizeExportOutputOptions,
+  resolveCaptionLayerFormatDescriptor,
+} from '../utils/captionLayerExport';
+import {
+  buildSubtitleFileContent,
+  subtitleMimeType,
+} from '../utils/captionSubtitle';
 import { openFilesWithPicker, shouldUseMediaOpenFilePicker } from '../utils/platform';
 import { computeTransitionTimelineRanges } from '../utils/transitionTimeline';
 import {
@@ -513,7 +531,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       addCaptions(snapped.plan);
       if (snapped.silentGapCount > 0) {
         showToast(
-          `キャプションカードを${snapped.plan.length}枚追加し、${snapped.snappedBoundaryCount}箇所を無音に合わせました。そのうち${snapped.silentGapCount}箇所は中央を字幕なしにしています。`,
+          `キャプションカードを${snapped.plan.length}枚追加し、${snapped.snappedBoundaryCount}箇所を無音に合わせました。そのうち${snapped.silentGapCount}箇所は中央をキャプションなしにしています。`,
           5000,
         );
       } else if (snapped.snappedBoundaryCount > 0) {
@@ -2926,14 +2944,172 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     previewCacheVideoRef,
   ]);
 
+  // Issue #114: 書き出しオプション（セッション中のみ。プロジェクト保存対象外）
+  const [exportOutputOptions, setExportOutputOptions] = useState<ExportOutputOptions>(
+    () => ({ ...DEFAULT_EXPORT_OUTPUT_OPTIONS }),
+  );
+  const supportsCaptionLayerExport = appFlavor === 'standard';
+
+  useEffect(() => {
+    if (captions.length > 0 || exportUrl || isProcessing) return;
+    setExportOutputOptions((current) => (
+      current.contentMode === 'caption-layer'
+        ? { ...current, contentMode: 'composite' }
+        : current
+    ));
+  }, [captions.length, exportUrl, isProcessing]);
+
+  const downloadSubtitleFiles = useCallback(async () => {
+    if (captions.length === 0) {
+      showToast('書き出すキャプションがありません');
+      return;
+    }
+    const timestampMs = Date.now();
+    const formats = exportOutputOptions.subtitleFormats.length > 0
+      ? exportOutputOptions.subtitleFormats
+      : (['srt', 'vtt'] as const);
+    try {
+      for (const format of formats) {
+        const content = buildSubtitleFileContent(captions, format);
+        const blob = new Blob([content], { type: `${subtitleMimeType(format)};charset=utf-8` });
+        await saveBlobWithClientFileStrategy({
+          blob,
+          descriptor: {
+            filename: buildCaptionSubtitleFileName(format, timestampMs),
+            mimeType: subtitleMimeType(format),
+            description: format === 'srt' ? 'SubRip 字幕' : 'WebVTT 字幕',
+          },
+          supportsShowSaveFilePicker,
+        });
+      }
+      showToast('字幕ファイルを保存しました');
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        showToast('字幕の保存をキャンセルしました');
+        return;
+      }
+      setError('字幕ファイルの保存に失敗しました');
+    }
+  }, [
+    captions,
+    exportOutputOptions.subtitleFormats,
+    setError,
+    showToast,
+    supportsShowSaveFilePicker,
+  ]);
+
   // --- エクスポート開始ハンドラ ---
   // 目的: 動画ファイルとして書き出しを開始
+  // Issue #114: キャプションのみは startEngine を使わずオフライン encode 経路へ
   const handleExport = useCallback(() => {
     exportCompletedRef.current = false;
     exportFinalizingUiRef.current = false;
     exportFinalizeWarningShownRef.current = false;
+
+    const options = normalizeExportOutputOptions(exportOutputOptions);
+    if (
+      supportsCaptionLayerExport
+      && options.contentMode === 'caption-layer'
+    ) {
+      if (mediaItems.length === 0) {
+        showToast('書き出すタイムラインがありません');
+        return;
+      }
+      if (captions.length === 0) {
+        showToast('キャプションを1件以上追加してください');
+        return;
+      }
+      const hasCaptionContent =
+        (captionSettings.enabled && captions.length > 0)
+        || (videoTitle.enabled && videoTitle.text.trim().length > 0);
+      if (!hasCaptionContent) {
+        showToast('表示できるキャプションまたは動画タイトルがありません');
+        return;
+      }
+
+      // 再生中なら止めてからオフライン書き出しへ
+      if (isPlayingRef.current) {
+        stopAll();
+        pause();
+      }
+
+      setProcessing(true);
+      setExportPreparationStep(1);
+      clearExport();
+
+      const { exportWidth, exportHeight } = useCanvasStore.getState();
+      startWebCodecsExport(
+        canvasRef,
+        masterDestRef,
+        (url, ext) => {
+          setExportUrl(url);
+          setExportExt(ext as 'mp4' | 'webm');
+          setProcessing(false);
+          setLoading(false);
+          setExportPreparationStep(null);
+          exportCompletedRef.current = true;
+          showToast(
+            options.includeSubtitles && captions.length > 0
+              ? 'キャプション動画を作成しました。ダウンロード後に字幕ファイルも保存できます'
+              : 'キャプション動画を作成しました',
+          );
+        },
+        (message) => {
+          setProcessing(false);
+          setLoading(false);
+          setExportPreparationStep(null);
+          setError(message || 'キャプションのみ書き出しに失敗しました');
+        },
+        undefined,
+        {
+          output: options,
+          captionLayer: {
+            totalDurationSec: totalDurationRef.current,
+            captions,
+            captionSettings,
+            videoTitle,
+            exportWidth,
+            exportHeight,
+            onPreparationStepChange: (step) => {
+              setExportPreparationStep(step);
+            },
+            // UI の「書き出し中 %」とフェーズ表示は currentTime 進行に依存するため、
+            // オフライン encode の進捗をタイムライン相当へ反映する。
+            onProgress: (ratio) => {
+              const duration = totalDurationRef.current;
+              if (!(duration > 0) || !Number.isFinite(ratio)) return;
+              const t = Math.max(0, Math.min(duration, duration * ratio));
+              currentTimeRef.current = t;
+              setCurrentTime(t);
+            },
+          },
+        },
+      );
+      return;
+    }
+
     startEngine(0, true);
-  }, [startEngine]);
+  }, [
+    captionSettings,
+    captions,
+    clearExport,
+    exportOutputOptions,
+    mediaItems.length,
+    pause,
+    setCurrentTime,
+    setError,
+    setExportExt,
+    setExportPreparationStep,
+    setExportUrl,
+    setLoading,
+    setProcessing,
+    showToast,
+    startEngine,
+    startWebCodecsExport,
+    stopAll,
+    supportsCaptionLayerExport,
+    videoTitle,
+  ]);
 
   const handleExportFinalizeTimeout = useCallback(() => {
     if (!isProcessing || exportUrl || exportCompletedRef.current) return;
@@ -2957,9 +3133,17 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     if (!exportUrl) return;
 
     const ext = exportExt || 'mp4';
-    const filename = `turtle_video_${Date.now()}.${ext}`;
-    const mimeType = ext === 'webm' ? 'video/webm' : 'video/mp4';
-    const fileDescription = ext === 'webm' ? 'WebM 動画' : 'MP4 動画';
+    const isCaptionLayer = exportOutputOptions.contentMode === 'caption-layer';
+    const layerFormat = exportOutputOptions.captionLayerFormat;
+    const filename = isCaptionLayer
+      ? buildCaptionLayerVideoFileName(layerFormat)
+      : `turtle_video_${Date.now()}.${ext}`;
+    const mimeType = isCaptionLayer
+      ? resolveCaptionLayerFormatDescriptor(layerFormat).mimeType
+      : (ext === 'webm' ? 'video/webm' : 'video/mp4');
+    const fileDescription = isCaptionLayer
+      ? resolveCaptionLayerFormatDescriptor(layerFormat).label
+      : (ext === 'webm' ? 'WebM 動画' : 'MP4 動画');
     try {
       const result = await saveObjectUrlWithClientFileStrategy({
         sourceUrl: exportUrl,
@@ -2970,6 +3154,18 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         },
         supportsShowSaveFilePicker,
       });
+
+      if (
+        isCaptionLayer
+        && exportOutputOptions.includeSubtitles
+        && captions.length > 0
+      ) {
+        try {
+          await downloadSubtitleFiles();
+        } catch {
+          // 動画は成功しているので字幕失敗は downloadSubtitleFiles 内で通知
+        }
+      }
 
       if (result.strategy === 'file-picker') {
         window.alert('ダウンロードが完了しました。');
@@ -2985,7 +3181,18 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       }
       setError('ダウンロードに失敗しました');
     }
-  }, [exportUrl, exportExt, setError, showToast, supportsShowSaveFilePicker]);
+  }, [
+    captions.length,
+    downloadSubtitleFiles,
+    exportExt,
+    exportOutputOptions.captionLayerFormat,
+    exportOutputOptions.contentMode,
+    exportOutputOptions.includeSubtitles,
+    exportUrl,
+    setError,
+    showToast,
+    supportsShowSaveFilePicker,
+  ]);
 
   // --- 時刻フォーマットヘルパー ---
   // 目的: 秒数を「分:秒」形式の文字列に変換
@@ -3374,6 +3581,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
                 projectPosterAspectRatio={projectPosterAspectRatio}
                 onSetProjectPosterFromCurrent={handleSetProjectPosterFromCurrent}
                 onResetProjectPosterToAuto={handleResetProjectPosterToAuto}
+                exportOutputOptions={exportOutputOptions}
+                onExportOutputOptionsChange={setExportOutputOptions}
+                supportsCaptionLayerExport={supportsCaptionLayerExport}
+                onDownloadSubtitles={downloadSubtitleFiles}
+                hasCaptionsForSubtitleExport={captions.length > 0}
               />
             </div>
           </div>
