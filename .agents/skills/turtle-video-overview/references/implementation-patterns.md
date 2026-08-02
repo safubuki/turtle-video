@@ -3187,3 +3187,13 @@ export 終了（成功/失敗/中断）
 - **問題**: 画像カードが連続すると、各区間が同じオレンジ色になり、プレビューのシークバー上でカード境界を判別しにくい。
 - **対策**: 画像区間の出現順で `bg-yellow-600` / `bg-orange-500` を交互に適用し、暗い右境界線も付ける。動画区間の青系交互表示は維持する。
 - **テスト**: 連続画像3区間がオレンジ系2色で交互に表示されることを `previewSectionActionButtons.test.tsx` で確認する。
+
+### 13-171. v5.3 後の新機能UIは Apple Safari へ公開しない
+
+- **目的**: 今回の機能追加対象は Android / PC（`standard`）。`apple-safari` は v5.3 時点の既存同等機能と安定動作を優先し、新機能を中途半端に操作できる状態へしない。
+- **UI capability の単一窓口**: `src/app/appFlavorUi.ts` の `getAppFlavorUiCapabilities(appFlavor)` で、出力品質、縦横比、現在位置からのトリム、素材回転、素材ぼかし、一括ミュート、ウォーターマーク、AI原稿からのキャプション生成、動画タイトル、キャプションの縁・色・個別ぼかし・背景、一括削除、プロジェクトポスターを `standard` 限定にする。
+- **操作経路も閉じる**: `ClipItem` の新機能コールバックは optional とし、`apple-safari` では回転・ぼかし・現在位置トリムのコールバック自体を渡さない。単なる CSS 非表示にはしない。
+- **Apple の副作用を止める**: Apple では自動プロジェクトポスターのキャプチャを実行せず、MP4 書き出しにもカバーアートを渡さない。隠れたUIのために Canvas を一時移動・再描画しない。
+- **互換性**: 共有の型・保存スキーマ・中立な既定値は維持する。flavor 分離のためだけに保存契約を分岐させない。
+- **ヘルプ**: `sectionHelp.ts` も Apple では非表示機能の項目を除外し、位置・サイズ、従来トリム、キャプションの既存設定だけを案内する。
+- **回帰ガード**: `appleSafariFlavorRegression.test.ts` で capability がすべて false であること、`clipsSectionPicker.test.tsx` で回転・素材ぼかし・ウォーターマーク等が描画されないこと、`captionStyleControls.test.tsx` と `sectionHelp.test.ts` で字幕UIとヘルプの境界を固定する。

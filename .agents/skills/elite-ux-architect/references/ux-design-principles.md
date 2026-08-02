@@ -116,12 +116,16 @@
 
 | 要件 | 基準 |
 |------|------|
-| コントラスト比 | テキスト: 4.5:1以上、大きなテキスト: 3:1以上 |
+| コントラスト比 | テキスト: 4.5:1以上、大きなテキスト: 3:1以上（WCAG 2.2 SC 1.4.3） |
 | キーボード操作 | すべての機能がキーボードのみで操作可能 |
-| フォーカス表示 | フォーカスリングが明確に見える |
+| フォーカス表示 | フォーカスリングが明確に見える（SC 2.4.7 / 2.4.11） |
 | スクリーンリーダー | 適切なARIAラベル・ロール・ライブリージョン |
-| タッチターゲット | 最小44x44px（モバイル） |
-| 動作の軽減 | `prefers-reduced-motion` を尊重する |
+| タッチターゲット | **最小 24×24 CSS px（SC 2.5.8 AA の要求）／推奨 44×44px** |
+| 動作の軽減 | `prefers-reduced-motion` を尊重する（SC 2.3.3） |
+
+> 📌 **44px は要求値ではない**: 44×44pt は Apple HIG 由来の快適性目標。WCAG 2.2 AA の要求は 24×24 CSS px。「44px 未満は違反」と断言しない。正確には **24px が下限、44px 以上が望ましい**。
+>
+> 📌 コントラストの検証は目視せず `python scripts/ux_audit.py contrast --fg <色> --bg <色>` で数値を出す。WCAG 2.x 比の限界と APCA の位置づけは [color-science.md](color-science.md) を参照。
 
 ### 実装チェック
 
@@ -147,9 +151,9 @@
 
 ### タッチ操作の最適化
 
-| 要素 | 最小サイズ | 推奨サイズ |
-|------|----------|----------|
-| タップターゲット | 44x44px | 48x48px |
+| 要素 | 最小サイズ（WCAG要求） | 推奨サイズ |
+|------|---------------------|----------|
+| タップターゲット | 24x24 CSS px | 44x44px 以上 |
 | ボタン間の間隔 | 8px | 12px |
 | スワイプ領域 | 全幅 | 全幅 |
 
@@ -163,6 +167,36 @@
 /* lg: デスクトップ (≥ 1024px) */
 /* xl: ワイドスクリーン (≥ 1280px) */
 ```
+
+---
+
+## 7.5 移動と動線（Movement & Wayfinding）
+
+ページ内の移動は「瞬間移動」ではなく「移動したことが分かる動き」にする。ただし**無条件のスムーズスクロールは事故**になる。
+
+### 3つの必須要素
+
+| 要素 | 目的 | 実装 |
+|------|------|------|
+| **なめらかな移動** | 位置関係を失わせない | `scroll-behavior: smooth` を `prefers-reduced-motion` でガード |
+| **隠れない着地** | 見出しがヘッダー裏に潜らない | 着地要素に `scroll-margin-top` |
+| **常に戻れる導線** | 目次へ即復帰できる | スティッキーヘッダー or Back to Top（1画面以降に出現） |
+
+```css
+/* この3点セットが揃って初めて「気持ちよく移動できる」 */
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+}
+:where(section, [id]) { scroll-margin-top: calc(var(--header-height) + 0.5rem); }
+```
+
+### 加えて確認すること
+
+- **現在地表示**: `IntersectionObserver` によるスクロールスパイ。色だけでなく形状差も使う
+- **スキップリンク**: キーボードユーザーがナビを飛ばして本文へ
+- **スクロールジャッキング禁止**: ホイール量を奪う実装は制御感を壊す（NN/g が明確に否定）
+
+> 📄 実装パターンの詳細は **[navigation-and-scroll-design.md](navigation-and-scroll-design.md)**。これらは `scripts/ux_audit.py audit` が機械的に検査する。
 
 ---
 
@@ -197,8 +231,10 @@
 | First Contentful Paint (FCP) | < 1.8秒 |
 | Largest Contentful Paint (LCP) | < 2.5秒 |
 | Cumulative Layout Shift (CLS) | < 0.1 |
-| First Input Delay (FID) | < 100ms |
+| **Interaction to Next Paint (INP)** | **< 200ms** |
 | アニメーション | 60fps (16.67ms/frame) |
+
+> ⚠️ **FID は使わない**: First Input Delay は 2024年3月に INP へ置き換えられ、Core Web Vitals から外れた。FID は最初の1回の入力遅延しか測らないため、初回が速ければ以降が遅くても合格してしまう。INP は全インタラクションを入力からペイント完了まで測る（200ms以下=良好、500ms超=不良）。詳細は [evidence-ledger.md](evidence-ledger.md)。
 
 ### パフォーマンスを損なわないアニメーション
 
