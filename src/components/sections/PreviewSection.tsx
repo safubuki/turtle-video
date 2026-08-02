@@ -36,7 +36,7 @@ import type {
 } from '../../types';
 import type { ExportPreparationStep } from '../../hooks/export-strategies/types';
 import type { AppFlavor } from '../../app/resolveAppFlavor';
-import { getPreviewRuntimeNotice } from '../../app/appFlavorUi';
+import { getAppFlavorUiCapabilities, getPreviewRuntimeNotice } from '../../app/appFlavorUi';
 import { useLogStore } from '../../stores/logStore';
 import { useCanvasStore } from '../../stores/canvasStore';
 import type { AspectRatio } from '../../stores/canvasStore';
@@ -490,6 +490,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     () => getPreviewRuntimeNotice({ appFlavor, supportsShowSaveFilePicker }),
     [appFlavor, supportsShowSaveFilePicker],
   );
+  const uiCapabilities = useMemo(() => getAppFlavorUiCapabilities(appFlavor), [appFlavor]);
 
   const triggerCaptureFeedback = (callback: () => void) => {
     if (flashTimeoutRef.current !== null) {
@@ -738,7 +739,8 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
                     </div>
                   )}
 
-                  <section aria-labelledby="project-poster-heading">
+                  {uiCapabilities.supportsProjectPoster && (
+                    <section aria-labelledby="project-poster-heading">
                     <div className="mb-2 flex flex-wrap items-baseline justify-between gap-1">
                       <p
                         id="project-poster-heading"
@@ -804,7 +806,8 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
                         </div>
                       </div>
                     </div>
-                  </section>
+                    </section>
+                  )}
 
                   {supportsCaptionLayerExport && (
                     <section

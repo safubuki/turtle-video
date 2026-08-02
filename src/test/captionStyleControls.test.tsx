@@ -2,12 +2,15 @@ import type { ComponentProps } from 'react';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import CaptionSection from '../components/sections/CaptionSection';
+import { PlatformCapabilitiesProvider } from '../app/PlatformCapabilitiesContext';
 import type { Caption } from '../types';
+import { getPlatformCapabilities } from '../utils/platform';
 import { DEFAULT_VIDEO_TITLE_SETTINGS } from '../utils/videoTitle';
 
 function renderCaptionSection(
   overrides: Partial<ComponentProps<typeof CaptionSection>> = {},
-  openOutlineSettings = true
+  openOutlineSettings = true,
+  isIosSafari = false,
 ) {
   const props: ComponentProps<typeof CaptionSection> = {
     captions: [],
@@ -74,7 +77,19 @@ function renderCaptionSection(
     ...overrides,
   };
 
-  render(<CaptionSection {...props} />);
+  const section = <CaptionSection {...props} />;
+  render(isIosSafari ? (
+    <PlatformCapabilitiesProvider
+      capabilities={{
+        ...getPlatformCapabilities(),
+        isIOS: true,
+        isSafari: true,
+        isIosSafari: true,
+      }}
+    >
+      {section}
+    </PlatformCapabilitiesProvider>
+  ) : section);
   if (openOutlineSettings) {
     fireEvent.click(screen.getByRole('button', { name: 'キャプション スタイル/フェードの一括設定' }));
     fireEvent.click(screen.getByRole('button', { name: '文字の縁・色' }));
@@ -83,6 +98,18 @@ function renderCaptionSection(
 }
 
 describe('CaptionSection bulk delete', () => {
+  it('apple-safari ではタイトル・一括削除・新しい文字装飾を表示しない', () => {
+    renderCaptionSection({}, false, true);
+
+    expect(screen.queryByRole('button', { name: 'キャプションをすべて削除' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'タイトル' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'キャプション スタイル/フェードの一括設定' }));
+
+    expect(screen.queryByRole('button', { name: '文字の縁・色' })).not.toBeInTheDocument();
+    expect(screen.queryByText('キャプション背景の帯')).not.toBeInTheDocument();
+  });
+
   it('確認ダイアログでOKしたときだけ一括削除する', () => {
     const captions: Caption[] = [
       {

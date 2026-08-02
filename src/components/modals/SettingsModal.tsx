@@ -23,7 +23,7 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import type { AppFlavor } from '../../app/resolveAppFlavor';
-import { getAppFlavorBadge } from '../../app/appFlavorUi';
+import { getAppFlavorBadge, getAppFlavorUiCapabilities } from '../../app/appFlavorUi';
 import { useLogStore } from '../../stores';
 import { useUIStore } from '../../stores/uiStore';
 import { useOfflineModeStore } from '../../stores/offlineModeStore';
@@ -263,6 +263,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
   const registration = useUpdateStore((s) => s.registration);
   const queueUpdateCheckAfterRegister = useUpdateStore((s) => s.queueUpdateCheckAfterRegister);
   const flavorBadge = getAppFlavorBadge(appFlavor);
+  const uiCapabilities = getAppFlavorUiCapabilities(appFlavor);
 
   useEffect(() => {
     if (isOpen) {
@@ -666,10 +667,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
                   <li>
                     設定タブの「オフラインモード」は、AI機能とソフトウェア更新の通信を止めます。ONにするときだけ確認画面が表示されます。
                   </li>
-                  <li>
-                    「動画の出力品質」は 自動／フルHD／HD
-                    から選べます。動画の横16:9／縦9:16は「動画・画像」セクション右上で切り替えます。
-                  </li>
+                  {uiCapabilities.supportsOutputQualitySelection && (
+                    <li>
+                      「動画の出力品質」は 自動／フルHD／HD
+                      から選べます。動画の横16:9／縦9:16は「動画・画像」セクション右上で切り替えます。
+                    </li>
+                  )}
                   <li>
                     「ログモード」は 標準／境界診断／詳細
                     から選べます。境界診断を選んだ場合は、プレビューを停止して再生し直すと反映されます。
@@ -882,7 +885,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
                 </div>
               </div>
 
-              <div className="bg-gray-800 rounded-lg p-4 space-y-3">
+              {uiCapabilities.supportsOutputQualitySelection && (
+                <div className="bg-gray-800 rounded-lg p-4 space-y-3">
                 <div className="space-y-1">
                   <div className="text-sm font-bold text-gray-100">動画の出力品質</div>
                   <p className="text-xs text-gray-300 leading-relaxed">
@@ -920,7 +924,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
                   プレビューの画質には影響しません。長い動画で書き出しが不安定な場合は HD (1280×720)
                   をお試しください。
                 </p>
-              </div>
+                </div>
+              )}
 
               <div className="bg-gray-800 rounded-lg p-4 space-y-3">
                 <div className="space-y-1">

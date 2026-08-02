@@ -30,6 +30,7 @@ import type { NarrationClip } from '../../types';
 import { getAudioUploadAccept } from '../../utils/platform';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
+import { getAppFlavorUiCapabilities } from '../../app/appFlavorUi';
 import { useAudioStore } from '../../stores/audioStore';
 import NarrationWaveform from '../media/NarrationWaveform';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
@@ -93,6 +94,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
   const audioFileAccept = getAudioUploadAccept();
   // 簡単コピーは standard フレーバー（Android/PC）限定機能
   const { isIosSafari } = usePlatformCapabilities();
+  const uiCapabilities = getAppFlavorUiCapabilities(isIosSafari ? 'apple-safari' : 'standard');
   const duplicateNarration = useAudioStore((s) => s.duplicateNarration);
   const canDuplicate = !isIosSafari;
   const isAnyCaptionGenerationRunning = captionGeneratingNarrationId !== null;
@@ -321,7 +323,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                   </div>
                 </div>
 
-                {isAi && clip.aiScript?.trim() && (
+                {uiCapabilities.supportsNarrationCaptionGeneration && isAi && clip.aiScript?.trim() && (
                   <div className="rounded-lg border border-yellow-500/25 bg-yellow-500/5 p-2.5">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0">
@@ -329,9 +331,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                           ナレーション原稿をキャプションへ
                         </div>
                         <p className="mt-0.5 text-[10px] leading-relaxed text-gray-400 md:text-xs">
-                          {isIosSafari
-                            ? '音声区間に合わせた通常カードを作成し、文字と開始・終了を個別に調整できます。'
-                            : '短い無音は中央で切り替え、0.3秒以上の無音は余韻を残して中央だけキャプションを消します。'}
+                          短い無音は中央で切り替え、0.3秒以上の無音は余韻を残して中央だけキャプションを消します。
                         </p>
                       </div>
                       <button

@@ -62,13 +62,13 @@ export interface ClipItemProps {
   onToggleTransformPanel: () => void;
   onUpdateVideoTrim: (type: 'start' | 'end', value: string) => void;
   /** プレビュー現在位置をこの動画の開始/終了トリムへ反映 */
-  onSetVideoTrimFromCurrent: (type: 'start' | 'end') => void;
+  onSetVideoTrimFromCurrent?: (type: 'start' | 'end') => void;
   onUpdateImageDuration: (value: string) => void;
   onUpdateScale: (value: string | number) => void;
   onUpdatePosition: (axis: 'x' | 'y', value: string) => void;
   /** クリップを 90 度単位で時計回りに回転（0→90→180→270→0） */
-  onRotate: () => void;
-  onUpdateBlur: (value: number) => void;
+  onRotate?: () => void;
+  onUpdateBlur?: (value: number) => void;
   onResetSetting: (type: 'scale' | 'x' | 'y' | 'rotation' | 'blur') => void;
   onUpdateVolume: (value: number) => void;
   onToggleMute: () => void;
@@ -137,7 +137,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
   const handleScale = useCallback((val: number) => onUpdateScale(val), [onUpdateScale]);
   const handlePositionX = useCallback((val: number) => onUpdatePosition('x', String(val)), [onUpdatePosition]);
   const handlePositionY = useCallback((val: number) => onUpdatePosition('y', String(val)), [onUpdatePosition]);
-  const handleBlur = useCallback((val: number) => onUpdateBlur(val), [onUpdateBlur]);
+  const handleBlur = useCallback((val: number) => onUpdateBlur?.(val), [onUpdateBlur]);
   const handleImageDuration = useCallback((val: number) => onUpdateImageDuration(String(val)), [onUpdateImageDuration]);
   const handleVolume = useCallback((val: number) => onUpdateVolume(val), [onUpdateVolume]);
   const formatTimelineTime = useCallback((seconds: number): string => {
@@ -264,7 +264,8 @@ const ClipItem: React.FC<ClipItemProps> = ({
               トリミング: {v.trimStart.toFixed(2)}s - {v.trimEnd.toFixed(2)}s
             </span>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5 text-[10px] md:text-xs">
+          {onSetVideoTrimFromCurrent && (
+            <div className="flex flex-wrap items-center gap-1.5 text-[10px] md:text-xs">
             <span className="text-gray-500 mr-0.5">プレビュー位置を反映:</span>
             <button
               type="button"
@@ -292,7 +293,8 @@ const ClipItem: React.FC<ClipItemProps> = ({
             >
               <MapPin className="w-3.5 h-3.5" /> 終了
             </button>
-          </div>
+            </div>
+          )}
           {/* 開始位置 */}
           <div className="flex items-center gap-2 text-[10px]">
             <span className="text-gray-500 w-6">開始</span>
@@ -490,7 +492,8 @@ const ClipItem: React.FC<ClipItemProps> = ({
           </div>
 
           {/* 回転 (90度単位) */}
-          <div className="flex flex-col gap-1 border-t border-gray-700/50 pt-2 mt-1">
+          {onRotate && (
+            <div className="flex flex-col gap-1 border-t border-gray-700/50 pt-2 mt-1">
             <div className="flex items-center justify-between text-[10px] text-gray-400">
               <div className="flex items-center gap-1">
                 <RotateCw className="w-3 h-3" /> 回転: {v.rotation || 0}°
@@ -513,10 +516,12 @@ const ClipItem: React.FC<ClipItemProps> = ({
               <RotateCw className="w-3.5 h-3.5" />
               <span>90°回転</span>
             </button>
-          </div>
+            </div>
+          )}
 
           {/* ぼかし（カード単位・1080p基準） */}
-          <div className="flex flex-col gap-1 border-t border-gray-700/50 pt-2 mt-1">
+          {onUpdateBlur && (
+            <div className="flex flex-col gap-1 border-t border-gray-700/50 pt-2 mt-1">
             <div className="flex items-center justify-between text-[10px] text-gray-400">
               <div className="flex items-center gap-1">
                 <Blend className="w-3 h-3" />
@@ -546,7 +551,8 @@ const ClipItem: React.FC<ClipItemProps> = ({
               <span>くっきり</span>
               <span>強くぼかす</span>
             </div>
-          </div>
+            </div>
+          )}
 
           {/* ミニプレビュー */}
           <MiniPreview item={v} mediaElement={mediaElement} />

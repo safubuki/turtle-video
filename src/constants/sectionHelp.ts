@@ -119,7 +119,7 @@ export function getSectionHelpContent(
   const downloadHelpSentence = getDownloadHelpSentence(context);
   const appFlavorSupportSummary = getAppFlavorSupportSummary(context.appFlavor);
 
-  return {
+  const content: Record<SectionHelpKey, SectionHelpDefinition> = {
     app: {
       title: 'タートルビデオの使い方',
       subtitle: '',
@@ -763,6 +763,87 @@ export function getSectionHelpContent(
       ],
     },
   };
+
+  if (context.appFlavor === 'apple-safari') {
+    const hiddenTitles = new Set([
+      '動画の形式（横16:9／縦9:16）',
+      'ウォーターマーク',
+      '一括ミュート（スピーカーアイコン）',
+      'トランジション（Android/PC版）',
+      '複数のBGM（Android/PC版）',
+      'コピー（Android/PC版）',
+      'AI原稿からキャプションカードを追加',
+      '音量波形と無音の区切り検出',
+      'タイトル（キャプションとは別管理）',
+      'キャプション一括削除（ゴミ箱アイコン）',
+      '文字の縁・色',
+      'まとめて入力・編集（Android/PC版）',
+      '② タイミング打ち（Android/PC版）',
+      '時間をまとめてずらす（Android/PC版）',
+      'フォント・カスタム値（Android/PC版）',
+      '音量波形と無音区間',
+      'サムネイル（プロジェクト全体）',
+      'キャプションのみ出力（Android/PC版）',
+    ]);
+
+    Object.values(content).forEach((section) => {
+      section.items = section.items.filter((item) => !hiddenTitles.has(item.title));
+    });
+
+    const mainFeatures = content.app.items.find((item) => item.title === '主要な機能');
+    if (mainFeatures) {
+      mainFeatures.bullets = [
+        '動画・画像: 追加、並び替え、トリミング、位置・サイズ調整',
+        '音声: BGM、AI／音声ナレーション',
+        '文字: キャプション、一括・個別設定',
+        '仕上げ: プレビュー、キャプチャ、動画ファイル作成',
+        'プロジェクト: 自動保存、手動保存、読み込み',
+      ];
+    }
+
+    const clipOperations = content.clips.items.find((item) => item.title === '並び替え・コピー・削除');
+    if (clipOperations) {
+      clipOperations.title = '並び替え・削除';
+      clipOperations.description = '各クリップは上下移動と削除ができます。';
+    }
+
+    const clipRange = content.clips.items.find((item) => item.title.startsWith('表示区間'));
+    if (clipRange) {
+      clipRange.bullets = ['動画・画像とも、スライダーから時間を調整できます。'];
+      clipRange.visuals = ['trim_chip', 'duration_chip', 'slider_demo'];
+    }
+
+    const clipTransform = content.clips.items.find((item) => item.title === '位置・サイズ・回転・ぼかし調整');
+    if (clipTransform) {
+      clipTransform.title = '位置・サイズ調整';
+      clipTransform.facts = clipTransform.facts?.filter(
+        (fact) => fact.label !== '回転' && fact.label !== 'ぼかし',
+      );
+      clipTransform.visuals = clipTransform.visuals?.filter(
+        (visual) => visual !== 'rotate_button' && visual !== 'blur_chip',
+      );
+    }
+
+    const captionStyle = content.caption.items.find(
+      (item) => item.title === 'キャプション スタイル/フェードの一括設定',
+    );
+    if (captionStyle) {
+      captionStyle.description =
+        '閉じているときはタイトル右側に「（開いて設定）」と表示されます。押すと、全キャプション共通のサイズ、字体、位置、ぼかし、フェード（0.5秒・1秒・2秒）をまとめて設定できます。';
+    }
+
+    const individualCaption = content.caption.items.find((item) => item.title === '個別設定（歯車マーク）');
+    if (individualCaption) {
+      individualCaption.description =
+        '歯車マークから、サイズ、位置、フェードをカードごとに設定できます。';
+      individualCaption.bullets = [
+        '変更した項目だけ、一括設定より優先されます。',
+        '「この個別設定をクリア」では、本文と表示時間を残して一括設定へ戻します。',
+      ];
+    }
+  }
+
+  return content;
 }
 
 export const SECTION_HELP_CONTENT: Record<SectionHelpKey, SectionHelpDefinition> =

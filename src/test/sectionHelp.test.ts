@@ -32,6 +32,23 @@ function getHelpVisuals(section: keyof ReturnType<typeof getSectionHelpContent>,
 }
 
 describe('sectionHelp support messaging', () => {
+  it('apple-safari のヘルプに非表示機能の操作案内を出さない', () => {
+    const help = getSectionHelpContent({
+      appFlavor: 'apple-safari',
+      supportsShowSaveFilePicker: false,
+    });
+    const titles = Object.values(help).flatMap((section) =>
+      section.items.map((item) => item.title),
+    );
+
+    expect(titles).not.toContain('ウォーターマーク');
+    expect(titles).not.toContain('AI原稿からキャプションカードを追加');
+    expect(titles).not.toContain('タイトル（キャプションとは別管理）');
+    expect(titles).not.toContain('サムネイル（プロジェクト全体）');
+    expect(help.clips.items.find((item) => item.title === '位置・サイズ調整')?.facts)
+      .not.toEqual(expect.arrayContaining([expect.objectContaining({ label: '回転' })]));
+  });
+
   it('各項目の導入文を短く保ち、詳しい説明は構造化する', () => {
     const allHelp = getSectionHelpContent({
       appFlavor: 'standard',

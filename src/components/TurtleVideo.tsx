@@ -6,6 +6,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 
 import type { AppFlavor } from '../app/resolveAppFlavor';
+import { getAppFlavorUiCapabilities } from '../app/appFlavorUi';
 import type {
   MediaItem,
   AudioTrack,
@@ -112,6 +113,7 @@ interface TurtleVideoProps {
 const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, exportRuntime, saveRuntime }) => {
   // 離脱防止フックを使用
   usePreventUnload();
+  const uiCapabilities = useMemo(() => getAppFlavorUiCapabilities(appFlavor), [appFlavor]);
 
   // === Zustand Stores ===
   // Canvas Store (動的キャンバスサイズ)
@@ -1168,6 +1170,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   //       自動モードなら書き出し用 dataUrl と UI を新しい先頭付近へ追従させる。
   // 注意: 手動モードは触らない。再生/書き出し中はキーを進めず、停止後に再試行する。
   useEffect(() => {
+    if (!uiCapabilities.supportsProjectPoster) {
+      autoProjectPosterContentKeyRef.current = null;
+      return;
+    }
     if (projectPosterMode !== 'auto') {
       autoProjectPosterContentKeyRef.current = null;
       return;
@@ -1226,6 +1232,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       clearTimeout(timeoutId);
     };
   }, [
+    uiCapabilities.supportsProjectPoster,
     projectPosterMode,
     mediaItems,
     totalDuration,
@@ -3374,7 +3381,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
           <div className="space-y-6">
             {/* 1. CLIPS */}
             <ClipsSection
-              watermarkPanel={(
+              watermarkPanel={uiCapabilities.supportsWatermark ? (
                 <OverlaySection
                   watermark={watermarkOverlay}
                   totalDuration={totalDuration}
@@ -3386,7 +3393,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
                   onSetRange={withPreviewPause('set-watermark-range', setWatermarkRange)}
                   onRemoveImage={withPreviewPause('remove-watermark-image', removeWatermarkImage)}
                 />
-              )}
+              ) : undefined}
               mediaItems={mediaItems}
               mediaTimelineRanges={mediaTimelineRanges}
               currentTime={currentTime}

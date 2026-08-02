@@ -1,5 +1,49 @@
 import type { AppFlavor } from './resolveAppFlavor';
 
+/**
+ * UI から操作可能にする機能の flavor 境界。
+ *
+ * apple-safari は v5.3 時点の安定した編集体験を維持し、それ以降に追加した
+ * Android / PC 向け機能を表示しない。保存スキーマの互換性とは分離して扱う。
+ */
+export interface AppFlavorUiCapabilities {
+  supportsOutputQualitySelection: boolean;
+  supportsAspectRatioSelection: boolean;
+  supportsMediaTrimFromPreview: boolean;
+  supportsMediaRotation: boolean;
+  supportsMediaBlur: boolean;
+  supportsBulkMediaMute: boolean;
+  supportsWatermark: boolean;
+  supportsNarrationCaptionGeneration: boolean;
+  supportsVideoTitle: boolean;
+  supportsCaptionOutlineAndColor: boolean;
+  supportsCaptionIndividualBlur: boolean;
+  supportsCaptionBackground: boolean;
+  supportsBulkCaptionDelete: boolean;
+  supportsProjectPoster: boolean;
+}
+
+export function getAppFlavorUiCapabilities(appFlavor: AppFlavor): AppFlavorUiCapabilities {
+  const supportsStandardFeatures = appFlavor === 'standard';
+
+  return {
+    supportsOutputQualitySelection: supportsStandardFeatures,
+    supportsAspectRatioSelection: supportsStandardFeatures,
+    supportsMediaTrimFromPreview: supportsStandardFeatures,
+    supportsMediaRotation: supportsStandardFeatures,
+    supportsMediaBlur: supportsStandardFeatures,
+    supportsBulkMediaMute: supportsStandardFeatures,
+    supportsWatermark: supportsStandardFeatures,
+    supportsNarrationCaptionGeneration: supportsStandardFeatures,
+    supportsVideoTitle: supportsStandardFeatures,
+    supportsCaptionOutlineAndColor: supportsStandardFeatures,
+    supportsCaptionIndividualBlur: supportsStandardFeatures,
+    supportsCaptionBackground: supportsStandardFeatures,
+    supportsBulkCaptionDelete: supportsStandardFeatures,
+    supportsProjectPoster: supportsStandardFeatures,
+  };
+}
+
 export interface AppFlavorBadge {
   label: string;
   compactLabel: string;

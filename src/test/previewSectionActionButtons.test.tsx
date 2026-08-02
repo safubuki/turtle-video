@@ -143,6 +143,19 @@ describe('PreviewSection action buttons', () => {
     expect(onSetProjectPosterFromCurrent).toHaveBeenCalledTimes(1);
   });
 
+  it('apple-safari の動画出力オプションにはプロジェクトサムネイルを表示しない', () => {
+    renderPreviewSection({
+      appFlavor: 'apple-safari',
+      supportsCaptionLayerExport: false,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '動画出力オプション' }));
+
+    expect(screen.queryByText('サムネイル設定')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '現在のフレームをサムネイルに設定' }))
+      .not.toBeInTheDocument();
+  });
+
   it('キャプションが0件のときはキャプションのみを選択できない', () => {
     const onExportOutputOptionsChange = vi.fn();
     renderPreviewSection({

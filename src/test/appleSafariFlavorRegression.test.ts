@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { getAppFlavorUiCapabilities } from '../app/appFlavorUi';
 
 import type { MediaItem } from '../types';
 import type { PlatformCapabilities } from '../utils/platform';
@@ -81,6 +82,18 @@ function createTimelineItem(overrides: Partial<MediaItem> = {}): MediaItem {
 }
 
 describe('apple-safari flavor regression', () => {
+  it('v5.3 後に追加した編集UIを apple-safari では一括して無効化する', () => {
+    const capabilities = getAppFlavorUiCapabilities('apple-safari');
+
+    expect(Object.values(capabilities)).not.toContain(true);
+    expect(getAppFlavorUiCapabilities('standard')).toMatchObject({
+      supportsMediaRotation: true,
+      supportsMediaBlur: true,
+      supportsWatermark: true,
+      supportsProjectPoster: true,
+    });
+  });
+
   it('apple-safari preview は video→image→video と BGM を future probe と single mix で保護する', () => {
     const previewCapabilities = getAppleSafariPreviewPlatformCapabilities(
       createCapabilities({

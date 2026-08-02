@@ -2,7 +2,9 @@ import type { ComponentProps } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import ClipsSection from '../components/sections/ClipsSection';
+import { PlatformCapabilitiesProvider } from '../app/PlatformCapabilitiesContext';
 import type { MediaItem } from '../types';
+import { getPlatformCapabilities } from '../utils/platform';
 
 function createImageItem(overrides: Partial<MediaItem> = {}): MediaItem {
   return {
@@ -31,7 +33,10 @@ function createImageItem(overrides: Partial<MediaItem> = {}): MediaItem {
   };
 }
 
-function renderClipsSection(overrides: Partial<ComponentProps<typeof ClipsSection>> = {}) {
+function renderClipsSection(
+  overrides: Partial<ComponentProps<typeof ClipsSection>> = {},
+  isIosSafari = false,
+) {
   const props: ComponentProps<typeof ClipsSection> = {
     mediaItems: [],
     mediaTimelineRanges: {},
@@ -66,8 +71,22 @@ function renderClipsSection(overrides: Partial<ComponentProps<typeof ClipsSectio
     ...overrides,
   };
 
+  const section = <ClipsSection {...props} />;
+  const view = isIosSafari ? (
+    <PlatformCapabilitiesProvider
+      capabilities={{
+        ...getPlatformCapabilities(),
+        isIOS: true,
+        isSafari: true,
+        isIosSafari: true,
+      }}
+    >
+      {section}
+    </PlatformCapabilitiesProvider>
+  ) : section;
+
   return {
-    ...render(<ClipsSection {...props} />),
+    ...render(view),
     props,
   };
 }
@@ -225,5 +244,27 @@ describe('ClipsSection aspect ratio controls', () => {
     expect(
       watermark.compareDocumentPosition(emptyState) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  it('apple-safari では新しい素材操作を表示せず操作経路も渡さない', () => {
+    vi.stubGlobal('IntersectionObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+
+    renderClipsSection(
+      {
+        mediaItems: [createImageItem()],
+        watermarkPanel: <div>ウォーターマーク設定パネル</div>,
+      },
+      true,
+    );
+
+    expect(screen.queryByTitle('縦画面 (9:16)')).not.toBeInTheDocument();
+    expect(screen.queryByText('ウォーターマーク設定パネル')).not.toBeInTheDocument();
+    expect(screen.queryByText('90°回転')).not.toBeInTheDocument();
+    expect(screen.queryByRole('slider', { name: 'ぼかし強度' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'ミュート対象の動画がありません' })).not.toBeInTheDocument();
   });
 });

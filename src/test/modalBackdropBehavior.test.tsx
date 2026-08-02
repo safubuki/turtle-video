@@ -125,6 +125,15 @@ describe('modal backdrop behavior', () => {
     expect(screen.queryByText('蜷榊燕險ｭ螳・')).not.toBeInTheDocument();
   });
 
+  it('apple-safari の各種設定には動画の出力品質を表示しない', () => {
+    render(<SettingsModal appFlavor="apple-safari" isOpen={true} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '各種設定' }));
+
+    expect(screen.queryByText('動画の出力品質')).not.toBeInTheDocument();
+    expect(screen.getByText('オフラインモード')).toBeInTheDocument();
+  });
+
   it('SettingsModal は API キー保存後も閉じない', () => {
     vi.useFakeTimers();
     const onClose = vi.fn();

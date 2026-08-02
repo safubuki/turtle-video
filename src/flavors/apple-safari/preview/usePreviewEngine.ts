@@ -2651,7 +2651,8 @@ export function usePreviewEngine({
               if (rendered === null || !Number.isFinite(rendered) || rendered < 0) return null;
               return Math.floor(rendered * FPS);
             },
-            coverArtJpegDataUrl: useMediaStore.getState().projectPosterDataUrl,
+            // Apple Safari は v5.3 相当の出力を維持し、PC/Android 向けのポスターを混入させない。
+            coverArtJpegDataUrl: null,
             onPreparationStepChange: setExportPreparationStep,
             onAudioPreRenderComplete: () => {
               // 【Issue #215】実描画実績は loop 開始時点から数え直す。

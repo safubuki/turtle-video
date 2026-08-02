@@ -46,6 +46,7 @@ import CaptionFontStyleField from '../common/CaptionFontStyleField';
 import VideoTitleSettingsPanel from './VideoTitleSettingsPanel';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
+import { getAppFlavorUiCapabilities } from '../../app/appFlavorUi';
 import {
   getAvailableDropdownFontOptions,
   getAvailablePinnedFontOptions,
@@ -209,6 +210,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   const [newText, setNewText] = useState('');
   // 拡張機能（システムフォント/一括入力/タイミング打ち/カスタム値）は standard フレーバー（Android/PC）限定
   const { isIosSafari } = usePlatformCapabilities();
+  const uiCapabilities = getAppFlavorUiCapabilities(isIosSafari ? 'apple-safari' : 'standard');
   const supportsExtendedFonts = !isIosSafari;
   const supportsBulkInput = !isIosSafari;
   const [showBulkModal, setShowBulkModal] = useState(false);
@@ -534,7 +536,8 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
             {settings.enabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
           </button>
           {/* キャプション一括削除（確認ダイアログ付き） */}
-          <button
+          {uiCapabilities.supportsBulkCaptionDelete && (
+            <button
             type="button"
             onClick={() => {
               if (isLocked || captions.length === 0) return;
@@ -556,7 +559,8 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
             aria-label="キャプションをすべて削除"
           >
             <Trash2 className="w-4 h-4" />
-          </button>
+            </button>
+          )}
           {/* ロック */}
           <button
             onClick={onToggleLock}
@@ -579,21 +583,23 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
       {isOpen && (
         <div className="p-3 lg:p-4 space-y-3">
           {/* 動画タイトル（Issue #211・キャプションとは別管理）: カテゴリ先頭・初期は閉じる */}
-          <VideoTitleSettingsPanel
-            title={videoTitle}
-            isLocked={isLocked}
-            totalDuration={totalDuration}
-            currentTime={currentTime}
-            supportsExtendedFonts={supportsExtendedFonts}
-            pinnedFontOptions={availablePinnedFonts}
-            dropdownFontOptions={availableDropdownFonts}
-            localFontFamilies={localFontFamilies}
-            localFontsLoading={localFontsLoading}
-            onLoadLocalFonts={handleLoadLocalFonts}
-            onUpdate={onUpdateVideoTitle}
-            onSetRange={onSetVideoTitleRange}
-            onReset={onResetVideoTitle}
-          />
+          {uiCapabilities.supportsVideoTitle && (
+            <VideoTitleSettingsPanel
+              title={videoTitle}
+              isLocked={isLocked}
+              totalDuration={totalDuration}
+              currentTime={currentTime}
+              supportsExtendedFonts={supportsExtendedFonts}
+              pinnedFontOptions={availablePinnedFonts}
+              dropdownFontOptions={availableDropdownFonts}
+              localFontFamilies={localFontFamilies}
+              localFontsLoading={localFontsLoading}
+              onLoadLocalFonts={handleLoadLocalFonts}
+              onUpdate={onUpdateVideoTitle}
+              onSetRange={onSetVideoTitleRange}
+              onReset={onResetVideoTitle}
+            />
+          )}
 
           {/* スタイル/フェード一括設定 */}
           <div className="bg-gray-800/50 rounded-xl border border-gray-600/70">
@@ -641,7 +647,8 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                     onLoadLocalFonts={handleLoadLocalFonts}
                   />
                   {/* 字体の仕上げ: デフォルトで困らない詳細設定は段階的に開示する */}
-                  <div className="rounded-lg border border-gray-700/70 bg-gray-900/30">
+                  {uiCapabilities.supportsCaptionOutlineAndColor && (
+                    <div className="rounded-lg border border-gray-700/70 bg-gray-900/30">
                     <SettingsAccordionHeader
                       title="文字の縁・色"
                       isOpen={showOutlineColorSettings}
@@ -707,7 +714,8 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                         </p>
                       </div>
                     )}
-                  </div>
+                    </div>
+                  )}
                   {/* 位置: プリセット + カスタム XY（standard のみ） */}
                   <div className="flex items-center gap-2 text-[10px] md:text-xs">
                     <span className="text-gray-400 w-16">位置:</span>
@@ -841,7 +849,8 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                   </div>
 
                   {/* キャプション背景の帯（タイトル背景帯と同じ操作感・既定 OFF） */}
-                  <div className="space-y-2 pt-2 border-t border-gray-700/50">
+                  {uiCapabilities.supportsCaptionBackground && (
+                    <div className="space-y-2 pt-2 border-t border-gray-700/50">
                     <label
                       className={`flex items-center gap-1.5 text-[10px] md:text-xs text-gray-300 ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
                     >
@@ -939,7 +948,8 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                         </div>
                       </div>
                     )}
-                  </div>
+                    </div>
+                  )}
                 </div>
                 {/* ■ フェード一括設定 */}
                 <div className="space-y-2 pt-2 border-t border-gray-700/50">

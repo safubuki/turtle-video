@@ -17,6 +17,7 @@ import CaptionColorField from '../common/CaptionColorField';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
+import { getAppFlavorUiCapabilities } from '../../app/appFlavorUi';
 import {
   BASIC_CAPTION_FONT_OPTIONS,
   createLocalFontValue,
@@ -141,6 +142,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
 
   // 拡張フォント（システムフォント）は standard フレーバー（Android/PC）限定
   const { isIosSafari } = usePlatformCapabilities();
+  const uiCapabilities = getAppFlavorUiCapabilities(isIosSafari ? 'apple-safari' : 'standard');
   const supportsExtendedFonts = !isIosSafari;
 
   // PC: Local Font Access API（Chromium 系）で端末の全フォントを追加読み込み（一括設定と同等）
@@ -442,7 +444,8 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
               </div>
             )}
             {/* 文字の縁・色: 一括設定と同じ段階開示・操作順 */}
-            <div className="rounded-lg border border-gray-700/70 bg-gray-900/30">
+            {uiCapabilities.supportsCaptionOutlineAndColor && (
+              <div className="rounded-lg border border-gray-700/70 bg-gray-900/30">
               <SettingsAccordionHeader
                 title="文字の縁・色"
                 isOpen={showOutlineColorSettings}
@@ -516,7 +519,8 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                   )}
                 </div>
               )}
-            </div>
+              </div>
+            )}
             {/* 位置: プリセット + カスタム XY（standard のみ・一括設定と同等） */}
             <div className="flex items-center gap-2 text-[10px]">
               <span className="text-gray-400 w-16">位置:</span>
@@ -574,7 +578,9 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
               </div>
             )}
             {/* ぼかし: 未設定時は一括設定の値を表示し、変更時だけ個別上書き */}
-            <div className="flex items-center gap-2 text-[10px]">
+            {uiCapabilities.supportsCaptionIndividualBlur && (
+              <>
+              <div className="flex items-center gap-2 text-[10px]">
               <span className="text-gray-400 w-16">ぼかし:</span>
               <SwipeProtectedSlider
                 min={0}
@@ -600,9 +606,12 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                 ぼかしを一括設定に戻す
               </button>
             )}
+              </>
+            )}
 
             {/* 背景の帯: 一括設定と同じチェック + 詳細（未設定項目は一括を継承） */}
-            <div className="space-y-2 pt-2 border-t border-gray-700/50">
+            {uiCapabilities.supportsCaptionBackground && (
+              <div className="space-y-2 pt-2 border-t border-gray-700/50">
               <label className="flex items-center gap-1.5 text-[10px] text-gray-300 cursor-pointer">
                 <input
                   type="checkbox"
@@ -722,7 +731,8 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                   背景の帯を一括設定に戻す
                 </button>
               )}
-            </div>
+              </div>
+            )}
           </div>
 
           {/* ■ フェード設定 */}

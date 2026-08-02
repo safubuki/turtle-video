@@ -18,6 +18,7 @@ import {
 import type { ClipTransition, MediaItem } from '../../types';
 import ClipItem from '../media/ClipItem';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
+import { getAppFlavorUiCapabilities } from '../../app/appFlavorUi';
 import { useMediaStore } from '../../stores/mediaStore';
 import { useCanvasStore } from '../../stores/canvasStore';
 import type { AspectRatio } from '../../stores/canvasStore';
@@ -204,6 +205,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   // 簡単コピーは standard フレーバー（Android/PC）限定機能
   const { isIosSafari } = usePlatformCapabilities();
+  const uiCapabilities = getAppFlavorUiCapabilities(isIosSafari ? 'apple-safari' : 'standard');
   // 出力の向き（16:9 横 / 9:16 縦）。プロジェクトごとに保持され、プレビュー/カード/エクスポートに反映される。
   const aspectRatio = useCanvasStore((s) => s.aspectRatio);
   const duplicateMediaItem = useMediaStore((s) => s.duplicateMediaItem);
@@ -255,11 +257,12 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
         </h2>
         <div className="flex items-center gap-1.5 shrink-0">
           {/* 出力の向き切替（16:9 横 / 9:16 縦）。既定は横。 */}
-          <div
-            className="flex items-center rounded-lg border border-gray-700 bg-gray-800/70 p-0.5"
-            role="group"
-            aria-label="出力の向き"
-          >
+          {uiCapabilities.supportsAspectRatioSelection && (
+            <div
+              className="flex items-center rounded-lg border border-gray-700 bg-gray-800/70 p-0.5"
+              role="group"
+              aria-label="出力の向き"
+            >
             <button
               type="button"
               onClick={() => onAspectRatioChange('landscape')}
@@ -278,9 +281,11 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             >
               <RectangleVertical className="w-4 h-4" />
             </button>
-          </div>
+            </div>
+          )}
           {/* 一括ミュート（ロックの左側） */}
-          <button
+          {uiCapabilities.supportsBulkMediaMute && (
+            <button
             type="button"
             onClick={handleBulkMuteClick}
             disabled={isClipsLocked || !hasVideos}
@@ -306,7 +311,8 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             aria-pressed={allVideosMuted}
           >
             {allVideosMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-          </button>
+            </button>
+          )}
           <button
             onClick={onToggleClipsLock}
             className={`p-1 rounded-lg transition ${isClipsLocked ? 'bg-red-500/20 text-red-400' : 'bg-gray-700 text-gray-300 hover:text-white hover:bg-gray-600'}`}
@@ -335,7 +341,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
         </div>
       </div>
       <div className="p-3 lg:p-4 space-y-3 max-h-[min(32rem,72svh)] lg:max-h-128 overflow-y-auto custom-scrollbar">
-        {watermarkPanel}
+        {uiCapabilities.supportsWatermark ? watermarkPanel : null}
         {mediaItems.length === 0 && (
           <div className="text-center py-8 text-gray-600 text-xs md:text-sm border-2 border-dashed border-gray-800 rounded">
             動画または画像ファイルを追加してください
@@ -358,12 +364,20 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             onToggleLock={() => onToggleMediaLock(v.id)}
             onToggleTransformPanel={() => onToggleTransformPanel(v.id)}
             onUpdateVideoTrim={(type, value) => onUpdateVideoTrim(v.id, type, value)}
-            onSetVideoTrimFromCurrent={(type) => onSetVideoTrimFromCurrent(v.id, type)}
+            onSetVideoTrimFromCurrent={
+              uiCapabilities.supportsMediaTrimFromPreview
+                ? (type) => onSetVideoTrimFromCurrent(v.id, type)
+                : undefined
+            }
             onUpdateImageDuration={(value) => onUpdateImageDuration(v.id, value)}
             onUpdateScale={(value) => onUpdateMediaScale(v.id, value)}
             onUpdatePosition={(axis, value) => onUpdateMediaPosition(v.id, axis, value)}
-            onRotate={() => onRotateMedia(v.id)}
-            onUpdateBlur={(value) => onUpdateMediaBlur(v.id, value)}
+            onRotate={uiCapabilities.supportsMediaRotation ? () => onRotateMedia(v.id) : undefined}
+            onUpdateBlur={
+              uiCapabilities.supportsMediaBlur
+                ? (value) => onUpdateMediaBlur(v.id, value)
+                : undefined
+            }
             onResetSetting={(type) => onResetMediaSetting(v.id, type)}
             onUpdateVolume={(value) => onUpdateMediaVolume(v.id, value)}
             onToggleMute={() => onToggleMediaMute(v.id)}
