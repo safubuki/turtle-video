@@ -702,6 +702,7 @@
 | **フレーバー分離** | export エンジンは `src/flavors/<flavor>/export/exportEngine.ts` に物理フォーク済み。共有コード→flavors の import、flavor 相互 import、共有コンポーネントでの `getPlatformCapabilities()` 直接呼び出しは ESLint で禁止。共有コンポーネントの UA 判定は `usePlatformCapabilities()`（PlatformCapabilitiesContext）経由。凍結レガシー（`components/turtle-video/usePreview*` / `utils/previewPlatform` / `utils/iosSafariAudio`）は編集禁止 |
 | **export後preview（#209）** | 共有 `<video>` を同一要素のまま `load()` / hard src で直しても Chromium decoder wedge が残ることがある（表面の readyState 4 は信用しない）。本命は MediaResourceLoader remount（`reloadKey++` + MediaElementSource detach、13-141）。13-135〜140 は保険。成功/失敗/中断の全経路で remount を要求する |
 | **動画サムネ（#208）** | アプリ内ポスターだけでは OS アイコンは変わらない。export で **covr 埋め込み + 先頭 KF 差し替え**（13-146）が本命。**ユーザー確認済み成功事例**。設定後の再書き出し必須。**自動モードは並び替え・先頭変更で dataUrl を再キャプチャ**（13-167） |
+| **自動サムネの黒画像** | canvas キャプチャ前に **video のシーク完了を待つ**（`renderFrame` は seek を要求するだけ・完了は非同期。描画条件は `readyState>=2 && !seeking`）。**キャプチャ時刻は先頭黒クリア帯 `time<=0.05` の外**へ逃がす。撮った画像は黒検証し、黒なら撮り直し・最終的に**既存画像を維持して黒で上書きしない**（13-168）。rAF 数回で済ませないこと |
 | **倍速 export 映像** | rate=speed のみは途中切れ、毎フレーム seek は静止画化。**rate=1 連続 + 壁時計 Δt/speed（wall dilation）**が成功（13-166 / export-speed-video-wall-dilation-postmortem-2026-08-01）。プレビューの rate=speed と無理に一本化しない |
 
 ## 12. Dev Script Pattern (media-video-analyzer STT)
@@ -2922,6 +2923,36 @@ export 終了（成功/失敗/中断）
   - 音量・ミュート・フェードなど見た目に無関係な更新では指紋を変えない（無駄な再キャプチャ防止）。
   - 世代番号 `projectPosterCaptureGenerationRef` で向き変更・全クリア・読込・手動再設定とのレースを破棄する。
   - 動画メタデータ未確定で duration=0 の間は総尺が伸びた時点で再度指紋が変わるため、確定後に取り直される。
+  - **13-168 で「rAF 2 回だけで撮る」実装は撤去済み**。黒サムネの原因になった。
+
+### 13-168. 自動ポスターのキャプチャはシーク完了待ち＋黒フレーム検証を必ず通す
+
+- **ファイル**: `src/utils/media.ts`, `src/utils/index.ts`, `src/components/TurtleVideo.tsx`, `src/test/media.test.ts`
+- **問題**（13-167 の退行。「自動だと黒画像、手動なら正常」）:
+  - **原因1: シーク完了を待っていなかった**。13-167 の再キャプチャは `renderFrame(autoTime)` の後 rAF 1 回（約16ms）でキャプチャしていた。
+    `renderFrame` は video 要素へ `currentTime = targetTime` を"要求"するだけで、シーク完了は非同期（数十〜数百ms）。
+    preview engine の描画条件は `readyState >= 2 && !seeking`（`usePreviewEngine.ts` の `canDrawVideo` / 要素描画分岐）なので、
+    **シーク中は描画がスキップされ、直前に黒クリアされた canvas をそのまま撮っていた**。
+  - **原因2: 自動位置が先頭強制黒クリア帯に入りうる**。`usePreviewEngine.ts` の
+    `shouldForceStartClear = isNearTimelineStart(time <= 0.05) && (!isActivePlaying && !isPlayingRef.current)` は
+    `holdFrame` を上書きして必ず黒クリアする。`computeAutoProjectPosterTimelineTime()` は総尺が短いと 0.05 以下を返すため、
+    **キャプチャ対象時刻がクリア帯に入り確実に黒**になっていた。
+  - 手動設定が常に成功するのは「ユーザーが既に見ている＝シーク完了済み・描画済み」フレームを撮るだけでシーク待ちが不要なため。
+- **対策**:
+  - `resolveAutoProjectPosterCaptureTime()`（純ロジック）: 表示上の自動時刻が `PREVIEW_START_CLEAR_ZONE_SEC`(=0.05) 以下なら、
+    キャプチャ時刻だけクリア帯の外（+0.01）へ押し出す。総尺は越えない。**表示用の `computeAutoProjectPosterTimelineTime()` は変更しない**。
+  - `isRgbaBufferEffectivelyBlank()`（純ロジック）/ `isCanvasEffectivelyBlank()`: 32x32 へ縮小して輝度を走査し黒フレームを検知。
+    しきい値 `BLANK_FRAME_LUMINANCE_THRESHOLD`(=12) は低めにして意図的な暗所を弾かない。
+    **alpha=0 のみ（＝ラスタライズされていない）は判定不能として false**（jsdom で全 canvas が黒扱いになるのを防ぐ）。
+  - キャプチャ手順を「初期遅延 150ms → `renderFrame` → **アクティブ要素が描画可能になるまでポーリング待ち（最大2.5秒）** →
+    rAF 2 回 → 黒検証 → 黒なら最大3回撮り直し」へ変更。
+  - **全試行で黒だった場合は既存画像を維持して黒で上書きしない**（`logWarn` を残す）。
+  - 自動追従 effect と「自動設定に戻す」ボタン（`handleResetProjectPosterToAuto`）の**両方**に同じ待ち＋検証を適用。
+- **注意**:
+  - `resolveActivePosterMediaElement()` は並び替え直後を考慮し、id ではなく **`mediaTimelineRanges` から時刻で**アクティブ要素を解決する。
+  - `isPosterMediaElementDrawable()` の条件は preview engine の `canDrawVideo` と揃える。片方だけ変えない。
+  - 待ちループ・rAF は effect cleanup で必ず解除し、世代番号と `disposed` の二重ガードでレースを破棄する。
+  - 黒判定は「上書きを見送る」保守的な用途にのみ使う。黒判定を根拠に再生や export の挙動を変えない。
 
 ### 13-156. カードとは独立した範囲指定ウォーターマーク（Issue #210）
 

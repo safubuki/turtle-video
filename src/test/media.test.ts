@@ -22,6 +22,10 @@ import {
   buildThumbnailSeekCandidates,
   computeAutoProjectPosterTimelineTime,
   buildAutoProjectPosterContentKey,
+  resolveAutoProjectPosterCaptureTime,
+  isCanvasEffectivelyBlank,
+  isRgbaBufferEffectivelyBlank,
+  PREVIEW_START_CLEAR_ZONE_SEC,
   validateScale,
   validatePosition,
 } from '../utils/media';
@@ -457,6 +461,58 @@ describe('video thumbnail auto/manual (Issue #208)', () => {
     expect(keyAb).not.toBe(keyAbShort);
     expect(keyAb).toBe(buildAutoProjectPosterContentKey([a, b], 8, 'landscape'));
     expect(keyAb).not.toBe(buildAutoProjectPosterContentKey([a, b], 8, 'portrait'));
+  });
+
+  // --- 自動サムネイル黒画像対策 ---
+  it('auto poster capture time stays outside the preview start clear zone', () => {
+    // 通常尺: 表示上の自動時刻 0.2s をそのまま使う（クリア帯の外）
+    expect(resolveAutoProjectPosterCaptureTime(10)).toBeCloseTo(0.2);
+
+    // 短尺: 表示時刻は 0.05s でクリア帯に入るため、キャプチャは外へ押し出す
+    expect(computeAutoProjectPosterTimelineTime(0.1)).toBeLessThanOrEqual(
+      PREVIEW_START_CLEAR_ZONE_SEC,
+    );
+    expect(resolveAutoProjectPosterCaptureTime(0.1)).toBeGreaterThan(
+      PREVIEW_START_CLEAR_ZONE_SEC,
+    );
+
+    // 総尺を越えない
+    expect(resolveAutoProjectPosterCaptureTime(0.02)).toBeLessThanOrEqual(0.02);
+    expect(resolveAutoProjectPosterCaptureTime(0)).toBe(0);
+  });
+
+  it('detects an all-black buffer as blank and a drawn buffer as not blank', () => {
+    // 4 画素ぶんの RGBA を作る
+    const fill = (r: number, g: number, b: number, a = 255) => {
+      const out: number[] = [];
+      for (let i = 0; i < 4; i++) out.push(r, g, b, a);
+      return out;
+    };
+
+    // 真っ黒 = シーク未完了で描画スキップされたフレーム
+    expect(isRgbaBufferEffectivelyBlank(fill(0, 0, 0))).toBe(true);
+    // 通常のフレーム
+    expect(isRgbaBufferEffectivelyBlank(fill(255, 255, 255))).toBe(false);
+    // 暗いが真っ黒ではないフレームは黒扱いしない（意図的な暗所を守る）
+    expect(isRgbaBufferEffectivelyBlank(fill(58, 58, 58))).toBe(false);
+
+    // 1 画素でも明るければ黒ではない（部分描画を黒と誤判定しない）
+    const partiallyDrawn = [...fill(0, 0, 0), 200, 200, 200, 255];
+    expect(isRgbaBufferEffectivelyBlank(partiallyDrawn)).toBe(false);
+  });
+
+  it('treats a fully transparent buffer as not blank (判定不能扱い)', () => {
+    // alpha=0 のみ = ラスタライズされていない。黒と断定して上書きしない。
+    const transparent = [0, 0, 0, 0, 0, 0, 0, 0];
+    expect(isRgbaBufferEffectivelyBlank(transparent)).toBe(false);
+    expect(isRgbaBufferEffectivelyBlank([])).toBe(false);
+  });
+
+  it('treats a zero-sized canvas as not blank (判定不能は既存挙動を維持)', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 0;
+    canvas.height = 0;
+    expect(isCanvasEffectivelyBlank(canvas)).toBe(false);
   });
 });
 

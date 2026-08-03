@@ -272,6 +272,13 @@ export const AUTO_THUMBNAIL_OFFSET_SEC = 0.2;
 export const AUTO_THUMBNAIL_RETRY_OFFSETS_SEC = [0.2, 0.3, 0.5] as const;
 
 /**
+ * preview engine がタイムライン先頭で強制的に黒クリアする帯（秒）。
+ * `usePreviewEngine` の `isNearTimelineStart`（time <= 0.05）と一致させる。
+ * ここでキャプチャすると必ず黒フレームになるため、自動ポスターは外へ逃がす。
+ */
+export const PREVIEW_START_CLEAR_ZONE_SEC = 0.05;
+
+/**
  * 自動サムネイルの元動画上時刻を計算する。
  * 常に sourceTrimStart + 0.2s を基準とし、有効尺が 0.2s 以下なら中央を使う。
  * 終端そのものにはならないよう、デコード可能な範囲へわずかに寄せる。
@@ -527,6 +534,86 @@ export function buildAutoProjectPosterContentKey(
     ].join(':');
   });
   return `${aspectRatio}|${durationKey}|${itemKeys.join('|')}`;
+}
+
+/**
+ * 自動ポスターのキャプチャに使うタイムライン時刻。
+ *
+ * `computeAutoProjectPosterTimelineTime()` は「表示上の自動位置」を返すが、
+ * 総尺が極端に短いと 0.05 秒以下になり、preview engine の
+ * `shouldForceStartClear`（`time <= 0.05` の先頭黒クリア）に入って
+ * 必ず黒フレームを撮ってしまう。
+ * キャプチャ時だけ先頭クリア帯の外へ押し出す。
+ */
+export function resolveAutoProjectPosterCaptureTime(totalDuration: number): number {
+  const d = Number.isFinite(totalDuration) ? Math.max(0, totalDuration) : 0;
+  if (d <= 0) return 0;
+  const base = computeAutoProjectPosterTimelineTime(d);
+  if (base > PREVIEW_START_CLEAR_ZONE_SEC) return base;
+  // 先頭クリア帯より後ろで、かつ総尺を越えない位置へ寄せる。
+  const safeUpperBound = Math.max(0, d - 0.001);
+  return Math.min(PREVIEW_START_CLEAR_ZONE_SEC + 0.01, safeUpperBound);
+}
+
+/** 黒フレーム判定の輝度しきい値。意図的な暗所を弾きすぎないよう低めに置く */
+export const BLANK_FRAME_LUMINANCE_THRESHOLD = 12;
+
+/**
+ * RGBA 画素列がすべて「ほぼ黒」かを判定する純ロジック。
+ *
+ * 全画素の輝度がしきい値未満なら true。
+ * 完全透明（alpha=0）だけの画素列は「描画されていない」ため判定不能として false を返す
+ * （jsdom のようにラスタライズしない環境で誤って黒判定しないためのガード）。
+ */
+export function isRgbaBufferEffectivelyBlank(
+  data: Uint8ClampedArray | number[],
+  luminanceThreshold = BLANK_FRAME_LUMINANCE_THRESHOLD,
+): boolean {
+  if (!data || data.length < 4) return false;
+
+  let hasOpaquePixel = false;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] === 0) continue;
+    hasOpaquePixel = true;
+    // Rec.601 相当の簡易輝度
+    const luminance = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+    if (luminance >= luminanceThreshold) return false;
+  }
+
+  // 不透明画素が 1 つも無い = 実際には描画されていない（判定不能）
+  return hasOpaquePixel;
+}
+
+/**
+ * Canvas がほぼ黒一色かを判定する。
+ * 自動ポスターのキャプチャが「シーク未完了 / 描画スキップ」で黒画像になったのを
+ * 検知して撮り直すために使う。
+ *
+ * 判定不能（サイズ 0 / context 取得失敗 / tainted canvas）は false（＝黒扱いしない）。
+ */
+export function isCanvasEffectivelyBlank(
+  canvas: HTMLCanvasElement,
+  luminanceThreshold = BLANK_FRAME_LUMINANCE_THRESHOLD,
+): boolean {
+  try {
+    if (!canvas || canvas.width <= 0 || canvas.height <= 0) return false;
+
+    // 全画素を読むと重いので、最大 32x32 のグリッドへ縮小して判定する。
+    const sampleW = Math.min(32, canvas.width);
+    const sampleH = Math.min(32, canvas.height);
+    const off = document.createElement('canvas');
+    off.width = sampleW;
+    off.height = sampleH;
+    const offCtx = off.getContext('2d', { willReadFrequently: true });
+    if (!offCtx) return false;
+    offCtx.drawImage(canvas, 0, 0, sampleW, sampleH);
+
+    const { data } = offCtx.getImageData(0, 0, sampleW, sampleH);
+    return isRgbaBufferEffectivelyBlank(data, luminanceThreshold);
+  } catch {
+    // getImageData 失敗（tainted 等）では黒判定しない＝既存の挙動を壊さない
+    return false;
+  }
 }
 
 /**

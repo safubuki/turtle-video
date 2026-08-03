@@ -62,8 +62,9 @@ import { analyzeNarrationWaveform } from '../hooks/useNarrationWaveform';
 import { resolveEffectiveAudioClipPlayback } from '../stores/audioStore';
 import {
   computeVideoTrimFromPreviewPosition,
-  computeAutoProjectPosterTimelineTime,
   buildAutoProjectPosterContentKey,
+  resolveAutoProjectPosterCaptureTime,
+  isCanvasEffectivelyBlank,
   createPosterDataUrlFromCanvas,
 } from '../utils/media';
 import { computeTimelineDurationFromSource } from '../utils/playbackSpeed';
@@ -91,6 +92,20 @@ import type {
   PreviewCacheEntry,
   PreviewCacheStatus,
 } from './turtle-video/previewCacheContract';
+
+// --- 自動プロジェクトポスターのキャプチャ待ち設定 ---
+// 動画のシークは非同期で、rAF 1 回（約16ms）では完了しない。完了前に撮ると
+// preview engine の描画条件（readyState >= 2 && !seeking）を満たさず黒を掴む。
+/** 内容変更を検知してからキャプチャ開始までの猶予（要素の差し替え・再読込を待つ） */
+const AUTO_POSTER_CAPTURE_INITIAL_DELAY_MS = 150;
+/** アクティブ要素が描画可能になるまでの最大待ち時間 */
+const AUTO_POSTER_MEDIA_SETTLE_TIMEOUT_MS = 2500;
+/** 描画可能判定のポーリング間隔 */
+const AUTO_POSTER_MEDIA_SETTLE_POLL_MS = 50;
+/** 黒フレームを掴んだときの撮り直し回数 */
+const AUTO_POSTER_CAPTURE_MAX_ATTEMPTS = 3;
+/** 撮り直し前の待ち時間 */
+const AUTO_POSTER_CAPTURE_RETRY_DELAY_MS = 120;
 
 // API キー取得関数（localStorage優先、フォールバックで環境変数）
 const getApiKey = (): string => {
@@ -1165,10 +1180,49 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     return () => clearTimeout(timeoutId);
   }, [mediaItems.length, totalDuration, reloadKey, isPlaying, isProcessing, renderFrame, setCurrentTime]);
 
+  // --- 自動ポスター: 指定タイムライン時刻のアクティブメディア要素を引く ---
+  // 並び替え直後は mediaItems の順序が変わるため、id ではなく時刻から解決する。
+  const resolveActivePosterMediaElement = useCallback(
+    (timelineTime: number): HTMLVideoElement | HTMLImageElement | null => {
+      const items = mediaItemsRef.current;
+      if (items.length === 0) return null;
+      const activeItem =
+        items.find((item) => {
+          const range = mediaTimelineRanges[item.id];
+          if (!range) return false;
+          return timelineTime >= range.start && timelineTime < range.end;
+        })
+        // 範囲から外れた場合（総尺境界など）は先頭クリップを対象にする
+        ?? items[0];
+      const element = mediaElementsRef.current[activeItem.id];
+      if (!element || element instanceof HTMLAudioElement) return null;
+      return element;
+    },
+    [mediaTimelineRanges],
+  );
+
+  // --- 自動ポスター: 要素が canvas へ描画可能かを判定する ---
+  // preview engine の描画条件（readyState >= 2 && !seeking）と揃える。
+  const isPosterMediaElementDrawable = useCallback(
+    (element: HTMLVideoElement | HTMLImageElement): boolean => {
+      if (element instanceof HTMLImageElement) {
+        return element.complete && element.naturalWidth > 0;
+      }
+      return (
+        element.readyState >= 2
+        && !element.seeking
+        && element.videoWidth > 0
+        && element.videoHeight > 0
+      );
+    },
+    [],
+  );
+
   // --- 自動プロジェクトポスター: 先頭付近の内容が変わったら再キャプチャ ---
   // 目的: 並び替え・追加・削除・尺/トリム変更で先頭付近の映像が変わっても、
   //       自動モードなら書き出し用 dataUrl と UI を新しい先頭付近へ追従させる。
   // 注意: 手動モードは触らない。再生/書き出し中はキーを進めず、停止後に再試行する。
+  //       キャプチャはシーク完了を待ち、黒を掴んだら撮り直す（黒サムネ対策）。
   useEffect(() => {
     if (!uiCapabilities.supportsProjectPoster) {
       autoProjectPosterContentKeyRef.current = null;
@@ -1196,7 +1250,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     }
 
     const previousTime = currentTimeRef.current;
-    const autoTime = computeAutoProjectPosterTimelineTime(totalDuration);
+    // 表示上の自動時刻は先頭付近だが、キャプチャは preview engine の
+    // 先頭強制黒クリア帯（time <= 0.05）の外で撮る（黒画像対策）。
+    const autoTime = resolveAutoProjectPosterCaptureTime(totalDuration);
     // タイムライン時刻だけ先に合わせ、画像はキャプチャ完了まで旧値を残してチラつきを抑える
     resetProjectPosterToAuto(
       totalDuration,
@@ -1204,32 +1260,102 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       aspectRatio,
     );
 
-    const timeoutId = setTimeout(() => {
-      if (projectPosterCaptureGenerationRef.current !== captureGeneration) return;
-      if (useMediaStore.getState().projectPosterMode !== 'auto') return;
+    let disposed = false;
+    const timeoutIds: number[] = [];
+    const rafIds: number[] = [];
 
-      requestAnimationFrame(() => {
-        if (projectPosterCaptureGenerationRef.current !== captureGeneration) return;
-        renderFrame(autoTime, false);
-        requestAnimationFrame(() => {
-          if (projectPosterCaptureGenerationRef.current !== captureGeneration) return;
-          if (useMediaStore.getState().projectPosterMode !== 'auto') return;
-          const canvas = canvasRef.current;
-          const dataUrl = canvas ? createPosterDataUrlFromCanvas(canvas) : null;
-          setProjectPosterDataUrl(dataUrl, aspectRatio);
+    const isStale = () =>
+      disposed
+      || projectPosterCaptureGenerationRef.current !== captureGeneration
+      || useMediaStore.getState().projectPosterMode !== 'auto';
 
-          // プレビュー位置を動かさない（自動更新は裏で先頭付近だけ撮る）
-          if (Math.abs(previousTime - autoTime) > 0.001) {
-            currentTimeRef.current = previousTime;
-            setCurrentTime(previousTime);
-            renderFrame(previousTime, false);
-          }
-        });
+    const delay = (ms: number) =>
+      new Promise<void>((resolve) => {
+        timeoutIds.push(window.setTimeout(resolve, ms));
       });
-    }, 150);
+
+    const nextFrame = () =>
+      new Promise<void>((resolve) => {
+        rafIds.push(requestAnimationFrame(() => resolve()));
+      });
+
+    /**
+     * 先頭付近のアクティブ動画がシーク完了して描画可能になるまで待つ。
+     * rAF 1 回だけでは seek が終わらず、preview engine の描画条件
+     * （readyState >= 2 && !seeking）を満たさないまま黒を撮っていた。
+     */
+    const waitForActiveMediaDrawable = async (): Promise<void> => {
+      const deadline = Date.now() + AUTO_POSTER_MEDIA_SETTLE_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        if (isStale()) return;
+        const element = resolveActivePosterMediaElement(autoTime);
+        // 対象要素を特定できない場合は待っても状況が変わらないので抜ける
+        if (!element) return;
+        if (isPosterMediaElementDrawable(element)) return;
+        await delay(AUTO_POSTER_MEDIA_SETTLE_POLL_MS);
+      }
+    };
+
+    const captureOnce = async (): Promise<string | null> => {
+      if (isStale()) return null;
+      renderFrame(autoTime, false);
+      await nextFrame();
+      if (isStale()) return null;
+      // 描画が canvas へ反映されるフレームを 1 つ余分に待つ
+      await nextFrame();
+      if (isStale()) return null;
+      const canvas = canvasRef.current;
+      if (!canvas) return null;
+      // 黒（＝シーク未完了・描画スキップ）を掴んだら呼び出し元で撮り直す
+      if (isCanvasEffectivelyBlank(canvas)) return null;
+      return createPosterDataUrlFromCanvas(canvas);
+    };
+
+    const runCapture = async () => {
+      await delay(AUTO_POSTER_CAPTURE_INITIAL_DELAY_MS);
+      if (isStale()) return;
+
+      // まず対象時刻へ描画要求を出し、シーク完了まで待ってから撮る
+      renderFrame(autoTime, false);
+      await waitForActiveMediaDrawable();
+      if (isStale()) return;
+
+      let dataUrl: string | null = null;
+      for (let attempt = 0; attempt < AUTO_POSTER_CAPTURE_MAX_ATTEMPTS; attempt++) {
+        dataUrl = await captureOnce();
+        if (dataUrl || isStale()) break;
+        // 黒を掴んだ: 少し待って描画・シークの落ち着きを待ち再試行
+        await delay(AUTO_POSTER_CAPTURE_RETRY_DELAY_MS);
+        await waitForActiveMediaDrawable();
+      }
+
+      if (isStale()) return;
+
+      // 全試行で黒だった場合は既存画像を維持する（黒で上書きしない）。
+      if (dataUrl) {
+        setProjectPosterDataUrl(dataUrl, aspectRatio);
+      } else {
+        logWarn('MEDIA', '自動サムネイルのキャプチャが黒フレームのため既存画像を維持', {
+          autoTime,
+          totalDuration,
+          attempts: AUTO_POSTER_CAPTURE_MAX_ATTEMPTS,
+        });
+      }
+
+      // プレビュー位置を動かさない（自動更新は裏で先頭付近だけ撮る）
+      if (Math.abs(previousTime - autoTime) > 0.001) {
+        currentTimeRef.current = previousTime;
+        setCurrentTime(previousTime);
+        renderFrame(previousTime, false);
+      }
+    };
+
+    void runCapture();
 
     return () => {
-      clearTimeout(timeoutId);
+      disposed = true;
+      timeoutIds.forEach((id) => window.clearTimeout(id));
+      rafIds.forEach((id) => cancelAnimationFrame(id));
     };
   }, [
     uiCapabilities.supportsProjectPoster,
@@ -1243,6 +1369,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     resetProjectPosterToAuto,
     setProjectPosterDataUrl,
     setCurrentTime,
+    resolveActivePosterMediaElement,
+    isPosterMediaElementDrawable,
+    logWarn,
   ]);
 
   // --- BGM状態の同期 ---
@@ -2007,20 +2136,51 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       aspectRatio,
     );
     showToast('サムネイルを自動設定（先頭付近）に戻しました。', 3000);
-    const autoTime = computeAutoProjectPosterTimelineTime(totalDuration);
+    // 表示位置は先頭付近のままだが、キャプチャは先頭強制黒クリア帯の外で撮る
+    const autoTime = resolveAutoProjectPosterCaptureTime(totalDuration);
     currentTimeRef.current = autoTime;
     setCurrentTime(autoTime);
-    // 自動位置へシークしてから描画・キャプチャ
-    requestAnimationFrame(() => {
-      if (projectPosterCaptureGenerationRef.current !== captureGeneration) return;
+
+    // 自動位置へシークし、描画可能になってからキャプチャする。
+    // rAF 2 回だけではシークが完了せず黒を掴むため、明示的に待つ。
+    void (async () => {
+      const isStale = () =>
+        projectPosterCaptureGenerationRef.current !== captureGeneration;
+
+      const delay = (ms: number) => new Promise<void>((r) => { window.setTimeout(r, ms); });
+      const nextFrame = () => new Promise<void>((r) => { requestAnimationFrame(() => r()); });
+
       renderFrame(autoTime, false);
-      requestAnimationFrame(() => {
-        if (projectPosterCaptureGenerationRef.current !== captureGeneration) return;
+
+      const deadline = Date.now() + AUTO_POSTER_MEDIA_SETTLE_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        if (isStale()) return;
+        const element = resolveActivePosterMediaElement(autoTime);
+        if (!element || isPosterMediaElementDrawable(element)) break;
+        await delay(AUTO_POSTER_MEDIA_SETTLE_POLL_MS);
+      }
+
+      for (let attempt = 0; attempt < AUTO_POSTER_CAPTURE_MAX_ATTEMPTS; attempt++) {
+        if (isStale()) return;
+        renderFrame(autoTime, false);
+        await nextFrame();
+        await nextFrame();
+        if (isStale()) return;
         const canvas = canvasRef.current;
-        const dataUrl = canvas ? createPosterDataUrlFromCanvas(canvas) : null;
-        setProjectPosterDataUrl(dataUrl, aspectRatio);
+        if (!canvas) return;
+        if (!isCanvasEffectivelyBlank(canvas)) {
+          setProjectPosterDataUrl(createPosterDataUrlFromCanvas(canvas), aspectRatio);
+          return;
+        }
+        await delay(AUTO_POSTER_CAPTURE_RETRY_DELAY_MS);
+      }
+
+      if (isStale()) return;
+      logWarn('MEDIA', '自動設定へ戻す際のキャプチャが黒フレームのため画像を設定しない', {
+        autoTime,
+        totalDuration,
       });
-    });
+    })();
   }, [
     mediaItems,
     totalDuration,
@@ -2031,6 +2191,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     setProjectPosterDataUrl,
     aspectRatio,
     showToast,
+    resolveActivePosterMediaElement,
+    isPosterMediaElementDrawable,
+    logWarn,
   ]);
 
   // --- 動画形式（横/縦）変更時のプロジェクトポスター整合 ---
