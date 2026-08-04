@@ -704,6 +704,7 @@
 | **動画サムネ（#208）** | アプリ内ポスターだけでは OS アイコンは変わらない。export で **covr 埋め込み + 先頭 KF 差し替え**（13-146）が本命。**ユーザー確認済み成功事例**。設定後の再書き出し必須。**自動モードは並び替え・先頭変更で dataUrl を再キャプチャ**（13-167） |
 | **自動サムネの黒画像** | canvas キャプチャ前に **video のシーク完了を待つ**（`renderFrame` は seek を要求するだけ・完了は非同期。描画条件は `readyState>=2 && !seeking`）。**キャプチャ時刻は先頭黒クリア帯 `time<=0.05` の外**へ逃がす。撮った画像は黒検証し、黒なら撮り直し・最終的に**既存画像を維持して黒で上書きしない**（13-168）。rAF 数回で済ませないこと |
 | **倍速 export 映像** | rate=speed のみは途中切れ、毎フレーム seek は静止画化。**rate=1 連続 + 壁時計 Δt/speed（wall dilation）**が成功（13-166 / export-speed-video-wall-dilation-postmortem-2026-08-01）。プレビューの rate=speed と無理に一本化しない |
+| **export の高速化** | 現行の駆動方式（壁時計 dilation / native 連続再生 / backpressure / 末尾補完）は**ユーザー実機で最良と確認済み。速度を理由に変更しない**。負荷を下げたいときは **VideoEncoder の configure 交渉**（`prefer-hardware`、13-169）から手を付ける。**`latencyMode:'quality'` は禁止**（内部バッファリングが `encodeQueueSize` を曇らせ backpressure 検知を遅らせる＝後半黒画面の再発条件。13-116 も同旨）。queue 上限の緩和と bitrate 低下はリカバリ性・画質を損なうので最後の手段 |
 
 ## 12. Dev Script Pattern (media-video-analyzer STT)
 
@@ -2953,6 +2954,47 @@ export 終了（成功/失敗/中断）
   - `isPosterMediaElementDrawable()` の条件は preview engine の `canDrawVideo` と揃える。片方だけ変えない。
   - 待ちループ・rAF は effect cleanup で必ず解除し、世代番号と `disposed` の二重ガードでレースを破棄する。
   - 黒判定は「上書きを見送る」保守的な用途にのみ使う。黒判定を根拠に再生や export の挙動を変えない。
+
+### 13-169. export の負荷軽減は「駆動方式」ではなく VideoEncoder の configure 交渉で行う
+
+- **ファイル**: `src/utils/videoEncoderConfig.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/test/videoEncoderConfig.test.ts`
+- **背景**: 現行の export 方式（壁時計 dilation + native 連続再生 + backpressure + 末尾補完）は
+  **ユーザー実機で「今までで一番良い」と確認済み**。途中で詰まっても復帰して正常な動画が出る点が評価されている。
+  一方で「重くなりすぎると復帰しきれない」ため、**リカバリ機構を弱めずに素の負荷を下げる**必要があった。
+- **なぜ configure なのか**: 従来 `videoEncoder.configure()` は `codec/width/height/bitrate/framerate` の
+  最小構成のみで、`hardwareAcceleration` も `latencyMode` も未指定だった（＝ブラウザ既定任せ）。
+  ここは**フレーム供給のタイミングに一切関与しない**ため、13-166 / 13-153 の不変条件を壊さずに効かせられる唯一の余地。
+- **対策**:
+  - `resolveVideoEncoderConfig()` が `VideoEncoder.isConfigSupported()` で候補を順に検証し、最初に通ったものを採用する。
+  - 候補順: `prefer-hardware`（GPU/専用エンコーダ優先 + `avc:{format:'avc'}`）→ `no-preference` → **baseline**。
+  - **baseline は現行と完全に同一**。未対応環境・`isConfigSupported` 非搭載・例外発生のいずれでも baseline へ落ちるので挙動不変。
+  - `configure()` が交渉済み設定を弾いた場合も try/catch で baseline を再投入する（二重の砦）。
+  - 採用結果は `variant` / `negotiated` としてログに残し、実機で効いたか診断できるようにする。
+- **効果の考え方**: `prefer-hardware` が通れば H.264 エンコードが専用エンコーダに載り CPU 負荷が下がる。
+  これは**フレーム投入のタイミングを一切変えない**（同じ枚数を同じ順序で投げ、消化が速くなるだけ）。
+- **⚠ `latencyMode:'quality'` は採用しない（検討したが却下。戻さないこと）**:
+  - 「内部バッファリングで負荷スパイクを吸収できる」という発想は一見正しいが、**このプロジェクトでは危険**。
+  - backpressure（13-153 / postmortem 2026-07-27）は **`encodeQueueSize` を唯一のトリガー**として
+    壁時計タイムラインと `<video>` を同時停止する。これが「3つの時計を同じ区間だけ止める」成功の核心。
+  - `latencyMode:'quality'` はエンコーダに出力を溜め込む自由を与えるため、**`encodeQueueSize` が実消化を
+    反映しなくなる恐れ**がある → backpressure の検知遅れ → **「映像内容だけ遅れて後半が黒」**（2026-07-27 実機再現症状）の再発条件。
+  - **13-116 が既に**「`output` callback 完了待ちは **H.264 の内部バッファリングで停止し得る**ため使わない」と警告済み。
+    内部バッファリングはこのプロジェクトで一度否定された挙動であり、名前を変えて再導入しない。
+  - 回帰テスト `videoEncoderConfig.test.ts` に「どの候補でも `latencyMode` を指定しない」を固定。
+- **注意（最重要）**:
+  - **駆動方式には絶対に触れない**。壁時計 dilation・`playbackRate=1`・連続 seek 禁止・backpressure・末尾補完はそのまま。
+    「重いから」を理由に seek 駆動やフレーム投入駆動へ戻さない（13-166 / 13-153 / postmortem 2026-07-27 の教訓）。
+  - `VIDEO_ENCODE_QUEUE_SOFT_LIMIT`(30) / `HARD_LIMIT`(90) は**触っていない**。ここを緩めると
+    メモリ枯渇によるハングが再発しうる。リカバリ性はユーザーが最も評価している点なので弱めない。
+  - bitrate（`computeExportVideoBitrate`: 1080p で 12Mbps）も**変えていない**。画質は現状維持。
+  - 変更は standard に閉じる。apple-safari も同じ最小 configure だが、**別途実機検証してから**適用する。
+- **対象プラットフォーム**（`resolveAppFlavor`: `isIosSafari ? 'apple-safari' : 'standard'`）:
+  - **PC（Windows/Mac Chrome・Edge）と Android は standard** → 今回の変更対象。
+    Android も SoC のハードウェア H.264 エンコーダを持つため `prefer-hardware` は有効になりうる（PC 専用の話ではない）。
+  - **iPhone / iPad Safari は apple-safari** → 今回は未変更。iOS は VideoToolbox が既定でハードウェア寄りに動くため
+    元々の効き幅が小さい可能性があり、実機検証なしに触らない（13-166 の「根拠なく apple-safari へコピーしない」に従う）。
+- **未検証**: 実機での速度改善幅は未計測。ログの `variant` が `prefer-hardware` になるかがまず確認点。
+  Android 実機でも同様に確認する。
 
 ### 13-156. カードとは独立した範囲指定ウォーターマーク（Issue #210）
 

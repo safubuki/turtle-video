@@ -45,6 +45,10 @@ import {
   normalizeVideoPlaybackSpeed,
 } from '../../../utils/playbackSpeed';
 import { capturePitchPreservedSpeedAudio } from '../../../utils/audioPitchPreservedCapture';
+import {
+  resolveVideoEncoderConfig,
+  buildBaselineVideoEncoderConfig,
+} from '../../../utils/videoEncoderConfig';
 import type {
   ExportAudioSources,
   ExportCancelReason,
@@ -2047,13 +2051,42 @@ export function createUseExport(config: UseExportRuntimeConfig) {
               console.error('VideoEncoder error:', e);
             },
           });
-          videoEncoder.configure({
-            codec: 'avc1.4d002a', // Main Profile, Level 4.2 (widely supported)
+          // エンコーダ設定は「対応していれば軽い方を使う」方式で決める。
+          // prefer-hardware が通れば H.264 圧縮が専用エンコーダに載り CPU 負荷が下がる。
+          // 未対応環境では現行と同一の baseline へ落ちるため挙動は変わらない。
+          // ※フレーム供給の駆動方式（壁時計 dilation / backpressure）には触れない。
+          // ※latencyMode は指定しない。内部バッファリングは encodeQueueSize の
+          //   信頼性を損ない backpressure 検知を遅らせるため（13-169 / 13-116）。
+          const resolvedEncoderConfig = await resolveVideoEncoderConfig({
             width,
             height,
             bitrate: exportVideoBitrate,
             framerate: FPS,
           });
+          useLogStore.getState().info('RENDER', 'VideoEncoder 設定を決定', {
+            exportSessionId,
+            variant: resolvedEncoderConfig.variant,
+            negotiated: resolvedEncoderConfig.negotiated,
+            hardwareAcceleration: resolvedEncoderConfig.config.hardwareAcceleration ?? 'unset',
+          });
+          try {
+            videoEncoder.configure(resolvedEncoderConfig.config);
+          } catch (configError) {
+            // 交渉済み設定が configure で弾かれた場合は現行同等の baseline で必ず再試行する。
+            useLogStore.getState().warn('RENDER', 'VideoEncoder 設定に失敗、baseline で再試行', {
+              exportSessionId,
+              variant: resolvedEncoderConfig.variant,
+              error: configError instanceof Error ? configError.message : String(configError),
+            });
+            videoEncoder.configure(
+              buildBaselineVideoEncoderConfig({
+                width,
+                height,
+                bitrate: exportVideoBitrate,
+                framerate: FPS,
+              }),
+            );
+          }
           const noteVideoFrameSubmitted = () => {
             videoEncoderSubmittedFrames += 1;
             audioSources?.onVideoFrameSubmitted?.(videoEncoderSubmittedFrames);
