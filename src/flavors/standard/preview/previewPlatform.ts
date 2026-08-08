@@ -386,15 +386,13 @@ export function getPreviewAudioOutputMode(
   // 増幅が設定された動画だけ WebAudio 経路（gain）へルーティングして反映する。
   const wantsAmplification = (options.baseVolume ?? options.desiredVolume) > 1.001;
 
+  // 一度 WebAudio ノードを持った要素は native へ戻さない（経路ラッチ）。
+  // createMediaElementSource() は同一要素に 1 回しか呼べず、disconnect() してもブラウザ内部の
+  // 「WebAudio に接続済み」状態は解除されない不可逆操作。100% を跨ぐ音量変更のたびに
+  // attach/detach を往復させるとメディアパイプラインの再構成でデコードが止まり、
+  // プレビューがカクつく（音量を頻繁に変えたときだけ再生が引っかかる不具合の原因）。
+  // ノードがあるなら 100% 以下も gain で正確に表現できるため、webaudio に留まる方が安全。
   if (options.hasAudioNode) {
-    if (
-      !options.isExporting
-      && options.sourceType === 'video'
-      && options.audibleSourceCount <= 1
-      && !wantsAmplification
-    ) {
-      return 'native';
-    }
     return 'webaudio';
   }
 

@@ -96,4 +96,84 @@ describe('standard preview volume routing', () => {
       sourceType: 'audio',
     })).toBe('webaudio');
   });
+
+  /**
+   * 経路ラッチ: 一度 WebAudio ノードを持った要素は native へ戻さない。
+   *
+   * createMediaElementSource() は同一要素に 1 回しか呼べない不可逆操作のため、
+   * 100% を跨ぐ音量変更のたびに attach/detach を往復するとメディアパイプラインの
+   * 再構成でデコードが止まり、プレビューがカクつく（音量を頻繁に変えたときだけ発生）。
+   */
+  describe('route latching (volume-change stutter regression)', () => {
+    it('never returns to native once the element has a WebAudio node', () => {
+      // 250% → 60% へ下げても webaudio を維持する（detach させない）
+      expect(getPreviewAudioOutputMode(policy, {
+        hasAudioNode: true,
+        isExporting: false,
+        audibleSourceCount: 1,
+        desiredVolume: 0.6,
+        baseVolume: 0.6,
+        sourceType: 'video',
+      })).toBe('webaudio');
+
+      // ちょうど 100% でも webaudio のまま（境界での往復を防ぐ）
+      expect(getPreviewAudioOutputMode(policy, {
+        hasAudioNode: true,
+        isExporting: false,
+        audibleSourceCount: 1,
+        desiredVolume: 1,
+        baseVolume: 1,
+        sourceType: 'video',
+      })).toBe('webaudio');
+
+      // ミュート（0%）でも webaudio のまま。gain=0 で表現する
+      expect(getPreviewAudioOutputMode(policy, {
+        hasAudioNode: true,
+        isExporting: false,
+        audibleSourceCount: 0,
+        desiredVolume: 0,
+        baseVolume: 0,
+        sourceType: 'video',
+      })).toBe('webaudio');
+    });
+
+    it('stays on webaudio across an aggressive 100%-crossing volume sweep', () => {
+      // 100% → 250% で webaudio へ昇格したあと、100% を何度跨いでも経路が揺れないこと
+      const sweep = [1.0, 2.5, 0.6, 1.8, 0.3, 2.0, 1.0];
+      let hasAudioNode = false;
+
+      for (const volume of sweep) {
+        const mode = getPreviewAudioOutputMode(policy, {
+          hasAudioNode,
+          isExporting: false,
+          audibleSourceCount: 1,
+          desiredVolume: volume,
+          baseVolume: volume,
+          sourceType: 'video',
+        });
+        if (mode === 'webaudio') {
+          hasAudioNode = true;
+        }
+        // 一度 webaudio になったら native へ戻らない
+        expect(mode).toBe(hasAudioNode ? 'webaudio' : 'native');
+      }
+
+      expect(hasAudioNode).toBe(true);
+    });
+
+    it('still starts on native for videos that never exceed 100% (unchanged behavior)', () => {
+      // 増幅を一度も使わないプロジェクトは従来どおり native のまま（ノードを作らない）
+      const sweep = [1.0, 0.8, 0.5, 1.0, 0.2];
+      for (const volume of sweep) {
+        expect(getPreviewAudioOutputMode(policy, {
+          hasAudioNode: false,
+          isExporting: false,
+          audibleSourceCount: 1,
+          desiredVolume: volume,
+          baseVolume: volume,
+          sourceType: 'video',
+        })).toBe('native');
+      }
+    });
+  });
 });

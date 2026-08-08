@@ -3270,3 +3270,21 @@ export 終了（成功/失敗/中断）
 - **互換性**: 共有の型・保存スキーマ・中立な既定値は維持する。flavor 分離のためだけに保存契約を分岐させない。
 - **ヘルプ**: `sectionHelp.ts` も Apple では非表示機能の項目を除外し、位置・サイズ、従来トリム、キャプションの既存設定だけを案内する。
 - **回帰ガード**: `appleSafariFlavorRegression.test.ts` で capability がすべて false であること、`clipsSectionPicker.test.tsx` で回転・素材ぼかし・ウォーターマーク等が描画されないこと、`captionStyleControls.test.tsx` と `sectionHelp.test.ts` で字幕UIとヘルプの境界を固定する。
+
+### 13-172. プレビュー音声の経路ラッチ（音量を頻繁に変えるとカクつく不具合）
+
+- **ファイル**: `src/flavors/standard/preview/previewPlatform.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/components/TurtleVideo.tsx`, `src/test/standardPreviewVolumeRouting.test.ts`
+- **問題**: プレビュー再生中に動画の音量を 100% / 250% / 60% のようにアグレッシブかつ頻繁に変更すると、再生がカクつく。単発の変更では出ず、100% を跨いで往復するほど悪化する。
+- **原因（2つの複合）**:
+  - **経路の張り替え（主因）**: 13-108 の増幅対応で、動画音声は基準音量 >100% のとき `webaudio`、100% 以下は `native` に振り分けていた。100% を跨ぐたびに rAF ループ内で `ensureAudioNodeForElement()` と `detachAudioNode()` が往復する。`createMediaElementSource()` は同一要素に 1 回しか呼べない不可逆操作で、`disconnect()` してもブラウザ内部の「WebAudio 接続済み」状態は解除されない。往復のたびにメディアパイプラインが再構成されデコードが停止する。
+  - **スライダーごとの pause（増幅要因）**: 音量更新が `withPreviewPause` に包まれ、`pause()` + `cancelAnimationFrame()` を実行していた。音量スライダーは `onChange` を連続発火する（step 0.05・デバウンスなし）ため、ドラッグ中は 1 目盛ごとに pause 連打になっていた。
+- **対策**:
+  - **経路ラッチ**: `getPreviewAudioOutputMode()` で `hasAudioNode` が真なら常に `webaudio` を返す。一度ノードを持った要素は native へ戻さない。100% 以下も gain で正確に表現できるため音量の正しさは保たれる。
+  - rAF ループ（`usePreviewEngine`）内の `detachAudioNode()` 呼び出しを削除。ホットパスで経路を剥がさない。要素差し替え・アンマウント時のクリーンアップは従来どおり `usePreviewAudioSession` が担当する。
+  - `withoutPreviewPause()` を追加し、動画・BGM・ナレーションの音量ハンドラをこちらへ移行。`clearGeneratedExport()` は従来どおり呼び、生成済みエクスポートと編集内容の乖離は防ぐ。
+- **注意**:
+  - **増幅を一度も使わないプロジェクトの挙動は不変**。`hasAudioNode` が偽のままなので native 経路で始まり、ノードは作られない。ラッチが効くのは増幅で一度 webaudio に昇格した要素だけ。
+  - rAF ループ内で `detachAudioNode()` を復活させないこと。音量・フェード・ミュートはすべて gain で表現する（`effectiveGain`）。
+  - 音量のような連続値スライダーに `withPreviewPause` を使わない。トグルや単発確定の操作（ミュート、フェードON/OFF）は従来どおり pause してよい。
+  - `apple-safari` 側の `previewPlatform.ts` は未変更（iOS は元から複数音源で webaudio に寄せる方針のため往復が起きにくい）。iOS 展開時は同じラッチが必要か要検証。
+- **テスト**: `standardPreviewVolumeRouting.test.ts` の `route latching` で、100% を跨ぐスイープ（1.0→2.5→0.6→1.8→0.3→2.0→1.0）で経路が揺れないこと、ノード保持時は 0% / 100% でも native へ戻らないこと、増幅なしスイープが native のままであることを固定する。

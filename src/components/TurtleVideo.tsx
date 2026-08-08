@@ -598,6 +598,21 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     };
   }, [pausePreviewBeforeEdit]);
 
+  /**
+   * 再生を止めずに編集を反映する（音量など連続値スライダー用）。
+   *
+   * 音量スライダーは onChange をドラッグ中ずっと連続発火するため、withPreviewPause だと
+   * 1 目盛ごとに pause() + cancelAnimationFrame() が走り、頻繁に動かすほど再生がカクつく。
+   * 音量は「再生を聴きながら合わせたい」値なので、一時停止しない方が UX 上も正しい。
+   * 生成済みエクスポートの破棄だけは従来どおり行い、出力と編集内容の乖離を防ぐ。
+   */
+  const withoutPreviewPause = useCallback(<T extends unknown[]>(reason: string, fn: (...args: T) => void) => {
+    return (...args: T) => {
+      clearGeneratedExport(`edit:${reason}`);
+      fn(...args);
+    };
+  }, [clearGeneratedExport]);
+
   const handleWatermarkImageSelect = useCallback((file: File) => {
     const supportedMimeTypes = new Set(['image/png', 'image/jpeg', 'image/webp']);
     if (!supportedMimeTypes.has(file.type)) {
@@ -2557,12 +2572,13 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
   // --- BGM/ナレーション音量更新ハンドラ ---
   // 目的: オーディオトラックの音量を変更
+  // 音量はドラッグ中に連続発火するため一時停止しない（withoutPreviewPause の説明を参照）
   const handleUpdateBgmVolume = useCallback((val: string) => {
     const numVal = parseFloat(val);
     if (isNaN(numVal)) return;
-    pausePreviewBeforeEdit('update-bgm-volume');
+    clearGeneratedExport('edit:update-bgm-volume');
     updateBgmVolume(numVal);
-  }, [pausePreviewBeforeEdit, updateBgmVolume]);
+  }, [clearGeneratedExport, updateBgmVolume]);
 
   const handleUpdateNarrationStart = useCallback((id: string, val: string) => {
     const numVal = parseFloat(val);
@@ -2581,12 +2597,13 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     setNarrationEndTime(id, currentTimeRef.current);
   }, [pausePreviewBeforeEdit, setNarrationEndTime]);
 
+  // 音量はドラッグ中に連続発火するため一時停止しない（withoutPreviewPause の説明を参照）
   const handleUpdateNarrationVolume = useCallback((id: string, val: string) => {
     const numVal = parseFloat(val);
     if (isNaN(numVal)) return;
-    pausePreviewBeforeEdit('update-narration-volume');
+    clearGeneratedExport('edit:update-narration-volume');
     updateNarrationVolume(id, numVal);
-  }, [pausePreviewBeforeEdit, updateNarrationVolume]);
+  }, [clearGeneratedExport, updateNarrationVolume]);
 
   const handleToggleNarrationMute = useCallback((id: string) => {
     pausePreviewBeforeEdit('toggle-narration-mute');
@@ -3638,7 +3655,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onRotateMedia={handleRotateMedia}
               onUpdateMediaBlur={handleUpdateMediaBlur}
               onResetMediaSetting={handleResetMediaSetting}
-              onUpdateMediaVolume={withPreviewPause('update-media-volume', updateVolume)}
+              onUpdateMediaVolume={withoutPreviewPause('update-media-volume', updateVolume)}
               onToggleMediaMute={withPreviewPause('toggle-media-mute', toggleMute)}
               onUpdateVideoPlaybackSpeed={withPreviewPause('update-video-playback-speed', updateVideoPlaybackSpeed)}
               onUpdateVideoShowSpeedBadge={withPreviewPause('update-video-show-speed-badge', updateVideoShowSpeedBadge)}

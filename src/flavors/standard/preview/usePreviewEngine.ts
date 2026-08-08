@@ -1065,7 +1065,9 @@ export function usePreviewEngine({
   cancelPendingSeekPlaybackPrepare,
   detachGlobalSeekEndListeners,
   ensureAudioNodeForElement,
-  detachAudioNode,
+  // 経路ラッチ導入により rAF ループ内での detach は廃止（音量変更時のカクつき対策）。
+  // クリーンアップ経路（要素差し替え/アンマウント）は usePreviewAudioSession 側が担当する。
+  detachAudioNode: _detachAudioNode,
   preparePreviewAudioNodesForTime,
   preparePreviewAudioNodesForUpcomingVideos,
   primePreviewAudioOnlyTracksAtTime,
@@ -2944,11 +2946,9 @@ export function usePreviewEngine({
                   baseVolume: conf.isMuted ? 0 : conf.volume,
                 });
 
-                if (outputMode === 'native' && hasAudioNode) {
-                  detachAudioNode(id);
-                  hasAudioNode = false;
-                }
-
+                // 経路ラッチ（getPreviewAudioOutputMode 参照）により、ノードを持つ要素は
+                // 再生中に native へ戻らない。ここで detach すると 100% を跨ぐ音量変更のたびに
+                // メディアパイプライン再構成が走りプレビューがカクつくため、rAF 内では剥がさない。
                 const effectiveGain = outputMode === 'native' ? 0 : vol;
                 if (currentGainNode && audioCtxRef.current) {
                   const currentGain = currentGainNode.gain.value;
