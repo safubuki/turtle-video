@@ -3,7 +3,7 @@
  * @author Turtle Village
  * @description キャプション個別スタイル設定のモーダル。一括設定を上書き（Override）するためのUI。
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { RotateCcw, X } from 'lucide-react';
 import type {
   Caption,
@@ -14,18 +14,18 @@ import type {
 } from '../../types';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import CaptionColorField from '../common/CaptionColorField';
+import CaptionFontSizeField from '../common/CaptionFontSizeField';
+import CaptionFontStyleField from '../common/CaptionFontStyleField';
+import CaptionPositionField from '../common/CaptionPositionField';
+import CaptionMiniPreview from '../common/CaptionMiniPreview';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import { getAppFlavorUiCapabilities } from '../../app/appFlavorUi';
 import {
-  BASIC_CAPTION_FONT_OPTIONS,
-  createLocalFontValue,
   getAvailableDropdownFontOptions,
   getAvailablePinnedFontOptions,
   getLocalFontFamilyFromValue,
-  isExtendedCaptionFontStyle,
-  resolveCaptionFontFamily,
 } from '../../utils/captionFontCatalog';
 import {
   CAPTION_BACKGROUND_DEFAULT,
@@ -35,10 +35,7 @@ import {
   CAPTION_BACKGROUND_RADIUS_MAX,
   CAPTION_BACKGROUND_RADIUS_MIN,
   CAPTION_BACKGROUND_RADIUS_STEP,
-  CAPTION_FONT_SIZE_CUSTOM_MAX,
-  CAPTION_FONT_SIZE_CUSTOM_MIN,
   CAPTION_FONT_SIZE_PRESETS,
-  CAPTION_POSITION_CUSTOM_DEFAULT,
   CAPTION_STROKE_WIDTH_MAX,
   CAPTION_STROKE_WIDTH_MIN,
   CAPTION_STROKE_WIDTH_STEP,
@@ -58,6 +55,7 @@ import {
   resolveSequentialCaptionSegments,
 } from '../../utils/captionTimeline';
 import { queryLocalFontFamilies, supportsLocalFontAccess } from '../../utils/fontAvailability';
+import type { CaptionFreeSnapshot } from '../../utils/canvas';
 import {
   createClearedCaptionIndividualSettings,
   hasCaptionIndividualSettings,
@@ -66,14 +64,26 @@ import {
 interface CaptionSettingsModalProps {
   caption: Caption;
   settings: CaptionSettings;
+  /**
+   * メインプレビューの canvas。
+   * モーダルがプレビューを覆って見た目を確認できない問題への対策として、
+   * 現在フレームへキャプションを重ねたミニプレビューをモーダル内に表示する。
+   */
+  previewCanvasRef?: React.RefObject<HTMLCanvasElement | null>;
+  /**
+   * キャプション抜きのプレビューフレーム（ミニプレビューの転写元）。
+   * メインプレビューの canvas はキャプションが焼き込まれているため、
+   * そのまま使うと設定中のキャプションと二重に表示される。
+   */
+  captionFreeSnapshotRef?: React.MutableRefObject<CaptionFreeSnapshot>;
+  /** プレビューの現在位置（ミニプレビューの背景フレームの時刻表示に使う） */
+  currentTime?: number;
   onClose: () => void;
   onUpdate: (id: string, updates: Partial<Omit<Caption, 'id'>>) => void;
 }
 
-// 拡張型：デフォルトオプション付き
-type PositionOption = 'default' | CaptionPosition;
-type FontStyleOption = 'default' | CaptionFontStyle;
-type SizeOption = 'default' | CaptionSize;
+// フェードだけは「デフォルト/ON/OFF」の 3 状態を保つ（サイズ・字体・位置は
+// 共有コンポーネント側で null = デフォルトとして扱う）
 type FadeOption = 'default' | 'on' | 'off';
 
 /**
@@ -82,6 +92,9 @@ type FadeOption = 'default' | 'on' | 'off';
 const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
   caption,
   settings,
+  previewCanvasRef,
+  captionFreeSnapshotRef,
+  currentTime = 0,
   onClose,
   onUpdate,
 }) => {
@@ -90,18 +103,15 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
   // マウント時は常に表示状態なので true を渡す
   useDisableBodyScroll(true);
 
-  // 現在の値を取得（undefinedの場合は'default'）
-  const currentPosition: PositionOption = caption.overridePosition ?? 'default';
-  const currentFontStyle: FontStyleOption = caption.overrideFontStyle ?? 'default';
-  const currentFontSize: SizeOption = caption.overrideFontSize ?? 'default';
+  // 現在の値を取得（undefined の場合は 'default' = 一括設定を継承）
   const currentFadeIn: FadeOption = caption.overrideFadeIn ?? 'default';
   const currentFadeOut: FadeOption = caption.overrideFadeOut ?? 'default';
   const currentFadeInDuration = caption.overrideFadeInDuration ?? 0.5;
   const currentFadeOutDuration = caption.overrideFadeOutDuration ?? 0.5;
-  // 個別カスタム値（一括設定と同等の自由指定・standard 限定）
-  const isCustomFontSize = caption.overrideFontSizeCustom != null;
-  const isCustomPosition = caption.overridePositionCustom != null;
-  const customPosition = caption.overridePositionCustom ?? CAPTION_POSITION_CUSTOM_DEFAULT;
+  // 「デフォルト」選択中にカスタム編集を始めたときの初期 px は一括設定の実効値を使う
+  const inheritedFontSizePx = settings.fontSizeCustom != null
+    ? clampCustomFontSize(settings.fontSizeCustom)
+    : CAPTION_FONT_SIZE_PRESETS[settings.fontSize] ?? CAPTION_FONT_SIZE_PRESETS.medium;
   const [showOutlineColorSettings, setShowOutlineColorSettings] = useState(false);
   const effectiveGlyphStyle = resolveCaptionGlyphStyle(caption, settings);
   const effectiveBackgroundStyle = resolveCaptionBackgroundStyle(caption, settings);
@@ -131,24 +141,19 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
     onClose();
   };
 
-  // サイズオプション
-  const fontSizeOptions: { value: SizeOption; label: string }[] = [
-    { value: 'default', label: 'デフォルト' },
-    { value: 'small', label: '小' },
-    { value: 'medium', label: '中' },
-    { value: 'large', label: '大' },
-    { value: 'xlarge', label: '特大' },
-  ];
-
   // 拡張フォント（システムフォント）は standard フレーバー（Android/PC）限定
   const { isIosSafari } = usePlatformCapabilities();
   const uiCapabilities = getAppFlavorUiCapabilities(isIosSafari ? 'apple-safari' : 'standard');
   const supportsExtendedFonts = !isIosSafari;
 
+  // 字体・サイズ・位置は一括設定と同じ共有コンポーネントを使う（丸ゴシック等の
+  // 固定ボタンや実在フォントのドロップダウンが一括設定と必ず一致する）。
+  const availablePinnedFonts = useMemo(() => getAvailablePinnedFontOptions(), []);
+  const availableDropdownFonts = useMemo(() => getAvailableDropdownFontOptions(), []);
+
   // PC: Local Font Access API（Chromium 系）で端末の全フォントを追加読み込み（一括設定と同等）
   const [localFontFamilies, setLocalFontFamilies] = useState<string[]>([]);
   const [localFontsLoading, setLocalFontsLoading] = useState(false);
-  const canLoadLocalFonts = supportsExtendedFonts && supportsLocalFontAccess();
   const handleLoadLocalFonts = async () => {
     if (localFontsLoading) return;
     setLocalFontsLoading(true);
@@ -170,79 +175,41 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
     // モーダルを開いた初回のみ実行する
   }, []);
 
-  // 字体オプション: デフォルト + 基本 2（モーダルは幅が狭いため固定は 2 つに抑え、残りはドロップダウンへ）
-  const fontStyleOptions: { value: FontStyleOption; label: string }[] = [
-    { value: 'default', label: 'デフォルト' },
-    ...BASIC_CAPTION_FONT_OPTIONS.map(({ value, label }) => ({ value, label })),
-  ];
-  // ドロップダウン: 実在する丸ゴシック + 実在するその他フォント
-  const modalDropdownOptions = [
-    ...getAvailablePinnedFontOptions().filter((o) => o.extended),
-    ...getAvailableDropdownFontOptions(),
-  ];
-  const isDropdownFontSelected = caption.overrideFontStyle !== undefined
-    && isExtendedCaptionFontStyle(caption.overrideFontStyle)
-    && !BASIC_CAPTION_FONT_OPTIONS.some((o) => o.value === caption.overrideFontStyle);
-  const dropdownFontValue = isDropdownFontSelected ? (caption.overrideFontStyle ?? '') : '';
-  const selectedLocalFamily = getLocalFontFamilyFromValue(caption.overrideFontStyle ?? '');
-  const dropdownHasSelected = !dropdownFontValue
-    || modalDropdownOptions.some((o) => o.value === dropdownFontValue)
-    || (selectedLocalFamily !== null && localFontFamilies.includes(selectedLocalFamily));
-
-  // 配置オプション
-  const positionOptions: { value: PositionOption; label: string }[] = [
-    { value: 'default', label: 'デフォルト' },
-    { value: 'top', label: '上部' },
-    { value: 'center', label: '中央' },
-    { value: 'bottom', label: '下部' },
-  ];
-
-  // 更新ハンドラ（プリセット選択時は個別カスタム値を解除する）
-  const handleFontSizeChange = (value: SizeOption) => {
+  // 更新ハンドラ（共有コンポーネントの null = 「デフォルト」= 一括設定を継承）
+  const handleFontSizeChange = (value: CaptionSize | null) => {
     onUpdate(caption.id, {
-      overrideFontSize: value === 'default' ? undefined : value,
+      overrideFontSize: value ?? undefined,
       overrideFontSizeCustom: undefined,
     });
   };
 
-  const handleEnableCustomFontSize = () => {
-    if (isCustomFontSize) return;
+  const handleCustomFontSizeChange = (value: number | null) => {
     onUpdate(caption.id, {
-      overrideFontSize: undefined,
-      overrideFontSizeCustom: caption.overrideFontSize
-        ? CAPTION_FONT_SIZE_PRESETS[caption.overrideFontSize]
-        : CAPTION_FONT_SIZE_PRESETS.medium,
+      overrideFontSizeCustom: value == null ? undefined : clampCustomFontSize(value),
+      // カスタムを指定したらプリセットの override は外す（一括設定と同じ挙動）
+      ...(value == null ? {} : { overrideFontSize: undefined }),
     });
   };
 
-  const handleCustomFontSizeChange = (value: number) => {
-    onUpdate(caption.id, { overrideFontSizeCustom: clampCustomFontSize(value) });
-  };
-
-  const handleEnableCustomPosition = () => {
-    if (isCustomPosition) return;
+  const handleFontStyleChange = (value: CaptionFontStyle | null) => {
     onUpdate(caption.id, {
-      overridePosition: undefined,
-      overridePositionCustom: { ...CAPTION_POSITION_CUSTOM_DEFAULT },
+      overrideFontStyle: value ?? undefined,
     });
   };
 
-  const handleCustomPositionChange = (axis: 'x' | 'y', value: number) => {
+  const handlePositionChange = (value: CaptionPosition | null) => {
     onUpdate(caption.id, {
-      overridePositionCustom: { ...customPosition, [axis]: clampPositionPercent(value) },
-    });
-  };
-
-  const handleFontStyleChange = (value: FontStyleOption) => {
-    onUpdate(caption.id, {
-      overrideFontStyle: value === 'default' ? undefined : value,
-    });
-  };
-
-  const handlePositionChange = (value: PositionOption) => {
-    onUpdate(caption.id, {
-      overridePosition: value === 'default' ? undefined : value,
+      overridePosition: value ?? undefined,
       overridePositionCustom: undefined,
+    });
+  };
+
+  const handlePositionCustomChange = (value: { x: number; y: number } | null) => {
+    onUpdate(caption.id, {
+      overridePositionCustom: value == null
+        ? undefined
+        : { x: clampPositionPercent(value.x), y: clampPositionPercent(value.y) },
+      ...(value == null ? {} : { overridePosition: undefined }),
     });
   };
 
@@ -291,13 +258,40 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
       : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
     }`;
 
+  // --- ミニプレビュー用の値 ---
+  // 目的はサイズ・位置・色の確認なので、実際の表示時間やフェードに影響されず
+  // 常にフル不透明で 1 行目が出るよう、時刻を固定した複製を描く。
+  // 時分割カードは 1 行目（先頭セグメント）を代表として表示する。
+  const MINI_PREVIEW_TIME_SEC = 1;
+  const miniPreviewTimeSec = MINI_PREVIEW_TIME_SEC;
+  const miniPreviewCaption: Caption = useMemo(() => ({
+    ...caption,
+    startTime: 0,
+    endTime: MINI_PREVIEW_TIME_SEC * 2,
+    // フェードで薄くならないよう、ミニプレビューでは常に OFF 扱いにする
+    overrideFadeIn: 'off',
+    overrideFadeOut: 'off',
+  }), [caption]);
+  // 背景フレームはメインプレビューの canvas を都度転写する。
+  // 現在位置が変わったときに描き直せるよう、時刻を再描画キーに含める。
+  const miniPreviewRefreshKey = Math.round(currentTime * 100);
+
+  const formatMiniPreviewTime = (sec: number): string => {
+    if (!Number.isFinite(sec) || sec < 0) return '0:00';
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
   return (
     <div
       className="fixed inset-0 bg-black/70 flex items-center justify-center z-[300] p-4"
       onClick={onClose}
     >
+      {/* PC は横広（max-w-2xl）にして、「既定」が増えた分のボタンを 1 段に収める。
+          スマホは従来どおり画面幅いっぱいで、短縮ラベル + 均等配分により折り返さない。 */}
       <div
-        className="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-sm shadow-2xl max-h-[92vh] flex flex-col"
+        className="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-sm md:max-w-2xl shadow-2xl max-h-[92vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -318,131 +312,59 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
           </button>
         </div>
 
+        {/* ミニプレビュー: モーダルがメインプレビューを覆うため、ここで見た目を確認できるようにする。
+            スクロールしてもサイズ・位置の変化を見失わないよう上部に固定する。 */}
+        {previewCanvasRef && (
+          <div className="px-4 pt-3 shrink-0">
+            {/* PC でモーダルを横広にした分、プレビューが画面を占有しないよう幅を抑える */}
+            <div className="mx-auto w-full max-w-sm">
+              <CaptionMiniPreview
+                sourceCanvasRef={previewCanvasRef}
+                captionFreeSnapshotRef={captionFreeSnapshotRef}
+                captions={[miniPreviewCaption]}
+                settings={settings}
+                previewTimeSec={miniPreviewTimeSec}
+                refreshKey={miniPreviewRefreshKey}
+                caption={`プレビュー現在位置 ${formatMiniPreviewTime(currentTime)} の画面にこのキャプションを重ねた表示`}
+              />
+            </div>
+          </div>
+        )}
+
         {/* コンテンツ */}
         <div className="p-4 space-y-3 overflow-y-auto custom-scrollbar">
           {/* ■ スタイル設定 */}
           <div className="space-y-2">
             <div className="text-[10px] text-yellow-400 font-bold">■ スタイル設定</div>
-            {/* サイズ: プリセット + カスタム値（standard のみ・一括設定と同等） */}
-            <div className="flex items-center gap-2 text-[10px]">
-              <span className="text-gray-400 w-16">サイズ:</span>
-              <div className="flex gap-1 flex-1">
-                {fontSizeOptions.map((opt) => (
-                  <button
-                    key={opt.value}
-                    onClick={() => handleFontSizeChange(opt.value)}
-                    className={getButtonClass(!isCustomFontSize && currentFontSize === opt.value)}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-                {supportsExtendedFonts && (
-                  <button
-                    onClick={handleEnableCustomFontSize}
-                    className={getButtonClass(isCustomFontSize)}
-                    title="サイズを数値で自由に指定"
-                  >
-                    カスタム
-                  </button>
-                )}
-              </div>
-            </div>
-            {/* カスタムサイズ入力 */}
-            {supportsExtendedFonts && isCustomFontSize && (
-              <div className="flex items-center gap-2 text-[10px] pl-16">
-                <SwipeProtectedSlider
-                  min={CAPTION_FONT_SIZE_CUSTOM_MIN}
-                  max={CAPTION_FONT_SIZE_CUSTOM_MAX}
-                  step={2}
-                  value={caption.overrideFontSizeCustom ?? CAPTION_FONT_SIZE_PRESETS.medium}
-                  onChange={handleCustomFontSizeChange}
-                  className="flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none cursor-pointer"
-                />
-                <input
-                  type="number"
-                  min={CAPTION_FONT_SIZE_CUSTOM_MIN}
-                  max={CAPTION_FONT_SIZE_CUSTOM_MAX}
-                  step={2}
-                  value={Math.round(caption.overrideFontSizeCustom ?? CAPTION_FONT_SIZE_PRESETS.medium)}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    if (!Number.isNaN(val)) handleCustomFontSizeChange(val);
-                  }}
-                  className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500"
-                />
-                <span className="text-gray-500 whitespace-nowrap">px</span>
-              </div>
-            )}
-            {/* 字体: デフォルト + 固定 + ドロップダウン（standard のみ） */}
-            <div className="flex items-center gap-2 text-[10px]">
-              <span className="text-gray-400 w-16">字体:</span>
-              <div className="flex gap-1 flex-1 items-stretch">
-                {fontStyleOptions.map((opt) => (
-                  <button
-                    key={opt.value}
-                    onClick={() => handleFontStyleChange(opt.value)}
-                    className={getButtonClass(currentFontStyle === opt.value)}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-                {supportsExtendedFonts && (
-                  <select
-                    value={dropdownFontValue}
-                    onChange={(e) => {
-                      const value = e.target.value as CaptionFontStyle | '';
-                      if (value) handleFontStyleChange(value);
-                    }}
-                    className={`flex-1 min-w-0 py-1 px-0.5 rounded transition text-[10px] bg-gray-700 focus:outline-none focus:ring-1 focus:ring-yellow-500 ${dropdownFontValue
-                      ? 'text-yellow-300 ring-1 ring-yellow-500/70 font-semibold'
-                      : 'text-gray-300 hover:bg-gray-600'
-                      }`}
-                    title="その他のシステムフォントから選ぶ（端末に実在するもののみ表示）"
-                  >
-                    <option value="" disabled className="bg-gray-800 text-gray-500">
-                      その他▾
-                    </option>
-                    {modalDropdownOptions.map((opt) => (
-                      <option key={opt.value} value={opt.value} className="bg-gray-800 text-gray-200" style={{ fontFamily: opt.family }}>
-                        {opt.label}
-                      </option>
-                    ))}
-                    {localFontFamilies.length > 0 && (
-                      <optgroup label="端末のフォント" className="bg-gray-800 text-gray-400">
-                        {localFontFamilies.map((family) => (
-                          <option
-                            key={family}
-                            value={createLocalFontValue(family)}
-                            className="bg-gray-800 text-gray-200"
-                            style={{ fontFamily: family }}
-                          >
-                            {family}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {!dropdownHasSelected && (
-                      <option value={dropdownFontValue} className="bg-gray-800 text-gray-200" style={{ fontFamily: resolveCaptionFontFamily(dropdownFontValue) }}>
-                        {selectedLocalFamily ?? dropdownFontValue}
-                      </option>
-                    )}
-                  </select>
-                )}
-              </div>
-            </div>
-            {/* PC: 端末の全フォント読み込み（Local Font Access API 対応環境のみ・一括設定と同等） */}
-            {canLoadLocalFonts && localFontFamilies.length === 0 && (
-              <div className="pl-16">
-                <button
-                  onClick={handleLoadLocalFonts}
-                  disabled={localFontsLoading}
-                  className="text-[10px] text-blue-300 hover:text-blue-200 underline underline-offset-2 disabled:opacity-50"
-                  title="この PC にインストールされている全フォントを選択肢に追加します（許可が必要）"
-                >
-                  {localFontsLoading ? '読み込み中…' : '＋ この端末の全フォントから選ぶ（PC）'}
-                </button>
-              </div>
-            )}
+            {/* サイズ: 一括設定と同じ共有コンポーネント（先頭に「デフォルト」を追加） */}
+            <CaptionFontSizeField
+              fontSize={caption.overrideFontSize ?? null}
+              fontSizeCustom={caption.overrideFontSizeCustom}
+              supportsCustom={supportsExtendedFonts}
+              allowDefaultOption
+              compact
+              inheritedFontSizePx={inheritedFontSizePx}
+              ariaLabelPrefix="個別キャプション"
+              idPrefix={`caption-individual-${caption.id}`}
+              onSetFontSize={handleFontSizeChange}
+              onSetFontSizeCustom={handleCustomFontSizeChange}
+            />
+            {/* 字体: 一括設定と同じ共有コンポーネント。
+                以前はモーダル側で独自に組んでいたため丸ゴシック等の固定ボタンが
+                欠落していた（Issue: 個別設定に丸ゴシックが無い）。共有化で常に一致する。 */}
+            <CaptionFontStyleField
+              fontStyle={caption.overrideFontStyle ?? null}
+              supportsExtendedFonts={supportsExtendedFonts}
+              allowDefaultOption
+              compact
+              pinnedFontOptions={availablePinnedFonts}
+              dropdownFontOptions={availableDropdownFonts}
+              localFontFamilies={localFontFamilies}
+              localFontsLoading={localFontsLoading}
+              idPrefix={`caption-individual-${caption.id}`}
+              onSetFontStyle={handleFontStyleChange}
+              onLoadLocalFonts={handleLoadLocalFonts}
+            />
             {/* 文字の縁・色: 一括設定と同じ段階開示・操作順 */}
             {uiCapabilities.supportsCaptionOutlineAndColor && (
               <div className="rounded-lg border border-gray-700/70 bg-gray-900/30">
@@ -521,62 +443,18 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
               )}
               </div>
             )}
-            {/* 位置: プリセット + カスタム XY（standard のみ・一括設定と同等） */}
-            <div className="flex items-center gap-2 text-[10px]">
-              <span className="text-gray-400 w-16">位置:</span>
-              <div className="flex gap-1 flex-1">
-                {positionOptions.map((opt) => (
-                  <button
-                    key={opt.value}
-                    onClick={() => handlePositionChange(opt.value)}
-                    className={getButtonClass(!isCustomPosition && currentPosition === opt.value)}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-                {supportsExtendedFonts && (
-                  <button
-                    onClick={handleEnableCustomPosition}
-                    className={getButtonClass(isCustomPosition)}
-                    title="XY 座標で自由に配置"
-                  >
-                    カスタム
-                  </button>
-                )}
-              </div>
-            </div>
-            {/* カスタム位置入力（キャンバスに対する % / テキスト中心） */}
-            {supportsExtendedFonts && isCustomPosition && (
-              <div className="space-y-1.5 pl-16">
-                {(['x', 'y'] as const).map((axis) => (
-                  <div key={axis} className="flex items-center gap-2 text-[10px]">
-                    <span className="text-gray-500 w-4 uppercase">{axis}</span>
-                    <SwipeProtectedSlider
-                      min={0}
-                      max={100}
-                      step={1}
-                      value={customPosition[axis]}
-                      onChange={(val) => handleCustomPositionChange(axis, val)}
-                      className="flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none cursor-pointer"
-                    />
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step={1}
-                      value={Math.round(customPosition[axis])}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value);
-                        if (!Number.isNaN(val)) handleCustomPositionChange(axis, val);
-                      }}
-                      className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500"
-                    />
-                    <span className="text-gray-500">%</span>
-                  </div>
-                ))}
-                <div className="text-[9px] text-gray-500">X=50 が中央、Y=0 が最上部（テキスト中心の位置）</div>
-              </div>
-            )}
+            {/* 位置: 一括設定と同じ共有コンポーネント（先頭に「デフォルト」を追加） */}
+            <CaptionPositionField
+              position={caption.overridePosition ?? null}
+              positionCustom={caption.overridePositionCustom}
+              supportsCustom={supportsExtendedFonts}
+              allowDefaultOption
+              compact
+              ariaLabelPrefix="個別キャプション"
+              idPrefix={`caption-individual-${caption.id}`}
+              onSetPosition={handlePositionChange}
+              onSetPositionCustom={handlePositionCustomChange}
+            />
             {/* ぼかし: 未設定時は一括設定の値を表示し、変更時だけ個別上書き */}
             {uiCapabilities.supportsCaptionIndividualBlur && (
               <>

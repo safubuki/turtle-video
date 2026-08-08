@@ -26,6 +26,7 @@ import {
 } from '../../../utils/captionStyle';
 import { drawVideoTitleFrame } from '../../../utils/videoTitle';
 import { drawWatermarkOverlayFrame } from '../../../utils/watermarkOverlay';
+import { captureCaptionFreeSnapshot, type CaptionFreeSnapshot } from '../../../utils/canvas';
 import {
   applyVideoElementPlaybackRate,
   drawSpeedBadgeFrame,
@@ -140,6 +141,12 @@ interface UsePreviewEngineParams {
   videoTitleRef: MutableRefObject<VideoTitleSettings>;
   watermarkOverlayRef?: MutableRefObject<WatermarkOverlay>;
   watermarkImageRef?: MutableRefObject<HTMLImageElement | null>;
+  /**
+   * キャプションを描く直前のフレームを保存する先（キャプション設定のミニプレビュー用）。
+   * メインプレビューの canvas を直接転写すると焼き込み済みキャプションと二重になるため、
+   * キャプション抜きの状態をここへ控える。
+   */
+  captionFreeSnapshotRef?: MutableRefObject<CaptionFreeSnapshot>;
   totalDurationRef: MutableRefObject<number>;
   currentTimeRef: MutableRefObject<number>;
   canvasRef: MutableRefObject<HTMLCanvasElement | null>;
@@ -999,6 +1006,7 @@ export function usePreviewEngine({
   videoTitleRef,
   watermarkOverlayRef,
   watermarkImageRef,
+  captionFreeSnapshotRef,
   totalDurationRef,
   currentTimeRef,
   canvasRef,
@@ -3200,6 +3208,16 @@ export function usePreviewEngine({
               }
             }
           }
+        }
+
+        // === キャプション抜きフレームのスナップショット ===
+        // キャプション設定のミニプレビューは「現在フレームへ設定中のキャプションを重ねて」
+        // 見た目を確かめる。ここでメインプレビューの canvas をそのまま転写元にすると
+        // **既に焼き込まれたキャプションの上へもう 1 枚描く**ことになり、文字が二重に見える
+        // （サイズ変更時に前のサイズが残る／削除したはずの文字が残る）。
+        // そのため、キャプションを描く直前の状態を控えておき、ミニプレビューはこちらを使う。
+        if (!_isExporting && captionFreeSnapshotRef) {
+          captureCaptionFreeSnapshot(ctx, captionFreeSnapshotRef.current);
         }
 
         if (currentCaptionSettings.enabled && currentCaptions.length > 0) {

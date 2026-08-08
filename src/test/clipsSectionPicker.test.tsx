@@ -268,3 +268,37 @@ describe('ClipsSection aspect ratio controls', () => {
     expect(screen.queryByRole('button', { name: 'ミュート対象の動画がありません' })).not.toBeInTheDocument();
   });
 });
+
+describe('クリップ調整パネルのミニプレビュー配置', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('ミニプレビューを調整スライダーより「上」に置く', () => {
+    // MiniPreview は IntersectionObserver を使うためスタブする
+    vi.stubGlobal('IntersectionObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+
+    const { container } = renderClipsSection({
+      mediaItems: [createImageItem()],
+    });
+
+    const panel = container.querySelector('[id^="clip-transform-settings-"]');
+    expect(panel).toBeTruthy();
+
+    // ミニプレビュー（canvas）と最初の調整スライダーの DOM 上の前後関係を見る。
+    // 調整結果を確認する場所なので、操作するスライダーより前（＝画面上では上）に出す。
+    // 下に置くと、スマホでスライダーを操作する指がプレビューを隠してしまう。
+    const miniPreviewCanvas = panel!.querySelector('canvas');
+    const firstSlider = panel!.querySelector('input[type="range"]');
+    expect(miniPreviewCanvas).toBeTruthy();
+    expect(firstSlider).toBeTruthy();
+
+    const position = miniPreviewCanvas!.compareDocumentPosition(firstSlider!);
+    // DOCUMENT_POSITION_FOLLOWING = スライダーがミニプレビューより後ろにある
+    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});

@@ -265,10 +265,13 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
   //   requestAnimationFrame(() => renderFrame(true));
   // }, [item.scale, item.positionX, item.positionY, renderFrame]);
 
+  // 親（トランスフォームパネル）の先頭に置かれ、間隔は親の space-y-2 が付ける。
+  // 以前はスライダーの下（末尾）だったため mt-2 で間を空けていたが、
+  // 先頭配置では余分な余白になるため外している。
   return (
     <div
       ref={containerRef}
-      className="mt-2 rounded-lg overflow-hidden border border-gray-600"
+      className="rounded-lg overflow-hidden border border-gray-600"
     >
       {/* プレビュー */}
       <div className="relative bg-black">

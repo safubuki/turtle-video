@@ -649,3 +649,56 @@ describe('PreviewSection action buttons', () => {
     expect(onStop).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('プレビューの現在位置表示（1/100 秒）', () => {
+  it('現在位置を 1/100 秒まで表示する', () => {
+    renderPreviewSection({ currentTime: 3.07, totalDuration: 15 });
+    expect(screen.getByText('0:03.07')).toBeTruthy();
+  });
+
+  it('同じ「秒」でも 1/100 秒が違えば表示が変わる（スライダー操作に追従する）', () => {
+    // 従来の「分:秒」表示では 3.00 も 3.50 も同じ「0:03」に潰れていた
+    const { unmount } = renderPreviewSection({ currentTime: 3.0, totalDuration: 15 });
+    expect(screen.getByText('0:03.00')).toBeTruthy();
+    unmount();
+
+    renderPreviewSection({ currentTime: 3.5, totalDuration: 15 });
+    expect(screen.getByText('0:03.50')).toBeTruthy();
+    expect(screen.queryByText('0:03.00')).toBeNull();
+  });
+
+  it('総尺も 1/100 秒まで表示する（現在位置と桁を揃える）', () => {
+    renderPreviewSection({ currentTime: 3.07, totalDuration: 15 });
+    expect(screen.getByText('0:15.00')).toBeTruthy();
+  });
+
+  it('端数のある総尺で「現在位置 > 総尺」に見えない', () => {
+    // 10.5 秒の動画を floor して「0:10」と出すと、終端まで再生したとき
+    // 現在位置が「0:10.50」となり現在位置のほうが大きく見えてしまう
+    renderPreviewSection({ currentTime: 10.5, totalDuration: 10.5 });
+    // 終端では左右がぴったり同じ表示になる（現在位置だけ大きく見えない）
+    expect(screen.getAllByText('0:10.50')).toHaveLength(2);
+    expect(screen.queryByText('0:10')).toBeNull();
+    expect(screen.getByLabelText('現在位置 0:10.50')).toBeTruthy();
+    expect(screen.getByLabelText('全体の長さ 0:10.50')).toBeTruthy();
+  });
+
+  it('クリップ尺の加算で生じる浮動小数の誤差を吸収する', () => {
+    // 0.1 秒を 105 回足すと 10.499999999999979 になる。
+    // 素朴な floor だと「0:10.49」と 1/100 秒ずれて見える
+    const accumulated = Array.from({ length: 105 }).reduce<number>((a) => a + 0.1, 0);
+    renderPreviewSection({ currentTime: 0, totalDuration: accumulated });
+    expect(screen.getByLabelText('全体の長さ 0:10.50')).toBeTruthy();
+  });
+
+  it('シークバーの刻みを 1/100 秒に合わせる（表示だけ細かくても動かせないと意味がない）', () => {
+    const { container } = renderPreviewSection({ currentTime: 3, totalDuration: 15 });
+    const seekBar = container.querySelector('input[type="range"]');
+    expect(seekBar?.getAttribute('step')).toBe('0.01');
+  });
+
+  it('現在位置には読み上げ用のラベルを付ける', () => {
+    renderPreviewSection({ currentTime: 3.07, totalDuration: 15 });
+    expect(screen.getByLabelText('現在位置 0:03.07')).toBeTruthy();
+  });
+});

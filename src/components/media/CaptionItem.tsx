@@ -8,6 +8,7 @@ import {
   resolveSequentialCaptionSegments,
 } from '../../utils/captionTimeline';
 import { hasCaptionIndividualSettings } from '../../utils/captionIndividualSettings';
+import type { CaptionFreeSnapshot } from '../../utils/canvas';
 
 interface CaptionItemProps {
   caption: Caption;
@@ -17,6 +18,17 @@ interface CaptionItemProps {
   totalDuration: number;
   currentTime: number;
   isLocked: boolean;
+  /**
+   * メインプレビューの canvas。個別設定モーダルのミニプレビュー用に渡す
+   * （モーダルがプレビューを覆って見た目を確認できない問題への対策）。
+   */
+  previewCanvasRef?: React.RefObject<HTMLCanvasElement | null>;
+  /**
+   * キャプション抜きのプレビューフレーム（ミニプレビューの転写元）。
+   * メインプレビューの canvas はキャプションが焼き込まれているため、
+   * そのまま使うと設定中のキャプションと二重に表示される。
+   */
+  captionFreeSnapshotRef?: React.MutableRefObject<CaptionFreeSnapshot>;
   onUpdate: (id: string, updates: Partial<Omit<Caption, 'id'>>) => void;
   onRemove: (id: string) => void;
   onMove: (id: string, direction: 'up' | 'down') => void;
@@ -33,6 +45,8 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
   totalDuration,
   currentTime,
   isLocked,
+  previewCanvasRef,
+  captionFreeSnapshotRef,
   onUpdate,
   onRemove,
   onMove,
@@ -325,6 +339,9 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
         <CaptionSettingsModal
           caption={caption}
           settings={settings}
+          previewCanvasRef={previewCanvasRef}
+          captionFreeSnapshotRef={captionFreeSnapshotRef}
+          currentTime={currentTime}
           onClose={() => setShowSettingsModal(false)}
           onUpdate={onUpdate}
         />

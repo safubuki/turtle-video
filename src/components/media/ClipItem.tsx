@@ -396,6 +396,12 @@ const ClipItem: React.FC<ClipItemProps> = ({
           id={`clip-transform-settings-${v.id}`}
           className="px-2 pb-2 space-y-2 border-t border-gray-700/60 pt-2"
         >
+          {/* ミニプレビュー: 調整結果を確認する場所なので**スライダーより上**に置く。
+              下に置くと、スライダーを操作する指（スマホ）がプレビューを隠してしまい、
+              「動かす → 結果を見る」の往復で視線も上下に振られる。
+              キャプション設定のミニプレビューとも配置を揃える。 */}
+          <MiniPreview item={v} mediaElement={mediaElement} />
+
           {/* 拡大率 */}
           <div className="flex flex-col gap-1">
             <div className="flex items-center justify-between text-[10px] text-gray-400">
@@ -553,9 +559,6 @@ const ClipItem: React.FC<ClipItemProps> = ({
             </div>
             </div>
           )}
-
-          {/* ミニプレビュー */}
-          <MiniPreview item={v} mediaElement={mediaElement} />
         </div>
         )}
         </div>

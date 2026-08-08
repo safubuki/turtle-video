@@ -37,7 +37,13 @@ import { findAdjacentSilenceBoundary } from '../utils/timelineWaveform';
 import { useProjectStore } from '../stores/projectStore';
 
 // Utils
-import { captureCanvasAsImage, waitForPreviewFrameSettled } from '../utils/canvas';
+import {
+  captureCanvasAsImage,
+  createCaptionFreeSnapshot,
+  waitForPreviewFrameSettled,
+  waitForVideoFrameAtTime,
+} from '../utils/canvas';
+import { resolveCaptureFrameTarget } from '../utils/previewCaptureFrame';
 import { preserveOriginalFileName, resolveAiNarrationFileName } from '../utils/fileNames';
 import { saveBlobWithClientFileStrategy, saveObjectUrlWithClientFileStrategy } from '../utils/fileSave';
 import {
@@ -331,6 +337,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const bgmRef = useRef<AudioTrack | null>(null);
   const narrationsRef = useRef<NarrationClip[]>([]);
   const totalDurationRef = useRef(0);
+  // キャプションを描く直前のプレビューフレーム（キャプション設定のミニプレビュー用）。
+  // メインプレビューの canvas を直接使うと焼き込み済みキャプションと二重になる。
+  const captionFreeSnapshotRef = useRef(createCaptionFreeSnapshot());
   const currentTimeRef = useRef(0);
   const projectPosterCaptureGenerationRef = useRef(0);
   /** 自動ポスターの再キャプチャ判定用。並び替え・尺変更などでキーが変わったら先頭付近を取り直す */
@@ -1074,6 +1083,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     videoTitleRef,
     watermarkOverlayRef,
     watermarkImageRef,
+    captionFreeSnapshotRef,
     totalDurationRef,
     currentTimeRef,
     canvasRef,
@@ -3114,6 +3124,19 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     previewCacheVideoRef,
   ]);
 
+  // --- キャプション変更時のプレビュー再描画 ---
+  // キャプションはプレビュー canvas へ焼き込まれるため、削除・編集しても再描画が
+  // 走らないと「消したはずの文字が残る」。停止中は自動で描き直す契機が無いので、
+  // ここで明示的に現在位置を描き直す。
+  // （同時に、ミニプレビューが使う「キャプション抜きスナップショット」も更新される）
+  useEffect(() => {
+    if (isPlayingRef.current || isProcessing) return;
+    const id = requestAnimationFrame(() => {
+      renderFrame(currentTimeRef.current, false);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [captions, captionSettings, videoTitle, isProcessing, renderFrame]);
+
   // Issue #114: 書き出しオプション（セッション中のみ。プロジェクト保存対象外）
   const [exportOutputOptions, setExportOutputOptions] = useState<ExportOutputOptions>(
     () => ({ ...DEFAULT_EXPORT_OUTPUT_OPTIONS }),
@@ -3396,10 +3419,46 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       return;
     }
 
-    // シークで終端へ移動した直後などは、video のデコード済みフレームが目標時刻に
-    // 追いつく前に描画されることがあり、保存画像が画面より 1 フレーム前になる。
-    // 進行中のシーク完了と再描画を待ってから読み取り、画面の確定フレームと一致させる。
-    // （通常再生で終端に来た場合は seeking 中の要素が無いためほぼ素通り＝従来挙動）
+    // 【重要】キャプチャは「シークバーの現在位置のフレーム」を確実に保存する。
+    //
+    // プレビュー再生中は video 要素を native 再生させたまま drawImage しているだけなので、
+    // canvas に載るのは「その瞬間デコーダが持っていたフレーム」で、シークバーの位置とは
+    // 数十 ms ずれ得る。特に終端まで再生し切った直後は
+    //   - finalizePreviewAtTimelineEnd が currentTime を総尺へスナップする
+    //   - 一方で終端判定は総尺 -30ms で先に発火し、video は最終フレーム手前で止まる
+    // が重なり、「画面は終端なのに保存画像は 1 フレーム前」になっていた。
+    //
+    // 対策: 読み取り前に必ず
+    //   1. 対象クリップと、その時刻に対応する元動画のソース時刻を解決する
+    //   2. video を明示的にそのソース時刻へシークし、デコード完了（seeked）まで待つ
+    //   3. 確定した時刻で再描画してから canvas を読む
+    // という順序を踏む。終端でも途中停止でも同じ経路で一致する。
+    const captureTarget = resolveCaptureFrameTarget(
+      mediaItems,
+      currentTimeRef.current,
+      totalDurationRef.current,
+    );
+
+    if (captureTarget.videoId !== null && captureTarget.videoSourceTime !== null) {
+      const targetVideo = mediaElementsRef.current[captureTarget.videoId];
+      if (targetVideo instanceof HTMLVideoElement) {
+        try {
+          // 再生直後は paused でもデコーダが先へ進んでいることがあるため、
+          // 目標時刻へ十分近い場合を除いて必ず明示シークする。
+          if (Math.abs(targetVideo.currentTime - captureTarget.videoSourceTime) > 1 / 240) {
+            targetVideo.currentTime = captureTarget.videoSourceTime;
+          }
+        } catch {
+          /* シーク不能なら下の待ちとタイムアウトで従来動作へ落ちる */
+        }
+        await waitForVideoFrameAtTime(targetVideo, captureTarget.videoSourceTime);
+      }
+    }
+
+    // 確定したソースフレームで canvas を描き直す（キャプション等の合成も同時刻で揃う）。
+    renderPausedPreviewFrameAtTimeRef.current(captureTarget.renderTime);
+
+    // 再描画（および内部で発生し得る追いシーク）が canvas へ反映されるのを待つ。
     await waitForPreviewFrameSettled(mediaElementsRef.current);
 
     const timestamp = formatTime(currentTimeRef.current).replace(':', 'm') + 's';
@@ -3411,7 +3470,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     } else {
       showToast('キャプチャに失敗しました');
     }
-  }, [mediaItems.length, isProcessing, stopAll, pause, showToast, formatTime]);
+  }, [mediaItems, isProcessing, stopAll, pause, showToast, formatTime]);
 
   const openSectionHelp = useCallback((section: SectionHelpKey) => {
     setActiveHelpSection(section);
@@ -3652,6 +3711,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               isLocked={isCaptionLocked}
               totalDuration={totalDuration}
               currentTime={currentTime}
+              // ミニプレビュー（一括設定・個別設定モーダル）の背景フレームの転写元。
+              // プレビュー欄まで往復せずにサイズ・位置を確認できるようにする。
+              previewCanvasRef={canvasRef}
+              captionFreeSnapshotRef={captionFreeSnapshotRef}
               // 【Issue #216】エクスポート中は「現在位置に先頭を合わせる」の時刻表示を凍結する
               isExporting={isProcessing}
               onToggleLock={withPreviewPause('toggle-caption-lock', toggleCaptionLock)}

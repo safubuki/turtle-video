@@ -17,6 +17,11 @@ import { isAnyFontFamilyAvailable } from './fontAvailability';
 export interface CaptionFontOption {
   value: CaptionFontStyle;
   label: string;
+  /**
+   * 幅の狭い場所（個別設定モーダル等）で使う短縮ラベル。
+   * 未指定なら `label` をそのまま使う。
+   */
+  shortLabel?: string;
   family: string;
   /** 拡張フォント（standard フレーバー限定 UI）かどうか */
   extended: boolean;
@@ -49,6 +54,7 @@ export const CAPTION_FONT_OPTIONS: CaptionFontOption[] = [
   {
     value: 'gothic',
     label: 'ゴシック',
+    shortLabel: 'ゴシ',
     family: 'sans-serif',
     extended: false,
   },
@@ -62,6 +68,7 @@ export const CAPTION_FONT_OPTIONS: CaptionFontOption[] = [
   {
     value: 'rounded',
     label: '丸ゴシック',
+    shortLabel: '丸ゴ',
     family: '"M PLUS Rounded 1c", "ヒラギノ丸ゴ ProN", "Hiragino Maru Gothic ProN", "HGMaruGothicMPRO", "HG丸ｺﾞｼｯｸM-PRO", sans-serif',
     extended: true,
     detectFamilies: ['M PLUS Rounded 1c', 'Hiragino Maru Gothic ProN', 'HGMaruGothicMPRO', 'HG丸ｺﾞｼｯｸM-PRO'],

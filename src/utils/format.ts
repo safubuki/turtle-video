@@ -30,6 +30,30 @@ export function formatTimeDetailed(seconds: number): string {
 }
 
 /**
+ * 秒数を "分:秒.1/100秒" 形式にフォーマット（プレビューの現在位置表示用）。
+ *
+ * プレビューは 1 秒未満の移動が頻繁に起きる（再生・スライダー操作・
+ * キャプションのタイミング打ち・無音区間ジャンプ）。`formatTime` の
+ * 「分:秒」表示だと 3.00〜3.99 秒がすべて `0:03` に潰れてしまい、
+ * 「スライダーを動かしたのに数字が変わらない」という違和感につながる。
+ * ここでは 1/100 秒まで出して、実際の位置と表示を一致させる。
+ *
+ * 切り捨て（floor）で統一する。四捨五入すると 3.999 秒が `0:04.00` となり、
+ * 総尺 4 秒の動画で「終端に達していないのに終端の表示」になるため。
+ *
+ * @param seconds - 秒数
+ * @returns フォーマットされた時間文字列 (例: "1:30.05")
+ */
+export function formatTimeCentiseconds(seconds: number): string {
+  if (!seconds || isNaN(seconds) || !isFinite(seconds) || seconds < 0) return '0:00.00';
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  // 浮動小数の誤差で 1/100 秒がひとつ下に出るのを防ぐ（例: 3.07 が 3.06 に見える）
+  const cs = Math.floor(Math.round((seconds % 1) * 1000) / 10);
+  return `${m}:${s.toString().padStart(2, '0')}.${cs.toString().padStart(2, '0')}`;
+}
+
+/**
  * パーセンテージをフォーマット
  * @param value - 0〜1の値
  * @returns パーセンテージ文字列 (例: "50%")

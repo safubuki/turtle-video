@@ -60,18 +60,19 @@ import {
   CAPTION_BACKGROUND_RADIUS_MAX,
   CAPTION_BACKGROUND_RADIUS_MIN,
   CAPTION_BACKGROUND_RADIUS_STEP,
-  CAPTION_POSITION_CUSTOM_DEFAULT,
   CAPTION_STROKE_WIDTH_MAX,
   CAPTION_STROKE_WIDTH_MIN,
   CAPTION_STROKE_WIDTH_STEP,
   clampCaptionBackgroundOpacity,
   clampCaptionBackgroundRadius,
   clampCaptionStrokeWidth,
-  clampPositionPercent,
 } from '../../utils/captionStyle';
 import { resolveShiftAlignmentTarget } from '../../utils/captionTimeline';
 import CaptionBulkAddModal, { type BulkCaptionApplyItem } from '../modals/CaptionBulkAddModal';
 import CaptionColorField from '../common/CaptionColorField';
+import CaptionMiniPreview from '../common/CaptionMiniPreview';
+import type { CaptionFreeSnapshot } from '../../utils/canvas';
+import CaptionPositionField from '../common/CaptionPositionField';
 
 interface CaptionSectionProps {
   captions: Caption[];
@@ -84,6 +85,18 @@ interface CaptionSectionProps {
   isLocked: boolean;
   totalDuration: number;
   currentTime: number;
+  /**
+   * メインプレビューの canvas。
+   * 一括設定と個別設定モーダルのミニプレビュー（現在フレームへキャプションを重ねた確認用表示）で使う。
+   * プレビューまで往復せずにサイズ・位置を確かめられるようにする。
+   */
+  previewCanvasRef?: React.RefObject<HTMLCanvasElement | null>;
+  /**
+   * キャプション抜きのプレビューフレーム（ミニプレビューの転写元）。
+   * メインプレビューの canvas はキャプションが焼き込まれているため、
+   * そのまま使うと設定中のキャプションと二重に表示される。
+   */
+  captionFreeSnapshotRef?: React.MutableRefObject<CaptionFreeSnapshot>;
   /**
    * エクスポート（動画ファイル作成）中かどうか。
    * 【Issue #216】エクスポート中は currentTime がフレームごとに更新されるため、
@@ -163,6 +176,8 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   isLocked,
   totalDuration,
   currentTime,
+  previewCanvasRef,
+  captionFreeSnapshotRef,
   isExporting = false,
   onToggleLock,
   onAddCaption,
@@ -232,9 +247,29 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
     }
   };
 
-  // カスタム位置（standard 限定）
-  const isCustomPosition = settings.positionCustom != null;
-  const customPosition = settings.positionCustom ?? CAPTION_POSITION_CUSTOM_DEFAULT;
+  // === 一括設定のミニプレビュー ===
+  // 現在位置に表示中のキャプションがあればそれを、無ければサンプル文字を出す。
+  // サイズ・位置・色の確認が目的なので、時刻を固定してフェードの影響を受けないようにする。
+  const BULK_MINI_PREVIEW_TIME_SEC = 1;
+  const bulkMiniPreviewCaption: Caption = useMemo(() => {
+    const activeCaption = captions.find(
+      (c) => currentTime >= c.startTime && currentTime < c.endTime,
+    );
+    const base = activeCaption ?? captions[0];
+    return {
+      id: 'caption-bulk-mini-preview',
+      text: base?.text ?? 'サンプル字幕',
+      startTime: 0,
+      endTime: BULK_MINI_PREVIEW_TIME_SEC * 2,
+      // 一括設定の見え方を確認する場所なので、個別の上書きは意図的に載せない。
+      // フェードで薄くならないよう常に OFF 扱いにする。
+      overrideFadeIn: 'off',
+      overrideFadeOut: 'off',
+    } as Caption;
+  }, [captions, currentTime]);
+  // 背景フレームはメインプレビューの canvas を都度転写する。現在位置の変化で描き直す。
+  const bulkMiniPreviewRefreshKey = Math.round(currentTime * 100);
+
 
   // === 一括シフト（映像の差し込み/削除後の時間調整・カード基準） ===
   const [shiftAmount, setShiftAmount] = useState(1.0);
@@ -486,12 +521,6 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
     setNewText('');
   };
 
-  const positionOptions: { value: CaptionPosition; label: string }[] = [
-    { value: 'top', label: '上部' },
-    { value: 'center', label: '中央' },
-    { value: 'bottom', label: '下部' },
-  ];
-
   return (
     <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
       {/* ヘッダー */}
@@ -615,13 +644,26 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                 id="caption-style-settings"
                 className="px-3 pb-3 pt-2 space-y-3 border-t border-gray-700/60"
               >
+                {/* ミニプレビュー: プレビュー欄まで往復せずにサイズ・位置を確かめられるようにする。
+                    個別設定モーダルと同じコンポーネントで、見え方も本番描画と一致する。 */}
+                {previewCanvasRef && (
+                  <CaptionMiniPreview
+                    sourceCanvasRef={previewCanvasRef}
+                    captionFreeSnapshotRef={captionFreeSnapshotRef}
+                    captions={[bulkMiniPreviewCaption]}
+                    settings={settings}
+                    previewTimeSec={BULK_MINI_PREVIEW_TIME_SEC}
+                    refreshKey={bulkMiniPreviewRefreshKey}
+                    caption={`プレビュー現在位置 ${formatTime(currentTime)} の画面にサンプル文字を重ねた表示`}
+                  />
+                )}
                 {/* ■ スタイル設定 */}
                 <div className="space-y-2">
                   <div className="text-[10px] md:text-xs text-yellow-400 font-bold">
                     ■ スタイル設定
                   </div>
                   {/* 文字サイズ: プリセット + カスタム値（standard のみ）。
-                      タイトル設定と実装を共有し、見た目・操作感を揃える */}
+                      タイトル設定・個別設定モーダルと実装を共有し、見た目・操作感を揃える */}
                   <CaptionFontSizeField
                     fontSize={settings.fontSize}
                     fontSizeCustom={settings.fontSizeCustom}
@@ -629,11 +671,14 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                     supportsCustom={supportsExtendedFonts}
                     ariaLabelPrefix="キャプション"
                     idPrefix="caption"
-                    onSetFontSize={onSetFontSize}
+                    onSetFontSize={(value) => {
+                      // 一括設定に「デフォルト」は無いので null は来ない
+                      if (value) onSetFontSize(value);
+                    }}
                     onSetFontSizeCustom={onSetFontSizeCustom}
                   />
                   {/* 字体: 固定（基本 2 + 実在する丸ゴシック）+ 実在フォントのみのドロップダウン
-                      + PC の全フォント読み込み。タイトル設定と実装を共有する */}
+                      + PC の全フォント読み込み。タイトル設定・個別設定モーダルと実装を共有する */}
                   <CaptionFontStyleField
                     fontStyle={settings.fontStyle}
                     disabled={isLocked}
@@ -643,7 +688,9 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                     localFontFamilies={localFontFamilies}
                     localFontsLoading={localFontsLoading}
                     idPrefix="caption"
-                    onSetFontStyle={onSetFontStyle}
+                    onSetFontStyle={(value) => {
+                      if (value) onSetFontStyle(value);
+                    }}
                     onLoadLocalFonts={handleLoadLocalFonts}
                   />
                   {/* 字体の仕上げ: デフォルトで困らない詳細設定は段階的に開示する */}
@@ -716,119 +763,19 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                     )}
                     </div>
                   )}
-                  {/* 位置: プリセット + カスタム XY（standard のみ） */}
-                  <div className="flex items-center gap-2 text-[10px] md:text-xs">
-                    <span className="text-gray-400 w-16">位置:</span>
-                    <div className="flex gap-1 flex-1">
-                      {positionOptions.map((opt) => (
-                        <button
-                          key={opt.value}
-                          onClick={() => {
-                            onSetPositionCustom(null);
-                            onSetPosition(opt.value);
-                          }}
-                          disabled={isLocked}
-                          className={`flex-1 max-w-[4rem] py-1 rounded transition ${
-                            !isCustomPosition && settings.position === opt.value
-                              ? 'bg-yellow-500 text-gray-900'
-                              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                          } disabled:opacity-50`}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                      {supportsExtendedFonts && (
-                        <button
-                          onClick={() => {
-                            if (!isCustomPosition) {
-                              onSetPositionCustom({ ...CAPTION_POSITION_CUSTOM_DEFAULT });
-                            }
-                          }}
-                          disabled={isLocked}
-                          className={`flex-1 max-w-[4.5rem] py-1 rounded transition ${
-                            isCustomPosition
-                              ? 'bg-yellow-500 text-gray-900'
-                              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                          } disabled:opacity-50`}
-                          title="XY 座標で自由に配置"
-                        >
-                          カスタム
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  {/* カスタム位置入力（キャンバスに対する % / テキスト中心） */}
-                  {supportsExtendedFonts && isCustomPosition && (
-                    <div className="space-y-1.5 pl-16">
-                      <div className="flex items-center gap-2 text-[10px] md:text-xs">
-                        <span className="text-gray-500 w-4">X</span>
-                        <SwipeProtectedSlider
-                          min={0}
-                          max={100}
-                          step={1}
-                          value={customPosition.x}
-                          onChange={(val) =>
-                            onSetPositionCustom({ ...customPosition, x: clampPositionPercent(val) })
-                          }
-                          disabled={isLocked}
-                          className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
-                        />
-                        <input
-                          type="number"
-                          min={0}
-                          max={100}
-                          step={1}
-                          value={Math.round(customPosition.x)}
-                          onChange={(e) => {
-                            const val = parseFloat(e.target.value);
-                            if (!Number.isNaN(val))
-                              onSetPositionCustom({
-                                ...customPosition,
-                                x: clampPositionPercent(val),
-                              });
-                          }}
-                          disabled={isLocked}
-                          className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500 disabled:opacity-50"
-                        />
-                        <span className="text-gray-500">%</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-[10px] md:text-xs">
-                        <span className="text-gray-500 w-4">Y</span>
-                        <SwipeProtectedSlider
-                          min={0}
-                          max={100}
-                          step={1}
-                          value={customPosition.y}
-                          onChange={(val) =>
-                            onSetPositionCustom({ ...customPosition, y: clampPositionPercent(val) })
-                          }
-                          disabled={isLocked}
-                          className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
-                        />
-                        <input
-                          type="number"
-                          min={0}
-                          max={100}
-                          step={1}
-                          value={Math.round(customPosition.y)}
-                          onChange={(e) => {
-                            const val = parseFloat(e.target.value);
-                            if (!Number.isNaN(val))
-                              onSetPositionCustom({
-                                ...customPosition,
-                                y: clampPositionPercent(val),
-                              });
-                          }}
-                          disabled={isLocked}
-                          className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500 disabled:opacity-50"
-                        />
-                        <span className="text-gray-500">%</span>
-                      </div>
-                      <div className="text-[9px] text-gray-500">
-                        X=50 が中央、Y=0 が最上部（テキスト中心の位置）
-                      </div>
-                    </div>
-                  )}
+                  {/* 位置: 個別設定モーダルと同じ共有コンポーネント */}
+                  <CaptionPositionField
+                    position={settings.position}
+                    positionCustom={settings.positionCustom}
+                    disabled={isLocked}
+                    supportsCustom={supportsExtendedFonts}
+                    ariaLabelPrefix="キャプション"
+                    idPrefix="caption"
+                    onSetPosition={(value) => {
+                      if (value) onSetPosition(value);
+                    }}
+                    onSetPositionCustom={onSetPositionCustom}
+                  />
                   {/* ぼかし */}
                   <div className="flex items-center gap-2 text-[10px] md:text-xs">
                     <span className="text-gray-400 w-16">ぼかし:</span>
@@ -1258,6 +1205,8 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                   totalDuration={totalDuration}
                   currentTime={currentTime}
                   isLocked={isLocked}
+                  previewCanvasRef={previewCanvasRef}
+                  captionFreeSnapshotRef={captionFreeSnapshotRef}
                   onUpdate={onUpdateCaption}
                   onRemove={onRemoveCaption}
                   onMove={onMoveCaption}

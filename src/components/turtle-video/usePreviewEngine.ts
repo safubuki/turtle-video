@@ -12,7 +12,7 @@ import { useCallback, type MutableRefObject } from 'react';
 import {
   FPS,
 } from '../../constants';
-import { createCaptionGlyphCanvas } from '../../utils/canvas';
+import { createCaptionGlyphCanvas, type CaptionFreeSnapshot } from '../../utils/canvas';
 import type {
   AudioTrack,
   Caption,
@@ -82,6 +82,12 @@ interface UsePreviewEngineParams {
   watermarkOverlayRef?: MutableRefObject<WatermarkOverlay>;
   /** Issue #210。契約追随のみ */
   watermarkImageRef?: MutableRefObject<HTMLImageElement | null>;
+  /**
+   * キャプションを描く直前のフレームを保存する先（キャプション設定のミニプレビュー用）。
+   * メインプレビューの canvas を直接転写すると焼き込み済みキャプションと二重になるため、
+   * キャプション抜きの状態をここへ控える。
+   */
+  captionFreeSnapshotRef?: MutableRefObject<CaptionFreeSnapshot>;
   totalDurationRef: MutableRefObject<number>;
   currentTimeRef: MutableRefObject<number>;
   canvasRef: MutableRefObject<HTMLCanvasElement | null>;

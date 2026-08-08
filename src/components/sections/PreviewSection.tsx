@@ -37,6 +37,7 @@ import type {
 import type { ExportPreparationStep } from '../../hooks/export-strategies/types';
 import type { AppFlavor } from '../../app/resolveAppFlavor';
 import { getAppFlavorUiCapabilities, getPreviewRuntimeNotice } from '../../app/appFlavorUi';
+import { formatTimeCentiseconds } from '../../utils/format';
 import { useLogStore } from '../../stores/logStore';
 import { useCanvasStore } from '../../stores/canvasStore';
 import type { AspectRatio } from '../../stores/canvasStore';
@@ -565,9 +566,21 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
         )}
       </div>
       <div className="p-4 lg:p-5 bg-gray-900 border-t border-gray-800">
+        {/* 現在位置・総尺とも 1/100 秒まで表示する。
+            ・「分:秒」だけだと 3.00〜3.99 秒がすべて 0:03 に潰れ、スライダーを動かしても
+              数字が変わらないように見える。
+            ・総尺も同じ桁で出す必要がある。10.5 秒の動画を floor して「0:10」と出すと、
+              終端まで再生したとき現在位置が「0:10.50」となり、**現在位置のほうが総尺より
+              大きく見える**という矛盾が起きるため（左右で必ず桁を揃える）。
+            currentTime は元々毎フレーム更新されており（setCurrentTime を rAF ごとに呼ぶ）、
+            表示桁を増やしても描画回数は変わらない。 */}
         <div className="flex justify-between text-[10px] md:text-xs lg:text-sm font-mono text-gray-400 mb-2">
-          <span>{formatTime(currentTime)}</span>
-          <span>{formatTime(totalDuration)}</span>
+          <span aria-label={`現在位置 ${formatTimeCentiseconds(currentTime)}`}>
+            {formatTimeCentiseconds(currentTime)}
+          </span>
+          <span aria-label={`全体の長さ ${formatTimeCentiseconds(totalDuration)}`}>
+            {formatTimeCentiseconds(totalDuration)}
+          </span>
         </div>
 
         {isProcessing && (
@@ -631,7 +644,12 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
             type="range"
             min="0"
             max={totalDuration || 0.1}
-            step="0.1"
+            // 表示を 1/100 秒にしたので、刻みも合わせて 0.01 秒にする。
+            // step="0.1" のままだと、つまみを動かしても 0.1 秒単位でしか値が変わらず
+            // 「動かしているのに表示が飛ぶ」ことになる。
+            // シーク自体は SEEK_THROTTLE_MS と seeked 完了駆動で間引かれるため、
+            // 刻みを細かくしてもデコーダへの負荷は増えない。
+            step="0.01"
             value={currentTime}
             onChange={onSeekChange}
             onPointerDown={onSeekStart}

@@ -23,6 +23,12 @@ import type { CaptionLayerMatte } from './captionLayerExport';
 
 export interface DrawCaptionLayerFrameOptions {
   matte: CaptionLayerMatte;
+  /**
+   * すでに描かれている背景を残し、その上へキャプションだけを重ねる。
+   * キャプション設定のミニプレビュー（現在フレームへの重ね描き）で使う。
+   * true のときは `matte` の塗り／クリアを行わない。
+   */
+  preserveBackground?: boolean;
   /** ルミナンスキー用に文字を白・縁を黒へ強制する */
   forceWhiteGlyphs?: boolean;
   /** iOS 等で filter blur が弱い場合の多重描画 */
@@ -58,11 +64,14 @@ export function drawCaptionLayerFrame(
   ctx.globalCompositeOperation = 'source-over';
   ctx.filter = 'none';
 
-  if (options.matte === 'transparent') {
-    ctx.clearRect(0, 0, width, height);
-  } else {
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, width, height);
+  // ミニプレビューは現在フレームの上へ重ねるため、背景の塗り／クリアをしない。
+  if (!options.preserveBackground) {
+    if (options.matte === 'transparent') {
+      ctx.clearRect(0, 0, width, height);
+    } else {
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, width, height);
+    }
   }
   ctx.restore();
 

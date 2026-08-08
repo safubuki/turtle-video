@@ -3,7 +3,7 @@ import { useCallback, useRef, type MutableRefObject } from 'react';
 import {
   FPS,
 } from '../../../constants';
-import { createCaptionGlyphCanvas } from '../../../utils/canvas';
+import { captureCaptionFreeSnapshot, createCaptionGlyphCanvas, type CaptionFreeSnapshot } from '../../../utils/canvas';
 import { resolveMediaBaseScale } from '../../../stores/canvasStore';
 import {
   normalizeRotation,
@@ -102,6 +102,12 @@ interface UsePreviewEngineParams {
   videoTitleRef: MutableRefObject<VideoTitleSettings>;
   watermarkOverlayRef?: MutableRefObject<WatermarkOverlay>;
   watermarkImageRef?: MutableRefObject<HTMLImageElement | null>;
+  /**
+   * キャプションを描く直前のフレームを保存する先（キャプション設定のミニプレビュー用）。
+   * メインプレビューの canvas を直接転写すると焼き込み済みキャプションと二重になるため、
+   * キャプション抜きの状態をここへ控える。
+   */
+  captionFreeSnapshotRef?: MutableRefObject<CaptionFreeSnapshot>;
   totalDurationRef: MutableRefObject<number>;
   currentTimeRef: MutableRefObject<number>;
   canvasRef: MutableRefObject<HTMLCanvasElement | null>;
@@ -252,6 +258,7 @@ export function usePreviewEngine({
   videoTitleRef,
   watermarkOverlayRef,
   watermarkImageRef,
+  captionFreeSnapshotRef,
   totalDurationRef,
   currentTimeRef,
   canvasRef,
@@ -1219,6 +1226,12 @@ export function usePreviewEngine({
 
         const currentCaptions = captionsRef.current;
         const currentCaptionSettings = captionSettingsRef.current;
+        // キャプション抜きフレームのスナップショット（standard と同じ理由・同じ位置）。
+        // ミニプレビューが焼き込み済みキャプションの上へ重ね描きして二重になるのを防ぐ。
+        if (!_isExporting && captionFreeSnapshotRef) {
+          captureCaptionFreeSnapshot(ctx, captionFreeSnapshotRef.current);
+        }
+
         if (currentCaptionSettings.enabled && currentCaptions.length > 0) {
           const activeCaptions = currentCaptions.filter(
             (c) => isCaptionActiveAtTime(c, time),

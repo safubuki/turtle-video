@@ -14,7 +14,7 @@
  */
 import React, { useState } from 'react';
 import { Heading, MapPin, RotateCcw, Type } from 'lucide-react';
-import type { CaptionPosition, CaptionSize, VideoTitleSettings } from '../../types';
+import type { CaptionPosition, VideoTitleSettings } from '../../types';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import CaptionColorField from '../common/CaptionColorField';
 import CaptionFontSizeField from '../common/CaptionFontSizeField';
@@ -287,7 +287,10 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                   supportsCustom={supportsExtendedFonts}
                   ariaLabelPrefix="タイトル"
                   idPrefix="video-title"
-                  onSetFontSize={(size: CaptionSize) => onUpdate({ fontSize: size })}
+                  onSetFontSize={(size) => {
+                    // タイトルに「デフォルト」は無いので null は来ない
+                    if (size) onUpdate({ fontSize: size });
+                  }}
                   onSetFontSizeCustom={(value) => onUpdate({ fontSizeCustom: value })}
                 />
 
@@ -301,7 +304,9 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                   localFontFamilies={localFontFamilies}
                   localFontsLoading={localFontsLoading}
                   idPrefix="video-title"
-                  onSetFontStyle={(style) => onUpdate({ fontStyle: style })}
+                  onSetFontStyle={(style) => {
+                    if (style) onUpdate({ fontStyle: style });
+                  }}
                   onLoadLocalFonts={onLoadLocalFonts}
                 />
 

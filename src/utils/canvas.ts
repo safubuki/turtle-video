@@ -462,9 +462,9 @@ export function createCaptionGlyphCanvas(options: CaptionGlyphOptions): HTMLCanv
  * さらにエンジンの再描画（requestAnimationFrame ベース）が走るのを待ってから
  * キャンバスを読み取ることで、画面に見えている確定フレームと一致させる。
  *
- * 通常再生で終端に達した場合は `seeking` 中の要素が無いため、ほぼ素通りする
- * （従来挙動を維持）。`timeoutMs` は、`seeked` が来ない／デコードが極端に遅い
- * 場合でも固まらないための保険。
+ * 呼び出し側が先に「現在位置での再描画」を要求している前提のヘルパーで、
+ * `timeoutMs` は `seeked` が来ない／デコードが極端に遅い場合でも
+ * 固まらないための保険。
  *
  * @param mediaElements - id をキーにしたメディア要素のレコード
  * @param timeoutMs - 確定待ちの上限（既定 400ms）
@@ -507,6 +507,112 @@ export function waitForPreviewFrameSettled(
 
   const timeout = new Promise<void>((resolve) => setTimeout(resolve, timeoutMs));
   return Promise.race([settled, timeout]);
+}
+
+/**
+ * 指定の video 要素が「目標時刻のフレームをデコード済み」になるまで待つ。
+ *
+ * `currentTime` への代入直後は `seeking=true` になるため `seeked` を待つ。
+ * 代入時点で既に目標時刻へ十分近ければ即座に解決する（無駄な待ちを作らない）。
+ *
+ * @param video - 対象の video 要素（null なら即解決）
+ * @param targetTime - 目標のソース時刻（秒）
+ * @param toleranceSec - 一致とみなす許容差（既定 1/120 秒＝おおよそ半フレーム）
+ * @param timeoutMs - 待ちの上限（既定 600ms）
+ */
+export function waitForVideoFrameAtTime(
+  video: HTMLVideoElement | null | undefined,
+  targetTime: number,
+  toleranceSec = 1 / 120,
+  timeoutMs = 600
+): Promise<void> {
+  if (!video) return Promise.resolve();
+
+  const isSettled = () =>
+    !video.seeking
+    && video.readyState >= 2
+    && Math.abs(video.currentTime - targetTime) <= toleranceSec;
+
+  if (isSettled()) return Promise.resolve();
+
+  return new Promise<void>((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      video.removeEventListener('seeked', onEvent);
+      video.removeEventListener('canplay', onEvent);
+      video.removeEventListener('loadeddata', onEvent);
+      clearTimeout(timer);
+      resolve();
+    };
+    const onEvent = () => {
+      if (isSettled()) finish();
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    video.addEventListener('seeked', onEvent);
+    video.addEventListener('canplay', onEvent);
+    video.addEventListener('loadeddata', onEvent);
+    onEvent();
+  });
+}
+
+/**
+ * キャプション抜きのプレビューフレームを保持するスナップショット。
+ * 使い回して毎フレームの canvas 生成を避ける。
+ */
+export interface CaptionFreeSnapshot {
+  canvas: HTMLCanvasElement | null;
+  /** 一度でも描画できたか（未描画のスナップショットを使わせないため） */
+  hasFrame: boolean;
+}
+
+export function createCaptionFreeSnapshot(): CaptionFreeSnapshot {
+  return { canvas: null, hasFrame: false };
+}
+
+/**
+ * キャプションを描く直前のフレームを控える。
+ *
+ * キャプション設定のミニプレビューは「現在フレーム + 設定中のキャプション」を描く。
+ * ここでメインプレビューの canvas をそのまま転写元にすると、既に焼き込まれた
+ * キャプションの上へもう 1 枚重ねることになり、文字が二重に見える
+ * （サイズ変更時に前のサイズが残る／削除した文字が残り続ける）。
+ *
+ * そこでキャプション描画の直前でこの関数を呼び、キャプション抜きの状態を保存する。
+ *
+ * @param ctx - プレビューの描画コンテキスト（キャプション描画前）
+ * @param snapshot - 保存先（使い回す）
+ */
+export function captureCaptionFreeSnapshot(
+  ctx: CanvasRenderingContext2D,
+  snapshot: CaptionFreeSnapshot
+): void {
+  const width = ctx.canvas.width;
+  const height = ctx.canvas.height;
+  if (width <= 0 || height <= 0) return;
+
+  let target = snapshot.canvas;
+  if (!target) {
+    target = document.createElement('canvas');
+    snapshot.canvas = target;
+  }
+  if (target.width !== width) target.width = width;
+  if (target.height !== height) target.height = height;
+
+  const targetCtx = target.getContext('2d');
+  if (!targetCtx) return;
+
+  try {
+    targetCtx.setTransform(1, 0, 0, 1, 0, 0);
+    targetCtx.globalAlpha = 1;
+    targetCtx.filter = 'none';
+    targetCtx.clearRect(0, 0, width, height);
+    targetCtx.drawImage(ctx.canvas, 0, 0);
+    snapshot.hasFrame = true;
+  } catch {
+    // 転写に失敗しても本編の描画は続行する（ミニプレビューが黒くなるだけ）
+  }
 }
 
 /**
