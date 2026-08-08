@@ -1005,7 +1005,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                     {captions.length > 0 ? '・編集' : ''}
                   </span>
                   <span className="block text-[9px] text-gray-500 leading-tight mt-0.5">
-                    歌詞やキャプションを一括で追加・編集
+                    歌詞やセリフをまとめて追加・編集
                   </span>
                 </button>
                 <button
