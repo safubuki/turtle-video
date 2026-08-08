@@ -40,6 +40,7 @@ describe('BgmSection count', () => {
         onOpenHelp={vi.fn()}
         onAddBgmClips={vi.fn()}
         onBeforeBgmClipEdit={vi.fn()}
+        onBeforeBgmClipContinuousEdit={vi.fn()}
       />
     );
 

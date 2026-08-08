@@ -3288,3 +3288,36 @@ export 終了（成功/失敗/中断）
   - 音量のような連続値スライダーに `withPreviewPause` を使わない。トグルや単発確定の操作（ミュート、フェードON/OFF）は従来どおり pause してよい。
   - `apple-safari` 側の `previewPlatform.ts` は未変更（iOS は元から複数音源で webaudio に寄せる方針のため往復が起きにくい）。iOS 展開時は同じラッチが必要か要検証。
 - **テスト**: `standardPreviewVolumeRouting.test.ts` の `route latching` で、100% を跨ぐスイープ（1.0→2.5→0.6→1.8→0.3→2.0→1.0）で経路が揺れないこと、ノード保持時は 0% / 100% でも native へ戻らないこと、増幅なしスイープが native のままであることを固定する。
+
+### 13-173. BGM / ナレーション設定も再生を止めずリアルタイム反映する
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/test/standardPreviewVolumeRouting.test.ts`
+- **経緯**: 13-172 で動画音量を「再生したまま調整できる」ようにした挙動が好評だったため、BGM / ナレーション設定にも同じ操作感を展開する。
+- **対応（`withoutPreviewPause` / `clearGeneratedExport` へ移行した連続値スライダー）**:
+  - BGM: 開始位置（startPoint）、遅延（delay）、フェードイン/アウト長
+  - ナレーション: 開始位置（startTime）、トリム開始/終了
+  - 音量（動画 / BGM / ナレーション）は 13-172 で移行済み
+- **一時停止を維持するもの**（単発確定・構造変更のため連打にならない）: ミュート切替、フェード ON/OFF チェックボックス、ロック切替、削除、並べ替え、「現在位置を開始/終了に」ボタン。
+- **BGM / ナレーションに動画と同じカクつき問題はない（確認済み）**:
+  - `getPreviewAudioOutputMode()` は `sourceType === 'audio'` を音量に関係なく常に `webaudio` で返すため、動画で問題になった native <-> webaudio の往復（`createMediaElementSource` の attach/detach）が構造的に発生しない。
+  - `processAudioTrack` / `processNarrationClip` は `ensurePreviewAudioGainNode()` でノードを一度作るのみで、rAF ループ内に detach 経路がない。
+  - 音量は `setTargetAtTime`（BGM/ナレーションは時定数 0.1）で平滑化され、`clampPreviewAudioGain()` が 0〜2.5 にクランプする。250% + フェード同時でも NaN / Infinity / 上限超えは出ない。
+- **注意**:
+  - 音声トラックの `sourceType='audio'` 即 webaudio 分岐を「単独音源なら native」等に最適化しないこと。動画側で起きた経路往復のカクつきを音声にも持ち込むことになる。
+  - 開始位置・トリムを再生中に動かしても、`renderFrame` が毎フレーム `trackTime` / `sourceTime` を再計算して追従する（許容ずれを超えたときだけ `currentTime` を補正）。ハンドラ側で seek を書かないこと。
+- **テスト**: `standardPreviewVolumeRouting.test.ts` の `BGM / narration are immune to volume-driven route churn` で、音量 0〜250% × ノード有無 × 音源数の全組合せが webaudio 固定であること、100% を跨ぐスイープで経路が 1 種類のままであること、増幅 + フェード同時でも gain が有限かつ 0〜2.5 に収まることを固定する。
+
+### 13-174. 複数BGM（BgmClipList）の連続値スライダーも一時停止しない（13-173 の抜け）
+
+- **ファイル**: `src/components/sections/BgmClipList.tsx`, `src/components/sections/BgmSection.tsx`, `src/components/TurtleVideo.tsx`, `src/test/bgmClipList.test.tsx`
+- **問題**: 13-173 で BGM 設定をリアルタイム化したはずが、**実際の複数BGM UI では音量スライダーを動かすとプレビューが止まったまま**だった。
+- **原因（対応漏れ）**: 13-173 で直したのは `TurtleVideo.tsx` 側の**レガシー単一BGM**用ハンドラ（`handleUpdateBgmVolume` 等）。画面に出ている複数BGMカードは `BgmClipList` が `useAudioStore` を直接呼ぶ別経路で、独自の `withEdit` ラッパー経由で `onBeforeEdit` → `pausePreviewBeforeEdit` を実行していた。`TurtleVideo.tsx` だけを見ると直ったように見えるのが罠。
+- **対策**:
+  - `BgmClipList` に `onBeforeContinuousEdit` プロップと `withContinuousEdit` ラッパーを追加し、`withEdit`（一時停止あり）と使い分ける。
+  - 連続値へ移行: 音量、開始位置（スライダー + 数値入力）、トリム開始/終了（スライダー + 数値入力）、フェードイン/アウト長。
+  - 一時停止のまま: ミュート、フェード ON/OFF、自動調整チェックボックス、移動/複製/削除、「開始/終了」「設定を末尾に固定」、音量リセットボタン。
+  - `BgmSection` は `onBeforeBgmClipContinuousEdit` で中継し、`TurtleVideo` の `clearGeneratedExportForContinuousEdit`（一時停止せずエクスポート破棄のみ）へ接続する。
+- **注意**:
+  - **子コンポーネントがストアを直接呼ぶ UI は、親のハンドラを直しても効かない**。音量・トリム等の操作感を変えるときは `onBeforeEdit` 相当のプロップを受け取る子（現状 `BgmClipList`）も必ず確認する。
+  - レガシー単一BGM UI（`isMultiBgm === false`、iOS Safari 用）と複数BGM UI は別経路。standard では通常 `BgmClipList` の方が表示される。
+- **テスト**: `bgmClipList.test.tsx` の `continuous sliders keep the preview playing` で、音量スライダーを 195%→60%→250% とドラッグしても `onBeforeEdit`（一時停止）が呼ばれず `onBeforeContinuousEdit` だけが発火すること、ミュートボタンは従来どおり `onBeforeEdit` を呼ぶことを固定する。

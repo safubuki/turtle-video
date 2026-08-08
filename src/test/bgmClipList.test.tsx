@@ -36,6 +36,7 @@ describe('BgmClipList timeline adjustment', () => {
         currentTime={50}
         formatTime={(seconds) => `${seconds.toFixed(1)}s`}
         onBeforeEdit={onBeforeEdit}
+        onBeforeContinuousEdit={vi.fn()}
       />,
     );
 
@@ -55,6 +56,7 @@ describe('BgmClipList timeline adjustment', () => {
         currentTime={50}
         formatTime={(seconds) => `${seconds.toFixed(1)}s`}
         onBeforeEdit={vi.fn()}
+        onBeforeContinuousEdit={vi.fn()}
       />,
     );
 
@@ -81,6 +83,7 @@ describe('BgmClipList timeline adjustment', () => {
         currentTime={5}
         formatTime={(seconds) => `${seconds.toFixed(1)}s`}
         onBeforeEdit={vi.fn()}
+        onBeforeContinuousEdit={vi.fn()}
       />,
     );
 
@@ -111,6 +114,7 @@ describe('BgmClipList timeline adjustment', () => {
         currentTime={3}
         formatTime={(seconds) => `${seconds.toFixed(1)}s`}
         onBeforeEdit={vi.fn()}
+        onBeforeContinuousEdit={vi.fn()}
       />,
     );
 
@@ -129,6 +133,7 @@ describe('BgmClipList timeline adjustment', () => {
         currentTime={10}
         formatTime={(seconds) => `${seconds.toFixed(1)}s`}
         onBeforeEdit={onBeforeEdit}
+        onBeforeContinuousEdit={vi.fn()}
       />,
     );
 
@@ -137,5 +142,70 @@ describe('BgmClipList timeline adjustment', () => {
     fireEvent.click(checkbox);
     expect(onBeforeEdit).toHaveBeenCalledWith('toggle-bgm-auto-adjust');
     expect(useAudioStore.getState().bgmAutoAdjustToTimeline).toBe(false);
+  });
+});
+
+/**
+ * 連続値スライダーは再生を止めない。
+ *
+ * BGM クリップの音量スライダーはドラッグ中に毎目盛 onChange が発火するため、
+ * 一時停止フック（onBeforeEdit = pausePreviewBeforeEdit）を呼ぶとプレビューが止まる。
+ * 一時停止しない onBeforeContinuousEdit 側へ流れることを固定する。
+ */
+describe('BgmClipList continuous sliders keep the preview playing', () => {
+  beforeEach(() => {
+    useAudioStore.setState({
+      bgmClips: [{ ...clip }],
+      bgmAutoAdjustToTimeline: true,
+    });
+  });
+
+  const renderList = () => {
+    const onBeforeEdit = vi.fn();
+    const onBeforeContinuousEdit = vi.fn();
+    render(
+      <BgmClipList
+        clips={useAudioStore.getState().bgmClips}
+        isLocked={false}
+        totalDuration={60}
+        currentTime={10}
+        formatTime={(seconds) => `${seconds.toFixed(1)}s`}
+        onBeforeEdit={onBeforeEdit}
+        onBeforeContinuousEdit={onBeforeContinuousEdit}
+      />,
+    );
+    return { onBeforeEdit, onBeforeContinuousEdit };
+  };
+
+  it('does not pause the preview while dragging the volume slider', () => {
+    const { onBeforeEdit, onBeforeContinuousEdit } = renderList();
+
+    // 音量スライダー（0〜2.5 / step 0.05）を特定してドラッグを再現する
+    const volumeSlider = screen
+      .getAllByRole('slider')
+      .find((el) => (el as HTMLInputElement).max === '2.5') as HTMLInputElement;
+    expect(volumeSlider).toBeTruthy();
+
+    // 100% を跨ぐアグレッシブな変更を再現（clip.volume の初期値 1 とは異なる値を並べる）
+    const dragValues = ['1.95', '0.6', '2.5'];
+    for (const value of dragValues) {
+      fireEvent.change(volumeSlider, { target: { value } });
+    }
+
+    // 一時停止フックは一度も呼ばれない（= プレビューが止まらない）
+    expect(onBeforeEdit).not.toHaveBeenCalled();
+    // 連続編集フックがドラッグの各目盛で呼ばれる
+    expect(onBeforeContinuousEdit).toHaveBeenCalledTimes(dragValues.length);
+    expect(onBeforeContinuousEdit).toHaveBeenCalledWith('update-bgm-clip-volume');
+    expect(useAudioStore.getState().bgmClips[0].volume).toBe(2.5);
+  });
+
+  it('still pauses the preview for one-shot buttons (mute / reorder)', () => {
+    const { onBeforeEdit, onBeforeContinuousEdit } = renderList();
+
+    fireEvent.click(screen.getByTitle('ミュート'));
+
+    expect(onBeforeEdit).toHaveBeenCalledWith('toggle-bgm-clip-mute');
+    expect(onBeforeContinuousEdit).not.toHaveBeenCalled();
   });
 });

@@ -30,6 +30,11 @@ interface BgmClipListProps {
   formatTime: (seconds: number) => string;
   /** 編集操作の直前に呼ぶ（プレビューの明示一時停止など） */
   onBeforeEdit: (reason: string) => void;
+  /**
+   * 連続値スライダー（音量・開始位置・トリム・フェード長）の編集直前に呼ぶ。
+   * ドラッグ中に毎目盛発火するため、プレビューを一時停止せず再生したまま反映する。
+   */
+  onBeforeContinuousEdit: (reason: string) => void;
 }
 
 const BgmClipList: React.FC<BgmClipListProps> = ({
@@ -39,6 +44,7 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
   currentTime,
   formatTime,
   onBeforeEdit,
+  onBeforeContinuousEdit,
 }) => {
   const [openTrimMap, setOpenTrimMap] = useState<Record<string, boolean>>({});
   const [openFadeMap, setOpenFadeMap] = useState<Record<string, boolean>>({});
@@ -66,6 +72,19 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
         fn(...args);
       },
     [onBeforeEdit],
+  );
+
+  /**
+   * 連続値スライダー用。プレビューを止めずに反映するので、再生しながら調整できる。
+   * ドラッグ中の毎目盛で pause + cancelAnimationFrame が走るとカクつくため withEdit と分ける。
+   */
+  const withContinuousEdit = useCallback(
+    <T extends unknown[]>(reason: string, fn: (...args: T) => void) =>
+      (...args: T) => {
+        onBeforeContinuousEdit(reason);
+        fn(...args);
+      },
+    [onBeforeContinuousEdit],
   );
 
   if (clips.length === 0) {
@@ -295,7 +314,7 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
                   max={Math.max(0, totalDuration)}
                   step={0.1}
                   value={clip.startTime}
-                  onChange={withEdit('update-bgm-clip-start', (val: number) => updateBgmClipStartTime(clip.id, val))}
+                  onChange={withContinuousEdit('update-bgm-clip-start', (val: number) => updateBgmClipStartTime(clip.id, val))}
                   disabled={isLocked}
                   className="flex-1 accent-purple-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
                 />
@@ -308,7 +327,7 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
                   onChange={(e) => {
                     const val = parseFloat(e.target.value);
                     if (Number.isNaN(val)) return;
-                    onBeforeEdit('update-bgm-clip-start');
+                    onBeforeContinuousEdit('update-bgm-clip-start');
                     updateBgmClipStartTime(clip.id, val);
                   }}
                   disabled={isLocked}
@@ -333,7 +352,7 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
                 max={2.5}
                 step={0.05}
                 value={clip.volume}
-                onChange={withEdit('update-bgm-clip-volume', (val: number) => updateBgmClipVolume(clip.id, val))}
+                onChange={withContinuousEdit('update-bgm-clip-volume', (val: number) => updateBgmClipVolume(clip.id, val))}
                 disabled={isLocked || clip.isMuted}
                 className={`flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${(isLocked || clip.isMuted) ? '' : 'cursor-pointer'}`}
               />
@@ -370,7 +389,7 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
                       max={Math.max(0, clip.duration)}
                       step={0.1}
                       value={trimStart}
-                      onChange={withEdit('update-bgm-clip-trim', (val: number) => updateBgmClipTrim(clip.id, 'start', val))}
+                      onChange={withContinuousEdit('update-bgm-clip-trim', (val: number) => updateBgmClipTrim(clip.id, 'start', val))}
                       disabled={isLocked}
                       className="flex-1 accent-purple-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
                     />
@@ -383,7 +402,7 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
                       onChange={(e) => {
                         const val = parseFloat(e.target.value);
                         if (Number.isNaN(val)) return;
-                        onBeforeEdit('update-bgm-clip-trim');
+                        onBeforeContinuousEdit('update-bgm-clip-trim');
                         updateBgmClipTrim(clip.id, 'start', val);
                       }}
                       disabled={isLocked}
@@ -403,7 +422,7 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
                       max={Math.max(0, clip.duration)}
                       step={0.1}
                       value={trimEnd}
-                      onChange={withEdit('update-bgm-clip-trim', (val: number) => updateBgmClipTrim(clip.id, 'end', val))}
+                      onChange={withContinuousEdit('update-bgm-clip-trim', (val: number) => updateBgmClipTrim(clip.id, 'end', val))}
                       disabled={isLocked}
                       className="flex-1 accent-purple-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
                     />
@@ -416,7 +435,7 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
                       onChange={(e) => {
                         const val = parseFloat(e.target.value);
                         if (Number.isNaN(val)) return;
-                        onBeforeEdit('update-bgm-clip-trim');
+                        onBeforeContinuousEdit('update-bgm-clip-trim');
                         updateBgmClipTrim(clip.id, 'end', val);
                       }}
                       disabled={isLocked}
@@ -462,7 +481,7 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
                     max={2}
                     step={1}
                     value={fadeInDuration === 0.5 ? 0 : fadeInDuration === 1.0 ? 1 : 2}
-                    onChange={withEdit('update-bgm-clip-fade-in-duration', (val: number) => {
+                    onChange={withContinuousEdit('update-bgm-clip-fade-in-duration', (val: number) => {
                       const steps = [0.5, 1.0, 2.0];
                       updateBgmClipFadeInDuration(clip.id, steps[val]);
                     })}
@@ -490,7 +509,7 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
                     max={2}
                     step={1}
                     value={fadeOutDuration === 0.5 ? 0 : fadeOutDuration === 1.0 ? 1 : 2}
-                    onChange={withEdit('update-bgm-clip-fade-out-duration', (val: number) => {
+                    onChange={withContinuousEdit('update-bgm-clip-fade-out-duration', (val: number) => {
                       const steps = [0.5, 1.0, 2.0];
                       updateBgmClipFadeOutDuration(clip.id, steps[val]);
                     })}

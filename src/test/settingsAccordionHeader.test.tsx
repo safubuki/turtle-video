@@ -103,6 +103,7 @@ describe('BGM クリップのアコーディオン見出し', () => {
         currentTime={0}
         formatTime={(seconds) => `${seconds.toFixed(1)}s`}
         onBeforeEdit={vi.fn()}
+        onBeforeContinuousEdit={vi.fn()}
       />,
     );
 

@@ -44,6 +44,8 @@ interface BgmSectionProps {
   currentTime: number;
   onAddBgmClips: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onBeforeBgmClipEdit: (reason: string) => void;
+  /** 連続値スライダー用。プレビューを止めずに反映する（BgmClipList の説明を参照） */
+  onBeforeBgmClipContinuousEdit: (reason: string) => void;
 }
 
 /**
@@ -69,6 +71,7 @@ const BgmSection: React.FC<BgmSectionProps> = ({
   currentTime,
   onAddBgmClips,
   onBeforeBgmClipEdit,
+  onBeforeBgmClipContinuousEdit,
 }) => {
   const [isOpen, setIsOpen] = useState(true);
   const prevBgmUrlRef = useRef<string | null>(bgm?.url ?? null);
@@ -171,6 +174,7 @@ const BgmSection: React.FC<BgmSectionProps> = ({
           currentTime={currentTime}
           formatTime={formatTime}
           onBeforeEdit={onBeforeBgmClipEdit}
+          onBeforeContinuousEdit={onBeforeBgmClipContinuousEdit}
         />
       )}
       {/* レガシー単一 BGM UI（iOS Safari 用。standard ではクリップへ自動移行されるため通常表示されない） */}

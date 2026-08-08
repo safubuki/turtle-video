@@ -613,6 +613,17 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     };
   }, [clearGeneratedExport]);
 
+  /**
+   * 連続値スライダー版の `onBeforeEdit`。
+   *
+   * BgmClipList のように子側でストアを直接呼ぶ場合は、`withoutPreviewPause` のラップではなく
+   * 「編集直前フック」だけを差し替える。pausePreviewBeforeEdit と同じ位置に置き換わり、
+   * 一時停止せずエクスポート破棄だけを行う。
+   */
+  const clearGeneratedExportForContinuousEdit = useCallback((reason: string) => {
+    clearGeneratedExport(`edit:${reason}`);
+  }, [clearGeneratedExport]);
+
   const handleWatermarkImageSelect = useCallback((file: File) => {
     const supportedMimeTypes = new Set(['image/png', 'image/jpeg', 'image/webp']);
     if (!supportedMimeTypes.has(file.type)) {
@@ -2554,21 +2565,24 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
   // --- BGM/ナレーション開始位置更新ハンドラ ---
   // 目的: オーディオトラックの再生開始位置（ファイル内の位置）を変更
+  // ドラッグ中に連続発火するスライダーなので一時停止しない（withoutPreviewPause の説明を参照）。
+  // 再生位置の追従は renderFrame 側が毎フレーム trackTime を再計算して吸収する。
   const handleUpdateBgmStart = useCallback((val: string) => {
     const numVal = parseFloat(val);
     if (isNaN(numVal)) return;
-    pausePreviewBeforeEdit('update-bgm-start-point');
+    clearGeneratedExport('edit:update-bgm-start-point');
     updateBgmStartPoint(numVal);
-  }, [pausePreviewBeforeEdit, updateBgmStartPoint]);
+  }, [clearGeneratedExport, updateBgmStartPoint]);
 
   // --- BGM/ナレーション遅延更新ハンドラ ---
   // 目的: オーディオトラックの開始遅延（動画開始からの秒数）を変更
+  // 同上。再生を止めずに「どのタイミングで鳴り始めるか」を聴きながら合わせられる。
   const handleUpdateBgmDelay = useCallback((val: string) => {
     const numVal = parseFloat(val);
     if (isNaN(numVal)) return;
-    pausePreviewBeforeEdit('update-bgm-delay');
+    clearGeneratedExport('edit:update-bgm-delay');
     updateBgmDelay(numVal);
-  }, [pausePreviewBeforeEdit, updateBgmDelay]);
+  }, [clearGeneratedExport, updateBgmDelay]);
 
   // --- BGM/ナレーション音量更新ハンドラ ---
   // 目的: オーディオトラックの音量を変更
@@ -2580,12 +2594,13 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     updateBgmVolume(numVal);
   }, [clearGeneratedExport, updateBgmVolume]);
 
+  // 開始位置はドラッグ中に連続発火するため一時停止しない（withoutPreviewPause の説明を参照）
   const handleUpdateNarrationStart = useCallback((id: string, val: string) => {
     const numVal = parseFloat(val);
     if (isNaN(numVal)) return;
-    pausePreviewBeforeEdit('update-narration-start-time');
+    clearGeneratedExport('edit:update-narration-start-time');
     updateNarrationStartTime(id, numVal);
-  }, [pausePreviewBeforeEdit, updateNarrationStartTime]);
+  }, [clearGeneratedExport, updateNarrationStartTime]);
 
   const handleSetNarrationStartToCurrent = useCallback((id: string) => {
     pausePreviewBeforeEdit('set-narration-start-to-current');
@@ -2610,19 +2625,20 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     toggleNarrationMute(id);
   }, [pausePreviewBeforeEdit, toggleNarrationMute]);
 
+  // トリムはドラッグ中に連続発火するため一時停止しない（withoutPreviewPause の説明を参照）
   const handleUpdateNarrationTrimStart = useCallback((id: string, val: string) => {
     const numVal = parseFloat(val);
     if (isNaN(numVal)) return;
-    pausePreviewBeforeEdit('update-narration-trim-start');
+    clearGeneratedExport('edit:update-narration-trim-start');
     updateNarrationTrim(id, 'start', numVal);
-  }, [pausePreviewBeforeEdit, updateNarrationTrim]);
+  }, [clearGeneratedExport, updateNarrationTrim]);
 
   const handleUpdateNarrationTrimEnd = useCallback((id: string, val: string) => {
     const numVal = parseFloat(val);
     if (isNaN(numVal)) return;
-    pausePreviewBeforeEdit('update-narration-trim-end');
+    clearGeneratedExport('edit:update-narration-trim-end');
     updateNarrationTrim(id, 'end', numVal);
-  }, [pausePreviewBeforeEdit, updateNarrationTrim]);
+  }, [clearGeneratedExport, updateNarrationTrim]);
 
   const handleSaveNarration = useCallback(async (id: string) => {
     const clip = narrations.find((item) => item.id === id);
@@ -3683,14 +3699,15 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onUpdateVolume={handleUpdateBgmVolume}
               onToggleFadeIn={withPreviewPause('toggle-bgm-fade-in', toggleBgmFadeIn)}
               onToggleFadeOut={withPreviewPause('toggle-bgm-fade-out', toggleBgmFadeOut)}
-              onUpdateFadeInDuration={withPreviewPause('update-bgm-fade-in-duration', updateBgmFadeInDuration)}
-              onUpdateFadeOutDuration={withPreviewPause('update-bgm-fade-out-duration', updateBgmFadeOutDuration)}
+              onUpdateFadeInDuration={withoutPreviewPause('update-bgm-fade-in-duration', updateBgmFadeInDuration)}
+              onUpdateFadeOutDuration={withoutPreviewPause('update-bgm-fade-out-duration', updateBgmFadeOutDuration)}
               formatTime={formatTime}
               onOpenHelp={() => openSectionHelp('bgm')}
               bgmClips={bgmClips}
               currentTime={currentTime}
               onAddBgmClips={handleAddBgmClips}
               onBeforeBgmClipEdit={pausePreviewBeforeEdit}
+              onBeforeBgmClipContinuousEdit={clearGeneratedExportForContinuousEdit}
             />
 
             {/* 3. NARRATION SETTINGS */}
