@@ -1,6 +1,8 @@
 /**
  * @file MiniPreview.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description クリップの調整（移動・拡大）時に、対象クリップのみを個別にプレビュー表示するコンポーネント。パフォーマンスを重視し、メインCanvasとは独立して描画する。
  */
 import React, { useRef, useEffect, useCallback } from 'react';

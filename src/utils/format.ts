@@ -1,6 +1,8 @@
 /**
  * @file format.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description 時間表示、ファイルサイズ、パーセンテージなどの数値フォーマット変換を行うユーティリティ関数群。
  */
 

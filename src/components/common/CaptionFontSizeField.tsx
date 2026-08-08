@@ -1,6 +1,8 @@
 /**
  * @file CaptionFontSizeField.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description 文字サイズ設定（小/中/大/特大 + カスタム数値）の共通コントロール。
  *
  * キャプションの一括スタイル設定・キャプション個別設定モーダル・動画タイトル設定

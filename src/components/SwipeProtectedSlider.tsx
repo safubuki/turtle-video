@@ -1,6 +1,8 @@
 /**
  * @file SwipeProtectedSlider.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description スワイプ操作による誤動作を防止するためのカスタムスライダーコンポーネント。垂直方向のスクロールと水平方向のシーク操作を区別する。
  */
 import React, { useCallback } from 'react';

@@ -1,6 +1,8 @@
 /**
  * @file captionFontCatalog.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description キャプション字体（CaptionFontStyle）→ CSS フォントスタックの単一カタログ。
  *
  * - フォントファイルは同梱せず、端末のシステムフォントに解決されるスタックを使う。

@@ -1,3 +1,14 @@
+/**
+ * @file usePreviewEngine.ts (standard flavor)
+ * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
+ * @description Android / PC (standard) フレーバー専用のプレビュー再生エンジン。
+ * renderFrame による Canvas 描画、タイムライン進行、音声ルーティング、
+ * トランジション合成、stall 検知とリカバリを担う。
+ * apple-safari フレーバーとは物理的に分離されており、このファイルの変更は
+ * iOS Safari のプレビューに影響しない。
+ */
 import { useCallback, useRef, type MutableRefObject } from 'react';
 
 import {

@@ -1,6 +1,8 @@
 /**
  * @file BgmClipList.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description 複数 BGM クリップの一覧・編集 UI（standard フレーバー限定）。
  * 配置・トリム・音量・フェードの操作感はナレーションクリップと同等に揃える。
  * ストア操作は useAudioStore を直接使用し、編集前に onBeforeEdit（プレビュー一時停止）を呼ぶ。

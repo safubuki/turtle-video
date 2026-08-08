@@ -1,6 +1,8 @@
 /**
  * @file useAiNarration.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description Gemini APIを使用してAIナレーション（スクリプト生成、音声合成）を行うためのカスタムフック。
  */
 import { useState, useCallback } from 'react';

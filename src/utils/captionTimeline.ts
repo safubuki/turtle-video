@@ -1,6 +1,8 @@
 /**
  * @file captionTimeline.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description キャプションの時間判定と、複数行テキストの時分割（順次表示）計算。
  *
  * 1 つのキャプションカードのテキストが複数行（改行区切り）の場合、

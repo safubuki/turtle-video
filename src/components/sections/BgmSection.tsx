@@ -1,6 +1,8 @@
 /**
  * @file BgmSection.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description BGM（バックグラウンドミュージック）のアップロード、音量調整、フェード設定、削除を行うセクションコンポーネント。
  */
 import React, { useState, useCallback, useEffect, useRef } from 'react';

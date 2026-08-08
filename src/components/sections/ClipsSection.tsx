@@ -1,6 +1,8 @@
 /**
  * @file ClipsSection.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description 動画・画像クリップの管理を行うセクション。アップロード、並び替え、各クリップの基本操作（削除、複製）を提供するリストビュー。
  */
 import React, { useMemo, useRef, useState } from 'react';

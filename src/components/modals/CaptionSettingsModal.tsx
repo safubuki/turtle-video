@@ -1,6 +1,8 @@
 /**
  * @file CaptionSettingsModal.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description キャプション個別スタイル設定のモーダル。一括設定を上書き（Override）するためのUI。
  */
 import React, { useEffect, useMemo, useState } from 'react';

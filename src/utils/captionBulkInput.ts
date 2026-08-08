@@ -1,6 +1,8 @@
 /**
  * @file captionBulkInput.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description 長文キャプション一括入力（歌詞・字幕向け）の割付計算と時間記法の解析・整形。
  * 1 行 = 1 キャプション。行頭の `[開始-終了]` ブラケット記法で行ごとの時間指定が可能
  * （例: `[00:03.0-00:07.5] 明日はいい日になるさ`）。本文中の記号には影響されない。

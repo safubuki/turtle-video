@@ -1,6 +1,8 @@
 /**
  * @file NarrationWaveform.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description ナレーション音声の静的な音量波形を表示し、トリム範囲を ⇔ カーソルで可視化し、
  * 無音区間（文の区切り）の自動検出候補をタップして「トリム開始/終了」に反映できるコンポーネント。
  *

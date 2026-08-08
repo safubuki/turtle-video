@@ -1,6 +1,8 @@
 /**
  * @file exportFrameProfiler.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description エクスポート 1 フレームぶんの処理時間を区間ごとに計測する純ロジック。
  *
  * 【なぜ必要か】

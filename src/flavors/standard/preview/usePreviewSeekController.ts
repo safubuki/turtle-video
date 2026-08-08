@@ -1,3 +1,12 @@
+/**
+ * @file usePreviewSeekController.ts (standard flavor)
+ * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
+ * @description Android / PC (standard) フレーバー専用のシーク制御。
+ * シークバー操作の throttle、シーク中の描画・音声の抑制、
+ * シーク完了後の再生復帰を担う。
+ */
 import { useCallback, useEffect, useRef, type ChangeEvent, type MutableRefObject } from 'react';
 
 import { SEEK_THROTTLE_MS } from '../../../constants';

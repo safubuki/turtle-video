@@ -1,6 +1,8 @@
 /**
  * @file useMediaItems.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description 画像・動画クリップのCRUD操作（追加、削除、並び替え、トリミング、変形など）を管理するカスタムフック。
  */
 import { useState, useCallback, useRef } from 'react';

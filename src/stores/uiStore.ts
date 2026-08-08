@@ -6,6 +6,8 @@
 /**
  * @file uiStore.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description アプリケーションのUI状態（モーダル表示、選択中のアイテム、ドラッグ状態など）を管理するZustandストア。
  */
 import { create } from 'zustand';

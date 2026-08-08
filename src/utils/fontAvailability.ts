@@ -1,6 +1,8 @@
 /**
  * @file fontAvailability.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description 端末にフォントが実在するかを canvas の文字幅計測で判定するユーティリティ。
  * 「候補フォントを前置したスタック」と「総称ファミリ単体」の描画幅が異なれば実在とみなす
  * （Android Chrome にはフォント列挙 API が無いため、この方式が唯一の実在確認手段）。

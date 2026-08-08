@@ -1,6 +1,8 @@
 /**
  * @file projectStore.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description Project save/load store
  */
 

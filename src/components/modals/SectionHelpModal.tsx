@@ -1,6 +1,8 @@
 ﻿/**
  * @file SectionHelpModal.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description セクション別の操作ヘルプを表示するモーダル（モバイルはボトムシート表示）。
  */
 import React, { useEffect, useRef, useState } from 'react';

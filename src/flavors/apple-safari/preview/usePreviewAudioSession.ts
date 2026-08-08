@@ -1,3 +1,10 @@
+/**
+ * @file usePreviewAudioSession.ts (apple-safari flavor)
+ * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
+ * @description iOS Safari 専用のプレビュー音声セッション管理。standard とは物理的に分離されている。
+ */
 import { useCallback, useEffect, type MutableRefObject } from 'react';
 
 import type { AudioTrack, MediaElementsRef, MediaItem, NarrationClip } from '../../../types';

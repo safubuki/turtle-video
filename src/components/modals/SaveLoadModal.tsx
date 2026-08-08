@@ -1,6 +1,8 @@
 /**
  * @file SaveLoadModal.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description 保存・読み込み・削除機能を提供するモーダル。
  */
 

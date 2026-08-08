@@ -1,6 +1,8 @@
 /**
  * @file App.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  */
 import { Suspense, lazy, useMemo } from 'react';
 

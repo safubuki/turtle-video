@@ -1,6 +1,8 @@
 /**
  * @file SettingsModal.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description アプリケーションの設定（Gemini APIキーの管理、変更履歴、システムログの閲覧）を行うモーダル。
  */
 import React, { useState, useEffect, useRef } from 'react';

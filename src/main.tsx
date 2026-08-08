@@ -1,6 +1,8 @@
 /**
  * @file main.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description アプリケーションのエントリーポイント。React DOMのレンダリングとグローバルエラーハンドリングの設定を行う。
  */
 import React from 'react';

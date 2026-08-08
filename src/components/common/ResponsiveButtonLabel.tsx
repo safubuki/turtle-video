@@ -1,6 +1,8 @@
 /**
  * @file ResponsiveButtonLabel.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description 幅の狭い画面でだけ短縮ラベルへ切り替えるボタン内ラベル。
  *
  * キャプション個別設定モーダルは「デフォルト」が 1 つ増える分ボタンが多く、

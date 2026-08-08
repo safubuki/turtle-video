@@ -1,6 +1,8 @@
 /**
  * @file PlatformCapabilitiesContext.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description フレーバー（standard / apple-safari）がピン留めした PlatformCapabilities を
  * 共有コンポーネントへ注入するための Context。
  *

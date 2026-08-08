@@ -1,6 +1,8 @@
 /**
  * @file useAudioTracks.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description BGMとナレーションのトラック操作（アップロード、音量、フェード、削除など）を行うカスタムフック。
  */
 import { useState, useCallback, useRef } from 'react';

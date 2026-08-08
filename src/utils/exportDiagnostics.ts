@@ -1,6 +1,8 @@
 /**
  * @file exportDiagnostics.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description エクスポートで「映像だけが早く終わる／後半が止まる」現象を切り分けるための
  * 計測ロジック（Issue #215 の再発調査）。
  *

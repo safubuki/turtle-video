@@ -1,6 +1,8 @@
 /**
  * @file index.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description アプリケーション全体で使用される型定義（インターフェース、型エイリアス）。
  */
 

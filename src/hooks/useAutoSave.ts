@@ -1,6 +1,8 @@
 /**
  * @file useAutoSave.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description 自動保存機能を提供するカスタムフック。設定に応じた間隔で自動保存を実行する。
  */
 

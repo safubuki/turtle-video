@@ -1,3 +1,10 @@
+/**
+ * @file usePreviewSeekController.ts (apple-safari flavor)
+ * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
+ * @description iOS Safari 専用のシーク制御。standard とは物理的に分離されている。
+ */
 import { useCallback, useEffect, type ChangeEvent, type MutableRefObject } from 'react';
 
 import { SEEK_THROTTLE_MS } from '../../../constants';

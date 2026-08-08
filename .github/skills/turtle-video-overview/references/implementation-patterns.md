@@ -3321,3 +3321,19 @@ export 終了（成功/失敗/中断）
   - **子コンポーネントがストアを直接呼ぶ UI は、親のハンドラを直しても効かない**。音量・トリム等の操作感を変えるときは `onBeforeEdit` 相当のプロップを受け取る子（現状 `BgmClipList`）も必ず確認する。
   - レガシー単一BGM UI（`isMultiBgm === false`、iOS Safari 用）と複数BGM UI は別経路。standard では通常 `BgmClipList` の方が表示される。
 - **テスト**: `bgmClipList.test.tsx` の `continuous sliders keep the preview playing` で、音量スライダーを 195%→60%→250% とドラッグしても `onBeforeEdit`（一時停止）が呼ばれず `onBeforeContinuousEdit` だけが発火すること、ミュートボタンは従来どおり `onBeforeEdit` を呼ぶことを固定する。
+
+### 13-175. 著作権表示の整備（LICENSE / ファイルヘッダ / 配布物バナー）
+
+- **ファイル**: `LICENSE`, `package.json`, `vite.config.ts`, `src/**/*.{ts,tsx}`（75件のヘッダ追記 + 6件の新規ヘッダ）
+- **目的**: 著作者であることの証跡をコードとビルド成果物に残す。ライセンス違反時の立証材料とする。
+- **やったこと**:
+  - **LICENSE**: GPL-3.0 の逐語コピーのみで**著作権者名がどこにも無かった**ため、冒頭に `Turtle Video / Copyright (C) 2026 safubuki (Turtle Village)` と GPL 標準の適用文（"How to Apply These Terms" 相当）を追記。GPL は著作権者名の明示を前提とするため、これが最大の欠落だった。
+  - **package.json**: 空だった `author` に `safubuki (Turtle Village)` を設定（`license: GPL-3.0` は既存）。
+  - **ファイルヘッダ**: 既存の `@author Turtle Village` を持つ 75 ファイルへ `@copyright` / `@license GPL-3.0-or-later` を追記。ヘッダが無かった主要エンジン 6 ファイル（standard / apple-safari の usePreviewEngine・usePreviewSeekController・usePreviewAudioSession）には `@file` 付きの完全なヘッダを新規付与。
+  - **配布物バナー**: ミニファイでコメントが消え `dist` に著作権表示が一切残らなかったため、`vite.config.ts` に `build.rollupOptions.output.banner`（`/*! ... */`）と `esbuild.legalComments: 'inline'` を設定。**両方必要**（banner だけでは esbuild が除去する）。全チャンクに表示が載ることを確認済み。
+- **注意**:
+  - 変更は**全て純粋な追記**（`git diff --numstat` で deletions=0 / insertions=202 を確認）。関数名・識別子は一切変更していない。
+  - **関数名への接頭語付与（`turtle_` 等）は採用しない**。識別子は `indexedDB.ts` の永続化、autoSave のハッシュキー、ストアのアクション名など保存契約を跨ぐため、リネームは保存済みプロジェクトの読込を壊すリスクがある。かつ find-replace で容易に除去できるため証拠としても弱い。
+  - `legalComments: 'inline'` は法的コメントの保持のみを行う設定で、実行時の挙動やバンドルサイズの本質には影響しない。
+  - 実務上もっとも強い証跡は **git 履歴（署名付きタイムスタンプ + リモートの独立記録）** であり、コード内マーカーはその補助という位置づけ。
+- **検証**: テスト 1185 件全合格 / 型チェック・ビルド成功 / lint は変更前後で同一（71 problems・2 errors はいずれも `narrationDelivery.ts` の既存 no-useless-escape）。

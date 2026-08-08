@@ -1,6 +1,8 @@
 /**
  * @file previewCaptureFrame.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description プレビューの「画像キャプチャ」で、シークバーの現在位置と保存画像を
  * ズレなく一致させるための純ロジック。
  *

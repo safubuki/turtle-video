@@ -1,6 +1,8 @@
 /**
  * @file useNarrationWaveform.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description ナレーションクリップの音声をデコードし、静的波形ピークと無音分割候補を返すフック。
  *
  * standard フレーバー（Android/PC）専用。iOS Safari では decodeAudioData が失敗しうるため、

@@ -1,6 +1,8 @@
 /**
  * @file ClipThumbnail.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description メディアクリップのサムネイルを表示する軽量コンポーネント。
  * 画像はそのまま、動画は指定時刻（未指定時は先頭付近ヒューリスティック）のフレームをキャプチャして表示する。
  */

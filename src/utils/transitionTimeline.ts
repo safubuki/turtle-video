@@ -1,6 +1,8 @@
 /**
  * @file transitionTimeline.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description ディゾルブ（重ねる）トランジションを考慮したタイムライン計算の単一ソース。
  *
  * ディゾルブ（type: 'dissolve'）は前のクリップが流れ続けたまま、次のクリップが

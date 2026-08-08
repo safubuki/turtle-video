@@ -1,6 +1,8 @@
 /**
  * @file canvasStore.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description プレビュー / エクスポートのキャンバスサイズを管理するストア。
  *
  * プレビューは描画負荷を抑えるため上限 1280×720 とする。

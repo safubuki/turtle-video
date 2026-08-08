@@ -1,6 +1,8 @@
 /**
  * @file TimelineWaveform.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description プレビューのシークバー直下に、プロジェクト全体の音量波形と無音区間を表示し、
  * 波形上のクリック／タップでシーク、無音区間の境界へのジャンプを行うコンポーネント（Issue #217）。
  *

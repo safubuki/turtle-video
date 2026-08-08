@@ -1,6 +1,8 @@
 /**
  * @file Toast.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description ユーザー操作の完了を通知するための一時的なメッセージ（トースト）を表示するコンポーネント。
  */
 import React, { useEffect } from 'react';

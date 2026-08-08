@@ -1,6 +1,8 @@
 /**
  * @file NarrationSection.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description Narration section (multiple clips)
  */
 import React, { useState, useCallback, useEffect, useRef } from 'react';

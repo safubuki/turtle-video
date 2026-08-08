@@ -1,6 +1,8 @@
 /**
  * @file videoTitle.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description 動画タイトル（Issue #211）の既定値・クランプ・表示判定・スタイル解決の純ロジック。
  *
  * タイトルは通常キャプション（Caption[]）とは別管理の 1 件だけの設定で、

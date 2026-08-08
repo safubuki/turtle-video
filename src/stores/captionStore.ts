@@ -1,6 +1,8 @@
 /**
  * @file captionStore.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description 字幕（キャプション）のデータとスタイル設定を管理するZustandストア。
  */
 

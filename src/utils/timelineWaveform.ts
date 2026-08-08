@@ -1,6 +1,8 @@
 /**
  * @file timelineWaveform.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description プレビューのシークバー直下に出す「プロジェクト全体の音量波形」と
  * 「タイムライン座標の無音区間」を求める純ロジック（Issue #217）。
  *

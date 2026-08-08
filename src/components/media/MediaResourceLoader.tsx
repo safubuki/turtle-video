@@ -1,6 +1,8 @@
 /**
  * @file MediaResourceLoader.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description Hidden media elements loader for preview/export
  */
 import React, { memo, useMemo } from 'react';

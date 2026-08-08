@@ -1,6 +1,8 @@
 /**
  * @file webcodecs.d.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description WebCodecs APIおよび関連する実験的APIのための型定義拡張。
  */
 // WebCodecs API types

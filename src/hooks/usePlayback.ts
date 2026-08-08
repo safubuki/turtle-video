@@ -1,6 +1,8 @@
 /**
  * @file usePlayback.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description 再生状態（再生中/停止中、現在時刻）、再生速度、ループ制御などを提供するカスタムフック。
  */
 import { useState, useRef, useCallback } from 'react';

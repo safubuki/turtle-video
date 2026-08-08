@@ -1,6 +1,8 @@
 /**
  * @file sectionHelp.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description セクションヘルプの表示内容を一元管理する定義。
  */
 

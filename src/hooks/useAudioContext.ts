@@ -1,6 +1,8 @@
 /**
  * @file useAudioContext.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description Web Audio APIのコンテキスト管理、ノード接続（GainNode, SourceNode）を行うカスタムフック。
  */
 import { useRef, useCallback } from 'react';

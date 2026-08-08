@@ -1,6 +1,8 @@
 /**
  * @file VideoTitleSettingsPanel.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description 動画タイトル設定（Issue #211）のアコーディオン UI。
  *
  * 通常キャプションとは別管理の 1 件だけの設定で、キャプションカテゴリの先頭付近に置く。

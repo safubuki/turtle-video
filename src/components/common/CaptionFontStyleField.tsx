@@ -1,6 +1,8 @@
 /**
  * @file CaptionFontStyleField.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description 字体設定（固定ボタン + 「その他▾」ドロップダウン + PC の全フォント読み込み）の共通コントロール。
  *
  * キャプションの一括スタイル設定・キャプション個別設定モーダル・動画タイトル設定

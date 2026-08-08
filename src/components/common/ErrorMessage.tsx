@@ -1,6 +1,8 @@
 /**
  * @file ErrorMessage.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description アプリケーション内で発生したエラーメッセージをユーザーに通知するための表示コンポーネント。
  */
 import React from 'react';

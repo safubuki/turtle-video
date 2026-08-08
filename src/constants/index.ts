@@ -1,6 +1,8 @@
 /**
  * @file index.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description アプリケーション全体で使用される定数定義（キャンバスサイズ、デフォルト値、API設定など）。
  */
 import type { VoiceGenderFilter, VoiceOption } from '../types';

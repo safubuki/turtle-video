@@ -1,6 +1,8 @@
 /**
  * @file clipTransitions.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description クリップ間トランジション（standard フレーバー限定機能）の純ロジック。
  *
  * 設計方針: トランジションは**タイムライン長を一切変えない**。

@@ -1,6 +1,8 @@
 /**
  * @file captionStyle.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description キャプションのサイズ・位置の解決純ロジック。
  * プリセット（小中大特大 / 上中下）に加え、一括設定のカスタム値
  * （fontSizeCustom / positionCustom）を解決する。

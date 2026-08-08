@@ -1,6 +1,8 @@
 /**
  * @file CaptionMiniPreview.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description キャプション設定中に、プレビューの現在位置の静止画へキャプションを重ねて
  * 表示する小型プレビュー。
  *

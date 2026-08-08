@@ -1,6 +1,8 @@
 /**
  * @file CaptionSection.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description テキストキャプションの追加、編集、削除を行うセクション。タイムライン上での表示タイミングやスタイル（サイズ、位置）の設定UIを提供する。
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';

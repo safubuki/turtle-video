@@ -1,6 +1,8 @@
 /**
  * @file previewCacheContract.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description プレビューキャッシュのフレーバー中立な契約型。
  *
  * 実装はフレーバー側が所有する:

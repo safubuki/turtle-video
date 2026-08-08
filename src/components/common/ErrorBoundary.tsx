@@ -1,6 +1,8 @@
 /**
  * @file ErrorBoundary.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description Reactコンポーネントツリー内のエラーを捕捉し、ユーザーフレンドリーなフォールバックUIを表示するラッパーコンポーネント。
  */
 import { Component, type ReactNode, type ErrorInfo } from 'react';

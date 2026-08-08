@@ -1,6 +1,8 @@
 /**
  * @file canvas.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description Canvasへの画像・動画の描画、サイズ計算、クリア処理などを行うユーティリティ関数群。
  */
 

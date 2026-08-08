@@ -1,6 +1,8 @@
 /**
  * @file audioWaveform.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description ナレーション音声の「静的な音量波形」表示と「無音区間（文の区切り）自動検出」の純ロジック。
  *
  * ここは再生・デコード・DOM に依存しない純関数だけを置く（テスト容易性のため）。

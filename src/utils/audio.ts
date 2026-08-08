@@ -1,6 +1,8 @@
 /**
  * @file audio.ts
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description 音声データの変換（PCM to WAV）、AudioContextの管理、ボリューム計算などのユーティリティ関数群。
  */
 

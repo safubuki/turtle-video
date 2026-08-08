@@ -1,3 +1,11 @@
+/**
+ * @file usePreviewAudioSession.ts (standard flavor)
+ * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
+ * @description Android / PC (standard) フレーバー専用のプレビュー音声セッション管理。
+ * WebAudio ノードの生成・破棄、gain 解決、native/webaudio 経路の準備を担う。
+ */
 import { useCallback, useEffect, type MutableRefObject } from 'react';
 
 import type { AudioTrack, MediaElementsRef, MediaItem, NarrationClip } from '../../../types';

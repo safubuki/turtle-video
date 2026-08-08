@@ -1,6 +1,8 @@
 ﻿/**
  * @file exportEngine.ts (standard flavor)
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description Android / PC (standard) フレーバー専用のエクスポートエンジン。
  * apple-safari フレーバーとは物理的に分離されており、このファイルの変更は
  * iOS Safari のエクスポートに影響しない。共有するのは

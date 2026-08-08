@@ -1,6 +1,8 @@
 /**
  * @file AiModal.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description AIナレーションを生成するためのモーダルダイアログ。プロンプト入力、スクリプト生成、音声合成のフローを提供する。
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';

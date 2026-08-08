@@ -1,6 +1,8 @@
 /**
  * @file CaptionBulkAddModal.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description 長文キャプション（歌詞・ナレーション等）の一括入力/一括編集モーダル（standard フレーバー限定）。
  * - 1 行 = 1 キャプション。行頭の `[開始-終了]` 時間記法で行ごとの時間指定が可能。
  * - 既存キャプションがある場合は時間記法付きテキストをプリフィルし、

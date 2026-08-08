@@ -1,3 +1,13 @@
+/**
+ * @file usePreviewEngine.ts (apple-safari flavor)
+ * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
+ * @description iOS Safari 専用のプレビュー再生エンジン。
+ * WebAudio へ一本化した音声ミックスと、iOS 固有の decode / keep-alive 対策を含む。
+ * standard フレーバーとは物理的に分離されており、このファイルの変更は
+ * Android / PC のプレビューに影響しない。
+ */
 import { useCallback, useRef, type MutableRefObject } from 'react';
 
 import {

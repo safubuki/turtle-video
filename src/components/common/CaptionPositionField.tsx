@@ -1,6 +1,8 @@
 /**
  * @file CaptionPositionField.tsx
  * @author Turtle Village
+ * @copyright Copyright (C) 2026 safubuki (Turtle Village)
+ * @license GPL-3.0-or-later
  * @description 表示位置設定（上/中央/下 + カスタム XY）の共通コントロール。
  *
  * キャプションの一括スタイル設定とキャプション個別設定モーダルが
