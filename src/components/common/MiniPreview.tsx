@@ -287,7 +287,12 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
         {/* トランスフォーム情報オーバーレイ */}
         <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-2 py-1 text-[10px] text-gray-300 flex justify-between">
           <span>Scale: {(item.scale * 100).toFixed(0)}%</span>
-          <span>{(item.rotation || 0) !== 0 ? `${item.rotation}° ` : ''}X: {item.positionX} Y: {item.positionY}</span>
+          {/* 位置は px の生値。中央原点 % への変換で端数が出るため整数へ丸めて表示する
+              （保存値は丸めない。あくまで表示上の見やすさのため） */}
+          <span>
+            {(item.rotation || 0) !== 0 ? `${item.rotation}° ` : ''}
+            X: {Math.round(item.positionX || 0)} Y: {Math.round(item.positionY || 0)}
+          </span>
         </div>
       </div>
     </div>

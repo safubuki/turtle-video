@@ -8,7 +8,7 @@
  * （fontSizeCustom / positionCustom）を解決する。
  * カスタム値の描画反映は standard フレーバーのエンジンのみが行う（iOS はプリセットで描画）。
  */
-import type { Caption, CaptionSettings, CaptionSize } from '../types';
+import type { Caption, CaptionPosition, CaptionSettings, CaptionSize } from '../types';
 
 /** 1080p 基準のプリセットサイズ（px）。各段階 ~1.4 倍の読みやすさ重視スケール */
 export const CAPTION_FONT_SIZE_PRESETS: Record<CaptionSize, number> = {
@@ -285,6 +285,34 @@ export function resolveCaptionBaseFontSize(
  * テキスト中心のアンカー座標を解決する。
  * 優先度: 個別カスタム XY > 個別 override（プリセット）> 一括カスタム XY > 一括プリセット
  */
+/**
+ * プリセット位置（上部/中央/下部）を、カスタム位置と同じ「左上原点 %」へ変換する。
+ *
+ * プリセットからカスタムへ切り替えたときに、**見た目を保ったまま**微調整を始められるようにする。
+ * （従来はカスタムへ切り替えると既定の中央 50/50 へ飛んでいた）
+ * 実際の描画位置は `resolveCaptionAnchor` が単一ソースなので、そこへ委譲して % 化する。
+ */
+export function resolveCaptionPresetAsCustomPercent(
+  position: CaptionPosition,
+  layout: {
+    canvasWidth: number;
+    canvasHeight: number;
+    fontSize: number;
+    padding: number;
+  },
+): { x: number; y: number } {
+  const anchor = resolveCaptionAnchor(
+    { overridePosition: position, overridePositionCustom: undefined },
+    { position, positionCustom: undefined },
+    layout,
+  );
+  const { canvasWidth, canvasHeight } = layout;
+  return {
+    x: clampPositionPercent(canvasWidth > 0 ? (anchor.x / canvasWidth) * 100 : 50),
+    y: clampPositionPercent(canvasHeight > 0 ? (anchor.y / canvasHeight) * 100 : 50),
+  };
+}
+
 export function resolveCaptionAnchor(
   caption: Pick<Caption, 'overridePosition' | 'overridePositionCustom'>,
   settings: Pick<CaptionSettings, 'position' | 'positionCustom'>,

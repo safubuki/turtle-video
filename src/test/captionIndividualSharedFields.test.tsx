@@ -14,6 +14,7 @@ import CaptionFontSizeField from '../components/common/CaptionFontSizeField';
 import CaptionPositionField from '../components/common/CaptionPositionField';
 import type { Caption, CaptionSettings } from '../types';
 import { PINNED_CAPTION_FONT_OPTIONS } from '../utils/captionFontCatalog';
+import { CAPTION_POSITION_CUSTOM_DEFAULT } from '../utils/captionStyle';
 
 const settings: CaptionSettings = {
   enabled: true,
@@ -238,9 +239,46 @@ describe('CaptionPositionField（一括設定と個別設定の共有コンポ�
       />,
     );
 
+    // 表示は「中央原点・上が＋」。入力 +30% は保存値 65%（= 30/2 + 50）になる
     const xNumber = screen.getByLabelText('テストの表示位置 X（数値）');
     fireEvent.change(xNumber, { target: { value: '30' } });
-    expect(onSetPositionCustom).toHaveBeenCalledWith({ x: 30, y: 80 });
+    expect(onSetPositionCustom).toHaveBeenCalledWith({ x: 65, y: 80 });
+  });
+
+  it('カスタム XY は中央原点（上が＋）で表示する', () => {
+    render(
+      <CaptionPositionField
+        {...baseProps}
+        position={null}
+        // 保存値: 左上原点。x=50 は中央、y=80 は下寄り
+        positionCustom={{ x: 50, y: 80 }}
+        onSetPosition={vi.fn()}
+        onSetPositionCustom={vi.fn()}
+      />,
+    );
+
+    // x=50（中央）→ 0
+    expect(screen.getByLabelText('テストの表示位置 X（数値）')).toHaveValue(0);
+    // y=80（下寄り）→ 上が＋なので負の値
+    expect(screen.getByLabelText('テストの表示位置 Y（数値）')).toHaveValue(-60);
+  });
+
+  it('カスタム Y は上へ動かすと ＋ になる', () => {
+    const onSetPositionCustom = vi.fn();
+    render(
+      <CaptionPositionField
+        {...baseProps}
+        position={null}
+        positionCustom={{ x: 50, y: 50 }}
+        onSetPosition={vi.fn()}
+        onSetPositionCustom={onSetPositionCustom}
+      />,
+    );
+
+    const yNumber = screen.getByLabelText('テストの表示位置 Y（数値）');
+    // ＋40 を入力＝上へ。保存値は 30%（＝上寄り）になる
+    fireEvent.change(yNumber, { target: { value: '40' } });
+    expect(onSetPositionCustom).toHaveBeenCalledWith({ x: 50, y: 30 });
   });
 
   it('compact では短縮と正式名称の両方を描き、CSS で出し分ける（PC は一括設定と同じ表示）', () => {
@@ -294,6 +332,46 @@ describe('CaptionPositionField（一括設定と個別設定の共有コンポ�
       />,
     );
     expect(screen.queryByRole('button', { name: 'テストの表示位置 カスタム' })).toBeNull();
+  });
+  /**
+   * プリセット（上部・中央・下部）からカスタムへ切り替えたとき、
+   * **その位置を引き継いで**微調整を始められること。
+   * 引き継がないと、下部に合わせた直後にカスタムを押すと中央へ飛んでしまう。
+   */
+  it('カスタムへ切り替えるとプリセット位置を引き継ぐ', () => {
+    const onSetPositionCustom = vi.fn();
+    render(
+      <CaptionPositionField
+        {...baseProps}
+        position="bottom"
+        positionCustom={undefined}
+        onSetPosition={vi.fn()}
+        onSetPositionCustom={onSetPositionCustom}
+        resolvePresetAsCustom={() => ({ x: 50, y: 92 })}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('テストの表示位置 カスタム'));
+
+    // 既定の中央(50,50)ではなく、渡された下部の座標が入る
+    expect(onSetPositionCustom).toHaveBeenCalledWith({ x: 50, y: 92 });
+  });
+
+  it('引き継ぎ関数が無いときは従来どおり既定値から始まる', () => {
+    const onSetPositionCustom = vi.fn();
+    render(
+      <CaptionPositionField
+        {...baseProps}
+        position="bottom"
+        positionCustom={undefined}
+        onSetPosition={vi.fn()}
+        onSetPositionCustom={onSetPositionCustom}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('テストの表示位置 カスタム'));
+
+    expect(onSetPositionCustom).toHaveBeenCalledWith(CAPTION_POSITION_CUSTOM_DEFAULT);
   });
 });
 
@@ -412,4 +490,5 @@ describe('CaptionSettingsModal が共有コンポーネントを使う', () => {
       overrideFontSizeCustom: undefined,
     });
   });
+
 });

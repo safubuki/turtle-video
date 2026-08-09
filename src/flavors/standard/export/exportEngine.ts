@@ -813,6 +813,19 @@ async function offlineRenderAudio(
     }
   }
 
+  /**
+   * エンドロール区間の BGM フェード開始時刻（= clipsDuration）。
+   * オプション OFF・エンドロール無効（clipsDuration が totalDuration と同値）なら null。
+   */
+  const endrollBgmFadeStart = (() => {
+    if (!sources.endrollBgmFadeOut) return null;
+    const clipsDuration = sources.clipsDuration;
+    if (!Number.isFinite(clipsDuration)) return null;
+    const start = clipsDuration as number;
+    if (!(start > 0) || start >= totalDuration) return null;
+    return start;
+  })();
+
   // Helper: BGM/ナレーションのスケジューリング
   async function scheduleAudioTrack(track: AudioTrack, label: string): Promise<void> {
     if (signal.aborted) return;
@@ -848,6 +861,15 @@ async function offlineRenderAudio(
       // BGM/ナレーションのフェードアウトはプロジェクト終端からの相対位置
       const fadeOutStart = Math.max(trackStart + fadeInDur, totalDuration - fadeOutDur);
       gain.gain.setValueAtTime(vol, fadeOutStart);
+      gain.gain.linearRampToValueAtTime(0, totalDuration);
+    }
+
+    // エンドロール区間の BGM フェードアウト（オプション）。
+    // clipsDuration から totalDuration にかけて 0 まで落とす。既存の末尾フェードとは
+    // 独立した設定で、両方 ON のときは先に 0 へ向かう方（＝より早い方）が実効になる。
+    // プレビュー側（resolveBgmEndrollFadeGain）と同じ区間・同じ線形カーブ。
+    if (endrollBgmFadeStart !== null && endrollBgmFadeStart > trackStart) {
+      gain.gain.setValueAtTime(vol, endrollBgmFadeStart);
       gain.gain.linearRampToValueAtTime(0, totalDuration);
     }
 
@@ -922,6 +944,19 @@ async function offlineRenderAudio(
     } else {
       gain.gain.setValueAtTime(clipVol, clipStart);
     }
+
+    // エンドロール区間の BGM フェードアウト（BGM クリップのみ・ナレーションは対象外）。
+    // プレビューの resolveBgmEndrollFadeGain と同じ区間・同じ線形カーブで揃える。
+    if (
+      endrollBgmFadeStart !== null
+      && isBgmClipId(clip.id)
+      && clipStart + playDuration > endrollBgmFadeStart
+    ) {
+      const fadeStart = Math.max(clipStart, endrollBgmFadeStart);
+      gain.gain.setValueAtTime(clipVol, fadeStart);
+      gain.gain.linearRampToValueAtTime(0, totalDuration);
+    }
+
     source.start(clipStart, trimStart, playDuration);
     scheduledSources++;
   }

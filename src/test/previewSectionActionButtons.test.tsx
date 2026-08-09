@@ -109,7 +109,7 @@ describe('PreviewSection action buttons', () => {
       totalDuration: 9,
     });
 
-    const segments = container.querySelector('.flex.w-full.h-full')?.children;
+    const segments = container.querySelector('[data-testid="preview-timeline-bar"]')?.children;
 
     expect(segments).toHaveLength(3);
     expect(segments?.[0]).toHaveClass('bg-yellow-600', 'border-r');
@@ -701,4 +701,105 @@ describe('プレビューの現在位置表示（1/100 秒）', () => {
     renderPreviewSection({ currentTime: 3.07, totalDuration: 15 });
     expect(screen.getByLabelText('現在位置 0:03.07')).toBeTruthy();
   });
+});
+
+/**
+ * シークバーの色帯は「実際のタイムライン」を表す。
+ * ディゾルブは重ねるぶんタイムラインが縮む（5+5 で 1 秒ディゾルブ＝9 秒）ため、
+ * duration をそのまま並べると尺と表示がずれる。
+ */
+describe('シークバーの区間表示（ディゾルブ・エンドロール）', () => {
+  const videoClip = (id: string, duration: number, extra: Record<string, unknown> = {}) => ({
+    ...mediaItem,
+    id,
+    file: new File(['v'], `${id}.mp4`, { type: 'video/mp4' }),
+    type: 'video' as const,
+    duration,
+    originalDuration: duration,
+    trimEnd: duration,
+    ...extra,
+  });
+
+  const getBar = (container: HTMLElement) =>
+    container.querySelector('[data-testid="preview-timeline-bar"]');
+
+  const pct = (el: Element | null | undefined) => ({
+    left: (el as HTMLElement | null)?.style.left,
+    width: (el as HTMLElement | null)?.style.width,
+  });
+
+  it('ディゾルブで重なるぶん、2本目の帯が前倒しで配置される', () => {
+    // 5秒 + 5秒 を 1 秒ディゾルブ → 本編 9 秒
+    const { container } = renderPreviewSection({
+      mediaItems: [
+        videoClip('a', 5, { transitionToNext: { type: 'dissolve', duration: 1 } }),
+        videoClip('b', 5),
+      ],
+      totalDuration: 9,
+      clipsDuration: 9,
+    });
+
+    const bar = getBar(container);
+    const first = bar?.children[0];
+    const second = bar?.children[1];
+
+    // 1本目: 0〜5秒 → 左端から 5/9
+    expect(pct(first).left).toBe('0%');
+    expect(pct(first).width).toBe(`${(5 / 9) * 100}%`);
+    // 2本目: 4〜9秒（1秒前倒し）。10秒ぶんに引き伸ばされていないこと
+    expect(pct(second).left).toBe(`${(4 / 9) * 100}%`);
+    expect(pct(second).width).toBe(`${(5 / 9) * 100}%`);
+  });
+
+  it('重なり区間をトランジション色（紫）で示す', () => {
+    const { container } = renderPreviewSection({
+      mediaItems: [
+        videoClip('a', 5, { transitionToNext: { type: 'dissolve', duration: 1 } }),
+        videoClip('b', 5),
+      ],
+      totalDuration: 9,
+      clipsDuration: 9,
+    });
+
+    const purple = container.querySelector('.bg-purple-500') as HTMLElement | null;
+    expect(purple).not.toBeNull();
+    // 4〜5秒の 1 秒ぶん
+    expect(purple?.style.left).toBe(`${(4 / 9) * 100}%`);
+    expect(purple?.style.width).toBe(`${(1 / 9) * 100}%`);
+  });
+
+  it('ディゾルブが無ければ紫の帯は出ない', () => {
+    const { container } = renderPreviewSection({
+      mediaItems: [videoClip('a', 5), videoClip('b', 5)],
+      totalDuration: 10,
+      clipsDuration: 10,
+    });
+    expect(container.querySelector('.bg-purple-500')).toBeNull();
+  });
+
+  it('エンドロール区間を別色で末尾に描く（9秒 + 5秒 = 14秒）', () => {
+    const { container } = renderPreviewSection({
+      mediaItems: [
+        videoClip('a', 5, { transitionToNext: { type: 'dissolve', duration: 1 } }),
+        videoClip('b', 5),
+      ],
+      totalDuration: 14,
+      clipsDuration: 9,
+    });
+
+    const endroll = container.querySelector('.bg-slate-500') as HTMLElement | null;
+    expect(endroll).not.toBeNull();
+    expect(endroll?.style.left).toBe(`${(9 / 14) * 100}%`);
+    expect(endroll?.style.width).toBe(`${(5 / 14) * 100}%`);
+  });
+
+  it('エンドロールが無ければ専用の帯は出ない', () => {
+    const { container } = renderPreviewSection({
+      mediaItems: [videoClip('a', 5), videoClip('b', 5)],
+      totalDuration: 10,
+      clipsDuration: 10,
+    });
+    expect(container.querySelector('.bg-slate-500')).toBeNull();
+  });
+
 });

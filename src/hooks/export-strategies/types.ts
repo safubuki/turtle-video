@@ -72,7 +72,16 @@ export interface ExportAudioSources {
   mediaItems: MediaItem[];
   bgm: AudioTrack | null;
   narrations: NarrationClip[];
+  /** 出力全体の長さ（クリップ + エンドロール） */
   totalDuration: number;
+  /**
+   * クリップだけの長さ（エンドロールを含まない）。
+   * エンドロール区間の BGM フェードアウト開始点として使う。
+   * 未指定・エンドロール無効時は totalDuration と同値として扱う。
+   */
+  clipsDuration?: number;
+  /** エンドロール区間で BGM を徐々に消すか（エンドロール設定のオプション） */
+  endrollBgmFadeOut?: boolean;
   onPreparationStepChange?: (step: ExportPreparationStep) => void;
   /**
    * 音声プリレンダリング完了時に呼ばれるコールバック。

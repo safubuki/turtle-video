@@ -383,6 +383,9 @@ export interface VideoTitleSettings {
 /** ウォーターマーク画像の切り抜き形状（Issue #210） */
 export type WatermarkMask = 'rectangle' | 'rounded' | 'circle';
 
+/** ウォーターマークを本編のみに出すか、エンドロールを含む全編に出すか */
+export type WatermarkScope = 'main' | 'full';
+
 /**
  * プロジェクト時間軸に属するウォーターマーク（Issue #210）。
  *
@@ -395,6 +398,14 @@ export interface WatermarkOverlay {
   url: string | null;
   /** false にしても画像と各調整値は保持する */
   enabled: boolean;
+  /**
+   * 表示できる範囲の上限をどこまで許すか。
+   * - `main`（既定）: 動画本編のみ。エンドロール区間には出さない
+   * - `full`: エンドロールを含む全編。上限が totalDuration まで伸びる
+   *
+   * エンドロール未設定なら両者は同じ意味になる（本編 = 全編）。
+   */
+  scope: WatermarkScope;
   /** プロジェクト時間軸上の表示開始・終了（秒） */
   startTime: number;
   endTime: number;
@@ -413,6 +424,54 @@ export interface WatermarkOverlay {
   /** マスク境界のぼかし幅 px @1080p 基準 */
   feather: number;
   /** 表示範囲先頭からのフェードイン（動画・画像クリップと同じ仕組み） */
+  fadeIn: boolean;
+  fadeOut: boolean;
+  fadeInDuration: number;
+  fadeOutDuration: number;
+}
+
+/** エンドロール背景の指定方法。既定は黒 */
+export type EndrollBackgroundMode = 'black' | 'white' | 'custom';
+
+/**
+ * 動画（クリップ）の再生が終わった後に続けて表示するエンドロール。
+ *
+ * ウォーターマークと違い「クリップに重ねる」のではなく、**タイムラインを延長する**。
+ * 12 秒のクリップに 5 秒のエンドロールを設定すると出力は 17 秒になる。
+ *
+ * ロゴの見た目に関する項目（位置・サイズ・回転・不透明度・マスク・フェード）は
+ * WatermarkOverlay と同一の意味・範囲を持ち、UI とロジックを共有する。
+ * 一方 startTime / endTime は持たない（区間 = エンドロール全体のため）。
+ */
+export interface EndrollOverlay {
+  file: File | null;
+  /** 選択中画像の Object URL。保存時は永続化せず fileData から再生成する */
+  url: string | null;
+  /** false のときタイムラインは伸びない（画像と各調整値は保持する） */
+  enabled: boolean;
+  /** エンドロールの長さ（秒）。この分だけ totalDuration が伸びる */
+  durationSec: number;
+  /** 背景の指定方法 */
+  backgroundMode: EndrollBackgroundMode;
+  /** backgroundMode === 'custom' のときの背景色（#rrggbb） */
+  backgroundColor: string;
+  /** エンドロール区間で BGM を徐々にフェードアウトする。BGM 未設定時は無効 */
+  bgmFadeOut: boolean;
+  /** 画像中心の位置（Canvas に対する %） */
+  positionX: number;
+  positionY: number;
+  /** 読み込んだ画像の自然サイズを 1 とする表示倍率 */
+  size: number;
+  /** 不透明度（0〜1） */
+  opacity: number;
+  /** 時計回りの回転角（度） */
+  rotation: number;
+  mask: WatermarkMask;
+  /** 画像領域に対するマスクの大きさ（%）。100 で画像外周と一致する */
+  maskSize: number;
+  /** マスク境界のぼかし幅 px @1080p 基準 */
+  feather: number;
+  /** エンドロール区間の先頭からのフェードイン／末尾へのフェードアウト */
   fadeIn: boolean;
   fadeOut: boolean;
   fadeInDuration: number;

@@ -10,6 +10,7 @@ import {
   drawWatermarkOverlayFrame,
   normalizeWatermarkOverlay,
   normalizeWatermarkRange,
+  normalizeWatermarkScope,
   resolveWatermarkPresetPosition,
   shouldDrawWatermarkOverlay,
 } from '../utils/watermarkOverlay';
@@ -370,5 +371,44 @@ describe('ウォーターマーク位置の簡単設定', () => {
       canvasWidth: 1920,
       canvasHeight: 1080,
     })).toEqual({ positionX: 50, positionY: 50 });
+  });
+
+  /**
+   * 表示範囲の上限は scope で決まる。
+   * - main（既定・旧データ）: 本編のみ
+   * - full: エンドロールを含む全編
+   * エンドロール未設定なら両者は同値になり、従来挙動と一致する。
+   */
+  describe('scope（本編のみ / 全編）', () => {
+    it('旧データ（scope 無し）は本編のみとして扱う', () => {
+      expect(normalizeWatermarkOverlay(undefined).scope).toBe('main');
+      expect(normalizeWatermarkOverlay({}).scope).toBe('main');
+      expect(DEFAULT_WATERMARK_OVERLAY.scope).toBe('main');
+    });
+
+    it('不正な値は本編のみへ丸める', () => {
+      expect(normalizeWatermarkScope('full')).toBe('full');
+      expect(normalizeWatermarkScope('main')).toBe('main');
+      expect(normalizeWatermarkScope('everything')).toBe('main');
+      expect(normalizeWatermarkScope(undefined)).toBe('main');
+      expect(normalizeWatermarkScope(null)).toBe('main');
+    });
+
+    it('保存値の full を維持する', () => {
+      expect(normalizeWatermarkOverlay({ scope: 'full' }).scope).toBe('full');
+    });
+
+    /**
+     * 上限そのものは呼び出し側（UI）が scope から決めて渡す契約。
+     * ここでは「渡された上限でクランプされる」ことを固定する。
+     */
+    it('本編のみなら 12 秒、全編なら 17 秒でクランプされる', () => {
+      // 本編のみ: clipsDuration=12 が上限
+      expect(normalizeWatermarkRange(0, 99, 12).endTime).toBe(12);
+      // 全編: totalDuration=17 が上限
+      expect(normalizeWatermarkRange(0, 99, 17).endTime).toBe(17);
+      // 全編で 17 秒を指定してもそのまま通る
+      expect(normalizeWatermarkRange(3, 17, 17)).toEqual({ startTime: 3, endTime: 17 });
+    });
   });
 });

@@ -48,10 +48,15 @@ export function formatTimeDetailed(seconds: number): string {
  */
 export function formatTimeCentiseconds(seconds: number): string {
   if (!seconds || isNaN(seconds) || !isFinite(seconds) || seconds < 0) return '0:00.00';
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  // 浮動小数の誤差で 1/100 秒がひとつ下に出るのを防ぐ（例: 3.07 が 3.06 に見える）
-  const cs = Math.floor(Math.round((seconds % 1) * 1000) / 10);
+
+  // 浮動小数の誤差で 1/100 秒がひとつ下に出るのを防ぐ（例: 3.07 が 3.06 に見える）。
+  // ただし 0.9999 のような値は round で 1000 になり cs=100（3 桁）へ溢れるため、
+  // **全体を 1/100 秒へ量子化してから**分・秒・1/100 秒へ分解する。
+  // 溢れを放置すると "0:00.100" のように桁が増え、秒の繰り上がりも失われる。
+  const totalCs = Math.floor(Math.round(seconds * 1000) / 10);
+  const m = Math.floor(totalCs / 6000);
+  const s = Math.floor((totalCs % 6000) / 100);
+  const cs = totalCs % 100;
   return `${m}:${s.toString().padStart(2, '0')}.${cs.toString().padStart(2, '0')}`;
 }
 

@@ -23,6 +23,7 @@ import type {
   NarrationClip,
   VideoTitleSettings,
   WatermarkOverlay,
+  EndrollOverlay,
 } from '../../types';
 import type { ExportPreparationStep, UseExportReturn } from '../../hooks/export-strategies/types';
 import type { LogCategory } from '../../stores/logStore';
@@ -82,6 +83,12 @@ interface UsePreviewEngineParams {
   watermarkOverlayRef?: MutableRefObject<WatermarkOverlay>;
   /** Issue #210。契約追随のみ */
   watermarkImageRef?: MutableRefObject<HTMLImageElement | null>;
+  /** エンドロール。契約追随のみ（この凍結ファイルでは描画しない） */
+  endrollOverlayRef?: MutableRefObject<EndrollOverlay>;
+  /** エンドロール。契約追随のみ */
+  endrollImageRef?: MutableRefObject<HTMLImageElement | null>;
+  /** クリップだけの尺。契約追随のみ */
+  clipsDurationRef?: MutableRefObject<number>;
   /**
    * キャプションを描く直前のフレームを保存する先（キャプション設定のミニプレビュー用）。
    * メインプレビューの canvas を直接転写すると焼き込み済みキャプションと二重になるため、

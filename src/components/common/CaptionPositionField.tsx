@@ -20,6 +20,13 @@ import {
   clampPositionPercent,
 } from '../../utils/captionStyle';
 import ResponsiveButtonLabel from './ResponsiveButtonLabel';
+import {
+  CENTER_ORIGIN_MAX,
+  CENTER_ORIGIN_MIN,
+  fromTopLeftPercent,
+  roundCenterOrigin,
+  toTopLeftPercent,
+} from '../../utils/centerOriginPosition';
 
 export const CAPTION_POSITION_OPTIONS: {
   value: CaptionPosition;
@@ -55,6 +62,12 @@ interface CaptionPositionFieldProps {
   idPrefix: string;
   onSetPosition: (position: CaptionPosition | null) => void;
   onSetPositionCustom: (value: { x: number; y: number } | null) => void;
+  /**
+   * 現在のプリセット位置に相当するカスタム座標（左上原点 %）を返す。
+   * 「カスタム」へ切り替えたときに**見た目を保ったまま**微調整を始められるようにする。
+   * 未指定なら従来どおり既定値（中央）から始まる。
+   */
+  resolvePresetAsCustom?: () => { x: number; y: number };
 }
 
 const CaptionPositionField = React.memo<CaptionPositionFieldProps>(({
@@ -68,14 +81,25 @@ const CaptionPositionField = React.memo<CaptionPositionFieldProps>(({
   idPrefix,
   onSetPosition,
   onSetPositionCustom,
+  resolvePresetAsCustom,
 }) => {
   const isCustom = positionCustom != null;
   const isDefaultSelected = allowDefaultOption && !isCustom && position === null;
   const customPosition = positionCustom ?? CAPTION_POSITION_CUSTOM_DEFAULT;
 
-  const handleAxisChange = (axis: 'x' | 'y', value: number) => {
-    onSetPositionCustom({ ...customPosition, [axis]: clampPositionPercent(value) });
+  /**
+   * 表示は「中央原点・上が＋」の共通座標系（動画・画像・ロゴと同一）。
+   * 保存値は従来どおり左上原点 0〜100% なので、ここで変換する。
+   */
+  const handleAxisChange = (axis: 'x' | 'y', shownValue: number) => {
+    onSetPositionCustom({
+      ...customPosition,
+      [axis]: clampPositionPercent(toTopLeftPercent(shownValue, axis)),
+    });
   };
+
+  const displayPosition = (axis: 'x' | 'y') =>
+    roundCenterOrigin(fromTopLeftPercent(customPosition[axis], axis));
 
   return (
     <>
@@ -123,7 +147,11 @@ const CaptionPositionField = React.memo<CaptionPositionFieldProps>(({
           {supportsCustom && (
             <button
               onClick={() => {
-                if (!isCustom) onSetPositionCustom({ ...CAPTION_POSITION_CUSTOM_DEFAULT });
+                if (isCustom) return;
+                // 直前のプリセット位置を引き継ぐ（下部に合わせてから微調整、が自然にできる）
+                onSetPositionCustom(
+                  resolvePresetAsCustom?.() ?? { ...CAPTION_POSITION_CUSTOM_DEFAULT },
+                );
               }}
               disabled={disabled}
               className={`min-w-0 flex-1 px-0.5 py-1 rounded transition whitespace-nowrap ${
@@ -144,12 +172,14 @@ const CaptionPositionField = React.memo<CaptionPositionFieldProps>(({
         <div className={`space-y-1.5 ${compact ? 'pl-10 md:pl-16' : 'pl-16'}`}>
           {(['x', 'y'] as const).map((axis) => (
             <div key={axis} className="flex items-center gap-2 text-[10px] md:text-xs">
-              <span className="text-gray-500 w-4 uppercase">{axis}</span>
+              <span className="text-gray-500 w-10 whitespace-nowrap">
+                {axis === 'x' ? '横 (右+)' : '縦 (上+)'}
+              </span>
               <SwipeProtectedSlider
-                min={0}
-                max={100}
+                min={CENTER_ORIGIN_MIN}
+                max={CENTER_ORIGIN_MAX}
                 step={1}
-                value={customPosition[axis]}
+                value={displayPosition(axis)}
                 onChange={(val) => handleAxisChange(axis, val)}
                 disabled={disabled}
                 ariaLabel={`${ariaLabelPrefix}の表示位置 ${axis.toUpperCase()}`}
@@ -158,10 +188,10 @@ const CaptionPositionField = React.memo<CaptionPositionFieldProps>(({
               <input
                 id={`${idPrefix}-position-custom-${axis}`}
                 type="number"
-                min={0}
-                max={100}
+                min={CENTER_ORIGIN_MIN}
+                max={CENTER_ORIGIN_MAX}
                 step={1}
-                value={Math.round(customPosition[axis])}
+                value={displayPosition(axis)}
                 onChange={(e) => {
                   const val = parseFloat(e.target.value);
                   if (!Number.isNaN(val)) handleAxisChange(axis, val);
@@ -174,7 +204,7 @@ const CaptionPositionField = React.memo<CaptionPositionFieldProps>(({
             </div>
           ))}
           <div className="text-[9px] text-gray-500">
-            X=50 が中央、Y=0 が最上部（テキスト中心の位置）
+            中央が 0。横は右が＋、縦は上が＋（テキスト中心の位置）
           </div>
         </div>
       )}

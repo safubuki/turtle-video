@@ -41,7 +41,7 @@ describe('sectionHelp support messaging', () => {
       section.items.map((item) => item.title),
     );
 
-    expect(titles).not.toContain('ウォーターマーク');
+    expect(titles).not.toContain('ロゴ表示（ウォーターマーク / エンドロール）');
     expect(titles).not.toContain('AI原稿からキャプションカードを追加');
     expect(titles).not.toContain('タイトル（キャプションとは別管理）');
     expect(titles).not.toContain('サムネイル（プロジェクト全体）');
@@ -146,7 +146,8 @@ describe('sectionHelp support messaging', () => {
     expect(getHelpVisuals('clips', '動画の形式（横16:9／縦9:16）')).toContain(
       'aspect_ratio_toggle'
     );
-    expect(getHelpVisuals('clips', 'ウォーターマーク')).toContain('watermark_controls');
+    expect(getHelpVisuals('clips', 'ロゴ表示（ウォーターマーク / エンドロール）'))
+      .toContain('watermark_controls');
     expect(getHelpVisuals('clips', 'トランジション（Android/PC版）')).toContain(
       'transition_button'
     );

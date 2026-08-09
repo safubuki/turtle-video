@@ -29,6 +29,13 @@ import {
 } from 'lucide-react';
 import type { MediaItem, SpeedBadgeLabelStyle, VideoPlaybackSpeed } from '../../types';
 import MiniPreview from '../common/MiniPreview';
+import {
+  CENTER_ORIGIN_MAX,
+  CENTER_ORIGIN_MIN,
+  fromCenterPixels,
+  roundCenterOrigin,
+  toCenterPixels,
+} from '../../utils/centerOriginPosition';
 import ClipThumbnail from '../common/ClipThumbnail';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
@@ -137,8 +144,18 @@ const ClipItem: React.FC<ClipItemProps> = ({
   const handleTrimStart = useCallback((val: number) => onUpdateVideoTrim('start', String(val)), [onUpdateVideoTrim]);
   const handleTrimEnd = useCallback((val: number) => onUpdateVideoTrim('end', String(val)), [onUpdateVideoTrim]);
   const handleScale = useCallback((val: number) => onUpdateScale(val), [onUpdateScale]);
-  const handlePositionX = useCallback((val: number) => onUpdatePosition('x', String(val)), [onUpdatePosition]);
-  const handlePositionY = useCallback((val: number) => onUpdatePosition('y', String(val)), [onUpdatePosition]);
+  // 位置は「中央原点・上が＋」の共通座標系（%）で操作し、保存形式(px)へ変換して渡す。
+  // ロゴ・キャプションと操作感を揃えるための変換層（centerOriginPosition.ts 参照）。
+  const handlePositionX = useCallback(
+    (val: number) => onUpdatePosition('x', String(toCenterPixels(val, canvasWidth, 'x'))),
+    [onUpdatePosition, canvasWidth],
+  );
+  const handlePositionY = useCallback(
+    (val: number) => onUpdatePosition('y', String(toCenterPixels(val, canvasHeight, 'y'))),
+    [onUpdatePosition, canvasHeight],
+  );
+  const displayPositionX = roundCenterOrigin(fromCenterPixels(v.positionX || 0, canvasWidth, 'x'));
+  const displayPositionY = roundCenterOrigin(fromCenterPixels(v.positionY || 0, canvasHeight, 'y'));
   const handleBlur = useCallback((val: number) => onUpdateBlur?.(val), [onUpdateBlur]);
   const handleImageDuration = useCallback((val: number) => onUpdateImageDuration(String(val)), [onUpdateImageDuration]);
   const handleVolume = useCallback((val: number) => onUpdateVolume(val), [onUpdateVolume]);
@@ -451,7 +468,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
           <div className="flex flex-col gap-1">
             <div className="flex items-center justify-between text-[10px] text-gray-400">
               <div className="flex items-center gap-1">
-                <Move className="w-3 h-3" /> 横方向: {Math.round(v.positionX || 0)}
+                <Move className="w-3 h-3" /> 横 (右+): {displayPositionX}%
               </div>
               <button
                 onClick={() => onResetSetting('x')}
@@ -463,10 +480,10 @@ const ClipItem: React.FC<ClipItemProps> = ({
               </button>
             </div>
             <SwipeProtectedSlider
-              min={-canvasWidth}
-              max={canvasWidth}
-              step={10}
-              value={v.positionX || 0}
+              min={CENTER_ORIGIN_MIN}
+              max={CENTER_ORIGIN_MAX}
+              step={1}
+              value={displayPositionX}
               onChange={handlePositionX}
               disabled={isDisabled}
               className="w-full accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
@@ -477,7 +494,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
           <div className="flex flex-col gap-1">
             <div className="flex items-center justify-between text-[10px] text-gray-400">
               <div className="flex items-center gap-1">
-                <Move className="w-3 h-3" /> 縦方向: {Math.round(v.positionY || 0)}
+                <Move className="w-3 h-3" /> 縦 (上+): {displayPositionY}%
               </div>
               <button
                 onClick={() => onResetSetting('y')}
@@ -489,10 +506,10 @@ const ClipItem: React.FC<ClipItemProps> = ({
               </button>
             </div>
             <SwipeProtectedSlider
-              min={-canvasHeight}
-              max={canvasHeight}
-              step={10}
-              value={v.positionY || 0}
+              min={CENTER_ORIGIN_MIN}
+              max={CENTER_ORIGIN_MAX}
+              step={1}
+              value={displayPositionY}
               onChange={handlePositionY}
               disabled={isDisabled}
               className="w-full accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"

@@ -108,6 +108,7 @@ export function useAutoSave() {
   // 動画タイトル（Issue #211）。キャプションとは別管理なので個別に変更検知へ含める
   const videoTitle = useCaptionStore((s) => s.title);
   const watermarkOverlay = useOverlayStore((s) => s.watermark);
+  const endrollOverlay = useOverlayStore((s) => s.endroll);
   // 出力の向き（プロジェクトごとに保持）。変更で自動保存が走るよう変更検知に含める。
   const aspectRatio = useCanvasStore((s) => s.aspectRatio);
   
@@ -246,6 +247,7 @@ export function useAutoSave() {
       JSON.stringify(videoTitle),
       JSON.stringify({
         enabled: watermarkOverlay.enabled,
+        scope: watermarkOverlay.scope,
         fileName: watermarkOverlay.file?.name ?? '',
         fileSize: watermarkOverlay.file?.size ?? 0,
         fileLastModified: watermarkOverlay.file?.lastModified ?? 0,
@@ -263,6 +265,29 @@ export function useAutoSave() {
         fadeOut: watermarkOverlay.fadeOut,
         fadeInDuration: watermarkOverlay.fadeInDuration,
         fadeOutDuration: watermarkOverlay.fadeOutDuration,
+      }),
+      // エンドロールもハッシュに含める。漏らすと「設定したのに保存されない」バグになる
+      JSON.stringify({
+        enabled: endrollOverlay.enabled,
+        fileName: endrollOverlay.file?.name ?? '',
+        fileSize: endrollOverlay.file?.size ?? 0,
+        fileLastModified: endrollOverlay.file?.lastModified ?? 0,
+        durationSec: endrollOverlay.durationSec,
+        backgroundMode: endrollOverlay.backgroundMode,
+        backgroundColor: endrollOverlay.backgroundColor,
+        bgmFadeOut: endrollOverlay.bgmFadeOut,
+        positionX: endrollOverlay.positionX,
+        positionY: endrollOverlay.positionY,
+        size: endrollOverlay.size,
+        opacity: endrollOverlay.opacity,
+        rotation: endrollOverlay.rotation,
+        mask: endrollOverlay.mask,
+        maskSize: endrollOverlay.maskSize,
+        feather: endrollOverlay.feather,
+        fadeIn: endrollOverlay.fadeIn,
+        fadeOut: endrollOverlay.fadeOut,
+        fadeInDuration: endrollOverlay.fadeInDuration,
+        fadeOutDuration: endrollOverlay.fadeOutDuration,
       }),
       isClipsLocked,
       isBgmLocked,
@@ -284,6 +309,7 @@ export function useAutoSave() {
     captionSettings,
     videoTitle,
     watermarkOverlay,
+    endrollOverlay,
     isClipsLocked,
     isBgmLocked,
     isNarrationLocked,

@@ -3337,3 +3337,158 @@ export 終了（成功/失敗/中断）
   - `legalComments: 'inline'` は法的コメントの保持のみを行う設定で、実行時の挙動やバンドルサイズの本質には影響しない。
   - 実務上もっとも強い証跡は **git 履歴（署名付きタイムスタンプ + リモートの独立記録）** であり、コード内マーカーはその補助という位置づけ。
 - **検証**: テスト 1185 件全合格 / 型チェック・ビルド成功 / lint は変更前後で同一（71 problems・2 errors はいずれも `narrationDelivery.ts` の既存 no-useless-escape）。
+
+### 13-176. エンドロール（クリップ後に続くロゴ表示）とタイムライン尺の二分化
+
+- **ファイル**: `src/types/index.ts`, `src/utils/endrollOverlay.ts`(新規), `src/utils/watermarkOverlay.ts`, `src/stores/overlayStore.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/hooks/useAutoSave.ts`, `src/hooks/export-strategies/types.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/components/sections/OverlaySection.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`
+- **仕様書**: `Docs/specs/2026-08-08_endroll-logo.md`
+- **機能**: ウォーターマーク（映像に重ねる）は従来どおり維持し、**動画の後に単色背景 + ロゴを続ける**エンドロールを追加（standard 限定）。長さ 0.5〜30 秒、背景は黒/白/カスタム（既定 黒）。
+- **最重要: `totalDuration` の意味を二分した**
+  - `clipsDuration` … クリップだけの尺（＝従来の `mediaStore.totalDuration`）。**クリップの active 判定・キャプション・ナレーション**に使う。
+  - `totalDuration` … `clipsDuration + エンドロール尺`。**シークバー範囲・再生終了判定・エクスポート尺・BGM の末尾フェード/自動尺合わせ**に使う。
+  - `TurtleVideo` で `const totalDuration = clipsDuration + endrollDuration` を算出し、配下へは従来どおり `totalDuration` を渡す。クリップ配置用途だけ `clipsDurationRef` を追加して差し替えた（46 ファイルの大半は「出力全体」の意味だったため、この向きが最小変更）。
+  - **不変条件**: `getEndrollDuration()` は無効・画像なしなら 0 を返す。0 のとき `totalDuration === clipsDuration` となり既存挙動と完全一致。`endrollTimeline.test.ts` がこれを固定する。
+- **描画**: `drawLogoImageFrame()`（watermarkOverlay.ts）をウォーターマーク／エンドロール共通のコアとして切り出し、見た目を完全一致させた。エンドロールは背景を全面塗りしてからロゴを合成し、**クリップ由来の合成をすべて覆う形で最後に描く**。区間中はキャプション・ウォーターマーク・倍速バッジを描かない。preview / export とも同じ `drawEndrollFrame()` を使う。
+- **音声**: エンドロール区間も **BGM は流し続ける**（早期 return せず描画だけ差し替えるのが要点）。ナレーションは鳴らさない。オプション「エンドロール中に BGM を徐々に消す」は `resolveBgmEndrollFadeGain()` で `clipsDuration`→`totalDuration` を線形に 0 へ。既存の末尾フェードとは独立で、乗算により早く消える方が実効になる。**BGM 未設定時は UI をグレーアウト無効**。export 側も同じ区間・同じ線形カーブを `linearRampToValueAtTime` で再現する。
+- **UI**: アコーディオンを「ウォーターマーク」→「**ロゴ表示**」に改称し、タブで切替。スライダー等の操作 UI は 1 セットだけ持ち、`active` / `updateActive` で**書き込み先だけを切り替える**。タブには設定状態（未設定=「指定なし」/ 設定済=サムネイル）を表示。画像・設定は両者で完全に独立。
+- **注意**:
+  - **rAF ループ内でエンドロールを早期 return しない**。return すると後段の BGM 処理を飛ばして音が止まる（実装中に踏んだ）。
+  - ウォーターマークの表示範囲の上限は `clipsDuration`（エンドロール区間にウォーターマークは出さないため）。
+  - `supportsEndroll` フラグは**作っていない**。`OverlaySection` ごと `supportsWatermark`（standard 限定）で gate されるため、フラグを増やすと二重管理になる。
+  - アコーディオン名を変えたら `sectionHelp.ts` の **apple-safari 用 `hiddenTitles`** も必ず追随させる（旧タイトルのままだと Apple に非対応機能のヘルプが出る。実装中に踏んだ）。
+  - autoSave ハッシュへの `endroll` 追加は必須（漏れると「設定したのに保存されない」）。
+  - `OverlaySection` はタブにもロゴのサムネイルを出すため、テストで `container.querySelector('img')` は先頭のタブ画像を拾う。設定カード側は `data-testid="logo-preview"` で取る。
+- **テスト**: `endrollOverlay.test.ts`（正規化・尺 0 条件・背景色・フェード・BGM フェード）、`endrollTimeline.test.ts`（**無効時の尺不変**・12+5=17）、`endrollPersistence.test.ts`（ウォーターマークと混ざらない・旧データ既定値）、`overlaySection.test.tsx`（タブで書き込み先が変わる・BGM 無しでグレーアウト）。
+- **状態**: 実装・自動テストは完了。**実機確認（Android / PC）は未実施**。
+
+### 13-177. canvas へ焼き込む要素は再描画 effect の依存に必ず入れる（ロゴのリアルタイム反映）
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/test/overlayPreviewRefresh.test.tsx`
+- **問題**: ウォーターマーク／エンドロールのパラメータ（位置・倍率・透過度・回転・マスク・フェード・背景色・長さ）を変えても停止中のプレビューが更新されず、**シークバーを一度触るまで反映されない**。
+- **原因**: キャプション用の再描画 effect（`renderFrame(currentTimeRef.current, false)` を rAF で呼ぶ）の依存配列が `[captions, captionSettings, videoTitle, ...]` のままで、`watermarkOverlay` / `endrollOverlay` が入っていなかった。ref は更新されるが**再描画の契機が無い**ため、次に何かが描画を起こすまで古い画のままになる。
+- **対策**:
+  - 再描画 effect の依存に `watermarkOverlay` と `endrollOverlay` を追加。
+  - `endrollOverlayRef` の同期を `useEffect` から**レンダー中の代入**へ移動（`watermarkOverlayRef` と同じ扱い）。effect 内で代入すると effect の実行順に依存し、再描画時に 1 フレーム古い値を読むことがある。
+- **注意**:
+  - **canvas へ焼き込む要素を新規に足したら、必ずこの effect の依存へ追加する**。ref を更新するだけでは反映されない。対象はキャプション・タイトル・ウォーターマーク・エンドロールなど。
+  - ref を「最新値の参照用」に使う場合、その ref を読む再描画をトリガーする責務は別途必要。ref の更新自体は再レンダーも再描画も起こさない。
+  - この effect は `TurtleVideo.tsx`（両フレーバー共通）にあるため、修正は standard / apple-safari の両方に効く。
+- **テスト**: `overlayPreviewRefresh.test.tsx` で、`updateWatermark` / `updateEndroll` の各パラメータ変更ごとに `renderFrame` の呼び出しが増えることを確認する（依存配列を元に戻すと 3 件とも失敗することを検証済み）。
+
+### 13-178. ウォーターマークの表示範囲を「本編のみ / 全編」で選べるようにする
+
+- **ファイル**: `src/types/index.ts`, `src/utils/watermarkOverlay.ts`, `src/utils/indexedDB.ts`, `src/stores/projectStore.ts`, `src/hooks/useAutoSave.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/components/sections/OverlaySection.tsx`, `src/constants/sectionHelp.ts`
+- **内容**: `WatermarkOverlay.scope`（`'main' | 'full'`）を追加。「表示する時間」の「プレビュー位置を反映」の下に選択 UI を置く。
+- **ラベル**: 「表示範囲」（秒＝いつ出すか）と新設の区間選択が紛らわしかったため、前者を **「表示する時間」**、後者を **「表示する区間」** に改称して意味を分離した。ヘルプ・テストの記述も追随済み。
+  - `main`（**既定**）: 本編のみ。表示範囲の上限は `clipsDuration`。エンドロールにはロゴを出さない。
+  - `full`: エンドロールを含む全編。上限が `totalDuration` まで伸びる。
+- **描画**: エンドロール描画は背景を全面塗りするため、`full` のウォーターマークは**エンドロールを描いた後に重ねる**（前に描くと隠れる）。`main` のときは従来どおりエンドロール区間で描かない。
+- **範囲の追従**: 全編へ切り替えた瞬間に終了を `totalDuration` まで自動で伸ばす。本編へ戻すときは、はみ出した終了を `clipsDuration` へ切り詰める。同じ値の選び直しでは何も更新しない。
+- **注意**:
+  - **旧データ（`scope` 無し）は `'main'` へ正規化**されるため、既存プロジェクトの見た目は変わらない。エンドロール未設定なら `clipsDuration === totalDuration` で両者は同義。
+  - 表示範囲のクランプ上限は UI 側が `scope` から決めて `onSetRange(..., limit)` へ渡す契約。`normalizeWatermarkRange` は渡された上限に従うだけ。
+  - `scope` は保存対象。`SerializedWatermarkOverlay` と autoSave ハッシュの両方に追加済み（どちらか漏らすと保存されない）。
+  - エクスポートはプレビューの `renderFrame` を共有するため追加対応は不要。
+- **テスト**: `watermarkOverlay.test.ts`（旧データ既定・不正値の丸め・上限クランプ）、`overlaySection.test.tsx`（既定は本編のみ・全編で終了を伸ばす・本編へ戻すと切り詰める・同値なら無更新・エンドロールタブには出さない）。
+
+### 13-179. エンドロール表示中は自動サムネイルのキャプチャを見送る（チラつき対策・**13-181 で一般化**）
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/test/overlayPreviewRefresh.test.tsx`
+- **問題**: プレビューをエンドロール位置に置いたまま、動画・画像カードのサイズ（`scale`）等を変えると、**エンドロール画面が一瞬チラつき、そのカードの映像が瞬間的に見えてしまう**。
+- **原因**: 自動プロジェクトポスター（13-167）のキャプチャは「**本物のプレビュー canvas へタイムライン先頭付近を描いて撮り、元の位置へ描き直す**」方式。`scale` は `buildAutoProjectPosterContentKey` に含まれる（＝見た目が変わったらサムネを撮り直す、意図どおりの設計）ため、エンドロール閲覧中でもキャプチャが走り、「先頭を描く → 元へ戻す」の中間フレームが見えていた。
+- **対策**: `isPreviewInEndroll`（`endrollDuration > 0 && currentTime >= clipsDuration`）を導出し、真のときはキャプチャ effect を早期 return で見送る。
+  - **`contentKey` を進めずに return する**のがポイント。次に本編へ戻った時点で差分が残っているため、キャプチャがやり直される（撮り逃しにならない）。
+  - 同じ理由で `isPreviewInEndroll` を**依存配列にも入れる**。入れないと区間を抜けても effect が再評価されず、見送ったまま永久に撮られない。
+  - `currentTime` そのものを依存にしない（毎フレーム再実行になる）。boolean 化して出入りの瞬間だけ反応させる。
+- **注意**:
+  - 手動サムネ（「現在位置を反映」）は**現在位置をそのまま描く**ためチラつかない。ガード不要。
+  - この方式の自動キャプチャは、他にも「見えてはいけない画面」を表示中は見送る必要がある。将来モーダル等でプレビューを占有する機能を足す場合は同様の判定を足すこと。
+- **テスト**: `overlayPreviewRefresh.test.tsx` の「エンドロール表示中は自動サムネイルのキャプチャを見送る」。エンドロール位置で `updateScale` しても `renderFrame` が先頭付近（time < 1）で呼ばれないことを確認する（ガードを外すと失敗することを検証済み）。
+
+### 13-180. シークバーの色帯を実タイムライン基準にする（ディゾルブの重なり＝紫 / エンドロール区間）
+
+- **ファイル**: `src/components/sections/PreviewSection.tsx`, `src/components/TurtleVideo.tsx`, `src/test/previewSectionActionButtons.test.tsx`, `src/test/endrollTimeline.test.ts`
+- **問題**: 5秒 + 5秒 を 1 秒ディゾルブすると本編は 9 秒になるが、**シークバーの色帯は 5+5=10 秒ぶんのまま**で実尺と食い違って見えた。
+- **原因**: 色帯が `flex` + `width: item.duration / totalDuration` の**単純な並べ方**だった。ディゾルブは「次クリップが d 秒早く始まる」オーバーラップなので、duration をそのまま並べると重なりが表現できず、常に合計が 100% を占めてしまう。
+  - **尺計算そのものは正しかった**（`calculateTotalDurationWithTransitions` が 9 秒、エンドロール 5 秒込みで 14 秒を返す）。バグは表示だけ。
+- **対策**:
+  - 色帯を `computeTransitionTimelineRanges()` の**実レンジ（start/end）から絶対配置**（`position: absolute` + `left`/`width`）で描く。これで 2 本目が 1 秒前倒しになり、実尺と一致する。
+  - **重なり区間は紫（`bg-purple-500`）**で最前面に重ねて描き、トランジションのイメージカラーで「重ねたぶん縮んでいる」ことを示す。
+  - **エンドロール区間はスレート（`bg-slate-500`）**でクリップと区別。`clipsDuration` を prop で受け取って境界を決める。
+- **注意**:
+  - 色帯に新しい要素を足すときは `flex` の並べ方へ戻さないこと。オーバーラップを表現できなくなる。
+  - テストは DOM 構造ではなく `data-testid="preview-timeline-bar"` を使う（クラス名でのセレクタはレイアウト変更で壊れた）。
+- **テスト**: `previewSectionActionButtons.test.tsx` の「シークバーの区間表示」で、ディゾルブ時の前倒し配置・紫帯の位置と幅・ディゾルブ無しなら紫が出ない・エンドロール帯（9秒+5秒=14秒）を固定。`endrollTimeline.test.ts` で 5+5-1=9 秒、+エンドロール 5 秒 = 14 秒の算術を固定。
+
+### 13-181. 自動サムネイルの撮影フレームを画面に出さない（拡大縮小時のチラつき）
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/test/overlayPreviewRefresh.test.tsx`
+- **問題**: 動画・画像の拡大率（`scale`）を変えるとプレビューが一瞬チラつき、**調整前（等倍相当）の映像や別の時刻のフレームが瞬間的に見える**。エンドロール限定だと思って 13-179 でガードしたが、**本編を表示中でも同じ現象が起きる**（表示位置が 6.33 秒でも、撮影用の 0.2 秒付近が一瞬見える）。
+- **原因**: 自動プロジェクトポスターのキャプチャが
+  1. `renderFrame(autoTime)` で撮影用フレームを描く
+  2. **`await nextFrame()` で待つ ← ここでブラウザがその画を描画してしまう**
+  3. 読み取る
+  4. あとから表示位置へ描き戻す
+
+  という順序だった。2 の await が「見せてはいけない中間フレーム」を実際に画面へ出していた。
+- **対策**: **1 つの rAF コールバック内で「描く → 読む → 表示位置へ描き戻す」まで同期的に完了させる**。
+  途中に await を挟まないため、ブラウザは復帰後の状態しか描画しない。
+  - `captureOnce()` を rAF 内の同期処理へ書き換え、`nextFrame()` は廃止。
+  - シーク促進のための `renderFrame(autoTime)` にも、**直後に `renderFrame(previousTime)` を同期で続ける**。
+- **注意**:
+  - **canvas を一時的に別状態へ描くときは、await を挟む前に必ず元へ戻す**。これが本件の一般則。
+    「あとで戻すから大丈夫」は成立しない（await の時点で描画される）。
+  - `isCanvasEffectivelyBlank()` / `createPosterDataUrlFromCanvas()` はどちらも内部で同期的に
+    オフスクリーンへコピーするため、rAF 内から安全に呼べる。
+  - 13-179 のエンドロールガードは残してある（無駄な撮影を避ける意味はある）が、
+    チラつき対策としてはこちらが本命。
+- **テスト**: `overlayPreviewRefresh.test.tsx` の「自動サムネイルのキャプチャはプレビューへ漏れない」。
+  `renderFrame` の呼び出し列を見て、**撮影時刻（0〜1秒）の直後が必ず別時刻になっている**ことを検証する
+  （復帰の描き戻しを外すと失敗することを確認済み）。「最後の呼び出しが表示位置か」だけでは
+  リトライループの都合で偶然通ってしまい、バグを検出できなかった。
+
+### 13-182. 位置調整 UI を「中央原点・上が＋」の共通座標系へ統一
+
+- **ファイル**: `src/utils/centerOriginPosition.ts`(新規), `src/components/media/ClipItem.tsx`, `src/components/sections/OverlaySection.tsx`, `src/components/common/CaptionPositionField.tsx`, `src/constants/sectionHelp.ts`
+- **問題**: 動画・画像 / ロゴ / キャプションで位置指定の操作性がバラバラだった。
+  | | 単位 | 原点 | Y の向き |
+  |---|---|---|---|
+  | 動画・画像 | px（±canvas幅） | 中央 | 下が＋ |
+  | ロゴ | %（0〜100） | 左上 | 下が＋ |
+  | キャプション | %（0〜100） | 左上 | 下が＋ |
+  加えて「左上原点・下が＋」は直感に反する（数値を増やすと下がる）。
+- **対策**: **UI の表示・入力だけ**を「画面中央 = 0 / 横は右が＋ / 縦は上が＋ / -100〜+100%」へ統一。
+  - 変換は `centerOriginPosition.ts` に集約: `fromTopLeftPercent` / `toTopLeftPercent`（ロゴ・字幕用）、`fromCenterPixels` / `toCenterPixels`（動画・画像用）。
+  - ラベルも「横 (右+)」「縦 (上+)」に統一して向きを明示。
+- **重要: 保存形式は一切変えていない**。
+  - 型・`Serialized*`・IndexedDB の値は従来のまま（ロゴ/字幕は左上原点 %、動画・画像は px）。
+  - 保存形式ごと変えると旧プロジェクトの見た目が崩れるリスクがあるため、意図的に変換層で吸収する方式を選んだ。
+  - 描画側（renderFrame / drawLogoImageFrame など）も**一切変更していない**。
+- **注意**:
+  - **往復（保存値 → 表示 → 保存）で値が変わらないこと**が生命線。ここが崩れるとスライダーを触るたびに素材がじわじわ動く。`centerOriginPosition.test.ts` の「既存プロジェクトの位置が変わらない」で固定している。
+  - 符号反転で `-0` が出るため、`clampCenterOrigin` / `roundCenterOrigin` の両方で `0` へ正規化している（入力欄に「-0」と出さない）。
+  - 新しく位置系 UI を足すときは、生の保存値を直接スライダーへ繋がず必ずこの変換を通すこと。
+  - `resetTransform`（動画・画像のリセット）は px 0 = 中央 0 なので変換不要。
+- **テスト**: `centerOriginPosition.test.ts`（変換・往復・三者の向きが揃うこと・0除算）、`captionIndividualSharedFields.test.tsx` と `overlaySection.test.tsx` は新座標系での入出力へ更新。
+
+### 13-183. キャプションのプリセット→カスタム引き継ぎ / 位置表示の丸め / 時刻表示の桁溢れ
+
+3 件の UI 修正。
+
+**(1) キャプション: プリセットからカスタムへ位置を引き継ぐ**
+- **ファイル**: `src/utils/captionStyle.ts`, `src/components/common/CaptionPositionField.tsx`, `src/components/sections/CaptionSection.tsx`, `src/components/modals/CaptionSettingsModal.tsx`
+- **問題**: 「下部」に合わせてから「カスタム」を押すと、既定値（中央寄り）へ飛んでしまい、下部を基準に微調整できなかった（ロゴ側は引き継げていた）。
+- **対策**: `resolveCaptionPresetAsCustomPercent(position, layout)` を追加し、プリセットの描画位置を `resolveCaptionAnchor`（描画の単一ソース）経由で % 化する。`CaptionPositionField` に任意の `resolvePresetAsCustom` prop を足し、カスタム切替時にその値を初期値として渡す。未指定なら従来どおり既定値。
+- **注意**: `padding = 50 * (canvasHeight/1080)`、fontSize も同じ captionScale を掛ける（preview の renderFrame と同一の導出式に揃えること。ずれるとプリセットとカスタムで位置が飛ぶ）。個別設定は「一括を継承」があるため `caption.overridePosition ?? settings.position` を実効プリセットとして使う。
+
+**(2) 動画・画像の位置表示が小数だらけ**
+- **ファイル**: `src/utils/centerOriginPosition.ts`, `src/components/common/MiniPreview.tsx`
+- **問題**: `X: -179.20000000000002` のような表示。13-182 の中央原点 % → px 変換で浮動小数の端数が保存値に入っていた。
+- **対策**: `toCenterPixels()` で px を整数へ丸める（1px 未満に意味がないため）。ミニプレビューの表示側でも `Math.round` する。
+
+**(3) 時刻表示が "0:00.100" と 3 桁になる**
+- **ファイル**: `src/utils/format.ts`
+- **問題**: `formatTimeCentiseconds` が `(seconds % 1)` を丸めていたため、0.9999 秒で cs=100 となり **3 桁表示 + 秒の繰り上がり消失**（"0:00.100"）。エクスポート開始直後の 0 秒付近で顕在化。
+- **対策**: **全体を 1/100 秒へ量子化してから**分・秒・1/100 秒へ分解する（`totalCs = floor(round(seconds*1000)/10)`）。59.9999 → `1:00.00` と分へも正しく繰り上がる。
+- **注意**: 「端数を丸めてから桁を切り出す」順序が要点。剰余で先に分解すると必ず境界で溢れる。
+- **テスト**: `format.test.ts` に繰り上がりケースと「常に `m:ss.cc`」の形式検証を追加（旧実装で 2 件とも失敗することを確認済み）。

@@ -227,6 +227,8 @@ export interface SerializedWatermarkOverlay {
   fileLastModified?: number;
   fileData: ArrayBuffer;
   enabled: boolean;
+  /** 本編のみ / 全編（エンドロール含む）。旧データには無く 'main' へ正規化される */
+  scope?: 'main' | 'full';
   startTime: number;
   endTime: number;
   positionX: number;
@@ -238,6 +240,35 @@ export interface SerializedWatermarkOverlay {
   maskSize?: number;
   feather: number;
   /** 任意・旧データは false / 1.0 で補完 */
+  fadeIn?: boolean;
+  fadeOut?: boolean;
+  fadeInDuration?: number;
+  fadeOutDuration?: number;
+}
+
+/**
+ * エンドロール（クリップ後に続く単色背景 + ロゴ）の保存形。
+ * ウォーターマークとは別フィールドで保存し、画像・設定が混ざらないようにする。
+ * 旧データにはこのフィールド自体が無く、読込時は既定値（無効・5秒・黒）へ正規化される。
+ */
+export interface SerializedEndrollOverlay {
+  fileName: string;
+  fileType: string;
+  fileLastModified?: number;
+  fileData: ArrayBuffer;
+  enabled: boolean;
+  durationSec: number;
+  backgroundMode: 'black' | 'white' | 'custom';
+  backgroundColor: string;
+  bgmFadeOut: boolean;
+  positionX: number;
+  positionY: number;
+  size: number;
+  opacity: number;
+  rotation: number;
+  mask: 'rectangle' | 'rounded' | 'circle';
+  maskSize?: number;
+  feather: number;
   fadeIn?: boolean;
   fadeOut?: boolean;
   fadeInDuration?: number;
@@ -285,6 +316,9 @@ export interface ProjectData {
    * 旧データは undefined のため画像なしの既定状態へ補完する。
    */
   watermarkOverlay?: SerializedWatermarkOverlay;
+
+  /** エンドロール。任意・旧データには存在しない（additive） */
+  endrollOverlay?: SerializedEndrollOverlay;
 
   // 出力の向き（'landscape'=16:9 / 'portrait'=9:16）。任意・既定 landscape（旧データ後方互換）。
   aspectRatio?: 'landscape' | 'portrait';

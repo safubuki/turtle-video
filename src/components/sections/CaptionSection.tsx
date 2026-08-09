@@ -68,7 +68,10 @@ import {
   clampCaptionBackgroundOpacity,
   clampCaptionBackgroundRadius,
   clampCaptionStrokeWidth,
+  resolveCaptionBaseFontSize,
+  resolveCaptionPresetAsCustomPercent,
 } from '../../utils/captionStyle';
+import { useCanvasStore } from '../../stores/canvasStore';
 import { resolveShiftAlignmentTarget } from '../../utils/captionTimeline';
 import CaptionBulkAddModal, { type BulkCaptionApplyItem } from '../modals/CaptionBulkAddModal';
 import CaptionColorField from '../common/CaptionColorField';
@@ -171,6 +174,26 @@ interface CaptionSectionProps {
 /**
  * キャプションセクションコンポーネント
  */
+
+/**
+ * プリセット位置に相当するカスタム座標を、現在のキャンバス寸法から求める。
+ * padding / fontSize は preview の描画（usePreviewEngine）と同じ導出式に揃える。
+ */
+function resolvePresetCustomPercent(
+  position: CaptionPosition,
+  canvasWidth: number,
+  canvasHeight: number,
+  fontSize: number,
+): { x: number; y: number } {
+  const captionScale = canvasHeight > 0 ? canvasHeight / 1080 : 1;
+  return resolveCaptionPresetAsCustomPercent(position, {
+    canvasWidth,
+    canvasHeight,
+    fontSize: fontSize * captionScale,
+    padding: 50 * captionScale,
+  });
+}
+
 const CaptionSection: React.FC<CaptionSectionProps> = ({
   captions,
   settings,
@@ -221,6 +244,9 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   hasNextSilenceBoundary,
   silenceRegions = [],
 }) => {
+  // プリセット→カスタムの引き継ぎに使う（描画と同じ寸法基準にそろえる）
+  const canvasWidth = useCanvasStore((state) => state.width);
+  const canvasHeight = useCanvasStore((state) => state.height);
   const [isOpen, setIsOpen] = useState(true);
   const [showStyleSettings, setShowStyleSettings] = useState(false);
   const [showOutlineColorSettings, setShowOutlineColorSettings] = useState(false);
@@ -777,6 +803,12 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                       if (value) onSetPosition(value);
                     }}
                     onSetPositionCustom={onSetPositionCustom}
+                    resolvePresetAsCustom={() => resolvePresetCustomPercent(
+                      settings.position,
+                      canvasWidth,
+                      canvasHeight,
+                      resolveCaptionBaseFontSize({}, settings),
+                    )}
                   />
                   {/* ぼかし */}
                   <div className="flex items-center gap-2 text-[10px] md:text-xs">

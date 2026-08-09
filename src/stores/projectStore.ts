@@ -17,6 +17,7 @@ import type {
   NarrationClip,
   VideoTitleSettings,
   WatermarkOverlay,
+  EndrollOverlay,
 } from '../types';
 import {
   getProjectPersistenceAdapter,
@@ -27,6 +28,7 @@ import {
   type SerializedCaption,
   type SerializedNarrationClip,
   type SerializedWatermarkOverlay,
+  type SerializedEndrollOverlay,
 } from './projectPersistence';
 import type {
   ProjectLaunchContext,
@@ -45,6 +47,7 @@ import { useOverlayStore } from './overlayStore';
 import { normalizeMediaBlur, normalizeRotation } from '../utils/canvas';
 import { normalizeVideoTitleSettings } from '../utils/videoTitle';
 import { normalizeWatermarkOverlay } from '../utils/watermarkOverlay';
+import { normalizeEndrollOverlay } from '../utils/endrollOverlay';
 import {
   computeVideoTimelineDurationFromTrim,
   DEFAULT_SPEED_BADGE_LABEL_STYLE,
@@ -260,6 +263,8 @@ interface ProjectState {
     videoTitle: VideoTitleSettings;
     /** 範囲指定ウォーターマーク（Issue #210）。旧データは画像なしで補完済み */
     watermarkOverlay: WatermarkOverlay;
+    /** エンドロール。旧データは既定値（無効・5秒・黒）で補完済み */
+    endrollOverlay: EndrollOverlay;
     bgmClips: BgmClip[];
     bgmAutoAdjustToTimeline: boolean;
     projectPosterMode: 'auto' | 'manual';
@@ -300,7 +305,7 @@ function enqueueProjectSave<T>(task: () => Promise<T>): Promise<T> {
 async function readSerializableFileData(params: {
   file: File;
   fallbackUrl?: string;
-  kind: 'メディア' | 'BGM' | 'ナレーション' | 'ウォーターマーク';
+  kind: 'メディア' | 'BGM' | 'ナレーション' | 'ウォーターマーク' | 'エンドロール';
 }): Promise<ArrayBuffer> {
   const persistence = getProjectPersistenceAdapter();
   try {
@@ -344,6 +349,7 @@ async function serializeWatermarkOverlay(
       kind: 'ウォーターマーク',
     }),
     enabled: overlay.enabled,
+    scope: overlay.scope,
     startTime: overlay.startTime,
     endTime: overlay.endTime,
     positionX: overlay.positionX,
@@ -373,6 +379,57 @@ function deserializeWatermarkOverlay(
     data.fileType,
   );
   return normalizeWatermarkOverlay({
+    ...data,
+    file,
+    url: URL.createObjectURL(file),
+  });
+}
+
+async function serializeEndrollOverlay(
+  endroll: EndrollOverlay,
+): Promise<SerializedEndrollOverlay | undefined> {
+  if (!(endroll.file instanceof File)) return undefined;
+  return {
+    fileName: endroll.file.name,
+    fileType: endroll.file.type,
+    fileLastModified: endroll.file.lastModified,
+    fileData: await readSerializableFileData({
+      file: endroll.file,
+      fallbackUrl: endroll.url ?? undefined,
+      kind: 'エンドロール',
+    }),
+    enabled: endroll.enabled,
+    durationSec: endroll.durationSec,
+    backgroundMode: endroll.backgroundMode,
+    backgroundColor: endroll.backgroundColor,
+    bgmFadeOut: endroll.bgmFadeOut,
+    positionX: endroll.positionX,
+    positionY: endroll.positionY,
+    size: endroll.size,
+    opacity: endroll.opacity,
+    rotation: endroll.rotation,
+    mask: endroll.mask,
+    maskSize: endroll.maskSize,
+    feather: endroll.feather,
+    fadeIn: endroll.fadeIn,
+    fadeOut: endroll.fadeOut,
+    fadeInDuration: endroll.fadeInDuration,
+    fadeOutDuration: endroll.fadeOutDuration,
+  };
+}
+
+function deserializeEndrollOverlay(
+  data: SerializedEndrollOverlay | null | undefined,
+): EndrollOverlay {
+  if (!data || !isValidArrayBuffer(data.fileData)) {
+    return normalizeEndrollOverlay(undefined);
+  }
+  const file = getProjectPersistenceAdapter().arrayBufferToFile(
+    data.fileData,
+    data.fileName,
+    data.fileType,
+  );
+  return normalizeEndrollOverlay({
     ...data,
     file,
     url: URL.createObjectURL(file),
@@ -816,6 +873,9 @@ export const useProjectStore = create<ProjectState>()(
             const serializedWatermark = await serializeWatermarkOverlay(
               useOverlayStore.getState().watermark,
             );
+            const serializedEndroll = await serializeEndrollOverlay(
+              useOverlayStore.getState().endroll,
+            );
 
             const nextProjectData: ProjectData = {
               slot: 'manual',
@@ -843,6 +903,7 @@ export const useProjectStore = create<ProjectState>()(
               // （bgmAutoAdjustToTimeline / aspectRatio / projectPoster* と同じ方式）
               videoTitle: useCaptionStore.getState().title,
               watermarkOverlay: serializedWatermark,
+              endrollOverlay: serializedEndroll,
             };
 
             await getProjectPersistenceAdapter().saveProject(nextProjectData);
@@ -931,6 +992,9 @@ export const useProjectStore = create<ProjectState>()(
             const serializedWatermark = await serializeWatermarkOverlay(
               useOverlayStore.getState().watermark,
             );
+            const serializedEndroll = await serializeEndrollOverlay(
+              useOverlayStore.getState().endroll,
+            );
 
             const nextProjectData: ProjectData = {
               slot: 'auto',
@@ -958,6 +1022,7 @@ export const useProjectStore = create<ProjectState>()(
               // （bgmAutoAdjustToTimeline / aspectRatio / projectPoster* と同じ方式）
               videoTitle: useCaptionStore.getState().title,
               watermarkOverlay: serializedWatermark,
+              endrollOverlay: serializedEndroll,
             };
 
             await getProjectPersistenceAdapter().saveProject(nextProjectData);
@@ -1073,6 +1138,8 @@ export const useProjectStore = create<ProjectState>()(
             videoTitle: normalizeVideoTitleSettings(data.videoTitle),
             // ウォーターマーク（Issue #210）。旧データには無いため画像なしで補完する
             watermarkOverlay: deserializeWatermarkOverlay(data.watermarkOverlay),
+            // エンドロール。旧データには無いため既定値（無効・5秒・黒）で補完する
+            endrollOverlay: deserializeEndrollOverlay(data.endrollOverlay),
             bgmClips,
             bgmAutoAdjustToTimeline: data.bgmAutoAdjustToTimeline !== false,
             projectPosterMode: hasCompatibleManualPoster ? 'manual' as const : 'auto' as const,

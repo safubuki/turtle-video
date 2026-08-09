@@ -19,6 +19,7 @@ export type {
   SerializedMediaItem,
   SerializedNarrationClip,
   SerializedWatermarkOverlay,
+  SerializedEndrollOverlay,
 } from '../utils/indexedDB';
 
 export interface ProjectPersistenceAdapter {

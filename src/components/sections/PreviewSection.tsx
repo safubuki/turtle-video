@@ -40,6 +40,7 @@ import type { ExportPreparationStep } from '../../hooks/export-strategies/types'
 import type { AppFlavor } from '../../app/resolveAppFlavor';
 import { getAppFlavorUiCapabilities, getPreviewRuntimeNotice } from '../../app/appFlavorUi';
 import { formatTimeCentiseconds } from '../../utils/format';
+import { computeTransitionTimelineRanges } from '../../utils/transitionTimeline';
 import { useLogStore } from '../../stores/logStore';
 import { useCanvasStore } from '../../stores/canvasStore';
 import type { AspectRatio } from '../../stores/canvasStore';
@@ -105,7 +106,10 @@ interface PreviewSectionProps {
   narrations: NarrationClip[];
   canvasRef: RefObject<HTMLCanvasElement | null>;
   currentTime: number;
+  /** 出力全体の長さ（クリップ + エンドロール） */
   totalDuration: number;
+  /** クリップだけの長さ。エンドロール区間の境界に使う */
+  clipsDuration?: number;
   isPlaying: boolean;
   isProcessing: boolean;
   exportPreparationStep: ExportPreparationStep | null;
@@ -163,6 +167,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   canvasRef,
   currentTime,
   totalDuration,
+  clipsDuration,
   isPlaying,
   isProcessing,
   exportPreparationStep,
@@ -202,13 +207,25 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   const canvasHeight = useCanvasStore((s) => s.height);
   const [isVideoOutputOptionsOpen, setIsVideoOutputOptionsOpen] = useState(false);
   const canAlphaWebm = useMemo(() => canAttemptAlphaWebmExport(), []);
+  /**
+   * シークバーの色帯。
+   *
+   * ディゾルブはクリップを重ねるためタイムラインが縮む（5秒+5秒＋1秒ディゾルブ＝9秒）。
+   * 単純に duration を並べると 10 秒ぶんの帯になり、実際の尺と表示がずれるため、
+   * **transitionTimeline の実レンジ（start/end）から絶対配置で描く**。
+   * 重なっている区間はトランジションのイメージカラー（紫）で示す。
+   */
   const previewTimelineSegments = useMemo(() => {
+    const ranges = computeTransitionTimelineRanges(mediaItems);
     let imageSegmentIndex = 0;
 
     return mediaItems.map((item, index) => {
+      const range = ranges[index];
       const segment = {
         item,
         index,
+        start: range?.start ?? 0,
+        end: range?.end ?? 0,
         imageSegmentIndex: item.type === 'image' ? imageSegmentIndex : null,
       };
 
@@ -219,6 +236,33 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
       return segment;
     });
   }, [mediaItems]);
+
+  /**
+   * ディゾルブで重なっている区間（前クリップの終わり ∩ 次クリップの始まり）。
+   * ここを紫で塗り、「重ねたぶん短くなっている」ことを視覚的に示す。
+   */
+  const previewOverlapSegments = useMemo(() => {
+    const ranges = computeTransitionTimelineRanges(mediaItems);
+    const overlaps: { key: string; start: number; end: number }[] = [];
+    for (let i = 0; i < ranges.length - 1; i++) {
+      const current = ranges[i];
+      const next = ranges[i + 1];
+      if (!current || !next) continue;
+      // 次クリップが前クリップの終端より早く始まっていれば、その差が重なり
+      if (next.start < current.end) {
+        overlaps.push({ key: `${current.id}-${next.id}`, start: next.start, end: current.end });
+      }
+    }
+    return overlaps;
+  }, [mediaItems]);
+
+  /** エンドロール区間（クリップ終端〜総尺）。無効なら null */
+  const previewEndrollSegment = useMemo(() => {
+    if (!Number.isFinite(clipsDuration)) return null;
+    const start = clipsDuration as number;
+    if (!(totalDuration > start)) return null;
+    return { start, end: totalDuration };
+  }, [clipsDuration, totalDuration]);
   const areVideoOutputOptionsLocked = isProcessing || Boolean(exportUrl);
 
   const setContentMode = useCallback((contentMode: ExportContentMode) => {
@@ -626,18 +670,56 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
         )}
         <div className="relative h-8 w-full select-none">
           <div className="absolute top-3 w-full h-2 bg-gray-800 rounded-full overflow-hidden">
-            <div className="flex w-full h-full opacity-60">
-              {previewTimelineSegments.map(({ item: v, index: i, imageSegmentIndex }) => (
+            {/* 実タイムライン（ディゾルブの重なりを反映）に沿って絶対配置で描く */}
+            <div className="relative w-full h-full opacity-60" data-testid="preview-timeline-bar">
+              {previewTimelineSegments.map(({ item: v, index: i, start, end, imageSegmentIndex }) => {
+                const span = totalDuration > 0 ? ((end - start) / totalDuration) * 100 : 0;
+                if (!(span > 0)) return null;
+                return (
+                  <div
+                    key={v.id}
+                    style={{
+                      position: 'absolute',
+                      left: `${(start / totalDuration) * 100}%`,
+                      width: `${span}%`,
+                      top: 0,
+                      bottom: 0,
+                    }}
+                    className={
+                      v.type === 'image'
+                        ? `${imageSegmentIndex !== null && imageSegmentIndex % 2 === 0 ? 'bg-yellow-600' : 'bg-orange-500'} border-r border-gray-950/35`
+                        : i % 2 === 0
+                          ? 'bg-blue-600'
+                          : 'bg-blue-500'
+                    }
+                  />
+                );
+              })}
+              {/* エンドロール区間はクリップとは別の色（スレート）で示す */}
+              {previewEndrollSegment && totalDuration > 0 && (
                 <div
-                  key={v.id}
-                  style={{ width: `${(v.duration / totalDuration) * 100}%` }}
-                  className={
-                    v.type === 'image'
-                      ? `${imageSegmentIndex !== null && imageSegmentIndex % 2 === 0 ? 'bg-yellow-600' : 'bg-orange-500'} border-r border-gray-950/35`
-                      : i % 2 === 0
-                        ? 'bg-blue-600'
-                        : 'bg-blue-500'
-                  }
+                  style={{
+                    position: 'absolute',
+                    left: `${(previewEndrollSegment.start / totalDuration) * 100}%`,
+                    width: `${((previewEndrollSegment.end - previewEndrollSegment.start) / totalDuration) * 100}%`,
+                    top: 0,
+                    bottom: 0,
+                  }}
+                  className="bg-slate-500 border-l border-gray-950/35"
+                />
+              )}
+              {/* ディゾルブの重なり区間はトランジションのイメージカラー（紫）で最前面へ */}
+              {totalDuration > 0 && previewOverlapSegments.map((overlap) => (
+                <div
+                  key={overlap.key}
+                  style={{
+                    position: 'absolute',
+                    left: `${(overlap.start / totalDuration) * 100}%`,
+                    width: `${((overlap.end - overlap.start) / totalDuration) * 100}%`,
+                    top: 0,
+                    bottom: 0,
+                  }}
+                  className="bg-purple-500"
                 />
               ))}
             </div>

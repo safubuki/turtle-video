@@ -681,7 +681,7 @@ export default function SaveLoadModal({
           data.isCaptionsLocked,
           data.videoTitle
         );
-        restoreWatermark(data.watermarkOverlay);
+        restoreWatermark(data.watermarkOverlay, data.endrollOverlay);
         useLogStore
           .getState()
           .info('SYSTEM', `プロジェクトを読み込み (${slot === 'auto' ? '自動保存' : '手動保存'})`, {

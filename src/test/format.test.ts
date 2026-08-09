@@ -83,6 +83,27 @@ describe('formatTimeCentiseconds', () => {
     expect(formatTimeCentiseconds(Infinity)).toBe('0:00.00');
     expect(formatTimeCentiseconds(-1)).toBe('0:00.00');
   });
+
+  /**
+   * 端数が 1/100 秒へ繰り上がるケース。
+   * 旧実装は `(seconds % 1)` を丸めていたため 0.9999 で cs=100 となり、
+   * **"0:00.100" と 3 桁になり秒の繰り上がりも失われていた**（エクスポート開始直後に発生）。
+   */
+  it('繰り上がりで桁が増えず、秒・分へ正しく繰り上がる', () => {
+    expect(formatTimeCentiseconds(0.9999)).toBe('0:01.00');
+    expect(formatTimeCentiseconds(0.99999)).toBe('0:01.00');
+    expect(formatTimeCentiseconds(1.9999)).toBe('0:02.00');
+    // 分の繰り上がり
+    expect(formatTimeCentiseconds(59.9999)).toBe('1:00.00');
+  });
+
+  it('常に m:ss.cc（1/100 秒は必ず 2 桁）で返す', () => {
+    const samples = [0, 0.001, 0.005, 0.9999, 1, 3.07, 9.999, 59.9999, 61.5, 125.25, 3599.999];
+    for (const value of samples) {
+      expect(formatTimeCentiseconds(value)).toMatch(/^\d+:\d{2}\.\d{2}$/);
+    }
+  });
+
 });
 
 describe('formatPercent', () => {

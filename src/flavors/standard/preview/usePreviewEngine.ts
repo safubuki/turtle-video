@@ -24,6 +24,7 @@ import type {
   NarrationClip,
   VideoTitleSettings,
   WatermarkOverlay,
+  EndrollOverlay,
 } from '../../../types';
 import type { ExportPreparationStep, UseExportReturn } from '../../../hooks/export-strategies/types';
 import { resolveCaptionFontFamily } from '../../../utils/captionFontCatalog';
@@ -37,6 +38,11 @@ import {
 } from '../../../utils/captionStyle';
 import { drawVideoTitleFrame } from '../../../utils/videoTitle';
 import { drawWatermarkOverlayFrame } from '../../../utils/watermarkOverlay';
+import {
+  drawEndrollFrame,
+  getEndrollDuration,
+  resolveBgmEndrollFadeGain,
+} from '../../../utils/endrollOverlay';
 import { captureCaptionFreeSnapshot, type CaptionFreeSnapshot } from '../../../utils/canvas';
 import {
   applyVideoElementPlaybackRate,
@@ -152,6 +158,11 @@ interface UsePreviewEngineParams {
   videoTitleRef: MutableRefObject<VideoTitleSettings>;
   watermarkOverlayRef?: MutableRefObject<WatermarkOverlay>;
   watermarkImageRef?: MutableRefObject<HTMLImageElement | null>;
+  /** エンドロール（クリップ後に続く単色背景 + ロゴ）。無効時は尺 0 で従来どおり */
+  endrollOverlayRef?: MutableRefObject<EndrollOverlay>;
+  endrollImageRef?: MutableRefObject<HTMLImageElement | null>;
+  /** クリップだけの尺。エンドロール区間の判定境界に使う */
+  clipsDurationRef?: MutableRefObject<number>;
   /**
    * キャプションを描く直前のフレームを保存する先（キャプション設定のミニプレビュー用）。
    * メインプレビューの canvas を直接転写すると焼き込み済みキャプションと二重になるため、
@@ -1017,6 +1028,9 @@ export function usePreviewEngine({
   videoTitleRef,
   watermarkOverlayRef,
   watermarkImageRef,
+  endrollOverlayRef,
+  endrollImageRef,
+  clipsDurationRef,
   captionFreeSnapshotRef,
   totalDurationRef,
   currentTimeRef,
@@ -1664,6 +1678,10 @@ export function usePreviewEngine({
           bgm: bgmRef.current,
           narrations: narrationsRef.current,
           totalDuration: totalDurationRef.current,
+          // エンドロールの BGM フェード用（無効時は clipsDuration === totalDuration で無効化される）
+          clipsDuration: clipsDurationRef?.current ?? totalDurationRef.current,
+          endrollBgmFadeOut: getEndrollDuration(endrollOverlayRef?.current) > 0
+            && endrollOverlayRef?.current?.bgmFadeOut === true,
           getPlaybackTimeSec: () => currentTimeRef.current,
           onAudioPreRenderComplete: () => {
             startTimeRef.current = getStandardPreviewNow();
@@ -1691,6 +1709,27 @@ export function usePreviewEngine({
             ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
             ctx.drawImage(previewCacheVideo, 0, 0, ctx.canvas.width, ctx.canvas.height);
             return true;
+          }
+        }
+
+        // === エンドロール区間の判定 ===
+        // クリップ再生後は単色背景 + ロゴだけを描く。キャプション・ウォーターマーク・
+        // 倍速バッジは描かない（いずれも映像に付随するもの）。
+        // ただし **BGM は流し続ける**ため、ここでは return せず描画だけを差し替える。
+        // エンドロール無効時は getEndrollDuration() が 0 を返し、以降は完全に従来どおり。
+        const activeEndroll = endrollOverlayRef?.current;
+        const endrollDurationSec = getEndrollDuration(activeEndroll);
+        const clipsDurationSec = clipsDurationRef?.current ?? totalDurationRef.current;
+        const isEndrollFrame = endrollDurationSec > 0 && time >= clipsDurationSec;
+
+        if (isEndrollFrame) {
+          // 動画要素は止めておく（エンドロール中に裏でデコードを回さない）
+          for (const item of mediaItemsRef.current) {
+            if (item.type !== 'video') continue;
+            const el = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
+            if (el && !el.paused) {
+              el.pause();
+            }
           }
         }
 
@@ -3231,7 +3270,9 @@ export function usePreviewEngine({
           captureCaptionFreeSnapshot(ctx, captionFreeSnapshotRef.current);
         }
 
-        if (currentCaptionSettings.enabled && currentCaptions.length > 0) {
+        // エンドロール区間ではキャプションを表示しない（映像に付随するものなので）。
+        // どのみち後段のエンドロール描画が全面を覆うが、無駄なグリフ生成を避ける。
+        if (!isEndrollFrame && currentCaptionSettings.enabled && currentCaptions.length > 0) {
           const activeCaptions = currentCaptions.filter(
             (c) => isCaptionActiveAtTime(c, time),
           );
@@ -3421,24 +3462,51 @@ export function usePreviewEngine({
         // === 動画タイトル描画（Issue #211・キャプションとは別管理） ===
         // キャプションの後（＝最前面）に描く。描画実装は utils/videoTitle.ts が単一ソースで、
         // apple-safari エンジンからも同じ関数を呼ぶため preview と export が必ず一致する。
-        if (drawVideoTitleFrame(ctx, videoTitleRef.current, time, {
+        if (!isEndrollFrame && drawVideoTitleFrame(ctx, videoTitleRef.current, time, {
           useBlurFallback: previewPlatformPolicy.needsCaptionBlurFallback,
         })) {
           didUpdateCanvas = true;
         }
+        const activeWatermark = watermarkOverlayRef?.current ?? watermarkOverlay;
+        // 「全編」指定のときはエンドロール上にもウォーターマークを重ねる。
+        // その場合は下のエンドロール描画（全面塗り）の後に描かないと隠れてしまう。
+        const drawsWatermarkOverEndroll = isEndrollFrame && activeWatermark?.scope === 'full';
+
         // タイトルを含む既存合成の後へ置き、カード境界・トランジション中も継続表示する。
-        if (drawWatermarkOverlayFrame(
+        if (!isEndrollFrame && drawWatermarkOverlayFrame(
           ctx,
-          watermarkOverlayRef?.current ?? watermarkOverlay,
+          activeWatermark,
           watermarkImageRef?.current,
           time,
         )) {
           didUpdateCanvas = true;
         }
         // 倍速バッジは最前面（ウォーターマークより上）
-        {
+        if (!isEndrollFrame) {
           const badgeItem = activeIndex >= 0 ? currentItems[activeIndex] : null;
           if (badgeItem?.type === 'video' && drawSpeedBadgeFrame(ctx, badgeItem)) {
+            didUpdateCanvas = true;
+          }
+        }
+
+        // === エンドロール描画 ===
+        // クリップ由来の合成をすべて覆い隠す形で最後に描く（背景を全面塗りするため、
+        // 直前のフレームや取り残しの映像が残らない）。BGM 処理はこの後も従来どおり走る。
+        if (isEndrollFrame) {
+          const endrollLocalTime = Math.max(
+            0,
+            Math.min(endrollDurationSec, time - clipsDurationSec),
+          );
+          if (drawEndrollFrame(ctx, activeEndroll, endrollImageRef?.current, endrollLocalTime)) {
+            didUpdateCanvas = true;
+          }
+          // 全編指定のウォーターマークはエンドロール背景の上へ重ねる
+          if (drawsWatermarkOverEndroll && drawWatermarkOverlayFrame(
+            ctx,
+            activeWatermark,
+            watermarkImageRef?.current,
+            time,
+          )) {
             didUpdateCanvas = true;
           }
         }
@@ -3544,6 +3612,14 @@ export function usePreviewEngine({
                       fadeOutDuration: track.fadeOutDuration,
                     });
 
+                  // エンドロール区間の BGM フェードアウト（オプション）。
+                  // 既存の末尾フェードとは独立で、より小さい方（＝早く消える方）を採用する。
+                  vol *= resolveBgmEndrollFadeGain({
+                    endroll: endrollOverlayRef?.current,
+                    clipsDuration: clipsDurationSec,
+                    timeSec: time,
+                  });
+
                   // BGM soft sync 中は active video 優先で進めたいので、
                   // audio resume wait による追加ミュートを掛けず独立に追従させる。
                   if (element.seeking || (!isAndroidPreviewBgmTrack && !avoidPausePlay && holdAudioThisFrame)) {
@@ -3628,7 +3704,13 @@ export function usePreviewEngine({
           const playableDuration = effective.effectivePlayableDuration;
           const clipTime = time - effective.startTime;
           const sourceTime = trimStart + clipTime;
-          const inRange = !effective.isDisabled && clipTime >= 0 && clipTime <= playableDuration;
+          // エンドロール区間ではナレーションを鳴らさない（BGM だけを流し続ける）。
+          // BGM クリップも同じ経路を通るため、ナレーション本体のみを対象にする。
+          const isSilencedByEndroll = isEndrollFrame && !isBgmClipId(clip.id);
+          const inRange = !effective.isDisabled
+            && !isSilencedByEndroll
+            && clipTime >= 0
+            && clipTime <= playableDuration;
 
           const avoidNarPause = hasAudioNode
             && previewPlatformPolicy.muteNativeMediaWhenAudioRouted
@@ -3687,6 +3769,15 @@ export function usePreviewEngine({
               if (remainingInClip < fadeOutDur) {
                 vol *= Math.max(0, remainingInClip / fadeOutDur);
               }
+            }
+            // エンドロールの BGM フェードは **BGM クリップにだけ**掛ける。
+            // ナレーションはエンドロール区間では鳴らさないので対象外。
+            if (isBgmClipId(clip.id)) {
+              vol *= resolveBgmEndrollFadeGain({
+                endroll: endrollOverlayRef?.current,
+                clipsDuration: clipsDurationSec,
+                timeSec: time,
+              });
             }
             if (element.seeking || holdAudioThisFrame) {
               vol = 0;

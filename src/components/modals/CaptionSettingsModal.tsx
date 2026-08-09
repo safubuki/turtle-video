@@ -48,8 +48,11 @@ import {
   clampCustomFontSize,
   clampPositionPercent,
   resolveCaptionBackgroundStyle,
+  resolveCaptionBaseFontSize,
   resolveCaptionGlyphStyle,
+  resolveCaptionPresetAsCustomPercent,
 } from '../../utils/captionStyle';
+import { useCanvasStore } from '../../stores/canvasStore';
 import {
   SEQUENTIAL_GAP_MAX_SEC,
   clampSequentialGapSec,
@@ -100,6 +103,9 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
   onClose,
   onUpdate,
 }) => {
+  // プリセット→カスタムの引き継ぎに使う（描画と同じ寸法基準にそろえる）
+  const canvasWidth = useCanvasStore((state) => state.width);
+  const canvasHeight = useCanvasStore((state) => state.height);
   // モーダル表示中は背景のスクロールを防止
   // このコンポーネントは親で条件付きレンダリングされているため、
   // マウント時は常に表示状態なので true を渡す
@@ -456,6 +462,17 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
               idPrefix={`caption-individual-${caption.id}`}
               onSetPosition={handlePositionChange}
               onSetPositionCustom={handlePositionCustomChange}
+              resolvePresetAsCustom={() => {
+                // 個別設定は「一括設定を継承」もあるため、実効プリセットを使う
+                const effectivePosition = caption.overridePosition ?? settings.position;
+                const captionScale = canvasHeight > 0 ? canvasHeight / 1080 : 1;
+                return resolveCaptionPresetAsCustomPercent(effectivePosition, {
+                  canvasWidth,
+                  canvasHeight,
+                  fontSize: resolveCaptionBaseFontSize(caption, settings) * captionScale,
+                  padding: 50 * captionScale,
+                });
+              }}
             />
             {/* ぼかし: 未設定時は一括設定の値を表示し、変更時だけ個別上書き */}
             {uiCapabilities.supportsCaptionIndividualBlur && (

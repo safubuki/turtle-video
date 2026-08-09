@@ -2,7 +2,7 @@
  * @file watermarkOverlay.ts
  * @description Issue #210 の範囲指定ウォーターマークに関する正規化と共通 Canvas 描画。
  */
-import type { WatermarkMask, WatermarkOverlay } from '../types';
+import type { WatermarkMask, WatermarkOverlay, WatermarkScope } from '../types';
 
 export const WATERMARK_MIN_DURATION_SEC = 0.1;
 export const WATERMARK_POSITION_MIN = 0;
@@ -27,10 +27,21 @@ export type WatermarkPositionPreset =
   | 'top-left'
   | 'top-right';
 
+/**
+ * ロゴ画像の見た目を決める共通スタイル。
+ * WatermarkOverlay / EndrollOverlay の両方がこの形を満たす（構造的部分型）。
+ */
+export type LogoImageStyle = Pick<
+  WatermarkOverlay,
+  'positionX' | 'positionY' | 'size' | 'opacity' | 'rotation' | 'mask' | 'maskSize' | 'feather'
+>;
+
 export const DEFAULT_WATERMARK_OVERLAY: WatermarkOverlay = {
   file: null,
   url: null,
   enabled: true,
+  // 既定は本編のみ（エンドロールには出さない）
+  scope: 'main',
   startTime: 0,
   endTime: 4,
   positionX: 50,
@@ -55,6 +66,11 @@ function clamp(value: unknown, min: number, max: number, fallback: number): numb
 
 export function normalizeWatermarkMask(value: unknown): WatermarkMask {
   return value === 'circle' || value === 'rounded' ? value : 'rectangle';
+}
+
+/** 旧データ（scope が無い）は本編のみとして扱う＝従来挙動と一致する */
+export function normalizeWatermarkScope(value: unknown): WatermarkScope {
+  return value === 'full' ? 'full' : 'main';
 }
 
 export function normalizeWatermarkRange(
@@ -89,6 +105,7 @@ export function normalizeWatermarkOverlay(
     file: source.file instanceof File ? source.file : null,
     url: typeof source.url === 'string' && source.url ? source.url : null,
     enabled: source.enabled !== false,
+    scope: normalizeWatermarkScope(source.scope),
     ...range,
     positionX: clamp(
       source.positionX,
@@ -361,6 +378,46 @@ function getRasterizedWatermark(
 /**
  * ウォーターマークを最前面へ描画する。preview / export の両 flavor がこの関数を共有する。
  */
+/**
+ * ロゴ画像を Canvas へ合成する共通コア。
+ *
+ * ウォーターマーク（クリップに重ねる）とエンドロール（クリップの後に続ける）は
+ * 表示タイミングの決め方だけが違い、見た目の合成処理は完全に同一。
+ * 「どの時刻で描くか」「フェード係数がいくつか」は呼び出し側が決め、
+ * ここでは受け取った alpha でそのまま描く。
+ */
+export function drawLogoImageFrame(
+  ctx: CanvasRenderingContext2D,
+  style: LogoImageStyle,
+  image: HTMLImageElement,
+  alpha: number,
+): void {
+  const naturalCircleSize = Math.min(image.naturalWidth, image.naturalHeight);
+  const width = (style.mask === 'circle' ? naturalCircleSize : image.naturalWidth) * style.size;
+  const height = (style.mask === 'circle' ? naturalCircleSize : image.naturalHeight) * style.size;
+  const featherPx = style.feather * (ctx.canvas.height / 1080);
+  const raster = getRasterizedWatermark(
+    image,
+    width,
+    height,
+    style.mask,
+    style.maskSize,
+    featherPx,
+  );
+  const padX = (raster.width - Math.ceil(width)) / 2;
+  const padY = (raster.height - Math.ceil(height)) / 2;
+  const centerX = ctx.canvas.width * (style.positionX / 100);
+  const centerY = ctx.canvas.height * (style.positionY / 100);
+
+  ctx.save();
+  ctx.translate(centerX, centerY);
+  ctx.rotate((style.rotation * Math.PI) / 180);
+  // 透過度 × フェード（動画クリップと同じく globalAlpha で合成）
+  ctx.globalAlpha = Math.max(0, Math.min(1, style.opacity * alpha));
+  ctx.drawImage(raster, -width / 2 - padX, -height / 2 - padY);
+  ctx.restore();
+}
+
 export function drawWatermarkOverlayFrame(
   ctx: CanvasRenderingContext2D,
   overlay: WatermarkOverlay | null | undefined,
@@ -369,31 +426,6 @@ export function drawWatermarkOverlayFrame(
 ): boolean {
   if (!shouldDrawWatermarkOverlay(overlay, image, timeSec) || !overlay || !image) return false;
 
-  const naturalCircleSize = Math.min(image.naturalWidth, image.naturalHeight);
-  const width = (overlay.mask === 'circle' ? naturalCircleSize : image.naturalWidth) * overlay.size;
-  const height = (overlay.mask === 'circle' ? naturalCircleSize : image.naturalHeight) * overlay.size;
-  const featherPx = overlay.feather * (ctx.canvas.height / 1080);
-  const raster = getRasterizedWatermark(
-    image,
-    width,
-    height,
-    overlay.mask,
-    overlay.maskSize,
-    featherPx,
-  );
-  const padX = (raster.width - Math.ceil(width)) / 2;
-  const padY = (raster.height - Math.ceil(height)) / 2;
-  const centerX = ctx.canvas.width * (overlay.positionX / 100);
-  const centerY = ctx.canvas.height * (overlay.positionY / 100);
-
-  const fadeAlpha = calculateWatermarkFadeAlpha(overlay, timeSec);
-
-  ctx.save();
-  ctx.translate(centerX, centerY);
-  ctx.rotate((overlay.rotation * Math.PI) / 180);
-  // 透過度 × フェード（動画クリップと同じく globalAlpha で合成）
-  ctx.globalAlpha = overlay.opacity * fadeAlpha;
-  ctx.drawImage(raster, -width / 2 - padX, -height / 2 - padY);
-  ctx.restore();
+  drawLogoImageFrame(ctx, overlay, image, calculateWatermarkFadeAlpha(overlay, timeSec));
   return true;
 }

@@ -15,6 +15,7 @@ import type {
   NarrationClip,
   NarrationScriptLength,
   WatermarkOverlay,
+  EndrollOverlay,
   ExportOutputOptions,
 } from '../types';
 import type { ExportRuntime } from './turtle-video/exportRuntime';
@@ -61,6 +62,7 @@ import {
 } from '../utils/captionSubtitle';
 import { openFilesWithPicker, shouldUseMediaOpenFilePicker } from '../utils/platform';
 import { computeTransitionTimelineRanges } from '../utils/transitionTimeline';
+import { getEndrollDuration } from '../utils/endrollOverlay';
 import {
   buildNarrationCaptionPlan,
   mapNarrationSilencesToTimeline,
@@ -149,7 +151,12 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
   // Media Store
   const mediaItems = useMediaStore((s) => s.mediaItems);
-  const totalDuration = useMediaStore((s) => s.totalDuration);
+  /**
+   * クリップだけの長さ（エンドロールを含まない）。
+   * クリップの配置・active 判定・キャプション・ナレーションはこちらを基準にする。
+   * 出力全体の長さは後段で算出する `totalDuration`（= clipsDuration + エンドロール尺）。
+   */
+  const clipsDuration = useMediaStore((s) => s.totalDuration);
   const isClipsLocked = useMediaStore((s) => s.isClipsLocked);
   const addMediaItems = useMediaStore((s) => s.addMediaItems);
   const removeMediaItem = useMediaStore((s) => s.removeMediaItem);
@@ -313,6 +320,35 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const removeWatermarkImage = useOverlayStore((s) => s.removeWatermarkImage);
   const resetWatermark = useOverlayStore((s) => s.resetWatermark);
 
+  // エンドロール（クリップの後に続く単色背景 + ロゴ）。ウォーターマークとは独立
+  const endrollOverlay = useOverlayStore((s) => s.endroll);
+  const setEndrollImage = useOverlayStore((s) => s.setEndrollImage);
+  const updateEndroll = useOverlayStore((s) => s.updateEndroll);
+  const removeEndrollImage = useOverlayStore((s) => s.removeEndrollImage);
+
+  /**
+   * タイムラインが伸びる秒数。無効・画像なしなら 0。
+   * 0 のとき totalDuration === clipsDuration となり、既存の挙動と完全に一致する。
+   */
+  const endrollDuration = useMemo(
+    () => getEndrollDuration(endrollOverlay),
+    [endrollOverlay],
+  );
+
+  /**
+   * 出力全体の長さ（クリップ + エンドロール）。
+   * シークバー範囲・再生終了判定・エクスポート尺・BGM の末尾フェードはこちらを使う。
+   */
+  const totalDuration = clipsDuration + endrollDuration;
+
+  /**
+   * プレビューがエンドロール区間を表示中か。
+   * 自動サムネイルのキャプチャ（先頭付近を本物の canvas へ描く）を見送る判定に使う。
+   * boolean にしておくことで、区間を出入りした時だけ effect が再評価される
+   * （currentTime そのものを依存にすると毎フレーム再実行されてしまう）。
+   */
+  const isPreviewInEndroll = endrollDuration > 0 && currentTime >= clipsDuration;
+
   // Log Store
   const logInfo = useLogStore((s) => s.info);
   const logWarn = useLogStore((s) => s.warn);
@@ -339,6 +375,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const bgmRef = useRef<AudioTrack | null>(null);
   const narrationsRef = useRef<NarrationClip[]>([]);
   const totalDurationRef = useRef(0);
+  /** クリップだけの尺（エンドロールを含まない）。クリップ配置・active 判定に使う */
+  const clipsDurationRef = useRef(0);
   // キャプションを描く直前のプレビューフレーム（キャプション設定のミニプレビュー用）。
   // メインプレビューの canvas を直接使うと焼き込み済みキャプションと二重になる。
   const captionFreeSnapshotRef = useRef(createCaptionFreeSnapshot());
@@ -411,6 +449,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const videoTitleRef = useRef(videoTitle);
   const watermarkOverlayRef = useRef<WatermarkOverlay>(watermarkOverlay);
   const watermarkImageRef = useRef<HTMLImageElement | null>(null);
+  const endrollOverlayRef = useRef<EndrollOverlay>(endrollOverlay);
+  const endrollImageRef = useRef<HTMLImageElement | null>(null);
 
   // --- 生成済み export クリアヘルパー ---
   // 停止・再生・編集操作時に呼び出し、古いダウンロードボタンを消す。
@@ -626,6 +666,17 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     clearGeneratedExport(`edit:${reason}`);
   }, [clearGeneratedExport]);
 
+  const handleEndrollImageSelect = useCallback((file: File) => {
+    const supportedMimeTypes = new Set(['image/png', 'image/jpeg', 'image/webp']);
+    if (!supportedMimeTypes.has(file.type)) {
+      setError('エンドロールには PNG・JPEG・WebP 画像を選択してください');
+      return;
+    }
+    pausePreviewBeforeEdit('set-endroll-image');
+    setEndrollImage(file);
+    showToast('エンドロール画像を設定しました');
+  }, [pausePreviewBeforeEdit, setEndrollImage, setError, showToast]);
+
   const handleWatermarkImageSelect = useCallback((file: File) => {
     const supportedMimeTypes = new Set(['image/png', 'image/jpeg', 'image/webp']);
     if (!supportedMimeTypes.has(file.type)) {
@@ -642,6 +693,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   captionSettingsRef.current = captionSettings;
   videoTitleRef.current = videoTitle;
   watermarkOverlayRef.current = watermarkOverlay;
+  // レンダー中に同期する（再描画 effect より先に確実へ反映させるため。
+  // useEffect で代入すると effect の実行順に依存し、1 フレーム古い値で描くことがある）
+  endrollOverlayRef.current = endrollOverlay;
 
   const platformCapabilities = useMemo(() => previewRuntime.getPlatformCapabilities(), [previewRuntime]);
   const previewPlatformPolicy = useMemo(
@@ -1111,6 +1165,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     videoTitleRef,
     watermarkOverlayRef,
     watermarkImageRef,
+    endrollOverlayRef,
+    endrollImageRef,
+    clipsDurationRef,
     captionFreeSnapshotRef,
     totalDurationRef,
     currentTimeRef,
@@ -1192,7 +1249,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   useEffect(() => {
     mediaItemsRef.current = mediaItems;
     totalDurationRef.current = totalDuration;
-  }, [mediaItems, totalDuration]);
+    // クリップ配置用（エンドロールを含まない）。エンドロール無効時は totalDuration と同値
+    clipsDurationRef.current = clipsDuration;
+  }, [mediaItems, totalDuration, clipsDuration]);
 
   // --- 再描画トリガー: メディア構成変更時のキャンバス更新 ---
   // 目的: メディアの追加・削除・リロード時にプレビューを更新
@@ -1278,6 +1337,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     );
     if (contentKey === autoProjectPosterContentKeyRef.current) return;
     if (isPlaying || isProcessing) return;
+    // プレビューがエンドロール区間にあるときは撮らない。
+    // キャプチャは「先頭付近を本物の canvas へ描いて撮り、元の位置へ戻す」方式のため、
+    // エンドロール表示中にサイズ等を変えると、その一瞬だけクリップの映像が見えてしまう。
+    // ここで見送っても contentKey を進めないので、本編へ戻った時点で撮り直される。
+    if (isPreviewInEndroll) return;
 
     autoProjectPosterContentKeyRef.current = contentKey;
     const captureGeneration = ++projectPosterCaptureGenerationRef.current;
@@ -1312,11 +1376,6 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         timeoutIds.push(window.setTimeout(resolve, ms));
       });
 
-    const nextFrame = () =>
-      new Promise<void>((resolve) => {
-        rafIds.push(requestAnimationFrame(() => resolve()));
-      });
-
     /**
      * 先頭付近のアクティブ動画がシーク完了して描画可能になるまで待つ。
      * rAF 1 回だけでは seek が終わらず、preview engine の描画条件
@@ -1334,27 +1393,49 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       }
     };
 
+    /**
+     * サムネ用フレームを撮る。
+     *
+     * **同期ブロック内で「撮影用フレームを描く → 読み取る → 表示中フレームへ描き戻す」
+     * まで完了させる**のが要点。間に await を挟むとブラウザがそこで描画してしまい、
+     * 拡大・縮小などの調整中に「別の時刻のフレーム」が一瞬見えてチラつく。
+     * rAF コールバック内で完結させれば、ユーザーには一度も表示されない。
+     */
     const captureOnce = async (): Promise<string | null> => {
       if (isStale()) return null;
-      renderFrame(autoTime, false);
-      await nextFrame();
-      if (isStale()) return null;
-      // 描画が canvas へ反映されるフレームを 1 つ余分に待つ
-      await nextFrame();
-      if (isStale()) return null;
-      const canvas = canvasRef.current;
-      if (!canvas) return null;
-      // 黒（＝シーク未完了・描画スキップ）を掴んだら呼び出し元で撮り直す
-      if (isCanvasEffectivelyBlank(canvas)) return null;
-      return createPosterDataUrlFromCanvas(canvas);
+      // 描画・読み取り・復帰を 1 つの rAF 内で行い、途中経過を絶対に見せない
+      const dataUrl = await new Promise<string | null>((resolve) => {
+        rafIds.push(requestAnimationFrame(() => {
+          if (isStale()) {
+            resolve(null);
+            return;
+          }
+          const canvas = canvasRef.current;
+          if (!canvas) {
+            resolve(null);
+            return;
+          }
+          renderFrame(autoTime, false);
+          // 黒（＝シーク未完了・描画スキップ）を掴んだら呼び出し元で撮り直す
+          const captured = isCanvasEffectivelyBlank(canvas)
+            ? null
+            : createPosterDataUrlFromCanvas(canvas);
+          // 同じフレーム内で表示中の位置へ戻す（ここまで画面には反映されない）
+          renderFrame(previousTime, false);
+          resolve(captured);
+        }));
+      });
+      return dataUrl;
     };
 
     const runCapture = async () => {
       await delay(AUTO_POSTER_CAPTURE_INITIAL_DELAY_MS);
       if (isStale()) return;
 
-      // まず対象時刻へ描画要求を出し、シーク完了まで待ってから撮る
+      // 対象時刻の映像要素へシークを促す。ここで描いた結果は表示させたくないので、
+      // 同じ同期ブロック内で必ず表示中の位置へ戻す（await を挟むと画面に出てしまう）。
       renderFrame(autoTime, false);
+      renderFrame(previousTime, false);
       await waitForActiveMediaDrawable();
       if (isStale()) return;
 
@@ -1380,7 +1461,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         });
       }
 
-      // プレビュー位置を動かさない（自動更新は裏で先頭付近だけ撮る）
+      // プレビュー位置を動かさない（自動更新は裏で先頭付近だけ撮る）。
+      // canvas 自体は captureOnce 内で表示中フレームへ戻し済みだが、
+      // 状態（currentTime）の整合はここで最終的に担保する。
       if (Math.abs(previousTime - autoTime) > 0.001) {
         currentTimeRef.current = previousTime;
         setCurrentTime(previousTime);
@@ -1403,6 +1486,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     aspectRatio,
     isPlaying,
     isProcessing,
+    // エンドロール区間を抜けたら、見送ったキャプチャを撮り直す
+    isPreviewInEndroll,
     renderFrame,
     resetProjectPosterToAuto,
     setProjectPosterDataUrl,
@@ -3159,18 +3244,30 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     previewCacheVideoRef,
   ]);
 
-  // --- キャプション変更時のプレビュー再描画 ---
-  // キャプションはプレビュー canvas へ焼き込まれるため、削除・編集しても再描画が
-  // 走らないと「消したはずの文字が残る」。停止中は自動で描き直す契機が無いので、
-  // ここで明示的に現在位置を描き直す。
+  // --- キャプション・ロゴ変更時のプレビュー再描画 ---
+  // キャプション／ウォーターマーク／エンドロールはプレビュー canvas へ焼き込まれるため、
+  // 削除・編集しても再描画が走らないと「消したはずの文字が残る」「調整が反映されない」。
+  // 停止中は自動で描き直す契機が無いので、ここで明示的に現在位置を描き直す。
   // （同時に、ミニプレビューが使う「キャプション抜きスナップショット」も更新される）
+  //
+  // ウォーターマーク・エンドロールの各パラメータ（位置・倍率・透過度・回転・マスク・
+  // フェード・背景色など）もこの依存に含めること。含めないとスライダーを動かしても
+  // 画が変わらず、シークバーを触るまで反映されない。
   useEffect(() => {
     if (isPlayingRef.current || isProcessing) return;
     const id = requestAnimationFrame(() => {
       renderFrame(currentTimeRef.current, false);
     });
     return () => cancelAnimationFrame(id);
-  }, [captions, captionSettings, videoTitle, isProcessing, renderFrame]);
+  }, [
+    captions,
+    captionSettings,
+    videoTitle,
+    watermarkOverlay,
+    endrollOverlay,
+    isProcessing,
+    renderFrame,
+  ]);
 
   // Issue #114: 書き出しオプション（セッション中のみ。プロジェクト保存対象外）
   const [exportOutputOptions, setExportOutputOptions] = useState<ExportOutputOptions>(
@@ -3565,6 +3662,22 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
           }}
         />
       )}
+      {endrollOverlay.url && (
+        <img
+          ref={endrollImageRef}
+          src={endrollOverlay.url}
+          alt=""
+          aria-hidden="true"
+          style={hiddenPreviewCacheStyle}
+          onLoad={() => {
+            if (!isPlayingRef.current) {
+              requestAnimationFrame(() => {
+                renderFrame(currentTimeRef.current, false);
+              });
+            }
+          }}
+        />
+      )}
 
       {/* AI Modal */}
       <AiModal
@@ -3641,14 +3754,20 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               watermarkPanel={uiCapabilities.supportsWatermark ? (
                 <OverlaySection
                   watermark={watermarkOverlay}
+                  endroll={endrollOverlay}
                   totalDuration={totalDuration}
+                  clipsDuration={clipsDuration}
                   currentTime={currentTime}
                   canvasWidth={canvasWidth}
                   canvasHeight={canvasHeight}
+                  hasNoBgm={!bgm && bgmClips.length === 0}
                   onImageSelect={handleWatermarkImageSelect}
                   onUpdate={withPreviewPause('update-watermark', updateWatermark)}
                   onSetRange={withPreviewPause('set-watermark-range', setWatermarkRange)}
                   onRemoveImage={withPreviewPause('remove-watermark-image', removeWatermarkImage)}
+                  onEndrollImageSelect={handleEndrollImageSelect}
+                  onEndrollUpdate={withPreviewPause('update-endroll', updateEndroll)}
+                  onEndrollRemoveImage={withPreviewPause('remove-endroll-image', removeEndrollImage)}
                 />
               ) : undefined}
               mediaItems={mediaItems}
@@ -3822,6 +3941,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
                 canvasRef={canvasRef}
                 currentTime={currentTime}
                 totalDuration={totalDuration}
+                clipsDuration={clipsDuration}
                 isPlaying={isPlaying}
                 isProcessing={isProcessing}
                 isLoading={isLoading}
