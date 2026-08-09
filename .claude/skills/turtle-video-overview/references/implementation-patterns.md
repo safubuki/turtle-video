@@ -3532,3 +3532,105 @@ export 終了（成功/失敗/中断）
     プレビューへ入れたら**必ず export にも同じ抑止／エンベロープを入れる**。
 - **テスト**: `endrollBgmAutoAdjust.test.ts`。BGM 自動調整 5 件（延長・音源不足・OFF・エンドロール無効・複数BGM）と、
   ナレーション打ち切り 4 件（跨がりを本編末尾で切る・エンドロール開始後は鳴らさない・本編内は不変・エンドロール無効時は不変）。
+
+### 13-186.【失敗・差し戻し済み】export での次動画プリバッファ拡大は全体のフレームレートを落とす
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/previewPlatform.ts`, `src/test/standardPreviewStallRecovery.test.ts`
+- **元の症状**: 2 本の動画をつないだとき、**プレビューは滑らかなのに書き出した MP4 だけ**つなぎ目で数フレーム飛んだようにカクつく。
+- **調査で分かったこと（事実として有効）**:
+  - 「video→video 境界で次動画を `preload='auto'` + `trimStart` 待機させる」処理が
+    `isStandardLivePreviewPlayback`（`!_isExporting` を含む）で **preview 限定**にゲートされている。
+  - そのため書き出しでは境界で次動画が未デコードになり、待つあいだ壁時計だけが進んで
+    `exportFrameIndex = floor(elapsed * FPS)` が飛ぶ。**つなぎ目カクつきの直接原因はこれ**。
+- **試した対策と結果（❌ 差し戻し）**: ゲートから `isExporting` を外し export でも準備するようにした。
+  → **動画全体の実効フレームレートが目に見えて低下**（ユーザー実機で明確に悪化）。つなぎ目より全体の劣化が大きい。
+  - **理由**: export 中は VideoEncoder への投入と Canvas 転送で帯域・CPU を使い切っている。
+    そこへ次動画のデコードを常時走らせると、**現在描画中のフレーム生成そのものが遅くなる**。
+    境界の数フレームを救うために全体を犠牲にする取引になっていた。
+- **禁止事項（再発防止）**:
+  - **export 中に追加のデコード・prefetch を常時走らせる方向へ戻さないこと**。
+    `shouldPrebufferNextVideoAtBoundary` に `isExporting: true` を通す変更は同じ劣化を招く。
+  - 併せて棄却済み（シミュレーション検証）:
+    - タイムラインのフレーム駆動化 → `holdFrame` で時計が止まり [[export-quality-regression-2026-03-27]] を再来。
+    - 1 ティックの進みフレーム数クランプ → **落ちるフレーム総数は変わらない**（22→22、飛びが分散するだけ）。上限 1 は映像が早く終わる。
+- **現状**: ゲートは preview 限定のまま（＝従来どおり）。**つなぎ目のカクつきは未解決**。
+  次に試すなら「常時デコード」ではなく、**境界直前の短時間だけ**・**1 本だけ**準備するなど
+  追加負荷を時間的に限定する方向が候補。ただし export の帯域はすでに飽和している前提で慎重に測ること。
+- **テスト**: `standardPreviewStallRecovery.test.ts` の `shouldPrebufferNextVideoAtBoundary` で
+  **export では false** を固定（誤って再拡大したら落ちる）。
+
+
+### 13-187. standard export の video→video 境界は active decode 待ちの間だけ時計を止める
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/previewPlatform.ts`, `src/test/standardPreviewEngine.test.tsx`, `src/test/standardPreviewStallRecovery.test.ts`
+- **対象 flavor**: **standard（Android / PC）のみ**。apple-safari runtime と shared contract は変更しない。
+- **元の症状**: 2 本の動画をつないだ MP4 で、全体尺は正しいままつなぎ目だけ数フレーム飛ぶ。preview は滑らか。13-186 の export 常時プリバッファは全体 FPS を落としたため差し戻し済み。
+- **対策**:
+  - 次動画は従来どおり inactive 中は `preload='metadata'` のままにし、export 中の追加 decode / prefetch を現在動画と並走させない。
+  - video→video の次動画が active 化した先頭 0.5 秒以内で、現在フレームが未デコード（`readyState < 2` / `seeking` / 寸法0）または target source time と未同期なら、**その境界でだけ** `exportTimelineSecRef` を固定する。
+  - 固定中も rAF と `renderFrame` は維持し、active 動画の `play()`・必要時1回だけの trimStart 合わせを進める。一方、未描画の `exportFrameIndex` は `exportRenderedFrameIndexRef` / `createRenderedFrameTracker` へ公開しないため、Encoder は同じ Canvas の先行複製を行わない。
+  - CFR の整数 microsecond 丸めを考慮し、境界時刻以上になる最初の `getExportFrameTiming()` slot を固定先にする（30fps・5.000秒境界では index 150 が 4.999950秒、次動画の最初の slot は index 151）。
+  - 描画可能かつ同期済みになったら同じ slot を1回公開して再開し、その境界を処理済みにして再停止しない。decoder error は待たず、その他の固着は5秒 timeoutで従来挙動へ戻して無限停止を防ぐ。
+- **守る不変条件**:
+  - 動画 export 全体をフレーム駆動化しない。通常区間は既存の native 1x 連続再生 + wall dilation（13-166）を維持する。
+  - VideoEncoder backpressure の pause/resume（13-153）を変更しない。
+  - export 中の次動画常時 prefetch を再導入しない。境界待ちと全体フレームレートの両方を実機比較する。
+- **自動テスト**:
+  - 境界直前 index 149 → 境界直前 CFR slot 150 → 次動画先頭 151 → 152 が、未デコード待ち1秒を挟んでも `renderSkipCount=0` / `skippedFrames=0` で連番になることを確認。
+  - 待機中も次動画の `preload` が `metadata` のままであること、通常 preview / image→video / 境界窓外へ波及しないこと、5秒 timeoutを確認。
+  - `npm run test:run`: 1295件成功、`npm run typecheck` / `npm run build` 成功。
+- **実機確認（必須）**: 同じ素材・同じ出力設定で、(1) video→video のつなぎ目に欠落がないこと、(2) 動画全体の実効フレームレートが13-186差し戻し前の品質を維持することを両方確認する。完了ログの `renderSkipCount` / `skippedFrames` / `distinctRenderedFrames` と `standard.export.timeline.videoBoundaryPaused/Resumed/Timeout` を併せて採取する。
+
+
+### 13-188.【実動画再調査】export 開始 video も future data 待ちで時計を止める
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/previewPlatform.ts`, `src/test/standardPreviewEngine.test.tsx`, `src/test/standardPreviewStallRecovery.test.ts`
+- **対象 flavor**: **standard（Android / PC）のみ**。apple-safari runtime、shared contract、export engine は変更しない。
+- **13-187 後も残った症状**: 次動画の active decode 待ちを入れても、実機 MP4 の video→video 境界で小さなフレーム飛びが残った。全体品質の低下は見られなかった。
+- **提供動画の全フレーム比較（2026-08-10）**:
+  - Filmora: 20.000秒 / 24fps / 480フレーム。Turtle Video: 20.010秒 / 30fps / 601フレーム。
+  - Turtle frame 300（10.000秒）は Filmora frame 235（9.792秒相当）、次の Turtle frame 301（10.033秒）は Filmora frame 240（10.000秒相当）へ対応した。Filmora frame 236〜239 相当の約4フレームを1回でまたいでいた。
+  - Turtle 境界の隣接フレーム差分 MAE は 9.067、全体 p95 は 4.466。通常上位5%の約2倍の変化として計測できた。
+  - 33.333ms 全フレーム freeze 解析では Filmora に該当なし、Turtle に 0.067〜0.267秒（7 samples）の静止区間を検出した。
+  - 内容照合では1本目が Filmora より約0.19〜0.23秒遅れたまま進み、2本目は約0.02〜0.07秒差へ戻る。したがって残存原因は「次動画先頭の欠落」だけでなく、**最初の video が HAVE_CURRENT_DATA の段階で export 時計と同時開始され、native play の立ち上がり中に時計だけ約0.2秒先行したこと**。境界で2本目を正しい先頭へ合わせると、未再生だった1本目末尾が飛んで見える。
+- **追加対策**:
+  - 13-187 の境界限定 stall をタイムライン先頭の video にも適用する。
+  - video head は描画可能な `HAVE_CURRENT_DATA(2)` だけで再開せず、将来フレームを持つ `HAVE_FUTURE_DATA(3)`、`paused=false`、`seeking=false`、寸法あり、target 同期を満たすまでだけ `exportTimelineSecRef` を固定する。
+  - decoder が温まる間に target から外れた場合は、温まった後に1回だけ anchor target へ戻す。毎フレーム seek は行わない。
+  - active 動画の `play()` だけを進め、inactive 動画は従来どおり `preload='metadata'`。常時追加 decode / prefetch は再導入しない。
+  - play failure、素材 error、5秒 timeout は従来経路へフォールバックし、無限停止させない。
+- **回帰テスト**:
+  - export 先頭 video を `readyState=2` のまま200ms進めても timeline/frame index が0に固定され、`readyState=3` 後に index 0→1を `renderSkipCount=0` / `skippedFrames=0` で公開する。
+  - video→video 境界も `readyState=3` まで待ち、既存の index 149→150→151→152 と `preload='metadata'` を維持する。
+- **実機再検証（必須）**: 同じ2素材で再出力し、冒頭0.067〜0.267秒の静止区間が消えること、10秒境界で Filmora frame 236〜239 相当をまたがないこと、全体の滑らかさが悪化しないことを同時に確認する。
+
+
+### 13-189.【実機成功確認済み】video→video export 境界対策の完了条件とデグレ確認
+
+- **実機確認結果（2026-08-10）**: ユーザーが 13-188 適用後に同じ再現条件で再書き出しし、**10秒付近のvideo→video境界カクつきが解消**したことを確認した。13-186 の失敗時に発生した**動画全体の品質低下も見られない**。13-187 + 13-188 の組み合わせを現行の成功実装とする。
+- **成功理由**:
+  - inactive動画は `preload='metadata'` のままなので、Encoder/Canvasと次動画の常時デコードを競合させない。
+  - export開始videoとvideo→video先頭が `HAVE_FUTURE_DATA(3)` へ入るまで、その短い区間だけexport時計を止める。
+  - 通常区間は実機実績のあるnative 1x連続再生 + wall dilationを維持し、全体をフレーム駆動化しない。
+- **将来の変更で守る不変条件**:
+  - export中の次動画常時prefetch、毎フレームseek、動画export全体のframe-count駆動、1tickクランプを再導入しない。
+  - `HAVE_CURRENT_DATA(2)` だけでvideo head待機を解除しない。`HAVE_FUTURE_DATA(3)`、非paused、非seeking、寸法、target同期を一体で扱う。
+  - backpressure pause/resume（13-153）と倍速wall dilation（13-166）を別責務として維持する。
+  - standard限定を維持し、apple-safariへ根拠なくコピーしない。
+- **最小の実機デグレ確認（関連変更ごとに必須）**:
+  1. **冒頭**: 最初の0.0〜0.3秒に静止、黒、同一フレームの長い保持がない。
+  2. **境界**: 動きが連続する2動画をトランジションなしで接続し、境界の前後0.3秒を通常再生とコマ送りで見て、飛び・重複・黒フレームがない。
+  3. **全体品質**: 冒頭から末尾まで通して見て、境界改善と引き換えの全体FPS低下、周期的なカクつき、後半の静止/黒画面がない。
+  4. **尺と音声**: MP4総尺がタイムラインと一致し、境界前後および末尾で映像と音声がずれない。
+  5. **書き出し後preview**: 完了直後に通常previewを再生し、黒点滅・静止・音漏れ・再生不能がない。
+- **推奨マトリクス（リリース前またはexport基盤変更時）**:
+  - 出力: HD / FHD、短尺 / 30秒以上。
+  - 素材fps: 24 / 30 / 60fpsのうち入手できる組み合わせ。
+  - trim: 先頭videoのtrimStart=0 / 0より大きい、次videoのtrimStart=0 / 0より大きい。
+  - 速度: 1xを必須、2x以上を1ケース（wall dilation回帰）。
+  - 並び: video→videoを必須、image→videoも1ケース（対象外経路への波及確認）。
+  - 負荷: FHDまたは長尺でEncoder backpressureが発生し得るケースを1本。
+- **ログ・自動検証**:
+  - `standard.export.timeline.videoBoundaryPaused` と `...Resumed` が `boundaryKind='export-start'` / `'video-to-video'` で対応し、通常素材で `...Timeout` / `...Cancelled` が出ない。
+  - 完了時の `renderSkipCount` / `skippedFrames` が0を理想とし、少なくとも基準出力より増えていない。`distinctRenderedFrames` が期待総フレームから不自然に欠けない。
+  - 自動回帰は `standardPreviewEngine.test.tsx`、`standardPreviewStallRecovery.test.ts`、`standardFlavorRegression.test.ts`、`exportTimeline.test.ts`を最低限実行し、リリース前は `npm run test:run`、`npm run typecheck`、`npm run build`を実行する。

@@ -108,6 +108,31 @@ export interface ExportImageToVideoFrameHoldOptions extends ExportImageToVideoSt
   syncToleranceSec?: number;
 }
 
+export interface StandardExportVideoBoundaryStallOptions {
+  isExporting: boolean;
+  activeItemType: 'video' | 'image' | null;
+  previousItemType: 'video' | 'image' | null;
+  clipLocalTime: number;
+  videoReadyState: HTMLMediaElement['readyState'];
+  videoPaused: boolean;
+  videoSeeking: boolean;
+  videoWidth: number;
+  videoHeight: number;
+  videoHasError: boolean;
+  videoCurrentTime: number;
+  targetTime: number;
+  stalledForMs: number;
+  syncToleranceSec?: number;
+  minimumReadyState?: HTMLMediaElement['readyState'];
+  boundaryWindowSec?: number;
+  timeoutMs?: number;
+}
+
+export interface StandardExportVideoBoundaryStallDecision {
+  shouldPauseTimeline: boolean;
+  timedOut: boolean;
+}
+
 export interface AndroidPreviewVideoRecoveryOptions {
   isAndroid: boolean;
   isIosSafari?: boolean;
@@ -168,6 +193,17 @@ export const ANDROID_PREVIEW_DRIFT_FIX_THRESHOLD_SEC = ANDROID_PREVIEW_TIGHT_SYN
 export const ANDROID_PREVIEW_SOFT_DRAW_DRIFT_THRESHOLD_SEC = 0.25;
 export const ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC = 0.45;
 export const EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC = 0.004;
+// export 開始 video / video→video の active 動画が連続再生可能になるまでだけ、export 時計を止める。
+// クリップ全体へ広げると native 連続再生を壊すため、境界先頭の短い窓に限定する。
+export const STANDARD_EXPORT_VIDEO_BOUNDARY_STALL_WINDOW_SEC = 0.5;
+// HAVE_CURRENT_DATA(2) だけでは「現在絵は描けるが、再生開始後の次フレームが未デコード」を
+// 許してしまう。export の video head は HAVE_FUTURE_DATA(3) まで待ち、開始時計だけの先行を防ぐ。
+export const STANDARD_EXPORT_VIDEO_HEAD_MIN_READY_STATE: HTMLMediaElement['readyState'] =
+  typeof HTMLMediaElement !== 'undefined'
+    ? HTMLMediaElement.HAVE_FUTURE_DATA
+    : 3;
+// 壊れた素材や decoder error で export が永久停止しないための最終フォールバック。
+export const STANDARD_EXPORT_VIDEO_BOUNDARY_STALL_TIMEOUT_MS = 5000;
 
 /**
  * プラットフォーム capability から、プレビュー制御用の方針を組み立てる。
@@ -798,4 +834,50 @@ export function shouldDrawFadeStallSnapshotFrame(
     && options.snapshotVideoId === options.activeVideoId
     && options.snapshotWidth > 0
     && options.snapshotHeight > 0;
+}
+
+/**
+ * standard export の開始 video / video→video 境界で、active 動画の連続再生準備を
+ * 待つべきか判定する。
+ *
+ * export 中に次動画を常時 prefetch すると現在動画の decode / Canvas 転送と競合して全体 FPS が
+ * 落ちるため、追加 decode は active 化後にだけ開始する。その準備中は壁時計を進めず、未描画の
+ * frame index を Encoder 側へ公開しない。通常 preview、image→video、クリップ途中には波及させない。
+ */
+export function getStandardExportVideoBoundaryStallDecision(
+  options: StandardExportVideoBoundaryStallOptions,
+): StandardExportVideoBoundaryStallDecision {
+  const none: StandardExportVideoBoundaryStallDecision = {
+    shouldPauseTimeline: false,
+    timedOut: false,
+  };
+  const boundaryWindowSec = options.boundaryWindowSec
+    ?? STANDARD_EXPORT_VIDEO_BOUNDARY_STALL_WINDOW_SEC;
+  const timeoutMs = options.timeoutMs ?? STANDARD_EXPORT_VIDEO_BOUNDARY_STALL_TIMEOUT_MS;
+  const syncToleranceSec = options.syncToleranceSec ?? 0.05;
+  const minimumReadyState = options.minimumReadyState
+    ?? STANDARD_EXPORT_VIDEO_HEAD_MIN_READY_STATE;
+
+  if (!options.isExporting) return none;
+  if (
+    options.activeItemType !== 'video'
+    || (options.previousItemType !== null && options.previousItemType !== 'video')
+  ) return none;
+  if (options.clipLocalTime < 0 || options.clipLocalTime > boundaryWindowSec) return none;
+  if (options.videoHasError) return none;
+
+  const isDrawable =
+    options.videoReadyState >= minimumReadyState
+    && !options.videoPaused
+    && !options.videoSeeking
+    && options.videoWidth > 0
+    && options.videoHeight > 0;
+  const isSynchronized =
+    Math.abs(options.videoCurrentTime - options.targetTime) <= syncToleranceSec;
+  if (isDrawable && isSynchronized) return none;
+  if (options.stalledForMs >= timeoutMs) {
+    return { shouldPauseTimeline: false, timedOut: true };
+  }
+
+  return { shouldPauseTimeline: true, timedOut: false };
 }

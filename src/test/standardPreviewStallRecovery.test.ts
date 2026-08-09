@@ -1,12 +1,30 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  getStandardExportVideoBoundaryStallDecision,
   getStandardPreviewStallKickDecision,
   shouldDrawFadeStallSnapshotFrame,
+  STANDARD_EXPORT_VIDEO_BOUNDARY_STALL_TIMEOUT_MS,
   STANDARD_PREVIEW_STALL_KICK_AFTER_MS,
   STANDARD_PREVIEW_STALL_KICK_INTERVAL_MS,
   type StandardPreviewStallKickOptions,
 } from '../flavors/standard/preview/previewPlatform';
+
+const exportBoundaryBase = {
+  isExporting: true,
+  activeItemType: 'video' as const,
+  previousItemType: 'video' as const,
+  clipLocalTime: 0.02,
+  videoReadyState: 1,
+  videoPaused: false,
+  videoSeeking: false,
+  videoWidth: 1280,
+  videoHeight: 720,
+  videoHasError: false,
+  videoCurrentTime: 1,
+  targetTime: 1.02,
+  stalledForMs: 0,
+};
 
 function createKickOptions(
   overrides: Partial<StandardPreviewStallKickOptions> = {},
@@ -78,6 +96,79 @@ describe('getStandardPreviewStallKickDecision', () => {
       videoReadyState: 4,
     }));
     expect(decision.shouldKick).toBe(false);
+  });
+});
+
+describe('getStandardExportVideoBoundaryStallDecision', () => {
+  it('export の video→video 境界で次動画が未デコードなら時計を止める', () => {
+    expect(getStandardExportVideoBoundaryStallDecision(exportBoundaryBase)).toEqual({
+      shouldPauseTimeline: true,
+      timedOut: false,
+    });
+  });
+
+  it('描画可能かつ同期済みになったら同じ境界位置から再開する', () => {
+    expect(getStandardExportVideoBoundaryStallDecision({
+      ...exportBoundaryBase,
+      videoReadyState: 3,
+      videoCurrentTime: 1.02,
+    })).toEqual({
+      shouldPauseTimeline: false,
+      timedOut: false,
+    });
+    expect(getStandardExportVideoBoundaryStallDecision({
+      ...exportBoundaryBase,
+      videoReadyState: 3,
+      videoCurrentTime: 1.2,
+    }).shouldPauseTimeline).toBe(true);
+  });
+
+  it('export 開始 video は future data と play 成立まで時計を止める', () => {
+    expect(getStandardExportVideoBoundaryStallDecision({
+      ...exportBoundaryBase,
+      previousItemType: null,
+      videoReadyState: 2,
+      videoCurrentTime: 1.02,
+    }).shouldPauseTimeline).toBe(true);
+    expect(getStandardExportVideoBoundaryStallDecision({
+      ...exportBoundaryBase,
+      previousItemType: null,
+      videoReadyState: 3,
+      videoPaused: true,
+      videoCurrentTime: 1.02,
+    }).shouldPauseTimeline).toBe(true);
+    expect(getStandardExportVideoBoundaryStallDecision({
+      ...exportBoundaryBase,
+      previousItemType: null,
+      videoReadyState: 3,
+      videoCurrentTime: 1.02,
+    }).shouldPauseTimeline).toBe(false);
+  });
+
+  it('通常 preview・image→video・境界窓の外には波及しない', () => {
+    expect(getStandardExportVideoBoundaryStallDecision({
+      ...exportBoundaryBase,
+      isExporting: false,
+    }).shouldPauseTimeline).toBe(false);
+    expect(getStandardExportVideoBoundaryStallDecision({
+      ...exportBoundaryBase,
+      previousItemType: 'image',
+    }).shouldPauseTimeline).toBe(false);
+    expect(getStandardExportVideoBoundaryStallDecision({
+      ...exportBoundaryBase,
+      clipLocalTime: 0.51,
+    }).shouldPauseTimeline).toBe(false);
+  });
+
+  it('素材エラーは待たず、decoder 停滞は timeout 後に従来挙動へ戻す', () => {
+    expect(getStandardExportVideoBoundaryStallDecision({
+      ...exportBoundaryBase,
+      videoHasError: true,
+    })).toEqual({ shouldPauseTimeline: false, timedOut: false });
+    expect(getStandardExportVideoBoundaryStallDecision({
+      ...exportBoundaryBase,
+      stalledForMs: STANDARD_EXPORT_VIDEO_BOUNDARY_STALL_TIMEOUT_MS,
+    })).toEqual({ shouldPauseTimeline: false, timedOut: true });
   });
 });
 
