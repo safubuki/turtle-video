@@ -75,7 +75,8 @@ const BgmSection: React.FC<BgmSectionProps> = ({
   onBeforeBgmClipEdit,
   onBeforeBgmClipContinuousEdit,
 }) => {
-  const [isOpen, setIsOpen] = useState(true);
+  // 初期表示は閉じた状態。BGM 追加時のみ後続の useEffect で開く。
+  const [isOpen, setIsOpen] = useState(false);
   const prevBgmUrlRef = useRef<string | null>(bgm?.url ?? null);
   const prevBgmClipCountRef = useRef(bgmClips.length);
   const audioFileAccept = getAudioUploadAccept();
