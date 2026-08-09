@@ -106,6 +106,13 @@ export function composeTimelinePcm(
   placements: TimelinePlacement[],
   totalDuration: number,
   sampleRate: number = TIMELINE_WAVEFORM_SAMPLE_RATE,
+  /**
+   * エンドロール区間の BGM フェードアウト（任意）。
+   * 指定すると `fadeStartSec` から `totalDuration` にかけて BGM のゲインを線形に 0 へ落とす。
+   * プレビュー（resolveBgmEndrollFadeGain）・書き出しと同じカーブを波形にも反映させ、
+   * 「設定したのに波形が細くならない」食い違いを防ぐ。
+   */
+  endrollBgmFade?: { fadeStartSec: number } | null,
 ): MonoPcm {
   const safeRate = sampleRate > 0 ? Math.floor(sampleRate) : TIMELINE_WAVEFORM_SAMPLE_RATE;
   const safeDuration = Number.isFinite(totalDuration) ? Math.max(0, totalDuration) : 0;
@@ -113,9 +120,19 @@ export function composeTimelinePcm(
   const mixed = new Float32Array(totalSamples);
   if (totalSamples === 0) return { samples: mixed, sampleRate: safeRate };
 
+  // エンドロールフェードの開始時刻（有効な範囲のときだけ適用）
+  const endrollFadeStart = (() => {
+    const start = endrollBgmFade?.fadeStartSec;
+    if (!Number.isFinite(start)) return null;
+    const value = start as number;
+    if (!(value >= 0) || value >= safeDuration) return null;
+    return value;
+  })();
+
   for (const placement of placements) {
     const { pcm, volume } = placement;
     if (!(volume > 0)) continue;
+    const isBgmPlacement = placement.kind === 'bgm';
 
     const srcSamples = pcm.samples;
     const srcRate = pcm.sampleRate;
@@ -156,6 +173,15 @@ export function composeTimelinePcm(
       const remaining = timelinePlayable - elapsed;
       if (fadeOut > 0 && remaining < fadeOut) {
         gain *= Math.max(0, remaining / fadeOut);
+      }
+      // エンドロール区間の BGM フェード（BGM 系のみ。ナレーション・動画音声は対象外）
+      if (endrollFadeStart !== null && isBgmPlacement) {
+        const timelineSec = i / safeRate;
+        if (timelineSec > endrollFadeStart) {
+          const span = safeDuration - endrollFadeStart;
+          const ratio = span > 0 ? (timelineSec - endrollFadeStart) / span : 1;
+          gain *= Math.max(0, Math.min(1, 1 - ratio));
+        }
       }
 
       mixed[i] += srcSamples[srcIndex] * gain;
@@ -230,6 +256,8 @@ export function buildTimelineWaveform(
     silenceSource?: SilenceSourceTarget;
     sampleRate?: number;
     silenceOptions?: SilenceDetectionOptions;
+    /** エンドロール区間の BGM フェード（composeTimelinePcm と同じ契約） */
+    endrollBgmFade?: { fadeStartSec: number } | null;
   },
 ): TimelineWaveformResult {
   const {
@@ -237,10 +265,11 @@ export function buildTimelineWaveform(
     silenceSource = 'narration',
     sampleRate = TIMELINE_WAVEFORM_SAMPLE_RATE,
     silenceOptions,
+    endrollBgmFade,
   } = options;
 
   const safeDuration = Number.isFinite(totalDuration) ? Math.max(0, totalDuration) : 0;
-  const mixedPcm = composeTimelinePcm(placements, safeDuration, sampleRate);
+  const mixedPcm = composeTimelinePcm(placements, safeDuration, sampleRate, endrollBgmFade);
   const peaks = computeWaveformPeaks(mixedPcm, bucketCount);
 
   const resolvedSource = resolveSilenceSource(placements, silenceSource);

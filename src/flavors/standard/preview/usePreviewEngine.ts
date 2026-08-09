@@ -5768,6 +5768,12 @@ export function usePreviewEngine({
             bgm: bgmRef.current,
             narrations: narrationsRef.current,
             totalDuration: totalDurationRef.current,
+            // エンドロール境界。BGM フェードと**ナレーションの打ち切り**の両方に使う。
+            // **プレビューと同じ値を渡すこと**。ここが漏れると「プレビューでは
+            // 消える/切れるのに書き出しでは鳴り続ける」という食い違いになる。
+            clipsDuration: clipsDurationRef?.current ?? totalDurationRef.current,
+            endrollBgmFadeOut: getEndrollDuration(endrollOverlayRef?.current) > 0
+              && endrollOverlayRef?.current?.bgmFadeOut === true,
             getPlaybackTimeSec: () => currentTimeRef.current,
             // 【Issue #215】実描画済みフレーム番号を返し、映像フレームの投入を描画実績へ同期させる。
             getRenderedVideoFrameIndex: () => exportRenderedFrameIndexRef.current,

@@ -472,4 +472,61 @@ describe('findAdjacentSilenceBoundary', () => {
     // exact では開始・終了の 2 点
     expect(collectSeekBoundaries(short, 10, 0.05, 'exact')).toEqual([0, 2.9, 3.1, 10]);
   });
+
+  /**
+   * エンドロール区間の BGM フェードを波形にも反映する。
+   * 反映しないと「徐々に消す設定なのに波形が細くならない」食い違いになる。
+   */
+  describe('エンドロール区間の BGM フェード', () => {
+    const bgmPlacement = () => ({
+      id: 'bgm-1',
+      kind: 'bgm' as const,
+      pcm: { samples: new Float32Array(RATE * 10).fill(1), sampleRate: RATE },
+      timelineStart: 0,
+      sourceStart: 0,
+      sourceEnd: 10,
+      volume: 1,
+    });
+
+    /** 指定秒あたりの振幅（絶対値）を取る */
+    const amplitudeAt = (mixed: { samples: ArrayLike<number> }, sec: number) =>
+      Math.abs(mixed.samples[Math.floor(sec * RATE)] ?? 0);
+
+    it('フェード指定なしなら従来どおり減衰しない', () => {
+      const mixed = composeTimelinePcm([bgmPlacement()], 10, RATE);
+      expect(amplitudeAt(mixed, 5)).toBeCloseTo(1, 3);
+      expect(amplitudeAt(mixed, 9.5)).toBeCloseTo(1, 3);
+    });
+
+    it('本編は等倍のまま、エンドロール区間だけ 0 へ向かって減衰する', () => {
+      // 本編 5 秒 + エンドロール 5 秒（fadeStart = 5、全長 10）
+      const mixed = composeTimelinePcm([bgmPlacement()], 10, RATE, { fadeStartSec: 5 });
+
+      // 本編中は減衰しない
+      expect(amplitudeAt(mixed, 2)).toBeCloseTo(1, 3);
+      expect(amplitudeAt(mixed, 5)).toBeCloseTo(1, 2);
+      // エンドロール区間は線形に落ちる
+      expect(amplitudeAt(mixed, 7.5)).toBeCloseTo(0.5, 1);
+      expect(amplitudeAt(mixed, 9.9)).toBeLessThan(0.1);
+    });
+
+    it('null / 範囲外の指定は無視する（設定解除・エンドロール削除時）', () => {
+      const off = composeTimelinePcm([bgmPlacement()], 10, RATE, null);
+      expect(amplitudeAt(off, 9.5)).toBeCloseTo(1, 3);
+
+      // fadeStart が全長以上（エンドロールが実質無い）
+      const outOfRange = composeTimelinePcm([bgmPlacement()], 10, RATE, { fadeStartSec: 10 });
+      expect(amplitudeAt(outOfRange, 9.5)).toBeCloseTo(1, 3);
+    });
+
+    it('ナレーションには掛からない（BGM だけが対象）', () => {
+      const narration = {
+        ...bgmPlacement(),
+        id: 'narration-1',
+        kind: 'narration' as const,
+      };
+      const mixed = composeTimelinePcm([narration], 10, RATE, { fadeStartSec: 5 });
+      expect(amplitudeAt(mixed, 9.5)).toBeCloseTo(1, 3);
+    });
+  });
 });

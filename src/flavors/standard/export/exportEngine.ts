@@ -826,6 +826,20 @@ async function offlineRenderAudio(
     return start;
   })();
 
+  /**
+   * ナレーションを打ち切る時刻（= clipsDuration）。エンドロールが無ければ null。
+   *
+   * BGM フェードのオプションとは独立。エンドロールが有効なら**常に**適用する
+   * （エンドロール区間ではナレーションを鳴らさないのが仕様）。
+   */
+  const endrollNarrationCutoff = (() => {
+    const clipsDuration = sources.clipsDuration;
+    if (!Number.isFinite(clipsDuration)) return null;
+    const cutoff = clipsDuration as number;
+    if (!(cutoff > 0) || cutoff >= totalDuration) return null;
+    return cutoff;
+  })();
+
   // Helper: BGM/ナレーションのスケジューリング
   async function scheduleAudioTrack(track: AudioTrack, label: string): Promise<void> {
     if (signal.aborted) return;
@@ -919,7 +933,16 @@ async function offlineRenderAudio(
     if (effective.isDisabled) return;
     const clipStart = effective.startTime;
     const trimStart = effective.trimStart;
-    const playDuration = effective.effectivePlayableDuration;
+    let playDuration = effective.effectivePlayableDuration;
+
+    // エンドロール区間ではナレーションを鳴らさない（プレビューと同一仕様）。
+    // 配置計算は totalDuration（エンドロール込み）基準なので、そのままだと
+    // エンドロールへ跨がったぶんが書き出しにだけ残る。ここで本編末尾で切る。
+    // BGM クリップは同じ経路を通るが、エンドロールでも鳴らし続けるため対象外。
+    if (endrollNarrationCutoff !== null && !isBgmClipId(clip.id)) {
+      if (clipStart >= endrollNarrationCutoff) return;
+      playDuration = Math.min(playDuration, endrollNarrationCutoff - clipStart);
+    }
     if (playDuration <= 0) return;
 
     const clipVol = Math.max(0, Math.min(2.5, clip.volume));

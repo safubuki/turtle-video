@@ -205,3 +205,50 @@ describe('resolveBgmEndrollFadeGain', () => {
     }
   });
 });
+
+/**
+ * 書き出し側の BGM フェードは、プレビューと**同じ区間・同じカーブ**でなければならない。
+ * 実装当初、書き出しへ clipsDuration / endrollBgmFadeOut を渡し忘れており
+ * 「プレビューでは消えるのに書き出したファイルでは消えない」状態だった。
+ * ここでは両者が同じ入力から同じ減衰を導くことを固定する。
+ */
+describe('プレビューと書き出しの BGM フェードが一致する', () => {
+  const endroll = normalizeEndrollOverlay({
+    enabled: true, url: 'blob:logo', durationSec: 5, bgmFadeOut: true,
+  });
+  const clipsDuration = 12;
+  const totalDuration = clipsDuration + 5;
+
+  /** 書き出し側のエンベロープ（linearRampToValueAtTime）を数式で再現 */
+  const exportGainAt = (timeSec: number) => {
+    if (timeSec <= clipsDuration) return 1;
+    if (timeSec >= totalDuration) return 0;
+    const span = totalDuration - clipsDuration;
+    return 1 - (timeSec - clipsDuration) / span;
+  };
+
+  it('同じ時刻で同じゲインになる', () => {
+    for (let t = 0; t <= totalDuration; t += 0.5) {
+      const preview = resolveBgmEndrollFadeGain({ endroll, clipsDuration, timeSec: t });
+      expect(preview).toBeCloseTo(exportGainAt(t), 6);
+    }
+  });
+
+  it('オプション OFF なら双方とも減衰しない', () => {
+    const off = normalizeEndrollOverlay({
+      enabled: true, url: 'blob:logo', durationSec: 5, bgmFadeOut: false,
+    });
+    for (const t of [0, 12, 14, 17]) {
+      expect(resolveBgmEndrollFadeGain({ endroll: off, clipsDuration, timeSec: t })).toBe(1);
+    }
+  });
+
+  it('エンドロールを削除（画像なし）したら減衰しない', () => {
+    const removed = normalizeEndrollOverlay({
+      enabled: true, url: null, durationSec: 5, bgmFadeOut: true,
+    });
+    for (const t of [0, 12, 14, 17]) {
+      expect(resolveBgmEndrollFadeGain({ endroll: removed, clipsDuration, timeSec: t })).toBe(1);
+    }
+  });
+});

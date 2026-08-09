@@ -3492,3 +3492,43 @@ export 終了（成功/失敗/中断）
 - **対策**: **全体を 1/100 秒へ量子化してから**分・秒・1/100 秒へ分解する（`totalCs = floor(round(seconds*1000)/10)`）。59.9999 → `1:00.00` と分へも正しく繰り上がる。
 - **注意**: 「端数を丸めてから桁を切り出す」順序が要点。剰余で先に分解すると必ず境界で溢れる。
 - **テスト**: `format.test.ts` に繰り上がりケースと「常に `m:ss.cc`」の形式検証を追加（旧実装で 2 件とも失敗することを確認済み）。
+
+### 13-184. エンドロール BGM フェードが書き出し・波形へ反映されない（渡し漏れ）
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/utils/timelineWaveform.ts`, `src/hooks/useTimelineWaveform.ts`
+- **問題**:
+  1. **書き出したファイルで BGM が消えない**。プレビューでは正しくフェードするのに、MP4 では音量そのまま。
+  2. プレビューの**音量波形が細くならない**（設定と見た目が食い違う）。
+- **原因**:
+  1. `usePreviewEngine` には export audio sources を組み立てる箇所が **2 か所**ある（プレビューキャッシュ生成用 と 本番の `startWebCodecsExport` 用）。13-176 で**前者にだけ** `clipsDuration` / `endrollBgmFadeOut` を渡しており、本番の書き出しには届いていなかった。export エンジン側のエンベロープ実装自体は正しかった。
+  2. 波形合成 `composeTimelinePcm()` はクリップ相対のフェードしか掛けておらず、エンドロール区間の減衰を知らなかった。
+- **対策**:
+  - 本番の `startWebCodecsExport` 呼び出しにも同じ 2 フィールドを渡す。
+  - `composeTimelinePcm` / `buildTimelineWaveform` に任意の `endrollBgmFade: { fadeStartSec }` を追加し、**BGM の placement にだけ**線形減衰を掛ける（ナレーション・動画音声は対象外）。`useTimelineWaveform` が overlayStore から算出して渡し、`placementSignature` にも含めて設定変更で作り直す。
+- **注意**:
+  - **export audio sources は 2 か所ある**。エクスポートに関わるフィールドを足したら両方へ渡すこと（片方だけだと「プレビューでは効くのに書き出しでは効かない」になる）。
+  - 波形は BGM だけが対象。`placement.kind === 'bgm'` で判定する。
+  - OFF・エンドロール削除（画像なし）・範囲外の `fadeStartSec` はいずれも無効化され、従来どおりの波形・音声に戻る。
+- **テスト**: `endrollOverlay.test.ts` の「プレビューと書き出しの BGM フェードが一致する」で両者のカーブが同一であること・OFF/削除時に減衰しないことを固定。`timelineWaveform.test.ts` の「エンドロール区間の BGM フェード」で波形の減衰・ナレーション非対象・無効時の不変を固定。
+
+### 13-185. エンドロール区間のナレーション打ち切りを書き出しにも入れる
+
+- **ファイル**: `src/flavors/standard/export/exportEngine.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/endrollBgmAutoAdjust.test.ts`(新規)
+- **仕様（確定）**: エンドロール区間では **BGM は流し続け、ナレーションは鳴らさない**。
+  ナレーションを被せるオプションは**作らない**（実運用でエンドロール中に語りを入れる場面がほぼ無いため）。
+- **問題**: 13-176 でプレビューの描画ループにだけ抑止を入れており、**書き出しには入っていなかった**。
+  配置計算 `resolvePipelineClipEffectivePlayback` は totalDuration（エンドロール込み）基準なので、
+  ナレーションはエンドロールへ跨がって配置される。結果「プレビューでは切れるのに書き出しでは鳴る」。
+- **対策**: export 側に `endrollNarrationCutoff`（= clipsDuration）を追加し、
+  ナレーションの `playDuration` を本編末尾でクランプする。開始が cutoff 以降なら丸ごとスキップ。
+  BGM クリップは同じ経路を通るため `isBgmClipId()` で対象外にする。
+- **BGM 自動調整との関係（確認済み・正常）**: 末尾合わせの基準は `totalDuration`。
+  自動調整 ON なら BGM はエンドロール終端まで伸び、音源が足りなければそこで終わる。
+  複数 BGM では末尾クリップだけが対象。OFF なら設定どおり（エンドロールでは鳴らない）。
+- **注意**:
+  - `clipsDuration` は BGM フェードのオプションとは独立に**常に**渡すこと。
+    ナレーション打ち切りはフェード OFF でも必要。
+  - エンドロール関連で「片側だけ実装」が繰り返し起きている（13-184 の BGM フェードも同型）。
+    プレビューへ入れたら**必ず export にも同じ抑止／エンベロープを入れる**。
+- **テスト**: `endrollBgmAutoAdjust.test.ts`。BGM 自動調整 5 件（延長・音源不足・OFF・エンドロール無効・複数BGM）と、
+  ナレーション打ち切り 4 件（跨がりを本編末尾で切る・エンドロール開始後は鳴らさない・本編内は不変・エンドロール無効時は不変）。

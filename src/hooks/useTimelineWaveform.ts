@@ -19,6 +19,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MediaItem, NarrationClip } from '../types';
 import { computeTransitionTimelineRanges } from '../utils/transitionTimeline';
+import { getEndrollDuration } from '../utils/endrollOverlay';
 import { mixToMono } from '../utils/audioWaveform';
 import {
   buildTimelineWaveform,
@@ -28,6 +29,7 @@ import {
   type TimelineSilenceRegion,
 } from '../utils/timelineWaveform';
 import { resolvePipelineClipEffectivePlayback, isBgmClipId } from '../stores/audioStore';
+import { useOverlayStore } from '../stores/overlayStore';
 import { useLogStore } from '../stores/logStore';
 
 export type TimelineWaveformStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -269,6 +271,20 @@ export function useTimelineWaveform(
   // 再生成が走っている間も直前の波形を出し続けるための保持（チラつき防止）。
   const lastReadyRef = useRef<TimelineWaveformData | null>(null);
 
+  /**
+   * エンドロール区間の BGM フェード。波形にも同じ減衰を反映させる
+   * （設定したのに波形が細くならない、という食い違いを防ぐ）。
+   * 無効・OFF なら null で従来どおり。
+   */
+  const endroll = useOverlayStore((state) => state.endroll);
+  const endrollBgmFade = useMemo(() => {
+    const endrollDuration = getEndrollDuration(endroll);
+    if (endrollDuration <= 0 || !endroll.bgmFadeOut) return null;
+    const fadeStartSec = totalDuration - endrollDuration;
+    if (!(fadeStartSec >= 0)) return null;
+    return { fadeStartSec };
+  }, [endroll, totalDuration]);
+
   /** 音声を持ちうる動画クリップだけを、タイムライン配置とともに取り出す。 */
   const videoSources = useMemo(() => {
     // トランジションのオーバーラップを考慮した配置（プレビュー本体と同じ規約）
@@ -308,8 +324,10 @@ export function useTimelineWaveform(
       item.fadeOut ? item.fadeOutDuration : 0,
     ].join('|'));
 
-    return `${totalDuration.toFixed(3)}::${silenceSource}::${audioParts.join('##')}::${videoParts.join('##')}`;
-  }, [clips, videoSources, totalDuration, silenceSource]);
+    // エンドロールのフェード設定もキーに含める（変えたら波形を作り直す）
+    const endrollKey = endrollBgmFade ? `endroll:${endrollBgmFade.fadeStartSec.toFixed(3)}` : 'endroll:off';
+    return `${totalDuration.toFixed(3)}::${silenceSource}::${endrollKey}::${audioParts.join('##')}::${videoParts.join('##')}`;
+  }, [clips, videoSources, totalDuration, silenceSource, endrollBgmFade]);
 
   useEffect(() => {
     let cancelled = false;
@@ -404,6 +422,7 @@ export function useTimelineWaveform(
           const result = buildTimelineWaveform(placements, totalDuration, {
             bucketCount: TIMELINE_BUCKET_COUNT,
             silenceSource,
+            endrollBgmFade,
           });
           if (cancelled) return;
 
