@@ -51,6 +51,11 @@ import {
   resolveVideoEncoderConfig,
   buildBaselineVideoEncoderConfig,
 } from '../../../utils/videoEncoderConfig';
+import {
+  closeWebCodecsEncoderSafely,
+  releaseOwnedWebCodecsEncoders,
+  type OwnedWebCodecsEncoders,
+} from '../../../utils/webCodecsEncoderLifecycle';
 import type {
   ExportAudioSources,
   ExportCancelReason,
@@ -1321,6 +1326,9 @@ export function createUseExport(config: UseExportRuntimeConfig) {
     // 成功・中断・失敗・unmount のいずれの終了経路でも必ず stop してプレビューへ残さない。
     // ref に保持することで、値を宣言した内側スコープ外（stopExport / 終端 finally）からも解放できる。
     const canvasCaptureStreamRef = useRef<MediaStream | null>(null);
+    // WebCodecs encoder は codec system resources と output callback（muxer を参照）を保持する。
+    // GC 任せにすると完了済みセッションが次回 export と競合し得るため、全終了経路で明示解放する。
+    const activeWebCodecsEncodersRef = useRef<OwnedWebCodecsEncoders | null>(null);
     const completionRequestedRef = useRef(false);
     const silentAbortRef = useRef(false);
     const finalizeRequestedRef = useRef(false);
@@ -1341,6 +1349,31 @@ export function createUseExport(config: UseExportRuntimeConfig) {
       canvasCaptureStreamRef.current = null;
       stopCanvasCaptureStream(stream);
     }, []);
+
+    const releaseWebCodecsEncoders = useCallback(
+      (
+        reason: 'stop-request' | 'stale-before-create' | 'session-finally',
+        expectedSessionId?: string
+      ) => {
+        const result = releaseOwnedWebCodecsEncoders(
+          activeWebCodecsEncodersRef.current,
+          expectedSessionId
+        );
+        if (result.status !== 'released') return;
+
+        // close 中の再入や別 cleanup から同じ encoder を触らないよう、ref も同じ同期処理で空にする。
+        activeWebCodecsEncodersRef.current = result.active;
+        useLogStore.getState().info('RENDER', '[DIAG-ENCODER-LIFECYCLE] WebCodecs encoderを解放', {
+          exportSessionId: result.exportSessionId,
+          reason,
+          videoCloseStatus: result.videoResult.status,
+          audioCloseStatus: result.audioResult.status,
+          videoCloseError: result.videoResult.status === 'failed' ? result.videoResult.error : null,
+          audioCloseError: result.audioResult.status === 'failed' ? result.audioResult.error : null,
+        });
+      },
+      []
+    );
 
     const updatePreparationStep = useCallback(
       (audioSources: ExportAudioSources | undefined, step: ExportPreparationStep) => {
@@ -1409,11 +1442,14 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           audioReaderRef.current.cancel().catch(() => {});
           audioReaderRef.current = null;
         }
+        // abort 後に codec を即時解放し、停止した export の hardware/software encoder を
+        // 次回 export へ持ち越さない。後続 finally から再度呼ばれても冪等。
+        releaseWebCodecsEncoders('stop-request');
         // 中断時は Canvas キャプチャトラックを即時停止し、共有プレビュー Canvas への残留を防ぐ。
         releaseCanvasCaptureStream();
         setIsProcessing(false);
       },
-      [exportUrl, releaseCanvasCaptureStream]
+      [exportUrl, releaseCanvasCaptureStream, releaseWebCodecsEncoders]
     );
 
     // 正常終了要求（abortではなく、読み取りループを自然終了させる）
@@ -2093,6 +2129,9 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           let videoEncoderOutputFrames = 0;
           let muxedAudioEndUs = 0;
           let finalAudioInputSamples = 0;
+          // 正常なら前セッションの finally で空だが、ブラウザイベント順の例外で残っていても
+          // 新しい codec セッションを作る前に必ず解放する。
+          releaseWebCodecsEncoders('stale-before-create');
           const videoEncoder = new VideoEncoder({
             output: (chunk, meta) => {
               muxer.addVideoChunk(chunk, meta);
@@ -2111,6 +2150,11 @@ export function createUseExport(config: UseExportRuntimeConfig) {
               console.error('VideoEncoder error:', e);
             },
           });
+          activeWebCodecsEncodersRef.current = {
+            exportSessionId,
+            videoEncoder,
+            audioEncoder: null,
+          };
           // エンコーダ設定は「対応していれば軽い方を使う」方式で決める。
           // prefer-hardware が通れば H.264 圧縮が専用エンコーダに載り CPU 負荷が下がる。
           // 未対応環境では現行と同一の baseline へ落ちるため挙動は変わらない。
@@ -2269,6 +2313,14 @@ export function createUseExport(config: UseExportRuntimeConfig) {
               console.error('AudioEncoder error:', e);
             },
           });
+          const activeEncoders = activeWebCodecsEncodersRef.current;
+          if (activeEncoders?.exportSessionId === exportSessionId) {
+            activeEncoders.audioEncoder = audioEncoder;
+          } else {
+            // setup 中に stop/supersede された場合は、新たに作った AudioEncoder も残さない。
+            closeWebCodecsEncoderSafely(audioEncoder);
+            throw new DOMException('Aborted', 'AbortError');
+          }
           const audioEncoderConfig = {
             codec: 'mp4a.40.2' as const, // AAC-LC
             sampleRate: audioContext.sampleRate,
@@ -3771,7 +3823,9 @@ export function createUseExport(config: UseExportRuntimeConfig) {
               /* ignore */
             }
           }
-          // リソース解放などはGCに任せるが、明示的なcloseも可
+          // flush/finalize の成否にかかわらず codec system resources と muxer callback を解放する。
+          // exportSessionId を照合し、古い finally が新セッションを閉じる競合を防ぐ。
+          releaseWebCodecsEncoders('session-finally', exportSessionId);
           // controllerはstopExportでabort済み
           // ReaderのキャンセルもstopExportで実施済み
           abortControllerRef.current = null;
@@ -3799,7 +3853,13 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           }
         }
       },
-      [completeExport, releaseCanvasCaptureStream, stopExport, updatePreparationStep]
+      [
+        completeExport,
+        releaseCanvasCaptureStream,
+        releaseWebCodecsEncoders,
+        stopExport,
+        updatePreparationStep,
+      ]
     );
 
     // エクスポートURLクリア

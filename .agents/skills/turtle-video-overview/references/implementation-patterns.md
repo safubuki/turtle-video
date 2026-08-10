@@ -3672,3 +3672,25 @@ export 終了（成功/失敗/中断）
   - 速度改善を理由に動画export全体のフレーム駆動化、毎フレームseek、次動画常時prefetch、1tickクランプを再導入しない。
   - queue 30/90、bitrate、CFR timestamp、動画と時計を同時停止する13-153の安全弁を弱めない。
   - `realtime` は低遅延優先のヒントなので、実機再検証では処理時間だけでなく `outputGap=0`、冒頭・境界・全体の滑らかさ、後半黒画面なしを同時に確認する。
+
+### 13-192. standard export の WebCodecs encoder は全終了経路で明示解放し、次回 export へ持ち越さない
+
+- **ファイル**: `src/utils/webCodecsEncoderLifecycle.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/test/webCodecsEncoderLifecycle.test.ts`
+- **対象 flavor**: **standard（Android / PC）のみ**。apple-safari runtime、動画タイムライン、native 1x 連続再生、backpressure の queue 30/90、bitrate、CFR timestamp は変更しない。
+- **2回目以降の実機ログで確認した問題（2026-08-10 / Windows 11 / Edge 151 / HD 30fps）**:
+  - 13-191 適用後も、84.36秒・2531フレームの2回目以降のexportで backpressure 待機が18回、合計54.65秒、最大3.63秒発生し、映像処理全体は139.76秒だった。`prefer-hardware + realtime` の交渉は成功し、`outputGap=0` でも、周期停止は十分には解消していなかった。
+  - 通常の standard export は `VideoEncoder` / `AudioEncoder` を生成して flush していたが、成功・失敗・中断のいずれでも `close()` せず、終端 `finally` には「GCに任せる」と記載されていた。キャプション専用 offline encode は既に明示 close しており、通常経路だけ寿命管理が欠けていた。
+  - 未close encoder は codec system resources を次回開始まで保持し得る。さらに encoder の output callback が muxer と完成出力バッファを参照するため、前回セッションが回収されるまで次回の encoder と資源競合する。ブラウザ再読込後の初回は良いが、同一画面の2回目以降で悪化する再現条件と一致する。
+- **対策**:
+  - active な video/audio encoder と所有 `exportSessionId` を ref へ保持し、成功・失敗・中断の全経路から `closeWebCodecsEncoderSafely()` で明示解放する。
+  - user cancel / supersede / unmount 系は abort 後に即時 close する。終端 `finally` でも必ず close し、呼び出しは冪等にする。
+  - 古いセッションの遅延 `finally` が新しいセッションを閉じないよう、`session-finally` では `exportSessionId` の所有権が一致する場合だけ解放する。新規 encoder 作成前に残留があれば防御的に解放する。
+  - `[DIAG-ENCODER-LIFECYCLE] WebCodecs encoderを解放` に reason と video/audio の close status を記録する。正常完了では `reason='session-finally'`、両方 `closed`（既にブラウザ側で閉じていれば `already-closed`）を期待する。
+- **添付MP4の判定**:
+  - 映像2531フレーム・音声3955チャンク、映像84.359392秒・音声84.359396秒で A/V 尺は一致し、ログも `outputGap=0`、末尾補完0、backpressure drop 0。backpressure の18停止時刻と、フレーム解析で見つかった静止区間は大半が一致せず、周期停止がそのまま出力MP4へ焼き込まれた証拠はない。
+  - 41〜44秒台の静止検出は1〜1.5秒の短尺セグメント境界群、80〜82秒台の同一フレーム列は終盤素材内に集中している。出力全体の周期停止とは区別して扱う。
+- **守る不変条件**:
+  - 再実行速度改善を理由に、動画export全体のフレーム駆動化、毎フレームseek、次動画常時prefetch、1tickクランプを再導入しない。
+  - close は必ず flush/finalize の完了後、または abort 後に行う。正常処理中の encoder を先に閉じて出力チャンクを欠落させない。
+  - 実機再検証は同じプロジェクトを**画面再読込なしで最低3回連続export**し、各回の `[DIAG-ENCODER-PRESSURE]`、`[DIAG-ENCODER-LIFECYCLE]`、`[DIAG-7b] outputGap`、MP4のA/V尺、冒頭・境界・後半の滑らかさを比較する。
+- **自動回帰**: lifecycle 7ケースを含む `npm run test:run` 1331件、`npm run typecheck`、`npm run build` が成功。lint は既存の `src/utils/narrationDelivery.ts` の `no-useless-escape` 2件で失敗し、今回差分の新規エラーはない。
