@@ -41,6 +41,12 @@ Docs は分類ごとに次のフォルダへ整理する。
 - `preview-blackout-fix-v1.4.0.md`
 - `preview-pause-fix-v1.4.1.md`
 
+## release
+
+バージョンごとのリリースノート。
+
+- `v6.0.0.md`
+
 ## handovers
 
 引き継ぎメモ。
