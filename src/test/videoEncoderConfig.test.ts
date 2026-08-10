@@ -19,7 +19,7 @@ const PARAMS = {
 
 /** テスト用に globalThis.VideoEncoder を差し替える */
 const stubVideoEncoder = (
-  isConfigSupported: ((config: VideoEncoderConfig) => Promise<VideoEncoderSupport>) | null,
+  isConfigSupported: ((config: VideoEncoderConfig) => Promise<VideoEncoderSupport>) | null
 ) => {
   const stub = isConfigSupported ? { isConfigSupported } : {};
   (globalThis as unknown as { VideoEncoder: unknown }).VideoEncoder = stub;
@@ -50,29 +50,33 @@ describe('buildVideoEncoderConfigCandidates', () => {
   it('軽い候補から順に並び、最後は必ず baseline になる', () => {
     const candidates = buildVideoEncoderConfigCandidates(PARAMS);
     expect(candidates.map((c) => c.variant)).toEqual([
+      'prefer-hardware-realtime',
+      'no-preference-realtime',
       'prefer-hardware',
       'no-preference',
       'baseline',
     ]);
     expect(candidates[candidates.length - 1].config).toEqual(
-      buildBaselineVideoEncoderConfig(PARAMS),
+      buildBaselineVideoEncoderConfig(PARAMS)
     );
   });
 
-  it('先頭候補は GPU 優先 + AVCC 形式を要求する', () => {
+  it('先頭候補は GPU 優先 + realtime + AVCC 形式を要求する', () => {
     const [first] = buildVideoEncoderConfigCandidates(PARAMS);
     expect(first.config.hardwareAcceleration).toBe('prefer-hardware');
+    expect(first.config.latencyMode).toBe('realtime');
     expect(first.config.avc).toEqual({ format: 'avc' });
   });
 
-  // 【回帰防止・最重要】latencyMode:'quality' はエンコーダ内部バッファリングを許し、
-  // encodeQueueSize が実消化を反映しなくなる恐れがある。backpressure（13-153）は
-  // encodeQueueSize を唯一のトリガーにしているため、検知遅れ =「後半が黒」の再発条件。
-  // 13-116 も「output callback 完了待ちは H.264 内部バッファリングで停止し得る」と警告済み。
-  it('どの候補でも latencyMode を指定しない（backpressure 検知の信頼性を守る）', () => {
-    for (const { config } of buildVideoEncoderConfigCandidates(PARAMS)) {
-      expect(config.latencyMode).toBeUndefined();
-    }
+  // 【回帰防止・最重要】WebCodecs の latencyMode 既定値は quality。
+  // quality を明示せず、対応環境では realtime を使い、非対応時だけ従来候補へ戻す。
+  it('realtime 候補を先に試し、quality はどの候補にも明示しない', () => {
+    const candidates = buildVideoEncoderConfigCandidates(PARAMS);
+    expect(candidates.slice(0, 2).every(({ config }) => config.latencyMode === 'realtime')).toBe(
+      true
+    );
+    expect(candidates.every(({ config }) => config.latencyMode !== 'quality')).toBe(true);
+    expect(candidates.slice(2).every(({ config }) => config.latencyMode === undefined)).toBe(true);
   });
 
   it('解像度・ビットレートは全候補で共通に保たれる', () => {
@@ -87,24 +91,51 @@ describe('buildVideoEncoderConfigCandidates', () => {
 });
 
 describe('resolveVideoEncoderConfig', () => {
-  it('prefer-hardware が通ればそれを採用する', async () => {
+  it('prefer-hardware-realtime が通ればそれを採用する', async () => {
     stubVideoEncoder(async (config) => ({ supported: true, config }));
 
     const resolved = await resolveVideoEncoderConfig(PARAMS);
-    expect(resolved.variant).toBe('prefer-hardware');
+    expect(resolved.variant).toBe('prefer-hardware-realtime');
     expect(resolved.negotiated).toBe(true);
     expect(resolved.config.hardwareAcceleration).toBe('prefer-hardware');
+    expect(resolved.config.latencyMode).toBe('realtime');
   });
 
-  it('HW 非対応なら次の候補へ落ちる', async () => {
+  it('HW 指定との realtime 組み合わせが非対応なら no-preference-realtime へ落ちる', async () => {
     stubVideoEncoder(async (config) => ({
       supported: config.hardwareAcceleration !== 'prefer-hardware',
       config,
     }));
 
     const resolved = await resolveVideoEncoderConfig(PARAMS);
-    expect(resolved.variant).toBe('no-preference');
+    expect(resolved.variant).toBe('no-preference-realtime');
     expect(resolved.negotiated).toBe(true);
+    expect(resolved.config.latencyMode).toBe('realtime');
+  });
+
+  it('realtime 非対応でも従来の prefer-hardware 候補を維持する', async () => {
+    stubVideoEncoder(async (config) => ({
+      supported:
+        config.hardwareAcceleration === 'prefer-hardware' && config.latencyMode === undefined,
+      config,
+    }));
+
+    const resolved = await resolveVideoEncoderConfig(PARAMS);
+    expect(resolved.variant).toBe('prefer-hardware');
+    expect(resolved.negotiated).toBe(true);
+    expect(resolved.config.latencyMode).toBeUndefined();
+  });
+
+  it('realtime が quality へ正規化された場合は realtime 成功と誤認しない', async () => {
+    stubVideoEncoder(async (config) => ({
+      supported: true,
+      config: config.latencyMode === 'realtime' ? { ...config, latencyMode: 'quality' } : config,
+    }));
+
+    const resolved = await resolveVideoEncoderConfig(PARAMS);
+    expect(resolved.variant).toBe('prefer-hardware');
+    expect(resolved.negotiated).toBe(true);
+    expect(resolved.config.latencyMode).toBeUndefined();
   });
 
   it('どれも通らなければ baseline（現行と同一）を返す', async () => {
@@ -144,7 +175,7 @@ describe('resolveVideoEncoderConfig', () => {
     expect(resolved.config).toEqual(buildBaselineVideoEncoderConfig(PARAMS));
   });
 
-  it('ブラウザが正規化した config を返す場合はそれを優先する', async () => {
+  it('ブラウザが正規化した config を優先しつつ候補の明示値を維持する', async () => {
     const normalized: VideoEncoderConfig = {
       ...buildBaselineVideoEncoderConfig(PARAMS),
       hardwareAcceleration: 'prefer-hardware',
@@ -153,6 +184,23 @@ describe('resolveVideoEncoderConfig', () => {
     stubVideoEncoder(async () => ({ supported: true, config: normalized }));
 
     const resolved = await resolveVideoEncoderConfig(PARAMS);
-    expect(resolved.config).toEqual(normalized);
+    expect(resolved.config).toEqual({
+      ...normalized,
+      latencyMode: 'realtime',
+      avc: { format: 'avc' },
+    });
+  });
+
+  it('ブラウザ正規化で省略された realtime を候補から維持する', async () => {
+    const normalized: VideoEncoderConfig = {
+      ...buildBaselineVideoEncoderConfig(PARAMS),
+      hardwareAcceleration: 'prefer-hardware',
+      codec: 'avc1.4d002a',
+    };
+    stubVideoEncoder(async () => ({ supported: true, config: normalized }));
+
+    const resolved = await resolveVideoEncoderConfig(PARAMS);
+    expect(resolved.variant).toBe('prefer-hardware-realtime');
+    expect(resolved.config.latencyMode).toBe('realtime');
   });
 });

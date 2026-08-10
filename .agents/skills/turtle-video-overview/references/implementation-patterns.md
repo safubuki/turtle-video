@@ -3653,3 +3653,22 @@ export 終了（成功/失敗/中断）
   - 逆に hold 系の抑止を外すと、Android のブラックアウト（13-x の hold 対策）や export 直後の黒点滅が再発するため、`shouldClearPreviewCanvas()` の早期 return 順序を変えない。
   - apple-safari には Android / post-export の hold 抑止が無いため、該当引数は `false` 固定で渡す。フレーバー固有の抑止条件を共通関数側へ持ち込まない。
   - 自動回帰は `previewCanvasClear.test.ts`（13ケース）で固定。前フレーム保持の各ケースと、終端ガード下でもクリアされることの両方を検証している。
+
+### 13-191. standard export は `latencyMode=realtime` を明示し、VideoEncoder の周期的な処理待ちを減らす
+
+- **ファイル**: `src/utils/videoEncoderConfig.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/test/videoEncoderConfig.test.ts`
+- **対象 flavor**: **standard（Android / PC）のみ**。apple-safari runtime、壁時計 dilation、native 1x 連続再生、backpressure pause/resume、queue 上限、bitrate は変更しない。
+- **実機ログで確認した問題（2026-08-10 / Windows 11 / Edge 151 / HD 30fps）**:
+  - 84.36秒・2531フレームのexportで、`encodeQueueSize` が90へ達して30までdrainする停止が20回発生した。停止は合計58.07秒（平均2.90秒、最大3.59秒）で、映像処理全体は143.84秒だった。
+  - Canvas描画は平均1.43ms、`VideoEncoder.encode()` 呼び出しは平均0.02ms、rAFは平均16.83msであり、メインスレッド描画ではなく**非同期VideoEncoder処理**がボトルネックだった。
+  - `prefer-hardware` は交渉成功していたが `latencyMode` は未指定だった。WebCodecs仕様の既定値は `quality` であり、従来コメントの「未指定=realtime相当」は誤りだった。
+- **対策**:
+  - 設定候補を `prefer-hardware + realtime` → `no-preference + realtime` → 従来の `prefer-hardware` → 従来の `no-preference` → baseline の順に交渉する。
+  - `realtime` が未対応でも従来候補を残す。`isConfigSupported()` の正規化結果が明示値を省略しても、候補へマージして `realtime` / AVCC 指定を失わない。
+  - 採用した `latencyMode` を設定ログへ追加する。backpressure停止回数・合計/最大停止時間を `[DIAG-ENCODER-PRESSURE]` へ記録し、同期APIの処理時間だけを見て「healthy」と誤診しない。
+  - flush後に投入フレーム数と出力チャンク数を比較し、`realtime` 実装がフレームを落とした場合は `[DIAG-7b] VideoEncoder 出力フレーム欠落を検出` を残す。
+- **守る不変条件**:
+  - `latencyMode:'quality'` を明示しない。**未指定も仕様上はquality**なので、低遅延を意図する候補では必ず `realtime` を明示する。
+  - 速度改善を理由に動画export全体のフレーム駆動化、毎フレームseek、次動画常時prefetch、1tickクランプを再導入しない。
+  - queue 30/90、bitrate、CFR timestamp、動画と時計を同時停止する13-153の安全弁を弱めない。
+  - `realtime` は低遅延優先のヒントなので、実機再検証では処理時間だけでなく `outputGap=0`、冒頭・境界・全体の滑らかさ、後半黒画面なしを同時に確認する。

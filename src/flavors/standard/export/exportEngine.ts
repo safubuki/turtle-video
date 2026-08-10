@@ -971,9 +971,9 @@ async function offlineRenderAudio(
     // エンドロール区間の BGM フェードアウト（BGM クリップのみ・ナレーションは対象外）。
     // プレビューの resolveBgmEndrollFadeGain と同じ区間・同じ線形カーブで揃える。
     if (
-      endrollBgmFadeStart !== null
-      && isBgmClipId(clip.id)
-      && clipStart + playDuration > endrollBgmFadeStart
+      endrollBgmFadeStart !== null &&
+      isBgmClipId(clip.id) &&
+      clipStart + playDuration > endrollBgmFadeStart
     ) {
       const fadeStart = Math.max(clipStart, endrollBgmFadeStart);
       gain.gain.setValueAtTime(clipVol, fadeStart);
@@ -2115,8 +2115,9 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           // prefer-hardware が通れば H.264 圧縮が専用エンコーダに載り CPU 負荷が下がる。
           // 未対応環境では現行と同一の baseline へ落ちるため挙動は変わらない。
           // ※フレーム供給の駆動方式（壁時計 dilation / backpressure）には触れない。
-          // ※latencyMode は指定しない。内部バッファリングは encodeQueueSize の
-          //   信頼性を損ない backpressure 検知を遅らせるため（13-169 / 13-116）。
+          // ※WebCodecs 仕様の latencyMode 既定値は quality。対応環境では realtime を
+          //   明示して 30fps を出力期限として扱わせ、内部滞留を抑える。未対応時は
+          //   従来候補へ段階フォールバックする（13-169 / 13-116）。
           const resolvedEncoderConfig = await resolveVideoEncoderConfig({
             width,
             height,
@@ -2128,6 +2129,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             variant: resolvedEncoderConfig.variant,
             negotiated: resolvedEncoderConfig.negotiated,
             hardwareAcceleration: resolvedEncoderConfig.config.hardwareAcceleration ?? 'unset',
+            latencyMode: resolvedEncoderConfig.config.latencyMode ?? 'quality-default',
           });
           try {
             videoEncoder.configure(resolvedEncoderConfig.config);
@@ -2144,7 +2146,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                 height,
                 bitrate: exportVideoBitrate,
                 framerate: FPS,
-              }),
+              })
             );
           }
           const noteVideoFrameSubmitted = () => {
@@ -2659,6 +2661,10 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             audioSources?.mediaItems.some((item) => item.type === 'video') ?? false;
           let isVideoBackpressurePaused = false;
           let backpressureDroppedFrames = 0;
+          let backpressurePauseCount = 0;
+          let backpressureTotalPausedMs = 0;
+          let backpressureMaxPausedMs = 0;
+          let backpressurePauseStartedAtMs: number | null = null;
           let lastBackpressureLogAtMs = 0;
           // 【#215 再発調査】完了要求後に「描かずに」複製して尺を埋めた枚数。
           // 後半が静止する症状はここが大きくなる。
@@ -2694,7 +2700,17 @@ export function createUseExport(config: UseExportRuntimeConfig) {
 
           const setVideoBackpressurePaused = (paused: boolean) => {
             if (!hasTimelineVideo || isVideoBackpressurePaused === paused) return;
+            const pressureNowMs = performance.now();
             isVideoBackpressurePaused = paused;
+            if (paused) {
+              backpressurePauseCount += 1;
+              backpressurePauseStartedAtMs = pressureNowMs;
+            } else if (backpressurePauseStartedAtMs !== null) {
+              const pausedDurationMs = Math.max(0, pressureNowMs - backpressurePauseStartedAtMs);
+              backpressureTotalPausedMs += pausedDurationMs;
+              backpressureMaxPausedMs = Math.max(backpressureMaxPausedMs, pausedDurationMs);
+              backpressurePauseStartedAtMs = null;
+            }
             try {
               audioSources?.onVideoEncoderBackpressureChange?.(paused);
             } catch (error) {
@@ -3202,6 +3218,28 @@ export function createUseExport(config: UseExportRuntimeConfig) {
 
           updatePreparationStep(audioSources, 10);
 
+          const encoderPressurePayload = {
+            exportSessionId,
+            pauseCount: backpressurePauseCount,
+            totalPausedMs: Math.round(backpressureTotalPausedMs),
+            maxPausedMs: Math.round(backpressureMaxPausedMs),
+            highWaterMark: VIDEO_ENCODE_QUEUE_HARD_LIMIT,
+            lowWaterMark: VIDEO_ENCODE_QUEUE_SOFT_LIMIT,
+            encoderConfigVariant: resolvedEncoderConfig.variant,
+            latencyMode: resolvedEncoderConfig.config.latencyMode ?? 'quality-default',
+          };
+          if (backpressurePauseCount > 0) {
+            useLogStore
+              .getState()
+              .warn(
+                'RENDER',
+                '[DIAG-ENCODER-PRESSURE] VideoEncoder 処理待ちを検出',
+                encoderPressurePayload
+              );
+          } else {
+            logInfo('[DIAG-ENCODER-PRESSURE] VideoEncoder 処理待ちなし', encoderPressurePayload);
+          }
+
           // ============================================================
           // [DIAG-215] フレーム収支の診断（映像が止まる症状の原因切り分け）
           // ------------------------------------------------------------
@@ -3340,7 +3378,30 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             offlineAudioDone,
           });
           await videoEncoder.flush();
-          useLogStore.getState().info('RENDER', '[DIAG-7b] VideoEncoder flush 完了');
+          const videoEncoderOutputGap = Math.max(
+            0,
+            videoEncoderSubmittedFrames - videoEncoderOutputFrames
+          );
+          const videoEncoderFlushPayload = {
+            submittedFrames: videoEncoderSubmittedFrames,
+            outputFrames: videoEncoderOutputFrames,
+            outputGap: videoEncoderOutputGap,
+            encoderConfigVariant: resolvedEncoderConfig.variant,
+            latencyMode: resolvedEncoderConfig.config.latencyMode ?? 'quality-default',
+          };
+          if (videoEncoderOutputGap > 0) {
+            useLogStore
+              .getState()
+              .warn(
+                'RENDER',
+                '[DIAG-7b] VideoEncoder 出力フレーム欠落を検出',
+                videoEncoderFlushPayload
+              );
+          } else {
+            useLogStore
+              .getState()
+              .info('RENDER', '[DIAG-7b] VideoEncoder flush 完了', videoEncoderFlushPayload);
+          }
           try {
             await audioEncoder.flush();
             useLogStore.getState().info('RENDER', '[DIAG-7c] AudioEncoder flush 完了', {

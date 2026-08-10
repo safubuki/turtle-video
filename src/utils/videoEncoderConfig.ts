@@ -12,6 +12,7 @@
  *
  * 効きどころ:
  * - `hardwareAcceleration: 'prefer-hardware'` … GPU/専用エンコーダを優先し CPU 負荷を下げる
+ * - `latencyMode: 'realtime'` … 目標 fps を出力期限として扱い、長い内部滞留を避ける
  * - `avc: { format: 'avc' }` … mp4-muxer が期待する AVCC 形式を明示する
  *
  * いずれも「対応していれば使う」方式で、`VideoEncoder.isConfigSupported()` の
@@ -28,20 +29,28 @@
  * - 13-116 は「`output` callback 完了待ちは **H.264 の内部バッファリングで停止し得る**ため使わない」
  *   と明示している。内部バッファリングは既にこのプロジェクトで危険と判断された挙動。
  *
- * `latencyMode: 'quality'` はエンコーダに出力を溜め込む自由を与えるため、
+ * WebCodecs 仕様では `latencyMode` の既定値は `quality` である。
+ * したがって「未指定 = realtime 相当」ではなく、未指定候補も品質優先として扱う必要がある。
+ * `quality` はエンコーダに出力を溜め込む自由を与えるため、
  * `encodeQueueSize` が実際の消化状況を正しく表さなくなる恐れがある。
  * それは backpressure の検知遅れ = 「映像内容だけが遅れて後半が黒」という
  * 過去に実機で発生した最悪の症状の再発条件そのものになる。
  *
  * リカバリ性はユーザーが最も評価している点であり、速度と引き換えにしない。
- * 既定（realtime 相当）のままにして、`encodeQueueSize` の信頼性を守る。
+ * 明示的な `realtime` 候補を最優先し、未対応環境だけ従来の未指定候補へ段階的に戻す。
+ * 駆動方式・queue 上限・bitrate は変えず、`encodeQueueSize` による既存の安全弁も維持する。
  */
 
 /** エンコーダ設定の選定結果（診断ログ用に理由を持つ） */
 export interface ResolvedVideoEncoderConfig {
   config: VideoEncoderConfig;
   /** 実際に採用した候補の名前（ログ用） */
-  variant: 'prefer-hardware' | 'no-preference' | 'baseline';
+  variant:
+    | 'prefer-hardware-realtime'
+    | 'no-preference-realtime'
+    | 'prefer-hardware'
+    | 'no-preference'
+    | 'baseline';
   /** isConfigSupported で候補を絞れたか。false ならフォールバック採用 */
   negotiated: boolean;
 }
@@ -57,7 +66,7 @@ export interface BuildVideoEncoderConfigParams {
 
 /** 現行実装と完全に同じ最小構成。フォールバック先であり、挙動の基準線。 */
 export function buildBaselineVideoEncoderConfig(
-  params: BuildVideoEncoderConfigParams,
+  params: BuildVideoEncoderConfigParams
 ): VideoEncoderConfig {
   return {
     codec: params.codec ?? 'avc1.4d002a',
@@ -71,19 +80,38 @@ export function buildBaselineVideoEncoderConfig(
 /**
  * 試行順に並べた設定候補を返す。
  *
- * 先頭ほど「軽い」が対応環境を選ぶ。最後は必ず現行と同じ baseline で、
- * どの環境でも従来どおり動くことを保証する。
+ * 先頭ほど低遅延・軽負荷だが対応環境を選ぶ。`realtime` 非対応時も既存の
+ * hardware/no-preference 候補を残し、最後は必ず現行と同じ baseline にする。
  */
 export function buildVideoEncoderConfigCandidates(
-  params: BuildVideoEncoderConfigParams,
+  params: BuildVideoEncoderConfigParams
 ): Array<{ variant: ResolvedVideoEncoderConfig['variant']; config: VideoEncoderConfig }> {
   const baseline = buildBaselineVideoEncoderConfig(params);
 
   return [
     {
-      // GPU / 専用エンコーダを優先。CPU 負荷とメモリ帯域が最も下がる想定。
-      // latencyMode は指定しない（既定=realtime 相当を維持し encodeQueueSize の
-      // 信頼性を守る。理由はファイル冒頭のコメント参照）。
+      // GPU / 専用エンコーダ + realtime を最優先する。WebCodecs 仕様の既定は
+      // quality なので、低遅延を意図する場合は明示が必要。
+      variant: 'prefer-hardware-realtime',
+      config: {
+        ...baseline,
+        hardwareAcceleration: 'prefer-hardware',
+        latencyMode: 'realtime',
+        avc: { format: 'avc' },
+      },
+    },
+    {
+      // HW 指定との組み合わせだけが非対応でも、realtime 自体を利用できる環境向け。
+      variant: 'no-preference-realtime',
+      config: {
+        ...baseline,
+        hardwareAcceleration: 'no-preference',
+        latencyMode: 'realtime',
+        avc: { format: 'avc' },
+      },
+    },
+    {
+      // realtime 非対応時は、従来どおり hardware 優先 + AVCC を試す。
       variant: 'prefer-hardware',
       config: {
         ...baseline,
@@ -92,7 +120,7 @@ export function buildVideoEncoderConfigCandidates(
       },
     },
     {
-      // HW を明示指定できない環境向け。avc format の明示だけ試す。
+      // HW も realtime も明示できない環境向け。従来の第2候補。
       variant: 'no-preference',
       config: {
         ...baseline,
@@ -117,14 +145,13 @@ export function buildVideoEncoderConfigCandidates(
  *   try/catch が最終的な砦になる。
  */
 export async function resolveVideoEncoderConfig(
-  params: BuildVideoEncoderConfigParams,
+  params: BuildVideoEncoderConfigParams
 ): Promise<ResolvedVideoEncoderConfig> {
   const candidates = buildVideoEncoderConfigCandidates(params);
   const baseline = candidates[candidates.length - 1];
 
   const canProbe =
-    typeof VideoEncoder !== 'undefined'
-    && typeof VideoEncoder.isConfigSupported === 'function';
+    typeof VideoEncoder !== 'undefined' && typeof VideoEncoder.isConfigSupported === 'function';
 
   if (!canProbe) {
     return { config: baseline.config, variant: 'baseline', negotiated: false };
@@ -134,9 +161,22 @@ export async function resolveVideoEncoderConfig(
     try {
       const support = await VideoEncoder.isConfigSupported(candidate.config);
       if (support?.supported) {
-        // ブラウザが正規化した config を返す場合はそちらを優先する
+        // ブラウザが正規化した config を返す場合はそちらを優先する。ただし
+        // 省略された明示値（特に realtime）を失わないよう候補へマージする。
+        const normalizedConfig = {
+          ...candidate.config,
+          ...(support.config ?? {}),
+        };
+        // realtime を明示したのに quality へ正規化された環境では、この候補を
+        // realtime 成功として扱わない。従来候補へ進みログと実挙動の食い違いを防ぐ。
+        if (
+          candidate.config.latencyMode === 'realtime' &&
+          normalizedConfig.latencyMode !== 'realtime'
+        ) {
+          continue;
+        }
         return {
-          config: support.config ?? candidate.config,
+          config: normalizedConfig,
           variant: candidate.variant,
           negotiated: true,
         };
