@@ -53,6 +53,7 @@ import {
 } from '../../../utils/videoEncoderConfig';
 import {
   closeWebCodecsEncoderSafely,
+  flushPreRenderedAudioBeforeVideo,
   releaseOwnedWebCodecsEncoders,
   type OwnedWebCodecsEncoders,
 } from '../../../utils/webCodecsEncoderLifecycle';
@@ -107,6 +108,9 @@ function durationUsToSampleCount(durationUs: number, sampleRate: number): number
 // 1ms を超える audio / video / container の尺差は Teams 投稿後の速度異常再発リスクが高いため、
 // export 完了前に明示的に検出する。
 const DURATION_DIFF_THRESHOLD_US = 1000;
+// output callback 内の高頻度ログは映像開始前でも音声排出そのものを遅らせるため、
+// 進捗を追える粒度を保ちながら main thread への負荷を抑える。
+const AUDIO_ENCODER_PROGRESS_LOG_INTERVAL = 500;
 export function getAudioDecodeCacheKey(file: File): string {
   return [file.name, file.size, file.lastModified, file.type].join(':');
 }
@@ -2215,7 +2219,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             output: (chunk, meta) => {
               audioEncoderOutputChunks++;
               audioEncoderOutputBytes += chunk.byteLength;
-              // [DIAG-ENC-OUT] 初回出力とその後10チャンクごとにログ
+              // [DIAG-ENC-OUT] 初回出力と一定間隔でログ
               if (audioEncoderOutputChunks === 1) {
                 useLogStore
                   .getState()
@@ -2233,7 +2237,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                         }
                       : null,
                   });
-              } else if (audioEncoderOutputChunks % 50 === 0) {
+              } else if (audioEncoderOutputChunks % AUDIO_ENCODER_PROGRESS_LOG_INTERVAL === 0) {
                 useLogStore
                   .getState()
                   .info(
@@ -2371,6 +2375,19 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                 encodedInputChunks: audioFeedResult.encodedChunks,
                 encodedInputSamples: audioFeedResult.encodedSamples,
                 trimmedInputSamples: audioFeedResult.trimmedSamples,
+              });
+
+              // 音声の output callback（この案件では 3,955 chunk）と映像描画を並走させると、
+              // timeline の frame index は進んでいても HTMLVideoElement のデコード画面だけが止まり、
+              // 同一 Canvas frame の連続と直後の内容ジャンプが出力へ焼き込まれる。
+              // pre-rendered パスだけはここで完全排出し、映像ループとの資源競合をなくす。
+              const audioDrainStartedAtMs = performance.now();
+              await flushPreRenderedAudioBeforeVideo(audioEncoder, signal);
+              useLogStore.getState().info('RENDER', 'standard.export.audioPreRenderDrained', {
+                durationMs: Math.round(performance.now() - audioDrainStartedAtMs),
+                outputChunks: audioEncoderOutputChunks,
+                outputBytes: audioEncoderOutputBytes,
+                encodeQueueSize: audioEncoder.encodeQueueSize,
               });
               offlineAudioDone = true;
               useLogStore

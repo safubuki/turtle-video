@@ -1,8 +1,54 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   closeWebCodecsEncoderSafely,
+  flushPreRenderedAudioBeforeVideo,
   releaseOwnedWebCodecsEncoders,
 } from '../utils/webCodecsEncoderLifecycle';
+
+describe('flushPreRenderedAudioBeforeVideo', () => {
+  it('AudioEncoder の flush が完了するまで映像開始境界を解放しない', async () => {
+    let resolveFlush = () => {};
+    const flush = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveFlush = resolve;
+        })
+    );
+    const signal = new AbortController().signal;
+
+    let completed = false;
+    const draining = flushPreRenderedAudioBeforeVideo({ flush }, signal).then(() => {
+      completed = true;
+    });
+    await Promise.resolve();
+
+    expect(flush).toHaveBeenCalledTimes(1);
+    expect(completed).toBe(false);
+
+    resolveFlush();
+    await draining;
+    expect(completed).toBe(true);
+  });
+
+  it('キャンセル時は未完了の flush を待ち続けず AbortError にする', async () => {
+    const controller = new AbortController();
+    const flush = vi.fn(() => new Promise<void>(() => {}));
+
+    const draining = flushPreRenderedAudioBeforeVideo({ flush }, controller.signal);
+    controller.abort();
+
+    await expect(draining).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('キャンセル以外の flush エラーは呼び出し元へ伝える', async () => {
+    const failure = new Error('audio codec failure');
+    const flush = vi.fn().mockRejectedValue(failure);
+
+    await expect(
+      flushPreRenderedAudioBeforeVideo({ flush }, new AbortController().signal)
+    ).rejects.toBe(failure);
+  });
+});
 
 describe('closeWebCodecsEncoderSafely', () => {
   it('configured encoder を明示的に close する', () => {

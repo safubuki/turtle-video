@@ -8,6 +8,10 @@ export interface ClosableWebCodecsEncoder {
   close(): void;
 }
 
+export interface FlushableWebCodecsEncoder {
+  flush(): Promise<void>;
+}
+
 export type WebCodecsEncoderCloseOutcome =
   | { status: 'closed' }
   | { status: 'already-closed' }
@@ -30,6 +34,39 @@ export type OwnedWebCodecsEncodersReleaseResult =
       videoResult: WebCodecsEncoderCloseOutcome;
       audioResult: WebCodecsEncoderCloseOutcome;
     };
+
+function createWebCodecsAbortError(): DOMException {
+  return new DOMException('WebCodecs encoder flush was aborted', 'AbortError');
+}
+
+/**
+ * プリレンダリング済み音声を映像タイムラインの開始前に完全排出する。
+ *
+ * AudioEncoder の output callback と Canvas / VideoEncoder を同時に走らせると、
+ * main thread と codec 資源の競合で HTMLVideoElement のデコード画面だけが止まることがある。
+ * AbortSignal を race させ、キャンセル時は flush の完了を待ち続けない。
+ */
+export async function flushPreRenderedAudioBeforeVideo(
+  encoder: FlushableWebCodecsEncoder,
+  signal: AbortSignal
+): Promise<void> {
+  if (signal.aborted) throw createWebCodecsAbortError();
+
+  let rejectOnAbort: ((reason?: unknown) => void) | null = null;
+  const abortPromise = new Promise<never>((_resolve, reject) => {
+    rejectOnAbort = reject;
+  });
+  const onAbort = () => rejectOnAbort?.(createWebCodecsAbortError());
+  signal.addEventListener('abort', onAbort, { once: true });
+
+  try {
+    await Promise.race([Promise.resolve().then(() => encoder.flush()), abortPromise]);
+    if (signal.aborted) throw createWebCodecsAbortError();
+  } finally {
+    signal.removeEventListener('abort', onAbort);
+    rejectOnAbort = null;
+  }
+}
 
 /**
  * VideoEncoder / AudioEncoder を冪等に close する。
