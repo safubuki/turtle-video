@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { Trash2, Edit2, Check, X, MapPin, Settings, ArrowUp, ArrowDown, ListVideo } from 'lucide-react';
 import type { Caption, CaptionSettings } from '../../types';
-import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
+import NumericSliderField from '../common/NumericSliderField';
 import CaptionSettingsModal from '../modals/CaptionSettingsModal';
 import {
   isSequentialCaption,
@@ -241,64 +241,36 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
       {/* 時間設定 */}
       <div className="space-y-2">
         {/* 開始時間 */}
-        <div className="flex items-center gap-2 text-[10px]">
-          <span className="text-gray-400 w-8 shrink-0">開始:</span>
-          <SwipeProtectedSlider
-            min={0}
-            max={totalDuration || 60}
-            step={0.1}
-            value={caption.startTime}
-            onChange={handleStartTimeChange}
-            disabled={isLocked}
-            className="flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-          />
-          <input
-            type="number"
-            min={0}
-            max={caption.endTime - 0.1}
-            step={0.1}
-            value={caption.startTime}
-            onChange={(e) => {
-              const val = parseFloat(e.target.value);
-              if (!isNaN(val) && val >= 0 && val < caption.endTime) {
-                onUpdate(caption.id, { startTime: val });
-              }
-            }}
-            disabled={isLocked}
-            className="w-12 bg-gray-700 border border-gray-600 rounded px-1 text-right text-white focus:outline-none focus:border-yellow-500 disabled:opacity-50"
-          />
-          <span className="text-gray-500">秒</span>
-        </div>
+        <NumericSliderField
+          label="開始:"
+          labelClassName="text-gray-400 w-8 shrink-0"
+          ariaLabel="キャプションの開始時間"
+          min={0}
+          max={totalDuration || 60}
+          step={0.1}
+          value={caption.startTime}
+          onChange={handleStartTimeChange}
+          disabled={isLocked}
+          unit="秒"
+          sliderClassName="flex-1 min-w-0 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+          inputClassName="w-12 text-white focus:border-yellow-500"
+        />
 
         {/* 終了時間 */}
-        <div className="flex items-center gap-2 text-[10px]">
-          <span className="text-gray-400 w-8 shrink-0">終了:</span>
-          <SwipeProtectedSlider
-            min={0}
-            max={totalDuration || 60}
-            step={0.1}
-            value={caption.endTime}
-            onChange={handleEndTimeChange}
-            disabled={isLocked}
-            className="flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-          />
-          <input
-            type="number"
-            min={caption.startTime + 0.1}
-            max={totalDuration || 9999}
-            step={0.1}
-            value={caption.endTime}
-            onChange={(e) => {
-              const val = parseFloat(e.target.value);
-              if (!isNaN(val) && val > caption.startTime) {
-                onUpdate(caption.id, { endTime: val });
-              }
-            }}
-            disabled={isLocked}
-            className="w-12 bg-gray-700 border border-gray-600 rounded px-1 text-right text-white focus:outline-none focus:border-yellow-500 disabled:opacity-50"
-          />
-          <span className="text-gray-500">秒</span>
-        </div>
+        <NumericSliderField
+          label="終了:"
+          labelClassName="text-gray-400 w-8 shrink-0"
+          ariaLabel="キャプションの終了時間"
+          min={0}
+          max={totalDuration || 60}
+          step={0.1}
+          value={caption.endTime}
+          onChange={handleEndTimeChange}
+          disabled={isLocked}
+          unit="秒"
+          sliderClassName="flex-1 min-w-0 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+          inputClassName="w-12 text-white focus:border-yellow-500"
+        />
 
         {/* プレビュー位置を反映（BGM/ナレーションと同じ形式で分かりやすく） */}
         <div className="flex flex-wrap items-center gap-1.5 text-[10px] md:text-xs">

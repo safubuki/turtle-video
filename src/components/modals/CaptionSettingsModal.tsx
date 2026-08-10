@@ -15,6 +15,7 @@ import type {
   CaptionFontStyle,
 } from '../../types';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
+import NumericSliderField from '../common/NumericSliderField';
 import CaptionColorField from '../common/CaptionColorField';
 import CaptionFontSizeField from '../common/CaptionFontSizeField';
 import CaptionFontStyleField from '../common/CaptionFontStyleField';
@@ -388,7 +389,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                     <label className="text-gray-400 w-16 shrink-0" htmlFor="caption-individual-stroke-width">
                       縁の幅:
                     </label>
-                    <SwipeProtectedSlider
+                    <NumericSliderField
                       min={CAPTION_STROKE_WIDTH_MIN}
                       max={CAPTION_STROKE_WIDTH_MAX}
                       step={CAPTION_STROKE_WIDTH_STEP}
@@ -397,27 +398,12 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                         overrideStrokeWidth: clampCaptionStrokeWidth(value),
                       })}
                       ariaLabel="個別キャプションの縁の幅"
-                      className="min-w-0 flex-1 cursor-pointer accent-yellow-500 h-1 bg-gray-600 rounded appearance-none"
+                      inputId="caption-individual-stroke-width"
+                      unit="px"
+                      className="min-w-0 flex-1"
+                      sliderClassName="min-w-0 flex-1 cursor-pointer accent-yellow-500 h-1 bg-gray-600 rounded appearance-none"
+                      inputClassName="w-14 focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500/40"
                     />
-                    <input
-                      id="caption-individual-stroke-width"
-                      type="number"
-                      min={CAPTION_STROKE_WIDTH_MIN}
-                      max={CAPTION_STROKE_WIDTH_MAX}
-                      step={CAPTION_STROKE_WIDTH_STEP}
-                      value={effectiveGlyphStyle.strokeWidth}
-                      onChange={(event) => {
-                        const value = Number.parseFloat(event.target.value);
-                        if (Number.isFinite(value)) {
-                          onUpdate(caption.id, {
-                            overrideStrokeWidth: clampCaptionStrokeWidth(value),
-                          });
-                        }
-                      }}
-                      aria-label="個別キャプションの縁の幅（数値）"
-                      className="w-14 rounded-md border border-gray-600 bg-gray-700 px-1.5 py-1 text-right focus:border-yellow-500 focus:outline-none focus:ring-1 focus:ring-yellow-500/40"
-                    />
-                    <span className="text-gray-500">px</span>
                   </div>
                   <CaptionColorField
                     label="縁の色"
@@ -478,8 +464,8 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
             {uiCapabilities.supportsCaptionIndividualBlur && (
               <>
               <div className="flex items-center gap-2 text-[10px]">
-              <span className="text-gray-400 w-16">ぼかし:</span>
-              <SwipeProtectedSlider
+              <span className="text-gray-400 w-16 shrink-0">ぼかし:</span>
+              <NumericSliderField
                 min={0}
                 max={50}
                 step={1}
@@ -488,9 +474,11 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                   overrideBlur: clampCaptionBlur(value / 10),
                 })}
                 ariaLabel="個別キャプションのぼかし"
-                className="flex-1 cursor-pointer accent-yellow-500 h-1 bg-gray-600 rounded appearance-none"
+                hideInput
+                className="flex-1 min-w-0"
+                sliderClassName="flex-1 min-w-0 cursor-pointer accent-yellow-500 h-1 bg-gray-600 rounded appearance-none"
               />
-              <span className="w-8 text-right whitespace-nowrap text-gray-400">
+              <span className="w-8 text-right whitespace-nowrap text-gray-400 shrink-0">
                 {effectiveGlyphStyle.blur.toFixed(1)}
               </span>
             </div>
@@ -539,37 +527,24 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                     >
                       濃さ:
                     </label>
-                    <SwipeProtectedSlider
-                      min={CAPTION_BACKGROUND_OPACITY_MIN}
-                      max={CAPTION_BACKGROUND_OPACITY_MAX}
-                      step={CAPTION_BACKGROUND_OPACITY_STEP}
-                      value={effectiveBackgroundStyle.backgroundOpacity}
+                    {/* スライダーは 0–1、数値欄は % 表示のため、% 基準へ統一して扱う */}
+                    <NumericSliderField
+                      min={Math.round(CAPTION_BACKGROUND_OPACITY_MIN * 100)}
+                      max={Math.round(CAPTION_BACKGROUND_OPACITY_MAX * 100)}
+                      step={Math.round(CAPTION_BACKGROUND_OPACITY_STEP * 100)}
+                      value={Math.round(effectiveBackgroundStyle.backgroundOpacity * 100)}
                       onChange={(value) =>
                         onUpdate(caption.id, {
-                          overrideBackgroundOpacity: clampCaptionBackgroundOpacity(value),
+                          overrideBackgroundOpacity: clampCaptionBackgroundOpacity(value / 100),
                         })
                       }
                       ariaLabel="個別キャプション背景の濃さ"
-                      className="min-w-0 flex-1 cursor-pointer accent-yellow-500 h-1 bg-gray-600 rounded appearance-none"
+                      inputId={`caption-individual-bg-opacity-${caption.id}`}
+                      unit="%"
+                      className="min-w-0 flex-1"
+                      sliderClassName="min-w-0 flex-1 cursor-pointer accent-yellow-500 h-1 bg-gray-600 rounded appearance-none"
+                      inputClassName="w-14 focus:border-yellow-500"
                     />
-                    <input
-                      id={`caption-individual-bg-opacity-${caption.id}`}
-                      type="number"
-                      min={0}
-                      max={100}
-                      step={5}
-                      value={Math.round(effectiveBackgroundStyle.backgroundOpacity * 100)}
-                      onChange={(e) => {
-                        const value = Number.parseFloat(e.target.value);
-                        if (Number.isFinite(value)) {
-                          onUpdate(caption.id, {
-                            overrideBackgroundOpacity: clampCaptionBackgroundOpacity(value / 100),
-                          });
-                        }
-                      }}
-                      className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500"
-                    />
-                    <span className="text-gray-500">%</span>
                   </div>
                   <div className="flex items-center gap-2 text-[10px]">
                     <label
@@ -578,7 +553,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                     >
                       角丸:
                     </label>
-                    <SwipeProtectedSlider
+                    <NumericSliderField
                       min={CAPTION_BACKGROUND_RADIUS_MIN}
                       max={CAPTION_BACKGROUND_RADIUS_MAX}
                       step={CAPTION_BACKGROUND_RADIUS_STEP}
@@ -589,26 +564,12 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                         })
                       }
                       ariaLabel="個別キャプション背景の角丸"
-                      className="min-w-0 flex-1 cursor-pointer accent-yellow-500 h-1 bg-gray-600 rounded appearance-none"
+                      inputId={`caption-individual-bg-radius-${caption.id}`}
+                      unit="px"
+                      className="min-w-0 flex-1"
+                      sliderClassName="min-w-0 flex-1 cursor-pointer accent-yellow-500 h-1 bg-gray-600 rounded appearance-none"
+                      inputClassName="w-14 focus:border-yellow-500"
                     />
-                    <input
-                      id={`caption-individual-bg-radius-${caption.id}`}
-                      type="number"
-                      min={CAPTION_BACKGROUND_RADIUS_MIN}
-                      max={CAPTION_BACKGROUND_RADIUS_MAX}
-                      step={CAPTION_BACKGROUND_RADIUS_STEP}
-                      value={effectiveBackgroundStyle.backgroundRadius}
-                      onChange={(e) => {
-                        const value = Number.parseFloat(e.target.value);
-                        if (Number.isFinite(value)) {
-                          onUpdate(caption.id, {
-                            overrideBackgroundRadius: clampCaptionBackgroundRadius(value),
-                          });
-                        }
-                      }}
-                      className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500"
-                    />
-                    <span className="text-gray-500">px</span>
                   </div>
                 </div>
               )}

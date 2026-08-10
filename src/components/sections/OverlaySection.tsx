@@ -44,6 +44,7 @@ import {
   toTopLeftPercent,
 } from '../../utils/centerOriginPosition';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
+import NumericStepperInput from '../common/NumericStepperInput';
 
 interface ResetButtonProps {
   label: string;
@@ -92,7 +93,8 @@ const NumericControl = React.memo<NumericControlProps>(({
   const displayValue = Number(value.toFixed(decimals));
 
   return (
-    <div className="grid grid-cols-[5rem_minmax(0,1fr)_5rem] items-center gap-2 sm:grid-cols-[5.75rem_minmax(0,1fr)_5.5rem]">
+    // 3 列目は −/+ と数値欄が並ぶため、幅を auto にして詰まらないようにする
+    <div className="grid grid-cols-[4.5rem_minmax(0,1fr)_auto] items-center gap-2 sm:grid-cols-[5.75rem_minmax(0,1fr)_auto]">
       <div className="flex min-w-0 items-center gap-0.5">
         <label htmlFor={id} className="truncate text-[10px] text-gray-400 md:text-xs">
           {label}
@@ -111,23 +113,19 @@ const NumericControl = React.memo<NumericControlProps>(({
         ariaLabel={`ウォーターマークの${label}`}
         className="h-1 min-w-0 w-full appearance-none rounded bg-gray-600 accent-blue-500"
       />
-      <div className="relative">
-        <input
-          id={id}
-          type="number"
-          min={min}
-          max={max}
-          step={step}
-          value={displayValue}
-          onChange={(event) => onChange(Number(event.target.value))}
-          className="w-full rounded-lg border border-gray-700 bg-gray-800 py-1.5 pl-2 pr-7 text-right text-xs font-semibold text-white focus:border-blue-500 focus:outline-none"
-        />
-        {suffix && (
-          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-500">
-            {suffix}
-          </span>
-        )}
-      </div>
+      {/* スマホでスライダーを目的の値へ合わせにくいため、数値欄に −/+ を添える */}
+      <NumericStepperInput
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        onChange={onChange}
+        decimals={decimals}
+        unit={suffix}
+        ariaLabel={`ウォーターマークの${label}`}
+        inputId={id}
+        inputClassName="w-12 sm:w-14 focus:border-blue-500 font-semibold text-white"
+      />
     </div>
   );
 });

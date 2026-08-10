@@ -21,7 +21,7 @@ import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import CaptionColorField from '../common/CaptionColorField';
 import CaptionFontSizeField from '../common/CaptionFontSizeField';
 import CaptionFontStyleField from '../common/CaptionFontStyleField';
-import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
+import NumericSliderField from '../common/NumericSliderField';
 import type {
   getAvailableDropdownFontOptions,
   getAvailablePinnedFontOptions,
@@ -38,7 +38,6 @@ import {
   VIDEO_TITLE_BACKGROUND_RADIUS_MAX,
   VIDEO_TITLE_BACKGROUND_RADIUS_MIN,
   VIDEO_TITLE_BACKGROUND_RADIUS_STEP,
-  VIDEO_TITLE_MIN_DURATION_SEC,
   VIDEO_TITLE_STROKE_WIDTH_MAX,
   VIDEO_TITLE_STROKE_WIDTH_MIN,
   VIDEO_TITLE_STROKE_WIDTH_STEP,
@@ -172,7 +171,7 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
               <label className="text-gray-400 w-8 shrink-0" htmlFor="video-title-start">
                 開始:
               </label>
-              <SwipeProtectedSlider
+              <NumericSliderField
                 min={0}
                 max={timeSliderMax}
                 step={0.1}
@@ -180,25 +179,12 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                 onChange={(value) => onSetRange(value, title.endTime, totalDuration)}
                 disabled={isLocked}
                 ariaLabel="タイトルの開始時間"
-                className="flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+                inputId="video-title-start"
+                unit="秒"
+                className="flex-1 min-w-0"
+                sliderClassName="flex-1 min-w-0 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+                inputClassName="w-12 text-white focus:border-yellow-500"
               />
-              <input
-                id="video-title-start"
-                type="number"
-                min={0}
-                max={title.endTime - VIDEO_TITLE_MIN_DURATION_SEC}
-                step={0.1}
-                value={title.startTime}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  if (!Number.isNaN(val) && val >= 0 && val < title.endTime) {
-                    onSetRange(val, title.endTime, totalDuration);
-                  }
-                }}
-                disabled={isLocked}
-                className="w-12 bg-gray-700 border border-gray-600 rounded px-1 text-right text-white focus:outline-none focus:border-yellow-500 disabled:opacity-50"
-              />
-              <span className="text-gray-500">秒</span>
             </div>
 
             {/* 終了時間 */}
@@ -206,7 +192,7 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
               <label className="text-gray-400 w-8 shrink-0" htmlFor="video-title-end">
                 終了:
               </label>
-              <SwipeProtectedSlider
+              <NumericSliderField
                 min={0}
                 max={timeSliderMax}
                 step={0.1}
@@ -214,25 +200,12 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                 onChange={(value) => onSetRange(title.startTime, value, totalDuration)}
                 disabled={isLocked}
                 ariaLabel="タイトルの終了時間"
-                className="flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+                inputId="video-title-end"
+                unit="秒"
+                className="flex-1 min-w-0"
+                sliderClassName="flex-1 min-w-0 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+                inputClassName="w-12 text-white focus:border-yellow-500"
               />
-              <input
-                id="video-title-end"
-                type="number"
-                min={title.startTime + VIDEO_TITLE_MIN_DURATION_SEC}
-                max={totalDuration || 9999}
-                step={0.1}
-                value={title.endTime}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  if (!Number.isNaN(val) && val > title.startTime) {
-                    onSetRange(title.startTime, val, totalDuration);
-                  }
-                }}
-                disabled={isLocked}
-                className="w-12 bg-gray-700 border border-gray-600 rounded px-1 text-right text-white focus:outline-none focus:border-yellow-500 disabled:opacity-50"
-              />
-              <span className="text-gray-500">秒</span>
             </div>
 
             {/* プレビュー位置を反映（キャプション/BGM/ナレーションと同じ形式） */}
@@ -353,47 +326,28 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                 {supportsExtendedFonts && isCustomPosition && (
                   <div className="space-y-1.5 pl-16">
                     {(['x', 'y'] as const).map((axis) => (
-                      <div key={axis} className="flex items-center gap-2 text-[10px] md:text-xs">
-                        <span className="text-gray-500 w-4">{axis.toUpperCase()}</span>
-                        <SwipeProtectedSlider
-                          min={0}
-                          max={100}
-                          step={1}
-                          value={customPosition[axis]}
-                          onChange={(value) =>
-                            onUpdate({
-                              positionCustom: {
-                                ...customPosition,
-                                [axis]: clampPositionPercent(value),
-                              },
-                            })
-                          }
-                          disabled={isLocked}
-                          ariaLabel={`タイトルの${axis.toUpperCase()}位置`}
-                          className={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
-                        />
-                        <input
-                          type="number"
-                          min={0}
-                          max={100}
-                          step={1}
-                          value={Math.round(customPosition[axis])}
-                          onChange={(e) => {
-                            const value = Number.parseFloat(e.target.value);
-                            if (Number.isFinite(value)) {
-                              onUpdate({
-                                positionCustom: {
-                                  ...customPosition,
-                                  [axis]: clampPositionPercent(value),
-                                },
-                              });
-                            }
-                          }}
-                          disabled={isLocked}
-                          className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500 disabled:opacity-50"
-                        />
-                        <span className="text-gray-500">%</span>
-                      </div>
+                      <NumericSliderField
+                        key={axis}
+                        label={axis.toUpperCase()}
+                        labelClassName="text-gray-500 w-4 shrink-0"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={customPosition[axis]}
+                        onChange={(value) =>
+                          onUpdate({
+                            positionCustom: {
+                              ...customPosition,
+                              [axis]: clampPositionPercent(value),
+                            },
+                          })
+                        }
+                        disabled={isLocked}
+                        ariaLabel={`タイトルの${axis.toUpperCase()}位置`}
+                        unit="%"
+                        sliderClassName={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
+                        inputClassName="w-14 focus:border-yellow-500"
+                      />
                     ))}
                     <div className="text-[9px] text-gray-500">
                       X=50 が中央、Y=0 が最上部（テキスト中心の位置）
@@ -406,7 +360,7 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                   <label className="text-gray-400 w-16 shrink-0" htmlFor="video-title-stroke-width">
                     縁の幅:
                   </label>
-                  <SwipeProtectedSlider
+                  <NumericSliderField
                     min={VIDEO_TITLE_STROKE_WIDTH_MIN}
                     max={VIDEO_TITLE_STROKE_WIDTH_MAX}
                     step={VIDEO_TITLE_STROKE_WIDTH_STEP}
@@ -414,25 +368,12 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                     onChange={(value) => onUpdate({ strokeWidth: clampVideoTitleStrokeWidth(value) })}
                     disabled={isLocked}
                     ariaLabel="タイトルの縁の幅"
-                    className={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
+                    inputId="video-title-stroke-width"
+                    unit="px"
+                    className="min-w-0 flex-1"
+                    sliderClassName={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
+                    inputClassName="w-14 focus:border-yellow-500"
                   />
-                  <input
-                    id="video-title-stroke-width"
-                    type="number"
-                    min={VIDEO_TITLE_STROKE_WIDTH_MIN}
-                    max={VIDEO_TITLE_STROKE_WIDTH_MAX}
-                    step={VIDEO_TITLE_STROKE_WIDTH_STEP}
-                    value={clampVideoTitleStrokeWidth(title.strokeWidth)}
-                    onChange={(e) => {
-                      const value = Number.parseFloat(e.target.value);
-                      if (Number.isFinite(value)) {
-                        onUpdate({ strokeWidth: clampVideoTitleStrokeWidth(value) });
-                      }
-                    }}
-                    disabled={isLocked}
-                    className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500 disabled:opacity-50"
-                  />
-                  <span className="text-gray-500">px</span>
                 </div>
 
                 <CaptionColorField
@@ -457,7 +398,7 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                 {/* ぼかし: キャプションと同じ 0〜5（スライダーは 0.1 刻み） */}
                 <div className="flex items-center gap-2 text-[10px] md:text-xs">
                   <span className="text-gray-400 w-16 shrink-0">ぼかし:</span>
-                  <SwipeProtectedSlider
+                  <NumericSliderField
                     min={CAPTION_BLUR_MIN * 10}
                     max={CAPTION_BLUR_MAX * 10}
                     step={1}
@@ -465,10 +406,12 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                     onChange={(val) => onUpdate({ blur: clampVideoTitleBlur(val / 10) })}
                     disabled={isLocked}
                     ariaLabel="タイトルのぼかし"
-                    className={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isLocked ? '' : 'cursor-pointer'}`}
+                    hideInput
+                    className="min-w-0 flex-1"
+                    sliderClassName={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isLocked ? '' : 'cursor-pointer'}`}
                   />
                   <span
-                    className={`w-8 text-right whitespace-nowrap ${isLocked ? 'text-gray-600' : 'text-gray-400'}`}
+                    className={`w-8 text-right whitespace-nowrap shrink-0 ${isLocked ? 'text-gray-600' : 'text-gray-400'}`}
                   >
                     {clampVideoTitleBlur(title.blur).toFixed(1)}
                   </span>
@@ -503,45 +446,33 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                         <label className="text-gray-400 w-16 shrink-0" htmlFor="video-title-bg-opacity">
                           濃さ:
                         </label>
-                        <SwipeProtectedSlider
-                          min={VIDEO_TITLE_BACKGROUND_OPACITY_MIN}
-                          max={VIDEO_TITLE_BACKGROUND_OPACITY_MAX}
-                          step={VIDEO_TITLE_BACKGROUND_OPACITY_STEP}
-                          value={clampVideoTitleBackgroundOpacity(title.backgroundOpacity)}
-                          onChange={(value) =>
-                            onUpdate({ backgroundOpacity: clampVideoTitleBackgroundOpacity(value) })
-                          }
-                          disabled={isLocked}
-                          ariaLabel="タイトル背景の濃さ"
-                          className={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
-                        />
-                        <input
-                          id="video-title-bg-opacity"
-                          type="number"
-                          min={0}
-                          max={100}
-                          step={5}
+                        {/* スライダーは 0–1、数値欄は % 表示のため、% 基準へ統一して扱う */}
+                        <NumericSliderField
+                          min={Math.round(VIDEO_TITLE_BACKGROUND_OPACITY_MIN * 100)}
+                          max={Math.round(VIDEO_TITLE_BACKGROUND_OPACITY_MAX * 100)}
+                          step={Math.round(VIDEO_TITLE_BACKGROUND_OPACITY_STEP * 100)}
                           value={Math.round(
                             clampVideoTitleBackgroundOpacity(title.backgroundOpacity) * 100,
                           )}
-                          onChange={(e) => {
-                            const value = Number.parseFloat(e.target.value);
-                            if (Number.isFinite(value)) {
-                              onUpdate({
-                                backgroundOpacity: clampVideoTitleBackgroundOpacity(value / 100),
-                              });
-                            }
-                          }}
+                          onChange={(value) =>
+                            onUpdate({
+                              backgroundOpacity: clampVideoTitleBackgroundOpacity(value / 100),
+                            })
+                          }
                           disabled={isLocked}
-                          className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500 disabled:opacity-50"
+                          ariaLabel="タイトル背景の濃さ"
+                          inputId="video-title-bg-opacity"
+                          unit="%"
+                          className="min-w-0 flex-1"
+                          sliderClassName={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
+                          inputClassName="w-14 focus:border-yellow-500"
                         />
-                        <span className="text-gray-500">%</span>
                       </div>
                       <div className="flex items-center gap-2 text-[10px] md:text-xs">
                         <label className="text-gray-400 w-16 shrink-0" htmlFor="video-title-bg-radius">
                           角丸:
                         </label>
-                        <SwipeProtectedSlider
+                        <NumericSliderField
                           min={VIDEO_TITLE_BACKGROUND_RADIUS_MIN}
                           max={VIDEO_TITLE_BACKGROUND_RADIUS_MAX}
                           step={VIDEO_TITLE_BACKGROUND_RADIUS_STEP}
@@ -551,27 +482,12 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                           }
                           disabled={isLocked}
                           ariaLabel="タイトル背景の角丸"
-                          className={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
+                          inputId="video-title-bg-radius"
+                          unit="px"
+                          className="min-w-0 flex-1"
+                          sliderClassName={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
+                          inputClassName="w-14 focus:border-yellow-500"
                         />
-                        <input
-                          id="video-title-bg-radius"
-                          type="number"
-                          min={VIDEO_TITLE_BACKGROUND_RADIUS_MIN}
-                          max={VIDEO_TITLE_BACKGROUND_RADIUS_MAX}
-                          step={VIDEO_TITLE_BACKGROUND_RADIUS_STEP}
-                          value={clampVideoTitleBackgroundRadius(title.backgroundRadius)}
-                          onChange={(e) => {
-                            const value = Number.parseFloat(e.target.value);
-                            if (Number.isFinite(value)) {
-                              onUpdate({
-                                backgroundRadius: clampVideoTitleBackgroundRadius(value),
-                              });
-                            }
-                          }}
-                          disabled={isLocked}
-                          className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500 disabled:opacity-50"
-                        />
-                        <span className="text-gray-500">px</span>
                       </div>
                     </div>
                   )}
@@ -597,7 +513,7 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                   />
                   <span className="whitespace-nowrap">フェードイン</span>
                 </label>
-                <SwipeProtectedSlider
+                <NumericSliderField
                   min={0.1}
                   max={3}
                   step={0.1}
@@ -605,10 +521,12 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                   onChange={(value) => onUpdate({ fadeInDuration: value })}
                   disabled={isLocked || !title.fadeIn}
                   ariaLabel="タイトルのフェードイン時間"
-                  className={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:bg-gray-800 ${isLocked || !title.fadeIn ? '' : 'cursor-pointer'}`}
+                  hideInput
+                  className="min-w-0 flex-1"
+                  sliderClassName={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:bg-gray-800 ${isLocked || !title.fadeIn ? '' : 'cursor-pointer'}`}
                 />
                 <span
-                  className={`w-10 text-right whitespace-nowrap ${isLocked || !title.fadeIn ? 'text-gray-600' : 'text-gray-400'}`}
+                  className={`w-10 text-right whitespace-nowrap shrink-0 ${isLocked || !title.fadeIn ? 'text-gray-600' : 'text-gray-400'}`}
                 >
                   {title.fadeInDuration.toFixed(1)}秒
                 </span>
@@ -626,7 +544,7 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                   />
                   <span className="whitespace-nowrap">フェードアウト</span>
                 </label>
-                <SwipeProtectedSlider
+                <NumericSliderField
                   min={0.1}
                   max={3}
                   step={0.1}
@@ -634,10 +552,12 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                   onChange={(value) => onUpdate({ fadeOutDuration: value })}
                   disabled={isLocked || !title.fadeOut}
                   ariaLabel="タイトルのフェードアウト時間"
-                  className={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:bg-gray-800 ${isLocked || !title.fadeOut ? '' : 'cursor-pointer'}`}
+                  hideInput
+                  className="min-w-0 flex-1"
+                  sliderClassName={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:bg-gray-800 ${isLocked || !title.fadeOut ? '' : 'cursor-pointer'}`}
                 />
                 <span
-                  className={`w-10 text-right whitespace-nowrap ${isLocked || !title.fadeOut ? 'text-gray-600' : 'text-gray-400'}`}
+                  className={`w-10 text-right whitespace-nowrap shrink-0 ${isLocked || !title.fadeOut ? 'text-gray-600' : 'text-gray-400'}`}
                 >
                   {title.fadeOutDuration.toFixed(1)}秒
                 </span>

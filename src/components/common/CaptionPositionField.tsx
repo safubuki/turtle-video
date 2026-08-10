@@ -14,7 +14,7 @@
  */
 import React from 'react';
 import type { CaptionPosition } from '../../types';
-import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
+import NumericSliderField from './NumericSliderField';
 import {
   CAPTION_POSITION_CUSTOM_DEFAULT,
   clampPositionPercent,
@@ -171,37 +171,22 @@ const CaptionPositionField = React.memo<CaptionPositionFieldProps>(({
       {supportsCustom && isCustom && (
         <div className={`space-y-1.5 ${compact ? 'pl-10 md:pl-16' : 'pl-16'}`}>
           {(['x', 'y'] as const).map((axis) => (
-            <div key={axis} className="flex items-center gap-2 text-[10px] md:text-xs">
-              <span className="text-gray-500 w-10 whitespace-nowrap">
-                {axis === 'x' ? '横 (右+)' : '縦 (上+)'}
-              </span>
-              <SwipeProtectedSlider
-                min={CENTER_ORIGIN_MIN}
-                max={CENTER_ORIGIN_MAX}
-                step={1}
-                value={displayPosition(axis)}
-                onChange={(val) => handleAxisChange(axis, val)}
-                disabled={disabled}
-                ariaLabel={`${ariaLabelPrefix}の表示位置 ${axis.toUpperCase()}`}
-                className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${disabled ? '' : 'cursor-pointer'}`}
-              />
-              <input
-                id={`${idPrefix}-position-custom-${axis}`}
-                type="number"
-                min={CENTER_ORIGIN_MIN}
-                max={CENTER_ORIGIN_MAX}
-                step={1}
-                value={displayPosition(axis)}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  if (!Number.isNaN(val)) handleAxisChange(axis, val);
-                }}
-                disabled={disabled}
-                aria-label={`${ariaLabelPrefix}の表示位置 ${axis.toUpperCase()}（数値）`}
-                className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500 disabled:opacity-50"
-              />
-              <span className="text-gray-500">%</span>
-            </div>
+            <NumericSliderField
+              key={axis}
+              label={axis === 'x' ? '横 (右+)' : '縦 (上+)'}
+              labelClassName="text-gray-500 w-10 shrink-0 whitespace-nowrap"
+              min={CENTER_ORIGIN_MIN}
+              max={CENTER_ORIGIN_MAX}
+              step={1}
+              value={displayPosition(axis)}
+              onChange={(val) => handleAxisChange(axis, val)}
+              disabled={disabled}
+              ariaLabel={`${ariaLabelPrefix}の表示位置 ${axis.toUpperCase()}`}
+              inputId={`${idPrefix}-position-custom-${axis}`}
+              unit="%"
+              sliderClassName={`flex-1 min-w-0 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${disabled ? '' : 'cursor-pointer'}`}
+              inputClassName="w-14 focus:border-yellow-500"
+            />
           ))}
           <div className="text-[9px] text-gray-500">
             中央が 0。横は右が＋、縦は上が＋（テキスト中心の位置）

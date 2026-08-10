@@ -86,9 +86,10 @@ describe('CaptionSettingsModal clear', () => {
     expect(screen.getByLabelText('個別キャプションの縁の色（16進数）')).toHaveValue('#000000');
     expect(screen.getByLabelText('個別キャプションの文字本体（16進数）')).toHaveValue('#FFFFFF');
 
-    fireEvent.change(screen.getByLabelText('個別キャプションの縁の幅（数値）'), {
-      target: { value: '6.5' },
-    });
+    // 数値欄は入力途中では確定せず、フォーカスを外した時点で反映する
+    const strokeNumber = screen.getByLabelText('個別キャプションの縁の幅（数値）');
+    fireEvent.change(strokeNumber, { target: { value: '6.5' } });
+    fireEvent.blur(strokeNumber, { target: { value: '6.5' } });
     fireEvent.change(screen.getByLabelText('個別キャプションの縁の色'), {
       target: { value: '#123456' },
     });

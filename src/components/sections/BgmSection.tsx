@@ -22,6 +22,7 @@ import {
 import type { AudioTrack, BgmClip } from '../../types';
 import { getAudioUploadAccept } from '../../utils/platform';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
+import NumericSliderField from '../common/NumericSliderField';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import BgmClipList from './BgmClipList';
 
@@ -203,70 +204,53 @@ const BgmSection: React.FC<BgmSectionProps> = ({
               <span>開始位置 (頭出し): {formatTime(bgm.startPoint)}</span>
               <span>長さ: {formatTime(bgm.duration)}</span>
             </div>
-            <div className="flex items-center gap-2">
-              <SwipeProtectedSlider
-                min={0}
-                max={bgm.duration}
-                step={0.1}
-                value={bgm.startPoint}
-                onChange={handleStartPointChange}
-                disabled={isBgmLocked}
-                className="flex-1 accent-purple-500 h-1 bg-gray-700 rounded appearance-none cursor-pointer disabled:opacity-50"
-              />
-              <input
-                type="number"
-                min="0"
-                max={bgm.duration}
-                step="0.1"
-                value={bgm.startPoint}
-                onChange={(e) => onUpdateStartPoint(e.target.value)}
-                disabled={isBgmLocked}
-                className="w-16 md:w-20 bg-gray-700 border border-gray-600 rounded px-1 text-[10px] md:text-xs text-right focus:outline-none focus:border-purple-500 disabled:opacity-50"
-              />
-              <span className="text-[10px] md:text-xs text-gray-500">秒</span>
-            </div>
+            <NumericSliderField
+              ariaLabel="BGMの開始位置（頭出し）"
+              min={0}
+              max={bgm.duration}
+              step={0.1}
+              value={bgm.startPoint}
+              onChange={handleStartPointChange}
+              disabled={isBgmLocked}
+              unit="秒"
+              sliderClassName="flex-1 min-w-0 accent-purple-500 h-1 bg-gray-700 rounded appearance-none cursor-pointer disabled:opacity-50"
+              inputClassName="w-16 md:w-20 focus:border-purple-500"
+            />
           </div>
           <div className="bg-purple-900/30 p-2 lg:p-3 rounded border border-purple-500/30 space-y-1">
             <div className="flex items-center gap-2 text-[10px] md:text-xs text-purple-200">
               <Timer className="w-3 h-3" />
               <span>開始タイミング (遅延): {formatTime(bgm.delay || 0)}</span>
             </div>
-            <div className="flex items-center gap-2">
-              <SwipeProtectedSlider
-                min={0}
-                max={totalDuration}
-                step={0.5}
-                value={bgm.delay || 0}
-                onChange={handleDelayChange}
-                disabled={isBgmLocked}
-                className="flex-1 accent-purple-400 h-1 bg-gray-700 rounded appearance-none cursor-pointer disabled:opacity-50"
-              />
-              <input
-                type="number"
-                min="0"
-                max={totalDuration}
-                step="0.5"
-                value={bgm.delay || 0}
-                onChange={(e) => onUpdateDelay(e.target.value)}
-                disabled={isBgmLocked}
-                className="w-16 md:w-20 bg-gray-700 border border-gray-600 rounded px-1 text-[10px] md:text-xs text-right focus:outline-none focus:border-purple-400 disabled:opacity-50"
-              />
-              <span className="text-[10px] md:text-xs text-gray-500">秒</span>
-            </div>
+            <NumericSliderField
+              ariaLabel="BGMの開始タイミング（遅延）"
+              min={0}
+              max={totalDuration}
+              step={0.5}
+              value={bgm.delay || 0}
+              onChange={handleDelayChange}
+              disabled={isBgmLocked}
+              unit="秒"
+              sliderClassName="flex-1 min-w-0 accent-purple-400 h-1 bg-gray-700 rounded appearance-none cursor-pointer disabled:opacity-50"
+              inputClassName="w-16 md:w-20 focus:border-purple-400"
+            />
           </div>
           {/* 音量コントロール */}
           <div className="bg-gray-800/50 p-2 rounded-lg flex items-center gap-2">
             <Volume2 className="w-3 h-3 text-gray-400" />
-            <SwipeProtectedSlider
+            <NumericSliderField
+              ariaLabel="BGMの音量"
               min={0}
               max={2.5}
               step={0.05}
               value={bgm.volume}
               onChange={handleVolumeChange}
               disabled={isBgmLocked}
-              className={`flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isBgmLocked ? '' : 'cursor-pointer'}`}
+              hideInput
+              className="flex-1 min-w-0"
+              sliderClassName={`flex-1 min-w-0 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isBgmLocked ? '' : 'cursor-pointer'}`}
             />
-            <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right">
+            <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right shrink-0">
               {Math.round(bgm.volume * 100)}%
             </span>
             <button

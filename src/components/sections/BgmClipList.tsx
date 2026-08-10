@@ -22,6 +22,7 @@ import {
 import type { BgmClip } from '../../types';
 import { resolveBgmClipsEffectivePlayback, useAudioStore } from '../../stores/audioStore';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
+import NumericSliderField from '../common/NumericSliderField';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 
 interface BgmClipListProps {
@@ -310,33 +311,18 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
                 <span>開始位置: {formatTime(clip.startTime)}</span>
                 <span>長さ: {formatTime(playableDuration)}</span>
               </div>
-              <div className="flex items-center gap-2">
-                <SwipeProtectedSlider
-                  min={0}
-                  max={Math.max(0, totalDuration)}
-                  step={0.1}
-                  value={clip.startTime}
-                  onChange={withContinuousEdit('update-bgm-clip-start', (val: number) => updateBgmClipStartTime(clip.id, val))}
-                  disabled={isLocked}
-                  className="flex-1 accent-purple-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
-                />
-                <input
-                  type="number"
-                  min="0"
-                  max={Math.max(0, totalDuration)}
-                  step="0.1"
-                  value={Math.round(clip.startTime * 10) / 10}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    if (Number.isNaN(val)) return;
-                    onBeforeContinuousEdit('update-bgm-clip-start');
-                    updateBgmClipStartTime(clip.id, val);
-                  }}
-                  disabled={isLocked}
-                  className="w-16 md:w-20 bg-gray-700 border border-gray-600 rounded px-1 text-[10px] md:text-xs text-right focus:outline-none focus:border-purple-500 disabled:opacity-50"
-                />
-                <span className="text-[10px] md:text-xs text-gray-500">秒</span>
-              </div>
+              <NumericSliderField
+                ariaLabel="BGMの開始位置"
+                min={0}
+                max={Math.max(0, totalDuration)}
+                step={0.1}
+                value={clip.startTime}
+                onChange={withContinuousEdit('update-bgm-clip-start', (val: number) => updateBgmClipStartTime(clip.id, val))}
+                disabled={isLocked}
+                unit="秒"
+                sliderClassName="flex-1 min-w-0 accent-purple-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
+                inputClassName="w-16 md:w-20 focus:border-purple-500"
+              />
             </div>
 
             {/* 音量 */}
@@ -349,16 +335,19 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
               >
                 {clip.isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
               </button>
-              <SwipeProtectedSlider
+              <NumericSliderField
+                ariaLabel="BGMの音量"
                 min={0}
                 max={2.5}
                 step={0.05}
                 value={clip.volume}
                 onChange={withContinuousEdit('update-bgm-clip-volume', (val: number) => updateBgmClipVolume(clip.id, val))}
                 disabled={isLocked || clip.isMuted}
-                className={`flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${(isLocked || clip.isMuted) ? '' : 'cursor-pointer'}`}
+                hideInput
+                className="flex-1 min-w-0"
+                sliderClassName={`flex-1 min-w-0 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${(isLocked || clip.isMuted) ? '' : 'cursor-pointer'}`}
               />
-              <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right">{Math.round(clip.volume * 100)}%</span>
+              <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right shrink-0">{Math.round(clip.volume * 100)}%</span>
               <button
                 onClick={withEdit('update-bgm-clip-volume', () => updateBgmClipVolume(clip.id, 1))}
                 disabled={isLocked}
@@ -385,66 +374,36 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
                     <span>トリミング開始: {formatTime(trimStart)}</span>
                     <span>元音声: {formatTime(clip.duration)}</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <SwipeProtectedSlider
-                      min={0}
-                      max={Math.max(0, clip.duration)}
-                      step={0.1}
-                      value={trimStart}
-                      onChange={withContinuousEdit('update-bgm-clip-trim', (val: number) => updateBgmClipTrim(clip.id, 'start', val))}
-                      disabled={isLocked}
-                      className="flex-1 accent-purple-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
-                    />
-                    <input
-                      type="number"
-                      min="0"
-                      max={Math.max(0, trimEnd - 0.05)}
-                      step="0.1"
-                      value={Math.round(trimStart * 10) / 10}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value);
-                        if (Number.isNaN(val)) return;
-                        onBeforeContinuousEdit('update-bgm-clip-trim');
-                        updateBgmClipTrim(clip.id, 'start', val);
-                      }}
-                      disabled={isLocked}
-                      className="w-16 md:w-20 bg-gray-700 border border-gray-600 rounded px-1 text-[10px] md:text-xs text-right focus:outline-none focus:border-purple-500 disabled:opacity-50"
-                    />
-                    <span className="text-[10px] md:text-xs text-gray-500">秒</span>
-                  </div>
+                  <NumericSliderField
+                    ariaLabel="BGMのトリミング開始"
+                    min={0}
+                    max={Math.max(0, clip.duration)}
+                    step={0.1}
+                    value={trimStart}
+                    onChange={withContinuousEdit('update-bgm-clip-trim', (val: number) => updateBgmClipTrim(clip.id, 'start', val))}
+                    disabled={isLocked}
+                    unit="秒"
+                    sliderClassName="flex-1 min-w-0 accent-purple-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
+                    inputClassName="w-16 md:w-20 focus:border-purple-500"
+                  />
                 </div>
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-[10px] md:text-xs text-gray-400">
                     <span>トリミング終了: {formatTime(trimEnd)}</span>
                     <span>範囲: {formatTime(playableDuration)}</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <SwipeProtectedSlider
-                      min={0}
-                      max={Math.max(0, clip.duration)}
-                      step={0.1}
-                      value={trimEnd}
-                      onChange={withContinuousEdit('update-bgm-clip-trim', (val: number) => updateBgmClipTrim(clip.id, 'end', val))}
-                      disabled={isLocked}
-                      className="flex-1 accent-purple-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
-                    />
-                    <input
-                      type="number"
-                      min={Math.min(Math.max(0, trimStart + 0.05), Math.max(0, clip.duration))}
-                      max={Math.max(0, clip.duration)}
-                      step="0.1"
-                      value={Math.round(trimEnd * 10) / 10}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value);
-                        if (Number.isNaN(val)) return;
-                        onBeforeContinuousEdit('update-bgm-clip-trim');
-                        updateBgmClipTrim(clip.id, 'end', val);
-                      }}
-                      disabled={isLocked}
-                      className="w-16 md:w-20 bg-gray-700 border border-gray-600 rounded px-1 text-[10px] md:text-xs text-right focus:outline-none focus:border-purple-500 disabled:opacity-50"
-                    />
-                    <span className="text-[10px] md:text-xs text-gray-500">秒</span>
-                  </div>
+                  <NumericSliderField
+                    ariaLabel="BGMのトリミング終了"
+                    min={0}
+                    max={Math.max(0, clip.duration)}
+                    step={0.1}
+                    value={trimEnd}
+                    onChange={withContinuousEdit('update-bgm-clip-trim', (val: number) => updateBgmClipTrim(clip.id, 'end', val))}
+                    disabled={isLocked}
+                    unit="秒"
+                    sliderClassName="flex-1 min-w-0 accent-purple-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
+                    inputClassName="w-16 md:w-20 focus:border-purple-500"
+                  />
                 </div>
               </div>
             )}

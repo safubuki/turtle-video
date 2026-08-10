@@ -104,10 +104,11 @@ describe('OverlaySection', () => {
     const resetButton = screen.getByRole('button', { name: '横 (右+)をデフォルトに戻す' });
     expect(resetButton).toHaveClass('text-gray-200');
     expect(resetButton.parentElement).toContainElement(screen.getByText('横 (右+)'));
-    const positionInput = screen.getByLabelText('横 (右+)');
+    // −/+ ステッパーが並ぶため、数値列は固定幅ではなく auto で確保する
+    const positionInput = screen.getByLabelText('ウォーターマークの横 (右+)（数値）');
     const controlRow = positionInput.parentElement?.parentElement;
-    expect(controlRow).toHaveClass('grid-cols-[5rem_minmax(0,1fr)_5rem]');
-    expect(controlRow).toHaveClass('sm:grid-cols-[5.75rem_minmax(0,1fr)_5.5rem]');
+    expect(controlRow).toHaveClass('grid-cols-[4.5rem_minmax(0,1fr)_auto]');
+    expect(controlRow).toHaveClass('sm:grid-cols-[5.75rem_minmax(0,1fr)_auto]');
   });
 
   it('左下・右下・中央・左上・右上の順で、画像サイズに応じた位置を簡単設定できる', () => {
@@ -172,7 +173,9 @@ describe('OverlaySection', () => {
       openEndrollTab();
 
       // 表示は中央原点。+25% は保存値 62.5%（= 25/2 + 50）
-      fireEvent.change(screen.getByLabelText('横 (右+)'), { target: { value: '25' } });
+      fireEvent.change(screen.getByLabelText('ウォーターマークの横 (右+)'), {
+        target: { value: '25' },
+      });
 
       expect(props.onEndrollUpdate).toHaveBeenCalledWith({ positionX: 62.5 });
       expect(props.onUpdate).not.toHaveBeenCalled();
@@ -182,7 +185,10 @@ describe('OverlaySection', () => {
       const { props } = renderSection(true, {}, { url: 'blob:end', enabled: true });
       openEndrollTab();
 
-      fireEvent.change(screen.getByLabelText('長さ'), { target: { value: '8' } });
+      // 数値欄は入力途中では確定せず、フォーカスを外した時点で反映する
+      const durationNumber = screen.getByLabelText('ウォーターマークの長さ（数値）');
+      fireEvent.change(durationNumber, { target: { value: '8' } });
+      fireEvent.blur(durationNumber, { target: { value: '8' } });
       expect(props.onEndrollUpdate).toHaveBeenCalledWith({ durationSec: 8 });
 
       fireEvent.click(screen.getByRole('button', { name: '白' }));

@@ -31,6 +31,8 @@ import {
 import type { NarrationClip } from '../../types';
 import { getAudioUploadAccept } from '../../utils/platform';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
+import NumericSliderField from '../common/NumericSliderField';
+import NumericStepperInput from '../common/NumericStepperInput';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import { getAppFlavorUiCapabilities } from '../../app/appFlavorUi';
 import { useAudioStore } from '../../stores/audioStore';
@@ -397,17 +399,17 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                         className="w-full accent-indigo-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
                       />
                     </div>
-                    <input
-                      type="number"
-                      min="0"
+                    <NumericStepperInput
+                      ariaLabel="ナレーションの開始位置"
+                      min={0}
                       max={Math.max(0, totalDuration)}
-                      step="0.1"
+                      step={0.1}
                       value={clip.startTime}
-                      onChange={(e) => onUpdateStartTime(clip.id, e.target.value)}
+                      onChange={(val) => handleStartTimeChange(clip.id, val)}
                       disabled={isNarrationLocked}
-                      className="w-16 md:w-20 bg-gray-700 border border-gray-600 rounded px-1 text-[10px] md:text-xs text-right focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+                      unit="秒"
+                      inputClassName="w-16 md:w-20 focus:border-indigo-500"
                     />
-                    <span className="text-[10px] md:text-xs text-gray-500">秒</span>
                   </div>
                 </div>
 
@@ -450,16 +452,19 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                       <Volume2 className="w-3.5 h-3.5" />
                     )}
                   </button>
-                  <SwipeProtectedSlider
+                  <NumericSliderField
+                    ariaLabel="ナレーションの音量"
                     min={0}
                     max={2.5}
                     step={0.05}
                     value={clip.volume}
                     onChange={(val) => handleVolumeChange(clip.id, val)}
                     disabled={isNarrationLocked || clip.isMuted}
-                    className={`flex-1 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isNarrationLocked || clip.isMuted ? '' : 'cursor-pointer'}`}
+                    hideInput
+                    className="flex-1 min-w-0"
+                    sliderClassName={`flex-1 min-w-0 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isNarrationLocked || clip.isMuted ? '' : 'cursor-pointer'}`}
                   />
-                  <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right">
+                  <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right shrink-0">
                     {Math.round(clip.volume * 100)}%
                   </span>
                   <button
@@ -509,28 +514,18 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                         <span>トリミング開始: {formatTime(trimStart)}</span>
                         <span>元音声: {formatTime(clip.duration)}</span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <SwipeProtectedSlider
-                          min={0}
-                          max={Math.max(0, clip.duration)}
-                          step={0.1}
-                          value={trimStart}
-                          onChange={(val) => handleTrimStartChange(clip.id, val)}
-                          disabled={isNarrationLocked}
-                          className="flex-1 accent-indigo-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
-                        />
-                        <input
-                          type="number"
-                          min="0"
-                          max={Math.max(0, trimEnd - 0.05)}
-                          step="0.1"
-                          value={trimStart}
-                          onChange={(e) => onUpdateTrimStart(clip.id, e.target.value)}
-                          disabled={isNarrationLocked}
-                          className="w-16 md:w-20 bg-gray-700 border border-gray-600 rounded px-1 text-[10px] md:text-xs text-right focus:outline-none focus:border-indigo-500 disabled:opacity-50"
-                        />
-                        <span className="text-[10px] md:text-xs text-gray-500">秒</span>
-                      </div>
+                      <NumericSliderField
+                        ariaLabel="ナレーションのトリミング開始"
+                        min={0}
+                        max={Math.max(0, clip.duration)}
+                        step={0.1}
+                        value={trimStart}
+                        onChange={(val) => handleTrimStartChange(clip.id, val)}
+                        disabled={isNarrationLocked}
+                        unit="秒"
+                        sliderClassName="flex-1 min-w-0 accent-indigo-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
+                        inputClassName="w-16 md:w-20 focus:border-indigo-500"
+                      />
                     </div>
 
                     <div className="space-y-1">
@@ -538,28 +533,18 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                         <span>トリミング終了: {formatTime(trimEnd)}</span>
                         <span>範囲: {formatTime(playableDuration)}</span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <SwipeProtectedSlider
-                          min={0}
-                          max={Math.max(0, clip.duration)}
-                          step={0.1}
-                          value={trimEnd}
-                          onChange={(val) => handleTrimEndChange(clip.id, val)}
-                          disabled={isNarrationLocked}
-                          className="flex-1 accent-indigo-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
-                        />
-                        <input
-                          type="number"
-                          min={Math.min(Math.max(0, trimStart + 0.05), Math.max(0, clip.duration))}
-                          max={Math.max(0, clip.duration)}
-                          step="0.1"
-                          value={trimEnd}
-                          onChange={(e) => onUpdateTrimEnd(clip.id, e.target.value)}
-                          disabled={isNarrationLocked}
-                          className="w-16 md:w-20 bg-gray-700 border border-gray-600 rounded px-1 text-[10px] md:text-xs text-right focus:outline-none focus:border-indigo-500 disabled:opacity-50"
-                        />
-                        <span className="text-[10px] md:text-xs text-gray-500">秒</span>
-                      </div>
+                      <NumericSliderField
+                        ariaLabel="ナレーションのトリミング終了"
+                        min={0}
+                        max={Math.max(0, clip.duration)}
+                        step={0.1}
+                        value={trimEnd}
+                        onChange={(val) => handleTrimEndChange(clip.id, val)}
+                        disabled={isNarrationLocked}
+                        unit="秒"
+                        sliderClassName="flex-1 min-w-0 accent-indigo-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
+                        inputClassName="w-16 md:w-20 focus:border-indigo-500"
+                      />
                     </div>
                   </div>
                   )}

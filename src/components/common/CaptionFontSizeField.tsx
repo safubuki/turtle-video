@@ -14,7 +14,7 @@
  */
 import React from 'react';
 import type { CaptionSize } from '../../types';
-import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
+import NumericSliderField from './NumericSliderField';
 import {
   CAPTION_FONT_SIZE_CUSTOM_MAX,
   CAPTION_FONT_SIZE_CUSTOM_MIN,
@@ -148,7 +148,7 @@ const CaptionFontSizeField = React.memo<CaptionFontSizeFieldProps>(({
       </div>
       {supportsCustom && isCustom && (
         <div className={`flex items-center gap-2 text-[10px] md:text-xs ${compact ? 'pl-10 md:pl-16' : 'pl-16'}`}>
-          <SwipeProtectedSlider
+          <NumericSliderField
             min={CAPTION_FONT_SIZE_CUSTOM_MIN}
             max={CAPTION_FONT_SIZE_CUSTOM_MAX}
             step={2}
@@ -156,24 +156,12 @@ const CaptionFontSizeField = React.memo<CaptionFontSizeFieldProps>(({
             onChange={(val) => onSetFontSizeCustom(clampCustomFontSize(val))}
             disabled={disabled}
             ariaLabel={`${ariaLabelPrefix}のカスタム文字サイズ`}
-            className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${disabled ? '' : 'cursor-pointer'}`}
+            inputId={`${idPrefix}-font-size-custom`}
+            unit="px"
+            className="flex-1 min-w-0"
+            sliderClassName={`flex-1 min-w-0 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${disabled ? '' : 'cursor-pointer'}`}
+            inputClassName="w-14 focus:border-yellow-500"
           />
-          <input
-            id={`${idPrefix}-font-size-custom`}
-            type="number"
-            min={CAPTION_FONT_SIZE_CUSTOM_MIN}
-            max={CAPTION_FONT_SIZE_CUSTOM_MAX}
-            step={2}
-            value={Math.round(customValue)}
-            onChange={(e) => {
-              const val = parseFloat(e.target.value);
-              if (!Number.isNaN(val)) onSetFontSizeCustom(clampCustomFontSize(val));
-            }}
-            disabled={disabled}
-            aria-label={`${ariaLabelPrefix}のカスタム文字サイズ（数値）`}
-            className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500 disabled:opacity-50"
-          />
-          <span className="text-gray-500 whitespace-nowrap">px</span>
         </div>
       )}
     </>

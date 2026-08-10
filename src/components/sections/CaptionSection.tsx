@@ -47,6 +47,7 @@ import CaptionFontSizeField from '../common/CaptionFontSizeField';
 import CaptionFontStyleField from '../common/CaptionFontStyleField';
 import VideoTitleSettingsPanel from './VideoTitleSettingsPanel';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
+import NumericSliderField from '../common/NumericSliderField';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import { getAppFlavorUiCapabilities } from '../../app/appFlavorUi';
 import {
@@ -742,7 +743,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                           >
                             縁の幅:
                           </label>
-                          <SwipeProtectedSlider
+                          <NumericSliderField
                             min={CAPTION_STROKE_WIDTH_MIN}
                             max={CAPTION_STROKE_WIDTH_MAX}
                             step={CAPTION_STROKE_WIDTH_STEP}
@@ -750,25 +751,12 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                             onChange={(value) => onSetStrokeWidth(clampCaptionStrokeWidth(value))}
                             disabled={isLocked}
                             ariaLabel="キャプションの縁の幅"
-                            className={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
+                            inputId="caption-stroke-width"
+                            unit="px"
+                            className="min-w-0 flex-1"
+                            sliderClassName={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
+                            inputClassName="w-14 focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500/40"
                           />
-                          <input
-                            id="caption-stroke-width"
-                            type="number"
-                            min={CAPTION_STROKE_WIDTH_MIN}
-                            max={CAPTION_STROKE_WIDTH_MAX}
-                            step={CAPTION_STROKE_WIDTH_STEP}
-                            value={clampCaptionStrokeWidth(settings.strokeWidth)}
-                            onChange={(event) => {
-                              const value = Number.parseFloat(event.target.value);
-                              if (Number.isFinite(value))
-                                onSetStrokeWidth(clampCaptionStrokeWidth(value));
-                            }}
-                            disabled={isLocked}
-                            aria-label="キャプションの縁の幅（数値）"
-                            className="w-14 rounded-md border border-gray-600 bg-gray-700 px-1.5 py-1 text-right focus:border-yellow-500 focus:outline-none focus:ring-1 focus:ring-yellow-500/40 disabled:opacity-50"
-                          />
-                          <span className="text-gray-500">px</span>
                         </div>
                         <CaptionColorField
                           label="縁の色"
@@ -812,18 +800,21 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                   />
                   {/* ぼかし */}
                   <div className="flex items-center gap-2 text-[10px] md:text-xs">
-                    <span className="text-gray-400 w-16">ぼかし:</span>
-                    <SwipeProtectedSlider
+                    <span className="text-gray-400 w-16 shrink-0">ぼかし:</span>
+                    <NumericSliderField
                       min={0}
                       max={50}
                       step={1}
                       value={settings.blur * 10}
                       onChange={(val) => onSetBlur(val / 10)}
                       disabled={isLocked}
-                      className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isLocked ? '' : 'cursor-pointer'}`}
+                      ariaLabel="キャプションのぼかし"
+                      hideInput
+                      className="flex-1 min-w-0"
+                      sliderClassName={`flex-1 min-w-0 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isLocked ? '' : 'cursor-pointer'}`}
                     />
                     <span
-                      className={`w-8 text-right whitespace-nowrap ${isLocked ? 'text-gray-600' : 'text-gray-400'}`}
+                      className={`w-8 text-right whitespace-nowrap shrink-0 ${isLocked ? 'text-gray-600' : 'text-gray-400'}`}
                     >
                       {settings.blur.toFixed(1)}
                     </span>
@@ -859,45 +850,31 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                           <label className="text-gray-400 w-16 shrink-0" htmlFor="caption-bg-opacity">
                             濃さ:
                           </label>
-                          <SwipeProtectedSlider
-                            min={CAPTION_BACKGROUND_OPACITY_MIN}
-                            max={CAPTION_BACKGROUND_OPACITY_MAX}
-                            step={CAPTION_BACKGROUND_OPACITY_STEP}
-                            value={clampCaptionBackgroundOpacity(settings.backgroundOpacity)}
-                            onChange={(value) =>
-                              onSetBackgroundOpacity(clampCaptionBackgroundOpacity(value))
-                            }
-                            disabled={isLocked}
-                            ariaLabel="キャプション背景の濃さ"
-                            className={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
-                          />
-                          <input
-                            id="caption-bg-opacity"
-                            type="number"
-                            min={0}
-                            max={100}
-                            step={5}
+                          {/* スライダーは 0–1、数値欄は % 表示のため、% 基準へ統一して扱う */}
+                          <NumericSliderField
+                            min={Math.round(CAPTION_BACKGROUND_OPACITY_MIN * 100)}
+                            max={Math.round(CAPTION_BACKGROUND_OPACITY_MAX * 100)}
+                            step={Math.round(CAPTION_BACKGROUND_OPACITY_STEP * 100)}
                             value={Math.round(
                               clampCaptionBackgroundOpacity(settings.backgroundOpacity) * 100,
                             )}
-                            onChange={(e) => {
-                              const value = Number.parseFloat(e.target.value);
-                              if (Number.isFinite(value)) {
-                                onSetBackgroundOpacity(
-                                  clampCaptionBackgroundOpacity(value / 100),
-                                );
-                              }
-                            }}
+                            onChange={(value) =>
+                              onSetBackgroundOpacity(clampCaptionBackgroundOpacity(value / 100))
+                            }
                             disabled={isLocked}
-                            className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500 disabled:opacity-50"
+                            ariaLabel="キャプション背景の濃さ"
+                            inputId="caption-bg-opacity"
+                            unit="%"
+                            className="min-w-0 flex-1"
+                            sliderClassName={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
+                            inputClassName="w-14 focus:border-yellow-500"
                           />
-                          <span className="text-gray-500">%</span>
                         </div>
                         <div className="flex items-center gap-2 text-[10px] md:text-xs">
                           <label className="text-gray-400 w-16 shrink-0" htmlFor="caption-bg-radius">
                             角丸:
                           </label>
-                          <SwipeProtectedSlider
+                          <NumericSliderField
                             min={CAPTION_BACKGROUND_RADIUS_MIN}
                             max={CAPTION_BACKGROUND_RADIUS_MAX}
                             step={CAPTION_BACKGROUND_RADIUS_STEP}
@@ -907,25 +884,12 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                             }
                             disabled={isLocked}
                             ariaLabel="キャプション背景の角丸"
-                            className={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
+                            inputId="caption-bg-radius"
+                            unit="px"
+                            className="min-w-0 flex-1"
+                            sliderClassName={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
+                            inputClassName="w-14 focus:border-yellow-500"
                           />
-                          <input
-                            id="caption-bg-radius"
-                            type="number"
-                            min={CAPTION_BACKGROUND_RADIUS_MIN}
-                            max={CAPTION_BACKGROUND_RADIUS_MAX}
-                            step={CAPTION_BACKGROUND_RADIUS_STEP}
-                            value={clampCaptionBackgroundRadius(settings.backgroundRadius)}
-                            onChange={(e) => {
-                              const value = Number.parseFloat(e.target.value);
-                              if (Number.isFinite(value)) {
-                                onSetBackgroundRadius(clampCaptionBackgroundRadius(value));
-                              }
-                            }}
-                            disabled={isLocked}
-                            className="w-14 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500 disabled:opacity-50"
-                          />
-                          <span className="text-gray-500">px</span>
                         </div>
                       </div>
                     )}

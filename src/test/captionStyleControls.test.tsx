@@ -220,9 +220,10 @@ describe('CaptionSection outline and color controls', () => {
     fireEvent.change(screen.getByLabelText('キャプションの縁の幅'), {
       target: { value: '4.5' },
     });
-    fireEvent.change(screen.getByLabelText('キャプションの縁の幅（数値）'), {
-      target: { value: '7.5' },
-    });
+    // 数値欄は入力途中では確定せず、フォーカスを外した時点で反映する
+    const strokeNumber = screen.getByLabelText('キャプションの縁の幅（数値）');
+    fireEvent.change(strokeNumber, { target: { value: '7.5' } });
+    fireEvent.blur(strokeNumber, { target: { value: '7.5' } });
 
     expect(props.onSetStrokeWidth).toHaveBeenNthCalledWith(1, 4.5);
     expect(props.onSetStrokeWidth).toHaveBeenNthCalledWith(2, 7.5);

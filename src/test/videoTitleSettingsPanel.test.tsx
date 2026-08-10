@@ -225,9 +225,10 @@ describe('VideoTitleSettingsPanel', () => {
     openStyle();
 
     expect(screen.getByLabelText('タイトルのカスタム文字サイズ')).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('タイトルのカスタム文字サイズ（数値）'), {
-      target: { value: '200' },
-    });
+    // 数値欄は blur（確定）で初めて反映される
+    const sizeNumber = screen.getByLabelText('タイトルのカスタム文字サイズ（数値）');
+    fireEvent.change(sizeNumber, { target: { value: '200' } });
+    fireEvent.blur(sizeNumber, { target: { value: '200' } });
     expect(onUpdate).toHaveBeenCalledWith({ fontSizeCustom: 200 });
   });
 
@@ -268,7 +269,9 @@ describe('VideoTitleSettingsPanel', () => {
     render(<VideoTitleSettingsPanel {...buildPanelProps({ onSetRange })} />);
     openTitle();
 
-    fireEvent.change(screen.getByLabelText('開始:'), { target: { value: '2.5' } });
+    const startNumber = screen.getByLabelText('タイトルの開始時間（数値）');
+    fireEvent.change(startNumber, { target: { value: '2.5' } });
+    fireEvent.blur(startNumber, { target: { value: '2.5' } });
 
     expect(onSetRange).toHaveBeenCalledWith(2.5, DEFAULT_VIDEO_TITLE_SETTINGS.endTime, 20);
   });
@@ -358,7 +361,10 @@ describe('VideoTitleSettingsPanel', () => {
     fireEvent.change(screen.getByLabelText('タイトル背景の角丸'), { target: { value: '40' } });
     expect(onUpdate).toHaveBeenCalledWith({ backgroundRadius: 40 });
 
-    fireEvent.change(screen.getByLabelText('角丸:'), { target: { value: '12' } });
+    // 数値欄は入力途中では確定せず、フォーカスを外した時点で反映する
+    const radiusNumber = screen.getByLabelText('タイトル背景の角丸（数値）');
+    fireEvent.change(radiusNumber, { target: { value: '12' } });
+    fireEvent.blur(radiusNumber, { target: { value: '12' } });
     expect(onUpdate).toHaveBeenCalledWith({ backgroundRadius: 12 });
   });
 

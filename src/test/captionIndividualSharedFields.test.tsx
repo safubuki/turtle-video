@@ -240,8 +240,10 @@ describe('CaptionPositionField（一括設定と個別設定の共有コンポ�
     );
 
     // 表示は「中央原点・上が＋」。入力 +30% は保存値 65%（= 30/2 + 50）になる
+    // 数値欄は入力途中では確定せず、フォーカスを外した時点で反映する
     const xNumber = screen.getByLabelText('テストの表示位置 X（数値）');
     fireEvent.change(xNumber, { target: { value: '30' } });
+    fireEvent.blur(xNumber, { target: { value: '30' } });
     expect(onSetPositionCustom).toHaveBeenCalledWith({ x: 65, y: 80 });
   });
 
@@ -278,6 +280,7 @@ describe('CaptionPositionField（一括設定と個別設定の共有コンポ�
     const yNumber = screen.getByLabelText('テストの表示位置 Y（数値）');
     // ＋40 を入力＝上へ。保存値は 30%（＝上寄り）になる
     fireEvent.change(yNumber, { target: { value: '40' } });
+    fireEvent.blur(yNumber, { target: { value: '40' } });
     expect(onSetPositionCustom).toHaveBeenCalledWith({ x: 50, y: 30 });
   });
 

@@ -39,6 +39,7 @@ import {
 import ClipThumbnail from '../common/ClipThumbnail';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
+import NumericSliderField from '../common/NumericSliderField';
 import { useCanvasStore } from '../../stores/canvasStore';
 import {
   canSetVideoTrimFromPreviewPosition,
@@ -315,53 +316,33 @@ const ClipItem: React.FC<ClipItemProps> = ({
             </div>
           )}
           {/* 開始位置 */}
-          <div className="flex items-center gap-2 text-[10px]">
-            <span className="text-gray-500 w-6">開始</span>
-            <SwipeProtectedSlider
-              min={0}
-              max={v.originalDuration}
-              step={0.1}
-              value={v.trimStart}
-              onChange={handleTrimStart}
-              disabled={isDisabled}
-              className="flex-1 accent-green-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-            />
-            <input
-              type="number"
-              min="0"
-              max={v.originalDuration}
-              step="0.1"
-              value={Math.round(v.trimStart * 100) / 100}
-              onChange={(e) => onUpdateVideoTrim('start', e.target.value)}
-              disabled={isDisabled}
-              className="w-12 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-green-500 disabled:opacity-50"
-            />
-            <span className="text-gray-500">秒</span>
-          </div>
+          <NumericSliderField
+            label="開始"
+            ariaLabel="トリミング開始位置"
+            min={0}
+            max={v.originalDuration}
+            step={0.1}
+            value={v.trimStart}
+            onChange={handleTrimStart}
+            disabled={isDisabled}
+            unit="秒"
+            sliderClassName="flex-1 min-w-0 accent-green-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+            inputClassName="w-12 focus:border-green-500"
+          />
           {/* 終了位置 */}
-          <div className="flex items-center gap-2 text-[10px]">
-            <span className="text-gray-500 w-6">終了</span>
-            <SwipeProtectedSlider
-              min={0}
-              max={v.originalDuration}
-              step={0.1}
-              value={v.trimEnd}
-              onChange={handleTrimEnd}
-              disabled={isDisabled}
-              className="flex-1 accent-red-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-            />
-            <input
-              type="number"
-              min="0"
-              max={v.originalDuration}
-              step="0.1"
-              value={Math.round(v.trimEnd * 100) / 100}
-              onChange={(e) => onUpdateVideoTrim('end', e.target.value)}
-              disabled={isDisabled}
-              className="w-12 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-red-500 disabled:opacity-50"
-            />
-            <span className="text-gray-500">秒</span>
-          </div>
+          <NumericSliderField
+            label="終了"
+            ariaLabel="トリミング終了位置"
+            min={0}
+            max={v.originalDuration}
+            step={0.1}
+            value={v.trimEnd}
+            onChange={handleTrimEnd}
+            disabled={isDisabled}
+            unit="秒"
+            sliderClassName="flex-1 min-w-0 accent-red-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+            inputClassName="w-12 focus:border-red-500"
+          />
         </div>
       )}
 
@@ -374,29 +355,23 @@ const ClipItem: React.FC<ClipItemProps> = ({
               {formatTimelineTime(timelineRange.start)} - {formatTimelineTime(timelineRange.end)}
             </span>
           </div>
-          <div className="flex items-center gap-2 text-[10px]">
-            <Clock className="w-3 h-3 text-gray-400" />
-            <span className="text-gray-400 w-14">表示時間</span>
-            <SwipeProtectedSlider
+          <div className="flex items-center gap-1.5 text-[10px]">
+            <Clock className="w-3 h-3 text-gray-400 shrink-0" />
+            <NumericSliderField
+              label="表示時間"
+              labelClassName="text-gray-400 w-14 shrink-0"
+              ariaLabel="画像の表示時間"
               min={0.5}
               max={30}
               step={0.5}
               value={v.duration}
               onChange={handleImageDuration}
               disabled={isDisabled}
-              className="flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+              unit="秒"
+              className="flex-1 min-w-0"
+              sliderClassName="flex-1 min-w-0 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+              inputClassName="w-12 focus:border-yellow-500"
             />
-            <input
-              type="number"
-              min="0.5"
-              max="60"
-              step="0.5"
-              value={v.duration}
-              onChange={(e) => onUpdateImageDuration(e.target.value)}
-              disabled={isDisabled}
-              className="w-12 bg-gray-700 border border-gray-600 rounded px-1 text-right focus:outline-none focus:border-yellow-500 disabled:opacity-50"
-            />
-            <span className="text-gray-500">秒</span>
           </div>
         </div>
       )}
@@ -453,14 +428,17 @@ const ClipItem: React.FC<ClipItemProps> = ({
               </label>
             </div>
 
-            <SwipeProtectedSlider
+            <NumericSliderField
+              ariaLabel="拡大率"
               min={0.5}
               max={3.0}
               step={0.001}
+              stepperStep={0.025}
               value={v.scale || 1.0}
               onChange={handleScale}
               disabled={isDisabled}
-              className="w-full accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+              hideInput
+              sliderClassName="flex-1 min-w-0 accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
             />
           </div>
 
@@ -479,14 +457,16 @@ const ClipItem: React.FC<ClipItemProps> = ({
                 <RotateCcw className="w-3 h-3" />
               </button>
             </div>
-            <SwipeProtectedSlider
+            <NumericSliderField
+              ariaLabel="横位置"
               min={CENTER_ORIGIN_MIN}
               max={CENTER_ORIGIN_MAX}
               step={1}
               value={displayPositionX}
               onChange={handlePositionX}
               disabled={isDisabled}
-              className="w-full accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+              hideInput
+              sliderClassName="flex-1 min-w-0 accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
             />
           </div>
 
@@ -505,14 +485,16 @@ const ClipItem: React.FC<ClipItemProps> = ({
                 <RotateCcw className="w-3 h-3" />
               </button>
             </div>
-            <SwipeProtectedSlider
+            <NumericSliderField
+              ariaLabel="縦位置"
               min={CENTER_ORIGIN_MIN}
               max={CENTER_ORIGIN_MAX}
               step={1}
               value={displayPositionY}
               onChange={handlePositionY}
               disabled={isDisabled}
-              className="w-full accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+              hideInput
+              sliderClassName="flex-1 min-w-0 accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
             />
           </div>
 
@@ -562,7 +544,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
                 <RotateCcw className="w-3 h-3" />
               </button>
             </div>
-            <SwipeProtectedSlider
+            <NumericSliderField
               min={0}
               max={30}
               step={1}
@@ -570,7 +552,8 @@ const ClipItem: React.FC<ClipItemProps> = ({
               onChange={handleBlur}
               disabled={isDisabled}
               ariaLabel="ぼかし強度"
-              className="w-full accent-cyan-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+              hideInput
+              sliderClassName="flex-1 min-w-0 accent-cyan-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
             />
             <div className="flex justify-between text-[9px] text-gray-600" aria-hidden="true">
               <span>くっきり</span>
@@ -607,16 +590,19 @@ const ClipItem: React.FC<ClipItemProps> = ({
               >
                 {v.isMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
               </button>
-              <SwipeProtectedSlider
+              <NumericSliderField
+                ariaLabel="音量"
                 min={0}
                 max={2.5}
                 step={0.05}
                 value={v.volume}
                 disabled={v.isMuted || isDisabled}
                 onChange={handleVolume}
-                className={`flex-1 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${v.isMuted || isDisabled ? '' : 'cursor-pointer'}`}
+                hideInput
+                className="flex-1 min-w-0"
+                sliderClassName={`flex-1 min-w-0 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${v.isMuted || isDisabled ? '' : 'cursor-pointer'}`}
               />
-              <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right">{Math.round(v.volume * 100)}%</span>
+              <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right shrink-0">{Math.round(v.volume * 100)}%</span>
               <button
                 onClick={() => onUpdateVolume(1)}
                 disabled={isDisabled}
@@ -813,36 +799,32 @@ const ClipItem: React.FC<ClipItemProps> = ({
                               );
                             })}
                           </div>
-                          <div className="flex items-center gap-2 text-[10px]">
-                            <span className="text-gray-500 w-6">横</span>
-                            <SwipeProtectedSlider
-                              min={0}
-                              max={100}
-                              step={1}
-                              value={v.speedBadgePositionX ?? 91}
-                              onChange={(val) => onUpdateSpeedBadgePosition('x', val)}
-                              disabled={isDisabled}
-                              className="flex-1 accent-amber-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-                            />
-                            <span className="text-gray-400 w-8 text-right">
-                              {Math.round(v.speedBadgePositionX ?? 91)}%
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2 text-[10px]">
-                            <span className="text-gray-500 w-6">縦</span>
-                            <SwipeProtectedSlider
-                              min={0}
-                              max={100}
-                              step={1}
-                              value={v.speedBadgePositionY ?? 12}
-                              onChange={(val) => onUpdateSpeedBadgePosition('y', val)}
-                              disabled={isDisabled}
-                              className="flex-1 accent-amber-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-                            />
-                            <span className="text-gray-400 w-8 text-right">
-                              {Math.round(v.speedBadgePositionY ?? 12)}%
-                            </span>
-                          </div>
+                          <NumericSliderField
+                            label="横"
+                            ariaLabel="速度バッジの横位置"
+                            min={0}
+                            max={100}
+                            step={1}
+                            value={v.speedBadgePositionX ?? 91}
+                            onChange={(val) => onUpdateSpeedBadgePosition('x', val)}
+                            disabled={isDisabled}
+                            unit="%"
+                            sliderClassName="flex-1 min-w-0 accent-amber-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+                            inputClassName="w-11 focus:border-amber-500"
+                          />
+                          <NumericSliderField
+                            label="縦"
+                            ariaLabel="速度バッジの縦位置"
+                            min={0}
+                            max={100}
+                            step={1}
+                            value={v.speedBadgePositionY ?? 12}
+                            onChange={(val) => onUpdateSpeedBadgePosition('y', val)}
+                            disabled={isDisabled}
+                            unit="%"
+                            sliderClassName="flex-1 min-w-0 accent-amber-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+                            inputClassName="w-11 focus:border-amber-500"
+                          />
                         </div>
                       )}
                     </>
