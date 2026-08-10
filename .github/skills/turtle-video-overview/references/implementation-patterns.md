@@ -3634,3 +3634,22 @@ export 終了（成功/失敗/中断）
   - `standard.export.timeline.videoBoundaryPaused` と `...Resumed` が `boundaryKind='export-start'` / `'video-to-video'` で対応し、通常素材で `...Timeout` / `...Cancelled` が出ない。
   - 完了時の `renderSkipCount` / `skippedFrames` が0を理想とし、少なくとも基準出力より増えていない。`distinctRenderedFrames` が期待総フレームから不自然に欠けない。
   - 自動回帰は `standardPreviewEngine.test.tsx`、`standardPreviewStallRecovery.test.ts`、`standardFlavorRegression.test.ts`、`exportTimeline.test.ts`を最低限実行し、リリース前は `npm run test:run`、`npm run typecheck`、`npm run build`を実行する。
+
+### 13-190. プレビュー背面は常に黒（終端ガードで前フレームを残さない）
+
+- **ファイル**: `src/utils/previewCanvasClear.ts`（新規）, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/test/previewCanvasClear.test.ts`（新規）
+- **問題**:
+  - タイムライン**終端付近で停止したまま**クリップの位置・拡大を編集すると、ずらして空いた領域に**前フレームの映像が残った**。期待は黒。
+  - 原因は黒クリアの抑止条件。`shouldGuardNearEnd`（停止中かつ終端0.1秒以内）と `shouldGuardAfterFinalize`（ファイナライズ直後かつ停止中）が成立すると `fillRect` による黒クリアごと止まり、**canvas に残った前フレームの上へ移動後のクリップが重ね描き**されていた。
+  - 終端ガードの本来の目的は「**描くものが無い**フレームで黒を出して点滅させない」ことであり、描画対象があるフレームまで止める必要はなかった。
+- **対策**:
+  - クリア判定を純粋関数 `shouldClearPreviewCanvas()` へ集約し、standard / apple-safari の両フレーバーから共通利用する（判定の二重管理を防ぐ）。
+  - **描画対象クリップがある（`activeIndex !== -1`）かつ `holdFrame` でも `holdAtTimelineEnd` でもない**フレームでは、終端ガードより黒クリアを優先する。
+  - hold 系の抑止（Android の `suppressAndroidPreviewClear`、export 直後の `suppressPostExportHoldClear`、`holdFrame`）は**従来どおり最優先で維持**する。これらは前フレーム保持が目的なのでクリアしてはならない。
+  - `forceStartClear` / `blackoutFadeTail` の優先順も従来のまま（hold 抑止 → 強制クリア → holdFrame → 描画対象 → 終端ガード）。
+- **注意**:
+  - 「背面には常に黒。動画・画像を残さない」が仕様。ずらした領域へ別クリップが見える状態は**不具合**であり、余分な描画は負荷にもなる。
+  - 終端ガードを**描画対象があるフレームへ再び広げない**こと。広げると本不具合が再発する。
+  - 逆に hold 系の抑止を外すと、Android のブラックアウト（13-x の hold 対策）や export 直後の黒点滅が再発するため、`shouldClearPreviewCanvas()` の早期 return 順序を変えない。
+  - apple-safari には Android / post-export の hold 抑止が無いため、該当引数は `false` 固定で渡す。フレーバー固有の抑止条件を共通関数側へ持ち込まない。
+  - 自動回帰は `previewCanvasClear.test.ts`（13ケース）で固定。前フレーム保持の各ケースと、終端ガード下でもクリアされることの両方を検証している。

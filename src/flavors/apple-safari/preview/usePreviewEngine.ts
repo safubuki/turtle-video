@@ -42,6 +42,7 @@ import {
   resolveCaptionLayoutScale,
 } from '../../../utils/captionStyle';
 import { drawVideoTitleFrame } from '../../../utils/videoTitle';
+import { shouldClearPreviewCanvas } from '../../../utils/previewCanvasClear';
 import { drawWatermarkOverlayFrame } from '../../../utils/watermarkOverlay';
 import {
   applyVideoElementPlaybackRate,
@@ -711,9 +712,22 @@ export function usePreviewEngine({
         const shouldForceStartClear = isNearTimelineStart && (
           _isExporting || (!isActivePlaying && !isPlayingRef.current)
         );
-        const shouldClearCanvas = shouldForceStartClear
-          || shouldBlackoutFadeTail
-          || (!holdFrame && !shouldHoldAtTimelineEnd && !shouldGuardNearEnd && !shouldGuardAfterFinalize);
+        // 判定は utils/previewCanvasClear.ts に集約（standard フレーバーと共通）。
+        // 終端で停止したまま位置・拡大を編集したとき、終端ガードが黒クリアを止めて
+        // 前フレームが背面に残る不具合があったため、描画対象があるフレームでは
+        // ガードよりクリアを優先する。
+        // ※ apple-safari には Android / post-export の hold 抑止が無いため false 固定。
+        const shouldClearCanvas = shouldClearPreviewCanvas({
+          suppressAndroidPreviewClear: false,
+          suppressPostExportHoldClear: false,
+          forceStartClear: shouldForceStartClear,
+          blackoutFadeTail: shouldBlackoutFadeTail,
+          holdFrame,
+          holdAtTimelineEnd: shouldHoldAtTimelineEnd,
+          guardNearEnd: shouldGuardNearEnd,
+          guardAfterFinalize: shouldGuardAfterFinalize,
+          hasActiveItem: activeIndex !== -1,
+        });
 
         if (shouldClearCanvas) {
           if (totalDurationRef.current > 0 && time >= totalDurationRef.current - 0.5) {
