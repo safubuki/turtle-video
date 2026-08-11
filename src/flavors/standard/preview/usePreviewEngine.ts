@@ -86,7 +86,6 @@ import {
 } from '../../../utils/exportTimeline';
 import { createRenderedFrameTracker } from '../../../utils/exportDiagnostics';
 import { createExportFrameProfiler } from '../../../utils/exportFrameProfiler';
-import { resolveCompositeExportFrameRate } from '../../../utils/exportFrameRate';
 import { resolveMediaBaseScale } from '../../../stores/canvasStore';
 import {
   normalizeRotation,
@@ -124,12 +123,6 @@ import {
   type PreviewPlatformPolicy,
 } from './previewPlatform';
 import { getStandardPreviewNow } from './playbackClock';
-import {
-  createExportVideoPresentationMonitor,
-  getStandardExportVideoPresentationDecision,
-  shouldUseStandardExportVideoPresentationGate,
-  type ExportVideoPresentationSnapshot,
-} from './exportVideoPresentation';
 import type { ResetInactiveVideosOptions } from './useInactiveVideoManager';
 import {
   clampPreviewAudioGain,
@@ -838,16 +831,6 @@ interface ExportVideoBoundaryStallState {
   anchorSeekApplied: boolean;
 }
 
-interface ExportVideoPresentationWaitState {
-  key: string;
-  videoId: string;
-  frameIndex: number;
-  startedAtMs: number;
-  anchorTimelineSec: number;
-  targetSourceTime: number;
-  resyncApplied: boolean;
-}
-
 // Android 実機で一発 play が落ちても数回は吸収するための retry 設定。
 const PREVIEW_PLAY_RETRY_INTERVAL_MS = 160;
 const PREVIEW_PLAY_RETRY_MAX_ATTEMPTS = 4;
@@ -1176,9 +1159,6 @@ export function usePreviewEngine({
   const activePreviewModeRef = useRef<PreviewEngineMode>('idle');
   const currentExportSessionIdRef = useRef<string | null>(null);
   const frameDrivenExportEnabledRef = useRef(false);
-  // standard export 1 セッション内で preview 描画と encoder 投入が共有する CFR。
-  // 通常プレビューには適用せず、従来どおり constants.FPS のままにする。
-  const exportFrameRateRef = useRef(FPS);
   // 【Issue #215】export の render loop が実際に描画した最後のフレーム番号（未描画は null）。
   const exportRenderedFrameIndexRef = useRef<number | null>(null);
   // 【#215 再発調査】実際に描かれた「相異なる」フレーム番号を数える。
@@ -1195,13 +1175,6 @@ export function usePreviewEngine({
   // inactive 動画の常時 prefetch は全体 FPS を落とすため行わず、待機中だけ export 時計を固定する。
   const exportVideoBoundaryStallRef = useRef<ExportVideoBoundaryStallState | null>(null);
   const exportVideoBoundaryHandledKeyRef = useRef<string | null>(null);
-  // currentTime / readyState ではなく、Canvas に渡る実際のデコード画像を rVFC で監視する。
-  // 元動画と出力の実効 FPS が一致する場合だけ、同じ提示フレームの二重公開を防ぐ。
-  const exportVideoPresentationMonitorRef = useRef(createExportVideoPresentationMonitor());
-  const exportVideoPresentationWaitRef = useRef<ExportVideoPresentationWaitState | null>(null);
-  const exportVideoLastPublishedPresentationRef = useRef<Record<string, ExportVideoPresentationSnapshot>>({});
-  const exportVideoPresentationBypassRef = useRef<Set<string>>(new Set());
-  const exportVideoPresentationStatsRef = useRef({ waitCount: 0, resyncCount: 0, timeoutCount: 0 });
   // 倍速 export: 映像は 1x 連続再生し、タイムラインだけ wall/speed で進める（seek 駆動は静止画化するため不採用）。
   const exportTimelineSecRef = useRef(0);
   const exportLastWallNowMsRef = useRef<number | null>(null);
@@ -2200,7 +2173,7 @@ export function usePreviewEngine({
                 nextItemType: activeIndex + 1 < currentItems.length
                   ? currentItems[activeIndex + 1]?.type ?? null
                   : null,
-                fps: _isExporting ? exportFrameRateRef.current : FPS,
+                fps: FPS,
               });
 
               const shouldHoldForAndroidPreviewNotDrawable = isAndroidPreviewPlayback
@@ -2561,7 +2534,7 @@ export function usePreviewEngine({
                   nextItemType: activeIndex + 1 < currentItems.length
                     ? currentItems[activeIndex + 1]?.type ?? null
                     : null,
-                  fps: _isExporting ? exportFrameRateRef.current : FPS,
+                  fps: FPS,
                 });
 
                 const shouldUseExportFallbackSeek =
@@ -3277,13 +3250,12 @@ export function usePreviewEngine({
 
         const currentCaptions = captionsRef.current;
         const currentCaptionSettings = captionSettingsRef.current;
-        const exportFrameRate = exportFrameRateRef.current;
-        const exportFrameIndex = _isExporting ? Math.max(0, Math.floor(time * exportFrameRate + 1e-9)) : null;
+        const exportFrameIndex = _isExporting ? Math.max(0, Math.floor(time * FPS + 1e-9)) : null;
         const exportDurationAlignment = _isExporting
-          ? resolveExportDuration(totalDurationRef.current, exportFrameRate)
+          ? resolveExportDuration(totalDurationRef.current, FPS)
           : null;
         const exportFrameTiming = (_isExporting && exportDurationAlignment && exportFrameIndex !== null && exportFrameIndex < exportDurationAlignment.frameCount)
-          ? getExportFrameTiming(exportDurationAlignment, exportFrameRate, exportFrameIndex)
+          ? getExportFrameTiming(exportDurationAlignment, FPS, exportFrameIndex)
           : null;
         // === クリップ間トランジション描画（standard 限定機能・タイムライン長は不変） ===
         // ディゾルブ: 現クリップの終端 d 秒で次クリップのフレームを重ねる
@@ -3978,11 +3950,6 @@ export function usePreviewEngine({
     frameDrivenExportForcedWallClockRef.current = false;
     exportVideoBoundaryStallRef.current = null;
     exportVideoBoundaryHandledKeyRef.current = null;
-    exportVideoPresentationMonitorRef.current.stop();
-    exportVideoPresentationWaitRef.current = null;
-    exportVideoLastPublishedPresentationRef.current = {};
-    exportVideoPresentationBypassRef.current.clear();
-    exportVideoPresentationStatsRef.current = { waitCount: 0, resyncCount: 0, timeoutCount: 0 };
     currentPreviewCacheBuildSessionIdRef.current = null;
     logDebug('SYSTEM', 'stopAll呼び出し', { previousLoopId: loopIdRef.current, isPlayingRef: isPlayingRef.current });
 
@@ -4344,7 +4311,7 @@ export function usePreviewEngine({
         if (stall.stalled) {
           frameDrivenExportForcedWallClockRef.current = true;
           // 壁時計をフレーム駆動の到達点から連続させ、既に投入済みのフレーム分を巻き戻さない。
-          const resumedTimelineSec = submittedFrameCount / exportFrameRateRef.current;
+          const resumedTimelineSec = submittedFrameCount / FPS;
           startTimeRef.current = now - resumedTimelineSec * 1000;
           exportTimelineSecRef.current = resumedTimelineSec;
           exportLastWallNowMsRef.current = now;
@@ -4364,29 +4331,23 @@ export function usePreviewEngine({
       const exportVideoBoundaryStall = isExportMode
         ? exportVideoBoundaryStallRef.current
         : null;
-      const exportVideoPresentationWait = isExportMode
-        ? exportVideoPresentationWaitRef.current
-        : null;
       let elapsed: number;
       if (useFrameDrivenExportTime) {
         elapsed = resolveFrameDrivenExportTimeSec({
           wallClockTimeSec: (now - startTimeRef.current) / 1000,
           submittedFrameCount,
-          fps: exportFrameRateRef.current,
+          fps: FPS,
           enabled: true,
         });
       } else if (isExportMode) {
         // 壁時計 dilation: 映像は 1x 連続再生し、タイムラインだけ active speed で縮める。
         // （playbackRate=speed は途中切れ、seek 駆動は静止画化するため不採用）
-        if (exportVideoBoundaryStall || exportVideoPresentationWait) {
-          // video head または実提示フレームを待つ間は同じ CFR slot を再評価し、
-          // 待機時間を dilation の wallDelta や exportFrameIndex へ混ぜない。
-          const anchorTimelineSec = exportVideoBoundaryStall?.anchorTimelineSec
-            ?? exportVideoPresentationWait?.anchorTimelineSec
-            ?? exportTimelineSecRef.current;
-          exportTimelineSecRef.current = anchorTimelineSec;
+        if (exportVideoBoundaryStall) {
+          // video は active 化後にだけ decode する。連続再生可能になるまでは同じ先頭フレームを
+          // 再評価し、待機時間を dilation の wallDelta や exportFrameIndex へ混ぜない。
+          exportTimelineSecRef.current = exportVideoBoundaryStall.anchorTimelineSec;
           exportLastWallNowMsRef.current = now;
-          elapsed = anchorTimelineSec;
+          elapsed = exportVideoBoundaryStall.anchorTimelineSec;
         } else {
           if (exportLastWallNowMsRef.current == null) {
             exportLastWallNowMsRef.current = now;
@@ -4436,12 +4397,6 @@ export function usePreviewEngine({
           // 次プレビューを壊す（Issue #209）。complete 前に共有 media を即停止する。
           // stopAll() は呼ばない（user cancel 扱いで complete を潰すため）。
           try {
-            logInfo('RENDER', 'standard.export.videoPresentation.summary', {
-              ...exportVideoPresentationStatsRef.current,
-              bypassedVideoCount: exportVideoPresentationBypassRef.current.size,
-            });
-            exportVideoPresentationMonitorRef.current.stop();
-            exportVideoPresentationWaitRef.current = null;
             silencePreviewBgmOutput(mediaElementsRef, gainNodesRef, audioCtxRef);
             Object.entries(mediaElementsRef.current).forEach(([id, el]) => {
               if (!el || (el.tagName !== 'VIDEO' && el.tagName !== 'AUDIO')) return;
@@ -4477,13 +4432,12 @@ export function usePreviewEngine({
         reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
         return;
       }
-      const exportFrameRate = exportFrameRateRef.current;
-      const exportDurationAlignment = isExportMode ? resolveExportDuration(totalDuration, exportFrameRate) : null;
+      const exportDurationAlignment = isExportMode ? resolveExportDuration(totalDuration, FPS) : null;
       const exportFrameIndex = isExportMode && exportDurationAlignment !== null && exportDurationAlignment.frameCount > 0
-        ? Math.min(exportDurationAlignment.frameCount - 1, Math.max(0, Math.floor(clampedElapsed * exportFrameRate + 1e-9)))
+        ? Math.min(exportDurationAlignment.frameCount - 1, Math.max(0, Math.floor(clampedElapsed * FPS + 1e-9)))
         : null;
       const exportFrameTiming = isExportMode && exportDurationAlignment && exportFrameIndex !== null
-        ? getExportFrameTiming(exportDurationAlignment, exportFrameRate, exportFrameIndex)
+        ? getExportFrameTiming(exportDurationAlignment, FPS, exportFrameIndex)
         : null;
       const globalTimeSec = exportFrameTiming ? (exportFrameTiming.timestampUs / 1e6) : clampedElapsed;
       const renderTimeSec = toDisplayTime(globalTimeSec);
@@ -5051,7 +5005,7 @@ export function usePreviewEngine({
               }),
               activeItem.playbackSpeed,
             ),
-            1.5 / exportFrameRate,
+            1.5 / FPS,
           );
           const stalledForMs = existingStall?.key === boundaryKey
             ? Math.max(0, now - existingStall.startedAtMs)
@@ -5079,7 +5033,7 @@ export function usePreviewEngine({
               const boundaryStartSec = Math.max(0, renderTimeSec - resolvedSegment.localTime);
               let anchorFrameIndex = Math.min(
                 exportDurationAlignment.frameCount - 1,
-                Math.max(0, Math.ceil(boundaryStartSec * exportFrameRate - 1e-9)),
+                Math.max(0, Math.ceil(boundaryStartSec * FPS - 1e-9)),
               );
               // CFR timestamp は 33,333us の整数刻みなので、5.000s 境界に対する index=150 が
               // 4.999950s になる場合がある。実 timestamp が境界以上になる最初の slot まで進める。
@@ -5087,18 +5041,18 @@ export function usePreviewEngine({
                 anchorFrameIndex < exportDurationAlignment.frameCount - 1
                 && getExportFrameTiming(
                   exportDurationAlignment,
-                  exportFrameRate,
+                  FPS,
                   anchorFrameIndex,
                 ).timestampUs + 1 < boundaryStartSec * 1e6
               ) {
                 anchorFrameIndex += 1;
               }
-              const anchorTimelineSec = anchorFrameIndex / exportFrameRate;
+              const anchorTimelineSec = anchorFrameIndex / FPS;
               exportTimelineSecRef.current = anchorTimelineSec;
               exportLastWallNowMsRef.current = now;
               const anchorTiming = getExportFrameTiming(
                 exportDurationAlignment,
-                exportFrameRate,
+                FPS,
                 anchorFrameIndex,
               );
               const anchorDisplayTimeSec = anchorTiming.timestampUs / 1e6;
@@ -5205,145 +5159,6 @@ export function usePreviewEngine({
             anchorFrameIndex: existingStall.anchorFrameIndex,
             reason: activeVideoElement ? 'boundary-bypassed' : 'video-element-missing',
           });
-        }
-
-        // readyState/currentTime は「再生時計」の準備状態であり、Canvas が受け取る実画像の
-        // 更新完了までは保証しない。元動画と出力の実効 FPS が一致する clip だけ rVFC の
-        // mediaTime を確認し、同じ提示フレームを次の CFR slot へ二重投入しない。
-        const isNewExportFrameSlot = exportRenderedFrameIndexRef.current !== exportFrameIndex;
-        const presentationMonitor = exportVideoPresentationMonitorRef.current;
-        const pendingPresentationWait = exportVideoPresentationWaitRef.current;
-        if (
-          pendingPresentationWait
-          && (
-            activeItem?.type !== 'video'
-            || activeItem.id !== pendingPresentationWait.videoId
-            || !activeVideoElement
-            || !presentationMonitor.isObserved(pendingPresentationWait.videoId)
-          )
-        ) {
-          exportVideoPresentationWaitRef.current = null;
-          exportVideoPresentationBypassRef.current.add(pendingPresentationWait.videoId);
-          exportLastWallNowMsRef.current = now;
-          logWarn('RENDER', 'standard.export.timeline.videoPresentationCancelled', {
-            videoId: pendingPresentationWait.videoId,
-            frameIndex: pendingPresentationWait.frameIndex,
-            reason: activeVideoElement ? 'presentation-observer-unavailable' : 'video-element-missing',
-          });
-        }
-        if (
-          shouldPublishRenderedExportFrame
-          && isNewExportFrameSlot
-          && activeItem?.type === 'video'
-          && activeVideoElement
-          && presentationMonitor.isObserved(activeItem.id)
-          && !exportVideoPresentationBypassRef.current.has(activeItem.id)
-        ) {
-          const presentationKey = `${activeItem.id}:${exportFrameIndex}`;
-          const existingPresentationWait = exportVideoPresentationWaitRef.current;
-          const stalledForMs = existingPresentationWait?.key === presentationKey
-            ? Math.max(0, now - existingPresentationWait.startedAtMs)
-            : 0;
-          const targetSourceTime = resolveVideoSourceTime({
-            trimStart: activeItem.trimStart || 0,
-            localTime: resolvedSegment.localTime,
-            playbackSpeed: activeItem.playbackSpeed,
-          });
-          const presentationSnapshot = presentationMonitor.getSnapshot(activeItem.id);
-          const presentationDecision = getStandardExportVideoPresentationDecision({
-            exportFrameRate,
-            sourceFrameRate: activeItem.sourceFrameRate,
-            playbackSpeed: activeItem.playbackSpeed,
-            clipLocalTime: resolvedSegment.localTime,
-            clipDuration: activeItem.duration,
-            targetSourceTime,
-            snapshot: presentationSnapshot,
-            lastPublishedSnapshot:
-              exportVideoLastPublishedPresentationRef.current[activeItem.id] ?? null,
-            stalledForMs,
-          });
-
-          if (presentationDecision.shouldWait) {
-            shouldPublishRenderedExportFrame = false;
-            let waitState = existingPresentationWait?.key === presentationKey
-              ? existingPresentationWait
-              : null;
-            if (!waitState) {
-              waitState = {
-                key: presentationKey,
-                videoId: activeItem.id,
-                frameIndex: exportFrameIndex,
-                startedAtMs: now,
-                anchorTimelineSec: globalTimeSec,
-                targetSourceTime,
-                resyncApplied: false,
-              };
-              exportVideoPresentationWaitRef.current = waitState;
-              exportVideoPresentationStatsRef.current.waitCount += 1;
-              exportTimelineSecRef.current = globalTimeSec;
-              exportLastWallNowMsRef.current = now;
-              logInfo('RENDER', 'standard.export.timeline.videoPresentationPaused', {
-                videoId: activeItem.id,
-                frameIndex: exportFrameIndex,
-                globalTimeMs: Math.round(globalTimeSec * 1000),
-                targetSourceTime,
-                presentedMediaTime: presentationSnapshot?.mediaTimeSec ?? null,
-                presentedFrames: presentationSnapshot?.presentedFrames ?? null,
-                reason: presentationDecision.reason,
-              });
-            }
-
-            if (
-              presentationDecision.shouldResync
-              && !waitState.resyncApplied
-              && activeVideoElement.readyState >= 1
-              && !activeVideoElement.seeking
-            ) {
-              try {
-                activeVideoElement.currentTime = targetSourceTime;
-                waitState.resyncApplied = true;
-                exportVideoPresentationStatsRef.current.resyncCount += 1;
-                logWarn('RENDER', 'standard.export.timeline.videoPresentationResync', {
-                  videoId: activeItem.id,
-                  frameIndex: exportFrameIndex,
-                  targetSourceTime,
-                  presentedMediaTime: presentationSnapshot?.mediaTimeSec ?? null,
-                });
-              } catch {
-                /* 現行の native 連続再生を維持し、timeout fallback に委ねる。 */
-              }
-            }
-          } else if (presentationDecision.enabled) {
-            if (existingPresentationWait?.key === presentationKey) {
-              const pausedDurationMs = Math.max(0, now - existingPresentationWait.startedAtMs);
-              exportVideoPresentationWaitRef.current = null;
-              exportLastWallNowMsRef.current = now;
-              if (presentationDecision.timedOut) {
-                exportVideoPresentationBypassRef.current.add(activeItem.id);
-                exportVideoPresentationStatsRef.current.timeoutCount += 1;
-                logWarn('RENDER', 'standard.export.timeline.videoPresentationTimeout', {
-                  videoId: activeItem.id,
-                  frameIndex: exportFrameIndex,
-                  pausedDurationMs: Math.round(pausedDurationMs),
-                  targetSourceTime,
-                  presentedMediaTime: presentationSnapshot?.mediaTimeSec ?? null,
-                });
-              } else {
-                logInfo('RENDER', 'standard.export.timeline.videoPresentationResumed', {
-                  videoId: activeItem.id,
-                  frameIndex: exportFrameIndex,
-                  pausedDurationMs: Math.round(pausedDurationMs),
-                  targetSourceTime,
-                  presentedMediaTime: presentationSnapshot?.mediaTimeSec ?? null,
-                });
-              }
-            }
-            if (!presentationDecision.timedOut && presentationSnapshot) {
-              exportVideoLastPublishedPresentationRef.current[activeItem.id] = {
-                ...presentationSnapshot,
-              };
-            }
-          }
         }
       }
       // 【Issue #215】実際に描画できたフレーム番号を export へ公開する。
@@ -5511,28 +5326,6 @@ export function usePreviewEngine({
       const exportSessionId = isExportMode ? createPreviewExportSessionId() : null;
 
       if (isExportMode) {
-        exportFrameRateRef.current = resolveCompositeExportFrameRate(mediaItemsRef.current);
-        exportVideoPresentationMonitorRef.current.stop();
-        exportVideoPresentationWaitRef.current = null;
-        exportVideoLastPublishedPresentationRef.current = {};
-        exportVideoPresentationBypassRef.current.clear();
-        exportVideoPresentationStatsRef.current = { waitCount: 0, resyncCount: 0, timeoutCount: 0 };
-        let observedPresentationVideoCount = 0;
-        for (const item of mediaItemsRef.current) {
-          if (item.type !== 'video') continue;
-          if (!shouldUseStandardExportVideoPresentationGate({
-            exportFrameRate: exportFrameRateRef.current,
-            sourceFrameRate: item.sourceFrameRate,
-            playbackSpeed: item.playbackSpeed,
-          })) continue;
-          const videoElement = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
-          if (
-            videoElement
-            && exportVideoPresentationMonitorRef.current.observe(item.id, videoElement)
-          ) {
-            observedPresentationVideoCount += 1;
-          }
-        }
         frameDrivenExportEnabledRef.current = shouldUseFrameDrivenExportPacing({
           isExportMode,
           fromTimeSec: fromTime,
@@ -5552,11 +5345,6 @@ export function usePreviewEngine({
         exportLastWallNowMsRef.current = null;
         logInfo('RENDER', 'standard.export.pacing.selected', {
           mode: frameDrivenExportEnabledRef.current ? 'video-frame-driven' : 'wall-clock-dilated',
-          fps: exportFrameRateRef.current,
-          sourceFrameRates: mediaItemsRef.current
-            .filter((item) => item.type === 'video')
-            .map((item) => item.sourceFrameRate ?? null),
-          observedPresentationVideoCount,
           fromTime,
           mediaItemCount: mediaItemsRef.current.length,
           hasVideo: mediaItemsRef.current.some((item) => item.type === 'video'),
@@ -5576,8 +5364,6 @@ export function usePreviewEngine({
         setExportPreparationStep(1);
         clearExport();
       } else {
-        exportVideoPresentationMonitorRef.current.stop();
-        exportVideoPresentationWaitRef.current = null;
         activePreviewModeRef.current = 'preview';
         setProcessing(false);
         safeSetPreviewPlaying(true);
@@ -6233,7 +6019,6 @@ export function usePreviewEngine({
             mediaItems: mediaItemsRef.current,
             bgm: bgmRef.current,
             narrations: narrationsRef.current,
-            fps: exportFrameRateRef.current,
             totalDuration: totalDurationRef.current,
             // エンドロール境界。BGM フェードと**ナレーションの打ち切り**の両方に使う。
             // **プレビューと同じ値を渡すこと**。ここが漏れると「プレビューでは
@@ -6324,9 +6109,6 @@ export function usePreviewEngine({
               exportBackpressurePausedAtMsRef.current = null;
               exportVideoBoundaryStallRef.current = null;
               exportVideoBoundaryHandledKeyRef.current = null;
-              exportVideoPresentationWaitRef.current = null;
-              exportVideoLastPublishedPresentationRef.current = {};
-              exportVideoPresentationBypassRef.current.clear();
               startTimeRef.current = loopStartNowMs - fromTime * 1000;
               exportTimelineSecRef.current = fromTime;
               exportLastWallNowMsRef.current = loopStartNowMs;

@@ -15,8 +15,6 @@ import {
   getVideoSourceClipDuration,
   normalizeVideoPlaybackSpeed,
 } from './playbackSpeed';
-import { inspectMp4Durations } from './mp4Duration';
-import { normalizeSourceFrameRate } from './exportFrameRate';
 
 /**
  * ID生成用カウンター（同一ミリ秒内での重複を防止）
@@ -61,9 +59,6 @@ export async function createMediaItem(file: File): Promise<MediaItem> {
     type: file.type,
     lastModified: file.lastModified,
   });
-  const sourceFrameRate = isImage
-    ? null
-    : normalizeSourceFrameRate(inspectMp4Durations(fileData)?.videoFrameRate);
   useLogStore.getState().debug('MEDIA', 'メディアアイテムを作成', { fileName: file.name, type: isImage ? 'image' : 'video', size: file.size });
   return {
     id: generateId(),
@@ -88,7 +83,6 @@ export async function createMediaItem(file: File): Promise<MediaItem> {
     blur: 0,
     isTransformOpen: false,
     isLocked: false,
-    ...(sourceFrameRate !== null ? { sourceFrameRate } : {}),
     // 動画は自動サムネイル。元動画尺確定後に sourceTime を埋める
     thumbnailMode: isImage ? undefined : 'auto',
     thumbnailSourceTime: undefined,
