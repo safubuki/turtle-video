@@ -118,6 +118,8 @@ export interface MediaItem {
   // ソース動画の解像度（エクスポート用キャンバスサイズの動的決定に使用）
   sourceWidth?: number;
   sourceHeight?: number;
+  /** 入力動画コンテナから検出した代表フレームレート。検出不能時は未定義。 */
+  sourceFrameRate?: number;
   // 次のクリップへのトランジション（standard 限定・任意。最後のクリップでは無視）
   transitionToNext?: ClipTransition | null;
   /**

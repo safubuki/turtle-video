@@ -30,6 +30,10 @@ import {
 } from '../../../utils/exportTimeline';
 import { diagnoseExportFrameFlow } from '../../../utils/exportDiagnostics';
 import { classifyExportBottleneck } from '../../../utils/exportFrameProfiler';
+import {
+  normalizeSourceFrameRate,
+  resolveCompositeExportFrameRate,
+} from '../../../utils/exportFrameRate';
 import { inspectMp4Durations } from '../../../utils/mp4Duration';
 import {
   createExportVideoFrame,
@@ -1508,6 +1512,11 @@ export function createUseExport(config: UseExportRuntimeConfig) {
 
         const outputOptions = normalizeExportOutputOptions(startOptions?.output);
         const isCaptionLayer = outputOptions.contentMode === 'caption-layer';
+        const exportFrameRate = isCaptionLayer
+          ? FPS
+          : normalizeSourceFrameRate(audioSources?.fps)
+            ?? resolveCompositeExportFrameRate(audioSources?.mediaItems ?? []);
+        const keyFrameIntervalFrames = Math.max(1, Math.round(exportFrameRate));
 
         // キャプションのみは masterDest（音声）不要。完成動画は従来どおり両方必須。
         if (!canvasRef.current || (!isCaptionLayer && !masterDestRef.current)) {
@@ -1522,7 +1531,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
         logInfo('エクスポートを開始', {
           previewWidth: canvasRef.current.width,
           previewHeight: canvasRef.current.height,
-          fps: FPS,
+          fps: exportFrameRate,
           contentMode: outputOptions.contentMode,
           captionLayerFormat: outputOptions.captionLayerFormat,
         });
@@ -1821,7 +1830,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
 
         // ============================================================
         const resolvedExportDuration = audioSources
-          ? resolveExportDuration(audioSources.totalDuration, FPS)
+          ? resolveExportDuration(audioSources.totalDuration, exportFrameRate)
           : null;
         updatePreparationStep(audioSources, 2);
 
@@ -2062,7 +2071,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                   recorderRef,
                 },
                 exportConfig: {
-                  fps: FPS,
+                  fps: exportFrameRate,
                   videoBitrate: exportVideoBitrate,
                 },
                 supportedMediaRecorderProfile,
@@ -2114,7 +2123,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
               // frameRate を指定しない → デフォルト timescale 57600 を使用。
               // 57600 は 30 の倍数 (57600/30=1920) なので通常フレームは整数 ticks で
               // 正確に表現でき、短い最終フレーム (例: 0.01s → 576 ticks) も有効値を保つ。
-              // frameRate: FPS (=30) を設定すると timescale=30 になり、最終フレームの
+              // frameRate を設定すると低い timescale になり、最終フレームの
               // duration が丸めで 0 になる (例: 0.01s × 30 = 0.3 → round → 0 ticks)。
               // その結果 AV 尺差が発生し Teams デスクトップでスロー再生となる。
             },
@@ -2170,7 +2179,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             width,
             height,
             bitrate: exportVideoBitrate,
-            framerate: FPS,
+            framerate: exportFrameRate,
           });
           useLogStore.getState().info('RENDER', 'VideoEncoder 設定を決定', {
             exportSessionId,
@@ -2193,7 +2202,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                 width,
                 height,
                 bitrate: exportVideoBitrate,
-                framerate: FPS,
+                framerate: exportFrameRate,
               })
             );
           }
@@ -2417,7 +2426,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
               forceToEnd: forceToEnd || completionRequestedRef.current,
               renderedFrameIndex,
               renderedPlaybackTimeSec,
-              fps: FPS,
+              fps: exportFrameRate,
             });
           };
           const pumpCanvasFrames = (forceToEnd: boolean) => {
@@ -2429,7 +2438,9 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             }
             let needed = targetFrameCount - requestedCanvasFrames;
             if (needed <= 0) return;
-            const burst = forceToEnd ? needed : Math.min(needed, Math.max(1, Math.ceil(FPS / 2)));
+            const burst = forceToEnd
+              ? needed
+              : Math.min(needed, Math.max(1, Math.ceil(exportFrameRate / 2)));
             for (let i = 0; i < burst; i++) {
               requestCanvasFrame();
             }
@@ -2439,7 +2450,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             if (!trackProcessorCtor) {
               throw new Error('TrackProcessorの初期化に失敗しました');
             }
-            const autoCanvasStream = canvas.captureStream(FPS);
+            const autoCanvasStream = canvas.captureStream(exportFrameRate);
             let selectedCanvasStream: MediaStream = autoCanvasStream;
             let videoTrack = selectedCanvasStream.getVideoTracks()[0];
             if (!videoTrack) throw new Error('No video track found');
@@ -2447,7 +2458,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             let captureMode: 'auto-fps' | 'manual-requestFrame' = 'auto-fps';
 
             // requestFrame が使える環境では、captureStream(0) の手動モードへ切り替える。
-            // captureStream(FPS) + requestFrame の併用は二重供給になり、映像尺が伸びる場合がある。
+            // captureStream(fps) + requestFrame の併用は二重供給になり、映像尺が伸びる場合がある。
             if (typeof canvasVideoTrack.requestFrame === 'function') {
               try {
                 const manualCanvasStream = canvas.captureStream(0);
@@ -2801,7 +2812,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
 
           const processVideoWithTrackProcessor = async () => {
             let frameIndex = 0;
-            const isKeyFrame = (index: number) => index === 0 || index % FPS === 0;
+            const isKeyFrame = (index: number) => index === 0 || index % keyFrameIntervalFrames === 0;
 
             try {
               while (!signal.aborted) {
@@ -2851,10 +2862,10 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                     // そのため、フレーム順序ベースの決定的なタイムスタンプへ揃えつつ、
                     // 総尺は生のタイムライン値へ一致させる。
                     const frameTiming = resolvedExportDuration
-                      ? getExportFrameTiming(resolvedExportDuration, FPS, frameIndex)
+                      ? getExportFrameTiming(resolvedExportDuration, exportFrameRate, frameIndex)
                       : {
-                          timestampUs: Math.round(frameIndex * (1e6 / FPS)),
-                          durationUs: Math.round(1e6 / FPS),
+                          timestampUs: Math.round(frameIndex * (1e6 / exportFrameRate)),
+                          durationUs: Math.round(1e6 / exportFrameRate),
                         };
                     encodedVideoEndUs = Math.max(
                       encodedVideoEndUs,
@@ -2895,10 +2906,10 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                   await waitForVideoEncoderQueueDrain(VIDEO_ENCODE_QUEUE_SOFT_LIMIT);
                   if (signal.aborted || videoEncoder.state !== 'configured') break;
                   const frameTiming = resolvedExportDuration
-                    ? getExportFrameTiming(resolvedExportDuration, FPS, frameIndex)
+                    ? getExportFrameTiming(resolvedExportDuration, exportFrameRate, frameIndex)
                     : {
-                        timestampUs: Math.round(frameIndex * (1e6 / FPS)),
-                        durationUs: Math.round(1e6 / FPS),
+                        timestampUs: Math.round(frameIndex * (1e6 / exportFrameRate)),
+                        durationUs: Math.round(1e6 / exportFrameRate),
                       };
                   encodedVideoEndUs = Math.max(
                     encodedVideoEndUs,
@@ -2935,7 +2946,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           const processVideoWithCanvasFrames = async () => {
             let frameIndex = 0;
             const framePollInterval = 16;
-            const isKeyFrame = (index: number) => index === 0 || index % FPS === 0;
+            const isKeyFrame = (index: number) => index === 0 || index % keyFrameIntervalFrames === 0;
 
             try {
               while (!signal.aborted) {
@@ -2975,10 +2986,10 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                       break;
                     }
                     const frameTiming = resolvedExportDuration
-                      ? getExportFrameTiming(resolvedExportDuration, FPS, frameIndex)
+                      ? getExportFrameTiming(resolvedExportDuration, exportFrameRate, frameIndex)
                       : {
-                          timestampUs: Math.round(frameIndex * (1e6 / FPS)),
-                          durationUs: Math.round(1e6 / FPS),
+                          timestampUs: Math.round(frameIndex * (1e6 / exportFrameRate)),
+                          durationUs: Math.round(1e6 / exportFrameRate),
                         };
                     encodedVideoEndUs = Math.max(
                       encodedVideoEndUs,
@@ -3364,7 +3375,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
               lastRenderedFrameIndex: renderStats?.lastRenderedFrameIndex ?? null,
               elapsedWallClockSec,
               totalDurationSec: exportDurationSec ?? 0,
-              fps: FPS,
+              fps: exportFrameRate,
             };
             const diagnosis = diagnoseExportFrameFlow(flowSnapshot);
             const payload = {
@@ -3387,7 +3398,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
               skippedFrames: renderStats?.skippedFrames ?? null,
               elapsedWallClockSec: Number(elapsedWallClockSec.toFixed(2)),
               totalDurationSec: exportDurationSec ?? 0,
-              fps: FPS,
+              fps: exportFrameRate,
               captureMode: useManualCanvasFrames ? 'manual-canvas' : 'track-processor',
             };
             if (diagnosis.verdict === 'healthy') {
@@ -3406,7 +3417,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             // ============================================================
             const profile = audioSources?.getFrameProfile?.();
             if (profile) {
-              const bottleneck = classifyExportBottleneck(profile, FPS);
+              const bottleneck = classifyExportBottleneck(profile, exportFrameRate);
               const perfPayload = {
                 bottleneck,
                 summary: profile.summary,
@@ -3438,7 +3449,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                 tickGapMaxMs: Number(profile.tickGap.maxMs.toFixed(2)),
                 canvasWidth: width,
                 canvasHeight: height,
-                fps: FPS,
+                fps: exportFrameRate,
               };
               if (bottleneck === 'healthy') {
                 logInfo('[DIAG-PERF] フレーム処理時間 正常', perfPayload);
@@ -3578,6 +3589,20 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           // バッファ取得とBlob作成
           const { buffer } = muxer.target;
           const muxDurationSummary = inspectMp4Durations(buffer);
+          const actualMuxFrameRate = muxDurationSummary?.videoFrameRate ?? null;
+          const frameRateDiff = actualMuxFrameRate === null
+            ? null
+            : Math.abs(actualMuxFrameRate - exportFrameRate);
+          const frameRatePayload = {
+            selectedFrameRate: exportFrameRate,
+            actualMuxFrameRate,
+            difference: frameRateDiff,
+          };
+          if (frameRateDiff !== null && frameRateDiff > 0.05) {
+            logWarn('[DIAG-FPS] mux後の代表FPSが選択値と一致しません', frameRatePayload);
+          } else {
+            logInfo('[DIAG-FPS] mux後の代表FPS確認', frameRatePayload);
+          }
 
           // 解像度検証: エンコーダー / muxer には width / height を設定済みなので、
           // ここで「実ファイルの解像度が確実に食い違っている」場合だけ書き出しを失敗にする。
@@ -3727,6 +3752,8 @@ export function createUseExport(config: UseExportRuntimeConfig) {
               muxedAudioEndUs,
               encodedVideoEndUs,
               exportDurationUs: Number.isFinite(exportDurationUs) ? exportDurationUs : null,
+              selectedFrameRate: exportFrameRate,
+              actualMuxFrameRate,
               audioDataPresent: audioEncoderOutputChunks > 0,
               offlineAudioDone,
             });

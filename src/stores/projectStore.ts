@@ -48,6 +48,8 @@ import { normalizeMediaBlur, normalizeRotation } from '../utils/canvas';
 import { normalizeVideoTitleSettings } from '../utils/videoTitle';
 import { normalizeWatermarkOverlay } from '../utils/watermarkOverlay';
 import { normalizeEndrollOverlay } from '../utils/endrollOverlay';
+import { inspectMp4Durations } from '../utils/mp4Duration';
+import { normalizeSourceFrameRate } from '../utils/exportFrameRate';
 import {
   computeVideoTimelineDurationFromTrim,
   DEFAULT_SPEED_BADGE_LABEL_STYLE,
@@ -467,6 +469,7 @@ async function serializeMediaItem(item: MediaItem): Promise<SerializedMediaItem>
     isLocked: item.isLocked,
     sourceWidth: item.sourceWidth,
     sourceHeight: item.sourceHeight,
+    sourceFrameRate: normalizeSourceFrameRate(item.sourceFrameRate) ?? undefined,
     transitionToNext: item.transitionToNext ?? null,
     thumbnailMode: item.type === 'video'
       ? (item.thumbnailMode === 'manual' ? 'manual' : 'auto')
@@ -508,6 +511,16 @@ function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
   const badgePos = data.type === 'video'
     ? normalizeSpeedBadgePosition(data.speedBadgePositionX, data.speedBadgePositionY)
     : null;
+  let sourceFrameRate = data.type === 'video'
+    ? normalizeSourceFrameRate(data.sourceFrameRate)
+    : null;
+  if (data.type === 'video' && sourceFrameRate === null && isValidArrayBuffer(data.fileData)) {
+    try {
+      sourceFrameRate = normalizeSourceFrameRate(inspectMp4Durations(data.fileData)?.videoFrameRate);
+    } catch {
+      // 旧保存データのコンテナを解析できない場合は従来の 30fps フォールバックを使う。
+    }
+  }
   // 動画は trim + speed から timeline 尺を再計算（旧データで speed 未保存でも 1 で一致）
   const duration = data.type === 'video'
     ? computeVideoTimelineDurationFromTrim({
@@ -542,6 +555,7 @@ function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
     isLocked: data.isLocked,
     sourceWidth: data.sourceWidth,
     sourceHeight: data.sourceHeight,
+    sourceFrameRate: sourceFrameRate ?? undefined,
     transitionToNext: data.transitionToNext ?? null,
     thumbnailMode,
     thumbnailSourceTime,

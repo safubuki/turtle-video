@@ -3765,3 +3765,42 @@ export 終了（成功/失敗/中断）
   - 再マウント完了判定より前に旧registryを必ず空にする。旧要素のreadyStateを新要素のreadyとして流用しない。
 - **自動回帰**: 旧video/audioの停止と空registryへの差し替え、preview時のguard維持とexport時の除外、生成済みexport停止時だけの再マウントを含む対象91テスト、全1341テスト、`npm run typecheck`、`npm run build`が成功。lintは既存の`src/utils/narrationDelivery.ts`の`no-useless-escape` 2件だけで失敗し、今回差分の新規errorはない。
 - **実機再検証（必須）**: 同一プロジェクトを画面再読込なしで最低3回連続exportする。各回で (1) 新videoロード後に`mediaRemount.wait result=ready`となり`previousElementCount`と`durationMs`が記録される、(2) 2・3回目の`play()失敗`と`duplicateSubmissionCount`が再発しない、(3) backpressure回数・合計停止時間が3回を通じて悪化しない、(4) `outputGap=0`、2531フレーム、A/V終端差1ms以内、(5) MP4の9.5〜12秒を含む全区間に意図しない静止と直後ジャンプがないことを確認する。
+
+### 13-196. 連続exportに残る周期停止はVideoEncoderの持続処理性能による品質保護待機として扱う
+
+- **対象 flavor**: standard（Windows / Android）。映像30fps、解像度別bitrate、CFR timestamp、queue 30/90、backpressure時のtimeline/video同時pauseを維持する。
+- **13-195 後の実機評価（2026-08-11 / Surface / Windows 11 / Edge 151 / HD 30fps / 約19.51秒）**:
+  - 動画2本だけの短い構成でも3回連続exportで再現したため、タイムラインの長さ・素材数・複雑さは主因ではない。
+  - 1回目は586フレームを26.28秒で処理し、backpressureは1回 / 合計2.678秒 / 実効22.47fpsだった。2・3回目は各約32.14秒、4回 / 合計約11.1秒 / 実効18.31fpsでほぼ一致した。
+  - 各停止はVideoEncoder queueが90へ達した時点で始まり、30まで排出した約2.7〜2.8秒後に再開していた。`prefer-hardware-realtime`、`latencyMode=realtime`の交渉は成功し、`VideoEncoder.encode()`呼出しとCanvas描画は軽いため、待ち時間の実体は非同期VideoEncoderの持続処理性能である。
+  - JS heapは約18MB / limit約4.19GBで余裕があり、メモリ枯渇ではない。完了・生成済みexport停止後のmedia再マウントはいずれも約40〜42msで新要素readyまで完了し、encoderも各sessionでvideo/audioともcloseされた。2・3回目が同じ待機量なので、前回decoder/encoderの未解放は残存原因ではない。
+- **完成MP4の判定**:
+  - 3本とも映像586フレーム、H.264 Main、1280x720、30fps、尺19.510秒で、AAC音声尺も一致した。`outputGap=0`、末尾補完0、backpressure drop 0を維持した。
+  - 30fps相当の全フレーム解析（586サンプル、freeze threshold 0.001、最小0.1秒）で意図しない同一フレーム停止は3本とも検出されなかった。したがってexport中の停止は完成動画へ焼き込まれず、フレームを欠落させないためにtimelineと参照元videoを同時停止した結果である。
+- **判断**:
+  - 現行の画質・30fps・フレーム完全性を固定したまま、アプリ側だけでこの待機を確実に短縮できる根拠はない。端末のcodec処理が30fps未満なら、リアルタイム供給との速度差は必ずどこかで待つ必要がある。
+  - queue上限を広げても同じ排出待ちがflush時へ移るだけで総時間は短くならず、GPUメモリ使用量と欠落・ハングの危険が増える。queue上限を下げると停止回数だけ増える。
+  - backpressure中にtimelineだけ進める、videoだけ再生する、フレームを破棄する、末尾Canvasで不足分を埋める変更は禁止。過去の「停止後に早送りに見える」「同一フレーム」「後半黒画面」を再発させる。
+  - fps・解像度・bitrate低下、software encoder優先、GOP延長は速度改善候補になり得るが、画質・圧縮特性・シーク性または端末別性能が変わる。実機比較と明示的な速度優先オプションなしに既定値へ導入しない。
+  - 端末側ではAC接続、Windowsの高性能寄り電源モード、Edgeのハードウェアアクセラレーション有効、Surface/Windows Update経由のGPUドライバー更新、GPU負荷の高いアプリ終了を試せる。ただしアプリは特定端末の設定変更を自動実行しない。
+- **今後の再調査条件**:
+  - 同じ端末・同じ素材・同じ設定で、`effectiveRenderFps`またはbackpressure合計時間が本基準よりさらに悪化した場合に再調査する。まずencoder config、queue 90→30の各停止時間、outputGap、drop、tail fill、media remount、encoder closeを比較する。
+  - 速度改善を実装する場合は、hardware / software encoderを同一端末で複数回測定し、同一30fps・解像度・bitrateで完成MP4の全フレーム、A/V尺、冒頭・境界・後半、シーク性まで比較してから選択する。
+
+### 13-197. standard export は入力動画のFPSへ合わせ、上限30fpsのCFRで出力する
+- **対象**: `src/utils/mp4Duration.ts`, `src/utils/exportFrameRate.ts`, `src/utils/media.ts`, `src/stores/projectStore.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/export/exportEngine.ts`
+- **背景**: 24fps素材を30fps CFRへ固定変換すると、1秒あたり約6スロットで同じ入力フレームを保持する不均一な cadence が生じ、尺は変わらなくても微細なカクつきに見える。また、入力に存在しない重複フレームもVideoEncoderへ送るため、低性能端末ではbackpressure待機を増やす。
+- **選択規則**:
+  - 入力MP4/MOVのvideo trackにある `stts` から代表FPSを取得する。通常間隔が80%以上なら末尾の端数フレームを除外し、VFRは平均へ戻す。23.976 / 29.97は整数へ丸めず標準分数レートを保つ。
+  - 動画が1本なら元FPS（再生速度が1倍超なら `元FPS × playbackSpeed`）、複数なら最大の実効FPSを選び、上限は30fpsとする。例: 24のみ→24、24+25→25、24+30→30、60→30。
+  - 静止画のみ、WebMなど解析不能、旧保存データで検出不能の場合は従来互換の30fpsへフォールバックする。
+- **実装境界**:
+  - 動的FPSはstandardの**完成動画exportセッションだけ**に適用する。通常プレビュー、apple-safari export、キャプションのみexportは30fpsのまま変えない。
+  - preview描画側とencoder側で同一のセッションFPSを共有し、`resolveExportDuration`、frame index、timestamp/duration、boundary wait、keyframe間隔、backpressure診断をすべて同じ値で計算する。一部だけ差し替えてはならない。
+  - `sourceFrameRate` は `MediaItem` / 保存スキーマへoptionalで保持する。新規素材は既に確保している `fileData` を解析し、旧保存データはdeserialize時に同じbufferから補完する。保存互換性のため必須フィールドにしない。
+  - mux後は `inspectMp4Durations()` が実FPSも読み、`[DIAG-FPS]` に選択値と実値を記録する。不一致だけで完成ファイルを破棄せず、duration・解像度・A/V終端の既存fail-closed検証を維持する。
+- **品質・性能**:
+  - CFR timestampと最終フレームdurationは生のタイムライン尺へ合わせるため、30→24へ変えても動画全体は長くならない。
+  - bitrateは従来の解像度別bits/secを維持する。24fps時は1フレーム当たりに使えるbit量が増えるため、画質を下げずに投入フレーム数を20%削減できる。
+  - 13-196の「30fps固定を守る」はこの項で更新される。ただしqueue 30/90、backpressure中のtimeline/video同時pause、映像→音声flush順、明示encoder解放は変更しない。
+- **テスト**: `mp4Duration.test.ts`（stts 24fps検出）、`exportFrameRate.test.ts`（23.976/29.97、単一、混在、上限、倍速、fallback、尺維持）、全118ファイル・1348テスト、typecheck、本番build成功。lintは既存 `src/utils/narrationDelivery.ts` の `no-useless-escape` 2件だけで失敗し、本差分の新規errorはない。

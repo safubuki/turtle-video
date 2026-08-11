@@ -89,17 +89,35 @@ function createTkhdV1(width: number, height: number): Uint8Array {
   return createBox('tkhd', payload);
 }
 
+function createStts(entries: Array<{ sampleCount: number; sampleDelta: number }>): Uint8Array {
+  const payload = new Uint8Array(8 + entries.length * 8);
+  const view = new DataView(payload.buffer);
+  view.setUint32(4, entries.length);
+  entries.forEach((entry, index) => {
+    view.setUint32(8 + index * 8, entry.sampleCount);
+    view.setUint32(12 + index * 8, entry.sampleDelta);
+  });
+  return createBox('stts', payload);
+}
+
 function createTrack(
   handlerType: string,
   timescale: number,
   duration: number,
   dimensions?: { width: number; height: number },
+  frameTiming?: Array<{ sampleCount: number; sampleDelta: number }>,
 ): Uint8Array {
   return createBox(
     'trak',
     concatBytes(
       ...(dimensions ? [createTkhd(dimensions.width, dimensions.height)] : []),
-      createBox('mdia', concatBytes(createMdhd(timescale, duration), createHdlr(handlerType))),
+      createBox('mdia', concatBytes(
+        createMdhd(timescale, duration),
+        createHdlr(handlerType),
+        ...(frameTiming
+          ? [createBox('minf', createBox('stbl', createStts(frameTiming)))]
+          : []),
+      )),
     ),
   );
 }
@@ -140,6 +158,7 @@ describe('inspectMp4Durations', () => {
       audioDurationUs: 10_010_000,
       videoWidth: 1920,
       videoHeight: 1080,
+      videoFrameRate: null,
     });
   });
 
@@ -163,6 +182,7 @@ describe('inspectMp4Durations', () => {
       audioDurationUs: 10_010_000,
       videoWidth: 1280,
       videoHeight: 720,
+      videoFrameRate: null,
     });
   });
 
@@ -184,6 +204,7 @@ describe('inspectMp4Durations', () => {
       audioDurationUs: null,
       videoWidth: 1920,
       videoHeight: 1080,
+      videoFrameRate: null,
     });
   });
 
@@ -200,6 +221,7 @@ describe('inspectMp4Durations', () => {
       audioDurationUs: null,
       videoWidth: null,
       videoHeight: null,
+      videoFrameRate: null,
     });
   });
 
@@ -216,6 +238,7 @@ describe('inspectMp4Durations', () => {
       audioDurationUs: null,
       videoWidth: null,
       videoHeight: null,
+      videoFrameRate: null,
     });
   });
 
@@ -224,5 +247,26 @@ describe('inspectMp4Durations', () => {
     const buffer = toArrayBuffer(invalid);
 
     expect(inspectMp4Durations(buffer)).toBeNull();
+  });
+
+  it('末尾だけ短いCFRでも stts の代表フレームレートを取得する', () => {
+    const bytes = createBox(
+      'moov',
+      concatBytes(
+        createMvhd(1000, 10_000),
+        createTrack(
+          'vide',
+          24_000,
+          240_240,
+          { width: 1280, height: 720 },
+          [
+            { sampleCount: 240, sampleDelta: 1_000 },
+            { sampleCount: 1, sampleDelta: 240 },
+          ],
+        ),
+      ),
+    );
+
+    expect(inspectMp4Durations(toArrayBuffer(bytes))?.videoFrameRate).toBe(24);
   });
 });

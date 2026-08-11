@@ -86,6 +86,7 @@ import {
 } from '../../../utils/exportTimeline';
 import { createRenderedFrameTracker } from '../../../utils/exportDiagnostics';
 import { createExportFrameProfiler } from '../../../utils/exportFrameProfiler';
+import { resolveCompositeExportFrameRate } from '../../../utils/exportFrameRate';
 import { resolveMediaBaseScale } from '../../../stores/canvasStore';
 import {
   normalizeRotation,
@@ -1159,6 +1160,9 @@ export function usePreviewEngine({
   const activePreviewModeRef = useRef<PreviewEngineMode>('idle');
   const currentExportSessionIdRef = useRef<string | null>(null);
   const frameDrivenExportEnabledRef = useRef(false);
+  // standard export 1 セッション内で preview 描画と encoder 投入が共有する CFR。
+  // 通常プレビューには適用せず、従来どおり constants.FPS のままにする。
+  const exportFrameRateRef = useRef(FPS);
   // 【Issue #215】export の render loop が実際に描画した最後のフレーム番号（未描画は null）。
   const exportRenderedFrameIndexRef = useRef<number | null>(null);
   // 【#215 再発調査】実際に描かれた「相異なる」フレーム番号を数える。
@@ -2173,7 +2177,7 @@ export function usePreviewEngine({
                 nextItemType: activeIndex + 1 < currentItems.length
                   ? currentItems[activeIndex + 1]?.type ?? null
                   : null,
-                fps: FPS,
+                fps: _isExporting ? exportFrameRateRef.current : FPS,
               });
 
               const shouldHoldForAndroidPreviewNotDrawable = isAndroidPreviewPlayback
@@ -2534,7 +2538,7 @@ export function usePreviewEngine({
                   nextItemType: activeIndex + 1 < currentItems.length
                     ? currentItems[activeIndex + 1]?.type ?? null
                     : null,
-                  fps: FPS,
+                  fps: _isExporting ? exportFrameRateRef.current : FPS,
                 });
 
                 const shouldUseExportFallbackSeek =
@@ -3250,12 +3254,13 @@ export function usePreviewEngine({
 
         const currentCaptions = captionsRef.current;
         const currentCaptionSettings = captionSettingsRef.current;
-        const exportFrameIndex = _isExporting ? Math.max(0, Math.floor(time * FPS + 1e-9)) : null;
+        const exportFrameRate = exportFrameRateRef.current;
+        const exportFrameIndex = _isExporting ? Math.max(0, Math.floor(time * exportFrameRate + 1e-9)) : null;
         const exportDurationAlignment = _isExporting
-          ? resolveExportDuration(totalDurationRef.current, FPS)
+          ? resolveExportDuration(totalDurationRef.current, exportFrameRate)
           : null;
         const exportFrameTiming = (_isExporting && exportDurationAlignment && exportFrameIndex !== null && exportFrameIndex < exportDurationAlignment.frameCount)
-          ? getExportFrameTiming(exportDurationAlignment, FPS, exportFrameIndex)
+          ? getExportFrameTiming(exportDurationAlignment, exportFrameRate, exportFrameIndex)
           : null;
         // === クリップ間トランジション描画（standard 限定機能・タイムライン長は不変） ===
         // ディゾルブ: 現クリップの終端 d 秒で次クリップのフレームを重ねる
@@ -4311,7 +4316,7 @@ export function usePreviewEngine({
         if (stall.stalled) {
           frameDrivenExportForcedWallClockRef.current = true;
           // 壁時計をフレーム駆動の到達点から連続させ、既に投入済みのフレーム分を巻き戻さない。
-          const resumedTimelineSec = submittedFrameCount / FPS;
+          const resumedTimelineSec = submittedFrameCount / exportFrameRateRef.current;
           startTimeRef.current = now - resumedTimelineSec * 1000;
           exportTimelineSecRef.current = resumedTimelineSec;
           exportLastWallNowMsRef.current = now;
@@ -4336,7 +4341,7 @@ export function usePreviewEngine({
         elapsed = resolveFrameDrivenExportTimeSec({
           wallClockTimeSec: (now - startTimeRef.current) / 1000,
           submittedFrameCount,
-          fps: FPS,
+          fps: exportFrameRateRef.current,
           enabled: true,
         });
       } else if (isExportMode) {
@@ -4432,12 +4437,13 @@ export function usePreviewEngine({
         reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
         return;
       }
-      const exportDurationAlignment = isExportMode ? resolveExportDuration(totalDuration, FPS) : null;
+      const exportFrameRate = exportFrameRateRef.current;
+      const exportDurationAlignment = isExportMode ? resolveExportDuration(totalDuration, exportFrameRate) : null;
       const exportFrameIndex = isExportMode && exportDurationAlignment !== null && exportDurationAlignment.frameCount > 0
-        ? Math.min(exportDurationAlignment.frameCount - 1, Math.max(0, Math.floor(clampedElapsed * FPS + 1e-9)))
+        ? Math.min(exportDurationAlignment.frameCount - 1, Math.max(0, Math.floor(clampedElapsed * exportFrameRate + 1e-9)))
         : null;
       const exportFrameTiming = isExportMode && exportDurationAlignment && exportFrameIndex !== null
-        ? getExportFrameTiming(exportDurationAlignment, FPS, exportFrameIndex)
+        ? getExportFrameTiming(exportDurationAlignment, exportFrameRate, exportFrameIndex)
         : null;
       const globalTimeSec = exportFrameTiming ? (exportFrameTiming.timestampUs / 1e6) : clampedElapsed;
       const renderTimeSec = toDisplayTime(globalTimeSec);
@@ -5005,7 +5011,7 @@ export function usePreviewEngine({
               }),
               activeItem.playbackSpeed,
             ),
-            1.5 / FPS,
+            1.5 / exportFrameRate,
           );
           const stalledForMs = existingStall?.key === boundaryKey
             ? Math.max(0, now - existingStall.startedAtMs)
@@ -5033,7 +5039,7 @@ export function usePreviewEngine({
               const boundaryStartSec = Math.max(0, renderTimeSec - resolvedSegment.localTime);
               let anchorFrameIndex = Math.min(
                 exportDurationAlignment.frameCount - 1,
-                Math.max(0, Math.ceil(boundaryStartSec * FPS - 1e-9)),
+                Math.max(0, Math.ceil(boundaryStartSec * exportFrameRate - 1e-9)),
               );
               // CFR timestamp は 33,333us の整数刻みなので、5.000s 境界に対する index=150 が
               // 4.999950s になる場合がある。実 timestamp が境界以上になる最初の slot まで進める。
@@ -5041,18 +5047,18 @@ export function usePreviewEngine({
                 anchorFrameIndex < exportDurationAlignment.frameCount - 1
                 && getExportFrameTiming(
                   exportDurationAlignment,
-                  FPS,
+                  exportFrameRate,
                   anchorFrameIndex,
                 ).timestampUs + 1 < boundaryStartSec * 1e6
               ) {
                 anchorFrameIndex += 1;
               }
-              const anchorTimelineSec = anchorFrameIndex / FPS;
+              const anchorTimelineSec = anchorFrameIndex / exportFrameRate;
               exportTimelineSecRef.current = anchorTimelineSec;
               exportLastWallNowMsRef.current = now;
               const anchorTiming = getExportFrameTiming(
                 exportDurationAlignment,
-                FPS,
+                exportFrameRate,
                 anchorFrameIndex,
               );
               const anchorDisplayTimeSec = anchorTiming.timestampUs / 1e6;
@@ -5326,6 +5332,7 @@ export function usePreviewEngine({
       const exportSessionId = isExportMode ? createPreviewExportSessionId() : null;
 
       if (isExportMode) {
+        exportFrameRateRef.current = resolveCompositeExportFrameRate(mediaItemsRef.current);
         frameDrivenExportEnabledRef.current = shouldUseFrameDrivenExportPacing({
           isExportMode,
           fromTimeSec: fromTime,
@@ -5345,6 +5352,10 @@ export function usePreviewEngine({
         exportLastWallNowMsRef.current = null;
         logInfo('RENDER', 'standard.export.pacing.selected', {
           mode: frameDrivenExportEnabledRef.current ? 'video-frame-driven' : 'wall-clock-dilated',
+          fps: exportFrameRateRef.current,
+          sourceFrameRates: mediaItemsRef.current
+            .filter((item) => item.type === 'video')
+            .map((item) => item.sourceFrameRate ?? null),
           fromTime,
           mediaItemCount: mediaItemsRef.current.length,
           hasVideo: mediaItemsRef.current.some((item) => item.type === 'video'),
@@ -6019,6 +6030,7 @@ export function usePreviewEngine({
             mediaItems: mediaItemsRef.current,
             bgm: bgmRef.current,
             narrations: narrationsRef.current,
+            fps: exportFrameRateRef.current,
             totalDuration: totalDurationRef.current,
             // エンドロール境界。BGM フェードと**ナレーションの打ち切り**の両方に使う。
             // **プレビューと同じ値を渡すこと**。ここが漏れると「プレビューでは

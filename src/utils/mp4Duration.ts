@@ -4,6 +4,8 @@ export interface Mp4DurationSummary {
   audioDurationUs: number | null;
   videoWidth: number | null;
   videoHeight: number | null;
+  /** video track の stts から求めた代表フレームレート。取得不能時は null。 */
+  videoFrameRate: number | null;
 }
 
 interface Mp4Box {
@@ -61,7 +63,11 @@ function readBox(view: DataView, offset: number, end: number): Mp4Box | null {
   };
 }
 
-function readDurationUsFromFullBox(view: DataView, contentStart: number, end: number): number | null {
+function readMediaTimingFromFullBox(
+  view: DataView,
+  contentStart: number,
+  end: number,
+): { durationUs: number | null; timescale: number | null } | null {
   if (contentStart + 20 > end) return null;
 
   const version = view.getUint8(contentStart);
@@ -69,16 +75,105 @@ function readDurationUsFromFullBox(view: DataView, contentStart: number, end: nu
     if (contentStart + 32 > end) return null;
     const timescale = view.getUint32(contentStart + 20);
     const duration = readUint64(view, contentStart + 24);
-    return toDurationUs(duration, timescale);
+    return {
+      durationUs: toDurationUs(duration, timescale),
+      timescale: timescale > 0 ? timescale : null,
+    };
   }
 
   if (version === 0) {
     const timescale = view.getUint32(contentStart + 12);
     const duration = view.getUint32(contentStart + 16);
-    return toDurationUs(duration, timescale);
+    return {
+      durationUs: toDurationUs(duration, timescale),
+      timescale: timescale > 0 ? timescale : null,
+    };
   }
 
   // Unsupported or unknown version; fail safely.
+  return { durationUs: null, timescale: null };
+}
+
+function readDurationUsFromFullBox(view: DataView, contentStart: number, end: number): number | null {
+  return readMediaTimingFromFullBox(view, contentStart, end)?.durationUs ?? null;
+}
+
+function readFrameRateFromStts(
+  view: DataView,
+  contentStart: number,
+  end: number,
+  timescale: number | null,
+): number | null {
+  if (!timescale || contentStart + 8 > end) return null;
+
+  const entryCount = view.getUint32(contentStart + 4);
+  if (contentStart + 8 + entryCount * 8 > end) return null;
+
+  let sampleCount = 0;
+  let totalDecodeTicks = 0;
+  const sampleCountsByDelta = new Map<number, number>();
+  for (let index = 0; index < entryCount; index += 1) {
+    const offset = contentStart + 8 + index * 8;
+    const count = view.getUint32(offset);
+    const delta = view.getUint32(offset + 4);
+    if (count === 0 || delta === 0) continue;
+    sampleCount += count;
+    totalDecodeTicks += count * delta;
+    sampleCountsByDelta.set(delta, (sampleCountsByDelta.get(delta) ?? 0) + count);
+    if (!Number.isSafeInteger(sampleCount) || !Number.isSafeInteger(totalDecodeTicks)) {
+      return null;
+    }
+  }
+
+  if (sampleCount <= 0 || totalDecodeTicks <= 0) return null;
+  let dominantDelta = 0;
+  let dominantSampleCount = 0;
+  for (const [delta, count] of sampleCountsByDelta) {
+    if (count > dominantSampleCount) {
+      dominantDelta = delta;
+      dominantSampleCount = count;
+    }
+  }
+  // CFRでも生尺へ合わせるため末尾1フレームだけ短くなることがある。
+  // 大半が同じ間隔ならその代表値を使い、本当に間隔が分散するVFRだけ平均へ戻す。
+  const frameRate = dominantDelta > 0 && dominantSampleCount / sampleCount >= 0.8
+    ? timescale / dominantDelta
+    : (sampleCount * timescale) / totalDecodeTicks;
+  return Number.isFinite(frameRate) && frameRate > 0 ? frameRate : null;
+}
+
+function findSttsBox(
+  view: DataView,
+  mdiaStart: number,
+  mdiaEnd: number,
+): Mp4Box | null {
+  let mdiaOffset = mdiaStart;
+  while (mdiaOffset < mdiaEnd) {
+    const mdiaBox = readBox(view, mdiaOffset, mdiaEnd);
+    if (!mdiaBox) break;
+
+    if (mdiaBox.type === 'minf') {
+      let minfOffset = mdiaBox.contentStart;
+      while (minfOffset < mdiaBox.end) {
+        const minfBox = readBox(view, minfOffset, mdiaBox.end);
+        if (!minfBox) break;
+
+        if (minfBox.type === 'stbl') {
+          let stblOffset = minfBox.contentStart;
+          while (stblOffset < minfBox.end) {
+            const stblBox = readBox(view, stblOffset, minfBox.end);
+            if (!stblBox) break;
+            if (stblBox.type === 'stts') return stblBox;
+            stblOffset = stblBox.end;
+          }
+        }
+
+        minfOffset = minfBox.end;
+      }
+    }
+
+    mdiaOffset = mdiaBox.end;
+  }
   return null;
 }
 
@@ -115,11 +210,13 @@ function inspectTrackDuration(view: DataView, start: number, end: number): {
   durationUs: number | null;
   width: number | null;
   height: number | null;
+  frameRate: number | null;
 } {
   let handlerType: string | null = null;
   let durationUs: number | null = null;
   let width: number | null = null;
   let height: number | null = null;
+  let frameRate: number | null = null;
   let offset = start;
 
   while (offset < end) {
@@ -131,25 +228,32 @@ function inspectTrackDuration(view: DataView, start: number, end: number): {
       width = dimensions?.width ?? null;
       height = dimensions?.height ?? null;
     } else if (box.type === 'mdia') {
+      let mediaTimescale: number | null = null;
       let mdiaOffset = box.contentStart;
       while (mdiaOffset < box.end) {
         const mdiaBox = readBox(view, mdiaOffset, box.end);
         if (!mdiaBox) break;
 
         if (mdiaBox.type === 'mdhd') {
-          durationUs = readDurationUsFromFullBox(view, mdiaBox.contentStart, mdiaBox.end);
+          const timing = readMediaTimingFromFullBox(view, mdiaBox.contentStart, mdiaBox.end);
+          durationUs = timing?.durationUs ?? null;
+          mediaTimescale = timing?.timescale ?? null;
         } else if (mdiaBox.type === 'hdlr' && mdiaBox.contentStart + 12 <= mdiaBox.end) {
           handlerType = readType(view, mdiaBox.contentStart + 8);
         }
 
         mdiaOffset = mdiaBox.end;
       }
+      const sttsBox = findSttsBox(view, box.contentStart, box.end);
+      frameRate = sttsBox
+        ? readFrameRateFromStts(view, sttsBox.contentStart, sttsBox.end, mediaTimescale)
+        : null;
     }
 
     offset = box.end;
   }
 
-  return { handlerType, durationUs, width, height };
+  return { handlerType, durationUs, width, height, frameRate };
 }
 
 export function inspectMp4Durations(buffer: ArrayBuffer): Mp4DurationSummary | null {
@@ -160,6 +264,7 @@ export function inspectMp4Durations(buffer: ArrayBuffer): Mp4DurationSummary | n
     audioDurationUs: null,
     videoWidth: null,
     videoHeight: null,
+    videoFrameRate: null,
   };
 
   let offset = 0;
@@ -184,6 +289,7 @@ export function inspectMp4Durations(buffer: ArrayBuffer): Mp4DurationSummary | n
               summary.videoDurationUs = track.durationUs;
               summary.videoWidth = track.width;
               summary.videoHeight = track.height;
+              summary.videoFrameRate = track.frameRate;
             }
           } else if (track.handlerType === 'soun' && track.durationUs !== null) {
             // audio も同様に最長尺を保持し、mux 後の総尺差分検査を過小評価しないようにする。

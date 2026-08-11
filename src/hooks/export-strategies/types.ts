@@ -72,6 +72,8 @@ export interface ExportAudioSources {
   mediaItems: MediaItem[];
   bgm: AudioTrack | null;
   narrations: NarrationClip[];
+  /** standard 複合動画の出力 FPS。未指定時は従来の 30fps。 */
+  fps?: number;
   /** 出力全体の長さ（クリップ + エンドロール） */
   totalDuration: number;
   /**
