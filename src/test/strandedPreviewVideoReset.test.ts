@@ -18,6 +18,7 @@ import {
   resetSharedPreviewVideoElement,
   shouldRecoverDecodeStalledActiveVideo,
   shouldResetStrandedPreviewVideo,
+  shouldSuppressVideoPlayForPostExportPreview,
   waitForSharedPreviewMediaRemount,
 } from '../flavors/standard/preview/usePreviewEngine';
 
@@ -407,5 +408,31 @@ describe('POST_EXPORT_DRAWABLE_FRAMES_TO_CLEAR_GUARD', () => {
   it('偽 drawable で早期 clear しないよう十分な連続フレーム数を要求する', () => {
     // previewlog2: 8 フレーム(~80ms) clear 後に再 wedge したため 45 前後を維持
     expect(POST_EXPORT_DRAWABLE_FRAMES_TO_CLEAR_GUARD).toBeGreaterThanOrEqual(30);
+  });
+});
+
+describe('shouldSuppressVideoPlayForPostExportPreview', () => {
+  it('プレビューでは post-export guard 中の readyState 1 を抑止する', () => {
+    expect(shouldSuppressVideoPlayForPostExportPreview({
+      isExporting: false,
+      exportRanSinceLastPreview: true,
+      readyState: 1,
+    })).toBe(true);
+  });
+
+  it('再エクスポートでは同じ guard が残っていても play を妨げない', () => {
+    expect(shouldSuppressVideoPlayForPostExportPreview({
+      isExporting: true,
+      exportRanSinceLastPreview: true,
+      readyState: 1,
+    })).toBe(false);
+  });
+
+  it('プレビューでも現在フレームを取得済みなら抑止しない', () => {
+    expect(shouldSuppressVideoPlayForPostExportPreview({
+      isExporting: false,
+      exportRanSinceLastPreview: true,
+      readyState: 2,
+    })).toBe(false);
   });
 });

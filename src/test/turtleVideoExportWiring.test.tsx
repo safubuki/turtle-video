@@ -31,6 +31,7 @@ const previewPropsCapture = vi.hoisted(() => ({
       includeSubtitles: boolean;
       subtitleFormats: ('srt' | 'vtt')[];
     }) => void;
+    onStop: () => void;
   },
 }));
 
@@ -159,6 +160,50 @@ afterEach(() => {
 });
 
 describe('TurtleVideo export wiring', () => {
+  it('generated export の停止時だけ共有 media を remount する', async () => {
+    const capabilities = createIosSafariCapabilities();
+    const recorderRef: MutableRefObject<MediaRecorder | null> = { current: null };
+    const exportRuntime: ExportRuntime = {
+      useExport: vi.fn(() => createExportHookResult(recorderRef)),
+    };
+    const previewRuntime = createPreviewRuntime(capabilities, () => {});
+    const saveRuntime: SaveRuntime = {
+      configureProjectStore: vi.fn(),
+      getPlatformCapabilities: vi.fn(() => capabilities),
+      getPersistenceHealth: vi.fn(() => Promise.resolve(null)),
+      saveBlobWithClientFileStrategy: vi.fn(() => Promise.resolve({ strategy: 'anchor-download' as const })),
+    };
+
+    useUIStore.getState().setExportUrl('blob:generated-export');
+    render(
+      <TurtleVideo
+        appFlavor="standard"
+        previewRuntime={previewRuntime}
+        exportRuntime={exportRuntime}
+        saveRuntime={saveRuntime}
+      />,
+    );
+
+    act(() => previewPropsCapture.current?.onStop());
+
+    await waitFor(() => {
+      expect(useLogStore.getState().entries.some((entry) => (
+        entry.message === 'preview.postExport.mediaRemount'
+        && entry.details?.phase === 'generated-export-stop'
+      ))).toBe(true);
+    });
+    expect(useUIStore.getState().exportUrl).toBeNull();
+
+    useLogStore.getState().clearLogs();
+    act(() => previewPropsCapture.current?.onStop());
+    await act(async () => Promise.resolve());
+
+    expect(useLogStore.getState().entries.some((entry) => (
+      entry.message === 'preview.postExport.mediaRemount'
+      && entry.details?.phase === 'generated-export-stop'
+    ))).toBe(false);
+  });
+
   it('選択後にキャプションが0件になったら完成動画へ戻す', async () => {
     const capabilities = createIosSafariCapabilities();
     const recorderRef: MutableRefObject<MediaRecorder | null> = { current: null };

@@ -446,6 +446,20 @@ export function isActiveVideoUndrawableForStall(input: {
 }
 
 /**
+ * export 後の decoder guard により play() を抑止すべきかを判定する。
+ * guard はプレビュー保護専用で、次の export では preflight 済み要素の再生を妨げない。
+ */
+export function shouldSuppressVideoPlayForPostExportPreview(input: {
+  isExporting: boolean;
+  exportRanSinceLastPreview: boolean;
+  readyState: number;
+}): boolean {
+  return !input.isExporting
+    && input.exportRanSinceLastPreview
+    && input.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME;
+}
+
+/**
  * 再生中 active video のデコード停止を検知し、load() による decoder リセットで復旧すべきか判定する純ロジック。
  *
  * 症状（Issue #209 / エクスポート後プレビュー）:
@@ -2576,10 +2590,11 @@ export function usePreviewEngine({
                   && !hasExportPlayFailure
                   && !isVideoSeeking
                   && !suppressPlayAfterHardReset
-                  && !(
-                    exportRanSinceLastPreviewRef.current
-                    && videoEl.readyState < MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
-                  );
+                  && !shouldSuppressVideoPlayForPostExportPreview({
+                    isExporting: _isExporting,
+                    exportRanSinceLastPreview: exportRanSinceLastPreviewRef.current,
+                    readyState: videoEl.readyState,
+                  });
                 if (canRequestPlay) {
                   const canPlayAndroidPreviewActiveVideoAfterDraw =
                     isAndroidPreviewPlayback

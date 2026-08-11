@@ -102,6 +102,7 @@ import type {
   PreviewCacheEntry,
   PreviewCacheStatus,
 } from './turtle-video/previewCacheContract';
+import { releaseSharedMediaElementsForRemount } from './turtle-video/mediaRemount';
 
 // --- 自動プロジェクトポスターのキャプチャ待ち設定 ---
 // 動画のシークは非同期で、rAF 1 回（約16ms）では完了しない。完了前に撮ると
@@ -1070,16 +1071,12 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     const generation = ++mediaRemountGenerationRef.current;
     const timeoutMs = 5000;
     const pollMs = 40;
+    const remountStartedAt = performance.now();
+    const releasedMedia = releaseSharedMediaElementsForRemount(mediaElementsRef.current);
 
-    Object.values(mediaElementsRef.current).forEach((el) => {
-      if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO')) {
-        try {
-          (el as HTMLMediaElement).pause();
-        } catch {
-          /* ignore */
-        }
-      }
-    });
+    // 待機処理から古い DOM 要素を不可視にしてから reloadKey を更新する。
+    // これがないと React の commit 前に旧要素の readyState を見て ready を返してしまう。
+    mediaElementsRef.current = releasedMedia.nextElements;
 
     // MediaElementSource は要素に 1 回だけ。古い要素のノードを破棄してから DOM を作り直す。
     Object.keys(sourceNodesRef.current).forEach((id) => {
@@ -1140,6 +1137,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       result,
       generation,
       videoCount: mediaItemsRef.current.filter((item) => item.type === 'video').length,
+      previousElementCount: releasedMedia.previousElementCount,
+      pausedMediaCount: releasedMedia.pausedMediaCount,
+      durationMs: Math.round(performance.now() - remountStartedAt),
     });
     return result;
   }, [detachAudioNode, logInfo]);
@@ -3165,6 +3165,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       return;
     }
 
+    // 生成済み export がある場合だけ、停止後に共有 decoder も初回相当へ戻す。
+    // 通常プレビューの停止では再利用キャッシュを維持し、停止→再生を重くしない。
+    const shouldReleaseGeneratedExportMedia = Boolean(exportUrl);
+
     // 停止ボタン押下で生成済み export を古い成果物として破棄し、ダウンロードボタンを消す。
     clearGeneratedExport('stop-button');
 
@@ -3225,10 +3229,24 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     // 0秒時点を描画
     // 少し遅延させて確実にシーク反映させる
     renderPausedPreviewFrameAtTimeRef.current(0);
+
+    if (shouldReleaseGeneratedExportMedia) {
+      void remountSharedPreviewMedia().then((result) => {
+        logInfo('RENDER', 'preview.postExport.mediaRemount', {
+          result,
+          phase: 'generated-export-stop',
+        });
+        if (result === 'ready') {
+          renderPausedPreviewFrameAtTimeRef.current(0);
+        }
+      });
+    }
   }, [
     clearGeneratedExport,
     clearExportUiState,
+    exportUrl,
     isProcessing,
+    logInfo,
     stopAll,
     stopWebCodecsExport,
     pause,

@@ -3741,3 +3741,27 @@ export 終了（成功/失敗/中断）
   - VideoEncoder単体の実効性能が30fps未満の端末では、フレーム欠落を防ぐbackpressure待機が残り得る。その場合は品質を守るための端末依存待機として扱い、queue 30/90、timeline/video同時pause、bitrateを速度目的で弱めない。
 - **自動回帰**: video flush完了前にaudio feedしないこと、audio flush完了前に次へ進まないことを含むlifecycle 11ケース、エクスポート・プレビュー周辺114テスト、全1335テスト、`npm run typecheck`、`npm run build`が成功。lintは既存の`src/utils/narrationDelivery.ts`の`no-useless-escape` 2件だけで失敗し、今回差分の新規errorはない。
 - **実機再検証（必須）**: 同一プロジェクトを画面再読込なしで最低3回連続exportする。(1) `audioPreRenderDeferred`が`[DIAG-READY]`より前、(2) `videoPhaseDrained`が`[DIAG-4]`より前、(3) `[DIAG-ENCODER-PRESSURE]`の回数・合計停止時間が15回 / 42.38秒から減る、(4) `outputGap=0`、2531フレーム、A/V終端差1ms以内、(5) MP4冒頭・境界・後半の滑らかさを確認する。単体VideoEncoderでも15回前後の待機が残る場合は、現行画質とフレーム完全性を保つ範囲の追加最適化余地は小さいと判断する。
+
+### 13-195. export後の共有media再マウントは旧DOM参照を破棄し、post-export preview guardを次回exportへ持ち込まない
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/components/turtle-video/mediaRemount.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/mediaRemount.test.ts`, `src/test/strandedPreviewVideoReset.test.ts`, `src/test/turtleVideoExportWiring.test.tsx`
+- **対象 flavor**: 主因はstandardのPC連続export。共有mediaの再マウント境界は`TurtleVideo`にあるため、通常プレビュー停止とapple-safari固有exportを変えない条件を守る。
+- **13-194 後の実機評価（2026-08-11 / Windows 11 / Edge 151 / HD 30fps / 3回目）**:
+  - `audioPreRenderDeferred` → 映像 → `videoPhaseDrained` → 音声feed/flushの順序は正しく、映像2531フレーム・音声3955チャンク、A/Vとも84.359秒、`outputGap=0`だった。前回の音声・映像競合へは戻っていない。
+  - backpressureは9回 / 合計24.384秒 / 最大3.543秒まで減ったが、`[DIAG-215]`は`submittedFrameCount=2531`, `distinctRenderedFrames=2357`, `duplicateSubmissionCount=174`, `effectiveRenderFps=20.17`を記録した。全フレーム解析でも9.567〜12.000秒の約2.43秒を含む静止区間があり、出力フレーム数が連番でも参照元videoの内容停止は残っていた。
+  - export完了時の`preview.postExport.mediaRemount.wait result=ready`は01:17:17.453に出た一方、新しい12個のvideoのロード完了は01:17:17.911〜18.234だった。待機処理がReact commit前の**古い`mediaElementsRef`**（readyState済み）を見て、約0.46秒早く偽のreadyを返していた。
+- **根本原因**:
+  - `setReloadKey()`前に旧mediaをpauseしても`mediaElementsRef.current`を空にしていなかったため、再マウント待機が新DOMではなく旧DOMのreadyStateで成立した。結果として完了直後の復旧が実質未完了のまま次回exportへ進み得た。
+  - `exportRanSinceLastPreviewRef`はexport後の通常プレビューを保護するguardだが、`canRequestPlay`で`_isExporting`を除外していなかった。2回目以降のexportでもreadyState 1のvideoに対する`play()`を抑止し、参照元画面の停止と連続同一フレームを助長した。
+  - 生成済みexportを停止ボタンで閉じる経路はURL/UIだけを消し、共有decoderを明示的には初回相当へ戻していなかった。
+- **対策**:
+  - `releaseSharedMediaElementsForRemount()`で旧video/audioをpauseし、`mediaElementsRef.current`を空registryへ差し替えてから`setReloadKey()`する。待機はReactが登録した新DOM要素だけを対象にし、metadata取得後に各`trimStart`へseekする。
+  - post-export guardによるplay抑止は`!isExporting`の通常プレビューだけに限定する。guard自体と「45 drawable frame後にclear」は維持し、プレビューのdecoder wedge対策を弱めない。
+  - 停止ボタンでは、生成済み`exportUrl`があった場合だけ共有mediaを再マウントする。通常プレビューの停止では再マウントせず、既存要素・キャッシュを再利用する。export完了直後の既存eager remountも同じ修正版を通るため、停止ボタンを押さず連続exportする経路も復旧対象になる。
+  - `preview.postExport.mediaRemount.wait`へ`previousElementCount`, `pausedMediaCount`, `durationMs`を追加し、旧要素解放と新要素待機を実機ログで判別できるようにする。
+- **守る不変条件**:
+  - 映像30fps、解像度別bitrate、CFR timestamp、queue 30/90、backpressure時のtimeline/video同時pause、映像→音声flush順、MP4 muxer入力は変更しない。速度目的でフレーム欠落や画質低下を許容しない。
+  - 通常プレビューの停止・再生ではmediaを再マウントしない。export完了、export中断、生成済みexportを停止で閉じる場合だけdecoderを作り直す。
+  - 再マウント完了判定より前に旧registryを必ず空にする。旧要素のreadyStateを新要素のreadyとして流用しない。
+- **自動回帰**: 旧video/audioの停止と空registryへの差し替え、preview時のguard維持とexport時の除外、生成済みexport停止時だけの再マウントを含む対象91テスト、全1341テスト、`npm run typecheck`、`npm run build`が成功。lintは既存の`src/utils/narrationDelivery.ts`の`no-useless-escape` 2件だけで失敗し、今回差分の新規errorはない。
+- **実機再検証（必須）**: 同一プロジェクトを画面再読込なしで最低3回連続exportする。各回で (1) 新videoロード後に`mediaRemount.wait result=ready`となり`previousElementCount`と`durationMs`が記録される、(2) 2・3回目の`play()失敗`と`duplicateSubmissionCount`が再発しない、(3) backpressure回数・合計停止時間が3回を通じて悪化しない、(4) `outputGap=0`、2531フレーム、A/V終端差1ms以内、(5) MP4の9.5〜12秒を含む全区間に意図しない静止と直後ジャンプがないことを確認する。
