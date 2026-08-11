@@ -3787,3 +3787,21 @@ export 終了（成功/失敗/中断）
 - **今後の再調査条件**:
   - 同じ端末・同じ素材・同じ設定で、`effectiveRenderFps`またはbackpressure合計時間が本基準よりさらに悪化した場合に再調査する。まずencoder config、queue 90→30の各停止時間、outputGap、drop、tail fill、media remount、encoder closeを比較する。
   - 速度改善を実装する場合は、hardware / software encoderを同一端末で複数回測定し、同一30fps・解像度・bitrateで完成MP4の全フレーム、A/V尺、冒頭・境界・後半、シーク性まで比較してから選択する。
+
+### 13-197. 再生中にトランジション設定を開く・変更する前に通常プレビューを一時停止する
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/components/sections/ClipsSection.tsx`, `src/constants/sectionHelp.ts`, `src/test/clipsSectionPicker.test.tsx`
+- **対象 flavor**: クリップ間トランジションを提供するstandard（Android / PC）の通常プレビューのみ。apple-safari、standard export、トランジション描画・音声合成・保存形式は変更しない。
+- **問題**: 通常プレビュー再生中に「トランジション」を開いてディゾルブ等を設定すると、プレビューが止まらないまま完全な黒画面になり得た。
+- **根本原因**:
+  - `ClipsSection` のトランジション操作だけが `useMediaStore.updateMediaItem()` を直接呼び、`TurtleVideo` の `pausePreviewBeforeEdit()` を通っていなかった。
+  - ディゾルブは重なり時間ぶん `totalDuration` と `timelineRanges` を変える。旧境界で進行中のrequestAnimationFrameループへ新しい区間を同時反映すると、active clipと参照mediaの対応が一時的に外れ、描画対象のない黒フレームが継続し得る。
+- **対策**:
+  - `ClipsSection` に `onBeforeTransitionEdit` を渡し、トランジション設定を開く直前に既存の `pausePreviewBeforeEdit('edit-clip-transition')` を実行する。
+  - 設定パネルを開いたまま再生を再開する経路もあるため、「なし」・種類・時間の各変更直前にも同じ停止処理を実行する。閉じるだけの操作では停止しない。
+  - 停止後のstore更新、ディゾルブのオーバーラップ計算、フェード、プレビュー描画、export描画は従来実装を維持する。
+- **守る不変条件**:
+  - タイムライン境界や総尺を変更する単発操作は、進行中の通常プレビューループを止めてから更新する。トランジションUIからstoreを直接更新する場合もこの編集前フックを迂回しない。
+  - 音量など連続値のリアルタイム調整へ一律に停止処理を広げない。13-172〜13-174のスライダー操作方針を維持する。
+  - ディゾルブは重なり時間ぶん総尺を短縮し、フェードは総尺を変えない。コメント、ヘルプ、タイムライン実装をこの規約と一致させる。
+- **自動回帰**: 設定を開く時、種類を選ぶ時、時間を変える時に編集前停止を要求する2ケースを追加。対象76テスト、全1,344テスト、`npm run typecheck`、`npm run build`が成功。

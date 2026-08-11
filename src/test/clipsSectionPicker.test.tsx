@@ -62,6 +62,7 @@ function renderClipsSection(
     onResetMediaSetting: vi.fn(),
     onUpdateMediaVolume: vi.fn(),
     onToggleMediaMute: vi.fn(),
+    onBeforeTransitionEdit: vi.fn(),
     onSetAllVideosMuted: vi.fn(),
     onToggleMediaFadeIn: vi.fn(),
     onToggleMediaFadeOut: vi.fn(),
@@ -212,6 +213,53 @@ describe('ClipsSection bulk mute', () => {
   it('動画が無いときは一括ミュートボタンを無効化する', () => {
     renderClipsSection({ mediaItems: [createImageItem({ isTransformOpen: false })] });
     expect(screen.getByRole('button', { name: 'ミュート対象の動画がありません' })).toBeDisabled();
+  });
+});
+
+describe('ClipsSection transition editing', () => {
+  const twoImages = [
+    createImageItem({ isTransformOpen: false }),
+    createImageItem({
+      id: 'image-2',
+      file: new File(['image-2'], 'image-2.png', { type: 'image/png' }),
+      url: 'blob:image-2',
+      isTransformOpen: false,
+    }),
+  ];
+
+  it('設定を開く時とトランジションを選ぶ時に再生停止を要求する', () => {
+    const onBeforeTransitionEdit = vi.fn();
+    renderClipsSection({
+      mediaItems: twoImages,
+      onBeforeTransitionEdit,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'トランジション' }));
+    expect(onBeforeTransitionEdit).toHaveBeenCalledTimes(1);
+
+    onBeforeTransitionEdit.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'ディゾルブ' }));
+    expect(onBeforeTransitionEdit).toHaveBeenCalledTimes(1);
+  });
+
+  it('開いた設定で時間を変更する時にも再生停止を要求する', () => {
+    const onBeforeTransitionEdit = vi.fn();
+    renderClipsSection({
+      mediaItems: [
+        createImageItem({
+          isTransformOpen: false,
+          transitionToNext: { type: 'dissolve', duration: 1 },
+        }),
+        twoImages[1],
+      ],
+      onBeforeTransitionEdit,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'ディゾルブ 1秒' }));
+    onBeforeTransitionEdit.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: '2秒' }));
+
+    expect(onBeforeTransitionEdit).toHaveBeenCalledTimes(1);
   });
 });
 

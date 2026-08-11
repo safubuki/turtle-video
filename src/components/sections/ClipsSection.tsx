@@ -34,19 +34,23 @@ import {
 /**
  * カードとカードの間のトランジションコネクタ（standard フレーバー限定）。
  * タップで種類（なし/ディゾルブ/フェード黒/フェード白）と時間（0.5/1/2秒）を設定する。
- * トランジションはタイムライン長を変えない（見た目のみ）。
+ * ディゾルブは重なり分だけタイムラインを短縮し、フェードは長さを変えない。
  */
 const ClipTransitionConnector: React.FC<{
   transition: ClipTransition | null;
   disabled: boolean;
+  onBeforeEdit: () => void;
   onChange: (transition: ClipTransition | null) => void;
-}> = ({ transition, disabled, onChange }) => {
+}> = ({ transition, disabled, onBeforeEdit, onChange }) => {
   const [open, setOpen] = useState(false);
 
   return (
     <div className="flex flex-col items-center py-0.5">
       <button
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={() => {
+          if (!open) onBeforeEdit();
+          setOpen((prev) => !prev);
+        }}
         disabled={disabled}
         className={`px-2.5 py-0.5 rounded-full border text-[10px] transition flex items-center gap-1 ${transition
           ? 'bg-purple-900/40 border-purple-500/50 text-purple-200'
@@ -64,6 +68,7 @@ const ClipTransitionConnector: React.FC<{
           <div className="flex gap-1">
             <button
               onClick={() => {
+                onBeforeEdit();
                 onChange(null);
                 setOpen(false);
               }}
@@ -78,10 +83,13 @@ const ClipTransitionConnector: React.FC<{
             {CLIP_TRANSITION_TYPE_OPTIONS.map((opt) => (
               <button
                 key={opt.value}
-                onClick={() => onChange({
-                  type: opt.value,
-                  duration: transition?.duration ?? CLIP_TRANSITION_DEFAULT_DURATION,
-                })}
+                onClick={() => {
+                  onBeforeEdit();
+                  onChange({
+                    type: opt.value,
+                    duration: transition?.duration ?? CLIP_TRANSITION_DEFAULT_DURATION,
+                  });
+                }}
                 disabled={disabled}
                 className={`flex-1 py-1 rounded transition ${transition?.type === opt.value
                   ? 'bg-purple-500 text-gray-900 font-semibold'
@@ -97,7 +105,11 @@ const ClipTransitionConnector: React.FC<{
             {CLIP_TRANSITION_DURATION_OPTIONS.map((duration) => (
               <button
                 key={duration}
-                onClick={() => transition && onChange({ ...transition, duration })}
+                onClick={() => {
+                  if (!transition) return;
+                  onBeforeEdit();
+                  onChange({ ...transition, duration });
+                }}
                 disabled={disabled || !transition}
                 className={`flex-1 py-1 rounded transition ${transition?.duration === duration
                   ? 'bg-purple-500 text-gray-900 font-semibold'
@@ -146,6 +158,7 @@ interface ClipsSectionProps {
   onResetMediaSetting: (id: string, type: 'scale' | 'x' | 'y' | 'rotation' | 'blur') => void;
   onUpdateMediaVolume: (id: string, value: number) => void;
   onToggleMediaMute: (id: string) => void;
+  onBeforeTransitionEdit: () => void;
   onUpdateVideoPlaybackSpeed?: (id: string, speed: 1 | 2 | 4 | 8) => void;
   onUpdateVideoShowSpeedBadge?: (id: string, show: boolean) => void;
   onUpdateVideoSpeedBadgeLabelStyle?: (id: string, style: 'ja' | 'en') => void;
@@ -192,6 +205,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   onResetMediaSetting,
   onUpdateMediaVolume,
   onToggleMediaMute,
+  onBeforeTransitionEdit,
   onUpdateVideoPlaybackSpeed,
   onUpdateVideoShowSpeedBadge,
   onUpdateVideoSpeedBadgeLabelStyle,
@@ -417,6 +431,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             <ClipTransitionConnector
               transition={v.transitionToNext ?? null}
               disabled={isClipsLocked || v.isLocked}
+              onBeforeEdit={onBeforeTransitionEdit}
               onChange={(transition) => updateMediaItem(v.id, { transitionToNext: transition })}
             />
           )}

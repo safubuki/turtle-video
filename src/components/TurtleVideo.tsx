@@ -3812,6 +3812,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onResetMediaSetting={handleResetMediaSetting}
               onUpdateMediaVolume={withoutPreviewPause('update-media-volume', updateVolume)}
               onToggleMediaMute={withPreviewPause('toggle-media-mute', toggleMute)}
+              onBeforeTransitionEdit={() => pausePreviewBeforeEdit('edit-clip-transition')}
               onUpdateVideoPlaybackSpeed={withPreviewPause('update-video-playback-speed', updateVideoPlaybackSpeed)}
               onUpdateVideoShowSpeedBadge={withPreviewPause('update-video-show-speed-badge', updateVideoShowSpeedBadge)}
               onUpdateVideoSpeedBadgeLabelStyle={withPreviewPause('update-video-speed-badge-label-style', updateVideoSpeedBadgeLabelStyle)}

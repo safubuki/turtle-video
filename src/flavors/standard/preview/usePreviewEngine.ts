@@ -3257,8 +3257,8 @@ export function usePreviewEngine({
         const exportFrameTiming = (_isExporting && exportDurationAlignment && exportFrameIndex !== null && exportFrameIndex < exportDurationAlignment.frameCount)
           ? getExportFrameTiming(exportDurationAlignment, FPS, exportFrameIndex)
           : null;
-        // === クリップ間トランジション描画（standard 限定機能・タイムライン長は不変） ===
-        // ディゾルブ: 現クリップの終端 d 秒で次クリップのフレームを重ねる
+        // === クリップ間トランジション描画（standard 限定機能） ===
+        // ディゾルブ: 前後クリップを d 秒重ね、そのぶん短縮された timelineRanges 上で描画する
         // フェード(黒/白): 境界の前後 d/2 秒で色板をディップさせる
         if (activeId) {
           const transitionActiveIndex = currentItems.findIndex((item) => item.id === activeId);
