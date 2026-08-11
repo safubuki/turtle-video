@@ -3805,3 +3805,19 @@ export 終了（成功/失敗/中断）
   - 音量など連続値のリアルタイム調整へ一律に停止処理を広げない。13-172〜13-174のスライダー操作方針を維持する。
   - ディゾルブは重なり時間ぶん総尺を短縮し、フェードは総尺を変えない。コメント、ヘルプ、タイムライン実装をこの規約と一致させる。
 - **自動回帰**: 設定を開く時、種類を選ぶ時、時間を変える時に編集前停止を要求する2ケースを追加。対象76テスト、全1,344テスト、`npm run typecheck`、`npm run build`が成功。
+
+### 13-198. 実機再確認で周期停止の改善を確認し、export最終診断を実ファイル基準へ揃える
+
+- **ファイル**: `src/flavors/standard/export/exportEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`
+- **追加実機確認（2026-08-11 / Surface / Edge 151 / 24fps素材2本 / HD 30fps出力 / 19.51秒）**:
+  - 3回連続exportのbackpressureは0回 / 0回 / 1回（2.786秒）。13-196時点の1回 / 4回 / 4回から大幅改善し、周期的な停止は再現しなかった。
+  - 3回目も586投入=586出力、distinct 586、outputGap=0、重複投入0、末尾補完0、drop0、A/V/container差0ms。encoder closeとmedia remount（41ms）も正常。
+  - 添付1回目・3回目を全586フレーム解析し、黒区間・0.1秒以上のfreezeは0件。両者のフレーム差分統計はほぼ同じで、音声PCM hashも一致した。
+  - 24fps素材を固定30fpsへ出すため孤立した同一内容フレームは不可避だが、長い停止や累積ずれではない。以前差し戻した素材fps可変化は再導入しない。
+- **判断**:
+  - 3回目の単発2.786秒待ちはVideoEncoderの一時的な処理性能差。品質安全弁が正しく働き出力に焼き付いていないため、queue 30/90、bitrate、30fps、backpressure同期を変更しない。
+  - 速度目的の追加変更は品質と引き換えになるため実施しない。
+- **診断修正**:
+  - standardで誤ってiOS Safari向けと表示していたCanvas直接キャプチャログをstandard表記へ修正。
+  - `[DIAG-9]`の`fileSizeBytes`をcover art追加後のBlobサイズへ変更し、追加前サイズは`muxedFileSizeBytes`、適用有無は`coverArtInjected`へ分離。出力バイト列やencode順は変更しない。
+- **自動回帰**: export関連100件、全1,344件、typecheck、build成功。ESLint新規errorなし。

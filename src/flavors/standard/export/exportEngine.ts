@@ -2517,7 +2517,10 @@ export function createUseExport(config: UseExportRuntimeConfig) {
               expectedVideoFrames,
             });
           } else {
-            useLogStore.getState().info('RENDER', 'iOS Safari向けにCanvas直接キャプチャを使用');
+            useLogStore.getState().info('RENDER', 'standard export: Canvas直接キャプチャを使用', {
+              captureMode: 'manual-canvas',
+              reason: useManualCanvasFrames ? 'manual-canvas-selected' : 'track-processor-unavailable',
+            });
           }
 
           if (
@@ -3729,8 +3732,10 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             // [DIAG-9] エクスポート最終結果
             // ============================================================
             logInfo('[DIAG-9] エクスポート完了 最終結果', {
-              fileSizeBytes: buffer.byteLength,
-              fileSizeMB: (buffer.byteLength / 1024 / 1024).toFixed(2),
+              fileSizeBytes: blob.size,
+              fileSizeMB: (blob.size / 1024 / 1024).toFixed(2),
+              muxedFileSizeBytes: buffer.byteLength,
+              coverArtInjected: coverInject.injected,
               audioEncoderOutputChunks,
               audioEncoderOutputBytes,
               audioEncoderSkippedChunks,
