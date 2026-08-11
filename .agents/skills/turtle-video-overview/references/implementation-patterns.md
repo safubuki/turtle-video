@@ -3804,3 +3804,24 @@ export 終了（成功/失敗/中断）
   - bitrateは従来の解像度別bits/secを維持する。24fps時は1フレーム当たりに使えるbit量が増えるため、画質を下げずに投入フレーム数を20%削減できる。
   - 13-196の「30fps固定を守る」はこの項で更新される。ただしqueue 30/90、backpressure中のtimeline/video同時pause、映像→音声flush順、明示encoder解放は変更しない。
 - **テスト**: `mp4Duration.test.ts`（stts 24fps検出）、`exportFrameRate.test.ts`（23.976/29.97、単一、混在、上限、倍速、fallback、尺維持）、全118ファイル・1348テスト、typecheck、本番build成功。lintは既存 `src/utils/narrationDelivery.ts` の `no-useless-escape` 2件だけで失敗し、本差分の新規errorはない。
+
+### 13-198. 入力FPSと出力FPSが一致するstandard exportは実提示フレームを確認してからCFR slotを公開する
+- **対象**: `src/flavors/standard/preview/exportVideoPresentation.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/exportVideoPresentation.test.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **13-197 後の実機証拠（2026-08-11 / Windows 11 / Edge 151 / 24fps動画2本）**:
+  - 元動画は各10.01秒・240フレーム・24fps、出力2本も20.01秒・481フレーム・24fpsで、コンテナFPS、総フレーム数、A/V尺は正常だった。
+  - しかし出力フレームを元動画へ画素照合すると、出力1は同じ元フレームの連続割当が151回、その直後の元フレーム飛び越しが147回あった。特に後半はほぼ「同じ絵を2slot保持→次の絵を飛び越して追いつく」の反復だった。出力2は各20回/18回で、同じ入力・同じCFRでも実画像cadenceに大差があった。
+  - ログ上は両方とも `submitted=481`, `distinctRenderedFrames=481`, `renderSkipCount=0`, `outputGap=0` で、rAFも約60fps、Canvas drawも平均1ms未満だった。従来診断はtimelineのframe indexだけを数えており、`HTMLVideoElement.currentTime`だけ進んでCanvasへ渡るデコード画像が前フレームのままの状態を検出できなかった。
+  - 13-197で24fps素材を24fps出力へ揃えた結果、本来1対1になる二つの時計の位相ずれが「重複と直後のskip」として可視化された。24→30の意図的な重複cadenceとは別問題である。
+- **根本原因と対策**:
+  - `readyState`, `seeking`, `paused`, `currentTime`は再生時計とバッファ状態であり、Canvasが参照する実際の提示画像が次フレームへ更新済みとは限らない。
+  - standard export限定で `requestVideoFrameCallback` をセッション中だけ監視し、元動画FPS×再生速度と出力FPSが一致するclipでは、rVFCのcallback serialと`mediaTime`が対象CFR slotへ到達してから`exportRenderedFrameIndexRef`を公開する。
+  - 提示画像が遅れている間は同じslotへexport時計を固定する。対象slotを1/2フレーム超えて先行した場合だけ、そのslotのsource timeへ単発seekして再同期する。毎フレームseek駆動にはしない。
+  - clip末尾1slotはコンテナ尺の端数による正常な最終絵保持なのでゲートしない。入力/出力FPSが異なるclipは意図的な重複・間引きが必要なためゲートもrVFC監視もしない。
+  - rVFC未対応なら最初から現行経路、通知が途中で止まれば2秒timeout後にそのvideoだけ現行経路へ戻す。永久停止や全flavorへの波及を避ける。
+- **守る不変条件**:
+  - 対象はstandard完成動画exportのみ。通常preview、apple-safari、静止画、異なるFPSの合成、caption-only exportは変更しない。
+  - CFR timestamp、入力FPS選択、bitrate、queue 30/90、backpressure時のtimeline/video同時pause、映像→音声flush、encoder明示close、境界head waitを維持する。
+  - `currentTime`一致だけで「実画像も一致」と判定しない。`[DIAG-215]`のindex連番だけで滑らかさを正常判定せず、実害報告時は出力フレームを元素材へ対応付けて重複/skip cadenceも確認する。
+- **診断**: `standard.export.timeline.videoPresentationPaused/Resumed/Resync/Timeout` と完了時の `standard.export.videoPresentation.summary` を記録する。通常は短いwaitだけで、timeoutは0を期待する。
+- **自動回帰**: rVFCの初回通知待ち、同一提示フレームの二重公開防止、behind/ahead判定、単発再同期、clip末尾除外、timeout fallback、monitor cleanup、24fps統合経路を含む全119ファイル・1357テスト、typecheck、本番build成功。lintは既存 `src/utils/narrationDelivery.ts` の `no-useless-escape` 2件だけで失敗し、今回差分の新規errorはない。
+- **実機再検証（必須）**: 添付と同じ24fps動画2本を同一画面で最低3回連続exportする。各回で (1) 24fps・481フレーム・20.01秒・A/V終端一致、(2) `videoPresentation.summary.timeoutCount=0`, (3) 元動画対応付けで異常な重複→skipが出力1の151/147から大幅減少し、後半のほぼ12fps化が無い、(4) `outputGap=0`、末尾補完0、(5) previewとapple-safariに変化がないことを確認する。backpressureの数秒停止は13-196の品質保護待機として別集計し、presentation waitと混同しない。
