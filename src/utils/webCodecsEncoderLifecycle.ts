@@ -40,13 +40,11 @@ function createWebCodecsAbortError(): DOMException {
 }
 
 /**
- * プリレンダリング済み音声を映像タイムラインの開始前に完全排出する。
+ * WebCodecs encoder の保留出力を直列処理の境界で完全排出する。
  *
- * AudioEncoder の output callback と Canvas / VideoEncoder を同時に走らせると、
- * main thread と codec 資源の競合で HTMLVideoElement のデコード画面だけが止まることがある。
  * AbortSignal を race させ、キャンセル時は flush の完了を待ち続けない。
  */
-export async function flushPreRenderedAudioBeforeVideo(
+export async function flushWebCodecsEncoderWithAbort(
   encoder: FlushableWebCodecsEncoder,
   signal: AbortSignal
 ): Promise<void> {
@@ -66,6 +64,24 @@ export async function flushPreRenderedAudioBeforeVideo(
     signal.removeEventListener('abort', onAbort);
     rejectOnAbort = null;
   }
+}
+
+/**
+ * 映像の保留出力を完全排出してから音声を投入し、音声も完全排出する。
+ * 両encoderのoutput callbackを重ねず、映像→音声の直列順序を保証する。
+ */
+export async function runVideoThenAudioEncoderPhases<T>(
+  videoEncoder: FlushableWebCodecsEncoder,
+  audioEncoder: FlushableWebCodecsEncoder,
+  signal: AbortSignal,
+  encodeAudio: () => T | Promise<T>
+): Promise<T> {
+  await flushWebCodecsEncoderWithAbort(videoEncoder, signal);
+  if (signal.aborted) throw createWebCodecsAbortError();
+
+  const result = await encodeAudio();
+  await flushWebCodecsEncoderWithAbort(audioEncoder, signal);
+  return result;
 }
 
 /**

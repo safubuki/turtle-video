@@ -3719,3 +3719,25 @@ export 終了（成功/失敗/中断）
   - 診断でframe indexが連番でも出力内容が滑らかとは限らない。実害報告時はMP4の全フレーム差分も確認する。
 - **自動回帰**: 音声flush完了まで境界を解放しないこと、未完了flushをabortできること、非abortエラーを伝播することを `webCodecsEncoderLifecycle.test.ts` で固定。エクスポート周辺113テスト、全1334テスト、`npm run typecheck`、`npm run build` が成功。lintは既存の `src/utils/narrationDelivery.ts` の `no-useless-escape` 2件だけで失敗し、今回差分の新規エラーはない。
 - **実機再検証（必須）**: 同一プロジェクトを画面再読込なしで最低3回連続exportし、各回で (1) `standard.export.audioPreRenderDrained` が `[DIAG-READY]` より前かつqueue 0、(2) `[DIAG-ENCODER-PRESSURE]` の回数・合計停止時間が基準3回/8.55秒以下、(3) MP4冒頭0〜3秒に上記の連続同一フレームと直後ジャンプがない、(4) `outputGap=0`、2531フレーム、A/V終端差1ms以内を確認する。
+
+### 13-194. standard export のプリレンダリング音声は映像を完全排出した後にencodeする
+
+- **ファイル**: `src/utils/webCodecsEncoderLifecycle.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/test/webCodecsEncoderLifecycle.test.ts`
+- **対象 flavor**: **standard（Android / PC）のプリレンダリング音声パスのみ**。apple-safari、track-processor / script-processor、プレビュー、動画タイムライン、native 1x連続再生、queue 30/90、bitrate、CFR timestampは変更しない。
+- **13-193 の実機評価（2026-08-10 / Windows 11 / Edge 151 / HD 30fps）**:
+  - 音声を映像前に完全排出した出力MP4は、映像2531フレーム・音声3955チャンク、A/Vとも84.359秒、`outputGap=0`を維持した。全フレーム解析でも13-193以前にあった冒頭1〜2秒台の短い同一フレーム列が消え、**出力動画の冒頭乱れには効果があった**。
+  - 一方、VideoEncoderのconfigureから映像開始までが0.409秒から5.917秒へ延びた。backpressureは13-192直後の3回 / 合計8.55秒から15回 / 合計42.38秒へ悪化し、実効映像処理は27.2fpsから19.8fps、全体は93.04秒から127.83秒になった。
+  - Canvas描画平均1.47ms、`VideoEncoder.encode()`平均0.01ms、rAF平均59.73fpsで、同期描画やプレビューloopではなく非同期VideoEncoder排出が待ち時間の実体だった。したがってqueue閾値を広げても総処理時間は短くならず、メモリとフレーム欠落リスクだけが増える。
+- **根本原因と判断**:
+  - 13-193は音声と映像の同時実行を止めた点は正しかったが、**configured済みVideoEncoderを長尺音声のAAC encode / muxer処理中に数秒idleへ置く順序**が性能を後退させた。
+  - 音声・映像の並走へ戻すと出力動画の冒頭乱れが再発し得るため、直列化は維持し、順序だけを「映像→音声」へ変更する。音声bufferのOfflineAudioContext生成は従来どおり映像開始前に完了させる。
+- **対策**:
+  - `ensurePreRenderedAudioBuffer()` の結果を保持し、映像loop開始前にはAudioEncoderへ投入しない。VideoEncoderは準備直後から連続稼働させる。
+  - 映像フレームを全投入後、`VideoEncoder.flush()`で全output callback / muxer追加を完了してから、保持した音声bufferを`feedPreRenderedAudio()`へ渡し、続けて`AudioEncoder.flush()`する。
+  - `runVideoThenAudioEncoderPhases()`で **video flush → audio feed → audio flush** の順序とAbortSignalを共通化する。`standard.export.audioPreRenderDeferred` / `standard.export.videoPhaseDrained` / `standard.export.audioPreRenderDrained`で実機上の各境界を診断できるようにする。
+- **品質・デグレ防止**:
+  - MP4 muxerへ渡す映像・音声chunkの内容、timestamp、bitrate、サンプル数、終端clamp / paddingは変更しない。トラック間の投入順だけを変え、各encoderをflushしてから次フェーズへ進むため、並走時の参照元video停止を再発させない。
+  - 長尺音声のAAC処理は映像完了後に数秒まとまって見える可能性がある。これは周期停止ではなくファイル確定前の直列音声処理であり、出力URLができるまでは既存UIの「保存ファイル作成中」を維持する。
+  - VideoEncoder単体の実効性能が30fps未満の端末では、フレーム欠落を防ぐbackpressure待機が残り得る。その場合は品質を守るための端末依存待機として扱い、queue 30/90、timeline/video同時pause、bitrateを速度目的で弱めない。
+- **自動回帰**: video flush完了前にaudio feedしないこと、audio flush完了前に次へ進まないことを含むlifecycle 11ケース、エクスポート・プレビュー周辺114テスト、全1335テスト、`npm run typecheck`、`npm run build`が成功。lintは既存の`src/utils/narrationDelivery.ts`の`no-useless-escape` 2件だけで失敗し、今回差分の新規errorはない。
+- **実機再検証（必須）**: 同一プロジェクトを画面再読込なしで最低3回連続exportする。(1) `audioPreRenderDeferred`が`[DIAG-READY]`より前、(2) `videoPhaseDrained`が`[DIAG-4]`より前、(3) `[DIAG-ENCODER-PRESSURE]`の回数・合計停止時間が15回 / 42.38秒から減る、(4) `outputGap=0`、2531フレーム、A/V終端差1ms以内、(5) MP4冒頭・境界・後半の滑らかさを確認する。単体VideoEncoderでも15回前後の待機が残る場合は、現行画質とフレーム完全性を保つ範囲の追加最適化余地は小さいと判断する。

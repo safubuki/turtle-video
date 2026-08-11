@@ -53,8 +53,8 @@ import {
 } from '../../../utils/videoEncoderConfig';
 import {
   closeWebCodecsEncoderSafely,
-  flushPreRenderedAudioBeforeVideo,
   releaseOwnedWebCodecsEncoders,
+  runVideoThenAudioEncoderPhases,
   type OwnedWebCodecsEncoders,
 } from '../../../utils/webCodecsEncoderLifecycle';
 import type {
@@ -2346,6 +2346,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
 
           // === 条件付き: OfflineAudioContext による音声プリレンダリング ===
           let offlineAudioDone = false;
+          let deferredPreRenderedAudio: AudioBuffer | null = null;
           const shouldPreRenderAudio = shouldUseOfflineAudioPreRender({
             hasAudioSources: !!audioSources,
             isIosSafari,
@@ -2353,52 +2354,19 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           if (shouldPreRenderAudio && audioSources) {
             const renderedAudio = await ensurePreRenderedAudioBuffer('required');
             if (renderedAudio && !signal.aborted) {
-              useLogStore.getState().info('RENDER', '[DIAG-4] feed開始前 AudioEncoder状態', {
-                state: audioEncoder.state,
-                queueSize: audioEncoder.encodeQueueSize,
-                outputChunksSoFar: audioEncoderOutputChunks,
-              });
-              const audioFeedResult = feedPreRenderedAudio(
-                renderedAudio,
-                audioEncoder,
-                signal,
-                exportDurationUs
-              );
-              finalAudioInputSamples = Math.max(
-                finalAudioInputSamples,
-                audioFeedResult.encodedSamples
-              );
-              useLogStore.getState().info('RENDER', '[DIAG-5] feed完了後 AudioEncoder状態', {
-                state: audioEncoder.state,
-                queueSize: audioEncoder.encodeQueueSize,
-                outputChunksAfterFeed: audioEncoderOutputChunks,
-                encodedInputChunks: audioFeedResult.encodedChunks,
-                encodedInputSamples: audioFeedResult.encodedSamples,
-                trimmedInputSamples: audioFeedResult.trimmedSamples,
-              });
-
-              // 音声の output callback（この案件では 3,955 chunk）と映像描画を並走させると、
-              // timeline の frame index は進んでいても HTMLVideoElement のデコード画面だけが止まり、
-              // 同一 Canvas frame の連続と直後の内容ジャンプが出力へ焼き込まれる。
-              // pre-rendered パスだけはここで完全排出し、映像ループとの資源競合をなくす。
-              const audioDrainStartedAtMs = performance.now();
-              await flushPreRenderedAudioBeforeVideo(audioEncoder, signal);
-              useLogStore.getState().info('RENDER', 'standard.export.audioPreRenderDrained', {
-                durationMs: Math.round(performance.now() - audioDrainStartedAtMs),
-                outputChunks: audioEncoderOutputChunks,
-                outputBytes: audioEncoderOutputBytes,
-                encodeQueueSize: audioEncoder.encodeQueueSize,
-              });
+              // 音声と映像を同時にencodeすると codec資源とoutput callbackが競合する。
+              // 一方、音声を先にflushすると configured済みVideoEncoderが数秒idleになり、
+              // Surface Laptop実機では映像開始後のbackpressureが大幅に増えた。
+              // bufferの準備だけ先に済ませ、映像を完全排出してから音声を直列encodeする。
+              deferredPreRenderedAudio = renderedAudio;
               offlineAudioDone = true;
-              useLogStore
-                .getState()
-                .info('RENDER', '[DIAG-5b] iOS Safari: 音声プリレンダリング＆エンコード完了', {
-                  encodedChunks: audioFeedResult.encodedChunks,
-                  audioEncoderOutputChunks,
-                  audioEncoderOutputBytes,
-                  finalAudioInputSamples,
-                  offlineAudioDone,
-                });
+              useLogStore.getState().info('RENDER', 'standard.export.audioPreRenderDeferred', {
+                sampleRate: renderedAudio.sampleRate,
+                numberOfChannels: renderedAudio.numberOfChannels,
+                sampleCount: renderedAudio.length,
+                durationSec: Number(renderedAudio.duration.toFixed(3)),
+                encodePhase: 'after-video',
+              });
             } else if (!signal.aborted) {
               useLogStore
                 .getState()
@@ -3227,6 +3195,70 @@ export function createUseExport(config: UseExportRuntimeConfig) {
               /* ignore */
             }
             scriptProcessorSource = null;
+          }
+
+          const renderedAudioForDeferredEncode = deferredPreRenderedAudio;
+          if (!signal.aborted && renderedAudioForDeferredEncode) {
+            // プリレンダリング音声パスは映像を先に完全排出する。
+            // これによりVideoEncoderをconfigure直後から連続稼働させ、映像encode中は
+            // AudioEncoderのoutput callbackやmuxer追加処理を一切走らせない。
+            const videoDrainStartedAtMs = performance.now();
+            let audioDrainStartedAtMs = videoDrainStartedAtMs;
+            const audioFeedResult = await runVideoThenAudioEncoderPhases(
+              videoEncoder,
+              audioEncoder,
+              signal,
+              () => {
+                useLogStore.getState().info('RENDER', 'standard.export.videoPhaseDrained', {
+                  durationMs: Math.round(performance.now() - videoDrainStartedAtMs),
+                  submittedFrames: videoEncoderSubmittedFrames,
+                  outputFrames: videoEncoderOutputFrames,
+                  encodeQueueSize: videoEncoder.encodeQueueSize,
+                });
+                useLogStore.getState().info('RENDER', '[DIAG-4] feed開始前 AudioEncoder状態', {
+                  state: audioEncoder.state,
+                  queueSize: audioEncoder.encodeQueueSize,
+                  outputChunksSoFar: audioEncoderOutputChunks,
+                  encodePhase: 'after-video',
+                });
+                const result = feedPreRenderedAudio(
+                  renderedAudioForDeferredEncode,
+                  audioEncoder,
+                  signal,
+                  exportDurationUs
+                );
+                finalAudioInputSamples = Math.max(finalAudioInputSamples, result.encodedSamples);
+                useLogStore.getState().info('RENDER', '[DIAG-5] feed完了後 AudioEncoder状態', {
+                  state: audioEncoder.state,
+                  queueSize: audioEncoder.encodeQueueSize,
+                  outputChunksAfterFeed: audioEncoderOutputChunks,
+                  encodedInputChunks: result.encodedChunks,
+                  encodedInputSamples: result.encodedSamples,
+                  trimmedInputSamples: result.trimmedSamples,
+                  encodePhase: 'after-video',
+                });
+                audioDrainStartedAtMs = performance.now();
+                return result;
+              }
+            );
+            useLogStore.getState().info('RENDER', 'standard.export.audioPreRenderDrained', {
+              durationMs: Math.round(performance.now() - audioDrainStartedAtMs),
+              outputChunks: audioEncoderOutputChunks,
+              outputBytes: audioEncoderOutputBytes,
+              encodeQueueSize: audioEncoder.encodeQueueSize,
+              encodePhase: 'after-video',
+            });
+            useLogStore
+              .getState()
+              .info('RENDER', '[DIAG-5b] 音声プリレンダリング＆エンコード完了', {
+                encodedChunks: audioFeedResult.encodedChunks,
+                audioEncoderOutputChunks,
+                audioEncoderOutputBytes,
+                finalAudioInputSamples,
+                offlineAudioDone,
+                encodePhase: 'after-video',
+              });
+            deferredPreRenderedAudio = null;
           }
 
           if (

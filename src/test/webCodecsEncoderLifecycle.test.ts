@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   closeWebCodecsEncoderSafely,
-  flushPreRenderedAudioBeforeVideo,
+  flushWebCodecsEncoderWithAbort,
   releaseOwnedWebCodecsEncoders,
+  runVideoThenAudioEncoderPhases,
 } from '../utils/webCodecsEncoderLifecycle';
 
-describe('flushPreRenderedAudioBeforeVideo', () => {
-  it('AudioEncoder の flush が完了するまで映像開始境界を解放しない', async () => {
+describe('flushWebCodecsEncoderWithAbort', () => {
+  it('encoder の flush が完了するまで直列処理の境界を解放しない', async () => {
     let resolveFlush = () => {};
     const flush = vi.fn(
       () =>
@@ -17,7 +18,7 @@ describe('flushPreRenderedAudioBeforeVideo', () => {
     const signal = new AbortController().signal;
 
     let completed = false;
-    const draining = flushPreRenderedAudioBeforeVideo({ flush }, signal).then(() => {
+    const draining = flushWebCodecsEncoderWithAbort({ flush }, signal).then(() => {
       completed = true;
     });
     await Promise.resolve();
@@ -34,7 +35,7 @@ describe('flushPreRenderedAudioBeforeVideo', () => {
     const controller = new AbortController();
     const flush = vi.fn(() => new Promise<void>(() => {}));
 
-    const draining = flushPreRenderedAudioBeforeVideo({ flush }, controller.signal);
+    const draining = flushWebCodecsEncoderWithAbort({ flush }, controller.signal);
     controller.abort();
 
     await expect(draining).rejects.toMatchObject({ name: 'AbortError' });
@@ -45,8 +46,67 @@ describe('flushPreRenderedAudioBeforeVideo', () => {
     const flush = vi.fn().mockRejectedValue(failure);
 
     await expect(
-      flushPreRenderedAudioBeforeVideo({ flush }, new AbortController().signal)
+      flushWebCodecsEncoderWithAbort({ flush }, new AbortController().signal)
     ).rejects.toBe(failure);
+  });
+});
+
+describe('runVideoThenAudioEncoderPhases', () => {
+  it('video flush → audio feed → audio flush の順序を保証する', async () => {
+    const order: string[] = [];
+    let resolveVideoFlush = () => {};
+    let resolveAudioFlush = () => {};
+    const videoEncoder = {
+      flush: vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveVideoFlush = () => {
+              order.push('video-flushed');
+              resolve();
+            };
+          })
+      ),
+    };
+    const audioEncoder = {
+      flush: vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            order.push('audio-flush-started');
+            resolveAudioFlush = () => {
+              order.push('audio-flushed');
+              resolve();
+            };
+          })
+      ),
+    };
+    const encodeAudio = vi.fn(() => {
+      order.push('audio-fed');
+      return { encodedChunks: 989 };
+    });
+
+    let completed = false;
+    const phases = runVideoThenAudioEncoderPhases(
+      videoEncoder,
+      audioEncoder,
+      new AbortController().signal,
+      encodeAudio
+    ).then((result) => {
+      completed = true;
+      return result;
+    });
+    await Promise.resolve();
+
+    expect(videoEncoder.flush).toHaveBeenCalledTimes(1);
+    expect(encodeAudio).not.toHaveBeenCalled();
+
+    resolveVideoFlush();
+    await vi.waitFor(() => expect(audioEncoder.flush).toHaveBeenCalledTimes(1));
+    expect(order).toEqual(['video-flushed', 'audio-fed', 'audio-flush-started']);
+    expect(completed).toBe(false);
+
+    resolveAudioFlush();
+    await expect(phases).resolves.toEqual({ encodedChunks: 989 });
+    expect(order).toEqual(['video-flushed', 'audio-fed', 'audio-flush-started', 'audio-flushed']);
   });
 });
 
