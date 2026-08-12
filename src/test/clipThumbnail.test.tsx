@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ClipThumbnail from '../components/common/ClipThumbnail';
 
 const getPlatformCapabilitiesMock = vi.fn();
-const matchMediaMatchesMock = vi.fn(() => false);
+const matchMediaMatchesMock = vi.fn((_query: string) => false);
 
 vi.mock('../utils/platform', () => ({
   getPlatformCapabilities: () => getPlatformCapabilitiesMock(),
