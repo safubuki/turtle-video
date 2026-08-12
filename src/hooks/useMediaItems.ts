@@ -7,7 +7,7 @@
  */
 import { useState, useCallback, useRef } from 'react';
 import type { MediaItem } from '../types';
-import { MAX_CANVAS_WIDTH, MAX_CANVAS_HEIGHT } from '../constants';
+import { MAX_CANVAS_WIDTH, MAX_CANVAS_HEIGHT, MIN_SCALE, MAX_SCALE } from '../constants';
 
 /**
  * useMediaItems - メディアアイテムの状態管理と操作ロジックを提供するフック
@@ -203,7 +203,7 @@ export function useMediaItems(): UseMediaItemsReturn {
   const updateMediaScale = useCallback((id: string, value: string | number) => {
     let val = typeof value === 'number' ? value : parseFloat(value);
     if (isNaN(val)) val = 1.0;
-    val = Math.min(Math.max(val, 0.5), 3.0);
+    val = Math.min(Math.max(val, MIN_SCALE), MAX_SCALE);
     setMediaItems((prev) => prev.map((v) => (v.id === id ? { ...v, scale: val } : v)));
   }, []);
 

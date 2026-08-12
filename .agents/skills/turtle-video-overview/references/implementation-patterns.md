@@ -3821,3 +3821,56 @@ export 終了（成功/失敗/中断）
   - standardで誤ってiOS Safari向けと表示していたCanvas直接キャプチャログをstandard表記へ修正。
   - `[DIAG-9]`の`fileSizeBytes`をcover art追加後のBlobサイズへ変更し、追加前サイズは`muxedFileSizeBytes`、適用有無は`coverArtInjected`へ分離。出力バイト列やencode順は変更しない。
 - **自動回帰**: export関連100件、全1,344件、typecheck、build成功。ESLint新規errorなし。
+
+
+### 13-199. クリップ拡大率 400% 上限とカードミニサムネの安定表示
+
+- **ファイル**: `src/constants/index.ts`, `src/utils/media.ts`, `src/hooks/useMediaItems.ts`, `src/components/media/ClipItem.tsx`, `src/components/common/ClipThumbnail.tsx`, `src/test/media.test.ts`, `src/test/stores/mediaStore.test.ts`, `src/test/clipThumbnail.test.tsx`, `spec.md`
+- **拡大率**:
+  - `MAX_SCALE` を `3.0` → `4.0`（400%）へ変更。`MIN_SCALE` は 0.5 のまま。
+  - UI スライダー、`validateScale`、`useMediaItems.updateMediaScale`、mediaStore のクランプが同じ定数を参照するよう揃え、経路ごとの上限ズレを防ぐ。
+  - 既に 300% 以下のプロジェクトは見た目不変。400% 超は 4.0 にクランプ。
+- **カードミニサムネ（稀に非表示）の原因と対策**:
+  - **原因1**: シーク未完了の黒フレームを `drawImage` 成功として確定し、暗いカード背景上で「消えた」ように見えた。
+  - **原因2**: `videoWidth/Height === 0` のまま描画失敗し、フォールバックまたは透明状態が残った（特に動画）。
+  - **原因3**: 非 iOS で video を DOM 外のまま描画すると、一部コーデック・同時デコード競合でフレームが取れないことがあった（iOS は 13-65 で DOM 配置済み）。
+  - **対策**:
+    - 描画成功後に `isCanvasEffectivelyBlank()` で黒判定し、黒なら次のシーク候補へフォールバック。
+    - `videoWidth/Height > 0` になるまで待機（最大約 1.2s）。
+    - **全環境**で一時 DOM 配置（opacity 0.01）。iOS の prime `play()` は従来どおり iOS 限定。
+    - 全候補失敗時は video 要素を作り直して 1 回だけ再試行（同時デコード競合向け）。
+    - 画像は `Image` 失敗時に `createImageBitmap` へフォールバック。
+  - ObjectURL は確定後・cleanup で必ず `revoke`。一時 video は `pause` + DOM 解除。
+- **注意**:
+  - 13-65 の「DOM 配置は iOS 限定」は本項で **DOM 配置は全環境・prime 再生のみ iOS** に更新する。
+  - 意図的な暗所サムネを誤って黒扱いしすぎないよう、黒判定しきい値はプロジェクトポスターと同系（`BLANK_FRAME_LUMINANCE_THRESHOLD=12`）を共用。
+  - 拡大率の上限を変えるときは constants / validateScale / UI / テスト / spec を同時更新する。
+
+### 13-200. カードミニサムネのホバー/タップ拡大表示
+
+- **ファイル**: `src/components/common/ClipThumbnail.tsx`, `src/test/clipThumbnail.test.tsx`
+- **要件**: クリップカード左上のミニサムネ（48×28）を、PC ではマウスオーバーで少し拡大して確認でき、スマホではタップで拡大表示できる。
+- **設計判断（モバイルのベストプラクティス）**:
+  - ホバーが無いタッチ端末では **タップ → ライトボックス（半透明オーバーレイ + 中央拡大 + 閉じる）** が最も発見しやすく誤操作が少ない。
+  - 長押しはコンテキストメニューやスクロールと競合しやすいため採用しない。
+  - 端末判定は UA ではなく `matchMedia('(hover: hover) and (pointer: fine)')`。精密ポインタ + ホバー可能なときだけホバー拡大、それ以外はタップライトボックス。
+- **実装**:
+  - サムネ描画成功時に `canvas.toDataURL('image/jpeg', 0.92)` で拡大用スナップショットを保持（再デコード不要・ObjectURL 追加なし）。
+  - 親の `overflow-hidden` で切れないよう、拡大 UI は `createPortal(..., document.body)` + `position: fixed`。
+  - **PC**: ホバー/フォーカスで約 240×140 の浮き出しプレビュー（viewport 内へクランプ、下に収まらなければ上へ）。クリックではライトボックスを開かない。
+  - **スマホ**: タップでライトボックス。背景タップ・×・Escape で閉じる。`useDisableBodyScroll` で背景スクロールを抑止。
+  - トリガーは `button`。`stopPropagation` でカード操作と干渉しない。`p-1 -m-1` でタップ領域をわずかに拡大。
+- **注意**:
+  - 13-199 のキャプチャ安定化（黒判定・DOM 配置・再試行）はそのまま維持。拡大 UI は描画結果のスナップショットだけを使う。
+  - 未描画（`ready=false` / スナップショット失敗）の間はボタンを disabled にし、空の拡大を出さない。
+  - プレビュー再生・export 経路には波及させない。
+
+### 13-201. カードミニサムネ拡大表示のキャプチャ解像度を上げる
+
+- **ファイル**: `src/components/common/ClipThumbnail.tsx`, `src/test/clipThumbnail.test.tsx`
+- **問題**: 拡大プレビューが 48×28 のスナップショットを引き伸ばしていたため、内容が判別できなかった。
+- **対策**:
+  - カード上の**表示サイズ**は従来どおり 48×28（CSS）。
+  - 内部 canvas は **336×196**（12:7）でフレームをキャプチャし、ホバー/ライトボックス用 `toDataURL` も同じ高解像度を使う。
+  - 一時 video の offscreen 配置サイズもキャプチャ解像度に合わせ、デコード画質を確保する。
+- **注意**: フルHD までは取らない（メモリ・同時デコード負荷とのバランス）。識別できれば十分という方針。

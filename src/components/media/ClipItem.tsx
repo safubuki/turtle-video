@@ -45,6 +45,7 @@ import {
   canSetVideoTrimFromPreviewPosition,
   resolveMediaThumbnailSourceTime,
 } from '../../utils/media';
+import { MIN_SCALE, MAX_SCALE } from '../../constants';
 import {
   VIDEO_PLAYBACK_SPEEDS,
   getVideoSourceClipDuration,
@@ -430,8 +431,8 @@ const ClipItem: React.FC<ClipItemProps> = ({
 
             <NumericSliderField
               ariaLabel="拡大率"
-              min={0.5}
-              max={3.0}
+              min={MIN_SCALE}
+              max={MAX_SCALE}
               step={0.001}
               stepperStep={0.025}
               value={v.scale || 1.0}

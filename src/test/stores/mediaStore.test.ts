@@ -243,10 +243,10 @@ describe('mediaStore', () => {
       });
       
       const { updateScale } = useMediaStore.getState();
-      updateScale('a', 5.0); // max is 3.0
+      updateScale('a', 5.0); // max is 4.0
       
       const { mediaItems } = useMediaStore.getState();
-      expect(mediaItems[0].scale).toBe(3.0);
+      expect(mediaItems[0].scale).toBe(4.0);
     });
   });
 

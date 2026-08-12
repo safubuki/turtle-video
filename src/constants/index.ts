@@ -35,7 +35,7 @@ export const STANDARD_VOLUME_POSITION = 0.75;     // 3/4位置 = 100%
 
 // スケール設定
 export const MIN_SCALE = 0.5;
-export const MAX_SCALE = 3.0;
+export const MAX_SCALE = 4.0;
 export const BLACK_BORDER_REMOVAL_SCALE = 1.025;
 
 // 画像デフォルト設定

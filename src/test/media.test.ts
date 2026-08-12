@@ -519,8 +519,9 @@ describe('video thumbnail auto/manual (Issue #208)', () => {
 describe('validateScale', () => {
   it('should clamp scale to min/max', () => {
     expect(validateScale(0.3)).toBe(0.5); // min is 0.5
-    expect(validateScale(5)).toBe(3.0); // max is 3.0
+    expect(validateScale(5)).toBe(4.0); // max is 4.0
     expect(validateScale(1.5)).toBe(1.5);
+    expect(validateScale(4.0)).toBe(4.0);
   });
 });
 

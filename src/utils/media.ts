@@ -9,7 +9,7 @@
 import type { MediaItem } from '../types';
 import { calculateTotalDurationWithTransitions } from './transitionTimeline';
 import { useLogStore } from '../stores/logStore';
-import { MAX_CANVAS_WIDTH } from '../constants';
+import { MAX_CANVAS_WIDTH, MIN_SCALE, MAX_SCALE } from '../constants';
 import {
   computeTimelineDurationFromSource,
   getVideoSourceClipDuration,
@@ -662,7 +662,7 @@ export function createPosterPreviewDataUrlFromCanvas(
  * @param max - 最大値
  * @returns 検証されたスケール値
  */
-export function validateScale(scale: number, min: number = 0.5, max: number = 3.0): number {
+export function validateScale(scale: number, min: number = MIN_SCALE, max: number = MAX_SCALE): number {
   if (isNaN(scale)) return 1.0;
   return Math.max(min, Math.min(max, scale));
 }
