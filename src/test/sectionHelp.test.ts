@@ -142,6 +142,12 @@ describe('sectionHelp support messaging', () => {
     );
   });
 
+  it('一括ミュートのヘルプは後から追加した動画にも効くことを案内する', () => {
+    const description = getHelpDescription('clips', '一括ミュート（スピーカーアイコン）');
+    expect(description).toContain('あとから追加した動画もミュートになります');
+    expect(getHelpVisuals('clips', '一括ミュート（スピーカーアイコン）')).toContain('mute_button');
+  });
+
   it('文章だけだった最近の機能にも操作部品の視覚見本を持たせる', () => {
     expect(getHelpVisuals('clips', '動画の形式（横16:9／縦9:16）')).toContain(
       'aspect_ratio_toggle'

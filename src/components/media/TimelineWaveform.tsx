@@ -23,6 +23,7 @@ import { ChevronsLeft, ChevronsRight, AudioLines } from 'lucide-react';
 import type { TimelineWaveformData } from '../../hooks/useTimelineWaveform';
 import {
   findAdjacentSilenceBoundary,
+  resolveTimelinePlayheadPercent,
   type SilenceSourceTarget,
 } from '../../utils/timelineWaveform';
 
@@ -190,7 +191,7 @@ const TimelineWaveform: React.FC<TimelineWaveformProps> = ({
     );
   }
 
-  const currentPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const currentPercent = resolveTimelinePlayheadPercent(currentTime, duration);
   const hasSilences = silences.length > 0;
 
   return (
@@ -213,6 +214,7 @@ const TimelineWaveform: React.FC<TimelineWaveformProps> = ({
         />
         {/* 現在位置マーカー。シークバーのつまみと同じ百分率なので上下で一直線に揃う。 */}
         <div
+          data-testid="timeline-playhead"
           className="pointer-events-none absolute top-0 z-10 h-full w-px bg-white/90 shadow-[0_0_4px_rgba(255,255,255,0.7)]"
           style={{ left: `${currentPercent}%` }}
         />

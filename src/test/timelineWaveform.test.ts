@@ -16,6 +16,7 @@ import {
   collectSeekBoundaries,
   findAdjacentSilenceBoundary,
   resolveSilenceSource,
+  resolveTimelinePlayheadPercent,
   TIMELINE_WAVEFORM_SAMPLE_RATE,
   type TimelinePlacement,
   type TimelineSilenceRegion,
@@ -528,5 +529,25 @@ describe('findAdjacentSilenceBoundary', () => {
       const mixed = composeTimelinePcm([narration], 10, RATE, { fadeStartSec: 5 });
       expect(amplitudeAt(mixed, 9.5)).toBeCloseTo(1, 3);
     });
+  });
+});
+
+describe('resolveTimelinePlayheadPercent', () => {
+  it('シークバーと波形で同じ百分率を返す', () => {
+    expect(resolveTimelinePlayheadPercent(0, 20)).toBe(0);
+    expect(resolveTimelinePlayheadPercent(5, 20)).toBe(25);
+    expect(resolveTimelinePlayheadPercent(15, 20)).toBe(75);
+    expect(resolveTimelinePlayheadPercent(20, 20)).toBe(100);
+  });
+
+  it('後半でも線形のまま（ネイティブ range の端インセットを入れない）', () => {
+    expect(resolveTimelinePlayheadPercent(18, 20)).toBe(90);
+    expect(resolveTimelinePlayheadPercent(19.8, 20)).toBeCloseTo(99, 5);
+  });
+
+  it('不正値やゼロ尺は 0 に倒す', () => {
+    expect(resolveTimelinePlayheadPercent(5, 0)).toBe(0);
+    expect(resolveTimelinePlayheadPercent(Number.NaN, 10)).toBe(0);
+    expect(resolveTimelinePlayheadPercent(5, Number.POSITIVE_INFINITY)).toBe(0);
   });
 });

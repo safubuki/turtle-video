@@ -634,6 +634,22 @@ describe('PreviewSection action buttons', () => {
     expect(onTogglePlay).toHaveBeenCalledTimes(1);
   });
 
+  it('エクスポート中もカスタムつまみを波形と同じ百分率で出し、ネイティブつまみは隠す', () => {
+    const { container } = renderPreviewSection({
+      isProcessing: true,
+      currentTime: 15,
+      totalDuration: 20,
+    });
+
+    const thumb = screen.getByTestId('preview-seek-thumb');
+    expect(thumb.style.left).toBe('calc(75% - 10px)');
+
+    const seek = container.querySelector('input[type="range"][aria-label="プレビュー位置"]');
+    expect(seek).toBeInstanceOf(HTMLInputElement);
+    expect((seek as HTMLInputElement).style.opacity).toBe('0');
+    expect((seek as HTMLInputElement).disabled).toBe(true);
+  });
+
   it('エクスポート中に停止ボタンを押しても onStop が呼ばれる', () => {
     const onStop = vi.fn();
 

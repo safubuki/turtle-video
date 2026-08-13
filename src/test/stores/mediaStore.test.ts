@@ -198,6 +198,50 @@ describe('mediaStore', () => {
       const { mediaItems } = useMediaStore.getState();
       expect(mediaItems.every((m) => m.isMuted === false)).toBe(true);
     });
+
+    it('一括ミュート中に追加した動画もミュートし、一括ミュート状態を維持する', async () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'v1', type: 'video', isMuted: true, duration: 5 } as any,
+          { id: 'i1', type: 'image', isMuted: false, duration: 5 } as any,
+        ],
+        totalDuration: 10,
+      });
+
+      await useMediaStore.getState().addMediaItems([
+        new File(['new'], 'added.mp4', { type: 'video/mp4' }),
+        new File(['still'], 'added.png', { type: 'image/png' }),
+      ]);
+
+      const { mediaItems } = useMediaStore.getState();
+      const addedVideo = mediaItems.find((item) => item.file?.name === 'added.mp4');
+      const addedImage = mediaItems.find((item) => item.file?.name === 'added.png');
+      const videos = mediaItems.filter((item) => item.type === 'video');
+
+      expect(addedVideo?.isMuted).toBe(true);
+      expect(addedImage?.isMuted).toBe(false);
+      expect(videos.length).toBe(2);
+      expect(videos.every((item) => item.isMuted)).toBe(true);
+    });
+
+    it('一括ミュートが無効なら追加動画はミュートしない', async () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'v1', type: 'video', isMuted: true, duration: 5 } as any,
+          { id: 'v2', type: 'video', isMuted: false, duration: 5 } as any,
+        ],
+        totalDuration: 10,
+      });
+
+      await useMediaStore.getState().addMediaItems([
+        new File(['new'], 'added.mp4', { type: 'video/mp4' }),
+      ]);
+
+      const addedVideo = useMediaStore.getState().mediaItems.find(
+        (item) => item.file?.name === 'added.mp4',
+      );
+      expect(addedVideo?.isMuted).toBe(false);
+    });
   });
 
   describe('clearAllMedia', () => {

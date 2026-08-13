@@ -96,6 +96,7 @@ turtle-video/
   - 設定後は再書き出しが必要
 - クリップ一覧の小サムネは動画ごと自動（有効開始+0.2秒）
 - ボリューム調整、ミュート
+- **一括ミュート**（動画のみ・Android/PC）。全動画がミュートのときは後から追加した動画もミュートを継承し、一括ミュート状態を維持する
 - フェードイン/アウト（映像・音声）
 - **動画カードの再生速度（1x / 2x / 4x / 8x）**（**Android/PC・standard 限定**。スローは対象外）。タイムライン尺は `(trimEnd-trimStart)/速度`。プレビューは `playbackRate=speed`、**export 映像は rate=1 連続 + 壁時計 dilation（Δt/speed）**（途中切れ・seek 静止画化を避ける成功方式。詳細は implementation-patterns 13-166 と `export-speed-video-wall-dilation-postmortem-2026-08-01.md`）。音声も高速化（pitch-preserved キャプチャ）、ミュート時はソース音声なし。任意でバッジ表示（既定「N倍速」/ 英語「Nx」切替、位置プリセット＋微調整）
 - スケール調整（0.5倍〜3.0倍）、位置調整（X/Y）

@@ -16,6 +16,7 @@ import type { MediaItem, SpeedBadgeLabelStyle, VideoPlaybackSpeed } from '../typ
 import type { AspectRatio } from './canvasStore';
 import {
   createMediaItem,
+  applyBulkMuteToAddedMediaItems,
   calculateTotalDuration,
   generateId,
   validateTrim,
@@ -180,7 +181,9 @@ export const useMediaStore = create<MediaState>()(
           newItems.push(await createMediaItem(file));
         }
         set((state) => {
-          const updated = [...state.mediaItems, ...newItems];
+          // 一括ミュートが有効（既存動画がすべてミュート）なら、追加動画もミュートを継承する
+          const itemsToAdd = applyBulkMuteToAddedMediaItems(state.mediaItems, newItems);
+          const updated = [...state.mediaItems, ...itemsToAdd];
           useLogStore.getState().info('MEDIA', 'メディアアイテム追加完了', { totalItems: updated.length, totalDuration: calculateTotalDuration(updated) });
           return {
             mediaItems: updated,

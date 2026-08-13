@@ -41,6 +41,7 @@ import type { AppFlavor } from '../../app/resolveAppFlavor';
 import { getAppFlavorUiCapabilities, getPreviewRuntimeNotice } from '../../app/appFlavorUi';
 import { formatTimeCentiseconds } from '../../utils/format';
 import { computeTransitionTimelineRanges } from '../../utils/transitionTimeline';
+import { resolveTimelinePlayheadPercent } from '../../utils/timelineWaveform';
 import { useLogStore } from '../../stores/logStore';
 import { useCanvasStore } from '../../stores/canvasStore';
 import type { AspectRatio } from '../../stores/canvasStore';
@@ -59,6 +60,8 @@ const PREVIEW_STOP_BUTTON =
   'border-gray-700 bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white disabled:border-gray-700 disabled:bg-gray-800 disabled:text-gray-500';
 const PREVIEW_CAPTURE_BUTTON =
   'border-gray-700 bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white disabled:border-gray-700 disabled:bg-gray-800 disabled:text-gray-500';
+/** カスタムつまみは w-5 (20px)。中心を百分率位置へ合わせる半幅 */
+const PREVIEW_SEEK_THUMB_HALF_PX = 10;
 const EXPORT_RENDERING_READY_TIME_SEC = 0.25;
 const EXPORT_FINALIZING_EPSILON_SEC = 0.05;
 const EXPORT_FINALIZING_TIMEOUT_MS = 30000;
@@ -453,8 +456,9 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
 
   const exportProgressPct = useMemo(() => {
     if (!isProcessing || totalDuration <= 0) return 0;
-    return Math.min(100, Math.max(0, (currentTime / totalDuration) * 100));
+    return resolveTimelinePlayheadPercent(currentTime, totalDuration);
   }, [currentTime, isProcessing, totalDuration]);
+  const seekPlayheadPercent = resolveTimelinePlayheadPercent(currentTime, totalDuration);
 
   const preparationStage = resolvePreparationStage(exportPreparationStep);
   const preparationStageCopy = PREPARATION_STAGE_COPY[preparationStage];
@@ -755,14 +759,18 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
               onSeekEnd();
             }}
             onBlur={onSeekEnd}
-            className="absolute top-0 w-full h-full opacity-0 cursor-pointer z-10"
+            className="absolute top-0 w-full h-full cursor-pointer z-10"
+            // グローバルな input[type=range]:disabled { opacity: 0.5 } より
+            // inline を優先し、書き出し中にネイティブつまみが見えないようにする。
+            style={{ opacity: 0 }}
             disabled={mediaItems.length === 0 || isProcessing}
             aria-label="プレビュー位置"
           />
-          {!isProcessing && mediaItems.length > 0 && (
+          {mediaItems.length > 0 && (
             <div
+              data-testid="preview-seek-thumb"
               className="absolute top-1.5 w-5 h-5 bg-white shadow-lg rounded-full pointer-events-none z-0 border-2 border-gray-200"
-              style={{ left: `calc(${(currentTime / (totalDuration || 1)) * 100}% - 10px)` }}
+              style={{ left: `calc(${seekPlayheadPercent}% - ${PREVIEW_SEEK_THUMB_HALF_PX}px)` }}
             />
           )}
         </div>

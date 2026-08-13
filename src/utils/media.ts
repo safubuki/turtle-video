@@ -89,6 +89,35 @@ export async function createMediaItem(file: File): Promise<MediaItem> {
   };
 }
 
+type MediaMuteSnapshot = Pick<MediaItem, 'type' | 'isMuted'>;
+
+/**
+ * 一括ミュートが有効か（既存動画が1本以上あり、すべてミュート）。
+ * 動画が無い場合は false。新規動画の既定はミュート解除のままにする。
+ */
+export function areAllExistingVideosMuted(
+  items: readonly MediaMuteSnapshot[],
+): boolean {
+  const videos = items.filter((item) => item.type === 'video');
+  return videos.length > 0 && videos.every((item) => Boolean(item.isMuted));
+}
+
+/**
+ * 一括ミュートが有効なとき、追加する動画へミュートを継承する。
+ * 画像は対象外。既存動画が無い／1本でも解除されている場合は追加アイテムを変えない。
+ */
+export function applyBulkMuteToAddedMediaItems<T extends MediaMuteSnapshot>(
+  existingItems: readonly MediaMuteSnapshot[],
+  addedItems: T[],
+): T[] {
+  if (!areAllExistingVideosMuted(existingItems)) {
+    return addedItems;
+  }
+  return addedItems.map((item) =>
+    item.type === 'video' && !item.isMuted ? { ...item, isMuted: true } : item,
+  );
+}
+
 /**
  * メディアアイテムの総再生時間を計算
  * @param items - メディアアイテムの配列

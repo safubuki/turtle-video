@@ -6,6 +6,8 @@ import { describe, it, expect } from 'vitest';
 import {
   generateId,
   getMediaType,
+  areAllExistingVideosMuted,
+  applyBulkMuteToAddedMediaItems,
   calculateTotalDuration,
   getActiveMediaItem,
   swapArrayItems,
@@ -104,6 +106,58 @@ const createMockMediaItem = (overrides: Partial<MediaItem> = {}): MediaItem => (
   isTransformOpen: false,
   isLocked: false,
   ...overrides,
+});
+
+describe('areAllExistingVideosMuted / applyBulkMuteToAddedMediaItems', () => {
+  it('既存動画がすべてミュートなら true', () => {
+    const items = [
+      createMockMediaItem({ type: 'video', isMuted: true }),
+      createMockMediaItem({ type: 'image', isMuted: false, duration: 5 }),
+      createMockMediaItem({ type: 'video', isMuted: true }),
+    ];
+    expect(areAllExistingVideosMuted(items)).toBe(true);
+  });
+
+  it('動画が無い、または1本でも解除されているなら false', () => {
+    expect(areAllExistingVideosMuted([])).toBe(false);
+    expect(areAllExistingVideosMuted([
+      createMockMediaItem({ type: 'image', isMuted: false, duration: 5 }),
+    ])).toBe(false);
+    expect(areAllExistingVideosMuted([
+      createMockMediaItem({ type: 'video', isMuted: true }),
+      createMockMediaItem({ type: 'video', isMuted: false }),
+    ])).toBe(false);
+  });
+
+  it('一括ミュート有効時は追加動画だけミュートし、画像は変えない', () => {
+    const existing = [
+      createMockMediaItem({ type: 'video', isMuted: true }),
+    ];
+    const added = [
+      createMockMediaItem({ id: 'new-video', type: 'video', isMuted: false }),
+      createMockMediaItem({ id: 'new-image', type: 'image', isMuted: false, duration: 5 }),
+    ];
+
+    const result = applyBulkMuteToAddedMediaItems(existing, added);
+
+    expect(result.find((item) => item.id === 'new-video')?.isMuted).toBe(true);
+    expect(result.find((item) => item.id === 'new-image')?.isMuted).toBe(false);
+  });
+
+  it('一括ミュートが無効なら追加アイテムを変えない', () => {
+    const existing = [
+      createMockMediaItem({ type: 'video', isMuted: true }),
+      createMockMediaItem({ type: 'video', isMuted: false }),
+    ];
+    const added = [
+      createMockMediaItem({ id: 'new-video', type: 'video', isMuted: false }),
+    ];
+
+    const result = applyBulkMuteToAddedMediaItems(existing, added);
+
+    expect(result).toBe(added);
+    expect(result[0].isMuted).toBe(false);
+  });
 });
 
 describe('calculateTotalDuration', () => {

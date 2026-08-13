@@ -3874,3 +3874,29 @@ export 終了（成功/失敗/中断）
   - 内部 canvas は **336×196**（12:7）でフレームをキャプチャし、ホバー/ライトボックス用 `toDataURL` も同じ高解像度を使う。
   - 一時 video の offscreen 配置サイズもキャプチャ解像度に合わせ、デコード画質を確保する。
 - **注意**: フルHD までは取らない（メモリ・同時デコード負荷とのバランス）。識別できれば十分という方針。
+
+### 13-203. エクスポート中のシークつまみは波形バーと同じ百分率で描く
+
+- **ファイル**: `src/utils/timelineWaveform.ts`, `src/components/sections/PreviewSection.tsx`, `src/components/media/TimelineWaveform.tsx`, 関連テスト
+- **問題**: プレビューではカスタム白い丸つまみ（`left: percent% - 10px`）と波形の現在位置バー（`left: percent%`）が一直線。エクスポート中だけカスタムつまみを隠し、かつ `input[type=range]:disabled { opacity: 0.5 }` が透明ヒット領域の `opacity-0` を上書きしていた。見えていたのはネイティブ range つまみで、端で半幅ぶん内側へ動くため、後半ほど波形バーが丸の右へずれた。出力 MP4 とプレビュー再生の位置は正しかった（表示だけ）。
+- **対策**:
+  - `resolveTimelinePlayheadPercent()` をシークバーと波形で共有し、時刻 t は常に幅の `t / totalDuration` に置く。
+  - エクスポート中も同じカスタムつまみを出す。ネイティブ range は inline `opacity: 0` で disabled 時も隠す。
+- **注意**:
+  - グローバルな `input[type=range]:disabled` の半透明は音量・トリム用。プレビューの透明ヒット領域へ適用しない。
+  - ネイティブ range のつまみ座標へ波形を合わせない。端インセットが入り、後半のずれが再発する。
+- **回帰ガード**: 百分率の純ロジック、エクスポート中のつまみ位置と range 非表示、波形バーの同一百分率をテストする。
+
+### 13-202. 一括ミュートが有効なときは後から追加した動画もミュートを継承する
+
+- **ファイル**: `src/utils/media.ts`, `src/stores/mediaStore.ts`, `src/constants/sectionHelp.ts`, `src/test/media.test.ts`, `src/test/stores/mediaStore.test.ts`, `src/test/sectionHelp.test.ts`
+- **問題**: 一括ミュートは独立フラグではなく「全動画がミュート」の導出状態。追加動画は `createMediaItem` で `isMuted: false` 固定だったため、一括ミュート ON のあとに動画を足すと新しい動画だけ音が出て、ヘッダーの一括ミュート表示も OFF に戻っていた。
+- **対策**:
+  - `areAllExistingVideosMuted()` / `applyBulkMuteToAddedMediaItems()` を `media.ts` に追加する。既存動画が1本以上あり、すべてミュートのときだけ追加動画へ `isMuted: true` を継承する。
+  - `mediaStore.addMediaItems` は作成後にこの helper を通す。画像は対象外。既存動画が無い／1本でも解除されている場合は従来どおりミュート解除のまま追加する。
+  - 保存スキーマや個別ミュート・プレビュー/export 音声経路は変えない。既存の `isMuted` を触るだけなので、プレビューと書き出しの両方にそのまま効く。
+- **注意**:
+  - 独立した「一括ミュートフラグ」は追加しない。保存互換を壊さず、UI の ON 条件（全動画ミュート）と追加時の継承条件を一致させる。
+  - 複製（`duplicateMediaItem`）は元クリップの `isMuted` をコピーするので対象外。
+  - 一括ミュートを解除したあとに追加した動画はミュートしない。
+- **回帰ガード**: 純ロジックと store の追加経路、ヘルプ文言をテストする。

@@ -25,6 +25,8 @@ export {
   generateId,
   getMediaType,
   createMediaItem,
+  areAllExistingVideosMuted,
+  applyBulkMuteToAddedMediaItems,
   calculateTotalDuration,
   getActiveMediaItem,
   swapArrayItems,

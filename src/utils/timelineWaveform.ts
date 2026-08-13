@@ -459,3 +459,18 @@ function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
   return Math.max(min, Math.min(max, value));
 }
+
+/**
+ * シークバーと波形の現在位置を同じ百分率（0〜100）で表す。
+ * ネイティブ range のつまみ移動（端で半幅ぶん内側）とは別物で、
+ * 時刻 t は常にコンテナ幅の t / totalDuration に置く。
+ */
+export function resolveTimelinePlayheadPercent(
+  currentTime: number,
+  totalDuration: number,
+): number {
+  if (!Number.isFinite(currentTime) || !Number.isFinite(totalDuration) || totalDuration <= 0) {
+    return 0;
+  }
+  return clamp((currentTime / totalDuration) * 100, 0, 100);
+}

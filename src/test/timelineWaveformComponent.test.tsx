@@ -113,11 +113,11 @@ describe('TimelineWaveform の時間軸', () => {
   });
 
   it('現在位置マーカーがシークバーのつまみと同じ百分率に置かれる', () => {
-    // シークバー側は left: calc((currentTime / totalDuration) * 100% - 10px) で描いている。
-    // 波形側も同じ百分率（中心）に置くことで、上下で一直線に揃う。
-    const { container } = renderWaveform({ currentTime: 2.5 });
-    const marker = container.querySelector('[style*="left: 25%"]');
-    expect(marker).not.toBeNull();
+    // シークバー側は left: calc(percent% - 10px) で中心を合わせる。
+    // 波形側も resolveTimelinePlayheadPercent の同じ百分率に置く。
+    renderWaveform({ currentTime: 2.5 });
+    const marker = screen.getByTestId('timeline-playhead');
+    expect(marker.style.left).toBe('25%');
   });
 
   it('プロジェクト尺が変わると同じ x 座標が別の時刻になる', () => {
