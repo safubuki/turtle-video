@@ -179,7 +179,7 @@ describe('CaptionSettingsModal clear', () => {
     expect(onUpdate).toHaveBeenCalledWith('caption-1', { overrideBlur: undefined });
   });
 
-  it('縦向きプロジェクトではスマホ用ミニプレビューの幅を抑える', () => {
+  it('縦向きプロジェクトではスマホの画面高に合わせてミニプレビューの幅を抑える', () => {
     const previousCanvasState = useCanvasStore.getState();
     useCanvasStore.setState({ width: 720, height: 1280 });
     const getContextSpy = vi
@@ -209,7 +209,7 @@ describe('CaptionSettingsModal clear', () => {
       );
 
       expect(screen.getByTestId('caption-mini-preview-container')).toHaveClass(
-        'max-w-[16rem]',
+        'max-w-[clamp(11rem,23.625dvh,16rem)]',
         'md:max-w-sm',
       );
       unmount();
