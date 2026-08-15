@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import CaptionSettingsModal from '../components/modals/CaptionSettingsModal';
 import type { Caption, CaptionSettings } from '../types';
+import { useCanvasStore } from '../stores/canvasStore';
 
 const settings: CaptionSettings = {
   enabled: true,
@@ -176,5 +177,45 @@ describe('CaptionSettingsModal clear', () => {
       overrideFontColor: undefined,
     });
     expect(onUpdate).toHaveBeenCalledWith('caption-1', { overrideBlur: undefined });
+  });
+
+  it('縦向きプロジェクトではスマホ用ミニプレビューの幅を抑える', () => {
+    const previousCanvasState = useCanvasStore.getState();
+    useCanvasStore.setState({ width: 720, height: 1280 });
+    const getContextSpy = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(null);
+
+    try {
+      const caption: Caption = {
+        id: 'caption-portrait',
+        text: '縦向きプレビュー',
+        startTime: 0,
+        endTime: 3,
+        fadeIn: false,
+        fadeOut: false,
+        fadeInDuration: 0.5,
+        fadeOutDuration: 0.5,
+      };
+
+      const { unmount } = render(
+        <CaptionSettingsModal
+          caption={caption}
+          settings={settings}
+          previewCanvasRef={{ current: null }}
+          onUpdate={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByTestId('caption-mini-preview-container')).toHaveClass(
+        'max-w-[16rem]',
+        'md:max-w-sm',
+      );
+      unmount();
+    } finally {
+      getContextSpy.mockRestore();
+      useCanvasStore.setState(previousCanvasState);
+    }
   });
 });

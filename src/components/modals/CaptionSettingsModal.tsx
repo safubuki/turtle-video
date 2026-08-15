@@ -107,6 +107,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
   // プリセット→カスタムの引き継ぎに使う（描画と同じ寸法基準にそろえる）
   const canvasWidth = useCanvasStore((state) => state.width);
   const canvasHeight = useCanvasStore((state) => state.height);
+  const isPortraitProject = canvasHeight > canvasWidth;
   // モーダル表示中は背景のスクロールを防止
   // このコンポーネントは親で条件付きレンダリングされているため、
   // マウント時は常に表示状態なので true を渡す
@@ -325,8 +326,12 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
             スクロールしてもサイズ・位置の変化を見失わないよう上部に固定する。 */}
         {previewCanvasRef && (
           <div className="px-4 pt-3 shrink-0">
-            {/* PC でモーダルを横広にした分、プレビューが画面を占有しないよう幅を抑える */}
-            <div className="mx-auto w-full max-w-sm">
+            {/* 縦向きはスマホだけ幅を少し抑え、設定欄の操作領域を確保する。
+                256px あればキャプションを確認でき、md 以上では従来サイズへ戻る。 */}
+            <div
+              className={`mx-auto w-full ${isPortraitProject ? 'max-w-[16rem] md:max-w-sm' : 'max-w-sm'}`}
+              data-testid="caption-mini-preview-container"
+            >
               <CaptionMiniPreview
                 sourceCanvasRef={previewCanvasRef}
                 captionFreeSnapshotRef={captionFreeSnapshotRef}
