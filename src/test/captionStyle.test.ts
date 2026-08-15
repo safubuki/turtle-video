@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CAPTION_FONT_SIZE_PRESETS,
   CAPTION_PORTRAIT_BOTTOM_Y_PERCENT,
+  CAPTION_PORTRAIT_TOP_Y_PERCENT,
   clampCaptionStrokeWidth,
   clampCustomFontSize,
   clampPositionPercent,
@@ -129,6 +130,27 @@ describe('resolveCaptionAnchor', () => {
     // 横画面の端寄り配置より、フレーム比率として上になる
     const landscapeBottomY = (1080 - 50 - 40) / 1080;
     expect(anchor.y / 1920).toBeLessThan(landscapeBottomY);
+  });
+
+  it('縦画面の上部プリセットは一括・個別とも端から適度に下げ、下部ほど余白を空けない', () => {
+    const bulkAnchor = resolveCaptionAnchor(
+      {},
+      { position: 'top', positionCustom: null },
+      portraitLayout,
+    );
+    const individualAnchor = resolveCaptionAnchor(
+      { overridePosition: 'top' },
+      { position: 'center', positionCustom: null },
+      portraitLayout,
+    );
+    const expectedY = (1920 * CAPTION_PORTRAIT_TOP_Y_PERCENT) / 100;
+
+    expect(bulkAnchor).toEqual({ x: 540, y: expectedY });
+    expect(individualAnchor).toEqual({ x: 540, y: expectedY });
+    // 従来の端寄り位置より下げる一方、下部側の余白（20%）ほどは空けない
+    expect(expectedY).toBeGreaterThan(50 + 40);
+    expect(CAPTION_PORTRAIT_TOP_Y_PERCENT)
+      .toBeLessThan(100 - CAPTION_PORTRAIT_BOTTOM_Y_PERCENT);
   });
 
   it('uses the custom XY percentage when set', () => {

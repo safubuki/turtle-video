@@ -34,12 +34,11 @@ import type {
 } from '../../../types';
 import type { ExportPreparationStep, UseExportReturn } from '../../../hooks/export-strategies/types';
 import {
-  CAPTION_PORTRAIT_BOTTOM_Y_PERCENT,
   drawCaptionBackgroundBand,
-  isPortraitCanvas,
   resolveCaptionBackgroundStyle,
   resolveCaptionGlyphStyle,
   resolveCaptionLayoutScale,
+  resolveCaptionPresetY,
 } from '../../../utils/captionStyle';
 import { drawVideoTitleFrame } from '../../../utils/videoTitle';
 import { shouldClearPreviewCanvas } from '../../../utils/previewCanvasClear';
@@ -1283,17 +1282,12 @@ export function usePreviewEngine({
 
             const effectivePosition = activeCaption.overridePosition ?? currentCaptionSettings.position;
             const padding = 50 * captionScale;
-            let y: number;
-            if (effectivePosition === 'top') {
-              y = padding + fontSize / 2;
-            } else if (effectivePosition === 'center') {
-              y = ctx.canvas.height / 2;
-            } else if (isPortraitCanvas(ctx.canvas.width, ctx.canvas.height)) {
-              // 縦画面は端寄りだと字幕が下すぎて見づらいため、既定をやや上へ
-              y = (ctx.canvas.height * CAPTION_PORTRAIT_BOTTOM_Y_PERCENT) / 100;
-            } else {
-              y = ctx.canvas.height - padding - fontSize / 2;
-            }
+            const y = resolveCaptionPresetY(effectivePosition, {
+              canvasWidth: ctx.canvas.width,
+              canvasHeight: ctx.canvas.height,
+              fontSize,
+              padding,
+            });
 
             const captionDuration = activeCaption.endTime - activeCaption.startTime;
             const captionLocalTime = time - activeCaption.startTime;
