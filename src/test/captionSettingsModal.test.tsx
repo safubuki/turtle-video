@@ -198,7 +198,7 @@ describe('CaptionSettingsModal clear', () => {
         fadeOutDuration: 0.5,
       };
 
-      render(
+      const { unmount } = render(
         <CaptionSettingsModal
           caption={caption}
           settings={settings}
@@ -212,6 +212,7 @@ describe('CaptionSettingsModal clear', () => {
         'max-w-[16rem]',
         'md:max-w-sm',
       );
+      unmount();
     } finally {
       getContextSpy.mockRestore();
       useCanvasStore.setState(previousCanvasState);
