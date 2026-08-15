@@ -326,10 +326,11 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
             スクロールしてもサイズ・位置の変化を見失わないよう上部に固定する。 */}
         {previewCanvasRef && (
           <div className="px-4 pt-3 shrink-0">
-            {/* 縦向きはスマホだけ幅を少し抑え、設定欄の操作領域を確保する。
-                256px あればキャプションを確認でき、md 以上では従来サイズへ戻る。 */}
+            {/* 縦向きはスマホだけ画面高に応じて幅を抑え、ミニビュー全体を
+                モーダル高のおよそ半分に収める。低い端末でも見づらくならないよう
+                176px を下限とし、md 以上では従来サイズへ戻る。 */}
             <div
-              className={`mx-auto w-full ${isPortraitProject ? 'max-w-[16rem] md:max-w-sm' : 'max-w-sm'}`}
+              className={`mx-auto w-full ${isPortraitProject ? 'max-w-[clamp(11rem,23.625dvh,16rem)] md:max-w-sm' : 'max-w-sm'}`}
               data-testid="caption-mini-preview-container"
             >
               <CaptionMiniPreview
