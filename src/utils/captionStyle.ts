@@ -64,6 +64,12 @@ export const CAPTION_POSITION_CUSTOM_DEFAULT = { x: 50, y: 85 };
  */
 export const CAPTION_PORTRAIT_BOTTOM_Y_PERCENT = 80;
 
+/**
+ * 縦画面（9:16）時の上部プリセット Y 位置（%・テキスト中心）。
+ * 端へ詰めすぎず、下部プリセットほど大きな余白にはならない位置へ置く。
+ */
+export const CAPTION_PORTRAIT_TOP_Y_PERCENT = 10;
+
 /** 縦画面時のカスタム位置既定値（% / テキスト中心） */
 export const CAPTION_POSITION_CUSTOM_DEFAULT_PORTRAIT = {
   x: 50,
@@ -341,15 +347,38 @@ export function resolveCaptionAnchor(
 
   const position = caption.overridePosition ?? settings.position;
   const x = canvasWidth / 2;
+  return {
+    x,
+    y: resolveCaptionPresetY(position, { canvasWidth, canvasHeight, fontSize, padding }),
+  };
+}
+
+/**
+ * 上部／中央／下部プリセットのテキスト中心 Y 座標を解決する。
+ * standard と apple-safari の描画経路で同じ位置を使うための単一ソース。
+ */
+export function resolveCaptionPresetY(
+  position: CaptionPosition,
+  layout: {
+    canvasWidth: number;
+    canvasHeight: number;
+    fontSize: number;
+    padding: number;
+  },
+): number {
+  const { canvasWidth, canvasHeight, fontSize, padding } = layout;
   if (position === 'top') {
-    return { x, y: padding + fontSize / 2 };
+    if (isPortraitCanvas(canvasWidth, canvasHeight)) {
+      return (canvasHeight * CAPTION_PORTRAIT_TOP_Y_PERCENT) / 100;
+    }
+    return padding + fontSize / 2;
   }
   if (position === 'center') {
-    return { x, y: canvasHeight / 2 };
+    return canvasHeight / 2;
   }
   // 縦画面は端寄りだと字幕が下すぎて見づらいため、既定をやや上へ寄せる
   if (isPortraitCanvas(canvasWidth, canvasHeight)) {
-    return { x, y: (canvasHeight * CAPTION_PORTRAIT_BOTTOM_Y_PERCENT) / 100 };
+    return (canvasHeight * CAPTION_PORTRAIT_BOTTOM_Y_PERCENT) / 100;
   }
-  return { x, y: canvasHeight - padding - fontSize / 2 };
+  return canvasHeight - padding - fontSize / 2;
 }
