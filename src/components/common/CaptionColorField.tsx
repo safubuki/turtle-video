@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import MobileColorPicker from './MobileColorPicker';
 
 export function parseCaptionHexColor(value: string): string | null {
   const compact = value.trim();
@@ -31,12 +32,29 @@ const CaptionColorField = React.memo<CaptionColorFieldProps>(({
 }) => {
   const resolvedValue = parseCaptionHexColor(value) ?? fallback;
   const [draft, setDraft] = useState(resolvedValue);
+  const [mobilePickerOpen, setMobilePickerOpen] = useState(false);
+  const [useMobilePicker, setUseMobilePicker] = useState(() => (
+    typeof window !== 'undefined'
+      && window.matchMedia('(max-width: 767px), (pointer: coarse)').matches
+  ));
   const isDraftValid = parseCaptionHexColor(draft) !== null;
   const colorInputId = `${idPrefix}-${label}-color`;
 
   useEffect(() => {
     setDraft(resolvedValue);
   }, [resolvedValue]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 767px), (pointer: coarse)');
+    const updateMode = () => setUseMobilePicker(mediaQuery.matches);
+    updateMode();
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener('change', updateMode);
+      return () => mediaQuery.removeEventListener('change', updateMode);
+    }
+    mediaQuery.addListener(updateMode);
+    return () => mediaQuery.removeListener(updateMode);
+  }, []);
 
   const commitDraft = () => {
     const parsed = parseCaptionHexColor(draft);
@@ -53,15 +71,32 @@ const CaptionColorField = React.memo<CaptionColorFieldProps>(({
       <label className="text-gray-400 w-16 shrink-0" htmlFor={colorInputId}>
         {label}:
       </label>
-      <input
-        id={colorInputId}
-        type="color"
-        value={resolvedValue}
-        onChange={(event) => onChange(event.target.value.toUpperCase())}
-        disabled={disabled}
-        aria-label={`${ariaLabelPrefix}の${label}`}
-        className="h-8 w-11 shrink-0 cursor-pointer rounded-md border border-gray-600 bg-gray-700 p-0.5 disabled:cursor-default disabled:opacity-50"
-      />
+      {useMobilePicker ? (
+        <button
+          id={colorInputId}
+          type="button"
+          onClick={() => setMobilePickerOpen(true)}
+          disabled={disabled}
+          aria-label={`${ariaLabelPrefix}の${label}`}
+          className="h-8 w-11 shrink-0 cursor-pointer rounded-md border border-gray-600 bg-gray-700 p-1 disabled:cursor-default disabled:opacity-50"
+        >
+          <span
+            className="block h-full w-full rounded-sm border border-black/30"
+            style={{ backgroundColor: resolvedValue }}
+            aria-hidden="true"
+          />
+        </button>
+      ) : (
+        <input
+          id={colorInputId}
+          type="color"
+          value={resolvedValue}
+          onChange={(event) => onChange(event.target.value.toUpperCase())}
+          disabled={disabled}
+          aria-label={`${ariaLabelPrefix}の${label}`}
+          className="h-8 w-11 shrink-0 cursor-pointer rounded-md border border-gray-600 bg-gray-700 p-0.5 disabled:cursor-default disabled:opacity-50"
+        />
+      )}
       <input
         type="text"
         value={draft}
@@ -89,6 +124,17 @@ const CaptionColorField = React.memo<CaptionColorFieldProps>(({
           }`}
         placeholder={fallback}
       />
+      {mobilePickerOpen && (
+        <MobileColorPicker
+          label={`${ariaLabelPrefix}の${label}`}
+          value={resolvedValue}
+          onCancel={() => setMobilePickerOpen(false)}
+          onConfirm={(color) => {
+            onChange(color);
+            setMobilePickerOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 });

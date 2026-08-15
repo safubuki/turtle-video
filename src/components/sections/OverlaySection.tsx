@@ -45,6 +45,7 @@ import {
 } from '../../utils/centerOriginPosition';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import NumericStepperInput from '../common/NumericStepperInput';
+import CaptionColorField from '../common/CaptionColorField';
 
 interface ResetButtonProps {
   label: string;
@@ -464,23 +465,15 @@ const OverlaySection = React.memo<OverlaySectionProps>(({
                       ))}
                     </div>
                     {endroll.backgroundMode === 'custom' && (
-                      <div className="flex items-center gap-2 pt-1">
-                        <label
-                          htmlFor="endroll-bg-color"
-                          className="text-[10px] text-gray-400 md:text-xs"
-                        >
-                          色を選択
-                        </label>
-                        <input
-                          id="endroll-bg-color"
-                          type="color"
+                      <div className="pt-1">
+                        <CaptionColorField
+                          label="カスタム色"
                           value={endroll.backgroundColor}
-                          onChange={(event) => onEndrollUpdate({
-                            backgroundColor: event.target.value,
-                          })}
-                          className="h-8 w-16 cursor-pointer rounded border border-gray-700 bg-gray-800"
+                          fallback="#000000"
+                          idPrefix="endroll-background"
+                          ariaLabelPrefix="エンドロール背景"
+                          onChange={(backgroundColor) => onEndrollUpdate({ backgroundColor })}
                         />
-                        <span className="text-[10px] text-gray-500">{endroll.backgroundColor}</span>
                       </div>
                     )}
                   </div>
