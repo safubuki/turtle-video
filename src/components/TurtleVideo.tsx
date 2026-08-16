@@ -48,6 +48,7 @@ import {
 } from '../utils/canvas';
 import { resolveCaptureFrameTarget } from '../utils/previewCaptureFrame';
 import { preserveOriginalFileName, resolveAiNarrationFileName } from '../utils/fileNames';
+import { fetchGeminiWithRetry } from '../utils/geminiRetry';
 import { saveBlobWithClientFileStrategy, saveObjectUrlWithClientFileStrategy } from '../utils/fileSave';
 import {
   buildCaptionLayerVideoFileName,
@@ -375,6 +376,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const mediaItemsRef = useRef<MediaItem[]>([]);
   const bgmRef = useRef<AudioTrack | null>(null);
   const narrationsRef = useRef<NarrationClip[]>([]);
+  const aiSpeechRequestInFlightRef = useRef(false);
   const totalDurationRef = useRef(0);
   /** クリップだけの尺（エンドロールを含まない）。クリップ配置・active 判定に使う */
   const clipsDurationRef = useRef(0);
@@ -1756,12 +1758,15 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const generateSpeech = useCallback(async () => {
     if (!aiScript) return;
     if (offlineMode) return;
+    if (aiSpeechRequestInFlightRef.current) return;
     const apiKey = getApiKey();
     if (!apiKey) {
       setError('APIキーが設定されていません。右上の歯車アイコンから設定してください。');
       return;
     }
+    aiSpeechRequestInFlightRef.current = true;
     setAiLoading(true);
+    let pendingGeneratedUrl: string | null = null;
     try {
       // 場面 + 区間語り口調を 1 本の TTS プロンプトへ（原稿は単一テキスト＋マーカー）
       const { buildNarrationTtsPrompt, stripDeliveryMarkers } = await import('../utils/narrationDelivery');
@@ -1783,8 +1788,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       const plainPrompt = `Say the following Japanese text:\n${plainText}`;
       const strictPrompt = `TTS the following text exactly as written. Do not add any extra words.\n${plainText}`;
 
-      const requestTts = (text: string) =>
-        fetch(`${GEMINI_API_BASE_URL}/${GEMINI_TTS_MODEL}:generateContent`, {
+      const requestTts = (text: string) => fetchGeminiWithRetry(
+        () => fetch(`${GEMINI_API_BASE_URL}/${GEMINI_TTS_MODEL}:generateContent`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1802,7 +1807,21 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               },
             },
           }),
-        });
+        }), {
+          onRetry: ({ retryNumber, delayMs, status, error }) => {
+            if (retryNumber === 1) {
+              showToast('音声生成APIの一時的な混雑・通信失敗を検知したため、自動で再試行しています。', 5000);
+            }
+            logWarn('AUDIO', 'AI音声合成を自動再試行', {
+              retryNumber,
+              delayMs,
+              status,
+              error: error instanceof Error ? error.message : undefined,
+              editingNarration: Boolean(editingNarrationId),
+            });
+          },
+        },
+      );
 
       const readTtsErrorMessage = async (res: Response): Promise<string> => {
         const errorData = await res.json().catch(() => ({} as { error?: { message?: string } }));
@@ -1924,68 +1943,85 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       const wavBuffer = payloadIsWav ? bytes.buffer : pcmToWav(bytes.buffer, TTS_SAMPLE_RATE);
       const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' });
       const blobUrl = URL.createObjectURL(wavBlob);
+      pendingGeneratedUrl = blobUrl;
 
       const audio = new Audio(blobUrl);
-      audio.onloadedmetadata = () => {
-        const voiceLabel = VOICE_OPTIONS.find((v) => v.id === aiVoice)?.label || 'AI音声';
-        const currentNarrationName = editingNarrationId
-          ? narrations.find((item) => item.id === editingNarrationId)?.file.name
-          : null;
-        const narrationFile = new File(
-          [wavBlob],
-          resolveAiNarrationFileName({
-            currentName: currentNarrationName,
-            voiceLabel,
-          }),
-          { type: 'audio/wav' },
-        );
-        const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
-        const sceneForSave = useUIStore.getState().aiNarrationScene || '';
-        if (editingNarrationId) {
-          replaceNarrationAudio(editingNarrationId, {
+      audio.preload = 'metadata';
+      const duration = await new Promise<number>((resolve, reject) => {
+        const timeoutId = window.setTimeout(() => {
+          audio.onloadedmetadata = null;
+          audio.onerror = null;
+          reject(new Error('生成された音声のメタデータ読み込みがタイムアウトしました'));
+        }, 15000);
+
+        audio.onloadedmetadata = () => {
+          window.clearTimeout(timeoutId);
+          audio.onerror = null;
+          resolve(Number.isFinite(audio.duration) ? audio.duration : 0);
+        };
+        audio.onerror = () => {
+          window.clearTimeout(timeoutId);
+          audio.onloadedmetadata = null;
+          reject(new Error('生成された音声の読み込みに失敗しました'));
+        };
+      });
+
+      const voiceLabel = VOICE_OPTIONS.find((v) => v.id === aiVoice)?.label || 'AI音声';
+      const currentNarrationName = editingNarrationId
+        ? narrations.find((item) => item.id === editingNarrationId)?.file.name
+        : null;
+      const narrationFile = new File(
+        [wavBlob],
+        resolveAiNarrationFileName({
+          currentName: currentNarrationName,
+          voiceLabel,
+        }),
+        { type: 'audio/wav' },
+      );
+      const sceneForSave = useUIStore.getState().aiNarrationScene || '';
+      if (editingNarrationId) {
+        replaceNarrationAudio(editingNarrationId, {
+          file: narrationFile,
+          url: blobUrl,
+          blobUrl,
+          duration,
+          sourceType: 'ai',
+          isAiEditable: true,
+          aiScript,
+          aiVoice,
+          aiVoiceStyle,
+          aiNarrationScene: sceneForSave,
+        });
+        updateNarrationMeta(editingNarrationId, {
+          aiScript,
+          aiVoice,
+          aiVoiceStyle,
+          aiNarrationScene: sceneForSave,
+        });
+        setEditingNarrationId(null);
+      } else {
+        addNarration(
+          createNarrationClip({
             file: narrationFile,
             url: blobUrl,
             blobUrl,
             duration,
+            startTime: currentTimeRef.current,
             sourceType: 'ai',
-            isAiEditable: true,
             aiScript,
             aiVoice,
             aiVoiceStyle,
             aiNarrationScene: sceneForSave,
-          });
-          updateNarrationMeta(editingNarrationId, {
-            aiScript,
-            aiVoice,
-            aiVoiceStyle,
-            aiNarrationScene: sceneForSave,
-          });
-          setEditingNarrationId(null);
-        } else {
-          addNarration(
-            createNarrationClip({
-              file: narrationFile,
-              url: blobUrl,
-              blobUrl,
-              duration,
-              startTime: currentTimeRef.current,
-              sourceType: 'ai',
-              aiScript,
-              aiVoice,
-              aiVoiceStyle,
-              aiNarrationScene: sceneForSave,
-            })
-          );
-        }
-        closeAiModal();
-        clearError();
-      };
-      audio.onerror = () => {
-        URL.revokeObjectURL(blobUrl);
-        setError('生成された音声の読み込みに失敗しました');
-        setAiLoading(false);
-      };
+          })
+        );
+      }
+      pendingGeneratedUrl = null;
+      closeAiModal();
+      clearError();
     } catch (e) {
+      if (pendingGeneratedUrl) {
+        URL.revokeObjectURL(pendingGeneratedUrl);
+      }
       console.error('Speech generation error:', e);
       if (e instanceof TypeError && e.message.includes('fetch')) {
         setError('ネットワークエラー: インターネット接続を確認してください');
@@ -2001,6 +2037,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         setError('音声生成に失敗しました');
       }
     } finally {
+      aiSpeechRequestInFlightRef.current = false;
       setAiLoading(false);
     }
   }, [
@@ -2015,6 +2052,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     closeAiModal,
     clearError,
     showToast,
+    logWarn,
     setError,
     setAiLoading,
     narrations,
