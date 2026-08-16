@@ -59,6 +59,40 @@ input[type="range"]:disabled {
   cursor: not-allowed;
 }
 
+/* スマホ用カラーピッカー。黒を選択中でも各色の範囲を常に見分けられる。 */
+input[type="range"].mobile-color-picker-slider::-webkit-slider-runnable-track {
+  height: 32px;
+  border: 1px solid #9ca3af;
+  border-radius: 6px;
+  background: var(--color-picker-gradient);
+}
+
+input[type="range"].mobile-color-picker-slider::-webkit-slider-thumb {
+  width: 24px;
+  height: 40px;
+  margin-top: -5px;
+  border: 2px solid #bae6fd;
+  border-radius: 6px;
+  background: #0ea5e9;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+}
+
+input[type="range"].mobile-color-picker-slider::-moz-range-track {
+  height: 32px;
+  border: 1px solid #9ca3af;
+  border-radius: 6px;
+  background: var(--color-picker-gradient);
+}
+
+input[type="range"].mobile-color-picker-slider::-moz-range-thumb {
+  width: 24px;
+  height: 36px;
+  border: 2px solid #bae6fd;
+  border-radius: 6px;
+  background: #0ea5e9;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+}
+
 /* 数値入力のスピナー非表示 */
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button {
