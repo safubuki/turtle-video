@@ -366,8 +366,15 @@ export function createExportVideoFrame(params: {
   frameIndex: number;
   timestampUs: number;
   durationUs: number;
+  /** 指定時は live Canvas ではなく、描画スロット確定時のスナップショットを使う */
+  source?: CanvasImageSource | null;
 }): VideoFrame {
-  const { canvas, posterBitmap, frameIndex, timestampUs, durationUs } = params;
+  const { canvas, posterBitmap, frameIndex, timestampUs, durationUs, source } = params;
+  const frameInit: VideoFrameInit = {
+    timestamp: timestampUs,
+    duration: durationUs,
+    alpha: 'discard',
+  };
   if (frameIndex === 0 && posterBitmap && canvas.width > 0 && canvas.height > 0) {
     const off = document.createElement('canvas');
     off.width = canvas.width;
@@ -380,14 +387,8 @@ export function createExportVideoFrame(params: {
       const w = posterBitmap.width * scale;
       const h = posterBitmap.height * scale;
       ctx.drawImage(posterBitmap, (off.width - w) / 2, (off.height - h) / 2, w, h);
-      return new VideoFrame(off, {
-        timestamp: timestampUs,
-        duration: durationUs,
-      });
+      return new VideoFrame(off, frameInit);
     }
   }
-  return new VideoFrame(canvas, {
-    timestamp: timestampUs,
-    duration: durationUs,
-  });
+  return new VideoFrame(source ?? canvas, frameInit);
 }

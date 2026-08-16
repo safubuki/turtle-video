@@ -246,6 +246,108 @@ export function resolveExportCanvasFrameBurstCount(
   return Math.min(safePendingFrameCount, safeMaxFramesPerPoll);
 }
 
+export type ExportCanvasCaptureAction = 'capture' | 'defer' | 'reuse';
+
+export interface ExportCanvasCaptureDecisionInput {
+  /** 今回の壁時計スロット（exportFrameIndex） */
+  currentIndex: number;
+  /** 直前にスナップショットしたスロット。未取得なら null */
+  lastCapturedIndex: number | null;
+  /** 現在スロットをすでに 1 回見送ったか */
+  deferredCurrentIndex: boolean;
+  /** アクティブが動画か。画像・エンドロールは待ち不要 */
+  hasActiveVideo: boolean;
+  /**
+   * クリップ終端付近なら true。終端では新しい提示フレームは来ないので、
+   * 最終画を残スロットへ載せる。
+   */
+  videoNearEnd?: boolean;
+  /**
+   * 今デコーダが見せているフレームの識別子。
+   * rVFC の presentedFrames、または currentTime を 1ms に量子化した値。
+   */
+  presentedFrameId: number | null;
+  /** 直前スナップショット時の presentedFrameId */
+  lastCapturedPresentedFrameId: number | null;
+}
+
+export interface ExportCanvasCaptureDecision {
+  action: ExportCanvasCaptureAction;
+  nextDeferredCurrentIndex: boolean;
+}
+
+/**
+ * export の Canvas スナップショットを「このスロットで取るか」決める純ロジック。
+ *
+ * 壁時計・`<video>` 再生・backpressure は変えない。変えるのは
+ * 「同じ 30fps スロットの先頭で古い画を焼く」のを避けるタイミングだけ。
+ *
+ * - 同じ index は再利用（2回目の rAF で次ソースフレームへ上書きしない）
+ * - 動画で中身がまだ変わっていない連続スロットは 1 rAF だけ見送る
+ * - 見送りは 1 回まで。時計を止めない（hold / フレーム駆動化はしない）
+ */
+export function resolveExportCanvasCaptureDecision(
+  input: ExportCanvasCaptureDecisionInput,
+): ExportCanvasCaptureDecision {
+  const currentIndex = Number.isFinite(input.currentIndex)
+    ? Math.max(0, Math.floor(input.currentIndex))
+    : 0;
+  const lastCapturedIndex =
+    input.lastCapturedIndex !== null && Number.isFinite(input.lastCapturedIndex)
+      ? Math.floor(input.lastCapturedIndex)
+      : null;
+
+  if (lastCapturedIndex !== null && currentIndex === lastCapturedIndex) {
+    return { action: 'reuse', nextDeferredCurrentIndex: false };
+  }
+
+  if (!input.hasActiveVideo || lastCapturedIndex === null || input.videoNearEnd) {
+    return { action: 'capture', nextDeferredCurrentIndex: false };
+  }
+
+  if (currentIndex > lastCapturedIndex + 1) {
+    return { action: 'capture', nextDeferredCurrentIndex: false };
+  }
+
+  const presentedChanged =
+    input.presentedFrameId !== null
+    && input.presentedFrameId !== input.lastCapturedPresentedFrameId;
+  if (presentedChanged) {
+    return { action: 'capture', nextDeferredCurrentIndex: false };
+  }
+
+  if (!input.deferredCurrentIndex) {
+    return { action: 'defer', nextDeferredCurrentIndex: true };
+  }
+
+  return { action: 'capture', nextDeferredCurrentIndex: false };
+}
+
+export interface ExportPresentedFrameIdInput {
+  presentedFrames?: number | null;
+  mediaTimeSec?: number | null;
+  videoCurrentTimeSec?: number | null;
+}
+
+/**
+ * デコーダが表示中のフレームを比較可能な整数 ID にする。
+ * rVFC の presentedFrames を最優先し、無いときは mediaTime / currentTime を 1ms に丸める。
+ */
+export function resolveExportPresentedFrameId(
+  input: ExportPresentedFrameIdInput,
+): number | null {
+  if (Number.isFinite(input.presentedFrames) && (input.presentedFrames as number) >= 0) {
+    return Math.floor(input.presentedFrames as number);
+  }
+  const timeSec = Number.isFinite(input.mediaTimeSec)
+    ? input.mediaTimeSec
+    : input.videoCurrentTimeSec;
+  if (!Number.isFinite(timeSec) || (timeSec as number) < 0) {
+    return null;
+  }
+  return Math.round((timeSec as number) * 1000);
+}
+
 /**
  * 静止画のみの standard export では、壁時計ではなく VideoEncoder へ正常投入した
  * フレーム数から次に描画する時刻を決める。

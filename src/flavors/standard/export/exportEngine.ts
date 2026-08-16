@@ -2994,6 +2994,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                       frameIndex,
                       timestampUs: frameTiming.timestampUs,
                       durationUs: frameTiming.durationUs,
+                      source: audioSources?.getRenderedExportFrameSource?.(frameIndex) ?? null,
                     });
                     // VideoFrame 生成 + encode の所要時間を計測する（ボトルネック切り分け用）。
                     const endEncodeMeasure = audioSources?.beginEncodeMeasure?.();

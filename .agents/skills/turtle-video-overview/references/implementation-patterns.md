@@ -705,6 +705,7 @@
 | **自動サムネの黒画像** | canvas キャプチャ前に **video のシーク完了を待つ**（`renderFrame` は seek を要求するだけ・完了は非同期。描画条件は `readyState>=2 && !seeking`）。**キャプチャ時刻は先頭黒クリア帯 `time<=0.05` の外**へ逃がす。撮った画像は黒検証し、黒なら撮り直し・最終的に**既存画像を維持して黒で上書きしない**（13-168）。rAF 数回で済ませないこと |
 | **倍速 export 映像** | rate=speed のみは途中切れ、毎フレーム seek は静止画化。**rate=1 連続 + 壁時計 Δt/speed（wall dilation）**が成功（13-166 / export-speed-video-wall-dilation-postmortem-2026-08-01）。プレビューの rate=speed と無理に一本化しない |
 | **export の高速化** | 現行の駆動方式（壁時計 dilation / native 連続再生 / backpressure / 末尾補完）は**ユーザー実機で最良と確認済み。速度を理由に変更しない**。負荷を下げたいときは **VideoEncoder の configure 交渉**（`prefer-hardware`、13-169）から手を付ける。**`latencyMode:'quality'` は禁止**（内部バッファリングが `encodeQueueSize` を曇らせ backpressure 検知を遅らせる＝後半黒画面の再発条件。13-116 も同旨）。queue 上限の緩和と bitrate 低下はリカバリ性・画質を損なうので最後の手段 |
+| **export の滑らかさ** | プレビューは rAF（多くは約60Hz）提示、export は固定30fps CFR。滑らかさ改善は駆動方式を変えず、提示フレーム合わせとスロット単位スナップショットに閉じる（13-204）。**ユーザー実機で「劇的にスムーズになった」と確認済み（2026-08-17）**。フレーム駆動化・毎フレームseek・出力fps変更・bitrate変更は再導入しない |
 
 ## 12. Dev Script Pattern (media-video-analyzer STT)
 
@@ -3900,3 +3901,33 @@ export 終了（成功/失敗/中断）
   - 複製（`duplicateMediaItem`）は元クリップの `isMuted` をコピーするので対象外。
   - 一括ミュートを解除したあとに追加した動画はミュートしない。
 - **回帰ガード**: 純ロジックと store の追加経路、ヘルプ文言をテストする。
+
+### 13-204.【実機成功確認済み】standard export は提示フレームに合わせてスロットを確定し、encode はスナップショットから行う
+
+- **ファイル**: `src/utils/exportTimeline.ts`, `src/utils/exportFrameSnapshot.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/hooks/export-strategies/types.ts`, `src/utils/mp4CoverArt.ts`, 関連テスト
+- **対象 flavor**: **standard（Android / PC）のみ**。apple-safari runtime、壁時計 dilation、native 1x 連続再生、backpressure pause/resume、queue 30/90、bitrate、CFR 30fps、`latencyMode` は変更しない。
+- **背景**:
+  - プレビューは `requestAnimationFrame` でディスプレイ更新（多くの環境で約 60Hz）へ描画する。素材が 30fps でも、同じ画が 2 回提示されるため元動画やプレビューより滑らかに見えやすい。
+  - export は固定 30fps CFR。品質（尺・A/V 一致・欠落なし）は安定しているが、スロット先頭でまだ次のデコード画が来ていない瞬間を焼いたり、encode poll が次スロットの live Canvas を前の timestamp へ載せたりすると、同じ 30fps でも元動画より段差が目立つ。
+- **対策（駆動方式は維持したままの付加）**:
+  - `resolveExportCanvasCaptureDecision()` がスロット公開を決める。同じ index は再利用。動画で提示フレームがまだ変わっていない連続スロットは **1 rAF だけ**見送る。見送りは 1 回までで、時計は止めない。
+  - クリップ終端（`ended` または `currentTime >= trimEnd - 1/FPS`）では新しい提示は来ないため、最終画を残スロットへ載せる。
+  - 提示 ID は `requestVideoFrameCallback` の `presentedFrames` を優先し、無いときは `currentTime` を 1ms に丸める。
+  - 公開した index の Canvas を最大 3 枚のリングへコピーし、`getRenderedExportFrameSource()` 経由で encode する。poll が遅れても次スロットの画を混ぜない。
+  - export 描画中だけ `imageSmoothingQuality='high'`。`VideoFrame` は不透明 Canvas なので `alpha: 'discard'`。
+- **採用しないもの（再導入禁止）**:
+  - 動画 export 全体のフレーム駆動化、毎フレーム seek、`playbackRate=speed`、描画直後の同期 encode、VFR、export 中の次動画常時 prefetch、1 tick クランプ、queue 30/90・bitrate・出力 fps の変更、`latencyMode:'quality'`、素材 fps への出力合わせ。
+- **自動回帰**: `exportTimeline.test.ts`（capture 判定）、`exportFrameSnapshot.test.ts`、`standardPreviewEngine.test.tsx`（同じ画の 1 rAF 見送りと video→video 連番）。
+- **実機成功確認（2026-08-17）**:
+  - ユーザーが同じ 30fps 素材で再書き出しし、**「劇的に改善した」「スムーズになった」**と確認済み。
+  - 品質側（尺・A/V 一致・欠落なし・壁時計 + native 1x + CFR + backpressure）は維持したまま、体感の滑らかさだけが上がった。
+- **なぜ劇的に効いたか（本命）**:
+  - 出力はもともと正しい 30fps CFR で、フレーム欠落や bitrate 不足が主因ではなかった。
+  - 体感カクつきの実体は **「正しい時刻に、古い／同じ／次スロットの画が入る」** ことだった。スロット開始直後はデコーダがまだ次の提示をしておらず、同じ絵が 2 枚続いてから跳ぶ（hold → hold → jump）。目はこのリズムを「元の 30fps より粗い」と読む。
+  - 加えて encode poll は live Canvas を後から読むため、次 rAF が先に上書きすると **前の timestamp に次スロットの画素** が載る。これも同じ「止まって飛ぶ」見え方になる。
+  - 13-204 は最大 1 rAF だけ新しい提示を待ち、その Canvas を凍結コピーして encode する。各 30fps スロットが **新しい・時刻の合う一枚** になり、重複とレースが消える。駆動時計・queue・bitrate は触っていないので、過去に品質を悪化させた変更とは別系統。
+- **副次効果**: export 中の `imageSmoothingQuality='high'` と `VideoFrame` の `alpha:'discard'` は輪郭と圧縮の小さな助け。体感の主役は提示合わせ＋スナップショット。
+- **注意**:
+  - 効果が出たからといって見送りを 2 rAF 以上に延ばしたり、提示待ちで壁時計を止めたりしない。時計停止は 13-153 / 13-187 / 13-188 の限定区間だけ。
+  - クリップ終端の即キャプチャを外すと、同じ `currentTime` の最終スロットが公開されず連番が欠ける。
+  - 滑らかさ改善を理由に、13-204 が禁止した駆動変更へ戻さない。

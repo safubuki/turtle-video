@@ -11,6 +11,8 @@ import {
   resolveExportResolutionVerdict,
   resolveExportVideoFrameBudget,
   evaluateFrameDrivenExportStall,
+  resolveExportCanvasCaptureDecision,
+  resolveExportPresentedFrameId,
 } from '../utils/exportTimeline';
 import { isCaptionActiveAtTime } from '../utils/captionTimeline';
 import type { Caption } from '../types';
@@ -562,5 +564,115 @@ describe('isCaptionActiveAtTime', () => {
     expect(isCaptionActiveAtTime(caption, atStart)).toBe(true);
     expect(isCaptionActiveAtTime(caption, nearEnd)).toBe(true);
     expect(isCaptionActiveAtTime(caption, atEnd)).toBe(false);
+  });
+});
+
+describe('resolveExportPresentedFrameId', () => {
+  it('rVFC の presentedFrames を最優先する', () => {
+    expect(resolveExportPresentedFrameId({
+      presentedFrames: 12,
+      mediaTimeSec: 0.4,
+      videoCurrentTimeSec: 0.41,
+    })).toBe(12);
+  });
+
+  it('rVFC が無いときは currentTime を 1ms に丸める', () => {
+    expect(resolveExportPresentedFrameId({
+      videoCurrentTimeSec: 1 / 30,
+    })).toBe(33);
+  });
+
+  it('不正値は null を返す', () => {
+    expect(resolveExportPresentedFrameId({
+      presentedFrames: -1,
+      videoCurrentTimeSec: Number.NaN,
+    })).toBeNull();
+  });
+});
+
+describe('resolveExportCanvasCaptureDecision', () => {
+  it('同じ index は再利用し、live Canvas を次フレームで上書きしない', () => {
+    expect(resolveExportCanvasCaptureDecision({
+      currentIndex: 4,
+      lastCapturedIndex: 4,
+      deferredCurrentIndex: false,
+      hasActiveVideo: true,
+      presentedFrameId: 200,
+      lastCapturedPresentedFrameId: 166,
+    })).toEqual({ action: 'reuse', nextDeferredCurrentIndex: false });
+  });
+
+  it('先頭スロットと画像区間は待たずに取る', () => {
+    expect(resolveExportCanvasCaptureDecision({
+      currentIndex: 0,
+      lastCapturedIndex: null,
+      deferredCurrentIndex: false,
+      hasActiveVideo: true,
+      presentedFrameId: 0,
+      lastCapturedPresentedFrameId: null,
+    }).action).toBe('capture');
+
+    expect(resolveExportCanvasCaptureDecision({
+      currentIndex: 8,
+      lastCapturedIndex: 7,
+      deferredCurrentIndex: false,
+      hasActiveVideo: false,
+      presentedFrameId: null,
+      lastCapturedPresentedFrameId: null,
+    }).action).toBe('capture');
+  });
+
+  it('クリップ終端では同じ画でも残スロットを取る', () => {
+    expect(resolveExportCanvasCaptureDecision({
+      currentIndex: 150,
+      lastCapturedIndex: 149,
+      deferredCurrentIndex: false,
+      hasActiveVideo: true,
+      videoNearEnd: true,
+      presentedFrameId: 4967,
+      lastCapturedPresentedFrameId: 4967,
+    }).action).toBe('capture');
+  });
+
+  it('動画の中身が変わっていない連続スロットは 1 回だけ見送る', () => {
+    expect(resolveExportCanvasCaptureDecision({
+      currentIndex: 11,
+      lastCapturedIndex: 10,
+      deferredCurrentIndex: false,
+      hasActiveVideo: true,
+      presentedFrameId: 333,
+      lastCapturedPresentedFrameId: 333,
+    })).toEqual({ action: 'defer', nextDeferredCurrentIndex: true });
+
+    expect(resolveExportCanvasCaptureDecision({
+      currentIndex: 11,
+      lastCapturedIndex: 10,
+      deferredCurrentIndex: true,
+      hasActiveVideo: true,
+      presentedFrameId: 333,
+      lastCapturedPresentedFrameId: 333,
+    }).action).toBe('capture');
+  });
+
+  it('新しい提示フレームがあれば連続スロットでもすぐ取る', () => {
+    expect(resolveExportCanvasCaptureDecision({
+      currentIndex: 11,
+      lastCapturedIndex: 10,
+      deferredCurrentIndex: false,
+      hasActiveVideo: true,
+      presentedFrameId: 367,
+      lastCapturedPresentedFrameId: 333,
+    }).action).toBe('capture');
+  });
+
+  it('index が飛んだときは待たない', () => {
+    expect(resolveExportCanvasCaptureDecision({
+      currentIndex: 15,
+      lastCapturedIndex: 10,
+      deferredCurrentIndex: false,
+      hasActiveVideo: true,
+      presentedFrameId: 333,
+      lastCapturedPresentedFrameId: 333,
+    }).action).toBe('capture');
   });
 });

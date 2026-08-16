@@ -20,6 +20,8 @@ declare class MediaStreamTrackProcessor<T> {
 interface VideoFrameInit {
     timestamp: number;
     duration?: number;
+    /** 不透明 Canvas から作るときは discard。alpha 面の変換揺れを避ける */
+    alpha?: 'keep' | 'discard';
 }
 
 interface VideoFrame {

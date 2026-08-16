@@ -106,6 +106,11 @@ export interface ExportAudioSources {
    */
   getRenderedVideoFrameIndex?: () => number | null;
   /**
+   * 描画スロット確定時にコピーした Canvas。encode poll が live Canvas を読むと
+   * 次スロットの画を前の timestamp へ載せるため、ある場合はこちらを優先する。
+   */
+  getRenderedExportFrameSource?: (frameIndex: number) => CanvasImageSource | null;
+  /**
    * render loop の描画実績を返す（Issue #215 の再発調査用の計測）。
    *
    * 完了時のフレーム総数はどの異常経路でも一致してしまうため、

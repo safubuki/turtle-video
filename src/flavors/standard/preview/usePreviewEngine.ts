@@ -79,11 +79,14 @@ import { collectPlaybackBlockingVideos } from '../../../utils/playbackTimeline';
 import { isCaptionActiveAtTime, resolveCaptionDisplaySegment } from '../../../utils/captionTimeline';
 import {
   getExportFrameTiming,
+  resolveExportCanvasCaptureDecision,
   resolveExportDuration,
+  resolveExportPresentedFrameId,
   resolveFrameDrivenExportTimeSec,
   shouldUseFrameDrivenExportPacing,
   evaluateFrameDrivenExportStall,
 } from '../../../utils/exportTimeline';
+import { createExportFrameSnapshotRing } from '../../../utils/exportFrameSnapshot';
 import { createRenderedFrameTracker } from '../../../utils/exportDiagnostics';
 import { createExportFrameProfiler } from '../../../utils/exportFrameProfiler';
 import { resolveMediaBaseScale } from '../../../stores/canvasStore';
@@ -1164,6 +1167,80 @@ export function usePreviewEngine({
   // 【#215 再発調査】実際に描かれた「相異なる」フレーム番号を数える。
   // 投入数との差が「同じ画の複製投入」＝映像が止まって見える量になる。
   const exportRenderedFrameTrackerRef = useRef(createRenderedFrameTracker());
+  const exportFrameSnapshotRingRef = useRef(createExportFrameSnapshotRing());
+  const exportLastCapturedIndexRef = useRef<number | null>(null);
+  const exportCaptureDeferredIndexRef = useRef<number | null>(null);
+  const exportLastCapturedPresentedFrameIdRef = useRef<number | null>(null);
+  const exportRvfcStateRef = useRef<{
+    video: HTMLVideoElement | null;
+    videoId: string | null;
+    handle: number | null;
+    presentedFrames: number | null;
+    mediaTimeSec: number | null;
+  }>({
+    video: null,
+    videoId: null,
+    handle: null,
+    presentedFrames: null,
+    mediaTimeSec: null,
+  });
+  const cancelExportRvfc = () => {
+    const state = exportRvfcStateRef.current;
+    const video = state.video;
+    if (video && state.handle !== null && typeof video.cancelVideoFrameCallback === 'function') {
+      try {
+        video.cancelVideoFrameCallback(state.handle);
+      } catch {
+        /* ignore */
+      }
+    }
+    state.video = null;
+    state.videoId = null;
+    state.handle = null;
+  };
+  const resetExportCaptureState = () => {
+    cancelExportRvfc();
+    exportLastCapturedIndexRef.current = null;
+    exportCaptureDeferredIndexRef.current = null;
+    exportLastCapturedPresentedFrameIdRef.current = null;
+    exportFrameSnapshotRingRef.current.clear();
+    exportRvfcStateRef.current.presentedFrames = null;
+    exportRvfcStateRef.current.mediaTimeSec = null;
+  };
+  const bindExportRvfc = (video: HTMLVideoElement | null, videoId: string | null) => {
+    const state = exportRvfcStateRef.current;
+    if (state.videoId === videoId && state.handle !== null) return;
+    cancelExportRvfc();
+    if (!video || !videoId || typeof video.requestVideoFrameCallback !== 'function') {
+      return;
+    }
+    const onFrame = (
+      _now: number,
+      meta: { presentedFrames?: number; mediaTime?: number },
+    ) => {
+      if (exportRvfcStateRef.current.videoId !== videoId) return;
+      if (Number.isFinite(meta.presentedFrames)) {
+        exportRvfcStateRef.current.presentedFrames = meta.presentedFrames as number;
+      }
+      if (Number.isFinite(meta.mediaTime)) {
+        exportRvfcStateRef.current.mediaTimeSec = meta.mediaTime as number;
+      }
+      try {
+        exportRvfcStateRef.current.handle = video.requestVideoFrameCallback(onFrame);
+      } catch {
+        exportRvfcStateRef.current.handle = null;
+      }
+    };
+    exportRvfcStateRef.current.video = video;
+    exportRvfcStateRef.current.videoId = videoId;
+    exportRvfcStateRef.current.presentedFrames = null;
+    exportRvfcStateRef.current.mediaTimeSec = null;
+    try {
+      exportRvfcStateRef.current.handle = video.requestVideoFrameCallback(onFrame);
+    } catch {
+      exportRvfcStateRef.current.handle = null;
+    }
+  };
   // エクスポート 1 フレームの内訳（描画 / エンコード / その他）を実測する。
   // 「プレビューは滑らかなのに書き出しだけ遅い」原因を数字で切り分けるため。
   const exportFrameProfilerRef = useRef(createExportFrameProfiler(() => getStandardPreviewNow()));
@@ -1726,11 +1803,19 @@ export function usePreviewEngine({
 
   const renderFrame = useCallback(
     (time: number, isActivePlaying = false, _isExporting = false) => {
+      let previousSmoothingEnabled: boolean | undefined;
+      let previousSmoothingQuality: ImageSmoothingQuality | undefined;
       try {
         const canvas = canvasRef.current;
         if (!canvas) return false;
         const ctx = canvas.getContext('2d');
         if (!ctx) return false;
+        previousSmoothingEnabled = ctx.imageSmoothingEnabled;
+        previousSmoothingQuality = ctx.imageSmoothingQuality;
+        if (_isExporting) {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+        }
         let didUpdateCanvas = false;
 
         if (!_isExporting && hasReadyPreviewCache()) {
@@ -3918,6 +4003,17 @@ export function usePreviewEngine({
       } catch (e) {
         console.error('Render Error:', e);
         return false;
+      } finally {
+        if (_isExporting && previousSmoothingEnabled !== undefined) {
+          const canvas = canvasRef.current;
+          const ctx = canvas?.getContext('2d');
+          if (ctx) {
+            ctx.imageSmoothingEnabled = previousSmoothingEnabled;
+            if (previousSmoothingQuality !== undefined) {
+              ctx.imageSmoothingQuality = previousSmoothingQuality;
+            }
+          }
+        }
       }
     },
     // videoTitle も依存に含める。含めないと renderFrame が再生成されず、
@@ -3943,6 +4039,7 @@ export function usePreviewEngine({
     currentExportSessionIdRef.current = null;
     frameDrivenExportEnabledRef.current = false;
     exportRenderedFrameIndexRef.current = null;
+    resetExportCaptureState();
     frameDrivenExportSubmittedCountRef.current = 0;
     frameDrivenExportLastRenderedCountRef.current = null;
     frameDrivenExportStallObservedCountRef.current = 0;
@@ -4959,6 +5056,19 @@ export function usePreviewEngine({
         }
       }
 
+      const activeExportVideoItem = isExportMode && resolvedSegmentIndex >= 0
+        ? mediaItemsRef.current[resolvedSegmentIndex]
+        : null;
+      const activeExportVideoElement =
+        activeExportVideoItem?.type === 'video'
+          ? mediaElementsRef.current[activeExportVideoItem.id] as HTMLVideoElement | undefined
+          : undefined;
+      if (isExportMode) {
+        bindExportRvfc(activeExportVideoElement ?? null, activeExportVideoItem?.type === 'video'
+          ? activeExportVideoItem.id
+          : null);
+      }
+
       // 描画時間を実測する（エクスポート時のみ。プレビューには影響させない）。
       const endDrawMeasure = isExportMode
         ? exportFrameProfilerRef.current.begin('draw')
@@ -5165,9 +5275,56 @@ export function usePreviewEngine({
       // export のフレーム投入はこの実績に同期させ、rAF が 30fps を割り込んだときに
       // 未描画時刻のフレームまで複製投入して映像だけ早く終わるのを防ぐ。
       if (isExportMode && exportFrameIndex !== null && shouldPublishRenderedExportFrame) {
-        exportRenderedFrameIndexRef.current = exportFrameIndex;
-        // 【#215 再発調査】描いたフレーム番号を記録する（重複・飛びをここで検出する）。
-        exportRenderedFrameTrackerRef.current.note(exportFrameIndex);
+        const rvfcState = exportRvfcStateRef.current;
+        const presentedFrameId = resolveExportPresentedFrameId({
+          presentedFrames: rvfcState.videoId === activeExportVideoItem?.id
+            ? rvfcState.presentedFrames
+            : null,
+          mediaTimeSec: rvfcState.videoId === activeExportVideoItem?.id
+            ? rvfcState.mediaTimeSec
+            : null,
+          videoCurrentTimeSec: activeExportVideoElement && Number.isFinite(activeExportVideoElement.currentTime)
+            ? activeExportVideoElement.currentTime
+            : null,
+        });
+        const exportVideoTrimEnd = activeExportVideoItem?.type === 'video'
+          ? (Number.isFinite(activeExportVideoItem.trimEnd)
+            ? activeExportVideoItem.trimEnd
+            : activeExportVideoElement?.duration)
+          : null;
+        const videoNearEnd = Boolean(
+          activeExportVideoElement
+          && (
+            activeExportVideoElement.ended
+            || (
+              Number.isFinite(exportVideoTrimEnd)
+              && Number.isFinite(activeExportVideoElement.currentTime)
+              && activeExportVideoElement.currentTime >= (exportVideoTrimEnd as number) - (1 / FPS + 0.005)
+            )
+          ),
+        );
+        const captureDecision = resolveExportCanvasCaptureDecision({
+          currentIndex: exportFrameIndex,
+          lastCapturedIndex: exportLastCapturedIndexRef.current,
+          deferredCurrentIndex: exportCaptureDeferredIndexRef.current === exportFrameIndex,
+          hasActiveVideo: activeExportVideoItem?.type === 'video',
+          videoNearEnd,
+          presentedFrameId,
+          lastCapturedPresentedFrameId: exportLastCapturedPresentedFrameIdRef.current,
+        });
+        exportCaptureDeferredIndexRef.current = captureDecision.nextDeferredCurrentIndex
+          ? exportFrameIndex
+          : null;
+        if (captureDecision.action === 'capture') {
+          const canvas = canvasRef.current;
+          if (canvas) {
+            exportFrameSnapshotRingRef.current.store(exportFrameIndex, canvas);
+          }
+          exportRenderedFrameIndexRef.current = exportFrameIndex;
+          exportRenderedFrameTrackerRef.current.note(exportFrameIndex);
+          exportLastCapturedIndexRef.current = exportFrameIndex;
+          exportLastCapturedPresentedFrameIdRef.current = presentedFrameId;
+        }
       }
       if (useFrameDrivenExportTime) {
         frameDrivenExportLastRenderedCountRef.current = submittedFrameCount;
@@ -5332,6 +5489,7 @@ export function usePreviewEngine({
           mediaItemTypes: mediaItemsRef.current.map((item) => item.type),
         });
         exportRenderedFrameIndexRef.current = null;
+        resetExportCaptureState();
         frameDrivenExportSubmittedCountRef.current = 0;
         frameDrivenExportLastRenderedCountRef.current = null;
         frameDrivenExportStallObservedCountRef.current = 0;
@@ -6029,6 +6187,8 @@ export function usePreviewEngine({
             getPlaybackTimeSec: () => currentTimeRef.current,
             // 【Issue #215】実描画済みフレーム番号を返し、映像フレームの投入を描画実績へ同期させる。
             getRenderedVideoFrameIndex: () => exportRenderedFrameIndexRef.current,
+            getRenderedExportFrameSource: (frameIndex: number) =>
+              exportFrameSnapshotRingRef.current.get(frameIndex),
             // 【#215 再発調査】完了時の原因切り分け用。実際に描けた枚数と飛んだ枚数を返す。
             getRenderedFrameStats: () => {
               const tracker = exportRenderedFrameTrackerRef.current;
@@ -6096,6 +6256,7 @@ export function usePreviewEngine({
             onAudioPreRenderComplete: () => {
               // 【Issue #215】実描画実績は loop 開始時点から数え直す。
               exportRenderedFrameIndexRef.current = null;
+              resetExportCaptureState();
               exportRenderedFrameTrackerRef.current.reset();
               const loopStartNowMs = getStandardPreviewNow();
               exportFrameProfilerRef.current.reset(loopStartNowMs);

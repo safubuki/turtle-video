@@ -165,6 +165,8 @@ function createMockCanvasContext(canvasSize: { width: number; height: number } =
     globalAlpha: 1,
     filter: 'none',
     fillStyle: '#000000',
+    imageSmoothingEnabled: true,
+    imageSmoothingQuality: 'low',
   } as unknown as CanvasRenderingContext2D;
 }
 
@@ -725,6 +727,7 @@ describe('standard preview engine', () => {
       skippedFrames: 0,
     });
 
+    el2.currentTime = 1 + 1 / 30;
     nowMs = 2074;
     hook.result.current.loop(true, loopIdRef.current);
     expect(currentTimeRef.current).toBeCloseTo(152 / 30, 3);
@@ -821,6 +824,69 @@ describe('standard preview engine', () => {
     expect(logInfo.mock.calls.some(([, message, details]) =>
       message === 'standard.export.timeline.videoBoundaryPaused'
       && details?.boundaryKind === 'export-start')).toBe(true);
+  });
+
+  it('export は同じ video フレームの連続スロットを 1 rAF 見送ってから公開する', async () => {
+    const video = createVideoItem({
+      id: 'video-cadence',
+      duration: 10,
+      originalDuration: 10,
+      trimStart: 0,
+      trimEnd: 10,
+    });
+    const videoEl = createMockVideoElement();
+    videoEl.readyState = 3;
+    videoEl.seeking = false;
+    videoEl.paused = false;
+    videoEl.currentTime = 0;
+    const canvas = {
+      width: 1280,
+      height: 720,
+      getContext: vi.fn(() => createMockCanvasContext({ width: 1280, height: 720 })),
+    } as unknown as HTMLCanvasElement;
+    let nowMs = 0;
+    vi.spyOn(playbackClock, 'getStandardPreviewNow').mockImplementation(() => nowMs);
+    const {
+      hook,
+      loopIdRef,
+      startWebCodecsExport,
+    } = setupPreviewEngineHarness({
+      mediaItems: [video],
+      mediaElements: {
+        [video.id]: videoEl as unknown as HTMLVideoElement,
+      },
+      totalDuration: 10,
+      canvas,
+      enableWebCodecsExport: true,
+    });
+
+    const startPromise = hook.result.current.startEngine(0, true);
+    await vi.advanceTimersByTimeAsync(350);
+    await startPromise;
+
+    const audioSources = startWebCodecsExport.mock.calls[0]?.[4];
+    expect(audioSources).toBeDefined();
+    audioSources.onAudioPreRenderComplete?.();
+    expect(audioSources.getRenderedFrameStats?.()).toMatchObject({
+      lastRenderedFrameIndex: 0,
+      distinctRenderedFrames: 1,
+    });
+    expect(typeof audioSources.getRenderedExportFrameSource).toBe('function');
+
+    nowMs = 34;
+    hook.result.current.loop(true, loopIdRef.current);
+    expect(audioSources.getRenderedFrameStats?.()).toMatchObject({
+      lastRenderedFrameIndex: 0,
+      distinctRenderedFrames: 1,
+    });
+
+    nowMs = 50;
+    hook.result.current.loop(true, loopIdRef.current);
+    expect(audioSources.getRenderedFrameStats?.()).toMatchObject({
+      lastRenderedFrameIndex: 1,
+      distinctRenderedFrames: 2,
+      renderSkipCount: 0,
+    });
   });
 
   it('preview 再生開始では exportUrl を clear しない', async () => {
