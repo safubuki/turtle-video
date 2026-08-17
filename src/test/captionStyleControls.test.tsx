@@ -11,7 +11,7 @@ import { useCanvasStore } from '../stores/canvasStore';
 // このファイルでは一括設定欄の表示幅だけを検証するため、描画処理は切り離す。
 vi.mock('../components/common/CaptionMiniPreview', () => ({
   default: () => <div data-testid="caption-mini-preview-mock" />,
-  PORTRAIT_MINI_PREVIEW_MAX_WIDTH_CLASS: 'max-w-[clamp(9rem,18dvh,13rem)]',
+  PORTRAIT_MINI_PREVIEW_MAX_WIDTH_CLASS: 'max-w-[clamp(12rem,24dvh,18rem)]',
 }));
 
 function renderCaptionSection(
@@ -271,7 +271,7 @@ describe('CaptionSection bulk mini preview sizing', () => {
       fireEvent.click(screen.getByRole('button', { name: 'キャプション スタイル/フェードの一括設定' }));
 
       expect(screen.getByTestId('caption-bulk-mini-preview-container')).toHaveClass(
-        'max-w-[clamp(9rem,18dvh,13rem)]',
+        'max-w-[clamp(12rem,24dvh,18rem)]',
       );
     } finally {
       cleanup();
@@ -289,7 +289,7 @@ describe('CaptionSection bulk mini preview sizing', () => {
 
       expect(screen.getByTestId('caption-bulk-mini-preview-container')).toHaveClass('max-w-none');
       expect(screen.getByTestId('caption-bulk-mini-preview-container')).not.toHaveClass(
-        'max-w-[clamp(9rem,18dvh,13rem)]',
+        'max-w-[clamp(12rem,24dvh,18rem)]',
       );
     } finally {
       cleanup();

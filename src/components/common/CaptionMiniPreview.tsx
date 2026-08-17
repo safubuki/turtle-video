@@ -63,7 +63,7 @@ interface CaptionMiniPreviewProps {
 const MINI_LONG_SIDE = 320;
 
 /** 縦向きミニプレビューの表示幅上限（PCでも一括設定欄を占有しすぎないため） */
-export const PORTRAIT_MINI_PREVIEW_MAX_WIDTH_CLASS = 'max-w-[clamp(9rem,18dvh,13rem)]';
+export const PORTRAIT_MINI_PREVIEW_MAX_WIDTH_CLASS = 'max-w-[clamp(12rem,24dvh,18rem)]';
 
 const CaptionMiniPreview: React.FC<CaptionMiniPreviewProps> = ({
   sourceCanvasRef,

@@ -329,7 +329,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
         {previewCanvasRef && (
           <div className="px-4 pt-3 shrink-0">
             {/* 縦向きは端末を問わず画面高に応じて幅を抑え、ミニビュー全体が
-                モーダルや設定欄を占有しすぎないようにする。144px を下限、208px を上限にする。 */}
+                モーダルや設定欄を占有しすぎないようにする。192px を下限、288px を上限にする。 */}
             <div
               className={`mx-auto w-full ${isPortraitProject ? PORTRAIT_MINI_PREVIEW_MAX_WIDTH_CLASS : 'max-w-sm'}`}
               data-testid="caption-mini-preview-container"

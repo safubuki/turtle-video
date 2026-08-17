@@ -209,7 +209,7 @@ describe('CaptionSettingsModal clear', () => {
       );
 
       expect(screen.getByTestId('caption-mini-preview-container')).toHaveClass(
-        'max-w-[clamp(9rem,18dvh,13rem)]',
+        'max-w-[clamp(12rem,24dvh,18rem)]',
       );
       expect(screen.getByTestId('caption-mini-preview-container')).not.toHaveClass('md:max-w-sm');
       unmount();
@@ -250,7 +250,7 @@ describe('CaptionSettingsModal clear', () => {
 
       expect(screen.getByTestId('caption-mini-preview-container')).toHaveClass('max-w-sm');
       expect(screen.getByTestId('caption-mini-preview-container')).not.toHaveClass(
-        'max-w-[clamp(9rem,18dvh,13rem)]',
+        'max-w-[clamp(12rem,24dvh,18rem)]',
       );
       unmount();
     } finally {

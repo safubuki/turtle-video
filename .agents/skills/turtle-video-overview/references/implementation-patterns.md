@@ -3937,6 +3937,6 @@ export 終了（成功/失敗/中断）
 - **ファイル**: `src/components/common/CaptionMiniPreview.tsx`, `src/components/sections/CaptionSection.tsx`, `src/components/modals/CaptionSettingsModal.tsx`, 関連テスト
 - **問題**: 縦向きプロジェクトのミニプレビューは一括設定欄で親幅いっぱいに広がり、個別設定モーダルでもPCでは大きくなりやすいため、設定画面の表示領域を占有しすぎていた。
 - **対策**:
-  - 縦向きプロジェクトでは共通の `max-w-[clamp(9rem,18dvh,13rem)]` を使い、幅を144〜208pxに制限する。画面高に応じて縮小し、従来の上限256pxからおよそ2/3〜4/5へ抑える。
+  - 縦向きプロジェクトでは共通の `max-w-[clamp(12rem,24dvh,18rem)]` を使い、幅を192〜288pxに制限する。画面高に応じて縮小し、元の一括設定欄の表示幅に対しておよそ半分を目安にする。
   - 一括設定欄と個別設定モーダルの両方へ適用する。横向きプロジェクトは一括設定欄を全幅、個別設定モーダルを `max-w-sm` のまま維持する。
 - **回帰ガード**: 縦向きで共通の幅クラスが付くこと、横向きで従来幅が維持されることを `captionStyleControls.test.tsx` と `captionSettingsModal.test.tsx` で確認する。
