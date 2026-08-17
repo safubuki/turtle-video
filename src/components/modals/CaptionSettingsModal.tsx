@@ -20,7 +20,9 @@ import CaptionColorField from '../common/CaptionColorField';
 import CaptionFontSizeField from '../common/CaptionFontSizeField';
 import CaptionFontStyleField from '../common/CaptionFontStyleField';
 import CaptionPositionField from '../common/CaptionPositionField';
-import CaptionMiniPreview from '../common/CaptionMiniPreview';
+import CaptionMiniPreview, {
+  PORTRAIT_MINI_PREVIEW_MAX_WIDTH_CLASS,
+} from '../common/CaptionMiniPreview';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
@@ -326,11 +328,10 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
             スクロールしてもサイズ・位置の変化を見失わないよう上部に固定する。 */}
         {previewCanvasRef && (
           <div className="px-4 pt-3 shrink-0">
-            {/* 縦向きは端末を問わず画面高に応じて幅を抑え、ミニビュー全体を
-                モーダル高のおよそ半分に収める。低い画面でも見づらくならないよう
-                176px を下限、256px を上限にする。 */}
+            {/* 縦向きは端末を問わず画面高に応じて幅を抑え、ミニビュー全体が
+                モーダルや設定欄を占有しすぎないようにする。128px を下限、176px を上限にする。 */}
             <div
-              className={`mx-auto w-full ${isPortraitProject ? 'max-w-[clamp(11rem,23.625dvh,16rem)]' : 'max-w-sm'}`}
+              className={`mx-auto w-full ${isPortraitProject ? PORTRAIT_MINI_PREVIEW_MAX_WIDTH_CLASS : 'max-w-sm'}`}
               data-testid="caption-mini-preview-container"
             >
               <CaptionMiniPreview

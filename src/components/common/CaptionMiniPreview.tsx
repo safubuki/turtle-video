@@ -62,6 +62,9 @@ interface CaptionMiniPreviewProps {
 /** ミニプレビューの内部解像度。長辺基準で、文字の可読性とコストのバランスを取る */
 const MINI_LONG_SIDE = 320;
 
+/** 縦向きミニプレビューの表示幅上限（PCでも一括設定欄を占有しすぎないため） */
+export const PORTRAIT_MINI_PREVIEW_MAX_WIDTH_CLASS = 'max-w-[clamp(8rem,16dvh,11rem)]';
+
 const CaptionMiniPreview: React.FC<CaptionMiniPreviewProps> = ({
   sourceCanvasRef,
   captionFreeSnapshotRef,

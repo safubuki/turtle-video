@@ -3932,9 +3932,11 @@ export 終了（成功/失敗/中断）
   - クリップ終端の即キャプチャを外すと、同じ `currentTime` の最終スロットが公開されず連番が欠ける。
   - 滑らかさ改善を理由に、13-204 が禁止した駆動変更へ戻さない。
 
-### 13-205. 縦向きキャプション個別設定ミニプレビューのPCサイズ制御
+### 13-205. 縦向きキャプションミニプレビューのPCサイズ制御
 
-- **ファイル**: `src/components/modals/CaptionSettingsModal.tsx`, `src/test/captionSettingsModal.test.tsx`
-- **問題**: 縦向きプロジェクトのミニプレビューはスマホだけ画面高に応じて縮小され、PCでは `md:max-w-sm` によって幅384pxまで広がるため、個別設定モーダルの上部を占有しすぎていた。
-- **対策**: 縦向きプロジェクトではPCを含む全端末で `max-w-[clamp(11rem,23.625dvh,16rem)]` を使い、幅を176〜256pxに制限する。横向きプロジェクトは従来どおり `max-w-sm` を維持する。
-- **回帰ガード**: 縦向きで `md:max-w-sm` が付かないこと、横向きで従来幅が維持されることを `captionSettingsModal.test.tsx` で確認する。
+- **ファイル**: `src/components/common/CaptionMiniPreview.tsx`, `src/components/sections/CaptionSection.tsx`, `src/components/modals/CaptionSettingsModal.tsx`, 関連テスト
+- **問題**: 縦向きプロジェクトのミニプレビューは一括設定欄で親幅いっぱいに広がり、個別設定モーダルでもPCでは大きくなりやすいため、設定画面の表示領域を占有しすぎていた。
+- **対策**:
+  - 縦向きプロジェクトでは共通の `max-w-[clamp(8rem,16dvh,11rem)]` を使い、幅を128〜176pxに制限する。画面高に応じて縮小し、従来の上限256pxからおよそ1/2〜2/3へ抑える。
+  - 一括設定欄と個別設定モーダルの両方へ適用する。横向きプロジェクトは一括設定欄を全幅、個別設定モーダルを `max-w-sm` のまま維持する。
+- **回帰ガード**: 縦向きで共通の幅クラスが付くこと、横向きで従来幅が維持されることを `captionStyleControls.test.tsx` と `captionSettingsModal.test.tsx` で確認する。

@@ -76,7 +76,9 @@ import { useCanvasStore } from '../../stores/canvasStore';
 import { resolveShiftAlignmentTarget } from '../../utils/captionTimeline';
 import CaptionBulkAddModal, { type BulkCaptionApplyItem } from '../modals/CaptionBulkAddModal';
 import CaptionColorField from '../common/CaptionColorField';
-import CaptionMiniPreview from '../common/CaptionMiniPreview';
+import CaptionMiniPreview, {
+  PORTRAIT_MINI_PREVIEW_MAX_WIDTH_CLASS,
+} from '../common/CaptionMiniPreview';
 import type { CaptionFreeSnapshot } from '../../utils/canvas';
 import CaptionPositionField from '../common/CaptionPositionField';
 
@@ -248,6 +250,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   // プリセット→カスタムの引き継ぎに使う（描画と同じ寸法基準にそろえる）
   const canvasWidth = useCanvasStore((state) => state.width);
   const canvasHeight = useCanvasStore((state) => state.height);
+  const isPortraitProject = canvasHeight > canvasWidth;
   const [isOpen, setIsOpen] = useState(true);
   const [showStyleSettings, setShowStyleSettings] = useState(false);
   const [showOutlineColorSettings, setShowOutlineColorSettings] = useState(false);
@@ -676,15 +679,22 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                 {/* ミニプレビュー: プレビュー欄まで往復せずにサイズ・位置を確かめられるようにする。
                     個別設定モーダルと同じコンポーネントで、見え方も本番描画と一致する。 */}
                 {previewCanvasRef && (
-                  <CaptionMiniPreview
-                    sourceCanvasRef={previewCanvasRef}
-                    captionFreeSnapshotRef={captionFreeSnapshotRef}
-                    captions={[bulkMiniPreviewCaption]}
-                    settings={settings}
-                    previewTimeSec={BULK_MINI_PREVIEW_TIME_SEC}
-                    refreshKey={bulkMiniPreviewRefreshKey}
-                    caption={`プレビュー現在位置 ${formatTime(currentTime)} の画面にサンプル文字を重ねた表示`}
-                  />
+                  <div
+                    className={`mx-auto w-full ${isPortraitProject
+                      ? PORTRAIT_MINI_PREVIEW_MAX_WIDTH_CLASS
+                      : 'max-w-none'}`}
+                    data-testid="caption-bulk-mini-preview-container"
+                  >
+                    <CaptionMiniPreview
+                      sourceCanvasRef={previewCanvasRef}
+                      captionFreeSnapshotRef={captionFreeSnapshotRef}
+                      captions={[bulkMiniPreviewCaption]}
+                      settings={settings}
+                      previewTimeSec={BULK_MINI_PREVIEW_TIME_SEC}
+                      refreshKey={bulkMiniPreviewRefreshKey}
+                      caption={`プレビュー現在位置 ${formatTime(currentTime)} の画面にサンプル文字を重ねた表示`}
+                    />
+                  </div>
                 )}
                 {/* ■ スタイル設定 */}
                 <div className="space-y-2">

@@ -6,6 +6,14 @@ import { PlatformCapabilitiesProvider } from '../app/PlatformCapabilitiesContext
 import type { Caption } from '../types';
 import { getPlatformCapabilities } from '../utils/platform';
 import { DEFAULT_VIDEO_TITLE_SETTINGS } from '../utils/videoTitle';
+import { useCanvasStore } from '../stores/canvasStore';
+import { PORTRAIT_MINI_PREVIEW_MAX_WIDTH_CLASS } from '../components/common/CaptionMiniPreview';
+
+// このファイルでは一括設定欄の表示幅だけを検証するため、描画処理は切り離す。
+vi.mock('../components/common/CaptionMiniPreview', () => ({
+  default: () => <div data-testid="caption-mini-preview-mock" />,
+  PORTRAIT_MINI_PREVIEW_MAX_WIDTH_CLASS: 'max-w-[clamp(8rem,16dvh,11rem)]',
+}));
 
 function renderCaptionSection(
   overrides: Partial<ComponentProps<typeof CaptionSection>> = {},
@@ -251,6 +259,43 @@ describe('CaptionSection outline and color controls', () => {
     expect(screen.getByLabelText('キャプションの縁の幅（数値）')).toBeDisabled();
     expect(screen.getByLabelText('キャプションの縁の色')).toBeDisabled();
     expect(screen.getByLabelText('キャプションの文字本体')).toBeDisabled();
+  });
+});
+
+describe('CaptionSection bulk mini preview sizing', () => {
+  it('縦向きプロジェクトではPCでもミニプレビューの幅を小さく抑える', () => {
+    const previousCanvasState = useCanvasStore.getState();
+    useCanvasStore.setState({ width: 720, height: 1280 });
+
+    try {
+      renderCaptionSection({ previewCanvasRef: { current: null } }, false);
+      fireEvent.click(screen.getByRole('button', { name: 'キャプション スタイル/フェードの一括設定' }));
+
+      expect(screen.getByTestId('caption-bulk-mini-preview-container')).toHaveClass(
+        PORTRAIT_MINI_PREVIEW_MAX_WIDTH_CLASS,
+      );
+    } finally {
+      cleanup();
+      useCanvasStore.setState(previousCanvasState);
+    }
+  });
+
+  it('横向きプロジェクトでは一括設定の従来幅を維持する', () => {
+    const previousCanvasState = useCanvasStore.getState();
+    useCanvasStore.setState({ width: 1280, height: 720 });
+
+    try {
+      renderCaptionSection({ previewCanvasRef: { current: null } }, false);
+      fireEvent.click(screen.getByRole('button', { name: 'キャプション スタイル/フェードの一括設定' }));
+
+      expect(screen.getByTestId('caption-bulk-mini-preview-container')).toHaveClass('max-w-none');
+      expect(screen.getByTestId('caption-bulk-mini-preview-container')).not.toHaveClass(
+        PORTRAIT_MINI_PREVIEW_MAX_WIDTH_CLASS,
+      );
+    } finally {
+      cleanup();
+      useCanvasStore.setState(previousCanvasState);
+    }
   });
 });
 
