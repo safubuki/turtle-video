@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from 'vitest';
 import CaptionSettingsModal from '../components/modals/CaptionSettingsModal';
 import type { Caption, CaptionSettings } from '../types';
 import { useCanvasStore } from '../stores/canvasStore';
-import { PORTRAIT_MINI_PREVIEW_MAX_WIDTH_CLASS } from '../components/common/CaptionMiniPreview';
 
 const settings: CaptionSettings = {
   enabled: true,
@@ -210,7 +209,7 @@ describe('CaptionSettingsModal clear', () => {
       );
 
       expect(screen.getByTestId('caption-mini-preview-container')).toHaveClass(
-        PORTRAIT_MINI_PREVIEW_MAX_WIDTH_CLASS,
+        'max-w-[clamp(9rem,18dvh,13rem)]',
       );
       expect(screen.getByTestId('caption-mini-preview-container')).not.toHaveClass('md:max-w-sm');
       unmount();
@@ -251,7 +250,7 @@ describe('CaptionSettingsModal clear', () => {
 
       expect(screen.getByTestId('caption-mini-preview-container')).toHaveClass('max-w-sm');
       expect(screen.getByTestId('caption-mini-preview-container')).not.toHaveClass(
-        PORTRAIT_MINI_PREVIEW_MAX_WIDTH_CLASS,
+        'max-w-[clamp(9rem,18dvh,13rem)]',
       );
       unmount();
     } finally {
