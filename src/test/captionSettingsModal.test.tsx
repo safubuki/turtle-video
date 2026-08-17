@@ -210,7 +210,47 @@ describe('CaptionSettingsModal clear', () => {
 
       expect(screen.getByTestId('caption-mini-preview-container')).toHaveClass(
         'max-w-[clamp(11rem,23.625dvh,16rem)]',
-        'md:max-w-sm',
+      );
+      expect(screen.getByTestId('caption-mini-preview-container')).not.toHaveClass('md:max-w-sm');
+      unmount();
+    } finally {
+      getContextSpy.mockRestore();
+      useCanvasStore.setState(previousCanvasState);
+    }
+  });
+
+  it('横向きプロジェクトでは従来のミニプレビュー幅を維持する', () => {
+    const previousCanvasState = useCanvasStore.getState();
+    useCanvasStore.setState({ width: 1280, height: 720 });
+    const getContextSpy = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(null);
+
+    try {
+      const caption: Caption = {
+        id: 'caption-landscape',
+        text: '横向きプレビュー',
+        startTime: 0,
+        endTime: 3,
+        fadeIn: false,
+        fadeOut: false,
+        fadeInDuration: 0.5,
+        fadeOutDuration: 0.5,
+      };
+
+      const { unmount } = render(
+        <CaptionSettingsModal
+          caption={caption}
+          settings={settings}
+          previewCanvasRef={{ current: null }}
+          onUpdate={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByTestId('caption-mini-preview-container')).toHaveClass('max-w-sm');
+      expect(screen.getByTestId('caption-mini-preview-container')).not.toHaveClass(
+        'max-w-[clamp(11rem,23.625dvh,16rem)]',
       );
       unmount();
     } finally {
