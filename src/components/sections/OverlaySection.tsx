@@ -46,6 +46,8 @@ import {
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import NumericStepperInput from '../common/NumericStepperInput';
 import CaptionColorField from '../common/CaptionColorField';
+import LogoMiniPreview from '../common/LogoMiniPreview';
+import type { CaptionFreeSnapshot } from '../../utils/canvas';
 
 interface ResetButtonProps {
   label: string;
@@ -143,6 +145,8 @@ interface OverlaySectionProps {
   currentTime: number;
   canvasWidth: number;
   canvasHeight: number;
+  previewCanvasRef?: React.RefObject<HTMLCanvasElement | null>;
+  captionFreeSnapshotRef?: React.MutableRefObject<CaptionFreeSnapshot>;
   /** BGM が 1 つも無いとき true。エンドロールの BGM フェード設定を無効化する */
   hasNoBgm: boolean;
   onImageSelect: (file: File) => void;
@@ -190,6 +194,8 @@ const OverlaySection = React.memo<OverlaySectionProps>(({
   currentTime,
   canvasWidth,
   canvasHeight,
+  previewCanvasRef,
+  captionFreeSnapshotRef,
   hasNoBgm,
   onImageSelect,
   onUpdate,
@@ -595,6 +601,24 @@ const OverlaySection = React.memo<OverlaySectionProps>(({
 
               <div className="space-y-2 rounded-lg border border-gray-700/70 bg-black/20 p-2">
                 <p className="text-[10px] font-semibold text-gray-300 md:text-xs">位置・見た目</p>
+                {previewCanvasRef && (
+                  <div
+                    className={canvasHeight > canvasWidth
+                      ? 'mx-auto w-full max-w-[clamp(12rem,24dvh,18rem)]'
+                      : 'w-full'}
+                    data-testid={`${controlPrefix}-mini-preview-container`}
+                  >
+                    <LogoMiniPreview
+                      sourceCanvasRef={previewCanvasRef}
+                      captionFreeSnapshotRef={captionFreeSnapshotRef}
+                      overlay={active}
+                      mode={isEndrollTab ? 'endroll' : 'watermark'}
+                      canvasWidth={canvasWidth}
+                      canvasHeight={canvasHeight}
+                      refreshKey={Math.round(currentTime * 100)}
+                    />
+                  </div>
+                )}
                 {/* 位置は「中央原点・上が＋」の共通座標系で操作する（動画・画像・字幕と同一）。
                     保存値は従来どおり左上原点 0〜100% のまま。centerOriginPosition.ts で変換する。 */}
                 <NumericControl

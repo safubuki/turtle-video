@@ -3816,6 +3816,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
                   currentTime={currentTime}
                   canvasWidth={canvasWidth}
                   canvasHeight={canvasHeight}
+                  previewCanvasRef={canvasRef}
+                  captionFreeSnapshotRef={captionFreeSnapshotRef}
                   hasNoBgm={!bgm && bgmClips.length === 0}
                   onImageSelect={handleWatermarkImageSelect}
                   onUpdate={withPreviewPause('update-watermark', updateWatermark)}
