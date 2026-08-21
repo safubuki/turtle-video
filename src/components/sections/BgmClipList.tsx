@@ -21,11 +21,14 @@ import {
 } from 'lucide-react';
 import type { BgmClip } from '../../types';
 import { resolveBgmClipsEffectivePlayback, useAudioStore } from '../../stores/audioStore';
+import { formatNormalizeAdjustment } from '../../utils';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import NumericSliderField from '../common/NumericSliderField';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 
 interface BgmClipListProps {
+  audioSettingsPanel?: React.ReactNode;
+  bulkVolumeEnabled?: boolean;
   clips: BgmClip[];
   isLocked: boolean;
   totalDuration: number;
@@ -41,6 +44,8 @@ interface BgmClipListProps {
 }
 
 const BgmClipList: React.FC<BgmClipListProps> = ({
+  audioSettingsPanel,
+  bulkVolumeEnabled = false,
   clips,
   isLocked,
   totalDuration,
@@ -92,10 +97,13 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
 
   if (clips.length === 0) {
     return (
-      <div className="text-center py-6 mx-3 mb-3 text-gray-600 text-xs md:text-sm border-2 border-dashed border-gray-800 rounded">
-        BGM はまだありません。「追加」で複数の曲を入れられます。
-        <br />
-        追加した曲は動画の長さに合わせて自動調整されます。
+      <div className="p-3 space-y-3 min-w-0">
+        {audioSettingsPanel}
+        <div className="text-center py-6 text-gray-600 text-xs md:text-sm border-2 border-dashed border-gray-800 rounded">
+          BGM はまだありません。「追加」で複数の曲を入れられます。
+          <br />
+          追加した曲は動画の長さに合わせて自動調整されます。
+        </div>
       </div>
     );
   }
@@ -106,7 +114,8 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
   });
 
   return (
-    <div className="p-3 space-y-3 max-h-96 lg:max-h-128 overflow-y-auto custom-scrollbar">
+    <div className="p-3 space-y-3 max-h-96 lg:max-h-128 overflow-y-auto custom-scrollbar min-w-0">
+      {audioSettingsPanel}
       <label
         className={`inline-flex items-center gap-2 text-[10px] md:text-xs select-none whitespace-nowrap ${
           isLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer text-gray-300'
@@ -160,16 +169,16 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
         return (
           <div
             key={clip.id}
-            className={`p-3 bg-purple-900/10 border border-purple-500/20 rounded-xl space-y-3 ${
+            className={`p-3 bg-purple-900/10 border border-purple-500/20 rounded-xl space-y-3 min-w-0 ${
               effective.isDisabled ? 'opacity-55' : ''
             }`}
           >
             {/* ヘッダー行 */}
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center justify-between gap-2 min-w-0">
+              <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
                 <span className="text-xs text-gray-500 font-mono shrink-0">[{index + 1}]</span>
                 <Music className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                <span className="text-xs md:text-sm text-purple-100 truncate" title={clip.file.name}>
+                <span className="text-xs md:text-sm text-purple-100 truncate min-w-0 flex-1" title={clip.file.name}>
                   {clip.file.name}
                 </span>
                 {effective.isDisabled && (
@@ -342,21 +351,36 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
                 step={0.05}
                 value={clip.volume}
                 onChange={withContinuousEdit('update-bgm-clip-volume', (val: number) => updateBgmClipVolume(clip.id, val))}
-                disabled={isLocked || clip.isMuted}
+                disabled={isLocked || clip.isMuted || bulkVolumeEnabled}
                 hideInput
                 className="flex-1 min-w-0"
-                sliderClassName={`flex-1 min-w-0 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${(isLocked || clip.isMuted) ? '' : 'cursor-pointer'}`}
+                sliderClassName={`flex-1 min-w-0 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${(isLocked || clip.isMuted || bulkVolumeEnabled) ? '' : 'cursor-pointer'}`}
               />
               <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right shrink-0">{Math.round(clip.volume * 100)}%</span>
               <button
                 onClick={withEdit('update-bgm-clip-volume', () => updateBgmClipVolume(clip.id, 1))}
-                disabled={isLocked}
+                disabled={isLocked || bulkVolumeEnabled}
                 className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition disabled:opacity-50"
                 title="リセット"
               >
                 <RefreshCw className="w-3 h-3" />
               </button>
             </div>
+            {bulkVolumeEnabled && (
+              <p className="text-[10px] leading-relaxed text-blue-300/80 px-1">一括音量設定中のため、ここでは変更できません。</p>
+            )}
+            {Math.abs((clip.audioNormalizeGain ?? 1) - 1) >= 0.02 && (
+              <div
+                className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] ${
+                  (clip.audioNormalizeGain ?? 1) > 1
+                    ? 'bg-emerald-500/15 text-emerald-200'
+                    : 'bg-amber-500/15 text-amber-200'
+                }`}
+              >
+                <span className="font-medium">音量揃え</span>
+                <span>{formatNormalizeAdjustment(clip.audioNormalizeGain ?? 1)}</span>
+              </div>
+            )}
 
             {/* トリミング */}
             <div className="rounded-lg border border-gray-700/70 bg-gray-900/30">

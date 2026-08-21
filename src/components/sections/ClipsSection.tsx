@@ -5,7 +5,7 @@
  * @license GPL-3.0-or-later
  * @description 動画・画像クリップの管理を行うセクション。アップロード、並び替え、各クリップの基本操作（削除、複製）を提供するリストビュー。
  */
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Upload,
   Lock,
@@ -14,8 +14,6 @@ import {
   ArrowDownUp,
   RectangleHorizontal,
   RectangleVertical,
-  Volume2,
-  VolumeX,
 } from 'lucide-react';
 import type { ClipTransition, MediaItem } from '../../types';
 import ClipItem from '../media/ClipItem';
@@ -134,6 +132,7 @@ const ClipTransitionConnector: React.FC<{
 interface ClipsSectionProps {
   /** カードとは独立しているが、操作上は動画・画像に属する先頭設定 */
   watermarkPanel?: React.ReactNode;
+  audioSettingsPanel?: React.ReactNode;
   mediaItems: MediaItem[];
   mediaTimelineRanges: Record<string, { start: number; end: number }>;
   currentTime: number;
@@ -159,7 +158,8 @@ interface ClipsSectionProps {
   onUpdateMediaVolume: (id: string, value: number) => void;
   onToggleMediaMute: (id: string) => void;
   onBeforeTransitionEdit: () => void;
-  onUpdateVideoPlaybackSpeed?: (id: string, speed: 1 | 2 | 4 | 8) => void;
+  onUpdateVideoPlaybackSpeed?: (id: string, speed: number) => void;
+  bulkVolumeEnabled?: boolean;
   onUpdateVideoShowSpeedBadge?: (id: string, show: boolean) => void;
   onUpdateVideoSpeedBadgeLabelStyle?: (id: string, style: 'ja' | 'en') => void;
   onUpdateVideoSpeedBadgePosition?: (id: string, axis: 'x' | 'y', value: number) => void;
@@ -167,8 +167,6 @@ interface ClipsSectionProps {
     id: string,
     preset: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right',
   ) => void;
-  /** 動画クリップを一括ミュート/解除（画像は対象外） */
-  onSetAllVideosMuted: (muted: boolean) => void;
   onToggleMediaFadeIn: (id: string, checked: boolean) => void;
   onToggleMediaFadeOut: (id: string, checked: boolean) => void;
   onUpdateFadeInDuration: (id: string, duration: number) => void;
@@ -181,6 +179,7 @@ interface ClipsSectionProps {
  */
 const ClipsSection: React.FC<ClipsSectionProps> = ({
   watermarkPanel,
+  audioSettingsPanel,
   mediaItems,
   mediaTimelineRanges,
   currentTime,
@@ -207,11 +206,11 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   onToggleMediaMute,
   onBeforeTransitionEdit,
   onUpdateVideoPlaybackSpeed,
+  bulkVolumeEnabled = false,
   onUpdateVideoShowSpeedBadge,
   onUpdateVideoSpeedBadgeLabelStyle,
   onUpdateVideoSpeedBadgePosition,
   onApplyVideoSpeedBadgePreset,
-  onSetAllVideosMuted,
   onToggleMediaFadeIn,
   onToggleMediaFadeOut,
   onUpdateFadeInDuration,
@@ -232,19 +231,6 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   // 動画倍速は standard フレーバー（Android/PC）限定（apple-safari では UI 非表示）
   const supportsPlaybackSpeed = !isIosSafari;
 
-  // 一括ミュートは動画のみ（画像は音声なし）。全動画がミュートなら ON 表示。
-  const videoItems = useMemo(
-    () => mediaItems.filter((item) => item.type === 'video'),
-    [mediaItems],
-  );
-  const hasVideos = videoItems.length > 0;
-  const allVideosMuted = hasVideos && videoItems.every((item) => item.isMuted);
-
-  const handleBulkMuteClick = () => {
-    if (isClipsLocked || !hasVideos) return;
-    onSetAllVideosMuted(!allVideosMuted);
-  };
-
   const handleAddClick = () => {
     if (isClipsLocked) return;
     if (supportsShowOpenFilePicker) {
@@ -255,7 +241,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   };
 
   return (
-    <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
+    <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl min-w-0">
       <div className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center gap-3">
         <h2 className="font-bold flex items-center gap-2 text-blue-400 md:text-base lg:text-lg">
           <span className="w-6 h-6 lg:w-7 lg:h-7 rounded-full bg-blue-500/10 flex items-center justify-center text-xs lg:text-sm">
@@ -299,36 +285,6 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             </button>
             </div>
           )}
-          {/* 一括ミュート（ロックの左側） */}
-          {uiCapabilities.supportsBulkMediaMute && (
-            <button
-            type="button"
-            onClick={handleBulkMuteClick}
-            disabled={isClipsLocked || !hasVideos}
-            className={`p-1 rounded-lg transition ${
-              allVideosMuted
-                ? 'bg-red-500/20 text-red-400'
-                : 'bg-gray-700 text-gray-300 hover:text-white hover:bg-gray-600'
-            } disabled:cursor-not-allowed disabled:opacity-40`}
-            title={
-              !hasVideos
-                ? 'ミュート対象の動画がありません'
-                : allVideosMuted
-                  ? 'すべての動画のミュートを解除'
-                  : 'すべての動画をミュート'
-            }
-            aria-label={
-              !hasVideos
-                ? 'ミュート対象の動画がありません'
-                : allVideosMuted
-                  ? 'すべての動画のミュートを解除'
-                  : 'すべての動画をミュート'
-            }
-            aria-pressed={allVideosMuted}
-          >
-            {allVideosMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-            </button>
-          )}
           <button
             onClick={onToggleClipsLock}
             className={`p-1 rounded-lg transition ${isClipsLocked ? 'bg-red-500/20 text-red-400' : 'bg-gray-700 text-gray-300 hover:text-white hover:bg-gray-600'}`}
@@ -358,6 +314,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
       </div>
       <div className="p-3 lg:p-4 space-y-3 max-h-[min(32rem,72svh)] lg:max-h-128 overflow-y-auto custom-scrollbar">
         {uiCapabilities.supportsWatermark ? watermarkPanel : null}
+        {uiCapabilities.supportsClipAudioSettings ? audioSettingsPanel : null}
         {mediaItems.length === 0 && (
           <div className="text-center py-8 text-gray-600 text-xs md:text-sm border-2 border-dashed border-gray-800 rounded">
             動画または画像ファイルを追加してください
@@ -397,6 +354,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             onResetSetting={(type) => onResetMediaSetting(v.id, type)}
             onUpdateVolume={(value) => onUpdateMediaVolume(v.id, value)}
             onToggleMute={() => onToggleMediaMute(v.id)}
+            bulkVolumeEnabled={bulkVolumeEnabled}
             onUpdatePlaybackSpeed={
               supportsPlaybackSpeed && onUpdateVideoPlaybackSpeed
                 ? (speed) => onUpdateVideoPlaybackSpeed(v.id, speed)

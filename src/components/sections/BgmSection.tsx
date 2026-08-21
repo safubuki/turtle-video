@@ -27,6 +27,8 @@ import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import BgmClipList from './BgmClipList';
 
 interface BgmSectionProps {
+  audioSettingsPanel?: React.ReactNode;
+  bulkVolumeEnabled?: boolean;
   bgm: AudioTrack | null;
   isBgmLocked: boolean;
   totalDuration: number;
@@ -55,6 +57,8 @@ interface BgmSectionProps {
  * BGMセクションコンポーネント
  */
 const BgmSection: React.FC<BgmSectionProps> = ({
+  audioSettingsPanel,
+  bulkVolumeEnabled = false,
   bgm,
   isBgmLocked,
   totalDuration,
@@ -117,7 +121,7 @@ const BgmSection: React.FC<BgmSectionProps> = ({
   }, [bgmClips.length]);
 
   return (
-    <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
+    <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl min-w-0">
       <div
         className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center gap-3 cursor-pointer hover:bg-gray-800/50 transition"
         onClick={() => setIsOpen(!isOpen)}
@@ -172,6 +176,8 @@ const BgmSection: React.FC<BgmSectionProps> = ({
       {/* 複数 BGM クリップリスト（standard フレーバー限定） */}
       {isOpen && isMultiBgm && (
         <BgmClipList
+          audioSettingsPanel={audioSettingsPanel}
+          bulkVolumeEnabled={bulkVolumeEnabled}
           clips={bgmClips}
           isLocked={isBgmLocked}
           totalDuration={totalDuration}

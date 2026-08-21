@@ -8,6 +8,7 @@
 import { useState, useRef, useCallback } from 'react';
 import type { MediaItem, AudioTrack } from '../types';
 import { resolveVideoSourceTime } from '../utils/playbackSpeed';
+import { resolveMediaPlaybackVolume } from '../utils/mediaVolume';
 
 /**
  * usePlayback - 再生制御ロジックを提供するフック
@@ -186,7 +187,7 @@ export function usePlayback(): UsePlaybackReturn {
             // Video audio
             if (conf.type === 'video' && gainNode && audioCtxRef.current) {
               if (isActivePlaying) {
-                let vol = conf.isMuted ? 0 : conf.volume;
+                let vol = resolveMediaPlaybackVolume(conf);
                 if (conf.fadeIn && localTime < 1.0) vol *= localTime;
                 else if (conf.fadeOut && localTime > conf.duration - 1.0)
                   vol *= conf.duration - localTime;

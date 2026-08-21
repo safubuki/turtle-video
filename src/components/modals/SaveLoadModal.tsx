@@ -665,6 +665,12 @@ export default function SaveLoadModal({
           timelineTime: data.projectPosterTimelineTime,
           dataUrl: data.projectPosterDataUrl,
           aspectRatio: data.projectPosterAspectRatio,
+        }, {
+          bulkVideoMuted: data.bulkVideoMuted,
+          bulkVideoVolumeEnabled: data.bulkVideoVolumeEnabled,
+          bulkVideoVolume: data.bulkVideoVolume,
+          videoAudioNormalizeEnabled: data.videoAudioNormalizeEnabled,
+          videoAudioNormalizeMode: data.videoAudioNormalizeMode,
         });
         restoreAudio(
           data.bgm,
@@ -672,7 +678,19 @@ export default function SaveLoadModal({
           data.narrations,
           data.isNarrationLocked,
           data.bgmClips,
-          data.bgmAutoAdjustToTimeline
+          data.bgmAutoAdjustToTimeline,
+          {
+            bulkBgmMuted: data.bulkBgmMuted,
+            bulkBgmVolumeEnabled: data.bulkBgmVolumeEnabled,
+            bulkBgmVolume: data.bulkBgmVolume,
+            bgmAudioNormalizeEnabled: data.bgmAudioNormalizeEnabled,
+            bgmAudioNormalizeMode: data.bgmAudioNormalizeMode,
+            bulkNarrationMuted: data.bulkNarrationMuted,
+            bulkNarrationVolumeEnabled: data.bulkNarrationVolumeEnabled,
+            bulkNarrationVolume: data.bulkNarrationVolume,
+            narrationAudioNormalizeEnabled: data.narrationAudioNormalizeEnabled,
+            narrationAudioNormalizeMode: data.narrationAudioNormalizeMode,
+          },
         );
         // 動画タイトル（Issue #211）も同時に復元する。旧データは既定値で補完済み
         restoreCaptions(

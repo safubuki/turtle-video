@@ -3212,7 +3212,7 @@ export 終了（成功/失敗/中断）
   - セクションヘッダー（表示アイコンと鍵のあいだ）にゴミ箱ボタンを追加。`window.confirm` で件数付き確認し、OK 時のみ既存 `clearAllCaptions()` を呼ぶ。0 件・ロック中は disabled。動画タイトルは削除しない。
 - **動画一括ミュート**:
   - `mediaStore.setAllVideosMuted(muted)` が `type === 'video'` の `isMuted` だけを一括更新（画像は対象外）。
-  - 「動画・画像」タイトル横に Volume2/VolumeX アイコン。全動画がミュートなら ON 表示で解除、それ以外は一括ミュート。動画無し・セクションロック中は disabled。
+  - 当初は「動画・画像」タイトル横の Volume2/VolumeX アイコンだった。**13-211 でヘッダーボタンは廃止**し、一括音設定内の「一括ミュート」チェックへ移した。
   - 各カードの個別ミュートと同じ `isMuted` を触るため、プレビュー/export の既存音声経路へそのまま効く。
 - **回帰ガード**: `watermarkOverlay.test.ts`（正規化・フェード按分・描画 alpha）、`overlaySection.test.tsx`、`mediaStore.test.ts`、`clipsSectionPicker.test.tsx`、`captionStyleControls.test.tsx`（confirm OK/Cancel）。
 
@@ -3897,7 +3897,8 @@ export 終了（成功/失敗/中断）
   - `mediaStore.addMediaItems` は作成後にこの helper を通す。画像は対象外。既存動画が無い／1本でも解除されている場合は従来どおりミュート解除のまま追加する。
   - 保存スキーマや個別ミュート・プレビュー/export 音声経路は変えない。既存の `isMuted` を触るだけなので、プレビューと書き出しの両方にそのまま効く。
 - **注意**:
-  - 独立した「一括ミュートフラグ」は追加しない。保存互換を壊さず、UI の ON 条件（全動画ミュート）と追加時の継承条件を一致させる。
+  - 当初は独立フラグを追加せず、UI の ON 条件と追加時の継承条件を「全動画ミュート」導出で一致させた。
+  - **13-212 で契約を更新**: クリップ 0 件でも先に ON できる独立フラグ `bulkVideoMuted`（BGM/ナレーションも同様）を追加した。導出条件はフラグ無し時の継承と旧保存補完に残す。
   - 複製（`duplicateMediaItem`）は元クリップの `isMuted` をコピーするので対象外。
   - 一括ミュートを解除したあとに追加した動画はミュートしない。
 - **回帰ガード**: 純ロジックと store の追加経路、ヘルプ文言をテストする。
@@ -3940,3 +3941,138 @@ export 終了（成功/失敗/中断）
   - 縦向きプロジェクトでは共通の `max-w-[clamp(12rem,24dvh,18rem)]` を使い、幅を192〜288pxに制限する。画面高に応じて縮小し、元の一括設定欄の表示幅に対しておよそ半分を目安にする。
   - 一括設定欄と個別設定モーダルの両方へ適用する。横向きプロジェクトは一括設定欄を全幅、個別設定モーダルを `max-w-sm` のまま維持する。
 - **回帰ガード**: 縦向きで共通の幅クラスが付くこと、横向きで従来幅が維持されることを `captionStyleControls.test.tsx` と `captionSettingsModal.test.tsx` で確認する。
+
+### 13-206. 動画速度 0.1 刻みスライダー / 一括音量 / 音量平滑化
+
+- **ファイル**: `src/utils/playbackSpeed.ts`, `src/utils/mediaVolume.ts`, `src/utils/videoAudioLoudness.ts`, `src/hooks/useVideoAudioNormalize.ts`, `src/stores/mediaStore.ts`, `src/components/media/ClipItem.tsx`, `src/components/sections/ClipAudioSettingsPanel.tsx`, `src/components/sections/ClipsSection.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/export/exportEngine.ts`, 関連テスト
+- **対象 flavor**: **standard（Android / PC）**。UI は `supportsClipAudioSettings` / 既存の倍速ゲート。apple-safari では音設定アコーディオンと速度 UI を出さない。保存スキーマは additive。
+- **再生速度**:
+  - `VideoPlaybackSpeed` は `number`（0.1〜8.0・0.1刻み）。旧 1/2/4/8 はそのまま読める。
+  - UI はトリミングと同じ `NumericSliderField`（スライダー + −/+ + 数値）。等倍/0.5/2/4/8 のショートカットも残す。
+  - タイムライン尺は従来どおり `(trimEnd-trimStart)/speed`。
+  - **export 倍速（speed>1）**: 13-166 の wall dilation（rate=1）を維持。**再導入禁止**（rate=speed 連続 / 毎フレーム seek）。
+  - **export スロー（speed<1）**: `playbackRate=speed`、壁時計 divisor=1。dilation すると出力フレームが不足する。
+  - バッジは `showSpeedBadge` かつ等倍以外（スロー含む）。文言は 0.1 単位（例: 1.5倍速 / 0.5x）。
+- **一括音量**:
+  - `mediaStore.bulkVideoVolumeEnabled` / `bulkVideoVolume`。チェック ON で全動画の `volume` を揃え、追加動画も継承する。
+  - ON 中はカード側スライダーを無効化。OFF にしても値は残す。個別操作をすると一括は解除。
+- **平滑化（ノーマライズ）**:
+  - `videoAudioNormalizeEnabled` + カードの `audioNormalizeEnabled` / `audioNormalizeGain`。
+  - トリム区間 RMS の幾何平均へ揃える。無音・解析失敗はゲイン 1。2 本未満では変更なし。
+  - 実効音量は `resolveMediaPlaybackVolume` = `clamp(volume * gain, 0, 2.5)`。preview / export / 波形で共有。
+  - アコーディオンと各カードに「平滑化 +3.2 dB」などの補正表示を出す。
+- **注意**:
+  - 倍速 export を rate=speed や seek 駆動へ戻さない（13-166）。スローだけ native rate を使う。
+  - 音量スライダーは 13-172 どおり `withoutPreviewPause`。速度スライダーも連続値なので一時停止しない。
+  - 保存・自動保存ハッシュ・Android preview cache 署名へ一括フラグとゲインを含める。
+  - apple-safari へ UI を出さない（13-171）。共有スキーマだけ互換。
+
+### 13-207. 音量揃えの合わせ方（平均 / 一番大きい音）と再生速度下限 0.5 倍
+
+- **ファイル**: `src/utils/videoAudioLoudness.ts`, `src/utils/playbackSpeed.ts`, `src/hooks/useVideoAudioNormalize.ts`, `src/stores/mediaStore.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/hooks/useAutoSave.ts`, `src/components/sections/ClipAudioSettingsPanel.tsx`, `src/components/media/ClipItem.tsx`, `src/constants/sectionHelp.ts`, 関連テスト
+- **対象 flavor**: **standard（Android / PC）**。apple-safari は 13-206 どおり UI 非表示。保存スキーマは additive。
+- **背景**:
+  - 平均 RMS（幾何平均）へ揃えると、極端に小さいクリップが複数あるとき目標が下がり、大きい音のクリップまで下げられる。
+  - 「平滑化」「標準化」はユーザー向け表現として紛らわしい。平滑化は時系列のならし、標準化は統計の z-score を連想しやすい。一般的な DAW / NLE では loudness matching / normalize に相当し、UI は「音量を揃える」が適切。
+- **音量揃えモード**:
+  - `VideoAudioNormalizeMode` = `mean` | `loudest`。未保存・不正値は `mean`。
+  - `mean`: 計測可能な参加クリップの幾何平均 RMS を目標。小さい音は上げ、大きい音は下げる。
+  - `loudest`: 計測可能な参加クリップの最大 RMS を目標。小さい音だけ上げ、一番大きい音のゲインは 1。
+  - 計測可能が 2 本未満、無音、対象外はゲイン 1。ゲインは 0.25〜4 倍にクランプ。
+  - UI: チェック「音量を揃える」。方式は「平均に揃える」「一番大きい音に合わせる」。カードは `揃え ±N dB`。
+- **再生速度**:
+  - `MIN_VIDEO_PLAYBACK_SPEED = 0.5`。上限 8.0、刻み 0.1 は維持。
+  - 保存済み 0.1〜0.4 は読込時に 0.5 へクランプ（タイムライン尺が変わる）。
+  - export 倍速の wall dilation / スローの native `playbackRate` は 13-166 / 13-206 のまま。
+- **永続化**: `videoAudioNormalizeMode` を IndexedDB / 手動・自動保存 / `restoreFromSave` / autoSave ハッシュへ追加。旧データは `mean`。
+- **注意**:
+  - `loudest` は小さいクリップを平均より強く上げるため、上限 4 倍（約 +12 dB）に当たりやすい。クリップは対象外にできる。
+  - 13-206 の一括音量・WebAudio GainNode・`withoutPreviewPause`・flavor ゲートは維持する。
+  - ユーザー向け文言に「平滑化」「標準化」を戻さない。ヘルプではノーマライズ相当であることを「音量を揃える」で案内する。
+  - **13-208 で UI のファイル毎チェック（対象外）は廃止**。ストアの `setVideoAudioNormalizeParticipating` は互換のため残すが、現行 UI / 解析 hook は全動画を対象にする。
+
+### 13-208. 音量揃えはファイル一覧表示のみ。一括音量・音量揃えは 3本→1本 / 全クリアでも維持し、追加時に引き継ぐ
+
+- **ファイル**: `src/components/sections/ClipAudioSettingsPanel.tsx`, `src/hooks/useVideoAudioNormalize.ts`, `src/stores/mediaStore.ts`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, `src/test/clipAudioSettingsPanel.test.tsx`, `src/test/stores/mediaStore.test.ts`, `src/test/sectionHelp.test.ts`
+- **対象 flavor**: **standard（Android / PC）**。apple-safari は 13-206 どおり音設定 UI 非表示。保存スキーマは additive のまま。
+- **問題**:
+  - 「音量を揃える」のファイル行に個別チェックがあり、全動画を揃える意図と合わず操作が増えていた。
+  - 動画を 3 本から 1 本へ減らす、または全クリアすると、一括音量 / 音量揃えが無効化されて見え、再追加時に設定が引き継がれなかった。
+- **対策**:
+  - ファイル行は表示専用（ファイル名 + `揃え ±dB`）。個別チェックは出さない。マスターの「一括音量設定」「音量を揃える」だけを操作する。
+  - `useVideoAudioNormalize` は登録中の全動画を `participating: true` として計測する。旧保存の `audioNormalizeEnabled: false` も現行 UI では対象外にしない。
+  - `removeMediaItem` / `clearAllMedia` は `bulkVideoVolumeEnabled` / `bulkVideoVolume` / `videoAudioNormalizeEnabled` / `videoAudioNormalizeMode` をリセットしない。動画 0 本でもマスターチェックは操作可能（ロック時のみ disabled）。一括スライダーは動画が無いときだけ disabled。
+  - 再追加時は既存どおり `applyBulkVolumeToAddedMediaItems` で一括音量を継承し、音量揃え ON なら hook が再計測して揃え直す。
+- **注意**:
+  - 13-207 の「クリップは対象外にできる」は本項で UI 契約を更新する。個別オプトアウト UI を戻さない。
+  - 一括ミュート（13-202）と同じく「設定 ON のあいだは追加動画へ適用する」。件数 1 本や空リストを理由にフラグを落とさない。
+  - 13-206 の WebAudio GainNode・`withoutPreviewPause`・flavor ゲート・保存スキーマは維持する。
+
+### 13-211. 一括音設定の文言統一・一括ミュート移動・BGM/ナレーション展開・PC幅固定
+
+- **ファイル**: `src/components/sections/ClipAudioSettingsPanel.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/sections/BgmSection.tsx`, `src/components/sections/BgmClipList.tsx`, `src/components/sections/NarrationSection.tsx`, `src/components/TurtleVideo.tsx`, `src/stores/audioStore.ts`, `src/hooks/useVideoAudioNormalize.ts`, `src/flavors/standard/preview/*`, `src/flavors/standard/export/exportEngine.ts`, `src/constants/sectionHelp.ts`, 関連テスト
+- **対象 flavor**: **standard（Android / PC）**。apple-safari は 13-206 どおり一括音設定 UI 非表示。保存スキーマは additive。
+- **UI**:
+  - アコーディオン名を「音設定」→「一括音設定」へ変更。
+  - 説明文はすべて `text-[10px] leading-relaxed` に揃える。
+  - 揃え方ボタンは「平均に揃える」「最大に揃える」（同じ「揃える」で短く統一）。
+  - 動画・画像ヘッダーのスピーカー一括ミュートは削除し、一括音設定内の「一括ミュート」チェックへ移す。
+- **BGM / ナレーション**:
+  - 同じ一括音設定（ミュート / 一括音量 / 音量揃え）を各カテゴリ先頭へ追加する。効く範囲はそのカテゴリだけ。
+  - `audioStore` に一括音量・音量揃えフラグを持ち、追加時に継承する。全クリアしてもフラグは残す（13-208 と同じ）。
+  - 実効音量は `resolveMediaPlaybackVolume`（volume × 揃えゲイン、ミュート時 0）。standard の preview / export / 波形へ適用。
+- **PC幅**:
+  - 長い BGM ファイル名で左カラム全体が広がらないよう、`lg:grid-cols-[minmax(0,1fr)_585px]` とタイトルの `min-w-0 flex-1 truncate` を付ける。
+- **注意**:
+  - 一括ミュートの継承は、当初は「既存クリップが1本以上あり、すべてミュート」の導出だけだった。**13-212 で `bulk*Muted` 独立フラグを追加**し、クリップ 0 件でも先に ON できる。導出条件はフラグ無し時と旧保存補完に残す。
+  - apple-safari へ UI を出さない。共有スキーマの `audioNormalizeGain` と bulk フラグは旧データで未定義なら OFF / 1。
+
+### 13-209. 音量揃えのファイル一覧は約5件まで表示し、残りはスクロールする
+
+- **ファイル**: `src/components/sections/ClipAudioSettingsPanel.tsx`, `src/constants/sectionHelp.ts`, `src/test/clipAudioSettingsPanel.test.tsx`, `src/test/sectionHelp.test.ts`
+- **対象 flavor**: **standard（Android / PC）**。apple-safari は 13-206 どおり音設定 UI 非表示。
+- **問題**: 音量揃え ON のとき、登録ファイルが増えると一覧が縦に伸びて音設定パネルが長くなりすぎる。
+- **対策**:
+  - 合わせ方ボタンと説明は固定し、ファイル行だけを `overflow-y-auto custom-scrollbar` にする。
+  - 表示件数は約 5 件（`CLIP_AUDIO_NORMALIZE_VISIBLE_FILE_COUNT`）。高さは `max-h-[calc(5*2.125rem+4*0.375rem)]`。
+  - DOM には全ファイルを残し、見切れ分だけスクロールする。個別チェックは出さない（13-208）。
+- **注意**:
+  - 件数上限でファイルを間引かない。揃え対象は全動画のまま。
+  - 親のクリップ一覧スクロールと競合しすぎないよう `overscroll-contain` を付ける。
+  - 13-208 の維持・引き継ぎ契約と flavor ゲートは変えない。
+
+### 13-210. 速度バッジは等倍でもチェックでき、四隅は角から9%内側
+
+- **ファイル**: `src/utils/playbackSpeed.ts`, `src/components/media/ClipItem.tsx`, `src/constants/sectionHelp.ts`, `src/test/playbackSpeed.test.ts`, `src/test/clipItemSpeedBadge.test.tsx`, `src/test/sectionHelp.test.ts`
+- **対象 flavor**: **standard（Android / PC）**。apple-safari は 13-166 どおり速度 UI 非表示。保存スキーマは additive のまま。
+- **問題**:
+  - 等倍だと「プレビュー/書き出しに速度を表示」が disabled で、チェックしてから倍速へ変えられなかった。
+  - 右上・左上の既定 Y が 12% で、横方向の 9% 余白と角までの距離が揃っていなかった。
+- **対策**:
+  - チェックはロック時以外いつでも操作できる。`showSpeedBadge` が ON なら等倍でも位置・文言 UI を出す。
+  - **描画は従来どおり等倍では出さない**（`shouldDrawSpeedBadge`。映像に「1倍速」と出すのは不自然なため）。速度を変えるとチェック済みならそのまま出る。
+  - 四隅プリセットと未指定時の既定を `SPEED_BADGE_CORNER_INSET_PERCENT = 9` に統一（右上 `{x:91,y:9}`、左上 `{9,9}`、左下 `{9,91}`、右下 `{91,91}`）。
+  - 保存済みの独自座標は変えない。プリセットを押し直したときだけ新しい余白へ寄る。
+- **注意**:
+  - UI のチェック可否と Canvas 描画条件を混ぜない。等倍でチェックできるようにしたからといって「1倍速」バッジを描かない。
+  - export の wall dilation / native slow / フレーバーゲートは 13-166 / 13-206 のまま。
+  - ClipItem の位置フォールバックは `DEFAULT_SPEED_BADGE_POSITION` を使い、91/12 を直書きしない。
+
+### 13-212. 一括ミュートはクリップ未登録でも先に ON でき、追加直後から無音になる
+
+- **ファイル**: `src/utils/media.ts`, `src/stores/mediaStore.ts`, `src/stores/audioStore.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/hooks/useAutoSave.ts`, `src/components/TurtleVideo.tsx`, `src/components/sections/ClipAudioSettingsPanel.tsx`, `src/constants/sectionHelp.ts`, 関連テスト
+- **対象 flavor**: **standard（Android / PC）**。apple-safari は 13-206 / 13-171 どおり一括音設定 UI 非表示。保存スキーマは additive。
+- **問題**:
+  - 13-202 / 13-211 の一括ミュートは「既存クリップが1本以上あり、すべてミュート」の導出だけだった。
+  - 動画・BGM・ナレーションが 0 件だと導出は false になり、チェックを入れても追加時に音が出た。空リストではチェック自体がすぐ OFF に戻って見えた。
+- **対策**:
+  - `bulkVideoMuted` / `bulkBgmMuted` / `bulkNarrationMuted` をストアと `ProjectData` に追加する。空リストでも `setAll*Muted(true)` でフラグだけ立てられる。
+  - 追加時の継承は `flag || 既存がすべてミュート`。フラグ ON なら新規クリップへすぐ `isMuted: true` を書く（動画は video のみ、画像は対象外）。
+  - UI のチェック表示も同じ合成（フラグ OR 導出）。個別ミュート操作はフラグを落とす。全クリアはフラグを残す（一括音量と同じ）。
+  - 旧保存（フィールド無し）は `resolveSavedBulkMuted()` で既存クリップの全ミュートから補完する。空リストの旧データは false。
+- **注意**:
+  - 13-202 の「独立フラグは追加しない」は本項で更新する。導出条件は互換のため残し、空リストの事前設定はフラグが担う。
+  - 複製は元クリップの `isMuted` をコピーする契約のまま（一括フラグ経由ではない）。
+  - apple-safari へ UI を出さない。共有スキーマの未定義は OFF。
+- **回帰ガード**: 空リストで先に ON → 追加直後ミュート、個別操作でフラグ解除、全クリア後もフラグ維持、旧保存補完、ヘルプ文言をテストする。
+

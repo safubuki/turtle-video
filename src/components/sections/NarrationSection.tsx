@@ -29,6 +29,7 @@ import {
   Captions,
 } from 'lucide-react';
 import type { NarrationClip } from '../../types';
+import { formatNormalizeAdjustment } from '../../utils';
 import { getAudioUploadAccept } from '../../utils/platform';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import NumericSliderField from '../common/NumericSliderField';
@@ -40,6 +41,8 @@ import NarrationWaveform from '../media/NarrationWaveform';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 
 interface NarrationSectionProps {
+  audioSettingsPanel?: React.ReactNode;
+  bulkVolumeEnabled?: boolean;
   narrations: NarrationClip[];
   offlineMode: boolean;
   isNarrationLocked: boolean;
@@ -67,6 +70,8 @@ interface NarrationSectionProps {
 }
 
 const NarrationSection: React.FC<NarrationSectionProps> = ({
+  audioSettingsPanel,
+  bulkVolumeEnabled = false,
   narrations,
   offlineMode,
   isNarrationLocked,
@@ -133,7 +138,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
   const isAiAddDisabled = isNarrationLocked || offlineMode;
 
   return (
-    <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
+    <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl min-w-0">
       <div
         className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center gap-2 cursor-pointer hover:bg-gray-800/50 transition"
         onClick={() => setIsOpen(!isOpen)}
@@ -209,7 +214,8 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
       </div>
 
       {isOpen && (
-        <div className="p-3 lg:p-4 space-y-3 max-h-75 lg:max-h-128 overflow-y-auto custom-scrollbar">
+        <div className="p-3 lg:p-4 space-y-3 max-h-75 lg:max-h-128 overflow-y-auto custom-scrollbar min-w-0">
+          {audioSettingsPanel}
           {narrations.length === 0 && (
             <div className="text-center py-8 text-gray-600 text-xs md:text-sm border-2 border-dashed border-gray-800 rounded">
               {offlineMode
@@ -242,10 +248,10 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
             return (
               <div
                 key={clip.id}
-                className="p-3 bg-indigo-900/10 border border-indigo-500/20 rounded-xl space-y-3"
+                className="p-3 bg-indigo-900/10 border border-indigo-500/20 rounded-xl space-y-3 min-w-0"
               >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
+                <div className="flex items-center justify-between gap-2 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
                     <span className="text-xs text-gray-500 font-mono shrink-0">[{index + 1}]</span>
                     {isAi ? (
                       <Mic className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
@@ -253,7 +259,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                       <FileAudio className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
                     )}
                     <span
-                      className="text-xs md:text-sm text-indigo-100 truncate"
+                      className="text-xs md:text-sm text-indigo-100 truncate min-w-0 flex-1"
                       title={clip.file.name}
                     >
                       {clip.file.name}
@@ -459,23 +465,38 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                     step={0.05}
                     value={clip.volume}
                     onChange={(val) => handleVolumeChange(clip.id, val)}
-                    disabled={isNarrationLocked || clip.isMuted}
+                    disabled={isNarrationLocked || clip.isMuted || bulkVolumeEnabled}
                     hideInput
                     className="flex-1 min-w-0"
-                    sliderClassName={`flex-1 min-w-0 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isNarrationLocked || clip.isMuted ? '' : 'cursor-pointer'}`}
+                    sliderClassName={`flex-1 min-w-0 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isNarrationLocked || clip.isMuted || bulkVolumeEnabled ? '' : 'cursor-pointer'}`}
                   />
                   <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right shrink-0">
                     {Math.round(clip.volume * 100)}%
                   </span>
                   <button
                     onClick={() => onUpdateVolume(clip.id, '1')}
-                    disabled={isNarrationLocked}
+                    disabled={isNarrationLocked || bulkVolumeEnabled}
                     className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition disabled:opacity-50"
                     title="リセット"
                   >
                     <RefreshCw className="w-3 h-3" />
                   </button>
                 </div>
+                {bulkVolumeEnabled && (
+                  <p className="text-[10px] leading-relaxed text-blue-300/80 px-1">一括音量設定中のため、ここでは変更できません。</p>
+                )}
+                {Math.abs((clip.audioNormalizeGain ?? 1) - 1) >= 0.02 && (
+                  <div
+                    className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] ${
+                      (clip.audioNormalizeGain ?? 1) > 1
+                        ? 'bg-emerald-500/15 text-emerald-200'
+                        : 'bg-amber-500/15 text-amber-200'
+                    }`}
+                  >
+                    <span className="font-medium">音量揃え</span>
+                    <span>{formatNormalizeAdjustment(clip.audioNormalizeGain ?? 1)}</span>
+                  </div>
+                )}
 
                 <div className="rounded-lg border border-gray-700/70 bg-gray-900/30">
                   <SettingsAccordionHeader

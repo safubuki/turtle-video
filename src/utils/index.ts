@@ -26,7 +26,12 @@ export {
   getMediaType,
   createMediaItem,
   areAllExistingVideosMuted,
+  resolveSavedBulkMuted,
   applyBulkMuteToAddedMediaItems,
+  applyBulkVolumeToAddedMediaItems,
+  areAllExistingAudioClipsMuted,
+  applyBulkMuteToAddedAudioClips,
+  applyBulkVolumeToAddedAudioClips,
   calculateTotalDuration,
   getActiveMediaItem,
   swapArrayItems,
@@ -88,10 +93,15 @@ export {
 // 動画倍速
 export {
   VIDEO_PLAYBACK_SPEEDS,
+  MIN_VIDEO_PLAYBACK_SPEED,
+  MAX_VIDEO_PLAYBACK_SPEED,
+  VIDEO_PLAYBACK_SPEED_STEP,
   DEFAULT_VIDEO_PLAYBACK_SPEED,
   DEFAULT_SPEED_BADGE_POSITION,
   DEFAULT_SPEED_BADGE_LABEL_STYLE,
+  SPEED_BADGE_CORNER_INSET_PERCENT,
   normalizeVideoPlaybackSpeed,
+  formatPlaybackSpeedValue,
   normalizeSpeedBadgeLabelStyle,
   formatSpeedBadgeLabel,
   resolveSpeedAwareVideoSyncThresholdSec,
@@ -110,6 +120,29 @@ export {
   applyVideoElementPlaybackRate,
 } from './playbackSpeed';
 export type { SpeedBadgePositionPreset } from './playbackSpeed';
+
+export {
+  MEDIA_VOLUME_MIN,
+  MEDIA_VOLUME_MAX,
+  clampMediaVolume,
+  normalizeMediaNormalizeGain,
+  resolveMediaPlaybackVolume,
+} from './mediaVolume';
+
+export {
+  MIN_MEASURABLE_RMS,
+  MAX_NORMALIZE_GAIN,
+  MIN_NORMALIZE_GAIN,
+  computeRms,
+  computeRmsForTimeRange,
+  clampNormalizeGain,
+  gainToDb,
+  formatNormalizeAdjustment,
+  computeEqualizeGains,
+  normalizeVideoAudioNormalizeMode,
+  DEFAULT_VIDEO_AUDIO_NORMALIZE_MODE,
+} from './videoAudioLoudness';
+export type { LoudnessSample, VideoAudioNormalizeMode } from './videoAudioLoudness';
 
 // 倍速 export 用・音程維持タイムストレッチ
 export {

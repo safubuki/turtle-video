@@ -68,6 +68,8 @@ export async function createMediaItem(file: File): Promise<MediaItem> {
     url: URL.createObjectURL(stableFile),
     volume: 1.0,
     isMuted: false,
+    audioNormalizeEnabled: true,
+    audioNormalizeGain: 1,
     fadeIn: false,
     fadeOut: false,
     fadeInDuration: 1.0,
@@ -92,8 +94,8 @@ export async function createMediaItem(file: File): Promise<MediaItem> {
 type MediaMuteSnapshot = Pick<MediaItem, 'type' | 'isMuted'>;
 
 /**
- * 一括ミュートが有効か（既存動画が1本以上あり、すべてミュート）。
- * 動画が無い場合は false。新規動画の既定はミュート解除のままにする。
+ * 既存動画が1本以上あり、すべてミュートか。
+ * 動画が無い場合は false。旧保存データの一括ミュート補完と、フラグ無し時の継承判定に使う。
  */
 export function areAllExistingVideosMuted(
   items: readonly MediaMuteSnapshot[],
@@ -103,19 +105,83 @@ export function areAllExistingVideosMuted(
 }
 
 /**
+ * 保存済みの一括ミュート。明示値があればそれを使い、旧データ（未保存）は既存クリップの全ミュートから補完する。
+ */
+export function resolveSavedBulkMuted(
+  saved: boolean | undefined,
+  existingAllMuted: boolean,
+): boolean {
+  if (typeof saved === 'boolean') return saved;
+  return existingAllMuted;
+}
+
+/**
  * 一括ミュートが有効なとき、追加する動画へミュートを継承する。
- * 画像は対象外。既存動画が無い／1本でも解除されている場合は追加アイテムを変えない。
+ * 画像は対象外。無効なら追加アイテムを変えない。
  */
 export function applyBulkMuteToAddedMediaItems<T extends MediaMuteSnapshot>(
-  existingItems: readonly MediaMuteSnapshot[],
   addedItems: T[],
+  bulkMuted: boolean,
 ): T[] {
-  if (!areAllExistingVideosMuted(existingItems)) {
-    return addedItems;
-  }
+  if (!bulkMuted) return addedItems;
   return addedItems.map((item) =>
     item.type === 'video' && !item.isMuted ? { ...item, isMuted: true } : item,
   );
+}
+
+type MediaVolumeSnapshot = Pick<MediaItem, 'type' | 'volume'>;
+
+/**
+ * 一括音量が有効なとき、追加する動画へその音量を継承する。
+ */
+export function applyBulkVolumeToAddedMediaItems<T extends MediaVolumeSnapshot>(
+  addedItems: T[],
+  bulkEnabled: boolean,
+  bulkVolume: number,
+): T[] {
+  if (!bulkEnabled) return addedItems;
+  const volume = Math.max(0, Math.min(2.5, bulkVolume));
+  return addedItems.map((item) =>
+    item.type === 'video' ? { ...item, volume } : item,
+  );
+}
+
+type AudioClipMuteSnapshot = { isMuted?: boolean };
+type AudioClipVolumeSnapshot = { volume: number };
+
+/**
+ * 一括ミュートが有効か（既存クリップが1本以上あり、すべてミュート）。
+ */
+export function areAllExistingAudioClipsMuted(
+  items: readonly AudioClipMuteSnapshot[],
+): boolean {
+  return items.length > 0 && items.every((item) => Boolean(item.isMuted));
+}
+
+/**
+ * 一括ミュートが有効なとき、追加クリップへミュートを継承する。
+ */
+export function applyBulkMuteToAddedAudioClips<T extends AudioClipMuteSnapshot>(
+  addedItems: T[],
+  bulkMuted: boolean,
+): T[] {
+  if (!bulkMuted) return addedItems;
+  return addedItems.map((item) => (
+    item.isMuted ? item : { ...item, isMuted: true }
+  ));
+}
+
+/**
+ * 一括音量が有効なとき、追加クリップへその音量を継承する。
+ */
+export function applyBulkVolumeToAddedAudioClips<T extends AudioClipVolumeSnapshot>(
+  addedItems: T[],
+  bulkEnabled: boolean,
+  bulkVolume: number,
+): T[] {
+  if (!bulkEnabled) return addedItems;
+  const volume = Math.max(0, Math.min(2.5, bulkVolume));
+  return addedItems.map((item) => ({ ...item, volume }));
 }
 
 /**

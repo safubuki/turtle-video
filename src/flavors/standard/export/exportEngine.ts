@@ -46,6 +46,7 @@ import {
   getVideoSourceClipDuration,
   normalizeVideoPlaybackSpeed,
 } from '../../../utils/playbackSpeed';
+import { resolveMediaPlaybackVolume } from '../../../utils/mediaVolume';
 import { capturePitchPreservedSpeedAudio } from '../../../utils/audioPitchPreservedCapture';
 import {
   resolveVideoEncoderConfig,
@@ -674,7 +675,7 @@ async function offlineRenderAudio(
   for (const item of mediaItems) {
     if (signal.aborted) return null;
 
-    if (item.type === 'video' && !item.isMuted && item.volume > 0) {
+    if (item.type === 'video' && resolveMediaPlaybackVolume(item) > 0) {
       const playbackSpeed = normalizeVideoPlaybackSpeed(item.playbackSpeed);
       const sourceClipDuration = getVideoSourceClipDuration(item);
       const playSourceDuration = sourceClipDuration > 0 ? sourceClipDuration : item.duration;
@@ -683,7 +684,7 @@ async function offlineRenderAudio(
       // BufferSource.playbackRate / 簡易 WSOLA では音程が上がりプレビューと一致しなかった。
       let audioBuffer: AudioBuffer | null = null;
       let usedPitchPreservedCapture = false;
-      if (playbackSpeed > 1 && playSourceDuration > 0 && item.file instanceof File) {
+      if (Math.abs(playbackSpeed - 1) > 0.001 && playSourceDuration > 0 && item.file instanceof File) {
         audioBuffer = await capturePitchPreservedSpeedAudio({
           file: item.file,
           url: item.url,
@@ -716,7 +717,7 @@ async function offlineRenderAudio(
         source.connect(gain);
         gain.connect(offlineCtx.destination);
 
-        const vol = item.volume;
+        const vol = resolveMediaPlaybackVolume(item);
         const mediaRange = mediaRangeByItemId.get(item.id);
         const clipStart = mediaRange?.start ?? timelinePosition;
         const clipEnd = clipStart + item.duration;
@@ -767,7 +768,7 @@ async function offlineRenderAudio(
           // キャプチャ済み（既に倍速＋音程維持）。timeline 尺で rate=1 再生。
           scheduleOffset = 0;
           scheduleDuration = Math.min(audioBuffer.duration, item.duration + 0.05);
-        } else if (playbackSpeed > 1 && playSourceDuration > 0) {
+        } else if (Math.abs(playbackSpeed - 1) > 0.001 && playSourceDuration > 0) {
           // キャプチャ失敗時のみ: 高音になるが尺は合わせる
           log.warn(
             'RENDER',
@@ -920,7 +921,7 @@ async function offlineRenderAudio(
   async function scheduleNarrationClip(clip: NarrationClip): Promise<void> {
     if (signal.aborted) return;
     if (!clip.url || clip.duration <= 0) return;
-    if (clip.isMuted || clip.volume <= 0) return;
+    if (resolveMediaPlaybackVolume(clip) <= 0) return;
 
     const audioBuffer = await decodeAudio(clip.file, clip.url, clip.duration);
     if (!audioBuffer) return;
@@ -954,7 +955,7 @@ async function offlineRenderAudio(
     }
     if (playDuration <= 0) return;
 
-    const clipVol = Math.max(0, Math.min(2.5, clip.volume));
+    const clipVol = resolveMediaPlaybackVolume(clip);
     const clipFadeInDur = clip.fadeIn ? Math.min(clip.fadeInDuration || 1, playDuration) : 0;
     const clipFadeOutDur = clip.fadeOut ? Math.min(clip.fadeOutDuration || 1, playDuration) : 0;
 

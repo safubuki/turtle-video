@@ -94,6 +94,7 @@ import BgmSection from './sections/BgmSection';
 import NarrationSection from './sections/NarrationSection';
 import CaptionSection from './sections/CaptionSection';
 import OverlaySection from './sections/OverlaySection';
+import ClipAudioSettingsPanel from './sections/ClipAudioSettingsPanel';
 import PreviewSection from './sections/PreviewSection';
 import AiModal from './modals/AiModal';
 import SettingsModal, { getStoredApiKey } from './modals/SettingsModal';
@@ -190,6 +191,16 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const updateVideoSpeedBadgePosition = useMediaStore((s) => s.updateVideoSpeedBadgePosition);
   const applyVideoSpeedBadgePreset = useMediaStore((s) => s.applyVideoSpeedBadgePreset);
   const setAllVideosMuted = useMediaStore((s) => s.setAllVideosMuted);
+  const bulkVideoMuted = useMediaStore((s) => s.bulkVideoMuted);
+  const bulkVideoVolumeEnabled = useMediaStore((s) => s.bulkVideoVolumeEnabled);
+  const bulkVideoVolume = useMediaStore((s) => s.bulkVideoVolume);
+  const videoAudioNormalizeEnabled = useMediaStore((s) => s.videoAudioNormalizeEnabled);
+  const videoAudioNormalizeMode = useMediaStore((s) => s.videoAudioNormalizeMode);
+  const setBulkVideoVolumeEnabled = useMediaStore((s) => s.setBulkVideoVolumeEnabled);
+  const setBulkVideoVolume = useMediaStore((s) => s.setBulkVideoVolume);
+  const setVideoAudioNormalizeEnabled = useMediaStore((s) => s.setVideoAudioNormalizeEnabled);
+  const setVideoAudioNormalizeMode = useMediaStore((s) => s.setVideoAudioNormalizeMode);
+  const applyVideoNormalizeGains = useMediaStore((s) => s.applyVideoNormalizeGains);
   const toggleFadeIn = useMediaStore((s) => s.toggleFadeIn);
   const toggleFadeOut = useMediaStore((s) => s.toggleFadeOut);
   const updateFadeInDuration = useMediaStore((s) => s.updateFadeInDuration);
@@ -217,9 +228,31 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const bgmClips = useAudioStore((s) => s.bgmClips);
   const addBgmClip = useAudioStore((s) => s.addBgmClip);
   const migrateLegacyBgmToClips = useAudioStore((s) => s.migrateLegacyBgmToClips);
+  const bulkBgmMuted = useAudioStore((s) => s.bulkBgmMuted);
+  const bulkBgmVolumeEnabled = useAudioStore((s) => s.bulkBgmVolumeEnabled);
+  const bulkBgmVolume = useAudioStore((s) => s.bulkBgmVolume);
+  const bgmAudioNormalizeEnabled = useAudioStore((s) => s.bgmAudioNormalizeEnabled);
+  const bgmAudioNormalizeMode = useAudioStore((s) => s.bgmAudioNormalizeMode);
+  const setBulkBgmVolumeEnabled = useAudioStore((s) => s.setBulkBgmVolumeEnabled);
+  const setBulkBgmVolume = useAudioStore((s) => s.setBulkBgmVolume);
+  const setBgmAudioNormalizeEnabled = useAudioStore((s) => s.setBgmAudioNormalizeEnabled);
+  const setBgmAudioNormalizeMode = useAudioStore((s) => s.setBgmAudioNormalizeMode);
+  const applyBgmNormalizeGains = useAudioStore((s) => s.applyBgmNormalizeGains);
+  const setAllBgmClipsMuted = useAudioStore((s) => s.setAllBgmClipsMuted);
 
   const narrations = useAudioStore((s) => s.narrations);
   const isNarrationLocked = useAudioStore((s) => s.isNarrationLocked);
+  const bulkNarrationMuted = useAudioStore((s) => s.bulkNarrationMuted);
+  const bulkNarrationVolumeEnabled = useAudioStore((s) => s.bulkNarrationVolumeEnabled);
+  const bulkNarrationVolume = useAudioStore((s) => s.bulkNarrationVolume);
+  const narrationAudioNormalizeEnabled = useAudioStore((s) => s.narrationAudioNormalizeEnabled);
+  const narrationAudioNormalizeMode = useAudioStore((s) => s.narrationAudioNormalizeMode);
+  const setBulkNarrationVolumeEnabled = useAudioStore((s) => s.setBulkNarrationVolumeEnabled);
+  const setBulkNarrationVolume = useAudioStore((s) => s.setBulkNarrationVolume);
+  const setNarrationAudioNormalizeEnabled = useAudioStore((s) => s.setNarrationAudioNormalizeEnabled);
+  const setNarrationAudioNormalizeMode = useAudioStore((s) => s.setNarrationAudioNormalizeMode);
+  const applyNarrationNormalizeGains = useAudioStore((s) => s.applyNarrationNormalizeGains);
+  const setAllNarrationsMuted = useAudioStore((s) => s.setAllNarrationsMuted);
   const addNarration = useAudioStore((s) => s.addNarration);
   const updateNarrationStartTime = useAudioStore((s) => s.updateNarrationStartTime);
   const updateNarrationVolume = useAudioStore((s) => s.updateNarrationVolume);
@@ -3802,9 +3835,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       <div className="max-w-md md:max-w-3xl lg:max-w-6xl mx-auto p-4 lg:p-6">
         <ErrorMessage message={errorMsg} count={errorCount} onClose={clearError} />
 
-        <div className="mt-4 lg:grid lg:grid-cols-[1fr_585px] lg:gap-8">
+        <div className="mt-4 lg:grid lg:grid-cols-[minmax(0,1fr)_585px] lg:gap-8">
           {/* 左カラム: 編集コントロール（モバイルでは通常の縦並び） */}
-          <div className="space-y-6">
+          <div className="min-w-0 space-y-6">
             {/* 1. CLIPS */}
             <ClipsSection
               watermarkPanel={uiCapabilities.supportsWatermark ? (
@@ -3826,6 +3859,26 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
                   onEndrollImageSelect={handleEndrollImageSelect}
                   onEndrollUpdate={withPreviewPause('update-endroll', updateEndroll)}
                   onEndrollRemoveImage={withPreviewPause('remove-endroll-image', removeEndrollImage)}
+                />
+              ) : undefined}
+              audioSettingsPanel={uiCapabilities.supportsClipAudioSettings ? (
+                <ClipAudioSettingsPanel
+                  kind="video"
+                  items={mediaItems.filter((item) => item.type === 'video')}
+                  isLocked={isClipsLocked}
+                  bulkMuted={bulkVideoMuted
+                    || (mediaItems.filter((item) => item.type === 'video').length > 0
+                      && mediaItems.filter((item) => item.type === 'video').every((item) => item.isMuted))}
+                  bulkEnabled={bulkVideoVolumeEnabled}
+                  bulkVolume={bulkVideoVolume}
+                  normalizeEnabled={videoAudioNormalizeEnabled}
+                  normalizeMode={videoAudioNormalizeMode}
+                  onToggleBulkMuted={withPreviewPause('set-all-videos-muted', setAllVideosMuted)}
+                  onToggleBulkEnabled={withoutPreviewPause('toggle-bulk-video-volume', setBulkVideoVolumeEnabled)}
+                  onBulkVolumeChange={withoutPreviewPause('update-bulk-video-volume', setBulkVideoVolume)}
+                  onToggleNormalizeEnabled={withPreviewPause('toggle-video-audio-normalize', setVideoAudioNormalizeEnabled)}
+                  onChangeNormalizeMode={withoutPreviewPause('change-video-audio-normalize-mode', setVideoAudioNormalizeMode)}
+                  onApplyNormalizeGains={applyVideoNormalizeGains}
                 />
               ) : undefined}
               mediaItems={mediaItems}
@@ -3852,13 +3905,13 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onResetMediaSetting={handleResetMediaSetting}
               onUpdateMediaVolume={withoutPreviewPause('update-media-volume', updateVolume)}
               onToggleMediaMute={withPreviewPause('toggle-media-mute', toggleMute)}
+              bulkVolumeEnabled={bulkVideoVolumeEnabled}
               onBeforeTransitionEdit={() => pausePreviewBeforeEdit('edit-clip-transition')}
-              onUpdateVideoPlaybackSpeed={withPreviewPause('update-video-playback-speed', updateVideoPlaybackSpeed)}
+              onUpdateVideoPlaybackSpeed={withoutPreviewPause('update-video-playback-speed', updateVideoPlaybackSpeed)}
               onUpdateVideoShowSpeedBadge={withPreviewPause('update-video-show-speed-badge', updateVideoShowSpeedBadge)}
               onUpdateVideoSpeedBadgeLabelStyle={withPreviewPause('update-video-speed-badge-label-style', updateVideoSpeedBadgeLabelStyle)}
               onUpdateVideoSpeedBadgePosition={withPreviewPause('update-video-speed-badge-position', updateVideoSpeedBadgePosition)}
               onApplyVideoSpeedBadgePreset={withPreviewPause('apply-video-speed-badge-preset', applyVideoSpeedBadgePreset)}
-              onSetAllVideosMuted={withPreviewPause('set-all-videos-muted', setAllVideosMuted)}
               onToggleMediaFadeIn={withPreviewPause('toggle-media-fade-in', toggleFadeIn)}
               onToggleMediaFadeOut={withPreviewPause('toggle-media-fade-out', toggleFadeOut)}
               onUpdateFadeInDuration={withPreviewPause('update-media-fade-in-duration', updateFadeInDuration)}
@@ -3868,6 +3921,26 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
             {/* 2. BGM SETTINGS */}
             <BgmSection
+              audioSettingsPanel={uiCapabilities.supportsClipAudioSettings ? (
+                <ClipAudioSettingsPanel
+                  kind="bgm"
+                  items={bgmClips}
+                  isLocked={isBgmLocked}
+                  bulkMuted={bulkBgmMuted
+                    || (bgmClips.length > 0 && bgmClips.every((clip) => clip.isMuted))}
+                  bulkEnabled={bulkBgmVolumeEnabled}
+                  bulkVolume={bulkBgmVolume}
+                  normalizeEnabled={bgmAudioNormalizeEnabled}
+                  normalizeMode={bgmAudioNormalizeMode}
+                  onToggleBulkMuted={withPreviewPause('set-all-bgm-muted', setAllBgmClipsMuted)}
+                  onToggleBulkEnabled={withoutPreviewPause('toggle-bulk-bgm-volume', setBulkBgmVolumeEnabled)}
+                  onBulkVolumeChange={withoutPreviewPause('update-bulk-bgm-volume', setBulkBgmVolume)}
+                  onToggleNormalizeEnabled={withPreviewPause('toggle-bgm-audio-normalize', setBgmAudioNormalizeEnabled)}
+                  onChangeNormalizeMode={withoutPreviewPause('change-bgm-audio-normalize-mode', setBgmAudioNormalizeMode)}
+                  onApplyNormalizeGains={applyBgmNormalizeGains}
+                />
+              ) : undefined}
+              bulkVolumeEnabled={bulkBgmVolumeEnabled}
               bgm={bgm}
               isBgmLocked={isBgmLocked}
               totalDuration={totalDuration}
@@ -3892,6 +3965,26 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
             {/* 3. NARRATION SETTINGS */}
             <NarrationSection
+              audioSettingsPanel={uiCapabilities.supportsClipAudioSettings ? (
+                <ClipAudioSettingsPanel
+                  kind="narration"
+                  items={narrations}
+                  isLocked={isNarrationLocked}
+                  bulkMuted={bulkNarrationMuted
+                    || (narrations.length > 0 && narrations.every((clip) => clip.isMuted))}
+                  bulkEnabled={bulkNarrationVolumeEnabled}
+                  bulkVolume={bulkNarrationVolume}
+                  normalizeEnabled={narrationAudioNormalizeEnabled}
+                  normalizeMode={narrationAudioNormalizeMode}
+                  onToggleBulkMuted={withPreviewPause('set-all-narrations-muted', setAllNarrationsMuted)}
+                  onToggleBulkEnabled={withoutPreviewPause('toggle-bulk-narration-volume', setBulkNarrationVolumeEnabled)}
+                  onBulkVolumeChange={withoutPreviewPause('update-bulk-narration-volume', setBulkNarrationVolume)}
+                  onToggleNormalizeEnabled={withPreviewPause('toggle-narration-audio-normalize', setNarrationAudioNormalizeEnabled)}
+                  onChangeNormalizeMode={withoutPreviewPause('change-narration-audio-normalize-mode', setNarrationAudioNormalizeMode)}
+                  onApplyNormalizeGains={applyNarrationNormalizeGains}
+                />
+              ) : undefined}
+              bulkVolumeEnabled={bulkNarrationVolumeEnabled}
               narrations={narrations}
               offlineMode={offlineMode}
               isNarrationLocked={isNarrationLocked}

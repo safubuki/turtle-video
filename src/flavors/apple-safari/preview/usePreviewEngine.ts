@@ -51,6 +51,7 @@ import {
   resolveVideoSafeEndSourceTime,
   resolveVideoSourceTime,
 } from '../../../utils/playbackSpeed';
+import { resolveMediaPlaybackVolume } from '../../../utils/mediaVolume';
 import type { LogCategory } from '../../../stores/logStore';
 import { useMediaStore, useUIStore } from '../../../stores';
 import type { PlatformCapabilities } from '../../../utils/platform';
@@ -509,7 +510,7 @@ export function usePreviewEngine({
           let count = 0;
           if (activeIndex !== -1) {
             const activeItem = currentItems[activeIndex];
-            if (activeItem?.type === 'video' && !activeItem.isMuted && activeItem.volume > 0) {
+            if (activeItem?.type === 'video' && resolveMediaPlaybackVolume(activeItem) > 0) {
               count += 1;
             }
           }
@@ -1091,7 +1092,7 @@ export function usePreviewEngine({
               let hasAudioNode = !!sourceNodesRef.current[id];
               const currentGainNode = gainNodesRef.current[id];
               if (isActivePlaying) {
-                let vol = holdAudioThisFrame ? 0 : (conf.isMuted ? 0 : conf.volume);
+                let vol = holdAudioThisFrame ? 0 : resolveMediaPlaybackVolume(conf);
                 const fadeInDur = conf.fadeInDuration || 1.0;
                 const fadeOutDur = conf.fadeOutDuration || 1.0;
 

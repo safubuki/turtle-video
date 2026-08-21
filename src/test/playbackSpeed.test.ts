@@ -18,19 +18,25 @@ import {
   resolveVideoTimelineDuration,
   shouldDrawSpeedBadge,
   wallDeltaToExportTimelineDelta,
+  DEFAULT_SPEED_BADGE_POSITION,
+  SPEED_BADGE_CORNER_INSET_PERCENT,
 } from '../utils/playbackSpeed';
 import { computeVideoTrimFromPreviewPosition } from '../utils/media';
 
 describe('normalizeVideoPlaybackSpeed', () => {
-  it('許可値のみ通し、それ以外は 1', () => {
+  it('0.5〜8.0 を 0.1 刻みで通し、0.5 未満と不正値は丸める', () => {
     expect(normalizeVideoPlaybackSpeed(1)).toBe(1);
     expect(normalizeVideoPlaybackSpeed(2)).toBe(2);
     expect(normalizeVideoPlaybackSpeed(4)).toBe(4);
     expect(normalizeVideoPlaybackSpeed(8)).toBe(8);
     expect(normalizeVideoPlaybackSpeed('4')).toBe(4);
-    expect(normalizeVideoPlaybackSpeed(3)).toBe(1);
+    expect(normalizeVideoPlaybackSpeed(3)).toBe(3);
+    expect(normalizeVideoPlaybackSpeed(1.54)).toBe(1.5);
+    expect(normalizeVideoPlaybackSpeed(0.5)).toBe(0.5);
+    expect(normalizeVideoPlaybackSpeed(0.1)).toBe(0.5);
     expect(normalizeVideoPlaybackSpeed(undefined)).toBe(1);
-    expect(normalizeVideoPlaybackSpeed(0.5)).toBe(1);
+    expect(normalizeVideoPlaybackSpeed(0)).toBe(1);
+    expect(normalizeVideoPlaybackSpeed(12)).toBe(8);
   });
 });
 
@@ -82,10 +88,15 @@ describe('プレビュー位置からのトリム', () => {
 });
 
 describe('速度バッジ', () => {
-  it('showSpeedBadge かつ speed>1 のときだけ描画対象', () => {
+  it('showSpeedBadge かつ等倍以外のとき描画対象（スロー含む）', () => {
     expect(shouldDrawSpeedBadge({
       type: 'video',
       playbackSpeed: 2,
+      showSpeedBadge: true,
+    })).toBe(true);
+    expect(shouldDrawSpeedBadge({
+      type: 'video',
+      playbackSpeed: 0.5,
       showSpeedBadge: true,
     })).toBe(true);
     expect(shouldDrawSpeedBadge({
@@ -106,14 +117,20 @@ describe('速度バッジ', () => {
   });
 
   it('四隅プリセットが既定座標を返す', () => {
-    expect(resolveSpeedBadgePresetPosition('top-right')).toEqual({ x: 91, y: 12 });
-    expect(resolveSpeedBadgePresetPosition('top-left')).toEqual({ x: 9, y: 12 });
+    const inset = SPEED_BADGE_CORNER_INSET_PERCENT;
+    expect(DEFAULT_SPEED_BADGE_POSITION).toEqual({ x: 100 - inset, y: inset });
+    expect(resolveSpeedBadgePresetPosition('top-right')).toEqual({ x: 91, y: 9 });
+    expect(resolveSpeedBadgePresetPosition('top-left')).toEqual({ x: 9, y: 9 });
+    expect(resolveSpeedBadgePresetPosition('bottom-left')).toEqual({ x: 9, y: 91 });
+    expect(resolveSpeedBadgePresetPosition('bottom-right')).toEqual({ x: 91, y: 91 });
   });
 
-  it('バッジ文言は既定が日本語、en で 2x', () => {
+  it('バッジ文言は既定が日本語、en で 2x。0.1 単位も表示する', () => {
     expect(normalizeSpeedBadgeLabelStyle(undefined)).toBe('ja');
     expect(formatSpeedBadgeLabel(2, 'ja')).toBe('\u00BB 2倍速');
     expect(formatSpeedBadgeLabel(4, undefined)).toBe('\u00BB 4倍速');
+    expect(formatSpeedBadgeLabel(1.5, 'ja')).toBe('\u00BB 1.5倍速');
+    expect(formatSpeedBadgeLabel(0.5, 'en')).toBe('\u00BB 0.5x');
     expect(formatSpeedBadgeLabel(2, 'en')).toBe('\u00BB 2x');
   });
 
@@ -125,9 +142,10 @@ describe('速度バッジ', () => {
     );
   });
 
-  it('export は 1x 連続再生 + 壁時計 dilation（seek 駆動にしない）', () => {
+  it('export の倍速は 1x 連続再生 + 壁時計 dilation（seek 駆動にしない）', () => {
     expect(resolveVideoElementPlaybackRateForContext(true, 4)).toBe(1);
     expect(resolveVideoElementPlaybackRateForContext(true, 8)).toBe(1);
+    expect(resolveVideoElementPlaybackRateForContext(true, 1.5)).toBe(1);
     expect(resolveVideoElementPlaybackRateForContext(false, 4)).toBe(4);
     expect(resolveExportTimelineWallDivisorForItem({
       type: 'video',
@@ -138,5 +156,14 @@ describe('速度バッジ', () => {
     expect(wallDeltaToExportTimelineDelta(4, 4)).toBe(1);
     // 等倍は 1:1
     expect(wallDeltaToExportTimelineDelta(2.5, 1)).toBe(2.5);
+  });
+
+  it('export のスローは native playbackRate で、壁時計はタイムラインと 1:1', () => {
+    expect(resolveVideoElementPlaybackRateForContext(true, 0.5)).toBe(0.5);
+    expect(resolveVideoElementPlaybackRateForContext(false, 0.5)).toBe(0.5);
+    expect(resolveExportTimelineWallDivisorForItem({
+      type: 'video',
+      playbackSpeed: 0.5,
+    })).toBe(1);
   });
 });

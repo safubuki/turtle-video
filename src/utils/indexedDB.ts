@@ -75,10 +75,14 @@ export interface SerializedMediaItem {
   thumbnailMode?: 'auto' | 'manual';
   /** サムネイル取得位置（元動画上の秒・任意） */
   thumbnailSourceTime?: number;
-  /** 動画再生速度 1/2/4/8（任意・旧データは 1） */
-  playbackSpeed?: 1 | 2 | 4 | 8;
+  /** 動画再生速度 0.5〜8.0（任意・旧データは 1。旧 1/2/4/8 はそのまま読める） */
+  playbackSpeed?: number;
   /** 倍速バッジ表示（任意・旧データは false） */
   showSpeedBadge?: boolean;
+  /** 音量揃えの対象（任意・旧データは true） */
+  audioNormalizeEnabled?: boolean;
+  /** 音量揃えゲイン（任意・旧データは 1） */
+  audioNormalizeGain?: number;
   /** バッジ文言 ja | en（任意・旧データは ja） */
   speedBadgeLabelStyle?: 'ja' | 'en';
   /** バッジ位置 X%（任意） */
@@ -128,6 +132,8 @@ export interface SerializedNarrationClip {
   fadeOut?: boolean;
   fadeInDuration?: number;
   fadeOutDuration?: number;
+  /** 音量揃えゲイン（任意・旧データは 1） */
+  audioNormalizeGain?: number;
 }
 
 // 保存されるキャプションの形式
@@ -333,6 +339,44 @@ export interface ProjectData {
   projectPosterDataUrl?: string | null;
   /** ポスター画像を生成した時点の出力向き（任意・旧データはプロジェクト向きへ補完） */
   projectPosterAspectRatio?: 'landscape' | 'portrait';
+
+  /**
+   * 動画の一括ミュート（任意・旧データは既存動画がすべてミュートなら ON）。
+   * 動画が無くても ON にでき、追加動画へ継承する。
+   */
+  bulkVideoMuted?: boolean;
+  /**
+   * 動画の一括音量設定（任意・旧データは OFF / 100%）。
+   * 有効時は全動画の volume をこの値へ揃える。
+   */
+  bulkVideoVolumeEnabled?: boolean;
+  bulkVideoVolume?: number;
+  /**
+   * 動画間の音量揃え（任意・旧データは OFF）。
+   * 有効時は各動画の audioNormalizeGain で相対音量を揃える。
+   */
+  videoAudioNormalizeEnabled?: boolean;
+  /**
+   * 音量揃えの目標（任意・旧データは mean）。
+   * mean=幾何平均、loudest=一番大きい音。
+   */
+  videoAudioNormalizeMode?: 'mean' | 'loudest';
+  /** BGM の一括ミュート（任意・旧データは既存曲がすべてミュートなら ON） */
+  bulkBgmMuted?: boolean;
+  /** BGM の一括音量（任意・旧データは OFF / 100%） */
+  bulkBgmVolumeEnabled?: boolean;
+  bulkBgmVolume?: number;
+  /** BGM 間の音量揃え（任意・旧データは OFF） */
+  bgmAudioNormalizeEnabled?: boolean;
+  bgmAudioNormalizeMode?: 'mean' | 'loudest';
+  /** ナレーションの一括ミュート（任意・旧データは既存クリップがすべてミュートなら ON） */
+  bulkNarrationMuted?: boolean;
+  /** ナレーションの一括音量（任意・旧データは OFF / 100%） */
+  bulkNarrationVolumeEnabled?: boolean;
+  bulkNarrationVolume?: number;
+  /** ナレーション間の音量揃え（任意・旧データは OFF） */
+  narrationAudioNormalizeEnabled?: boolean;
+  narrationAudioNormalizeMode?: 'mean' | 'loudest';
 }
 
 /**

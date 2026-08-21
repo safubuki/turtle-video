@@ -17,6 +17,7 @@ import {
   useAudioStore,
 } from '../../../stores/audioStore';
 import { findActiveTimelineItemWithTransitions } from '../../../utils/transitionTimeline';
+import { resolveMediaPlaybackVolume } from '../../../utils/mediaVolume';
 import {
   getPreviewAudioRoutingPlan,
   shouldAttemptDeferredPreviewPlay,
@@ -268,11 +269,11 @@ export function usePreviewAudioSession({
     const active = findActiveTimelineItemWithTransitions(currentItems, time, totalDurationRef.current);
     if (active && active.index !== -1) {
       const activeItem = currentItems[active.index];
-      if (activeItem?.type === 'video' && !activeItem.isMuted && activeItem.volume > 0) {
+      if (activeItem?.type === 'video' && resolveMediaPlaybackVolume(activeItem) > 0) {
         activeVideoId = activeItem.id;
         const element = mediaElementsRef.current[activeItem.id] as HTMLVideoElement | undefined;
         if (element) {
-          let volume = activeItem.volume;
+          let volume = resolveMediaPlaybackVolume(activeItem);
           const fadeInDur = activeItem.fadeInDuration || 1.0;
           const fadeOutDur = activeItem.fadeOutDuration || 1.0;
 
@@ -318,7 +319,7 @@ export function usePreviewAudioSession({
       { autoAdjust: bgmAutoAdjust },
     );
     for (const clip of currentNarrations) {
-      if (clip.isMuted || clip.volume <= 0) {
+      if (resolveMediaPlaybackVolume(clip) <= 0) {
         continue;
       }
 
@@ -341,7 +342,7 @@ export function usePreviewAudioSession({
       if (clipTime >= 0 && clipTime <= effective.effectivePlayableDuration) {
         candidates.push({
           id: trackId,
-          desiredVolume: clip.volume,
+          desiredVolume: resolveMediaPlaybackVolume(clip),
           element,
           sourceType: 'audio',
         });
@@ -435,7 +436,7 @@ export function usePreviewAudioSession({
       { autoAdjust: bgmAutoAdjust },
     );
     for (const clip of currentNarrations) {
-      if (clip.isMuted || clip.volume <= 0) {
+      if (resolveMediaPlaybackVolume(clip) <= 0) {
         continue;
       }
 

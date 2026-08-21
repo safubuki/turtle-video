@@ -8,8 +8,19 @@
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import type { AudioTrack, BgmClip, NarrationClip, NarrationSourceType } from '../types';
-import { revokeObjectUrl } from '../utils';
+import type { AudioTrack, BgmClip, NarrationClip, NarrationSourceType, VideoAudioNormalizeMode } from '../types';
+import {
+  applyBulkMuteToAddedAudioClips,
+  applyBulkVolumeToAddedAudioClips,
+  areAllExistingAudioClipsMuted,
+  resolveSavedBulkMuted,
+  revokeObjectUrl,
+} from '../utils';
+import { clampMediaVolume } from '../utils/mediaVolume';
+import {
+  DEFAULT_VIDEO_AUDIO_NORMALIZE_MODE,
+  normalizeVideoAudioNormalizeMode,
+} from '../utils/videoAudioLoudness';
 import { useLogStore } from './logStore';
 
 interface CreateNarrationClipParams {
@@ -42,6 +53,23 @@ interface AudioState {
   // Narrations
   narrations: NarrationClip[];
   isNarrationLocked: boolean;
+
+  /** BGM の一括ミュート。曲 0 本でも ON にでき、追加曲へ継承する */
+  bulkBgmMuted: boolean;
+  /** BGM の一括音量。ON のとき全 BGM の volume を揃える */
+  bulkBgmVolumeEnabled: boolean;
+  bulkBgmVolume: number;
+  /** BGM 間の音量揃え */
+  bgmAudioNormalizeEnabled: boolean;
+  bgmAudioNormalizeMode: VideoAudioNormalizeMode;
+  /** ナレーションの一括ミュート。クリップ 0 本でも ON にでき、追加クリップへ継承する */
+  bulkNarrationMuted: boolean;
+  /** ナレーションの一括音量 */
+  bulkNarrationVolumeEnabled: boolean;
+  bulkNarrationVolume: number;
+  /** ナレーション間の音量揃え */
+  narrationAudioNormalizeEnabled: boolean;
+  narrationAudioNormalizeMode: VideoAudioNormalizeMode;
 
   // BGM actions
   setBgm: (track: AudioTrack | null) => void;
@@ -97,6 +125,20 @@ interface AudioState {
   setNarrations: (clips: NarrationClip[]) => void;
   toggleNarrationLock: () => void;
 
+  setBulkBgmVolumeEnabled: (enabled: boolean) => void;
+  setBulkBgmVolume: (volume: number) => void;
+  setBgmAudioNormalizeEnabled: (enabled: boolean) => void;
+  setBgmAudioNormalizeMode: (mode: VideoAudioNormalizeMode) => void;
+  applyBgmNormalizeGains: (gains: Record<string, number>) => void;
+  setAllBgmClipsMuted: (muted: boolean) => void;
+
+  setBulkNarrationVolumeEnabled: (enabled: boolean) => void;
+  setBulkNarrationVolume: (volume: number) => void;
+  setNarrationAudioNormalizeEnabled: (enabled: boolean) => void;
+  setNarrationAudioNormalizeMode: (mode: VideoAudioNormalizeMode) => void;
+  applyNarrationNormalizeGains: (gains: Record<string, number>) => void;
+  setAllNarrationsMuted: (muted: boolean) => void;
+
   // Clear
   clearAllAudio: () => void;
 
@@ -108,6 +150,18 @@ interface AudioState {
     isNarrationLocked: boolean,
     bgmClips?: BgmClip[],
     bgmAutoAdjustToTimeline?: boolean,
+    bulkAudioSettings?: {
+      bulkBgmMuted?: boolean;
+      bulkBgmVolumeEnabled?: boolean;
+      bulkBgmVolume?: number;
+      bgmAudioNormalizeEnabled?: boolean;
+      bgmAudioNormalizeMode?: VideoAudioNormalizeMode;
+      bulkNarrationMuted?: boolean;
+      bulkNarrationVolumeEnabled?: boolean;
+      bulkNarrationVolume?: number;
+      narrationAudioNormalizeEnabled?: boolean;
+      narrationAudioNormalizeMode?: VideoAudioNormalizeMode;
+    },
   ) => void;
 }
 
@@ -536,6 +590,9 @@ function normalizeNarrationClip(clip: NarrationClip): NarrationClip {
     isMuted: Boolean(clip.isMuted),
     trimStart: clampedTrimStart,
     trimEnd: clampedTrimEnd,
+    audioNormalizeGain: Number.isFinite(clip.audioNormalizeGain) && (clip.audioNormalizeGain as number) > 0
+      ? clip.audioNormalizeGain
+      : 1,
   };
 }
 
@@ -549,6 +606,16 @@ export const useAudioStore = create<AudioState>()(
       bgmAutoAdjustToTimeline: true,
       narrations: [],
       isNarrationLocked: false,
+      bulkBgmMuted: false,
+      bulkBgmVolumeEnabled: false,
+      bulkBgmVolume: 1,
+      bgmAudioNormalizeEnabled: false,
+      bgmAudioNormalizeMode: DEFAULT_VIDEO_AUDIO_NORMALIZE_MODE,
+      bulkNarrationMuted: false,
+      bulkNarrationVolumeEnabled: false,
+      bulkNarrationVolume: 1,
+      narrationAudioNormalizeEnabled: false,
+      narrationAudioNormalizeMode: DEFAULT_VIDEO_AUDIO_NORMALIZE_MODE,
 
       // === BGM actions ===
       setBgm: (track) => {
@@ -631,7 +698,7 @@ export const useAudioStore = create<AudioState>()(
       addBgmClip: (params, totalDuration) => {
         set((state) => {
           const fit = resolveBgmClipAutoFit(state.bgmClips, params.duration, totalDuration);
-          const clip: BgmClip = normalizeNarrationClip({
+          const created: BgmClip = normalizeNarrationClip({
             id: generateBgmClipId(),
             sourceType: 'file',
             file: params.file,
@@ -648,6 +715,13 @@ export const useAudioStore = create<AudioState>()(
             fadeInDuration: 2.0,
             fadeOutDuration: 2.0,
           });
+          const bulkMuted = state.bulkBgmMuted || areAllExistingAudioClipsMuted(state.bgmClips);
+          const muted = applyBulkMuteToAddedAudioClips([created], bulkMuted);
+          const [clip] = applyBulkVolumeToAddedAudioClips(
+            muted,
+            state.bulkBgmVolumeEnabled,
+            state.bulkBgmVolume,
+          );
           useLogStore.getState().info('AUDIO', 'BGMクリップを追加', {
             id: clip.id,
             fileName: params.file.name,
@@ -691,6 +765,7 @@ export const useAudioStore = create<AudioState>()(
 
       updateBgmClipVolume: (id, value) => {
         set((state) => ({
+          bulkBgmVolumeEnabled: false,
           bgmClips: state.bgmClips.map((clip) => (
             clip.id === id
               ? normalizeNarrationClip({ ...clip, volume: Math.max(0, Math.min(2.5, value)) })
@@ -701,6 +776,7 @@ export const useAudioStore = create<AudioState>()(
 
       toggleBgmClipMute: (id) => {
         set((state) => ({
+          bulkBgmMuted: false,
           bgmClips: state.bgmClips.map((clip) => (
             clip.id === id ? normalizeNarrationClip({ ...clip, isMuted: !clip.isMuted }) : clip
           )),
@@ -866,7 +942,17 @@ export const useAudioStore = create<AudioState>()(
           startTime: clip.startTime,
           duration: clip.duration,
         });
-        set((state) => ({ narrations: [...state.narrations, normalizeNarrationClip(clip)] }));
+        set((state) => {
+          const created = normalizeNarrationClip(clip);
+          const bulkMuted = state.bulkNarrationMuted || areAllExistingAudioClipsMuted(state.narrations);
+          const muted = applyBulkMuteToAddedAudioClips([created], bulkMuted);
+          const [next] = applyBulkVolumeToAddedAudioClips(
+            muted,
+            state.bulkNarrationVolumeEnabled,
+            state.bulkNarrationVolume,
+          );
+          return { narrations: [...state.narrations, next] };
+        });
       },
 
       // ナレーションを複製（Android/PC 向け簡単コピー）。
@@ -911,6 +997,7 @@ export const useAudioStore = create<AudioState>()(
 
       updateNarrationVolume: (id, value) => {
         set((state) => ({
+          bulkNarrationVolumeEnabled: false,
           narrations: state.narrations.map((clip) => {
             if (clip.id !== id) return clip;
             return normalizeNarrationClip({ ...clip, volume: Math.max(0, Math.min(2.5, value)) });
@@ -920,6 +1007,7 @@ export const useAudioStore = create<AudioState>()(
 
       toggleNarrationMute: (id) => {
         set((state) => ({
+          bulkNarrationMuted: false,
           narrations: state.narrations.map((clip) => (
             clip.id === id ? normalizeNarrationClip({ ...clip, isMuted: !clip.isMuted }) : clip
           )),
@@ -1029,6 +1117,112 @@ export const useAudioStore = create<AudioState>()(
         set((state) => ({ isNarrationLocked: !state.isNarrationLocked }));
       },
 
+      setBulkBgmVolumeEnabled: (enabled) => {
+        set((state) => {
+          if (!enabled) return { bulkBgmVolumeEnabled: false };
+          const volume = clampMediaVolume(state.bulkBgmVolume);
+          return {
+            bulkBgmVolumeEnabled: true,
+            bulkBgmVolume: volume,
+            bgmClips: state.bgmClips.map((clip) => normalizeNarrationClip({ ...clip, volume })),
+          };
+        });
+      },
+
+      setBulkBgmVolume: (volume) => {
+        const next = clampMediaVolume(volume);
+        set((state) => {
+          if (!state.bulkBgmVolumeEnabled) return { bulkBgmVolume: next };
+          return {
+            bulkBgmVolume: next,
+            bgmClips: state.bgmClips.map((clip) => normalizeNarrationClip({ ...clip, volume: next })),
+          };
+        });
+      },
+
+      setBgmAudioNormalizeEnabled: (enabled) => {
+        set((state) => ({
+          bgmAudioNormalizeEnabled: Boolean(enabled),
+          bgmClips: enabled
+            ? state.bgmClips
+            : state.bgmClips.map((clip) => normalizeNarrationClip({ ...clip, audioNormalizeGain: 1 })),
+        }));
+      },
+
+      setBgmAudioNormalizeMode: (mode) => {
+        set({ bgmAudioNormalizeMode: normalizeVideoAudioNormalizeMode(mode) });
+      },
+
+      applyBgmNormalizeGains: (gains) => {
+        set((state) => ({
+          bgmClips: state.bgmClips.map((clip) => {
+            const nextGain = Number.isFinite(gains[clip.id]) ? gains[clip.id] : 1;
+            if (clip.audioNormalizeGain === nextGain) return clip;
+            return normalizeNarrationClip({ ...clip, audioNormalizeGain: nextGain });
+          }),
+        }));
+      },
+
+      setAllBgmClipsMuted: (muted) => {
+        set((state) => ({
+          bulkBgmMuted: muted,
+          bgmClips: state.bgmClips.map((clip) => normalizeNarrationClip({ ...clip, isMuted: muted })),
+        }));
+      },
+
+      setBulkNarrationVolumeEnabled: (enabled) => {
+        set((state) => {
+          if (!enabled) return { bulkNarrationVolumeEnabled: false };
+          const volume = clampMediaVolume(state.bulkNarrationVolume);
+          return {
+            bulkNarrationVolumeEnabled: true,
+            bulkNarrationVolume: volume,
+            narrations: state.narrations.map((clip) => normalizeNarrationClip({ ...clip, volume })),
+          };
+        });
+      },
+
+      setBulkNarrationVolume: (volume) => {
+        const next = clampMediaVolume(volume);
+        set((state) => {
+          if (!state.bulkNarrationVolumeEnabled) return { bulkNarrationVolume: next };
+          return {
+            bulkNarrationVolume: next,
+            narrations: state.narrations.map((clip) => normalizeNarrationClip({ ...clip, volume: next })),
+          };
+        });
+      },
+
+      setNarrationAudioNormalizeEnabled: (enabled) => {
+        set((state) => ({
+          narrationAudioNormalizeEnabled: Boolean(enabled),
+          narrations: enabled
+            ? state.narrations
+            : state.narrations.map((clip) => normalizeNarrationClip({ ...clip, audioNormalizeGain: 1 })),
+        }));
+      },
+
+      setNarrationAudioNormalizeMode: (mode) => {
+        set({ narrationAudioNormalizeMode: normalizeVideoAudioNormalizeMode(mode) });
+      },
+
+      applyNarrationNormalizeGains: (gains) => {
+        set((state) => ({
+          narrations: state.narrations.map((clip) => {
+            const nextGain = Number.isFinite(gains[clip.id]) ? gains[clip.id] : 1;
+            if (clip.audioNormalizeGain === nextGain) return clip;
+            return normalizeNarrationClip({ ...clip, audioNormalizeGain: nextGain });
+          }),
+        }));
+      },
+
+      setAllNarrationsMuted: (muted) => {
+        set((state) => ({
+          bulkNarrationMuted: muted,
+          narrations: state.narrations.map((clip) => normalizeNarrationClip({ ...clip, isMuted: muted })),
+        }));
+      },
+
       // === Clear all ===
       clearAllAudio: () => {
         const { bgm, bgmClips, narrations } = get();
@@ -1060,6 +1254,7 @@ export const useAudioStore = create<AudioState>()(
         newIsNarrationLocked,
         newBgmClips = [],
         newBgmAutoAdjustToTimeline,
+        bulkAudioSettings,
       ) => {
         const { bgm, bgmClips, narrations } = get();
 
@@ -1074,6 +1269,24 @@ export const useAudioStore = create<AudioState>()(
           bgmAutoAdjustToTimeline: newBgmAutoAdjustToTimeline !== false,
           narrations: newNarrations.map((clip) => normalizeNarrationClip(clip)),
           isNarrationLocked: newIsNarrationLocked,
+          bulkBgmMuted: resolveSavedBulkMuted(
+            bulkAudioSettings?.bulkBgmMuted,
+            areAllExistingAudioClipsMuted(newBgmClips),
+          ),
+          bulkBgmVolumeEnabled: Boolean(bulkAudioSettings?.bulkBgmVolumeEnabled),
+          bulkBgmVolume: clampMediaVolume(bulkAudioSettings?.bulkBgmVolume ?? 1),
+          bgmAudioNormalizeEnabled: Boolean(bulkAudioSettings?.bgmAudioNormalizeEnabled),
+          bgmAudioNormalizeMode: normalizeVideoAudioNormalizeMode(bulkAudioSettings?.bgmAudioNormalizeMode),
+          bulkNarrationMuted: resolveSavedBulkMuted(
+            bulkAudioSettings?.bulkNarrationMuted,
+            areAllExistingAudioClipsMuted(newNarrations),
+          ),
+          bulkNarrationVolumeEnabled: Boolean(bulkAudioSettings?.bulkNarrationVolumeEnabled),
+          bulkNarrationVolume: clampMediaVolume(bulkAudioSettings?.bulkNarrationVolume ?? 1),
+          narrationAudioNormalizeEnabled: Boolean(bulkAudioSettings?.narrationAudioNormalizeEnabled),
+          narrationAudioNormalizeMode: normalizeVideoAudioNormalizeMode(
+            bulkAudioSettings?.narrationAudioNormalizeMode,
+          ),
         });
       },
     }),

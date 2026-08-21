@@ -21,6 +21,7 @@ import type { MediaItem, NarrationClip } from '../types';
 import { computeTransitionTimelineRanges } from '../utils/transitionTimeline';
 import { getEndrollDuration } from '../utils/endrollOverlay';
 import { mixToMono } from '../utils/audioWaveform';
+import { resolveMediaPlaybackVolume } from '../utils/mediaVolume';
 import {
   buildTimelineWaveform,
   TIMELINE_WAVEFORM_SAMPLE_RATE,
@@ -306,7 +307,7 @@ export function useTimelineWaveform(
         effective.startTime.toFixed(3),
         effective.trimStart.toFixed(3),
         effective.effectiveTrimEnd.toFixed(3),
-        clip.isMuted ? 0 : clip.volume,
+        resolveMediaPlaybackVolume(clip),
         clip.fadeIn ? (clip.fadeInDuration ?? 0) : 0,
         clip.fadeOut ? (clip.fadeOutDuration ?? 0) : 0,
       ].join('|');
@@ -319,7 +320,7 @@ export function useTimelineWaveform(
       item.trimEnd.toFixed(3),
       item.duration.toFixed(3),
       item.playbackSpeed ?? 1,
-      item.isMuted ? 0 : item.volume,
+      resolveMediaPlaybackVolume(item),
       item.fadeIn ? item.fadeInDuration : 0,
       item.fadeOut ? item.fadeOutDuration : 0,
     ].join('|'));
@@ -377,7 +378,7 @@ export function useTimelineWaveform(
               timelineStart: effective.startTime,
               sourceStart: effective.trimStart,
               sourceEnd: effective.effectiveTrimEnd,
-              volume: clip.isMuted ? 0 : Math.max(0, clip.volume),
+              volume: resolveMediaPlaybackVolume(clip),
               fadeInSec: clip.fadeIn ? Math.max(0, clip.fadeInDuration ?? 0) : 0,
               fadeOutSec: clip.fadeOut ? Math.max(0, clip.fadeOutDuration ?? 0) : 0,
             });
@@ -404,7 +405,7 @@ export function useTimelineWaveform(
               timelineStart: range.start,
               sourceStart,
               sourceEnd: Math.max(sourceStart, sourceEnd),
-              volume: item.isMuted ? 0 : Math.max(0, item.volume),
+              volume: resolveMediaPlaybackVolume(item),
               fadeInSec: item.fadeIn ? Math.max(0, item.fadeInDuration) : 0,
               fadeOutSec: item.fadeOut ? Math.max(0, item.fadeOutDuration) : 0,
               playbackSpeed,

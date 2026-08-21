@@ -7,7 +7,11 @@ import {
   generateId,
   getMediaType,
   areAllExistingVideosMuted,
+  resolveSavedBulkMuted,
   applyBulkMuteToAddedMediaItems,
+  areAllExistingAudioClipsMuted,
+  applyBulkMuteToAddedAudioClips,
+  applyBulkVolumeToAddedAudioClips,
   calculateTotalDuration,
   getActiveMediaItem,
   swapArrayItems,
@@ -130,33 +134,52 @@ describe('areAllExistingVideosMuted / applyBulkMuteToAddedMediaItems', () => {
   });
 
   it('一括ミュート有効時は追加動画だけミュートし、画像は変えない', () => {
-    const existing = [
-      createMockMediaItem({ type: 'video', isMuted: true }),
-    ];
     const added = [
       createMockMediaItem({ id: 'new-video', type: 'video', isMuted: false }),
       createMockMediaItem({ id: 'new-image', type: 'image', isMuted: false, duration: 5 }),
     ];
 
-    const result = applyBulkMuteToAddedMediaItems(existing, added);
+    const result = applyBulkMuteToAddedMediaItems(added, true);
 
     expect(result.find((item) => item.id === 'new-video')?.isMuted).toBe(true);
     expect(result.find((item) => item.id === 'new-image')?.isMuted).toBe(false);
   });
 
   it('一括ミュートが無効なら追加アイテムを変えない', () => {
-    const existing = [
-      createMockMediaItem({ type: 'video', isMuted: true }),
-      createMockMediaItem({ type: 'video', isMuted: false }),
-    ];
     const added = [
       createMockMediaItem({ id: 'new-video', type: 'video', isMuted: false }),
     ];
 
-    const result = applyBulkMuteToAddedMediaItems(existing, added);
+    const result = applyBulkMuteToAddedMediaItems(added, false);
 
     expect(result).toBe(added);
     expect(result[0].isMuted).toBe(false);
+  });
+
+  it('動画が無くてもフラグONなら追加動画をミュートする', () => {
+    const added = [
+      createMockMediaItem({ id: 'new-video', type: 'video', isMuted: false }),
+    ];
+    expect(areAllExistingVideosMuted([])).toBe(false);
+    expect(resolveSavedBulkMuted(undefined, false)).toBe(false);
+    expect(resolveSavedBulkMuted(true, false)).toBe(true);
+    expect(resolveSavedBulkMuted(undefined, true)).toBe(true);
+    expect(applyBulkMuteToAddedMediaItems(added, true)[0].isMuted).toBe(true);
+  });
+
+  it('BGM/ナレーションの一括ミュートと一括音量を追加クリップへ継承する', () => {
+    expect(areAllExistingAudioClipsMuted([{ isMuted: true }, { isMuted: true }])).toBe(true);
+    const muted = applyBulkMuteToAddedAudioClips(
+      [{ id: 'n1', isMuted: false, volume: 1 }],
+      true,
+    );
+    expect(muted[0].isMuted).toBe(true);
+    const volumed = applyBulkVolumeToAddedAudioClips(
+      [{ id: 'n2', volume: 1 }],
+      true,
+      0.4,
+    );
+    expect(volumed[0].volume).toBeCloseTo(0.4);
   });
 });
 

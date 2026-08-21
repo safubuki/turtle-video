@@ -94,6 +94,21 @@ export function useAutoSave() {
   const projectPosterMode = useMediaStore((s) => s.projectPosterMode);
   const projectPosterTimelineTime = useMediaStore((s) => s.projectPosterTimelineTime);
   const projectPosterAspectRatio = useMediaStore((s) => s.projectPosterAspectRatio);
+  const bulkVideoMuted = useMediaStore((s) => s.bulkVideoMuted);
+  const bulkVideoVolumeEnabled = useMediaStore((s) => s.bulkVideoVolumeEnabled);
+  const bulkVideoVolume = useMediaStore((s) => s.bulkVideoVolume);
+  const videoAudioNormalizeEnabled = useMediaStore((s) => s.videoAudioNormalizeEnabled);
+  const videoAudioNormalizeMode = useMediaStore((s) => s.videoAudioNormalizeMode);
+  const bulkBgmMuted = useAudioStore((s) => s.bulkBgmMuted);
+  const bulkBgmVolumeEnabled = useAudioStore((s) => s.bulkBgmVolumeEnabled);
+  const bulkBgmVolume = useAudioStore((s) => s.bulkBgmVolume);
+  const bgmAudioNormalizeEnabled = useAudioStore((s) => s.bgmAudioNormalizeEnabled);
+  const bgmAudioNormalizeMode = useAudioStore((s) => s.bgmAudioNormalizeMode);
+  const bulkNarrationMuted = useAudioStore((s) => s.bulkNarrationMuted);
+  const bulkNarrationVolumeEnabled = useAudioStore((s) => s.bulkNarrationVolumeEnabled);
+  const bulkNarrationVolume = useAudioStore((s) => s.bulkNarrationVolume);
+  const narrationAudioNormalizeEnabled = useAudioStore((s) => s.narrationAudioNormalizeEnabled);
+  const narrationAudioNormalizeMode = useAudioStore((s) => s.narrationAudioNormalizeMode);
   // dataUrl は大きいのでハッシュは mode/time のみ（内容変更は set 時に mode/time も変わる）
   const isClipsLocked = useMediaStore((s) => s.isClipsLocked);
   const bgm = useAudioStore((s) => s.bgm);
@@ -157,10 +172,27 @@ export function useAutoSave() {
         m.speedBadgeLabelStyle ?? 'ja',
         m.speedBadgePositionX ?? '',
         m.speedBadgePositionY ?? '',
+        m.audioNormalizeEnabled === false ? 0 : 1,
+        m.audioNormalizeGain ?? 1,
       ].join(':')).join(','),
       projectPosterMode,
       projectPosterTimelineTime,
       projectPosterAspectRatio,
+      bulkVideoMuted ? '1' : '0',
+      bulkVideoVolumeEnabled ? '1' : '0',
+      bulkVideoVolume,
+      videoAudioNormalizeEnabled ? '1' : '0',
+      videoAudioNormalizeMode,
+      bulkBgmMuted ? '1' : '0',
+      bulkBgmVolumeEnabled ? '1' : '0',
+      bulkBgmVolume,
+      bgmAudioNormalizeEnabled ? '1' : '0',
+      bgmAudioNormalizeMode,
+      bulkNarrationMuted ? '1' : '0',
+      bulkNarrationVolumeEnabled ? '1' : '0',
+      bulkNarrationVolume,
+      narrationAudioNormalizeEnabled ? '1' : '0',
+      narrationAudioNormalizeMode,
       bgm ? [
         bgm.file?.name ?? '',
         bgm.url,
@@ -191,6 +223,7 @@ export function useAutoSave() {
         n.fadeOut ?? false,
         n.fadeInDuration ?? '',
         n.fadeOutDuration ?? '',
+        n.audioNormalizeGain ?? 1,
       ].join(':')).join(','),
       narrations.length,
       narrations.map((n) => [
@@ -210,6 +243,7 @@ export function useAutoSave() {
         n.aiVoice ?? '',
         n.aiVoiceStyle ?? '',
         n.aiNarrationScene ?? '',
+        n.audioNormalizeGain ?? 1,
       ].join(':')).join(','),
       captions.length,
       captions.map((c) => [
@@ -301,6 +335,21 @@ export function useAutoSave() {
     projectPosterMode,
     projectPosterTimelineTime,
     projectPosterAspectRatio,
+    bulkVideoMuted,
+    bulkVideoVolumeEnabled,
+    bulkVideoVolume,
+    videoAudioNormalizeEnabled,
+    videoAudioNormalizeMode,
+    bulkBgmMuted,
+    bulkBgmVolumeEnabled,
+    bulkBgmVolume,
+    bgmAudioNormalizeEnabled,
+    bgmAudioNormalizeMode,
+    bulkNarrationMuted,
+    bulkNarrationVolumeEnabled,
+    bulkNarrationVolume,
+    narrationAudioNormalizeEnabled,
+    narrationAudioNormalizeMode,
     bgm,
     bgmClips,
     bgmAutoAdjustToTimeline,

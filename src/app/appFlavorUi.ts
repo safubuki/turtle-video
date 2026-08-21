@@ -13,6 +13,7 @@ export interface AppFlavorUiCapabilities {
   supportsMediaRotation: boolean;
   supportsMediaBlur: boolean;
   supportsBulkMediaMute: boolean;
+  supportsClipAudioSettings: boolean;
   supportsWatermark: boolean;
   supportsNarrationCaptionGeneration: boolean;
   supportsVideoTitle: boolean;
@@ -33,6 +34,7 @@ export function getAppFlavorUiCapabilities(appFlavor: AppFlavor): AppFlavorUiCap
     supportsMediaRotation: supportsStandardFeatures,
     supportsMediaBlur: supportsStandardFeatures,
     supportsBulkMediaMute: supportsStandardFeatures,
+    supportsClipAudioSettings: supportsStandardFeatures,
     supportsWatermark: supportsStandardFeatures,
     supportsNarrationCaptionGeneration: supportsStandardFeatures,
     supportsVideoTitle: supportsStandardFeatures,

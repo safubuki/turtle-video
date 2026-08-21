@@ -48,12 +48,18 @@ import {
 import { MIN_SCALE, MAX_SCALE } from '../../constants';
 import {
   VIDEO_PLAYBACK_SPEEDS,
+  MIN_VIDEO_PLAYBACK_SPEED,
+  MAX_VIDEO_PLAYBACK_SPEED,
+  VIDEO_PLAYBACK_SPEED_STEP,
+  DEFAULT_SPEED_BADGE_POSITION,
+  formatPlaybackSpeedValue,
   getVideoSourceClipDuration,
   normalizeSpeedBadgeLabelStyle,
   normalizeVideoPlaybackSpeed,
   resolveSpeedBadgePresetPosition,
   type SpeedBadgePositionPreset,
 } from '../../utils/playbackSpeed';
+import { formatNormalizeAdjustment } from '../../utils/videoAudioLoudness';
 
 export interface ClipItemProps {
   item: MediaItem;
@@ -83,6 +89,8 @@ export interface ClipItemProps {
   onResetSetting: (type: 'scale' | 'x' | 'y' | 'rotation' | 'blur') => void;
   onUpdateVolume: (value: number) => void;
   onToggleMute: () => void;
+  /** 一括音量が有効なときは個別スライダーを無効化する */
+  bulkVolumeEnabled?: boolean;
   onUpdatePlaybackSpeed?: (speed: VideoPlaybackSpeed) => void;
   onUpdateShowSpeedBadge?: (show: boolean) => void;
   onUpdateSpeedBadgeLabelStyle?: (style: SpeedBadgeLabelStyle) => void;
@@ -122,6 +130,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
   onResetSetting,
   onUpdateVolume,
   onToggleMute,
+  bulkVolumeEnabled = false,
   onUpdatePlaybackSpeed,
   onUpdateShowSpeedBadge,
   onUpdateSpeedBadgeLabelStyle,
@@ -582,6 +591,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
         >
           {/* 音量設定 (動画のみ) */}
           {v.type === 'video' && (
+            <div className="space-y-1.5">
             <div className="bg-gray-800/50 p-2 rounded-lg flex items-center gap-2">
               <button
                 onClick={onToggleMute}
@@ -597,21 +607,41 @@ const ClipItem: React.FC<ClipItemProps> = ({
                 max={2.5}
                 step={0.05}
                 value={v.volume}
-                disabled={v.isMuted || isDisabled}
+                disabled={v.isMuted || isDisabled || bulkVolumeEnabled}
                 onChange={handleVolume}
                 hideInput
                 className="flex-1 min-w-0"
-                sliderClassName={`flex-1 min-w-0 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${v.isMuted || isDisabled ? '' : 'cursor-pointer'}`}
+                sliderClassName={`flex-1 min-w-0 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${v.isMuted || isDisabled || bulkVolumeEnabled ? '' : 'cursor-pointer'}`}
               />
               <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right shrink-0">{Math.round(v.volume * 100)}%</span>
               <button
                 onClick={() => onUpdateVolume(1)}
-                disabled={isDisabled}
+                disabled={isDisabled || bulkVolumeEnabled}
                 className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition disabled:opacity-50"
                 title="リセット"
               >
                 <RefreshCw className="w-3 h-3" />
               </button>
+            </div>
+            {bulkVolumeEnabled && (
+              <p className="text-[9px] text-blue-300/80 px-1">一括音量設定中のため、ここでは変更できません。</p>
+            )}
+            {Math.abs((v.audioNormalizeGain ?? 1) - 1) >= 0.02 && (
+              <div
+                className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] ${
+                  (v.audioNormalizeGain ?? 1) > 1
+                    ? 'bg-emerald-500/15 text-emerald-200'
+                    : 'bg-amber-500/15 text-amber-200'
+                }`}
+                data-testid={`clip-normalize-badge-${v.id}`}
+              >
+                <span className="font-medium">音量揃え</span>
+                <span>{formatNormalizeAdjustment(v.audioNormalizeGain ?? 1)}</span>
+                <span className="text-[9px] opacity-80">
+                  {(v.audioNormalizeGain ?? 1) > 1 ? '（音を上げています）' : '（音を下げています）'}
+                </span>
+              </div>
+            )}
             </div>
           )}
 
@@ -695,11 +725,25 @@ const ClipItem: React.FC<ClipItemProps> = ({
               className="px-2 pb-2 space-y-2 border-t border-gray-700/60 pt-2"
             >
               <div className="flex items-center justify-between text-[10px] md:text-xs text-gray-500">
-                <span>早送り（スローは未対応）</span>
+                <span>{formatPlaybackSpeedValue(playbackSpeed)}倍</span>
                 <span className="font-mono text-gray-300">
                   元 {sourceClipDuration.toFixed(1)}s → 表示 {v.duration.toFixed(1)}s
                 </span>
               </div>
+              <NumericSliderField
+                label="速度"
+                ariaLabel="再生速度"
+                min={MIN_VIDEO_PLAYBACK_SPEED}
+                max={MAX_VIDEO_PLAYBACK_SPEED}
+                step={VIDEO_PLAYBACK_SPEED_STEP}
+                value={playbackSpeed}
+                onChange={onUpdatePlaybackSpeed}
+                disabled={isDisabled}
+                unit="倍"
+                decimals={1}
+                sliderClassName="flex-1 min-w-0 accent-amber-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
+                inputClassName="w-12 focus:border-amber-500"
+              />
               <div className="flex flex-wrap gap-1">
                 {VIDEO_PLAYBACK_SPEEDS.map((speed) => (
                   <button
@@ -707,14 +751,14 @@ const ClipItem: React.FC<ClipItemProps> = ({
                     type="button"
                     disabled={isDisabled}
                     onClick={() => onUpdatePlaybackSpeed(speed)}
-                    className={`min-h-8 px-2.5 rounded-lg border text-[11px] font-medium transition disabled:opacity-40 ${
-                      playbackSpeed === speed
+                    className={`min-h-7 px-2 rounded-lg border text-[10px] font-medium transition disabled:opacity-40 ${
+                      Math.abs(playbackSpeed - speed) < 0.05
                         ? 'bg-amber-500/20 border-amber-500/60 text-amber-200'
                         : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-500'
                     }`}
-                    title={speed === 1 ? '等倍再生' : `${speed}倍速で再生・書き出し`}
+                    title={speed === 1 ? '等倍再生' : `${formatPlaybackSpeedValue(speed)}倍速で再生・書き出し`}
                   >
-                    {speed === 1 ? '等倍' : `${speed}倍速`}
+                    {speed === 1 ? '等倍' : `${formatPlaybackSpeedValue(speed)}倍`}
                   </button>
                 ))}
               </div>
@@ -725,18 +769,24 @@ const ClipItem: React.FC<ClipItemProps> = ({
                   >
                     <input
                       type="checkbox"
+                      data-testid={`clip-show-speed-badge-${v.id}`}
                       checked={Boolean(v.showSpeedBadge)}
-                      disabled={isDisabled || playbackSpeed === 1}
+                      disabled={isDisabled}
                       onChange={(e) => onUpdateShowSpeedBadge(e.target.checked)}
                       className="rounded accent-amber-500 w-3 h-3"
                     />
-                    <span>
-                      プレビュー/書き出しに速度を表示
-                      {playbackSpeed === 1 ? '（等倍時は非表示）' : ''}
-                    </span>
+                    <span>プレビュー/書き出しに速度を表示</span>
                   </label>
-                  {v.showSpeedBadge && playbackSpeed > 1 && (
-                    <>
+                  {Math.abs(playbackSpeed - 1) < 0.05 && (
+                    <p className="text-[10px] text-gray-500 leading-snug">
+                      等倍の映像には出しません。先にチェックしてから速度を変えられます。
+                    </p>
+                  )}
+                  {v.showSpeedBadge && (
+                    <div
+                      data-testid={`clip-speed-badge-settings-${v.id}`}
+                      className="space-y-2"
+                    >
                       {onUpdateSpeedBadgeLabelStyle && (
                         <div className="space-y-1">
                           <div className="text-[10px] text-gray-500">表示形式</div>
@@ -751,7 +801,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
                                   : 'border-gray-700 text-gray-400 hover:border-gray-500'
                               }`}
                             >
-                              日本語（{playbackSpeed}倍速）
+                              日本語（{formatPlaybackSpeedValue(playbackSpeed)}倍速）
                             </button>
                             <button
                               type="button"
@@ -763,7 +813,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
                                   : 'border-gray-700 text-gray-400 hover:border-gray-500'
                               }`}
                             >
-                              English（{playbackSpeed}x）
+                              English（{formatPlaybackSpeedValue(playbackSpeed)}x）
                             </button>
                           </div>
                         </div>
@@ -781,8 +831,8 @@ const ClipItem: React.FC<ClipItemProps> = ({
                             ).map(([preset, label]) => {
                               const pos = resolveSpeedBadgePresetPosition(preset as SpeedBadgePositionPreset);
                               const isActive =
-                                Math.abs((v.speedBadgePositionX ?? 91) - pos.x) < 0.5
-                                && Math.abs((v.speedBadgePositionY ?? 12) - pos.y) < 0.5;
+                                Math.abs((v.speedBadgePositionX ?? DEFAULT_SPEED_BADGE_POSITION.x) - pos.x) < 0.5
+                                && Math.abs((v.speedBadgePositionY ?? DEFAULT_SPEED_BADGE_POSITION.y) - pos.y) < 0.5;
                               return (
                                 <button
                                   key={preset}
@@ -806,7 +856,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
                             min={0}
                             max={100}
                             step={1}
-                            value={v.speedBadgePositionX ?? 91}
+                            value={v.speedBadgePositionX ?? DEFAULT_SPEED_BADGE_POSITION.x}
                             onChange={(val) => onUpdateSpeedBadgePosition('x', val)}
                             disabled={isDisabled}
                             unit="%"
@@ -819,7 +869,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
                             min={0}
                             max={100}
                             step={1}
-                            value={v.speedBadgePositionY ?? 12}
+                            value={v.speedBadgePositionY ?? DEFAULT_SPEED_BADGE_POSITION.y}
                             onChange={(val) => onUpdateSpeedBadgePosition('y', val)}
                             disabled={isDisabled}
                             unit="%"
@@ -828,7 +878,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
                           />
                         </div>
                       )}
-                    </>
+                    </div>
                   )}
                 </div>
               )}

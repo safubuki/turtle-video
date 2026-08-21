@@ -1,4 +1,5 @@
 import type { MediaItem } from '../../../types';
+import { resolveMediaPlaybackVolume } from '../../../utils/mediaVolume';
 import type {
   CreatePreviewCacheKeyInput,
   ShouldUsePreviewCacheInput,
@@ -59,6 +60,8 @@ export function createAndroidPreviewCacheKey(
       blur: item.blur ?? 0,
       playbackSpeed: item.playbackSpeed ?? 1,
       showSpeedBadge: Boolean(item.showSpeedBadge),
+      audioNormalizeEnabled: item.audioNormalizeEnabled !== false,
+      audioNormalizeGain: item.audioNormalizeGain ?? 1,
       speedBadgeLabelStyle: item.speedBadgeLabelStyle ?? 'ja',
       speedBadgePositionX: item.speedBadgePositionX ?? null,
       speedBadgePositionY: item.speedBadgePositionY ?? null,
@@ -86,7 +89,7 @@ export function createAndroidPreviewCacheKey(
       id: clip.id,
       url: clip.url,
       startTime: clip.startTime,
-      volume: clip.volume,
+      volume: resolveMediaPlaybackVolume(clip),
       isMuted: clip.isMuted,
       trimStart: clip.trimStart,
       trimEnd: clip.trimEnd,

@@ -14,7 +14,7 @@ export interface PitchPreservedSpeedCaptureParams {
   trimStart: number;
   /** ソース上の有効尺（秒）= trimEnd - trimStart */
   sourceDurationSec: number;
-  /** 1 より大きい倍速 */
+  /** 1 以外の再生速度（スロー含む） */
   speed: number;
   audioContext: AudioContext;
   signal?: AbortSignal;
@@ -39,7 +39,7 @@ export async function capturePitchPreservedSpeedAudio(
     onLog,
   } = params;
 
-  if (!(speed > 1) || !(sourceDurationSec > 0) || signal?.aborted) {
+  if (!(Math.abs(speed - 1) > 0.001) || !(sourceDurationSec > 0) || signal?.aborted) {
     return null;
   }
 

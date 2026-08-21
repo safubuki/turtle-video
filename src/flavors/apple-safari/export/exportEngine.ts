@@ -40,6 +40,7 @@ import {
   getVideoSourceClipDuration,
   normalizeVideoPlaybackSpeed,
 } from '../../../utils/playbackSpeed';
+import { resolveMediaPlaybackVolume } from '../../../utils/mediaVolume';
 import { capturePitchPreservedSpeedAudio } from '../../../utils/audioPitchPreservedCapture';
 import type {
   ExportAudioSources,
@@ -593,7 +594,7 @@ async function offlineRenderAudio(
   for (const item of mediaItems) {
     if (signal.aborted) return null;
 
-    if (item.type === 'video' && !item.isMuted && item.volume > 0) {
+    if (item.type === 'video' && resolveMediaPlaybackVolume(item) > 0) {
       const playbackSpeed = normalizeVideoPlaybackSpeed(item.playbackSpeed);
       const sourceClipDuration = getVideoSourceClipDuration(item);
       const playSourceDuration = sourceClipDuration > 0 ? sourceClipDuration : item.duration;
@@ -601,7 +602,7 @@ async function offlineRenderAudio(
       let audioBuffer: AudioBuffer | null = null;
       let usedPitchPreservedCapture = false;
       if (
-        playbackSpeed > 1
+        Math.abs(playbackSpeed - 1) > 0.001
         && playSourceDuration > 0
         && item.file instanceof File
       ) {
@@ -637,7 +638,7 @@ async function offlineRenderAudio(
         source.connect(gain);
         gain.connect(offlineCtx.destination);
 
-        const vol = item.volume;
+        const vol = resolveMediaPlaybackVolume(item);
         const clipStart = timelinePosition;
         const clipEnd = clipStart + item.duration;
 
@@ -668,7 +669,7 @@ async function offlineRenderAudio(
         if (usedPitchPreservedCapture) {
           scheduleOffset = 0;
           scheduleDuration = Math.min(audioBuffer.duration, item.duration + 0.05);
-        } else if (playbackSpeed > 1 && playSourceDuration > 0) {
+        } else if (Math.abs(playbackSpeed - 1) > 0.001 && playSourceDuration > 0) {
           log.warn('RENDER', '[DIAG-SCHED] 音程維持キャプチャ失敗。playbackRate フォールバック（高音化あり）', {
             playbackSpeed,
           });

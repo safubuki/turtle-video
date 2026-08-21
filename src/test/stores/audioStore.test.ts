@@ -46,6 +46,7 @@ const createMockNarrationClip = (
     trimStart,
     trimEnd,
     isAiEditable: overrides.isAiEditable ?? false,
+    audioNormalizeGain: overrides.audioNormalizeGain ?? 1,
   };
 
   if (overrides.blobUrl !== undefined) clip.blobUrl = overrides.blobUrl;
@@ -61,8 +62,13 @@ describe('audioStore', () => {
     useAudioStore.setState({
       bgm: null,
       isBgmLocked: false,
+      bgmClips: [],
       narrations: [],
       isNarrationLocked: false,
+      bulkBgmMuted: false,
+      bulkBgmVolumeEnabled: false,
+      bulkNarrationMuted: false,
+      bulkNarrationVolumeEnabled: false,
     });
   });
 
@@ -475,7 +481,19 @@ describe('audioStore', () => {
 
   describe('bgmClips (multi-BGM)', () => {
     beforeEach(() => {
-      useAudioStore.setState({ bgm: null, bgmClips: [], narrations: [] });
+      useAudioStore.setState({
+        bgm: null,
+        bgmClips: [],
+        narrations: [],
+        bulkBgmVolumeEnabled: false,
+        bulkBgmVolume: 1,
+        bgmAudioNormalizeEnabled: false,
+        bgmAudioNormalizeMode: 'mean',
+        bulkNarrationVolumeEnabled: false,
+        bulkNarrationVolume: 1,
+        narrationAudioNormalizeEnabled: false,
+        narrationAudioNormalizeMode: 'mean',
+      });
     });
 
     it('auto-fits the first clip to the video length', () => {
@@ -608,6 +626,149 @@ describe('audioStore', () => {
 
       useAudioStore.getState().clearAllAudio();
       expect(useAudioStore.getState().bgmClips).toHaveLength(0);
+    });
+
+    it('一括音量ONで追加したBGMへ音量を継承し、全クリア後も設定を残す', () => {
+      useAudioStore.setState({
+        bulkBgmVolumeEnabled: true,
+        bulkBgmVolume: 0.4,
+        bgmClips: [],
+      });
+      const file = new File([''], 'bulk.mp3', { type: 'audio/mpeg' });
+      useAudioStore.getState().addBgmClip({ file, url: 'blob:bulk', duration: 10 }, 20);
+      expect(useAudioStore.getState().bgmClips[0].volume).toBeCloseTo(0.4);
+
+      useAudioStore.getState().clearAllAudio();
+      expect(useAudioStore.getState().bulkBgmVolumeEnabled).toBe(true);
+      expect(useAudioStore.getState().bulkBgmVolume).toBeCloseTo(0.4);
+    });
+
+    it('BGMが無くても一括ミュートを先にONにでき、追加曲はミュートされる', () => {
+      useAudioStore.setState({ bgmClips: [], bulkBgmMuted: false });
+      useAudioStore.getState().setAllBgmClipsMuted(true);
+      expect(useAudioStore.getState().bulkBgmMuted).toBe(true);
+
+      useAudioStore.getState().addBgmClip({
+        file: new File([''], 'preset-mute.mp3', { type: 'audio/mpeg' }),
+        url: 'blob:preset-mute',
+        duration: 8,
+      }, 20);
+      expect(useAudioStore.getState().bgmClips[0].isMuted).toBe(true);
+      expect(useAudioStore.getState().bulkBgmMuted).toBe(true);
+    });
+
+    it('BGMを一括ミュートすると追加曲もミュートする', () => {
+      const file = new File([''], 'mute.mp3', { type: 'audio/mpeg' });
+      useAudioStore.getState().addBgmClip({ file, url: 'blob:mute-1', duration: 10 }, 20);
+      useAudioStore.getState().setAllBgmClipsMuted(true);
+      expect(useAudioStore.getState().bgmClips[0].isMuted).toBe(true);
+
+      useAudioStore.getState().addBgmClip({
+        file: new File([''], 'mute-2.mp3', { type: 'audio/mpeg' }),
+        url: 'blob:mute-2',
+        duration: 8,
+      }, 20);
+      expect(useAudioStore.getState().bgmClips.every((clip) => clip.isMuted)).toBe(true);
+    });
+
+    it('個別ミュート操作で一括ミュートフラグを解除する', () => {
+      useAudioStore.getState().addBgmClip({
+        file: new File([''], 'toggle.mp3', { type: 'audio/mpeg' }),
+        url: 'blob:toggle',
+        duration: 8,
+      }, 20);
+      useAudioStore.getState().setAllBgmClipsMuted(true);
+      const id = useAudioStore.getState().bgmClips[0].id;
+      useAudioStore.getState().toggleBgmClipMute(id);
+      expect(useAudioStore.getState().bulkBgmMuted).toBe(false);
+      expect(useAudioStore.getState().bgmClips[0].isMuted).toBe(false);
+    });
+
+    it('全クリア後も一括ミュートフラグを残す', () => {
+      useAudioStore.setState({ bulkBgmMuted: true, bulkNarrationMuted: true });
+      useAudioStore.getState().clearAllAudio();
+      expect(useAudioStore.getState().bgmClips).toHaveLength(0);
+      expect(useAudioStore.getState().narrations).toHaveLength(0);
+      expect(useAudioStore.getState().bulkBgmMuted).toBe(true);
+      expect(useAudioStore.getState().bulkNarrationMuted).toBe(true);
+    });
+  });
+
+  describe('narration bulk audio settings', () => {
+    it('一括音量ONで追加したナレーションへ音量を継承する', () => {
+      useAudioStore.setState({
+        bulkNarrationVolumeEnabled: true,
+        bulkNarrationVolume: 0.3,
+        narrations: [],
+      });
+      useAudioStore.getState().addNarration(createMockNarrationClip({ id: 'n-bulk', volume: 1 }));
+      expect(useAudioStore.getState().narrations[0].volume).toBeCloseTo(0.3);
+    });
+
+    it('ナレーションが無くても一括ミュートを先にONにでき、追加クリップはミュートされる', () => {
+      useAudioStore.setState({ narrations: [], bulkNarrationMuted: false });
+      useAudioStore.getState().setAllNarrationsMuted(true);
+      expect(useAudioStore.getState().bulkNarrationMuted).toBe(true);
+
+      useAudioStore.getState().addNarration(createMockNarrationClip({
+        id: 'n-preset-mute',
+        isMuted: false,
+      }));
+      expect(useAudioStore.getState().narrations[0].isMuted).toBe(true);
+      expect(useAudioStore.getState().bulkNarrationMuted).toBe(true);
+    });
+
+    it('restoreFromSave は一括音設定を復元する', () => {
+      useAudioStore.getState().restoreFromSave(
+        null,
+        false,
+        [],
+        false,
+        [],
+        true,
+        {
+          bulkBgmMuted: true,
+          bulkBgmVolumeEnabled: true,
+          bulkBgmVolume: 0.55,
+          bgmAudioNormalizeEnabled: true,
+          bgmAudioNormalizeMode: 'loudest',
+          bulkNarrationMuted: true,
+          bulkNarrationVolumeEnabled: true,
+          bulkNarrationVolume: 1.2,
+          narrationAudioNormalizeEnabled: true,
+          narrationAudioNormalizeMode: 'mean',
+        },
+      );
+      const state = useAudioStore.getState();
+      expect(state.bulkBgmMuted).toBe(true);
+      expect(state.bulkBgmVolumeEnabled).toBe(true);
+      expect(state.bulkBgmVolume).toBeCloseTo(0.55);
+      expect(state.bgmAudioNormalizeEnabled).toBe(true);
+      expect(state.bgmAudioNormalizeMode).toBe('loudest');
+      expect(state.bulkNarrationMuted).toBe(true);
+      expect(state.bulkNarrationVolumeEnabled).toBe(true);
+      expect(state.bulkNarrationVolume).toBeCloseTo(1.2);
+      expect(state.narrationAudioNormalizeEnabled).toBe(true);
+      expect(state.narrationAudioNormalizeMode).toBe('mean');
+    });
+
+    it('restoreFromSave は未保存の一括ミュートを既存クリップの全ミュートから補完する', () => {
+      useAudioStore.getState().restoreFromSave(
+        null,
+        false,
+        [createMockNarrationClip({ id: 'n-muted', isMuted: true })],
+        false,
+        [{
+          ...createMockNarrationClip({ id: 'b-muted', isMuted: true }),
+        } as any],
+        false,
+      );
+      expect(useAudioStore.getState().bulkBgmMuted).toBe(true);
+      expect(useAudioStore.getState().bulkNarrationMuted).toBe(true);
+
+      useAudioStore.getState().restoreFromSave(null, false, [], false, [], false);
+      expect(useAudioStore.getState().bulkBgmMuted).toBe(false);
+      expect(useAudioStore.getState().bulkNarrationMuted).toBe(false);
     });
   });
 });

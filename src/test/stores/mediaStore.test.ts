@@ -16,6 +16,11 @@ describe('mediaStore', () => {
       projectPosterTimelineTime: 0.2,
       projectPosterDataUrl: null,
       projectPosterAspectRatio: 'landscape',
+      bulkVideoMuted: false,
+      bulkVideoVolumeEnabled: false,
+      bulkVideoVolume: 1,
+      videoAudioNormalizeEnabled: false,
+      videoAudioNormalizeMode: 'mean',
     });
   });
 
@@ -199,6 +204,28 @@ describe('mediaStore', () => {
       expect(mediaItems.every((m) => m.isMuted === false)).toBe(true);
     });
 
+    it('動画が無くても一括ミュートを先にONにでき、追加動画はミュートされる', async () => {
+      useMediaStore.setState({
+        mediaItems: [],
+        totalDuration: 0,
+        bulkVideoMuted: false,
+      });
+
+      useMediaStore.getState().setAllVideosMuted(true);
+      expect(useMediaStore.getState().bulkVideoMuted).toBe(true);
+      expect(useMediaStore.getState().mediaItems).toHaveLength(0);
+
+      await useMediaStore.getState().addMediaItems([
+        new File(['new'], 'preset-mute.mp4', { type: 'video/mp4' }),
+      ]);
+
+      const addedVideo = useMediaStore.getState().mediaItems.find(
+        (item) => item.file?.name === 'preset-mute.mp4',
+      );
+      expect(addedVideo?.isMuted).toBe(true);
+      expect(useMediaStore.getState().bulkVideoMuted).toBe(true);
+    });
+
     it('一括ミュート中に追加した動画もミュートし、一括ミュート状態を維持する', async () => {
       useMediaStore.setState({
         mediaItems: [
@@ -206,6 +233,7 @@ describe('mediaStore', () => {
           { id: 'i1', type: 'image', isMuted: false, duration: 5 } as any,
         ],
         totalDuration: 10,
+        bulkVideoMuted: true,
       });
 
       await useMediaStore.getState().addMediaItems([
@@ -231,6 +259,7 @@ describe('mediaStore', () => {
           { id: 'v2', type: 'video', isMuted: false, duration: 5 } as any,
         ],
         totalDuration: 10,
+        bulkVideoMuted: false,
       });
 
       await useMediaStore.getState().addMediaItems([
@@ -241,6 +270,155 @@ describe('mediaStore', () => {
         (item) => item.file?.name === 'added.mp4',
       );
       expect(addedVideo?.isMuted).toBe(false);
+    });
+
+    it('個別ミュート操作で一括ミュートフラグを解除する', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'v1', type: 'video', isMuted: true, duration: 5 } as any,
+        ],
+        bulkVideoMuted: true,
+      });
+
+      useMediaStore.getState().toggleMute('v1');
+      expect(useMediaStore.getState().bulkVideoMuted).toBe(false);
+      expect(useMediaStore.getState().mediaItems[0].isMuted).toBe(false);
+    });
+
+    it('全クリア後も一括ミュートフラグを残し、再追加動画へすぐ適用する', async () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'v1', type: 'video', isMuted: true, duration: 5, url: 'blob:v1' } as any,
+        ],
+        bulkVideoMuted: true,
+      });
+
+      useMediaStore.getState().clearAllMedia();
+      expect(useMediaStore.getState().mediaItems).toHaveLength(0);
+      expect(useMediaStore.getState().bulkVideoMuted).toBe(true);
+
+      await useMediaStore.getState().addMediaItems([
+        new File(['new'], 'after-clear.mp4', { type: 'video/mp4' }),
+      ]);
+      expect(useMediaStore.getState().mediaItems[0].isMuted).toBe(true);
+      expect(useMediaStore.getState().bulkVideoMuted).toBe(true);
+    });
+
+    it('restoreFromSave は保存フラグを優先し、未保存なら全ミュートから補完する', () => {
+      useMediaStore.getState().restoreFromSave([], false, undefined, { bulkVideoMuted: true });
+      expect(useMediaStore.getState().bulkVideoMuted).toBe(true);
+
+      useMediaStore.getState().restoreFromSave(
+        [{ id: 'v1', type: 'video', isMuted: true, duration: 5 } as any],
+        false,
+      );
+      expect(useMediaStore.getState().bulkVideoMuted).toBe(true);
+
+      useMediaStore.getState().restoreFromSave([], false);
+      expect(useMediaStore.getState().bulkVideoMuted).toBe(false);
+    });
+  });
+
+  describe('bulk video volume and normalize', () => {
+    it('一括音量を有効にすると全動画へ同じ音量を書き込む', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'v1', type: 'video', volume: 0.4, duration: 5 } as any,
+          { id: 'i1', type: 'image', volume: 1, duration: 5 } as any,
+          { id: 'v2', type: 'video', volume: 1.8, duration: 5 } as any,
+        ],
+        bulkVideoVolumeEnabled: false,
+        bulkVideoVolume: 0.7,
+      });
+
+      useMediaStore.getState().setBulkVideoVolumeEnabled(true);
+      const { mediaItems, bulkVideoVolumeEnabled } = useMediaStore.getState();
+      expect(bulkVideoVolumeEnabled).toBe(true);
+      expect(mediaItems.find((m) => m.id === 'v1')?.volume).toBeCloseTo(0.7);
+      expect(mediaItems.find((m) => m.id === 'v2')?.volume).toBeCloseTo(0.7);
+      expect(mediaItems.find((m) => m.id === 'i1')?.volume).toBe(1);
+    });
+
+    it('一括音量が有効なとき追加した動画もその音量を継承する', async () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'v1', type: 'video', volume: 0.6, isMuted: false, duration: 5 } as any,
+        ],
+        bulkVideoVolumeEnabled: true,
+        bulkVideoVolume: 0.6,
+      });
+
+      await useMediaStore.getState().addMediaItems([
+        new File(['new'], 'added.mp4', { type: 'video/mp4' }),
+      ]);
+
+      const addedVideo = useMediaStore.getState().mediaItems.find(
+        (item) => item.file?.name === 'added.mp4',
+      );
+      expect(addedVideo?.volume).toBeCloseTo(0.6);
+    });
+
+    it('音量揃えOFFでゲインを1へ戻し、個別対象外はゲイン1のまま', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'v1', type: 'video', audioNormalizeGain: 2, audioNormalizeEnabled: true } as any,
+          { id: 'v2', type: 'video', audioNormalizeGain: 0.5, audioNormalizeEnabled: true } as any,
+        ],
+        videoAudioNormalizeEnabled: true,
+      });
+
+      useMediaStore.getState().setVideoAudioNormalizeParticipating('v2', false);
+      expect(useMediaStore.getState().mediaItems.find((m) => m.id === 'v2')?.audioNormalizeEnabled).toBe(false);
+      expect(useMediaStore.getState().mediaItems.find((m) => m.id === 'v2')?.audioNormalizeGain).toBe(1);
+
+      useMediaStore.getState().setVideoAudioNormalizeEnabled(false);
+      expect(useMediaStore.getState().videoAudioNormalizeEnabled).toBe(false);
+      expect(useMediaStore.getState().mediaItems.every((m) => m.audioNormalizeGain === 1)).toBe(true);
+    });
+
+    it('音量揃えの目標を平均と最大で切り替えられる', () => {
+      expect(useMediaStore.getState().videoAudioNormalizeMode).toBe('mean');
+      useMediaStore.getState().setVideoAudioNormalizeMode('loudest');
+      expect(useMediaStore.getState().videoAudioNormalizeMode).toBe('loudest');
+      useMediaStore.getState().setVideoAudioNormalizeMode('mean');
+      expect(useMediaStore.getState().videoAudioNormalizeMode).toBe('mean');
+    });
+
+    it('動画を減らしても一括音量と音量揃えは有効のまま残り、追加動画へ引き継ぐ', async () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'v1', type: 'video', volume: 0.4, duration: 5, url: 'blob:v1', file: { name: 'v1.mp4' } } as any,
+          { id: 'v2', type: 'video', volume: 0.4, duration: 5, url: 'blob:v2', file: { name: 'v2.mp4' } } as any,
+          { id: 'v3', type: 'video', volume: 0.4, duration: 5, url: 'blob:v3', file: { name: 'v3.mp4' } } as any,
+        ],
+        bulkVideoVolumeEnabled: true,
+        bulkVideoVolume: 0.4,
+        videoAudioNormalizeEnabled: true,
+        videoAudioNormalizeMode: 'loudest',
+      });
+
+      useMediaStore.getState().removeMediaItem('v2');
+      useMediaStore.getState().removeMediaItem('v3');
+      expect(useMediaStore.getState().mediaItems).toHaveLength(1);
+      expect(useMediaStore.getState().bulkVideoVolumeEnabled).toBe(true);
+      expect(useMediaStore.getState().videoAudioNormalizeEnabled).toBe(true);
+      expect(useMediaStore.getState().videoAudioNormalizeMode).toBe('loudest');
+
+      useMediaStore.getState().clearAllMedia();
+      expect(useMediaStore.getState().mediaItems).toHaveLength(0);
+      expect(useMediaStore.getState().bulkVideoVolumeEnabled).toBe(true);
+      expect(useMediaStore.getState().bulkVideoVolume).toBeCloseTo(0.4);
+      expect(useMediaStore.getState().videoAudioNormalizeEnabled).toBe(true);
+      expect(useMediaStore.getState().videoAudioNormalizeMode).toBe('loudest');
+
+      await useMediaStore.getState().addMediaItems([
+        new File(['new'], 'readded.mp4', { type: 'video/mp4' }),
+      ]);
+      const addedVideo = useMediaStore.getState().mediaItems.find(
+        (item) => item.file?.name === 'readded.mp4',
+      );
+      expect(addedVideo?.volume).toBeCloseTo(0.4);
+      expect(addedVideo?.audioNormalizeEnabled).not.toBe(false);
     });
   });
 

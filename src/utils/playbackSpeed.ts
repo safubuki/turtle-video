@@ -1,21 +1,32 @@
 /**
  * @file playbackSpeed.ts
- * @description 動画カード倍速（1/2/4/8）の正規化・タイムライン/ソース時刻変換・速度バッジ描画。
+ * @description 動画カード再生速度（0.5〜8.0・0.1刻み）の正規化・タイムライン/ソース時刻変換・速度バッジ描画。
  * Docs/specs/2026-08-01_video-playback-speed.md
  */
 import type { MediaItem, SpeedBadgeLabelStyle, VideoPlaybackSpeed } from '../types';
 
-export const VIDEO_PLAYBACK_SPEEDS: readonly VideoPlaybackSpeed[] = [1, 2, 4, 8];
+/** スライダーの下限（スロー）。0.1 は実用性が低いため 0.5 を下限にする */
+export const MIN_VIDEO_PLAYBACK_SPEED = 0.5;
+/** スライダーの上限（従来の 8x を維持） */
+export const MAX_VIDEO_PLAYBACK_SPEED = 8;
+/** スライダー / ステッパーの刻み */
+export const VIDEO_PLAYBACK_SPEED_STEP = 0.1;
+
+/** よく使う倍率のショートカット（スライダー本体とは別に任意で置く） */
+export const VIDEO_PLAYBACK_SPEEDS: readonly VideoPlaybackSpeed[] = [0.5, 1, 2, 4, 8];
 
 export const DEFAULT_VIDEO_PLAYBACK_SPEED: VideoPlaybackSpeed = 1;
 
 /** バッジ文言の既定（日本語「N倍速」） */
 export const DEFAULT_SPEED_BADGE_LABEL_STYLE: SpeedBadgeLabelStyle = 'ja';
 
+/** 四隅プリセットの角からの余白（中心 %）。横・縦とも同じ距離 */
+export const SPEED_BADGE_CORNER_INSET_PERCENT = 9;
+
 /** バッジ既定位置（右上寄り・中心 %） */
 export const DEFAULT_SPEED_BADGE_POSITION = {
-  x: 91,
-  y: 12,
+  x: 100 - SPEED_BADGE_CORNER_INSET_PERCENT,
+  y: SPEED_BADGE_CORNER_INSET_PERCENT,
 } as const;
 
 export type SpeedBadgePositionPreset =
@@ -28,15 +39,27 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function roundToPlaybackSpeedStep(value: number): number {
+  const stepped = Math.round(value / VIDEO_PLAYBACK_SPEED_STEP) * VIDEO_PLAYBACK_SPEED_STEP;
+  return Number(stepped.toFixed(1));
+}
+
 /**
- * 未知値・旧データを 1/2/4/8 に正規化する。
+ * 未知値・旧データを 0.5〜8.0（0.1刻み）へ正規化する。
+ * 旧プロジェクトの 1/2/4/8 はそのまま通る。0.5 未満は 0.5。不正値は 1。
  */
 export function normalizeVideoPlaybackSpeed(value: unknown): VideoPlaybackSpeed {
-  if (value === 2 || value === 4 || value === 8) return value;
-  if (value === '2') return 2;
-  if (value === '4') return 4;
-  if (value === '8') return 8;
-  return DEFAULT_VIDEO_PLAYBACK_SPEED;
+  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_VIDEO_PLAYBACK_SPEED;
+  return Math.min(
+    MAX_VIDEO_PLAYBACK_SPEED,
+    Math.max(MIN_VIDEO_PLAYBACK_SPEED, roundToPlaybackSpeedStep(n)),
+  );
+}
+
+export function formatPlaybackSpeedValue(speed: unknown): string {
+  const s = normalizeVideoPlaybackSpeed(speed);
+  return Number.isInteger(s) ? String(s) : s.toFixed(1);
 }
 
 /**
@@ -149,10 +172,11 @@ export function normalizeSpeedBadgePosition(
 export function resolveSpeedBadgePresetPosition(
   preset: SpeedBadgePositionPreset,
 ): { x: number; y: number } {
-  const left = 9;
-  const right = 91;
-  const top = 12;
-  const bottom = 88;
+  const inset = SPEED_BADGE_CORNER_INSET_PERCENT;
+  const left = inset;
+  const right = 100 - inset;
+  const top = inset;
+  const bottom = 100 - inset;
   switch (preset) {
     case 'top-left':
       return { x: left, y: top };
@@ -177,12 +201,12 @@ export function formatSpeedBadgeLabel(
   speed: unknown,
   labelStyle?: unknown,
 ): string {
-  const s = normalizeVideoPlaybackSpeed(speed);
+  const shown = formatPlaybackSpeedValue(speed);
   const style = normalizeSpeedBadgeLabelStyle(labelStyle);
   if (style === 'en') {
-    return `\u00BB ${s}x`;
+    return `\u00BB ${shown}x`;
   }
-  return `\u00BB ${s}倍速`;
+  return `\u00BB ${shown}倍速`;
 }
 
 /**
@@ -206,18 +230,20 @@ export function resolveSpeedAwareVideoSyncThresholdSec(
 
 /**
  * export 壁時計 1 秒あたり、タイムラインを 1/divisor 秒進める。
- * 倍速クリップでは divisor=speed（映像は 1x 連続再生し、タイムラインだけ縮める）。
- * 画像・等倍は 1。
+ * 倍速（speed>1）では divisor=speed（映像は 1x 連続再生し、タイムラインだけ縮める）。
+ * スロー（speed<1）・画像・等倍は 1（スローは playbackRate=speed で壁時計=タイムライン）。
  *
  * 採用しない方式:
- * - playbackRate=speed の連続再生: デコード遅れでソース終端まで届かず途中切れ
+ * - 倍速で playbackRate=speed の連続再生: デコード遅れでソース終端まで届かず途中切れ
  * - paused + 毎フレーム seek: 連続 seek で静止画化（export-video-backpressure-postmortem）
+ * - スローで壁時計 dilation: タイムラインが壁より速く進み、出力フレームが不足する
  */
 export function resolveExportTimelineWallDivisorForItem(
   item: { type?: string; playbackSpeed?: unknown } | null | undefined,
 ): number {
   if (!item || item.type === 'image') return 1;
-  return normalizeVideoPlaybackSpeed(item.playbackSpeed);
+  const speed = normalizeVideoPlaybackSpeed(item.playbackSpeed);
+  return speed > 1 ? speed : 1;
 }
 
 /**
@@ -235,14 +261,17 @@ export function wallDeltaToExportTimelineDelta(
 
 /**
  * `<video>.playbackRate` に渡す値。
- * export は常に 1（壁時計 dilation と対）。preview は設定速度。
+ * - preview: 設定速度
+ * - export の倍速（>1）: 常に 1（壁時計 dilation と対）
+ * - export のスロー（<1）: 設定速度（デコーダに余裕があるので native slow が安全）
  */
 export function resolveVideoElementPlaybackRateForContext(
   isExporting: boolean,
   playbackSpeed: unknown,
 ): VideoPlaybackSpeed {
-  if (isExporting) return DEFAULT_VIDEO_PLAYBACK_SPEED;
-  return normalizeVideoPlaybackSpeed(playbackSpeed);
+  const speed = normalizeVideoPlaybackSpeed(playbackSpeed);
+  if (isExporting && speed > 1) return DEFAULT_VIDEO_PLAYBACK_SPEED;
+  return speed;
 }
 
 export function shouldDrawSpeedBadge(
@@ -250,7 +279,7 @@ export function shouldDrawSpeedBadge(
 ): boolean {
   if (!item || item.type !== 'video') return false;
   if (!item.showSpeedBadge) return false;
-  return normalizeVideoPlaybackSpeed(item.playbackSpeed) > 1;
+  return Math.abs(normalizeVideoPlaybackSpeed(item.playbackSpeed) - 1) >= VIDEO_PLAYBACK_SPEED_STEP / 2;
 }
 
 /**
@@ -323,10 +352,11 @@ export function drawSpeedBadgeFrame(
 
 /**
  * HTMLVideoElement の playbackRate を設定する。
- * - プレビュー: 設定速度（2/4/8）で連続再生。preservesPitch で音程維持。
- * - エクスポート: 必ず 1（`resolveVideoElementPlaybackRateForContext` 経由）。
+ * - プレビュー: 設定速度で連続再生。preservesPitch で音程維持。
+ * - エクスポートの倍速: 必ず 1（`resolveVideoElementPlaybackRateForContext` 経由）。
  *   倍速は壁時計 dilation でタイムラインを縮める。rate=speed は途中切れ、
  *   seek 駆動は静止画化するため使わない。
+ * - エクスポートのスロー: 設定速度（native slow）。dilation するとフレーム不足になる。
  * 失敗しても再生継続できるよう例外は握りつぶす。
  */
 export function applyVideoElementPlaybackRate(

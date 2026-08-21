@@ -26,6 +26,50 @@ describe('BgmClipList timeline adjustment', () => {
     });
   });
 
+  it('一括音設定パネルをリスト先頭へ置く', () => {
+    render(
+      <BgmClipList
+        audioSettingsPanel={<div>一括音設定パネル</div>}
+        clips={useAudioStore.getState().bgmClips}
+        isLocked={false}
+        totalDuration={60}
+        currentTime={10}
+        formatTime={(seconds) => `${seconds.toFixed(1)}s`}
+        onBeforeEdit={vi.fn()}
+        onBeforeContinuousEdit={vi.fn()}
+      />,
+    );
+    const panel = screen.getByText('一括音設定パネル');
+    const title = screen.getByTitle('song.mp3');
+    expect(
+      panel.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('長いファイル名でもタイトル行を伸縮させて省略する', () => {
+    useAudioStore.setState({
+      bgmClips: [{
+        ...clip,
+        file: new File([''], 'Rapid Express_FUGITIVE_ - Analog Jazz Chase Mix Super Long Title.mp3', { type: 'audio/mpeg' }),
+      }],
+    });
+    render(
+      <BgmClipList
+        clips={useAudioStore.getState().bgmClips}
+        isLocked={false}
+        totalDuration={60}
+        currentTime={10}
+        formatTime={(seconds) => `${seconds.toFixed(1)}s`}
+        onBeforeEdit={vi.fn()}
+        onBeforeContinuousEdit={vi.fn()}
+      />,
+    );
+    const title = screen.getByTitle('Rapid Express_FUGITIVE_ - Analog Jazz Chase Mix Super Long Title.mp3');
+    expect(title).toHaveClass('truncate');
+    expect(title).toHaveClass('min-w-0');
+    expect(title).toHaveClass('flex-1');
+  });
+
   it('fits the selected clip settings to the video end from the UI', () => {
     const onBeforeEdit = vi.fn();
     render(

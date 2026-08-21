@@ -63,7 +63,6 @@ function renderClipsSection(
     onUpdateMediaVolume: vi.fn(),
     onToggleMediaMute: vi.fn(),
     onBeforeTransitionEdit: vi.fn(),
-    onSetAllVideosMuted: vi.fn(),
     onToggleMediaFadeIn: vi.fn(),
     onToggleMediaFadeOut: vi.fn(),
     onUpdateFadeInDuration: vi.fn(),
@@ -187,9 +186,8 @@ describe('ClipsSection bulk mute', () => {
     };
   }
 
-  it('タイトル横の一括ミュートで全動画をミュートする', () => {
-    const { props } = renderClipsSection({
-      // MiniPreview（IntersectionObserver）を開かないよう transform は閉じる
+  it('タイトル横に一括ミュートボタンを出さない', () => {
+    renderClipsSection({
       mediaItems: [
         createVideoItem('v1'),
         createVideoItem('v2'),
@@ -197,22 +195,9 @@ describe('ClipsSection bulk mute', () => {
       ],
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'すべての動画をミュート' }));
-    expect(props.onSetAllVideosMuted).toHaveBeenCalledWith(true);
-  });
-
-  it('全動画がミュート済みなら解除を呼ぶ', () => {
-    const { props } = renderClipsSection({
-      mediaItems: [createVideoItem('v1', true), createVideoItem('v2', true)],
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: 'すべての動画のミュートを解除' }));
-    expect(props.onSetAllVideosMuted).toHaveBeenCalledWith(false);
-  });
-
-  it('動画が無いときは一括ミュートボタンを無効化する', () => {
-    renderClipsSection({ mediaItems: [createImageItem({ isTransformOpen: false })] });
-    expect(screen.getByRole('button', { name: 'ミュート対象の動画がありません' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'すべての動画をミュート' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'すべての動画のミュートを解除' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'ミュート対象の動画がありません' })).not.toBeInTheDocument();
   });
 });
 
@@ -294,6 +279,19 @@ describe('ClipsSection aspect ratio controls', () => {
     ).toBeTruthy();
   });
 
+  it('音設定パネルをロゴ設定の直後へ配置する', () => {
+    renderClipsSection({
+      watermarkPanel: <div>ウォーターマーク設定パネル</div>,
+      audioSettingsPanel: <div>音設定パネル</div>,
+    });
+
+    const watermark = screen.getByText('ウォーターマーク設定パネル');
+    const audio = screen.getByText('音設定パネル');
+    expect(
+      watermark.compareDocumentPosition(audio) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it('apple-safari では新しい素材操作を表示せず操作経路も渡さない', () => {
     vi.stubGlobal('IntersectionObserver', class {
       observe() {}
@@ -305,12 +303,14 @@ describe('ClipsSection aspect ratio controls', () => {
       {
         mediaItems: [createImageItem()],
         watermarkPanel: <div>ウォーターマーク設定パネル</div>,
+        audioSettingsPanel: <div>音設定パネル</div>,
       },
       true,
     );
 
     expect(screen.queryByTitle('縦画面 (9:16)')).not.toBeInTheDocument();
     expect(screen.queryByText('ウォーターマーク設定パネル')).not.toBeInTheDocument();
+    expect(screen.queryByText('音設定パネル')).not.toBeInTheDocument();
     expect(screen.queryByText('90°回転')).not.toBeInTheDocument();
     expect(screen.queryByRole('slider', { name: 'ぼかし強度' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'ミュート対象の動画がありません' })).not.toBeInTheDocument();

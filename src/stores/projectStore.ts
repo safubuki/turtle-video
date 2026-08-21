@@ -271,6 +271,21 @@ interface ProjectState {
     projectPosterTimelineTime?: number;
     projectPosterDataUrl: string | null;
     projectPosterAspectRatio: AspectRatio;
+    bulkVideoMuted?: boolean;
+    bulkVideoVolumeEnabled: boolean;
+    bulkVideoVolume: number;
+    videoAudioNormalizeEnabled: boolean;
+    videoAudioNormalizeMode: 'mean' | 'loudest';
+    bulkBgmMuted?: boolean;
+    bulkBgmVolumeEnabled: boolean;
+    bulkBgmVolume: number;
+    bgmAudioNormalizeEnabled: boolean;
+    bgmAudioNormalizeMode: 'mean' | 'loudest';
+    bulkNarrationMuted?: boolean;
+    bulkNarrationVolumeEnabled: boolean;
+    bulkNarrationVolume: number;
+    narrationAudioNormalizeEnabled: boolean;
+    narrationAudioNormalizeMode: 'mean' | 'loudest';
   } | null>;
 
   deleteAllSaves: () => Promise<void>;
@@ -478,6 +493,12 @@ async function serializeMediaItem(item: MediaItem): Promise<SerializedMediaItem>
       ? normalizeVideoPlaybackSpeed(item.playbackSpeed)
       : undefined,
     showSpeedBadge: item.type === 'video' ? Boolean(item.showSpeedBadge) : undefined,
+    audioNormalizeEnabled: item.type === 'video'
+      ? item.audioNormalizeEnabled !== false
+      : undefined,
+    audioNormalizeGain: item.type === 'video'
+      ? (Number.isFinite(item.audioNormalizeGain) ? item.audioNormalizeGain : 1)
+      : undefined,
     speedBadgeLabelStyle: item.type === 'video'
       ? normalizeSpeedBadgeLabelStyle(item.speedBadgeLabelStyle)
       : undefined,
@@ -502,6 +523,14 @@ function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
     ? normalizeVideoPlaybackSpeed(data.playbackSpeed)
     : undefined;
   const showSpeedBadge = data.type === 'video' ? Boolean(data.showSpeedBadge) : undefined;
+  const audioNormalizeEnabled = data.type === 'video'
+    ? data.audioNormalizeEnabled !== false
+    : undefined;
+  const audioNormalizeGain = data.type === 'video'
+    ? (Number.isFinite(data.audioNormalizeGain) && (data.audioNormalizeGain as number) > 0
+      ? data.audioNormalizeGain
+      : 1)
+    : undefined;
   const speedBadgeLabelStyle = data.type === 'video'
     ? normalizeSpeedBadgeLabelStyle(data.speedBadgeLabelStyle ?? DEFAULT_SPEED_BADGE_LABEL_STYLE)
     : undefined;
@@ -547,6 +576,8 @@ function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
     thumbnailSourceTime,
     playbackSpeed,
     showSpeedBadge,
+    audioNormalizeEnabled,
+    audioNormalizeGain,
     speedBadgeLabelStyle,
     speedBadgePositionX: badgePos?.x,
     speedBadgePositionY: badgePos?.y,
@@ -693,6 +724,9 @@ async function serializeNarrationClip(clip: NarrationClip): Promise<SerializedNa
     fadeOut: clip.fadeOut,
     fadeInDuration: clip.fadeInDuration,
     fadeOutDuration: clip.fadeOutDuration,
+    audioNormalizeGain: Number.isFinite(clip.audioNormalizeGain) && (clip.audioNormalizeGain as number) > 0
+      ? clip.audioNormalizeGain
+      : 1,
   };
 }
 
@@ -740,6 +774,9 @@ function deserializeNarrationClip(data: SerializedNarrationClip): NarrationClip 
     fadeOut: data.fadeOut,
     fadeInDuration: data.fadeInDuration,
     fadeOutDuration: data.fadeOutDuration,
+    audioNormalizeGain: Number.isFinite(data.audioNormalizeGain) && (data.audioNormalizeGain as number) > 0
+      ? data.audioNormalizeGain
+      : 1,
   };
 }
 
@@ -897,6 +934,21 @@ export const useProjectStore = create<ProjectState>()(
               projectPosterTimelineTime: useMediaStore.getState().projectPosterTimelineTime,
               projectPosterDataUrl: useMediaStore.getState().projectPosterDataUrl,
               projectPosterAspectRatio: useMediaStore.getState().projectPosterAspectRatio,
+              bulkVideoMuted: useMediaStore.getState().bulkVideoMuted,
+              bulkVideoVolumeEnabled: useMediaStore.getState().bulkVideoVolumeEnabled,
+              bulkVideoVolume: useMediaStore.getState().bulkVideoVolume,
+              videoAudioNormalizeEnabled: useMediaStore.getState().videoAudioNormalizeEnabled,
+              videoAudioNormalizeMode: useMediaStore.getState().videoAudioNormalizeMode,
+              bulkBgmMuted: useAudioStore.getState().bulkBgmMuted,
+              bulkBgmVolumeEnabled: useAudioStore.getState().bulkBgmVolumeEnabled,
+              bulkBgmVolume: useAudioStore.getState().bulkBgmVolume,
+              bgmAudioNormalizeEnabled: useAudioStore.getState().bgmAudioNormalizeEnabled,
+              bgmAudioNormalizeMode: useAudioStore.getState().bgmAudioNormalizeMode,
+              bulkNarrationMuted: useAudioStore.getState().bulkNarrationMuted,
+              bulkNarrationVolumeEnabled: useAudioStore.getState().bulkNarrationVolumeEnabled,
+              bulkNarrationVolume: useAudioStore.getState().bulkNarrationVolume,
+              narrationAudioNormalizeEnabled: useAudioStore.getState().narrationAudioNormalizeEnabled,
+              narrationAudioNormalizeMode: useAudioStore.getState().narrationAudioNormalizeMode,
               // 動画タイトル（Issue #211）。キャプションとは別管理なので
               // captions / captionSettings とは独立したフィールドへ保存する。
               // 呼び出し側の引数を増やさず、保存時にストアから直接読む
@@ -1016,6 +1068,21 @@ export const useProjectStore = create<ProjectState>()(
               projectPosterTimelineTime: useMediaStore.getState().projectPosterTimelineTime,
               projectPosterDataUrl: useMediaStore.getState().projectPosterDataUrl,
               projectPosterAspectRatio: useMediaStore.getState().projectPosterAspectRatio,
+              bulkVideoMuted: useMediaStore.getState().bulkVideoMuted,
+              bulkVideoVolumeEnabled: useMediaStore.getState().bulkVideoVolumeEnabled,
+              bulkVideoVolume: useMediaStore.getState().bulkVideoVolume,
+              videoAudioNormalizeEnabled: useMediaStore.getState().videoAudioNormalizeEnabled,
+              videoAudioNormalizeMode: useMediaStore.getState().videoAudioNormalizeMode,
+              bulkBgmMuted: useAudioStore.getState().bulkBgmMuted,
+              bulkBgmVolumeEnabled: useAudioStore.getState().bulkBgmVolumeEnabled,
+              bulkBgmVolume: useAudioStore.getState().bulkBgmVolume,
+              bgmAudioNormalizeEnabled: useAudioStore.getState().bgmAudioNormalizeEnabled,
+              bgmAudioNormalizeMode: useAudioStore.getState().bgmAudioNormalizeMode,
+              bulkNarrationMuted: useAudioStore.getState().bulkNarrationMuted,
+              bulkNarrationVolumeEnabled: useAudioStore.getState().bulkNarrationVolumeEnabled,
+              bulkNarrationVolume: useAudioStore.getState().bulkNarrationVolume,
+              narrationAudioNormalizeEnabled: useAudioStore.getState().narrationAudioNormalizeEnabled,
+              narrationAudioNormalizeMode: useAudioStore.getState().narrationAudioNormalizeMode,
               // 動画タイトル（Issue #211）。キャプションとは別管理なので
               // captions / captionSettings とは独立したフィールドへ保存する。
               // 呼び出し側の引数を増やさず、保存時にストアから直接読む
@@ -1148,6 +1215,27 @@ export const useProjectStore = create<ProjectState>()(
               : undefined,
             projectPosterDataUrl: hasCompatiblePosterImage ? (data.projectPosterDataUrl ?? null) : null,
             projectPosterAspectRatio: loadedAspectRatio,
+            bulkVideoMuted: data.bulkVideoMuted,
+            bulkVideoVolumeEnabled: Boolean(data.bulkVideoVolumeEnabled),
+            bulkVideoVolume: Number.isFinite(data.bulkVideoVolume)
+              ? Math.max(0, Math.min(2.5, data.bulkVideoVolume as number))
+              : 1,
+            videoAudioNormalizeEnabled: Boolean(data.videoAudioNormalizeEnabled),
+            videoAudioNormalizeMode: data.videoAudioNormalizeMode === 'loudest' ? 'loudest' : 'mean',
+            bulkBgmMuted: data.bulkBgmMuted,
+            bulkBgmVolumeEnabled: Boolean(data.bulkBgmVolumeEnabled),
+            bulkBgmVolume: Number.isFinite(data.bulkBgmVolume)
+              ? Math.max(0, Math.min(2.5, data.bulkBgmVolume as number))
+              : 1,
+            bgmAudioNormalizeEnabled: Boolean(data.bgmAudioNormalizeEnabled),
+            bgmAudioNormalizeMode: data.bgmAudioNormalizeMode === 'loudest' ? 'loudest' : 'mean',
+            bulkNarrationMuted: data.bulkNarrationMuted,
+            bulkNarrationVolumeEnabled: Boolean(data.bulkNarrationVolumeEnabled),
+            bulkNarrationVolume: Number.isFinite(data.bulkNarrationVolume)
+              ? Math.max(0, Math.min(2.5, data.bulkNarrationVolume as number))
+              : 1,
+            narrationAudioNormalizeEnabled: Boolean(data.narrationAudioNormalizeEnabled),
+            narrationAudioNormalizeMode: data.narrationAudioNormalizeMode === 'loudest' ? 'loudest' : 'mean',
           };
         } catch (error) {
           useLogStore.getState().error('SYSTEM', 'プロジェクト読み込み失敗', {

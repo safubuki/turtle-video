@@ -12,12 +12,16 @@
  */
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import type { MediaItem, SpeedBadgeLabelStyle, VideoPlaybackSpeed } from '../types';
+import type { MediaItem, SpeedBadgeLabelStyle, VideoAudioNormalizeMode, VideoPlaybackSpeed } from '../types';
 import type { AspectRatio } from './canvasStore';
 import {
   createMediaItem,
+  areAllExistingVideosMuted,
+  resolveSavedBulkMuted,
   applyBulkMuteToAddedMediaItems,
+  applyBulkVolumeToAddedMediaItems,
   calculateTotalDuration,
+  clampMediaVolume,
   generateId,
   validateTrim,
   validateScale,
@@ -30,6 +34,7 @@ import {
   computeAutoProjectPosterTimelineTime,
   computeVideoTimelineDurationFromTrim,
   normalizeVideoPlaybackSpeed,
+  normalizeVideoAudioNormalizeMode,
   normalizeSpeedBadgeLabelStyle,
   normalizeSpeedBadgePosition,
   resolveSpeedBadgePresetPosition,
@@ -55,6 +60,15 @@ interface MediaState {
   projectPosterDataUrl: string | null;
   /** ポスター画像を生成した時点の出力向き */
   projectPosterAspectRatio: AspectRatio;
+  /** 動画の一括ミュート。動画 0 本でも ON にでき、追加動画へ継承する */
+  bulkVideoMuted: boolean;
+  /** 動画の一括音量。ON のとき全動画の volume を揃える */
+  bulkVideoVolumeEnabled: boolean;
+  bulkVideoVolume: number;
+  /** 動画間の音量揃え。ON のとき参加クリップの RMS を揃える */
+  videoAudioNormalizeEnabled: boolean;
+  /** 音量揃えの目標。mean=平均、loudest=一番大きい音。旧データは mean */
+  videoAudioNormalizeMode: VideoAudioNormalizeMode;
 
   // Actions
   addMediaItems: (files: File[]) => Promise<void>;
@@ -115,8 +129,20 @@ interface MediaState {
   // Audio
   updateVolume: (id: string, volume: number) => void;
   toggleMute: (id: string) => void;
-  /** 動画の再生速度（1/2/4/8）。タイムライン尺を再計算する */
+  /** 動画の再生速度（0.5〜8.0）。タイムライン尺を再計算する */
   updateVideoPlaybackSpeed: (id: string, speed: VideoPlaybackSpeed) => void;
+  /** 一括音量の有効/無効。有効化時は全動画へ現在値を適用する */
+  setBulkVideoVolumeEnabled: (enabled: boolean) => void;
+  /** 一括音量の値。有効時のみ全動画へ反映する */
+  setBulkVideoVolume: (volume: number) => void;
+  /** 音量揃えの有効/無効。無効化時はゲインを 1 に戻す */
+  setVideoAudioNormalizeEnabled: (enabled: boolean) => void;
+  /** 音量揃えの目標（平均 / 一番大きい音） */
+  setVideoAudioNormalizeMode: (mode: VideoAudioNormalizeMode) => void;
+  /** カード単位で音量揃え対象にするか */
+  setVideoAudioNormalizeParticipating: (id: string, participating: boolean) => void;
+  /** 解析結果の揃えゲインを一括反映する */
+  applyVideoNormalizeGains: (gains: Record<string, number>) => void;
   /** 倍速バッジ表示の ON/OFF */
   updateVideoShowSpeedBadge: (id: string, show: boolean) => void;
   /** バッジ文言スタイル（ja / en） */
@@ -130,7 +156,8 @@ interface MediaState {
   ) => void;
   /**
    * 動画クリップを一括ミュート/解除する。
-   * 画像は音声がないため対象外。muted=true で全動画をミュート、false で全解除。
+   * 画像は音声がないため対象外。muted=true でフラグ ON + 全動画ミュート。
+   * 動画が無くてもフラグだけ立て、追加時に継承する。
    */
   setAllVideosMuted: (muted: boolean) => void;
 
@@ -157,6 +184,13 @@ interface MediaState {
       timelineTime?: number;
       dataUrl?: string | null;
       aspectRatio?: AspectRatio;
+    },
+    audioSettings?: {
+      bulkVideoMuted?: boolean;
+      bulkVideoVolumeEnabled?: boolean;
+      bulkVideoVolume?: number;
+      videoAudioNormalizeEnabled?: boolean;
+      videoAudioNormalizeMode?: VideoAudioNormalizeMode;
     }
   ) => void;
 }
@@ -172,6 +206,11 @@ export const useMediaStore = create<MediaState>()(
       projectPosterTimelineTime: 0.2,
       projectPosterDataUrl: null,
       projectPosterAspectRatio: 'landscape',
+      bulkVideoMuted: false,
+      bulkVideoVolumeEnabled: false,
+      bulkVideoVolume: 1,
+      videoAudioNormalizeEnabled: false,
+      videoAudioNormalizeMode: 'mean',
 
       // Add media items
       addMediaItems: async (files) => {
@@ -181,8 +220,13 @@ export const useMediaStore = create<MediaState>()(
           newItems.push(await createMediaItem(file));
         }
         set((state) => {
-          // 一括ミュートが有効（既存動画がすべてミュート）なら、追加動画もミュートを継承する
-          const itemsToAdd = applyBulkMuteToAddedMediaItems(state.mediaItems, newItems);
+          const bulkMuted = state.bulkVideoMuted || areAllExistingVideosMuted(state.mediaItems);
+          const mutedItems = applyBulkMuteToAddedMediaItems(newItems, bulkMuted);
+          const itemsToAdd = applyBulkVolumeToAddedMediaItems(
+            mutedItems,
+            state.bulkVideoVolumeEnabled,
+            state.bulkVideoVolume,
+          );
           const updated = [...state.mediaItems, ...itemsToAdd];
           useLogStore.getState().info('MEDIA', 'メディアアイテム追加完了', { totalItems: updated.length, totalDuration: calculateTotalDuration(updated) });
           return {
@@ -601,15 +645,88 @@ export const useMediaStore = create<MediaState>()(
       // Audio - Volume (max 2.5 = 250%)
       updateVolume: (id, volume) => {
         set((state) => ({
+          bulkVideoVolumeEnabled: false,
           mediaItems: state.mediaItems.map((item) =>
-            item.id === id ? { ...item, volume: Math.max(0, Math.min(2.5, volume)) } : item
+            item.id === id ? { ...item, volume: clampMediaVolume(volume) } : item
           ),
+        }));
+      },
+
+      setBulkVideoVolumeEnabled: (enabled) => {
+        set((state) => {
+          if (!enabled) {
+            return { bulkVideoVolumeEnabled: false };
+          }
+          const volume = clampMediaVolume(state.bulkVideoVolume);
+          return {
+            bulkVideoVolumeEnabled: true,
+            bulkVideoVolume: volume,
+            mediaItems: state.mediaItems.map((item) =>
+              item.type === 'video' ? { ...item, volume } : item
+            ),
+          };
+        });
+      },
+
+      setBulkVideoVolume: (volume) => {
+        const next = clampMediaVolume(volume);
+        set((state) => {
+          if (!state.bulkVideoVolumeEnabled) {
+            return { bulkVideoVolume: next };
+          }
+          return {
+            bulkVideoVolume: next,
+            mediaItems: state.mediaItems.map((item) =>
+              item.type === 'video' ? { ...item, volume: next } : item
+            ),
+          };
+        });
+      },
+
+      setVideoAudioNormalizeEnabled: (enabled) => {
+        set((state) => ({
+          videoAudioNormalizeEnabled: Boolean(enabled),
+          mediaItems: enabled
+            ? state.mediaItems
+            : state.mediaItems.map((item) =>
+              item.type === 'video' ? { ...item, audioNormalizeGain: 1 } : item
+            ),
+        }));
+      },
+
+      setVideoAudioNormalizeMode: (mode) => {
+        set({ videoAudioNormalizeMode: normalizeVideoAudioNormalizeMode(mode) });
+      },
+
+      setVideoAudioNormalizeParticipating: (id, participating) => {
+        set((state) => ({
+          mediaItems: state.mediaItems.map((item) =>
+            item.id === id && item.type === 'video'
+              ? {
+                ...item,
+                audioNormalizeEnabled: Boolean(participating),
+                audioNormalizeGain: participating ? item.audioNormalizeGain : 1,
+              }
+              : item
+          ),
+        }));
+      },
+
+      applyVideoNormalizeGains: (gains) => {
+        set((state) => ({
+          mediaItems: state.mediaItems.map((item) => {
+            if (item.type !== 'video') return item;
+            const nextGain = Number.isFinite(gains[item.id]) ? gains[item.id] : 1;
+            if (item.audioNormalizeGain === nextGain) return item;
+            return { ...item, audioNormalizeGain: nextGain };
+          }),
         }));
       },
 
       // Audio - Mute
       toggleMute: (id) => {
         set((state) => ({
+          bulkVideoMuted: false,
           mediaItems: state.mediaItems.map((item) =>
             item.id === id ? { ...item, isMuted: !item.isMuted } : item
           ),
@@ -707,6 +824,7 @@ export const useMediaStore = create<MediaState>()(
 
       setAllVideosMuted: (muted) => {
         set((state) => ({
+          bulkVideoMuted: muted,
           mediaItems: state.mediaItems.map((item) =>
             item.type === 'video' ? { ...item, isMuted: muted } : item
           ),
@@ -790,7 +908,7 @@ export const useMediaStore = create<MediaState>()(
 
       // Restore from save (isLockedのエイリアス)
       isLocked: false,
-      restoreFromSave: (items, isLocked, poster) => {
+      restoreFromSave: (items, isLocked, poster, audioSettings) => {
         const { mediaItems } = get();
         // 既存のURLを解放
         mediaItems.forEach((item) => revokeObjectUrl(item.url));
@@ -809,6 +927,14 @@ export const useMediaStore = create<MediaState>()(
           projectPosterTimelineTime: timelineTime,
           projectPosterDataUrl: poster?.dataUrl ?? null,
           projectPosterAspectRatio: aspectRatio,
+          bulkVideoMuted: resolveSavedBulkMuted(
+            audioSettings?.bulkVideoMuted,
+            areAllExistingVideosMuted(items),
+          ),
+          bulkVideoVolumeEnabled: Boolean(audioSettings?.bulkVideoVolumeEnabled),
+          bulkVideoVolume: clampMediaVolume(audioSettings?.bulkVideoVolume ?? 1),
+          videoAudioNormalizeEnabled: Boolean(audioSettings?.videoAudioNormalizeEnabled),
+          videoAudioNormalizeMode: normalizeVideoAudioNormalizeMode(audioSettings?.videoAudioNormalizeMode),
         });
       },
     }),

@@ -79,8 +79,10 @@ export interface ClipTransition {
   duration: number; // 秒（0.5 / 1 / 2）
 }
 
-/** 動画カードの再生速度（早送り。スローは第1版対象外） */
-export type VideoPlaybackSpeed = 1 | 2 | 4 | 8;
+/** 動画カードの再生速度（0.5〜8.0・0.1刻み。旧データは 1/2/4/8） */
+export type VideoPlaybackSpeed = number;
+
+export type { VideoAudioNormalizeMode } from '../utils/videoAudioLoudness';
 
 /** 倍速バッジの表示言語（既定は日本語「N倍速」） */
 export type SpeedBadgeLabelStyle = 'ja' | 'en';
@@ -129,12 +131,22 @@ export interface MediaItem {
   /** サムネイル取得位置（元動画上の秒。trim 後の相対時刻ではない） */
   thumbnailSourceTime?: number;
   /**
-   * 動画の再生速度（1/2/4/8）。画像は未使用。旧データ・未定義は 1。
+   * 動画の再生速度（0.5〜8.0・0.1刻み）。画像は未使用。旧データ・未定義は 1。
    * @see Docs/specs/2026-08-01_video-playback-speed.md
    */
   playbackSpeed?: VideoPlaybackSpeed;
-  /** プレビュー/書き出しに倍速バッジを出すか（speed>1 のときのみ実際に描画） */
+  /** プレビュー/書き出しに速度バッジを出すか（等倍でも保存可。描画は等倍以外） */
   showSpeedBadge?: boolean;
+  /**
+   * この動画を音量揃え（ノーマライズ）の対象にするか。
+   * 未定義は true（一括ノーマライズ ON のとき参加）。
+   */
+  audioNormalizeEnabled?: boolean;
+  /**
+   * 音量揃えで掛ける相対ゲイン。1 は変更なし。未定義は 1。
+   * 個別音量スライダー値とは独立し、実効音量 = volume × この値。
+   */
+  audioNormalizeGain?: number;
   /**
    * バッジ文言: `ja` = 「2倍速」、`en` = 「2x」。未定義は ja。
    */
@@ -192,6 +204,8 @@ export interface NarrationClip {
   fadeOut?: boolean;
   fadeInDuration?: number;
   fadeOutDuration?: number;
+  /** 音量揃えゲイン（任意・旧データは 1） */
+  audioNormalizeGain?: number;
 }
 
 /**

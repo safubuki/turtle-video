@@ -55,6 +55,7 @@ import {
   resolveVideoSourceTime,
   wallDeltaToExportTimelineDelta,
 } from '../../../utils/playbackSpeed';
+import { resolveMediaPlaybackVolume } from '../../../utils/mediaVolume';
 import {
   getIncomingTransitionOverlay,
   getOutgoingTransitionOverlay,
@@ -1935,7 +1936,7 @@ export function usePreviewEngine({
           let count = 0;
           if (activeIndex !== -1) {
             const activeItem = currentItems[activeIndex];
-            if (activeItem?.type === 'video' && !activeItem.isMuted && activeItem.volume > 0) {
+            if (activeItem?.type === 'video' && resolveMediaPlaybackVolume(activeItem) > 0) {
               count += 1;
             }
           }
@@ -1960,7 +1961,7 @@ export function usePreviewEngine({
             { autoAdjust: bgmAutoAdjust },
           );
           for (const clip of currentNarrations) {
-            if (clip.isMuted || clip.volume <= 0) {
+            if (resolveMediaPlaybackVolume(clip) <= 0) {
               continue;
             }
             const effective = resolvePipelineClipEffectivePlayback(
@@ -3082,7 +3083,7 @@ export function usePreviewEngine({
               let hasAudioNode = !!sourceNodesRef.current[id];
               const currentGainNode = gainNodesRef.current[id];
               if (isActivePlaying) {
-                let vol = holdAudioThisFrame ? 0 : (conf.isMuted ? 0 : conf.volume);
+                let vol = holdAudioThisFrame ? 0 : resolveMediaPlaybackVolume(conf);
                 const fadeInDur = conf.fadeInDuration || 1.0;
                 const fadeOutDur = conf.fadeOutDuration || 1.0;
 
@@ -3104,7 +3105,7 @@ export function usePreviewEngine({
                     isExporting: _isExporting,
                     audibleSourceCount: vol > 0 ? activePreviewAudioSourceCount : 0,
                     desiredVolume: vol,
-                    baseVolume: conf.isMuted ? 0 : conf.volume,
+                    baseVolume: resolveMediaPlaybackVolume(conf),
                     sourceType: 'video',
                   }) === 'webaudio'
                 ) {
@@ -3119,7 +3120,7 @@ export function usePreviewEngine({
                   desiredVolume: vol,
                   audibleSourceCount: vol > 0 ? activePreviewAudioSourceCount : 0,
                   isExporting: _isExporting,
-                  baseVolume: conf.isMuted ? 0 : conf.volume,
+                  baseVolume: resolveMediaPlaybackVolume(conf),
                 });
 
                 // 経路ラッチ（getPreviewAudioOutputMode 参照）により、ノードを持つ要素は
@@ -3228,14 +3229,14 @@ export function usePreviewEngine({
               if (peerIsVideo) {
                 const peerGainNode = gainNodesRef.current[id];
                 const peerHasNode = !!sourceNodesRef.current[id];
-                let peerVol = (conf.isMuted ? 0 : conf.volume) * overlapAudioCrossOut;
+                let peerVol = resolveMediaPlaybackVolume(conf) * overlapAudioCrossOut;
                 if (!isActivePlaying || holdAudioThisFrame) peerVol = 0;
                 const peerMode = applyPreviewAudioOutputState(previewPlatformPolicy, peerVideoEl, {
                   hasAudioNode: peerHasNode,
                   desiredVolume: peerVol,
                   audibleSourceCount: peerVol > 0 ? activePreviewAudioSourceCount : 0,
                   isExporting: _isExporting,
-                  baseVolume: conf.isMuted ? 0 : conf.volume,
+                  baseVolume: resolveMediaPlaybackVolume(conf),
                 });
                 const peerGainValue = peerMode === 'native' ? 0 : peerVol;
                 if (peerGainNode && audioCtxRef.current) {
@@ -3881,7 +3882,7 @@ export function usePreviewEngine({
               element.play().catch(() => { });
             }
 
-            let vol = clip.isMuted ? 0 : clampPreviewAudioGain(clip.volume);
+            let vol = clampPreviewAudioGain(resolveMediaPlaybackVolume(clip));
             // クリップ範囲基準のフェード（BGM クリップ用の任意フィールド。未指定なら無効）
             if (vol > 0 && clip.fadeIn) {
               const fadeInDur = clip.fadeInDuration || 1;
