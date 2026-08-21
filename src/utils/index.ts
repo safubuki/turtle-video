@@ -24,6 +24,9 @@ export {
 export {
   generateId,
   getMediaType,
+  isSupportedLogoImageFile,
+  resolveLogoImageMimeType,
+  snapshotLogoImageFile,
   createMediaItem,
   areAllExistingVideosMuted,
   resolveSavedBulkMuted,

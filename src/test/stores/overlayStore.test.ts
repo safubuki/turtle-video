@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useOverlayStore } from '../../stores/overlayStore';
 import { DEFAULT_WATERMARK_OVERLAY } from '../../utils/watermarkOverlay';
+import { DEFAULT_ENDROLL_OVERLAY } from '../../utils/endrollOverlay';
 
 describe('overlayStore', () => {
   beforeEach(() => {
     useOverlayStore.setState({
       watermark: { ...DEFAULT_WATERMARK_OVERLAY },
+      endroll: { ...DEFAULT_ENDROLL_OVERLAY },
     });
   });
 
@@ -42,7 +44,26 @@ describe('overlayStore', () => {
     useOverlayStore.getState().removeWatermarkImage();
     expect(revoke).toHaveBeenCalledWith(secondUrl);
     expect(useOverlayStore.getState().watermark.file).toBeNull();
+    expect(useOverlayStore.getState().watermark.fileData).toBeUndefined();
     expect(useOverlayStore.getState().watermark.positionX).toBe(DEFAULT_WATERMARK_OVERLAY.positionX);
+  });
+
+  it('ロゴ選択時の fileData を見た目変更後も保持し、削除時に捨てる', () => {
+    const file = new File(['logo'], 'brand.png', { type: 'image/png' });
+    const fileData = new ArrayBuffer(8);
+    useOverlayStore.getState().setWatermarkImage(file, 10, fileData);
+    useOverlayStore.getState().updateWatermark({ opacity: 0.4, size: 1.2 });
+    expect(useOverlayStore.getState().watermark.fileData).toBe(fileData);
+
+    const endrollData = new ArrayBuffer(4);
+    useOverlayStore.getState().setEndrollImage(file, endrollData);
+    useOverlayStore.getState().updateEndroll({ durationSec: 8 });
+    expect(useOverlayStore.getState().endroll.fileData).toBe(endrollData);
+
+    useOverlayStore.getState().removeWatermarkImage();
+    useOverlayStore.getState().removeEndrollImage();
+    expect(useOverlayStore.getState().watermark.fileData).toBeUndefined();
+    expect(useOverlayStore.getState().endroll.fileData).toBeUndefined();
   });
 });
 

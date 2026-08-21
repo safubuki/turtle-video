@@ -6,6 +6,9 @@ import { describe, it, expect } from 'vitest';
 import {
   generateId,
   getMediaType,
+  isSupportedLogoImageFile,
+  resolveLogoImageMimeType,
+  snapshotLogoImageFile,
   areAllExistingVideosMuted,
   resolveSavedBulkMuted,
   applyBulkMuteToAddedMediaItems,
@@ -613,5 +616,34 @@ describe('validatePosition', () => {
   it('should handle custom limits', () => {
     expect(validatePosition(2000, 1000)).toBe(1000);
     expect(validatePosition(-2000, 1000)).toBe(-1000);
+  });
+});
+
+describe('logo image snapshot', () => {
+  it('MIME が空でも拡張子で PNG / JPEG / WebP を受け付ける', () => {
+    expect(isSupportedLogoImageFile(new File(['x'], 'logo.png'))).toBe(true);
+    expect(isSupportedLogoImageFile(new File(['x'], 'logo.JPG'))).toBe(true);
+    expect(isSupportedLogoImageFile(new File(['x'], 'logo.webp'))).toBe(true);
+    expect(isSupportedLogoImageFile(new File(['x'], 'logo.heic'))).toBe(false);
+    expect(resolveLogoImageMimeType(new File(['x'], 'logo.jpg'))).toBe('image/jpeg');
+    expect(resolveLogoImageMimeType(new File(['x'], 'logo.png', { type: 'image/jpg' }))).toBe('image/jpeg');
+  });
+
+  it('選択直後にメモリ上の File と fileData を作る', async () => {
+    const original = new File(['logo-bytes'], 'brand.png', { type: 'image/png' });
+    const snapshot = await snapshotLogoImageFile(original);
+    expect(snapshot.file).not.toBe(original);
+    expect(snapshot.file.name).toBe('brand.png');
+    expect(snapshot.file.type).toBe('image/png');
+    expect(snapshot.fileData.byteLength).toBeGreaterThan(0);
+    const copied = await new Response(snapshot.file).arrayBuffer();
+    expect(copied).toEqual(snapshot.fileData);
+  });
+
+  it('MIME が空の PNG は snapshot 後に image/png になる', async () => {
+    const original = new File(['png-bytes'], 'logo.png');
+    const snapshot = await snapshotLogoImageFile(original);
+    expect(snapshot.file.type).toBe('image/png');
+    expect(snapshot.fileData.byteLength).toBeGreaterThan(0);
   });
 });

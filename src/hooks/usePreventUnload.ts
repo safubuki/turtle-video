@@ -14,6 +14,8 @@ export const usePreventUnload = () => {
     const narrations = useAudioStore((state) => state.narrations);
     const captions = useCaptionStore((state) => state.captions);
     const hasWatermark = useOverlayStore((state) => state.watermark.file instanceof File);
+    const hasEndroll = useOverlayStore((state) => state.endroll.file instanceof File);
+    const hasVideoTitle = useCaptionStore((state) => state.title.text.trim().length > 0);
     const isApplyingUpdate = useUpdateStore((state) => state.isApplyingUpdate);
 
     useEffect(() => {
@@ -27,7 +29,9 @@ export const usePreventUnload = () => {
                 bgm !== null ||
                 narrations.length > 0 ||
                 captions.length > 0 ||
-                hasWatermark;
+                hasWatermark ||
+                hasEndroll ||
+                hasVideoTitle;
 
             if (hasUnsavedChanges) {
                 e.preventDefault();
@@ -41,5 +45,5 @@ export const usePreventUnload = () => {
         return () => {
             window.removeEventListener('beforeunload', handleBeforeUnload);
         };
-    }, [mediaItems, bgm, narrations, captions, hasWatermark, isApplyingUpdate]);
+    }, [mediaItems, bgm, narrations, captions, hasWatermark, hasEndroll, hasVideoTitle, isApplyingUpdate]);
 };

@@ -410,6 +410,11 @@ export interface WatermarkOverlay {
   file: File | null;
   /** 選択中画像の Object URL。保存時は永続化せず fileData から再生成する */
   url: string | null;
+  /**
+   * 選択直後にコピーした画像本体。ピッカー由来 File が後から読めなくなっても保存できるようにする。
+   * ランタイム専用。IndexedDB へは serialize 時の fileData として書く。
+   */
+  fileData?: ArrayBuffer;
   /** false にしても画像と各調整値は保持する */
   enabled: boolean;
   /**
@@ -461,6 +466,8 @@ export interface EndrollOverlay {
   file: File | null;
   /** 選択中画像の Object URL。保存時は永続化せず fileData から再生成する */
   url: string | null;
+  /** 選択直後にコピーした画像本体。ウォーターマークと同じく保存時の再読込失敗を避ける */
+  fileData?: ArrayBuffer;
   /** false のときタイムラインは伸びない（画像と各調整値は保持する） */
   enabled: boolean;
   /** エンドロールの長さ（秒）。この分だけ totalDuration が伸びる */

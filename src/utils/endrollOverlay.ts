@@ -77,6 +77,10 @@ function normalizeHexColor(value: unknown): string {
  * 保存データ・不正値をエンドロール設定へ正規化する。
  * 旧バージョンのプロジェクト（endroll 自体が無い）は既定値（無効・5秒・黒）になる。
  */
+function isOverlayFileData(value: unknown): value is ArrayBuffer {
+  return Object.prototype.toString.call(value) === '[object ArrayBuffer]';
+}
+
 export function normalizeEndrollOverlay(
   value: Partial<EndrollOverlay> | null | undefined,
 ): EndrollOverlay {
@@ -84,6 +88,7 @@ export function normalizeEndrollOverlay(
   return {
     file: source.file instanceof File ? source.file : null,
     url: typeof source.url === 'string' && source.url ? source.url : null,
+    ...(isOverlayFileData(source.fileData) ? { fileData: source.fileData } : {}),
     // ウォーターマークと違い既定は OFF（勝手に尺が伸びないようにする）
     enabled: source.enabled === true,
     durationSec: clamp(

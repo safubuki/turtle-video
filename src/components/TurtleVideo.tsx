@@ -77,6 +77,8 @@ import {
   resolveAutoProjectPosterCaptureTime,
   isCanvasEffectivelyBlank,
   createPosterDataUrlFromCanvas,
+  isSupportedLogoImageFile,
+  snapshotLogoImageFile,
 } from '../utils/media';
 import { computeTimelineDurationFromSource } from '../utils/playbackSpeed';
 
@@ -702,26 +704,36 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     clearGeneratedExport(`edit:${reason}`);
   }, [clearGeneratedExport]);
 
-  const handleEndrollImageSelect = useCallback((file: File) => {
-    const supportedMimeTypes = new Set(['image/png', 'image/jpeg', 'image/webp']);
-    if (!supportedMimeTypes.has(file.type)) {
+  const handleEndrollImageSelect = useCallback(async (file: File) => {
+    if (!isSupportedLogoImageFile(file)) {
       setError('エンドロールには PNG・JPEG・WebP 画像を選択してください');
       return;
     }
     pausePreviewBeforeEdit('set-endroll-image');
-    setEndrollImage(file);
-    showToast('エンドロール画像を設定しました');
+    try {
+      const snapshot = await snapshotLogoImageFile(file);
+      setEndrollImage(snapshot.file, snapshot.fileData);
+      showToast('エンドロール画像を設定しました');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'エンドロール画像の読み込みに失敗しました';
+      setError(message);
+    }
   }, [pausePreviewBeforeEdit, setEndrollImage, setError, showToast]);
 
-  const handleWatermarkImageSelect = useCallback((file: File) => {
-    const supportedMimeTypes = new Set(['image/png', 'image/jpeg', 'image/webp']);
-    if (!supportedMimeTypes.has(file.type)) {
+  const handleWatermarkImageSelect = useCallback(async (file: File) => {
+    if (!isSupportedLogoImageFile(file)) {
       setError('ウォーターマークには PNG・JPEG・WebP 画像を選択してください');
       return;
     }
     pausePreviewBeforeEdit('set-watermark-image');
-    setWatermarkImage(file, totalDuration);
-    showToast('ウォーターマーク画像を設定しました');
+    try {
+      const snapshot = await snapshotLogoImageFile(file);
+      setWatermarkImage(snapshot.file, totalDuration, snapshot.fileData);
+      showToast('ウォーターマーク画像を設定しました');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'ウォーターマーク画像の読み込みに失敗しました';
+      setError(message);
+    }
   }, [pausePreviewBeforeEdit, setError, setWatermarkImage, showToast, totalDuration]);
 
   // 描画が遅延実行されても最新状態を参照できるようにする

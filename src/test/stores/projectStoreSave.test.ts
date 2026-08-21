@@ -33,6 +33,7 @@ import { useMediaStore } from '../../stores/mediaStore';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { useOverlayStore } from '../../stores/overlayStore';
 import { DEFAULT_WATERMARK_OVERLAY } from '../../utils/watermarkOverlay';
+import { DEFAULT_ENDROLL_OVERLAY } from '../../utils/endrollOverlay';
 import {
   createIndexedDbProjectPersistenceAdapter,
   setProjectPersistenceAdapter,
@@ -180,6 +181,7 @@ describe('projectStore save behavior', () => {
     });
     useOverlayStore.setState({
       watermark: { ...DEFAULT_WATERMARK_OVERLAY },
+      endroll: { ...DEFAULT_ENDROLL_OVERLAY },
     });
   });
 
@@ -310,6 +312,73 @@ describe('projectStore save behavior', () => {
     });
     expect(loaded?.watermarkOverlay.file?.name).toBe('brand.png');
     expect(loaded?.watermarkOverlay.url).toMatch(/^blob:/);
+  });
+
+  it('ロゴの fileData があるときは保存時に File を再読込しない', async () => {
+    const fileData = new Uint8Array([1, 2, 3, 4]).buffer;
+    const file = new File(['logo'], 'logo.png', { type: 'image/png' });
+    useOverlayStore.setState({
+      watermark: {
+        ...DEFAULT_WATERMARK_OVERLAY,
+        file,
+        url: 'blob:logo',
+        fileData,
+        enabled: true,
+      },
+    });
+    mocks.fileToArrayBuffer.mockRejectedValue(new Error('should not read file'));
+    mocks.blobUrlToArrayBuffer.mockRejectedValue(new Error('should not read url'));
+    mocks.saveProject.mockResolvedValueOnce(undefined);
+
+    await useProjectStore.getState().saveProjectManual(
+      [],
+      false,
+      null,
+      false,
+      [],
+      false,
+      [],
+      defaultCaptionSettings,
+      false,
+    );
+
+    const saved = mocks.saveProject.mock.calls[mocks.saveProject.mock.calls.length - 1]?.[0] as ProjectData;
+    expect(saved.watermarkOverlay?.fileName).toBe('logo.png');
+    expect(saved.watermarkOverlay?.fileData).toBe(fileData);
+    expect(mocks.fileToArrayBuffer).not.toHaveBeenCalled();
+    expect(mocks.blobUrlToArrayBuffer).not.toHaveBeenCalled();
+  });
+
+  it('エンドロール画像だけでも自動保存をスキップしない', async () => {
+    const file = new File(['endroll'], 'endroll.png', { type: 'image/png' });
+    useOverlayStore.setState({
+      watermark: { ...DEFAULT_WATERMARK_OVERLAY },
+      endroll: {
+        ...DEFAULT_ENDROLL_OVERLAY,
+        file,
+        url: 'blob:endroll',
+        fileData: new ArrayBuffer(6),
+        enabled: true,
+      },
+    });
+    mocks.saveProject.mockResolvedValueOnce(undefined);
+
+    const saved = await useProjectStore.getState().saveProjectAuto(
+      [],
+      false,
+      null,
+      false,
+      [],
+      false,
+      [],
+      defaultCaptionSettings,
+      false,
+    );
+
+    expect(saved).toBe(true);
+    const project = mocks.saveProject.mock.calls[mocks.saveProject.mock.calls.length - 1]?.[0] as ProjectData;
+    expect(project.endrollOverlay?.fileName).toBe('endroll.png');
+    expect(project.endrollOverlay?.enabled).toBe(true);
   });
 
   it('旧保存データではウォーターマークを画像なしの既定値へ補完する', async () => {

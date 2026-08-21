@@ -17,11 +17,11 @@ interface OverlayState {
   watermark: WatermarkOverlay;
   /** クリップ後に続くエンドロール。ウォーターマークとは画像も設定も独立して保持する */
   endroll: EndrollOverlay;
-  setWatermarkImage: (file: File, totalDuration?: number) => void;
+  setWatermarkImage: (file: File, totalDuration?: number, fileData?: ArrayBuffer) => void;
   updateWatermark: (updates: Partial<WatermarkOverlay>) => void;
   setWatermarkRange: (startTime: number, endTime: number, totalDuration?: number) => void;
   removeWatermarkImage: () => void;
-  setEndrollImage: (file: File) => void;
+  setEndrollImage: (file: File, fileData?: ArrayBuffer) => void;
   updateEndroll: (updates: Partial<EndrollOverlay>) => void;
   removeEndrollImage: () => void;
   restoreFromSave: (
@@ -45,7 +45,7 @@ export const useOverlayStore = create<OverlayState>()(
       watermark: { ...DEFAULT_WATERMARK_OVERLAY },
       endroll: { ...DEFAULT_ENDROLL_OVERLAY },
 
-      setWatermarkImage: (file, totalDuration) => {
+      setWatermarkImage: (file, totalDuration, fileData) => {
         releaseCurrentUrl();
         const url = URL.createObjectURL(file);
         set(
@@ -54,6 +54,7 @@ export const useOverlayStore = create<OverlayState>()(
               ...state.watermark,
               file,
               url,
+              fileData,
               enabled: true,
               endTime: Number.isFinite(totalDuration) && (totalDuration as number) > 0
                 ? totalDuration
@@ -73,6 +74,7 @@ export const useOverlayStore = create<OverlayState>()(
               ...updates,
               file: state.watermark.file,
               url: state.watermark.url,
+              fileData: state.watermark.fileData,
             }),
           }),
           false,
@@ -99,6 +101,7 @@ export const useOverlayStore = create<OverlayState>()(
               ...state.watermark,
               file: null,
               url: null,
+              fileData: undefined,
             },
           }),
           false,
@@ -106,7 +109,7 @@ export const useOverlayStore = create<OverlayState>()(
         );
       },
 
-      setEndrollImage: (file) => {
+      setEndrollImage: (file, fileData) => {
         releaseCurrentEndrollUrl();
         const url = URL.createObjectURL(file);
         set(
@@ -115,6 +118,7 @@ export const useOverlayStore = create<OverlayState>()(
               ...state.endroll,
               file,
               url,
+              fileData,
               // 画像を選んだ時点で有効化する（ここで初めてタイムラインが伸びる）
               enabled: true,
             }),
@@ -132,6 +136,7 @@ export const useOverlayStore = create<OverlayState>()(
               ...updates,
               file: state.endroll.file,
               url: state.endroll.url,
+              fileData: state.endroll.fileData,
             }),
           }),
           false,
@@ -146,6 +151,7 @@ export const useOverlayStore = create<OverlayState>()(
               ...state.endroll,
               file: null,
               url: null,
+              fileData: undefined,
               // 画像が無ければ尺は伸びない。設定値は残して選び直しに備える
               enabled: false,
             },

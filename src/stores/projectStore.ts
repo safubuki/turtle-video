@@ -134,6 +134,9 @@ function isLikelyMediaSerializationError(error: unknown): boolean {
   const lower = getProjectStoreErrorMessage(error).toLowerCase();
   return (
     lower.includes('ファイルの読み込みに失敗') ||
+    lower.includes('ロゴ画像') ||
+    lower.includes('ウォーターマーク') ||
+    lower.includes('エンドロール') ||
     lower.includes('failed to fetch') ||
     lower.includes('blob') ||
     lower.includes('readasarraybuffer')
@@ -354,15 +357,18 @@ async function serializeWatermarkOverlay(
   overlay: WatermarkOverlay,
 ): Promise<SerializedWatermarkOverlay | undefined> {
   if (!(overlay.file instanceof File)) return undefined;
+  const fileData = isValidArrayBuffer(overlay.fileData)
+    ? overlay.fileData
+    : await readSerializableFileData({
+      file: overlay.file,
+      fallbackUrl: overlay.url ?? undefined,
+      kind: 'ウォーターマーク',
+    });
   return {
     fileName: overlay.file.name,
     fileType: overlay.file.type,
     fileLastModified: overlay.file.lastModified,
-    fileData: await readSerializableFileData({
-      file: overlay.file,
-      fallbackUrl: overlay.url ?? undefined,
-      kind: 'ウォーターマーク',
-    }),
+    fileData,
     enabled: overlay.enabled,
     scope: overlay.scope,
     startTime: overlay.startTime,
@@ -397,6 +403,7 @@ function deserializeWatermarkOverlay(
     ...data,
     file,
     url: URL.createObjectURL(file),
+    fileData: data.fileData,
   });
 }
 
@@ -404,15 +411,18 @@ async function serializeEndrollOverlay(
   endroll: EndrollOverlay,
 ): Promise<SerializedEndrollOverlay | undefined> {
   if (!(endroll.file instanceof File)) return undefined;
+  const fileData = isValidArrayBuffer(endroll.fileData)
+    ? endroll.fileData
+    : await readSerializableFileData({
+      file: endroll.file,
+      fallbackUrl: endroll.url ?? undefined,
+      kind: 'エンドロール',
+    });
   return {
     fileName: endroll.file.name,
     fileType: endroll.file.type,
     fileLastModified: endroll.file.lastModified,
-    fileData: await readSerializableFileData({
-      file: endroll.file,
-      fallbackUrl: endroll.url ?? undefined,
-      kind: 'エンドロール',
-    }),
+    fileData,
     enabled: endroll.enabled,
     durationSec: endroll.durationSec,
     backgroundMode: endroll.backgroundMode,
@@ -448,6 +458,7 @@ function deserializeEndrollOverlay(
     ...data,
     file,
     url: URL.createObjectURL(file),
+    fileData: data.fileData,
   });
 }
 
@@ -1009,7 +1020,9 @@ export const useProjectStore = create<ProjectState>()(
       ) => {
         // 動画タイトル（Issue #211）だけが入力されている状態も「中身あり」として保存する
         const hasVideoTitleText = useCaptionStore.getState().title.text.trim().length > 0;
-        const hasWatermarkImage = useOverlayStore.getState().watermark.file instanceof File;
+        const overlayState = useOverlayStore.getState();
+        const hasWatermarkImage = overlayState.watermark.file instanceof File;
+        const hasEndrollImage = overlayState.endroll.file instanceof File;
         if (
           mediaItems.length === 0 &&
           !bgm &&
@@ -1017,7 +1030,8 @@ export const useProjectStore = create<ProjectState>()(
           narrations.length === 0 &&
           captions.length === 0 &&
           !hasVideoTitleText &&
-          !hasWatermarkImage
+          !hasWatermarkImage &&
+          !hasEndrollImage
         ) {
           return false;
         }

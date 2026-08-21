@@ -45,6 +45,76 @@ export function getMediaType(file: File): 'video' | 'image' | 'audio' | null {
   return null;
 }
 
+const LOGO_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+
+function isArrayBufferValue(value: unknown): value is ArrayBuffer {
+  return Object.prototype.toString.call(value) === '[object ArrayBuffer]';
+}
+
+/**
+ * ロゴ（ウォーターマーク / エンドロール）として使える画像か。
+ * Android のギャラリーは MIME が空のことがあるので、拡張子でも判定する。
+ */
+export function isSupportedLogoImageFile(file: File): boolean {
+  const type = (file.type || '').toLowerCase();
+  if (type === 'image/jpg') return true;
+  if (LOGO_IMAGE_MIME_TYPES.has(type)) return true;
+  const name = file.name.toLowerCase();
+  return name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.webp');
+}
+
+/** 保存・再 File 化に使う MIME。空や image/jpg を正規化する。 */
+export function resolveLogoImageMimeType(file: File): string {
+  const type = (file.type || '').toLowerCase();
+  if (type === 'image/jpg') return 'image/jpeg';
+  if (LOGO_IMAGE_MIME_TYPES.has(type)) return type;
+  const name = file.name.toLowerCase();
+  if (name.endsWith('.png')) return 'image/png';
+  if (name.endsWith('.webp')) return 'image/webp';
+  if (name.endsWith('.jpg') || name.endsWith('.jpeg')) return 'image/jpeg';
+  return file.type || 'application/octet-stream';
+}
+
+/**
+ * ピッカー由来の File をメモリ上のコピーへ直す。
+ * 動画クリップの createMediaItem と同じく、後から元 File が読めなくなっても保存できるようにする。
+ */
+export async function snapshotLogoImageFile(
+  file: File,
+): Promise<{ file: File; fileData: ArrayBuffer }> {
+  let fileData: ArrayBuffer | null = null;
+  try {
+    const data = typeof file.arrayBuffer === 'function'
+      ? await file.arrayBuffer()
+      : await new Response(file).arrayBuffer();
+    if (data.byteLength > 0 || file.size === 0) {
+      fileData = data;
+    }
+  } catch {
+    fileData = null;
+  }
+
+  if (!fileData) {
+    const tempUrl = URL.createObjectURL(file);
+    try {
+      const response = await fetch(tempUrl);
+      fileData = await response.arrayBuffer();
+    } finally {
+      URL.revokeObjectURL(tempUrl);
+    }
+  }
+
+  if (!isArrayBufferValue(fileData) || (file.size > 0 && fileData.byteLength === 0)) {
+    throw new Error(`ロゴ画像「${file.name}」の読み込みに失敗しました`);
+  }
+
+  const stableFile = new File([fileData], file.name, {
+    type: resolveLogoImageMimeType(file),
+    lastModified: file.lastModified,
+  });
+  return { file: stableFile, fileData };
+}
+
 /**
  * ファイルからMediaItemを作成
  * @param file - アップロードされたファイル

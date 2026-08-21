@@ -224,6 +224,8 @@ export default function SaveLoadModal({
   const captionSettings = useCaptionStore((s) => s.settings);
   const isCaptionsLocked = useCaptionStore((s) => s.isLocked);
   const hasWatermarkImage = useOverlayStore((s) => s.watermark.file instanceof File);
+  const hasEndrollImage = useOverlayStore((s) => s.endroll.file instanceof File);
+  const hasVideoTitleText = useCaptionStore((s) => s.title.text.trim().length > 0);
 
   // ストアへの復元用アクション
   const restoreMediaItems = useMediaStore((s) => s.restoreFromSave);
@@ -238,7 +240,9 @@ export default function SaveLoadModal({
     bgm !== null ||
     narrations.length > 0 ||
     captions.length > 0 ||
-    hasWatermarkImage;
+    hasWatermarkImage ||
+    hasEndrollImage ||
+    hasVideoTitleText;
 
   // 保存データがあるかどうか
   const hasAutoSave = lastAutoSave !== null;

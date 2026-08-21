@@ -4076,3 +4076,23 @@ export 終了（成功/失敗/中断）
   - apple-safari へ UI を出さない。共有スキーマの未定義は OFF。
 - **回帰ガード**: 空リストで先に ON → 追加直後ミュート、個別操作でフラグ解除、全クリア後もフラグ維持、旧保存補完、ヘルプ文言をテストする。
 
+### 13-213. ロゴ画像（ウォーターマーク / エンドロール）は選択直後にスナップショットし、動画と同じく保存できるようにする
+
+- **ファイル**: `src/utils/media.ts`, `src/types/index.ts`, `src/utils/watermarkOverlay.ts`, `src/utils/endrollOverlay.ts`, `src/stores/overlayStore.ts`, `src/stores/projectStore.ts`, `src/components/TurtleVideo.tsx`, `src/hooks/useAutoSave.ts`, `src/hooks/usePreventUnload.ts`, `src/components/modals/SaveLoadModal.tsx`, 関連テスト
+- **対象 flavor**: UI は `supportsWatermark`（standard 限定）。**保存スキーマは共有**なので apple-safari で読んでもクラッシュしない。保存経路を flavor 分岐しない。
+- **問題**:
+  - 動画クリップは `createMediaItem` で選択直後に `File → ArrayBuffer` をコピーする（13-71）。ロゴは後から追加された独立要素で、プレビュー用 Object URL だけを作り、**保存時にピッカー由来 File を再読込**していた。
+  - Android ギャラリーの File はプレビュー直後は読めても、手動保存の時点では `arrayBuffer()` / blob URL fetch が失敗することがある。そのとき「保存に失敗しました」で弾かれる。
+  - 型コメントは「保存時は fileData から再生成」だったが、オーバーレイ側にランタイム `fileData` が無かった。
+  - 空プロジェクト判定がエンドロール画像を見ていなかったため、エンドロールだけ（またはタイトルだけ）だと自動保存スキップ・手動保存ボタン disabled になり、「保存できない」ように見えた。
+- **対策**:
+  - `snapshotLogoImageFile()` で選択直後にメモリ上の File と `fileData` を作る。`arrayBuffer` 失敗時は一時 Object URL + fetch。空 MIME は拡張子から `image/png` / `image/jpeg` / `image/webp` を補う。
+  - `WatermarkOverlay.fileData` / `EndrollOverlay.fileData` をランタイム保持。serialize は `fileData` を優先し、無いときだけ File 再読込へフォールバック。
+  - `saveProjectAuto` / `useAutoSave` / `SaveLoadModal.hasCurrentData` / `usePreventUnload` の「中身あり」にエンドロール画像を含める。
+  - シリアライズ失敗の分類に「ロゴ画像 / ウォーターマーク / エンドロール」を含め、素材読み込み失敗として案内する。
+- **注意**:
+  - ロゴは `MediaItem[]` に入れない（13-156 / 13-176）。保存は `ProjectData.watermarkOverlay` / `endrollOverlay` の `fileData`。
+  - 見た目変更（位置・透過など）で `fileData` を捨てない。画像削除時だけ捨てる。
+  - IndexedDB の容量不足（巨大 PNG）は本項の対象外。13-71 の quota 復旧を使う。
+- **回帰ガード**: `media.test.ts`（MIME/拡張子・snapshot）、`overlayStore.test.ts`（fileData 保持と削除）、`projectStoreSave.test.ts`（fileData 優先で File 再読込しない・エンドロールのみでも自動保存する）。
+

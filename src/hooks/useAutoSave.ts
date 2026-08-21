@@ -395,7 +395,8 @@ export function useAutoSave() {
       narrations.length === 0 &&
       captions.length === 0 &&
       videoTitle.text.trim().length === 0 &&
-      !(watermarkOverlay.file instanceof File)
+      !(watermarkOverlay.file instanceof File) &&
+      !(endrollOverlay.file instanceof File)
     ) {
       return 'skipped-empty';
     }
