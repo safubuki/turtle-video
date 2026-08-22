@@ -40,15 +40,15 @@ const SettingsAccordionHeader = React.memo<SettingsAccordionHeaderProps>(({
     disabled={disabled}
     aria-expanded={isOpen}
     aria-controls={controlsId}
-    className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-[10px] text-gray-400 transition hover:bg-gray-800/45 hover:text-white disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-gray-400 md:text-xs"
+    className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-xs text-gray-400 transition hover:bg-gray-800/45 hover:text-white disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-gray-400 md:text-sm"
   >
-    <span className="flex min-w-0 items-center gap-2 font-semibold">
+    <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 font-semibold">
       {icon}
       <span className="whitespace-nowrap">{title}</span>
       {!isOpen && (
         <span
           aria-hidden="true"
-          className="whitespace-nowrap text-[9px] font-normal text-gray-500 md:text-[10px]"
+          className="whitespace-nowrap text-[10px] font-normal text-gray-500 md:text-xs"
         >
           （開いて設定）
         </span>

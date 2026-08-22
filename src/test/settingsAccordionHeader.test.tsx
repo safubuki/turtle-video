@@ -73,6 +73,22 @@ describe('SettingsAccordionHeader', () => {
     fireEvent.click(disabledHeader);
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
+
+  it('見出しはモバイルで text-xs、md 以上で text-sm にし、補助文言は一段小さくする', () => {
+    render(
+      <SettingsAccordionHeader
+        title="キャプション スタイル/フェード一括設定"
+        isOpen={false}
+        controlsId="caption-style-settings"
+        onToggle={vi.fn()}
+      />,
+    );
+
+    const header = screen.getByRole('button', { name: 'キャプション スタイル/フェード一括設定' });
+    expect(header).toHaveClass('text-xs', 'md:text-sm');
+    expect(header).not.toHaveClass('text-[10px]');
+    expect(within(header).getByText(OPEN_HINT)).toHaveClass('text-[10px]', 'md:text-xs');
+  });
 });
 
 const createBgmClip = (): BgmClip => ({

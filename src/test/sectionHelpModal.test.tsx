@@ -15,7 +15,7 @@ describe('SectionHelpModal', () => {
     );
 
     expect(
-      screen.getAllByText('キャプション スタイル/フェードの一括設定').length
+      screen.getAllByText('キャプション スタイル/フェード一括設定').length
     ).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('現在位置に先頭を合わせる')).toBeInTheDocument();
     expect(screen.getByText('対象の先頭を現在位置 0:12.3 に合わせます')).toBeInTheDocument();

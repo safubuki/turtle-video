@@ -116,7 +116,7 @@ describe('sectionHelp support messaging', () => {
   it('新しいキャプション設定は実画面と同じ表記と視覚見本で案内する', () => {
     const styleDescription = getHelpDescription(
       'caption',
-      'キャプション スタイル/フェードの一括設定'
+      'キャプション スタイル/フェード一括設定'
     );
     const outlineDescription = getHelpDescription('caption', '文字の縁・色');
     const individualDescription = getHelpDescription('caption', '個別設定（歯車マーク）');
@@ -126,7 +126,7 @@ describe('sectionHelp support messaging', () => {
     expect(outlineDescription).toContain('文字本体');
     expect(individualDescription).toContain('文字の縁幅・縁色・文字本体色');
     expect(individualDescription).toContain('ぼかし');
-    expect(getHelpVisuals('caption', 'キャプション スタイル/フェードの一括設定')).toContain(
+    expect(getHelpVisuals('caption', 'キャプション スタイル/フェード一括設定')).toContain(
       'caption_style_accordion'
     );
     expect(getHelpVisuals('caption', '文字の縁・色')).toEqual([

@@ -4111,3 +4111,20 @@ export 終了（成功/失敗/中断）
   - タブバーは閉じ判定に含めない（上部バー＝ハンドル＋タイトル行）。
 - **回帰ガード**: ヘルプ本文・履歴本文の下スワイプでは閉じないこと、上部バーの下スワイプでは閉じることを `modalBackdropBehavior.test.tsx` で固定する。
 
+### 13-215. 設定アコーディオン見出しの文字サイズ拡大とキャプション一括設定の短縮
+
+- **ファイル**: `src/components/common/SettingsAccordionHeader.tsx`, `src/components/sections/CaptionSection.tsx`, `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`, `src/test/settingsAccordionHeader.test.tsx`, `src/test/captionStyleControls.test.tsx`, `src/test/sectionHelp.test.ts`, `src/test/sectionHelpModal.test.tsx`
+- **対象 flavor**: **shared UI**（ロゴ表示・一括音設定・タイトル・キャプション一括など、`SettingsAccordionHeader` を使う全箇所）。standard / apple-safari とも同じ見出し。preview / export / 保存契約は非対象。
+- **問題**:
+  - 閉じたアコーディオン見出しが `text-[10px] md:text-xs` で小さく、ロゴ表示・一括音設定・タイトルなどが読みづらかった。
+  - 一方で「キャプション スタイル/フェードの一括設定」は長く、文字を大きくするとスマホ幅で見切れや不自然な折り返しが起きやすい。
+- **対策**:
+  - 共通見出しを `text-xs md:text-sm`（12px / 14px）へ一段上げる。補助「（開いて設定）」は `text-[10px] md:text-xs`。
+  - 設定名は `whitespace-nowrap` のまま（13-17 の日本語途中改行防止）。狭い幅では補助文言だけ `flex-wrap` で次行へ落とす。
+  - キャプション一括の見出しを「キャプション スタイル/フェード一括設定」へ短縮（「の」を除く）。タイトル側の「スタイル設定」との取り違え防止（13-151）は維持する。
+  - ヘルプ本文・視覚見本・apple-safari のタイトル照合も同じ表記・同じ文字サイズへ同期する（13-132 / 13-158）。
+- **注意**:
+  - 見出しをさらに長文化する場合は、モバイル約 320px で nowrap が収まるか確認する。補助文言の折り返しを先に使い、日本語タイトルの途中改行へ戻さない。
+  - 新しいアコーディオンは素の `<button>` 見出しを増やさず、必ず `SettingsAccordionHeader` を使う（13-150）。
+- **回帰ガード**: 見出しクラスと短縮タイトルを `settingsAccordionHeader.test.tsx` / `captionStyleControls.test.tsx` / `sectionHelp.test.ts` / `sectionHelpModal.test.tsx` で固定する。
+

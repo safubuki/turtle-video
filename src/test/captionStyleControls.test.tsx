@@ -98,7 +98,7 @@ function renderCaptionSection(
     </PlatformCapabilitiesProvider>
   ) : section);
   if (openOutlineSettings) {
-    fireEvent.click(screen.getByRole('button', { name: 'キャプション スタイル/フェードの一括設定' }));
+    fireEvent.click(screen.getByRole('button', { name: 'キャプション スタイル/フェード一括設定' }));
     fireEvent.click(screen.getByRole('button', { name: '文字の縁・色' }));
   }
   return props;
@@ -111,7 +111,7 @@ describe('CaptionSection bulk delete', () => {
     expect(screen.queryByRole('button', { name: 'キャプションをすべて削除' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'タイトル' })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'キャプション スタイル/フェードの一括設定' }));
+    fireEvent.click(screen.getByRole('button', { name: 'キャプション スタイル/フェード一括設定' }));
 
     expect(screen.queryByRole('button', { name: '文字の縁・色' })).not.toBeInTheDocument();
     expect(screen.queryByText('キャプション背景の帯')).not.toBeInTheDocument();
@@ -192,7 +192,7 @@ describe('CaptionSection bulk delete', () => {
 describe('CaptionSection outline and color controls', () => {
   it('詳細設定は閉じている間だけ「（開いて設定）」を表示する', () => {
     renderCaptionSection({}, false);
-    const styleButton = screen.getByRole('button', { name: 'キャプション スタイル/フェードの一括設定' });
+    const styleButton = screen.getByRole('button', { name: 'キャプション スタイル/フェード一括設定' });
 
     expect(styleButton).toHaveAttribute('aria-expanded', 'false');
     expect(within(styleButton).getByText('（開いて設定）')).toBeInTheDocument();
@@ -268,7 +268,7 @@ describe('CaptionSection bulk mini preview sizing', () => {
 
     try {
       renderCaptionSection({ previewCanvasRef: { current: null } }, false);
-      fireEvent.click(screen.getByRole('button', { name: 'キャプション スタイル/フェードの一括設定' }));
+      fireEvent.click(screen.getByRole('button', { name: 'キャプション スタイル/フェード一括設定' }));
 
       expect(screen.getByTestId('caption-bulk-mini-preview-container')).toHaveClass(
         'max-w-[clamp(12rem,24dvh,18rem)]',
@@ -285,7 +285,7 @@ describe('CaptionSection bulk mini preview sizing', () => {
 
     try {
       renderCaptionSection({ previewCanvasRef: { current: null } }, false);
-      fireEvent.click(screen.getByRole('button', { name: 'キャプション スタイル/フェードの一括設定' }));
+      fireEvent.click(screen.getByRole('button', { name: 'キャプション スタイル/フェード一括設定' }));
 
       expect(screen.getByTestId('caption-bulk-mini-preview-container')).toHaveClass('max-w-none');
       expect(screen.getByTestId('caption-bulk-mini-preview-container')).not.toHaveClass(

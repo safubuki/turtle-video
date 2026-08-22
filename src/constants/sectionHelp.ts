@@ -638,7 +638,7 @@ export function getSectionHelpContent(
           visuals: ['delete_button'],
         },
         {
-          title: 'キャプション スタイル/フェードの一括設定',
+          title: 'キャプション スタイル/フェード一括設定',
           description:
             '閉じているときはタイトル右側に「（開いて設定）」と表示されます。押すと、全キャプション共通のサイズ、字体、位置、ぼかし、背景の帯（既定OFF）、フェード（0.5秒・1秒・2秒）をまとめて設定できます。開いた後は「（開いて設定）」が消え、下向き矢印で開いている状態を示します。',
           visuals: [
@@ -888,7 +888,7 @@ export function getSectionHelpContent(
     }
 
     const captionStyle = content.caption.items.find(
-      (item) => item.title === 'キャプション スタイル/フェードの一括設定',
+      (item) => item.title === 'キャプション スタイル/フェード一括設定',
     );
     if (captionStyle) {
       captionStyle.description =

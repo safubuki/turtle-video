@@ -665,7 +665,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
           {/* スタイル/フェード一括設定 */}
           <div className="bg-gray-800/50 rounded-xl border border-gray-600/70">
             <SettingsAccordionHeader
-              title="キャプション スタイル/フェードの一括設定"
+              title="キャプション スタイル/フェード一括設定"
               icon={<Type className="w-3 h-3 shrink-0" />}
               isOpen={showStyleSettings}
               controlsId="caption-style-settings"

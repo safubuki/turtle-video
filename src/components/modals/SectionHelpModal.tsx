@@ -388,10 +388,10 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
             key={`${token}-${index}`}
             className="basis-full w-full space-y-2 rounded-lg border border-gray-700/70 bg-gray-900/30 p-2 text-[10px] text-gray-300 md:text-xs"
           >
-            <div className="flex items-center justify-between gap-2 rounded-lg border border-gray-700 bg-gray-800/70 px-2 py-2">
-              <span className="flex items-center gap-2 font-semibold">
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-gray-700 bg-gray-800/70 px-2 py-2 text-xs md:text-sm">
+              <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 font-semibold">
                 ウォーターマーク
-                <span className="text-[9px] font-normal text-gray-500">（開いて設定）</span>
+                <span className="whitespace-nowrap text-[10px] font-normal text-gray-500 md:text-xs">（開いて設定）</span>
               </span>
               <ChevronRight className="h-3.5 w-3.5" />
             </div>
@@ -523,11 +523,11 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
             key={`${token}-${index}`}
             className="basis-full w-full space-y-1.5 rounded-lg border border-gray-700/70 bg-gray-900/30 p-2 text-gray-300"
           >
-            <div className="flex items-center justify-between text-xs">
-              <span className="flex items-center gap-2 font-semibold">
+            <div className="flex items-center justify-between text-xs md:text-sm">
+              <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 font-semibold">
                 <Type className="h-3.5 w-3.5" />
                 タイトル
-                <span className="text-[9px] font-normal text-gray-500">（開いて設定）</span>
+                <span className="whitespace-nowrap text-[10px] font-normal text-gray-500 md:text-xs">（開いて設定）</span>
               </span>
               <ChevronRight className="h-3.5 w-3.5" />
             </div>
@@ -578,13 +578,13 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
         return (
           <div
             key={`${token}-${index}`}
-            className="basis-full w-full rounded-lg border border-gray-700/70 bg-gray-850/80 px-2 py-2 text-xs text-gray-300"
+            className="basis-full w-full rounded-lg border border-gray-700/70 bg-gray-850/80 px-2 py-2 text-xs text-gray-300 md:text-sm"
           >
             <div className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-2 font-semibold">
+              <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 font-semibold">
                 <ImageIcon className="h-3.5 w-3.5" />
                 サムネイル設定（手動・0:12）
-                <span className="text-[9px] font-normal text-gray-500">（開いて設定）</span>
+                <span className="whitespace-nowrap text-[10px] font-normal text-gray-500 md:text-xs">（開いて設定）</span>
               </span>
               <ChevronRight className="h-3.5 w-3.5 shrink-0" />
             </div>
@@ -619,11 +619,11 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
             key={`${token}-${index}`}
             className="basis-full w-full rounded-lg border border-gray-600/70 bg-gray-800/50 px-2 py-2 text-gray-300"
           >
-            <div className="flex items-center justify-between gap-2 text-xs">
-              <span className="flex min-w-0 items-center gap-2">
+            <div className="flex items-center justify-between gap-2 text-xs md:text-sm">
+              <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
                 <Type className="h-3 w-3 shrink-0" />
-                <span className="whitespace-nowrap">キャプション スタイル/フェードの一括設定</span>
-                <span className="whitespace-nowrap text-[9px] text-gray-500">（開いて設定）</span>
+                <span className="whitespace-nowrap">キャプション スタイル/フェード一括設定</span>
+                <span className="whitespace-nowrap text-[10px] text-gray-500 md:text-xs">（開いて設定）</span>
               </span>
               <ChevronRight className="h-3 w-3 shrink-0" />
             </div>
@@ -635,10 +635,10 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
             key={`${token}-${index}`}
             className="basis-full w-full rounded-lg border border-gray-700/70 bg-gray-900/30 px-2 py-2 text-gray-300"
           >
-            <div className="flex items-center justify-between gap-2 text-xs">
-              <span className="flex min-w-0 items-center gap-2 font-semibold">
+            <div className="flex items-center justify-between gap-2 text-xs md:text-sm">
+              <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 font-semibold">
                 <span className="whitespace-nowrap">文字の縁・色</span>
-                <span className="whitespace-nowrap text-[9px] font-normal text-gray-500">
+                <span className="whitespace-nowrap text-[10px] font-normal text-gray-500 md:text-xs">
                   （開いて設定）
                 </span>
               </span>
