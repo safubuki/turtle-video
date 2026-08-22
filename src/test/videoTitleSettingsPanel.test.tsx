@@ -114,7 +114,7 @@ describe('CaptionSection 内のタイトル配置（Issue #211）', () => {
 
     const titleHeader = screen.getByRole('button', { name: /タイトル/ });
     const styleHeader = screen.getByRole('button', {
-      name: /キャプション スタイル\/フェード一括設定/,
+      name: /キャプション 一括設定/,
     });
 
     // DOM 順でタイトルが一括設定より前にある

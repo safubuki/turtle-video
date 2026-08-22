@@ -3,7 +3,7 @@
  * @author Turtle Village
  * @copyright Copyright (C) 2026 safubuki (Turtle Village)
  * @license GPL-3.0-or-later
- * @description 「一括音設定」アコーディオン。
+ * @description 「音 一括設定」アコーディオン。
  * 一括ミュート・一括音量・音量揃えを、動画 / BGM / ナレーションで共通利用する。
  */
 import React, { useMemo, useState } from 'react';
@@ -151,7 +151,7 @@ const ClipAudioSettingsPanel: React.FC<ClipAudioSettingsPanelProps> = ({
   return (
     <div className="min-w-0 rounded-lg border border-gray-700/70 bg-gray-900/30">
       <SettingsAccordionHeader
-        title="一括音設定"
+        title="音 一括設定"
         isOpen={isOpen}
         disabled={isLocked}
         controlsId={controlsId}

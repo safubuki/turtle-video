@@ -4128,3 +4128,19 @@ export 終了（成功/失敗/中断）
   - 新しいアコーディオンは素の `<button>` 見出しを増やさず、必ず `SettingsAccordionHeader` を使う（13-150）。
 - **回帰ガード**: 見出しクラスと短縮タイトルを `settingsAccordionHeader.test.tsx` / `captionStyleControls.test.tsx` / `sectionHelp.test.ts` / `sectionHelpModal.test.tsx` で固定する。
 
+### 13-216. アコーディオン見出しを「キャプション 一括設定」「音 一括設定」へ揃える
+
+- **ファイル**: `src/components/sections/CaptionSection.tsx`, `src/components/sections/ClipAudioSettingsPanel.tsx`, `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`, 関連テスト
+- **対象 flavor**: **shared UI**。見出し文言は両 flavor 共通。音 一括設定パネル自体は 13-206 / 13-211 どおり standard のみ表示。preview / export / 保存契約は非対象。
+- **問題**:
+  - 13-215 の「キャプション スタイル/フェード一括設定」でもスマホで改行が入った。
+  - 「一括音設定」と「キャプション 一括設定」で語順が揺れ、同じ「まとめて設定する」操作だと分かりにくかった。
+- **対策**:
+  - キャプション側見出しを「**キャプション 一括設定**」へ短縮。タイトル側の「スタイル設定」との取り違え防止（13-151）は「キャプション」を残して維持する。
+  - 音側見出しを「**音 一括設定**」へ変更し、`対象 + 一括設定` の語順に揃える。
+  - ヘルプ項目名・本文の引用・apple-safari の `hiddenTitles`・視覚見本も同じ表記へ同期する（13-132 / 13-158 / 13-176）。
+- **注意**:
+  - 見出しを再び「スタイル/フェード」まで戻すとスマホ改行が再発する。機能の内訳は開いた中身とヘルプ本文で案内する。
+  - 「一括音量設定」「一括ミュート」などパネル内の操作名は変えない。
+- **回帰ガード**: `captionStyleControls.test.tsx` / `clipAudioSettingsPanel.test.tsx` / `sectionHelp.test.ts` / `sectionHelpModal.test.tsx` / `videoTitleSettingsPanel.test.tsx` で実画面ラベルを固定する。
+

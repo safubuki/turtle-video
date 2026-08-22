@@ -290,9 +290,9 @@ export function getSectionHelpContent(
           ],
         },
         {
-          title: '一括音設定（ミュート / 一括音量 / 音量揃え）',
+          title: '音 一括設定（ミュート / 一括音量 / 音量揃え）',
           description:
-            'ロゴ表示の下にある「一括音設定」（開いて設定）から、動画カードの音をまとめて扱えます。',
+            'ロゴ表示の下にある「音 一括設定」（開いて設定）から、動画カードの音をまとめて扱えます。',
           bullets: [
             '「一括ミュート」にチェックを入れると、すべての動画をミュートします。動画がまだ無くても先に有効にでき、あとから追加した動画にもすぐ適用します。',
             '画像は音声がないため対象外です。個別ミュートと同じ設定なので、プレビューと書き出しの両方に効きます。',
@@ -456,9 +456,9 @@ export function getSectionHelpContent(
           visuals: ['start_chip', 'delay_chip', 'slider_demo'],
         },
         {
-          title: '一括音設定（ミュート / 一括音量 / 音量揃え）',
+          title: '音 一括設定（ミュート / 一括音量 / 音量揃え）',
           description:
-            'リスト先頭の「一括音設定」（開いて設定）から、BGMの音をまとめて扱えます。',
+            'リスト先頭の「音 一括設定」（開いて設定）から、BGMの音をまとめて扱えます。',
           bullets: [
             'この設定はBGMカテゴリの曲だけに効きます。動画やナレーションには影響しません。',
             '「一括ミュート」にチェックを入れると、すべてのBGMをミュートします。曲がまだ無くても先に有効にでき、あとから追加したBGMにもすぐ適用します。',
@@ -568,9 +568,9 @@ export function getSectionHelpContent(
           visuals: ['narration_waveform'],
         },
         {
-          title: '一括音設定（ミュート / 一括音量 / 音量揃え）',
+          title: '音 一括設定（ミュート / 一括音量 / 音量揃え）',
           description:
-            'リスト先頭の「一括音設定」（開いて設定）から、ナレーションの音をまとめて扱えます。',
+            'リスト先頭の「音 一括設定」（開いて設定）から、ナレーションの音をまとめて扱えます。',
           bullets: [
             'この設定はナレーションカテゴリのクリップだけに効きます。動画やBGMには影響しません。',
             '「一括ミュート」にチェックを入れると、すべてのナレーションをミュートします。クリップがまだ無くても先に有効にでき、あとから追加したナレーションにもすぐ適用します。',
@@ -638,7 +638,7 @@ export function getSectionHelpContent(
           visuals: ['delete_button'],
         },
         {
-          title: 'キャプション スタイル/フェード一括設定',
+          title: 'キャプション 一括設定',
           description:
             '閉じているときはタイトル右側に「（開いて設定）」と表示されます。押すと、全キャプション共通のサイズ、字体、位置、ぼかし、背景の帯（既定OFF）、フェード（0.5秒・1秒・2秒）をまとめて設定できます。開いた後は「（開いて設定）」が消え、下向き矢印で開いている状態を示します。',
           visuals: [
@@ -830,7 +830,7 @@ export function getSectionHelpContent(
     const hiddenTitles = new Set([
       '動画の形式（横16:9／縦9:16）',
       'ロゴ表示（ウォーターマーク / エンドロール）',
-      '一括音設定（ミュート / 一括音量 / 音量揃え）',
+      '音 一括設定（ミュート / 一括音量 / 音量揃え）',
       '再生速度（0.5〜8.0倍）',
       'トランジション（Android/PC版）',
       '複数のBGM（Android/PC版）',
@@ -888,7 +888,7 @@ export function getSectionHelpContent(
     }
 
     const captionStyle = content.caption.items.find(
-      (item) => item.title === 'キャプション スタイル/フェード一括設定',
+      (item) => item.title === 'キャプション 一括設定',
     );
     if (captionStyle) {
       captionStyle.description =

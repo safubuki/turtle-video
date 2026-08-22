@@ -622,7 +622,7 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
             <div className="flex items-center justify-between gap-2 text-xs md:text-sm">
               <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
                 <Type className="h-3 w-3 shrink-0" />
-                <span className="whitespace-nowrap">キャプション スタイル/フェード一括設定</span>
+                <span className="whitespace-nowrap">キャプション 一括設定</span>
                 <span className="whitespace-nowrap text-[10px] text-gray-500 md:text-xs">（開いて設定）</span>
               </span>
               <ChevronRight className="h-3 w-3 shrink-0" />
@@ -1007,7 +1007,7 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
             key={`${token}-${index}`}
             className={`${chipBaseClass} px-2 py-1 border-yellow-500/40 bg-yellow-500/10 text-yellow-200`}
           >
-            <Type className="w-3 h-3" /> スタイル/フェード一括設定
+            <Type className="w-3 h-3" /> キャプション 一括設定
           </span>
         );
       case 'current_pin_chip':

@@ -116,7 +116,7 @@ describe('sectionHelp support messaging', () => {
   it('新しいキャプション設定は実画面と同じ表記と視覚見本で案内する', () => {
     const styleDescription = getHelpDescription(
       'caption',
-      'キャプション スタイル/フェード一括設定'
+      'キャプション 一括設定'
     );
     const outlineDescription = getHelpDescription('caption', '文字の縁・色');
     const individualDescription = getHelpDescription('caption', '個別設定（歯車マーク）');
@@ -126,7 +126,7 @@ describe('sectionHelp support messaging', () => {
     expect(outlineDescription).toContain('文字本体');
     expect(individualDescription).toContain('文字の縁幅・縁色・文字本体色');
     expect(individualDescription).toContain('ぼかし');
-    expect(getHelpVisuals('caption', 'キャプション スタイル/フェード一括設定')).toContain(
+    expect(getHelpVisuals('caption', 'キャプション 一括設定')).toContain(
       'caption_style_accordion'
     );
     expect(getHelpVisuals('caption', '文字の縁・色')).toEqual([
@@ -142,18 +142,18 @@ describe('sectionHelp support messaging', () => {
     );
   });
 
-  it('一括音設定のヘルプはミュートと揃え方を実画面どおりに案内する', () => {
-    expect(getHelpDescription('clips', '一括音設定（ミュート / 一括音量 / 音量揃え）')).toContain('ロゴ表示の下');
-    expect(getHelpDescription('clips', '一括音設定（ミュート / 一括音量 / 音量揃え）')).toContain('一括ミュート');
-    expect(getHelpDescription('clips', '一括音設定（ミュート / 一括音量 / 音量揃え）')).toContain('動画がまだ無くても先に有効にでき');
-    expect(getHelpDescription('clips', '一括音設定（ミュート / 一括音量 / 音量揃え）')).toContain('あとから追加した動画にもすぐ適用します');
-    expect(getHelpDescription('bgm', '一括音設定（ミュート / 一括音量 / 音量揃え）')).toContain('曲がまだ無くても先に有効にでき');
-    expect(getHelpDescription('narration', '一括音設定（ミュート / 一括音量 / 音量揃え）')).toContain('クリップがまだ無くても先に有効にでき');
-    expect(getHelpDescription('clips', '一括音設定（ミュート / 一括音量 / 音量揃え）')).toContain('最大に揃える');
-    expect(getHelpDescription('clips', '一括音設定（ミュート / 一括音量 / 音量揃え）')).toContain('残りはスクロールします');
-    expect(getHelpDescription('clips', '一括音設定（ミュート / 一括音量 / 音量揃え）')).not.toContain('チェックを外せ');
-    expect(getHelpDescription('bgm', '一括音設定（ミュート / 一括音量 / 音量揃え）')).toContain('BGMカテゴリ');
-    expect(getHelpDescription('narration', '一括音設定（ミュート / 一括音量 / 音量揃え）')).toContain('ナレーションカテゴリ');
+  it('音 一括設定のヘルプはミュートと揃え方を実画面どおりに案内する', () => {
+    expect(getHelpDescription('clips', '音 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('ロゴ表示の下');
+    expect(getHelpDescription('clips', '音 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('一括ミュート');
+    expect(getHelpDescription('clips', '音 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('動画がまだ無くても先に有効にでき');
+    expect(getHelpDescription('clips', '音 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('あとから追加した動画にもすぐ適用します');
+    expect(getHelpDescription('bgm', '音 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('曲がまだ無くても先に有効にでき');
+    expect(getHelpDescription('narration', '音 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('クリップがまだ無くても先に有効にでき');
+    expect(getHelpDescription('clips', '音 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('最大に揃える');
+    expect(getHelpDescription('clips', '音 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('残りはスクロールします');
+    expect(getHelpDescription('clips', '音 一括設定（ミュート / 一括音量 / 音量揃え）')).not.toContain('チェックを外せ');
+    expect(getHelpDescription('bgm', '音 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('BGMカテゴリ');
+    expect(getHelpDescription('narration', '音 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('ナレーションカテゴリ');
     expect(getHelpDescription('clips', '再生速度（0.5〜8.0倍）')).toContain('0.5');
     expect(getHelpDescription('clips', '再生速度（0.5〜8.0倍）')).toContain('等倍でもチェックできます');
     expect(getHelpDescription('clips', '再生速度（0.5〜8.0倍）')).toContain('四隅から9%内側');

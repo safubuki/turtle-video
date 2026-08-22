@@ -2,7 +2,7 @@
  * @file SettingsAccordionHeader.tsx
  * @description 設定アコーディオンの見出しを四角いカードとして統一表示する共通コンポーネント。
  * 閉じているときは「（開いて設定）」を補助文言として出し、開閉状態は矢印アイコンで示す。
- * 「スタイル/フェード一括設定」「文字の縁・色」と同じ見た目・操作感へ全体を揃えるために使う。
+ * 「キャプション 一括設定」「文字の縁・色」と同じ見た目・操作感へ全体を揃えるために使う。
  */
 import React from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';

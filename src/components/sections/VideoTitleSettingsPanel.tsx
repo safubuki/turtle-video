@@ -94,7 +94,7 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
 }) => {
   // 毎回使う機能ではないため初期状態は閉じる（Issue #211 の確認項目）
   const [isOpen, setIsOpen] = useState(false);
-  // 見た目まわりはさらに段階開示する（キャプションの「スタイル/フェード一括設定」と同じ考え方）
+  // 見た目まわりはさらに段階開示する（キャプション 一括設定と同じ考え方）
   const [showStyleSettings, setShowStyleSettings] = useState(false);
 
   const isCustomPosition = title.positionCustom != null;

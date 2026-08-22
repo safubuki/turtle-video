@@ -1,6 +1,6 @@
 /**
  * @file clipAudioSettingsPanel.test.tsx
- * @description 一括音設定アコーディオン（一括ミュート・一括音量・音量揃え）の UI 契約
+ * @description 音 一括設定アコーディオン（一括ミュート・一括音量・音量揃え）の UI 契約
  */
 import type { ComponentProps } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
@@ -65,7 +65,7 @@ describe('ClipAudioSettingsPanel', () => {
     renderPanel({ items: [createVideo()], onToggleBulkEnabled });
 
     expect(screen.queryByRole('slider', { name: '一括音量' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '一括音設定' }));
+    fireEvent.click(screen.getByRole('button', { name: '音 一括設定' }));
     const slider = screen.getByRole('slider', { name: '一括音量' });
     expect(slider).toBeDisabled();
 
@@ -77,7 +77,7 @@ describe('ClipAudioSettingsPanel', () => {
     const onToggleBulkMuted = vi.fn();
     renderPanel({ items: [createVideo()], onToggleBulkMuted });
 
-    fireEvent.click(screen.getByRole('button', { name: '一括音設定' }));
+    fireEvent.click(screen.getByRole('button', { name: '音 一括設定' }));
     fireEvent.click(screen.getByRole('checkbox', { name: '一括ミュート' }));
     expect(onToggleBulkMuted).toHaveBeenCalledWith(true);
   });
@@ -93,7 +93,7 @@ describe('ClipAudioSettingsPanel', () => {
       onChangeNormalizeMode,
     });
 
-    fireEvent.click(screen.getByRole('button', { name: '一括音設定' }));
+    fireEvent.click(screen.getByRole('button', { name: '音 一括設定' }));
     expect(screen.getByTestId('clip-audio-normalize-list')).toBeInTheDocument();
     expect(screen.getByText('揃え +6.0 dB')).toBeInTheDocument();
     expect(screen.getByText('揃え -6.0 dB')).toBeInTheDocument();
@@ -117,7 +117,7 @@ describe('ClipAudioSettingsPanel', () => {
       onToggleBulkMuted,
     });
 
-    fireEvent.click(screen.getByRole('button', { name: '一括音設定' }));
+    fireEvent.click(screen.getByRole('button', { name: '音 一括設定' }));
     expect(screen.getByRole('checkbox', { name: '一括ミュート' })).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: '一括音量設定' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: '音量を揃える' })).toBeChecked();
@@ -130,7 +130,7 @@ describe('ClipAudioSettingsPanel', () => {
 
   it('動画が無くても一括ミュートONを表示できる', () => {
     renderPanel({ items: [], bulkMuted: true });
-    fireEvent.click(screen.getByRole('button', { name: '一括音設定' }));
+    fireEvent.click(screen.getByRole('button', { name: '音 一括設定' }));
     expect(screen.getByRole('checkbox', { name: '一括ミュート' })).toBeChecked();
   });
 
@@ -146,7 +146,7 @@ describe('ClipAudioSettingsPanel', () => {
       normalizeEnabled: true,
     });
 
-    fireEvent.click(screen.getByRole('button', { name: '一括音設定' }));
+    fireEvent.click(screen.getByRole('button', { name: '音 一括設定' }));
     const fileList = screen.getByTestId('clip-audio-normalize-files');
     expect(fileList).toHaveClass('overflow-y-auto');
     expect(fileList.className).toMatch(/max-h-\[calc\(5\*/);
@@ -162,7 +162,7 @@ describe('ClipAudioSettingsPanel', () => {
       items: [],
       normalizeEnabled: true,
     });
-    fireEvent.click(screen.getByRole('button', { name: '一括音設定' }));
+    fireEvent.click(screen.getByRole('button', { name: '音 一括設定' }));
     expect(screen.getByText('チェックを入れると、すべてのBGMをミュートします。曲がまだ無くても先に有効にでき、あとから追加したBGMにもすぐ適用します。')).toBeInTheDocument();
     expect(screen.getByText('比較するBGMが2本以上あるときに揃えます。')).toBeInTheDocument();
   });
@@ -172,7 +172,7 @@ describe('ClipAudioSettingsPanel', () => {
       items: [createVideo()],
       normalizeEnabled: true,
     });
-    fireEvent.click(screen.getByRole('button', { name: '一括音設定' }));
+    fireEvent.click(screen.getByRole('button', { name: '音 一括設定' }));
     const hints = [
       'チェックを入れると、すべての動画をミュートします。動画がまだ無くても先に有効にでき、あとから追加した動画にもすぐ適用します。',
       'チェックを入れると、すべての動画カードの音量を同じ値に揃えます。個別スライダーは無効になります。',
