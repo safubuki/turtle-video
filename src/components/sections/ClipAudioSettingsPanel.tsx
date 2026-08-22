@@ -44,8 +44,8 @@ const KIND_COPY: Record<
 > = {
   video: {
     muteHint: 'チェックを入れると、すべての動画をミュートします。',
-    volumeHint: 'チェックを入れると、同じ値に揃えます。',
-    normalizeHint: 'チェックを入れると、音の大小を揃えます。',
+    volumeHint: 'チェックを入れると、すべての動画の音量をまとめて設定します。',
+    normalizeHint: 'チェックを入れると、すべての動画の音量を揃えます。',
     compareHint: '比較する動画が2本以上あるときに揃えます。',
     analyzing: '各動画の音量を解析しています…',
     analyzeError: '一部の動画を解析できませんでした。解析できたカードだけ揃えます。',
@@ -53,8 +53,8 @@ const KIND_COPY: Record<
   },
   bgm: {
     muteHint: 'チェックを入れると、すべてのBGMをミュートします。',
-    volumeHint: 'チェックを入れると、同じ値に揃えます。',
-    normalizeHint: 'チェックを入れると、音の大小を揃えます。',
+    volumeHint: 'チェックを入れると、すべてのBGMの音量をまとめて設定します。',
+    normalizeHint: 'チェックを入れると、すべてのBGMの音量を揃えます。',
     compareHint: '比較するBGMが2本以上あるときに揃えます。',
     analyzing: '各BGMの音量を解析しています…',
     analyzeError: '一部のBGMを解析できませんでした。解析できた曲だけ揃えます。',
@@ -62,8 +62,8 @@ const KIND_COPY: Record<
   },
   narration: {
     muteHint: 'チェックを入れると、すべてのナレーションをミュートします。',
-    volumeHint: 'チェックを入れると、同じ値に揃えます。',
-    normalizeHint: 'チェックを入れると、音の大小を揃えます。',
+    volumeHint: 'チェックを入れると、すべてのナレーションの音量をまとめて設定します。',
+    normalizeHint: 'チェックを入れると、すべてのナレーションの音量を揃えます。',
     compareHint: '比較するナレーションが2本以上あるときに揃えます。',
     analyzing: '各ナレーションの音量を解析しています…',
     analyzeError: '一部のナレーションを解析できませんでした。解析できたクリップだけ揃えます。',

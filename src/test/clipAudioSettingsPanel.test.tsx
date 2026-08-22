@@ -164,8 +164,8 @@ describe('ClipAudioSettingsPanel', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: '音声 一括設定' }));
     expect(screen.getByText('チェックを入れると、すべてのBGMをミュートします。')).toBeInTheDocument();
-    expect(screen.getByText('チェックを入れると、同じ値に揃えます。')).toBeInTheDocument();
-    expect(screen.getByText('チェックを入れると、音の大小を揃えます。')).toBeInTheDocument();
+    expect(screen.getByText('チェックを入れると、すべてのBGMの音量をまとめて設定します。')).toBeInTheDocument();
+    expect(screen.getByText('チェックを入れると、すべてのBGMの音量を揃えます。')).toBeInTheDocument();
     expect(screen.getByText('比較するBGMが2本以上あるときに揃えます。')).toBeInTheDocument();
   });
 
@@ -177,8 +177,8 @@ describe('ClipAudioSettingsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '音声 一括設定' }));
     const hints = [
       'チェックを入れると、すべての動画をミュートします。',
-      'チェックを入れると、同じ値に揃えます。',
-      'チェックを入れると、音の大小を揃えます。',
+      'チェックを入れると、すべての動画の音量をまとめて設定します。',
+      'チェックを入れると、すべての動画の音量を揃えます。',
       '小さい音は上げ、大きい音は下げます。極端に小さい素材が多いと、全体が小さめに寄ります。',
       '比較する動画が2本以上あるときに揃えます。',
     ];
