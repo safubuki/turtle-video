@@ -218,14 +218,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
   const activeInfoPanelRef = useRef<InfoPanelType>(null);
   const modalHistoryIdRef = useRef<string | null>(null);
   const closedByPopstateRef = useRef(false);
-  const apikeyScrollRef = useRef<HTMLDivElement>(null);
-  const settingsScrollRef = useRef<HTMLDivElement>(null);
   const logContainerRef = useRef<HTMLDivElement>(null);
   // setCopied(false) を遅延実行するタイマー。アンマウント時に setState 警告を防ぐためにクリーンアップする
   const copiedResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartXRef = useRef<number | null>(null);
   const touchStartYRef = useRef<number | null>(null);
-  const touchStartScrollTopRef = useRef(0);
   const touchDeltaYRef = useRef(0);
   const swipeCloseEligibleRef = useRef(false);
   const previewLogModeAtLoadRef = useRef<PreviewLogMode | null>(null);
@@ -352,21 +349,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
     };
   }, [isOpen]);
 
-  const getActiveScrollTop = () => {
-    if (activeTab === 'apikey') return apikeyScrollRef.current?.scrollTop ?? 0;
-    if (activeTab === 'settings') return settingsScrollRef.current?.scrollTop ?? 0;
-    return logContainerRef.current?.scrollTop ?? 0;
-  };
-
   const resetTouchTracking = () => {
     touchStartXRef.current = null;
     touchStartYRef.current = null;
-    touchStartScrollTopRef.current = 0;
     touchDeltaYRef.current = 0;
     swipeCloseEligibleRef.current = false;
   };
 
-  const handleSheetTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+  const handleHeaderTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
     if (!isMobileViewport() || event.touches.length !== 1) {
       resetTouchTracking();
       return;
@@ -375,11 +365,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
     touchStartXRef.current = touch.clientX;
     touchStartYRef.current = touch.clientY;
     touchDeltaYRef.current = 0;
-    touchStartScrollTopRef.current = getActiveScrollTop();
-    swipeCloseEligibleRef.current = touchStartScrollTopRef.current <= 0;
+    swipeCloseEligibleRef.current = true;
   };
 
-  const handleSheetTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
+  const handleHeaderTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
     if (
       !swipeCloseEligibleRef.current ||
       touchStartXRef.current === null ||
@@ -394,9 +383,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
     const deltaY = touch.clientY - touchStartYRef.current;
     touchDeltaYRef.current = deltaY;
 
-    const atTop = getActiveScrollTop() <= 0;
     const isVerticalDownSwipe = deltaY > 0 && Math.abs(deltaY) > Math.abs(deltaX);
-    if (!atTop || touchStartScrollTopRef.current > 0 || !isVerticalDownSwipe) {
+    if (!isVerticalDownSwipe) {
       swipeCloseEligibleRef.current = false;
       return;
     }
@@ -404,7 +392,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
     event.preventDefault();
   };
 
-  const handleSheetTouchEnd = () => {
+  const handleHeaderTouchEnd = () => {
     if (swipeCloseEligibleRef.current && touchDeltaYRef.current > 72) {
       onCloseRef.current();
     }
@@ -544,62 +532,68 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
       <div
         className="bg-gray-900 rounded-t-2xl md:rounded-2xl border border-gray-700 w-full max-w-lg shadow-2xl max-h-[calc(100dvh-0.5rem)] md:max-h-[90vh] flex flex-col overflow-hidden animate-ai-modal-sheet"
         onClick={(e) => e.stopPropagation()}
-        onTouchStart={handleSheetTouchStart}
-        onTouchMove={handleSheetTouchMove}
-        onTouchEnd={handleSheetTouchEnd}
-        onTouchCancel={resetTouchTracking}
       >
-        <div className="md:hidden pt-2 px-4 shrink-0">
-          <div className="mx-auto h-1 w-12 rounded-full bg-gray-600/80" />
-        </div>
-        {/* ヘッダー */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-700 shrink-0">
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-bold flex items-center gap-2">⚙️ 設定</h2>
-            <button
-              onClick={() => toggleInfoPanel('help')}
-              className={`p-1 rounded-lg transition border ${
-                activeInfoPanel === 'help'
-                  ? 'border-blue-300/55 bg-blue-400/20 text-blue-100'
-                  : 'border-blue-500/45 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:text-blue-200'
-              }`}
-              title="このセクションの説明"
-              aria-label="設定モーダルの説明"
-              aria-pressed={activeInfoPanel === 'help'}
-            >
-              <CircleHelp className="w-4 h-4" />
-            </button>
-            {hasReleaseHistory && (
-              <button
-                onClick={() => toggleInfoPanel('history')}
-                className={`p-1 rounded-lg transition border ${
-                  activeInfoPanel === 'history'
-                    ? 'border-gray-300/55 bg-gray-200/20 text-gray-100'
-                    : 'border-gray-400/35 bg-gray-200/8 text-gray-300 hover:bg-gray-200/15 hover:text-gray-100'
-                }`}
-                title="前回バージョンからの変更点"
-                aria-label="前回バージョンからの変更点を表示"
-                aria-pressed={activeInfoPanel === 'history'}
-              >
-                <History className="w-4 h-4" />
-              </button>
-            )}
-            <span
-              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold tracking-wide ${flavorBadge.className}`}
-              title={flavorBadge.title}
-            >
-              <span className="sm:hidden">{flavorBadge.compactLabel}</span>
-              <span className="hidden sm:inline">{flavorBadge.label}</span>
-            </span>
+        {/* 上部（ドラッグハンドル + ヘッダー）だけ下スワイプで閉じる。ヘルプ/履歴本文とは競合させない */}
+        <div
+          className="shrink-0"
+          data-testid="settings-modal-drag-region"
+          onTouchStart={handleHeaderTouchStart}
+          onTouchMove={handleHeaderTouchMove}
+          onTouchEnd={handleHeaderTouchEnd}
+          onTouchCancel={resetTouchTracking}
+        >
+          <div className="md:hidden pt-2 px-4">
+            <div className="mx-auto h-1 w-12 rounded-full bg-gray-600/80" />
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg border border-gray-600/80 bg-gray-800/80 text-gray-200 hover:text-white hover:bg-gray-700 hover:border-gray-500 transition"
-            title="閉じる"
-            aria-label="閉じる"
-          >
-            <X className="w-[18px] h-[18px]" />
-          </button>
+          {/* ヘッダー */}
+          <div className="flex items-center justify-between p-4 border-b border-gray-700">
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-bold flex items-center gap-2">⚙️ 設定</h2>
+              <button
+                onClick={() => toggleInfoPanel('help')}
+                className={`p-1 rounded-lg transition border ${
+                  activeInfoPanel === 'help'
+                    ? 'border-blue-300/55 bg-blue-400/20 text-blue-100'
+                    : 'border-blue-500/45 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:text-blue-200'
+                }`}
+                title="このセクションの説明"
+                aria-label="設定モーダルの説明"
+                aria-pressed={activeInfoPanel === 'help'}
+              >
+                <CircleHelp className="w-4 h-4" />
+              </button>
+              {hasReleaseHistory && (
+                <button
+                  onClick={() => toggleInfoPanel('history')}
+                  className={`p-1 rounded-lg transition border ${
+                    activeInfoPanel === 'history'
+                      ? 'border-gray-300/55 bg-gray-200/20 text-gray-100'
+                      : 'border-gray-400/35 bg-gray-200/8 text-gray-300 hover:bg-gray-200/15 hover:text-gray-100'
+                  }`}
+                  title="前回バージョンからの変更点"
+                  aria-label="前回バージョンからの変更点を表示"
+                  aria-pressed={activeInfoPanel === 'history'}
+                >
+                  <History className="w-4 h-4" />
+                </button>
+              )}
+              <span
+                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold tracking-wide ${flavorBadge.className}`}
+                title={flavorBadge.title}
+              >
+                <span className="sm:hidden">{flavorBadge.compactLabel}</span>
+                <span className="hidden sm:inline">{flavorBadge.label}</span>
+              </span>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg border border-gray-600/80 bg-gray-800/80 text-gray-200 hover:text-white hover:bg-gray-700 hover:border-gray-500 transition"
+              title="閉じる"
+              aria-label="閉じる"
+            >
+              <X className="w-[18px] h-[18px]" />
+            </button>
+          </div>
         </div>
 
         {/* タブ */}
@@ -648,7 +642,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
         {/* コンテンツ */}
         <div className="flex-1 overflow-hidden flex flex-col">
           {activeInfoPanel === 'help' && (
-            <div className="p-3 border-b border-gray-700/70 shrink-0 max-h-[60vh] overflow-y-auto">
+            <div
+              className="p-3 border-b border-gray-700/70 shrink-0 max-h-[60vh] overflow-y-auto"
+              data-testid="settings-help-panel"
+            >
               <div className="rounded-xl border border-orange-400/45 bg-linear-to-br from-orange-500/18 via-amber-500/12 to-orange-500/6 p-3 md:p-4 space-y-2">
                 <div className="flex items-start justify-between gap-2">
                   <h3 className="text-sm font-bold text-orange-100 flex items-center gap-1">
@@ -708,7 +705,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
             </div>
           )}
           {activeInfoPanel === 'history' && APP_RELEASE_HISTORY && (
-            <div className="p-3 border-b border-gray-700/70 shrink-0 max-h-[60vh] overflow-y-auto">
+            <div
+              className="p-3 border-b border-gray-700/70 shrink-0 max-h-[60vh] overflow-y-auto"
+              data-testid="settings-history-panel"
+            >
               <div className="rounded-xl border border-gray-300/20 bg-linear-to-br from-gray-100/14 via-slate-100/10 to-gray-300/6 p-3 md:p-4 space-y-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
@@ -762,7 +762,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
           )}
           {activeTab === 'apikey' ? (
             /* APIキータブ */
-            <div ref={apikeyScrollRef} className="p-4 space-y-4 overflow-y-auto">
+            <div className="p-4 space-y-4 overflow-y-auto">
               {/* 説明 */}
               <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
                 <h3 className="font-bold text-blue-400 mb-2 flex items-center gap-2">
@@ -856,7 +856,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
               </div>
             </div>
           ) : activeTab === 'settings' ? (
-            <div ref={settingsScrollRef} className="p-4 space-y-4 overflow-y-auto">
+            <div className="p-4 space-y-4 overflow-y-auto">
               <div className="bg-gray-800 rounded-lg p-4 space-y-3">
                 <div className="space-y-1">
                   <div className="text-sm font-bold text-gray-100">オフラインモード</div>

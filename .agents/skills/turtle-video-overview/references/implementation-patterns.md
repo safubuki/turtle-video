@@ -681,7 +681,7 @@
 | **WebCodecs** | `VideoFrame` は `close()` しないとメモリリーク。CFR 強制が重要 |
 | **Safari Export** | iOS Safari では OfflineAudioContext による音声プリレンダリング方式を使用。メインAudioContextで`decodeAudioData`を実行し、`f32-planar`形式のAudioDataをAudioEncoderに直接供給する。**重要**: iOS Safari の `decodeAudioData` はビデオコンテナ(.mov/.mp4)をデコードできない（`EncodingError`）ため、`extractAudioViaVideoElement()` で `<video>` 要素経由のリアルタイム音声抽出にフォールバックする。muxer/AudioEncoder は常に音声付きで初期化。OfflineAudioContext 失敗時は ScriptProcessorNode にフォールバック |
 | **タブ切替** | `visibilitychange` で hidden 時は通常再生を明示一時停止（`isPlayingRef=false` + `pause()`）、復帰時に Canvas 再描画と必要なメディア再同期を実行 |
-| **下部モーダル** | 下から開くモーダルは `history.pushState` + `popstate` で戻るキー閉じを実装し、モバイルでは `scrollTop=0` かつ縦下スワイプ（72px超）で閉じる。長文入力を持つモーダルでは、`textarea` / テキスト入力など編集用フィールドから始まったタッチを閉じる判定の対象外にして、原稿スクロールと誤競合しないようにする。クリーンアップ時は自分の履歴 state が先頭のときのみ `history.back()` する |
+| **下部モーダル** | 下から開くモーダルは `history.pushState` + `popstate` で戻るキー閉じを実装し、モバイルでは縦下スワイプ（72px超）で閉じる。長文入力やヘルプ／変更履歴のような別スクロール本文を持つモーダルでは、タッチ判定をハンドル＋ヘッダーに限定するか、本文スクロール領域からの開始を対象外にする（13-28 / 13-125 / 13-214）。シート全体 + `scrollTop=0` 判定は本文スクロールと競合しやすい。クリーンアップ時は自分の履歴 state が先頭のときのみ `history.back()` する |
 | **AIナレーション(TTS)** | 場面＋区間語り口は `narrationDelivery.ts` で公式構造（Audio Profile / Scene / Director's Notes / Transcript）と英語 audio tags に変換する。UI の《語り口》は読み上げない。拒否時は素原稿へリトライ（13-2 / 13-162） |
 | **AIナレーション(原稿文量)** | 原稿生成は長さモードを秒数目安で統一する。`短め=約5秒（20〜35文字）` / `中くらい=約10秒（35〜60文字）` / `長め=約20秒（100〜140文字）` をプロンプトで明示し、過剰な長文化を防ぐ |
 | **オフラインモード** | `offlineModeStore` を localStorage 永続化し、AIナレーション入口・Gemini 呼び出し・更新確認を一元ガードする。オフライン中の AI 追加/編集ボタンは disabled にして「押してエラー」ではなく「押せない」挙動へ寄せ、既存ナレーションの移動や削除は止めない。UI文言は「インターネット接続が必要な機能を使わない」ことを示し、ブラウザ/OSレベルの完全遮断ではないと明記する。ON 切替時だけ注意ダイアログを必須にし、OFF 復帰時は service worker 登録済みなら即時更新確認、未登録なら登録完了後に 1 回だけ更新確認する |
@@ -2327,6 +2327,7 @@
   - スワイプ判定を**ヘッダー領域限定**にするのが肝。シート全体に付けると textarea や各種操作と競合する（この差が SettingsModal 実装との意図的な違い）。
   - 回帰ガード: `modalHistoryStability.test.tsx` に「親再描画で history.back を呼ばない」「popstate で閉じる」、`captionBulkAddModal.test.tsx` に「閉じるボタンで onClose」を追加。
   - 他の下から出るモーダル（AiModal/SaveLoadModal/SectionHelp 等）は既に同挙動。まだ揃っていない下部モーダルがあれば同パターンで統一する（将来的には共通フックへ抽出する余地あり。現状は各モーダル内インライン実装が既定）。
+  - **13-214 で SettingsModal も同じヘッダー限定へ揃えた**。上の「SettingsModal はシート全体 + `scrollTop<=0`」は当時の差分説明。現行は CaptionBulkAddModal と同じ上部バー限定。
 
 ### 13-126. 最近追加機能の品質監査（波形の非同期競合・自動保存差分・一括モーダルA11y）
 
@@ -4095,4 +4096,18 @@ export 終了（成功/失敗/中断）
   - 見た目変更（位置・透過など）で `fileData` を捨てない。画像削除時だけ捨てる。
   - IndexedDB の容量不足（巨大 PNG）は本項の対象外。13-71 の quota 復旧を使う。
 - **回帰ガード**: `media.test.ts`（MIME/拡張子・snapshot）、`overlayStore.test.ts`（fileData 保持と削除）、`projectStoreSave.test.ts`（fileData 優先で File 再読込しない・エンドロールのみでも自動保存する）。
+
+### 13-214. 設定モーダルの下スワイプ閉じは上部バーだけに限定する
+
+- **ファイル**: `src/components/modals/SettingsModal.tsx`, `src/test/modalBackdropBehavior.test.tsx`
+- **問題**:
+  - スマホの設定シートは全体に下スワイプ閉じを付け、`scrollTop<=0` なら本文でも閉じていた。
+  - ヘルプ／変更履歴は別スクロール領域なのに、下にあるタブの `scrollTop` を見ていたため、本文を下へスクロールしただけでモーダルが閉じていた。
+- **対策**:
+  - CaptionBulkAddModal（13-125）と同じく、**ドラッグハンドル＋ヘッダー**にだけ touch ハンドラを付ける。
+  - ヘルプ／変更履歴／タブ本文は下スワイプで閉じない。閉じる操作は上部バーの縦下スワイプ（72px超）か ×／戻るキー。
+- **注意**:
+  - シート全体へ touch ハンドラを戻すと、スクロール可能な情報パネルで再発する。
+  - タブバーは閉じ判定に含めない（上部バー＝ハンドル＋タイトル行）。
+- **回帰ガード**: ヘルプ本文・履歴本文の下スワイプでは閉じないこと、上部バーの下スワイプでは閉じることを `modalBackdropBehavior.test.tsx` で固定する。
 

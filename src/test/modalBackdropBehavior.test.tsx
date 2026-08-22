@@ -183,6 +183,49 @@ describe('modal backdrop behavior', () => {
     });
   });
 
+  const swipeDown = (element: HTMLElement) => {
+    fireEvent.touchStart(element, { touches: [{ clientX: 120, clientY: 80 }] });
+    fireEvent.touchMove(element, { touches: [{ clientX: 122, clientY: 170 }] });
+    fireEvent.touchEnd(element);
+  };
+
+  it('SettingsModal のヘルプ本文を下スワイプしても閉じない', () => {
+    mockMobileViewport();
+    const onClose = vi.fn();
+    render(<SettingsModal appFlavor="standard" isOpen={true} onClose={onClose} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '設定モーダルの説明' }));
+    const helpPanel = screen.getByTestId('settings-help-panel');
+    swipeDown(helpPanel);
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(helpPanel).toBeInTheDocument();
+  });
+
+  it('SettingsModal の変更履歴本文を下スワイプしても閉じない', () => {
+    mockMobileViewport();
+    const onClose = vi.fn();
+    render(<SettingsModal appFlavor="standard" isOpen={true} onClose={onClose} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '前回バージョンからの変更点を表示' }));
+    const historyPanel = screen.getByTestId('settings-history-panel');
+    swipeDown(historyPanel);
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(historyPanel).toBeInTheDocument();
+  });
+
+  it('SettingsModal は上部バーを下スワイプすると閉じる', () => {
+    mockMobileViewport();
+    const onClose = vi.fn();
+    render(<SettingsModal appFlavor="standard" isOpen={true} onClose={onClose} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '設定モーダルの説明' }));
+    swipeDown(screen.getByTestId('settings-modal-drag-region'));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('AiModal は領域外クリックでは閉じない', () => {
     const { container, onClose } = renderAiModal();
 
