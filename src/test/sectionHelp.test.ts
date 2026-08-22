@@ -142,18 +142,18 @@ describe('sectionHelp support messaging', () => {
     );
   });
 
-  it('音 一括設定のヘルプはミュートと揃え方を実画面どおりに案内する', () => {
-    expect(getHelpDescription('clips', '音 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('ロゴ表示の下');
-    expect(getHelpDescription('clips', '音 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('一括ミュート');
-    expect(getHelpDescription('clips', '音 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('動画がまだ無くても先に有効にでき');
-    expect(getHelpDescription('clips', '音 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('あとから追加した動画にもすぐ適用します');
-    expect(getHelpDescription('bgm', '音 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('曲がまだ無くても先に有効にでき');
-    expect(getHelpDescription('narration', '音 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('クリップがまだ無くても先に有効にでき');
-    expect(getHelpDescription('clips', '音 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('最大に揃える');
-    expect(getHelpDescription('clips', '音 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('残りはスクロールします');
-    expect(getHelpDescription('clips', '音 一括設定（ミュート / 一括音量 / 音量揃え）')).not.toContain('チェックを外せ');
-    expect(getHelpDescription('bgm', '音 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('BGMカテゴリ');
-    expect(getHelpDescription('narration', '音 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('ナレーションカテゴリ');
+  it('音声 一括設定のヘルプはミュートと揃え方を実画面どおりに案内する', () => {
+    expect(getHelpDescription('clips', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('ロゴ表示の下');
+    expect(getHelpDescription('clips', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('一括ミュート');
+    expect(getHelpDescription('clips', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('動画がまだ無くても先に有効にでき');
+    expect(getHelpDescription('clips', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('あとから追加した動画にもすぐ適用します');
+    expect(getHelpDescription('bgm', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('曲がまだ無くても先に有効にでき');
+    expect(getHelpDescription('narration', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('クリップがまだ無くても先に有効にでき');
+    expect(getHelpDescription('clips', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('最大に揃える');
+    expect(getHelpDescription('clips', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('残りはスクロールします');
+    expect(getHelpDescription('clips', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).not.toContain('チェックを外せ');
+    expect(getHelpDescription('bgm', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('BGMカテゴリ');
+    expect(getHelpDescription('narration', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('ナレーションカテゴリ');
     expect(getHelpDescription('clips', '再生速度（0.5〜8.0倍）')).toContain('0.5');
     expect(getHelpDescription('clips', '再生速度（0.5〜8.0倍）')).toContain('等倍でもチェックできます');
     expect(getHelpDescription('clips', '再生速度（0.5〜8.0倍）')).toContain('四隅から9%内側');

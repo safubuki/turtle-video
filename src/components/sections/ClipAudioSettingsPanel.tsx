@@ -3,7 +3,7 @@
  * @author Turtle Village
  * @copyright Copyright (C) 2026 safubuki (Turtle Village)
  * @license GPL-3.0-or-later
- * @description 「音 一括設定」アコーディオン。
+ * @description 「音声 一括設定」アコーディオン。
  * 一括ミュート・一括音量・音量揃えを、動画 / BGM / ナレーションで共通利用する。
  */
 import React, { useMemo, useState } from 'react';
@@ -43,27 +43,27 @@ const KIND_COPY: Record<
   }
 > = {
   video: {
-    muteHint: 'チェックを入れると、すべての動画をミュートします。動画がまだ無くても先に有効にでき、あとから追加した動画にもすぐ適用します。',
-    volumeHint: 'チェックを入れると、すべての動画カードの音量を同じ値に揃えます。個別スライダーは無効になります。',
-    normalizeHint: 'カードごとの音の大小を揃えます。動画を減らしても設定は残し、追加した動画にもそのまま適用します。',
+    muteHint: 'チェックを入れると、すべての動画をミュートします。',
+    volumeHint: 'チェックを入れると、同じ値に揃えます。',
+    normalizeHint: 'チェックを入れると、音の大小を揃えます。',
     compareHint: '比較する動画が2本以上あるときに揃えます。',
     analyzing: '各動画の音量を解析しています…',
     analyzeError: '一部の動画を解析できませんでした。解析できたカードだけ揃えます。',
     fileFallback: '動画',
   },
   bgm: {
-    muteHint: 'チェックを入れると、すべてのBGMをミュートします。曲がまだ無くても先に有効にでき、あとから追加したBGMにもすぐ適用します。',
-    volumeHint: 'チェックを入れると、すべてのBGMの音量を同じ値に揃えます。個別スライダーは無効になります。',
-    normalizeHint: '曲ごとの音の大小を揃えます。曲を減らしても設定は残し、追加したBGMにもそのまま適用します。',
+    muteHint: 'チェックを入れると、すべてのBGMをミュートします。',
+    volumeHint: 'チェックを入れると、同じ値に揃えます。',
+    normalizeHint: 'チェックを入れると、音の大小を揃えます。',
     compareHint: '比較するBGMが2本以上あるときに揃えます。',
     analyzing: '各BGMの音量を解析しています…',
     analyzeError: '一部のBGMを解析できませんでした。解析できた曲だけ揃えます。',
     fileFallback: 'BGM',
   },
   narration: {
-    muteHint: 'チェックを入れると、すべてのナレーションをミュートします。クリップがまだ無くても先に有効にでき、あとから追加したナレーションにもすぐ適用します。',
-    volumeHint: 'チェックを入れると、すべてのナレーションの音量を同じ値に揃えます。個別スライダーは無効になります。',
-    normalizeHint: 'クリップごとの音の大小を揃えます。クリップを減らしても設定は残し、追加したナレーションにもそのまま適用します。',
+    muteHint: 'チェックを入れると、すべてのナレーションをミュートします。',
+    volumeHint: 'チェックを入れると、同じ値に揃えます。',
+    normalizeHint: 'チェックを入れると、音の大小を揃えます。',
     compareHint: '比較するナレーションが2本以上あるときに揃えます。',
     analyzing: '各ナレーションの音量を解析しています…',
     analyzeError: '一部のナレーションを解析できませんでした。解析できたクリップだけ揃えます。',
@@ -151,7 +151,7 @@ const ClipAudioSettingsPanel: React.FC<ClipAudioSettingsPanelProps> = ({
   return (
     <div className="min-w-0 rounded-lg border border-gray-700/70 bg-gray-900/30">
       <SettingsAccordionHeader
-        title="音 一括設定"
+        title="音声 一括設定"
         isOpen={isOpen}
         disabled={isLocked}
         controlsId={controlsId}

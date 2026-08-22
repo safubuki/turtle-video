@@ -4144,3 +4144,34 @@ export 終了（成功/失敗/中断）
   - 「一括音量設定」「一括ミュート」などパネル内の操作名は変えない。
 - **回帰ガード**: `captionStyleControls.test.tsx` / `clipAudioSettingsPanel.test.tsx` / `sectionHelp.test.ts` / `sectionHelpModal.test.tsx` / `videoTitleSettingsPanel.test.tsx` で実画面ラベルを固定する。
 
+### 13-217. 音 一括設定のチェック説明を短縮し、ロゴミニビューは表示領域だけ枠で囲む
+
+- **ファイル**: `src/components/sections/ClipAudioSettingsPanel.tsx`, `src/components/common/LogoMiniPreview.tsx`, `src/test/clipAudioSettingsPanel.test.tsx`, `src/test/logoMiniPreview.test.tsx`
+- **対象 flavor**: **shared UI**。音 一括設定パネル自体は 13-206 / 13-211 どおり standard のみ表示。ロゴミニビューは OverlaySection（`supportsWatermark`）経由。preview / export / 保存契約は非対象。
+- **問題**:
+  - 一括ミュート / 一括音量 / 音量揃えの説明が、継承や個別スライダー無効化まで一文に含めて長く、スマホの設定欄で読みづらかった。
+  - ロゴミニビューはキャンバスと「エンドロールの見た目を確認」を同じ黒枠に入れていたため、実際の表示領域の端が分からず位置合わせしにくかった。
+- **対策**:
+  - チェック説明を短くする。ミュートは「チェックを入れると、すべての動画/BGM/ナレーションをミュートします。」、音量は「チェックを入れると、同じ値に揃えます。」、揃えは「チェックを入れると、音の大小を揃えます。」。追加時の継承など詳細はヘルプ本文のまま。
+  - ミニビューの枠（`border-gray-400`、`data-testid="logo-mini-preview-frame"`）はキャンバスだけに付ける。補足文は枠の外へ出す。
+- **注意**:
+  - 「すべての」は従来どおりひらがな。ユーザー例の「全ての」へ戻さない。
+  - キャプション側ミニプレビュー（`CaptionMiniPreview`）は今回対象外。同じ枠＋補足の構造だが、ロゴ位置合わせの問題は OverlaySection 側。
+  - アコーディオン見出し「音 一括設定」は 13-216 のまま。文言再検討は見出し変更時にヘルプ・hiddenTitles も同期する（13-132 / 13-158 / 13-176）。
+- **回帰ガード**: `clipAudioSettingsPanel.test.tsx` で短縮後の 3 行を、`logoMiniPreview.test.tsx` で枠がキャンバスだけを囲むことを固定する。
+
+### 13-218. アコーディオン見出しを「音声 一括設定」へ変更
+
+- **ファイル**: `src/components/sections/ClipAudioSettingsPanel.tsx`, `src/constants/sectionHelp.ts`, `src/test/clipAudioSettingsPanel.test.tsx`, `src/test/sectionHelp.test.ts`
+- **対象 flavor**: **shared UI**。見出し文言は両 flavor 共通。パネル自体は 13-206 / 13-211 どおり standard のみ表示。preview / export / 保存契約は非対象。
+- **問題**:
+  - 13-216 の「音 一括設定」は `キャプション 一括設定` と語順は揃うが、「音」だけだとカテゴリ名として途切れ、パネル内の「一括音量設定」とも紛らわしかった。
+  - 「音量 一括設定」は個別音量・一括音量と被り、ミュート／音量揃えまで含む操作名として狭い。
+- **対策**:
+  - 見出しを「**音声 一括設定**」へ変更する。`対象 + 一括設定` の語順は維持し、キャプション側と対になる。
+  - ヘルプ項目名・本文の引用・apple-safari の `hiddenTitles` も同じ表記へ同期する（13-132 / 13-158 / 13-176）。
+- **注意**:
+  - 「一括音量設定」「一括ミュート」などパネル内の操作名は変えない。
+  - 見出しを再び「音 一括設定」や「一括音設定」へ戻すと、キャプション側との語順／粒度が割れる。
+- **回帰ガード**: `clipAudioSettingsPanel.test.tsx` / `sectionHelp.test.ts` で実画面ラベルを固定する。
+

@@ -88,5 +88,36 @@ describe('LogoMiniPreview', () => {
 
     expect(screen.getByRole('img', { name: 'エンドロールのミニプレビュー' })).toBeInTheDocument();
     expect(fillStyles).toContain('#ffffff');
+
+    const frame = screen.getByTestId('logo-mini-preview-frame');
+    const caption = screen.getByText('エンドロールの見た目を確認');
+    expect(frame).toHaveClass('border', 'border-gray-400');
+    expect(frame).toContainElement(screen.getByRole('img', { name: 'エンドロールのミニプレビュー' }));
+    expect(frame).not.toContainElement(caption);
+  });
+
+  it('ウォーターマークの補足文も表示領域の枠の外に出す', () => {
+    stubCanvasContext();
+    const watermark: WatermarkOverlay = {
+      ...DEFAULT_WATERMARK_OVERLAY,
+      url: 'blob:watermark',
+    };
+
+    render(
+      <LogoMiniPreview
+        sourceCanvasRef={createRef<HTMLCanvasElement>()}
+        overlay={watermark}
+        mode="watermark"
+        canvasWidth={960}
+        canvasHeight={540}
+      />
+    );
+
+    const frame = screen.getByTestId('logo-mini-preview-frame');
+    const caption = screen.getByText('現在のプレビュー画面に重ねて表示');
+    expect(frame).toContainElement(
+      screen.getByRole('img', { name: 'ウォーターマークのミニプレビュー' }),
+    );
+    expect(frame).not.toContainElement(caption);
   });
 });

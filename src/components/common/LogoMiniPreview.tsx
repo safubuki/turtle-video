@@ -147,18 +147,23 @@ const LogoMiniPreview: React.FC<LogoMiniPreviewProps> = ({
   }, [renderMiniFrame, refreshKey, width, height]);
 
   return (
-    <div className="overflow-hidden rounded-lg border border-gray-600/70 bg-black">
-      <canvas
-        ref={canvasRef}
-        width={width}
-        height={height}
-        className="block h-auto w-full"
-        aria-label={`${mode === 'endroll' ? 'エンドロール' : 'ウォーターマーク'}のミニプレビュー`}
-        role="img"
-      />
-      <div className="bg-black/70 px-2 py-1 text-center text-[9px] text-gray-300">
-        {mode === 'endroll' ? 'エンドロールの見た目を確認' : '現在のプレビュー画面に重ねて表示'}
+    <div className="space-y-1">
+      <div
+        className="overflow-hidden rounded-lg border border-gray-400 bg-black"
+        data-testid="logo-mini-preview-frame"
+      >
+        <canvas
+          ref={canvasRef}
+          width={width}
+          height={height}
+          className="block h-auto w-full"
+          aria-label={`${mode === 'endroll' ? 'エンドロール' : 'ウォーターマーク'}のミニプレビュー`}
+          role="img"
+        />
       </div>
+      <p className="px-1 text-center text-[9px] leading-relaxed text-gray-400">
+        {mode === 'endroll' ? 'エンドロールの見た目を確認' : '現在のプレビュー画面に重ねて表示'}
+      </p>
     </div>
   );
 };
