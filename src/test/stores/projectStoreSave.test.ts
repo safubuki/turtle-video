@@ -806,6 +806,7 @@ describe('projectStore save behavior', () => {
       endTime: 3.5,
       overridePosition: 'center' as const,
       overrideFontStyle: 'mincho' as const,
+      overrideTextAlign: 'right' as const,
       overrideFontSize: 'large' as const,
       overrideFontColor: '#123456',
       overrideStrokeColor: '#ABCDEF',
@@ -817,6 +818,7 @@ describe('projectStore save behavior', () => {
     const captionSettings = {
       ...defaultCaptionSettings,
       position: 'center' as const,
+      textAlign: 'left' as const,
       blur: 2,
       backgroundEnabled: true,
       backgroundColor: '#000000',
@@ -849,11 +851,13 @@ describe('projectStore save behavior', () => {
     expect(savedProjectData.mediaItems[0].blur).toBe(12);
     expect(savedProjectData.narrations[0].aiScript).toBe('こんにちは、タートルビデオです。');
     expect(savedProjectData.captions[0].overrideFontStyle).toBe('mincho');
+    expect(savedProjectData.captions[0].overrideTextAlign).toBe('right');
     expect(savedProjectData.captions[0].overrideFontColor).toBe('#123456');
     expect(savedProjectData.captions[0].overrideStrokeColor).toBe('#ABCDEF');
     expect(savedProjectData.captions[0].overrideStrokeWidth).toBe(6.5);
     expect(savedProjectData.captions[0].overrideBlur).toBe(2.5);
     expect(savedProjectData.captionSettings.position).toBe('center');
+    expect(savedProjectData.captionSettings.textAlign).toBe('left');
 
     mocks.loadProject.mockResolvedValueOnce(savedProjectData);
     appleSafariSaveRuntime.configureProjectStore();
@@ -880,10 +884,12 @@ describe('projectStore save behavior', () => {
     expect(loaded.narrations[0].trimEnd).toBeCloseTo(3.75);
     expect(loaded.isNarrationLocked).toBe(true);
     expect(loaded.captionSettings.position).toBe('center');
+    expect(loaded.captionSettings.textAlign).toBe('left');
     expect(loaded.captionSettings.blur).toBe(2);
     expect(loaded.isCaptionsLocked).toBe(true);
     expect(loaded.captions[0].overridePosition).toBe('center');
     expect(loaded.captions[0].overrideFontStyle).toBe('mincho');
+    expect(loaded.captions[0].overrideTextAlign).toBe('right');
     expect(loaded.captions[0].overrideFontColor).toBe('#123456');
     expect(loaded.captions[0].overrideStrokeColor).toBe('#ABCDEF');
     expect(loaded.captions[0].overrideStrokeWidth).toBe(6.5);

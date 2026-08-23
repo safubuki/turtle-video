@@ -8,7 +8,13 @@
  * （fontSizeCustom / positionCustom）を解決する。
  * カスタム値の描画反映は standard フレーバーのエンジンのみが行う（iOS はプリセットで描画）。
  */
-import type { Caption, CaptionPosition, CaptionSettings, CaptionSize } from '../types';
+import type {
+  Caption,
+  CaptionPosition,
+  CaptionSettings,
+  CaptionSize,
+  CaptionTextAlign,
+} from '../types';
 
 /** 1080p 基準のプリセットサイズ（px）。各段階 ~1.4 倍の読みやすさ重視スケール */
 export const CAPTION_FONT_SIZE_PRESETS: Record<CaptionSize, number> = {
@@ -54,6 +60,61 @@ export const CAPTION_BACKGROUND_DEFAULT = {
   backgroundOpacity: 0.45,
   backgroundRadius: 16,
 } as const;
+
+/** 旧保存データを含むキャプション文字揃えの既定 */
+export const CAPTION_TEXT_ALIGN_DEFAULT: CaptionTextAlign = 'center';
+
+/** 不正値・旧データの未設定値を中央揃えへ正規化する */
+export function normalizeCaptionTextAlign(value: unknown): CaptionTextAlign {
+  return value === 'left' || value === 'right' ? value : CAPTION_TEXT_ALIGN_DEFAULT;
+}
+
+/** 個別設定を優先して実効文字揃えを解決する */
+export function resolveCaptionTextAlign(
+  caption: Pick<Caption, 'overrideTextAlign'>,
+  settings: Pick<CaptionSettings, 'textAlign'>,
+): CaptionTextAlign {
+  return normalizeCaptionTextAlign(caption.overrideTextAlign ?? settings.textAlign);
+}
+
+/**
+ * 文字揃えを反映したグリフ Canvas の中心 X を返す。
+ *
+ * プリセット位置では、左揃え＝左余白、中央揃え＝画面中央、右揃え＝右余白を
+ * 揃えの基準線にする。カスタム XY 使用時は指定 X を基準線として扱う。
+ * グリフ Canvas 自体は常に中央原点で生成されるため、幅の半分を補正して配置する。
+ */
+export function resolveCaptionGlyphCenterX(
+  caption: Pick<Caption, 'overridePosition' | 'overridePositionCustom' | 'overrideTextAlign'>,
+  settings: Pick<CaptionSettings, 'positionCustom' | 'textAlign'>,
+  layout: {
+    canvasWidth: number;
+    padding: number;
+    positionAnchorX: number;
+    glyphWidth: number;
+    /** apple-safari のプリセット専用描画など、カスタム XY を使わない経路は false */
+    useCustomPosition?: boolean;
+  },
+): number {
+  const textAlign = resolveCaptionTextAlign(caption, settings);
+  const glyphWidth = Number.isFinite(layout.glyphWidth) ? Math.max(0, layout.glyphWidth) : 0;
+  const padding = Number.isFinite(layout.padding) ? Math.max(0, layout.padding) : 0;
+  const usesCustomPosition = layout.useCustomPosition !== false && Boolean(
+    caption.overridePositionCustom
+    || (!caption.overridePosition && settings.positionCustom),
+  );
+  const alignmentAnchorX = usesCustomPosition
+    ? layout.positionAnchorX
+    : textAlign === 'left'
+      ? padding
+      : textAlign === 'right'
+        ? layout.canvasWidth - padding
+        : layout.canvasWidth / 2;
+
+  if (textAlign === 'left') return alignmentAnchorX + glyphWidth / 2;
+  if (textAlign === 'right') return alignmentAnchorX - glyphWidth / 2;
+  return alignmentAnchorX;
+}
 
 /** カスタム位置の既定値（% / テキスト中心）。横画面の下部プリセット相当 */
 export const CAPTION_POSITION_CUSTOM_DEFAULT = { x: 50, y: 85 };

@@ -80,6 +80,7 @@ function renderStampBar(
     onSetEnabled: vi.fn(),
     onSetFontSize: vi.fn(),
     onSetFontStyle: vi.fn(),
+    onSetTextAlign: vi.fn(),
     onSetFontColor: vi.fn(),
     onSetStrokeColor: vi.fn(),
     onSetStrokeWidth: vi.fn(),

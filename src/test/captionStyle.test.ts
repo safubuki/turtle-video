@@ -12,8 +12,10 @@ import {
   clampPositionPercent,
   resolveCaptionBaseFontSize,
   resolveCaptionAnchor,
+  resolveCaptionGlyphCenterX,
   resolveCaptionGlyphStyle,
   resolveCaptionLayoutScale,
+  resolveCaptionTextAlign,
 } from '../utils/captionStyle';
 
 const layout = { canvasWidth: 1920, canvasHeight: 1080, fontSize: 80, padding: 50 };
@@ -92,6 +94,50 @@ describe('resolveCaptionGlyphStyle', () => {
       strokeWidth: 20,
       blur: 0,
     });
+  });
+});
+
+describe('caption text alignment', () => {
+  it('旧設定は中揃えへフォールバックし、個別設定を優先する', () => {
+    expect(resolveCaptionTextAlign({}, {})).toBe('center');
+    expect(resolveCaptionTextAlign({}, { textAlign: 'left' })).toBe('left');
+    expect(resolveCaptionTextAlign(
+      { overrideTextAlign: 'right' },
+      { textAlign: 'left' },
+    )).toBe('right');
+  });
+
+  it('プリセット位置では左右の安全余白を揃えの基準線にする', () => {
+    const glyphWidth = 400;
+    const leftCenter = resolveCaptionGlyphCenterX(
+      {},
+      { textAlign: 'left', positionCustom: null },
+      { canvasWidth: 1920, padding: 50, positionAnchorX: 960, glyphWidth },
+    );
+    const centerCenter = resolveCaptionGlyphCenterX(
+      {},
+      { textAlign: 'center', positionCustom: null },
+      { canvasWidth: 1920, padding: 50, positionAnchorX: 960, glyphWidth },
+    );
+    const rightCenter = resolveCaptionGlyphCenterX(
+      {},
+      { textAlign: 'right', positionCustom: null },
+      { canvasWidth: 1920, padding: 50, positionAnchorX: 960, glyphWidth },
+    );
+
+    expect(leftCenter - glyphWidth / 2).toBe(50);
+    expect(centerCenter).toBe(960);
+    expect(rightCenter + glyphWidth / 2).toBe(1870);
+  });
+
+  it('カスタム位置では指定 X を揃えの基準線にする', () => {
+    const glyphWidth = 400;
+    const centerX = resolveCaptionGlyphCenterX(
+      {},
+      { textAlign: 'left', positionCustom: { x: 25, y: 50 } },
+      { canvasWidth: 1920, padding: 50, positionAnchorX: 480, glyphWidth },
+    );
+    expect(centerX - glyphWidth / 2).toBe(480);
   });
 });
 

@@ -7,7 +7,7 @@
  */
 
 import { useLogStore } from '../stores/logStore';
-import type { CaptionFontStyle } from '../types';
+import type { CaptionFontStyle, CaptionTextAlign } from '../types';
 
 const DB_NAME = 'turtle-video-db';
 const DB_VERSION = 1;
@@ -148,6 +148,7 @@ export interface SerializedCaption {
   fadeOutDuration: number;
   overridePosition?: 'top' | 'center' | 'bottom';
   overrideFontStyle?: CaptionFontStyle;
+  overrideTextAlign?: CaptionTextAlign;
   overrideFontSize?: 'small' | 'medium' | 'large' | 'xlarge';
   overrideFontColor?: string;
   overrideStrokeColor?: string;
@@ -175,6 +176,8 @@ export interface SerializedCaptionSettings {
   enabled: boolean;
   fontSize: 'small' | 'medium' | 'large' | 'xlarge';
   fontStyle: CaptionFontStyle;
+  /** 旧データでは未定義 → 中揃え */
+  textAlign?: CaptionTextAlign;
   fontColor: string;
   strokeColor: string;
   strokeWidth: number;

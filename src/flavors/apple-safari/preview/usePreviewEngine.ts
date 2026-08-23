@@ -36,6 +36,7 @@ import type { ExportPreparationStep, UseExportReturn } from '../../../hooks/expo
 import {
   drawCaptionBackgroundBand,
   resolveCaptionBackgroundStyle,
+  resolveCaptionGlyphCenterX,
   resolveCaptionGlyphStyle,
   resolveCaptionLayoutScale,
   resolveCaptionPresetY,
@@ -1330,8 +1331,6 @@ export function usePreviewEngine({
             // strokeWidth / blur も fontSize と同じスケールで縮小し、プレビュー/export で太さの比率を保つ。
             const scaledStrokeWidth = glyphStyle.strokeWidth * captionScale;
             const blurStrength = glyphStyle.blur * captionScale;
-            const centerX = ctx.canvas.width / 2;
-
             // フェード時の輪郭残りを防ぐため、stroke+fill を 1 枚のオフスクリーン Canvas に
             // 100% の不透明度で合成してから、メインキャンバスへ globalAlpha 付きで転写する。
             const glyphCanvas = createCaptionGlyphCanvas({
@@ -1343,6 +1342,14 @@ export function usePreviewEngine({
             });
             const glyphW = glyphCanvas.width;
             const glyphH = glyphCanvas.height;
+            const centerX = resolveCaptionGlyphCenterX(activeCaption, currentCaptionSettings, {
+              canvasWidth: ctx.canvas.width,
+              padding,
+              positionAnchorX: ctx.canvas.width / 2,
+              glyphWidth: glyphW,
+              // apple-safari は既存仕様どおりカスタム XY を描画しない
+              useCustomPosition: false,
+            });
 
             // 背景帯は文字の下に敷く（個別 override > 一括設定。既定 OFF）
             const backgroundStyle = resolveCaptionBackgroundStyle(

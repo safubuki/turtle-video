@@ -1,6 +1,6 @@
 /**
  * @file captionIndividualSharedFields.test.tsx
- * @description キャプション個別設定モーダルが、一括設定と同じ字体・サイズ・位置の
+ * @description キャプション個別設定モーダルが、一括設定と同じ字体・サイズ・揃え・位置の
  * 共有コンポーネントを使っていることの回帰テスト。
  *
  * 以前はモーダル側で字体 UI を独自実装していたため「丸ゴシック」等の固定ボタンが
@@ -12,6 +12,7 @@ import CaptionSettingsModal from '../components/modals/CaptionSettingsModal';
 import CaptionFontStyleField from '../components/common/CaptionFontStyleField';
 import CaptionFontSizeField from '../components/common/CaptionFontSizeField';
 import CaptionPositionField from '../components/common/CaptionPositionField';
+import CaptionTextAlignField from '../components/common/CaptionTextAlignField';
 import type { Caption, CaptionSettings } from '../types';
 import { PINNED_CAPTION_FONT_OPTIONS } from '../utils/captionFontCatalog';
 import { CAPTION_POSITION_CUSTOM_DEFAULT } from '../utils/captionStyle';
@@ -49,6 +50,26 @@ const baseCaption: Caption = {
 // 丸ゴシックは端末に実在するときだけ出る。テストでは実在判定を通した状態
 // （カタログの固定候補すべて）を渡し、一括設定と同じ選択肢が並ぶことを確かめる。
 const pinnedWithRounded = PINNED_CAPTION_FONT_OPTIONS;
+
+describe('CaptionTextAlignField（一括設定と個別設定の共有コンポーネント）', () => {
+  it('個別設定ではデフォルトと左・中・右を選べる', () => {
+    const onSetTextAlign = vi.fn();
+    render(
+      <CaptionTextAlignField
+        textAlign={null}
+        allowDefaultOption
+        compact
+        ariaLabelPrefix="テスト"
+        onSetTextAlign={onSetTextAlign}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'テストの文字揃え デフォルト' }))
+      .toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'テストの文字揃え 右揃え' }));
+    expect(onSetTextAlign).toHaveBeenCalledWith('right');
+  });
+});
 
 describe('CaptionFontStyleField（一括設定と個別設定の共有コンポーネント）', () => {
   const baseProps = {
@@ -479,6 +500,37 @@ describe('CaptionSettingsModal が共有コンポーネントを使う', () => {
 
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '明朝' }));
     expect(onUpdate).toHaveBeenCalledWith('caption-1', { overrideFontStyle: 'mincho' });
+  });
+
+  it('文字の縁・色の下かつ位置の上で文字揃えを個別設定し、デフォルトへ戻せる', () => {
+    const onUpdate = vi.fn();
+    render(
+      <CaptionSettingsModal
+        caption={baseCaption}
+        settings={settings}
+        onUpdate={onUpdate}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const fontLabel = screen.getByText('字体:');
+    const outlineColorLabel = screen.getByText('文字の縁・色');
+    const alignLabel = screen.getByText('揃え:');
+    const positionLabel = screen.getByText('位置:');
+    expect(
+      fontLabel.compareDocumentPosition(outlineColorLabel) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      outlineColorLabel.compareDocumentPosition(alignLabel) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      alignLabel.compareDocumentPosition(positionLabel) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '個別キャプションの文字揃え 右揃え' }));
+    expect(onUpdate).toHaveBeenCalledWith('caption-1', { overrideTextAlign: 'right' });
+    fireEvent.click(screen.getByRole('button', { name: '個別キャプションの文字揃え デフォルト' }));
+    expect(onUpdate).toHaveBeenCalledWith('caption-1', { overrideTextAlign: undefined });
   });
 
   it('位置を選ぶと overridePosition が設定され、カスタム位置は解除される', () => {

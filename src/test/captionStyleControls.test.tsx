@@ -52,6 +52,7 @@ function renderCaptionSection(
     onSetEnabled: vi.fn(),
     onSetFontSize: vi.fn(),
     onSetFontStyle: vi.fn(),
+    onSetTextAlign: vi.fn(),
     onSetFontColor: vi.fn(),
     onSetStrokeColor: vi.fn(),
     onSetStrokeWidth: vi.fn(),
@@ -215,7 +216,7 @@ describe('CaptionSection outline and color controls', () => {
     expect(screen.getByLabelText('キャプションの縁の幅')).toBeInTheDocument();
   });
 
-  it('字体の直下で縁幅をスライダーと数値入力の両方から設定できる', () => {
+  it('字体の後で縁幅をスライダーと数値入力の両方から設定できる', () => {
     const props = renderCaptionSection();
     const fontLabel = screen.getByText('字体:');
     const strokeWidthLabel = screen.getByText('縁の幅:');
@@ -236,6 +237,29 @@ describe('CaptionSection outline and color controls', () => {
     expect(props.onSetStrokeWidth).toHaveBeenNthCalledWith(2, 7.5);
   });
 
+  it('文字の縁・色の下かつ位置の上に文字揃えを置き、左・中・右を一括設定できる', () => {
+    const props = renderCaptionSection();
+    const fontLabel = screen.getByText('字体:');
+    const outlineColorLabel = screen.getByText('文字の縁・色');
+    const alignLabel = screen.getByText('揃え:');
+    const positionLabel = screen.getByText('位置:');
+
+    expect(
+      fontLabel.compareDocumentPosition(outlineColorLabel) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      outlineColorLabel.compareDocumentPosition(alignLabel) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      alignLabel.compareDocumentPosition(positionLabel) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'キャプションの文字揃え 左揃え' }));
+    expect(props.onSetTextAlign).toHaveBeenCalledWith('left');
+    expect(screen.getByRole('button', { name: 'キャプションの文字揃え 中揃え' }))
+      .toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('縁色と文字本体色をカラーピッカーまたは16進数入力から設定できる', () => {
     const props = renderCaptionSection();
 
@@ -254,6 +278,7 @@ describe('CaptionSection outline and color controls', () => {
   it('ロック中は縁幅と色の入力をすべて無効化する', () => {
     renderCaptionSection({ isLocked: true });
 
+    expect(screen.getByRole('button', { name: 'キャプションの文字揃え 左揃え' })).toBeDisabled();
     expect(screen.getByLabelText('キャプションの縁の幅')).toBeDisabled();
     expect(screen.getByLabelText('キャプションの縁の幅（数値）')).toBeDisabled();
     expect(screen.getByLabelText('キャプションの縁の色')).toBeDisabled();
@@ -440,6 +465,7 @@ describe('CaptionSection bulk timing alignment', () => {
       onSetEnabled: vi.fn(),
       onSetFontSize: vi.fn(),
       onSetFontStyle: vi.fn(),
+      onSetTextAlign: vi.fn(),
       onSetFontColor: vi.fn(),
       onSetStrokeColor: vi.fn(),
       onSetStrokeWidth: vi.fn(),

@@ -20,6 +20,7 @@ describe('caption individual settings', () => {
   it('detects every persisted individual setting including durations and sequential settings', () => {
     expect(hasCaptionIndividualSettings(baseCaption)).toBe(false);
     expect(hasCaptionIndividualSettings({ ...baseCaption, overrideFadeOutDuration: 1 })).toBe(true);
+    expect(hasCaptionIndividualSettings({ ...baseCaption, overrideTextAlign: 'left' })).toBe(true);
     expect(hasCaptionIndividualSettings({ ...baseCaption, overridePositionCustom: { x: 20, y: 80 } })).toBe(true);
     expect(hasCaptionIndividualSettings({ ...baseCaption, overrideStrokeWidth: 0 })).toBe(true);
     expect(hasCaptionIndividualSettings({ ...baseCaption, overrideFontColor: '#FFFFFF' })).toBe(true);
@@ -33,6 +34,7 @@ describe('caption individual settings', () => {
     const configured: Caption = {
       ...baseCaption,
       overrideFontStyle: 'mincho',
+      overrideTextAlign: 'right',
       overrideFontColor: '#00FF00',
       overrideStrokeColor: '#FF0000',
       overrideStrokeWidth: 6,
@@ -54,5 +56,6 @@ describe('caption individual settings', () => {
     expect(cleared.endTime).toBe(configured.endTime);
     expect(cleared.fadeIn).toBe(configured.fadeIn);
     expect(cleared.fadeOut).toBe(configured.fadeOut);
+    expect(cleared.overrideTextAlign).toBeUndefined();
   });
 });

@@ -33,6 +33,7 @@ import {
   resolveCaptionAnchor,
   resolveCaptionBackgroundStyle,
   resolveCaptionBaseFontSize,
+  resolveCaptionGlyphCenterX,
   resolveCaptionGlyphStyle,
   resolveCaptionLayoutScale,
 } from '../../../utils/captionStyle';
@@ -3501,8 +3502,6 @@ export function usePreviewEngine({
             // strokeWidth / blur も fontSize と同じスケールで縮小し、プレビュー/export で太さの比率を保つ。
             const scaledStrokeWidth = glyphStyle.strokeWidth * captionScale;
             const blurStrength = glyphStyle.blur * captionScale;
-            const centerX = captionAnchor.x;
-
             // フェード時の輪郭残りを防ぐため、stroke+fill を 1 枚のオフスクリーン Canvas に
             // 100% の不透明度で合成してから、メインキャンバスへ globalAlpha 付きで転写する。
             const glyphCanvas = createCaptionGlyphCanvas({
@@ -3514,6 +3513,12 @@ export function usePreviewEngine({
             });
             const glyphW = glyphCanvas.width;
             const glyphH = glyphCanvas.height;
+            const centerX = resolveCaptionGlyphCenterX(activeCaption, currentCaptionSettings, {
+              canvasWidth: ctx.canvas.width,
+              padding,
+              positionAnchorX: captionAnchor.x,
+              glyphWidth: glyphW,
+            });
 
             // 背景帯は文字の下に敷く（個別 override > 一括設定。既定 OFF）
             const backgroundStyle = resolveCaptionBackgroundStyle(

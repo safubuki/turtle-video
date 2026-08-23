@@ -257,6 +257,7 @@ export function useAutoSave() {
         c.fadeOutDuration,
         c.overridePosition ?? '',
         c.overrideFontStyle ?? '',
+        c.overrideTextAlign ?? '',
         c.overrideFontSize ?? '',
         c.overrideFontColor ?? '',
         c.overrideStrokeColor ?? '',

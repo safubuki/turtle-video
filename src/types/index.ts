@@ -293,6 +293,7 @@ export interface Caption {
   // 個別スタイル設定（override）- undefinedの場合は一括設定を使用
   overridePosition?: CaptionPosition;   // 個別配置（デフォルト=undefined）
   overrideFontStyle?: CaptionFontStyle; // 個別字体（デフォルト=undefined）
+  overrideTextAlign?: CaptionTextAlign; // 個別文字揃え（デフォルト=undefined）
   overrideFontSize?: CaptionSize;       // 個別サイズ（デフォルト=undefined）
   overrideFontColor?: string;           // 個別文字本体色（デフォルト=undefined）
   overrideStrokeColor?: string;         // 個別縁色（デフォルト=undefined）
@@ -320,6 +321,9 @@ export interface Caption {
 
 // キャプション位置
 export type CaptionPosition = 'top' | 'center' | 'bottom';
+
+// キャプション文字揃え
+export type CaptionTextAlign = 'left' | 'center' | 'right';
 
 // キャプションサイズ
 export type CaptionSize = 'small' | 'medium' | 'large' | 'xlarge';
@@ -504,6 +508,8 @@ export interface CaptionSettings {
   enabled: boolean;
   fontSize: CaptionSize;
   fontStyle: CaptionFontStyle;
+  /** 旧保存データでは未定義。描画・復元時は center へフォールバックする */
+  textAlign?: CaptionTextAlign;
   fontColor: string;
   strokeColor: string;
   strokeWidth: number;

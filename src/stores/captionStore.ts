@@ -14,6 +14,7 @@ import type {
   CaptionPosition,
   CaptionSize,
   CaptionFontStyle,
+  CaptionTextAlign,
   VideoTitleSettings,
 } from '../types';
 import {
@@ -22,6 +23,7 @@ import {
   clampCaptionBackgroundRadius,
   clampCaptionStrokeWidth,
   clampCustomFontSize,
+  normalizeCaptionTextAlign,
 } from '../utils/captionStyle';
 import {
   DEFAULT_VIDEO_TITLE_SETTINGS,
@@ -75,6 +77,7 @@ interface CaptionState {
   setEnabled: (enabled: boolean) => void;
   setFontSize: (size: CaptionSize) => void;
   setFontStyle: (style: CaptionFontStyle) => void;
+  setTextAlign: (textAlign: CaptionTextAlign) => void;
   setFontColor: (color: string) => void;
   setStrokeColor: (color: string) => void;
   setStrokeWidth: (width: number) => void;
@@ -124,6 +127,7 @@ const initialSettings: CaptionSettings = {
   enabled: true,
   fontSize: 'medium',
   fontStyle: 'gothic',
+  textAlign: 'center',
   fontColor: '#FFFFFF',
   strokeColor: '#000000',
   strokeWidth: 4,
@@ -323,6 +327,15 @@ export const useCaptionStore = create<CaptionState>()(
           }),
           false,
           'setFontStyle'
+        ),
+
+      setTextAlign: (textAlign) =>
+        set(
+          (state) => ({
+            settings: { ...state.settings, textAlign: normalizeCaptionTextAlign(textAlign) },
+          }),
+          false,
+          'setTextAlign'
         ),
 
       setFontColor: (fontColor) =>
@@ -554,6 +567,7 @@ export const useCaptionStore = create<CaptionState>()(
             settings: {
               ...initialSettings,
               ...newSettings,
+              textAlign: normalizeCaptionTextAlign(newSettings.textAlign),
               strokeWidth: clampCaptionStrokeWidth(newSettings.strokeWidth ?? initialSettings.strokeWidth),
               backgroundEnabled:
                 newSettings.backgroundEnabled ?? initialSettings.backgroundEnabled,

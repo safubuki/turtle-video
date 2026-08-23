@@ -4242,3 +4242,22 @@ export 終了（成功/失敗/中断）
   - 補足文を再び 9px / `text-gray-500` 以下へ戻さない。本文より控えめにするときも、10px（PC 12px）と `gray-400` を下限とする。
 - **回帰ガード**: `captionIndividualSharedFields.test.tsx` で stacked の grid / 2段目配置を、`captionSettingsModal.test.tsx` で代表的な補足文の文字サイズ・コントラストを固定する。
 
+### 13-223. キャプション文字揃えを一括・個別設定と全描画経路へ追加する
+
+- **ファイル**: `src/types/index.ts`, `src/utils/captionStyle.ts`, `src/components/common/CaptionTextAlignField.tsx`, `src/components/sections/CaptionSection.tsx`, `src/components/modals/CaptionSettingsModal.tsx`, `src/components/TurtleVideo.tsx`, `src/stores/captionStore.ts`, `src/utils/indexedDB.ts`, `src/stores/projectStore.ts`, `src/hooks/useAutoSave.ts`, `src/utils/captionIndividualSettings.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/utils/captionLayerRender.ts`, `src/flavors/standard/preview/androidPreviewCache.ts`, `src/constants/sectionHelp.ts`, 関連テスト
+- **対象 flavor**: **shared UI / shared data**。standard と apple-safari の通常 preview / export に反映し、standard のキャプション単独出力と Android preview cache にも反映する。
+- **UI/UX判断**:
+  - 設定順は **サイズ → 字体 → 文字の縁・色 → 揃え → 位置**。見た目（字体・色）を整えてからレイアウト（揃え・位置）を決める流れにし、関連する「揃え」と「位置」は隣接させる。両者を別の行として明示することで、「左揃え」と「画面左へ移動」の取り違えも防ぐ。
+  - 一括・個別は `CaptionTextAlignField` を共有する。選択肢は左揃え／中揃え／右揃え。個別設定だけ先頭にデフォルト（一括設定を継承）を追加し、狭幅では既定／左／中／右の短縮表示、読み上げ名は正式名称を維持する。
+- **データ契約**:
+  - `CaptionSettings.textAlign?: CaptionTextAlign` と `Caption.overrideTextAlign?: CaptionTextAlign`。現行の既定は `center`。旧保存データや不正値は `normalizeCaptionTextAlign()` で中揃えへ補完し、従来の見た目を変えない。
+  - 個別値の `undefined` は一括設定の継承。個別設定バッジ・一括クリア・SerializedCaption・自動保存ハッシュ・Android cache key を同時に更新する。
+- **描画契約**:
+  - プリセット位置では左揃え＝左安全余白、中揃え＝画面中央、右揃え＝右安全余白を基準線とする。カスタム XY では指定 X を基準線とし、左右揃えでも自由配置を維持する。
+  - キャプションは stroke / fill を中央原点のオフスクリーン Canvas へ先に合成するため、メイン `ctx.textAlign` を切り替えない。`resolveCaptionGlyphCenterX()` がグリフ幅の半分を補正して転写中心を決め、背景帯とぼかし多重描画も同じ中心 X を使う。
+  - apple-safari は既存仕様どおりカスタム XY を使わないが、左右の安全余白を基準とした文字揃えは反映する。standard は一括／個別カスタム X を尊重する。
+- **注意**:
+  - `center` の中心 X と既定値を変更しない。旧プロジェクト、未指定のテストfixture、既存の中央キャプションはピクセル位置を維持する。
+  - 描画経路を追加・分岐するときは standard preview、apple-safari preview、`captionLayerRender` の3経路を同時に更新する。どれかだけ直すとプレビュー／通常出力／キャプション単独出力で位置がずれる。
+- **回帰ガード**: `captionStyle.test.ts` で安全余白・中央・カスタム X の座標を、`captionStyleControls.test.tsx` / `captionIndividualSharedFields.test.tsx` で配置順と操作を、`captionStore.test.ts` / `projectStoreSave.test.ts` / `captionIndividualSettings.test.ts` / `androidPreviewCache.test.ts` で既定・保存往復・クリア・キャッシュ無効化を固定する。
+

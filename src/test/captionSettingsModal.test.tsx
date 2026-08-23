@@ -85,6 +85,7 @@ describe('CaptionSettingsModal clear', () => {
 
     expect(onUpdate).toHaveBeenCalledWith('caption-1', expect.objectContaining({
       overrideFontStyle: undefined,
+      overrideTextAlign: undefined,
       overrideFontColor: undefined,
       overrideStrokeColor: undefined,
       overrideStrokeWidth: undefined,

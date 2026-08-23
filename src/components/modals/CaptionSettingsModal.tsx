@@ -13,6 +13,7 @@ import type {
   CaptionSettings,
   CaptionSize,
   CaptionFontStyle,
+  CaptionTextAlign,
 } from '../../types';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import NumericSliderField from '../common/NumericSliderField';
@@ -20,6 +21,7 @@ import CaptionColorField from '../common/CaptionColorField';
 import CaptionFontSizeField from '../common/CaptionFontSizeField';
 import CaptionFontStyleField from '../common/CaptionFontStyleField';
 import CaptionPositionField from '../common/CaptionPositionField';
+import CaptionTextAlignField from '../common/CaptionTextAlignField';
 import CaptionMiniPreview, {
   PORTRAIT_MINI_PREVIEW_MAX_WIDTH_CLASS,
 } from '../common/CaptionMiniPreview';
@@ -90,7 +92,7 @@ interface CaptionSettingsModalProps {
   onUpdate: (id: string, updates: Partial<Omit<Caption, 'id'>>) => void;
 }
 
-// フェードだけは「デフォルト/ON/OFF」の 3 状態を保つ（サイズ・字体・位置は
+// フェードだけは「デフォルト/ON/OFF」の 3 状態を保つ（サイズ・字体・揃え・位置は
 // 共有コンポーネント側で null = デフォルトとして扱う）
 type FadeOption = 'default' | 'on' | 'off';
 
@@ -206,6 +208,12 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
   const handleFontStyleChange = (value: CaptionFontStyle | null) => {
     onUpdate(caption.id, {
       overrideFontStyle: value ?? undefined,
+    });
+  };
+
+  const handleTextAlignChange = (value: CaptionTextAlign | null) => {
+    onUpdate(caption.id, {
+      overrideTextAlign: value ?? undefined,
     });
   };
 
@@ -444,6 +452,14 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
               )}
               </div>
             )}
+            {/* 見た目（字体・色）の次にレイアウト（揃え・位置）をまとめる */}
+            <CaptionTextAlignField
+              textAlign={caption.overrideTextAlign ?? null}
+              allowDefaultOption
+              compact
+              ariaLabelPrefix="個別キャプション"
+              onSetTextAlign={handleTextAlignChange}
+            />
             {/* 位置: 一括設定と同じ共有コンポーネント（先頭に「デフォルト」を追加） */}
             <CaptionPositionField
               position={caption.overridePosition ?? null}

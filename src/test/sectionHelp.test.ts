@@ -122,9 +122,11 @@ describe('sectionHelp support messaging', () => {
     const individualDescription = getHelpDescription('caption', '個別設定（歯車マーク）');
 
     expect(styleDescription).toContain('（開いて設定）');
+    expect(styleDescription).toContain('文字揃え（左・中・右）');
     expect(outlineDescription).toContain('縁の幅');
     expect(outlineDescription).toContain('文字本体');
     expect(individualDescription).toContain('文字の縁幅・縁色・文字本体色');
+    expect(individualDescription).toContain('文字揃え（左・中・右）');
     expect(individualDescription).toContain('ぼかし');
     expect(getHelpVisuals('caption', 'キャプション 一括設定')).toContain(
       'caption_style_accordion'

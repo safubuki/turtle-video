@@ -328,6 +328,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const setCaptionEnabled = useCaptionStore((s) => s.setEnabled);
   const setCaptionFontSize = useCaptionStore((s) => s.setFontSize);
   const setCaptionFontStyle = useCaptionStore((s) => s.setFontStyle);
+  const setCaptionTextAlign = useCaptionStore((s) => s.setTextAlign);
   const setCaptionFontColor = useCaptionStore((s) => s.setFontColor);
   const setCaptionStrokeColor = useCaptionStore((s) => s.setStrokeColor);
   const setCaptionStrokeWidth = useCaptionStore((s) => s.setStrokeWidth);
@@ -4045,6 +4046,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onSetEnabled={withPreviewPause('set-caption-enabled', setCaptionEnabled)}
               onSetFontSize={withPreviewPause('set-caption-font-size', setCaptionFontSize)}
               onSetFontStyle={withPreviewPause('set-caption-font-style', setCaptionFontStyle)}
+              onSetTextAlign={withPreviewPause('set-caption-text-align', setCaptionTextAlign)}
               onSetFontColor={withPreviewPause('set-caption-font-color', setCaptionFontColor)}
               onSetStrokeColor={withPreviewPause('set-caption-stroke-color', setCaptionStrokeColor)}
               onSetStrokeWidth={withPreviewPause('set-caption-stroke-width', setCaptionStrokeWidth)}

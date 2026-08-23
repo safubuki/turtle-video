@@ -43,6 +43,7 @@ describe('captionStore', () => {
       expect(settings.fontColor).toBe('#FFFFFF');
       expect(settings.strokeColor).toBe('#000000');
       expect(settings.strokeWidth).toBe(4);
+      expect(settings.textAlign).toBe('center');
     });
 
     it('should have settings property accessible', () => {
@@ -77,6 +78,11 @@ describe('captionStore', () => {
       
       const { settings } = useCaptionStore.getState();
       expect(settings.fontColor).toBe('#FF0000');
+    });
+
+    it('文字揃えを一括設定できる', () => {
+      useCaptionStore.getState().setTextAlign('right');
+      expect(useCaptionStore.getState().settings.textAlign).toBe('right');
     });
 
     it('should clamp stroke width to the supported range and step', () => {
@@ -132,6 +138,7 @@ describe('captionStore', () => {
         enabled: false,
         fontSize: 'large',
         fontStyle: 'mincho',
+        textAlign: 'right',
         fontColor: '#00FF00',
         strokeColor: '#FF0000',
         strokeWidth: 4,
@@ -161,6 +168,7 @@ describe('captionStore', () => {
       expect(settings.enabled).toBe(false);
       expect(settings.fontSize).toBe('large');
       expect(settings.fontStyle).toBe('mincho');
+      expect(settings.textAlign).toBe('right');
       expect(settings.fontColor).toBe('#00FF00');
       expect(settings.strokeColor).toBe('#FF0000');
       expect(settings.strokeWidth).toBe(4);
@@ -200,6 +208,7 @@ describe('captionStore', () => {
       expect(settings.backgroundColor).toBe('#000000');
       expect(settings.backgroundOpacity).toBe(0.45);
       expect(settings.backgroundRadius).toBe(16);
+      expect(settings.textAlign).toBe('center');
     });
   });
 

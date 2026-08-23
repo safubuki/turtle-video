@@ -14,6 +14,7 @@ import {
   resolveCaptionAnchor,
   resolveCaptionBackgroundStyle,
   resolveCaptionBaseFontSize,
+  resolveCaptionGlyphCenterX,
   resolveCaptionGlyphStyle,
   resolveCaptionLayoutScale,
 } from './captionStyle';
@@ -203,8 +204,6 @@ function drawCaptionsAtTime(
     const strokeColor = options.forceWhiteGlyphs ? LUMINANCE_KEY_STROKE : glyphStyle.strokeColor;
     const scaledStrokeWidth = glyphStyle.strokeWidth * captionScale;
     const blurStrength = glyphStyle.blur * captionScale;
-    const centerX = captionAnchor.x;
-
     const glyphPixelRatio = normalizeCaptionGlyphPixelRatio(options.glyphPixelRatio);
     const glyphCanvas = getOrCreateCaptionGlyphCanvas(
       {
@@ -219,6 +218,12 @@ function drawCaptionsAtTime(
     );
     const glyphW = glyphCanvas.width / glyphPixelRatio;
     const glyphH = glyphCanvas.height / glyphPixelRatio;
+    const centerX = resolveCaptionGlyphCenterX(activeCaption, captionSettings, {
+      canvasWidth: ctx.canvas.width,
+      padding,
+      positionAnchorX: captionAnchor.x,
+      glyphWidth: glyphW,
+    });
 
     // ルミナンスキー時は背景帯があるとキーが汚れるため描かない
     if (!options.forceWhiteGlyphs) {

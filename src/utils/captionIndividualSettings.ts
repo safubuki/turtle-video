@@ -9,6 +9,7 @@ export function hasCaptionIndividualSettings(caption: Caption): boolean {
   return Boolean(
     caption.overridePosition
     || caption.overrideFontStyle
+    || caption.overrideTextAlign
     || caption.overrideFontSize
     || caption.overrideFontColor != null
     || caption.overrideStrokeColor != null
@@ -34,6 +35,7 @@ export function createClearedCaptionIndividualSettings(): Partial<Omit<Caption, 
   return {
     overridePosition: undefined,
     overrideFontStyle: undefined,
+    overrideTextAlign: undefined,
     overrideFontSize: undefined,
     overrideFontColor: undefined,
     overrideStrokeColor: undefined,

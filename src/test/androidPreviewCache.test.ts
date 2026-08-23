@@ -179,12 +179,15 @@ describe('android preview cache helpers', () => {
       bulkFadeInDuration: 0.5,
       bulkFadeOutDuration: 0.5,
     };
-    const createKey = (captions: Caption[]) => createAndroidPreviewCacheKey({
+    const createKey = (
+      captions: Caption[],
+      settings: CaptionSettings = captionSettings,
+    ) => createAndroidPreviewCacheKey({
       mediaItems: [createVideoItem('v1')],
       bgm: null,
       narrations: [],
       captions,
-      captionSettings,
+      captionSettings: settings,
       videoTitle: DEFAULT_VIDEO_TITLE_SETTINGS,
       canvasWidth: 1280,
       canvasHeight: 720,
@@ -196,6 +199,8 @@ describe('android preview cache helpers', () => {
     expect(createKey([{ ...caption, overrideStrokeColor: '#ABCDEF' }])).not.toBe(baseKey);
     expect(createKey([{ ...caption, overrideStrokeWidth: 6.5 }])).not.toBe(baseKey);
     expect(createKey([{ ...caption, overrideBlur: 2.5 }])).not.toBe(baseKey);
+    expect(createKey([{ ...caption, overrideTextAlign: 'right' }])).not.toBe(baseKey);
+    expect(createKey([caption], { ...captionSettings, textAlign: 'left' })).not.toBe(baseKey);
   });
 
   it('Android standard preview policy は live fallback の sync threshold を厳しめにする', () => {

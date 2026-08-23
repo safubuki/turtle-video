@@ -39,6 +39,7 @@ import type {
   CaptionPosition,
   CaptionSize,
   CaptionFontStyle,
+  CaptionTextAlign,
   VideoTitleSettings,
 } from '../../types';
 import CaptionItem from '../media/CaptionItem';
@@ -81,6 +82,7 @@ import CaptionMiniPreview, {
 } from '../common/CaptionMiniPreview';
 import type { CaptionFreeSnapshot } from '../../utils/canvas';
 import CaptionPositionField from '../common/CaptionPositionField';
+import CaptionTextAlignField from '../common/CaptionTextAlignField';
 
 interface CaptionSectionProps {
   captions: Caption[];
@@ -122,6 +124,7 @@ interface CaptionSectionProps {
   onSetEnabled: (enabled: boolean) => void;
   onSetFontSize: (size: CaptionSize) => void;
   onSetFontStyle: (style: CaptionFontStyle) => void;
+  onSetTextAlign: (textAlign: CaptionTextAlign) => void;
   onSetFontColor: (color: string) => void;
   onSetStrokeColor: (color: string) => void;
   onSetStrokeWidth: (width: number) => void;
@@ -216,6 +219,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   onSetEnabled,
   onSetFontSize,
   onSetFontStyle,
+  onSetTextAlign,
   onSetFontColor,
   onSetStrokeColor,
   onSetStrokeWidth,
@@ -789,6 +793,15 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                     )}
                     </div>
                   )}
+                  {/* 見た目（字体・色）の次にレイアウト（揃え・位置）をまとめる */}
+                  <CaptionTextAlignField
+                    textAlign={settings.textAlign ?? 'center'}
+                    disabled={isLocked}
+                    ariaLabelPrefix="キャプション"
+                    onSetTextAlign={(value) => {
+                      if (value) onSetTextAlign(value);
+                    }}
+                  />
                   {/* 位置: 個別設定モーダルと同じ共有コンポーネント */}
                   <CaptionPositionField
                     position={settings.position}
