@@ -26,7 +26,9 @@ export const CLIP_AUDIO_NORMALIZE_VISIBLE_FILE_COUNT = 5;
 const CLIP_AUDIO_NORMALIZE_FILE_LIST_CLASS =
   'space-y-1.5 overflow-y-auto overscroll-contain custom-scrollbar pr-0.5 max-h-[calc(5*2.125rem+4*0.375rem)]';
 
-const HELP_TEXT_CLASS = 'text-[10px] leading-relaxed text-gray-500';
+/** クリップのフェード項目と同じ文字スケール。 */
+const CHECKBOX_TEXT_CLASS = 'text-[10px] text-gray-200 md:text-xs';
+const HELP_TEXT_CLASS = 'text-[10px] leading-relaxed text-gray-400 md:text-xs';
 
 export type BulkAudioSettingsKind = 'video' | 'bgm' | 'narration';
 
@@ -164,7 +166,7 @@ const ClipAudioSettingsPanel: React.FC<ClipAudioSettingsPanelProps> = ({
         >
           <div className="rounded-lg border border-gray-700/60 bg-black/20 p-2 space-y-2">
             <label
-              className={`flex items-center gap-1.5 text-[11px] text-gray-200 ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
+              className={`flex items-center gap-1.5 ${CHECKBOX_TEXT_CLASS} ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
             >
               <input
                 type="checkbox"
@@ -180,9 +182,9 @@ const ClipAudioSettingsPanel: React.FC<ClipAudioSettingsPanelProps> = ({
           </div>
 
           <div className="rounded-lg border border-gray-700/60 bg-black/20 p-2 space-y-2">
-            <div className="flex items-center gap-1.5 text-[11px] text-gray-200">
+            <div className="flex items-center gap-1.5">
               <label
-                className={`flex items-center gap-1.5 min-w-0 flex-1 ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
+                className={`flex min-w-0 flex-1 items-center gap-1.5 ${CHECKBOX_TEXT_CLASS} ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
               >
                 <input
                   type="checkbox"
@@ -194,7 +196,7 @@ const ClipAudioSettingsPanel: React.FC<ClipAudioSettingsPanelProps> = ({
                 />
                 <span>一括音量設定</span>
               </label>
-              <span className="ml-auto font-mono text-[10px] text-gray-400">{volumePercent}%</span>
+              <span className="ml-auto font-mono text-[10px] text-gray-400 md:text-xs">{volumePercent}%</span>
             </div>
             <NumericSliderField
               ariaLabel="一括音量"
@@ -212,7 +214,7 @@ const ClipAudioSettingsPanel: React.FC<ClipAudioSettingsPanelProps> = ({
 
           <div className="rounded-lg border border-gray-700/60 bg-black/20 p-2 space-y-2">
             <label
-              className={`flex items-center gap-1.5 text-[11px] text-gray-200 ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
+              className={`flex items-center gap-1.5 ${CHECKBOX_TEXT_CLASS} ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
             >
               <input
                 type="checkbox"

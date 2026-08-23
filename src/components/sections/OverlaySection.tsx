@@ -499,7 +499,7 @@ const OverlaySection = React.memo<OverlaySectionProps>(({
                       />
                       <span>エンドロール中に BGM を徐々に消す</span>
                     </label>
-                    <p className="mt-1 text-[9px] leading-relaxed text-gray-500">
+                    <p className="mt-1 text-[10px] leading-relaxed text-gray-400 md:text-xs">
                       {hasNoBgm
                         ? 'BGM が設定されていないため使用できません。'
                         : 'エンドロールの長さをかけて音量を 0 まで下げます。'}

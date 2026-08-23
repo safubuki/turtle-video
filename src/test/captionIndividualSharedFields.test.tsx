@@ -284,6 +284,32 @@ describe('CaptionPositionField（一括設定と個別設定の共有コンポ�
     expect(onSetPositionCustom).toHaveBeenCalledWith({ x: 50, y: 30 });
   });
 
+  it('compact のカスタム位置は数値ステッパーを2段目へ分け、補足文を可読サイズで表示する', () => {
+    render(
+      <CaptionPositionField
+        {...baseProps}
+        position={null}
+        positionCustom={{ x: 50, y: 50 }}
+        compact
+        onSetPosition={vi.fn()}
+        onSetPositionCustom={vi.fn()}
+      />,
+    );
+
+    const xNumber = screen.getByLabelText('テストの表示位置 X（数値）');
+    const stepper = xNumber.parentElement;
+    const controlRow = stepper?.parentElement;
+    expect(controlRow).toHaveClass('grid');
+    expect(controlRow).toHaveClass('grid-cols-[auto_minmax(0,1fr)]');
+    expect(stepper).toHaveClass('col-start-2');
+    expect(stepper).toHaveClass('justify-self-end');
+
+    const helper = screen.getByText('中央が 0。横は右が＋、縦は上が＋（テキスト中心の位置）');
+    expect(helper).toHaveClass('text-[10px]');
+    expect(helper).toHaveClass('md:text-xs');
+    expect(helper).toHaveClass('text-gray-400');
+  });
+
   it('compact では短縮と正式名称の両方を描き、CSS で出し分ける（PC は一括設定と同じ表示）', () => {
     render(
       <CaptionPositionField

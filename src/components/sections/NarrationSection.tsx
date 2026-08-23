@@ -483,7 +483,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                   </button>
                 </div>
                 {bulkVolumeEnabled && (
-                  <p className="text-[10px] leading-relaxed text-blue-300/80 px-1">一括音量設定中のため、ここでは変更できません。</p>
+                  <p className="px-1 text-[10px] leading-relaxed text-blue-300/80 md:text-xs">一括音量設定中のため、ここでは変更できません。</p>
                 )}
                 {Math.abs((clip.audioNormalizeGain ?? 1) - 1) >= 0.02 && (
                   <div

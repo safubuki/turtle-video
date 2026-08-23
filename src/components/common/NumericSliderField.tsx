@@ -39,6 +39,11 @@ export interface NumericSliderFieldProps {
   labelClassName?: string;
   /** 数値欄の右に置く単位（「秒」「px」など） */
   unit?: string;
+  /**
+   * コントロールの配置。stacked はラベル＋スライダーの下へ数値ステッパーを置き、
+   * 幅の狭いモーダルでも −/数値/+ /単位が重ならないようにする。
+   */
+  layout?: 'inline' | 'stacked';
   /** スライダーの見た目。呼び出し元の accent 色をそのまま活かす */
   sliderClassName?: string;
   /**
@@ -72,6 +77,7 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
   label,
   labelClassName = 'text-gray-500 w-6 shrink-0',
   unit,
+  layout = 'inline',
   sliderClassName = 'flex-1 min-w-0 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50',
   inputClassName = 'w-12 focus:border-blue-500',
   decimals,
@@ -84,6 +90,7 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
   const stepAmount = stepperStep ?? step;
   const displayValue = clampValue(value, min, max, resolvedDecimals);
   const effectiveLabel = ariaLabel ?? label;
+  const isStacked = layout === 'stacked' && !hideInput;
 
   const handleStep = (direction: 1 | -1) => {
     const next = clampValue(displayValue + direction * stepAmount, min, max, resolvedDecimals);
@@ -91,7 +98,13 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
   };
 
   return (
-    <div className={`flex items-center gap-1.5 text-[10px] md:text-xs ${className}`}>
+    <div
+      className={`${
+        isStacked
+          ? 'grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-1.5'
+          : 'flex items-center gap-1.5'
+      } text-[10px] md:text-xs ${className}`}
+    >
       {label && <span className={labelClassName}>{label}</span>}
       <SwipeProtectedSlider
         min={min}
@@ -141,6 +154,7 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
           decimals={decimals}
           ariaLabel={effectiveLabel}
           inputId={inputId}
+          className={isStacked ? 'col-start-2 justify-self-end' : ''}
         />
       )}
       {hideInput && unit && (

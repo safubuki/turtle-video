@@ -767,7 +767,7 @@ describe('シークバーの区間表示（ディゾルブ・エンドロール�
     expect(pct(second).width).toBe(`${(5 / 9) * 100}%`);
   });
 
-  it('重なり区間をトランジション色（紫）で示す', () => {
+  it('ディゾルブの重なり区間を中央が濃い紫のグラデーションで示す', () => {
     const { container } = renderPreviewSection({
       mediaItems: [
         videoClip('a', 5, { transitionToNext: { type: 'dissolve', duration: 1 } }),
@@ -777,20 +777,83 @@ describe('シークバーの区間表示（ディゾルブ・エンドロール�
       clipsDuration: 9,
     });
 
-    const purple = container.querySelector('.bg-purple-500') as HTMLElement | null;
-    expect(purple).not.toBeNull();
+    const dissolve = container.querySelector(
+      '[data-testid="preview-transition-segment"][data-transition-type="dissolve"]',
+    ) as HTMLElement | null;
+    expect(dissolve).not.toBeNull();
     // 4〜5秒の 1 秒ぶん
-    expect(purple?.style.left).toBe(`${(4 / 9) * 100}%`);
-    expect(purple?.style.width).toBe(`${(1 / 9) * 100}%`);
+    expect(dissolve?.style.left).toBe(`${(4 / 9) * 100}%`);
+    expect(dissolve?.style.width).toBe(`${(1 / 9) * 100}%`);
+    expect(dissolve?.style.backgroundImage).toContain('linear-gradient');
+    expect(dissolve?.style.backgroundImage).toContain('50%');
   });
 
-  it('ディゾルブが無ければ紫の帯は出ない', () => {
+  it('トランジションが無ければ影響範囲の帯は出ない', () => {
     const { container } = renderPreviewSection({
       mediaItems: [videoClip('a', 5), videoClip('b', 5)],
       totalDuration: 10,
       clipsDuration: 10,
     });
-    expect(container.querySelector('.bg-purple-500')).toBeNull();
+    expect(container.querySelector('[data-testid="preview-transition-segment"]')).toBeNull();
+  });
+
+  it('黒フェードは境界前後の影響範囲を紫から中央の黒へ変わるグラデーションで示す', () => {
+    const { container } = renderPreviewSection({
+      mediaItems: [
+        videoClip('a', 5, { transitionToNext: { type: 'fade-black', duration: 2 } }),
+        videoClip('b', 5),
+      ],
+      totalDuration: 10,
+      clipsDuration: 10,
+    });
+
+    const fade = container.querySelector(
+      '[data-testid="preview-transition-segment"][data-transition-type="fade-black"]',
+    ) as HTMLElement | null;
+    expect(fade).not.toBeNull();
+    // 境界 5 秒の前後 1 秒（4〜6秒）
+    expect(fade?.style.left).toBe('40%');
+    expect(fade?.style.width).toBe('20%');
+    expect(fade?.style.backgroundImage).toContain('linear-gradient');
+    expect(fade?.style.backgroundImage).toMatch(/#000000|rgb\(0, 0, 0\)/);
+  });
+
+  it('白フェードは境界前後の影響範囲を紫から中央の白へ変わるグラデーションで示す', () => {
+    const { container } = renderPreviewSection({
+      mediaItems: [
+        videoClip('a', 5, { transitionToNext: { type: 'fade-white', duration: 1 } }),
+        videoClip('b', 5),
+      ],
+      totalDuration: 10,
+      clipsDuration: 10,
+    });
+
+    const fade = container.querySelector(
+      '[data-testid="preview-transition-segment"][data-transition-type="fade-white"]',
+    ) as HTMLElement | null;
+    expect(fade).not.toBeNull();
+    // 境界 5 秒の前後 0.5 秒（4.5〜5.5秒）
+    expect(fade?.style.left).toBe('45%');
+    expect(fade?.style.width).toBe('10%');
+    expect(fade?.style.backgroundImage).toContain('linear-gradient');
+    expect(fade?.style.backgroundImage).toMatch(/#ffffff|rgb\(255, 255, 255\)/);
+  });
+
+  it('短いクリップでは黒フェードの最大効果点を表示区間中央ではなく実際の境界へ寄せる', () => {
+    const { container } = renderPreviewSection({
+      mediaItems: [
+        videoClip('short', 0.25, { transitionToNext: { type: 'fade-black', duration: 2 } }),
+        videoClip('b', 5),
+      ],
+      totalDuration: 5.25,
+      clipsDuration: 5.25,
+    });
+
+    const fade = container.querySelector(
+      '[data-testid="preview-transition-segment"][data-transition-type="fade-black"]',
+    ) as HTMLElement | null;
+    // 表示範囲は 0〜1.25 秒、最大効果点の境界 0.25 秒はその20%位置。
+    expect(fade?.style.backgroundImage).toMatch(/(?:#000000|rgb\(0, 0, 0\)) 20%/);
   });
 
   it('エンドロール区間を別色で末尾に描く（9秒 + 5秒 = 14秒）', () => {

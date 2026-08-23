@@ -4191,3 +4191,54 @@ export 終了（成功/失敗/中断）
   - アコーディオン見出し「音声 一括設定」とパネル内操作名は 13-218 のまま。
 - **回帰ガード**: `clipAudioSettingsPanel.test.tsx` で動画・BGM の 2 行を固定する。
 
+### 13-220. プレビュー再生バーはトランジションの影響範囲と強さをグラデーション表示する
+
+- **ファイル**: `src/components/sections/PreviewSection.tsx`, `src/constants/sectionHelp.ts`, `src/test/previewSectionActionButtons.test.tsx`
+- **対象 flavor**: トランジション機能を提供する **standard（Android / PC）**。preview / export / 保存契約は変更しない。
+- **問題**:
+  - ディゾルブだけが重なり区間を単色の紫で示し、フェード（黒／白）の影響範囲は再生バーに出ていなかった。
+  - 単色表示では、トランジションの影響がどこで強く、どこで弱くなるかを読み取れなかった。
+- **対策**:
+  - `computeTransitionTimelineRanges()` の実レンジを使い、ディゾルブは実オーバーラップ区間、フェードはクリップ境界の前後 `duration / 2` 秒を表示する。
+  - ディゾルブは両端の薄い紫から中央の濃い紫へ、フェードは両端の薄い紫からクリップ境界の実色（黒／白）へ変わるグラデーションにする。通常は境界が中央、短いクリップで表示範囲が切れる場合は最大効果点を実境界へ寄せる。
+  - ベースのクリップ帯だけ従来の `opacity-60` を維持し、トランジション帯は不透明度を落とさず、黒／白の最大効果点を判別できるようにする。
+  - 各帯へ `data-transition-type` と読み上げラベルを付け、DOM テストで種類・位置・幅・グラデーションを固定する。
+- **注意**:
+  - フェード範囲をディゾルブの overlap 検出から導出しない。フェードは総尺を変えないため、必ず境界前後へ半分ずつ配分する。
+  - ディゾルブを単色へ戻すと強度が読めなくなる。中央を黒／白にしない（ディゾルブは色板へのフェードではない）。
+  - タイムライン計算を独自の duration 累積へ戻さず、`transitionTimeline.ts` を単一ソースとして維持する。
+- **回帰ガード**: `previewSectionActionButtons.test.tsx` で、ディゾルブの実 overlap、黒／白フェードの境界前後範囲、短いクリップでの最大効果点、トランジション無し時の非表示を固定する。
+
+### 13-221. チェック項目はフェード設定と同じ文字スケール・補足コントラストへ統一する
+
+- **ファイル**: `src/components/sections/ClipAudioSettingsPanel.tsx`, `src/components/media/ClipItem.tsx`, `src/components/sections/BgmClipList.tsx`, `src/components/sections/NarrationSection.tsx`, `src/components/modals/CaptionSettingsModal.tsx`, `src/components/sections/PreviewSection.tsx`, `src/components/sections/OverlaySection.tsx`, 関連テスト
+- **対象 flavor**: **shared UI**。各機能の表示可否は既存 capabilities のまま。操作・状態・保存・preview / export 契約は変更しない。
+- **問題**:
+  - 「音声 一括設定」の一括ミュート／一括音量／音量揃えは固定 11px、説明は固定 10px + `text-gray-500` で、PC表示のフェード項目（12px）より小さく暗かった。
+  - 黒帯除去、速度バッジ、個別キャプション設定、字幕保存、エンドロール BGM など一部チェック項目にも、PCで 10px 以下の文言・補足が残っていた。
+- **対策**:
+  - チェック項目の基準をフェード設定と同じ `text-[10px] md:text-xs`（10px / 12px）に揃える。
+  - 主ラベルは既存の明るい `text-gray-200` / `text-gray-300` を維持し、補足文は `text-gray-400` へ上げる。`gray-400` on `gray-900` は WCAG 2.2 6.99:1、従来の `gray-500` は 3.67:1。
+  - 一括音量適用中の案内も動画・BGM・ナレーションで同じ文字スケールへ統一する。
+- **注意**:
+  - チェックボックス本体の操作、accent 色、disabled 条件、ラベルクリック領域は変えない。
+  - 補助バッジや数値など役割の異なる小要素まで一律に拡大せず、チェック操作のラベルと説明を対象にする。
+  - 新しいチェック項目は、特別な高密度UIでない限り `text-[10px] md:text-xs` を使う。小さい補足文に `text-gray-500` 以下を使わない。
+- **回帰ガード**: `clipAudioSettingsPanel.test.tsx` / `clipItemSpeedBadge.test.tsx` でラベルと説明のレスポンシブ文字サイズ・色を固定する。
+
+### 13-222. キャプション個別設定のカスタム位置を2段化し、補足文を可読化する
+
+- **ファイル**: `src/components/common/NumericSliderField.tsx`, `src/components/common/CaptionPositionField.tsx`, `src/components/modals/CaptionSettingsModal.tsx`, `src/test/captionIndividualSharedFields.test.tsx`, `src/test/captionSettingsModal.test.tsx`
+- **対象 flavor**: **shared UI**。standard / apple-safari 共通のコンポーネントだが、カスタム位置は既存 capabilities どおり standard のみ表示。位置データ・保存・preview / export 契約は変更しない。
+- **問題**:
+  - 個別設定モーダルのカスタム位置は、横/縦ラベル・スライダー・−・数値・＋・% を1行へ詰め込んでいたため、幅の狭いモーダルでステッパーと単位が重なった。
+  - 個別設定内の補足文と「一括設定に戻す」操作が固定 9px + `text-gray-500` で、暗い背景上では小さく読みづらかった。
+- **対策**:
+  - `NumericSliderField` に既定値 `inline` の `layout` を追加し、`stacked` では1段目を「ラベル＋スライダー」、2段目を「−・数値・＋・単位」とする。個別設定の `CaptionPositionField compact` だけ stacked を使い、横幅を奪い合わない構造にする。
+  - カスタム位置の軸ラベルと補足文を `text-gray-400` へ上げる。モーダル内の説明・リセット操作・節見出しは `text-[10px] md:text-xs`（10px / 12px）へ揃え、説明文には `leading-relaxed` を付ける。
+- **注意**:
+  - `NumericSliderField` の既定 `inline` を変えない。一括キャプション設定や他の数値スライダーまで2段化すると画面密度と既存配置が変わる。
+  - 重なり対策を input 幅の縮小だけで済ませない。−/+ のタッチ領域と数値の判読性を維持し、compact では行を分けて幅を確保する。
+  - 補足文を再び 9px / `text-gray-500` 以下へ戻さない。本文より控えめにするときも、10px（PC 12px）と `gray-400` を下限とする。
+- **回帰ガード**: `captionIndividualSharedFields.test.tsx` で stacked の grid / 2段目配置を、`captionSettingsModal.test.tsx` で代表的な補足文の文字サイズ・コントラストを固定する。
+

@@ -24,6 +24,45 @@ const settings: CaptionSettings = {
 };
 
 describe('CaptionSettingsModal clear', () => {
+  it('個別設定の補足説明を10px以上・高コントラストで表示する', () => {
+    const caption: Caption = {
+      id: 'caption-readable-help',
+      text: '1行目\n2行目',
+      startTime: 0,
+      endTime: 3,
+      fadeIn: false,
+      fadeOut: false,
+      fadeInDuration: 0.5,
+      fadeOutDuration: 0.5,
+      overridePositionCustom: { x: 50, y: 50 },
+    };
+    render(
+      <CaptionSettingsModal
+        caption={caption}
+        settings={settings}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '文字の縁・色' }));
+    const helperTexts = [
+      '変更した項目だけ、このカードの個別設定として一括設定より優先します。',
+      '中央が 0。横は右が＋、縦は上が＋（テキスト中心の位置）',
+      'フェードの ON/OFF と時間は上のフェード設定（または一括設定）に従います',
+      '行と行の間に何も表示しない間隔を挟みます（表示時間内で自動調整）',
+      '※「デフォルト」選択時は一括設定の値に従います',
+      '本文と開始・終了時間は変更しません',
+    ];
+
+    for (const text of helperTexts) {
+      const helper = screen.getByText(text);
+      expect(helper).toHaveClass('text-[10px]');
+      expect(helper).toHaveClass('md:text-xs');
+      expect(helper).toHaveClass('text-gray-400');
+    }
+  });
+
   it('clears only the selected caption individual settings and closes the modal', () => {
     const caption: Caption = {
       id: 'caption-1',

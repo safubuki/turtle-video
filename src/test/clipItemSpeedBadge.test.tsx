@@ -93,8 +93,11 @@ describe('ClipItem 速度バッジ', () => {
 
     const checkbox = screen.getByTestId('clip-show-speed-badge-video-1');
     expect(checkbox).not.toBeDisabled();
+    expect(checkbox.closest('label')).toHaveClass('text-[10px]', 'md:text-xs', 'text-gray-300');
     expect(screen.queryByTestId('clip-speed-badge-settings-video-1')).not.toBeInTheDocument();
-    expect(screen.getByText('等倍の映像には出しません。先にチェックしてから速度を変えられます。')).toBeInTheDocument();
+    expect(
+      screen.getByText('等倍の映像には出しません。先にチェックしてから速度を変えられます。'),
+    ).toHaveClass('text-[10px]', 'md:text-xs', 'text-gray-400');
 
     fireEvent.click(checkbox);
     expect(onUpdateShowSpeedBadge).toHaveBeenCalledWith(true);

@@ -183,7 +183,21 @@ describe('ClipAudioSettingsPanel', () => {
       '比較する動画が2本以上あるときに揃えます。',
     ];
     for (const text of hints) {
-      expect(screen.getByText(text)).toHaveClass('text-[10px]');
+      expect(screen.getByText(text)).toHaveClass(
+        'text-[10px]',
+        'md:text-xs',
+        'text-gray-400',
+      );
+    }
+  });
+
+  it('チェック項目をフェード設定と同じレスポンシブ文字サイズで表示する', () => {
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: '音声 一括設定' }));
+
+    for (const name of ['一括ミュート', '一括音量設定', '音量を揃える']) {
+      const checkbox = screen.getByRole('checkbox', { name });
+      expect(checkbox.closest('label')).toHaveClass('text-[10px]', 'md:text-xs', 'text-gray-200');
     }
   });
 });

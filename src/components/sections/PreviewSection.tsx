@@ -32,6 +32,7 @@ import type {
   MediaItem,
   AudioTrack,
   NarrationClip,
+  ClipTransitionType,
   ExportContentMode,
   CaptionLayerVideoFormat,
   ExportOutputOptions,
@@ -65,6 +66,39 @@ const PREVIEW_SEEK_THUMB_HALF_PX = 10;
 const EXPORT_RENDERING_READY_TIME_SEC = 0.25;
 const EXPORT_FINALIZING_EPSILON_SEC = 0.05;
 const EXPORT_FINALIZING_TIMEOUT_MS = 30000;
+
+type PreviewTransitionSegment = {
+  key: string;
+  type: ClipTransitionType;
+  start: number;
+  end: number;
+  /** フェードの最大効果点（クリップ境界）。通常は50%、短いクリップでは左右へ寄る */
+  peakPercent?: number;
+};
+
+const getPreviewTransitionGradient = (
+  type: ClipTransitionType,
+  peakPercent = 50,
+): string => {
+  if (type === 'dissolve') {
+    return 'linear-gradient(to right, rgba(192, 132, 252, 0.3) 0%, rgba(147, 51, 234, 0.95) 50%, rgba(192, 132, 252, 0.3) 100%)';
+  }
+
+  const peak = Math.max(0, Math.min(100, peakPercent));
+  const leftShoulder = peak * 0.72;
+  const rightShoulder = peak + (100 - peak) * 0.28;
+  const centerColor = type === 'fade-white' ? '#ffffff' : '#000000';
+  const purple = type === 'fade-white'
+    ? 'rgba(168, 85, 247, 0.92)'
+    : 'rgba(126, 34, 206, 0.92)';
+  return `linear-gradient(to right, rgba(192, 132, 252, 0.3) 0%, ${purple} ${leftShoulder}%, ${centerColor} ${peak}%, ${purple} ${rightShoulder}%, rgba(192, 132, 252, 0.3) 100%)`;
+};
+
+const PREVIEW_TRANSITION_LABELS: Record<ClipTransitionType, string> = {
+  dissolve: 'ディゾルブの影響範囲',
+  'fade-black': '黒フェードの影響範囲',
+  'fade-white': '白フェードの影響範囲',
+};
 
 type ExportPhase = 'preparing' | 'rendering' | 'finalizing';
 
@@ -216,7 +250,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
    * ディゾルブはクリップを重ねるためタイムラインが縮む（5秒+5秒＋1秒ディゾルブ＝9秒）。
    * 単純に duration を並べると 10 秒ぶんの帯になり、実際の尺と表示がずれるため、
    * **transitionTimeline の実レンジ（start/end）から絶対配置で描く**。
-   * 重なっている区間はトランジションのイメージカラー（紫）で示す。
+   * トランジション区間は、影響の強さが分かる紫系グラデーションで示す。
    */
   const previewTimelineSegments = useMemo(() => {
     const ranges = computeTransitionTimelineRanges(mediaItems);
@@ -241,22 +275,48 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   }, [mediaItems]);
 
   /**
-   * ディゾルブで重なっている区間（前クリップの終わり ∩ 次クリップの始まり）。
-   * ここを紫で塗り、「重ねたぶん短くなっている」ことを視覚的に示す。
+   * シークバー上へ重ねるトランジションの影響範囲。
+   * ディゾルブは実際のオーバーラップ区間、フェードは境界前後 duration/2 秒を使う。
    */
-  const previewOverlapSegments = useMemo(() => {
+  const previewTransitionSegments = useMemo(() => {
     const ranges = computeTransitionTimelineRanges(mediaItems);
-    const overlaps: { key: string; start: number; end: number }[] = [];
+    const segments: PreviewTransitionSegment[] = [];
     for (let i = 0; i < ranges.length - 1; i++) {
       const current = ranges[i];
       const next = ranges[i + 1];
       if (!current || !next) continue;
-      // 次クリップが前クリップの終端より早く始まっていれば、その差が重なり
-      if (next.start < current.end) {
-        overlaps.push({ key: `${current.id}-${next.id}`, start: next.start, end: current.end });
+
+      const transition = mediaItems[i]?.transitionToNext;
+      if (!transition) continue;
+
+      if (transition.type === 'dissolve') {
+        // 次クリップが前クリップの終端より早く始まっていれば、その差が重なり。
+        if (next.start < current.end) {
+          segments.push({
+            key: `${current.id}-${next.id}`,
+            type: transition.type,
+            start: next.start,
+            end: current.end,
+          });
+        }
+        continue;
       }
+
+      // 描画エンジンと同じく、フェード時間は境界の前後へ半分ずつ配分する。
+      const halfDuration = Math.max(0.05, transition.duration / 2);
+      const boundary = current.end;
+      const start = Math.max(current.start, boundary - halfDuration);
+      const end = Math.min(next.end, boundary + halfDuration);
+      if (!(end > start)) continue;
+      segments.push({
+        key: `${current.id}-${next.id}`,
+        type: transition.type,
+        start,
+        end,
+        peakPercent: ((boundary - start) / (end - start)) * 100,
+      });
     }
-    return overlaps;
+    return segments;
   }, [mediaItems]);
 
   /** エンドロール区間（クリップ終端〜総尺）。無効なら null */
@@ -675,7 +735,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
         <div className="relative h-8 w-full select-none">
           <div className="absolute top-3 w-full h-2 bg-gray-800 rounded-full overflow-hidden">
             {/* 実タイムライン（ディゾルブの重なりを反映）に沿って絶対配置で描く */}
-            <div className="relative w-full h-full opacity-60" data-testid="preview-timeline-bar">
+            <div className="relative w-full h-full" data-testid="preview-timeline-bar">
               {previewTimelineSegments.map(({ item: v, index: i, start, end, imageSegmentIndex }) => {
                 const span = totalDuration > 0 ? ((end - start) / totalDuration) * 100 : 0;
                 if (!(span > 0)) return null;
@@ -691,10 +751,10 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
                     }}
                     className={
                       v.type === 'image'
-                        ? `${imageSegmentIndex !== null && imageSegmentIndex % 2 === 0 ? 'bg-yellow-600' : 'bg-orange-500'} border-r border-gray-950/35`
+                        ? `${imageSegmentIndex !== null && imageSegmentIndex % 2 === 0 ? 'bg-yellow-600' : 'bg-orange-500'} border-r border-gray-950/35 opacity-60`
                         : i % 2 === 0
-                          ? 'bg-blue-600'
-                          : 'bg-blue-500'
+                          ? 'bg-blue-600 opacity-60'
+                          : 'bg-blue-500 opacity-60'
                     }
                   />
                 );
@@ -709,21 +769,29 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
                     top: 0,
                     bottom: 0,
                   }}
-                  className="bg-slate-500 border-l border-gray-950/35"
+                  className="bg-slate-500 border-l border-gray-950/35 opacity-60"
                 />
               )}
-              {/* ディゾルブの重なり区間はトランジションのイメージカラー（紫）で最前面へ */}
-              {totalDuration > 0 && previewOverlapSegments.map((overlap) => (
+              {/* トランジションの影響範囲と強さをグラデーションで最前面へ */}
+              {totalDuration > 0 && previewTransitionSegments.map((transition) => (
                 <div
-                  key={overlap.key}
+                  key={transition.key}
+                  data-testid="preview-transition-segment"
+                  data-transition-type={transition.type}
+                  role="img"
+                  aria-label={PREVIEW_TRANSITION_LABELS[transition.type]}
+                  title={PREVIEW_TRANSITION_LABELS[transition.type]}
                   style={{
                     position: 'absolute',
-                    left: `${(overlap.start / totalDuration) * 100}%`,
-                    width: `${((overlap.end - overlap.start) / totalDuration) * 100}%`,
+                    left: `${(transition.start / totalDuration) * 100}%`,
+                    width: `${((transition.end - transition.start) / totalDuration) * 100}%`,
                     top: 0,
                     bottom: 0,
+                    backgroundImage: getPreviewTransitionGradient(
+                      transition.type,
+                      transition.peakPercent,
+                    ),
                   }}
-                  className="bg-purple-500"
                 />
               ))}
             </div>
@@ -1041,7 +1109,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
                                 <span className="block text-[11px] font-medium text-gray-200 md:text-xs">
                                   字幕ファイル（SRT / VTT）も保存
                                 </span>
-                                <span className="mt-0.5 block text-[10px] leading-snug text-gray-500">
+                                <span className="mt-0.5 block text-[10px] leading-snug text-gray-400 md:text-xs">
                                   SRT / VTT を動画と一緒に保存し、他の編集ソフトで使えます。
                                 </span>
                               </span>

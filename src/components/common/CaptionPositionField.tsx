@@ -174,7 +174,7 @@ const CaptionPositionField = React.memo<CaptionPositionFieldProps>(({
             <NumericSliderField
               key={axis}
               label={axis === 'x' ? '横 (右+)' : '縦 (上+)'}
-              labelClassName="text-gray-500 w-10 shrink-0 whitespace-nowrap"
+              labelClassName="w-10 shrink-0 whitespace-nowrap text-gray-400"
               min={CENTER_ORIGIN_MIN}
               max={CENTER_ORIGIN_MAX}
               step={1}
@@ -184,11 +184,12 @@ const CaptionPositionField = React.memo<CaptionPositionFieldProps>(({
               ariaLabel={`${ariaLabelPrefix}の表示位置 ${axis.toUpperCase()}`}
               inputId={`${idPrefix}-position-custom-${axis}`}
               unit="%"
+              layout={compact ? 'stacked' : 'inline'}
               sliderClassName={`flex-1 min-w-0 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${disabled ? '' : 'cursor-pointer'}`}
               inputClassName="w-14 focus:border-yellow-500"
             />
           ))}
-          <div className="text-[9px] text-gray-500">
+          <div className="text-[10px] leading-relaxed text-gray-400 md:text-xs">
             中央が 0。横は右が＋、縦は上が＋（テキスト中心の位置）
           </div>
         </div>

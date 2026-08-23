@@ -425,7 +425,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
             {/* 拡大微調整チェックボックス */}
             <div className="flex items-center gap-2 px-1 mb-1">
               <label
-                className={`flex items-center gap-1.5 text-[10px] text-gray-300 cursor-pointer hover:text-white transition ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}
+                className={`flex items-center gap-1.5 text-[10px] text-gray-300 cursor-pointer hover:text-white transition md:text-xs ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}
               >
                 <input
                   type="checkbox"
@@ -624,7 +624,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
               </button>
             </div>
             {bulkVolumeEnabled && (
-              <p className="text-[9px] text-blue-300/80 px-1">一括音量設定中のため、ここでは変更できません。</p>
+              <p className="px-1 text-[10px] leading-relaxed text-blue-300/80 md:text-xs">一括音量設定中のため、ここでは変更できません。</p>
             )}
             {Math.abs((v.audioNormalizeGain ?? 1) - 1) >= 0.02 && (
               <div
@@ -765,7 +765,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
               {onUpdateShowSpeedBadge && (
                 <div className="space-y-2">
                   <label
-                    className={`flex items-center gap-1.5 text-[10px] text-gray-300 ${isDisabled ? 'opacity-50' : 'cursor-pointer'}`}
+                    className={`flex items-center gap-1.5 text-[10px] text-gray-300 md:text-xs ${isDisabled ? 'opacity-50' : 'cursor-pointer'}`}
                   >
                     <input
                       type="checkbox"
@@ -778,7 +778,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
                     <span>プレビュー/書き出しに速度を表示</span>
                   </label>
                   {Math.abs(playbackSpeed - 1) < 0.05 && (
-                    <p className="text-[10px] text-gray-500 leading-snug">
+                    <p className="text-[10px] leading-snug text-gray-400 md:text-xs">
                       等倍の映像には出しません。先にチェックしてから速度を変えられます。
                     </p>
                   )}

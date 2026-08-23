@@ -351,7 +351,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
         <div className="p-4 space-y-3 overflow-y-auto custom-scrollbar">
           {/* ■ スタイル設定 */}
           <div className="space-y-2">
-            <div className="text-[10px] text-yellow-400 font-bold">■ スタイル設定</div>
+            <div className="text-[10px] text-yellow-400 font-bold md:text-xs">■ スタイル設定</div>
             {/* サイズ: 一括設定と同じ共有コンポーネント（先頭に「デフォルト」を追加） */}
             <CaptionFontSizeField
               fontSize={caption.overrideFontSize ?? null}
@@ -428,14 +428,14 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                     ariaLabelPrefix="個別キャプション"
                     onChange={(color) => onUpdate(caption.id, { overrideFontColor: color })}
                   />
-                  <p className="pl-[4.5rem] text-[9px] leading-relaxed text-gray-500">
+                  <p className="pl-[4.5rem] text-[10px] leading-relaxed text-gray-400 md:text-xs">
                     変更した項目だけ、このカードの個別設定として一括設定より優先します。
                   </p>
                   {hasOutlineColorOverride && (
                     <button
                       type="button"
                       onClick={handleClearOutlineColorSettings}
-                      className="text-[9px] text-gray-500 hover:text-yellow-400 transition"
+                      className="text-[10px] text-gray-400 hover:text-yellow-400 transition md:text-xs"
                     >
                       文字の縁・色を一括設定に戻す
                     </button>
@@ -493,7 +493,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
               <button
                 type="button"
                 onClick={() => onUpdate(caption.id, { overrideBlur: undefined })}
-                className="pl-16 text-[9px] text-gray-500 hover:text-yellow-400 transition"
+                className="pl-16 text-[10px] text-gray-400 hover:text-yellow-400 transition md:text-xs"
               >
                 ぼかしを一括設定に戻す
               </button>
@@ -504,7 +504,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
             {/* 背景の帯: 一括設定と同じチェック + 詳細（未設定項目は一括を継承） */}
             {uiCapabilities.supportsCaptionBackground && (
               <div className="space-y-2 pt-2 border-t border-gray-700/50">
-              <label className="flex items-center gap-1.5 text-[10px] text-gray-300 cursor-pointer">
+              <label className="flex cursor-pointer items-center gap-1.5 text-[10px] text-gray-300 md:text-xs">
                 <input
                   type="checkbox"
                   checked={effectiveBackgroundStyle.backgroundEnabled}
@@ -591,7 +591,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                       overrideBackgroundRadius: undefined,
                     })
                   }
-                  className="text-[9px] text-gray-500 hover:text-yellow-400 transition"
+                  className="text-[10px] text-gray-400 hover:text-yellow-400 transition md:text-xs"
                 >
                   背景の帯を一括設定に戻す
                 </button>
@@ -602,9 +602,9 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
 
           {/* ■ フェード設定 */}
           <div className="space-y-2 pt-3 border-t border-gray-700">
-            <div className="text-[10px] text-yellow-400 font-bold">■ フェード設定</div>
+            <div className="text-[10px] font-bold text-yellow-400 md:text-xs">■ フェード設定</div>
             {/* フェードイン */}
-            <div className="flex items-center gap-2 text-[10px]">
+            <div className="flex items-center gap-2 text-[10px] md:text-xs">
               <label className="flex items-center gap-1 w-24 justify-start cursor-pointer">
                 <input
                   type="checkbox"
@@ -626,7 +626,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
               <span className={`w-8 text-right whitespace-nowrap ${currentFadeIn !== 'on' ? 'text-gray-600' : 'text-gray-400'}`}>{currentFadeInDuration}秒</span>
             </div>
             {/* フェードアウト */}
-            <div className="flex items-center gap-2 text-[10px]">
+            <div className="flex items-center gap-2 text-[10px] md:text-xs">
               <label className="flex items-center gap-1 w-24 justify-start cursor-pointer">
                 <input
                   type="checkbox"
@@ -658,7 +658,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                     overrideFadeOutDuration: undefined,
                   });
                 }}
-                className="text-[9px] text-gray-500 hover:text-yellow-400 transition"
+                className="text-[10px] text-gray-400 hover:text-yellow-400 transition md:text-xs"
               >
                 フェード設定をデフォルトに戻す
               </button>
@@ -668,7 +668,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
           {/* ■ 時分割設定（複数行テキストのカードのみ） */}
           {isSequential && (
             <div className="space-y-2 pt-3 border-t border-gray-700">
-              <div className="text-[10px] text-emerald-300 font-bold">
+              <div className="text-[10px] text-emerald-300 font-bold md:text-xs">
                 ■ 時分割設定（{resolveSequentialCaptionSegments(caption).length}行を順番に表示）
               </div>
               {/* フェードの適用単位 */}
@@ -691,7 +691,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                   </button>
                 </div>
               </div>
-              <p className="text-[9px] text-gray-500 pl-16">
+              <p className="pl-16 text-[10px] leading-relaxed text-gray-400 md:text-xs">
                 フェードの ON/OFF と時間は上のフェード設定（または一括設定）に従います
               </p>
               {/* 行の間隔 */}
@@ -741,13 +741,13 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                   )}
                 </div>
               </div>
-              <p className="text-[9px] text-gray-500 pl-16">
+              <p className="pl-16 text-[10px] leading-relaxed text-gray-400 md:text-xs">
                 行と行の間に何も表示しない間隔を挟みます（表示時間内で自動調整）
               </p>
             </div>
           )}
 
-          <p className="text-[9px] text-gray-500 pt-2">
+          <p className="pt-2 text-[10px] leading-relaxed text-gray-400 md:text-xs">
             ※「デフォルト」選択時は一括設定の値に従います
           </p>
 
@@ -761,7 +761,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
             >
               <RotateCcw className="w-4 h-4" /> この個別設定をクリア
             </button>
-            <p className="text-[9px] text-gray-500 text-center mt-1">
+            <p className="mt-1 text-center text-[10px] leading-relaxed text-gray-400 md:text-xs">
               本文と開始・終了時間は変更しません
             </p>
           </div>
