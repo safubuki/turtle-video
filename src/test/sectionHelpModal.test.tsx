@@ -52,6 +52,9 @@ describe('SectionHelpModal', () => {
     expect(
       screen.getByRole('table', { name: 'BGMの自動調整 ON・OFF の違い' })
     ).toBeInTheDocument();
+    expect(screen.getByText('現在のBGM位置を反映:')).toBeInTheDocument();
+    expect(screen.getByText('開始に設定')).toBeInTheDocument();
+    expect(screen.getByText('終了に設定')).toBeInTheDocument();
 
     rerender(
       <SectionHelpModal

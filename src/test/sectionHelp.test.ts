@@ -174,6 +174,12 @@ describe('sectionHelp support messaging', () => {
     expect(getHelpVisuals('bgm', '複数のBGM（Android/PC版）')).toEqual(
       expect.arrayContaining(['bgm_count_label', 'bgm_auto_adjust_toggle', 'copy_button'])
     );
+    expect(getHelpDescription('bgm', 'BGMのトリミング（Android/PC版）'))
+      .toContain('現在流れているBGMの音源位置');
+    expect(getHelpDescription('bgm', 'BGMのトリミング（Android/PC版）'))
+      .toContain('BGM配置開始は移動しません');
+    expect(getHelpVisuals('bgm', 'BGMのトリミング（Android/PC版）'))
+      .toEqual(['bgm_trim_position_buttons']);
     expect(getHelpVisuals('narration', 'タイトルの登録件数')).toContain('narration_count_label');
     expect(getHelpVisuals('narration', '音量波形と無音の区切り検出')).toContain(
       'narration_waveform'

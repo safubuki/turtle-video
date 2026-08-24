@@ -91,7 +91,36 @@ describe('BgmClipList timeline adjustment', () => {
     expect(useAudioStore.getState().bgmClips[0].trimEnd).toBe(40);
   });
 
-  it('sets the playback end to the current preview position', () => {
+  it('現在流れている音源位置をトリミング開始に設定し、配置開始は動かさない', () => {
+    const onBeforeEdit = vi.fn();
+    render(
+      <BgmClipList
+        clips={useAudioStore.getState().bgmClips}
+        isLocked={false}
+        totalDuration={60}
+        currentTime={50}
+        formatTime={(seconds) => `${seconds.toFixed(1)}s`}
+        onBeforeEdit={onBeforeEdit}
+        onBeforeContinuousEdit={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.queryByRole('button', { name: '現在のBGM位置をトリミング開始に設定' }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'トリミング設定' }));
+    expect(screen.getByText('現在は音源内 30.0s を再生しています。')).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: '現在のBGM位置をトリミング開始に設定' }),
+    );
+
+    const updated = useAudioStore.getState().bgmClips[0];
+    expect(onBeforeEdit).toHaveBeenCalledWith('set-bgm-clip-trim-start-current');
+    expect(updated.startTime).toBe(20);
+    expect(updated.trimStart).toBe(30);
+  });
+
+  it('現在流れている音源位置をトリミング終了に設定する', () => {
     render(
       <BgmClipList
         clips={useAudioStore.getState().bgmClips}
@@ -104,9 +133,35 @@ describe('BgmClipList timeline adjustment', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '終了' }));
+    fireEvent.click(screen.getByRole('button', { name: 'トリミング設定' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: '現在のBGM位置をトリミング終了に設定' }),
+    );
 
     expect(useAudioStore.getState().bgmClips[0].trimEnd).toBe(30);
+  });
+
+  it('対象のBGMが現在流れていないときはトリム反映を無効にする', () => {
+    render(
+      <BgmClipList
+        clips={useAudioStore.getState().bgmClips}
+        isLocked={false}
+        totalDuration={60}
+        currentTime={10}
+        formatTime={(seconds) => `${seconds.toFixed(1)}s`}
+        onBeforeEdit={vi.fn()}
+        onBeforeContinuousEdit={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'トリミング設定' }));
+    expect(screen.getByText(/このBGMが流れている位置へプレビューを移動/)).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '現在のBGM位置をトリミング開始に設定' }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: '現在のBGM位置をトリミング終了に設定' }),
+    ).toBeDisabled();
   });
 
   it('shows disabled state when the clip starts after the video end', () => {

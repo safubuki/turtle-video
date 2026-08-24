@@ -24,6 +24,7 @@ export type SectionHelpVisualId =
   | 'watermark_controls'
   | 'transition_button'
   | 'range_pin_buttons'
+  | 'bgm_trim_position_buttons'
   | 'rotate_button'
   | 'bgm_count_label'
   | 'bgm_auto_adjust_toggle'
@@ -444,6 +445,17 @@ export function getSectionHelpContent(
           visuals: ['bgm_count_label', 'bgm_auto_adjust_toggle', 'copy_button'],
         },
         {
+          title: 'BGMのトリミング（Android/PC版）',
+          description:
+            '「トリミング設定」を開き、プレビューで現在流れているBGMの音源位置を開始または終了へ反映できます。',
+          bullets: [
+            '開始に設定しても、動画タイムライン上のBGM配置開始は移動しません。',
+            '対象のBGMが流れていない位置では、開始・終了ボタンを押せません。',
+            'スライダーや数値入力によるトリミングの微調整も引き続き利用できます。',
+          ],
+          visuals: ['bgm_trim_position_buttons'],
+        },
+        {
           title: 'セクションの鍵アイコン',
           description: 'BGM設定をロックして誤操作を防止できます。',
           visuals: ['unlock_button', 'lock_button_red'],
@@ -838,6 +850,7 @@ export function getSectionHelpContent(
       '再生速度（0.5〜8.0倍）',
       'トランジション（Android/PC版）',
       '複数のBGM（Android/PC版）',
+      'BGMのトリミング（Android/PC版）',
       'コピー（Android/PC版）',
       'AI原稿からキャプションカードを追加',
       '音量波形と無音の区切り検出',

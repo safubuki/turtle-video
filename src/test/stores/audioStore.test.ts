@@ -6,6 +6,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   resolveAudioClipEndAtTimelineTime,
   resolveAudioClipFitToTimelineEnd,
+  resolveAudioClipSourceTimeAtTimelineTime,
+  resolveAudioClipTrimAtSourceTime,
   resolveEffectiveAudioClipPlayback,
   resolveBgmClipsEffectivePlayback,
   useAudioStore,
@@ -229,6 +231,53 @@ describe('audioStore', () => {
   });
 
   describe('audio clip timeline adjustment', () => {
+    it('converts a timeline position into the source position that is actually playing', () => {
+      const clip = createMockNarrationClip({
+        startTime: 20,
+        duration: 100,
+        trimStart: 5,
+        trimEnd: 25,
+      });
+      const playback = resolveEffectiveAudioClipPlayback(clip, 60);
+
+      expect(resolveAudioClipSourceTimeAtTimelineTime(playback, 27)).toBe(12);
+      expect(resolveAudioClipSourceTimeAtTimelineTime(playback, 19.9)).toBeNull();
+      expect(resolveAudioClipSourceTimeAtTimelineTime(playback, 40.1)).toBeNull();
+    });
+
+    it('uses the BGM effective extension when resolving the currently playing source position', () => {
+      const clip = createMockNarrationClip({
+        id: 'bgmclip-tail',
+        startTime: 20,
+        duration: 100,
+        trimStart: 5,
+        trimEnd: 15,
+      });
+      const playback = resolveBgmClipsEffectivePlayback([clip], 60).get(clip.id)!;
+
+      expect(playback.effectiveTrimEnd).toBe(45);
+      expect(resolveAudioClipSourceTimeAtTimelineTime(playback, 50)).toBe(35);
+    });
+
+    it('sets source trim boundaries without changing timeline placement', () => {
+      const clip = createMockNarrationClip({
+        startTime: 20,
+        duration: 100,
+        trimStart: 5,
+        trimEnd: 25,
+      });
+
+      expect(resolveAudioClipTrimAtSourceTime(clip, 'start', 12)).toEqual({
+        trimStart: 12,
+        trimEnd: 25,
+      });
+      expect(resolveAudioClipTrimAtSourceTime(clip, 'end', 18)).toEqual({
+        trimStart: 5,
+        trimEnd: 18,
+      });
+      expect(clip.startTime).toBe(20);
+    });
+
     it('converts a timeline end into a source-relative trim end', () => {
       const clip = createMockNarrationClip({
         startTime: 10,
@@ -545,6 +594,29 @@ describe('audioStore', () => {
       expect(clips[0]).toEqual(first);
       expect(clips[1].startTime).toBe(20);
       expect(clips[1].trimEnd).toBe(40);
+    });
+
+    it('sets a BGM trim boundary from a source position without moving its timeline start', () => {
+      const source = createMockNarrationClip({
+        id: 'bgmclip-source-trim',
+        startTime: 20,
+        duration: 100,
+        trimStart: 5,
+        trimEnd: 25,
+      });
+      useAudioStore.setState({ bgmClips: [source] });
+
+      useAudioStore.getState().setBgmClipTrimAtSourceTime(source.id, 'start', 12);
+      let updated = useAudioStore.getState().bgmClips[0];
+      expect(updated.startTime).toBe(20);
+      expect(updated.trimStart).toBe(12);
+      expect(updated.trimEnd).toBe(25);
+
+      useAudioStore.getState().setBgmClipTrimAtSourceTime(source.id, 'end', 18);
+      updated = useAudioStore.getState().bgmClips[0];
+      expect(updated.startTime).toBe(20);
+      expect(updated.trimStart).toBe(12);
+      expect(updated.trimEnd).toBe(18);
     });
 
     it('does not trim when there is no video yet', () => {

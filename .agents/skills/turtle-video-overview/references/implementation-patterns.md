@@ -4261,3 +4261,14 @@ export 終了（成功/失敗/中断）
   - 描画経路を追加・分岐するときは standard preview、apple-safari preview、`captionLayerRender` の3経路を同時に更新する。どれかだけ直すとプレビュー／通常出力／キャプション単独出力で位置がずれる。
 - **回帰ガード**: `captionStyle.test.ts` で安全余白・中央・カスタム X の座標を、`captionStyleControls.test.tsx` / `captionIndividualSharedFields.test.tsx` で配置順と操作を、`captionStore.test.ts` / `projectStoreSave.test.ts` / `captionIndividualSettings.test.ts` / `androidPreviewCache.test.ts` で既定・保存往復・クリア・キャッシュ無効化を固定する。
 
+### 13-224. BGMの現在位置反映を配置移動から音源トリミングへ修正する
+
+- **ファイル**: `src/stores/audioStore.ts`, `src/components/sections/BgmClipList.tsx`, `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`, `Docs/specs/2026-07-20_caption-audio-timeline-usability.md`, 関連テスト
+- **問題**: BGMカードの「プレビュー位置を反映 → 開始」が `updateBgmClipStartTime(currentTime)` を呼び、聞いている音源位置の頭出しではなく、BGM全体のタイムライン配置開始を移動していた。終了だけはタイムラインから `trimEnd` へ変換していたため、開始／終了で操作対象も不統一だった。
+- **対策**:
+  - `resolveAudioClipSourceTimeAtTimelineTime()` で、タイムライン現在時刻を実効再生中の音源内時刻へ変換する。末尾BGMの自動延長中も `effectiveTrimEnd` までを実際の再生範囲として扱う。
+  - `setBgmClipTrimAtSourceTime()` で音源内時刻を `trimStart` / `trimEnd` へ適用し、`startTime` は変更しない。開始が既存終了を越える場合だけ最小再生尺を確保するため終了も広げる。
+  - 操作ボタンは「トリミング設定」内へ移し、「現在のBGM位置を反映 → 開始に設定／終了に設定」と明記する。対象BGMの有効再生区間外では無効化する。
+- **注意**: BGMの `currentTime` はプロジェクト時刻であり、音源内時刻ではない。`trimStart + (currentTime - startTime)` の変換を省略しない。ナレーションの既存タイムライン開始／終了反映は別仕様なので変更しない。
+- **回帰ガード**: `audioStore.test.ts` で通常区間・自動延長区間の座標変換と配置開始不変を、`bgmClipList.test.tsx` でアコーディオン内の操作、音源位置表示、区間外無効化を固定する。
+

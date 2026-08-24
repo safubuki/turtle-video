@@ -50,6 +50,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   AudioLines,
+  Scissors,
 } from 'lucide-react';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 import {
@@ -434,6 +435,21 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
             </span>
             <span className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-gray-200">
               <MapPin className="h-3.5 w-3.5" /> 終了
+            </span>
+          </div>
+        );
+      case 'bgm_trim_position_buttons':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="inline-flex flex-wrap items-center gap-1.5 rounded-lg border border-purple-500/25 bg-purple-950/20 px-2 py-1.5 text-[10px] text-gray-300 md:text-xs"
+          >
+            <span>現在のBGM位置を反映:</span>
+            <span className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-gray-200">
+              <Scissors className="h-3.5 w-3.5" /> 開始に設定
+            </span>
+            <span className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-gray-200">
+              <Scissors className="h-3.5 w-3.5" /> 終了に設定
             </span>
           </div>
         );

@@ -91,6 +91,8 @@ interface AudioState {
   updateBgmClipVolume: (id: string, value: number) => void;
   toggleBgmClipMute: (id: string) => void;
   updateBgmClipTrim: (id: string, edge: 'start' | 'end', value: number) => void;
+  /** 音源内の現在位置を、選択した BGM のトリム開始／終了へ設定する */
+  setBgmClipTrimAtSourceTime: (id: string, edge: 'start' | 'end', sourceTime: number) => void;
   /** タイムライン上の終了位置を指定し、音源内の trimEnd へ変換する */
   setBgmClipEndTime: (id: string, timelineEnd: number) => void;
   /** 選択した BGM だけを動画末尾で終わるようトリム／再配置する */
@@ -208,7 +210,7 @@ export function resolveBgmClipAutoFit(
   };
 }
 
-const MIN_AUDIO_CLIP_DURATION_SEC = 0.05;
+export const MIN_AUDIO_CLIP_DURATION_SEC = 0.05;
 
 function resolveClipTrimBounds(
   clip: Pick<NarrationClip, 'duration' | 'trimStart' | 'trimEnd'>,
@@ -307,6 +309,59 @@ export interface EffectiveAudioClipPlayback {
   isExtendedByTimeline: boolean;
   /** このクリップが「末尾合わせ」対象（最後の有効 BGM） */
   isTailFitToTimeline: boolean;
+}
+
+/**
+ * タイムライン上の現在位置を、その時点で実際に再生している音源内時刻へ変換する。
+ * BGM の自動末尾調整で設定 trimEnd より先まで延長されている場合も、実効区間を基準に扱う。
+ */
+export function resolveAudioClipSourceTimeAtTimelineTime(
+  playback: Pick<
+    EffectiveAudioClipPlayback,
+    'startTime' | 'trimStart' | 'effectiveTimelineEnd' | 'effectiveTrimEnd' | 'isDisabled'
+  >,
+  timelineTime: number,
+): number | null {
+  if (!Number.isFinite(timelineTime) || playback.isDisabled) return null;
+  const epsilon = 1e-6;
+  if (
+    timelineTime < playback.startTime - epsilon
+    || timelineTime > playback.effectiveTimelineEnd + epsilon
+  ) {
+    return null;
+  }
+  const sourceTime = playback.trimStart + Math.max(0, timelineTime - playback.startTime);
+  return Math.max(playback.trimStart, Math.min(playback.effectiveTrimEnd, sourceTime));
+}
+
+/**
+ * 音源内時刻をトリム境界へ適用する。
+ * start が既存 end を越える場合は、最小再生尺だけ end も先へ広げて意図した頭出し位置を保持する。
+ */
+export function resolveAudioClipTrimAtSourceTime(
+  clip: Pick<NarrationClip, 'duration' | 'trimStart' | 'trimEnd'>,
+  edge: 'start' | 'end',
+  sourceTime: number,
+): { trimStart: number; trimEnd: number } | null {
+  if (!Number.isFinite(sourceTime)) return null;
+  const { duration, trimStart, trimEnd } = resolveClipTrimBounds(clip);
+  if (duration < MIN_AUDIO_CLIP_DURATION_SEC) return null;
+
+  if (edge === 'start') {
+    const nextStart = Math.max(
+      0,
+      Math.min(sourceTime, duration - MIN_AUDIO_CLIP_DURATION_SEC),
+    );
+    return {
+      trimStart: nextStart,
+      trimEnd: Math.min(duration, Math.max(trimEnd, nextStart + MIN_AUDIO_CLIP_DURATION_SEC)),
+    };
+  }
+
+  return {
+    trimStart,
+    trimEnd: Math.min(duration, Math.max(sourceTime, trimStart + MIN_AUDIO_CLIP_DURATION_SEC)),
+  };
 }
 
 /** BGM クリップ ID（pipeline 上でナレーションと区別する） */
@@ -797,6 +852,16 @@ export const useAudioStore = create<AudioState>()(
             }
             const nextEnd = Math.min(duration, Math.max(value, trimStart + minGap));
             return normalizeNarrationClip({ ...clip, trimEnd: nextEnd });
+          }),
+        }));
+      },
+
+      setBgmClipTrimAtSourceTime: (id, edge, sourceTime) => {
+        set((state) => ({
+          bgmClips: state.bgmClips.map((clip) => {
+            if (clip.id !== id) return clip;
+            const update = resolveAudioClipTrimAtSourceTime(clip, edge, sourceTime);
+            return update ? normalizeNarrationClip({ ...clip, ...update }) : clip;
           }),
         }));
       },
