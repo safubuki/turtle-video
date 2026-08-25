@@ -152,6 +152,31 @@ beforeEach(() => {
 });
 
 describe('ClipThumbnail', () => {
+  it('トリムを連続変更しても前のサムネイルを消さず、再キャプチャをまとめる', async () => {
+    const { createElementSpy } = installVideoElementMock();
+    const file = new File(['video'], 'stable-thumbnail.mp4', { type: 'video/mp4' });
+    const { container, rerender } = render(
+      <ClipThumbnail file={file} type="video" sourceTime={1} rangeStart={1} rangeEnd={8} />,
+    );
+    const canvas = container.querySelector('canvas');
+
+    await waitFor(() => expect(canvas).toHaveClass('opacity-100'));
+    const countCreatedVideos = () => createElementSpy.mock.calls
+      .filter((call: unknown[]) => String(call[0]).toLowerCase() === 'video').length;
+    const initialVideoCount = countCreatedVideos();
+
+    rerender(<ClipThumbnail file={file} type="video" sourceTime={2} rangeStart={2} rangeEnd={8} />);
+    rerender(<ClipThumbnail file={file} type="video" sourceTime={3} rangeStart={3} rangeEnd={8} />);
+    rerender(<ClipThumbnail file={file} type="video" sourceTime={4} rangeStart={4} rangeEnd={8} />);
+
+    // 更新待ちでも既存キャンバスを隠さない。
+    expect(canvas).toHaveClass('opacity-100');
+    expect(canvas).not.toHaveClass('opacity-0');
+
+    await waitFor(() => expect(countCreatedVideos()).toBe(initialVideoCount + 1));
+    expect(canvas).toHaveClass('opacity-100');
+  });
+
   it('iOS Safari では一時 video を DOM に置いてフレームを prime する', async () => {
     const { getCreatedVideo, playSpy } = installVideoElementMock();
     const appendSpy = vi.spyOn(document.body, 'appendChild');

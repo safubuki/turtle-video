@@ -4272,3 +4272,19 @@ export 終了（成功/失敗/中断）
 - **注意**: BGMの `currentTime` はプロジェクト時刻であり、音源内時刻ではない。`trimStart + (currentTime - startTime)` の変換を省略しない。ナレーションの既存タイムライン開始／終了反映は別仕様なので変更しない。
 - **回帰ガード**: `audioStore.test.ts` で通常区間・自動延長区間の座標変換と配置開始不変を、`bgmClipList.test.tsx` でアコーディオン内の操作、音源位置表示、区間外無効化を固定する。
 
+### 13-225. PCの連続トリミング中は波形とクリップサムネイルを維持してレイアウトを安定させる
+
+- **ファイル**: `src/hooks/useTimelineWaveform.ts`, `src/components/common/ClipThumbnail.tsx`, `src/test/useTimelineWaveformState.test.ts`, `src/test/clipThumbnail.test.tsx`
+- **対象 flavor**: 波形を表示する **standard（Android / PC）** と shared のクリップカード。preview / export / 保存契約は変更しない。
+- **問題**:
+  - 動画トリムのスライダーを連続変更すると波形再生成が `loading → loading` で続き、2回目の更新で完成済み `peaks` を捨てていた。波形と無音ナビゲーションの高さが消えるため、PCの右プレビュー下部が操作中に上下へ跳ねていた。
+  - クリップサムネイルもトリム値のたびに可視状態を解除し、表示中の Canvas へ黒背景を描きながら新しい動画フレームを探索していたため、カード左上が黒く点滅し、不要なデコーダ生成も連続していた。
+- **対策**:
+  - `useTimelineWaveform` は React state の直前状態ではなく `lastReadyRef` を基準に loading データを作り、何回再生成要求が続いても完成済み波形と表示高を維持する。再生成中は既存どおり波形上の「解析中…」だけを更新する。
+  - `ClipThumbnail` は source/range の変更を160msデバウンスし、操作が一段落した値だけを再キャプチャする。新しいフレームは裏側の Canvas へ描き、完成後に表示 Canvas へ一括転送する stale-while-revalidate とする。
+- **注意**:
+  - 波形の loading 判定を `prev.status === 'ready'` だけへ戻さない。連続入力の2回目は `prev.status === 'loading'` なので、保持済み波形が消える。
+  - サムネイル再生成開始時に `ready=false` / `previewSrc=null` を設定したり、表示 Canvas を作業領域として使ったりしない。トリム操作中の黒点滅が再発する。
+  - 再解析・再キャプチャ自体は必要。無効化せず、デバウンスと旧表示保持で操作中の負荷・視覚変動だけを抑える。
+- **回帰ガード**: `useTimelineWaveformState.test.ts` で連続 loading 時の peaks / silences 保持を、`clipThumbnail.test.tsx` で連続3更新中の表示維持と再キャプチャ1回への集約を固定する。
+

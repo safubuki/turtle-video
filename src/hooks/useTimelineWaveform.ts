@@ -37,9 +37,9 @@ export type TimelineWaveformStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 export interface TimelineWaveformData {
   status: TimelineWaveformStatus;
-  /** 描画用ピーク（バケット単位の最大絶対振幅）。ready 以外では null */
+  /** 描画用ピーク（バケット単位の最大絶対振幅）。再生成中は直前の ready 値を保持できる */
   peaks: Float32Array | null;
-  /** 無音区間（タイムライン座標・時刻昇順）。ready 以外では空配列 */
+  /** 無音区間（タイムライン座標・時刻昇順）。再生成中は直前の ready 値を保持できる */
   silences: TimelineSilenceRegion[];
   /** 無音検出に実際に使われた対象（対象が空だと 'all' へフォールバックする） */
   resolvedSilenceSource: SilenceSourceTarget;
@@ -60,6 +60,19 @@ const IDLE_DATA: TimelineWaveformData = {
   resolvedSilenceSource: 'all',
   duration: 0,
 };
+
+/**
+ * 再生成中の表示データを作る。
+ * 連続スライダー入力では loading → loading が続くため、現在の state ではなく
+ * 最後に完成した波形を基準にしないと、2 回目の入力で波形が消えてレイアウトが跳ねる。
+ */
+export function buildLoadingTimelineWaveformData(
+  lastReady: TimelineWaveformData | null,
+): TimelineWaveformData {
+  return lastReady
+    ? { ...lastReady, status: 'loading' }
+    : { ...IDLE_DATA, status: 'loading' };
+}
 
 interface DecodedSource {
   samples: Float32Array;
@@ -341,9 +354,7 @@ export function useTimelineWaveform(
     }
 
     // 直前の波形があるうちは表示を残したまま loading を示す（プレビュー操作は妨げない）。
-    setData((prev) =>
-      prev.status === 'ready' ? { ...prev, status: 'loading' } : { ...IDLE_DATA, status: 'loading' },
-    );
+    setData(buildLoadingTimelineWaveformData(lastReadyRef.current));
 
     const timer = window.setTimeout(() => {
       void (async () => {

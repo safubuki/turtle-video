@@ -49,6 +49,8 @@ const IOS_THUMBNAIL_MIN_PREPARE_MS = 180;
 const IOS_THUMBNAIL_MAX_PREPARE_MS = 900;
 const NON_IOS_THUMBNAIL_MAX_PREPARE_MS = 800;
 const IOS_THUMBNAIL_PRIME_PLAY_MS = 220;
+/** トリムスライダーの連続入力をまとめ、途中のデコードを開始しないための待ち時間。 */
+const THUMBNAIL_REFRESH_DEBOUNCE_MS = 160;
 
 /** 精密ポインタ + ホバー可能 → PC 向けホバー拡大。それ以外はタップでライトボックス。 */
 function usePrefersHoverPreview(): boolean {
@@ -111,10 +113,38 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
   const [hoverPos, setHoverPos] = useState({ top: 0, left: 0 });
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const urlRef = useRef<string | null>(null);
+  const [captureRequest, setCaptureRequest] = useState(() => ({
+    file,
+    type,
+    sourceTime,
+    rangeStart,
+    rangeEnd,
+  }));
   const { isIosSafari } = usePlatformCapabilities();
   const prefersHover = usePrefersHoverPreview();
 
   useDisableBodyScroll(lightboxOpen);
+
+  // トリム操作中は同じ File の sourceTime/range が高頻度で変わる。
+  // 操作が一段落してから 1 回だけ再キャプチャし、デコーダ生成の連打を避ける。
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setCaptureRequest((previous) => {
+        if (
+          previous.file === file
+          && previous.type === type
+          && previous.sourceTime === sourceTime
+          && previous.rangeStart === rangeStart
+          && previous.rangeEnd === rangeEnd
+        ) {
+          return previous;
+        }
+        return { file, type, sourceTime, rangeStart, rangeEnd };
+      });
+    }, THUMBNAIL_REFRESH_DEBOUNCE_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [file, type, sourceTime, rangeStart, rangeEnd]);
 
   const closeLightbox = useCallback(() => setLightboxOpen(false), []);
 
@@ -154,20 +184,28 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
   }, [lightboxOpen, closeLightbox]);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const displayCanvas = canvasRef.current;
+    if (!displayCanvas) return;
+    const displayCtx = displayCanvas.getContext('2d');
+    if (!displayCtx) return;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = CAPTURE_WIDTH;
+    canvas.height = CAPTURE_HEIGHT;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    setReady(false);
-    setPreviewSrc(null);
-    setHoverOpen(false);
-    setLightboxOpen(false);
+
+    const { file, type, sourceTime, rangeStart, rangeEnd } = captureRequest;
 
     let cancelled = false;
     let activeVideo: HTMLVideoElement | null = null;
 
     const finishReady = () => {
       if (cancelled) return;
+      // 裏側で完成したフレームを表示用キャンバスへ一度に反映する。
+      // キャプチャ途中の黒塗りや未デコードフレームを画面へ露出させない。
+      displayCtx.clearRect(0, 0, CAPTURE_WIDTH, CAPTURE_HEIGHT);
+      displayCtx.drawImage(canvas, 0, 0, CAPTURE_WIDTH, CAPTURE_HEIGHT);
       try {
         // 再デコードせず、高解像度キャプチャ済みキャンバスから拡大用スナップショットを取る
         setPreviewSrc(canvas.toDataURL('image/jpeg', 0.88));
@@ -682,7 +720,7 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
       revokeUrl();
     };
     // sourceTime / 範囲変更で再生成。古い非同期結果は cancelled で破棄
-  }, [file, type, isIosSafari, sourceTime, rangeStart, rangeEnd]);
+  }, [captureRequest, isIosSafari]);
 
   const canExpand = ready && Boolean(previewSrc);
   const canUsePortal = typeof document !== 'undefined' && Boolean(document.body);
