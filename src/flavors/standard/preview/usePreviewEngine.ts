@@ -14,7 +14,12 @@ import { useCallback, useRef, type MutableRefObject } from 'react';
 import {
   FPS,
 } from '../../../constants';
-import { createCaptionGlyphCanvas } from '../../../utils/canvas';
+import {
+  captureCaptionFreeSnapshot,
+  getOrCreateCaptionGlyphCanvas,
+  type CaptionFreeSnapshot,
+  type CaptionGlyphCanvasCache,
+} from '../../../utils/canvas';
 import type {
   AudioTrack,
   Caption,
@@ -45,7 +50,7 @@ import {
   getEndrollDuration,
   resolveBgmEndrollFadeGain,
 } from '../../../utils/endrollOverlay';
-import { captureCaptionFreeSnapshot, type CaptionFreeSnapshot } from '../../../utils/canvas';
+import { shouldPublishPreviewUiTime } from '../../../utils/previewUiTime';
 import {
   applyVideoElementPlaybackRate,
   drawSpeedBadgeFrame,
@@ -1306,6 +1311,10 @@ export function usePreviewEngine({
   // hard reset 直後は play() を短時間抑止して再 wedge を防ぐ。
   const videoHardResetAtRef = useRef<Record<string, number>>({});
   const standardNextVideoPrebufferDiagRef = useRef<Record<string, NextVideoPrebufferDiagState>>({});
+  // 再生中 UI の currentTime は rAF ごとではなく間引く。currentTimeRef は毎フレーム更新する。
+  const lastPreviewUiPublishAtMsRef = useRef<number | null>(null);
+  const lastPreviewUiPublishedTimeSecRef = useRef<number | null>(null);
+  const captionGlyphCanvasCacheRef = useRef<CaptionGlyphCanvasCache>(new Map());
   const previewTimelineDiagnosticsRef = useRef<{
     lastRafNowMs: number | null;
     lastSegmentIndex: number;
@@ -1617,6 +1626,8 @@ export function usePreviewEngine({
 
     const targetTime = Math.max(0, Math.min(fromTime, previewCacheEntry.duration));
     currentTimeRef.current = targetTime;
+    lastPreviewUiPublishAtMsRef.current = getStandardPreviewNow();
+    lastPreviewUiPublishedTimeSecRef.current = targetTime;
     setCurrentTime(targetTime);
 
     if (previewCacheVideo.src !== previewCacheEntry.url) {
@@ -3401,6 +3412,7 @@ export function usePreviewEngine({
         // エンドロール区間ではキャプションを表示しない（映像に付随するものなので）。
         // どのみち後段のエンドロール描画が全面を覆うが、無駄なグリフ生成を避ける。
         if (!isEndrollFrame && currentCaptionSettings.enabled && currentCaptions.length > 0) {
+          const glyphCache = captionGlyphCanvasCacheRef.current;
           const activeCaptions = currentCaptions.filter(
             (c) => isCaptionActiveAtTime(c, time),
           );
@@ -3504,13 +3516,13 @@ export function usePreviewEngine({
             const blurStrength = glyphStyle.blur * captionScale;
             // フェード時の輪郭残りを防ぐため、stroke+fill を 1 枚のオフスクリーン Canvas に
             // 100% の不透明度で合成してから、メインキャンバスへ globalAlpha 付きで転写する。
-            const glyphCanvas = createCaptionGlyphCanvas({
+            const glyphCanvas = getOrCreateCaptionGlyphCanvas({
               text: displaySegment.text,
               font: `bold ${fontSize}px ${fontFamily}`,
               fillColor: glyphStyle.fontColor,
               strokeColor: glyphStyle.strokeColor,
               strokeWidth: scaledStrokeWidth,
-            });
+            }, glyphCache);
             const glyphW = glyphCanvas.width;
             const glyphH = glyphCanvas.height;
             const centerX = resolveCaptionGlyphCenterX(activeCaption, currentCaptionSettings, {
@@ -3596,6 +3608,7 @@ export function usePreviewEngine({
         // apple-safari エンジンからも同じ関数を呼ぶため preview と export が必ず一致する。
         if (!isEndrollFrame && drawVideoTitleFrame(ctx, videoTitleRef.current, time, {
           useBlurFallback: previewPlatformPolicy.needsCaptionBlurFallback,
+          glyphCanvasCache: captionGlyphCanvasCacheRef.current,
         })) {
           didUpdateCanvas = true;
         }
@@ -4059,6 +4072,9 @@ export function usePreviewEngine({
     loopIdRef.current += 1;
     previewPlaybackAttemptRef.current += 1;
     isPlayingRef.current = false;
+    lastPreviewUiPublishAtMsRef.current = getStandardPreviewNow();
+    lastPreviewUiPublishedTimeSecRef.current = currentTimeRef.current;
+    setCurrentTime(currentTimeRef.current);
     audioResumeWaitFramesRef.current = 0;
     activeVideoIdRef.current = null;
     previewCachePlaybackActiveRefValue.current = false;
@@ -4187,6 +4203,7 @@ export function usePreviewEngine({
     recorderRef,
     reqIdRef,
     seekingVideosRef,
+    setCurrentTime,
     setLoading,
     stopWebCodecsExport,
     stopPreviewCacheExport,
@@ -4232,6 +4249,8 @@ export function usePreviewEngine({
     const displayTime = toDisplayTime(totalDuration);
     endFinalizedRef.current = true;
     currentTimeRef.current = totalDuration;
+    lastPreviewUiPublishAtMsRef.current = getStandardPreviewNow();
+    lastPreviewUiPublishedTimeSecRef.current = totalDuration;
     setCurrentTime(totalDuration);
     renderFrame(displayTime, false, false);
     logInfo('RENDER', 'preview.finalFrame.hold', {
@@ -4339,6 +4358,9 @@ export function usePreviewEngine({
       }
 
       if (!isPlayingRef.current && !isExportMode) {
+        lastPreviewUiPublishAtMsRef.current = getStandardPreviewNow();
+        lastPreviewUiPublishedTimeSecRef.current = currentTimeRef.current;
+        setCurrentTime(currentTimeRef.current);
         logWarn('RENDER', 'ループ終了（再生状態でない）', { isPlayingRef: isPlayingRef.current, isExportMode });
         return;
       }
@@ -4367,8 +4389,20 @@ export function usePreviewEngine({
           return;
         }
 
-        setCurrentTime(playbackTime);
         currentTimeRef.current = playbackTime;
+        const previewCacheNowMs = getStandardPreviewNow();
+        if (
+          shouldPublishPreviewUiTime({
+            nowMs: previewCacheNowMs,
+            lastPublishAtMs: lastPreviewUiPublishAtMsRef.current,
+            timeSec: playbackTime,
+            lastPublishedTimeSec: lastPreviewUiPublishedTimeSecRef.current,
+          })
+        ) {
+          lastPreviewUiPublishAtMsRef.current = previewCacheNowMs;
+          lastPreviewUiPublishedTimeSecRef.current = playbackTime;
+          setCurrentTime(playbackTime);
+        }
         renderFrame(playbackTime, true, false);
         reqIdRef.current = requestAnimationFrame(() => loop(isExportMode, myLoopId));
         return;
@@ -4494,6 +4528,8 @@ export function usePreviewEngine({
           // ように 1 秒ズレて見えるため、preview 終端（finalizePreviewAtTimelineEnd）と同様に
           // 総尺へ合わせる。エクスポート済みファイルの尺には影響しない（表示のみ）。
           currentTimeRef.current = totalDuration;
+          lastPreviewUiPublishAtMsRef.current = getStandardPreviewNow();
+          lastPreviewUiPublishedTimeSecRef.current = totalDuration;
           setCurrentTime(totalDuration);
           safeSetPreviewPlaying(false);
           // finalize（mux/encode flush）中も video を再生し続けると ended 残留や decoder 圧迫が
@@ -5010,8 +5046,20 @@ export function usePreviewEngine({
           localTimeMs: resolvedLocalTimeMs,
         });
       }
-      setCurrentTime(globalTimeSec);
       currentTimeRef.current = globalTimeSec;
+      if (
+        shouldPublishPreviewUiTime({
+          nowMs: now,
+          lastPublishAtMs: lastPreviewUiPublishAtMsRef.current,
+          timeSec: globalTimeSec,
+          lastPublishedTimeSec: lastPreviewUiPublishedTimeSecRef.current,
+          force: isExportMode,
+        })
+      ) {
+        lastPreviewUiPublishAtMsRef.current = now;
+        lastPreviewUiPublishedTimeSecRef.current = globalTimeSec;
+        setCurrentTime(globalTimeSec);
+      }
 
       // Emit 'before-500ms' boundary sample in boundary log mode
       if (
@@ -5694,8 +5742,10 @@ export function usePreviewEngine({
 
       if (isExportMode) {
         safeSetPreviewPlaying(false);
-        setCurrentTime(fromTime);
         currentTimeRef.current = fromTime;
+        lastPreviewUiPublishAtMsRef.current = getStandardPreviewNow();
+        lastPreviewUiPublishedTimeSecRef.current = fromTime;
+        setCurrentTime(fromTime);
         mediaItemsRef.current.forEach((item) => {
           if (item.type !== 'video') return;
           const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
@@ -5900,8 +5950,10 @@ export function usePreviewEngine({
         renderFrame(0, false, true);
         await new Promise((r) => setTimeout(r, 100));
       } else {
-        setCurrentTime(fromTime);
         currentTimeRef.current = fromTime;
+        lastPreviewUiPublishAtMsRef.current = getStandardPreviewNow();
+        lastPreviewUiPublishedTimeSecRef.current = fromTime;
+        setCurrentTime(fromTime);
 
         const shouldPrimeActiveVideo = !shouldBundlePreviewStart;
         let activeVideoElForBundledStart: HTMLVideoElement | null = null;

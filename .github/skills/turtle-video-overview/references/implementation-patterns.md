@@ -681,7 +681,7 @@
 | **WebCodecs** | `VideoFrame` は `close()` しないとメモリリーク。CFR 強制が重要 |
 | **Safari Export** | iOS Safari では OfflineAudioContext による音声プリレンダリング方式を使用。メインAudioContextで`decodeAudioData`を実行し、`f32-planar`形式のAudioDataをAudioEncoderに直接供給する。**重要**: iOS Safari の `decodeAudioData` はビデオコンテナ(.mov/.mp4)をデコードできない（`EncodingError`）ため、`extractAudioViaVideoElement()` で `<video>` 要素経由のリアルタイム音声抽出にフォールバックする。muxer/AudioEncoder は常に音声付きで初期化。OfflineAudioContext 失敗時は ScriptProcessorNode にフォールバック |
 | **タブ切替** | `visibilitychange` で hidden 時は通常再生を明示一時停止（`isPlayingRef=false` + `pause()`）、復帰時に Canvas 再描画と必要なメディア再同期を実行 |
-| **下部モーダル** | 下から開くモーダルは `history.pushState` + `popstate` で戻るキー閉じを実装し、モバイルでは `scrollTop=0` かつ縦下スワイプ（72px超）で閉じる。長文入力を持つモーダルでは、`textarea` / テキスト入力など編集用フィールドから始まったタッチを閉じる判定の対象外にして、原稿スクロールと誤競合しないようにする。クリーンアップ時は自分の履歴 state が先頭のときのみ `history.back()` する |
+| **下部モーダル** | 下から開くモーダルは `history.pushState` + `popstate` で戻るキー閉じを実装し、モバイルでは縦下スワイプ（72px超）で閉じる。長文入力やヘルプ／変更履歴のような別スクロール本文を持つモーダルでは、タッチ判定をハンドル＋ヘッダーに限定するか、本文スクロール領域からの開始を対象外にする（13-28 / 13-125 / 13-214）。シート全体 + `scrollTop=0` 判定は本文スクロールと競合しやすい。クリーンアップ時は自分の履歴 state が先頭のときのみ `history.back()` する |
 | **AIナレーション(TTS)** | 場面＋区間語り口は `narrationDelivery.ts` で公式構造（Audio Profile / Scene / Director's Notes / Transcript）と英語 audio tags に変換する。UI の《語り口》は読み上げない。拒否時は素原稿へリトライ（13-2 / 13-162） |
 | **AIナレーション(原稿文量)** | 原稿生成は長さモードを秒数目安で統一する。`短め=約5秒（20〜35文字）` / `中くらい=約10秒（35〜60文字）` / `長め=約20秒（100〜140文字）` をプロンプトで明示し、過剰な長文化を防ぐ |
 | **オフラインモード** | `offlineModeStore` を localStorage 永続化し、AIナレーション入口・Gemini 呼び出し・更新確認を一元ガードする。オフライン中の AI 追加/編集ボタンは disabled にして「押してエラー」ではなく「押せない」挙動へ寄せ、既存ナレーションの移動や削除は止めない。UI文言は「インターネット接続が必要な機能を使わない」ことを示し、ブラウザ/OSレベルの完全遮断ではないと明記する。ON 切替時だけ注意ダイアログを必須にし、OFF 復帰時は service worker 登録済みなら即時更新確認、未登録なら登録完了後に 1 回だけ更新確認する |
@@ -705,6 +705,8 @@
 | **自動サムネの黒画像** | canvas キャプチャ前に **video のシーク完了を待つ**（`renderFrame` は seek を要求するだけ・完了は非同期。描画条件は `readyState>=2 && !seeking`）。**キャプチャ時刻は先頭黒クリア帯 `time<=0.05` の外**へ逃がす。撮った画像は黒検証し、黒なら撮り直し・最終的に**既存画像を維持して黒で上書きしない**（13-168）。rAF 数回で済ませないこと |
 | **倍速 export 映像** | rate=speed のみは途中切れ、毎フレーム seek は静止画化。**rate=1 連続 + 壁時計 Δt/speed（wall dilation）**が成功（13-166 / export-speed-video-wall-dilation-postmortem-2026-08-01）。プレビューの rate=speed と無理に一本化しない |
 | **export の高速化** | 現行の駆動方式（壁時計 dilation / native 連続再生 / backpressure / 末尾補完）は**ユーザー実機で最良と確認済み。速度を理由に変更しない**。負荷を下げたいときは **VideoEncoder の configure 交渉**（`prefer-hardware`、13-169）から手を付ける。**`latencyMode:'quality'` は禁止**（内部バッファリングが `encodeQueueSize` を曇らせ backpressure 検知を遅らせる＝後半黒画面の再発条件。13-116 も同旨）。queue 上限の緩和と bitrate 低下はリカバリ性・画質を損なうので最後の手段 |
+| **export の滑らかさ** | プレビューは rAF（多くは約60Hz）提示、export は固定30fps CFR。滑らかさ改善は駆動方式を変えず、提示フレーム合わせとスロット単位スナップショットに閉じる（13-204）。**ユーザー実機で「劇的にスムーズになった」と確認済み（2026-08-17）**。フレーム駆動化・毎フレームseek・出力fps変更・bitrate変更は再導入しない |
+| **preview の UI 時刻** | 再生時計・Canvas・`video.currentTime` は毎 rAF のまま。Zustand の `currentTime` だけ約 50ms に間引き、pause/stop/終端で flush する。字幕グリフ Canvas は LRU 再利用（13-226）。駆動方式・export・apple-safari には広げない |
 
 ## 12. Dev Script Pattern (media-video-analyzer STT)
 
@@ -2326,6 +2328,7 @@
   - スワイプ判定を**ヘッダー領域限定**にするのが肝。シート全体に付けると textarea や各種操作と競合する（この差が SettingsModal 実装との意図的な違い）。
   - 回帰ガード: `modalHistoryStability.test.tsx` に「親再描画で history.back を呼ばない」「popstate で閉じる」、`captionBulkAddModal.test.tsx` に「閉じるボタンで onClose」を追加。
   - 他の下から出るモーダル（AiModal/SaveLoadModal/SectionHelp 等）は既に同挙動。まだ揃っていない下部モーダルがあれば同パターンで統一する（将来的には共通フックへ抽出する余地あり。現状は各モーダル内インライン実装が既定）。
+  - **13-214 で SettingsModal も同じヘッダー限定へ揃えた**。上の「SettingsModal はシート全体 + `scrollTop<=0`」は当時の差分説明。現行は CaptionBulkAddModal と同じ上部バー限定。
 
 ### 13-126. 最近追加機能の品質監査（波形の非同期競合・自動保存差分・一括モーダルA11y）
 
@@ -3211,7 +3214,7 @@ export 終了（成功/失敗/中断）
   - セクションヘッダー（表示アイコンと鍵のあいだ）にゴミ箱ボタンを追加。`window.confirm` で件数付き確認し、OK 時のみ既存 `clearAllCaptions()` を呼ぶ。0 件・ロック中は disabled。動画タイトルは削除しない。
 - **動画一括ミュート**:
   - `mediaStore.setAllVideosMuted(muted)` が `type === 'video'` の `isMuted` だけを一括更新（画像は対象外）。
-  - 「動画・画像」タイトル横に Volume2/VolumeX アイコン。全動画がミュートなら ON 表示で解除、それ以外は一括ミュート。動画無し・セクションロック中は disabled。
+  - 当初は「動画・画像」タイトル横の Volume2/VolumeX アイコンだった。**13-211 でヘッダーボタンは廃止**し、一括音設定内の「一括ミュート」チェックへ移した。
   - 各カードの個別ミュートと同じ `isMuted` を触るため、プレビュー/export の既存音声経路へそのまま効く。
 - **回帰ガード**: `watermarkOverlay.test.ts`（正規化・フェード按分・描画 alpha）、`overlaySection.test.tsx`、`mediaStore.test.ts`、`clipsSectionPicker.test.tsx`、`captionStyleControls.test.tsx`（confirm OK/Cancel）。
 
@@ -3653,3 +3656,656 @@ export 終了（成功/失敗/中断）
   - 逆に hold 系の抑止を外すと、Android のブラックアウト（13-x の hold 対策）や export 直後の黒点滅が再発するため、`shouldClearPreviewCanvas()` の早期 return 順序を変えない。
   - apple-safari には Android / post-export の hold 抑止が無いため、該当引数は `false` 固定で渡す。フレーバー固有の抑止条件を共通関数側へ持ち込まない。
   - 自動回帰は `previewCanvasClear.test.ts`（13ケース）で固定。前フレーム保持の各ケースと、終端ガード下でもクリアされることの両方を検証している。
+
+### 13-191. standard export は `latencyMode=realtime` を明示し、VideoEncoder の周期的な処理待ちを減らす
+
+- **ファイル**: `src/utils/videoEncoderConfig.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/test/videoEncoderConfig.test.ts`
+- **対象 flavor**: **standard（Android / PC）のみ**。apple-safari runtime、壁時計 dilation、native 1x 連続再生、backpressure pause/resume、queue 上限、bitrate は変更しない。
+- **実機ログで確認した問題（2026-08-10 / Windows 11 / Edge 151 / HD 30fps）**:
+  - 84.36秒・2531フレームのexportで、`encodeQueueSize` が90へ達して30までdrainする停止が20回発生した。停止は合計58.07秒（平均2.90秒、最大3.59秒）で、映像処理全体は143.84秒だった。
+  - Canvas描画は平均1.43ms、`VideoEncoder.encode()` 呼び出しは平均0.02ms、rAFは平均16.83msであり、メインスレッド描画ではなく**非同期VideoEncoder処理**がボトルネックだった。
+  - `prefer-hardware` は交渉成功していたが `latencyMode` は未指定だった。WebCodecs仕様の既定値は `quality` であり、従来コメントの「未指定=realtime相当」は誤りだった。
+- **対策**:
+  - 設定候補を `prefer-hardware + realtime` → `no-preference + realtime` → 従来の `prefer-hardware` → 従来の `no-preference` → baseline の順に交渉する。
+  - `realtime` が未対応でも従来候補を残す。`isConfigSupported()` の正規化結果が明示値を省略しても、候補へマージして `realtime` / AVCC 指定を失わない。
+  - 採用した `latencyMode` を設定ログへ追加する。backpressure停止回数・合計/最大停止時間を `[DIAG-ENCODER-PRESSURE]` へ記録し、同期APIの処理時間だけを見て「healthy」と誤診しない。
+  - flush後に投入フレーム数と出力チャンク数を比較し、`realtime` 実装がフレームを落とした場合は `[DIAG-7b] VideoEncoder 出力フレーム欠落を検出` を残す。
+- **守る不変条件**:
+  - `latencyMode:'quality'` を明示しない。**未指定も仕様上はquality**なので、低遅延を意図する候補では必ず `realtime` を明示する。
+  - 速度改善を理由に動画export全体のフレーム駆動化、毎フレームseek、次動画常時prefetch、1tickクランプを再導入しない。
+  - queue 30/90、bitrate、CFR timestamp、動画と時計を同時停止する13-153の安全弁を弱めない。
+  - `realtime` は低遅延優先のヒントなので、実機再検証では処理時間だけでなく `outputGap=0`、冒頭・境界・全体の滑らかさ、後半黒画面なしを同時に確認する。
+
+### 13-192. standard export の WebCodecs encoder は全終了経路で明示解放し、次回 export へ持ち越さない
+
+- **ファイル**: `src/utils/webCodecsEncoderLifecycle.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/test/webCodecsEncoderLifecycle.test.ts`
+- **対象 flavor**: **standard（Android / PC）のみ**。apple-safari runtime、動画タイムライン、native 1x 連続再生、backpressure の queue 30/90、bitrate、CFR timestamp は変更しない。
+- **2回目以降の実機ログで確認した問題（2026-08-10 / Windows 11 / Edge 151 / HD 30fps）**:
+  - 13-191 適用後も、84.36秒・2531フレームの2回目以降のexportで backpressure 待機が18回、合計54.65秒、最大3.63秒発生し、映像処理全体は139.76秒だった。`prefer-hardware + realtime` の交渉は成功し、`outputGap=0` でも、周期停止は十分には解消していなかった。
+  - 通常の standard export は `VideoEncoder` / `AudioEncoder` を生成して flush していたが、成功・失敗・中断のいずれでも `close()` せず、終端 `finally` には「GCに任せる」と記載されていた。キャプション専用 offline encode は既に明示 close しており、通常経路だけ寿命管理が欠けていた。
+  - 未close encoder は codec system resources を次回開始まで保持し得る。さらに encoder の output callback が muxer と完成出力バッファを参照するため、前回セッションが回収されるまで次回の encoder と資源競合する。ブラウザ再読込後の初回は良いが、同一画面の2回目以降で悪化する再現条件と一致する。
+- **対策**:
+  - active な video/audio encoder と所有 `exportSessionId` を ref へ保持し、成功・失敗・中断の全経路から `closeWebCodecsEncoderSafely()` で明示解放する。
+  - user cancel / supersede / unmount 系は abort 後に即時 close する。終端 `finally` でも必ず close し、呼び出しは冪等にする。
+  - 古いセッションの遅延 `finally` が新しいセッションを閉じないよう、`session-finally` では `exportSessionId` の所有権が一致する場合だけ解放する。新規 encoder 作成前に残留があれば防御的に解放する。
+  - `[DIAG-ENCODER-LIFECYCLE] WebCodecs encoderを解放` に reason と video/audio の close status を記録する。正常完了では `reason='session-finally'`、両方 `closed`（既にブラウザ側で閉じていれば `already-closed`）を期待する。
+- **添付MP4の判定**:
+  - 映像2531フレーム・音声3955チャンク、映像84.359392秒・音声84.359396秒で A/V 尺は一致し、ログも `outputGap=0`、末尾補完0、backpressure drop 0。backpressure の18停止時刻と、フレーム解析で見つかった静止区間は大半が一致せず、周期停止がそのまま出力MP4へ焼き込まれた証拠はない。
+  - 41〜44秒台の静止検出は1〜1.5秒の短尺セグメント境界群、80〜82秒台の同一フレーム列は終盤素材内に集中している。出力全体の周期停止とは区別して扱う。
+- **守る不変条件**:
+  - 再実行速度改善を理由に、動画export全体のフレーム駆動化、毎フレームseek、次動画常時prefetch、1tickクランプを再導入しない。
+  - close は必ず flush/finalize の完了後、または abort 後に行う。正常処理中の encoder を先に閉じて出力チャンクを欠落させない。
+  - 実機再検証は同じプロジェクトを**画面再読込なしで最低3回連続export**し、各回の `[DIAG-ENCODER-PRESSURE]`、`[DIAG-ENCODER-LIFECYCLE]`、`[DIAG-7b] outputGap`、MP4のA/V尺、冒頭・境界・後半の滑らかさを比較する。
+- **自動回帰**: lifecycle 7ケースを含む `npm run test:run` 1331件、`npm run typecheck`、`npm run build` が成功。lint は既存の `src/utils/narrationDelivery.ts` の `no-useless-escape` 2件で失敗し、今回差分の新規エラーはない。
+
+### 13-193. standard export はプリレンダリング音声を完全排出してから映像タイムラインを開始する
+
+- **ファイル**: `src/utils/webCodecsEncoderLifecycle.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/test/webCodecsEncoderLifecycle.test.ts`
+- **対象 flavor**: **standard（Android / PC）のプリレンダリング音声パスのみ**。apple-safari、live audio fallback、動画タイムライン、native 1x 連続再生、queue 30/90、bitrate、CFR timestamp は変更しない。
+- **13-192 後の実機ログで確定した残存問題（2026-08-10 / Windows 11 / Edge 151 / HD 30fps）**:
+  - encoder の明示解放は正常に働き、同じ84.36秒・2531フレームの処理待ちは **18回 / 合計54.65秒 / 139.76秒** から **3回 / 合計8.55秒 / 93.04秒** まで改善した。完了時は video/audio とも `closed` であり、残存症状を前回encoderの持ち越しだけで説明してはならない。
+  - `feedPreRenderedAudio()` は989個の `AudioData` を同期投入し、直後の `AudioEncoder.encodeQueueSize` は984だった。その出力は3,955 AAC chunkとなり、12:49:30.576〜12:49:34.186の約3.6秒間、映像ループと同時に main thread 上の output callback / muxer追加 / 診断ログを実行していた。
+  - 添付MP4の30fps全フレーム解析では、**1.367〜1.467秒、1.667〜1.767秒、2.033〜2.133秒** に連続同一フレームを検出し、直後の隣接画面差分は前回出力の約2倍まで跳ねた。ユーザーが見た「一瞬止まり、その後早送りに見える」と一致する。
+  - `[DIAG-215]` は `distinctRenderedFrames=2531` / `renderSkipCount=0` を healthy と判定したが、これは timeline の frame index が連番だったという意味にすぎない。`HTMLVideoElement` のデコード画面だけが止まったまま Canvas を連番で取り込むケースは検出できない。
+- **根本原因**:
+  - `offlineAudioDone=true` は音声データを **AudioEncoderへ投入し終えた時点**で立てており、エンコード出力の完了を意味していなかった。
+  - その状態で `onAudioPreRenderComplete` が映像ループを開始するため、音声3,955 callbackと動画のdecode / Canvas draw / VideoEncoderが競合した。rAF自体は約60fpsで動いても、参照元videoの画だけが止まり、同一画の連続と後続内容へのジャンプがMP4へ焼き込まれた。初期VideoEncoder queueも膨らみ、冒頭側のbackpressure停止へつながった。
+- **対策**:
+  - プリレンダリング音声をfeedした直後に `AudioEncoder.flush()` を待ち、全output callbackとmuxer追加が完了してから `offlineAudioDone=true` / `onAudioPreRenderComplete` へ進む。
+  - flush待機は `AbortSignal` とraceし、cancel / supersede / unmount時に待ち続けない。キャンセル以外のflush失敗は握り潰さずexport失敗として伝える。
+  - `standard.export.audioPreRenderDrained` に排出時間、output chunk/bytes、queue sizeを記録する。正常時は映像開始前に `encodeQueueSize=0` を期待する。
+  - 音声output中の進捗ログを50 chunkごとから500 chunkごとへ減らし、診断可能性を残しながら高頻度のstore/console更新を抑える。最終のchunk数・bytes・A/V終端診断は従来どおり残す。
+- **守る不変条件**:
+  - backpressureは映像欠落を防ぐ安全弁なので、停止を隠すためにqueue 30/90やtimeline/video同時pauseを外さない。本対策はqueueへ到達する前の音声・映像競合を除く。
+  - 音声のサンプル数、128kbps AAC設定、終端clamp、映像30fps、6Mbps等の解像度別bitrate、CFR timestampを変更しない。
+  - `shouldPreRenderAudio` がfalseのtrack-processor / script-processor経路を事前flushしない。これらは映像と同時に音声を取得する必要がある。
+  - 診断でframe indexが連番でも出力内容が滑らかとは限らない。実害報告時はMP4の全フレーム差分も確認する。
+- **自動回帰**: 音声flush完了まで境界を解放しないこと、未完了flushをabortできること、非abortエラーを伝播することを `webCodecsEncoderLifecycle.test.ts` で固定。エクスポート周辺113テスト、全1334テスト、`npm run typecheck`、`npm run build` が成功。lintは既存の `src/utils/narrationDelivery.ts` の `no-useless-escape` 2件だけで失敗し、今回差分の新規エラーはない。
+- **実機再検証（必須）**: 同一プロジェクトを画面再読込なしで最低3回連続exportし、各回で (1) `standard.export.audioPreRenderDrained` が `[DIAG-READY]` より前かつqueue 0、(2) `[DIAG-ENCODER-PRESSURE]` の回数・合計停止時間が基準3回/8.55秒以下、(3) MP4冒頭0〜3秒に上記の連続同一フレームと直後ジャンプがない、(4) `outputGap=0`、2531フレーム、A/V終端差1ms以内を確認する。
+
+### 13-194. standard export のプリレンダリング音声は映像を完全排出した後にencodeする
+
+- **ファイル**: `src/utils/webCodecsEncoderLifecycle.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/test/webCodecsEncoderLifecycle.test.ts`
+- **対象 flavor**: **standard（Android / PC）のプリレンダリング音声パスのみ**。apple-safari、track-processor / script-processor、プレビュー、動画タイムライン、native 1x連続再生、queue 30/90、bitrate、CFR timestampは変更しない。
+- **13-193 の実機評価（2026-08-10 / Windows 11 / Edge 151 / HD 30fps）**:
+  - 音声を映像前に完全排出した出力MP4は、映像2531フレーム・音声3955チャンク、A/Vとも84.359秒、`outputGap=0`を維持した。全フレーム解析でも13-193以前にあった冒頭1〜2秒台の短い同一フレーム列が消え、**出力動画の冒頭乱れには効果があった**。
+  - 一方、VideoEncoderのconfigureから映像開始までが0.409秒から5.917秒へ延びた。backpressureは13-192直後の3回 / 合計8.55秒から15回 / 合計42.38秒へ悪化し、実効映像処理は27.2fpsから19.8fps、全体は93.04秒から127.83秒になった。
+  - Canvas描画平均1.47ms、`VideoEncoder.encode()`平均0.01ms、rAF平均59.73fpsで、同期描画やプレビューloopではなく非同期VideoEncoder排出が待ち時間の実体だった。したがってqueue閾値を広げても総処理時間は短くならず、メモリとフレーム欠落リスクだけが増える。
+- **根本原因と判断**:
+  - 13-193は音声と映像の同時実行を止めた点は正しかったが、**configured済みVideoEncoderを長尺音声のAAC encode / muxer処理中に数秒idleへ置く順序**が性能を後退させた。
+  - 音声・映像の並走へ戻すと出力動画の冒頭乱れが再発し得るため、直列化は維持し、順序だけを「映像→音声」へ変更する。音声bufferのOfflineAudioContext生成は従来どおり映像開始前に完了させる。
+- **対策**:
+  - `ensurePreRenderedAudioBuffer()` の結果を保持し、映像loop開始前にはAudioEncoderへ投入しない。VideoEncoderは準備直後から連続稼働させる。
+  - 映像フレームを全投入後、`VideoEncoder.flush()`で全output callback / muxer追加を完了してから、保持した音声bufferを`feedPreRenderedAudio()`へ渡し、続けて`AudioEncoder.flush()`する。
+  - `runVideoThenAudioEncoderPhases()`で **video flush → audio feed → audio flush** の順序とAbortSignalを共通化する。`standard.export.audioPreRenderDeferred` / `standard.export.videoPhaseDrained` / `standard.export.audioPreRenderDrained`で実機上の各境界を診断できるようにする。
+- **品質・デグレ防止**:
+  - MP4 muxerへ渡す映像・音声chunkの内容、timestamp、bitrate、サンプル数、終端clamp / paddingは変更しない。トラック間の投入順だけを変え、各encoderをflushしてから次フェーズへ進むため、並走時の参照元video停止を再発させない。
+  - 長尺音声のAAC処理は映像完了後に数秒まとまって見える可能性がある。これは周期停止ではなくファイル確定前の直列音声処理であり、出力URLができるまでは既存UIの「保存ファイル作成中」を維持する。
+  - VideoEncoder単体の実効性能が30fps未満の端末では、フレーム欠落を防ぐbackpressure待機が残り得る。その場合は品質を守るための端末依存待機として扱い、queue 30/90、timeline/video同時pause、bitrateを速度目的で弱めない。
+- **自動回帰**: video flush完了前にaudio feedしないこと、audio flush完了前に次へ進まないことを含むlifecycle 11ケース、エクスポート・プレビュー周辺114テスト、全1335テスト、`npm run typecheck`、`npm run build`が成功。lintは既存の`src/utils/narrationDelivery.ts`の`no-useless-escape` 2件だけで失敗し、今回差分の新規errorはない。
+- **実機再検証（必須）**: 同一プロジェクトを画面再読込なしで最低3回連続exportする。(1) `audioPreRenderDeferred`が`[DIAG-READY]`より前、(2) `videoPhaseDrained`が`[DIAG-4]`より前、(3) `[DIAG-ENCODER-PRESSURE]`の回数・合計停止時間が15回 / 42.38秒から減る、(4) `outputGap=0`、2531フレーム、A/V終端差1ms以内、(5) MP4冒頭・境界・後半の滑らかさを確認する。単体VideoEncoderでも15回前後の待機が残る場合は、現行画質とフレーム完全性を保つ範囲の追加最適化余地は小さいと判断する。
+
+### 13-195. export後の共有media再マウントは旧DOM参照を破棄し、post-export preview guardを次回exportへ持ち込まない
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/components/turtle-video/mediaRemount.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/mediaRemount.test.ts`, `src/test/strandedPreviewVideoReset.test.ts`, `src/test/turtleVideoExportWiring.test.tsx`
+- **対象 flavor**: 主因はstandardのPC連続export。共有mediaの再マウント境界は`TurtleVideo`にあるため、通常プレビュー停止とapple-safari固有exportを変えない条件を守る。
+- **13-194 後の実機評価（2026-08-11 / Windows 11 / Edge 151 / HD 30fps / 3回目）**:
+  - `audioPreRenderDeferred` → 映像 → `videoPhaseDrained` → 音声feed/flushの順序は正しく、映像2531フレーム・音声3955チャンク、A/Vとも84.359秒、`outputGap=0`だった。前回の音声・映像競合へは戻っていない。
+  - backpressureは9回 / 合計24.384秒 / 最大3.543秒まで減ったが、`[DIAG-215]`は`submittedFrameCount=2531`, `distinctRenderedFrames=2357`, `duplicateSubmissionCount=174`, `effectiveRenderFps=20.17`を記録した。全フレーム解析でも9.567〜12.000秒の約2.43秒を含む静止区間があり、出力フレーム数が連番でも参照元videoの内容停止は残っていた。
+  - export完了時の`preview.postExport.mediaRemount.wait result=ready`は01:17:17.453に出た一方、新しい12個のvideoのロード完了は01:17:17.911〜18.234だった。待機処理がReact commit前の**古い`mediaElementsRef`**（readyState済み）を見て、約0.46秒早く偽のreadyを返していた。
+- **根本原因**:
+  - `setReloadKey()`前に旧mediaをpauseしても`mediaElementsRef.current`を空にしていなかったため、再マウント待機が新DOMではなく旧DOMのreadyStateで成立した。結果として完了直後の復旧が実質未完了のまま次回exportへ進み得た。
+  - `exportRanSinceLastPreviewRef`はexport後の通常プレビューを保護するguardだが、`canRequestPlay`で`_isExporting`を除外していなかった。2回目以降のexportでもreadyState 1のvideoに対する`play()`を抑止し、参照元画面の停止と連続同一フレームを助長した。
+  - 生成済みexportを停止ボタンで閉じる経路はURL/UIだけを消し、共有decoderを明示的には初回相当へ戻していなかった。
+- **対策**:
+  - `releaseSharedMediaElementsForRemount()`で旧video/audioをpauseし、`mediaElementsRef.current`を空registryへ差し替えてから`setReloadKey()`する。待機はReactが登録した新DOM要素だけを対象にし、metadata取得後に各`trimStart`へseekする。
+  - post-export guardによるplay抑止は`!isExporting`の通常プレビューだけに限定する。guard自体と「45 drawable frame後にclear」は維持し、プレビューのdecoder wedge対策を弱めない。
+  - 停止ボタンでは、生成済み`exportUrl`があった場合だけ共有mediaを再マウントする。通常プレビューの停止では再マウントせず、既存要素・キャッシュを再利用する。export完了直後の既存eager remountも同じ修正版を通るため、停止ボタンを押さず連続exportする経路も復旧対象になる。
+  - `preview.postExport.mediaRemount.wait`へ`previousElementCount`, `pausedMediaCount`, `durationMs`を追加し、旧要素解放と新要素待機を実機ログで判別できるようにする。
+- **守る不変条件**:
+  - 映像30fps、解像度別bitrate、CFR timestamp、queue 30/90、backpressure時のtimeline/video同時pause、映像→音声flush順、MP4 muxer入力は変更しない。速度目的でフレーム欠落や画質低下を許容しない。
+  - 通常プレビューの停止・再生ではmediaを再マウントしない。export完了、export中断、生成済みexportを停止で閉じる場合だけdecoderを作り直す。
+  - 再マウント完了判定より前に旧registryを必ず空にする。旧要素のreadyStateを新要素のreadyとして流用しない。
+- **自動回帰**: 旧video/audioの停止と空registryへの差し替え、preview時のguard維持とexport時の除外、生成済みexport停止時だけの再マウントを含む対象91テスト、全1341テスト、`npm run typecheck`、`npm run build`が成功。lintは既存の`src/utils/narrationDelivery.ts`の`no-useless-escape` 2件だけで失敗し、今回差分の新規errorはない。
+- **実機再検証（必須）**: 同一プロジェクトを画面再読込なしで最低3回連続exportする。各回で (1) 新videoロード後に`mediaRemount.wait result=ready`となり`previousElementCount`と`durationMs`が記録される、(2) 2・3回目の`play()失敗`と`duplicateSubmissionCount`が再発しない、(3) backpressure回数・合計停止時間が3回を通じて悪化しない、(4) `outputGap=0`、2531フレーム、A/V終端差1ms以内、(5) MP4の9.5〜12秒を含む全区間に意図しない静止と直後ジャンプがないことを確認する。
+
+### 13-196. 連続exportに残る周期停止はVideoEncoderの持続処理性能による品質保護待機として扱う
+
+- **対象 flavor**: standard（Windows / Android）。映像30fps、解像度別bitrate、CFR timestamp、queue 30/90、backpressure時のtimeline/video同時pauseを維持する。
+- **13-195 後の実機評価（2026-08-11 / Surface / Windows 11 / Edge 151 / HD 30fps / 約19.51秒）**:
+  - 動画2本だけの短い構成でも3回連続exportで再現したため、タイムラインの長さ・素材数・複雑さは主因ではない。
+  - 1回目は586フレームを26.28秒で処理し、backpressureは1回 / 合計2.678秒 / 実効22.47fpsだった。2・3回目は各約32.14秒、4回 / 合計約11.1秒 / 実効18.31fpsでほぼ一致した。
+  - 各停止はVideoEncoder queueが90へ達した時点で始まり、30まで排出した約2.7〜2.8秒後に再開していた。`prefer-hardware-realtime`、`latencyMode=realtime`の交渉は成功し、`VideoEncoder.encode()`呼出しとCanvas描画は軽いため、待ち時間の実体は非同期VideoEncoderの持続処理性能である。
+  - JS heapは約18MB / limit約4.19GBで余裕があり、メモリ枯渇ではない。完了・生成済みexport停止後のmedia再マウントはいずれも約40〜42msで新要素readyまで完了し、encoderも各sessionでvideo/audioともcloseされた。2・3回目が同じ待機量なので、前回decoder/encoderの未解放は残存原因ではない。
+- **完成MP4の判定**:
+  - 3本とも映像586フレーム、H.264 Main、1280x720、30fps、尺19.510秒で、AAC音声尺も一致した。`outputGap=0`、末尾補完0、backpressure drop 0を維持した。
+  - mux後の`[DIAG-FPS]`は`expectedFrameRate=30`と`actualMuxFrameRate`を比較する。これは固定30fps出力の検証専用で、素材FPSの選択には使わない。
+  - 30fps相当の全フレーム解析（586サンプル、freeze threshold 0.001、最小0.1秒）で意図しない同一フレーム停止は3本とも検出されなかった。したがってexport中の停止は完成動画へ焼き込まれず、フレームを欠落させないためにtimelineと参照元videoを同時停止した結果である。
+- **判断**:
+  - 現行の画質・30fps・フレーム完全性を固定したまま、アプリ側だけでこの待機を確実に短縮できる根拠はない。端末のcodec処理が30fps未満なら、リアルタイム供給との速度差は必ずどこかで待つ必要がある。
+  - queue上限を広げても同じ排出待ちがflush時へ移るだけで総時間は短くならず、GPUメモリ使用量と欠落・ハングの危険が増える。queue上限を下げると停止回数だけ増える。
+  - backpressure中にtimelineだけ進める、videoだけ再生する、フレームを破棄する、末尾Canvasで不足分を埋める変更は禁止。過去の「停止後に早送りに見える」「同一フレーム」「後半黒画面」を再発させる。
+  - fps・解像度・bitrate低下、software encoder優先、GOP延長は速度改善候補になり得るが、画質・圧縮特性・シーク性または端末別性能が変わる。実機比較と明示的な速度優先オプションなしに既定値へ導入しない。
+  - 端末側ではAC接続、Windowsの高性能寄り電源モード、Edgeのハードウェアアクセラレーション有効、Surface/Windows Update経由のGPUドライバー更新、GPU負荷の高いアプリ終了を試せる。ただしアプリは特定端末の設定変更を自動実行しない。
+- **今後の再調査条件**:
+  - 同じ端末・同じ素材・同じ設定で、`effectiveRenderFps`またはbackpressure合計時間が本基準よりさらに悪化した場合に再調査する。まずencoder config、queue 90→30の各停止時間、outputGap、drop、tail fill、media remount、encoder closeを比較する。
+  - 速度改善を実装する場合は、hardware / software encoderを同一端末で複数回測定し、同一30fps・解像度・bitrateで完成MP4の全フレーム、A/V尺、冒頭・境界・後半、シーク性まで比較してから選択する。
+
+### 13-197. 再生中にトランジション設定を開く・変更する前に通常プレビューを一時停止する
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/components/sections/ClipsSection.tsx`, `src/constants/sectionHelp.ts`, `src/test/clipsSectionPicker.test.tsx`
+- **対象 flavor**: クリップ間トランジションを提供するstandard（Android / PC）の通常プレビューのみ。apple-safari、standard export、トランジション描画・音声合成・保存形式は変更しない。
+- **問題**: 通常プレビュー再生中に「トランジション」を開いてディゾルブ等を設定すると、プレビューが止まらないまま完全な黒画面になり得た。
+- **根本原因**:
+  - `ClipsSection` のトランジション操作だけが `useMediaStore.updateMediaItem()` を直接呼び、`TurtleVideo` の `pausePreviewBeforeEdit()` を通っていなかった。
+  - ディゾルブは重なり時間ぶん `totalDuration` と `timelineRanges` を変える。旧境界で進行中のrequestAnimationFrameループへ新しい区間を同時反映すると、active clipと参照mediaの対応が一時的に外れ、描画対象のない黒フレームが継続し得る。
+- **対策**:
+  - `ClipsSection` に `onBeforeTransitionEdit` を渡し、トランジション設定を開く直前に既存の `pausePreviewBeforeEdit('edit-clip-transition')` を実行する。
+  - 設定パネルを開いたまま再生を再開する経路もあるため、「なし」・種類・時間の各変更直前にも同じ停止処理を実行する。閉じるだけの操作では停止しない。
+  - 停止後のstore更新、ディゾルブのオーバーラップ計算、フェード、プレビュー描画、export描画は従来実装を維持する。
+- **守る不変条件**:
+  - タイムライン境界や総尺を変更する単発操作は、進行中の通常プレビューループを止めてから更新する。トランジションUIからstoreを直接更新する場合もこの編集前フックを迂回しない。
+  - 音量など連続値のリアルタイム調整へ一律に停止処理を広げない。13-172〜13-174のスライダー操作方針を維持する。
+  - ディゾルブは重なり時間ぶん総尺を短縮し、フェードは総尺を変えない。コメント、ヘルプ、タイムライン実装をこの規約と一致させる。
+- **自動回帰**: 設定を開く時、種類を選ぶ時、時間を変える時に編集前停止を要求する2ケースを追加。対象76テスト、全1,344テスト、`npm run typecheck`、`npm run build`が成功。
+
+### 13-198. 実機再確認で周期停止の改善を確認し、export最終診断を実ファイル基準へ揃える
+
+- **ファイル**: `src/flavors/standard/export/exportEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`
+- **追加実機確認（2026-08-11 / Surface / Edge 151 / 24fps素材2本 / HD 30fps出力 / 19.51秒）**:
+  - 3回連続exportのbackpressureは0回 / 0回 / 1回（2.786秒）。13-196時点の1回 / 4回 / 4回から大幅改善し、周期的な停止は再現しなかった。
+  - 3回目も586投入=586出力、distinct 586、outputGap=0、重複投入0、末尾補完0、drop0、A/V/container差0ms。encoder closeとmedia remount（41ms）も正常。
+  - 添付1回目・3回目を全586フレーム解析し、黒区間・0.1秒以上のfreezeは0件。両者のフレーム差分統計はほぼ同じで、音声PCM hashも一致した。
+  - 24fps素材を固定30fpsへ出すため孤立した同一内容フレームは不可避だが、長い停止や累積ずれではない。以前差し戻した素材fps可変化は再導入しない。
+- **判断**:
+  - 3回目の単発2.786秒待ちはVideoEncoderの一時的な処理性能差。品質安全弁が正しく働き出力に焼き付いていないため、queue 30/90、bitrate、30fps、backpressure同期を変更しない。
+  - 速度目的の追加変更は品質と引き換えになるため実施しない。
+- **診断修正**:
+  - standardで誤ってiOS Safari向けと表示していたCanvas直接キャプチャログをstandard表記へ修正。
+  - `[DIAG-9]`の`fileSizeBytes`をcover art追加後のBlobサイズへ変更し、追加前サイズは`muxedFileSizeBytes`、適用有無は`coverArtInjected`へ分離。出力バイト列やencode順は変更しない。
+- **自動回帰**: export関連100件、全1,344件、typecheck、build成功。ESLint新規errorなし。
+
+
+### 13-199. クリップ拡大率 400% 上限とカードミニサムネの安定表示
+
+- **ファイル**: `src/constants/index.ts`, `src/utils/media.ts`, `src/hooks/useMediaItems.ts`, `src/components/media/ClipItem.tsx`, `src/components/common/ClipThumbnail.tsx`, `src/test/media.test.ts`, `src/test/stores/mediaStore.test.ts`, `src/test/clipThumbnail.test.tsx`, `spec.md`
+- **拡大率**:
+  - `MAX_SCALE` を `3.0` → `4.0`（400%）へ変更。`MIN_SCALE` は 0.5 のまま。
+  - UI スライダー、`validateScale`、`useMediaItems.updateMediaScale`、mediaStore のクランプが同じ定数を参照するよう揃え、経路ごとの上限ズレを防ぐ。
+  - 既に 300% 以下のプロジェクトは見た目不変。400% 超は 4.0 にクランプ。
+- **カードミニサムネ（稀に非表示）の原因と対策**:
+  - **原因1**: シーク未完了の黒フレームを `drawImage` 成功として確定し、暗いカード背景上で「消えた」ように見えた。
+  - **原因2**: `videoWidth/Height === 0` のまま描画失敗し、フォールバックまたは透明状態が残った（特に動画）。
+  - **原因3**: 非 iOS で video を DOM 外のまま描画すると、一部コーデック・同時デコード競合でフレームが取れないことがあった（iOS は 13-65 で DOM 配置済み）。
+  - **対策**:
+    - 描画成功後に `isCanvasEffectivelyBlank()` で黒判定し、黒なら次のシーク候補へフォールバック。
+    - `videoWidth/Height > 0` になるまで待機（最大約 1.2s）。
+    - **全環境**で一時 DOM 配置（opacity 0.01）。iOS の prime `play()` は従来どおり iOS 限定。
+    - 全候補失敗時は video 要素を作り直して 1 回だけ再試行（同時デコード競合向け）。
+    - 画像は `Image` 失敗時に `createImageBitmap` へフォールバック。
+  - ObjectURL は確定後・cleanup で必ず `revoke`。一時 video は `pause` + DOM 解除。
+- **注意**:
+  - 13-65 の「DOM 配置は iOS 限定」は本項で **DOM 配置は全環境・prime 再生のみ iOS** に更新する。
+  - 意図的な暗所サムネを誤って黒扱いしすぎないよう、黒判定しきい値はプロジェクトポスターと同系（`BLANK_FRAME_LUMINANCE_THRESHOLD=12`）を共用。
+  - 拡大率の上限を変えるときは constants / validateScale / UI / テスト / spec を同時更新する。
+
+### 13-200. カードミニサムネのホバー/タップ拡大表示
+
+- **ファイル**: `src/components/common/ClipThumbnail.tsx`, `src/test/clipThumbnail.test.tsx`
+- **要件**: クリップカード左上のミニサムネ（48×28）を、PC ではマウスオーバーで少し拡大して確認でき、スマホではタップで拡大表示できる。
+- **設計判断（モバイルのベストプラクティス）**:
+  - ホバーが無いタッチ端末では **タップ → ライトボックス（半透明オーバーレイ + 中央拡大 + 閉じる）** が最も発見しやすく誤操作が少ない。
+  - 長押しはコンテキストメニューやスクロールと競合しやすいため採用しない。
+  - 端末判定は UA ではなく `matchMedia('(hover: hover) and (pointer: fine)')`。精密ポインタ + ホバー可能なときだけホバー拡大、それ以外はタップライトボックス。
+- **実装**:
+  - サムネ描画成功時に `canvas.toDataURL('image/jpeg', 0.92)` で拡大用スナップショットを保持（再デコード不要・ObjectURL 追加なし）。
+  - 親の `overflow-hidden` で切れないよう、拡大 UI は `createPortal(..., document.body)` + `position: fixed`。
+  - **PC**: ホバー/フォーカスで約 240×140 の浮き出しプレビュー（viewport 内へクランプ、下に収まらなければ上へ）。クリックではライトボックスを開かない。
+  - **スマホ**: タップでライトボックス。背景タップ・×・Escape で閉じる。`useDisableBodyScroll` で背景スクロールを抑止。
+  - トリガーは `button`。`stopPropagation` でカード操作と干渉しない。`p-1 -m-1` でタップ領域をわずかに拡大。
+- **注意**:
+  - 13-199 のキャプチャ安定化（黒判定・DOM 配置・再試行）はそのまま維持。拡大 UI は描画結果のスナップショットだけを使う。
+  - 未描画（`ready=false` / スナップショット失敗）の間はボタンを disabled にし、空の拡大を出さない。
+  - プレビュー再生・export 経路には波及させない。
+
+### 13-201. カードミニサムネ拡大表示のキャプチャ解像度を上げる
+
+- **ファイル**: `src/components/common/ClipThumbnail.tsx`, `src/test/clipThumbnail.test.tsx`
+- **問題**: 拡大プレビューが 48×28 のスナップショットを引き伸ばしていたため、内容が判別できなかった。
+- **対策**:
+  - カード上の**表示サイズ**は従来どおり 48×28（CSS）。
+  - 内部 canvas は **336×196**（12:7）でフレームをキャプチャし、ホバー/ライトボックス用 `toDataURL` も同じ高解像度を使う。
+  - 一時 video の offscreen 配置サイズもキャプチャ解像度に合わせ、デコード画質を確保する。
+- **注意**: フルHD までは取らない（メモリ・同時デコード負荷とのバランス）。識別できれば十分という方針。
+
+### 13-203. エクスポート中のシークつまみは波形バーと同じ百分率で描く
+
+- **ファイル**: `src/utils/timelineWaveform.ts`, `src/components/sections/PreviewSection.tsx`, `src/components/media/TimelineWaveform.tsx`, 関連テスト
+- **問題**: プレビューではカスタム白い丸つまみ（`left: percent% - 10px`）と波形の現在位置バー（`left: percent%`）が一直線。エクスポート中だけカスタムつまみを隠し、かつ `input[type=range]:disabled { opacity: 0.5 }` が透明ヒット領域の `opacity-0` を上書きしていた。見えていたのはネイティブ range つまみで、端で半幅ぶん内側へ動くため、後半ほど波形バーが丸の右へずれた。出力 MP4 とプレビュー再生の位置は正しかった（表示だけ）。
+- **対策**:
+  - `resolveTimelinePlayheadPercent()` をシークバーと波形で共有し、時刻 t は常に幅の `t / totalDuration` に置く。
+  - エクスポート中も同じカスタムつまみを出す。ネイティブ range は inline `opacity: 0` で disabled 時も隠す。
+- **注意**:
+  - グローバルな `input[type=range]:disabled` の半透明は音量・トリム用。プレビューの透明ヒット領域へ適用しない。
+  - ネイティブ range のつまみ座標へ波形を合わせない。端インセットが入り、後半のずれが再発する。
+- **回帰ガード**: 百分率の純ロジック、エクスポート中のつまみ位置と range 非表示、波形バーの同一百分率をテストする。
+
+### 13-202. 一括ミュートが有効なときは後から追加した動画もミュートを継承する
+
+- **ファイル**: `src/utils/media.ts`, `src/stores/mediaStore.ts`, `src/constants/sectionHelp.ts`, `src/test/media.test.ts`, `src/test/stores/mediaStore.test.ts`, `src/test/sectionHelp.test.ts`
+- **問題**: 一括ミュートは独立フラグではなく「全動画がミュート」の導出状態。追加動画は `createMediaItem` で `isMuted: false` 固定だったため、一括ミュート ON のあとに動画を足すと新しい動画だけ音が出て、ヘッダーの一括ミュート表示も OFF に戻っていた。
+- **対策**:
+  - `areAllExistingVideosMuted()` / `applyBulkMuteToAddedMediaItems()` を `media.ts` に追加する。既存動画が1本以上あり、すべてミュートのときだけ追加動画へ `isMuted: true` を継承する。
+  - `mediaStore.addMediaItems` は作成後にこの helper を通す。画像は対象外。既存動画が無い／1本でも解除されている場合は従来どおりミュート解除のまま追加する。
+  - 保存スキーマや個別ミュート・プレビュー/export 音声経路は変えない。既存の `isMuted` を触るだけなので、プレビューと書き出しの両方にそのまま効く。
+- **注意**:
+  - 当初は独立フラグを追加せず、UI の ON 条件と追加時の継承条件を「全動画ミュート」導出で一致させた。
+  - **13-212 で契約を更新**: クリップ 0 件でも先に ON できる独立フラグ `bulkVideoMuted`（BGM/ナレーションも同様）を追加した。導出条件はフラグ無し時の継承と旧保存補完に残す。
+  - 複製（`duplicateMediaItem`）は元クリップの `isMuted` をコピーするので対象外。
+  - 一括ミュートを解除したあとに追加した動画はミュートしない。
+- **回帰ガード**: 純ロジックと store の追加経路、ヘルプ文言をテストする。
+
+### 13-204.【実機成功確認済み】standard export は提示フレームに合わせてスロットを確定し、encode はスナップショットから行う
+
+- **ファイル**: `src/utils/exportTimeline.ts`, `src/utils/exportFrameSnapshot.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/hooks/export-strategies/types.ts`, `src/utils/mp4CoverArt.ts`, 関連テスト
+- **対象 flavor**: **standard（Android / PC）のみ**。apple-safari runtime、壁時計 dilation、native 1x 連続再生、backpressure pause/resume、queue 30/90、bitrate、CFR 30fps、`latencyMode` は変更しない。
+- **背景**:
+  - プレビューは `requestAnimationFrame` でディスプレイ更新（多くの環境で約 60Hz）へ描画する。素材が 30fps でも、同じ画が 2 回提示されるため元動画やプレビューより滑らかに見えやすい。
+  - export は固定 30fps CFR。品質（尺・A/V 一致・欠落なし）は安定しているが、スロット先頭でまだ次のデコード画が来ていない瞬間を焼いたり、encode poll が次スロットの live Canvas を前の timestamp へ載せたりすると、同じ 30fps でも元動画より段差が目立つ。
+- **対策（駆動方式は維持したままの付加）**:
+  - `resolveExportCanvasCaptureDecision()` がスロット公開を決める。同じ index は再利用。動画で提示フレームがまだ変わっていない連続スロットは **1 rAF だけ**見送る。見送りは 1 回までで、時計は止めない。
+  - クリップ終端（`ended` または `currentTime >= trimEnd - 1/FPS`）では新しい提示は来ないため、最終画を残スロットへ載せる。
+  - 提示 ID は `requestVideoFrameCallback` の `presentedFrames` を優先し、無いときは `currentTime` を 1ms に丸める。
+  - 公開した index の Canvas を最大 3 枚のリングへコピーし、`getRenderedExportFrameSource()` 経由で encode する。poll が遅れても次スロットの画を混ぜない。
+  - export 描画中だけ `imageSmoothingQuality='high'`。`VideoFrame` は不透明 Canvas なので `alpha: 'discard'`。
+- **採用しないもの（再導入禁止）**:
+  - 動画 export 全体のフレーム駆動化、毎フレーム seek、`playbackRate=speed`、描画直後の同期 encode、VFR、export 中の次動画常時 prefetch、1 tick クランプ、queue 30/90・bitrate・出力 fps の変更、`latencyMode:'quality'`、素材 fps への出力合わせ。
+- **自動回帰**: `exportTimeline.test.ts`（capture 判定）、`exportFrameSnapshot.test.ts`、`standardPreviewEngine.test.tsx`（同じ画の 1 rAF 見送りと video→video 連番）。
+- **実機成功確認（2026-08-17）**:
+  - ユーザーが同じ 30fps 素材で再書き出しし、**「劇的に改善した」「スムーズになった」**と確認済み。
+  - 品質側（尺・A/V 一致・欠落なし・壁時計 + native 1x + CFR + backpressure）は維持したまま、体感の滑らかさだけが上がった。
+- **なぜ劇的に効いたか（本命）**:
+  - 出力はもともと正しい 30fps CFR で、フレーム欠落や bitrate 不足が主因ではなかった。
+  - 体感カクつきの実体は **「正しい時刻に、古い／同じ／次スロットの画が入る」** ことだった。スロット開始直後はデコーダがまだ次の提示をしておらず、同じ絵が 2 枚続いてから跳ぶ（hold → hold → jump）。目はこのリズムを「元の 30fps より粗い」と読む。
+  - 加えて encode poll は live Canvas を後から読むため、次 rAF が先に上書きすると **前の timestamp に次スロットの画素** が載る。これも同じ「止まって飛ぶ」見え方になる。
+  - 13-204 は最大 1 rAF だけ新しい提示を待ち、その Canvas を凍結コピーして encode する。各 30fps スロットが **新しい・時刻の合う一枚** になり、重複とレースが消える。駆動時計・queue・bitrate は触っていないので、過去に品質を悪化させた変更とは別系統。
+- **副次効果**: export 中の `imageSmoothingQuality='high'` と `VideoFrame` の `alpha:'discard'` は輪郭と圧縮の小さな助け。体感の主役は提示合わせ＋スナップショット。
+- **注意**:
+  - 効果が出たからといって見送りを 2 rAF 以上に延ばしたり、提示待ちで壁時計を止めたりしない。時計停止は 13-153 / 13-187 / 13-188 の限定区間だけ。
+  - クリップ終端の即キャプチャを外すと、同じ `currentTime` の最終スロットが公開されず連番が欠ける。
+  - 滑らかさ改善を理由に、13-204 が禁止した駆動変更へ戻さない。
+
+### 13-205. 縦向きキャプションミニプレビューのPCサイズ制御
+
+- **ファイル**: `src/components/common/CaptionMiniPreview.tsx`, `src/components/sections/CaptionSection.tsx`, `src/components/modals/CaptionSettingsModal.tsx`, 関連テスト
+- **問題**: 縦向きプロジェクトのミニプレビューは一括設定欄で親幅いっぱいに広がり、個別設定モーダルでもPCでは大きくなりやすいため、設定画面の表示領域を占有しすぎていた。
+- **対策**:
+  - 縦向きプロジェクトでは共通の `max-w-[clamp(12rem,24dvh,18rem)]` を使い、幅を192〜288pxに制限する。画面高に応じて縮小し、元の一括設定欄の表示幅に対しておよそ半分を目安にする。
+  - 一括設定欄と個別設定モーダルの両方へ適用する。横向きプロジェクトは一括設定欄を全幅、個別設定モーダルを `max-w-sm` のまま維持する。
+- **回帰ガード**: 縦向きで共通の幅クラスが付くこと、横向きで従来幅が維持されることを `captionStyleControls.test.tsx` と `captionSettingsModal.test.tsx` で確認する。
+
+### 13-206. 動画速度 0.1 刻みスライダー / 一括音量 / 音量平滑化
+
+- **ファイル**: `src/utils/playbackSpeed.ts`, `src/utils/mediaVolume.ts`, `src/utils/videoAudioLoudness.ts`, `src/hooks/useVideoAudioNormalize.ts`, `src/stores/mediaStore.ts`, `src/components/media/ClipItem.tsx`, `src/components/sections/ClipAudioSettingsPanel.tsx`, `src/components/sections/ClipsSection.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/export/exportEngine.ts`, 関連テスト
+- **対象 flavor**: **standard（Android / PC）**。UI は `supportsClipAudioSettings` / 既存の倍速ゲート。apple-safari では音設定アコーディオンと速度 UI を出さない。保存スキーマは additive。
+- **再生速度**:
+  - `VideoPlaybackSpeed` は `number`（0.1〜8.0・0.1刻み）。旧 1/2/4/8 はそのまま読める。
+  - UI はトリミングと同じ `NumericSliderField`（スライダー + −/+ + 数値）。等倍/0.5/2/4/8 のショートカットも残す。
+  - タイムライン尺は従来どおり `(trimEnd-trimStart)/speed`。
+  - **export 倍速（speed>1）**: 13-166 の wall dilation（rate=1）を維持。**再導入禁止**（rate=speed 連続 / 毎フレーム seek）。
+  - **export スロー（speed<1）**: `playbackRate=speed`、壁時計 divisor=1。dilation すると出力フレームが不足する。
+  - バッジは `showSpeedBadge` かつ等倍以外（スロー含む）。文言は 0.1 単位（例: 1.5倍速 / 0.5x）。
+- **一括音量**:
+  - `mediaStore.bulkVideoVolumeEnabled` / `bulkVideoVolume`。チェック ON で全動画の `volume` を揃え、追加動画も継承する。
+  - ON 中はカード側スライダーを無効化。OFF にしても値は残す。個別操作をすると一括は解除。
+- **平滑化（ノーマライズ）**:
+  - `videoAudioNormalizeEnabled` + カードの `audioNormalizeEnabled` / `audioNormalizeGain`。
+  - トリム区間 RMS の幾何平均へ揃える。無音・解析失敗はゲイン 1。2 本未満では変更なし。
+  - 実効音量は `resolveMediaPlaybackVolume` = `clamp(volume * gain, 0, 2.5)`。preview / export / 波形で共有。
+  - アコーディオンと各カードに「平滑化 +3.2 dB」などの補正表示を出す。
+- **注意**:
+  - 倍速 export を rate=speed や seek 駆動へ戻さない（13-166）。スローだけ native rate を使う。
+  - 音量スライダーは 13-172 どおり `withoutPreviewPause`。速度スライダーも連続値なので一時停止しない。
+  - 保存・自動保存ハッシュ・Android preview cache 署名へ一括フラグとゲインを含める。
+  - apple-safari へ UI を出さない（13-171）。共有スキーマだけ互換。
+
+### 13-207. 音量揃えの合わせ方（平均 / 一番大きい音）と再生速度下限 0.5 倍
+
+- **ファイル**: `src/utils/videoAudioLoudness.ts`, `src/utils/playbackSpeed.ts`, `src/hooks/useVideoAudioNormalize.ts`, `src/stores/mediaStore.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/hooks/useAutoSave.ts`, `src/components/sections/ClipAudioSettingsPanel.tsx`, `src/components/media/ClipItem.tsx`, `src/constants/sectionHelp.ts`, 関連テスト
+- **対象 flavor**: **standard（Android / PC）**。apple-safari は 13-206 どおり UI 非表示。保存スキーマは additive。
+- **背景**:
+  - 平均 RMS（幾何平均）へ揃えると、極端に小さいクリップが複数あるとき目標が下がり、大きい音のクリップまで下げられる。
+  - 「平滑化」「標準化」はユーザー向け表現として紛らわしい。平滑化は時系列のならし、標準化は統計の z-score を連想しやすい。一般的な DAW / NLE では loudness matching / normalize に相当し、UI は「音量を揃える」が適切。
+- **音量揃えモード**:
+  - `VideoAudioNormalizeMode` = `mean` | `loudest`。未保存・不正値は `mean`。
+  - `mean`: 計測可能な参加クリップの幾何平均 RMS を目標。小さい音は上げ、大きい音は下げる。
+  - `loudest`: 計測可能な参加クリップの最大 RMS を目標。小さい音だけ上げ、一番大きい音のゲインは 1。
+  - 計測可能が 2 本未満、無音、対象外はゲイン 1。ゲインは 0.25〜4 倍にクランプ。
+  - UI: チェック「音量を揃える」。方式は「平均に揃える」「一番大きい音に合わせる」。カードは `揃え ±N dB`。
+- **再生速度**:
+  - `MIN_VIDEO_PLAYBACK_SPEED = 0.5`。上限 8.0、刻み 0.1 は維持。
+  - 保存済み 0.1〜0.4 は読込時に 0.5 へクランプ（タイムライン尺が変わる）。
+  - export 倍速の wall dilation / スローの native `playbackRate` は 13-166 / 13-206 のまま。
+- **永続化**: `videoAudioNormalizeMode` を IndexedDB / 手動・自動保存 / `restoreFromSave` / autoSave ハッシュへ追加。旧データは `mean`。
+- **注意**:
+  - `loudest` は小さいクリップを平均より強く上げるため、上限 4 倍（約 +12 dB）に当たりやすい。クリップは対象外にできる。
+  - 13-206 の一括音量・WebAudio GainNode・`withoutPreviewPause`・flavor ゲートは維持する。
+  - ユーザー向け文言に「平滑化」「標準化」を戻さない。ヘルプではノーマライズ相当であることを「音量を揃える」で案内する。
+  - **13-208 で UI のファイル毎チェック（対象外）は廃止**。ストアの `setVideoAudioNormalizeParticipating` は互換のため残すが、現行 UI / 解析 hook は全動画を対象にする。
+
+### 13-208. 音量揃えはファイル一覧表示のみ。一括音量・音量揃えは 3本→1本 / 全クリアでも維持し、追加時に引き継ぐ
+
+- **ファイル**: `src/components/sections/ClipAudioSettingsPanel.tsx`, `src/hooks/useVideoAudioNormalize.ts`, `src/stores/mediaStore.ts`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, `src/test/clipAudioSettingsPanel.test.tsx`, `src/test/stores/mediaStore.test.ts`, `src/test/sectionHelp.test.ts`
+- **対象 flavor**: **standard（Android / PC）**。apple-safari は 13-206 どおり音設定 UI 非表示。保存スキーマは additive のまま。
+- **問題**:
+  - 「音量を揃える」のファイル行に個別チェックがあり、全動画を揃える意図と合わず操作が増えていた。
+  - 動画を 3 本から 1 本へ減らす、または全クリアすると、一括音量 / 音量揃えが無効化されて見え、再追加時に設定が引き継がれなかった。
+- **対策**:
+  - ファイル行は表示専用（ファイル名 + `揃え ±dB`）。個別チェックは出さない。マスターの「一括音量設定」「音量を揃える」だけを操作する。
+  - `useVideoAudioNormalize` は登録中の全動画を `participating: true` として計測する。旧保存の `audioNormalizeEnabled: false` も現行 UI では対象外にしない。
+  - `removeMediaItem` / `clearAllMedia` は `bulkVideoVolumeEnabled` / `bulkVideoVolume` / `videoAudioNormalizeEnabled` / `videoAudioNormalizeMode` をリセットしない。動画 0 本でもマスターチェックは操作可能（ロック時のみ disabled）。一括スライダーは動画が無いときだけ disabled。
+  - 再追加時は既存どおり `applyBulkVolumeToAddedMediaItems` で一括音量を継承し、音量揃え ON なら hook が再計測して揃え直す。
+- **注意**:
+  - 13-207 の「クリップは対象外にできる」は本項で UI 契約を更新する。個別オプトアウト UI を戻さない。
+  - 一括ミュート（13-202）と同じく「設定 ON のあいだは追加動画へ適用する」。件数 1 本や空リストを理由にフラグを落とさない。
+  - 13-206 の WebAudio GainNode・`withoutPreviewPause`・flavor ゲート・保存スキーマは維持する。
+
+### 13-211. 一括音設定の文言統一・一括ミュート移動・BGM/ナレーション展開・PC幅固定
+
+- **ファイル**: `src/components/sections/ClipAudioSettingsPanel.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/sections/BgmSection.tsx`, `src/components/sections/BgmClipList.tsx`, `src/components/sections/NarrationSection.tsx`, `src/components/TurtleVideo.tsx`, `src/stores/audioStore.ts`, `src/hooks/useVideoAudioNormalize.ts`, `src/flavors/standard/preview/*`, `src/flavors/standard/export/exportEngine.ts`, `src/constants/sectionHelp.ts`, 関連テスト
+- **対象 flavor**: **standard（Android / PC）**。apple-safari は 13-206 どおり一括音設定 UI 非表示。保存スキーマは additive。
+- **UI**:
+  - アコーディオン名を「音設定」→「一括音設定」へ変更。
+  - 説明文はすべて `text-[10px] leading-relaxed` に揃える。
+  - 揃え方ボタンは「平均に揃える」「最大に揃える」（同じ「揃える」で短く統一）。
+  - 動画・画像ヘッダーのスピーカー一括ミュートは削除し、一括音設定内の「一括ミュート」チェックへ移す。
+- **BGM / ナレーション**:
+  - 同じ一括音設定（ミュート / 一括音量 / 音量揃え）を各カテゴリ先頭へ追加する。効く範囲はそのカテゴリだけ。
+  - `audioStore` に一括音量・音量揃えフラグを持ち、追加時に継承する。全クリアしてもフラグは残す（13-208 と同じ）。
+  - 実効音量は `resolveMediaPlaybackVolume`（volume × 揃えゲイン、ミュート時 0）。standard の preview / export / 波形へ適用。
+- **PC幅**:
+  - 長い BGM ファイル名で左カラム全体が広がらないよう、`lg:grid-cols-[minmax(0,1fr)_585px]` とタイトルの `min-w-0 flex-1 truncate` を付ける。
+- **注意**:
+  - 一括ミュートの継承は、当初は「既存クリップが1本以上あり、すべてミュート」の導出だけだった。**13-212 で `bulk*Muted` 独立フラグを追加**し、クリップ 0 件でも先に ON できる。導出条件はフラグ無し時と旧保存補完に残す。
+  - apple-safari へ UI を出さない。共有スキーマの `audioNormalizeGain` と bulk フラグは旧データで未定義なら OFF / 1。
+
+### 13-209. 音量揃えのファイル一覧は約5件まで表示し、残りはスクロールする
+
+- **ファイル**: `src/components/sections/ClipAudioSettingsPanel.tsx`, `src/constants/sectionHelp.ts`, `src/test/clipAudioSettingsPanel.test.tsx`, `src/test/sectionHelp.test.ts`
+- **対象 flavor**: **standard（Android / PC）**。apple-safari は 13-206 どおり音設定 UI 非表示。
+- **問題**: 音量揃え ON のとき、登録ファイルが増えると一覧が縦に伸びて音設定パネルが長くなりすぎる。
+- **対策**:
+  - 合わせ方ボタンと説明は固定し、ファイル行だけを `overflow-y-auto custom-scrollbar` にする。
+  - 表示件数は約 5 件（`CLIP_AUDIO_NORMALIZE_VISIBLE_FILE_COUNT`）。高さは `max-h-[calc(5*2.125rem+4*0.375rem)]`。
+  - DOM には全ファイルを残し、見切れ分だけスクロールする。個別チェックは出さない（13-208）。
+- **注意**:
+  - 件数上限でファイルを間引かない。揃え対象は全動画のまま。
+  - 親のクリップ一覧スクロールと競合しすぎないよう `overscroll-contain` を付ける。
+  - 13-208 の維持・引き継ぎ契約と flavor ゲートは変えない。
+
+### 13-210. 速度バッジは等倍でもチェックでき、四隅は角から9%内側
+
+- **ファイル**: `src/utils/playbackSpeed.ts`, `src/components/media/ClipItem.tsx`, `src/constants/sectionHelp.ts`, `src/test/playbackSpeed.test.ts`, `src/test/clipItemSpeedBadge.test.tsx`, `src/test/sectionHelp.test.ts`
+- **対象 flavor**: **standard（Android / PC）**。apple-safari は 13-166 どおり速度 UI 非表示。保存スキーマは additive のまま。
+- **問題**:
+  - 等倍だと「プレビュー/書き出しに速度を表示」が disabled で、チェックしてから倍速へ変えられなかった。
+  - 右上・左上の既定 Y が 12% で、横方向の 9% 余白と角までの距離が揃っていなかった。
+- **対策**:
+  - チェックはロック時以外いつでも操作できる。`showSpeedBadge` が ON なら等倍でも位置・文言 UI を出す。
+  - **描画は従来どおり等倍では出さない**（`shouldDrawSpeedBadge`。映像に「1倍速」と出すのは不自然なため）。速度を変えるとチェック済みならそのまま出る。
+  - 四隅プリセットと未指定時の既定を `SPEED_BADGE_CORNER_INSET_PERCENT = 9` に統一（右上 `{x:91,y:9}`、左上 `{9,9}`、左下 `{9,91}`、右下 `{91,91}`）。
+  - 保存済みの独自座標は変えない。プリセットを押し直したときだけ新しい余白へ寄る。
+- **注意**:
+  - UI のチェック可否と Canvas 描画条件を混ぜない。等倍でチェックできるようにしたからといって「1倍速」バッジを描かない。
+  - export の wall dilation / native slow / フレーバーゲートは 13-166 / 13-206 のまま。
+  - ClipItem の位置フォールバックは `DEFAULT_SPEED_BADGE_POSITION` を使い、91/12 を直書きしない。
+
+### 13-212. 一括ミュートはクリップ未登録でも先に ON でき、追加直後から無音になる
+
+- **ファイル**: `src/utils/media.ts`, `src/stores/mediaStore.ts`, `src/stores/audioStore.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/hooks/useAutoSave.ts`, `src/components/TurtleVideo.tsx`, `src/components/sections/ClipAudioSettingsPanel.tsx`, `src/constants/sectionHelp.ts`, 関連テスト
+- **対象 flavor**: **standard（Android / PC）**。apple-safari は 13-206 / 13-171 どおり一括音設定 UI 非表示。保存スキーマは additive。
+- **問題**:
+  - 13-202 / 13-211 の一括ミュートは「既存クリップが1本以上あり、すべてミュート」の導出だけだった。
+  - 動画・BGM・ナレーションが 0 件だと導出は false になり、チェックを入れても追加時に音が出た。空リストではチェック自体がすぐ OFF に戻って見えた。
+- **対策**:
+  - `bulkVideoMuted` / `bulkBgmMuted` / `bulkNarrationMuted` をストアと `ProjectData` に追加する。空リストでも `setAll*Muted(true)` でフラグだけ立てられる。
+  - 追加時の継承は `flag || 既存がすべてミュート`。フラグ ON なら新規クリップへすぐ `isMuted: true` を書く（動画は video のみ、画像は対象外）。
+  - UI のチェック表示も同じ合成（フラグ OR 導出）。個別ミュート操作はフラグを落とす。全クリアはフラグを残す（一括音量と同じ）。
+  - 旧保存（フィールド無し）は `resolveSavedBulkMuted()` で既存クリップの全ミュートから補完する。空リストの旧データは false。
+- **注意**:
+  - 13-202 の「独立フラグは追加しない」は本項で更新する。導出条件は互換のため残し、空リストの事前設定はフラグが担う。
+  - 複製は元クリップの `isMuted` をコピーする契約のまま（一括フラグ経由ではない）。
+  - apple-safari へ UI を出さない。共有スキーマの未定義は OFF。
+- **回帰ガード**: 空リストで先に ON → 追加直後ミュート、個別操作でフラグ解除、全クリア後もフラグ維持、旧保存補完、ヘルプ文言をテストする。
+
+### 13-213. ロゴ画像（ウォーターマーク / エンドロール）は選択直後にスナップショットし、動画と同じく保存できるようにする
+
+- **ファイル**: `src/utils/media.ts`, `src/types/index.ts`, `src/utils/watermarkOverlay.ts`, `src/utils/endrollOverlay.ts`, `src/stores/overlayStore.ts`, `src/stores/projectStore.ts`, `src/components/TurtleVideo.tsx`, `src/hooks/useAutoSave.ts`, `src/hooks/usePreventUnload.ts`, `src/components/modals/SaveLoadModal.tsx`, 関連テスト
+- **対象 flavor**: UI は `supportsWatermark`（standard 限定）。**保存スキーマは共有**なので apple-safari で読んでもクラッシュしない。保存経路を flavor 分岐しない。
+- **問題**:
+  - 動画クリップは `createMediaItem` で選択直後に `File → ArrayBuffer` をコピーする（13-71）。ロゴは後から追加された独立要素で、プレビュー用 Object URL だけを作り、**保存時にピッカー由来 File を再読込**していた。
+  - Android ギャラリーの File はプレビュー直後は読めても、手動保存の時点では `arrayBuffer()` / blob URL fetch が失敗することがある。そのとき「保存に失敗しました」で弾かれる。
+  - 型コメントは「保存時は fileData から再生成」だったが、オーバーレイ側にランタイム `fileData` が無かった。
+  - 空プロジェクト判定がエンドロール画像を見ていなかったため、エンドロールだけ（またはタイトルだけ）だと自動保存スキップ・手動保存ボタン disabled になり、「保存できない」ように見えた。
+- **対策**:
+  - `snapshotLogoImageFile()` で選択直後にメモリ上の File と `fileData` を作る。`arrayBuffer` 失敗時は一時 Object URL + fetch。空 MIME は拡張子から `image/png` / `image/jpeg` / `image/webp` を補う。
+  - `WatermarkOverlay.fileData` / `EndrollOverlay.fileData` をランタイム保持。serialize は `fileData` を優先し、無いときだけ File 再読込へフォールバック。
+  - `saveProjectAuto` / `useAutoSave` / `SaveLoadModal.hasCurrentData` / `usePreventUnload` の「中身あり」にエンドロール画像を含める。
+  - シリアライズ失敗の分類に「ロゴ画像 / ウォーターマーク / エンドロール」を含め、素材読み込み失敗として案内する。
+- **注意**:
+  - ロゴは `MediaItem[]` に入れない（13-156 / 13-176）。保存は `ProjectData.watermarkOverlay` / `endrollOverlay` の `fileData`。
+  - 見た目変更（位置・透過など）で `fileData` を捨てない。画像削除時だけ捨てる。
+  - IndexedDB の容量不足（巨大 PNG）は本項の対象外。13-71 の quota 復旧を使う。
+- **回帰ガード**: `media.test.ts`（MIME/拡張子・snapshot）、`overlayStore.test.ts`（fileData 保持と削除）、`projectStoreSave.test.ts`（fileData 優先で File 再読込しない・エンドロールのみでも自動保存する）。
+
+### 13-214. 設定モーダルの下スワイプ閉じは上部バーだけに限定する
+
+- **ファイル**: `src/components/modals/SettingsModal.tsx`, `src/test/modalBackdropBehavior.test.tsx`
+- **問題**:
+  - スマホの設定シートは全体に下スワイプ閉じを付け、`scrollTop<=0` なら本文でも閉じていた。
+  - ヘルプ／変更履歴は別スクロール領域なのに、下にあるタブの `scrollTop` を見ていたため、本文を下へスクロールしただけでモーダルが閉じていた。
+- **対策**:
+  - CaptionBulkAddModal（13-125）と同じく、**ドラッグハンドル＋ヘッダー**にだけ touch ハンドラを付ける。
+  - ヘルプ／変更履歴／タブ本文は下スワイプで閉じない。閉じる操作は上部バーの縦下スワイプ（72px超）か ×／戻るキー。
+- **注意**:
+  - シート全体へ touch ハンドラを戻すと、スクロール可能な情報パネルで再発する。
+  - タブバーは閉じ判定に含めない（上部バー＝ハンドル＋タイトル行）。
+- **回帰ガード**: ヘルプ本文・履歴本文の下スワイプでは閉じないこと、上部バーの下スワイプでは閉じることを `modalBackdropBehavior.test.tsx` で固定する。
+
+### 13-215. 設定アコーディオン見出しの文字サイズ拡大とキャプション一括設定の短縮
+
+- **ファイル**: `src/components/common/SettingsAccordionHeader.tsx`, `src/components/sections/CaptionSection.tsx`, `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`, `src/test/settingsAccordionHeader.test.tsx`, `src/test/captionStyleControls.test.tsx`, `src/test/sectionHelp.test.ts`, `src/test/sectionHelpModal.test.tsx`
+- **対象 flavor**: **shared UI**（ロゴ表示・一括音設定・タイトル・キャプション一括など、`SettingsAccordionHeader` を使う全箇所）。standard / apple-safari とも同じ見出し。preview / export / 保存契約は非対象。
+- **問題**:
+  - 閉じたアコーディオン見出しが `text-[10px] md:text-xs` で小さく、ロゴ表示・一括音設定・タイトルなどが読みづらかった。
+  - 一方で「キャプション スタイル/フェードの一括設定」は長く、文字を大きくするとスマホ幅で見切れや不自然な折り返しが起きやすい。
+- **対策**:
+  - 共通見出しを `text-xs md:text-sm`（12px / 14px）へ一段上げる。補助「（開いて設定）」は `text-[10px] md:text-xs`。
+  - 設定名は `whitespace-nowrap` のまま（13-17 の日本語途中改行防止）。狭い幅では補助文言だけ `flex-wrap` で次行へ落とす。
+  - キャプション一括の見出しを「キャプション スタイル/フェード一括設定」へ短縮（「の」を除く）。タイトル側の「スタイル設定」との取り違え防止（13-151）は維持する。
+  - ヘルプ本文・視覚見本・apple-safari のタイトル照合も同じ表記・同じ文字サイズへ同期する（13-132 / 13-158）。
+- **注意**:
+  - 見出しをさらに長文化する場合は、モバイル約 320px で nowrap が収まるか確認する。補助文言の折り返しを先に使い、日本語タイトルの途中改行へ戻さない。
+  - 新しいアコーディオンは素の `<button>` 見出しを増やさず、必ず `SettingsAccordionHeader` を使う（13-150）。
+- **回帰ガード**: 見出しクラスと短縮タイトルを `settingsAccordionHeader.test.tsx` / `captionStyleControls.test.tsx` / `sectionHelp.test.ts` / `sectionHelpModal.test.tsx` で固定する。
+
+### 13-216. アコーディオン見出しを「キャプション 一括設定」「音 一括設定」へ揃える
+
+- **ファイル**: `src/components/sections/CaptionSection.tsx`, `src/components/sections/ClipAudioSettingsPanel.tsx`, `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`, 関連テスト
+- **対象 flavor**: **shared UI**。見出し文言は両 flavor 共通。音 一括設定パネル自体は 13-206 / 13-211 どおり standard のみ表示。preview / export / 保存契約は非対象。
+- **問題**:
+  - 13-215 の「キャプション スタイル/フェード一括設定」でもスマホで改行が入った。
+  - 「一括音設定」と「キャプション 一括設定」で語順が揺れ、同じ「まとめて設定する」操作だと分かりにくかった。
+- **対策**:
+  - キャプション側見出しを「**キャプション 一括設定**」へ短縮。タイトル側の「スタイル設定」との取り違え防止（13-151）は「キャプション」を残して維持する。
+  - 音側見出しを「**音 一括設定**」へ変更し、`対象 + 一括設定` の語順に揃える。
+  - ヘルプ項目名・本文の引用・apple-safari の `hiddenTitles`・視覚見本も同じ表記へ同期する（13-132 / 13-158 / 13-176）。
+- **注意**:
+  - 見出しを再び「スタイル/フェード」まで戻すとスマホ改行が再発する。機能の内訳は開いた中身とヘルプ本文で案内する。
+  - 「一括音量設定」「一括ミュート」などパネル内の操作名は変えない。
+- **回帰ガード**: `captionStyleControls.test.tsx` / `clipAudioSettingsPanel.test.tsx` / `sectionHelp.test.ts` / `sectionHelpModal.test.tsx` / `videoTitleSettingsPanel.test.tsx` で実画面ラベルを固定する。
+
+### 13-217. 音 一括設定のチェック説明を短縮し、ロゴミニビューは表示領域だけ枠で囲む
+
+- **ファイル**: `src/components/sections/ClipAudioSettingsPanel.tsx`, `src/components/common/LogoMiniPreview.tsx`, `src/test/clipAudioSettingsPanel.test.tsx`, `src/test/logoMiniPreview.test.tsx`
+- **対象 flavor**: **shared UI**。音 一括設定パネル自体は 13-206 / 13-211 どおり standard のみ表示。ロゴミニビューは OverlaySection（`supportsWatermark`）経由。preview / export / 保存契約は非対象。
+- **問題**:
+  - 一括ミュート / 一括音量 / 音量揃えの説明が、継承や個別スライダー無効化まで一文に含めて長く、スマホの設定欄で読みづらかった。
+  - ロゴミニビューはキャンバスと「エンドロールの見た目を確認」を同じ黒枠に入れていたため、実際の表示領域の端が分からず位置合わせしにくかった。
+- **対策**:
+  - チェック説明を短くする。ミュートは「チェックを入れると、すべての動画/BGM/ナレーションをミュートします。」、音量は「チェックを入れると、同じ値に揃えます。」、揃えは「チェックを入れると、音の大小を揃えます。」。追加時の継承など詳細はヘルプ本文のまま。
+  - ミニビューの枠（`border-gray-400`、`data-testid="logo-mini-preview-frame"`）はキャンバスだけに付ける。補足文は枠の外へ出す。
+- **注意**:
+  - 「すべての」は従来どおりひらがな。ユーザー例の「全ての」へ戻さない。
+  - キャプション側ミニプレビュー（`CaptionMiniPreview`）は今回対象外。同じ枠＋補足の構造だが、ロゴ位置合わせの問題は OverlaySection 側。
+  - アコーディオン見出し「音 一括設定」は 13-216 のまま。文言再検討は見出し変更時にヘルプ・hiddenTitles も同期する（13-132 / 13-158 / 13-176）。
+- **回帰ガード**: `clipAudioSettingsPanel.test.tsx` で短縮後の 3 行を、`logoMiniPreview.test.tsx` で枠がキャンバスだけを囲むことを固定する。
+
+### 13-218. アコーディオン見出しを「音声 一括設定」へ変更
+
+- **ファイル**: `src/components/sections/ClipAudioSettingsPanel.tsx`, `src/constants/sectionHelp.ts`, `src/test/clipAudioSettingsPanel.test.tsx`, `src/test/sectionHelp.test.ts`
+- **対象 flavor**: **shared UI**。見出し文言は両 flavor 共通。パネル自体は 13-206 / 13-211 どおり standard のみ表示。preview / export / 保存契約は非対象。
+- **問題**:
+  - 13-216 の「音 一括設定」は `キャプション 一括設定` と語順は揃うが、「音」だけだとカテゴリ名として途切れ、パネル内の「一括音量設定」とも紛らわしかった。
+  - 「音量 一括設定」は個別音量・一括音量と被り、ミュート／音量揃えまで含む操作名として狭い。
+- **対策**:
+  - 見出しを「**音声 一括設定**」へ変更する。`対象 + 一括設定` の語順は維持し、キャプション側と対になる。
+  - ヘルプ項目名・本文の引用・apple-safari の `hiddenTitles` も同じ表記へ同期する（13-132 / 13-158 / 13-176）。
+- **注意**:
+  - 「一括音量設定」「一括ミュート」などパネル内の操作名は変えない。
+  - 見出しを再び「音 一括設定」や「一括音設定」へ戻すと、キャプション側との語順／粒度が割れる。
+- **回帰ガード**: `clipAudioSettingsPanel.test.tsx` / `sectionHelp.test.ts` で実画面ラベルを固定する。
+
+### 13-219. 一括音量 / 音量揃えのチェック説明を「まとめて設定」と「音量を揃える」で区別する
+
+- **ファイル**: `src/components/sections/ClipAudioSettingsPanel.tsx`, `src/test/clipAudioSettingsPanel.test.tsx`
+- **対象 flavor**: **shared UI**。パネル自体は 13-206 / 13-211 どおり standard のみ表示。preview / export / 保存契約は非対象。
+- **問題**:
+  - 13-217 の短縮文「同じ値に揃えます」「音の大小を揃えます」は短すぎて、一括音量（スライダー値をまとめて設定）と音量揃え（大きさの差を揃える）の違いが分かりにくかった。
+- **対策**:
+  - 一括音量: 「チェックを入れると、すべての動画/BGM/ナレーションの音量をまとめて設定します。」
+  - 音量揃え: 「チェックを入れると、すべての動画/BGM/ナレーションの音量を揃えます。」
+  - ミュート説明と「チェックを入れると、」の語頭は維持する。継承・個別スライダー無効化はヘルプ本文のまま。
+- **注意**:
+  - 「すべての」はひらがなのまま。ユーザー例の「全ての」へ戻さない（13-217）。
+  - 説明は 1 行想定。継承やスライダー無効化まで戻すと複数行になる。
+  - アコーディオン見出し「音声 一括設定」とパネル内操作名は 13-218 のまま。
+- **回帰ガード**: `clipAudioSettingsPanel.test.tsx` で動画・BGM の 2 行を固定する。
+
+### 13-220. プレビュー再生バーはトランジションの影響範囲と強さをグラデーション表示する
+
+- **ファイル**: `src/components/sections/PreviewSection.tsx`, `src/constants/sectionHelp.ts`, `src/test/previewSectionActionButtons.test.tsx`
+- **対象 flavor**: トランジション機能を提供する **standard（Android / PC）**。preview / export / 保存契約は変更しない。
+- **問題**:
+  - ディゾルブだけが重なり区間を単色の紫で示し、フェード（黒／白）の影響範囲は再生バーに出ていなかった。
+  - 単色表示では、トランジションの影響がどこで強く、どこで弱くなるかを読み取れなかった。
+- **対策**:
+  - `computeTransitionTimelineRanges()` の実レンジを使い、ディゾルブは実オーバーラップ区間、フェードはクリップ境界の前後 `duration / 2` 秒を表示する。
+  - ディゾルブは両端の薄い紫から中央の濃い紫へ、フェードは両端の薄い紫からクリップ境界の実色（黒／白）へ変わるグラデーションにする。通常は境界が中央、短いクリップで表示範囲が切れる場合は最大効果点を実境界へ寄せる。
+  - ベースのクリップ帯だけ従来の `opacity-60` を維持し、トランジション帯は不透明度を落とさず、黒／白の最大効果点を判別できるようにする。
+  - 各帯へ `data-transition-type` と読み上げラベルを付け、DOM テストで種類・位置・幅・グラデーションを固定する。
+- **注意**:
+  - フェード範囲をディゾルブの overlap 検出から導出しない。フェードは総尺を変えないため、必ず境界前後へ半分ずつ配分する。
+  - ディゾルブを単色へ戻すと強度が読めなくなる。中央を黒／白にしない（ディゾルブは色板へのフェードではない）。
+  - タイムライン計算を独自の duration 累積へ戻さず、`transitionTimeline.ts` を単一ソースとして維持する。
+- **回帰ガード**: `previewSectionActionButtons.test.tsx` で、ディゾルブの実 overlap、黒／白フェードの境界前後範囲、短いクリップでの最大効果点、トランジション無し時の非表示を固定する。
+
+### 13-221. チェック項目はフェード設定と同じ文字スケール・補足コントラストへ統一する
+
+- **ファイル**: `src/components/sections/ClipAudioSettingsPanel.tsx`, `src/components/media/ClipItem.tsx`, `src/components/sections/BgmClipList.tsx`, `src/components/sections/NarrationSection.tsx`, `src/components/modals/CaptionSettingsModal.tsx`, `src/components/sections/PreviewSection.tsx`, `src/components/sections/OverlaySection.tsx`, 関連テスト
+- **対象 flavor**: **shared UI**。各機能の表示可否は既存 capabilities のまま。操作・状態・保存・preview / export 契約は変更しない。
+- **問題**:
+  - 「音声 一括設定」の一括ミュート／一括音量／音量揃えは固定 11px、説明は固定 10px + `text-gray-500` で、PC表示のフェード項目（12px）より小さく暗かった。
+  - 黒帯除去、速度バッジ、個別キャプション設定、字幕保存、エンドロール BGM など一部チェック項目にも、PCで 10px 以下の文言・補足が残っていた。
+- **対策**:
+  - チェック項目の基準をフェード設定と同じ `text-[10px] md:text-xs`（10px / 12px）に揃える。
+  - 主ラベルは既存の明るい `text-gray-200` / `text-gray-300` を維持し、補足文は `text-gray-400` へ上げる。`gray-400` on `gray-900` は WCAG 2.2 6.99:1、従来の `gray-500` は 3.67:1。
+  - 一括音量適用中の案内も動画・BGM・ナレーションで同じ文字スケールへ統一する。
+- **注意**:
+  - チェックボックス本体の操作、accent 色、disabled 条件、ラベルクリック領域は変えない。
+  - 補助バッジや数値など役割の異なる小要素まで一律に拡大せず、チェック操作のラベルと説明を対象にする。
+  - 新しいチェック項目は、特別な高密度UIでない限り `text-[10px] md:text-xs` を使う。小さい補足文に `text-gray-500` 以下を使わない。
+- **回帰ガード**: `clipAudioSettingsPanel.test.tsx` / `clipItemSpeedBadge.test.tsx` でラベルと説明のレスポンシブ文字サイズ・色を固定する。
+
+### 13-222. キャプション個別設定のカスタム位置を2段化し、補足文を可読化する
+
+- **ファイル**: `src/components/common/NumericSliderField.tsx`, `src/components/common/CaptionPositionField.tsx`, `src/components/modals/CaptionSettingsModal.tsx`, `src/test/captionIndividualSharedFields.test.tsx`, `src/test/captionSettingsModal.test.tsx`
+- **対象 flavor**: **shared UI**。standard / apple-safari 共通のコンポーネントだが、カスタム位置は既存 capabilities どおり standard のみ表示。位置データ・保存・preview / export 契約は変更しない。
+- **問題**:
+  - 個別設定モーダルのカスタム位置は、横/縦ラベル・スライダー・−・数値・＋・% を1行へ詰め込んでいたため、幅の狭いモーダルでステッパーと単位が重なった。
+  - 個別設定内の補足文と「一括設定に戻す」操作が固定 9px + `text-gray-500` で、暗い背景上では小さく読みづらかった。
+- **対策**:
+  - `NumericSliderField` に既定値 `inline` の `layout` を追加し、`stacked` では1段目を「ラベル＋スライダー」、2段目を「−・数値・＋・単位」とする。個別設定の `CaptionPositionField compact` だけ stacked を使い、横幅を奪い合わない構造にする。
+  - カスタム位置の軸ラベルと補足文を `text-gray-400` へ上げる。モーダル内の説明・リセット操作・節見出しは `text-[10px] md:text-xs`（10px / 12px）へ揃え、説明文には `leading-relaxed` を付ける。
+- **注意**:
+  - `NumericSliderField` の既定 `inline` を変えない。一括キャプション設定や他の数値スライダーまで2段化すると画面密度と既存配置が変わる。
+  - 重なり対策を input 幅の縮小だけで済ませない。−/+ のタッチ領域と数値の判読性を維持し、compact では行を分けて幅を確保する。
+  - 補足文を再び 9px / `text-gray-500` 以下へ戻さない。本文より控えめにするときも、10px（PC 12px）と `gray-400` を下限とする。
+- **回帰ガード**: `captionIndividualSharedFields.test.tsx` で stacked の grid / 2段目配置を、`captionSettingsModal.test.tsx` で代表的な補足文の文字サイズ・コントラストを固定する。
+
+### 13-223. キャプション文字揃えを一括・個別設定と全描画経路へ追加する
+
+- **ファイル**: `src/types/index.ts`, `src/utils/captionStyle.ts`, `src/components/common/CaptionTextAlignField.tsx`, `src/components/sections/CaptionSection.tsx`, `src/components/modals/CaptionSettingsModal.tsx`, `src/components/TurtleVideo.tsx`, `src/stores/captionStore.ts`, `src/utils/indexedDB.ts`, `src/stores/projectStore.ts`, `src/hooks/useAutoSave.ts`, `src/utils/captionIndividualSettings.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/utils/captionLayerRender.ts`, `src/flavors/standard/preview/androidPreviewCache.ts`, `src/constants/sectionHelp.ts`, 関連テスト
+- **対象 flavor**: **shared UI / shared data**。standard と apple-safari の通常 preview / export に反映し、standard のキャプション単独出力と Android preview cache にも反映する。
+- **UI/UX判断**:
+  - 設定順は **サイズ → 字体 → 文字の縁・色 → 揃え → 位置**。見た目（字体・色）を整えてからレイアウト（揃え・位置）を決める流れにし、関連する「揃え」と「位置」は隣接させる。両者を別の行として明示することで、「左揃え」と「画面左へ移動」の取り違えも防ぐ。
+  - 一括・個別は `CaptionTextAlignField` を共有する。選択肢は左揃え／中揃え／右揃え。個別設定だけ先頭にデフォルト（一括設定を継承）を追加し、狭幅では既定／左／中／右の短縮表示、読み上げ名は正式名称を維持する。
+- **データ契約**:
+  - `CaptionSettings.textAlign?: CaptionTextAlign` と `Caption.overrideTextAlign?: CaptionTextAlign`。現行の既定は `center`。旧保存データや不正値は `normalizeCaptionTextAlign()` で中揃えへ補完し、従来の見た目を変えない。
+  - 個別値の `undefined` は一括設定の継承。個別設定バッジ・一括クリア・SerializedCaption・自動保存ハッシュ・Android cache key を同時に更新する。
+- **描画契約**:
+  - プリセット位置では左揃え＝左安全余白、中揃え＝画面中央、右揃え＝右安全余白を基準線とする。カスタム XY では指定 X を基準線とし、左右揃えでも自由配置を維持する。
+  - キャプションは stroke / fill を中央原点のオフスクリーン Canvas へ先に合成するため、メイン `ctx.textAlign` を切り替えない。`resolveCaptionGlyphCenterX()` がグリフ幅の半分を補正して転写中心を決め、背景帯とぼかし多重描画も同じ中心 X を使う。
+  - apple-safari は既存仕様どおりカスタム XY を使わないが、左右の安全余白を基準とした文字揃えは反映する。standard は一括／個別カスタム X を尊重する。
+- **注意**:
+  - `center` の中心 X と既定値を変更しない。旧プロジェクト、未指定のテストfixture、既存の中央キャプションはピクセル位置を維持する。
+  - 描画経路を追加・分岐するときは standard preview、apple-safari preview、`captionLayerRender` の3経路を同時に更新する。どれかだけ直すとプレビュー／通常出力／キャプション単独出力で位置がずれる。
+- **回帰ガード**: `captionStyle.test.ts` で安全余白・中央・カスタム X の座標を、`captionStyleControls.test.tsx` / `captionIndividualSharedFields.test.tsx` で配置順と操作を、`captionStore.test.ts` / `projectStoreSave.test.ts` / `captionIndividualSettings.test.ts` / `androidPreviewCache.test.ts` で既定・保存往復・クリア・キャッシュ無効化を固定する。
+
+### 13-224. BGMの現在位置反映を配置移動から音源トリミングへ修正する
+
+- **ファイル**: `src/stores/audioStore.ts`, `src/components/sections/BgmClipList.tsx`, `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`, `Docs/specs/2026-07-20_caption-audio-timeline-usability.md`, 関連テスト
+- **問題**: BGMカードの「プレビュー位置を反映 → 開始」が `updateBgmClipStartTime(currentTime)` を呼び、聞いている音源位置の頭出しではなく、BGM全体のタイムライン配置開始を移動していた。終了だけはタイムラインから `trimEnd` へ変換していたため、開始／終了で操作対象も不統一だった。
+- **対策**:
+  - `resolveAudioClipSourceTimeAtTimelineTime()` で、タイムライン現在時刻を実効再生中の音源内時刻へ変換する。末尾BGMの自動延長中も `effectiveTrimEnd` までを実際の再生範囲として扱う。
+  - `setBgmClipTrimAtSourceTime()` で音源内時刻を `trimStart` / `trimEnd` へ適用し、`startTime` は変更しない。開始が既存終了を越える場合だけ最小再生尺を確保するため終了も広げる。
+  - 操作ボタンは「トリミング設定」内へ移し、「現在のBGM位置を反映 → 開始に設定／終了に設定」と明記する。対象BGMの有効再生区間外では無効化する。
+- **注意**: BGMの `currentTime` はプロジェクト時刻であり、音源内時刻ではない。`trimStart + (currentTime - startTime)` の変換を省略しない。ナレーションの既存タイムライン開始／終了反映は別仕様なので変更しない。
+- **回帰ガード**: `audioStore.test.ts` で通常区間・自動延長区間の座標変換と配置開始不変を、`bgmClipList.test.tsx` でアコーディオン内の操作、音源位置表示、区間外無効化を固定する。
+
+### 13-225. PCの連続トリミング中は波形とクリップサムネイルを維持してレイアウトを安定させる
+
+- **ファイル**: `src/hooks/useTimelineWaveform.ts`, `src/components/common/ClipThumbnail.tsx`, `src/test/useTimelineWaveformState.test.ts`, `src/test/clipThumbnail.test.tsx`
+- **対象 flavor**: 波形を表示する **standard（Android / PC）** と shared のクリップカード。preview / export / 保存契約は変更しない。
+- **問題**:
+  - 動画トリムのスライダーを連続変更すると波形再生成が `loading → loading` で続き、2回目の更新で完成済み `peaks` を捨てていた。波形と無音ナビゲーションの高さが消えるため、PCの右プレビュー下部が操作中に上下へ跳ねていた。
+  - クリップサムネイルもトリム値のたびに可視状態を解除し、表示中の Canvas へ黒背景を描きながら新しい動画フレームを探索していたため、カード左上が黒く点滅し、不要なデコーダ生成も連続していた。
+- **対策**:
+  - `useTimelineWaveform` は React state の直前状態ではなく `lastReadyRef` を基準に loading データを作り、何回再生成要求が続いても完成済み波形と表示高を維持する。再生成中は既存どおり波形上の「解析中…」だけを更新する。
+  - `ClipThumbnail` は source/range の変更を160msデバウンスし、操作が一段落した値だけを再キャプチャする。新しいフレームは裏側の Canvas へ描き、完成後に表示 Canvas へ一括転送する stale-while-revalidate とする。
+- **注意**:
+  - 波形の loading 判定を `prev.status === 'ready'` だけへ戻さない。連続入力の2回目は `prev.status === 'loading'` なので、保持済み波形が消える。
+  - サムネイル再生成開始時に `ready=false` / `previewSrc=null` を設定したり、表示 Canvas を作業領域として使ったりしない。トリム操作中の黒点滅が再発する。
+  - 再解析・再キャプチャ自体は必要。無効化せず、デバウンスと旧表示保持で操作中の負荷・視覚変動だけを抑える。
+- **回帰ガード**: `useTimelineWaveformState.test.ts` で連続 loading 時の peaks / silences 保持を、`clipThumbnail.test.tsx` で連続3更新中の表示維持と再キャプチャ1回への集約を固定する。
+
+### 13-226. standard preview のわずかなカクつきは UI 時刻の毎 rAF 公開と字幕グリフ再生成を間引いて抑える
+
+- **ファイル**: `src/utils/previewUiTime.ts`, `src/utils/canvas.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/components/TurtleVideo.tsx`, `src/test/previewUiTime.test.ts`, `src/test/captionGlyphStyle.test.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **対象 flavor**: **standard（Android / PC）の通常プレビューのみ**。apple-safari runtime、export 駆動、壁時計 dilation、native 1x 連続再生、backpressure、queue 30/90、bitrate、CFR 30fps は変更しない。
+- **問題**: プレビュー再生中に動画がわずかにカクつくことがある。Canvas / `<video>` は既に rAF（多くは約 60Hz）で進んでいるのに、同じ頻度で Zustand の `currentTime` を更新するとシークバー・波形・キャプション一覧まで毎フレーム再描画される。加えて字幕・タイトルのオフスクリーングリフ Canvas を毎フレーム作り直すと GC がメインスレッドを止める。
+- **対策**:
+  - 再生時計は従来どおり `currentTimeRef` を毎 rAF 更新する。`video.currentTime` の補正シークも、Canvas の `renderFrame` も間引かない。
+  - UI 公開だけ `shouldPublishPreviewUiTime()` で間引く。初回 / `force` / 0.2 秒以上のジャンプは即公開、通常は 50ms（約 20Hz）。export loop は `force: true` で毎フレーム公開を維持する（13-16 の進捗検知、13-120 の終端スナップを壊さない）。
+  - `stopAll` / 終端 finalize / 再生開始 / ループが再生状態でないとき / `pausePreviewBeforeEdit` では `setCurrentTime(currentTimeRef.current)` を flush し、停止直後のシークバーが最大 50ms 遅れたまま残らないようにする。
+  - `getOrCreateCaptionGlyphCanvas()` にセッション LRU（上限 64）を追加し、standard preview の字幕と動画タイトルが同一キーを再利用する。上限超過時は最古 1 件だけ捨て、描画中に Map 全体を `clear` しない。キャプション単独 export の既存セッションキャッシュも同じ helper を使う。
+- **採用しないもの（再導入禁止）**:
+  - preview 再生時計の間引き、`video.currentTime` の毎フレーム seek、rAF 内 `detachAudioNode()`（13-172）、export のフレーム駆動化 / 次動画常時 prefetch / 1 tick クランプ / `playbackRate=speed` / `latencyMode:'quality'`（13-166 / 13-186 / 13-204）。
+  - 凍結レガシー（`src/components/turtle-video/usePreview*` / `src/utils/previewPlatform.ts` / `src/utils/iosSafariAudio.ts`）の編集。
+  - 根拠のない apple-safari へのコピー。iOS 側に同症状の再現報告が無い。
+- **注意**:
+  - Ref + State 並行（10-3）は維持する。間引くのは UI state だけで、loop が読む時刻は ref が正。
+  - 音量スライダーの経路ラッチ（13-172）や連続値の `withoutPreviewPause`（13-173 / 13-174）とは別系統。こちらは「再生中の毎フレーム React 再描画」側。
+  - MiniPreview の約 15fps スロットル（6-3）と同じ考え方で、本編 Canvas の描画レートは落とさない。
+- **回帰ガード**: `previewUiTime.test.ts` で初回 / force / 間隔内間引き / ジャンプ即公開、`captionGlyphStyle.test.ts` で同一キー再利用と LRU 上限、`standardPreviewEngine.test.tsx` で preview は UI 時刻を rAF ごとに更新せず `currentTimeRef` だけ進め、stopAll で flush、export は間引かないことを固定する。
+

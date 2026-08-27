@@ -1,5 +1,33 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createCaptionGlyphCanvas } from '../utils/canvas';
+import {
+  CAPTION_GLYPH_CANVAS_CACHE_MAX_ENTRIES,
+  createCaptionGlyphCanvas,
+  getOrCreateCaptionGlyphCanvas,
+} from '../utils/canvas';
+
+function stubCanvasContext(): CanvasRenderingContext2D {
+  return {
+    font: '',
+    textAlign: 'start',
+    textBaseline: 'alphabetic',
+    lineJoin: 'miter',
+    strokeStyle: '',
+    fillStyle: '',
+    lineWidth: 0,
+    imageSmoothingEnabled: false,
+    imageSmoothingQuality: 'low',
+    fontKerning: 'auto',
+    textRendering: 'auto',
+    scale: vi.fn(),
+    strokeText: vi.fn(),
+    fillText: vi.fn(),
+    measureText: vi.fn(() => ({
+      width: 40,
+      actualBoundingBoxAscent: 20,
+      actualBoundingBoxDescent: 8,
+    })),
+  } as unknown as CanvasRenderingContext2D;
+}
 
 describe('caption glyph style', () => {
   afterEach(() => {
@@ -99,5 +127,51 @@ describe('caption glyph style', () => {
     expect(drawContext.imageSmoothingQuality).toBe('high');
     expect(drawContext.fontKerning).toBe('normal');
     expect(drawContext.textRendering).toBe('optimizeLegibility');
+  });
+
+  it('同一オプションはキャッシュを再利用し、文字が変わったら作り直す', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => stubCanvasContext());
+    const cache = new Map<string, HTMLCanvasElement>();
+    const options = {
+      text: '字幕',
+      font: '80px sans-serif',
+      fillColor: '#FFFFFF',
+      strokeColor: '#000000',
+      strokeWidth: 4,
+    };
+
+    const first = getOrCreateCaptionGlyphCanvas(options, cache);
+    const second = getOrCreateCaptionGlyphCanvas(options, cache);
+    expect(second).toBe(first);
+    expect(cache.size).toBe(1);
+
+    const other = getOrCreateCaptionGlyphCanvas({ ...options, text: '別' }, cache);
+    expect(other).not.toBe(first);
+    expect(cache.size).toBe(2);
+  });
+
+  it('キャッシュ上限を超えたら最も古いエントリだけを捨て、描画中に全件破棄しない', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => stubCanvasContext());
+    const cache = new Map<string, HTMLCanvasElement>();
+    const base = {
+      font: '80px sans-serif',
+      fillColor: '#FFFFFF',
+      strokeColor: '#000000',
+      strokeWidth: 4,
+    };
+    const kept = getOrCreateCaptionGlyphCanvas({ ...base, text: '残す' }, cache);
+    const oldestExtra = getOrCreateCaptionGlyphCanvas({ ...base, text: 't0' }, cache);
+
+    for (let i = 1; i < CAPTION_GLYPH_CANVAS_CACHE_MAX_ENTRIES - 1; i += 1) {
+      getOrCreateCaptionGlyphCanvas({ ...base, text: `t${i}` }, cache);
+    }
+    expect(cache.size).toBe(CAPTION_GLYPH_CANVAS_CACHE_MAX_ENTRIES);
+
+    expect(getOrCreateCaptionGlyphCanvas({ ...base, text: '残す' }, cache)).toBe(kept);
+    getOrCreateCaptionGlyphCanvas({ ...base, text: '新しい' }, cache);
+
+    expect(cache.size).toBe(CAPTION_GLYPH_CANVAS_CACHE_MAX_ENTRIES);
+    expect(getOrCreateCaptionGlyphCanvas({ ...base, text: '残す' }, cache)).toBe(kept);
+    expect(getOrCreateCaptionGlyphCanvas({ ...base, text: 't0' }, cache)).not.toBe(oldestExtra);
   });
 });

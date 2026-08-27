@@ -682,8 +682,8 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
             ・総尺も同じ桁で出す必要がある。10.5 秒の動画を floor して「0:10」と出すと、
               終端まで再生したとき現在位置が「0:10.50」となり、**現在位置のほうが総尺より
               大きく見える**という矛盾が起きるため（左右で必ず桁を揃える）。
-            currentTime は元々毎フレーム更新されており（setCurrentTime を rAF ごとに呼ぶ）、
-            表示桁を増やしても描画回数は変わらない。 */}
+            再生時計（currentTimeRef）と Canvas は毎 rAF 進む。UI の currentTime は
+            約 50ms 間隔で間引いて公開する（13-226）。表示桁を増やしても描画回数は変わらない。 */}
         <div className="flex justify-between text-[10px] md:text-xs lg:text-sm font-mono text-gray-400 mb-2">
           <span aria-label={`現在位置 ${formatTimeCentiseconds(currentTime)}`}>
             {formatTimeCentiseconds(currentTime)}

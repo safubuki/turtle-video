@@ -1112,6 +1112,84 @@ describe('standard preview engine', () => {
     expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('preview loop は UI currentTime を rAF ごとに更新せず、currentTimeRef だけ毎フレーム進める', () => {
+    const mediaItem = createVideoItem({ id: 'video-1', duration: 6, trimStart: 0, trimEnd: 6 });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 2;
+    videoElement.seeking = false;
+    videoElement.paused = false;
+    let nowMs = 1000;
+    vi.spyOn(playbackClock, 'getStandardPreviewNow').mockImplementation(() => nowMs);
+
+    const { hook, currentTimeRef, setCurrentTime, loopIdRef } = setupPreviewEngineHarness({
+      mediaItems: [mediaItem],
+      mediaElements: {
+        [mediaItem.id]: videoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      currentTime: 1,
+      totalDuration: 6,
+      startTime: 0,
+      loopId: 1,
+      isPlaying: true,
+    });
+
+    hook.result.current.loop(false, 1);
+    const firstUiCalls = setCurrentTime.mock.calls.length;
+    expect(firstUiCalls).toBeGreaterThan(0);
+    expect(currentTimeRef.current).toBeCloseTo(1, 3);
+
+    nowMs = 1010;
+    hook.result.current.loop(false, loopIdRef.current);
+    expect(setCurrentTime).toHaveBeenCalledTimes(firstUiCalls);
+    expect(currentTimeRef.current).toBeCloseTo(1.01, 3);
+
+    nowMs = 1050;
+    hook.result.current.loop(false, loopIdRef.current);
+    expect(setCurrentTime.mock.calls.length).toBeGreaterThan(firstUiCalls);
+    expect(currentTimeRef.current).toBeCloseTo(1.05, 3);
+
+    nowMs = 1060;
+    hook.result.current.loop(false, loopIdRef.current);
+    const uiCallsBeforeStop = setCurrentTime.mock.calls.length;
+    expect(currentTimeRef.current).toBeCloseTo(1.06, 3);
+    expect(setCurrentTime).toHaveBeenCalledTimes(uiCallsBeforeStop);
+
+    hook.result.current.stopAll();
+    expect(setCurrentTime.mock.calls.length).toBeGreaterThan(uiCallsBeforeStop);
+    expect(setCurrentTime).toHaveBeenLastCalledWith(currentTimeRef.current);
+  });
+
+  it('export loop の UI currentTime は間引かず毎フレーム公開する', () => {
+    const mediaItem = createVideoItem({ id: 'video-1', duration: 6, trimStart: 0, trimEnd: 6 });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 3;
+    videoElement.seeking = false;
+    videoElement.paused = false;
+    let nowMs = 1000;
+    vi.spyOn(playbackClock, 'getStandardPreviewNow').mockImplementation(() => nowMs);
+
+    const { hook, setCurrentTime, loopIdRef } = setupPreviewEngineHarness({
+      mediaItems: [mediaItem],
+      mediaElements: {
+        [mediaItem.id]: videoElement as unknown as HTMLVideoElement,
+      } as MediaElementsRef,
+      currentTime: 1,
+      totalDuration: 6,
+      startTime: 0,
+      loopId: 1,
+      isPlaying: true,
+      enableWebCodecsExport: true,
+    });
+
+    hook.result.current.loop(true, 1);
+    const firstUiCalls = setCurrentTime.mock.calls.length;
+    expect(firstUiCalls).toBeGreaterThan(0);
+
+    nowMs = 1010;
+    hook.result.current.loop(true, loopIdRef.current);
+    expect(setCurrentTime.mock.calls.length).toBeGreaterThan(firstUiCalls);
+  });
+
   it('renderFrame は standard preview 中の BGM fadeIn / fadeOut volume を毎フレーム反映する', () => {
     const mediaItem = createVideoItem({ id: 'video-1', duration: 10, trimStart: 0, trimEnd: 10 });
     const videoElement = createMockVideoElement();

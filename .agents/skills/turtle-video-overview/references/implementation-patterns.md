@@ -706,6 +706,7 @@
 | **倍速 export 映像** | rate=speed のみは途中切れ、毎フレーム seek は静止画化。**rate=1 連続 + 壁時計 Δt/speed（wall dilation）**が成功（13-166 / export-speed-video-wall-dilation-postmortem-2026-08-01）。プレビューの rate=speed と無理に一本化しない |
 | **export の高速化** | 現行の駆動方式（壁時計 dilation / native 連続再生 / backpressure / 末尾補完）は**ユーザー実機で最良と確認済み。速度を理由に変更しない**。負荷を下げたいときは **VideoEncoder の configure 交渉**（`prefer-hardware`、13-169）から手を付ける。**`latencyMode:'quality'` は禁止**（内部バッファリングが `encodeQueueSize` を曇らせ backpressure 検知を遅らせる＝後半黒画面の再発条件。13-116 も同旨）。queue 上限の緩和と bitrate 低下はリカバリ性・画質を損なうので最後の手段 |
 | **export の滑らかさ** | プレビューは rAF（多くは約60Hz）提示、export は固定30fps CFR。滑らかさ改善は駆動方式を変えず、提示フレーム合わせとスロット単位スナップショットに閉じる（13-204）。**ユーザー実機で「劇的にスムーズになった」と確認済み（2026-08-17）**。フレーム駆動化・毎フレームseek・出力fps変更・bitrate変更は再導入しない |
+| **preview の UI 時刻** | 再生時計・Canvas・`video.currentTime` は毎 rAF のまま。Zustand の `currentTime` だけ約 50ms に間引き、pause/stop/終端で flush する。字幕グリフ Canvas は LRU 再利用（13-226）。駆動方式・export・apple-safari には広げない |
 
 ## 12. Dev Script Pattern (media-video-analyzer STT)
 
@@ -4287,4 +4288,24 @@ export 終了（成功/失敗/中断）
   - サムネイル再生成開始時に `ready=false` / `previewSrc=null` を設定したり、表示 Canvas を作業領域として使ったりしない。トリム操作中の黒点滅が再発する。
   - 再解析・再キャプチャ自体は必要。無効化せず、デバウンスと旧表示保持で操作中の負荷・視覚変動だけを抑える。
 - **回帰ガード**: `useTimelineWaveformState.test.ts` で連続 loading 時の peaks / silences 保持を、`clipThumbnail.test.tsx` で連続3更新中の表示維持と再キャプチャ1回への集約を固定する。
+
+### 13-226. standard preview のわずかなカクつきは UI 時刻の毎 rAF 公開と字幕グリフ再生成を間引いて抑える
+
+- **ファイル**: `src/utils/previewUiTime.ts`, `src/utils/canvas.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/components/TurtleVideo.tsx`, `src/test/previewUiTime.test.ts`, `src/test/captionGlyphStyle.test.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **対象 flavor**: **standard（Android / PC）の通常プレビューのみ**。apple-safari runtime、export 駆動、壁時計 dilation、native 1x 連続再生、backpressure、queue 30/90、bitrate、CFR 30fps は変更しない。
+- **問題**: プレビュー再生中に動画がわずかにカクつくことがある。Canvas / `<video>` は既に rAF（多くは約 60Hz）で進んでいるのに、同じ頻度で Zustand の `currentTime` を更新するとシークバー・波形・キャプション一覧まで毎フレーム再描画される。加えて字幕・タイトルのオフスクリーングリフ Canvas を毎フレーム作り直すと GC がメインスレッドを止める。
+- **対策**:
+  - 再生時計は従来どおり `currentTimeRef` を毎 rAF 更新する。`video.currentTime` の補正シークも、Canvas の `renderFrame` も間引かない。
+  - UI 公開だけ `shouldPublishPreviewUiTime()` で間引く。初回 / `force` / 0.2 秒以上のジャンプは即公開、通常は 50ms（約 20Hz）。export loop は `force: true` で毎フレーム公開を維持する（13-16 の進捗検知、13-120 の終端スナップを壊さない）。
+  - `stopAll` / 終端 finalize / 再生開始 / ループが再生状態でないとき / `pausePreviewBeforeEdit` では `setCurrentTime(currentTimeRef.current)` を flush し、停止直後のシークバーが最大 50ms 遅れたまま残らないようにする。
+  - `getOrCreateCaptionGlyphCanvas()` にセッション LRU（上限 64）を追加し、standard preview の字幕と動画タイトルが同一キーを再利用する。上限超過時は最古 1 件だけ捨て、描画中に Map 全体を `clear` しない。キャプション単独 export の既存セッションキャッシュも同じ helper を使う。
+- **採用しないもの（再導入禁止）**:
+  - preview 再生時計の間引き、`video.currentTime` の毎フレーム seek、rAF 内 `detachAudioNode()`（13-172）、export のフレーム駆動化 / 次動画常時 prefetch / 1 tick クランプ / `playbackRate=speed` / `latencyMode:'quality'`（13-166 / 13-186 / 13-204）。
+  - 凍結レガシー（`src/components/turtle-video/usePreview*` / `src/utils/previewPlatform.ts` / `src/utils/iosSafariAudio.ts`）の編集。
+  - 根拠のない apple-safari へのコピー。iOS 側に同症状の再現報告が無い。
+- **注意**:
+  - Ref + State 並行（10-3）は維持する。間引くのは UI state だけで、loop が読む時刻は ref が正。
+  - 音量スライダーの経路ラッチ（13-172）や連続値の `withoutPreviewPause`（13-173 / 13-174）とは別系統。こちらは「再生中の毎フレーム React 再描画」側。
+  - MiniPreview の約 15fps スロットル（6-3）と同じ考え方で、本編 Canvas の描画レートは落とさない。
+- **回帰ガード**: `previewUiTime.test.ts` で初回 / force / 間隔内間引き / ジャンプ即公開、`captionGlyphStyle.test.ts` で同一キー再利用と LRU 上限、`standardPreviewEngine.test.tsx` で preview は UI 時刻を rAF ごとに更新せず `currentTimeRef` だけ進め、stopAll で flush、export は間引かないことを固定する。
 

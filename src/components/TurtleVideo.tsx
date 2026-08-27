@@ -523,6 +523,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
     pause();
     isPlayingRef.current = false;
+    setCurrentTime(currentTimeRef.current);
 
     if (reqIdRef.current !== null) {
       cancelAnimationFrame(reqIdRef.current);
@@ -530,7 +531,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     }
 
     logInfo('SYSTEM', 'preview paused before edit', { reason });
-  }, [clearGeneratedExport, isProcessing, pause, logInfo]);
+  }, [clearGeneratedExport, isProcessing, pause, logInfo, setCurrentTime]);
 
   const handleAddCaptionsFromNarration = useCallback(async (id: string) => {
     if (captionGeneratingNarrationIdRef.current !== null) return;

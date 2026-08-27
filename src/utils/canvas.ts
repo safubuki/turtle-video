@@ -343,8 +343,11 @@ export function normalizeCaptionGlyphPixelRatio(pixelRatio: number | undefined):
   return Math.max(1, Math.min(3, pixelRatio as number));
 }
 
-/** 同一字幕を毎フレーム再ラスタライズしないための、export セッション単位キャッシュ。 */
+/** 同一字幕を毎フレーム再ラスタライズしないためのセッション単位キャッシュ。 */
 export type CaptionGlyphCanvasCache = Map<string, HTMLCanvasElement>;
+
+/** preview / caption-layer export とも、古いエントリを 1 件ずつ捨てて上限を守る。 */
+export const CAPTION_GLYPH_CANVAS_CACHE_MAX_ENTRIES = 64;
 
 function buildCaptionGlyphCanvasCacheKey(options: CaptionGlyphOptions): string {
   return JSON.stringify([
@@ -358,8 +361,10 @@ function buildCaptionGlyphCanvasCacheKey(options: CaptionGlyphOptions): string {
 }
 
 /**
- * キャッシュが渡された場合だけ再利用する。通常 preview は従来どおり都度生成し、
- * キャプション単独 export はセッションローカル Map を渡して高解像度 Canvas のGC負荷を抑える。
+ * キャッシュが渡された場合だけ再利用する。
+ * preview / キャプション単独 export はセッションローカル Map を渡し、
+ * 同一字幕の毎フレーム再ラスタライズと GC 負荷を抑える。
+ * 上限超過時は Map の挿入順で最も古い 1 件だけ捨てる。描画中に全件 clear しない。
  */
 export function getOrCreateCaptionGlyphCanvas(
   options: CaptionGlyphOptions,
@@ -368,9 +373,18 @@ export function getOrCreateCaptionGlyphCanvas(
   if (!cache) return createCaptionGlyphCanvas(options);
   const key = buildCaptionGlyphCanvasCacheKey(options);
   const cached = cache.get(key);
-  if (cached) return cached;
+  if (cached) {
+    cache.delete(key);
+    cache.set(key, cached);
+    return cached;
+  }
   const created = createCaptionGlyphCanvas(options);
   cache.set(key, created);
+  while (cache.size > CAPTION_GLYPH_CANVAS_CACHE_MAX_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined || oldest === key) break;
+    cache.delete(oldest);
+  }
   return created;
 }
 
