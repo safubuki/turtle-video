@@ -16,8 +16,33 @@ describe('narrationCaptionPlan', () => {
 
     expect(segments.length).toBeGreaterThan(1);
     expect(segments.join('')).toBe(
-      'これは改行のない長いナレーションですが、聞きやすい位置で複数のキャプションへ自動的に分割できます。'
+      'これは改行のない長いナレーションですが聞きやすい位置で複数のキャプションへ自動的に分割できます'
     );
+    expect(segments[0]).toBe('これは改行のない長いナレーションですが');
+  });
+
+  it('句点で文を切り、長い文は画面に収まる長さへ折り返し句読点は残さない', () => {
+    const segments = splitNarrationCaptionText(
+      'ボタンを押し続けるだけで数値が自動でカウントアップ。いちいち連打する手間が省けて、作業効率がグンとアップします。入力作業がスムーズになりますよ。'
+    );
+
+    expect(segments).toEqual([
+      'ボタンを押し続けるだけで数値が自動で',
+      'カウントアップ',
+      'いちいち連打する手間が省けて',
+      '作業効率がグンとアップします',
+      '入力作業がスムーズになりますよ',
+    ]);
+    expect(segments.every((segment) => Array.from(segment).length <= 20)).toBe(true);
+    expect(segments.join('').includes('。') || segments.join('').includes('、')).toBe(false);
+  });
+
+  it('句点のない長文は読点または上限で分割する', () => {
+    const segments = splitNarrationCaptionText('あ'.repeat(45));
+
+    expect(segments.length).toBeGreaterThan(1);
+    expect(segments.join('')).toBe('あ'.repeat(45));
+    expect(segments.every((segment) => Array.from(segment).length <= 20)).toBe(true);
   });
 
   it('ナレーション区間全体を文字数比で重複なく配分する', () => {
@@ -48,7 +73,7 @@ describe('narrationCaptionPlan', () => {
 
     expect(plan).toHaveLength(1);
     expect(plan[0]).toEqual({
-      text: '一つ目。二つ目。三つ目。四つ目。',
+      text: '一つ目二つ目三つ目四つ目',
       startTime: 0,
       endTime: 1,
     });

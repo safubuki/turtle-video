@@ -544,7 +544,8 @@ export function getSectionHelpContent(
           facts: [
             {
               label: '作成方法',
-              description: '原稿を読みやすい長さに分け、実際のナレーション再生区間へ配置します。',
+              description:
+                '句点・読点で読みやすい長さに分け、句読点は除いて画面に収まるキャプションへします。',
             },
             {
               label: '短い無音',
