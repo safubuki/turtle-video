@@ -25,6 +25,7 @@ import {
   generateId,
   validateTrim,
   validateScale,
+  normalizeImageDuration,
   validatePosition,
   revokeObjectUrl,
   getNextRotation,
@@ -564,7 +565,7 @@ export const useMediaStore = create<MediaState>()(
 
       // Update image duration
       updateImageDuration: (id, duration) => {
-        const safeDuration = Math.max(0.5, duration);
+        const safeDuration = normalizeImageDuration(duration);
         set((state) => {
           const updated = state.mediaItems.map((item) =>
             item.id === id ? { ...item, duration: safeDuration } : item

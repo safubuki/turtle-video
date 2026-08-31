@@ -636,6 +636,22 @@ describe('mediaStore', () => {
       const { mediaItems } = useMediaStore.getState();
       expect(mediaItems[0].duration).toBeGreaterThanOrEqual(0.5);
     });
+
+    it('should snap image duration to 0.1 second steps', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'a', type: 'image', duration: 5 } as any,
+        ],
+        totalDuration: 5,
+      });
+
+      const { updateImageDuration } = useMediaStore.getState();
+      updateImageDuration('a', 5.1);
+
+      const { mediaItems, totalDuration } = useMediaStore.getState();
+      expect(mediaItems[0].duration).toBe(5.1);
+      expect(totalDuration).toBe(5.1);
+    });
   });
 
   describe('video thumbnail mode', () => {

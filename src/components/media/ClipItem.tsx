@@ -45,7 +45,13 @@ import {
   canSetVideoTrimFromPreviewPosition,
   resolveMediaThumbnailSourceTime,
 } from '../../utils/media';
-import { MIN_SCALE, MAX_SCALE } from '../../constants';
+import {
+  IMAGE_DURATION_STEP,
+  MAX_IMAGE_DURATION,
+  MAX_SCALE,
+  MIN_IMAGE_DURATION,
+  MIN_SCALE,
+} from '../../constants';
 import {
   VIDEO_PLAYBACK_SPEEDS,
   MIN_VIDEO_PLAYBACK_SPEED,
@@ -371,9 +377,9 @@ const ClipItem: React.FC<ClipItemProps> = ({
               label="表示時間"
               labelClassName="text-gray-400 w-14 shrink-0"
               ariaLabel="画像の表示時間"
-              min={0.5}
-              max={30}
-              step={0.5}
+              min={MIN_IMAGE_DURATION}
+              max={MAX_IMAGE_DURATION}
+              step={IMAGE_DURATION_STEP}
               value={v.duration}
               onChange={handleImageDuration}
               disabled={isDisabled}

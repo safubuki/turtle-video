@@ -73,6 +73,13 @@ describe('sectionHelp support messaging', () => {
     expect(waveformHelp?.note).toContain('キャプション時刻は変わりません');
   });
 
+  it('主要な機能はスライダー誤操作防止と −/+ の長押し増減を案内する', () => {
+    const description = getHelpDescription('app', '主要な機能');
+    expect(description).toContain('スライダーへ触れた場合');
+    expect(description).toContain('−/+');
+    expect(description).toContain('押し続けると徐々に速く増減');
+  });
+
   it('app help は iPhone Safari を非対応ではなく動作モードとして案内する', () => {
     const description = getHelpDescription('app', '動作確認機種');
 
@@ -159,6 +166,14 @@ describe('sectionHelp support messaging', () => {
     expect(getHelpDescription('clips', '再生速度（0.5〜8.0倍）')).toContain('0.5');
     expect(getHelpDescription('clips', '再生速度（0.5〜8.0倍）')).toContain('等倍でもチェックできます');
     expect(getHelpDescription('clips', '再生速度（0.5〜8.0倍）')).toContain('四隅から9%内側');
+    expect(getHelpDescription('clips', '表示区間（動画：トリミング／画像：表示時間）')).toContain(
+      '0.1秒単位',
+    );
+    expect(getHelpDescription(
+      'clips',
+      '表示区間（動画：トリミング／画像：表示時間）',
+      { appFlavor: 'apple-safari', supportsShowSaveFilePicker: false },
+    )).toContain('0.1秒単位');
   });
 
   it('文章だけだった最近の機能にも操作部品の視覚見本を持たせる', () => {

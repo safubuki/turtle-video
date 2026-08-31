@@ -62,6 +62,7 @@ export {
   createPosterDataUrlFromCanvas,
   createPosterPreviewDataUrlFromCanvas,
   validateScale,
+  normalizeImageDuration,
   validatePosition,
   revokeObjectUrl,
 } from './media';

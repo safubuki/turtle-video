@@ -11,7 +11,7 @@
  *
  * ここが解決している 3 点:
  * 1. **ステッパー**: スライダーのつまみをタッチで目的の値へ合わせるのは難しいため、
- *    数値欄の隣で 1 ステップずつ確実に詰められるようにする。
+ *    数値欄の隣で 1 ステップずつ確実に詰められるようにする。長押しすると徐々に加速する。
  * 2. **ドラフト入力**: 入力中の文字列を保持し、確定（blur / Enter）まで onChange を
  *    呼ばない。従来は 1 文字ごとに parseFloat + クランプが走り、全消し→「10」と打つ
  *    途中の「1」が最小値へ丸められて意図した値を入力できなかった。
@@ -19,6 +19,7 @@
  */
 import React, { useCallback, useId, useState } from 'react';
 import { Minus, Plus } from 'lucide-react';
+import { useHoldToRepeat } from '../../hooks/useHoldToRepeat';
 
 export interface NumericStepperInputProps {
   value: number;
@@ -69,9 +70,47 @@ export const clampValue = (value: number, min: number, max: number, decimals: nu
 export const STEPPER_BUTTON_CLASS =
   'shrink-0 flex items-center justify-center rounded border border-gray-600 bg-gray-700 text-gray-200 ' +
   'transition-[background-color,border-color,transform] select-none touch-manipulation h-7 w-7 md:h-6 md:w-6 ' +
+  '[-webkit-touch-callout:none] ' +
   'active:scale-95 motion-reduce:transition-none motion-reduce:active:scale-100 ' +
   'hover:bg-gray-600 hover:border-gray-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ' +
   'disabled:opacity-30 disabled:hover:bg-gray-700 disabled:hover:border-gray-600 disabled:active:scale-100';
+
+interface StepperHoldButtonProps {
+  disabled: boolean;
+  currentValue: number;
+  applyStep: (current: number) => number;
+  ariaLabel: string;
+  ariaControls?: string;
+  children: React.ReactNode;
+}
+
+/** −/+ を長押しすると徐々に加速して増減する。単発 tap / click は従来どおり 1 ステップ */
+export const StepperHoldButton = React.memo<StepperHoldButtonProps>(({
+  disabled,
+  currentValue,
+  applyStep,
+  ariaLabel,
+  ariaControls,
+  children,
+}) => {
+  const hold = useHoldToRepeat(applyStep, currentValue, disabled);
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      className={STEPPER_BUTTON_CLASS}
+      aria-label={ariaLabel}
+      aria-controls={ariaControls}
+      tabIndex={-1}
+      title="長押しすると徐々に速くなります"
+      {...hold}
+    >
+      {children}
+    </button>
+  );
+});
+
+StepperHoldButton.displayName = 'StepperHoldButton';
 
 const NumericStepperInput = React.memo<NumericStepperInputProps>(({
   value,
@@ -109,14 +148,15 @@ const NumericStepperInput = React.memo<NumericStepperInputProps>(({
     [min, max, resolvedDecimals, displayValue, onChange]
   );
 
-  const handleStep = useCallback(
-    (direction: 1 | -1) => {
+  const applyStepBy = useCallback(
+    (direction: 1 | -1) => (from: number) => {
       // ステッパー操作は編集中のドラフトより現在の確定値を優先する
       setDraft(null);
-      const next = clampValue(displayValue + direction * stepAmount, min, max, resolvedDecimals);
-      if (next !== displayValue) onChange(next);
+      const next = clampValue(from + direction * stepAmount, min, max, resolvedDecimals);
+      if (next !== from) onChange(next);
+      return next;
     },
-    [displayValue, stepAmount, min, max, resolvedDecimals, onChange]
+    [stepAmount, min, max, resolvedDecimals, onChange]
   );
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -133,17 +173,15 @@ const NumericStepperInput = React.memo<NumericStepperInputProps>(({
 
   return (
     <div className={`flex items-center gap-1.5 shrink-0 ${className}`}>
-      <button
-        type="button"
-        onClick={() => handleStep(-1)}
+      <StepperHoldButton
         disabled={disabled || displayValue <= min}
-        className={STEPPER_BUTTON_CLASS}
-        aria-label={`${label}を${stepAmount}減らす`}
-        aria-controls={inputId}
-        tabIndex={-1}
+        currentValue={displayValue}
+        applyStep={applyStepBy(-1)}
+        ariaLabel={`${label}を${stepAmount}減らす`}
+        ariaControls={inputId}
       >
         <Minus className="w-3 h-3" aria-hidden="true" />
-      </button>
+      </StepperHoldButton>
       <input
         id={inputId}
         type="number"
@@ -160,17 +198,15 @@ const NumericStepperInput = React.memo<NumericStepperInputProps>(({
         aria-label={ariaLabel ? `${ariaLabel}（数値）` : undefined}
         className={`${inputClassName} shrink-0 bg-gray-700 border border-gray-600 rounded px-1 py-0.5 text-[10px] md:text-xs text-right focus:outline-none disabled:opacity-50`}
       />
-      <button
-        type="button"
-        onClick={() => handleStep(1)}
+      <StepperHoldButton
         disabled={disabled || displayValue >= max}
-        className={STEPPER_BUTTON_CLASS}
-        aria-label={`${label}を${stepAmount}増やす`}
-        aria-controls={inputId}
-        tabIndex={-1}
+        currentValue={displayValue}
+        applyStep={applyStepBy(1)}
+        ariaLabel={`${label}を${stepAmount}増やす`}
+        ariaControls={inputId}
       >
         <Plus className="w-3 h-3" aria-hidden="true" />
-      </button>
+      </StepperHoldButton>
       {unit && <span className="text-[10px] md:text-xs text-gray-500 shrink-0 whitespace-nowrap">{unit}</span>}
     </div>
   );

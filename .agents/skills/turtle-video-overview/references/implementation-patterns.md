@@ -690,7 +690,7 @@
 | **自動保存タイマー** | `setInterval` は最新状態Refを参照して固定周期で実行し、編集状態の変化でタイマーを再生成しない。差分ハッシュは保存対象の実フィールドに合わせ、`trim` の後に `scale/position` だけ変わったケースも見逃さない。`visibilitychange/focus/pageshow` 復帰時は短い遅延でイベントを集約してから経過時間を判定し、手動保存中は追いつき保存を走らせない。手動保存成功時は現在ハッシュを自動保存の基準にも反映し、直後の重複 auto save を防ぐ。保存間隔変更は custom event + `storage` で即時反映する |
 | **ヘッダーモーダル遷移** | 設定/保存ボタン押下でモーダルを開く前に、通常プレビュー再生中なら `stopAll() + pause()` で明示一時停止する。再生継続のまま開くとモバイルでタップ競合し、モーダルが瞬時に閉じる誤動作を誘発しやすい |
 | **先頭フレーム描画** | `time <= 0.05` の先頭付近は、`エクスポート中` または `非再生時` に限ってキャンバスを強制クリアし、終端フレーム残像（終端キャプション）との重なりを防ぐ。通常再生開始時は保持ロジックを優先して黒フラッシュを回避する |
-| **モバイル** | スライダー誤操作を `useSwipeProtectedValue` で防止。`playsInline` 必須 |
+| **モバイル** | スライダー誤操作を `useSwipeProtectedValue` で防止。−/+ 長押し加速は 12px 移動でキャンセルし、スクロールを奪わない（13-227）。`playsInline` 必須 |
 | **レスポンシブ** | モバイル既存スタイルは変更禁止。`md:` / `lg:` バリアントのみ追加で対応 |
 | **IndexedDB** | `File → ArrayBuffer → File` のラウンドトリップが必要。大容量データに注意。容量不足時は`auto`を自動削除せず、確認後のみ削除リトライする。保存失敗は `lastSaveFailure` に reason / recoveryAction / storageEstimate を残し、復旧導線を UI から再実行できるようにする。`File` 読み出し失敗時は `file.arrayBuffer` / `FileReader` / object URL fetch の順に救済し、素材名付きで失敗理由を残す |
 | **Zustand** | `getState()` で React 外アクセス可能。Ref+State 並行管理でリアルタイム値と再レンダリングを両立 |
@@ -4308,4 +4308,35 @@ export 終了（成功/失敗/中断）
   - 音量スライダーの経路ラッチ（13-172）や連続値の `withoutPreviewPause`（13-173 / 13-174）とは別系統。こちらは「再生中の毎フレーム React 再描画」側。
   - MiniPreview の約 15fps スロットル（6-3）と同じ考え方で、本編 Canvas の描画レートは落とさない。
 - **回帰ガード**: `previewUiTime.test.ts` で初回 / force / 間隔内間引き / ジャンプ即公開、`captionGlyphStyle.test.ts` で同一キー再利用と LRU 上限、`standardPreviewEngine.test.tsx` で preview は UI 時刻を rAF ごとに更新せず `currentTimeRef` だけ進め、stopAll で flush、export は間引かないことを固定する。
+
+### 13-227. スライダー −/+ は長押しで徐々に加速して増減する
+
+- **ファイル**: `src/utils/holdToRepeat.ts`, `src/hooks/useHoldToRepeat.ts`, `src/components/common/NumericStepperInput.tsx`, `src/components/common/NumericSliderField.tsx`, `src/constants/sectionHelp.ts`, `src/test/holdToRepeat.test.ts`, `src/test/numericSliderField.test.tsx`
+- **対象 flavor**: **shared UI**。`NumericSliderField` / `NumericStepperInput` を使う全スライダー（トリム、音量、位置、速度など）。preview / export / 保存契約は変更しない。
+- **問題**: −/+ は都度タップしないと値が変わらず、大きく動かすときに連打が必要だった。
+- **対策**:
+  - 単発の tap / click / キーボード操作は従来どおり `click` で 1 ステップ。
+  - 長押しは 400ms 後から繰り返しを始め、間隔を 180ms → 48ms へ smoothstep で縮める。急加速しない。
+  - 離す・pointercancel・タブ非表示で停止する。繰り返し開始後の click は二重増減しない。
+  - 長押し開始前に 12px 以上動いたらスクロールとみなして繰り返しを始めない（スライダーのスワイプ保護とは別系統）。
+  - 値の進行はセッション内の current を使い、再レンダー待ちで同じ値を何度も書かない。上限/下限で停止する。
+- **注意**:
+  - キャプション一括シフトの −/+ は別実装（固定 100ms）のまま。スライダー共通部品だけを変える。
+  - pointer capture は使わない。スクロールジェスチャをボタンが奪わない。
+  - 大きな移動はスライダー本体や数値入力を使う。−/+ の加速は微調整の連打を省く用途。
+- **回帰ガード**: 加速カーブ、短押し 1 ステップ、長押し開始と停止、click 二重発火防止、移動キャンセル、上限停止をテストする。
+
+### 13-228. 画像の表示時間は 0.1 秒単位
+
+- **ファイル**: `src/constants/index.ts`, `src/utils/media.ts`, `src/stores/mediaStore.ts`, `src/components/media/ClipItem.tsx`, `src/components/TurtleVideo.tsx`, `src/hooks/useMediaItems.ts`, `src/constants/sectionHelp.ts`, `spec.md`
+- **対象 flavor**: **shared UI / shared schema**。画像クリップの表示時間は両 flavor 共通。preview / export エンジンは変更しない（尺は `item.duration` を読む既存契約のまま）。
+- **問題**: 画像の表示時間スライダーと −/+ が 0.5 秒刻みで、短いカットを細かく合わせにくかった。
+- **対策**:
+  - `IMAGE_DURATION_STEP = 0.1` を追加し、`ClipItem` の表示時間 `NumericSliderField` が同じ定数を使う。
+  - 範囲は従来どおり 0.5〜60 秒（最小は 0.5 のまま。フェード 0.5/1/2 や再生速度下限 0.5 とは別契約）。
+  - `normalizeImageDuration()` が 0.1 秒へ丸め、下限 0.5 / 上限 60 へクランプする。store と UI ハンドラで共有する。
+- **注意**:
+  - キャプション一括入力の「1 行あたり表示秒数」やフェード秒数は 0.5 刻みのまま。画像クリップの表示時間だけを変える。
+  - UI の max を 30 秒へ戻さない。仕様と定数は 60 秒。
+- **回帰ガード**: `normalizeImageDuration`、store の 0.1 秒反映、スライダー step/min/max と −/+ 1 回が 0.1 秒、ヘルプの「0.1秒単位」をテストする。
 

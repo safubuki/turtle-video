@@ -79,6 +79,7 @@ import {
   createPosterDataUrlFromCanvas,
   isSupportedLogoImageFile,
   snapshotLogoImageFile,
+  normalizeImageDuration,
 } from '../utils/media';
 import { computeTimelineDurationFromSource } from '../utils/playbackSpeed';
 
@@ -2460,10 +2461,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   // --- 画像表示時間更新ハンドラ ---
   // 目的: 画像クリップの表示時間を変更
   const handleUpdateImageDuration = useCallback((id: string, newDuration: string) => {
-    let val = parseFloat(newDuration);
-    if (isNaN(val) || val < 0.5) val = 0.5;
     pausePreviewBeforeEdit('update-image-duration');
-    updateImageDuration(id, val);
+    updateImageDuration(id, normalizeImageDuration(newDuration));
   }, [pausePreviewBeforeEdit, updateImageDuration]);
 
   // --- スケール更新ハンドラ ---

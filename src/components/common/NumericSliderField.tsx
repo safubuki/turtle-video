@@ -8,6 +8,7 @@
  * スマホでの数値調整が難しい問題（Issue: スライダー入力の操作性）への対応。
  * スライダーのつまみをタッチで目的の値へピンポイントに合わせるのは至難なため、
  * 数値欄の左右に −/+ を添えて 1 ステップずつ確実に詰められるようにする。
+ * −/+ は単発タップに加え、長押しで徐々に加速して増減する（離すと停止）。
  * −/+ を数値欄と隣接させることで「数値を微調整する道具」という意味づけが視覚的に
  * 一致し、親指の移動距離も最短になる（バーの両端に置くとバーが左右から圧迫される）。
  *
@@ -17,7 +18,7 @@
 import React from 'react';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import NumericStepperInput, {
-  STEPPER_BUTTON_CLASS,
+  StepperHoldButton,
   clampValue,
   inferDecimals,
 } from './NumericStepperInput';
@@ -92,9 +93,10 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
   const effectiveLabel = ariaLabel ?? label;
   const isStacked = layout === 'stacked' && !hideInput;
 
-  const handleStep = (direction: 1 | -1) => {
-    const next = clampValue(displayValue + direction * stepAmount, min, max, resolvedDecimals);
-    if (next !== displayValue) onChange(next);
+  const applyStepBy = (direction: 1 | -1) => (from: number) => {
+    const next = clampValue(from + direction * stepAmount, min, max, resolvedDecimals);
+    if (next !== from) onChange(next);
+    return next;
   };
 
   return (
@@ -119,26 +121,22 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
       {hideInput ? (
         // 値は呼び出し元の見出しに表示されているため、増減だけを提供する
         <>
-          <button
-            type="button"
-            onClick={() => handleStep(-1)}
+          <StepperHoldButton
             disabled={disabled || displayValue <= min}
-            className={STEPPER_BUTTON_CLASS}
-            aria-label={`${effectiveLabel ?? '値'}を${stepAmount}減らす`}
-            tabIndex={-1}
+            currentValue={displayValue}
+            applyStep={applyStepBy(-1)}
+            ariaLabel={`${effectiveLabel ?? '値'}を${stepAmount}減らす`}
           >
             <Minus className="w-3 h-3" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            onClick={() => handleStep(1)}
+          </StepperHoldButton>
+          <StepperHoldButton
             disabled={disabled || displayValue >= max}
-            className={STEPPER_BUTTON_CLASS}
-            aria-label={`${effectiveLabel ?? '値'}を${stepAmount}増やす`}
-            tabIndex={-1}
+            currentValue={displayValue}
+            applyStep={applyStepBy(1)}
+            ariaLabel={`${effectiveLabel ?? '値'}を${stepAmount}増やす`}
           >
             <Plus className="w-3 h-3" aria-hidden="true" />
-          </button>
+          </StepperHoldButton>
         </>
       ) : (
         <NumericStepperInput
