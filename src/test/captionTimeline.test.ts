@@ -9,9 +9,13 @@ import {
   isSequentialCaption,
   resolveCaptionDisplaySegment,
   resolveCaptionDisplayText,
+  formatCaptionTimeInput,
+  resolveCaptionEndTimeInput,
   resolveSequentialCaptionSegments,
   resolveShiftAlignmentTarget,
+  snapTimeToTimelineEnd,
   splitSequentialCaptionLines,
+  stepCaptionEndTime,
 } from '../utils/captionTimeline';
 import type { Caption } from '../types';
 
@@ -33,6 +37,54 @@ describe('isCaptionActiveAtTime', () => {
     expect(isCaptionActiveAtTime(caption, 2)).toBe(true);
     expect(isCaptionActiveAtTime(caption, 4.99)).toBe(true);
     expect(isCaptionActiveAtTime(caption, 5)).toBe(false);
+  });
+
+  it('終了がタイムライン実尺のときは最終フレームも含む', () => {
+    const caption = makeCaption({ startTime: 0, endTime: 7.04 });
+    expect(isCaptionActiveAtTime(caption, 7.04)).toBe(false);
+    expect(isCaptionActiveAtTime(caption, 7.04, 7.04)).toBe(true);
+    expect(isCaptionActiveAtTime(caption, 7.03, 7.04)).toBe(true);
+    expect(isCaptionActiveAtTime(caption, 7.0416, 7.0416)).toBe(true);
+    expect(isCaptionActiveAtTime(makeCaption({ startTime: 0, endTime: 7 }), 7.04, 7.04)).toBe(false);
+  });
+});
+
+describe('snapTimeToTimelineEnd', () => {
+  it('通常は 0.1 秒へ丸め、実尺の端数はプレビューと同じ 1/100 秒にする', () => {
+    expect(snapTimeToTimelineEnd(5.14, 7.04)).toBe(5.1);
+    expect(snapTimeToTimelineEnd(7, 7.04)).toBe(7);
+    expect(snapTimeToTimelineEnd(7.01, 7.04)).toBe(7.04);
+    expect(snapTimeToTimelineEnd(7.04, 7.04)).toBe(7.04);
+    expect(snapTimeToTimelineEnd(7.1, 7.04)).toBe(7.04);
+    expect(snapTimeToTimelineEnd(7.0416, 7.0416)).toBe(7.04);
+    expect(snapTimeToTimelineEnd(7.01, 7.0416)).toBe(7.04);
+  });
+});
+
+describe('resolveCaptionEndTimeInput', () => {
+  it('開始以下は受け付けず、末尾は実尺へ吸着する', () => {
+    expect(resolveCaptionEndTimeInput(0, { startTime: 0, timelineEndSec: 7.04 })).toBeNull();
+    expect(resolveCaptionEndTimeInput(7, { startTime: 0, timelineEndSec: 7.04 })).toBe(7);
+    expect(resolveCaptionEndTimeInput(7.04, { startTime: 0, timelineEndSec: 7.04 })).toBe(7.04);
+  });
+});
+
+describe('stepCaptionEndTime', () => {
+  const opts = { startTime: 0, timelineEndSec: 15.04 };
+
+  it('実尺端数からのマイナスは 0.1 秒格子（15.0）へ戻す', () => {
+    expect(stepCaptionEndTime(15.04, -1, opts)).toBe(15);
+    expect(stepCaptionEndTime(15, -1, opts)).toBe(14.9);
+    expect(stepCaptionEndTime(15, 1, opts)).toBe(15.04);
+  });
+});
+
+describe('formatCaptionTimeInput', () => {
+  it('0 は 0、切りの良い数は 1 桁、実尺端数は 2 桁', () => {
+    expect(formatCaptionTimeInput(0)).toBe('0');
+    expect(formatCaptionTimeInput(14)).toBe('14.0');
+    expect(formatCaptionTimeInput(14.9)).toBe('14.9');
+    expect(formatCaptionTimeInput(15.04)).toBe('15.04');
   });
 });
 

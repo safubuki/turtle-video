@@ -134,3 +134,47 @@ describe('ClipItem 速度バッジ', () => {
     expect(screen.getByTestId('clip-show-speed-badge-video-1')).toBeDisabled();
   });
 });
+
+describe('ClipItem video trim end snap', () => {
+  it('終了スライダーはプレビューと同じ 1/100 秒で、右端と＋が実尺へ着く', () => {
+    const onUpdateVideoTrim = vi.fn();
+    renderClipItem({
+      onUpdateVideoTrim,
+      item: createVideo({
+        duration: 15.04,
+        originalDuration: 15.0416,
+        trimStart: 0,
+        trimEnd: 15,
+      }),
+    });
+
+    const slider = screen.getByLabelText('トリミング終了位置');
+    expect(slider).toHaveAttribute('max', '15.04');
+    expect(slider).toHaveAttribute('step', '0.01');
+    expect(screen.getByLabelText('トリミング開始位置（数値）')).toHaveValue('0');
+    expect(screen.getByLabelText('トリミング終了位置（数値）')).toHaveValue('15.0');
+
+    fireEvent.click(screen.getByRole('button', { name: 'トリミング終了位置を0.1増やす' }));
+    expect(onUpdateVideoTrim).toHaveBeenCalledWith('end', '15.04');
+
+    onUpdateVideoTrim.mockClear();
+    fireEvent.change(slider, { target: { value: '15.04' } });
+    expect(onUpdateVideoTrim).toHaveBeenCalledWith('end', '15.04');
+  });
+
+  it('実尺端数からのマイナスは 15.0 へ戻る', () => {
+    const onUpdateVideoTrim = vi.fn();
+    renderClipItem({
+      onUpdateVideoTrim,
+      item: createVideo({
+        duration: 15.04,
+        originalDuration: 15.0416,
+        trimStart: 0,
+        trimEnd: 15.04,
+      }),
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'トリミング終了位置を0.1減らす' }));
+    expect(onUpdateVideoTrim).toHaveBeenCalledWith('end', '15');
+  });
+});

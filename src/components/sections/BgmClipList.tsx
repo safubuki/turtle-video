@@ -29,6 +29,14 @@ import {
 import { formatNormalizeAdjustment } from '../../utils';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import NumericSliderField from '../common/NumericSliderField';
+import {
+  TIME_SLIDER_STEP_SEC,
+  TIME_STEPPER_STEP_SEC,
+  formatTimeStepperInput,
+  resolveEndTimeInput,
+  resolveTimeSliderMax,
+  stepEndTime,
+} from '../../utils/timeStepperInput';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 
 interface BgmClipListProps {
@@ -438,10 +446,11 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
                   <NumericSliderField
                     ariaLabel="BGMのトリミング開始"
                     min={0}
-                    max={Math.max(0, clip.duration)}
-                    step={0.1}
+                    max={resolveTimeSliderMax(clip.duration, clip.duration)}
+                    step={TIME_STEPPER_STEP_SEC}
                     value={trimStart}
                     onChange={withContinuousEdit('update-bgm-clip-trim', (val: number) => updateBgmClipTrim(clip.id, 'start', val))}
+                    formatDisplayValue={formatTimeStepperInput}
                     disabled={isLocked}
                     unit="秒"
                     sliderClassName="flex-1 min-w-0 accent-purple-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
@@ -456,10 +465,24 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
                   <NumericSliderField
                     ariaLabel="BGMのトリミング終了"
                     min={0}
-                    max={Math.max(0, clip.duration)}
-                    step={0.1}
+                    max={resolveTimeSliderMax(clip.duration, clip.duration)}
+                    step={TIME_SLIDER_STEP_SEC}
+                    stepperStep={TIME_STEPPER_STEP_SEC}
                     value={trimEnd}
-                    onChange={withContinuousEdit('update-bgm-clip-trim', (val: number) => updateBgmClipTrim(clip.id, 'end', val))}
+                    onChange={withContinuousEdit('update-bgm-clip-trim', (val: number) => {
+                      const next = resolveEndTimeInput(val, {
+                        startTime: trimStart,
+                        limitSec: clip.duration,
+                      });
+                      if (next != null) updateBgmClipTrim(clip.id, 'end', next);
+                    })}
+                    formatDisplayValue={formatTimeStepperInput}
+                    resolveStep={(from, direction) => (
+                      stepEndTime(from, direction, {
+                        startTime: trimStart,
+                        limitSec: clip.duration,
+                      }) ?? from
+                    )}
                     disabled={isLocked}
                     unit="秒"
                     sliderClassName="flex-1 min-w-0 accent-purple-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"

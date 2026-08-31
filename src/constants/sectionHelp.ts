@@ -358,6 +358,7 @@ export function getSectionHelpContent(
             '「開始」「終了」でプレビューの現在位置を動画のトリミング範囲へ反映できます。',
             '再トリミング時も、現在の有効区間を基準に計算します。',
             '動画・画像とも、スライダーからも時間を調整できます。',
+            '終了の数値はプレビューと同じ 1/100 秒です。右端や＋で末尾まで動かすと実尺へ合わせます。',
             '画像の表示時間は 0.5秒〜60秒で、0.1秒単位で調整できます。',
           ],
           visuals: ['trim_chip', 'duration_chip', 'range_pin_buttons', 'slider_demo'],
@@ -706,6 +707,12 @@ export function getSectionHelpContent(
           title: '表示時間',
           description:
             '開始時間・終了時間はスライダーや数値で調整し、現在位置ボタンでプレビューの現在位置に設定できます。',
+          bullets: [
+            '通常は 0.1秒単位です。',
+            '終了の数値はプレビューと同じ 1/100 秒（例: 7.04）で表示します。',
+            '終了をスライダーの右端や＋で末尾まで動かすと、動画の実尺まで表示します。',
+            'プレビューが末尾のとき「終了」も同じ実尺へ合わせます。',
+          ],
           visuals: ['start_chip', 'duration_chip', 'current_pin_chip', 'slider_demo'],
         },
         {
@@ -892,6 +899,7 @@ export function getSectionHelpContent(
     if (clipRange) {
       clipRange.bullets = [
         '動画・画像とも、スライダーから時間を調整できます。',
+        '終了の数値はプレビューと同じ 1/100 秒です。右端や＋で末尾まで動かすと実尺へ合わせます。',
         '画像の表示時間は 0.5秒〜60秒で、0.1秒単位で調整できます。',
       ];
       clipRange.visuals = ['trim_chip', 'duration_chip', 'slider_demo'];

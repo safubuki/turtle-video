@@ -3414,7 +3414,7 @@ export function usePreviewEngine({
         if (!isEndrollFrame && currentCaptionSettings.enabled && currentCaptions.length > 0) {
           const glyphCache = captionGlyphCanvasCacheRef.current;
           const activeCaptions = currentCaptions.filter(
-            (c) => isCaptionActiveAtTime(c, time),
+            (c) => isCaptionActiveAtTime(c, time, totalDurationRef.current),
           );
           for (const activeCaption of activeCaptions) {
             // 複数行テキストは時分割（文字数比で配分した 1 行）を順次表示する。
@@ -3429,7 +3429,7 @@ export function usePreviewEngine({
                 captionId: activeCaption.id,
                 captionStart: activeCaption.startTime,
                 captionEnd: activeCaption.endTime,
-                isActive: isCaptionActiveAtTime(activeCaption, time),
+                isActive: isCaptionActiveAtTime(activeCaption, time, totalDurationRef.current),
               });
             }
             // fontSize は 1080p export を基準にした絶対 px (medium = 7.41% of 短辺 1080)。

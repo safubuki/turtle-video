@@ -1602,6 +1602,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                   useBlurFallback: false,
                   glyphPixelRatio: 2,
                   glyphCanvasCache: captionGlyphCanvasCache,
+                  timelineEndSec: layerInput.totalDurationSec,
                 }
               );
             };
@@ -1647,6 +1648,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                         useBlurFallback: false,
                         glyphPixelRatio: 2,
                         glyphCanvasCache: captionGlyphCanvasCache,
+                        timelineEndSec: layerInput.totalDurationSec,
                       }
                     );
                   },

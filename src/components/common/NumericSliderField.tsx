@@ -54,6 +54,10 @@ export interface NumericSliderFieldProps {
   inputClassName?: string;
   /** 表示時の小数桁数。省略時は step から推定する */
   decimals?: number;
+  /** 指定時は数値欄の表示文字列を差し替える */
+  formatDisplayValue?: (value: number) => string;
+  /** −/+ の次値。省略時は from ± stepperStep を clamp する */
+  resolveStep?: (from: number, direction: 1 | -1) => number;
   /**
    * 数値入力欄を出さず −/+ だけを添える。
    * 値を見出し側に表示しているフル幅スライダー（位置・拡大・音量など）向け。
@@ -82,6 +86,8 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
   sliderClassName = 'flex-1 min-w-0 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50',
   inputClassName = 'w-12 focus:border-blue-500',
   decimals,
+  formatDisplayValue,
+  resolveStep,
   hideInput = false,
   ariaLabel,
   inputId,
@@ -94,7 +100,10 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
   const isStacked = layout === 'stacked' && !hideInput;
 
   const applyStepBy = (direction: 1 | -1) => (from: number) => {
-    const next = clampValue(from + direction * stepAmount, min, max, resolvedDecimals);
+    const raw = resolveStep
+      ? resolveStep(from, direction)
+      : from + direction * stepAmount;
+    const next = clampValue(raw, min, max, resolvedDecimals);
     if (next !== from) onChange(next);
     return next;
   };
@@ -150,6 +159,8 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
           unit={unit}
           inputClassName={inputClassName}
           decimals={decimals}
+          formatDisplayValue={formatDisplayValue}
+          resolveStep={resolveStep}
           ariaLabel={effectiveLabel}
           inputId={inputId}
           className={isStacked ? 'col-start-2 justify-self-end' : ''}

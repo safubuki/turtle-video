@@ -33,6 +33,14 @@ import { formatNormalizeAdjustment } from '../../utils';
 import { getAudioUploadAccept } from '../../utils/platform';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import NumericSliderField from '../common/NumericSliderField';
+import {
+  TIME_SLIDER_STEP_SEC,
+  TIME_STEPPER_STEP_SEC,
+  formatTimeStepperInput,
+  resolveEndTimeInput,
+  resolveTimeSliderMax,
+  stepEndTime,
+} from '../../utils/timeStepperInput';
 import NumericStepperInput from '../common/NumericStepperInput';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import { getAppFlavorUiCapabilities } from '../../app/appFlavorUi';
@@ -538,10 +546,11 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                       <NumericSliderField
                         ariaLabel="ナレーションのトリミング開始"
                         min={0}
-                        max={Math.max(0, clip.duration)}
-                        step={0.1}
+                        max={resolveTimeSliderMax(clip.duration, clip.duration)}
+                        step={TIME_STEPPER_STEP_SEC}
                         value={trimStart}
                         onChange={(val) => handleTrimStartChange(clip.id, val)}
+                        formatDisplayValue={formatTimeStepperInput}
                         disabled={isNarrationLocked}
                         unit="秒"
                         sliderClassName="flex-1 min-w-0 accent-indigo-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
@@ -557,10 +566,24 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                       <NumericSliderField
                         ariaLabel="ナレーションのトリミング終了"
                         min={0}
-                        max={Math.max(0, clip.duration)}
-                        step={0.1}
+                        max={resolveTimeSliderMax(clip.duration, clip.duration)}
+                        step={TIME_SLIDER_STEP_SEC}
+                        stepperStep={TIME_STEPPER_STEP_SEC}
                         value={trimEnd}
-                        onChange={(val) => handleTrimEndChange(clip.id, val)}
+                        onChange={(val) => {
+                          const next = resolveEndTimeInput(val, {
+                            startTime: trimStart,
+                            limitSec: clip.duration,
+                          });
+                          if (next != null) handleTrimEndChange(clip.id, next);
+                        }}
+                        formatDisplayValue={formatTimeStepperInput}
+                        resolveStep={(from, direction) => (
+                          stepEndTime(from, direction, {
+                            startTime: trimStart,
+                            limitSec: clip.duration,
+                          }) ?? from
+                        )}
                         disabled={isNarrationLocked}
                         unit="秒"
                         sliderClassName="flex-1 min-w-0 accent-indigo-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"

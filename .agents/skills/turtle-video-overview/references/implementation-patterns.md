@@ -4340,3 +4340,56 @@ export 終了（成功/失敗/中断）
   - UI の max を 30 秒へ戻さない。仕様と定数は 60 秒。
 - **回帰ガード**: `normalizeImageDuration`、store の 0.1 秒反映、スライダー step/min/max と −/+ 1 回が 0.1 秒、ヘルプの「0.1秒単位」をテストする。
 
+### 13-229. キャプション終了はタイムライン実尺へ吸着する
+
+- **ファイル**: `src/utils/captionTimeline.ts`, `src/components/common/NumericStepperInput.tsx`, `src/components/media/CaptionItem.tsx`, `src/components/sections/CaptionSection.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/utils/captionLayerRender.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/constants/sectionHelp.ts`
+- **対象 flavor**: **shared UI / shared schema**。描画は standard / apple-safari の両 preview と standard のキャプション単独出力。
+- **問題**: キャプションの開始/終了は 0.1 秒刻み。動画尺が 7.04 秒のような端数だと、終了 7.0 で末尾約 0.04 秒だけキャプションが消える。スライダー `max` は実尺なのに、小数 1 桁丸めで 7.04 が 7.0 に戻っていた。＋も 7.1 → 7.04 → 7.0 と同じ。
+- **対策**:
+  - 通常操作は 0.1 秒のまま。
+  - `clampValue` は上限・下限そのものを step 格子外でも残す（右端ドラッグと＋の突き当たり）。
+  - `snapTimeToTimelineEnd` / `resolveCaptionEndTimeInput` が、最後の 0.1 秒格子より先だけ実尺へ吸着する（7.00 は 7.00、7.01〜7.04 と右端は 7.04）。
+  - 「プレビュー位置を反映: 終了」も同じ関数を使う。
+  - 終了が実尺まで届いているときは `[start, end)` でも最終フレームを描く。
+- **注意**:
+  - キャプション全体を 0.01 秒刻みにしない。
+  - 動画タイトルの `normalizeVideoTitleRange` は従来どおり 0.1 秒量子化。今回はキャプション終了だけ。
+  - 7.03 のような途中値を自由入力できるようにしない（0.1 へ丸める）。
+- **回帰ガード**: 吸着純ロジック、最終フレーム inclusive、＋が 7.04 を残すこと、ヘルプの実尺案内をテストする。
+
+### 13-230. キャプション終了の表示桁はプレビューと同じ 1/100 秒にし、スライダー右端で実尺へ届ける
+
+- **ファイル**: `src/utils/format.ts`, `src/utils/captionTimeline.ts`, `src/components/media/CaptionItem.tsx`
+- **問題**:
+  - ＋で末尾へ吸着したあと、数値欄が `7.0416` のように生の float を出してプレビューの `0:07.04` と桁が食い違った。
+  - 終了スライダーの step が 0.1 のままだと、max 7.04 までの端数は幅の 0.6% 程度しかなく、ドラッグでは 7.0 で止まって実尺へ届かなかった。
+- **対策**:
+  - `quantizeTimeToCentiseconds()` を `formatTimeCentiseconds` と同じ計算にし、吸着先・スライダー max・表示を 7.04 に揃える。
+  - 終了スライダーだけ `step=0.01`（プレビューと同じ 1/100 秒）、−/+ は従来どおり 0.1 秒。右端が 7.04 の実ステップになる。
+  - 終了 7.04 は実尺 7.0416 の最終フレームも覆う。
+- **注意**: 開始スライダーの 0.1 秒刻みと、キャプション全体の 0.01 秒編集化は変えない。
+- **回帰ガード**: 7.0416 → 7.04、スライダー max/step、数値欄 7.04、右端ドラッグをテストする。
+
+### 13-231. キャプション終了の − は実尺端数から 0.1 秒格子へ戻し、0 以外は小数を揃える
+
+- **ファイル**: `src/utils/captionTimeline.ts`, `src/components/common/NumericStepperInput.tsx`, `src/components/common/NumericSliderField.tsx`, `src/components/media/CaptionItem.tsx`
+- **問題**:
+  - 15.04 でマイナスすると 14.9 になり、直前の 15.0 を飛ばして違和感があった。
+  - 14 のように切りの良い数が整数表示になり、14.9 / 15.04 と桁が揃わなかった。0 まで 0.0 にすると冗長。
+- **対策**:
+  - `stepCaptionEndTime` は実尺端数（15.04）からのマイナスを最後の 0.1 秒格子（15.0）へ戻す。その次が 14.9。
+  - `formatCaptionTimeInput` は 0 → `0`、0.1 秒格子 → `14.0` / `14.9`、端数実尺 → `15.04`。
+- **注意**: 表示フォーマットはキャプションの開始/終了だけ。他の NumericSliderField は type=number のまま。
+- **回帰ガード**: 15.04 − → 15.0、表示 `0` / `14.0` / `15.04` をテストする。
+
+### 13-232. 動画・BGM・ナレーションのトリム終了もキャプションと同じ終端吸着と桁揃え
+
+- **ファイル**: `src/utils/timeStepperInput.ts`（新規）, `src/utils/captionTimeline.ts`, `src/components/media/ClipItem.tsx`, `src/components/sections/BgmClipList.tsx`, `src/components/sections/NarrationSection.tsx`, `src/components/TurtleVideo.tsx`
+- **問題**: キャプションだけ 1/100 秒表示・右端吸着にしたため、動画トリムは 15 と整数表示のまま、スライダーも 0.1 秒で実尺 15.04 へ届かなかった。
+- **対策**:
+  - 共通ヘルパー `timeStepperInput.ts` に終端吸着・−の 15.0 戻し・`0` / `15.0` / `15.04` 表示を集約する。
+  - 動画トリム、BGM トリム、ナレーション トリムの終了に同じ契約を載せる。開始は表示だけ揃える。
+  - プレビュー位置の「終了」も `snapTimeToLimitEnd` を通す。
+- **注意**: 画像の表示時間は範囲 0.5〜60・0.1 刻みのまま。表示桁だけ共通フォーマットにする。
+- **回帰ガード**: トリム終了の max/step、＋で 15.04、−で 15.0、開始 `0` を ClipItem テストで固定する。
+

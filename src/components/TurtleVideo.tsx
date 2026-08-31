@@ -71,6 +71,7 @@ import {
 } from '../utils/narrationCaptionPlan';
 import { analyzeNarrationWaveform } from '../hooks/useNarrationWaveform';
 import { resolveEffectiveAudioClipPlayback } from '../stores/audioStore';
+import { snapTimeToLimitEnd } from '../utils/timeStepperInput';
 import {
   computeVideoTrimFromPreviewPosition,
   buildAutoProjectPosterContentKey,
@@ -2231,7 +2232,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
       const wasManual = item.thumbnailMode === 'manual';
       pausePreviewBeforeEdit(`set-video-trim-from-current-${type}`);
-      updateVideoTrim(id, type, type === 'start' ? nextTrim.start : nextTrim.end);
+      const nextValue = type === 'start'
+        ? nextTrim.start
+        : snapTimeToLimitEnd(nextTrim.end, item.originalDuration);
+      updateVideoTrim(id, type, nextValue);
 
       if (wasManual) {
         const after = useMediaStore.getState().mediaItems.find((v) => v.id === id);

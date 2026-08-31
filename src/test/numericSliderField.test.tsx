@@ -124,6 +124,27 @@ describe('NumericSliderField', () => {
     expect(screen.getByLabelText('終了位置')).toBeDisabled();
   });
 
+  it('＋が上限を超えるときは step 格子外の max そのものへ収める', () => {
+    const { onChange } = renderField({ value: 7, min: 0, max: 7.04, step: 0.1 });
+
+    fireEvent.click(screen.getByLabelText('終了位置を0.1増やす'));
+    expect(onChange).toHaveBeenCalledWith(7.04);
+  });
+
+  it('max が step 格子外でも右端の値を 0.1 へ丸め戻さない', () => {
+    const { onChange } = renderField({ value: 7, min: 0, max: 7.04, step: 0.1 });
+
+    fireEvent.change(screen.getByLabelText('終了位置'), { target: { value: '7.04' } });
+    expect(onChange).toHaveBeenCalledWith(7.04);
+  });
+
+  it('実尺の端数は数値欄にそのまま出す', () => {
+    renderField({ value: 7.04, min: 0, max: 7.04, step: 0.1 });
+
+    expect(getNumberInput().value).toBe('7.04');
+    expect(screen.getByLabelText('終了位置を0.1増やす')).toBeDisabled();
+  });
+
   it('スライダー操作は従来どおり即時反映する', () => {
     const { onChange } = renderField();
 

@@ -32,6 +32,22 @@ export function formatTimeDetailed(seconds: number): string {
 }
 
 /**
+ * プレビューと同じ 1/100 秒へ量子化した秒数を返す（例: 7.0416 → 7.04）。
+ * `formatTimeCentiseconds` と桁を揃えるための共通入口。
+ */
+export function quantizeTimeToCentiseconds(seconds: number): number {
+  return toCentisecondCount(seconds) / 100;
+}
+
+function toCentisecondCount(seconds: number): number {
+  if (!Number.isFinite(seconds) || seconds < 0) return 0;
+  // 浮動小数の誤差で 1/100 秒がひとつ下に出るのを防ぐ（例: 3.07 が 3.06 に見える）。
+  // ただし 0.9999 のような値は round で 1000 になり cs=100（3 桁）へ溢れるため、
+  // **全体を 1/100 秒へ量子化してから**分・秒・1/100 秒へ分解する。
+  return Math.floor(Math.round(seconds * 1000) / 10);
+}
+
+/**
  * 秒数を "分:秒.1/100秒" 形式にフォーマット（プレビューの現在位置表示用）。
  *
  * プレビューは 1 秒未満の移動が頻繁に起きる（再生・スライダー操作・
@@ -49,11 +65,7 @@ export function formatTimeDetailed(seconds: number): string {
 export function formatTimeCentiseconds(seconds: number): string {
   if (!seconds || isNaN(seconds) || !isFinite(seconds) || seconds < 0) return '0:00.00';
 
-  // 浮動小数の誤差で 1/100 秒がひとつ下に出るのを防ぐ（例: 3.07 が 3.06 に見える）。
-  // ただし 0.9999 のような値は round で 1000 になり cs=100（3 桁）へ溢れるため、
-  // **全体を 1/100 秒へ量子化してから**分・秒・1/100 秒へ分解する。
-  // 溢れを放置すると "0:00.100" のように桁が増え、秒の繰り上がりも失われる。
-  const totalCs = Math.floor(Math.round(seconds * 1000) / 10);
+  const totalCs = toCentisecondCount(seconds);
   const m = Math.floor(totalCs / 6000);
   const s = Math.floor((totalCs % 6000) / 100);
   const cs = totalCs % 100;

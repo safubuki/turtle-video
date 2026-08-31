@@ -40,6 +40,10 @@ export interface NumericStepperInputProps {
   inputClassName?: string;
   /** 表示時の小数桁数。省略時は step から推定する */
   decimals?: number;
+  /** 指定時は数値欄の表示文字列を差し替える（14 → "14.0"、0 → "0" など） */
+  formatDisplayValue?: (value: number) => string;
+  /** −/+ の次値。省略時は from ± stepperStep を clamp する */
+  resolveStep?: (from: number, direction: 1 | -1) => number;
   ariaLabel?: string;
   /** 数値欄の id。外部の label と紐付けたい場合に指定する（省略時は自動採番） */
   inputId?: string;
@@ -57,8 +61,12 @@ export const inferDecimals = (step: number): number => {
 
 /** 値を [min, max] に収め、指定桁数へ丸める（浮動小数の誤差対策を兼ねる） */
 export const clampValue = (value: number, min: number, max: number, decimals: number): number => {
+  if (!Number.isFinite(value)) return min;
   const clamped = Math.min(max, Math.max(min, value));
-  const factor = 10 ** decimals;
+  // 上限・下限そのものは step の格子外でも有効（尺 7.04 秒のスライダー右端など）
+  if (clamped >= max - Number.EPSILON) return max;
+  if (clamped <= min + Number.EPSILON) return min;
+  const factor = 10 ** Math.max(0, decimals);
   return Math.round(clamped * factor) / factor;
 };
 
@@ -123,6 +131,8 @@ const NumericStepperInput = React.memo<NumericStepperInputProps>(({
   unit,
   inputClassName = 'w-16 focus:border-blue-500',
   decimals,
+  formatDisplayValue,
+  resolveStep,
   ariaLabel,
   inputId: inputIdProp,
   className = '',
@@ -152,11 +162,14 @@ const NumericStepperInput = React.memo<NumericStepperInputProps>(({
     (direction: 1 | -1) => (from: number) => {
       // ステッパー操作は編集中のドラフトより現在の確定値を優先する
       setDraft(null);
-      const next = clampValue(from + direction * stepAmount, min, max, resolvedDecimals);
+      const raw = resolveStep
+        ? resolveStep(from, direction)
+        : from + direction * stepAmount;
+      const next = clampValue(raw, min, max, resolvedDecimals);
       if (next !== from) onChange(next);
       return next;
     },
-    [stepAmount, min, max, resolvedDecimals, onChange]
+    [stepAmount, min, max, resolvedDecimals, onChange, resolveStep]
   );
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -184,12 +197,12 @@ const NumericStepperInput = React.memo<NumericStepperInputProps>(({
       </StepperHoldButton>
       <input
         id={inputId}
-        type="number"
+        type={formatDisplayValue ? 'text' : 'number'}
         inputMode="decimal"
-        min={min}
-        max={max}
-        step={step}
-        value={draft ?? displayValue}
+        min={formatDisplayValue ? undefined : min}
+        max={formatDisplayValue ? undefined : max}
+        step={formatDisplayValue ? undefined : step}
+        value={draft ?? (formatDisplayValue ? formatDisplayValue(displayValue) : displayValue)}
         onChange={(e) => setDraft(e.target.value)}
         onFocus={(e) => e.currentTarget.select()}
         onBlur={(e) => commitDraft(e.target.value)}

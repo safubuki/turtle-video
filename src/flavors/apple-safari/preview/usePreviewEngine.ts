@@ -1259,7 +1259,7 @@ export function usePreviewEngine({
 
         if (currentCaptionSettings.enabled && currentCaptions.length > 0) {
           const activeCaptions = currentCaptions.filter(
-            (c) => isCaptionActiveAtTime(c, time),
+            (c) => isCaptionActiveAtTime(c, time, totalDurationRef.current),
           );
           for (const activeCaption of activeCaptions) {
             // fontSize は 1080p export を基準にした絶対 px (medium = 7.41% of 短辺 1080)。
