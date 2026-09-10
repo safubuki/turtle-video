@@ -526,13 +526,6 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
                 <br />
                 表示時間
               </span>
-              <button
-                onClick={() => stepDuration(-0.5)}
-                className="w-8 h-8 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-200 flex items-center justify-center transition"
-                aria-label="表示時間を0.5秒減らす"
-              >
-                <Minus className="w-3.5 h-3.5" />
-              </button>
               <input
                 type="number"
                 min={BULK_CAPTION_DURATION_MIN_SEC}
@@ -546,6 +539,13 @@ const CaptionBulkAddModal: React.FC<CaptionBulkAddModalProps> = ({
                 className="w-16 h-8 bg-gray-800 border border-gray-700 rounded-lg px-1 text-center text-sm focus:outline-none focus:border-yellow-500"
               />
               <span className="text-gray-500">秒</span>
+              <button
+                onClick={() => stepDuration(-0.5)}
+                className="w-8 h-8 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-200 flex items-center justify-center transition"
+                aria-label="表示時間を0.5秒減らす"
+              >
+                <Minus className="w-3.5 h-3.5" />
+              </button>
               <button
                 onClick={() => stepDuration(0.5)}
                 className="w-8 h-8 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-200 flex items-center justify-center transition"

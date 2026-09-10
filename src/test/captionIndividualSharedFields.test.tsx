@@ -318,12 +318,17 @@ describe('CaptionPositionField（一括設定と個別設定の共有コンポ�
     );
 
     const xNumber = screen.getByLabelText('テストの表示位置 X（数値）');
-    const stepper = xNumber.parentElement;
+    const stepper = xNumber.closest('[data-numeric-stepper]');
     const controlRow = stepper?.parentElement;
     expect(controlRow).toHaveClass('grid');
     expect(controlRow).toHaveClass('grid-cols-[auto_minmax(0,1fr)]');
     expect(stepper).toHaveClass('col-start-2');
-    expect(stepper).toHaveClass('justify-self-end');
+    expect(stepper).toHaveClass('w-full');
+    expect(stepper).toHaveClass('justify-between');
+    const minus = screen.getByLabelText('テストの表示位置 Xを1減らす');
+    const plus = screen.getByLabelText('テストの表示位置 Xを1増やす');
+    expect(xNumber.compareDocumentPosition(minus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(minus.compareDocumentPosition(plus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     const helper = screen.getByText('中央が 0。横は右が＋、縦は上が＋（テキスト中心の位置）');
     expect(helper).toHaveClass('text-[10px]');

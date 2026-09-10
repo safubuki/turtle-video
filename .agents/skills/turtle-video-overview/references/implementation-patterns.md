@@ -690,7 +690,7 @@
 | **自動保存タイマー** | `setInterval` は最新状態Refを参照して固定周期で実行し、編集状態の変化でタイマーを再生成しない。差分ハッシュは保存対象の実フィールドに合わせ、`trim` の後に `scale/position` だけ変わったケースも見逃さない。`visibilitychange/focus/pageshow` 復帰時は短い遅延でイベントを集約してから経過時間を判定し、手動保存中は追いつき保存を走らせない。手動保存成功時は現在ハッシュを自動保存の基準にも反映し、直後の重複 auto save を防ぐ。保存間隔変更は custom event + `storage` で即時反映する |
 | **ヘッダーモーダル遷移** | 設定/保存ボタン押下でモーダルを開く前に、通常プレビュー再生中なら `stopAll() + pause()` で明示一時停止する。再生継続のまま開くとモバイルでタップ競合し、モーダルが瞬時に閉じる誤動作を誘発しやすい |
 | **先頭フレーム描画** | `time <= 0.05` の先頭付近は、`エクスポート中` または `非再生時` に限ってキャンバスを強制クリアし、終端フレーム残像（終端キャプション）との重なりを防ぐ。通常再生開始時は保持ロジックを優先して黒フラッシュを回避する |
-| **モバイル** | スライダー誤操作を `useSwipeProtectedValue` で防止。`playsInline` 必須 |
+| **モバイル** | スライダー誤操作を `useSwipeProtectedValue` で防止。`playsInline` 必須。数値＋スライダー＋−/+ は **数値 → スライダー → −/+**（PC も同じ。13-227）。＋操作中に数値が指で隠れない |
 | **レスポンシブ** | モバイル既存スタイルは変更禁止。`md:` / `lg:` バリアントのみ追加で対応 |
 | **IndexedDB** | `File → ArrayBuffer → File` のラウンドトリップが必要。大容量データに注意。容量不足時は`auto`を自動削除せず、確認後のみ削除リトライする。保存失敗は `lastSaveFailure` に reason / recoveryAction / storageEstimate を残し、復旧導線を UI から再実行できるようにする。`File` 読み出し失敗時は `file.arrayBuffer` / `FileReader` / object URL fetch の順に救済し、素材名付きで失敗理由を残す |
 | **Zustand** | `getState()` で React 外アクセス可能。Ref+State 並行管理でリアルタイム値と再レンダリングを両立 |
@@ -4308,4 +4308,21 @@ export 終了（成功/失敗/中断）
   - 音量スライダーの経路ラッチ（13-172）や連続値の `withoutPreviewPause`（13-173 / 13-174）とは別系統。こちらは「再生中の毎フレーム React 再描画」側。
   - MiniPreview の約 15fps スロットル（6-3）と同じ考え方で、本編 Canvas の描画レートは落とさない。
 - **回帰ガード**: `previewUiTime.test.ts` で初回 / force / 間隔内間引き / ジャンプ即公開、`captionGlyphStyle.test.ts` で同一キー再利用と LRU 上限、`standardPreviewEngine.test.tsx` で preview は UI 時刻を rAF ごとに更新せず `currentTimeRef` だけ進め、stopAll で flush、export は間引かないことを固定する。
+
+### 13-227. 数値スライダーの並びは「数値 → スライダー → −/+」に統一し、＋操作で現在値を指で隠さない
+
+- **ファイル**: `src/components/common/NumericStepperInput.tsx`, `src/components/common/NumericSliderField.tsx`, `src/components/sections/OverlaySection.tsx`, `src/components/sections/NarrationSection.tsx`, `src/components/sections/CaptionSection.tsx`, `src/components/modals/CaptionBulkAddModal.tsx`, `src/test/numericSliderField.test.tsx`, `src/test/captionIndividualSharedFields.test.tsx`, `src/test/overlaySection.test.tsx`
+- **対象 flavor**: **shared UI**（standard / apple-safari 共通）。値の保存・preview / export 契約は変更しない。
+- **問題**: スマホでトリム秒数やキャプションサイズなどを −/+ で微調整すると、従来の「−・数値・＋」配置では特に ＋ を押した親指が数値欄を隠す。スライダーを左、数値を右に置く並びでも同じ。PC だけ別レイアウトにすると操作の学習が分かれる。
+- **UX判断**: ユーザー案の **数値テキストボックス → スライダー → −/+** を採用する。読み取り（現在値）を左、粗い調整を中央、細かい増減を右へ分ける。＋ は数値から最も遠いので指で隠れない。PC も同じ並びにし、端末で並びが変わらない。
+- **対策**:
+  - `NumericStepperInput` の並びを **数値（＋単位）→ 任意の `afterValue` → −/+** にする。スライダーを持つ行は `afterValue` にスライダーを渡す。
+  - `NumericSliderField` の inline は同じ順。`stacked`（狭いキャプション位置モーダル）は 1 段目「ラベル＋スライダー」、2 段目は数値を左・−/+ を右へ離す（`justify-between`）。13-222 の「2 段目は −・数値・＋・単位」は本項で置き換える。
+  - Overlay の `NumericControl`、ナレーション開始位置も `afterValue` で同じ順にする。キャプション一括シフトの秒数、まとめて入力の「1行あたりの表示時間」も数値＋単位の右へ −/+ を置く。
+  - `hideInput`（見出し側に値があるフル幅スライダー）は従来どおり `[スライダー][−][+]`。数値欄が無いので指隠れの対象外。
+- **注意**:
+  - 新しい数値＋スライダー＋−/+ は素の − 数値 ＋ を書かず、必ず `NumericSliderField` / `NumericStepperInput` を使う。独自に組む場合も数値を −/+ の左へ離す。
+  - 並びだけ変える。ドラフト入力・確定時クランプ・タップ全選択・`SwipeProtectedSlider` のスワイプ保護は維持する。
+  - フェード秒数のようなスライダーのみ（数値欄なし）や、単位付き数値だけの項目は対象外。
+- **回帰ガード**: `numericSliderField.test.tsx` で inline の DOM 順と stacked の 2 段目、`overlaySection.test.tsx` でロゴ位置、`captionIndividualSharedFields.test.tsx` で compact 位置の `justify-between` を固定する。
 

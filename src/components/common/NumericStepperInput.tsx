@@ -3,15 +3,19 @@
  * @author Turtle Village
  * @copyright Copyright (C) 2026 safubuki (Turtle Village)
  * @license GPL-3.0-or-later
- * @description 数値入力欄を −/+ ボタンで挟んだ共通コントロール。
+ * @description 数値入力と −/+ を 1 行にまとめた共通コントロール。
  *
  * スマホでの数値調整が難しい問題（Issue: スライダー入力の操作性）への対応の中核。
- * `NumericSliderField` の右半分にあたり、スライダーを別レイアウトで持つ箇所
- * （ナレーションの開始位置など）から単体で使えるよう切り出している。
+ * `NumericSliderField` からも、スライダーを別レイアウトで持つ箇所
+ * （ナレーションの開始位置など）からも使えるよう切り出している。
+ *
+ * 並びは **数値（＋単位）→ 任意の中間スロット → −/+**。
+ * −/+ を数値の左右に置くと、特に ＋ を押した親指が数値欄を隠す。
+ * 値を左、微調整を右へ離すと読み取りと操作が同時にできる。
  *
  * ここが解決している 3 点:
  * 1. **ステッパー**: スライダーのつまみをタッチで目的の値へ合わせるのは難しいため、
- *    数値欄の隣で 1 ステップずつ確実に詰められるようにする。
+ *    1 ステップずつ確実に詰められるようにする。
  * 2. **ドラフト入力**: 入力中の文字列を保持し、確定（blur / Enter）まで onChange を
  *    呼ばない。従来は 1 文字ごとに parseFloat + クランプが走り、全消し→「10」と打つ
  *    途中の「1」が最小値へ丸められて意図した値を入力できなかった。
@@ -42,6 +46,11 @@ export interface NumericStepperInputProps {
   ariaLabel?: string;
   /** 数値欄の id。外部の label と紐付けたい場合に指定する（省略時は自動採番） */
   inputId?: string;
+  /**
+   * 数値と −/+ のあいだに差し込むスロット（スライダーなど）。
+   * 指定時は行全体が残り幅を使い、スロット側に `flex-1 min-w-0` を付ける想定。
+   */
+  afterValue?: React.ReactNode;
   /** ラッパーに付与する追加クラス */
   className?: string;
 }
@@ -86,6 +95,7 @@ const NumericStepperInput = React.memo<NumericStepperInputProps>(({
   decimals,
   ariaLabel,
   inputId: inputIdProp,
+  afterValue,
   className = '',
 }) => {
   const resolvedDecimals = decimals ?? inferDecimals(step);
@@ -132,46 +142,54 @@ const NumericStepperInput = React.memo<NumericStepperInputProps>(({
   const label = ariaLabel ?? '値';
 
   return (
-    <div className={`flex items-center gap-1.5 shrink-0 ${className}`}>
-      <button
-        type="button"
-        onClick={() => handleStep(-1)}
-        disabled={disabled || displayValue <= min}
-        className={STEPPER_BUTTON_CLASS}
-        aria-label={`${label}を${stepAmount}減らす`}
-        aria-controls={inputId}
-        tabIndex={-1}
-      >
-        <Minus className="w-3 h-3" aria-hidden="true" />
-      </button>
-      <input
-        id={inputId}
-        type="number"
-        inputMode="decimal"
-        min={min}
-        max={max}
-        step={step}
-        value={draft ?? displayValue}
-        onChange={(e) => setDraft(e.target.value)}
-        onFocus={(e) => e.currentTarget.select()}
-        onBlur={(e) => commitDraft(e.target.value)}
-        onKeyDown={handleKeyDown}
-        disabled={disabled}
-        aria-label={ariaLabel ? `${ariaLabel}（数値）` : undefined}
-        className={`${inputClassName} shrink-0 bg-gray-700 border border-gray-600 rounded px-1 py-0.5 text-[10px] md:text-xs text-right focus:outline-none disabled:opacity-50`}
-      />
-      <button
-        type="button"
-        onClick={() => handleStep(1)}
-        disabled={disabled || displayValue >= max}
-        className={STEPPER_BUTTON_CLASS}
-        aria-label={`${label}を${stepAmount}増やす`}
-        aria-controls={inputId}
-        tabIndex={-1}
-      >
-        <Plus className="w-3 h-3" aria-hidden="true" />
-      </button>
-      {unit && <span className="text-[10px] md:text-xs text-gray-500 shrink-0 whitespace-nowrap">{unit}</span>}
+    <div
+      data-numeric-stepper=""
+      className={`flex items-center gap-1.5 min-w-0 ${afterValue ? 'flex-1' : ''} ${className}`}
+    >
+      <div className="flex items-center gap-1.5 shrink-0">
+        <input
+          id={inputId}
+          type="number"
+          inputMode="decimal"
+          min={min}
+          max={max}
+          step={step}
+          value={draft ?? displayValue}
+          onChange={(e) => setDraft(e.target.value)}
+          onFocus={(e) => e.currentTarget.select()}
+          onBlur={(e) => commitDraft(e.target.value)}
+          onKeyDown={handleKeyDown}
+          disabled={disabled}
+          aria-label={ariaLabel ? `${ariaLabel}（数値）` : undefined}
+          className={`${inputClassName} shrink-0 bg-gray-700 border border-gray-600 rounded px-1 py-0.5 text-[10px] md:text-xs text-right focus:outline-none disabled:opacity-50`}
+        />
+        {unit && <span className="text-[10px] md:text-xs text-gray-500 shrink-0 whitespace-nowrap">{unit}</span>}
+      </div>
+      {afterValue}
+      <div className="flex items-center gap-1.5 shrink-0">
+        <button
+          type="button"
+          onClick={() => handleStep(-1)}
+          disabled={disabled || displayValue <= min}
+          className={STEPPER_BUTTON_CLASS}
+          aria-label={`${label}を${stepAmount}減らす`}
+          aria-controls={inputId}
+          tabIndex={-1}
+        >
+          <Minus className="w-3 h-3" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          onClick={() => handleStep(1)}
+          disabled={disabled || displayValue >= max}
+          className={STEPPER_BUTTON_CLASS}
+          aria-label={`${label}を${stepAmount}増やす`}
+          aria-controls={inputId}
+          tabIndex={-1}
+        >
+          <Plus className="w-3 h-3" aria-hidden="true" />
+        </button>
+      </div>
     </div>
   );
 });

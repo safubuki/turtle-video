@@ -1113,19 +1113,6 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                 </p>
                 <div className="flex items-center gap-1.5 border-t border-gray-700/60 pt-1.5">
                   <span className="shrink-0 text-gray-500">秒数で微調整:</span>
-                  <button
-                    onPointerDown={() => !isLocked && startShiftHold(-1)}
-                    onPointerUp={stopShiftHold}
-                    onPointerLeave={stopShiftHold}
-                    onPointerCancel={stopShiftHold}
-                    onContextMenu={(e) => e.preventDefault()}
-                    disabled={isLocked}
-                    className="w-7 h-7 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 flex items-center justify-center transition disabled:opacity-50 select-none"
-                    aria-label="ずらす秒数を減らす（長押しで加速）"
-                    title="長押しで早く減ります"
-                  >
-                    <Minus className="w-3 h-3" />
-                  </button>
                   <input
                     type="number"
                     min={0.1}
@@ -1142,6 +1129,19 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                     className="w-14 bg-gray-700 border border-gray-600 rounded px-1 py-0.5 text-center font-mono focus:outline-none focus:border-yellow-500 disabled:opacity-50"
                   />
                   <span className="text-gray-500 shrink-0">秒</span>
+                  <button
+                    onPointerDown={() => !isLocked && startShiftHold(-1)}
+                    onPointerUp={stopShiftHold}
+                    onPointerLeave={stopShiftHold}
+                    onPointerCancel={stopShiftHold}
+                    onContextMenu={(e) => e.preventDefault()}
+                    disabled={isLocked}
+                    className="w-7 h-7 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 flex items-center justify-center transition disabled:opacity-50 select-none"
+                    aria-label="ずらす秒数を減らす（長押しで加速）"
+                    title="長押しで早く減ります"
+                  >
+                    <Minus className="w-3 h-3" />
+                  </button>
                   <button
                     onPointerDown={() => !isLocked && startShiftHold(1)}
                     onPointerUp={stopShiftHold}

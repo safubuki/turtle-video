@@ -104,11 +104,15 @@ describe('OverlaySection', () => {
     const resetButton = screen.getByRole('button', { name: '横 (右+)をデフォルトに戻す' });
     expect(resetButton).toHaveClass('text-gray-200');
     expect(resetButton.parentElement).toContainElement(screen.getByText('横 (右+)'));
-    // −/+ ステッパーが並ぶため、数値列は固定幅ではなく auto で確保する
     const positionInput = screen.getByLabelText('ウォーターマークの横 (右+)（数値）');
-    const controlRow = positionInput.parentElement?.parentElement;
-    expect(controlRow).toHaveClass('grid-cols-[4.5rem_minmax(0,1fr)_auto]');
-    expect(controlRow).toHaveClass('sm:grid-cols-[5.75rem_minmax(0,1fr)_auto]');
+    expect(positionInput.closest('[data-testid="overlay-numeric-control"]')).not.toBeNull();
+    const slider = screen.getByLabelText('ウォーターマークの横 (右+)');
+    const minus = screen.getByLabelText('ウォーターマークの横 (右+)を1減らす');
+    const plus = screen.getByLabelText('ウォーターマークの横 (右+)を1増やす');
+    expect(positionInput.compareDocumentPosition(slider) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(slider.compareDocumentPosition(minus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(minus.compareDocumentPosition(plus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('左下・右下・中央・左上・右上の順で、画像サイズに応じた位置を簡単設定できる', () => {

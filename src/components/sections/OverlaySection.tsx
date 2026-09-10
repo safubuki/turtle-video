@@ -96,9 +96,11 @@ const NumericControl = React.memo<NumericControlProps>(({
   const displayValue = Number(value.toFixed(decimals));
 
   return (
-    // 3 列目は −/+ と数値欄が並ぶため、幅を auto にして詰まらないようにする
-    <div className="grid grid-cols-[4.5rem_minmax(0,1fr)_auto] items-center gap-2 sm:grid-cols-[5.75rem_minmax(0,1fr)_auto]">
-      <div className="flex min-w-0 items-center gap-0.5">
+    <div
+      data-testid="overlay-numeric-control"
+      className="flex items-center gap-2"
+    >
+      <div className="flex w-[4.5rem] min-w-0 shrink-0 items-center gap-0.5 sm:w-[5.75rem]">
         <label htmlFor={id} className="truncate text-[10px] text-gray-400 md:text-xs">
           {label}
         </label>
@@ -107,16 +109,7 @@ const NumericControl = React.memo<NumericControlProps>(({
           onClick={() => onChange(defaultValue)}
         />
       </div>
-      <SwipeProtectedSlider
-        min={min}
-        max={max}
-        step={step}
-        value={displayValue}
-        onChange={onChange}
-        ariaLabel={`ウォーターマークの${label}`}
-        className="h-1 min-w-0 w-full appearance-none rounded bg-gray-600 accent-blue-500"
-      />
-      {/* スマホでスライダーを目的の値へ合わせにくいため、数値欄に −/+ を添える */}
+      {/* 数値 → スライダー → −/+。＋操作中に数値が指で隠れないようにする */}
       <NumericStepperInput
         value={value}
         min={min}
@@ -128,6 +121,17 @@ const NumericControl = React.memo<NumericControlProps>(({
         ariaLabel={`ウォーターマークの${label}`}
         inputId={id}
         inputClassName="w-12 sm:w-14 focus:border-blue-500 font-semibold text-white"
+        afterValue={
+          <SwipeProtectedSlider
+            min={min}
+            max={max}
+            step={step}
+            value={displayValue}
+            onChange={onChange}
+            ariaLabel={`ウォーターマークの${label}`}
+            className="h-1 min-w-0 w-full flex-1 appearance-none rounded bg-gray-600 accent-blue-500"
+          />
+        }
       />
     </div>
   );

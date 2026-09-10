@@ -7,9 +7,12 @@
  *
  * スマホでの数値調整が難しい問題（Issue: スライダー入力の操作性）への対応。
  * スライダーのつまみをタッチで目的の値へピンポイントに合わせるのは至難なため、
- * 数値欄の左右に −/+ を添えて 1 ステップずつ確実に詰められるようにする。
- * −/+ を数値欄と隣接させることで「数値を微調整する道具」という意味づけが視覚的に
- * 一致し、親指の移動距離も最短になる（バーの両端に置くとバーが左右から圧迫される）。
+ * −/+ で 1 ステップずつ確実に詰められるようにする。
+ *
+ * 並びは **数値 → スライダー → −/+**（PC/スマホ共通）。
+ * −/+ を数値の左右に置くと、特に ＋ 操作中に数値が指で隠れる。
+ * 値の読み取りを左、粗い調整を中央、細かい増減を右へ分けると、
+ * 操作中も現在値が常に見える。
  *
  * 数値欄まわりの挙動（確定時のみ反映・タップで全選択）は
  * [NumericStepperInput](./NumericStepperInput.tsx) 側に実装している。
@@ -40,8 +43,9 @@ export interface NumericSliderFieldProps {
   /** 数値欄の右に置く単位（「秒」「px」など） */
   unit?: string;
   /**
-   * コントロールの配置。stacked はラベル＋スライダーの下へ数値ステッパーを置き、
-   * 幅の狭いモーダルでも −/数値/+ /単位が重ならないようにする。
+   * コントロールの配置。stacked はラベル＋スライダーの下へ数値と −/+ を置き、
+   * 幅の狭いモーダルでも数値・単位・ステッパーが重ならないようにする。
+   * 2 段目は数値を左、−/+ を右へ離し、＋操作で数値が隠れないようにする。
    */
   layout?: 'inline' | 'stacked';
   /** スライダーの見た目。呼び出し元の accent 色をそのまま活かす */
@@ -97,6 +101,19 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
     if (next !== displayValue) onChange(next);
   };
 
+  const slider = (
+    <SwipeProtectedSlider
+      min={min}
+      max={max}
+      step={step}
+      value={displayValue}
+      onChange={onChange}
+      disabled={disabled}
+      ariaLabel={effectiveLabel}
+      className={sliderClassName}
+    />
+  );
+
   return (
     <div
       className={`${
@@ -106,19 +123,10 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
       } text-[10px] md:text-xs ${className}`}
     >
       {label && <span className={labelClassName}>{label}</span>}
-      <SwipeProtectedSlider
-        min={min}
-        max={max}
-        step={step}
-        value={displayValue}
-        onChange={onChange}
-        disabled={disabled}
-        ariaLabel={effectiveLabel}
-        className={sliderClassName}
-      />
       {hideInput ? (
-        // 値は呼び出し元の見出しに表示されているため、増減だけを提供する
         <>
+          {slider}
+          {/* 値は呼び出し元の見出しに表示されているため、増減だけを提供する */}
           <button
             type="button"
             onClick={() => handleStep(-1)}
@@ -140,6 +148,25 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
             <Plus className="w-3 h-3" aria-hidden="true" />
           </button>
         </>
+      ) : isStacked ? (
+        <>
+          {slider}
+          <NumericStepperInput
+            value={value}
+            min={min}
+            max={max}
+            step={step}
+            stepperStep={stepperStep}
+            onChange={onChange}
+            disabled={disabled}
+            unit={unit}
+            inputClassName={inputClassName}
+            decimals={decimals}
+            ariaLabel={effectiveLabel}
+            inputId={inputId}
+            className="col-start-2 w-full justify-between"
+          />
+        </>
       ) : (
         <NumericStepperInput
           value={value}
@@ -154,7 +181,7 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
           decimals={decimals}
           ariaLabel={effectiveLabel}
           inputId={inputId}
-          className={isStacked ? 'col-start-2 justify-self-end' : ''}
+          afterValue={slider}
         />
       )}
       {hideInput && unit && (

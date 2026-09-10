@@ -383,28 +383,6 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                     <span>長さ: {formatTime(playableDuration)}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className="relative flex-1 pt-3">
-                      {hasEndMarker && (
-                        <div
-                          className="pointer-events-none absolute top-0 -translate-x-1/2 z-10"
-                          style={{ left: `${endMarkerPercent}%` }}
-                          aria-hidden="true"
-                        >
-                          <div
-                            className={`w-0 h-0 border-l-[7px] border-r-[7px] border-l-transparent border-r-transparent border-t-[9px] ${isEndOverflow ? 'border-t-amber-400/90' : 'border-t-indigo-300/90'}`}
-                          />
-                        </div>
-                      )}
-                      <SwipeProtectedSlider
-                        min={0}
-                        max={Math.max(0, totalDuration)}
-                        step={0.1}
-                        value={clip.startTime}
-                        onChange={(val) => handleStartTimeChange(clip.id, val)}
-                        disabled={isNarrationLocked}
-                        className="w-full accent-indigo-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
-                      />
-                    </div>
                     <NumericStepperInput
                       ariaLabel="ナレーションの開始位置"
                       min={0}
@@ -415,6 +393,30 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                       disabled={isNarrationLocked}
                       unit="秒"
                       inputClassName="w-16 md:w-20 focus:border-indigo-500"
+                      afterValue={
+                        <div className="relative min-w-0 flex-1 pt-3">
+                          {hasEndMarker && (
+                            <div
+                              className="pointer-events-none absolute top-0 -translate-x-1/2 z-10"
+                              style={{ left: `${endMarkerPercent}%` }}
+                              aria-hidden="true"
+                            >
+                              <div
+                                className={`w-0 h-0 border-l-[7px] border-r-[7px] border-l-transparent border-r-transparent border-t-[9px] ${isEndOverflow ? 'border-t-amber-400/90' : 'border-t-indigo-300/90'}`}
+                              />
+                            </div>
+                          )}
+                          <SwipeProtectedSlider
+                            min={0}
+                            max={Math.max(0, totalDuration)}
+                            step={0.1}
+                            value={clip.startTime}
+                            onChange={(val) => handleStartTimeChange(clip.id, val)}
+                            disabled={isNarrationLocked}
+                            className="w-full accent-indigo-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
+                          />
+                        </div>
+                      }
                     />
                   </div>
                 </div>

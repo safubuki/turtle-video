@@ -128,4 +128,34 @@ describe('NumericSliderField', () => {
     fireEvent.change(screen.getByLabelText('終了位置'), { target: { value: '12.5' } });
     expect(onChange).toHaveBeenCalledWith(12.5);
   });
+
+  it('数値欄 → スライダー → −/+ の順で、＋操作中に数値が指で隠れない', () => {
+    renderField();
+    const input = getNumberInput();
+    const slider = screen.getByLabelText('終了位置');
+    const minus = screen.getByLabelText('終了位置を0.1減らす');
+    const plus = screen.getByLabelText('終了位置を0.1増やす');
+
+    expect(input.compareDocumentPosition(slider) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(slider.compareDocumentPosition(minus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(minus.compareDocumentPosition(plus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText('秒').compareDocumentPosition(slider) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+  });
+
+  it('stacked では数値を左、−/+ を右へ離して2段目に置く', () => {
+    renderField({ layout: 'stacked' });
+    const input = getNumberInput();
+    const stepper = input.closest('[data-numeric-stepper]');
+    const slider = screen.getByLabelText('終了位置');
+    const minus = screen.getByLabelText('終了位置を0.1減らす');
+    const plus = screen.getByLabelText('終了位置を0.1増やす');
+
+    expect(stepper).toHaveClass('col-start-2');
+    expect(stepper).toHaveClass('w-full');
+    expect(stepper).toHaveClass('justify-between');
+    expect(slider.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(input.compareDocumentPosition(minus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(minus.compareDocumentPosition(plus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 });
