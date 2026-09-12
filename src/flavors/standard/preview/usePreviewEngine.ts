@@ -1843,9 +1843,9 @@ export function usePreviewEngine({
         }
 
         // === エンドロール区間の判定 ===
-        // クリップ再生後は単色背景 + ロゴだけを描く。キャプション・ウォーターマーク・
-        // 倍速バッジは描かない（いずれも映像に付随するもの）。
-        // ただし **BGM は流し続ける**ため、ここでは return せず描画だけを差し替える。
+        // クリップ再生後は単色背景 + ロゴを描く。ウォーターマーク（本編のみ）と
+        // 倍速バッジは描かない。キャプションはエンドロールの上へ重ねられる。
+        // **BGM は流し続ける**ため、ここでは return せず描画だけを差し替える。
         // エンドロール無効時は getEndrollDuration() が 0 を返し、以降は完全に従来どおり。
         const activeEndroll = endrollOverlayRef?.current;
         const endrollDurationSec = getEndrollDuration(activeEndroll);
@@ -3399,22 +3399,48 @@ export function usePreviewEngine({
           }
         }
 
+        const activeWatermark = watermarkOverlayRef?.current ?? watermarkOverlay;
+        // 「全編」指定のときはエンドロール上にもウォーターマークを重ねる。
+        // エンドロールは背景を全面塗りするため、キャプションより前に描かないと隠れる。
+        const drawsWatermarkOverEndroll = isEndrollFrame && activeWatermark?.scope === 'full';
+
+        // === エンドロール描画 ===
+        // クリップ由来の合成を覆い隠す（背景を全面塗りするため、直前フレームが残らない）。
+        // キャプションはエンドロールの上へ重ねるので、スナップショットより前に描く。
+        // BGM 処理はこの後も従来どおり走る。
+        if (isEndrollFrame) {
+          const endrollLocalTime = Math.max(
+            0,
+            Math.min(endrollDurationSec, time - clipsDurationSec),
+          );
+          if (drawEndrollFrame(ctx, activeEndroll, endrollImageRef?.current, endrollLocalTime)) {
+            didUpdateCanvas = true;
+          }
+          if (drawsWatermarkOverEndroll && drawWatermarkOverlayFrame(
+            ctx,
+            activeWatermark,
+            watermarkImageRef?.current,
+            time,
+          )) {
+            didUpdateCanvas = true;
+          }
+        }
+
         // === キャプション抜きフレームのスナップショット ===
         // キャプション設定のミニプレビューは「現在フレームへ設定中のキャプションを重ねて」
         // 見た目を確かめる。ここでメインプレビューの canvas をそのまま転写元にすると
         // **既に焼き込まれたキャプションの上へもう 1 枚描く**ことになり、文字が二重に見える
         // （サイズ変更時に前のサイズが残る／削除したはずの文字が残る）。
         // そのため、キャプションを描く直前の状態を控えておき、ミニプレビューはこちらを使う。
+        // エンドロール中は背景＋ロゴ（と全編ウォーターマーク）まで含めた状態を控える。
         if (!_isExporting && captionFreeSnapshotRef) {
           captureCaptionFreeSnapshot(ctx, captionFreeSnapshotRef.current);
         }
 
-        // エンドロール区間ではキャプションを表示しない（映像に付随するものなので）。
-        // どのみち後段のエンドロール描画が全面を覆うが、無駄なグリフ生成を避ける。
-        if (!isEndrollFrame && currentCaptionSettings.enabled && currentCaptions.length > 0) {
+        if (currentCaptionSettings.enabled && currentCaptions.length > 0) {
           const glyphCache = captionGlyphCanvasCacheRef.current;
           const activeCaptions = currentCaptions.filter(
-            (c) => isCaptionActiveAtTime(c, time),
+            (c) => isCaptionActiveAtTime(c, time, totalDurationRef.current),
           );
           for (const activeCaption of activeCaptions) {
             // 複数行テキストは時分割（文字数比で配分した 1 行）を順次表示する。
@@ -3429,7 +3455,7 @@ export function usePreviewEngine({
                 captionId: activeCaption.id,
                 captionStart: activeCaption.startTime,
                 captionEnd: activeCaption.endTime,
-                isActive: isCaptionActiveAtTime(activeCaption, time),
+                isActive: isCaptionActiveAtTime(activeCaption, time, totalDurationRef.current),
               });
             }
             // fontSize は 1080p export を基準にした絶対 px (medium = 7.41% of 短辺 1080)。
@@ -3612,12 +3638,9 @@ export function usePreviewEngine({
         })) {
           didUpdateCanvas = true;
         }
-        const activeWatermark = watermarkOverlayRef?.current ?? watermarkOverlay;
-        // 「全編」指定のときはエンドロール上にもウォーターマークを重ねる。
-        // その場合は下のエンドロール描画（全面塗り）の後に描かないと隠れてしまう。
-        const drawsWatermarkOverEndroll = isEndrollFrame && activeWatermark?.scope === 'full';
 
         // タイトルを含む既存合成の後へ置き、カード境界・トランジション中も継続表示する。
+        // エンドロール中の全編ウォーターマークはキャプションより前（背景側）に描済み。
         if (!isEndrollFrame && drawWatermarkOverlayFrame(
           ctx,
           activeWatermark,
@@ -3630,28 +3653,6 @@ export function usePreviewEngine({
         if (!isEndrollFrame) {
           const badgeItem = activeIndex >= 0 ? currentItems[activeIndex] : null;
           if (badgeItem?.type === 'video' && drawSpeedBadgeFrame(ctx, badgeItem)) {
-            didUpdateCanvas = true;
-          }
-        }
-
-        // === エンドロール描画 ===
-        // クリップ由来の合成をすべて覆い隠す形で最後に描く（背景を全面塗りするため、
-        // 直前のフレームや取り残しの映像が残らない）。BGM 処理はこの後も従来どおり走る。
-        if (isEndrollFrame) {
-          const endrollLocalTime = Math.max(
-            0,
-            Math.min(endrollDurationSec, time - clipsDurationSec),
-          );
-          if (drawEndrollFrame(ctx, activeEndroll, endrollImageRef?.current, endrollLocalTime)) {
-            didUpdateCanvas = true;
-          }
-          // 全編指定のウォーターマークはエンドロール背景の上へ重ねる
-          if (drawsWatermarkOverEndroll && drawWatermarkOverlayFrame(
-            ctx,
-            activeWatermark,
-            watermarkImageRef?.current,
-            time,
-          )) {
             didUpdateCanvas = true;
           }
         }

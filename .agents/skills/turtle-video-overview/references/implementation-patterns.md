@@ -690,7 +690,7 @@
 | **自動保存タイマー** | `setInterval` は最新状態Refを参照して固定周期で実行し、編集状態の変化でタイマーを再生成しない。差分ハッシュは保存対象の実フィールドに合わせ、`trim` の後に `scale/position` だけ変わったケースも見逃さない。`visibilitychange/focus/pageshow` 復帰時は短い遅延でイベントを集約してから経過時間を判定し、手動保存中は追いつき保存を走らせない。手動保存成功時は現在ハッシュを自動保存の基準にも反映し、直後の重複 auto save を防ぐ。保存間隔変更は custom event + `storage` で即時反映する |
 | **ヘッダーモーダル遷移** | 設定/保存ボタン押下でモーダルを開く前に、通常プレビュー再生中なら `stopAll() + pause()` で明示一時停止する。再生継続のまま開くとモバイルでタップ競合し、モーダルが瞬時に閉じる誤動作を誘発しやすい |
 | **先頭フレーム描画** | `time <= 0.05` の先頭付近は、`エクスポート中` または `非再生時` に限ってキャンバスを強制クリアし、終端フレーム残像（終端キャプション）との重なりを防ぐ。通常再生開始時は保持ロジックを優先して黒フラッシュを回避する |
-| **モバイル** | スライダー誤操作を `useSwipeProtectedValue` で防止。`playsInline` 必須。数値＋スライダー＋−/+ は **数値 → スライダー → −/+**（PC も同じ。13-227）。＋操作中に数値が指で隠れない |
+| **モバイル** | スライダー誤操作を `useSwipeProtectedValue` で防止。`playsInline` 必須。数値＋スライダー＋−/+ は **数値 → スライダー → −/+**（PC も同じ。13-227）。＋操作中に数値が指で隠れない。−/+ 長押し加速は 12px 移動でキャンセルし、スクロールを奪わない |
 | **レスポンシブ** | モバイル既存スタイルは変更禁止。`md:` / `lg:` バリアントのみ追加で対応 |
 | **IndexedDB** | `File → ArrayBuffer → File` のラウンドトリップが必要。大容量データに注意。容量不足時は`auto`を自動削除せず、確認後のみ削除リトライする。保存失敗は `lastSaveFailure` に reason / recoveryAction / storageEstimate を残し、復旧導線を UI から再実行できるようにする。`File` 読み出し失敗時は `file.arrayBuffer` / `FileReader` / object URL fetch の順に救済し、素材名付きで失敗理由を残す |
 | **Zustand** | `getState()` で React 外アクセス可能。Ref+State 並行管理でリアルタイム値と再レンダリングを両立 |
@@ -4309,20 +4309,147 @@ export 終了（成功/失敗/中断）
   - MiniPreview の約 15fps スロットル（6-3）と同じ考え方で、本編 Canvas の描画レートは落とさない。
 - **回帰ガード**: `previewUiTime.test.ts` で初回 / force / 間隔内間引き / ジャンプ即公開、`captionGlyphStyle.test.ts` で同一キー再利用と LRU 上限、`standardPreviewEngine.test.tsx` で preview は UI 時刻を rAF ごとに更新せず `currentTimeRef` だけ進め、stopAll で flush、export は間引かないことを固定する。
 
-### 13-227. 数値スライダーの並びは「数値 → スライダー → −/+」に統一し、＋操作で現在値を指で隠さない
+### 13-227. 数値スライダーの並びは「数値 → スライダー → −/+」に統一し、＋操作で現在値を指で隠さない。−/+ は長押しで徐々に加速する
 
-- **ファイル**: `src/components/common/NumericStepperInput.tsx`, `src/components/common/NumericSliderField.tsx`, `src/components/sections/OverlaySection.tsx`, `src/components/sections/NarrationSection.tsx`, `src/components/sections/CaptionSection.tsx`, `src/components/modals/CaptionBulkAddModal.tsx`, `src/test/numericSliderField.test.tsx`, `src/test/captionIndividualSharedFields.test.tsx`, `src/test/overlaySection.test.tsx`
-- **対象 flavor**: **shared UI**（standard / apple-safari 共通）。値の保存・preview / export 契約は変更しない。
-- **問題**: スマホでトリム秒数やキャプションサイズなどを −/+ で微調整すると、従来の「−・数値・＋」配置では特に ＋ を押した親指が数値欄を隠す。スライダーを左、数値を右に置く並びでも同じ。PC だけ別レイアウトにすると操作の学習が分かれる。
+- **ファイル**: `src/components/common/NumericStepperInput.tsx`, `src/components/common/NumericSliderField.tsx`, `src/utils/holdToRepeat.ts`, `src/hooks/useHoldToRepeat.ts`, `src/components/sections/OverlaySection.tsx`, `src/components/sections/NarrationSection.tsx`, `src/components/sections/CaptionSection.tsx`, `src/components/modals/CaptionBulkAddModal.tsx`, `src/constants/sectionHelp.ts`, `src/test/numericSliderField.test.tsx`, `src/test/holdToRepeat.test.ts`, `src/test/captionIndividualSharedFields.test.tsx`, `src/test/overlaySection.test.tsx`
+- **対象 flavor**: **shared UI**（standard / apple-safari 共通）。`NumericSliderField` / `NumericStepperInput` を使う全スライダー（トリム、音量、位置、速度など）。値の保存・preview / export 契約は変更しない。
+- **問題**:
+  - スマホでトリム秒数やキャプションサイズなどを −/+ で微調整すると、従来の「−・数値・＋」配置では特に ＋ を押した親指が数値欄を隠す。スライダーを左、数値を右に置く並びでも同じ。PC だけ別レイアウトにすると操作の学習が分かれる。
+  - −/+ は都度タップしないと値が変わらず、大きく動かすときに連打が必要だった。
 - **UX判断**: ユーザー案の **数値テキストボックス → スライダー → −/+** を採用する。読み取り（現在値）を左、粗い調整を中央、細かい増減を右へ分ける。＋ は数値から最も遠いので指で隠れない。PC も同じ並びにし、端末で並びが変わらない。
 - **対策**:
   - `NumericStepperInput` の並びを **数値（＋単位）→ 任意の `afterValue` → −/+** にする。スライダーを持つ行は `afterValue` にスライダーを渡す。
   - `NumericSliderField` の inline は同じ順。`stacked`（狭いキャプション位置モーダル）は 1 段目「ラベル＋スライダー」、2 段目は数値を左・−/+ を右へ離す（`justify-between`）。13-222 の「2 段目は −・数値・＋・単位」は本項で置き換える。
   - Overlay の `NumericControl`、ナレーション開始位置も `afterValue` で同じ順にする。キャプション一括シフトの秒数、まとめて入力の「1行あたりの表示時間」も数値＋単位の右へ −/+ を置く。
   - `hideInput`（見出し側に値があるフル幅スライダー）は従来どおり `[スライダー][−][+]`。数値欄が無いので指隠れの対象外。
+  - 単発の tap / click / キーボード操作は従来どおり `click` で 1 ステップ。
+  - 長押しは 400ms 後から繰り返しを始め、間隔を 180ms → 48ms へ smoothstep で縮める。急加速しない。
+  - 離す・pointercancel・タブ非表示で停止する。繰り返し開始後の click は二重増減しない。
+  - 長押し開始前に 12px 以上動いたらスクロールとみなして繰り返しを始めない（スライダーのスワイプ保護とは別系統）。
+  - 値の進行はセッション内の current を使い、再レンダー待ちで同じ値を何度も書かない。上限/下限で停止する。
 - **注意**:
   - 新しい数値＋スライダー＋−/+ は素の − 数値 ＋ を書かず、必ず `NumericSliderField` / `NumericStepperInput` を使う。独自に組む場合も数値を −/+ の左へ離す。
   - 並びだけ変える。ドラフト入力・確定時クランプ・タップ全選択・`SwipeProtectedSlider` のスワイプ保護は維持する。
   - フェード秒数のようなスライダーのみ（数値欄なし）や、単位付き数値だけの項目は対象外。
-- **回帰ガード**: `numericSliderField.test.tsx` で inline の DOM 順と stacked の 2 段目、`overlaySection.test.tsx` でロゴ位置、`captionIndividualSharedFields.test.tsx` で compact 位置の `justify-between` を固定する。
+  - キャプション一括シフトの −/+ は別実装（固定 100ms）のまま。スライダー共通部品だけを変える。
+  - pointer capture は使わない。スクロールジェスチャをボタンが奪わない。
+  - 大きな移動はスライダー本体や数値入力を使う。−/+ の加速は微調整の連打を省く用途。
+- **回帰ガード**: `numericSliderField.test.tsx` で inline の DOM 順と stacked の 2 段目、hideInput の単発クリック、長押し加速を固定する。`overlaySection.test.tsx` でロゴ位置、`captionIndividualSharedFields.test.tsx` で compact 位置の `justify-between`。`holdToRepeat.test.ts` で加速カーブ、短押し 1 ステップ、長押し開始と停止、click 二重発火防止、移動キャンセル、上限停止を固定する。
+
+### 13-228. 画像の表示時間は 0.1 秒単位
+
+- **ファイル**: `src/constants/index.ts`, `src/utils/media.ts`, `src/stores/mediaStore.ts`, `src/components/media/ClipItem.tsx`, `src/components/TurtleVideo.tsx`, `src/hooks/useMediaItems.ts`, `src/constants/sectionHelp.ts`, `spec.md`
+- **対象 flavor**: **shared UI / shared schema**。画像クリップの表示時間は両 flavor 共通。preview / export エンジンは変更しない（尺は `item.duration` を読む既存契約のまま）。
+- **問題**: 画像の表示時間スライダーと −/+ が 0.5 秒刻みで、短いカットを細かく合わせにくかった。
+- **対策**:
+  - `IMAGE_DURATION_STEP = 0.1` を追加し、`ClipItem` の表示時間 `NumericSliderField` が同じ定数を使う。
+  - 範囲は従来どおり 0.5〜60 秒（最小は 0.5 のまま。フェード 0.5/1/2 や再生速度下限 0.5 とは別契約）。
+  - `normalizeImageDuration()` が 0.1 秒へ丸め、下限 0.5 / 上限 60 へクランプする。store と UI ハンドラで共有する。
+- **注意**:
+  - キャプション一括入力の「1 行あたり表示秒数」やフェード秒数は 0.5 刻みのまま。画像クリップの表示時間だけを変える。
+  - UI の max を 30 秒へ戻さない。仕様と定数は 60 秒。
+- **回帰ガード**: `normalizeImageDuration`、store の 0.1 秒反映、スライダー step/min/max と −/+ 1 回が 0.1 秒、ヘルプの「0.1秒単位」をテストする。
+
+### 13-229. キャプション終了はタイムライン実尺へ吸着する
+
+- **ファイル**: `src/utils/captionTimeline.ts`, `src/components/common/NumericStepperInput.tsx`, `src/components/media/CaptionItem.tsx`, `src/components/sections/CaptionSection.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/utils/captionLayerRender.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/constants/sectionHelp.ts`
+- **対象 flavor**: **shared UI / shared schema**。描画は standard / apple-safari の両 preview と standard のキャプション単独出力。
+- **問題**: キャプションの開始/終了は 0.1 秒刻み。動画尺が 7.04 秒のような端数だと、終了 7.0 で末尾約 0.04 秒だけキャプションが消える。スライダー `max` は実尺なのに、小数 1 桁丸めで 7.04 が 7.0 に戻っていた。＋も 7.1 → 7.04 → 7.0 と同じ。
+- **対策**:
+  - 通常操作は 0.1 秒のまま。
+  - `clampValue` は上限・下限そのものを step 格子外でも残す（右端ドラッグと＋の突き当たり）。
+  - `snapTimeToTimelineEnd` / `resolveCaptionEndTimeInput` が、最後の 0.1 秒格子より先だけ実尺へ吸着する（7.00 は 7.00、7.01〜7.04 と右端は 7.04）。
+  - 「プレビュー位置を反映: 終了」も同じ関数を使う。
+  - 終了が実尺まで届いているときは `[start, end)` でも最終フレームを描く。
+- **注意**:
+  - キャプション全体を 0.01 秒刻みにしない。
+  - 動画タイトルの `normalizeVideoTitleRange` は従来どおり 0.1 秒量子化。今回はキャプション終了だけ。
+  - 7.03 のような途中値を自由入力できるようにしない（0.1 へ丸める）。
+- **回帰ガード**: 吸着純ロジック、最終フレーム inclusive、＋が 7.04 を残すこと、ヘルプの実尺案内をテストする。
+
+### 13-230. キャプション終了の表示桁はプレビューと同じ 1/100 秒にし、スライダー右端で実尺へ届ける
+
+- **ファイル**: `src/utils/format.ts`, `src/utils/captionTimeline.ts`, `src/components/media/CaptionItem.tsx`
+- **問題**:
+  - ＋で末尾へ吸着したあと、数値欄が `7.0416` のように生の float を出してプレビューの `0:07.04` と桁が食い違った。
+  - 終了スライダーの step が 0.1 のままだと、max 7.04 までの端数は幅の 0.6% 程度しかなく、ドラッグでは 7.0 で止まって実尺へ届かなかった。
+- **対策**:
+  - `quantizeTimeToCentiseconds()` を `formatTimeCentiseconds` と同じ計算にし、吸着先・スライダー max・表示を 7.04 に揃える。
+  - 終了スライダーだけ `step=0.01`（プレビューと同じ 1/100 秒）、−/+ は従来どおり 0.1 秒。右端が 7.04 の実ステップになる。
+  - 終了 7.04 は実尺 7.0416 の最終フレームも覆う。
+- **注意**: 開始スライダーの 0.1 秒刻みと、キャプション全体の 0.01 秒編集化は変えない。
+- **回帰ガード**: 7.0416 → 7.04、スライダー max/step、数値欄 7.04、右端ドラッグをテストする。
+
+### 13-231. キャプション終了の − は実尺端数から 0.1 秒格子へ戻し、0 以外は小数を揃える
+
+- **ファイル**: `src/utils/captionTimeline.ts`, `src/components/common/NumericStepperInput.tsx`, `src/components/common/NumericSliderField.tsx`, `src/components/media/CaptionItem.tsx`
+- **問題**:
+  - 15.04 でマイナスすると 14.9 になり、直前の 15.0 を飛ばして違和感があった。
+  - 14 のように切りの良い数が整数表示になり、14.9 / 15.04 と桁が揃わなかった。0 まで 0.0 にすると冗長。
+- **対策**:
+  - `stepCaptionEndTime` は実尺端数（15.04）からのマイナスを最後の 0.1 秒格子（15.0）へ戻す。その次が 14.9。
+  - `formatCaptionTimeInput` は 0 → `0`、0.1 秒格子 → `14.0` / `14.9`、端数実尺 → `15.04`。
+- **注意**: 表示フォーマットはキャプションの開始/終了だけ。他の NumericSliderField は type=number のまま。
+- **回帰ガード**: 15.04 − → 15.0、表示 `0` / `14.0` / `15.04` をテストする。
+
+### 13-232. 動画・BGM・ナレーションのトリム終了もキャプションと同じ終端吸着と桁揃え
+
+- **ファイル**: `src/utils/timeStepperInput.ts`（新規）, `src/utils/captionTimeline.ts`, `src/components/media/ClipItem.tsx`, `src/components/sections/BgmClipList.tsx`, `src/components/sections/NarrationSection.tsx`, `src/components/TurtleVideo.tsx`
+- **問題**: キャプションだけ 1/100 秒表示・右端吸着にしたため、動画トリムは 15 と整数表示のまま、スライダーも 0.1 秒で実尺 15.04 へ届かなかった。
+- **対策**:
+  - 共通ヘルパー `timeStepperInput.ts` に終端吸着・−の 15.0 戻し・`0` / `15.0` / `15.04` 表示を集約する。
+  - 動画トリム、BGM トリム、ナレーション トリムの終了に同じ契約を載せる。開始は表示だけ揃える。
+  - プレビュー位置の「終了」も `snapTimeToLimitEnd` を通す。
+- **注意**: 画像の表示時間は範囲 0.5〜60・0.1 刻みのまま。表示桁だけ共通フォーマットにする。
+- **回帰ガード**: トリム終了の max/step、＋で 15.04、−で 15.0、開始 `0` を ClipItem テストで固定する。
+
+### 13-233. ナレーション→キャプション分割は句点を20文字窓の外でも優先する
+
+- **ファイル**: `src/utils/narrationCaptionPlan.ts`, `src/constants/sectionHelp.ts`, `src/test/narrationCaptionPlan.test.ts`
+- **対象 flavor**: **shared utility**。`buildNarrationCaptionPlan` は両 flavor 共通。ボタン表示は 13-171 どおり standard 限定。無音吸着（13-157）は変更しない。
+- **問題**:
+  - `findPreferredBreak` が最大20文字の窓の中だけ句点・読点を探していた。
+  - 「…自動でカウントアップ。」は句点が27文字目のため、「カウ」で切断され、次カードが「ントアップ。」で始まり、読点「、」が次カード先頭に残った。
+- **対策**:
+  - 先に `。！？!?` で文を切る。句点付きの文は既定の2倍（40文字）まで1枚に残す。
+  - それより長い文だけ `、` 等で折り返す。読点は上限の1.5倍まで先読みする。
+  - 句読点が無いときだけ20文字で切断する。短すぎる末尾の統合と文字数比＋無音吸着は維持する。
+- **注意**:
+  - 20文字窓の中だけ切れ目を探す実装へ戻さない。句点優先を外すと単語途中切断が再発する。
+  - 句読点のない話し言葉の意味分割は対象外。AI分割は入れない。
+- **回帰ガード**: 再現原稿が句点・読点どおり4カードになること、句点なし長文は上限分割、既存の文字数比被覆と無音吸着を `narrationCaptionPlan.test.ts` で固定する。
+
+### 13-234. ナレーション→キャプションは画面に収まる長さにし、句読点は本文へ残さない
+
+- **ファイル**: `src/utils/narrationCaptionPlan.ts`, `src/constants/sectionHelp.ts`, `src/test/narrationCaptionPlan.test.ts`
+- **対象 flavor**: **shared utility**。無音吸着・保存契約・描画エンジンは変更しない。
+- **問題**:
+  - 13-233 が句点付きの文を最大40文字まで1枚に残したため、「ボタンを押し続けるだけで数値が自動でカウントアップ。」が映像上で左右見切れた。
+  - 句点・読点がキャプション本文に残り、字幕としては不要だった。
+- **対策**:
+  - 句点・読点は分割の切れ目にだけ使い、カード本文からは `。、！？` 等を除く。
+  - 1枚の上限は既定20文字へ戻す。長い文は読点、カタカナ/英数の単語境界、助詞の後ろで折り返す。
+  - カタカナ語（例: カウントアップ）の途中では切らない。短い末尾の結合も、足すと20文字を超えるときは行わない。
+- **注意**:
+  - 句点があるからといって長い文を1枚に残す実装へ戻さない。画面見切れが再発する。
+  - 句読点を本文に戻すと「、」が次カード先頭に残る退行も再発しやすい。
+- **回帰ガード**: 再現原稿が句読点なし・20文字以内の5カードになること、カタカナ語が分かれないこと、句点なし長文も20文字以内を `narrationCaptionPlan.test.ts` で固定する。
+
+### 13-235. プレビュー一括クリアは一括音設定を初期化し、エンドロール区間にもキャプションを重ねる
+
+- **ファイル**: `src/stores/mediaStore.ts`, `src/stores/audioStore.ts`, `src/components/TurtleVideo.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/constants/sectionHelp.ts`, `Docs/specs/2026-08-08_endroll-logo.md`
+- **対象 flavor**: **standard（Android / PC）**。一括音設定 UI とエンドロールは 13-171 / 13-176 どおり standard 限定。保存スキーマは変えない。
+- **問題**:
+  - 13-208 / 13-211 / 13-212 は、クリップ全削除後も一括ミュート・一括音量・音量揃えを残して再追加へ継承する。そのため `clearAllMedia` / `clearAllAudio` だけでは、プレビューの「一括クリア」後も音声一括設定が残った。
+  - 13-176 はエンドロール区間でキャプションを描かず、全面塗りがクリップ合成を覆うため、エンドロールへ置いたキャプションがプレビュー／書き出しに出なかった。
+- **対策**:
+  - `resetBulkVideoAudioSettings()` / `resetBulkAudioSettings()` を追加する。プレビュー一括クリアだけが、クリップ削除のあとでこれらを呼ぶ。
+  - `clearAllMedia` / `clearAllAudio` は継承用にフラグを残す契約のまま（13-208 / 13-212）。
+  - 一括クリアの確認対象に一括設定・エンドロールを含め、空プロジェクト判定も一括フラグを見る。
+  - standard `renderFrame` はエンドロールと `scope='full'` のウォーターマークをキャプション抜きスナップショットより前に描き、キャプションはエンドロールの上へ重ねる。タイトルと倍速バッジは従来どおりエンドロール中は出さない。
+- **注意**:
+  - クリップ削除と一括音設定の初期化を混ぜない。前者は継承、後者はプレビュー一括クリア専用。
+  - エンドロールを早期 return すると BGM が止まる（13-176）。キャプションを重ねても rAF は継続する。
+  - キャプション追加の上限は従来どおり `totalDuration`（クリップ + エンドロール）。`clipsDuration` へ戻すとエンドロールへ置けなくなる。
+- **回帰ガード**: `mediaStore.test.ts` / `audioStore.test.ts` で reset と「clear は残して reset で初期化」、`captionTimeline.test.ts` でエンドロール時刻の表示対象、`sectionHelp.test.ts` で一括クリアとエンドロール案内を固定する。
 

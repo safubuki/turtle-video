@@ -159,6 +159,28 @@ describe('ClipsSection media picker routing', () => {
   });
 });
 
+describe('ClipsSection image duration', () => {
+  it('画像の表示時間は 0.1 秒単位で増減できる', () => {
+    const onUpdateImageDuration = vi.fn();
+    renderClipsSection({
+      mediaItems: [createImageItem({ isTransformOpen: false })],
+      onUpdateImageDuration,
+    });
+
+    const slider = screen.getByLabelText('画像の表示時間');
+    expect(slider).toHaveAttribute('min', '0.5');
+    expect(slider).toHaveAttribute('max', '60');
+    expect(slider).toHaveAttribute('step', '0.1');
+
+    fireEvent.click(screen.getByRole('button', { name: '画像の表示時間を0.1増やす' }));
+    expect(onUpdateImageDuration).toHaveBeenCalledWith('image-1', '5.1');
+
+    onUpdateImageDuration.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: '画像の表示時間を0.1減らす' }));
+    expect(onUpdateImageDuration).toHaveBeenCalledWith('image-1', '4.9');
+  });
+});
+
 describe('ClipsSection bulk mute', () => {
   function createVideoItem(id: string, isMuted = false): MediaItem {
     return {

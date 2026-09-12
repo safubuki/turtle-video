@@ -9,6 +9,7 @@ import {
   formatTimeDetailed,
   formatPercent,
   formatFileSize,
+  quantizeTimeToCentiseconds,
 } from '../utils/format';
 
 describe('formatTime', () => {
@@ -45,6 +46,14 @@ describe('formatTimeDetailed', () => {
   it('should handle edge cases', () => {
     expect(formatTimeDetailed(NaN)).toBe('0:00.0');
     expect(formatTimeDetailed(Infinity)).toBe('0:00.0');
+  });
+});
+
+describe('quantizeTimeToCentiseconds', () => {
+  it('プレビューの 0:07.04 と同じ 1/100 秒へ揃える', () => {
+    expect(quantizeTimeToCentiseconds(7.0416)).toBe(7.04);
+    expect(quantizeTimeToCentiseconds(7.04)).toBe(7.04);
+    expect(quantizeTimeToCentiseconds(3.999)).toBe(3.99);
   });
 });
 

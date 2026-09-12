@@ -73,6 +73,13 @@ describe('sectionHelp support messaging', () => {
     expect(waveformHelp?.note).toContain('キャプション時刻は変わりません');
   });
 
+  it('主要な機能はスライダー誤操作防止と −/+ の長押し増減を案内する', () => {
+    const description = getHelpDescription('app', '主要な機能');
+    expect(description).toContain('スライダーへ触れた場合');
+    expect(description).toContain('−/+');
+    expect(description).toContain('押し続けると徐々に速く増減');
+  });
+
   it('app help は iPhone Safari を非対応ではなく動作モードとして案内する', () => {
     const description = getHelpDescription('app', '動作確認機種');
 
@@ -159,6 +166,35 @@ describe('sectionHelp support messaging', () => {
     expect(getHelpDescription('clips', '再生速度（0.5〜8.0倍）')).toContain('0.5');
     expect(getHelpDescription('clips', '再生速度（0.5〜8.0倍）')).toContain('等倍でもチェックできます');
     expect(getHelpDescription('clips', '再生速度（0.5〜8.0倍）')).toContain('四隅から9%内側');
+    expect(getHelpDescription('caption', '表示時間')).toContain('実尺');
+    expect(getHelpDescription('clips', '表示区間（動画：トリミング／画像：表示時間）')).toContain(
+      '0.1秒単位',
+    );
+    expect(getHelpDescription('clips', '表示区間（動画：トリミング／画像：表示時間）')).toContain(
+      '実尺',
+    );
+    expect(getHelpDescription(
+      'clips',
+      '表示区間（動画：トリミング／画像：表示時間）',
+      { appFlavor: 'apple-safari', supportsShowSaveFilePicker: false },
+    )).toContain('0.1秒単位');
+  });
+
+  it('一括クリアは音声一括設定の初期化を案内する', () => {
+    const description = getHelpDescription('preview', '一括クリア');
+    expect(description).toContain('音声一括設定');
+    expect(description).toContain('ミュート');
+    expect(description).toContain('一括音量');
+    expect(description).toContain('音量揃え');
+    expect(description).toContain('BGM');
+    expect(description).toContain('ナレーション');
+  });
+
+  it('エンドロール区間でもキャプションを追加・表示できると案内する', () => {
+    expect(getHelpDescription('clips', 'ロゴ表示（ウォーターマーク / エンドロール）'))
+      .toContain('区間中もキャプションを追加・表示できます');
+    expect(getHelpDescription('caption', '追加ボタン'))
+      .toContain('エンドロール区間でも追加・表示できます');
   });
 
   it('文章だけだった最近の機能にも操作部品の視覚見本を持たせる', () => {

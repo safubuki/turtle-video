@@ -45,7 +45,21 @@ import {
   canSetVideoTrimFromPreviewPosition,
   resolveMediaThumbnailSourceTime,
 } from '../../utils/media';
-import { MIN_SCALE, MAX_SCALE } from '../../constants';
+import {
+  TIME_SLIDER_STEP_SEC,
+  TIME_STEPPER_STEP_SEC,
+  formatTimeStepperInput,
+  resolveEndTimeInput,
+  resolveTimeSliderMax,
+  stepEndTime,
+} from '../../utils/timeStepperInput';
+import {
+  IMAGE_DURATION_STEP,
+  MAX_IMAGE_DURATION,
+  MAX_SCALE,
+  MIN_IMAGE_DURATION,
+  MIN_SCALE,
+} from '../../constants';
 import {
   VIDEO_PLAYBACK_SPEEDS,
   MIN_VIDEO_PLAYBACK_SPEED,
@@ -152,8 +166,24 @@ const ClipItem: React.FC<ClipItemProps> = ({
   const sourceClipDuration = v.type === 'video' ? getVideoSourceClipDuration(v) : 0;
 
   // スワイプ保護用コールバック
+  const trimSliderMax = resolveTimeSliderMax(v.originalDuration, v.originalDuration);
   const handleTrimStart = useCallback((val: number) => onUpdateVideoTrim('start', String(val)), [onUpdateVideoTrim]);
-  const handleTrimEnd = useCallback((val: number) => onUpdateVideoTrim('end', String(val)), [onUpdateVideoTrim]);
+  const handleTrimEnd = useCallback((val: number) => {
+    const next = resolveEndTimeInput(val, {
+      startTime: v.trimStart,
+      limitSec: v.originalDuration,
+    });
+    if (next != null) onUpdateVideoTrim('end', String(next));
+  }, [onUpdateVideoTrim, v.trimStart, v.originalDuration]);
+  const resolveTrimEndStep = useCallback(
+    (from: number, direction: 1 | -1) => (
+      stepEndTime(from, direction, {
+        startTime: v.trimStart,
+        limitSec: v.originalDuration,
+      }) ?? from
+    ),
+    [v.trimStart, v.originalDuration],
+  );
   const handleScale = useCallback((val: number) => onUpdateScale(val), [onUpdateScale]);
   // 位置は「中央原点・上が＋」の共通座標系（%）で操作し、保存形式(px)へ変換して渡す。
   // ロゴ・キャプションと操作感を揃えるための変換層（centerOriginPosition.ts 参照）。
@@ -330,28 +360,32 @@ const ClipItem: React.FC<ClipItemProps> = ({
             label="開始"
             ariaLabel="トリミング開始位置"
             min={0}
-            max={v.originalDuration}
-            step={0.1}
+            max={trimSliderMax}
+            step={TIME_STEPPER_STEP_SEC}
             value={v.trimStart}
             onChange={handleTrimStart}
+            formatDisplayValue={formatTimeStepperInput}
             disabled={isDisabled}
             unit="秒"
             sliderClassName="flex-1 min-w-0 accent-green-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-            inputClassName="w-12 focus:border-green-500"
+            inputClassName="w-14 focus:border-green-500"
           />
           {/* 終了位置 */}
           <NumericSliderField
             label="終了"
             ariaLabel="トリミング終了位置"
             min={0}
-            max={v.originalDuration}
-            step={0.1}
+            max={trimSliderMax}
+            step={TIME_SLIDER_STEP_SEC}
+            stepperStep={TIME_STEPPER_STEP_SEC}
             value={v.trimEnd}
             onChange={handleTrimEnd}
+            formatDisplayValue={formatTimeStepperInput}
+            resolveStep={resolveTrimEndStep}
             disabled={isDisabled}
             unit="秒"
             sliderClassName="flex-1 min-w-0 accent-red-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-            inputClassName="w-12 focus:border-red-500"
+            inputClassName="w-14 focus:border-red-500"
           />
         </div>
       )}
@@ -371,16 +405,17 @@ const ClipItem: React.FC<ClipItemProps> = ({
               label="表示時間"
               labelClassName="text-gray-400 w-14 shrink-0"
               ariaLabel="画像の表示時間"
-              min={0.5}
-              max={30}
-              step={0.5}
+              min={MIN_IMAGE_DURATION}
+              max={MAX_IMAGE_DURATION}
+              step={IMAGE_DURATION_STEP}
               value={v.duration}
               onChange={handleImageDuration}
+              formatDisplayValue={formatTimeStepperInput}
               disabled={isDisabled}
               unit="秒"
               className="flex-1 min-w-0"
               sliderClassName="flex-1 min-w-0 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-              inputClassName="w-12 focus:border-yellow-500"
+              inputClassName="w-14 focus:border-yellow-500"
             />
           </div>
         </div>

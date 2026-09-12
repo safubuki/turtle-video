@@ -766,6 +766,76 @@ describe('audioStore', () => {
     });
   });
 
+  describe('resetBulkAudioSettings', () => {
+    it('BGM / ナレーションの一括ミュート・一括音量・音量揃えを初期値へ戻す', () => {
+      useAudioStore.setState({
+        bulkBgmMuted: true,
+        bulkBgmVolumeEnabled: true,
+        bulkBgmVolume: 0.55,
+        bgmAudioNormalizeEnabled: true,
+        bgmAudioNormalizeMode: 'loudest',
+        bulkNarrationMuted: true,
+        bulkNarrationVolumeEnabled: true,
+        bulkNarrationVolume: 1.2,
+        narrationAudioNormalizeEnabled: true,
+        narrationAudioNormalizeMode: 'loudest',
+      });
+
+      useAudioStore.getState().resetBulkAudioSettings();
+
+      const state = useAudioStore.getState();
+      expect(state.bulkBgmMuted).toBe(false);
+      expect(state.bulkBgmVolumeEnabled).toBe(false);
+      expect(state.bulkBgmVolume).toBe(1);
+      expect(state.bgmAudioNormalizeEnabled).toBe(false);
+      expect(state.bgmAudioNormalizeMode).toBe('mean');
+      expect(state.bulkNarrationMuted).toBe(false);
+      expect(state.bulkNarrationVolumeEnabled).toBe(false);
+      expect(state.bulkNarrationVolume).toBe(1);
+      expect(state.narrationAudioNormalizeEnabled).toBe(false);
+      expect(state.narrationAudioNormalizeMode).toBe('mean');
+    });
+
+    it('clearAllAudio は一括音設定を残し、reset 後に初期化する', () => {
+      useAudioStore.setState({
+        bulkBgmMuted: true,
+        bulkBgmVolumeEnabled: true,
+        bulkBgmVolume: 0.55,
+        bgmAudioNormalizeEnabled: true,
+        bgmAudioNormalizeMode: 'loudest',
+        bulkNarrationMuted: true,
+        bulkNarrationVolumeEnabled: true,
+        bulkNarrationVolume: 1.2,
+        narrationAudioNormalizeEnabled: true,
+        narrationAudioNormalizeMode: 'loudest',
+      });
+
+      useAudioStore.getState().clearAllAudio();
+      expect(useAudioStore.getState().bulkBgmMuted).toBe(true);
+      expect(useAudioStore.getState().bulkBgmVolumeEnabled).toBe(true);
+      expect(useAudioStore.getState().bulkBgmVolume).toBeCloseTo(0.55);
+      expect(useAudioStore.getState().bgmAudioNormalizeEnabled).toBe(true);
+      expect(useAudioStore.getState().bgmAudioNormalizeMode).toBe('loudest');
+      expect(useAudioStore.getState().bulkNarrationMuted).toBe(true);
+      expect(useAudioStore.getState().bulkNarrationVolumeEnabled).toBe(true);
+      expect(useAudioStore.getState().bulkNarrationVolume).toBeCloseTo(1.2);
+      expect(useAudioStore.getState().narrationAudioNormalizeEnabled).toBe(true);
+      expect(useAudioStore.getState().narrationAudioNormalizeMode).toBe('loudest');
+
+      useAudioStore.getState().resetBulkAudioSettings();
+      expect(useAudioStore.getState().bulkBgmMuted).toBe(false);
+      expect(useAudioStore.getState().bulkBgmVolumeEnabled).toBe(false);
+      expect(useAudioStore.getState().bulkBgmVolume).toBe(1);
+      expect(useAudioStore.getState().bgmAudioNormalizeEnabled).toBe(false);
+      expect(useAudioStore.getState().bgmAudioNormalizeMode).toBe('mean');
+      expect(useAudioStore.getState().bulkNarrationMuted).toBe(false);
+      expect(useAudioStore.getState().bulkNarrationVolumeEnabled).toBe(false);
+      expect(useAudioStore.getState().bulkNarrationVolume).toBe(1);
+      expect(useAudioStore.getState().narrationAudioNormalizeEnabled).toBe(false);
+      expect(useAudioStore.getState().narrationAudioNormalizeMode).toBe('mean');
+    });
+  });
+
   describe('narration bulk audio settings', () => {
     it('一括音量ONで追加したナレーションへ音量を継承する', () => {
       useAudioStore.setState({

@@ -17,6 +17,16 @@
  * 配分は純ロジックのみで、描画はプレビュー/エクスポート共通の renderFrame が行う。
  */
 import type { Caption } from '../types';
+import { quantizeTimeToCentiseconds } from './format';
+import {
+  TIME_SLIDER_STEP_SEC,
+  TIME_STEPPER_STEP_SEC,
+  formatTimeStepperInput,
+  resolveEndTimeInput,
+  resolveTimeSliderMax,
+  snapTimeToLimitEnd,
+  stepEndTime,
+} from './timeStepperInput';
 
 /** 行間隔があっても各行に最低限確保する表示秒数 */
 const MIN_SEQUENTIAL_SEGMENT_SEC = 0.1;
@@ -27,8 +37,69 @@ type SequentialCaptionInput = Pick<Caption, 'text' | 'startTime' | 'endTime'> & 
   sequentialGapSec?: number;
 };
 
-export function isCaptionActiveAtTime(caption: Caption, timeSec: number): boolean {
-  return timeSec >= caption.startTime && timeSec < caption.endTime;
+/** キャプション開始・終了の通常刻み（秒）。−/+ はこちら */
+export const CAPTION_TIME_STEP_SEC = TIME_STEPPER_STEP_SEC;
+/** 終了スライダーの刻み。プレビューの 1/100 秒表示に合わせ、右端の実尺へ届ける */
+export const CAPTION_TIME_SLIDER_STEP_SEC = TIME_SLIDER_STEP_SEC;
+
+export function isCaptionActiveAtTime(
+  caption: Caption,
+  timeSec: number,
+  timelineEndSec?: number,
+): boolean {
+  if (timeSec < caption.startTime) return false;
+  if (timeSec < caption.endTime) return true;
+  // 終了がプレビューと同じ 1/100 秒の実尺まで届いているときは最終フレームも出す
+  if (
+    timelineEndSec != null
+    && Number.isFinite(timelineEndSec)
+    && timelineEndSec > 0
+    && caption.endTime >= quantizeTimeToCentiseconds(timelineEndSec) - 1e-6
+    && timeSec <= timelineEndSec + 1e-6
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** キャプション時間スライダーの上限。プレビューの 0:07.04 と同じ 1/100 秒 */
+export function resolveCaptionTimeSliderMax(totalDuration: number): number {
+  return resolveTimeSliderMax(totalDuration, 60);
+}
+
+export function snapTimeToTimelineEnd(
+  timeSec: number,
+  timelineEndSec: number,
+  step: number = CAPTION_TIME_STEP_SEC,
+): number {
+  return snapTimeToLimitEnd(timeSec, timelineEndSec, step);
+}
+
+export function resolveCaptionEndTimeInput(
+  rawSec: number,
+  options: { startTime: number; timelineEndSec: number; step?: number },
+): number | null {
+  return resolveEndTimeInput(rawSec, {
+    startTime: options.startTime,
+    limitSec: options.timelineEndSec,
+    step: options.step,
+  });
+}
+
+export function stepCaptionEndTime(
+  fromSec: number,
+  direction: 1 | -1,
+  options: { startTime: number; timelineEndSec: number; step?: number },
+): number | null {
+  return stepEndTime(fromSec, direction, {
+    startTime: options.startTime,
+    limitSec: options.timelineEndSec,
+    step: options.step,
+  });
+}
+
+export function formatCaptionTimeInput(value: number): string {
+  return formatTimeStepperInput(value);
 }
 
 /**

@@ -442,6 +442,55 @@ describe('mediaStore', () => {
     });
   });
 
+  describe('resetBulkVideoAudioSettings', () => {
+    it('一括ミュート・一括音量・音量揃えを初期値へ戻す', () => {
+      useMediaStore.setState({
+        bulkVideoMuted: true,
+        bulkVideoVolumeEnabled: true,
+        bulkVideoVolume: 0.4,
+        videoAudioNormalizeEnabled: true,
+        videoAudioNormalizeMode: 'loudest',
+      });
+
+      useMediaStore.getState().resetBulkVideoAudioSettings();
+
+      const state = useMediaStore.getState();
+      expect(state.bulkVideoMuted).toBe(false);
+      expect(state.bulkVideoVolumeEnabled).toBe(false);
+      expect(state.bulkVideoVolume).toBe(1);
+      expect(state.videoAudioNormalizeEnabled).toBe(false);
+      expect(state.videoAudioNormalizeMode).toBe('mean');
+    });
+
+    it('clearAllMedia は一括音設定を残し、reset 後に初期化する', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'v1', type: 'video', isMuted: true, volume: 0.4, duration: 5, url: 'blob:v1' } as any,
+        ],
+        bulkVideoMuted: true,
+        bulkVideoVolumeEnabled: true,
+        bulkVideoVolume: 0.4,
+        videoAudioNormalizeEnabled: true,
+        videoAudioNormalizeMode: 'loudest',
+      });
+
+      useMediaStore.getState().clearAllMedia();
+      expect(useMediaStore.getState().mediaItems).toHaveLength(0);
+      expect(useMediaStore.getState().bulkVideoMuted).toBe(true);
+      expect(useMediaStore.getState().bulkVideoVolumeEnabled).toBe(true);
+      expect(useMediaStore.getState().bulkVideoVolume).toBeCloseTo(0.4);
+      expect(useMediaStore.getState().videoAudioNormalizeEnabled).toBe(true);
+      expect(useMediaStore.getState().videoAudioNormalizeMode).toBe('loudest');
+
+      useMediaStore.getState().resetBulkVideoAudioSettings();
+      expect(useMediaStore.getState().bulkVideoMuted).toBe(false);
+      expect(useMediaStore.getState().bulkVideoVolumeEnabled).toBe(false);
+      expect(useMediaStore.getState().bulkVideoVolume).toBe(1);
+      expect(useMediaStore.getState().videoAudioNormalizeEnabled).toBe(false);
+      expect(useMediaStore.getState().videoAudioNormalizeMode).toBe('mean');
+    });
+  });
+
   describe('updateScale', () => {
     it('should update scale within valid range', () => {
       useMediaStore.setState({
@@ -635,6 +684,22 @@ describe('mediaStore', () => {
       
       const { mediaItems } = useMediaStore.getState();
       expect(mediaItems[0].duration).toBeGreaterThanOrEqual(0.5);
+    });
+
+    it('should snap image duration to 0.1 second steps', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'a', type: 'image', duration: 5 } as any,
+        ],
+        totalDuration: 5,
+      });
+
+      const { updateImageDuration } = useMediaStore.getState();
+      updateImageDuration('a', 5.1);
+
+      const { mediaItems, totalDuration } = useMediaStore.getState();
+      expect(mediaItems[0].duration).toBe(5.1);
+      expect(totalDuration).toBe(5.1);
     });
   });
 

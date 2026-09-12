@@ -8,6 +8,7 @@
  * スマホでの数値調整が難しい問題（Issue: スライダー入力の操作性）への対応。
  * スライダーのつまみをタッチで目的の値へピンポイントに合わせるのは至難なため、
  * −/+ で 1 ステップずつ確実に詰められるようにする。
+ * −/+ は単発タップに加え、長押しで徐々に加速して増減する（離すと停止）。
  *
  * 並びは **数値 → スライダー → −/+**（PC/スマホ共通）。
  * −/+ を数値の左右に置くと、特に ＋ 操作中に数値が指で隠れる。
@@ -20,7 +21,7 @@
 import React from 'react';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import NumericStepperInput, {
-  STEPPER_BUTTON_CLASS,
+  StepperHoldButton,
   clampValue,
   inferDecimals,
 } from './NumericStepperInput';
@@ -57,6 +58,10 @@ export interface NumericSliderFieldProps {
   inputClassName?: string;
   /** 表示時の小数桁数。省略時は step から推定する */
   decimals?: number;
+  /** 指定時は数値欄の表示文字列を差し替える */
+  formatDisplayValue?: (value: number) => string;
+  /** −/+ の次値。省略時は from ± stepperStep を clamp する */
+  resolveStep?: (from: number, direction: 1 | -1) => number;
   /**
    * 数値入力欄を出さず −/+ だけを添える。
    * 値を見出し側に表示しているフル幅スライダー（位置・拡大・音量など）向け。
@@ -85,6 +90,8 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
   sliderClassName = 'flex-1 min-w-0 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50',
   inputClassName = 'w-12 focus:border-blue-500',
   decimals,
+  formatDisplayValue,
+  resolveStep,
   hideInput = false,
   ariaLabel,
   inputId,
@@ -96,9 +103,13 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
   const effectiveLabel = ariaLabel ?? label;
   const isStacked = layout === 'stacked' && !hideInput;
 
-  const handleStep = (direction: 1 | -1) => {
-    const next = clampValue(displayValue + direction * stepAmount, min, max, resolvedDecimals);
-    if (next !== displayValue) onChange(next);
+  const applyStepBy = (direction: 1 | -1) => (from: number) => {
+    const raw = resolveStep
+      ? resolveStep(from, direction)
+      : from + direction * stepAmount;
+    const next = clampValue(raw, min, max, resolvedDecimals);
+    if (next !== from) onChange(next);
+    return next;
   };
 
   const slider = (
@@ -127,26 +138,22 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
         <>
           {slider}
           {/* 値は呼び出し元の見出しに表示されているため、増減だけを提供する */}
-          <button
-            type="button"
-            onClick={() => handleStep(-1)}
+          <StepperHoldButton
             disabled={disabled || displayValue <= min}
-            className={STEPPER_BUTTON_CLASS}
-            aria-label={`${effectiveLabel ?? '値'}を${stepAmount}減らす`}
-            tabIndex={-1}
+            currentValue={displayValue}
+            applyStep={applyStepBy(-1)}
+            ariaLabel={`${effectiveLabel ?? '値'}を${stepAmount}減らす`}
           >
             <Minus className="w-3 h-3" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            onClick={() => handleStep(1)}
+          </StepperHoldButton>
+          <StepperHoldButton
             disabled={disabled || displayValue >= max}
-            className={STEPPER_BUTTON_CLASS}
-            aria-label={`${effectiveLabel ?? '値'}を${stepAmount}増やす`}
-            tabIndex={-1}
+            currentValue={displayValue}
+            applyStep={applyStepBy(1)}
+            ariaLabel={`${effectiveLabel ?? '値'}を${stepAmount}増やす`}
           >
             <Plus className="w-3 h-3" aria-hidden="true" />
-          </button>
+          </StepperHoldButton>
         </>
       ) : isStacked ? (
         <>
@@ -162,6 +169,8 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
             unit={unit}
             inputClassName={inputClassName}
             decimals={decimals}
+            formatDisplayValue={formatDisplayValue}
+            resolveStep={resolveStep}
             ariaLabel={effectiveLabel}
             inputId={inputId}
             className="col-start-2 w-full justify-between"
@@ -179,6 +188,8 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
           unit={unit}
           inputClassName={inputClassName}
           decimals={decimals}
+          formatDisplayValue={formatDisplayValue}
+          resolveStep={resolveStep}
           ariaLabel={effectiveLabel}
           inputId={inputId}
           afterValue={slider}

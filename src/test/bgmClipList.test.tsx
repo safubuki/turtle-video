@@ -110,6 +110,13 @@ describe('BgmClipList timeline adjustment', () => {
     ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'トリミング設定' }));
     expect(screen.getByText('現在は音源内 30.0s を再生しています。')).toBeInTheDocument();
+    const startButton = screen.getByText('開始設定').closest('button');
+    expect(startButton).toHaveClass('px-2', 'shrink-0', 'whitespace-nowrap');
+    expect(screen.getByText('終了設定').closest('button')).toHaveClass(
+      'px-2',
+      'shrink-0',
+      'whitespace-nowrap',
+    );
     fireEvent.click(
       screen.getByRole('button', { name: '現在のBGM位置をトリミング開始に設定' }),
     );

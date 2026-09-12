@@ -1,6 +1,8 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { useState } from 'react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import NumericSliderField from '../components/common/NumericSliderField';
+import { HOLD_REPEAT_INITIAL_DELAY_MS } from '../utils/holdToRepeat';
 
 describe('NumericSliderField', () => {
   const renderField = (overrides: Partial<React.ComponentProps<typeof NumericSliderField>> = {}) => {
@@ -122,6 +124,27 @@ describe('NumericSliderField', () => {
     expect(screen.getByLabelText('終了位置')).toBeDisabled();
   });
 
+  it('＋が上限を超えるときは step 格子外の max そのものへ収める', () => {
+    const { onChange } = renderField({ value: 7, min: 0, max: 7.04, step: 0.1 });
+
+    fireEvent.click(screen.getByLabelText('終了位置を0.1増やす'));
+    expect(onChange).toHaveBeenCalledWith(7.04);
+  });
+
+  it('max が step 格子外でも右端の値を 0.1 へ丸め戻さない', () => {
+    const { onChange } = renderField({ value: 7, min: 0, max: 7.04, step: 0.1 });
+
+    fireEvent.change(screen.getByLabelText('終了位置'), { target: { value: '7.04' } });
+    expect(onChange).toHaveBeenCalledWith(7.04);
+  });
+
+  it('実尺の端数は数値欄にそのまま出す', () => {
+    renderField({ value: 7.04, min: 0, max: 7.04, step: 0.1 });
+
+    expect(getNumberInput().value).toBe('7.04');
+    expect(screen.getByLabelText('終了位置を0.1増やす')).toBeDisabled();
+  });
+
   it('スライダー操作は従来どおり即時反映する', () => {
     const { onChange } = renderField();
 
@@ -157,5 +180,140 @@ describe('NumericSliderField', () => {
     expect(slider.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(input.compareDocumentPosition(minus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(minus.compareDocumentPosition(plus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('hideInput でも −/+ の単発クリックで増減する', () => {
+    const { onChange } = renderField({ hideInput: true });
+
+    fireEvent.click(screen.getByLabelText('終了位置を0.1増やす'));
+    expect(onChange).toHaveBeenLastCalledWith(20.1);
+  });
+});
+
+const StatefulNumericSliderField = ({
+  initialValue = 0,
+  max = 100,
+}: {
+  initialValue?: number;
+  max?: number;
+}) => {
+  const [value, setValue] = useState(initialValue);
+  return (
+    <NumericSliderField
+      value={value}
+      min={0}
+      max={max}
+      step={1}
+      onChange={setValue}
+      ariaLabel="値"
+    />
+  );
+};
+
+const pointerDownPlus = () => {
+  fireEvent.pointerDown(screen.getByLabelText('値を1増やす'), {
+    button: 0,
+    pointerId: 1,
+    clientX: 8,
+    clientY: 8,
+  });
+};
+
+describe('NumericSliderField hold-to-repeat', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('短押しの click は 1 ステップだけで、pointerdown だけでは値を変えない', () => {
+    vi.useFakeTimers();
+    render(<StatefulNumericSliderField />);
+    const plus = screen.getByLabelText('値を1増やす');
+    const input = screen.getByLabelText('値（数値）') as HTMLInputElement;
+
+    fireEvent.pointerDown(plus, { button: 0, pointerId: 1, clientX: 8, clientY: 8 });
+    expect(input.value).toBe('0');
+
+    fireEvent.pointerUp(plus, { pointerId: 1 });
+    fireEvent.click(plus);
+    expect(input.value).toBe('1');
+  });
+
+  it('長押しすると遅延のあと繰り返し増減し、離すと止まる', () => {
+    vi.useFakeTimers();
+    render(<StatefulNumericSliderField />);
+    const plus = screen.getByLabelText('値を1増やす');
+    const input = screen.getByLabelText('値（数値）') as HTMLInputElement;
+
+    pointerDownPlus();
+    act(() => {
+      vi.advanceTimersByTime(HOLD_REPEAT_INITIAL_DELAY_MS - 1);
+    });
+    expect(input.value).toBe('0');
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    const afterFirstRepeat = Number(input.value);
+    expect(afterFirstRepeat).toBeGreaterThanOrEqual(1);
+
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    const whileHolding = Number(input.value);
+    expect(whileHolding).toBeGreaterThan(afterFirstRepeat);
+
+    fireEvent.pointerUp(plus, { pointerId: 1 });
+    const afterRelease = Number(input.value);
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(Number(input.value)).toBe(afterRelease);
+  });
+
+  it('長押し後の click は二重に増減しない', () => {
+    vi.useFakeTimers();
+    render(<StatefulNumericSliderField />);
+    const plus = screen.getByLabelText('値を1増やす');
+    const input = screen.getByLabelText('値（数値）') as HTMLInputElement;
+
+    pointerDownPlus();
+    act(() => {
+      vi.advanceTimersByTime(HOLD_REPEAT_INITIAL_DELAY_MS + 50);
+    });
+    const heldValue = Number(input.value);
+    expect(heldValue).toBeGreaterThanOrEqual(1);
+
+    fireEvent.pointerUp(plus, { pointerId: 1 });
+    fireEvent.click(plus);
+    expect(Number(input.value)).toBe(heldValue);
+  });
+
+  it('長押し中に指が動くと繰り返しを始めず、click も抑止する', () => {
+    vi.useFakeTimers();
+    render(<StatefulNumericSliderField />);
+    const plus = screen.getByLabelText('値を1増やす');
+    const input = screen.getByLabelText('値（数値）') as HTMLInputElement;
+
+    pointerDownPlus();
+    fireEvent.pointerMove(window, { pointerId: 1, clientX: 8, clientY: 28 });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(input.value).toBe('0');
+
+    fireEvent.pointerUp(plus, { pointerId: 1 });
+    fireEvent.click(plus);
+    expect(input.value).toBe('0');
+  });
+
+  it('上限に達したら繰り返しを止める', () => {
+    vi.useFakeTimers();
+    render(<StatefulNumericSliderField initialValue={8} max={10} />);
+    pointerDownPlus();
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect((screen.getByLabelText('値（数値）') as HTMLInputElement).value).toBe('10');
+    expect(screen.getByLabelText('値を1増やす')).toBeDisabled();
   });
 });

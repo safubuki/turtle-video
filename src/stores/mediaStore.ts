@@ -25,6 +25,7 @@ import {
   generateId,
   validateTrim,
   validateScale,
+  normalizeImageDuration,
   validatePosition,
   revokeObjectUrl,
   getNextRotation,
@@ -39,6 +40,7 @@ import {
   normalizeSpeedBadgePosition,
   resolveSpeedBadgePresetPosition,
   DEFAULT_SPEED_BADGE_LABEL_STYLE,
+  DEFAULT_VIDEO_AUDIO_NORMALIZE_MODE,
 } from '../utils';
 import { useLogStore } from './logStore';
 
@@ -173,6 +175,12 @@ interface MediaState {
 
   // Clear
   clearAllMedia: () => void;
+  /**
+   * 動画の一括ミュート / 一括音量 / 音量揃えだけを初期値へ戻す。
+   * クリップ削除や `clearAllMedia` ではフラグを残す（追加時の継承用）。
+   * プレビューの一括クリアはクリップ削除のあと、これを呼んで初期化する。
+   */
+  resetBulkVideoAudioSettings: () => void;
 
   // Restore
   isLocked: boolean;
@@ -564,7 +572,7 @@ export const useMediaStore = create<MediaState>()(
 
       // Update image duration
       updateImageDuration: (id, duration) => {
-        const safeDuration = Math.max(0.5, duration);
+        const safeDuration = normalizeImageDuration(duration);
         set((state) => {
           const updated = state.mediaItems.map((item) =>
             item.id === id ? { ...item, duration: safeDuration } : item
@@ -903,6 +911,17 @@ export const useMediaStore = create<MediaState>()(
           projectPosterTimelineTime: 0.2,
           projectPosterDataUrl: null,
           projectPosterAspectRatio: 'landscape',
+        });
+      },
+
+      resetBulkVideoAudioSettings: () => {
+        useLogStore.getState().info('MEDIA', '動画の一括音設定を初期化');
+        set({
+          bulkVideoMuted: false,
+          bulkVideoVolumeEnabled: false,
+          bulkVideoVolume: 1,
+          videoAudioNormalizeEnabled: false,
+          videoAudioNormalizeMode: DEFAULT_VIDEO_AUDIO_NORMALIZE_MODE,
         });
       },
 

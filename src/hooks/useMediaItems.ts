@@ -8,6 +8,7 @@
 import { useState, useCallback, useRef } from 'react';
 import type { MediaItem } from '../types';
 import { MAX_CANVAS_WIDTH, MAX_CANVAS_HEIGHT, MIN_SCALE, MAX_SCALE } from '../constants';
+import { normalizeImageDuration } from '../utils/media';
 
 /**
  * useMediaItems - メディアアイテムの状態管理と操作ロジックを提供するフック
@@ -156,8 +157,7 @@ export function useMediaItems(): UseMediaItemsReturn {
 
   // 画像の表示時間更新
   const updateImageDuration = useCallback((id: string, newDuration: string) => {
-    let val = parseFloat(newDuration);
-    if (isNaN(val) || val < 0.5) val = 0.5;
+    const val = normalizeImageDuration(newDuration);
     setMediaItems((prev) => prev.map((v) => (v.id === id ? { ...v, duration: val } : v)));
   }, []);
 

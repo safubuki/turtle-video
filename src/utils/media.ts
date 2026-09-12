@@ -9,7 +9,15 @@
 import type { MediaItem } from '../types';
 import { calculateTotalDurationWithTransitions } from './transitionTimeline';
 import { useLogStore } from '../stores/logStore';
-import { MAX_CANVAS_WIDTH, MIN_SCALE, MAX_SCALE } from '../constants';
+import {
+  DEFAULT_IMAGE_DURATION,
+  IMAGE_DURATION_STEP,
+  MAX_CANVAS_WIDTH,
+  MAX_IMAGE_DURATION,
+  MIN_IMAGE_DURATION,
+  MIN_SCALE,
+  MAX_SCALE,
+} from '../constants';
 import {
   computeTimelineDurationFromSource,
   getVideoSourceClipDuration,
@@ -144,7 +152,7 @@ export async function createMediaItem(file: File): Promise<MediaItem> {
     fadeOut: false,
     fadeInDuration: 1.0,
     fadeOutDuration: 1.0,
-    duration: isImage ? 5 : 0,
+    duration: isImage ? DEFAULT_IMAGE_DURATION : 0,
     originalDuration: 0,
     trimStart: 0,
     trimEnd: 0,
@@ -818,6 +826,18 @@ export function createPosterPreviewDataUrlFromCanvas(
   canvas: HTMLCanvasElement,
 ): string | null {
   return createPosterDataUrlFromCanvas(canvas, 320, 0.75);
+}
+
+/**
+ * 画像の表示時間を 0.5〜60 秒・0.1 秒刻みへ正規化する。
+ * NaN / 非有限値は既定の 5 秒へ戻す。
+ */
+export function normalizeImageDuration(duration: unknown): number {
+  const value = typeof duration === 'number' ? duration : Number(duration);
+  if (!Number.isFinite(value)) return DEFAULT_IMAGE_DURATION;
+  const clamped = Math.min(MAX_IMAGE_DURATION, Math.max(MIN_IMAGE_DURATION, value));
+  const factor = Math.round(1 / IMAGE_DURATION_STEP);
+  return Math.round(clamped * factor) / factor;
 }
 
 /**

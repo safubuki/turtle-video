@@ -4,8 +4,15 @@ import type { Caption, CaptionSettings } from '../../types';
 import NumericSliderField from '../common/NumericSliderField';
 import CaptionSettingsModal from '../modals/CaptionSettingsModal';
 import {
+  CAPTION_TIME_SLIDER_STEP_SEC,
+  CAPTION_TIME_STEP_SEC,
+  formatCaptionTimeInput,
+  isCaptionActiveAtTime,
   isSequentialCaption,
+  resolveCaptionEndTimeInput,
+  resolveCaptionTimeSliderMax,
   resolveSequentialCaptionSegments,
+  stepCaptionEndTime,
 } from '../../utils/captionTimeline';
 import { hasCaptionIndividualSettings } from '../../utils/captionIndividualSettings';
 import type { CaptionFreeSnapshot } from '../../utils/canvas';
@@ -73,8 +80,8 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
     setIsEditing(false);
   };
 
-  // 現在時刻がこのキャプションの範囲内かどうか
-  const isActive = currentTime >= caption.startTime && currentTime < caption.endTime;
+  const isActive = isCaptionActiveAtTime(caption, currentTime, totalDuration);
+  const timeSliderMax = resolveCaptionTimeSliderMax(totalDuration);
 
   // 複数行テキスト = 時分割表示（1 行ずつ文字数比で順次表示）
   const isSequential = isSequentialCaption(caption);
@@ -95,11 +102,23 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
 
   const handleEndTimeChange = useCallback(
     (val: number) => {
-      if (!isNaN(val) && val > caption.startTime) {
-        onUpdate(caption.id, { endTime: val });
-      }
+      const next = resolveCaptionEndTimeInput(val, {
+        startTime: caption.startTime,
+        timelineEndSec: totalDuration,
+      });
+      if (next != null) onUpdate(caption.id, { endTime: next });
     },
-    [caption.id, caption.startTime, onUpdate]
+    [caption.id, caption.startTime, totalDuration, onUpdate]
+  );
+
+  const resolveEndStep = useCallback(
+    (from: number, direction: 1 | -1) => (
+      stepCaptionEndTime(from, direction, {
+        startTime: caption.startTime,
+        timelineEndSec: totalDuration,
+      }) ?? from
+    ),
+    [caption.startTime, totalDuration]
   );
 
   return (
@@ -246,14 +265,15 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
           labelClassName="text-gray-400 w-8 shrink-0"
           ariaLabel="キャプションの開始時間"
           min={0}
-          max={totalDuration || 60}
-          step={0.1}
+          max={timeSliderMax}
+          step={CAPTION_TIME_STEP_SEC}
           value={caption.startTime}
           onChange={handleStartTimeChange}
+          formatDisplayValue={formatCaptionTimeInput}
           disabled={isLocked}
           unit="秒"
           sliderClassName="flex-1 min-w-0 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-          inputClassName="w-12 text-white focus:border-yellow-500"
+          inputClassName="w-14 text-white focus:border-yellow-500"
         />
 
         {/* 終了時間 */}
@@ -262,14 +282,17 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
           labelClassName="text-gray-400 w-8 shrink-0"
           ariaLabel="キャプションの終了時間"
           min={0}
-          max={totalDuration || 60}
-          step={0.1}
+          max={timeSliderMax}
+          step={CAPTION_TIME_SLIDER_STEP_SEC}
+          stepperStep={CAPTION_TIME_STEP_SEC}
           value={caption.endTime}
           onChange={handleEndTimeChange}
+          formatDisplayValue={formatCaptionTimeInput}
+          resolveStep={resolveEndStep}
           disabled={isLocked}
           unit="秒"
           sliderClassName="flex-1 min-w-0 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-          inputClassName="w-12 text-white focus:border-yellow-500"
+          inputClassName="w-14 text-white focus:border-yellow-500"
         />
 
         {/* プレビュー位置を反映（BGM/ナレーションと同じ形式で分かりやすく） */}
@@ -292,12 +315,19 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
           <button
             type="button"
             onClick={() => {
-              const val = Math.round(currentTime * 10) / 10;
-              if (val > caption.startTime) {
-                onUpdate(caption.id, { endTime: val });
-              }
+              const val = resolveCaptionEndTimeInput(currentTime, {
+                startTime: caption.startTime,
+                timelineEndSec: totalDuration,
+              });
+              if (val != null) onUpdate(caption.id, { endTime: val });
             }}
-            disabled={isLocked || !(Math.round(currentTime * 10) / 10 > caption.startTime)}
+            disabled={
+              isLocked
+              || resolveCaptionEndTimeInput(currentTime, {
+                startTime: caption.startTime,
+                timelineEndSec: totalDuration,
+              }) == null
+            }
             className="min-h-9 px-2.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 hover:border-yellow-500/60 hover:text-yellow-200 disabled:opacity-30 flex items-center gap-1 transition"
             title="現在位置を終了時間に設定"
           >

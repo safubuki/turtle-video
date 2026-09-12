@@ -38,6 +38,8 @@ export interface DrawCaptionLayerFrameOptions {
   glyphPixelRatio?: number;
   /** export セッション内で同一グリフを再利用し、毎フレームの高解像度再生成を防ぐ。 */
   glyphCanvasCache?: CaptionGlyphCanvasCache;
+  /** キャプション終了がこの尺まで届いているとき、最終フレームも描く */
+  timelineEndSec?: number;
 }
 
 const LUMINANCE_KEY_FILL = '#FFFFFF';
@@ -86,6 +88,7 @@ export function drawCaptionLayerFrame(
         useBlurFallback: options.useBlurFallback,
         glyphPixelRatio: options.glyphPixelRatio,
         glyphCanvasCache: options.glyphCanvasCache,
+        timelineEndSec: options.timelineEndSec,
       })
     ) {
       didDraw = true;
@@ -124,10 +127,13 @@ function drawCaptionsAtTime(
     useBlurFallback?: boolean;
     glyphPixelRatio?: number;
     glyphCanvasCache?: CaptionGlyphCanvasCache;
+    timelineEndSec?: number;
   }
 ): boolean {
   let didDraw = false;
-  const activeCaptions = captions.filter((c) => isCaptionActiveAtTime(c, timeSec));
+  const activeCaptions = captions.filter(
+    (c) => isCaptionActiveAtTime(c, timeSec, options.timelineEndSec),
+  );
 
   for (const activeCaption of activeCaptions) {
     const displaySegment = resolveCaptionDisplaySegment(activeCaption, timeSec);

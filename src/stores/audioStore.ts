@@ -143,6 +143,12 @@ interface AudioState {
 
   // Clear
   clearAllAudio: () => void;
+  /**
+   * BGM / ナレーションの一括ミュート・一括音量・音量揃えを初期値へ戻す。
+   * `clearAllAudio` はクリップ削除時の継承用にフラグを残す。
+   * プレビューの一括クリアはクリップ削除のあと、これを呼んで初期化する。
+   */
+  resetBulkAudioSettings: () => void;
 
   // Restore
   restoreFromSave: (
@@ -1308,6 +1314,22 @@ export const useAudioStore = create<AudioState>()(
           bgmAutoAdjustToTimeline: true,
           narrations: [],
           isNarrationLocked: false,
+        });
+      },
+
+      resetBulkAudioSettings: () => {
+        useLogStore.getState().info('AUDIO', 'BGM / ナレーションの一括音設定を初期化');
+        set({
+          bulkBgmMuted: false,
+          bulkBgmVolumeEnabled: false,
+          bulkBgmVolume: 1,
+          bgmAudioNormalizeEnabled: false,
+          bgmAudioNormalizeMode: DEFAULT_VIDEO_AUDIO_NORMALIZE_MODE,
+          bulkNarrationMuted: false,
+          bulkNarrationVolumeEnabled: false,
+          bulkNarrationVolume: 1,
+          narrationAudioNormalizeEnabled: false,
+          narrationAudioNormalizeMode: DEFAULT_VIDEO_AUDIO_NORMALIZE_MODE,
         });
       },
 

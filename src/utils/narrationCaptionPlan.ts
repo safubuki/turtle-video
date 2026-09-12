@@ -34,8 +34,14 @@ const DEFAULT_MIN_SEGMENT_DURATION_SEC = 0.6;
 const DEFAULT_MAX_SNAP_DISTANCE_SEC = 1.25;
 const DEFAULT_MIN_SILENCE_FOR_GAP_SEC = 0.3;
 const DEFAULT_CAPTION_EDGE_PADDING_SEC = 0.1;
+/** 読点は上限の少し先まで見て、すぐ後ろの読点を取りこぼさない */
+const SOFT_OVERFLOW_RATIO = 1.15;
+const MIN_BREAK_RATIO = 0.4;
 const STRONG_BREAK = /[。！？!?]/u;
 const SOFT_BREAK = /[、，,・：:；;\s]/u;
+const CAPTION_PUNCTUATION = /[。、，,！？!?]/gu;
+const WORD_CHAR = /[\p{Script=Katakana}ーA-Za-z0-9]/u;
+const PARTICLE = /[はがをにへとものでてやかも]/u;
 
 const toGraphemes = (value: string): string[] => Array.from(value);
 
@@ -43,15 +49,83 @@ export function normalizeNarrationCaptionText(text: string): string {
   return text.replace(/\s+/gu, ' ').trim();
 }
 
-function findPreferredBreak(graphemes: string[], maxLength: number): number {
-  const lowerBound = Math.max(1, Math.floor(maxLength * 0.55));
-  for (let i = Math.min(maxLength, graphemes.length) - 1; i >= lowerBound - 1; i--) {
-    if (STRONG_BREAK.test(graphemes[i])) return i + 1;
+function stripCaptionPunctuation(text: string): string {
+  return text.replace(CAPTION_PUNCTUATION, '').replace(/\s+/gu, ' ').trim();
+}
+
+function findLastMatchingBreak(
+  graphemes: string[],
+  pattern: RegExp,
+  minInclusiveIndex: number,
+  maxExclusive: number
+): number {
+  const start = Math.min(maxExclusive, graphemes.length) - 1;
+  const end = Math.max(0, minInclusiveIndex);
+  for (let i = start; i >= end; i--) {
+    if (pattern.test(graphemes[i])) return i + 1;
   }
-  for (let i = Math.min(maxLength, graphemes.length) - 1; i >= lowerBound - 1; i--) {
-    if (SOFT_BREAK.test(graphemes[i])) return i + 1;
+  return -1;
+}
+
+function isWordChar(value: string): boolean {
+  return WORD_CHAR.test(value);
+}
+
+function splitByStrongBreaks(graphemes: string[]): string[] {
+  const segments: string[] = [];
+  let start = 0;
+  for (let i = 0; i < graphemes.length; i++) {
+    if (!STRONG_BREAK.test(graphemes[i])) continue;
+    const segment = graphemes.slice(start, i + 1).join('').trim();
+    if (segment) segments.push(segment);
+    start = i + 1;
   }
-  return Math.min(maxLength, graphemes.length);
+  const tail = graphemes.slice(start).join('').trim();
+  if (tail) segments.push(tail);
+  return segments;
+}
+
+function avoidSplittingWord(graphemes: string[], breakAt: number, minBreak: number): number {
+  if (breakAt <= 0 || breakAt >= graphemes.length) return breakAt;
+  if (!isWordChar(graphemes[breakAt - 1]) || !isWordChar(graphemes[breakAt])) return breakAt;
+
+  let runStart = breakAt - 1;
+  while (runStart > 0 && isWordChar(graphemes[runStart - 1])) runStart -= 1;
+  if (runStart >= minBreak) return runStart;
+  return breakAt;
+}
+
+function findWrapBreak(graphemes: string[], maxLength: number): number {
+  const minBreak = Math.max(1, Math.floor(maxLength * MIN_BREAK_RATIO));
+  const minBreakIndex = minBreak - 1;
+  const softLimit = Math.max(maxLength, Math.ceil(maxLength * SOFT_OVERFLOW_RATIO));
+  const softAt = findLastMatchingBreak(graphemes, SOFT_BREAK, minBreakIndex, softLimit);
+  if (softAt > 0) return softAt;
+
+  const limit = Math.min(maxLength, graphemes.length);
+  const wordSafeAt = avoidSplittingWord(graphemes, limit, minBreak);
+  const particleAt = findLastMatchingBreak(graphemes, PARTICLE, minBreakIndex, wordSafeAt);
+  if (particleAt > 0) return particleAt;
+  return wordSafeAt;
+}
+
+function wrapLongSegment(text: string, maxLength: number): string[] {
+  const graphemes = toGraphemes(text);
+  if (graphemes.length <= maxLength) return text ? [text] : [];
+
+  const remaining = [...graphemes];
+  const segments: string[] = [];
+
+  while (remaining.length > maxLength) {
+    const breakAt = findWrapBreak(remaining, maxLength);
+    const segment = remaining.splice(0, Math.max(1, breakAt)).join('').trim();
+    if (segment) segments.push(segment);
+    while (remaining[0] === ' ') remaining.shift();
+  }
+
+  const tail = remaining.join('').trim();
+  if (tail) segments.push(tail);
+  return segments;
 }
 
 function mergeSmallTail(segments: string[], maxLength: number): string[] {
@@ -61,10 +135,14 @@ function mergeSmallTail(segments: string[], maxLength: number): string[] {
   const tailLength = toGraphemes(tail).length;
   const combinedLength = toGraphemes(previous + tail).length;
   if (tailLength >= Math.max(4, Math.floor(maxLength * 0.35))) return segments;
-  if (combinedLength > Math.ceil(maxLength * 1.35)) return segments;
+  if (combinedLength > maxLength) return segments;
   return [...segments.slice(0, -2), `${previous}${tail}`];
 }
 
+/**
+ * 句点で文を切り、長い文は読点や単語の切れ目で折り返す。
+ * 画面に収まる長さを守り、句読点はキャプション本文へ残さない。
+ */
 export function splitNarrationCaptionText(
   text: string,
   maxGraphemes: number = DEFAULT_MAX_GRAPHEMES
@@ -73,18 +151,10 @@ export function splitNarrationCaptionText(
   if (!normalized) return [];
 
   const safeMax = Math.max(4, Math.floor(maxGraphemes));
-  const remaining = toGraphemes(normalized);
-  const segments: string[] = [];
-
-  while (remaining.length > safeMax) {
-    const breakAt = findPreferredBreak(remaining, safeMax);
-    const segment = remaining.splice(0, breakAt).join('').trim();
-    if (segment) segments.push(segment);
-    while (remaining[0] === ' ') remaining.shift();
-  }
-
-  const tail = remaining.join('').trim();
-  if (tail) segments.push(tail);
+  const segments = splitByStrongBreaks(toGraphemes(normalized))
+    .flatMap((sentence) => wrapLongSegment(sentence, safeMax))
+    .map(stripCaptionPunctuation)
+    .filter(Boolean);
   return mergeSmallTail(segments, safeMax);
 }
 

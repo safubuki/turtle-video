@@ -71,6 +71,7 @@ import {
 } from '../utils/narrationCaptionPlan';
 import { analyzeNarrationWaveform } from '../hooks/useNarrationWaveform';
 import { resolveEffectiveAudioClipPlayback } from '../stores/audioStore';
+import { snapTimeToLimitEnd } from '../utils/timeStepperInput';
 import {
   computeVideoTrimFromPreviewPosition,
   buildAutoProjectPosterContentKey,
@@ -79,6 +80,7 @@ import {
   createPosterDataUrlFromCanvas,
   isSupportedLogoImageFile,
   snapshotLogoImageFile,
+  normalizeImageDuration,
 } from '../utils/media';
 import { computeTimelineDurationFromSource } from '../utils/playbackSpeed';
 
@@ -210,6 +212,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const toggleItemLock = useMediaStore((s) => s.toggleItemLock);
   const toggleClipsLock = useMediaStore((s) => s.toggleClipsLock);
   const clearAllMedia = useMediaStore((s) => s.clearAllMedia);
+  const resetBulkVideoAudioSettings = useMediaStore((s) => s.resetBulkVideoAudioSettings);
 
   // Audio Store
   const bgm = useAudioStore((s) => s.bgm);
@@ -267,6 +270,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const toggleNarrationLock = useAudioStore((s) => s.toggleNarrationLock);
   const removeNarration = useAudioStore((s) => s.removeNarration);
   const clearAllAudio = useAudioStore((s) => s.clearAllAudio);
+  const resetBulkAudioSettings = useAudioStore((s) => s.resetBulkAudioSettings);
 
   // UI Store
   const toastMessage = useUIStore((s) => s.toastMessage);
@@ -2230,7 +2234,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
       const wasManual = item.thumbnailMode === 'manual';
       pausePreviewBeforeEdit(`set-video-trim-from-current-${type}`);
-      updateVideoTrim(id, type, type === 'start' ? nextTrim.start : nextTrim.end);
+      const nextValue = type === 'start'
+        ? nextTrim.start
+        : snapTimeToLimitEnd(nextTrim.end, item.originalDuration);
+      updateVideoTrim(id, type, nextValue);
 
       if (wasManual) {
         const after = useMediaStore.getState().mediaItems.find((v) => v.id === id);
@@ -2460,10 +2467,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   // --- 画像表示時間更新ハンドラ ---
   // 目的: 画像クリップの表示時間を変更
   const handleUpdateImageDuration = useCallback((id: string, newDuration: string) => {
-    let val = parseFloat(newDuration);
-    if (isNaN(val) || val < 0.5) val = 0.5;
     pausePreviewBeforeEdit('update-image-duration');
-    updateImageDuration(id, val);
+    updateImageDuration(id, normalizeImageDuration(newDuration));
   }, [pausePreviewBeforeEdit, updateImageDuration]);
 
   // --- スケール更新ハンドラ ---
@@ -2911,8 +2916,27 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   }, [pausePreviewBeforeHeaderModal]);
 
   // --- 全クリア処理 ---
-  // 目的: 全てのメディア・オーディオ・キャプション・ウォーターマークを削除し初期状態に戻す
+  // 目的: 全てのメディア・オーディオ・キャプション・ウォーターマークと
+  //       動画/BGM/ナレーションの一括音設定を削除し初期状態に戻す
   const handleClearAll = useCallback(() => {
+    const mediaState = useMediaStore.getState();
+    const audioState = useAudioStore.getState();
+    const hasBulkVideoAudio = mediaState.bulkVideoMuted
+      || mediaState.bulkVideoVolumeEnabled
+      || mediaState.videoAudioNormalizeEnabled
+      || mediaState.bulkVideoVolume !== 1
+      || mediaState.videoAudioNormalizeMode !== 'mean';
+    const hasBulkBgmAudio = audioState.bulkBgmMuted
+      || audioState.bulkBgmVolumeEnabled
+      || audioState.bgmAudioNormalizeEnabled
+      || audioState.bulkBgmVolume !== 1
+      || audioState.bgmAudioNormalizeMode !== 'mean';
+    const hasBulkNarrationAudio = audioState.bulkNarrationMuted
+      || audioState.bulkNarrationVolumeEnabled
+      || audioState.narrationAudioNormalizeEnabled
+      || audioState.bulkNarrationVolume !== 1
+      || audioState.narrationAudioNormalizeMode !== 'mean';
+
     if (
       mediaItems.length === 0
       && !bgm
@@ -2920,11 +2944,16 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       && narrations.length === 0
       && captions.length === 0
       && !watermarkOverlay.file
+      && !endrollOverlay.file
+      && !videoTitle.text.trim()
+      && !hasBulkVideoAudio
+      && !hasBulkBgmAudio
+      && !hasBulkNarrationAudio
     ) return;
 
     // 確認ダイアログを表示
     const confirmed = window.confirm(
-      'すべてのメディア、ウォーターマーク、BGM、ナレーション、キャプションをクリアします。よろしいですか？',
+      'すべてのメディア、一括設定、ウォーターマーク、エンドロール、BGM、ナレーション、キャプションをクリアします。よろしいですか？',
     );
     if (!confirmed) return;
 
@@ -2959,8 +2988,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
     // Zustand stores clear
     clearAllMedia();
+    resetBulkVideoAudioSettings();
     reconcileProjectPosterAspectRatio(aspectRatio, 0);
     clearAllAudio();
+    resetBulkAudioSettings();
     resetCaptions();
     resetWatermark();
     resetUI();
@@ -2981,11 +3012,15 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     narrations,
     captions,
     watermarkOverlay.file,
+    endrollOverlay.file,
+    videoTitle.text,
     stopAll,
     clearAllMedia,
+    resetBulkVideoAudioSettings,
     reconcileProjectPosterAspectRatio,
     aspectRatio,
     clearAllAudio,
+    resetBulkAudioSettings,
     resetCaptions,
     resetWatermark,
     resetUI,

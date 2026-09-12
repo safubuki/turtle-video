@@ -74,7 +74,7 @@ import {
   resolveCaptionPresetAsCustomPercent,
 } from '../../utils/captionStyle';
 import { useCanvasStore } from '../../stores/canvasStore';
-import { resolveShiftAlignmentTarget } from '../../utils/captionTimeline';
+import { isCaptionActiveAtTime, resolveShiftAlignmentTarget } from '../../utils/captionTimeline';
 import CaptionBulkAddModal, { type BulkCaptionApplyItem } from '../modals/CaptionBulkAddModal';
 import CaptionColorField from '../common/CaptionColorField';
 import CaptionMiniPreview, {
@@ -289,7 +289,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   const BULK_MINI_PREVIEW_TIME_SEC = 1;
   const bulkMiniPreviewCaption: Caption = useMemo(() => {
     const activeCaption = captions.find(
-      (c) => currentTime >= c.startTime && currentTime < c.endTime,
+      (c) => isCaptionActiveAtTime(c, currentTime, totalDuration),
     );
     const base = activeCaption ?? captions[0];
     return {
@@ -302,7 +302,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
       overrideFadeIn: 'off',
       overrideFadeOut: 'off',
     } as Caption;
-  }, [captions, currentTime]);
+  }, [captions, currentTime, totalDuration]);
   // 背景フレームはメインプレビューの canvas を都度転写する。現在位置の変化で描き直す。
   const bulkMiniPreviewRefreshKey = Math.round(currentTime * 100);
 

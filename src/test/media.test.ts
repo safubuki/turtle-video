@@ -36,6 +36,7 @@ import {
   isRgbaBufferEffectivelyBlank,
   PREVIEW_START_CLEAR_ZONE_SEC,
   validateScale,
+  normalizeImageDuration,
   validatePosition,
 } from '../utils/media';
 import type { MediaItem } from '../types';
@@ -602,6 +603,18 @@ describe('validateScale', () => {
     expect(validateScale(5)).toBe(4.0); // max is 4.0
     expect(validateScale(1.5)).toBe(1.5);
     expect(validateScale(4.0)).toBe(4.0);
+  });
+});
+
+describe('normalizeImageDuration', () => {
+  it('0.1 秒刻みに丸め、0.5〜60 秒へ収める', () => {
+    expect(normalizeImageDuration(5.1)).toBe(5.1);
+    expect(normalizeImageDuration(5.14)).toBe(5.1);
+    expect(normalizeImageDuration(5.15)).toBe(5.2);
+    expect(normalizeImageDuration(0.1)).toBe(0.5);
+    expect(normalizeImageDuration(0.4)).toBe(0.5);
+    expect(normalizeImageDuration(60.4)).toBe(60);
+    expect(normalizeImageDuration(Number.NaN)).toBe(5);
   });
 });
 

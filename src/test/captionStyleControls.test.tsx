@@ -565,3 +565,99 @@ describe('CaptionSection bulk timing alignment', () => {
     });
   });
 });
+
+describe('CaptionItem end time snaps to timeline duration', () => {
+  const caption: Caption = {
+    id: 'c1',
+    text: 'テスト',
+    startTime: 0,
+    endTime: 7,
+    fadeIn: false,
+    fadeOut: false,
+    fadeInDuration: 0.5,
+    fadeOutDuration: 0.5,
+  };
+
+  it('＋とプレビュー末尾の「終了」は 0.1 秒ではなく実尺へ合わせる', () => {
+    const onUpdateCaption = vi.fn();
+    renderCaptionSection(
+      {
+        captions: [caption],
+        totalDuration: 7.04,
+        currentTime: 7.04,
+        onUpdateCaption,
+      },
+      false,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'キャプションの終了時間を0.1増やす' }));
+    expect(onUpdateCaption).toHaveBeenCalledWith('c1', { endTime: 7.04 });
+
+    onUpdateCaption.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: '終了' }));
+    expect(onUpdateCaption).toHaveBeenCalledWith('c1', { endTime: 7.04 });
+  });
+
+  it('終了スライダーを右端へ動かしたときも実尺を残す', () => {
+    const onUpdateCaption = vi.fn();
+    renderCaptionSection(
+      {
+        captions: [caption],
+        totalDuration: 7.0416,
+        currentTime: 0,
+        onUpdateCaption,
+      },
+      false,
+    );
+
+    const slider = screen.getByLabelText('キャプションの終了時間');
+    expect(slider).toHaveAttribute('max', '7.04');
+    expect(slider).toHaveAttribute('step', '0.01');
+    fireEvent.change(slider, { target: { value: '7.04' } });
+    expect(onUpdateCaption).toHaveBeenCalledWith('c1', { endTime: 7.04 });
+  });
+
+  it('終了の数値はプレビューと同じ 1/100 秒で出す', () => {
+    renderCaptionSection(
+      {
+        captions: [{ ...caption, endTime: 7.0416 }],
+        totalDuration: 7.0416,
+        currentTime: 7.0416,
+      },
+      false,
+    );
+
+    expect(screen.getByLabelText('キャプションの終了時間（数値）')).toHaveValue('7.04');
+  });
+
+  it('実尺端数からのマイナスは 15.0 へ戻り、14 は 14.0、開始 0 は 0 と出す', () => {
+    const onUpdateCaption = vi.fn();
+    renderCaptionSection(
+      {
+        captions: [{ ...caption, startTime: 0, endTime: 15.04 }],
+        totalDuration: 15.04,
+        currentTime: 0,
+        onUpdateCaption,
+      },
+      false,
+    );
+
+    expect(screen.getByLabelText('キャプションの開始時間（数値）')).toHaveValue('0');
+    expect(screen.getByLabelText('キャプションの終了時間（数値）')).toHaveValue('15.04');
+
+    fireEvent.click(screen.getByRole('button', { name: 'キャプションの終了時間を0.1減らす' }));
+    expect(onUpdateCaption).toHaveBeenCalledWith('c1', { endTime: 15 });
+  });
+
+  it('切りの良い終了時刻は小数 1 桁で出す', () => {
+    renderCaptionSection(
+      {
+        captions: [{ ...caption, endTime: 14 }],
+        totalDuration: 15.04,
+      },
+      false,
+    );
+
+    expect(screen.getByLabelText('キャプションの終了時間（数値）')).toHaveValue('14.0');
+  });
+});

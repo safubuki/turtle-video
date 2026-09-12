@@ -445,11 +445,11 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
             className="inline-flex flex-wrap items-center gap-1.5 rounded-lg border border-purple-500/25 bg-purple-950/20 px-2 py-1.5 text-[10px] text-gray-300 md:text-xs"
           >
             <span>現在のBGM位置を反映:</span>
-            <span className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-gray-200">
-              <Scissors className="h-3.5 w-3.5" /> 開始に設定
+            <span className="inline-flex min-h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-gray-700 bg-gray-800 px-2 text-gray-200 md:px-2.5">
+              <Scissors className="h-3.5 w-3.5 shrink-0" /> 開始設定
             </span>
-            <span className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-gray-200">
-              <Scissors className="h-3.5 w-3.5" /> 終了に設定
+            <span className="inline-flex min-h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-gray-700 bg-gray-800 px-2 text-gray-200 md:px-2.5">
+              <Scissors className="h-3.5 w-3.5 shrink-0" /> 終了設定
             </span>
           </div>
         );
