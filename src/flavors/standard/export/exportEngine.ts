@@ -49,6 +49,13 @@ import {
 import { resolveMediaPlaybackVolume } from '../../../utils/mediaVolume';
 import { capturePitchPreservedSpeedAudio } from '../../../utils/audioPitchPreservedCapture';
 import {
+  extractAndTimeCompressAudioBuffer,
+  resolveExportCaptureMaxLagSec,
+  resolveExportClipAudioSchedule,
+  resolveExportClipSpeedAudio,
+  resolveExportSpeedAudioStrategy,
+} from '../../../utils/audioTimeStretch';
+import {
   resolveVideoEncoderConfig,
   buildBaselineVideoEncoderConfig,
 } from '../../../utils/videoEncoderConfig';
@@ -679,36 +686,52 @@ async function offlineRenderAudio(
       const playbackSpeed = normalizeVideoPlaybackSpeed(item.playbackSpeed);
       const sourceClipDuration = getVideoSourceClipDuration(item);
       const playSourceDuration = sourceClipDuration > 0 ? sourceClipDuration : item.duration;
+      const speedAudioStrategy = resolveExportSpeedAudioStrategy(playbackSpeed);
+      const canCaptureSpeedAudio =
+        playSourceDuration > 0 && item.file instanceof File && speedAudioStrategy !== 'source';
 
-      // 倍速: プレビューと同一経路（playbackRate + preservesPitch）でキャプチャした PCM を載せる。
-      // BufferSource.playbackRate / 簡易 WSOLA では音程が上がりプレビューと一致しなかった。
-      let audioBuffer: AudioBuffer | null = null;
-      let usedPitchPreservedCapture = false;
-      if (Math.abs(playbackSpeed - 1) > 0.001 && playSourceDuration > 0 && item.file instanceof File) {
-        audioBuffer = await capturePitchPreservedSpeedAudio({
-          file: item.file,
-          url: item.url,
-          trimStart: item.trimStart || 0,
-          sourceDurationSec: playSourceDuration,
-          speed: playbackSpeed,
-          audioContext: mainCtx,
-          signal,
-          onLog: (level, message, details) => {
-            if (level === 'warn') {
-              log.warn('RENDER', `[DIAG-SCHED] ${message}`, details);
-            } else {
-              log.info('RENDER', `[DIAG-SCHED] ${message}`, details);
-            }
-          },
-        });
-        usedPitchPreservedCapture = Boolean(audioBuffer);
-      }
-      if (!audioBuffer) {
-        // 等倍、またはキャプチャ失敗時。デコードは元動画尺で（timeline 尺を渡すと短尺抽出になる）
-        const decodeHintDuration =
-          item.originalDuration > 0 ? item.originalDuration : playSourceDuration;
-        audioBuffer = await decodeAudio(item.file, item.url, decodeHintDuration);
-      }
+      // 非等倍: プレビューと同じ preservesPitch キャプチャ。
+      // スローは参照 PCM で先頭遅延だけ切る。失敗時は WSOLA。
+      const speedAudio = await resolveExportClipSpeedAudio({
+        strategy: speedAudioStrategy,
+        audioContext: mainCtx,
+        alignCapturedToReference: playbackSpeed < 1,
+        expectedDurationSec: item.duration,
+        maxLagSec: resolveExportCaptureMaxLagSec(playbackSpeed),
+        capture: async () => {
+          if (!canCaptureSpeedAudio) return null;
+          return capturePitchPreservedSpeedAudio({
+            file: item.file as File,
+            url: item.url,
+            trimStart: item.trimStart || 0,
+            sourceDurationSec: playSourceDuration,
+            speed: playbackSpeed,
+            audioContext: mainCtx,
+            signal,
+            onLog: (level, message, details) => {
+              if (level === 'warn') {
+                log.warn('RENDER', `[DIAG-SCHED] ${message}`, details);
+              } else {
+                log.info('RENDER', `[DIAG-SCHED] ${message}`, details);
+              }
+            },
+          });
+        },
+        decode: async () => {
+          const decodeHintDuration =
+            item.originalDuration > 0 ? item.originalDuration : playSourceDuration;
+          return decodeAudio(item.file, item.url, decodeHintDuration);
+        },
+        stretch: (decoded) => extractAndTimeCompressAudioBuffer(
+          mainCtx,
+          decoded,
+          item.trimStart || 0,
+          playSourceDuration,
+          playbackSpeed,
+        ),
+      });
+      const audioBuffer = speedAudio.buffer;
+      const usedSpeedAlignedPcm = speedAudio.usedSpeedAlignedPcm;
 
       if (audioBuffer) {
         const source = offlineCtx.createBufferSource();
@@ -762,29 +785,30 @@ async function offlineRenderAudio(
           gain.gain.linearRampToValueAtTime(0, clipEnd);
         }
 
-        let scheduleOffset = 0;
-        let scheduleDuration = audioBuffer.duration;
-        if (usedPitchPreservedCapture) {
-          // キャプチャ済み（既に倍速＋音程維持）。timeline 尺で rate=1 再生。
-          scheduleOffset = 0;
-          scheduleDuration = Math.min(audioBuffer.duration, item.duration + 0.05);
-        } else if (Math.abs(playbackSpeed - 1) > 0.001 && playSourceDuration > 0) {
-          // キャプチャ失敗時のみ: 高音になるが尺は合わせる
+        if (
+          !usedSpeedAlignedPcm
+          && Math.abs(playbackSpeed - 1) > 0.001
+          && playSourceDuration > 0
+        ) {
           log.warn(
             'RENDER',
-            '[DIAG-SCHED] 音程維持キャプチャ失敗。playbackRate フォールバック（高音化あり）',
+            '[DIAG-SCHED] 音程維持の速度変換失敗。playbackRate フォールバック（音程変化あり）',
             {
               playbackSpeed,
+              speedAudioStrategy,
             }
           );
-          source.playbackRate.value = playbackSpeed;
-          scheduleOffset = item.trimStart;
-          scheduleDuration = playSourceDuration;
-        } else {
-          scheduleOffset = item.trimStart;
-          scheduleDuration = playSourceDuration > 0 ? playSourceDuration : item.duration;
         }
-        source.start(clipStart, scheduleOffset, scheduleDuration);
+        const schedule = resolveExportClipAudioSchedule({
+          speed: playbackSpeed,
+          usedSpeedAlignedPcm,
+          audioBufferDuration: audioBuffer.duration,
+          itemDuration: item.duration,
+          trimStart: item.trimStart || 0,
+          playSourceDuration,
+        });
+        source.playbackRate.value = schedule.playbackRate;
+        source.start(clipStart, schedule.offsetSec, schedule.durationSec);
         scheduledSources++;
 
         // [DIAG-SCHED] クリップスケジュール詳細
@@ -796,8 +820,9 @@ async function offlineRenderAudio(
           duration: Math.round(item.duration * 100) / 100,
           playbackSpeed,
           sourceClipDuration: Math.round(sourceClipDuration * 100) / 100,
-          usedPitchPreservedCapture,
-          scheduleDuration: Math.round(scheduleDuration * 100) / 100,
+          speedAudioStrategy,
+          usedSpeedAlignedPcm,
+          scheduleDuration: Math.round(schedule.durationSec * 100) / 100,
           volume: vol,
           bufferDuration: Math.round(audioBuffer.duration * 100) / 100,
           bufferSampleRate: audioBuffer.sampleRate,

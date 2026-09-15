@@ -707,6 +707,7 @@
 | **export の高速化** | 現行の駆動方式（壁時計 dilation / native 連続再生 / backpressure / 末尾補完）は**ユーザー実機で最良と確認済み。速度を理由に変更しない**。負荷を下げたいときは **VideoEncoder の configure 交渉**（`prefer-hardware`、13-169）から手を付ける。**`latencyMode:'quality'` は禁止**（内部バッファリングが `encodeQueueSize` を曇らせ backpressure 検知を遅らせる＝後半黒画面の再発条件。13-116 も同旨）。queue 上限の緩和と bitrate 低下はリカバリ性・画質を損なうので最後の手段 |
 | **export の滑らかさ** | プレビューは rAF（多くは約60Hz）提示、export は固定30fps CFR。滑らかさ改善は駆動方式を変えず、提示フレーム合わせとスロット単位スナップショットに閉じる（13-204）。**ユーザー実機で「劇的にスムーズになった」と確認済み（2026-08-17）**。フレーム駆動化・毎フレームseek・出力fps変更・bitrate変更は再導入しない |
 | **preview の UI 時刻** | 再生時計・Canvas・`video.currentTime` は毎 rAF のまま。Zustand の `currentTime` だけ約 50ms に間引き、pause/stop/終端で flush する。字幕グリフ Canvas は LRU 再利用（13-226）。駆動方式・export・apple-safari には広げない |
+| **スロー export 音声** | スローはプレビューと同じ `preservesPitch` キャプチャを第一経路にし、decode+WSOLA 参照で先頭遅延だけ切る（13-237）。キャプチャは TrackProcessor / AudioWorklet 優先で、ScriptProcessor は出力無音化の予備（13-238）。エネルギー無音切りは禁止。キャプチャ失敗時のみ WSOLA。13-236 の WSOLA 第一経路は音質退行のため改訂 |
 
 ## 12. Dev Script Pattern (media-video-analyzer STT)
 
@@ -3953,7 +3954,7 @@ export 終了（成功/失敗/中断）
   - UI はトリミングと同じ `NumericSliderField`（スライダー + −/+ + 数値）。等倍/0.5/2/4/8 のショートカットも残す。
   - タイムライン尺は従来どおり `(trimEnd-trimStart)/speed`。
   - **export 倍速（speed>1）**: 13-166 の wall dilation（rate=1）を維持。**再導入禁止**（rate=speed 連続 / 毎フレーム seek）。
-  - **export スロー（speed<1）**: `playbackRate=speed`、壁時計 divisor=1。dilation すると出力フレームが不足する。
+  - **export スロー（speed<1）**: 映像は `playbackRate=speed`、壁時計 divisor=1。dilation すると出力フレームが不足する。**音声は 13-237 でキャプチャ+遅延整合が第一経路**（13-236 の WSOLA 第一経路は音質退行のため改訂。キャプチャ失敗時のみ WSOLA）。
   - バッジは `showSpeedBadge` かつ等倍以外（スロー含む）。文言は 0.1 単位（例: 1.5倍速 / 0.5x）。
 - **一括音量**:
   - `mediaStore.bulkVideoVolumeEnabled` / `bulkVideoVolume`。チェック ON で全動画の `volume` を揃え、追加動画も継承する。
@@ -4452,4 +4453,64 @@ export 終了（成功/失敗/中断）
   - エンドロールを早期 return すると BGM が止まる（13-176）。キャプションを重ねても rAF は継続する。
   - キャプション追加の上限は従来どおり `totalDuration`（クリップ + エンドロール）。`clipsDuration` へ戻すとエンドロールへ置けなくなる。
 - **回帰ガード**: `mediaStore.test.ts` / `audioStore.test.ts` で reset と「clear は残して reset で初期化」、`captionTimeline.test.ts` でエンドロール時刻の表示対象、`sectionHelp.test.ts` で一括クリアとエンドロール案内を固定する。
+
+### 13-236. スロー export の音ズレはリアルタイムキャプチャ遅延。decode + WSOLA を第一経路にする
+
+- **ファイル**: `src/utils/audioTimeStretch.ts`, `src/utils/audioPitchPreservedCapture.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`, `src/test/audioTimeStretch.test.ts`
+- **対象 flavor**: **shared 音声 util + 両 export エンジン**。プレビュー再生・倍速 wall dilation・native 1x 連続再生・backpressure は変更しない。スロー UI は 13-206 どおり standard 限定だが、保存データに 0.5x がある場合の apple-safari export も同じ契約にする。
+- **問題**:
+  - プレビューの 0.5x は同一 `<video>` の `playbackRate` + `preservesPitch` なので映像と音声が同じパイプラインに乗り、口パクは合う。
+  - export 音声だけ一時 `<video>` でリアルタイムキャプチャしていた。`play()` 前から ScriptProcessor が無音を溜め、`preservesPitch` の処理遅延も先頭に残る。書き出し MP4 では人が喋ったあとで音声が聞こえる。低速ほど遅延が目立つ。
+- **対策**:
+  - `resolveExportSpeedAudioStrategy()`: 等倍=`source`、スロー=`offline-stretch`、倍速=`pitch-preserved-capture`。
+  - スローは `decodeAudioData` した PCM を `extractAndTimeCompressAudioBuffer(..., speed<1)` で伸長し、timeline 尺のバッファを rate=1 で載せる。サンプル正確でキャプチャ遅延が入らない。
+  - decode 失敗時だけ従来キャプチャへ倒す。キャプチャは `play()` 成功後から録音を始める。
+  - 倍速は従来どおりキャプチャ優先（プレビュー聴感合わせ）。失敗時は WSOLA、さらに失敗時だけ `playbackRate` フォールバック。
+- **守る不変条件**:
+  - 倍速映像の wall dilation（rate=1 + Δt/speed）とスロー映像の native `playbackRate=speed` は変えない（13-166 / 13-206）。
+  - スロー音声を再び `preservesPitch` キャプチャ第一経路へ戻さない。
+  - 先頭無音をエネルギー判定で切らない（クリップ本来の無音まで削ると音が先行する）。
+- **回帰ガード**: `audioTimeStretch.test.ts` で 0.5x の伸長尺、strategy、スケジュール（aligned PCM は offset=0 / rate=1）、スローがキャプチャより decode+stretch を先に使うことを固定する。
+- **改訂（13-237）**: WSOLA 第一経路は口パクは合うがプレビューより薄くデジタルエコーが乗る。現行はキャプチャ第一 + 参照 PCM で遅延だけ切る。本項の「キャプチャを第一経路に戻すな」は、**遅延切り無しの生キャプチャ**を指す。遅延整合付きキャプチャは 13-237。
+
+### 13-237. スロー export 音声はプレビューと同じ `preservesPitch` キャプチャを第一経路にし、参照 PCM で先頭遅延だけ切る
+
+- **ファイル**: `src/utils/audioTimeStretch.ts`, `src/utils/audioPitchPreservedCapture.ts`, `src/utils/index.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`, `src/test/audioTimeStretch.test.ts`
+- **対象 flavor**: **shared 音声 util + 両 export エンジン**。プレビュー再生・倍速 wall dilation・native 1x 連続再生・backpressure・queue 30/90・bitrate・CFR は変更しない。スロー UI は 13-206 どおり standard 限定だが、保存データに 0.5x がある場合の apple-safari export も同じ契約にする。
+- **問題**:
+  - 13-236 の decode + WSOLA 第一経路は、キャプチャ遅延を避けて口パクを合わせた。一方で簡易 WSOLA は Chromium の `preservesPitch` と音色が違い、書き出しだけ薄くデジタルエコーが乗る。
+  - プレビューは同一 `<video>` の `playbackRate=speed` + `preservesPitch=true` なので、ユーザーはプレビュー側の音質を正しいと感じる。
+  - 13-166 でも倍速は同じ理由でキャプチャを選んでいた。スローだけ WSOLA にすると聴感が割れる。
+- **対策**:
+  - `resolveExportSpeedAudioStrategy()`: 等倍=`source`、**非等倍（スロー含む）=`pitch-preserved-capture`**。`offline-stretch` はキャプチャ失敗時の予備。
+  - スローはキャプチャ PCM をそのまま使う。decode + WSOLA は **参照尺**としてだけ使い、`alignCapturedSpeedAudioToReference()` が RMS エンベロープ NCC（hop 10ms）で先頭遅延フレームを切る。
+  - 遅延採用条件: 最良スコア ≥ 0.25 かつ lag=0 より ≥ 0.08 改善。弱い相関では切らない（クリップ本来の無音を削らない）。
+  - 探索上限 `resolveExportCaptureMaxLagSec`: スローは `min(1.25, max(0.2, 0.45/speed))`、倍速は 0.2s。キャプチャ末尾余裕は maxLag + 0.1s。ソース終端後もその秒数だけ録音を続ける。
+  - キャプチャは 13-236 の `play()` 成功後から録音する契約を維持。先頭エネルギー無音切りは禁止。
+  - 両エンジンはスローだけ `alignCapturedToReference: playbackSpeed < 1`。倍速はキャプチャ成功時に stretch を走らせない。
+- **守る不変条件**:
+  - 倍速映像の wall dilation とスロー映像の native `playbackRate=speed` は変えない（13-166 / 13-206）。
+  - 遅延切り無しの生キャプチャをスロー第一経路へ戻さない（13-236 の音ズレ再発）。
+  - 先頭無音をエネルギー判定で切らない。
+  - 負の schedule offset を使わない。aligned PCM は rate=1 / offset=0。
+- **回帰ガード**: `audioTimeStretch.test.ts` で 0.5/0.8 がキャプチャ戦略、遅延検出、揃っているときは lag=0、スロー resolver がキャプチャ後に遅延切り、キャプチャ失敗時は stretch、倍速はキャプチャ成功時に stretch しないことを固定する。
+
+### 13-238. スロー export の薄いデジタルエコーは ScriptProcessor 塊と WSOLA ピーク正規化。プレビュー相当のキャプチャ量子へ寄せる
+
+- **ファイル**: `src/utils/audioPitchPreservedCapture.ts`, `src/utils/audioTimeStretch.ts`, `src/test/audioTimeStretch.test.ts`
+- **対象 flavor**: **shared 音声 util**。両 export エンジンは 13-237 の呼び出し契約のまま。プレビュー再生・倍速 wall dilation・native 1x 連続再生・backpressure・queue 30/90・bitrate・CFR は変更しない。
+- **問題**:
+  - 13-237 で口パクはプレビューと揃ったが、書き出しだけ少し軽く、デジタルエコーが残った。
+  - プレビューは同一 `<video>` の `playbackRate` + `preservesPitch` をネイティブ経路で鳴らす。export は同じ stretcher を ScriptProcessor 4096 サンプル塊で拾っており、スローの overlap-add とブロック境界が重なると薄いエコーになる。
+  - キャプチャ失敗時の簡易 WSOLA は窓加算のピークで全体を割っていたため、さらに沈んで聞こえた。
+- **対策**:
+  - キャプチャ順: `MediaStreamTrackProcessor`（音声量子）→ `AudioWorklet` → 出力を無音化した ScriptProcessor（1024）。プレビューと同じ `applyVideoElementPlaybackRate()` を使い、一時 video は `opacity:0.001` で DOM へ置く。
+  - `ended` ではすぐ切らず、preservesPitch 遅延バッファを末尾余裕まで吐く（13-237 の遅延切り契約）。
+  - WSOLA 予備経路は窓の重みで割って振幅を保ち、スローだけ窓を ~50ms にする。peak>1 の一括減衰はしない。
+- **守る不変条件**:
+  - 遅延切り無しの生キャプチャをスロー第一経路へ戻さない（13-236）。
+  - 先頭無音をエネルギー判定で切らない。
+  - 倍速映像の wall dilation とスロー映像の native `playbackRate=speed` は変えない。
+- **回帰ガード**: `audioTimeStretch.test.ts` で 0.5 倍の伸長尺維持に加え、正弦波の実効振幅が大きく落ちないことを固定する。
+- **実機確認**: 0.5x のプレビューと書き出し MP4 を聴き比べ、薄さ・デジタルエコーがプレビュー相当になること。ログの `captureMethod` が `track-processor` または `audio-worklet` になるかを見る。
 

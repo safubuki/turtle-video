@@ -49,6 +49,13 @@ interface AudioDataInit {
     transfer: ArrayBuffer[];
 }
 
+interface AudioDataCopyToOptions {
+    planeIndex: number;
+    format?: AudioSampleFormat;
+    frameOffset?: number;
+    frameCount?: number;
+}
+
 interface AudioData {
     readonly format: AudioSampleFormat;
     readonly sampleRate: number;

@@ -160,12 +160,20 @@ export {
 } from './videoAudioLoudness';
 export type { LoudnessSample, VideoAudioNormalizeMode } from './videoAudioLoudness';
 
-// 倍速 export 用・音程維持タイムストレッチ
+// 倍速 / スロー export 用・音程維持タイムストレッチ
 export {
+  alignCapturedSpeedAudioToReference,
   extractAndTimeCompressAudioBuffer,
+  findLeadingAudioLagFrames,
+  resolveExportCaptureMaxLagSec,
+  resolveExportCaptureTailPaddingSec,
+  resolveExportClipAudioSchedule,
+  resolveExportClipSpeedAudio,
+  resolveExportSpeedAudioStrategy,
   timeStretchAudioBufferPreservePitch,
   wsolaTimeStretchChannel,
 } from './audioTimeStretch';
+export type { ExportSpeedAudioStrategy } from './audioTimeStretch';
 
 // プラットフォーム判定
 export {
