@@ -7,6 +7,7 @@ import {
   clampSequentialGapSec,
   isCaptionActiveAtTime,
   isSequentialCaption,
+  getSequentialCaptionReadingWeight,
   resolveCaptionDisplaySegment,
   resolveCaptionDisplayText,
   formatCaptionTimeInput,
@@ -150,6 +151,23 @@ describe('resolveSequentialCaptionSegments', () => {
     const segments = resolveSequentialCaptionSegments(caption);
     expect(segments[0]).toMatchObject({ startTime: 10, endTime: 12 });
     expect(segments[1]).toMatchObject({ startTime: 12, endTime: 14 });
+  });
+
+  it('英数字は0.8倍、空白は0として読み時間を配分する', () => {
+    expect(getSequentialCaptionReadingWeight('abcdefghij')).toBeCloseTo(8);
+    expect(getSequentialCaptionReadingWeight('1234567890')).toBeCloseTo(8);
+    expect(getSequentialCaptionReadingWeight('あいうえおかきくけこ')).toBe(10);
+    expect(getSequentialCaptionReadingWeight('hello world')).toBeCloseTo(8);
+
+    const caption = makeCaption({
+      text: 'abcdefghij\nあいうえおかきくけこ',
+      startTime: 0,
+      endTime: 18,
+    });
+    const segments = resolveSequentialCaptionSegments(caption);
+    expect(segments[0].endTime).toBeCloseTo(8);
+    expect(segments[1].startTime).toBeCloseTo(8);
+    expect(segments[1].endTime).toBe(18);
   });
 });
 

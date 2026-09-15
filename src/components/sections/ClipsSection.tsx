@@ -150,6 +150,7 @@ interface ClipsSectionProps {
   onUpdateVideoTrim: (id: string, type: 'start' | 'end', value: string) => void;
   onSetVideoTrimFromCurrent: (id: string, type: 'start' | 'end') => void;
   onUpdateImageDuration: (id: string, value: string) => void;
+  onSetImageEndFromCurrent?: (id: string) => void;
   onUpdateMediaScale: (id: string, value: string | number) => void;
   onUpdateMediaPosition: (id: string, axis: 'x' | 'y', value: string) => void;
   onRotateMedia: (id: string) => void;
@@ -197,6 +198,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   onUpdateVideoTrim,
   onSetVideoTrimFromCurrent,
   onUpdateImageDuration,
+  onSetImageEndFromCurrent,
   onUpdateMediaScale,
   onUpdateMediaPosition,
   onRotateMedia,
@@ -343,6 +345,11 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
                 : undefined
             }
             onUpdateImageDuration={(value) => onUpdateImageDuration(v.id, value)}
+            onSetImageEndFromCurrent={
+              uiCapabilities.supportsMediaTrimFromPreview && v.type === 'image' && onSetImageEndFromCurrent
+                ? () => onSetImageEndFromCurrent(v.id)
+                : undefined
+            }
             onUpdateScale={(value) => onUpdateMediaScale(v.id, value)}
             onUpdatePosition={(axis, value) => onUpdateMediaPosition(v.id, axis, value)}
             onRotate={uiCapabilities.supportsMediaRotation ? () => onRotateMedia(v.id) : undefined}

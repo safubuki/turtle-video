@@ -11,6 +11,7 @@ import {
   normalizeVideoPlaybackSpeed,
   resolveExportTimelineWallDivisorForItem,
   resolveSpeedAwareVideoSyncThresholdSec,
+  resolveSpeedBadgeFadeAlpha,
   resolveSpeedBadgePresetPosition,
   resolveVideoElementPlaybackRateForContext,
   resolveVideoSafeEndSourceTime,
@@ -132,6 +133,34 @@ describe('速度バッジ', () => {
     expect(formatSpeedBadgeLabel(1.5, 'ja')).toBe('\u00BB 1.5倍速');
     expect(formatSpeedBadgeLabel(0.5, 'en')).toBe('\u00BB 0.5x');
     expect(formatSpeedBadgeLabel(2, 'en')).toBe('\u00BB 2x');
+  });
+
+  it('対象動画のフェード設定と同じアルファ値を返す', () => {
+    const item = {
+      duration: 10,
+      fadeIn: true,
+      fadeOut: true,
+      fadeInDuration: 2,
+      fadeOutDuration: 2,
+    };
+    expect(resolveSpeedBadgeFadeAlpha(item, 0)).toBe(0);
+    expect(resolveSpeedBadgeFadeAlpha(item, 1)).toBeCloseTo(0.5);
+    expect(resolveSpeedBadgeFadeAlpha(item, 5)).toBe(1);
+    expect(resolveSpeedBadgeFadeAlpha(item, 9)).toBeCloseTo(0.5);
+    expect(resolveSpeedBadgeFadeAlpha(item, 10)).toBe(0);
+  });
+
+  it('フェード合計がクリップ尺を超える場合は映像と同じ比率で按分する', () => {
+    const item = {
+      duration: 2,
+      fadeIn: true,
+      fadeOut: true,
+      fadeInDuration: 2,
+      fadeOutDuration: 2,
+    };
+    expect(resolveSpeedBadgeFadeAlpha(item, 0.5)).toBeCloseTo(0.5);
+    expect(resolveSpeedBadgeFadeAlpha(item, 1)).toBe(1);
+    expect(resolveSpeedBadgeFadeAlpha(item, 1.5)).toBeCloseTo(0.5);
   });
 
   it('倍速時の export 同期しきい値は速度に応じて緩める', () => {

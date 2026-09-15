@@ -32,6 +32,10 @@ import {
 const MIN_SEQUENTIAL_SEGMENT_SEC = 0.1;
 /** 行間隔の上限（秒） */
 export const SEQUENTIAL_GAP_MAX_SEC = 5;
+/** 英字・数字は日本語1文字より短く読めることが多いため、時間配分上の重みを抑える */
+export const SEQUENTIAL_ALPHANUMERIC_READING_WEIGHT = 0.8;
+
+const LATIN_OR_NUMBER_CHARACTER_PATTERN = /[\p{Script=Latin}\p{Number}]/u;
 
 type SequentialCaptionInput = Pick<Caption, 'text' | 'startTime' | 'endTime'> & {
   sequentialGapSec?: number;
@@ -139,8 +143,27 @@ export interface SequentialCaptionSegment {
 }
 
 /**
+ * 時分割キャプション1行ぶんの、読む時間に近い文字量を返す。
+ * - 日本語など: 1文字 = 1.0
+ * - Latin文字・数字: 1文字 = 0.8
+ * - 空白: 単語境界なので文字量へ加算しない
+ * - 極端に短い行にも最低1文字ぶんを確保する
+ */
+export function getSequentialCaptionReadingWeight(line: string): number {
+  const weight = [...line].reduce((total, character) => {
+    if (/\s/u.test(character)) return total;
+    return total + (
+      LATIN_OR_NUMBER_CHARACTER_PATTERN.test(character)
+        ? SEQUENTIAL_ALPHANUMERIC_READING_WEIGHT
+        : 1
+    );
+  }, 0);
+  return Math.max(1, weight);
+}
+
+/**
  * 複数行キャプションの各行の表示区間を文字数比で配分して返す。
- * - 各行の重みは max(1, 文字数)。短い行にも最低限の表示時間を与える
+ * - 各行の重みは読み時間に近い文字量（英数字0.8、日本語など1.0、空白0）。短い行は最低1
  * - sequentialGapSec 指定時は行間に無表示の間隔を挟む（収まらない場合は間隔を自動縮小）
  * - 丸め誤差で隙間ができないよう、境界は累積比率から算出する
  * - 1 行以下の場合はカード全体を 1 区間として返す
@@ -164,7 +187,7 @@ export function resolveSequentialCaptionSegments(
   const gap = Math.max(0, Math.min(requestedGap, maxGap));
   const usable = duration - gap * (lines.length - 1);
 
-  const weights = lines.map((line) => Math.max(1, [...line].length));
+  const weights = lines.map(getSequentialCaptionReadingWeight);
   const totalWeight = weights.reduce((sum, w) => sum + w, 0);
 
   const segments: SequentialCaptionSegment[] = [];

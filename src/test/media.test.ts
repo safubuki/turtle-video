@@ -37,6 +37,7 @@ import {
   PREVIEW_START_CLEAR_ZONE_SEC,
   validateScale,
   normalizeImageDuration,
+  resolveImageDurationFromPreviewPosition,
   validatePosition,
 } from '../utils/media';
 import type { MediaItem } from '../types';
@@ -615,6 +616,34 @@ describe('normalizeImageDuration', () => {
     expect(normalizeImageDuration(0.4)).toBe(0.5);
     expect(normalizeImageDuration(60.4)).toBe(60);
     expect(normalizeImageDuration(Number.NaN)).toBe(5);
+  });
+});
+
+describe('resolveImageDurationFromPreviewPosition', () => {
+  it('画像内なら短縮、現在の末尾より後ろなら延長する表示時間を返す', () => {
+    expect(resolveImageDurationFromPreviewPosition({
+      timelineStart: 10,
+      previewTime: 12.04,
+    })).toBe(2);
+    expect(resolveImageDurationFromPreviewPosition({
+      timelineStart: 10,
+      previewTime: 17.26,
+    })).toBe(7.3);
+  });
+
+  it('開始直後と60秒を超える位置、不正値は変更対象にしない', () => {
+    expect(resolveImageDurationFromPreviewPosition({
+      timelineStart: 10,
+      previewTime: 10.4,
+    })).toBeNull();
+    expect(resolveImageDurationFromPreviewPosition({
+      timelineStart: 10,
+      previewTime: 70.01,
+    })).toBeNull();
+    expect(resolveImageDurationFromPreviewPosition({
+      timelineStart: 10,
+      previewTime: Number.NaN,
+    })).toBeNull();
   });
 });
 

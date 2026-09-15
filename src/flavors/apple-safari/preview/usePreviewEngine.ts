@@ -1440,7 +1440,7 @@ export function usePreviewEngine({
         }
         {
           const badgeItem = activeIndex >= 0 ? currentItems[activeIndex] : null;
-          if (badgeItem?.type === 'video' && drawSpeedBadgeFrame(ctx, badgeItem)) {
+          if (badgeItem?.type === 'video' && drawSpeedBadgeFrame(ctx, badgeItem, localTime)) {
             didUpdateCanvas = true;
           }
         }

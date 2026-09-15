@@ -283,6 +283,38 @@ export function shouldDrawSpeedBadge(
 }
 
 /**
+ * 倍速バッジを対象動画の映像フェードと同じタイミングで表示するためのアルファ値。
+ * フェードインとアウトの合計がクリップ尺を超える場合も、映像描画と同じ比率で按分する。
+ */
+export function resolveSpeedBadgeFadeAlpha(
+  item: Pick<
+    MediaItem,
+    'duration' | 'fadeIn' | 'fadeOut' | 'fadeInDuration' | 'fadeOutDuration'
+  >,
+  localTime: number,
+): number {
+  if (!Number.isFinite(localTime) || !Number.isFinite(item.duration) || item.duration <= 0) {
+    return 0;
+  }
+
+  let fadeInDuration = item.fadeIn ? (item.fadeInDuration || 1) : 0;
+  let fadeOutDuration = item.fadeOut ? (item.fadeOutDuration || 1) : 0;
+  if (fadeInDuration + fadeOutDuration > item.duration) {
+    const ratio = item.duration / (fadeInDuration + fadeOutDuration);
+    fadeInDuration *= ratio;
+    fadeOutDuration *= ratio;
+  }
+
+  let alpha = 1;
+  if (fadeInDuration > 0 && localTime < fadeInDuration) {
+    alpha = localTime / fadeInDuration;
+  } else if (fadeOutDuration > 0 && localTime > item.duration - fadeOutDuration) {
+    alpha = (item.duration - localTime) / fadeOutDuration;
+  }
+  return Math.max(0, Math.min(1, alpha));
+}
+
+/**
  * アクティブ動画クリップの倍速バッジを Canvas に描画する。
  * @returns 描画したら true
  */
@@ -296,9 +328,17 @@ export function drawSpeedBadgeFrame(
     | 'speedBadgeLabelStyle'
     | 'speedBadgePositionX'
     | 'speedBadgePositionY'
+    | 'duration'
+    | 'fadeIn'
+    | 'fadeOut'
+    | 'fadeInDuration'
+    | 'fadeOutDuration'
   > | null | undefined,
+  localTime: number,
 ): boolean {
   if (!shouldDrawSpeedBadge(item) || !item) return false;
+  const fadeAlpha = resolveSpeedBadgeFadeAlpha(item, localTime);
+  if (fadeAlpha <= 0) return false;
   const speed = normalizeVideoPlaybackSpeed(item.playbackSpeed);
   const pos = normalizeSpeedBadgePosition(item.speedBadgePositionX, item.speedBadgePositionY);
   const canvasW = ctx.canvas.width;
@@ -312,6 +352,7 @@ export function drawSpeedBadgeFrame(
   const label = formatSpeedBadgeLabel(speed, item.speedBadgeLabelStyle);
 
   ctx.save();
+  ctx.globalAlpha *= fadeAlpha;
   ctx.font = `600 ${fontSize}px system-ui, "Segoe UI", sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';

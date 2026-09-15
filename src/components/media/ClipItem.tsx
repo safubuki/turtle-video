@@ -43,6 +43,7 @@ import NumericSliderField from '../common/NumericSliderField';
 import { useCanvasStore } from '../../stores/canvasStore';
 import {
   canSetVideoTrimFromPreviewPosition,
+  resolveImageDurationFromPreviewPosition,
   resolveMediaThumbnailSourceTime,
 } from '../../utils/media';
 import {
@@ -95,6 +96,8 @@ export interface ClipItemProps {
   /** プレビュー現在位置をこの動画の開始/終了トリムへ反映 */
   onSetVideoTrimFromCurrent?: (type: 'start' | 'end') => void;
   onUpdateImageDuration: (value: string) => void;
+  /** プレビュー現在位置をこの画像の表示終了へ反映 */
+  onSetImageEndFromCurrent?: () => void;
   onUpdateScale: (value: string | number) => void;
   onUpdatePosition: (axis: 'x' | 'y', value: string) => void;
   /** クリップを 90 度単位で時計回りに回転（0→90→180→270→0） */
@@ -137,6 +140,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
   onUpdateVideoTrim,
   onSetVideoTrimFromCurrent,
   onUpdateImageDuration,
+  onSetImageEndFromCurrent,
   onUpdateScale,
   onUpdatePosition,
   onRotate,
@@ -231,6 +235,44 @@ const ClipItem: React.FC<ClipItemProps> = ({
       type: 'end',
       playbackSpeed: v.playbackSpeed,
     });
+  const imageDurationFromPreview = v.type === 'image'
+    ? resolveImageDurationFromPreviewPosition({
+        timelineStart: timelineRange.start,
+        previewTime: currentTime,
+      })
+    : null;
+  const isImageEndAlreadyAtPreview = imageDurationFromPreview != null
+    && Math.abs(imageDurationFromPreview - v.duration) < IMAGE_DURATION_STEP / 2;
+  const imageEndFromPreviewAction = imageDurationFromPreview == null || isImageEndAlreadyAtPreview
+    ? null
+    : imageDurationFromPreview > v.duration
+      ? 'extend'
+      : 'shorten';
+  const canSetImageEndFromPreview = !isDisabled
+    && imageEndFromPreviewAction != null;
+  const imageEndFromPreviewButtonLabel = imageEndFromPreviewAction === 'extend'
+    ? 'ここまで延長'
+    : imageEndFromPreviewAction === 'shorten'
+      ? 'ここまで短縮'
+      : '終了位置を反映';
+  const imageEndFromPreviewAriaLabel = imageEndFromPreviewAction === 'extend'
+    ? 'プレビュー現在位置まで画像の表示時間を延長'
+    : imageEndFromPreviewAction === 'shorten'
+      ? 'プレビュー現在位置まで画像の表示時間を短縮'
+      : 'プレビュー現在位置を画像の終了位置に反映';
+  const imageEndFromPreviewTitle = (() => {
+    if (isDisabled) return '画像または動画・画像セクションのロックを解除してください';
+    if (currentTime < timelineRange.start + MIN_IMAGE_DURATION) {
+      return '画像の開始位置から0.5秒以上あとへプレビューを移動してください';
+    }
+    if (currentTime > timelineRange.start + MAX_IMAGE_DURATION) {
+      return `画像の開始位置から${MAX_IMAGE_DURATION}秒以内へプレビューを移動してください`;
+    }
+    if (imageDurationFromPreview == null) return 'プレビュー現在位置を画像の終了位置に設定できません';
+    if (isImageEndAlreadyAtPreview) return '画像の終了位置はすでにプレビュー現在位置です';
+    const action = imageEndFromPreviewAction === 'extend' ? '延長' : '短縮';
+    return `現在位置(${formatTimelineTime(currentTime)})まで画像の表示時間を${action}`;
+  })();
 
   // リスト用サムネはクリップ単位の自動位置（有効開始+0.2s）。
   // プロジェクト全体のポスター設定はプレビューセクション側（複数クリップ合成前提）。
@@ -392,7 +434,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
 
       {/* 画像表示時間UI (新設: ヘッダー下) */}
       {v.type === 'image' && (
-        <div className="bg-black/30 p-2 rounded mb-2 border border-gray-700/50">
+        <div className="bg-black/30 p-2 rounded mb-2 border border-gray-700/50 space-y-2">
           <div className="flex items-center justify-between text-[10px] md:text-xs text-gray-500 mb-1">
             <span>表示区間</span>
             <span className="font-mono text-gray-300">
@@ -418,6 +460,22 @@ const ClipItem: React.FC<ClipItemProps> = ({
               inputClassName="w-14 focus:border-yellow-500"
             />
           </div>
+          {onSetImageEndFromCurrent && (
+            <div className="flex flex-wrap items-center gap-1.5 text-[10px] md:text-xs">
+              <span className="text-gray-500 mr-0.5">プレビュー位置を反映:</span>
+              <button
+                type="button"
+                onClick={onSetImageEndFromCurrent}
+                disabled={!canSetImageEndFromPreview}
+                aria-label={imageEndFromPreviewAriaLabel}
+                className="min-h-9 min-w-28 px-2.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 hover:border-yellow-500/60 hover:text-yellow-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400/80 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900 disabled:opacity-30 disabled:pointer-events-none flex items-center justify-center gap-1 transition-colors motion-reduce:transition-none"
+                title={imageEndFromPreviewTitle}
+              >
+                <MapPin className="w-3.5 h-3.5" aria-hidden="true" />
+                {imageEndFromPreviewButtonLabel}
+              </button>
+            </div>
+          )}
         </div>
       )}
 

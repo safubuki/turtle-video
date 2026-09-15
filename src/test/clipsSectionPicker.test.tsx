@@ -179,6 +179,21 @@ describe('ClipsSection image duration', () => {
     fireEvent.click(screen.getByRole('button', { name: '画像の表示時間を0.1減らす' }));
     expect(onUpdateImageDuration).toHaveBeenCalledWith('image-1', '4.9');
   });
+
+  it('現在位置で終了ボタンを対象画像の更新へルーティングする', () => {
+    const onSetImageEndFromCurrent = vi.fn();
+    renderClipsSection({
+      mediaItems: [createImageItem({ isTransformOpen: false })],
+      mediaTimelineRanges: { 'image-1': { start: 0, end: 5 } },
+      currentTime: 7,
+      onSetImageEndFromCurrent,
+    });
+
+    fireEvent.click(screen.getByRole('button', {
+      name: 'プレビュー現在位置で画像の表示を終了',
+    }));
+    expect(onSetImageEndFromCurrent).toHaveBeenCalledWith('image-1');
+  });
 });
 
 describe('ClipsSection bulk mute', () => {
@@ -326,6 +341,7 @@ describe('ClipsSection aspect ratio controls', () => {
         mediaItems: [createImageItem()],
         watermarkPanel: <div>ウォーターマーク設定パネル</div>,
         audioSettingsPanel: <div>音設定パネル</div>,
+        onSetImageEndFromCurrent: vi.fn(),
       },
       true,
     );
@@ -335,6 +351,9 @@ describe('ClipsSection aspect ratio controls', () => {
     expect(screen.queryByText('音設定パネル')).not.toBeInTheDocument();
     expect(screen.queryByText('90°回転')).not.toBeInTheDocument();
     expect(screen.queryByRole('slider', { name: 'ぼかし強度' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {
+      name: 'プレビュー現在位置で画像の表示を終了',
+    })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'ミュート対象の動画がありません' })).not.toBeInTheDocument();
   });
 });

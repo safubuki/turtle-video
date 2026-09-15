@@ -841,6 +841,24 @@ export function normalizeImageDuration(duration: unknown): number {
 }
 
 /**
+ * プレビュー現在位置を画像クリップの終了位置として使う場合の表示時間を返す。
+ * プレビューが画像開始より前、または設定可能範囲（0.5〜60秒）外なら変更しない。
+ */
+export function resolveImageDurationFromPreviewPosition(params: {
+  timelineStart: number;
+  previewTime: number;
+}): number | null {
+  if (!Number.isFinite(params.timelineStart) || !Number.isFinite(params.previewTime)) {
+    return null;
+  }
+  const duration = params.previewTime - params.timelineStart;
+  if (duration < MIN_IMAGE_DURATION || duration > MAX_IMAGE_DURATION) {
+    return null;
+  }
+  return normalizeImageDuration(duration);
+}
+
+/**
  * スケール値を検証
  * @param scale - スケール値
  * @param min - 最小値

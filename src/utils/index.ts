@@ -75,6 +75,7 @@ export {
   createPosterPreviewDataUrlFromCanvas,
   validateScale,
   normalizeImageDuration,
+  resolveImageDurationFromPreviewPosition,
   validatePosition,
   revokeObjectUrl,
 } from './media';
@@ -132,6 +133,7 @@ export {
   normalizeSpeedBadgePosition,
   resolveSpeedBadgePresetPosition,
   shouldDrawSpeedBadge,
+  resolveSpeedBadgeFadeAlpha,
   drawSpeedBadgeFrame,
   applyVideoElementPlaybackRate,
 } from './playbackSpeed';

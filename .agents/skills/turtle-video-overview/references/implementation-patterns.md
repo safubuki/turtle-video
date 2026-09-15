@@ -4514,3 +4514,21 @@ export 終了（成功/失敗/中断）
 - **回帰ガード**: `audioTimeStretch.test.ts` で 0.5 倍の伸長尺維持に加え、正弦波の実効振幅が大きく落ちないことを固定する。
 - **実機確認**: 0.5x のプレビューと書き出し MP4 を聴き比べ、薄さ・デジタルエコーがプレビュー相当になること。ログの `captureMethod` が `track-processor` または `audio-worklet` になるかを見る。
 
+### 13-239. 倍速バッジの映像フェード連動・時分割英数字重み・画像終了の現在位置反映
+
+- **ファイル**: `src/utils/playbackSpeed.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/utils/captionTimeline.ts`, `src/utils/media.ts`, `src/components/media/ClipItem.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, 関連テスト
+- **対象 flavor**: 倍速バッジ描画と時分割配分は shared。倍速・画像現在位置ボタンの UI は既存の preview trim と同じく **standard（Android / PC）限定**。保存スキーマは変えない。
+- **問題**:
+  - 倍速バッジは最前面へ常時不透明で描いていたため、対象動画がフェードアウトして黒くなってもバッジだけ残った。
+  - 時分割キャプションは全コードポイントを同じ重みで数え、文字数が多くても比較的短く読める英単語・数字へ時間を割り当てすぎた。
+  - 画像は表示時間スライダーしかなく、プレビューで確認した終了位置へ直接合わせられなかった。
+- **対策**:
+  - `resolveSpeedBadgeFadeAlpha()` は映像描画と同じく fadeIn/fadeOut の個別秒数を使い、合計がクリップ尺を超える場合は同じ比率で按分する。両 preview エンジンは active clip の `localTime` をバッジ描画へ渡すため、preview と export の焼き込みで一致する。
+  - `getSequentialCaptionReadingWeight()` は Latin文字・数字を 0.8、その他を 1.0、空白を 0 とし、行の最低重み1を維持する。混在行も文字単位で計算する。
+  - `resolveImageDurationFromPreviewPosition()` が画像開始からプレビュー位置までを0.1秒へ丸め、0.5〜60秒だけ受け付ける。ワンボタンの表示は画像内なら「ここまで短縮」、末尾より後なら「ここまで延長」へ切り替え、反映後は新しい終端の1ms手前を再描画する。
+- **注意**:
+  - バッジだけ独自のフェード秒数を持たせない。対象動画の映像フェードを単一ソースにする。
+  - 時分割の英数字係数は行全体ではなく文字単位。日本語と英字が混ざる行を一律0.8倍にしない。
+  - 画像の終了位置へタイムライン絶対時刻をそのまま duration として保存しない。必ず `previewTime - timelineStart` へ座標変換する。
+  - 画像ボタンは既存の0.5〜60秒制約を越えてクリップ尺を拡張しない。表示切替でレイアウトが揺れないようボタン幅を固定し、読み上げ文言も延長／短縮へ連動させる。
+- **回帰ガード**: `playbackSpeed.test.ts` でフェード両端と短尺按分、`captionTimeline.test.ts` で英数字0.8・空白0・日本語1.0の配分、`media.test.ts` と `clipItemSpeedBadge.test.tsx` で画像の短縮／延長、範囲外・同値無効、ボタン文言を固定する。

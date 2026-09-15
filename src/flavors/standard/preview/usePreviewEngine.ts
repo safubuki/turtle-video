@@ -3652,7 +3652,7 @@ export function usePreviewEngine({
         // 倍速バッジは最前面（ウォーターマークより上）
         if (!isEndrollFrame) {
           const badgeItem = activeIndex >= 0 ? currentItems[activeIndex] : null;
-          if (badgeItem?.type === 'video' && drawSpeedBadgeFrame(ctx, badgeItem)) {
+          if (badgeItem?.type === 'video' && drawSpeedBadgeFrame(ctx, badgeItem, localTime)) {
             didUpdateCanvas = true;
           }
         }

@@ -46,6 +46,21 @@ function createVideo(overrides: Partial<MediaItem> = {}): MediaItem {
   };
 }
 
+function createImage(overrides: Partial<MediaItem> = {}): MediaItem {
+  return {
+    ...createVideo(),
+    id: 'image-1',
+    file: new File(['x'], 'still.png', { type: 'image/png' }),
+    type: 'image',
+    url: 'blob:image-1',
+    duration: 5,
+    originalDuration: 0,
+    trimStart: 0,
+    trimEnd: 0,
+    ...overrides,
+  };
+}
+
 function renderClipItem(overrides: Partial<ComponentProps<typeof ClipItem>> = {}) {
   const props: ComponentProps<typeof ClipItem> = {
     item: createVideo(),
@@ -176,5 +191,64 @@ describe('ClipItem video trim end snap', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'トリミング終了位置を0.1減らす' }));
     expect(onUpdateVideoTrim).toHaveBeenCalledWith('end', '15');
+  });
+});
+
+describe('ClipItem 画像の終了位置', () => {
+  it('プレビューが画像内なら短縮用のワンボタンを有効にする', () => {
+    const onSetImageEndFromCurrent = vi.fn();
+    renderClipItem({
+      item: createImage(),
+      timelineRange: { start: 10, end: 15 },
+      currentTime: 12.04,
+      onSetImageEndFromCurrent,
+    });
+
+    const button = screen.getByRole('button', { name: 'プレビュー現在位置まで画像の表示時間を短縮' });
+    expect(button).toBeEnabled();
+    expect(button).toHaveTextContent('ここまで短縮');
+    expect(button).toHaveAttribute('title', expect.stringContaining('短縮'));
+    fireEvent.click(button);
+    expect(onSetImageEndFromCurrent).toHaveBeenCalledTimes(1);
+  });
+
+  it('プレビューが画像末尾より先なら延長として案内する', () => {
+    renderClipItem({
+      item: createImage(),
+      timelineRange: { start: 10, end: 15 },
+      currentTime: 17.26,
+      onSetImageEndFromCurrent: vi.fn(),
+    });
+
+    const button = screen.getByRole('button', { name: 'プレビュー現在位置まで画像の表示時間を延長' });
+    expect(button).toHaveTextContent('ここまで延長');
+    expect(button).toHaveAttribute('title', expect.stringContaining('延長'));
+  });
+
+  it('設定可能な最短時間より前と現在の終了位置では無効にする', () => {
+    const { rerender, props } = renderClipItem({
+      item: createImage(),
+      timelineRange: { start: 10, end: 15 },
+      currentTime: 10.4,
+      onSetImageEndFromCurrent: vi.fn(),
+    });
+    const button = screen.getByRole('button', { name: 'プレビュー現在位置を画像の終了位置に反映' });
+    expect(button).toBeDisabled();
+    expect(button).toHaveTextContent('終了位置を反映');
+
+    rerender(
+      <ClipItem
+        {...props}
+        item={createImage()}
+        timelineRange={{ start: 10, end: 15 }}
+        currentTime={15}
+        onSetImageEndFromCurrent={vi.fn()}
+      />,
+    );
+    const samePositionButton = screen.getByRole('button', {
+      name: 'プレビュー現在位置を画像の終了位置に反映',
+    });
+    expect(samePositionButton).toBeDisabled();
+    expect(samePositionButton).toHaveTextContent('終了位置を反映');
   });
 });

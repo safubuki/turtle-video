@@ -29,6 +29,7 @@ import {
   GEMINI_SCRIPT_FALLBACK_MODELS,
   GEMINI_TTS_MODEL,
   TTS_SAMPLE_RATE,
+  IMAGE_DURATION_STEP,
 } from '../constants';
 import { useCanvasStore } from '../stores/canvasStore';
 import type { AspectRatio } from '../stores/canvasStore';
@@ -81,6 +82,7 @@ import {
   isSupportedLogoImageFile,
   snapshotLogoImageFile,
   normalizeImageDuration,
+  resolveImageDurationFromPreviewPosition,
 } from '../utils/media';
 import { computeTimelineDurationFromSource } from '../utils/playbackSpeed';
 
@@ -2471,6 +2473,40 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     updateImageDuration(id, normalizeImageDuration(newDuration));
   }, [pausePreviewBeforeEdit, updateImageDuration]);
 
+  // --- プレビュー現在位置 → 画像の表示終了 ---
+  // 現在位置が画像内なら短縮、現在の末尾より後ろなら延長する。
+  const handleSetImageEndFromCurrent = useCallback((id: string) => {
+    const item = mediaItems.find((candidate) => candidate.id === id);
+    if (!item || item.type !== 'image') return;
+
+    const range = mediaTimelineRanges[id] ?? { start: 0, end: item.duration };
+    const nextDuration = resolveImageDurationFromPreviewPosition({
+      timelineStart: range.start,
+      previewTime: currentTimeRef.current,
+    });
+    if (nextDuration == null || Math.abs(nextDuration - item.duration) < IMAGE_DURATION_STEP / 2) {
+      return;
+    }
+
+    pausePreviewBeforeEdit('set-image-end-from-current');
+    updateImageDuration(id, nextDuration);
+
+    // 新しい終了位置ちょうどでは次のクリップ扱いになるため、1ms手前を表示する。
+    const nextTimelineTime = Math.max(range.start, range.start + nextDuration - 0.001);
+    currentTimeRef.current = nextTimelineTime;
+    setCurrentTime(nextTimelineTime);
+    requestAnimationFrame(() => {
+      renderFrame(currentTimeRef.current, false);
+    });
+  }, [
+    mediaItems,
+    mediaTimelineRanges,
+    pausePreviewBeforeEdit,
+    renderFrame,
+    setCurrentTime,
+    updateImageDuration,
+  ]);
+
   // --- スケール更新ハンドラ ---
   // 目的: メディアの拡大率を変更
   const handleUpdateMediaScale = useCallback((id: string, value: string | number) => {
@@ -3947,6 +3983,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onUpdateVideoTrim={handleUpdateVideoTrim}
               onSetVideoTrimFromCurrent={handleSetVideoTrimFromCurrent}
               onUpdateImageDuration={handleUpdateImageDuration}
+              onSetImageEndFromCurrent={handleSetImageEndFromCurrent}
               onUpdateMediaScale={handleUpdateMediaScale}
               onUpdateMediaPosition={handleUpdateMediaPosition}
               onRotateMedia={handleRotateMedia}

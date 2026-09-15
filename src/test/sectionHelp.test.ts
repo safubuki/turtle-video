@@ -166,12 +166,16 @@ describe('sectionHelp support messaging', () => {
     expect(getHelpDescription('clips', '再生速度（0.5〜8.0倍）')).toContain('0.5');
     expect(getHelpDescription('clips', '再生速度（0.5〜8.0倍）')).toContain('等倍でもチェックできます');
     expect(getHelpDescription('clips', '再生速度（0.5〜8.0倍）')).toContain('四隅から9%内側');
+    expect(getHelpDescription('clips', '再生速度（0.5〜8.0倍）')).toContain('速度バッジも映像と同じタイミング');
     expect(getHelpDescription('caption', '表示時間')).toContain('実尺');
     expect(getHelpDescription('clips', '表示区間（動画：トリミング／画像：表示時間）')).toContain(
       '0.1秒単位',
     );
     expect(getHelpDescription('clips', '表示区間（動画：トリミング／画像：表示時間）')).toContain(
       '実尺',
+    );
+    expect(getHelpDescription('clips', '表示区間（動画：トリミング／画像：表示時間）')).toContain(
+      'ここまで延長',
     );
     expect(getHelpDescription(
       'clips',
