@@ -335,6 +335,10 @@ export function getSectionHelpContent(
           title: '並び替え・コピー・削除',
           description:
             '各クリップは上下移動と削除ができます。青いコピーボタンで同じクリップを直後に複製でき、同じ動画から別のシーンを切り出すときに便利です（Android/PC版）。',
+          bullets: [
+            '同じ区間の複製は青いコピーボタンです。',
+            '終了が素材終端より前のときは、トリミング欄の「続きを追加コピー」で残りを直後のクリップにできます（Android/PC版）。',
+          ],
           visuals: ['move_up_button', 'move_down_button', 'delete_button'],
         },
         {
@@ -357,6 +361,7 @@ export function getSectionHelpContent(
           description: '動画はトリミング、画像は表示時間を設定します。',
           bullets: [
             'Android/PC版では、「開始」「終了」でプレビューの現在位置を動画のトリミング範囲へ反映できます。',
+            '終了が素材の終端より前なら、「続きを追加コピー」でその終了から素材終端までのクリップを直後に作れます。',
             '再トリミング時も、現在の有効区間を基準に計算します。',
             '動画・画像とも、スライダーからも時間を調整できます。',
             '終了の数値はプレビューと同じ 1/100 秒です。右端や＋で末尾まで動かすと実尺へ合わせます。',
@@ -901,6 +906,7 @@ export function getSectionHelpContent(
     if (clipOperations) {
       clipOperations.title = '並び替え・削除';
       clipOperations.description = '各クリップは上下移動と削除ができます。';
+      clipOperations.bullets = undefined;
     }
 
     const clipRange = content.clips.items.find((item) => item.title.startsWith('表示区間'));

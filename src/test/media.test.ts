@@ -20,6 +20,8 @@ import {
   swapArrayItems,
   validateTrim,
   MIN_VIDEO_TRIM_DURATION_SEC,
+  computeVideoContinuationTrim,
+  canAddVideoContinuation,
   computeVideoTrimFromPreviewPosition,
   canSetVideoTrimFromPreviewPosition,
   AUTO_THUMBNAIL_OFFSET_SEC,
@@ -32,6 +34,8 @@ import {
   computeAutoProjectPosterTimelineTime,
   buildAutoProjectPosterContentKey,
   resolveAutoProjectPosterCaptureTime,
+  resolveAutoProjectPosterLeadingClipId,
+  resolveAutoProjectPosterAfterMediaChange,
   isCanvasEffectivelyBlank,
   isRgbaBufferEffectivelyBlank,
   PREVIEW_START_CLEAR_ZONE_SEC,
@@ -279,6 +283,50 @@ describe('validateTrim', () => {
   it('should clamp end to maxDuration', () => {
     const result = validateTrim(2, 15, 10);
     expect(result.end).toBeLessThanOrEqual(10);
+  });
+});
+
+describe('computeVideoContinuationTrim', () => {
+  it('トリム終了から素材終端までの余りを返す', () => {
+    expect(computeVideoContinuationTrim({
+      type: 'video',
+      trimEnd: 35,
+      originalDuration: 60,
+    })).toEqual({ trimStart: 35, trimEnd: 60 });
+  });
+
+  it('終端一致・短すぎる余り・画像は null', () => {
+    expect(computeVideoContinuationTrim({
+      type: 'video',
+      trimEnd: 60,
+      originalDuration: 60,
+    })).toBeNull();
+    expect(computeVideoContinuationTrim({
+      type: 'video',
+      trimEnd: 59.95,
+      originalDuration: 60,
+    })).toBeNull();
+    expect(computeVideoContinuationTrim({
+      type: 'image',
+      trimEnd: 5,
+      originalDuration: 5,
+    })).toBeNull();
+    expect(canAddVideoContinuation({
+      type: 'video',
+      trimEnd: 0,
+      originalDuration: 0,
+    })).toBe(false);
+  });
+
+  it('最低尺ちょうどの余りは許可する', () => {
+    expect(computeVideoContinuationTrim({
+      type: 'video',
+      trimEnd: 10,
+      originalDuration: 10 + MIN_VIDEO_TRIM_DURATION_SEC,
+    })).toEqual({
+      trimStart: 10,
+      trimEnd: 10 + MIN_VIDEO_TRIM_DURATION_SEC,
+    });
   });
 });
 
@@ -543,6 +591,55 @@ describe('video thumbnail auto/manual (Issue #208)', () => {
     expect(keyAb).not.toBe(keyAbShort);
     expect(keyAb).toBe(buildAutoProjectPosterContentKey([a, b], 8, 'landscape'));
     expect(keyAb).not.toBe(buildAutoProjectPosterContentKey([a, b], 8, 'portrait'));
+  });
+
+  it('auto project poster leading clip follows the clip covering capture time', () => {
+    const base = {
+      type: 'video' as const,
+      duration: 5,
+      transitionToNext: null,
+    };
+    const a = { ...base, id: 'a' };
+    const b = { ...base, id: 'b', duration: 3 };
+    expect(resolveAutoProjectPosterLeadingClipId([a, b], 8)).toBe('a');
+    expect(resolveAutoProjectPosterLeadingClipId([b, a], 8)).toBe('b');
+    expect(resolveAutoProjectPosterLeadingClipId([], 0)).toBeNull();
+    // 先頭が極端に短いとキャプチャ時刻は 2 本目に入る
+    const shortFirst = { ...base, id: 'short', duration: 0.05 };
+    expect(resolveAutoProjectPosterLeadingClipId([shortFirst, a], 5.05)).toBe('a');
+  });
+
+  it('auto poster invalidates only when the leading clip changes in auto mode', () => {
+    const a = { id: 'a', type: 'video' as const, duration: 5, transitionToNext: null };
+    const b = { id: 'b', type: 'video' as const, duration: 5, transitionToNext: null };
+    const c = { id: 'c', type: 'video' as const, duration: 5, transitionToNext: null };
+
+    const swappedFirst = resolveAutoProjectPosterAfterMediaChange({
+      mode: 'auto',
+      previousItems: [a, b],
+      nextItems: [b, a],
+      previousTotalDuration: 10,
+      nextTotalDuration: 10,
+    });
+    expect(swappedFirst.shouldInvalidateImage).toBe(true);
+
+    const swappedLater = resolveAutoProjectPosterAfterMediaChange({
+      mode: 'auto',
+      previousItems: [a, b, c],
+      nextItems: [a, c, b],
+      previousTotalDuration: 15,
+      nextTotalDuration: 15,
+    });
+    expect(swappedLater.shouldInvalidateImage).toBe(false);
+
+    const manualSwap = resolveAutoProjectPosterAfterMediaChange({
+      mode: 'manual',
+      previousItems: [a, b],
+      nextItems: [b, a],
+      previousTotalDuration: 10,
+      nextTotalDuration: 10,
+    });
+    expect(manualSwap.shouldInvalidateImage).toBe(false);
   });
 
   // --- 自動サムネイル黒画像対策 ---

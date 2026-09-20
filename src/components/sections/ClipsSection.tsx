@@ -226,6 +226,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   // 出力の向き（16:9 横 / 9:16 縦）。プロジェクトごとに保持され、プレビュー/カード/エクスポートに反映される。
   const aspectRatio = useCanvasStore((s) => s.aspectRatio);
   const duplicateMediaItem = useMediaStore((s) => s.duplicateMediaItem);
+  const addContinuationMediaItem = useMediaStore((s) => s.addContinuationMediaItem);
   const updateMediaItem = useMediaStore((s) => s.updateMediaItem);
   const canDuplicate = !isIosSafari;
   // クリップ間トランジションは standard フレーバー（Android/PC）限定
@@ -335,6 +336,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             onMoveUp={() => onMoveMedia(i, 'up')}
             onMoveDown={() => onMoveMedia(i, 'down')}
             onDuplicate={canDuplicate ? () => duplicateMediaItem(v.id) : undefined}
+            onAddContinuation={canDuplicate ? () => addContinuationMediaItem(v.id) : undefined}
             onRemove={() => onRemoveMedia(v.id)}
             onToggleLock={() => onToggleMediaLock(v.id)}
             onToggleTransformPanel={() => onToggleTransformPanel(v.id)}

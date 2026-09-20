@@ -194,6 +194,77 @@ describe('ClipItem video trim end snap', () => {
   });
 });
 
+describe('ClipItem 続きを追加コピー', () => {
+  it('余りがある動画で続きボタンを出し、押すとコールバックする', () => {
+    const onAddContinuation = vi.fn();
+    renderClipItem({
+      onAddContinuation,
+      item: createVideo({
+        duration: 35,
+        originalDuration: 60,
+        trimStart: 0,
+        trimEnd: 35,
+      }),
+    });
+
+    const button = screen.getByRole('button', { name: '続きを追加コピー（35.00秒から60.00秒）' });
+    expect(button).toHaveTextContent('続きを追加コピー（35.00s 〜 60.00s）');
+    expect(button).toHaveClass('flex-wrap');
+    fireEvent.click(button);
+    expect(onAddContinuation).toHaveBeenCalledTimes(1);
+  });
+
+  it('終端一致・コールバックなし・画像では出さない', () => {
+    const { rerender, props } = renderClipItem({
+      onAddContinuation: vi.fn(),
+      item: createVideo({
+        duration: 5,
+        originalDuration: 5,
+        trimStart: 0,
+        trimEnd: 5,
+      }),
+    });
+    expect(screen.queryByTestId('clip-add-continuation-video-1')).not.toBeInTheDocument();
+
+    rerender(
+      <ClipItem
+        {...props}
+        onAddContinuation={undefined}
+        item={createVideo({
+          duration: 35,
+          originalDuration: 60,
+          trimStart: 0,
+          trimEnd: 35,
+        })}
+      />,
+    );
+    expect(screen.queryByTestId('clip-add-continuation-video-1')).not.toBeInTheDocument();
+
+    rerender(
+      <ClipItem
+        {...props}
+        onAddContinuation={vi.fn()}
+        item={createImage()}
+      />,
+    );
+    expect(screen.queryByTestId('clip-add-continuation-image-1')).not.toBeInTheDocument();
+  });
+
+  it('ロック中は表示するが押せない', () => {
+    renderClipItem({
+      onAddContinuation: vi.fn(),
+      isClipsLocked: true,
+      item: createVideo({
+        duration: 35,
+        originalDuration: 60,
+        trimStart: 0,
+        trimEnd: 35,
+      }),
+    });
+    expect(screen.getByTestId('clip-add-continuation-video-1')).toBeDisabled();
+  });
+});
+
 describe('ClipItem 画像の終了位置', () => {
   it('プレビューが画像内なら短縮用のワンボタンを有効にする', () => {
     const onSetImageEndFromCurrent = vi.fn();

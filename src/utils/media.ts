@@ -7,7 +7,11 @@
  */
 
 import type { MediaItem } from '../types';
-import { calculateTotalDurationWithTransitions } from './transitionTimeline';
+import {
+  calculateTotalDurationWithTransitions,
+  computeTransitionTimelineRanges,
+  findActiveTimelineItemWithTransitions,
+} from './transitionTimeline';
 import { useLogStore } from '../stores/logStore';
 import {
   DEFAULT_IMAGE_DURATION,
@@ -440,6 +444,40 @@ export function computeVideoTimelineDurationFromTrim(params: {
   return computeTimelineDurationFromSource(source, params.playbackSpeed);
 }
 
+type VideoContinuationTrimParams = {
+  type?: 'video' | 'image' | string;
+  trimEnd: number;
+  originalDuration: number;
+  minDuration?: number;
+};
+
+/**
+ * 現行クリップの終了から素材終端までの「余り」を、続きクリップの trim として返す。
+ * 余りが最低尺未満、終端一致、画像、不正値のときは null。
+ */
+export function computeVideoContinuationTrim(
+  params: VideoContinuationTrimParams,
+): { trimStart: number; trimEnd: number } | null {
+  if (params.type === 'image') return null;
+  const minDuration = params.minDuration ?? MIN_VIDEO_TRIM_DURATION_SEC;
+  if (!Number.isFinite(params.originalDuration) || !Number.isFinite(params.trimEnd)) {
+    return null;
+  }
+  const originalDuration = Math.max(0, params.originalDuration);
+  if (originalDuration < minDuration) return null;
+  if (params.trimEnd < 0) return null;
+  const nextStart = params.trimEnd;
+  const nextEnd = originalDuration;
+  // 10 + 0.1 のような二進誤差で最低尺ちょうどを落とさない
+  if (nextEnd - nextStart < minDuration - 1e-6) return null;
+  return { trimStart: nextStart, trimEnd: nextEnd };
+}
+
+/** トリム欄の「続きを追加コピー」を出せるか。UI の表示条件と同一。 */
+export function canAddVideoContinuation(params: VideoContinuationTrimParams): boolean {
+  return computeVideoContinuationTrim(params) !== null;
+}
+
 /** 自動サムネイル: クリップ有効開始からの既定オフセット（秒） */
 export const AUTO_THUMBNAIL_OFFSET_SEC = 0.2;
 
@@ -728,6 +766,57 @@ export function resolveAutoProjectPosterCaptureTime(totalDuration: number): numb
   // 先頭クリア帯より後ろで、かつ総尺を越えない位置へ寄せる。
   const safeUpperBound = Math.max(0, d - 0.001);
   return Math.min(PREVIEW_START_CLEAR_ZONE_SEC + 0.01, safeUpperBound);
+}
+
+type AutoPosterTimelineItem = Pick<MediaItem, 'id' | 'type' | 'duration' | 'transitionToNext'>;
+
+/**
+ * 自動ポスターが代表するクリップ（キャプチャ時刻を覆うクリップ）の id。
+ * 並び替えでこの id が変わったら、自動モードは古い画像を捨てて撮り直す。
+ */
+export function resolveAutoProjectPosterLeadingClipId(
+  items: ReadonlyArray<AutoPosterTimelineItem>,
+  totalDuration: number,
+): string | null {
+  if (items.length === 0) return null;
+  const duration = Number.isFinite(totalDuration) ? Math.max(0, totalDuration) : 0;
+  const time = resolveAutoProjectPosterCaptureTime(duration);
+  const asItems = items as MediaItem[];
+  const ranges = computeTransitionTimelineRanges(asItems);
+  const active = findActiveTimelineItemWithTransitions(asItems, time, duration, ranges);
+  return active?.id ?? items[0]?.id ?? null;
+}
+
+/**
+ * クリップ構成変更後に自動ポスター画像を破棄すべきか。
+ * 手動モードは触らない。自動モードは「先頭付近を覆うクリップ」が変わったときだけ破棄する。
+ */
+export function resolveAutoProjectPosterAfterMediaChange(params: {
+  mode?: 'auto' | 'manual' | null;
+  previousItems: ReadonlyArray<AutoPosterTimelineItem>;
+  nextItems: ReadonlyArray<AutoPosterTimelineItem>;
+  previousTotalDuration: number;
+  nextTotalDuration: number;
+}): {
+  shouldInvalidateImage: boolean;
+  timelineTime: number;
+} {
+  const timelineTime = computeAutoProjectPosterTimelineTime(params.nextTotalDuration);
+  if (params.mode === 'manual') {
+    return { shouldInvalidateImage: false, timelineTime };
+  }
+  const previousId = resolveAutoProjectPosterLeadingClipId(
+    params.previousItems,
+    params.previousTotalDuration,
+  );
+  const nextId = resolveAutoProjectPosterLeadingClipId(
+    params.nextItems,
+    params.nextTotalDuration,
+  );
+  return {
+    shouldInvalidateImage: previousId !== nextId,
+    timelineTime,
+  };
 }
 
 /** 黒フレーム判定の輝度しきい値。意図的な暗所を弾きすぎないよう低めに置く */

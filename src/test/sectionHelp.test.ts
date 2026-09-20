@@ -106,6 +106,24 @@ describe('sectionHelp support messaging', () => {
     expect(fallbackPreviewDescription).toContain('標準ダウンロード');
   });
 
+  it('standard のクリップヘルプは続きを追加コピーを案内し、apple-safari では出さない', () => {
+    expect(getHelpDescription('clips', '並び替え・コピー・削除')).toContain('続きを追加コピー');
+    expect(getHelpDescription('clips', '表示区間（動画：トリミング／画像：表示時間）')).toContain('続きを追加コピー');
+
+    const iosHelp = getSectionHelpContent({
+      appFlavor: 'apple-safari',
+      supportsShowSaveFilePicker: false,
+    });
+    const iosOps = iosHelp.clips.items.find((item) => item.title === '並び替え・削除');
+    expect(iosOps?.description).not.toContain('続きを追加コピー');
+    expect(iosOps?.bullets).toBeUndefined();
+    expect(getHelpDescription(
+      'clips',
+      '表示区間（動画：トリミング／画像：表示時間）',
+      { appFlavor: 'apple-safari', supportsShowSaveFilePicker: false },
+    )).not.toContain('続きを追加コピー');
+  });
+
   it('apple-safari help は Safari 動作モード向けの案内を出す', () => {
     const appDescription = getHelpDescription('app', '動作確認機種', {
       appFlavor: 'apple-safari',

@@ -5,7 +5,7 @@
  * @license GPL-3.0-or-later
  * @description タイムライン上の個々のメディアクリップ（動画・画像）を表示・操作するためのコンポーネント。ドラッグ移動、リサイズ、詳細設定モーダルへのアクセスを提供する。
  */
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ArrowUp,
   ArrowDown,
@@ -26,6 +26,7 @@ import {
   VolumeX,
   RefreshCw,
   MapPin,
+  Split,
 } from 'lucide-react';
 import type { MediaItem, SpeedBadgeLabelStyle, VideoPlaybackSpeed } from '../../types';
 import MiniPreview from '../common/MiniPreview';
@@ -43,6 +44,7 @@ import NumericSliderField from '../common/NumericSliderField';
 import { useCanvasStore } from '../../stores/canvasStore';
 import {
   canSetVideoTrimFromPreviewPosition,
+  computeVideoContinuationTrim,
   resolveImageDurationFromPreviewPosition,
   resolveMediaThumbnailSourceTime,
 } from '../../utils/media';
@@ -89,6 +91,8 @@ export interface ClipItemProps {
   onMoveDown: () => void;
   /** 簡単コピー（standard フレーバーのみ供給される。未供給時はボタン非表示） */
   onDuplicate?: () => void;
+  /** 現行終了から素材終端までの続きクリップを直後へ追加（standard のみ。余りが無いときは非表示） */
+  onAddContinuation?: () => void;
   onRemove: () => void;
   onToggleLock: () => void;
   onToggleTransformPanel: () => void;
@@ -134,6 +138,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
   onMoveUp,
   onMoveDown,
   onDuplicate,
+  onAddContinuation,
   onRemove,
   onToggleLock,
   onToggleTransformPanel,
@@ -168,6 +173,16 @@ const ClipItem: React.FC<ClipItemProps> = ({
   const playbackSpeed = normalizeVideoPlaybackSpeed(v.playbackSpeed);
   const speedBadgeLabelStyle = normalizeSpeedBadgeLabelStyle(v.speedBadgeLabelStyle);
   const sourceClipDuration = v.type === 'video' ? getVideoSourceClipDuration(v) : 0;
+  const continuationTrim = useMemo(
+    () => (v.type === 'video' && onAddContinuation
+      ? computeVideoContinuationTrim({
+        type: v.type,
+        trimEnd: v.trimEnd,
+        originalDuration: v.originalDuration,
+      })
+      : null),
+    [onAddContinuation, v.originalDuration, v.trimEnd, v.type],
+  );
 
   // スワイプ保護用コールバック
   const trimSliderMax = resolveTimeSliderMax(v.originalDuration, v.originalDuration);
@@ -429,6 +444,22 @@ const ClipItem: React.FC<ClipItemProps> = ({
             sliderClassName="flex-1 min-w-0 accent-red-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
             inputClassName="w-14 focus:border-red-500"
           />
+          {continuationTrim && (
+            <button
+              type="button"
+              onClick={onAddContinuation}
+              disabled={isDisabled}
+              data-testid={`clip-add-continuation-${v.id}`}
+              className="min-h-9 w-full min-w-0 px-2.5 py-1.5 rounded-lg bg-blue-900/30 hover:bg-blue-900/50 text-blue-200 border border-blue-800/50 disabled:opacity-30 flex items-center justify-center gap-x-1.5 gap-y-0.5 flex-wrap text-[10px] md:text-xs leading-tight text-center transition"
+              title={`続きを追加コピー: このクリップの終了 ${continuationTrim.trimStart.toFixed(2)}s から素材終端 ${continuationTrim.trimEnd.toFixed(2)}s までを直後に追加`}
+              aria-label={`続きを追加コピー（${continuationTrim.trimStart.toFixed(2)}秒から${continuationTrim.trimEnd.toFixed(2)}秒）`}
+            >
+              <Split className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              <span className="min-w-0 break-words">
+                続きを追加コピー（{continuationTrim.trimStart.toFixed(2)}s 〜 {continuationTrim.trimEnd.toFixed(2)}s）
+              </span>
+            </button>
+          )}
         </div>
       )}
 

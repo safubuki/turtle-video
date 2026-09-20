@@ -159,6 +159,41 @@ describe('ClipsSection media picker routing', () => {
   });
 });
 
+describe('ClipsSection continuation', () => {
+  it('余りがある動画に続きを追加コピーを出し、apple-safari では出さない', () => {
+    const video: MediaItem = {
+      id: 'video-1',
+      file: new File(['video'], 'clip.mp4', { type: 'video/mp4' }),
+      type: 'video',
+      url: 'blob:video-1',
+      volume: 1,
+      isMuted: false,
+      fadeIn: false,
+      fadeOut: false,
+      fadeInDuration: 1,
+      fadeOutDuration: 1,
+      duration: 35,
+      originalDuration: 60,
+      trimStart: 0,
+      trimEnd: 35,
+      scale: 1,
+      positionX: 0,
+      positionY: 0,
+      rotation: 0,
+      blur: 0,
+      isTransformOpen: false,
+      isLocked: false,
+    };
+
+    const { unmount } = renderClipsSection({ mediaItems: [video] });
+    expect(screen.getByTestId('clip-add-continuation-video-1')).toBeInTheDocument();
+    unmount();
+
+    renderClipsSection({ mediaItems: [video] }, true);
+    expect(screen.queryByTestId('clip-add-continuation-video-1')).not.toBeInTheDocument();
+  });
+});
+
 describe('ClipsSection image duration', () => {
   it('画像の表示時間は 0.1 秒単位で増減できる', () => {
     const onUpdateImageDuration = vi.fn();
@@ -190,7 +225,7 @@ describe('ClipsSection image duration', () => {
     });
 
     fireEvent.click(screen.getByRole('button', {
-      name: 'プレビュー現在位置で画像の表示を終了',
+      name: 'プレビュー現在位置まで画像の表示時間を延長',
     }));
     expect(onSetImageEndFromCurrent).toHaveBeenCalledWith('image-1');
   });
@@ -352,7 +387,7 @@ describe('ClipsSection aspect ratio controls', () => {
     expect(screen.queryByText('90°回転')).not.toBeInTheDocument();
     expect(screen.queryByRole('slider', { name: 'ぼかし強度' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', {
-      name: 'プレビュー現在位置で画像の表示を終了',
+      name: 'プレビュー現在位置まで画像の表示時間を延長',
     })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'ミュート対象の動画がありません' })).not.toBeInTheDocument();
   });

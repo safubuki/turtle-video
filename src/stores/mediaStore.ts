@@ -33,7 +33,9 @@ import {
   computeAutoThumbnailSourceTime,
   resolveThumbnailAfterTrimChange,
   computeAutoProjectPosterTimelineTime,
+  resolveAutoProjectPosterAfterMediaChange,
   computeVideoTimelineDurationFromTrim,
+  computeVideoContinuationTrim,
   normalizeVideoPlaybackSpeed,
   normalizeVideoAudioNormalizeMode,
   normalizeSpeedBadgeLabelStyle,
@@ -45,6 +47,39 @@ import {
 import { useLogStore } from './logStore';
 
 export type ProjectPosterMode = 'auto' | 'manual';
+
+/**
+ * 自動ポスターが代表するクリップが変わったときだけ画像を破棄する。
+ * 手動設定は並び替え・削除でも残す。
+ */
+function autoPosterPatchIfLeadingClipChanged(
+  state: {
+    projectPosterMode: ProjectPosterMode;
+    mediaItems: MediaItem[];
+    totalDuration: number;
+  },
+  nextItems: MediaItem[],
+  nextTotalDuration: number,
+): {
+  projectPosterDataUrl?: string | null;
+  projectPosterTimelineTime?: number;
+} {
+  const result = resolveAutoProjectPosterAfterMediaChange({
+    mode: state.projectPosterMode,
+    previousItems: state.mediaItems,
+    nextItems,
+    previousTotalDuration: state.totalDuration,
+    nextTotalDuration,
+  });
+  if (!result.shouldInvalidateImage) return {};
+  useLogStore.getState().info('MEDIA', '先頭クリップ変更のため自動サムネイルを再取得待ち', {
+    timelineTime: result.timelineTime,
+  });
+  return {
+    projectPosterDataUrl: null,
+    projectPosterTimelineTime: result.timelineTime,
+  };
+}
 
 interface MediaState {
   // State
@@ -75,6 +110,8 @@ interface MediaState {
   // Actions
   addMediaItems: (files: File[]) => Promise<void>;
   duplicateMediaItem: (id: string) => void;
+  /** 現行クリップの終了から素材終端までの続きクリップを直後へ追加する */
+  addContinuationMediaItem: (id: string) => void;
   removeMediaItem: (id: string) => void;
   moveMediaItem: (index: number, direction: 'up' | 'down') => void;
   updateMediaItem: (id: string, updates: Partial<MediaItem>) => void;
@@ -236,10 +273,12 @@ export const useMediaStore = create<MediaState>()(
             state.bulkVideoVolume,
           );
           const updated = [...state.mediaItems, ...itemsToAdd];
-          useLogStore.getState().info('MEDIA', 'メディアアイテム追加完了', { totalItems: updated.length, totalDuration: calculateTotalDuration(updated) });
+          const totalDuration = calculateTotalDuration(updated);
+          useLogStore.getState().info('MEDIA', 'メディアアイテム追加完了', { totalItems: updated.length, totalDuration });
           return {
             mediaItems: updated,
-            totalDuration: calculateTotalDuration(updated),
+            totalDuration,
+            ...autoPosterPatchIfLeadingClipChanged(state, updated, totalDuration),
           };
         });
       },
@@ -269,9 +308,68 @@ export const useMediaStore = create<MediaState>()(
             copy,
             ...state.mediaItems.slice(index + 1),
           ];
+          const totalDuration = calculateTotalDuration(updated);
           return {
             mediaItems: updated,
-            totalDuration: calculateTotalDuration(updated),
+            totalDuration,
+            ...autoPosterPatchIfLeadingClipChanged(state, updated, totalDuration),
+          };
+        });
+      },
+
+      // トリム済み動画の余り（現行終了〜素材終端）を直後へ追加する。
+      // 同じ区間の複製は duplicateMediaItem のまま。余りが無い／画像は何もしない。
+      addContinuationMediaItem: (id) => {
+        set((state) => {
+          const index = state.mediaItems.findIndex((m) => m.id === id);
+          if (index < 0) return state;
+          const source = state.mediaItems[index];
+          const continuationTrim = computeVideoContinuationTrim({
+            type: source.type,
+            trimEnd: source.trimEnd,
+            originalDuration: source.originalDuration,
+          });
+          if (!continuationTrim) return state;
+
+          const thumbnail = resolveThumbnailAfterTrimChange({
+            mode: 'auto',
+            sourceTrimStart: continuationTrim.trimStart,
+            sourceTrimEnd: continuationTrim.trimEnd,
+          });
+          const copy: MediaItem = {
+            ...source,
+            id: generateId(),
+            url: URL.createObjectURL(source.file),
+            isTransformOpen: false,
+            isLocked: false,
+            trimStart: continuationTrim.trimStart,
+            trimEnd: continuationTrim.trimEnd,
+            duration: computeVideoTimelineDurationFromTrim({
+              trimStart: continuationTrim.trimStart,
+              trimEnd: continuationTrim.trimEnd,
+              originalDuration: source.originalDuration,
+              playbackSpeed: source.playbackSpeed,
+            }),
+            thumbnailMode: thumbnail.thumbnailMode,
+            thumbnailSourceTime: thumbnail.thumbnailSourceTime,
+          };
+          useLogStore.getState().info('MEDIA', '続きクリップを追加', {
+            sourceId: source.id,
+            newId: copy.id,
+            fileName: source.file.name,
+            trimStart: copy.trimStart,
+            trimEnd: copy.trimEnd,
+          });
+          const updated = [
+            ...state.mediaItems.slice(0, index + 1),
+            copy,
+            ...state.mediaItems.slice(index + 1),
+          ];
+          const totalDuration = calculateTotalDuration(updated);
+          return {
+            mediaItems: updated,
+            totalDuration,
+            ...autoPosterPatchIfLeadingClipChanged(state, updated, totalDuration),
           };
         });
       },
@@ -285,9 +383,11 @@ export const useMediaStore = create<MediaState>()(
             revokeObjectUrl(item.url);
           }
           const updated = state.mediaItems.filter((m) => m.id !== id);
+          const totalDuration = calculateTotalDuration(updated);
           return {
             mediaItems: updated,
-            totalDuration: calculateTotalDuration(updated),
+            totalDuration,
+            ...autoPosterPatchIfLeadingClipChanged(state, updated, totalDuration),
           };
         });
       },
@@ -299,7 +399,10 @@ export const useMediaStore = create<MediaState>()(
           const targetIndex = direction === 'up' ? index - 1 : index + 1;
           if (targetIndex < 0 || targetIndex >= items.length) return state;
           [items[index], items[targetIndex]] = [items[targetIndex], items[index]];
-          return { mediaItems: items };
+          return {
+            mediaItems: items,
+            ...autoPosterPatchIfLeadingClipChanged(state, items, state.totalDuration),
+          };
         });
       },
 

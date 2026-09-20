@@ -102,6 +102,28 @@ describe('mediaStore', () => {
       const { mediaItems: after } = useMediaStore.getState();
       expect(after).toHaveLength(0);
     });
+
+    it('clears auto poster when the leading clip is removed', () => {
+      const fileA = new File(['a'], 'a.mp4', { type: 'video/mp4' });
+      const fileB = new File(['b'], 'b.mp4', { type: 'video/mp4' });
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'a', type: 'video', duration: 10, transitionToNext: null, file: fileA, url: 'blob:a' } as any,
+          { id: 'b', type: 'video', duration: 10, transitionToNext: null, file: fileB, url: 'blob:b' } as any,
+        ],
+        totalDuration: 20,
+        projectPosterMode: 'auto',
+        projectPosterTimelineTime: 0.2,
+        projectPosterDataUrl: 'data:image/jpeg;base64,old-first-clip',
+      });
+
+      useMediaStore.getState().removeMediaItem('a');
+
+      const s = useMediaStore.getState();
+      expect(s.mediaItems.map((item) => item.id)).toEqual(['b']);
+      expect(s.projectPosterMode).toBe('auto');
+      expect(s.projectPosterDataUrl).toBeNull();
+    });
   });
 
   describe('moveMediaItem', () => {
@@ -153,6 +175,68 @@ describe('mediaStore', () => {
       
       const { mediaItems } = useMediaStore.getState();
       expect(mediaItems[0].id).toBe('a');
+    });
+
+    it('clears auto poster when the leading clip changes', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'a', type: 'video', duration: 10, transitionToNext: null } as any,
+          { id: 'b', type: 'video', duration: 10, transitionToNext: null } as any,
+        ],
+        totalDuration: 20,
+        projectPosterMode: 'auto',
+        projectPosterTimelineTime: 0.2,
+        projectPosterDataUrl: 'data:image/jpeg;base64,old-first-clip',
+      });
+
+      useMediaStore.getState().moveMediaItem(1, 'up');
+
+      const s = useMediaStore.getState();
+      expect(s.mediaItems[0].id).toBe('b');
+      expect(s.projectPosterMode).toBe('auto');
+      expect(s.projectPosterDataUrl).toBeNull();
+    });
+
+    it('keeps a manual poster when clips are reordered', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'a', type: 'video', duration: 10, transitionToNext: null } as any,
+          { id: 'b', type: 'video', duration: 10, transitionToNext: null } as any,
+        ],
+        totalDuration: 20,
+        projectPosterMode: 'manual',
+        projectPosterTimelineTime: 3.5,
+        projectPosterDataUrl: 'data:image/jpeg;base64,manual-frame',
+      });
+
+      useMediaStore.getState().moveMediaItem(1, 'up');
+
+      const s = useMediaStore.getState();
+      expect(s.mediaItems[0].id).toBe('b');
+      expect(s.projectPosterMode).toBe('manual');
+      expect(s.projectPosterTimelineTime).toBe(3.5);
+      expect(s.projectPosterDataUrl).toBe('data:image/jpeg;base64,manual-frame');
+    });
+
+    it('keeps an auto poster when later clips swap and the leading clip stays', () => {
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'a', type: 'video', duration: 10, transitionToNext: null } as any,
+          { id: 'b', type: 'video', duration: 10, transitionToNext: null } as any,
+          { id: 'c', type: 'video', duration: 10, transitionToNext: null } as any,
+        ],
+        totalDuration: 30,
+        projectPosterMode: 'auto',
+        projectPosterTimelineTime: 0.2,
+        projectPosterDataUrl: 'data:image/jpeg;base64,first-clip',
+      });
+
+      useMediaStore.getState().moveMediaItem(2, 'up');
+
+      const s = useMediaStore.getState();
+      expect(s.mediaItems.map((item) => item.id)).toEqual(['a', 'c', 'b']);
+      expect(s.projectPosterMode).toBe('auto');
+      expect(s.projectPosterDataUrl).toBe('data:image/jpeg;base64,first-clip');
     });
   });
 
@@ -973,6 +1057,83 @@ describe('mediaStore', () => {
       const { addMediaItems } = useMediaStore.getState();
       await addMediaItems([new File(['x'], 'x.mp4', { type: 'video/mp4' })]);
       useMediaStore.getState().duplicateMediaItem('missing');
+      expect(useMediaStore.getState().mediaItems).toHaveLength(1);
+    });
+  });
+
+  describe('addContinuationMediaItem', () => {
+    it('inserts a remainder clip after the source without changing the original trim', async () => {
+      const { addMediaItems } = useMediaStore.getState();
+      const fileA = new File(['aaa'], 'a.mp4', { type: 'video/mp4' });
+      const fileB = new File(['bbb'], 'b.mp4', { type: 'video/mp4' });
+      await addMediaItems([fileA, fileB]);
+
+      const [itemA] = useMediaStore.getState().mediaItems;
+      useMediaStore.getState().updateMediaItem(itemA.id, {
+        trimStart: 0,
+        trimEnd: 35,
+        duration: 35,
+        originalDuration: 60,
+        scale: 1.5,
+        volume: 0.8,
+        playbackSpeed: 2,
+        fadeIn: true,
+        isTransformOpen: true,
+        isLocked: true,
+        thumbnailMode: 'manual',
+        thumbnailSourceTime: 10,
+      });
+      // duration は倍速を反映して再計算する
+      useMediaStore.getState().updateMediaItem(itemA.id, {
+        duration: 17.5,
+      });
+
+      useMediaStore.getState().addContinuationMediaItem(itemA.id);
+
+      const items = useMediaStore.getState().mediaItems;
+      expect(items).toHaveLength(3);
+      expect(items[0].id).toBe(itemA.id);
+      expect(items[0].trimStart).toBe(0);
+      expect(items[0].trimEnd).toBe(35);
+      const continuation = items[1];
+      expect(continuation.id).not.toBe(itemA.id);
+      expect(continuation.url).not.toBe(items[0].url);
+      expect(continuation.file).toBe(items[0].file);
+      expect(continuation.trimStart).toBe(35);
+      expect(continuation.trimEnd).toBe(60);
+      expect(continuation.duration).toBeCloseTo(12.5);
+      expect(continuation.scale).toBe(1.5);
+      expect(continuation.volume).toBe(0.8);
+      expect(continuation.playbackSpeed).toBe(2);
+      expect(continuation.fadeIn).toBe(true);
+      expect(continuation.isTransformOpen).toBe(false);
+      expect(continuation.isLocked).toBe(false);
+      expect(continuation.thumbnailMode).toBe('auto');
+      expect(continuation.thumbnailSourceTime).toBeGreaterThanOrEqual(35);
+      expect(useMediaStore.getState().totalDuration).toBeCloseTo(17.5 + 12.5 + items[2].duration);
+    });
+
+    it('does nothing when the clip already ends at the source end', async () => {
+      const { addMediaItems } = useMediaStore.getState();
+      await addMediaItems([new File(['x'], 'x.mp4', { type: 'video/mp4' })]);
+      const id = useMediaStore.getState().mediaItems[0].id;
+      useMediaStore.getState().updateMediaItem(id, {
+        trimStart: 0,
+        trimEnd: 8,
+        duration: 8,
+        originalDuration: 8,
+      });
+
+      useMediaStore.getState().addContinuationMediaItem(id);
+      expect(useMediaStore.getState().mediaItems).toHaveLength(1);
+    });
+
+    it('does nothing for images', async () => {
+      const { addMediaItems } = useMediaStore.getState();
+      await addMediaItems([new File(['x'], 'still.png', { type: 'image/png' })]);
+      const id = useMediaStore.getState().mediaItems[0].id;
+
+      useMediaStore.getState().addContinuationMediaItem(id);
       expect(useMediaStore.getState().mediaItems).toHaveLength(1);
     });
   });

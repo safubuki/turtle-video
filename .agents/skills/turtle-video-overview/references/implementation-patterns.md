@@ -701,8 +701,8 @@
 | **エラー** | 3 層防御: ErrorBoundary（コンポーネント）、グローバルハンドラ（window）、try-catch（個別処理） |
 | **フレーバー分離** | export エンジンは `src/flavors/<flavor>/export/exportEngine.ts` に物理フォーク済み。共有コード→flavors の import、flavor 相互 import、共有コンポーネントでの `getPlatformCapabilities()` 直接呼び出しは ESLint で禁止。共有コンポーネントの UA 判定は `usePlatformCapabilities()`（PlatformCapabilitiesContext）経由。凍結レガシー（`components/turtle-video/usePreview*` / `utils/previewPlatform` / `utils/iosSafariAudio`）は編集禁止 |
 | **export後preview（#209）** | 共有 `<video>` を同一要素のまま `load()` / hard src で直しても Chromium decoder wedge が残ることがある（表面の readyState 4 は信用しない）。本命は MediaResourceLoader remount（`reloadKey++` + MediaElementSource detach、13-141）。13-135〜140 は保険。成功/失敗/中断の全経路で remount を要求する |
-| **動画サムネ（#208）** | アプリ内ポスターだけでは OS アイコンは変わらない。export で **covr 埋め込み + 先頭 KF 差し替え**（13-146）が本命。**ユーザー確認済み成功事例**。設定後の再書き出し必須。**自動モードは並び替え・先頭変更で dataUrl を再キャプチャ**（13-167） |
-| **自動サムネの黒画像** | canvas キャプチャ前に **video のシーク完了を待つ**（`renderFrame` は seek を要求するだけ・完了は非同期。描画条件は `readyState>=2 && !seeking`）。**キャプチャ時刻は先頭黒クリア帯 `time<=0.05` の外**へ逃がす。撮った画像は黒検証し、黒なら撮り直し・最終的に**既存画像を維持して黒で上書きしない**（13-168）。rAF 数回で済ませないこと |
+| **動画サムネ（#208）** | アプリ内ポスターだけでは OS アイコンは変わらない。export で **covr 埋め込み + 先頭 KF 差し替え**（13-146）が本命。**ユーザー確認済み成功事例**。設定後の再書き出し必須。**自動モードは並び替え・先頭変更で dataUrl を再キャプチャ**（13-167 / 13-240）。手動設定は並び替えでも変えない |
+| **自動サムネの黒画像** | canvas キャプチャ前に **video のシーク完了を待つ**（`renderFrame` は seek を要求するだけ・完了は非同期。描画条件は `readyState>=2 && !seeking`）。**キャプチャ時刻は先頭黒クリア帯 `time<=0.05` の外**へ逃がす。撮った画像は黒検証し、黒なら撮り直し。**同じ先頭の見た目調整では既存画像を維持して黒で上書きしない**。**先頭クリップ自体が変わった自動設定では古いクリップの画像を残さない**（13-168 / 13-240）。rAF 数回で済ませないこと |
 | **倍速 export 映像** | rate=speed のみは途中切れ、毎フレーム seek は静止画化。**rate=1 連続 + 壁時計 Δt/speed（wall dilation）**が成功（13-166 / export-speed-video-wall-dilation-postmortem-2026-08-01）。プレビューの rate=speed と無理に一本化しない |
 | **export の高速化** | 現行の駆動方式（壁時計 dilation / native 連続再生 / backpressure / 末尾補完）は**ユーザー実機で最良と確認済み。速度を理由に変更しない**。負荷を下げたいときは **VideoEncoder の configure 交渉**（`prefer-hardware`、13-169）から手を付ける。**`latencyMode:'quality'` は禁止**（内部バッファリングが `encodeQueueSize` を曇らせ backpressure 検知を遅らせる＝後半黒画面の再発条件。13-116 も同旨）。queue 上限の緩和と bitrate 低下はリカバリ性・画質を損なうので最後の手段 |
 | **export の滑らかさ** | プレビューは rAF（多くは約60Hz）提示、export は固定30fps CFR。滑らかさ改善は駆動方式を変えず、提示フレーム合わせとスロット単位スナップショットに閉じる（13-204）。**ユーザー実機で「劇的にスムーズになった」と確認済み（2026-08-17）**。フレーム駆動化・毎フレームseek・出力fps変更・bitrate変更は再導入しない |
@@ -4532,3 +4532,41 @@ export 終了（成功/失敗/中断）
   - 画像の終了位置へタイムライン絶対時刻をそのまま duration として保存しない。必ず `previewTime - timelineStart` へ座標変換する。
   - 画像ボタンは既存の0.5〜60秒制約を越えてクリップ尺を拡張しない。表示切替でレイアウトが揺れないようボタン幅を固定し、読み上げ文言も延長／短縮へ連動させる。
 - **回帰ガード**: `playbackSpeed.test.ts` でフェード両端と短尺按分、`captionTimeline.test.ts` で英数字0.8・空白0・日本語1.0の配分、`media.test.ts` と `clipItemSpeedBadge.test.tsx` で画像の短縮／延長、範囲外・同値無効、ボタン文言を固定する。
+
+### 13-240. 自動プロジェクトポスターは先頭クリップ入れ替えに追従し、手動設定は維持する
+
+- **ファイル**: `src/utils/media.ts`, `src/stores/mediaStore.ts`, `src/components/TurtleVideo.tsx`, `src/test/media.test.ts`, `src/test/stores/mediaStore.test.ts`
+- **問題**:
+  - 自動サムネイルは並び替えで contentKey が変われば再キャプチャする想定だった（13-167）。
+  - ただし書き出し後に 1 本目と 2 本目を入れ替えると、再キャプチャが黒／未準備で失敗したときに **旧先頭クリップの画像を維持**していた。
+  - ユーザーからは「新しい 1 本目のサムネイルになっていない」と見える。手動設定まで動かすと意図しない上書きになる。
+- **対策**:
+  - `resolveAutoProjectPosterLeadingClipId()` で、自動キャプチャ時刻を覆うクリップ id を純ロジックで決める。
+  - `resolveAutoProjectPosterAfterMediaChange()` は **自動モードかつその id が変わったときだけ** 画像破棄を返す。手動モードは false。
+  - `moveMediaItem` / `removeMediaItem` 等は自動モードで先頭クリップが変わったら `projectPosterDataUrl` を即 `null` にする。後続クリップ同士の入れ替えでは残す。
+  - 再キャプチャは先頭クリップ変更時に旧画像を渡さない。失敗時も旧クリップ画像へ戻さない。export 後 remount（`reloadKey`）や画像未設定なら同じキーでも撮り直す。要素未配置は出現まで待つ。
+- **注意**:
+  - 手動ポスターは並び替え・削除でも mode / timelineTime / dataUrl を変えない。
+  - 同じ先頭の拡大・トリム失敗では従来どおり既存画像を維持する（黒上書き防止）。
+  - エンドロール表示中のキャプチャ見送りは維持する。先頭入れ替えで画像は先に破棄されるので、本編へ戻った時点で新しい先頭を撮り直す。
+- **回帰ガード**: `media.test.ts` で先頭 id の入れ替え判定、`mediaStore.test.ts` で自動破棄・手動維持・後続クリップ入れ替え維持を固定する。
+
+### 13-241. トリム済み動画の余りを「続きを追加」で直後クリップにする
+
+- **ファイル**: `src/utils/media.ts`, `src/stores/mediaStore.ts`, `src/components/media/ClipItem.tsx`, `src/components/sections/ClipsSection.tsx`, `src/constants/sectionHelp.ts`, `src/test/media.test.ts`, `src/test/stores/mediaStore.test.ts`, `src/test/clipItemSpeedBadge.test.tsx`
+- **対象 flavor**: UI は **standard（Android / PC）のみ**（簡単コピーと同じ `!isIosSafari` ゲート）。純ロジックと `mediaStore.addContinuationMediaItem` は shared。保存スキーマは変えない。
+- **問題**:
+  - 既存の青いコピーは同じ trim / 見た目の複製。同じ素材の続き（例: 1分素材を35秒で切ったあとの 35秒〜終端）を作りたいときに、コピーしてから開始を手で直す必要がある。
+  - コピーの既定を続きに変えると、同じ区間の複製（F2）が壊れる。
+- **対策**:
+  - コピーは従来どおり同じ区間の複製。
+  - 余りが最低尺（0.1秒）以上ある動画だけ、トリミング欄の終了スライダー下に「続きを追加コピー（35.00s 〜 60.00s）」を出す。ボタンは折り返し、時刻が切れない。
+  - 押すと現行クリップは触らず、`trimStart = 現行 trimEnd` / `trimEnd = originalDuration` の独立クリップを直後へ挿入する。タイムライン尺は `(余り) / playbackSpeed`。
+  - 拡大・位置・回転・ぼかし・音量・ミュート・倍速・フェード・速度バッジは引き継ぐ。開閉・個別ロックは引き継がない。サムネイルは新しい有効開始の auto にする。
+  - 終端一致、余り不足、画像、不明 id では何もしない。
+- **注意**:
+  - ObjectURL は複製と同じく新規発行し、削除時の既存 revoke 経路で解放する。
+  - 直後挿入なので先頭クリップは変わらず、自動ポスター破棄条件（13-240）は通常発火しない。
+  - apple-safari にはボタンを出さない。ヘルプのコピー／続き案内も iOS では出さない。
+- **回帰ガード**: `media.test.ts` で余り計算、`mediaStore.test.ts` で挿入・終端一致・画像、`clipItemSpeedBadge.test.tsx` でボタン表示／非表示／ロックを固定する。
+- **改訂**: ボタン文言を「続きを追加」から「続きを追加コピー」へ変更。同じ区間の青いコピーと区別し、`flex-wrap` で時刻表示が切れないようにする。
