@@ -44,7 +44,10 @@ import {
 } from '../../../utils/captionStyle';
 import { drawVideoTitleFrame } from '../../../utils/videoTitle';
 import { shouldClearPreviewCanvas } from '../../../utils/previewCanvasClear';
-import { drawWatermarkOverlayFrame } from '../../../utils/watermarkOverlay';
+import {
+  drawWatermarkOverlayFrame,
+  shouldDrawWatermarkOnCompositeFrame,
+} from '../../../utils/watermarkOverlay';
 import {
   drawEndrollFrame,
   getEndrollDuration,
@@ -3400,9 +3403,6 @@ export function usePreviewEngine({
         }
 
         const activeWatermark = watermarkOverlayRef?.current ?? watermarkOverlay;
-        // 「全編」指定のときはエンドロール上にもウォーターマークを重ねる。
-        // エンドロールは背景を全面塗りするため、キャプションより前に描かないと隠れる。
-        const drawsWatermarkOverEndroll = isEndrollFrame && activeWatermark?.scope === 'full';
 
         // === エンドロール描画 ===
         // クリップ由来の合成を覆い隠す（背景を全面塗りするため、直前フレームが残らない）。
@@ -3416,25 +3416,30 @@ export function usePreviewEngine({
           if (drawEndrollFrame(ctx, activeEndroll, endrollImageRef?.current, endrollLocalTime)) {
             didUpdateCanvas = true;
           }
-          if (drawsWatermarkOverEndroll && drawWatermarkOverlayFrame(
-            ctx,
-            activeWatermark,
-            watermarkImageRef?.current,
-            time,
-          )) {
-            didUpdateCanvas = true;
-          }
         }
 
-        // === キャプション抜きフレームのスナップショット ===
+        // === キャプション・ロゴ抜きフレームのスナップショット ===
         // キャプション設定のミニプレビューは「現在フレームへ設定中のキャプションを重ねて」
         // 見た目を確かめる。ここでメインプレビューの canvas をそのまま転写元にすると
         // **既に焼き込まれたキャプションの上へもう 1 枚描く**ことになり、文字が二重に見える
         // （サイズ変更時に前のサイズが残る／削除したはずの文字が残る）。
-        // そのため、キャプションを描く直前の状態を控えておき、ミニプレビューはこちらを使う。
-        // エンドロール中は背景＋ロゴ（と全編ウォーターマーク）まで含めた状態を控える。
+        // ロゴミニプレビューも同じスナップショットへロゴを重ねるため、ウォーターマークより前に控える。
         if (!_isExporting && captionFreeSnapshotRef) {
           captureCaptionFreeSnapshot(ctx, captionFreeSnapshotRef.current);
+        }
+
+        // 重ね順: 映像 → ウォーターマーク → キャプション。字幕がロゴに隠れないようにする。
+        // エンドロールは scope=full のときだけウォーターマークを載せる。
+        if (
+          shouldDrawWatermarkOnCompositeFrame(isEndrollFrame, activeWatermark?.scope)
+          && drawWatermarkOverlayFrame(
+            ctx,
+            activeWatermark,
+            watermarkImageRef?.current,
+            time,
+          )
+        ) {
+          didUpdateCanvas = true;
         }
 
         if (currentCaptionSettings.enabled && currentCaptions.length > 0) {
@@ -3630,7 +3635,7 @@ export function usePreviewEngine({
         }
 
         // === 動画タイトル描画（Issue #211・キャプションとは別管理） ===
-        // キャプションの後（＝最前面）に描く。描画実装は utils/videoTitle.ts が単一ソースで、
+        // キャプションの後に描く。描画実装は utils/videoTitle.ts が単一ソースで、
         // apple-safari エンジンからも同じ関数を呼ぶため preview と export が必ず一致する。
         if (!isEndrollFrame && drawVideoTitleFrame(ctx, videoTitleRef.current, time, {
           useBlurFallback: previewPlatformPolicy.needsCaptionBlurFallback,
@@ -3639,17 +3644,7 @@ export function usePreviewEngine({
           didUpdateCanvas = true;
         }
 
-        // タイトルを含む既存合成の後へ置き、カード境界・トランジション中も継続表示する。
-        // エンドロール中の全編ウォーターマークはキャプションより前（背景側）に描済み。
-        if (!isEndrollFrame && drawWatermarkOverlayFrame(
-          ctx,
-          activeWatermark,
-          watermarkImageRef?.current,
-          time,
-        )) {
-          didUpdateCanvas = true;
-        }
-        // 倍速バッジは最前面（ウォーターマークより上）
+        // 倍速バッジは最前面（キャプションより上）
         if (!isEndrollFrame) {
           const badgeItem = activeIndex >= 0 ? currentItems[activeIndex] : null;
           if (badgeItem?.type === 'video' && drawSpeedBadgeFrame(ctx, badgeItem, localTime)) {

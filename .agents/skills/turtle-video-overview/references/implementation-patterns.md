@@ -3009,7 +3009,8 @@ export 終了（成功/失敗/中断）
   - 数値は `normalizeWatermarkOverlay()` / `normalizeWatermarkRange()` でクランプする。位置 0〜100%、自然画像サイズ基準の倍率 0.1〜3 倍、不透明度 0〜1、回転 -180〜180°、マスクサイズ 5〜100%、周辺ぼかし 0〜40px @1080p。
   - 既定は X/Y 50%（中央）、倍率 1、透過なし（opacity 1）、回転 0°、四角マスク 100%、周辺ぼかし 0。各見た目項目は UI の `RotateCcw` から個別に戻せる。
 - **描画契約（preview = export）**:
-  - `drawWatermarkOverlayFrame()` が唯一の描画実装。standard / apple-safari の両 flavor が、トランジション・キャプション・動画タイトルの後に同じ関数を呼ぶ。export は preview の `drawFrame` を再利用するため WYSIWYG が構造的に成立する。
+  - `drawWatermarkOverlayFrame()` が唯一の描画実装。standard / apple-safari の両 flavor が同じ関数を呼ぶ。export は preview の `drawFrame` を再利用するため WYSIWYG が構造的に成立する。
+  - **改訂（13-242）**: 重ね順は 映像 → ウォーターマーク → キャプション。キャプション・タイトルの後に描く旧契約は廃止。
   - 円形は中央 cover、角丸は短辺比率の角丸、周辺ぼかしはパディング付き一時 Canvas のマスク alpha を blur して `destination-in` 合成する。`maskSize` でマスク境界を画像外周より内側へ縮められるため、外周へ当たらず自然なフェザーを作れる。処理済み Canvas は画像と設定キーで 1 件キャッシュし、毎フレームの再生成を避ける。
   - `watermarkOverlay` は ref だけでなく値としてもエンジンへ渡し、`renderFrame` の依存に含める。停止中に設定を変えた際の再描画を維持する。
 - **保存・メモリ管理**:
@@ -4570,3 +4571,15 @@ export 終了（成功/失敗/中断）
   - apple-safari にはボタンを出さない。ヘルプのコピー／続き案内も iOS では出さない。
 - **回帰ガード**: `media.test.ts` で余り計算、`mediaStore.test.ts` で挿入・終端一致・画像、`clipItemSpeedBadge.test.tsx` でボタン表示／非表示／ロックを固定する。
 - **改訂**: ボタン文言を「続きを追加」から「続きを追加コピー」へ変更。同じ区間の青いコピーと区別し、`flex-wrap` で時刻表示が切れないようにする。
+
+### 13-242. 合成の重ね順を 映像 → ウォーターマーク → キャプション にする
+
+- **ファイル**: `src/utils/watermarkOverlay.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/constants/sectionHelp.ts`, `src/test/watermarkOverlay.test.ts`
+- **対象 flavor**: preview 描画は **standard / apple-safari の両方**。export は preview の `drawFrame` 再利用のため同じ順になる。保存スキーマは変えない。
+- **問題**: ウォーターマークをキャプション・タイトルの後に描いていたため、字幕がロゴに隠れた。
+- **対策**:
+  - キャプション抜きスナップショットの直後、キャプションより前に `drawWatermarkOverlayFrame()` を呼ぶ。
+  - `shouldDrawWatermarkOnCompositeFrame()` で本編は常に載せ、エンドロールは `scope=full` のときだけ載せる。
+  - スナップショットはロゴより前に取る（ロゴミニプレビューの二重描画防止）。
+- **注意**: 倍速バッジは従来どおりキャプションより前（最前面）。タイトルもキャプションの直後で、ウォーターマークより手前。
+- **回帰ガード**: `watermarkOverlay.test.ts` で本編／エンドロールの載せる条件を固定する。

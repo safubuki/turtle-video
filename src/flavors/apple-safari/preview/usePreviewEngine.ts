@@ -1251,10 +1251,20 @@ export function usePreviewEngine({
 
         const currentCaptions = captionsRef.current;
         const currentCaptionSettings = captionSettingsRef.current;
-        // キャプション抜きフレームのスナップショット（standard と同じ理由・同じ位置）。
-        // ミニプレビューが焼き込み済みキャプションの上へ重ね描きして二重になるのを防ぐ。
+        // キャプション・ロゴ抜きフレームのスナップショット（standard と同じ理由・同じ位置）。
+        // ミニプレビューが焼き込み済みキャプション／ロゴの上へ重ね描きして二重になるのを防ぐ。
         if (!_isExporting && captionFreeSnapshotRef) {
           captureCaptionFreeSnapshot(ctx, captionFreeSnapshotRef.current);
+        }
+
+        // 重ね順: 映像 → ウォーターマーク → キャプション。字幕がロゴに隠れないようにする。
+        if (drawWatermarkOverlayFrame(
+          ctx,
+          watermarkOverlayRef?.current ?? watermarkOverlay,
+          watermarkImageRef?.current,
+          time,
+        )) {
+          didUpdateCanvas = true;
         }
 
         if (currentCaptionSettings.enabled && currentCaptions.length > 0) {
@@ -1428,14 +1438,6 @@ export function usePreviewEngine({
         if (drawVideoTitleFrame(ctx, videoTitleRef.current, time, {
           useBlurFallback: previewPlatformPolicy.needsCaptionBlurFallback,
         })) {
-          didUpdateCanvas = true;
-        }
-        if (drawWatermarkOverlayFrame(
-          ctx,
-          watermarkOverlayRef?.current ?? watermarkOverlay,
-          watermarkImageRef?.current,
-          time,
-        )) {
           didUpdateCanvas = true;
         }
         {

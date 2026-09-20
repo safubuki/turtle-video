@@ -218,6 +218,18 @@ export function shouldDrawWatermarkOverlay(
 }
 
 /**
+ * 本編／エンドロールの合成でウォーターマークを載せるか。
+ * 重ね順は 映像 → ウォーターマーク → キャプション。エンドロールは scope=full のときだけ載せる。
+ */
+export function shouldDrawWatermarkOnCompositeFrame(
+  isEndrollFrame: boolean,
+  scope?: WatermarkScope | null,
+): boolean {
+  if (isEndrollFrame) return scope === 'full';
+  return true;
+}
+
+/**
  * 基準位置（左右 9/91%、上下 15/85%）へ寄せた中心位置を返す。
  * 大きなロゴだけは、可視マスクの回転後サイズを基準に過度な見切れを抑える。
  */

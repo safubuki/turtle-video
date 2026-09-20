@@ -13,6 +13,7 @@ import {
   normalizeWatermarkScope,
   resolveWatermarkPresetPosition,
   shouldDrawWatermarkOverlay,
+  shouldDrawWatermarkOnCompositeFrame,
 } from '../utils/watermarkOverlay';
 
 function createImage(): HTMLImageElement {
@@ -140,6 +141,13 @@ describe('ウォーターマーク描画', () => {
     expect(shouldDrawWatermarkOverlay(activeOverlay(), image, 1.99)).toBe(false);
     expect(shouldDrawWatermarkOverlay(activeOverlay(), image, 8)).toBe(false);
     expect(shouldDrawWatermarkOverlay(activeOverlay(), { ...image, complete: false } as HTMLImageElement, 4)).toBe(false);
+  });
+
+  it('本編では常に載せ、エンドロールは全編指定のときだけ載せる', () => {
+    expect(shouldDrawWatermarkOnCompositeFrame(false, 'main')).toBe(true);
+    expect(shouldDrawWatermarkOnCompositeFrame(false, 'full')).toBe(true);
+    expect(shouldDrawWatermarkOnCompositeFrame(true, 'main')).toBe(false);
+    expect(shouldDrawWatermarkOnCompositeFrame(true, 'full')).toBe(true);
   });
 
   it('Canvas 比率の位置・サイズ・回転・不透明度で 1 回合成する', () => {
