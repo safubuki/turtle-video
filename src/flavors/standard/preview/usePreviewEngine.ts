@@ -86,7 +86,11 @@ import {
 import { useProjectStore } from '../../../stores/projectStore';
 import type { PlatformCapabilities } from '../../../utils/platform';
 import { collectPlaybackBlockingVideos } from '../../../utils/playbackTimeline';
-import { isCaptionActiveAtTime, resolveCaptionDisplaySegment } from '../../../utils/captionTimeline';
+import {
+  calculateCaptionFadeAlpha,
+  isCaptionActiveAtTime,
+  resolveCaptionDisplaySegment,
+} from '../../../utils/captionTimeline';
 import {
   getExportFrameTiming,
   resolveExportCanvasCaptureDecision,
@@ -3437,6 +3441,7 @@ export function usePreviewEngine({
             activeWatermark,
             watermarkImageRef?.current,
             time,
+            { clipsDuration: clipsDurationSec },
           )
         ) {
           didUpdateCanvas = true;
@@ -3494,8 +3499,6 @@ export function usePreviewEngine({
               && activeCaption.sequentialFadeMode === 'line';
             const fadeBasisStart = useLineFadeBasis ? displaySegment.startTime : activeCaption.startTime;
             const fadeBasisEnd = useLineFadeBasis ? displaySegment.endTime : activeCaption.endTime;
-            const captionDuration = fadeBasisEnd - fadeBasisStart;
-            const captionLocalTime = time - fadeBasisStart;
 
             const useFadeIn = activeCaption.overrideFadeIn !== undefined
               ? activeCaption.overrideFadeIn === 'on'
@@ -3504,36 +3507,24 @@ export function usePreviewEngine({
               ? activeCaption.overrideFadeOut === 'on'
               : currentCaptionSettings.bulkFadeOut;
 
-            let fadeInDur = activeCaption.overrideFadeIn === 'on' && activeCaption.overrideFadeInDuration !== undefined
+            const fadeInDur = activeCaption.overrideFadeIn === 'on' && activeCaption.overrideFadeInDuration !== undefined
               ? activeCaption.overrideFadeInDuration
               : (currentCaptionSettings.bulkFadeInDuration || 1.0);
-            let fadeOutDur = activeCaption.overrideFadeOut === 'on' && activeCaption.overrideFadeOutDuration !== undefined
+            const fadeOutDur = activeCaption.overrideFadeOut === 'on' && activeCaption.overrideFadeOutDuration !== undefined
               ? activeCaption.overrideFadeOutDuration
               : (currentCaptionSettings.bulkFadeOutDuration || 1.0);
 
-            // 行ごとフェードでは短い行区間をフェードが食い潰さないよう按分クランプする
-            if (useLineFadeBasis && captionDuration > 0) {
-              const inEffective = useFadeIn ? fadeInDur : 0;
-              const outEffective = useFadeOut ? fadeOutDur : 0;
-              if (inEffective + outEffective > captionDuration) {
-                const ratio = captionDuration / (inEffective + outEffective);
-                fadeInDur *= ratio;
-                fadeOutDur *= ratio;
-              }
-            }
-
-            let fadeInAlpha = 1.0;
-            let fadeOutAlpha = 1.0;
-
-            if (useFadeIn && captionLocalTime < fadeInDur) {
-              fadeInAlpha = captionLocalTime / fadeInDur;
-            }
-            if (useFadeOut && captionLocalTime > captionDuration - fadeOutDur) {
-              const remaining = captionDuration - captionLocalTime;
-              fadeOutAlpha = remaining / fadeOutDur;
-            }
-
-            const alpha = Math.max(0, Math.min(1, fadeInAlpha * fadeOutAlpha));
+            const alpha = calculateCaptionFadeAlpha({
+              startTime: fadeBasisStart,
+              endTime: fadeBasisEnd,
+              timeSec: time,
+              useFadeIn,
+              useFadeOut,
+              fadeInDuration: fadeInDur,
+              fadeOutDuration: fadeOutDur,
+              timelineEndSec: totalDurationRef.current,
+            });
+            if (alpha <= 0) continue;
 
             ctx.save();
             ctx.font = `bold ${fontSize}px ${fontFamily}`;

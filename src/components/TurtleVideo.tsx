@@ -739,13 +739,13 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     pausePreviewBeforeEdit('set-watermark-image');
     try {
       const snapshot = await snapshotLogoImageFile(file);
-      setWatermarkImage(snapshot.file, totalDuration, snapshot.fileData);
+      setWatermarkImage(snapshot.file, clipsDuration, snapshot.fileData);
       showToast('ウォーターマーク画像を設定しました');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'ウォーターマーク画像の読み込みに失敗しました';
       setError(message);
     }
-  }, [pausePreviewBeforeEdit, setError, setWatermarkImage, showToast, totalDuration]);
+  }, [clipsDuration, pausePreviewBeforeEdit, setError, setWatermarkImage, showToast]);
 
   // 描画が遅延実行されても最新状態を参照できるようにする
   captionsRef.current = captions;

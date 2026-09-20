@@ -7,7 +7,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { EndrollOverlay, WatermarkOverlay } from '../../types';
 import type { CaptionFreeSnapshot } from '../../utils/canvas';
 import { drawEndrollFrame } from '../../utils/endrollOverlay';
-import { drawLogoImageFrame } from '../../utils/watermarkOverlay';
+import { calculateWatermarkFadeAlpha, drawLogoImageFrame } from '../../utils/watermarkOverlay';
 
 interface LogoMiniPreviewProps {
   /** メインプレビューの背景フレーム（フォールバック）。 */
@@ -18,6 +18,10 @@ interface LogoMiniPreviewProps {
   mode: 'watermark' | 'endroll';
   canvasWidth: number;
   canvasHeight: number;
+  /** プレビューの現在位置。ウォーターマークのフェードをミニビューへ反映する */
+  currentTime?: number;
+  /** 本編尺。本編のみウォーターマークの終端フェードに使う */
+  clipsDuration?: number;
   /** プレビューの現在位置が変わったときに背景を取り直すためのキー。 */
   refreshKey?: number;
 }
@@ -31,6 +35,8 @@ const LogoMiniPreview: React.FC<LogoMiniPreviewProps> = ({
   mode,
   canvasWidth,
   canvasHeight,
+  currentTime,
+  clipsDuration,
   refreshKey = 0,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -116,7 +122,14 @@ const LogoMiniPreview: React.FC<LogoMiniPreviewProps> = ({
       }
 
       if (source && image && image.complete && image.naturalWidth > 0 && image.naturalHeight > 0) {
-        drawLogoImageFrame(compositionCtx, overlay, image, 1);
+        const watermark = overlay as WatermarkOverlay;
+        const fadeTime = Number.isFinite(currentTime) ? (currentTime as number) : watermark.startTime;
+        drawLogoImageFrame(
+          compositionCtx,
+          overlay,
+          image,
+          calculateWatermarkFadeAlpha(watermark, fadeTime, { clipsDuration }),
+        );
       }
     }
 
@@ -134,6 +147,8 @@ const LogoMiniPreview: React.FC<LogoMiniPreviewProps> = ({
     canvasHeight,
     canvasWidth,
     captionFreeSnapshotRef,
+    clipsDuration,
+    currentTime,
     height,
     image,
     mode,

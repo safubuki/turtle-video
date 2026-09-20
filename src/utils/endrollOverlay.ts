@@ -8,6 +8,7 @@
  * ロゴの合成自体は watermarkOverlay.ts の共通コアへ委譲し、見た目を完全に一致させる。
  */
 import type { EndrollBackgroundMode, EndrollOverlay } from '../types';
+import { calculateLinearRangeFadeAlpha } from './rangeFade';
 import {
   WATERMARK_FADE_DURATION_MAX,
   WATERMARK_FADE_DURATION_MIN,
@@ -203,22 +204,15 @@ export function calculateEndrollFadeAlpha(
   localTimeSec: number,
 ): number {
   if (durationSec <= 0) return 1;
-
-  let fadeInDur = endroll.fadeIn ? endroll.fadeInDuration : 0;
-  let fadeOutDur = endroll.fadeOut ? endroll.fadeOutDuration : 0;
-  if (fadeInDur + fadeOutDur > durationSec) {
-    const ratio = durationSec / (fadeInDur + fadeOutDur);
-    fadeInDur *= ratio;
-    fadeOutDur *= ratio;
-  }
-
-  let alpha = 1;
-  if (fadeInDur > 0 && localTimeSec < fadeInDur) {
-    alpha = localTimeSec / fadeInDur;
-  } else if (fadeOutDur > 0 && localTimeSec > durationSec - fadeOutDur) {
-    alpha = (durationSec - localTimeSec) / fadeOutDur;
-  }
-  return Math.max(0, Math.min(1, alpha));
+  return calculateLinearRangeFadeAlpha({
+    startTime: 0,
+    endTime: durationSec,
+    timeSec: localTimeSec,
+    fadeIn: endroll.fadeIn === true,
+    fadeOut: endroll.fadeOut === true,
+    fadeInDuration: endroll.fadeInDuration,
+    fadeOutDuration: endroll.fadeOutDuration,
+  });
 }
 
 /**

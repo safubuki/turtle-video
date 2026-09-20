@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  calculateCaptionFadeAlpha,
   clampSequentialGapSec,
   isCaptionActiveAtTime,
   isSequentialCaption,
@@ -55,6 +56,43 @@ describe('isCaptionActiveAtTime', () => {
     expect(isCaptionActiveAtTime(caption, 12, 17)).toBe(true);
     expect(isCaptionActiveAtTime(caption, 14, 17)).toBe(true);
     expect(isCaptionActiveAtTime(caption, 17, 17)).toBe(true);
+  });
+});
+
+describe('calculateCaptionFadeAlpha', () => {
+  it('終了がタイムラインより先でも、動画の終端でフェードアウトする', () => {
+    expect(calculateCaptionFadeAlpha({
+      startTime: 0,
+      endTime: 60,
+      timeSec: 5,
+      useFadeIn: false,
+      useFadeOut: true,
+      fadeInDuration: 1,
+      fadeOutDuration: 1,
+      timelineEndSec: 10,
+    })).toBe(1);
+    expect(calculateCaptionFadeAlpha({
+      startTime: 0,
+      endTime: 60,
+      timeSec: 9.5,
+      useFadeIn: false,
+      useFadeOut: true,
+      fadeInDuration: 1,
+      fadeOutDuration: 1,
+      timelineEndSec: 10,
+    })).toBeCloseTo(0.5, 5);
+  });
+
+  it('カードが短いときはイン＋アウトを按分する', () => {
+    expect(calculateCaptionFadeAlpha({
+      startTime: 0,
+      endTime: 1,
+      timeSec: 0.75,
+      useFadeIn: true,
+      useFadeOut: true,
+      fadeInDuration: 1,
+      fadeOutDuration: 1,
+    })).toBeCloseTo(0.5, 5);
   });
 });
 

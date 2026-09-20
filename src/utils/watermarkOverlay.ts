@@ -3,6 +3,8 @@
  * @description Issue #210 の範囲指定ウォーターマークに関する正規化と共通 Canvas 描画。
  */
 import type { WatermarkMask, WatermarkOverlay, WatermarkScope } from '../types';
+import { quantizeTimeToCentiseconds } from './format';
+import { calculateLinearRangeFadeAlpha } from './rangeFade';
 
 export const WATERMARK_MIN_DURATION_SEC = 0.1;
 export const WATERMARK_POSITION_MIN = 0;
@@ -168,52 +170,87 @@ export function normalizeWatermarkOverlay(
   };
 }
 
+export type WatermarkPlaybackOptions = {
+  /** 本編だけの尺。scope=main のとき、フェードと表示はこの終端まで */
+  clipsDuration?: number;
+};
+
 /**
- * ウォーターマーク表示範囲内のローカル時刻からフェード係数（0〜1）を返す。
- * 動画・画像クリップと同じ線形フェード。イン＋アウトが範囲より長いときは按分する。
+ * 実際にロゴが見える終了時刻。
+ * 本編のみのとき、保存された endTime がエンドロール側まで伸びていても本編末尾で切る。
+ */
+export function resolveWatermarkVisibleEnd(
+  overlay: Pick<WatermarkOverlay, 'endTime' | 'scope'>,
+  options?: WatermarkPlaybackOptions,
+): number {
+  const endTime = Number.isFinite(overlay.endTime) ? overlay.endTime : 0;
+  if (overlay.scope === 'full') return endTime;
+  const clipsDuration = options?.clipsDuration;
+  if (Number.isFinite(clipsDuration) && (clipsDuration as number) > 0) {
+    return Math.min(endTime, clipsDuration as number);
+  }
+  return endTime;
+}
+
+export function isWatermarkActiveAtTime(
+  overlay: Pick<WatermarkOverlay, 'startTime' | 'endTime' | 'scope' | 'enabled'>,
+  timeSec: number,
+  options?: WatermarkPlaybackOptions,
+): boolean {
+  if (overlay.enabled === false) return false;
+  if (!Number.isFinite(timeSec) || timeSec < overlay.startTime) return false;
+  const visibleEnd = resolveWatermarkVisibleEnd(overlay, options);
+  if (timeSec < visibleEnd) return true;
+  const clipsDuration = options?.clipsDuration;
+  if (
+    overlay.scope !== 'full'
+    && Number.isFinite(clipsDuration)
+    && (clipsDuration as number) > 0
+    && visibleEnd >= quantizeTimeToCentiseconds(clipsDuration as number) - 1e-6
+    && timeSec <= (clipsDuration as number) + 1e-6
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * ウォーターマークの可視区間からフェード係数（0〜1）を返す。
+ * 本編のみなら本編末尾でフェードアウトする（endTime がエンドロール側でも切る）。
  */
 export function calculateWatermarkFadeAlpha(
   overlay: Pick<
     WatermarkOverlay,
-    'startTime' | 'endTime' | 'fadeIn' | 'fadeOut' | 'fadeInDuration' | 'fadeOutDuration'
+    'startTime' | 'endTime' | 'scope' | 'fadeIn' | 'fadeOut' | 'fadeInDuration' | 'fadeOutDuration'
   >,
   timeSec: number,
+  options?: WatermarkPlaybackOptions,
 ): number {
-  const rangeDuration = Math.max(0, overlay.endTime - overlay.startTime);
-  if (rangeDuration <= 0) return 1;
-
-  const localTime = timeSec - overlay.startTime;
-  let fadeInDur = overlay.fadeIn ? overlay.fadeInDuration : 0;
-  let fadeOutDur = overlay.fadeOut ? overlay.fadeOutDuration : 0;
-  if (fadeInDur + fadeOutDur > rangeDuration) {
-    const ratio = rangeDuration / (fadeInDur + fadeOutDur);
-    fadeInDur *= ratio;
-    fadeOutDur *= ratio;
-  }
-
-  let alpha = 1;
-  if (fadeInDur > 0 && localTime < fadeInDur) {
-    alpha = localTime / fadeInDur;
-  } else if (fadeOutDur > 0 && localTime > rangeDuration - fadeOutDur) {
-    alpha = (rangeDuration - localTime) / fadeOutDur;
-  }
-  return Math.max(0, Math.min(1, alpha));
+  return calculateLinearRangeFadeAlpha({
+    startTime: overlay.startTime,
+    endTime: resolveWatermarkVisibleEnd(overlay, options),
+    timeSec,
+    fadeIn: overlay.fadeIn === true,
+    fadeOut: overlay.fadeOut === true,
+    fadeInDuration: overlay.fadeInDuration,
+    fadeOutDuration: overlay.fadeOutDuration,
+  });
 }
 
 export function shouldDrawWatermarkOverlay(
   overlay: WatermarkOverlay | null | undefined,
   image: HTMLImageElement | null | undefined,
   timeSec: number,
+  options?: WatermarkPlaybackOptions,
 ): boolean {
   return Boolean(
-    overlay?.enabled
+    overlay
     && overlay.url
     && image
     && image.complete
     && image.naturalWidth > 0
     && image.naturalHeight > 0
-    && timeSec >= overlay.startTime
-    && timeSec < overlay.endTime,
+    && isWatermarkActiveAtTime(overlay, timeSec, options),
   );
 }
 
@@ -440,9 +477,17 @@ export function drawWatermarkOverlayFrame(
   overlay: WatermarkOverlay | null | undefined,
   image: HTMLImageElement | null | undefined,
   timeSec: number,
+  options?: WatermarkPlaybackOptions,
 ): boolean {
-  if (!shouldDrawWatermarkOverlay(overlay, image, timeSec) || !overlay || !image) return false;
+  if (!shouldDrawWatermarkOverlay(overlay, image, timeSec, options) || !overlay || !image) {
+    return false;
+  }
 
-  drawLogoImageFrame(ctx, overlay, image, calculateWatermarkFadeAlpha(overlay, timeSec));
+  drawLogoImageFrame(
+    ctx,
+    overlay,
+    image,
+    calculateWatermarkFadeAlpha(overlay, timeSec, options),
+  );
   return true;
 }

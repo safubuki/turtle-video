@@ -619,6 +619,8 @@ const OverlaySection = React.memo<OverlaySectionProps>(({
                       mode={isEndrollTab ? 'endroll' : 'watermark'}
                       canvasWidth={canvasWidth}
                       canvasHeight={canvasHeight}
+                      currentTime={currentTime}
+                      clipsDuration={clipsDuration}
                       refreshKey={Math.round(currentTime * 100)}
                     />
                   </div>

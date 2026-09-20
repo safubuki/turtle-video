@@ -4583,3 +4583,18 @@ export 終了（成功/失敗/中断）
   - スナップショットはロゴより前に取る（ロゴミニプレビューの二重描画防止）。
 - **注意**: 倍速バッジは従来どおりキャプションより前（最前面）。タイトルもキャプションの直後で、ウォーターマークより手前。
 - **回帰ガード**: `watermarkOverlay.test.ts` で本編／エンドロールの載せる条件を固定する。
+
+### 13-243. ウォーターマーク／キャプションの終端フェードアウトを可視終端へ合わせる
+
+- **ファイル**: `src/utils/rangeFade.ts`, `src/utils/watermarkOverlay.ts`, `src/utils/captionTimeline.ts`, `src/utils/captionLayerRender.ts`, `src/utils/endrollOverlay.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/components/TurtleVideo.tsx`, `src/components/common/LogoMiniPreview.tsx`, `src/constants/sectionHelp.ts`, 関連テスト
+- **対象 flavor**: 描画は **standard / apple-safari の両方**（export は preview の drawFrame 再利用）。UI のロゴ設定は standard のみ。
+- **問題**:
+  - ウォーターマークは既定が「本編のみ」なのに、画像追加時の endTime がエンドロール込みの総尺になることがあった。フェードアウトは保存された endTime 基準のため、本編の終わりではまだ不透明度 1 のまま切れ、フェードが見えなかった。
+  - キャプションも endTime が動画より先だと、終端フェードがタイムラインの外になり、動画の終わりで突然消えて見えた。
+- **対策**:
+  - `calculateLinearRangeFadeAlpha()` に線形フェードを集約。イン＋アウトが区間より長いときは按分する。
+  - ウォーターマークは `scope=main` なら `min(endTime, clipsDuration)` を可視終端にしてフェードする。
+  - キャプションは `min(endTime, timelineEndSec)` をフェード終端にする。カードが短くても按分する。
+  - 新規ウォーターマーク画像は本編尺（clipsDuration）を初期 endTime にする。
+- **注意**: 全編指定のウォーターマークは従来どおり overlay.endTime（エンドロール末尾）でフェードする。
+- **回帰ガード**: `watermarkOverlay.test.ts` と `captionTimeline.test.ts` で本編／タイムライン終端のフェードを固定する。

@@ -18,7 +18,11 @@ import {
   resolveCaptionGlyphStyle,
   resolveCaptionLayoutScale,
 } from './captionStyle';
-import { isCaptionActiveAtTime, resolveCaptionDisplaySegment } from './captionTimeline';
+import {
+  calculateCaptionFadeAlpha,
+  isCaptionActiveAtTime,
+  resolveCaptionDisplaySegment,
+} from './captionTimeline';
 import { drawVideoTitleFrame } from './videoTitle';
 import type { CaptionLayerMatte } from './captionLayerExport';
 
@@ -157,8 +161,6 @@ function drawCaptionsAtTime(
       displaySegment.isSequential && activeCaption.sequentialFadeMode === 'line';
     const fadeBasisStart = useLineFadeBasis ? displaySegment.startTime : activeCaption.startTime;
     const fadeBasisEnd = useLineFadeBasis ? displaySegment.endTime : activeCaption.endTime;
-    const captionDuration = fadeBasisEnd - fadeBasisStart;
-    const captionLocalTime = timeSec - fadeBasisStart;
 
     const useFadeIn =
       activeCaption.overrideFadeIn !== undefined
@@ -169,35 +171,25 @@ function drawCaptionsAtTime(
         ? activeCaption.overrideFadeOut === 'on'
         : captionSettings.bulkFadeOut;
 
-    let fadeInDur =
+    const fadeInDur =
       activeCaption.overrideFadeIn === 'on' && activeCaption.overrideFadeInDuration !== undefined
         ? activeCaption.overrideFadeInDuration
         : captionSettings.bulkFadeInDuration || 1.0;
-    let fadeOutDur =
+    const fadeOutDur =
       activeCaption.overrideFadeOut === 'on' && activeCaption.overrideFadeOutDuration !== undefined
         ? activeCaption.overrideFadeOutDuration
         : captionSettings.bulkFadeOutDuration || 1.0;
 
-    if (useLineFadeBasis && captionDuration > 0) {
-      const inEffective = useFadeIn ? fadeInDur : 0;
-      const outEffective = useFadeOut ? fadeOutDur : 0;
-      if (inEffective + outEffective > captionDuration) {
-        const ratio = captionDuration / (inEffective + outEffective);
-        fadeInDur *= ratio;
-        fadeOutDur *= ratio;
-      }
-    }
-
-    let fadeInAlpha = 1.0;
-    let fadeOutAlpha = 1.0;
-    if (useFadeIn && captionLocalTime < fadeInDur) {
-      fadeInAlpha = captionLocalTime / fadeInDur;
-    }
-    if (useFadeOut && captionLocalTime > captionDuration - fadeOutDur) {
-      const remaining = captionDuration - captionLocalTime;
-      fadeOutAlpha = remaining / fadeOutDur;
-    }
-    const alpha = Math.max(0, Math.min(1, fadeInAlpha * fadeOutAlpha));
+    const alpha = calculateCaptionFadeAlpha({
+      startTime: fadeBasisStart,
+      endTime: fadeBasisEnd,
+      timeSec,
+      useFadeIn,
+      useFadeOut,
+      fadeInDuration: fadeInDur,
+      fadeOutDuration: fadeOutDur,
+      timelineEndSec: options.timelineEndSec,
+    });
     if (alpha <= 0) continue;
 
     ctx.save();

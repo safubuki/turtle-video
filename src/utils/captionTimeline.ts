@@ -18,6 +18,7 @@
  */
 import type { Caption } from '../types';
 import { quantizeTimeToCentiseconds } from './format';
+import { calculateLinearRangeFadeAlpha } from './rangeFade';
 import {
   TIME_SLIDER_STEP_SEC,
   TIME_STEPPER_STEP_SEC,
@@ -64,6 +65,42 @@ export function isCaptionActiveAtTime(
     return true;
   }
   return false;
+}
+
+/**
+ * フェード計算に使う終了時刻。タイムラインより先の endTime は実尺へ切り、
+ * 動画の終端でフェードアウトが消えないようにする。
+ */
+export function resolveCaptionFadeEndTime(endTime: number, timelineEndSec?: number): number {
+  if (
+    timelineEndSec != null
+    && Number.isFinite(timelineEndSec)
+    && timelineEndSec > 0
+  ) {
+    return Math.min(endTime, timelineEndSec);
+  }
+  return endTime;
+}
+
+export function calculateCaptionFadeAlpha(params: {
+  startTime: number;
+  endTime: number;
+  timeSec: number;
+  useFadeIn: boolean;
+  useFadeOut: boolean;
+  fadeInDuration: number;
+  fadeOutDuration: number;
+  timelineEndSec?: number;
+}): number {
+  return calculateLinearRangeFadeAlpha({
+    startTime: params.startTime,
+    endTime: resolveCaptionFadeEndTime(params.endTime, params.timelineEndSec),
+    timeSec: params.timeSec,
+    fadeIn: params.useFadeIn,
+    fadeOut: params.useFadeOut,
+    fadeInDuration: params.fadeInDuration,
+    fadeOutDuration: params.fadeOutDuration,
+  });
 }
 
 /** キャプション時間スライダーの上限。プレビューの 0:07.04 と同じ 1/100 秒 */

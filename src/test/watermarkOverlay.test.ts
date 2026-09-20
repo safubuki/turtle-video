@@ -119,6 +119,20 @@ describe('ウォーターマークフェード', () => {
     expect(calculateWatermarkFadeAlpha(overlay, 10)).toBeCloseTo(0, 5);
   });
 
+  it('本編のみで endTime が本編より先でも、本編末尾でフェードアウトする', () => {
+    const overlay = activeOverlay({
+      startTime: 0,
+      endTime: 20,
+      scope: 'main',
+      fadeIn: false,
+      fadeOut: true,
+      fadeOutDuration: 1,
+    });
+    expect(calculateWatermarkFadeAlpha(overlay, 5, { clipsDuration: 10 })).toBe(1);
+    expect(calculateWatermarkFadeAlpha(overlay, 9.5, { clipsDuration: 10 })).toBeCloseTo(0.5, 5);
+    expect(calculateWatermarkFadeAlpha(overlay, 10, { clipsDuration: 10 })).toBeCloseTo(0, 5);
+  });
+
   it('イン＋アウトが範囲より長いときは按分する', () => {
     const overlay = activeOverlay({
       startTime: 0,

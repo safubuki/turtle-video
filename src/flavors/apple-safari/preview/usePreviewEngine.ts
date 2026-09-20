@@ -57,7 +57,7 @@ import type { LogCategory } from '../../../stores/logStore';
 import { useMediaStore, useUIStore } from '../../../stores';
 import type { PlatformCapabilities } from '../../../utils/platform';
 import { collectPlaybackBlockingVideos, findActiveTimelineItem } from '../../../utils/playbackTimeline';
-import { isCaptionActiveAtTime } from '../../../utils/captionTimeline';
+import { calculateCaptionFadeAlpha, isCaptionActiveAtTime } from '../../../utils/captionTimeline';
 import {
   EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC,
   PREVIEW_GESTURE_CREDIT_NATIVE_VOLUME,
@@ -114,6 +114,7 @@ interface UsePreviewEngineParams {
   videoTitleRef: MutableRefObject<VideoTitleSettings>;
   watermarkOverlayRef?: MutableRefObject<WatermarkOverlay>;
   watermarkImageRef?: MutableRefObject<HTMLImageElement | null>;
+  clipsDurationRef?: MutableRefObject<number>;
   /**
    * キャプションを描く直前のフレームを保存する先（キャプション設定のミニプレビュー用）。
    * メインプレビューの canvas を直接転写すると焼き込み済みキャプションと二重になるため、
@@ -270,6 +271,7 @@ export function usePreviewEngine({
   videoTitleRef,
   watermarkOverlayRef,
   watermarkImageRef,
+  clipsDurationRef,
   captionFreeSnapshotRef,
   totalDurationRef,
   currentTimeRef,
@@ -1263,6 +1265,7 @@ export function usePreviewEngine({
           watermarkOverlayRef?.current ?? watermarkOverlay,
           watermarkImageRef?.current,
           time,
+          { clipsDuration: clipsDurationRef?.current ?? totalDurationRef.current },
         )) {
           didUpdateCanvas = true;
         }
@@ -1301,9 +1304,6 @@ export function usePreviewEngine({
               padding,
             });
 
-            const captionDuration = activeCaption.endTime - activeCaption.startTime;
-            const captionLocalTime = time - activeCaption.startTime;
-
             const useFadeIn = activeCaption.overrideFadeIn !== undefined
               ? activeCaption.overrideFadeIn === 'on'
               : currentCaptionSettings.bulkFadeIn;
@@ -1318,18 +1318,17 @@ export function usePreviewEngine({
               ? activeCaption.overrideFadeOutDuration
               : (currentCaptionSettings.bulkFadeOutDuration || 1.0);
 
-            let fadeInAlpha = 1.0;
-            let fadeOutAlpha = 1.0;
-
-            if (useFadeIn && captionLocalTime < fadeInDur) {
-              fadeInAlpha = captionLocalTime / fadeInDur;
-            }
-            if (useFadeOut && captionLocalTime > captionDuration - fadeOutDur) {
-              const remaining = captionDuration - captionLocalTime;
-              fadeOutAlpha = remaining / fadeOutDur;
-            }
-
-            const alpha = Math.max(0, Math.min(1, fadeInAlpha * fadeOutAlpha));
+            const alpha = calculateCaptionFadeAlpha({
+              startTime: activeCaption.startTime,
+              endTime: activeCaption.endTime,
+              timeSec: time,
+              useFadeIn,
+              useFadeOut,
+              fadeInDuration: fadeInDur,
+              fadeOutDuration: fadeOutDur,
+              timelineEndSec: totalDurationRef.current,
+            });
+            if (alpha <= 0) continue;
 
             ctx.save();
             ctx.font = `bold ${fontSize}px ${fontFamily}`;
