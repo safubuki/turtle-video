@@ -26,6 +26,7 @@ import {
   computeTimelineDurationFromSource,
   getVideoSourceClipDuration,
   normalizeVideoPlaybackSpeed,
+  resolveVideoSourceTime,
 } from './playbackSpeed';
 
 /**
@@ -768,7 +769,25 @@ export function resolveAutoProjectPosterCaptureTime(totalDuration: number): numb
   return Math.min(PREVIEW_START_CLEAR_ZONE_SEC + 0.01, safeUpperBound);
 }
 
-type AutoPosterTimelineItem = Pick<MediaItem, 'id' | 'type' | 'duration' | 'transitionToNext'>;
+type AutoPosterTimelineItem = Pick<MediaItem, 'id' | 'type' | 'duration' | 'transitionToNext'>
+  & Partial<Pick<MediaItem, 'trimStart' | 'trimEnd' | 'playbackSpeed'>>;
+
+function resolveAutoPosterActiveItem(
+  items: ReadonlyArray<AutoPosterTimelineItem>,
+  totalDuration: number,
+): { item: AutoPosterTimelineItem; localTime: number } | null {
+  if (items.length === 0) return null;
+  const duration = Number.isFinite(totalDuration) ? Math.max(0, totalDuration) : 0;
+  const time = resolveAutoProjectPosterCaptureTime(duration);
+  const asItems = items as MediaItem[];
+  const ranges = computeTransitionTimelineRanges(asItems);
+  const active = findActiveTimelineItemWithTransitions(asItems, time, duration, ranges);
+  const item = (active ? items.find((candidate) => candidate.id === active.id) : null)
+    ?? items[0]
+    ?? null;
+  if (!item) return null;
+  return { item, localTime: active?.localTime ?? 0 };
+}
 
 /**
  * 自動ポスターが代表するクリップ（キャプチャ時刻を覆うクリップ）の id。
@@ -778,18 +797,58 @@ export function resolveAutoProjectPosterLeadingClipId(
   items: ReadonlyArray<AutoPosterTimelineItem>,
   totalDuration: number,
 ): string | null {
-  if (items.length === 0) return null;
-  const duration = Number.isFinite(totalDuration) ? Math.max(0, totalDuration) : 0;
-  const time = resolveAutoProjectPosterCaptureTime(duration);
-  const asItems = items as MediaItem[];
-  const ranges = computeTransitionTimelineRanges(asItems);
-  const active = findActiveTimelineItemWithTransitions(asItems, time, duration, ranges);
-  return active?.id ?? items[0]?.id ?? null;
+  return resolveAutoPosterActiveItem(items, totalDuration)?.item.id ?? null;
+}
+
+/**
+ * 自動ポスターが「今どのフレームを代表しているか」の指紋。
+ * 先頭クリップ id だけでなく、そのクリップの尺・トリム・再生速度も含める。
+ * 同じ id のまま開始を切ったり倍速にしても、古い先頭フレームは捨てて撮り直す。
+ */
+export function resolveAutoProjectPosterCaptureIdentity(
+  items: ReadonlyArray<AutoPosterTimelineItem>,
+  totalDuration: number,
+): string | null {
+  const active = resolveAutoPosterActiveItem(items, totalDuration);
+  if (!active) return null;
+  const { item } = active;
+  const trimStart = Number.isFinite(item.trimStart) ? Number(item.trimStart) : 0;
+  const trimEnd = Number.isFinite(item.trimEnd) ? Number(item.trimEnd) : Number(item.duration) || 0;
+  const playbackSpeed = Number.isFinite(item.playbackSpeed) ? Number(item.playbackSpeed) : 1;
+  return [
+    item.id,
+    item.type,
+    Number(item.duration) || 0,
+    trimStart,
+    trimEnd,
+    playbackSpeed,
+  ].join(':');
+}
+
+/**
+ * 自動ポスターキャプチャがシークすべき元動画時刻。
+ * 画像はシーク不要なので sourceTime=0。
+ */
+export function resolveAutoProjectPosterCaptureTarget(
+  items: ReadonlyArray<AutoPosterTimelineItem>,
+  totalDuration: number,
+): { clipId: string; type: MediaItem['type']; sourceTime: number } | null {
+  const active = resolveAutoPosterActiveItem(items, totalDuration);
+  if (!active) return null;
+  const { item, localTime } = active;
+  const sourceTime = item.type === 'image'
+    ? 0
+    : resolveVideoSourceTime({
+      trimStart: item.trimStart,
+      localTime,
+      playbackSpeed: item.playbackSpeed,
+    });
+  return { clipId: item.id, type: item.type, sourceTime };
 }
 
 /**
  * クリップ構成変更後に自動ポスター画像を破棄すべきか。
- * 手動モードは触らない。自動モードは「先頭付近を覆うクリップ」が変わったときだけ破棄する。
+ * 手動モードは触らない。自動モードはキャプチャ対象フレームの指紋が変わったときだけ破棄する。
  */
 export function resolveAutoProjectPosterAfterMediaChange(params: {
   mode?: 'auto' | 'manual' | null;
@@ -805,16 +864,16 @@ export function resolveAutoProjectPosterAfterMediaChange(params: {
   if (params.mode === 'manual') {
     return { shouldInvalidateImage: false, timelineTime };
   }
-  const previousId = resolveAutoProjectPosterLeadingClipId(
+  const previousIdentity = resolveAutoProjectPosterCaptureIdentity(
     params.previousItems,
     params.previousTotalDuration,
   );
-  const nextId = resolveAutoProjectPosterLeadingClipId(
+  const nextIdentity = resolveAutoProjectPosterCaptureIdentity(
     params.nextItems,
     params.nextTotalDuration,
   );
   return {
-    shouldInvalidateImage: previousId !== nextId,
+    shouldInvalidateImage: previousIdentity !== nextIdentity,
     timelineTime,
   };
 }

@@ -49,8 +49,8 @@ import { useLogStore } from './logStore';
 export type ProjectPosterMode = 'auto' | 'manual';
 
 /**
- * 自動ポスターが代表するクリップが変わったときだけ画像を破棄する。
- * 手動設定は並び替え・削除でも残す。
+ * 自動ポスターが代表するフレーム（先頭クリップ id + 尺/トリム/速度）が変わったときだけ画像を破棄する。
+ * 手動設定は並び替え・削除・トリムでも残す。
  */
 function autoPosterPatchIfLeadingClipChanged(
   state: {
@@ -72,7 +72,7 @@ function autoPosterPatchIfLeadingClipChanged(
     nextTotalDuration,
   });
   if (!result.shouldInvalidateImage) return {};
-  useLogStore.getState().info('MEDIA', '先頭クリップ変更のため自動サムネイルを再取得待ち', {
+  useLogStore.getState().info('MEDIA', '自動サムネイルの対象フレームが変わったため再取得待ち', {
     timelineTime: result.timelineTime,
   });
   return {
@@ -412,9 +412,11 @@ export const useMediaStore = create<MediaState>()(
           const updated = state.mediaItems.map((item) =>
             item.id === id ? { ...item, ...updates } : item
           );
+          const totalDuration = calculateTotalDuration(updated);
           return {
             mediaItems: updated,
-            totalDuration: calculateTotalDuration(updated),
+            totalDuration,
+            ...autoPosterPatchIfLeadingClipChanged(state, updated, totalDuration),
           };
         });
       },
@@ -475,9 +477,11 @@ export const useMediaStore = create<MediaState>()(
                 : (item.thumbnailSourceTime ?? thumb.thumbnailSourceTime),
             };
           });
+          const totalDuration = calculateTotalDuration(updated);
           return {
             mediaItems: updated,
-            totalDuration: calculateTotalDuration(updated),
+            totalDuration,
+            ...autoPosterPatchIfLeadingClipChanged(state, updated, totalDuration),
           };
         });
       },
@@ -544,9 +548,11 @@ export const useMediaStore = create<MediaState>()(
               thumbnailSourceTime: thumb.thumbnailSourceTime,
             };
           });
+          const totalDuration = calculateTotalDuration(updated);
           return {
             mediaItems: updated,
-            totalDuration: calculateTotalDuration(updated),
+            totalDuration,
+            ...autoPosterPatchIfLeadingClipChanged(state, updated, totalDuration),
           };
         });
       },
@@ -680,9 +686,11 @@ export const useMediaStore = create<MediaState>()(
           const updated = state.mediaItems.map((item) =>
             item.id === id ? { ...item, duration: safeDuration } : item
           );
+          const totalDuration = calculateTotalDuration(updated);
           return {
             mediaItems: updated,
-            totalDuration: calculateTotalDuration(updated),
+            totalDuration,
+            ...autoPosterPatchIfLeadingClipChanged(state, updated, totalDuration),
           };
         });
       },
@@ -861,9 +869,11 @@ export const useMediaStore = create<MediaState>()(
               }),
             };
           });
+          const totalDuration = calculateTotalDuration(updated);
           return {
             mediaItems: updated,
-            totalDuration: calculateTotalDuration(updated),
+            totalDuration,
+            ...autoPosterPatchIfLeadingClipChanged(state, updated, totalDuration),
           };
         });
       },

@@ -4598,3 +4598,52 @@ export 終了（成功/失敗/中断）
   - 新規ウォーターマーク画像は本編尺（clipsDuration）を初期 endTime にする。
 - **注意**: 全編指定のウォーターマークは従来どおり overlay.endTime（エンドロール末尾）でフェードする。
 - **回帰ガード**: `watermarkOverlay.test.ts` と `captionTimeline.test.ts` で本編／タイムライン終端のフェードを固定する。
+
+### 13-244. トリム済み動画の export 準備で元ファイル全尺の音声抽出をしない
+
+- **ファイル**: `src/utils/exportAudioExtract.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`, `src/test/exportAudioExtract.test.ts`
+- **対象 flavor**: **standard と apple-safari の export**。保存スキーマは変えない。
+- **問題**:
+  - 書き出し前の OfflineAudio 準備は、動画クリップ音声を `decodeAudioData`（失敗時は `<video>` のリアルタイム抽出）で取る。
+  - 抽出尺に `originalDuration`（トリム前）を渡していたため、40秒素材を7秒に切っても最大で約40秒待たされた。
+  - standard は音声バッファ完了まで映像 encode を始めず、「書き出し準備中」がさらに伸びた。
+- **対策**:
+  - PC/Android の成功経路は従来どおり `decodeAudioData`（全ファイル）→ trimStart オフセット。品質を変えない。
+  - decode 失敗時と iOS の media-element 経路だけ、トリム開始へシークして必要尺を抽出する。
+  - 区間抽出した PCM には元の trimStart を足さない（二重トリムで音が欠けるのを防ぐ）。
+  - 音声 encode は従来どおり映像完了後。live キャプチャの失敗フォールバックも維持する。
+- **注意**:
+  - ほぼ全尺を使うクリップは従来どおり全ファイル decode（短いリアルタイム抽出より速いことがある）。
+  - BGM / ナレーションの音声ファイル decode は今回触らない。長い BGM は数秒足すことがある。
+  - キャプション自体は準備時間の主因ではない。
+  - 区間抽出は既存の `<video>` キャプチャ経路。シーク誤差は残りうるが、失敗時フォールバックと同等の品質。
+- **回帰ガード**: `exportAudioExtract.test.ts` で 40秒→7秒は区間抽出、ほぼ全尺は全ファイル decode を固定する。
+
+### 13-245. プロジェクトサムネイル設定もクリップと同じホバー／タップ拡大にする
+
+- **ファイル**: `src/components/common/ThumbnailZoomPreview.tsx`, `src/components/sections/PreviewSection.tsx`, `src/constants/sectionHelp.ts`, `src/test/previewSectionActionButtons.test.tsx`
+- **対象 flavor**: UI は **standard（Android/PC）** のプレビュー「動画出力オプション」。apple-safari はプロジェクトポスター非表示のまま。
+- **問題**: クリップカードのミニサムネは 13-200 で拡大できるが、プレビュー下のサムネイル設定は小さく、内容を確認しづらかった。
+- **対策**:
+  - `ThumbnailZoomPreview` でクリップと同じ操作（PC はホバー浮き出し、タッチはタップライトボックス）。
+  - 画像があるときだけ拡大可能。未表示は従来どおり。
+- **注意**: 保存契約・自動/手動切替・export の cover art は変えない。
+- **回帰ガード**: `previewSectionActionButtons.test.tsx` でホバー拡大とタップライトボックスを固定する。
+
+### 13-246. 自動プロジェクトポスターはトリム・並び替えで対象フレームを撮り直し、holdFrame を採用しない
+
+- **ファイル**: `src/utils/media.ts`, `src/stores/mediaStore.ts`, `src/components/TurtleVideo.tsx`, `src/test/media.test.ts`, `src/test/stores/mediaStore.test.ts`
+- **対象 flavor**: 判定と store は **shared**。UI/再キャプチャは既存どおり `supportsProjectPoster`（standard）。apple-safari はポスター非表示のまま。
+- **問題**:
+  - 13-240 は「先頭クリップ id」が変わったときだけ画像を破棄していた。同じ id のまま開始トリムや倍速を変えても古い先頭フレームが残った。
+  - 再キャプチャは `renderFrame(autoTime)` の直後に `previousTime` へ戻してから待ち、capture の rAF 内で再度シークしていた。シーク未完了の canvas は直前プレビューの holdFrame のままなので、黒判定をすり抜けて **古い動画を新サムネとして採用**していた。
+- **対策**:
+  - `resolveAutoProjectPosterCaptureIdentity()` は先頭クリップ id + type + duration + trimStart + trimEnd + playbackSpeed。
+  - `resolveAutoProjectPosterAfterMediaChange()` はこの指紋が変わったときだけ破棄。手動モードは false のまま。
+  - `updateVideoTrim` / `setVideoDuration` / `updateImageDuration` / `updateVideoPlaybackSpeed` / `updateMediaItem` でも自動モードなら画像を即 `null`。後続クリップのトリムや `updateScale` では残す。
+  - 再キャプチャは video だけ先に対象ソース時刻へシークし、描画可能かつ時刻が着いてから canvas を読む。未着なら null（holdFrame 不採用）。指紋変更の失敗時は旧画像へ戻さない。
+- **注意**:
+  - 手動ポスターは並び替え・削除・トリムでも mode / timelineTime / dataUrl を変えない（13-240 維持）。
+  - 同じ先頭の拡大・位置・回転・ぼかしは指紋に含めない。失敗時は従来どおり既存画像を維持する。
+  - 待ちの途中で previousTime へ戻すとシークが打ち消される。cleanup でプレビュー位置を戻す。
+- **回帰ガード**: `media.test.ts` で先頭トリム／速度の破棄と後続トリム維持、キャプチャ対象ソース時刻。`mediaStore.test.ts` で trim/speed/image duration の自動破棄、手動維持、scale 維持。

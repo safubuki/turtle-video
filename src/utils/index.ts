@@ -70,6 +70,8 @@ export {
   buildAutoProjectPosterContentKey,
   resolveAutoProjectPosterCaptureTime,
   resolveAutoProjectPosterLeadingClipId,
+  resolveAutoProjectPosterCaptureIdentity,
+  resolveAutoProjectPosterCaptureTarget,
   resolveAutoProjectPosterAfterMediaChange,
   isCanvasEffectivelyBlank,
   isRgbaBufferEffectivelyBlank,

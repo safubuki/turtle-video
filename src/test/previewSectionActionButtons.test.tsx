@@ -87,6 +87,23 @@ function renderPreviewSection(overrides?: Partial<React.ComponentProps<typeof Pr
   };
 }
 
+function installMatchMediaMock(matches: boolean) {
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+}
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -225,6 +242,36 @@ describe('PreviewSection action buttons', () => {
 
     expect(screen.queryByRole('img', { name: 'プロジェクトのサムネイル' })).not.toBeInTheDocument();
     expect(screen.getByText('未表示')).toBeInTheDocument();
+  });
+
+  it('ホバー可能な PC ではサムネイル設定をマウスオーバーで拡大する', () => {
+    installMatchMediaMock(true);
+    renderPreviewSection({
+      projectPosterMode: 'manual',
+      projectPosterDataUrl: 'data:image/jpeg;base64,poster',
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '動画出力オプション' }));
+    const trigger = screen.getByRole('button', { name: 'プロジェクトのサムネイル（マウスオーバーで拡大）' });
+    fireEvent.mouseEnter(trigger);
+    expect(screen.getByTestId('project-poster-hover-preview')).toBeInTheDocument();
+    fireEvent.click(trigger);
+    expect(screen.queryByTestId('project-poster-lightbox')).not.toBeInTheDocument();
+  });
+
+  it('タッチ端末ではサムネイル設定をタップでライトボックス表示する', () => {
+    installMatchMediaMock(false);
+    renderPreviewSection({
+      projectPosterMode: 'manual',
+      projectPosterDataUrl: 'data:image/jpeg;base64,poster',
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '動画出力オプション' }));
+    fireEvent.click(screen.getByRole('button', { name: 'プロジェクトのサムネイルを拡大表示' }));
+    const lightbox = screen.getByTestId('project-poster-lightbox');
+    expect(lightbox).toBeInTheDocument();
+    fireEvent.click(lightbox);
+    expect(screen.queryByTestId('project-poster-lightbox')).not.toBeInTheDocument();
   });
 
   it('停止とキャプチャの既定スタイルを表示する', () => {

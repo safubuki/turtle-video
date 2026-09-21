@@ -240,6 +240,92 @@ describe('mediaStore', () => {
     });
   });
 
+  describe('auto project poster after trim/speed/duration', () => {
+    const posterClip = (id: string, extra: Record<string, unknown> = {}) => ({
+      id,
+      type: 'video',
+      duration: 10,
+      originalDuration: 10,
+      trimStart: 0,
+      trimEnd: 10,
+      playbackSpeed: 1,
+      transitionToNext: null,
+      file: new File([id], `${id}.mp4`, { type: 'video/mp4' }),
+      url: `blob:${id}`,
+      ...extra,
+    }) as any;
+
+    const autoPosterState = (items: any[], dataUrl = 'data:image/jpeg;base64,old-auto') => ({
+      mediaItems: items,
+      totalDuration: items.reduce((sum: number, item: { duration: number }) => sum + item.duration, 0),
+      projectPosterMode: 'auto' as const,
+      projectPosterTimelineTime: 0.2,
+      projectPosterDataUrl: dataUrl,
+    });
+
+    it('clears auto poster when the leading clip is trimmed', () => {
+      useMediaStore.setState(autoPosterState([posterClip('a'), posterClip('b')]));
+      useMediaStore.getState().updateVideoTrim('a', 'start', 3);
+      const s = useMediaStore.getState();
+      expect(s.mediaItems[0].trimStart).toBe(3);
+      expect(s.projectPosterMode).toBe('auto');
+      expect(s.projectPosterDataUrl).toBeNull();
+    });
+
+    it('keeps auto poster when a later clip is trimmed', () => {
+      useMediaStore.setState(autoPosterState([posterClip('a'), posterClip('b')]));
+      useMediaStore.getState().updateVideoTrim('b', 'start', 2);
+      const s = useMediaStore.getState();
+      expect(s.mediaItems[1].trimStart).toBe(2);
+      expect(s.projectPosterMode).toBe('auto');
+      expect(s.projectPosterDataUrl).toBe('data:image/jpeg;base64,old-auto');
+    });
+
+    it('keeps a manual poster when the leading clip is trimmed', () => {
+      useMediaStore.setState({
+        ...autoPosterState([posterClip('a'), posterClip('b')]),
+        projectPosterMode: 'manual',
+        projectPosterTimelineTime: 3.5,
+        projectPosterDataUrl: 'data:image/jpeg;base64,manual-frame',
+      });
+      useMediaStore.getState().updateVideoTrim('a', 'start', 4);
+      const s = useMediaStore.getState();
+      expect(s.projectPosterMode).toBe('manual');
+      expect(s.projectPosterTimelineTime).toBe(3.5);
+      expect(s.projectPosterDataUrl).toBe('data:image/jpeg;base64,manual-frame');
+    });
+
+    it('clears auto poster when the leading clip speed changes', () => {
+      useMediaStore.setState(autoPosterState([posterClip('a'), posterClip('b')]));
+      useMediaStore.getState().updateVideoPlaybackSpeed('a', 2);
+      const s = useMediaStore.getState();
+      expect(s.mediaItems[0].playbackSpeed).toBe(2);
+      expect(s.projectPosterMode).toBe('auto');
+      expect(s.projectPosterDataUrl).toBeNull();
+    });
+
+    it('clears auto poster when the leading image duration changes', () => {
+      useMediaStore.setState(autoPosterState([
+        posterClip('img', { type: 'image', duration: 5, originalDuration: 5, trimEnd: 5 }),
+        posterClip('b'),
+      ]));
+      useMediaStore.getState().updateImageDuration('img', 8);
+      const s = useMediaStore.getState();
+      expect(s.mediaItems[0].duration).toBe(8);
+      expect(s.projectPosterMode).toBe('auto');
+      expect(s.projectPosterDataUrl).toBeNull();
+    });
+
+    it('keeps auto poster when only scale of the leading clip changes', () => {
+      useMediaStore.setState(autoPosterState([posterClip('a', { scale: 1 }), posterClip('b')]));
+      useMediaStore.getState().updateScale('a', 1.5);
+      const s = useMediaStore.getState();
+      expect(s.mediaItems[0].scale).toBe(1.5);
+      expect(s.projectPosterMode).toBe('auto');
+      expect(s.projectPosterDataUrl).toBe('data:image/jpeg;base64,old-auto');
+    });
+  });
+
   describe('toggleClipsLock', () => {
     it('should toggle clips lock state', () => {
       const { toggleClipsLock } = useMediaStore.getState();

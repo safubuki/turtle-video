@@ -47,6 +47,7 @@ import { useLogStore } from '../../stores/logStore';
 import { useCanvasStore } from '../../stores/canvasStore';
 import type { AspectRatio } from '../../stores/canvasStore';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
+import ThumbnailZoomPreview from '../common/ThumbnailZoomPreview';
 import TimelineWaveform from '../media/TimelineWaveform';
 import type { TimelineWaveformData } from '../../hooks/useTimelineWaveform';
 import { useSwipeProtectedValue } from '../../hooks/useSwipeProtectedValue';
@@ -931,30 +932,24 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
                       </span>
                     </div>
                     <div className="flex items-start gap-3">
-                      <div
-                        className={`flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-gray-600/70 bg-black ${
-                          projectPosterAspectRatio === 'portrait'
-                            ? 'h-20 aspect-[9/16]'
-                            : 'h-12 aspect-video'
-                        }`}
+                      <ThumbnailZoomPreview
+                        src={projectPosterDataUrl}
+                        alt="プロジェクトのサムネイル"
                         title={
                           projectPosterMode === 'manual'
                             ? `手動設定（${formatTime(projectPosterTimelineTime)}）`
                             : `自動設定（${formatTime(projectPosterTimelineTime)}）`
                         }
-                      >
-                        {projectPosterDataUrl ? (
-                          <img
-                            src={projectPosterDataUrl}
-                            alt="プロジェクトのサムネイル"
-                            className="h-full w-full object-contain"
-                          />
-                        ) : (
-                          <span className="px-1 text-center text-[9px] leading-tight text-gray-500">
-                            未表示
-                          </span>
-                        )}
-                      </div>
+                        compactClassName={`flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-gray-600/70 bg-black ${
+                          projectPosterAspectRatio === 'portrait'
+                            ? 'h-20 aspect-[9/16]'
+                            : 'h-12 aspect-video'
+                        }`}
+                        hoverWidth={projectPosterAspectRatio === 'portrait' ? 180 : 320}
+                        hoverHeight={projectPosterAspectRatio === 'portrait' ? 320 : 180}
+                        lightboxTitle="プロジェクトのサムネイル"
+                        testIdPrefix="project-poster"
+                      />
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <button

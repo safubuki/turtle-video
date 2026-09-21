@@ -40,6 +40,10 @@ import {
   getVideoSourceClipDuration,
   normalizeVideoPlaybackSpeed,
 } from '../../../utils/playbackSpeed';
+import {
+  resolveExportAudioBufferOffsetSec,
+  resolveExportClipAudioExtractRange,
+} from '../../../utils/exportAudioExtract';
 import { resolveMediaPlaybackVolume } from '../../../utils/mediaVolume';
 import { capturePitchPreservedSpeedAudio } from '../../../utils/audioPitchPreservedCapture';
 import {
@@ -172,7 +176,8 @@ type ExportPhase = 'idle' | 'preparing' | 'rendering' | 'finalizing' | 'complete
  * <video> 要素で再生し MediaElementAudioSourceNode → ScriptProcessorNode 経由で
  * PCM データを直接キャプチャする。
  *
- * 制約: リアルタイム再生のため、動画の長さと同程度の時間がかかる。
+ * 制約: リアルタイム再生のため、抽出する尺と同程度の時間がかかる。
+ * trim 済みなら startSec / durationSec を渡し、元ファイル全尺の再生を避ける。
  */
 async function extractAudioViaVideoElement(
   file: File,
@@ -181,6 +186,7 @@ async function extractAudioViaVideoElement(
   mainCtx: AudioContext,
   signal: AbortSignal,
   diagnostics?: ExportSessionDiagnostics,
+  extractRange?: { startSec: number; durationSec: number },
 ): Promise<AudioBuffer | null> {
   const log = useLogStore.getState();
   const toDetails = (details?: Record<string, unknown>) => ({
@@ -188,10 +194,18 @@ async function extractAudioViaVideoElement(
     ...(details ?? {}),
   });
 
+  const startSec = Math.max(0, extractRange?.startSec ?? 0);
+  const captureDurationSec = Math.max(
+    0.05,
+    extractRange?.durationSec ?? (Number.isFinite(duration) ? duration : 0),
+  );
+
   log.info('RENDER', '[EXTRACT] 動画音声のリアルタイム抽出を開始', toDetails({
     fileName: file.name,
     duration: Math.round(duration * 100) / 100,
-    estimatedTimeSec: Math.ceil(duration + 2),
+    startSec: Math.round(startSec * 100) / 100,
+    captureDurationSec: Math.round(captureDurationSec * 100) / 100,
+    estimatedTimeSec: Math.ceil(captureDurationSec + 2),
     audioContextState: mainCtx.state,
     sampleRate: mainCtx.sampleRate,
   }));
@@ -247,8 +261,8 @@ async function extractAudioViaVideoElement(
     };
     signal.addEventListener('abort', onAbort, { once: true });
 
-    // タイムアウト（duration + 5秒のマージン、最低10秒）
-    const timeoutMs = Math.max(10000, (duration + 5) * 1000);
+    // タイムアウト（抽出尺 + 5秒のマージン、最低10秒）
+    const timeoutMs = Math.max(10000, (captureDurationSec + 5) * 1000);
     const timeoutId = setTimeout(() => {
       log.warn('RENDER', '[EXTRACT] タイムアウトで音声キャプチャ終了', toDetails({
         timeoutMs,
@@ -354,6 +368,11 @@ async function extractAudioViaVideoElement(
           const out = e.outputBuffer.getChannelData(ch);
           for (let i = 0; i < out.length; i++) out[i] = 1e-10;
         }
+
+        if (totalFrames / mainCtx.sampleRate >= captureDurationSec) {
+          video.pause();
+          setTimeout(() => buildAndResolve(), 50);
+        }
       };
 
       // Video イベント
@@ -375,26 +394,45 @@ async function extractAudioViaVideoElement(
         safeResolve(null);
       };
 
-      // ファイルを読み込んで再生
+      let playbackStarted = false;
+      const startPlayback = () => {
+        if (playbackStarted || resolved || signal.aborted) return;
+        playbackStarted = true;
+        video.play().then(() => {
+          log.info('RENDER', '[EXTRACT] video.play() 成功', {
+            videoDuration: video.duration,
+            currentTime: video.currentTime,
+            readyState: video.readyState,
+          });
+        }).catch((err) => {
+          log.error('RENDER', '[EXTRACT] video.play() 失敗', {
+            error: err instanceof Error ? err.message : String(err),
+            errorName: err instanceof Error ? err.name : 'unknown',
+          });
+          safeResolve(null);
+        });
+      };
+
+      video.onseeked = () => {
+        startPlayback();
+      };
+      video.onloadedmetadata = () => {
+        if (startSec > 0.05 && Number.isFinite(video.duration) && video.duration > 0) {
+          video.currentTime = Math.min(startSec, Math.max(0, video.duration - 0.05));
+          return;
+        }
+        startPlayback();
+      };
+
       if (file instanceof File) {
         blobUrl = URL.createObjectURL(file);
         video.src = blobUrl;
       } else {
         video.src = url;
       }
-
-      video.play().then(() => {
-        log.info('RENDER', '[EXTRACT] video.play() 成功', {
-          videoDuration: video.duration,
-          readyState: video.readyState,
-        });
-      }).catch((err) => {
-        log.error('RENDER', '[EXTRACT] video.play() 失敗', {
-          error: err instanceof Error ? err.message : String(err),
-          errorName: err instanceof Error ? err.name : 'unknown',
-        });
-        safeResolve(null);
-      });
+      if (video.readyState >= 1) {
+        video.dispatchEvent(new Event('loadedmetadata'));
+      }
 
     } catch (err) {
       log.error('RENDER', '[EXTRACT] 初期化エラー', {
@@ -444,9 +482,23 @@ async function offlineRenderAudio(
   // メインAudioContextを使用して decodeAudioData を呼ぶ。
   // iOS Safari では decodeAudioData がビデオコンテナ(.mov/.mp4)のデコードに
   // 失敗するため、その場合は <video> 要素経由のリアルタイム抽出にフォールバックする。
-  async function decodeAudio(file: File | { name: string }, url: string, mediaDuration?: number): Promise<AudioBuffer | null> {
+  async function decodeAudio(
+    file: File | { name: string },
+    url: string,
+    mediaDuration?: number,
+    extractRange?: {
+      startSec: number;
+      durationSec: number;
+      applied?: boolean;
+    },
+  ): Promise<AudioBuffer | null> {
     const fileName = file instanceof File ? file.name : (file as { name: string }).name;
-    const cacheKey = file instanceof File ? getAudioDecodeCacheKey(file) : null;
+    const cacheKey = file instanceof File
+      ? [
+        getAudioDecodeCacheKey(file),
+        extractRange ? `${extractRange.startSec}:${extractRange.durationSec}` : 'full',
+      ].join(':')
+      : null;
     const decodePromise = (async (): Promise<AudioBuffer | null> => {
       const resolvedSource = options?.resolveExportAudioSource?.({
         fileName,
@@ -464,19 +516,27 @@ async function offlineRenderAudio(
         });
       }
 
-      if (resolvedSource?.strategy === 'media-element' && file instanceof File && typeof mediaDuration === 'number') {
+      if (
+        resolvedSource?.strategy === 'media-element'
+        && file instanceof File
+        && typeof mediaDuration === 'number'
+      ) {
         log.info('RENDER', '[DIAG-DECODE] media element 抽出を優先', {
           exportSessionId: options?.diagnostics?.exportSessionId,
           fileName,
           reason: resolvedSource.reason,
+          startSec: extractRange?.startSec,
+          captureDurationSec: extractRange?.durationSec,
         });
+        if (extractRange) extractRange.applied = true;
         return await extractAudioViaVideoElement(
           file,
           url,
-          mediaDuration,
+          extractRange?.durationSec ?? mediaDuration ?? 30,
           mainCtx,
           signal,
           options?.diagnostics,
+          extractRange,
         );
       }
 
@@ -563,13 +623,15 @@ async function offlineRenderAudio(
             fileType: file.type,
             mediaDuration: mediaDuration || 'unknown',
           });
+          if (extractRange) extractRange.applied = true;
           return await extractAudioViaVideoElement(
             file,
             url,
-            mediaDuration || 30,
+            extractRange?.durationSec ?? mediaDuration ?? 30,
             mainCtx,
             signal,
             options?.diagnostics,
+            extractRange,
           );
         }
       }
@@ -609,6 +671,7 @@ async function offlineRenderAudio(
       const canCaptureSpeedAudio =
         playSourceDuration > 0 && item.file instanceof File && speedAudioStrategy !== 'source';
 
+      let itemAudioExtractApplied = false;
       const speedAudio = await resolveExportClipSpeedAudio({
         strategy: speedAudioStrategy,
         audioContext: mainCtx,
@@ -635,15 +698,28 @@ async function offlineRenderAudio(
           });
         },
         decode: async () => {
-          const decodeHintDuration = item.originalDuration > 0
-            ? item.originalDuration
-            : playSourceDuration;
-          return decodeAudio(item.file, item.url, decodeHintDuration);
+          const extract = resolveExportClipAudioExtractRange(item);
+          const range = {
+            startSec: extract.startSec,
+            durationSec: extract.durationSec,
+            applied: false,
+          };
+          const decoded = await decodeAudio(
+            item.file,
+            item.url,
+            extract.originalDurationSec,
+            range,
+          );
+          itemAudioExtractApplied = range.applied === true;
+          return decoded;
         },
         stretch: (decoded) => extractAndTimeCompressAudioBuffer(
           mainCtx,
           decoded,
-          item.trimStart || 0,
+          resolveExportAudioBufferOffsetSec({
+            trimStart: item.trimStart || 0,
+            usedRangeExtract: itemAudioExtractApplied,
+          }),
           playSourceDuration,
           playbackSpeed,
         ),
@@ -699,7 +775,10 @@ async function offlineRenderAudio(
           usedSpeedAlignedPcm,
           audioBufferDuration: audioBuffer.duration,
           itemDuration: item.duration,
-          trimStart: item.trimStart || 0,
+          trimStart: resolveExportAudioBufferOffsetSec({
+            trimStart: item.trimStart || 0,
+            usedRangeExtract: itemAudioExtractApplied,
+          }),
           playSourceDuration,
         });
         source.playbackRate.value = schedule.playbackRate;

@@ -35,6 +35,8 @@ import {
   buildAutoProjectPosterContentKey,
   resolveAutoProjectPosterCaptureTime,
   resolveAutoProjectPosterLeadingClipId,
+  resolveAutoProjectPosterCaptureIdentity,
+  resolveAutoProjectPosterCaptureTarget,
   resolveAutoProjectPosterAfterMediaChange,
   isCanvasEffectivelyBlank,
   isRgbaBufferEffectivelyBlank,
@@ -640,6 +642,97 @@ describe('video thumbnail auto/manual (Issue #208)', () => {
       nextTotalDuration: 10,
     });
     expect(manualSwap.shouldInvalidateImage).toBe(false);
+  });
+
+  it('auto poster invalidates when the covering clip is trimmed or sped up', () => {
+    const a = {
+      id: 'a',
+      type: 'video' as const,
+      duration: 10,
+      trimStart: 0,
+      trimEnd: 10,
+      playbackSpeed: 1,
+      transitionToNext: null,
+    };
+    const b = {
+      id: 'b',
+      type: 'video' as const,
+      duration: 10,
+      trimStart: 0,
+      trimEnd: 10,
+      playbackSpeed: 1,
+      transitionToNext: null,
+    };
+
+    const trimmedLead = resolveAutoProjectPosterAfterMediaChange({
+      mode: 'auto',
+      previousItems: [a, b],
+      nextItems: [{ ...a, trimStart: 4, trimEnd: 10, duration: 6 }, b],
+      previousTotalDuration: 20,
+      nextTotalDuration: 16,
+    });
+    expect(trimmedLead.shouldInvalidateImage).toBe(true);
+
+    const trimmedLater = resolveAutoProjectPosterAfterMediaChange({
+      mode: 'auto',
+      previousItems: [a, b],
+      nextItems: [a, { ...b, trimStart: 2, trimEnd: 10, duration: 8 }],
+      previousTotalDuration: 20,
+      nextTotalDuration: 18,
+    });
+    expect(trimmedLater.shouldInvalidateImage).toBe(false);
+
+    const spedLead = resolveAutoProjectPosterAfterMediaChange({
+      mode: 'auto',
+      previousItems: [a, b],
+      nextItems: [{ ...a, playbackSpeed: 2, duration: 5 }, b],
+      previousTotalDuration: 20,
+      nextTotalDuration: 15,
+    });
+    expect(spedLead.shouldInvalidateImage).toBe(true);
+
+    const manualTrim = resolveAutoProjectPosterAfterMediaChange({
+      mode: 'manual',
+      previousItems: [a, b],
+      nextItems: [{ ...a, trimStart: 4, trimEnd: 10, duration: 6 }, b],
+      previousTotalDuration: 20,
+      nextTotalDuration: 16,
+    });
+    expect(manualTrim.shouldInvalidateImage).toBe(false);
+
+    expect(resolveAutoProjectPosterCaptureIdentity([a, b, { ...b, id: 'c' }], 30))
+      .toBe(resolveAutoProjectPosterCaptureIdentity([a, { ...b, id: 'c' }, b], 30));
+  });
+
+  it('auto poster capture target follows the covering clip trim and speed', () => {
+    const trimmed = resolveAutoProjectPosterCaptureTarget(
+      [{
+        id: 'a',
+        type: 'video',
+        duration: 20,
+        trimStart: 10,
+        trimEnd: 30,
+        playbackSpeed: 1,
+        transitionToNext: null,
+      }],
+      20,
+    );
+    expect(trimmed?.clipId).toBe('a');
+    expect(trimmed?.sourceTime).toBeCloseTo(10.2);
+
+    const sped = resolveAutoProjectPosterCaptureTarget(
+      [{
+        id: 'a',
+        type: 'video',
+        duration: 5,
+        trimStart: 0,
+        trimEnd: 10,
+        playbackSpeed: 2,
+        transitionToNext: null,
+      }],
+      5,
+    );
+    expect(sped?.sourceTime).toBeCloseTo(0.4);
   });
 
   // --- 自動サムネイル黒画像対策 ---
