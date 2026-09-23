@@ -246,7 +246,7 @@ describe('ClipThumbnail', () => {
     installVideoElementMock();
 
     const file = new File(['video'], 'desktop.mp4', { type: 'video/mp4' });
-    const { container } = render(<ClipThumbnail file={file} type="video" />);
+    const { container, rerender } = render(<ClipThumbnail file={file} type="video" />);
 
     const trigger = await screen.findByRole('button', { name: /マウスオーバーで拡大/ });
     await waitFor(() => expect(trigger).not.toBeDisabled());
@@ -258,6 +258,15 @@ describe('ClipThumbnail', () => {
     expect(canvas?.height).toBeGreaterThan(100);
     expect(canvas?.style.width).toBe('48px');
     expect(canvas?.style.height).toBe('28px');
+    expect(trigger).toHaveAttribute('data-thumbnail-size', 'compact');
+
+    rerender(<ClipThumbnail file={file} type="video" displaySize="prominent" />);
+    expect(container.querySelector('canvas')?.style.width).toBe('96px');
+    expect(container.querySelector('canvas')?.style.height).toBe('56px');
+    expect(screen.getByRole('button', { name: /マウスオーバーで拡大/ })).toHaveAttribute(
+      'data-thumbnail-size',
+      'prominent',
+    );
 
     fireEvent.mouseEnter(trigger);
     expect(await screen.findByTestId('clip-thumbnail-hover-preview')).toBeInTheDocument();

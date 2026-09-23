@@ -175,6 +175,11 @@ interface CaptionSectionProps {
   onUpdateVideoTitle: (updates: Partial<VideoTitleSettings>) => void;
   onSetVideoTitleRange: (startTime: number, endTime: number, totalDuration?: number) => void;
   onResetVideoTitle: () => void;
+  /**
+   * PC の初期表示（素材未登録）で、プレビュー列の高さに合わせて下端を揃える。
+   * 素材があるときは渡さない。
+   */
+  fillColumn?: boolean;
 }
 
 /**
@@ -250,6 +255,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   hasPrevSilenceBoundary,
   hasNextSilenceBoundary,
   silenceRegions = [],
+  fillColumn = false,
 }) => {
   // プリセット→カスタムの引き継ぎに使う（描画と同じ寸法基準にそろえる）
   const canvasWidth = useCanvasStore((state) => state.width);
@@ -558,10 +564,10 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   };
 
   return (
-    <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
+    <section className={`bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl ${fillColumn ? 'lg:flex lg:min-h-0 lg:flex-1 lg:flex-col' : ''}`}>
       {/* ヘッダー */}
       <div
-        className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center cursor-pointer hover:bg-gray-800/50 transition"
+        className="shrink-0 p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center cursor-pointer hover:bg-gray-800/50 transition"
         onClick={() => setIsOpen(!isOpen)}
       >
         <h2 className="font-bold flex items-center gap-2 text-yellow-400 md:text-base lg:text-lg">
@@ -646,7 +652,10 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
 
       {/* コンテンツ */}
       {isOpen && (
-        <div className="p-3 lg:p-4 space-y-3">
+        <div className={fillColumn
+          ? 'flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3 lg:p-4'
+          : 'p-3 lg:p-4 space-y-3'}>
+          <div className={fillColumn ? 'shrink-0 space-y-3' : 'space-y-3'}>
           {/* 動画タイトル（Issue #211・キャプションとは別管理）: カテゴリ先頭・初期は閉じる */}
           {uiCapabilities.supportsVideoTitle && (
             <VideoTitleSettingsPanel
@@ -1208,11 +1217,14 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
               </div>
             </div>
           </div>
+          </div>
 
           {/* キャプション一覧 */}
-          <div className="space-y-2 min-h-14 lg:min-h-[4.5rem] max-h-80 lg:max-h-[26rem] overflow-y-auto custom-scrollbar">
+          <div className={fillColumn
+            ? 'min-h-0 flex-1 overflow-y-auto custom-scrollbar'
+            : 'space-y-2 min-h-14 lg:min-h-[4.5rem] max-h-80 lg:max-h-[26rem] overflow-y-auto custom-scrollbar'}>
             {captions.length === 0 ? (
-              <div className="text-center py-2 lg:py-2.5 min-h-12 lg:min-h-14 text-gray-600 text-xs md:text-sm border-2 border-dashed border-gray-800 rounded flex items-center justify-center">
+              <div className={`text-center text-gray-600 text-xs md:text-sm border-2 border-dashed border-gray-800 rounded flex items-center justify-center ${fillColumn ? 'h-full min-h-10' : 'py-2 lg:py-2.5 min-h-12 lg:min-h-14'}`}>
                 キャプションがありません
               </div>
             ) : (

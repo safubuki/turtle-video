@@ -27,6 +27,8 @@ import {
   RefreshCw,
   MapPin,
   Split,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import type { MediaItem, SpeedBadgeLabelStyle, VideoPlaybackSpeed } from '../../types';
 import MiniPreview from '../common/MiniPreview';
@@ -38,6 +40,7 @@ import {
   toCenterPixels,
 } from '../../utils/centerOriginPosition';
 import ClipThumbnail from '../common/ClipThumbnail';
+import ClipFileNameButton from './ClipFileNameButton';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import NumericSliderField from '../common/NumericSliderField';
@@ -121,6 +124,11 @@ export interface ClipItemProps {
   onToggleFadeOut: (checked: boolean) => void;
   onUpdateFadeInDuration: (duration: number) => void;
   onUpdateFadeOutDuration: (duration: number) => void;
+  /** 表示区間まで開いているか。未指定時は開いたまま（単体表示・既存テスト用） */
+  isOpen?: boolean;
+  /** プレビュー再生位置がこのカードにある */
+  isFocused?: boolean;
+  onToggleOpen?: () => void;
 }
 
 /**
@@ -163,6 +171,9 @@ const ClipItem: React.FC<ClipItemProps> = ({
   onToggleFadeOut,
   onUpdateFadeInDuration,
   onUpdateFadeOutDuration,
+  isOpen = true,
+  isFocused = false,
+  onToggleOpen,
 }) => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   /** 再生速度アコーディオン（既定は閉じる） */
@@ -298,29 +309,61 @@ const ClipItem: React.FC<ClipItemProps> = ({
   const thumbnailRangeEnd = v.type === 'video'
     ? (v.trimEnd > v.trimStart ? v.trimEnd : (v.originalDuration > 0 ? v.originalDuration : undefined))
     : undefined;
+  const rangeLabel = `${formatTimelineTime(timelineRange.start)} - ${formatTimelineTime(timelineRange.end)}`;
+  const durationLabel = `${v.duration.toFixed(1)}秒`;
+  const showSpeedMark = v.type === 'video' && Math.abs(playbackSpeed - 1) >= 0.05;
+  const showMuteMark = v.type === 'video' && v.isMuted;
+  const bodyId = `clip-card-body-${v.id}`;
+  const toggleLabel = isOpen ? `${v.file.name}のカードを閉じる` : `${v.file.name}のカードを開く`;
 
   return (
-    <div className="bg-gray-800 p-3 lg:p-4 rounded-xl border border-gray-700/50 relative group">
-      <div className="flex justify-between items-center mb-3">
-        <div className="flex items-center gap-2 overflow-hidden min-w-0">
-          <span className="bg-gray-900 text-gray-500 w-5 h-5 md:w-6 md:h-6 flex items-center justify-center rounded-full text-[10px] md:text-xs font-mono shrink-0">
-            {i + 1}
-          </span>
-          <ClipThumbnail
-            file={v.file}
-            type={v.type}
-            sourceTime={thumbnailSourceTime}
-            rangeStart={v.type === 'video' ? v.trimStart : undefined}
-            rangeEnd={thumbnailRangeEnd}
+    <div
+      data-testid={`clip-card-${v.id}`}
+      data-focused={isFocused ? 'true' : 'false'}
+      className={`bg-gray-800 p-3 lg:p-4 rounded-xl border relative group ${
+        isFocused ? 'border-blue-400/90 ring-1 ring-blue-400/60' : 'border-gray-700/50'
+      }`}
+    >
+      <div className={isOpen ? 'mb-3' : ''}>
+        <div className={`flex gap-2 ${isOpen ? 'items-center' : 'items-start'}`}>
+        <span className={`bg-gray-900 text-gray-500 w-5 h-5 md:w-6 md:h-6 flex items-center justify-center rounded-full text-[10px] md:text-xs font-mono shrink-0 ${isOpen ? '' : 'mt-1'}`}>
+          {i + 1}
+        </span>
+        <ClipThumbnail
+          file={v.file}
+          type={v.type}
+          sourceTime={thumbnailSourceTime}
+          rangeStart={v.type === 'video' ? v.trimStart : undefined}
+          rangeEnd={thumbnailRangeEnd}
+          displaySize={isOpen ? 'compact' : 'prominent'}
+        />
+        <div className="min-w-0 flex-1">
+        <div className="flex justify-between items-center gap-2">
+        <div className={`flex items-center gap-1 overflow-hidden min-w-0 flex-1 ${isOpen ? '' : 'pl-1'}`}>
+          <button
+            type="button"
+            data-testid={`clip-card-toggle-${v.id}`}
+            onClick={onToggleOpen}
+            aria-expanded={isOpen}
+            aria-controls={isOpen ? bodyId : undefined}
+            aria-label={toggleLabel}
+            className="shrink-0 rounded-lg p-1 text-gray-400 hover:bg-gray-700/40 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/80"
+          >
+            {isOpen ? (
+              <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" />
+            ) : (
+              <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
+            )}
+          </button>
+          <ClipFileNameButton
+            name={v.file.name}
+            onActivate={onToggleOpen}
+            icon={v.type === 'image' ? (
+              <ImageIcon className="w-3 h-3 md:w-4 md:h-4 text-yellow-500 shrink-0" aria-hidden="true" />
+            ) : (
+              <MonitorPlay className="w-3 h-3 md:w-4 md:h-4 text-blue-500 shrink-0" aria-hidden="true" />
+            )}
           />
-          {v.type === 'image' ? (
-            <ImageIcon className="w-3 h-3 md:w-4 md:h-4 text-yellow-500 shrink-0" />
-          ) : (
-            <MonitorPlay className="w-3 h-3 md:w-4 md:h-4 text-blue-500 shrink-0" />
-          )}
-          <span className="text-xs md:text-sm font-medium truncate max-w-24 lg:max-w-32 text-gray-300">
-            {v.file.name}
-          </span>
           <button
             onClick={onToggleLock}
             className={`p-1 rounded hover:bg-gray-700 shrink-0 ${v.isLocked ? 'text-red-400' : 'text-gray-500'}`}
@@ -364,8 +407,33 @@ const ClipItem: React.FC<ClipItemProps> = ({
             <Trash2 className="w-3 h-3" />
           </button>
         </div>
+        </div>
+        {!isOpen && (
+          <button
+            type="button"
+            data-testid={`clip-card-summary-${v.id}`}
+            onClick={onToggleOpen}
+            className="mt-1.5 flex w-full min-w-0 items-center gap-2 overflow-x-auto whitespace-nowrap rounded-lg py-0.5 pl-9 pr-1 text-left text-[10px] md:text-xs hover:bg-gray-700/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/80"
+            aria-label={`${rangeLabel}、${durationLabel}。カードを開く`}
+          >
+            <span className="font-mono text-gray-300">{rangeLabel}</span>
+            <span className="text-gray-400">{durationLabel}</span>
+            {showSpeedMark && (
+              <span className="rounded bg-amber-500/15 px-1 text-amber-200">
+                {formatPlaybackSpeedValue(playbackSpeed)}倍
+              </span>
+            )}
+            {showMuteMark && (
+              <span className="rounded bg-red-500/15 px-1 text-red-300">ミュート</span>
+            )}
+          </button>
+        )}
+        </div>
+        </div>
       </div>
 
+      {isOpen && (
+      <div id={bodyId} data-testid={bodyId}>
       {/* 動画トリミングUI */}
       {v.type === 'video' && (
         <div className="bg-black/30 p-2 lg:p-3 rounded mb-2 border border-gray-700/50 space-y-2">
@@ -1009,6 +1077,8 @@ const ClipItem: React.FC<ClipItemProps> = ({
             </div>
           )}
         </div>
+      )}
+      </div>
       )}
     </div>
   );

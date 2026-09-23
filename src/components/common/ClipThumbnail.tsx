@@ -26,11 +26,19 @@ interface ClipThumbnailProps {
   rangeStart?: number;
   /** 有効トリム終了（元動画秒）。再試行候補の上限 */
   rangeEnd?: number;
+  /**
+   * compact は開いたカード用の小さい表示。
+   * prominent は閉じたカードでタイトル行と時刻行の2行分を覆う大きさ。
+   */
+  displaySize?: 'compact' | 'prominent';
 }
 
-/** カード上の表示サイズ（見た目は従来どおり小さく） */
+/** 開いたカード上の表示サイズ（見た目は従来どおり小さく） */
 const DISPLAY_WIDTH = 48;
 const DISPLAY_HEIGHT = 28;
+/** 閉じたカードで2行（タイトルと時刻）を覆う表示サイズ。比率は 48:28 のまま */
+const PROMINENT_DISPLAY_WIDTH = 96;
+const PROMINENT_DISPLAY_HEIGHT = 56;
 /**
  * 内部キャプチャ解像度。拡大表示時に何が写っているか判別できる水準。
  * 表示は CSS で DISPLAY に縮小するため、カードレイアウトは変わらない。
@@ -104,7 +112,10 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
   sourceTime,
   rangeStart,
   rangeEnd,
+  displaySize = 'compact',
 }) => {
+  const displayWidth = displaySize === 'prominent' ? PROMINENT_DISPLAY_WIDTH : DISPLAY_WIDTH;
+  const displayHeight = displaySize === 'prominent' ? PROMINENT_DISPLAY_HEIGHT : DISPLAY_HEIGHT;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [ready, setReady] = useState(false);
@@ -749,6 +760,7 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
               : 'タップで拡大'
             : undefined
         }
+        data-thumbnail-size={displaySize}
         className={[
           // p-1/-m-1 でタップ領域を広げつつカードヘッダーのレイアウトを崩さない
           'relative -m-1 shrink-0 rounded border border-gray-600/50 bg-black p-1',
@@ -765,7 +777,7 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
           width={CAPTURE_WIDTH}
           height={CAPTURE_HEIGHT}
           className={`block rounded ${ready ? 'opacity-100' : 'opacity-0'}`}
-          style={{ width: DISPLAY_WIDTH, height: DISPLAY_HEIGHT }}
+          style={{ width: displayWidth, height: displayHeight }}
           aria-hidden
         />
       </button>

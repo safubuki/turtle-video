@@ -5,7 +5,7 @@
  * @license GPL-3.0-or-later
  * @description 動画・画像クリップの管理を行うセクション。アップロード、並び替え、各クリップの基本操作（削除、複製）を提供するリストビュー。
  */
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Upload,
   Lock,
@@ -14,6 +14,8 @@ import {
   ArrowDownUp,
   RectangleHorizontal,
   RectangleVertical,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import type { ClipTransition, MediaItem } from '../../types';
 import ClipItem from '../media/ClipItem';
@@ -28,6 +30,16 @@ import {
   CLIP_TRANSITION_TYPE_OPTIONS,
   getClipTransitionLabel,
 } from '../../utils/clipTransitions';
+import {
+  collapseAllClipCards,
+  createInitialClipCardDisclosure,
+  expandAllClipCards,
+  isClipCardBodyOpen,
+  resolveFocusedClipId,
+  stepClipCardDisclosure,
+  toggleClipCard,
+  type ClipCardDisclosureState,
+} from '../../utils/clipCardDisclosure';
 
 /**
  * カードとカードの間のトランジションコネクタ（standard フレーバー限定）。
@@ -136,6 +148,8 @@ interface ClipsSectionProps {
   mediaItems: MediaItem[];
   mediaTimelineRanges: Record<string, { start: number; end: number }>;
   currentTime: number;
+  /** 再生中は枠だけを追従し、カードの高さは変えない */
+  isPlaying?: boolean;
   isClipsLocked: boolean;
   mediaElements: Record<string, HTMLVideoElement | HTMLImageElement>;
   onToggleClipsLock: () => void;
@@ -184,6 +198,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   mediaItems,
   mediaTimelineRanges,
   currentTime,
+  isPlaying = false,
   isClipsLocked,
   mediaElements,
   onToggleClipsLock,
@@ -233,6 +248,101 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   const supportsTransitions = !isIosSafari;
   // 動画倍速は standard フレーバー（Android/PC）限定（apple-safari では UI 非表示）
   const supportsPlaybackSpeed = !isIosSafari;
+  const clipListRestoreEpoch = useMediaStore((s) => s.clipListRestoreEpoch);
+  // 起動時に素材が無ければ閉じる。素材がある状態（保存プロジェクトの読み込み直後を含む）は開く。
+  const [isSectionOpen, setIsSectionOpen] = useState(() => mediaItems.length > 0);
+  const prevSectionCountRef = useRef(mediaItems.length);
+  const prevSectionEpochRef = useRef(clipListRestoreEpoch);
+  const focusId = useMemo(
+    () => resolveFocusedClipId(mediaItems, currentTime),
+    [mediaItems, currentTime],
+  );
+  const [disclosure, setDisclosure] = useState<ClipCardDisclosureState>(() => (
+    createInitialClipCardDisclosure(resolveFocusedClipId(mediaItems, currentTime))
+  ));
+  const disclosureRef = useRef(disclosure);
+  disclosureRef.current = disclosure;
+  const cardRefs = useRef(new Map<string, HTMLDivElement>());
+  const pendingScrollIdRef = useRef<string | null>(null);
+  const prevIdsRef = useRef<string[] | null>(null);
+  const prevFocusRef = useRef<string | null>(focusId);
+  const prevPlayingRef = useRef(isPlaying);
+  const epochRef = useRef<number | null>(null);
+  const prevFocusRenderRef = useRef(focusId);
+  const prevTimeRenderRef = useRef(currentTime);
+  const focusChangeDeltaRef = useRef(0);
+  if (prevFocusRenderRef.current !== focusId) {
+    focusChangeDeltaRef.current = Math.abs(currentTime - prevTimeRenderRef.current);
+    prevFocusRenderRef.current = focusId;
+  }
+  prevTimeRenderRef.current = currentTime;
+
+  const idsKey = mediaItems.map((item) => item.id).join('\0');
+
+  useEffect(() => {
+    const ids = idsKey.length > 0 ? idsKey.split('\0') : [];
+    const previousIds = prevIdsRef.current;
+    const previousFocusId = prevFocusRef.current;
+    const wasPlaying = prevPlayingRef.current;
+    const epochChanged = epochRef.current !== null && epochRef.current !== clipListRestoreEpoch;
+
+    if (previousIds === null || epochRef.current === null) {
+      prevIdsRef.current = ids;
+      prevFocusRef.current = focusId;
+      prevPlayingRef.current = isPlaying;
+      epochRef.current = clipListRestoreEpoch;
+      return;
+    }
+
+    const stepped = stepClipCardDisclosure(disclosureRef.current, {
+      previousIds,
+      nextIds: ids,
+      focusId,
+      previousFocusId,
+      isPlaying,
+      wasPlaying,
+      focusChangeDeltaSec: focusChangeDeltaRef.current,
+      restoreEpochChanged: epochChanged,
+    });
+    prevIdsRef.current = ids;
+    prevFocusRef.current = focusId;
+    prevPlayingRef.current = isPlaying;
+    epochRef.current = clipListRestoreEpoch;
+    if (stepped.state !== disclosureRef.current) {
+      disclosureRef.current = stepped.state;
+      setDisclosure(stepped.state);
+    }
+    if (stepped.scrollToId) {
+      pendingScrollIdRef.current = stepped.scrollToId;
+    }
+  }, [clipListRestoreEpoch, focusId, idsKey, isPlaying]);
+
+  useEffect(() => {
+    const epochChanged = prevSectionEpochRef.current !== clipListRestoreEpoch;
+    prevSectionEpochRef.current = clipListRestoreEpoch;
+    if (epochChanged) {
+      setIsSectionOpen(mediaItems.length > 0);
+      prevSectionCountRef.current = mediaItems.length;
+      return;
+    }
+    if (mediaItems.length > prevSectionCountRef.current) {
+      setIsSectionOpen(true);
+    }
+    prevSectionCountRef.current = mediaItems.length;
+  }, [clipListRestoreEpoch, mediaItems.length]);
+
+  useEffect(() => {
+    const id = pendingScrollIdRef.current;
+    if (!id) return;
+    const node = cardRefs.current.get(id);
+    if (!node || typeof node.scrollIntoView !== 'function') return;
+    pendingScrollIdRef.current = null;
+    try {
+      node.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    } catch {
+      // jsdom には scrollIntoView が無いことがある
+    }
+  });
 
   const handleAddClick = () => {
     if (isClipsLocked) return;
@@ -245,14 +355,26 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
 
   return (
     <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl min-w-0">
-      <div className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center gap-3">
-        <h2 className="font-bold flex items-center gap-2 text-blue-400 md:text-base lg:text-lg">
-          <span className="w-6 h-6 lg:w-7 lg:h-7 rounded-full bg-blue-500/10 flex items-center justify-center text-xs lg:text-sm">
+      <div
+        className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center gap-3 cursor-pointer hover:bg-gray-800/50 transition"
+        onClick={() => setIsSectionOpen((open) => !open)}
+      >
+        <h2 className="font-bold flex items-center gap-2 text-blue-400 md:text-base lg:text-lg min-w-0">
+          {isSectionOpen ? <ChevronDown className="w-4 h-4 shrink-0" /> : <ChevronRight className="w-4 h-4 shrink-0" />}
+          <span className="w-6 h-6 lg:w-7 lg:h-7 rounded-full bg-blue-500/10 flex items-center justify-center text-xs lg:text-sm shrink-0">
             1
           </span>
-          <span>動画・画像</span>
+          <span className="truncate">動画・画像</span>
+          {mediaItems.length > 0 && (
+            <span className="shrink-0 text-[10px] md:text-xs text-blue-300 font-normal">
+              ({mediaItems.length}件)
+            </span>
+          )}
           <button
-            onClick={onOpenHelp}
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenHelp();
+            }}
             className="p-1 rounded-lg transition border border-blue-500/45 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:text-blue-200"
             title="このセクションの説明"
             aria-label="動画・画像セクションの説明"
@@ -260,7 +382,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             <CircleHelp className="w-4 h-4" />
           </button>
         </h2>
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0" onClick={(event) => event.stopPropagation()}>
           {/* 出力の向き切替（16:9 横 / 9:16 縦）。既定は横。 */}
           {uiCapabilities.supportsAspectRatioSelection && (
             <div
@@ -315,6 +437,25 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
           />
         </div>
       </div>
+      {isSectionOpen && mediaItems.length >= 2 && (
+        <div className="px-4 py-1.5 border-b border-gray-800 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setDisclosure(expandAllClipCards(mediaItems.map((item) => item.id)))}
+            className="min-h-9 px-2.5 rounded-lg border border-gray-700 bg-gray-800/70 text-[10px] md:text-xs text-gray-300 hover:text-white hover:border-gray-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/80"
+          >
+            すべて開く
+          </button>
+          <button
+            type="button"
+            onClick={() => setDisclosure(collapseAllClipCards(focusId))}
+            className="min-h-9 px-2.5 rounded-lg border border-gray-700 bg-gray-800/70 text-[10px] md:text-xs text-gray-300 hover:text-white hover:border-gray-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/80"
+          >
+            すべて閉じる
+          </button>
+        </div>
+      )}
+      {isSectionOpen && (
       <div className="p-3 lg:p-4 space-y-3 max-h-[min(32rem,72svh)] lg:max-h-128 overflow-y-auto custom-scrollbar">
         {uiCapabilities.supportsWatermark ? watermarkPanel : null}
         {uiCapabilities.supportsClipAudioSettings ? audioSettingsPanel : null}
@@ -325,8 +466,18 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
         )}
         {mediaItems.map((v, i) => (
           <React.Fragment key={v.id}>
+          <div
+            ref={(node) => {
+              if (node) cardRefs.current.set(v.id, node);
+              else cardRefs.current.delete(v.id);
+            }}
+            className="min-w-0"
+          >
           <ClipItem
             item={v}
+            isOpen={isClipCardBodyOpen(disclosure, v.id)}
+            isFocused={focusId === v.id}
+            onToggleOpen={() => setDisclosure((prev) => toggleClipCard(prev, v.id, focusId))}
             timelineRange={mediaTimelineRanges[v.id] ?? { start: 0, end: v.duration }}
             currentTime={currentTime}
             index={i}
@@ -394,6 +545,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             onUpdateFadeInDuration={(duration) => onUpdateFadeInDuration(v.id, duration)}
             onUpdateFadeOutDuration={(duration) => onUpdateFadeOutDuration(v.id, duration)}
           />
+          </div>
           {supportsTransitions && i < mediaItems.length - 1 && (
             <ClipTransitionConnector
               transition={v.transitionToNext ?? null}
@@ -405,6 +557,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
           </React.Fragment>
         ))}
       </div>
+      )}
     </section>
   );
 };

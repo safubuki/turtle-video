@@ -323,6 +323,7 @@ describe('ClipsSection transition editing', () => {
 describe('ClipsSection aspect ratio controls', () => {
   it('スマホ表示ではカード1件とトランジションを確認しやすい一覧高さにする', () => {
     const { container } = renderClipsSection();
+    fireEvent.click(screen.getByText('動画・画像'));
     const scrollArea = container.querySelector('.custom-scrollbar');
 
     expect(scrollArea).not.toBeNull();
@@ -343,6 +344,7 @@ describe('ClipsSection aspect ratio controls', () => {
     renderClipsSection({
       watermarkPanel: <div>ウォーターマーク設定パネル</div>,
     });
+    fireEvent.click(screen.getByText('動画・画像'));
 
     const watermark = screen.getByText('ウォーターマーク設定パネル');
     const emptyState = screen.getByText('動画または画像ファイルを追加してください');
@@ -356,6 +358,7 @@ describe('ClipsSection aspect ratio controls', () => {
       watermarkPanel: <div>ウォーターマーク設定パネル</div>,
       audioSettingsPanel: <div>音設定パネル</div>,
     });
+    fireEvent.click(screen.getByText('動画・画像'));
 
     const watermark = screen.getByText('ウォーターマーク設定パネル');
     const audio = screen.getByText('音設定パネル');

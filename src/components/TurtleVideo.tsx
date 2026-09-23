@@ -3895,6 +3895,14 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     visibility: 'visible',
   }), [canvasWidth, canvasHeight]);
 
+  // PC の初期表示だけ、左カラムの下端をプレビューの下端に揃える。
+  // 動画・画像・BGM・ナレーション・キャプションのいずれかが入ると、左が伸びるので揃えない。
+  const alignEmptyColumns = mediaItems.length === 0
+    && captions.length === 0
+    && narrations.length === 0
+    && bgmClips.length === 0
+    && !bgm;
+
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans pb-24 select-none relative">
       <Toast message={toastMessage} onClose={clearToast} />
@@ -4019,8 +4027,12 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
         <div className="mt-4 lg:grid lg:grid-cols-[minmax(0,1fr)_585px] lg:gap-8">
           {/* 左カラム: 編集コントロール（モバイルでは通常の縦並び） */}
-          <div className="min-w-0 space-y-6">
+          <div className={`min-w-0 ${alignEmptyColumns ? 'lg:relative lg:min-h-0' : ''}`}>
+          <div className={alignEmptyColumns
+            ? 'flex flex-col gap-6 lg:absolute lg:inset-0 lg:min-h-0 lg:overflow-hidden'
+            : 'space-y-6'}>
             {/* 1. CLIPS */}
+            <div className={alignEmptyColumns ? 'shrink-0' : undefined}>
             <ClipsSection
               watermarkPanel={uiCapabilities.supportsWatermark ? (
                 <OverlaySection
@@ -4066,6 +4078,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               mediaItems={mediaItems}
               mediaTimelineRanges={mediaTimelineRanges}
               currentTime={currentTime}
+              isPlaying={isPlaying}
               isClipsLocked={isClipsLocked}
               mediaElements={mediaElementsRef.current as Record<string, HTMLVideoElement | HTMLImageElement>}
               onToggleClipsLock={withPreviewPause('toggle-clips-lock', toggleClipsLock)}
@@ -4101,8 +4114,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onUpdateFadeOutDuration={withPreviewPause('update-media-fade-out-duration', updateFadeOutDuration)}
               onOpenHelp={() => openSectionHelp('clips')}
             />
+            </div>
 
             {/* 2. BGM SETTINGS */}
+            <div className={alignEmptyColumns ? 'shrink-0' : undefined}>
             <BgmSection
               audioSettingsPanel={uiCapabilities.supportsClipAudioSettings ? (
                 <ClipAudioSettingsPanel
@@ -4145,8 +4160,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onBeforeBgmClipEdit={pausePreviewBeforeEdit}
               onBeforeBgmClipContinuousEdit={clearGeneratedExportForContinuousEdit}
             />
+            </div>
 
             {/* 3. NARRATION SETTINGS */}
+            <div className={alignEmptyColumns ? 'shrink-0' : undefined}>
             <NarrationSection
               audioSettingsPanel={uiCapabilities.supportsClipAudioSettings ? (
                 <ClipAudioSettingsPanel
@@ -4193,9 +4210,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               formatTime={formatTime}
               onOpenHelp={() => openSectionHelp('narration')}
             />
+            </div>
 
             {/* 4. CAPTIONS */}
             <CaptionSection
+              fillColumn={alignEmptyColumns}
               captions={captions}
               settings={captionSettings}
               isLocked={isCaptionLocked}
@@ -4262,6 +4281,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onResetVideoTitle={withPreviewPause('reset-video-title', resetVideoTitle)}
             />
 
+          </div>
           </div>
 
           {/* 右カラム: プレビュー（モバイルでは下部に表示、PCではスティッキーサイドバー） */}

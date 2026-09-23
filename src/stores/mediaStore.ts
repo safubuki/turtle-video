@@ -106,6 +106,11 @@ interface MediaState {
   videoAudioNormalizeEnabled: boolean;
   /** 音量揃えの目標。mean=平均、loudest=一番大きい音。旧データは mean */
   videoAudioNormalizeMode: VideoAudioNormalizeMode;
+  /**
+   * 保存読み込みのたびに増やす実行時カウンタ。
+   * カードの開閉は保存せず、この値の変化でセッション表示だけを捨てる。
+   */
+  clipListRestoreEpoch: number;
 
   // Actions
   addMediaItems: (files: File[]) => Promise<void>;
@@ -256,6 +261,7 @@ export const useMediaStore = create<MediaState>()(
       bulkVideoVolume: 1,
       videoAudioNormalizeEnabled: false,
       videoAudioNormalizeMode: 'mean',
+      clipListRestoreEpoch: 0,
 
       // Add media items
       addMediaItems: async (files) => {
@@ -1067,6 +1073,7 @@ export const useMediaStore = create<MediaState>()(
           bulkVideoVolume: clampMediaVolume(audioSettings?.bulkVideoVolume ?? 1),
           videoAudioNormalizeEnabled: Boolean(audioSettings?.videoAudioNormalizeEnabled),
           videoAudioNormalizeMode: normalizeVideoAudioNormalizeMode(audioSettings?.videoAudioNormalizeMode),
+          clipListRestoreEpoch: get().clipListRestoreEpoch + 1,
         });
       },
     }),
