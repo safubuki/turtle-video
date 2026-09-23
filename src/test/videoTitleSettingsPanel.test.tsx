@@ -10,6 +10,11 @@
 import type { ComponentProps } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('../components/common/CaptionMiniPreview', () => ({
+  default: () => <div data-testid="caption-mini-preview-mock" />,
+  PORTRAIT_MINI_PREVIEW_MAX_WIDTH_CLASS: 'max-w-[clamp(12rem,24dvh,18rem)]',
+}));
 import CaptionSection from '../components/sections/CaptionSection';
 import VideoTitleSettingsPanel from '../components/sections/VideoTitleSettingsPanel';
 import { DEFAULT_VIDEO_TITLE_SETTINGS } from '../utils/videoTitle';
@@ -110,41 +115,11 @@ function buildPanelProps(
 }
 
 describe('CaptionSection 内のタイトル配置（Issue #211）', () => {
-  it('キャプションカテゴリの先頭付近にタイトル設定が表示される', () => {
+  it('キャプションセクションにはタイトル設定を置かない', () => {
     render(<CaptionSection {...buildCaptionSectionProps()} />);
 
-    const titleHeader = screen.getByRole('button', { name: /タイトル/ });
-    const styleHeader = screen.getByRole('button', {
-      name: /キャプション 一括設定/,
-    });
-
-    // DOM 順でタイトルが一括設定より前にある
-    expect(
-      titleHeader.compareDocumentPosition(styleHeader) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-  });
-
-  it('初期状態ではアコーディオンが閉じている', () => {
-    render(<CaptionSection {...buildCaptionSectionProps()} />);
-
-    const titleHeader = screen.getByRole('button', { name: /タイトル/ });
-    expect(titleHeader).toHaveAttribute('aria-expanded', 'false');
-    // 閉じている間は入力欄が出ない
-    expect(screen.queryByLabelText('■ タイトル文字')).not.toBeInTheDocument();
-  });
-
-  it('タイトルの文字入力はキャプション追加を呼ばない（別管理）', () => {
-    const props = buildCaptionSectionProps();
-    render(<CaptionSection {...props} />);
-
-    fireEvent.click(screen.getByRole('button', { name: /タイトル/ }));
-    fireEvent.change(screen.getByPlaceholderText('動画のタイトルを入力...（改行で複数行）'), {
-      target: { value: '旅行の思い出' },
-    });
-
-    expect(props.onUpdateVideoTitle).toHaveBeenCalledWith({ text: '旅行の思い出' });
-    expect(props.onAddCaption).not.toHaveBeenCalled();
-    expect(props.onUpdateCaption).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: /^タイトル/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /キャプション 一括設定/ })).toBeInTheDocument();
   });
 });
 
@@ -154,7 +129,24 @@ describe('VideoTitleSettingsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /^タイトル/ }));
   /** さらにスタイル設定アコーディオンを開く */
   const openStyle = () =>
-    fireEvent.click(screen.getByRole('button', { name: /^スタイル設定/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^主タイトルのスタイル/ }));
+
+  it('開くと現在フレームにタイトルを重ねたミニプレビューを出す', () => {
+    const canvas = document.createElement('canvas');
+    render(
+      <VideoTitleSettingsPanel
+        {...buildPanelProps({
+          previewCanvasRef: { current: canvas },
+          captionSettings: buildCaptionSectionProps().settings,
+          formatTime: (seconds: number) => `${seconds.toFixed(1)}s`,
+        })}
+      />,
+    );
+
+    expect(screen.queryByTestId('video-title-mini-preview-container')).not.toBeInTheDocument();
+    openTitle();
+    expect(screen.getByTestId('video-title-mini-preview-container')).toBeInTheDocument();
+  });
 
   it('開くと表示時間が出る（見た目はスタイル設定の中）', () => {
     render(<VideoTitleSettingsPanel {...buildPanelProps()} />);
@@ -250,7 +242,7 @@ describe('VideoTitleSettingsPanel', () => {
     render(<VideoTitleSettingsPanel {...buildPanelProps()} />);
     openTitle();
 
-    expect(screen.getByRole('button', { name: /^スタイル設定/ })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: /^主タイトルのスタイル/ })).toHaveAttribute(
       'aria-expanded',
       'false',
     );
@@ -373,7 +365,8 @@ describe('VideoTitleSettingsPanel', () => {
     render(<VideoTitleSettingsPanel {...buildPanelProps({ isLocked: true })} />);
     openTitle();
 
-    expect(screen.getByPlaceholderText('動画のタイトルを入力...（改行で複数行）')).toBeDisabled();
+    expect(screen.getByPlaceholderText('主タイトルを入力...（改行で複数行）')).toBeDisabled();
+    expect(screen.getByPlaceholderText('サブタイトルを入力...（改行で複数行）')).toBeDisabled();
     expect(screen.getByLabelText('開始:')).toBeDisabled();
     expect(screen.getByLabelText('タイトルの開始時間')).toBeDisabled();
     expect(screen.getByRole('button', { name: /開始$/ })).toBeDisabled();

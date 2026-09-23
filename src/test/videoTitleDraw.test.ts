@@ -141,6 +141,24 @@ describe('drawVideoTitleFrame — 描画しない条件', () => {
     expect(result.drawImageCalls).toHaveLength(0);
   });
 
+  it('サブタイトルだけでも描き、主タイトルがあるときはその下に積む', () => {
+    const subtitleOnly = draw(activeTitle({
+      text: '',
+      subtitle: { ...DEFAULT_VIDEO_TITLE_SETTINGS.subtitle!, text: '副題' },
+    }), 1, 1920, 1080);
+    expect(subtitleOnly.drew).toBe(true);
+    expect(subtitleOnly.drawImageCalls.length).toBeGreaterThan(0);
+
+    const both = draw(activeTitle({
+      text: '主題',
+      subtitle: { ...DEFAULT_VIDEO_TITLE_SETTINGS.subtitle!, text: '副題' },
+    }), 1, 1920, 1080);
+    expect(both.drawImageCalls.length).toBeGreaterThan(subtitleOnly.drawImageCalls.length);
+    const mainY = both.drawImageCalls[0].y;
+    const subY = both.drawImageCalls[both.drawImageCalls.length - 1].y;
+    expect(subY).toBeGreaterThan(mainY);
+  });
+
   it('テキストが空白のみなら描かない', () => {
     const result = draw(activeTitle({ text: '  \n ' }), 1, 1920, 1080);
     expect(result.drew).toBe(false);

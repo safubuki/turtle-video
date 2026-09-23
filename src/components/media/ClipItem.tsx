@@ -309,8 +309,17 @@ const ClipItem: React.FC<ClipItemProps> = ({
   const thumbnailRangeEnd = v.type === 'video'
     ? (v.trimEnd > v.trimStart ? v.trimEnd : (v.originalDuration > 0 ? v.originalDuration : undefined))
     : undefined;
-  const rangeLabel = `${formatTimelineTime(timelineRange.start)} - ${formatTimelineTime(timelineRange.end)}`;
-  const durationLabel = `${v.duration.toFixed(1)}秒`;
+  const compactClock = (seconds: number) => {
+    const tenths = Math.round(Math.max(0, seconds) * 10);
+    const minutes = Math.floor(tenths / 600);
+    const secs = Math.floor((tenths % 600) / 10);
+    return `${minutes}:${secs.toString().padStart(2, '0')}.${tenths % 10}`;
+  };
+  const rangeLabel = `${compactClock(timelineRange.start)}–${compactClock(timelineRange.end)}`;
+  const roundedDuration = Math.round(v.duration * 10) / 10;
+  const durationLabel = Number.isInteger(roundedDuration)
+    ? `${roundedDuration}秒`
+    : `${roundedDuration.toFixed(1)}秒`;
   const showSpeedMark = v.type === 'video' && Math.abs(playbackSpeed - 1) >= 0.05;
   const showMuteMark = v.type === 'video' && v.isMuted;
   const bodyId = `clip-card-body-${v.id}`;
@@ -413,7 +422,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
             type="button"
             data-testid={`clip-card-summary-${v.id}`}
             onClick={onToggleOpen}
-            className="mt-1.5 flex w-full min-w-0 items-center gap-2 overflow-x-auto whitespace-nowrap rounded-lg py-0.5 pl-9 pr-1 text-left text-[10px] md:text-xs hover:bg-gray-700/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/80"
+            className="mt-1.5 flex w-full min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 overflow-hidden rounded-lg py-0.5 pl-3 pr-1 text-left text-[10px] md:text-xs hover:bg-gray-700/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/80"
             aria-label={`${rangeLabel}、${durationLabel}。カードを開く`}
           >
             <span className="font-mono text-gray-300">{rangeLabel}</span>

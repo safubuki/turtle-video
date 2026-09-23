@@ -343,20 +343,44 @@ export type CaptionFontStyle =
   | (string & {});
 
 /**
+ * 主タイトル／サブタイトルで共有しない見た目。
+ * 表示時間と画面上の位置は主タイトル側で持ち、サブタイトルはその直下に積む。
+ */
+export interface VideoTitleTextStyle {
+  /** 改行は複数行として中央揃えで描画する */
+  text: string;
+  fontStyle: CaptionFontStyle;
+  fontColor: string;
+  strokeColor: string;
+  /** 縁幅 px @1080p 基準 */
+  strokeWidth: number;
+  fontSize: CaptionSize;
+  fontSizeCustom?: number | null;
+  backgroundEnabled: boolean;
+  backgroundColor: string;
+  backgroundOpacity: number;
+  backgroundRadius: number;
+  blur: number;
+}
+
+/**
  * 動画タイトル設定（Issue #211）。
  *
  * 通常キャプション（Caption[]）とは**完全に別管理**する 1 件だけの設定。
  * キャプション一覧・時分割カード・まとめて入力・タイミング打ち・一括シフトの
  * 対象には含めない（混在させない）。
  *
- * 既定は「中央・通常キャプションより大きめ」。描画は preview / export 共通の
- * renderFrame が担当し、スタイル解決は utils/videoTitle.ts に集約する。
+ * 既定は「中央・通常キャプションより大きめ」。サブタイトルは主タイトルの下に、
+ * より小さい文字で積む。描画は preview / export 共通の renderFrame が担当し、
+ * スタイル解決は utils/videoTitle.ts に集約する。
  */
 export interface VideoTitleSettings {
-  /** タイトルを描画するか（文字列が空のときは enabled でも描画しない） */
+  /** タイトルを描画するか（主・サブとも空のときは enabled でも描画しない） */
   enabled: boolean;
-  /** タイトル文字列（改行は複数行として中央揃えで描画する。時分割はしない） */
+  /** 主タイトル（改行は複数行。時分割はしない） */
   text: string;
+  /** 主タイトルの下に出すサブタイトル。未保存の旧データでは空文字になる */
+  subtitle?: VideoTitleTextStyle;
   /** 表示開始（秒） */
   startTime: number;
   /** 表示終了（秒） */

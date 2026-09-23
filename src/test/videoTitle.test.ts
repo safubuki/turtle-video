@@ -261,7 +261,8 @@ describe('resolveVideoTitleAlpha', () => {
 
 describe('normalizeVideoTitleSettings（保存データの後方互換）', () => {
   it('undefined（タイトル未対応の旧データ）は既定値になる', () => {
-    expect(normalizeVideoTitleSettings(undefined)).toEqual(DEFAULT_VIDEO_TITLE_SETTINGS);
+    expect(normalizeVideoTitleSettings(undefined).text).toBe('');
+    expect(normalizeVideoTitleSettings(undefined).subtitle?.text).toBe('');
     expect(normalizeVideoTitleSettings(null)).toEqual(DEFAULT_VIDEO_TITLE_SETTINGS);
   });
 

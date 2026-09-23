@@ -340,11 +340,31 @@ describe('ClipsSection aspect ratio controls', () => {
     expect(onAspectRatioChange).toHaveBeenCalledWith('portrait');
   });
 
+  it('全体設定はタイトル、ロゴ、音声の順で動画・画像の先頭に置く', () => {
+    renderClipsSection({
+      titleSettingsPanel: <div>タイトル設定パネル</div>,
+      watermarkPanel: <div>ウォーターマーク設定パネル</div>,
+      audioSettingsPanel: <div>音設定パネル</div>,
+    });
+    fireEvent.click(screen.getByText('動画・画像'));
+    expect(screen.queryByText('タイトル設定パネル')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /全体設定/ }));
+    const title = screen.getByText('タイトル設定パネル');
+    const watermark = screen.getByText('ウォーターマーク設定パネル');
+    const audio = screen.getByText('音設定パネル');
+    const emptyState = screen.getByText('動画または画像ファイルを追加してください');
+    expect(title.compareDocumentPosition(watermark) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(watermark.compareDocumentPosition(audio) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(audio.compareDocumentPosition(emptyState) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('ウォーターマーク設定を動画・画像カード一覧の先頭へ配置する', () => {
     renderClipsSection({
       watermarkPanel: <div>ウォーターマーク設定パネル</div>,
     });
     fireEvent.click(screen.getByText('動画・画像'));
+    fireEvent.click(screen.getByRole('button', { name: /全体設定/ }));
 
     const watermark = screen.getByText('ウォーターマーク設定パネル');
     const emptyState = screen.getByText('動画または画像ファイルを追加してください');
@@ -359,6 +379,7 @@ describe('ClipsSection aspect ratio controls', () => {
       audioSettingsPanel: <div>音設定パネル</div>,
     });
     fireEvent.click(screen.getByText('動画・画像'));
+    fireEvent.click(screen.getByRole('button', { name: /全体設定/ }));
 
     const watermark = screen.getByText('ウォーターマーク設定パネル');
     const audio = screen.getByText('音設定パネル');

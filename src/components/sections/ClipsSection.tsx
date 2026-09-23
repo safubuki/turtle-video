@@ -16,9 +16,11 @@ import {
   RectangleVertical,
   ChevronDown,
   ChevronRight,
+  SlidersHorizontal,
 } from 'lucide-react';
 import type { ClipTransition, MediaItem } from '../../types';
 import ClipItem from '../media/ClipItem';
+import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import { getAppFlavorUiCapabilities } from '../../app/appFlavorUi';
 import { useMediaStore } from '../../stores/mediaStore';
@@ -142,6 +144,8 @@ const ClipTransitionConnector: React.FC<{
 };
 
 interface ClipsSectionProps {
+  /** 動画全体のタイトル。全体設定の先頭に置く */
+  titleSettingsPanel?: React.ReactNode;
   /** カードとは独立しているが、操作上は動画・画像に属する先頭設定 */
   watermarkPanel?: React.ReactNode;
   audioSettingsPanel?: React.ReactNode;
@@ -193,6 +197,7 @@ interface ClipsSectionProps {
  * クリップセクションコンポーネント
  */
 const ClipsSection: React.FC<ClipsSectionProps> = ({
+  titleSettingsPanel,
   watermarkPanel,
   audioSettingsPanel,
   mediaItems,
@@ -238,6 +243,11 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   // 簡単コピーは standard フレーバー（Android/PC）限定機能
   const { isIosSafari } = usePlatformCapabilities();
   const uiCapabilities = getAppFlavorUiCapabilities(isIosSafari ? 'apple-safari' : 'standard');
+  const [isOverallSettingsOpen, setIsOverallSettingsOpen] = useState(false);
+  const titleSettingsNode = uiCapabilities.supportsVideoTitle ? titleSettingsPanel : null;
+  const watermarkNode = uiCapabilities.supportsWatermark ? watermarkPanel : null;
+  const audioSettingsNode = uiCapabilities.supportsClipAudioSettings ? audioSettingsPanel : null;
+  const hasOverallSettings = Boolean(titleSettingsNode || watermarkNode || audioSettingsNode);
   // 出力の向き（16:9 横 / 9:16 縦）。プロジェクトごとに保持され、プレビュー/カード/エクスポートに反映される。
   const aspectRatio = useCanvasStore((s) => s.aspectRatio);
   const duplicateMediaItem = useMediaStore((s) => s.duplicateMediaItem);
@@ -457,8 +467,24 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
       )}
       {isSectionOpen && (
       <div className="p-3 lg:p-4 space-y-3 max-h-[min(32rem,72svh)] lg:max-h-128 overflow-y-auto custom-scrollbar">
-        {uiCapabilities.supportsWatermark ? watermarkPanel : null}
-        {uiCapabilities.supportsClipAudioSettings ? audioSettingsPanel : null}
+        {hasOverallSettings && (
+          <div className="bg-gray-800/50 rounded-xl border border-gray-600/70">
+            <SettingsAccordionHeader
+              title="全体設定"
+              icon={<SlidersHorizontal className="w-3 h-3 shrink-0" />}
+              isOpen={isOverallSettingsOpen}
+              controlsId="clip-overall-settings"
+              onToggle={() => setIsOverallSettingsOpen((open) => !open)}
+            />
+            {isOverallSettingsOpen && (
+              <div id="clip-overall-settings" className="space-y-3 border-t border-gray-700/60 px-3 py-3">
+                {titleSettingsNode}
+                {watermarkNode}
+                {audioSettingsNode}
+              </div>
+            )}
+          </div>
+        )}
         {mediaItems.length === 0 && (
           <div className="text-center py-8 text-gray-600 text-xs md:text-sm border-2 border-dashed border-gray-800 rounded">
             動画または画像ファイルを追加してください

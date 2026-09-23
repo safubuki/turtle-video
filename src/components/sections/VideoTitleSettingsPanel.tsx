@@ -5,7 +5,7 @@
  * @license GPL-3.0-or-later
  * @description 動画タイトル設定（Issue #211）のアコーディオン UI。
  *
- * 通常キャプションとは別管理の 1 件だけの設定で、キャプションカテゴリの先頭付近に置く。
+ * 通常キャプションとは別管理の 1 件だけの設定で、動画・画像の「全体設定」に置く。
  * 毎回使う機能ではないため初期状態は閉じておき、開いてから設定する。
  * 既定は「中央・通常キャプションより大きめ」で、表示時間・見た目を個別に調整できる。
  *
@@ -14,18 +14,23 @@
  *   → スタイル設定（アコーディオン: サイズ/字体/位置/縁・色/背景の帯）→ フェード → リセット
  * 時間まわりの操作感は `CaptionItem` と揃える（スライダー + 数値 + MapPin ボタン）。
  */
-import React, { useState } from 'react';
-import { Heading, MapPin, RotateCcw, Type } from 'lucide-react';
-import type { CaptionPosition, VideoTitleSettings } from '../../types';
+import React, { useMemo, useState } from 'react';
+import { MapPin, RotateCcw, Type } from 'lucide-react';
+import type { CaptionPosition, CaptionSettings, VideoTitleSettings } from '../../types';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
+import CaptionMiniPreview, { PORTRAIT_MINI_PREVIEW_MAX_WIDTH_CLASS } from '../common/CaptionMiniPreview';
+import { useCanvasStore } from '../../stores/canvasStore';
+import type { CaptionFreeSnapshot } from '../../utils/canvas';
 import CaptionColorField from '../common/CaptionColorField';
 import CaptionFontSizeField from '../common/CaptionFontSizeField';
 import CaptionFontStyleField from '../common/CaptionFontStyleField';
 import NumericSliderField from '../common/NumericSliderField';
-import type {
+import {
   getAvailableDropdownFontOptions,
   getAvailablePinnedFontOptions,
 } from '../../utils/captionFontCatalog';
+import { queryLocalFontFamilies } from '../../utils/fontAvailability';
+import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import {
   CAPTION_BLUR_MAX,
   CAPTION_BLUR_MIN,
@@ -69,6 +74,11 @@ interface VideoTitleSettingsPanelProps {
   onUpdate: (updates: Partial<VideoTitleSettings>) => void;
   onSetRange: (startTime: number, endTime: number, totalDuration?: number) => void;
   onReset: () => void;
+  /** タイトルの見た目をその場で確認するミニプレビューの転写元 */
+  previewCanvasRef?: React.RefObject<HTMLCanvasElement | null>;
+  captionFreeSnapshotRef?: React.MutableRefObject<CaptionFreeSnapshot>;
+  captionSettings?: CaptionSettings;
+  formatTime?: (seconds: number) => string;
 }
 
 const positionOptions: { value: CaptionPosition; label: string }[] = [
@@ -91,28 +101,55 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
   onUpdate,
   onSetRange,
   onReset,
+  previewCanvasRef,
+  captionFreeSnapshotRef,
+  captionSettings,
+  formatTime,
 }) => {
   // 毎回使う機能ではないため初期状態は閉じる（Issue #211 の確認項目）
   const [isOpen, setIsOpen] = useState(false);
   // 見た目まわりはさらに段階開示する（キャプション 一括設定と同じ考え方）
   const [showStyleSettings, setShowStyleSettings] = useState(false);
+  const [showSubtitleStyleSettings, setShowSubtitleStyleSettings] = useState(false);
 
   const isCustomPosition = title.positionCustom != null;
   const customPosition = title.positionCustom ?? TITLE_POSITION_CUSTOM_DEFAULT;
 
-  const hasText = title.text.trim().length > 0;
+  const subtitle = title.subtitle ?? {
+    text: '',
+    fontStyle: 'gothic' as const,
+    fontColor: '#FFFFFF',
+    strokeColor: '#000000',
+    strokeWidth: 4,
+    fontSize: 'medium' as const,
+    fontSizeCustom: null,
+    backgroundEnabled: false,
+    backgroundColor: '#000000',
+    backgroundOpacity: 0.45,
+    backgroundRadius: 16,
+    blur: 0,
+  };
+  const updateSubtitle = (patch: Partial<typeof subtitle>) => {
+    onUpdate({ subtitle: { ...subtitle, ...patch } });
+  };
+  const hasText = title.text.trim().length > 0 || subtitle.text.trim().length > 0;
   // スライダーの上限。CaptionItem と同じフォールバック（尺未確定なら 60 秒）
   const timeSliderMax = totalDuration || 60;
   // プレビュー位置の反映可否（CaptionItem と同じ 0.1 秒量子化で判定）
   const previewMark = Math.round(currentTime * 10) / 10;
   const canApplyPreviewToStart = previewMark < title.endTime;
   const canApplyPreviewToEnd = previewMark > title.startTime;
+  const canvasWidth = useCanvasStore((state) => state.width);
+  const canvasHeight = useCanvasStore((state) => state.height);
+  const isPortraitProject = canvasHeight > canvasWidth;
+  const titlePreviewTime = title.endTime > title.startTime
+    ? (title.startTime + title.endTime) / 2
+    : title.startTime;
 
   return (
-    <div className="bg-gray-800/50 rounded-xl border border-gray-600/70">
+    <div className="rounded-lg border border-gray-700/70 bg-gray-900/30">
       <SettingsAccordionHeader
         title="タイトル"
-        icon={<Heading className="w-3 h-3 shrink-0" />}
         isOpen={isOpen}
         controlsId="video-title-settings"
         onToggle={() => setIsOpen((open) => !open)}
@@ -122,6 +159,28 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
           id="video-title-settings"
           className="px-3 pb-3 pt-2 space-y-3 border-t border-gray-700/60"
         >
+          {previewCanvasRef && captionSettings && (
+            <div
+              className={`mx-auto w-full ${isPortraitProject
+                ? PORTRAIT_MINI_PREVIEW_MAX_WIDTH_CLASS
+                : 'max-w-none'}`}
+              data-testid="video-title-mini-preview-container"
+            >
+              <CaptionMiniPreview
+                sourceCanvasRef={previewCanvasRef}
+                captionFreeSnapshotRef={captionFreeSnapshotRef}
+                captions={[]}
+                settings={captionSettings}
+                videoTitle={{ ...title, enabled: true }}
+                previewTimeSec={titlePreviewTime}
+                refreshKey={Math.round(currentTime * 100)}
+                caption={formatTime
+                  ? `プレビュー現在位置 ${formatTime(currentTime)} の画面にタイトルを重ねた表示`
+                  : '現在の画面にタイトルを重ねた表示'}
+              />
+            </div>
+          )}
+
           <p className="text-[9px] leading-relaxed text-gray-500 md:text-[10px]">
             タイトルはキャプションとは別に保存されます。キャプション一覧には並びません。
           </p>
@@ -133,7 +192,7 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                 htmlFor="video-title-text"
                 className="text-[10px] md:text-xs text-yellow-400 font-bold"
               >
-                ■ タイトル文字
+                ■ 主タイトル
               </label>
               <label
                 className={`flex items-center gap-1 text-[10px] md:text-xs ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
@@ -154,7 +213,7 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
               onChange={(e) => onUpdate({ text: e.target.value })}
               disabled={isLocked}
               rows={2}
-              placeholder="動画のタイトルを入力...（改行で複数行）"
+              placeholder="主タイトルを入力...（改行で複数行）"
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500 disabled:opacity-50"
             />
             {!hasText && (
@@ -162,6 +221,27 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                 文字を入力するとプレビューに表示されます。
               </p>
             )}
+          </div>
+
+          <div className="space-y-1.5">
+            <label
+              htmlFor="video-subtitle-text"
+              className="text-[10px] md:text-xs text-yellow-400 font-bold"
+            >
+              ■ サブタイトル
+            </label>
+            <textarea
+              id="video-subtitle-text"
+              value={subtitle.text}
+              onChange={(e) => updateSubtitle({ text: e.target.value })}
+              disabled={isLocked}
+              rows={2}
+              placeholder="サブタイトルを入力...（改行で複数行）"
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500 disabled:opacity-50"
+            />
+            <p className="text-[9px] text-gray-500">
+              サブタイトルは主タイトルの下に、別の文字サイズや色で表示されます。
+            </p>
           </div>
 
           {/* 表示時間（タイトル文字の直下・操作感はキャプションカードと同じ） */}
@@ -243,7 +323,7 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
           {/* スタイル設定（見た目はすべてここへ集約する） */}
           <div className="rounded-lg border border-gray-700/70 bg-gray-900/30">
             <SettingsAccordionHeader
-              title="スタイル設定"
+              title="主タイトルのスタイル"
               icon={<Type className="w-3 h-3 shrink-0" />}
               isOpen={showStyleSettings}
               controlsId="video-title-style-settings"
@@ -496,6 +576,104 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
             )}
           </div>
 
+          <div className="rounded-lg border border-gray-700/70 bg-gray-900/30">
+            <SettingsAccordionHeader
+              title="サブタイトルのスタイル"
+              icon={<Type className="w-3 h-3 shrink-0" />}
+              isOpen={showSubtitleStyleSettings}
+              controlsId="video-subtitle-style-settings"
+              onToggle={() => setShowSubtitleStyleSettings((open) => !open)}
+            />
+            {showSubtitleStyleSettings && (
+              <div
+                id="video-subtitle-style-settings"
+                className="space-y-2 border-t border-gray-700/60 px-2 pb-2 pt-2"
+              >
+                <CaptionFontSizeField
+                  fontSize={subtitle.fontSize}
+                  fontSizeCustom={subtitle.fontSizeCustom}
+                  disabled={isLocked}
+                  supportsCustom={supportsExtendedFonts}
+                  ariaLabelPrefix="サブタイトル"
+                  idPrefix="video-subtitle"
+                  onSetFontSize={(size) => {
+                    if (size) updateSubtitle({ fontSize: size });
+                  }}
+                  onSetFontSizeCustom={(value) => updateSubtitle({ fontSizeCustom: value })}
+                />
+                <CaptionFontStyleField
+                  fontStyle={subtitle.fontStyle}
+                  disabled={isLocked}
+                  supportsExtendedFonts={supportsExtendedFonts}
+                  pinnedFontOptions={pinnedFontOptions}
+                  dropdownFontOptions={dropdownFontOptions}
+                  localFontFamilies={localFontFamilies}
+                  localFontsLoading={localFontsLoading}
+                  idPrefix="video-subtitle"
+                  onSetFontStyle={(style) => {
+                    if (style) updateSubtitle({ fontStyle: style });
+                  }}
+                  onLoadLocalFonts={onLoadLocalFonts}
+                />
+                <div className="flex items-center gap-2 text-[10px] md:text-xs">
+                  <label className="text-gray-400 w-16 shrink-0" htmlFor="video-subtitle-stroke-width">
+                    縁の幅:
+                  </label>
+                  <NumericSliderField
+                    min={VIDEO_TITLE_STROKE_WIDTH_MIN}
+                    max={VIDEO_TITLE_STROKE_WIDTH_MAX}
+                    step={VIDEO_TITLE_STROKE_WIDTH_STEP}
+                    value={clampVideoTitleStrokeWidth(subtitle.strokeWidth)}
+                    onChange={(value) => updateSubtitle({ strokeWidth: clampVideoTitleStrokeWidth(value) })}
+                    disabled={isLocked}
+                    ariaLabel="サブタイトルの縁の幅"
+                    inputId="video-subtitle-stroke-width"
+                    unit="px"
+                    className="min-w-0 flex-1"
+                    sliderClassName={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
+                    inputClassName="w-14 focus:border-yellow-500"
+                  />
+                </div>
+                <CaptionColorField
+                  label="縁の色"
+                  value={subtitle.strokeColor}
+                  fallback="#000000"
+                  disabled={isLocked}
+                  idPrefix="video-subtitle"
+                  ariaLabelPrefix="サブタイトル"
+                  onChange={(color) => updateSubtitle({ strokeColor: color })}
+                />
+                <CaptionColorField
+                  label="文字本体"
+                  value={subtitle.fontColor}
+                  fallback="#FFFFFF"
+                  disabled={isLocked}
+                  idPrefix="video-subtitle"
+                  ariaLabelPrefix="サブタイトル"
+                  onChange={(color) => updateSubtitle({ fontColor: color })}
+                />
+                <div className="flex items-center gap-2 text-[10px] md:text-xs">
+                  <span className="text-gray-400 w-16 shrink-0">ぼかし:</span>
+                  <NumericSliderField
+                    min={CAPTION_BLUR_MIN * 10}
+                    max={CAPTION_BLUR_MAX * 10}
+                    step={1}
+                    value={clampVideoTitleBlur(subtitle.blur) * 10}
+                    onChange={(val) => updateSubtitle({ blur: clampVideoTitleBlur(val / 10) })}
+                    disabled={isLocked}
+                    ariaLabel="サブタイトルのぼかし"
+                    hideInput
+                    className="min-w-0 flex-1"
+                    sliderClassName={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
+                  />
+                  <span className={`w-8 text-right whitespace-nowrap shrink-0 ${isLocked ? 'text-gray-600' : 'text-gray-400'}`}>
+                    {clampVideoTitleBlur(subtitle.blur).toFixed(1)}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* フェード */}
           <div className="space-y-2 pt-2 border-t border-gray-700/50">
             <div className="text-[10px] md:text-xs text-yellow-400 font-bold">■ フェード</div>
@@ -584,5 +762,44 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
 });
 
 VideoTitleSettingsPanel.displayName = 'VideoTitleSettingsPanel';
+
+type VideoTitleSettingsBlockProps = Omit<
+  VideoTitleSettingsPanelProps,
+  | 'supportsExtendedFonts'
+  | 'pinnedFontOptions'
+  | 'dropdownFontOptions'
+  | 'localFontFamilies'
+  | 'localFontsLoading'
+  | 'onLoadLocalFonts'
+>;
+
+/** フォント候補の読み込みをパネル側で行い、動画・画像の全体設定から使えるようにする */
+export const VideoTitleSettingsBlock = React.memo<VideoTitleSettingsBlockProps>((props) => {
+  const { isIosSafari } = usePlatformCapabilities();
+  const pinnedFontOptions = useMemo(() => getAvailablePinnedFontOptions(), []);
+  const dropdownFontOptions = useMemo(() => getAvailableDropdownFontOptions(), []);
+  const [localFontFamilies, setLocalFontFamilies] = useState<string[]>([]);
+  const [localFontsLoading, setLocalFontsLoading] = useState(false);
+
+  return (
+    <VideoTitleSettingsPanel
+      {...props}
+      supportsExtendedFonts={!isIosSafari}
+      pinnedFontOptions={pinnedFontOptions}
+      dropdownFontOptions={dropdownFontOptions}
+      localFontFamilies={localFontFamilies}
+      localFontsLoading={localFontsLoading}
+      onLoadLocalFonts={() => {
+        if (localFontsLoading) return;
+        setLocalFontsLoading(true);
+        void queryLocalFontFamilies()
+          .then((families) => setLocalFontFamilies(families))
+          .finally(() => setLocalFontsLoading(false));
+      }}
+    />
+  );
+});
+
+VideoTitleSettingsBlock.displayName = 'VideoTitleSettingsBlock';
 
 export default VideoTitleSettingsPanel;

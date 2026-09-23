@@ -119,9 +119,9 @@ describe('動画・画像カードの折りたたみ', () => {
     expect(screen.queryByTestId('clip-card-summary-a')).not.toBeInTheDocument();
     expect(screen.getByTestId('clip-card-a').querySelector('[data-thumbnail-size="compact"]')).not.toBeNull();
     expect(screen.getByTestId('clip-card-b').querySelector('[data-thumbnail-size="prominent"]')).not.toBeNull();
-    expect(screen.getByTestId('clip-card-summary-b')).toHaveClass('pl-9');
-    expect(screen.getByTestId('clip-card-summary-b')).toHaveTextContent('00:00.0 - 00:05.0');
-    expect(screen.getByTestId('clip-card-summary-b')).toHaveTextContent('5.0秒');
+    expect(screen.getByTestId('clip-card-summary-b')).not.toHaveClass('overflow-x-auto');
+    expect(screen.getByTestId('clip-card-summary-b')).toHaveTextContent('0:00.0–0:05.0');
+    expect(screen.getByTestId('clip-card-summary-b')).toHaveTextContent('5秒');
 
     fireEvent.click(screen.getByTestId('clip-card-toggle-b'));
     expect(durationSliders()).toHaveLength(2);

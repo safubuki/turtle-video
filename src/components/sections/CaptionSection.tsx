@@ -46,7 +46,6 @@ import CaptionItem from '../media/CaptionItem';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import CaptionFontSizeField from '../common/CaptionFontSizeField';
 import CaptionFontStyleField from '../common/CaptionFontStyleField';
-import VideoTitleSettingsPanel from './VideoTitleSettingsPanel';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import NumericSliderField from '../common/NumericSliderField';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
@@ -208,7 +207,6 @@ function resolvePresetCustomPercent(
 const CaptionSection: React.FC<CaptionSectionProps> = ({
   captions,
   settings,
-  videoTitle,
   isLocked,
   totalDuration,
   currentTime,
@@ -245,9 +243,6 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   onApplyCaptions,
   onShiftCaptions,
   onUpdateCaptionLive,
-  onUpdateVideoTitle,
-  onSetVideoTitleRange,
-  onResetVideoTitle,
   isPlaying,
   onTogglePlay,
   onSeekBy,
@@ -656,25 +651,6 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
           ? 'flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3 lg:p-4'
           : 'p-3 lg:p-4 space-y-3'}>
           <div className={fillColumn ? 'shrink-0 space-y-3' : 'space-y-3'}>
-          {/* 動画タイトル（Issue #211・キャプションとは別管理）: カテゴリ先頭・初期は閉じる */}
-          {uiCapabilities.supportsVideoTitle && (
-            <VideoTitleSettingsPanel
-              title={videoTitle}
-              isLocked={isLocked}
-              totalDuration={totalDuration}
-              currentTime={currentTime}
-              supportsExtendedFonts={supportsExtendedFonts}
-              pinnedFontOptions={availablePinnedFonts}
-              dropdownFontOptions={availableDropdownFonts}
-              localFontFamilies={localFontFamilies}
-              localFontsLoading={localFontsLoading}
-              onLoadLocalFonts={handleLoadLocalFonts}
-              onUpdate={onUpdateVideoTitle}
-              onSetRange={onSetVideoTitleRange}
-              onReset={onResetVideoTitle}
-            />
-          )}
-
           {/* キャプション 一括設定 */}
           <div className="bg-gray-800/50 rounded-xl border border-gray-600/70">
             <SettingsAccordionHeader

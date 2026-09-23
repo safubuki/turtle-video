@@ -12,7 +12,7 @@
  * サイズ・位置・フェードの解決はすべて本モジュールを単一ソースとする
  * （キャプション側の captionStyle.ts と同じ役割分担）。
  */
-import type { CaptionPosition, VideoTitleSettings } from '../types';
+import type { CaptionPosition, VideoTitleSettings, VideoTitleTextStyle } from '../types';
 import {
   CAPTION_FONT_SIZE_PRESETS,
   CAPTION_PORTRAIT_BOTTOM_Y_PERCENT,
@@ -67,6 +67,22 @@ export const VIDEO_TITLE_MIN_DURATION_SEC = 0.1;
 export const VIDEO_TITLE_DEFAULT_FADE_IN_DURATION = 0.5;
 export const VIDEO_TITLE_DEFAULT_FADE_OUT_DURATION = 1;
 
+/** サブタイトルの既定。主タイトルより小さい medium。位置は主タイトルの直下 */
+export const DEFAULT_VIDEO_SUBTITLE_STYLE: VideoTitleTextStyle = {
+  text: '',
+  fontStyle: 'gothic',
+  fontColor: '#FFFFFF',
+  strokeColor: '#000000',
+  strokeWidth: 4,
+  fontSize: 'medium',
+  fontSizeCustom: null,
+  backgroundEnabled: false,
+  backgroundColor: '#000000',
+  backgroundOpacity: 0.45,
+  backgroundRadius: 16,
+  blur: 0,
+};
+
 /** タイトルの既定設定。デフォルト位置は中央、文字サイズは通常キャプションより大きめ */
 export const DEFAULT_VIDEO_TITLE_SETTINGS: VideoTitleSettings = {
   enabled: true,
@@ -92,6 +108,7 @@ export const DEFAULT_VIDEO_TITLE_SETTINGS: VideoTitleSettings = {
   fadeOut: true,
   fadeInDuration: VIDEO_TITLE_DEFAULT_FADE_IN_DURATION,
   fadeOutDuration: VIDEO_TITLE_DEFAULT_FADE_OUT_DURATION,
+  subtitle: { ...DEFAULT_VIDEO_SUBTITLE_STYLE },
 };
 
 /**
@@ -196,12 +213,20 @@ export function resolveVideoTitleLines(text: string): string[] {
  * この時刻にタイトルを描画すべきか。
  * enabled かつテキストが実質空でなく、[startTime, endTime) に入っているとき true。
  */
+export function resolveVideoSubtitleStyle(
+  title: Pick<VideoTitleSettings, 'subtitle'> | null | undefined,
+): VideoTitleTextStyle {
+  return { ...DEFAULT_VIDEO_SUBTITLE_STYLE, ...title?.subtitle };
+}
+
 export function isVideoTitleActiveAtTime(
   title: VideoTitleSettings | null | undefined,
   timeSec: number
 ): boolean {
   if (!title || !title.enabled) return false;
-  if (resolveVideoTitleLines(title.text).length === 0) return false;
+  const hasMain = resolveVideoTitleLines(title.text).length > 0;
+  const hasSub = resolveVideoTitleLines(title.subtitle?.text ?? '').length > 0;
+  if (!hasMain && !hasSub) return false;
   return timeSec >= title.startTime && timeSec < title.endTime;
 }
 
@@ -307,6 +332,28 @@ const VIDEO_TITLE_BACKGROUND_PADDING_Y_RATIO = 0.3;
  *
  * @returns 実際に描画したら true（呼び出し側の didUpdateCanvas 判定に使う）
  */
+function titleFromTextStyle(
+  base: VideoTitleSettings,
+  style: VideoTitleTextStyle,
+): VideoTitleSettings {
+  return {
+    ...base,
+    text: style.text,
+    fontStyle: style.fontStyle,
+    fontColor: style.fontColor,
+    strokeColor: style.strokeColor,
+    strokeWidth: style.strokeWidth,
+    fontSize: style.fontSize,
+    fontSizeCustom: style.fontSizeCustom ?? null,
+    backgroundEnabled: style.backgroundEnabled,
+    backgroundColor: style.backgroundColor,
+    backgroundOpacity: style.backgroundOpacity,
+    backgroundRadius: style.backgroundRadius,
+    blur: style.blur,
+    subtitle: { ...DEFAULT_VIDEO_SUBTITLE_STYLE, text: '' },
+  };
+}
+
 export function drawVideoTitleFrame(
   ctx: CanvasRenderingContext2D,
   title: VideoTitleSettings | null | undefined,
@@ -315,12 +362,61 @@ export function drawVideoTitleFrame(
     useBlurFallback?: boolean;
     glyphPixelRatio?: number;
     glyphCanvasCache?: CaptionGlyphCanvasCache;
+    /** 主タイトルとサブタイトルを分けて描くときの中心。内部用 */
+    anchorOverride?: { x: number; y: number };
   }
 ): boolean {
   if (!title) return false;
   if (!isVideoTitleActiveAtTime(title, timeSec)) return false;
 
-  const lines = resolveVideoTitleLines(title.text);
+  const mainLines = resolveVideoTitleLines(title.text);
+  const subtitleLines = options?.anchorOverride
+    ? []
+    : resolveVideoTitleLines(title.subtitle?.text ?? '');
+
+  if (!options?.anchorOverride && mainLines.length > 0 && subtitleLines.length > 0) {
+    const canvasWidth = ctx.canvas.width;
+    const canvasHeight = ctx.canvas.height;
+    if (canvasWidth <= 0 || canvasHeight <= 0) return false;
+    const scale = resolveCaptionLayoutScale(canvasWidth, canvasHeight);
+    const mainFont = Math.max(1, resolveVideoTitleBaseFontSize(title) * scale);
+    const subtitleStyle = resolveVideoSubtitleStyle(title);
+    const subFont = Math.max(1, resolveVideoTitleBaseFontSize(subtitleStyle) * scale);
+    const mainBlock = mainFont * VIDEO_TITLE_LINE_HEIGHT_RATIO * mainLines.length;
+    const subBlock = subFont * VIDEO_TITLE_LINE_HEIGHT_RATIO * subtitleLines.length;
+    const gap = Math.max(mainFont, subFont) * 0.45;
+    const total = mainBlock + gap + subBlock;
+    const anchor = resolveVideoTitleAnchor(title, {
+      canvasWidth,
+      canvasHeight,
+      blockHeight: total,
+      padding: VIDEO_TITLE_PADDING * scale,
+    });
+    const mainDrew = drawVideoTitleFrame(
+      ctx,
+      { ...title, subtitle: { ...DEFAULT_VIDEO_SUBTITLE_STYLE, text: '' } },
+      timeSec,
+      { ...options, anchorOverride: { x: anchor.x, y: anchor.y - total / 2 + mainBlock / 2 } },
+    );
+    const subDrew = drawVideoTitleFrame(
+      ctx,
+      titleFromTextStyle(title, subtitleStyle),
+      timeSec,
+      { ...options, anchorOverride: { x: anchor.x, y: anchor.y + total / 2 - subBlock / 2 } },
+    );
+    return mainDrew || subDrew;
+  }
+
+  if (!options?.anchorOverride && mainLines.length === 0 && subtitleLines.length > 0) {
+    return drawVideoTitleFrame(
+      ctx,
+      titleFromTextStyle(title, resolveVideoSubtitleStyle(title)),
+      timeSec,
+      options,
+    );
+  }
+
+  const lines = mainLines;
   if (lines.length === 0) return false;
 
   const alpha = resolveVideoTitleAlpha(title, timeSec);
@@ -339,7 +435,7 @@ export function drawVideoTitleFrame(
   const lineHeight = fontSize * VIDEO_TITLE_LINE_HEIGHT_RATIO;
   const blockHeight = lineHeight * lines.length;
 
-  const anchor = resolveVideoTitleAnchor(title, {
+  const anchor = options?.anchorOverride ?? resolveVideoTitleAnchor(title, {
     canvasWidth,
     canvasHeight,
     blockHeight,
@@ -485,8 +581,23 @@ export function normalizeVideoTitleSettings(
   if (!value) return { ...DEFAULT_VIDEO_TITLE_SETTINGS };
   const merged = { ...DEFAULT_VIDEO_TITLE_SETTINGS, ...value };
   const range = normalizeVideoTitleRange(merged.startTime, merged.endTime);
+  const subtitleSource = { ...DEFAULT_VIDEO_SUBTITLE_STYLE, ...value.subtitle };
   return {
     ...merged,
+    subtitle: {
+      ...subtitleSource,
+      fontSize: CAPTION_FONT_SIZE_PRESETS[subtitleSource.fontSize]
+        ? subtitleSource.fontSize
+        : DEFAULT_VIDEO_SUBTITLE_STYLE.fontSize,
+      fontSizeCustom:
+        subtitleSource.fontSizeCustom != null
+          ? clampCustomFontSize(subtitleSource.fontSizeCustom)
+          : null,
+      strokeWidth: clampVideoTitleStrokeWidth(subtitleSource.strokeWidth),
+      backgroundOpacity: clampVideoTitleBackgroundOpacity(subtitleSource.backgroundOpacity),
+      backgroundRadius: clampVideoTitleBackgroundRadius(subtitleSource.backgroundRadius),
+      blur: clampVideoTitleBlur(subtitleSource.blur ?? DEFAULT_VIDEO_SUBTITLE_STYLE.blur),
+    },
     startTime: range.startTime,
     endTime: range.endTime,
     // プリセット外の値（旧形式の数値など）は既定プリセットへ落とす
