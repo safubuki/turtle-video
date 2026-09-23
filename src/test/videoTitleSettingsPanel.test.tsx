@@ -165,14 +165,14 @@ describe('VideoTitleSettingsPanel', () => {
     openTitle();
     openStyle();
     fireEvent.click(screen.getAllByRole('button', { name: '大' })[0]);
-    const mainUpdate = onUpdate.mock.calls.at(-1)?.[0];
+    const mainUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1]?.[0];
     expect(mainUpdate.fontSize).toBe('large');
     expect(mainUpdate.fontSizeCustom).toBeNull();
 
     onUpdate.mockClear();
     fireEvent.click(screen.getByRole('button', { name: /^サブタイトルのスタイル/ }));
     fireEvent.click(screen.getAllByRole('button', { name: '小' })[1]);
-    const subtitleUpdate = onUpdate.mock.calls.at(-1)?.[0];
+    const subtitleUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1]?.[0];
     expect(subtitleUpdate.subtitle.fontSize).toBe('small');
     expect(subtitleUpdate.subtitle.fontSizeCustom).toBeNull();
   });
