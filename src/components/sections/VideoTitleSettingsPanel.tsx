@@ -11,7 +11,7 @@
  *
  * 構成（既存 UI との統一を優先）:
  *   タイトル文字 → 開始/終了（スライダー+数値）→ プレビュー位置を反映
- *   → スタイル設定（アコーディオン: サイズ/字体/位置/縁・色/背景の帯）→ フェード → リセット
+ *   → 主・サブの文字スタイル → 共通の背景帯 → フェード → リセット
  * 時間まわりの操作感は `CaptionItem` と揃える（スライダー + 数値 + MapPin ボタン）。
  */
 import React, { useMemo, useState } from 'react';
@@ -123,10 +123,6 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
     strokeWidth: 4,
     fontSize: 'medium' as const,
     fontSizeCustom: null,
-    backgroundEnabled: false,
-    backgroundColor: '#000000',
-    backgroundOpacity: 0.45,
-    backgroundRadius: 16,
     blur: 0,
   };
   const updateSubtitle = (patch: Partial<typeof subtitle>) => {
@@ -320,7 +316,7 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
             </div>
           </div>
 
-          {/* スタイル設定（見た目はすべてここへ集約する） */}
+          {/* 主タイトルの文字スタイル */}
           <div className="rounded-lg border border-gray-700/70 bg-gray-900/30">
             <SettingsAccordionHeader
               title="主タイトルのスタイル"
@@ -498,82 +494,6 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                     {clampVideoTitleBlur(title.blur).toFixed(1)}
                   </span>
                 </div>
-
-                {/* 背景の帯 */}
-                <div className="space-y-2 pt-2 border-t border-gray-700/50">
-                  <label
-                    className={`flex items-center gap-1.5 text-[10px] md:text-xs text-gray-300 ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={title.backgroundEnabled}
-                      onChange={(e) => onUpdate({ backgroundEnabled: e.target.checked })}
-                      disabled={isLocked}
-                      className="accent-yellow-500 rounded cursor-pointer disabled:opacity-50 disabled:cursor-default"
-                    />
-                    <span className="font-semibold">タイトル背景の帯</span>
-                  </label>
-                  {title.backgroundEnabled && (
-                    <div className="space-y-2">
-                      <CaptionColorField
-                        label="背景色"
-                        value={title.backgroundColor}
-                        fallback="#000000"
-                        disabled={isLocked}
-                        idPrefix="video-title-bg"
-                        ariaLabelPrefix="タイトル"
-                        onChange={(color) => onUpdate({ backgroundColor: color })}
-                      />
-                      <div className="flex items-center gap-2 text-[10px] md:text-xs">
-                        <label className="text-gray-400 w-16 shrink-0" htmlFor="video-title-bg-opacity">
-                          濃さ:
-                        </label>
-                        {/* スライダーは 0–1、数値欄は % 表示のため、% 基準へ統一して扱う */}
-                        <NumericSliderField
-                          min={Math.round(VIDEO_TITLE_BACKGROUND_OPACITY_MIN * 100)}
-                          max={Math.round(VIDEO_TITLE_BACKGROUND_OPACITY_MAX * 100)}
-                          step={Math.round(VIDEO_TITLE_BACKGROUND_OPACITY_STEP * 100)}
-                          value={Math.round(
-                            clampVideoTitleBackgroundOpacity(title.backgroundOpacity) * 100,
-                          )}
-                          onChange={(value) =>
-                            onUpdate({
-                              backgroundOpacity: clampVideoTitleBackgroundOpacity(value / 100),
-                            })
-                          }
-                          disabled={isLocked}
-                          ariaLabel="タイトル背景の濃さ"
-                          inputId="video-title-bg-opacity"
-                          unit="%"
-                          className="min-w-0 flex-1"
-                          sliderClassName={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
-                          inputClassName="w-14 focus:border-yellow-500"
-                        />
-                      </div>
-                      <div className="flex items-center gap-2 text-[10px] md:text-xs">
-                        <label className="text-gray-400 w-16 shrink-0" htmlFor="video-title-bg-radius">
-                          角丸:
-                        </label>
-                        <NumericSliderField
-                          min={VIDEO_TITLE_BACKGROUND_RADIUS_MIN}
-                          max={VIDEO_TITLE_BACKGROUND_RADIUS_MAX}
-                          step={VIDEO_TITLE_BACKGROUND_RADIUS_STEP}
-                          value={clampVideoTitleBackgroundRadius(title.backgroundRadius)}
-                          onChange={(value) =>
-                            onUpdate({ backgroundRadius: clampVideoTitleBackgroundRadius(value) })
-                          }
-                          disabled={isLocked}
-                          ariaLabel="タイトル背景の角丸"
-                          inputId="video-title-bg-radius"
-                          unit="px"
-                          className="min-w-0 flex-1"
-                          sliderClassName={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
-                          inputClassName="w-14 focus:border-yellow-500"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
               </div>
             )}
           </div>
@@ -671,6 +591,85 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                   <span className={`w-8 text-right whitespace-nowrap shrink-0 ${isLocked ? 'text-gray-600' : 'text-gray-400'}`}>
                     {clampVideoTitleBlur(subtitle.blur).toFixed(1)}
                   </span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 主タイトルとサブタイトル共通の背景帯 */}
+          <div className="space-y-2 rounded-lg border border-gray-700/70 bg-gray-900/30 px-2 py-2">
+            <label
+              className={`flex items-center gap-1.5 text-[10px] md:text-xs text-gray-300 ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
+            >
+              <input
+                type="checkbox"
+                checked={title.backgroundEnabled}
+                onChange={(e) => onUpdate({ backgroundEnabled: e.target.checked })}
+                disabled={isLocked}
+                className="accent-yellow-500 rounded cursor-pointer disabled:opacity-50 disabled:cursor-default"
+              />
+              <span className="font-semibold">タイトル背景の帯</span>
+            </label>
+            <p className="text-[10px] text-gray-400 md:text-xs">
+              主タイトルとサブタイトルをまとめて囲み、長い方の幅に合わせます。
+            </p>
+            {title.backgroundEnabled && (
+              <div className="space-y-2">
+                <CaptionColorField
+                  label="背景色"
+                  value={title.backgroundColor}
+                  fallback="#000000"
+                  disabled={isLocked}
+                  idPrefix="video-title-bg"
+                  ariaLabelPrefix="タイトル"
+                  onChange={(color) => onUpdate({ backgroundColor: color })}
+                />
+                <div className="flex items-center gap-2 text-[10px] md:text-xs">
+                  <label className="text-gray-400 w-16 shrink-0" htmlFor="video-title-bg-opacity">
+                    濃さ:
+                  </label>
+                  {/* スライダーは 0–1、数値欄は % 表示のため、% 基準へ統一して扱う */}
+                  <NumericSliderField
+                    min={Math.round(VIDEO_TITLE_BACKGROUND_OPACITY_MIN * 100)}
+                    max={Math.round(VIDEO_TITLE_BACKGROUND_OPACITY_MAX * 100)}
+                    step={Math.round(VIDEO_TITLE_BACKGROUND_OPACITY_STEP * 100)}
+                    value={Math.round(
+                      clampVideoTitleBackgroundOpacity(title.backgroundOpacity) * 100,
+                    )}
+                    onChange={(value) =>
+                      onUpdate({
+                        backgroundOpacity: clampVideoTitleBackgroundOpacity(value / 100),
+                      })
+                    }
+                    disabled={isLocked}
+                    ariaLabel="タイトル背景の濃さ"
+                    inputId="video-title-bg-opacity"
+                    unit="%"
+                    className="min-w-0 flex-1"
+                    sliderClassName={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
+                    inputClassName="w-14 focus:border-yellow-500"
+                  />
+                </div>
+                <div className="flex items-center gap-2 text-[10px] md:text-xs">
+                  <label className="text-gray-400 w-16 shrink-0" htmlFor="video-title-bg-radius">
+                    角丸:
+                  </label>
+                  <NumericSliderField
+                    min={VIDEO_TITLE_BACKGROUND_RADIUS_MIN}
+                    max={VIDEO_TITLE_BACKGROUND_RADIUS_MAX}
+                    step={VIDEO_TITLE_BACKGROUND_RADIUS_STEP}
+                    value={clampVideoTitleBackgroundRadius(title.backgroundRadius)}
+                    onChange={(value) =>
+                      onUpdate({ backgroundRadius: clampVideoTitleBackgroundRadius(value) })
+                    }
+                    disabled={isLocked}
+                    ariaLabel="タイトル背景の角丸"
+                    inputId="video-title-bg-radius"
+                    unit="px"
+                    className="min-w-0 flex-1"
+                    sliderClassName={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
+                    inputClassName="w-14 focus:border-yellow-500"
+                  />
                 </div>
               </div>
             )}

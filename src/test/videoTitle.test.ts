@@ -275,6 +275,24 @@ describe('normalizeVideoTitleSettings（保存データの後方互換）', () =
     expect(restored.blur).toBe(0);
   });
 
+  it('旧データのサブタイトル個別背景は除去し、共通背景を保持する', () => {
+    const restored = normalizeVideoTitleSettings({
+      backgroundEnabled: true,
+      backgroundColor: '#123456',
+      subtitle: {
+        ...DEFAULT_VIDEO_TITLE_SETTINGS.subtitle!,
+        text: '副題',
+        backgroundEnabled: true,
+        backgroundColor: '#ff0000',
+      } as NonNullable<VideoTitleSettings['subtitle']>,
+    });
+    expect(restored.backgroundEnabled).toBe(true);
+    expect(restored.backgroundColor).toBe('#123456');
+    expect(restored.subtitle?.text).toBe('副題');
+    expect(restored.subtitle).not.toHaveProperty('backgroundEnabled');
+    expect(restored.subtitle).not.toHaveProperty('backgroundColor');
+  });
+
   it('壊れた数値・時間は正規化する', () => {
     const restored = normalizeVideoTitleSettings({
       fontSizeCustom: 99999,

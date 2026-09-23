@@ -76,10 +76,6 @@ export const DEFAULT_VIDEO_SUBTITLE_STYLE: VideoTitleTextStyle = {
   strokeWidth: 4,
   fontSize: 'medium',
   fontSizeCustom: null,
-  backgroundEnabled: false,
-  backgroundColor: '#000000',
-  backgroundOpacity: 0.45,
-  backgroundRadius: 16,
   blur: 0,
 };
 
@@ -345,13 +341,64 @@ function titleFromTextStyle(
     strokeWidth: style.strokeWidth,
     fontSize: style.fontSize,
     fontSizeCustom: style.fontSizeCustom ?? null,
-    backgroundEnabled: style.backgroundEnabled,
-    backgroundColor: style.backgroundColor,
-    backgroundOpacity: style.backgroundOpacity,
-    backgroundRadius: style.backgroundRadius,
     blur: style.blur,
     subtitle: { ...DEFAULT_VIDEO_SUBTITLE_STYLE, text: '' },
   };
+}
+
+function drawVideoTitleBackground(
+  ctx: CanvasRenderingContext2D,
+  title: VideoTitleSettings,
+  alpha: number,
+  anchor: { x: number; y: number },
+  boxWidth: number,
+  boxHeight: number,
+  scale: number,
+): void {
+  const opacity = clampVideoTitleBackgroundOpacity(title.backgroundOpacity);
+  if (!title.backgroundEnabled || opacity <= 0 || alpha <= 0) return;
+
+  const boxX = anchor.x - boxWidth / 2;
+  const boxY = anchor.y - boxHeight / 2;
+  const radius = Math.min(
+    clampVideoTitleBackgroundRadius(title.backgroundRadius) * scale,
+    boxWidth / 2,
+    boxHeight / 2,
+  );
+  ctx.save();
+  ctx.globalAlpha = alpha * opacity;
+  ctx.fillStyle = title.backgroundColor;
+  if (radius > 0 && typeof ctx.roundRect === 'function') {
+    ctx.beginPath();
+    ctx.roundRect(boxX, boxY, boxWidth, boxHeight, radius);
+    ctx.fill();
+  } else {
+    ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+  }
+  ctx.restore();
+}
+
+function maxVideoTitleGlyphWidth(
+  lines: string[],
+  style: VideoTitleSettings | VideoTitleTextStyle,
+  scale: number,
+  options?: { glyphPixelRatio?: number; glyphCanvasCache?: CaptionGlyphCanvasCache },
+): number {
+  const fontSize = Math.max(1, resolveVideoTitleBaseFontSize(style) * scale);
+  const font = `bold ${fontSize}px ${resolveCaptionFontFamily(style.fontStyle)}`;
+  const strokeWidth = clampVideoTitleStrokeWidth(style.strokeWidth) * scale;
+  const pixelRatio = normalizeCaptionGlyphPixelRatio(options?.glyphPixelRatio);
+  return lines.reduce((max, line) => {
+    const glyph = getOrCreateCaptionGlyphCanvas({
+      text: line,
+      font,
+      fillColor: style.fontColor,
+      strokeColor: style.strokeColor,
+      strokeWidth,
+      pixelRatio,
+    }, options?.glyphCanvasCache);
+    return Math.max(max, glyph.width / pixelRatio);
+  }, 0);
 }
 
 export function drawVideoTitleFrame(
@@ -364,6 +411,8 @@ export function drawVideoTitleFrame(
     glyphCanvasCache?: CaptionGlyphCanvasCache;
     /** 主タイトルとサブタイトルを分けて描くときの中心。内部用 */
     anchorOverride?: { x: number; y: number };
+    /** 共通背景帯を描いた後の文字描画用。内部用 */
+    suppressBackground?: boolean;
   }
 ): boolean {
   if (!title) return false;
@@ -393,17 +442,42 @@ export function drawVideoTitleFrame(
       blockHeight: total,
       padding: VIDEO_TITLE_PADDING * scale,
     });
+    const alpha = resolveVideoTitleAlpha(title, timeSec);
+    if (alpha <= 0) return false;
+    const needsBackground = title.backgroundEnabled
+      && clampVideoTitleBackgroundOpacity(title.backgroundOpacity) > 0;
+    // キャッシュ未指定の描画でも、背景の幅計測と文字の転写で同じグリフを再利用する。
+    const glyphCanvasCache = needsBackground
+      ? options?.glyphCanvasCache ?? new Map<string, HTMLCanvasElement>()
+      : options?.glyphCanvasCache;
+    if (needsBackground) {
+      const maxFont = Math.max(mainFont, subFont);
+      const measureOptions = { ...options, glyphCanvasCache };
+      const maxGlyphWidth = Math.max(
+        maxVideoTitleGlyphWidth(mainLines, title, scale, measureOptions),
+        maxVideoTitleGlyphWidth(subtitleLines, subtitleStyle, scale, measureOptions),
+      );
+      drawVideoTitleBackground(
+        ctx,
+        title,
+        alpha,
+        anchor,
+        maxGlyphWidth + maxFont * VIDEO_TITLE_BACKGROUND_PADDING_X_RATIO * 2,
+        total + maxFont * VIDEO_TITLE_BACKGROUND_PADDING_Y_RATIO * 2,
+        scale,
+      );
+    }
     const mainDrew = drawVideoTitleFrame(
       ctx,
       { ...title, subtitle: { ...DEFAULT_VIDEO_SUBTITLE_STYLE, text: '' } },
       timeSec,
-      { ...options, anchorOverride: { x: anchor.x, y: anchor.y - total / 2 + mainBlock / 2 } },
+      { ...options, glyphCanvasCache, suppressBackground: true, anchorOverride: { x: anchor.x, y: anchor.y - total / 2 + mainBlock / 2 } },
     );
     const subDrew = drawVideoTitleFrame(
       ctx,
       titleFromTextStyle(title, subtitleStyle),
       timeSec,
-      { ...options, anchorOverride: { x: anchor.x, y: anchor.y + total / 2 - subBlock / 2 } },
+      { ...options, glyphCanvasCache, suppressBackground: true, anchorOverride: { x: anchor.x, y: anchor.y + total / 2 - subBlock / 2 } },
     );
     return mainDrew || subDrew;
   }
@@ -470,31 +544,11 @@ export function drawVideoTitleFrame(
   ctx.save();
   ctx.globalAlpha = alpha;
 
-  // 背景の帯: 映像に重なっても読めるようにする任意の視認性補助
-  const backgroundOpacity = clampVideoTitleBackgroundOpacity(title.backgroundOpacity);
-  if (title.backgroundEnabled && backgroundOpacity > 0) {
+  if (!options?.suppressBackground) {
     const maxGlyphWidth = glyphCanvases.reduce((max, glyph) => Math.max(max, glyph.width), 0);
     const boxWidth = maxGlyphWidth + fontSize * VIDEO_TITLE_BACKGROUND_PADDING_X_RATIO * 2;
     const boxHeight = blockHeight + fontSize * VIDEO_TITLE_BACKGROUND_PADDING_Y_RATIO * 2;
-    const boxX = anchor.x - boxWidth / 2;
-    const boxY = anchor.y - boxHeight / 2;
-    // 角丸半径も 1080p 基準でスケールし、帯の短辺の半分を超えないようにする
-    const radius = Math.min(
-      clampVideoTitleBackgroundRadius(title.backgroundRadius) * scale,
-      boxWidth / 2,
-      boxHeight / 2
-    );
-    ctx.globalAlpha = alpha * backgroundOpacity;
-    ctx.fillStyle = title.backgroundColor;
-    // roundRect は比較的新しい API。未対応環境では従来どおり角丸なしで描く
-    if (radius > 0 && typeof ctx.roundRect === 'function') {
-      ctx.beginPath();
-      ctx.roundRect(boxX, boxY, boxWidth, boxHeight, radius);
-      ctx.fill();
-    } else {
-      ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
-    }
-    ctx.globalAlpha = alpha;
+    drawVideoTitleBackground(ctx, title, alpha, anchor, boxWidth, boxHeight, scale);
   }
 
   // 文字（中央揃えで上から積む）。ぼかしはキャプションと同じく filter または多重描画
@@ -586,7 +640,10 @@ export function normalizeVideoTitleSettings(
   return {
     ...merged,
     subtitle: {
-      ...subtitleSource,
+      text: subtitleSource.text,
+      fontStyle: subtitleSource.fontStyle,
+      fontColor: subtitleSource.fontColor,
+      strokeColor: subtitleSource.strokeColor,
       fontSize: CAPTION_FONT_SIZE_PRESETS[subtitleSource.fontSize]
         ? subtitleSource.fontSize
         : DEFAULT_VIDEO_SUBTITLE_STYLE.fontSize,
@@ -595,8 +652,6 @@ export function normalizeVideoTitleSettings(
           ? clampCustomFontSize(subtitleSource.fontSizeCustom)
           : null,
       strokeWidth: clampVideoTitleStrokeWidth(subtitleSource.strokeWidth),
-      backgroundOpacity: clampVideoTitleBackgroundOpacity(subtitleSource.backgroundOpacity),
-      backgroundRadius: clampVideoTitleBackgroundRadius(subtitleSource.backgroundRadius),
       blur: clampVideoTitleBlur(subtitleSource.blur ?? DEFAULT_VIDEO_SUBTITLE_STYLE.blur),
     },
     startTime: range.startTime,

@@ -343,8 +343,8 @@ export type CaptionFontStyle =
   | (string & {});
 
 /**
- * 主タイトル／サブタイトルで共有しない見た目。
- * 表示時間と画面上の位置は主タイトル側で持ち、サブタイトルはその直下に積む。
+ * サブタイトル固有の文字スタイル。
+ * 表示時間・位置・背景帯はタイトル全体で共有する。
  */
 export interface VideoTitleTextStyle {
   /** 改行は複数行として中央揃えで描画する */
@@ -356,10 +356,6 @@ export interface VideoTitleTextStyle {
   strokeWidth: number;
   fontSize: CaptionSize;
   fontSizeCustom?: number | null;
-  backgroundEnabled: boolean;
-  backgroundColor: string;
-  backgroundOpacity: number;
-  backgroundRadius: number;
   blur: number;
 }
 
@@ -404,7 +400,7 @@ export interface VideoTitleSettings {
   position: CaptionPosition;
   /** カスタム位置 %（0-100・テキスト中心）。null/未設定でプリセットを使う */
   positionCustom?: { x: number; y: number } | null;
-  /** 背景の帯の設定。タイトルは映像に重なるため視認性確保用 */
+  /** 主タイトルとサブタイトルを一緒に囲む背景帯の設定 */
   backgroundEnabled: boolean;
   backgroundColor: string;
   /** 背景の帯の不透明度（0〜1） */

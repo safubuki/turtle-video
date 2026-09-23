@@ -2821,6 +2821,7 @@ export 終了（成功/失敗/中断）
   - 文字は `createCaptionGlyphCanvas` で stroke+fill を 1 枚に不透明合成してから単一 `globalAlpha` で転写（フェード時に輪郭だけ残る現象の回避。13-131 と同じ理由）。
   - **キャプションの後**（＝最前面）に描く。複数行は中央揃えで同時に全行を積み、**時分割はしない**（キャプションとの機能差別化）。
   - 背景の帯は任意。`backgroundOpacity === 0` では何も打たない。角丸（`backgroundRadius`）指定時は `roundRect`、0 のときは従来どおり `fillRect`。**角丸半径も 1080p 基準でスケール**し、帯の短辺の半分でクランプする。`roundRect` 未対応環境では角丸なしへフォールバックする。
+  - 主タイトルとサブタイトルの背景帯は `VideoTitleSettings` の共通設定だけで管理する。両方ある場合は各行のグリフ実測幅の最大値と両ブロックの合計高さから**1 枚だけ**帯を先に描き、文字描画時は個別の帯を抑止する。片方だけのときも共通設定を使う。旧保存データの `subtitle.background*` は正規化時に除去し、復元後の主・サブの文字スタイルには混ぜない。
 - **保存経路（4 箇所すべて更新が必須）**:
   1. `indexedDB.ts`: `SerializedVideoTitleSettings` + `ProjectData.videoTitle?`（**任意**。旧データは undefined）
   2. `projectStore.ts`: 手動/自動の**両方**の save で `videoTitle: useCaptionStore.getState().title` を書く。呼び出し側の位置引数を増やさず、`bgmAutoAdjustToTimeline` / `aspectRatio` / `projectPoster*` と同じ「保存時にストアから直接読む」方式を踏襲した。load では `normalizeVideoTitleSettings(data.videoTitle)` で既定値へフォールバック。
@@ -2839,6 +2840,7 @@ export 終了（成功/失敗/中断）
   - 端末フォント（Local Font Access API）の一覧は `CaptionSection` が state を持ち、キャプションとタイトルへ props で配る。**1 回の読み込みで両方に反映**される。
   - 同一画面に 2 つ並ぶため、共通コンポーネントは `idPrefix`（`caption` / `video-title`）で input/select の id を一意化する。
   - 背景の帯には角丸（`backgroundRadius`）もスライダー + 数値で用意する。ラベルはキャプション側と区別するため「**タイトル背景の帯**」とする。
+  - 背景帯の UI は主・サブの各文字スタイルアコーディオンの外に1箇所だけ置き、両方を囲むことと長い方の幅に合わせることを説明する。
   - 一括設定のアコーディオン名は「**キャプション スタイル/フェードの一括設定**」（タイトル側の「スタイル設定」と取り違えないようにするため）。
   - 既定の縁幅はキャプション 4px / タイトル 5px（タイトルは文字が大きいぶん太くする）。
   - **入れ子アコーディオンのテストでは見出し名の正規表現に `^` を付ける**こと。`/タイトル/` は「タイトル」「タイトル設定をリセット」の両方に当たるため `getByRole` が曖昧エラーになる。

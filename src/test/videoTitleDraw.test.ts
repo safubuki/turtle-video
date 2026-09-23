@@ -299,6 +299,40 @@ describe('drawVideoTitleFrame — 内容', () => {
     expect(on.fillRectCalls[0].h).toBeGreaterThan(0);
   });
 
+  it.each([
+    { main: 'LONG MAIN TITLE', sub: '副題', wider: 0 },
+    { main: '主題', sub: 'LONGER SUBTITLE TEXT', wider: 1 },
+  ])('主・サブの長い方に合わせて共通の帯を 1 枚描く: $wider', ({ main, sub, wider }) => {
+    const result = draw(activeTitle({
+      text: main,
+      subtitle: { ...DEFAULT_VIDEO_TITLE_SETTINGS.subtitle!, text: sub },
+      backgroundEnabled: true,
+      backgroundRadius: 0,
+    }), 1, 1920, 1080);
+    expect(result.fillRectCalls).toHaveLength(1);
+    expect(result.drawImageCalls).toHaveLength(2);
+    const box = result.fillRectCalls[0];
+    const glyphs = result.drawImageCalls;
+    expect(glyphs[wider].width).toBeGreaterThan(glyphs[1 - wider].width);
+    for (const glyph of glyphs) {
+      expect(box.x).toBeLessThan(glyph.x);
+      expect(box.x + box.w).toBeGreaterThan(glyph.x + glyph.width);
+      expect(box.y).toBeLessThan(glyph.y);
+      expect(box.y + box.h).toBeGreaterThan(glyph.y + glyph.height);
+    }
+  });
+
+  it('サブタイトルだけでも共通の背景設定で帯を描く', () => {
+    const result = draw(activeTitle({
+      text: '',
+      subtitle: { ...DEFAULT_VIDEO_TITLE_SETTINGS.subtitle!, text: '副題のみ' },
+      backgroundEnabled: true,
+      backgroundRadius: 0,
+    }), 1, 1920, 1080);
+    expect(result.fillRectCalls).toHaveLength(1);
+    expect(result.drawImageCalls).toHaveLength(1);
+  });
+
   it('角丸を指定すると roundRect で帯を描く', () => {
     const result = draw(
       activeTitle({ backgroundEnabled: true, backgroundOpacity: 0.5, backgroundRadius: 24 }),

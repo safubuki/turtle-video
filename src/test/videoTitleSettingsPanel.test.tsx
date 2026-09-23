@@ -345,12 +345,16 @@ describe('VideoTitleSettingsPanel', () => {
   });
 
   it('背景の帯は OFF のとき濃さ・角丸を出さず、ON で出す', () => {
-    const { unmount } = render(<VideoTitleSettingsPanel {...buildPanelProps()} />);
+    const onUpdate = vi.fn();
+    const { unmount } = render(<VideoTitleSettingsPanel {...buildPanelProps({ onUpdate })} />);
     openTitle();
-    openStyle();
-    expect(screen.getByRole('checkbox', { name: /背景の帯/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^主タイトルのスタイル/ })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: /^サブタイトルのスタイル/ })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getAllByRole('checkbox', { name: 'タイトル背景の帯' })).toHaveLength(1);
     expect(screen.queryByLabelText('タイトル背景の濃さ')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('タイトル背景の角丸')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'タイトル背景の帯' }));
+    expect(onUpdate).toHaveBeenCalledWith({ backgroundEnabled: true });
     unmount();
 
     render(
@@ -361,7 +365,6 @@ describe('VideoTitleSettingsPanel', () => {
       />,
     );
     openTitle();
-    openStyle();
     expect(screen.getByLabelText('タイトル背景の濃さ')).toBeInTheDocument();
     expect(screen.getByLabelText('タイトル背景の角丸')).toBeInTheDocument();
   });
@@ -377,7 +380,6 @@ describe('VideoTitleSettingsPanel', () => {
       />,
     );
     openTitle();
-    openStyle();
 
     fireEvent.change(screen.getByLabelText('タイトル背景の角丸'), { target: { value: '40' } });
     expect(onUpdate).toHaveBeenCalledWith({ backgroundRadius: 40 });
