@@ -27,10 +27,10 @@ interface ClipThumbnailProps {
   /** 有効トリム終了（元動画秒）。再試行候補の上限 */
   rangeEnd?: number;
   /**
-   * compact は開いたカード用の小さい表示。
-   * prominent は閉じたカードでタイトル行と時刻行の2行分を覆う大きさ。
+   * card はカード共通ヘッダーの3行に跨る表示。
+   * compact / prominent は既存の小型 / 2行用サイズ。
    */
-  displaySize?: 'compact' | 'prominent';
+  displaySize?: 'compact' | 'prominent' | 'card';
 }
 
 /** 開いたカード上の表示サイズ（見た目は従来どおり小さく） */
@@ -39,6 +39,9 @@ const DISPLAY_HEIGHT = 28;
 /** 閉じたカードで2行（タイトルと時刻）を覆う表示サイズ。比率は 48:28 のまま */
 const PROMINENT_DISPLAY_WIDTH = 96;
 const PROMINENT_DISPLAY_HEIGHT = 56;
+/** 3行ヘッダー用。キャプチャと同じ 12:7 に近い横長比率を保つ。 */
+const CARD_DISPLAY_WIDTH = 104;
+const CARD_DISPLAY_HEIGHT = 61;
 /**
  * 内部キャプチャ解像度。拡大表示時に何が写っているか判別できる水準。
  * 表示は CSS で DISPLAY に縮小するため、カードレイアウトは変わらない。
@@ -160,8 +163,10 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
   rangeEnd,
   displaySize = 'compact',
 }) => {
-  const displayWidth = displaySize === 'prominent' ? PROMINENT_DISPLAY_WIDTH : DISPLAY_WIDTH;
-  const displayHeight = displaySize === 'prominent' ? PROMINENT_DISPLAY_HEIGHT : DISPLAY_HEIGHT;
+  const displayWidth = displaySize === 'card' ? CARD_DISPLAY_WIDTH
+    : displaySize === 'prominent' ? PROMINENT_DISPLAY_WIDTH : DISPLAY_WIDTH;
+  const displayHeight = displaySize === 'card' ? CARD_DISPLAY_HEIGHT
+    : displaySize === 'prominent' ? PROMINENT_DISPLAY_HEIGHT : DISPLAY_HEIGHT;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [ready, setReady] = useState(false);
@@ -916,7 +921,7 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
           width={CAPTURE_WIDTH}
           height={CAPTURE_HEIGHT}
           className={`block rounded ${ready ? 'opacity-100' : 'opacity-0'}`}
-          style={{ width: displayWidth, height: displayHeight }}
+          style={{ width: displayWidth, height: displayHeight, objectFit: 'contain' }}
           aria-hidden
         />
       </button>

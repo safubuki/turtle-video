@@ -37,16 +37,19 @@ describe('ClipFileNameButton', () => {
     expect(onActivate).toHaveBeenCalledTimes(1);
   });
 
-  it('タップでは全文を出し、カードは開閉しない', () => {
+  it('タップでもカードを開閉し、開いたときはファイル名を2行まで表示する', () => {
     installMatchMedia(false);
     const onActivate = vi.fn();
-    render(<ClipFileNameButton name={LONG_NAME} onActivate={onActivate} />);
+    const { rerender } = render(<ClipFileNameButton name={LONG_NAME} onActivate={onActivate} />);
 
     fireEvent.click(screen.getByTestId('clip-file-name'));
-    expect(screen.getByTestId('clip-file-name-popup')).toHaveTextContent(LONG_NAME);
-    expect(onActivate).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole('button', { name: 'ファイル名の表示を閉じる' }));
+    expect(onActivate).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('clip-file-name-popup')).not.toBeInTheDocument();
+
+    rerender(<ClipFileNameButton name={LONG_NAME} isOpen onActivate={onActivate} />);
+    expect(screen.getByTestId('clip-file-name')).toHaveAccessibleName(`${LONG_NAME}のカードを閉じる`);
+    expect(screen.getByText(LONG_NAME)).toHaveClass('line-clamp-2');
+    fireEvent.click(screen.getByTestId('clip-file-name'));
+    expect(onActivate).toHaveBeenCalledTimes(2);
   });
 });

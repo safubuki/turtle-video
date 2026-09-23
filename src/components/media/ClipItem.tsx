@@ -329,26 +329,33 @@ const ClipItem: React.FC<ClipItemProps> = ({
     <div
       data-testid={`clip-card-${v.id}`}
       data-focused={isFocused ? 'true' : 'false'}
-      className={`bg-gray-800 p-3 lg:p-4 rounded-xl border relative group ${
+      className={`bg-gray-800 rounded-xl border relative group ${isOpen ? 'p-3 lg:p-4' : 'px-3 pt-3 pb-2 lg:px-4 lg:pt-4 lg:pb-3'} ${
         isFocused ? 'border-blue-400/90 ring-1 ring-blue-400/60' : 'border-gray-700/50'
       }`}
     >
-      <div className={isOpen ? 'mb-3' : ''}>
-        <div className={`flex gap-2 ${isOpen ? 'items-center' : 'items-start'}`}>
-        <span className={`bg-gray-900 text-gray-500 w-5 h-5 md:w-6 md:h-6 flex items-center justify-center rounded-full text-[10px] md:text-xs font-mono shrink-0 ${isOpen ? '' : 'mt-1'}`}>
-          {i + 1}
-        </span>
-        <ClipThumbnail
-          file={v.file}
-          type={v.type}
-          sourceTime={thumbnailSourceTime}
-          rangeStart={v.type === 'video' ? v.trimStart : undefined}
-          rangeEnd={thumbnailRangeEnd}
-          displaySize={isOpen ? 'compact' : 'prominent'}
-        />
-        <div className="min-w-0 flex-1">
-        <div className="flex justify-between items-center gap-2">
-        <div className={`flex items-center gap-1 overflow-hidden min-w-0 flex-1 ${isOpen ? '' : 'pl-1'}`}>
+      <div
+        data-testid={`clip-card-header-${v.id}`}
+        className={`grid grid-cols-[104px_minmax(0,1fr)] gap-x-2.5 gap-y-1 ${isOpen ? 'mb-3' : ''}`}
+      >
+        <div className="row-span-3 flex items-center">
+          <div className="relative inline-flex">
+            <ClipThumbnail
+              file={v.file}
+              type={v.type}
+              sourceTime={thumbnailSourceTime}
+              rangeStart={v.type === 'video' ? v.trimStart : undefined}
+              rangeEnd={thumbnailRangeEnd}
+              displaySize="card"
+            />
+            <span
+              data-testid={`clip-card-index-${v.id}`}
+              className="pointer-events-none absolute left-1 top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-gray-950/90 px-1 text-[10px] font-mono text-white ring-1 ring-gray-500/70"
+            >
+              {i + 1}
+            </span>
+          </div>
+        </div>
+        <div data-testid={`clip-card-actions-${v.id}`} className="col-start-2 flex min-w-0 items-center justify-between">
           <button
             type="button"
             data-testid={`clip-card-toggle-${v.id}`}
@@ -356,89 +363,89 @@ const ClipItem: React.FC<ClipItemProps> = ({
             aria-expanded={isOpen}
             aria-controls={isOpen ? bodyId : undefined}
             aria-label={toggleLabel}
-            className="shrink-0 rounded-lg p-1 text-gray-400 hover:bg-gray-700/40 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/80"
+            title={isOpen ? 'カードを閉じる' : 'カードを開く'}
+            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/80 active:scale-95 ${
+              isOpen
+                ? 'border-blue-500/50 bg-blue-900/30 text-blue-300 hover:bg-blue-800/50 hover:text-blue-100'
+                : 'border-gray-600/70 bg-gray-700/60 text-gray-300 hover:bg-gray-600 hover:text-white'
+            }`}
           >
-            {isOpen ? (
-              <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" />
-            ) : (
-              <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
-            )}
+            {isOpen ? <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" /> : <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />}
           </button>
-          <ClipFileNameButton
-            name={v.file.name}
-            onActivate={onToggleOpen}
-            icon={v.type === 'image' ? (
-              <ImageIcon className="w-3 h-3 md:w-4 md:h-4 text-yellow-500 shrink-0" aria-hidden="true" />
-            ) : (
-              <MonitorPlay className="w-3 h-3 md:w-4 md:h-4 text-blue-500 shrink-0" aria-hidden="true" />
-            )}
-          />
-          <button
-            onClick={onToggleLock}
-            className={`p-1 rounded hover:bg-gray-700 shrink-0 ${v.isLocked ? 'text-red-400' : 'text-gray-500'}`}
-          >
-            {v.isLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
-          </button>
-        </div>
-        <div className="flex gap-1">
-          <button
-            onClick={onMoveUp}
-            disabled={i === 0 || isDisabled}
-            className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded border border-gray-600 text-gray-300 flex items-center gap-0.5 disabled:opacity-30 disabled:transition-none text-[10px] transition"
-            title="上へ移動"
-          >
-            <ArrowUp className="w-3 h-3" />
-          </button>
-          <button
-            onClick={onMoveDown}
-            disabled={i === totalItems - 1 || isDisabled}
-            className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded border border-gray-600 text-gray-300 flex items-center gap-0.5 disabled:opacity-30 disabled:transition-none text-[10px] transition"
-            title="下へ移動"
-          >
-            <ArrowDown className="w-3 h-3" />
-          </button>
-          {onDuplicate && (
+          <div data-testid={`clip-card-secondary-actions-${v.id}`} className="ml-2 flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1">
             <button
-              onClick={onDuplicate}
-              disabled={isDisabled}
-              className="px-2 py-1 bg-blue-900/30 hover:bg-blue-900/50 text-blue-300 rounded border border-blue-800/50 disabled:opacity-30 text-[10px] transition"
-              title="このクリップをコピー（直後に複製を挿入）"
+              type="button"
+              onClick={onToggleLock}
+              aria-label={v.isLocked ? 'このクリップのロックを解除' : 'このクリップをロック'}
+              title={v.isLocked ? 'ロック解除' : 'ロック'}
+              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/80 active:scale-95 ${
+                v.isLocked
+                  ? 'border-red-500/60 bg-red-950/40 text-red-400 hover:bg-red-900/50'
+                  : 'border-gray-600/70 bg-gray-700/60 text-gray-300 hover:bg-gray-600 hover:text-white'
+              }`}
             >
-              <Copy className="w-3 h-3" />
+              {v.isLocked ? <Lock className="h-3.5 w-3.5" aria-hidden="true" /> : <Unlock className="h-3.5 w-3.5" aria-hidden="true" />}
             </button>
-          )}
-          <button
-            onClick={onRemove}
-            disabled={isDisabled}
-            className="px-2 py-1 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded border border-red-800/50 disabled:opacity-30 text-[10px] transition"
-            title="削除"
-          >
-            <Trash2 className="w-3 h-3" />
-          </button>
-        </div>
-        </div>
-        {!isOpen && (
-          <button
-            type="button"
-            data-testid={`clip-card-summary-${v.id}`}
-            onClick={onToggleOpen}
-            className="mt-1.5 flex w-full min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 overflow-hidden rounded-lg py-0.5 pl-3 pr-1 text-left text-[10px] md:text-xs hover:bg-gray-700/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/80"
-            aria-label={`${rangeLabel}、${durationLabel}。カードを開く`}
-          >
-            <span className="font-mono text-gray-300">{rangeLabel}</span>
-            <span className="text-gray-400">{durationLabel}</span>
-            {showSpeedMark && (
-              <span className="rounded bg-amber-500/15 px-1 text-amber-200">
-                {formatPlaybackSpeedValue(playbackSpeed)}倍
-              </span>
+            <button
+              type="button"
+              onClick={onMoveUp}
+              disabled={i === 0 || isDisabled}
+              aria-label="上へ移動"
+              title="上へ移動"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-gray-600/70 bg-gray-700/60 text-gray-300 hover:bg-gray-600 hover:text-white transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/80 active:scale-95 disabled:opacity-25 disabled:active:scale-100"
+            >
+              <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={onMoveDown}
+              disabled={i === totalItems - 1 || isDisabled}
+              aria-label="下へ移動"
+              title="下へ移動"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-gray-600/70 bg-gray-700/60 text-gray-300 hover:bg-gray-600 hover:text-white transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/80 active:scale-95 disabled:opacity-25 disabled:active:scale-100"
+            >
+              <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+            {onDuplicate && (
+              <button
+                type="button"
+                onClick={onDuplicate}
+                disabled={isDisabled}
+                aria-label="このクリップをコピー"
+                title="このクリップをコピー（直後に複製を挿入）"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-blue-800/50 bg-blue-900/30 text-blue-300 hover:bg-blue-900/50 hover:text-blue-100 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/80 active:scale-95 disabled:opacity-25 disabled:active:scale-100"
+              >
+                <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
             )}
-            {showMuteMark && (
-              <span className="rounded bg-red-500/15 px-1 text-red-300">ミュート</span>
-            )}
-          </button>
-        )}
+            <button
+              type="button"
+              onClick={onRemove}
+              disabled={isDisabled}
+              aria-label="このクリップを削除"
+              title="削除"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-red-800/50 bg-red-900/30 text-red-400 hover:bg-red-900/50 hover:text-red-300 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/80 active:scale-95 disabled:opacity-25 disabled:active:scale-100"
+            >
+              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          </div>
         </div>
+        <div className="col-start-2 flex min-w-0 items-center gap-1.5">
+          {v.type === 'image' ? <ImageIcon className="h-3.5 w-3.5 shrink-0 text-yellow-500" aria-hidden="true" /> : <MonitorPlay className="h-3.5 w-3.5 shrink-0 text-blue-500" aria-hidden="true" />}
+          <ClipFileNameButton name={v.file.name} isOpen={isOpen} onActivate={onToggleOpen} />
         </div>
+        <button
+          type="button"
+          data-testid={`clip-card-summary-${v.id}`}
+          onClick={onToggleOpen}
+          aria-label={`${rangeLabel}、${durationLabel}。カードを${isOpen ? '閉じる' : '開く'}`}
+          className="col-start-2 flex min-h-5 min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-md px-1 py-0.5 text-left text-[10px] leading-tight text-gray-300 hover:bg-gray-700/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/80 md:text-xs"
+        >
+          <span className="font-mono text-gray-200">{rangeLabel}</span>
+          <span className="text-gray-400">{durationLabel}</span>
+          {showSpeedMark && <span className="rounded bg-amber-500/15 px-1 text-amber-200">{formatPlaybackSpeedValue(playbackSpeed)}倍</span>}
+          {showMuteMark && <span className="rounded bg-red-500/15 px-1 text-red-300">ミュート</span>}
+        </button>
       </div>
 
       {isOpen && (
@@ -446,12 +453,6 @@ const ClipItem: React.FC<ClipItemProps> = ({
       {/* 動画トリミングUI */}
       {v.type === 'video' && (
         <div className="bg-black/30 p-2 lg:p-3 rounded mb-2 border border-gray-700/50 space-y-2">
-          <div className="flex items-center justify-between text-[10px] md:text-xs text-gray-500">
-            <span>表示区間</span>
-            <span className="font-mono text-gray-300">
-              {formatTimelineTime(timelineRange.start)} - {formatTimelineTime(timelineRange.end)}
-            </span>
-          </div>
           <div className="flex items-center gap-2 mb-1 text-[10px] md:text-xs text-gray-400">
             <Scissors className="w-3 h-3" />
             <span>
@@ -543,12 +544,6 @@ const ClipItem: React.FC<ClipItemProps> = ({
       {/* 画像表示時間UI (新設: ヘッダー下) */}
       {v.type === 'image' && (
         <div className="bg-black/30 p-2 rounded mb-2 border border-gray-700/50 space-y-2">
-          <div className="flex items-center justify-between text-[10px] md:text-xs text-gray-500 mb-1">
-            <span>表示区間</span>
-            <span className="font-mono text-gray-300">
-              {formatTimelineTime(timelineRange.start)} - {formatTimelineTime(timelineRange.end)}
-            </span>
-          </div>
           <div className="flex items-center gap-1.5 text-[10px]">
             <Clock className="w-3 h-3 text-gray-400 shrink-0" />
             <NumericSliderField

@@ -278,12 +278,17 @@ describe('ClipThumbnail', () => {
       'prominent',
     );
 
-    const prominentTrigger = screen.getByRole('button', { name: /マウスオーバーで拡大/ });
+    rerender(<ClipThumbnail file={file} type="video" displaySize="card" />);
+    expect(container.querySelector('canvas')?.style.width).toBe('104px');
+    expect(container.querySelector('canvas')?.style.height).toBe('61px');
+    expect(container.querySelector('canvas')?.style.objectFit).toBe('contain');
+
+    const cardTrigger = screen.getByRole('button', { name: /マウスオーバーで拡大/ });
     await flushHoverSettleFrames();
-    fireEvent.mouseEnter(prominentTrigger);
+    fireEvent.mouseEnter(cardTrigger);
     expect(await screen.findByTestId('clip-thumbnail-hover-preview')).toBeInTheDocument();
 
-    fireEvent.mouseLeave(prominentTrigger);
+    fireEvent.mouseLeave(cardTrigger);
     await waitFor(() => {
       expect(screen.queryByTestId('clip-thumbnail-hover-preview')).not.toBeInTheDocument();
     });

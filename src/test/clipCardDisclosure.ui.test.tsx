@@ -116,16 +116,21 @@ describe('動画・画像カードの折りたたみ', () => {
     expect(screen.getByTestId('clip-card-a')).toHaveAttribute('data-focused', 'true');
     expect(screen.getByTestId('clip-card-b')).toHaveAttribute('data-focused', 'false');
     expect(screen.queryByTestId('clip-card-body-b')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('clip-card-summary-a')).not.toBeInTheDocument();
-    expect(screen.getByTestId('clip-card-a').querySelector('[data-thumbnail-size="compact"]')).not.toBeNull();
-    expect(screen.getByTestId('clip-card-b').querySelector('[data-thumbnail-size="prominent"]')).not.toBeNull();
+    expect(screen.getByTestId('clip-card-summary-a')).toHaveTextContent('0:00.0–0:05.0');
+    expect(screen.getByTestId('clip-card-a').querySelector('[data-thumbnail-size="card"]')).not.toBeNull();
+    expect(screen.getByTestId('clip-card-b').querySelector('[data-thumbnail-size="card"]')).not.toBeNull();
+    expect(screen.getByTestId('clip-card-index-b').parentElement).toContainElement(
+      screen.getByTestId('clip-card-b').querySelector('[data-thumbnail-size="card"]'),
+    );
+    expect(screen.getByTestId('clip-card-toggle-b')).toHaveClass('h-7', 'w-7');
+    expect(screen.getByTestId('clip-card-secondary-actions-b')).toHaveClass('justify-end', 'gap-1');
     expect(screen.getByTestId('clip-card-summary-b')).not.toHaveClass('overflow-x-auto');
     expect(screen.getByTestId('clip-card-summary-b')).toHaveTextContent('0:00.0–0:05.0');
     expect(screen.getByTestId('clip-card-summary-b')).toHaveTextContent('5秒');
 
     fireEvent.click(screen.getByTestId('clip-card-toggle-b'));
     expect(durationSliders()).toHaveLength(2);
-    expect(screen.queryByTestId('clip-card-summary-b')).not.toBeInTheDocument();
+    expect(screen.getByTestId('clip-card-summary-b')).toHaveTextContent('0:00.0–0:05.0');
 
     fireEvent.click(screen.getByRole('button', { name: 'すべて閉じる' }));
     expect(durationSliders()).toHaveLength(0);
@@ -135,6 +140,32 @@ describe('動画・画像カードの折りたたみ', () => {
     expect(screen.getByTestId('clip-card-b')).toHaveAttribute('data-focused', 'true');
     expect(screen.getByTestId('clip-card-body-b')).toBeInTheDocument();
     expect(screen.queryByTestId('clip-card-body-a')).not.toBeInTheDocument();
+  });
+
+  it('スマホでもファイル名と大きな開閉ボタンの両方でカードを開閉できる', () => {
+    renderSection({ mediaItems: [createImage('touch')] });
+    const title = screen.getByTestId('clip-file-name');
+    const toggle = screen.getByTestId('clip-card-toggle-touch');
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(Array.from(screen.getByTestId('clip-card-actions-touch').querySelectorAll('button')).map(
+      (button) => button.getAttribute('aria-label'),
+    )).toEqual([
+      'touch.pngのカードを閉じる',
+      'このクリップをロック',
+      '上へ移動',
+      '下へ移動',
+      'このクリップをコピー',
+      'このクリップを削除',
+    ]);
+
+    fireEvent.click(title);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('clip-card-body-touch')).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('clip-card-body-touch')).toBeInTheDocument();
+    expect(screen.getByTestId('clip-card-summary-touch')).toHaveTextContent('0:00.0–0:05.0');
   });
 
   it('再生中と終端停止ではカードを開かず、停止中のスライダー移動で開く', () => {

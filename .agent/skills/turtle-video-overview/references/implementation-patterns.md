@@ -690,7 +690,7 @@
 | **自動保存タイマー** | `setInterval` は最新状態Refを参照して固定周期で実行し、編集状態の変化でタイマーを再生成しない。差分ハッシュは保存対象の実フィールドに合わせ、`trim` の後に `scale/position` だけ変わったケースも見逃さない。`visibilitychange/focus/pageshow` 復帰時は短い遅延でイベントを集約してから経過時間を判定し、手動保存中は追いつき保存を走らせない。手動保存成功時は現在ハッシュを自動保存の基準にも反映し、直後の重複 auto save を防ぐ。保存間隔変更は custom event + `storage` で即時反映する |
 | **ヘッダーモーダル遷移** | 設定/保存ボタン押下でモーダルを開く前に、通常プレビュー再生中なら `stopAll() + pause()` で明示一時停止する。再生継続のまま開くとモバイルでタップ競合し、モーダルが瞬時に閉じる誤動作を誘発しやすい |
 | **先頭フレーム描画** | `time <= 0.05` の先頭付近は、`エクスポート中` または `非再生時` に限ってキャンバスを強制クリアし、終端フレーム残像（終端キャプション）との重なりを防ぐ。通常再生開始時は保持ロジックを優先して黒フラッシュを回避する |
-| **モバイル** | スライダー誤操作を `useSwipeProtectedValue` で防止。`playsInline` 必須 |
+| **モバイル** | スライダー誤操作を `useSwipeProtectedValue` で防止。`playsInline` 必須。数値＋スライダー＋−/+ は **数値 → スライダー → −/+**（PC も同じ。13-227）。＋操作中に数値が指で隠れない。−/+ 長押し加速は 12px 移動でキャンセルし、スクロールを奪わない |
 | **レスポンシブ** | モバイル既存スタイルは変更禁止。`md:` / `lg:` バリアントのみ追加で対応 |
 | **IndexedDB** | `File → ArrayBuffer → File` のラウンドトリップが必要。大容量データに注意。容量不足時は`auto`を自動削除せず、確認後のみ削除リトライする。保存失敗は `lastSaveFailure` に reason / recoveryAction / storageEstimate を残し、復旧導線を UI から再実行できるようにする。`File` 読み出し失敗時は `file.arrayBuffer` / `FileReader` / object URL fetch の順に救済し、素材名付きで失敗理由を残す |
 | **Zustand** | `getState()` で React 外アクセス可能。Ref+State 並行管理でリアルタイム値と再レンダリングを両立 |
@@ -701,12 +701,13 @@
 | **エラー** | 3 層防御: ErrorBoundary（コンポーネント）、グローバルハンドラ（window）、try-catch（個別処理） |
 | **フレーバー分離** | export エンジンは `src/flavors/<flavor>/export/exportEngine.ts` に物理フォーク済み。共有コード→flavors の import、flavor 相互 import、共有コンポーネントでの `getPlatformCapabilities()` 直接呼び出しは ESLint で禁止。共有コンポーネントの UA 判定は `usePlatformCapabilities()`（PlatformCapabilitiesContext）経由。凍結レガシー（`components/turtle-video/usePreview*` / `utils/previewPlatform` / `utils/iosSafariAudio`）は編集禁止 |
 | **export後preview（#209）** | 共有 `<video>` を同一要素のまま `load()` / hard src で直しても Chromium decoder wedge が残ることがある（表面の readyState 4 は信用しない）。本命は MediaResourceLoader remount（`reloadKey++` + MediaElementSource detach、13-141）。13-135〜140 は保険。成功/失敗/中断の全経路で remount を要求する |
-| **動画サムネ（#208）** | アプリ内ポスターだけでは OS アイコンは変わらない。export で **covr 埋め込み + 先頭 KF 差し替え**（13-146）が本命。**ユーザー確認済み成功事例**。設定後の再書き出し必須。**自動モードは並び替え・先頭変更で dataUrl を再キャプチャ**（13-167） |
-| **自動サムネの黒画像** | canvas キャプチャ前に **video のシーク完了を待つ**（`renderFrame` は seek を要求するだけ・完了は非同期。描画条件は `readyState>=2 && !seeking`）。**キャプチャ時刻は先頭黒クリア帯 `time<=0.05` の外**へ逃がす。撮った画像は黒検証し、黒なら撮り直し・最終的に**既存画像を維持して黒で上書きしない**（13-168）。rAF 数回で済ませないこと |
+| **動画サムネ（#208）** | アプリ内ポスターだけでは OS アイコンは変わらない。export で **covr 埋め込み + 先頭 KF 差し替え**（13-146）が本命。**ユーザー確認済み成功事例**。設定後の再書き出し必須。**自動モードは並び替え・先頭変更で dataUrl を再キャプチャ**（13-167 / 13-240）。手動設定は並び替えでも変えない |
+| **自動サムネの黒画像** | canvas キャプチャ前に **video のシーク完了を待つ**（`renderFrame` は seek を要求するだけ・完了は非同期。描画条件は `readyState>=2 && !seeking`）。**キャプチャ時刻は先頭黒クリア帯 `time<=0.05` の外**へ逃がす。撮った画像は黒検証し、黒なら撮り直し。**同じ先頭の見た目調整では既存画像を維持して黒で上書きしない**。**先頭クリップ自体が変わった自動設定では古いクリップの画像を残さない**（13-168 / 13-240）。rAF 数回で済ませないこと |
 | **倍速 export 映像** | rate=speed のみは途中切れ、毎フレーム seek は静止画化。**rate=1 連続 + 壁時計 Δt/speed（wall dilation）**が成功（13-166 / export-speed-video-wall-dilation-postmortem-2026-08-01）。プレビューの rate=speed と無理に一本化しない |
 | **export の高速化** | 現行の駆動方式（壁時計 dilation / native 連続再生 / backpressure / 末尾補完）は**ユーザー実機で最良と確認済み。速度を理由に変更しない**。負荷を下げたいときは **VideoEncoder の configure 交渉**（`prefer-hardware`、13-169）から手を付ける。**`latencyMode:'quality'` は禁止**（内部バッファリングが `encodeQueueSize` を曇らせ backpressure 検知を遅らせる＝後半黒画面の再発条件。13-116 も同旨）。queue 上限の緩和と bitrate 低下はリカバリ性・画質を損なうので最後の手段 |
 | **export の滑らかさ** | プレビューは rAF（多くは約60Hz）提示、export は固定30fps CFR。滑らかさ改善は駆動方式を変えず、提示フレーム合わせとスロット単位スナップショットに閉じる（13-204）。**ユーザー実機で「劇的にスムーズになった」と確認済み（2026-08-17）**。フレーム駆動化・毎フレームseek・出力fps変更・bitrate変更は再導入しない |
 | **preview の UI 時刻** | 再生時計・Canvas・`video.currentTime` は毎 rAF のまま。Zustand の `currentTime` だけ約 50ms に間引き、pause/stop/終端で flush する。字幕グリフ Canvas は LRU 再利用（13-226）。駆動方式・export・apple-safari には広げない |
+| **スロー export 音声** | スローはプレビューと同じ `preservesPitch` キャプチャを第一経路にし、decode+WSOLA 参照で先頭遅延だけ切る（13-237）。キャプチャは TrackProcessor / AudioWorklet 優先で、ScriptProcessor は出力無音化の予備（13-238）。エネルギー無音切りは禁止。キャプチャ失敗時のみ WSOLA。13-236 の WSOLA 第一経路は音質退行のため改訂 |
 
 ## 12. Dev Script Pattern (media-video-analyzer STT)
 
@@ -2820,6 +2821,7 @@ export 終了（成功/失敗/中断）
   - 文字は `createCaptionGlyphCanvas` で stroke+fill を 1 枚に不透明合成してから単一 `globalAlpha` で転写（フェード時に輪郭だけ残る現象の回避。13-131 と同じ理由）。
   - **キャプションの後**（＝最前面）に描く。複数行は中央揃えで同時に全行を積み、**時分割はしない**（キャプションとの機能差別化）。
   - 背景の帯は任意。`backgroundOpacity === 0` では何も打たない。角丸（`backgroundRadius`）指定時は `roundRect`、0 のときは従来どおり `fillRect`。**角丸半径も 1080p 基準でスケール**し、帯の短辺の半分でクランプする。`roundRect` 未対応環境では角丸なしへフォールバックする。
+  - 主タイトルとサブタイトルの背景帯は `VideoTitleSettings` の共通設定だけで管理する。両方ある場合は各行のグリフ実測幅の最大値と両ブロックの合計高さから**1 枚だけ**帯を先に描き、文字描画時は個別の帯を抑止する。片方だけのときも共通設定を使う。旧保存データの `subtitle.background*` は正規化時に除去し、復元後の主・サブの文字スタイルには混ぜない。
 - **保存経路（4 箇所すべて更新が必須）**:
   1. `indexedDB.ts`: `SerializedVideoTitleSettings` + `ProjectData.videoTitle?`（**任意**。旧データは undefined）
   2. `projectStore.ts`: 手動/自動の**両方**の save で `videoTitle: useCaptionStore.getState().title` を書く。呼び出し側の位置引数を増やさず、`bgmAutoAdjustToTimeline` / `aspectRatio` / `projectPoster*` と同じ「保存時にストアから直接読む」方式を踏襲した。load では `normalizeVideoTitleSettings(data.videoTitle)` で既定値へフォールバック。
@@ -2838,6 +2840,7 @@ export 終了（成功/失敗/中断）
   - 端末フォント（Local Font Access API）の一覧は `CaptionSection` が state を持ち、キャプションとタイトルへ props で配る。**1 回の読み込みで両方に反映**される。
   - 同一画面に 2 つ並ぶため、共通コンポーネントは `idPrefix`（`caption` / `video-title`）で input/select の id を一意化する。
   - 背景の帯には角丸（`backgroundRadius`）もスライダー + 数値で用意する。ラベルはキャプション側と区別するため「**タイトル背景の帯**」とする。
+  - 背景帯の UI は主・サブの各文字スタイルアコーディオンの外に1箇所だけ置き、両方を囲むことと長い方の幅に合わせることを説明する。
   - 一括設定のアコーディオン名は「**キャプション スタイル/フェードの一括設定**」（タイトル側の「スタイル設定」と取り違えないようにするため）。
   - 既定の縁幅はキャプション 4px / タイトル 5px（タイトルは文字が大きいぶん太くする）。
   - **入れ子アコーディオンのテストでは見出し名の正規表現に `^` を付ける**こと。`/タイトル/` は「タイトル」「タイトル設定をリセット」の両方に当たるため `getByRole` が曖昧エラーになる。
@@ -3008,7 +3011,8 @@ export 終了（成功/失敗/中断）
   - 数値は `normalizeWatermarkOverlay()` / `normalizeWatermarkRange()` でクランプする。位置 0〜100%、自然画像サイズ基準の倍率 0.1〜3 倍、不透明度 0〜1、回転 -180〜180°、マスクサイズ 5〜100%、周辺ぼかし 0〜40px @1080p。
   - 既定は X/Y 50%（中央）、倍率 1、透過なし（opacity 1）、回転 0°、四角マスク 100%、周辺ぼかし 0。各見た目項目は UI の `RotateCcw` から個別に戻せる。
 - **描画契約（preview = export）**:
-  - `drawWatermarkOverlayFrame()` が唯一の描画実装。standard / apple-safari の両 flavor が、トランジション・キャプション・動画タイトルの後に同じ関数を呼ぶ。export は preview の `drawFrame` を再利用するため WYSIWYG が構造的に成立する。
+  - `drawWatermarkOverlayFrame()` が唯一の描画実装。standard / apple-safari の両 flavor が同じ関数を呼ぶ。export は preview の `drawFrame` を再利用するため WYSIWYG が構造的に成立する。
+  - **改訂（13-242）**: 重ね順は 映像 → ウォーターマーク → キャプション。キャプション・タイトルの後に描く旧契約は廃止。
   - 円形は中央 cover、角丸は短辺比率の角丸、周辺ぼかしはパディング付き一時 Canvas のマスク alpha を blur して `destination-in` 合成する。`maskSize` でマスク境界を画像外周より内側へ縮められるため、外周へ当たらず自然なフェザーを作れる。処理済み Canvas は画像と設定キーで 1 件キャッシュし、毎フレームの再生成を避ける。
   - `watermarkOverlay` は ref だけでなく値としてもエンジンへ渡し、`renderFrame` の依存に含める。停止中に設定を変えた際の再描画を維持する。
 - **保存・メモリ管理**:
@@ -3953,7 +3957,7 @@ export 終了（成功/失敗/中断）
   - UI はトリミングと同じ `NumericSliderField`（スライダー + −/+ + 数値）。等倍/0.5/2/4/8 のショートカットも残す。
   - タイムライン尺は従来どおり `(trimEnd-trimStart)/speed`。
   - **export 倍速（speed>1）**: 13-166 の wall dilation（rate=1）を維持。**再導入禁止**（rate=speed 連続 / 毎フレーム seek）。
-  - **export スロー（speed<1）**: `playbackRate=speed`、壁時計 divisor=1。dilation すると出力フレームが不足する。
+  - **export スロー（speed<1）**: 映像は `playbackRate=speed`、壁時計 divisor=1。dilation すると出力フレームが不足する。**音声は 13-237 でキャプチャ+遅延整合が第一経路**（13-236 の WSOLA 第一経路は音質退行のため改訂。キャプチャ失敗時のみ WSOLA）。
   - バッジは `showSpeedBadge` かつ等倍以外（スロー含む）。文言は 0.1 単位（例: 1.5倍速 / 0.5x）。
 - **一括音量**:
   - `mediaStore.bulkVideoVolumeEnabled` / `bulkVideoVolume`。チェック ON で全動画の `volume` を揃え、追加動画も継承する。
@@ -4309,3 +4313,379 @@ export 終了（成功/失敗/中断）
   - MiniPreview の約 15fps スロットル（6-3）と同じ考え方で、本編 Canvas の描画レートは落とさない。
 - **回帰ガード**: `previewUiTime.test.ts` で初回 / force / 間隔内間引き / ジャンプ即公開、`captionGlyphStyle.test.ts` で同一キー再利用と LRU 上限、`standardPreviewEngine.test.tsx` で preview は UI 時刻を rAF ごとに更新せず `currentTimeRef` だけ進め、stopAll で flush、export は間引かないことを固定する。
 
+### 13-227. 数値スライダーの並びは「数値 → スライダー → −/+」に統一し、＋操作で現在値を指で隠さない。−/+ は長押しで徐々に加速する
+
+- **ファイル**: `src/components/common/NumericStepperInput.tsx`, `src/components/common/NumericSliderField.tsx`, `src/utils/holdToRepeat.ts`, `src/hooks/useHoldToRepeat.ts`, `src/components/sections/OverlaySection.tsx`, `src/components/sections/NarrationSection.tsx`, `src/components/sections/CaptionSection.tsx`, `src/components/modals/CaptionBulkAddModal.tsx`, `src/constants/sectionHelp.ts`, `src/test/numericSliderField.test.tsx`, `src/test/holdToRepeat.test.ts`, `src/test/captionIndividualSharedFields.test.tsx`, `src/test/overlaySection.test.tsx`
+- **対象 flavor**: **shared UI**（standard / apple-safari 共通）。`NumericSliderField` / `NumericStepperInput` を使う全スライダー（トリム、音量、位置、速度など）。値の保存・preview / export 契約は変更しない。
+- **問題**:
+  - スマホでトリム秒数やキャプションサイズなどを −/+ で微調整すると、従来の「−・数値・＋」配置では特に ＋ を押した親指が数値欄を隠す。スライダーを左、数値を右に置く並びでも同じ。PC だけ別レイアウトにすると操作の学習が分かれる。
+  - −/+ は都度タップしないと値が変わらず、大きく動かすときに連打が必要だった。
+- **UX判断**: ユーザー案の **数値テキストボックス → スライダー → −/+** を採用する。読み取り（現在値）を左、粗い調整を中央、細かい増減を右へ分ける。＋ は数値から最も遠いので指で隠れない。PC も同じ並びにし、端末で並びが変わらない。
+- **対策**:
+  - `NumericStepperInput` の並びを **数値（＋単位）→ 任意の `afterValue` → −/+** にする。スライダーを持つ行は `afterValue` にスライダーを渡す。
+  - `NumericSliderField` の inline は同じ順。`stacked`（狭いキャプション位置モーダル）は 1 段目「ラベル＋スライダー」、2 段目は数値を左・−/+ を右へ離す（`justify-between`）。13-222 の「2 段目は −・数値・＋・単位」は本項で置き換える。
+  - Overlay の `NumericControl`、ナレーション開始位置も `afterValue` で同じ順にする。キャプション一括シフトの秒数、まとめて入力の「1行あたりの表示時間」も数値＋単位の右へ −/+ を置く。
+  - `hideInput`（見出し側に値があるフル幅スライダー）は従来どおり `[スライダー][−][+]`。数値欄が無いので指隠れの対象外。
+  - 単発の tap / click / キーボード操作は従来どおり `click` で 1 ステップ。
+  - 長押しは 400ms 後から繰り返しを始め、間隔を 180ms → 48ms へ smoothstep で縮める。急加速しない。
+  - 離す・pointercancel・タブ非表示で停止する。繰り返し開始後の click は二重増減しない。
+  - 長押し開始前に 12px 以上動いたらスクロールとみなして繰り返しを始めない（スライダーのスワイプ保護とは別系統）。
+  - 値の進行はセッション内の current を使い、再レンダー待ちで同じ値を何度も書かない。上限/下限で停止する。
+- **注意**:
+  - 新しい数値＋スライダー＋−/+ は素の − 数値 ＋ を書かず、必ず `NumericSliderField` / `NumericStepperInput` を使う。独自に組む場合も数値を −/+ の左へ離す。
+  - 並びだけ変える。ドラフト入力・確定時クランプ・タップ全選択・`SwipeProtectedSlider` のスワイプ保護は維持する。
+  - フェード秒数のようなスライダーのみ（数値欄なし）や、単位付き数値だけの項目は対象外。
+  - キャプション一括シフトの −/+ は別実装（固定 100ms）のまま。スライダー共通部品だけを変える。
+  - pointer capture は使わない。スクロールジェスチャをボタンが奪わない。
+  - 大きな移動はスライダー本体や数値入力を使う。−/+ の加速は微調整の連打を省く用途。
+- **回帰ガード**: `numericSliderField.test.tsx` で inline の DOM 順と stacked の 2 段目、hideInput の単発クリック、長押し加速を固定する。`overlaySection.test.tsx` でロゴ位置、`captionIndividualSharedFields.test.tsx` で compact 位置の `justify-between`。`holdToRepeat.test.ts` で加速カーブ、短押し 1 ステップ、長押し開始と停止、click 二重発火防止、移動キャンセル、上限停止を固定する。
+
+### 13-228. 画像の表示時間は 0.1 秒単位
+
+- **ファイル**: `src/constants/index.ts`, `src/utils/media.ts`, `src/stores/mediaStore.ts`, `src/components/media/ClipItem.tsx`, `src/components/TurtleVideo.tsx`, `src/hooks/useMediaItems.ts`, `src/constants/sectionHelp.ts`, `spec.md`
+- **対象 flavor**: **shared UI / shared schema**。画像クリップの表示時間は両 flavor 共通。preview / export エンジンは変更しない（尺は `item.duration` を読む既存契約のまま）。
+- **問題**: 画像の表示時間スライダーと −/+ が 0.5 秒刻みで、短いカットを細かく合わせにくかった。
+- **対策**:
+  - `IMAGE_DURATION_STEP = 0.1` を追加し、`ClipItem` の表示時間 `NumericSliderField` が同じ定数を使う。
+  - 範囲は従来どおり 0.5〜60 秒（最小は 0.5 のまま。フェード 0.5/1/2 や再生速度下限 0.5 とは別契約）。
+  - `normalizeImageDuration()` が 0.1 秒へ丸め、下限 0.5 / 上限 60 へクランプする。store と UI ハンドラで共有する。
+- **注意**:
+  - キャプション一括入力の「1 行あたり表示秒数」やフェード秒数は 0.5 刻みのまま。画像クリップの表示時間だけを変える。
+  - UI の max を 30 秒へ戻さない。仕様と定数は 60 秒。
+- **回帰ガード**: `normalizeImageDuration`、store の 0.1 秒反映、スライダー step/min/max と −/+ 1 回が 0.1 秒、ヘルプの「0.1秒単位」をテストする。
+
+### 13-229. キャプション終了はタイムライン実尺へ吸着する
+
+- **ファイル**: `src/utils/captionTimeline.ts`, `src/components/common/NumericStepperInput.tsx`, `src/components/media/CaptionItem.tsx`, `src/components/sections/CaptionSection.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/utils/captionLayerRender.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/constants/sectionHelp.ts`
+- **対象 flavor**: **shared UI / shared schema**。描画は standard / apple-safari の両 preview と standard のキャプション単独出力。
+- **問題**: キャプションの開始/終了は 0.1 秒刻み。動画尺が 7.04 秒のような端数だと、終了 7.0 で末尾約 0.04 秒だけキャプションが消える。スライダー `max` は実尺なのに、小数 1 桁丸めで 7.04 が 7.0 に戻っていた。＋も 7.1 → 7.04 → 7.0 と同じ。
+- **対策**:
+  - 通常操作は 0.1 秒のまま。
+  - `clampValue` は上限・下限そのものを step 格子外でも残す（右端ドラッグと＋の突き当たり）。
+  - `snapTimeToTimelineEnd` / `resolveCaptionEndTimeInput` が、最後の 0.1 秒格子より先だけ実尺へ吸着する（7.00 は 7.00、7.01〜7.04 と右端は 7.04）。
+  - 「プレビュー位置を反映: 終了」も同じ関数を使う。
+  - 終了が実尺まで届いているときは `[start, end)` でも最終フレームを描く。
+- **注意**:
+  - キャプション全体を 0.01 秒刻みにしない。
+  - 動画タイトルの `normalizeVideoTitleRange` は従来どおり 0.1 秒量子化。今回はキャプション終了だけ。
+  - 7.03 のような途中値を自由入力できるようにしない（0.1 へ丸める）。
+- **回帰ガード**: 吸着純ロジック、最終フレーム inclusive、＋が 7.04 を残すこと、ヘルプの実尺案内をテストする。
+
+### 13-230. キャプション終了の表示桁はプレビューと同じ 1/100 秒にし、スライダー右端で実尺へ届ける
+
+- **ファイル**: `src/utils/format.ts`, `src/utils/captionTimeline.ts`, `src/components/media/CaptionItem.tsx`
+- **問題**:
+  - ＋で末尾へ吸着したあと、数値欄が `7.0416` のように生の float を出してプレビューの `0:07.04` と桁が食い違った。
+  - 終了スライダーの step が 0.1 のままだと、max 7.04 までの端数は幅の 0.6% 程度しかなく、ドラッグでは 7.0 で止まって実尺へ届かなかった。
+- **対策**:
+  - `quantizeTimeToCentiseconds()` を `formatTimeCentiseconds` と同じ計算にし、吸着先・スライダー max・表示を 7.04 に揃える。
+  - 終了スライダーだけ `step=0.01`（プレビューと同じ 1/100 秒）、−/+ は従来どおり 0.1 秒。右端が 7.04 の実ステップになる。
+  - 終了 7.04 は実尺 7.0416 の最終フレームも覆う。
+- **注意**: 開始スライダーの 0.1 秒刻みと、キャプション全体の 0.01 秒編集化は変えない。
+- **回帰ガード**: 7.0416 → 7.04、スライダー max/step、数値欄 7.04、右端ドラッグをテストする。
+
+### 13-231. キャプション終了の − は実尺端数から 0.1 秒格子へ戻し、0 以外は小数を揃える
+
+- **ファイル**: `src/utils/captionTimeline.ts`, `src/components/common/NumericStepperInput.tsx`, `src/components/common/NumericSliderField.tsx`, `src/components/media/CaptionItem.tsx`
+- **問題**:
+  - 15.04 でマイナスすると 14.9 になり、直前の 15.0 を飛ばして違和感があった。
+  - 14 のように切りの良い数が整数表示になり、14.9 / 15.04 と桁が揃わなかった。0 まで 0.0 にすると冗長。
+- **対策**:
+  - `stepCaptionEndTime` は実尺端数（15.04）からのマイナスを最後の 0.1 秒格子（15.0）へ戻す。その次が 14.9。
+  - `formatCaptionTimeInput` は 0 → `0`、0.1 秒格子 → `14.0` / `14.9`、端数実尺 → `15.04`。
+- **注意**: 表示フォーマットはキャプションの開始/終了だけ。他の NumericSliderField は type=number のまま。
+- **回帰ガード**: 15.04 − → 15.0、表示 `0` / `14.0` / `15.04` をテストする。
+
+### 13-232. 動画・BGM・ナレーションのトリム終了もキャプションと同じ終端吸着と桁揃え
+
+- **ファイル**: `src/utils/timeStepperInput.ts`（新規）, `src/utils/captionTimeline.ts`, `src/components/media/ClipItem.tsx`, `src/components/sections/BgmClipList.tsx`, `src/components/sections/NarrationSection.tsx`, `src/components/TurtleVideo.tsx`
+- **問題**: キャプションだけ 1/100 秒表示・右端吸着にしたため、動画トリムは 15 と整数表示のまま、スライダーも 0.1 秒で実尺 15.04 へ届かなかった。
+- **対策**:
+  - 共通ヘルパー `timeStepperInput.ts` に終端吸着・−の 15.0 戻し・`0` / `15.0` / `15.04` 表示を集約する。
+  - 動画トリム、BGM トリム、ナレーション トリムの終了に同じ契約を載せる。開始は表示だけ揃える。
+  - プレビュー位置の「終了」も `snapTimeToLimitEnd` を通す。
+- **注意**: 画像の表示時間は範囲 0.5〜60・0.1 刻みのまま。表示桁だけ共通フォーマットにする。
+- **回帰ガード**: トリム終了の max/step、＋で 15.04、−で 15.0、開始 `0` を ClipItem テストで固定する。
+
+### 13-233. ナレーション→キャプション分割は句点を20文字窓の外でも優先する
+
+- **ファイル**: `src/utils/narrationCaptionPlan.ts`, `src/constants/sectionHelp.ts`, `src/test/narrationCaptionPlan.test.ts`
+- **対象 flavor**: **shared utility**。`buildNarrationCaptionPlan` は両 flavor 共通。ボタン表示は 13-171 どおり standard 限定。無音吸着（13-157）は変更しない。
+- **問題**:
+  - `findPreferredBreak` が最大20文字の窓の中だけ句点・読点を探していた。
+  - 「…自動でカウントアップ。」は句点が27文字目のため、「カウ」で切断され、次カードが「ントアップ。」で始まり、読点「、」が次カード先頭に残った。
+- **対策**:
+  - 先に `。！？!?` で文を切る。句点付きの文は既定の2倍（40文字）まで1枚に残す。
+  - それより長い文だけ `、` 等で折り返す。読点は上限の1.5倍まで先読みする。
+  - 句読点が無いときだけ20文字で切断する。短すぎる末尾の統合と文字数比＋無音吸着は維持する。
+- **注意**:
+  - 20文字窓の中だけ切れ目を探す実装へ戻さない。句点優先を外すと単語途中切断が再発する。
+  - 句読点のない話し言葉の意味分割は対象外。AI分割は入れない。
+- **回帰ガード**: 再現原稿が句点・読点どおり4カードになること、句点なし長文は上限分割、既存の文字数比被覆と無音吸着を `narrationCaptionPlan.test.ts` で固定する。
+
+### 13-234. ナレーション→キャプションは画面に収まる長さにし、句読点は本文へ残さない
+
+- **ファイル**: `src/utils/narrationCaptionPlan.ts`, `src/constants/sectionHelp.ts`, `src/test/narrationCaptionPlan.test.ts`
+- **対象 flavor**: **shared utility**。無音吸着・保存契約・描画エンジンは変更しない。
+- **問題**:
+  - 13-233 が句点付きの文を最大40文字まで1枚に残したため、「ボタンを押し続けるだけで数値が自動でカウントアップ。」が映像上で左右見切れた。
+  - 句点・読点がキャプション本文に残り、字幕としては不要だった。
+- **対策**:
+  - 句点・読点は分割の切れ目にだけ使い、カード本文からは `。、！？` 等を除く。
+  - 1枚の上限は既定20文字へ戻す。長い文は読点、カタカナ/英数の単語境界、助詞の後ろで折り返す。
+  - カタカナ語（例: カウントアップ）の途中では切らない。短い末尾の結合も、足すと20文字を超えるときは行わない。
+- **注意**:
+  - 句点があるからといって長い文を1枚に残す実装へ戻さない。画面見切れが再発する。
+  - 句読点を本文に戻すと「、」が次カード先頭に残る退行も再発しやすい。
+- **回帰ガード**: 再現原稿が句読点なし・20文字以内の5カードになること、カタカナ語が分かれないこと、句点なし長文も20文字以内を `narrationCaptionPlan.test.ts` で固定する。
+
+### 13-235. プレビュー一括クリアは一括音設定を初期化し、エンドロール区間にもキャプションを重ねる
+
+- **ファイル**: `src/stores/mediaStore.ts`, `src/stores/audioStore.ts`, `src/components/TurtleVideo.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/constants/sectionHelp.ts`, `Docs/specs/2026-08-08_endroll-logo.md`
+- **対象 flavor**: **standard（Android / PC）**。一括音設定 UI とエンドロールは 13-171 / 13-176 どおり standard 限定。保存スキーマは変えない。
+- **問題**:
+  - 13-208 / 13-211 / 13-212 は、クリップ全削除後も一括ミュート・一括音量・音量揃えを残して再追加へ継承する。そのため `clearAllMedia` / `clearAllAudio` だけでは、プレビューの「一括クリア」後も音声一括設定が残った。
+  - 13-176 はエンドロール区間でキャプションを描かず、全面塗りがクリップ合成を覆うため、エンドロールへ置いたキャプションがプレビュー／書き出しに出なかった。
+- **対策**:
+  - `resetBulkVideoAudioSettings()` / `resetBulkAudioSettings()` を追加する。プレビュー一括クリアだけが、クリップ削除のあとでこれらを呼ぶ。
+  - `clearAllMedia` / `clearAllAudio` は継承用にフラグを残す契約のまま（13-208 / 13-212）。
+  - 一括クリアの確認対象に一括設定・エンドロールを含め、空プロジェクト判定も一括フラグを見る。
+  - standard `renderFrame` はエンドロールと `scope='full'` のウォーターマークをキャプション抜きスナップショットより前に描き、キャプションはエンドロールの上へ重ねる。タイトルと倍速バッジは従来どおりエンドロール中は出さない。
+- **注意**:
+  - クリップ削除と一括音設定の初期化を混ぜない。前者は継承、後者はプレビュー一括クリア専用。
+  - エンドロールを早期 return すると BGM が止まる（13-176）。キャプションを重ねても rAF は継続する。
+  - キャプション追加の上限は従来どおり `totalDuration`（クリップ + エンドロール）。`clipsDuration` へ戻すとエンドロールへ置けなくなる。
+- **回帰ガード**: `mediaStore.test.ts` / `audioStore.test.ts` で reset と「clear は残して reset で初期化」、`captionTimeline.test.ts` でエンドロール時刻の表示対象、`sectionHelp.test.ts` で一括クリアとエンドロール案内を固定する。
+
+### 13-236. スロー export の音ズレはリアルタイムキャプチャ遅延。decode + WSOLA を第一経路にする
+
+- **ファイル**: `src/utils/audioTimeStretch.ts`, `src/utils/audioPitchPreservedCapture.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`, `src/test/audioTimeStretch.test.ts`
+- **対象 flavor**: **shared 音声 util + 両 export エンジン**。プレビュー再生・倍速 wall dilation・native 1x 連続再生・backpressure は変更しない。スロー UI は 13-206 どおり standard 限定だが、保存データに 0.5x がある場合の apple-safari export も同じ契約にする。
+- **問題**:
+  - プレビューの 0.5x は同一 `<video>` の `playbackRate` + `preservesPitch` なので映像と音声が同じパイプラインに乗り、口パクは合う。
+  - export 音声だけ一時 `<video>` でリアルタイムキャプチャしていた。`play()` 前から ScriptProcessor が無音を溜め、`preservesPitch` の処理遅延も先頭に残る。書き出し MP4 では人が喋ったあとで音声が聞こえる。低速ほど遅延が目立つ。
+- **対策**:
+  - `resolveExportSpeedAudioStrategy()`: 等倍=`source`、スロー=`offline-stretch`、倍速=`pitch-preserved-capture`。
+  - スローは `decodeAudioData` した PCM を `extractAndTimeCompressAudioBuffer(..., speed<1)` で伸長し、timeline 尺のバッファを rate=1 で載せる。サンプル正確でキャプチャ遅延が入らない。
+  - decode 失敗時だけ従来キャプチャへ倒す。キャプチャは `play()` 成功後から録音を始める。
+  - 倍速は従来どおりキャプチャ優先（プレビュー聴感合わせ）。失敗時は WSOLA、さらに失敗時だけ `playbackRate` フォールバック。
+- **守る不変条件**:
+  - 倍速映像の wall dilation（rate=1 + Δt/speed）とスロー映像の native `playbackRate=speed` は変えない（13-166 / 13-206）。
+  - スロー音声を再び `preservesPitch` キャプチャ第一経路へ戻さない。
+  - 先頭無音をエネルギー判定で切らない（クリップ本来の無音まで削ると音が先行する）。
+- **回帰ガード**: `audioTimeStretch.test.ts` で 0.5x の伸長尺、strategy、スケジュール（aligned PCM は offset=0 / rate=1）、スローがキャプチャより decode+stretch を先に使うことを固定する。
+- **改訂（13-237）**: WSOLA 第一経路は口パクは合うがプレビューより薄くデジタルエコーが乗る。現行はキャプチャ第一 + 参照 PCM で遅延だけ切る。本項の「キャプチャを第一経路に戻すな」は、**遅延切り無しの生キャプチャ**を指す。遅延整合付きキャプチャは 13-237。
+
+### 13-237. スロー export 音声はプレビューと同じ `preservesPitch` キャプチャを第一経路にし、参照 PCM で先頭遅延だけ切る
+
+- **ファイル**: `src/utils/audioTimeStretch.ts`, `src/utils/audioPitchPreservedCapture.ts`, `src/utils/index.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`, `src/test/audioTimeStretch.test.ts`
+- **対象 flavor**: **shared 音声 util + 両 export エンジン**。プレビュー再生・倍速 wall dilation・native 1x 連続再生・backpressure・queue 30/90・bitrate・CFR は変更しない。スロー UI は 13-206 どおり standard 限定だが、保存データに 0.5x がある場合の apple-safari export も同じ契約にする。
+- **問題**:
+  - 13-236 の decode + WSOLA 第一経路は、キャプチャ遅延を避けて口パクを合わせた。一方で簡易 WSOLA は Chromium の `preservesPitch` と音色が違い、書き出しだけ薄くデジタルエコーが乗る。
+  - プレビューは同一 `<video>` の `playbackRate=speed` + `preservesPitch=true` なので、ユーザーはプレビュー側の音質を正しいと感じる。
+  - 13-166 でも倍速は同じ理由でキャプチャを選んでいた。スローだけ WSOLA にすると聴感が割れる。
+- **対策**:
+  - `resolveExportSpeedAudioStrategy()`: 等倍=`source`、**非等倍（スロー含む）=`pitch-preserved-capture`**。`offline-stretch` はキャプチャ失敗時の予備。
+  - スローはキャプチャ PCM をそのまま使う。decode + WSOLA は **参照尺**としてだけ使い、`alignCapturedSpeedAudioToReference()` が RMS エンベロープ NCC（hop 10ms）で先頭遅延フレームを切る。
+  - 遅延採用条件: 最良スコア ≥ 0.25 かつ lag=0 より ≥ 0.08 改善。弱い相関では切らない（クリップ本来の無音を削らない）。
+  - 探索上限 `resolveExportCaptureMaxLagSec`: スローは `min(1.25, max(0.2, 0.45/speed))`、倍速は 0.2s。キャプチャ末尾余裕は maxLag + 0.1s。ソース終端後もその秒数だけ録音を続ける。
+  - キャプチャは 13-236 の `play()` 成功後から録音する契約を維持。先頭エネルギー無音切りは禁止。
+  - 両エンジンはスローだけ `alignCapturedToReference: playbackSpeed < 1`。倍速はキャプチャ成功時に stretch を走らせない。
+- **守る不変条件**:
+  - 倍速映像の wall dilation とスロー映像の native `playbackRate=speed` は変えない（13-166 / 13-206）。
+  - 遅延切り無しの生キャプチャをスロー第一経路へ戻さない（13-236 の音ズレ再発）。
+  - 先頭無音をエネルギー判定で切らない。
+  - 負の schedule offset を使わない。aligned PCM は rate=1 / offset=0。
+- **回帰ガード**: `audioTimeStretch.test.ts` で 0.5/0.8 がキャプチャ戦略、遅延検出、揃っているときは lag=0、スロー resolver がキャプチャ後に遅延切り、キャプチャ失敗時は stretch、倍速はキャプチャ成功時に stretch しないことを固定する。
+
+### 13-238. スロー export の薄いデジタルエコーは ScriptProcessor 塊と WSOLA ピーク正規化。プレビュー相当のキャプチャ量子へ寄せる
+
+- **ファイル**: `src/utils/audioPitchPreservedCapture.ts`, `src/utils/audioTimeStretch.ts`, `src/test/audioTimeStretch.test.ts`
+- **対象 flavor**: **shared 音声 util**。両 export エンジンは 13-237 の呼び出し契約のまま。プレビュー再生・倍速 wall dilation・native 1x 連続再生・backpressure・queue 30/90・bitrate・CFR は変更しない。
+- **問題**:
+  - 13-237 で口パクはプレビューと揃ったが、書き出しだけ少し軽く、デジタルエコーが残った。
+  - プレビューは同一 `<video>` の `playbackRate` + `preservesPitch` をネイティブ経路で鳴らす。export は同じ stretcher を ScriptProcessor 4096 サンプル塊で拾っており、スローの overlap-add とブロック境界が重なると薄いエコーになる。
+  - キャプチャ失敗時の簡易 WSOLA は窓加算のピークで全体を割っていたため、さらに沈んで聞こえた。
+- **対策**:
+  - キャプチャ順: `MediaStreamTrackProcessor`（音声量子）→ `AudioWorklet` → 出力を無音化した ScriptProcessor（1024）。プレビューと同じ `applyVideoElementPlaybackRate()` を使い、一時 video は `opacity:0.001` で DOM へ置く。
+  - `ended` ではすぐ切らず、preservesPitch 遅延バッファを末尾余裕まで吐く（13-237 の遅延切り契約）。
+  - WSOLA 予備経路は窓の重みで割って振幅を保ち、スローだけ窓を ~50ms にする。peak>1 の一括減衰はしない。
+- **守る不変条件**:
+  - 遅延切り無しの生キャプチャをスロー第一経路へ戻さない（13-236）。
+  - 先頭無音をエネルギー判定で切らない。
+  - 倍速映像の wall dilation とスロー映像の native `playbackRate=speed` は変えない。
+- **回帰ガード**: `audioTimeStretch.test.ts` で 0.5 倍の伸長尺維持に加え、正弦波の実効振幅が大きく落ちないことを固定する。
+- **実機確認**: 0.5x のプレビューと書き出し MP4 を聴き比べ、薄さ・デジタルエコーがプレビュー相当になること。ログの `captureMethod` が `track-processor` または `audio-worklet` になるかを見る。
+
+### 13-239. 倍速バッジの映像フェード連動・時分割英数字重み・画像終了の現在位置反映
+
+- **ファイル**: `src/utils/playbackSpeed.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/utils/captionTimeline.ts`, `src/utils/media.ts`, `src/components/media/ClipItem.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, 関連テスト
+- **対象 flavor**: 倍速バッジ描画と時分割配分は shared。倍速・画像現在位置ボタンの UI は既存の preview trim と同じく **standard（Android / PC）限定**。保存スキーマは変えない。
+- **問題**:
+  - 倍速バッジは最前面へ常時不透明で描いていたため、対象動画がフェードアウトして黒くなってもバッジだけ残った。
+  - 時分割キャプションは全コードポイントを同じ重みで数え、文字数が多くても比較的短く読める英単語・数字へ時間を割り当てすぎた。
+  - 画像は表示時間スライダーしかなく、プレビューで確認した終了位置へ直接合わせられなかった。
+- **対策**:
+  - `resolveSpeedBadgeFadeAlpha()` は映像描画と同じく fadeIn/fadeOut の個別秒数を使い、合計がクリップ尺を超える場合は同じ比率で按分する。両 preview エンジンは active clip の `localTime` をバッジ描画へ渡すため、preview と export の焼き込みで一致する。
+  - `getSequentialCaptionReadingWeight()` は Latin文字・数字を 0.8、その他を 1.0、空白を 0 とし、行の最低重み1を維持する。混在行も文字単位で計算する。
+  - `resolveImageDurationFromPreviewPosition()` が画像開始からプレビュー位置までを0.1秒へ丸め、0.5〜60秒だけ受け付ける。ワンボタンの表示は画像内なら「ここまで短縮」、末尾より後なら「ここまで延長」へ切り替え、反映後は新しい終端の1ms手前を再描画する。
+- **注意**:
+  - バッジだけ独自のフェード秒数を持たせない。対象動画の映像フェードを単一ソースにする。
+  - 時分割の英数字係数は行全体ではなく文字単位。日本語と英字が混ざる行を一律0.8倍にしない。
+  - 画像の終了位置へタイムライン絶対時刻をそのまま duration として保存しない。必ず `previewTime - timelineStart` へ座標変換する。
+  - 画像ボタンは既存の0.5〜60秒制約を越えてクリップ尺を拡張しない。表示切替でレイアウトが揺れないようボタン幅を固定し、読み上げ文言も延長／短縮へ連動させる。
+- **回帰ガード**: `playbackSpeed.test.ts` でフェード両端と短尺按分、`captionTimeline.test.ts` で英数字0.8・空白0・日本語1.0の配分、`media.test.ts` と `clipItemSpeedBadge.test.tsx` で画像の短縮／延長、範囲外・同値無効、ボタン文言を固定する。
+
+### 13-240. 自動プロジェクトポスターは先頭クリップ入れ替えに追従し、手動設定は維持する
+
+- **ファイル**: `src/utils/media.ts`, `src/stores/mediaStore.ts`, `src/components/TurtleVideo.tsx`, `src/test/media.test.ts`, `src/test/stores/mediaStore.test.ts`
+- **問題**:
+  - 自動サムネイルは並び替えで contentKey が変われば再キャプチャする想定だった（13-167）。
+  - ただし書き出し後に 1 本目と 2 本目を入れ替えると、再キャプチャが黒／未準備で失敗したときに **旧先頭クリップの画像を維持**していた。
+  - ユーザーからは「新しい 1 本目のサムネイルになっていない」と見える。手動設定まで動かすと意図しない上書きになる。
+- **対策**:
+  - `resolveAutoProjectPosterLeadingClipId()` で、自動キャプチャ時刻を覆うクリップ id を純ロジックで決める。
+  - `resolveAutoProjectPosterAfterMediaChange()` は **自動モードかつその id が変わったときだけ** 画像破棄を返す。手動モードは false。
+  - `moveMediaItem` / `removeMediaItem` 等は自動モードで先頭クリップが変わったら `projectPosterDataUrl` を即 `null` にする。後続クリップ同士の入れ替えでは残す。
+  - 再キャプチャは先頭クリップ変更時に旧画像を渡さない。失敗時も旧クリップ画像へ戻さない。export 後 remount（`reloadKey`）や画像未設定なら同じキーでも撮り直す。要素未配置は出現まで待つ。
+- **注意**:
+  - 手動ポスターは並び替え・削除でも mode / timelineTime / dataUrl を変えない。
+  - 同じ先頭の拡大・トリム失敗では従来どおり既存画像を維持する（黒上書き防止）。
+  - エンドロール表示中のキャプチャ見送りは維持する。先頭入れ替えで画像は先に破棄されるので、本編へ戻った時点で新しい先頭を撮り直す。
+- **回帰ガード**: `media.test.ts` で先頭 id の入れ替え判定、`mediaStore.test.ts` で自動破棄・手動維持・後続クリップ入れ替え維持を固定する。
+
+### 13-241. トリム済み動画の余りを「続きを追加」で直後クリップにする
+
+- **ファイル**: `src/utils/media.ts`, `src/stores/mediaStore.ts`, `src/components/media/ClipItem.tsx`, `src/components/sections/ClipsSection.tsx`, `src/constants/sectionHelp.ts`, `src/test/media.test.ts`, `src/test/stores/mediaStore.test.ts`, `src/test/clipItemSpeedBadge.test.tsx`
+- **対象 flavor**: UI は **standard（Android / PC）のみ**（簡単コピーと同じ `!isIosSafari` ゲート）。純ロジックと `mediaStore.addContinuationMediaItem` は shared。保存スキーマは変えない。
+- **問題**:
+  - 既存の青いコピーは同じ trim / 見た目の複製。同じ素材の続き（例: 1分素材を35秒で切ったあとの 35秒〜終端）を作りたいときに、コピーしてから開始を手で直す必要がある。
+  - コピーの既定を続きに変えると、同じ区間の複製（F2）が壊れる。
+- **対策**:
+  - コピーは従来どおり同じ区間の複製。
+  - 余りが最低尺（0.1秒）以上ある動画だけ、トリミング欄の終了スライダー下に「続きを追加コピー（35.00s 〜 60.00s）」を出す。ボタンは折り返し、時刻が切れない。
+  - 押すと現行クリップは触らず、`trimStart = 現行 trimEnd` / `trimEnd = originalDuration` の独立クリップを直後へ挿入する。タイムライン尺は `(余り) / playbackSpeed`。
+  - 拡大・位置・回転・ぼかし・音量・ミュート・倍速・フェード・速度バッジは引き継ぐ。開閉・個別ロックは引き継がない。サムネイルは新しい有効開始の auto にする。
+  - 終端一致、余り不足、画像、不明 id では何もしない。
+- **注意**:
+  - ObjectURL は複製と同じく新規発行し、削除時の既存 revoke 経路で解放する。
+  - 直後挿入なので先頭クリップは変わらず、自動ポスター破棄条件（13-240）は通常発火しない。
+  - apple-safari にはボタンを出さない。ヘルプのコピー／続き案内も iOS では出さない。
+- **回帰ガード**: `media.test.ts` で余り計算、`mediaStore.test.ts` で挿入・終端一致・画像、`clipItemSpeedBadge.test.tsx` でボタン表示／非表示／ロックを固定する。
+- **改訂**: ボタン文言を「続きを追加」から「続きを追加コピー」へ変更。同じ区間の青いコピーと区別し、`flex-wrap` で時刻表示が切れないようにする。
+
+### 13-242. 合成の重ね順を 映像 → ウォーターマーク → キャプション にする
+
+- **ファイル**: `src/utils/watermarkOverlay.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/constants/sectionHelp.ts`, `src/test/watermarkOverlay.test.ts`
+- **対象 flavor**: preview 描画は **standard / apple-safari の両方**。export は preview の `drawFrame` 再利用のため同じ順になる。保存スキーマは変えない。
+- **問題**: ウォーターマークをキャプション・タイトルの後に描いていたため、字幕がロゴに隠れた。
+- **対策**:
+  - キャプション抜きスナップショットの直後、キャプションより前に `drawWatermarkOverlayFrame()` を呼ぶ。
+  - `shouldDrawWatermarkOnCompositeFrame()` で本編は常に載せ、エンドロールは `scope=full` のときだけ載せる。
+  - スナップショットはロゴより前に取る（ロゴミニプレビューの二重描画防止）。
+- **注意**: 倍速バッジは従来どおりキャプションより前（最前面）。タイトルもキャプションの直後で、ウォーターマークより手前。
+- **回帰ガード**: `watermarkOverlay.test.ts` で本編／エンドロールの載せる条件を固定する。
+
+### 13-243. ウォーターマーク／キャプションの終端フェードアウトを可視終端へ合わせる
+
+- **ファイル**: `src/utils/rangeFade.ts`, `src/utils/watermarkOverlay.ts`, `src/utils/captionTimeline.ts`, `src/utils/captionLayerRender.ts`, `src/utils/endrollOverlay.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/apple-safari/preview/usePreviewEngine.ts`, `src/components/TurtleVideo.tsx`, `src/components/common/LogoMiniPreview.tsx`, `src/constants/sectionHelp.ts`, 関連テスト
+- **対象 flavor**: 描画は **standard / apple-safari の両方**（export は preview の drawFrame 再利用）。UI のロゴ設定は standard のみ。
+- **問題**:
+  - ウォーターマークは既定が「本編のみ」なのに、画像追加時の endTime がエンドロール込みの総尺になることがあった。フェードアウトは保存された endTime 基準のため、本編の終わりではまだ不透明度 1 のまま切れ、フェードが見えなかった。
+  - キャプションも endTime が動画より先だと、終端フェードがタイムラインの外になり、動画の終わりで突然消えて見えた。
+- **対策**:
+  - `calculateLinearRangeFadeAlpha()` に線形フェードを集約。イン＋アウトが区間より長いときは按分する。
+  - ウォーターマークは `scope=main` なら `min(endTime, clipsDuration)` を可視終端にしてフェードする。
+  - キャプションは `min(endTime, timelineEndSec)` をフェード終端にする。カードが短くても按分する。
+  - 新規ウォーターマーク画像は本編尺（clipsDuration）を初期 endTime にする。
+- **注意**: 全編指定のウォーターマークは従来どおり overlay.endTime（エンドロール末尾）でフェードする。
+- **回帰ガード**: `watermarkOverlay.test.ts` と `captionTimeline.test.ts` で本編／タイムライン終端のフェードを固定する。
+
+### 13-244. トリム済み動画の export 準備で元ファイル全尺の音声抽出をしない
+
+- **ファイル**: `src/utils/exportAudioExtract.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/flavors/apple-safari/export/exportEngine.ts`, `src/test/exportAudioExtract.test.ts`
+- **対象 flavor**: **standard と apple-safari の export**。保存スキーマは変えない。
+- **問題**:
+  - 書き出し前の OfflineAudio 準備は、動画クリップ音声を `decodeAudioData`（失敗時は `<video>` のリアルタイム抽出）で取る。
+  - 抽出尺に `originalDuration`（トリム前）を渡していたため、40秒素材を7秒に切っても最大で約40秒待たされた。
+  - standard は音声バッファ完了まで映像 encode を始めず、「書き出し準備中」がさらに伸びた。
+- **対策**:
+  - PC/Android の成功経路は従来どおり `decodeAudioData`（全ファイル）→ trimStart オフセット。品質を変えない。
+  - decode 失敗時と iOS の media-element 経路だけ、トリム開始へシークして必要尺を抽出する。
+  - 区間抽出した PCM には元の trimStart を足さない（二重トリムで音が欠けるのを防ぐ）。
+  - 音声 encode は従来どおり映像完了後。live キャプチャの失敗フォールバックも維持する。
+- **注意**:
+  - ほぼ全尺を使うクリップは従来どおり全ファイル decode（短いリアルタイム抽出より速いことがある）。
+  - BGM / ナレーションの音声ファイル decode は今回触らない。長い BGM は数秒足すことがある。
+  - キャプション自体は準備時間の主因ではない。
+  - 区間抽出は既存の `<video>` キャプチャ経路。シーク誤差は残りうるが、失敗時フォールバックと同等の品質。
+- **回帰ガード**: `exportAudioExtract.test.ts` で 40秒→7秒は区間抽出、ほぼ全尺は全ファイル decode を固定する。
+
+### 13-245. プロジェクトサムネイル設定もクリップと同じホバー／タップ拡大にする
+
+- **ファイル**: `src/components/common/ThumbnailZoomPreview.tsx`, `src/components/sections/PreviewSection.tsx`, `src/constants/sectionHelp.ts`, `src/test/previewSectionActionButtons.test.tsx`
+- **対象 flavor**: UI は **standard（Android/PC）** のプレビュー「動画出力オプション」。apple-safari はプロジェクトポスター非表示のまま。
+- **問題**: クリップカードのミニサムネは 13-200 で拡大できるが、プレビュー下のサムネイル設定は小さく、内容を確認しづらかった。
+- **対策**:
+  - `ThumbnailZoomPreview` でクリップと同じ操作（PC はホバー浮き出し、タッチはタップライトボックス）。
+  - 画像があるときだけ拡大可能。未表示は従来どおり。
+- **注意**: 保存契約・自動/手動切替・export の cover art は変えない。
+- **回帰ガード**: `previewSectionActionButtons.test.tsx` でホバー拡大とタップライトボックスを固定する。
+
+### 13-246. 自動プロジェクトポスターはトリム・並び替えで対象フレームを撮り直し、holdFrame を採用しない
+
+- **ファイル**: `src/utils/media.ts`, `src/stores/mediaStore.ts`, `src/components/TurtleVideo.tsx`, `src/test/media.test.ts`, `src/test/stores/mediaStore.test.ts`
+- **対象 flavor**: 判定と store は **shared**。UI/再キャプチャは既存どおり `supportsProjectPoster`（standard）。apple-safari はポスター非表示のまま。
+- **問題**:
+  - 13-240 は「先頭クリップ id」が変わったときだけ画像を破棄していた。同じ id のまま開始トリムや倍速を変えても古い先頭フレームが残った。
+  - 再キャプチャは `renderFrame(autoTime)` の直後に `previousTime` へ戻してから待ち、capture の rAF 内で再度シークしていた。シーク未完了の canvas は直前プレビューの holdFrame のままなので、黒判定をすり抜けて **古い動画を新サムネとして採用**していた。
+- **対策**:
+  - `resolveAutoProjectPosterCaptureIdentity()` は先頭クリップ id + type + duration + trimStart + trimEnd + playbackSpeed。
+  - `resolveAutoProjectPosterAfterMediaChange()` はこの指紋が変わったときだけ破棄。手動モードは false のまま。
+  - `updateVideoTrim` / `setVideoDuration` / `updateImageDuration` / `updateVideoPlaybackSpeed` / `updateMediaItem` でも自動モードなら画像を即 `null`。後続クリップのトリムや `updateScale` では残す。
+  - 再キャプチャは video だけ先に対象ソース時刻へシークし、描画可能かつ時刻が着いてから canvas を読む。未着なら null（holdFrame 不採用）。指紋変更の失敗時は旧画像へ戻さない。
+- **注意**:
+  - 手動ポスターは並び替え・削除・トリムでも mode / timelineTime / dataUrl を変えない（13-240 維持）。
+  - 同じ先頭の拡大・位置・回転・ぼかしは指紋に含めない。失敗時は従来どおり既存画像を維持する。
+  - 待ちの途中で previousTime へ戻すとシークが打ち消される。cleanup でプレビュー位置を戻す。
+- **回帰ガード**: `media.test.ts` で先頭トリム／速度の破棄と後続トリム維持、キャプチャ対象ソース時刻。`mediaStore.test.ts` で trim/speed/image duration の自動破棄、手動維持、scale 維持。
+
+### 13-247. 動画・画像カードは折りたたみ、プレビュー位置の1枚だけ追従して開く
+
+- **ファイル**: `Docs/specs/2026-09-22_clip-card-disclosure.md`, `src/utils/clipCardDisclosure.ts`, `src/components/media/ClipItem.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/TurtleVideo.tsx`, `src/stores/mediaStore.ts`, `src/constants/sectionHelp.ts`, `src/test/clipCardDisclosure.test.ts`, `src/test/clipCardDisclosure.ui.test.tsx`
+- **対象 flavor**: **shared**。standard と apple-safari の同じカード一覧。`isIosSafari` による出し分けはしない。
+- **問題**: 表示区間を常時開いていると、枚数が増えたときに並びと尺が見えない。常に閉じると、プレビューを止めて直すたびに開く操作が増える。
+- **対策**:
+  - 2026-09-23 のカード操作改善: shared のカードヘッダーをサムネイル＋右側3行に統一。番号はサムネイル左上へ重ね、右側は開閉・ロック・上下移動・コピー・削除／種類＋ファイル名／区間・尺・倍率・ミュートの順。開いたカードでも同じヘッダーを保ち、編集欄の重複したタイムライン区間は省く。開閉ボタンと操作ボタンは 28px（h-7 w-7）で統一し、開閉ボタンは左、他の操作は gap-1 で右寄せ。過度な巨大化を防ぎカード全体のプロポーションを整える。サムネイルは 104×61 の横長比率で3行の上下中央に揃え、閉じたカードの下余白を詰める。ファイル名はタッチでも開閉する。PC の全文ホバーは維持し、サムネイル拡大は開閉と分離する。旧2行配置とタッチのファイル名ポップアップは廃止。
+  - フォーカスは `findActiveTimelineItemWithTransitions`（開始以上・終了未満、ディゾルブは後ろ、本編終了以降は最後）。枠は再生中も追従する。
+  - 開閉は `ClipsSection` のセッション state。再生位置について開く1枚と、自分で開いたカードを分ける。再生中の連続した進みと、終端到達・一時停止では高さも開閉も変えない。枠だけが付く。停止中のスライダー移動と、再生中の 0.5 秒以上のジャンプ、1件の追加・複製・続きを追加コピーで追従カードを入れ替える。複数同時追加は最後のカードを開かず、プレビュー位置のカードを開いてそこへスクロールする。
+  - 「すべて開く」「すべて閉じる」は見出しの直下、一覧スクロールの外。2枚以上のときだけ。ロック中でも押せる。
+  - 保存データには入れない。`restoreFromSave` は実行時の `clipListRestoreEpoch` だけを増やし、読み込み直したあとは再生位置のカードだけ開く。
+  - セクション見出しも BGM と同じく開閉する。起動時に 0 件なら閉じ、保存プロジェクトの読み込みで 1 件以上なら開く。件数増加（追加）でも開く。
+- **注意**:
+  - `isTransformOpen` は従来どおり保存される内側アコーディオンであり、カード全体の開閉ではない。カードを開いても音量・再生速度は自動で開かない。
+  - 明示的に閉じた再生位置は、その区間にいる間は開き直さない。別カードへスライダーで戻したときに開く。再生が終端まで進んで止まっても開き直さない。
+  - 閉じた瞬間にカーソルがサムネイル上にあるときだけ、その場で動かしても拡大しない。外してから再び乗ったときに拡大する。閉じていなかった場所へあとから載せたときは、そのまま拡大する。
+- **回帰ガード**: `clipCardDisclosure.test.ts` で追従・抑制・追加・読み込み直し。`clipCardDisclosure.ui.test.tsx` で折りたたみ、再生中の枠、一時停止での入れ替え、ロック中の一括開閉。
+
+### 13-248. PC の初期表示だけキャプションの下端をプレビューに揃える
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/components/sections/CaptionSection.tsx`
+- **対象 flavor**: **shared** の PC 幅（`lg`）。モバイルは縦積みのまま。
+- **問題**: 素材が未登録の初期表示で、左のキャプションカードの下端が右のプレビューカードより少し下にはみ出す。
+- **対策**: 動画・画像・BGM・ナレーション・キャプションがすべて空のときだけ、左カラムの高さをプレビュー列に合わせ、キャプションの空一覧が伸縮して下端が揃う。どれか登録されると通常の縦積みに戻す。
+- **注意**: 左カラムをプレビューの高さに固定すると、設定を開いたときにページがスクロールできなくなる。高さ固定は使わず、左カラムは通常の縦スクロールにする。タイトル設定を開いたときは、キャプションと同じミニプレビューで現在フレームにタイトルを重ねる。
+
+### 13-249. 起動直後とウィンドウ復帰で動画サムネを再生マークのままにしない
+
+- **ファイル**: `src/components/common/ClipThumbnail.tsx`
+- **問題**: ブラウザを閉じて開き直すと、複数の動画サムネが同時にデコードを始めて失敗し、再生マークのまま残る。プレビューを動かすと取り直されて復帰する。別ウィンドウから戻っても、失敗したままなら表示されない。
+- **対策**: 動画サムネのデコードは同時2本まで。失敗したカードは再生マークを出さずに短い間隔で取り直し、`visibilitychange` / `focus` / `pageshow` で戻ったときも失敗分だけ取り直す。成功したサムネは取り直さない。メタデータ待ちは1.5秒で打ち切り、後ろのカードを止めない。
+- **注意**: 再生マークは失敗時の仮表示。成功するまで画面上に残し、途中の黒フレームは出さない。
+
+### 13-250. 自動サムネイルは先頭フレーム。黒いときだけ直後へ進む
+
+- **ファイル**: `src/utils/media.ts`, `src/components/common/ClipThumbnail.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`
+- **問題**: 自動サムネイルが有効開始 +0.2 秒だったため、繰り返しの先頭で 0.2 秒地点の絵が一瞬見え、先頭フレームと違って見えた。0.2 秒は先頭黒フレームを避けるための位置だった。
+- **対策**: クリップの自動位置は有効範囲の先頭。キャプチャが黒なら 1/30 秒、0.05 秒、0.1 秒、0.2 秒の順で最初の非黒フレームを使う。プロジェクトポスターはプレビューの先頭黒クリア（0.05 秒以下）の直後を撮る。
+- **注意**: プレビュー停止中の `time <= 0.05` 黒クリアは変えない。ポスターをその帯で撮ると必ず黒になる。
