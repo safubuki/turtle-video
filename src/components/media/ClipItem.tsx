@@ -300,7 +300,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
     return `現在位置(${formatTimelineTime(currentTime)})まで画像の表示時間を${action}`;
   })();
 
-  // リスト用サムネはクリップ単位の自動位置（有効開始+0.2s）。
+  // リスト用サムネはクリップの先頭フレーム。先頭が黒のときだけ直後を使う。
   // プロジェクト全体のポスター設定はプレビューセクション側（複数クリップ合成前提）。
   const thumbnailSourceTime = v.type === 'video' ? resolveMediaThumbnailSourceTime({
     ...v,

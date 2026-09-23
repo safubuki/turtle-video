@@ -137,7 +137,7 @@ describe('動画・画像カードの折りたたみ', () => {
     expect(screen.queryByTestId('clip-card-body-a')).not.toBeInTheDocument();
   });
 
-  it('再生中は枠だけが移り、止めたときに停止位置のカードが開く', () => {
+  it('再生中と終端停止ではカードを開かず、停止中のスライダー移動で開く', () => {
     const items = [createImage('a'), createImage('b')];
     const { rerender, props } = renderSection({
       mediaItems: items,
@@ -151,6 +151,11 @@ describe('動画・画像カードの折りたたみ', () => {
     expect(screen.queryByTestId('clip-card-body-b')).not.toBeInTheDocument();
     expect(screen.getByTestId('clip-card-body-a')).toBeInTheDocument();
 
+    rerender(<ClipsSection {...props} mediaItems={items} currentTime={6} isPlaying={false} />);
+    expect(screen.queryByTestId('clip-card-body-b')).not.toBeInTheDocument();
+    expect(screen.getByTestId('clip-card-body-a')).toBeInTheDocument();
+
+    rerender(<ClipsSection {...props} mediaItems={items} currentTime={0} isPlaying={false} />);
     rerender(<ClipsSection {...props} mediaItems={items} currentTime={6} isPlaying={false} />);
     expect(screen.getByTestId('clip-card-body-b')).toBeInTheDocument();
     expect(screen.queryByTestId('clip-card-body-a')).not.toBeInTheDocument();

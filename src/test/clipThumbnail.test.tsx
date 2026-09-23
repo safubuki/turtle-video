@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ClipThumbnail from '../components/common/ClipThumbnail';
 
@@ -22,6 +22,16 @@ vi.mock('../utils/media', async () => {
     isCanvasEffectivelyBlank: () => false,
   };
 });
+
+async function flushHoverSettleFrames() {
+  await act(async () => {
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => resolve());
+      });
+    });
+  });
+}
 
 function installMatchMediaMock(matches: boolean) {
   matchMediaMatchesMock.mockReturnValue(matches);
@@ -268,13 +278,38 @@ describe('ClipThumbnail', () => {
       'prominent',
     );
 
-    fireEvent.mouseEnter(trigger);
+    const prominentTrigger = screen.getByRole('button', { name: /マウスオーバーで拡大/ });
+    await flushHoverSettleFrames();
+    fireEvent.mouseEnter(prominentTrigger);
     expect(await screen.findByTestId('clip-thumbnail-hover-preview')).toBeInTheDocument();
 
-    fireEvent.mouseLeave(trigger);
+    fireEvent.mouseLeave(prominentTrigger);
     await waitFor(() => {
       expect(screen.queryByTestId('clip-thumbnail-hover-preview')).not.toBeInTheDocument();
     });
+  });
+
+  it('閉じたときに乗っていた場合だけ、外してから再度載せると拡大する', async () => {
+    installMatchMediaMock(true);
+    installVideoElementMock();
+
+    const file = new File(['video'], 'already-hover.mp4', { type: 'video/mp4' });
+    const { rerender } = render(<ClipThumbnail file={file} type="video" />);
+    const trigger = await screen.findByRole('button', { name: /マウスオーバーで拡大/ });
+    await waitFor(() => expect(trigger).not.toBeDisabled());
+
+    const matches = vi.spyOn(trigger, 'matches').mockImplementation((selector: string) => selector === ':hover');
+    rerender(<ClipThumbnail file={file} type="video" displaySize="prominent" />);
+    await flushHoverSettleFrames();
+
+    fireEvent.mouseEnter(trigger);
+    fireEvent.mouseMove(trigger, { movementX: 6, movementY: 3 });
+    expect(screen.queryByTestId('clip-thumbnail-hover-preview')).not.toBeInTheDocument();
+
+    fireEvent.mouseLeave(trigger);
+    matches.mockImplementation(() => false);
+    fireEvent.mouseEnter(trigger);
+    expect(await screen.findByTestId('clip-thumbnail-hover-preview')).toBeInTheDocument();
   });
 
   it('タッチ端末ではタップでライトボックスを開き、背景タップで閉じる', async () => {

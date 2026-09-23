@@ -124,7 +124,7 @@ export interface MediaItem {
   transitionToNext?: ClipTransition | null;
   /**
    * 動画サムネイルの設定モード（動画のみ。旧データは auto 扱い）
-   * - auto: 有効開始位置から 0.2 秒後（短い場合は中央）
+   * - auto: 有効範囲の先頭フレーム（先頭が黒のときだけ直後の非黒フレーム）
    * - manual: ユーザーが指定した元動画上の時刻
    */
   thumbnailMode?: 'auto' | 'manual';

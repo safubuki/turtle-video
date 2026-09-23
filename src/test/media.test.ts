@@ -24,7 +24,7 @@ import {
   canAddVideoContinuation,
   computeVideoTrimFromPreviewPosition,
   canSetVideoTrimFromPreviewPosition,
-  AUTO_THUMBNAIL_OFFSET_SEC,
+  AUTO_POSTER_TIMELINE_TIME_SEC,
   computeAutoThumbnailSourceTime,
   isThumbnailSourceTimeInRange,
   resolveThumbnailAfterTrimChange,
@@ -461,16 +461,13 @@ describe('computeVideoTrimFromPreviewPosition', () => {
 });
 
 describe('video thumbnail auto/manual (Issue #208)', () => {
-  it('auto time is sourceTrimStart + 0.2 for untrimmed and trimmed clips', () => {
-    expect(computeAutoThumbnailSourceTime(0, 10)).toBeCloseTo(AUTO_THUMBNAIL_OFFSET_SEC);
-    // 開始を 2s にトリム → 2.2s
-    expect(computeAutoThumbnailSourceTime(2, 10)).toBeCloseTo(2.2);
+  it('auto time is the first frame of the playable range', () => {
+    expect(computeAutoThumbnailSourceTime(0, 10)).toBeCloseTo(0);
+    expect(computeAutoThumbnailSourceTime(2, 10)).toBeCloseTo(2);
   });
 
-  it('uses midpoint for very short clips instead of going out of range', () => {
-    // 有効尺 0.1s → 中央 0.05
-    expect(computeAutoThumbnailSourceTime(1, 1.1)).toBeCloseTo(1.05, 2);
-    // 有効尺ちょうど 0.2s 以下
+  it('stays inside a very short clip', () => {
+    expect(computeAutoThumbnailSourceTime(1, 1.1)).toBeCloseTo(1);
     const t = computeAutoThumbnailSourceTime(0, 0.15);
     expect(t).toBeGreaterThanOrEqual(0);
     expect(t).toBeLessThan(0.15);
@@ -497,7 +494,7 @@ describe('video thumbnail auto/manual (Issue #208)', () => {
     });
     expect(fallback.thumbnailMode).toBe('auto');
     expect(fallback.fellBackToAuto).toBe(true);
-    expect(fallback.thumbnailSourceTime).toBeCloseTo(2.2);
+    expect(fallback.thumbnailSourceTime).toBeCloseTo(2);
   });
 
   it('auto always recomputes from current trim start', () => {
@@ -508,7 +505,7 @@ describe('video thumbnail auto/manual (Issue #208)', () => {
       sourceTrimEnd: 12,
     });
     expect(resolved.thumbnailMode).toBe('auto');
-    expect(resolved.thumbnailSourceTime).toBeCloseTo(5.2);
+    expect(resolved.thumbnailSourceTime).toBeCloseTo(5);
     expect(resolved.fellBackToAuto).toBe(false);
   });
 
@@ -560,9 +557,9 @@ describe('video thumbnail auto/manual (Issue #208)', () => {
     }
   });
 
-  it('project poster auto time uses timeline 0.2s (not per-clip)', () => {
-    expect(computeAutoProjectPosterTimelineTime(10)).toBeCloseTo(0.2);
-    expect(computeAutoProjectPosterTimelineTime(0.1)).toBeCloseTo(0.05);
+  it('project poster auto time stays just after the preview start clear', () => {
+    expect(computeAutoProjectPosterTimelineTime(10)).toBeCloseTo(AUTO_POSTER_TIMELINE_TIME_SEC);
+    expect(computeAutoProjectPosterTimelineTime(0.1)).toBeCloseTo(AUTO_POSTER_TIMELINE_TIME_SEC);
     expect(computeAutoProjectPosterTimelineTime(0)).toBe(0);
   });
 
@@ -718,7 +715,7 @@ describe('video thumbnail auto/manual (Issue #208)', () => {
       20,
     );
     expect(trimmed?.clipId).toBe('a');
-    expect(trimmed?.sourceTime).toBeCloseTo(10.2);
+    expect(trimmed?.sourceTime).toBeCloseTo(10 + AUTO_POSTER_TIMELINE_TIME_SEC);
 
     const sped = resolveAutoProjectPosterCaptureTarget(
       [{
@@ -732,21 +729,14 @@ describe('video thumbnail auto/manual (Issue #208)', () => {
       }],
       5,
     );
-    expect(sped?.sourceTime).toBeCloseTo(0.4);
+    expect(sped?.sourceTime).toBeCloseTo(AUTO_POSTER_TIMELINE_TIME_SEC * 2);
   });
 
   // --- 自動サムネイル黒画像対策 ---
   it('auto poster capture time stays outside the preview start clear zone', () => {
-    // 通常尺: 表示上の自動時刻 0.2s をそのまま使う（クリア帯の外）
-    expect(resolveAutoProjectPosterCaptureTime(10)).toBeCloseTo(0.2);
-
-    // 短尺: 表示時刻は 0.05s でクリア帯に入るため、キャプチャは外へ押し出す
-    expect(computeAutoProjectPosterTimelineTime(0.1)).toBeLessThanOrEqual(
-      PREVIEW_START_CLEAR_ZONE_SEC,
-    );
-    expect(resolveAutoProjectPosterCaptureTime(0.1)).toBeGreaterThan(
-      PREVIEW_START_CLEAR_ZONE_SEC,
-    );
+    expect(resolveAutoProjectPosterCaptureTime(10)).toBeCloseTo(AUTO_POSTER_TIMELINE_TIME_SEC);
+    expect(resolveAutoProjectPosterCaptureTime(10)).toBeGreaterThan(PREVIEW_START_CLEAR_ZONE_SEC);
+    expect(resolveAutoProjectPosterCaptureTime(0.1)).toBeGreaterThan(PREVIEW_START_CLEAR_ZONE_SEC);
 
     // 総尺を越えない
     expect(resolveAutoProjectPosterCaptureTime(0.02)).toBeLessThanOrEqual(0.02);

@@ -970,7 +970,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
                               onClick={onResetProjectPosterToAuto}
                               disabled={areVideoOutputOptionsLocked || isLoading}
                               className="flex min-h-9 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-[10px] text-gray-200 transition hover:border-blue-500/60 hover:text-blue-100 disabled:cursor-not-allowed disabled:opacity-30 md:text-xs"
-                              title="タイムライン先頭付近（約0.2秒）のフレームを自動取得"
+                              title="タイムライン先頭フレームを自動取得。先頭が黒いときは直後のフレーム"
                             >
                               <RefreshCw className="h-3.5 w-3.5" />
                               自動設定に戻す

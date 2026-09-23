@@ -479,11 +479,14 @@ export function canAddVideoContinuation(params: VideoContinuationTrimParams): bo
   return computeVideoContinuationTrim(params) !== null;
 }
 
-/** 自動サムネイル: クリップ有効開始からの既定オフセット（秒） */
-export const AUTO_THUMBNAIL_OFFSET_SEC = 0.2;
+/**
+ * 自動サムネイルは有効範囲の先頭フレーム。
+ * 先頭が黒のときは、この順で後ろのフレームを試す。
+ */
+export const AUTO_THUMBNAIL_OFFSET_SEC = 0;
 
-/** 自動サムネイル再試行: 有効開始からのオフセット候補（秒） */
-export const AUTO_THUMBNAIL_RETRY_OFFSETS_SEC = [0.2, 0.3, 0.5] as const;
+/** 自動サムネイル再試行: 有効開始からのオフセット候補（秒）。先頭を優先する */
+export const AUTO_THUMBNAIL_RETRY_OFFSETS_SEC = [0, 1 / 30, 0.05, 0.1, 0.2, 0.5] as const;
 
 /**
  * preview engine がタイムライン先頭で強制的に黒クリアする帯（秒）。
@@ -493,9 +496,15 @@ export const AUTO_THUMBNAIL_RETRY_OFFSETS_SEC = [0.2, 0.3, 0.5] as const;
 export const PREVIEW_START_CLEAR_ZONE_SEC = 0.05;
 
 /**
+ * プロジェクトポスターをプレビューキャンバスから撮るときの最早時刻。
+ * time <= 0.05 は停止中に黒クリアされるため、その直後を先頭扱いにする。
+ */
+export const AUTO_POSTER_TIMELINE_TIME_SEC = PREVIEW_START_CLEAR_ZONE_SEC + 0.01;
+
+/**
  * 自動サムネイルの元動画上時刻を計算する。
- * 常に sourceTrimStart + 0.2s を基準とし、有効尺が 0.2s 以下なら中央を使う。
- * 終端そのものにはならないよう、デコード可能な範囲へわずかに寄せる。
+ * 有効範囲の先頭フレームを使い、終端ちょうどにはしない。
+ * 先頭が黒の場合の撮り直しは buildThumbnailSeekCandidates 側で行う。
  */
 export function computeAutoThumbnailSourceTime(
   sourceTrimStart: number,
@@ -506,15 +515,8 @@ export function computeAutoThumbnailSourceTime(
   const duration = end - start;
   if (duration <= 0) return start;
 
-  // 終端ちょうどは黒/未デコードになりやすいので僅かに手前へ
   const maxSeek = Math.max(start, end - Math.min(0.05, duration * 0.25));
-
-  if (duration > AUTO_THUMBNAIL_OFFSET_SEC) {
-    return Math.min(start + AUTO_THUMBNAIL_OFFSET_SEC, maxSeek);
-  }
-
-  // 短いクリップ: 中央付近
-  return Math.min(start + duration / 2, maxSeek);
+  return Math.min(start, maxSeek);
 }
 
 /**
@@ -690,14 +692,14 @@ export function resolveMediaThumbnailSourceTime(item: {
 
 /**
  * プロジェクト全体のポスター（アプリ内プレビュー用サムネ）の自動時刻。
- * タイムライン先頭付近の黒/未描画を避け、0.2s（短い作品は中央）を使う。
+ * 先頭フレームにできるだけ寄せ、プレビューの先頭黒クリア帯だけ外す。
  * ※エクスプローラー等の OS アイコンとは別物（export コンテナへは埋め込まない）。
  */
 export function computeAutoProjectPosterTimelineTime(totalDuration: number): number {
   const d = Number.isFinite(totalDuration) ? Math.max(0, totalDuration) : 0;
   if (d <= 0) return 0;
-  if (d > AUTO_THUMBNAIL_OFFSET_SEC) {
-    return Math.min(AUTO_THUMBNAIL_OFFSET_SEC, Math.max(0, d - 0.05));
+  if (d > AUTO_POSTER_TIMELINE_TIME_SEC + 0.001) {
+    return AUTO_POSTER_TIMELINE_TIME_SEC;
   }
   return Math.min(d / 2, Math.max(0, d - 0.001));
 }
@@ -747,7 +749,7 @@ export function buildAutoProjectPosterContentKey(
       transitionKey,
     ].join(':');
   });
-  return `${aspectRatio}|${durationKey}|${itemKeys.join('|')}`;
+  return `${aspectRatio}|${durationKey}|first-frame|${itemKeys.join('|')}`;
 }
 
 /**

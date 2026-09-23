@@ -205,16 +205,14 @@ export function stepClipCardDisclosure(
   }
 
   const focusMoved = input.focusId !== input.previousFocusId;
-  if (input.isPlaying) {
-    const jumped = focusMoved && input.focusChangeDeltaSec >= CLIP_CARD_SEEK_JUMP_SEC;
-    if (jumped) {
+  // 再生中の連続した進みと、終端で再生が止まることは開かない。
+  // スライダーで時刻が大きく飛んだときだけ、再生中でもシークとして開く。
+  const sliderJump = focusMoved && input.focusChangeDeltaSec >= CLIP_CARD_SEEK_JUMP_SEC;
+  if (input.isPlaying || input.wasPlaying) {
+    if (sliderJump) {
       return { state: applyClipCardSeek(next, input.focusId), scrollToId: input.focusId };
     }
     return { state: noteClipFocusDuringPlayback(next, input.focusId), scrollToId: null };
-  }
-
-  if (input.wasPlaying) {
-    return { state: applyClipCardPause(next, input.focusId), scrollToId: input.focusId };
   }
 
   if (focusMoved) {

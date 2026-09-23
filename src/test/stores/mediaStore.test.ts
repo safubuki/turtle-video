@@ -874,7 +874,7 @@ describe('mediaStore', () => {
   });
 
   describe('video thumbnail mode', () => {
-    it('setVideoDuration initializes auto thumbnail at +0.2s', () => {
+    it('setVideoDuration initializes auto thumbnail at the first frame', () => {
       useMediaStore.setState({
         mediaItems: [
           {
@@ -893,7 +893,7 @@ describe('mediaStore', () => {
       useMediaStore.getState().setVideoDuration('a', 10);
       const item = useMediaStore.getState().mediaItems[0];
       expect(item.thumbnailMode).toBe('auto');
-      expect(item.thumbnailSourceTime).toBeCloseTo(0.2);
+      expect(item.thumbnailSourceTime).toBeCloseTo(0);
     });
 
     it('setVideoThumbnailManual switches to manual and stores source time', () => {
@@ -930,7 +930,7 @@ describe('mediaStore', () => {
             trimStart: 2,
             trimEnd: 7,
             thumbnailMode: 'auto',
-            thumbnailSourceTime: 2.2,
+            thumbnailSourceTime: 2,
           } as any,
         ],
       });
@@ -939,7 +939,7 @@ describe('mediaStore', () => {
       expect(ok).toBe(false);
       const item = useMediaStore.getState().mediaItems[0];
       expect(item.thumbnailMode).toBe('auto');
-      expect(item.thumbnailSourceTime).toBeCloseTo(2.2);
+      expect(item.thumbnailSourceTime).toBeCloseTo(2);
     });
 
     it('resetVideoThumbnailToAuto recomputes from current trim start', () => {
@@ -961,7 +961,7 @@ describe('mediaStore', () => {
       useMediaStore.getState().resetVideoThumbnailToAuto('a');
       const item = useMediaStore.getState().mediaItems[0];
       expect(item.thumbnailMode).toBe('auto');
-      expect(item.thumbnailSourceTime).toBeCloseTo(2.2);
+      expect(item.thumbnailSourceTime).toBeCloseTo(2);
     });
 
     it('trim out of manual range falls back to auto', () => {
@@ -984,7 +984,7 @@ describe('mediaStore', () => {
       useMediaStore.getState().updateVideoTrim('a', 'start', 3);
       const item = useMediaStore.getState().mediaItems[0];
       expect(item.thumbnailMode).toBe('auto');
-      expect(item.thumbnailSourceTime).toBeCloseTo(3.2);
+      expect(item.thumbnailSourceTime).toBeCloseTo(3);
     });
 
     it('trim keeps manual when still in range', () => {
@@ -1025,7 +1025,7 @@ describe('mediaStore', () => {
       expect(s.projectPosterAspectRatio).toBe('portrait');
     });
 
-    it('resetProjectPosterToAuto uses timeline 0.2 and optional image', () => {
+    it('resetProjectPosterToAuto uses the first safe timeline frame and optional image', () => {
       useMediaStore.getState().setProjectPosterManual(
         5,
         'data:image/jpeg;base64,old',
@@ -1038,7 +1038,7 @@ describe('mediaStore', () => {
       );
       const s = useMediaStore.getState();
       expect(s.projectPosterMode).toBe('auto');
-      expect(s.projectPosterTimelineTime).toBeCloseTo(0.2);
+      expect(s.projectPosterTimelineTime).toBeCloseTo(0.06);
       expect(s.projectPosterDataUrl).toBe('data:image/jpeg;base64,auto');
       expect(s.projectPosterAspectRatio).toBe('portrait');
     });
@@ -1057,7 +1057,7 @@ describe('mediaStore', () => {
 
       expect(reset).toBe(true);
       expect(s.projectPosterMode).toBe('auto');
-      expect(s.projectPosterTimelineTime).toBeCloseTo(0.2);
+      expect(s.projectPosterTimelineTime).toBeCloseTo(0.06);
       expect(s.projectPosterDataUrl).toBeNull();
       expect(s.projectPosterAspectRatio).toBe('portrait');
     });

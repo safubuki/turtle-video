@@ -107,7 +107,7 @@ describe('clip card disclosure', () => {
     expect(openIds(applyClipCardSeek(closed, 'c2'), ids)).toEqual(['c2']);
   });
 
-  it('再生中の境界越えでは開閉せず、別カードで止めると入れ替わる', () => {
+  it('再生中も終端で止まってもカードは開かず、スライダーの移動で開く', () => {
     const initial = createInitialClipCardDisclosure('c1');
     const played = stepClipCardDisclosure(initial, {
       previousIds: ids,
@@ -122,18 +122,31 @@ describe('clip card disclosure', () => {
     expect(played.scrollToId).toBeNull();
     expect(openIds(played.state, ids)).toEqual(['c1']);
 
-    const paused = stepClipCardDisclosure(played.state, {
+    const ended = stepClipCardDisclosure(played.state, {
       previousIds: ids,
       nextIds: ids,
-      focusId: 'c2',
+      focusId: 'c5',
       previousFocusId: 'c2',
       isPlaying: false,
       wasPlaying: true,
-      focusChangeDeltaSec: 0,
+      focusChangeDeltaSec: 0.05,
       restoreEpochChanged: false,
     });
-    expect(paused.scrollToId).toBe('c2');
-    expect(openIds(paused.state, ids)).toEqual(['c2']);
+    expect(ended.scrollToId).toBeNull();
+    expect(openIds(ended.state, ids)).toEqual(['c1']);
+
+    const slid = stepClipCardDisclosure(ended.state, {
+      previousIds: ids,
+      nextIds: ids,
+      focusId: 'c3',
+      previousFocusId: 'c5',
+      isPlaying: false,
+      wasPlaying: false,
+      focusChangeDeltaSec: 2,
+      restoreEpochChanged: false,
+    });
+    expect(slid.scrollToId).toBe('c3');
+    expect(openIds(slid.state, ids)).toEqual(['c3']);
   });
 
   it('追加した最後のカードを開き、前の追従カードは閉じる', () => {

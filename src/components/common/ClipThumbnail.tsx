@@ -7,7 +7,7 @@
  * 画像はそのまま、動画は指定時刻（未指定時は先頭付近ヒューリスティック）のフレームをキャプチャして表示する。
  * PC はホバーで拡大プレビュー、タッチ端末はタップでライトボックス表示する。
  */
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useLayoutEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
@@ -59,6 +59,52 @@ const NON_IOS_THUMBNAIL_MAX_PREPARE_MS = 800;
 const IOS_THUMBNAIL_PRIME_PLAY_MS = 220;
 /** トリムスライダーの連続入力をまとめ、途中のデコードを開始しないための待ち時間。 */
 const THUMBNAIL_REFRESH_DEBOUNCE_MS = 160;
+/** 再生マークのまま残したとき、見える状態で自動再取得する回数 */
+const THUMBNAIL_AUTO_RETRY_LIMIT = 3;
+/** 同時デコード数。1本だと後ろのカードが遅く、全部同時だと起動直後に失敗しやすい */
+const THUMBNAIL_CAPTURE_CONCURRENCY = 2;
+
+let activeThumbnailCaptures = 0;
+const thumbnailCaptureWaiters: Array<() => void> = [];
+
+function enqueueThumbnailCapture(task: () => Promise<void>): { cancel: () => void } {
+  let cancelled = false;
+  let started = false;
+  let released = false;
+
+  const release = () => {
+    if (released) return;
+    released = true;
+    activeThumbnailCaptures = Math.max(0, activeThumbnailCaptures - 1);
+    const next = thumbnailCaptureWaiters.shift();
+    if (next) next();
+  };
+
+  const start = () => {
+    if (cancelled || started) return;
+    started = true;
+    activeThumbnailCaptures += 1;
+    task().then(release, release);
+  };
+
+  if (activeThumbnailCaptures < THUMBNAIL_CAPTURE_CONCURRENCY) {
+    start();
+  } else {
+    thumbnailCaptureWaiters.push(start);
+  }
+
+  return {
+    cancel: () => {
+      cancelled = true;
+      const index = thumbnailCaptureWaiters.indexOf(start);
+      if (index >= 0) {
+        thumbnailCaptureWaiters.splice(index, 1);
+        return;
+      }
+      if (started) release();
+    },
+  };
+}
 
 /** 精密ポインタ + ホバー可能 → PC 向けホバー拡大。それ以外はタップでライトボックス。 */
 function usePrefersHoverPreview(): boolean {
@@ -131,6 +177,10 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
     rangeStart,
     rangeEnd,
   }));
+  const [captureGeneration, setCaptureGeneration] = useState(0);
+  const failedCaptureRef = useRef(false);
+  const autoRetryCountRef = useRef(0);
+  const retryTimerRef = useRef(0);
   const { isIosSafari } = usePlatformCapabilities();
   const prefersHover = usePrefersHoverPreview();
 
@@ -158,8 +208,46 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
   }, [file, type, sourceTime, rangeStart, rangeEnd]);
 
   const closeLightbox = useCallback(() => setLightboxOpen(false), []);
+  /**
+   * 閉じた瞬間にカーソルがサムネイル上にあるときだけ、その場での拡大を止める。
+   * 乗っていなければ、レイアウト後に抑制を外し、あとから載せたときに拡大する。
+   */
+  const suppressHoverRef = useRef(false);
+  const enteredWhileSuppressedRef = useRef(false);
+  const prevDisplaySizeRef = useRef(displaySize);
+  if (displaySize === 'prominent' && prevDisplaySizeRef.current !== 'prominent') {
+    suppressHoverRef.current = true;
+    enteredWhileSuppressedRef.current = false;
+  } else if (displaySize !== 'prominent') {
+    suppressHoverRef.current = false;
+    enteredWhileSuppressedRef.current = false;
+  }
+  prevDisplaySizeRef.current = displaySize;
+
+  useLayoutEffect(() => {
+    if (displaySize !== 'prominent' || !suppressHoverRef.current) return;
+    setHoverOpen(false);
+    let innerFrame = 0;
+    const outerFrame = window.requestAnimationFrame(() => {
+      innerFrame = window.requestAnimationFrame(() => {
+        if (!suppressHoverRef.current) return;
+        const hovered = triggerRef.current?.matches(':hover') ?? false;
+        if (!hovered && !enteredWhileSuppressedRef.current) {
+          suppressHoverRef.current = false;
+        }
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(outerFrame);
+      window.cancelAnimationFrame(innerFrame);
+    };
+  }, [displaySize]);
 
   const openHoverPreview = useCallback(() => {
+    if (suppressHoverRef.current) {
+      enteredWhileSuppressedRef.current = true;
+      return;
+    }
     if (!prefersHover || !previewSrc || !triggerRef.current) return;
     const rect = triggerRef.current.getBoundingClientRect();
     setHoverPos(resolveHoverPreviewPosition(rect));
@@ -167,6 +255,11 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
   }, [prefersHover, previewSrc]);
 
   const closeHoverPreview = useCallback(() => {
+    setHoverOpen(false);
+  }, []);
+
+  const handleThumbnailMouseLeave = useCallback(() => {
+    suppressHoverRef.current = false;
     setHoverOpen(false);
   }, []);
 
@@ -195,6 +288,26 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
   }, [lightboxOpen, closeLightbox]);
 
   useEffect(() => {
+    const retryIfStillFailed = () => {
+      if (!failedCaptureRef.current) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      setCaptureGeneration((current) => current + 1);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') retryIfStillFailed();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('focus', retryIfStillFailed);
+    window.addEventListener('pageshow', retryIfStillFailed);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('focus', retryIfStillFailed);
+      window.removeEventListener('pageshow', retryIfStillFailed);
+      window.clearTimeout(retryTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
     const displayCanvas = canvasRef.current;
     if (!displayCanvas) return;
     const displayCtx = displayCanvas.getContext('2d');
@@ -209,7 +322,34 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
     const { file, type, sourceTime, rangeStart, rangeEnd } = captureRequest;
 
     let cancelled = false;
+    let detachQueue = () => {};
     let activeVideo: HTMLVideoElement | null = null;
+
+    const noteCaptureSuccess = () => {
+      failedCaptureRef.current = false;
+      autoRetryCountRef.current = 0;
+      window.clearTimeout(retryTimerRef.current);
+    };
+
+    const noteCaptureFailure = () => {
+      if (cancelled) return;
+      failedCaptureRef.current = true;
+      const exhausted = autoRetryCountRef.current >= THUMBNAIL_AUTO_RETRY_LIMIT;
+      if (exhausted) {
+        drawVideoFallback();
+        finishReady();
+        return;
+      }
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      autoRetryCountRef.current += 1;
+      window.clearTimeout(retryTimerRef.current);
+      const delayMs = 200 * autoRetryCountRef.current;
+      retryTimerRef.current = window.setTimeout(() => {
+        if (!failedCaptureRef.current) return;
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+        setCaptureGeneration((current) => current + 1);
+      }, delayMs);
+    };
 
     const finishReady = () => {
       if (cancelled) return;
@@ -664,7 +804,7 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
             // ignore
           }
 
-          const loadedMetadata = video.readyState >= 1 || await waitForEvent(video, 'loadedmetadata', 4000);
+          const loadedMetadata = video.readyState >= 1 || await waitForEvent(video, 'loadedmetadata', 1500);
           if (!loadedMetadata || cancelled) {
             detachCaptureVideo?.();
             detachActiveVideo = null;
@@ -673,10 +813,7 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
               await wait(120);
               continue;
             }
-            if (!cancelled) {
-              drawVideoFallback();
-              finishReady();
-            }
+            if (!cancelled) noteCaptureFailure();
             revokeUrl();
             return;
           }
@@ -695,7 +832,10 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
           activeVideo = null;
 
           if (captured || cancelled) {
-            if (!cancelled) finishReady();
+            if (!cancelled) {
+              noteCaptureSuccess();
+              finishReady();
+            }
             revokeUrl();
             return;
           }
@@ -706,18 +846,17 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
           }
         }
 
-        if (!cancelled) {
-          drawVideoFallback();
-          finishReady();
-        }
+        if (!cancelled) noteCaptureFailure();
         revokeUrl();
       };
 
-      void loadVideoThumbnail();
+      const queued = enqueueThumbnailCapture(loadVideoThumbnail);
+      detachQueue = queued.cancel;
     }
 
     return () => {
       cancelled = true;
+      detachQueue();
       clearAllTimeouts();
       clearAllIntervals();
       try {
@@ -731,7 +870,7 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
       revokeUrl();
     };
     // sourceTime / 範囲変更で再生成。古い非同期結果は cancelled で破棄
-  }, [captureRequest, isIosSafari]);
+  }, [captureRequest, captureGeneration, isIosSafari]);
 
   const canExpand = ready && Boolean(previewSrc);
   const canUsePortal = typeof document !== 'undefined' && Boolean(document.body);
@@ -744,7 +883,7 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
         // 親カードのクリックや並べ替えと干渉しない
         onClick={handleTriggerClick}
         onMouseEnter={openHoverPreview}
-        onMouseLeave={closeHoverPreview}
+        onMouseLeave={handleThumbnailMouseLeave}
         onFocus={openHoverPreview}
         onBlur={closeHoverPreview}
         disabled={!canExpand}
