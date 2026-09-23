@@ -343,8 +343,10 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                   ariaLabelPrefix="タイトル"
                   idPrefix="video-title"
                   onSetFontSize={(size) => {
-                    // タイトルに「デフォルト」は無いので null は来ない
-                    if (size) onUpdate({ fontSize: size });
+                    // タイトルに「デフォルト」は無いので null は来ない。
+                    // プリセット選択はカスタム解除と同時に1回で書く。分けて書くと
+                    // 後の更新が古いカスタム値を残す。
+                    if (size) onUpdate({ fontSize: size, fontSizeCustom: null });
                   }}
                   onSetFontSizeCustom={(value) => onUpdate({ fontSizeCustom: value })}
                 />
@@ -597,7 +599,7 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                   ariaLabelPrefix="サブタイトル"
                   idPrefix="video-subtitle"
                   onSetFontSize={(size) => {
-                    if (size) updateSubtitle({ fontSize: size });
+                    if (size) updateSubtitle({ fontSize: size, fontSizeCustom: null });
                   }}
                   onSetFontSizeCustom={(value) => updateSubtitle({ fontSizeCustom: value })}
                 />

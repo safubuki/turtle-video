@@ -148,6 +148,35 @@ describe('VideoTitleSettingsPanel', () => {
     expect(screen.getByTestId('video-title-mini-preview-container')).toBeInTheDocument();
   });
 
+  it('カスタムサイズのあとプリセットを選ぶとカスタムを解除する', () => {
+    const onUpdate = vi.fn();
+    const subtitle = {
+      ...(DEFAULT_VIDEO_TITLE_SETTINGS.subtitle!),
+      fontSizeCustom: 66,
+    };
+    render(
+      <VideoTitleSettingsPanel
+        {...buildPanelProps({
+          onUpdate,
+          title: { ...DEFAULT_VIDEO_TITLE_SETTINGS, fontSizeCustom: 80, subtitle },
+        })}
+      />,
+    );
+    openTitle();
+    openStyle();
+    fireEvent.click(screen.getAllByRole('button', { name: '大' })[0]);
+    const mainUpdate = onUpdate.mock.calls.at(-1)?.[0];
+    expect(mainUpdate.fontSize).toBe('large');
+    expect(mainUpdate.fontSizeCustom).toBeNull();
+
+    onUpdate.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: /^サブタイトルのスタイル/ }));
+    fireEvent.click(screen.getAllByRole('button', { name: '小' })[1]);
+    const subtitleUpdate = onUpdate.mock.calls.at(-1)?.[0];
+    expect(subtitleUpdate.subtitle.fontSize).toBe('small');
+    expect(subtitleUpdate.subtitle.fontSizeCustom).toBeNull();
+  });
+
   it('開くと表示時間が出る（見た目はスタイル設定の中）', () => {
     render(<VideoTitleSettingsPanel {...buildPanelProps()} />);
     openTitle();
@@ -195,8 +224,7 @@ describe('VideoTitleSettingsPanel', () => {
 
     // プリセットを選ぶとカスタムは解除される（キャプションと同じ挙動）
     fireEvent.click(screen.getByRole('button', { name: '大' }));
-    expect(onUpdate).toHaveBeenCalledWith({ fontSizeCustom: null });
-    expect(onUpdate).toHaveBeenCalledWith({ fontSize: 'large' });
+    expect(onUpdate).toHaveBeenCalledWith({ fontSize: 'large', fontSizeCustom: null });
 
     // カスタムは現在のプリセット相当の px から始まる（特大 = 148px）。
     // 「カスタム」はサイズと位置の 2 つあるので先頭（サイズ側）を押す

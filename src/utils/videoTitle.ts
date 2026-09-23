@@ -384,7 +384,8 @@ export function drawVideoTitleFrame(
     const subFont = Math.max(1, resolveVideoTitleBaseFontSize(subtitleStyle) * scale);
     const mainBlock = mainFont * VIDEO_TITLE_LINE_HEIGHT_RATIO * mainLines.length;
     const subBlock = subFont * VIDEO_TITLE_LINE_HEIGHT_RATIO * subtitleLines.length;
-    const gap = Math.max(mainFont, subFont) * 0.45;
+    // 行高の余白に加えていた空き。0.45 だと主タイトルとサブタイトルが離れすぎる。
+    const gap = Math.max(mainFont, subFont) * 0.16;
     const total = mainBlock + gap + subBlock;
     const anchor = resolveVideoTitleAnchor(title, {
       canvasWidth,

@@ -314,7 +314,7 @@ export const useCaptionStore = create<CaptionState>()(
       setFontSize: (fontSize) =>
         set(
           (state) => ({
-            settings: { ...state.settings, fontSize },
+            settings: { ...state.settings, fontSize, fontSizeCustom: null },
           }),
           false,
           'setFontSize'

@@ -54,12 +54,13 @@ describe('captionStore', () => {
     });
 
     it('should update settings when setFontSize is called', () => {
-      const { setFontSize } = useCaptionStore.getState();
-      
+      const { setFontSize, setFontSizeCustom } = useCaptionStore.getState();
+      setFontSizeCustom(66);
       setFontSize('large');
       
       const { settings } = useCaptionStore.getState();
       expect(settings.fontSize).toBe('large');
+      expect(settings.fontSizeCustom).toBeNull();
     });
 
     it('should update settings when setFontSize is called with xlarge', () => {
