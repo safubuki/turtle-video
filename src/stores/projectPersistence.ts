@@ -4,16 +4,24 @@ import {
   deleteProject as deleteProjectFromIndexedDb,
   deleteAllProjects as deleteAllProjectsFromIndexedDb,
   resetProjectDatabase as resetProjectDatabaseInIndexedDb,
-  getProjectsInfo as getProjectsInfoFromIndexedDb,
+  getAutoSaveSummary as getAutoSaveSummaryFromIndexedDb,
+  getManualProjectSummaries as getManualProjectSummariesFromIndexedDb,
+  renameManualProject as renameManualProjectInIndexedDb,
+  deleteManualProjects as deleteManualProjectsFromIndexedDb,
   getStorageEstimate as getStorageEstimateFromIndexedDb,
   fileToArrayBuffer as fileToArrayBufferFromIndexedDb,
   blobUrlToArrayBuffer as blobUrlToArrayBufferFromIndexedDb,
   arrayBufferToFile as arrayBufferToFileFromIndexedDb,
 } from '../utils/indexedDB';
 
+export { MANUAL_SAVE_SLOTS } from '../utils/indexedDB';
+
 export type {
   ProjectData,
   SaveSlot,
+  ManualSaveSlot,
+  ManualProjectSummary,
+  AutoSaveSummary,
   SerializedAudioTrack,
   SerializedCaption,
   SerializedMediaItem,
@@ -28,7 +36,10 @@ export interface ProjectPersistenceAdapter {
   deleteProject: typeof deleteProjectFromIndexedDb;
   deleteAllProjects: typeof deleteAllProjectsFromIndexedDb;
   resetProjectDatabase: typeof resetProjectDatabaseInIndexedDb;
-  getProjectsInfo: typeof getProjectsInfoFromIndexedDb;
+  getAutoSaveSummary: typeof getAutoSaveSummaryFromIndexedDb;
+  getManualProjectSummaries: typeof getManualProjectSummariesFromIndexedDb;
+  renameManualProject: typeof renameManualProjectInIndexedDb;
+  deleteManualProjects: typeof deleteManualProjectsFromIndexedDb;
   getStorageEstimate: typeof getStorageEstimateFromIndexedDb;
   fileToArrayBuffer: typeof fileToArrayBufferFromIndexedDb;
   blobUrlToArrayBuffer: typeof blobUrlToArrayBufferFromIndexedDb;
@@ -42,7 +53,10 @@ export function createIndexedDbProjectPersistenceAdapter(): ProjectPersistenceAd
     deleteProject: deleteProjectFromIndexedDb,
     deleteAllProjects: deleteAllProjectsFromIndexedDb,
     resetProjectDatabase: resetProjectDatabaseInIndexedDb,
-    getProjectsInfo: getProjectsInfoFromIndexedDb,
+    getAutoSaveSummary: getAutoSaveSummaryFromIndexedDb,
+    getManualProjectSummaries: getManualProjectSummariesFromIndexedDb,
+    renameManualProject: renameManualProjectInIndexedDb,
+    deleteManualProjects: deleteManualProjectsFromIndexedDb,
     getStorageEstimate: getStorageEstimateFromIndexedDb,
     fileToArrayBuffer: fileToArrayBufferFromIndexedDb,
     blobUrlToArrayBuffer: blobUrlToArrayBufferFromIndexedDb,

@@ -23,6 +23,8 @@ import {
   getProjectPersistenceAdapter,
   type ProjectData,
   type SaveSlot,
+  type ManualSaveSlot,
+  type ManualProjectSummary,
   type SerializedMediaItem,
   type SerializedAudioTrack,
   type SerializedCaption,
@@ -48,8 +50,11 @@ import { normalizeMediaBlur, normalizeRotation } from '../utils/canvas';
 import { normalizeVideoTitleSettings } from '../utils/videoTitle';
 import { normalizeWatermarkOverlay } from '../utils/watermarkOverlay';
 import { normalizeEndrollOverlay } from '../utils/endrollOverlay';
+import { compactSaveThumbnail } from '../utils/saveThumbnail';
+import { getEndrollDuration } from '../utils/endrollOverlay';
 import {
   computeVideoTimelineDurationFromTrim,
+  calculateTotalDuration,
   DEFAULT_SPEED_BADGE_LABEL_STYLE,
   normalizeSpeedBadgeLabelStyle,
   normalizeSpeedBadgePosition,
@@ -221,6 +226,8 @@ interface ProjectState {
   autoSaveRuntimeStatus: AutoSaveRuntimeStatus;
   autoSaveRestartToken: number;
   lastManualSave: string | null;
+  autoThumbnailDataUrl: string | null;
+  manualProjects: Record<ManualSaveSlot, ManualProjectSummary | null>;
   autoSaveError: string | null;
   lastSaveFailure: SaveFailureInfo | null;
   saveHealth: ProjectPersistenceHealthSnapshot | null;
@@ -236,7 +243,13 @@ interface ProjectState {
     captions: Caption[],
     captionSettings: CaptionSettings,
     isCaptionsLocked: boolean,
-    bgmClips?: BgmClip[]
+    bgmClips?: BgmClip[],
+    options?: {
+      slot?: ManualSaveSlot;
+      title?: string;
+      thumbnailDataUrl?: string | null;
+      expectedSavedAt?: string | null;
+    }
   ) => Promise<void>;
 
   saveProjectAuto: (
@@ -292,6 +305,9 @@ interface ProjectState {
   } | null>;
 
   deleteAllSaves: () => Promise<void>;
+  deleteManualProject: (slot: ManualSaveSlot) => Promise<void>;
+  deleteAllManualProjects: () => Promise<void>;
+  renameManualProject: (slot: ManualSaveSlot, title: string) => Promise<void>;
   deleteAutoSaveOnly: () => Promise<void>;
   resetSaveDatabase: () => Promise<void>;
   refreshSaveInfo: () => Promise<void>;
@@ -309,6 +325,11 @@ interface ProjectState {
 }
 
 let projectSaveQueue: Promise<void> = Promise.resolve();
+
+function latestManualSavedAt(summaries: Record<ManualSaveSlot, ManualProjectSummary | null>): string | null {
+  return Object.values(summaries).reduce<string | null>((latest, item) =>
+    item && (!latest || item.savedAt > latest) ? item.savedAt : latest, null);
+}
 
 function isValidArrayBuffer(value: unknown): value is ArrayBuffer {
   return Object.prototype.toString.call(value) === '[object ArrayBuffer]';
@@ -892,6 +913,8 @@ export const useProjectStore = create<ProjectState>()(
       autoSaveRuntimeStatus: 'idle',
       autoSaveRestartToken: 0,
       lastManualSave: null,
+      autoThumbnailDataUrl: null,
+      manualProjects: { manual: null, 'manual-2': null, 'manual-3': null },
       autoSaveError: null,
       lastSaveFailure: null,
       saveHealth: null,
@@ -907,9 +930,11 @@ export const useProjectStore = create<ProjectState>()(
         captions,
         captionSettings,
         isCaptionsLocked,
-        bgmClips = []
+        bgmClips = [],
+        options
       ) => {
         const operationId = createDiagnosticId('manual-save');
+        const slot = options?.slot ?? 'manual';
         set({ isSaving: true });
         useLogStore.getState().info('SYSTEM', '手動保存を開始', {
           operationId,
@@ -921,6 +946,11 @@ export const useProjectStore = create<ProjectState>()(
 
         try {
           const projectData = await enqueueProjectSave(async () => {
+            const existing = (await getProjectPersistenceAdapter().getManualProjectSummaries())[slot];
+            if (options?.expectedSavedAt !== undefined
+              && (existing?.savedAt ?? null) !== options.expectedSavedAt) {
+              throw new Error('保存先が別の操作で変更されました。保存一覧を確認してからやり直してください。');
+            }
             const serializedMediaItems = await Promise.all(mediaItems.map(serializeMediaItem));
             // bgmClips がある場合は先頭クリップのミラーを bgm として保存（iOS/旧版互換）
             const effectiveBgm = bgmClips.length > 0 ? deriveLegacyBgmMirror(bgmClips) : bgm;
@@ -936,9 +966,16 @@ export const useProjectStore = create<ProjectState>()(
             );
 
             const nextProjectData: ProjectData = {
-              slot: 'manual',
+              slot,
               savedAt: new Date().toISOString(),
               version: versionData.version,
+              projectId: existing?.projectId ?? createDiagnosticId('project'),
+              title: (options?.title ?? existing?.title ?? '').trim().slice(0, 80),
+              durationSec: calculateTotalDuration(mediaItems)
+                + getEndrollDuration(useOverlayStore.getState().endroll),
+              thumbnailDataUrl: options?.thumbnailDataUrl === undefined
+                ? useMediaStore.getState().projectPosterDataUrl
+                : options.thumbnailDataUrl,
               mediaItems: serializedMediaItems,
               isClipsLocked,
               bgm: serializedBgm,
@@ -989,6 +1026,17 @@ export const useProjectStore = create<ProjectState>()(
           });
           set({
             lastManualSave: projectData.savedAt,
+            manualProjects: {
+              ...get().manualProjects,
+              [slot]: {
+                slot,
+                projectId: projectData.projectId!,
+                title: projectData.title ?? '',
+                savedAt: projectData.savedAt,
+                durationSec: projectData.durationSec ?? 0,
+                thumbnailDataUrl: projectData.thumbnailDataUrl ?? null,
+              },
+            },
             lastAutoSaveActivityAt: projectData.savedAt,
             autoSaveRuntimeStatus: 'idle',
             isSaving: false,
@@ -1076,6 +1124,7 @@ export const useProjectStore = create<ProjectState>()(
               slot: 'auto',
               savedAt: new Date().toISOString(),
               version: versionData.version,
+              thumbnailDataUrl: await compactSaveThumbnail(useMediaStore.getState().projectPosterDataUrl),
               mediaItems: serializedMediaItems,
               isClipsLocked,
               bgm: serializedBgm,
@@ -1125,6 +1174,7 @@ export const useProjectStore = create<ProjectState>()(
           });
           set({
             lastAutoSave: projectData.savedAt,
+            autoThumbnailDataUrl: projectData.thumbnailDataUrl ?? null,
             lastAutoSaveActivityAt: projectData.savedAt,
             autoSaveRuntimeStatus: 'saved',
             autoSaveError: null,
@@ -1274,21 +1324,47 @@ export const useProjectStore = create<ProjectState>()(
 
       deleteAllSaves: async () => {
         useLogStore.getState().info('SYSTEM', '全保存データを削除');
-        await getProjectPersistenceAdapter().deleteAllProjects();
+        await enqueueProjectSave(() => getProjectPersistenceAdapter().deleteAllProjects());
         set({
           lastAutoSave: null,
+          autoThumbnailDataUrl: null,
           lastAutoSaveActivityAt: null,
           autoSaveRuntimeStatus: 'idle',
           lastManualSave: null,
+          manualProjects: { manual: null, 'manual-2': null, 'manual-3': null },
         });
         useLogStore.getState().info('SYSTEM', '全保存データ削除完了');
       },
 
+      deleteManualProject: async (slot) => {
+        await enqueueProjectSave(() => getProjectPersistenceAdapter().deleteProject(slot));
+        const summaries = await getProjectPersistenceAdapter().getManualProjectSummaries();
+        set({
+          manualProjects: summaries,
+          lastManualSave: latestManualSavedAt(summaries),
+        });
+      },
+
+      deleteAllManualProjects: async () => {
+        await enqueueProjectSave(() => getProjectPersistenceAdapter().deleteManualProjects());
+        set({
+          manualProjects: { manual: null, 'manual-2': null, 'manual-3': null },
+          lastManualSave: null,
+        });
+      },
+
+      renameManualProject: async (slot, title) => {
+        await enqueueProjectSave(() => getProjectPersistenceAdapter().renameManualProject(slot, title.trim().slice(0, 80)));
+        const summaries = await getProjectPersistenceAdapter().getManualProjectSummaries();
+        set({ manualProjects: summaries });
+      },
+
       deleteAutoSaveOnly: async () => {
         useLogStore.getState().info('SYSTEM', '自動保存データを削除');
-        await getProjectPersistenceAdapter().deleteProject('auto');
+        await enqueueProjectSave(() => getProjectPersistenceAdapter().deleteProject('auto'));
         set({
           lastAutoSave: null,
+          autoThumbnailDataUrl: null,
           lastAutoSaveActivityAt: null,
           autoSaveRuntimeStatus: 'idle',
           lastSaveFailure: null,
@@ -1303,9 +1379,11 @@ export const useProjectStore = create<ProjectState>()(
         });
         set({
           lastAutoSave: null,
+          autoThumbnailDataUrl: null,
           lastAutoSaveActivityAt: null,
           autoSaveRuntimeStatus: 'idle',
           lastManualSave: null,
+          manualProjects: { manual: null, 'manual-2': null, 'manual-3': null },
           autoSaveError: null,
           lastSaveFailure: null,
         });
@@ -1315,11 +1393,16 @@ export const useProjectStore = create<ProjectState>()(
       refreshSaveInfo: async () => {
         if (useUIStore.getState().isPreviewPlaying) return;
         try {
-          const info = await getProjectPersistenceAdapter().getProjectsInfo();
+          const [autoSummary, summaries] = await Promise.all([
+            getProjectPersistenceAdapter().getAutoSaveSummary(),
+            getProjectPersistenceAdapter().getManualProjectSummaries(),
+          ]);
           set((state) => ({
-            lastAutoSave: info.auto?.savedAt ?? null,
-            lastAutoSaveActivityAt: state.lastAutoSaveActivityAt ?? (info.auto?.savedAt ?? null),
-            lastManualSave: info.manual?.savedAt ?? null,
+            lastAutoSave: autoSummary?.savedAt ?? null,
+            autoThumbnailDataUrl: autoSummary?.thumbnailDataUrl ?? null,
+            lastAutoSaveActivityAt: state.lastAutoSaveActivityAt ?? (autoSummary?.savedAt ?? null),
+            lastManualSave: latestManualSavedAt(summaries),
+            manualProjects: summaries,
           }));
         } catch {
           // ignore

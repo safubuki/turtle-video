@@ -9,8 +9,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   X,
-  Save,
-  FolderOpen,
   Trash2,
   Clock,
   AlertTriangle,
@@ -33,7 +31,8 @@ import { useCaptionStore } from '../../stores/captionStore';
 import { useOverlayStore } from '../../stores/overlayStore';
 import { useLogStore } from '../../stores/logStore';
 import { useUIStore } from '../../stores/uiStore';
-import type { SaveSlot } from '../../utils/indexedDB';
+import { MANUAL_SAVE_SLOTS, type ManualSaveSlot, type SaveSlot } from '../../utils/indexedDB';
+import { compactSaveThumbnail } from '../../utils/saveThumbnail';
 import {
   getAutoSaveInterval,
   setAutoSaveInterval,
@@ -50,15 +49,30 @@ interface SaveLoadModalProps {
   onBeforeLoadProject?: () => void;
   appFlavor: AppFlavor;
   saveRuntime: SaveRuntime;
+  captureSaveThumbnail?: () => string | null;
 }
 
 type ModalMode =
   | 'menu'
   | 'confirmLoad'
   | 'confirmDelete'
-  | 'selectSlot'
   | 'confirmAutoDeleteForSave'
-  | 'confirmResetDbForSave';
+  | 'confirmResetDbForSave'
+  | 'confirmOverwrite'
+  | 'confirmDeleteAuto'
+  | 'confirmDeleteManual'
+  | 'confirmDeleteManualAll';
+
+const MANUAL_SLOT_LABELS: Record<ManualSaveSlot, string> = {
+  manual: '①',
+  'manual-2': '②',
+  'manual-3': '③',
+};
+
+function formatDuration(seconds: number): string {
+  const total = Math.max(0, Math.round(Number.isFinite(seconds) ? seconds : 0));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
 
 /** 自動保存間隔のオプション */
 const AUTO_SAVE_OPTIONS: { value: AutoSaveIntervalOption; label: string }[] = [
@@ -153,11 +167,15 @@ export default function SaveLoadModal({
   onBeforeLoadProject,
   appFlavor,
   saveRuntime,
+  captureSaveThumbnail,
 }: SaveLoadModalProps) {
   const canvasWidth = useCanvasStore((s) => s.width);
   const canvasHeight = useCanvasStore((s) => s.height);
   const [mode, setMode] = useState<ModalMode>('menu');
   const [selectedSlot, setSelectedSlot] = useState<SaveSlot | null>(null);
+  const [editingTitleSlot, setEditingTitleSlot] = useState<ManualSaveSlot | null>(null);
+  const [titleDraft, setTitleDraft] = useState('');
+  const [isManaging, setIsManaging] = useState(false);
   const [autoSaveInterval, setAutoSaveIntervalState] =
     useState<AutoSaveIntervalOption>(getAutoSaveInterval);
   const [showHelp, setShowHelp] = useState(false);
@@ -194,8 +212,9 @@ export default function SaveLoadModal({
     isSaving,
     isLoading,
     lastAutoSave,
+    autoThumbnailDataUrl,
     lastAutoSaveActivityAt,
-    lastManualSave,
+    manualProjects: savedManualProjects,
     autoSaveRuntimeStatus,
     lastSaveFailure,
     saveHealth,
@@ -203,6 +222,9 @@ export default function SaveLoadModal({
     saveProjectManual,
     loadProjectFromSlot,
     deleteAllSaves,
+    deleteManualProject,
+    deleteAllManualProjects,
+    renameManualProject,
     deleteAutoSaveOnly,
     resetSaveDatabase,
     refreshSaveInfo,
@@ -211,6 +233,7 @@ export default function SaveLoadModal({
     clearLastSaveFailure,
     clearSaveHealthError,
   } = useProjectStore();
+  const manualProjects = savedManualProjects ?? { manual: null, 'manual-2': null, 'manual-3': null };
 
   // 各ストアからデータを取得
   const mediaItems = useMediaStore((s) => s.mediaItems);
@@ -246,7 +269,7 @@ export default function SaveLoadModal({
 
   // 保存データがあるかどうか
   const hasAutoSave = lastAutoSave !== null;
-  const hasManualSave = lastManualSave !== null;
+  const hasManualSave = MANUAL_SAVE_SLOTS.some((slot) => manualProjects[slot] !== null);
   const hasSaveData = hasAutoSave || hasManualSave;
   const autoSaveIntervalMs = autoSaveInterval * 60 * 1000;
   const lastAutoSaveActivityLabel = useMemo(() => {
@@ -334,6 +357,7 @@ export default function SaveLoadModal({
       }
       setMode('menu');
       setSelectedSlot(null);
+      setEditingTitleSlot(null);
       setAutoSaveIntervalState(getAutoSaveInterval());
       setShowHelp(false);
       setRelativeTimeNowMs(Date.now());
@@ -540,7 +564,11 @@ export default function SaveLoadModal({
     }, 'image/png');
   };
 
-  const executeManualSave = async () => {
+  const executeManualSave = async (slot: ManualSaveSlot, expectedSavedAt?: string | null) => {
+    const currentSummary = manualProjects[slot];
+    const thumbnailDataUrl = await compactSaveThumbnail(
+      useMediaStore.getState().projectPosterDataUrl ?? captureSaveThumbnail?.() ?? null,
+    );
     await saveProjectManual(
       mediaItems,
       isClipsLocked,
@@ -551,7 +579,13 @@ export default function SaveLoadModal({
       captions,
       captionSettings,
       isCaptionsLocked,
-      bgmClips
+      bgmClips,
+      {
+        slot,
+        title: currentSummary?.title || '',
+        thumbnailDataUrl,
+        expectedSavedAt: expectedSavedAt === undefined ? currentSummary?.savedAt ?? null : expectedSavedAt,
+      }
     );
     useLogStore.getState().info('SYSTEM', 'プロジェクトを手動保存', {
       mediaCount: mediaItems.length,
@@ -559,18 +593,26 @@ export default function SaveLoadModal({
       hasBgm: !!bgm,
       narrationCount: narrations.length,
     });
-    onToast('保存しました', 'success');
-    onClose();
+    onToast(`${MANUAL_SLOT_LABELS[slot]}に保存しました`, 'success');
+    setMode('menu');
+    setSelectedSlot(null);
+    setRelativeTimeNowMs(Date.now());
   };
 
   // 手動保存
-  const handleSave = async () => {
+  const handleSaveToSlot = async (slot: ManualSaveSlot) => {
     try {
-      await executeManualSave();
+      await executeManualSave(slot);
     } catch (error) {
       const message = getProjectStoreErrorMessage(error);
       const failureInfo = useProjectStore.getState().lastSaveFailure;
       useLogStore.getState().error('SYSTEM', '手動保存に失敗', { error: message });
+      if (message.includes('保存先が別の操作で変更されました')) {
+        await refreshSaveInfo();
+        setMode('menu');
+        onToast(message, 'error');
+        return;
+      }
       if (failureInfo?.recoveryAction === 'delete-auto-and-retry') {
         await refreshSaveInfo();
         setMode('confirmAutoDeleteForSave');
@@ -589,11 +631,18 @@ export default function SaveLoadModal({
     }
   };
 
+  const handleChooseSaveSlot = (slot: ManualSaveSlot) => {
+    setSelectedSlot(slot);
+    if (manualProjects[slot]) setMode('confirmOverwrite');
+    else void handleSaveToSlot(slot);
+  };
+
   // 容量不足時: 自動保存削除後に手動保存を再試行
   const handleSaveAfterAutoDelete = async () => {
+    if (!selectedSlot || selectedSlot === 'auto') return;
     try {
       await deleteAutoSaveOnly();
-      await executeManualSave();
+      await executeManualSave(selectedSlot);
     } catch (error) {
       const message = getProjectStoreErrorMessage(error);
       const failureInfo = useProjectStore.getState().lastSaveFailure;
@@ -612,38 +661,15 @@ export default function SaveLoadModal({
   };
 
   const handleSaveAfterDbReset = async () => {
+    if (!selectedSlot || selectedSlot === 'auto') return;
     try {
       await resetSaveDatabase();
-      await executeManualSave();
+      await executeManualSave(selectedSlot, null);
     } catch (error) {
       const message = getProjectStoreErrorMessage(error);
       useLogStore.getState().error('SYSTEM', '保存DB初期化後の手動保存に失敗', { error: message });
       onToast('保存DBを初期化しても保存に失敗しました。ログ詳細を確認してください', 'error');
       setMode('menu');
-    }
-  };
-
-  // 読み込みスロット選択
-  const handleLoadClick = () => {
-    if (hasAutoSave && hasManualSave) {
-      // 両方ある場合はスロット選択
-      setMode('selectSlot');
-    } else if (hasAutoSave) {
-      // 自動保存のみ
-      setSelectedSlot('auto');
-      if (hasCurrentData) {
-        setMode('confirmLoad');
-      } else {
-        handleLoadConfirm('auto');
-      }
-    } else if (hasManualSave) {
-      // 手動保存のみ
-      setSelectedSlot('manual');
-      if (hasCurrentData) {
-        setMode('confirmLoad');
-      } else {
-        handleLoadConfirm('manual');
-      }
     }
   };
 
@@ -739,6 +765,59 @@ export default function SaveLoadModal({
     }
   };
 
+  const handleRenameManual = async (slot: ManualSaveSlot) => {
+    setIsManaging(true);
+    try {
+      await renameManualProject(slot, titleDraft);
+      setEditingTitleSlot(null);
+      onToast('名前を変更しました', 'success');
+    } catch {
+      onToast('名前を変更できませんでした', 'error');
+    } finally {
+      setIsManaging(false);
+    }
+  };
+
+  const handleDeleteManualConfirm = async () => {
+    if (!selectedSlot || selectedSlot === 'auto') return;
+    setIsManaging(true);
+    try {
+      await deleteManualProject(selectedSlot);
+      onToast(`${MANUAL_SLOT_LABELS[selectedSlot]}を削除しました`, 'success');
+      setMode('menu');
+    } catch {
+      onToast('削除に失敗しました', 'error');
+    } finally {
+      setIsManaging(false);
+    }
+  };
+
+  const handleDeleteAllManualConfirm = async () => {
+    setIsManaging(true);
+    try {
+      await deleteAllManualProjects();
+      onToast('手動保存をすべて削除しました', 'success');
+      setMode('menu');
+    } catch {
+      onToast('削除に失敗しました', 'error');
+    } finally {
+      setIsManaging(false);
+    }
+  };
+
+  const handleDeleteAutoConfirm = async () => {
+    setIsManaging(true);
+    try {
+      await deleteAutoSaveOnly();
+      onToast('自動保存を削除しました', 'success');
+      setMode('menu');
+    } catch {
+      onToast('自動保存を削除できませんでした', 'error');
+    } finally {
+      setIsManaging(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -763,9 +842,12 @@ export default function SaveLoadModal({
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-semibold text-white">
               {mode === 'menu' && '保存・素材'}
-              {mode === 'selectSlot' && 'どちらを読み込みますか？'}
+              {mode === 'confirmOverwrite' && '上書き保存の確認'}
               {mode === 'confirmLoad' && '読み込み確認'}
+              {mode === 'confirmDeleteAuto' && '自動保存の削除確認'}
               {mode === 'confirmDelete' && '削除確認'}
+              {mode === 'confirmDeleteManual' && '手動保存の削除確認'}
+              {mode === 'confirmDeleteManualAll' && '手動保存の一括削除確認'}
               {mode === 'confirmAutoDeleteForSave' && '容量不足の対応'}
               {mode === 'confirmResetDbForSave' && '保存DBの復旧'}
             </h2>
@@ -829,11 +911,12 @@ export default function SaveLoadModal({
                       <li>
                         自動保存の状態と前回保存日時を確認できます。停止や失敗が疑われる場合は、右側のくるくるアイコン「自動保存を再始動」を押してください。
                       </li>
-                      <li>手動保存で現在の状態を保存し、読み込みで復元できます。</li>
+                      <li>手動保存は①②③の3枠です。保存先を選び、上書き時は確認します。</li>
+                      <li>保存名は空でも構いません。名前を押すと後から変更できます。</li>
                       <li>
                         保存に失敗した場合は、画面に原因・使用量・推奨対応が表示されます。「自動保存を削除して再試行」または「保存DBを初期化して再試行」は、確認内容を読んでから実行してください。
                       </li>
-                      <li>保存データを削除すると、自動保存と手動保存の両方が消えます。</li>
+                      <li>手動保存は個別・一括で削除できます。自動保存も消す場合は「すべての保存データを削除」を使います。</li>
                       <li>{runtimeGuidance.summary}</li>
                       {runtimeGuidance.bullets.map((bullet) => (
                         <li key={bullet}>{bullet}</li>
@@ -853,69 +936,111 @@ export default function SaveLoadModal({
                 </div>
               </div>
             )}
-            {/* 自動保存間隔設定 */}
-            <div className="bg-gray-800 rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-gray-400 flex items-center gap-1 text-sm">
-                  <Timer size={14} />
-                  自動保存間隔
+            <section className="space-y-3 rounded-xl bg-gray-800 p-3" aria-label="自動保存">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="flex items-center gap-1 text-sm text-gray-300">
+                  <Timer size={14} />自動保存間隔
                 </span>
                 <div className="flex gap-1">
                   {AUTO_SAVE_OPTIONS.map((option) => (
                     <button
                       key={option.value}
                       onClick={() => handleAutoSaveIntervalChange(option.value)}
-                      className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                      className={`rounded-md px-2.5 py-1 text-xs transition-colors ${
                         autoSaveInterval === option.value
                           ? 'bg-blue-600 text-white'
                           : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                       }`}
-                    >
-                      {option.label}
-                    </button>
+                    >{option.label}</button>
                   ))}
                 </div>
               </div>
-            </div>
-
-            {/* 保存情報 */}
-            <div className="bg-gray-800 rounded-lg p-4 space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-400 flex items-center gap-1">
-                  <Clock size={14} />
-                  自動保存
-                </span>
-                <div className="flex items-center gap-2">
-                  <span className={lastAutoSaveActivityAt ? 'text-white' : 'text-gray-500'}>
-                    {lastAutoSaveActivityLabel}
-                  </span>
-                  {showAutoSaveRestartButton && (
-                    <button
-                      type="button"
-                      onClick={handleRestartAutoSave}
-                      className="inline-flex items-center justify-center rounded-md border border-blue-500/40 bg-blue-500/10 p-1.5 text-blue-200 transition hover:border-blue-300/70 hover:bg-blue-500/20 hover:text-white"
-                      title="自動保存を再始動"
-                      aria-label="自動保存を再始動"
-                    >
-                      <RefreshCw size={14} />
-                    </button>
-                  )}
+              <div className="flex items-stretch gap-2.5 border-t border-gray-700 pt-3">
+                <div className="relative aspect-[7/5] w-24 shrink-0 self-center overflow-hidden rounded-lg bg-gray-900 flex items-center justify-center sm:w-28">
+                  {autoThumbnailDataUrl ? (
+                    <img src={autoThumbnailDataUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                  ) : <Image size={20} className="text-gray-500" aria-hidden="true" />}
+                </div>
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex items-center justify-between gap-1 text-sm">
+                    <span className="flex items-center gap-1 font-semibold text-white"><Clock size={14} />自動保存</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className={lastAutoSaveActivityAt ? 'text-white' : 'text-gray-500'}>{lastAutoSaveActivityLabel}</span>
+                      {showAutoSaveRestartButton && (
+                        <button type="button" onClick={handleRestartAutoSave} className="rounded-md border border-blue-500/40 bg-blue-500/10 p-1 text-blue-200" title="自動保存を再始動" aria-label="自動保存を再始動">
+                          <RefreshCw size={14} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-[11px] text-gray-400">{autoSaveStatusMessage}</div>
+                  <div className="text-[11px] text-gray-500">前回保存日時: {formatExactDateTime(lastAutoSave)}</div>
+                  <div className="flex flex-wrap gap-1.5 text-xs">
+                    <button type="button" disabled={!hasAutoSave || isLoading || isManaging} onClick={() => handleSlotSelect('auto')} className="min-h-8 rounded-lg bg-gray-700 px-2 text-white disabled:opacity-50">読み込み</button>
+                    <button type="button" disabled={!hasAutoSave || isManaging} onClick={() => setMode('confirmDeleteAuto')} className="min-h-8 rounded-lg border border-red-500/40 px-2 text-red-300 disabled:opacity-50">削除</button>
+                  </div>
                 </div>
               </div>
-              <div className="pl-5 text-[11px] text-gray-500">
-                前回保存日時: {formatExactDateTime(lastAutoSave)}
-              </div>
-              <div className="pl-5 text-[11px] text-gray-400">{autoSaveStatusMessage}</div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-400 flex items-center gap-1">
-                  <Save size={14} />
-                  手動保存
-                </span>
-                <span className={hasManualSave ? 'text-white' : 'text-gray-500'}>
-                  {formatDateTime(lastManualSave, relativeTimeNowMs)}
-                </span>
-              </div>
-            </div>
+            </section>
+
+            <section className="space-y-2" aria-label="手動保存の3枠">
+              {MANUAL_SAVE_SLOTS.map((slot) => {
+                const summary = manualProjects[slot];
+                return (
+                  <div key={slot} className="rounded-xl border border-gray-700 bg-gray-800/70 p-2.5">
+                    <div className="flex items-stretch gap-2.5">
+                      <div className="relative aspect-[7/5] w-24 shrink-0 self-center overflow-hidden rounded-lg bg-gray-900 flex items-center justify-center sm:w-28">
+                        {summary?.thumbnailDataUrl ? (
+                          <img src={summary.thumbnailDataUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                        ) : <Image size={20} className="text-gray-500" aria-hidden="true" />}
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex min-w-0 items-start gap-1.5 text-sm">
+                          <span className="shrink-0 font-bold text-blue-300">{MANUAL_SLOT_LABELS[slot]}</span>
+                          {summary && editingTitleSlot === slot ? (
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <label className="sr-only" htmlFor={`manual-title-${slot}`}>保存名</label>
+                              <input
+                                id={`manual-title-${slot}`}
+                                autoFocus
+                                maxLength={80}
+                                value={titleDraft}
+                                onChange={(event) => setTitleDraft(event.target.value)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter') void handleRenameManual(slot);
+                                  if (event.key === 'Escape') setEditingTitleSlot(null);
+                                }}
+                                className="w-full rounded border border-blue-400 bg-gray-900 px-2 py-1 text-sm text-white"
+                              />
+                              <div className="flex gap-2 text-xs">
+                                <button type="button" disabled={isManaging} onClick={() => void handleRenameManual(slot)} className="text-blue-300">保存</button>
+                                <button type="button" onClick={() => setEditingTitleSlot(null)} className="text-gray-400">キャンセル</button>
+                              </div>
+                            </div>
+                          ) : summary ? (
+                            <button
+                              type="button"
+                              aria-label={`${MANUAL_SLOT_LABELS[slot]}の名前を編集`}
+                              title="クリックして名前を編集"
+                              className="min-w-0 truncate text-left text-sm font-semibold text-white hover:text-blue-300"
+                              onClick={() => { setEditingTitleSlot(slot); setTitleDraft(summary.title); }}
+                            >{summary.title || '無題のプロジェクト'}</button>
+                          ) : <span className="text-sm text-gray-400">未保存</span>}
+                        </div>
+                        <div className="min-h-4 text-[11px] text-gray-400">
+                          {summary && <>動画 {formatDuration(summary.durationSec)} ・ {formatDateTime(summary.savedAt, relativeTimeNowMs)}</>}
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 text-xs">
+                          <button type="button" disabled={!hasCurrentData || isSaving || isManaging} onClick={() => handleChooseSaveSlot(slot)} className="min-h-8 rounded-lg bg-blue-600 px-2 text-white disabled:opacity-50">保存</button>
+                          <button type="button" disabled={!summary || isLoading || isManaging} onClick={() => handleSlotSelect(slot)} className="min-h-8 rounded-lg bg-gray-700 px-2 text-white disabled:opacity-50">読み込み</button>
+                          <button type="button" disabled={!summary || isManaging} onClick={() => { setSelectedSlot(slot); setMode('confirmDeleteManual'); }} className="min-h-8 rounded-lg border border-red-500/40 px-2 text-red-300 disabled:opacity-50">削除</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </section>
 
             {appFlavor === 'apple-safari' && (saveHealth || saveHealthError) && (
               <div className="bg-gray-800 rounded-lg p-4 space-y-2">
@@ -1007,30 +1132,20 @@ export default function SaveLoadModal({
             {/* ボタン */}
             <div className="space-y-3">
               <button
-                className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                onClick={handleSave}
-                disabled={isSaving || !hasCurrentData}
+                type="button"
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-red-500/40 py-3 text-red-300 transition-colors hover:bg-red-600/20 disabled:opacity-50"
+                onClick={() => setMode('confirmDeleteManualAll')}
+                disabled={!hasManualSave || isManaging}
               >
-                <Save size={18} />
-                {isSaving ? '保存中...' : '手動保存'}
+                <Trash2 size={18} />手動保存データのみ削除
               </button>
-
               <button
-                className="w-full flex items-center justify-center gap-2 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                onClick={handleLoadClick}
-                disabled={isLoading || !hasSaveData}
-              >
-                <FolderOpen size={18} />
-                {isLoading ? '読み込み中...' : '読み込み'}
-              </button>
-
-              <button
-                className="w-full flex items-center justify-center gap-2 py-3 bg-gray-800 hover:bg-red-600/20 text-gray-400 hover:text-red-400 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                type="button"
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-gray-800 py-3 text-gray-400 transition-colors hover:bg-red-600/20 hover:text-red-400 disabled:opacity-50"
                 onClick={handleDeleteClick}
-                disabled={!hasSaveData}
+                disabled={!hasSaveData || isManaging}
               >
-                <Trash2 size={18} />
-                保存データを削除
+                <Trash2 size={18} />すべての保存データを削除
               </button>
             </div>
 
@@ -1063,47 +1178,16 @@ export default function SaveLoadModal({
           </div>
         )}
 
-        {/* スロット選択 */}
-        {mode === 'selectSlot' && (
+        {mode === 'confirmOverwrite' && selectedSlot && selectedSlot !== 'auto' && (
           <div className="space-y-4">
-            <div className="space-y-3">
-              {hasAutoSave && (
-                <button
-                  className="w-full flex items-center justify-between py-3 px-4 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors"
-                  onClick={() => handleSlotSelect('auto')}
-                >
-                  <span className="flex items-center gap-2">
-                    <Clock size={18} className="text-blue-400" />
-                    自動保存
-                  </span>
-                  <span className="text-sm text-gray-400">
-                    {formatDateTime(lastAutoSave, relativeTimeNowMs)}
-                  </span>
-                </button>
-              )}
-
-              {hasManualSave && (
-                <button
-                  className="w-full flex items-center justify-between py-3 px-4 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors"
-                  onClick={() => handleSlotSelect('manual')}
-                >
-                  <span className="flex items-center gap-2">
-                    <Save size={18} className="text-green-400" />
-                    手動保存
-                  </span>
-                  <span className="text-sm text-gray-400">
-                    {formatDateTime(lastManualSave, relativeTimeNowMs)}
-                  </span>
-                </button>
-              )}
+            <p className="rounded-lg border border-amber-600/50 bg-amber-900/20 p-4 text-sm text-amber-100">
+              {MANUAL_SLOT_LABELS[selectedSlot]}「{manualProjects[selectedSlot]?.title || '無題のプロジェクト'}」を上書きします。元の保存内容は戻せません。
+              <span className="mt-1 block text-xs text-amber-200/80">保存日時: {formatExactDateTime(manualProjects[selectedSlot]?.savedAt ?? null)}</span>
+            </p>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setMode('menu')} className="flex-1 rounded-lg bg-gray-700 py-2 text-white">キャンセル</button>
+              <button type="button" disabled={isSaving} onClick={() => void handleSaveToSlot(selectedSlot)} className="flex-1 rounded-lg bg-blue-600 py-2 text-white disabled:opacity-50">上書き保存</button>
             </div>
-
-            <button
-              className="w-full py-2 text-gray-400 hover:text-white transition-colors"
-              onClick={() => setMode('menu')}
-            >
-              戻る
-            </button>
           </div>
         )}
 
@@ -1196,13 +1280,49 @@ export default function SaveLoadModal({
           </div>
         )}
 
+        {mode === 'confirmDeleteManual' && selectedSlot && selectedSlot !== 'auto' && (
+          <div className="space-y-4">
+            <p className="rounded-lg border border-red-700/50 bg-red-950/30 p-4 text-sm text-red-100">
+              {MANUAL_SLOT_LABELS[selectedSlot]}「{manualProjects[selectedSlot]?.title || '無題のプロジェクト'}」を削除します。この操作は取り消せません。
+            </p>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setMode('menu')} className="flex-1 rounded-lg bg-gray-700 py-2 text-white">キャンセル</button>
+              <button type="button" disabled={isManaging} onClick={() => void handleDeleteManualConfirm()} className="flex-1 rounded-lg bg-red-600 py-2 text-white disabled:opacity-50">削除する</button>
+            </div>
+          </div>
+        )}
+
+        {mode === 'confirmDeleteAuto' && (
+          <div className="space-y-4">
+            <p className="rounded-lg border border-red-700/50 bg-red-950/30 p-4 text-sm text-red-100">
+              自動保存データを削除します。手動保存①②③は残ります。この操作は取り消せません。自動保存が有効なら、次回の保存時に再作成されます。
+            </p>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setMode('menu')} className="flex-1 rounded-lg bg-gray-700 py-2 text-white">キャンセル</button>
+              <button type="button" disabled={isManaging} onClick={() => void handleDeleteAutoConfirm()} className="flex-1 rounded-lg bg-red-600 py-2 text-white disabled:opacity-50">削除する</button>
+            </div>
+          </div>
+        )}
+
+        {mode === 'confirmDeleteManualAll' && (
+          <div className="space-y-4">
+            <p className="rounded-lg border border-red-700/50 bg-red-950/30 p-4 text-sm text-red-100">
+              手動保存①②③をすべて削除します。自動保存は残ります。この操作は取り消せません。
+            </p>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setMode('menu')} className="flex-1 rounded-lg bg-gray-700 py-2 text-white">キャンセル</button>
+              <button type="button" disabled={isManaging} onClick={() => void handleDeleteAllManualConfirm()} className="flex-1 rounded-lg bg-red-600 py-2 text-white disabled:opacity-50">すべて削除</button>
+            </div>
+          </div>
+        )}
+
         {/* 削除確認 */}
         {mode === 'confirmDelete' && (
           <div className="space-y-4">
             <div className="flex items-start gap-3 p-4 bg-red-900/30 border border-red-700/50 rounded-lg">
               <AlertTriangle size={20} className="text-red-500 shrink-0 mt-0.5" />
               <p className="text-sm text-red-200">
-                自動保存と手動保存の両方のデータを削除します。この操作は取り消せません。
+                自動保存と手動保存①②③のすべてを削除します。この操作は取り消せません。
               </p>
             </div>
 

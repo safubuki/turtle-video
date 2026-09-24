@@ -10,8 +10,9 @@ import { useLogStore } from '../stores/logStore';
 import type { CaptionFontStyle, CaptionTextAlign } from '../types';
 
 const DB_NAME = 'turtle-video-db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'projects';
+const SUMMARY_STORE_NAME = 'project-summaries';
 
 function getIdbErrorReason(error: DOMException | null): string {
   if (!error) return 'UnknownError';
@@ -38,7 +39,28 @@ function getTransactionErrorReason(
 }
 
 // スロットタイプ
-export type SaveSlot = 'auto' | 'manual';
+export const MANUAL_SAVE_SLOTS = ['manual', 'manual-2', 'manual-3'] as const;
+export type ManualSaveSlot = typeof MANUAL_SAVE_SLOTS[number];
+export type SaveSlot = 'auto' | ManualSaveSlot;
+
+export interface ManualProjectSummary {
+  slot: ManualSaveSlot;
+  projectId: string;
+  title: string;
+  savedAt: string;
+  durationSec: number;
+  thumbnailDataUrl: string | null;
+}
+
+export interface AutoSaveSummary {
+  slot: 'auto';
+  savedAt: string;
+  thumbnailDataUrl: string | null;
+}
+
+export function isManualSaveSlot(slot: SaveSlot): slot is ManualSaveSlot {
+  return slot !== 'auto';
+}
 
 // 保存されるメディアアイテムのシリアライズ形式
 export interface SerializedMediaItem {
@@ -293,6 +315,11 @@ export interface ProjectData {
   slot: SaveSlot;
   savedAt: string;  // ISO 8601 形式
   version: string;  // アプリバージョン
+  /** 手動保存の表示用メタデータ。旧 manual には存在しない。 */
+  projectId?: string;
+  title?: string;
+  durationSec?: number;
+  thumbnailDataUrl?: string | null;
   
   // メディア
   mediaItems: SerializedMediaItem[];
@@ -386,6 +413,33 @@ export interface ProjectData {
   narrationAudioNormalizeMode?: 'mean' | 'loudest';
 }
 
+export function toManualProjectSummary(data: ProjectData & { slot: ManualSaveSlot }): ManualProjectSummary {
+  let duration = 0;
+  for (let index = 0; index < data.mediaItems.length; index++) {
+    const item = data.mediaItems[index];
+    const next = data.mediaItems[index + 1];
+    const itemDuration = Number.isFinite(item.duration) ? Math.max(0, item.duration) : 0;
+    const nextDuration = next && Number.isFinite(next.duration) ? Math.max(0, next.duration) : 0;
+    const requestedOverlap = item.transitionToNext?.type === 'dissolve'
+      ? Math.max(0, item.transitionToNext.duration) : 0;
+    const overlap = next
+      ? Math.min(requestedOverlap, Math.max(0, itemDuration - 0.15), Math.max(0, nextDuration - 0.15))
+      : 0;
+    duration += itemDuration - overlap;
+  }
+  if (data.endrollOverlay?.enabled && Number.isFinite(data.endrollOverlay.durationSec)) {
+    duration += Math.max(0, data.endrollOverlay.durationSec);
+  }
+  return {
+    slot: data.slot,
+    projectId: data.projectId || `legacy-${data.slot}`,
+    title: typeof data.title === 'string' ? data.title : '',
+    savedAt: data.savedAt,
+    durationSec: Number.isFinite(data.durationSec) && data.durationSec! >= 0 ? data.durationSec! : duration,
+    thumbnailDataUrl: data.thumbnailDataUrl ?? data.projectPosterDataUrl ?? null,
+  };
+}
+
 /**
  * IndexedDBを開く
  */
@@ -409,6 +463,9 @@ function openDB(): Promise<IDBDatabase> {
       const db = (event.target as IDBOpenDBRequest).result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME, { keyPath: 'slot' });
+      }
+      if (!db.objectStoreNames.contains(SUMMARY_STORE_NAME)) {
+        db.createObjectStore(SUMMARY_STORE_NAME, { keyPath: 'slot' });
       }
     };
   });
@@ -440,7 +497,7 @@ export async function saveProject(data: ProjectData): Promise<void> {
 
     let transaction: IDBTransaction;
     try {
-      transaction = db.transaction([STORE_NAME], 'readwrite');
+      transaction = db.transaction([STORE_NAME, SUMMARY_STORE_NAME], 'readwrite');
     } catch (error) {
       const reason = getIdbErrorReason(error as DOMException);
       rejectOnce(reason);
@@ -449,6 +506,15 @@ export async function saveProject(data: ProjectData): Promise<void> {
 
     const store = transaction.objectStore(STORE_NAME);
     const request = store.put(data);
+    if (isManualSaveSlot(data.slot)) {
+      transaction.objectStore(SUMMARY_STORE_NAME).put(toManualProjectSummary({ ...data, slot: data.slot }));
+    } else {
+      transaction.objectStore(SUMMARY_STORE_NAME).put({
+        slot: 'auto',
+        savedAt: data.savedAt,
+        thumbnailDataUrl: data.thumbnailDataUrl ?? null,
+      } satisfies AutoSaveSummary);
+    }
 
     request.onsuccess = () => {
       // request成功はトランザクション完了前なので、resolveはoncompleteで行う
@@ -568,7 +634,7 @@ export async function deleteProject(slot: SaveSlot): Promise<void> {
 
     let transaction: IDBTransaction;
     try {
-      transaction = db.transaction([STORE_NAME], 'readwrite');
+      transaction = db.transaction([STORE_NAME, SUMMARY_STORE_NAME], 'readwrite');
     } catch (error) {
       const reason = getIdbErrorReason(error as DOMException);
       rejectOnce(reason);
@@ -577,6 +643,7 @@ export async function deleteProject(slot: SaveSlot): Promise<void> {
 
     const store = transaction.objectStore(STORE_NAME);
     const request = store.delete(slot);
+    transaction.objectStore(SUMMARY_STORE_NAME).delete(slot);
 
     request.onsuccess = () => {
       useLogStore.getState().info('SYSTEM', 'プロジェクト削除要求が受理', { slot });
@@ -604,25 +671,129 @@ export async function deleteProject(slot: SaveSlot): Promise<void> {
   });
 }
 
-/**
- * 全スロットのプロジェクト情報を取得（メタデータのみ）
- */
-export async function getProjectsInfo(): Promise<{ auto: ProjectData | null; manual: ProjectData | null }> {
-  const [autoData, manualData] = await Promise.all([
-    loadProject('auto'),
-    loadProject('manual'),
-  ]);
-  return { auto: autoData, manual: manualData };
+async function putManualSummary(summary: ManualProjectSummary): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([SUMMARY_STORE_NAME], 'readwrite');
+    transaction.objectStore(SUMMARY_STORE_NAME).put(summary);
+    transaction.oncomplete = () => { closeDbSafely(db); resolve(); };
+    transaction.onabort = () => { closeDbSafely(db); reject(transaction.error ?? new Error('保存情報を更新できませんでした')); };
+    transaction.onerror = () => { closeDbSafely(db); reject(transaction.error ?? new Error('保存情報を更新できませんでした')); };
+  });
+}
+
+/** 素材バイナリを読まずに3枠の表示情報を取得する。旧 manual だけ初回に補完する。 */
+export async function getManualProjectSummaries(): Promise<Record<ManualSaveSlot, ManualProjectSummary | null>> {
+  const db = await openDB();
+  const summaries = await new Promise<(ManualProjectSummary | AutoSaveSummary)[]>((resolve, reject) => {
+    const transaction = db.transaction([SUMMARY_STORE_NAME], 'readonly');
+    const request = transaction.objectStore(SUMMARY_STORE_NAME).getAll();
+    let result: (ManualProjectSummary | AutoSaveSummary)[] = [];
+    request.onsuccess = () => { result = request.result as (ManualProjectSummary | AutoSaveSummary)[]; };
+    transaction.oncomplete = () => resolve(result);
+    transaction.onabort = () => reject(transaction.error ?? new Error('保存情報を取得できませんでした'));
+    transaction.onerror = () => reject(transaction.error ?? new Error('保存情報を取得できませんでした'));
+  }).finally(() => closeDbSafely(db));
+  const result: Record<ManualSaveSlot, ManualProjectSummary | null> = {
+    manual: null,
+    'manual-2': null,
+    'manual-3': null,
+  };
+  for (const summary of summaries) {
+    if (summary.slot !== 'auto') result[summary.slot] = summary;
+  }
+  if (!result.manual) {
+    const legacy = await loadProject('manual');
+    if (legacy) {
+      result.manual = toManualProjectSummary({ ...legacy, slot: 'manual' });
+      await putManualSummary(result.manual);
+    }
+  }
+  return result;
+}
+
+/** 名前だけを更新する。大きなプロジェクト本体は再書込しない。 */
+export async function renameManualProject(slot: ManualSaveSlot, title: string): Promise<void> {
+  await getManualProjectSummaries();
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([SUMMARY_STORE_NAME], 'readwrite');
+    const request = transaction.objectStore(SUMMARY_STORE_NAME).get(slot);
+    request.onsuccess = () => {
+      const summary = request.result as ManualProjectSummary | undefined;
+      if (!summary) {
+        transaction.abort();
+        return;
+      }
+      transaction.objectStore(SUMMARY_STORE_NAME).put({ ...summary, title });
+    };
+    transaction.oncomplete = () => { closeDbSafely(db); resolve(); };
+    transaction.onabort = () => { closeDbSafely(db); reject(transaction.error ?? new Error('保存データが見つかりません')); };
+    transaction.onerror = () => { closeDbSafely(db); reject(transaction.error ?? new Error('名前の変更に失敗しました')); };
+  });
+}
+
+/** 3つの手動保存だけを1トランザクションで削除する。 */
+export async function deleteManualProjects(): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORE_NAME, SUMMARY_STORE_NAME], 'readwrite');
+    for (const slot of MANUAL_SAVE_SLOTS) {
+      transaction.objectStore(STORE_NAME).delete(slot);
+      transaction.objectStore(SUMMARY_STORE_NAME).delete(slot);
+    }
+    transaction.oncomplete = () => { closeDbSafely(db); resolve(); };
+    transaction.onabort = () => { closeDbSafely(db); reject(transaction.error ?? new Error('手動保存を削除できませんでした')); };
+    transaction.onerror = () => { closeDbSafely(db); reject(transaction.error ?? new Error('手動保存を削除できませんでした')); };
+  });
+}
+
+/** 自動保存の表示情報を取得する。旧データだけ初回に本体から補完する。 */
+export async function getAutoSaveSummary(): Promise<AutoSaveSummary | null> {
+  const db = await openDB();
+  const summary = await new Promise<AutoSaveSummary | null>((resolve, reject) => {
+    const transaction = db.transaction([SUMMARY_STORE_NAME], 'readonly');
+    const request = transaction.objectStore(SUMMARY_STORE_NAME).get('auto');
+    let result: AutoSaveSummary | null = null;
+    request.onsuccess = () => { result = request.result ?? null; };
+    transaction.oncomplete = () => resolve(result);
+    transaction.onabort = () => reject(transaction.error ?? new Error('自動保存情報を取得できませんでした'));
+    transaction.onerror = () => reject(transaction.error ?? new Error('自動保存情報を取得できませんでした'));
+  }).finally(() => closeDbSafely(db));
+  if (summary && summary.thumbnailDataUrl !== undefined) return summary;
+  const legacy = await loadProject('auto');
+  if (!legacy) return null;
+  const restored: AutoSaveSummary = {
+    slot: 'auto',
+    savedAt: legacy.savedAt,
+    thumbnailDataUrl: legacy.projectPosterDataUrl ?? null,
+  };
+  const legacyDb = await openDB();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = legacyDb.transaction([SUMMARY_STORE_NAME], 'readwrite');
+    transaction.objectStore(SUMMARY_STORE_NAME).put(restored);
+    transaction.oncomplete = () => resolve();
+    transaction.onabort = () => reject(transaction.error ?? new Error('自動保存情報を更新できませんでした'));
+    transaction.onerror = () => reject(transaction.error ?? new Error('自動保存情報を更新できませんでした'));
+  }).finally(() => closeDbSafely(legacyDb));
+  return restored;
 }
 
 /**
  * 全プロジェクトを削除
  */
 export async function deleteAllProjects(): Promise<void> {
-  await Promise.all([
-    deleteProject('auto'),
-    deleteProject('manual'),
-  ]);
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORE_NAME, SUMMARY_STORE_NAME], 'readwrite');
+    for (const slot of ['auto', ...MANUAL_SAVE_SLOTS] as SaveSlot[]) {
+      transaction.objectStore(STORE_NAME).delete(slot);
+      transaction.objectStore(SUMMARY_STORE_NAME).delete(slot);
+    }
+    transaction.oncomplete = () => { closeDbSafely(db); resolve(); };
+    transaction.onabort = () => { closeDbSafely(db); reject(transaction.error ?? new Error('保存データを削除できませんでした')); };
+    transaction.onerror = () => { closeDbSafely(db); reject(transaction.error ?? new Error('保存データを削除できませんでした')); };
+  });
 }
 
 /**

@@ -4059,6 +4059,12 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       <SaveLoadModal
         isOpen={showProjectManager}
         onClose={() => setShowProjectManager(false)}
+        captureSaveThumbnail={() => {
+          const canvas = canvasRef.current;
+          return canvas && !isCanvasEffectivelyBlank(canvas)
+            ? createPosterDataUrlFromCanvas(canvas, 320, 0.75)
+            : null;
+        }}
         onBeforeLoadProject={() => {
           projectPosterCaptureGenerationRef.current += 1;
           pausePreviewBeforeEdit('load-project');

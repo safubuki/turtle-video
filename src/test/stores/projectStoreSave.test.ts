@@ -8,7 +8,10 @@ const mocks = vi.hoisted(() => ({
   deleteProject: vi.fn(),
   deleteAllProjects: vi.fn(),
   resetProjectDatabase: vi.fn(),
-  getProjectsInfo: vi.fn(),
+  getAutoSaveSummary: vi.fn(),
+  getManualProjectSummaries: vi.fn(),
+  renameManualProject: vi.fn(),
+  deleteManualProjects: vi.fn(),
   getStorageEstimate: vi.fn(),
   fileToArrayBuffer: vi.fn(),
   blobUrlToArrayBuffer: vi.fn(),
@@ -21,7 +24,10 @@ vi.mock('../../utils/indexedDB', () => ({
   deleteProject: mocks.deleteProject,
   deleteAllProjects: mocks.deleteAllProjects,
   resetProjectDatabase: mocks.resetProjectDatabase,
-  getProjectsInfo: mocks.getProjectsInfo,
+  getAutoSaveSummary: mocks.getAutoSaveSummary,
+  getManualProjectSummaries: mocks.getManualProjectSummaries,
+  renameManualProject: mocks.renameManualProject,
+  deleteManualProjects: mocks.deleteManualProjects,
   getStorageEstimate: mocks.getStorageEstimate,
   fileToArrayBuffer: mocks.fileToArrayBuffer,
   blobUrlToArrayBuffer: mocks.blobUrlToArrayBuffer,
@@ -152,13 +158,19 @@ describe('projectStore save behavior', () => {
     mocks.deleteProject.mockReset();
     mocks.deleteAllProjects.mockReset();
     mocks.resetProjectDatabase.mockReset();
-    mocks.getProjectsInfo.mockReset();
+    mocks.getAutoSaveSummary.mockReset();
+    mocks.getManualProjectSummaries.mockReset();
+    mocks.renameManualProject.mockReset();
+    mocks.deleteManualProjects.mockReset();
     mocks.getStorageEstimate.mockReset();
     mocks.fileToArrayBuffer.mockReset();
     mocks.blobUrlToArrayBuffer.mockReset();
     mocks.arrayBufferToFile.mockReset();
 
-    mocks.getProjectsInfo.mockResolvedValue({ auto: null, manual: null });
+    mocks.getAutoSaveSummary.mockResolvedValue(null);
+    mocks.getManualProjectSummaries.mockResolvedValue({ manual: null, 'manual-2': null, 'manual-3': null });
+    mocks.renameManualProject.mockResolvedValue(undefined);
+    mocks.deleteManualProjects.mockResolvedValue(undefined);
     mocks.getStorageEstimate.mockResolvedValue(null);
     mocks.fileToArrayBuffer.mockResolvedValue(new ArrayBuffer(0));
     mocks.blobUrlToArrayBuffer.mockResolvedValue(new ArrayBuffer(0));
@@ -170,7 +182,9 @@ describe('projectStore save behavior', () => {
       isSaving: false,
       isLoading: false,
       lastAutoSave: '2026-02-17T00:00:00.000Z',
+      autoThumbnailDataUrl: null,
       lastManualSave: null,
+      manualProjects: { manual: null, 'manual-2': null, 'manual-3': null },
       autoSaveError: null,
       lastSaveFailure: null,
       saveHealth: null,
@@ -638,6 +652,78 @@ describe('projectStore save behavior', () => {
     expect(loaded.mediaItems[0].fileData).toBe(savedProjectData.mediaItems[0].fileData);
   });
 
+  it('自動保存のポスター画像を一覧のサムネイルにも保存する', async () => {
+    useMediaStore.setState({ projectPosterDataUrl: 'data:image/jpeg;base64,auto-poster' });
+    mocks.saveProject.mockResolvedValueOnce(undefined);
+
+    const saved = await useProjectStore.getState().saveProjectAuto(
+      [], false, null, false, [], false, [createCaption()], defaultCaptionSettings, false,
+    );
+
+    expect(saved).toBe(true);
+    expect(mocks.saveProject.mock.calls[0][0].thumbnailDataUrl).toBe('data:image/jpeg;base64,auto-poster');
+    expect(useProjectStore.getState().autoThumbnailDataUrl).toBe('data:image/jpeg;base64,auto-poster');
+  });
+
+  it('保存画面の再表示時に自動保存サムネイルを軽量な一覧情報から復元する', async () => {
+    mocks.getAutoSaveSummary.mockResolvedValueOnce({
+      slot: 'auto', savedAt: '2026-09-24T01:00:00.000Z',
+      thumbnailDataUrl: 'data:image/jpeg;base64,restored',
+    });
+    await useProjectStore.getState().refreshSaveInfo();
+    expect(useProjectStore.getState().lastAutoSave).toBe('2026-09-24T01:00:00.000Z');
+    expect(useProjectStore.getState().autoThumbnailDataUrl).toBe('data:image/jpeg;base64,restored');
+  });
+
+  it('②へ保存したタイトル・サムネイル・識別子を上書き時にも保持する', async () => {
+    mocks.saveProject.mockResolvedValue(undefined);
+    const empty = { manual: null, 'manual-2': null, 'manual-3': null };
+    mocks.getManualProjectSummaries.mockResolvedValueOnce(empty);
+
+    await useProjectStore.getState().saveProjectManual(
+      [], false, null, false, [], false, [], defaultCaptionSettings, false, [],
+      { slot: 'manual-2', title: ' 旅行 ', thumbnailDataUrl: 'data:image/jpeg;base64,abc', expectedSavedAt: null },
+    );
+    const first = mocks.saveProject.mock.calls[0][0] as ProjectData;
+    expect(first).toMatchObject({ slot: 'manual-2', title: '旅行', thumbnailDataUrl: 'data:image/jpeg;base64,abc' });
+    expect(first.projectId).toBeTruthy();
+
+    mocks.getManualProjectSummaries.mockResolvedValueOnce({
+      ...empty,
+      'manual-2': {
+        slot: 'manual-2', projectId: first.projectId, title: first.title,
+        savedAt: first.savedAt, durationSec: 0, thumbnailDataUrl: first.thumbnailDataUrl,
+      },
+    });
+    await useProjectStore.getState().saveProjectManual(
+      [], false, null, false, [], false, [], defaultCaptionSettings, false, [],
+      { slot: 'manual-2', expectedSavedAt: first.savedAt },
+    );
+    const second = mocks.saveProject.mock.calls[1][0] as ProjectData;
+    expect(second.projectId).toBe(first.projectId);
+    expect(second.title).toBe('旅行');
+  });
+
+  it('確認後に保存先が変わった場合は上書きを止める', async () => {
+    mocks.getManualProjectSummaries.mockResolvedValue({
+      manual: null, 'manual-2': null,
+      'manual-3': { slot: 'manual-3', projectId: 'other', title: '', savedAt: 'newer', durationSec: 0, thumbnailDataUrl: null },
+    });
+    await expect(useProjectStore.getState().saveProjectManual(
+      [], false, null, false, [], false, [], defaultCaptionSettings, false, [],
+      { slot: 'manual-3', expectedSavedAt: null },
+    )).rejects.toThrow('保存先が別の操作で変更されました');
+    expect(mocks.saveProject).not.toHaveBeenCalled();
+  });
+
+  it('手動保存の一括削除は自動保存を残す', async () => {
+    await useProjectStore.getState().deleteAllManualProjects();
+    expect(mocks.deleteManualProjects).toHaveBeenCalledTimes(1);
+    expect(mocks.deleteProject).not.toHaveBeenCalledWith('auto');
+    expect(useProjectStore.getState().lastAutoSave).toBe('2026-02-17T00:00:00.000Z');
+    expect(useProjectStore.getState().manualProjects['manual-2']).toBeNull();
+  });
+
   it('resetSaveDatabase は保存情報と失敗状態を初期化する', async () => {
     mocks.resetProjectDatabase.mockResolvedValue(undefined);
 
@@ -675,7 +761,10 @@ describe('projectStore save behavior', () => {
       deleteProject: vi.fn().mockResolvedValue(undefined),
       deleteAllProjects: vi.fn().mockResolvedValue(undefined),
       resetProjectDatabase: vi.fn().mockResolvedValue(undefined),
-      getProjectsInfo: vi.fn().mockResolvedValue({ auto: null, manual: null }),
+      getAutoSaveSummary: vi.fn().mockResolvedValue(null),
+      getManualProjectSummaries: vi.fn().mockResolvedValue({ manual: null, 'manual-2': null, 'manual-3': null }),
+      renameManualProject: vi.fn().mockResolvedValue(undefined),
+      deleteManualProjects: vi.fn().mockResolvedValue(undefined),
       getStorageEstimate: vi.fn().mockResolvedValue(null),
       fileToArrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(0)),
       blobUrlToArrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(0)),

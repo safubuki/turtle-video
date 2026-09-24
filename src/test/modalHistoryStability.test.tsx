@@ -1,9 +1,10 @@
 import { StrictMode } from 'react';
-import { act, cleanup, fireEvent, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppFlavor } from '../app/resolveAppFlavor';
 import type { ProjectPersistenceHealthSnapshot } from '../stores/projectPersistenceHealth';
 import type { SaveFailureInfo } from '../stores/projectStore';
+import type { ManualProjectSummary, ManualSaveSlot } from '../utils/indexedDB';
 import SettingsModal from '../components/modals/SettingsModal';
 import SaveLoadModal from '../components/modals/SaveLoadModal';
 import CaptionBulkAddModal from '../components/modals/CaptionBulkAddModal';
@@ -50,16 +51,21 @@ const projectStoreState = {
   isSaving: false,
   isLoading: false,
   lastAutoSave: null as string | null,
+  autoThumbnailDataUrl: null as string | null,
   lastAutoSaveActivityAt: null as string | null,
   autoSaveRuntimeStatus: 'idle' as 'idle' | 'running' | 'saved' | 'skipped-nochange' | 'skipped-empty' | 'paused-processing' | 'failed',
   autoSaveRestartToken: 0,
   lastManualSave: null as string | null,
+  manualProjects: { manual: null, 'manual-2': null, 'manual-3': null } as Record<ManualSaveSlot, ManualProjectSummary | null>,
   lastSaveFailure: null as SaveFailureInfo | null,
   saveHealth: null as ProjectPersistenceHealthSnapshot | null,
   saveHealthError: null as string | null,
   saveProjectManual: vi.fn(),
   loadProjectFromSlot: vi.fn(),
   deleteAllSaves: vi.fn(),
+  deleteManualProject: vi.fn(),
+  deleteAllManualProjects: vi.fn(),
+  renameManualProject: vi.fn(),
   deleteAutoSaveOnly: vi.fn(),
   resetSaveDatabase: vi.fn(),
   refreshSaveInfo: vi.fn().mockResolvedValue(undefined),
@@ -71,6 +77,7 @@ const projectStoreState = {
 
 const mediaStoreState = {
   mediaItems: [] as Array<{ id: string; type: string; file: File }>,
+  projectPosterDataUrl: null as string | null,
   isClipsLocked: false,
   restoreFromSave: vi.fn(),
 };
@@ -85,6 +92,7 @@ const audioStoreState = {
 
 const captionStoreState = {
   captions: [] as Array<Record<string, unknown>>,
+  title: { text: '' },
   settings: {} as Record<string, unknown>,
   isLocked: false,
   restoreFromSave: vi.fn(),
@@ -151,7 +159,10 @@ vi.mock('../stores/projectStore', () => {
 });
 
 vi.mock('../stores/mediaStore', () => ({
-  useMediaStore: (selector: (state: typeof mediaStoreState) => unknown) => selector(mediaStoreState),
+  useMediaStore: Object.assign(
+    (selector: (state: typeof mediaStoreState) => unknown) => selector(mediaStoreState),
+    { getState: () => mediaStoreState },
+  ),
 }));
 
 vi.mock('../stores/audioStore', () => ({
@@ -199,9 +210,11 @@ afterEach(() => {
   projectStoreState.isSaving = false;
   projectStoreState.isLoading = false;
   projectStoreState.lastAutoSave = null;
+  projectStoreState.autoThumbnailDataUrl = null;
   projectStoreState.lastAutoSaveActivityAt = null;
   projectStoreState.autoSaveRuntimeStatus = 'idle';
   projectStoreState.lastManualSave = null;
+  projectStoreState.manualProjects = { manual: null, 'manual-2': null, 'manual-3': null };
   projectStoreState.lastSaveFailure = null;
   projectStoreState.saveHealth = null;
   projectStoreState.saveHealthError = null;
@@ -212,6 +225,10 @@ afterEach(() => {
   projectStoreState.refreshSaveInfo.mockReset();
   projectStoreState.refreshSaveHealth.mockReset();
   projectStoreState.saveProjectManual.mockReset();
+  projectStoreState.deleteAutoSaveOnly.mockReset();
+  projectStoreState.deleteManualProject.mockReset();
+  projectStoreState.deleteAllManualProjects.mockReset();
+  projectStoreState.renameManualProject.mockReset();
   saveRuntime.configureProjectStore.mockReset();
   saveRuntime.getPlatformCapabilities.mockClear();
   saveRuntime.saveBlobWithClientFileStrategy.mockReset();
@@ -222,6 +239,124 @@ afterEach(() => {
 });
 
 describe('modal history stability', () => {
+  it('既存枠は確認してから上書きし、名前はクリックして変更できる', async () => {
+    mediaStoreState.mediaItems = [{ id: 'media-1', type: 'image', file: new File(['x'], 'x.png') }];
+    projectStoreState.manualProjects.manual = {
+      slot: 'manual', projectId: 'project-1', title: '旅行',
+      savedAt: '2026-09-24T00:00:00.000Z', durationSec: 67,
+      thumbnailDataUrl: 'data:image/jpeg;base64,abc',
+    };
+    projectStoreState.saveProjectManual.mockResolvedValue(undefined);
+    projectStoreState.renameManualProject.mockResolvedValue(undefined);
+    const { getAllByRole, getByRole, getByText } = render(
+      <SaveLoadModal isOpen onClose={() => {}} onToast={() => {}} appFlavor={defaultAppFlavor} saveRuntime={saveRuntime} />,
+    );
+    expect(getByText('動画 1:07', { exact: false })).toBeTruthy();
+    fireEvent.click(getByRole('button', { name: '①の名前を編集' }));
+    fireEvent.change(getByRole('textbox', { name: '保存名' }), { target: { value: '新しい旅行' } });
+    await act(async () => {
+      fireEvent.click(getAllByRole('button', { name: '保存' })[0]);
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(projectStoreState.renameManualProject).toHaveBeenCalledWith('manual', '新しい旅行'));
+
+    const slots = getByRole('region', { name: '手動保存の3枠' });
+    fireEvent.click(within(slots).getAllByRole('button', { name: '保存' })[0]);
+    expect(getByRole('button', { name: '上書き保存' })).toBeTruthy();
+    fireEvent.click(getByRole('button', { name: 'キャンセル' }));
+    expect(projectStoreState.saveProjectManual).not.toHaveBeenCalled();
+  });
+
+  it('既存枠の上書き確認後は対象枠と確認時刻を渡して保存する', async () => {
+    mediaStoreState.mediaItems = [{ id: 'media-1', type: 'image', file: new File(['x'], 'x.png') }];
+    projectStoreState.manualProjects.manual = {
+      slot: 'manual', projectId: 'project-1', title: '旅行',
+      savedAt: '2026-09-24T00:00:00.000Z', durationSec: 67,
+      thumbnailDataUrl: null,
+    };
+    projectStoreState.saveProjectManual.mockResolvedValue(undefined);
+    const onClose = vi.fn();
+    const { getByRole } = render(
+      <SaveLoadModal isOpen onClose={onClose} onToast={() => {}} appFlavor={defaultAppFlavor} saveRuntime={saveRuntime} />,
+    );
+    fireEvent.click(within(getByRole('region', { name: '手動保存の3枠' })).getAllByRole('button', { name: '保存' })[0]);
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: '上書き保存' }));
+      await Promise.resolve();
+    });
+    expect(projectStoreState.saveProjectManual).toHaveBeenCalledTimes(1);
+    expect(projectStoreState.saveProjectManual.mock.calls[0][10]).toMatchObject({
+      slot: 'manual', expectedSavedAt: '2026-09-24T00:00:00.000Z',
+    });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(getByRole('region', { name: '手動保存の3枠' })).toBeTruthy();
+    expect(() => getByRole('button', { name: '保存先を選んで手動保存' })).toThrow();
+  });
+
+  it('手動3枠の一括削除は確認後だけ行い、自動保存を消さない', async () => {
+    projectStoreState.lastAutoSave = '2026-09-24T00:00:00.000Z';
+    projectStoreState.manualProjects['manual-2'] = {
+      slot: 'manual-2', projectId: 'project-2', title: '',
+      savedAt: '2026-09-24T00:00:00.000Z', durationSec: 12,
+      thumbnailDataUrl: null,
+    };
+    projectStoreState.deleteAllManualProjects.mockResolvedValue(undefined);
+    const { getByRole, getByText } = render(
+      <SaveLoadModal isOpen onClose={() => {}} onToast={() => {}} appFlavor={defaultAppFlavor} saveRuntime={saveRuntime} />,
+    );
+    fireEvent.click(getByRole('button', { name: '手動保存データのみ削除' }));
+    expect(getByText(/自動保存は残ります/)).toBeTruthy();
+    fireEvent.click(getByRole('button', { name: 'キャンセル' }));
+    expect(projectStoreState.deleteAllManualProjects).not.toHaveBeenCalled();
+    fireEvent.click(getByRole('button', { name: '手動保存データのみ削除' }));
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: 'すべて削除' }));
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(projectStoreState.deleteAllManualProjects).toHaveBeenCalledTimes(1));
+    expect(projectStoreState.deleteAllSaves).not.toHaveBeenCalled();
+  });
+
+  it('個別削除は確認した枠だけを削除する', async () => {
+    projectStoreState.manualProjects['manual-3'] = {
+      slot: 'manual-3', projectId: 'project-3', title: '家族',
+      savedAt: '2026-09-24T00:00:00.000Z', durationSec: 28,
+      thumbnailDataUrl: null,
+    };
+    projectStoreState.deleteManualProject.mockResolvedValue(undefined);
+    const { getByRole } = render(
+      <SaveLoadModal isOpen onClose={() => {}} onToast={() => {}} appFlavor={defaultAppFlavor} saveRuntime={saveRuntime} />,
+    );
+    const slots = getByRole('region', { name: '手動保存の3枠' });
+    fireEvent.click(within(slots).getAllByRole('button', { name: '削除' })[2]);
+    expect(getByRole('button', { name: '削除する' })).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: '削除する' }));
+      await Promise.resolve();
+    });
+    expect(projectStoreState.deleteManualProject).toHaveBeenCalledWith('manual-3');
+    expect(projectStoreState.deleteAllManualProjects).not.toHaveBeenCalled();
+  });
+
+  it('自動保存カードは画像と操作を表示し、確認後に自動保存だけを削除する', async () => {
+    projectStoreState.lastAutoSave = '2026-09-24T00:00:00.000Z';
+    projectStoreState.autoThumbnailDataUrl = 'data:image/jpeg;base64,auto';
+    projectStoreState.deleteAutoSaveOnly.mockResolvedValue(undefined);
+    const { getByRole, getByText } = render(
+      <SaveLoadModal isOpen onClose={() => {}} onToast={() => {}} appFlavor={defaultAppFlavor} saveRuntime={saveRuntime} />,
+    );
+    const autoCard = getByRole('region', { name: '自動保存' });
+    expect(autoCard.querySelector('img')?.getAttribute('src')).toBe(projectStoreState.autoThumbnailDataUrl);
+    expect(within(autoCard).getByRole('button', { name: '読み込み' })).toBeTruthy();
+    fireEvent.click(within(autoCard).getByRole('button', { name: '削除' }));
+    expect(getByText(/手動保存①②③は残ります/)).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: '削除する' }));
+      await Promise.resolve();
+    });
+    expect(projectStoreState.deleteAutoSaveOnly).toHaveBeenCalledTimes(1);
+    expect(projectStoreState.deleteAllSaves).not.toHaveBeenCalled();
+  });
   it('CaptionBulkAddModal は StrictMode の effect 再実行で閉じない', async () => {
     const onClose = vi.fn();
     const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {
@@ -333,17 +468,21 @@ describe('modal history stability', () => {
       />,
     );
 
-    fireEvent.click(getByRole('button', { name: '手動保存' }));
+    fireEvent.click(within(getByRole('region', { name: '手動保存の3枠' })).getAllByRole('button', { name: '保存' })[0]);
 
     await findByText('保存DBの復旧');
 
-    fireEvent.click(getByRole('button', { name: '初期化して保存' }));
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: '初期化して保存' }));
+      await Promise.resolve();
+    });
 
     await vi.waitFor(() => {
       expect(projectStoreState.resetSaveDatabase).toHaveBeenCalledTimes(1);
       expect(projectStoreState.saveProjectManual).toHaveBeenCalledTimes(2);
-      expect(onToast).toHaveBeenCalledWith('保存しました', 'success');
-      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(onToast).toHaveBeenCalledWith('①に保存しました', 'success');
+      expect(onClose).not.toHaveBeenCalled();
+      expect(getByRole('region', { name: '手動保存の3枠' })).toBeTruthy();
     });
   });
 
@@ -353,9 +492,13 @@ describe('modal history stability', () => {
     vi.setSystemTime(new Date('2026-03-24T12:00:00.000Z'));
     projectStoreState.lastAutoSave = '2026-03-24T11:59:10.000Z';
     projectStoreState.lastAutoSaveActivityAt = '2026-03-24T11:59:10.000Z';
-    projectStoreState.lastManualSave = '2026-03-24T12:10:00.000Z';
+    projectStoreState.manualProjects.manual = {
+      slot: 'manual', projectId: 'future-project', title: '',
+      savedAt: '2026-03-24T12:10:00.000Z', durationSec: 1,
+      thumbnailDataUrl: null,
+    };
 
-    const { getAllByText } = render(
+    const { getAllByText, getByText } = render(
       <SaveLoadModal
         isOpen={true}
         onClose={() => {}}
@@ -365,14 +508,15 @@ describe('modal history stability', () => {
       />,
     );
 
-    expect(getAllByText('たった今').length).toBeGreaterThanOrEqual(2);
+    expect(getAllByText('たった今').length).toBeGreaterThanOrEqual(1);
+    expect(getByText(/動画 0:01 ・ たった今/)).toBeTruthy();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150_000);
     });
 
     expect(getAllByText('3分前').length).toBeGreaterThanOrEqual(1);
-    expect(getAllByText('たった今').length).toBeGreaterThanOrEqual(1);
+    expect(getByText(/動画 0:01 ・ たった今/)).toBeTruthy();
 
     vi.useRealTimers();
   });
