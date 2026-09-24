@@ -172,11 +172,12 @@ export interface ClipCardDisclosureStepInput {
 export function stepClipCardDisclosure(
   state: ClipCardDisclosureState,
   input: ClipCardDisclosureStepInput
-): { state: ClipCardDisclosureState; scrollToId: string | null } {
+): { state: ClipCardDisclosureState; scrollToId: string | null; scrollReason: 'seek' | 'items' | null } {
   if (input.restoreEpochChanged) {
     return {
       state: createInitialClipCardDisclosure(input.focusId),
       scrollToId: input.focusId,
+      scrollReason: 'items',
     };
   }
 
@@ -192,6 +193,7 @@ export function stepClipCardDisclosure(
     return {
       state: createInitialClipCardDisclosure(input.focusId),
       scrollToId: input.focusId,
+      scrollReason: 'items',
     };
   }
 
@@ -201,6 +203,7 @@ export function stepClipCardDisclosure(
     return {
       state: opened,
       scrollToId: opened.followId,
+      scrollReason: 'items',
     };
   }
 
@@ -210,14 +213,14 @@ export function stepClipCardDisclosure(
   const sliderJump = focusMoved && input.focusChangeDeltaSec >= CLIP_CARD_SEEK_JUMP_SEC;
   if (input.isPlaying || input.wasPlaying) {
     if (sliderJump) {
-      return { state: applyClipCardSeek(next, input.focusId), scrollToId: input.focusId };
+      return { state: applyClipCardSeek(next, input.focusId), scrollToId: input.focusId, scrollReason: 'seek' };
     }
-    return { state: noteClipFocusDuringPlayback(next, input.focusId), scrollToId: null };
+    return { state: noteClipFocusDuringPlayback(next, input.focusId), scrollToId: null, scrollReason: null };
   }
 
   if (focusMoved) {
-    return { state: applyClipCardSeek(next, input.focusId), scrollToId: input.focusId };
+    return { state: applyClipCardSeek(next, input.focusId), scrollToId: input.focusId, scrollReason: 'seek' };
   }
 
-  return { state: next, scrollToId: null };
+  return { state: next, scrollToId: null, scrollReason: null };
 }

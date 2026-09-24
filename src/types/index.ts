@@ -43,6 +43,10 @@ export type VoiceId =
   | 'Sadaltager'
   | 'Sulafat';
 export type NarrationScriptLength = 'short' | 'medium' | 'long';
+/** 旧プロジェクトは従来の generateContent 音声エンジンを使う。 */
+export type NarrationTtsEngine = 'legacy' | 'gemini-3.8-flash-tts' | 'gemini-3.8-flash-lite-tts';
+export type NarrationTtsTone = 'natural' | 'warm' | 'calm' | 'energetic' | 'clear';
+export type NarrationTtsPace = 'normal' | 'slow' | 'fast';
 
 /**
  * 声の性別ラベル。
@@ -189,7 +193,8 @@ export interface NarrationClip {
   duration: number;
   isAiEditable: boolean;
   aiScript?: string;
-  aiVoice?: VoiceId;
+  /** 従来の30声、または Gemini 3.8 Voices API の音声 ID */
+  aiVoice?: string;
   /** 全体の話し方ニュアンス（旧。場面指定 aiNarrationScene と併用可） */
   aiVoiceStyle?: string;
   /**
@@ -197,6 +202,10 @@ export interface NarrationClip {
    * TTS の監督指示として使う。未設定は空。
    */
   aiNarrationScene?: string;
+  aiTtsEngine?: NarrationTtsEngine;
+  aiTtsTone?: NarrationTtsTone;
+  aiTtsPace?: NarrationTtsPace;
+  aiTtsStyleDetail?: string;
   // クリップ範囲基準のフェード（任意・省略時 false）。
   // 主に BGM クリップ（BgmClip）で使用する。standard フレーバーの
   // preview / export エンジンのみが解釈する（iOS では無視される）。

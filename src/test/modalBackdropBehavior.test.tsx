@@ -75,6 +75,10 @@ const renderAiModal = (onClose = vi.fn()) => {
       aiVoice="Aoede"
       aiVoiceStyle=""
       aiNarrationScene=""
+      aiTtsEngine="legacy"
+      aiTtsTone="natural"
+      aiTtsPace="normal"
+      aiTtsStyleDetail=""
       isAiLoading={false}
       voiceOptions={[
         {
@@ -91,6 +95,10 @@ const renderAiModal = (onClose = vi.fn()) => {
       onVoiceChange={() => {}}
       onVoiceStyleChange={() => {}}
       onNarrationSceneChange={() => {}}
+      onTtsEngineChange={() => {}}
+      onTtsToneChange={() => {}}
+      onTtsPaceChange={() => {}}
+      onTtsStyleDetailChange={() => {}}
       onGenerateScript={() => {}}
       onGenerateSpeech={() => {}}
     />

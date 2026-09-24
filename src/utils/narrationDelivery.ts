@@ -100,14 +100,23 @@ export interface NarrationSceneSetting {
  * 長文の演技指示はタグに書かず、Scene / Sample Context 側へ載せる。
  */
 export const NARRATION_TONE_PRESETS = [
+  { id: 'emphasize', label: '強調して', tag: 'emphasize' },
+  { id: 'emotional', label: '感情込めて', tag: 'passionate' },
+  { id: 'whisper', label: 'ささやき', tag: 'whispers' },
+  { id: 'fast', label: '早口で', tag: 'fast' },
+  { id: 'slow', label: 'ゆっくり', tag: 'slow' },
+] as const;
+
+export type NarrationTonePresetId = (typeof NARRATION_TONE_PRESETS)[number]['id'];
+
+/** 過去のプリセット互換テーブル */
+const LEGACY_TONE_PRESETS: ReadonlyArray<{ id: string; label: string; tag: string }> = [
   { id: 'bright', label: '明るく', tag: 'bright' },
   { id: 'calm', label: '落ち着いて', tag: 'calm' },
   { id: 'clear', label: 'はっきり', tag: 'clear' },
   { id: 'soft', label: 'やわらかく', tag: 'soft' },
   { id: 'emphasize', label: '強調して', tag: 'emphasize' },
-] as const;
-
-export type NarrationTonePresetId = (typeof NARRATION_TONE_PRESETS)[number]['id'];
+];
 
 /** 閉じマーカー */
 export const DELIVERY_CLOSE_MARKER = '《/》';
@@ -248,6 +257,8 @@ export function resolveToneTagFromMarkerBody(body: string): {
   }
 
   const preset = NARRATION_TONE_PRESETS.find(
+    (p) => p.label === raw || p.tag === raw || p.id === raw,
+  ) || LEGACY_TONE_PRESETS.find(
     (p) => p.label === raw || p.tag === raw || p.id === raw,
   );
   if (preset) {

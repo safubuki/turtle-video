@@ -136,6 +136,10 @@ function createNarrationClip(id: string, overrides: Partial<NarrationClip> = {})
     aiScript: overrides.aiScript,
     aiVoice: overrides.aiVoice,
     aiVoiceStyle: overrides.aiVoiceStyle,
+    aiTtsEngine: overrides.aiTtsEngine,
+    aiTtsTone: overrides.aiTtsTone,
+    aiTtsPace: overrides.aiTtsPace,
+    aiTtsStyleDetail: overrides.aiTtsStyleDetail,
   };
 }
 
@@ -795,8 +799,12 @@ describe('projectStore save behavior', () => {
         duration: 4,
         isAiEditable: true,
         aiScript: 'こんにちは、タートルビデオです。',
-        aiVoice: 'Aoede',
+        aiVoice: 'voice_custom',
         aiVoiceStyle: 'calm',
+        aiTtsEngine: 'gemini-3.8-flash-tts',
+        aiTtsTone: 'warm',
+        aiTtsPace: 'slow',
+        aiTtsStyleDetail: 'gentle intonation',
       }),
     ];
     const captions = [{
@@ -850,6 +858,7 @@ describe('projectStore save behavior', () => {
     expect(savedProjectData.mediaItems).toHaveLength(2);
     expect(savedProjectData.mediaItems[0].blur).toBe(12);
     expect(savedProjectData.narrations[0].aiScript).toBe('こんにちは、タートルビデオです。');
+    expect(savedProjectData.narrations[0].aiTtsEngine).toBe('gemini-3.8-flash-tts');
     expect(savedProjectData.captions[0].overrideFontStyle).toBe('mincho');
     expect(savedProjectData.captions[0].overrideTextAlign).toBe('right');
     expect(savedProjectData.captions[0].overrideFontColor).toBe('#123456');
@@ -879,7 +888,11 @@ describe('projectStore save behavior', () => {
     expect(loaded.narrations).toHaveLength(1);
     expect(loaded.narrations[0].sourceType).toBe('ai');
     expect(loaded.narrations[0].isAiEditable).toBe(true);
-    expect(loaded.narrations[0].aiVoice).toBe('Aoede');
+    expect(loaded.narrations[0].aiVoice).toBe('voice_custom');
+    expect(loaded.narrations[0].aiTtsEngine).toBe('gemini-3.8-flash-tts');
+    expect(loaded.narrations[0].aiTtsTone).toBe('warm');
+    expect(loaded.narrations[0].aiTtsPace).toBe('slow');
+    expect(loaded.narrations[0].aiTtsStyleDetail).toBe('gentle intonation');
     expect(loaded.narrations[0].trimStart).toBeCloseTo(0.25);
     expect(loaded.narrations[0].trimEnd).toBeCloseTo(3.75);
     expect(loaded.isNarrationLocked).toBe(true);

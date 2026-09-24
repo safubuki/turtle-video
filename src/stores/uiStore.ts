@@ -12,7 +12,8 @@
  */
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import type { ExportFormat, VoiceId } from '../types';
+import type { ExportFormat, NarrationTtsEngine, NarrationTtsPace, NarrationTtsTone } from '../types';
+import { isVoiceId } from '../constants';
 
 interface UIState {
   // Toast & Error
@@ -35,10 +36,14 @@ interface UIState {
   showAiModal: boolean;
   aiPrompt: string;
   aiScript: string;
-  aiVoice: VoiceId;
+  aiVoice: string;
   aiVoiceStyle: string;
   /** ナレーション全体の場面・状況指示 */
   aiNarrationScene: string;
+  aiTtsEngine: NarrationTtsEngine;
+  aiTtsTone: NarrationTtsTone;
+  aiTtsPace: NarrationTtsPace;
+  aiTtsStyleDetail: string;
   isAiLoading: boolean;
 
   // Actions - Toast & Error
@@ -67,9 +72,13 @@ interface UIState {
   closeAiModal: () => void;
   setAiPrompt: (prompt: string) => void;
   setAiScript: (script: string) => void;
-  setAiVoice: (voice: VoiceId) => void;
+  setAiVoice: (voice: string) => void;
   setAiVoiceStyle: (style: string) => void;
   setAiNarrationScene: (scene: string) => void;
+  setAiTtsEngine: (engine: NarrationTtsEngine) => void;
+  setAiTtsTone: (tone: NarrationTtsTone) => void;
+  setAiTtsPace: (pace: NarrationTtsPace) => void;
+  setAiTtsStyleDetail: (style: string) => void;
   setAiLoading: (loading: boolean) => void;
   resetAiModal: () => void;
 
@@ -104,6 +113,10 @@ export const useUIStore = create<UIState>()(
       aiVoice: 'Aoede' as const,
       aiVoiceStyle: '',
       aiNarrationScene: '',
+      aiTtsEngine: 'legacy',
+      aiTtsTone: 'natural',
+      aiTtsPace: 'normal',
+      aiTtsStyleDetail: '',
       isAiLoading: false,
 
       // === Toast & Error Actions ===
@@ -246,6 +259,14 @@ export const useUIStore = create<UIState>()(
         set({ aiNarrationScene: scene });
       },
 
+      setAiTtsEngine: (engine) => set((state) => ({
+        aiTtsEngine: engine,
+        aiVoice: engine === 'legacy' && !isVoiceId(state.aiVoice) ? 'Aoede' : state.aiVoice,
+      })),
+      setAiTtsTone: (tone) => set({ aiTtsTone: tone }),
+      setAiTtsPace: (pace) => set({ aiTtsPace: pace }),
+      setAiTtsStyleDetail: (style) => set({ aiTtsStyleDetail: style }),
+
       setAiLoading: (loading) => {
         set({ isAiLoading: loading });
       },
@@ -258,6 +279,10 @@ export const useUIStore = create<UIState>()(
           aiVoice: 'Aoede' as const,
           aiVoiceStyle: '',
           aiNarrationScene: '',
+          aiTtsEngine: 'legacy',
+          aiTtsTone: 'natural',
+          aiTtsPace: 'normal',
+          aiTtsStyleDetail: '',
           isAiLoading: false,
         });
       },
@@ -292,6 +317,10 @@ export const useUIStore = create<UIState>()(
           aiVoice: 'Aoede' as const,
           aiVoiceStyle: '',
           aiNarrationScene: '',
+          aiTtsEngine: 'legacy',
+          aiTtsTone: 'natural',
+          aiTtsPace: 'normal',
+          aiTtsStyleDetail: '',
           isAiLoading: false,
         });
       },

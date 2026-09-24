@@ -6,18 +6,29 @@
  * @description AIナレーションを生成するためのモーダルダイアログ。プロンプト入力、スクリプト生成、音声合成のフローを提供する。
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Sparkles, X, Loader, FileText, Mic, ChevronDown, CircleHelp, ExternalLink } from 'lucide-react';
+import { Sparkles, X, Loader, FileText, Mic, CircleHelp, ExternalLink, Check, RotateCcw, Volume2 } from 'lucide-react';
 import type {
   VoiceOption,
-  VoiceId,
   NarrationScriptLength,
   VoiceGenderFilter,
+  NarrationTtsEngine,
+  NarrationTtsTone,
+  NarrationTtsPace,
 } from '../../types';
 import {
   formatVoiceOptionLabel,
   getVoiceOption,
+  isVoiceId,
   resolveVoiceSelectOptions,
 } from '../../constants';
+import { getStoredApiKey } from './SettingsModal';
+import { listGemini38Voices, type Gemini38Voice } from '../../utils/gemini38Voices';
+import {
+  formatPersonaLabel,
+  formatContextLabel,
+  getPersonaSelectOptions,
+  getContextSelectOptions,
+} from '../../utils/gemini38VoiceCategories';
 import {
   NARRATION_SCENE_PRESETS,
   NARRATION_TONE_PRESETS,
@@ -34,21 +45,30 @@ import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 
 interface AiModalProps {
   isOpen: boolean;
+  offlineMode?: boolean;
   onClose: () => void;
   aiPrompt: string;
   aiScript: string;
   aiScriptLength: NarrationScriptLength;
-  aiVoice: VoiceId;
+  aiVoice: string;
   aiVoiceStyle: string;
   aiNarrationScene: string;
+  aiTtsEngine: NarrationTtsEngine;
+  aiTtsTone: NarrationTtsTone;
+  aiTtsPace: NarrationTtsPace;
+  aiTtsStyleDetail: string;
   isAiLoading: boolean;
   voiceOptions: VoiceOption[];
   onPromptChange: (value: string) => void;
   onScriptChange: (value: string) => void;
   onScriptLengthChange: (value: NarrationScriptLength) => void;
-  onVoiceChange: (value: VoiceId) => void;
+  onVoiceChange: (value: string) => void;
   onVoiceStyleChange: (value: string) => void;
   onNarrationSceneChange: (scene: string) => void;
+  onTtsEngineChange: (engine: NarrationTtsEngine) => void;
+  onTtsToneChange: (tone: NarrationTtsTone) => void;
+  onTtsPaceChange: (pace: NarrationTtsPace) => void;
+  onTtsStyleDetailChange: (style: string) => void;
   onGenerateScript: () => void;
   onGenerateSpeech: () => void;
 }
@@ -58,6 +78,7 @@ interface AiModalProps {
  */
 const AiModal: React.FC<AiModalProps> = ({
   isOpen,
+  offlineMode = false,
   onClose,
   aiPrompt,
   aiScript,
@@ -65,6 +86,10 @@ const AiModal: React.FC<AiModalProps> = ({
   aiVoice,
   aiVoiceStyle,
   aiNarrationScene,
+  aiTtsEngine,
+  aiTtsTone,
+  aiTtsPace,
+  aiTtsStyleDetail,
   isAiLoading,
   voiceOptions,
   onPromptChange,
@@ -73,6 +98,10 @@ const AiModal: React.FC<AiModalProps> = ({
   onVoiceChange,
   onVoiceStyleChange: _onVoiceStyleChange,
   onNarrationSceneChange,
+  onTtsEngineChange,
+  onTtsToneChange,
+  onTtsPaceChange,
+  onTtsStyleDetailChange,
   onGenerateScript,
   onGenerateSpeech,
 }) => {
@@ -80,6 +109,16 @@ const AiModal: React.FC<AiModalProps> = ({
   useDisableBodyScroll(isOpen);
   /** 声一覧の性別絞り込み（すべて / 女性 / 男性） */
   const [voiceGenderFilter, setVoiceGenderFilter] = useState<VoiceGenderFilter>('all');
+  const [voiceSource, setVoiceSource] = useState<'basic' | 'library'>('basic');
+  const [voiceSearch, setVoiceSearch] = useState('');
+  const [voiceLanguage, setVoiceLanguage] = useState<'ja' | 'en'>('ja');
+  const [voicePersona, setVoicePersona] = useState('');
+  const [voiceContext, setVoiceContext] = useState('');
+  const [libraryVoices, setLibraryVoices] = useState<Gemini38Voice[]>([]);
+  const [libraryLoaded, setLibraryLoaded] = useState(false);
+  const [libraryLoading, setLibraryLoading] = useState(false);
+  const [libraryError, setLibraryError] = useState('');
+  const libraryRequestRef = useRef<AbortController | null>(null);
   /** 場面プリセット（custom 時は Scene / Sample Context を自由入力） */
   const [scenePresetId, setScenePresetId] = useState<NarrationScenePresetId | 'custom'>('none');
   const [customSceneLine, setCustomSceneLine] = useState('');
@@ -109,23 +148,134 @@ const AiModal: React.FC<AiModalProps> = ({
   };
 
   const voiceGenderFilterOptions: { id: VoiceGenderFilter; label: string }[] = [
-    { id: 'all', label: 'すべて' },
+    { id: 'all', label: '全て' },
     { id: 'female', label: '女性' },
     { id: 'male', label: '男性' },
   ];
 
-  const filteredVoiceOptions = useMemo(
-    () => resolveVoiceSelectOptions(voiceOptions, voiceGenderFilter, aiVoice),
-    [voiceOptions, voiceGenderFilter, aiVoice],
+  const isGemini38 = aiTtsEngine !== 'legacy';
+
+  useEffect(() => {
+    setLibraryLoading(false);
+    return () => {
+      libraryRequestRef.current?.abort();
+      libraryRequestRef.current = null;
+    };
+  }, [isOpen, aiTtsEngine, offlineMode]);
+
+  useEffect(() => {
+    if (isOpen) setVoiceSource(isGemini38 && !isVoiceId(aiVoice) ? 'library' : 'basic');
+  }, [isOpen, isGemini38, aiVoice]);
+
+  useEffect(() => {
+    if (isOpen && isGemini38 && voiceSource === 'library' && !libraryLoaded && !libraryLoading && libraryVoices.length === 0) {
+      void loadVoiceLibrary();
+    }
+  }, [isOpen, isGemini38, voiceSource, libraryLoaded, libraryLoading, libraryVoices.length]);
+
+  const loadVoiceLibrary = async () => {
+    libraryRequestRef.current?.abort();
+    libraryRequestRef.current = null;
+    setLibraryLoading(false);
+    setLibraryVoices([]);
+    setLibraryLoaded(false);
+    if (offlineMode) {
+      setLibraryError('オフラインモードを解除すると追加の声を読み込めます。');
+      return;
+    }
+    const apiKey = getStoredApiKey() || import.meta.env.VITE_GEMINI_API_KEY || '';
+    if (!apiKey) {
+      setLibraryError('APIキーを設定すると追加の声を読み込めます。');
+      return;
+    }
+    const controller = new AbortController();
+    libraryRequestRef.current = controller;
+    setLibraryLoading(true);
+    setLibraryError('');
+    try {
+      const voices = await listGemini38Voices(apiKey, controller.signal);
+      if (!controller.signal.aborted) {
+        setLibraryVoices(voices);
+        setLibraryLoaded(true);
+        const savedVoice = !isVoiceId(aiVoice) && voices.find((voice) => voice.id === aiVoice);
+        if (savedVoice) {
+          setVoiceLanguage(savedVoice.languageCode.slice(0, 2).toLowerCase() as 'ja' | 'en');
+          setVoicePersona('');
+          setVoiceContext('');
+        }
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setLibraryError(error instanceof Error ? error.message : '音声一覧の取得に失敗しました。');
+      }
+    } finally {
+      if (!controller.signal.aborted) setLibraryLoading(false);
+      if (libraryRequestRef.current === controller) libraryRequestRef.current = null;
+    }
+  };
+
+  const extraVoices = useMemo(
+    () => isGemini38 ? libraryVoices.filter((voice) => !voiceOptions.some((option) => option.id === voice.id)) : [],
+    [isGemini38, libraryVoices, voiceOptions],
+  );
+  const languageVoices = useMemo(
+    () => extraVoices.filter((voice) => voice.languageCode.toLowerCase().startsWith(voiceLanguage)),
+    [extraVoices, voiceLanguage],
   );
 
-  const selectedVoice =
-    getVoiceOption(aiVoice) ?? voiceOptions.find((v) => v.id === aiVoice) ?? null;
+  const jaVoiceCount = useMemo(
+    () => extraVoices.filter((v) => v.languageCode.toLowerCase().startsWith('ja')).length,
+    [extraVoices],
+  );
+  const enVoiceCount = useMemo(
+    () => extraVoices.filter((v) => v.languageCode.toLowerCase().startsWith('en')).length,
+    [extraVoices],
+  );
 
-  const filteredCount =
-    voiceGenderFilter === 'all'
-      ? voiceOptions.length
-      : voiceOptions.filter((v) => v.gender === voiceGenderFilter).length;
+  const contextOptions = useMemo(
+    () => getContextSelectOptions(languageVoices, voiceLanguage, voiceGenderFilter),
+    [languageVoices, voiceLanguage, voiceGenderFilter],
+  );
+  const personaOptions = useMemo(
+    () => getPersonaSelectOptions(languageVoices, voiceLanguage, voiceGenderFilter, voiceContext),
+    [languageVoices, voiceLanguage, voiceGenderFilter, voiceContext],
+  );
+
+  const normalizedSearch = voiceSearch.trim().toLocaleLowerCase();
+  const matchesSearch = (id: string, label: string, description: string, language = '') =>
+    !normalizedSearch || `${id} ${label} ${description} ${language}`.toLocaleLowerCase().includes(normalizedSearch);
+
+  const filteredBaseVoices = useMemo(
+    () => resolveVoiceSelectOptions(voiceOptions, voiceGenderFilter, aiVoice)
+      .filter((voice) => voice.id === aiVoice || matchesSearch(voice.id, voice.label, voice.desc)),
+    [voiceOptions, voiceGenderFilter, aiVoice, normalizedSearch],
+  );
+
+  const filteredExtraVoices = useMemo(
+    () => languageVoices.filter((voice) =>
+      (!voicePersona || voice.persona.trim() === voicePersona.trim()) &&
+      (!voiceContext || voice.context.trim() === voiceContext.trim()) &&
+      (voiceGenderFilter === 'all' || voice.gender === voiceGenderFilter) &&
+      matchesSearch(voice.id, voice.label, `${voice.description} ${voice.persona} ${voice.context}`, voice.languageCode),
+    ),
+    [languageVoices, voicePersona, voiceContext, voiceGenderFilter, normalizedSearch],
+  );
+
+  const selectedVoice = getVoiceOption(aiVoice) ?? voiceOptions.find((voice) => voice.id === aiVoice);
+  const selectedExtraVoice = extraVoices.find((voice) => voice.id === aiVoice);
+  const filteredCount = voiceSource === 'library' && isGemini38
+    ? filteredExtraVoices.length : filteredBaseVoices.length;
+  const voiceVisibleInSelect = voiceSource === 'library' && isGemini38
+    ? filteredExtraVoices.some((voice) => voice.id === aiVoice)
+    : filteredBaseVoices.some((voice) => voice.id === aiVoice);
+
+  const hasActiveVoiceFilters = voiceGenderFilter !== 'all' || Boolean(voicePersona) || Boolean(voiceContext) || Boolean(voiceSearch);
+  const resetVoiceFilters = () => {
+    setVoiceGenderFilter('all');
+    setVoicePersona('');
+    setVoiceContext('');
+    setVoiceSearch('');
+  };
 
   const appliedToneLabels = useMemo(() => listAppliedToneLabels(aiScript), [aiScript]);
 
@@ -146,8 +296,19 @@ const AiModal: React.FC<AiModalProps> = ({
   const applyScenePreset = (presetId: NarrationScenePresetId | 'custom') => {
     setScenePresetId(presetId);
     if (presetId === 'custom') {
+      let nextScene = customSceneLine;
+      let nextContext = customSampleContext;
+      if (!nextScene && !nextContext && scenePresetId !== 'none' && scenePresetId !== 'custom') {
+        const prevPreset = NARRATION_SCENE_PRESETS.find((p) => p.id === scenePresetId);
+        if (prevPreset) {
+          nextScene = prevPreset.scene;
+          nextContext = prevPreset.sampleContext;
+          setCustomSceneLine(nextScene);
+          setCustomSampleContext(nextContext);
+        }
+      }
       onNarrationSceneChange(
-        resolveSceneSetting('custom', customSceneLine, customSampleContext),
+        resolveSceneSetting('custom', nextScene, nextContext),
       );
       return;
     }
@@ -251,6 +412,9 @@ const AiModal: React.FC<AiModalProps> = ({
   // モーダルを開いたとき・場面設定が変わったときプリセット選択を同期
   useEffect(() => {
     if (!isOpen) return;
+    if (scenePresetId === 'custom' && !aiNarrationScene.trim()) {
+      return;
+    }
     const matched = matchScenePresetId(aiNarrationScene);
     setScenePresetId(matched);
     if (matched === 'custom') {
@@ -387,7 +551,7 @@ const AiModal: React.FC<AiModalProps> = ({
                 <li>STEP 1: テーマを入れて「AI原稿を作成」。テーマは任意で、長さも選べます。</li>
                 <li>STEP 2: 原稿を直接編集。テーマを入れずに、Step2へ直接入力することもできます。</li>
                 <li>STEP 2: 原稿を1つの欄で編集し、必要な箇所を選んで語り口調を付けます。</li>
-                <li>STEP 3: 場面（全体）と声を選んで「AIナレーションを作成して追加」を押します。</li>
+                <li>STEP 3: 音声エンジンと声を選び、エンジンに応じた話し方を設定します。</li>
               </ol>
             </div>
           )}
@@ -478,7 +642,7 @@ const AiModal: React.FC<AiModalProps> = ({
             <div className="rounded-lg border border-gray-700/80 bg-gray-900/50 p-2.5 space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-1.5">
                 <p className="text-[11px] md:text-xs font-semibold text-gray-300">
-                  選択した文章に語り口調
+                  文中の部分アクセント・メリハリ（選択範囲のみ）
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                   <button
@@ -486,7 +650,7 @@ const AiModal: React.FC<AiModalProps> = ({
                     onClick={removeToneFromSelection}
                     className="min-h-8 px-2 rounded-md text-[10px] md:text-[11px] font-semibold border border-gray-600 bg-gray-800 text-gray-200 hover:border-amber-400/70 hover:text-amber-100"
                   >
-                    選択の語り口を外す
+                    選択のアクセントを外す
                   </button>
                   {appliedToneLabels.length > 0 && (
                     <button
@@ -503,7 +667,7 @@ const AiModal: React.FC<AiModalProps> = ({
                 </div>
               </div>
               <p className="text-[10px] text-gray-500 leading-relaxed">
-                原稿の一部を選んでからボタンを押します。スマホは長押しで範囲選択。解除は範囲を選ぶか《…》の中にカーソルを置いて「選択の語り口を外す」。
+                原稿の一部分を選んでボタンを押すと、そのフレーズだけにメリハリ（強調・ささやき等）をつけられます。全体の声質は下の「Step 3」で設定します。
               </p>
               <div className="flex flex-wrap gap-1.5" role="group" aria-label="語り口調プリセット">
                 {NARRATION_TONE_PRESETS.map((preset) => (
@@ -522,7 +686,7 @@ const AiModal: React.FC<AiModalProps> = ({
                   type="text"
                   value={customToneText}
                   onChange={(e) => setCustomToneText(e.target.value)}
-                  placeholder="自由な語り口（例: 少し早口で）"
+                  placeholder="自由な部分アクセント（例: 疑問を投げかけるように、笑いながら）"
                   className="min-w-0 flex-1 bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:border-blue-500"
                 />
                 <button
@@ -546,8 +710,10 @@ const AiModal: React.FC<AiModalProps> = ({
               )}
               {appliedToneLabels.length > 0 && (
                 <p className="text-[10px] text-gray-500">
-                  設定中: {appliedToneLabels.join(' / ')}（画面上は《語り口》…《/》。音声生成時は
-                  Scene / Sample Context と短い英語 [tag] 本文 形式へ変換）
+                  設定中: {appliedToneLabels.join(' / ')}（選択フレーズのみ部分演出。
+                  {aiTtsEngine === 'legacy'
+                    ? '従来エンジンでは [tag] へ変換します。'
+                    : 'Gemini 3.8 では区間ごとの話し方へ変換します。'}）
                 </p>
               )}
             </div>
@@ -556,11 +722,29 @@ const AiModal: React.FC<AiModalProps> = ({
           <div className="space-y-3 md:space-y-4">
             <div className="space-y-1.5 md:space-y-2">
               <label className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
-                Step 3: 場面・声
+                Step 3: 音声エンジン・声
               </label>
             </div>
 
-            {/* 全体の Scene / Sample Context（Google 公式 TTS 構成に対応） */}
+            <div className="space-y-1.5">
+              <label htmlFor="ai-tts-engine" className="text-xs font-bold text-gray-400">音声エンジン</label>
+              <select
+                id="ai-tts-engine"
+                value={aiTtsEngine}
+                onChange={(event) => onTtsEngineChange(event.target.value as NarrationTtsEngine)}
+                className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
+              >
+                <option value="legacy">従来の Gemini TTS（既定）</option>
+                <option value="gemini-3.8-flash-tts">Gemini 3.8 Flash TTS（高音質）</option>
+                <option value="gemini-3.8-flash-lite-tts">Gemini 3.8 Flash-Lite TTS（高速）</option>
+              </select>
+              <p className="text-[10px] md:text-xs text-gray-500">
+                従来のエンジンを選べば、これまでと同じ方法で音声を生成します。
+              </p>
+            </div>
+
+            {/* 従来エンジンの Scene / Sample Context */}
+            {aiTtsEngine === 'legacy' && (
             <div className="space-y-1.5 md:space-y-2">
               <span className="text-xs font-bold text-gray-400">場面・状況（全体）</span>
               <div
@@ -652,66 +836,602 @@ const AiModal: React.FC<AiModalProps> = ({
                 [tag] と組み合わせて臨場感を出せます。
               </p>
             </div>
+            )}
 
-            <div className="space-y-1.5 md:space-y-2">
-              <label className="text-xs font-bold text-gray-400 flex items-center gap-1">
-                声の選択
-              </label>
-              <div
-                className="flex flex-wrap items-center gap-1.5"
-                role="group"
-                aria-label="声の性別で絞り込み"
-              >
-                {voiceGenderFilterOptions.map((opt) => {
-                  const active = voiceGenderFilter === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => setVoiceGenderFilter(opt.id)}
-                      className={`min-h-9 px-3 rounded-lg text-[11px] md:text-xs font-semibold border transition ${
-                        active
-                          ? 'bg-blue-500 text-white border-blue-400'
-                          : 'bg-gray-900 text-gray-300 border-gray-700 hover:border-blue-500/50 hover:text-blue-100'
-                      }`}
-                      aria-pressed={active}
+            {aiTtsEngine !== 'legacy' && (
+              <div className="space-y-2 rounded-xl border border-indigo-500/30 bg-linear-to-br from-indigo-950/30 via-purple-950/20 to-gray-900/50 p-3 md:p-3.5">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-bold text-indigo-200 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-300" />
+                    <span>Gemini 3.8 の話し方</span>
+                    <span className="text-[10px] text-indigo-300/80 font-normal">（全体の基本トーン）</span>
+                  </p>
+                  <span className="text-[10px] text-indigo-300/80">動画全体のベース音声</span>
+                </div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <label className="space-y-1 text-xs text-gray-300">
+                    <span>声の雰囲気（全体のトーン）</span>
+                    <select
+                      aria-label="声の雰囲気"
+                      value={aiTtsTone}
+                      onChange={(event) => onTtsToneChange(event.target.value as NarrationTtsTone)}
+                      className="w-full rounded-lg border border-gray-700 bg-gray-900/90 p-2 text-sm text-gray-100 focus:outline-none focus:border-indigo-500"
                     >
-                      {opt.label}
-                    </button>
-                  );
-                })}
-                <span className="text-[10px] text-gray-500 ml-0.5">{filteredCount} 件</span>
+                      <option value="natural">自然</option>
+                      <option value="warm">温かく親しみやすい</option>
+                      <option value="calm">落ち着いた</option>
+                      <option value="energetic">明るく元気</option>
+                      <option value="clear">明瞭で聞き取りやすい</option>
+                    </select>
+                  </label>
+                  <label className="space-y-1 text-xs text-gray-300">
+                    <span>話す速さ（全体のテンポ）</span>
+                    <select
+                      aria-label="話す速さ"
+                      value={aiTtsPace}
+                      onChange={(event) => onTtsPaceChange(event.target.value as NarrationTtsPace)}
+                      className="w-full rounded-lg border border-gray-700 bg-gray-900/90 p-2 text-sm text-gray-100 focus:outline-none focus:border-indigo-500"
+                    >
+                      <option value="normal">自然</option>
+                      <option value="slow">ゆっくり</option>
+                      <option value="fast">速め</option>
+                    </select>
+                  </label>
+                </div>
+                <div className="space-y-1.5 pt-0.5">
+                  <label htmlFor="ai-tts-style-detail" className="block text-xs text-gray-300">
+                    <span>追加の演出・キャラクター指示（任意）</span>
+                  </label>
+                  <input
+                    id="ai-tts-style-detail"
+                    type="text"
+                    value={aiTtsStyleDetail}
+                    onChange={(event) => onTtsStyleDetailChange(event.target.value)}
+                    maxLength={200}
+                    placeholder="例: アニメ調でコミカルに、ドキュメンタリー風の重厚な語りで"
+                    className="w-full rounded-lg border border-gray-700 bg-gray-900/90 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+                  />
+                  <div className="flex flex-wrap gap-1.5 pt-0.5">
+                    {[
+                      'アニメ調でコミカルに',
+                      'ドキュメンタリー風の重厚な語りで',
+                      '感情豊かにドラマチックに',
+                      '囁くように静かに（ASMR風）',
+                      'ニュースキャスター風に端正に',
+                      '熱血・ハイテンションに',
+                      '親身に語りかける相棒風に',
+                      '物語の読み聞かせ風に',
+                    ].map((suggestion) => (
+                      <button
+                        key={suggestion}
+                        type="button"
+                        onClick={() => {
+                          const current = aiTtsStyleDetail.trim();
+                          if (!current) {
+                            onTtsStyleDetailChange(suggestion);
+                          } else if (!current.includes(suggestion)) {
+                            onTtsStyleDetailChange(`${current}、${suggestion}`);
+                          }
+                        }}
+                        className="text-[10px] md:text-[11px] px-2 py-0.5 rounded-full border border-indigo-500/30 bg-indigo-950/40 text-indigo-300 hover:border-indigo-400 hover:bg-indigo-900/50 hover:text-indigo-100 transition"
+                      >
+                        ＋ {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <div className="relative">
+            )}
+
+            <div className="space-y-2.5 md:space-y-3">
+              <div className="flex items-center justify-between">
+                <label htmlFor="ai-voice-select" className="text-xs font-bold text-gray-300 flex items-center gap-1.5">
+                  <Volume2 className="w-4 h-4 text-blue-400" />
+                  <span>声の選択</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  {hasActiveVoiceFilters && (
+                    <button
+                      type="button"
+                      onClick={resetVoiceFilters}
+                      className="text-[11px] text-amber-300 hover:text-amber-200 flex items-center gap-1 underline underline-offset-2"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      条件をリセット
+                    </button>
+                  )}
+                  <span className="text-[11px] text-gray-400 font-medium">
+                    候補: {filteredCount} 件
+                  </span>
+                </div>
+              </div>
+
+              {/* 選択中の声ハイライトカード */}
+              <div className="rounded-xl border border-blue-500/40 bg-linear-to-r from-blue-950/40 via-indigo-950/30 to-gray-900/60 p-2.5 md:p-3 flex items-center justify-between gap-3 shadow-inner">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-500/25 text-blue-200 border border-blue-400/40 flex items-center gap-1">
+                      <Check className="w-3 h-3 text-blue-300" />
+                      選択中
+                    </span>
+                    <span className="font-bold text-sm text-white truncate">
+                      {selectedVoice ? selectedVoice.label : selectedExtraVoice ? selectedExtraVoice.label : aiVoice}
+                    </span>
+                    {selectedVoice && (
+                      <span className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded font-medium border shrink-0 bg-gray-900/60 border-gray-700">
+                        <span
+                          className={`w-2 h-2 rounded-xs shrink-0 ${
+                            selectedVoice.gender === 'female' ? 'bg-pink-400' : 'bg-blue-400'
+                          }`}
+                        />
+                        <span className={selectedVoice.gender === 'female' ? 'text-pink-300' : 'text-blue-300'}>
+                          {selectedVoice.gender === 'female' ? '女性' : '男性'}
+                        </span>
+                        <span className="text-gray-400 text-[10px]">· 基本</span>
+                      </span>
+                    )}
+                    {selectedExtraVoice && (
+                      <>
+                        <span className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded font-medium border shrink-0 bg-gray-900/60 border-gray-700">
+                          <span
+                            className={`w-2 h-2 rounded-xs shrink-0 ${
+                              selectedExtraVoice.gender === 'female'
+                                ? 'bg-pink-400'
+                                : selectedExtraVoice.gender === 'male'
+                                  ? 'bg-blue-400'
+                                  : 'bg-gray-400'
+                            }`}
+                          />
+                          <span
+                            className={
+                              selectedExtraVoice.gender === 'female'
+                                ? 'text-pink-300'
+                                : selectedExtraVoice.gender === 'male'
+                                  ? 'text-blue-300'
+                                  : 'text-gray-400'
+                            }
+                          >
+                            {selectedExtraVoice.gender === 'female' ? '女性' : selectedExtraVoice.gender === 'male' ? '男性' : '指定なし'}
+                          </span>
+                        </span>
+                        <span className="text-[11px] text-indigo-200/90 bg-indigo-900/40 px-1.5 py-0.5 rounded border border-indigo-700/50">
+                          {selectedExtraVoice.languageCode.startsWith('ja') ? '🇯🇵 日本語' : '🇺🇸 英語'}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-300 mt-1 truncate">
+                    {selectedVoice
+                      ? `${selectedVoice.desc} (${selectedVoice.traitEn})`
+                      : selectedExtraVoice
+                        ? [formatPersonaLabel(selectedExtraVoice.persona), formatContextLabel(selectedExtraVoice.context), selectedExtraVoice.description].filter(Boolean).join(' · ')
+                        : '未選択'}
+                  </p>
+                </div>
+                <a
+                  href="https://aistudio.google.com/generate-speech"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="shrink-0 inline-flex items-center gap-1 text-[11px] text-blue-300 hover:text-blue-100 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 px-2 py-1 rounded-lg transition"
+                  title="Google AI Studio で音声を試聴・確認"
+                >
+                  <span>試聴</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+
+              {/* 基本の30声 / 追加音声 切り替えタブ */}
+              {isGemini38 && (
+                <div role="group" aria-label="声の種類" className="grid grid-cols-2 gap-1.5 p-1 bg-gray-900/80 border border-gray-700/80 rounded-xl">
+                  {([
+                    ['basic', '基本の30声'],
+                    ['library', '追加音声'],
+                  ] as const).map(([source, label]) => {
+                    const active = voiceSource === source;
+                    return (
+                      <button
+                        key={source}
+                        type="button"
+                        onClick={() => {
+                          setVoiceSource(source);
+                          if (source === 'library' && !libraryLoaded && !libraryLoading) {
+                            void loadVoiceLibrary();
+                          }
+                        }}
+                        aria-pressed={active}
+                        aria-label={label}
+                        className={`min-h-9 py-1 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                          active
+                            ? 'bg-blue-600 text-white shadow-md'
+                            : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/60'
+                        }`}
+                      >
+                        <span>{label}</span>
+                        {source === 'basic' && <span className="text-[10px] opacity-75">({voiceOptions.length})</span>}
+                        {source === 'library' && extraVoices.length > 0 && <span className="text-[10px] opacity-75">({extraVoices.length})</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* 追加音声タブ */}
+              {isGemini38 && voiceSource === 'library' && (
+                <div className="space-y-2.5">
+                  {!libraryLoaded ? (
+                    <div className="rounded-xl border border-indigo-500/30 bg-indigo-950/20 p-4 text-center space-y-2.5">
+                      <p className="text-xs text-indigo-200 leading-relaxed">
+                        {libraryLoading
+                          ? 'Google AI Studio の Extended Voice Library から追加の音声を読み込んでいます…'
+                          : 'Google AI Studio の Extended Voice Library から、日本語・英語の多彩な声を取得します。'}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={loadVoiceLibrary}
+                        disabled={libraryLoading}
+                        aria-label="追加の声を読み込む"
+                        className="w-full sm:w-auto min-h-10 px-5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-md transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                      >
+                        {libraryLoading ? (
+                          <>
+                            <Loader className="w-4 h-4 animate-spin" />
+                            <span>追加の声を読み込み中…</span>
+                          </>
+                        ) : (
+                          <span>追加の声を読み込む</span>
+                        )}
+                      </button>
+                      {libraryError && <p role="alert" className="text-xs text-amber-300">{libraryError}</p>}
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5 rounded-xl border border-gray-700/80 bg-gray-900/70 p-3 space-y-2.5">
+                      {/* 言語選択 ＆ 再読み込み */}
+                      {/* 言語選択 ＆ リセット ＆ 再読み込み */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-700/60 pb-2">
+                        <div className="flex items-center gap-1.5" role="group" aria-label="言語切り替え">
+                          <label htmlFor="ai-voice-language-select" className="text-xs font-bold text-gray-400 mr-1">
+                            言語:
+                          </label>
+                          <select
+                            id="ai-voice-language-select"
+                            aria-label="言語"
+                            value={voiceLanguage}
+                            onChange={(event) => {
+                              setVoiceLanguage(event.target.value as 'ja' | 'en');
+                              setVoicePersona('');
+                              setVoiceContext('');
+                            }}
+                            className="bg-gray-800 border border-gray-600 rounded-lg px-2.5 py-1 text-xs text-gray-100 font-semibold focus:outline-none focus:border-blue-400"
+                          >
+                            <option value="ja">🇯🇵 日本語 ({jaVoiceCount}件)</option>
+                            <option value="en">🇺🇸 英語 ({enVoiceCount}件)</option>
+                          </select>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={loadVoiceLibrary}
+                          disabled={libraryLoading}
+                          className="text-[11px] text-gray-400 hover:text-gray-200 underline disabled:opacity-50"
+                        >
+                          {libraryLoading ? '読み込み中…' : '追加の声を再読み込み'}
+                        </button>
+                      </div>
+
+                      {/* 性別 ＆ 用途・目的 ＆ 職業・人物像（場所を取らないコンパクトな3列配置で完全に整列） */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-0.5">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[11px] font-semibold text-gray-400 h-4 flex items-center leading-none">
+                            性別
+                          </span>
+                          <div className="flex gap-1 h-8 items-stretch" role="group" aria-label="声の性別で絞り込み">
+                            {voiceGenderFilterOptions.map((opt) => {
+                              const active = voiceGenderFilter === opt.id;
+                              return (
+                                <button
+                                  key={opt.id}
+                                  type="button"
+                                  onClick={() => setVoiceGenderFilter(opt.id)}
+                                  className={`flex-1 h-8 px-1.5 whitespace-nowrap rounded-md text-[11px] font-semibold border transition text-center flex items-center justify-center ${
+                                    active
+                                      ? 'bg-blue-500 text-white border-blue-400'
+                                      : 'bg-gray-800 text-gray-300 border-gray-700 hover:border-blue-500/50 hover:text-blue-100'
+                                  }`}
+                                  aria-pressed={active}
+                                >
+                                  {opt.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col gap-1">
+                          <label
+                            htmlFor="ai-voice-context-filter"
+                            className="text-[11px] font-semibold text-gray-400 h-4 flex items-center leading-none"
+                          >
+                            用途・目的（日/英）
+                          </label>
+                          <select
+                            id="ai-voice-context-filter"
+                            aria-label="シーン・用途"
+                            value={voiceContext}
+                            onChange={(event) => {
+                              setVoiceContext(event.target.value);
+                              setVoicePersona('');
+                            }}
+                            className="w-full h-8 rounded-md border border-gray-700 bg-gray-800 px-2 text-xs text-gray-100 focus:outline-none focus:border-blue-400 truncate"
+                          >
+                            <option value="">すべての用途・シーン</option>
+                            {contextOptions.map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="flex flex-col gap-1">
+                          <label
+                            htmlFor="ai-voice-persona-filter"
+                            className="text-[11px] font-semibold text-gray-400 h-4 flex items-center leading-none"
+                          >
+                            職業・人物像（日/英）
+                          </label>
+                          <select
+                            id="ai-voice-persona-filter"
+                            aria-label="職業・人物像"
+                            value={voicePersona}
+                            onChange={(event) => {
+                              setVoicePersona(event.target.value);
+                            }}
+                            className="w-full h-8 rounded-md border border-gray-700 bg-gray-800 px-2 text-xs text-gray-100 focus:outline-none focus:border-blue-400 truncate"
+                          >
+                            <option value="">すべての人物像</option>
+                            {personaOptions.map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* 検索入力 */}
+                      <div className="pt-0.5">
+                        <input
+                          type="search"
+                          aria-label="声を検索"
+                          value={voiceSearch}
+                          onChange={(event) => setVoiceSearch(event.target.value)}
+                          placeholder="声の名前や特徴・キーワードで検索（例: ナレーション、明るい）"
+                          className="w-full rounded-lg border border-gray-700 bg-gray-800/90 px-3 py-1.5 text-xs text-gray-100 placeholder-gray-500 focus:border-blue-400 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 基本の30声タブでのフィルター */}
+              {(!isGemini38 || voiceSource === 'basic') && (
+                <div className="flex flex-wrap items-center justify-between gap-2 bg-gray-900/60 border border-gray-700/60 p-2.5 rounded-xl">
+                  <div className="flex items-center gap-1.5" role="group" aria-label="声の性別で絞り込み">
+                    <span className="text-xs text-gray-400 font-semibold mr-1">性別:</span>
+                    {voiceGenderFilterOptions.map((opt) => {
+                      const active = voiceGenderFilter === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setVoiceGenderFilter(opt.id)}
+                          className={`min-h-8 px-3 whitespace-nowrap rounded-lg text-xs font-semibold border transition ${
+                            active
+                              ? 'bg-blue-500 text-white border-blue-400'
+                              : 'bg-gray-800 text-gray-300 border-gray-700 hover:border-blue-500/50 hover:text-blue-100'
+                          }`}
+                          aria-pressed={active}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <input
+                    type="search"
+                    aria-label="声を検索"
+                    value={voiceSearch}
+                    onChange={(event) => setVoiceSearch(event.target.value)}
+                    placeholder="声名・特徴で検索..."
+                    className="flex-1 min-w-[140px] rounded-lg border border-gray-700 bg-gray-800 px-2.5 py-1 text-xs text-gray-100 focus:border-blue-400 focus:outline-none"
+                  />
+                </div>
+              )}
+
+              {/* ドロップダウン（アクセシビリティ ＆ テスト互換用: 視覚的には下の直感的なタップ選択カードに一本化） */}
+              <div className="sr-only">
                 <select
-                  value={aiVoice}
-                  onChange={(e) => onVoiceChange(e.target.value as VoiceId)}
-                  className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 pr-10 text-sm appearance-none focus:outline-none focus:border-blue-500 text-gray-100"
+                  id="ai-voice-select"
+                  aria-label="声の選択"
+                  value={voiceVisibleInSelect ? aiVoice : ''}
+                  onChange={(e) => onVoiceChange(e.target.value)}
                   aria-describedby="ai-voice-help"
                 >
-                  {filteredVoiceOptions.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {formatVoiceOptionLabel(v)}
+                  {!voiceVisibleInSelect && (
+                    <option value="" disabled>
+                      {isGemini38 && voiceSource === 'library'
+                        ? extraVoices.length ? '声を選択してください（一覧から選べます）' : '追加の声を読み込んでください'
+                        : '基本の声を選択してください'}
                     </option>
-                  ))}
+                  )}
+                  {(!isGemini38 || voiceSource === 'basic') && (
+                    <optgroup label="基本の30声">
+                      {filteredBaseVoices.map((voice) => (
+                        <option key={voice.id} value={voice.id}>{formatVoiceOptionLabel(voice)}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {isGemini38 && voiceSource === 'library' && filteredExtraVoices.length > 0 && (
+                    <optgroup label={`Gemini 3.8 追加の声 (${filteredExtraVoices.length}件)`}>
+                      {filteredExtraVoices.map((voice) => (
+                        <option key={voice.id} value={voice.id}>
+                          {voice.label} · {voice.gender === 'female' ? '女性' : voice.gender === 'male' ? '男性' : '指定なし'} · {voice.languageCode} — {formatPersonaLabel(voice.persona) || formatContextLabel(voice.context) || voice.description || voice.id}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
-                <ChevronDown className="w-4 h-4 absolute inset-y-0 right-3 my-auto text-gray-400 pointer-events-none" />
               </div>
-              {selectedVoice && (
-                <p className="text-[10px] md:text-xs text-gray-400">
-                  選択中: {selectedVoice.gender === 'female' ? '女性' : '男性'} · {selectedVoice.label} —{' '}
-                  {selectedVoice.desc}
+
+              {/* ビジュアル声カードピッカー（タップで直接選べるスリムな一覧リスト） */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] text-gray-400">
+                  <span className="font-semibold text-gray-300">声を選択（タップして切り替え）:</span>
+                  <span>{filteredCount} 件中 {Math.min(filteredCount, 40)} 件表示</span>
+                </div>
+                <div
+                  className="max-h-44 sm:max-h-52 overflow-y-auto space-y-1.5 pr-1 rounded-xl border border-gray-800 bg-gray-950/40 p-1.5"
+                  role="listbox"
+                  aria-label="声の一覧リスト"
+                >
+                  {(!isGemini38 || voiceSource === 'basic') && (
+                    filteredBaseVoices.length === 0 ? (
+                      <p className="text-xs text-gray-500 text-center py-4">一致する声がありません。</p>
+                    ) : (
+                      filteredBaseVoices.map((voice) => {
+                        const isSelected = aiVoice === voice.id;
+                        return (
+                          <button
+                            key={voice.id}
+                            type="button"
+                            onClick={() => onVoiceChange(voice.id)}
+                            className={`w-full text-left p-2 rounded-lg border transition flex items-center justify-between gap-2 ${
+                              isSelected
+                                ? 'bg-blue-600/20 border-blue-400 ring-1 ring-blue-400 text-white'
+                                : 'bg-gray-900/80 border-gray-800 hover:border-gray-600 text-gray-200'
+                            }`}
+                          >
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-bold text-xs">{voice.label}</span>
+                                <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium border shrink-0 bg-gray-900 border-gray-700">
+                                  <span
+                                    className={`w-2 h-2 rounded-xs shrink-0 ${
+                                      voice.gender === 'female' ? 'bg-pink-400' : 'bg-blue-400'
+                                    }`}
+                                  />
+                                  <span className={voice.gender === 'female' ? 'text-pink-300' : 'text-blue-300'}>
+                                    {voice.gender === 'female' ? '女性' : '男性'}
+                                  </span>
+                                </span>
+                                <span className="text-[10px] text-blue-300 font-medium">
+                                  {voice.desc}
+                                </span>
+                              </div>
+                            </div>
+                            {isSelected && <Check className="w-4 h-4 text-blue-400 shrink-0" />}
+                          </button>
+                        );
+                      })
+                    )
+                  )}
+
+                  {isGemini38 && voiceSource === 'library' && (
+                    !libraryLoaded ? (
+                      <div className="text-center py-4 space-y-1">
+                        <Loader className="w-4 h-4 animate-spin mx-auto text-indigo-400" />
+                        <p className="text-xs text-gray-400">追加音声を読み込んでいます…</p>
+                      </div>
+                    ) : filteredExtraVoices.length === 0 ? (
+                      <div className="text-center py-4 space-y-1.5">
+                        <p className="text-xs text-amber-300">条件に一致する声が見つかりませんでした。</p>
+                        <button
+                          type="button"
+                          onClick={resetVoiceFilters}
+                          className="text-xs text-blue-400 underline"
+                        >
+                          絞り込み条件をリセットする
+                        </button>
+                      </div>
+                    ) : (
+                      filteredExtraVoices.slice(0, 40).map((voice) => {
+                        const isSelected = aiVoice === voice.id;
+                        const personaText = formatPersonaLabel(voice.persona);
+                        const contextText = formatContextLabel(voice.context);
+                        return (
+                          <button
+                            key={voice.id}
+                            type="button"
+                            onClick={() => onVoiceChange(voice.id)}
+                            className={`w-full text-left p-2 rounded-lg border transition flex items-start justify-between gap-2 ${
+                              isSelected
+                                ? 'bg-blue-600/20 border-blue-400 ring-1 ring-blue-400 text-white'
+                                : 'bg-gray-900/80 border-gray-800 hover:border-gray-600 text-gray-200'
+                            }`}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="font-bold text-xs">{voice.label}</span>
+                                <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium border shrink-0 bg-gray-900 border-gray-700">
+                                  <span
+                                    className={`w-2 h-2 rounded-xs shrink-0 ${
+                                      voice.gender === 'female'
+                                        ? 'bg-pink-400'
+                                        : voice.gender === 'male'
+                                          ? 'bg-blue-400'
+                                          : 'bg-gray-400'
+                                    }`}
+                                  />
+                                  <span
+                                    className={
+                                      voice.gender === 'female'
+                                        ? 'text-pink-300'
+                                        : voice.gender === 'male'
+                                          ? 'text-blue-300'
+                                          : 'text-gray-400'
+                                    }
+                                  >
+                                    {voice.gender === 'female' ? '女性' : voice.gender === 'male' ? '男性' : '指定なし'}
+                                  </span>
+                                </span>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-300 border border-gray-700">
+                                  {voice.languageCode.startsWith('ja') ? '🇯🇵 日本語' : '🇺🇸 英語'}
+                                </span>
+                                {personaText && (
+                                  <span className="text-[10px] text-indigo-300 font-medium truncate max-w-[180px]">
+                                    {personaText}
+                                  </span>
+                                )}
+                              </div>
+                              {(contextText || voice.description) && (
+                                <p className="text-[11px] text-gray-400 mt-0.5 truncate">
+                                  {contextText ? `${contextText} · ` : ''}{voice.description || voice.id}
+                                </p>
+                              )}
+                            </div>
+                            {isSelected && <Check className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />}
+                          </button>
+                        );
+                      })
+                    )
+                  )}
+                </div>
+              </div>
+
+              {isGemini38 && !isVoiceId(aiVoice) && !selectedExtraVoice && (
+                <p className="text-[10px] md:text-xs text-amber-300">
+                  保存済みの声: {aiVoice}。日本語・英語の一覧にない場合も、選択は保持しています。
                 </p>
               )}
               <p id="ai-voice-help" className="text-[10px] md:text-xs text-gray-500 leading-relaxed">
-                公式 {voiceOptions.length} 声。試聴は{' '}
+                基本の {voiceOptions.length} 声は全エンジン対応。{isGemini38 && '追加音声は Gemini 3.8 専用です。'}試聴は{' '}
                 <a
                   href="https://aistudio.google.com/generate-speech"
                   target="_blank"
                   rel="noreferrer"
                   className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
                 >
-                  AI Studio
+                  Google AI Studio
                 </a>
                 で確認できます。
               </p>

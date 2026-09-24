@@ -35,6 +35,10 @@ interface CreateNarrationClipParams {
   aiVoice?: NarrationClip['aiVoice'];
   aiVoiceStyle?: string;
   aiNarrationScene?: string;
+  aiTtsEngine?: NarrationClip['aiTtsEngine'];
+  aiTtsTone?: NarrationClip['aiTtsTone'];
+  aiTtsPace?: NarrationClip['aiTtsPace'];
+  aiTtsStyleDetail?: string;
 }
 
 interface AudioState {
@@ -120,7 +124,7 @@ interface AudioState {
   updateNarrationMeta: (id: string, updates: Partial<NarrationClip>) => void;
   replaceNarrationAudio: (
     id: string,
-    payload: Pick<NarrationClip, 'file' | 'url' | 'blobUrl' | 'duration' | 'sourceType' | 'isAiEditable' | 'aiScript' | 'aiVoice' | 'aiVoiceStyle' | 'aiNarrationScene'>
+    payload: Pick<NarrationClip, 'file' | 'url' | 'blobUrl' | 'duration' | 'sourceType' | 'isAiEditable' | 'aiScript' | 'aiVoice' | 'aiVoiceStyle' | 'aiNarrationScene' | 'aiTtsEngine' | 'aiTtsTone' | 'aiTtsPace' | 'aiTtsStyleDetail'>
   ) => void;
   moveNarration: (id: string, direction: 'up' | 'down') => void;
   removeNarration: (id: string) => void;
@@ -632,6 +636,10 @@ export function createNarrationClip(params: CreateNarrationClipParams): Narratio
     aiVoice: params.aiVoice,
     aiVoiceStyle: params.aiVoiceStyle,
     aiNarrationScene: params.aiNarrationScene,
+    aiTtsEngine: params.aiTtsEngine,
+    aiTtsTone: params.aiTtsTone,
+    aiTtsPace: params.aiTtsPace,
+    aiTtsStyleDetail: params.aiTtsStyleDetail,
   };
 }
 
@@ -1146,6 +1154,10 @@ export const useAudioStore = create<AudioState>()(
               aiVoice: payload.aiVoice,
               aiVoiceStyle: payload.aiVoiceStyle,
               aiNarrationScene: payload.aiNarrationScene,
+              aiTtsEngine: payload.aiTtsEngine,
+              aiTtsTone: payload.aiTtsTone,
+              aiTtsPace: payload.aiTtsPace,
+              aiTtsStyleDetail: payload.aiTtsStyleDetail,
             };
           }),
         }));

@@ -4667,6 +4667,7 @@ export 終了（成功/失敗/中断）
   - 明示的に閉じた再生位置は、その区間にいる間は開き直さない。別カードへスライダーで戻したときに開く。再生が終端まで進んで止まっても開き直さない。
   - 閉じた瞬間にカーソルがサムネイル上にあるときだけ、その場で動かしても拡大しない。外してから再び乗ったときに拡大する。閉じていなかった場所へあとから載せたときは、そのまま拡大する。
 - **回帰ガード**: `clipCardDisclosure.test.ts` で追従・抑制・追加・読み込み直し。`clipCardDisclosure.ui.test.tsx` で折りたたみ、再生中の枠、一時停止での入れ替え、ロック中の一括開閉。
+- **2026-09-24 スマホでのシーク操作**: `stepClipCardDisclosure` のスクロール理由を `seek` / `items` で区別する。幅 767px 以下ではプレビューのシークによるカード開閉と枠の追従だけを行い、`scrollIntoView` を呼ばない。PC のシーク、およびスマホを含む素材追加・保存データ読み込み時のスクロールは維持する。保留中のスクロールもスマホのシーク時に破棄する。`clipCardDisclosure.ui.test.tsx` でスマホのシーク、PC のシーク、スマホの素材追加を検証する。
 
 ### 13-248. PC の初期表示だけキャプションの下端をプレビューに揃える
 
@@ -4689,3 +4690,146 @@ export 終了（成功/失敗/中断）
 - **問題**: 自動サムネイルが有効開始 +0.2 秒だったため、繰り返しの先頭で 0.2 秒地点の絵が一瞬見え、先頭フレームと違って見えた。0.2 秒は先頭黒フレームを避けるための位置だった。
 - **対策**: クリップの自動位置は有効範囲の先頭。キャプチャが黒なら 1/30 秒、0.05 秒、0.1 秒、0.2 秒の順で最初の非黒フレームを使う。プロジェクトポスターはプレビューの先頭黒クリア（0.05 秒以下）の直後を撮る。
 - **注意**: プレビュー停止中の `time <= 0.05` 黒クリアは変えない。ポスターをその帯で撮ると必ず黒になる。
+
+### 13-251. AIナレーションで Gemini 3.8 TTS エンジンを選べる
+
+- **ファイル**: `src/utils/gemini38Tts.ts`, `src/components/modals/AiModal.tsx`, `src/components/TurtleVideo.tsx`, `src/types/index.ts`, `src/stores/uiStore.ts`, `src/stores/audioStore.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/hooks/useAutoSave.ts`, `src/constants/sectionHelp.ts`, 関連テスト。
+- **対象 flavor**: shared。standard と apple-safari の AI ナレーションに同じ選択肢を表示する。
+- **互換性**: `aiTtsEngine` がない既存クリップと初期 UI は `legacy`。旧 `gemini-2.5-flash-preview-tts:generateContent` の生成経路を維持する。選択エンジン・雰囲気・速さ・自由入力の話し方は AI クリップに保存し、再編集時に復元する。
+- **新 API**: Flash / Flash-Lite は `POST /v1beta/interactions`。原稿の本文は逐語で送り、場面ではなく `speech_metadata.style` に雰囲気・速さ・追加の話し方を設定する。既存の `《語り口》…《/》` は区間ごとに別の text content と style へ変換する。REST 応答は `steps` の `model_output` 内の audio data を読み、WAV を二重ラップしない。`store: false` を指定する。
+- **回帰ガード**: `gemini38Tts.test.ts` でリクエスト・REST 応答、`aiModalTtsEngine.test.tsx` でエンジン別 UI、`projectStoreSave.test.ts` で standard 保存→apple-safari 読込を確認する。実 API キーでの生成・音質は別途実機確認が必要。
+
+### 13-252. Gemini 3.8 では追加の声を Voices API から選ぶ
+
+- **ファイル**: `src/utils/gemini38Voices.ts`, `src/components/modals/AiModal.tsx`, `src/stores/uiStore.ts`, `src/types/index.ts`, `src/components/TurtleVideo.tsx`, 関連テスト。
+- **互換性**: 従来の30声は両エンジンで利用可能。3.8 のみ「追加の声を読み込む」で `GET /v1beta/voices` を呼び、ページ送りして追加音声・保存済みカスタム音声を選べる。APIキーが無い場合や取得に失敗した場合は基本30声を引き続き選べる。
+- **保存と切替**: 追加音声は API の `id` をナレーションクリップの `aiVoice` に保存する。再編集時は ID を保持し、一覧再読込後に表示名を復元する。従来エンジンへ切り替えた場合は、追加音声 ID を Aoede に戻す。従来の生成リクエストには必ず基本30声を渡す。
+- **確認**: `gemini38Voices.test.ts` でページ送り・API エラー、`aiModalTtsEngine.test.tsx` で追加声の表示・選択・エンジン境界、`uiStore.test.ts` で従来エンジンへの切替、`projectStoreSave.test.ts` で追加声 ID の保存・読込を確認する。
+
+### 13-253. 追加音声を日本語・英語と人物像・用途で絞り込む
+
+- **ファイル**: `src/utils/gemini38Voices.ts`, `src/components/modals/AiModal.tsx`, `src/constants/sectionHelp.ts`, 関連テスト。
+- **API 属性**: Voices API に独立した職業項目はない。`language_code`、`persona`（職業を含む人物像）、`context`（用途・シーン）を利用し、値のない声は「すべて」で表示する。追加音声は `ja` / `en` の BCP-47 言語コードだけを保持する。基本30声は従来どおり別管理。
+- **UI**: Gemini 3.8 では基本30声と追加音声を切り替える。追加音声を読み込んだら、日本語を初期表示として言語 → 人物像 → 用途を絞り、性別・検索も併用する。言語を変えたら人物像と用途、人物像を変えたら用途をリセットする。フィルタ変更では選択中の声 ID を勝手に変えない。
+- **確認**: `gemini38Voices.test.ts` で ja/en 以外の除外・分類属性、`aiModalTtsEngine.test.tsx` で言語とカテゴリの連動・従来エンジン境界を確認する。
+
+### 13-254. Gemini 3.8 TTS の音声絞り込みUI改善（用途・目的ドロップダウン統合・公式Voices APIカテゴリ日本語併記・段階的絞り込み・直感的カードピッカー）
+
+- **ファイル**: `src/utils/gemini38VoiceCategories.ts`, `src/components/modals/AiModal.tsx`, `src/test/gemini38VoiceCategories.test.ts`, `src/test/aiModalTtsEngine.test.tsx`
+- **問題**:
+  - Gemini 3.8 の Extended Voice Library から取得される追加音声（約800件以上）の `persona` や `context` が生の英語のまま五十音順に並び、何を選択すべきか分からなかった。
+  - 「用途・目的」チップと「シーン・用途」ドロップダウンが重複して存在し、ボタンが2行を占有してモーダルの貴重な縦スペースを圧迫していた。
+  - ドロップダウン内の Google 公式 context カテゴリ（`Content & Media`、`Conversational / Edu`、`Enterprise Agent` など）が英語のままで直感的に選べなかった。
+- **対策**:
+  - **追加音声の自動読み込み**: 「追加音声」タブを選択した時点で自動的に Voices API からの読み込みを開始し、無駄なクリックを不要に。
+  - **用途・目的ドロップダウンへの統合と省スペース化**: 重複していたチップボタン群を廃止し、場所を取らない「用途・目的（日/英）」ドロップダウンに一本化。性別・用途・人物像をコンパクトな3列グリッドに配置。
+  - **公式 Voices API カテゴリ・ペルソナの日英併記（端的な日本語＋英語）**: `Content & Media` などの用途に加え、`Companion & Peer / Digital Assistant (Friend)` などの複雑なペルソナも `対話・AIアシスタント: 友人 (Friend)` のように端的な日本語＋英語に整形。裏側のプロンプトや API 送信には公式の正式英語名称をそのまま保持。
+  - **段階的（連動）フィルタリング**: 用途・目的を選択すると、その用途に該当する職業・人物像（persona）候補が自動的に絞り込まれ、目的の声へスムーズに到達可能。
+  - **選択中の声ハイライトカード**: 声選択エリアの最上部に、選択中の声（名前、性別、言語、特徴タグ、説明文）と AI Studio 試聴リンクを常時表示。
+  - **タップ選択カードへの一本化（ドロップダウン重複の解消）**: 見た目が二重になっていた `<select>` を視覚的に非表示（`sr-only`）にし、直感的なタップ選択カードリスト（スマホでも縦に伸びすぎない `max-h-44` スクロール）に一本化。
+  - **シンプルで視認性の高い性別バッジ**: 絵文字ではなく、一目で判別できるシンプルな「ピンクの四角バッジ（女性）」「青の四角バッジ（男性）」に刷新。
+  - **話し方クイックサジェスチョン**: 「追加の話し方」に入力しやすいクイックタグチップ（「優しく穏やかに」「落ち着いた低音で」など）を配置。
+- **回帰ガード**:
+  - `gemini38VoiceCategories.test.ts`（公式 context カテゴリ翻訳、ペルソナの端的日本語英語併記、段階的連動抽出）
+  - `aiModalTtsEngine.test.tsx`（用途・目的ドロップダウン絞り込み、カード選択、リセット、既存の combobox / option 互換性）
+  - 全15テスト通過、`npm run build` 成功。
+
+### 13-255. 性別ボタンの改行抑止（「全て」表記統一・whitespace-nowrap）と、人物像（Persona）の全日本語表記網羅・パイプ区切り対応・英語重複防止
+
+- **ファイル**: `src/utils/gemini38VoiceCategories.ts`, `src/components/modals/AiModal.tsx`, `src/test/gemini38VoiceCategories.test.ts`, `src/test/aiModalTtsEngine.test.tsx`
+- **問題**:
+  - 性別絞り込みボタンの「すべて」が幅不足により「すべ / て」と2行に不自然に改行されていた。
+  - 「動画・メディアコンテンツ」等の用途選択時に表示される職業・人物像（persona）候補において、`News & Podcast Host / Podcaster`、`Storyteller & Narrator`、`Nature Documentary Narrator`、`Cooking Show Host`、`Librarian`、`Trivia Host` などが英語のまま残っていたり、未翻訳時に `Role (Role)` と英語が二重重複したり、パイプ `|` 区切りのマルチタグで括弧パースが崩れて `Trivia Host) | ...` となる問題があった。
+- **対策**:
+  - **性別ボタンの表記統一と改行防止**: ラベルを「すべて」から「全て」へ統一し、女性・男性と2文字で揃えた上で `whitespace-nowrap` を指定し、どんな画面幅・端末でも折り返されないように修正。
+  - **Voices API 語彙の網羅的辞書拡充**: `News & Podcast Host / Podcaster`（ニュース・ポッドキャスト司会）、`Storyteller & Narrator`（物語朗読・ナレーション）、`Video Voiceover & Host / Training Voiceover`（動画・研修ナレーション）、`Nature Documentary Narrator`（自然ドキュメンタリー）、`Philosopher`（哲学者・思想家）、`Cooking Show Host`（料理番組司会）、`Instructional Video Host`（操作説明司会）、`Librarian`（司書・案内人）、`Trivia Host`（クイズ番組司会）など、Google Voices API の実データに登場するペルソナ・ベース語句・ロール語句を網羅的に辞書追加。
+  - **パイプ区切り対応と括弧崩れ防止**: `|` で複数カテゴリが結合されているデータは、先頭の主セグメントを取り出してパースすることで、括弧が崩れることなく美しく表示されるように改善。
+  - **英語重複の防止**: 辞書にない未知語が来た場合でも、`roleJa === roleRaw` のときは `Role (Role)` と重複させず、シンプルに `Base: Role` と表示する安全ガードを実装。
+  - **API 送信値の完全維持**: `<option value={opt.value}>` は元の公式英語文字列を完全に維持し、APIリクエスト・プロンプトに一切悪影響を与えない。
+- **回帰ガード**:
+  - `gemini38VoiceCategories.test.ts` に画像の実データパターン（8件）の完全一致テストを追加し PASS。
+  - `npm run build` でプロダクションビルド成功。
+
+### 13-256. 追加音声フィルター行の横並び垂直位置・高さ整列（性別ボタンとドロップダウンの水平一致）
+
+- **ファイル**: `src/components/modals/AiModal.tsx`
+- **問題**:
+  - 性別ボタンと、用途・目的および職業・人物像の各ドロップダウンが横並びになった際、ラベル行（「性別」vs「用途・目的（日/英）」）の高さ・ベースラインと、コントロール行（ボタン `min-h-8` vs `<select>` `min-h-8 py-1.5`）の上端・下端の垂直位置が数ピクセルずれていた。
+  - 性別列が `<div>`、他列が `<label>` と異なる構造になっており、ブラウザデフォルトのインラインレンダリング差異が生じていた。
+- **対策**:
+  - **3列共通の flex-col レイアウト統一**: 性別・用途・職業の各列を `<div className="flex flex-col gap-1">` に統一。
+  - **ラベル行の高さ・整列統一**: すべてのラベル行を `text-[11px] font-semibold text-gray-400 h-4 flex items-center leading-none` に統一し、ラベルのベースライン・上端・下端を完全に一致させた。
+  - **コントロール行の高さ固定統一**: ボタン群および `<select>` をすべて厳密に `h-8`（32px）に固定し、中身を中央揃えにすることで、ボタンとドロップダウンの上端・下端のラインが水平一直線に揃うように修正。
+- **回帰ガード**:
+  - `aiModalTtsEngine.test.tsx` の 11 テスト PASS。
+  - `npm run build` でプロダクションビルド成功。
+
+### 13-257. ナレーションセクションヘッダーボタン（AIボタン・追加ボタン）の縦幅・スタイル統一
+
+- **ファイル**: `src/components/sections/NarrationSection.tsx`
+- **問題**:
+  - ナレーションセクションヘッダーの「AI」ボタンおよび「追加」ボタンが `h-7 md:h-8 px-2 md:px-2.5` と個別に設定されており、「動画・画像」セクションや「BGM」セクションの追加ボタン（`px-2.5 py-1`・borderあり）と比較して縦幅が異なっていた。
+- **対策**:
+  - ナレーションセクションの「AI」ボタンおよび「追加」ボタンのスタイルを、動画・画像セクションの追加ボタンと完全に同一の `px-2.5 py-1 rounded-lg text-xs md:text-sm font-semibold whitespace-nowrap transition flex items-center gap-1 border` に統一。
+  - ヘッダー内のボタングループの gap も他セクションと統一（`gap-1.5`）。
+- **回帰ガード**:
+  - `narrationSectionOfflineMode.test.tsx`, `settingsAccordionHeader.test.tsx` PASS。
+  - `npm run build` でプロダクションビルド成功。
+
+### 13-258. 追加話し方サジェスチョンチップの特徴化と用途・職業フィルターの独立選択（階層UX改善）
+
+- **ファイル**: `src/components/modals/AiModal.tsx`, `src/test/aiModalTtsEngine.test.tsx`
+- **問題**:
+  - 「追加の話し方（任意）」のクイックタグチップが「優しく穏やかに」「落ち着いた低音で」「明るく元気に」等となっており、すぐ上の「声の雰囲気」（温かく親しみやすい、落ち着いた、明るく元気、明瞭で聞き取りやすい）と重複していて特徴的な演技指導が選べなかった。
+  - 「用途・目的」と「職業・人物像」のフィルターにおいて、職業を選択すると用途ドロップダウンの選択肢がその職業のものだけに逆絞り込みされてしまい、別の用途へ切り替える際に一度「すべての人物像」にリセットし直さなければならないUX上の不都合があった。
+- **対策**:
+  - **追加話し方クイックサジェスチョンの刷新**: 基本設定（声の雰囲気）にはない、動画・アニメ・演出で強い効果を発揮する表現に刷新（「アニメ調でコミカルに」「ドキュメンタリー風の重厚な語りで」「感情豊かにドラマチックに」「囁くように静かに（ASMR風）」「ニュースキャスター風に端正に」「熱血・ハイテンションに」「親身に語りかける相棒風に」「物語の読み聞かせ風に」）。
+  - **用途・目的ドロップダウンの全選択肢常時保持**: `contextOptions` の計算から `voicePersona` の逆絞り込みを除外し、どんな職業を選択している状態でも常に全用途が表示され、直接別の用途へ切り替え可能にした。
+  - **用途変更時の自動リセットと一覧表示**: 用途を変更した際は自動で `voicePersona = ''` にクリアされ、その用途に属する全音声が即座に一覧カードへ反映される自然な階層UXに改善。
+- **回帰ガード**:
+  - `aiModalTtsEngine.test.tsx` に独立用途切り替え・職業リセット・アニメ調チップのクリックテストを追加し PASS。
+  - `npm run build` でプロダクションビルド成功。
+
+### 13-259. 文中の部分アクセントと全体の基本トーンの役割分担・重複語彙の解消
+
+- **ファイル**: `src/utils/narrationDelivery.ts`, `src/components/modals/AiModal.tsx`, `src/test/narrationDelivery.test.ts`, `src/test/aiModalTtsEngine.test.tsx`
+- **問題**:
+  - Step 2 内の「選択した文章に語り口調」（明るく、落ち着いて、はっきり、やわらかく、強調して）と、Step 3 の「Gemini 3.8 の話し方」（明るく元気、落ち着いた、明瞭で聞き取りやすい、温かく親しみやすい）で同じ語彙が完全に重複しており、どちらで何を設定すべきかユーザーが混乱していた。
+- **対策**:
+  - **役割の明確な分離**:
+    - **Step 2（上側）**: 「文中の部分アクセント・メリハリ（選択範囲のみ）」と見出しを変更。原稿内の特定フレーズだけに変化をつける機能であることを明記。
+    - **Step 3（下側）**: 「Gemini 3.8 の話し方（全体の基本トーン）」と見出し・ラベルを変更。動画全体のベース音声（声質・雰囲気・全体のテンポ・キャラクター演技）であることを明記。
+  - **プリセット語彙の特化**:
+    - 上側のプリセットを「強調して」「感情込めて」「ささやき」「早口で」「ゆっくり」に刷新。文中のアクセント・緩急・感情表現に特化させ、下側のベーストーン（明るい、落ち着いたなど）との重複を完全に解消。
+    - 旧マーカー（《明るく》等）もそのまま解決できるよう、`narrationDelivery.ts` に後方互換テーブルを保持。
+- **回帰ガード**:
+  - `narrationDelivery.test.ts` (18 tests), `aiModalTtsEngine.test.tsx` (6 tests) 全件 PASS。
+  - `npm run build` でプロダクションビルド成功。
+
+### 13-260. Gemini 3.8 音声ライブラリの職業・人物像（persona）候補の網羅的日本語・英語併記対応と未翻訳・重複の解消
+
+- **ファイル**: `src/utils/gemini38VoiceCategories.ts`, `src/test/gemini38VoiceCategories.test.ts`
+- **問題**:
+  - 用途「企業・ビジネス案内（Enterprise Agent）」などで表示される職業・人物像（persona）候補に未翻訳の英語や、分割時の英語・日本語の重複混ざり（例: `Concierge & EA: Event Planner`, `Tech Support Agent / Tech Advisor: Architect`, `専門家・アドバイザー・Authoritative Advisor: Researcher` など）が残っており、選択肢の視認性・分かりやすさを損なっていた。
+- **原因**:
+  - `PERSONA_BASE_TRANSLATIONS` および `PERSONA_ROLE_TRANSLATIONS` に企業系ペルソナ（`Concierge & EA`, `Tech Support Agent / Tech Advisor`, `Call Center Agent`, `Authoritative Advisor` 等）や各ロール（`Event Planner`, `Executive Assistant`, `Hotel Concierge`, `Architect`, `Researcher`, `Social Worker` 等）が未登録だった。
+  - スラッシュ `/` や `&` で構成された複合語を `translateCompositeBase` で分解した際、未翻訳パートが英語のまま結合されたり重複したりしていた。
+- **対策**:
+  - **辞書の網羅的拡充**:
+    - `VOICE_PERSONA_TRANSLATIONS`, `PERSONA_BASE_TRANSLATIONS`, `PERSONA_ROLE_TRANSLATIONS` に企業・ビジネス・IT・サポート・士業に加え、広告・セールスCM（`Advertising Pitch & Commerce / Commercial Voiceover`）、キャラクター・演技劇（`Character & Theatrical`）、自己啓発コーチ（`Coach / Motivational Guide`）、および各種役割（`Chess Instructor`, `Fashion Consultant`, `Influencer`, `Political Activist`, `Person Giving Driving Directions`, `Lifestyle Coach` 等）を網羅的に日本語対応として追加。
+    - 万が一未知の肩書が来た場合のためのフォールバック単語辞書 `PERSONA_WORD_TRANSLATIONS`（50語以上）を新設・拡充し、自然な日本語結合（日本語同士は連結、未訳英単語が混ざる場合はスペース/中黒連結）を行うよう処理を強化。
+  - **合成・フォーマットロジックの改善**:
+    - `translateCompositeBase` で完全一致チェックおよび大分類のスラッシュ `/` 分割を優先し、分割時も重複語句の `Set` 排除と単語フォールバックを実施。
+    - 単独ペルソナ（例: `Concierge & EA`）も `コンシェルジュ・秘書 (Concierge & EA)` と端的な日本語＋英語併記で美しく統一。
+    - `<option value="...">` の正式英語文字列は 100% 維持し、API 呼び出しやプロンプト生成に一切の副作用を与えない安全設計。
+- **回帰ガード**:
+  - `src/test/gemini38VoiceCategories.test.ts` に Enterprise Agent、Advertising Pitch、Character & Theatrical、Coach / Motivational Guide の全ペルソナパターンを網羅するテストケースを追加し PASS（9/9 tests）。
+  - `npm run build` によるプロダクションビルド PASS。
+
+
+
+
+
+
+
+

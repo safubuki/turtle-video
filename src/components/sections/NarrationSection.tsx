@@ -174,7 +174,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
             <CircleHelp className="w-4 h-4" />
           </button>
         </h2>
-        <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
           <button
             onClick={onToggleNarrationLock}
             className={`p-1 rounded-lg transition ${isNarrationLocked ? 'bg-red-500/20 text-red-400' : 'bg-gray-700 text-gray-300 hover:text-white hover:bg-gray-600'}`}
@@ -190,10 +190,10 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
           <button
             onClick={onAddAiNarration}
             disabled={isAiAddDisabled}
-            className={`h-7 md:h-8 px-2 md:px-2.5 rounded-lg text-xs md:text-sm font-semibold whitespace-nowrap transition flex items-center gap-1 ${
+            className={`px-2.5 py-1 rounded-lg text-xs md:text-sm font-semibold whitespace-nowrap transition flex items-center gap-1 border ${
               isAiAddDisabled
-                ? 'bg-gray-700 border border-gray-600 text-gray-400 cursor-not-allowed'
-                : 'bg-linear-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white'
+                ? 'bg-gray-700 border-gray-600 text-gray-400 cursor-not-allowed'
+                : 'bg-linear-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 border-indigo-400/40 text-white'
             }`}
             title={
               offlineMode
@@ -206,7 +206,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
             <Sparkles className="w-3 h-3" /> AI
           </button>
           <label
-            className={`cursor-pointer h-7 md:h-8 bg-emerald-700 hover:bg-emerald-600 border border-emerald-500/45 text-white px-2 md:px-2.5 rounded-lg text-xs md:text-sm font-semibold whitespace-nowrap transition flex items-center gap-1 ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
+            className={`cursor-pointer bg-emerald-700 hover:bg-emerald-600 border border-emerald-500/45 text-white px-2.5 py-1 rounded-lg text-xs md:text-sm font-semibold whitespace-nowrap transition flex items-center gap-1 ${isNarrationLocked ? 'opacity-50 pointer-events-none' : ''}`}
           >
             <Upload className="w-3 h-3" /> 追加
             <input

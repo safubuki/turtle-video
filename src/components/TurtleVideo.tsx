@@ -24,6 +24,7 @@ import type { PreviewRuntime } from './turtle-video/previewRuntime';
 import type { SaveRuntime } from './turtle-video/saveRuntime';
 import {
   VOICE_OPTIONS,
+  isVoiceId,
   GEMINI_API_BASE_URL,
   GEMINI_SCRIPT_MODEL,
   GEMINI_SCRIPT_FALLBACK_MODELS,
@@ -50,6 +51,7 @@ import {
 import { resolveCaptureFrameTarget } from '../utils/previewCaptureFrame';
 import { preserveOriginalFileName, resolveAiNarrationFileName } from '../utils/fileNames';
 import { fetchGeminiWithRetry } from '../utils/geminiRetry';
+import { buildGemini38TtsRequest, GEMINI_38_INTERACTIONS_URL, readGemini38OutputAudio } from '../utils/gemini38Tts';
 import { saveBlobWithClientFileStrategy, saveObjectUrlWithClientFileStrategy } from '../utils/fileSave';
 import {
   buildCaptionLayerVideoFileName,
@@ -294,7 +296,15 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const aiVoice = useUIStore((s) => s.aiVoice);
   const aiVoiceStyle = useUIStore((s) => s.aiVoiceStyle);
   const aiNarrationScene = useUIStore((s) => s.aiNarrationScene);
+  const aiTtsEngine = useUIStore((s) => s.aiTtsEngine);
+  const aiTtsTone = useUIStore((s) => s.aiTtsTone);
+  const aiTtsPace = useUIStore((s) => s.aiTtsPace);
+  const aiTtsStyleDetail = useUIStore((s) => s.aiTtsStyleDetail);
   const setAiNarrationScene = useUIStore((s) => s.setAiNarrationScene);
+  const setAiTtsEngine = useUIStore((s) => s.setAiTtsEngine);
+  const setAiTtsTone = useUIStore((s) => s.setAiTtsTone);
+  const setAiTtsPace = useUIStore((s) => s.setAiTtsPace);
+  const setAiTtsStyleDetail = useUIStore((s) => s.setAiTtsStyleDetail);
   const isAiLoading = useUIStore((s) => s.isAiLoading);
 
   const clearToast = useUIStore((s) => s.clearToast);
@@ -1933,7 +1943,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               responseModalities: ['AUDIO'],
               speechConfig: {
                 voiceConfig: {
-                  prebuiltVoiceConfig: { voiceName: aiVoice },
+                  prebuiltVoiceConfig: { voiceName: isVoiceId(aiVoice) ? aiVoice : 'Aoede' },
                 },
               },
             },
@@ -2004,46 +2014,75 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       let lastBlockReason: string | undefined;
       let lastHttpError: string | undefined;
 
-      for (let i = 0; i < attempts.length; i++) {
-        const attempt = attempts[i];
-        const hasNext = i < attempts.length - 1;
-        const response = await requestTts(attempt.prompt);
+      if (aiTtsEngine !== 'legacy') {
+        const request = buildGemini38TtsRequest({
+          engine: aiTtsEngine,
+          script: aiScript,
+          voice: aiVoice,
+          tone: aiTtsTone,
+          pace: aiTtsPace,
+          styleDetail: aiTtsStyleDetail,
+        });
+        const response = await fetchGeminiWithRetry(
+          () => fetch(GEMINI_38_INTERACTIONS_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+            referrerPolicy: 'no-referrer',
+            body: JSON.stringify(request),
+          }),
+          {
+            onRetry: ({ retryNumber }) => {
+              if (retryNumber === 1) showToast('音声生成APIが混雑しているため再試行しています。', 5000);
+            },
+          },
+        );
+        if (!response.ok) throw new Error(await readTtsErrorMessage(response));
+        resolvedInlineData = {
+          data: readGemini38OutputAudio(await response.json()),
+          mimeType: 'audio/wav',
+        };
+      } else {
+        for (let i = 0; i < attempts.length; i++) {
+          const attempt = attempts[i];
+          const hasNext = i < attempts.length - 1;
+          const response = await requestTts(attempt.prompt);
 
-        if (!response.ok) {
-          const errorMessage = await readTtsErrorMessage(response);
-          lastHttpError = errorMessage;
-          const retryableHttpError = /model tried to generate text|only be used for tts|response modalities/i.test(errorMessage);
-          if (hasNext && retryableHttpError) {
-            console.warn('TTS attempt failed and will retry with fallback prompt/model.', {
+          if (!response.ok) {
+            const errorMessage = await readTtsErrorMessage(response);
+            lastHttpError = errorMessage;
+            const retryableHttpError = /model tried to generate text|only be used for tts|response modalities/i.test(errorMessage);
+            if (hasNext && retryableHttpError) {
+              console.warn('TTS attempt failed and will retry with fallback prompt/model.', {
+                label: attempt.label,
+                errorMessage,
+              });
+              continue;
+            }
+            throw new Error(errorMessage);
+          }
+
+          const data = (await response.json()) as TtsResponse;
+          const parsed = parseTtsResponse(data);
+          if (parsed.inlineData) {
+            resolvedInlineData = parsed.inlineData;
+            resolvedAttempt = attempt;
+            lastFinishReason = parsed.finishReason;
+            lastBlockReason = parsed.blockReason;
+            break;
+          }
+
+          lastFinishReason = parsed.finishReason;
+          lastBlockReason = parsed.blockReason;
+          if (hasNext) {
+            console.warn('TTS attempt returned no inline audio data. Retrying with fallback.', {
               label: attempt.label,
-              errorMessage,
+              finishReason: parsed.finishReason,
+              blockReason: parsed.blockReason,
+              hasTextPart: parsed.hasTextPart,
+              partsCount: parsed.partsCount,
             });
             continue;
           }
-          throw new Error(errorMessage);
-        }
-
-        const data = (await response.json()) as TtsResponse;
-        const parsed = parseTtsResponse(data);
-        if (parsed.inlineData) {
-          resolvedInlineData = parsed.inlineData;
-          resolvedAttempt = attempt;
-          lastFinishReason = parsed.finishReason;
-          lastBlockReason = parsed.blockReason;
-          break;
-        }
-
-        lastFinishReason = parsed.finishReason;
-        lastBlockReason = parsed.blockReason;
-        if (hasNext) {
-          console.warn('TTS attempt returned no inline audio data. Retrying with fallback.', {
-            label: attempt.label,
-            finishReason: parsed.finishReason,
-            blockReason: parsed.blockReason,
-            hasTextPart: parsed.hasTextPart,
-            partsCount: parsed.partsCount,
-          });
-          continue;
         }
       }
 
@@ -2058,7 +2097,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         throw new Error(`音声データを取得できませんでした${reasonSuffix}`);
       }
 
-      if (delivery.hasDeliveryControl && resolvedAttempt && !resolvedAttempt.usedStyle) {
+      if (aiTtsEngine === 'legacy' && delivery.hasDeliveryControl && resolvedAttempt && !resolvedAttempt.usedStyle) {
         showToast('場面・語り口調の指定は適用できなかったため、通常の読み上げで生成しました。', 5000);
       }
 
@@ -2071,6 +2110,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
       const normalizedMimeType = resolvedInlineData.mimeType?.toLowerCase() || '';
       const payloadIsWav = normalizedMimeType.includes('audio/wav') || normalizedMimeType.includes('audio/x-wav');
+      if (aiTtsEngine !== 'legacy' &&
+        (bytes.length < 12 || String.fromCharCode(...bytes.slice(0, 4)) !== 'RIFF' ||
+          String.fromCharCode(...bytes.slice(8, 12)) !== 'WAVE')) {
+        throw new Error('Gemini 3.8 から有効な WAV 音声を取得できませんでした。');
+      }
       const wavBuffer = payloadIsWav ? bytes.buffer : pcmToWav(bytes.buffer, TTS_SAMPLE_RATE);
       const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' });
       const blobUrl = URL.createObjectURL(wavBlob);
@@ -2097,7 +2141,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         };
       });
 
-      const voiceLabel = VOICE_OPTIONS.find((v) => v.id === aiVoice)?.label || 'AI音声';
+      const voiceLabel = VOICE_OPTIONS.find((v) => v.id === aiVoice)?.label || aiVoice;
       const currentNarrationName = editingNarrationId
         ? narrations.find((item) => item.id === editingNarrationId)?.file.name
         : null;
@@ -2122,12 +2166,20 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
           aiVoice,
           aiVoiceStyle,
           aiNarrationScene: sceneForSave,
+          aiTtsEngine,
+          aiTtsTone,
+          aiTtsPace,
+          aiTtsStyleDetail,
         });
         updateNarrationMeta(editingNarrationId, {
           aiScript,
           aiVoice,
           aiVoiceStyle,
           aiNarrationScene: sceneForSave,
+          aiTtsEngine,
+          aiTtsTone,
+          aiTtsPace,
+          aiTtsStyleDetail,
         });
         setEditingNarrationId(null);
       } else {
@@ -2143,6 +2195,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
             aiVoice,
             aiVoiceStyle,
             aiNarrationScene: sceneForSave,
+            aiTtsEngine,
+            aiTtsTone,
+            aiTtsPace,
+            aiTtsStyleDetail,
           })
         );
       }
@@ -2175,6 +2231,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     aiScript,
     aiVoice,
     aiVoiceStyle,
+    aiTtsEngine,
+    aiTtsTone,
+    aiTtsPace,
+    aiTtsStyleDetail,
     editingNarrationId,
     pcmToWav,
     replaceNarrationAudio,
@@ -3031,8 +3091,12 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     setAiVoice(target.aiVoice ?? 'Aoede');
     setAiVoiceStyle(target.aiVoiceStyle ?? '');
     setAiNarrationScene(target.aiNarrationScene ?? '');
+    setAiTtsEngine(target.aiTtsEngine ?? 'legacy');
+    setAiTtsTone(target.aiTtsTone ?? 'natural');
+    setAiTtsPace(target.aiTtsPace ?? 'normal');
+    setAiTtsStyleDetail(target.aiTtsStyleDetail ?? '');
     openAiModal();
-  }, [narrations, offlineMode, openAiModal, pausePreviewBeforeEdit, setAiNarrationScene, setAiPrompt, setAiScript, setAiVoice, setAiVoiceStyle]);
+  }, [narrations, offlineMode, openAiModal, pausePreviewBeforeEdit, setAiNarrationScene, setAiPrompt, setAiScript, setAiVoice, setAiVoiceStyle, setAiTtsEngine, setAiTtsTone, setAiTtsPace, setAiTtsStyleDetail]);
 
   const handleOpenSettingsModal = useCallback(() => {
     pausePreviewBeforeHeaderModal();
@@ -3954,6 +4018,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       {/* AI Modal */}
       <AiModal
         isOpen={showAiModal}
+        offlineMode={offlineMode}
         onClose={handleCloseAiModal}
         aiPrompt={aiPrompt}
         aiScript={aiScript}
@@ -3961,6 +4026,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         aiVoice={aiVoice}
         aiVoiceStyle={aiVoiceStyle}
         aiNarrationScene={aiNarrationScene}
+        aiTtsEngine={aiTtsEngine}
+        aiTtsTone={aiTtsTone}
+        aiTtsPace={aiTtsPace}
+        aiTtsStyleDetail={aiTtsStyleDetail}
         isAiLoading={isAiLoading}
         voiceOptions={VOICE_OPTIONS}
         onPromptChange={setAiPrompt}
@@ -3969,6 +4038,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         onVoiceChange={setAiVoice}
         onVoiceStyleChange={setAiVoiceStyle}
         onNarrationSceneChange={setAiNarrationScene}
+        onTtsEngineChange={setAiTtsEngine}
+        onTtsToneChange={setAiTtsTone}
+        onTtsPaceChange={setAiTtsPace}
+        onTtsStyleDetailChange={setAiTtsStyleDetail}
         onGenerateScript={generateScript}
         onGenerateSpeech={generateSpeech}
       />

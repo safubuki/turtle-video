@@ -322,7 +322,13 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
       disclosureRef.current = stepped.state;
       setDisclosure(stepped.state);
     }
-    if (stepped.scrollToId) {
+    // スマホではプレビューのシーク中に画面をカード一覧へ飛ばさない。
+    // カード自体の開閉は stepClipCardDisclosure の state 更新をそのまま使う。
+    const isMobileSeek = stepped.scrollReason === 'seek'
+      && window.matchMedia('(max-width: 767px)').matches;
+    if (isMobileSeek) {
+      pendingScrollIdRef.current = null;
+    } else if (stepped.scrollToId) {
       pendingScrollIdRef.current = stepped.scrollToId;
     }
   }, [clipListRestoreEpoch, focusId, idsKey, isPlaying]);

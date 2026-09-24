@@ -211,6 +211,16 @@ describe('uiStore', () => {
       
       expect(useUIStore.getState().aiVoice).toBe('Puck');
     });
+
+    it('switching to the legacy engine restores a supported voice', () => {
+      const { setAiVoice, setAiTtsEngine } = useUIStore.getState();
+      setAiTtsEngine('gemini-3.8-flash-tts');
+      setAiVoice('voice_custom');
+      expect(useUIStore.getState().aiVoice).toBe('voice_custom');
+
+      setAiTtsEngine('legacy');
+      expect(useUIStore.getState().aiVoice).toBe('Aoede');
+    });
   });
 
   describe('resetUI', () => {

@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ClipsSection from '../components/sections/ClipsSection';
 import useMediaStore from '../stores/mediaStore';
 import type { MediaItem } from '../types';
@@ -27,6 +27,14 @@ function createImage(id: string, duration = 5): MediaItem {
     rotation: 0,
     isTransformOpen: false,
     isLocked: false,
+  };
+}
+
+function createVideo(id: string, duration = 5): MediaItem {
+  return {
+    ...createImage(id, duration),
+    file: new File(['video'], `${id}.mp4`, { type: 'video/mp4' }),
+    type: 'video',
   };
 }
 
@@ -212,5 +220,70 @@ describe('動画・画像カードの折りたたみ', () => {
     expect(durationSliders()).toHaveLength(2);
     fireEvent.click(screen.getByRole('button', { name: 'すべて閉じる' }));
     expect(durationSliders()).toHaveLength(0);
+  });
+});
+
+describe('再生位置カードへのスクロール', () => {
+  const originalScrollIntoView = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
+  const scrollIntoView = vi.fn();
+
+  beforeEach(() => {
+    scrollIntoView.mockClear();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+  });
+
+  afterEach(() => {
+    if (originalScrollIntoView) {
+      Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScrollIntoView);
+    } else {
+      delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+    }
+    vi.restoreAllMocks();
+  });
+
+  function setMobileViewport(mobile: boolean) {
+    const matchMedia = window.matchMedia;
+    vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+      ...matchMedia(query),
+      matches: query === '(max-width: 767px)' ? mobile : false,
+    }));
+  }
+
+  it('スマホでシークしてもスクロールせず、該当カードは開く', () => {
+    setMobileViewport(true);
+    const items = [createImage('a'), createVideo('b'), createImage('c')];
+    const { rerender, props } = renderSection({ mediaItems: items, currentTime: 0 });
+
+    rerender(<ClipsSection {...props} mediaItems={items} currentTime={6} />);
+    expect(screen.getByTestId('clip-card-body-b')).toBeInTheDocument();
+    expect(screen.queryByTestId('clip-card-body-a')).not.toBeInTheDocument();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+
+    rerender(<ClipsSection {...props} mediaItems={items} currentTime={11} />);
+    expect(screen.getByTestId('clip-card-body-c')).toBeInTheDocument();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it('PCでシークすると該当カードを開いてスクロールする', () => {
+    setMobileViewport(false);
+    const items = [createImage('a'), createImage('b')];
+    const { rerender, props } = renderSection({ mediaItems: items, currentTime: 0 });
+
+    rerender(<ClipsSection {...props} mediaItems={items} currentTime={6} />);
+    expect(screen.getByTestId('clip-card-body-b')).toBeInTheDocument();
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
+  });
+
+  it('スマホでも素材の追加時は追加したカードへスクロールする', () => {
+    setMobileViewport(true);
+    const items = [createImage('a')];
+    const { rerender, props } = renderSection({ mediaItems: items, currentTime: 0 });
+
+    rerender(<ClipsSection {...props} mediaItems={[...items, createImage('b')]} currentTime={0} />);
+    expect(screen.getByTestId('clip-card-body-b')).toBeInTheDocument();
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
   });
 });
