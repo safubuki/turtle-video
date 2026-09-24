@@ -20,6 +20,8 @@ interface SettingsAccordionHeaderProps {
   disabled?: boolean;
   /** タイトル左に置く任意のアイコン */
   icon?: React.ReactNode;
+  /** セクション見出しと同じ黄色で強調する */
+  highlighted?: boolean;
 }
 
 /**
@@ -33,6 +35,7 @@ const SettingsAccordionHeader = React.memo<SettingsAccordionHeaderProps>(({
   controlsId,
   disabled = false,
   icon,
+  highlighted = false,
 }) => (
   <button
     type="button"
@@ -40,7 +43,7 @@ const SettingsAccordionHeader = React.memo<SettingsAccordionHeaderProps>(({
     disabled={disabled}
     aria-expanded={isOpen}
     aria-controls={controlsId}
-    className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-xs text-gray-400 transition hover:bg-gray-800/45 hover:text-white disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-gray-400 md:text-sm"
+    className={`flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-xs transition hover:bg-gray-800/45 disabled:opacity-50 disabled:hover:bg-transparent md:text-sm ${highlighted ? 'text-yellow-400 hover:text-yellow-300' : 'text-gray-400 hover:text-white disabled:hover:text-gray-400'}`}
   >
     <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 font-semibold">
       {icon}

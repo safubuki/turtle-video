@@ -83,11 +83,12 @@ const CaptionFontSizeField = React.memo<CaptionFontSizeFieldProps>(({
     ? CAPTION_FONT_SIZE_PRESETS[fontSize]
     : inheritedFontSizePx ?? CAPTION_FONT_SIZE_PRESETS.medium;
   const customValue = fontSizeCustom ?? presetPx;
+  const labelWidthClass = compact ? 'w-10 md:w-16' : 'w-16';
 
   return (
     <>
       <div className="flex items-center gap-2 text-[10px] md:text-xs">
-        <span className={`text-gray-400 shrink-0 ${compact ? 'w-10 md:w-16' : 'w-16'}`}>サイズ:</span>
+        <span className={`text-gray-400 shrink-0 ${labelWidthClass}`}>サイズ:</span>
         <div className="flex gap-1 flex-1 min-w-0">
           {/* 個別設定のみ: 一括設定を継承する「デフォルト」 */}
           {allowDefaultOption && (
@@ -147,7 +148,8 @@ const CaptionFontSizeField = React.memo<CaptionFontSizeFieldProps>(({
         </div>
       </div>
       {supportsCustom && isCustom && (
-        <div className={`flex items-center gap-2 text-[10px] md:text-xs ${compact ? 'pl-10 md:pl-16' : 'pl-16'}`}>
+        <div className="flex items-center gap-2 text-[10px] md:text-xs">
+          <span aria-hidden="true" className={`shrink-0 ${labelWidthClass}`} />
           <NumericSliderField
             min={CAPTION_FONT_SIZE_CUSTOM_MIN}
             max={CAPTION_FONT_SIZE_CUSTOM_MAX}

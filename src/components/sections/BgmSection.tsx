@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import type { AudioTrack, BgmClip } from '../../types';
 import { getAudioUploadAccept } from '../../utils/platform';
-import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
+import PresetFadeDurationField from '../common/PresetFadeDurationField';
 import NumericSliderField from '../common/NumericSliderField';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import BgmClipList from './BgmClipList';
@@ -205,23 +205,36 @@ const BgmSection: React.FC<BgmSectionProps> = ({
               <Trash2 className="w-3 h-3" />
             </button>
           </div>
-          <div className="space-y-1">
+          <div className="space-y-1 px-2">
             <div className="flex justify-between text-[10px] md:text-xs text-gray-400">
               <span>開始位置 (頭出し): {formatTime(bgm.startPoint)}</span>
               <span>長さ: {formatTime(bgm.duration)}</span>
             </div>
-            <NumericSliderField
-              ariaLabel="BGMの開始位置（頭出し）"
-              min={0}
-              max={bgm.duration}
-              step={0.1}
-              value={bgm.startPoint}
-              onChange={handleStartPointChange}
-              disabled={isBgmLocked}
-              unit="秒"
-              sliderClassName="flex-1 min-w-0 accent-purple-500 h-1 bg-gray-700 rounded appearance-none cursor-pointer disabled:opacity-50"
-              inputClassName="w-16 md:w-20 focus:border-purple-500"
-            />
+            <div className="flex items-center gap-2">
+              <NumericSliderField
+                ariaLabel="BGMの開始位置（頭出し）"
+                min={0}
+                max={bgm.duration}
+                step={0.1}
+                value={bgm.startPoint}
+                onChange={handleStartPointChange}
+                disabled={isBgmLocked}
+                unit="秒"
+                className="flex-1 min-w-0"
+                sliderClassName="flex-1 min-w-0 accent-purple-500 h-1 bg-gray-700 rounded appearance-none cursor-pointer disabled:opacity-50"
+                inputClassName="w-16 md:w-20 focus:border-purple-500"
+              />
+              <button
+                type="button"
+                onClick={() => handleStartPointChange(0)}
+                disabled={isBgmLocked || bgm.startPoint === 0}
+                className="shrink-0 p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition disabled:opacity-50"
+                title="開始位置を0秒にリセット"
+                aria-label="BGMの開始位置を0秒にリセット"
+              >
+                <RefreshCw className="w-3 h-3" />
+              </button>
+            </div>
           </div>
           <div className="bg-purple-900/30 p-2 lg:p-3 rounded border border-purple-500/30 space-y-1">
             <div className="flex items-center gap-2 text-[10px] md:text-xs text-purple-200">
@@ -242,31 +255,31 @@ const BgmSection: React.FC<BgmSectionProps> = ({
             />
           </div>
           {/* 音量コントロール */}
-          <div className="bg-gray-800/50 p-2 rounded-lg flex items-center gap-2">
-            <Volume2 className="w-3 h-3 text-gray-400" />
-            <NumericSliderField
-              ariaLabel="BGMの音量"
-              min={0}
-              max={2.5}
-              step={0.05}
-              value={bgm.volume}
-              onChange={handleVolumeChange}
-              disabled={isBgmLocked}
-              hideInput
-              className="flex-1 min-w-0"
-              sliderClassName={`flex-1 min-w-0 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isBgmLocked ? '' : 'cursor-pointer'}`}
-            />
-            <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right shrink-0">
-              {Math.round(bgm.volume * 100)}%
-            </span>
-            <button
-              onClick={() => onUpdateVolume('1')}
-              disabled={isBgmLocked}
-              className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition disabled:opacity-50"
-              title="リセット"
-            >
-              <RefreshCw className="w-3 h-3" />
-            </button>
+          <div className="space-y-1">
+            <div className="px-2 text-[10px] md:text-xs text-gray-400">音量</div>
+            <div className="bg-gray-800/50 p-2 rounded-lg flex items-center gap-2">
+              <Volume2 className="w-3 h-3 text-gray-400" />
+              <NumericSliderField
+                ariaLabel="BGMの音量"
+                min={0}
+                max={250}
+                step={5}
+                value={Math.round(bgm.volume * 100)}
+                onChange={(value) => handleVolumeChange(value / 100)}
+                disabled={isBgmLocked}
+                unit="%"
+                className="flex-1 min-w-0"
+                sliderClassName={`flex-1 min-w-0 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isBgmLocked ? '' : 'cursor-pointer'}`}
+              />
+              <button
+                onClick={() => onUpdateVolume('1')}
+                disabled={isBgmLocked}
+                className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition disabled:opacity-50"
+                title="リセット"
+              >
+                <RefreshCw className="w-3 h-3" />
+              </button>
+            </div>
           </div>
 
           {/* フェード設定 - レイアウト改善 */}
@@ -285,23 +298,13 @@ const BgmSection: React.FC<BgmSectionProps> = ({
                 />
                 <span className="whitespace-nowrap">フェードイン</span>
               </label>
-              <SwipeProtectedSlider
-                min={0}
-                max={2}
-                step={1}
-                value={bgm.fadeInDuration === 0.5 ? 0 : bgm.fadeInDuration === 1.0 ? 1 : 2}
-                onChange={(val) => {
-                  const steps = [0.5, 1.0, 2.0];
-                  onUpdateFadeInDuration(steps[val]);
-                }}
+              <PresetFadeDurationField
+                value={bgm.fadeInDuration}
+                onChange={onUpdateFadeInDuration}
                 disabled={isBgmLocked || !bgm.fadeIn}
-                className={`flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isBgmLocked || !bgm.fadeIn ? '' : 'cursor-pointer'}`}
+                ariaLabel="BGMのフェードイン時間"
+                accentClassName="accent-purple-500"
               />
-              <span
-                className={`w-8 text-right whitespace-nowrap ${isBgmLocked || !bgm.fadeIn ? 'text-gray-600' : 'text-gray-400'}`}
-              >
-                {bgm.fadeInDuration}秒
-              </span>
             </div>
 
             {/* フェードアウト */}
@@ -318,23 +321,13 @@ const BgmSection: React.FC<BgmSectionProps> = ({
                 />
                 <span className="whitespace-nowrap">フェードアウト</span>
               </label>
-              <SwipeProtectedSlider
-                min={0}
-                max={2}
-                step={1}
-                value={bgm.fadeOutDuration === 0.5 ? 0 : bgm.fadeOutDuration === 1.0 ? 1 : 2}
-                onChange={(val) => {
-                  const steps = [0.5, 1.0, 2.0];
-                  onUpdateFadeOutDuration(steps[val]);
-                }}
+              <PresetFadeDurationField
+                value={bgm.fadeOutDuration}
+                onChange={onUpdateFadeOutDuration}
                 disabled={isBgmLocked || !bgm.fadeOut}
-                className={`flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isBgmLocked || !bgm.fadeOut ? '' : 'cursor-pointer'}`}
+                ariaLabel="BGMのフェードアウト時間"
+                accentClassName="accent-purple-500"
               />
-              <span
-                className={`w-8 text-right whitespace-nowrap ${isBgmLocked || !bgm.fadeOut ? 'text-gray-600' : 'text-gray-400'}`}
-              >
-                {bgm.fadeOutDuration}秒
-              </span>
             </div>
           </div>
         </div>

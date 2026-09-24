@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import NumericSliderField from '../components/common/NumericSliderField';
+import { formatTimeStepperInput } from '../utils/timeStepperInput';
 import { HOLD_REPEAT_INITIAL_DELAY_MS } from '../utils/holdToRepeat';
 
 describe('NumericSliderField', () => {
@@ -40,6 +41,55 @@ describe('NumericSliderField', () => {
     fireEvent.blur(input, { target: { value: '10' } });
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith(10);
+  });
+
+  it('数値欄の幅は現在値だけでなく入力範囲の桁数から決める', () => {
+    renderField({ value: 0, max: 600.5 });
+    expect(getNumberInput().style.width).toContain('5ch');
+  });
+
+  it('現在値の桁数が変わっても数値欄の幅を変えない', () => {
+    const onChange = vi.fn();
+    const props = { min: 0, max: 10, step: 0.1, onChange, ariaLabel: '開始位置' };
+    const { rerender } = render(<NumericSliderField {...props} value={0} />);
+    const input = screen.getByLabelText('開始位置（数値）') as HTMLInputElement;
+    const width = input.style.width;
+
+    rerender(<NumericSliderField {...props} value={1.8} />);
+    expect(input.style.width).toBe(width);
+    rerender(<NumericSliderField {...props} value={10} />);
+    expect(input.style.width).toBe(width);
+  });
+
+  it('開始と終了で刻みが違っても時刻の入力欄を同じ幅にする', () => {
+    const onChange = vi.fn();
+    render(
+      <>
+        <NumericSliderField value={0} min={0} max={179.04} step={0.1} onChange={onChange} formatDisplayValue={formatTimeStepperInput} ariaLabel="開始" />
+        <NumericSliderField value={1.1} min={0} max={179.04} step={0.01} onChange={onChange} formatDisplayValue={formatTimeStepperInput} ariaLabel="終了" />
+      </>,
+    );
+
+    expect((screen.getByLabelText('開始（数値）') as HTMLInputElement).style.width)
+      .toBe((screen.getByLabelText('終了（数値）') as HTMLInputElement).style.width);
+  });
+
+  it('時間上限の浮動小数誤差を数値欄の幅と表示へ持ち込まない', () => {
+    renderField({ value: 3.5, max: 179.04000000000002 });
+    const input = getNumberInput();
+    expect(input.style.width).toContain('6ch');
+    expect(input.value).toBe('3.5');
+  });
+
+  it('丸めた上限を表示しても編集していないフォーカス解除で実際の値を変更しない', () => {
+    const rawMax = 179.04000000000002;
+    const { onChange } = renderField({ value: rawMax, max: rawMax });
+    const input = getNumberInput();
+    expect(input.value).toBe('179.04');
+
+    fireEvent.focus(input);
+    fireEvent.blur(input);
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it('空欄のまま確定しても値を変更しない', () => {

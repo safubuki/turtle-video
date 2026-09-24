@@ -15,8 +15,8 @@ import type {
   CaptionFontStyle,
   CaptionTextAlign,
 } from '../../types';
-import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import NumericSliderField from '../common/NumericSliderField';
+import PresetFadeDurationField from '../common/PresetFadeDurationField';
 import CaptionColorField from '../common/CaptionColorField';
 import CaptionFontSizeField from '../common/CaptionFontSizeField';
 import CaptionFontStyleField from '../common/CaptionFontStyleField';
@@ -127,6 +127,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
     ? clampCustomFontSize(settings.fontSizeCustom)
     : CAPTION_FONT_SIZE_PRESETS[settings.fontSize] ?? CAPTION_FONT_SIZE_PRESETS.medium;
   const [showOutlineColorSettings, setShowOutlineColorSettings] = useState(false);
+  const [showBackgroundSettings, setShowBackgroundSettings] = useState(false);
   const effectiveGlyphStyle = resolveCaptionGlyphStyle(caption, settings);
   const effectiveBackgroundStyle = resolveCaptionBackgroundStyle(caption, settings);
   const hasOutlineColorOverride = caption.overrideStrokeWidth != null
@@ -258,16 +259,14 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
   };
 
   const handleFadeInDurationChange = (value: number) => {
-    const steps = [0.5, 1.0, 2.0];
     onUpdate(caption.id, {
-      overrideFadeInDuration: steps[value],
+      overrideFadeInDuration: value,
     });
   };
 
   const handleFadeOutDurationChange = (value: number) => {
-    const steps = [0.5, 1.0, 2.0];
     onUpdate(caption.id, {
-      overrideFadeOutDuration: steps[value],
+      overrideFadeOutDuration: value,
     });
   };
 
@@ -490,20 +489,17 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
               <span className="text-gray-400 w-16 shrink-0">ぼかし:</span>
               <NumericSliderField
                 min={0}
-                max={50}
-                step={1}
-                value={effectiveGlyphStyle.blur * 10}
+                max={5}
+                step={0.1}
+                value={effectiveGlyphStyle.blur}
                 onChange={(value) => onUpdate(caption.id, {
-                  overrideBlur: clampCaptionBlur(value / 10),
+                  overrideBlur: clampCaptionBlur(value),
                 })}
                 ariaLabel="個別キャプションのぼかし"
-                hideInput
+                unit="px"
                 className="flex-1 min-w-0"
                 sliderClassName="flex-1 min-w-0 cursor-pointer accent-yellow-500 h-1 bg-gray-600 rounded appearance-none"
               />
-              <span className="w-8 text-right whitespace-nowrap text-gray-400 shrink-0">
-                {effectiveGlyphStyle.blur.toFixed(1)}
-              </span>
             </div>
             {caption.overrideBlur != null && (
               <button
@@ -519,7 +515,14 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
 
             {/* 背景の帯: 一括設定と同じチェック + 詳細（未設定項目は一括を継承） */}
             {uiCapabilities.supportsCaptionBackground && (
-              <div className="space-y-2 pt-2 border-t border-gray-700/50">
+              <div className="rounded-lg border border-gray-700/70 bg-gray-900/30">
+              <SettingsAccordionHeader
+                title="キャプション背景の帯"
+                isOpen={showBackgroundSettings}
+                controlsId={`caption-individual-background-${caption.id}`}
+                onToggle={() => setShowBackgroundSettings((open) => !open)}
+              />
+              {showBackgroundSettings && <div id={`caption-individual-background-${caption.id}`} className="space-y-2 border-t border-gray-700/60 px-2 pb-2 pt-2">
               <label className="flex cursor-pointer items-center gap-1.5 text-[10px] text-gray-300 md:text-xs">
                 <input
                   type="checkbox"
@@ -529,7 +532,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                   }
                   className="accent-yellow-500 rounded cursor-pointer"
                 />
-                <span className="font-semibold">キャプション背景の帯</span>
+                <span className="font-semibold">帯を表示する</span>
               </label>
               {effectiveBackgroundStyle.backgroundEnabled && (
                 <div className="space-y-2">
@@ -612,6 +615,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                   背景の帯を一括設定に戻す
                 </button>
               )}
+              </div>}
               </div>
             )}
           </div>
@@ -630,16 +634,13 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                 />
                 <span className="whitespace-nowrap">フェードイン</span>
               </label>
-              <SwipeProtectedSlider
-                min={0}
-                max={2}
-                step={1}
-                value={currentFadeInDuration === 0.5 ? 0 : currentFadeInDuration === 1.0 ? 1 : 2}
+              <PresetFadeDurationField
+                value={currentFadeInDuration}
                 onChange={handleFadeInDurationChange}
                 disabled={currentFadeIn !== 'on'}
-                className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${currentFadeIn === 'on' ? 'cursor-pointer' : ''}`}
+                ariaLabel="個別キャプションのフェードイン時間"
+                accentClassName="accent-yellow-500"
               />
-              <span className={`w-8 text-right whitespace-nowrap ${currentFadeIn !== 'on' ? 'text-gray-600' : 'text-gray-400'}`}>{currentFadeInDuration}秒</span>
             </div>
             {/* フェードアウト */}
             <div className="flex items-center gap-2 text-[10px] md:text-xs">
@@ -652,16 +653,13 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
                 />
                 <span className="whitespace-nowrap">フェードアウト</span>
               </label>
-              <SwipeProtectedSlider
-                min={0}
-                max={2}
-                step={1}
-                value={currentFadeOutDuration === 0.5 ? 0 : currentFadeOutDuration === 1.0 ? 1 : 2}
+              <PresetFadeDurationField
+                value={currentFadeOutDuration}
                 onChange={handleFadeOutDurationChange}
                 disabled={currentFadeOut !== 'on'}
-                className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${currentFadeOut === 'on' ? 'cursor-pointer' : ''}`}
+                ariaLabel="個別キャプションのフェードアウト時間"
+                accentClassName="accent-yellow-500"
               />
-              <span className={`w-8 text-right whitespace-nowrap ${currentFadeOut !== 'on' ? 'text-gray-600' : 'text-gray-400'}`}>{currentFadeOutDuration}秒</span>
             </div>
             {/* デフォルトに戻すボタン */}
             {(currentFadeIn !== 'default' || currentFadeOut !== 'default') && (

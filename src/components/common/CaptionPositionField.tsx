@@ -169,7 +169,7 @@ const CaptionPositionField = React.memo<CaptionPositionFieldProps>(({
       </div>
       {/* カスタム位置入力（キャンバスに対する % / テキスト中心） */}
       {supportsCustom && isCustom && (
-        <div className={`space-y-1.5 ${compact ? 'pl-10 md:pl-16' : 'pl-16'}`}>
+        <div className={`space-y-1.5 ${compact ? 'pl-12 md:pl-[4.5rem]' : 'pl-[4.5rem]'}`}>
           {(['x', 'y'] as const).map((axis) => (
             <NumericSliderField
               key={axis}

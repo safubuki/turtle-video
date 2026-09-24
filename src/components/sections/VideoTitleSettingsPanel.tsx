@@ -50,6 +50,7 @@ import {
   clampVideoTitleBackgroundRadius,
   clampVideoTitleBlur,
   clampVideoTitleStrokeWidth,
+  resolveVideoTitlePresetAsCustomPercent,
 } from '../../utils/videoTitle';
 
 /** 位置カスタムを開始するときの既定 XY（%）。中央 */
@@ -385,7 +386,7 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                       <button
                         onClick={() => {
                           if (!isCustomPosition) {
-                            onUpdate({ positionCustom: { ...TITLE_POSITION_CUSTOM_DEFAULT } });
+                            onUpdate({ positionCustom: resolveVideoTitlePresetAsCustomPercent(title, canvasWidth, canvasHeight) });
                           }
                         }}
                         disabled={isLocked}
@@ -402,7 +403,7 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                   </div>
                 </div>
                 {supportsExtendedFonts && isCustomPosition && (
-                  <div className="space-y-1.5 pl-16">
+                  <div className="space-y-1.5 pl-[4.5rem]">
                     {(['x', 'y'] as const).map((axis) => (
                       <NumericSliderField
                         key={axis}
@@ -477,22 +478,17 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                 <div className="flex items-center gap-2 text-[10px] md:text-xs">
                   <span className="text-gray-400 w-16 shrink-0">ぼかし:</span>
                   <NumericSliderField
-                    min={CAPTION_BLUR_MIN * 10}
-                    max={CAPTION_BLUR_MAX * 10}
-                    step={1}
-                    value={clampVideoTitleBlur(title.blur) * 10}
-                    onChange={(val) => onUpdate({ blur: clampVideoTitleBlur(val / 10) })}
+                    min={CAPTION_BLUR_MIN}
+                    max={CAPTION_BLUR_MAX}
+                    step={0.1}
+                    value={clampVideoTitleBlur(title.blur)}
+                    onChange={(val) => onUpdate({ blur: clampVideoTitleBlur(val) })}
                     disabled={isLocked}
                     ariaLabel="タイトルのぼかし"
-                    hideInput
+                    unit="px"
                     className="min-w-0 flex-1"
                     sliderClassName={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isLocked ? '' : 'cursor-pointer'}`}
                   />
-                  <span
-                    className={`w-8 text-right whitespace-nowrap shrink-0 ${isLocked ? 'text-gray-600' : 'text-gray-400'}`}
-                  >
-                    {clampVideoTitleBlur(title.blur).toFixed(1)}
-                  </span>
                 </div>
               </div>
             )}
@@ -577,20 +573,17 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                 <div className="flex items-center gap-2 text-[10px] md:text-xs">
                   <span className="text-gray-400 w-16 shrink-0">ぼかし:</span>
                   <NumericSliderField
-                    min={CAPTION_BLUR_MIN * 10}
-                    max={CAPTION_BLUR_MAX * 10}
-                    step={1}
-                    value={clampVideoTitleBlur(subtitle.blur) * 10}
-                    onChange={(val) => updateSubtitle({ blur: clampVideoTitleBlur(val / 10) })}
+                    min={CAPTION_BLUR_MIN}
+                    max={CAPTION_BLUR_MAX}
+                    step={0.1}
+                    value={clampVideoTitleBlur(subtitle.blur)}
+                    onChange={(val) => updateSubtitle({ blur: clampVideoTitleBlur(val) })}
                     disabled={isLocked}
                     ariaLabel="サブタイトルのぼかし"
-                    hideInput
+                    unit="px"
                     className="min-w-0 flex-1"
                     sliderClassName={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked ? '' : 'cursor-pointer'}`}
                   />
-                  <span className={`w-8 text-right whitespace-nowrap shrink-0 ${isLocked ? 'text-gray-600' : 'text-gray-400'}`}>
-                    {clampVideoTitleBlur(subtitle.blur).toFixed(1)}
-                  </span>
                 </div>
               </div>
             )}
@@ -700,15 +693,10 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                   onChange={(value) => onUpdate({ fadeInDuration: value })}
                   disabled={isLocked || !title.fadeIn}
                   ariaLabel="タイトルのフェードイン時間"
-                  hideInput
+                  unit="秒"
                   className="min-w-0 flex-1"
                   sliderClassName={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:bg-gray-800 ${isLocked || !title.fadeIn ? '' : 'cursor-pointer'}`}
                 />
-                <span
-                  className={`w-10 text-right whitespace-nowrap shrink-0 ${isLocked || !title.fadeIn ? 'text-gray-600' : 'text-gray-400'}`}
-                >
-                  {title.fadeInDuration.toFixed(1)}秒
-                </span>
               </div>
               <div className="flex items-center gap-2">
                 <label
@@ -731,15 +719,10 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
                   onChange={(value) => onUpdate({ fadeOutDuration: value })}
                   disabled={isLocked || !title.fadeOut}
                   ariaLabel="タイトルのフェードアウト時間"
-                  hideInput
+                  unit="秒"
                   className="min-w-0 flex-1"
                   sliderClassName={`min-w-0 flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:bg-gray-800 ${isLocked || !title.fadeOut ? '' : 'cursor-pointer'}`}
                 />
-                <span
-                  className={`w-10 text-right whitespace-nowrap shrink-0 ${isLocked || !title.fadeOut ? 'text-gray-600' : 'text-gray-400'}`}
-                >
-                  {title.fadeOutDuration.toFixed(1)}秒
-                </span>
               </div>
             </div>
           </div>

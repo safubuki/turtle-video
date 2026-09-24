@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_VIDEO_TITLE_SETTINGS,
+  DEFAULT_VIDEO_SUBTITLE_STYLE,
   VIDEO_TITLE_MIN_DURATION_SEC,
   clampVideoTitleBackgroundOpacity,
   clampVideoTitleBackgroundRadius,
@@ -20,6 +21,7 @@ import {
   resolveVideoTitleBaseFontSize,
   resolveVideoTitleAnchor,
   resolveVideoTitleLines,
+  resolveVideoTitlePresetAsCustomPercent,
 } from '../utils/videoTitle';
 import {
   CAPTION_FONT_SIZE_PRESETS,
@@ -76,6 +78,21 @@ describe('動画タイトルの既定値（Issue #211）', () => {
     expect(resolveVideoTitleAlpha(title, 0)).toBe(1);
     // 終了 1 秒前からフェードアウトが始まる
     expect(resolveVideoTitleAlpha(title, 3.5)).toBeCloseTo(0.5, 5);
+  });
+});
+
+describe('タイトルのプリセットからカスタム位置へ切り替え', () => {
+  it('上部と下部の表示位置を保って微調整を始められる', () => {
+    for (const position of ['top', 'bottom'] as const) {
+      const title = baseTitle({
+        position,
+        subtitle: { ...DEFAULT_VIDEO_SUBTITLE_STYLE, text: 'サブタイトル' },
+      });
+      const custom = resolveVideoTitlePresetAsCustomPercent(title, 1920, 1080);
+      expect(custom.x).toBe(50);
+      expect(position === 'top' ? custom.y < 50 : custom.y > 50).toBe(true);
+      expect(custom.y).not.toBe(50);
+    }
   });
 });
 

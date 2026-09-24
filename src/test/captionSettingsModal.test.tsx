@@ -161,7 +161,8 @@ describe('CaptionSettingsModal clear', () => {
     );
 
     expect(screen.queryByLabelText('個別キャプション背景の濃さ')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('checkbox', { name: 'キャプション背景の帯' }));
+    fireEvent.click(screen.getByRole('button', { name: 'キャプション背景の帯' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '帯を表示する' }));
     expect(onUpdate).toHaveBeenCalledWith('caption-1', { overrideBackgroundEnabled: true });
 
     const enabledCaption: Caption = { ...caption, overrideBackgroundEnabled: true };
@@ -204,7 +205,7 @@ describe('CaptionSettingsModal clear', () => {
     render(<CaptionSettingsModal caption={caption} settings={settings} onUpdate={onUpdate} onClose={vi.fn()} />);
 
     fireEvent.change(screen.getByLabelText('個別キャプションのぼかし'), {
-      target: { value: '30' },
+      target: { value: '3' },
     });
     fireEvent.click(screen.getByRole('button', { name: '文字の縁・色' }));
     fireEvent.click(screen.getByRole('button', { name: '文字の縁・色を一括設定に戻す' }));

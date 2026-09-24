@@ -11,6 +11,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { createRef } from 'react';
 import CaptionMiniPreview from '../components/common/CaptionMiniPreview';
 import { captureCaptionFreeSnapshot, createCaptionFreeSnapshot } from '../utils/canvas';
+import { useCanvasStore } from '../stores/canvasStore';
 import type { Caption, CaptionSettings } from '../types';
 
 const settings: CaptionSettings = {
@@ -95,6 +96,9 @@ describe('CaptionMiniPreview', () => {
       />,
     );
     expect(screen.getByRole('img', { name: 'キャプションのミニプレビュー' })).toBeTruthy();
+    const canvas = screen.getByRole('img', { name: 'キャプションのミニプレビュー' }) as HTMLCanvasElement;
+    expect(canvas.width).toBe(useCanvasStore.getState().width);
+    expect(canvas.height).toBe(useCanvasStore.getState().height);
   });
 
   it('メインプレビューの canvas を背景として転写する', () => {

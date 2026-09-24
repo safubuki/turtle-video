@@ -45,6 +45,7 @@ import {
 } from '../../utils/centerOriginPosition';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import NumericStepperInput from '../common/NumericStepperInput';
+import PresetFadeDurationField from '../common/PresetFadeDurationField';
 import CaptionColorField from '../common/CaptionColorField';
 import LogoMiniPreview from '../common/LogoMiniPreview';
 import type { CaptionFreeSnapshot } from '../../utils/canvas';
@@ -749,30 +750,13 @@ const OverlaySection = React.memo<OverlaySectionProps>(({
                       />
                       <span className="whitespace-nowrap">フェードイン</span>
                     </label>
-                    <SwipeProtectedSlider
-                      min={0}
-                      max={2}
-                      step={1}
-                      value={
-                        active.fadeInDuration === 0.5
-                          ? 0
-                          : active.fadeInDuration === 1.0
-                            ? 1
-                            : 2
-                      }
-                      onChange={(val) => {
-                        const steps = [0.5, 1.0, 2.0];
-                        updateActive({ fadeInDuration: steps[val] });
-                      }}
+                    <PresetFadeDurationField
+                      value={active.fadeInDuration}
+                      onChange={(value) => updateActive({ fadeInDuration: value })}
                       disabled={!active.fadeIn}
                       ariaLabel={`${activeLabel}のフェードイン時間`}
-                      className={`h-1 flex-1 appearance-none rounded bg-gray-600 accent-blue-500 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 disabled:opacity-50 ${active.fadeIn ? 'cursor-pointer' : ''}`}
+                      accentClassName="accent-blue-500"
                     />
-                    <span
-                      className={`w-8 whitespace-nowrap text-right ${active.fadeIn ? 'text-gray-400' : 'text-gray-600'}`}
-                    >
-                      {active.fadeInDuration}秒
-                    </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <label className="flex w-24 cursor-pointer items-center justify-start gap-1">
@@ -784,30 +768,13 @@ const OverlaySection = React.memo<OverlaySectionProps>(({
                       />
                       <span className="whitespace-nowrap">フェードアウト</span>
                     </label>
-                    <SwipeProtectedSlider
-                      min={0}
-                      max={2}
-                      step={1}
-                      value={
-                        active.fadeOutDuration === 0.5
-                          ? 0
-                          : active.fadeOutDuration === 1.0
-                            ? 1
-                            : 2
-                      }
-                      onChange={(val) => {
-                        const steps = [0.5, 1.0, 2.0];
-                        updateActive({ fadeOutDuration: steps[val] });
-                      }}
+                    <PresetFadeDurationField
+                      value={active.fadeOutDuration}
+                      onChange={(value) => updateActive({ fadeOutDuration: value })}
                       disabled={!active.fadeOut}
                       ariaLabel={`${activeLabel}のフェードアウト時間`}
-                      className={`h-1 flex-1 appearance-none rounded bg-gray-600 accent-blue-500 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 disabled:opacity-50 ${active.fadeOut ? 'cursor-pointer' : ''}`}
+                      accentClassName="accent-blue-500"
                     />
-                    <span
-                      className={`w-8 whitespace-nowrap text-right ${active.fadeOut ? 'text-gray-400' : 'text-gray-600'}`}
-                    >
-                      {active.fadeOutDuration}秒
-                    </span>
                   </div>
                 </div>
                 <p className="text-[9px] leading-relaxed text-gray-500">

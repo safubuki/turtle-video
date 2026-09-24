@@ -27,7 +27,7 @@ import {
   useAudioStore,
 } from '../../stores/audioStore';
 import { formatNormalizeAdjustment } from '../../utils';
-import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
+import PresetFadeDurationField from '../common/PresetFadeDurationField';
 import NumericSliderField from '../common/NumericSliderField';
 import {
   TIME_SLIDER_STEP_SEC,
@@ -314,56 +314,71 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
             </div>
 
             {/* 開始位置 */}
-            <div className="space-y-1">
+            <div className="space-y-1 px-2">
               <div className="flex items-center justify-between text-[10px] md:text-xs text-gray-400">
                 <span>開始位置: {formatTime(clip.startTime)}</span>
                 <span>長さ: {formatTime(playableDuration)}</span>
               </div>
-              <NumericSliderField
-                ariaLabel="BGMの開始位置"
-                min={0}
-                max={Math.max(0, totalDuration)}
-                step={0.1}
-                value={clip.startTime}
-                onChange={withContinuousEdit('update-bgm-clip-start', (val: number) => updateBgmClipStartTime(clip.id, val))}
-                disabled={isLocked}
-                unit="秒"
-                sliderClassName="flex-1 min-w-0 accent-purple-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
-                inputClassName="w-16 md:w-20 focus:border-purple-500"
-              />
+              <div className="flex items-center gap-2">
+                <NumericSliderField
+                  ariaLabel="BGMの開始位置"
+                  min={0}
+                  max={Math.max(0, totalDuration)}
+                  step={0.1}
+                  value={clip.startTime}
+                  onChange={withContinuousEdit('update-bgm-clip-start', (val: number) => updateBgmClipStartTime(clip.id, val))}
+                  disabled={isLocked}
+                  unit="秒"
+                  className="flex-1 min-w-0"
+                  sliderClassName="flex-1 min-w-0 accent-purple-500 h-1 bg-gray-700 rounded appearance-none disabled:opacity-50"
+                  inputClassName="w-16 md:w-20 focus:border-purple-500"
+                />
+                <button
+                  type="button"
+                  onClick={withEdit('reset-bgm-clip-start', () => updateBgmClipStartTime(clip.id, 0))}
+                  disabled={isLocked || clip.startTime === 0}
+                  className="shrink-0 p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition disabled:opacity-50"
+                  title="開始位置を0秒にリセット"
+                  aria-label="BGMの開始位置を0秒にリセット"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                </button>
+              </div>
             </div>
 
             {/* 音量 */}
-            <div className="bg-gray-800/50 p-2 rounded-lg flex items-center gap-2">
-              <button
-                onClick={withEdit('toggle-bgm-clip-mute', () => toggleBgmClipMute(clip.id))}
-                disabled={isLocked}
-                className={`p-1 rounded transition ${clip.isMuted ? 'bg-red-500/20 text-red-300' : 'text-gray-400 hover:text-white'} disabled:opacity-50`}
-                title={clip.isMuted ? 'ミュート解除' : 'ミュート'}
-              >
-                {clip.isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-              </button>
-              <NumericSliderField
-                ariaLabel="BGMの音量"
-                min={0}
-                max={2.5}
-                step={0.05}
-                value={clip.volume}
-                onChange={withContinuousEdit('update-bgm-clip-volume', (val: number) => updateBgmClipVolume(clip.id, val))}
-                disabled={isLocked || clip.isMuted || bulkVolumeEnabled}
-                hideInput
-                className="flex-1 min-w-0"
-                sliderClassName={`flex-1 min-w-0 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${(isLocked || clip.isMuted || bulkVolumeEnabled) ? '' : 'cursor-pointer'}`}
-              />
-              <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right shrink-0">{Math.round(clip.volume * 100)}%</span>
-              <button
-                onClick={withEdit('update-bgm-clip-volume', () => updateBgmClipVolume(clip.id, 1))}
-                disabled={isLocked || bulkVolumeEnabled}
-                className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition disabled:opacity-50"
-                title="リセット"
-              >
-                <RefreshCw className="w-3 h-3" />
-              </button>
+            <div className="space-y-1">
+              <div className="px-2 text-[10px] md:text-xs text-gray-400">音量</div>
+              <div className="bg-gray-800/50 p-2 rounded-lg flex items-center gap-2">
+                <button
+                  onClick={withEdit('toggle-bgm-clip-mute', () => toggleBgmClipMute(clip.id))}
+                  disabled={isLocked}
+                  className={`h-9 w-9 md:h-8 md:w-8 shrink-0 flex items-center justify-center rounded border transition ${clip.isMuted ? 'border-red-400/60 bg-red-500/20 text-red-300' : 'border-gray-500 bg-gray-700 text-gray-300 hover:bg-gray-600 hover:text-white'} disabled:opacity-50`}
+                  title={clip.isMuted ? 'ミュート解除' : 'ミュート'}
+                >
+                  {clip.isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                </button>
+                <NumericSliderField
+                  ariaLabel="BGMの音量"
+                  min={0}
+                  max={250}
+                  step={5}
+                  value={Math.round(clip.volume * 100)}
+                  onChange={withContinuousEdit('update-bgm-clip-volume', (val: number) => updateBgmClipVolume(clip.id, val / 100))}
+                  disabled={isLocked || clip.isMuted || bulkVolumeEnabled}
+                  unit="%"
+                  className="flex-1 min-w-0"
+                  sliderClassName={`flex-1 min-w-0 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${(isLocked || clip.isMuted || bulkVolumeEnabled) ? '' : 'cursor-pointer'}`}
+                />
+                <button
+                  onClick={withEdit('update-bgm-clip-volume', () => updateBgmClipVolume(clip.id, 1))}
+                  disabled={isLocked || bulkVolumeEnabled}
+                  className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition disabled:opacity-50"
+                  title="リセット"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                </button>
+              </div>
             </div>
             {bulkVolumeEnabled && (
               <p className="px-1 text-[10px] leading-relaxed text-blue-300/80 md:text-xs">一括音量設定中のため、ここでは変更できません。</p>
@@ -521,19 +536,13 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
                     />
                     <span className="whitespace-nowrap">フェードイン</span>
                   </label>
-                  <SwipeProtectedSlider
-                    min={0}
-                    max={2}
-                    step={1}
-                    value={fadeInDuration === 0.5 ? 0 : fadeInDuration === 1.0 ? 1 : 2}
-                    onChange={withContinuousEdit('update-bgm-clip-fade-in-duration', (val: number) => {
-                      const steps = [0.5, 1.0, 2.0];
-                      updateBgmClipFadeInDuration(clip.id, steps[val]);
-                    })}
+                  <PresetFadeDurationField
+                    value={fadeInDuration}
+                    onChange={withContinuousEdit('update-bgm-clip-fade-in-duration', (val: number) => updateBgmClipFadeInDuration(clip.id, val))}
                     disabled={isLocked || !fadeIn}
-                    className={`flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isLocked || !fadeIn ? '' : 'cursor-pointer'}`}
+                    ariaLabel="BGMのフェードイン時間"
+                    accentClassName="accent-purple-500"
                   />
-                  <span className={`w-8 text-right whitespace-nowrap ${isLocked || !fadeIn ? 'text-gray-600' : 'text-gray-400'}`}>{fadeInDuration}秒</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <label className={`flex items-center gap-1 w-24 justify-start ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}>
@@ -549,19 +558,13 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
                     />
                     <span className="whitespace-nowrap">フェードアウト</span>
                   </label>
-                  <SwipeProtectedSlider
-                    min={0}
-                    max={2}
-                    step={1}
-                    value={fadeOutDuration === 0.5 ? 0 : fadeOutDuration === 1.0 ? 1 : 2}
-                    onChange={withContinuousEdit('update-bgm-clip-fade-out-duration', (val: number) => {
-                      const steps = [0.5, 1.0, 2.0];
-                      updateBgmClipFadeOutDuration(clip.id, steps[val]);
-                    })}
+                  <PresetFadeDurationField
+                    value={fadeOutDuration}
+                    onChange={withContinuousEdit('update-bgm-clip-fade-out-duration', (val: number) => updateBgmClipFadeOutDuration(clip.id, val))}
                     disabled={isLocked || !fadeOut}
-                    className={`flex-1 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isLocked || !fadeOut ? '' : 'cursor-pointer'}`}
+                    ariaLabel="BGMのフェードアウト時間"
+                    accentClassName="accent-purple-500"
                   />
-                  <span className={`w-8 text-right whitespace-nowrap ${isLocked || !fadeOut ? 'text-gray-600' : 'text-gray-400'}`}>{fadeOutDuration}秒</span>
                 </div>
               </div>
             )}

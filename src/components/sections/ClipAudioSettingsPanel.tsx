@@ -200,13 +200,13 @@ const ClipAudioSettingsPanel: React.FC<ClipAudioSettingsPanelProps> = ({
             </div>
             <NumericSliderField
               ariaLabel="一括音量"
-              min={MEDIA_VOLUME_MIN}
-              max={MEDIA_VOLUME_MAX}
-              step={0.05}
-              value={bulkVolume}
+              min={MEDIA_VOLUME_MIN * 100}
+              max={MEDIA_VOLUME_MAX * 100}
+              step={5}
+              value={volumePercent}
               disabled={isLocked || !hasItems || !bulkEnabled}
-              onChange={onBulkVolumeChange}
-              hideInput
+              onChange={(value) => onBulkVolumeChange(value / 100)}
+              unit="%"
               sliderClassName={`flex-1 min-w-0 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked || !hasItems || !bulkEnabled ? '' : 'cursor-pointer'}`}
             />
             <p className={HELP_TEXT_CLASS}>{copy.volumeHint}</p>

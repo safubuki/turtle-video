@@ -209,7 +209,7 @@ describe('VideoTitleSettingsPanel', () => {
     openTitle();
     openStyle();
 
-    fireEvent.change(screen.getByLabelText('タイトルのぼかし'), { target: { value: '25' } });
+    fireEvent.change(screen.getByLabelText('タイトルのぼかし'), { target: { value: '2.5' } });
     expect(onUpdate).toHaveBeenCalledWith({ blur: 2.5 });
   });
 
@@ -342,6 +342,20 @@ describe('VideoTitleSettingsPanel', () => {
 
     expect(screen.getByLabelText('タイトルのX位置')).toBeInTheDocument();
     expect(screen.getByLabelText('タイトルのY位置')).toBeInTheDocument();
+  });
+
+  it('上部を選んでからカスタムにすると上部の位置を引き継ぐ', () => {
+    const onUpdate = vi.fn();
+    const title = { ...DEFAULT_VIDEO_TITLE_SETTINGS, text: 'タイトル', position: 'top' as const };
+    render(<VideoTitleSettingsPanel {...buildPanelProps({ title, onUpdate })} />);
+    openTitle();
+    openStyle();
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'カスタム' })[1]);
+    const update = onUpdate.mock.calls[onUpdate.mock.calls.length - 1]?.[0];
+    expect(update.positionCustom.x).toBe(50);
+    expect(update.positionCustom.y).toBeGreaterThan(0);
+    expect(update.positionCustom.y).toBeLessThan(50);
   });
 
   it('背景の帯は OFF のとき濃さ・角丸を出さず、ON で出す', () => {

@@ -197,7 +197,7 @@ const CaptionFontStyleField = React.memo<CaptionFontStyleFieldProps>(({
       </div>
       {/* PC: 端末の全フォント読み込み（Local Font Access API 対応環境のみ） */}
       {canLoadLocalFonts && localFontFamilies.length === 0 && (
-        <div className={compact ? 'pl-10 md:pl-16' : 'pl-16'}>
+        <div className={compact ? 'pl-12 md:pl-[4.5rem]' : 'pl-[4.5rem]'}>
           <button
             onClick={onLoadLocalFonts}
             disabled={disabled || localFontsLoading}

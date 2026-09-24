@@ -152,6 +152,23 @@ const NumericStepperInput = React.memo<NumericStepperInputProps>(({
   const displayValue = clampValue(value, min, max, resolvedDecimals);
   const generatedId = useId();
   const inputId = inputIdProp ?? generatedId;
+  // 現在値から幅を決めると 0 → 1.8 のような入力中に欄とスライダーが揺れる。
+  // 時刻フォーマッターは開始と終了で step が違っても同じ 1/100 秒幅にする。
+  // 生の min/max に残る浮動小数の計算誤差は表示桁数に数えない。
+  const displayDecimals = Math.max(resolvedDecimals, formatDisplayValue ? 2 : 0);
+  const boundaryPrecision = Math.max(2, resolvedDecimals);
+  const displayNumber = (number: number) => Number(number.toFixed(boundaryPrecision));
+  const integerDigits = Math.max(String(Math.trunc(min)).length, String(Math.trunc(max)).length);
+  const rangeLength = integerDigits + (displayDecimals > 0 ? displayDecimals + 1 : 0);
+  const boundaryLength = Math.max(
+    rangeLength,
+    String(displayNumber(min)).length,
+    String(displayNumber(max)).length,
+    formatDisplayValue?.(min).length ?? 0,
+    formatDisplayValue?.(max).length ?? 0,
+  );
+  // 数字の左右余白だけを足す。number input はデスクトップの共通 CSS で余白が広がる。
+  const inputWidth = `calc(${boundaryLength}ch + ${formatDisplayValue ? '0.75rem' : '1.25rem'})`;
 
   // 入力中の生文字列。null = 非編集中（value をそのまま表示する）
   const [draft, setDraft] = useState<string | null>(null);
@@ -207,14 +224,15 @@ const NumericStepperInput = React.memo<NumericStepperInputProps>(({
           min={formatDisplayValue ? undefined : min}
           max={formatDisplayValue ? undefined : max}
           step={formatDisplayValue ? undefined : step}
-          value={draft ?? (formatDisplayValue ? formatDisplayValue(displayValue) : displayValue)}
+          value={draft ?? (formatDisplayValue ? formatDisplayValue(displayValue) : displayNumber(displayValue))}
           onChange={(e) => setDraft(e.target.value)}
           onFocus={(e) => e.currentTarget.select()}
-          onBlur={(e) => commitDraft(e.target.value)}
+          onBlur={(e) => { if (draft !== null) commitDraft(e.target.value); }}
           onKeyDown={handleKeyDown}
           disabled={disabled}
           aria-label={ariaLabel ? `${ariaLabel}（数値）` : undefined}
-          className={`${inputClassName} shrink-0 bg-gray-700 border border-gray-600 rounded px-1 py-0.5 text-[10px] md:text-xs text-right focus:outline-none disabled:opacity-50`}
+          style={{ width: inputWidth }}
+          className={`${inputClassName} h-9 md:h-8 shrink-0 bg-gray-700 border border-gray-600 rounded px-1 text-[10px] md:text-xs text-right focus:outline-none disabled:opacity-50`}
         />
         {unit && <span className="text-[10px] md:text-xs text-gray-500 shrink-0 whitespace-nowrap">{unit}</span>}
       </div>

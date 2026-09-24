@@ -70,6 +70,28 @@ describe('BgmClipList timeline adjustment', () => {
     expect(title).toHaveClass('flex-1');
   });
 
+  it('音量見出しを表示し、開始位置をリセットすると0秒に戻す', () => {
+    const onBeforeEdit = vi.fn();
+    const props = {
+      clips: useAudioStore.getState().bgmClips,
+      totalDuration: 60,
+      currentTime: 10,
+      formatTime: (seconds: number) => `${seconds.toFixed(1)}s`,
+      onBeforeEdit,
+      onBeforeContinuousEdit: vi.fn(),
+    };
+    const { rerender } = render(<BgmClipList {...props} isLocked={false} />);
+
+    expect(screen.getByText('音量')).toBeInTheDocument();
+    const reset = screen.getByRole('button', { name: 'BGMの開始位置を0秒にリセット' });
+    fireEvent.click(reset);
+    expect(onBeforeEdit).toHaveBeenCalledWith('reset-bgm-clip-start');
+    expect(useAudioStore.getState().bgmClips[0].startTime).toBe(0);
+
+    rerender(<BgmClipList {...props} clips={[{ ...clip, startTime: 20 }]} isLocked />);
+    expect(screen.getByRole('button', { name: 'BGMの開始位置を0秒にリセット' })).toBeDisabled();
+  });
+
   it('fits the selected clip settings to the video end from the UI', () => {
     const onBeforeEdit = vi.fn();
     render(
@@ -286,14 +308,14 @@ describe('BgmClipList continuous sliders keep the preview playing', () => {
   it('does not pause the preview while dragging the volume slider', () => {
     const { onBeforeEdit, onBeforeContinuousEdit } = renderList();
 
-    // 音量スライダー（0〜2.5 / step 0.05）を特定してドラッグを再現する
+    // 音量スライダー（0〜250% / step 5%）を特定してドラッグを再現する
     const volumeSlider = screen
       .getAllByRole('slider')
-      .find((el) => (el as HTMLInputElement).max === '2.5') as HTMLInputElement;
+      .find((el) => (el as HTMLInputElement).max === '250') as HTMLInputElement;
     expect(volumeSlider).toBeTruthy();
 
     // 100% を跨ぐアグレッシブな変更を再現（clip.volume の初期値 1 とは異なる値を並べる）
-    const dragValues = ['1.95', '0.6', '2.5'];
+    const dragValues = ['195', '60', '250'];
     for (const value of dragValues) {
       fireEvent.change(volumeSlider, { target: { value } });
     }

@@ -259,6 +259,34 @@ export function resolveVideoTitleAnchor(
   return { x, y: canvasHeight / 2 };
 }
 
+/** プリセットからカスタムへ切り替える際、描画中のタイトル中心を引き継ぐ。 */
+export function resolveVideoTitlePresetAsCustomPercent(
+  title: VideoTitleSettings,
+  canvasWidth: number,
+  canvasHeight: number,
+): { x: number; y: number } {
+  if (canvasWidth <= 0 || canvasHeight <= 0) return { x: 50, y: 50 };
+  const scale = resolveCaptionLayoutScale(canvasWidth, canvasHeight);
+  const mainLines = resolveVideoTitleLines(title.text);
+  const subLines = resolveVideoTitleLines(title.subtitle?.text ?? '');
+  const mainFont = Math.max(1, resolveVideoTitleBaseFontSize(title) * scale);
+  const subFont = Math.max(1, resolveVideoTitleBaseFontSize(resolveVideoSubtitleStyle(title)) * scale);
+  const mainBlock = mainFont * VIDEO_TITLE_LINE_HEIGHT_RATIO * mainLines.length;
+  const subBlock = subFont * VIDEO_TITLE_LINE_HEIGHT_RATIO * subLines.length;
+  const gap = mainLines.length > 0 && subLines.length > 0
+    ? Math.max(mainFont, subFont) * 0.16
+    : 0;
+  const blockHeight = mainBlock + gap + subBlock || mainFont * VIDEO_TITLE_LINE_HEIGHT_RATIO;
+  const anchor = resolveVideoTitleAnchor(
+    { position: title.position, positionCustom: null },
+    { canvasWidth, canvasHeight, blockHeight, padding: VIDEO_TITLE_PADDING * scale },
+  );
+  return {
+    x: clampPositionPercent((anchor.x / canvasWidth) * 100),
+    y: clampPositionPercent((anchor.y / canvasHeight) * 100),
+  };
+}
+
 /**
  * フェードを考慮した不透明度（0〜1）を解決する。
  * フェードイン + アウトが表示時間を超える場合は按分してクランプする

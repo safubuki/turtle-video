@@ -2,6 +2,7 @@ import type { ComponentProps } from 'react';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import CaptionSection from '../components/sections/CaptionSection';
+import CaptionFontSizeField from '../components/common/CaptionFontSizeField';
 import { PlatformCapabilitiesProvider } from '../app/PlatformCapabilitiesContext';
 import type { Caption } from '../types';
 import { getPlatformCapabilities } from '../utils/platform';
@@ -105,7 +106,42 @@ function renderCaptionSection(
   return props;
 }
 
+describe('CaptionFontSizeField layout', () => {
+  it.each([false, true])('カスタム欄とプリセットボタンの左端を同じラベル列で揃える (compact=%s)', (compact) => {
+    render(
+      <CaptionFontSizeField
+        fontSize="medium"
+        fontSizeCustom={80}
+        supportsCustom
+        compact={compact}
+        ariaLabelPrefix="キャプション"
+        idPrefix="alignment-check"
+        onSetFontSize={vi.fn()}
+        onSetFontSizeCustom={vi.fn()}
+      />,
+    );
+
+    const label = screen.getByText('サイズ:');
+    const customInput = screen.getByLabelText('キャプションのカスタム文字サイズ（数値）');
+    const customRow = customInput.closest('[data-numeric-stepper]')?.parentElement?.parentElement;
+    expect(customRow).toHaveClass('gap-2');
+    expect(customRow?.firstElementChild).toHaveClass('shrink-0');
+    expect(customRow?.firstElementChild?.className).toContain(compact ? 'w-10 md:w-16' : 'w-16');
+    expect(label.className).toContain(compact ? 'w-10 md:w-16' : 'w-16');
+  });
+});
+
 describe('CaptionSection bulk delete', () => {
+  it('キャプション一括設定を入力ツールと同じ外枠の先頭に置く', () => {
+    renderCaptionSection({}, false);
+    const group = screen.getByTestId('caption-tools-group');
+    expect(group).toHaveClass('border');
+    const settingsButton = within(group).getByRole('button', { name: 'キャプション 一括設定' });
+    const inputButton = within(group).getByRole('button', { name: /① まとめて入力/ });
+    expect(settingsButton.compareDocumentPosition(inputButton) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+  });
+
   it('apple-safari ではタイトル・一括削除・新しい文字装飾を表示しない', () => {
     renderCaptionSection({}, false, true);
 
@@ -324,6 +360,8 @@ describe('CaptionSection bulk mini preview sizing', () => {
 });
 
 describe('CaptionSection bulk timing alignment', () => {
+  const openShiftSettings = () =>
+    fireEvent.click(screen.getByRole('button', { name: 'キャプションカードをまとめて移動' }));
   const createCaption = (
     id: string,
     text: string,
@@ -347,6 +385,8 @@ describe('CaptionSection bulk timing alignment', () => {
 
   it('すべてのカードの先頭をプレビュー現在位置へ合わせる', () => {
     const props = renderCaptionSection({ captions, currentTime: 8.34 }, false);
+    expect(screen.getByRole('button', { name: 'キャプションカードをまとめて移動' })).toHaveAttribute('aria-expanded', 'false');
+    openShiftSettings();
 
     expect(screen.getByText('対象の先頭 0:02.0 → 0:08.3（+6.3秒）')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '現在位置に先頭を合わせる' }));
@@ -357,6 +397,7 @@ describe('CaptionSection bulk timing alignment', () => {
 
   it('選択カード以降では、そのカードを先頭として現在位置へ合わせる', () => {
     const props = renderCaptionSection({ captions, currentTime: 1.2 }, false);
+    openShiftSettings();
 
     fireEvent.change(screen.getByLabelText('ずらす対象のキャプションカード'), {
       target: { value: '1' },
@@ -370,6 +411,7 @@ describe('CaptionSection bulk timing alignment', () => {
 
   it('対象の先頭が現在位置に合っているときは操作を無効にする', () => {
     const props = renderCaptionSection({ captions, currentTime: 2 }, false);
+    openShiftSettings();
     const alignButton = screen.getByRole('button', {
       name: '現在位置に先頭を合わせる',
     });
@@ -384,6 +426,7 @@ describe('CaptionSection bulk timing alignment', () => {
 
   it('従来の秒数指定による早める・遅らせる操作も維持する', () => {
     const props = renderCaptionSection({ captions }, false);
+    openShiftSettings();
 
     expect(screen.getByText('秒数で微調整:')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '遅らせる' }));
@@ -396,7 +439,8 @@ describe('CaptionSection bulk timing alignment', () => {
     expect(screen.getByText('キャプション背景の帯')).toBeInTheDocument();
     expect(screen.queryByLabelText('キャプション背景の濃さ')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'キャプション背景の帯' }));
+    fireEvent.click(screen.getByRole('button', { name: 'キャプション背景の帯' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '帯を表示する' }));
     expect(offProps.onSetBackgroundEnabled).toHaveBeenCalledWith(true);
 
     // ON 状態だけを単独で描画
@@ -424,6 +468,7 @@ describe('CaptionSection bulk timing alignment', () => {
       },
       true,
     );
+    fireEvent.click(screen.getByRole('button', { name: 'キャプション背景の帯' }));
     expect(screen.getByLabelText('キャプション背景の濃さ')).toBeInTheDocument();
     expect(screen.getByLabelText('キャプション背景の角丸')).toBeInTheDocument();
   });
@@ -502,6 +547,7 @@ describe('CaptionSection bulk timing alignment', () => {
     it('エクスポート中は currentTime が進んでも表示を更新しない', () => {
       const props = buildProps({ currentTime: 3, isExporting: false });
       const { rerender } = render(<CaptionSection {...props} />);
+      openShiftSettings();
       expect(screen.getByText('対象の先頭 0:02.0 → 0:03.0（+1.0秒）')).toBeInTheDocument();
 
       // エクスポート開始（開始直前の値 3.0 を維持する）
@@ -515,6 +561,7 @@ describe('CaptionSection bulk timing alignment', () => {
 
     it('ボタン文言には現在位置の時刻を含めない（チラつき・幅の抑制）', () => {
       render(<CaptionSection {...buildProps({ currentTime: 3, isExporting: false })} />);
+      openShiftSettings();
       const alignButton = screen.getByRole('button', { name: '現在位置に先頭を合わせる' });
       expect(alignButton).toBeInTheDocument();
       expect(alignButton.textContent).not.toMatch(/\d:\d\d\.\d/);
@@ -524,6 +571,7 @@ describe('CaptionSection bulk timing alignment', () => {
       const { rerender } = render(
         <CaptionSection {...buildProps({ currentTime: 3, isExporting: false })} />
       );
+      openShiftSettings();
       rerender(<CaptionSection {...buildProps({ currentTime: 9.9, isExporting: true })} />);
 
       expect(screen.getByText('対象の先頭 0:02.0 → 0:03.0（+1.0秒）')).toBeInTheDocument();
@@ -533,6 +581,7 @@ describe('CaptionSection bulk timing alignment', () => {
       const { rerender } = render(
         <CaptionSection {...buildProps({ currentTime: 3, isExporting: false })} />
       );
+      openShiftSettings();
       rerender(<CaptionSection {...buildProps({ currentTime: 12.7, isExporting: true })} />);
       // 完了・中断・失敗のいずれでも isExporting が false へ戻る
       rerender(<CaptionSection {...buildProps({ currentTime: 12.7, isExporting: false })} />);
@@ -544,6 +593,7 @@ describe('CaptionSection bulk timing alignment', () => {
       const { rerender } = render(
         <CaptionSection {...buildProps({ currentTime: 3, isExporting: false })} />
       );
+      openShiftSettings();
       rerender(<CaptionSection {...buildProps({ currentTime: 6.5, isExporting: false })} />);
 
       expect(screen.getByText('対象の先頭 0:02.0 → 0:06.5（+4.5秒）')).toBeInTheDocument();
@@ -552,6 +602,7 @@ describe('CaptionSection bulk timing alignment', () => {
     it('エクスポート中でも一括時間移動の適用そのものは動作する', () => {
       const props = buildProps({ currentTime: 3, isExporting: false });
       const { rerender } = render(<CaptionSection {...props} />);
+      openShiftSettings();
       const exportingProps = buildProps({
         currentTime: 12.7,
         isExporting: true,

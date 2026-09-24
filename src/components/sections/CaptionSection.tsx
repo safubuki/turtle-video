@@ -46,8 +46,8 @@ import CaptionItem from '../media/CaptionItem';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import CaptionFontSizeField from '../common/CaptionFontSizeField';
 import CaptionFontStyleField from '../common/CaptionFontStyleField';
-import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import NumericSliderField from '../common/NumericSliderField';
+import PresetFadeDurationField from '../common/PresetFadeDurationField';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import { getAppFlavorUiCapabilities } from '../../app/appFlavorUi';
 import {
@@ -259,6 +259,8 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   const [isOpen, setIsOpen] = useState(true);
   const [showStyleSettings, setShowStyleSettings] = useState(false);
   const [showOutlineColorSettings, setShowOutlineColorSettings] = useState(false);
+  const [showBackgroundSettings, setShowBackgroundSettings] = useState(false);
+  const [showShiftSettings, setShowShiftSettings] = useState(false);
   const [newText, setNewText] = useState('');
   // 拡張機能（システムフォント/一括入力/タイミング打ち/カスタム値）は standard フレーバー（Android/PC）限定
   const { isIosSafari } = usePlatformCapabilities();
@@ -651,11 +653,17 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
           ? 'flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3 lg:p-4'
           : 'p-3 lg:p-4 space-y-3'}>
           <div className={fillColumn ? 'shrink-0 space-y-3' : 'space-y-3'}>
+          {/* 一括設定と入力ツールを同じ枠にまとめる */}
+          <div
+            className="space-y-2 border border-gray-700/60 rounded-xl p-2 bg-gray-900/40"
+            data-testid="caption-tools-group"
+          >
           {/* キャプション 一括設定 */}
           <div className="bg-gray-800/50 rounded-xl border border-gray-600/70">
             <SettingsAccordionHeader
               title="キャプション 一括設定"
               icon={<Type className="w-3 h-3 shrink-0" />}
+              highlighted
               isOpen={showStyleSettings}
               controlsId="caption-style-settings"
               onToggle={() => setShowStyleSettings((open) => !open)}
@@ -811,26 +819,28 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                     <span className="text-gray-400 w-16 shrink-0">ぼかし:</span>
                     <NumericSliderField
                       min={0}
-                      max={50}
-                      step={1}
-                      value={settings.blur * 10}
-                      onChange={(val) => onSetBlur(val / 10)}
+                      max={5}
+                      step={0.1}
+                      value={settings.blur}
+                      onChange={onSetBlur}
                       disabled={isLocked}
                       ariaLabel="キャプションのぼかし"
-                      hideInput
+                      unit="px"
                       className="flex-1 min-w-0"
                       sliderClassName={`flex-1 min-w-0 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isLocked ? '' : 'cursor-pointer'}`}
                     />
-                    <span
-                      className={`w-8 text-right whitespace-nowrap shrink-0 ${isLocked ? 'text-gray-600' : 'text-gray-400'}`}
-                    >
-                      {settings.blur.toFixed(1)}
-                    </span>
                   </div>
 
                   {/* キャプション背景の帯（タイトル背景帯と同じ操作感・既定 OFF） */}
                   {uiCapabilities.supportsCaptionBackground && (
-                    <div className="space-y-2 pt-2 border-t border-gray-700/50">
+                    <div className="rounded-lg border border-gray-700/70 bg-gray-900/30">
+                    <SettingsAccordionHeader
+                      title="キャプション背景の帯"
+                      isOpen={showBackgroundSettings}
+                      controlsId="caption-background-settings"
+                      onToggle={() => setShowBackgroundSettings((open) => !open)}
+                    />
+                    {showBackgroundSettings && <div id="caption-background-settings" className="space-y-2 border-t border-gray-700/60 px-2 pb-2 pt-2">
                     <label
                       className={`flex items-center gap-1.5 text-[10px] md:text-xs text-gray-300 ${isLocked ? 'opacity-50' : 'cursor-pointer'}`}
                     >
@@ -841,7 +851,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                         disabled={isLocked}
                         className="accent-yellow-500 rounded cursor-pointer disabled:opacity-50 disabled:cursor-default"
                       />
-                      <span className="font-semibold">キャプション背景の帯</span>
+                      <span className="font-semibold">帯を表示する</span>
                     </label>
                     {settings.backgroundEnabled && (
                       <div className="space-y-2">
@@ -901,6 +911,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                         </div>
                       </div>
                     )}
+                    </div>}
                     </div>
                   )}
                 </div>
@@ -926,29 +937,13 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                         />
                         <span className="whitespace-nowrap">フェードイン</span>
                       </label>
-                      <SwipeProtectedSlider
-                        min={0}
-                        max={2}
-                        step={1}
-                        value={
-                          settings.bulkFadeInDuration === 0.5
-                            ? 0
-                            : settings.bulkFadeInDuration === 1.0
-                              ? 1
-                              : 2
-                        }
-                        onChange={(val) => {
-                          const steps = [0.5, 1.0, 2.0];
-                          onSetBulkFadeInDuration(steps[val]);
-                        }}
+                      <PresetFadeDurationField
+                        value={settings.bulkFadeInDuration}
+                        onChange={onSetBulkFadeInDuration}
                         disabled={isLocked || !settings.bulkFadeIn}
-                        className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isLocked || !settings.bulkFadeIn ? '' : 'cursor-pointer'}`}
+                        ariaLabel="キャプションのフェードイン時間"
+                        accentClassName="accent-yellow-500"
                       />
-                      <span
-                        className={`w-8 text-right whitespace-nowrap ${isLocked || !settings.bulkFadeIn ? 'text-gray-600' : 'text-gray-400'}`}
-                      >
-                        {settings.bulkFadeInDuration}秒
-                      </span>
                     </div>
 
                     {/* フェードアウト */}
@@ -965,29 +960,13 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                         />
                         <span className="whitespace-nowrap">フェードアウト</span>
                       </label>
-                      <SwipeProtectedSlider
-                        min={0}
-                        max={2}
-                        step={1}
-                        value={
-                          settings.bulkFadeOutDuration === 0.5
-                            ? 0
-                            : settings.bulkFadeOutDuration === 1.0
-                              ? 1
-                              : 2
-                        }
-                        onChange={(val) => {
-                          const steps = [0.5, 1.0, 2.0];
-                          onSetBulkFadeOutDuration(steps[val]);
-                        }}
+                      <PresetFadeDurationField
+                        value={settings.bulkFadeOutDuration}
+                        onChange={onSetBulkFadeOutDuration}
                         disabled={isLocked || !settings.bulkFadeOut}
-                        className={`flex-1 accent-yellow-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isLocked || !settings.bulkFadeOut ? '' : 'cursor-pointer'}`}
+                        ariaLabel="キャプションのフェードアウト時間"
+                        accentClassName="accent-yellow-500"
                       />
-                      <span
-                        className={`w-8 text-right whitespace-nowrap ${isLocked || !settings.bulkFadeOut ? 'text-gray-600' : 'text-gray-400'}`}
-                      >
-                        {settings.bulkFadeOutDuration}秒
-                      </span>
                     </div>
                   </div>
                 </div>
@@ -995,8 +974,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
             )}
           </div>
 
-          {/* 入力ツール群（枠でグルーピング） */}
-          <div className="space-y-2 border border-gray-700/60 rounded-xl p-2 bg-gray-900/40">
+          {/* 入力ツール群 */}
             {/* STEP フロー: ①まとめて入力 → ②タイミング打ち（standard フレーバー限定） */}
             {supportsBulkInput && (
               <div className="flex gap-2">
@@ -1043,11 +1021,15 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
             {/* 一括シフト（standard のみ・キャプションがあるとき）: カード基準で時間を前後にずらす。
                 「カードをまとめて移動する」機能であることが分かるよう、見出し付きの枠で囲む */}
             {supportsBulkInput && captions.length > 0 && (
-              <div className="space-y-1.5 text-[10px] md:text-xs bg-gray-800/50 rounded-lg border border-gray-600/70 px-2 py-2">
-                <div className="flex items-center gap-1.5 border-b border-gray-700/60 pb-1.5 font-semibold text-yellow-400">
-                  <ArrowLeftRight className="h-3 w-3 shrink-0" aria-hidden="true" />
-                  <span>キャプションカードをまとめて移動</span>
-                </div>
+              <div className="text-[10px] md:text-xs bg-gray-800/50 rounded-lg border border-gray-600/70">
+                <SettingsAccordionHeader
+                  title="キャプションカードをまとめて移動"
+                  icon={<ArrowLeftRight className="h-3 w-3 shrink-0" aria-hidden="true" />}
+                  isOpen={showShiftSettings}
+                  controlsId="caption-shift-settings"
+                  onToggle={() => setShowShiftSettings((open) => !open)}
+                />
+                {showShiftSettings && <div id="caption-shift-settings" className="space-y-1.5 border-t border-gray-700/60 px-2 pb-2 pt-2">
                 <div className="flex items-center gap-1.5">
                   <span className="text-gray-400 shrink-0">対象:</span>
                   <select
@@ -1159,6 +1141,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                     <ChevronRight className="w-3.5 h-3.5 inline" />
                   </button>
                 </div>
+                </div>}
               </div>
             )}
 

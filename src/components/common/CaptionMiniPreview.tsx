@@ -59,9 +59,6 @@ interface CaptionMiniPreviewProps {
   refreshKey?: number;
 }
 
-/** ミニプレビューの内部解像度。長辺基準で、文字の可読性とコストのバランスを取る */
-const MINI_LONG_SIDE = 320;
-
 /** 縦向きミニプレビューの表示幅上限（PCでも一括設定欄を占有しすぎないため） */
 export const PORTRAIT_MINI_PREVIEW_MAX_WIDTH_CLASS = 'max-w-[clamp(12rem,24dvh,18rem)]';
 
@@ -77,13 +74,11 @@ const CaptionMiniPreview: React.FC<CaptionMiniPreviewProps> = ({
 }) => {
   const projectWidth = useCanvasStore((s) => s.width);
   const projectHeight = useCanvasStore((s) => s.height);
-  const isPortrait = projectHeight > projectWidth;
-
-  // 出力の向き（16:9 / 9:16）に合わせる。キャプションの位置・サイズは
-  // 短辺基準でスケールされるため、比率さえ合っていれば本番と同じ見え方になる。
-  const aspect = projectWidth > 0 && projectHeight > 0 ? projectWidth / projectHeight : 16 / 9;
-  const width = isPortrait ? Math.round(MINI_LONG_SIDE * aspect) : MINI_LONG_SIDE;
-  const height = isPortrait ? MINI_LONG_SIDE : Math.round(MINI_LONG_SIDE / aspect);
+  // 文字と背景帯はグリフのピクセル寸法から組み立てられる。小さい内部解像度で
+  // 再描画すると丸め・フォント計測が本番とずれるため、プレビューと同じ解像度で
+  // 描いて CSS だけで縮小表示する。
+  const width = projectWidth > 0 ? projectWidth : 1920;
+  const height = projectHeight > 0 ? projectHeight : 1080;
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
 

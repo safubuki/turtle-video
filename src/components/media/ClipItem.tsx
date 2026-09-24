@@ -42,7 +42,7 @@ import {
 import ClipThumbnail from '../common/ClipThumbnail';
 import ClipFileNameButton from './ClipFileNameButton';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
-import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
+import PresetFadeDurationField from '../common/PresetFadeDurationField';
 import NumericSliderField from '../common/NumericSliderField';
 import { useCanvasStore } from '../../stores/canvasStore';
 import {
@@ -643,7 +643,6 @@ const ClipItem: React.FC<ClipItemProps> = ({
               value={v.scale || 1.0}
               onChange={handleScale}
               disabled={isDisabled}
-              hideInput
               sliderClassName="flex-1 min-w-0 accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
             />
           </div>
@@ -671,7 +670,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
               value={displayPositionX}
               onChange={handlePositionX}
               disabled={isDisabled}
-              hideInput
+              unit="%"
               sliderClassName="flex-1 min-w-0 accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
             />
           </div>
@@ -699,7 +698,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
               value={displayPositionY}
               onChange={handlePositionY}
               disabled={isDisabled}
-              hideInput
+              unit="%"
               sliderClassName="flex-1 min-w-0 accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
             />
           </div>
@@ -758,7 +757,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
               onChange={handleBlur}
               disabled={isDisabled}
               ariaLabel="ぼかし強度"
-              hideInput
+              unit="px"
               sliderClassName="flex-1 min-w-0 accent-cyan-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
             />
             <div className="flex justify-between text-[9px] text-gray-600" aria-hidden="true">
@@ -792,7 +791,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
               <button
                 onClick={onToggleMute}
                 disabled={isDisabled}
-                className={`p-1 rounded transition ${v.isMuted ? 'bg-red-500/20 text-red-300' : 'text-gray-400 hover:text-white disabled:opacity-50'}`}
+                className={`h-9 w-9 md:h-8 md:w-8 shrink-0 flex items-center justify-center rounded border transition ${v.isMuted ? 'border-red-400/60 bg-red-500/20 text-red-300' : 'border-gray-500 bg-gray-700 text-gray-300 hover:bg-gray-600 hover:text-white disabled:opacity-50'}`}
                 title={v.isMuted ? "ミュート解除" : "ミュート"}
               >
                 {v.isMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
@@ -800,16 +799,15 @@ const ClipItem: React.FC<ClipItemProps> = ({
               <NumericSliderField
                 ariaLabel="音量"
                 min={0}
-                max={2.5}
-                step={0.05}
-                value={v.volume}
+                max={250}
+                step={5}
+                value={Math.round(v.volume * 100)}
                 disabled={v.isMuted || isDisabled || bulkVolumeEnabled}
-                onChange={handleVolume}
-                hideInput
+                onChange={(value) => handleVolume(value / 100)}
+                unit="%"
                 className="flex-1 min-w-0"
                 sliderClassName={`flex-1 min-w-0 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${v.isMuted || isDisabled || bulkVolumeEnabled ? '' : 'cursor-pointer'}`}
               />
-              <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right shrink-0">{Math.round(v.volume * 100)}%</span>
               <button
                 onClick={() => onUpdateVolume(1)}
                 disabled={isDisabled || bulkVolumeEnabled}
@@ -857,19 +855,13 @@ const ClipItem: React.FC<ClipItemProps> = ({
                 />
                 <span className="whitespace-nowrap">フェードイン</span>
               </label>
-              <SwipeProtectedSlider
-                min={0}
-                max={2}
-                step={1}
-                value={v.fadeInDuration === 0.5 ? 0 : v.fadeInDuration === 1.0 ? 1 : 2}
-                onChange={(val) => {
-                  const steps = [0.5, 1.0, 2.0];
-                  onUpdateFadeInDuration(steps[val]);
-                }}
+              <PresetFadeDurationField
+                value={v.fadeInDuration}
+                onChange={onUpdateFadeInDuration}
                 disabled={isDisabled || !v.fadeIn}
-                className={`flex-1 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isDisabled || !v.fadeIn ? '' : 'cursor-pointer'}`}
+                ariaLabel="動画のフェードイン時間"
+                accentClassName="accent-blue-500"
               />
-              <span className={`text-gray-400 w-8 text-right whitespace-nowrap ${isDisabled || !v.fadeIn ? 'text-gray-600' : 'text-gray-400'}`}>{v.fadeInDuration}秒</span>
             </div>
 
             {/* フェードアウト */}
@@ -886,19 +878,13 @@ const ClipItem: React.FC<ClipItemProps> = ({
                 />
                 <span className="whitespace-nowrap">フェードアウト</span>
               </label>
-              <SwipeProtectedSlider
-                min={0}
-                max={2}
-                step={1}
-                value={v.fadeOutDuration === 0.5 ? 0 : v.fadeOutDuration === 1.0 ? 1 : 2}
-                onChange={(val) => {
-                  const steps = [0.5, 1.0, 2.0];
-                  onUpdateFadeOutDuration(steps[val]);
-                }}
+              <PresetFadeDurationField
+                value={v.fadeOutDuration}
+                onChange={onUpdateFadeOutDuration}
                 disabled={isDisabled || !v.fadeOut}
-                className={`flex-1 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 disabled:cursor-default disabled:bg-gray-800 disabled:accent-gray-700 ${isDisabled || !v.fadeOut ? '' : 'cursor-pointer'}`}
+                ariaLabel="動画のフェードアウト時間"
+                accentClassName="accent-blue-500"
               />
-              <span className={`text-gray-400 w-8 text-right whitespace-nowrap ${isDisabled || !v.fadeOut ? 'text-gray-600' : 'text-gray-400'}`}>{v.fadeOutDuration}秒</span>
             </div>
           </div>
         </div>

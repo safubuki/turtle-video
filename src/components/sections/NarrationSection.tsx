@@ -385,7 +385,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                   </div>
                 )}
 
-                <div className="space-y-1">
+                <div className="space-y-1 px-2">
                   <div className="flex items-center justify-between text-[10px] md:text-xs text-gray-400">
                     <span>開始位置: {formatTime(clip.startTime)}</span>
                     <span>長さ: {formatTime(playableDuration)}</span>
@@ -426,10 +426,20 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                         </div>
                       }
                     />
+                    <button
+                      type="button"
+                      onClick={() => handleStartTimeChange(clip.id, 0)}
+                      disabled={isNarrationLocked || clip.startTime === 0}
+                      className="shrink-0 p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition disabled:opacity-50"
+                      title="開始位置を0秒にリセット"
+                      aria-label="ナレーションの開始位置を0秒にリセット"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                    </button>
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-1.5 text-[10px] md:text-xs">
+                <div className="flex flex-wrap items-center gap-1.5 pl-3 text-[10px] md:text-xs">
                   <span className="text-gray-500 mr-0.5">プレビュー位置を反映:</span>
                   <button
                     type="button"
@@ -455,42 +465,42 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                   </button>
                 </div>
 
-                <div className="bg-gray-800/50 p-2 rounded-lg flex items-center gap-2">
-                  <button
-                    onClick={() => onToggleMute(clip.id)}
-                    disabled={isNarrationLocked}
-                    className={`p-1 rounded transition ${clip.isMuted ? 'bg-red-500/20 text-red-300' : 'text-gray-400 hover:text-white'} disabled:opacity-50`}
-                    title={clip.isMuted ? 'ミュート解除' : 'ミュート'}
-                  >
-                    {clip.isMuted ? (
-                      <VolumeX className="w-3.5 h-3.5" />
-                    ) : (
-                      <Volume2 className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-                  <NumericSliderField
-                    ariaLabel="ナレーションの音量"
-                    min={0}
-                    max={2.5}
-                    step={0.05}
-                    value={clip.volume}
-                    onChange={(val) => handleVolumeChange(clip.id, val)}
-                    disabled={isNarrationLocked || clip.isMuted || bulkVolumeEnabled}
-                    hideInput
-                    className="flex-1 min-w-0"
-                    sliderClassName={`flex-1 min-w-0 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isNarrationLocked || clip.isMuted || bulkVolumeEnabled ? '' : 'cursor-pointer'}`}
-                  />
-                  <span className="text-[10px] md:text-xs text-gray-400 w-10 text-right shrink-0">
-                    {Math.round(clip.volume * 100)}%
-                  </span>
-                  <button
-                    onClick={() => onUpdateVolume(clip.id, '1')}
-                    disabled={isNarrationLocked || bulkVolumeEnabled}
-                    className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition disabled:opacity-50"
-                    title="リセット"
-                  >
-                    <RefreshCw className="w-3 h-3" />
-                  </button>
+                <div className="space-y-1">
+                  <div className="px-2 text-[10px] md:text-xs text-gray-400">音量</div>
+                  <div className="bg-gray-800/50 p-2 rounded-lg flex items-center gap-2">
+                    <button
+                      onClick={() => onToggleMute(clip.id)}
+                      disabled={isNarrationLocked}
+                      className={`h-9 w-9 md:h-8 md:w-8 shrink-0 flex items-center justify-center rounded border transition ${clip.isMuted ? 'border-red-400/60 bg-red-500/20 text-red-300' : 'border-gray-500 bg-gray-700 text-gray-300 hover:bg-gray-600 hover:text-white'} disabled:opacity-50`}
+                      title={clip.isMuted ? 'ミュート解除' : 'ミュート'}
+                    >
+                      {clip.isMuted ? (
+                        <VolumeX className="w-3.5 h-3.5" />
+                      ) : (
+                        <Volume2 className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                    <NumericSliderField
+                      ariaLabel="ナレーションの音量"
+                      min={0}
+                      max={250}
+                      step={5}
+                      value={Math.round(clip.volume * 100)}
+                      onChange={(val) => handleVolumeChange(clip.id, val / 100)}
+                      disabled={isNarrationLocked || clip.isMuted || bulkVolumeEnabled}
+                      unit="%"
+                      className="flex-1 min-w-0"
+                      sliderClassName={`flex-1 min-w-0 accent-indigo-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isNarrationLocked || clip.isMuted || bulkVolumeEnabled ? '' : 'cursor-pointer'}`}
+                    />
+                    <button
+                      onClick={() => onUpdateVolume(clip.id, '1')}
+                      disabled={isNarrationLocked || bulkVolumeEnabled}
+                      className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition disabled:opacity-50"
+                      title="リセット"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
                 {bulkVolumeEnabled && (
                   <p className="px-1 text-[10px] leading-relaxed text-blue-300/80 md:text-xs">一括音量設定中のため、ここでは変更できません。</p>

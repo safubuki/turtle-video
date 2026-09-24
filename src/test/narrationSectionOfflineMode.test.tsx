@@ -28,6 +28,44 @@ const createNarrationClip = (overrides: Partial<NarrationClip> = {}): NarrationC
 };
 
 describe('NarrationSection offline mode', () => {
+  it('音量見出しを表示し、開始位置のリセットで0秒を設定する', () => {
+    const onUpdateStartTime = vi.fn();
+    const props = {
+      narrations: [createNarrationClip({ startTime: 4.4 })],
+      offlineMode: false,
+      isCaptionLocked: false,
+      totalDuration: 30,
+      currentTime: 5,
+      onToggleNarrationLock: vi.fn(),
+      onAddAiNarration: vi.fn(),
+      onEditAiNarration: vi.fn(),
+      onNarrationUpload: vi.fn(),
+      onRemoveNarration: vi.fn(),
+      onMoveNarration: vi.fn(),
+      onSaveNarration: vi.fn(),
+      onAddCaptionsFromNarration: vi.fn(),
+      onUpdateStartTime,
+      onSetStartTimeToCurrent: vi.fn(),
+      onSetEndTimeToCurrent: vi.fn(),
+      onUpdateVolume: vi.fn(),
+      onToggleMute: vi.fn(),
+      onUpdateTrimStart: vi.fn(),
+      onUpdateTrimEnd: vi.fn(),
+      formatTime: (value: number) => `${value.toFixed(1)}s`,
+      onOpenHelp: vi.fn(),
+    };
+    const { rerender } = render(<NarrationSection {...props} isNarrationLocked={false} />);
+    fireEvent.click(screen.getByText('ナレーション'));
+
+    expect(screen.getByText('音量')).toBeInTheDocument();
+    expect(screen.getByText('プレビュー位置を反映:').parentElement).toHaveClass('pl-3');
+    fireEvent.click(screen.getByRole('button', { name: 'ナレーションの開始位置を0秒にリセット' }));
+    expect(onUpdateStartTime).toHaveBeenCalledWith('narration-1', '0');
+
+    rerender(<NarrationSection {...props} isNarrationLocked />);
+    expect(screen.getByRole('button', { name: 'ナレーションの開始位置を0秒にリセット' })).toBeDisabled();
+  });
+
   it('オフライン時は AI 追加と AI 編集だけを無効化する', () => {
     const narrations: NarrationClip[] = [
       createNarrationClip({
