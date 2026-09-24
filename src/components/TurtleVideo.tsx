@@ -29,6 +29,7 @@ import {
   GEMINI_SCRIPT_MODEL,
   GEMINI_SCRIPT_FALLBACK_MODELS,
   GEMINI_TTS_MODEL,
+  DEFAULT_NARRATION_TTS_ENGINE,
   TTS_SAMPLE_RATE,
   IMAGE_DURATION_STEP,
 } from '../constants';
@@ -3073,8 +3074,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     setAiScriptLength('medium');
     setAiVoiceStyle('');
     setAiNarrationScene('');
+    setAiTtsEngine(DEFAULT_NARRATION_TTS_ENGINE);
     openAiModal();
-  }, [offlineMode, openAiModal, pausePreviewBeforeEdit, setAiNarrationScene, setAiPrompt, setAiScript, setAiVoiceStyle]);
+  }, [offlineMode, openAiModal, pausePreviewBeforeEdit, setAiNarrationScene, setAiPrompt, setAiScript, setAiTtsEngine, setAiVoiceStyle]);
 
   const handleEditAiNarration = useCallback((id: string) => {
     if (offlineMode) return;

@@ -13,7 +13,7 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import type { ExportFormat, NarrationTtsEngine, NarrationTtsPace, NarrationTtsTone } from '../types';
-import { isVoiceId } from '../constants';
+import { DEFAULT_NARRATION_TTS_ENGINE, isVoiceId } from '../constants';
 
 interface UIState {
   // Toast & Error
@@ -113,7 +113,7 @@ export const useUIStore = create<UIState>()(
       aiVoice: 'Aoede' as const,
       aiVoiceStyle: '',
       aiNarrationScene: '',
-      aiTtsEngine: 'legacy',
+      aiTtsEngine: DEFAULT_NARRATION_TTS_ENGINE,
       aiTtsTone: 'natural',
       aiTtsPace: 'normal',
       aiTtsStyleDetail: '',
@@ -279,7 +279,7 @@ export const useUIStore = create<UIState>()(
           aiVoice: 'Aoede' as const,
           aiVoiceStyle: '',
           aiNarrationScene: '',
-          aiTtsEngine: 'legacy',
+          aiTtsEngine: DEFAULT_NARRATION_TTS_ENGINE,
           aiTtsTone: 'natural',
           aiTtsPace: 'normal',
           aiTtsStyleDetail: '',
@@ -317,7 +317,7 @@ export const useUIStore = create<UIState>()(
           aiVoice: 'Aoede' as const,
           aiVoiceStyle: '',
           aiNarrationScene: '',
-          aiTtsEngine: 'legacy',
+          aiTtsEngine: DEFAULT_NARRATION_TTS_ENGINE,
           aiTtsTone: 'natural',
           aiTtsPace: 'normal',
           aiTtsStyleDetail: '',

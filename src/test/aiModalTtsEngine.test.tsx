@@ -9,7 +9,7 @@ describe('AIナレーションの音声エンジン設定', () => {
     localStorage.removeItem('turtle-video-gemini-api-key');
     vi.unstubAllGlobals();
   });
-  it('既定は従来設定を表示し、Gemini 3.8 選択時だけ話し方設定に切り替える', () => {
+  it('Gemini 3.8 Flash を既定として表示し、従来方式へ切り替えられる', () => {
     const onTtsEngineChange = vi.fn();
     const onTtsToneChange = vi.fn();
     const props: ComponentProps<typeof AiModal> = {
@@ -21,7 +21,7 @@ describe('AIナレーションの音声エンジン設定', () => {
       aiVoice: 'Aoede',
       aiVoiceStyle: '',
       aiNarrationScene: '',
-      aiTtsEngine: 'legacy',
+      aiTtsEngine: 'gemini-3.8-flash-tts',
       aiTtsTone: 'natural',
       aiTtsPace: 'normal',
       aiTtsStyleDetail: '',
@@ -42,21 +42,22 @@ describe('AIナレーションの音声エンジン設定', () => {
     };
     const { rerender } = render(<AiModal {...props} />);
 
+    expect(screen.getByRole('option', { name: 'Gemini 3.8 Flash TTS（既定・高音質）' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: '音声エンジン' })).toHaveValue('gemini-3.8-flash-tts');
+    expect(screen.getByText('Gemini 3.8 の話し方')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: '音声エンジン' }), {
+      target: { value: 'legacy' },
+    });
+    expect(onTtsEngineChange).toHaveBeenCalledWith('legacy');
+
+    rerender(<AiModal {...props} aiTtsEngine="legacy" />);
     expect(screen.getByText('場面・状況（全体）')).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Gemini 2.5 Flash TTS（既定）' })).toBeInTheDocument();
     expect(screen.getByText('Gemini 2.5 Flash TTS の設定')).toBeInTheDocument();
     const sceneButtons = within(screen.getByRole('group', { name: '場面プリセット' })).getAllByRole('button');
     expect(sceneButtons).toHaveLength(6);
     expect(sceneButtons.every((button) => button.className.includes('min-h-10 w-full'))).toBe(true);
     expect(screen.queryByText('Gemini 3.8 の話し方')).not.toBeInTheDocument();
-    fireEvent.change(screen.getByRole('combobox', { name: '音声エンジン' }), {
-      target: { value: 'gemini-3.8-flash-tts' },
-    });
-    expect(onTtsEngineChange).toHaveBeenCalledWith('gemini-3.8-flash-tts');
-
-    rerender(<AiModal {...props} aiTtsEngine="gemini-3.8-flash-tts" />);
-    expect(screen.queryByText('場面・状況（全体）')).not.toBeInTheDocument();
-    expect(screen.getByText('Gemini 3.8 の話し方')).toBeInTheDocument();
+    rerender(<AiModal {...props} />);
     fireEvent.change(screen.getByRole('combobox', { name: '声の雰囲気' }), {
       target: { value: 'warm' },
     });

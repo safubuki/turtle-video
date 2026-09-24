@@ -5,7 +5,7 @@
  * @license GPL-3.0-or-later
  * @description アプリケーション全体で使用される定数定義（キャンバスサイズ、デフォルト値、API設定など）。
  */
-import type { VoiceGenderFilter, VoiceOption } from '../types';
+import type { NarrationTtsEngine, VoiceGenderFilter, VoiceOption } from '../types';
 
 // キャンバス設定
 // プレビュー描画は軽量に保つため 1280×720 を上限とする。
@@ -60,6 +60,7 @@ export const SEEK_THROTTLE_MS = 50; // ミリ秒 - シーク操作のスロッ�
 export const GEMINI_SCRIPT_MODEL = 'gemini-2.5-flash';
 export const GEMINI_SCRIPT_FALLBACK_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash'];
 export const GEMINI_TTS_MODEL = 'gemini-2.5-flash-preview-tts';
+export const DEFAULT_NARRATION_TTS_ENGINE: NarrationTtsEngine = 'gemini-3.8-flash-tts';
 export const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 export const TTS_SAMPLE_RATE = 24000;
 

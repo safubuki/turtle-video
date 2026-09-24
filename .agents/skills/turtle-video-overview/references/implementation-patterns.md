@@ -4696,10 +4696,11 @@ export 終了（成功/失敗/中断）
 
 - **ファイル**: `src/utils/gemini38Tts.ts`, `src/components/modals/AiModal.tsx`, `src/components/TurtleVideo.tsx`, `src/types/index.ts`, `src/stores/uiStore.ts`, `src/stores/audioStore.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/hooks/useAutoSave.ts`, `src/constants/sectionHelp.ts`, 関連テスト。
 - **対象 flavor**: shared。standard と apple-safari の AI ナレーションに同じ選択肢を表示する。
-- **互換性**: `aiTtsEngine` がない既存クリップと初期 UI は `legacy`。旧 `gemini-2.5-flash-preview-tts:generateContent` の生成経路を維持する。選択エンジン・雰囲気・速さ・自由入力の話し方は AI クリップに保存し、再編集時に復元する。
+- **互換性**: `aiTtsEngine` がない既存クリップは `legacy`。旧 `gemini-2.5-flash-preview-tts:generateContent` の生成経路を維持する。選択エンジン・雰囲気・速さ・自由入力の話し方は AI クリップに保存し、再編集時に復元する。
 - **新 API**: Flash / Flash-Lite は `POST /v1beta/interactions`。原稿の本文は逐語で送り、場面ではなく `speech_metadata.style` に雰囲気・速さ・追加の話し方を設定する。既存の `《語り口》…《/》` は区間ごとに別の text content と style へ変換する。REST 応答は `steps` の `model_output` 内の audio data を読み、WAV を二重ラップしない。`store: false` を指定する。
 - **回帰ガード**: `gemini38Tts.test.ts` でリクエスト・REST 応答、`aiModalTtsEngine.test.tsx` でエンジン別 UI、`projectStoreSave.test.ts` で standard 保存→apple-safari 読込を確認する。実 API キーでの生成・音質は別途実機確認が必要。
 - **2026-09-24 モデル・音声指定の検証**: Interactions API には選択した `gemini-3.8-flash-tts` / `gemini-3.8-flash-lite-tts` を `model` として、基本30声または Voices API の選択 ID を `generation_config.speech_config[].voice` としてそのまま送る。保存データの不正なモデル名や空の声 ID は送信前にエラーとする。`response_format.mime_type` に `audio/wav` を明示し、応答は `output_audio` の最終音声を優先して読む。従来の 2.5 経路には影響させない。
+- **2026-09-24 新規作成の既定変更**: ユーザー指定により、新規ナレーションと UI 初期化・リセットの既定エンジンを `gemini-3.8-flash-tts` に変更。新規作成導線では直前に古いクリップを編集していても既定へ戻す。エンジン未記録の既存クリップの再編集では `legacy` に復元し、旧音声の再生成経路を保持する。
 
 ### 13-252. Gemini 3.8 では追加の声を Voices API から選ぶ
 
@@ -4828,7 +4829,6 @@ export 終了（成功/失敗/中断）
 - **回帰ガード**:
   - `src/test/gemini38VoiceCategories.test.ts` に Enterprise Agent、Advertising Pitch、Character & Theatrical、Coach / Motivational Guide の全ペルソナパターンを網羅するテストケースを追加し PASS（9/9 tests）。
   - `npm run build` によるプロダクションビルド PASS。
-
 
 
 

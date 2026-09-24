@@ -22,6 +22,7 @@ describe('uiStore', () => {
       aiPrompt: '',
       aiScript: '',
       aiVoice: 'Kore',
+      aiTtsEngine: 'gemini-3.8-flash-tts',
       isAiLoading: false,
     });
   });
@@ -179,6 +180,13 @@ describe('uiStore', () => {
   });
 
   describe('AI Modal', () => {
+    it('新規の既定とモーダルリセットは Gemini 3.8 Flash TTS にする', () => {
+      expect(useUIStore.getState().aiTtsEngine).toBe('gemini-3.8-flash-tts');
+      useUIStore.getState().setAiTtsEngine('legacy');
+      useUIStore.getState().resetAiModal();
+      expect(useUIStore.getState().aiTtsEngine).toBe('gemini-3.8-flash-tts');
+    });
+
     it('should open AI modal', () => {
       const { openAiModal } = useUIStore.getState();
       
@@ -199,6 +207,7 @@ describe('uiStore', () => {
       
       const state = useUIStore.getState();
       expect(state.showAiModal).toBe(false);
+      expect(state.aiTtsEngine).toBe('gemini-3.8-flash-tts');
       // closeAiModal doesn't reset prompt/script (resetAiModal does that)
       expect(state.aiPrompt).toBe('test prompt');
       expect(state.aiScript).toBe('test script');

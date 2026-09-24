@@ -739,9 +739,9 @@ const AiModal: React.FC<AiModalProps> = ({
                 onChange={(event) => onTtsEngineChange(event.target.value as NarrationTtsEngine)}
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
               >
-                <option value="legacy">Gemini 2.5 Flash TTS（既定）</option>
-                <option value="gemini-3.8-flash-tts">Gemini 3.8 Flash TTS（高音質）</option>
+                <option value="gemini-3.8-flash-tts">Gemini 3.8 Flash TTS（既定・高音質）</option>
                 <option value="gemini-3.8-flash-lite-tts">Gemini 3.8 Flash-Lite TTS（高速）</option>
+                <option value="legacy">Gemini 2.5 Flash TTS（従来方式）</option>
               </select>
               <p className="text-[10px] md:text-xs text-gray-500">
                 Gemini 2.5 Flash TTS は、これまでと同じ方法で音声を生成します。
