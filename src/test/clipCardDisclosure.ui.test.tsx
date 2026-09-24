@@ -114,6 +114,24 @@ describe('動画・画像カードの折りたたみ', () => {
     expect(screen.getByTestId('clip-card-only')).toHaveAttribute('data-focused', 'true');
   });
 
+  it('エクスポート中は開いていたカードをすべて閉じ、位置が動いても開かない', () => {
+    const items = [createImage('a'), createImage('b')];
+    const { rerender, props } = renderSection({ mediaItems: items, currentTime: 0 });
+    fireEvent.click(screen.getByRole('button', { name: 'すべて開く' }));
+    expect(durationSliders()).toHaveLength(2);
+
+    rerender(<ClipsSection {...props} mediaItems={items} currentTime={0} isExporting />);
+    expect(durationSliders()).toHaveLength(0);
+    expect(screen.getByRole('button', { name: 'すべて開く' })).toBeDisabled();
+
+    rerender(<ClipsSection {...props} mediaItems={items} currentTime={6} isExporting />);
+    expect(durationSliders()).toHaveLength(0);
+    expect(screen.getByTestId('clip-card-b')).toHaveAttribute('data-focused', 'true');
+
+    rerender(<ClipsSection {...props} mediaItems={items} currentTime={6} isExporting={false} />);
+    expect(durationSliders()).toHaveLength(0);
+  });
+
   it('閉じた列から必要なカードだけ開き、プレビュー位置へ追従する', () => {
     const items = [createImage('a'), createImage('b'), createImage('c')];
     const { rerender, props } = renderSection({ mediaItems: items, currentTime: 0 });

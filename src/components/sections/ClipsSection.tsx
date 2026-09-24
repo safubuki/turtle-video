@@ -154,6 +154,8 @@ interface ClipsSectionProps {
   currentTime: number;
   /** 再生中は枠だけを追従し、カードの高さは変えない */
   isPlaying?: boolean;
+  /** 書き出し中はカードを閉じ、プレビュー位置への追従も止める */
+  isExporting?: boolean;
   isClipsLocked: boolean;
   mediaElements: Record<string, HTMLVideoElement | HTMLImageElement>;
   onToggleClipsLock: () => void;
@@ -204,6 +206,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   mediaTimelineRanges,
   currentTime,
   isPlaying = false,
+  isExporting = false,
   isClipsLocked,
   mediaElements,
   onToggleClipsLock,
@@ -268,7 +271,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
     [mediaItems, currentTime],
   );
   const [disclosure, setDisclosure] = useState<ClipCardDisclosureState>(() => (
-    createInitialClipCardDisclosure(resolveFocusedClipId(mediaItems, currentTime))
+    createInitialClipCardDisclosure(isExporting ? null : resolveFocusedClipId(mediaItems, currentTime))
   ));
   const disclosureRef = useRef(disclosure);
   disclosureRef.current = disclosure;
@@ -277,6 +280,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   const prevIdsRef = useRef<string[] | null>(null);
   const prevFocusRef = useRef<string | null>(focusId);
   const prevPlayingRef = useRef(isPlaying);
+  const prevExportingRef = useRef(isExporting);
   const epochRef = useRef<number | null>(null);
   const prevFocusRenderRef = useRef(focusId);
   const prevTimeRenderRef = useRef(currentTime);
@@ -295,6 +299,22 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
     const previousFocusId = prevFocusRef.current;
     const wasPlaying = prevPlayingRef.current;
     const epochChanged = epochRef.current !== null && epochRef.current !== clipListRestoreEpoch;
+
+    if (isExporting) {
+      if (!prevExportingRef.current) {
+        const closed = collapseAllClipCards(focusId);
+        disclosureRef.current = closed;
+        setDisclosure(closed);
+      }
+      pendingScrollIdRef.current = null;
+      prevIdsRef.current = ids;
+      prevFocusRef.current = focusId;
+      prevPlayingRef.current = isPlaying;
+      epochRef.current = clipListRestoreEpoch;
+      prevExportingRef.current = true;
+      return;
+    }
+    prevExportingRef.current = false;
 
     if (previousIds === null || epochRef.current === null) {
       prevIdsRef.current = ids;
@@ -331,7 +351,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
     } else if (stepped.scrollToId) {
       pendingScrollIdRef.current = stepped.scrollToId;
     }
-  }, [clipListRestoreEpoch, focusId, idsKey, isPlaying]);
+  }, [clipListRestoreEpoch, focusId, idsKey, isPlaying, isExporting]);
 
   useEffect(() => {
     const epochChanged = prevSectionEpochRef.current !== clipListRestoreEpoch;
@@ -458,6 +478,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
           <button
             type="button"
             onClick={() => setDisclosure(expandAllClipCards(mediaItems.map((item) => item.id)))}
+            disabled={isExporting}
             className="min-h-9 px-2.5 rounded-lg border border-gray-700 bg-gray-800/70 text-[10px] md:text-xs text-gray-300 hover:text-white hover:border-gray-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/80"
           >
             すべて開く
@@ -465,6 +486,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
           <button
             type="button"
             onClick={() => setDisclosure(collapseAllClipCards(focusId))}
+            disabled={isExporting}
             className="min-h-9 px-2.5 rounded-lg border border-gray-700 bg-gray-800/70 text-[10px] md:text-xs text-gray-300 hover:text-white hover:border-gray-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/80"
           >
             すべて閉じる
@@ -507,9 +529,11 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
           >
           <ClipItem
             item={v}
-            isOpen={isClipCardBodyOpen(disclosure, v.id)}
+            isOpen={!isExporting && isClipCardBodyOpen(disclosure, v.id)}
             isFocused={focusId === v.id}
-            onToggleOpen={() => setDisclosure((prev) => toggleClipCard(prev, v.id, focusId))}
+            onToggleOpen={() => {
+              if (!isExporting) setDisclosure((prev) => toggleClipCard(prev, v.id, focusId));
+            }}
             timelineRange={mediaTimelineRanges[v.id] ?? { start: 0, end: v.duration }}
             currentTime={currentTime}
             index={i}

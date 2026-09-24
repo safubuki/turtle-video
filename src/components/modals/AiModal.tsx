@@ -26,6 +26,8 @@ import { listGemini38Voices, type Gemini38Voice } from '../../utils/gemini38Voic
 import {
   formatPersonaLabel,
   formatContextLabel,
+  formatVoiceDescription,
+  wrapVoiceTooltip,
   getPersonaSelectOptions,
   getContextSelectOptions,
 } from '../../utils/gemini38VoiceCategories';
@@ -250,6 +252,8 @@ const AiModal: React.FC<AiModalProps> = ({
       .filter((voice) => voice.id === aiVoice || matchesSearch(voice.id, voice.label, voice.desc)),
     [voiceOptions, voiceGenderFilter, aiVoice, normalizedSearch],
   );
+  // 選択中の声は上のカードで確認できるため、切り替え候補だけを一覧に並べる。
+  const baseVoiceChoices = filteredBaseVoices.filter((voice) => voice.id !== aiVoice);
 
   const filteredExtraVoices = useMemo(
     () => languageVoices.filter((voice) =>
@@ -260,11 +264,12 @@ const AiModal: React.FC<AiModalProps> = ({
     ),
     [languageVoices, voicePersona, voiceContext, voiceGenderFilter, normalizedSearch],
   );
+  const extraVoiceChoices = filteredExtraVoices.filter((voice) => voice.id !== aiVoice);
 
   const selectedVoice = getVoiceOption(aiVoice) ?? voiceOptions.find((voice) => voice.id === aiVoice);
   const selectedExtraVoice = extraVoices.find((voice) => voice.id === aiVoice);
   const filteredCount = voiceSource === 'library' && isGemini38
-    ? filteredExtraVoices.length : filteredBaseVoices.length;
+    ? extraVoiceChoices.length : baseVoiceChoices.length;
   const voiceVisibleInSelect = voiceSource === 'library' && isGemini38
     ? filteredExtraVoices.some((voice) => voice.id === aiVoice)
     : filteredBaseVoices.some((voice) => voice.id === aiVoice);
@@ -667,7 +672,7 @@ const AiModal: React.FC<AiModalProps> = ({
                 </div>
               </div>
               <p className="text-[10px] text-gray-500 leading-relaxed">
-                原稿の一部分を選んでボタンを押すと、そのフレーズだけにメリハリ（強調・ささやき等）をつけられます。全体の声質は下の「Step 3」で設定します。
+                選んだ部分に強調・ささやきを追加。全体の声は Step 3 で設定します。
               </p>
               <div className="flex flex-wrap gap-1.5" role="group" aria-label="語り口調プリセット">
                 {NARRATION_TONE_PRESETS.map((preset) => (
@@ -712,7 +717,7 @@ const AiModal: React.FC<AiModalProps> = ({
                 <p className="text-[10px] text-gray-500">
                   設定中: {appliedToneLabels.join(' / ')}（選択フレーズのみ部分演出。
                   {aiTtsEngine === 'legacy'
-                    ? '従来エンジンでは [tag] へ変換します。'
+                    ? 'Gemini 2.5 では [tag] へ変換します。'
                     : 'Gemini 3.8 では区間ごとの話し方へ変換します。'}）
                 </p>
               )}
@@ -734,21 +739,22 @@ const AiModal: React.FC<AiModalProps> = ({
                 onChange={(event) => onTtsEngineChange(event.target.value as NarrationTtsEngine)}
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
               >
-                <option value="legacy">従来の Gemini TTS（既定）</option>
+                <option value="legacy">Gemini 2.5 Flash TTS（既定）</option>
                 <option value="gemini-3.8-flash-tts">Gemini 3.8 Flash TTS（高音質）</option>
                 <option value="gemini-3.8-flash-lite-tts">Gemini 3.8 Flash-Lite TTS（高速）</option>
               </select>
               <p className="text-[10px] md:text-xs text-gray-500">
-                従来のエンジンを選べば、これまでと同じ方法で音声を生成します。
+                Gemini 2.5 Flash TTS は、これまでと同じ方法で音声を生成します。
               </p>
             </div>
 
             {/* 従来エンジンの Scene / Sample Context */}
             {aiTtsEngine === 'legacy' && (
-            <div className="space-y-1.5 md:space-y-2">
-              <span className="text-xs font-bold text-gray-400">場面・状況（全体）</span>
+            <div className="space-y-2 rounded-xl border border-indigo-500/30 bg-linear-to-br from-indigo-950/30 via-purple-950/20 to-gray-900/50 p-3 md:p-3.5">
+              <p className="text-xs font-bold text-indigo-200">Gemini 2.5 Flash TTS の設定</p>
+              <span className="block text-xs font-bold text-gray-400">場面・状況（全体）</span>
               <div
-                className="flex flex-wrap gap-1.5"
+                className="grid grid-cols-2 sm:grid-cols-3 gap-1.5"
                 role="group"
                 aria-label="場面プリセット"
               >
@@ -759,7 +765,7 @@ const AiModal: React.FC<AiModalProps> = ({
                       key={preset.id}
                       type="button"
                       onClick={() => applyScenePreset(preset.id)}
-                      className={`min-h-9 px-2.5 rounded-lg text-[11px] md:text-xs font-semibold border transition ${
+                      className={`min-h-10 w-full px-2 rounded-lg text-[11px] md:text-xs font-semibold border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 ${
                         active
                           ? 'bg-indigo-500 text-white border-indigo-400'
                           : 'bg-gray-900 text-gray-300 border-gray-700 hover:border-indigo-400/60'
@@ -773,7 +779,7 @@ const AiModal: React.FC<AiModalProps> = ({
                 <button
                   type="button"
                   onClick={() => applyScenePreset('custom')}
-                  className={`min-h-9 px-2.5 rounded-lg text-[11px] md:text-xs font-semibold border transition ${
+                  className={`min-h-10 w-full px-2 rounded-lg text-[11px] md:text-xs font-semibold border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 ${
                     scenePresetId === 'custom'
                       ? 'bg-indigo-500 text-white border-indigo-400'
                       : 'bg-gray-900 text-gray-300 border-gray-700 hover:border-indigo-400/60'
@@ -796,7 +802,7 @@ const AiModal: React.FC<AiModalProps> = ({
                         resolveSceneSetting('custom', value, customSampleContext),
                       );
                     }}
-                    placeholder="Scene（場所）例: 静かなスタジオ。"
+                    placeholder="場面（Scene）例: 静かなスタジオ。"
                     className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
                   />
                   <textarea
@@ -810,7 +816,7 @@ const AiModal: React.FC<AiModalProps> = ({
                       );
                     }}
                     rows={2}
-                    placeholder="Sample Context（話し方）例: 操作説明。落ち着いたペースで、はっきりと親しみやすく。"
+                    placeholder="話し方（Sample Context）例: 落ち着いたペースで、はっきりと親しみやすく。"
                     className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 resize-none"
                   />
                 </div>
@@ -819,21 +825,20 @@ const AiModal: React.FC<AiModalProps> = ({
                 <div className="rounded-lg border border-gray-700/70 bg-gray-900/60 px-2.5 py-2 space-y-1 text-[10px] md:text-[11px] text-gray-400 leading-relaxed">
                   {activeSceneSetting.scene && (
                     <p>
-                      <span className="font-semibold text-gray-300">Scene</span>{' '}
+                      <span className="font-semibold text-gray-300">場面（Scene）</span>{' '}
                       {activeSceneSetting.scene}
                     </p>
                   )}
                   {activeSceneSetting.sampleContext && (
                     <p>
-                      <span className="font-semibold text-gray-300">Sample Context</span>{' '}
+                      <span className="font-semibold text-gray-300">話し方（Sample Context）</span>{' '}
                       {activeSceneSetting.sampleContext}
                     </p>
                   )}
                 </div>
               )}
               <p className="text-[10px] text-gray-500 leading-relaxed">
-                Google TTS と同様に、場所（Scene）と話し方の方針（Sample Context）を指定します。区間の
-                [tag] と組み合わせて臨場感を出せます。
+                場面と話し方を指定し、文中のアクセントと組み合わせられます。
               </p>
             </div>
             )}
@@ -1000,11 +1005,19 @@ const AiModal: React.FC<AiModalProps> = ({
                       </>
                     )}
                   </div>
-                  <p className="text-xs text-gray-300 mt-1 truncate">
+                  <p
+                    className="text-xs text-gray-300 mt-1 truncate"
+                    title={selectedExtraVoice ? wrapVoiceTooltip([
+                      selectedExtraVoice.label,
+                      formatPersonaLabel(selectedExtraVoice.persona),
+                      formatContextLabel(selectedExtraVoice.context),
+                      formatVoiceDescription(selectedExtraVoice),
+                    ].filter(Boolean).join(' · ')) : undefined}
+                  >
                     {selectedVoice
                       ? `${selectedVoice.desc} (${selectedVoice.traitEn})`
                       : selectedExtraVoice
-                        ? [formatPersonaLabel(selectedExtraVoice.persona), formatContextLabel(selectedExtraVoice.context), selectedExtraVoice.description].filter(Boolean).join(' · ')
+                        ? [formatPersonaLabel(selectedExtraVoice.persona), formatContextLabel(selectedExtraVoice.context), formatVoiceDescription(selectedExtraVoice)].filter(Boolean).join(' · ')
                         : '未選択'}
                   </p>
                 </div>
@@ -1225,7 +1238,7 @@ const AiModal: React.FC<AiModalProps> = ({
                           key={opt.id}
                           type="button"
                           onClick={() => setVoiceGenderFilter(opt.id)}
-                          className={`min-h-8 px-3 whitespace-nowrap rounded-lg text-xs font-semibold border transition ${
+                          className={`min-h-9 w-[4.5rem] px-2 whitespace-nowrap rounded-lg text-xs font-semibold border transition ${
                             active
                               ? 'bg-blue-500 text-white border-blue-400'
                               : 'bg-gray-800 text-gray-300 border-gray-700 hover:border-blue-500/50 hover:text-blue-100'
@@ -1275,7 +1288,7 @@ const AiModal: React.FC<AiModalProps> = ({
                     <optgroup label={`Gemini 3.8 追加の声 (${filteredExtraVoices.length}件)`}>
                       {filteredExtraVoices.map((voice) => (
                         <option key={voice.id} value={voice.id}>
-                          {voice.label} · {voice.gender === 'female' ? '女性' : voice.gender === 'male' ? '男性' : '指定なし'} · {voice.languageCode} — {formatPersonaLabel(voice.persona) || formatContextLabel(voice.context) || voice.description || voice.id}
+                          {voice.label} · {voice.gender === 'female' ? '女性' : voice.gender === 'male' ? '男性' : '指定なし'} · {voice.languageCode} — {formatPersonaLabel(voice.persona) || formatContextLabel(voice.context) || formatVoiceDescription(voice) || voice.id}
                         </option>
                       ))}
                     </optgroup>
@@ -1295,10 +1308,10 @@ const AiModal: React.FC<AiModalProps> = ({
                   aria-label="声の一覧リスト"
                 >
                   {(!isGemini38 || voiceSource === 'basic') && (
-                    filteredBaseVoices.length === 0 ? (
-                      <p className="text-xs text-gray-500 text-center py-4">一致する声がありません。</p>
+                    baseVoiceChoices.length === 0 ? (
+                      <p className="text-xs text-gray-500 text-center py-4">ほかに一致する声がありません。</p>
                     ) : (
-                      filteredBaseVoices.map((voice) => {
+                      baseVoiceChoices.map((voice) => {
                         const isSelected = aiVoice === voice.id;
                         return (
                           <button
@@ -1342,9 +1355,9 @@ const AiModal: React.FC<AiModalProps> = ({
                         <Loader className="w-4 h-4 animate-spin mx-auto text-indigo-400" />
                         <p className="text-xs text-gray-400">追加音声を読み込んでいます…</p>
                       </div>
-                    ) : filteredExtraVoices.length === 0 ? (
+                    ) : extraVoiceChoices.length === 0 ? (
                       <div className="text-center py-4 space-y-1.5">
-                        <p className="text-xs text-amber-300">条件に一致する声が見つかりませんでした。</p>
+                        <p className="text-xs text-amber-300">ほかに一致する声が見つかりませんでした。</p>
                         <button
                           type="button"
                           onClick={resetVoiceFilters}
@@ -1354,15 +1367,17 @@ const AiModal: React.FC<AiModalProps> = ({
                         </button>
                       </div>
                     ) : (
-                      filteredExtraVoices.slice(0, 40).map((voice) => {
+                      extraVoiceChoices.slice(0, 40).map((voice) => {
                         const isSelected = aiVoice === voice.id;
                         const personaText = formatPersonaLabel(voice.persona);
                         const contextText = formatContextLabel(voice.context);
+                        const descriptionText = formatVoiceDescription(voice);
                         return (
                           <button
                             key={voice.id}
                             type="button"
                             onClick={() => onVoiceChange(voice.id)}
+                            title={wrapVoiceTooltip([voice.label, personaText, contextText, descriptionText].filter(Boolean).join(' · '))}
                             className={`w-full text-left p-2 rounded-lg border transition flex items-start justify-between gap-2 ${
                               isSelected
                                 ? 'bg-blue-600/20 border-blue-400 ring-1 ring-blue-400 text-white'
@@ -1403,9 +1418,9 @@ const AiModal: React.FC<AiModalProps> = ({
                                   </span>
                                 )}
                               </div>
-                              {(contextText || voice.description) && (
+                              {(contextText || descriptionText) && (
                                 <p className="text-[11px] text-gray-400 mt-0.5 truncate">
-                                  {contextText ? `${contextText} · ` : ''}{voice.description || voice.id}
+                                  {contextText ? `${contextText} · ` : ''}{descriptionText || voice.id}
                                 </p>
                               )}
                             </div>
@@ -1424,7 +1439,7 @@ const AiModal: React.FC<AiModalProps> = ({
                 </p>
               )}
               <p id="ai-voice-help" className="text-[10px] md:text-xs text-gray-500 leading-relaxed">
-                基本の {voiceOptions.length} 声は全エンジン対応。{isGemini38 && '追加音声は Gemini 3.8 専用です。'}試聴は{' '}
+                基本の {voiceOptions.length} 声は両エンジンで使える定番の声。{isGemini38 && '追加音声は Gemini 3.8 専用で、人物像や用途から選べます。'}試聴は{' '}
                 <a
                   href="https://aistudio.google.com/generate-speech"
                   target="_blank"

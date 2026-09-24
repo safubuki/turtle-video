@@ -4156,6 +4156,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               mediaTimelineRanges={mediaTimelineRanges}
               currentTime={currentTime}
               isPlaying={isPlaying}
+              isExporting={isProcessing}
               isClipsLocked={isClipsLocked}
               mediaElements={mediaElementsRef.current as Record<string, HTMLVideoElement | HTMLImageElement>}
               onToggleClipsLock={withPreviewPause('toggle-clips-lock', toggleClipsLock)}

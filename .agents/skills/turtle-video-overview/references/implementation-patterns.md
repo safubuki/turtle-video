@@ -3117,7 +3117,7 @@ export 終了（成功/失敗/中断）
   - `VOICE_OPTIONS` は公式 30 声。保持するのは `id`/`label`（voice_name）、`traitEn`/`desc`（公式 trait）、`gender`（Cloud TTS Female/Male）のみ。
   - 年齢層・詳細な利用シーン説明など、公式にない推測フィールドは載せない。
   - AI モーダルは「すべて／女性／男性」の性別フィルタのみ。セレクト表示は `【女性】Aoede — 軽やか（Breezy）`。
-  - フィルタ外の選択中声は `resolveVoiceSelectOptions` で先頭に残す。
+  - `resolveVoiceSelectOptions` は非表示のセレクト要素で選択値を保持する。見える候補一覧からは、選択中の声を除く。
   - `voiceOptions.test.ts` で公式 30 声・性別・trait・推測フィールド非存在を回帰固定。
 - **注意**:
   - API へ渡すのは従来どおり `prebuiltVoiceConfig.voiceName`。
@@ -4668,6 +4668,7 @@ export 終了（成功/失敗/中断）
   - 閉じた瞬間にカーソルがサムネイル上にあるときだけ、その場で動かしても拡大しない。外してから再び乗ったときに拡大する。閉じていなかった場所へあとから載せたときは、そのまま拡大する。
 - **回帰ガード**: `clipCardDisclosure.test.ts` で追従・抑制・追加・読み込み直し。`clipCardDisclosure.ui.test.tsx` で折りたたみ、再生中の枠、一時停止での入れ替え、ロック中の一括開閉。
 - **2026-09-24 スマホでのシーク操作**: `stepClipCardDisclosure` のスクロール理由を `seek` / `items` で区別する。幅 767px 以下ではプレビューのシークによるカード開閉と枠の追従だけを行い、`scrollIntoView` を呼ばない。PC のシーク、およびスマホを含む素材追加・保存データ読み込み時のスクロールは維持する。保留中のスクロールもスマホのシーク時に破棄する。`clipCardDisclosure.ui.test.tsx` でスマホのシーク、PC のシーク、スマホの素材追加を検証する。
+- **2026-09-24 エクスポート中**: `ClipsSection` は `isExporting` で全カードを閉じ、プレビュー位置の変化による開閉・スクロールを止める。開始前に手動で開いたカードも閉じ、終了後も自動では開き直さない。枠のフォーカス表示は維持する。
 
 ### 13-248. PC の初期表示だけキャプションの下端をプレビューに揃える
 
@@ -4698,6 +4699,7 @@ export 終了（成功/失敗/中断）
 - **互換性**: `aiTtsEngine` がない既存クリップと初期 UI は `legacy`。旧 `gemini-2.5-flash-preview-tts:generateContent` の生成経路を維持する。選択エンジン・雰囲気・速さ・自由入力の話し方は AI クリップに保存し、再編集時に復元する。
 - **新 API**: Flash / Flash-Lite は `POST /v1beta/interactions`。原稿の本文は逐語で送り、場面ではなく `speech_metadata.style` に雰囲気・速さ・追加の話し方を設定する。既存の `《語り口》…《/》` は区間ごとに別の text content と style へ変換する。REST 応答は `steps` の `model_output` 内の audio data を読み、WAV を二重ラップしない。`store: false` を指定する。
 - **回帰ガード**: `gemini38Tts.test.ts` でリクエスト・REST 応答、`aiModalTtsEngine.test.tsx` でエンジン別 UI、`projectStoreSave.test.ts` で standard 保存→apple-safari 読込を確認する。実 API キーでの生成・音質は別途実機確認が必要。
+- **2026-09-24 モデル・音声指定の検証**: Interactions API には選択した `gemini-3.8-flash-tts` / `gemini-3.8-flash-lite-tts` を `model` として、基本30声または Voices API の選択 ID を `generation_config.speech_config[].voice` としてそのまま送る。保存データの不正なモデル名や空の声 ID は送信前にエラーとする。`response_format.mime_type` に `audio/wav` を明示し、応答は `output_audio` の最終音声を優先して読む。従来の 2.5 経路には影響させない。
 
 ### 13-252. Gemini 3.8 では追加の声を Voices API から選ぶ
 
@@ -4805,6 +4807,7 @@ export 終了（成功/失敗/中断）
 - **回帰ガード**:
   - `narrationDelivery.test.ts` (18 tests), `aiModalTtsEngine.test.tsx` (6 tests) 全件 PASS。
   - `npm run build` でプロダクションビルド成功。
+- **2026-09-24 表示改善**: Step 2 の説明を短縮。Gemini 2.5 Flash TTS（モデル ID `gemini-2.5-flash-preview-tts`）の場面・話し方設定も Gemini 3.8 と同じ枠で示し、Scene / Sample Context は日本語を先に表示する。場面プリセットは2列または3列の均等なグリッドにし、ボタンの高さと先頭位置を揃える。追加音声の英語説明は年齢・人物像・代表的な声質の日本語要約を併記し、全文は一覧カードのホバーと選択中の声のヒントで改行して読めるようにする。API の自由記述は原文を保持する。基本30声と追加音声の可視候補一覧では選択中の声を除き、選択中カードだけで確認できるようにする。
 
 ### 13-260. Gemini 3.8 音声ライブラリの職業・人物像（persona）候補の網羅的日本語・英語併記対応と未翻訳・重複の解消
 
@@ -4825,10 +4828,6 @@ export 終了（成功/失敗/中断）
 - **回帰ガード**:
   - `src/test/gemini38VoiceCategories.test.ts` に Enterprise Agent、Advertising Pitch、Character & Theatrical、Coach / Motivational Guide の全ペルソナパターンを網羅するテストケースを追加し PASS（9/9 tests）。
   - `npm run build` によるプロダクションビルド PASS。
-
-
-
-
 
 
 

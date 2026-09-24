@@ -14,7 +14,7 @@ describe('Gemini 3.8 TTS Interactions API', () => {
 
     expect(request.model).toBe('gemini-3.8-flash-tts');
     expect(request.store).toBe(false);
-    expect(request.response_format).toEqual({ type: 'audio' });
+    expect(request.response_format).toEqual({ type: 'audio', mime_type: 'audio/wav' });
     expect(request.generation_config.speech_config).toEqual([{ voice: 'Aoede' }]);
     expect(request.input[0].content).toEqual([{
       type: 'text',
@@ -41,6 +41,7 @@ describe('Gemini 3.8 TTS Interactions API', () => {
     expect(content[1].annotations).toEqual([{ type: 'speech_metadata', style: 'bright' }]);
     expect(content[0].annotations).toBeUndefined();
     expect(request.model).toBe('gemini-3.8-flash-lite-tts');
+    expect(request.generation_config.speech_config).toEqual([{ voice: 'Kore' }]);
   });
 
   it('Voices API の追加音声 ID をそのまま音声生成へ渡す', () => {
@@ -62,5 +63,27 @@ describe('Gemini 3.8 TTS Interactions API', () => {
     expect(() => readGemini38OutputAudio({ error: { message: '音声がありません' } }))
       .toThrow('音声がありません');
     expect(() => readGemini38OutputAudio({})).toThrow('音声データを取得できませんでした');
+  });
+
+  it('保存データに不正なモデルや空の声があれば生成リクエストを作らない', () => {
+    const input = {
+      engine: 'gemini-3.8-flash-tts' as const,
+      script: 'こんにちは。',
+      voice: 'Kore',
+      tone: 'natural' as const,
+      pace: 'normal' as const,
+      styleDetail: '',
+    };
+    expect(() => buildGemini38TtsRequest({ ...input, engine: 'legacy' as typeof input.engine }))
+      .toThrow('モデル指定が正しくありません');
+    expect(() => buildGemini38TtsRequest({ ...input, voice: '  ' }))
+      .toThrow('声を選択してください');
+  });
+
+  it('API の最終音声を優先して読み取る', () => {
+    expect(readGemini38OutputAudio({
+      output_audio: { data: 'final-wav' },
+      steps: [{ type: 'model_output', content: [{ type: 'audio', data: 'earlier-audio' }] }],
+    })).toBe('final-wav');
   });
 });

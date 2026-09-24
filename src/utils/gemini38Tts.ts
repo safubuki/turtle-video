@@ -30,6 +30,12 @@ export function buildGemini38TtsRequest(input: {
   pace: NarrationTtsPace;
   styleDetail: string;
 }) {
+  if (input.engine !== 'gemini-3.8-flash-tts' && input.engine !== 'gemini-3.8-flash-lite-tts') {
+    throw new Error('Gemini 3.8 TTS のモデル指定が正しくありません。');
+  }
+  if (typeof input.voice !== 'string' || !input.voice.trim()) {
+    throw new Error('Gemini 3.8 TTS の声を選択してください。');
+  }
   const baseStyle = [TONE_STYLES[input.tone], PACE_STYLES[input.pace], input.styleDetail.trim()]
     .filter(Boolean);
   const content: Array<{
@@ -61,7 +67,7 @@ export function buildGemini38TtsRequest(input: {
     model: input.engine,
     store: false,
     input: [{ type: 'user_input' as const, content }],
-    response_format: { type: 'audio' as const },
+    response_format: { type: 'audio' as const, mime_type: 'audio/wav' as const },
     generation_config: { speech_config: [{ voice: input.voice }] },
   };
 }
@@ -78,7 +84,8 @@ export function readGemini38OutputAudio(response: unknown): string {
     .flatMap((step) => step.content ?? [])
     .filter((content) => content.type === 'audio' && typeof content.data === 'string')
     .pop();
-  const encoded = audioContent?.data ?? data?.output_audio?.data ?? data?.outputAudio?.data;
+  const encoded = [data?.output_audio?.data, data?.outputAudio?.data, audioContent?.data]
+    .find((value): value is string => typeof value === 'string' && value.length > 0);
   if (typeof encoded !== 'string' || !encoded) {
     throw new Error(data?.error?.message || '音声データを取得できませんでした。');
   }

@@ -2,6 +2,7 @@ import type { ComponentProps } from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import AiModal from '../components/modals/AiModal';
+import { VOICE_OPTIONS } from '../constants';
 
 describe('AIナレーションの音声エンジン設定', () => {
   afterEach(() => {
@@ -42,6 +43,11 @@ describe('AIナレーションの音声エンジン設定', () => {
     const { rerender } = render(<AiModal {...props} />);
 
     expect(screen.getByText('場面・状況（全体）')).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Gemini 2.5 Flash TTS（既定）' })).toBeInTheDocument();
+    expect(screen.getByText('Gemini 2.5 Flash TTS の設定')).toBeInTheDocument();
+    const sceneButtons = within(screen.getByRole('group', { name: '場面プリセット' })).getAllByRole('button');
+    expect(sceneButtons).toHaveLength(6);
+    expect(sceneButtons.every((button) => button.className.includes('min-h-10 w-full'))).toBe(true);
     expect(screen.queryByText('Gemini 3.8 の話し方')).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole('combobox', { name: '音声エンジン' }), {
       target: { value: 'gemini-3.8-flash-tts' },
@@ -69,6 +75,7 @@ describe('AIナレーションの音声エンジン設定', () => {
         { id: 'voice_news', display_name: 'ニュース用声', type: 'prebuilt', gender: 'female', language_code: 'ja-JP', persona: 'アナウンサー', context: 'ニュース' },
         { id: 'voice_plain', display_name: '分類なしの声', type: 'prebuilt', gender: 'female', language_code: 'ja-JP' },
         { id: 'voice_english', display_name: 'English narrator', type: 'prebuilt', gender: 'male', language_code: 'en-US', persona: 'Narrator', context: 'Audiobook' },
+        { id: 'voice_tutor_6', display_name: 'Tutor 6', description: '22-year-old Tutor from the East Coast. Speaks clearly with a friendly and encouraging tone for long educational conversations.', type: 'prebuilt', gender: 'male', language_code: 'en-US', persona: 'Educational Tutor', context: 'Conversational / Edu' },
         { id: 'voice_french', display_name: 'French narrator', type: 'prebuilt', gender: 'male', language_code: 'fr-FR', persona: 'Narrator', context: 'Audiobook' },
       ] }),
     }));
@@ -77,7 +84,7 @@ describe('AIナレーションの音声エンジン設定', () => {
       isOpen: true, onClose: vi.fn(), aiPrompt: '', aiScript: 'こんにちは。', aiScriptLength: 'short',
       aiVoice: 'Aoede', aiVoiceStyle: '', aiNarrationScene: '', aiTtsEngine: 'gemini-3.8-flash-tts',
       aiTtsTone: 'natural', aiTtsPace: 'normal', aiTtsStyleDetail: '', isAiLoading: false,
-      voiceOptions: [{ id: 'Aoede', label: 'Aoede', desc: '軽やか', gender: 'female', traitEn: 'Breezy' }],
+      voiceOptions: VOICE_OPTIONS,
       onPromptChange: vi.fn(), onScriptChange: vi.fn(), onScriptLengthChange: vi.fn(),
       onVoiceChange, onVoiceStyleChange: vi.fn(), onNarrationSceneChange: vi.fn(),
       onTtsEngineChange: vi.fn(), onTtsToneChange: vi.fn(), onTtsPaceChange: vi.fn(),
@@ -92,6 +99,14 @@ describe('AIナレーションの音声エンジン設定', () => {
     expect(within(voiceSelect).getByRole('option', { name: /分類なしの声/ })).toBeInTheDocument();
     expect(within(voiceSelect).queryByRole('option', { name: /English narrator|French narrator/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '基本の30声' }));
+    fireEvent.click(within(screen.getByRole('group', { name: '声の性別で絞り込み' })).getByRole('button', { name: '男性' }));
+    expect(within(screen.getByRole('listbox', { name: '声の一覧リスト' })).queryByRole('button', { name: /Aoede/ })).not.toBeInTheDocument();
+    expect(within(screen.getByRole('listbox', { name: '声の一覧リスト' })).getByRole('button', { name: /Puck/ })).toBeInTheDocument();
+    expect(screen.getByText('16 件中 16 件表示')).toBeInTheDocument();
+    expect(screen.getByText('選択中')).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole('group', { name: '声の性別で絞り込み' })).getByRole('button', { name: '全て' }));
+    expect(within(screen.getByRole('listbox', { name: '声の一覧リスト' })).queryByRole('button', { name: /Aoede/ })).not.toBeInTheDocument();
+    expect(screen.getByText('29 件中 29 件表示')).toBeInTheDocument();
     expect(within(voiceSelect).queryByRole('option', { name: /追加の日本語声/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '追加音声' }));
     fireEvent.change(screen.getByRole('combobox', { name: '職業・人物像' }), { target: { value: '教師' } });
@@ -103,9 +118,18 @@ describe('AIナレーションの音声エンジン設定', () => {
     expect(within(voiceSelect).queryByRole('option', { name: /広告用の教師声/ })).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole('combobox', { name: '声の選択' }), { target: { value: 'voice_extra' } });
     expect(onVoiceChange).toHaveBeenCalledWith('voice_extra');
+    rerender(<AiModal {...props} aiVoice="voice_extra" />);
+    expect(within(screen.getByRole('listbox', { name: '声の一覧リスト' })).queryByRole('button', { name: /追加の日本語声/ })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByRole('combobox', { name: '言語' }), { target: { value: 'en' } });
     expect(within(voiceSelect).getByRole('option', { name: /English narrator/ })).toBeInTheDocument();
+    const tutorCard = screen.getByRole('button', { name: /Tutor 6/ });
+    expect(tutorCard).toHaveTextContent('22歳・教育・講師・明瞭・親しみやすい・励ますような');
+    expect(tutorCard.title.replace(/\s+/g, ' ')).toContain('long educational conversations.');
+    expect(tutorCard.title).toContain('\n');
+    expect(tutorCard.title.split('\n').every((line) => [...line].reduce(
+      (width, char) => width + (char.codePointAt(0)! > 0xff ? 2 : 1), 0,
+    ) <= 48)).toBe(true);
     expect(within(voiceSelect).queryByRole('option', { name: /追加の日本語声|French narrator/ })).not.toBeInTheDocument();
 
     rerender(<AiModal {...props} aiTtsEngine="legacy" />);
@@ -262,6 +286,6 @@ describe('AIナレーションの音声エンジン設定', () => {
     expect(screen.getByRole('button', { name: '自由入力' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: '指定なし' })).toHaveAttribute('aria-pressed', 'false');
     // 入力欄にスタジオ解説の内容が初期値として引き継がれていること
-    expect(screen.getByPlaceholderText(/Scene（場所）/)).toHaveValue('静かなスタジオ。');
+    expect(screen.getByPlaceholderText(/場面（Scene）/)).toHaveValue('静かなスタジオ。');
   });
 });

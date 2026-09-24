@@ -541,7 +541,7 @@ export function getSectionHelpContent(
         {
           title: 'AI / 追加ボタン',
           description:
-            'AIで好みのナレーションを生成できます。音声エンジンは従来の Gemini TTS、Gemini 3.8 Flash TTS、Flash-Lite TTS から選べます。3.8 では声の雰囲気・速さ・追加の話し方を設定できます。追加音声は日本語・英語、人物像、シーンで絞り込めます。あらかじめ用意した音声ファイルを追加することもできます。',
+            'AIで好みのナレーションを生成できます。音声エンジンは Gemini 2.5 Flash TTS、Gemini 3.8 Flash TTS、Flash-Lite TTS から選べます。3.8 では声の雰囲気・速さ・追加の話し方を設定できます。追加音声は日本語・英語、人物像、シーンで絞り込めます。あらかじめ用意した音声ファイルを追加することもできます。',
           visuals: ['ai_add_button', 'add_green_button'],
         },
         {

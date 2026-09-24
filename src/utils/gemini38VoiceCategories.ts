@@ -773,6 +773,65 @@ export function formatContextLabel(context: string): string {
   return trimmed;
 }
 
+/** API の自由記述は原文を残し、一覧では分類と年齢を日本語でも読めるようにする。 */
+export function formatVoiceDescription(voice: Gemini38Voice): string {
+  const original = voice.description.trim();
+  if (!original) return '';
+  if (containsJapanese(original)) return original;
+
+  const age = original.match(/\b(\d{1,3})-year-old\b/i)?.[1];
+  const persona = formatPersonaLabel(voice.persona).split(' (')[0];
+  const context = formatContextLabel(voice.context).split(' (')[0];
+  const traits: Array<[RegExp, string]> = [
+    [/\bclear(?:ly)?\b/i, '明瞭'],
+    [/\bfriendly\b/i, '親しみやすい'],
+    [/\bencouraging\b/i, '励ますような'],
+    [/\bwarm\b/i, '温かい'],
+    [/\bcalm\b/i, '落ち着いた'],
+    [/\bmeasured\b/i, 'ゆったりした'],
+    [/\bexpressive\b/i, '表現豊か'],
+  ];
+  const summary = [
+    age ? `${age}歳` : '',
+    persona || context,
+    ...traits.filter(([pattern]) => pattern.test(original)).map(([, label]) => label),
+  ].filter(Boolean).join('・');
+  return summary ? `${summary}｜原文: ${original}` : `原文: ${original}`;
+}
+
+/** OS 標準のホバーヒントにも確実に改行が入るよう、語の境界で折り返す。 */
+export function wrapVoiceTooltip(text: string, maxLineLength = 48): string {
+  const lines: string[] = [];
+  let line = '';
+  let width = 0;
+  const charWidth = (char: string) => char.codePointAt(0)! > 0xff ? 2 : 1;
+  for (const word of text.trim().split(/\s+/)) {
+    const wordWidth = [...word].reduce((sum, char) => sum + charWidth(char), 0);
+    if (line && width + 1 + wordWidth > maxLineLength) {
+      lines.push(line);
+      line = '';
+      width = 0;
+    }
+    if (wordWidth <= maxLineLength) {
+      line = line ? `${line} ${word}` : word;
+      width += (width ? 1 : 0) + wordWidth;
+      continue;
+    }
+    for (const char of word) {
+      const nextWidth = charWidth(char);
+      if (width + nextWidth > maxLineLength) {
+        lines.push(line);
+        line = '';
+        width = 0;
+      }
+      line += char;
+      width += nextWidth;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.join('\n');
+}
+
 /**
  * 音声が指定された用途グループにマッチするか判定する（互換用）。
  */
