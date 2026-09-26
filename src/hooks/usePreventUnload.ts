@@ -15,7 +15,7 @@ export const usePreventUnload = () => {
     const captions = useCaptionStore((state) => state.captions);
     const hasWatermark = useOverlayStore((state) => state.watermark.file instanceof File);
     const hasEndroll = useOverlayStore((state) => state.endroll.file instanceof File);
-    const hasVideoTitle = useCaptionStore((state) => state.title.text.trim().length > 0);
+    const hasVideoTitle = Boolean(useCaptionStore((state) => state.title?.text?.trim().length > 0));
     const isApplyingUpdate = useUpdateStore((state) => state.isApplyingUpdate);
 
     useEffect(() => {

@@ -22,6 +22,10 @@ export type SectionHelpVisualId =
   | 'ai_add_button'
   | 'aspect_ratio_toggle'
   | 'watermark_controls'
+  | 'watermark_tab_button'
+  | 'endroll_tab_button'
+  | 'logo_image_select'
+  | 'logo_position_buttons'
   | 'transition_button'
   | 'range_pin_buttons'
   | 'bgm_trim_position_buttons'
@@ -80,12 +84,34 @@ export type SectionHelpVisualId =
   | 'clear_button'
   | 'export_button'
   | 'download_button'
-  | 'slider_demo';
+  | 'slider_demo'
+  | 'folder_button'
+  | 'settings_header_button'
+  | 'project_save_slots'
+  | 'stepper_buttons'
+  | 'continuation_copy_button'
+  | 'image_range_buttons'
+  | 'speed_badge_presets'
+  | 'bgm_fit_end_button'
+  | 'bulk_audio_controls'
+  | 'caption_text_align_controls'
+  | 'caption_sub_row_demo'
+  | 'timing_mode_controls'
+  | 'timeline_seek_bar'
+  | 'export_mode_tabs'
+  | 'export_progress_demo';
+
+export interface SectionHelpBullet {
+  text: string;
+  visuals?: SectionHelpVisualId[];
+}
 
 export interface SectionHelpItem {
   title: string;
+  category?: string;
+  isSubAccordion?: boolean;
   description: string;
-  bullets?: string[];
+  bullets?: Array<string | SectionHelpBullet>;
   facts?: {
     label: string;
     description: string;
@@ -119,779 +145,1381 @@ export interface SectionHelpContext {
 export function getSectionHelpContent(
   context: SectionHelpContext
 ): Record<SectionHelpKey, SectionHelpDefinition> {
+  const flavorSummary = getAppFlavorSupportSummary(context.appFlavor);
   const downloadHelpSentence = getDownloadHelpSentence(context);
-  const appFlavorSupportSummary = getAppFlavorSupportSummary(context.appFlavor);
 
   const content: Record<SectionHelpKey, SectionHelpDefinition> = {
-    app: {
-      title: 'タートルビデオの使い方',
-      subtitle: '',
-      items: [
-        {
-          title: '概要',
-          description: 'タートルビデオは、ブラウザで手軽に使える動画編集ソフトです。',
-          bullets: [
-            'スマホ・PCの画面幅に合わせて表示を最適化します。',
-            'PWAとして利用でき、AI機能を使わない編集はオフラインでも行えます。',
-            'AIナレーションを使って、原稿作成や音声合成を補助できます。',
-            'GPLv3のオープンソースとして、用途に合わせた改変も可能です。',
-          ],
-          note: '旅行や出張の隙間時間から、自宅での本格的な編集までご活用ください🐢',
-        },
-        {
-          title: '主要な機能',
-          description: '素材の追加から動画ファイルの完成まで、次の機能を利用できます。',
-          bullets: [
-            '動画・画像: 追加、並び替え、トリミング、横16:9／縦9:16の切替',
-            '演出: クリップ間トランジション、ウォーターマーク',
-            '音声: 複数BGM、AI／音声ナレーション、波形トリミング',
-            '文字: 動画タイトル、キャプション、一括・個別設定',
-            '仕上げ: 全体波形、無音区間移動、サムネイル、動画ファイル作成',
-            'プロジェクト: 自動保存、手動保存3枠（名前・サムネイル付き）、読み込み',
-          ],
-          note: 'スマホで縦スクロール中にスライダーへ触れた場合は、誤操作と判断した変更を自動的に元へ戻します。数値の −/+ はタップのほか、押し続けると徐々に速く増減します。',
-        },
-        {
-          title: '使い方（5ステップ）',
-          description: '初めてでも、次の5ステップでかんたんに動画を作成できます。',
-          visuals: [
-            'app_step_clips',
-            'app_step_bgm',
-            'app_step_narration',
-            'app_step_caption',
-            'app_step_preview',
-          ],
-        },
-        {
-          title: '動作確認機種',
-          description: '以下の環境で基本動作を確認しています。',
-          facts: [
-            {
-              label: 'スマホ',
-              description: 'Pixel 6a（Android・Chrome）',
-            },
-            {
-              label: 'パソコン',
-              description: 'Windows／Ryzen 5 5500／RTX 3060 12GB',
-            },
-          ],
-          note: `手持ちの機種による確認です。${appFlavorSupportSummary}`,
-        },
-        {
-          title: '注意事項',
-          description:
-            '長い編集や複雑な編集は、動作が不安定になることがあります。手動、自動保存を活用してください。',
-        },
-        {
-          title: 'ライセンス',
-          description: 'タートルビデオは GNU GPLv3 で公開されています。',
-          bullets: [
-            '個人利用や社内利用では、用途に合わせて自由に改変できます。',
-            '改変版を外部へ配布する場合は、ソースコード公開や同ライセンス継承などの条件があります。',
-            '正確な条件は README と LICENSE を確認してください。',
-          ],
-          accordions: [
-            {
-              title: '使用ライセンス一覧（本番依存 / 直接）',
-              items: [
-                '@tailwindcss/postcss (^4.1.18): MIT',
-                'lucide-react (^0.563.0): ISC',
-                'mp4-muxer (^5.2.2): MIT',
-                'react (^19.2.4): MIT',
-                'react-dom (^19.2.4): MIT',
-                'zustand (^5.0.10): MIT',
-              ],
-            },
-            {
-              title: '使用ライセンス一覧（開発依存 / 直接）',
-              items: [
-                '@testing-library/jest-dom (^6.9.1): MIT',
-                '@testing-library/react (^16.3.2): MIT',
-                '@testing-library/user-event (^14.6.1): MIT',
-                '@types/react (^19.2.10): MIT',
-                '@types/react-dom (^19.2.3): MIT',
-                '@typescript-eslint/eslint-plugin (^8.54.0): MIT',
-                '@typescript-eslint/parser (^8.54.0): MIT',
-                '@vitejs/plugin-react (^5.1.2): MIT',
-                'autoprefixer (^10.4.23): MIT',
-                'eslint (^9.39.2): MIT',
-                'eslint-config-prettier (^10.1.8): MIT',
-                'jsdom (^27.4.0): MIT',
-                'postcss (^8.5.6): MIT',
-                'prettier (^3.8.1): MIT',
-                'sharp (^0.34.5): Apache-2.0',
-                'tailwindcss (^4.1.18): MIT',
-                'typescript (^5.9.3): Apache-2.0',
-                'vite (^7.3.1): MIT',
-                'vite-plugin-pwa (^1.2.0): MIT',
-                'vitest (^4.0.18): MIT',
-              ],
-            },
-            {
-              title: '使用ライセンス一覧（間接依存を含む集計）',
-              items: [
-                '調査範囲: node_modules のユニークパッケージ 537 件',
-                'MIT: 463件',
-                'Apache-2.0: 21件',
-                'ISC: 21件',
-                'BSD-2-Clause: 11件',
-                'BSD-3-Clause: 6件',
-                'BlueOak-1.0.0: 4件',
-                'MIT-0: 2件',
-                'MPL-2.0: 2件',
-                'Apache-2.0 AND LGPL-3.0-or-later: 1件',
-                'Python-2.0: 1件',
-                'CC-BY-4.0: 1件',
-                '(AFL-2.1 OR BSD-3-Clause): 1件',
-                'CC0-1.0: 1件',
-                '0BSD: 1件',
-                '(MIT OR CC0-1.0): 1件',
-              ],
-            },
-          ],
-        },
-      ],
-    },
-    clips: {
-      title: '動画・画像の使い方',
-      subtitle: '素材の追加、並び替え、表示調整をこのセクションで行います。',
-      items: [
-        {
-          title: '動画の形式（横16:9／縦9:16）',
-          description:
-            'セクション右上の横画面・縦画面アイコンで、プレビューと書き出しの形式を切り替えます。横は16:9、縦は9:16です。縦画面では横長素材の左右を切り取って枠いっぱいに表示し、位置・サイズ調整で見せたい範囲を整えられます。形式はプロジェクトごとに保存されます。',
-          note: '縦画面ではキャプション・タイトルの文字サイズが横画面と同程度になり、下部の既定位置もやや上に配置されます。',
-          visuals: ['aspect_ratio_toggle'],
-        },
-        {
-          title: '全体設定',
-          description: '動画・画像のいちばん上で、タイトル・ロゴ・音声をまとめて開きます。',
-          bullets: [
-            '初期状態は閉じています。開くと「タイトル」「ロゴ表示」「音声 一括設定」が並びます。',
-            'タイトルは主タイトルとサブタイトルを別々に複数行で書けます。文字の見た目はそれぞれ設定でき、背景の帯は2つをまとめて囲みます。帯の幅は長い方の文字に合わせます。',
-          ],
-        },
-        {
-          title: 'ロゴ表示（ウォーターマーク / エンドロール）',
-          description:
-            '動画・画像一覧の先頭にある「ロゴ表示」（開いて設定）から操作します。上部のタブで「ウォーターマーク」（映像に重ねる）と「エンドロール」（動画の後に続ける）を切り替えます。位置・倍率・透過度・回転・マスク・フェードの操作は共通で、画像と設定はそれぞれ別に保存されます。',
-          bullets: [
-            'タブには設定状態が表示されます（未設定は「指定なし」、設定済みはロゴの縮小表示）。',
-            '「画像を選択」で PNG・JPEG・WebP を追加します。',
-            '表示する時間、位置、倍率、透過度、回転、マスク、周辺ぼかしを調整できます。',
-            '【ウォーターマーク】「表示する区間」で「本編のみ」（既定）と「全編（エンドロール含む）」を選べます。全編にするとエンドロールにもロゴが重なり、終了時間をエンドロールの末尾まで指定できます。',
-            '位置は「左下・右下・中央・左上・右上」から簡単に選べます。',
-            '位置の数値は動画・画像・キャプションと共通で、画面中央が 0、横は右が＋、縦は上が＋です（-100〜+100%）。',
-            'フェードイン／フェードアウトは動画と同じく 0.5・1・2 秒で設定でき、表示する時間の開始・終了に合わせてかかります。本編のみのときは本編の終わりでフェードアウトします。',
-            '非表示にしても画像と設定は保持され、くるくるアイコンで各項目を初期値へ戻せます。',
-            '【エンドロール】動画の再生が終わった後に、単色背景でロゴを表示します。設定した長さのぶん動画が長くなります（例: 12秒の動画に5秒のエンドロールで17秒）。',
-            '【エンドロール】長さは 0.5〜30 秒、背景色は黒・白・カスタム（既定は黒）から選べます。',
-            '【エンドロール】「エンドロール中に BGM を徐々に消す」をONにすると、エンドロールの長さをかけて BGM の音量が 0 まで下がります。BGM 未設定のときは選べません。',
-            '【エンドロール】区間中もキャプションを追加・表示できます。開始と終了をエンドロールの時間に合わせます。ウォーターマークは「本編のみ」（既定）では出ず、「全編」のときだけ重なります。',
-            '重ね順は 映像 → ウォーターマーク → キャプション です。字幕はロゴより手前に表示されます。',
-          ],
-          visuals: [
-            'watermark_controls',
-            'range_pin_buttons',
-            'reset_button',
-            'slider_demo',
-            'fade_in_checkbox',
-            'fade_out_checkbox',
-          ],
-        },
-        {
-          title: '音声 一括設定（ミュート / 一括音量 / 音量揃え）',
-          description:
-            'ロゴ表示の下にある「音声 一括設定」（開いて設定）から、動画カードの音をまとめて扱えます。',
-          bullets: [
-            '「一括ミュート」にチェックを入れると、すべての動画をミュートします。動画がまだ無くても先に有効にでき、あとから追加した動画にもすぐ適用します。',
-            '画像は音声がないため対象外です。個別ミュートと同じ設定なので、プレビューと書き出しの両方に効きます。',
-            '「一括音量設定」にチェックを入れるとスライダーが有効になり、すべての動画を同じ音量に揃えます。',
-            'チェックを外すと、各カードの音量スライダーで個別に調整できます。',
-            '「音量を揃える」はカードごとの音の大小を合わせます。合わせ方は「平均に揃える」と「最大に揃える」から選べます。',
-            '平均に揃えると、小さい音は上げ、大きい音は下げます。極端に小さい動画が多いと全体が小さめに寄ります。',
-            '最大に揃えると、小さい音だけ上げ、大きい音はそのままです。',
-            '揃え中は各動画の補正量（例: +3.2 dB）が表示されます。ファイルが多いときは約5件まで表示し、残りはスクロールします。',
-            '動画を減らして1本になっても設定は有効のままです。あとから追加した動画にも一括音量と音量揃えがそのまま適用されます。',
-            '一括音量と音量揃えは同時に使えます。スライダー値が基準で、その上に揃えの補正が乗ります。',
-          ],
-          visuals: ['slider_demo', 'fade_in_checkbox'],
-        },
-        {
-          title: '再生速度（0.5〜8.0倍）',
-          description:
-            '各動画カードの「再生速度」から、0.5〜8.0倍を0.1倍刻みで調整できます。',
-          bullets: [
-            'スライダーと −/+ で 0.5〜8.0 倍を設定します。−/+ は押し続けると徐々に速くなります。等倍・0.5倍・2倍などのショートカットもあります。',
-            'タイムラインの表示尺は「元の長さ ÷ 倍率」になります（2倍なら半分、0.5倍なら2倍の長さ）。',
-            '「プレビュー/書き出しに速度を表示」は等倍でもチェックできます。先に位置を決めてから速度を変えたいときに使います。',
-            '映像と書き出しには、等倍以外のときだけバッジを出します。位置の既定は四隅から9%内側です。',
-            '動画にフェードイン／フェードアウトを設定すると、速度バッジも映像と同じタイミングで徐々に表示／非表示になります。',
-          ],
-          visuals: ['slider_demo'],
-        },
-        {
-          title: '追加ボタン',
-          description: '動画・画像ファイルを複数選択して一括追加できます。',
-          visuals: ['add_green_button'],
-        },
-        {
-          title: 'セクションの鍵アイコン',
-          description: 'セクション全体をロックして誤操作を防止できます。',
-          visuals: ['unlock_button', 'lock_button_red'],
-        },
-        {
-          title: '並び替え・コピー・削除',
-          description:
-            '各クリップは上下移動と削除ができます。青いコピーボタンで同じクリップを直後に複製でき、同じ動画から別のシーンを切り出すときに便利です（Android/PC版）。',
-          bullets: [
-            '同じ区間の複製は青いコピーボタンです。',
-            '終了が素材終端より前のときは、トリミング欄の「続きを追加コピー」で残りを直後のクリップにできます（Android/PC版）。',
-          ],
-          visuals: ['move_up_button', 'move_down_button', 'delete_button'],
-        },
-        {
-          title: 'セクションの開閉',
-          description: '見出しを押すと、BGMなどと同じようにセクションを開閉できます。',
-          bullets: [
-            '起動時に動画・画像が無いときは閉じています。',
-            '保存したプロジェクトに動画・画像があるときは開いています。',
-            'ファイルを追加したときも開きます。',
-          ],
-        },
-        {
-          title: 'カードの折りたたみ',
-          description:
-            'カードの開閉ボタンかファイル名を押すと、PCでもスマホでも開閉できます。プレビュー位置のカードには枠が付きます。',
-          bullets: [
-            '番号はサムネイル左上にあり、右側に開閉・ロック・上下移動・コピー・削除、ファイル名、時間・秒数・倍率を並べています。開いたときも同じ場所で確認できます。',
-            '閉じたままで上下移動、コピー、削除ができます。サムネイルを押すと拡大し、カードは開閉しません。',
-            '再生中は枠だけが移動します。終端で止まってもカードは開きません。プレビューのスライダーを動かすと、その位置のカードが開きます。スマホでは画面をカードへスクロールせず、プレビューに留まります。',
-            '2枚以上あるとき、見出しの下に「すべて開く」「すべて閉じる」があります。',
-          ],
-        },
-        {
-          title: 'トランジション（Android/PC版）',
-          description:
-            '「トランジション」から効果と時間（0.5〜2秒）を設定できます。再生中に開くと安全な反映のため一時停止します。',
-          bullets: [
-            'ディゾルブはクリップを重ねるぶん動画全体が短くなり、フェードは長さを変えません。',
-            'プレビュー再生バーでは、影響範囲と強さを紫のグラデーションで確認でき、フェード境界は実際の黒／白に変わります。',
-          ],
-          visuals: ['transition_button'],
-        },
-        {
-          title: '個別パネルの鍵',
-          description: '各クリップだけを個別にロックできます。',
-          visuals: ['item_unlock_chip', 'item_lock_chip'],
-        },
-        {
-          title: '表示区間（動画：トリミング／画像：表示時間）',
-          description: '動画はトリミング、画像は表示時間を設定します。',
-          bullets: [
-            'Android/PC版では、「開始」「終了」でプレビューの現在位置を動画のトリミング範囲へ反映できます。',
-            '終了が素材の終端より前なら、「続きを追加コピー」でその終了から素材終端までのクリップを直後に作れます。',
-            '再トリミング時も、現在の有効区間を基準に計算します。',
-            '動画・画像とも、スライダーからも時間を調整できます。',
-            '終了の数値はプレビューと同じ 1/100 秒です。右端や＋で末尾まで動かすと実尺へ合わせます。',
-            '画像の表示時間は 0.5秒〜60秒で、0.1秒単位で調整できます。',
-            'Android/PC版の画像は、プレビュー位置が現在の末尾より先なら「ここまで延長」、画像の表示区間内なら「ここまで短縮」で表示終了位置を合わせられます。',
-          ],
-          visuals: ['trim_chip', 'duration_chip', 'range_pin_buttons', 'slider_demo'],
-        },
-
-        {
-          title: '位置・サイズ・回転・ぼかし調整',
-          description: '折りたたみを開くと、カードごとの見た目を調整できます。',
-          facts: [
-            {
-              label: '位置・サイズ',
-              description:
-                '拡大縮小と 横／縦 の位置をスライダーで調整します。位置は画面中央が 0 で、横は右が＋、縦は上が＋です（-100〜+100%）。ロゴ・キャプションと共通の指定方法です。',
-            },
-            {
-              label: '回転',
-              description: '「90°回転」を押すたびに 0°→90°→180°→270° と切り替わります。',
-            },
-            {
-              label: 'ぼかし',
-              description: '0〜30px。背景素材などを柔らかく見せたいときに使います。',
-            },
-            {
-              label: '元に戻す',
-              description: 'くるくるアイコンで項目ごとに初期値へ戻せます。',
-            },
-          ],
-          visuals: [
-            'blackbar_toggle_chip',
-            'scale_chip',
-            'position_chip',
-            'blur_chip',
-            'rotate_button',
-            'reset_button',
-            'slider_demo',
-          ],
-        },
-        {
-          title: '音量・フェード設定',
-          description:
-            'この項目は折りたたみ表示です。開くとスピーカーでミュート切替、くるくるアイコンでデフォルト値に戻せます。動画・画像のフェードはチェックON時のみ有効で、秒数は0.5秒・1秒・2秒の3つから設定できます。',
-          visuals: [
-            'volume_chip',
-            'mute_button',
-            'reset_button',
-            'fade_in_checkbox',
-            'fade_out_checkbox',
-            'slider_demo',
-          ],
-        },
-      ],
-    },
-    bgm: {
-      title: 'BGMの使い方',
-      subtitle: 'BGMの追加、配置、音量、フェードを細かく調整できます。',
-      items: [
-        {
-          title: '追加ボタン',
-          description: 'BGMファイルを追加できます。',
-          visuals: ['add_green_button'],
-        },
-        {
-          title: '複数のBGM（Android/PC版）',
-          description: '複数の曲を追加し、シーンごとにBGMを切り替えられます。',
-          bullets: [
-            'タイトル右側の「(n件)」で登録数を確認できます。',
-            '動画終端より後から始まる曲は一時的に無効になり、動画尺が戻ると復元されます。',
-            '「設定を末尾に固定」は、開始・終了の設定値そのものを書き換えるときに使います。',
-            'フェードアウトは、実際に再生される有効終端を基準にかかります。',
-          ],
-          comparison: {
-            caption: 'BGMの自動調整 ON・OFF の違い',
-            rows: [
-              {
-                label: 'ON',
-                description:
-                  '設定値は残したまま、最後の曲の有効区間を動画末尾に合わせます。既定はこちらです。',
-              },
-              {
-                label: 'OFF',
-                description:
-                  '設定した区間だけ再生します。動画が長くなってもBGMを延長しません。',
-              },
-            ],
+  "app": {
+    "title": "タートルビデオの使い方",
+    "subtitle": "",
+    "items": [
+      {
+        "title": "概要",
+        "category": "はじめに",
+        "description": "ブラウザ上で手軽に本格的な動画編集ができるWebアプリケーションです。",
+        "bullets": [
+          "スマホ・PC両対応: 画面幅に合わせて最適なレイアウトで操作できます。",
+          "完全ローカル処理: AI機能以外の編集・プレビュー・書き出しはオフラインでも動作します。",
+          "AIナレーション対応: 原稿作成や高品質な音声合成をスムーズに行えます。",
+          "オープンソース: GPLv3ライセンスで公開されています。"
+        ],
+        "note": "旅行や出張の隙間時間から、自宅での本格的な編集までご活用ください🐢"
+      },
+      {
+        "title": "主要な機能",
+        "category": "はじめに",
+        "description": "素材の追加から動画ファイルの完成まで、次の機能を利用できます。",
+        "bullets": [
+          "動画・画像: 追加、並び替え、トリミング、横16:9／縦9:16の切替",
+          "演出: クリップ間トランジション、ウォーターマーク・エンドロール",
+          "音声: 複数BGM、AI／音声ナレーション、波形トリミング、音声一括設定",
+          "文字: 動画タイトル、キャプション、一括・個別スタイル設定、時分割",
+          "仕上げ: 全体波形、無音区間移動、サムネイル、動画ファイル作成",
+          "プロジェクト: 自動保存、手動保存3枠（名前・サムネイル付き）、読み込み"
+        ],
+        "note": "スマホで縦スクロール中にスライダーへ触れた場合は、誤操作と判断した変更を自動的に元へ戻します。数値の −/+ はタップのほか、押し続けると徐々に速く増減します。"
+      },
+      {
+        "title": "使い方（5ステップ）",
+        "category": "はじめに",
+        "description": "初めてでも、次の5ステップでかんたんに動画を作成できます。",
+        "visuals": [
+          "app_step_clips",
+          "app_step_bgm",
+          "app_step_narration",
+          "app_step_caption",
+          "app_step_preview"
+        ]
+      },
+      {
+        "title": "プロジェクトの保存・読み込み",
+        "category": "全体設定・保存",
+        "description": "編集中のデータを端末内に保存し、いつでも前回の作業状態を復元できます。",
+        "bullets": [
+          "手動保存: 3枠（①〜③）に名前・サムネイル付きで保存し、複数パターンを管理できます。",
+          "自動保存: 編集内容を定期的に（1分・2分・5分・オフから選択）自動でバックアップします。",
+          "読み込み: 一覧からプロジェクトを選ぶだけで、素材や配置を即座に復元します。"
+        ],
+        "visuals": [
+          "folder_button",
+          "project_save_slots"
+        ]
+      },
+      {
+        "title": "全体設定（APIキー・画質・オフライン）",
+        "category": "全体設定・保存",
+        "description": "AI連携や書き出し品質など、アプリ全体の動作環境を設定できます。",
+        "bullets": [
+          "Gemini APIキー: AIナレーション生成に必要なAPIキーを設定・変更できます。",
+          "書き出し解像度: 自動、フルHD(1080p)、HD(720p)、SD(480p)から選択できます。",
+          "オフラインモード: 通信量を抑えたい場合や機内などでは通信を遮断して利用できます。"
+        ],
+        "visuals": [
+          "settings_header_button"
+        ]
+      },
+      {
+        "title": "操作の基本（長押し増減・スワイプ保護）",
+        "category": "基本操作・情報",
+        "description": "スライダーや数値入力を快適かつ安全に行うための操作補助機能です。",
+        "bullets": [
+          {
+            "text": "長押し増減: ＋／−ボタンを長押しすると、数値が段階的に加速して素早く増減できます。",
+            "visuals": [
+              "stepper_buttons"
+            ]
           },
-          visuals: ['bgm_count_label', 'bgm_auto_adjust_toggle', 'copy_button'],
-        },
-        {
-          title: 'BGMのトリミング（Android/PC版）',
-          description:
-            '「トリミング設定」を開き、プレビューで現在流れているBGMの音源位置を「開始設定」または「終了設定」で反映できます。',
-          bullets: [
-            '「開始設定」を押しても、動画タイムライン上のBGM配置開始は移動しません。',
-            '対象のBGMが流れていない位置では、開始・終了ボタンを押せません。',
-            'スライダーや数値入力によるトリミングの微調整も引き続き利用できます。',
-          ],
-          visuals: ['bgm_trim_position_buttons'],
-        },
-        {
-          title: 'セクションの鍵アイコン',
-          description: 'BGM設定をロックして誤操作を防止できます。',
-          visuals: ['unlock_button', 'lock_button_red'],
-        },
-        {
-          title: 'パネル内の削除',
-          description: 'BGMを削除する場合は、パネル内のゴミ箱ボタンを使います。',
-          visuals: ['delete_button'],
-        },
-        {
-          title: '開始位置・開始タイミング（遅延）',
-          description:
-            'BGM内の開始位置と、動画タイムライン上の開始タイミング（遅延）を設定できます。',
-          visuals: ['start_chip', 'delay_chip', 'slider_demo'],
-        },
-        {
-          title: '音声 一括設定（ミュート / 一括音量 / 音量揃え）',
-          description:
-            'リスト先頭の「音声 一括設定」（開いて設定）から、BGMの音をまとめて扱えます。',
-          bullets: [
-            'この設定はBGMカテゴリの曲だけに効きます。動画やナレーションには影響しません。',
-            '「一括ミュート」にチェックを入れると、すべてのBGMをミュートします。曲がまだ無くても先に有効にでき、あとから追加したBGMにもすぐ適用します。',
-            '「一括音量設定」で全曲の音量を同じ値に揃え、「音量を揃える」で曲ごとの大小を「平均に揃える」または「最大に揃える」から選べます。',
-          ],
-          visuals: ['slider_demo', 'fade_in_checkbox'],
-        },
-        {
-          title: '音量調整',
-          description:
-            '音量を調整し、スピーカーアイコンでミュートON/OFF切替、くるくるアイコンでデフォルト値に戻せます。',
-          visuals: ['volume_chip', 'mute_button', 'reset_button', 'slider_demo'],
-        },
-        {
-          title: 'フェード設定',
-          description:
-            'チェックを入れるとフェードイン/フェードアウトが有効になり、秒数は0.5秒・1秒・2秒の3つから設定できます。',
-          visuals: ['fade_in_checkbox', 'fade_out_checkbox', 'slider_demo'],
-        },
-      ],
-    },
-    narration: {
-      title: 'ナレーションの使い方',
-      subtitle: 'AIボタンと追加ボタンを使って、複数のナレーションを重ねて管理します。',
-      items: [
-        {
-          title: 'AI / 追加ボタン',
-          description:
-            'AIで好みのナレーションを生成できます。音声エンジンは Gemini 2.5 Flash TTS、Gemini 3.8 Flash TTS、Flash-Lite TTS から選べます。3.8 では声の雰囲気・速さ・追加の話し方を設定できます。追加音声は日本語・英語、人物像、シーンで絞り込めます。あらかじめ用意した音声ファイルを追加することもできます。',
-          visuals: ['ai_add_button', 'add_green_button'],
-        },
-        {
-          title: 'タイトルの登録件数',
-          description:
-            'ナレーションを登録すると、タイトル右側の「(n件)」で現在の登録数を確認できます。',
-          visuals: ['narration_count_label'],
-        },
-        {
-          title: 'セクションの鍵アイコン',
-          description: 'ナレーションの追加・削除・調整をロックできます。',
-          visuals: ['unlock_button', 'lock_button_red'],
-        },
-        {
-          title: 'コピー（Android/PC版）',
-          description:
-            '青いコピーボタンでナレーションを複製できます。複製はトリミング後の末尾に続けて配置されるので、長い音声を分割して好きなタイミングに配置するときに便利です。',
-          visuals: ['copy_button'],
-        },
-        {
-          title: '並び替え・編集・削除・保存',
-          description:
-            '各ナレーションを上下移動、編集、削除できます。保存ボタンを使うと、AIで生成したナレーションをパソコンやスマホに保存できます。' +
-            `${downloadHelpSentence}`,
-          visuals: [
-            'move_up_button',
-            'move_down_button',
-            'edit_button',
-            'delete_button',
-            'save_button',
-          ],
-        },
-        {
-          title: 'AI原稿からキャプションカードを追加',
-          description: 'AIナレーションの原稿から、編集可能な通常キャプションを作成します。',
-          facts: [
+          {
+            "text": "スライダー操作: 微細な調整はスライダーを左右にドラッグして直感的に行えます。",
+            "visuals": [
+              "slider_demo"
+            ]
+          }
+        ],
+        "visuals": []
+      },
+      {
+        "title": "動作確認機種",
+        "category": "基本操作・情報",
+        "description": "以下の環境で基本動作を確認しています。",
+        "facts": [
+          {
+            "label": "スマホ",
+            "description": "Pixel 6a（Android・Chrome）"
+          },
+          {
+            "label": "パソコン",
+            "description": "Windows／Ryzen 5 5500／RTX 3060 12GB"
+          }
+        ],
+        "note": `手持ちの機種による確認です。${flavorSummary}`
+      },
+      {
+        "title": "注意事項",
+        "category": "基本操作・情報",
+        "description": "長い編集や複雑な編集は、動作が不安定になることがあります。手動、自動保存を活用してください。"
+      },
+      {
+        "title": "ライセンス",
+        "category": "基本操作・情報",
+        "description": "タートルビデオは GNU GPLv3 で公開されています。",
+        "bullets": [
+          "個人利用や社内利用では、用途に合わせて自由に改変できます。",
+          "改変版を外部へ配布する場合は、ソースコード公開や同ライセンス継承などの条件があります。",
+          "正確な条件は README と LICENSE を確認してください。"
+        ],
+        "accordions": [
+          {
+            "title": "使用ライセンス一覧（本番依存 / 直接）",
+            "items": [
+              "@tailwindcss/postcss (^4.1.18): MIT",
+              "lucide-react (^0.563.0): ISC",
+              "mp4-muxer (^5.2.2): MIT",
+              "react (^19.2.4): MIT",
+              "react-dom (^19.2.4): MIT",
+              "zustand (^5.0.10): MIT"
+            ]
+          },
+          {
+            "title": "使用ライセンス一覧（開発依存 / 直接）",
+            "items": [
+              "@testing-library/jest-dom (^6.9.1): MIT",
+              "@testing-library/react (^16.3.2): MIT",
+              "@testing-library/user-event (^14.6.1): MIT",
+              "@types/react (^19.2.10): MIT",
+              "@types/react-dom (^19.2.3): MIT",
+              "@typescript-eslint/eslint-plugin (^8.54.0): MIT",
+              "@typescript-eslint/parser (^8.54.0): MIT",
+              "@vitejs/plugin-react (^5.1.2): MIT",
+              "autoprefixer (^10.4.23): MIT",
+              "eslint (^9.39.2): MIT",
+              "eslint-config-prettier (^10.1.8): MIT",
+              "jsdom (^27.4.0): MIT",
+              "postcss (^8.5.6): MIT",
+              "prettier (^3.8.1): MIT",
+              "sharp (^0.34.5): Apache-2.0",
+              "tailwindcss (^4.1.18): MIT",
+              "typescript (^5.9.3): Apache-2.0",
+              "vite (^7.3.1): MIT",
+              "vite-plugin-pwa (^1.2.0): MIT",
+              "vitest (^4.0.18): MIT"
+            ]
+          },
+          {
+            "title": "使用ライセンス一覧（間接依存を含む集計）",
+            "items": [
+              "調査範囲: node_modules のユニークパッケージ 537 件",
+              "MIT: 463件",
+              "Apache-2.0: 21件",
+              "ISC: 21件",
+              "BSD-2-Clause: 11件",
+              "BSD-3-Clause: 6件",
+              "BlueOak-1.0.0: 4件",
+              "MIT-0: 2件",
+              "MPL-2.0: 2件",
+              "Apache-2.0 AND LGPL-3.0-or-later: 1件",
+              "Python-2.0: 1件",
+              "CC-BY-4.0: 1件",
+              "(AFL-2.1 OR BSD-3-Clause): 1件",
+              "CC0-1.0: 1件",
+              "0BSD: 1件",
+              "(MIT OR CC0-1.0): 1件"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "clips": {
+    "title": "動画・画像の使い方",
+    "subtitle": "素材の追加、並び替え、表示調整をこのセクションで行います。",
+    "items": [
+      {
+        "title": "追加ボタン",
+        "category": "セクションヘッダー（形式・ロック・追加）",
+        "description": "動画・画像ファイルを複数選択して一括追加します。",
+        "visuals": [
+          "add_green_button"
+        ]
+      },
+      {
+        "title": "動画の形式（横16:9／縦9:16）",
+        "category": "セクションヘッダー（形式・ロック・追加）",
+        "description": "用途に合わせて動画の縦横比を切り替えます。形式はプロジェクトごとに保存されます。",
+        "bullets": [
+          "YouTube・PC動画向け: 横16:9",
+          "ショート・Reels・TikTok向け: 縦9:16（横長素材の左右を自動トリミング）"
+        ],
+        "note": "縦画面ではキャプション・タイトルの文字サイズが横画面と同程度になり、下部位置もやや上に配置されます。",
+        "visuals": [
+          "aspect_ratio_toggle"
+        ]
+      },
+      {
+        "title": "セクションの鍵アイコン",
+        "category": "セクションヘッダー（形式・ロック・追加）",
+        "description": "セクション全体をロックして誤操作を防止します。",
+        "visuals": [],
+        "bullets": [
+          {
+            "text": "ロック解除（通常時）: 素材の追加や編集を自由に行えます。",
+            "visuals": [
+              "unlock_button"
+            ]
+          },
+          {
+            "text": "ロック中: 誤操作を防ぐため、セクション全体の編集を保護します。",
+            "visuals": [
+              "lock_button_red"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "タイトル（オープニングタイトル）",
+        "category": "全体設定（タイトル・ロゴ・音声一括）",
+        "description": "動画冒頭に表示する主タイトル・サブタイトルを設定します。",
+        "bullets": [
+          {
+            "text": "タイトルと帯プレビュー: 主タイトルとサブタイトルをそれぞれ改行を含めて入力可能。半透明の黒帯で視認性を高めます。",
+            "visuals": [
+              "video_title_accordion"
+            ]
+          },
+          {
+            "text": "表示時間: 冒頭から何秒間表示するかを指定します。",
+            "visuals": [
+              "duration_chip"
+            ]
+          }
+        ],
+        "visuals": []
+      },
+      {
+        "title": "ロゴ表示（ウォーターマーク / エンドロール）",
+        "category": "全体設定（タイトル・ロゴ・音声一括）",
+        "description": "著作権保護の透かしロゴや、動画末尾のエンドロールを設定します（ウォーターマークとエンドロールは両方設定可能です）。",
+        "bullets": [
+          {
+            "text": "ウォーターマーク: 本編または全編に透過ロゴを常時重ねて表示（無断転載防止・認知向上）。",
+            "visuals": [
+              "watermark_tab_button",
+              "logo_image_select"
+            ]
+          },
+          {
+            "text": "エンドロール: 動画末尾に単色背景でロゴを表示（0.5〜30秒延長）。区間中もキャプションを追加・表示できます。",
+            "visuals": [
+              "endroll_tab_button",
+              "range_pin_buttons"
+            ]
+          },
+          {
+            "text": "調整項目: 位置（四隅・中央）、倍率、透過度、回転、周辺ぼかし、フェード時間。",
+            "visuals": [
+              "logo_position_buttons",
+              "reset_button",
+              "fade_in_checkbox",
+              "fade_out_checkbox"
+            ]
+          }
+        ],
+        "visuals": []
+      },
+      {
+        "title": "音声 一括設定（ミュート / 一括音量 / 音量揃え）",
+        "category": "全体設定（タイトル・ロゴ・音声一括）",
+        "description": "すべての動画・画像クリップの音量バランスやミュート状態を一括管理します。",
+        "bullets": [
+          "一括ミュート: すべての動画を一括で消音。動画がまだ無くても先に有効にでき、あとから追加した動画にもすぐ適用します。",
+          "一括音量設定: すべての動画を同じ音量（%）に統一します。",
+          "音量を揃える: 動画ごとの音の大小を自動で均一化（平均に揃える / 最大に揃えるから選択）。残りはスクロールします。"
+        ],
+        "visuals": [
+          "bulk_audio_controls"
+        ]
+      },
+      {
+        "title": "並び替え・コピー・削除",
+        "category": "動画・画像カードの設定",
+        "description": "クリップの再生順序の変更、複製、削除を行います。",
+        "bullets": [
+          {
+            "text": "上下移動: クリップの再生順序を入れ替えます。",
+            "visuals": [
+              "move_up_button",
+              "move_down_button"
+            ]
+          },
+          {
+            "text": "コピー: 同じ動画から別のシーンを切り出す際、直後に複製します（Android/PC版）。「続きを追加コピー」も利用できます。",
+            "visuals": [
+              "copy_button"
+            ]
+          },
+          {
+            "text": "削除: 不要なクリップをタイムラインから除外します。",
+            "visuals": [
+              "delete_button"
+            ]
+          }
+        ],
+        "visuals": []
+      },
+      {
+        "title": "個別パネルの鍵",
+        "category": "動画・画像カードの設定",
+        "description": "各クリップだけを個別にロックし、誤編集を防止します。",
+        "visuals": [],
+        "bullets": [
+          {
+            "text": "通常時: クリップの各種調整を行えます。",
+            "visuals": [
+              "item_unlock_chip"
+            ]
+          },
+          {
+            "text": "ロック時: このクリップの誤操作を個別に防ぎます。",
+            "visuals": [
+              "item_lock_chip"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "続きを追加コピー（Android/PC版）",
+        "category": "動画・画像カードの設定",
+        "description": "トリミング終了点から素材終端までを、直後のクリップとしてワンタップで複製します。",
+        "bullets": [
+          "長尺動画から複数の見どころを順番に切り出す際に便利です。",
+          "素材ファイルを再度選んで読み込む手間が省けます。"
+        ],
+        "visuals": [
+          "continuation_copy_button"
+        ]
+      },
+      {
+        "title": "トランジション（Android/PC版）",
+        "category": "動画・画像カードの設定",
+        "description": "クリップ間の切り替え効果（ディゾルブ・フェード）と時間（0.5〜2秒）を設定します。",
+        "bullets": [
+          "ディゾルブ: 前後のクリップを重ねて滑らかに繋ぎます（動画全体が少し短縮）。",
+          "フェード: 黒または白を挟んでシーン転換します（全体の長さは変わりません）。"
+        ],
+        "visuals": [
+          "transition_button"
+        ]
+      },
+      {
+        "title": "表示区間（動画：トリミング／画像：表示時間）",
+        "category": "動画・画像カードの設定",
+        "description": "素材の再生区間や表示秒数を設定します。",
+        "bullets": [
+          {
+            "text": "動画（トリミング）: 開始点・終了点をスライダーや−/＋で設定。「開始」「終了」ボタンでプレビュー位置を一発反映。終了を右端まで動かすと素材の実尺へ合わせます。",
+            "visuals": [
+              "trim_chip"
+            ]
+          },
+          {
+            "text": "画像（表示時間）: 0.5〜60秒の表示時間を設定。「ここまで延長」「ここまで短縮」でプレビュー位置に末尾を合わせられます。スライダーは0.5秒単位、＋−ボタンは0.1秒単位で調整できます。",
+            "visuals": [
+              "duration_chip",
+              "image_range_buttons"
+            ]
+          },
+          {
+            "text": "続きを追加コピー: トリミング終了点から素材末尾までを、直後のクリップとしてワンタップで複製できます（Android/PC版）。",
+            "visuals": [
+              "continuation_copy_button"
+            ]
+          }
+        ],
+        "visuals": []
+      },
+      {
+        "title": "クリップ一覧とサムネイル確認",
+        "category": "動画・画像カードの設定",
+        "description": "プレビュー再生との連動枠線や、サムネイルの拡大確認が行えます。",
+        "bullets": [
+          "再生連動: プレビューのシーク位置にあるクリップの枠線が強調表示されます。",
+          "サムネイルタップ: 素材の拡大プレビューを表示し、内容を素早く確認できます。",
+          "一括開閉: クリップが複数ある場合は「すべて開く」「すべて閉じる」で表示を整理できます。"
+        ]
+      },
+      {
+        "title": "位置・サイズ・回転・ぼかし調整",
+        "category": "動画・画像カードの設定",
+        "isSubAccordion": true,
+        "description": "クリップごとに映像の拡大縮小、配置位置、回転、背景ぼかしを調整します。",
+        "bullets": [
+          {
+            "text": "位置・サイズ: スライダーで拡大率や横・縦の配置を調整（中央が0、-100〜+100%）。",
+            "visuals": [
+              "scale_chip",
+              "position_chip"
+            ]
+          },
+          {
+            "text": "黒帯除去: 102.5%に拡大して上下左右の黒帯をカットします。",
+            "visuals": [
+              "blackbar_toggle_chip"
+            ]
+          },
+          {
+            "text": "90°回転: タップするたびに 0°→90°→180°→270° と切り替わります。",
+            "visuals": [
+              "rotate_button"
+            ]
+          },
+          {
+            "text": "ぼかし: 0〜30pxで背景素材などを柔らかく見せます。",
+            "visuals": [
+              "blur_chip"
+            ]
+          },
+          {
+            "text": "リセット: くるくるアイコンで項目ごとに初期値へ戻せます。",
+            "visuals": [
+              "reset_button"
+            ]
+          }
+        ],
+        "visuals": []
+      },
+      {
+        "title": "音量・フェード設定",
+        "category": "動画・画像カードの設定",
+        "isSubAccordion": true,
+        "description": "クリップごとの音量、ミュート、フェードイン／アウトを設定します。",
+        "bullets": [
+          {
+            "text": "音量調整: 素材ごとの音量をスライダーで設定し、スピーカーでミュート切替ができます。",
+            "visuals": [
+              "volume_chip",
+              "mute_button",
+              "reset_button"
+            ]
+          },
+          {
+            "text": "フェードイン/アウト: チェックを入れて0.5秒・1秒・2秒から選択します。",
+            "visuals": [
+              "fade_in_checkbox",
+              "fade_out_checkbox"
+            ]
+          }
+        ],
+        "visuals": []
+      },
+      {
+        "title": "再生速度（0.5〜8.0倍）",
+        "category": "動画・画像カードの設定",
+        "isSubAccordion": true,
+        "description": "動画の再生速度を0.5〜8.0倍まで0.1倍刻みで調整します。",
+        "bullets": [
+          "速度設定: スライダーや−/＋ボタン、等倍・2倍などのショートカットで設定。タイムラインの表示尺も自動伸縮します。",
+          "プレビュー/書き出しに速度を表示: 等倍でもチェックできます。",
+          "速度バッジ: 位置の既定は四隅から9%内側です。速度バッジも映像と同じタイミングで表示/非表示になります。"
+        ],
+        "visuals": [
+          "speed_badge_presets"
+        ]
+      }
+    ]
+  },
+  "bgm": {
+    "title": "BGMの使い方",
+    "subtitle": "BGMの追加、配置、音量、フェードを細かく調整できます。",
+    "items": [
+      {
+        "title": "追加ボタン",
+        "category": "セクションヘッダー（追加・ロック）",
+        "description": "BGMファイルを追加できます。",
+        "visuals": [
+          "add_green_button"
+        ]
+      },
+      {
+        "title": "複数のBGM（Android/PC版）",
+        "category": "セクションヘッダー（追加・ロック）",
+        "description": "複数の曲を追加し、シーンごとにBGMを切り替えられます。",
+        "bullets": [
+          {
+            "text": "登録件数表示: タイトル右側の「(n件)」で登録数を確認できます。",
+            "visuals": [
+              "bgm_count_label"
+            ]
+          },
+          {
+            "text": "自動調整ON/OFF: 動画の長さに合わせてBGMの長さを自動伸縮します。",
+            "visuals": [
+              "bgm_auto_adjust_toggle"
+            ]
+          },
+          {
+            "text": "BGMの複製: 同じBGMを別の区間で使いたい場合に直後へコピーします。",
+            "visuals": [
+              "copy_button"
+            ]
+          },
+          "動画終端より後から始まる曲は一時的に無効になり、動画尺が戻ると復元されます。",
+          "「設定を末尾に固定」は、開始・終了の設定値そのものを書き換えるときに使います。",
+          "フェードアウトは、実際に再生される有効終端を基準にかかります。"
+        ],
+        "comparison": {
+          "caption": "BGMの自動調整 ON・OFF の違い",
+          "rows": [
             {
-              label: '作成方法',
-              description:
-                '句点・読点で読みやすい長さに分け、句読点は除いて画面に収まるキャプションへします。',
+              "label": "ON",
+              "description": "設定値は残したまま、最後の曲の有効区間を動画末尾に合わせます。既定はこちらです。"
             },
             {
-              label: '短い無音',
-              description: '0.3秒未満ではキャプションを消さず、無音の中央で次のカードへ切り替えます。',
+              "label": "OFF",
+              "description": "設定した区間だけ再生します。動画が長くなってもBGMを延長しません。"
+            }
+          ]
+        },
+        "visuals": []
+      },
+      {
+        "title": "セクションの鍵アイコン",
+        "category": "セクションヘッダー（追加・ロック）",
+        "description": "BGM設定をロックして誤操作を防止できます。",
+        "visuals": [],
+        "bullets": [
+          {
+            "text": "ロック解除（通常時）: BGMの追加や編集を自由に行えます。",
+            "visuals": [
+              "unlock_button"
+            ]
+          },
+          {
+            "text": "ロック中: 誤操作を防ぐため、BGMセクション全体の編集を保護します。",
+            "visuals": [
+              "lock_button_red"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "音声 一括設定（ミュート / 一括音量 / 音量揃え）",
+        "category": "音声 一括設定",
+        "description": "登録しているすべてのBGMの音量バランスやミュート状態をまとめて管理します。",
+        "bullets": [
+          "BGMカテゴリ専用: 全曲の音量やミュートを一括管理（動画・ナレーションには影響しません）。",
+          "一括ミュート: 全曲をまとめて消音。曲がまだ無くても先に有効にでき、あとから追加したBGMにもすぐ適用します。",
+          "一括音量 / 音量揃え: 全曲の音量を揃えたり、曲ごとの大小を自動調整（平均/最大）できます。"
+        ],
+        "visuals": [
+          "bulk_audio_controls"
+        ]
+      },
+      {
+        "title": "並び替え・コピー・削除",
+        "category": "BGMカードの設定",
+        "description": "登録した複数のBGMクリップは、上下移動で再生順序を入れ替えたり、複製・削除ができます。",
+        "visuals": [],
+        "bullets": [
+          {
+            "text": "上下移動: クリップの再生順序を入れ替えます。",
+            "visuals": [
+              "move_up_button",
+              "move_down_button"
+            ]
+          },
+          {
+            "text": "コピー: 同じBGMを直後に複製します。",
+            "visuals": [
+              "copy_button"
+            ]
+          },
+          {
+            "text": "削除: 不要なBGMクリップをタイムラインから除外します。",
+            "visuals": [
+              "delete_button"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "パネル内の削除",
+        "category": "BGMカードの設定",
+        "description": "不要になったBGMトラックを個別にタイムラインから削除します。",
+        "visuals": [
+          "delete_button"
+        ]
+      },
+      {
+        "title": "開始位置・開始タイミング（遅延）",
+        "category": "BGMカードの設定",
+        "description": "BGM内の開始位置と、動画タイムライン上の開始タイミング（遅延）を設定できます。",
+        "bullets": [
+          {
+            "text": "開始位置: スライダーで音源内の開始秒数を設定し、リセットボタンで0秒に戻せます。",
+            "visuals": [
+              "start_chip"
+            ]
+          },
+          {
+            "text": "配置タイミング: タイムライン上で再生を開始したい位置へ遅延配置できます。",
+            "visuals": [
+              "delay_chip"
+            ]
+          }
+        ],
+        "visuals": []
+      },
+      {
+        "title": "設定を末尾に固定（Android/PC版）",
+        "category": "BGMカードの設定",
+        "description": "動画全体の長さに合わせて、選択したBGMの再生終了位置をピタリと固定します。",
+        "bullets": [
+          "末尾固定: 動画の最後までBGMを流し切りたいときにワンタップで設定値を合わせられます。",
+          "自動調整OFF時: 手動で動画末尾に合わせたい場合にも役立ちます。"
+        ],
+        "visuals": [
+          "bgm_fit_end_button"
+        ]
+      },
+      {
+        "title": "BGMのトリミング（Android/PC版）",
+        "category": "BGMカードの設定",
+        "description": "プレビューの再生位置を使って、BGMの再生開始・終了タイミングを直感的に設定できます。",
+        "bullets": [
+          "位置反映: 「開始設定」「終了設定」で、現在流れているBGMの音源位置をトリミング範囲へ即座に反映します。開始設定を押してもBGM配置開始は移動しません。",
+          "微調整: スライダーや数値入力から0.1秒単位で前後のトリミング位置を調整できます。"
+        ],
+        "visuals": [
+          "bgm_trim_position_buttons"
+        ]
+      },
+      {
+        "title": "音量調整",
+        "category": "BGMカードの設定",
+        "isSubAccordion": true,
+        "description": "各BGMの音量をスライダーで個別に調整し、ミュート切替や初期値へのリセットを行えます。",
+        "bullets": [
+          {
+            "text": "個別音量: スライダーで0〜250%まで調整できます。",
+            "visuals": [
+              "volume_chip"
+            ]
+          },
+          {
+            "text": "ミュート・リセット: スピーカーアイコンで消音切替、更新アイコンで100%に戻せます。",
+            "visuals": [
+              "mute_button",
+              "reset_button"
+            ]
+          }
+        ],
+        "visuals": []
+      },
+      {
+        "title": "フェード設定",
+        "category": "BGMカードの設定",
+        "isSubAccordion": true,
+        "description": "曲の始まりと終わりにフェードイン／アウト（0.5〜2秒）を設定し、自然な音の出入りを作ります。",
+        "bullets": [
+          {
+            "text": "フェード時間: チェックを入れて0.5秒・1秒・2秒のプリセットから選択します。",
+            "visuals": [
+              "fade_in_checkbox",
+              "fade_out_checkbox"
+            ]
+          },
+          "有効区間連動: 実際に再生される有効終端を基準にフェードアウトがかかります。"
+        ],
+        "visuals": []
+      }
+    ]
+  },
+  "narration": {
+    "title": "ナレーションの使い方",
+    "subtitle": "AIボタンと追加ボタンを使って、複数のナレーションを重ねて管理します。",
+    "items": [
+      {
+        "title": "AI / 追加ボタン",
+        "category": "セクションヘッダー（AI・追加・ロック）",
+        "description": "AIで高品質なナレーション音声を自動生成したり、用意した音声ファイルを追加できます。",
+        "bullets": [
+          {
+            "text": "AI音声生成: Gemini TTS等で高品質なナレーションを自動生成します。",
+            "visuals": [
+              "ai_add_button"
+            ]
+          },
+          {
+            "text": "音声ファイル追加: 手元にある音声ファイルを追加できます。",
+            "visuals": [
+              "add_green_button"
+            ]
+          },
+          "音声エンジンは Gemini 2.5 Flash TTS、Gemini 3.8 Flash TTS、Flash-Lite TTS から選べます。",
+          "Gemini 3.8 では声の雰囲気・速さ・追加の話し方を設定できます。",
+          "追加音声は日本語・英語、人物像、シーンで絞り込めます。"
+        ],
+        "visuals": []
+      },
+      {
+        "title": "タイトルの登録件数",
+        "category": "セクションヘッダー（AI・追加・ロック）",
+        "description": "ナレーションを登録すると、タイトル右側の「(n件)」で現在の登録数を確認できます。",
+        "visuals": [
+          "narration_count_label"
+        ]
+      },
+      {
+        "title": "セクションの鍵アイコン",
+        "category": "セクションヘッダー（AI・追加・ロック）",
+        "description": "ナレーションの追加・削除・調整をロックできます。",
+        "visuals": [],
+        "bullets": [
+          {
+            "text": "ロック解除（通常時）: ナレーションの追加や編集を自由に行えます。",
+            "visuals": [
+              "unlock_button"
+            ]
+          },
+          {
+            "text": "ロック中: 誤操作を防ぐため、ナレーション全体の編集を保護します。",
+            "visuals": [
+              "lock_button_red"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "音声 一括設定（ミュート / 一括音量 / 音量揃え）",
+        "category": "音声 一括設定",
+        "description": "すべてのナレーションの音量バランスやミュート状態をまとめて管理します。",
+        "bullets": [
+          "ナレーションカテゴリ専用: 全音声の音量やミュートを一括管理（動画・BGMには影響しません）。",
+          "一括ミュート: 全クリップをまとめて消音。クリップがまだ無くても先に有効にでき、あとから追加したナレーションにもすぐ適用します。",
+          "一括音量 / 音量揃え: 全音声の音量を揃えたり、クリップごとの大小を自動調整（平均/最大）できます。"
+        ],
+        "visuals": [
+          "bulk_audio_controls"
+        ]
+      },
+      {
+        "title": "並び替え・編集・削除・保存",
+        "category": "ナレーションカードの設定",
+        "description": "各ナレーションを上下移動、編集、削除できます。保存ボタンを使うと、AIで生成したナレーションをパソコンやスマホに保存できます。" + `${downloadHelpSentence}`,
+        "visuals": [],
+        "bullets": [
+          {
+            "text": "上下移動: クリップの再生順序を入れ替えます。",
+            "visuals": [
+              "move_up_button",
+              "move_down_button"
+            ]
+          },
+          {
+            "text": "テキスト編集・保存: ナレーションの原稿を編集し、ファイルとして保存できます。",
+            "visuals": [
+              "edit_button",
+              "save_button"
+            ]
+          },
+          {
+            "text": "削除: 不要なナレーションをタイムラインから除外します。",
+            "visuals": [
+              "delete_button"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "コピー（Android/PC版）",
+        "category": "ナレーションカードの設定",
+        "description": "青いコピーボタンでナレーションを複製できます。複製はトリミング後の末尾に続けて配置されるので、長い音声を分割して好きなタイミングに配置するときに便利です。",
+        "visuals": [
+          "copy_button"
+        ]
+      },
+      {
+        "title": "開始・終了位置",
+        "category": "ナレーションカードの設定",
+        "description": "動画タイムライン上でナレーションを再生する開始・終了位置を設定します。",
+        "bullets": [
+          {
+            "text": "開始位置: 数値入力やスライダーで動画上の再生開始点を調整できます。",
+            "visuals": [
+              "start_chip"
+            ]
+          },
+          {
+            "text": "位置反映: 「開始」「終了」ボタンで、プレビューの現在再生位置をナレーションの再生区間へ一発反映できます。",
+            "visuals": [
+              "range_pin_buttons"
+            ]
+          }
+        ],
+        "visuals": []
+      },
+      {
+        "title": "トリミング設定（区間切り出し）",
+        "category": "ナレーションカードの設定",
+        "description": "長い音声から必要な発話区間だけを切り出し、タイミングや声質を整えられます。",
+        "bullets": [
+          {
+            "text": "分割・切り出し: 長い音声を複数クリップに分け、必要な発話区間だけを抜き出して配置できます。",
+            "visuals": [
+              "start_chip"
+            ]
+          },
+          {
+            "text": "位置反映・微調整: 開始・終了ボタンやスライダーで細かく調整できます。",
+            "visuals": [
+              "range_pin_buttons"
+            ]
+          }
+        ],
+        "visuals": []
+      },
+      {
+        "title": "音量波形と無音の区切り検出",
+        "category": "ナレーションカードの設定",
+        "isSubAccordion": true,
+        "description": "音声波形と自動検出された文の区切りから、トリミング位置を視覚的に調整できます。",
+        "bullets": [
+          "緑の線: トリミング開始位置を示します。",
+          "赤の線: トリミング終了位置を示します。",
+          "黄色の線: 自動検出された文の区切りを示します。",
+          "ワンタップ反映: 黄色の線を選び、「開始に」「終了に」でトリミング位置へ素早く反映できます。"
+        ],
+        "note": "音量波形と無音検出は Android・パソコン向けの機能です。",
+        "visuals": [
+          "narration_waveform"
+        ]
+      },
+      {
+        "title": "音量調整",
+        "category": "ナレーションカードの設定",
+        "isSubAccordion": true,
+        "description": "各ナレーションの音量をスライダーで個別に調整し、ミュート切替や初期値へのリセットを行えます。",
+        "bullets": [
+          {
+            "text": "個別音量: スライダーで0〜250%まで調整できます。",
+            "visuals": [
+              "volume_chip"
+            ]
+          },
+          {
+            "text": "ミュート・リセット: スピーカーアイコンで消音切替、更新アイコンで100%に戻せます。",
+            "visuals": [
+              "mute_button",
+              "reset_button"
+            ]
+          }
+        ],
+        "visuals": []
+      },
+      {
+        "title": "AI原稿からキャプションカードを追加",
+        "category": "ナレーションカードの設定",
+        "isSubAccordion": true,
+        "description": "AIナレーションの原稿から、編集可能な通常キャプションを作成します。",
+        "facts": [
+          {
+            "label": "作成方法",
+            "description": "句点・読点で読みやすい長さに分け、句読点は除いて画面に収まるキャプションへします。"
+          },
+          {
+            "label": "短い無音",
+            "description": "0.3秒未満ではキャプションを消さず、無音の中央で次のカードへ切り替えます。"
+          },
+          {
+            "label": "長い無音",
+            "description": "0.3秒以上では発話前後に約0.1秒ずつキャプションを残し、中央だけ非表示にします。"
+          },
+          {
+            "label": "解析できない場合",
+            "description": "文字数の比率で配置します。追加後は文字と開始・終了を個別編集できます。"
+          }
+        ],
+        "visuals": [
+          "narration_caption_button"
+        ]
+      }
+    ]
+  },
+  "caption": {
+    "title": "キャプションの使い方",
+    "subtitle": "追加、表示ON/OFF、一括設定、個別設定をまとめて管理できます。",
+    "items": [
+      {
+        "title": "追加ボタン",
+        "category": "セクションヘッダー（表示・ロック・追加・一括入力）",
+        "description": "入力したテキストを、プレビューの現在位置からキャプションとして追加できます。",
+        "note": "エンドロール区間でも追加・表示できます。",
+        "visuals": [
+          "add_yellow_button"
+        ]
+      },
+      {
+        "title": "表示アイコン（目のマークのアイコン）",
+        "category": "セクションヘッダー（表示・ロック・追加・一括入力）",
+        "description": "キャプションの一括表示/非表示を切り替えます。OFFにすると書き出した動画にも表示されません。",
+        "bullets": [
+          {
+            "text": "表示・非表示切替: 目のアイコンでプレビュー上のキャプション表示を一括でオン・オフできます。",
+            "visuals": [
+              "eye_on_button",
+              "eye_off_button"
+            ]
+          },
+          {
+            "text": "鍵アイコン: キャプションセクション全体をロックして誤操作を防止します。",
+            "visuals": [
+              "unlock_button",
+              "lock_button_red"
+            ]
+          }
+        ],
+        "visuals": []
+      },
+      {
+        "title": "セクションの鍵アイコン",
+        "category": "セクションヘッダー（表示・ロック・追加・一括入力）",
+        "description": "キャプション設定をロックして誤操作を防止できます。",
+        "visuals": [
+          "unlock_button",
+          "lock_button_red"
+        ]
+      },
+      {
+        "title": "タイトル（キャプションとは別管理）",
+        "category": "セクションヘッダー（表示・ロック・追加・一括入力）",
+        "description": "動画のオープニングや見出しとなるタイトルを、主・サブの2段構成で装飾表示します。",
+        "facts": [
+          {
+            "label": "管理方法",
+            "description": "通常キャプションとは別に保存され、キャプション一覧には並びません。"
+          },
+          {
+            "label": "初期設定",
+            "description": "中央・大きめの文字、表示0〜4秒、終了フェード1秒です。"
+          },
+          {
+            "label": "表示時間",
+            "description": "スライダー・数値・「プレビュー位置を反映」の開始／終了で設定します。"
+          },
+          {
+            "label": "見た目",
+            "description": "サイズ、字体、位置、縁、文字色、ぼかし、背景帯を「スタイル設定」で調整します。"
+          }
+        ],
+        "note": "「全体設定」から設定できます。変更はすぐプレビューへ反映され、書き出した動画にも同じ見た目で入ります。",
+        "visuals": [],
+        "bullets": [
+          {
+            "text": "プレビュー帯見本: 主タイトルとサブタイトルをそれぞれ改行を含めて入力可能。半透明の黒帯で視認性を高めます。",
+            "visuals": [
+              "video_title_accordion"
+            ]
+          },
+          {
+            "text": "配置位置: 位置は画面中央が 0 で、横は右が＋、縦は上が＋です。",
+            "visuals": [
+              "position_chip"
+            ]
+          },
+          {
+            "text": "表示時間・タイミング: 冒頭の何秒間表示するかを設定します。",
+            "visuals": [
+              "start_chip",
+              "duration_chip"
+            ]
+          },
+          {
+            "text": "位置反映: 開始位置をプレビュー位置にワンタップで反映できます。",
+            "visuals": [
+              "range_pin_buttons"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "まとめて入力・編集（Android/PC版）",
+        "category": "セクションヘッダー（表示・ロック・追加・一括入力）",
+        "description": "歌詞や長いキャプションを、複数行まとめて追加・編集できます。",
+        "bullets": [
+          "通常は1行につき1枚のキャプションカードを作成します。",
+          "「混在」では、+ で始めた行を直前カードの時分割行にできます。",
+          "「＋ 時分割行を挿入」と、[開始-終了]形式の時間指定を利用できます。",
+          "「時間指定だけ消す」では文章を残したまま時刻だけ削除します。"
+        ],
+        "note": "登録前は「① まとめて入力」、登録後は「① まとめて入力・編集」と表示されます。",
+        "visuals": [
+          "bulk_caption_button"
+        ]
+      },
+      {
+        "title": "時分割キャプション（Android/PC版）",
+        "category": "セクションヘッダー（表示・ロック・追加・一括入力）",
+        "description": "1枚のカード内で、文章を複数行に分けて時間差で順次表示できる機能です。",
+        "bullets": [
+          "歌詞やセリフを、1つの配置枠の中でテンポよく切り替えて見せたいときに最適です。",
+          "「まとめて入力」で「+」から始まる行を書くか、カード内の「＋時分割行を挿入」で作成できます。",
+          "各サブ行ごとに表示開始タイミングを細かく設定できます。"
+        ],
+        "visuals": [
+          "caption_sub_row_demo"
+        ]
+      },
+      {
+        "title": "② タイミング打ち（Android/PC版）",
+        "category": "セクションヘッダー（表示・ロック・追加・一括入力）",
+        "description": "再生しながらボタンを押すだけでキャプションの表示タイミングを確定できます。",
+        "comparison": {
+          "caption": "タイミング打ちの2つのモード",
+          "rows": [
+            {
+              "label": "交互モード",
+              "description": "「開始」と「終了」を交互に押して、1枚ずつの表示区間を確定します。"
             },
             {
-              label: '長い無音',
-              description: '0.3秒以上では発話前後に約0.1秒ずつキャプションを残し、中央だけ非表示にします。',
-            },
-            {
-              label: '解析できない場合',
-              description: '文字数の比率で配置します。追加後は文字と開始・終了を個別編集できます。',
-            },
-          ],
-          visuals: ['narration_caption_button'],
+              "label": "連続モード",
+              "description": "ボタンを押した瞬間に現在の終了と次の開始が同時に確定し、流れるようにテンポよく打てます。"
+            }
+          ]
         },
-        {
-          title: '開始・終了位置',
-          description:
-            '開始位置は数値入力・スライダーで調整できます。「開始」「終了」ボタンでは、プレビューの現在位置をそのナレーションの再生開始・終了へ反映できます。',
-          visuals: ['start_chip', 'range_pin_buttons', 'slider_demo'],
-        },
-        {
-          title: 'トリミング設定（折りたたみ）',
-          description:
-            'トリミング開始/終了は「トリミング設定」を開いたときだけ表示されます。長いナレーションを複数に分割して、タイミングを調整したり、声質を合わせたいときに便利です。',
-          visuals: ['trim_chip', 'duration_chip', 'slider_demo'],
-        },
-        {
-          title: '音量波形と無音の区切り検出',
-          description: 'トリミング設定を開くと、ナレーションの音量波形が表示されます。',
-          bullets: [
-            '緑の線: トリミング開始',
-            '赤の線: トリミング終了',
-            '黄色の線: 自動検出した文の区切り',
-            '黄色の線を選び、「開始に」「終了に」でトリミング位置へ反映します。',
-          ],
-          note: '音量波形と無音検出は Android・パソコン向けの機能です。',
-          visuals: ['narration_waveform'],
-        },
-        {
-          title: '音声 一括設定（ミュート / 一括音量 / 音量揃え）',
-          description:
-            'リスト先頭の「音声 一括設定」（開いて設定）から、ナレーションの音をまとめて扱えます。',
-          bullets: [
-            'この設定はナレーションカテゴリのクリップだけに効きます。動画やBGMには影響しません。',
-            '「一括ミュート」にチェックを入れると、すべてのナレーションをミュートします。クリップがまだ無くても先に有効にでき、あとから追加したナレーションにもすぐ適用します。',
-            '「一括音量設定」で全クリップの音量を同じ値に揃え、「音量を揃える」でクリップごとの大小を「平均に揃える」または「最大に揃える」から選べます。',
-          ],
-          visuals: ['slider_demo', 'fade_in_checkbox'],
-        },
-        {
-          title: '音量調整',
-          description:
-            '音量は常時表示です。スライダーで調整し、スピーカーアイコンでミュートON/OFF切替、くるくるアイコンでデフォルト値に戻せます。',
-          visuals: ['volume_chip', 'mute_button', 'reset_button', 'slider_demo'],
-        },
-      ],
-    },
-    caption: {
-      title: 'キャプションの使い方',
-      subtitle: '追加、表示ON/OFF、一括設定、個別設定をまとめて管理できます。',
-      items: [
-        {
-          title: 'タイトル（キャプションとは別管理）',
-          description: '動画・画像の「全体設定」から、動画タイトルを設定できます。',
-          facts: [
-            {
-              label: '管理方法',
-              description: '通常キャプションとは別に保存され、キャプション一覧には並びません。',
-            },
-            {
-              label: '初期設定',
-              description: '中央・大きめの文字、表示0〜4秒、終了フェード1秒です。',
-            },
-            {
-              label: '表示時間',
-              description: 'スライダー・数値・「プレビュー位置を反映」の開始／終了で設定します。',
-            },
-            {
-              label: '見た目',
-              description: 'サイズ、字体、位置、縁、文字色、ぼかし、背景帯を「スタイル設定」で調整します。',
-            },
-          ],
-          note: '変更はすぐプレビューへ反映され、書き出した動画にも同じ見た目で入ります。',
-          visuals: [
-            'video_title_accordion',
-            'range_pin_buttons',
-            'position_chip',
-            'start_chip',
-            'duration_chip',
-          ],
-        },
-        {
-          title: '追加ボタン',
-          description:
-            '入力したテキストを、プレビューの現在位置からキャプションとして追加できます。エンドロール区間でも追加・表示できます。',
-          visuals: ['add_yellow_button'],
-        },
-        {
-          title: '表示アイコン（目のマークのアイコン）',
-          description:
-            '表示アイコンをOFFに設定すると、キャプションを設定していてもすべてOFF表示になり、出力した動画にも表示されません。鍵アイコンで編集ロックを切り替えます。',
-          visuals: ['eye_on_button', 'eye_off_button', 'unlock_button', 'lock_button_red'],
-        },
-        {
-          title: 'キャプション一括削除（ゴミ箱アイコン）',
-          description:
-            'セクションヘッダー（表示アイコンと鍵のあいだ）のゴミ箱アイコンで、設定中のキャプションをすべて削除できます。押すと確認ダイアログが出て、OK したときだけ削除されます。タイトル設定は削除しません。',
-          visuals: ['delete_button'],
-        },
-        {
-          title: 'キャプション 一括設定',
-          description:
-            '「（開いて設定）」を押すと、全キャプション共通のサイズ、字体、文字揃え（左・中・右）、位置、ぼかし、背景の帯（既定OFF）、フェード時間をまとめて設定できます。開いた後は補助表示が消え、下向き矢印で開状態を示します。',
-          visuals: [
-            'caption_style_accordion',
-            'size_chip',
-            'position_chip',
-            'blur_chip',
-            'fade_in_checkbox',
-            'fade_out_checkbox',
-          ],
-        },
-        {
-          title: '文字の縁・色',
-          description:
-            '一括スタイル内の「文字の縁・色」から、縁の幅・色と文字本体色を調整します。',
-          bullets: [
-            '「縁の幅」はスライダーまたは数値入力で調整できます。',
-            '「縁の色」と「文字本体」は色見本または #RRGGBB 形式で指定できます。',
-            '初期値は白い文字本体と黒い縁（4px）です。',
-            '「キャプション背景の帯」を ON にすると、文字幅に合わせて半透明の背景（既定は黒）を敷けます。',
-          ],
-          visuals: ['caption_outline_color_accordion', 'caption_outline_controls'],
-        },
-        {
-          title: '各キャプションの操作',
-          description:
-            '上下移動、削除、編集を各行のボタンで行えます。鉛筆の編集ボタンでキャプション内容を編集できます。',
-          visuals: ['move_up_button', 'move_down_button', 'edit_button', 'delete_button'],
-        },
-        {
-          title: '個別設定（歯車マーク）',
-          description:
-            '歯車マークから、サイズ、字体、文字揃え（左・中・右）、文字の縁幅・縁色・文字本体色、位置、ぼかし、背景の帯、フェードをカードごとに設定できます。未設定項目は一括設定を継承します。',
-          bullets: [
-            '変更した項目だけ、一括設定より優先されます。',
-            '「文字の縁・色」は「（開いて設定）」から開きます。',
-            '「この個別設定をクリア」では、本文と表示時間を残して一括設定へ戻します。',
-          ],
-          visuals: [
-            'settings_button',
-            'caption_outline_color_accordion',
-            'caption_outline_controls',
-            'blur_chip',
-            'slider_demo',
-          ],
-        },
-        {
-          title: '表示時間',
-          description:
-            '開始時間・終了時間はスライダーや数値で調整し、現在位置ボタンでプレビューの現在位置に設定できます。',
-          bullets: [
-            '通常は 0.1秒単位です。',
-            '終了の数値はプレビューと同じ 1/100 秒（例: 7.04）で表示します。',
-            '終了をスライダーの右端や＋で末尾まで動かすと、動画の実尺まで表示します。',
-            'プレビューが末尾のとき「終了」も同じ実尺へ合わせます。',
-          ],
-          visuals: ['start_chip', 'duration_chip', 'current_pin_chip', 'slider_demo'],
-        },
-        {
-          title: 'まとめて入力・編集（Android/PC版）',
-          description: '歌詞や長いキャプションを、複数行まとめて追加・編集できます。',
-          bullets: [
-            '通常は1行につき1枚のキャプションカードを作成します。',
-            '「混在」では、+ で始めた行を直前カードの時分割行にできます。',
-            '「＋ 時分割行を挿入」と、[開始-終了]形式の時間指定を利用できます。',
-            '「時間指定だけ消す」では文章を残したまま時刻だけ削除します。',
-          ],
-          note: '登録前は「① まとめて入力」、登録後は「① まとめて入力・編集」と表示されます。',
-          visuals: ['bulk_caption_button'],
-        },
-        {
-          title: '② タイミング打ち（Android/PC版）',
-          description:
-            '再生しながらボタンを押すだけでキャプションの表示タイミングを確定できます。交互モード（開始→終了を交互に確定）と連続モード（区切ると同時に次が始まる・間隔設定可）があり、-1s/+1s と再生ボタンで微調整できます。',
-          bullets: [
-            '「無音区間：前へ／次へ」で、波形と同じ無音の切れ目へ素早く移動できます。',
-            '「読みやすい位置へ自動調整」は既定 ON です。無音ぴったりではなく、発話の少し後まで残す／少し前から出す位置へ移動します。',
-            '短い無音では間を空けず、中央で切り替える位置へ寄せます（ナレーションからキャプションを作るときと同じ考え方です）。',
-            '無音の開始・終了そのものへ合わせたいときだけ、チェックを外してください。',
-          ],
-          note: '波形下の無音ナビは常に無音の開始・終了そのものへ移動します。余白付きの移動はタイミング打ち内のチェックだけに効きます。',
-          visuals: ['timing_caption_button', 'silence_nav_controls'],
-        },
-        {
-          title: '時間をまとめてずらす（Android/PC版）',
-          description:
-            '対象を選び、「現在位置に先頭を合わせる」で最初のキャプションをプレビュー位置へ移動します。終了位置の指定は不要です。動画・ナレーション・BGMは移動しません。',
-          bullets: [
-            '各カードの表示時間とカード間の間隔は維持されます。',
-            '秒数指定の「早める」「遅らせる」は微調整に利用できます。',
-          ],
-          visuals: ['shift_caption_controls'],
-        },
-        {
-          title: 'フォント・カスタム値（Android/PC版）',
-          description:
-            '字体は「その他▾」から端末に実在するシステムフォントを選べます。サイズと位置は「カスタム」で自由に指定できます。',
-          bullets: [
-            'PCでは「＋ この端末の全フォントから選ぶ（PC）」も利用できます。',
-            '位置は画面中央が 0 で、横は右が＋、縦は上が＋です（-100〜+100%）。動画・画像・ロゴと共通の指定方法です。',
-            '「上部」「中央」「下部」を選んでから「カスタム」を押すと、その位置を引き継いで微調整できます。',
-          ],
-          visuals: ['caption_custom_controls'],
-        },
-      ],
-    },
-    preview: {
-      title: 'プレビューの使い方',
-      subtitle: '再生確認、書き出し、ダウンロードをこのセクションで行います。',
-      items: [
-        {
-          title: '停止・再生・キャプチャ',
-          description:
-            '停止と再生でプレビュー操作ができ、キャプチャは現在の表示内容を画像として保存できます。',
-          visuals: ['stop_button', 'play_button', 'capture_button'],
-        },
-        {
-          title: '音量波形と無音区間',
-          description: 'シークバーの下に、プロジェクト全体の音量変化と無音区間を表示します。',
-          facts: [
-            {
-              label: '波形に含む音声',
-              description: 'ナレーション、動画音声、BGMを反映します。',
-            },
-            {
-              label: '移動方法',
-              description: '波形のタップ、または「無音区間：前へ／次へ」を使います。',
-            },
-            {
-              label: '判定の優先順',
-              description: 'ナレーション → 動画音声 → BGM の順です。現在の基準は波形下に表示します。',
-            },
-            {
-              label: '更新タイミング',
-              description: '音声素材、トリミング、音量を変更すると波形を作り直します。',
-            },
-          ],
-          bullets: [
-            '黄色い帯は、発話の切れ目となる無音区間です。',
-            '移動先には動画の先頭と末尾も含まれます。',
-            '同じ移動ボタンは、キャプションの「タイミング打ち」にもあります。',
-          ],
-          note: '移動しただけではキャプション時刻は変わりません。移動後にキャプション側の現在位置反映ボタンを押してください。iPhone・iPadでは波形を表示しません。',
-          visuals: ['timeline_waveform', 'silence_nav_controls'],
-        },
-        {
-          title: 'サムネイル（プロジェクト全体）',
-          description: '完成映像の代表フレームを、プレビュー下の「サムネイル設定」から選べます。',
-          bullets: [
-            '既定は先頭フレームです。先頭が黒いときだけ、黒くない直後のフレームを使います。',
-            '自動設定のときは、クリップの追加・削除・並び替えや尺変更で先頭付近が変わると、サムネイルも自動で更新されます。',
-            'サムネイル画像は、PCではマウスオーバー、スマホではタップで少し拡大して確認できます。',
-            '「現在のフレームをサムネイルに設定」で手動設定します（手動中は並び替えでも変わりません）。',
-            '「自動設定に戻す」で先頭付近の自動取得へ戻せます。',
-            '次回の動画ファイル作成時に、MP4のカバーアートと先頭キーフレームへ反映します。',
-          ],
-          note: '横16:9／縦9:16を変更して画像比率が合わなくなった場合は、自動設定へ戻ります。',
-          visuals: ['poster_accordion', 'poster_actions'],
-        },
-        {
-          title: '動画ファイルを作成',
-          description:
-            '動画ファイルを作成できます。作成中にタブを切り替えたり画面を非アクティブにすると、動画を正しく作成できません。',
-          visuals: ['export_button'],
-        },
-        {
-          title: 'キャプションのみ出力（Android/PC版）',
-          description:
-            '動画出力オプションで「キャプションのみ」を選ぶと、ベース映像を含めずキャプションと動画タイトルだけを書き出せます。他の編集ソフトで合成する用途向けです。',
-          bullets: [
-            '透過 WebM: 背景透過（対応ブラウザのみ）。非対応時は黒背景へフォールバックします。',
-            '黒背景 MP4: 互換性重視の基本形式です。',
-            '白文字キー用 MP4: 黒背景に白文字で、ルミナンスキー合成向けです。',
-            '字幕ファイル（SRT / VTT）も同時に、または単独でダウンロードできます。',
-          ],
-          note: 'キャプションが1件もない場合は選択できません。完成動画（焼き込み）の書き出しは従来どおり選べます。iPhone / iPad 版ではキャプションのみ出力は未対応です。',
-          visuals: ['export_button'],
-        },
-        {
-          title: '作成後のダウンロード',
-          description:
-            '作成完了後はダウンロードできます。' +
-            `${downloadHelpSentence}停止/再生を押すと「動画ファイルを作成」ボタンに戻り、再作成も可能です。`,
-          visuals: ['download_button'],
-        },
-        {
-          title: '一括クリア',
-          description: '一括クリアで動画作成状態をクリアしてすべて初期状態に戻せます。',
-          bullets: [
-            '動画・画像・BGM・ナレーション・キャプション・ロゴを削除します。',
-            '動画・画像・BGM・ナレーションの音声一括設定（ミュート / 一括音量 / 音量揃え）も初期値へ戻します。',
-          ],
-          visuals: ['clear_button'],
-        },
-      ],
-    },
-  };
+        "bullets": [
+          "「無音区間：前へ／次へ」で、波形と同じ無音の切れ目へ素早く移動できます。",
+          "「読みやすい位置へ自動調整」は既定 ON です。無音ぴったりではなく、発話の少し後まで残す／少し前から出す位置へ移動します。",
+          "短い無音では間を空けず、中央で切り替える位置へ寄せます（ナレーションからキャプションを作るときと同じ考え方です）。",
+          "無音の開始・終了そのものへ合わせたいときだけ、チェックを外してください。",
+          "-1s/+1s と再生ボタンで微調整できます。"
+        ],
+        "note": "波形下の無音ナビは常に無音の開始・終了そのものへ移動します。余白付きの移動はタイミング打ち内のチェックだけに効きます。",
+        "visuals": [
+          "timing_caption_button",
+          "timing_mode_controls",
+          "silence_nav_controls"
+        ]
+      },
+      {
+        "title": "キャプション一括削除（ゴミ箱アイコン）",
+        "category": "セクションヘッダー（表示・ロック・追加・一括入力）",
+        "description": "設定中のキャプションをすべて削除できます（誤操作を防ぐ確認ダイアログ付き）。",
+        "note": "動画全体のタイトル設定は保持され、削除されません。",
+        "visuals": [
+          "delete_button"
+        ]
+      },
+      {
+        "title": "キャプション 一括設定",
+        "category": "キャプション 一括設定",
+        "description": "全キャプション共通のサイズ、字体、文字揃え（左・中・右）、位置、ぼかし、背景の帯、フェード時間をまとめて設定できます。",
+        "bullets": [
+          {
+            "text": "文字サイズ: スライダーで全体の文字の大きさを調整します。",
+            "visuals": [
+              "size_chip"
+            ]
+          },
+          {
+            "text": "配置位置: 上下・左右の配置位置を一括調整します。",
+            "visuals": [
+              "position_chip"
+            ]
+          },
+          {
+            "text": "ぼかし: 文字の背景ぼかし強度を設定します。",
+            "visuals": [
+              "blur_chip"
+            ]
+          },
+          {
+            "text": "フェード時間: キャプションのフェードイン／アウトを設定します。",
+            "visuals": [
+              "fade_in_checkbox",
+              "fade_out_checkbox"
+            ]
+          }
+        ],
+        "visuals": []
+      },
+      {
+        "title": "文字揃え（左・中央・右）",
+        "category": "キャプション 一括設定",
+        "description": "キャプションの行揃えを「左揃え」「中央揃え」「右揃え」からワンタップで切り替えられます。",
+        "bullets": [
+          "一括設定ではすべてのキャプションの基本行揃えを指定します。",
+          "個別設定（歯車マーク）を使えば、特定のカードだけ左揃えにするなどの個別指定も可能です。"
+        ],
+        "visuals": [
+          "caption_text_align_controls"
+        ]
+      },
+      {
+        "title": "文字の縁・色",
+        "category": "キャプション 一括設定",
+        "description": "一括スタイル内の「文字の縁・色」から、縁の幅・色と文字本体色を調整します。",
+        "bullets": [
+          {
+            "text": "縁の幅と色: 文字の視認性を高めるため、縁取りの太さや色、文字色を細かく設定できます。",
+            "visuals": [
+              "caption_outline_controls"
+            ]
+          }
+        ],
+        "visuals": []
+      },
+      {
+        "title": "フォント・カスタム値（Android/PC版）",
+        "category": "キャプション 一括設定",
+        "description": "字体は「その他▾」から端末に実在するシステムフォントを選べます。サイズと位置は「カスタム」で自由に指定できます。",
+        "bullets": [
+          "PCでは「＋ この端末の全フォントから選ぶ（PC）」も利用できます。",
+          "位置は画面中央が 0 で、横は右が＋、縦は上が＋です（-100〜+100%）。動画・画像・ロゴと共通の指定方法です。",
+          "「上部」「中央」「下部」を選んでから「カスタム」を押すと、その位置を引き継いで微調整できます。"
+        ],
+        "visuals": [
+          "caption_custom_controls"
+        ]
+      },
+      {
+        "title": "各キャプションの操作",
+        "category": "各キャプション行の設定",
+        "description": "上下移動、削除、編集を各行のボタンで行えます。鉛筆の編集ボタンでキャプション内容を編集できます。",
+        "visuals": [],
+        "bullets": [
+          {
+            "text": "上下移動: キャプションの順序を入れ替えます。",
+            "visuals": [
+              "move_up_button",
+              "move_down_button"
+            ]
+          },
+          {
+            "text": "テキスト編集: 文字内容をその場で直接編集できます。",
+            "visuals": [
+              "edit_button"
+            ]
+          },
+          {
+            "text": "削除: 不要なキャプション行を削除します。",
+            "visuals": [
+              "delete_button"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "表示時間",
+        "category": "各キャプション行の設定",
+        "description": "開始時間・終了時間はスライダーや数値で調整し、現在位置ボタンでプレビューの現在位置に設定できます。",
+        "bullets": [
+          "開始・終了スライダー: 0.1秒単位で表示区間を設定できます。",
+          "プレビュー位置を反映: 「開始」「終了」ボタンで、プレビューの現在位置を一発反映できます。",
+          "実尺合わせ: 終了をスライダー右端や＋で動かすと、動画の末尾まで表示します。"
+        ],
+        "visuals": [
+          "start_chip",
+          "range_pin_buttons"
+        ]
+      },
+      {
+        "title": "時間をまとめてずらす（Android/PC版）",
+        "category": "各キャプション行の設定",
+        "description": "対象を選び、「現在位置に先頭を合わせる」で最初のキャプションをプレビュー位置へ移動します。終了位置の指定は不要です。動画・ナレーション・BGMは移動しません。",
+        "bullets": [
+          "間隔維持: 各カードの表示時間とカード間の間隔を保ったまま一括移動できます。",
+          "微調整: 「早める」「遅らせる」ボタンで秒数を指定して微調整できます。"
+        ],
+        "visuals": [
+          "shift_caption_controls"
+        ]
+      },
+      {
+        "title": "個別設定（歯車マーク）",
+        "category": "各キャプション行の設定",
+        "isSubAccordion": true,
+        "description": "歯車マークから、サイズ、字体、文字揃え（左・中・右）、文字の縁幅・縁色・文字本体色、位置、ぼかし、背景の帯、フェードをカードごとに設定できます。未設定項目は一括設定を継承します。",
+        "bullets": [
+          {
+            "text": "個別設定パネル: 歯車アイコンから、その行だけのスタイルを個別に調整できます。",
+            "visuals": [
+              "settings_button"
+            ]
+          },
+          {
+            "text": "個別の縁・色: 行ごとに異なる縁取りや色を設定できます。",
+            "visuals": [
+              "caption_outline_controls"
+            ]
+          },
+          {
+            "text": "個別のぼかし: 行ごとにぼかし強度を調整できます。",
+            "visuals": [
+              "blur_chip"
+            ]
+          }
+        ],
+        "visuals": []
+      }
+    ]
+  },
+  "preview": {
+    "title": "プレビューの使い方",
+    "subtitle": "再生確認、書き出し、ダウンロードをこのセクションで行います。",
+    "items": [
+      {
+        "title": "停止・再生・キャプチャ",
+        "category": "プレビュー・確認",
+        "description": "停止と再生でプレビュー操作ができ、キャプチャは現在の表示内容を画像として保存できます。",
+        "visuals": [],
+        "bullets": [
+          {
+            "text": "停止: 動画を先頭（0:00）に戻して停止します。",
+            "visuals": [
+              "stop_button"
+            ]
+          },
+          {
+            "text": "再生/一時停止: プレビュー動画を再生または一時停止します。",
+            "visuals": [
+              "play_button"
+            ]
+          },
+          {
+            "text": "サムネイル撮影（キャプチャ）: 現在の再生フレームをプロジェクトのサムネイル画像として保存します。",
+            "visuals": [
+              "capture_button"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "シークバーとタイムライン（1/100秒表示）",
+        "category": "プレビュー・確認",
+        "description": "シークバーをドラッグまたはタップして、動画の任意の位置へ素早く移動できます。",
+        "bullets": [
+          "現在の再生時刻と動画全体の長さを 1/100 秒単位（分:秒.ミリ秒）で正確に確認できます。",
+          "クリップ間のトランジションが設定されている区間は、再生バー上に紫のグラデーション帯で表示されます。"
+        ],
+        "visuals": [
+          "timeline_seek_bar"
+        ]
+      },
+      {
+        "title": "音量波形と無音区間",
+        "category": "プレビュー・確認",
+        "description": "シークバーの下に、プロジェクト全体の音量変化と無音区間を表示します。",
+        "facts": [
+          {
+            "label": "波形に含む音声",
+            "description": "ナレーション、動画音声、BGMを反映します。"
+          },
+          {
+            "label": "移動方法",
+            "description": "波形のタップ、または「無音区間：前へ／次へ」を使います。"
+          },
+          {
+            "label": "判定の優先順",
+            "description": "ナレーション → 動画音声 → BGM の順です。現在の基準は波形下に表示します。"
+          },
+          {
+            "label": "更新タイミング",
+            "description": "音声素材、トリミング、音量を変更すると波形を作り直します。"
+          }
+        ],
+        "bullets": [
+          {
+            "text": "黄色い帯は、発話の切れ目となる無音区間です。",
+            "visuals": [
+              "timeline_waveform"
+            ]
+          },
+          {
+            "text": "無音区間ジャンプ: 前へ／次へボタンで、発話の切れ目へ素早くシークできます。移動先には動画の先頭と末尾も含まれます。",
+            "visuals": [
+              "silence_nav_controls"
+            ]
+          },
+          "同じ移動ボタンは、キャプションの「タイミング打ち」にもあります。"
+        ],
+        "note": "移動しただけではキャプション時刻は変わりません。移動後にキャプション側の現在位置反映ボタンを押してください。iPhone・iPadでは波形を表示しません。",
+        "visuals": []
+      },
+      {
+        "title": "サムネイル（プロジェクト全体）",
+        "category": "プレビュー・確認",
+        "description": "完成動画のカバーアートとなる代表フレーム（サムネイル）を設定できます。",
+        "bullets": [
+          {
+            "text": "サムネイル設定: 現在のフレームをサムネイルに設定したり、自動設定に戻せます。",
+            "visuals": [
+              "poster_actions"
+            ]
+          }
+        ],
+        "note": "横16:9／縦9:16を変更して画像比率が合わなくなった場合は、自動設定へ戻ります。",
+        "visuals": []
+      },
+      {
+        "title": "動画ファイルを作成",
+        "category": "書き出し・管理",
+        "description": "編集内容をレンダリングし、1本のMP4動画ファイルとしてエンコード・作成します。",
+        "note": "作成中にブラウザの別タブへ移動したり画面を非アクティブにすると正しく作成できない場合があります。完了まで画面を表示したままにしてください。",
+        "visuals": [
+          "export_button"
+        ]
+      },
+      {
+        "title": "動画作成の進捗と中止",
+        "category": "書き出し・管理",
+        "description": "動画ファイル作成中は、進捗率と準備ステージがリアルタイムに表示されます。",
+        "bullets": [
+          "「準備中（初期化・音声解析・音声ミックス・エンコード）」から「レンダリング中」へと段階的に進みます。",
+          "途中で中断したい場合は「中止」ボタンを押せば、いつでも安全に処理を停止できます。"
+        ],
+        "visuals": [
+          "export_progress_demo"
+        ]
+      },
+      {
+        "title": "キャプションのみ出力（Android/PC版）",
+        "category": "書き出し・管理",
+        "description": "ベース映像を含めず、キャプションと動画タイトルだけを動画や字幕ファイルとして書き出せます。他の編集ソフトで合成する用途向けです。",
+        "bullets": [
+          "透過 WebM: 背景透過（対応ブラウザのみ）。非対応時は黒背景へフォールバックします。",
+          "黒背景 MP4: 互換性重視の基本形式です。",
+          "白文字キー用 MP4: 黒背景に白文字で、ルミナンスキー合成向けです。",
+          "字幕ファイル（SRT / VTT）も同時に、または単独でダウンロードできます。"
+        ],
+        "note": "キャプションが1件もない場合は選択できません。完成動画（焼き込み）の書き出しは従来どおり選べます。iPhone / iPad 版ではキャプションのみ出力は未対応です。",
+        "visuals": [
+          "export_mode_tabs",
+          "export_button"
+        ]
+      },
+      {
+        "title": "作成後のダウンロード",
+        "category": "書き出し・管理",
+        "description": "作成完了後はダウンロードできます。" + `${downloadHelpSentence}停止/再生を押すと「動画ファイルを作成」ボタンに戻り、再作成も可能です。`,
+        "visuals": [
+          "download_button"
+        ]
+      },
+      {
+        "title": "一括クリア",
+        "category": "書き出し・管理",
+        "description": "すべての素材と設定をクリアし、プロジェクトを初期状態に戻します。",
+        "bullets": [
+          "動画・画像・BGM・ナレーション・キャプション・ロゴを削除します。",
+          "動画・画像・BGM・ナレーションの音声一括設定（ミュート / 一括音量 / 音量揃え）も初期値へ戻します。"
+        ],
+        "visuals": [
+          "clear_button"
+        ]
+      }
+    ]
+  }
+};
 
   if (context.appFlavor === 'apple-safari') {
     const hiddenTitles = new Set([
@@ -900,7 +1528,9 @@ export function getSectionHelpContent(
       '音声 一括設定（ミュート / 一括音量 / 音量揃え）',
       '再生速度（0.5〜8.0倍）',
       'トランジション（Android/PC版）',
+      '続きを追加コピー（Android/PC版）',
       '複数のBGM（Android/PC版）',
+      '設定を末尾に固定（Android/PC版）',
       'BGMのトリミング（Android/PC版）',
       'コピー（Android/PC版）',
       'AI原稿からキャプションカードを追加',
@@ -910,6 +1540,7 @@ export function getSectionHelpContent(
       'キャプション一括削除（ゴミ箱アイコン）',
       '文字の縁・色',
       'まとめて入力・編集（Android/PC版）',
+      '時分割キャプション（Android/PC版）',
       '② タイミング打ち（Android/PC版）',
       '時間をまとめてずらす（Android/PC版）',
       'フォント・カスタム値（Android/PC版）',
@@ -954,19 +1585,19 @@ export function getSectionHelpContent(
     if (clipTransform) {
       clipTransform.title = '位置・サイズ調整';
       clipTransform.facts = clipTransform.facts?.filter(
-        (fact) => fact.label !== '回転' && fact.label !== 'ぼかし',
+        (fact) => fact.label !== '回転' && fact.label !== 'ぼかし'
       );
       clipTransform.visuals = clipTransform.visuals?.filter(
-        (visual) => visual !== 'rotate_button' && visual !== 'blur_chip',
+        (visual) => visual !== 'rotate_button' && visual !== 'blur_chip'
       );
     }
 
     const captionStyle = content.caption.items.find(
-      (item) => item.title === 'キャプション 一括設定',
+      (item) => item.title === 'キャプション 一括設定'
     );
     if (captionStyle) {
       captionStyle.description =
-        '「（開いて設定）」を押すと、全キャプション共通のサイズ、字体、文字揃え（左・中・右）、位置、ぼかし、フェード時間をまとめて設定できます。';
+        '全キャプション共通のサイズ、字体、文字揃え（左・中・右）、位置、ぼかし、フェード時間をまとめて設定できます。';
     }
 
     const individualCaption = content.caption.items.find((item) => item.title === '個別設定（歯車マーク）');

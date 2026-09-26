@@ -195,7 +195,7 @@ describe('ClipsSection continuation', () => {
 });
 
 describe('ClipsSection image duration', () => {
-  it('画像の表示時間は 0.1 秒単位で増減できる', () => {
+  it('画像の表示時間はスライダーで 0.5 秒単位、＋ーで 0.1 秒単位で増減できる', () => {
     const onUpdateImageDuration = vi.fn();
     renderClipsSection({
       mediaItems: [createImageItem({ isTransformOpen: false })],
@@ -205,8 +205,12 @@ describe('ClipsSection image duration', () => {
     const slider = screen.getByLabelText('画像の表示時間');
     expect(slider).toHaveAttribute('min', '0.5');
     expect(slider).toHaveAttribute('max', '60');
-    expect(slider).toHaveAttribute('step', '0.1');
+    expect(slider).toHaveAttribute('step', '0.5');
 
+    fireEvent.change(slider, { target: { value: '5.5' } });
+    expect(onUpdateImageDuration).toHaveBeenCalledWith('image-1', '5.5');
+
+    onUpdateImageDuration.mockClear();
     fireEvent.click(screen.getByRole('button', { name: '画像の表示時間を0.1増やす' }));
     expect(onUpdateImageDuration).toHaveBeenCalledWith('image-1', '5.1');
 

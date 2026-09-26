@@ -43,6 +43,7 @@ export const DEFAULT_IMAGE_DURATION = 5; // 秒
 export const MIN_IMAGE_DURATION = 0.5; // 秒
 export const MAX_IMAGE_DURATION = 60; // 秒
 export const IMAGE_DURATION_STEP = 0.1; // 秒
+export const IMAGE_DURATION_SLIDER_STEP = 0.5; // 秒
 
 // ボリューム設定
 export const DEFAULT_VIDEO_VOLUME = 1.0;

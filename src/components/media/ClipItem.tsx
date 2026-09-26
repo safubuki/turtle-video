@@ -60,6 +60,7 @@ import {
   stepEndTime,
 } from '../../utils/timeStepperInput';
 import {
+  IMAGE_DURATION_SLIDER_STEP,
   IMAGE_DURATION_STEP,
   MAX_IMAGE_DURATION,
   MAX_SCALE,
@@ -552,7 +553,9 @@ const ClipItem: React.FC<ClipItemProps> = ({
               ariaLabel="画像の表示時間"
               min={MIN_IMAGE_DURATION}
               max={MAX_IMAGE_DURATION}
-              step={IMAGE_DURATION_STEP}
+              step={IMAGE_DURATION_SLIDER_STEP}
+              stepperStep={IMAGE_DURATION_STEP}
+              decimals={1}
               value={v.duration}
               onChange={handleImageDuration}
               formatDisplayValue={formatTimeStepperInput}

@@ -13,9 +13,10 @@ function getHelpDescription(
   if (!item) {
     throw new Error(`Help item not found: ${section} / ${title}`);
   }
+  const bulletTexts = (item.bullets ?? []).map((b) => (typeof b === 'string' ? b : b.text));
   return [
     item.description,
-    ...(item.bullets ?? []),
+    ...bulletTexts,
     ...(item.facts ?? []).flatMap((fact) => [fact.label, fact.description]),
     ...(item.comparison?.rows ?? []).flatMap((row) => [row.label, row.description]),
     item.note ?? '',
@@ -28,7 +29,10 @@ function getHelpVisuals(section: keyof ReturnType<typeof getSectionHelpContent>,
     supportsShowSaveFilePicker: false,
   })[section].items.find((entry) => entry.title === title);
   if (!item) throw new Error(`Help item not found: ${section} / ${title}`);
-  return item.visuals ?? [];
+  const bulletVisuals = (item.bullets ?? []).flatMap((b) =>
+    typeof b === 'object' && b.visuals ? b.visuals : []
+  );
+  return [...(item.visuals ?? []), ...bulletVisuals];
 }
 
 describe('sectionHelp support messaging', () => {
@@ -146,7 +150,7 @@ describe('sectionHelp support messaging', () => {
     const outlineDescription = getHelpDescription('caption', '文字の縁・色');
     const individualDescription = getHelpDescription('caption', '個別設定（歯車マーク）');
 
-    expect(styleDescription).toContain('（開いて設定）');
+    expect(styleDescription).toContain('全キャプション共通');
     expect(styleDescription).toContain('文字揃え（左・中・右）');
     expect(outlineDescription).toContain('縁の幅');
     expect(outlineDescription).toContain('文字本体');
@@ -154,15 +158,13 @@ describe('sectionHelp support messaging', () => {
     expect(individualDescription).toContain('文字揃え（左・中・右）');
     expect(individualDescription).toContain('ぼかし');
     expect(getHelpVisuals('caption', 'キャプション 一括設定')).toContain(
-      'caption_style_accordion'
+      'size_chip'
     );
     expect(getHelpVisuals('caption', '文字の縁・色')).toEqual([
-      'caption_outline_color_accordion',
       'caption_outline_controls',
     ]);
     expect(getHelpVisuals('caption', '個別設定（歯車マーク）')).toEqual(
       expect.arrayContaining([
-        'caption_outline_color_accordion',
         'caption_outline_controls',
         'blur_chip',
       ])
@@ -170,7 +172,7 @@ describe('sectionHelp support messaging', () => {
   });
 
   it('音声 一括設定のヘルプはミュートと揃え方を実画面どおりに案内する', () => {
-    expect(getHelpDescription('clips', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('ロゴ表示の下');
+    expect(getHelpDescription('clips', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('すべての動画・画像クリップ');
     expect(getHelpDescription('clips', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('一括ミュート');
     expect(getHelpDescription('clips', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('動画がまだ無くても先に有効にでき');
     expect(getHelpDescription('clips', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('あとから追加した動画にもすぐ適用します');
@@ -224,7 +226,7 @@ describe('sectionHelp support messaging', () => {
       'aspect_ratio_toggle'
     );
     expect(getHelpVisuals('clips', 'ロゴ表示（ウォーターマーク / エンドロール）'))
-      .toContain('watermark_controls');
+      .toContain('watermark_tab_button');
     expect(getHelpVisuals('clips', 'トランジション（Android/PC版）')).toContain(
       'transition_button'
     );
@@ -260,8 +262,123 @@ describe('sectionHelp support messaging', () => {
       'silence_nav_controls',
     ]);
     expect(getHelpVisuals('preview', 'サムネイル（プロジェクト全体）')).toEqual([
-      'poster_accordion',
       'poster_actions',
     ]);
+  });
+
+  it('新設した機能説明と部品ビジュアルが正しく登録されている', () => {
+    // app
+    expect(getHelpVisuals('app', 'プロジェクトの保存・読み込み')).toEqual([
+      'folder_button',
+      'project_save_slots',
+    ]);
+    expect(getHelpVisuals('app', '全体設定（APIキー・画質・オフライン）')).toEqual([
+      'settings_header_button',
+    ]);
+    expect(getHelpVisuals('app', '操作の基本（長押し増減・スワイプ保護）')).toEqual([
+      'stepper_buttons',
+      'slider_demo',
+    ]);
+
+    // clips
+    expect(getHelpVisuals('clips', '続きを追加コピー（Android/PC版）')).toEqual([
+      'continuation_copy_button',
+    ]);
+    expect(getHelpVisuals('clips', '表示区間（動画：トリミング／画像：表示時間）')).toContain(
+      'image_range_buttons'
+    );
+    expect(getHelpVisuals('clips', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain(
+      'bulk_audio_controls'
+    );
+    expect(getHelpVisuals('clips', '再生速度（0.5〜8.0倍）')).toContain(
+      'speed_badge_presets'
+    );
+
+    // bgm
+    expect(getHelpVisuals('bgm', '設定を末尾に固定（Android/PC版）')).toEqual([
+      'bgm_fit_end_button',
+    ]);
+    expect(getHelpVisuals('bgm', '並び替え・コピー・削除')).toEqual([
+      'move_up_button',
+      'move_down_button',
+      'copy_button',
+      'delete_button',
+    ]);
+    expect(getHelpVisuals('bgm', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain(
+      'bulk_audio_controls'
+    );
+
+    // narration
+    expect(getHelpVisuals('narration', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain(
+      'bulk_audio_controls'
+    );
+
+    // caption
+    expect(getHelpVisuals('caption', '文字揃え（左・中央・右）')).toEqual([
+      'caption_text_align_controls',
+    ]);
+    expect(getHelpVisuals('caption', '時分割キャプション（Android/PC版）')).toEqual([
+      'caption_sub_row_demo',
+    ]);
+    expect(getHelpVisuals('caption', '② タイミング打ち（Android/PC版）')).toContain(
+      'timing_mode_controls'
+    );
+
+    // preview
+    expect(getHelpVisuals('preview', 'シークバーとタイムライン（1/100秒表示）')).toEqual([
+      'timeline_seek_bar',
+    ]);
+    expect(getHelpVisuals('preview', '動画作成の進捗と中止')).toEqual([
+      'export_progress_demo',
+    ]);
+    expect(getHelpVisuals('preview', 'キャプションのみ出力（Android/PC版）')).toContain(
+      'export_mode_tabs'
+    );
+  });
+
+  it('apple-safari では新設した Android/PC 限定機能が非表示になる', () => {
+    const help = getSectionHelpContent({
+      appFlavor: 'apple-safari',
+      supportsShowSaveFilePicker: false,
+    });
+    const titles = Object.values(help).flatMap((section) =>
+      section.items.map((item) => item.title),
+    );
+
+    expect(titles).not.toContain('続きを追加コピー（Android/PC版）');
+    expect(titles).not.toContain('設定を末尾に固定（Android/PC版）');
+    expect(titles).not.toContain('時分割キャプション（Android/PC版）');
+  });
+
+  it('ロゴ表示はウォーターマークとエンドロールの両方を同時に設定可能と案内する', () => {
+    const description = getHelpDescription('clips', 'ロゴ表示（ウォーターマーク / エンドロール）');
+    expect(description).toContain('両方設定可能');
+    expect(description).toContain('ウォーターマーク');
+    expect(description).toContain('エンドロール');
+    expect(description).toContain('無断転載防止');
+    expect(description).not.toContain('切り替えます');
+  });
+
+  it('見たらわかるUI配置や開閉状態の説明を含めない', () => {
+    const allHelp = getSectionHelpContent({
+      appFlavor: 'standard',
+      supportsShowSaveFilePicker: false,
+    });
+    const allItems = Object.values(allHelp).flatMap((section) => section.items);
+
+    for (const item of allItems) {
+      const fullText = [
+        item.description,
+        ...(item.bullets ?? []),
+        ...(item.facts ?? []).map((f) => `${f.label}: ${f.description}`),
+        item.note ?? '',
+      ].join('\n');
+
+      expect(fullText).not.toContain('初期状態は閉じています');
+      expect(fullText).not.toContain('（開いて設定）から');
+      expect(fullText).not.toContain('折りたたみを開くと');
+      expect(fullText).not.toContain('この項目は折りたたみ表示です');
+      expect(fullText).not.toContain('下向き矢印で開状態を示します');
+    }
   });
 });

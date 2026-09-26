@@ -4309,3 +4309,30 @@ export 終了（成功/失敗/中断）
   - MiniPreview の約 15fps スロットル（6-3）と同じ考え方で、本編 Canvas の描画レートは落とさない。
 - **回帰ガード**: `previewUiTime.test.ts` で初回 / force / 間隔内間引き / ジャンプ即公開、`captionGlyphStyle.test.ts` で同一キー再利用と LRU 上限、`standardPreviewEngine.test.tsx` で preview は UI 時刻を rAF ごとに更新せず `currentTimeRef` だけ進め、stopAll で flush、export は間引かないことを固定する。
 
+### 13-251. ヘルプ機能の網羅的機能拡充・状態記述全廃・視覚的部品トークンの実装
+
+- **ファイル**: src/constants/sectionHelp.ts, src/components/modals/SectionHelpModal.tsx, src/test/sectionHelp.test.ts, src/test/sectionHelpModal.test.tsx
+- **問題**:
+  - ヘルプ内で「プロジェクト保存・読み込み」「全体設定」「続きを追加コピー」「画像の延長/短縮」「BGM末尾固定」「文字揃え」「時分割キャプション」「タイムラインシークバー」「書き出し進捗/中止」などの重要機能の説明が不足していた。
+  - 「初期状態は閉じています」「開くと〜が並びます」「開いて設定から操作します」「折りたたみを開くと」「画面のいちばん上にある」など、画面を見たら自明な状態や配置を説明する不要な記述が散見されていた。
+  - ロゴ表示（ウォーターマーク／エンドロール）で「切り替えます」と書かれ、両方設定・併用可能であることが伝わっていなかった。
+- **対策**:
+  - 見たらわかる状態や開閉動作（「閉じています」「開くと」「上にある」など）の説明を全廃し、その機能の目的（なぜ必要か）と使い方を端的に説明する構成へ刷新。
+  - ロゴ表示について、ウォーターマーク（著作権保護・認知向上）とエンドロール（終了画面・動画延長）の両方を同時に設定・有効化できる旨を明記。
+  - SectionHelpVisualId に15種類のUI部品トークン（older_button, settings_header_button, project_save_slots, stepper_buttons, continuation_copy_button, image_range_buttons, speed_badge_presets, gm_fit_end_button, ulk_audio_controls, caption_text_align_controls, caption_sub_row_demo, 	iming_mode_controls, 	imeline_seek_bar, export_mode_tabs, export_progress_demo）を追加。
+  - SectionHelpModal.tsx で実際のアプリUIと完全に一致する見本部品をレンダリング。
+  - 全項目の description を 140文字以内に要約し、長文箇条書きを部品と構造化リスト・比較表（comparison）へ再構成。
+  - 不足していた重要機能の説明を追加し、pple-safari flavor の hiddenTitles にも正しく反映。
+- **注意**:
+  - sectionHelp.test.ts のアサーション（140文字制限、特定文言の含有チェック、状態記述を含めないチェック）をすべて維持すること。
+- **回帰ガード**: sectionHelp.test.ts および sectionHelpModal.test.tsx で新設機能・ビジュアル部品・両方設定可能ルール・状態記述除外を網羅検証。
+
+### 13-252. 画像クリップ表示時間のスライダー(0.5秒刻み)とステッパー(0.1秒刻み)の分離
+
+- **ファイル**: `src/constants/index.ts`, `src/components/media/ClipItem.tsx`, `src/test/clipsSectionPicker.test.tsx`, `src/constants/sectionHelp.ts`
+- **問題**: 画像クリップの表示時間をスライダーで調整する際、0.1秒単位のままだとスライダーのつまみでの粗調整が細かすぎて目的の値に合わせづらかった。
+- **対策**:
+  - `IMAGE_DURATION_SLIDER_STEP = 0.5` を新設。
+  - `ClipItem.tsx` の `NumericSliderField` において、`step={IMAGE_DURATION_SLIDER_STEP}` (0.5秒刻み) と `stepperStep={IMAGE_DURATION_STEP}` (0.1秒刻み) を分離設定。
+  - スライダー操作時は0.5秒単位で素早く調整でき、右側の `−/+` ステッパーボタンでは0.1秒単位で精密に追い込める操作感を実現。
+- **回帰ガード**: `clipsSectionPicker.test.tsx` でスライダーの `step="0.5"` 属性および change イベントでの 0.5 秒単位更新、＋ーボタンでの 0.1 秒単位更新を検証。
