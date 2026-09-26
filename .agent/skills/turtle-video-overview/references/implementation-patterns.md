@@ -4717,3 +4717,21 @@ export 終了（成功/失敗/中断）
   - `ClipItem.tsx` の `NumericSliderField` において、`step={IMAGE_DURATION_SLIDER_STEP}` (0.5秒刻み) と `stepperStep={IMAGE_DURATION_STEP}` (0.1秒刻み) を分離設定。
   - スライダー操作時は0.5秒単位で素早く調整でき、右側の `−/+` ステッパーボタンでは0.1秒単位で精密に追い込める操作感を実現。
 - **回帰ガード**: `clipsSectionPicker.test.tsx` でスライダーの `step="0.5"` 属性および change イベントでの 0.5 秒単位更新、＋ーボタンでの 0.1 秒単位更新を検証。
+
+### 13-253. セクションヘルプの操作体験一致型アコーディオン化・インライン操作見本・領域視認性強化
+
+- **ファイル**: `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`, `Docs/specs/2026-09-26_section-help-system.md`, `src/test/sectionHelp.test.ts`, `src/test/sectionHelpModal.test.tsx`
+- **問題**:
+  - ヘルプ内の全項目が展開されたまま長大に並び、目的の設定を探しにくかった。
+  - アイコンやボタン見本が項目末尾にまとめて固めて表示され、どの説明文に対応する操作部品なのか直感的に結びつかなかった。
+  - アコーディオン開閉ヘッダー枠（例: `[ロゴ表示 >]`）自体が見本内に表示され、メタ的な混乱（操作ボタンなのか見本なのか）を招いていた。
+  - 暗いモーダル背景においてカード枠線が薄く（1px、低透明度）、どこからどこまでが同一設定の領域か視認しづらかった。
+  - Tailwind 未定義の `border-gray-750` が使われた箇所で、CSS仕様による `currentColor`（白）フォールバックが発生し、意図しない白線が出ていた。
+- **対策**:
+  - カテゴリ親アコーディオン（目次機能＋すべて開く/閉じる）、直接表示項目、子アコーディオン（カード詳細調整）の階層構造を導入。PCは「クリックで開閉」、スマホは「タップで開閉」を自動切替。
+  - 箇条書き各項目の直下に操作部品をインライン配置（`SectionHelpBullet.visuals`）。説明済みトークンは末尾の全体見本から自動除外（Set管理）。
+  - 入口アコーディオンヘッダー枠の見本を完全排除し、実操作ボタン・コントロールのみを見本化。
+  - カード枠線を `border-2 border-gray-600/80`（展開時は `border-gray-500/90`）へ強化し、太すぎず洗練された境界視認性を確保。
+  - 未定義クラス `border-gray-750` を排除し、定義済みの `border-gray-700/70` に統一。
+- **回帰ガード**: `sectionHelp.test.ts` および `sectionHelpModal.test.tsx` で、アコーディオン開閉・インライン見本・Flavor境界フィルタリング・DOMレンダリングを網羅検証。
+
