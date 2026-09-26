@@ -36,6 +36,7 @@ description: Web/デスクトップアプリへ操作体験一致型の階層ア
 14. **基本ルール・ライセンスの完全一致**: 推奨動作環境、注意事項、本体ライセンスおよび全依存ライブラリのライセンス一覧を網羅。
 15. **認証・APIキーの安全性案内（不安排除）**: 「外部サーバーには送信されず、ローカルのブラウザ内にのみ安全に保存される」旨を端的に明記し、漏洩の不安を煽る「通信」等の技術的言及を排除。
 16. **画面間・モーダル間の表記と視覚見本の一致（表記揺れ全廃）**: 「右上の設定」などの古い位置表現を放置せず、ヘルプとモーダル警告文で「トップ画面のタートルビデオ アプリ名の横の歯車アイコン」のように現在の実画面レイアウトに合わせた表現とアイコンバッジを同期。
+17. **レスポンシブ・アコーディオン親ヘッダーの2行構造（スマホ表示のタイトル保全）**: 狭幅なスマートフォン画面で操作見本ボタン群に押されてタイトルが「ナ」「動...」のように切り詰められるのを防ぐため、PC表示（1行）を保ちつつ、スマホでは1行目（タイトル全文字）＋2行目（操作見本をインデント配置）の2行構造を徹底。
 
 ---
 
@@ -46,8 +47,8 @@ description: Web/デスクトップアプリへ操作体験一致型の階層ア
 | **機能把握・静的解析** | `scripts/help_system_tool.py scan` | UIコードからボタン、アイコン、入力項目、モーダル、APIキー依存、外部リンクを自動抽出 |
 | **情報設計・動線判断** | AI | 抽出結果から主要カテゴリ・基本操作・詳細調整・多重モーダル動線を設計 |
 | **雛形スキャフォールド** | `scripts/help_system_tool.py scaffold` | リアル操作パネル見本・前提条件案内・構造化facts・安全保存注記を含むヘルプ定義スケルトンを生成 |
-| **UIコンポーネント実装** | AI | 実画面一致操作見本トークン、インラインアイコン置換、履歴スタック保護モーダルの実装 |
-| **品質・UXルール監査** | `scripts/help_system_tool.py validate` | 140文字制限、アイコン散乱、セクション責務混入、セキュリティ安心文言、古い位置表現を自動検証 |
+| **UIコンポーネント実装** | AI | 実画面一致操作見本トークン、インラインアイコン置換、履歴スタック保護モーダル、スマホ2行親ヘッダーの実装 |
+| **品質・UXルール監査** | `scripts/help_system_tool.py validate` | 140文字制限、アイコン散乱、セクション責務混入、セキュリティ文言、古い位置表現、スマホ2行構造・インデントを自動検証 |
 | **テスト・保守性確保** | AI | 導入文長、Flavor境界フィルタリング、Hooks耐久性、多重モーダル保護のユニットテストを作成 |
 
 ---
@@ -125,21 +126,50 @@ python scripts/help_system_tool.py scaffold --scan-file help-features.json --out
     </div>
   )}
   ```
+- **スマホ・PC対応のレスポンシブ2行親ヘッダー構造**:
+  狭幅スマホ（横幅375px等）でタイトルが操作見本に押されて「ナ」「動...」と過度に切り詰められるのを防ぐため、PC表示（1行）を保ちつつスマホ表示では2行構造化：
+  ```tsx
+  {/* 親ボタン: スマホで2行になっても右端Chevronが自然に1行目と揃うよう items-start sm:items-center */}
+  <button className="w-full flex items-start sm:items-center justify-between gap-2 p-2.5 sm:p-3 ...">
+    <div className="min-w-0 flex-1">
+      {/* 2行コンテナ: 1行目にタイトル全文字、2行目に操作見本をインデント配置 */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full gap-1.5 sm:gap-2 pr-1">
+        {/* 1行目: アイコン/バッジ + タイトル（重複するタップ誘導テキストはスマホで非表示） */}
+        <div className="flex items-center gap-2 min-w-0">
+          <Badge />
+          <span className="text-xs sm:text-sm font-bold text-gray-100">{title}</span>
+          <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0 hidden sm:inline">（クリックで開く）</span>
+        </div>
+        {/* 2行目: 操作見本ボタン群（スマホ時はバッジ幅分インデント） */}
+        <div className="flex items-center gap-1 pl-10 sm:pl-0 sm:shrink-0">
+          <SampleButtons />
+        </div>
+      </div>
+    </div>
+    {/* 右端: 開閉インジケータ（スマホ2行時も pt-1 sm:pt-0 で1行目タイトルと高さ同期） */}
+    <div className="flex items-center gap-1 shrink-0 text-gray-400 pl-1 pt-1 sm:pt-0">
+      <span className="text-[11px] md:text-xs">{isOpen ? '（閉じる）' : '（開く）'}</span>
+      <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+    </div>
+  </button>
+  ```
 - **説明文内のインラインアイコン置換と外部リンク**:
   「歯車アイコン」等のテキストを `<Settings className="inline w-3.5 h-3.5" />` に置換し、外部リンクには `target="_blank" rel="noreferrer"` を付与。
-- **PC/スマホ表記切替**:
-  `inline md:hidden`（タップで開閉）と `hidden md:inline`（クリックで開閉）でレスポンシブに表記を出し分け。
 - **一括開閉ボタン**: 「すべて開く」「すべて閉じる」を上部に配置。
 
-### Step 4: ヘルプ定義の品質を自動検証する
+### Step 4: ヘルプ定義およびコンポーネントコードの品質を自動検証する
 
-スクリプトの `validate` コマンドで、UXルール、アクセシビリティ、セクション責務整合性、安全性安心文言、古い位置表現を自動監査します。
+スクリプトの `validate` コマンドで、定義データ（JSON）のUXルールに加え、UIコンポーネント（TSX/JSX）のスマホ対応2行ヘッダー設計やインデント配置を自動監査します。
 
 ```bash
+# ヘルプ定義データの監査
 python scripts/help_system_tool.py validate --file src/constants/helpContent.json
+
+# UIコンポーネントのレスポンシブ2行設計・インデント監査
+python scripts/help_system_tool.py validate --component src/components/modals/SectionHelpModal.tsx
 ```
 
-- 警告やエラーが出た場合は、指示に従って導入文の短縮、見本のリアル操作パネル化、アコーディオン見出し見本の削除、通信に関する不安誘発表現の削除、位置表現の修正（「右上の設定」→「アプリ名の横の歯車アイコン」）を行います。
+- 警告やエラーが出た場合は、指示に従って導入文の短縮、見本のリアル操作パネル化、アコーディオン見出し見本の削除、通信に関する不安誘発表現の削除、位置表現の修正（「右上の設定」→「アプリ名の横の歯車アイコン」）、スマホ2行ヘッダー（`flex-col sm:flex-row`、`pl-10 sm:pl-0`、`items-start sm:items-center`）の適用を行います。
 
 ### Step 5: 自動テスト（Unit Tests）を整備する
 
@@ -154,7 +184,8 @@ python scripts/help_system_tool.py validate --file src/constants/helpContent.jso
 
 ## 参照ドキュメント
 
-- [references/help-design-principles.md](references/help-design-principles.md) — ヘルプUI/UX設計の16大原則とスキーマ仕様
+- [references/help-design-principles.md](references/help-design-principles.md) — ヘルプUI/UX設計の19大原則とスキーマ仕様
 - [references/script-contract.md](references/script-contract.md) — 補助スクリプトの入出力仕様
 - [scripts/help_system_tool.py](scripts/help_system_tool.py) — 静的解析・スキャフォールド・品質検証ツール
+
 

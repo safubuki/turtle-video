@@ -349,6 +349,70 @@ def validate_help_content(help_data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def validate_component_source(component_path: Path) -> Dict[str, Any]:
+    """Audit help component TSX/JSX source against mobile responsiveness and UX principles."""
+    if not component_path.exists():
+        raise FileNotFoundError(f"Component file not found: {component_path}")
+
+    content = component_path.read_text(encoding="utf-8", errors="ignore")
+    issues: List[Dict[str, Any]] = []
+
+    # Rule 1: Check mobile responsive 2-row layout in accordion header
+    if "renderCategoryAccordionHeader" in content or "Accordion" in content:
+        # Check if flex-col sm:flex-row is used for headers
+        if "flex-col sm:flex-row" not in content and "sm:flex-row" not in content:
+            issues.append({
+                "severity": "warning",
+                "rule": "responsive-accordion-header-mobile-2row",
+                "message": (
+                    "アコーディオン親ヘッダーにスマホ向け2行表示 ('flex-col sm:flex-row') が見当たりません。"
+                    "横幅の狭いスマホでタイトルが過度にtruncateされるのを防ぐため、"
+                    "1行目にタイトル、2行目に操作見本アイコン群を配置する2行構造を推奨します。"
+                ),
+            })
+
+        # Check if visual token cluster is indented on mobile
+        if "pl-10 sm:pl-0" not in content and "pl-8 sm:pl-0" not in content:
+            issues.append({
+                "severity": "info",
+                "rule": "mobile-accordion-visuals-indent",
+                "message": (
+                    "スマホ2行表示時の操作見本ボタン群に左インデント ('pl-10 sm:pl-0' 等) が見当たりません。"
+                    "バッジ/アイコン幅に合わせてインデントすることで、1行目タイトルと美しく整列できます。"
+                ),
+            })
+
+        # Check parent button alignment
+        if "items-start sm:items-center" not in content:
+            issues.append({
+                "severity": "info",
+                "rule": "parent-button-vertical-align",
+                "message": (
+                    "アコーディオン親ボタンの垂直整列に 'items-start sm:items-center' が見当たりません。"
+                    "スマホで2行になった際、右端の開閉Chevronが自然に1行目タイトルと揃うよう調整を推奨します。"
+                ),
+            })
+
+        # Check redundant tap prompt hidden on mobile
+        if "hidden sm:inline" not in content and "hidden md:inline" not in content:
+            issues.append({
+                "severity": "info",
+                "rule": "hide-redundant-tap-prompt-on-mobile",
+                "message": (
+                    "ヘッダー内の '（クリックで開く）' や '（タップで開く）' 等の補助テキストが"
+                    "スマホで非表示 ('hidden sm:inline') に設定されていない可能性があります。"
+                    "スマホの横幅を確保するため、重複ステータス表記の非表示化を推奨します。"
+                ),
+            })
+
+    return {
+        "valid": len([i for i in issues if i["severity"] == "error"]) == 0,
+        "component": str(component_path),
+        "issue_count": len(issues),
+        "issues": issues,
+    }
+
+
 # ==============================================================================
 # 3. Scaffolder
 # ==============================================================================
@@ -477,8 +541,9 @@ def build_parser() -> argparse.ArgumentParser:
     scaffold_p.add_argument("--dry-run", action="store_true", help="Show generated skeleton without writing to disk")
 
     # Subcommand: validate
-    val_p = subparsers.add_parser("validate", help="Audit help definitions against UX rules.")
-    val_p.add_argument("--file", type=Path, required=True, help="Help definition JSON file to validate")
+    val_p = subparsers.add_parser("validate", help="Audit help definitions or component UI code against UX rules.")
+    val_p.add_argument("--file", type=Path, help="Help definition JSON file to validate")
+    val_p.add_argument("--component", type=Path, help="Help component TSX/JSX file to validate for mobile responsiveness")
 
     return parser
 
@@ -514,13 +579,31 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
 
     if args.command == "validate":
-        if not args.file.exists():
-            print(f"Error: File not found: {args.file}", file=sys.stderr)
+        if not args.file and not args.component:
+            print("Error: Either --file or --component must be specified.", file=sys.stderr)
             return 1
-        data = json.loads(args.file.read_text(encoding="utf-8"))
-        report = validate_help_content(data)
-        print(json.dumps(report, ensure_ascii=False, indent=2))
-        return 0 if report["valid"] else 1
+
+        overall_valid = True
+        if args.file:
+            if not args.file.exists():
+                print(f"Error: File not found: {args.file}", file=sys.stderr)
+                return 1
+            data = json.loads(args.file.read_text(encoding="utf-8"))
+            report = validate_help_content(data)
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            if not report["valid"]:
+                overall_valid = False
+
+        if args.component:
+            if not args.component.exists():
+                print(f"Error: Component file not found: {args.component}", file=sys.stderr)
+                return 1
+            c_report = validate_component_source(args.component)
+            print(json.dumps(c_report, ensure_ascii=False, indent=2))
+            if not c_report["valid"]:
+                overall_valid = False
+
+        return 0 if overall_valid else 1
 
     return 0
 

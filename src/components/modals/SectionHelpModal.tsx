@@ -2227,22 +2227,21 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
     ) {
       if (currentSection === 'clips') {
         return (
-          <div className="flex items-center justify-between w-full pr-1">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full gap-1.5 sm:gap-2 pr-1">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-8 h-7 flex items-center justify-center shrink-0">
                 <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-500/25 border border-blue-400/50 text-blue-200 text-xs font-bold">
                   1
                 </span>
               </div>
-              <span className="text-xs sm:text-sm font-bold text-blue-300 truncate">
+              <span className="text-xs sm:text-sm font-bold text-blue-300">
                 動画・画像カテゴリ
               </span>
-              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0">
-                <span className="inline md:hidden">（タップで{_isOpen ? '閉じる' : '開く'}）</span>
-                <span className="hidden md:inline">（クリックで{_isOpen ? '閉じる' : '開く'}）</span>
+              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0 hidden sm:inline">
+                （クリックで{_isOpen ? '閉じる' : '開く'}）
               </span>
             </div>
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-1.5 pl-10 sm:pl-0 sm:shrink-0">
               <div className="flex items-center rounded-lg border border-gray-700 bg-gray-900/80 p-0.5">
                 <span className="flex items-center gap-0.5 rounded px-1.5 py-0.5 bg-blue-600 text-white text-[10px] font-medium">
                   <RectangleHorizontal className="w-3 h-3" />
@@ -2264,22 +2263,21 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
       }
       if (currentSection === 'bgm') {
         return (
-          <div className="flex items-center justify-between w-full pr-1">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full gap-1.5 sm:gap-2 pr-1">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-8 h-7 flex items-center justify-center shrink-0">
                 <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-purple-500/25 border border-purple-400/50 text-purple-200 text-xs font-bold">
                   2
                 </span>
               </div>
-              <span className="text-xs sm:text-sm font-bold text-purple-300 truncate">
+              <span className="text-xs sm:text-sm font-bold text-purple-300">
                 BGMカテゴリ
               </span>
-              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0">
-                <span className="inline md:hidden">（タップで{_isOpen ? '閉じる' : '開く'}）</span>
-                <span className="hidden md:inline">（クリックで{_isOpen ? '閉じる' : '開く'}）</span>
+              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0 hidden sm:inline">
+                （クリックで{_isOpen ? '閉じる' : '開く'}）
               </span>
             </div>
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-1.5 pl-10 sm:pl-0 sm:shrink-0">
               <span className="text-[10px] text-gray-400 bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700 hidden sm:inline-block">
                 (n件)
               </span>
@@ -2299,22 +2297,21 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
       }
       if (currentSection === 'narration') {
         return (
-          <div className="flex items-center justify-between w-full pr-1">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full gap-1.5 sm:gap-2 pr-1">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-8 h-7 flex items-center justify-center shrink-0">
                 <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-indigo-500/25 border border-indigo-400/50 text-indigo-200 text-xs font-bold">
                   3
                 </span>
               </div>
-              <span className="text-xs sm:text-sm font-bold text-indigo-300 truncate">
+              <span className="text-xs sm:text-sm font-bold text-indigo-300">
                 ナレーションカテゴリ
               </span>
-              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0">
-                <span className="inline md:hidden">（タップで{_isOpen ? '閉じる' : '開く'}）</span>
-                <span className="hidden md:inline">（クリックで{_isOpen ? '閉じる' : '開く'}）</span>
+              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0 hidden sm:inline">
+                （クリックで{_isOpen ? '閉じる' : '開く'}）
               </span>
             </div>
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-1.5 pl-10 sm:pl-0 sm:shrink-0">
               <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-linear-to-r from-indigo-600 to-blue-600 text-white text-[10px] font-semibold">
                 <Sparkles className="w-3 h-3" />
                 <span>AI</span>
@@ -2332,22 +2329,21 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
       }
       if (currentSection === 'caption') {
         return (
-          <div className="flex items-center justify-between w-full pr-1">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full gap-1.5 sm:gap-2 pr-1">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-8 h-7 flex items-center justify-center shrink-0">
                 <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-yellow-500/25 border border-yellow-400/50 text-yellow-200 text-xs font-bold">
                   4
                 </span>
               </div>
-              <span className="text-xs sm:text-sm font-bold text-yellow-300 truncate">
+              <span className="text-xs sm:text-sm font-bold text-yellow-300">
                 キャプションカテゴリ
               </span>
-              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0">
-                <span className="inline md:hidden">（タップで{_isOpen ? '閉じる' : '開く'}）</span>
-                <span className="hidden md:inline">（クリックで{_isOpen ? '閉じる' : '開く'}）</span>
+              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0 hidden sm:inline">
+                （クリックで{_isOpen ? '閉じる' : '開く'}）
               </span>
             </div>
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-1.5 pl-10 sm:pl-0 sm:shrink-0">
               <div className="p-1 rounded-lg border border-gray-700 bg-gray-800/80 text-gray-300">
                 <Eye className="w-3.5 h-3.5" />
               </div>
@@ -2364,22 +2360,21 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
       }
       if (currentSection === 'preview') {
         return (
-          <div className="flex items-center justify-between w-full pr-1">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full gap-1.5 sm:gap-2 pr-1">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-8 h-7 flex items-center justify-center shrink-0">
                 <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-500/25 border border-green-400/50 text-green-200 text-xs font-bold">
                   5
                 </span>
               </div>
-              <span className="text-xs sm:text-sm font-bold text-green-300 truncate">
+              <span className="text-xs sm:text-sm font-bold text-green-300">
                 プレビュー・出力カテゴリ
               </span>
-              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0">
-                <span className="inline md:hidden">（タップで{_isOpen ? '閉じる' : '開く'}）</span>
-                <span className="hidden md:inline">（クリックで{_isOpen ? '閉じる' : '開く'}）</span>
+              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0 hidden sm:inline">
+                （クリックで{_isOpen ? '閉じる' : '開く'}）
               </span>
             </div>
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-1.5 pl-10 sm:pl-0 sm:shrink-0">
               <div className="p-1 rounded border border-gray-700 bg-gray-800 text-gray-400">
                 <Square className="w-3 h-3 fill-current" />
               </div>
@@ -2395,22 +2390,21 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
       }
       if (currentSection === 'app') {
         return (
-          <div className="flex items-center justify-between w-full pr-1">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full gap-1.5 sm:gap-2 pr-1">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-8 h-7 flex items-center justify-center shrink-0">
                 <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-500/25 border border-emerald-400/50 text-emerald-200 text-xs font-bold">
                   ★
                 </span>
               </div>
-              <span className="text-xs sm:text-sm font-bold text-emerald-300 truncate">
+              <span className="text-xs sm:text-sm font-bold text-emerald-300">
                 タートルビデオの基本カテゴリ
               </span>
-              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0">
-                <span className="inline md:hidden">（タップで{_isOpen ? '閉じる' : '開く'}）</span>
-                <span className="hidden md:inline">（クリックで{_isOpen ? '閉じる' : '開く'}）</span>
+              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0 hidden sm:inline">
+                （クリックで{_isOpen ? '閉じる' : '開く'}）
               </span>
             </div>
-            <div className="flex items-center gap-1 shrink-0 text-[10px] text-emerald-400 bg-emerald-950/60 border border-emerald-500/30 px-2 py-0.5 rounded">
+            <div className="flex items-center gap-1 pl-10 sm:pl-0 shrink-0 text-[10px] text-emerald-400 bg-emerald-950/60 border border-emerald-500/30 px-2 py-0.5 rounded w-fit">
               ステップ 1〜5
             </div>
           </div>
@@ -2428,20 +2422,19 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
     ) {
       if (category.includes('AIナレーションスタジオ')) {
         return (
-          <div className="flex items-center justify-between w-full pr-1">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full gap-1 sm:gap-2 pr-1">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-8 h-7 flex items-center justify-center shrink-0">
                 <Sparkles className="w-4 h-4 text-indigo-400" />
               </div>
-              <span className="text-xs sm:text-sm font-bold text-gray-100 truncate">
+              <span className="text-xs sm:text-sm font-bold text-gray-100">
                 AIナレーションスタジオ
               </span>
-              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0">
-                <span className="inline md:hidden">（タップで{_isOpen ? '閉じる' : '開く'}）</span>
-                <span className="hidden md:inline">（クリックで{_isOpen ? '閉じる' : '開く'}）</span>
+              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0 hidden sm:inline">
+                （クリックで{_isOpen ? '閉じる' : '開く'}）
               </span>
             </div>
-            <div className="hidden sm:flex items-center gap-1 text-[11px] text-gray-400 shrink-0">
+            <div className="flex items-center gap-1 text-[10px] sm:text-[11px] text-gray-400 pl-10 sm:pl-0 shrink-0">
               <span>原稿作成</span>
               <span>・</span>
               <span>語り口調</span>
@@ -2453,20 +2446,19 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
       }
       if (currentSection === 'clips') {
         return (
-          <div className="flex items-center justify-between w-full pr-1">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full gap-1 sm:gap-2 pr-1">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-8 h-7 flex items-center justify-center shrink-0">
                 <Settings className="w-4 h-4 text-blue-400" />
               </div>
-              <span className="text-xs sm:text-sm font-bold text-gray-100 truncate">
+              <span className="text-xs sm:text-sm font-bold text-gray-100">
                 全体設定
               </span>
-              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0">
-                <span className="inline md:hidden">（タップで{_isOpen ? '閉じる' : '開く'}）</span>
-                <span className="hidden md:inline">（クリックで{_isOpen ? '閉じる' : '開く'}）</span>
+              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0 hidden sm:inline">
+                （クリックで{_isOpen ? '閉じる' : '開く'}）
               </span>
             </div>
-            <div className="hidden sm:flex items-center gap-1 text-[11px] text-gray-400 shrink-0">
+            <div className="flex items-center gap-1 text-[10px] sm:text-[11px] text-gray-400 pl-10 sm:pl-0 shrink-0">
               <span>タイトル</span>
               <span>・</span>
               <span>ロゴ表示</span>
@@ -2478,20 +2470,19 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
       }
       if (category.includes('音声 一括設定')) {
         return (
-          <div className="flex items-center justify-between w-full pr-1">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full gap-1 sm:gap-2 pr-1">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-8 h-7 flex items-center justify-center shrink-0">
                 <Volume2 className="w-4 h-4 text-purple-400" />
               </div>
-              <span className="text-xs sm:text-sm font-bold text-gray-100 truncate">
+              <span className="text-xs sm:text-sm font-bold text-gray-100">
                 音声 一括設定
               </span>
-              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0">
-                <span className="inline md:hidden">（タップで{_isOpen ? '閉じる' : '開く'}）</span>
-                <span className="hidden md:inline">（クリックで{_isOpen ? '閉じる' : '開く'}）</span>
+              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0 hidden sm:inline">
+                （クリックで{_isOpen ? '閉じる' : '開く'}）
               </span>
             </div>
-            <div className="hidden sm:flex items-center gap-1 text-[11px] text-gray-400 shrink-0">
+            <div className="flex items-center gap-1 text-[10px] sm:text-[11px] text-gray-400 pl-10 sm:pl-0 shrink-0">
               <span>ミュート</span>
               <span>・</span>
               <span>音量統一</span>
@@ -2503,20 +2494,19 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
       }
       if (category.includes('キャプション 一括設定')) {
         return (
-          <div className="flex items-center justify-between w-full pr-1">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full gap-1 sm:gap-2 pr-1">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-8 h-7 flex items-center justify-center shrink-0">
                 <Type className="w-4 h-4 text-yellow-400" />
               </div>
-              <span className="text-xs sm:text-sm font-bold text-gray-100 truncate">
+              <span className="text-xs sm:text-sm font-bold text-gray-100">
                 キャプション 一括設定
               </span>
-              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0">
-                <span className="inline md:hidden">（タップで{_isOpen ? '閉じる' : '開く'}）</span>
-                <span className="hidden md:inline">（クリックで{_isOpen ? '閉じる' : '開く'}）</span>
+              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0 hidden sm:inline">
+                （クリックで{_isOpen ? '閉じる' : '開く'}）
               </span>
             </div>
-            <div className="hidden sm:flex items-center gap-1 text-[11px] text-gray-400 shrink-0">
+            <div className="flex items-center gap-1 text-[10px] sm:text-[11px] text-gray-400 pl-10 sm:pl-0 shrink-0">
               <span>スタイル</span>
               <span>・</span>
               <span>ふちどり色</span>
@@ -2528,20 +2518,19 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
       }
       if (category.includes('エクスポート')) {
         return (
-          <div className="flex items-center justify-between w-full pr-1">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full gap-1 sm:gap-2 pr-1">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-8 h-7 flex items-center justify-center shrink-0">
                 <Download className="w-4 h-4 text-green-400" />
               </div>
-              <span className="text-xs sm:text-sm font-bold text-gray-100 truncate">
+              <span className="text-xs sm:text-sm font-bold text-gray-100">
                 動画書き出し（エクスポート）
               </span>
-              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0">
-                <span className="inline md:hidden">（タップで{_isOpen ? '閉じる' : '開く'}）</span>
-                <span className="hidden md:inline">（クリックで{_isOpen ? '閉じる' : '開く'}）</span>
+              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0 hidden sm:inline">
+                （クリックで{_isOpen ? '閉じる' : '開く'}）
               </span>
             </div>
-            <div className="hidden sm:flex items-center gap-1 text-[11px] text-green-300 shrink-0">
+            <div className="flex items-center gap-1 text-[10px] sm:text-[11px] text-green-300 pl-10 sm:pl-0 shrink-0">
               <span>高速／標準／互換モード</span>
             </div>
           </div>
@@ -2549,20 +2538,19 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
       }
       if (currentSection === 'app') {
         return (
-          <div className="flex items-center justify-between w-full pr-1">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full gap-1 sm:gap-2 pr-1">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-8 h-7 flex items-center justify-center shrink-0">
                 <FolderOpen className="w-4 h-4 text-emerald-400" />
               </div>
-              <span className="text-xs sm:text-sm font-bold text-gray-100 truncate">
+              <span className="text-xs sm:text-sm font-bold text-gray-100">
                 便利機能とトラブルシューティング
               </span>
-              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0">
-                <span className="inline md:hidden">（タップで{_isOpen ? '閉じる' : '開く'}）</span>
-                <span className="hidden md:inline">（クリックで{_isOpen ? '閉じる' : '開く'}）</span>
+              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0 hidden sm:inline">
+                （クリックで{_isOpen ? '閉じる' : '開く'}）
               </span>
             </div>
-            <div className="hidden sm:flex items-center gap-1 text-[11px] text-gray-400 shrink-0">
+            <div className="flex items-center gap-1 text-[10px] sm:text-[11px] text-gray-400 pl-10 sm:pl-0 shrink-0">
               <span>自動保存</span>
               <span>・</span>
               <span>最適化</span>
@@ -2578,7 +2566,7 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
     if (category.includes('カード') || category.includes('各キャプション行')) {
       if (currentSection === 'clips') {
         return (
-          <div className="flex items-center justify-between w-full pr-1">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full gap-1.5 sm:gap-2 pr-1">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-8 h-7 flex items-center justify-center shrink-0">
                 <div className="relative w-7 h-5 rounded bg-gray-700 border border-gray-600 flex items-center justify-center">
@@ -2588,15 +2576,14 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
                   <ImageIcon className="w-3 h-3 text-gray-300" />
                 </div>
               </div>
-              <span className="text-xs sm:text-sm font-bold text-gray-100 truncate">
+              <span className="text-xs sm:text-sm font-bold text-gray-100">
                 動画・画像カードの設定
               </span>
-              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0">
-                <span className="inline md:hidden">（タップで{_isOpen ? '閉じる' : '開く'}）</span>
-                <span className="hidden md:inline">（クリックで{_isOpen ? '閉じる' : '開く'}）</span>
+              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0 hidden sm:inline">
+                （クリックで{_isOpen ? '閉じる' : '開く'}）
               </span>
             </div>
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center gap-1 pl-10 sm:pl-0 sm:shrink-0">
               <div className="p-1 rounded border border-gray-700 bg-gray-800/80 text-gray-300">
                 <Unlock className="w-3 h-3" />
               </div>
@@ -2618,22 +2605,21 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
       }
       if (currentSection === 'bgm') {
         return (
-          <div className="flex items-center justify-between w-full pr-1">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full gap-1.5 sm:gap-2 pr-1">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-8 h-7 flex items-center justify-center shrink-0">
                 <div className="w-7 h-5 rounded bg-purple-900/60 border border-purple-600/40 flex items-center justify-center">
                   <AudioLines className="w-3 h-3 text-purple-300" />
                 </div>
               </div>
-              <span className="text-xs sm:text-sm font-bold text-gray-100 truncate">
+              <span className="text-xs sm:text-sm font-bold text-gray-100">
                 BGMカードの設定
               </span>
-              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0">
-                <span className="inline md:hidden">（タップで{_isOpen ? '閉じる' : '開く'}）</span>
-                <span className="hidden md:inline">（クリックで{_isOpen ? '閉じる' : '開く'}）</span>
+              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0 hidden sm:inline">
+                （クリックで{_isOpen ? '閉じる' : '開く'}）
               </span>
             </div>
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center gap-1 pl-10 sm:pl-0 sm:shrink-0">
               <div className="p-1 rounded border border-gray-700 bg-gray-800/80 text-gray-300">
                 <ArrowUp className="w-3 h-3" />
               </div>
@@ -2652,22 +2638,21 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
       }
       if (currentSection === 'narration') {
         return (
-          <div className="flex items-center justify-between w-full pr-1">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full gap-1.5 sm:gap-2 pr-1">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-8 h-7 flex items-center justify-center shrink-0">
                 <div className="w-7 h-5 rounded bg-indigo-900/60 border border-indigo-600/40 flex items-center justify-center">
                   <AudioLines className="w-3 h-3 text-indigo-300" />
                 </div>
               </div>
-              <span className="text-xs sm:text-sm font-bold text-gray-100 truncate">
+              <span className="text-xs sm:text-sm font-bold text-gray-100">
                 ナレーションカードの設定
               </span>
-              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0">
-                <span className="inline md:hidden">（タップで{_isOpen ? '閉じる' : '開く'}）</span>
-                <span className="hidden md:inline">（クリックで{_isOpen ? '閉じる' : '開く'}）</span>
+              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0 hidden sm:inline">
+                （クリックで{_isOpen ? '閉じる' : '開く'}）
               </span>
             </div>
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center gap-1 pl-10 sm:pl-0 sm:shrink-0">
               <div className="p-1 rounded border border-gray-700 bg-gray-800/80 text-gray-300">
                 <ArrowUp className="w-3 h-3" />
               </div>
@@ -2686,22 +2671,21 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
       }
       if (currentSection === 'caption') {
         return (
-          <div className="flex items-center justify-between w-full pr-1">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full gap-1.5 sm:gap-2 pr-1">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-8 h-7 flex items-center justify-center shrink-0">
                 <div className="w-7 h-5 rounded bg-yellow-900/60 border border-yellow-600/40 flex items-center justify-center text-yellow-300 font-bold text-[10px]">
                   T
                 </div>
               </div>
-              <span className="text-xs sm:text-sm font-bold text-gray-100 truncate">
+              <span className="text-xs sm:text-sm font-bold text-gray-100">
                 各キャプション行の設定
               </span>
-              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0">
-                <span className="inline md:hidden">（タップで{_isOpen ? '閉じる' : '開く'}）</span>
-                <span className="hidden md:inline">（クリックで{_isOpen ? '閉じる' : '開く'}）</span>
+              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0 hidden sm:inline">
+                （クリックで{_isOpen ? '閉じる' : '開く'}）
               </span>
             </div>
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center gap-1 pl-10 sm:pl-0 sm:shrink-0">
               <span className="text-[10px] text-gray-400 bg-gray-800 px-1 py-0.5 rounded border border-gray-700">
                 0:00.0〜
               </span>
@@ -2723,10 +2707,9 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
         <div className="w-8 h-7 flex items-center justify-center shrink-0">
           <span className="w-1.5 h-4 bg-blue-500 rounded-full" />
         </div>
-        <span className="text-xs sm:text-sm font-bold text-white truncate">{category}</span>
-        <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0">
-          <span className="inline md:hidden">（タップで{_isOpen ? '閉じる' : '開く'}）</span>
-          <span className="hidden md:inline">（クリックで{_isOpen ? '閉じる' : '開く'}）</span>
+        <span className="text-xs sm:text-sm font-bold text-white">{category}</span>
+        <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0 hidden sm:inline">
+          （クリックで{_isOpen ? '閉じる' : '開く'}）
         </span>
       </div>
     );
@@ -3017,15 +3000,14 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
                     onClick={() => toggleCategory(group.category)}
                     aria-expanded={isCatOpen}
                     aria-label={`${group.category}（開閉）`}
-                    className="w-full flex items-center justify-between gap-2 p-2.5 sm:p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 cursor-pointer"
+                    className="w-full flex items-start sm:items-center justify-between gap-2 p-2.5 sm:p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 cursor-pointer"
                   >
                     <div className="min-w-0 flex-1">
                       {renderCategoryAccordionHeader(group.category, section, isCatOpen)}
                     </div>
-                    <div className="flex items-center gap-1 shrink-0 text-gray-400 pl-1">
+                    <div className="flex items-center gap-1 shrink-0 text-gray-400 pl-1 pt-1 sm:pt-0">
                       <span className="text-[11px] md:text-xs whitespace-nowrap">
-                        <span className="inline md:hidden">{isCatOpen ? '（閉じる）' : '（開く）'}</span>
-                        <span className="hidden md:inline">{isCatOpen ? '（閉じる）' : '（開く）'}</span>
+                        {isCatOpen ? '（閉じる）' : '（開く）'}
                       </span>
                       <ChevronDown
                         className={`w-4 h-4 text-gray-400 shrink-0 transition-transform duration-200 ${
