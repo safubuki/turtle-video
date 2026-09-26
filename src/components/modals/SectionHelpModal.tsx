@@ -45,6 +45,7 @@ import {
   Crosshair,
   Captions,
   ArrowDownUp,
+  ArrowLeftRight,
   RectangleHorizontal,
   RectangleVertical,
   RotateCw,
@@ -59,8 +60,12 @@ import {
   AlignCenter,
   AlignRight,
   Minus,
+  FileText,
+  Mic,
+  ExternalLink,
 } from 'lucide-react';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
+import { getStoredApiKey } from './SettingsModal';
 import {
   getSectionHelpContent,
   type SectionHelpKey,
@@ -74,6 +79,7 @@ interface SectionHelpModalProps {
   supportsShowSaveFilePicker: boolean;
   isOpen: boolean;
   section: SectionHelpKey | null;
+  initialCategory?: string;
   onClose: () => void;
 }
 
@@ -94,6 +100,7 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
   supportsShowSaveFilePicker,
   isOpen,
   section,
+  initialCategory,
   onClose,
 }) => {
   useDisableBodyScroll(isOpen);
@@ -291,10 +298,10 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      setOpenCategories(new Set());
+      setOpenCategories(new Set(initialCategory ? [initialCategory] : []));
       setOpenSubItems(new Set());
     }
-  }, [isOpen, section]);
+  }, [isOpen, section, initialCategory]);
 
   const toggleCategory = (category: string) => {
     setOpenCategories((prev) => {
@@ -335,6 +342,42 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
   const accent = sectionAccentClass[section];
   const chipBaseClass =
     'inline-flex items-center gap-1 rounded-lg border text-[10px] md:text-xs leading-none';
+
+  const renderTextWithLinks = (content: string) => {
+    if (!content.includes('Google AI Studio') && !content.includes('歯車アイコン')) {
+      return content;
+    }
+    const parts = content.split(/(Google AI Studio|歯車アイコン)/g);
+    return parts.map((part, i) => {
+      if (part === 'Google AI Studio') {
+        return (
+          <a
+            key={`link-${i}`}
+            href="https://aistudio.google.com/app/apikey"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-0.5 text-blue-400 hover:text-blue-300 underline underline-offset-2 font-semibold"
+            onClick={(e) => e.stopPropagation()}
+          >
+            Google AI Studio
+            <ExternalLink className="inline-block w-3 h-3 ml-0.5" />
+          </a>
+        );
+      }
+      if (part === '歯車アイコン') {
+        return (
+          <span
+            key={`gear-${i}`}
+            className="inline-flex items-center gap-1 rounded bg-gray-800/90 border border-gray-700/80 px-1.5 py-0.5 text-[11px] md:text-xs text-gray-200 mx-0.5 align-middle font-medium shadow-xs"
+          >
+            <Settings className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+            <span>歯車アイコン</span>
+          </span>
+        );
+      }
+      return <React.Fragment key={`text-${i}`}>{part}</React.Fragment>;
+    });
+  };
 
   const renderVisualToken = (token: SectionHelpVisualId, index: number) => {
     switch (token) {
@@ -1278,19 +1321,33 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
         return (
           <div
             key={`${token}-${index}`}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-800 bg-gray-900/90 px-2 py-1 text-xs"
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-900/95 px-2.5 py-1 text-xs shadow-xs"
           >
-            <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-gray-400 hover:text-white transition">
-              <FolderOpen className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="hidden sm:inline text-[11px] text-gray-300">保存・読込</span>
-            </span>
-            <span className="inline-flex items-center gap-1 rounded-md bg-gray-800 border border-gray-700 px-2 py-0.5 text-white font-medium shadow-xs">
-              <Settings className="w-3.5 h-3.5 text-blue-400" />
-              <span className="text-[11px]">設定</span>
-            </span>
-            <span className="inline-flex items-center gap-1 rounded-md border border-blue-500/45 bg-blue-500/10 px-1.5 py-0.5 text-blue-300">
-              <CircleHelp className="w-3.5 h-3.5" />
-            </span>
+            <div className="flex items-center gap-1.5 pr-1.5 border-r border-gray-700/60">
+              <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600/95 ring-1 ring-emerald-300/35 overflow-hidden">
+                <img
+                  src={`${import.meta.env.BASE_URL}turtle_icon.png`}
+                  alt=""
+                  className="h-4 w-4 rounded-full object-cover"
+                />
+              </div>
+              <span className="font-bold text-xs text-white whitespace-nowrap">タートルビデオ</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="p-1 rounded-md text-gray-400" title="保存・読み込み">
+                <FolderOpen className="w-4 h-4" />
+              </span>
+              <span
+                className="inline-flex items-center gap-1 rounded-md bg-gray-800 border border-blue-400/60 px-1.5 py-0.5 text-white shadow-xs ring-1 ring-blue-400/40"
+                title="全体設定（歯車アイコン）"
+              >
+                <Settings className="w-3.5 h-3.5 text-blue-400" />
+                <span className="text-[11px] font-semibold text-blue-200">設定</span>
+              </span>
+              <span className="p-1 rounded-md border border-blue-500/30 bg-blue-500/10 text-blue-300" title="ヘルプ">
+                <CircleHelp className="w-4 h-4" />
+              </span>
+            </div>
           </div>
         );
       case 'project_save_slots':
@@ -1498,6 +1555,164 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
             <Scissors className="h-3.5 w-3.5" /> 設定を末尾に固定
           </span>
         );
+      case 'bulk_mute_checkbox':
+        return (
+          <span
+            key={`${token}-${index}`}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/40 bg-red-950/30 px-2.5 py-1.5 text-[10px] md:text-xs font-semibold text-gray-200"
+          >
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-red-500/60 bg-red-500/20 text-red-300">
+              <Check className="h-3 w-3" />
+            </span>
+            一括ミュート
+          </span>
+        );
+      case 'bulk_volume_checkbox':
+        return (
+          <span
+            key={`${token}-${index}`}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-blue-500/40 bg-blue-950/30 px-2.5 py-1.5 text-[10px] md:text-xs font-semibold text-gray-200"
+          >
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-blue-500/60 bg-blue-500/20 text-blue-300">
+              <Check className="h-3 w-3" />
+            </span>
+            一括音量設定 (100%)
+          </span>
+        );
+      case 'bulk_normalize_buttons':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="inline-flex flex-wrap items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-950/20 px-2.5 py-1.5 text-[10px] md:text-xs text-gray-300"
+          >
+            <span className="text-gray-400">音量を揃える:</span>
+            <span className="rounded border border-emerald-500/60 bg-emerald-500/20 px-2 py-0.5 font-medium text-emerald-200">
+              平均に揃える
+            </span>
+            <span className="rounded border border-gray-700 bg-gray-800 px-2 py-0.5 text-gray-400">
+              最大に揃える
+            </span>
+            <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] text-emerald-300 font-mono">
+              +2.4 dB
+            </span>
+          </div>
+        );
+      case 'ai_script_length_demo':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="inline-flex flex-wrap items-center gap-2 rounded-lg border border-purple-500/30 bg-purple-950/20 p-2 text-[10px] md:text-xs text-gray-300"
+          >
+            <span className="text-gray-400 font-semibold">長さ:</span>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1 text-gray-300">
+                <span className="h-2.5 w-2.5 rounded-full border border-gray-600 bg-gray-800" />
+                短め
+              </span>
+              <span className="inline-flex items-center gap-1 font-semibold text-purple-200">
+                <span className="h-2.5 w-2.5 rounded-full border border-purple-400 bg-purple-500" />
+                中くらい
+              </span>
+              <span className="inline-flex items-center gap-1 text-gray-300">
+                <span className="h-2.5 w-2.5 rounded-full border border-gray-600 bg-gray-800" />
+                長め
+              </span>
+            </div>
+            <span className="inline-flex items-center gap-1 rounded-md bg-purple-600 px-2.5 py-1 text-xs font-bold text-white shadow-xs">
+              <FileText className="w-3.5 h-3.5" /> AI原稿を作成
+            </span>
+          </div>
+        );
+      case 'ai_tone_preset_demo':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="basis-full w-full space-y-2 rounded-xl border border-gray-700/80 bg-gray-900/60 p-2.5 text-[10px] md:text-xs"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-1.5">
+              <span className="font-semibold text-gray-200">
+                文中の部分アクセント・メリハリ（選択範囲のみ）
+              </span>
+              <span className="rounded-md border border-gray-600 bg-gray-800 px-2 py-0.5 text-[10px] text-gray-200">
+                選択のアクセントを外す
+              </span>
+            </div>
+            <div className="text-[10px] text-gray-400">
+              選んだ部分に強調・ささやきを追加。全体の声は Step 3 で設定します。
+            </div>
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="語り口調プリセット">
+              {['強調して', '感情込めて', 'ささやき', '早口で', 'ゆっくり'].map((tone, i) => (
+                <span
+                  key={tone}
+                  className={`rounded-lg border px-2.5 py-1 font-semibold transition ${
+                    i === 0
+                      ? 'border-purple-400 bg-purple-500/20 text-purple-200'
+                      : 'border-gray-600 bg-gray-800 text-gray-100'
+                  }`}
+                >
+                  {tone}
+                </span>
+              ))}
+            </div>
+            <div className="flex items-center gap-1.5 pt-0.5">
+              <span className="flex-1 truncate rounded-lg border border-gray-700 bg-gray-900 px-2.5 py-1.5 text-[10px] text-gray-400">
+                自由な部分アクセント（例: 疑問を投げかけるように、笑いながら）
+              </span>
+              <span className="rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-bold text-white shadow-xs">
+                適用
+              </span>
+            </div>
+          </div>
+        );
+      case 'ai_voice_setting_demo':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="basis-full w-full space-y-1.5 rounded-lg border border-indigo-500/30 bg-indigo-950/25 p-2 text-[10px] md:text-xs"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-1.5">
+              <span className="inline-flex items-center gap-1 font-semibold text-indigo-300">
+                <Sparkles className="w-3 h-3 text-indigo-400" /> 音声エンジン:
+                <span className="rounded bg-indigo-900/60 px-1.5 py-0.5 text-white font-mono text-[10px] border border-indigo-700/60">
+                  Gemini 3.8 Flash TTS
+                </span>
+              </span>
+              <span className="text-[10px] text-gray-400">30基本声 ＋ 多数の追加声</span>
+            </div>
+            <div className="flex items-center gap-2 rounded-lg border border-blue-500/40 bg-gray-900/80 p-2">
+              <span className="rounded-full bg-blue-500/25 border border-blue-400/40 px-1.5 py-0.5 text-[9px] font-bold text-blue-200">
+                選択中
+              </span>
+              <span className="font-bold text-white text-xs">Aoede</span>
+              <span className="text-[10px] text-pink-300 bg-pink-950/40 px-1.5 py-0.5 rounded border border-pink-700/40">
+                女性
+              </span>
+              <span className="text-[10px] text-gray-400">親しみやすく落ち着いた声</span>
+            </div>
+          </div>
+        );
+      case 'ai_generate_button_demo':
+        return (
+          <span
+            key={`${token}-${index}`}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-linear-to-r from-blue-600 to-purple-600 px-3 py-1.5 text-xs font-bold text-white shadow-md"
+          >
+            <Mic className="h-3.5 w-3.5" /> AIナレーションを作成して追加
+          </span>
+        );
+      case 'google_ai_studio_link':
+        return (
+          <a
+            key={`${token}-${index}`}
+            href="https://aistudio.google.com/app/apikey"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-orange-400/50 bg-orange-500/15 hover:bg-orange-500/25 text-orange-200 hover:text-orange-100 text-[11px] md:text-xs font-semibold shadow-xs transition"
+          >
+            <span>APIキー取得（Google AI Studio）</span>
+            <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        );
       case 'bulk_audio_controls':
         return (
           <div
@@ -1573,26 +1788,84 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
         return (
           <div
             key={`${token}-${index}`}
-            className="basis-full w-full space-y-1.5 rounded-lg border border-gray-700/60 bg-gray-900/40 p-2 text-[10px] md:text-xs"
+            className="basis-full w-full space-y-2 rounded-xl border border-gray-700/80 bg-gray-950 p-2.5 text-[10px] md:text-xs shadow-md"
           >
-            <div className="flex items-center gap-2">
-              <span className="text-gray-400">確定モード:</span>
-              <span className="rounded border border-yellow-500/60 bg-yellow-500/20 px-2 py-0.5 font-semibold text-yellow-200">
-                交互モード（開始/終了）
+            {/* 上部: ナビゲーションとガイド表示 */}
+            <div className="flex items-center gap-2 rounded-xl border border-gray-700/60 bg-gray-900/90 p-2">
+              <span className="p-1 rounded-lg bg-gray-800 text-gray-400">
+                <ChevronLeft className="w-3.5 h-3.5" />
               </span>
-              <span className="rounded border border-gray-700 bg-gray-800 px-2 py-0.5 text-gray-400">
-                連続モード
+              <div className="flex-1 min-w-0 text-center">
+                <div className="text-[10px] text-gray-400 font-mono">
+                  1/2（再生位置: 0:00）
+                </div>
+                <div className="text-xs text-gray-200 truncate font-medium">
+                  「今日はいい天気」の
+                  <span className="text-yellow-300 font-bold mx-0.5">始まり</span>
+                  で押す
+                </div>
+              </div>
+              <span className="p-1 rounded-lg bg-gray-800 text-gray-400">
+                <ChevronRight className="w-3.5 h-3.5" />
+              </span>
+              <span className="p-1 rounded-lg bg-gray-700 text-gray-300">
+                <X className="w-3.5 h-3.5" />
               </span>
             </div>
-            <div className="flex items-center gap-1.5 text-gray-300">
-              <span className="rounded bg-gray-800 px-2 py-1 text-center font-semibold text-emerald-300 border border-emerald-500/40">
-                開始確定
-              </span>
-              <span className="rounded bg-gray-800 px-2 py-1 text-center font-semibold text-red-300 border border-red-500/40">
-                終了確定
-              </span>
-              <span className="rounded bg-gray-700 px-1.5 py-1 text-gray-300">-1s</span>
-              <span className="rounded bg-gray-700 px-1.5 py-1 text-gray-300">+1s</span>
+
+            {/* 中段: モード切替・無音ナビ・微調整・自動調整 */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {/* 交互 / 連続 スイッチ */}
+              <div className="flex rounded-lg overflow-hidden border border-gray-700 shrink-0 text-[10px]">
+                <span className="bg-yellow-600 text-white font-bold px-2 py-1">
+                  交互
+                </span>
+                <span className="bg-gray-800 text-gray-400 px-2 py-1">
+                  連続
+                </span>
+              </div>
+
+              {/* 移動と再生コントロール */}
+              <div className="flex items-center gap-1 shrink-0">
+                <span className="flex items-center gap-0.5 rounded-lg bg-gray-800 border border-gray-700/80 px-1.5 py-1 text-gray-300">
+                  <ChevronsLeft className="h-3 w-3 shrink-0" />
+                  <span className="hidden sm:inline">無音区間：前へ</span>
+                  <span className="sm:hidden">前</span>
+                </span>
+                <span className="rounded-lg bg-gray-800 border border-gray-700/80 px-2 py-1 font-mono text-gray-300">
+                  -1s
+                </span>
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/20 text-white shadow-xs">
+                  <Play className="ml-0.5 h-3 w-3 fill-current" />
+                </span>
+                <span className="rounded-lg bg-gray-800 border border-gray-700/80 px-2 py-1 font-mono text-gray-300">
+                  +1s
+                </span>
+                <span className="flex items-center gap-0.5 rounded-lg bg-gray-800 border border-gray-700/80 px-1.5 py-1 text-gray-300">
+                  <span className="hidden sm:inline">無音区間：次へ</span>
+                  <span className="sm:hidden">次</span>
+                  <ChevronsRight className="h-3 w-3 shrink-0" />
+                </span>
+              </div>
+
+              {/* 読みやすい位置へ自動調整 */}
+              <div className="flex items-center gap-1 rounded-lg border border-gray-700/80 bg-gray-800/60 px-2 py-1 text-gray-200">
+                <span className="flex h-3.5 w-3.5 items-center justify-center rounded bg-yellow-500 text-black">
+                  <Check className="h-2.5 w-2.5 stroke-[3]" />
+                </span>
+                <span className="font-medium text-[10px]">読みやすい位置へ自動調整</span>
+              </div>
+            </div>
+
+            {/* 下段: メイン打鍵ボタン */}
+            <div className="flex items-center gap-1.5 pt-0.5">
+              <div className="flex-1 flex items-center justify-center gap-1.5 h-10 rounded-xl bg-emerald-600 text-white font-bold text-xs sm:text-sm shadow-md ring-1 ring-emerald-400/40">
+                <Play className="w-3.5 h-3.5 fill-current" />
+                <span>ここから開始</span>
+              </div>
+              <div className="h-10 px-3 flex items-center justify-center bg-gray-700 text-gray-200 rounded-xl border border-gray-600 shadow-xs" title="開始/終了切替">
+                <ArrowLeftRight className="w-4 h-4" />
+              </div>
             </div>
           </div>
         );
@@ -1669,6 +1942,66 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
             <div className="text-[9px] text-gray-400">ステージ: レンダリング中 (残り約 12 秒)</div>
           </div>
         );
+      case 'logo_scope_buttons':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="inline-flex flex-wrap items-center gap-1.5 rounded-lg border border-gray-700 bg-gray-900/60 p-1.5 text-[10px] md:text-xs"
+          >
+            <span className="text-gray-400 mr-0.5">表示する区間:</span>
+            <span className="rounded-lg border border-blue-400 bg-blue-500/20 px-2 py-1 text-blue-200 font-semibold shadow-xs">
+              本編のみ
+            </span>
+            <span className="rounded-lg border border-gray-700 bg-gray-800 px-2 py-1 text-gray-400">
+              全編（エンドロール含む）
+            </span>
+          </div>
+        );
+      case 'endroll_bg_buttons':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="inline-flex flex-wrap items-center gap-1.5 rounded-lg border border-gray-700 bg-gray-900/60 p-1.5 text-[10px] md:text-xs"
+          >
+            <span className="text-gray-400 mr-0.5">背景色:</span>
+            <span className="rounded-lg border border-blue-400 bg-blue-500/20 px-2 py-1 text-blue-200 font-semibold shadow-xs">
+              黒
+            </span>
+            <span className="rounded-lg border border-gray-700 bg-gray-800 px-2 py-1 text-gray-400">
+              白
+            </span>
+            <span className="rounded-lg border border-gray-700 bg-gray-800 px-2 py-1 text-gray-400">
+              カスタム
+            </span>
+          </div>
+        );
+      case 'endroll_bgm_fade_checkbox':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-900/60 px-2.5 py-1.5 text-[10px] md:text-xs text-gray-200"
+          >
+            <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded border border-blue-400 bg-blue-600 text-white text-[10px]">
+              <Check className="w-2.5 h-2.5 stroke-[3]" />
+            </span>
+            <span>エンドロール中に BGM を徐々に消す</span>
+          </div>
+        );
+      case 'video_title_style_sample':
+        return (
+          <div
+            key={`${token}-${index}`}
+            className="inline-flex flex-wrap items-center gap-1.5 rounded-lg border border-yellow-500/30 bg-yellow-950/20 p-1.5 text-[10px] md:text-xs text-yellow-100"
+          >
+            <span className="text-gray-400">位置:</span>
+            <span className="rounded bg-yellow-500 text-gray-900 font-semibold px-1.5 py-0.5">中央</span>
+            <span className="rounded bg-gray-800 text-gray-300 px-1.5 py-0.5">上部</span>
+            <span className="rounded bg-gray-800 text-gray-300 px-1.5 py-0.5">下部</span>
+            <span className="rounded bg-gray-800 text-gray-300 px-1.5 py-0.5">カスタム</span>
+            <span className="ml-1 text-gray-400">サイズ:</span>
+            <span className="rounded bg-yellow-500/20 border border-yellow-500/40 text-yellow-200 px-1.5 py-0.5">特大</span>
+          </div>
+        );
       default:
         return null;
     }
@@ -1692,6 +2025,14 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
       return (
         <span className="inline-flex items-center gap-1 rounded bg-gray-800 border border-gray-700 px-1.5 py-0.5 text-[10px] text-gray-300 shrink-0">
           <Settings className="w-3 h-3 text-blue-400" /> 設定
+        </span>
+      );
+    }
+    // 2.5. タイトル
+    if (item.title.includes('タイトル（') || item.visuals?.includes('video_title_accordion')) {
+      return (
+        <span className="inline-flex items-center gap-1 rounded bg-yellow-950/70 border border-yellow-500/40 px-1.5 py-0.5 text-[10px] text-yellow-200 shrink-0">
+          <Type className="w-3 h-3 text-yellow-400" /> タイトル
         </span>
       );
     }
@@ -1976,7 +2317,7 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
             <div className="flex items-center gap-1.5 shrink-0">
               <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-linear-to-r from-indigo-600 to-blue-600 text-white text-[10px] font-semibold">
                 <Sparkles className="w-3 h-3" />
-                <span>AI原稿</span>
+                <span>AI</span>
               </div>
               <div className="p-1 rounded-lg border border-gray-700 bg-gray-800/80 text-gray-300">
                 <Unlock className="w-3.5 h-3.5" />
@@ -2077,13 +2418,39 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
       }
     }
 
-    // 2. 全体設定 / 音声一括設定 / キャプション一括設定 / エクスポート / 便利機能
+    // 2. 全体設定 / 音声一括設定 / AIナレーションスタジオ / キャプション一括設定 / エクスポート / 便利機能
     if (
       category.includes('全体設定') ||
       category.includes('一括設定') ||
+      category.includes('AIナレーションスタジオ') ||
       category.includes('エクスポート') ||
       category.includes('便利機能')
     ) {
+      if (category.includes('AIナレーションスタジオ')) {
+        return (
+          <div className="flex items-center justify-between w-full pr-1">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-8 h-7 flex items-center justify-center shrink-0">
+                <Sparkles className="w-4 h-4 text-indigo-400" />
+              </div>
+              <span className="text-xs sm:text-sm font-bold text-gray-100 truncate">
+                AIナレーションスタジオ
+              </span>
+              <span className="text-[10px] sm:text-xs text-gray-400 font-normal shrink-0">
+                <span className="inline md:hidden">（タップで{_isOpen ? '閉じる' : '開く'}）</span>
+                <span className="hidden md:inline">（クリックで{_isOpen ? '閉じる' : '開く'}）</span>
+              </span>
+            </div>
+            <div className="hidden sm:flex items-center gap-1 text-[11px] text-gray-400 shrink-0">
+              <span>原稿作成</span>
+              <span>・</span>
+              <span>語り口調</span>
+              <span>・</span>
+              <span>声の選択</span>
+            </div>
+          </div>
+        );
+      }
       if (currentSection === 'clips') {
         return (
           <div className="flex items-center justify-between w-full pr-1">
@@ -2382,11 +2749,35 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
       (v) => !usedVisuals.has(v)
     );
 
+    const isImportant = Boolean(item.note && (item.note.startsWith('重要:') || item.note.startsWith('重要：')));
+    const cleanNote = item.note ? (isImportant ? item.note.replace(/^重要[:：]\s*/, '') : item.note) : '';
+
+    // APIキーが登録済みかどうか（登録されている場合は「重要:」黄色警告を非表示にする）
+    const currentApiKey = (getStoredApiKey() || (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) || '').trim();
+    const hasApiKey = Boolean(currentApiKey);
+
+    // 重要ノート（APIキー未登録時のみ、item.description の直下に表示）
+    const importantNoteElement = isImportant && !hasApiKey ? (
+      <div className="rounded-lg border border-amber-400/50 bg-amber-500/12 px-2.5 py-2 text-[11px] leading-relaxed md:text-xs text-amber-100 shadow-xs">
+        <span className="mr-1 font-bold text-amber-300">重要:</span>
+        {renderTextWithLinks(cleanNote)}
+      </div>
+    ) : null;
+
+    // 通常のポイントノート（従来どおり下部に表示）
+    const regularNoteElement = !isImportant && item.note ? (
+      <div className="rounded-lg border border-amber-500/25 bg-amber-500/8 px-2.5 py-2 text-[11px] leading-relaxed md:text-xs text-amber-100">
+        <span className="mr-1 font-bold text-amber-300">ポイント:</span>
+        {renderTextWithLinks(cleanNote)}
+      </div>
+    ) : null;
+
     return (
       <div className="space-y-2.5">
         <p className="text-xs md:text-sm text-gray-300 leading-relaxed">
           {item.description}
         </p>
+        {importantNoteElement}
         {item.bullets && item.bullets.length > 0 && (
           <ul className="space-y-2 text-xs leading-relaxed text-gray-300 md:text-sm">
             {item.bullets.map((bullet, bulletIndex) => {
@@ -2401,7 +2792,7 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
                 >
                   <div className="flex items-start gap-1.5">
                     <span className="text-blue-400 font-bold shrink-0 leading-relaxed">・</span>
-                    <span className="flex-1">{text}</span>
+                    <span className="flex-1">{renderTextWithLinks(text)}</span>
                   </div>
                   {bulletVisuals && bulletVisuals.length > 0 && (
                     <div className="flex flex-wrap items-center gap-1.5 pl-4 pt-0.5">
@@ -2470,12 +2861,7 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
             </table>
           </div>
         )}
-        {item.note && (
-          <div className="rounded-lg border border-amber-500/25 bg-amber-500/8 px-2.5 py-2 text-[11px] leading-relaxed text-amber-100 md:text-xs">
-            <span className="mr-1 font-semibold text-amber-300">ポイント:</span>
-            {item.note}
-          </div>
-        )}
+        {regularNoteElement}
         {remainingVisuals.length > 0 && (
           <div className="flex flex-wrap w-full gap-1.5 pt-1">
             {remainingVisuals.map((visual, visualIndex) =>

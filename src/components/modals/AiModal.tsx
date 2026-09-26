@@ -6,7 +6,7 @@
  * @description AIナレーションを生成するためのモーダルダイアログ。プロンプト入力、スクリプト生成、音声合成のフローを提供する。
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Sparkles, X, Loader, FileText, Mic, CircleHelp, ExternalLink, Check, RotateCcw, Volume2 } from 'lucide-react';
+import { Sparkles, X, Loader, FileText, Mic, CircleHelp, Check, RotateCcw, Volume2, AlertTriangle, ExternalLink } from 'lucide-react';
 import type {
   VoiceOption,
   NarrationScriptLength,
@@ -73,6 +73,7 @@ interface AiModalProps {
   onTtsStyleDetailChange: (style: string) => void;
   onGenerateScript: () => void;
   onGenerateSpeech: () => void;
+  onOpenHelp?: () => void;
 }
 
 /**
@@ -82,6 +83,7 @@ const AiModal: React.FC<AiModalProps> = ({
   isOpen,
   offlineMode = false,
   onClose,
+  onOpenHelp,
   aiPrompt,
   aiScript,
   aiScriptLength,
@@ -111,6 +113,15 @@ const AiModal: React.FC<AiModalProps> = ({
   useDisableBodyScroll(isOpen);
   /** 声一覧の性別絞り込み（すべて / 女性 / 男性） */
   const [voiceGenderFilter, setVoiceGenderFilter] = useState<VoiceGenderFilter>('all');
+  const [apiKey, setApiKey] = useState(() => getStoredApiKey() || import.meta.env.VITE_GEMINI_API_KEY || '');
+
+  useEffect(() => {
+    if (isOpen) {
+      setApiKey(getStoredApiKey() || import.meta.env.VITE_GEMINI_API_KEY || '');
+    }
+  }, [isOpen]);
+
+  const hasApiKey = Boolean(apiKey.trim());
   const [voiceSource, setVoiceSource] = useState<'basic' | 'library'>('basic');
   const [voiceSearch, setVoiceSearch] = useState('');
   const [voiceLanguage, setVoiceLanguage] = useState<'ja' | 'en'>('ja');
@@ -129,7 +140,6 @@ const AiModal: React.FC<AiModalProps> = ({
   const [customToneText, setCustomToneText] = useState('');
   const [selectionHint, setSelectionHint] = useState('');
   const scriptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const showHelpRef = useRef(false);
   const modalHistoryIdRef = useRef<string | null>(null);
   const closedByPopstateRef = useRef(false);
   const sheetScrollRef = useRef<HTMLDivElement>(null);
@@ -364,12 +374,6 @@ const AiModal: React.FC<AiModalProps> = ({
     restoreCaret(caret);
   };
 
-  const [showHelp, setShowHelp] = useState(false);
-
-  useEffect(() => {
-    showHelpRef.current = showHelp;
-  }, [showHelp]);
-
   useEffect(() => {
     if (!isOpen || typeof window === 'undefined') return;
     const stateId = `ai-modal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -381,15 +385,19 @@ const AiModal: React.FC<AiModalProps> = ({
       : {};
     window.history.pushState({ ...currentState, __aiModal: stateId }, '');
 
-    const handlePopState = () => {
-      if (showHelpRef.current) {
-        setShowHelp(false);
-        const state = (window.history.state && typeof window.history.state === 'object')
-          ? window.history.state as Record<string, unknown>
-          : {};
-        window.history.pushState({ ...state, __aiModal: stateId }, '');
+    const handlePopState = (event: PopStateEvent) => {
+      const state =
+        event.state && typeof event.state === 'object'
+          ? (event.state as Record<string, unknown>)
+          : window.history.state && typeof window.history.state === 'object'
+            ? (window.history.state as Record<string, unknown>)
+            : null;
+
+      // 上に重ねられたモーダル（ヘルプ等）が閉じて自分自身の state に戻ってきた場合は、自分は閉じない
+      if (state && modalHistoryIdRef.current && state.__aiModal === modalHistoryIdRef.current) {
         return;
       }
+
       closedByPopstateRef.current = true;
       onClose();
     };
@@ -504,14 +512,17 @@ const AiModal: React.FC<AiModalProps> = ({
           <h3 className="font-bold flex items-center gap-2 text-white">
             <Sparkles className="w-5 h-5 text-yellow-400" />
             <span>AIナレーションスタジオ</span>
-            <button
-              onClick={() => setShowHelp((prev) => !prev)}
-              className="p-1 rounded-lg transition border border-blue-500/45 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:text-blue-200"
-              title="このセクションの説明"
-              aria-label="AIナレーションスタジオの説明"
-            >
-              <CircleHelp className="w-4 h-4" />
-            </button>
+            {onOpenHelp && (
+              <button
+                type="button"
+                onClick={onOpenHelp}
+                className="p-1 rounded-lg transition border border-blue-500/45 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:text-blue-200"
+                title="AIナレーションスタジオのヘルプを開く"
+                aria-label="AIナレーションスタジオの説明"
+              >
+                <CircleHelp className="w-4 h-4" />
+              </button>
+            )}
           </h3>
           <button onClick={onClose} className="text-gray-400 hover:text-white">
             <X className="w-5 h-5" />
@@ -525,39 +536,26 @@ const AiModal: React.FC<AiModalProps> = ({
           onTouchEnd={handleSheetTouchEnd}
           onTouchCancel={resetTouchTracking}
         >
-          {showHelp && (
-            <div className="rounded-xl border border-orange-400/45 bg-linear-to-br from-orange-500/18 via-amber-500/12 to-orange-500/6 p-3 md:p-4 space-y-2">
-              <div className="flex items-start justify-between gap-2">
-                <h4 className="text-sm font-bold text-orange-100 flex items-center gap-1">
-                  <CircleHelp className="w-4 h-4" /> AIナレーションスタジオの使い方
-                </h4>
-                <button
-                  onClick={() => setShowHelp(false)}
-                  className="p-1.5 rounded-md border border-orange-300/40 bg-orange-500/10 text-orange-100 hover:bg-orange-500/25 hover:border-orange-200/60 transition"
-                  title="ヘルプを閉じる"
-                  aria-label="ヘルプを閉じる"
-                >
-                  <X className="w-[18px] h-[18px]" />
-                </button>
+          {!hasApiKey && (
+            <div className="rounded-xl border border-amber-500/50 bg-amber-500/10 p-3.5 md:p-4 space-y-2 text-amber-200 shadow-md">
+              <div className="flex items-center gap-2 font-bold text-xs md:text-sm text-amber-300">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>Gemini APIキーの登録が必要です</span>
               </div>
-              <p className="text-xs md:text-sm text-orange-50 leading-relaxed">
-                先にAPI設定が必要です。右上の設定からGemini APIキーを登録してください。
+              <p className="text-[11px] md:text-xs text-amber-100/90 leading-relaxed">
+                AI原稿作成や音声合成機能を利用するには、Gemini APIキーの登録が必要です。右上の全体設定（歯車アイコン）からAPIキーを登録してください。
               </p>
-              <a
-                href="https://aistudio.google.com/app/apikey"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 text-xs md:text-sm text-orange-200 hover:text-orange-100 underline underline-offset-2"
-              >
-                APIキー取得（Google AI Studio）
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-              <ol className="list-decimal ml-4 space-y-1 text-xs md:text-sm text-orange-50 leading-relaxed">
-                <li>STEP 1: テーマを入れて「AI原稿を作成」。テーマは任意で、長さも選べます。</li>
-                <li>STEP 2: 原稿を直接編集。テーマを入れずに、Step2へ直接入力することもできます。</li>
-                <li>STEP 2: 原稿を1つの欄で編集し、必要な箇所を選んで語り口調を付けます。</li>
-                <li>STEP 3: 音声エンジンと声を選び、エンジンに応じた話し方を設定します。</li>
-              </ol>
+              <div className="pt-0.5">
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-400/50 bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 text-xs font-semibold transition shadow-xs"
+                >
+                  <span>Google AI Studio でAPIキーを取得（無料）</span>
+                  <ExternalLink className="w-3.5 h-3.5 text-amber-300" />
+                </a>
+              </div>
             </div>
           )}
           <div className="space-y-2.5 md:space-y-3">
@@ -611,8 +609,9 @@ const AiModal: React.FC<AiModalProps> = ({
                 </div>
                 <button
                   onClick={onGenerateScript}
-                  disabled={isAiLoading || !aiPrompt.trim()}
-                  className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-1 disabled:opacity-50"
+                  disabled={!hasApiKey || isAiLoading || !aiPrompt.trim()}
+                  className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                  title={!hasApiKey ? 'Gemini APIキーの登録が必要です' : undefined}
                 >
                   {isAiLoading ? (
                     <Loader className="w-4 h-4 animate-spin" />
@@ -1021,16 +1020,6 @@ const AiModal: React.FC<AiModalProps> = ({
                         : '未選択'}
                   </p>
                 </div>
-                <a
-                  href="https://aistudio.google.com/generate-speech"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="shrink-0 inline-flex items-center gap-1 text-[11px] text-blue-300 hover:text-blue-100 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 px-2 py-1 rounded-lg transition"
-                  title="Google AI Studio で音声を試聴・確認"
-                >
-                  <span>試聴</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
               </div>
 
               {/* 基本の30声 / 追加音声 切り替えタブ */}
@@ -1439,23 +1428,15 @@ const AiModal: React.FC<AiModalProps> = ({
                 </p>
               )}
               <p id="ai-voice-help" className="text-[10px] md:text-xs text-gray-500 leading-relaxed">
-                基本の {voiceOptions.length} 声は両エンジンで使える定番の声。{isGemini38 && '追加音声は Gemini 3.8 専用で、人物像や用途から選べます。'}試聴は{' '}
-                <a
-                  href="https://aistudio.google.com/generate-speech"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
-                >
-                  Google AI Studio
-                </a>
-                で確認できます。
+                基本の {voiceOptions.length} 声は両エンジンで使える定番の声。{isGemini38 && '追加音声は Gemini 3.8 専用で、人物像や用途から選べます。'}
               </p>
             </div>
           </div>
           <button
             onClick={onGenerateSpeech}
-            disabled={isAiLoading || !aiScript.trim()}
-            className="w-full bg-linear-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white py-2.5 md:py-3 rounded-lg font-bold flex items-center justify-center gap-2 shadow-lg disabled:opacity-50 transition-all"
+            disabled={!hasApiKey || isAiLoading || !aiScript.trim()}
+            className="w-full bg-linear-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white py-2.5 md:py-3 rounded-lg font-bold flex items-center justify-center gap-2 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            title={!hasApiKey ? 'Gemini APIキーの登録が必要です' : undefined}
           >
             {isAiLoading ? (
               <Loader className="w-5 h-5 animate-spin" />

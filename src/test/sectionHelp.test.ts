@@ -179,7 +179,7 @@ describe('sectionHelp support messaging', () => {
     expect(getHelpDescription('bgm', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('曲がまだ無くても先に有効にでき');
     expect(getHelpDescription('narration', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('クリップがまだ無くても先に有効にでき');
     expect(getHelpDescription('clips', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('最大に揃える');
-    expect(getHelpDescription('clips', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('残りはスクロールします');
+    expect(getHelpDescription('clips', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).not.toContain('残りはスクロールします');
     expect(getHelpDescription('clips', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).not.toContain('チェックを外せ');
     expect(getHelpDescription('bgm', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('BGMカテゴリ');
     expect(getHelpDescription('narration', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('ナレーションカテゴリ');
@@ -244,9 +244,11 @@ describe('sectionHelp support messaging', () => {
     expect(getHelpVisuals('narration', '音量波形と無音の区切り検出')).toContain(
       'narration_waveform'
     );
-    expect(getHelpVisuals('caption', 'タイトル（キャプションとは別管理）')).toContain(
-      'video_title_accordion'
-    );
+    const captionTitles = getSectionHelpContent({
+      appFlavor: 'standard',
+      supportsShowSaveFilePicker: false,
+    }).caption.items.map((item) => item.title);
+    expect(captionTitles).not.toContain('タイトル（キャプションとは別管理）');
     expect(getHelpVisuals('caption', '② タイミング打ち（Android/PC版）')).toContain(
       'timing_caption_button'
     );
@@ -281,14 +283,32 @@ describe('sectionHelp support messaging', () => {
     ]);
 
     // clips
-    expect(getHelpVisuals('clips', '続きを追加コピー（Android/PC版）')).toEqual([
-      'continuation_copy_button',
-    ]);
+    expect(getHelpVisuals('clips', '表示区間（動画：トリミング／画像：表示時間）')).toContain(
+      'continuation_copy_button'
+    );
     expect(getHelpVisuals('clips', '表示区間（動画：トリミング／画像：表示時間）')).toContain(
       'image_range_buttons'
     );
+    expect(getHelpVisuals('clips', 'タイトル（オープニングタイトル）')).toContain(
+      'video_title_style_sample'
+    );
+    expect(getHelpVisuals('clips', 'ロゴ表示（ウォーターマーク / エンドロール）')).toContain(
+      'logo_scope_buttons'
+    );
+    expect(getHelpVisuals('clips', 'ロゴ表示（ウォーターマーク / エンドロール）')).toContain(
+      'endroll_bg_buttons'
+    );
+    expect(getHelpVisuals('clips', 'ロゴ表示（ウォーターマーク / エンドロール）')).toContain(
+      'endroll_bgm_fade_checkbox'
+    );
     expect(getHelpVisuals('clips', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain(
-      'bulk_audio_controls'
+      'bulk_mute_checkbox'
+    );
+    expect(getHelpVisuals('clips', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain(
+      'bulk_volume_checkbox'
+    );
+    expect(getHelpVisuals('clips', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain(
+      'bulk_normalize_buttons'
     );
     expect(getHelpVisuals('clips', '再生速度（0.5〜8.0倍）')).toContain(
       'speed_badge_presets'
@@ -305,12 +325,42 @@ describe('sectionHelp support messaging', () => {
       'delete_button',
     ]);
     expect(getHelpVisuals('bgm', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain(
-      'bulk_audio_controls'
+      'bulk_mute_checkbox'
+    );
+    expect(getHelpVisuals('bgm', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain(
+      'bulk_volume_checkbox'
+    );
+    expect(getHelpVisuals('bgm', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain(
+      'bulk_normalize_buttons'
     );
 
     // narration
+    expect(getHelpVisuals('narration', 'AIナレーションの基本フロー（準備と手順）')).toContain(
+      'ai_add_button'
+    );
+    expect(getHelpVisuals('narration', 'AIナレーションの基本フロー（準備と手順）')).toContain(
+      'google_ai_studio_link'
+    );
+    expect(getHelpVisuals('narration', 'Step 1: テーマ入力とAI原稿作成（任意）')).toContain(
+      'ai_script_length_demo'
+    );
+    expect(getHelpVisuals('narration', 'Step 2: 原稿編集と部分アクセント（語り口調）')).toContain(
+      'ai_tone_preset_demo'
+    );
+    expect(getHelpVisuals('narration', 'Step 3: 音声エンジン・話し方・声の選択')).toContain(
+      'ai_voice_setting_demo'
+    );
+    expect(getHelpVisuals('narration', 'Step 4: 音声合成とタイムライン追加')).toContain(
+      'ai_generate_button_demo'
+    );
     expect(getHelpVisuals('narration', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain(
-      'bulk_audio_controls'
+      'bulk_mute_checkbox'
+    );
+    expect(getHelpVisuals('narration', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain(
+      'bulk_volume_checkbox'
+    );
+    expect(getHelpVisuals('narration', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain(
+      'bulk_normalize_buttons'
     );
 
     // caption
@@ -355,30 +405,108 @@ describe('sectionHelp support messaging', () => {
     expect(description).toContain('両方設定可能');
     expect(description).toContain('ウォーターマーク');
     expect(description).toContain('エンドロール');
-    expect(description).toContain('無断転載防止');
-    expect(description).not.toContain('切り替えます');
+    expect(description).toContain('認知向上');
+    expect(description).toContain('表示する区間');
+    expect(description).toContain('背景色');
+    expect(description).toContain('徐々に消す');
   });
 
-  it('見たらわかるUI配置や開閉状態の説明を含めない', () => {
-    const allHelp = getSectionHelpContent({
+  it('タイトル設定は文字スタイルと帯とフェードを案内する', () => {
+    const description = getHelpDescription('clips', 'タイトル（オープニングタイトル）');
+    expect(description).toContain('主タイトル');
+    expect(description).toContain('サブタイトル');
+    expect(description).toContain('スタイル設定');
+    expect(description).toContain('フェード');
+    expect(description).toContain('タイトル背景の帯');
+  });
+
+  it('ナレーションヘルプはAIナレーションスタジオの4ステップと語り口調を案内する', () => {
+    const help = getSectionHelpContent({
       appFlavor: 'standard',
       supportsShowSaveFilePicker: false,
     });
-    const allItems = Object.values(allHelp).flatMap((section) => section.items);
+    const studioItems = help.narration.items.filter((item) =>
+      item.category?.includes('AIナレーションスタジオ')
+    );
+    expect(studioItems.length).toBeGreaterThanOrEqual(4);
+    expect(getHelpDescription('narration', 'AIナレーションの基本フロー（準備と手順）')).toContain('Gemini API');
+    expect(getHelpDescription('narration', 'Step 2: 原稿編集と部分アクセント（語り口調）')).toContain('部分アクセント');
+    expect(getHelpDescription('narration', 'Step 2: 原稿編集と部分アクセント（語り口調）')).toContain('強調して');
+    expect(getHelpDescription('narration', 'Step 3: 音声エンジン・話し方・声の選択')).toContain('Gemini 3.8');
 
-    for (const item of allItems) {
-      const fullText = [
-        item.description,
-        ...(item.bullets ?? []),
-        ...(item.facts ?? []).map((f) => `${f.label}: ${f.description}`),
-        item.note ?? '',
-      ].join('\n');
+    // ヘッダーボタン名は実画面に合わせて［AI］（［AI原稿］ではない）
+    const flowItem = help.narration.items.find(
+      (item) => item.title === 'AIナレーションの基本フロー（準備と手順）'
+    );
+    const flowText = flowItem?.bullets?.map((b) => (typeof b === 'string' ? b : b.text)).join(' ') ?? '';
+    expect(flowText).toContain('［AI］ボタン');
+    expect(flowText).not.toContain('［AI原稿］ボタン');
 
-      expect(fullText).not.toContain('初期状態は閉じています');
-      expect(fullText).not.toContain('（開いて設定）から');
-      expect(fullText).not.toContain('折りたたみを開くと');
-      expect(fullText).not.toContain('この項目は折りたたみ表示です');
-      expect(fullText).not.toContain('下向き矢印で開状態を示します');
-    }
+    // APIキー設定の必要性と Google AI Studio への案内が重要ノートに記載されている
+    expect(flowItem?.note).toContain('重要:');
+    expect(flowItem?.note).toContain('Gemini APIキー');
+    expect(flowItem?.note).toContain('Google AI Studio');
+    expect(flowItem?.note).toContain('トップ画面のタートルビデオ アプリ名の横の歯車アイコン');
+    expect(flowText).toContain('トップ画面のタートルビデオ アプリ名の横の歯車アイコン');
+
+    // 試聴リンク/説明は削除されている
+    const step3Item = help.narration.items.find(
+      (item) => item.title === 'Step 3: 音声エンジン・話し方・声の選択'
+    );
+    const step3Text = step3Item?.bullets?.map((b) => (typeof b === 'string' ? b : b.text)).join(' ') ?? '';
+    expect(step3Text).not.toContain('試聴');
+
+    // Step 4 にダウンロード保存の案内が含まれている
+    const step4Item = help.narration.items.find(
+      (item) => item.title === 'Step 4: 音声合成とタイムライン追加'
+    );
+    const step4Text = step4Item?.bullets?.map((b) => (typeof b === 'string' ? b : b.text)).join(' ') ?? '';
+    expect(step4Text).toContain('ダウンロード保存');
+    expect(getHelpVisuals('narration', 'Step 4: 音声合成とタイムライン追加')).toContain(
+      'save_button'
+    );
+  });
+
+  it('時分割キャプションの説明に文字数比例配分・アルファベット係数・一括設定メリットを含める', () => {
+    const help = getSectionHelpContent({
+      appFlavor: 'standard',
+      supportsShowSaveFilePicker: false,
+    });
+    const item = help.caption.items.find((i) => i.title === '時分割キャプション（Android/PC版）');
+    expect(item).toBeDefined();
+
+    const fullText = [
+      item?.description,
+      ...(item?.facts ?? []).flatMap((f) => [f.label, f.description]),
+      ...(item?.bullets ?? []).map((b) => (typeof b === 'string' ? b : b.text)),
+      item?.note ?? '',
+    ].join('\n');
+
+    expect(fullText).toContain('文字数');
+    expect(fullText).toContain('比例配分');
+    expect(fullText).toContain('アルファベット');
+    expect(fullText).toContain('0.8');
+    expect(fullText).toContain('一括設定');
+    expect(fullText).toContain('手間');
+  });
+
+  it('タイミング打ちの説明に実画面仕様の操作パネルと便利さの案内を含める', () => {
+    const help = getSectionHelpContent({
+      appFlavor: 'standard',
+      supportsShowSaveFilePicker: false,
+    });
+    const item = help.caption.items.find((i) => i.title === '② タイミング打ち（Android/PC版）');
+    expect(item).toBeDefined();
+
+    const fullText = [
+      item?.description,
+      ...(item?.bullets ?? []).map((b) => (typeof b === 'string' ? b : b.text)),
+      item?.note ?? '',
+    ].join('\n');
+
+    expect(fullText).toContain('ここから開始');
+    expect(fullText).toContain('実画面仕様');
+    expect(fullText).toContain('自動調整');
+    expect(fullText).toContain('微調整');
   });
 });

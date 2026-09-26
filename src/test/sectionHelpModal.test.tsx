@@ -127,6 +127,28 @@ describe('SectionHelpModal', () => {
     );
     expect(screen.getByText('設定を末尾に固定')).toBeInTheDocument();
 
+    // narration
+    rerender(
+      <SectionHelpModal
+        appFlavor="standard"
+        supportsShowSaveFilePicker={false}
+        isOpen
+        section="narration"
+        onClose={vi.fn()}
+      />
+    );
+    expect(screen.getAllByText('AIナレーションスタジオ').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('AI原稿を作成')).toBeInTheDocument();
+    expect(screen.getByText('文中の部分アクセント・メリハリ（選択範囲のみ）')).toBeInTheDocument();
+    expect(screen.getByText('強調して')).toBeInTheDocument();
+    expect(screen.getByText('感情込めて')).toBeInTheDocument();
+    expect(screen.getByText('選択のアクセントを外す')).toBeInTheDocument();
+    expect(screen.getByText('Gemini 3.8 Flash TTS')).toBeInTheDocument();
+    expect(screen.getByText('AIナレーションを作成して追加')).toBeInTheDocument();
+    expect(screen.getByText('APIキー取得（Google AI Studio）')).toBeInTheDocument();
+    expect(screen.getByText('重要:')).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: /Google AI Studio/ }).length).toBeGreaterThanOrEqual(1);
+
     // caption
     rerender(
       <SectionHelpModal
@@ -144,7 +166,8 @@ describe('SectionHelpModal', () => {
     expect(
       screen.getByRole('table', { name: 'タイミング打ちの2つのモード' })
     ).toBeInTheDocument();
-    expect(screen.getByText('交互モード（開始/終了）')).toBeInTheDocument();
+    expect(screen.getByText('交互モード')).toBeInTheDocument();
+    expect(screen.getByText('ここから開始')).toBeInTheDocument();
 
     // preview
     rerender(
@@ -228,7 +251,7 @@ describe('SectionHelpModal', () => {
     await user.click(cardSettingsBtn);
     expect(cardSettingsBtn).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('並び替え・コピー・削除')).toBeInTheDocument();
-    expect(screen.getByText('続きを追加コピー（Android/PC版）')).toBeInTheDocument();
+    expect(screen.getByText('表示区間（動画：トリミング／画像：表示時間）')).toBeInTheDocument();
 
     // 子アコーディオン
     const subAccordionBtn = screen.getByRole('button', {
@@ -329,5 +352,111 @@ describe('SectionHelpModal', () => {
       }
     }
   });
+
+  it('initialCategory が指定された場合はそのカテゴリが初期状態で展開される', () => {
+    render(
+      <SectionHelpModal
+        appFlavor="standard"
+        supportsShowSaveFilePicker={false}
+        isOpen
+        section="narration"
+        initialCategory="AIナレーションスタジオ（AI原稿・声・話し方）"
+        onClose={vi.fn()}
+      />
+    );
+
+    // AIナレーションスタジオのカテゴリが初期状態で展開されているため、直接子要素のテキストが表示されている
+    expect(screen.getByText('APIキー取得（Google AI Studio）')).toBeInTheDocument();
+    expect(screen.getByText('AI原稿を作成')).toBeInTheDocument();
+  });
+
+  it('APIキー未設定時は「重要:」黄色警告が description 直下に表示され、歯車アイコンもインライン表示される', () => {
+    // APIキー未設定状態
+    localStorage.removeItem('turtle-video-gemini-api-key');
+
+    const { container } = render(
+      <SectionHelpModal
+        appFlavor="standard"
+        supportsShowSaveFilePicker={false}
+        isOpen
+        section="narration"
+        initialCategory="AIナレーションスタジオ（AI原稿・声・話し方）"
+        onClose={vi.fn()}
+      />
+    );
+
+    // 「重要:」が表示されている
+    const importantLabel = screen.getByText('重要:');
+    expect(importantLabel).toBeInTheDocument();
+
+    // 説明文と重要ノートの順序関係を検証（description の直下に重要ノートがある）
+    const descText = 'Gemini APIキーを設定し、テーマ入力から原稿作成・音声合成までを行う機能です。';
+    const descElement = screen.getByText(descText);
+    expect(descElement).toBeInTheDocument();
+
+    // 重要ノートのコンテナが description 要素の直後の兄弟要素として配置されている
+    const noteContainer = importantLabel.closest('div');
+    expect(noteContainer).toBeInTheDocument();
+    expect(descElement.nextElementSibling).toBe(noteContainer);
+
+    // インラインの歯車アイコンが表示されている
+    const gearTokens = screen.getAllByText('歯車アイコン');
+    expect(gearTokens.length).toBeGreaterThanOrEqual(1);
+    expect(container.querySelector('svg.lucide-settings')).toBeInTheDocument();
+  });
+
+  it('APIキー設定済みのときは「重要:」黄色警告が表示されない（他の説明は表示される）', () => {
+    // APIキー登録済み状態
+    localStorage.setItem('turtle-video-gemini-api-key', 'test-api-key-12345');
+
+    render(
+      <SectionHelpModal
+        appFlavor="standard"
+        supportsShowSaveFilePicker={false}
+        isOpen
+        section="narration"
+        initialCategory="AIナレーションスタジオ（AI原稿・声・話し方）"
+        onClose={vi.fn()}
+      />
+    );
+
+    // 「重要:」は非表示
+    expect(screen.queryByText('重要:')).not.toBeInTheDocument();
+
+    // 他の機能説明（description や bullets など）は表示されている
+    expect(
+      screen.getByText('Gemini APIキーを設定し、テーマ入力から原稿作成・音声合成までを行う機能です。')
+    ).toBeInTheDocument();
+
+    // クリーンアップ
+    localStorage.removeItem('turtle-video-gemini-api-key');
+  });
+
+  it('キャプションヘルプで実画面仕様のタイミング打ちUI見本が描画され、タイトル項目が含まれない', () => {
+    render(
+      <SectionHelpModal
+        appFlavor="standard"
+        supportsShowSaveFilePicker={false}
+        isOpen
+        section="caption"
+        initialCategory="セクションヘッダー（表示・ロック・追加・一括入力）"
+        onClose={vi.fn()}
+      />
+    );
+
+    // キャプションヘルプから「タイトル（キャプションとは別管理）」が削除されている
+    expect(screen.queryByText('タイトル（キャプションとは別管理）')).not.toBeInTheDocument();
+
+    // 実画面仕様のタイミング打ち操作パネルが描画されている
+    expect(screen.getByText('1/2（再生位置: 0:00）')).toBeInTheDocument();
+    expect(screen.getByText(/「今日はいい天気」の/)).toBeInTheDocument();
+    expect(screen.getByText('始まり')).toBeInTheDocument();
+    expect(screen.getByText('ここから開始')).toBeInTheDocument();
+    expect(screen.getByText('交互')).toBeInTheDocument();
+    expect(screen.getByText('連続')).toBeInTheDocument();
+    expect(screen.getByText('読みやすい位置へ自動調整')).toBeInTheDocument();
+  });
 });
+
+
 

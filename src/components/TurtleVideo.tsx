@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file TurtleVideo.tsx
  * @author Turtle Village
  * @copyright Copyright (C) 2026 safubuki (Turtle Village)
@@ -423,6 +423,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const [editingNarrationId, setEditingNarrationId] = useState<string | null>(null);
   const [aiScriptLength, setAiScriptLength] = useState<NarrationScriptLength>('medium');
   const [activeHelpSection, setActiveHelpSection] = useState<SectionHelpKey | null>(null);
+  const [activeHelpInitialCategory, setActiveHelpInitialCategory] = useState<string | undefined>(undefined);
   const [exportPreparationStep, setExportPreparationStep] = useState<ExportPreparationStep | null>(null);
   const [previewCacheStatus, setPreviewCacheStatus] = useState<PreviewCacheStatus>('idle');
   const [previewLoadingLabel, setPreviewLoadingLabel] = useState<string | undefined>(undefined);
@@ -3942,12 +3943,14 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     }
   }, [mediaItems, isProcessing, stopAll, pause, showToast, formatTime]);
 
-  const openSectionHelp = useCallback((section: SectionHelpKey) => {
+  const openSectionHelp = useCallback((section: SectionHelpKey, initialCategory?: string) => {
+    setActiveHelpInitialCategory(initialCategory);
     setActiveHelpSection(section);
   }, []);
 
   const closeSectionHelp = useCallback(() => {
     setActiveHelpSection(null);
+    setActiveHelpInitialCategory(undefined);
   }, []);
 
   const hiddenPreviewCacheStyle = useMemo<React.CSSProperties>(() => ({
@@ -4046,6 +4049,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         onTtsStyleDetailChange={setAiTtsStyleDetail}
         onGenerateScript={generateScript}
         onGenerateSpeech={generateSpeech}
+        onOpenHelp={() => openSectionHelp('narration', 'AIナレーションスタジオ（AI原稿・声・話し方）')}
       />
 
       {/* Settings Modal */}
@@ -4086,6 +4090,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         supportsShowSaveFilePicker={supportsShowSaveFilePicker}
         isOpen={activeHelpSection !== null}
         section={activeHelpSection}
+        initialCategory={activeHelpInitialCategory}
         onClose={closeSectionHelp}
       />
 
