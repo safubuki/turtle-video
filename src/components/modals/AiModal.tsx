@@ -6,7 +6,7 @@
  * @description AIナレーションを生成するためのモーダルダイアログ。プロンプト入力、スクリプト生成、音声合成のフローを提供する。
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Sparkles, X, Loader, FileText, Mic, CircleHelp, Check, RotateCcw, Volume2, AlertTriangle, ExternalLink } from 'lucide-react';
+import { Sparkles, X, Loader, FileText, Mic, CircleHelp, Check, RotateCcw, Volume2, AlertTriangle, ExternalLink, Settings } from 'lucide-react';
 import type {
   VoiceOption,
   NarrationScriptLength,
@@ -543,7 +543,15 @@ const AiModal: React.FC<AiModalProps> = ({
                 <span>Gemini APIキーの登録が必要です</span>
               </div>
               <p className="text-[11px] md:text-xs text-amber-100/90 leading-relaxed">
-                AI原稿作成や音声合成機能を利用するには、Gemini APIキーの登録が必要です。右上の全体設定（歯車アイコン）からAPIキーを登録してください。
+                AI原稿作成や音声合成機能を利用するには、Gemini APIキーの登録が必要です。トップ画面のタートルビデオ アプリ名の横の
+                <span className="inline-flex items-center gap-1 rounded bg-gray-800/90 border border-gray-700/80 px-1.5 py-0.5 text-[10px] md:text-xs text-gray-200 mx-1 align-middle font-medium shadow-xs">
+                  <Settings className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                  <span>歯車アイコン</span>
+                </span>
+                からAPIキーを登録してください。
+              </p>
+              <p className="text-[11px] md:text-xs text-amber-300/90 leading-relaxed font-medium">
+                ※登録したAPIキーはお使いのブラウザ内（ローカル）にのみ安全に保存され、外部サーバーには送信されません。
               </p>
               <div className="pt-0.5">
                 <a

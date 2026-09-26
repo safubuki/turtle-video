@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional, Set
 # ==============================================================================
 
 def scan_features(src_dir: Path) -> Dict[str, Any]:
-    """Scan source files to discover UI sections, buttons, icons, and settings."""
+    """Scan source files to discover UI sections, buttons, icons, modals, and settings."""
     if not src_dir.exists():
         raise FileNotFoundError(f"Source directory does not exist: {src_dir}")
 
@@ -31,6 +31,8 @@ def scan_features(src_dir: Path) -> Dict[str, Any]:
     button_pattern = re.compile(r'<(?:button|Button)[^>]*>(.*?)</(?:button|Button)>', re.DOTALL)
     title_pattern = re.compile(r'<h[1-4][^>]*>(.*?)</h[1-4]>', re.DOTALL)
     aria_label_pattern = re.compile(r'aria-label=["\']([^"\']+)["\']')
+    external_link_pattern = re.compile(r'https?://[^\s"\'<>]+')
+    api_key_pattern = re.compile(r'(?:api[_-]?key|apiKey|gemini|token)', re.IGNORECASE)
 
     for file_path in src_dir.rglob("*"):
         if file_path.suffix not in (".tsx", ".jsx", ".vue", ".html", ".svelte"):
@@ -45,15 +47,22 @@ def scan_features(src_dir: Path) -> Dict[str, Any]:
             continue
 
         module_name = file_path.stem
+        is_modal = "modal" in module_name.lower()
         # Derive section name
         sec_key = module_name.replace("Section", "").replace("Modal", "").lower()
+        if not sec_key:
+            sec_key = module_name.lower()
+
         if sec_key not in sections:
             sections[sec_key] = {
                 "file": str(file_path.relative_to(src_dir)),
+                "is_modal": is_modal,
                 "titles": set(),
                 "buttons": set(),
                 "icons": set(),
                 "aria_labels": set(),
+                "external_links": set(),
+                "has_api_key_dependency": bool(api_key_pattern.search(content)),
             }
 
         for match in title_pattern.finditer(content):
@@ -76,6 +85,11 @@ def scan_features(src_dir: Path) -> Dict[str, Any]:
             if icon_name not in ("Fragment", "Component", "Route", "Link", "Switch"):
                 sections[sec_key]["icons"].add(icon_name)
 
+        for match in external_link_pattern.finditer(content):
+            url = match.group(0).rstrip('"\')>,;')
+            if "localhost" not in url and "w3.org" not in url:
+                sections[sec_key]["external_links"].add(url)
+
     # Convert sets to sorted lists for deterministic output
     result: Dict[str, Any] = {"sections": {}}
     for key, data in sorted(sections.items()):
@@ -83,9 +97,12 @@ def scan_features(src_dir: Path) -> Dict[str, Any]:
             continue
         result["sections"][key] = {
             "source_file": data["file"],
+            "is_modal": data["is_modal"],
+            "has_api_key_dependency": data["has_api_key_dependency"],
             "detected_titles": sorted(data["titles"]),
             "detected_actions": sorted(data["buttons"] | data["aria_labels"]),
             "detected_icons": sorted(data["icons"])[:15],
+            "detected_links": sorted(data["external_links"]),
         }
 
     return result
@@ -96,7 +113,7 @@ def scan_features(src_dir: Path) -> Dict[str, Any]:
 # ==============================================================================
 
 def validate_help_content(help_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Audit help items against UX, consistency, and accessibility rules."""
+    """Audit help items against UX, consistency, accessibility, and architectural rules."""
     issues: List[Dict[str, Any]] = []
     stats = {
         "total_sections": 0,
@@ -104,9 +121,22 @@ def validate_help_content(help_data: Dict[str, Any]) -> Dict[str, Any]:
         "total_bullets": 0,
         "inline_visuals": 0,
         "standalone_visuals": 0,
+        "facts_count": 0,
+        "panel_demos": 0,
     }
 
     sections = help_data.get("sections") or help_data
+
+    # Section responsibility keywords to prevent misplaced items
+    misplaced_rules = {
+        "caption": ["タイトル", "プロジェクト名", "画面比率", "アスペクト比"],
+        "captions": ["タイトル", "プロジェクト名", "画面比率", "アスペクト比"],
+        "audio": ["動画トリミング", "解像度", "字幕フォント"],
+        "video": ["音声イコライザー", "BGMフェード"],
+    }
+
+    # Calculation and logic keywords that deserve structured facts
+    logic_keywords = ["比例配分", "係数", "アルゴリズム", "一括配分", "時分割", "自動計算", "文字数"]
 
     for sec_key, sec_val in sections.items():
         if not isinstance(sec_val, dict) or "items" not in sec_val:
@@ -134,16 +164,26 @@ def validate_help_content(help_data: Dict[str, Any]) -> Dict[str, Any]:
             stats["standalone_visuals"] += len(item_visuals)
             bullets = item.get("bullets", [])
             stats["total_bullets"] += len(bullets)
+            facts = item.get("facts", [])
+            stats["facts_count"] += len(facts)
 
             bullet_visuals: Set[str] = set()
+            bullet_texts: List[str] = []
             for b in bullets:
                 if isinstance(b, dict):
                     b_vis = b.get("visuals", [])
                     bullet_visuals.update(b_vis)
                     stats["inline_visuals"] += len(b_vis)
+                    bullet_texts.append(b.get("text", ""))
+                else:
+                    bullet_texts.append(str(b))
+
+            all_vis = item_visuals | bullet_visuals
+            for v in all_vis:
+                if "_panel_demo" in v:
+                    stats["panel_demos"] += 1
 
             # Rule 3: Forbid accordion header mock visuals
-            all_vis = item_visuals | bullet_visuals
             for v in all_vis:
                 if "_accordion" in v:
                     issues.append({
@@ -154,9 +194,21 @@ def validate_help_content(help_data: Dict[str, Any]) -> Dict[str, Any]:
                         "message": f"アコーディオンヘッダー見本 '{v}' が含まれています。開閉枠の見本は排除し、実操作ボタンのみを配置してください。",
                     })
 
-            # Rule 4: Prevent isolated visual tokens without explanation
+            # Rule 4: Prevent crowded visual tokens dump (crowded icon cluster)
             unexplained_visuals = item_visuals - bullet_visuals
-            if unexplained_visuals and not bullets:
+            if len(unexplained_visuals) >= 4:
+                issues.append({
+                    "severity": "warning",
+                    "section": sec_key,
+                    "title": title,
+                    "rule": "forbid-crowded-visual-dump",
+                    "message": (
+                        f"末尾の操作見本 ({len(unexplained_visuals)}個) が固められています。"
+                        "単なるアイコンの羅列を避け、実画面通りの操作パネル見本（例: '_panel_demo'）にまとめるか、"
+                        "各箇条書きにインライン配置してください。"
+                    ),
+                })
+            elif unexplained_visuals and not bullets:
                 issues.append({
                     "severity": "info",
                     "section": sec_key,
@@ -167,8 +219,9 @@ def validate_help_content(help_data: Dict[str, Any]) -> Dict[str, Any]:
 
             # Rule 5: Forbid self-evident state/position descriptions
             state_keywords = ["初期状態は閉じて", "開くと", "閉じると", "画面の上にある", "画面の下にある", "開いて設定", "折りたたみを"]
+            combined_text = desc + " " + " ".join(bullet_texts)
             for kw in state_keywords:
-                if kw in desc or any(kw in (b if isinstance(b, str) else b.get("text", "")) for b in bullets):
+                if kw in combined_text:
                     issues.append({
                         "severity": "warning",
                         "section": sec_key,
@@ -176,6 +229,102 @@ def validate_help_content(help_data: Dict[str, Any]) -> Dict[str, Any]:
                         "rule": "no-state-description",
                         "message": f"見たら自明な状態・位置の記述 '{kw}' が含まれています。機能の目的と操作方法に焦点を当ててください。",
                     })
+
+            # Rule 6: Recommend structured facts for complex calculation/allocation logic
+            has_logic_mention = any(kw in combined_text for kw in logic_keywords)
+            if has_logic_mention and not facts and not item.get("comparison"):
+                issues.append({
+                    "severity": "info",
+                    "section": sec_key,
+                    "title": title,
+                    "rule": "recommend-structured-facts",
+                    "message": (
+                        "配分計算や内部ロジックに関する記述があります。"
+                        "文章だけでなく 'facts'（パラメータ一覧）や 'comparison'（一括設定メリットの対比）で構造化すると、"
+                        "ユーザーへの利便性の伝達が大幅に向上します。"
+                    ),
+                })
+
+            # Rule 7: Precondition / API key note dynamic guidance check
+            note_text = item.get("note", "")
+            if any(k in note_text for k in ["API", "キー", "必須", "設定が必要"]):
+                if "設定済み" not in note_text and "未設定" not in note_text:
+                    issues.append({
+                        "severity": "info",
+                        "section": sec_key,
+                        "title": title,
+                        "rule": "check-important-notes",
+                        "message": (
+                            f"重要ノート '{note_text[:30]}...' があります。"
+                            "設定完了済みのユーザーには視覚的ノイズにならないよう、UIコンポーネント側で"
+                            "「未設定時のみ黄色重要枠を表示し、設定済み時は非表示にする」動的制御を適用してください。"
+                        ),
+                    })
+
+            # Rule 8: Security & Privacy clarity without anxiety-inducing terms
+            combined_sec_text = desc + " " + note_text + " " + " ".join(bullet_texts)
+            if "API" in combined_sec_text or "キー" in combined_sec_text:
+                # 8a: Forbid anxiety-inducing communication phrasing
+                anxiety_terms = ["直接通信", "通信します", "APIへ送信", "直接送信"]
+                for term in anxiety_terms:
+                    if term in combined_sec_text:
+                        issues.append({
+                            "severity": "warning",
+                            "section": sec_key,
+                            "title": title,
+                            "rule": "no-anxiety-inducing-terms",
+                            "message": (
+                                f"APIキーの説明に通信に関する言及 '{term}' が含まれています。"
+                                "ユーザーに漏洩の無用な不安を与えないよう通信の記述を削除し、"
+                                "『登録したAPIキーはお使いのブラウザ内（ローカル）にのみ安全に保存され、外部サーバーには送信されません』と端的に記載してください。"
+                            ),
+                        })
+
+                # 8b: Recommend local safe storage reassurance
+                if "外部サーバー" not in combined_sec_text and "ローカル" not in combined_sec_text:
+                    issues.append({
+                        "severity": "info",
+                        "section": sec_key,
+                        "title": title,
+                        "rule": "recommend-security-clarity",
+                        "message": (
+                            "APIキーの設定案内があります。"
+                            "ユーザーが安心して利用できるよう、"
+                            "『登録したAPIキーはお使いのブラウザ内（ローカル）にのみ安全に保存され、外部サーバーには送信されません』と明記することを推奨します。"
+                        ),
+                    })
+
+            # Rule 9: Location phrasing accuracy (avoid outdated 'right-top settings')
+            outdated_locations = ["右上の全体設定", "右上の設定", "画面右上の歯車"]
+            for loc in outdated_locations:
+                if loc in combined_sec_text:
+                    issues.append({
+                        "severity": "warning",
+                        "section": sec_key,
+                        "title": title,
+                        "rule": "accurate-location-phrasing",
+                        "message": (
+                            f"古い位置表現 '{loc}' が含まれています。"
+                            "実画面レイアウトに合わせ、"
+                            "『トップ画面のタートルビデオ アプリ名の横の歯車アイコン』と表記を一致させてください。"
+                        ),
+                    })
+
+            # Rule 10: Misplaced section responsibility check
+            sec_lower = sec_key.lower()
+            if sec_lower in misplaced_rules:
+                for forbidden_kw in misplaced_rules[sec_lower]:
+                    if forbidden_kw in title or forbidden_kw in desc:
+                        issues.append({
+                            "severity": "error",
+                            "section": sec_key,
+                            "title": title,
+                            "rule": "no-misplaced-section-items",
+                            "message": (
+                                f"セクション '{sec_key}' に他責務のキーワード '{forbidden_kw}' が含まれています。"
+                                f"{forbidden_kw} の設定は適切な全体設定または別セクションで説明してください。"
+                            ),
+                        })
 
     has_license_or_env = any(
         any("ライセンス" in item.get("title", "") or "動作" in item.get("title", "") or "環境" in item.get("title", "")
@@ -227,7 +376,16 @@ def generate_skeleton(scan_result: Optional[Dict[str, Any]] = None) -> Dict[str,
                     "description": "推奨ブラウザおよびソフトウェアのライセンス情報です。",
                     "facts": [
                         {"label": "推奨環境", "description": "Google Chrome / Edge / Safari 最新版"},
-                        {"label": "ライセンス", "description": "オープンソースまたは利用規約に準拠"}
+                        {"label": "ライセンス", "description": "GNU GPLv3 または利用規約に準拠"}
+                    ],
+                    "accordions": [
+                        {
+                            "title": "オープンソースライセンス一覧（主要依存関係）",
+                            "items": [
+                                "React - MIT License",
+                                "Lucide Icons - ISC License"
+                            ]
+                        }
                     ]
                 }
             ]
@@ -239,34 +397,58 @@ def generate_skeleton(scan_result: Optional[Dict[str, Any]] = None) -> Dict[str,
             if sec_key in ("app", "modal"):
                 continue
             actions = sec_data.get("detected_actions", [])
+            has_api = sec_data.get("has_api_key_dependency", False)
+            is_modal = sec_data.get("is_modal", False)
             sec_name = sec_key.capitalize()
 
             items = [
                 {
                     "title": f"{sec_name}の基本操作",
                     "category": f"{sec_name}カテゴリ",
-                    "description": f"{sec_name}に関する主要な操作や追加を行います。",
+                    "description": f"{sec_name}に関する主要な操作や設定を行います。",
                     "bullets": [
                         {
                             "text": f"{act}: 操作を実行します。",
                             "visuals": [f"{sec_key}_{act.lower().replace(' ', '_')}_btn"]
                         } for act in actions[:3]
-                    ] if actions else ["主要な機能を追加・設定できます。"]
+                    ] if actions else ["主要な機能を追加・設定できます。"],
                 }
             ]
 
+            # If section has API key requirement, provide dynamic guidance scaffolding
+            if has_api:
+                items[0]["note"] = (
+                    "重要: この機能を使用するには事前のAPIキー設定が必要です。"
+                    "登録したAPIキーはお使いのブラウザ内（ローカル）にのみ安全に保存され、外部サーバーには送信されません。"
+                    "トップ画面のタートルビデオ アプリ名の横の歯車アイコンからAPIキーを登録してください。"
+                )
+                items[0]["bullets"].insert(0, {
+                    "text": "APIキー連携: トップ画面のタートルビデオ アプリ名の横の歯車アイコンからキーを登録して利用可能にします。",
+                    "visuals": ["settings_gear_badge"]
+                })
+
+            # If section has rich actions, provide real panel demo and structured facts
             if len(actions) > 3:
                 items.append({
-                    "title": "詳細設定",
+                    "title": f"{sec_name}の高度な操作・一括機能",
                     "category": f"{sec_name}の設定",
                     "isSubAccordion": True,
-                    "description": "パラメータの微調整や追加オプションを設定します。",
-                    "bullets": [f"{act}: 詳細な設定を適用します。" for act in actions[3:6]]
+                    "description": "実画面仕様に基づく直感的なコントロールと効率的な一括設定を活用できます。",
+                    "facts": [
+                        {"label": "一括適用のメリット", "description": "1つずつ設定する手間を省き、全体の整合性を自動で保ちます。"},
+                        {"label": "内部配分ルール", "description": "文字数や指定長さに応じてバランスよく自動計算されます。"}
+                    ],
+                    "bullets": [
+                        {
+                            "text": f"{actions[3]}: 直感的な操作パネルからリアルタイムに打鍵・反映できます。",
+                            "visuals": [f"{sec_key}_panel_demo"]
+                        }
+                    ] + [f"{act}: 詳細な設定を適用します。" for act in actions[4:6]]
                 })
 
             skeleton[sec_key] = {
                 "title": f"{sec_name}の使い方",
-                "subtitle": f"{sec_name}の機能一覧と操作方法",
+                "subtitle": f"{sec_name}の機能一覧と操作方法" + (" (多重モーダル安全保護対応)" if is_modal else ""),
                 "items": items
             }
 

@@ -779,6 +779,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
                   <li>「Get API Key」をクリックしてキーを発行</li>
                   <li>発行されたキーをコピーして下に貼り付け</li>
                 </ol>
+                <p className="text-xs text-blue-200/80 mt-2.5">
+                  ※APIキーはお使いのブラウザ内（ローカル）にのみ安全に保存され、外部サーバーには送信されません。
+                </p>
               </div>
 
               {/* AI Studio リンク */}
