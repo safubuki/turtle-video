@@ -35,10 +35,11 @@ description: Web/デスクトップアプリへ操作体験一致型の階層ア
 13. **プラットフォーム・Flavor境界**: 特定環境（iOS Safari等）の非対応機能はヘルプ項目ごと自動フィルタリング。
 14. **基本ルール・ライセンスの完全一致**: 推奨動作環境、注意事項、本体ライセンスおよび全依存ライブラリのライセンス一覧を網羅。
 15. **認証・APIキーの安全性案内（不安排除）**: 「外部サーバーには送信されず、ローカルのブラウザ内にのみ安全に保存される」旨を端的に明記し、漏洩の不安を煽る「通信」等の技術的言及を排除。
-16. **画面間・モーダル間の表記と視覚見本の一致（表記揺れ全廃）**: 「右上の設定」などの古い位置表現を放置せず、ヘルプとモーダル警告文で「トップ画面のタートルビデオ アプリ名の横の歯車アイコン」のように現在の実画面レイアウトに合わせた表現とアイコンバッジを同期。
+16. **画面間・モーダル間の表記と視覚見本の一致（表記揺れ全廃）**: 「右上の設定」などの古い位置表現を放置せず、ヘルプとモーダル案内文で「トップ画面のアプリ名横の歯車アイコン」（例: 『トップ画面のタートルビデオ アプリ名の横の歯車アイコン』）のように現在の実画面レイアウトに合わせた表現とアイコンバッジを同期。
 17. **レスポンシブ・アコーディオン親ヘッダーの2行構造（スマホ表示のタイトル保全）**: 狭幅なスマートフォン画面で操作見本ボタン群に押されてタイトルが「ナ」「動...」のように切り詰められるのを防ぐため、PC表示（1行）を保ちつつ、スマホでは1行目（タイトル全文字）＋2行目（操作見本をインデント配置）の2行構造を徹底。
 18. **全項目のアコーディオン化とデフォルト全閉じによる目次化**: 親カテゴリ内の全項目を子アコーディオンとして開閉可能にし、初期状態はデフォルト全閉じに設定。番号丸バッジと見切れないタイトル（`break-words`）、クイック見本により、閉じた状態がそのまま一目でわかる目次として機能。
 19. **操作見本ボタンの改行防止と整列**: 「プレビュー位置を反映」などのボタン群がスマホ幅で途中で折り返されないよう、`flex-col sm:flex-row`、`flex-nowrap`、各ボタンへの `whitespace-nowrap shrink-0` を徹底。
+20. **タイムライン・音声波形等の高密度リアル見本化**: 音声波形やシークバー、タイムライン等の操作補助UIは見本化の際、数本の棒等による粗い抽象表現を廃止し、タイムコード、進行バー、上下対称の微細な波形、無音区間ハイライト、再生ヘッドを実画面と同じスケール・質感で忠実に再現。
 
 ---
 
@@ -95,7 +96,7 @@ python scripts/help_system_tool.py scaffold --scan-file help-features.json --out
 4. **リアル操作パネル見本（_panel_demo）**: 散乱しやすいアイコン群は、実画面と同じコントロールバーや打鍵ボタンをまとめた見本にする。
 5. **内部ロジック・配分ルール（facts）**: 比例配分、文字数係数、一括適用のメリットを構造化。
 6. **動的案内の前提条件と安全性注記**: APIキー未設定時のみ黄色枠を表示し、設定済み時は非表示にする制御を設計。「ローカルのブラウザ内に安全保存され外部サーバーには送信されない」旨を端的に記載（通信に関する言及は不安を煽るため排除）。
-7. **実画面位置表現の一致**: 「トップ画面のタートルビデオ アプリ名の横の歯車アイコン」のように、現在のレイアウトと完全に一致した場所を明記。
+7. **実画面位置表現の一致**: 現在のレイアウトと完全に一致した場所を明記（例: 「トップ画面のアプリ名横の歯車アイコン」）。
 8. **基本情報項目**: 動作環境、注意事項、ライセンス表記（依存ライブラリ一覧）を追加。
 
 ### Step 3: UIコンポーネント（HelpModal）を実装する
@@ -120,7 +121,7 @@ python scripts/help_system_tool.py scaffold --scan-file help-features.json --out
     <div className="mb-4 rounded-xl border border-amber-500/50 bg-amber-950/20 p-3 text-amber-200 text-xs space-y-1.5">
       <div className="font-bold text-amber-300">重要: 利用には事前にAPIキーの設定が必要です。</div>
       <p className="text-[11px] text-amber-100/90">
-        トップ画面のタートルビデオ アプリ名の横の歯車アイコンからAPIキーを登録してください。
+        トップ画面のアプリ名横の歯車アイコンからAPIキーを登録してください。
       </p>
       <p className="text-[11px] text-amber-300/90 font-medium">
         ※登録したAPIキーはお使いのブラウザ内（ローカル）にのみ安全に保存され、外部サーバーには送信されません。
@@ -155,6 +156,25 @@ python scripts/help_system_tool.py scaffold --scan-file help-features.json --out
     </div>
   </button>
   ```
+- **タイムライン・音声波形等の高密度リアル見本化**:
+  シークバーや音声波形等は見本化の際、粗い棒の抽象見本を避け、タイムコード、シークバー進行スライダー、上下対称の高密度波形（SVG）、区間ハイライト、再生ヘッドを実画面と同一の見た目で精細にレンダリング：
+  ```tsx
+  {/* タイムコード + シークバー + 高密度オーディオ波形 */}
+  <div className="rounded-lg border border-gray-700/80 bg-gray-950/80 p-2.5 space-y-2">
+    <div className="flex justify-between text-[11px] font-mono text-gray-400">
+      <span>0:00.00</span><span>0:10.00</span>
+    </div>
+    <div className="relative w-full h-3 flex items-center">
+      <div className="w-full h-1.5 bg-blue-600 rounded-full" />
+      <div className="absolute left-0 w-4 h-4 bg-white rounded-full shadow border" />
+    </div>
+    <div className="relative w-full h-12 rounded border border-gray-800 bg-gray-900/90 overflow-hidden">
+      <svg viewBox="0 0 480 48" className="w-full h-full block" preserveAspectRatio="none">
+        {/* ベースライン、区間ハイライト、上下対称高密度波形バー群、再生ヘッド */}
+      </svg>
+    </div>
+  </div>
+  ```
 - **説明文内のインラインアイコン置換と外部リンク**:
   「歯車アイコン」等のテキストを `<Settings className="inline w-3.5 h-3.5" />` に置換し、外部リンクには `target="_blank" rel="noreferrer"` を付与。
 - **一括開閉ボタン**: 「すべて開く」「すべて閉じる」を上部に配置。
@@ -171,7 +191,7 @@ python scripts/help_system_tool.py validate --file src/constants/helpContent.jso
 python scripts/help_system_tool.py validate --component src/components/modals/SectionHelpModal.tsx
 ```
 
-- 警告やエラーが出た場合は、指示に従って導入文の短縮、見本のリアル操作パネル化、アコーディオン見出し見本の削除、通信に関する不安誘発表現の削除、位置表現の修正（「右上の設定」→「アプリ名の横の歯車アイコン」）、スマホ2行ヘッダー（`flex-col sm:flex-row`、`pl-10 sm:pl-0`、`items-start sm:items-center`）の適用を行います。
+- 警告やエラーが出た場合は、指示に従って導入文の短縮、見本のリアル操作パネル化、タイムライン・波形の高密度リアル化、アコーディオン見出し見本の削除、通信に関する不安誘発表現の削除、位置表現の修正（例: 「右上の設定」→「アプリ名横の歯車アイコン」）、スマホ2行ヘッダー（`flex-col sm:flex-row`、`pl-10 sm:pl-0`、`items-start sm:items-center`）の適用を行います。
 
 ### Step 5: 自動テスト（Unit Tests）を整備する
 

@@ -83,6 +83,7 @@ function renderCaptionSection(
     onUpdateVideoTitle: vi.fn(),
     onSetVideoTitleRange: vi.fn(),
     onResetVideoTitle: vi.fn(),
+    defaultOpen: overrides.defaultOpen ?? true,
     ...overrides,
   };
 
@@ -478,6 +479,7 @@ describe('CaptionSection bulk timing alignment', () => {
     const buildProps = (
       overrides: Partial<ComponentProps<typeof CaptionSection>>
     ): ComponentProps<typeof CaptionSection> => ({
+      defaultOpen: true,
       captions,
       settings: {
         enabled: true,
@@ -710,5 +712,17 @@ describe('CaptionItem end time snaps to timeline duration', () => {
     );
 
     expect(screen.getByLabelText('キャプションの終了時間（数値）')).toHaveValue('14.0');
+  });
+
+  it('初期表示（defaultOpen未指定）ではセクションが閉じた状態になる', () => {
+    // defaultOpen未指定でレンダリング
+    renderCaptionSection({ defaultOpen: false }, false);
+    expect(screen.getByText('キャプション')).toBeInTheDocument();
+    // コンテンツ部分は閉じている
+    expect(screen.queryByRole('button', { name: 'キャプション 一括設定' })).not.toBeInTheDocument();
+
+    // ヘッダーをクリックすると開く
+    fireEvent.click(screen.getByText('キャプション'));
+    expect(screen.getByRole('button', { name: 'キャプション 一括設定' })).toBeInTheDocument();
   });
 });

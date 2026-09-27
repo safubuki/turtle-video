@@ -68,6 +68,7 @@ function renderClipsSection(
     onUpdateFadeInDuration: vi.fn(),
     onUpdateFadeOutDuration: vi.fn(),
     onOpenHelp: vi.fn(),
+    defaultOpen: overrides.defaultOpen ?? true,
     ...overrides,
   };
 
@@ -327,7 +328,6 @@ describe('ClipsSection transition editing', () => {
 describe('ClipsSection aspect ratio controls', () => {
   it('スマホ表示ではカード1件とトランジションを確認しやすい一覧高さにする', () => {
     const { container } = renderClipsSection();
-    fireEvent.click(screen.getByText('動画・画像'));
     const scrollArea = container.querySelector('.custom-scrollbar');
 
     expect(scrollArea).not.toBeNull();
@@ -350,7 +350,6 @@ describe('ClipsSection aspect ratio controls', () => {
       watermarkPanel: <div>ウォーターマーク設定パネル</div>,
       audioSettingsPanel: <div>音設定パネル</div>,
     });
-    fireEvent.click(screen.getByText('動画・画像'));
     expect(screen.queryByText('タイトル設定パネル')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /全体設定/ }));
@@ -367,7 +366,6 @@ describe('ClipsSection aspect ratio controls', () => {
     renderClipsSection({
       watermarkPanel: <div>ウォーターマーク設定パネル</div>,
     });
-    fireEvent.click(screen.getByText('動画・画像'));
     fireEvent.click(screen.getByRole('button', { name: /全体設定/ }));
 
     const watermark = screen.getByText('ウォーターマーク設定パネル');
@@ -382,7 +380,6 @@ describe('ClipsSection aspect ratio controls', () => {
       watermarkPanel: <div>ウォーターマーク設定パネル</div>,
       audioSettingsPanel: <div>音設定パネル</div>,
     });
-    fireEvent.click(screen.getByText('動画・画像'));
     fireEvent.click(screen.getByRole('button', { name: /全体設定/ }));
 
     const watermark = screen.getByText('ウォーターマーク設定パネル');

@@ -249,7 +249,10 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
     resetTouchTracking();
   };
 
-  const helpContent = getSectionHelpContent({ appFlavor, supportsShowSaveFilePicker });
+  const helpContent = React.useMemo(
+    () => getSectionHelpContent({ appFlavor, supportsShowSaveFilePicker }),
+    [appFlavor, supportsShowSaveFilePicker]
+  );
   const help = section ? helpContent[section] : null;
 
   // カテゴリごとにグループ化
@@ -302,8 +305,20 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
   // 子アコーディオン（アイテムごと）
   const [openSubItems, setOpenSubItems] = useState<Set<string>>(() => new Set());
 
+  // モーダルオープン時またはセクション/初期カテゴリ変更時のみ初期化（クリック操作による再レンダリングでリセットされるのを防止）
+  const prevIsOpenRef = useRef(false);
+  const prevSectionRef = useRef<SectionHelpKey | null>(null);
+  const prevInitialCategoryRef = useRef<string | undefined>(undefined);
+
   useEffect(() => {
-    if (isOpen) {
+    const justOpened = isOpen && !prevIsOpenRef.current;
+    const sectionChanged = isOpen && section !== prevSectionRef.current;
+    const initialCategoryChanged = isOpen && initialCategory !== prevInitialCategoryRef.current;
+    prevIsOpenRef.current = isOpen;
+    prevSectionRef.current = section;
+    prevInitialCategoryRef.current = initialCategory;
+
+    if (justOpened || sectionChanged || initialCategoryChanged) {
       setOpenCategories(new Set(initialCategory ? [initialCategory] : []));
       // アイテムが1つしかないカテゴリの子カードは最初から開いておく
       setOpenSubItems(new Set(singleItemKeys));
@@ -754,40 +769,169 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
             </div>
           </div>
         );
-      case 'timeline_waveform':
+      case 'timeline_waveform': {
+        // 実画面（TimelineWaveform）と同じきめ細かい上下対称の音声波形プロファイル（120本）
+        const sampleHeights = [
+          // 0〜9: 無音区間1 (0:00〜0:00.8)
+          1, 1, 1.5, 1, 1, 1.5, 1, 1, 2, 3,
+          // 10〜13: 小さな声の立ち上がり
+          7, 9, 8, 6,
+          // 14〜17: 無音区間2 (0:01.1〜0:01.4)
+          2, 1.5, 1.5, 2,
+          // 18〜47: 背景音・低めの会話 (スパイク混じり)
+          4, 4.5, 3.5, 4, 3, 5, 4, 12, 4, 3.5,
+          4, 4.5, 10, 4, 3.5, 4, 3, 4, 3.5, 4,
+          5, 4, 3.5, 4, 3, 4, 3.5, 4, 5, 6,
+          // 48〜60: 明瞭な発話ブロック1 (太く厚みがある山)
+          9, 14, 16, 17, 16.5, 17, 16, 15, 16, 15.5, 14, 11, 8,
+          // 61〜65: スパイクと減衰
+          13, 19, 7, 5, 3,
+          // 66〜69: 無音区間3
+          1.5, 1.5, 2, 2,
+          // 70〜73: 無音区間4
+          1.5, 2, 1.5, 2,
+          // 74〜81: 明瞭な発話ブロック2 (強い山)
+          8, 15, 18, 17.5, 16, 14, 10, 6,
+          // 82〜85: 無音区間5
+          2, 1.5, 1.5, 2,
+          // 86〜105: 安定した発話・音
+          4, 5, 6, 8, 10, 9, 8, 11, 8, 7,
+          9, 8, 7, 6, 7, 8, 7, 13, 6, 5,
+          // 106〜119: 緩やかな減衰・末尾
+          4, 4.5, 3.5, 4, 3, 4, 3.5, 4, 3, 2.5,
+          2, 2, 1.5, 1.5,
+        ];
+
         return (
           <div
             key={`${token}-${index}`}
-            className="basis-full w-full rounded-lg border border-gray-700/70 bg-gray-950/70 p-2"
+            className="basis-full w-full rounded-lg border border-gray-700/80 bg-gray-950/80 p-2.5 space-y-2 select-none"
           >
-            <div className="relative flex h-12 items-center justify-around gap-px overflow-hidden rounded bg-gray-900 px-1">
-              <span className="absolute inset-y-0 left-[42%] w-[12%] bg-yellow-500/15" />
-              {[12, 24, 34, 18, 38, 26, 10, 8, 14, 30, 36, 20, 28, 16].map((height, barIndex) => (
-                <span
-                  key={barIndex}
-                  className="z-10 w-1 rounded-full bg-blue-400/75"
-                  style={{ height }}
+            {/* 1. 上部タイムコード */}
+            <div className="flex justify-between items-center text-[11px] font-mono text-gray-400 px-0.5">
+              <span className="text-gray-200 font-semibold">0:00.00</span>
+              <span>0:10.00</span>
+            </div>
+
+            {/* 2. シークバー（プログレスバー＋ツマミ） */}
+            <div className="relative w-full h-3 flex items-center">
+              <div className="w-full h-1.5 bg-blue-600 rounded-full" />
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full shadow-[0_2px_4px_rgba(0,0,0,0.5)] border border-gray-300 pointer-events-none" />
+            </div>
+
+            {/* 3. リアルな音量波形（高密度・上下対称・無音区間ハイライト・ベースライン） */}
+            <div className="relative w-full h-12 rounded border border-gray-800 bg-gray-900/90 overflow-hidden">
+              <svg
+                viewBox="0 0 480 48"
+                className="w-full h-full block"
+                preserveAspectRatio="none"
+                aria-hidden="true"
+              >
+                {/* 背景 */}
+                <rect x="0" y="0" width="480" height="48" fill="rgba(17, 24, 39, 0.85)" />
+
+                {/* 無音区間の帯（半透明黄色＋境界線） */}
+                {[
+                  { x: 0, w: 38 },
+                  { x: 54, w: 16 },
+                  { x: 262, w: 16 },
+                  { x: 280, w: 14 },
+                  { x: 328, w: 14 },
+                ].map((silence, sIdx) => (
+                  <g key={`silence-${sIdx}`}>
+                    <rect
+                      x={silence.x}
+                      y="0"
+                      width={silence.w}
+                      height="48"
+                      fill="rgba(251, 191, 36, 0.14)"
+                    />
+                    <line
+                      x1={silence.x}
+                      y1="0"
+                      x2={silence.x}
+                      y2="48"
+                      stroke="rgba(251, 191, 36, 0.55)"
+                      strokeWidth="1"
+                    />
+                    <line
+                      x1={silence.x + silence.w}
+                      y1="0"
+                      x2={silence.x + silence.w}
+                      y2="48"
+                      stroke="rgba(251, 191, 36, 0.55)"
+                      strokeWidth="1"
+                    />
+                  </g>
+                ))}
+
+                {/* 中心ベースライン */}
+                <line
+                  x1="0"
+                  y1="24"
+                  x2="480"
+                  y2="24"
+                  stroke="rgba(148, 163, 184, 0.25)"
+                  strokeWidth="1"
                 />
-              ))}
-              <span className="absolute inset-y-0 left-[68%] w-px bg-white/90" />
+
+                {/* 上下対称の高密度オーディオ波形バー */}
+                {sampleHeights.map((h, bIdx) => {
+                  const x = bIdx * 4 + 1;
+                  return (
+                    <line
+                      key={`bar-${bIdx}`}
+                      x1={x}
+                      y1={24 - h}
+                      x2={x}
+                      y2={24 + h}
+                      stroke="rgba(96, 165, 250, 0.9)"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                    />
+                  );
+                })}
+
+                {/* 再生ヘッド（シーク位置の白い縦線＋グロー） */}
+                <line
+                  x1="1"
+                  y1="0"
+                  x2="1"
+                  y2="48"
+                  stroke="rgba(255, 255, 255, 0.95)"
+                  strokeWidth="1.5"
+                />
+              </svg>
+
+              {/* 再生ヘッドのグロー演出 */}
+              <div
+                className="pointer-events-none absolute top-0 bottom-0 left-0 w-px bg-white shadow-[0_0_6px_rgba(255,255,255,0.9)]"
+              />
             </div>
           </div>
         );
+      }
       case 'silence_nav_controls':
         return (
           <div
             key={`${token}-${index}`}
-            className="flex basis-full w-full flex-wrap items-center gap-1.5 text-[10px] md:text-xs"
+            className="flex basis-full w-full flex-wrap items-center gap-1.5 text-[10px] md:text-xs pt-0.5"
           >
             <span className="flex items-center gap-1 text-gray-400">
-              <AudioLines className="h-3.5 w-3.5 text-blue-300" /> 無音区間
+              <AudioLines className="h-3.5 w-3.5 text-blue-300" />
+              無音区間
+              <span className="text-gray-500">（動画音声基準・5件）</span>
             </span>
-            <span className="inline-flex items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 py-1.5 text-gray-200">
-              <ChevronsLeft className="h-3.5 w-3.5" /> 無音区間：前へ
-            </span>
-            <span className="inline-flex items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 py-1.5 text-gray-200">
-              無音区間：次へ <ChevronsRight className="h-3.5 w-3.5" />
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 py-1 text-gray-200">
+                <ChevronsLeft className="h-3.5 w-3.5" />
+                無音区間：前へ
+              </span>
+              <span className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 py-1 text-gray-200">
+                無音区間：次へ
+                <ChevronsRight className="h-3.5 w-3.5" />
+              </span>
+            </div>
           </div>
         );
       case 'poster_accordion':

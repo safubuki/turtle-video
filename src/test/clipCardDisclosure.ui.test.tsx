@@ -81,13 +81,16 @@ function durationSliders() {
 }
 
 describe('動画・画像カードの折りたたみ', () => {
-  it('素材が無いときはセクションを閉じ、保存プロジェクトに素材があれば開く', () => {
+  it('初期表示でセクションが開き、保存プロジェクトの素材も表示できる', () => {
     const { rerender, props } = renderSection({ mediaItems: [] });
-    expect(screen.queryByText('動画または画像ファイルを追加してください')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByText('動画・画像'));
+    // 初期表示で開いていること
     expect(screen.getByText('動画または画像ファイルを追加してください')).toBeInTheDocument();
 
+    // クリックで閉じることができること
+    fireEvent.click(screen.getByText('動画・画像'));
+    expect(screen.queryByText('動画または画像ファイルを追加してください')).not.toBeInTheDocument();
+
+    // 素材が追加されると開いて表示されること
     rerender(<ClipsSection {...props} mediaItems={[createImage('added')]} currentTime={0} />);
     expect(screen.getByTestId('clip-card-added')).toBeInTheDocument();
   });

@@ -193,6 +193,8 @@ interface ClipsSectionProps {
   onUpdateFadeInDuration: (id: string, duration: number) => void;
   onUpdateFadeOutDuration: (id: string, duration: number) => void;
   onOpenHelp: () => void;
+  /** 初期表示でアコーディオンを開くかどうか（既定は開いた状態） */
+  defaultOpen?: boolean;
 }
 
 /**
@@ -241,6 +243,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   onUpdateFadeInDuration,
   onUpdateFadeOutDuration,
   onOpenHelp,
+  defaultOpen = true,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   // 簡単コピーは standard フレーバー（Android/PC）限定機能
@@ -262,8 +265,8 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   // 動画倍速は standard フレーバー（Android/PC）限定（apple-safari では UI 非表示）
   const supportsPlaybackSpeed = !isIosSafari;
   const clipListRestoreEpoch = useMediaStore((s) => s.clipListRestoreEpoch);
-  // 起動時に素材が無ければ閉じる。素材がある状態（保存プロジェクトの読み込み直後を含む）は開く。
-  const [isSectionOpen, setIsSectionOpen] = useState(() => mediaItems.length > 0);
+  // 初期表示は開いた状態（素材が未登録でも開く）。保存プロジェクト読み込み時や素材追加時も開く。
+  const [isSectionOpen, setIsSectionOpen] = useState(defaultOpen);
   const prevSectionCountRef = useRef(mediaItems.length);
   const prevSectionEpochRef = useRef(clipListRestoreEpoch);
   const focusId = useMemo(
@@ -357,7 +360,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
     const epochChanged = prevSectionEpochRef.current !== clipListRestoreEpoch;
     prevSectionEpochRef.current = clipListRestoreEpoch;
     if (epochChanged) {
-      setIsSectionOpen(mediaItems.length > 0);
+      setIsSectionOpen(true);
       prevSectionCountRef.current = mediaItems.length;
       return;
     }

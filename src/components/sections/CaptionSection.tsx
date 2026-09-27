@@ -179,6 +179,8 @@ interface CaptionSectionProps {
    * 素材があるときは渡さない。
    */
   fillColumn?: boolean;
+  /** 初期表示でアコーディオンを開くかどうか（既定は閉じた状態） */
+  defaultOpen?: boolean;
 }
 
 /**
@@ -251,12 +253,20 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   hasNextSilenceBoundary,
   silenceRegions = [],
   fillColumn = false,
+  defaultOpen = false,
 }) => {
   // プリセット→カスタムの引き継ぎに使う（描画と同じ寸法基準にそろえる）
   const canvasWidth = useCanvasStore((state) => state.width);
   const canvasHeight = useCanvasStore((state) => state.height);
   const isPortraitProject = canvasHeight > canvasWidth;
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const prevCaptionCountRef = useRef(captions.length);
+  useEffect(() => {
+    if (captions.length > prevCaptionCountRef.current) {
+      setIsOpen(true);
+    }
+    prevCaptionCountRef.current = captions.length;
+  }, [captions.length]);
   const [showStyleSettings, setShowStyleSettings] = useState(false);
   const [showOutlineColorSettings, setShowOutlineColorSettings] = useState(false);
   const [showBackgroundSettings, setShowBackgroundSettings] = useState(false);
