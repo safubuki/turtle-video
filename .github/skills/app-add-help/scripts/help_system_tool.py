@@ -405,6 +405,45 @@ def validate_component_source(component_path: Path) -> Dict[str, Any]:
                 ),
             })
 
+    # Rule 5: Check full item accordionization (目次化・スクロール量削減)
+    if "directItems" in content:
+        issues.append({
+            "severity": "warning",
+            "rule": "full-item-accordion-index",
+            "message": (
+                "一部の設定項目が直接表示 (directItems) されています。"
+                "スマホ表示時のスクロール量削減と全体像の把握（目次化）のため、"
+                "カテゴリ内の各項目はすべてアコーディオン表示にし、デフォルト全閉じとすることを推奨します。"
+            ),
+        })
+
+    # Rule 6: Check sample buttons nowrap (ボタン改行崩れ防止)
+    if "ここまで延長" in content or "ここまで短縮" in content or "プレビュー位置を反映" in content:
+        if "whitespace-nowrap" not in content:
+            issues.append({
+                "severity": "warning",
+                "rule": "prevent-button-line-break",
+                "message": (
+                    "操作見本ボタン群に 'whitespace-nowrap' が指定されていません。"
+                    "スマホ表示時にボタンが途中で改行されたり崩れたりするのを防ぐため、"
+                    "ボタン群のコンテナに 'flex-nowrap'、各ボタンに 'whitespace-nowrap shrink-0' を指定してください。"
+                ),
+            })
+
+    # Rule 7: Check title parenthesis formatting (かっこ書きスマホ次行表示・単語途中改行防止)
+    if "formatAccordionTitle" in content:
+        if "sr-only" not in content or "&#8203;" not in content:
+            issues.append({
+                "severity": "info",
+                "rule": "title-parenthesis-line-break-protection",
+                "message": (
+                    "formatAccordionTitle に sr-only またはゼロ幅スペース ('&#8203;') が見当たりません。"
+                    "完全一致テキストテスト (getByText) との衝突防止とアクセシビリティを両立するため、"
+                    "sr-only による全文保持とゼロ幅スペースによる視覚要素分離の併用を推奨します。"
+                ),
+            })
+
+
     return {
         "valid": len([i for i in issues if i["severity"] == "error"]) == 0,
         "component": str(component_path),

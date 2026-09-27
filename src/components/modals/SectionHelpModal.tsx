@@ -282,34 +282,48 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
 
   const allSubItemKeys = React.useMemo(() => {
     if (!help) return [];
+    return help.items.map((item, index) => `${item.title}-${index}`);
+  }, [help]);
+
+  // アイテムが1つしかないカテゴリの子カードキー（デフォルト展開用）
+  const singleItemKeys = React.useMemo(() => {
     const keys: string[] = [];
-    help.items.forEach((item, index) => {
-      if (item.isSubAccordion) {
-        keys.push(`${item.title}-${index}`);
+    groupedItems.forEach((group) => {
+      if (group.items.length === 1) {
+        const single = group.items[0];
+        keys.push(`${single.item.title}-${single.globalIndex}`);
       }
     });
     return keys;
-  }, [help]);
+  }, [groupedItems]);
 
   // 親アコーディオン（カテゴリごと）
   const [openCategories, setOpenCategories] = useState<Set<string>>(() => new Set());
-  // 子アコーディオン（isSubAccordion のアイテムごと）
+  // 子アコーディオン（アイテムごと）
   const [openSubItems, setOpenSubItems] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     if (isOpen) {
       setOpenCategories(new Set(initialCategory ? [initialCategory] : []));
-      setOpenSubItems(new Set());
+      // アイテムが1つしかないカテゴリの子カードは最初から開いておく
+      setOpenSubItems(new Set(singleItemKeys));
     }
-  }, [isOpen, section, initialCategory]);
+  }, [isOpen, section, initialCategory, singleItemKeys]);
 
   const toggleCategory = (category: string) => {
     setOpenCategories((prev) => {
       const next = new Set(prev);
-      if (next.has(category)) {
-        next.delete(category);
-      } else {
+      const isOpening = !next.has(category);
+      if (isOpening) {
         next.add(category);
+        // このカテゴリのアイテムが1つだけなら、子アコーディオンも自動展開する
+        const targetGroup = groupedItems.find((g) => g.category === category);
+        if (targetGroup && targetGroup.items.length === 1) {
+          const single = targetGroup.items[0];
+          setOpenSubItems((subPrev) => new Set(subPrev).add(`${single.item.title}-${single.globalIndex}`));
+        }
+      } else {
+        next.delete(category);
       }
       return next;
     });
@@ -616,30 +630,34 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
         return (
           <div
             key={`${token}-${index}`}
-            className="inline-flex flex-wrap items-center gap-1.5 text-[10px] text-gray-500 md:text-xs"
+            className="flex flex-col sm:flex-row sm:items-center gap-1.5 text-[10px] text-gray-500 md:text-xs"
           >
-            <span>プレビュー位置を反映:</span>
-            <span className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-gray-200">
-              <MapPin className="h-3.5 w-3.5" /> 開始
-            </span>
-            <span className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-gray-200">
-              <MapPin className="h-3.5 w-3.5" /> 終了
-            </span>
+            <span className="shrink-0">プレビュー位置を反映:</span>
+            <div className="flex items-center gap-1.5 shrink-0 flex-nowrap">
+              <span className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-gray-200 whitespace-nowrap shrink-0">
+                <MapPin className="h-3.5 w-3.5 shrink-0" /> 開始
+              </span>
+              <span className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-gray-200 whitespace-nowrap shrink-0">
+                <MapPin className="h-3.5 w-3.5 shrink-0" /> 終了
+              </span>
+            </div>
           </div>
         );
       case 'bgm_trim_position_buttons':
         return (
           <div
             key={`${token}-${index}`}
-            className="inline-flex flex-wrap items-center gap-1.5 rounded-lg border border-purple-500/25 bg-purple-950/20 px-2 py-1.5 text-[10px] text-gray-300 md:text-xs"
+            className="flex flex-col sm:flex-row sm:items-center gap-1.5 rounded-lg border border-purple-500/25 bg-purple-950/20 px-2 py-1.5 text-[10px] text-gray-300 md:text-xs"
           >
-            <span>現在のBGM位置を反映:</span>
-            <span className="inline-flex min-h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-gray-700 bg-gray-800 px-2 text-gray-200 md:px-2.5">
-              <Scissors className="h-3.5 w-3.5 shrink-0" /> 開始設定
-            </span>
-            <span className="inline-flex min-h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-gray-700 bg-gray-800 px-2 text-gray-200 md:px-2.5">
-              <Scissors className="h-3.5 w-3.5 shrink-0" /> 終了設定
-            </span>
+            <span className="shrink-0">現在のBGM位置を反映:</span>
+            <div className="flex items-center gap-1.5 shrink-0 flex-nowrap">
+              <span className="inline-flex min-h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-gray-700 bg-gray-800 px-2 text-gray-200 md:px-2.5">
+                <Scissors className="h-3.5 w-3.5 shrink-0" /> 開始設定
+              </span>
+              <span className="inline-flex min-h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-gray-700 bg-gray-800 px-2 text-gray-200 md:px-2.5">
+                <Scissors className="h-3.5 w-3.5 shrink-0" /> 終了設定
+              </span>
+            </div>
           </div>
         );
       case 'rotate_button':
@@ -1009,14 +1027,16 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
               <Scissors className="w-3.5 h-3.5 text-gray-400" />
               <span>トリミング: 0.00s - 12.04s</span>
             </div>
-            <div className="flex flex-wrap items-center gap-1.5 text-[11px] md:text-xs">
-              <span className="text-gray-400 mr-0.5">プレビュー位置を反映:</span>
-              <span className="px-2.5 py-1 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 flex items-center gap-1 font-medium">
-                <MapPin className="w-3.5 h-3.5" /> 開始
-              </span>
-              <span className="px-2.5 py-1 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 flex items-center gap-1 font-medium">
-                <MapPin className="w-3.5 h-3.5" /> 終了
-              </span>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 text-[11px] md:text-xs">
+              <span className="text-gray-400 shrink-0">プレビュー位置を反映:</span>
+              <div className="flex items-center gap-1.5 shrink-0 flex-nowrap">
+                <span className="px-2.5 py-1 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 flex items-center gap-1 font-medium whitespace-nowrap shrink-0">
+                  <MapPin className="w-3.5 h-3.5 shrink-0" /> 開始
+                </span>
+                <span className="px-2.5 py-1 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 flex items-center gap-1 font-medium whitespace-nowrap shrink-0">
+                  <MapPin className="w-3.5 h-3.5 shrink-0" /> 終了
+                </span>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-gray-400 w-10 shrink-0 text-[11px]">開始</span>
@@ -1070,14 +1090,16 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
                 <span className="px-1.5 py-0.5 rounded bg-gray-800 border border-gray-700 text-gray-400">＋</span>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-1.5 text-[11px] md:text-xs">
-              <span className="text-gray-400 mr-0.5">プレビュー位置を反映:</span>
-              <span className="px-2.5 py-1 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 flex items-center gap-1 font-medium">
-                <MapPin className="w-3.5 h-3.5" /> ここまで延長
-              </span>
-              <span className="px-2.5 py-1 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 flex items-center gap-1 font-medium">
-                <MapPin className="w-3.5 h-3.5" /> ここまで短縮
-              </span>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 text-[11px] md:text-xs">
+              <span className="text-gray-400 shrink-0">プレビュー位置を反映:</span>
+              <div className="flex items-center gap-1.5 shrink-0 flex-nowrap">
+                <span className="px-2.5 py-1 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 flex items-center gap-1 font-medium whitespace-nowrap shrink-0">
+                  <MapPin className="w-3.5 h-3.5 shrink-0" /> ここまで延長
+                </span>
+                <span className="px-2.5 py-1 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 flex items-center gap-1 font-medium whitespace-nowrap shrink-0">
+                  <MapPin className="w-3.5 h-3.5 shrink-0" /> ここまで短縮
+                </span>
+              </div>
             </div>
           </div>
         );
@@ -1503,15 +1525,17 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
         return (
           <div
             key={`${token}-${index}`}
-            className="inline-flex flex-wrap items-center gap-1.5 text-[10px] md:text-xs"
+            className="flex flex-col sm:flex-row sm:items-center gap-1.5 text-[10px] md:text-xs"
           >
-            <span className="text-gray-500">プレビュー位置に反映:</span>
-            <span className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-yellow-200">
-              <MapPin className="h-3.5 w-3.5" /> ここまで延長
-            </span>
-            <span className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-yellow-200">
-              <MapPin className="h-3.5 w-3.5" /> ここまで短縮
-            </span>
+            <span className="text-gray-500 shrink-0">プレビュー位置に反映:</span>
+            <div className="flex items-center gap-1.5 shrink-0 flex-nowrap">
+              <span className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-yellow-200 whitespace-nowrap shrink-0">
+                <MapPin className="h-3.5 w-3.5 shrink-0" /> ここまで延長
+              </span>
+              <span className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-2.5 text-yellow-200 whitespace-nowrap shrink-0">
+                <MapPin className="h-3.5 w-3.5 shrink-0" /> ここまで短縮
+              </span>
+            </div>
           </div>
         );
       case 'speed_badge_presets':
@@ -1991,15 +2015,19 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
         return (
           <div
             key={`${token}-${index}`}
-            className="inline-flex flex-wrap items-center gap-1.5 rounded-lg border border-yellow-500/30 bg-yellow-950/20 p-1.5 text-[10px] md:text-xs text-yellow-100"
+            className="flex flex-wrap items-center gap-2 rounded-lg border border-yellow-500/30 bg-yellow-950/20 p-1.5 text-[10px] md:text-xs text-yellow-100"
           >
-            <span className="text-gray-400">位置:</span>
-            <span className="rounded bg-yellow-500 text-gray-900 font-semibold px-1.5 py-0.5">中央</span>
-            <span className="rounded bg-gray-800 text-gray-300 px-1.5 py-0.5">上部</span>
-            <span className="rounded bg-gray-800 text-gray-300 px-1.5 py-0.5">下部</span>
-            <span className="rounded bg-gray-800 text-gray-300 px-1.5 py-0.5">カスタム</span>
-            <span className="ml-1 text-gray-400">サイズ:</span>
-            <span className="rounded bg-yellow-500/20 border border-yellow-500/40 text-yellow-200 px-1.5 py-0.5">特大</span>
+            <div className="flex items-center gap-1 shrink-0 flex-nowrap">
+              <span className="text-gray-400 shrink-0">位置:</span>
+              <span className="rounded bg-yellow-500 text-gray-900 font-semibold px-1.5 py-0.5 whitespace-nowrap shrink-0">中央</span>
+              <span className="rounded bg-gray-800 text-gray-300 px-1.5 py-0.5 whitespace-nowrap shrink-0">上部</span>
+              <span className="rounded bg-gray-800 text-gray-300 px-1.5 py-0.5 whitespace-nowrap shrink-0">下部</span>
+              <span className="rounded bg-gray-800 text-gray-300 px-1.5 py-0.5 whitespace-nowrap shrink-0">カスタム</span>
+            </div>
+            <div className="flex items-center gap-1 shrink-0 flex-nowrap">
+              <span className="text-gray-400 shrink-0">サイズ:</span>
+              <span className="rounded bg-yellow-500/20 border border-yellow-500/40 text-yellow-200 px-1.5 py-0.5 whitespace-nowrap shrink-0">特大</span>
+            </div>
           </div>
         );
       default:
@@ -2886,26 +2914,89 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
     );
   };
 
-  // 直接表示ブロック（アコーディオン無し）
-  const renderHelpItemBlock = (item: SectionHelpItem, globalIndex: number) => (
-    <div
-      key={`${item.title}-${globalIndex}`}
-      className="rounded-xl border-2 border-gray-600/70 bg-gray-800/50 p-3 space-y-2.5 shadow-sm"
-    >
-      <div className="flex items-center justify-between gap-2 border-b border-gray-600/60 pb-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-500/20 text-blue-300 text-[10px] font-bold shrink-0">
-            {globalIndex + 1}
+  // タイトルを主見出しとかっこ書き補足に分離（かっこ書きをスマホで次行に表示し、単語途中改行を防止）
+  const formatAccordionTitle = (rawTitle: string) => {
+    const match = rawTitle.match(/^(.*?)([（(].+[）)])$/);
+    if (!match) {
+      return (
+        <span className="text-xs sm:text-sm font-semibold text-gray-100 leading-snug">
+          {rawTitle}
+        </span>
+      );
+    }
+    const mainTitle = match[1].trim();
+    const subTitle = match[2].trim();
+    return (
+      <span className="text-xs sm:text-sm font-semibold text-gray-100 leading-snug">
+        <span className="sr-only">{rawTitle}</span>
+        <span aria-hidden="true" className="flex flex-col sm:flex-row sm:items-baseline">
+          <span className="inline-block whitespace-nowrap sm:whitespace-normal">
+            {mainTitle}&#8203;
           </span>
-          <h4 className="text-xs sm:text-sm font-bold text-white truncate">
-            {item.title}
-          </h4>
+          <span className="block sm:inline sm:ml-1 text-[11px] sm:text-xs text-gray-400 sm:text-gray-300 font-normal leading-tight">
+            {subTitle}
+          </span>
+        </span>
+      </span>
+    );
+  };
+
+
+  // 子アコーディオン項目（全項目を開閉・目次化）
+  const renderSubAccordionItem = (item: SectionHelpItem, globalIndex: number) => {
+    const subKey = `${item.title}-${globalIndex}`;
+    const isSubOpen = openSubItems.has(subKey);
+    return (
+      <div
+        key={subKey}
+        className={`rounded-xl border-2 transition-colors ${
+          isSubOpen
+            ? 'border-gray-500/80 bg-gray-800/90 shadow-sm'
+            : 'border-gray-600/70 bg-gray-800/40 hover:border-gray-500/70 hover:bg-gray-800/60'
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => toggleSubItem(subKey)}
+          aria-expanded={isSubOpen}
+          aria-label={`${item.title}のヘルプを開閉`}
+          className="w-full flex items-start sm:items-center justify-between gap-2 p-2.5 sm:p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded-xl cursor-pointer"
+        >
+          <div className="flex items-start sm:items-center gap-2 min-w-0 flex-1">
+            <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-500/20 text-blue-300 text-[10px] font-bold shrink-0 mt-0.5 sm:mt-0">
+              {globalIndex + 1}
+            </span>
+            <div className="min-w-0 flex-1">
+              {formatAccordionTitle(item.title)}
+            </div>
+            <span className="text-[10px] md:text-xs text-gray-400 font-normal shrink-0 hidden sm:inline">
+              （クリックで{isSubOpen ? '閉じる' : '開く'}）
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0 pl-1 pt-0.5 sm:pt-0">
+            {renderHeaderQuickSample(item)}
+            <span className="text-[11px] md:text-xs text-gray-400 whitespace-nowrap">
+              {isSubOpen ? '（閉じる）' : '（開く）'}
+            </span>
+            <ChevronDown
+              className={`w-3.5 h-3.5 text-gray-400 transition-transform duration-200 ${
+                isSubOpen ? 'rotate-180' : ''
+              }`}
+            />
+          </div>
+        </button>
+        <div
+          className={
+            isSubOpen
+              ? 'block px-3 pb-3 pt-2 border-t border-gray-600/70 space-y-2.5'
+              : 'hidden'
+          }
+        >
+          {renderItemContent(item)}
         </div>
-        {renderHeaderQuickSample(item)}
       </div>
-      {renderItemContent(item)}
-    </div>
-  );
+    );
+  };
 
   return (
     <div
@@ -2982,8 +3073,6 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
           <div className="space-y-3.5">
             {groupedItems.map((group) => {
               const isCatOpen = openCategories.has(group.category);
-              const directItems = group.items.filter(({ item }) => !item.isSubAccordion);
-              const subAccordionItems = group.items.filter(({ item }) => item.isSubAccordion);
 
               return (
                 <div
@@ -3017,87 +3106,16 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
                     </div>
                   </button>
 
-                  {/* カテゴリ本文（開閉アニメーション・アクセシビリティ対応） */}
+                  {/* カテゴリ本文（全項目アコーディオン・目次化） */}
                   <div
                     className={
                       isCatOpen
-                        ? 'block px-3 pb-3 pt-2 border-t-2 border-gray-700/80 space-y-3'
+                        ? 'block px-3 pb-3 pt-2 border-t-2 border-gray-700/80 space-y-2'
                         : 'hidden'
                     }
                   >
-                    {/* 1. 直接表示項目（アコーディオン無しで並ぶ） */}
-                    {directItems.length > 0 && (
-                      <div className="space-y-3">
-                        {directItems.map(({ item, globalIndex }) =>
-                          renderHelpItemBlock(item, globalIndex)
-                        )}
-                      </div>
-                    )}
-
-                    {/* 2. 子アコーディオン項目（各調整項目） */}
-                    {subAccordionItems.length > 0 && (
-                      <div className="space-y-2 pt-2 border-t border-gray-800/80">
-                        <div className="text-[11px] font-bold text-gray-400 px-1 flex items-center gap-1.5">
-                          <span className="w-1 h-3 bg-blue-400 rounded-full" />
-                          <span>カードの調整項目</span>
-                          <span className="text-[10px] text-gray-500 font-normal">
-                            <span className="inline md:hidden">（タップで開閉）</span>
-                            <span className="hidden md:inline">（クリックで開閉）</span>
-                          </span>
-                        </div>
-                        {subAccordionItems.map(({ item, globalIndex }) => {
-                          const subKey = `${item.title}-${globalIndex}`;
-                          const isSubOpen = openSubItems.has(subKey);
-                          return (
-                            <div
-                              key={subKey}
-                              className={`rounded-xl border-2 transition-colors ${
-                                isSubOpen
-                                  ? 'border-gray-500/80 bg-gray-800/90 shadow-sm'
-                                  : 'border-gray-600/70 bg-gray-800/40 hover:border-gray-500/70 hover:bg-gray-800/60'
-                              }`}
-                            >
-                              <button
-                                type="button"
-                                onClick={() => toggleSubItem(subKey)}
-                                aria-expanded={isSubOpen}
-                                aria-label={`${item.title}のヘルプを開閉`}
-                                className="w-full flex items-center justify-between gap-2 p-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded-xl cursor-pointer"
-                              >
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span className="text-xs sm:text-sm font-semibold text-gray-100">
-                                    {item.title}
-                                  </span>
-                                  <span className="text-[10px] md:text-xs text-gray-400 font-normal shrink-0">
-                                    <span className="inline md:hidden">（タップで{isSubOpen ? '閉じる' : '開く'}）</span>
-                                    <span className="hidden md:inline">（クリックで{isSubOpen ? '閉じる' : '開く'}）</span>
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-1 shrink-0 text-gray-400">
-                                  <span className="text-[11px] md:text-xs">
-                                    <span className="inline md:hidden">{isSubOpen ? '（閉じる）' : '（開く）'}</span>
-                                    <span className="hidden md:inline">{isSubOpen ? '（閉じる）' : '（開く）'}</span>
-                                  </span>
-                                  <ChevronDown
-                                    className={`w-3.5 h-3.5 transition-transform duration-200 ${
-                                      isSubOpen ? 'rotate-180' : ''
-                                    }`}
-                                  />
-                                </div>
-                              </button>
-                              <div
-                                className={
-                                  isSubOpen
-                                    ? 'block px-3 pb-3 pt-2 border-t border-gray-600/70'
-                                    : 'hidden'
-                                }
-                              >
-                                {renderItemContent(item)}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
+                    {group.items.map(({ item, globalIndex }) =>
+                      renderSubAccordionItem(item, globalIndex)
                     )}
                   </div>
                 </div>
