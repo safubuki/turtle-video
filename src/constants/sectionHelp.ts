@@ -269,6 +269,10 @@ export function getSectionHelpContent(
           {
             "label": "パソコン",
             "description": "Windows／Ryzen 5 5500／RTX 3060 12GB"
+          },
+          {
+            "label": "パソコン",
+            "description": "Surface Laptop 4（Windows）／Ryzen 5 Microsoft Surface Edition／AMD Radeon Graphics 496MB"
           }
         ],
         "note": `手持ちの機種による確認です。${flavorSummary}`

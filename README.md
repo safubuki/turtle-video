@@ -80,6 +80,7 @@
   - スマホ: Pixel 6a（Android・Chrome）
   - スマホ / タブレット: iPhone / iPad（iOS・Safari）
   - PC: Windows / CPU Ryzen 5 5500 / GPU RTX3060 12GB
+  - PC: Surface Laptop 4（Windows） / CPU Ryzen 5 Microsoft Surface Edition / GPU AMD Radeon Graphics 496MB
 - ※動作確認は手持ちの機種でのみ実施しています。動作しない場合はご了承ください。
 - iPhone / iPad の Safari に対応しています。ブラウザ仕様により一部の表示・動作が異なる場合があります。お気づきの不具合はご報告ください。
 
