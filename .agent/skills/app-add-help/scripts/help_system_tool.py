@@ -326,6 +326,32 @@ def validate_help_content(help_data: Dict[str, Any]) -> Dict[str, Any]:
                             ),
                         })
 
+            # Rule 11: Eliminate developer meta-commentary, changelog phrasing, and negative excuses
+            meta_phrases = [
+                "目次になります",
+                "行わないようにしました",
+                "しないようにしました",
+                "変更しました",
+                "修正しました",
+                "対応しました",
+                "実装しました",
+                "しない仕様です",
+                "行わない仕様です",
+            ]
+            for phrase in meta_phrases:
+                if phrase in combined_sec_text:
+                    issues.append({
+                        "severity": "warning",
+                        "section": sec_key,
+                        "title": title,
+                        "rule": "no-meta-or-changelog-phrasing",
+                        "message": (
+                            f"開発者視点のメタ解説や経緯表現 '{phrase}' が含まれています。"
+                            "ヘルプはユーザーのための操作案内であり、設計意図の講釈や開発経緯・非動作の言い訳は不要です。"
+                            "ユーザーが必要とする『何ができるか』『どう操作するか』のみに整理してください。"
+                        ),
+                    })
+
     has_license_or_env = any(
         any("ライセンス" in item.get("title", "") or "動作" in item.get("title", "") or "環境" in item.get("title", "")
             for item in sec_val.get("items", []))
@@ -443,6 +469,23 @@ def validate_component_source(component_path: Path) -> Dict[str, Any]:
                 ),
             })
 
+    # Rule 8: Check for developer meta-commentary in UI text
+    meta_component_phrases = [
+        "目次になります",
+        "行わないようにしました",
+        "しないようにしました",
+    ]
+    for phrase in meta_component_phrases:
+        if phrase in content:
+            issues.append({
+                "severity": "warning",
+                "rule": "no-developer-meta-commentary-in-ui",
+                "message": (
+                    f"UI内に開発者視点のメタ解説 '{phrase}' が含まれています。"
+                    "読み手にとって不要な設計意図の講釈や内部都合の前提条件は削除し、"
+                    "操作そのもの（例: '各項目をクリックして開閉できます'）のみを端的に表示してください。"
+                ),
+            })
 
     return {
         "valid": len([i for i in issues if i["severity"] == "error"]) == 0,

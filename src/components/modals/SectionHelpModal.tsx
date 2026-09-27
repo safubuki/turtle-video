@@ -3192,8 +3192,8 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
           {/* 目次・開閉操作バー */}
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-800 pb-2">
             <span className="text-[11px] md:text-xs text-gray-400">
-              <span className="inline md:hidden">各項目をタップして開閉できます（閉じておくと目次になります）</span>
-              <span className="hidden md:inline">各項目をクリックして開閉できます（閉じておくと目次になります）</span>
+              <span className="inline md:hidden">各項目をタップして開閉できます</span>
+              <span className="hidden md:inline">各項目をクリックして開閉できます</span>
             </span>
             <div className="flex items-center gap-1.5 shrink-0 ml-auto">
               <button
