@@ -136,6 +136,7 @@ export interface SectionHelpItem {
     }[];
   };
   note?: string;
+  documents?: { label: string; fileName: string }[];
   visuals?: SectionHelpVisualId[];
   accordions?: {
     title: string;
@@ -173,7 +174,7 @@ export function getSectionHelpContent(
           "スマホ・PC両対応: 画面幅に合わせて最適なレイアウトで操作できます。",
           "完全ローカル処理: AI機能以外の編集・プレビュー・書き出しはオフラインでも動作します。",
           "AIナレーション対応: 原稿作成や高品質な音声合成をスムーズに行えます。",
-          "オープンソース: GPLv3ライセンスで公開されています。"
+          "オープンソース: GPLv3またはそれ以降のバージョンで公開されています。"
         ],
         "note": "旅行や出張の隙間時間から、自宅での本格的な編集までご活用ください🐢"
       },
@@ -285,15 +286,25 @@ export function getSectionHelpContent(
       {
         "title": "ライセンス",
         "category": "基本操作・情報",
-        "description": "タートルビデオは GNU GPLv3 で公開されています。",
+        "description": "タートルビデオは GNU GPLv3 またはそれ以降のバージョンで公開されています。",
         "bullets": [
           "個人利用や社内利用では、用途に合わせて自由に改変できます。",
-          "改変版を外部へ配布する場合は、ソースコード公開や同ライセンス継承などの条件があります。",
+          "改変版を外部へ配布する場合は、配布先への対応するソースコードの提供など、GPLの条件があります。",
           "正確な条件は README と LICENSE を確認してください。"
+        ],
+        "documents": [
+          {
+            "label": "タートルビデオのGPL本文を開く",
+            "fileName": "LICENSE.txt"
+          },
+          {
+            "label": "配布物に含まれる第三者ライセンスの告知文を開く",
+            "fileName": "THIRD_PARTY_LICENSES.txt"
+          }
         ],
         "accordions": [
           {
-            "title": "使用ライセンス一覧（本番依存 / 直接）",
+            "title": "依存ライセンス一覧（package.json dependencies）",
             "items": [
               "@tailwindcss/postcss (^4.1.18): MIT",
               "lucide-react (^0.563.0): ISC",
@@ -304,7 +315,7 @@ export function getSectionHelpContent(
             ]
           },
           {
-            "title": "使用ライセンス一覧（開発依存 / 直接）",
+            "title": "依存ライセンス一覧（package.json devDependencies）",
             "items": [
               "@testing-library/jest-dom (^6.9.1): MIT",
               "@testing-library/react (^16.3.2): MIT",
@@ -329,18 +340,20 @@ export function getSectionHelpContent(
             ]
           },
           {
-            "title": "使用ライセンス一覧（間接依存を含む集計）",
+            "title": "依存ライセンス集計（package-lock.json 全体）",
             "items": [
-              "調査範囲: node_modules のユニークパッケージ 537 件",
-              "MIT: 463件",
-              "Apache-2.0: 21件",
-              "ISC: 21件",
-              "BSD-2-Clause: 11件",
-              "BSD-3-Clause: 6件",
-              "BlueOak-1.0.0: 4件",
+              "調査範囲: package-lock.json の依存エントリ 677 件（ルートを除き、同名の別階層も個別計上）",
+              "MIT: 554件",
+              "Apache-2.0: 34件",
+              "ISC: 27件",
+              "BSD-2-Clause: 12件",
+              "BSD-3-Clause: 7件",
+              "BlueOak-1.0.0: 9件",
               "MIT-0: 2件",
-              "MPL-2.0: 2件",
-              "Apache-2.0 AND LGPL-3.0-or-later: 1件",
+              "MPL-2.0: 12件",
+              "LGPL-3.0-or-later: 10件",
+              "Apache-2.0 AND LGPL-3.0-or-later: 3件",
+              "Apache-2.0 AND LGPL-3.0-or-later AND MIT: 1件",
               "Python-2.0: 1件",
               "CC-BY-4.0: 1件",
               "(AFL-2.1 OR BSD-3-Clause): 1件",

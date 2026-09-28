@@ -1,8 +1,30 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import SectionHelpModal from '../components/modals/SectionHelpModal';
 
 describe('SectionHelpModal', () => {
+  it('配布物の第三者ライセンス全文へアプリ内ヘルプから移動できる', () => {
+    render(
+      <SectionHelpModal
+        appFlavor="standard"
+        supportsShowSaveFilePicker={false}
+        isOpen
+        section="app"
+        onClose={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'すべて開く' }));
+    expect(screen.getByRole('link', { name: /GPL本文を開く/ })).toHaveAttribute(
+      'href',
+      `${import.meta.env.BASE_URL}LICENSE.txt`
+    );
+    expect(screen.getByRole('link', { name: /第三者ライセンスの告知文を開く/ })).toHaveAttribute(
+      'href',
+      `${import.meta.env.BASE_URL}THIRD_PARTY_LICENSES.txt`
+    );
+  });
+
   it('キャプションヘルプの操作見本を現在のボタン表記に合わせる', () => {
     render(
       <SectionHelpModal

@@ -77,7 +77,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         // 著作権表示はミニファイでコメントが除去されても残るよう banner で出力へ焼き込む。
-        // GPL-3.0 の頒布時告知を満たす目的。表示のみで実行時の挙動には影響しない。
+        // GPL-3.0-or-later の頒布時告知を満たす目的。表示のみで実行時の挙動には影響しない。
         banner: '/*! Turtle Video | Copyright (C) 2026 safubuki (Turtle Village) | GPL-3.0-or-later | https://github.com/safubuki/turtle-video */',
       },
     },

@@ -2932,6 +2932,23 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
         <p className="text-xs md:text-sm text-gray-300 leading-relaxed">
           {item.description}
         </p>
+        {item.documents && (
+          <div className="flex flex-col items-start gap-1">
+            {item.documents.map((document) => (
+              <a
+                key={document.fileName}
+                href={`${import.meta.env.BASE_URL}${document.fileName}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs md:text-sm text-blue-300 hover:text-blue-200 underline underline-offset-2"
+                onClick={(event) => event.stopPropagation()}
+              >
+                {document.label}
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+              </a>
+            ))}
+          </div>
+        )}
         {importantNoteElement}
         {item.bullets && item.bullets.length > 0 && (
           <ul className="space-y-2 text-xs leading-relaxed text-gray-300 md:text-sm">

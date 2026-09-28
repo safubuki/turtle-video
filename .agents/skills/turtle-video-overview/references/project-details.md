@@ -6,8 +6,15 @@
 React + TypeScript で構築されており、動画・画像のタイムライン編集、BGM・ナレーションの合成、AIナレーション生成機能を備えています。
 
 - **リポジトリ**: `safubuki/turtle-video`
-- **ライセンス**: GPL-3.0
+- **ライセンス**: GPL-3.0-or-later
 - **バージョン管理**: `version.json` で管理（現在バージョン + 前回タグからの差分概要）
+
+## ライセンス表記とOSS集計
+
+- 対応の経緯、公開者の懸念、リリース時の確認手順は `Docs/specs/2026-09-27_license-compliance-guide.md`、AI の作業ルールと定型監査は `.agents/skills/app-add-license/SKILL.md` を参照する。
+- 2026-09-27: `LICENSE` とソースヘッダーの GPL-3.0-or-later に `package.json`、`package-lock.json`、README の表記を統一。GPLv3の特許条項は第三者特許の非侵害を保証しない旨を README に明記。
+- アプリ内ヘルプの間接依存ライセンス集計は `package-lock.json` の `packages` からルートを除いたエントリを基準とする。同名でも別階層のエントリは個別計上し、依存更新時に再集計する。
+- 2026-09-27: `npm run build` の最後に `scripts/generate-third-party-licenses.mjs` が配布用ソースマップから第三者パッケージを検出し、PWA生成物とCSS/ランタイム生成コードの関連パッケージも含めて `dist/THIRD_PARTY_LICENSES.txt` を生成する。同時に GPL 本文を `dist/LICENSE.txt` へコピーし、アプリ内ヘルプの「ライセンス」から両文書へリンクする。依存更新時は生成件数と原文の有無を確認する。
 
 ## 技術スタック
 
