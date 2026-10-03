@@ -61,6 +61,35 @@ export function filterCaptionsForPreview(
   return captions.filter((caption) => previewCaptionIds.has(caption.id));
 }
 
+/**
+ * 終了未確定のタイミング打ち対象。今回の表示対象に入っている 1 件だけを返す。
+ * 通常表示（null）・書き出し・未確定 ID では null。キャプションの endTime は変えない。
+ */
+export function resolveStampHoldOpenCaptionId(
+  holdOpenCaptionId: string | null | undefined,
+  previewCaptionIds: ReadonlySet<string> | null | undefined,
+  isExporting = false,
+): string | null {
+  if (isExporting || previewCaptionIds == null || !holdOpenCaptionId) return null;
+  return previewCaptionIds.has(holdOpenCaptionId) ? holdOpenCaptionId : null;
+}
+
+/**
+ * プレビュー描画用の表示判定。終了未確定の対象だけ、保存済み endTime を超えても表示する。
+ * resolvedHoldOpenCaptionId は resolveStampHoldOpenCaptionId の結果を渡す。
+ */
+export function isCaptionActiveForPreview(
+  caption: Caption,
+  timeSec: number,
+  timelineEndSec: number | undefined,
+  resolvedHoldOpenCaptionId: string | null,
+): boolean {
+  if (resolvedHoldOpenCaptionId === caption.id) {
+    return timeSec >= caption.startTime;
+  }
+  return isCaptionActiveAtTime(caption, timeSec, timelineEndSec);
+}
+
 export function isCaptionActiveAtTime(
   caption: Caption,
   timeSec: number,

@@ -4780,3 +4780,12 @@ export 終了（成功/失敗/中断）
 - **対象 flavor**: タイミング打ちUIは **standard** の従来ゲートを維持。両描画エンジンのoptional ref未指定／`null` は従来どおり全件表示。
 - **回帰ガード**: セッション操作と入力保持、最新refによる両エンジンの実Canvas描画、書き出し除外を検証。実Chromeでも開始・確定・終了・再開始、再生継続、連続モードの間隔を確認。詳細は `Docs/reports/2026-10-04_issue-237-caption-stamp-preview.md`。
 
+### 13-259. タイミング打ちの終了確定前は対象だけ表示を延長する（Issue #247）
+
+- **ファイル**: `src/components/sections/CaptionSection.tsx`, `src/components/TurtleVideo.tsx`, `src/utils/captionTimeline.ts`, 両flavorの `preview/usePreviewEngine.ts`, `src/constants/sectionHelp.ts`, `src/test/captionStampPreview.test.tsx`, `src/test/captionStampPreviewEngine.test.tsx`, `src/test/captionTimeline.test.ts`
+- **問題**: 開始を確定したあとも、保存済みの終了時刻に達するとプレビューから消え、終了位置を見ながら押せなかった。
+- **対策**: 終了フェーズで、今回開始を確定済みの対象 ID だけをプレビュー専用 ref で渡す。その1件は開始時刻以降を表示し、終了フェードも止める。終了ボタンで `endTime` を保存したあと、対象変更・開始フェーズ・モード終了で延長を外す。
+- **注意**: `endTime` を一時的に書き換えない。通常表示（表示対象が null）と `_isExporting` では延長しない。表示対象に無い ID は延長しない（Issue #237 の未確定非表示を維持）。字幕・キャプションのみ出力・ミニビューはこの ref を受け取らない。legacy は引数型だけ追随。
+- **対象 flavor**: タイミング打ち UI は **standard**。描画判定は standard と apple-safari のプレビューで同じ。
+- **回帰ガード**: セッションの延長 ID、元の終了時刻の保持、両エンジンの実 Canvas（終了超過・終了フェード・他キャプション・通常表示・書き出し）を検証。
+

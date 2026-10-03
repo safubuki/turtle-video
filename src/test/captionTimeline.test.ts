@@ -8,6 +8,8 @@ import {
   clampSequentialGapSec,
   filterCaptionsForPreview,
   isCaptionActiveAtTime,
+  isCaptionActiveForPreview,
+  resolveStampHoldOpenCaptionId,
   isSequentialCaption,
   getSequentialCaptionReadingWeight,
   resolveCaptionDisplaySegment,
@@ -69,6 +71,32 @@ describe('タイミング打ちのプレビュー表示対象（Issue #237）', 
     expect(filterCaptionsForPreview(captions, new Set(['confirmed']))).toEqual([captions[1]]);
     expect(filterCaptionsForPreview(captions, null)).toBe(captions);
     expect(filterCaptionsForPreview(captions, new Set())).toEqual([]);
+  });
+});
+
+describe('タイミング打ちの終了確定前表示（Issue #247）', () => {
+  const caption = makeCaption({ id: 'target', startTime: 0, endTime: 3 });
+  const other = makeCaption({ id: 'other', startTime: 0, endTime: 3 });
+  const confirmed = new Set(['target', 'other']);
+
+  it('今回の表示対象に入っている終了未確定の ID だけを延長対象にする', () => {
+    expect(resolveStampHoldOpenCaptionId('target', confirmed)).toBe('target');
+    expect(resolveStampHoldOpenCaptionId('missing', confirmed)).toBeNull();
+    expect(resolveStampHoldOpenCaptionId('target', new Set())).toBeNull();
+    expect(resolveStampHoldOpenCaptionId('target', null)).toBeNull();
+    expect(resolveStampHoldOpenCaptionId(null, confirmed)).toBeNull();
+    expect(resolveStampHoldOpenCaptionId('target', confirmed, true)).toBeNull();
+  });
+
+  it('延長対象は開始以降を表示し、終了時刻と他のキャプションは変えない', () => {
+    expect(isCaptionActiveForPreview(caption, 2.9, 12, 'target')).toBe(true);
+    expect(isCaptionActiveForPreview(caption, 3, 12, 'target')).toBe(true);
+    expect(isCaptionActiveForPreview(caption, 5.2, 12, 'target')).toBe(true);
+    expect(isCaptionActiveForPreview(caption, -0.01, 12, 'target')).toBe(false);
+    expect(isCaptionActiveForPreview(other, 5.2, 12, 'target')).toBe(false);
+    expect(isCaptionActiveForPreview(caption, 5.2, 12, null)).toBe(false);
+    expect(caption).toMatchObject({ startTime: 0, endTime: 3 });
+    expect(other).toMatchObject({ startTime: 0, endTime: 3 });
   });
 });
 

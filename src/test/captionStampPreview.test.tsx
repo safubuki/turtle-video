@@ -24,6 +24,7 @@ type SectionProps = ComponentProps<typeof CaptionSection>;
 function renderStampSection(overrides: Partial<SectionProps> = {}) {
   let updateCaptions: Dispatch<SetStateAction<Caption[]>>;
   const onStampPreviewChange = vi.fn<(ids: ReadonlySet<string> | null) => void>();
+  const onStampHoldOpenChange = vi.fn<(captionId: string | null) => void>();
   const onUpdateCaptionLive = vi.fn((id: string, updates: Partial<Omit<Caption, 'id'>>) => {
     updateCaptions((items) => items.map((caption) => caption.id === id ? { ...caption, ...updates } : caption));
   });
@@ -47,6 +48,7 @@ function renderStampSection(overrides: Partial<SectionProps> = {}) {
     formatTime: (seconds) => `${seconds.toFixed(1)}s`, onApplyCaptions: vi.fn(), onShiftCaptions: vi.fn(),
     isPlaying: false, onTogglePlay: vi.fn(), onSeekBy: vi.fn(), onSeekToSilenceBoundary: vi.fn(),
     hasPrevSilenceBoundary: false, hasNextSilenceBoundary: false, onUpdateCaptionLive, onStampPreviewChange,
+    onStampHoldOpenChange,
     onUpdateVideoTitle: vi.fn(), onSetVideoTitleRange: vi.fn(), onResetVideoTitle: vi.fn(),
     ...overrides,
   };
@@ -70,6 +72,7 @@ function renderStampSection(overrides: Partial<SectionProps> = {}) {
   return {
     ...result,
     onStampPreviewChange,
+    onStampHoldOpenChange,
     onUpdateCaptionLive,
     getCaptions: (): Caption[] => JSON.parse(screen.getByTestId('caption-data').textContent ?? '[]'),
     setCaptions: (captions: Caption[]) => act(() => updateCaptions(captions)),
@@ -82,6 +85,7 @@ function renderStampSection(overrides: Partial<SectionProps> = {}) {
       result.rerender(<Harness sectionOverrides={runtimeProps} />);
     },
     latestPreviewIds: () => onStampPreviewChange.mock.calls[onStampPreviewChange.mock.calls.length - 1]?.[0],
+    latestHoldId: () => onStampHoldOpenChange.mock.calls[onStampHoldOpenChange.mock.calls.length - 1]?.[0],
   };
 }
 
@@ -314,5 +318,109 @@ describe('タイミング打ちのプレビュー表示制御', () => {
     result.unmount();
     expect(replacement).toHaveBeenLastCalledWith(null);
     expect(result.onStampPreviewChange).toHaveBeenCalledTimes(previousCallCount);
+  });
+});
+
+describe('タイミング打ちの終了確定前表示（Issue #247）', () => {
+  it('開始確定までは延長せず、開始確定後は終了ボタンまで対象だけを延長する', () => {
+    const result = renderStampSection();
+    enterStampMode();
+    expect(result.latestHoldId()).toBeNull();
+    expect(result.getCaptions()[0]).toMatchObject({ startTime: 0, endTime: 2 });
+
+    fireEvent.click(startButton());
+    expect(result.latestHoldId()).toBe('c1');
+    expect(result.getCaptions()[0]).toMatchObject({ startTime: 1, endTime: 2 });
+
+    result.setProps({ currentTime: 5.2 });
+    expect(result.latestHoldId()).toBe('c1');
+    expect(result.getCaptions()[0].endTime).toBe(2);
+
+    fireEvent.click(endButton());
+    expect(result.latestHoldId()).toBeNull();
+    expect(result.getCaptions()[0].endTime).toBe(5.2);
+    expect(result.getCaptions()[1]).toMatchObject({ startTime: 3, endTime: 5 });
+  });
+
+  it('終了にできない位置では延長と元の終了時刻を維持する', () => {
+    const result = renderStampSection();
+    enterStampMode();
+    fireEvent.click(startButton());
+    result.setProps({ currentTime: 1 });
+    fireEvent.click(endButton());
+
+    expect(result.latestHoldId()).toBe('c1');
+    expect(result.getCaptions()[0]).toMatchObject({ startTime: 1, endTime: 2 });
+  });
+
+  it('連続モードは区切りで開始が確定した次の1件だけを延長する', () => {
+    const result = renderStampSection();
+    enterStampMode();
+    fireEvent.click(screen.getByRole('button', { name: '連続' }));
+    expect(result.latestHoldId()).toBeNull();
+
+    result.setProps({ currentTime: 2.2 });
+    fireEvent.click(chainButton());
+    expect(result.latestHoldId()).toBe('c2');
+    expect(result.getCaptions()[0].endTime).toBe(2.2);
+    expect(result.getCaptions()[1]).toMatchObject({ startTime: 2.4, endTime: 5 });
+
+    result.setProps({ currentTime: 6 });
+    expect(result.getCaptions()[1].endTime).toBe(5);
+    fireEvent.click(chainButton());
+    expect(result.latestHoldId()).toBe('c3');
+    expect(result.getCaptions()[1].endTime).toBe(6);
+  });
+
+  it('対象の移動と開始フェーズへの切替では、前の延長を残さない', () => {
+    const result = renderStampSection();
+    enterStampMode();
+    fireEvent.click(startButton());
+    expect(result.latestHoldId()).toBe('c1');
+
+    fireEvent.click(screen.getByTitle(/開始\/終了を切り替える/));
+    expect(result.latestHoldId()).toBeNull();
+    fireEvent.click(screen.getByTitle(/開始\/終了を切り替える/));
+    expect(result.latestHoldId()).toBe('c1');
+
+    fireEvent.click(screen.getByTitle('次のキャプションへ'));
+    expect(result.latestHoldId()).toBeNull();
+    expect(result.getCaptions()[0].endTime).toBe(2);
+  });
+
+  it.each(['step-button', 'close-button'] as const)('手動終了（%s）で延長を外し、未確定の終了時刻は戻したままにする', (exit) => {
+    const result = renderStampSection();
+    enterStampMode();
+    fireEvent.click(startButton());
+    result.setProps({ currentTime: 4 });
+    if (exit === 'step-button') enterStampMode();
+    else fireEvent.click(screen.getByTitle('タイミング打ちを終了'));
+
+    expect(result.latestHoldId()).toBeNull();
+    expect(result.latestPreviewIds()).toBeNull();
+    expect(result.getCaptions()[0]).toMatchObject({ startTime: 1, endTime: 2 });
+  });
+
+  it.each(['lock', 'export'] as const)('%sでは延長を残さない', (state) => {
+    const result = renderStampSection();
+    enterStampMode();
+    fireEvent.click(startButton());
+    result.setProps(state === 'lock' ? { isLocked: true } : { isExporting: true });
+
+    expect(result.latestHoldId()).toBeNull();
+    expect(result.getCaptions()[0]).toMatchObject({ startTime: 1, endTime: 2 });
+  });
+
+  it('閉じると延長を解除し、通知先が変わっても最新の通知先だけへ解除を送る', () => {
+    const result = renderStampSection();
+    enterStampMode();
+    fireEvent.click(startButton());
+    const replacement = vi.fn<(captionId: string | null) => void>();
+    result.setProps({ onStampHoldOpenChange: replacement });
+    expect(replacement).toHaveBeenLastCalledWith('c1');
+
+    result.unmount();
+    expect(replacement).toHaveBeenLastCalledWith(null);
+    expect(result.onStampHoldOpenChange).not.toHaveBeenLastCalledWith(null);
   });
 });

@@ -73,6 +73,8 @@ interface UsePreviewEngineParams {
   captionsRef: MutableRefObject<Caption[]>;
   /** Issue #237。プレビュー専用の表示対象。契約追随のみ、描画は flavor 側。 */
   previewCaptionIdsRef?: MutableRefObject<ReadonlySet<string> | null>;
+  /** Issue #247。終了未確定の対象 ID。契約追随のみ、描画は flavor 側。 */
+  stampHoldOpenCaptionIdRef?: MutableRefObject<string | null>;
   captionSettingsRef: MutableRefObject<CaptionSettings>;
   /**
    * 動画タイトル（Issue #211）。

@@ -57,7 +57,7 @@ import type { LogCategory } from '../../../stores/logStore';
 import { useMediaStore, useUIStore } from '../../../stores';
 import type { PlatformCapabilities } from '../../../utils/platform';
 import { collectPlaybackBlockingVideos, findActiveTimelineItem } from '../../../utils/playbackTimeline';
-import { calculateCaptionFadeAlpha, filterCaptionsForPreview, isCaptionActiveAtTime } from '../../../utils/captionTimeline';
+import { calculateCaptionFadeAlpha, filterCaptionsForPreview, isCaptionActiveForPreview, resolveStampHoldOpenCaptionId } from '../../../utils/captionTimeline';
 import {
   EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC,
   PREVIEW_GESTURE_CREDIT_NATIVE_VOLUME,
@@ -111,6 +111,8 @@ interface UsePreviewEngineParams {
   captionsRef: MutableRefObject<Caption[]>;
   /** タイミング打ちのプレビュー専用。null は通常表示、空 Set は全非表示。 */
   previewCaptionIdsRef?: MutableRefObject<ReadonlySet<string> | null>;
+  /** 終了未確定のタイミング打ち対象。プレビューだけ endTime を超えて表示する。 */
+  stampHoldOpenCaptionIdRef?: MutableRefObject<string | null>;
   captionSettingsRef: MutableRefObject<CaptionSettings>;
   /** 動画タイトル（Issue #211）。キャプションとは別管理で 1 件だけ描画する */
   videoTitleRef: MutableRefObject<VideoTitleSettings>;
@@ -270,6 +272,7 @@ export function usePreviewEngine({
   narrationsRef,
   captionsRef,
   previewCaptionIdsRef,
+  stampHoldOpenCaptionIdRef,
   captionSettingsRef,
   videoTitleRef,
   watermarkOverlayRef,
@@ -1254,9 +1257,15 @@ export function usePreviewEngine({
           }
         });
 
+        const previewCaptionIds = previewCaptionIdsRef?.current;
+        const holdOpenCaptionId = resolveStampHoldOpenCaptionId(
+          stampHoldOpenCaptionIdRef?.current,
+          previewCaptionIds,
+          _isExporting,
+        );
         const currentCaptions = filterCaptionsForPreview(
           captionsRef.current,
-          previewCaptionIdsRef?.current,
+          previewCaptionIds,
           _isExporting,
         );
         const currentCaptionSettings = captionSettingsRef.current;
@@ -1279,7 +1288,7 @@ export function usePreviewEngine({
 
         if (currentCaptionSettings.enabled && currentCaptions.length > 0) {
           const activeCaptions = currentCaptions.filter(
-            (c) => isCaptionActiveAtTime(c, time, totalDurationRef.current),
+            (c) => isCaptionActiveForPreview(c, time, totalDurationRef.current, holdOpenCaptionId),
           );
           for (const activeCaption of activeCaptions) {
             // fontSize は 1080p export を基準にした絶対 px (medium = 7.41% of 短辺 1080)。
@@ -1314,9 +1323,11 @@ export function usePreviewEngine({
             const useFadeIn = activeCaption.overrideFadeIn !== undefined
               ? activeCaption.overrideFadeIn === 'on'
               : currentCaptionSettings.bulkFadeIn;
-            const useFadeOut = activeCaption.overrideFadeOut !== undefined
+            const storedFadeOut = activeCaption.overrideFadeOut !== undefined
               ? activeCaption.overrideFadeOut === 'on'
               : currentCaptionSettings.bulkFadeOut;
+            // 終了位置を決めている間は、元の終了フェードで文字を消さない
+            const useFadeOut = activeCaption.id === holdOpenCaptionId ? false : storedFadeOut;
 
             const fadeInDur = activeCaption.overrideFadeIn === 'on' && activeCaption.overrideFadeInDuration !== undefined
               ? activeCaption.overrideFadeInDuration
@@ -1712,7 +1723,7 @@ export function usePreviewEngine({
     },
     // videoTitle も依存に含める。含めないと renderFrame が再生成されず、
     // 停止中のプレビューへタイトル変更がリアルタイム反映されない（キャプションと同じ扱い）
-    [captions, captionSettings, previewCaptionIdsRef, videoTitle, watermarkOverlay, ensureAudioNodeForElement, logInfo, platformCapabilities, previewPlatformPolicy],
+    [captions, captionSettings, previewCaptionIdsRef, stampHoldOpenCaptionIdRef, videoTitle, watermarkOverlay, ensureAudioNodeForElement, logInfo, platformCapabilities, previewPlatformPolicy],
   );
 
   const handleSeeked = useCallback(() => {

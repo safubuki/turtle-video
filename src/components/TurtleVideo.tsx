@@ -528,6 +528,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   // Issue #237: タイミング打ちの表示対象はセッション中のプレビューだけに適用する。
   const [previewCaptionIds, setPreviewCaptionIds] = useState<ReadonlySet<string> | null>(null);
   const previewCaptionIdsRef = useRef<ReadonlySet<string> | null>(null);
+  // Issue #247: 終了未確定の対象だけ、プレビュー上で保存済み endTime を超えて表示する。
+  const [stampHoldOpenCaptionId, setStampHoldOpenCaptionId] = useState<string | null>(null);
+  const stampHoldOpenCaptionIdRef = useRef<string | null>(null);
   const captionSettingsRef = useRef(captionSettings);
   const videoTitleRef = useRef(videoTitle);
   const watermarkOverlayRef = useRef<WatermarkOverlay>(watermarkOverlay);
@@ -1256,6 +1259,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     narrationsRef,
     captionsRef,
     previewCaptionIdsRef,
+    stampHoldOpenCaptionIdRef,
     captionSettingsRef,
     videoTitleRef,
     watermarkOverlayRef,
@@ -1349,6 +1353,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     previewCaptionIdsRef.current = ids;
     setPreviewCaptionIds(ids);
   }, [stopAll, pause]);
+
+  const handleStampHoldOpenChange = useCallback((captionId: string | null) => {
+    stampHoldOpenCaptionIdRef.current = captionId;
+    setStampHoldOpenCaptionId(captionId);
+  }, []);
 
   // --- 状態同期: Zustandの状態をRefに同期 ---
   // 目的: renderFrame等の非同期処理で最新の状態を参照できるようにする
@@ -3782,6 +3791,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     captions,
     captionSettings,
     previewCaptionIds,
+    stampHoldOpenCaptionId,
     videoTitle,
     watermarkOverlay,
     endrollOverlay,
@@ -4541,6 +4551,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               silenceRegions={timelineWaveform.silences}
               onUpdateCaptionLive={updateCaption}
               onStampPreviewChange={handleStampPreviewChange}
+              onStampHoldOpenChange={handleStampHoldOpenChange}
               onSetFontSizeCustom={withPreviewPause('set-caption-font-size-custom', setCaptionFontSizeCustom)}
               onSetPositionCustom={withPreviewPause('set-caption-position-custom', setCaptionPositionCustom)}
               videoTitle={videoTitle}

@@ -128,6 +128,48 @@ describe.each([
     expect(params.captionsRef.current).toBe(params.captions);
   });
 
+  it('終了未確定の対象は元の終了と終了フェードを超えて描き、他と書き出しは通常区間のまま', () => {
+    const { params, drawImage, drawnTexts, previewCaptionIdsRef } = createRenderParams(
+      isAppleSafari,
+      new Set(['confirmed', 'existing']),
+    );
+    params.captions[0].endTime = 4;
+    params.captions[1].endTime = 3;
+    params.captions[2].startTime = 0;
+    params.captions[2].endTime = 1;
+    params.captionSettings.bulkFadeOut = true;
+    params.captionSettings.bulkFadeOutDuration = 1;
+    const holdRef = createRef<string | null>('future');
+    params.stampHoldOpenCaptionIdRef = holdRef;
+    const beforeCaptions = JSON.stringify(params.captions);
+    const { result } = renderHook(() => useEngine(params));
+
+    result.current.renderFrame(3.5, false, false);
+    expect(drawnTexts()).toEqual(['既存のキャプション']);
+
+    holdRef.current = 'confirmed';
+    drawImage.mockClear();
+    result.current.renderFrame(3.5, false, false);
+    expect(drawnTexts()).toEqual(['既存のキャプション', '今回確定したキャプション']);
+
+    holdRef.current = null;
+    drawImage.mockClear();
+    result.current.renderFrame(3.5, false, false);
+    expect(drawnTexts()).toEqual(['既存のキャプション']);
+
+    holdRef.current = 'confirmed';
+    previewCaptionIdsRef.current = null;
+    drawImage.mockClear();
+    result.current.renderFrame(5, false, false);
+    expect(drawnTexts()).toEqual([]);
+
+    previewCaptionIdsRef.current = new Set(['confirmed', 'existing']);
+    drawImage.mockClear();
+    result.current.renderFrame(3.5, true, true);
+    expect(drawnTexts()).toEqual(['既存のキャプション']);
+    expect(JSON.stringify(params.captionsRef.current)).toBe(beforeCaptions);
+  });
+
   it('optional ref を渡さない既存の呼び出しも全件を通常表示する', () => {
     const { params, drawnTexts } = createRenderParams(isAppleSafari, new Set());
     delete params.previewCaptionIdsRef;

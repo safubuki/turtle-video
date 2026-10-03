@@ -172,6 +172,11 @@ interface CaptionSectionProps {
   onUpdateCaptionLive: (id: string, updates: Partial<Omit<Caption, 'id'>>) => void;
   /** タイミング打ち中のプレビュー限定表示。null は通常表示、空集合は全件非表示。保存しない。 */
   onStampPreviewChange?: (confirmedIds: ReadonlySet<string> | null) => void;
+  /**
+   * 終了をまだ確定していない対象の ID。プレビューだけ元の endTime を超えて表示する。
+   * null は延長なし。保存しない。
+   */
+  onStampHoldOpenChange?: (captionId: string | null) => void;
   // 動画タイトル（キャプションとは別管理）
   onUpdateVideoTitle: (updates: Partial<VideoTitleSettings>) => void;
   onSetVideoTitleRange: (startTime: number, endTime: number, totalDuration?: number) => void;
@@ -248,6 +253,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   onShiftCaptions,
   onUpdateCaptionLive,
   onStampPreviewChange,
+  onStampHoldOpenChange,
   isPlaying,
   onTogglePlay,
   onSeekBy,
@@ -432,16 +438,28 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   const stampTarget = stampActive ? captions[stampIndex] : undefined;
   const canStamp = supportsBulkInput && !isLocked && !isExporting
     && captions.length >= 2 && !!stampTarget;
+  // 終了フェーズで、今回開始を確定済みの対象だけを延長する。endTime は終了ボタンまで変えない。
+  const stampHoldOpenId = stampActive && canStamp && stampPhase === 'end' && stampTarget
+    && stampPreviewIds.has(stampTarget.id)
+    ? stampTarget.id
+    : null;
 
   // キャプション自体や通常の表示設定は変更せず、このセッションの確定 ID だけを通知する。
   // 停止中の開始／終了も次の描画へ反映し、ロック・削除・書き出し時に制限を残さない。
   useLayoutEffect(() => {
     if (stampActive && !canStamp) setStampActive(false);
-    onStampPreviewChange?.(stampActive && canStamp ? stampPreviewIds : null);
-  }, [stampActive, canStamp, stampPreviewIds, onStampPreviewChange]);
+    const sessionActive = stampActive && canStamp;
+    onStampPreviewChange?.(sessionActive ? stampPreviewIds : null);
+    onStampHoldOpenChange?.(sessionActive ? stampHoldOpenId : null);
+  }, [stampActive, canStamp, stampPreviewIds, stampHoldOpenId, onStampPreviewChange, onStampHoldOpenChange]);
   const onStampPreviewChangeRef = useRef(onStampPreviewChange);
   onStampPreviewChangeRef.current = onStampPreviewChange;
-  useEffect(() => () => onStampPreviewChangeRef.current?.(null), []);
+  const onStampHoldOpenChangeRef = useRef(onStampHoldOpenChange);
+  onStampHoldOpenChangeRef.current = onStampHoldOpenChange;
+  useEffect(() => () => {
+    onStampPreviewChangeRef.current?.(null);
+    onStampHoldOpenChangeRef.current?.(null);
+  }, []);
 
   const includeStampedCaptions = (...ids: string[]) => {
     setStampPreviewIds((previous) => {
