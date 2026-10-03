@@ -14,7 +14,7 @@
  *   → 主・サブの文字スタイル → 共通の背景帯 → フェード → リセット
  * 時間まわりの操作感は `CaptionItem` と揃える（スライダー + 数値 + MapPin ボタン）。
  */
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { MapPin, RotateCcw, Type } from 'lucide-react';
 import type { CaptionPosition, CaptionSettings, VideoTitleSettings } from '../../types';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
@@ -78,8 +78,14 @@ interface VideoTitleSettingsPanelProps {
   /** タイトルの見た目をその場で確認するミニプレビューの転写元 */
   previewCanvasRef?: React.RefObject<HTMLCanvasElement | null>;
   captionFreeSnapshotRef?: React.MutableRefObject<CaptionFreeSnapshot>;
+  /**
+   * 先頭付近で映像が写っているフレーム。再生位置では更新しない。
+   * 未指定のときもライブプレビューへは落とさず、黒背景にタイトルだけを重ねる。
+   */
+  openingFrameRef?: React.RefObject<HTMLCanvasElement | null>;
+  /** 先頭フレームを撮り直したときだけ増やす。再生位置では変えない */
+  openingFrameKey?: number;
   captionSettings?: CaptionSettings;
-  formatTime?: (seconds: number) => string;
 }
 
 const positionOptions: { value: CaptionPosition; label: string }[] = [
@@ -104,8 +110,9 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
   onReset,
   previewCanvasRef,
   captionFreeSnapshotRef,
+  openingFrameRef,
+  openingFrameKey = 0,
   captionSettings,
-  formatTime,
 }) => {
   // 毎回使う機能ではないため初期状態は閉じる（Issue #211 の確認項目）
   const [isOpen, setIsOpen] = useState(false);
@@ -142,6 +149,8 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
   const titlePreviewTime = title.endTime > title.startTime
     ? (title.startTime + title.endTime) / 2
     : title.startTime;
+  const fallbackOpeningFrameRef = useRef<HTMLCanvasElement | null>(null);
+  const pinnedOpeningFrameRef = openingFrameRef ?? fallbackOpeningFrameRef;
 
   return (
     <div className="rounded-lg border border-gray-700/70 bg-gray-900/30">
@@ -166,14 +175,13 @@ const VideoTitleSettingsPanel = React.memo<VideoTitleSettingsPanelProps>(({
               <CaptionMiniPreview
                 sourceCanvasRef={previewCanvasRef}
                 captionFreeSnapshotRef={captionFreeSnapshotRef}
+                pinnedBackgroundRef={pinnedOpeningFrameRef}
                 captions={[]}
                 settings={captionSettings}
                 videoTitle={{ ...title, enabled: true }}
                 previewTimeSec={titlePreviewTime}
-                refreshKey={Math.round(currentTime * 100)}
-                caption={formatTime
-                  ? `プレビュー現在位置 ${formatTime(currentTime)} の画面にタイトルを重ねた表示`
-                  : '現在の画面にタイトルを重ねた表示'}
+                refreshKey={openingFrameKey}
+                caption="先頭付近の映像にタイトルを重ねた表示"
               />
             </div>
           )}

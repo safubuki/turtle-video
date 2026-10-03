@@ -4735,3 +4735,12 @@ export 終了（成功/失敗/中断）
   - 未定義クラス `border-gray-750` を排除し、定義済みの `border-gray-700/70` に統一。
 - **回帰ガード**: `sectionHelp.test.ts` および `sectionHelpModal.test.tsx` で、アコーディオン開閉・インライン見本・Flavor境界フィルタリング・DOMレンダリングを網羅検証。
 
+### 13-254. タイトルミニビューは先頭付近の映像フレームに固定する（Issue #230）
+
+- **ファイル**: `src/utils/titleOpeningFrame.ts`, `src/utils/canvas.ts`, `src/components/common/CaptionMiniPreview.tsx`, `src/components/sections/VideoTitleSettingsPanel.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`
+- **対象 flavor**: **standard** のタイトル設定だけ。apple-safari はタイトル UI を出さない。キャプション・ロゴのミニビューと通常プレビューの再生位置追従は変えない。
+- **問題**: タイトル設定のミニビューがプレビューの現在フレームを転写し、シークや再生のたびに背景が変わっていた。
+- **対策**: 背景は先頭の黒クリア帯の外から撮り、黒なら少し後ろで映像があるフレームを使う。全部黒なら先頭候補を固定する。`pinnedBackgroundRef` があるミニビューはライブキャンバスへ落とさない。`refreshKey` は撮り直しのときだけ増やす。
+- **注意**: 自動ポスターと同じ video をシークするため、ポスターのキャプチャ中は待つ。再生中・書き出し中・エンドロール中は撮り直さない。
+- **回帰ガード**: `titleOpeningFrame.test.ts`、`captionMiniPreview.test.tsx`、`videoTitleSettingsPanel.test.tsx`。
+

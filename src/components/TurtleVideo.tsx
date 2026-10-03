@@ -45,6 +45,7 @@ import { useProjectStore } from '../stores/projectStore';
 // Utils
 import {
   captureCanvasAsImage,
+  copyCanvasIntoSnapshot,
   createCaptionFreeSnapshot,
   waitForPreviewFrameSettled,
   waitForVideoFrameAtTime,
@@ -90,6 +91,10 @@ import {
   resolveImageDurationFromPreviewPosition,
 } from '../utils/media';
 import { computeTimelineDurationFromSource } from '../utils/playbackSpeed';
+import {
+  resolveTitleMiniPreviewCaptureTarget,
+  resolveTitleMiniPreviewFrameTimes,
+} from '../utils/titleOpeningFrame';
 
 // Zustand Stores
 import { useMediaStore, useAudioStore, useUIStore, useCaptionStore, useOverlayStore, useLogStore, createNarrationClip } from '../stores';
@@ -442,6 +447,17 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   // キャプションを描く直前のプレビューフレーム（キャプション設定のミニプレビュー用）。
   // メインプレビューの canvas を直接使うと焼き込み済みキャプションと二重になる。
   const captionFreeSnapshotRef = useRef(createCaptionFreeSnapshot());
+  /** タイトルミニビュー専用。再生位置のスナップショットとは別に、先頭付近の映像を保持する */
+  const titleOpeningSnapshotRef = useRef(createCaptionFreeSnapshot());
+  const titleOpeningCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const titleOpeningContentKeyRef = useRef<string | null>(null);
+  const titleOpeningCaptureGenerationRef = useRef(0);
+  const [titleOpeningFrameKey, setTitleOpeningFrameKey] = useState(0);
+  /**
+   * 先頭付近をシークして撮る処理の同時実行を避ける。
+   * 自動ポスターとタイトル用静止画が同じ video を奪い合わないようにする。
+   */
+  const composedFrameCaptureBusyRef = useRef(0);
   const currentTimeRef = useRef(0);
   const projectPosterCaptureGenerationRef = useRef(0);
   /** 自動ポスターの再キャプチャ判定用。並び替え・尺変更などでキーが変わったら先頭付近を取り直す */
@@ -1557,6 +1573,19 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
           const captured = isCanvasEffectivelyBlank(canvas)
             ? null
             : createPosterDataUrlFromCanvas(canvas);
+          // タイトルミニビュー用に、キャプションを描く前の先頭付近フレームを控える。
+          // この直後の renderFrame(previousTime) でライブ用スナップショットは再生位置へ戻る。
+          const openingSource = captionFreeSnapshotRef.current.canvas;
+          if (
+            openingSource
+            && captionFreeSnapshotRef.current.hasFrame
+            && !isCanvasEffectivelyBlank(openingSource)
+            && copyCanvasIntoSnapshot(openingSource, titleOpeningSnapshotRef.current)
+          ) {
+            titleOpeningCanvasRef.current = titleOpeningSnapshotRef.current.canvas;
+            titleOpeningContentKeyRef.current = contentKey;
+            setTitleOpeningFrameKey((key) => key + 1);
+          }
           // 同じフレーム内で表示中の位置へ戻す（ここまで画面には反映されない）
           renderFrame(previousTime, false);
           resolve(captured);
@@ -1565,7 +1594,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       return dataUrl;
     };
 
+    composedFrameCaptureBusyRef.current += 1;
     const runCapture = async () => {
+      try {
       await delay(AUTO_POSTER_CAPTURE_INITIAL_DELAY_MS);
       if (isStale()) return;
 
@@ -1609,6 +1640,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       currentTimeRef.current = previousTime;
       setCurrentTime(previousTime);
       renderFrame(previousTime, false);
+      } finally {
+        composedFrameCaptureBusyRef.current = Math.max(0, composedFrameCaptureBusyRef.current - 1);
+      }
     };
 
     void runCapture();
@@ -1640,6 +1674,136 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     primePosterCaptureSeek,
     isPosterCaptureFrameReady,
     logWarn,
+  ]);
+
+  // --- タイトルミニビュー: 先頭付近で映像があるフレームを固定する ---
+  // 再生・シークでは撮り直さない。並び・尺・見た目が変わったときだけ取り直す。
+  // 自動ポスターが同じ video をシークしている間は待ってから撮る。
+  useEffect(() => {
+    if (!uiCapabilities.supportsVideoTitle) return;
+    if (isPlaying || isProcessing || isPreviewInEndroll) return;
+
+    const contentKey = buildAutoProjectPosterContentKey(mediaItems, totalDuration, aspectRatio);
+    if (
+      contentKey === titleOpeningContentKeyRef.current
+      && titleOpeningSnapshotRef.current.hasFrame
+    ) {
+      return;
+    }
+
+    if (mediaItems.length === 0 || totalDuration <= 0) {
+      titleOpeningSnapshotRef.current.hasFrame = false;
+      titleOpeningCanvasRef.current = null;
+      titleOpeningContentKeyRef.current = contentKey;
+      setTitleOpeningFrameKey((key) => key + 1);
+      return;
+    }
+
+    const generation = ++titleOpeningCaptureGenerationRef.current;
+    let disposed = false;
+    let startedSeek = false;
+    const timeoutIds: number[] = [];
+    const previousTime = currentTimeRef.current;
+    const times = resolveTitleMiniPreviewFrameTimes(totalDuration);
+
+    const delay = (ms: number) => new Promise<void>((resolve) => {
+      timeoutIds.push(window.setTimeout(resolve, ms));
+    });
+    const isStale = () => disposed || titleOpeningCaptureGenerationRef.current !== generation;
+
+    const restorePreview = () => {
+      if (!startedSeek) return;
+      currentTimeRef.current = previousTime;
+      renderFrame(previousTime, false);
+    };
+
+    const captureAt = async (time: number, acceptBlank: boolean): Promise<boolean> => {
+      startedSeek = true;
+      const target = resolveTitleMiniPreviewCaptureTarget(mediaItems, totalDuration, time);
+      const sourceTime = target?.sourceTime ?? null;
+      primePosterCaptureSeek(time, sourceTime);
+      const deadline = Date.now() + AUTO_POSTER_MEDIA_SETTLE_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        if (isStale()) return false;
+        if (isPosterCaptureFrameReady(time, sourceTime)) break;
+        primePosterCaptureSeek(time, sourceTime);
+        await delay(AUTO_POSTER_MEDIA_SETTLE_POLL_MS);
+      }
+      if (isStale() || !isPosterCaptureFrameReady(time, sourceTime)) return false;
+
+      return new Promise<boolean>((resolve) => {
+        requestAnimationFrame(() => {
+          if (isStale()) {
+            resolve(false);
+            return;
+          }
+          renderFrame(time, false);
+          const source = captionFreeSnapshotRef.current.canvas;
+          const blank = !source || !captionFreeSnapshotRef.current.hasFrame || isCanvasEffectivelyBlank(source);
+          const stored = Boolean(
+            source
+            && (acceptBlank || !blank)
+            && copyCanvasIntoSnapshot(source, titleOpeningSnapshotRef.current),
+          );
+          if (stored) {
+            titleOpeningCanvasRef.current = titleOpeningSnapshotRef.current.canvas;
+          }
+          renderFrame(previousTime, false);
+          resolve(stored && (acceptBlank || !blank));
+        });
+      });
+    };
+
+    const run = async () => {
+      const waitDeadline = Date.now() + 4000;
+      while (composedFrameCaptureBusyRef.current > 0 && Date.now() < waitDeadline) {
+        if (isStale()) return;
+        await delay(50);
+      }
+      if (isStale()) return;
+      if (
+        contentKey === titleOpeningContentKeyRef.current
+        && titleOpeningSnapshotRef.current.hasFrame
+      ) {
+        return;
+      }
+
+      let stored = false;
+      for (const time of times) {
+        if (isStale()) return;
+        stored = await captureAt(time, false);
+        if (stored) break;
+      }
+      if (!stored && times[0] != null && !isStale()) {
+        stored = await captureAt(times[0], true);
+      }
+      if (isStale()) return;
+      if (stored) {
+        titleOpeningContentKeyRef.current = contentKey;
+        setTitleOpeningFrameKey((key) => key + 1);
+      }
+      currentTimeRef.current = previousTime;
+      renderFrame(previousTime, false);
+    };
+
+    void run();
+
+    return () => {
+      disposed = true;
+      timeoutIds.forEach((id) => window.clearTimeout(id));
+      restorePreview();
+    };
+  }, [
+    uiCapabilities.supportsVideoTitle,
+    mediaItems,
+    totalDuration,
+    aspectRatio,
+    isPlaying,
+    isProcessing,
+    isPreviewInEndroll,
+    renderFrame,
+    primePosterCaptureSeek,
+    isPosterCaptureFrameReady,
   ]);
 
   // --- BGM状態の同期 ---
@@ -4117,8 +4281,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
                   currentTime={currentTime}
                   previewCanvasRef={canvasRef}
                   captionFreeSnapshotRef={captionFreeSnapshotRef}
+                  openingFrameRef={titleOpeningCanvasRef}
+                  openingFrameKey={titleOpeningFrameKey}
                   captionSettings={captionSettings}
-                  formatTime={formatTime}
                   onUpdate={withPreviewPause('update-video-title', updateVideoTitle)}
                   onSetRange={withPreviewPause('set-video-title-range', setVideoTitleRange)}
                   onReset={withPreviewPause('reset-video-title', resetVideoTitle)}

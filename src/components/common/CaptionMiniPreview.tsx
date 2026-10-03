@@ -57,6 +57,12 @@ interface CaptionMiniPreviewProps {
   caption?: string;
   /** 背景フレームを再取得する契機（プレビューの現在位置が変わったとき等） */
   refreshKey?: number;
+  /**
+   * 指定したとき、背景はこのキャンバスだけを使う。
+   * タイトルミニビューが再生位置のフレームを拾わないための固定背景。
+   * 未描画（null）のときは黒のままにし、ライブプレビューへは落とさない。
+   */
+  pinnedBackgroundRef?: React.RefObject<HTMLCanvasElement | null>;
 }
 
 /** 縦向きミニプレビューの表示幅上限（PCでも一括設定欄を占有しすぎないため） */
@@ -71,6 +77,7 @@ const CaptionMiniPreview: React.FC<CaptionMiniPreviewProps> = ({
   previewTimeSec,
   caption,
   refreshKey = 0,
+  pinnedBackgroundRef,
 }) => {
   const projectWidth = useCanvasStore((s) => s.width);
   const projectHeight = useCanvasStore((s) => s.height);
@@ -95,12 +102,17 @@ const CaptionMiniPreview: React.FC<CaptionMiniPreviewProps> = ({
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // キャプション抜きのスナップショットを最優先で使う。
-    // 無い場合（エンジン未対応・初回描画前）だけメインプレビューへフォールバックする。
+    // 固定背景が渡されたミニビュー（タイトル）は、再生位置のキャンバスを見ない。
+    // それ以外はキャプション抜きスナップショットを優先し、無ければメインプレビューへ落とす。
     const snapshot = captionFreeSnapshotRef?.current;
-    const source = snapshot?.hasFrame && snapshot.canvas
-      ? snapshot.canvas
-      : sourceCanvasRef.current;
+    const pinned = pinnedBackgroundRef
+      ? pinnedBackgroundRef.current
+      : null;
+    const source = pinnedBackgroundRef
+      ? (pinned && pinned.width > 0 && pinned.height > 0 ? pinned : null)
+      : (snapshot?.hasFrame && snapshot.canvas
+        ? snapshot.canvas
+        : sourceCanvasRef.current);
     if (source && source.width > 0 && source.height > 0) {
       try {
         ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
@@ -123,7 +135,15 @@ const CaptionMiniPreview: React.FC<CaptionMiniPreviewProps> = ({
         { matte: 'black', preserveBackground: true },
       );
     }
-  }, [captions, settings, videoTitle, previewTimeSec, sourceCanvasRef, captionFreeSnapshotRef]);
+  }, [
+    captions,
+    settings,
+    videoTitle,
+    previewTimeSec,
+    sourceCanvasRef,
+    captionFreeSnapshotRef,
+    pinnedBackgroundRef,
+  ]);
 
   // 設定が変わるたびに 1 回だけ描き直す（rAF ループは回さない）。
   useEffect(() => {

@@ -11,8 +11,23 @@ import type { ComponentProps } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+const titleMiniPreviewProps = vi.hoisted(() => ({
+  current: null as {
+    refreshKey?: number;
+    caption?: string;
+    pinnedBackgroundRef?: { current: HTMLCanvasElement | null };
+  } | null,
+}));
+
 vi.mock('../components/common/CaptionMiniPreview', () => ({
-  default: () => <div data-testid="caption-mini-preview-mock" />,
+  default: (props: {
+    refreshKey?: number;
+    caption?: string;
+    pinnedBackgroundRef?: { current: HTMLCanvasElement | null };
+  }) => {
+    titleMiniPreviewProps.current = props;
+    return <div data-testid="caption-mini-preview-mock" />;
+  },
   PORTRAIT_MINI_PREVIEW_MAX_WIDTH_CLASS: 'max-w-[clamp(12rem,24dvh,18rem)]',
 }));
 import CaptionSection from '../components/sections/CaptionSection';
@@ -118,6 +133,8 @@ describe('CaptionSection 内のタイトル配置（Issue #211）', () => {
   it('キャプションセクションにはタイトル設定を置かない', () => {
     render(<CaptionSection {...buildCaptionSectionProps()} />);
 
+    fireEvent.click(screen.getByRole('heading', { name: /キャプション/ }));
+
     expect(screen.queryByRole('button', { name: /^タイトル/ })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /キャプション 一括設定/ })).toBeInTheDocument();
   });
@@ -131,14 +148,17 @@ describe('VideoTitleSettingsPanel', () => {
   const openStyle = () =>
     fireEvent.click(screen.getByRole('button', { name: /^主タイトルのスタイル/ }));
 
-  it('開くと現在フレームにタイトルを重ねたミニプレビューを出す', () => {
+  it('開くと先頭付近のフレームにタイトルを重ねたミニプレビューを出す', () => {
     const canvas = document.createElement('canvas');
-    render(
+    const openingFrameRef = { current: canvas };
+    const { rerender } = render(
       <VideoTitleSettingsPanel
         {...buildPanelProps({
+          currentTime: 8.2,
+          openingFrameKey: 3,
+          openingFrameRef,
           previewCanvasRef: { current: canvas },
           captionSettings: buildCaptionSectionProps().settings,
-          formatTime: (seconds: number) => `${seconds.toFixed(1)}s`,
         })}
       />,
     );
@@ -146,6 +166,23 @@ describe('VideoTitleSettingsPanel', () => {
     expect(screen.queryByTestId('video-title-mini-preview-container')).not.toBeInTheDocument();
     openTitle();
     expect(screen.getByTestId('video-title-mini-preview-container')).toBeInTheDocument();
+    expect(titleMiniPreviewProps.current?.caption).toBe('先頭付近の映像にタイトルを重ねた表示');
+    expect(titleMiniPreviewProps.current?.refreshKey).toBe(3);
+    expect(titleMiniPreviewProps.current?.pinnedBackgroundRef).toBe(openingFrameRef);
+
+    rerender(
+      <VideoTitleSettingsPanel
+        {...buildPanelProps({
+          currentTime: 15.4,
+          openingFrameKey: 3,
+          openingFrameRef,
+          previewCanvasRef: { current: canvas },
+          captionSettings: buildCaptionSectionProps().settings,
+        })}
+      />,
+    );
+    expect(titleMiniPreviewProps.current?.refreshKey).toBe(3);
+    expect(titleMiniPreviewProps.current?.caption).not.toContain('15.4');
   });
 
   it('カスタムサイズのあとプリセットを選ぶとカスタムを解除する', () => {

@@ -600,6 +600,40 @@ export function createCaptionFreeSnapshot(): CaptionFreeSnapshot {
  * @param ctx - プレビューの描画コンテキスト（キャプション描画前）
  * @param snapshot - 保存先（使い回す）
  */
+/**
+ * 別キャンバスの内容をスナップショットへコピーする。
+ * タイトルミニビューが再生位置と切り離した静止画を持つために使う。
+ */
+export function copyCanvasIntoSnapshot(
+  source: HTMLCanvasElement,
+  snapshot: CaptionFreeSnapshot,
+): boolean {
+  if (!source || source.width <= 0 || source.height <= 0) return false;
+
+  let target = snapshot.canvas;
+  if (!target) {
+    target = document.createElement('canvas');
+    snapshot.canvas = target;
+  }
+  if (target.width !== source.width) target.width = source.width;
+  if (target.height !== source.height) target.height = source.height;
+
+  const targetCtx = target.getContext('2d');
+  if (!targetCtx) return false;
+
+  try {
+    targetCtx.setTransform(1, 0, 0, 1, 0, 0);
+    targetCtx.globalAlpha = 1;
+    targetCtx.filter = 'none';
+    targetCtx.clearRect(0, 0, target.width, target.height);
+    targetCtx.drawImage(source, 0, 0);
+    snapshot.hasFrame = true;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function captureCaptionFreeSnapshot(
   ctx: CanvasRenderingContext2D,
   snapshot: CaptionFreeSnapshot

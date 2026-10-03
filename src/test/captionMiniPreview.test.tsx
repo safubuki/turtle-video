@@ -185,6 +185,58 @@ describe('CaptionMiniPreview', () => {
     expect(ctx.drawImage.mock.calls[0]?.[0]).not.toBe(mainPreview);
   });
 
+  it('固定背景があるときは再生位置のキャンバスを使わない', () => {
+    const { ctx } = stubCanvasContext();
+    const mainPreview = document.createElement('canvas');
+    mainPreview.width = 960;
+    mainPreview.height = 540;
+    const liveSnapshot = {
+      canvas: document.createElement('canvas'),
+      hasFrame: true,
+    };
+    liveSnapshot.canvas.width = 960;
+    liveSnapshot.canvas.height = 540;
+    const pinned = document.createElement('canvas');
+    pinned.width = 960;
+    pinned.height = 540;
+
+    render(
+      <CaptionMiniPreview
+        sourceCanvasRef={{ current: mainPreview }}
+        captionFreeSnapshotRef={{ current: liveSnapshot }}
+        pinnedBackgroundRef={{ current: pinned }}
+        captions={[caption]}
+        settings={settings}
+        previewTimeSec={1}
+        refreshKey={42}
+      />,
+    );
+
+    expect(ctx.drawImage.mock.calls[0]?.[0]).toBe(pinned);
+    expect(ctx.drawImage.mock.calls[0]?.[0]).not.toBe(mainPreview);
+    expect(ctx.drawImage.mock.calls[0]?.[0]).not.toBe(liveSnapshot.canvas);
+  });
+
+  it('固定背景が未取得のときは黒のままにし、再生位置へ落とさない', () => {
+    const { ctx } = stubCanvasContext();
+    const mainPreview = document.createElement('canvas');
+    mainPreview.width = 960;
+    mainPreview.height = 540;
+
+    render(
+      <CaptionMiniPreview
+        sourceCanvasRef={{ current: mainPreview }}
+        pinnedBackgroundRef={{ current: null }}
+        captions={[caption]}
+        settings={settings}
+        previewTimeSec={1}
+      />,
+    );
+
+    const drawnSources = ctx.drawImage.mock.calls.map((call) => call[0]);
+    expect(drawnSources).not.toContain(mainPreview);
+  });
+
   it('スナップショットが未描画ならメインプレビューへフォールバックする', () => {
     const { ctx } = stubCanvasContext();
     const mainPreview = document.createElement('canvas');
