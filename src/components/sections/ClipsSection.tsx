@@ -51,10 +51,17 @@ import {
 const ClipTransitionConnector: React.FC<{
   transition: ClipTransition | null;
   disabled: boolean;
+  /** 「すべて閉じる」のたびに増える。開いている設定パネルを畳む */
+  closeSignal: number;
   onBeforeEdit: () => void;
   onChange: (transition: ClipTransition | null) => void;
-}> = ({ transition, disabled, onBeforeEdit, onChange }) => {
+}> = ({ transition, disabled, closeSignal, onBeforeEdit, onChange }) => {
   const [open, setOpen] = useState(false);
+  const [appliedCloseSignal, setAppliedCloseSignal] = useState(closeSignal);
+  if (appliedCloseSignal !== closeSignal) {
+    setAppliedCloseSignal(closeSignal);
+    if (open) setOpen(false);
+  }
 
   return (
     <div className="flex flex-col items-center py-0.5">
@@ -69,6 +76,7 @@ const ClipTransitionConnector: React.FC<{
           : 'bg-gray-800 border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-600'
           } disabled:opacity-40`}
         title="このカード間のトランジション（切り替え効果）を設定"
+        aria-expanded={open}
       >
         <ArrowDownUp className="w-3 h-3" />
         {transition
@@ -276,6 +284,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   const [disclosure, setDisclosure] = useState<ClipCardDisclosureState>(() => (
     createInitialClipCardDisclosure(isExporting ? null : resolveFocusedClipId(mediaItems, currentTime))
   ));
+  const [transitionCloseSignal, setTransitionCloseSignal] = useState(0);
   const disclosureRef = useRef(disclosure);
   disclosureRef.current = disclosure;
   const cardRefs = useRef(new Map<string, HTMLDivElement>());
@@ -488,7 +497,10 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => setDisclosure(collapseAllClipCards(focusId))}
+            onClick={() => {
+              setDisclosure(collapseAllClipCards(focusId));
+              setTransitionCloseSignal((value) => value + 1);
+            }}
             disabled={isExporting}
             className="min-h-9 px-2.5 rounded-lg border border-gray-700 bg-gray-800/70 text-[10px] md:text-xs text-gray-300 hover:text-white hover:border-gray-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/80"
           >
@@ -609,6 +621,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             <ClipTransitionConnector
               transition={v.transitionToNext ?? null}
               disabled={isClipsLocked || v.isLocked}
+              closeSignal={transitionCloseSignal}
               onBeforeEdit={onBeforeTransitionEdit}
               onChange={(transition) => updateMediaItem(v.id, { transitionToNext: transition })}
             />

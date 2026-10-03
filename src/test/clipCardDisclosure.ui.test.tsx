@@ -232,6 +232,29 @@ describe('動画・画像カードの折りたたみ', () => {
     expect(screen.getByTestId('clip-card-summary-d')).toBeInTheDocument();
   });
 
+  it('すべて閉じるで開いているトランジション設定も閉じる', () => {
+    renderSection({
+      mediaItems: [createImage('a'), createImage('b'), createImage('c')],
+    });
+
+    const transitionButtons = screen.getAllByRole('button', { name: 'トランジション' });
+    fireEvent.click(transitionButtons[0]);
+    fireEvent.click(transitionButtons[1]);
+    expect(screen.getAllByRole('button', { name: 'ディゾルブ' })).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole('button', { name: 'すべて開く' }));
+    expect(screen.getAllByRole('button', { name: 'ディゾルブ' })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: 'トランジション' })[0]).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'すべて閉じる' }));
+    expect(screen.queryByRole('button', { name: 'ディゾルブ' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'トランジション' })[0]).toHaveAttribute('aria-expanded', 'false');
+    expect(durationSliders()).toHaveLength(0);
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'トランジション' })[0]);
+    expect(screen.getByRole('button', { name: 'ディゾルブ' })).toBeInTheDocument();
+  });
+
   it('セクションがロック中でもまとめて開閉できる', () => {
     renderSection({
       mediaItems: [createImage('a'), createImage('b')],
