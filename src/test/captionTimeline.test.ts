@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import {
   calculateCaptionFadeAlpha,
   clampSequentialGapSec,
+  filterCaptionsForPreview,
   isCaptionActiveAtTime,
   isSequentialCaption,
   getSequentialCaptionReadingWeight,
@@ -31,6 +32,44 @@ const makeCaption = (overrides: Partial<Caption>): Caption => ({
   fadeInDuration: 0.5,
   fadeOutDuration: 0.5,
   ...overrides,
+});
+
+describe('タイミング打ちのプレビュー表示対象（Issue #237）', () => {
+  const captions = [
+    makeCaption({ id: 'old', text: '既存', startTime: 1, endTime: 3 }),
+    makeCaption({ id: 'confirmed', text: '今回確定', startTime: 4, endTime: 6 }),
+    makeCaption({ id: 'waiting', text: '未確定', startTime: 4, endTime: 6 }),
+  ];
+
+  it.each([null, undefined])('通常表示（%s）では全件の元配列を返す', (ids) => {
+    expect(filterCaptionsForPreview(captions, ids)).toBe(captions);
+  });
+
+  it('モード開始時の空 Set では、元の表示時間があっても全件を隠す', () => {
+    expect(filterCaptionsForPreview(captions, new Set())).toEqual([]);
+    expect(captions[0]).toMatchObject({ text: '既存', startTime: 1, endTime: 3 });
+  });
+
+  it('今回確定した ID だけを元の順序・オブジェクト・時刻のまま表示対象にする', () => {
+    const ids = new Set(['confirmed', 'old', 'deleted']);
+    const result = filterCaptionsForPreview(captions, ids);
+    expect(result).toEqual([captions[0], captions[1]]);
+    expect(result[0]).toBe(captions[0]);
+    expect(result[1]).toBe(captions[1]);
+    expect(result.filter((caption) => isCaptionActiveAtTime(caption, 5))).toEqual([captions[1]]);
+    expect(captions).toHaveLength(3);
+    expect(ids).toEqual(new Set(['confirmed', 'old', 'deleted']));
+  });
+
+  it.each([new Set<string>(), new Set(['confirmed'])])('書き出しでは一時非表示を適用せず全件の元配列を返す', (ids) => {
+    expect(filterCaptionsForPreview(captions, ids, true)).toBe(captions);
+  });
+
+  it('モード終了では全件へ戻り、再開始の空 Set で再び全件を隠す', () => {
+    expect(filterCaptionsForPreview(captions, new Set(['confirmed']))).toEqual([captions[1]]);
+    expect(filterCaptionsForPreview(captions, null)).toBe(captions);
+    expect(filterCaptionsForPreview(captions, new Set())).toEqual([]);
+  });
 });
 
 describe('isCaptionActiveAtTime', () => {

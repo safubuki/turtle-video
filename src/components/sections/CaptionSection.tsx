@@ -5,7 +5,7 @@
  * @license GPL-3.0-or-later
  * @description テキストキャプションの追加、編集、削除を行うセクション。タイムライン上での表示タイミングやスタイル（サイズ、位置）の設定UIを提供する。
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Lock,
   Unlock,
@@ -170,6 +170,8 @@ interface CaptionSectionProps {
   silenceRegions?: TimelineSilenceRegion[];
   /** プレビューを一時停止せずにキャプションを更新する（タイミング打ち用） */
   onUpdateCaptionLive: (id: string, updates: Partial<Omit<Caption, 'id'>>) => void;
+  /** タイミング打ち中のプレビュー限定表示。null は通常表示、空集合は全件非表示。保存しない。 */
+  onStampPreviewChange?: (confirmedIds: ReadonlySet<string> | null) => void;
   // 動画タイトル（キャプションとは別管理）
   onUpdateVideoTitle: (updates: Partial<VideoTitleSettings>) => void;
   onSetVideoTitleRange: (startTime: number, endTime: number, totalDuration?: number) => void;
@@ -245,6 +247,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   onApplyCaptions,
   onShiftCaptions,
   onUpdateCaptionLive,
+  onStampPreviewChange,
   isPlaying,
   onTogglePlay,
   onSeekBy,
@@ -413,6 +416,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   //   alternate（交互）: ワンボタンで 開始→終了→開始… と切り替えながら確定（歌詞・間のある説明向け）
   //   chain（連続）: 終了＝次の開始を同時確定（間の無い連続キャプション向け）
   const [stampActive, setStampActive] = useState(false);
+  const [stampPreviewIds, setStampPreviewIds] = useState<ReadonlySet<string>>(() => new Set());
   const [stampIndex, setStampIndex] = useState(0);
   const [stampMode, setStampMode] = useState<'alternate' | 'chain'>('alternate');
   const [stampPhase, setStampPhase] = useState<'start' | 'end'>('start');
@@ -426,6 +430,25 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
    */
   const [stampSilenceComfortAdjust, setStampSilenceComfortAdjust] = useState(true);
   const stampTarget = stampActive ? captions[stampIndex] : undefined;
+  const canStamp = supportsBulkInput && !isLocked && !isExporting
+    && captions.length >= 2 && !!stampTarget;
+
+  // キャプション自体や通常の表示設定は変更せず、このセッションの確定 ID だけを通知する。
+  // 停止中の開始／終了も次の描画へ反映し、ロック・削除・書き出し時に制限を残さない。
+  useLayoutEffect(() => {
+    if (stampActive && !canStamp) setStampActive(false);
+    onStampPreviewChange?.(stampActive && canStamp ? stampPreviewIds : null);
+  }, [stampActive, canStamp, stampPreviewIds, onStampPreviewChange]);
+  const onStampPreviewChangeRef = useRef(onStampPreviewChange);
+  onStampPreviewChangeRef.current = onStampPreviewChange;
+  useEffect(() => () => onStampPreviewChangeRef.current?.(null), []);
+
+  const includeStampedCaptions = (...ids: string[]) => {
+    setStampPreviewIds((previous) => {
+      if (ids.every((id) => previous.has(id))) return previous;
+      return new Set([...previous, ...ids]);
+    });
+  };
 
   // 無音ナビの活性は調整モード込みでここで計算する（親の exact 判定とずれないようにする）
   const stampSilenceSeekMode = stampSilenceComfortAdjust ? 'comfortable' : 'exact';
@@ -466,9 +489,11 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
 
   // 現在のプレビュー位置にかかっている（または直後の）キャプションから開始する
   const startStampMode = () => {
+    if (isLocked || isExporting || captions.length < 2) return;
     const idx = captions.findIndex((c) => c.endTime > currentTime + 0.05);
     setStampIndex(idx >= 0 ? idx : Math.max(0, captions.length - 1));
     setStampPhase(stampMode === 'alternate' ? 'start' : 'end');
+    setStampPreviewIds(new Set());
     setStampActive(true);
   };
 
@@ -487,6 +512,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   // 交互モード: 開始→終了→（次のカードの）開始→… とワンボタンで確定する。
   // 打ち直したいときは -1秒/一時停止で戻り、⇄ でフェーズを切り替えて同じ場所を再確定できる。
   const handleStampAlternate = () => {
+    if (!canStamp) return;
     const target = captions[stampIndex];
     if (!target) {
       setStampActive(false);
@@ -502,12 +528,14 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
         updates.endTime = totalDuration > 0 ? Math.min(minEnd, totalDuration) : minEnd;
       }
       onUpdateCaptionLive(target.id, updates);
+      includeStampedCaptions(target.id);
       setStampPhase('end');
     } else {
       if (at <= target.startTime + 0.1) return; // 開始より前では終了できない
       onUpdateCaptionLive(target.id, {
         endTime: totalDuration > 0 ? Math.min(at, totalDuration) : at,
       });
+      includeStampedCaptions(target.id);
       if (captions[stampIndex + 1]) {
         setStampIndex(stampIndex + 1);
         setStampPhase('start');
@@ -519,6 +547,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
 
   // 連続モード: 終了＝次の開始を同時に確定（間なし）
   const handleStampChain = () => {
+    if (!canStamp) return;
     const target = captions[stampIndex];
     if (!target) {
       setStampActive(false);
@@ -540,6 +569,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
         nextUpdates.endTime = totalDuration > 0 ? Math.min(minEnd, totalDuration) : minEnd;
       }
       onUpdateCaptionLive(next.id, nextUpdates);
+      includeStampedCaptions(target.id, next.id);
       setStampIndex(stampIndex + 1);
     } else {
       setStampActive(false);

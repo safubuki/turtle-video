@@ -88,6 +88,7 @@ import type { PlatformCapabilities } from '../../../utils/platform';
 import { collectPlaybackBlockingVideos } from '../../../utils/playbackTimeline';
 import {
   calculateCaptionFadeAlpha,
+  filterCaptionsForPreview,
   isCaptionActiveAtTime,
   resolveCaptionDisplaySegment,
 } from '../../../utils/captionTimeline';
@@ -173,6 +174,8 @@ interface UsePreviewEngineParams {
   bgmRef: MutableRefObject<AudioTrack | null>;
   narrationsRef: MutableRefObject<NarrationClip[]>;
   captionsRef: MutableRefObject<Caption[]>;
+  /** タイミング打ちのプレビュー専用。null は通常表示、空 Set は全非表示。 */
+  previewCaptionIdsRef?: MutableRefObject<ReadonlySet<string> | null>;
   captionSettingsRef: MutableRefObject<CaptionSettings>;
   /** 動画タイトル（Issue #211）。キャプションとは別管理で 1 件だけ描画する */
   videoTitleRef: MutableRefObject<VideoTitleSettings>;
@@ -1069,6 +1072,7 @@ export function usePreviewEngine({
   bgmRef,
   narrationsRef,
   captionsRef,
+  previewCaptionIdsRef,
   captionSettingsRef,
   videoTitleRef,
   watermarkOverlayRef,
@@ -3353,7 +3357,11 @@ export function usePreviewEngine({
           }
         });
 
-        const currentCaptions = captionsRef.current;
+        const currentCaptions = filterCaptionsForPreview(
+          captionsRef.current,
+          previewCaptionIdsRef?.current,
+          _isExporting,
+        );
         const currentCaptionSettings = captionSettingsRef.current;
         const exportFrameIndex = _isExporting ? Math.max(0, Math.floor(time * FPS + 1e-9)) : null;
         const exportDurationAlignment = _isExporting
@@ -4024,7 +4032,7 @@ export function usePreviewEngine({
     },
     // videoTitle も依存に含める。含めないと renderFrame が再生成されず、
     // 停止中のプレビューへタイトル変更がリアルタイム反映されない（キャプションと同じ扱い）
-    [captions, captionSettings, videoTitle, watermarkOverlay, ensureAudioNodeForElement, logInfo, platformCapabilities, previewPlatformPolicy],
+    [captions, captionSettings, previewCaptionIdsRef, videoTitle, watermarkOverlay, ensureAudioNodeForElement, logInfo, platformCapabilities, previewPlatformPolicy],
   );
 
   const handleSeeked = useCallback(() => {

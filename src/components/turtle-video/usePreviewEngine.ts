@@ -71,6 +71,8 @@ interface UsePreviewEngineParams {
   bgmRef: MutableRefObject<AudioTrack | null>;
   narrationsRef: MutableRefObject<NarrationClip[]>;
   captionsRef: MutableRefObject<Caption[]>;
+  /** Issue #237。プレビュー専用の表示対象。契約追随のみ、描画は flavor 側。 */
+  previewCaptionIdsRef?: MutableRefObject<ReadonlySet<string> | null>;
   captionSettingsRef: MutableRefObject<CaptionSettings>;
   /**
    * 動画タイトル（Issue #211）。

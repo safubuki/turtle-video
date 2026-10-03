@@ -47,6 +47,20 @@ export const CAPTION_TIME_STEP_SEC = TIME_STEPPER_STEP_SEC;
 /** 終了スライダーの刻み。プレビューの 1/100 秒表示に合わせ、右端の実尺へ届ける */
 export const CAPTION_TIME_SLIDER_STEP_SEC = TIME_SLIDER_STEP_SEC;
 
+/**
+ * タイミング打ち中のプレビューだけ、今回確定した ID に表示対象を絞る。
+ * null / undefined は通常表示、空 Set は全非表示。書き出しでは常に全件を返す。
+ * 入力配列・キャプション自体を変更せず、時刻やスタイルの判定は描画側へ任せる。
+ */
+export function filterCaptionsForPreview(
+  captions: Caption[],
+  previewCaptionIds: ReadonlySet<string> | null | undefined,
+  isExporting = false,
+): Caption[] {
+  if (isExporting || previewCaptionIds == null) return captions;
+  return captions.filter((caption) => previewCaptionIds.has(caption.id));
+}
+
 export function isCaptionActiveAtTime(
   caption: Caption,
   timeSec: number,

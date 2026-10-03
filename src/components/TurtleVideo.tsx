@@ -525,6 +525,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const endFinalizedRef = useRef(false); // 終端ファイナライズ済みフラグ（遅延renderFrame競合防止）
 
   const captionsRef = useRef(captions);
+  // Issue #237: タイミング打ちの表示対象はセッション中のプレビューだけに適用する。
+  const [previewCaptionIds, setPreviewCaptionIds] = useState<ReadonlySet<string> | null>(null);
+  const previewCaptionIdsRef = useRef<ReadonlySet<string> | null>(null);
   const captionSettingsRef = useRef(captionSettings);
   const videoTitleRef = useRef(videoTitle);
   const watermarkOverlayRef = useRef<WatermarkOverlay>(watermarkOverlay);
@@ -812,13 +815,14 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     }
   }, [bgm, migrateLegacyBgmToClips, platformCapabilities.isIosSafari, totalDuration]);
   const useAndroidPreviewCacheForPlayback = useMemo(
-    () => previewRuntime.shouldUsePreviewCache({
+    // キャッシュ動画には全キャプションが焼き込まれているため、このモードでは使わない。
+    () => previewCaptionIds === null && previewRuntime.shouldUsePreviewCache({
       isAndroid: platformCapabilities.isAndroid,
       isIosSafari: platformCapabilities.isIosSafari,
       isExportMode: false,
       mediaItems,
     }),
-    [mediaItems, platformCapabilities.isAndroid, platformCapabilities.isIosSafari, previewRuntime],
+    [mediaItems, platformCapabilities.isAndroid, platformCapabilities.isIosSafari, previewRuntime, previewCaptionIds],
   );
   const previewCacheKey = useMemo(
     () => previewRuntime.createPreviewCacheKey({
@@ -1251,6 +1255,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     bgmRef,
     narrationsRef,
     captionsRef,
+    previewCaptionIdsRef,
     captionSettingsRef,
     videoTitleRef,
     watermarkOverlayRef,
@@ -1333,6 +1338,17 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     logDebug,
     remountSharedPreviewMedia,
   });
+
+  const handleStampPreviewChange = useCallback((ids: ReadonlySet<string> | null) => {
+    // 焼き込み済みキャッシュを無効化する前に、内部の再生モードも終了する。
+    // 現在キャッシュは無効だが、再有効化時にも live preview で再開できるようにする。
+    if (ids !== null && previewCachePlaybackActiveRef.current) {
+      stopAll();
+      pause();
+    }
+    previewCaptionIdsRef.current = ids;
+    setPreviewCaptionIds(ids);
+  }, [stopAll, pause]);
 
   // --- 状態同期: Zustandの状態をRefに同期 ---
   // 目的: renderFrame等の非同期処理で最新の状態を参照できるようにする
@@ -3765,6 +3781,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   }, [
     captions,
     captionSettings,
+    previewCaptionIds,
     videoTitle,
     watermarkOverlay,
     endrollOverlay,
@@ -4523,6 +4540,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               hasNextSilenceBoundary={hasNextSilenceBoundary}
               silenceRegions={timelineWaveform.silences}
               onUpdateCaptionLive={updateCaption}
+              onStampPreviewChange={handleStampPreviewChange}
               onSetFontSizeCustom={withPreviewPause('set-caption-font-size-custom', setCaptionFontSizeCustom)}
               onSetPositionCustom={withPreviewPause('set-caption-position-custom', setCaptionPositionCustom)}
               videoTitle={videoTitle}

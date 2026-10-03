@@ -4770,3 +4770,13 @@ export 終了（成功/失敗/中断）
 - **対象 flavor**: 波形表示は **standard** の従来ゲートを維持。共通スライダー・プレビューUIの保護は **shared**。保存契約・デコード・exportエンジンは変更しない。
 - **回帰ガード**: 縦移動中にcallbackが一度も走らないこと、15px境界、短タップ、横ドラッグ、実pointerup→touchend順、キャンセル、二本指、capture移譲を確認。実standard controllerと接続し、20ms間隔の複数move後も最終位置から再生することを確認する。Chromeタッチ入力でも波形・プレビュー・共通スライダーの位置不変と実スクロールを検証済み。詳細は `Docs/reports/2026-10-03_issue-233-waveform-scroll.md`。
 
+### 13-258. タイミング打ち中は今回時刻を設定したキャプションだけ表示する（Issue #237）
+
+- **ファイル**: `src/components/sections/CaptionSection.tsx`, `src/components/TurtleVideo.tsx`, `src/utils/captionTimeline.ts`, 両flavorの `preview/usePreviewEngine.ts`, `src/test/captionStampPreview.test.tsx`, `src/test/captionStampPreviewEngine.test.tsx`, `src/test/captionTimeline.test.ts`
+- **問題**: タイミング打ち中も通常の全キャプションが描画され、今回未確定の文字が元の表示区間で重なっていた。
+- **対策**: セッションの確定IDをプレビュー専用state/refへ通知する。開始時は空集合、交互の開始／終了と連続の現在終了＋次開始を設定したIDだけ追加。終了時は `null` で通常表示へ戻し、再開始時はリセットする。停止中も既存の再描画effectで更新する。
+- **注意**: 元の `captionsRef` とストアをフィルタ済み配列に置き換えない。描画直前だけ選別し、`_isExporting` では全件を使用する。表示区間・フェード・enabledの判定は既存処理へ任せる。動画タイトル・入力一覧・ミニビュー・保存・字幕・キャプションのみ出力には制限を渡さない。legacyは凍結を守り引数型だけ追随。解除は最新callbackのrefからアンマウント時だけ通知し、callbackの参照変更でセッションを解除しない。
+- **終了条件**: 手動終了、最終対象の完了、ロック、書き出し開始、対応platform／対象の消失で通常表示へ戻る。モード中は全字幕を焼き込んだキャッシュを使わない。将来キャッシュを再有効化する場合も、無効化前に `stopAll + pause` で内部再生モードを終了し、現在位置を保持する。
+- **対象 flavor**: タイミング打ちUIは **standard** の従来ゲートを維持。両描画エンジンのoptional ref未指定／`null` は従来どおり全件表示。
+- **回帰ガード**: セッション操作と入力保持、最新refによる両エンジンの実Canvas描画、書き出し除外を検証。実Chromeでも開始・確定・終了・再開始、再生継続、連続モードの間隔を確認。詳細は `Docs/reports/2026-10-04_issue-237-caption-stamp-preview.md`。
+
