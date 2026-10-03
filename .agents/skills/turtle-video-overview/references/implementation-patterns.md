@@ -4744,3 +4744,20 @@ export 終了（成功/失敗/中断）
 - **注意**: 自動ポスターと同じ video をシークするため、ポスターのキャプチャ中は待つ。再生中・書き出し中・エンドロール中は撮り直さない。
 - **回帰ガード**: `titleOpeningFrame.test.ts`、`captionMiniPreview.test.tsx`、`videoTitleSettingsPanel.test.tsx`。
 
+### 13-255. 画像・動画カードのサムネイルへ素材の倍率を反映する（Issue #229）
+
+- **ファイル**: `src/components/common/ClipThumbnail.tsx`, `src/components/media/ClipItem.tsx`, `src/test/clipThumbnail.test.tsx`, `src/test/clipItemSpeedBadge.test.tsx`, `Docs/reports/2026-10-03_issue-229-thumbnail-scale.md`, `spec.md`
+- **対象 flavor**: **shared** のカード UI。standard / apple-safari の双方に適用。
+- **問題**: カードから素材の `scale` が渡されず、サムネイルは倍率変更後も素材全体を収めた構図のままだった。
+- **対策**: 等倍の取得済み canvas を ref に保持し、最新の倍率で表示 canvas へ中央基準の拡大縮小を行う。縮小時は周囲を黒で埋め、拡大時は領域外を切り取る。ホバー／ライトボックスのスナップショットも表示 canvas から更新する。
+- **注意**: 倍率は取得 effect の依存へ入れない。倍率だけで再デコードや Object URL の再作成をすると連続操作の負荷が増える。黒フレーム判定は等倍の取得 canvas で行い、拡大後の黒い中心を取得失敗と誤認しない。代替アイコンは等倍を保つ。デコード中に倍率が変わっても、完了時は `scaleRef` の最新値で描画する。
+- **回帰ガード**: 画像・動画・iOS 経路で50/100/200/400%、取得中の変更、拡大表示の更新、再デコード不要を検証。カードからの倍率伝達と取得失敗の代替表示も確認する。
+
+### 13-256. カードサムネイルのズーム・構図をミニビューに合わせる（Issue #229 追加修正）
+
+- **ファイル**: `src/components/common/ClipThumbnail.tsx`, `src/components/media/ClipItem.tsx`, `src/test/clipThumbnailComposition.test.tsx`, `src/test/clipThumbnail.test.tsx`, `src/test/clipItemSpeedBadge.test.tsx`
+- **問題**: 13-255 は12:7の取得枠全体を拡大しており、16:9／9:16の出力枠を使うミニビューとは構図が一致しなかった。位置・回転も渡していなかった。
+- **対策**: 素材の元寸法を保持し、取得canvasには素材全体だけを縮小して保存する。表示canvasはプロジェクト比率で描画し、ミニビュー／両flavorのプレビューと同じ `resolveRotatedFitDimensions`・`resolveMediaBaseScale`（横contain／縦cover）へ倍率、位置、回転を適用する。固定サイズの外枠へ `object-fit: contain` で収める。
+- **注意**: 13-255 の専用枠拡大と `scaleRef` は、構図を一致させるため元寸法からの描画と `transformRef` に置き換えた。変形・向き変更は取得effectへ入れず、最新値でキャッシュを再描画する。黒判定は変形前の全素材に対して行い、代替アイコンは変形しない。
+- **回帰ガード**: 実際の `MiniPreview` とサムネイルを並べ、画像／動画、素材4比率、横／縦出力、90度単位の回転とXY移動で、素材内の点の出力枠内座標を比較する。向き変更と変形でURL／デコーダが増えないことも確認する。
+

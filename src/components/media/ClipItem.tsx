@@ -343,6 +343,10 @@ const ClipItem: React.FC<ClipItemProps> = ({
             <ClipThumbnail
               file={v.file}
               type={v.type}
+              scale={v.scale}
+              positionX={v.positionX}
+              positionY={v.positionY}
+              rotation={v.rotation}
               sourceTime={thumbnailSourceTime}
               rangeStart={v.type === 'video' ? v.trimStart : undefined}
               rangeEnd={thumbnailRangeEnd}

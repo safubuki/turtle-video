@@ -4,7 +4,8 @@
  * @copyright Copyright (C) 2026 safubuki (Turtle Village)
  * @license GPL-3.0-or-later
  * @description メディアクリップのサムネイルを表示する軽量コンポーネント。
- * 画像はそのまま、動画は指定時刻（未指定時は先頭付近ヒューリスティック）のフレームをキャプチャして表示する。
+ * 画像と動画の取得済みフレームへ、プレビューと同じ出力比率・倍率・位置・回転を反映する。
+ * 動画は指定時刻（未指定時は先頭付近ヒューリスティック）のフレームをキャプチャする。
  * PC はホバーで拡大プレビュー、タッチ端末はタップでライトボックス表示する。
  */
 import React, { useRef, useEffect, useLayoutEffect, useState, useCallback } from 'react';
@@ -12,11 +13,19 @@ import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
-import { buildThumbnailSeekCandidates, isCanvasEffectivelyBlank } from '../../utils/media';
+import { buildThumbnailSeekCandidates, isCanvasEffectivelyBlank, validateScale } from '../../utils/media';
+import { resolveMediaBaseScale, useCanvasStore } from '../../stores/canvasStore';
+import { normalizeRotation, resolveRotatedFitDimensions } from '../../utils/canvas';
 
 interface ClipThumbnailProps {
   file: File;
   type: 'video' | 'image';
+  /** 素材の拡大縮小倍率。プレビューと同じ配置倍率へ掛ける。 */
+  scale?: number;
+  /** プレビューと同じプロジェクト座標（px）の位置と回転。 */
+  positionX?: number;
+  positionY?: number;
+  rotation?: number;
   /**
    * 元動画上のサムネイル取得時刻（秒）。
    * 未指定時は従来どおり duration ベースの先頭/中央ヒューリスティック。
@@ -39,13 +48,12 @@ const DISPLAY_HEIGHT = 28;
 /** 閉じたカードで2行（タイトルと時刻）を覆う表示サイズ。比率は 48:28 のまま */
 const PROMINENT_DISPLAY_WIDTH = 96;
 const PROMINENT_DISPLAY_HEIGHT = 56;
-/** 3行ヘッダー用。キャプチャと同じ 12:7 に近い横長比率を保つ。 */
+/** 3行ヘッダーの外枠。出力の向きによらずレイアウトは保つ。 */
 const CARD_DISPLAY_WIDTH = 104;
 const CARD_DISPLAY_HEIGHT = 61;
 /**
- * 内部キャプチャ解像度。拡大表示時に何が写っているか判別できる水準。
- * 表示は CSS で DISPLAY に縮小するため、カードレイアウトは変わらない。
- * アスペクトは 48:28（=12:7）を維持。
+ * 素材フレーム取得の最大寸法。素材本来の比率でこの領域へ収める。
+ * 表示 canvas は長辺336でプロジェクト比率を保ち、CSSで既存の外枠へ収める。
  */
 const CAPTURE_WIDTH = 336;
 const CAPTURE_HEIGHT = 196;
@@ -158,6 +166,10 @@ type FrameAwareVideo = HTMLVideoElement & {
 const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
   file,
   type,
+  scale = 1,
+  positionX = 0,
+  positionY = 0,
+  rotation = 0,
   sourceTime,
   rangeStart,
   rangeEnd,
@@ -168,6 +180,19 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
   const displayHeight = displaySize === 'card' ? CARD_DISPLAY_HEIGHT
     : displaySize === 'prominent' ? PROMINENT_DISPLAY_HEIGHT : DISPLAY_HEIGHT;
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const capturedFrameRef = useRef<{
+    canvas: HTMLCanvasElement;
+    isMediaFrame: boolean;
+    sourceWidth: number;
+    sourceHeight: number;
+  } | null>(null);
+  const projectCanvasWidth = useCanvasStore((state) => state.width);
+  const projectCanvasHeight = useCanvasStore((state) => state.height);
+  // 表示枠の大きさは保ち、内部の構図はプロジェクトの出力比率で描く。
+  const thumbnailRatio = CAPTURE_WIDTH / Math.max(projectCanvasWidth, projectCanvasHeight);
+  const thumbnailWidth = Math.max(1, Math.round(projectCanvasWidth * thumbnailRatio));
+  const thumbnailHeight = Math.max(1, Math.round(projectCanvasHeight * thumbnailRatio));
+  const transformRef = useRef({ scale, positionX, positionY, rotation, projectCanvasWidth, projectCanvasHeight });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [ready, setReady] = useState(false);
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
@@ -190,6 +215,58 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
   const prefersHover = usePrefersHoverPreview();
 
   useDisableBodyScroll(lightboxOpen);
+
+  // 等倍の取得結果を保持し、倍率だけの変更ではデコーダや Object URL を作り直さない。
+  const drawThumbnail = useCallback(() => {
+    const frame = capturedFrameRef.current;
+    const displayCanvas = canvasRef.current;
+    if (!frame || !displayCanvas) return;
+    const displayCtx = displayCanvas.getContext('2d');
+    if (!displayCtx) return;
+
+    const width = displayCanvas.width;
+    const height = displayCanvas.height;
+    displayCtx.fillStyle = '#000000';
+    displayCtx.fillRect(0, 0, width, height);
+    if (frame.isMediaFrame) {
+      const transform = transformRef.current;
+      const rotationDeg = normalizeRotation(transform.rotation);
+      const fitDims = resolveRotatedFitDimensions(frame.sourceWidth, frame.sourceHeight, rotationDeg);
+      const baseScale = resolveMediaBaseScale({
+        canvasWidth: width,
+        canvasHeight: height,
+        elementWidth: fitDims.width,
+        elementHeight: fitDims.height,
+        mode: height > width ? 'cover' : 'contain',
+      });
+      const renderScale = baseScale * validateScale(transform.scale);
+      const previewRatio = width / transform.projectCanvasWidth;
+      displayCtx.save();
+      displayCtx.translate(width / 2 + transform.positionX * previewRatio, height / 2 + transform.positionY * previewRatio);
+      if (rotationDeg !== 0) displayCtx.rotate((rotationDeg * Math.PI) / 180);
+      displayCtx.scale(renderScale, renderScale);
+      displayCtx.drawImage(frame.canvas, -frame.sourceWidth / 2, -frame.sourceHeight / 2, frame.sourceWidth, frame.sourceHeight);
+      displayCtx.restore();
+    } else {
+      // 取得失敗の代替アイコンは、素材の変形によらず全体を表示する。
+      const fit = Math.min(width / frame.canvas.width, height / frame.canvas.height);
+      const iconWidth = frame.canvas.width * fit;
+      const iconHeight = frame.canvas.height * fit;
+      displayCtx.drawImage(frame.canvas, (width - iconWidth) / 2, (height - iconHeight) / 2, iconWidth, iconHeight);
+    }
+    try {
+      setPreviewSrc(displayCanvas.toDataURL('image/jpeg', 0.88));
+    } catch {
+      setPreviewSrc(null);
+    }
+    setReady(true);
+  }, []);
+
+  useLayoutEffect(() => {
+    // デコード中の変形・向き変更も、完了時に最新の値を使う。
+    transformRef.current = { scale, positionX, positionY, rotation, projectCanvasWidth, projectCanvasHeight };
+    drawThumbnail();
+  }, [scale, positionX, positionY, rotation, projectCanvasWidth, projectCanvasHeight, drawThumbnail]);
 
   // トリム操作中は同じ File の sourceTime/range が高頻度で変わる。
   // 操作が一段落してから 1 回だけ再キャプチャし、デコーダ生成の連打を避ける。
@@ -315,8 +392,6 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
   useEffect(() => {
     const displayCanvas = canvasRef.current;
     if (!displayCanvas) return;
-    const displayCtx = displayCanvas.getContext('2d');
-    if (!displayCtx) return;
 
     const canvas = document.createElement('canvas');
     canvas.width = CAPTURE_WIDTH;
@@ -329,6 +404,7 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
     let cancelled = false;
     let detachQueue = () => {};
     let activeVideo: HTMLVideoElement | null = null;
+    let sourceDimensions = { width: CAPTURE_WIDTH, height: CAPTURE_HEIGHT };
 
     const noteCaptureSuccess = () => {
       failedCaptureRef.current = false;
@@ -342,7 +418,7 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
       const exhausted = autoRetryCountRef.current >= THUMBNAIL_AUTO_RETRY_LIMIT;
       if (exhausted) {
         drawVideoFallback();
-        finishReady();
+        finishReady(false);
         return;
       }
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
@@ -356,19 +432,17 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
       }, delayMs);
     };
 
-    const finishReady = () => {
+    const finishReady = (isMediaFrame = true) => {
       if (cancelled) return;
       // 裏側で完成したフレームを表示用キャンバスへ一度に反映する。
       // キャプチャ途中の黒塗りや未デコードフレームを画面へ露出させない。
-      displayCtx.clearRect(0, 0, CAPTURE_WIDTH, CAPTURE_HEIGHT);
-      displayCtx.drawImage(canvas, 0, 0, CAPTURE_WIDTH, CAPTURE_HEIGHT);
-      try {
-        // 再デコードせず、高解像度キャプチャ済みキャンバスから拡大用スナップショットを取る
-        setPreviewSrc(canvas.toDataURL('image/jpeg', 0.88));
-      } catch {
-        setPreviewSrc(null);
-      }
-      setReady(true);
+      capturedFrameRef.current = {
+        canvas,
+        isMediaFrame,
+        sourceWidth: sourceDimensions.width,
+        sourceHeight: sourceDimensions.height,
+      };
+      drawThumbnail();
     };
     let detachActiveVideo: (() => void) | null = null;
     const timeoutIds = new Set<number>();
@@ -495,7 +569,7 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
         target.addEventListener(eventName, onEvent as EventListener, { once: true });
       });
 
-    const drawCentered = (
+    const captureMediaFrame = (
       source: CanvasImageSource,
       sourceWidth: number,
       sourceHeight: number
@@ -503,14 +577,17 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
       if (sourceWidth <= 0 || sourceHeight <= 0) return false;
 
       const scale = Math.min(CAPTURE_WIDTH / sourceWidth, CAPTURE_HEIGHT / sourceHeight);
-      const w = sourceWidth * scale;
-      const h = sourceHeight * scale;
+      // 黒帯を含む専用枠をキャッシュすると、後段の出力比率でズームがずれる。
+      // 素材全体だけを保持し、出力枠への fit は表示時に行う。
+      canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+      canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+      sourceDimensions = { width: sourceWidth, height: sourceHeight };
 
       ctx.fillStyle = '#000000';
-      ctx.fillRect(0, 0, CAPTURE_WIDTH, CAPTURE_HEIGHT);
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       try {
-        ctx.drawImage(source, (CAPTURE_WIDTH - w) / 2, (CAPTURE_HEIGHT - h) / 2, w, h);
+        ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
         return true;
       } catch {
         return false;
@@ -526,13 +603,15 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
       sourceWidth: number,
       sourceHeight: number
     ): boolean => {
-      if (!drawCentered(source, sourceWidth, sourceHeight)) return false;
+      if (!captureMediaFrame(source, sourceWidth, sourceHeight)) return false;
       // 黒（未デコード）なら失敗扱い。候補時刻へフォールバックする。
       if (isCanvasEffectivelyBlank(canvas)) return false;
       return true;
     };
 
     const drawVideoFallback = () => {
+      canvas.width = CAPTURE_WIDTH;
+      canvas.height = CAPTURE_HEIGHT;
       // キャプチャ解像度に合わせた簡易再生アイコン（座標は 48x28 基準をスケール）
       const sx = CAPTURE_WIDTH / DISPLAY_WIDTH;
       const sy = CAPTURE_HEIGHT / DISPLAY_HEIGHT;
@@ -548,6 +627,8 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
     };
 
     const drawImageFallback = () => {
+      canvas.width = CAPTURE_WIDTH;
+      canvas.height = CAPTURE_HEIGHT;
       // 動画フォールバックと同系統の単色＋簡易アイコン（jsdom でも安全な API のみ）
       const sx = CAPTURE_WIDTH / DISPLAY_WIDTH;
       const sy = CAPTURE_HEIGHT / DISPLAY_HEIGHT;
@@ -740,7 +821,7 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
       const finishImage = (ok: boolean) => {
         if (cancelled) return;
         if (!ok) drawImageFallback();
-        finishReady();
+        finishReady(ok);
         revokeUrl();
       };
 
@@ -875,7 +956,7 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
       revokeUrl();
     };
     // sourceTime / 範囲変更で再生成。古い非同期結果は cancelled で破棄
-  }, [captureRequest, captureGeneration, isIosSafari]);
+  }, [captureRequest, captureGeneration, isIosSafari, drawThumbnail]);
 
   const canExpand = ready && Boolean(previewSrc);
   const canUsePortal = typeof document !== 'undefined' && Boolean(document.body);
@@ -918,8 +999,8 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
       >
         <canvas
           ref={canvasRef}
-          width={CAPTURE_WIDTH}
-          height={CAPTURE_HEIGHT}
+          width={thumbnailWidth}
+          height={thumbnailHeight}
           className={`block rounded ${ready ? 'opacity-100' : 'opacity-0'}`}
           style={{ width: displayWidth, height: displayHeight, objectFit: 'contain' }}
           aria-hidden

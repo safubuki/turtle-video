@@ -147,6 +147,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 beforeEach(() => {
@@ -162,6 +163,103 @@ beforeEach(() => {
 });
 
 describe('ClipThumbnail', () => {
+  it.each([
+    { type: 'image' as const, isIosSafari: false, hover: false },
+    { type: 'video' as const, isIosSafari: false, hover: true },
+    { type: 'video' as const, isIosSafari: true, hover: false },
+  ])('$type の倍率を取得中・取得後に変更すると描画と拡大表示へ反映する（iOS: $isIosSafari）', async ({ type, isIosSafari, hover }) => {
+    getPlatformCapabilitiesMock.mockReturnValue({ isIosSafari });
+    installMatchMediaMock(hover);
+    const { createElementSpy } = installVideoElementMock();
+    vi.stubGlobal('Image', class {
+      onload: (() => void) | null = null;
+      naturalWidth = 1920;
+      naturalHeight = 1080;
+      set src(_value: string) {
+        queueMicrotask(() => this.onload?.());
+      }
+    });
+    const contexts = new Map<HTMLCanvasElement, {
+      drawImage: ReturnType<typeof vi.fn>;
+      scale: ReturnType<typeof vi.fn>;
+    }>();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+      if (!contexts.has(this)) {
+        contexts.set(this, { drawImage: vi.fn(), scale: vi.fn() });
+      }
+      return {
+        ...contexts.get(this),
+        clearRect: vi.fn(), fillRect: vi.fn(), save: vi.fn(), restore: vi.fn(), translate: vi.fn(), rotate: vi.fn(),
+      } as unknown as CanvasRenderingContext2D;
+    });
+    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockImplementation(function (this: HTMLCanvasElement) {
+      return `data:image/jpeg;base64,snapshot-${contexts.get(this)?.drawImage.mock.calls.length ?? 0}`;
+    });
+    const createUrlSpy = vi.spyOn(URL, 'createObjectURL');
+    const file = new File(['media'], type === 'video' ? 'clip.mp4' : 'photo.png');
+    const thumbnail = (scale: number) => <ClipThumbnail {...{ file, type, scale }} sourceTime={0} />;
+    const { container, rerender } = render(thumbnail(0.5));
+    // 最初のデコードが終わる前に変更しても、最新の倍率で表示する。
+    rerender(thumbnail(2));
+    const canvas = container.querySelector('canvas')!;
+    await waitFor(() => expect(canvas).toHaveClass('opacity-100'));
+    const displayDraw = contexts.get(canvas)!.drawImage;
+    const expectScale = (scale: number) => {
+      const calls = contexts.get(canvas)!.scale.mock.calls;
+      const baseScale = Math.min(canvas.width / 1920, canvas.height / 1080);
+      expect(calls[calls.length - 1]).toEqual([baseScale * scale, baseScale * scale]);
+      expect(displayDraw.mock.calls[displayDraw.mock.calls.length - 1]?.slice(1)).toEqual([-960, -540, 1920, 1080]);
+    };
+    expectScale(2);
+
+    const trigger = screen.getByRole('button', { name: hover ? /マウスオーバーで拡大/ : 'サムネイルを拡大表示' });
+    if (hover) fireEvent.mouseEnter(trigger);
+    else fireEvent.click(trigger);
+    const preview = screen.getByTestId(hover ? 'clip-thumbnail-hover-preview' : 'clip-thumbnail-lightbox');
+    const countVideos = () => createElementSpy.mock.calls.filter((call: unknown[]) => call[0] === 'video').length;
+    const videoCount = countVideos();
+    const urlCount = createUrlSpy.mock.calls.length;
+
+    for (const scale of [4, 1, 0.5, 2]) {
+      const previousSnapshot = preview.querySelector('img')!.src;
+      rerender(thumbnail(scale));
+      await waitFor(() => expectScale(scale));
+      expect(preview.querySelector('img')!.src).not.toBe(previousSnapshot);
+      expect(canvas).toHaveClass('opacity-100');
+    }
+    // 取得処理のデバウンス期間を過ぎても、倍率変更では再デコードしない。
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 220)); });
+    expect(countVideos()).toBe(videoCount);
+    expect(createUrlSpy).toHaveBeenCalledTimes(urlCount);
+  });
+
+  it('画像の取得に失敗した代替アイコンは、拡大縮小しても等倍を保つ', async () => {
+    vi.stubGlobal('Image', class {
+      onerror: (() => void) | null = null;
+      set src(_value: string) {
+        queueMicrotask(() => this.onerror?.());
+      }
+    });
+    vi.stubGlobal('createImageBitmap', undefined);
+    const originalGetContext = HTMLCanvasElement.prototype.getContext;
+    const displayDraws = new Map<HTMLCanvasElement, ReturnType<typeof vi.fn>>();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+      if (!displayDraws.has(this)) displayDraws.set(this, vi.fn());
+      return { ...originalGetContext.call(this, '2d'), drawImage: displayDraws.get(this) } as unknown as CanvasRenderingContext2D;
+    });
+    const file = new File(['broken'], 'broken.png', { type: 'image/png' });
+    const { container, rerender } = render(<ClipThumbnail file={file} type="image" scale={4} />);
+    const canvas = container.querySelector('canvas')!;
+    await waitFor(() => expect(canvas).toHaveClass('opacity-100'));
+    rerender(<ClipThumbnail file={file} type="image" scale={0.5} />);
+    const calls = displayDraws.get(canvas)!.mock.calls;
+    expect(calls).toHaveLength(2);
+    for (const call of calls) {
+      // アイコン本来の12:7比率を保ち、16:9出力枠の中央へ収める。
+      expect(call.slice(1)).toEqual([6, 0, 324, 189]);
+    }
+  });
+
   it('トリムを連続変更しても前のサムネイルを消さず、再キャプチャをまとめる', async () => {
     const { createElementSpy } = installVideoElementMock();
     const file = new File(['video'], 'stable-thumbnail.mp4', { type: 'video/mp4' });

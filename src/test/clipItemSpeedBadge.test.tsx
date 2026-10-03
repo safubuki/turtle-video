@@ -10,7 +10,11 @@ import type { MediaItem } from '../types';
 import { DEFAULT_SPEED_BADGE_POSITION } from '../utils/playbackSpeed';
 
 vi.mock('../components/common/ClipThumbnail', () => ({
-  default: () => <div data-testid="clip-thumbnail" />,
+  default: ({ scale, positionX, positionY, rotation }: {
+    scale?: number; positionX?: number; positionY?: number; rotation?: number;
+  }) => (
+    <div data-testid="clip-thumbnail" data-scale={scale} data-position-x={positionX} data-position-y={positionY} data-rotation={rotation} />
+  ),
 }));
 
 vi.mock('../components/common/MiniPreview', () => ({
@@ -101,6 +105,29 @@ function openPlaybackSpeed() {
 }
 
 describe('ClipItem 速度バッジ', () => {
+  it.each(['video', 'image'] as const)('%s カードの倍率をサムネイルへ渡し、変更・リセットに追従する', (type) => {
+    const createItem = type === 'video' ? createVideo : createImage;
+    const { rerender, props } = renderClipItem({ item: createItem({ scale: 0.5 }) });
+    expect(screen.getByTestId('clip-thumbnail')).toHaveAttribute('data-scale', '0.5');
+    for (const scale of [2, 4, 1]) {
+      rerender(<ClipItem {...props} item={createItem({ scale })} />);
+      expect(screen.getByTestId('clip-thumbnail')).toHaveAttribute('data-scale', String(scale));
+    }
+  });
+
+  it.each(['video', 'image'] as const)('%s カードの位置・回転もサムネイルへ渡す', (type) => {
+    const createItem = type === 'video' ? createVideo : createImage;
+    const { rerender, props } = renderClipItem({ item: createItem({ positionX: 100, positionY: -50, rotation: 90 }) });
+    const thumbnail = screen.getByTestId('clip-thumbnail');
+    expect(thumbnail).toHaveAttribute('data-position-x', '100');
+    expect(thumbnail).toHaveAttribute('data-position-y', '-50');
+    expect(thumbnail).toHaveAttribute('data-rotation', '90');
+    rerender(<ClipItem {...props} item={createItem({ positionX: 0, positionY: 0, rotation: 0 })} />);
+    expect(thumbnail).toHaveAttribute('data-position-x', '0');
+    expect(thumbnail).toHaveAttribute('data-position-y', '0');
+    expect(thumbnail).toHaveAttribute('data-rotation', '0');
+  });
+
   it('等倍でもチェックでき、ON にすると位置設定が出る', () => {
     const onUpdateShowSpeedBadge = vi.fn();
     const { rerender, props } = renderClipItem({ onUpdateShowSpeedBadge });
