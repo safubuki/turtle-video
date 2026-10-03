@@ -4761,3 +4761,12 @@ export 終了（成功/失敗/中断）
 - **注意**: 13-255 の専用枠拡大と `scaleRef` は、構図を一致させるため元寸法からの描画と `transformRef` に置き換えた。変形・向き変更は取得effectへ入れず、最新値でキャッシュを再描画する。黒判定は変形前の全素材に対して行い、代替アイコンは変形しない。
 - **回帰ガード**: 実際の `MiniPreview` とサムネイルを並べ、画像／動画、素材4比率、横／縦出力、90度単位の回転とXY移動で、素材内の点の出力枠内座標を比較する。向き変更と変形でURL／デコーダが増えないことも確認する。
 
+### 13-257. 波形・位置スライダーは方向確定まで値変更を保留する（Issue #233）
+
+- **ファイル**: `src/utils/swipeGesture.ts`, `src/hooks/useSwipeProtectedValue.ts`, `src/components/SwipeProtectedSlider.tsx`, `src/components/media/TimelineWaveform.tsx`, `src/components/sections/PreviewSection.tsx`, `src/test/timelineWaveformComponent.test.tsx`, `src/test/timelineWaveformSeekLifecycle.test.tsx`, `src/test/useSwipeProtectedValue.test.tsx`, `src/test/swipeProtectedSlider.test.tsx`, `src/test/previewSectionActionButtons.test.tsx`
+- **問題**: 波形は touch の pointerdown で即時シークしていた。1-2 のスライダー保護も変更後に復元する方式で、上下スクロール中の瞬間的な値変更と副作用を止められなかった。
+- **対策**: 1-2 の復元処理を、方向判定まで変更を保留する処理へ置き換えた。共通15px閾値で縦優位なら破棄、横なら反映し、方向は固定。波形／プレビューのタップは終了時に反映し、一般スライダーの200ms条件は維持する。マウス／キーボードは即時。縦パン・ピンチを許可し、キャンセル・blur・複数指・無効化時は保留値を破棄する。
+- **注意**: 波形の横ドラッグで `onSeekToTime`（start/change/end全組）を毎move呼ぶと、再開準備中の次のstartで再生意図を失う。`onSeekStart` は横確定時に一度、`onSeekChange` は移動ごと、`onSeekEnd` は終了時に一度呼ぶ。保留タップは pointerup より後の touchend で反映するため、プレビューのstartも意図確定まで遅らせる。compat mouseイベントで再startしない。canvas→親のcapture移譲では子のlostcaptureがバブルするため、親自身の喪失だけを中断扱いにする。onSeekEndの関数参照変更でドラッグを破棄せず、cleanup用には最新callbackのrefを使う。
+- **対象 flavor**: 波形表示は **standard** の従来ゲートを維持。共通スライダー・プレビューUIの保護は **shared**。保存契約・デコード・exportエンジンは変更しない。
+- **回帰ガード**: 縦移動中にcallbackが一度も走らないこと、15px境界、短タップ、横ドラッグ、実pointerup→touchend順、キャンセル、二本指、capture移譲を確認。実standard controllerと接続し、20ms間隔の複数move後も最終位置から再生することを確認する。Chromeタッチ入力でも波形・プレビュー・共通スライダーの位置不変と実スクロールを検証済み。詳細は `Docs/reports/2026-10-03_issue-233-waveform-scroll.md`。
+

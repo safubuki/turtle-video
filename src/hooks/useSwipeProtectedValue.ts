@@ -5,98 +5,215 @@
  * @license GPL-3.0-or-later
  * @description スワイプ（スクロール）とスライダー操作（値変更）を区別し、誤操作を防ぐためのロジックを提供するカスタムフック。
  */
-import { useRef, useCallback, TouchEvent } from 'react';
+import { useRef, useCallback, useEffect, type ChangeEvent, type PointerEvent, type TouchEvent } from 'react';
+import { resolveSwipeDirection, SWIPE_DIRECTION_THRESHOLD_PX, type SwipeDirection } from '../utils/swipeGesture';
 
 interface SwipeProtectedHandlers {
+  onChange: (e: ChangeEvent<HTMLInputElement>) => void;
+  onPointerDown: (e: PointerEvent<HTMLInputElement>) => void;
+  onPointerCancel: (e: PointerEvent<HTMLInputElement>) => void;
+  onBlur: () => void;
   onTouchStart: (e: TouchEvent<HTMLInputElement>) => void;
   onTouchMove: (e: TouchEvent<HTMLInputElement>) => void;
   onTouchEnd: (e: TouchEvent<HTMLInputElement>) => void;
+  onTouchCancel: (e: TouchEvent<HTMLInputElement>) => void;
+}
+
+interface TouchSession {
+  startX: number;
+  startY: number;
+  startedAt: number;
+  direction: SwipeDirection;
+  pendingValue: number | null;
+  touchIdentifier: number | null;
+  cancelled: boolean;
 }
 
 /**
- * 誤タッチを検出して値を元に戻すフック
- * 
- * スライダー操作（横移動）と縦スクロールを区別：
- * - 縦移動が横移動より大きい → 縦スクロールの意図 → 値をリセット
- * - 横移動が縦移動より大きい → スライダー操作 → 値を維持
- * - タッチ時間が短すぎる場合も通りすがりと判断してリセット
+ * タッチ開始から方向が決まるまでは、ネイティブ range の値変更を保留する。
+ * 縦スクロールは値変更を一度も通知せず、横操作または許可されたタップだけ確定する。
+ * マウス・キーボード操作は従来どおり即時に通知する。
  */
 export function useSwipeProtectedValue(
   currentValue: number,
-  onRestore: (value: number) => void,
+  onValueChange: (value: number) => void,
   options: {
     minMovement?: number;      // 判定開始の最小移動量（px）
     minTouchDuration?: number; // 最小タッチ時間（ms）
+    disabled?: boolean;
+    /** 意図したタッチ操作を確定する直前に一度だけ開始を通知する。 */
+    onInteractionStart?: () => void;
   } = {}
 ): SwipeProtectedHandlers {
-  const { minMovement = 10, minTouchDuration = 80 } = options;
+  const {
+    minMovement = SWIPE_DIRECTION_THRESHOLD_PX,
+    minTouchDuration = 80,
+    disabled = false,
+    onInteractionStart,
+  } = options;
+  const sessionRef = useRef<TouchSession | null>(null);
+  const clearSession = useCallback(() => {
+    sessionRef.current = null;
+  }, []);
 
-  const startXRef = useRef<number>(0);
-  const startYRef = useRef<number>(0);
-  const startValueRef = useRef<number>(0);
-  const touchStartTimeRef = useRef<number>(0);
-  const isVerticalScrollRef = useRef<boolean>(false);
-  const directionDecidedRef = useRef<boolean>(false);
+  useEffect(() => {
+    window.addEventListener('blur', clearSession);
+    return () => window.removeEventListener('blur', clearSession);
+  }, [clearSession]);
+
+  useEffect(() => {
+    if (disabled) clearSession();
+  }, [clearSession, disabled]);
+
+  const beginTouch = useCallback((clientX: number, clientY: number) => {
+    sessionRef.current = {
+      startX: clientX,
+      startY: clientY,
+      startedAt: Date.now(),
+      direction: 'pending',
+      pendingValue: null,
+      touchIdentifier: null,
+      cancelled: false,
+    };
+  }, []);
+
+  const cancelSession = useCallback(() => {
+    const session = sessionRef.current;
+    if (!session) return;
+    session.cancelled = true;
+    session.pendingValue = null;
+  }, []);
+
+  const onPointerDown = useCallback((e: PointerEvent<HTMLInputElement>) => {
+    if (disabled) return;
+    if (e.pointerType !== 'touch') {
+      sessionRef.current = null;
+      return;
+    }
+    if (e.isPrimary === false) {
+      if (!sessionRef.current) beginTouch(e.clientX, e.clientY);
+      cancelSession();
+      return;
+    }
+    // range の最初の change が touchstart より先に届く場合にも保留する。
+    beginTouch(e.clientX, e.clientY);
+  }, [beginTouch, cancelSession, disabled]);
+
+  const onChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    if (disabled) return;
+    const nextValue = parseFloat(e.target.value);
+    const session = sessionRef.current;
+    if (!session || (!session.cancelled && session.direction === 'horizontal')) {
+      onValueChange(nextValue);
+      return;
+    }
+    if (!session.cancelled && session.direction === 'pending') {
+      session.pendingValue = nextValue;
+    }
+    // 保留中・縦スクロール中のネイティブつまみも確定値に留める。
+    e.currentTarget.value = String(currentValue);
+  }, [currentValue, disabled, onValueChange]);
 
   const onTouchStart = useCallback(
     (e: TouchEvent<HTMLInputElement>) => {
-      startXRef.current = e.touches[0].clientX;
-      startYRef.current = e.touches[0].clientY;
-      startValueRef.current = currentValue;
-      touchStartTimeRef.current = Date.now();
-      isVerticalScrollRef.current = false;
-      directionDecidedRef.current = false;
+      if (disabled) return;
+      if (e.touches.length !== 1) {
+        const firstTouch = e.touches[0];
+        if (!sessionRef.current && firstTouch) {
+          beginTouch(firstTouch.clientX, firstTouch.clientY);
+        }
+        cancelSession();
+        return;
+      }
+      const touch = e.touches[0];
+      if (!sessionRef.current) {
+        beginTouch(touch.clientX, touch.clientY);
+      }
+      // pointerdown から届いた保留値と開始座標は上書きしない。
+      sessionRef.current!.touchIdentifier = touch.identifier;
     },
-    [currentValue]
+    [beginTouch, cancelSession, disabled]
   );
 
   const onTouchMove = useCallback(
     (e: TouchEvent<HTMLInputElement>) => {
-      // 方向が既に決定済みの場合
-      if (directionDecidedRef.current) {
-        if (isVerticalScrollRef.current) {
-          // 縦スクロール中は値を戻し続ける
-          onRestore(startValueRef.current);
-        }
+      if (disabled) return;
+      const session = sessionRef.current;
+      if (!session) return;
+      if (e.touches.length !== 1) {
+        cancelSession();
         return;
       }
-
-      const deltaX = Math.abs(e.touches[0].clientX - startXRef.current);
-      const deltaY = Math.abs(e.touches[0].clientY - startYRef.current);
-
-      // 最小移動量を超えたら方向を判定
-      if (deltaX > minMovement || deltaY > minMovement) {
-        directionDecidedRef.current = true;
-
-        if (deltaY > deltaX) {
-          // 縦移動が横移動より大きい = 縦スクロールの意図
-          isVerticalScrollRef.current = true;
-          onRestore(startValueRef.current);
+      if (session.cancelled || session.direction !== 'pending') return;
+      const touch = e.touches[0];
+      if (session.touchIdentifier !== null && touch.identifier !== session.touchIdentifier) {
+        cancelSession();
+        return;
+      }
+      session.direction = resolveSwipeDirection(
+        touch.clientX - session.startX,
+        touch.clientY - session.startY,
+        minMovement,
+      );
+      if (session.direction === 'horizontal') {
+        onInteractionStart?.();
+        if (session.pendingValue !== null) {
+          const pendingValue = session.pendingValue;
+          session.pendingValue = null;
+          onValueChange(pendingValue);
         }
-        // 横移動が大きい場合はスライダー操作なので何もしない
+      } else if (session.direction === 'vertical') {
+        session.pendingValue = null;
       }
     },
-    [minMovement, onRestore]
+    [cancelSession, disabled, minMovement, onInteractionStart, onValueChange]
   );
 
   const onTouchEnd = useCallback(
-    (_e: TouchEvent<HTMLInputElement>) => {
-      const touchDuration = Date.now() - touchStartTimeRef.current;
-
-      if (isVerticalScrollRef.current) {
-        // 縦スクロール中だった場合は元の値を確定
-        onRestore(startValueRef.current);
-      } else if (touchDuration < minTouchDuration && !directionDecidedRef.current) {
-        // 移動がなく、タッチ時間が短すぎる = 通りすがりのタップ
-        onRestore(startValueRef.current);
+    (e: TouchEvent<HTMLInputElement>) => {
+      if (disabled) return;
+      const session = sessionRef.current;
+      if (!session) return;
+      if (e.touches.length > 0) {
+        cancelSession();
+        return;
       }
-      // それ以外は意図的なスライダー操作なので値を維持
-
-      isVerticalScrollRef.current = false;
-      directionDecidedRef.current = false;
+      sessionRef.current = null;
+      if (session.cancelled || session.direction !== 'pending' || session.pendingValue === null) return;
+      const touch = e.changedTouches[0];
+      const finalDirection = touch
+        ? resolveSwipeDirection(touch.clientX - session.startX, touch.clientY - session.startY, minMovement)
+        : 'pending';
+      if (finalDirection === 'vertical') return;
+      if (finalDirection === 'horizontal' || Date.now() - session.startedAt >= minTouchDuration) {
+        onInteractionStart?.();
+        onValueChange(session.pendingValue);
+      }
     },
-    [minTouchDuration, onRestore]
+    [cancelSession, disabled, minMovement, minTouchDuration, onInteractionStart, onValueChange]
   );
 
-  return { onTouchStart, onTouchMove, onTouchEnd };
+  const onTouchCancel = useCallback((e: TouchEvent<HTMLInputElement>) => {
+    if (e.touches.length > 0) {
+      cancelSession();
+    } else {
+      sessionRef.current = null;
+    }
+  }, [cancelSession]);
+
+  const onPointerCancel = useCallback((_e: PointerEvent<HTMLInputElement>) => {
+    // ブラウザが縦スクロールを引き継いでも touchend までは値変更を拒否する。
+    cancelSession();
+  }, [cancelSession]);
+
+  return {
+    onChange,
+    onPointerDown,
+    onPointerCancel,
+    onBlur: clearSession,
+    onTouchStart,
+    onTouchMove,
+    onTouchEnd,
+    onTouchCancel,
+  };
 }

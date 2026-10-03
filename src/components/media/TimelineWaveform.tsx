@@ -21,6 +21,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronsLeft, ChevronsRight, AudioLines } from 'lucide-react';
 import type { TimelineWaveformData } from '../../hooks/useTimelineWaveform';
+import { resolveSwipeDirection, type SwipeDirection } from '../../utils/swipeGesture';
 import {
   findAdjacentSilenceBoundary,
   resolveTimelinePlayheadPercent,
@@ -40,9 +41,22 @@ interface TimelineWaveformProps {
   disabled: boolean;
   /** 波形上の位置へシークする */
   onSeek: (time: number) => void;
+  /** 横ドラッグ全体を一回のシーク操作として扱う（3つを一緒に渡す）。 */
+  onSeekStart?: () => void;
+  onSeekChange?: (time: number) => void;
+  onSeekEnd?: () => void;
 }
 
 const WAVE_HEIGHT = 48;
+
+interface WaveformGesture {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  direction: SwipeDirection;
+  scrubbing: boolean;
+  lastSeekX?: number;
+}
 
 export const SILENCE_SOURCE_LABEL: Record<SilenceSourceTarget, string> = {
   narration: 'ナレーション',
@@ -61,11 +75,27 @@ const TimelineWaveform: React.FC<TimelineWaveformProps> = ({
   enabled,
   disabled,
   onSeek,
+  onSeekStart,
+  onSeekChange,
+  onSeekEnd,
 }) => {
   const { status, peaks, silences, resolvedSilenceSource } = waveform;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const gestureRef = useRef<WaveformGesture | null>(null);
+  const seekEndRef = useRef(onSeekEnd);
+  seekEndRef.current = onSeekEnd;
   const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    const cancel = () => {
+      const gesture = gestureRef.current;
+      gestureRef.current = null;
+      if (gesture?.scrubbing) seekEndRef.current?.();
+    };
+    if (disabled || !enabled || !peaks) cancel();
+    return cancel;
+  }, [disabled, enabled, peaks]);
 
   // コンテナ幅を監視する。シークバーと同じ親幅から算出するため、
   // 画面幅の変更やスマートフォン表示でも両者の横位置がずれない。
@@ -150,24 +180,108 @@ const TimelineWaveform: React.FC<TimelineWaveformProps> = ({
 
   /** 波形上の x 座標を時刻へ変換してシークする（シークバーと同じ 0〜幅 の対応）。 */
   const seekFromClientX = useCallback(
-    (clientX: number) => {
+    (clientX: number, scrubbing = false) => {
       const el = containerRef.current;
       if (!el || duration <= 0) return;
       const rect = el.getBoundingClientRect();
       if (rect.width <= 0) return;
       const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-      onSeek(ratio * duration);
+      const seek = scrubbing ? onSeekChange ?? onSeek : onSeek;
+      seek(ratio * duration);
     },
-    [duration, onSeek],
+    [duration, onSeek, onSeekChange],
   );
+
+  const beginScrub = useCallback((gesture: WaveformGesture) => {
+    if (gesture.scrubbing || !onSeekStart || !onSeekChange || !onSeekEnd) return;
+    gesture.scrubbing = true;
+    onSeekStart();
+  }, [onSeekStart, onSeekChange, onSeekEnd]);
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      if (disabled) return;
-      seekFromClientX(e.clientX);
+      if (disabled || e.button !== 0) return;
+      // 複数指のズームを位置指定として扱わない。
+      if (e.pointerType === 'touch' && !e.isPrimary) {
+        const gesture = gestureRef.current;
+        gestureRef.current = null;
+        if (gesture?.scrubbing) onSeekEnd?.();
+        return;
+      }
+      const isTouch = e.pointerType === 'touch';
+      gestureRef.current = {
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        direction: isTouch ? 'pending' : 'horizontal',
+        scrubbing: false,
+      };
+      // タッチは離すか横操作と確定するまで、シークの副作用を一切起こさない。
+      if (!isTouch) {
+        beginScrub(gestureRef.current);
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+        gestureRef.current.lastSeekX = e.clientX;
+        seekFromClientX(e.clientX, gestureRef.current.scrubbing);
+      }
     },
-    [disabled, seekFromClientX],
+    [beginScrub, disabled, seekFromClientX, onSeekEnd],
   );
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const gesture = gestureRef.current;
+      if (disabled || !gesture || gesture.pointerId !== e.pointerId) return;
+      if (gesture.direction === 'pending') {
+        gesture.direction = resolveSwipeDirection(
+          e.clientX - gesture.startX,
+          e.clientY - gesture.startY,
+        );
+        if (gesture.direction === 'horizontal') {
+          // 横ドラッグだけを捕捉する。縦パンはブラウザに任せ、pointercancel で破棄。
+          e.currentTarget.setPointerCapture?.(e.pointerId);
+        }
+      }
+      if (gesture.direction !== 'horizontal' || gesture.lastSeekX === e.clientX) return;
+      beginScrub(gesture);
+      gesture.lastSeekX = e.clientX;
+      seekFromClientX(e.clientX, gesture.scrubbing);
+    },
+    [beginScrub, disabled, seekFromClientX],
+  );
+
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const gesture = gestureRef.current;
+      if (!gesture || gesture.pointerId !== e.pointerId) return;
+      gestureRef.current = null;
+      // move を受け取れなかった場合も終了座標で方向を確認する。
+      const direction = gesture.direction === 'pending'
+        ? resolveSwipeDirection(e.clientX - gesture.startX, e.clientY - gesture.startY)
+        : gesture.direction;
+      if (!disabled && direction !== 'vertical' && gesture.lastSeekX !== e.clientX) {
+        if (direction === 'horizontal') beginScrub(gesture);
+        seekFromClientX(e.clientX, gesture.scrubbing);
+      }
+      if (gesture.scrubbing) onSeekEnd?.();
+      if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    },
+    [beginScrub, disabled, seekFromClientX, onSeekEnd],
+  );
+
+  const cancelPointerGesture = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const gesture = gestureRef.current;
+    if (gesture?.pointerId !== e.pointerId) return;
+    gestureRef.current = null;
+    if (gesture.scrubbing) onSeekEnd?.();
+  }, [onSeekEnd]);
+
+  const handleLostPointerCapture = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    // touch の暗黙 capture（canvas）から横ドラッグ用 capture（親）への移譲でも
+    // 子の lostpointercapture がバブルする。親自身の capture 喪失だけを終了扱いにする。
+    if (e.target === e.currentTarget) cancelPointerGesture(e);
+  }, [cancelPointerGesture]);
 
   // 移動候補には無音区間の開始・終了に加えて、動画の先頭（0秒）・末尾が含まれる。
   const prevBoundary = useMemo(
@@ -200,12 +314,16 @@ const TimelineWaveform: React.FC<TimelineWaveformProps> = ({
       <div
         ref={containerRef}
         onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={cancelPointerGesture}
+        onLostPointerCapture={handleLostPointerCapture}
         role="presentation"
         className={`relative w-full select-none overflow-hidden rounded ${
           disabled ? 'cursor-default opacity-60' : 'cursor-pointer'
         }`}
-        style={{ height: WAVE_HEIGHT }}
-        title="波形をタップするとその位置へ移動します"
+        style={{ height: WAVE_HEIGHT, touchAction: 'pan-y pinch-zoom' }}
+        title="波形をタップ・横にドラッグするとその位置へ移動します"
       >
         <canvas
           ref={canvasRef}

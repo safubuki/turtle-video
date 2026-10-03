@@ -5,7 +5,7 @@
  * @license GPL-3.0-or-later
  * @description スワイプ操作による誤動作を防止するためのカスタムスライダーコンポーネント。垂直方向のスクロールと水平方向のシーク操作を区別する。
  */
-import React, { useCallback } from 'react';
+import React from 'react';
 import { useSwipeProtectedValue } from '../hooks/useSwipeProtectedValue';
 
 interface SwipeProtectedSliderProps {
@@ -23,8 +23,8 @@ interface SwipeProtectedSliderProps {
  * 誤タッチ保護付きスライダー
  * 
  * スライダー操作（横移動）と縦スクロールを区別：
- * - 縦移動 > 横移動 → 縦スクロールと判断 → 値をリセット
- * - 横移動 > 縦移動 → スライダー操作 → 値を維持
+ * - 縦移動 > 横移動 → 縦スクロールと判断 → 値変更を通知しない
+ * - 横移動 > 縦移動 → スライダー操作 → 値変更を確定
  */
 export const SwipeProtectedSlider: React.FC<SwipeProtectedSliderProps> = ({
   value,
@@ -36,27 +36,14 @@ export const SwipeProtectedSlider: React.FC<SwipeProtectedSliderProps> = ({
   className = '',
   ariaLabel,
 }) => {
-  const handleRestore = useCallback(
-    (restoredValue: number) => {
-      onChange(restoredValue);
-    },
-    [onChange]
-  );
-
-  const { onTouchStart, onTouchMove, onTouchEnd } = useSwipeProtectedValue(
+  const handlers = useSwipeProtectedValue(
     value,
-    handleRestore,
+    onChange,
     {
       minMovement: 15,        // 15px以上動いたら方向を判定
       minTouchDuration: 200,  // 200ms未満の移動なしタッチは無視
+      disabled,
     }
-  );
-
-  const handleChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      onChange(parseFloat(e.target.value));
-    },
-    [onChange]
   );
 
   return (
@@ -66,13 +53,11 @@ export const SwipeProtectedSlider: React.FC<SwipeProtectedSliderProps> = ({
       max={max}
       step={step}
       value={value}
-      onChange={handleChange}
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
+      {...handlers}
       disabled={disabled}
       aria-label={ariaLabel}
       className={className}
+      style={{ touchAction: 'pan-y pinch-zoom' }}
     />
   );
 };

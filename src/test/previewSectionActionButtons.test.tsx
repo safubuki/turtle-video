@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import PreviewSection from '../components/sections/PreviewSection';
 import type { AppFlavor } from '../app/resolveAppFlavor';
@@ -763,6 +763,142 @@ describe('プレビューの現在位置表示（1/100 秒）', () => {
   it('現在位置には読み上げ用のラベルを付ける', () => {
     renderPreviewSection({ currentTime: 3.07, totalDuration: 15 });
     expect(screen.getByLabelText('現在位置 0:03.07')).toBeTruthy();
+  });
+});
+
+describe('プレビューシークバーのスクロール保護', () => {
+  const touch = (clientX: number, clientY: number) => ({ clientX, clientY, identifier: 1 });
+  const seekBar = () => screen.getByRole('slider', { name: 'プレビュー位置' });
+
+  it('上下スクロール中はシークを開始せず、再生位置も変更しない', () => {
+    const { props } = renderPreviewSection();
+    const slider = seekBar();
+    fireEvent.touchStart(slider, { touches: [touch(100, 100)] });
+    fireEvent.change(slider, { target: { value: 5 } });
+    expect(props.onSeekChange).not.toHaveBeenCalled();
+    fireEvent.touchMove(slider, { touches: [touch(103, 140)] });
+    fireEvent.change(slider, { target: { value: 7 } });
+    fireEvent.touchEnd(slider, { touches: [], changedTouches: [touch(103, 140)] });
+    expect(props.onSeekChange).not.toHaveBeenCalled();
+    expect(props.onSeekStart).not.toHaveBeenCalled();
+    expect(props.onSeekEnd).toHaveBeenCalledTimes(1);
+    expect(slider.style.touchAction).toBe('pan-y pinch-zoom');
+  });
+
+  it('短いタップでも離した時点にシークしてから終了を通知する', () => {
+    const calls: string[] = [];
+    const onSeekChange = vi.fn((e: React.ChangeEvent<HTMLInputElement>) => calls.push(e.target.value));
+    const onSeekEnd = vi.fn(() => calls.push('end'));
+    renderPreviewSection({ onSeekChange, onSeekEnd });
+    const slider = seekBar();
+    fireEvent.touchStart(slider, { touches: [touch(100, 100)] });
+    fireEvent.change(slider, { target: { value: 5 } });
+    expect(onSeekChange).not.toHaveBeenCalled();
+    fireEvent.touchEnd(slider, { touches: [], changedTouches: [touch(100, 100)] });
+    expect(calls).toEqual(['5', 'end']);
+  });
+
+  it('横操作でシークを開始し、以後の変更も通常どおり通知する', () => {
+    const { props } = renderPreviewSection();
+    const slider = seekBar();
+    fireEvent.touchStart(slider, { touches: [touch(100, 100)] });
+    fireEvent.change(slider, { target: { value: 5 } });
+    fireEvent.touchMove(slider, { touches: [touch(140, 103)] });
+    expect(props.onSeekChange).toHaveBeenCalledWith(expect.objectContaining({ target: { value: '5' } }));
+    fireEvent.change(slider, { target: { value: 7 } });
+    fireEvent.touchEnd(slider, { touches: [], changedTouches: [touch(140, 103)] });
+    expect(props.onSeekChange).toHaveBeenCalledTimes(2);
+    expect(props.onSeekEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('タッチのpointerdown直後の値変更を保留し、touchstartで失わない', () => {
+    const { props } = renderPreviewSection();
+    const slider = seekBar();
+    const pointer = createEvent.pointerDown(slider, { bubbles: true });
+    Object.defineProperties(pointer, {
+      pointerType: { value: 'touch' }, pointerId: { value: 1 }, isPrimary: { value: true },
+      clientX: { value: 100 }, clientY: { value: 100 },
+    });
+    fireEvent(slider, pointer);
+    fireEvent.change(slider, { target: { value: 5 } });
+    expect(props.onSeekChange).not.toHaveBeenCalled();
+    fireEvent.touchStart(slider, { touches: [touch(100, 100)] });
+    fireEvent.touchEnd(slider, { touches: [], changedTouches: [touch(100, 100)] });
+    expect(props.onSeekChange).toHaveBeenCalledWith(expect.objectContaining({ target: { value: '5' } }));
+    // 意図したタップとして値を確定する直前にだけ開始する。
+    expect(props.onSeekStart).toHaveBeenCalledTimes(1);
+    expect(props.onSeekEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('touchcancelでシークせず終了を通知し、次の通常操作を妨げない', () => {
+    const { props } = renderPreviewSection();
+    const slider = seekBar();
+    fireEvent.touchStart(slider, { touches: [touch(100, 100)] });
+    fireEvent.change(slider, { target: { value: 5 } });
+    fireEvent.touchCancel(slider, { touches: [], changedTouches: [touch(100, 100)] });
+    expect(props.onSeekChange).not.toHaveBeenCalled();
+    expect(props.onSeekEnd).toHaveBeenCalledTimes(1);
+    fireEvent.pointerDown(slider);
+    fireEvent.change(slider, { target: { value: 7 } });
+    fireEvent.pointerUp(slider);
+    expect(props.onSeekChange).toHaveBeenCalledWith(expect.objectContaining({ target: { value: '7' } }));
+    expect(props.onSeekStart).toHaveBeenCalledTimes(1);
+    expect(props.onSeekEnd).toHaveBeenCalledTimes(2);
+  });
+
+  it('マウス・キーボードのシークは即時に反映する', () => {
+    const { props } = renderPreviewSection();
+    const slider = seekBar();
+    fireEvent.pointerDown(slider);
+    fireEvent.change(slider, { target: { value: 5 } });
+    expect(props.onSeekChange).toHaveBeenCalledTimes(1);
+    fireEvent.pointerUp(slider);
+    fireEvent.keyDown(slider, { key: 'ArrowRight' });
+    fireEvent.change(slider, { target: { value: 5.01 } });
+    expect(props.onSeekChange).toHaveBeenCalledWith(expect.objectContaining({ target: { value: '5.01' } }));
+  });
+
+  it('pointercancelとblurで保留値を破棄しながらseek endを維持する', () => {
+    const { props } = renderPreviewSection();
+    const slider = seekBar();
+    fireEvent.touchStart(slider, { touches: [touch(100, 100)] });
+    fireEvent.change(slider, { target: { value: 5 } });
+    fireEvent.pointerCancel(slider);
+    fireEvent.change(slider, { target: { value: 7 } });
+    expect(props.onSeekChange).not.toHaveBeenCalled();
+    expect(props.onSeekEnd).toHaveBeenCalledTimes(1);
+    fireEvent.blur(slider);
+    fireEvent.touchEnd(slider, { touches: [], changedTouches: [touch(100, 100)] });
+    expect(props.onSeekChange).not.toHaveBeenCalled();
+    expect(props.onSeekEnd).toHaveBeenCalledTimes(3);
+  });
+
+  it('pointerupが先に来る実イベント順でもタップ確定を一組の開始・終了で包む', () => {
+    const calls: string[] = [];
+    renderPreviewSection({
+      onSeekStart: () => calls.push('start'),
+      onSeekChange: (e) => calls.push(e.target.value),
+      onSeekEnd: () => calls.push('end'),
+    });
+    const slider = seekBar();
+    const dispatchTouchPointer = (type: 'pointerdown' | 'pointerup') => {
+      const event = new Event(type, { bubbles: true });
+      Object.defineProperties(event, {
+        pointerType: { value: 'touch' }, pointerId: { value: 1 }, isPrimary: { value: true },
+        clientX: { value: 100 }, clientY: { value: 100 },
+      });
+      fireEvent(slider, event);
+    };
+    dispatchTouchPointer('pointerdown');
+    fireEvent.touchStart(slider, { touches: [touch(100, 100)] });
+    fireEvent.change(slider, { target: { value: 5 } });
+    dispatchTouchPointer('pointerup');
+    expect(calls).toEqual([]);
+    fireEvent.touchEnd(slider, { touches: [], changedTouches: [touch(100, 100)] });
+    expect(calls).toEqual(['start', '5', 'end']);
+    fireEvent.mouseDown(slider);
+    fireEvent.mouseUp(slider);
+    expect(calls).toEqual(['start', '5', 'end']);
   });
 });
 

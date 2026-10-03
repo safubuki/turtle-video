@@ -13,7 +13,7 @@
  * ここではデータを直接与えて UI の振る舞いだけを検証する。
  */
 import React from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TimelineWaveform from '../components/media/TimelineWaveform';
 import type { TimelineWaveformData } from '../hooks/useTimelineWaveform';
@@ -60,6 +60,36 @@ function getWaveformSurface(container: HTMLElement): HTMLElement {
   const el = container.querySelector('[role="presentation"]');
   if (!el) throw new Error('waveform surface not found');
   return el as HTMLElement;
+}
+
+function touchPointer(
+  surface: HTMLElement,
+  phase: 'down' | 'move' | 'up' | 'cancel' | 'lostcapture',
+  clientX: number,
+  clientY: number,
+  overrides: Partial<PointerEventInit> = {},
+) {
+  const options: PointerEventInit = {
+    pointerType: 'touch',
+    pointerId: 1,
+    isPrimary: true,
+    clientX,
+    clientY,
+    button: 0,
+    buttons: phase === 'up' || phase === 'cancel' ? 0 : 1,
+    ...overrides,
+  };
+  if (phase === 'lostcapture') {
+    fireEvent.lostPointerCapture(surface, options);
+  } else if (phase === 'down') {
+    fireEvent.pointerDown(surface, options);
+  } else if (phase === 'move') {
+    fireEvent.pointerMove(surface, options);
+  } else if (phase === 'up') {
+    fireEvent.pointerUp(surface, options);
+  } else {
+    fireEvent.pointerCancel(surface, options);
+  }
 }
 
 beforeEach(() => {
@@ -124,6 +154,238 @@ describe('TimelineWaveform の時間軸', () => {
     const { container, onSeek } = renderWaveform({ totalDuration: 20 });
     fireEvent.pointerDown(getWaveformSurface(container), { clientX: CONTAINER_WIDTH / 2 });
     expect(onSeek).toHaveBeenLastCalledWith(10);
+  });
+});
+
+describe('TimelineWaveform のスクロール誤操作防止（Issue #233）', () => {
+  it('指を置いた時点ではシークせず、短いタップの終了時に一度だけ移動する', () => {
+    const { container, onSeek } = renderWaveform();
+    const surface = getWaveformSurface(container);
+
+    touchPointer(surface, 'down', 250, 20);
+    expect(onSeek).not.toHaveBeenCalled();
+
+    touchPointer(surface, 'up', 250, 20);
+    expect(onSeek).toHaveBeenCalledTimes(1);
+    expect(onSeek).toHaveBeenCalledWith(5);
+  });
+
+  it('15px以内の指ぶれでは保留を維持し、離した時点でタップを反映する', () => {
+    const { container, onSeek } = renderWaveform();
+    const surface = getWaveformSurface(container);
+
+    touchPointer(surface, 'down', 250, 20);
+    touchPointer(surface, 'move', 265, 22);
+    expect(onSeek).not.toHaveBeenCalled();
+
+    touchPointer(surface, 'up', 265, 22);
+    expect(onSeek).toHaveBeenCalledTimes(1);
+    expect(onSeek.mock.calls[0][0]).toBeCloseTo(5.3);
+  });
+
+  it.each([40, -40])('縦スクロール（移動量 %ipx）は途中も指を離した後もシークしない', (dy) => {
+    const { container, onSeek } = renderWaveform();
+    const surface = getWaveformSurface(container);
+
+    touchPointer(surface, 'down', 250, 100);
+    expect(onSeek).not.toHaveBeenCalled();
+    touchPointer(surface, 'move', 255, 100 + dy);
+    expect(onSeek).not.toHaveBeenCalled();
+    touchPointer(surface, 'up', 255, 100 + dy);
+    expect(onSeek).not.toHaveBeenCalled();
+  });
+
+  it('縦スクロールと確定した後に横へ大きく動いてもシークへ切り替えない', () => {
+    const { container, onSeek } = renderWaveform();
+    const surface = getWaveformSurface(container);
+
+    touchPointer(surface, 'down', 100, 20);
+    touchPointer(surface, 'move', 102, 60);
+    expect(onSeek).not.toHaveBeenCalled();
+    touchPointer(surface, 'move', 400, 62);
+    touchPointer(surface, 'up', 400, 62);
+    expect(onSeek).not.toHaveBeenCalled();
+  });
+
+  it('moveが届かず離す時点で縦移動が判明した場合もシークしない', () => {
+    const { container, onSeek } = renderWaveform();
+    const surface = getWaveformSurface(container);
+
+    touchPointer(surface, 'down', 250, 20);
+    touchPointer(surface, 'up', 252, 60);
+    expect(onSeek).not.toHaveBeenCalled();
+  });
+
+  it('横シークと判定された後は移動中と終了時の位置を反映する', () => {
+    const { container, onSeek } = renderWaveform();
+    const surface = getWaveformSurface(container);
+
+    touchPointer(surface, 'down', 100, 20);
+    touchPointer(surface, 'move', 110, 21);
+    expect(onSeek).not.toHaveBeenCalled();
+    touchPointer(surface, 'move', 150, 22);
+    expect(onSeek).toHaveBeenLastCalledWith(3);
+    touchPointer(surface, 'move', 250, 23);
+    expect(onSeek).toHaveBeenLastCalledWith(5);
+    touchPointer(surface, 'up', 300, 23);
+    expect(onSeek).toHaveBeenLastCalledWith(6);
+  });
+
+  it('横と縦の移動量が等しいときは既存のシークバーと同じく横操作と判定する', () => {
+    const { container, onSeek } = renderWaveform();
+    const surface = getWaveformSurface(container);
+
+    touchPointer(surface, 'down', 100, 20);
+    touchPointer(surface, 'move', 120, 40);
+    expect(onSeek).toHaveBeenLastCalledWith(2.4);
+    touchPointer(surface, 'up', 150, 70);
+    expect(onSeek).toHaveBeenLastCalledWith(3);
+  });
+
+  it('横シーク確定後に縦方向へ指がぶれてもシークを継続する', () => {
+    const { container, onSeek } = renderWaveform();
+    const surface = getWaveformSurface(container);
+
+    touchPointer(surface, 'down', 100, 20);
+    touchPointer(surface, 'move', 130, 22);
+    expect(onSeek).toHaveBeenLastCalledWith(2.6);
+    touchPointer(surface, 'move', 150, 100);
+    expect(onSeek).toHaveBeenLastCalledWith(3);
+    touchPointer(surface, 'up', 200, 150);
+    expect(onSeek).toHaveBeenLastCalledWith(4);
+  });
+
+  it.each(['cancel', 'lostcapture'] as const)('%sで中断したタッチを後続のupで反映しない', (phase) => {
+    const { container, onSeek } = renderWaveform();
+    const surface = getWaveformSurface(container);
+
+    touchPointer(surface, 'down', 250, 20);
+    touchPointer(surface, phase, 250, 20);
+    touchPointer(surface, 'up', 250, 20);
+    expect(onSeek).not.toHaveBeenCalled();
+
+    // 中断後の新しいタップは受け付ける。
+    touchPointer(surface, 'down', 100, 20);
+    touchPointer(surface, 'up', 100, 20);
+    expect(onSeek).toHaveBeenCalledTimes(1);
+    expect(onSeek).toHaveBeenCalledWith(2);
+  });
+
+  it('canvasから親へcaptureを移す際の子要素のlostcaptureで横ドラッグを中断しない', () => {
+    const { container, onSeek } = renderWaveform();
+    const surface = getWaveformSurface(container);
+    const canvas = surface.querySelector('canvas')!;
+    const setPointerCapture = vi.fn();
+    const releasePointerCapture = vi.fn();
+    Object.defineProperties(surface, {
+      setPointerCapture: { value: setPointerCapture, configurable: true },
+      releasePointerCapture: { value: releasePointerCapture, configurable: true },
+      hasPointerCapture: { value: () => true, configurable: true },
+    });
+
+    // 実際のタッチはcanvasに暗黙captureされ、横操作の確定時に親がcaptureを引き継ぐ。
+    touchPointer(canvas, 'down', 100, 20);
+    touchPointer(surface, 'move', 150, 22);
+    expect(onSeek).toHaveBeenLastCalledWith(3);
+    expect(setPointerCapture).toHaveBeenCalledWith(1);
+
+    // canvasのcapture喪失が親へbubbleしても、親のドラッグは継続する。
+    touchPointer(canvas, 'lostcapture', 150, 22);
+    touchPointer(surface, 'move', 250, 23);
+    expect(onSeek).toHaveBeenLastCalledWith(5);
+    expect(releasePointerCapture).not.toHaveBeenCalled();
+    touchPointer(surface, 'up', 300, 23);
+    expect(onSeek).toHaveBeenLastCalledWith(6);
+    expect(releasePointerCapture).toHaveBeenCalledWith(1);
+  });
+
+  it('操作途中でdisabledになったときは保留したタップを破棄する', () => {
+    const { container, onSeek, rerender } = renderWaveform();
+    const surface = getWaveformSurface(container);
+    const props = {
+      waveform: readyData(), totalDuration: TOTAL_DURATION, currentTime: 0, enabled: true, onSeek,
+    };
+
+    touchPointer(surface, 'down', 250, 20);
+    rerender(<TimelineWaveform {...props} disabled />);
+    rerender(<TimelineWaveform {...props} disabled={false} />);
+    touchPointer(surface, 'up', 250, 20);
+    expect(onSeek).not.toHaveBeenCalled();
+  });
+
+  it('追加の指が触れたら単独タップを破棄し、二本指操作でシークしない', () => {
+    const { container, onSeek } = renderWaveform();
+    const surface = getWaveformSurface(container);
+
+    touchPointer(surface, 'down', 250, 20);
+    touchPointer(surface, 'down', 300, 20, { pointerId: 2, isPrimary: false });
+    touchPointer(surface, 'move', 400, 20, { pointerId: 2, isPrimary: false });
+    touchPointer(surface, 'up', 400, 20, { pointerId: 2, isPrimary: false });
+    touchPointer(surface, 'up', 250, 20);
+    expect(onSeek).not.toHaveBeenCalled();
+  });
+
+  it('開始した指と別のpointerIdによるmove/upをシークへ反映しない', () => {
+    const { container, onSeek } = renderWaveform();
+    const surface = getWaveformSurface(container);
+
+    touchPointer(surface, 'down', 250, 20);
+    touchPointer(surface, 'move', 400, 20, { pointerId: 2, isPrimary: false });
+    touchPointer(surface, 'up', 400, 20, { pointerId: 2, isPrimary: false });
+    expect(onSeek).not.toHaveBeenCalled();
+    touchPointer(surface, 'up', 250, 20);
+    expect(onSeek).toHaveBeenCalledWith(5);
+  });
+
+  it('波形の外へ横ドラッグしてもpointer captureを保ち、0〜全長に丸める', () => {
+    const { container, onSeek } = renderWaveform();
+    const surface = getWaveformSurface(container);
+    const setPointerCapture = vi.fn();
+    const releasePointerCapture = vi.fn();
+    Object.defineProperties(surface, {
+      setPointerCapture: { value: setPointerCapture, configurable: true },
+      releasePointerCapture: { value: releasePointerCapture, configurable: true },
+      hasPointerCapture: { value: () => true, configurable: true },
+    });
+
+    touchPointer(surface, 'down', 250, 20);
+    touchPointer(surface, 'move', -100, 21);
+    expect(setPointerCapture).toHaveBeenCalledWith(1);
+    expect(onSeek).toHaveBeenLastCalledWith(0);
+    touchPointer(surface, 'move', 700, 22);
+    expect(onSeek).toHaveBeenLastCalledWith(TOTAL_DURATION);
+    touchPointer(surface, 'up', 700, 22);
+    expect(onSeek).toHaveBeenLastCalledWith(TOTAL_DURATION);
+  });
+
+  it('マウスは押した位置へ即座にシークし、ドラッグ中と終了時も位置を反映する', () => {
+    const { container, onSeek } = renderWaveform();
+    const surface = getWaveformSurface(container);
+    const mouse = { pointerType: 'mouse', pointerId: 3, isPrimary: true, button: 0 };
+
+    fireEvent.pointerDown(surface, { ...mouse, buttons: 1, clientX: 100, clientY: 20 });
+    expect(onSeek).toHaveBeenLastCalledWith(2);
+    fireEvent.pointerMove(surface, { ...mouse, buttons: 1, clientX: 250, clientY: 20 });
+    expect(onSeek).toHaveBeenLastCalledWith(5);
+    fireEvent.pointerUp(surface, { ...mouse, buttons: 0, clientX: 400, clientY: 20 });
+    expect(onSeek).toHaveBeenLastCalledWith(8);
+  });
+
+  it('縦スクロールとピンチ操作を許可し、タッチイベントの既定動作を妨げない', () => {
+    const { container, onSeek } = renderWaveform();
+    const surface = getWaveformSurface(container);
+    const down = createEvent.pointerDown(surface, {
+      pointerType: 'touch', pointerId: 1, isPrimary: true, clientX: 250, clientY: 20, cancelable: true,
+    });
+    const move = createEvent.pointerMove(surface, {
+      pointerType: 'touch', pointerId: 1, isPrimary: true, clientX: 252, clientY: 60, cancelable: true,
+    });
+    fireEvent(surface, down);
+    fireEvent(surface, move);
+    expect(surface.style.touchAction).toBe('pan-y pinch-zoom');
+    expect(down.defaultPrevented).toBe(false);
+    expect(move.defaultPrevented).toBe(false);
+    expect(onSeek).not.toHaveBeenCalled();
   });
 });
 

@@ -352,21 +352,33 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
 
   // シークバーは特殊な start/end ライフサイクルがあるため SwipeProtectedSlider は使わず、
   // 同じ誤操作防止フックを合成する。タップでの位置ジャンプは許可（minTouchDuration=0）。
-  const restoreSeekOnVerticalScroll = useCallback(
-    (restoredTime: number) => {
+  const touchSeekStartedRef = useRef(false);
+  const startProtectedTouchSeek = useCallback(() => {
+    touchSeekStartedRef.current = true;
+    onSeekStart();
+  }, [onSeekStart]);
+  const applyProtectedSeekValue = useCallback(
+    (seekTime: number) => {
       onSeekChange({
-        target: { value: String(restoredTime) },
+        target: { value: String(seekTime) },
       } as React.ChangeEvent<HTMLInputElement>);
     },
     [onSeekChange],
   );
   const {
+    onChange: swipeSeekChange,
+    onPointerDown: swipeSeekPointerDown,
+    onPointerCancel: swipeSeekPointerCancel,
+    onBlur: swipeSeekBlur,
     onTouchStart: swipeSeekTouchStart,
     onTouchMove: swipeSeekTouchMove,
     onTouchEnd: swipeSeekTouchEnd,
-  } = useSwipeProtectedValue(currentTime, restoreSeekOnVerticalScroll, {
+    onTouchCancel: swipeSeekTouchCancel,
+  } = useSwipeProtectedValue(currentTime, applyProtectedSeekValue, {
     minMovement: 15,
     minTouchDuration: 0,
+    disabled: mediaItems.length === 0 || isProcessing,
+    onInteractionStart: startProtectedTouchSeek,
   });
 
   // canvas.width / canvas.height をセットすると内容がクリアされるので、
@@ -808,30 +820,44 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
             // 刻みを細かくしてもデコーダへの負荷は増えない。
             step="0.01"
             value={currentTime}
-            onChange={onSeekChange}
-            onPointerDown={onSeekStart}
-            onMouseDown={onSeekStart}
-            onTouchStart={(e) => {
-              swipeSeekTouchStart(e);
-              onSeekStart();
+            onChange={swipeSeekChange}
+            onPointerDown={(e) => {
+              swipeSeekPointerDown(e);
+              if (e.pointerType === 'touch') {
+                if (e.isPrimary !== false) touchSeekStartedRef.current = false;
+              } else {
+                onSeekStart();
+              }
             }}
+            onTouchStart={swipeSeekTouchStart}
             onTouchMove={swipeSeekTouchMove}
-            onPointerUp={onSeekEnd}
-            onPointerCancel={onSeekEnd}
-            onMouseUp={onSeekEnd}
+            onPointerUp={(e) => {
+              // タップの値は touchend で確定するため、それより先に終了しない。
+              if (e.pointerType !== 'touch' || touchSeekStartedRef.current) onSeekEnd();
+            }}
+            onPointerCancel={(e) => {
+              swipeSeekPointerCancel(e);
+              if (e.pointerType !== 'touch' || touchSeekStartedRef.current) onSeekEnd();
+            }}
             onTouchEnd={(e) => {
               swipeSeekTouchEnd(e);
               onSeekEnd();
+              touchSeekStartedRef.current = false;
             }}
             onTouchCancel={(e) => {
-              swipeSeekTouchEnd(e);
+              swipeSeekTouchCancel(e);
               onSeekEnd();
+              touchSeekStartedRef.current = false;
             }}
-            onBlur={onSeekEnd}
+            onBlur={() => {
+              swipeSeekBlur();
+              onSeekEnd();
+              touchSeekStartedRef.current = false;
+            }}
             className="absolute top-0 w-full h-full cursor-pointer z-10"
             // グローバルな input[type=range]:disabled { opacity: 0.5 } より
             // inline を優先し、書き出し中にネイティブつまみが見えないようにする。
-            style={{ opacity: 0 }}
+            style={{ opacity: 0, touchAction: 'pan-y pinch-zoom' }}
             disabled={mediaItems.length === 0 || isProcessing}
             aria-label="プレビュー位置"
           />
@@ -856,6 +882,9 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
           enabled={supportsTimelineWaveform && mediaItems.length > 0}
           disabled={isProcessing}
           onSeek={onSeekToTime}
+          onSeekStart={onSeekStart}
+          onSeekChange={applyProtectedSeekValue}
+          onSeekEnd={onSeekEnd}
         />
 
         <div className="mt-4 flex justify-center gap-4 border-b border-gray-800 pb-6">
