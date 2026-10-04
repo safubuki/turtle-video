@@ -16,7 +16,7 @@ body {
   z-index: 240;
   right: max(0.75rem, env(safe-area-inset-right));
   bottom: calc(0.75rem + env(safe-area-inset-bottom) + var(--floating-preview-offset, 0px));
-  width: min(20rem, calc(100vw - 1.5rem));
+  width: min(18rem, calc(100vw - 1.5rem));
   overflow: hidden;
 }
 
@@ -25,11 +25,28 @@ body {
   max-height: max(4rem, min(28dvh, calc(100dvh - 16rem - var(--floating-preview-offset, 0px))));
 }
 
+/* 見た目だけを小さくし、ボタン本体の44pxのタッチ領域は維持する。 */
+.floating-preview-control {
+  position: relative;
+  isolation: isolate;
+}
+
+.floating-preview-control::before {
+  content: '';
+  position: absolute;
+  inset: 0.25rem 0.125rem;
+  z-index: -1;
+  border: 1px solid rgb(75 85 99 / 65%);
+  border-radius: 0.5rem;
+  background: rgb(31 41 55 / 55%);
+  pointer-events: none;
+}
+
 @media (max-height: 500px) {
   .floating-preview-panel {
     top: calc(4.5rem + env(safe-area-inset-top));
     bottom: auto;
-    width: min(32rem, calc(100vw - 1.5rem));
+    width: min(29rem, calc(100vw - 1.5rem));
   }
   .floating-preview-content {
     display: grid;
@@ -38,7 +55,7 @@ body {
   .floating-preview-frame {
     aspect-ratio: auto;
     max-height: none;
-    height: 5rem;
+    height: 4.5rem;
   }
 }
 

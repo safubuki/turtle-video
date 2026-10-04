@@ -4809,3 +4809,12 @@ export 終了（成功/失敗/中断）
 - **注意**: 再開準備フラグはキャンセルでfalseになるため、解除後に読み取ってはならない。明示停止・手動クローズ・exportで解除した再生意図を復活させない。UIのisPlayingだけから再開を決めない。iOS Safariの共有UIラッパーによる自動再開禁止（`wasPlayingBeforeSeekRef=false`）を維持する。波形ドラッグのstart/change/end分離と15px方向判定（13-257）は維持し、legacy controllerは変更しない。
 - **対象 flavor**: 両flavorのseek controllerで準備中の引き継ぎを揃える。Canvasの描画、exportエンジン、保存契約、再生時計、待機時間と新規リソース生成は変更しない。
 - **回帰ガード**: 実ミニボタンと両controllerを接続した14件で20ms連打、交互操作、移動の累積、最新位置からの再開1回、停止中の連打、明示停止の優先、遅いデコーダ、iOS再開禁止、残留タイマーなしを検証。実Chromeでも修正前の停止を再現し、修正後は連打後の映像と時計の進行、停止・クローズ・末尾でのUI同期、同一Canvasと解像度を確認。詳細は `Docs/reports/2026-10-04_issue-236-mini-preview-seek-repeat.md`。
+
+### 13-262. ミニプレビューの小型化では見た目とタッチ領域を分ける（Issue #236 追加調整）
+
+- **ファイル**: `src/components/common/FloatingPreview.tsx`, `src/index.css`
+- **目的**: 実スマホ利用後の要望に合わせ、編集欄を覆う面積と操作ボタンの見た目を少し抑える。
+- **対策**: 通常の最大幅320px→288px、画面高500px以下の横並び最大幅512px→464px、映像高さ80px→72px。操作欄の余白・間隔を8px→6px、アイコンを20px→18px／16px→14pxへ縮小。ボタン本体は44pxを保ち、疑似要素の背景だけを高さ36pxにして背景・枠線を薄くする。
+- **注意**: パネル全体のtransformやopacityで縮小・透過するとタッチ領域や映像の見え方を変えるため使わない。疑似要素はpointer-events:noneとし、透明な余白でもボタンを押せるようにする。シークの44px領域、フォーカス表示、safe area、タイミング打ちバーの回避を保つ。Canvasのbacking解像度と13-260／261の再生・シーク・復元処理は変更しない。
+- **対象 flavor**: standard / apple-safari共通UI。描画・exportエンジンと保存契約は変更なし。
+- **検証**: 関連35件、型チェック、ビルド成功。UX監査は前後ともerror 0／warning 0／info 9。Chromeの390×844、320×568、844×390で収まり・44px操作領域・同一Canvasと解像度を確認。背景外の透明な余白から再生／一時停止でき、縦向き映像も確認。実機の今回の見た目は未確認。詳細は `Docs/reports/2026-10-04_issue-236-mini-preview-compact.md`。

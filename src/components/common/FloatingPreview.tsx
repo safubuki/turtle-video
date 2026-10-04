@@ -29,7 +29,7 @@ interface FloatingPreviewProps {
 }
 
 const BUTTON =
-  'h-11 min-w-11 rounded-xl border border-gray-600 bg-gray-800 text-gray-100 flex items-center justify-center gap-1 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-300';
+  'floating-preview-control h-11 min-w-11 rounded-lg text-gray-200 flex items-center justify-center gap-1 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-300';
 
 /** 表示と操作だけ。映像／音声要素や独自の描画時計は持たない。 */
 const FloatingPreview: React.FC<FloatingPreviewProps> = ({
@@ -81,7 +81,7 @@ const FloatingPreview: React.FC<FloatingPreviewProps> = ({
               className="h-11 w-11 flex items-center justify-center rounded-xl text-gray-200 focus-visible:outline-2 focus-visible:outline-blue-300"
               aria-label="ミニプレビューを閉じる"
             >
-              <X className="h-5 w-5" />
+              <X className="h-4.5 w-4.5" strokeWidth={1.75} />
             </button>
           </div>
           <div
@@ -96,7 +96,7 @@ const FloatingPreview: React.FC<FloatingPreviewProps> = ({
             )}
           </div>
         </div>
-        <div className="p-2">
+        <div className="p-1.5">
           <div className="flex justify-between text-xs font-mono text-gray-300">
             <span>{formatTimeCentiseconds(currentTime)}</span>
             <span>{formatTimeCentiseconds(totalDuration)}</span>
@@ -112,7 +112,7 @@ const FloatingPreview: React.FC<FloatingPreviewProps> = ({
             ariaLabel="ミニプレビュー位置"
             className="block w-full h-11 text-blue-300"
           />
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-4 gap-1.5">
             <button
               type="button"
               className={BUTTON}
@@ -120,7 +120,7 @@ const FloatingPreview: React.FC<FloatingPreviewProps> = ({
               disabled={isLoading || currentTime <= 0}
               aria-label="5秒戻る"
             >
-              <RotateCcw className="h-4 w-4" />
+              <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.75} />
               <span className="text-xs">5</span>
             </button>
             <button
@@ -130,7 +130,11 @@ const FloatingPreview: React.FC<FloatingPreviewProps> = ({
               disabled={isLoading}
               aria-label={isPlaying ? 'ミニプレビューを一時停止' : 'ミニプレビューを再生'}
             >
-              {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+              {isPlaying ? (
+                <Pause className="h-4.5 w-4.5" strokeWidth={1.75} />
+              ) : (
+                <Play className="h-4.5 w-4.5" strokeWidth={1.75} />
+              )}
             </button>
             <button
               type="button"
@@ -139,7 +143,7 @@ const FloatingPreview: React.FC<FloatingPreviewProps> = ({
               disabled={isLoading}
               aria-label="ミニプレビューを停止"
             >
-              <Square className="h-4 w-4 fill-current" />
+              <Square className="h-3.5 w-3.5 fill-current" />
             </button>
             <button
               type="button"
@@ -149,7 +153,7 @@ const FloatingPreview: React.FC<FloatingPreviewProps> = ({
               aria-label="5秒進む"
             >
               <span className="text-xs">5</span>
-              <RotateCw className="h-4 w-4" />
+              <RotateCw className="h-3.5 w-3.5" strokeWidth={1.75} />
             </button>
           </div>
         </div>
