@@ -282,11 +282,13 @@ export function usePreviewSeekController({
   ]);
 
   const handleSeekStart = useCallback(() => {
+    // 再開準備中は実再生のrefがfalseでも再生意図がある。待機を解除する前に引き継ぐ。
+    const shouldResumeAfterSeek = isPlayingRef.current || isSeekPlaybackPreparingRef.current;
     cancelPendingSeekPlaybackPrepare();
     cancelPendingPausedSeekWait();
     if (isSeekingRef.current) return;
 
-    wasPlayingBeforeSeekRef.current = isPlayingRef.current;
+    wasPlayingBeforeSeekRef.current = shouldResumeAfterSeek;
     isSeekingRef.current = true;
     previewPlaybackAttemptRef.current += 1;
     attachGlobalSeekEndListeners();
@@ -316,6 +318,7 @@ export function usePreviewSeekController({
     cancelPendingPausedSeekWait,
     cancelPendingSeekPlaybackPrepare,
     isPlayingRef,
+    isSeekPlaybackPreparingRef,
     isSeekingRef,
     mediaElementsRef,
     playbackTimeoutRef,

@@ -10,6 +10,38 @@ body {
   overscroll-behavior-y: none;
 }
 
+/* Issue #236: 同じ Canvas の表示枠だけを切り替える。backing 解像度は変えない。 */
+.floating-preview-panel {
+  position: fixed;
+  z-index: 240;
+  right: max(0.75rem, env(safe-area-inset-right));
+  bottom: calc(0.75rem + env(safe-area-inset-bottom) + var(--floating-preview-offset, 0px));
+  width: min(20rem, calc(100vw - 1.5rem));
+  overflow: hidden;
+}
+
+.floating-preview-frame {
+  aspect-ratio: 16 / 9;
+  max-height: max(4rem, min(28dvh, calc(100dvh - 16rem - var(--floating-preview-offset, 0px))));
+}
+
+@media (max-height: 500px) {
+  .floating-preview-panel {
+    top: calc(4.5rem + env(safe-area-inset-top));
+    bottom: auto;
+    width: min(32rem, calc(100vw - 1.5rem));
+  }
+  .floating-preview-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .floating-preview-frame {
+    aspect-ratio: auto;
+    max-height: none;
+    height: 5rem;
+  }
+}
+
 /* カスタムスクロールバー */
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;

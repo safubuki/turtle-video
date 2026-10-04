@@ -14,6 +14,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { createPortal, flushSync } from 'react-dom';
 import {
   Play,
   Pause,
@@ -48,9 +49,11 @@ import { useCanvasStore } from '../../stores/canvasStore';
 import type { AspectRatio } from '../../stores/canvasStore';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import ThumbnailZoomPreview from '../common/ThumbnailZoomPreview';
+import FloatingPreview from '../common/FloatingPreview';
+import PreviewSeekSlider from '../common/PreviewSeekSlider';
 import TimelineWaveform from '../media/TimelineWaveform';
 import type { TimelineWaveformData } from '../../hooks/useTimelineWaveform';
-import { useSwipeProtectedValue } from '../../hooks/useSwipeProtectedValue';
+import { useFloatingPreview } from '../../hooks/useFloatingPreview';
 import {
   canAttemptAlphaWebmExport,
   resolveCaptionLayerFormatDescriptor,
@@ -168,6 +171,12 @@ interface PreviewSectionProps {
   /** 波形データ（TurtleVideo が生成し、キャプションのタイミング打ちバーとも共有する） */
   timelineWaveform: TimelineWaveformData;
   onTogglePlay: () => void;
+  /** 再生時計の最新値を基準にした相対シーク（Issue #236）。 */
+  onSeekBy?: (seconds: number) => void;
+  onDismissFloatingPreview?: () => void;
+  floatingPreviewBlocked?: boolean;
+  floatingPreviewBottomObstructionRef?: RefObject<HTMLDivElement | null>;
+  floatingPreviewBottomObstructionActive?: boolean;
   onStop: () => void;
   onExport: () => void;
   onDownload: () => void;
@@ -220,6 +229,11 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   supportsTimelineWaveform,
   timelineWaveform,
   onTogglePlay,
+  onSeekBy,
+  onDismissFloatingPreview,
+  floatingPreviewBlocked = false,
+  floatingPreviewBottomObstructionRef,
+  floatingPreviewBottomObstructionActive = false,
   onStop,
   onExport,
   onDownload,
@@ -243,6 +257,63 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   const log = useLogStore.getState();
   const canvasWidth = useCanvasStore((s) => s.width);
   const canvasHeight = useCanvasStore((s) => s.height);
+  const normalPreviewRef = useRef<HTMLDivElement>(null);
+  const floatingCanvasHostRef = useRef<HTMLDivElement>(null);
+  const floatingButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreFloatingFocusRef = useRef(false);
+  const retreatingForExportRef = useRef(false);
+  // Portal の対象自体を変えると Canvas が再生成される。対象は固定し、その親だけ移す。
+  const [canvasContainer] = useState(() => {
+    const element = document.createElement('div');
+    Object.assign(element.style, { position: 'absolute', inset: '0', width: '100%', height: '100%' });
+    return element;
+  });
+  const floating = useFloatingPreview(
+    normalPreviewRef,
+    mediaItems.length > 0 && totalDuration > 0 && !isProcessing && !floatingPreviewBlocked,
+    floatingPreviewBottomObstructionRef,
+    floatingPreviewBottomObstructionActive,
+  );
+  const isProcessingRef = useRef(isProcessing);
+  isProcessingRef.current = isProcessing;
+  const closeFloatingPreview = useCallback(() => {
+    // 手動で閉じる場合だけ一時停止する。画面内復帰や export による自動退避とは分ける。
+    onDismissFloatingPreview?.();
+    restoreFloatingFocusRef.current = true;
+    floating.close();
+  }, [onDismissFloatingPreview, floating.close]);
+  const finishFloatingSeek = useCallback(() => {
+    // export の開始で slider が外れる際、seek の復帰処理から再生を開始させない。
+    if (!isProcessingRef.current && !retreatingForExportRef.current) onSeekEnd();
+  }, [onSeekEnd]);
+  const exportFromPreview = useCallback(() => {
+    if (floating.isOpen) {
+      retreatingForExportRef.current = true;
+      try {
+        // 高速な export でも処理開始前に UI を外し、同じ Canvas を通常枠へ戻す。
+        flushSync(() => floating.close());
+      } finally {
+        retreatingForExportRef.current = false;
+      }
+    } else {
+      // 通常枠で一時非表示の間も、書き出し後にミニが自動復元しないよう意図を解除。
+      floating.close();
+    }
+    onExport();
+  }, [floating.isOpen, floating.close, onExport]);
+  const seekFloatingBy = (seconds: number) => {
+    if (onSeekBy) onSeekBy(seconds);
+    else onSeekToTime(Math.max(0, Math.min(totalDuration, currentTime + seconds)));
+  };
+  useLayoutEffect(() => {
+    const host = floating.isOpen ? floatingCanvasHostRef.current : normalPreviewRef.current;
+    if (host && canvasContainer.parentElement !== host) host.prepend(canvasContainer);
+    if (!floating.isOpen && restoreFloatingFocusRef.current) {
+      restoreFloatingFocusRef.current = false;
+      floatingButtonRef.current?.focus({ preventScroll: true });
+    }
+  }, [canvasContainer, floating.isOpen]);
+  useLayoutEffect(() => () => { canvasContainer.remove(); }, [canvasContainer]);
   const [isVideoOutputOptionsOpen, setIsVideoOutputOptionsOpen] = useState(false);
   const canAlphaWebm = useMemo(() => canAttemptAlphaWebmExport(), []);
   /**
@@ -350,13 +421,6 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     onExportOutputOptionsChange({ ...exportOutputOptions, includeSubtitles });
   }, [areVideoOutputOptionsLocked, exportOutputOptions, onExportOutputOptionsChange]);
 
-  // シークバーは特殊な start/end ライフサイクルがあるため SwipeProtectedSlider は使わず、
-  // 同じ誤操作防止フックを合成する。タップでの位置ジャンプは許可（minTouchDuration=0）。
-  const touchSeekStartedRef = useRef(false);
-  const startProtectedTouchSeek = useCallback(() => {
-    touchSeekStartedRef.current = true;
-    onSeekStart();
-  }, [onSeekStart]);
   const applyProtectedSeekValue = useCallback(
     (seekTime: number) => {
       onSeekChange({
@@ -365,21 +429,6 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     },
     [onSeekChange],
   );
-  const {
-    onChange: swipeSeekChange,
-    onPointerDown: swipeSeekPointerDown,
-    onPointerCancel: swipeSeekPointerCancel,
-    onBlur: swipeSeekBlur,
-    onTouchStart: swipeSeekTouchStart,
-    onTouchMove: swipeSeekTouchMove,
-    onTouchEnd: swipeSeekTouchEnd,
-    onTouchCancel: swipeSeekTouchCancel,
-  } = useSwipeProtectedValue(currentTime, applyProtectedSeekValue, {
-    minMovement: 15,
-    minTouchDuration: 0,
-    disabled: mediaItems.length === 0 || isProcessing,
-    onInteractionStart: startProtectedTouchSeek,
-  });
 
   // canvas.width / canvas.height をセットすると内容がクリアされるので、
   // 実際にサイズが変わるときだけ書き換える（毎レンダリングでの再代入を避ける）。
@@ -593,7 +642,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     </button>
   ) : exportButtonState === 'processing' ? (
     <button
-      onClick={onExport}
+      onClick={exportFromPreview}
       disabled
       className="flex-1 max-w-xs flex items-center justify-center gap-2 px-6 py-2.5 lg:py-3 rounded-full text-sm lg:text-base font-bold shadow-lg transition bg-gray-700 text-gray-400 cursor-wait"
     >
@@ -602,7 +651,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     </button>
   ) : (
     <button
-      onClick={onExport}
+      onClick={exportFromPreview}
       disabled={mediaItems.length === 0}
       className="flex-1 max-w-xs flex items-center justify-center gap-2 px-6 py-2.5 lg:py-3 rounded-full text-sm lg:text-base font-bold shadow-lg transition bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20"
     >
@@ -654,6 +703,8 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
         </div>
       </div>
       <div
+        ref={normalPreviewRef}
+        data-testid="normal-preview-canvas"
         className={
           canvasHeight > canvasWidth
             // 縦(9:16): 高さ上限つきで中央に収める（画面が縦長になりすぎないよう max-height を設定）。
@@ -662,10 +713,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
             : 'relative aspect-video bg-black w-full group'
         }
       >
-        <canvas
-          ref={canvasRef}
-          className="w-full h-full object-contain"
-        />
+        {createPortal(<canvas ref={canvasRef} className="w-full h-full object-contain" />, canvasContainer)}
         {mediaItems.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <MonitorPlay className="w-12 h-12 lg:w-16 lg:h-16 text-gray-800" />
@@ -809,57 +857,18 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
               ))}
             </div>
           </div>
-          <input
-            type="range"
-            min="0"
-            max={totalDuration || 0.1}
-            // 表示を 1/100 秒にしたので、刻みも合わせて 0.01 秒にする。
-            // step="0.1" のままだと、つまみを動かしても 0.1 秒単位でしか値が変わらず
-            // 「動かしているのに表示が飛ぶ」ことになる。
-            // シーク自体は SEEK_THROTTLE_MS と seeked 完了駆動で間引かれるため、
-            // 刻みを細かくしてもデコーダへの負荷は増えない。
-            step="0.01"
-            value={currentTime}
-            onChange={swipeSeekChange}
-            onPointerDown={(e) => {
-              swipeSeekPointerDown(e);
-              if (e.pointerType === 'touch') {
-                if (e.isPrimary !== false) touchSeekStartedRef.current = false;
-              } else {
-                onSeekStart();
-              }
-            }}
-            onTouchStart={swipeSeekTouchStart}
-            onTouchMove={swipeSeekTouchMove}
-            onPointerUp={(e) => {
-              // タップの値は touchend で確定するため、それより先に終了しない。
-              if (e.pointerType !== 'touch' || touchSeekStartedRef.current) onSeekEnd();
-            }}
-            onPointerCancel={(e) => {
-              swipeSeekPointerCancel(e);
-              if (e.pointerType !== 'touch' || touchSeekStartedRef.current) onSeekEnd();
-            }}
-            onTouchEnd={(e) => {
-              swipeSeekTouchEnd(e);
-              onSeekEnd();
-              touchSeekStartedRef.current = false;
-            }}
-            onTouchCancel={(e) => {
-              swipeSeekTouchCancel(e);
-              onSeekEnd();
-              touchSeekStartedRef.current = false;
-            }}
-            onBlur={() => {
-              swipeSeekBlur();
-              onSeekEnd();
-              touchSeekStartedRef.current = false;
-            }}
+          <PreviewSeekSlider
+            currentTime={currentTime}
+            totalDuration={totalDuration}
+            onSeekChange={onSeekChange}
+            onSeekStart={onSeekStart}
+            onSeekEnd={onSeekEnd}
             className="absolute top-0 w-full h-full cursor-pointer z-10"
             // グローバルな input[type=range]:disabled { opacity: 0.5 } より
             // inline を優先し、書き出し中にネイティブつまみが見えないようにする。
             style={{ opacity: 0, touchAction: 'pan-y pinch-zoom' }}
             disabled={mediaItems.length === 0 || isProcessing}
-            aria-label="プレビュー位置"
+            ariaLabel="プレビュー位置"
           />
           {mediaItems.length > 0 && (
             <div
@@ -1188,6 +1197,37 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
           )}
         </div>
       </div>
+      {floating.available && !floating.isOpen && createPortal(
+        <button
+          ref={floatingButtonRef}
+          type="button"
+          onClick={floating.open}
+          className="fixed z-[240] h-12 w-12 rounded-full border-2 border-blue-300 bg-blue-600 text-white shadow-lg flex items-center justify-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-300"
+          style={{
+            right: 'max(0.75rem, env(safe-area-inset-right))',
+            bottom: `calc(0.75rem + env(safe-area-inset-bottom) + ${floating.bottomOffset}px)`,
+          }}
+          aria-label="ミニプレビューを開く"
+          title="ここでプレビュー"
+        ><MonitorPlay className="h-6 w-6" /></button>,
+        document.body,
+      )}
+      {floating.isOpen && <FloatingPreview
+        canvasHostRef={floatingCanvasHostRef}
+        currentTime={currentTime}
+        totalDuration={totalDuration}
+        isPlaying={isPlaying}
+        isLoading={isLoading}
+        bottomOffset={floating.bottomOffset}
+        focusOnMount={floating.focusOnOpen}
+        onTogglePlay={onTogglePlay}
+        onStop={onStop}
+        onSeekBy={seekFloatingBy}
+        onSeekChange={onSeekChange}
+        onSeekStart={onSeekStart}
+        onSeekEnd={finishFloatingSeek}
+        onClose={closeFloatingPreview}
+      />}
     </section>
   );
 };

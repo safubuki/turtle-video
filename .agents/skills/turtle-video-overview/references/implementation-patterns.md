@@ -4789,3 +4789,23 @@ export 終了（成功/失敗/中断）
 - **対象 flavor**: タイミング打ち UI は **standard**。描画判定は standard と apple-safari のプレビューで同じ。
 - **回帰ガード**: セッションの延長 ID、元の終了時刻の保持、両エンジンの実 Canvas（終了超過・終了フェード・他キャプション・通常表示・書き出し）を検証。
 
+
+### 13-260. スマホの追従プレビューは既存Canvasとcontrollerを共有する（Issue #236）
+
+- **ファイル**: `src/hooks/useFloatingPreview.ts`, `src/components/common/FloatingPreview.tsx`, `src/components/common/PreviewSeekSlider.tsx`, `src/components/sections/PreviewSection.tsx`, `src/components/TurtleVideo.tsx`, `src/components/sections/CaptionSection.tsx`, `src/test/floatingPreview.test.tsx`
+- **目的**: スマホの編集位置を保ったまま映像を確認し、通常表示／書き出しに補助の描画・デコード負荷を増やさない。
+- **対策**: Portalの対象コンテナを一定に保ち、その親だけ通常／ミニ表示枠へ移す。既存Canvas・context・解像度・video/audio・controllerを共有し、コピーCanvas、captureStream、rAF、interval、独自時計を追加しない。1024px未満・素材あり・通常映像画面外・非export時だけ補助UIを利用できる。入口から明示操作で開き、通常映像が見える間は開いていた意図を保持して一時非表示にする。画面外へ戻るとボタンを経由せずパネルを復元する。
+- **注意**: Portalのtargetやkeyを表示先ごとに切り替えるとCanvasが再生成されるため禁止。移動はReactが管理するCanvas自体ではなく、portal対象のコンテナへ行う。Canvasのwidth/heightを開閉で設定しない。通常表示枠の寸法を保持してIntersectionObserverの判定対象とし、移動したCanvas自身を監視しない。書き出しボタンは、開いているミニをflushSyncで先に外し同じCanvasを戻してから既存onExportを呼ぶ。export時のslider解除でonSeekEndから再生を復帰させない。
+- **操作と配置**: 手動の×／EscapeだけstopAll＋pauseで現在位置を保持する。通常映像の画面内復帰／exportによる退避では停止コールバックを呼ばない。手動終了後は自動復元せず、自動復元時は入力欄のフォーカスを維持する。シークは13-257の共通入力を使い、±5秒はcurrentTimeRef基準の既存相対シークで0〜総尺へ制限する。タイミング打ちバーは必要時だけResizeObserverで実測し、その高さを避ける。短い横画面では見出し＋映像と操作を横並びにする。開いていた意図は通常映像の可視性だけでは解除せず、export中／モーダル／非対象幅／素材消失／バックグラウンドでは解除する。不要なリスナー・監視も外す。
+- **対象 flavor**: 共通UIとしてstandard / apple-safari。描画・exportエンジンと保存契約は変更しない。タイミング打ちの一時表示も同じCanvasへ描かれるため13-258／259をそのまま反映する。
+- **回帰ガード**: 21件で状態遷移、自動復元と編集フォーカス維持、手動終了や一時非表示中の利用条件消失による意図の解除、5秒移動と短い尺の境界、StrictModeと繰返し開閉のCanvas同一性／サイズ不変、二重メディア・描画タイマーなし、実測高さ、export開始前の退避、アンマウント中のシーク、タッチ保護を検証。実Chromeの縦横・小型サイズとFHD音声付きexportも確認。詳細は `Docs/reports/2026-10-04_issue-236-floating-preview.md`。
+
+
+### 13-261. 連続シークは再開準備中の再生意図をキャンセル前に引き継ぐ（Issue #236 追加修正）
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewSeekController.ts`, `src/flavors/apple-safari/preview/usePreviewSeekController.ts`, `src/test/previewSeekResumeIntent.test.tsx`
+- **問題**: ミニの5秒戻る／進むを再生中に素早く連打すると、動画は停止したままUIは一時停止ボタンを表示した。再開準備中の `isPlayingRef=false` を次の `handleSeekStart` が記録し、再生意図を失っていた。
+- **対策**: `cancelPendingSeekPlaybackPrepare()` より前に `isPlayingRef.current || isSeekPlaybackPreparingRef.current` を記録し、次のシークの `wasPlayingBeforeSeekRef` へ引き継ぐ。既存の最新 `currentTimeRef` による相対移動、待機キャンセル、世代管理、最後の位置からの映像・音声再同期を維持する。
+- **注意**: 再開準備フラグはキャンセルでfalseになるため、解除後に読み取ってはならない。明示停止・手動クローズ・exportで解除した再生意図を復活させない。UIのisPlayingだけから再開を決めない。iOS Safariの共有UIラッパーによる自動再開禁止（`wasPlayingBeforeSeekRef=false`）を維持する。波形ドラッグのstart/change/end分離と15px方向判定（13-257）は維持し、legacy controllerは変更しない。
+- **対象 flavor**: 両flavorのseek controllerで準備中の引き継ぎを揃える。Canvasの描画、exportエンジン、保存契約、再生時計、待機時間と新規リソース生成は変更しない。
+- **回帰ガード**: 実ミニボタンと両controllerを接続した14件で20ms連打、交互操作、移動の累積、最新位置からの再開1回、停止中の連打、明示停止の優先、遅いデコーダ、iOS再開禁止、残留タイマーなしを検証。実Chromeでも修正前の停止を再現し、修正後は連打後の映像と時計の進行、停止・クローズ・末尾でのUI同期、同一Canvasと解像度を確認。詳細は `Docs/reports/2026-10-04_issue-236-mini-preview-seek-repeat.md`。

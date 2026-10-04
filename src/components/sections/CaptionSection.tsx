@@ -177,6 +177,8 @@ interface CaptionSectionProps {
    * null は延長なし。保存しない。
    */
   onStampHoldOpenChange?: (captionId: string | null) => void;
+  /** ミニプレビューが固定バーの実際の高さを避けるための参照（Issue #236）。 */
+  stampBarRef?: React.RefObject<HTMLDivElement | null>;
   // 動画タイトル（キャプションとは別管理）
   onUpdateVideoTitle: (updates: Partial<VideoTitleSettings>) => void;
   onSetVideoTitleRange: (startTime: number, endTime: number, totalDuration?: number) => void;
@@ -254,6 +256,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   onUpdateCaptionLive,
   onStampPreviewChange,
   onStampHoldOpenChange,
+  stampBarRef,
   isPlaying,
   onTogglePlay,
   onSeekBy,
@@ -1281,7 +1284,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
 
       {/* タイミング打ちバー v2（画面下部固定・動画を見ながら押せる） */}
       {stampActive && stampTarget && (
-        <div className="fixed bottom-0 inset-x-0 z-[250] bg-gray-900/95 border-t border-yellow-600/40 backdrop-blur px-3 py-2 shadow-2xl">
+        <div ref={stampBarRef} className="fixed bottom-0 inset-x-0 z-[250] bg-gray-900/95 border-t border-yellow-600/40 backdrop-blur px-3 py-2 shadow-2xl">
           <div className="max-w-3xl mx-auto space-y-1.5">
             {/* 情報行: 対象ナビ + 再生位置 + 終了 */}
             <div className="flex items-center gap-1.5">

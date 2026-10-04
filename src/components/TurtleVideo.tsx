@@ -527,6 +527,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const captionsRef = useRef(captions);
   // Issue #237: タイミング打ちの表示対象はセッション中のプレビューだけに適用する。
   const [previewCaptionIds, setPreviewCaptionIds] = useState<ReadonlySet<string> | null>(null);
+  const captionStampBarRef = useRef<HTMLDivElement>(null);
   const previewCaptionIdsRef = useRef<ReadonlySet<string> | null>(null);
   // Issue #247: 終了未確定の対象だけ、プレビュー上で保存済み endTime を超えて表示する。
   const [stampHoldOpenCaptionId, setStampHoldOpenCaptionId] = useState<string | null>(null);
@@ -3613,11 +3614,19 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     handleSeekEnd();
   }, [handleSeekChange, handleSeekEnd, handleSeekStart]);
 
-  // --- タイミング打ち用の相対シーク ---
-  // 目的: タイミング打ちバーの「-1s / +1s」からシークバーと同じ経路でプレビュー位置を動かす
+  // --- タイミング打ち／ミニプレビュー共通の相対シーク ---
+  // UI に間引いて公開する時刻ではなく、再生時計の最新値を基準にする。
   const handleStampSeekBy = useCallback((deltaSec: number) => {
     handleSeekToTime(currentTimeRef.current + deltaSec);
   }, [handleSeekToTime]);
+
+  const handleDismissFloatingPreview = useCallback(() => {
+    if (isProcessing) return;
+    if (isPlayingRef.current || isSeekingRef.current || isSeekPlaybackPreparingRef.current) {
+      stopAll();
+      pause();
+    }
+  }, [isProcessing, isPlayingRef, stopAll, pause]);
 
   // --- 無音区間ナビゲーション（Issue #217） ---
   // プレビューの波形とキャプションのタイミング打ちバーが同じ検出結果を使うよう、
@@ -4552,6 +4561,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onUpdateCaptionLive={updateCaption}
               onStampPreviewChange={handleStampPreviewChange}
               onStampHoldOpenChange={handleStampHoldOpenChange}
+              stampBarRef={captionStampBarRef}
               onSetFontSizeCustom={withPreviewPause('set-caption-font-size-custom', setCaptionFontSizeCustom)}
               onSetPositionCustom={withPreviewPause('set-caption-position-custom', setCaptionPositionCustom)}
               videoTitle={videoTitle}
@@ -4590,6 +4600,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
                 supportsTimelineWaveform={supportsTimelineWaveform}
                 timelineWaveform={timelineWaveform}
                 onTogglePlay={togglePlay}
+                onSeekBy={handleStampSeekBy}
+                onDismissFloatingPreview={handleDismissFloatingPreview}
+                floatingPreviewBlocked={showAiModal || showSettings || showProjectManager || editingNarrationId !== null || activeHelpSection !== null}
+                floatingPreviewBottomObstructionRef={captionStampBarRef}
+                floatingPreviewBottomObstructionActive={previewCaptionIds !== null}
                 onStop={handleStop}
                 onExport={handleExport}
                 onDownload={handleDownload}
