@@ -18,7 +18,7 @@ import {
   ChevronRight,
   SlidersHorizontal,
 } from 'lucide-react';
-import type { ClipTransition, MediaItem } from '../../types';
+import type { ClipTransition, MediaItem, MediaZoomDirection } from '../../types';
 import ClipItem from '../media/ClipItem';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
@@ -26,6 +26,7 @@ import { getAppFlavorUiCapabilities } from '../../app/appFlavorUi';
 import { useMediaStore } from '../../stores/mediaStore';
 import { useCanvasStore } from '../../stores/canvasStore';
 import type { AspectRatio } from '../../stores/canvasStore';
+import { resolveMediaScaleFactor, type MediaTransformResetKind, type MediaZoomEndpointPreview } from '../../utils/mediaZoom';
 import {
   CLIP_TRANSITION_DEFAULT_DURATION,
   CLIP_TRANSITION_DURATION_OPTIONS,
@@ -180,10 +181,17 @@ interface ClipsSectionProps {
   onUpdateImageDuration: (id: string, value: string) => void;
   onSetImageEndFromCurrent?: (id: string) => void;
   onUpdateMediaScale: (id: string, value: string | number) => void;
+  onUpdateMediaZoomDirection: (id: string, direction: MediaZoomDirection) => void;
+  onUpdateMediaZoomAmount: (id: string, amount: number) => void;
+  onUpdateMediaZoomEndpoint?: (id: string, endpoint: 'start' | 'end', scale: number) => void;
+  onPreviewMediaZoomEndpoint?: (id: string, endpoint: 'start' | 'end') => void;
+  zoomEndpointPreview?: MediaZoomEndpointPreview | null;
+  onInheritMediaZoom?: (id: string) => void;
+  onSplitMedia?: (id: string) => void;
   onUpdateMediaPosition: (id: string, axis: 'x' | 'y', value: string) => void;
   onRotateMedia: (id: string) => void;
   onUpdateMediaBlur: (id: string, value: number) => void;
-  onResetMediaSetting: (id: string, type: 'scale' | 'x' | 'y' | 'rotation' | 'blur') => void;
+  onResetMediaSetting: (id: string, type: MediaTransformResetKind) => void;
   onUpdateMediaVolume: (id: string, value: number) => void;
   onToggleMediaMute: (id: string) => void;
   onBeforeTransitionEdit: () => void;
@@ -233,6 +241,13 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   onUpdateImageDuration,
   onSetImageEndFromCurrent,
   onUpdateMediaScale,
+  onUpdateMediaZoomDirection,
+  onUpdateMediaZoomAmount,
+  onUpdateMediaZoomEndpoint,
+  onPreviewMediaZoomEndpoint,
+  zoomEndpointPreview,
+  onInheritMediaZoom,
+  onSplitMedia,
   onUpdateMediaPosition,
   onRotateMedia,
   onUpdateMediaBlur,
@@ -278,8 +293,9 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   const prevSectionCountRef = useRef(mediaItems.length);
   const prevSectionEpochRef = useRef(clipListRestoreEpoch);
   const focusId = useMemo(
-    () => resolveFocusedClipId(mediaItems, currentTime),
-    [mediaItems, currentTime],
+    () => !isPlaying && !isExporting && zoomEndpointPreview && mediaItems.some((item) => item.id === zoomEndpointPreview.id)
+      ? zoomEndpointPreview.id : resolveFocusedClipId(mediaItems, currentTime),
+    [mediaItems, currentTime, zoomEndpointPreview, isPlaying, isExporting],
   );
   const [disclosure, setDisclosure] = useState<ClipCardDisclosureState>(() => (
     createInitialClipCardDisclosure(isExporting ? null : resolveFocusedClipId(mediaItems, currentTime))
@@ -553,12 +569,13 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             currentTime={currentTime}
             index={i}
             totalItems={mediaItems.length}
-            isClipsLocked={isClipsLocked}
+            isClipsLocked={isClipsLocked || isExporting}
             mediaElement={mediaElements[v.id] || null}
             onMoveUp={() => onMoveMedia(i, 'up')}
             onMoveDown={() => onMoveMedia(i, 'down')}
             onDuplicate={canDuplicate ? () => duplicateMediaItem(v.id) : undefined}
             onAddContinuation={canDuplicate ? () => addContinuationMediaItem(v.id) : undefined}
+            onSplit={canDuplicate && onSplitMedia ? () => onSplitMedia(v.id) : undefined}
             onRemove={() => onRemoveMedia(v.id)}
             onToggleLock={() => onToggleMediaLock(v.id)}
             onToggleTransformPanel={() => onToggleTransformPanel(v.id)}
@@ -575,6 +592,13 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
                 : undefined
             }
             onUpdateScale={(value) => onUpdateMediaScale(v.id, value)}
+            onUpdateZoomDirection={(direction) => onUpdateMediaZoomDirection(v.id, direction)}
+            onUpdateZoomAmount={(amount) => onUpdateMediaZoomAmount(v.id, amount)}
+            onUpdateZoomEndpoint={onUpdateMediaZoomEndpoint ? (endpoint, scale) => onUpdateMediaZoomEndpoint(v.id, endpoint, scale) : undefined}
+            onPreviewZoomEndpoint={onPreviewMediaZoomEndpoint ? (endpoint) => onPreviewMediaZoomEndpoint(v.id, endpoint) : undefined}
+            zoomPreviewEndpoint={zoomEndpointPreview?.id === v.id ? zoomEndpointPreview.endpoint : undefined}
+            onInheritZoom={i > 0 && onInheritMediaZoom ? () => onInheritMediaZoom(v.id) : undefined}
+            previousZoomEndScale={i > 0 ? resolveMediaScaleFactor(mediaItems[i - 1], mediaItems[i - 1].duration) : undefined}
             onUpdatePosition={(axis, value) => onUpdateMediaPosition(v.id, axis, value)}
             onRotate={uiCapabilities.supportsMediaRotation ? () => onRotateMedia(v.id) : undefined}
             onUpdateBlur={

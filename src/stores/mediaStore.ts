@@ -12,7 +12,7 @@
  */
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import type { MediaItem, SpeedBadgeLabelStyle, VideoAudioNormalizeMode, VideoPlaybackSpeed } from '../types';
+import type { MediaItem, MediaZoomDirection, SpeedBadgeLabelStyle, VideoAudioNormalizeMode, VideoPlaybackSpeed } from '../types';
 import type { AspectRatio } from './canvasStore';
 import {
   createMediaItem,
@@ -24,7 +24,6 @@ import {
   clampMediaVolume,
   generateId,
   validateTrim,
-  validateScale,
   normalizeImageDuration,
   validatePosition,
   revokeObjectUrl,
@@ -36,6 +35,7 @@ import {
   resolveAutoProjectPosterAfterMediaChange,
   computeVideoTimelineDurationFromTrim,
   computeVideoContinuationTrim,
+  resolveVideoSplitSourceTime,
   normalizeVideoPlaybackSpeed,
   normalizeVideoAudioNormalizeMode,
   normalizeSpeedBadgeLabelStyle,
@@ -44,6 +44,16 @@ import {
   DEFAULT_SPEED_BADGE_LABEL_STYLE,
   DEFAULT_VIDEO_AUDIO_NORMALIZE_MODE,
 } from '../utils';
+import {
+  normalizeMediaZoomAmount,
+  normalizeMediaZoomDirection,
+  resolveMediaZoomRange,
+  resolveMediaScaleFactor,
+  createMediaZoomRangePatch,
+  createMediaStartScalePatch,
+  createMediaZoomHoldPatch,
+  type MediaTransformResetKind,
+} from '../utils/mediaZoom';
 import { useLogStore } from './logStore';
 
 export type ProjectPosterMode = 'auto' | 'manual';
@@ -117,6 +127,9 @@ interface MediaState {
   duplicateMediaItem: (id: string) => void;
   /** 現行クリップの終了から素材終端までの続きクリップを直後へ追加する */
   addContinuationMediaItem: (id: string) => void;
+  /** 表示時間内の現在位置で動画を分割。両端の倍率を補間し総尺を維持する。 */
+  splitMediaItem: (id: string, localTimeSec: number) => void;
+  inheritPreviousZoom: (id: string) => void;
   removeMediaItem: (id: string) => void;
   moveMediaItem: (index: number, direction: 'up' | 'down') => void;
   updateMediaItem: (id: string, updates: Partial<MediaItem>) => void;
@@ -162,12 +175,17 @@ interface MediaState {
 
   // Transform
   updateScale: (id: string, scale: number) => void;
+  /** 表示時間全体のズーム方向。none でも直前の量は残す */
+  updateZoomDirection: (id: string, direction: MediaZoomDirection) => void;
+  /** ズームの到達倍率（1.1〜1.5） */
+  updateZoomAmount: (id: string, amount: number) => void;
+  updateZoomEndpoint: (id: string, endpoint: 'start' | 'end', scale: number) => void;
   updatePosition: (id: string, axis: 'x' | 'y', value: number) => void;
   /** クリップの回転を 90 度単位で1段階進める（0→90→180→270→0 の巡回） */
   rotateClip: (id: string) => void;
   /** クリップ単位のぼかし強度を更新（0〜30px @1080p基準） */
   updateBlur: (id: string, blur: number) => void;
-  resetTransform: (id: string, type: 'scale' | 'x' | 'y' | 'rotation' | 'blur') => void;
+  resetTransform: (id: string, type: MediaTransformResetKind) => void;
   toggleTransformPanel: (id: string) => void;
 
   // Audio
@@ -358,6 +376,7 @@ export const useMediaStore = create<MediaState>()(
             }),
             thumbnailMode: thumbnail.thumbnailMode,
             thumbnailSourceTime: thumbnail.thumbnailSourceTime,
+            ...createMediaZoomHoldPatch(source),
           };
           useLogStore.getState().info('MEDIA', '続きクリップを追加', {
             sourceId: source.id,
@@ -701,13 +720,117 @@ export const useMediaStore = create<MediaState>()(
         });
       },
 
+      splitMediaItem: (id, localTimeSec) => {
+        set((state) => {
+          const index = state.mediaItems.findIndex((item) => item.id === id);
+          const source = state.mediaItems[index];
+          if (!source || source.type !== 'video' || source.isLocked || state.isClipsLocked
+            || !Number.isFinite(localTimeSec)) return state;
+          const splitTime = resolveVideoSplitSourceTime(source, localTimeSec);
+          if (splitTime == null) return state;
+          const range = resolveMediaZoomRange(source);
+          const splitScale = resolveMediaScaleFactor(source, localTimeSec);
+          const makeThumbnail = (trimStart: number, trimEnd: number) => {
+            const { thumbnailMode, thumbnailSourceTime } = resolveThumbnailAfterTrimChange({
+              mode: source.thumbnailMode ?? 'auto',
+              thumbnailSourceTime: source.thumbnailSourceTime,
+              sourceTrimStart: trimStart,
+              sourceTrimEnd: trimEnd,
+            });
+            return { thumbnailMode, thumbnailSourceTime };
+          };
+          const first: MediaItem = {
+            ...source,
+            trimEnd: splitTime,
+            duration: localTimeSec,
+            fadeOut: false,
+            transitionToNext: null,
+            ...makeThumbnail(source.trimStart, splitTime),
+            ...createMediaZoomRangePatch(range.start, splitScale),
+          };
+          const second: MediaItem = {
+            ...source,
+            id: generateId(),
+            url: URL.createObjectURL(source.file),
+            trimStart: splitTime,
+            duration: source.duration - localTimeSec,
+            fadeIn: false,
+            isLocked: false,
+            isTransformOpen: false,
+            ...makeThumbnail(splitTime, source.trimEnd),
+            ...createMediaZoomRangePatch(splitScale, range.end),
+          };
+          const updated = [...state.mediaItems.slice(0, index), first, second, ...state.mediaItems.slice(index + 1)];
+          const totalDuration = calculateTotalDuration(updated);
+          return {
+            mediaItems: updated,
+            totalDuration,
+            ...autoPosterPatchIfLeadingClipChanged(state, updated, totalDuration),
+          };
+        });
+      },
+
+      inheritPreviousZoom: (id) => {
+        set((state) => {
+          const index = state.mediaItems.findIndex((item) => item.id === id);
+          if (index <= 0 || state.isClipsLocked || state.mediaItems[index].isLocked) return state;
+          const patch = createMediaZoomHoldPatch(state.mediaItems[index - 1]);
+          return { mediaItems: state.mediaItems.map((item, i) => i === index ? { ...item, ...patch } : item) };
+        });
+      },
+
       // Transform - Scale
       updateScale: (id, scale) => {
-        const validated = validateScale(scale);
         set((state) => ({
-          mediaItems: state.mediaItems.map((item) =>
-            item.id === id ? { ...item, scale: validated } : item
-          ),
+          mediaItems: state.mediaItems.map((item) => {
+            if (item.id !== id || item.isLocked || state.isClipsLocked) return item;
+            return { ...item, ...createMediaStartScalePatch(item, scale) };
+          }),
+        }));
+      },
+
+      updateZoomDirection: (id, direction) => {
+        const zoomDirection = normalizeMediaZoomDirection(direction);
+        set((state) => ({
+          mediaItems: state.mediaItems.map((item) => {
+            if (item.id !== id || item.isLocked || state.isClipsLocked) return item;
+            const range = resolveMediaZoomRange(item);
+            if (zoomDirection === 'none') {
+              return { ...item, ...createMediaZoomRangePatch(range.start, range.start) };
+            }
+            const amount = Math.abs(range.end - range.start) < 1e-9
+              ? normalizeMediaZoomAmount(item.zoomAmount)
+              : Math.max(range.start, range.end) / Math.min(range.start, range.end);
+            return { ...item, ...createMediaZoomRangePatch(
+              range.start, zoomDirection === 'in' ? range.start * amount : range.start / amount,
+            ) };
+          }),
+        }));
+      },
+
+      updateZoomAmount: (id, amount) => {
+        const zoomAmount = normalizeMediaZoomAmount(amount);
+        set((state) => ({
+          mediaItems: state.mediaItems.map((item) => {
+            if (item.id !== id || item.isLocked || state.isClipsLocked) return item;
+            const { start } = resolveMediaZoomRange(item);
+            const direction = normalizeMediaZoomDirection(item.zoomDirection);
+            return { ...item, ...createMediaZoomRangePatch(start,
+              direction === 'in' ? start * zoomAmount : direction === 'out' ? start / zoomAmount : start) };
+          }),
+        }));
+      },
+
+      updateZoomEndpoint: (id, endpoint, scale) => {
+        set((state) => ({
+          mediaItems: state.mediaItems.map((item) => {
+            if (item.id !== id || item.isLocked || state.isClipsLocked) return item;
+            const range = resolveMediaZoomRange(item);
+            return { ...item, ...createMediaZoomRangePatch(
+              endpoint === 'start' ? scale : range.start,
+              endpoint === 'end' ? scale : range.end,
+            ) };
+          }),
         }));
       },
 
@@ -747,8 +870,17 @@ export const useMediaStore = create<MediaState>()(
       resetTransform: (id, type) => {
         set((state) => ({
           mediaItems: state.mediaItems.map((item) => {
-            if (item.id !== id) return item;
-            if (type === 'scale') return { ...item, scale: 1.0 };
+            if (item.id !== id || item.isLocked || state.isClipsLocked) return item;
+            if (type === 'scale') {
+              return { ...item, ...createMediaStartScalePatch(item, 1) };
+            }
+            if (type === 'zoom') {
+              const { start } = resolveMediaZoomRange(item);
+              return { ...item, ...createMediaZoomRangePatch(start, start) };
+            }
+            if (type === 'zoom-default') {
+              return { ...item, ...createMediaZoomRangePatch(1, 1) };
+            }
             if (type === 'x') return { ...item, positionX: 0 };
             if (type === 'y') return { ...item, positionY: 0 };
             if (type === 'rotation') return { ...item, rotation: 0 };

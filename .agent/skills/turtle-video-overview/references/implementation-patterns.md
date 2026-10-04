@@ -4753,3 +4753,40 @@ export 終了（成功/失敗/中断）
 - **対象 flavor**: タイミング打ち UI は **standard**。描画判定は standard と apple-safari のプレビューで同じ。
 - **回帰ガード**: セッションの延長 ID、元の終了時刻の保持、両エンジンの実 Canvas（終了超過・終了フェード・他キャプション・通常表示・書き出し）を検証。
 
+### 13-263. 静止画・動画のズームは表示時間全体で補間する（Issue #239）
+
+- **ファイル**: `src/utils/mediaZoom.ts`, `src/types/index.ts`, `src/stores/mediaStore.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/utils/media.ts`, `src/components/media/ClipItem.tsx`, `src/components/common/MiniPreview.tsx`, `src/components/TurtleVideo.tsx`, 両flavorの `preview/usePreviewEngine.ts`, `src/constants/sectionHelp.ts`
+- **要件**: 画像と動画の各クリップで、なし／ズームイン／ズームアウトを選べる。キーフレーム編集や、ズームだけの開始・終了時刻は持たない。
+- **対策**: `zoomDirection` と `zoomAmount`（110%〜150%、既定120%）を任意フィールドで保存する。未設定はズームなし。倍率は静止の `scale` に掛け、`localTime / duration` で線形補間する。in は 100%→量、out は 量→100%。standard のディゾルブ中の前クリップも同じ。書き出しは同じプレビュー canvas を撮る。停止中の本プレビューはズーム変更で描き直す。調整ミニビューは再生位置、カードサムネは開始側。操作は画像も動画も「フェード・ズームイン/アウト」。動画の音量は「音量・再生速度」（再生速度のない apple-safari は「音量」）。拡大率は位置・サイズと同じ値をフェード・ズームの欄にも出す。黒帯除去は位置・サイズだけ。方向ボタンは90°回転と同じ縦幅。量は数値と外付けの %。
+- **注意**: 速さは画像の表示時間と、動画の表示区間（トリムと再生速度で決まる尺）で変わる。位置・回転・cover/contain は変えない。カードサムネは倍率だけ更新し、デコーダは作り直さない。legacy `usePreviewEngine.ts` と未使用の `usePlayback.ts` は凍結のまま。Android プレビューキャッシュは無効のまま、キーにだけズームを含める。
+- **対象 flavor**: 操作と保存は standard / apple-safari 共通。描画は両プレビュー。
+- **回帰ガード**: 補間、保存ストア、カード操作、ヘルプ、ポスター指紋。
+
+### 13-264. ズーム端点は実効倍率を保存し、継承・分割も共通補間を使う（Issue #249 / #250）
+
+- **ファイル**: `src/utils/mediaZoom.ts`, `src/utils/media.ts`, `src/types/index.ts`, `src/utils/indexedDB.ts`, `src/stores/mediaStore.ts`, `src/stores/projectStore.ts`, `src/hooks/useAutoSave.ts`, `src/components/media/ClipItem.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/TurtleVideo.tsx`, `src/components/common/MiniPreview.tsx`, `src/flavors/standard/preview/androidPreviewCache.ts`, `src/constants/sectionHelp.ts`, 関連テスト。
+- **契約**: 任意の `zoomStartScale` / `zoomEndScale` は基礎scaleを含む実効倍率で、小数倍率を保存する。両方ある場合は `zoomDirection=none` でも優先して描画し、同じ両端は固定。片端だけの不正データは旧方式へフォールバック。旧 `scale × zoomAmount` の互換を維持する。前節13-263の相対ズームUIは、この実効端点入力で拡張した。
+- **UI**: ％変換は `mediaZoom.ts` へ集約する。位置・サイズと開始を共通の50〜600％・0.1％刻みに統一し、独立した基準倍率の欄は削除する。新規編集は `scale=zoomStartScale`。ズーム中のサイズ変更は開始だけ、固定表示は両端を連動する。開始リセットは100％、終了リセットは開始へ、「なし」・全体リセットは開始で固定。方向変更も開始を保つ。
+- **継承・分割**: `createMediaZoomRangePatch` / `createMediaZoomHoldPatch` を共有し、直前カードの実効終端を一度だけ固定する。通常コピーは設定の複製、続きコピーは終端で固定。分割は表示秒×速度で元動画位置を求め、分割時の補間済み倍率を両カードへ設定する。内部境界のtransition/終了fadeを前半から外し、開始fadeを後半から外す。外側の終了設定は後半へ保持する。ObjectURLは既存の削除/一括クリアで解放する。
+- **注意**: 端点へ基礎scaleを二重に掛けない。端点編集・継承・分割は既存の編集前停止経路を使う。端点と旧ズーム値を自動保存ハッシュへ、端点をポスター/キャッシュ/停止中再描画のキーへ含める。位置・回転の継承は変更せず、将来の中心点は共通状態生成関数へ追加する。
+- **対象flavor**: 入力・継承・保存・描画は両flavor。新規分割と既存コピーはstandardの境界を維持。凍結legacy・再生時計・音声ルーティング・無効なAndroidキャッシュの状態は維持する。
+- **回帰ガード**: ％入力とクランプ、旧保存データと固定倍率の手動/自動保存復元、コピー・継承・続き、0.5/1/2/8倍速の分割と再分割、境界/ロック、両実renderFrameのプレビュー/書き出し、ズームのみの自動保存変更検知。詳細は `Docs/specs/2026-10-04_issue-249-250-zoom.md`。
+
+### 13-265. ズーム端点を操作すると対象カードの先頭・末尾を停止プレビューする
+
+- **ファイル**: `src/utils/mediaZoom.ts`, `src/components/TurtleVideo.tsx`, `ClipsSection.tsx`, `ClipItem.tsx`, `NumericSliderField.tsx`, `NumericStepperInput.tsx`, 両flavorの `usePreviewEngine.ts` / `usePreviewSeekController.ts`。
+- **操作**: 数値フォーカス・確定・有効なスライダー変更・−/+・確認ボタンで既存controllerを使って停止シークする。縦スクロールには反応しない。同じ端点を連続調整するときは不要な再シークを省く。選択はカードIDとstart/endの一時ref/stateで、保存対象外。
+- **描画・取得**: `resolveMediaZoomEndpointPreview` は映像取得用の区間内時刻と倍率用の正確な端点時刻を分ける。動画の同期先・seek完了の待機先もカードIDから選び、速度・トリム・安全な終端時刻を反映する。ディゾルブ境界で別カードへ切り替えない。確認中は素材のフェードとカード間効果を除き、保存された設定を変更しない。
+- **解除・デグレ防止**: 通常シーク・再生・書き出し・対象消失・プロジェクト再読込で解除し、エンジンも再生/export時にはrefを無視する。選択カードをUIのフォーカスにも使い、末尾確認で操作中のカードを折りたたまない。legacyは任意引数の契約型だけ追随し、動作を変更しない。
+- **回帰ガード**: 旧データの開始表示、サイズと開始の相互反映・終了保持、両実Canvasの正確な端点・フェード・切り替え効果・再生/export、両seek controllerの素材選択・倍速・トリム・停止維持、カード折りたたみ、縦スクロールを検証。
+- **ボタン調整**: 確認・継承ボタンの縦余白/文字サイズを方向ボタンと同じ `py-1.5 text-[11px]` にそろえ、端点のくるくるは32pxとする。全体のくるくるは「開始倍率で固定」と表示し、ツールチップで実際の固定先％を説明する。100％への初期化と混同させず、開始300％なら両端300％で固定する既存の動作を保つ。
+- **100％初期化**: 「開始倍率で固定」を残し、隣に「100%にリセット」を同じ高さで併設する。`resetTransform(id, 'zoom-default')` は共通パッチで `scale` と両端を1、方向をnoneへ一度に戻し、旧ズーム量をクリアする。位置・回転・ぼかし・フェード・音量・トリム・尺は保持し、既存のロック/書き出し防御と停止処理を共有する。直後は先頭を停止プレビューする。固定操作と初期化を画像・動画・旧形式・新形式で区別して検証する。配置の見直しは 13-266。
+
+### 13-266. フェード・ズーム欄の方向ボタンは他の選択ボタンに揃え、100%リセットは末尾へ下げる
+
+- **ファイル**: `src/components/media/ClipItem.tsx`, `spec.md`, `src/test/clipZoom.ui.test.tsx`
+- **問題**: なし／ズームイン／ズームアウトが `rounded` と `text-[11px]` で、位置の簡単設定などにある `min-h-11 rounded-lg` の選択ボタンと形・文字サイズが違って見えた。欄内に「フェード」「ズーム」の見出しがなく、「100%にリセット」が方向ボタンの直上に枠付きで並び、主操作と誤認して押されやすかった。
+- **対策**: 「フェード」「ズーム」の見出しを追加する。方向・確認・継承ボタンは他の選択ボタンと同じ角丸・高さ・文字サイズへ揃える。「開始倍率で固定」は方向ボタンの下の枠なし補助操作にする。「100%にリセット」は説明文の後、枠なしの控えめな文字ボタンとして置く。保存・倍率・先頭プレビューの動作は変えない。端点のくるくるは32pxのまま。
+- **注意**: リセットを方向ボタンの隣や上へ戻さない。確認・継承ボタンの高さは方向ボタンに合わせる。
+- **対象 flavor**: shared UI（standard / apple-safari）。描画・保存契約は変更しない。
+

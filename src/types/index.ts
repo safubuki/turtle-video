@@ -91,6 +91,12 @@ export type { VideoAudioNormalizeMode } from '../utils/videoAudioLoudness';
 /** 倍速バッジの表示言語（既定は日本語「N倍速」） */
 export type SpeedBadgeLabelStyle = 'ja' | 'en';
 
+/**
+ * クリップ表示時間全体のズーム。
+ * 実効端点があれば大小関係に合わせる。旧データのin/outは基礎倍率とzoomAmountを使う。
+ */
+export type MediaZoomDirection = 'none' | 'in' | 'out';
+
 // メディアアイテム (動画/画像)
 export interface MediaItem {
   id: string;
@@ -112,7 +118,21 @@ export interface MediaItem {
   originalDuration: number;
   trimStart: number;
   trimEnd: number;
+  /** 開始倍率と共通。旧相対ズームの保存データでは基礎倍率（読込互換）。 */
   scale: number;
+  /**
+   * 表示時間全体のズーム方向。実効端点のない未定義/noneは基礎倍率で固定（旧データ互換）。
+   * 別の開始・終了時刻は持たず、duration のあいだを線形に補間する。
+   */
+  zoomDirection?: MediaZoomDirection;
+  /**
+   * 旧保存データの相対ズーム倍率（1.1〜1.5。例: 1.2 は 120%）。
+   * in の終端、out の開始に使う。未定義は 1.2。none のときは描画に使わない。
+   */
+  zoomAmount?: number;
+  /** 実効開始/終了倍率。両方ある場合は scale×zoomAmount より優先。編集時はscale=開始へ揃える。 */
+  zoomStartScale?: number;
+  zoomEndScale?: number;
   positionX: number;
   positionY: number;
   /** 90度単位の時計回り回転（0 / 90 / 180 / 270）。未定義は 0 とみなす（旧データ後方互換） */

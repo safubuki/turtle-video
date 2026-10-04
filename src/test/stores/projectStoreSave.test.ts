@@ -48,6 +48,7 @@ import {
 } from '../../stores/projectPersistence';
 import { appleSafariSaveRuntime } from '../../flavors/apple-safari/appleSafariSaveRuntime';
 import { standardSaveRuntime } from '../../flavors/standard/standardSaveRuntime';
+import { createMediaZoomRangePatch, resolveMediaScaleFactor } from '../../utils/mediaZoom';
 
 const defaultCaptionSettings: CaptionSettings = {
   enabled: true,
@@ -150,6 +151,31 @@ function createNarrationClip(id: string, overrides: Partial<NarrationClip> = {})
 }
 
 describe('projectStore save behavior', () => {
+  it('旧小数倍率・実効端点・固定倍率を手動保存/自動保存して復元する', async () => {
+    const items = [
+      { ...createMediaItem('legacy.mp4'), scale: 1.4, zoomDirection: 'in' as const, zoomAmount: 1.3 },
+      { ...createMediaItem('range.mp4'), ...createMediaZoomRangePatch(1.4, 1.7) },
+      { ...createMediaItem('fixed.png', 'image'), ...createMediaZoomRangePatch(1.82, 1.82), scale: 0.8 },
+      { ...createMediaItem('old.png', 'image'), scale: 1.3 },
+    ];
+    for (const mode of ['manual', 'auto'] as const) {
+      const save = mode === 'manual' ? useProjectStore.getState().saveProjectManual : useProjectStore.getState().saveProjectAuto;
+      await save(items, false, null, false, [], false, [], defaultCaptionSettings, false);
+      const saved = mocks.saveProject.mock.calls[mocks.saveProject.mock.calls.length - 1][0] as ProjectData;
+      expect(saved.mediaItems[0]).toMatchObject({ scale: 1.4, zoomAmount: 1.3 });
+      expect(saved.mediaItems[1]).toMatchObject({ zoomStartScale: 1.4, zoomEndScale: 1.7 });
+      expect(saved.mediaItems[2]).toMatchObject({ scale: 1.82, zoomStartScale: 1.82, zoomEndScale: 1.82 });
+      expect(saved.mediaItems[3].zoomStartScale).toBeUndefined();
+      mocks.loadProject.mockResolvedValueOnce(saved);
+      const loaded = await useProjectStore.getState().loadProjectFromSlot(mode);
+      expect(loaded?.mediaItems).toHaveLength(4);
+      for (const [i, original] of items.entries()) {
+        for (const t of [0, original.duration / 2, original.duration]) {
+          expect(resolveMediaScaleFactor(loaded!.mediaItems[i], t)).toBeCloseTo(resolveMediaScaleFactor(original, t));
+        }
+      }
+    }
+  });
   beforeEach(() => {
     setProjectPersistenceAdapter(createIndexedDbProjectPersistenceAdapter());
 

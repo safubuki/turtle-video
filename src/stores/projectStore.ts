@@ -60,6 +60,7 @@ import {
   normalizeSpeedBadgePosition,
   normalizeVideoPlaybackSpeed,
 } from '../utils';
+import { normalizeMediaZoomAmount, normalizeMediaZoomDirection, hasMediaZoomRange, createMediaZoomRangePatch } from '../utils/mediaZoom';
 
 export function getProjectStoreErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -506,6 +507,13 @@ async function serializeMediaItem(item: MediaItem): Promise<SerializedMediaItem>
     trimStart: item.trimStart,
     trimEnd: item.trimEnd,
     scale: item.scale,
+    zoomDirection: item.zoomDirection === 'in' || item.zoomDirection === 'out'
+      ? item.zoomDirection
+      : undefined,
+    zoomAmount: item.zoomDirection === 'in' || item.zoomDirection === 'out'
+      ? normalizeMediaZoomAmount(item.zoomAmount)
+      : undefined,
+    ...(hasMediaZoomRange(item) ? createMediaZoomRangePatch(item.zoomStartScale!, item.zoomEndScale!) : {}),
     positionX: item.positionX,
     positionY: item.positionY,
     rotation: normalizeRotation(item.rotation),
@@ -595,6 +603,13 @@ function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
     trimStart: data.trimStart,
     trimEnd: data.trimEnd,
     scale: data.scale,
+    zoomDirection: normalizeMediaZoomDirection(data.zoomDirection) === 'none'
+      ? undefined
+      : normalizeMediaZoomDirection(data.zoomDirection),
+    zoomAmount: data.zoomDirection === 'in' || data.zoomDirection === 'out'
+      ? normalizeMediaZoomAmount(data.zoomAmount)
+      : undefined,
+    ...(hasMediaZoomRange(data) ? createMediaZoomRangePatch(data.zoomStartScale!, data.zoomEndScale!) : {}),
     positionX: data.positionX,
     positionY: data.positionY,
     rotation: normalizeRotation(data.rotation),

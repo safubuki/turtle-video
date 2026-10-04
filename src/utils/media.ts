@@ -452,6 +452,16 @@ type VideoContinuationTrimParams = {
   minDuration?: number;
 };
 
+/** 表示時間から元動画の分割地点を解決。両側に最低トリム尺を残す。 */
+export function resolveVideoSplitSourceTime(item: Pick<MediaItem, 'type' | 'trimStart' | 'trimEnd' | 'duration' | 'playbackSpeed'>, localTimeSec: number): number | null {
+  if (item.type !== 'video' || !Number.isFinite(localTimeSec)
+    || localTimeSec <= 0 || localTimeSec >= item.duration) return null;
+  const splitTime = item.trimStart + localTimeSec * normalizeVideoPlaybackSpeed(item.playbackSpeed);
+  if (!Number.isFinite(splitTime) || splitTime - item.trimStart < MIN_VIDEO_TRIM_DURATION_SEC - 1e-9
+    || item.trimEnd - splitTime < MIN_VIDEO_TRIM_DURATION_SEC - 1e-9) return null;
+  return splitTime;
+}
+
 /**
  * 現行クリップの終了から素材終端までの「余り」を、続きクリップの trim として返す。
  * 余りが最低尺未満、終端一致、画像、不正値のときは null。
@@ -718,6 +728,10 @@ export function buildAutoProjectPosterContentKey(
     | 'trimStart'
     | 'trimEnd'
     | 'scale'
+    | 'zoomDirection'
+    | 'zoomAmount'
+    | 'zoomStartScale'
+    | 'zoomEndScale'
     | 'positionX'
     | 'positionY'
     | 'rotation'
@@ -741,6 +755,10 @@ export function buildAutoProjectPosterContentKey(
       item.trimStart,
       item.trimEnd,
       item.scale,
+      item.zoomDirection === 'in' || item.zoomDirection === 'out' ? item.zoomDirection : '',
+      item.zoomDirection === 'in' || item.zoomDirection === 'out' ? (item.zoomAmount ?? '') : '',
+      item.zoomStartScale ?? '',
+      item.zoomEndScale ?? '',
       item.positionX,
       item.positionY,
       item.rotation ?? 0,

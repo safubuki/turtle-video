@@ -590,6 +590,16 @@ describe('video thumbnail auto/manual (Issue #208)', () => {
     expect(keyAb).not.toBe(keyAbShort);
     expect(keyAb).toBe(buildAutoProjectPosterContentKey([a, b], 8, 'landscape'));
     expect(keyAb).not.toBe(buildAutoProjectPosterContentKey([a, b], 8, 'portrait'));
+    expect(keyAb).toBe(buildAutoProjectPosterContentKey(
+      [{ ...a, zoomDirection: 'none', zoomAmount: 1.4 }, b],
+      8,
+      'landscape',
+    ));
+    expect(keyAb).not.toBe(buildAutoProjectPosterContentKey(
+      [{ ...a, zoomDirection: 'out', zoomAmount: 1.2 }, b],
+      8,
+      'landscape',
+    ));
   });
 
   it('auto project poster leading clip follows the clip covering capture time', () => {

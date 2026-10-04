@@ -183,10 +183,18 @@ describe('sectionHelp support messaging', () => {
     expect(getHelpDescription('clips', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).not.toContain('チェックを外せ');
     expect(getHelpDescription('bgm', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('BGMカテゴリ');
     expect(getHelpDescription('narration', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain('ナレーションカテゴリ');
-    expect(getHelpDescription('clips', '再生速度（0.5〜8.0倍）')).toContain('0.5');
-    expect(getHelpDescription('clips', '再生速度（0.5〜8.0倍）')).toContain('等倍でもチェックできます');
-    expect(getHelpDescription('clips', '再生速度（0.5〜8.0倍）')).toContain('四隅から9%内側');
-    expect(getHelpDescription('clips', '再生速度（0.5〜8.0倍）')).toContain('速度バッジも映像と同じタイミング');
+    expect(getHelpDescription('clips', '音量・再生速度')).toContain('0.5');
+    expect(getHelpDescription('clips', '音量・再生速度')).toContain('等倍でもチェックできます');
+    expect(getHelpDescription('clips', '音量・再生速度')).toContain('四隅から9%内側');
+    expect(getHelpDescription('clips', '音量・再生速度')).toContain('速度バッジも映像と同じタイミング');
+    expect(getHelpDescription('clips', '音量', {
+      appFlavor: 'apple-safari',
+      supportsShowSaveFilePicker: false,
+    })).toContain('音量調整');
+    expect(getHelpDescription('clips', '音量', {
+      appFlavor: 'apple-safari',
+      supportsShowSaveFilePicker: false,
+    })).not.toContain('再生速度');
     expect(getHelpDescription('caption', '表示時間')).toContain('実尺');
     expect(getHelpDescription('clips', '表示区間（動画：トリミング／画像：表示時間）')).toContain(
       '0.1秒単位',
@@ -231,6 +239,17 @@ describe('sectionHelp support messaging', () => {
       'transition_button'
     );
     expect(getHelpVisuals('clips', '位置・サイズ・回転・ぼかし調整')).toContain('rotate_button');
+    expect(getHelpDescription('clips', '位置・サイズ・回転・ぼかし調整')).not.toContain('ズームイン');
+    expect(getHelpDescription('clips', 'フェード・ズームイン/アウト')).toContain('ズームイン');
+    expect(getHelpDescription('clips', 'フェード・ズームイン/アウト')).toContain('黒帯除去は位置・サイズだけ');
+    expect(getHelpDescription('clips', 'フェード・ズームイン/アウト')).toContain('100%にリセット');
+    expect(getHelpDescription('clips', 'フェード・ズームイン/アウト')).toContain('開始300%なら終了も300%');
+    const appleZoomHelp = getHelpDescription('clips', 'フェード・ズームイン/アウト', {
+      appFlavor: 'apple-safari',
+      supportsShowSaveFilePicker: false,
+    });
+    expect(appleZoomHelp).toContain('ズームアウト');
+    expect(appleZoomHelp).toContain('100%にリセット');
     expect(getHelpVisuals('bgm', '複数のBGM（Android/PC版）')).toEqual(
       expect.arrayContaining(['bgm_count_label', 'bgm_auto_adjust_toggle', 'copy_button'])
     );
@@ -310,7 +329,7 @@ describe('sectionHelp support messaging', () => {
     expect(getHelpVisuals('clips', '音声 一括設定（ミュート / 一括音量 / 音量揃え）')).toContain(
       'bulk_normalize_buttons'
     );
-    expect(getHelpVisuals('clips', '再生速度（0.5〜8.0倍）')).toContain(
+    expect(getHelpVisuals('clips', '音量・再生速度')).toContain(
       'speed_badge_presets'
     );
 

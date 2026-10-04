@@ -6,9 +6,10 @@ import { usePreviewEngine as useStandardPreviewEngine } from '../flavors/standar
 import { usePreviewEngine as useAppleSafariPreviewEngine } from '../flavors/apple-safari/preview/usePreviewEngine';
 import { getPreviewPlatformPolicy as getStandardPolicy } from '../flavors/standard/preview/previewPlatform';
 import { getPreviewPlatformPolicy as getAppleSafariPolicy } from '../flavors/apple-safari/preview/previewPlatform';
-import type { Caption, CaptionSettings } from '../types';
+import type { Caption, CaptionSettings, MediaItem } from '../types';
 import * as canvasUtils from '../utils/canvas';
 import { DEFAULT_VIDEO_TITLE_SETTINGS } from '../utils/videoTitle';
+import type { MediaZoomEndpointPreview } from '../utils/mediaZoom';
 
 const createRef = <T,>(current: T): MutableRefObject<T> => ({ current });
 type EngineParams = Parameters<typeof useStandardPreviewEngine>[0];
@@ -37,7 +38,7 @@ function createRenderParams(isAppleSafari: boolean, ids: ReadonlySet<string> | n
   const drawImage = vi.fn();
   const context = {
     canvas, drawImage, fillRect: vi.fn(), clearRect: vi.fn(),
-    save: vi.fn(), restore: vi.fn(), translate: vi.fn(), scale: vi.fn(),
+    save: vi.fn(), restore: vi.fn(), translate: vi.fn(), scale: vi.fn(), rotate: vi.fn(),
     globalAlpha: 1, filter: 'none', fillStyle: '#000000',
     imageSmoothingEnabled: true, imageSmoothingQuality: 'low',
   } as unknown as CanvasRenderingContext2D;
@@ -77,7 +78,7 @@ function createRenderParams(isAppleSafari: boolean, ids: ReadonlySet<string> | n
     completeWebCodecsExport: vi.fn(), logInfo: vi.fn(), logWarn: vi.fn(), logDebug: vi.fn(),
   };
   const drawnTexts = () => drawImage.mock.calls.map(([source]) => (source as HTMLCanvasElement).dataset.captionText);
-  return { params, drawImage, drawnTexts, previewCaptionIdsRef };
+  return { params, drawImage, drawnTexts, previewCaptionIdsRef, context };
 }
 
 beforeEach(() => {
@@ -102,6 +103,113 @@ describe.each([
   ['standard', useStandardPreviewEngine, false],
   ['apple-safari', useAppleSafariPreviewEngine, true],
 ] as const)('%s の実 renderFrame: タイミング打ち表示（Issue #237）', (_name, useEngine, isAppleSafari) => {
+  it('端点確認は選んだ素材を先頭・末尾の正確な倍率で表示し、フェード・境界・再生・書き出しを分離する', () => {
+    const { params, context, drawImage } = createRenderParams(isAppleSafari, new Set());
+    const images = [document.createElement('img'), document.createElement('img')];
+    for (const image of images) Object.defineProperties(image, {
+      naturalWidth: { value: 1280 }, naturalHeight: { value: 720 }, complete: { value: true },
+    });
+    const base: MediaItem = {
+      id: 'zoom-a', type: 'image', file: new File(['x'], 'still.png'), url: 'blob:still',
+      scale: 1.4, duration: 5, originalDuration: 0, trimStart: 0, trimEnd: 0,
+      positionX: 0, positionY: 0, rotation: 0, blur: 0,
+      volume: 1, isMuted: false, fadeIn: true, fadeOut: true, fadeInDuration: 1, fadeOutDuration: 1,
+      isLocked: false, isTransformOpen: false,
+      zoomDirection: 'in', zoomStartScale: 1.4, zoomEndScale: 1.8,
+    };
+    const next = { ...base, id: 'zoom-b', scale: 2, zoomStartScale: 2, zoomEndScale: 3 };
+    params.mediaItemsRef.current = [base, next];
+    params.mediaElementsRef.current = { 'zoom-a': images[0], 'zoom-b': images[1] };
+    params.zoomEndpointPreviewRef = createRef<MediaZoomEndpointPreview | null>({ id: 'zoom-a', endpoint: 'end' });
+    const before = JSON.stringify(params.mediaItemsRef.current);
+    const alphas: number[] = [];
+    drawImage.mockImplementation((source) => { if (images.includes(source as HTMLImageElement)) alphas.push(context.globalAlpha); });
+    const { result } = renderHook(() => useEngine(params));
+    const scaleSpy = vi.mocked(context.scale);
+
+    // カード境界そのものでも「次のカード」へ切り替わらず、終了180%を表示する。
+    result.current.renderFrame(5, false, false);
+    expect(drawImage).toHaveBeenLastCalledWith(images[0], expect.any(Number), expect.any(Number), 1280, 720);
+    expect(scaleSpy).toHaveBeenLastCalledWith(1.8, 1.8);
+    expect(alphas[alphas.length - 1]).toBe(1);
+    params.zoomEndpointPreviewRef.current = { id: 'zoom-b', endpoint: 'start' };
+    result.current.renderFrame(5, false, false);
+    expect(drawImage).toHaveBeenLastCalledWith(images[1], expect.any(Number), expect.any(Number), 1280, 720);
+    expect(scaleSpy).toHaveBeenLastCalledWith(2, 2);
+    expect(alphas[alphas.length - 1]).toBe(1);
+
+    // 操作中に終了倍率を変えると最新値へ追従する。
+    params.zoomEndpointPreviewRef.current = { id: 'zoom-a', endpoint: 'end' };
+    params.mediaItemsRef.current[0] = { ...base, zoomEndScale: 1.9 };
+    result.current.renderFrame(4.999, false, false);
+    expect(scaleSpy).toHaveBeenLastCalledWith(1.9, 1.9);
+    params.mediaItemsRef.current[0] = base;
+
+    // 再生・書き出し・確認解除は通常の時刻とフェードに戻る。
+    for (const [playing, exporting] of [[true, false], [false, true]]) {
+      result.current.renderFrame(5.5, playing, exporting);
+      expect(scaleSpy).toHaveBeenLastCalledWith(2.1, 2.1);
+      expect(alphas[alphas.length - 1]).toBeCloseTo(0.5);
+    }
+    params.zoomEndpointPreviewRef.current = null;
+    result.current.renderFrame(5.5, false, false);
+    expect(scaleSpy).toHaveBeenLastCalledWith(2.1, 2.1);
+    expect(alphas[alphas.length - 1]).toBeCloseTo(0.5);
+    expect(JSON.stringify(params.mediaItemsRef.current)).toBe(before);
+
+    // standard のディゾルブ中でも、別のカードを混ぜず選んだカードだけを表示する。
+    if (!isAppleSafari) {
+      for (const type of ['dissolve', 'fade-black', 'fade-white'] as const) {
+        params.mediaItemsRef.current[0] = { ...base, transitionToNext: { type, duration: 1 } };
+        params.totalDurationRef.current = type === 'dissolve' ? 9 : 10;
+        params.zoomEndpointPreviewRef.current = { id: 'zoom-a', endpoint: 'end' };
+        drawImage.mockClear();
+        vi.mocked(context.fillRect).mockClear();
+        result.current.renderFrame(4.999, false, false);
+        expect(drawImage).toHaveBeenCalledTimes(1);
+        expect(context.fillRect).toHaveBeenCalledTimes(1);
+        expect(scaleSpy).toHaveBeenLastCalledWith(1.8, 1.8);
+        expect(alphas[alphas.length - 1]).toBe(1);
+      }
+    }
+    params.zoomEndpointPreviewRef.current = { id: 'zoom-a', endpoint: 'start' };
+    result.current.renderFrame(0, false, false);
+    expect(scaleSpy).toHaveBeenLastCalledWith(1.4, 1.4);
+    expect(alphas[alphas.length - 1]).toBe(1);
+  });
+  it('実効ズームの分割境界・固定倍率はプレビューと書き出しで一致する（#249 / #250）', () => {
+    const { params, context } = createRenderParams(isAppleSafari, new Set());
+    const image = document.createElement('img');
+    Object.defineProperties(image, {
+      naturalWidth: { value: 1280 }, naturalHeight: { value: 720 }, complete: { value: true },
+    });
+    const base: MediaItem = {
+      id: 'zoom-a', type: 'image', file: new File(['x'], 'still.png'), url: 'blob:still',
+      scale: 1.4, duration: 5, originalDuration: 0, trimStart: 0, trimEnd: 0,
+      positionX: 0, positionY: 0, rotation: 0, blur: 0,
+      volume: 1, isMuted: false, fadeIn: false, fadeOut: false, fadeInDuration: 0.5, fadeOutDuration: 0.5,
+      isLocked: false, isTransformOpen: false,
+      zoomDirection: 'in', zoomStartScale: 1.4, zoomEndScale: 1.61,
+    };
+    params.mediaItemsRef.current = [base, { ...base, id: 'zoom-b', zoomStartScale: 1.61, zoomEndScale: 1.82 }];
+    params.mediaElementsRef.current = { 'zoom-a': image, 'zoom-b': image };
+    const { result } = renderHook(() => useEngine(params));
+    const scaleSpy = vi.mocked(context.scale);
+    for (const exporting of [false, true]) {
+      for (const [time, scale] of [[2.5, 1.505], [5 - 1e-6, 1.61], [5, 1.61], [7.5, 1.715]]) {
+        scaleSpy.mockClear();
+        result.current.renderFrame(time, exporting, exporting);
+        expect(scaleSpy).toHaveBeenLastCalledWith(expect.closeTo(scale, 5), expect.closeTo(scale, 5));
+      }
+    }
+    // 最新refで固定へ変更し、基準の140%を再度掛けない。
+    params.mediaItemsRef.current[1] = { ...base, id: 'zoom-b', zoomDirection: 'none', zoomStartScale: 1.82, zoomEndScale: 1.82 };
+    for (const exporting of [false, true]) {
+      scaleSpy.mockClear();
+      result.current.renderFrame(7.5, exporting, exporting);
+      expect(scaleSpy).toHaveBeenLastCalledWith(expect.closeTo(1.82), expect.closeTo(1.82));
+    }
+  });
   it('開始・確定・終了の最新 ref を描画へ反映し、書き出しでは全件を表示する', () => {
     const { params, drawImage, drawnTexts, previewCaptionIdsRef } = createRenderParams(isAppleSafari, new Set());
     const beforeCaptions = JSON.stringify(params.captions);

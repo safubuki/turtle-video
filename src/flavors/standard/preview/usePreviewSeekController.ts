@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, type ChangeEvent, type MutableRefObject
 
 import { SEEK_THROTTLE_MS } from '../../../constants';
 import type { MediaItem } from '../../../types';
+import { resolveMediaZoomEndpointPreview, type MediaZoomEndpointPreview } from '../../../utils/mediaZoom';
 import {
   shouldAttemptDeferredPreviewPlay,
   shouldBundlePreviewStartForWebAudioMix,
@@ -32,6 +33,7 @@ interface PreparedPreviewAudioNodesResult {
 
 interface UsePreviewSeekControllerParams {
   mediaItemsRef: MutableRefObject<MediaItem[]>;
+  zoomEndpointPreviewRef?: MutableRefObject<MediaZoomEndpointPreview | null>;
   mediaElementsRef: MutableRefObject<Record<string, HTMLVideoElement | HTMLImageElement | HTMLAudioElement>>;
   sourceNodesRef: MutableRefObject<Record<string, MediaElementAudioSourceNode>>;
   gainNodesRef: MutableRefObject<Record<string, GainNode>>;
@@ -86,6 +88,7 @@ const SCRUB_STUCK_SEEK_KICK_MS = 400;
 
 export function usePreviewSeekController({
   mediaItemsRef,
+  zoomEndpointPreviewRef,
   mediaElementsRef,
   sourceNodesRef,
   gainNodesRef,
@@ -158,6 +161,9 @@ export function usePreviewSeekController({
   }, []);
 
   const findVideoElementAtTimelineTime = useCallback((targetTimelineTime: number): HTMLVideoElement | null => {
+    const preview = resolveMediaZoomEndpointPreview(mediaItemsRef.current, zoomEndpointPreviewRef?.current, isPlayingRef.current);
+    if (preview) return mediaItemsRef.current[preview.index].type === 'video'
+      ? (mediaElementsRef.current[preview.id] as HTMLVideoElement | undefined) ?? null : null;
     let accumulatedTime = 0;
     for (const item of mediaItemsRef.current) {
       if (targetTimelineTime >= accumulatedTime && targetTimelineTime < accumulatedTime + item.duration) {
@@ -176,7 +182,7 @@ export function usePreviewSeekController({
       }
     }
     return null;
-  }, [mediaElementsRef, mediaItemsRef, totalDurationRef]);
+  }, [mediaElementsRef, mediaItemsRef, totalDurationRef, zoomEndpointPreviewRef, isPlayingRef]);
 
   const requestVideoPlayWithRetry = useCallback((videoElement: HTMLVideoElement, retryIntervalMs = 160) => {
     const maxRetryCount = 4;
@@ -197,12 +203,13 @@ export function usePreviewSeekController({
   }, [isPlayingRef, isSeekingRef]);
 
   const syncVideoToTime = useCallback((time: number, options?: { force?: boolean; interrupt?: boolean }) => {
+    const preview = resolveMediaZoomEndpointPreview(mediaItemsRef.current, zoomEndpointPreviewRef?.current, isPlayingRef.current);
     const force = options?.force ?? false;
     const seekThreshold = force ? 0.01 : 0.1;
     let accumulatedTime = 0;
 
     for (const item of mediaItemsRef.current) {
-      if (time >= accumulatedTime && time < accumulatedTime + item.duration) {
+      if (preview ? item.id === preview.id : time >= accumulatedTime && time < accumulatedTime + item.duration) {
         if (item.type === 'video') {
           const videoElement = mediaElementsRef.current[item.id] as HTMLVideoElement;
           if (videoElement) {
@@ -214,8 +221,10 @@ export function usePreviewSeekController({
               }
             }
             if (videoElement.readyState >= 1) {
-              const localTime = time - accumulatedTime;
-              const targetTime = resolveVideoSourceTime({ trimStart: item.trimStart || 0, localTime, playbackSpeed: item.playbackSpeed });
+              const localTime = preview?.localTime ?? time - accumulatedTime;
+              const targetTime = preview && zoomEndpointPreviewRef?.current?.endpoint === 'end'
+                ? resolveVideoSafeEndSourceTime({ trimStart: item.trimStart || 0, timelineDuration: item.duration, playbackSpeed: item.playbackSpeed, trimEnd: item.trimEnd })
+                : resolveVideoSourceTime({ trimStart: item.trimStart || 0, localTime, playbackSpeed: item.playbackSpeed });
               const drift = Math.abs(videoElement.currentTime - targetTime);
               if (drift > seekThreshold && (force || !videoElement.seeking)) {
                 assignVideoSeekTarget(videoElement, item.id, targetTime, { interrupt: options?.interrupt });
@@ -267,7 +276,7 @@ export function usePreviewSeekController({
     }
 
     activeVideoIdRef.current = null;
-  }, [activeVideoIdRef, assignVideoSeekTarget, mediaElementsRef, mediaItemsRef, totalDurationRef]);
+  }, [activeVideoIdRef, assignVideoSeekTarget, mediaElementsRef, mediaItemsRef, totalDurationRef, zoomEndpointPreviewRef, isPlayingRef]);
 
   // スクラブ中に対象 video が前の seek を処理中の間は、seeked 完了駆動で最新ターゲットだけを
   // 適用する。時間スロットルだけだと遅いデコーダへ seek が殺到し、固着の引き金になる。

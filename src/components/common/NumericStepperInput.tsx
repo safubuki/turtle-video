@@ -34,6 +34,7 @@ export interface NumericStepperInputProps {
   /** −/+ ボタン 1 回あたりの増減量。省略時は step と同じ */
   stepperStep?: number;
   onChange: (value: number) => void;
+  onInputFocus?: () => void;
   disabled?: boolean;
   /** 数値欄の右に置く単位（「秒」「px」など） */
   unit?: string;
@@ -136,6 +137,7 @@ const NumericStepperInput = React.memo<NumericStepperInputProps>(({
   step = 1,
   stepperStep,
   onChange,
+  onInputFocus,
   disabled = false,
   unit,
   inputClassName = 'w-16 focus:border-blue-500',
@@ -226,7 +228,7 @@ const NumericStepperInput = React.memo<NumericStepperInputProps>(({
           step={formatDisplayValue ? undefined : step}
           value={draft ?? (formatDisplayValue ? formatDisplayValue(displayValue) : displayNumber(displayValue))}
           onChange={(e) => setDraft(e.target.value)}
-          onFocus={(e) => e.currentTarget.select()}
+          onFocus={(e) => { e.currentTarget.select(); onInputFocus?.(); }}
           onBlur={(e) => { if (draft !== null) commitDraft(e.target.value); }}
           onKeyDown={handleKeyDown}
           disabled={disabled}

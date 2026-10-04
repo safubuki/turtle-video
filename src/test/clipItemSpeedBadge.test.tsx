@@ -82,6 +82,8 @@ function renderClipItem(overrides: Partial<ComponentProps<typeof ClipItem>> = {}
     onUpdateVideoTrim: vi.fn(),
     onUpdateImageDuration: vi.fn(),
     onUpdateScale: vi.fn(),
+    onUpdateZoomDirection: vi.fn(),
+    onUpdateZoomAmount: vi.fn(),
     onUpdatePosition: vi.fn(),
     onResetSetting: vi.fn(),
     onUpdateVolume: vi.fn(),

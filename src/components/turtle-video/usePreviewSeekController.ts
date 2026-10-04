@@ -11,6 +11,7 @@ import { useCallback, useEffect, type ChangeEvent, type MutableRefObject } from 
 
 import { SEEK_THROTTLE_MS } from '../../constants';
 import type { MediaItem } from '../../types';
+import type { MediaZoomEndpointPreview } from '../../utils/mediaZoom';
 import {
   shouldAttemptDeferredPreviewPlay,
   shouldBundlePreviewStartForWebAudioMix,
@@ -26,6 +27,7 @@ interface PreparedPreviewAudioNodesResult {
 
 interface UsePreviewSeekControllerParams {
   mediaItemsRef: MutableRefObject<MediaItem[]>;
+  zoomEndpointPreviewRef?: MutableRefObject<MediaZoomEndpointPreview | null>;
   mediaElementsRef: MutableRefObject<Record<string, HTMLVideoElement | HTMLImageElement | HTMLAudioElement>>;
   sourceNodesRef: MutableRefObject<Record<string, MediaElementAudioSourceNode>>;
   gainNodesRef: MutableRefObject<Record<string, GainNode>>;

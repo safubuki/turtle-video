@@ -648,10 +648,10 @@ export function getSectionHelpContent(
         "visuals": []
       },
       {
-        "title": "音量・フェード設定",
+        "title": "音量・再生速度",
         "category": "動画・画像カードの設定",
         "isSubAccordion": true,
-        "description": "クリップごとの音量、ミュート、フェードイン／アウトを設定します。",
+        "description": "動画の音量と、0.5〜8.0倍の再生速度を同じ欄で設定します。",
         "bullets": [
           {
             "text": "音量調整: 素材ごとの音量をスライダーで設定し、スピーカーでミュート切替ができます。",
@@ -661,22 +661,6 @@ export function getSectionHelpContent(
               "reset_button"
             ]
           },
-          {
-            "text": "フェードイン/アウト: チェックを入れて0.5秒・1秒・2秒から選択します。",
-            "visuals": [
-              "fade_in_checkbox",
-              "fade_out_checkbox"
-            ]
-          }
-        ],
-        "visuals": []
-      },
-      {
-        "title": "再生速度（0.5〜8.0倍）",
-        "category": "動画・画像カードの設定",
-        "isSubAccordion": true,
-        "description": "動画の再生速度を0.5〜8.0倍まで0.1倍刻みで調整します。",
-        "bullets": [
           "速度設定: スライダーや−/＋ボタン、等倍・2倍などのショートカットで設定。タイムラインの表示尺も自動伸縮します。",
           "プレビュー/書き出しに速度を表示: 等倍でもチェックできます。",
           "速度バッジ: 位置の既定は四隅から9%内側です。速度バッジも映像と同じタイミングで表示/非表示になります。"
@@ -684,6 +668,30 @@ export function getSectionHelpContent(
         "visuals": [
           "speed_badge_presets"
         ]
+      },
+      {
+        "title": "フェード・ズームイン/アウト",
+        "category": "動画・画像カードの設定",
+        "isSubAccordion": true,
+        "description": "フェードと、表示時間いっぱいのズームです。開始・終了は画面に適用する実効倍率を％で入力します。",
+        "bullets": [
+          {
+            "text": "フェードイン/アウト: チェックを入れて0.5秒・1秒・2秒から選択します。",
+            "visuals": [
+              "fade_in_checkbox",
+              "fade_out_checkbox"
+            ]
+          },
+          "ズーム: なし・ズームイン・ズームアウト。開始・終了を50%〜600%（0.1%刻み）で入力します。130と入力すれば130%。同じ倍率にすれば固定できます。表示時間いっぱいで変化し、専用の時刻はありません。",
+          "開始を操作するとその素材の先頭、終了を操作すると末尾を停止プレビューします。確認ボタンでも切り替えられます。確認中は素材のフェードやカード間の切り替え効果で暗くしません。再生や通常のシークで通常表示へ戻ります。",
+          "開始倍率は位置・サイズの拡大率と同じ値です。ズーム中にサイズを変えると開始だけが変わり、終了は保ちます。ズームなしなら両端が連動します。",
+          "くるくる矢印: 開始は100%へ、終了は開始と同じ倍率へ戻します。「開始倍率で固定」や「なし」は、今の開始倍率を保ってズームの動きだけを止めます。開始300%なら終了も300%になります。",
+          "100%にリセット: 開始・終了と位置・サイズの拡大率をまとめて100%へ戻し、先頭をプレビューします。位置・回転・ぼかしなど、拡大率以外の設定は保ちます。",
+          "前の素材の終了倍率を引き継ぐ: 直前カードの最後の実効倍率で固定します。コピーした直後にも使えます。位置・回転は今のカードのままです。",
+          "Android/PCの動画は「現在位置で分割」で、分割地点の倍率を前半の終了・後半の開始へ引き継ぎます。「続きを追加コピー」は終了倍率で固定します。",
+          "拡大率: この欄と位置・サイズは同じ値です。黒帯除去は位置・サイズだけです。"
+        ],
+        "visuals": []
       }
     ]
   },
@@ -1690,7 +1698,6 @@ export function getSectionHelpContent(
       '動画の形式（横16:9／縦9:16）',
       'ロゴ表示（ウォーターマーク / エンドロール）',
       '音声 一括設定（ミュート / 一括音量 / 音量揃え）',
-      '再生速度（0.5〜8.0倍）',
       'トランジション（Android/PC版）',
       '複数のBGM（Android/PC版）',
       '設定を末尾に固定（Android/PC版）',
@@ -1741,6 +1748,17 @@ export function getSectionHelpContent(
         '画像の表示時間は 0.5秒〜60秒で、0.1秒単位で調整できます。',
       ];
       clipRange.visuals = ['trim_chip', 'duration_chip', 'slider_demo'];
+    }
+
+    const volumeSpeed = content.clips.items.find((item) => item.title === '音量・再生速度');
+    if (volumeSpeed) {
+      volumeSpeed.title = '音量';
+      volumeSpeed.description = 'クリップごとの音量とミュートを設定します。';
+      volumeSpeed.bullets = volumeSpeed.bullets?.filter((bullet) => {
+        const text = typeof bullet === 'string' ? bullet : bullet.text;
+        return text.startsWith('音量調整');
+      });
+      volumeSpeed.visuals = [];
     }
 
     const clipTransform = content.clips.items.find((item) => item.title === '位置・サイズ・回転・ぼかし調整');

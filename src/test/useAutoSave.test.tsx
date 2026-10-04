@@ -664,6 +664,18 @@ describe('useAutoSave', () => {
     });
     expect(saveProjectAuto).toHaveBeenCalledTimes(3);
 
+    const zoomChanges = [
+      { zoomDirection: 'in' as const },
+      { zoomAmount: 1.3 },
+      { zoomStartScale: 1.1, zoomEndScale: 1.3 },
+      { zoomEndScale: 1.4 },
+    ];
+    for (const change of zoomChanges) {
+      act(() => useMediaStore.getState().updateMediaItem('video-1', change));
+      await act(async () => { await result.current.performAutoSave(); });
+    }
+    expect(saveProjectAuto).toHaveBeenCalledTimes(3 + zoomChanges.length);
+
     const captionChanges = [
       { overrideFontSizeCustom: 96 },
       { overridePositionCustom: { x: 32, y: 68 } },
@@ -687,7 +699,7 @@ describe('useAutoSave', () => {
       });
     }
 
-    expect(saveProjectAuto).toHaveBeenCalledTimes(3 + captionChanges.length);
+    expect(saveProjectAuto).toHaveBeenCalledTimes(3 + zoomChanges.length + captionChanges.length);
   });
 
   it('クリップセクションロックの変更も自動保存の差分として検知する', async () => {

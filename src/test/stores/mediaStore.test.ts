@@ -684,10 +684,10 @@ describe('mediaStore', () => {
       });
       
       const { updateScale } = useMediaStore.getState();
-      updateScale('a', 5.0); // max is 4.0
+      updateScale('a', 9.0); // 開始倍率と共通の上限600%
       
       const { mediaItems } = useMediaStore.getState();
-      expect(mediaItems[0].scale).toBe(4.0);
+      expect(mediaItems[0].scale).toBe(6.0);
     });
   });
 
@@ -1294,6 +1294,44 @@ describe('mediaStore', () => {
       expect(useMediaStore.getState().mediaItems[0].blur).toBe(30);
       useMediaStore.getState().updateBlur(first.id, -5);
       expect(useMediaStore.getState().mediaItems[0].blur).toBe(0);
+    });
+
+    it('ズーム方向と量をクリップごとに保存し、リセットはズームだけを戻す', async () => {
+      const { addMediaItems } = useMediaStore.getState();
+      await addMediaItems([
+        new File(['a'], 'a.png', { type: 'image/png' }),
+        new File(['b'], 'b.mp4', { type: 'video/mp4' }),
+      ]);
+      const [image, video] = useMediaStore.getState().mediaItems;
+
+      useMediaStore.getState().updateZoomDirection(image.id, 'in');
+      useMediaStore.getState().updateZoomAmount(image.id, 1.4);
+      useMediaStore.getState().updateScale(image.id, 1.25);
+      expect(useMediaStore.getState().mediaItems[0]).toMatchObject({
+        zoomDirection: 'in',
+        zoomStartScale: 1.25,
+        zoomEndScale: 1.4,
+        scale: 1.25,
+      });
+      expect(useMediaStore.getState().mediaItems[1].zoomDirection).toBeUndefined();
+
+      useMediaStore.getState().updateZoomAmount(image.id, 9);
+      expect(useMediaStore.getState().mediaItems[0].zoomEndScale).toBe(1.875);
+
+      useMediaStore.getState().updateZoomDirection(video.id, 'out');
+      expect(useMediaStore.getState().mediaItems[1]).toMatchObject({
+        zoomDirection: 'out',
+        zoomStartScale: 1,
+        zoomEndScale: 1 / 1.2,
+      });
+
+      useMediaStore.getState().resetTransform(image.id, 'zoom');
+      expect(useMediaStore.getState().mediaItems[0]).toMatchObject({
+        zoomDirection: 'none',
+        scale: 1.25,
+      });
+      expect(useMediaStore.getState().mediaItems[0].zoomAmount).toBeUndefined();
+      expect(useMediaStore.getState().mediaItems[1].zoomDirection).toBe('out');
     });
 
     it('ぼかしだけをリセットし、位置・サイズ・回転は維持する', async () => {

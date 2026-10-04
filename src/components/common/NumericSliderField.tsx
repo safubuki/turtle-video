@@ -36,6 +36,8 @@ export interface NumericSliderFieldProps {
   /** −/+ ボタン 1 回あたりの増減量。省略時は step と同じ */
   stepperStep?: number;
   onChange: (value: number) => void;
+  /** 数値入力を始めた時点で対象のプレビューを確認する。 */
+  onInputFocus?: () => void;
   disabled?: boolean;
   /** 行頭のラベル（「開始」「音量」など）。省略時はラベル列を描画しない */
   label?: string;
@@ -82,6 +84,7 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
   step = 1,
   stepperStep,
   onChange,
+  onInputFocus,
   disabled = false,
   label,
   labelClassName = 'text-gray-500 w-6 shrink-0',
@@ -165,6 +168,7 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
             step={step}
             stepperStep={stepperStep}
             onChange={onChange}
+            onInputFocus={onInputFocus}
             disabled={disabled}
             unit={unit}
             inputClassName={inputClassName}
@@ -184,6 +188,7 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
           step={step}
           stepperStep={stepperStep}
           onChange={onChange}
+          onInputFocus={onInputFocus}
           disabled={disabled}
           unit={unit}
           inputClassName={inputClassName}

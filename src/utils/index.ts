@@ -56,6 +56,7 @@ export {
   canSetVideoTrimFromPreviewPosition,
   computeVideoTimelineDurationFromTrim,
   computeVideoContinuationTrim,
+  resolveVideoSplitSourceTime,
   canAddVideoContinuation,
   AUTO_THUMBNAIL_OFFSET_SEC,
   AUTO_THUMBNAIL_RETRY_OFFSETS_SEC,

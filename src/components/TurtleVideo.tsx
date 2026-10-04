@@ -11,6 +11,7 @@ import type { AppFlavor } from '../app/resolveAppFlavor';
 import { getAppFlavorUiCapabilities } from '../app/appFlavorUi';
 import type {
   MediaItem,
+  MediaZoomDirection,
   AudioTrack,
   NarrationClip,
   NarrationScriptLength,
@@ -68,6 +69,7 @@ import {
 } from '../utils/captionSubtitle';
 import { openFilesWithPicker, shouldUseMediaOpenFilePicker } from '../utils/platform';
 import { computeTransitionTimelineRanges } from '../utils/transitionTimeline';
+import { resolveMediaZoomEndpointPreview, type MediaTransformResetKind, type MediaZoomEndpointPreview } from '../utils/mediaZoom';
 import { getEndrollDuration } from '../utils/endrollOverlay';
 import {
   buildNarrationCaptionPlan,
@@ -180,6 +182,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
    */
   const clipsDuration = useMediaStore((s) => s.totalDuration);
   const isClipsLocked = useMediaStore((s) => s.isClipsLocked);
+  const clipListRestoreEpoch = useMediaStore((s) => s.clipListRestoreEpoch);
   const addMediaItems = useMediaStore((s) => s.addMediaItems);
   const removeMediaItem = useMediaStore((s) => s.removeMediaItem);
   const moveMediaItem = useMediaStore((s) => s.moveMediaItem);
@@ -197,6 +200,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   );
   const updateImageDuration = useMediaStore((s) => s.updateImageDuration);
   const updateScale = useMediaStore((s) => s.updateScale);
+  const updateZoomDirection = useMediaStore((s) => s.updateZoomDirection);
+  const updateZoomAmount = useMediaStore((s) => s.updateZoomAmount);
+  const updateZoomEndpoint = useMediaStore((s) => s.updateZoomEndpoint);
+  const inheritPreviousZoom = useMediaStore((s) => s.inheritPreviousZoom);
+  const splitMediaItem = useMediaStore((s) => s.splitMediaItem);
   const updatePosition = useMediaStore((s) => s.updatePosition);
   const rotateClip = useMediaStore((s) => s.rotateClip);
   const updateBlur = useMediaStore((s) => s.updateBlur);
@@ -532,6 +540,19 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   // Issue #247: 終了未確定の対象だけ、プレビュー上で保存済み endTime を超えて表示する。
   const [stampHoldOpenCaptionId, setStampHoldOpenCaptionId] = useState<string | null>(null);
   const stampHoldOpenCaptionIdRef = useRef<string | null>(null);
+  const [zoomEndpointPreview, setZoomEndpointPreview] = useState<MediaZoomEndpointPreview | null>(null);
+  const zoomEndpointPreviewRef = useRef<MediaZoomEndpointPreview | null>(null);
+  const clearZoomEndpointPreview = useCallback(() => {
+    zoomEndpointPreviewRef.current = null;
+    setZoomEndpointPreview(null);
+  }, []);
+  // 同じプロジェクトを再読込した場合も、一時的な確認表示を引き継がない。
+  useEffect(clearZoomEndpointPreview, [clipListRestoreEpoch, clearZoomEndpointPreview]);
+  useEffect(() => {
+    if (isPlaying || isProcessing || (zoomEndpointPreview && !mediaItems.some((item) => item.id === zoomEndpointPreview.id))) {
+      clearZoomEndpointPreview();
+    }
+  }, [isPlaying, isProcessing, mediaItems, zoomEndpointPreview, clearZoomEndpointPreview]);
   const captionSettingsRef = useRef(captionSettings);
   const videoTitleRef = useRef(videoTitle);
   const watermarkOverlayRef = useRef<WatermarkOverlay>(watermarkOverlay);
@@ -1261,6 +1282,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     captionsRef,
     previewCaptionIdsRef,
     stampHoldOpenCaptionIdRef,
+    zoomEndpointPreviewRef,
     captionSettingsRef,
     videoTitleRef,
     watermarkOverlayRef,
@@ -2866,6 +2888,34 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     updateScale(id, val);
   }, [pausePreviewBeforeEdit, updateScale]);
 
+  const handleUpdateMediaZoomDirection = useCallback((id: string, direction: MediaZoomDirection) => {
+    pausePreviewBeforeEdit('update-media-zoom-direction');
+    updateZoomDirection(id, direction);
+  }, [pausePreviewBeforeEdit, updateZoomDirection]);
+
+  const handleUpdateMediaZoomAmount = useCallback((id: string, amount: number) => {
+    pausePreviewBeforeEdit('update-media-zoom-amount');
+    updateZoomAmount(id, amount);
+  }, [pausePreviewBeforeEdit, updateZoomAmount]);
+
+  const handleUpdateMediaZoomEndpoint = useCallback((id: string, endpoint: 'start' | 'end', scale: number) => {
+    pausePreviewBeforeEdit('update-media-zoom-endpoint');
+    updateZoomEndpoint(id, endpoint, scale);
+  }, [pausePreviewBeforeEdit, updateZoomEndpoint]);
+
+  const handleInheritMediaZoom = useCallback((id: string) => {
+    pausePreviewBeforeEdit('inherit-media-zoom');
+    inheritPreviousZoom(id);
+  }, [pausePreviewBeforeEdit, inheritPreviousZoom]);
+
+  const handleSplitMedia = useCallback((id: string) => {
+    const range = mediaTimelineRanges[id];
+    if (!range) return;
+    const localTime = currentTimeRef.current - range.start;
+    pausePreviewBeforeEdit('split-media');
+    splitMediaItem(id, localTime);
+  }, [mediaTimelineRanges, pausePreviewBeforeEdit, splitMediaItem]);
+
   // --- 位置更新ハンドラ ---
   // 目的: メディアの表示位置（X/Y座標）を変更
   const handleUpdateMediaPosition = useCallback((id: string, axis: 'x' | 'y', value: string) => {
@@ -2891,7 +2941,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
   // --- 設定リセットハンドラ ---
   // 目的: スケール・位置・回転・ぼかしを初期値にリセット
-  const handleResetMediaSetting = useCallback((id: string, type: 'scale' | 'x' | 'y' | 'rotation' | 'blur') => {
+  const handleResetMediaSetting = useCallback((id: string, type: MediaTransformResetKind) => {
     pausePreviewBeforeEdit('reset-media-transform');
     resetTransform(id, type);
   }, [pausePreviewBeforeEdit, resetTransform]);
@@ -3423,6 +3473,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     handleSeekEnd: handleLiveSeekEnd,
   } = previewRuntime.usePreviewSeekController({
     mediaItemsRef,
+    zoomEndpointPreviewRef,
     mediaElementsRef,
     sourceNodesRef,
     gainNodesRef,
@@ -3470,6 +3521,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   }, [useAndroidPreviewCacheForPlayback]);
 
   const handleSeekStart = useCallback(() => {
+    clearZoomEndpointPreview();
     if (!shouldHandleSeekWithPreviewCache()) {
       handleLiveSeekStart();
       // iOS Safari: シーク操作で再生を止め、自動再開せず手動で再開する仕様にする。
@@ -3509,7 +3561,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     } catch {
       /* ignore */
     }
-  }, [handleLiveSeekStart, isPlayingRef, pause, platformCapabilities.isIosSafari, shouldHandleSeekWithPreviewCache, wasPlayingBeforeSeekRef]);
+  }, [clearZoomEndpointPreview, handleLiveSeekStart, isPlayingRef, pause, platformCapabilities.isIosSafari, shouldHandleSeekWithPreviewCache, wasPlayingBeforeSeekRef]);
 
   const handleSeekChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     if (!shouldHandleSeekWithPreviewCache()) {
@@ -3590,6 +3642,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       return;
     }
     lastToggleTimeRef.current = now;
+    clearZoomEndpointPreview();
 
     // 再生/一時停止どちら側でも、生成済み export は古い成果物として破棄する
     clearGeneratedExport('play-toggle');
@@ -3602,17 +3655,42 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       if (startT >= totalDuration - 0.1 || startT < 0) startT = 0;
       startEngine(startT, false);
     }
-  }, [clearGeneratedExport, isPlaying, currentTime, totalDuration, stopAll, pause, startEngine]);
+  }, [clearZoomEndpointPreview, clearGeneratedExport, isPlaying, currentTime, totalDuration, stopAll, pause, startEngine]);
 
   // --- 絶対時刻シーク ---
   // 目的: 波形タップや無音区間ジャンプ（Issue #217）から、シークバーと同じ経路で
   //       プレビュー位置を動かす。シークバー・波形・時刻表示がすべて同じ位置になる。
-  const handleSeekToTime = useCallback((time: number) => {
+  const handleSeekToTime = useCallback((time: number, zoomPreview?: MediaZoomEndpointPreview) => {
     const target = Math.max(0, Math.min(totalDurationRef.current, time));
     handleSeekStart();
+    if (zoomPreview) {
+      zoomEndpointPreviewRef.current = zoomPreview;
+      setZoomEndpointPreview(zoomPreview);
+      // 倍率の確認操作では、シーク前の再生状態にかかわらず停止を保つ。
+      wasPlayingBeforeSeekRef.current = false;
+    }
     handleSeekChange({ target: { value: String(target) } } as React.ChangeEvent<HTMLInputElement>);
     handleSeekEnd();
   }, [handleSeekChange, handleSeekEnd, handleSeekStart]);
+
+  const handlePreviewMediaZoomEndpoint = useCallback((id: string, endpoint: 'start' | 'end') => {
+    const latest = useMediaStore.getState();
+    const selection = { id, endpoint };
+    const preview = resolveMediaZoomEndpointPreview(latest.mediaItems, selection);
+    if (!preview) return;
+    const item = latest.mediaItems[preview.index];
+    const range = mediaTimelineRanges[id];
+    if (isProcessing || latest.isClipsLocked || !item || item.isLocked || !range) return;
+    pausePreviewBeforeEdit('preview-zoom-endpoint');
+    mediaItemsRef.current = latest.mediaItems;
+    const target = range.start + preview.localTime;
+    const previous = zoomEndpointPreviewRef.current;
+    if (previous?.id === id && previous.endpoint === endpoint && Math.abs(currentTimeRef.current - target) < 0.0005) {
+      renderFrame(target, false);
+      return;
+    }
+    handleSeekToTime(target, selection);
+  }, [isProcessing, mediaTimelineRanges, pausePreviewBeforeEdit, handleSeekToTime, renderFrame]);
 
   // --- タイミング打ち／ミニプレビュー共通の相対シーク ---
   // UI に間引いて公開する時刻ではなく、再生時計の最新値を基準にする。
@@ -3781,6 +3859,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     previewCacheVideoRef,
   ]);
 
+  // ズームと開始倍率に連動するサイズ変更を、停止中の本プレビューへすぐ反映する。
+  const mediaZoomPreviewKey = mediaItems
+    .map((item) => `${item.id}:${item.zoomDirection ?? ''}:${item.zoomAmount ?? ''}:${item.zoomStartScale ?? ''}:${item.zoomEndScale ?? ''}`)
+    .join('|');
+
   // --- キャプション・ロゴ変更時のプレビュー再描画 ---
   // キャプション／ウォーターマーク／エンドロールはプレビュー canvas へ焼き込まれるため、
   // 削除・編集しても再描画が走らないと「消したはずの文字が残る」「調整が反映されない」。
@@ -3804,6 +3887,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     videoTitle,
     watermarkOverlay,
     endrollOverlay,
+    mediaZoomPreviewKey,
+    zoomEndpointPreview,
     isProcessing,
     renderFrame,
   ]);
@@ -4387,6 +4472,13 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onUpdateImageDuration={handleUpdateImageDuration}
               onSetImageEndFromCurrent={handleSetImageEndFromCurrent}
               onUpdateMediaScale={handleUpdateMediaScale}
+              onUpdateMediaZoomDirection={handleUpdateMediaZoomDirection}
+              onUpdateMediaZoomAmount={handleUpdateMediaZoomAmount}
+              onUpdateMediaZoomEndpoint={handleUpdateMediaZoomEndpoint}
+              onPreviewMediaZoomEndpoint={handlePreviewMediaZoomEndpoint}
+              zoomEndpointPreview={zoomEndpointPreview}
+              onInheritMediaZoom={handleInheritMediaZoom}
+              onSplitMedia={handleSplitMedia}
               onUpdateMediaPosition={handleUpdateMediaPosition}
               onRotateMedia={handleRotateMedia}
               onUpdateMediaBlur={handleUpdateMediaBlur}

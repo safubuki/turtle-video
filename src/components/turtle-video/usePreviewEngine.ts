@@ -8,6 +8,7 @@
  * ================================================================
  */
 import { useCallback, type MutableRefObject } from 'react';
+import type { MediaZoomEndpointPreview } from '../../utils/mediaZoom';
 
 import {
   FPS,
@@ -75,6 +76,7 @@ interface UsePreviewEngineParams {
   previewCaptionIdsRef?: MutableRefObject<ReadonlySet<string> | null>;
   /** Issue #247。終了未確定の対象 ID。契約追随のみ、描画は flavor 側。 */
   stampHoldOpenCaptionIdRef?: MutableRefObject<string | null>;
+  zoomEndpointPreviewRef?: MutableRefObject<MediaZoomEndpointPreview | null>;
   captionSettingsRef: MutableRefObject<CaptionSettings>;
   /**
    * 動画タイトル（Issue #211）。

@@ -54,6 +54,14 @@ export function createAndroidPreviewCacheKey(
       fadeInDuration: item.fadeInDuration,
       fadeOutDuration: item.fadeOutDuration,
       scale: item.scale,
+      zoomStartScale: item.zoomStartScale ?? null,
+      zoomEndScale: item.zoomEndScale ?? null,
+      zoomDirection: item.zoomDirection === 'in' || item.zoomDirection === 'out'
+        ? item.zoomDirection
+        : 'none',
+      zoomAmount: item.zoomDirection === 'in' || item.zoomDirection === 'out'
+        ? (item.zoomAmount ?? null)
+        : null,
       positionX: item.positionX,
       positionY: item.positionY,
       rotation: item.rotation ?? 0,

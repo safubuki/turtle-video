@@ -9,6 +9,7 @@ import { useCallback, useEffect, type ChangeEvent, type MutableRefObject } from 
 
 import { SEEK_THROTTLE_MS } from '../../../constants';
 import type { MediaItem } from '../../../types';
+import { resolveMediaZoomEndpointPreview, type MediaZoomEndpointPreview } from '../../../utils/mediaZoom';
 import {
   shouldAttemptDeferredPreviewPlay,
   shouldBundlePreviewStartForWebAudioMix,
@@ -28,6 +29,7 @@ interface PreparedPreviewAudioNodesResult {
 
 interface UsePreviewSeekControllerParams {
   mediaItemsRef: MutableRefObject<MediaItem[]>;
+  zoomEndpointPreviewRef?: MutableRefObject<MediaZoomEndpointPreview | null>;
   mediaElementsRef: MutableRefObject<Record<string, HTMLVideoElement | HTMLImageElement | HTMLAudioElement>>;
   sourceNodesRef: MutableRefObject<Record<string, MediaElementAudioSourceNode>>;
   gainNodesRef: MutableRefObject<Record<string, GainNode>>;
@@ -76,6 +78,7 @@ interface UsePreviewSeekControllerResult {
 
 export function usePreviewSeekController({
   mediaItemsRef,
+  zoomEndpointPreviewRef,
   mediaElementsRef,
   sourceNodesRef,
   gainNodesRef,
@@ -115,12 +118,13 @@ export function usePreviewSeekController({
   primePreviewAudioOnlyTracksAtTime,
 }: UsePreviewSeekControllerParams): UsePreviewSeekControllerResult {
   const syncVideoToTime = useCallback((time: number, options?: { force?: boolean }) => {
+    const preview = resolveMediaZoomEndpointPreview(mediaItemsRef.current, zoomEndpointPreviewRef?.current, isPlayingRef.current);
     const force = options?.force ?? false;
     const seekThreshold = force ? 0.01 : 0.1;
     let accumulatedTime = 0;
 
     for (const item of mediaItemsRef.current) {
-      if (time >= accumulatedTime && time < accumulatedTime + item.duration) {
+      if (preview ? item.id === preview.id : time >= accumulatedTime && time < accumulatedTime + item.duration) {
         if (item.type === 'video') {
           const videoElement = mediaElementsRef.current[item.id] as HTMLVideoElement;
           if (videoElement) {
@@ -132,8 +136,10 @@ export function usePreviewSeekController({
               }
             }
             if (videoElement.readyState >= 1) {
-              const localTime = time - accumulatedTime;
-              const targetTime = resolveVideoSourceTime({ trimStart: item.trimStart || 0, localTime, playbackSpeed: item.playbackSpeed });
+              const localTime = preview?.localTime ?? time - accumulatedTime;
+              const targetTime = preview && zoomEndpointPreviewRef?.current?.endpoint === 'end'
+                ? resolveVideoSafeEndSourceTime({ trimStart: item.trimStart || 0, timelineDuration: item.duration, playbackSpeed: item.playbackSpeed, trimEnd: item.trimEnd })
+                : resolveVideoSourceTime({ trimStart: item.trimStart || 0, localTime, playbackSpeed: item.playbackSpeed });
               const drift = Math.abs(videoElement.currentTime - targetTime);
               if (drift > seekThreshold && (force || !videoElement.seeking)) {
                 videoElement.currentTime = targetTime;
@@ -185,7 +191,7 @@ export function usePreviewSeekController({
     }
 
     activeVideoIdRef.current = null;
-  }, [activeVideoIdRef, mediaElementsRef, mediaItemsRef, totalDurationRef]);
+  }, [activeVideoIdRef, mediaElementsRef, mediaItemsRef, totalDurationRef, zoomEndpointPreviewRef, isPlayingRef]);
 
   const renderPausedPreviewFrameAtTime = useCallback((targetTime: number) => {
     const clampedTime = Math.max(0, Math.min(targetTime, totalDurationRef.current));
@@ -435,6 +441,9 @@ export function usePreviewSeekController({
     wasPlayingBeforeSeekRef.current = false;
 
     const findActiveVideoAtTime = (targetTimelineTime: number): HTMLVideoElement | null => {
+      const preview = resolveMediaZoomEndpointPreview(mediaItemsRef.current, zoomEndpointPreviewRef?.current, isPlayingRef.current);
+      if (preview) return mediaItemsRef.current[preview.index].type === 'video'
+        ? (mediaElementsRef.current[preview.id] as HTMLVideoElement | undefined) ?? null : null;
       let accumulatedTime = 0;
       for (const item of mediaItemsRef.current) {
         if (targetTimelineTime >= accumulatedTime && targetTimelineTime < accumulatedTime + item.duration) {
@@ -792,6 +801,7 @@ export function usePreviewSeekController({
     totalDurationRef,
     wasPlayingBeforeSeekRef,
     loop,
+    zoomEndpointPreviewRef,
   ]);
 
   useEffect(() => {

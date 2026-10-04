@@ -80,6 +80,13 @@ export interface SerializedMediaItem {
   trimStart: number;
   trimEnd: number;
   scale: number;
+  /** 表示時間全体のズーム。旧データには存在しないため任意。none は未保存でよい */
+  zoomDirection?: 'none' | 'in' | 'out';
+  /** ズーム到達倍率（1.1〜1.5）。方向が in / out のときだけ意味を持つ */
+  zoomAmount?: number;
+  /** 任意の実効倍率両端（旧保存データ互換）。倍率1.3は130%。 */
+  zoomStartScale?: number;
+  zoomEndScale?: number;
   positionX: number;
   positionY: number;
   /** 90度単位の時計回り回転（0 / 90 / 180 / 270）。旧データには存在しないため任意 */

@@ -56,6 +56,8 @@ function renderClipsSection(
     onSetVideoTrimFromCurrent: vi.fn(),
     onUpdateImageDuration: vi.fn(),
     onUpdateMediaScale: vi.fn(),
+    onUpdateMediaZoomDirection: vi.fn(),
+    onUpdateMediaZoomAmount: vi.fn(),
     onUpdateMediaPosition: vi.fn(),
     onRotateMedia: vi.fn(),
     onUpdateMediaBlur: vi.fn(),

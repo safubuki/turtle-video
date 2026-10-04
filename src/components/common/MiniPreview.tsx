@@ -14,10 +14,13 @@ import {
   resolveMediaBlurPixels,
   resolveRotatedFitDimensions,
 } from '../../utils/canvas';
+import { resolveMediaScaleFactor, mediaScaleToPercent } from '../../utils/mediaZoom';
 
 interface MiniPreviewProps {
   item: MediaItem;
   mediaElement: HTMLVideoElement | HTMLImageElement | null;
+  /** このクリップ内の経過秒。未指定は開始側（ズームの始点） */
+  localTime?: number;
 }
 
 // ミニプレビューの枠。向きに合わせて長辺 96 を基準にする（横=96×54 / 縦=54×96）。
@@ -28,7 +31,7 @@ const MINI_CANVAS_SHORT = 54;
  * ミニプレビューコンポーネント
  * トランスフォームパネル内に埋め込み表示
  */
-const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
+const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement, localTime = 0 }) => {
   const projectCanvasWidth = useCanvasStore((s) => s.width);
   const projectCanvasHeight = useCanvasStore((s) => s.height);
   // 出力の向きに合わせてミニ枠と配置モードを決める（メインプレビューと一致させる）。
@@ -43,6 +46,7 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
 
   // itemの最新状態をRefに保持し、renderFrameの再生成を防ぐ
   const itemRef = useRef(item);
+  const localTimeRef = useRef(localTime);
 
   // 描画関数 (itemへの依存を除去)
   const renderFrame = useCallback((force: boolean = false) => {
@@ -96,7 +100,7 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
         elementHeight: fitDims.height,
         mode: isPortrait ? 'cover' : 'contain',
       });
-      const renderScale = baseScale * currentItem.scale;
+      const renderScale = baseScale * resolveMediaScaleFactor(currentItem, localTimeRef.current);
       const blurPixels = resolveMediaBlurPixels(
         currentItem.blur,
         miniCanvasWidth,
@@ -153,9 +157,10 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
 
   useEffect(() => {
     itemRef.current = item;
+    localTimeRef.current = localTime;
     // プロパティ変更時は即時反映 (force=true)
     requestAnimationFrame(() => renderFrame(true));
-  }, [item, renderFrame]);
+  }, [item, localTime, renderFrame]);
 
   // アニメーションループ管理
   const startLoop = useCallback(() => {
@@ -267,6 +272,8 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
   //   requestAnimationFrame(() => renderFrame(true));
   // }, [item.scale, item.positionX, item.positionY, renderFrame]);
 
+  const zoomPercent = mediaScaleToPercent(resolveMediaScaleFactor(item, localTime));
+
   // 親（トランスフォームパネル）の先頭に置かれ、間隔は親の space-y-2 が付ける。
   // 以前はスライダーの下（末尾）だったため mt-2 で間を空けていたが、
   // 先頭配置では余分な余白になるため外している。
@@ -286,7 +293,9 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement }) => {
 
         {/* トランスフォーム情報オーバーレイ */}
         <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-2 py-1 text-[10px] text-gray-300 flex justify-between">
-          <span>Scale: {(item.scale * 100).toFixed(0)}%</span>
+          <span>
+            拡大率: {zoomPercent}%
+          </span>
           {/* 位置は px の生値。中央原点 % への変換で端数が出るため整数へ丸めて表示する
               （保存値は丸めない。あくまで表示上の見やすさのため） */}
           <span>

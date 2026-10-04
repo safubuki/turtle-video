@@ -107,6 +107,7 @@ import { createExportFrameSnapshotRing } from '../../../utils/exportFrameSnapsho
 import { createRenderedFrameTracker } from '../../../utils/exportDiagnostics';
 import { createExportFrameProfiler } from '../../../utils/exportFrameProfiler';
 import { resolveMediaBaseScale } from '../../../stores/canvasStore';
+import { resolveMediaScaleFactor, resolveMediaZoomEndpointPreview, type MediaZoomEndpointPreview } from '../../../utils/mediaZoom';
 import {
   normalizeRotation,
   prepareUniformMediaBlurSource,
@@ -180,6 +181,7 @@ interface UsePreviewEngineParams {
   previewCaptionIdsRef?: MutableRefObject<ReadonlySet<string> | null>;
   /** 終了未確定のタイミング打ち対象。プレビューだけ endTime を超えて表示する。 */
   stampHoldOpenCaptionIdRef?: MutableRefObject<string | null>;
+  zoomEndpointPreviewRef?: MutableRefObject<MediaZoomEndpointPreview | null>;
   captionSettingsRef: MutableRefObject<CaptionSettings>;
   /** 動画タイトル（Issue #211）。キャプションとは別管理で 1 件だけ描画する */
   videoTitleRef: MutableRefObject<VideoTitleSettings>;
@@ -1078,6 +1080,7 @@ export function usePreviewEngine({
   captionsRef,
   previewCaptionIdsRef,
   stampHoldOpenCaptionIdRef,
+  zoomEndpointPreviewRef,
   captionSettingsRef,
   videoTitleRef,
   watermarkOverlayRef,
@@ -1846,8 +1849,12 @@ export function usePreviewEngine({
           ctx.imageSmoothingQuality = 'high';
         }
         let didUpdateCanvas = false;
+        const zoomPreview = resolveMediaZoomEndpointPreview(
+          mediaItemsRef.current, zoomEndpointPreviewRef?.current,
+          isActivePlaying || isPlayingRef.current, _isExporting,
+        );
 
-        if (!_isExporting && hasReadyPreviewCache()) {
+        if (!zoomPreview && !_isExporting && hasReadyPreviewCache()) {
           const previewCacheVideo = previewCacheVideoRefValue.current;
           if (previewCacheVideo?.readyState && previewCacheVideo.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME) {
             ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
@@ -1866,7 +1873,7 @@ export function usePreviewEngine({
         const activeEndroll = endrollOverlayRef?.current;
         const endrollDurationSec = getEndrollDuration(activeEndroll);
         const clipsDurationSec = clipsDurationRef?.current ?? totalDurationRef.current;
-        const isEndrollFrame = endrollDurationSec > 0 && time >= clipsDurationSec;
+        const isEndrollFrame = !zoomPreview && endrollDurationSec > 0 && time >= clipsDurationSec;
 
         if (isEndrollFrame) {
           // 動画要素は止めておく（エンドロール中に裏でデコードを回さない）
@@ -1879,7 +1886,9 @@ export function usePreviewEngine({
           }
         }
 
-        const currentItems = mediaItemsRef.current;
+        // 端点確認ではフェードで素材を隠さない。保存値・再生・書き出しには適用しない。
+        const currentItems = zoomPreview ? mediaItemsRef.current.map((item) => item.id === zoomPreview.id
+          ? { ...item, fadeIn: false, fadeOut: false } : item) : mediaItemsRef.current;
         const currentBgm = bgmRef.current;
         const currentNarrations = narrationsRef.current;
         // ディゾルブ（重ねる）トランジションのオーバーラップを考慮したタイムライン区間。
@@ -1923,6 +1932,11 @@ export function usePreviewEngine({
           }
         }
         // === ディゾルブ(重ねる)のオーバーラップ判定 ===
+        if (zoomPreview) {
+          activeId = zoomPreview.id;
+          activeIndex = zoomPreview.index;
+          localTime = zoomPreview.localTime;
+        }
         // 窓内では「前のクリップ」を準アクティブ(peer)として描画・再生継続し、
         // 映像は次クリップを上にクロスフェード、音声は双方をクロスフェードする。
         let overlapPeerId: string | null = null;
@@ -1930,7 +1944,7 @@ export function usePreviewEngine({
         let overlapCrossInAlpha: number | null = null;
         let overlapAudioCrossIn: number | null = null;
         let overlapAudioCrossOut = 0;
-        if (activeId && activeIndex > 0) {
+        if (!zoomPreview && activeId && activeIndex > 0) {
           const prevOverlapItem = currentItems[activeIndex - 1];
           const prevOverlapRange = timelineRanges.get(prevOverlapItem.id);
           const activeOverlapRange = timelineRanges.get(activeId);
@@ -2988,7 +3002,7 @@ export function usePreviewEngine({
                 ? stallSnapshotCanvas.height
                 : isVideo ? videoEl.videoHeight : imgEl.naturalHeight;
               if (elemW && elemH) {
-                const scaleFactor = conf.scale || 1.0;
+                const scaleFactor = resolveMediaScaleFactor(conf, zoomPreview?.scaleTime ?? localTime);
                 const userX = conf.positionX || 0;
                 const userY = conf.positionY || 0;
                 const rotationDeg = normalizeRotation(conf.rotation);
@@ -3214,7 +3228,7 @@ export function usePreviewEngine({
                     elementHeight: peerFitDims.height,
                     mode: ctx.canvas.height > ctx.canvas.width ? 'cover' : 'contain',
                   });
-                  const peerRenderScale = peerBase * (conf.scale || 1);
+                  const peerRenderScale = peerBase * resolveMediaScaleFactor(conf, overlapPeerLocalTime);
                   const peerBlurPixels = resolveMediaBlurPixels(
                     conf.blur,
                     ctx.canvas.width,
@@ -3390,7 +3404,7 @@ export function usePreviewEngine({
           const transitionActiveRange = transitionActiveItem
             ? timelineRanges.get(transitionActiveItem.id)
             : undefined;
-          if (transitionActiveItem && transitionActiveRange) {
+          if (!zoomPreview && transitionActiveItem && transitionActiveRange) {
             const drawTransitionColorOverlay = (color: string, alpha: number) => {
               const clamped = Math.max(0, Math.min(1, alpha));
               if (clamped <= 0) return;
@@ -4045,7 +4059,7 @@ export function usePreviewEngine({
     },
     // videoTitle も依存に含める。含めないと renderFrame が再生成されず、
     // 停止中のプレビューへタイトル変更がリアルタイム反映されない（キャプションと同じ扱い）
-    [captions, captionSettings, previewCaptionIdsRef, stampHoldOpenCaptionIdRef, videoTitle, watermarkOverlay, ensureAudioNodeForElement, logInfo, platformCapabilities, previewPlatformPolicy],
+    [captions, captionSettings, previewCaptionIdsRef, stampHoldOpenCaptionIdRef, zoomEndpointPreviewRef, videoTitle, watermarkOverlay, ensureAudioNodeForElement, logInfo, platformCapabilities, previewPlatformPolicy],
   );
 
   const handleSeeked = useCallback(() => {

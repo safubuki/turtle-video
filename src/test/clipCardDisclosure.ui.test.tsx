@@ -1,5 +1,5 @@
 import type { ComponentProps } from 'react';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ClipsSection from '../components/sections/ClipsSection';
 import useMediaStore from '../stores/mediaStore';
@@ -59,6 +59,8 @@ function renderSection(overrides: Partial<ComponentProps<typeof ClipsSection>> =
     onSetVideoTrimFromCurrent: vi.fn(),
     onUpdateImageDuration: vi.fn(),
     onUpdateMediaScale: vi.fn(),
+    onUpdateMediaZoomDirection: vi.fn(),
+    onUpdateMediaZoomAmount: vi.fn(),
     onUpdateMediaPosition: vi.fn(),
     onRotateMedia: vi.fn(),
     onUpdateMediaBlur: vi.fn(),
@@ -81,6 +83,23 @@ function durationSliders() {
 }
 
 describe('動画・画像カードの折りたたみ', () => {
+  it('末尾のズーム確認中はディゾルブ境界でも操作中のカードを閉じず、確認解除で通常のフォーカスへ戻る', () => {
+    const items = [{ ...createImage('a'), transitionToNext: { type: 'dissolve' as const, duration: 1 } }, createImage('b')];
+    const { props, rerender } = renderSection({
+      mediaItems: items, currentTime: 1,
+      mediaTimelineRanges: { a: { start: 0, end: 5 }, b: { start: 4, end: 9 } },
+      onPreviewMediaZoomEndpoint: vi.fn(),
+    });
+    const first = screen.getByTestId('clip-card-a');
+    fireEvent.click(within(first).getByRole('button', { name: 'フェード・ズームイン/アウト' }));
+    rerender(<ClipsSection {...props} currentTime={4.999} zoomEndpointPreview={{ id: 'a', endpoint: 'end' }} />);
+    expect(screen.getByTestId('clip-card-a')).toHaveAttribute('data-focused', 'true');
+    expect(screen.getByTestId('clip-card-b')).toHaveAttribute('data-focused', 'false');
+    expect(within(first).getByRole('spinbutton', { name: 'ズーム終了倍率（数値）' })).toBeInTheDocument();
+    expect(within(first).getByRole('button', { name: '終了（末尾）を確認' })).toHaveAttribute('aria-pressed', 'true');
+    rerender(<ClipsSection {...props} currentTime={6} zoomEndpointPreview={null} />);
+    expect(screen.getByTestId('clip-card-b')).toHaveAttribute('data-focused', 'true');
+  });
   it('初期表示でセクションが開き、保存プロジェクトの素材も表示できる', () => {
     const { rerender, props } = renderSection({ mediaItems: [] });
     // 初期表示で開いていること

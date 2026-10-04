@@ -15,6 +15,7 @@ import {
 } from '../../../constants';
 import { captureCaptionFreeSnapshot, createCaptionGlyphCanvas, type CaptionFreeSnapshot } from '../../../utils/canvas';
 import { resolveMediaBaseScale } from '../../../stores/canvasStore';
+import { resolveMediaScaleFactor, resolveMediaZoomEndpointPreview, type MediaZoomEndpointPreview } from '../../../utils/mediaZoom';
 import {
   normalizeRotation,
   prepareUniformMediaBlurSource,
@@ -113,6 +114,7 @@ interface UsePreviewEngineParams {
   previewCaptionIdsRef?: MutableRefObject<ReadonlySet<string> | null>;
   /** 終了未確定のタイミング打ち対象。プレビューだけ endTime を超えて表示する。 */
   stampHoldOpenCaptionIdRef?: MutableRefObject<string | null>;
+  zoomEndpointPreviewRef?: MutableRefObject<MediaZoomEndpointPreview | null>;
   captionSettingsRef: MutableRefObject<CaptionSettings>;
   /** 動画タイトル（Issue #211）。キャプションとは別管理で 1 件だけ描画する */
   videoTitleRef: MutableRefObject<VideoTitleSettings>;
@@ -273,6 +275,7 @@ export function usePreviewEngine({
   captionsRef,
   previewCaptionIdsRef,
   stampHoldOpenCaptionIdRef,
+  zoomEndpointPreviewRef,
   captionSettingsRef,
   videoTitleRef,
   watermarkOverlayRef,
@@ -476,8 +479,13 @@ export function usePreviewEngine({
         const ctx = canvas.getContext('2d');
         if (!ctx) return false;
         let didUpdateCanvas = false;
+        const zoomPreview = resolveMediaZoomEndpointPreview(
+          mediaItemsRef.current, zoomEndpointPreviewRef?.current,
+          isActivePlaying || isPlayingRef.current, _isExporting,
+        );
 
-        const currentItems = mediaItemsRef.current;
+        const currentItems = zoomPreview ? mediaItemsRef.current.map((item) => item.id === zoomPreview.id
+          ? { ...item, fadeIn: false, fadeOut: false } : item) : mediaItemsRef.current;
         const currentBgm = bgmRef.current;
         const currentNarrations = narrationsRef.current;
         const timelineRanges = new Map<string, { start: number; end: number }>();
@@ -506,6 +514,11 @@ export function usePreviewEngine({
             activeIndex = lastIndex;
             localTime = Math.max(0, lastItem.duration - 0.001);
           }
+        }
+        if (zoomPreview) {
+          activeId = zoomPreview.id;
+          activeIndex = zoomPreview.index;
+          localTime = zoomPreview.localTime;
         }
         const holdAudioThisFrame = isActivePlaying && audioResumeWaitFramesRef.current > 0;
         const isNearTimelineStart =
@@ -1026,7 +1039,7 @@ export function usePreviewEngine({
               const elemW = isVideo ? videoEl.videoWidth : imgEl.naturalWidth;
               const elemH = isVideo ? videoEl.videoHeight : imgEl.naturalHeight;
               if (elemW && elemH) {
-                const scaleFactor = conf.scale || 1.0;
+                const scaleFactor = resolveMediaScaleFactor(conf, zoomPreview?.scaleTime ?? localTime);
                 const userX = conf.positionX || 0;
                 const userY = conf.positionY || 0;
                 const rotationDeg = normalizeRotation(conf.rotation);
@@ -1723,7 +1736,7 @@ export function usePreviewEngine({
     },
     // videoTitle も依存に含める。含めないと renderFrame が再生成されず、
     // 停止中のプレビューへタイトル変更がリアルタイム反映されない（キャプションと同じ扱い）
-    [captions, captionSettings, previewCaptionIdsRef, stampHoldOpenCaptionIdRef, videoTitle, watermarkOverlay, ensureAudioNodeForElement, logInfo, platformCapabilities, previewPlatformPolicy],
+    [captions, captionSettings, previewCaptionIdsRef, stampHoldOpenCaptionIdRef, zoomEndpointPreviewRef, videoTitle, watermarkOverlay, ensureAudioNodeForElement, logInfo, platformCapabilities, previewPlatformPolicy],
   );
 
   const handleSeeked = useCallback(() => {
