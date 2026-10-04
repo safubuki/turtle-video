@@ -117,6 +117,7 @@ describe('ClipItem zoom', () => {
     expect(fadeHeading.compareDocumentPosition(zoomHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(zoomHeading.compareDocumentPosition(zoomIn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(zoomIn.compareDocumentPosition(hold) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(hold.className).toContain('self-end');
     expect(hold.compareDocumentPosition(reset) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(zoomIn.className).toContain('min-h-11');
     expect(zoomIn.className).toContain('rounded-lg');

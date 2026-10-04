@@ -1155,7 +1155,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
               disabled={isDisabled}
               title={`開始・終了を${mediaScaleToPercent(zoomRange.start)}%にそろえ、ズームの動きを止めます`}
               aria-label="開始倍率で固定"
-              className="inline-flex min-h-9 items-center gap-1.5 self-start rounded-lg px-1.5 text-xs text-gray-300 transition-colors hover:bg-gray-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:opacity-30 motion-reduce:transition-none md:text-sm"
+              className="inline-flex min-h-9 items-center gap-1.5 self-end rounded-lg px-1.5 text-xs text-gray-300 transition-colors hover:bg-gray-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:opacity-30 motion-reduce:transition-none md:text-sm"
             >
               <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
               開始倍率で固定
@@ -1227,7 +1227,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
               </button>
             )}
             <p className="text-[10px] leading-snug text-gray-500 md:text-xs">
-              開始を操作すると先頭、終了を操作すると末尾をプレビューします。開始倍率は位置・サイズの拡大率と共通です。同じ倍率にすると固定できます。
+              開始は先頭、終了は末尾をプレビューします。開始倍率は位置・サイズと共通です。同じ倍率で固定できます。
             </p>
             <button
               type="button"
