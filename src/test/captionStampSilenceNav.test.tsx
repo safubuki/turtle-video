@@ -69,6 +69,7 @@ function renderStampBar(
     },
     videoTitle: { ...DEFAULT_VIDEO_TITLE_SETTINGS },
     isLocked: false,
+    defaultOpen: true,
     onToggleLock: vi.fn(),
     totalDuration: 10,
     currentTime: 5,

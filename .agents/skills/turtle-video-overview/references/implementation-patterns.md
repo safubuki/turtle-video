@@ -4855,3 +4855,11 @@ export 終了（成功/失敗/中断）
 - **対策**: 「フェード」「ズーム」の見出しを追加する。方向・確認・継承ボタンは他の選択ボタンと同じ角丸・高さ・文字サイズへ揃える。「開始倍率で固定」は方向ボタンの下の右端に、枠なしの補助操作として置く。「100%にリセット」は説明文の後、枠なしの控えめな文字ボタンとして置く。保存・倍率・先頭プレビューの動作は変えない。端点のくるくるは32pxのまま。
 - **注意**: リセットを方向ボタンの隣や上へ戻さない。確認・継承ボタンの高さは方向ボタンに合わせる。
 - **対象 flavor**: shared UI（standard / apple-safari）。描画・保存契約は変更しない。
+
+### 13-267. タイミング打ちの1秒シークも共有controllerの再生意図を引き継ぐ（Issue #238）
+
+- **ファイル**: `src/components/sections/CaptionSection.tsx`, `src/components/TurtleVideo.tsx`, `src/flavors/standard/preview/usePreviewSeekController.ts`, `src/test/captionStampPlaybackSeek.test.tsx`, `src/test/captionStampSilenceNav.test.tsx`
+- **既存の対策**: 13-261の共有シーク修正は、タイミング打ちの1秒戻る・進むにも適用される。`handleStampSeekBy` は最新の `currentTimeRef` を基準に共通の `handleSeekToTime` を呼び、start/change/endを通る。CaptionSectionと通常プレビューの `isPlaying` は同じUIストア由来で、タイミング打ち専用の再生状態は持たない。
+- **注意**: シーク再開準備中は実再生refがfalseでも再生意図がある。待機キャンセル前に `isPlayingRef || isSeekPlaybackPreparingRef` を保存する。連打でこの意図を失うと、動画が停止してUIだけ一時停止表示のままになる。明示的な一時停止は待機を解除し、遅いseekedでも再開させない。末尾到達は既存エンジンが停止表示へ戻す。
+- **回帰ガード**: 実際のタイミング打ちボタンと通常プレビューをstandard controllerへ接続し、PC／Android各11件で単発・連打・交互操作・停止維持・範囲制限・準備中の明示停止・遅いシークを確認する。欄内を操作するテストは `defaultOpen: true` で対象を開く。再開意図の引き継ぎを除く一時コピーでは8件が失敗することを確認済み。実ChromeのPC幅／スマホ幅でも動画・時計・両ボタンの一致と末尾停止を検証した。
+- **対象 flavor**: standard。今回の追加はテストと記録で、ランタイムやapple-safariの自動再開禁止は変更しない。詳細は `Docs/reports/2026-10-05_issue-238-caption-stamp-playback.md`。
