@@ -180,6 +180,7 @@ turtle-video/
 - プレビューキャプチャ（現在のフレームをPNG画像として保存）
 
 ### 7. エクスポート
+- Linux の書き出し制限（Issue #224）は、`src/constants/sectionHelp.ts` の共通案内をアプリ全体の「基本操作・情報」とプレビューの「書き出し・管理」に表示する。Chrome の AAC（`mp4a.40.2`）変換非対応では音声なしの画像編集でも失敗しうること、Firefox ESR 等では WebCodecs のエンコーダーを利用できない場合があること、書き出し成功を確認した Windows Chrome・Edge / Android Chrome を案内する。ブラウザ・端末による差があるため一律の非対応や動作保証とは表現せず、apple-safari のヘルプではこの Linux 専用項目を除外する。書き出し処理やフォールバックは変更しない。
 - MediaRecorder を使用した動画出力
 - MP4 / WebM 形式対応
 - 出力品質（auto / フルHD / HD）とアスペクト比の向き（16:9 横 / 9:16 縦）を選択可能

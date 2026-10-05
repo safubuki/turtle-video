@@ -160,6 +160,16 @@ export function getSectionHelpContent(
 ): Record<SectionHelpKey, SectionHelpDefinition> {
   const flavorSummary = getAppFlavorSupportSummary(context.appFlavor);
   const downloadHelpSentence = getDownloadHelpSentence(context);
+  const linuxExportHelp: SectionHelpItem = {
+    title: 'Linuxでの書き出し制限',
+    description: 'Linuxでは、ブラウザの動画・音声の変換機能への対応状況により、MP4動画の書き出しが失敗したり利用できない場合があります。',
+    bullets: [
+      'Chrome（Linux）: MP4で使う音声形式AAC（mp4a.40.2）の変換に対応していない場合、画像だけでBGM・ナレーションを使わない編集でも書き出しに失敗することがあります。',
+      'Firefox（Linux・ESR版など）: ブラウザの動画・音声変換機能（WebCodecsのVideoEncoder／AudioEncoder）が使えず、書き出しできない場合があります。',
+      '動作確認済みの目安: WindowsのChrome・Edge、AndroidのChromeでは、動画の書き出し成功を確認しています。',
+    ],
+    note: '書き出しに失敗する場合は、上記の動作確認済み環境をお試しください。対応状況はブラウザのバージョンや端末によって異なります。',
+  };
 
   const content: Record<SectionHelpKey, SectionHelpDefinition> = {
   "app": {
@@ -277,6 +287,10 @@ export function getSectionHelpContent(
           }
         ],
         "note": `手持ちの機種による確認です。${flavorSummary}`
+      },
+      {
+        ...linuxExportHelp,
+        category: '基本操作・情報',
       },
       {
         "title": "注意事項",
@@ -1636,6 +1650,10 @@ export function getSectionHelpContent(
         ]
       },
       {
+        ...linuxExportHelp,
+        category: '書き出し・管理',
+      },
+      {
         "title": "動画作成の進捗と中止",
         "category": "書き出し・管理",
         "description": "動画ファイル作成中は、進捗率と準備ステージがリアルタイムに表示されます。",
@@ -1716,6 +1734,7 @@ export function getSectionHelpContent(
       '音量波形と無音区間',
       'サムネイル（プロジェクト全体）',
       'キャプションのみ出力（Android/PC版）',
+      'Linuxでの書き出し制限',
     ]);
 
     Object.values(content).forEach((section) => {
