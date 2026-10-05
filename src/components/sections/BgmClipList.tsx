@@ -172,6 +172,9 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
           effective,
           currentTime,
         );
+        const currentBgmSourceTimeLabel = currentBgmSourceTime === null
+          ? null
+          : `${formatTimeStepperInput(currentBgmSourceTime)}秒`;
         const canSetCurrentAsTrimStart = currentBgmSourceTime !== null
           && currentBgmSourceTime <= clip.duration - MIN_AUDIO_CLIP_DURATION_SEC;
         const canSetCurrentAsTrimEnd = currentBgmSourceTime !== null
@@ -408,49 +411,49 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
             {isTrimOpen && (
               <div id={`bgm-trim-settings-${clip.id}`} className="px-2 pb-2 space-y-2 border-t border-gray-700/60 pt-2">
                 <div className="rounded-lg border border-purple-500/25 bg-purple-950/20 p-2 space-y-1.5">
-                  <div className="flex flex-wrap items-center gap-1 md:gap-1.5 text-[10px] md:text-xs">
-                    <span className="mr-0.5 text-gray-300">現在のBGM位置を反映:</span>
+                  <p className="text-[10px] leading-relaxed text-gray-300 md:text-xs">
+                    {currentBgmSourceTime === null
+                      ? 'このBGMが流れている位置へプレビューを移動すると設定できます。'
+                      : `音源内の現在位置: ${currentBgmSourceTimeLabel}`}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5 text-[10px] md:text-xs">
                     <button
                       type="button"
-                      aria-label="現在のBGM位置をトリミング開始に設定"
                       onClick={withEdit('set-bgm-clip-trim-start-current', () => {
                         if (currentBgmSourceTime !== null) {
                           setBgmClipTrimAtSourceTime(clip.id, 'start', currentBgmSourceTime);
                         }
                       })}
                       disabled={isLocked || !canSetCurrentAsTrimStart}
-                      className="min-h-9 px-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 hover:border-purple-500/60 hover:text-purple-200 disabled:opacity-30 inline-flex shrink-0 items-center gap-1 whitespace-nowrap transition md:px-2.5"
+                      className="min-h-11 px-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 hover:border-purple-500/60 hover:text-purple-200 disabled:opacity-30 inline-flex flex-1 basis-40 items-center justify-center gap-1 whitespace-nowrap transition md:px-2.5"
                       title={currentBgmSourceTime === null
                         ? 'このBGMが流れている位置へプレビューを移動してください'
                         : canSetCurrentAsTrimStart
-                          ? `音源内の現在位置(${formatTime(currentBgmSourceTime)})をトリミング開始に設定`
+                          ? `音源内の現在位置(${currentBgmSourceTimeLabel})をトリミング開始に設定`
                           : '音源末尾ではトリミング開始に設定できません'}
                     >
-                      <Scissors className="w-3.5 h-3.5 shrink-0" /> 開始設定
+                      <Scissors className="w-3.5 h-3.5 shrink-0" /> 音源の現在位置を開始点に
                     </button>
                     <button
                       type="button"
-                      aria-label="現在のBGM位置をトリミング終了に設定"
                       onClick={withEdit('set-bgm-clip-trim-end-current', () => {
                         if (currentBgmSourceTime !== null) {
                           setBgmClipTrimAtSourceTime(clip.id, 'end', currentBgmSourceTime);
                         }
                       })}
                       disabled={isLocked || !canSetCurrentAsTrimEnd}
-                      className="min-h-9 px-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 hover:border-purple-500/60 hover:text-purple-200 disabled:opacity-30 inline-flex shrink-0 items-center gap-1 whitespace-nowrap transition md:px-2.5"
+                      className="min-h-11 px-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 hover:border-purple-500/60 hover:text-purple-200 disabled:opacity-30 inline-flex flex-1 basis-40 items-center justify-center gap-1 whitespace-nowrap transition md:px-2.5"
                       title={currentBgmSourceTime === null
                         ? 'このBGMが流れている位置へプレビューを移動してください'
                         : canSetCurrentAsTrimEnd
-                          ? `音源内の現在位置(${formatTime(currentBgmSourceTime)})をトリミング終了に設定`
+                          ? `音源内の現在位置(${currentBgmSourceTimeLabel})をトリミング終了に設定`
                           : 'このBGMのトリミング開始より後ろを再生してください'}
                     >
-                      <Scissors className="w-3.5 h-3.5 shrink-0" /> 終了設定
+                      <Scissors className="w-3.5 h-3.5 shrink-0" /> 音源の現在位置を終了点に
                     </button>
                   </div>
                   <p className="text-[10px] leading-relaxed text-gray-400 md:text-xs">
-                    {currentBgmSourceTime === null
-                      ? 'このBGMが流れている位置へプレビューを移動すると設定できます。'
-                      : `現在は音源内 ${formatTime(currentBgmSourceTime)} を再生しています。`}
+                    開始点から終了点までの音源をBGMに使います。動画上の配置は「開始位置」で調整します。
                   </p>
                 </div>
                 <div className="space-y-1">

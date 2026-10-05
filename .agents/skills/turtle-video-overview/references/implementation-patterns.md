@@ -4863,3 +4863,12 @@ export 終了（成功/失敗/中断）
 - **注意**: シーク再開準備中は実再生refがfalseでも再生意図がある。待機キャンセル前に `isPlayingRef || isSeekPlaybackPreparingRef` を保存する。連打でこの意図を失うと、動画が停止してUIだけ一時停止表示のままになる。明示的な一時停止は待機を解除し、遅いseekedでも再開させない。末尾到達は既存エンジンが停止表示へ戻す。
 - **回帰ガード**: 実際のタイミング打ちボタンと通常プレビューをstandard controllerへ接続し、PC／Android各11件で単発・連打・交互操作・停止維持・範囲制限・準備中の明示停止・遅いシークを確認する。欄内を操作するテストは `defaultOpen: true` で対象を開く。再開意図の引き継ぎを除く一時コピーでは8件が失敗することを確認済み。実ChromeのPC幅／スマホ幅でも動画・時計・両ボタンの一致と末尾停止を検証した。
 - **対象 flavor**: standard。今回の追加はテストと記録で、ランタイムやapple-safariの自動再開禁止は変更しない。詳細は `Docs/reports/2026-10-05_issue-238-caption-stamp-playback.md`。
+
+### 13-268. BGMの現在位置によるトリミングは音源の開始点・終了点と明記する（Issue #242）
+
+- **ファイル**: `src/components/sections/BgmClipList.tsx`, `src/components/modals/SectionHelpModal.tsx`, `src/constants/sectionHelp.ts`, `src/test/bgmClipList.test.tsx`, `src/test/sectionHelpModal.test.tsx`, `spec.md`
+- **問題**: 13-224の音源トリミング操作にある「開始設定」「終了設定」は、何の開始・終了を設定するか分かりにくかった。
+- **対策**: 「音源の現在位置を開始点に」「音源の現在位置を終了点に」と表示する。音源内の現在秒数は `formatTimeStepperInput` で数値入力欄と精度を揃え、ボタンの上とツールチップに表示する。開始点から終了点までをBGMに使うこと、動画上の配置は別の「開始位置」で調整することを補足する。ヘルプ本文・操作見本も同じ表記に揃える。
+- **注意**: 音源時刻は既存の `resolveAudioClipSourceTimeAtTimelineTime` から取得し、設定は `setBgmClipTrimAtSourceTime` を使う。プロジェクト時刻を直接trimへ渡さない。区間外・最小尺・ロックによる無効化、単発編集前のプレビュー停止は維持する。
+- **レイアウト**: ボタンは44px以上の高さとし、使用できる横幅に応じて折り返す。画面幅だけで2列を強制しない。見本も同じ配置規則を使う。
+- **対象 flavor**: standard（Android / PC）の複数BGM UI。apple-safariの単一BGM UI・ストア・再生・export・保存形式は変更しない。詳細は `Docs/reports/2026-10-05_issue-242-bgm-trim-labels.md`。

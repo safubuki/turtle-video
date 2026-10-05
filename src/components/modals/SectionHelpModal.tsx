@@ -662,17 +662,20 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
         return (
           <div
             key={`${token}-${index}`}
-            className="flex flex-col sm:flex-row sm:items-center gap-1.5 rounded-lg border border-purple-500/25 bg-purple-950/20 px-2 py-1.5 text-[10px] text-gray-300 md:text-xs"
+            className="w-full space-y-1.5 rounded-lg border border-purple-500/25 bg-purple-950/20 p-2 text-[10px] md:text-xs"
           >
-            <span className="shrink-0">現在のBGM位置を反映:</span>
-            <div className="flex items-center gap-1.5 shrink-0 flex-nowrap">
-              <span className="inline-flex min-h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-gray-700 bg-gray-800 px-2 text-gray-200 md:px-2.5">
-                <Scissors className="h-3.5 w-3.5 shrink-0" /> 開始設定
+            <p className="leading-relaxed text-gray-300">音源内の現在位置: 12.3秒</p>
+            <div className="flex flex-wrap gap-1.5">
+              <span className="inline-flex min-h-11 flex-1 basis-40 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-gray-700 bg-gray-800 px-2 text-gray-200 md:px-2.5">
+                <Scissors className="h-3.5 w-3.5 shrink-0" /> 音源の現在位置を開始点に
               </span>
-              <span className="inline-flex min-h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-gray-700 bg-gray-800 px-2 text-gray-200 md:px-2.5">
-                <Scissors className="h-3.5 w-3.5 shrink-0" /> 終了設定
+              <span className="inline-flex min-h-11 flex-1 basis-40 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-gray-700 bg-gray-800 px-2 text-gray-200 md:px-2.5">
+                <Scissors className="h-3.5 w-3.5 shrink-0" /> 音源の現在位置を終了点に
               </span>
             </div>
+            <p className="leading-relaxed text-gray-400">
+              開始点から終了点までの音源をBGMに使います。動画上の配置は「開始位置」で調整します。
+            </p>
           </div>
         );
       case 'rotate_button':

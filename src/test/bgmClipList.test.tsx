@@ -128,19 +128,15 @@ describe('BgmClipList timeline adjustment', () => {
     );
 
     expect(
-      screen.queryByRole('button', { name: '現在のBGM位置をトリミング開始に設定' }),
+      screen.queryByRole('button', { name: '音源の現在位置を開始点に' }),
     ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'トリミング設定' }));
-    expect(screen.getByText('現在は音源内 30.0s を再生しています。')).toBeInTheDocument();
-    const startButton = screen.getByText('開始設定').closest('button');
-    expect(startButton).toHaveClass('px-2', 'shrink-0', 'whitespace-nowrap');
-    expect(screen.getByText('終了設定').closest('button')).toHaveClass(
-      'px-2',
-      'shrink-0',
-      'whitespace-nowrap',
-    );
+    expect(screen.getByText('音源内の現在位置: 30.0秒')).toBeInTheDocument();
+    expect(screen.getByText('開始点から終了点までの音源をBGMに使います。動画上の配置は「開始位置」で調整します。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '音源の現在位置を開始点に' }))
+      .toHaveAttribute('title', '音源内の現在位置(30.0秒)をトリミング開始に設定');
     fireEvent.click(
-      screen.getByRole('button', { name: '現在のBGM位置をトリミング開始に設定' }),
+      screen.getByRole('button', { name: '音源の現在位置を開始点に' }),
     );
 
     const updated = useAudioStore.getState().bgmClips[0];
@@ -164,7 +160,7 @@ describe('BgmClipList timeline adjustment', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'トリミング設定' }));
     fireEvent.click(
-      screen.getByRole('button', { name: '現在のBGM位置をトリミング終了に設定' }),
+      screen.getByRole('button', { name: '音源の現在位置を終了点に' }),
     );
 
     expect(useAudioStore.getState().bgmClips[0].trimEnd).toBe(30);
@@ -186,10 +182,10 @@ describe('BgmClipList timeline adjustment', () => {
     fireEvent.click(screen.getByRole('button', { name: 'トリミング設定' }));
     expect(screen.getByText(/このBGMが流れている位置へプレビューを移動/)).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: '現在のBGM位置をトリミング開始に設定' }),
+      screen.getByRole('button', { name: '音源の現在位置を開始点に' }),
     ).toBeDisabled();
     expect(
-      screen.getByRole('button', { name: '現在のBGM位置をトリミング終了に設定' }),
+      screen.getByRole('button', { name: '音源の現在位置を終了点に' }),
     ).toBeDisabled();
   });
 
