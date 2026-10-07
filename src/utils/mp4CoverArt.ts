@@ -8,9 +8,10 @@
  *    FFmpeg の `-disposition:v:0 attached_pic` / 各種 TagEditor と同系統。
  * 2. **映像トラックの先頭キーフレーム**: Windows エクスプローラー等のシェルは、
  *    カバーアートではなく **動画ストリームからフレームを抽出**することが多い。
- *    先頭が黒だと別フレームを探すため、先頭 IDR を意図した画像にすると効く場合がある。
+ *    先頭が黒だと別フレームを探す場合がある。
  *
- * 本モジュールは (1) を担当する。エクスポート側で (2) と併用する。
+ * サムネイルは (1) に保存し、映像トラックの先頭はタイムラインの描画を維持する。
+ * ポスターへの差し替えは再生開始時に時刻・ズーム倍率・フェードが跳ぶ原因になる。
  */
 
 const BOX_HEADER = 8;
@@ -334,61 +335,21 @@ export function injectMp4CoverArtFromDataUrl(
 }
 
 /**
- * data URL から ImageBitmap を生成（先頭キーフレーム差し替え用）。
- */
-export async function loadCoverArtImageBitmap(
-  dataUrl: string | null | undefined,
-): Promise<ImageBitmap | null> {
-  if (!dataUrl) return null;
-  try {
-    const parsed = dataUrlToImageBytes(dataUrl);
-    if (!parsed || parsed.bytes.byteLength < 32) return null;
-    const mime = parsed.isJpeg ? 'image/jpeg' : 'image/png';
-    // BlobPart 互換のため ArrayBuffer へコピー
-    const ab = parsed.bytes.buffer.slice(
-      parsed.bytes.byteOffset,
-      parsed.bytes.byteOffset + parsed.bytes.byteLength,
-    );
-    const blob = new Blob([ab as ArrayBuffer], { type: mime });
-    return await createImageBitmap(blob);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * 先頭フレーム用: ポスター画像をエクスポート解像度のキャンバスに cover 配置して VideoFrame を作る。
- * poster が無い、または frameIndex !== 0 のときは通常の canvas から生成。
+ * 先頭を含む全フレームをタイムラインの描画から生成する。
+ * ポスターは MP4 のカバーアートとしてのみ保存し、映像へ挿入しない。
  */
 export function createExportVideoFrame(params: {
   canvas: HTMLCanvasElement;
-  posterBitmap: ImageBitmap | null;
-  frameIndex: number;
   timestampUs: number;
   durationUs: number;
   /** 指定時は live Canvas ではなく、描画スロット確定時のスナップショットを使う */
   source?: CanvasImageSource | null;
 }): VideoFrame {
-  const { canvas, posterBitmap, frameIndex, timestampUs, durationUs, source } = params;
+  const { canvas, timestampUs, durationUs, source } = params;
   const frameInit: VideoFrameInit = {
     timestamp: timestampUs,
     duration: durationUs,
     alpha: 'discard',
   };
-  if (frameIndex === 0 && posterBitmap && canvas.width > 0 && canvas.height > 0) {
-    const off = document.createElement('canvas');
-    off.width = canvas.width;
-    off.height = canvas.height;
-    const ctx = off.getContext('2d');
-    if (ctx) {
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(0, 0, off.width, off.height);
-      const scale = Math.max(off.width / posterBitmap.width, off.height / posterBitmap.height);
-      const w = posterBitmap.width * scale;
-      const h = posterBitmap.height * scale;
-      ctx.drawImage(posterBitmap, (off.width - w) / 2, (off.height - h) / 2, w, h);
-      return new VideoFrame(off, frameInit);
-    }
-  }
   return new VideoFrame(source ?? canvas, frameInit);
 }

@@ -158,8 +158,8 @@ export interface ExportAudioSources {
   /**
    * プロジェクトポスター（JPEG data URL）。
    * - MP4 の cover art（moov/udta/meta/ilst/covr）へ埋め込み
-   * - 先頭キーフレームの差し替え（シェルが映像先頭を読む場合向け）
-   * 未設定時は埋め込み・差し替えしない。
+   * 映像トラックの先頭には挿入しない（時刻・構図・フェードの連続性を維持）。
+   * 未設定時は埋め込まない。
    */
   coverArtJpegDataUrl?: string | null;
 }

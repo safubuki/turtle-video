@@ -4872,3 +4872,12 @@ export 終了（成功/失敗/中断）
 - **注意**: 音源時刻は既存の `resolveAudioClipSourceTimeAtTimelineTime` から取得し、設定は `setBgmClipTrimAtSourceTime` を使う。プロジェクト時刻を直接trimへ渡さない。区間外・最小尺・ロックによる無効化、単発編集前のプレビュー停止は維持する。
 - **レイアウト**: ボタンは44px以上の高さとし、使用できる横幅に応じて折り返す。画面幅だけで2列を強制しない。見本も同じ配置規則を使う。
 - **対象 flavor**: standard（Android / PC）の複数BGM UI。apple-safariの単一BGM UI・ストア・再生・export・保存形式は変更しない。詳細は `Docs/reports/2026-10-05_issue-242-bgm-trim-labels.md`。
+
+### 13-269. 書き出し先頭はポスターへ差し替えず、タイムラインの描画を使う
+
+- **ファイル**: `src/utils/mp4CoverArt.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/hooks/export-strategies/types.ts`, `src/test/mp4CoverArt.test.ts`, `spec.md`
+- **問題**: standard の Canvas 直接エンコード経路は、先頭1フレームだけプロジェクトポスターへ差し替え、描画済みスナップショットを無視していた。自動ポスターは0秒より後の時刻を撮るため、ズーム中の倍率・動画の絵・フェードが続くフレームと異なり、一瞬ずれる。手動ポスターは任意時刻なので、ズームなしでも映像が跳ぶ。
+- **対策**: `createExportVideoFrame` のポスター差し替えと不要な ImageBitmap 読み込みを削除する。先頭を含む全フレームは確定済みスロットを優先し、スナップショットがない経路では通常の Canvas を使う。先頭のキーフレーム指定、timestamp/duration、CFR、音声・再生時計・backpressure・リングバッファは維持する。
+- **以前の記録との関係**: 13-146および横断的注意点の「covr + 先頭KF差し替え」は当時のサムネイル成功事例。今回、映像の連続性を優先し、先頭KF差し替えを廃止する。covrへのポスター埋め込み、UI、自動/手動設定、保存契約は維持する。OSが映像からサムネイルを抽出する場合、アイコンが設定ポスターと異なる可能性がある。
+- **対象 flavor**: standard（Android / PC）のWebCodecsフレーム生成。apple-safariは従来から先頭ポスター差し替えを使わず、runtime変更なし。共通utility/型コメントは現行契約に合わせる。凍結legacyは変更しない。
+- **回帰ガード**: 先頭・次フレームのスナップショットの同一性、スナップショットなしの先頭、timestamp/duration/alpha、covr注入後のmdat不変、ズーム・フレーム同期・flavor isolationを確認する。詳細は `Docs/reports/2026-10-07-export-first-frame-continuity.md`。

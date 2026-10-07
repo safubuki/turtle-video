@@ -34,7 +34,6 @@ import { inspectMp4Durations } from '../../../utils/mp4Duration';
 import {
   createExportVideoFrame,
   injectMp4CoverArtFromDataUrl,
-  loadCoverArtImageBitmap,
 } from '../../../utils/mp4CoverArt';
 import {
   shouldUseOfflineAudioPreRender,
@@ -2190,18 +2189,6 @@ export function createUseExport(config: UseExportRuntimeConfig) {
 
           updatePreparationStep(audioSources, 8);
 
-          // プロジェクトポスター（カバーアート）を先読み。
-          // 1) 先頭キーフレーム差し替え 2) finalize 後の covr 埋め込み に使う。
-          const coverArtBitmap = await loadCoverArtImageBitmap(
-            audioSources?.coverArtJpegDataUrl ?? null
-          );
-          if (coverArtBitmap || audioSources?.coverArtJpegDataUrl) {
-            logInfo('[DIAG-COVER] cover art prepared for export', {
-              hasBitmap: Boolean(coverArtBitmap),
-              hasDataUrl: Boolean(audioSources?.coverArtJpegDataUrl),
-            });
-          }
-
           // 1. Muxerの初期化 (ArrayBufferTarget -> メモリ上に構築)
           // 音声は常にセットアップする（iOS Safariでは audioTrack が取得できないケースでも
           // ScriptProcessorNode 経由で音声データをキャプチャするため）
@@ -3007,8 +2994,6 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                   );
                   const frame = createExportVideoFrame({
                     canvas,
-                    posterBitmap: coverArtBitmap,
-                    frameIndex,
                     timestampUs: frameTiming.timestampUs,
                     durationUs: frameTiming.durationUs,
                   });
@@ -3085,11 +3070,9 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                       encodedVideoEndUs,
                       frameTiming.timestampUs + frameTiming.durationUs
                     );
-                    // 先頭フレームはポスターをキーフレームとして差し替え（シェルが先頭を読む場合に効く）
+                    // 先頭も描画済みスロットを使い、ポスターによる一瞬の構図変更を防ぐ。
                     const frame = createExportVideoFrame({
                       canvas,
-                      posterBitmap: coverArtBitmap,
-                      frameIndex,
                       timestampUs: frameTiming.timestampUs,
                       durationUs: frameTiming.durationUs,
                       source: audioSources?.getRenderedExportFrameSource?.(frameIndex) ?? null,
@@ -3139,11 +3122,6 @@ export function createUseExport(config: UseExportRuntimeConfig) {
               }
             } finally {
               setVideoBackpressurePaused(false);
-              try {
-                coverArtBitmap?.close();
-              } catch {
-                // ignore
-              }
             }
           };
 

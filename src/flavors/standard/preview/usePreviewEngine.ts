@@ -6286,7 +6286,7 @@ export function usePreviewEngine({
               exportFrameProfilerRef.current.summarize(getStandardPreviewNow()),
             // VideoEncoder への投入時間を計測する（export 側から呼ぶ）。
             beginEncodeMeasure: () => exportFrameProfilerRef.current.begin('encode'),
-            // プロジェクトポスター → MP4 cover art / 先頭キーフレーム（動画サムネイルの標準手法）
+            // プロジェクトポスターは MP4 cover art へ保存。先頭の映像は描画済みスロットを使う。
             coverArtJpegDataUrl: useMediaStore.getState().projectPosterDataUrl,
             onVideoFrameSubmitted: (submittedFrameCount) => {
               if (

@@ -2,13 +2,14 @@
  * @file mp4CoverArt.test.ts
  * @description MP4 カバーアート埋め込みの回帰テスト
  */
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   iterateBoxes,
   injectMp4CoverArt,
   dataUrlToImageBytes,
   adjustChunkOffsetsInMoov,
   injectMp4CoverArtFromDataUrl,
+  createExportVideoFrame,
 } from '../utils/mp4CoverArt';
 
 function writeFourCC(out: Uint8Array, offset: number, type: string): void {
@@ -97,6 +98,56 @@ function fakeJpeg(byteLength = 200): Uint8Array {
 }
 
 describe('mp4CoverArt', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each([0, 1])('フレーム%dはポスターではなく描画済みスロットの構図を使う', (frameIndex) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1920;
+    canvas.height = 1080;
+    const snapshot = document.createElement('canvas');
+    snapshot.width = canvas.width;
+    snapshot.height = canvas.height;
+    const videoFrame = vi.fn(function (_source: CanvasImageSource, _init: VideoFrameInit) {});
+    vi.stubGlobal('VideoFrame', videoFrame);
+
+    createExportVideoFrame({
+      canvas,
+      timestampUs: frameIndex * 33333,
+      durationUs: 33333,
+      source: snapshot,
+    });
+
+    expect(videoFrame.mock.calls[0]?.[0]).toBe(snapshot);
+    expect(videoFrame).toHaveBeenCalledWith(snapshot, {
+      timestamp: frameIndex * 33333,
+      duration: 33333,
+      alpha: 'discard',
+    });
+  });
+
+  it('スナップショットがない先頭フレームもタイムラインのCanvasを使う', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1080;
+    canvas.height = 1920;
+    const videoFrame = vi.fn(function (_source: CanvasImageSource, _init: VideoFrameInit) {});
+    vi.stubGlobal('VideoFrame', videoFrame);
+
+    createExportVideoFrame({
+      canvas,
+      timestampUs: 0,
+      durationUs: 33333,
+    });
+
+    expect(videoFrame.mock.calls[0]?.[0]).toBe(canvas);
+    expect(videoFrame).toHaveBeenCalledWith(canvas, {
+      timestamp: 0,
+      duration: 33333,
+      alpha: 'discard',
+    });
+  });
+
   it('iterateBoxes parses top-level ftyp/moov/mdat', () => {
     const buf = buildMinimalMp4();
     const boxes = iterateBoxes(new Uint8Array(buf), 0, buf.byteLength);
@@ -122,6 +173,14 @@ describe('mp4CoverArt', () => {
     const asText = Array.from(bytes).map((c) => String.fromCharCode(c)).join('');
     expect(asText.includes('covr')).toBe(true);
     expect(asText.includes('ilst')).toBe(true);
+
+    // サムネイルのメタデータを追加しても、映像・音声のサンプルは書き換えない。
+    const originalBytes = new Uint8Array(original);
+    const originalMdat = iterateBoxes(originalBytes, 0, original.byteLength).find((box) => box.type === 'mdat')!;
+    const nextMdat = top.find((box) => box.type === 'mdat')!;
+    expect(bytes.slice(nextMdat.contentStart, nextMdat.end)).toEqual(
+      originalBytes.slice(originalMdat.contentStart, originalMdat.end),
+    );
   });
 
   it('adjustChunkOffsetsInMoov shifts stco entries', () => {
