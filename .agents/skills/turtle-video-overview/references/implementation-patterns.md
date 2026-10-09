@@ -4881,3 +4881,12 @@ export 終了（成功/失敗/中断）
 - **以前の記録との関係**: 13-146および横断的注意点の「covr + 先頭KF差し替え」は当時のサムネイル成功事例。今回、映像の連続性を優先し、先頭KF差し替えを廃止する。covrへのポスター埋め込み、UI、自動/手動設定、保存契約は維持する。OSが映像からサムネイルを抽出する場合、アイコンが設定ポスターと異なる可能性がある。
 - **対象 flavor**: standard（Android / PC）のWebCodecsフレーム生成。apple-safariは従来から先頭ポスター差し替えを使わず、runtime変更なし。共通utility/型コメントは現行契約に合わせる。凍結legacyは変更しない。
 - **回帰ガード**: 先頭・次フレームのスナップショットの同一性、スナップショットなしの先頭、timestamp/duration/alpha、covr注入後のmdat不変、ズーム・フレーム同期・flavor isolationを確認する。詳細は `Docs/reports/2026-10-07-export-first-frame-continuity.md`。
+
+### 13-270. ズーム端点確認中は背景の合成フレーム撮影を見送る
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/test/overlayPreviewRefresh.test.tsx`
+- **問題**: トリム後のズーム終了を調整すると、直後は正確な終了倍率で描画されても、自動ポスター／タイトルミニビューの背景撮影が共有videoを先頭付近へシークして末尾の表示を崩す。倍率補間自体はトリム後のdurationを正しく使っていた。
+- **対策**: `zoomEndpointPreview` を両撮影effectの依存と待機条件に含め、開始済みの撮影もrefで無効化する。確認開始後のcleanupでは撮影開始時の古い再生位置へ戻さない。自動ポスターの中断時は撮影キーを無効化し、確認解除後に既存画像があっても撮り直す。撮影中カウンターはcleanupとfinallyのどちらでも一度だけ解放する。
+- **注意**: 端点確認中に共有videoを先頭へ動かす撮影処理を追加しない。見送った撮影は通常シーク・再生による確認解除後に再開する。画像の倍率補間・動画の速度／トリム換算・保存形式は変更しない。
+- **対象 flavor**: 背景撮影を使うstandard（Android / PC）。sharedコンポーネント内の既存capability境界を維持し、apple-safari／凍結legacyの描画実装は変更しない。
+- **回帰ガード**: 実standard engine/controllerをTurtleVideoへ接続し、2.5〜9.1秒のトリム、終了126.2％、背景撮影待機中の確認開始、時間経過後の映像取得時刻・倍率・UI時刻、連続調整・先頭確認、解除後の自動ポスター／タイトル撮影再開、手動ポスター保持を検証する。詳細は `Docs/reports/2026-10-10-zoom-endpoint-preview.md`。

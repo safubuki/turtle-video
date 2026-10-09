@@ -1521,7 +1521,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     const keyChanged = contentKey !== autoProjectPosterContentKeyRef.current;
     // 書き出し後の remount などで一度失敗しても、画像が空なら同じキーでも撮り直す
     if (!keyChanged && !posterImageMissing) return;
-    if (isPlaying || isProcessing) return;
+    // 端点確認中は共有 video をサムネイル撮影位置へ動かさない。
+    if (isPlaying || isProcessing || zoomEndpointPreview) return;
     // プレビューがエンドロール区間にあるときは撮らない。
     // キャプチャは「先頭付近を本物の canvas へ描いて撮り、元の位置へ戻す」方式のため、
     // エンドロール表示中にサイズ等を変えると、その一瞬だけクリップの映像が見えてしまう。
@@ -1560,6 +1561,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     const isStale = () =>
       disposed
       || projectPosterCaptureGenerationRef.current !== captureGeneration
+      || zoomEndpointPreviewRef.current !== null
       || useMediaStore.getState().projectPosterMode !== 'auto';
 
     const delay = (ms: number) =>
@@ -1568,6 +1570,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       });
 
     const restorePreviewFrame = () => {
+      // 端点確認が始まった後に、撮影開始時の古い再生位置へ戻さない。
+      if (zoomEndpointPreviewRef.current) return;
       if (Math.abs(previousTime - autoTime) <= 0.001) return;
       currentTimeRef.current = previousTime;
       renderFrame(previousTime, false);
@@ -1643,6 +1647,12 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     };
 
     composedFrameCaptureBusyRef.current += 1;
+    let captureBusy = true;
+    const releaseCaptureBusy = () => {
+      if (!captureBusy) return;
+      captureBusy = false;
+      composedFrameCaptureBusyRef.current = Math.max(0, composedFrameCaptureBusyRef.current - 1);
+    };
     const runCapture = async () => {
       try {
       await delay(AUTO_POSTER_CAPTURE_INITIAL_DELAY_MS);
@@ -1689,7 +1699,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       setCurrentTime(previousTime);
       renderFrame(previousTime, false);
       } finally {
-        composedFrameCaptureBusyRef.current = Math.max(0, composedFrameCaptureBusyRef.current - 1);
+        releaseCaptureBusy();
       }
     };
 
@@ -1699,6 +1709,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       disposed = true;
       timeoutIds.forEach((id) => window.clearTimeout(id));
       rafIds.forEach((id) => cancelAnimationFrame(id));
+      releaseCaptureBusy();
+      // 撮影を見送った見た目は、確認解除後に必ず撮り直す。
+      if (zoomEndpointPreviewRef.current) autoProjectPosterContentKeyRef.current = null;
       restorePreviewFrame();
     };
   }, [
@@ -1711,6 +1724,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     isProcessing,
     // エンドロール区間を抜けたら、見送ったキャプチャを撮り直す
     isPreviewInEndroll,
+    zoomEndpointPreview,
     // export 後 remount で要素が揃ってから、空の自動ポスターを撮り直す
     reloadKey,
     renderFrame,
@@ -1729,7 +1743,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   // 自動ポスターが同じ video をシークしている間は待ってから撮る。
   useEffect(() => {
     if (!uiCapabilities.supportsVideoTitle) return;
-    if (isPlaying || isProcessing || isPreviewInEndroll) return;
+    if (isPlaying || isProcessing || isPreviewInEndroll || zoomEndpointPreview) return;
 
     const contentKey = buildAutoProjectPosterContentKey(mediaItems, totalDuration, aspectRatio);
     if (
@@ -1757,10 +1771,12 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     const delay = (ms: number) => new Promise<void>((resolve) => {
       timeoutIds.push(window.setTimeout(resolve, ms));
     });
-    const isStale = () => disposed || titleOpeningCaptureGenerationRef.current !== generation;
+    const isStale = () => disposed
+      || titleOpeningCaptureGenerationRef.current !== generation
+      || zoomEndpointPreviewRef.current !== null;
 
     const restorePreview = () => {
-      if (!startedSeek) return;
+      if (!startedSeek || zoomEndpointPreviewRef.current) return;
       currentTimeRef.current = previousTime;
       renderFrame(previousTime, false);
     };
@@ -1849,6 +1865,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     isPlaying,
     isProcessing,
     isPreviewInEndroll,
+    zoomEndpointPreview,
     renderFrame,
     primePosterCaptureSeek,
     isPosterCaptureFrameReady,

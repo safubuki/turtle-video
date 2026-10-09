@@ -11,7 +11,7 @@
  * TurtleVideo の再描画 effect の依存配列から漏らすと再発するため、
  * 挙動としてここで固定する。
  */
-import { act, cleanup, render, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import TurtleVideo from '../components/TurtleVideo';
@@ -31,6 +31,9 @@ import {
 import { DEFAULT_WATERMARK_OVERLAY } from '../utils/watermarkOverlay';
 import { DEFAULT_ENDROLL_OVERLAY } from '../utils/endrollOverlay';
 import type { MediaItem } from '../types';
+import { usePreviewEngine } from '../flavors/standard/preview/usePreviewEngine';
+import { usePreviewSeekController } from '../flavors/standard/preview/usePreviewSeekController';
+import * as titleOpeningFrameUtils from '../utils/titleOpeningFrame';
 
 /** 全レンダーで共有する renderFrame。呼び出し回数の増加＝再描画が走った証拠 */
 const renderFrameSpy = vi.fn(() => true);
@@ -91,7 +94,7 @@ function createPreviewRuntime(capabilities: PlatformCapabilities): PreviewRuntim
   } as unknown as PreviewRuntime;
 }
 
-function renderApp() {
+function renderApp(previewRuntime?: PreviewRuntime) {
   const capabilities = createCapabilities();
   const exportRuntime: ExportRuntime = {
     useExport: vi.fn(() => ({
@@ -118,7 +121,7 @@ function renderApp() {
   return render(
     <TurtleVideo
       appFlavor="standard"
-      previewRuntime={createPreviewRuntime(capabilities)}
+      previewRuntime={previewRuntime ?? createPreviewRuntime(capabilities)}
       exportRuntime={exportRuntime}
       saveRuntime={saveRuntime}
     />,
@@ -154,6 +157,93 @@ afterEach(() => {
     endroll: { ...DEFAULT_ENDROLL_OVERLAY },
   });
   vi.restoreAllMocks();
+});
+
+describe('ズーム端点確認中は背景撮影が動画の表示位置を変えない', () => {
+  it.each([
+    ['auto', 1.025],
+    ['manual', 1.4],
+  ] as const)('ポスター%s: トリム後の終了倍率を保ち、確認解除後に撮影を再開する', async (posterMode, startScale) => {
+    const video = document.createElement('video');
+    let readyState = 1;
+    Object.defineProperties(video, {
+      readyState: { get: () => readyState }, seeking: { value: false }, paused: { value: true },
+      videoWidth: { value: 1280 }, videoHeight: { value: 720 },
+    });
+    const scale = vi.fn();
+    const drawnSourceTimes: number[] = [];
+    const baseContext = document.createElement('canvas').getContext('2d')!;
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+      return {
+        ...baseContext, canvas: this, scale,
+        drawImage: (source: CanvasImageSource) => { if (source === video) drawnSourceTimes.push(video.currentTime); },
+        getImageData: () => ({ data: new Uint8ClampedArray([255, 255, 255, 255]) }),
+      } as unknown as CanvasRenderingContext2D;
+    });
+    const capture = vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/jpeg;base64,updated');
+    const titleCaptureTarget = vi.spyOn(titleOpeningFrameUtils, 'resolveTitleMiniPreviewCaptureTarget');
+    const source: MediaItem = {
+      id: 'trim-zoom', type: 'video', file: new File(['x'], 'trim.mp4'), url: 'blob:trim',
+      duration: 15.04, originalDuration: 15.04, trimStart: 0, trimEnd: 15.04,
+      scale: startScale, zoomStartScale: startScale, zoomEndScale: 1.2, zoomDirection: startScale < 1.2 ? 'in' : 'out',
+      positionX: 0, positionY: 0, volume: 1, isMuted: false,
+      fadeIn: false, fadeOut: false, fadeInDuration: 1, fadeOutDuration: 1,
+      isLocked: false, isTransformOpen: false,
+    };
+    useMediaStore.setState({
+      mediaItems: [source], totalDuration: source.duration, isClipsLocked: false,
+      projectPosterMode: posterMode, projectPosterDataUrl: 'data:image/jpeg;base64,existing',
+    });
+    const runtime = createPreviewRuntime(createCapabilities());
+    runtime.usePreviewEngine = (params) => {
+      params.mediaElementsRef.current[source.id] = video;
+      return usePreviewEngine(params);
+    };
+    runtime.usePreviewSeekController = usePreviewSeekController;
+    renderApp(runtime);
+    act(() => {
+      useMediaStore.getState().updateVideoTrim(source.id, 'start', 2.5);
+      useMediaStore.getState().updateVideoTrim(source.id, 'end', 9.1);
+    });
+    // 背景撮影が先頭へシークしてデコードを待っている途中で端点確認を始める。
+    await waitFor(() => {
+      expect(video.currentTime).toBeGreaterThan(2.5);
+      expect(video.currentTime).toBeLessThan(3);
+    });
+    readyState = 4;
+    fireEvent.click(screen.getByRole('button', { name: 'フェード・ズームイン/アウト' }));
+    fireEvent.change(screen.getByRole('slider', { name: 'ズーム終了倍率' }), { target: { value: '126.2' } });
+    titleCaptureTarget.mockClear();
+    await waitFor(() => expect(scale).toHaveBeenLastCalledWith(1.262, 1.262));
+    expect(video.currentTime).toBeCloseTo(9.099);
+    expect(useMediaStore.getState().mediaItems[0].duration).toBeCloseTo(6.6);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1000)); });
+    expect(video.currentTime).toBeCloseTo(9.099);
+    expect(drawnSourceTimes[drawnSourceTimes.length - 1]).toBeCloseTo(9.099);
+    expect(scale).toHaveBeenLastCalledWith(1.262, 1.262);
+    expect(useUIStore.getState().currentTime).toBeCloseTo(6.599);
+    expect(capture).not.toHaveBeenCalled();
+    expect(titleCaptureTarget).not.toHaveBeenCalled();
+
+    // 同じ端点の再調整と先頭確認も背景撮影へ譲らない。
+    fireEvent.change(screen.getByRole('slider', { name: 'ズーム終了倍率' }), { target: { value: '131.2' } });
+    expect(scale).toHaveBeenLastCalledWith(expect.closeTo(1.312), expect.closeTo(1.312));
+    fireEvent.click(screen.getByRole('button', { name: '開始（先頭）を確認' }));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 200)); });
+    expect(video.currentTime).toBe(2.5);
+    expect(scale).toHaveBeenLastCalledWith(startScale, startScale);
+    expect(capture).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(screen.getByRole('slider', { name: 'プレビュー位置' }), { pointerType: 'mouse' });
+    fireEvent.pointerUp(screen.getByRole('slider', { name: 'プレビュー位置' }), { pointerType: 'mouse' });
+    if (posterMode === 'auto') {
+      await waitFor(() => expect(capture).toHaveBeenCalled());
+      expect(useMediaStore.getState().projectPosterDataUrl).toBe('data:image/jpeg;base64,updated');
+    } else {
+      await waitFor(() => expect(titleCaptureTarget).toHaveBeenCalled());
+      expect(useMediaStore.getState().projectPosterDataUrl).toBe('data:image/jpeg;base64,existing');
+    }
+  });
 });
 
 describe('ロゴ設定の変更は停止中のプレビューへ即時反映される', () => {
