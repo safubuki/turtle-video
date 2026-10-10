@@ -3876,9 +3876,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     previewCacheVideoRef,
   ]);
 
-  // ズームと開始倍率に連動するサイズ変更を、停止中の本プレビューへすぐ反映する。
-  const mediaZoomPreviewKey = mediaItems
-    .map((item) => `${item.id}:${item.zoomDirection ?? ''}:${item.zoomAmount ?? ''}:${item.zoomStartScale ?? ''}:${item.zoomEndScale ?? ''}`)
+  // 端点確認中は背景撮影が待機するため、位置などの調整もここで明示的に描き直す。
+  // 確認中のカード・時刻・倍率は保持し、背景撮影の再開や再シークに頼らない。
+  const mediaTransformPreviewKey = mediaItems
+    .map((item) => `${item.id}:${item.scale}:${item.positionX}:${item.positionY}:${item.rotation ?? ''}:${item.blur ?? ''}:${item.zoomDirection ?? ''}:${item.zoomAmount ?? ''}:${item.zoomStartScale ?? ''}:${item.zoomEndScale ?? ''}`)
     .join('|');
 
   // --- キャプション・ロゴ変更時のプレビュー再描画 ---
@@ -3904,7 +3905,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     videoTitle,
     watermarkOverlay,
     endrollOverlay,
-    mediaZoomPreviewKey,
+    mediaTransformPreviewKey,
     zoomEndpointPreview,
     isProcessing,
     renderFrame,

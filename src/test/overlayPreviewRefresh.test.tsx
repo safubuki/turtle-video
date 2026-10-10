@@ -22,6 +22,7 @@ import type { PlatformCapabilities } from '../utils/platform';
 import { getPreviewPlatformPolicy } from '../utils/previewPlatform';
 import {
   useAudioStore,
+  useCanvasStore,
   useCaptionStore,
   useLogStore,
   useMediaStore,
@@ -33,6 +34,8 @@ import { DEFAULT_ENDROLL_OVERLAY } from '../utils/endrollOverlay';
 import type { MediaItem } from '../types';
 import { usePreviewEngine } from '../flavors/standard/preview/usePreviewEngine';
 import { usePreviewSeekController } from '../flavors/standard/preview/usePreviewSeekController';
+import { usePreviewEngine as useAppleSafariPreviewEngine } from '../flavors/apple-safari/preview/usePreviewEngine';
+import { usePreviewSeekController as useAppleSafariPreviewSeekController } from '../flavors/apple-safari/preview/usePreviewSeekController';
 import * as titleOpeningFrameUtils from '../utils/titleOpeningFrame';
 
 /** 全レンダーで共有する renderFrame。呼び出し回数の増加＝再描画が走った証拠 */
@@ -58,24 +61,25 @@ function createCapabilities(): PlatformCapabilities {
 }
 
 function createPreviewRuntime(capabilities: PlatformCapabilities): PreviewRuntime {
+  const audioSession = {
+    detachAudioNode: vi.fn(),
+    ensureAudioNodeForElement: vi.fn(() => true),
+    preparePreviewAudioNodesForTime: vi.fn(() => ({
+      activeVideoId: null,
+      audibleSourceCount: 0,
+      requiresWebAudio: false,
+    })),
+    preparePreviewAudioNodesForUpcomingVideos: vi.fn(),
+    primePreviewAudioOnlyTracksAtTime: vi.fn(),
+    handleMediaRefAssign: vi.fn(),
+  };
   return {
     getPlatformCapabilities: vi.fn(() => capabilities),
     getPreviewPlatformPolicy,
     shouldUsePreviewCache: vi.fn(() => false),
     createPreviewCacheKey: vi.fn(() => 'preview-cache-key-test'),
     useInactiveVideoManager: vi.fn(() => ({ resetInactiveVideos: vi.fn() })),
-    usePreviewAudioSession: vi.fn(() => ({
-      detachAudioNode: vi.fn(),
-      ensureAudioNodeForElement: vi.fn(() => true),
-      preparePreviewAudioNodesForTime: vi.fn(() => ({
-        activeVideoId: null,
-        audibleSourceCount: 0,
-        requiresWebAudio: false,
-      })),
-      preparePreviewAudioNodesForUpcomingVideos: vi.fn(),
-      primePreviewAudioOnlyTracksAtTime: vi.fn(),
-      handleMediaRefAssign: vi.fn(),
-    })),
+    usePreviewAudioSession: vi.fn(() => audioSession),
     usePreviewEngine: vi.fn(() => ({
       handleMediaElementLoaded: vi.fn(),
       handleSeeked: vi.fn(),
@@ -95,7 +99,7 @@ function createPreviewRuntime(capabilities: PlatformCapabilities): PreviewRuntim
 }
 
 function renderApp(previewRuntime?: PreviewRuntime) {
-  const capabilities = createCapabilities();
+  const capabilities = previewRuntime?.getPlatformCapabilities() ?? createCapabilities();
   const exportRuntime: ExportRuntime = {
     useExport: vi.fn(() => ({
       isProcessing: false,
@@ -120,7 +124,7 @@ function renderApp(previewRuntime?: PreviewRuntime) {
 
   return render(
     <TurtleVideo
-      appFlavor="standard"
+      appFlavor={capabilities.isIosSafari ? 'apple-safari' : 'standard'}
       previewRuntime={previewRuntime ?? createPreviewRuntime(capabilities)}
       exportRuntime={exportRuntime}
       saveRuntime={saveRuntime}
@@ -157,6 +161,105 @@ afterEach(() => {
     endroll: { ...DEFAULT_ENDROLL_OVERLAY },
   });
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+describe.each([
+  ['standard', usePreviewEngine, usePreviewSeekController, false],
+  ['apple-safari', useAppleSafariPreviewEngine, useAppleSafariPreviewSeekController, true],
+] as const)('%s: サイズ調整後も静止画の位置を調整できる', (_flavor, useEngine, useSeek, isIosSafari) => {
+  it.each([
+    ['start', false],
+    ['start', true],
+    ['end', true],
+  ] as const)('%s確認・ズーム%s: 横縦の変更を描画し、確認位置と倍率を保持する', async (endpoint, animated) => {
+    vi.stubGlobal('IntersectionObserver', class {
+      observe() {}
+      disconnect() {}
+    });
+    const image = document.createElement('img');
+    Object.defineProperties(image, {
+      naturalWidth: { value: 1280 }, naturalHeight: { value: 720 }, complete: { value: true },
+    });
+    const contexts = new Map<HTMLCanvasElement, CanvasRenderingContext2D>();
+    const baseContext = document.createElement('canvas').getContext('2d')!;
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+      if (!contexts.has(this)) {
+        contexts.set(this, {
+          ...baseContext, canvas: this, translate: vi.fn(), scale: vi.fn(), drawImage: vi.fn(),
+          strokeRect: vi.fn(), getImageData: () => ({ data: new Uint8ClampedArray([255, 255, 255, 255]) }),
+        } as unknown as CanvasRenderingContext2D);
+      }
+      return contexts.get(this)!;
+    });
+    const capture = vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/jpeg;base64,existing');
+    const source: MediaItem = {
+      id: 'image-position', type: 'image', file: new File(['x'], 'image.png'), url: 'blob:image-position',
+      duration: 5, originalDuration: 5, trimStart: 0, trimEnd: 5, scale: 1,
+      ...(animated ? { zoomDirection: 'in' as const, zoomStartScale: 1, zoomEndScale: 2.5 } : {}),
+      positionX: 0, positionY: 0, volume: 1, isMuted: false, fadeIn: false, fadeOut: false,
+      fadeInDuration: 1, fadeOutDuration: 1, isLocked: false, isTransformOpen: true,
+    };
+    useMediaStore.setState({
+      mediaItems: [source], totalDuration: 5, isClipsLocked: false,
+      projectPosterMode: 'manual', projectPosterDataUrl: 'data:image/jpeg;base64,existing',
+    });
+    useUIStore.setState({ currentTime: 2 });
+    const capabilities = { ...createCapabilities(), isAndroid: !isIosSafari, isIosSafari };
+    const runtime = createPreviewRuntime(capabilities);
+    let getMainCanvas = (): HTMLCanvasElement | null => null;
+    runtime.usePreviewEngine = (params) => {
+      params.mediaElementsRef.current[source.id] = image;
+      getMainCanvas = () => params.canvasRef.current;
+      return useEngine(params);
+    };
+    runtime.usePreviewSeekController = useSeek;
+    renderApp(runtime);
+    fireEvent.change(screen.getByRole('slider', { name: '拡大率' }), { target: { value: '210.1' } });
+    if (endpoint === 'end') {
+      fireEvent.click(screen.getByRole('button', { name: 'フェード・ズームイン/アウト' }));
+      fireEvent.click(screen.getByRole('button', { name: '終了（末尾）を確認' }));
+    }
+    const canvas = getMainCanvas()!;
+    const context = contexts.get(canvas)!;
+    const translate = vi.mocked(context.translate);
+    const scale = vi.mocked(context.scale);
+    const drawImage = vi.mocked(context.drawImage);
+    const expectedScale = (endpoint === 'end' ? 2.5 : 2.101) * Math.min(canvas.width / 1280, canvas.height / 720);
+    await waitFor(() => expect(scale).toHaveBeenLastCalledWith(expect.closeTo(expectedScale), expect.closeTo(expectedScale)));
+    // 端点選択直後の描画と要素準備タイマーを終えてから、位置変更だけを検証する。
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 150)); });
+    const previewTime = useUIStore.getState().currentTime;
+    capture.mockClear();
+    for (const [label, value, change] of [
+      ['横位置', -6, () => fireEvent.change(screen.getByRole('slider', { name: '横位置' }), { target: { value: '-6' } })],
+      ['縦位置', -36, () => {
+        const input = screen.getByRole('spinbutton', { name: '縦位置（数値）' });
+        fireEvent.focus(input);
+        fireEvent.change(input, { target: { value: '-36' } });
+        fireEvent.blur(input);
+      }],
+      ['横位置', -5, () => fireEvent.click(screen.getByRole('button', { name: '横位置を1増やす' }))],
+    ] as const) {
+      const baseline = drawImage.mock.calls.length;
+      change();
+      expect(screen.getByRole('spinbutton', { name: `${label}（数値）` })).toHaveValue(value);
+      const item = useMediaStore.getState().mediaItems[0];
+      const dimensions = useCanvasStore.getState();
+      await waitFor(() => expect(drawImage.mock.calls.length).toBeGreaterThan(baseline));
+      expect(drawImage).toHaveBeenLastCalledWith(image, expect.any(Number), expect.any(Number), 1280, 720);
+      expect(translate).toHaveBeenLastCalledWith(
+        expect.closeTo(canvas.width / 2 + item.positionX * canvas.width / dimensions.width),
+        expect.closeTo(canvas.height / 2 + item.positionY * canvas.height / dimensions.height),
+      );
+      expect(scale).toHaveBeenLastCalledWith(expect.closeTo(expectedScale), expect.closeTo(expectedScale));
+      expect(useUIStore.getState().currentTime).toBe(previewTime);
+      expect(item.zoomStartScale).toBe(2.101);
+      expect(item.zoomEndScale).toBe(animated ? 2.5 : 2.101);
+      expect(useUIStore.getState().isPlaying).toBe(false);
+      expect(capture).not.toHaveBeenCalled();
+    }
+  });
 });
 
 describe('ズーム端点確認中は背景撮影が動画の表示位置を変えない', () => {
