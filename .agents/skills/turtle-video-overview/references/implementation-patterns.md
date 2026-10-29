@@ -4899,3 +4899,30 @@ export 終了（成功/失敗/中断）
 - **注意**: 位置調整のために端点確認を解除したり、背景撮影を再開したりしない。ストア全体を描画effectの依存にせず、描画に必要な値をキーに含める。テスト用audio sessionの関数参照も固定し、描画と背景撮影の循環を作らない。
 - **対象 flavor**: standard / apple-safari共通の停止中再描画。保存形式・描画エンジン・再生/exportの処理は変更しない。
 - **回帰ガード**: 両実engine/controllerとカードUIを接続し、固定画像のサイズ210.1％、ズーム開始/終了確認後の横スライダー・縦数値入力・横＋操作で本Canvasの再描画と座標、対象画像、端点倍率、停止時刻、背景撮影待機を検証する。修正前は6件すべて位置変更後の描画待ちで失敗し、修正後は合格。詳細は `Docs/reports/2026-10-10-image-position-after-scale.md`。
+
+### 13-272. 位置・サイズの拡大率は表示中カードなら現在位置を保つ
+
+- **ファイル**: `src/components/media/ClipItem.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, `spec.md`, `src/test/clipZoom.ui.test.tsx`, `src/test/overlayPreviewRefresh.test.tsx`
+- **問題**: 13-265 で位置・サイズの拡大率（スライダー・数値フォーカス・くるくる・黒帯除去）も `onPreviewZoomEndpoint('start')` を呼んでいたため、サイズを触った瞬間にプレビューがカード先頭へ移動し、見ていた位置で調整できなかった。
+- **対策**: サイズ操作は新しい `onPreviewScale` → `handlePreviewMediaScale(id)` を通す。端点確認中でなく、`currentTimeRef` が対象カードの区間内（ディゾルブの前カードを含む）または `resolveFocusedClipId` が対象で、エンドロール外なら何もしない（`mediaTransformPreviewKey` の停止中再描画で現在位置を描き直す）。同じカードの端点確認中も確認位置を保つ。別カード・エンドロール表示中・別カードの端点確認中だけ従来の `handlePreviewMediaZoomEndpoint(id, 'start')` で先頭を確認する（複数素材で別カードを調整したとき結果が見えないのを防ぐ）。
+- **注意**: ズーム欄の開始・終了入力、確認ボタン、「100%にリセット」は端点確認のまま変えない。サイズ変更で端点確認に入らないため、本編位置での自動ポスター／タイトルミニビュー撮影は再開する（13-181 の同期 rAF 描き戻しで表示は崩さない）。撮影後に共有 video を表示位置へ戻す処理は 13-273。
+- **対象 flavor**: standard / apple-safari 共通の UI・ハンドラ。描画エンジン・保存形式・書き出しは変更しない。
+- **回帰ガード**: 両実 engine/controller で、2枚の静止画の1枚目途中（2秒）でサイズ変更・数値フォーカス・黒帯除去しても時刻2秒・端点確認なし・現在位置の補間倍率で描画、2枚目のサイズ変更で2枚目先頭（5秒）の開始確認、確認中の再調整で位置維持を検証。旧動作（常に先頭確認）では両 flavor とも失敗することを確認済み。テストはマウント100ms後の初回描画（マウント時の時刻を描く）とシークが競合しないよう待機してからシークする。13-271 のテストはサイズ変更後に確認ボタンで端点を選ぶ形へ更新。
+
+### 13-273. 背景撮影の後片付けは最新の表示位置へ共有 video を戻す
+
+- **ファイル**: `src/components/TurtleVideo.tsx`, `src/test/overlayPreviewRefresh.test.tsx`
+- **問題**: 自動ポスター／タイトルミニビューの撮影 effect は、開始時の `previousTime` を後片付けで `currentTimeRef`（自動ポスターは UI の `currentTime` も）へ書き戻していた。撮影中のシークが撮影完了・effect 再実行時に打ち消され、UI と ref がずれた。さらに停止中の `renderFrame` は video をシークしないため、撮影で先頭付近へ動かした共有 video が戻らず、表示位置に撮影時刻の絵が残った（13-272 でサイズ変更が端点確認に入らなくなり、1枚目の動画を途中で調整すると起きやすくなっていた）。
+- **対策**: `restorePreviewAfterCapture()` に集約する。最新の `currentTimeRef` を使って時刻を書き戻さず、`resolveTitleMiniPreviewCaptureTarget` で表示位置の素材時刻を求め、`primePosterCaptureSeek` で共有 video を戻してから描画する。シーク完了後は既存の `handleSeeked` が最新位置で描き直す。再生中・ユーザーのシーク中は video を触らない。撮影 rAF 内の同期描き戻し（13-181）も最新位置を使う。
+- **注意**: `renderFrame` は currentTimeRef を変更しない契約（変更は再生ループ・終端・startEngine のみ）。撮影処理に時刻 ref の保存・復元を戻さない。端点確認中（13-270）と撮影時刻＝表示位置のときの見送りは維持。撮影中の表示の保持は 13-274。
+- **対象 flavor**: 共通の TurtleVideo。タイトル撮影は standard のみ、自動ポスターは supportsProjectPoster の flavor。engine は変更しない。
+- **回帰ガード**: 実 standard engine/controller で動画の readyState を遅らせて撮影を待機させ、その間に5秒へシーク → 準備完了後に、ポスター auto/manual とも UI 時刻5秒・最後に描いた video 素材時刻5秒・その後の位置変更も5秒で描くことを検証。修正前は両方失敗。13-272 のテストからタイトル撮影のスタブを外しても安定（4回連続合格）。
+
+### 13-274. 背景撮影が共有 video を動かしている間は本プレビューとミニビューの絵を保つ
+
+- **ファイル**: `src/utils/backgroundCaptureVideoHold.ts`（新規）, `src/components/TurtleVideo.tsx`, `src/components/common/MiniPreview.tsx`, `src/test/overlayPreviewRefresh.test.tsx`
+- **問題**: シークバーを動画の途中に置いてサイズを変えると、本プレビューとカードのミニビューに一瞬、動画の先頭付近の絵が出た。13-272 でサイズ変更が端点確認に入らなくなり、自動ポスター／タイトルミニビューの背景撮影が走るようになった。撮影は共有 video を先頭付近へシークするため、その seeked で engine の `handleSeeked` とミニビューの seeked リスナーが表示位置を描き直し、撮影時刻の video フレームを表示位置として描いていた。撮影 rAF 内の表示位置への描き戻しも、同じ video では撮影時刻の絵になっていた。
+- **対策**: 撮影1回ごとに `beginBackgroundCaptureHold()` で video を予約する。`prime` で印を付けてシークし、`release` で外してから `restorePreviewAfterCapture()` で表示位置へ戻す。印の間は次のようにする。(1) TurtleVideo が `onSeeked` / `onVideoLoadedData` を包み、表示位置の video が印付きなら描き直さない。(2) MiniPreview は印付き video を描かず、直前の絵を保つ。(3) 撮影 rAF では `preserveDisplayForCaptureFrame()` が表示中の画素を退避し、撮影用フレームの読み取り後にそのまま戻す。表示位置の要素が印付きでなければ従来どおり `renderFrame(表示位置)` で戻す。タイトル撮影の開始もポスターと同じ150ms遅らせ、スライダー操作中に共有 video を動かさない。
+- **注意**: 印はすべての後片付け経路（端点確認中・撮影時刻＝表示位置の見送りも含む）で必ず外す。外し忘れると seeked での描き直しが止まる。印の判定は表示位置の要素だけで行い、別要素の撮影では描き直しを止めない。再生中は判定しない。撮影中にキャプション等の別の再描画が走ると撮影時刻の絵になり得るが、撮影は数百ms以内で、サイズ・位置などメディア変更は先に後片付けが走る。
+- **対象 flavor**: TurtleVideo / MiniPreview は共通。engine は変更しない（`handleSeeked` は TurtleVideo 側で包む）。
+- **回帰ガード**: 実 standard engine/controller で、currentTime 変更後に seeked を送る video を使う。5秒表示中にサイズを変え、ポスター auto/manual とも次を検証する。本Canvasの video 描画が描画時刻どおりであること（engine 内部の描き直しは5秒と比較）、ミニビューの描画がすべて5秒であること、UI時刻と video が5秒のままであること。修正前は「5秒の描画に0.06秒の絵」で両方失敗。

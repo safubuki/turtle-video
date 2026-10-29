@@ -69,6 +69,12 @@ import {
 } from '../utils/captionSubtitle';
 import { openFilesWithPicker, shouldUseMediaOpenFilePicker } from '../utils/platform';
 import { computeTransitionTimelineRanges } from '../utils/transitionTimeline';
+import { resolveFocusedClipId } from '../utils/clipCardDisclosure';
+import {
+  holdVideoForBackgroundCapture,
+  isVideoHeldByBackgroundCapture,
+  releaseVideoFromBackgroundCapture,
+} from '../utils/backgroundCaptureVideoHold';
 import { resolveMediaZoomEndpointPreview, type MediaTransformResetKind, type MediaZoomEndpointPreview } from '../utils/mediaZoom';
 import { getEndrollDuration } from '../utils/endrollOverlay';
 import {
@@ -473,6 +479,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   /** 自動ポスターが代表しているフレーム指紋。先頭入れ替え・トリム・速度変更の判定に使う */
   const autoProjectPosterCaptureIdentityRef = useRef<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const displayCanvasBackupRef = useRef<HTMLCanvasElement | null>(null);
   const mediaElementsRef = useRef<Record<string, HTMLVideoElement | HTMLImageElement | HTMLAudioElement>>({});
   const audioCtxRef = useRef<AudioContext | null>(null);
   const previewCacheVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -1454,7 +1461,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   );
 
   // キャプチャ用に video だけ先にシークする。canvas はまだ描かない。
-  // renderFrame(autoTime) の直後に previousTime へ戻すと、待ちの間にシークが打ち消される。
+  // renderFrame(autoTime) の直後に表示位置へ戻すと、待ちの間にシークが打ち消される。
   const primePosterCaptureSeek = useCallback(
     (timelineTime: number, sourceTime: number | null) => {
       const element = resolveActivePosterMediaElement(timelineTime);
@@ -1470,6 +1477,87 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     },
     [resolveActivePosterMediaElement],
   );
+
+  // 背景撮影1回分の video 予約。撮影時刻へ動かす video に印を付け、戻すときに外す。
+  // 印がある間は seeked やミニビューの描き直しで、表示位置に撮影時刻の絵を出さない。
+  const beginBackgroundCaptureHold = useCallback(() => {
+    const held = new Set<HTMLVideoElement>();
+    return {
+      prime: (timelineTime: number, sourceTime: number | null) => {
+        const element = resolveActivePosterMediaElement(timelineTime);
+        if (element instanceof HTMLVideoElement && sourceTime != null && !held.has(element)) {
+          held.add(element);
+          holdVideoForBackgroundCapture(element);
+        }
+        primePosterCaptureSeek(timelineTime, sourceTime);
+      },
+      release: () => {
+        held.forEach(releaseVideoFromBackgroundCapture);
+        held.clear();
+      },
+    };
+  }, [primePosterCaptureSeek, resolveActivePosterMediaElement]);
+
+  // 撮影用フレームを描く直前に呼び、読み取り後に返り値で表示中の絵へ戻す。
+  // 表示位置の video を撮影が動かしているときは、描き直すと撮影時刻の絵になるため
+  // 退避した画素をそのまま戻す。それ以外は従来どおり表示位置を描き直す。
+  const preserveDisplayForCaptureFrame = useCallback(() => {
+    const canvas = canvasRef.current;
+    const displayTime = currentTimeRef.current;
+    const redraw = () => { renderFrame(displayTime, false); };
+    if (!canvas || !isVideoHeldByBackgroundCapture(resolveActivePosterMediaElement(displayTime))) return redraw;
+    const backup = displayCanvasBackupRef.current ?? document.createElement('canvas');
+    displayCanvasBackupRef.current = backup;
+    backup.width = canvas.width;
+    backup.height = canvas.height;
+    const backupContext = backup.getContext('2d');
+    if (!backupContext) return redraw;
+    backupContext.drawImage(canvas, 0, 0);
+    return () => {
+      const context = canvas.getContext('2d');
+      if (!context) {
+        redraw();
+        return;
+      }
+      context.save();
+      context.setTransform(1, 0, 0, 1, 0, 0);
+      context.globalAlpha = 1;
+      context.globalCompositeOperation = 'copy';
+      context.filter = 'none';
+      context.drawImage(backup, 0, 0);
+      context.restore();
+    };
+  }, [renderFrame, resolveActivePosterMediaElement]);
+
+  // 表示位置の video を背景撮影が動かしている間の seeked / loadeddata では描き直さない。
+  // 撮影が video を表示位置へ戻した後の seeked で、engine が最新の表示位置を描く。
+  const isDisplayVideoHeldByCapture = useCallback(() => (
+    !isPlayingRef.current
+    && isVideoHeldByBackgroundCapture(resolveActivePosterMediaElement(currentTimeRef.current))
+  ), [isPlayingRef, resolveActivePosterMediaElement]);
+  const handlePreviewMediaSeeked = useCallback(() => {
+    if (isDisplayVideoHeldByCapture()) return;
+    handleSeeked();
+  }, [handleSeeked, isDisplayVideoHeldByCapture]);
+  const handlePreviewVideoLoadedData = useCallback(() => {
+    if (isDisplayVideoHeldByCapture()) return;
+    handleVideoLoadedData();
+  }, [handleVideoLoadedData, isDisplayVideoHeldByCapture]);
+
+  // 背景撮影の後片付け: 撮影で動かした共有 video を最新の表示位置の素材時刻へ戻して描く。
+  // 停止中の renderFrame は video をシークしないため、戻さないと撮影時刻の絵が残る。
+  // 撮影中にシークされていればその位置を使い、撮影開始時の時刻へは戻さない。
+  // 再生中・ユーザーのシーク中は engine / seek controller に任せて video を触らない。
+  const restorePreviewAfterCapture = useCallback(() => {
+    const time = currentTimeRef.current;
+    if (!isPlayingRef.current && !isSeekingRef.current) {
+      const latest = useMediaStore.getState();
+      const target = resolveTitleMiniPreviewCaptureTarget(latest.mediaItems, latest.totalDuration, time);
+      primePosterCaptureSeek(time, target?.type === 'video' ? target.sourceTime : null);
+    }
+    // シーク完了時は handleSeeked が最新の表示位置で描き直す。
+    renderFrame(time, false);
+  }, [isPlayingRef, isSeekingRef, primePosterCaptureSeek, renderFrame]);
 
   // 対象クリップが描画可能で、かつキャプチャしたい元動画時刻に着いているか。
   // 未着のまま canvas を読むと、直前プレビューの holdFrame（古い動画）をサムネにしてしまう。
@@ -1540,7 +1628,6 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       return;
     }
 
-    const previousTime = currentTimeRef.current;
     // 表示上の自動時刻は先頭付近だが、キャプチャは preview engine の
     // 先頭強制黒クリア帯（time <= 0.05）の外で撮る（黒画像対策）。
     const autoTime = resolveAutoProjectPosterCaptureTime(totalDuration);
@@ -1569,26 +1656,27 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         timeoutIds.push(window.setTimeout(resolve, ms));
       });
 
+    const captureHold = beginBackgroundCaptureHold();
     const restorePreviewFrame = () => {
+      captureHold.release();
       // 端点確認が始まった後に、撮影開始時の古い再生位置へ戻さない。
       if (zoomEndpointPreviewRef.current) return;
-      if (Math.abs(previousTime - autoTime) <= 0.001) return;
-      currentTimeRef.current = previousTime;
-      renderFrame(previousTime, false);
+      if (Math.abs(currentTimeRef.current - autoTime) <= 0.001) return;
+      restorePreviewAfterCapture();
     };
 
     /**
      * 対象クリップをキャプチャ時刻へシークし、描画可能になるまで待つ。
-     * canvas は触らず video だけ進める。途中で previousTime へ戻すとシークが打ち消される。
+     * canvas は触らず video だけ進める。途中で表示位置へ戻すとシークが打ち消される。
      * export 直後の remount 中は要素が一時的に消えるので、出現まで待つ。
      */
     const waitForPosterCaptureReady = async (): Promise<void> => {
-      primePosterCaptureSeek(autoTime, captureSourceTime);
+      captureHold.prime(autoTime, captureSourceTime);
       const deadline = Date.now() + AUTO_POSTER_MEDIA_SETTLE_TIMEOUT_MS;
       while (Date.now() < deadline) {
         if (isStale()) return;
         if (isPosterCaptureFrameReady(autoTime, captureSourceTime)) return;
-        primePosterCaptureSeek(autoTime, captureSourceTime);
+        captureHold.prime(autoTime, captureSourceTime);
         await delay(AUTO_POSTER_MEDIA_SETTLE_POLL_MS);
       }
     };
@@ -1620,13 +1708,14 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
             resolve(null);
             return;
           }
+          const restoreDisplay = preserveDisplayForCaptureFrame();
           renderFrame(autoTime, false);
           // 黒（＝シーク未完了・描画スキップ）を掴んだら呼び出し元で撮り直す
           const captured = isCanvasEffectivelyBlank(canvas)
             ? null
             : createPosterDataUrlFromCanvas(canvas);
           // タイトルミニビュー用に、キャプションを描く前の先頭付近フレームを控える。
-          // この直後の renderFrame(previousTime) でライブ用スナップショットは再生位置へ戻る。
+          // 表示位置の再描画（または seek 完了後の描き直し）でライブ用スナップショットは再生位置へ戻る。
           const openingSource = captionFreeSnapshotRef.current.canvas;
           if (
             openingSource
@@ -1638,8 +1727,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
             titleOpeningContentKeyRef.current = contentKey;
             setTitleOpeningFrameKey((key) => key + 1);
           }
-          // 同じフレーム内で表示中の位置へ戻す（ここまで画面には反映されない）
-          renderFrame(previousTime, false);
+          // 同じフレーム内で表示中の絵へ戻す（ここまで画面には反映されない）
+          restoreDisplay();
           resolve(captured);
         }));
       });
@@ -1695,9 +1784,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       // プレビュー位置を動かさない（自動更新は裏で先頭付近だけ撮る）。
       // canvas 自体は captureOnce 内で表示中フレームへ戻し済みだが、
       // 待ち中に video だけシークしているのでここで確実に戻す。
-      currentTimeRef.current = previousTime;
-      setCurrentTime(previousTime);
-      renderFrame(previousTime, false);
+      captureHold.release();
+      restorePreviewAfterCapture();
       } finally {
         releaseCaptureBusy();
       }
@@ -1730,11 +1818,12 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     renderFrame,
     resetProjectPosterToAuto,
     setProjectPosterDataUrl,
-    setCurrentTime,
     resolveActivePosterMediaElement,
     isPosterMediaElementDrawable,
-    primePosterCaptureSeek,
+    beginBackgroundCaptureHold,
+    preserveDisplayForCaptureFrame,
     isPosterCaptureFrameReady,
+    restorePreviewAfterCapture,
     logWarn,
   ]);
 
@@ -1765,7 +1854,6 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     let disposed = false;
     let startedSeek = false;
     const timeoutIds: number[] = [];
-    const previousTime = currentTimeRef.current;
     const times = resolveTitleMiniPreviewFrameTimes(totalDuration);
 
     const delay = (ms: number) => new Promise<void>((resolve) => {
@@ -1775,22 +1863,23 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       || titleOpeningCaptureGenerationRef.current !== generation
       || zoomEndpointPreviewRef.current !== null;
 
+    const captureHold = beginBackgroundCaptureHold();
     const restorePreview = () => {
+      captureHold.release();
       if (!startedSeek || zoomEndpointPreviewRef.current) return;
-      currentTimeRef.current = previousTime;
-      renderFrame(previousTime, false);
+      restorePreviewAfterCapture();
     };
 
     const captureAt = async (time: number, acceptBlank: boolean): Promise<boolean> => {
       startedSeek = true;
       const target = resolveTitleMiniPreviewCaptureTarget(mediaItems, totalDuration, time);
       const sourceTime = target?.sourceTime ?? null;
-      primePosterCaptureSeek(time, sourceTime);
+      captureHold.prime(time, sourceTime);
       const deadline = Date.now() + AUTO_POSTER_MEDIA_SETTLE_TIMEOUT_MS;
       while (Date.now() < deadline) {
         if (isStale()) return false;
         if (isPosterCaptureFrameReady(time, sourceTime)) break;
-        primePosterCaptureSeek(time, sourceTime);
+        captureHold.prime(time, sourceTime);
         await delay(AUTO_POSTER_MEDIA_SETTLE_POLL_MS);
       }
       if (isStale() || !isPosterCaptureFrameReady(time, sourceTime)) return false;
@@ -1801,6 +1890,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
             resolve(false);
             return;
           }
+          const restoreDisplay = preserveDisplayForCaptureFrame();
           renderFrame(time, false);
           const source = captionFreeSnapshotRef.current.canvas;
           const blank = !source || !captionFreeSnapshotRef.current.hasFrame || isCanvasEffectivelyBlank(source);
@@ -1812,13 +1902,16 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
           if (stored) {
             titleOpeningCanvasRef.current = titleOpeningSnapshotRef.current.canvas;
           }
-          renderFrame(previousTime, false);
+          restoreDisplay();
           resolve(stored && (acceptBlank || !blank));
         });
       });
     };
 
     const run = async () => {
+      // サイズなどをスライダーで動かし続けている間は、共有 video を撮影時刻へ動かさない。
+      await delay(AUTO_POSTER_CAPTURE_INITIAL_DELAY_MS);
+      if (isStale()) return;
       const waitDeadline = Date.now() + 4000;
       while (composedFrameCaptureBusyRef.current > 0 && Date.now() < waitDeadline) {
         if (isStale()) return;
@@ -1846,8 +1939,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         titleOpeningContentKeyRef.current = contentKey;
         setTitleOpeningFrameKey((key) => key + 1);
       }
-      currentTimeRef.current = previousTime;
-      renderFrame(previousTime, false);
+      captureHold.release();
+      restorePreviewAfterCapture();
     };
 
     void run();
@@ -1867,8 +1960,10 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     isPreviewInEndroll,
     zoomEndpointPreview,
     renderFrame,
-    primePosterCaptureSeek,
+    beginBackgroundCaptureHold,
+    preserveDisplayForCaptureFrame,
     isPosterCaptureFrameReady,
+    restorePreviewAfterCapture,
   ]);
 
   // --- BGM状態の同期 ---
@@ -3709,6 +3804,25 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     handleSeekToTime(target, selection);
   }, [isProcessing, mediaTimelineRanges, pausePreviewBeforeEdit, handleSeekToTime, renderFrame]);
 
+  // 位置・サイズの拡大率は、プレビュー中のカードなら現在位置のまま描き直す（停止中再描画キー）。
+  // 別カード・エンドロールを表示中、または別カードの端点確認中だけ、対象カードの先頭を確認する。
+  const handlePreviewMediaScale = useCallback((id: string) => {
+    const endpointPreview = zoomEndpointPreviewRef.current;
+    if (endpointPreview) {
+      if (endpointPreview.id === id) return;
+    } else {
+      const time = currentTimeRef.current;
+      const range = mediaTimelineRanges[id];
+      const isInEndroll = endrollDuration > 0 && time >= clipsDuration;
+      const isShowingClip = !!range && !isInEndroll && (
+        (time >= range.start && time < range.end)
+        || resolveFocusedClipId(useMediaStore.getState().mediaItems, time) === id
+      );
+      if (isShowingClip) return;
+    }
+    handlePreviewMediaZoomEndpoint(id, 'start');
+  }, [clipsDuration, endrollDuration, mediaTimelineRanges, handlePreviewMediaZoomEndpoint]);
+
   // --- タイミング打ち／ミニプレビュー共通の相対シーク ---
   // UI に間引いて公開する時刻ではなく、再生時計の最新値を基準にする。
   const handleStampSeekBy = useCallback((deltaSec: number) => {
@@ -4280,8 +4394,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         narrations={pipelineNarrations}
         onElementLoaded={handleMediaElementLoaded}
         onRefAssign={handleMediaRefAssign}
-        onSeeked={handleSeeked}
-        onVideoLoadedData={handleVideoLoadedData}
+        onSeeked={handlePreviewMediaSeeked}
+        onVideoLoadedData={handlePreviewVideoLoadedData}
       />
       <video
         ref={previewCacheVideoRef}
@@ -4494,6 +4608,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onUpdateMediaZoomAmount={handleUpdateMediaZoomAmount}
               onUpdateMediaZoomEndpoint={handleUpdateMediaZoomEndpoint}
               onPreviewMediaZoomEndpoint={handlePreviewMediaZoomEndpoint}
+              onPreviewMediaScale={handlePreviewMediaScale}
               zoomEndpointPreview={zoomEndpointPreview}
               onInheritMediaZoom={handleInheritMediaZoom}
               onSplitMedia={handleSplitMedia}

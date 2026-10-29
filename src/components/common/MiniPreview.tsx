@@ -15,6 +15,7 @@ import {
   resolveRotatedFitDimensions,
 } from '../../utils/canvas';
 import { resolveMediaScaleFactor, mediaScaleToPercent } from '../../utils/mediaZoom';
+import { isVideoHeldByBackgroundCapture } from '../../utils/backgroundCaptureVideoHold';
 
 interface MiniPreviewProps {
   item: MediaItem;
@@ -57,6 +58,9 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement, localTime
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx || !mediaElement) return;
+    // 背景撮影が共有 video を撮影時刻へ動かしている間は描かず、直前の絵を保つ。
+    // 撮影が video を表示位置へ戻すと seeked で描き直す。
+    if (isVideoHeldByBackgroundCapture(mediaElement)) return;
 
     // ビデオ再生中のFPS制限 (約15fps = 66ms間隔)
     if (!force && currentItem.type === 'video') {

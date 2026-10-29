@@ -122,6 +122,8 @@ export interface ClipItemProps {
   onUpdateZoomAmount: (amount: number) => void;
   onUpdateZoomEndpoint?: (endpoint: 'start' | 'end', scale: number) => void;
   onPreviewZoomEndpoint?: (endpoint: 'start' | 'end') => void;
+  /** 位置・サイズの拡大率を操作した。表示中のカードなら現在位置を保ち、別カードなら先頭を確認する */
+  onPreviewScale?: () => void;
   zoomPreviewEndpoint?: 'start' | 'end';
   onInheritZoom?: () => void;
   previousZoomEndScale?: number;
@@ -178,6 +180,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
   onUpdateZoomDirection,
   onUpdateZoomEndpoint,
   onPreviewZoomEndpoint,
+  onPreviewScale,
   zoomPreviewEndpoint,
   onInheritZoom,
   previousZoomEndScale,
@@ -242,8 +245,8 @@ const ClipItem: React.FC<ClipItemProps> = ({
   );
   const handleScale = useCallback((percent: number) => {
     onUpdateScale(mediaPercentToScale(percent));
-    onPreviewZoomEndpoint?.('start');
-  }, [onUpdateScale, onPreviewZoomEndpoint]);
+    onPreviewScale?.();
+  }, [onUpdateScale, onPreviewScale]);
   const zoomDirection = normalizeMediaZoomDirection(v.zoomDirection);
   const zoomRange = resolveMediaZoomRange(v);
   const canSplit = !isDisabled && resolveVideoSplitSourceTime(v, currentTime - timelineRange.start) != null;
@@ -662,7 +665,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
                 <ZoomIn className="w-3 h-3" /> 拡大: {mediaScaleToPercent(zoomRange.start)}%
               </div>
               <button
-                onClick={() => { onResetSetting('scale'); onPreviewZoomEndpoint?.('start'); }}
+                onClick={() => { onResetSetting('scale'); onPreviewScale?.(); }}
                 disabled={isDisabled}
                 title="リセット"
                 className="hover:text-white disabled:opacity-30"
@@ -679,7 +682,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
                 <input
                   type="checkbox"
                   checked={Math.abs(zoomRange.start - 1.025) < 0.001}
-                  onChange={(e) => { onUpdateScale(e.target.checked ? 1.025 : 1.0); onPreviewZoomEndpoint?.('start'); }}
+                  onChange={(e) => { onUpdateScale(e.target.checked ? 1.025 : 1.0); onPreviewScale?.(); }}
                   className="rounded accent-blue-500 w-3 h-3"
                   disabled={isDisabled}
                 />
@@ -695,7 +698,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
               stepperStep={2.5}
               value={mediaScaleToPercent(zoomRange.start)}
               onChange={handleScale}
-              onInputFocus={() => onPreviewZoomEndpoint?.('start')}
+              onInputFocus={onPreviewScale}
               unit="%"
               disabled={isDisabled}
               sliderClassName="flex-1 min-w-0 accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"

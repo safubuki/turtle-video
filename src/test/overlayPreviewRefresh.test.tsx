@@ -11,9 +11,10 @@
  * TurtleVideo の再描画 effect の依存配列から漏らすと再発するため、
  * 挙動としてここで固定する。
  */
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { useCallback, useMemo } from 'react';
 import TurtleVideo from '../components/TurtleVideo';
 import type { ExportRuntime } from '../components/turtle-video/exportRuntime';
 import type { PreviewRuntime } from '../components/turtle-video/previewRuntime';
@@ -216,10 +217,9 @@ describe.each([
     runtime.usePreviewSeekController = useSeek;
     renderApp(runtime);
     fireEvent.change(screen.getByRole('slider', { name: '拡大率' }), { target: { value: '210.1' } });
-    if (endpoint === 'end') {
-      fireEvent.click(screen.getByRole('button', { name: 'フェード・ズームイン/アウト' }));
-      fireEvent.click(screen.getByRole('button', { name: '終了（末尾）を確認' }));
-    }
+    // サイズ変更だけでは端点確認に入らないため、確認ボタンで端点を選ぶ。
+    fireEvent.click(screen.getByRole('button', { name: 'フェード・ズームイン/アウト' }));
+    fireEvent.click(screen.getByRole('button', { name: endpoint === 'end' ? '終了（末尾）を確認' : '開始（先頭）を確認' }));
     const canvas = getMainCanvas()!;
     const context = contexts.get(canvas)!;
     const translate = vi.mocked(context.translate);
@@ -259,6 +259,110 @@ describe.each([
       expect(useUIStore.getState().isPlaying).toBe(false);
       expect(capture).not.toHaveBeenCalled();
     }
+  });
+});
+
+describe.each([
+  ['standard', usePreviewEngine, usePreviewSeekController, false],
+  ['apple-safari', useAppleSafariPreviewEngine, useAppleSafariPreviewSeekController, true],
+] as const)('%s: サイズ調整はプレビュー位置を保つ', (_flavor, useEngine, useSeek, isIosSafari) => {
+  it('表示中のカードは現在位置で倍率を描き直し、別カードのサイズ変更だけ対象カードの先頭を確認する', async () => {
+    vi.stubGlobal('IntersectionObserver', class {
+      observe() {}
+      disconnect() {}
+    });
+    const createImageElement = () => {
+      const element = document.createElement('img');
+      Object.defineProperties(element, {
+        naturalWidth: { value: 1280 }, naturalHeight: { value: 720 }, complete: { value: true },
+      });
+      return element;
+    };
+    const elements = { 'scale-a': createImageElement(), 'scale-b': createImageElement() };
+    const contexts = new Map<HTMLCanvasElement, CanvasRenderingContext2D>();
+    const baseContext = document.createElement('canvas').getContext('2d')!;
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+      if (!contexts.has(this)) {
+        contexts.set(this, {
+          ...baseContext, canvas: this, translate: vi.fn(), scale: vi.fn(), drawImage: vi.fn(),
+          strokeRect: vi.fn(), getImageData: () => ({ data: new Uint8ClampedArray([255, 255, 255, 255]) }),
+        } as unknown as CanvasRenderingContext2D);
+      }
+      return contexts.get(this)!;
+    });
+    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/jpeg;base64,existing');
+    const createSource = (id: keyof typeof elements, overrides: Partial<MediaItem> = {}): MediaItem => ({
+      id, type: 'image', file: new File(['x'], `${id}.png`), url: `blob:${id}`,
+      duration: 5, originalDuration: 5, trimStart: 0, trimEnd: 5, scale: 1,
+      positionX: 0, positionY: 0, volume: 1, isMuted: false, fadeIn: false, fadeOut: false,
+      fadeInDuration: 1, fadeOutDuration: 1, isLocked: false, isTransformOpen: true,
+      ...overrides,
+    });
+    useMediaStore.setState({
+      mediaItems: [
+        createSource('scale-a', { zoomDirection: 'in', zoomStartScale: 1, zoomEndScale: 2.5 }),
+        createSource('scale-b'),
+      ],
+      totalDuration: 10, isClipsLocked: false,
+      projectPosterMode: 'manual', projectPosterDataUrl: 'data:image/jpeg;base64,existing',
+    });
+    const capabilities = { ...createCapabilities(), isAndroid: !isIosSafari, isIosSafari };
+    const runtime = createPreviewRuntime(capabilities);
+    let getMainCanvas = (): HTMLCanvasElement | null => null;
+    runtime.usePreviewEngine = (params) => {
+      Object.assign(params.mediaElementsRef.current, elements);
+      getMainCanvas = () => params.canvasRef.current;
+      return useEngine(params);
+    };
+    runtime.usePreviewSeekController = useSeek;
+    renderApp(runtime);
+    // 初回描画は100ms後にマウント時の時刻（0秒）を描くため、それを終えてから
+    // 通常のシークバー操作で1枚目の途中（2秒）を表示する。
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 150)); });
+    const seekBar = screen.getByRole('slider', { name: 'プレビュー位置' });
+    fireEvent.pointerDown(seekBar);
+    fireEvent.change(seekBar, { target: { value: '2' } });
+    fireEvent.pointerUp(seekBar);
+    await waitFor(() => expect(useUIStore.getState().currentTime).toBe(2));
+
+    const cardA = () => screen.getByTestId('clip-card-scale-a');
+    const cardB = () => screen.getByTestId('clip-card-scale-b');
+    fireEvent.click(within(cardA()).getByRole('button', { name: 'フェード・ズームイン/アウト' }));
+    const canvas = getMainCanvas()!;
+    const fit = Math.min(canvas.width / 1280, canvas.height / 720);
+    // 本Canvasの2D contextは最初の描画で作られるため、検証時に取り出す。
+    const lastScale = () => vi.mocked(contexts.get(canvas)?.scale ?? vi.fn()).mock.lastCall;
+    const expectLastScale = (value: number) => waitFor(() => expect(lastScale()).toEqual([
+      expect.closeTo(value), expect.closeTo(value),
+    ]));
+
+    // 表示中のカード: スライダー・数値入力・黒帯除去のどれでも現在位置（2秒）を保つ。
+    fireEvent.change(within(cardA()).getByRole('slider', { name: '拡大率' }), { target: { value: '210.1' } });
+    const expectedAtTwoSeconds = (2.101 + (2.5 - 2.101) * (2 / 5)) * fit;
+    await expectLastScale(expectedAtTwoSeconds);
+    expect(useUIStore.getState().currentTime).toBe(2);
+    expect(within(cardA()).getByRole('button', { name: '開始（先頭）を確認' })).toHaveAttribute('aria-pressed', 'false');
+    expect(useMediaStore.getState().mediaItems[0]).toMatchObject({ zoomStartScale: 2.101, zoomEndScale: 2.5 });
+
+    fireEvent.focus(within(cardA()).getByRole('spinbutton', { name: '拡大率（数値）' }));
+    fireEvent.click(within(cardA()).getByRole('checkbox', { name: /黒帯除去/ }));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+    expect(useUIStore.getState().currentTime).toBe(2);
+    expect(within(cardA()).getByRole('button', { name: '開始（先頭）を確認' })).toHaveAttribute('aria-pressed', 'false');
+
+    // 別カード: 調整結果が見えるよう、そのカードの先頭（5秒）を確認する。
+    fireEvent.click(screen.getByRole('button', { name: 'すべて開く' }));
+    fireEvent.change(within(cardB()).getByRole('slider', { name: '拡大率' }), { target: { value: '150' } });
+    await waitFor(() => expect(useUIStore.getState().currentTime).toBe(5));
+    fireEvent.click(within(cardB()).getByRole('button', { name: 'フェード・ズームイン/アウト' }));
+    expect(within(cardB()).getByRole('button', { name: '開始（先頭）を確認' })).toHaveAttribute('aria-pressed', 'true');
+    await expectLastScale(1.5 * fit);
+
+    // 確認中のカードを続けて調整しても、確認位置は動かさない。
+    fireEvent.change(within(cardB()).getByRole('slider', { name: '拡大率' }), { target: { value: '160' } });
+    await expectLastScale(1.6 * fit);
+    expect(useUIStore.getState().currentTime).toBe(5);
+    expect(useUIStore.getState().isPlaying).toBe(false);
   });
 });
 
@@ -347,6 +451,169 @@ describe('ズーム端点確認中は背景撮影が動画の表示位置を変�
       expect(useMediaStore.getState().projectPosterDataUrl).toBe('data:image/jpeg;base64,existing');
     }
   });
+});
+
+describe('背景撮影中のシークは撮影完了後も保たれる', () => {
+  it.each(['auto', 'manual'] as const)('ポスター%s: 撮影開始時の時刻へ表示や再生位置を戻さない', async (posterMode) => {
+    const video = document.createElement('video');
+    let readyState = 1;
+    Object.defineProperties(video, {
+      readyState: { get: () => readyState }, seeking: { value: false }, paused: { value: true },
+      videoWidth: { value: 1280 }, videoHeight: { value: 720 },
+    });
+    const drawnSourceTimes: number[] = [];
+    const baseContext = document.createElement('canvas').getContext('2d')!;
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+      return {
+        ...baseContext, canvas: this, scale: vi.fn(),
+        drawImage: (source: CanvasImageSource) => { if (source === video) drawnSourceTimes.push(video.currentTime); },
+        getImageData: () => ({ data: new Uint8ClampedArray([255, 255, 255, 255]) }),
+      } as unknown as CanvasRenderingContext2D;
+    });
+    const capture = vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/jpeg;base64,updated');
+    const titleCaptureTarget = vi.spyOn(titleOpeningFrameUtils, 'resolveTitleMiniPreviewCaptureTarget');
+    const source: MediaItem = {
+      id: 'capture-seek', type: 'video', file: new File(['x'], 'seek.mp4'), url: 'blob:seek',
+      duration: 10, originalDuration: 10, trimStart: 0, trimEnd: 10, scale: 1,
+      positionX: 0, positionY: 0, volume: 1, isMuted: false,
+      fadeIn: false, fadeOut: false, fadeInDuration: 1, fadeOutDuration: 1,
+      isLocked: false, isTransformOpen: false,
+    };
+    useMediaStore.setState({
+      mediaItems: [source], totalDuration: source.duration, isClipsLocked: false,
+      projectPosterMode: posterMode, projectPosterDataUrl: 'data:image/jpeg;base64,existing',
+    });
+    const runtime = createPreviewRuntime(createCapabilities());
+    runtime.usePreviewEngine = (params) => {
+      params.mediaElementsRef.current[source.id] = video;
+      return usePreviewEngine(params);
+    };
+    runtime.usePreviewSeekController = usePreviewSeekController;
+    renderApp(runtime);
+
+    // 背景撮影が先頭付近へシークしてデコードを待っている途中で、通常のシークをする。
+    await waitFor(() => expect(video.currentTime).toBeGreaterThan(0));
+    await waitFor(() => expect(video.currentTime).toBeLessThan(1));
+    const seekBar = screen.getByRole('slider', { name: 'プレビュー位置' });
+    fireEvent.pointerDown(seekBar, { pointerType: 'mouse' });
+    fireEvent.change(seekBar, { target: { value: '5' } });
+    fireEvent.pointerUp(seekBar, { pointerType: 'mouse' });
+    await waitFor(() => expect(useUIStore.getState().currentTime).toBe(5));
+
+    readyState = 4;
+    if (posterMode === 'auto') {
+      await waitFor(() => expect(capture).toHaveBeenCalled());
+    }
+    await waitFor(() => expect(titleCaptureTarget).toHaveBeenCalled(), { timeout: 4000 });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); });
+
+    expect(useUIStore.getState().currentTime).toBe(5);
+    expect(drawnSourceTimes[drawnSourceTimes.length - 1]).toBeCloseTo(5);
+
+    // 停止中の再描画（現在位置の ref を使う）も、シーク後の位置を描く。
+    act(() => { useMediaStore.getState().updatePosition(source.id, 'x', 10); });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 100)); });
+    expect(drawnSourceTimes[drawnSourceTimes.length - 1]).toBeCloseTo(5);
+    expect(useUIStore.getState().currentTime).toBe(5);
+  }, 10000);
+});
+
+describe('動画の途中でサイズを変えても撮影時刻の絵を見せない', () => {
+  it.each(['auto', 'manual'] as const)('ポスター%s: 本プレビューとミニビューは表示位置の絵だけを描く', async (posterMode) => {
+    vi.stubGlobal('IntersectionObserver', class {
+      constructor(private readonly callback: IntersectionObserverCallback) {}
+      observe() { this.callback([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver); }
+      disconnect() {}
+    });
+    // 実ブラウザと同じく、currentTime の変更後に seeked を送る。
+    const video = document.createElement('video');
+    let sourceTime = 0;
+    Object.defineProperties(video, {
+      readyState: { value: 4 }, seeking: { value: false }, paused: { value: true },
+      videoWidth: { value: 1280 }, videoHeight: { value: 720 },
+      currentTime: {
+        get: () => sourceTime,
+        set: (value: number) => {
+          sourceTime = value;
+          setTimeout(() => {
+            video.dispatchEvent(new Event('seeked'));
+            document.querySelectorAll('video').forEach((element) => element.dispatchEvent(new Event('seeked')));
+          }, 5);
+        },
+      },
+    });
+    let mainCanvas: HTMLCanvasElement | null = null;
+    let renderingTime: number | null = null;
+    const mainDraws: Array<{ time: number | null; source: number }> = [];
+    const miniDraws: number[] = [];
+    const baseContext = document.createElement('canvas').getContext('2d')!;
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+      const canvas = this;
+      return {
+        ...baseContext, canvas, scale: vi.fn(), translate: vi.fn(), strokeRect: vi.fn(),
+        drawImage: (drawn: CanvasImageSource) => {
+          if (drawn !== video) return;
+          if (canvas === mainCanvas) mainDraws.push({ time: renderingTime, source: video.currentTime });
+          else if (canvas.closest('[id^="clip-transform-settings-"]')) miniDraws.push(video.currentTime);
+        },
+        getImageData: () => ({ data: new Uint8ClampedArray([255, 255, 255, 255]) }),
+      } as unknown as CanvasRenderingContext2D;
+    });
+    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/jpeg;base64,updated');
+    const titleCaptureTarget = vi.spyOn(titleOpeningFrameUtils, 'resolveTitleMiniPreviewCaptureTarget');
+    const source: MediaItem = {
+      id: 'scale-video', type: 'video', file: new File(['x'], 'scale.mp4'), url: 'blob:scale-video',
+      duration: 10, originalDuration: 10, trimStart: 0, trimEnd: 10, scale: 1,
+      positionX: 0, positionY: 0, volume: 1, isMuted: false,
+      fadeIn: false, fadeOut: false, fadeInDuration: 1, fadeOutDuration: 1,
+      isLocked: false, isTransformOpen: true,
+    };
+    useMediaStore.setState({
+      mediaItems: [source], totalDuration: source.duration, isClipsLocked: false,
+      projectPosterMode: posterMode, projectPosterDataUrl: 'data:image/jpeg;base64,existing',
+    });
+    const runtime = createPreviewRuntime(createCapabilities());
+    runtime.usePreviewEngine = (params) => {
+      params.mediaElementsRef.current[source.id] = video;
+      mainCanvas = params.canvasRef.current;
+      const engine = usePreviewEngine(params);
+      const engineRenderFrame = engine.renderFrame;
+      // 描画中の表示時刻を控える（関数の同一性は engine の renderFrame に合わせる）。
+      const renderFrame = useCallback((time: number, ...rest: [boolean?, boolean?]) => {
+        const previous = renderingTime;
+        renderingTime = time;
+        try { return engineRenderFrame(time, ...rest); } finally { renderingTime = previous; }
+      }, [engineRenderFrame]);
+      return useMemo(() => ({ ...engine, renderFrame }), [engine, renderFrame]);
+    };
+    runtime.usePreviewSeekController = usePreviewSeekController;
+    renderApp(runtime);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 150)); });
+    const seekBar = screen.getByRole('slider', { name: 'プレビュー位置' });
+    fireEvent.pointerDown(seekBar, { pointerType: 'mouse' });
+    fireEvent.change(seekBar, { target: { value: '5' } });
+    fireEvent.pointerUp(seekBar, { pointerType: 'mouse' });
+    // 初回の背景撮影も終えて、表示位置の5秒に落ち着くまで待つ。
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 800)); });
+    expect(sourceTime).toBeCloseTo(5);
+
+    mainDraws.length = 0;
+    miniDraws.length = 0;
+    titleCaptureTarget.mockClear();
+    fireEvent.change(screen.getByRole('slider', { name: '拡大率' }), { target: { value: '150' } });
+    await waitFor(() => expect(titleCaptureTarget).toHaveBeenCalled());
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)); });
+
+    expect(useUIStore.getState().currentTime).toBe(5);
+    expect(sourceTime).toBeCloseTo(5);
+    // 本プレビューは各描画時刻どおりの video を描く（撮影時刻の絵を5秒として描かない）。
+    // engine 内部の描き直し（seeked など）は時刻を控えられないため、表示位置の5秒と比べる。
+    expect(mainDraws.filter((draw) => Math.abs(draw.source - (draw.time ?? 5)) > 0.05)).toEqual([]);
+    expect(mainDraws.some((draw) => draw.time === 5)).toBe(true);
+    // ミニビューも5秒の絵だけを描く。
+    expect(miniDraws.length).toBeGreaterThan(0);
+    expect(miniDraws.filter((time) => Math.abs(time - 5) > 0.05)).toEqual([]);
+  }, 10000);
 });
 
 describe('ロゴ設定の変更は停止中のプレビューへ即時反映される', () => {

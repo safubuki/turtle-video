@@ -262,6 +262,24 @@ describe('ClipItem zoom', () => {
     expect(props.onPreviewZoomEndpoint).toHaveBeenLastCalledWith('end');
   });
 
+  it('位置・サイズの拡大率操作は端点確認ではなくサイズ用のプレビュー通知を使う', () => {
+    const onPreviewScale = vi.fn();
+    const { props } = renderItem({ onPreviewScale });
+    fireEvent.focus(screen.getByRole('spinbutton', { name: '拡大率（数値）' }));
+    fireEvent.change(screen.getByRole('slider', { name: '拡大率' }), { target: { value: '150' } });
+    expect(props.onUpdateScale).toHaveBeenLastCalledWith(1.5);
+    fireEvent.click(screen.getByRole('checkbox', { name: /黒帯除去/ }));
+    expect(props.onUpdateScale).toHaveBeenLastCalledWith(1.025);
+    expect(onPreviewScale).toHaveBeenCalledTimes(3);
+    expect(props.onPreviewZoomEndpoint).not.toHaveBeenCalled();
+
+    // ズーム欄の開始倍率は、従来どおり開始端点を確認する。
+    openEffectPanel();
+    fireEvent.change(screen.getByRole('slider', { name: 'ズーム開始倍率' }), { target: { value: '125' } });
+    expect(props.onPreviewZoomEndpoint).toHaveBeenLastCalledWith('start');
+    expect(onPreviewScale).toHaveBeenCalledTimes(3);
+  });
+
   it('ズームのスライダー上を縦スクロールしても倍率変更や端点シークを起こさない', () => {
     const { props } = renderItem();
     openEffectPanel();

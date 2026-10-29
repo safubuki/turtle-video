@@ -185,6 +185,7 @@ interface ClipsSectionProps {
   onUpdateMediaZoomAmount: (id: string, amount: number) => void;
   onUpdateMediaZoomEndpoint?: (id: string, endpoint: 'start' | 'end', scale: number) => void;
   onPreviewMediaZoomEndpoint?: (id: string, endpoint: 'start' | 'end') => void;
+  onPreviewMediaScale?: (id: string) => void;
   zoomEndpointPreview?: MediaZoomEndpointPreview | null;
   onInheritMediaZoom?: (id: string) => void;
   onSplitMedia?: (id: string) => void;
@@ -245,6 +246,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   onUpdateMediaZoomAmount,
   onUpdateMediaZoomEndpoint,
   onPreviewMediaZoomEndpoint,
+  onPreviewMediaScale,
   zoomEndpointPreview,
   onInheritMediaZoom,
   onSplitMedia,
@@ -596,6 +598,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             onUpdateZoomAmount={(amount) => onUpdateMediaZoomAmount(v.id, amount)}
             onUpdateZoomEndpoint={onUpdateMediaZoomEndpoint ? (endpoint, scale) => onUpdateMediaZoomEndpoint(v.id, endpoint, scale) : undefined}
             onPreviewZoomEndpoint={onPreviewMediaZoomEndpoint ? (endpoint) => onPreviewMediaZoomEndpoint(v.id, endpoint) : undefined}
+            onPreviewScale={onPreviewMediaScale ? () => onPreviewMediaScale(v.id) : undefined}
             zoomPreviewEndpoint={zoomEndpointPreview?.id === v.id ? zoomEndpointPreview.endpoint : undefined}
             onInheritZoom={i > 0 && onInheritMediaZoom ? () => onInheritMediaZoom(v.id) : undefined}
             previousZoomEndScale={i > 0 ? resolveMediaScaleFactor(mediaItems[i - 1], mediaItems[i - 1].duration) : undefined}
