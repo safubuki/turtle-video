@@ -151,6 +151,12 @@ interface CaptionSectionProps {
   onTogglePlay: () => void;
   onSeekBy: (deltaSec: number) => void;
   /**
+   * タイミング打ち・カードの「開始／終了」で確定する再生位置を返す。
+   * `currentTime` は再生中に約 20Hz へ間引いた UI 表示用の値で最大 50ms 古いため、
+   * 押した瞬間の位置はプレビュー再生時計（currentTimeRef）から読む。未指定時は currentTime。
+   */
+  getLivePlaybackTime?: () => number;
+  /**
    * 無音区間の境界へ移動する（Issue #217）。
    * 移動先には無音区間の開始・終了に加えて、動画の先頭（0秒）・末尾も含まれる。
    * `comfortAdjust: true` のときは読みやすい余白付き位置へ移動する。
@@ -260,6 +266,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
   isPlaying,
   onTogglePlay,
   onSeekBy,
+  getLivePlaybackTime,
   onSeekToSilenceBoundary,
   hasPrevSilenceBoundary,
   hasNextSilenceBoundary,
@@ -528,7 +535,11 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
     setStampPhase(mode === 'alternate' ? 'start' : 'end');
   };
 
-  const stampNow = () => Math.round(currentTime * 10) / 10;
+  const readStampPlaybackTime = () => {
+    const live = getLivePlaybackTime?.();
+    return typeof live === 'number' && Number.isFinite(live) ? live : currentTime;
+  };
+  const stampNow = () => Math.round(readStampPlaybackTime() * 10) / 10;
 
   // 交互モード: 開始→終了→（次のカードの）開始→… とワンボタンで確定する。
   // 打ち直したいときは -1秒/一時停止で戻り、⇄ でフェーズを切り替えて同じ場所を再確定できる。
@@ -574,7 +585,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
       setStampActive(false);
       return;
     }
-    if (currentTime <= target.startTime + 0.1) return;
+    if (readStampPlaybackTime() <= target.startTime + 0.1) return;
     const at = stampNow();
     onUpdateCaptionLive(target.id, {
       endTime: totalDuration > 0 ? Math.min(at, totalDuration) : at,
@@ -1257,6 +1268,7 @@ const CaptionSection: React.FC<CaptionSectionProps> = ({
                   totalCaptions={captions.length}
                   totalDuration={totalDuration}
                   currentTime={currentTime}
+                  getLivePlaybackTime={getLivePlaybackTime}
                   isLocked={isLocked}
                   previewCanvasRef={previewCanvasRef}
                   captionFreeSnapshotRef={captionFreeSnapshotRef}

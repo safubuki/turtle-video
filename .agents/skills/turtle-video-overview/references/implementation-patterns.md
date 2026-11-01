@@ -681,6 +681,7 @@
 | **WebCodecs** | `VideoFrame` は `close()` しないとメモリリーク。CFR 強制が重要 |
 | **Safari Export** | iOS Safari では OfflineAudioContext による音声プリレンダリング方式を使用。メインAudioContextで`decodeAudioData`を実行し、`f32-planar`形式のAudioDataをAudioEncoderに直接供給する。**重要**: iOS Safari の `decodeAudioData` はビデオコンテナ(.mov/.mp4)をデコードできない（`EncodingError`）ため、`extractAudioViaVideoElement()` で `<video>` 要素経由のリアルタイム音声抽出にフォールバックする。muxer/AudioEncoder は常に音声付きで初期化。OfflineAudioContext 失敗時は ScriptProcessorNode にフォールバック |
 | **タブ切替** | `visibilitychange` で hidden 時は通常再生を明示一時停止（`isPlayingRef=false` + `pause()`）、復帰時に Canvas 再描画と必要なメディア再同期を実行 |
+| **字幕と映像の同期** | 字幕はタイムライン時計に従う。standard preview の active video は ±10% の rate 微調整で時計へ寄せ（export は補正しない）、一時停止時は絵を時計の時刻へ合わせ直す。時刻を確定する操作は `currentTimeRef` を読み、seek の区間判定はディゾルブ重なり窓で後勝ち（13-275） |
 | **下部モーダル** | 下から開くモーダルは `history.pushState` + `popstate` で戻るキー閉じを実装し、モバイルでは縦下スワイプ（72px超）で閉じる。長文入力やヘルプ／変更履歴のような別スクロール本文を持つモーダルでは、タッチ判定をハンドル＋ヘッダーに限定するか、本文スクロール領域からの開始を対象外にする（13-28 / 13-125 / 13-214）。シート全体 + `scrollTop=0` 判定は本文スクロールと競合しやすい。クリーンアップ時は自分の履歴 state が先頭のときのみ `history.back()` する |
 | **AIナレーション(TTS)** | 場面＋区間語り口は `narrationDelivery.ts` で公式構造（Audio Profile / Scene / Director's Notes / Transcript）と英語 audio tags に変換する。UI の《語り口》は読み上げない。拒否時は素原稿へリトライ（13-2 / 13-162） |
 | **AIナレーション(原稿文量)** | 原稿生成は長さモードを秒数目安で統一する。`短め=約5秒（20〜35文字）` / `中くらい=約10秒（35〜60文字）` / `長め=約20秒（100〜140文字）` をプロンプトで明示し、過剰な長文化を防ぐ |
@@ -4926,3 +4927,24 @@ export 終了（成功/失敗/中断）
 - **注意**: 印はすべての後片付け経路（端点確認中・撮影時刻＝表示位置の見送りも含む）で必ず外す。外し忘れると seeked での描き直しが止まる。印の判定は表示位置の要素だけで行い、別要素の撮影では描き直しを止めない。再生中は判定しない。撮影中にキャプション等の別の再描画が走ると撮影時刻の絵になり得るが、撮影は数百ms以内で、サイズ・位置などメディア変更は先に後片付けが走る。
 - **対象 flavor**: TurtleVideo / MiniPreview は共通。engine は変更しない（`handleSeeked` は TurtleVideo 側で包む）。
 - **回帰ガード**: 実 standard engine/controller で、currentTime 変更後に seeked を送る video を使う。5秒表示中にサイズを変え、ポスター auto/manual とも次を検証する。本Canvasの video 描画が描画時刻どおりであること（engine 内部の描き直しは5秒と比較）、ミニビューの描画がすべて5秒であること、UI時刻と video が5秒のままであること。修正前は「5秒の描画に0.06秒の絵」で両方失敗。
+
+### 13-275. キャプションと映像のずれ（スロー・ディゾルブ）は映像の rate 微調整・停止時の絵の合わせ直し・シーク判定の後勝ち化・間引き前時刻で揃える
+
+- **ファイル**: `src/utils/playbackSpeed.ts`, `src/utils/transitionTimeline.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/usePreviewSeekController.ts`, `src/components/TurtleVideo.tsx`, `src/components/sections/CaptionSection.tsx`, `src/components/media/CaptionItem.tsx`, `src/test/playbackSpeed.test.ts`, `src/test/transitionTimeline.test.ts`, `src/test/captionStampPreview.test.tsx`, `src/test/captionStyleControls.test.tsx`
+- **対象 flavor**: standard（Android / PC）の通常プレビューとキャプション UI。apple-safari、export エンジン、legacy は変更しない。
+- **問題**: スロー・ディゾルブを含む動画で、タイミング打ち・カードの「開始／終了」で合わせたキャプションが、再生中・シーク後・書き出しでそれぞれ微妙にずれて見えた。
+  - キャプションはタイムライン時計（壁時計）に従うが、`<video>` は play() 開始遅れなどで時計から遅れたまま進む。補正は drift > ソース 0.5 秒（Android は 0.8 秒、境界後 0.5 秒は無し）の seek だけ。0.5x ではタイムライン上 1 秒（Android 1.6 秒）までのずれが放置される。
+  - 停止（`stopAll`）は `<video>` をその場で止めるだけなので、「停止した絵」は遅れたコマのまま、時刻表示・カードの位置反映は時計の時刻になり、同じ時刻へシークした絵と一致しない。
+  - seek controller の active 判定はディゾルブの重なり窓で先勝ち（前クリップ）だった（13-109 で「許容」としていたもの）。renderFrame の後勝ち（次クリップ）と食い違い、窓内のシークや再生開始で入ってくる側の映像が合わせられていなかった。future prewarm の開始時刻も単純加算で、ディゾルブ以降が実際より遅かった。
+  - タイミング打ち・カードの位置反映は 13-226 で 20Hz に間引いた UI の `currentTime`（最大 50ms 古い）を使っていた。
+- **対策**:
+  - `resolveVideoCatchUpPlaybackRate()`: タイムライン換算のずれ `(target - current) / speed` が 50ms〜1 秒なら、`playbackRate` を設定速度の ±10%（0.02 刻み、ずれ / 1 秒）だけ増減して時計へ寄せる。1 秒超は既存の seek / recovery に任せる。プレビューの 2x 以下だけが対象。**export は常に補正しない**。iOS Safari・シーク中・paused・seeking・Android の境界後 0.5 秒（`PREVIEW_ANDROID_RECOVERY_SKIP_AFTER_BOUNDARY_SEC`）も補正しない。renderFrame 内で active video の rate を 2 か所で設定しているため、両方を同じ値にする（片方だけだと毎フレーム rate が往復する）。設定は 0.1 刻みに丸めない `applyVideoElementCatchUpPlaybackRate()` で行う。
+  - `togglePlay` の一時停止では `stopAll` の後に `renderPausedPreviewFrameAtTime(currentTimeRef)` を呼び、停止した絵を時計の時刻へ合わせ直す（standard のみ）。
+  - `findTimelineItemInRangeWithTransitions()`（後勝ち・終端フォールバックなし・duration=0 は不一致）を追加し、seek controller の `findVideoElementAtTimelineTime` / `syncVideoToTime` / `renderPausedPreviewFrameAtTime` / 再生開始と prewarm の区間判定をこれと `computeTransitionTimelineRanges()` に置き換えた。トランジションなしでは従来の逐次加算と結果が一致する。
+  - `CaptionSection` / `CaptionItem` に任意 prop `getLivePlaybackTime`（TurtleVideo から `currentTimeRef.current`）を追加し、タイミング打ちとカードの位置反映は押した瞬間の再生時計を使う。0.1 秒丸めの仕様は維持する。
+- **採用しないもの**:
+  - プレビュー時計を video に従わせる方式。ナレーション・BGM が時計とずれるため不採用。
+  - export での rate 補正。export はクリップ先頭の境界待機（`exportVideoBoundaryStall`、許容 1.5/FPS）で映像の動き出しを揃えており、倍速 rate=1 + dilation（13-166）を守る。「一度に 1 仮説」（backpressure postmortem）にも従う。backpressure の pause/resume ごとに再開遅れが積み上がる可能性は未検証の仮説として残す。
+  - 補正のための毎フレーム seek（13-153 / 13-226）。
+- **注意**: preview 時計（壁時計）・`video.currentTime` 補正 seek のしきい値・UI 時刻の間引き（13-226）は変更していない。rate の補正値はずれが不感帯に入ると設定速度へ戻る。`visibility lifecycle` の区間判定は先勝ちのまま（今回は未変更）。
+- **回帰ガード**: `playbackSpeed.test.ts`（遅れ・進み・刻み・不感帯・1 秒超・export 不変・2x 超・非有限値・丸めない設定）、`transitionTimeline.test.ts`（重なり窓の後勝ち・トランジションなしでの一致・duration=0 と終端）、`captionStampPreview.test.tsx` と `captionStyleControls.test.tsx`（UI の currentTime より再生時計を優先・未指定時の従来動作）。

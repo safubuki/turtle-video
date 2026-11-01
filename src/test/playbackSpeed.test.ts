@@ -13,12 +13,14 @@ import {
   resolveSpeedAwareVideoSyncThresholdSec,
   resolveSpeedBadgeFadeAlpha,
   resolveSpeedBadgePresetPosition,
+  resolveVideoCatchUpPlaybackRate,
   resolveVideoElementPlaybackRateForContext,
   resolveVideoSafeEndSourceTime,
   resolveVideoSourceTime,
   resolveVideoTimelineDuration,
   shouldDrawSpeedBadge,
   wallDeltaToExportTimelineDelta,
+  applyVideoElementCatchUpPlaybackRate,
   DEFAULT_SPEED_BADGE_POSITION,
   SPEED_BADGE_CORNER_INSET_PERCENT,
 } from '../utils/playbackSpeed';
@@ -194,5 +196,89 @@ describe('速度バッジ', () => {
       type: 'video',
       playbackSpeed: 0.5,
     })).toBe(1);
+  });
+});
+
+describe('resolveVideoCatchUpPlaybackRate（プレビューで映像をタイムライン時計へ寄せる）', () => {
+  const base = { isExporting: false, canCatchUp: true };
+
+  it('0.5x で映像が 0.1 秒（ソース）遅れている＝タイムライン 0.2 秒遅れなら少し速める', () => {
+    // target 5.0 / current 4.9 → ソース 0.1s 遅れ → タイムライン 0.2s → +10%（上限）
+    const rate = resolveVideoCatchUpPlaybackRate({
+      ...base, playbackSpeed: 0.5, videoCurrentTime: 4.9, targetSourceTime: 5.0,
+    });
+    expect(rate).toBeCloseTo(0.55, 4);
+  });
+
+  it('映像が進んでいるときは少し遅くする', () => {
+    const rate = resolveVideoCatchUpPlaybackRate({
+      ...base, playbackSpeed: 1, videoCurrentTime: 5.1, targetSourceTime: 5.0,
+    });
+    expect(rate).toBeCloseTo(0.9, 4);
+  });
+
+  it('小さなずれは補正率を刻みへ丸める（毎フレーム rate を変えない）', () => {
+    const rate = resolveVideoCatchUpPlaybackRate({
+      ...base, playbackSpeed: 1, videoCurrentTime: 4.94, targetSourceTime: 5.0,
+    });
+    expect(rate).toBeCloseTo(1.06, 4);
+  });
+
+  it('不感帯（タイムライン 50ms 未満）は設定速度のまま', () => {
+    expect(resolveVideoCatchUpPlaybackRate({
+      ...base, playbackSpeed: 1, videoCurrentTime: 4.97, targetSourceTime: 5.0,
+    })).toBe(1);
+    // 0.5x のソース 0.02s はタイムライン 0.04s
+    expect(resolveVideoCatchUpPlaybackRate({
+      ...base, playbackSpeed: 0.5, videoCurrentTime: 4.98, targetSourceTime: 5.0,
+    })).toBe(0.5);
+  });
+
+  it('大きなずれ（1 秒超）は既存の seek / recovery に任せて設定速度のまま', () => {
+    expect(resolveVideoCatchUpPlaybackRate({
+      ...base, playbackSpeed: 1, videoCurrentTime: 3.5, targetSourceTime: 5.0,
+    })).toBe(1);
+  });
+
+  it('export では補正しない（倍速 rate=1 / 等倍・スローの native rate を維持）', () => {
+    expect(resolveVideoCatchUpPlaybackRate({
+      isExporting: true, canCatchUp: true, playbackSpeed: 4, videoCurrentTime: 4.8, targetSourceTime: 5.0,
+    })).toBe(1);
+    expect(resolveVideoCatchUpPlaybackRate({
+      isExporting: true, canCatchUp: true, playbackSpeed: 0.5, videoCurrentTime: 4.8, targetSourceTime: 5.0,
+    })).toBe(0.5);
+    expect(resolveVideoCatchUpPlaybackRate({
+      isExporting: true, canCatchUp: true, playbackSpeed: 1, videoCurrentTime: 4.8, targetSourceTime: 5.0,
+    })).toBe(1);
+  });
+
+  it('2x を超える倍速・補正不可（シーク中/停止中など）は設定速度のまま', () => {
+    expect(resolveVideoCatchUpPlaybackRate({
+      ...base, playbackSpeed: 4, videoCurrentTime: 4.5, targetSourceTime: 5.0,
+    })).toBe(4);
+    expect(resolveVideoCatchUpPlaybackRate({
+      isExporting: false, canCatchUp: false, playbackSpeed: 1, videoCurrentTime: 4.8, targetSourceTime: 5.0,
+    })).toBe(1);
+  });
+
+  it('非有限値は設定速度へフォールバックする', () => {
+    expect(resolveVideoCatchUpPlaybackRate({
+      ...base, playbackSpeed: 1, videoCurrentTime: Number.NaN, targetSourceTime: 5.0,
+    })).toBe(1);
+  });
+});
+
+describe('applyVideoElementCatchUpPlaybackRate', () => {
+  it('補正後の rate を 0.1 刻みへ丸めずに設定する', () => {
+    const video = { playbackRate: 1 } as HTMLVideoElement;
+    applyVideoElementCatchUpPlaybackRate(video, 0.55);
+    expect(video.playbackRate).toBeCloseTo(0.55, 4);
+  });
+
+  it('不正値では変更しない', () => {
+    const video = { playbackRate: 1 } as HTMLVideoElement;
+    applyVideoElementCatchUpPlaybackRate(video, Number.NaN);
+    applyVideoElementCatchUpPlaybackRate(video, 0);
+    expect(video.playbackRate).toBe(1);
   });
 });

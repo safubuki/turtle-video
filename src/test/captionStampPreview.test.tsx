@@ -424,3 +424,32 @@ describe('タイミング打ちの終了確定前表示（Issue #247）', () => 
     expect(result.onStampHoldOpenChange).not.toHaveBeenLastCalledWith(null);
   });
 });
+
+describe('タイミング打ちの確定時刻は間引き前の再生時計を使う', () => {
+  it('getLivePlaybackTime があれば UI の currentTime（最大 50ms 古い）より優先する', () => {
+    let liveTime = 1.27;
+    const result = renderStampSection({ currentTime: 1.2, getLivePlaybackTime: () => liveTime });
+    enterStampMode();
+    fireEvent.click(startButton());
+    expect(result.onUpdateCaptionLive).toHaveBeenCalledWith('c1', { startTime: 1.3 });
+
+    liveTime = 2.26;
+    fireEvent.click(endButton());
+    expect(result.onUpdateCaptionLive).toHaveBeenCalledWith('c1', { endTime: 2.3 });
+  });
+
+  it('連続モードの開始より前の判定も再生時計で行う', () => {
+    const result = renderStampSection({ currentTime: 0.05, getLivePlaybackTime: () => 2.2 });
+    enterStampMode();
+    fireEvent.click(screen.getByRole('button', { name: '連続' }));
+    fireEvent.click(chainButton());
+    expect(result.onUpdateCaptionLive).toHaveBeenCalledWith('c1', { endTime: 2.2 });
+  });
+
+  it('未指定・非有限値のときは従来どおり currentTime を使う', () => {
+    const result = renderStampSection({ currentTime: 1.2, getLivePlaybackTime: () => Number.NaN });
+    enterStampMode();
+    fireEvent.click(startButton());
+    expect(result.onUpdateCaptionLive).toHaveBeenCalledWith('c1', { startTime: 1.2 });
+  });
+});

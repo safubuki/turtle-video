@@ -19,7 +19,10 @@ import {
   type PreviewPlatformPolicy,
 } from './previewPlatform';
 import { getStandardPreviewNow } from './playbackClock';
-import { getTimelineAdvanceForItem } from '../../../utils/transitionTimeline';
+import {
+  computeTransitionTimelineRanges,
+  findTimelineItemInRangeWithTransitions,
+} from '../../../utils/transitionTimeline';
 import {
   resolveVideoSafeEndSourceTime,
   resolveVideoSourceTime,
@@ -164,15 +167,13 @@ export function usePreviewSeekController({
     const preview = resolveMediaZoomEndpointPreview(mediaItemsRef.current, zoomEndpointPreviewRef?.current, isPlayingRef.current);
     if (preview) return mediaItemsRef.current[preview.index].type === 'video'
       ? (mediaElementsRef.current[preview.id] as HTMLVideoElement | undefined) ?? null : null;
-    let accumulatedTime = 0;
-    for (const item of mediaItemsRef.current) {
-      if (targetTimelineTime >= accumulatedTime && targetTimelineTime < accumulatedTime + item.duration) {
-        if (item.type === 'video') {
-          return (mediaElementsRef.current[item.id] as HTMLVideoElement | undefined) ?? null;
-        }
-        return null;
+    const inRange = findTimelineItemInRangeWithTransitions(mediaItemsRef.current, targetTimelineTime);
+    if (inRange) {
+      const item = mediaItemsRef.current[inRange.index];
+      if (item.type === 'video') {
+        return (mediaElementsRef.current[item.id] as HTMLVideoElement | undefined) ?? null;
       }
-      accumulatedTime += getTimelineAdvanceForItem(mediaItemsRef.current, mediaItemsRef.current.indexOf(item));
+      return null;
     }
 
     if (mediaItemsRef.current.length > 0 && targetTimelineTime >= totalDurationRef.current) {
@@ -206,10 +207,13 @@ export function usePreviewSeekController({
     const preview = resolveMediaZoomEndpointPreview(mediaItemsRef.current, zoomEndpointPreviewRef?.current, isPlayingRef.current);
     const force = options?.force ?? false;
     const seekThreshold = force ? 0.01 : 0.1;
-    let accumulatedTime = 0;
+    // ディゾルブの重なり窓では renderFrame と同じく後のクリップを active として合わせる。
+    const ranges = computeTransitionTimelineRanges(mediaItemsRef.current);
+    const inRange = preview ? null : findTimelineItemInRangeWithTransitions(mediaItemsRef.current, time, ranges);
 
-    for (const item of mediaItemsRef.current) {
-      if (preview ? item.id === preview.id : time >= accumulatedTime && time < accumulatedTime + item.duration) {
+    for (const [itemIndex, item] of mediaItemsRef.current.entries()) {
+      const accumulatedTime = ranges[itemIndex]?.start ?? 0;
+      if (preview ? item.id === preview.id : inRange?.index === itemIndex) {
         if (item.type === 'video') {
           const videoElement = mediaElementsRef.current[item.id] as HTMLVideoElement;
           if (videoElement) {
@@ -237,7 +241,6 @@ export function usePreviewSeekController({
         }
         return;
       }
-      accumulatedTime += getTimelineAdvanceForItem(mediaItemsRef.current, mediaItemsRef.current.indexOf(item));
     }
 
     const items = mediaItemsRef.current;
@@ -341,16 +344,13 @@ export function usePreviewSeekController({
     };
 
     let activeVideoElement: HTMLVideoElement | null = null;
-    let accumulatedTime = 0;
-    for (const item of mediaItemsRef.current) {
-      if (clampedTime >= accumulatedTime && clampedTime < accumulatedTime + item.duration) {
-        if (item.type === 'video') {
-          const element = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
-          activeVideoElement = element ?? null;
-        }
-        break;
+    const inRange = findTimelineItemInRangeWithTransitions(mediaItemsRef.current, clampedTime);
+    if (inRange) {
+      const item = mediaItemsRef.current[inRange.index];
+      if (item.type === 'video') {
+        const element = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
+        activeVideoElement = element ?? null;
       }
-      accumulatedTime += getTimelineAdvanceForItem(mediaItemsRef.current, mediaItemsRef.current.indexOf(item));
     }
 
     if (!activeVideoElement && mediaItemsRef.current.length > 0 && clampedTime >= totalDurationRef.current) {
@@ -630,9 +630,16 @@ export function usePreviewSeekController({
         }
 
         let activeVideoElementForBundledStart: HTMLVideoElement | null = null;
-        let accumulatedTime = 0;
-        for (const item of mediaItemsRef.current) {
-          if (playbackTime >= accumulatedTime && playbackTime < accumulatedTime + item.duration) {
+        // ディゾルブの重なり窓では renderFrame と同じく後のクリップから再生を始める。
+        const playbackRanges = computeTransitionTimelineRanges(mediaItemsRef.current);
+        const playbackInRange = findTimelineItemInRangeWithTransitions(
+          mediaItemsRef.current,
+          playbackTime,
+          playbackRanges,
+        );
+        for (const [itemIndex, item] of mediaItemsRef.current.entries()) {
+          const accumulatedTime = playbackRanges[itemIndex]?.start ?? 0;
+          if (playbackInRange?.index === itemIndex) {
             if (item.type === 'video') {
               const videoElement = mediaElementsRef.current[item.id] as HTMLVideoElement;
               if (videoElement) {
@@ -688,7 +695,6 @@ export function usePreviewSeekController({
             }
             break;
           }
-          accumulatedTime += getTimelineAdvanceForItem(mediaItemsRef.current, mediaItemsRef.current.indexOf(item));
         }
 
         if (shouldBundlePreviewStart && activeVideoElementForBundledStart) {
@@ -719,11 +725,9 @@ export function usePreviewSeekController({
         if (previewPlatformPolicy.muteNativeMediaWhenAudioRouted) {
           const allowExtendedFuturePrewarm = preparedPreviewAudio.activeVideoId === null;
           let nearestFutureVideoId: string | null = null;
-          let prewarmCursor = 0;
-          for (const item of mediaItemsRef.current) {
-            const itemStart = prewarmCursor;
-            const itemEnd = prewarmCursor + Math.max(0, item.duration);
-            prewarmCursor = itemEnd;
+          // ディゾルブで重なるクリップは開始が早まるため、単純加算ではなく区間表で判定する。
+          for (const [itemIndex, item] of mediaItemsRef.current.entries()) {
+            const itemStart = playbackRanges[itemIndex]?.start ?? 0;
             if (item.type !== 'video') continue;
             if (itemStart - playbackTime > 0.0005) {
               nearestFutureVideoId = item.id;
@@ -731,11 +735,9 @@ export function usePreviewSeekController({
             }
           }
 
-          prewarmCursor = 0;
-          for (const item of mediaItemsRef.current) {
-            const itemStart = prewarmCursor;
-            const itemEnd = prewarmCursor + Math.max(0, item.duration);
-            prewarmCursor = itemEnd;
+          for (const [itemIndex, item] of mediaItemsRef.current.entries()) {
+            const itemStart = playbackRanges[itemIndex]?.start ?? 0;
+            const itemEnd = playbackRanges[itemIndex]?.end ?? itemStart;
             if (item.type !== 'video') continue;
             if (itemEnd <= playbackTime + 0.0005) continue;
             if (shouldBundlePreviewStart && item.id === preparedPreviewAudio.activeVideoId) {

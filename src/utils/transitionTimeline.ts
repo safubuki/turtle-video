@@ -79,6 +79,27 @@ export function calculateTotalDurationWithTransitions(items: MediaItem[]): numbe
   return ranges.length > 0 ? ranges[ranges.length - 1].end : 0;
 }
 
+/**
+ * 指定時刻を区間内に含むクリップを返す（オーバーラップ窓では**後のクリップ**を優先）。
+ * findActiveTimelineItemWithTransitions と違い、終端フォールバックと duration=0 の確定は行わない。
+ * シーク処理が描画側（renderFrame）と同じクリップを「現在の動画」として扱うために使う。
+ */
+export function findTimelineItemInRangeWithTransitions(
+  items: MediaItem[],
+  time: number,
+  precomputedRanges?: TransitionTimelineRange[],
+): { index: number; start: number; localTime: number } | null {
+  const ranges = precomputedRanges ?? computeTransitionTimelineRanges(items);
+  let match: { index: number; start: number; localTime: number } | null = null;
+  for (let i = 0; i < items.length; i++) {
+    const range = ranges[i];
+    if (range.end > range.start && time >= range.start && time < range.end) {
+      match = { index: i, start: range.start, localTime: time - range.start };
+    }
+  }
+  return match;
+}
+
 export interface ActiveTimelineItemWithTransitions {
   id: string;
   index: number;

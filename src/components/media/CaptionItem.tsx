@@ -24,6 +24,11 @@ interface CaptionItemProps {
   totalCaptions: number;
   totalDuration: number;
   currentTime: number;
+  /**
+   * 「プレビュー位置を反映」で確定する再生位置を返す（未指定時は currentTime）。
+   * currentTime は再生中に間引いた UI 表示用の値で最大 50ms 古い。
+   */
+  getLivePlaybackTime?: () => number;
   isLocked: boolean;
   /**
    * メインプレビューの canvas。個別設定モーダルのミニプレビュー用に渡す
@@ -51,6 +56,7 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
   totalCaptions,
   totalDuration,
   currentTime,
+  getLivePlaybackTime,
   isLocked,
   previewCanvasRef,
   captionFreeSnapshotRef,
@@ -58,6 +64,10 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
   onRemove,
   onMove,
 }) => {
+  const readLivePlaybackTime = () => {
+    const live = getLivePlaybackTime?.();
+    return typeof live === 'number' && Number.isFinite(live) ? live : currentTime;
+  };
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(caption.text);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -301,7 +311,7 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
           <button
             type="button"
             onClick={() => {
-              const val = Math.round(currentTime * 10) / 10;
+              const val = Math.round(readLivePlaybackTime() * 10) / 10;
               if (val >= 0 && val < caption.endTime) {
                 onUpdate(caption.id, { startTime: val });
               }
@@ -315,7 +325,7 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
           <button
             type="button"
             onClick={() => {
-              const val = resolveCaptionEndTimeInput(currentTime, {
+              const val = resolveCaptionEndTimeInput(readLivePlaybackTime(), {
                 startTime: caption.startTime,
                 timelineEndSec: totalDuration,
               });

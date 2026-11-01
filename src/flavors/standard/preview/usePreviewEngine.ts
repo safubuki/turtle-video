@@ -55,11 +55,12 @@ import {
 } from '../../../utils/endrollOverlay';
 import { shouldPublishPreviewUiTime } from '../../../utils/previewUiTime';
 import {
+  applyVideoElementCatchUpPlaybackRate,
   applyVideoElementPlaybackRate,
   drawSpeedBadgeFrame,
   resolveExportTimelineWallDivisorForItem,
   resolveSpeedAwareVideoSyncThresholdSec,
-  resolveVideoElementPlaybackRateForContext,
+  resolveVideoCatchUpPlaybackRate,
   resolveVideoSafeEndSourceTime,
   resolveVideoSourceTime,
   wallDeltaToExportTimelineDelta,
@@ -2077,12 +2078,27 @@ export function usePreviewEngine({
               const targetTime = resolveVideoSourceTime({ trimStart, localTime, playbackSpeed: activeItem.playbackSpeed });
               // プレビュー: playbackRate=speed で連続再生。
               // export: 常に rate=1 連続再生 + ループ側の壁時計 dilation（seek 駆動は静止画化）。
-              applyVideoElementPlaybackRate(
-                activeEl,
-                isActivePlaying
-                  ? resolveVideoElementPlaybackRateForContext(_isExporting, activeItem.playbackSpeed)
-                  : 1,
-              );
+              // タイムライン時計とのずれは rate の微調整で吸収し、字幕と映像を揃える。
+              if (isActivePlaying) {
+                applyVideoElementCatchUpPlaybackRate(
+                  activeEl,
+                  resolveVideoCatchUpPlaybackRate({
+                    isExporting: _isExporting,
+                    playbackSpeed: activeItem.playbackSpeed,
+                    videoCurrentTime: activeEl.currentTime,
+                    targetSourceTime: targetTime,
+                    canCatchUp:
+                      !platformCapabilities.isIosSafari
+                      && !isSeekingRef.current
+                      && !activeEl.paused
+                      && !activeEl.seeking
+                      // Android は境界直後を media clock の自然再生に任せる（recovery seek と同じ方針）。
+                      && !(isAndroidPreviewPlayback && localTime <= PREVIEW_ANDROID_RECOVERY_SKIP_AFTER_BOUNDARY_SEC),
+                  }),
+                );
+              } else {
+                applyVideoElementPlaybackRate(activeEl, 1);
+              }
               const activeVideoDrift = Math.abs(activeEl.currentTime - targetTime);
               const isAndroidPassiveBoundaryWindow =
                 isAndroidPreviewPlayback
@@ -2601,10 +2617,22 @@ export function usePreviewEngine({
               const videoEl = element as HTMLVideoElement;
               const targetTime = resolveVideoSourceTime({ trimStart: conf.trimStart || 0, localTime, playbackSpeed: conf.playbackSpeed });
               // プレビュー: rate=speed。export: rate=1 + ループ壁時計 dilation。
+              // 上の active 判定と同じ値にして、同一フレーム内で rate を往復させない。
               if (isActivePlaying) {
-                applyVideoElementPlaybackRate(
+                applyVideoElementCatchUpPlaybackRate(
                   videoEl,
-                  resolveVideoElementPlaybackRateForContext(_isExporting, conf.playbackSpeed),
+                  resolveVideoCatchUpPlaybackRate({
+                    isExporting: _isExporting,
+                    playbackSpeed: conf.playbackSpeed,
+                    videoCurrentTime: videoEl.currentTime,
+                    targetSourceTime: targetTime,
+                    canCatchUp:
+                      !platformCapabilities.isIosSafari
+                      && !isSeekingRef.current
+                      && !videoEl.paused
+                      && !videoEl.seeking
+                      && !(isAndroidPreviewPlayback && localTime <= PREVIEW_ANDROID_RECOVERY_SKIP_AFTER_BOUNDARY_SEC),
+                  }),
                 );
               }
               const activeVideoDrift = Math.abs(videoEl.currentTime - targetTime);

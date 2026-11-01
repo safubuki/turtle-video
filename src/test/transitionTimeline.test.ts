@@ -8,6 +8,7 @@ import {
   calculateTotalDurationWithTransitions,
   computeTransitionTimelineRanges,
   findActiveTimelineItemWithTransitions,
+  findTimelineItemInRangeWithTransitions,
   getClipOverlapToNext,
   getTimelineAdvanceForItem,
 } from '../utils/transitionTimeline';
@@ -130,5 +131,35 @@ describe('findActiveTimelineItemWithTransitions', () => {
     expect(findActiveTimelineItemWithTransitions(midPending, 5, 10)?.id).toBe('loading');
     // 手前のクリップ再生中は通常どおりそのクリップが勝つ
     expect(findActiveTimelineItemWithTransitions(midPending, 4.9995, 10)?.id).toBe('a');
+  });
+});
+
+describe('findTimelineItemInRangeWithTransitions（シーク処理の active 判定）', () => {
+  it('ディゾルブの重なり窓では描画側と同じく後のクリップを返す', () => {
+    const items = [
+      makeItem({ id: 'a', duration: 10, transitionToNext: { type: 'dissolve', duration: 1 } }),
+      makeItem({ id: 'b', duration: 10 }),
+    ];
+    const hit = findTimelineItemInRangeWithTransitions(items, 9.5);
+    expect(hit).toEqual({ index: 1, start: 9, localTime: 0.5 });
+    expect(findActiveTimelineItemWithTransitions(items, 9.5, 19)?.index).toBe(1);
+  });
+
+  it('トランジション無しでは従来の逐次加算（先勝ち）と同じ結果', () => {
+    const items = [
+      makeItem({ id: 'a', duration: 4 }),
+      makeItem({ id: 'b', duration: 6 }),
+    ];
+    expect(findTimelineItemInRangeWithTransitions(items, 3.99)?.index).toBe(0);
+    expect(findTimelineItemInRangeWithTransitions(items, 4)).toEqual({ index: 1, start: 4, localTime: 0 });
+  });
+
+  it('終端以降・duration=0 は一致させない（終端処理は呼び出し側に任せる）', () => {
+    const items = [
+      makeItem({ id: 'a', duration: 0 }),
+      makeItem({ id: 'b', duration: 5 }),
+    ];
+    expect(findTimelineItemInRangeWithTransitions(items, 0)?.index).toBe(1);
+    expect(findTimelineItemInRangeWithTransitions(items, 5)).toBeNull();
   });
 });

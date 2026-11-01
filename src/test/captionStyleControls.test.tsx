@@ -726,3 +726,48 @@ describe('CaptionItem end time snaps to timeline duration', () => {
     expect(screen.getByRole('button', { name: 'キャプション 一括設定' })).toBeInTheDocument();
   });
 });
+
+describe('CaptionItem「プレビュー位置を反映」は間引き前の再生時計を使う', () => {
+  const caption: Caption = {
+    id: 'c1',
+    text: 'テスト',
+    startTime: 0,
+    endTime: 7,
+    fadeIn: false,
+    fadeOut: false,
+    fadeInDuration: 0.5,
+    fadeOutDuration: 0.5,
+  };
+
+  it('getLivePlaybackTime があれば UI の currentTime より優先する', () => {
+    const onUpdateCaption = vi.fn();
+    renderCaptionSection(
+      {
+        captions: [caption],
+        totalDuration: 10,
+        currentTime: 2.0,
+        getLivePlaybackTime: () => 2.06,
+        onUpdateCaption,
+      },
+      false,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '開始' }));
+    expect(onUpdateCaption).toHaveBeenCalledWith('c1', { startTime: 2.1 });
+
+    onUpdateCaption.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: '終了' }));
+    expect(onUpdateCaption).toHaveBeenCalledWith('c1', { endTime: 2.1 });
+  });
+
+  it('未指定時は従来どおり currentTime を使う', () => {
+    const onUpdateCaption = vi.fn();
+    renderCaptionSection(
+      { captions: [caption], totalDuration: 10, currentTime: 2.0, onUpdateCaption },
+      false,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '開始' }));
+    expect(onUpdateCaption).toHaveBeenCalledWith('c1', { startTime: 2 });
+  });
+});

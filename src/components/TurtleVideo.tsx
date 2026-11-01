@@ -3762,12 +3762,18 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     if (isPlaying) {
       stopAll();
       pause();
+      // 再生中の映像はタイムライン時計からわずかに遅れていることがある。停止した絵を
+      // 時計（シークバー・キャプション判定・カードの位置反映）と同じ時刻へ合わせ直し、
+      // 「停止して見た絵」と「同じ時刻へシークした絵」を一致させる。
+      if (!platformCapabilities.isIosSafari) {
+        renderPausedPreviewFrameAtTimeRef.current(currentTimeRef.current);
+      }
     } else {
       let startT = currentTime;
       if (startT >= totalDuration - 0.1 || startT < 0) startT = 0;
       startEngine(startT, false);
     }
-  }, [clearZoomEndpointPreview, clearGeneratedExport, isPlaying, currentTime, totalDuration, stopAll, pause, startEngine]);
+  }, [clearZoomEndpointPreview, clearGeneratedExport, isPlaying, currentTime, totalDuration, stopAll, pause, startEngine, platformCapabilities.isIosSafari]);
 
   // --- 絶対時刻シーク ---
   // 目的: 波形タップや無音区間ジャンプ（Issue #217）から、シークバーと同じ経路で
@@ -3828,6 +3834,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const handleStampSeekBy = useCallback((deltaSec: number) => {
     handleSeekToTime(currentTimeRef.current + deltaSec);
   }, [handleSeekToTime]);
+
+  // タイミング打ち・キャプションカードの位置反映は間引き前の再生時計を使う（UI の currentTime は最大 50ms 古い）。
+  const getLivePlaybackTime = useCallback(() => currentTimeRef.current, []);
 
   const handleDismissFloatingPreview = useCallback(() => {
     if (isProcessing) return;
@@ -4779,6 +4788,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               isPlaying={isPlaying}
               onTogglePlay={togglePlay}
               onSeekBy={handleStampSeekBy}
+              getLivePlaybackTime={getLivePlaybackTime}
               onSeekToSilenceBoundary={handleSeekToSilenceBoundary}
               hasPrevSilenceBoundary={hasPrevSilenceBoundary}
               hasNextSilenceBoundary={hasNextSilenceBoundary}
