@@ -831,6 +831,87 @@ describe('standard preview engine', () => {
     expect(el1.paused).toBe(false);
   });
 
+  async function setupDissolveExportAtOverlap() {
+    const video1 = createVideoItem({
+      id: 'video-1',
+      duration: 5,
+      originalDuration: 5,
+      trimStart: 0,
+      trimEnd: 5,
+      transitionToNext: { type: 'dissolve', duration: 1 },
+    });
+    const video2 = createVideoItem({
+      id: 'video-2',
+      duration: 5,
+      originalDuration: 5,
+      trimStart: 0,
+      trimEnd: 5,
+    });
+    const el1 = createMockVideoElement();
+    const el2 = createMockVideoElement();
+    const fromTime = 119 / 30;
+    el1.readyState = 4;
+    el1.seeking = false;
+    el1.currentTime = fromTime;
+    // 次動画は再生可能で先頭に同期済み（境界待機は起きない）
+    el2.readyState = 4;
+    el2.seeking = false;
+    el2.currentTime = 0;
+    const canvas = {
+      getContext: vi.fn(() => createMockCanvasContext()),
+    } as unknown as HTMLCanvasElement;
+    let nowMs = 0;
+    vi.spyOn(playbackClock, 'getStandardPreviewNow').mockImplementation(() => nowMs);
+    const harness = setupPreviewEngineHarness({
+      mediaItems: [video1, video2],
+      mediaElements: {
+        [video1.id]: el1 as unknown as HTMLVideoElement,
+        [video2.id]: el2 as unknown as HTMLVideoElement,
+      },
+      totalDuration: 9,
+      canvas,
+      enableWebCodecsExport: true,
+    });
+    const startPromise = harness.hook.result.current.startEngine(fromTime, true);
+    await vi.advanceTimersByTimeAsync(350);
+    await startPromise;
+    harness.startWebCodecsExport.mock.calls[0]?.[4]?.onAudioPreRenderComplete?.();
+    return { ...harness, el1, el2, setNow: (ms: number) => { nowMs = ms; } };
+  }
+
+  it('ディゾルブの前クリップが終了していたら play() で先頭から再生し直さない', async () => {
+    const { hook, loopIdRef, el1, setNow } = await setupDissolveExportAtOverlap();
+    // 重なり窓（4.0 秒〜）で前クリップが ended（paused=true）になった
+    el1.paused = true;
+    el1.ended = true;
+    el1.play.mockClear();
+    setNow(75);
+    hook.result.current.loop(true, loopIdRef.current);
+    expect(el1.play).not.toHaveBeenCalled();
+
+    // 終了していなければ従来どおり再生を続ける
+    el1.ended = false;
+    setNow(110);
+    hook.result.current.loop(true, loopIdRef.current);
+    expect(el1.play).toHaveBeenCalled();
+  });
+
+  it('書き出し中の seeked では停止中プレビュー用の再描画をせず、active video を止めない', async () => {
+    const { hook, el1, el2, requestAnimationFrameSpy } = await setupDissolveExportAtOverlap();
+    el1.paused = false;
+    el2.paused = false;
+    el1.pause.mockClear();
+    el2.pause.mockClear();
+    requestAnimationFrameSpy.mockClear();
+    hook.result.current.handleSeeked();
+    hook.result.current.handleVideoLoadedData();
+    for (const [callback] of requestAnimationFrameSpy.mock.calls) {
+      (callback as FrameRequestCallback)(0);
+    }
+    expect(el1.pause).not.toHaveBeenCalled();
+    expect(el2.pause).not.toHaveBeenCalled();
+  });
+
   it('video から始まる export は future data を得るまで開始時計を進めない', async () => {
     const video = createVideoItem({
       id: 'video-start',

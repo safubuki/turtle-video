@@ -5026,3 +5026,18 @@ export 終了（成功/失敗/中断）
 - **注意**: 本番ビルドは `sourcemap: true` なので、スタックの bundle 位置は元ソースへ戻せる。プロトタイプ（`HTMLMediaElement.prototype`）は書き換えない。調査が終わっても「詳細」限定の診断として残してよいが、通常モードへ広げない。
 - **使い方**: 設定でログモードを「詳細」にして書き出し → ログを JSON で保存 → `export.media.seekCall@…` の `to` が冒頭付近になっている行の `caller` を見る。
 - **回帰ガード**: `exportMediaTrace.test.ts`（イベント記録・大きな書き換えだけ呼び出し元付き・小さな補正は記録しない・件数上限・解除で定義が消え記録も止まる・スタック要約）。実機 Chrome でもインスタンス単位の setter でシークが効き、呼び出し元が取れ、解除で元に戻ることを確認済み。
+
+### 13-281. ディゾルブの書き出しで前クリップが止まる・冒頭へ飛ぶ: 終了した peer の再生し直し、書き出し中の seeked 再描画、peer の提示間引き
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **対象 flavor**: standard の export（`ended` の扱いはプレビューの peer 分岐にも効く）。境界待機（13-187〜189）、backpressure、wall dilation、capture 判定（13-204）は変更しない。
+- **調査（13-280 の追跡ログ＋実ファイル照合）**:
+  - 書き出し映像の差分解析で、ディゾルブ区間の**前クリップの層だけ**が約 5 フレームおき（約 6 Hz）にしか更新されず、時に 8 フレーム止まって一気に進んでいた。追跡ログでは前クリップの再生位置自体は正しく進んでいた（20.366 秒でトリム終了 11.619 秒）。描画に使う video の**提示（presentation）が間引かれている**。
+  - 別の回では前クリップが自分の冒頭（元動画 0〜1 秒）へ飛んだ。追跡ログで、ディゾルブ窓内で前クリップが `ended` → peer 分岐の `play()` → **先頭へシークして再生し直し**ている事象を確認した（1 枚目→2 枚目の窓末尾 4.0 秒）。
+  - そのシークの `seeked` で `handleSeeked` が `renderFrame(t, false)`（停止中・書き出し外扱い）を割り込ませ、**active video を pause し rate を 1 へ戻していた**（直後に export ループが戻すが、その間は止まる）。
+- **対策**:
+  1. peer 分岐の `play()` 条件に `!peerVideoEl.ended` を追加。終了済みは最後のコマのまま描く。
+  2. `handleSeeked` / `handleVideoLoadedData` は `activePreviewModeRef` が `export` / `preview-cache-build` のとき再描画しない（export ループが毎フレーム描く）。
+  3. 書き出し中、ディゾルブ窓（`localTime < getClipOverlapToNext(prev, active)`）の前クリップにも `requestVideoFrameCallback` を登録し続ける（active の `bindExportRvfc` と同様）。提示を促すための登録で、capture 判定には使わない。ログモード「詳細」では提示間隔 100ms 以上を `export.peer.gap@…`、窓終了時に `export.peer.summary@…`（提示数・最大間隔）を記録する。
+- **未確定（実機確認待ち）**: 3 の「提示の間引き」はヘッドレス Chrome では再現しなかった（画面合成をしないため）。実機の書き出しで `export.peer.gap` / `summary` の最大間隔が 1 フレーム程度（〜50ms）に収まれば仮説どおり。収まらなければデコーダ側の遅れとして別対策を検討する（毎フレーム seek・常時 prefetch は禁止のまま）。
+- **回帰ガード**: `standardPreviewEngine.test.tsx`「ディゾルブの前クリップが終了していたら play() で先頭から再生し直さない」「書き出し中の seeked では停止中プレビュー用の再描画をせず、active video を止めない」（いずれも修正を外すと失敗することを確認済み）。

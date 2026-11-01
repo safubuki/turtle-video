@@ -290,6 +290,12 @@ interface UsePreviewEngineResult {
   startEngine: (fromTime: number, isExportMode: boolean) => Promise<void>;
 }
 
+// 「詳細」ログで前クリップの提示間隔を記録するしきい値（30fps の約 3 スロット）
+const EXPORT_PEER_PRESENT_GAP_LOG_MS = 100;
+
+const isExportRenderingPreviewMode = (mode: PreviewEngineMode): boolean =>
+  mode === 'export' || mode === 'preview-cache-build';
+
 type PreviewEngineMode =
   | 'idle'
   | 'preview'
@@ -1227,8 +1233,79 @@ export function usePreviewEngine({
     state.videoId = null;
     state.handle = null;
   };
+  // ディゾルブ中の前クリップ（peer）にも rVFC を登録する。描画に使う video が提示を間引かれると、
+  // 書き出し映像で前クリップだけ数フレームおきにしか進まない（13-281）。active と同様に登録して
+  // 提示を促し、ログモード「詳細」では提示の間隔を記録する。
+  const exportPeerRvfcStateRef = useRef<{
+    video: HTMLVideoElement | null;
+    videoId: string | null;
+    handle: number | null;
+    lastPresentedAtMs: number | null;
+    maxGapMs: number;
+    frames: number;
+  }>({ video: null, videoId: null, handle: null, lastPresentedAtMs: null, maxGapMs: 0, frames: 0 });
+  const cancelExportPeerRvfc = () => {
+    const state = exportPeerRvfcStateRef.current;
+    const video = state.video;
+    if (video && state.handle !== null && typeof video.cancelVideoFrameCallback === 'function') {
+      try {
+        video.cancelVideoFrameCallback(state.handle);
+      } catch {
+        /* ignore */
+      }
+    }
+    if (state.videoId && previewLogModeRef.current === 'detailed') {
+      logInfo('RENDER', `export.peer.summary@${Math.round(currentTimeRef.current * 1000)}`, {
+        videoId: state.videoId,
+        presentedFrames: state.frames,
+        maxGapMs: Math.round(state.maxGapMs),
+      });
+    }
+    state.video = null;
+    state.videoId = null;
+    state.handle = null;
+    state.lastPresentedAtMs = null;
+    state.maxGapMs = 0;
+    state.frames = 0;
+  };
+  const bindExportPeerRvfc = (video: HTMLVideoElement | null, videoId: string | null) => {
+    const state = exportPeerRvfcStateRef.current;
+    if (state.videoId === videoId && (state.handle !== null || videoId === null)) return;
+    cancelExportPeerRvfc();
+    if (!video || !videoId || typeof video.requestVideoFrameCallback !== 'function') return;
+    const onFrame = (now: number, meta: { mediaTime?: number }) => {
+      const current = exportPeerRvfcStateRef.current;
+      if (current.videoId !== videoId) return;
+      if (current.lastPresentedAtMs !== null) {
+        const gapMs = now - current.lastPresentedAtMs;
+        current.maxGapMs = Math.max(current.maxGapMs, gapMs);
+        if (gapMs >= EXPORT_PEER_PRESENT_GAP_LOG_MS && previewLogModeRef.current === 'detailed') {
+          logInfo('RENDER', `export.peer.gap@${Math.round(currentTimeRef.current * 1000)}`, {
+            videoId,
+            gapMs: Math.round(gapMs),
+            mediaTime: Number.isFinite(meta.mediaTime) ? Math.round((meta.mediaTime as number) * 1000) / 1000 : null,
+          });
+        }
+      }
+      current.lastPresentedAtMs = now;
+      current.frames += 1;
+      try {
+        current.handle = video.requestVideoFrameCallback(onFrame);
+      } catch {
+        current.handle = null;
+      }
+    };
+    state.video = video;
+    state.videoId = videoId;
+    try {
+      state.handle = video.requestVideoFrameCallback(onFrame);
+    } catch {
+      state.handle = null;
+    }
+  };
   const resetExportCaptureState = () => {
     cancelExportRvfc();
+    cancelExportPeerRvfc();
     exportLastCapturedIndexRef.current = null;
     exportCaptureDeferredIndexRef.current = null;
     exportLastCapturedPresentedFrameIdRef.current = null;
@@ -3238,11 +3315,14 @@ export function usePreviewEngine({
               if (peerIsVideo && isExportBoundaryStalled && !peerVideoEl.paused) {
                 peerVideoEl.pause();
               }
+              // 終了した動画へ play() すると先頭から再生し直すため、前クリップの末尾が
+              // 冒頭の絵へ飛ぶ。終了済みなら最後のコマのまま描く（13-281）。
               if (
                 peerIsVideo
                 && isActivePlaying
                 && !isExportBoundaryStalled
                 && peerVideoEl.paused
+                && !peerVideoEl.ended
                 && !peerVideoEl.seeking
                 && peerVideoEl.readyState >= 2
               ) {
@@ -4113,18 +4193,27 @@ export function usePreviewEngine({
     [captions, captionSettings, previewCaptionIdsRef, stampHoldOpenCaptionIdRef, zoomEndpointPreviewRef, videoTitle, watermarkOverlay, ensureAudioNodeForElement, logInfo, platformCapabilities, previewPlatformPolicy],
   );
 
+  // 書き出し中は export ループが毎フレーム描画する。ここで描くと「停止中のプレビュー」扱い
+  // （isActivePlaying=false・書き出し外）の renderFrame が割り込み、active video を pause し
+  // rate を 1 へ戻してしまう（書き出し映像のディゾルブで引っかかりになる）。
   const handleSeeked = useCallback(() => {
-    requestAnimationFrame(() => renderFrame(
-      currentTimeRef.current,
-      isPlayingRef.current && !isSeekingRef.current && !isSeekPlaybackPreparingRef.current,
-    ));
+    requestAnimationFrame(() => {
+      if (isExportRenderingPreviewMode(activePreviewModeRef.current)) return;
+      renderFrame(
+        currentTimeRef.current,
+        isPlayingRef.current && !isSeekingRef.current && !isSeekPlaybackPreparingRef.current,
+      );
+    });
   }, [currentTimeRef, isPlayingRef, isSeekPlaybackPreparingRef, isSeekingRef, renderFrame]);
 
   const handleVideoLoadedData = useCallback(() => {
-    requestAnimationFrame(() => renderFrame(
-      currentTimeRef.current,
-      isPlayingRef.current && !isSeekingRef.current && !isSeekPlaybackPreparingRef.current,
-    ));
+    requestAnimationFrame(() => {
+      if (isExportRenderingPreviewMode(activePreviewModeRef.current)) return;
+      renderFrame(
+        currentTimeRef.current,
+        isPlayingRef.current && !isSeekingRef.current && !isSeekPlaybackPreparingRef.current,
+      );
+    });
   }, [currentTimeRef, isPlayingRef, isSeekPlaybackPreparingRef, isSeekingRef, renderFrame]);
 
   const stopAll = useCallback(() => {
@@ -5196,6 +5285,22 @@ export function usePreviewEngine({
         bindExportRvfc(activeExportVideoElement ?? null, activeExportVideoItem?.type === 'video'
           ? activeExportVideoItem.id
           : null);
+        // ディゾルブの重なり窓では前クリップも描画に使うので、同じく提示を促す。
+        const exportPeerItem = resolvedSegment && resolvedSegmentIndex > 0
+          ? mediaItemsRef.current[resolvedSegmentIndex - 1]
+          : null;
+        const isExportPeerOverlapping =
+          !!exportPeerItem
+          && exportPeerItem.type === 'video'
+          && !!activeExportVideoItem
+          && resolvedSegment !== null
+          && resolvedSegment.localTime < getClipOverlapToNext(exportPeerItem, activeExportVideoItem);
+        bindExportPeerRvfc(
+          isExportPeerOverlapping
+            ? (mediaElementsRef.current[exportPeerItem.id] as HTMLVideoElement | undefined) ?? null
+            : null,
+          isExportPeerOverlapping ? exportPeerItem.id : null,
+        );
       }
 
       // 描画時間を実測する（エクスポート時のみ。プレビューには影響させない）。
