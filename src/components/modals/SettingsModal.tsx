@@ -26,13 +26,22 @@ import {
 } from 'lucide-react';
 import type { AppFlavor } from '../../app/resolveAppFlavor';
 import { getAppFlavorBadge, getAppFlavorUiCapabilities } from '../../app/appFlavorUi';
-import { useLogStore } from '../../stores';
+import {
+  useAudioStore,
+  useCaptionStore,
+  useLogStore,
+  useMediaStore,
+  useOverlayStore,
+} from '../../stores';
 import { useUIStore } from '../../stores/uiStore';
 import { useOfflineModeStore } from '../../stores/offlineModeStore';
 import { useUpdateStore } from '../../stores/updateStore';
 import { useCanvasStore, type ExportQuality } from '../../stores/canvasStore';
 import type { LogEntry } from '../../stores';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
+import { FPS } from '../../constants';
+import { getEndrollDuration } from '../../utils/endrollOverlay';
+import { buildProjectDiagnostics } from '../../utils/projectDiagnostics';
 
 // アプリバージョン
 import versionData from '../../../version.json';
@@ -504,6 +513,36 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
     URL.revokeObjectURL(url);
   };
 
+  // 不具合解析用に、画面に表示されている設定値のうち必要なものだけを保存する（projectDiagnostics.ts）。
+  const handleExportSettingsReport = () => {
+    const canvas = useCanvasStore.getState();
+    const audio = useAudioStore.getState();
+    const report = buildProjectDiagnostics({
+      mediaItems: useMediaStore.getState().mediaItems,
+      bgmClips: audio.bgmClips,
+      narrations: audio.narrations,
+      captions: useCaptionStore.getState().captions,
+      bgmFitToVideoEnd: audio.bgmAutoAdjustToTimeline,
+      endrollSeconds: getEndrollDuration(useOverlayStore.getState().endroll),
+      output: {
+        width: canvas.exportWidth,
+        height: canvas.exportHeight,
+        orientation: canvas.aspectRatio,
+        fps: FPS,
+      },
+      appVersion: APP_VERSION,
+    });
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'turtle-video-settings-report.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const formatTimestamp = (timestamp: string): string => {
     const date = new Date(timestamp);
     const timeStr = date.toLocaleTimeString('ja-JP', {
@@ -679,7 +718,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
                   <li>
                     「ソフトウェア更新を確認」で手動確認できます。オフラインモード中はこのボタンを使用できません。
                   </li>
-                  <li>ログタブでは実行ログ確認、コピー、JSON出力、クリアができます。</li>
+                  <li>ログタブでは実行ログ確認、コピー、JSON出力、クリアができます。「設定」ボタンでは、不具合の解析に使う設定（クリップの並び・トリム・再生速度・トランジション・音声の配置など、画面に表示されている値だけ）を保存できます。キャプション本文やナレーション原稿は含みません。</li>
                 </ol>
                 <p className="text-xs md:text-sm text-orange-100/95 leading-relaxed">
                   ※ Google AI Studio / Gemini API
@@ -1098,6 +1137,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
                 >
                   <Download className="w-4 h-4" />
                   JSON
+                </button>
+                <button
+                  onClick={handleExportSettingsReport}
+                  title="不具合解析用に、クリップの並び・トリム・再生速度・トランジション・音声の配置など画面に表示されている設定だけを保存します（キャプション本文やナレーション原稿は含みません）"
+                  aria-label="解析用の設定を保存"
+                  className="flex items-center justify-center gap-1 bg-emerald-700 hover:bg-emerald-600 text-white py-2 px-3 rounded-lg text-sm font-bold transition"
+                >
+                  <FileText className="w-4 h-4" />
+                  設定
                 </button>
                 <button
                   onClick={clearLogs}
