@@ -55,6 +55,7 @@ import {
 } from '../../../utils/endrollOverlay';
 import { shouldPublishPreviewUiTime } from '../../../utils/previewUiTime';
 import { PREVIEW_AUDIO_CLIP_GAIN_SMOOTHING_SEC } from '../../../utils/audioFadeCurve';
+import { attachExportMediaTrace } from '../../../utils/exportMediaTrace';
 import {
   applyVideoElementCatchUpPlaybackRate,
   applyVideoElementPlaybackRate,
@@ -1280,6 +1281,8 @@ export function usePreviewEngine({
   // inactive 動画の常時 prefetch は全体 FPS を落とすため行わず、待機中だけ export 時計を固定する。
   const exportVideoBoundaryStallRef = useRef<ExportVideoBoundaryStallState | null>(null);
   const exportVideoBoundaryHandledKeyRef = useRef<string | null>(null);
+  // ログモード「詳細」の書き出し中だけ、共有 video の状態変化と再生位置の書き換え元を記録する。
+  const exportMediaTraceDetachRef = useRef<(() => void) | null>(null);
   // 倍速 export: 映像は 1x 連続再生し、タイムラインだけ wall/speed で進める（seek 駆動は静止画化するため不採用）。
   const exportTimelineSecRef = useRef(0);
   const exportLastWallNowMsRef = useRef<number | null>(null);
@@ -4136,6 +4139,8 @@ export function usePreviewEngine({
     frameDrivenExportForcedWallClockRef.current = false;
     exportVideoBoundaryStallRef.current = null;
     exportVideoBoundaryHandledKeyRef.current = null;
+    exportMediaTraceDetachRef.current?.();
+    exportMediaTraceDetachRef.current = null;
     currentPreviewCacheBuildSessionIdRef.current = null;
     logDebug('SYSTEM', 'stopAll呼び出し', { previousLoopId: loopIdRef.current, isPlayingRef: isPlayingRef.current });
 
@@ -5650,6 +5655,21 @@ export function usePreviewEngine({
           ),
         });
         activePreviewModeRef.current = 'export';
+        exportMediaTraceDetachRef.current?.();
+        exportMediaTraceDetachRef.current = null;
+        if (previewLogModeRef.current === 'detailed') {
+          exportMediaTraceDetachRef.current = attachExportMediaTrace({
+            elements: mediaItemsRef.current
+              .filter((item) => item.type === 'video')
+              .map((item) => ({
+                id: item.id,
+                element: mediaElementsRef.current[item.id] as HTMLVideoElement | undefined,
+              }))
+              .filter((entry): entry is { id: string; element: HTMLVideoElement } => !!entry.element),
+            getTimelineSec: () => currentTimeRef.current,
+            log: (message, details) => logInfo('RENDER', message, details),
+          });
+        }
         // エクスポートは共有 <video> 要素を消費して decoder を wedge させ得る。
         // 次の通常プレビューで描画可能になるまで post-export guard を維持する（Issue #209）。
         exportRanSinceLastPreviewRef.current = true;
