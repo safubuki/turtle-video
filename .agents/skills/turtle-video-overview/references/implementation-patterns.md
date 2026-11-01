@@ -4948,3 +4948,39 @@ export 終了（成功/失敗/中断）
   - 補正のための毎フレーム seek（13-153 / 13-226）。
 - **注意**: preview 時計（壁時計）・`video.currentTime` 補正 seek のしきい値・UI 時刻の間引き（13-226）は変更していない。rate の補正値はずれが不感帯に入ると設定速度へ戻る。`visibility lifecycle` の区間判定は先勝ちのまま（今回は未変更）。
 - **回帰ガード**: `playbackSpeed.test.ts`（遅れ・進み・刻み・不感帯・1 秒超・export 不変・2x 超・非有限値・丸めない設定）、`transitionTimeline.test.ts`（重なり窓の後勝ち・トランジションなしでの一致・duration=0 と終端）、`captionStampPreview.test.tsx` と `captionStyleControls.test.tsx`（UI の currentTime より再生時計を優先・未指定時の従来動作）。
+
+### 13-276. 書き出しの BGM フェードインはプレビューの GainNode 追従（一次遅れ）と同じ形にする
+
+- **ファイル**: `src/utils/audioFadeCurve.ts`（新規）, `src/flavors/standard/export/exportEngine.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/audioFadeCurve.test.ts`
+- **対象 flavor**: standard の書き出し（`scheduleNarrationClip` = BGM クリップ／ナレーションのクリップ範囲フェード）。プレビューの挙動、フェードアウト、エンドロールの BGM フェード、動画音声、apple-safari は変更しない。
+- **問題**: BGM のフェードインがプレビューでは無音から立ち上がるのに、書き出した動画では冒頭から音が聞こえた（実例: 音量 160%・フェードイン 1 秒）。
+- **原因**（渡し漏れではない）:
+  - 書き出しは `linearRampToValueAtTime` の**正確な直線**。0.1 秒時点で設定音量の 10%（160% なら 16%）鳴り、耳には「すぐ鳴る」。実ファイルの先頭 0.3 秒は RMS ∝ 時間で、直線フェードが掛かっていることを確認済み。
+  - プレビューは毎フレーム直線の目標値を計算し、`setTargetAtTime(目標, now, 0.1)` で GainNode に渡す。実際の音量は時定数 0.1 秒の一次遅れで追従し、立ち上がりの最初が大きく抑えられる（1 秒フェード: 0.05 秒で直線比 約−13dB、0.1 秒で約−9dB）。
+- **対策**:
+  - `PREVIEW_AUDIO_CLIP_GAIN_SMOOTHING_SEC = 0.1` を `audioFadeCurve.ts` に置き、プレビューの BGM／ナレーションクリップの `setTargetAtTime` もこの定数を使う（値は不変）。
+  - `buildSmoothedFadeInCurve(volume, duration)`: 直線入力に対する一次遅れ応答 `t - τ(1 - e^{-t/τ})` を、終端でちょうど `volume` になるよう正規化した 5ms 刻みのカーブ（最大 4001 点）。書き出しは `setValueCurveAtTime` で載せる。
+  - `setValueCurveAtTime` は区間内（半開区間 `[start, start+duration)`）に他のイベントがあると例外になる。開始 0 秒のときは `setValueAtTime(0, 0)` を置かない。エンドロールの BGM フェード開始がフェードイン区間に食い込むときは従来の直線にする。それでも例外が出たら `cancelScheduledValues(0)` して直線で組み直す。
+- **注意**:
+  - プレビューの時定数を変えるときは、書き出しのカーブも同じ定数で変わる。片方だけ直書きに戻さない。
+  - カーブは区間内で設定音量に収束させるため、終盤はプレビュー（終端時点で約 90%）よりわずかに大きい。区間外へ収束を伸ばすと後続のフェードアウト・エンドロールのイベントと重なって例外になる。
+  - 実機の Chrome で、開始 0 秒・途中開始・フェードアウトがフェードイン終端と同時刻、の 3 パターンとも例外なく、0.05/0.1/0.2 秒で 0.019/0.065/0.202（音量 1.6）とプレビュー（0.012/0.050/0.170）に近いことを確認した。
+  - 同時に見つけた別件（`<video>` 抽出の先頭無音で動画音声が遅れる）は 13-277 で standard のみ修正した。
+- **回帰ガード**: `audioFadeCurve.test.ts`（0 始まり・終端で設定音量・単調増加・立ち上がりが直線より小さい・プレビューの一次遅れに近い・τ=0 で直線・点数上限・不正値は null）。
+
+### 13-277. `<video>` リアルタイム抽出の先頭無音を再生位置から推定して切る（standard）
+
+- **ファイル**: `src/utils/exportAudioExtract.ts`, `src/flavors/standard/export/exportEngine.ts`（`extractAudioViaVideoElement`）, `src/test/exportAudioExtract.test.ts`
+- **対象 flavor**: **standard の export のみ**。動画音声の `decodeAudioData` が失敗したとき（＋13-244 の区間抽出）に通る経路。成功経路の `decodeAudioData` + trimStart オフセット、スロー／倍速のキャプチャ（13-237 / 13-238）、apple-safari は変更しない。
+- **問題**: ScriptProcessor を `createMediaElementSource` に接続した時点から録音するため、`loadedmetadata` → シーク → `play()` が完了するまでの無音がバッファ先頭に入る。13-244 の区間抽出はオフセット 0 で載せるため、その分（実測 60〜70ms、読み込み・シークが遅い環境ほど大きい）だけ動画音声が映像より遅れていた。停止条件も先頭の無音込みの秒数で判定していたため、末尾が同じだけ欠けていた。
+- **対策**:
+  - 再生中（`!paused && !seeking && currentTime > startSec`）の `onaudioprocess` で、「録音済み秒数」と「`video.currentTime`」の組を最大 12 回記録する。
+  - `estimateCapturePrerollSec()`: 「録音秒数 −（再生位置 − 抽出開始位置）」の中央値を先頭無音とする。観測なし・非有限・5 秒超は null で補正しない。
+  - `resolveCapturePrerollAlignment()`: 正なら先頭をその分捨てる。負（再生位置が開始より後ろから始まった）なら最大 0.5 秒の無音を足す。
+  - 停止条件は「録音秒数 − 推定した先頭無音 ≥ 必要尺」にして、末尾を欠けさせない。
+- **採用しないもの**: 音の大きさで先頭の無音を切る方式（素材が無音で始まると削りすぎる。13-237 / 13-238 の「エネルギー無音切り禁止」と同じ理由）。
+- **注意**:
+  - apple-safari の `extractAudioViaVideoElement` も同じ構造（接続時点から録音）だが、iOS ではこの経路が主経路で実機未検証のため変更していない。iOS に同症状の報告があれば、実機で遅れを測ってから同じ補正を検討する。
+  - 推定精度は `video.currentTime` と ScriptProcessor ブロック（4096 サンプル）の粒度に依存するため、12 回の中央値で外れ値を抑えている。
+  - 実機の Chrome で、ユーザー提供の動画（開始 1.0 秒・2.5 秒抽出）を `decodeAudioData` の結果と 10ms エンベロープの相互相関で照合した。修正前は 60〜70ms 遅れ、修正後は 0ms（一致度 0.97〜0.98）を 3 回とも確認した。
+- **回帰ガード**: `exportAudioExtract.test.ts`（中央値で外れ値を抑える・開始 0 秒・観測なし／非有限／極端値は null・捨てる量の上限・負のときの無音追加と上限・推定なしは不変）。

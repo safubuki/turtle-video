@@ -46,10 +46,15 @@ import {
   normalizeVideoPlaybackSpeed,
 } from '../../../utils/playbackSpeed';
 import {
+  CAPTURE_PREROLL_OBSERVATION_LIMIT,
+  estimateCapturePrerollSec,
+  resolveCapturePrerollAlignment,
   resolveExportAudioBufferOffsetSec,
   resolveExportClipAudioExtractRange,
+  type CapturePrerollObservation,
 } from '../../../utils/exportAudioExtract';
 import { resolveMediaPlaybackVolume } from '../../../utils/mediaVolume';
+import { buildSmoothedFadeInCurve } from '../../../utils/audioFadeCurve';
 import { capturePitchPreservedSpeedAudio } from '../../../utils/audioPitchPreservedCapture';
 import {
   extractAndTimeCompressAudioBuffer,
@@ -271,6 +276,9 @@ async function extractAudioViaVideoElement(
     const collectedL: Float32Array[] = [];
     const collectedR: Float32Array[] = [];
     let totalFrames = 0;
+    // 録音は再生開始前（読み込み・シーク中）から始まるため、録音秒数と再生位置の対応を記録し、
+    // 構築時に先頭の無音だけを切る（estimateCapturePrerollSec）。
+    const prerollObservations: CapturePrerollObservation[] = [];
 
     const cleanup = () => {
       if (processor) {
@@ -333,14 +341,34 @@ async function extractAudioViaVideoElement(
       }
 
       try {
-        const audioBuffer = mainCtx.createBuffer(2, totalFrames, mainCtx.sampleRate);
-        let offset = 0;
+        const prerollSec = estimateCapturePrerollSec(prerollObservations, startSec);
+        const { dropFrames, padFrames } = resolveCapturePrerollAlignment(
+          prerollSec,
+          mainCtx.sampleRate,
+          totalFrames,
+        );
+        const outputFrames = totalFrames - dropFrames + padFrames;
+        if (outputFrames <= 0) {
+          log.warn('RENDER', '[EXTRACT] 先頭無音を除くと音声が残りません', toDetails({ totalFrames, dropFrames }));
+          safeResolve(null);
+          return;
+        }
+        const audioBuffer = mainCtx.createBuffer(2, outputFrames, mainCtx.sampleRate);
         const ch0Data = audioBuffer.getChannelData(0);
         const ch1Data = audioBuffer.getChannelData(1);
+        // 先頭 dropFrames を読み飛ばし、padFrames ぶん後ろへずらして書く。
+        let readPos = 0;
+        let writePos = padFrames;
         for (let i = 0; i < collectedL.length; i++) {
-          ch0Data.set(collectedL[i], offset);
-          ch1Data.set(collectedR[i], offset);
-          offset += collectedL[i].length;
+          const chunkL = collectedL[i];
+          const chunkR = collectedR[i];
+          const skip = Math.max(0, Math.min(chunkL.length, dropFrames - readPos));
+          if (skip < chunkL.length) {
+            ch0Data.set(chunkL.subarray(skip), writePos);
+            ch1Data.set(chunkR.subarray(skip), writePos);
+            writePos += chunkL.length - skip;
+          }
+          readPos += chunkL.length;
         }
 
         // 振幅チェック
@@ -357,7 +385,10 @@ async function extractAudioViaVideoElement(
           '[EXTRACT] 音声抽出完了',
           toDetails({
             totalFrames,
-            durationSec: Math.round((totalFrames / mainCtx.sampleRate) * 100) / 100,
+            outputFrames,
+            prerollMs: prerollSec === null ? null : Math.round(prerollSec * 1000),
+            prerollObservations: prerollObservations.length,
+            durationSec: Math.round((outputFrames / mainCtx.sampleRate) * 100) / 100,
             maxAmplitude: Math.round(maxAmp * 10000) / 10000,
             nonZeroSamples: nonZero,
             chunks: collectedL.length,
@@ -426,7 +457,24 @@ async function extractAudioViaVideoElement(
           for (let i = 0; i < out.length; i++) out[i] = 1e-10;
         }
 
-        if (totalFrames / mainCtx.sampleRate >= captureDurationSec) {
+        if (
+          prerollObservations.length < CAPTURE_PREROLL_OBSERVATION_LIMIT
+          && !video.paused
+          && !video.seeking
+          && video.currentTime > startSec
+        ) {
+          prerollObservations.push({
+            capturedSec: totalFrames / mainCtx.sampleRate,
+            mediaTimeSec: video.currentTime,
+          });
+        }
+
+        // 先頭の無音ぶんを除いて必要尺に達したら止める（含めたままだと末尾が欠ける）。
+        const capturedPrerollSec = Math.max(
+          0,
+          estimateCapturePrerollSec(prerollObservations, startSec) ?? 0,
+        );
+        if (totalFrames / mainCtx.sampleRate - capturedPrerollSec >= captureDurationSec) {
           video.pause();
           setTimeout(() => buildAndResolve(), 50);
         }
@@ -1058,17 +1106,47 @@ async function offlineRenderAudio(
     if (clipFadeInDur > 0 || clipFadeOutDur > 0) {
       // クリップ範囲基準のフェードエンベロープ（BGM クリップ用の任意フィールド）
       const clipEnd = clipStart + playDuration;
-      gain.gain.setValueAtTime(0, 0);
-      if (clipFadeInDur > 0) {
-        gain.gain.setValueAtTime(0, clipStart);
-        gain.gain.linearRampToValueAtTime(clipVol, clipStart + clipFadeInDur);
-      } else {
-        gain.gain.setValueAtTime(clipVol, clipStart);
-      }
-      if (clipFadeOutDur > 0) {
-        const fadeOutStart = Math.max(clipStart + clipFadeInDur, clipEnd - clipFadeOutDur);
-        gain.gain.setValueAtTime(clipVol, fadeOutStart);
-        gain.gain.linearRampToValueAtTime(0, clipEnd);
+      // フェードインはプレビューの GainNode 追従（一次遅れ）と同じ形にする。直線のままだと
+      // 0.1 秒時点で 16% 鳴り「冒頭から音が出る」ように聞こえる（audioFadeCurve.ts）。
+      // setValueCurveAtTime は区間内に他のイベントがあると例外になるため、
+      // エンドロールのフェードが区間に食い込むときは従来の直線にする。
+      const fadeInCurve = clipFadeInDur > 0
+        && !(
+          endrollBgmFadeStart !== null
+          && isBgmClipId(clip.id)
+          && endrollBgmFadeStart < clipStart + clipFadeInDur
+        )
+        ? buildSmoothedFadeInCurve(clipVol, clipFadeInDur)
+        : null;
+      const applyClipFadeEnvelope = (smoothedFadeIn: Float32Array | null) => {
+        if (!smoothedFadeIn || clipStart > 0) {
+          gain.gain.setValueAtTime(0, 0);
+        }
+        if (clipFadeInDur > 0) {
+          if (smoothedFadeIn) {
+            gain.gain.setValueCurveAtTime(smoothedFadeIn, clipStart, clipFadeInDur);
+          } else {
+            gain.gain.setValueAtTime(0, clipStart);
+            gain.gain.linearRampToValueAtTime(clipVol, clipStart + clipFadeInDur);
+          }
+        } else {
+          gain.gain.setValueAtTime(clipVol, clipStart);
+        }
+        if (clipFadeOutDur > 0) {
+          const fadeOutStart = Math.max(clipStart + clipFadeInDur, clipEnd - clipFadeOutDur);
+          gain.gain.setValueAtTime(clipVol, fadeOutStart);
+          gain.gain.linearRampToValueAtTime(0, clipEnd);
+        }
+      };
+      try {
+        applyClipFadeEnvelope(fadeInCurve);
+      } catch (e) {
+        log.warn('RENDER', 'BGMフェードインのカーブ設定に失敗。直線フェードで書き出します', {
+          clipId: clip.id,
+          error: e instanceof Error ? e.message : String(e),
+        });
+        gain.gain.cancelScheduledValues(0);
+        applyClipFadeEnvelope(null);
       }
     } else {
       gain.gain.setValueAtTime(clipVol, clipStart);

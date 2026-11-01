@@ -54,6 +54,7 @@ import {
   resolveBgmEndrollFadeGain,
 } from '../../../utils/endrollOverlay';
 import { shouldPublishPreviewUiTime } from '../../../utils/previewUiTime';
+import { PREVIEW_AUDIO_CLIP_GAIN_SMOOTHING_SEC } from '../../../utils/audioFadeCurve';
 import {
   applyVideoElementCatchUpPlaybackRate,
   applyVideoElementPlaybackRate,
@@ -3988,7 +3989,12 @@ export function usePreviewEngine({
             if (gainNode && audioCtxRef.current) {
               const currentGain = gainNode.gain.value;
               if (Math.abs(currentGain - effectiveGain) > 0.01) {
-                gainNode.gain.setTargetAtTime(effectiveGain, audioCtxRef.current.currentTime, 0.1);
+                // 書き出しのフェードインもこの追従の形に合わせる（audioFadeCurve.ts）。
+                gainNode.gain.setTargetAtTime(
+                  effectiveGain,
+                  audioCtxRef.current.currentTime,
+                  PREVIEW_AUDIO_CLIP_GAIN_SMOOTHING_SEC,
+                );
               }
             } else if (outputMode !== 'native') {
               // WebAudio ノードが作れない環境（AudioContext 再生成後の
