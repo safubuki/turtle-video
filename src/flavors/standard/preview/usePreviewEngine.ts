@@ -3228,7 +3228,21 @@ export function usePreviewEngine({
               const peerIsVideo = conf.type === 'video';
               const peerVideoEl = element as HTMLVideoElement;
               const peerImageEl = element as HTMLImageElement;
-              if (peerIsVideo && isActivePlaying && peerVideoEl.paused && !peerVideoEl.seeking && peerVideoEl.readyState >= 2) {
+              // export の境界待機（13-187 / 13-188）中はタイムラインが止まるので、前クリップも止める。
+              // 再生し続けると待った時間だけ前クリップが先へ進み、ディゾルブの始まりで飛んで見える。
+              // 待機が解けたら下の play() で再開する（backpressure と同じ「時計と映像を一緒に止める」方針）。
+              const isExportBoundaryStalled = _isExporting && exportVideoBoundaryStallRef.current !== null;
+              if (peerIsVideo && isExportBoundaryStalled && !peerVideoEl.paused) {
+                peerVideoEl.pause();
+              }
+              if (
+                peerIsVideo
+                && isActivePlaying
+                && !isExportBoundaryStalled
+                && peerVideoEl.paused
+                && !peerVideoEl.seeking
+                && peerVideoEl.readyState >= 2
+              ) {
                 peerVideoEl.play().catch(() => { /* ignore */ });
               }
               if (peerIsVideo && !isActivePlaying) {
@@ -5294,6 +5308,21 @@ export function usePreviewEngine({
                   anchorSeekApplied = true;
                 } catch {
                   /* ignore */
+                }
+              }
+              // ディゾルブで重なる前クリップは peer として再生が続いているため、待機の開始と同時に止める。
+              // カット境界（重なりなし）の前クリップは対象外（従来どおり inactive 側の処理に任せる）。
+              if (
+                previousItem?.type === 'video'
+                && getClipOverlapToNext(previousItem, activeItem) > 0
+              ) {
+                const previousVideoElement = mediaElementsRef.current[previousItem.id] as HTMLVideoElement | undefined;
+                if (previousVideoElement && !previousVideoElement.paused) {
+                  try {
+                    previousVideoElement.pause();
+                  } catch {
+                    /* ignore */
+                  }
                 }
               }
               exportVideoBoundaryStallRef.current = {

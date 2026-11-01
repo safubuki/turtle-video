@@ -744,6 +744,93 @@ describe('standard preview engine', () => {
       message === 'standard.export.timeline.videoBoundaryResumed')).toBe(true);
   });
 
+  it('ディゾルブの export 境界待機中は重なる前クリップも止め、待機解除後に再開する', async () => {
+    const video1 = createVideoItem({
+      id: 'video-1',
+      duration: 5,
+      originalDuration: 5,
+      trimStart: 0,
+      trimEnd: 5,
+      transitionToNext: { type: 'dissolve', duration: 1 },
+    });
+    const video2 = createVideoItem({
+      id: 'video-2',
+      duration: 5,
+      originalDuration: 5,
+      trimStart: 0,
+      trimEnd: 5,
+    });
+    const el1 = createMockVideoElement();
+    const el2 = createMockVideoElement();
+    // ディゾルブの重なりは 4.0 秒から。直前の frame 119 から書き出す。
+    const fromTime = 119 / 30;
+    el1.readyState = 4;
+    el1.seeking = false;
+    el1.currentTime = fromTime;
+    el2.readyState = 1;
+    el2.seeking = false;
+    el2.currentTime = 0;
+    const canvas = {
+      getContext: vi.fn(() => createMockCanvasContext()),
+    } as unknown as HTMLCanvasElement;
+    let nowMs = 0;
+    vi.spyOn(playbackClock, 'getStandardPreviewNow').mockImplementation(() => nowMs);
+    const {
+      hook,
+      loopIdRef,
+      currentTimeRef,
+      startWebCodecsExport,
+      logInfo,
+    } = setupPreviewEngineHarness({
+      mediaItems: [video1, video2],
+      mediaElements: {
+        [video1.id]: el1 as unknown as HTMLVideoElement,
+        [video2.id]: el2 as unknown as HTMLVideoElement,
+      },
+      totalDuration: 9,
+      canvas,
+      enableWebCodecsExport: true,
+    });
+
+    const startPromise = hook.result.current.startEngine(fromTime, true);
+    await vi.advanceTimersByTimeAsync(350);
+    await startPromise;
+    const audioSources = startWebCodecsExport.mock.calls[0]?.[4];
+    expect(audioSources).toBeDefined();
+    audioSources.onAudioPreRenderComplete?.();
+    el1.paused = false;
+
+    // 重なり区間（4.0 秒〜）に入ったが次動画は readyState=1。境界待機が始まり、前クリップも止める。
+    // （frame 120 の CFR timestamp は 3.99996 秒で前クリップ側なので、frame 121 まで進める）
+    nowMs = 75;
+    hook.result.current.loop(true, loopIdRef.current);
+    expect(logInfo.mock.calls.some(([, message]) =>
+      message === 'standard.export.timeline.videoBoundaryPaused')).toBe(true);
+    expect(el1.paused).toBe(true);
+    const anchorTimeSec = currentTimeRef.current;
+
+    // 待機中は時計も前クリップも進めない（前クリップへ play() を出さない）。
+    el1.play.mockClear();
+    nowMs = 1040;
+    hook.result.current.loop(true, loopIdRef.current);
+    expect(currentTimeRef.current).toBeCloseTo(anchorTimeSec, 6);
+    expect(el1.play).not.toHaveBeenCalled();
+    expect(el1.paused).toBe(true);
+
+    // 次動画が再生可能になったら待機を解き、前クリップも再開する。
+    el2.readyState = 3;
+    el2.paused = false;
+    el2.currentTime = 0;
+    nowMs = 2040;
+    hook.result.current.loop(true, loopIdRef.current);
+    expect(logInfo.mock.calls.some(([, message]) =>
+      message === 'standard.export.timeline.videoBoundaryResumed')).toBe(true);
+    nowMs = 2074;
+    hook.result.current.loop(true, loopIdRef.current);
+    expect(el1.play).toHaveBeenCalled();
+    expect(el1.paused).toBe(false);
+  });
+
   it('video から始まる export は future data を得るまで開始時計を進めない', async () => {
     const video = createVideoItem({
       id: 'video-start',
