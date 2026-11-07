@@ -5130,3 +5130,16 @@ export 終了（成功/失敗/中断）
 - **計算**: 波形と同じ配置（音量込み・8kHz モノラル合成）で、上限付近（0.98）の区間ごとに、**その回の合成に使った倍率を基準に** `0.97 / 区間ピーク` を掛けた値を候補とし、素材ごとに最小を採る。**区間ごとに掛け合わせない**（初版はここで倍率を累積させ、音割れ箇所が多いほど下がりすぎた: 300%→92%）。合成し直して残りがあれば最大 4 回繰り返す。合成は線形なので一律倍率で確実に下がり、バランスも保てる。
 - **適用**: 個別音量を 1% 単位で切り捨てて設定（動画 `updateVolume` / BGM `updateBgmClipVolume` / ナレーション `updateNarrationVolume`。一括音量は個別編集と同じく OFF になる）。ロック中（クリップ個別・セクション）の素材は変えない。結果はトーストで「動画1 300%→114%」のように表示し、ログにも残す。
 - **検証**: 実アプリで kling 動画（180% まで注意なし・182% から注意）を 300% / 240% / 182% から押すと、いずれも 179% で止まり注意が消える。
+
+### 13-293. 並べて比較の「長さ: 短い方に合わせる」（オンで長い方を詰め、オフで戻す）
+
+- **ファイル**: `src/types/index.ts`（`SplitCompareSettings.matchDuration` / `matchDurationRestore`）, `src/utils/splitCompare.ts`（`resolveSplitCompareMatchDuration` / 正規化）, `src/components/sections/ClipsSection.tsx`（`handleChangeSplitCompare` / `applyMatchDuration` / `revertMatchDuration` / `handleRealignSplitCompareDuration`、コネクタの「長さ」行）, `src/hooks/useAutoSave.ts`, `src/utils/projectDiagnostics.ts`, 関連テスト
+- **仕様**: 比較パネルに「長さ: [そろえない] [短い方に合わせる]」（既定はそろえない）。オンで長い方を短い方のタイムライン長へ詰める（動画は `updateVideoTrim(end)`、倍速はソース尺へ換算／画像は `updateImageDuration`）。既存のトリミング経路を通すので preview / export / カード表示がそのまま一致する。
+- **戻し**: 詰める前の値（original）と入れた値（applied）を `matchDurationRestore` に保存（プロジェクト保存にも残る）。オフ・比較オフで、まだ applied のままなら original へ戻す。オンの後に手で長さを変えていたら戻さない。オン前に手でトリミングしていた値が original なので、そこへ戻る。オンのまま押し直すとそろえ直し（original は最初の値を引き継ぐ）。詰める側が別カードに変わったら前回分を先に戻す。
+- **注意**: ロック中のカードは変えずトーストで知らせる。パネルに「上 X秒・下 Y秒」を表示し、オンのまま長さがずれたら注意文を出す。自動保存ハッシュと設定レポートに `matchDuration` を含める。
+
+### 13-294. 「並べて比較」の表示名を「2画面表示」へ変更し、パネルの小さな注意書きを整理
+
+- **ファイル**: `src/components/sections/ClipsSection.tsx`, `src/components/sections/PreviewSection.tsx`, `src/constants/sectionHelp.ts`, `src/test/splitCompareConnector.ui.test.tsx`
+- **名前**: 比べる用途に限らず「2 つを並べたいだけ」の場面もあるため、画面上の表記を「2画面表示」に統一（コネクタの水色側「2画面表示 左右・まっすぐ」、パネル見出し「2画面: オン/オフ」、設定不可の理由、ディゾルブ不可の説明、シークバー区間のラベル、ヘルプ）。**内部名（`splitCompare*` / `splitCompareToNext`）と保存形式は変えない**（旧プロジェクト互換）。13-282〜293 の「並べて比較」はこの機能のこと。
+- **注意書き**: パネル下の 9px の「※」説明 4 行は削除（プレビューを見れば分かる内容・詳細はヘルプ）。操作に使う「上 X秒・下 Y秒」と「長さがずれています」、設定不可の理由は 10px / md:12px の読める大きさで残す。

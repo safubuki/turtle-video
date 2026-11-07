@@ -866,8 +866,8 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
                   key={segment.key}
                   data-testid="preview-split-compare-segment"
                   role="img"
-                  aria-label="並べて比較（同時再生）の区間"
-                  title="並べて比較（同時再生）の区間"
+                  aria-label="2画面表示（同時再生）の区間"
+                  title="2画面表示（同時再生）の区間"
                   style={{
                     position: 'absolute',
                     left: `${(segment.start / totalDuration) * 100}%`,

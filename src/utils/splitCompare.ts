@@ -19,8 +19,10 @@
  * タイムライン計算は `transitionTimeline.ts` が、描画は standard エンジンの renderFrame が行う
  * （プレビューと書き出しで同じ描画 = WYSIWYG）。
  */
+import { normalizeVideoPlaybackSpeed } from './playbackSpeed';
 import type {
   MediaItem,
+  SplitCompareMatchDurationRestore,
   SplitCompareDivider,
   SplitCompareFit,
   SplitCompareLayout,
@@ -100,11 +102,67 @@ function pick<T extends string>(value: unknown, allowed: readonly T[], fallback:
 export function normalizeSplitCompareSettings(raw: unknown): SplitCompareSettings | null {
   if (!raw || typeof raw !== 'object') return null;
   const value = raw as Partial<Record<keyof SplitCompareSettings, unknown>>;
-  return {
+  const normalized: SplitCompareSettings = {
     layout: pick(value.layout, LAYOUTS, SPLIT_COMPARE_DEFAULT_SETTINGS.layout),
     divider: pick(value.divider, DIVIDERS, SPLIT_COMPARE_DEFAULT_SETTINGS.divider),
     fit: pick(value.fit, FITS, SPLIT_COMPARE_DEFAULT_SETTINGS.fit),
     lineColor: pick(value.lineColor, LINE_COLORS, SPLIT_COMPARE_DEFAULT_SETTINGS.lineColor),
+  };
+  if (value.matchDuration === true) {
+    normalized.matchDuration = true;
+    normalized.matchDurationRestore = normalizeMatchDurationRestore(value.matchDurationRestore);
+  }
+  return normalized;
+}
+
+function normalizeMatchDurationRestore(raw: unknown): SplitCompareMatchDurationRestore | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const value = raw as Partial<Record<keyof SplitCompareMatchDurationRestore, unknown>>;
+  if (typeof value.itemId !== 'string' || !value.itemId) return null;
+  if (value.field !== 'trimEnd' && value.field !== 'duration') return null;
+  if (!Number.isFinite(value.original) || !Number.isFinite(value.applied)) return null;
+  return {
+    itemId: value.itemId,
+    field: value.field,
+    original: value.original as number,
+    applied: value.applied as number,
+  };
+}
+
+/** 長さをそろえたとみなす差（秒） */
+const MATCH_DURATION_TOLERANCE_SEC = 0.05;
+
+type MatchDurationItem = Pick<MediaItem, 'id' | 'type' | 'duration' | 'trimStart' | 'trimEnd'>
+  & Partial<Pick<MediaItem, 'playbackSpeed'>>;
+
+/** 2 枚の長さ（タイムライン秒）がそろっているか */
+export function areSplitCompareDurationsMatched(head: MatchDurationItem, partner: MatchDurationItem): boolean {
+  return Math.abs((head.duration || 0) - (partner.duration || 0)) <= MATCH_DURATION_TOLERANCE_SEC;
+}
+
+/**
+ * 「長さを短い方に合わせる」で、長い方のカードへ入れる値を求める。そろっていれば null。
+ * 動画は終了位置（trimEnd）を詰め、画像は表示時間を短い方と同じにする。
+ * 再生速度が 1 以外の動画は、タイムライン上の長さがそろうようにソース尺を換算する。
+ */
+export function resolveSplitCompareMatchDuration(
+  head: MatchDurationItem,
+  partner: MatchDurationItem,
+): { itemId: string; field: 'trimEnd' | 'duration'; current: number; next: number } | null {
+  if (areSplitCompareDurationsMatched(head, partner)) return null;
+  const longer = (head.duration || 0) > (partner.duration || 0) ? head : partner;
+  const shorter = longer === head ? partner : head;
+  const target = Math.max(0, shorter.duration || 0);
+  if (!(target > 0)) return null;
+  if (longer.type === 'image') {
+    return { itemId: longer.id, field: 'duration', current: longer.duration, next: target };
+  }
+  const speed = normalizeVideoPlaybackSpeed(longer.playbackSpeed);
+  return {
+    itemId: longer.id,
+    field: 'trimEnd',
+    current: longer.trimEnd,
+    next: Number((longer.trimStart + target * speed).toFixed(3)),
   };
 }
 

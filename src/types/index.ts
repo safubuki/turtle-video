@@ -91,11 +91,27 @@ export type SplitCompareDivider = 'straight' | 'diagonal';
 /** 領域への収め方。cover = 枠を埋める（はみ出しはカット）/ contain = 全体を表示 */
 export type SplitCompareFit = 'cover' | 'contain';
 export type SplitCompareLineColor = 'white' | 'black' | 'none';
+/** 「長さを短い方に合わせる」で自動変更した値と、戻すための元の値 */
+export interface SplitCompareMatchDurationRestore {
+  /** 長さを詰めたカード */
+  itemId: string;
+  /** 動画は trimEnd（元動画上の秒）、画像は duration（表示秒） */
+  field: 'trimEnd' | 'duration';
+  /** そろえる前の値（オフで戻す先） */
+  original: number;
+  /** 自動で入れた値。これのままならオフで戻す（ユーザーが触っていたら戻さない） */
+  applied: number;
+}
+
 export interface SplitCompareSettings {
   layout: SplitCompareLayout;
   divider: SplitCompareDivider;
   fit: SplitCompareFit;
   lineColor: SplitCompareLineColor;
+  /** 2 枚の長さを短い方に合わせる（長い方の終わりを詰める）。未定義は false */
+  matchDuration?: boolean;
+  /** matchDuration で詰めた内容（オフで戻すため）。詰めていなければ null */
+  matchDurationRestore?: SplitCompareMatchDurationRestore | null;
 }
 
 /** 動画カードの再生速度（0.5〜8.0・0.1刻み。旧データは 1/2/4/8） */

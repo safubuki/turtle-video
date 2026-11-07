@@ -26,6 +26,7 @@ import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import { getAppFlavorUiCapabilities } from '../../app/appFlavorUi';
 import { useMediaStore } from '../../stores/mediaStore';
 import { useCanvasStore } from '../../stores/canvasStore';
+import { useUIStore } from '../../stores/uiStore';
 import type { AspectRatio } from '../../stores/canvasStore';
 import { resolveMediaScaleFactor, type MediaTransformResetKind, type MediaZoomEndpointPreview } from '../../utils/mediaZoom';
 import {
@@ -40,6 +41,7 @@ import {
   getSplitComparePairForIndex,
   isSplitCompareDiagonalOffsetWanted,
   resolveSplitCompareAutoOffsetPatch,
+  resolveSplitCompareMatchDuration,
   resolveSplitCompareDisplayLayout,
   resolveSplitCompareRoles,
   SPLIT_COMPARE_DIVIDER_OPTIONS,
@@ -57,6 +59,11 @@ import {
   toggleClipCard,
   type ClipCardDisclosureState,
 } from '../../utils/clipCardDisclosure';
+
+const SPLIT_COMPARE_MATCH_DURATION_OPTIONS: { value: 'keep' | 'match'; label: string }[] = [
+  { value: 'keep', label: 'そろえない' },
+  { value: 'match', label: '短い方に合わせる' },
+];
 
 /** 並べて比較の設定ボタン 1 行（ラベル + 選択肢） */
 function SplitCompareOptionRow<T extends string>({
@@ -110,6 +117,10 @@ const ClipTransitionConnector: React.FC<{
   isAdjacentToSplitCompare: boolean;
   /** 動画の向き。比較を ON にしたときの初期の並べ方（横=左右 / 縦=上下）に使う */
   aspectRatio: AspectRatio;
+  /** 比較ペアの長さ（上のカード, 下のカード）。比較中だけ渡す */
+  pairDurations: [number, number] | null;
+  /** 長さそろえがオンのまま長さがずれたとき、そろえ直す */
+  onRealignSplitCompareDuration: () => void;
   disabled: boolean;
   /** 「すべて閉じる」のたびに増える。開いている設定パネルを畳む */
   closeSignal: number;
@@ -122,6 +133,8 @@ const ClipTransitionConnector: React.FC<{
   splitCompareBlockedReason,
   isAdjacentToSplitCompare,
   aspectRatio,
+  pairDurations,
+  onRealignSplitCompareDuration,
   disabled,
   closeSignal,
   onBeforeEdit,
@@ -169,8 +182,8 @@ const ClipTransitionConnector: React.FC<{
     ? `${getClipTransitionLabel(transition.type)} ${transition.duration}秒`
     : 'トランジション';
   const compareLabel = splitCompare
-    ? `並べて比較 ${describeSplitCompareSettings(splitCompare, aspectRatio)}`
-    : '並べて比較';
+    ? `2画面表示 ${describeSplitCompareSettings(splitCompare, aspectRatio)}`
+    : '2画面表示';
 
   return (
     <div className="flex flex-col items-center py-0.5">
@@ -245,7 +258,7 @@ const ClipTransitionConnector: React.FC<{
           }}
           title={isCompareBlocked
             ? splitCompareBlockedReason ?? undefined
-            : '上下のカードを同時に再生し、画面を分けて並べて比較'}
+            : '上下のカードを同時に再生し、画面を2つに分けて並べます'}
           aria-label={compareLabel}
           aria-expanded={open && isCompare}
           aria-pressed={isCompare}
@@ -257,15 +270,15 @@ const ClipTransitionConnector: React.FC<{
       {open && (
         <div className={`w-full mt-1.5 mb-0.5 p-2 bg-gray-800/80 border rounded-lg space-y-1.5 text-[10px] ${isCompare ? 'border-cyan-500/30' : 'border-purple-500/30'}`}>
           {!isCompare && splitCompareBlockedReason && (
-            <div className="text-[9px] text-gray-500">※ 並べて比較: {splitCompareBlockedReason}</div>
+            <div className="text-[10px] md:text-xs text-gray-400">2画面表示: {splitCompareBlockedReason}</div>
           )}
           {splitCompare ? (
             <>
               {/* 比較のオン/オフ。オフにすると順番に再生へ戻り（以前のトランジションも復元）、設定を閉じる */}
-              <div className="flex items-center gap-1" role="group" aria-label="並べて比較のオン・オフ">
+              <div className="flex items-center gap-1" role="group" aria-label="2画面表示のオン・オフ">
                 <span className="text-cyan-300 shrink-0 w-12 font-semibold flex items-center gap-0.5">
                   <Columns2 className="w-3 h-3" />
-                  比較:
+                  2画面:
                 </span>
                 <button
                   type="button"
@@ -283,7 +296,7 @@ const ClipTransitionConnector: React.FC<{
                   }}
                   disabled={disabled}
                   aria-pressed={false}
-                  title="並べて比較をやめて、順番に再生に戻します"
+                  title="2画面表示をやめて、順番に再生に戻します"
                   className="flex-1 py-1 rounded transition bg-gray-700 text-gray-300 hover:bg-gray-600 disabled:opacity-40"
                 >
                   オフ
@@ -317,11 +330,30 @@ const ClipTransitionConnector: React.FC<{
                 disabled={disabled}
                 onSelect={(fit) => updateSplitCompare({ fit })}
               />
-              <div className="text-[9px] text-gray-500 space-y-0.5">
-                <div>※ 上のカードが左（上下なら上）、下のカードが右（下）に並びます。最初は横動画なら左右、縦動画なら上下になります。</div>
-                <div>※ 2枚は同時に始まり、長いほうに合わせて次のカードへ進みます（短いほうは最後のコマで止まります）。</div>
-                <div>※ 位置・拡大はそれぞれのカードの設定がそのまま使えます。</div>
-              </div>
+              <SplitCompareOptionRow
+                label="長さ"
+                options={SPLIT_COMPARE_MATCH_DURATION_OPTIONS}
+                value={splitCompare.matchDuration ? 'match' : 'keep'}
+                disabled={disabled}
+                onSelect={(choice) => {
+                  if (choice === 'match' && splitCompare.matchDuration) {
+                    // オンのまま押し直したら、ずれた長さをそろえ直す
+                    onBeforeEdit();
+                    onRealignSplitCompareDuration();
+                    return;
+                  }
+                  updateSplitCompare({ matchDuration: choice === 'match' });
+                }}
+              />
+              {/* 長さ（操作に使う情報なので、ほかの行と同じ読める大きさで出す） */}
+              {pairDurations && (
+                <div className="pl-[3.25rem] text-[10px] md:text-xs text-gray-400">
+                  上 {pairDurations[0].toFixed(1)}秒 ・ 下 {pairDurations[1].toFixed(1)}秒
+                  {splitCompare.matchDuration
+                    && Math.abs(pairDurations[0] - pairDurations[1]) > 0.05
+                    && <span className="block text-amber-300">長さがずれています。「短い方に合わせる」を押すとそろえ直します。</span>}
+                </div>
+              )}
             </>
           ) : (
           <>
@@ -352,7 +384,7 @@ const ClipTransitionConnector: React.FC<{
                 }}
                 disabled={disabled || (opt.value === 'dissolve' && isAdjacentToSplitCompare && transition?.type !== 'dissolve')}
                 title={opt.value === 'dissolve' && isAdjacentToSplitCompare
-                  ? '並べて比較の前後では使えません（3本を同時に流すことになるため）'
+                  ? '2画面表示の前後では使えません（3本を同時に流すことになるため）'
                   : undefined}
                 className={`flex-1 py-1 rounded transition flex items-center justify-center gap-0.5 ${transition?.type === opt.value
                   ? 'bg-purple-500 text-gray-900 font-semibold'
@@ -391,7 +423,7 @@ const ClipTransitionConnector: React.FC<{
           </div>
           <div className="text-[9px] text-gray-500">
             {isAdjacentToSplitCompare
-              ? '※ 並べて比較の前後では、ディゾルブは使えません（2本の並びと次の動画の計3本を同時に流すことになるため、カットでつながります）。フェードは使えます'
+              ? '※ 2画面表示の前後では、ディゾルブは使えません（2本の並びと次の動画の計3本を同時に流すことになるため、カットでつながります）。フェードは使えます'
               : transition?.type === 'dissolve'
                 ? '※ ディゾルブは前の動画が流れたまま次が重なって始まります（重なりぶん動画全体が短くなります）'
                 : '※ フェードは動画全体の長さを変えません'}
@@ -534,6 +566,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   // 出力の向き（16:9 横 / 9:16 縦）。プロジェクトごとに保持され、プレビュー/カード/エクスポートに反映される。
   const aspectRatio = useCanvasStore((s) => s.aspectRatio);
   const canvasWidth = useCanvasStore((s) => s.width);
+  const showToast = useUIStore((s) => s.showToast);
   /** 素材の幅・高さ（動画は保存値、画像は読み込み済み要素から）。不明なら null */
   const resolveSourceSize = (item: MediaItem): { width: number; height: number } | null => {
     if (item.sourceWidth && item.sourceHeight) {
@@ -552,11 +585,80 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
    * カード間の「並べて比較」設定を変える。左右・ななめになった／ではなくなったときは、
    * 何も触っていない横長素材だけ横位置を ±5% 自動調整・復元する（ユーザーの調整は変えない）。
    */
-  const handleChangeSplitCompare = (index: number, settings: SplitCompareSettings | null) => {
+  /** 長さそろえで変更した値を書き込む（動画は終了位置、画像は表示時間）。書き込んだ実際の値を返す */
+  const writeMatchDurationValue = (itemId: string, field: 'trimEnd' | 'duration', value: number): number | null => {
+    const store = useMediaStore.getState();
+    if (field === 'trimEnd') store.updateVideoTrim(itemId, 'end', value);
+    else store.updateImageDuration(itemId, value);
+    const written = useMediaStore.getState().mediaItems.find((item) => item.id === itemId);
+    if (!written) return null;
+    return field === 'trimEnd' ? written.trimEnd : written.duration;
+  };
+  const readMatchDurationValue = (itemId: string, field: 'trimEnd' | 'duration'): number | null => {
+    const item = useMediaStore.getState().mediaItems.find((candidate) => candidate.id === itemId);
+    if (!item) return null;
+    return field === 'trimEnd' ? item.trimEnd : item.duration;
+  };
+  /** 自動で詰めたままなら元へ戻す（ユーザーが触っていたら戻さない） */
+  const revertMatchDuration = (restore: SplitCompareSettings['matchDurationRestore']) => {
+    if (!restore) return;
+    const current = readMatchDurationValue(restore.itemId, restore.field);
+    if (current === null || Math.abs(current - restore.applied) > 0.0005) return;
+    const item = useMediaStore.getState().mediaItems.find((candidate) => candidate.id === restore.itemId);
+    if (!item || item.isLocked || isClipsLocked) return;
+    writeMatchDurationValue(restore.itemId, restore.field, restore.original);
+  };
+  /**
+   * 長い方を短い方の長さへ詰め、戻すための情報を返す。
+   * 以前に詰めた情報があれば、元の値はそのまま引き継ぐ（何度そろえ直してもオフで最初の値へ戻る）。
+   */
+  const applyMatchDuration = (
+    index: number,
+    previousRestore: SplitCompareSettings['matchDurationRestore'],
+  ): SplitCompareSettings['matchDurationRestore'] => {
+    const state = useMediaStore.getState();
+    const head = state.mediaItems[index];
+    const partner = state.mediaItems[index + 1];
+    if (!head || !partner) return previousRestore ?? null;
+    const plan = resolveSplitCompareMatchDuration(head, partner);
+    if (!plan) return previousRestore ?? null;
+    const target = state.mediaItems.find((item) => item.id === plan.itemId);
+    if (!target || target.isLocked || isClipsLocked) {
+      showToast('ロック中のカードがあるため、長さをそろえられません');
+      return previousRestore ?? null;
+    }
+    // 前回と別のカードを詰めることになったら、前回の分は（触っていなければ）先に戻す
+    if (previousRestore && previousRestore.itemId !== plan.itemId) revertMatchDuration(previousRestore);
+    const original = previousRestore && previousRestore.itemId === plan.itemId
+      ? previousRestore.original
+      : plan.current;
+    const applied = writeMatchDurationValue(plan.itemId, plan.field, plan.next);
+    if (applied === null) return previousRestore ?? null;
+    return { itemId: plan.itemId, field: plan.field, original, applied };
+  };
+  /** 「短い方に合わせる」をもう一度押したとき（オンのまま長さがずれた場合）にそろえ直す */
+  const handleRealignSplitCompareDuration = (index: number) => {
+    const head = mediaItems[index];
+    const settings = head?.splitCompareToNext;
+    if (!head || !settings?.matchDuration) return;
+    const restore = applyMatchDuration(index, settings.matchDurationRestore ?? null);
+    updateMediaItem(head.id, { splitCompareToNext: { ...settings, matchDurationRestore: restore } });
+  };
+  const handleChangeSplitCompare = (index: number, requested: SplitCompareSettings | null) => {
     const head = mediaItems[index];
     const partner = mediaItems[index + 1];
     if (!head) return;
     const previous = splitCompareRoles[index] === 'head' ? head.splitCompareToNext ?? null : null;
+    // 長さそろえ: オンになったら長い方を詰め、オフ（比較オフを含む）になったら自動で詰めた分を戻す
+    let settings = requested;
+    const wasMatching = !!previous?.matchDuration;
+    const isMatching = !!requested?.matchDuration;
+    if (wasMatching && !isMatching) {
+      revertMatchDuration(previous?.matchDurationRestore ?? null);
+      if (settings) settings = { ...settings, matchDurationRestore: null };
+    } else if (!wasMatching && isMatching && settings) {
+      settings = { ...settings, matchDurationRestore: applyMatchDuration(index, null) };
+    }
     const wasWanted = isSplitCompareDiagonalOffsetWanted(previous, aspectRatio);
     const isWanted = isSplitCompareDiagonalOffsetWanted(settings, aspectRatio);
     const offsetPatch = (item: MediaItem, role: 'head' | 'partner') => resolveSplitCompareAutoOffsetPatch({
@@ -567,13 +669,18 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
       sourceSize: resolveSourceSize(item),
       canvasWidth,
     });
+    // 長さそろえで head の値が変わっている場合があるので、最新のカードを基準に位置調整を判定する
+    const latestHead = useMediaStore.getState().mediaItems.find((item) => item.id === head.id) ?? head;
+    const latestPartner = partner
+      ? useMediaStore.getState().mediaItems.find((item) => item.id === partner.id) ?? partner
+      : undefined;
     updateMediaItem(head.id, {
       splitCompareToNext: settings,
       // 比較と切り替え効果は同じ境界で併用しない
       ...(settings ? { transitionToNext: null } : {}),
-      ...(offsetPatch(head, 'head') ?? {}),
+      ...(offsetPatch(latestHead, 'head') ?? {}),
     });
-    const partnerPatch = partner ? offsetPatch(partner, 'partner') : null;
+    const partnerPatch = latestPartner ? offsetPatch(latestPartner, 'partner') : null;
     if (partner && partnerPatch) {
       updateMediaItem(partner.id, partnerPatch);
     }
@@ -965,13 +1072,17 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
               splitCompare={splitCompareRoles[i] === 'head' ? v.splitCompareToNext ?? null : null}
               splitCompareBlockedReason={
                 splitCompareRoles[i] === 'partner'
-                  ? '上のカードと並べて比較中のため、このカードからは設定できません'
+                  ? '上のカードと2画面表示中のため、このカードからは設定できません'
                   : splitCompareRoles[i + 1] === 'head'
-                    ? '下のカードが次のカードと並べて比較中のため設定できません'
+                    ? '下のカードが次のカードと2画面表示中のため設定できません'
                     : null
               }
               isAdjacentToSplitCompare={splitCompareRoles[i] !== null || splitCompareRoles[i + 1] !== null}
               aspectRatio={aspectRatio}
+              pairDurations={splitCompareRoles[i] === 'head' && mediaItems[i + 1]
+                ? [v.duration, mediaItems[i + 1].duration]
+                : null}
+              onRealignSplitCompareDuration={() => handleRealignSplitCompareDuration(i)}
               disabled={isClipsLocked || v.isLocked}
               closeSignal={transitionCloseSignal}
               onBeforeEdit={onBeforeTransitionEdit}

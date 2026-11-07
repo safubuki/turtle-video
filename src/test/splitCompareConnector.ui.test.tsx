@@ -91,7 +91,7 @@ describe('並べて比較（同時再生）コネクタ', () => {
 
   it('コネクタから比較を ON にすると、切り替え効果を外して既定設定で保存し、総尺がペアの長いほうになる', () => {
     const { rerender } = renderSection(useMediaStore.getState().mediaItems);
-    fireEvent.click(screen.getAllByRole('button', { name: '並べて比較' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: '2画面表示' })[0]);
 
     const state = useMediaStore.getState();
     expect(state.mediaItems[0].splitCompareToNext).toEqual({
@@ -102,7 +102,7 @@ describe('並べて比較（同時再生）コネクタ', () => {
 
     rerender(<ClipsSection {...makeProps(state.mediaItems)} />);
     // コネクタの表示が比較設定に変わる
-    expect(screen.getByRole('button', { name: '並べて比較 左右・まっすぐ' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '2画面表示 左右・まっすぐ' })).toBeInTheDocument();
 
     // 並べ方・境界線を変更できる
     fireEvent.click(screen.getByRole('button', { name: 'ななめ' }));
@@ -119,8 +119,8 @@ describe('並べて比較（同時再生）コネクタ', () => {
   it('楕円ボタンの水色側（並べて比較）を押すと、そのまま比較になって設定が開く。紫側で元に戻せる', () => {
     const { rerender } = renderSection(useMediaStore.getState().mediaItems);
     // 未設定の境界でも両方の入口が見えている
-    expect(screen.getAllByRole('button', { name: '並べて比較' })).toHaveLength(2);
-    fireEvent.click(screen.getAllByRole('button', { name: '並べて比較' })[0]);
+    expect(screen.getAllByRole('button', { name: '2画面表示' })).toHaveLength(2);
+    fireEvent.click(screen.getAllByRole('button', { name: '2画面表示' })[0]);
     expect(useMediaStore.getState().mediaItems[0].splitCompareToNext).not.toBeNull();
 
     rerender(<ClipsSection {...makeProps(useMediaStore.getState().mediaItems)} />);
@@ -134,7 +134,7 @@ describe('並べて比較（同時再生）コネクタ', () => {
     rerender(<ClipsSection {...makeProps(useMediaStore.getState().mediaItems)} />);
     expect(screen.getByRole('button', { name: 'ディゾルブ' })).toBeInTheDocument();
     // もう一度水色側を押すと、直前の比較設定（ななめ）が戻る
-    fireEvent.click(screen.getAllByRole('button', { name: '並べて比較' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: '2画面表示' })[0]);
     expect(useMediaStore.getState().mediaItems[0].splitCompareToNext?.divider).toBe('diagonal');
   });
 
@@ -149,7 +149,7 @@ describe('並べて比較（同時再生）コネクタ', () => {
       ],
     });
     const { rerender } = renderSection(useMediaStore.getState().mediaItems);
-    fireEvent.click(screen.getByRole('button', { name: /並べて比較 左右・まっすぐ/ }));
+    fireEvent.click(screen.getByRole('button', { name: /2画面表示 左右・まっすぐ/ }));
     fireEvent.click(screen.getByRole('button', { name: 'ななめ' }));
     let items = useMediaStore.getState().mediaItems;
     expect(items[0].positionX).toBe(Math.round(-0.05 * canvasWidth));
@@ -171,7 +171,7 @@ describe('並べて比較（同時再生）コネクタ', () => {
       ],
     });
     renderSection(useMediaStore.getState().mediaItems);
-    fireEvent.click(screen.getByRole('button', { name: /並べて比較 左右・まっすぐ/ }));
+    fireEvent.click(screen.getByRole('button', { name: /2画面表示 左右・まっすぐ/ }));
     fireEvent.click(screen.getByRole('button', { name: 'ななめ' }));
     const items = useMediaStore.getState().mediaItems;
     expect(items[0].positionX).toBe(40);
@@ -211,10 +211,72 @@ describe('並べて比較（同時再生）コネクタ', () => {
     renderSection(useMediaStore.getState().mediaItems);
     // 2 つ目のコネクタ（b → c）を開く
     // 2 つ目の境界の水色側を押しても比較にはならず、理由が出る
-    fireEvent.click(screen.getByRole('button', { name: '並べて比較' }));
+    fireEvent.click(screen.getByRole('button', { name: '2画面表示' }));
     expect(useMediaStore.getState().mediaItems[1].splitCompareToNext).toBeFalsy();
-    expect(screen.getByText(/上のカードと並べて比較中のため/)).toBeInTheDocument();
+    expect(screen.getByText(/上のカードと2画面表示中のため/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'ディゾルブ' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'フェード(黒)' })).not.toBeDisabled();
+  });
+});
+
+describe('並べて比較: 長さを短い方に合わせる', () => {
+  const compareOn = { layout: 'horizontal', divider: 'straight', fit: 'cover', lineColor: 'white' } as const;
+  const longVideo = (trimEnd = 8): MediaItem => ({ ...createVideo('a', 10), trimEnd, duration: trimEnd, splitCompareToNext: { ...compareOn } });
+  const items = () => useMediaStore.getState().mediaItems;
+  const openPanel = () => fireEvent.click(screen.getByRole('button', { name: /2画面表示 左右・まっすぐ/ }));
+
+  it('オンで長い方の終わりを詰め、オフで元の長さに戻す（オン前のトリミングに戻る）', () => {
+    // 元動画 10 秒を 8 秒にトリミング済み。相手は 5 秒
+    useMediaStore.setState({ mediaItems: [longVideo(8), createVideo('b', 5)] });
+    const { rerender } = renderSection(items());
+    openPanel();
+    fireEvent.click(screen.getByRole('button', { name: '短い方に合わせる' }));
+    expect(items()[0].trimEnd).toBe(5);
+    expect(items()[0].duration).toBe(5);
+    expect(items()[0].splitCompareToNext?.matchDuration).toBe(true);
+
+    rerender(<ClipsSection {...makeProps(items())} />);
+    fireEvent.click(screen.getByRole('button', { name: 'そろえない' }));
+    expect(items()[0].trimEnd).toBe(8);
+    expect(items()[0].splitCompareToNext?.matchDuration).toBeFalsy();
+  });
+
+  it('オンの後に手で長さを変えたカードは、オフにしても戻さない', () => {
+    useMediaStore.setState({ mediaItems: [longVideo(8), createVideo('b', 5)] });
+    const { rerender } = renderSection(items());
+    openPanel();
+    fireEvent.click(screen.getByRole('button', { name: '短い方に合わせる' }));
+    useMediaStore.getState().updateVideoTrim('a', 'end', 6.5);
+    rerender(<ClipsSection {...makeProps(items())} />);
+    fireEvent.click(screen.getByRole('button', { name: 'そろえない' }));
+    expect(items()[0].trimEnd).toBe(6.5);
+  });
+
+  it('比較そのものをオフにしたときも、自動で詰めた長さを戻す', () => {
+    useMediaStore.setState({ mediaItems: [longVideo(8), createVideo('b', 5)] });
+    const { rerender } = renderSection(items());
+    openPanel();
+    fireEvent.click(screen.getByRole('button', { name: '短い方に合わせる' }));
+    rerender(<ClipsSection {...makeProps(items())} />);
+    fireEvent.click(screen.getByRole('button', { name: 'オフ' }));
+    expect(items()[0].trimEnd).toBe(8);
+    expect(items()[0].splitCompareToNext).toBeNull();
+  });
+
+  it('長い方が画像なら表示時間を合わせ、オフで戻す', () => {
+    const image: MediaItem = {
+      ...createVideo('img', 7),
+      type: 'image',
+      file: new File(['x'], 'img.png', { type: 'image/png' }),
+      splitCompareToNext: { ...compareOn },
+    };
+    useMediaStore.setState({ mediaItems: [image, createVideo('b', 4)] });
+    const { rerender } = renderSection(items());
+    openPanel();
+    fireEvent.click(screen.getByRole('button', { name: '短い方に合わせる' }));
+    expect(items()[0].duration).toBe(4);
+    rerender(<ClipsSection {...makeProps(items())} />);
+    fireEvent.click(screen.getByRole('button', { name: 'そろえない' }));
+    expect(items()[0].duration).toBe(7);
   });
 });

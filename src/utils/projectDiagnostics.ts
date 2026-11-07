@@ -116,6 +116,7 @@ export function buildProjectDiagnostics(input: ProjectDiagnosticsInput) {
             divider: item.splitCompareToNext.divider,
             fit: item.splitCompareToNext.fit,
             line: item.splitCompareToNext.lineColor,
+            matchDuration: !!item.splitCompareToNext.matchDuration,
           },
         }
         : {}),

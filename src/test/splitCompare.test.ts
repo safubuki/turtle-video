@@ -15,6 +15,7 @@ import {
   resolveSplitComparePeerFadeAlpha,
   isSplitCompareDiagonalOffsetWanted,
   resolveSplitCompareAutoOffsetPatch,
+  resolveSplitCompareMatchDuration,
   resolveSplitCompareDisplayLayout,
   resolveSplitCompareRoles,
   SPLIT_COMPARE_DEFAULT_SETTINGS,
@@ -302,5 +303,40 @@ describe('左右・ななめの自動位置調整（±5%）', () => {
 
   it('調整の要否が変わらないとき（ななめのまま線の色を変える等）は何もしない', () => {
     expect(resolveSplitCompareAutoOffsetPatch({ ...apply, wasWanted: true, item: untouched, role: 'head' })).toBeNull();
+  });
+});
+
+describe('長さを短い方に合わせる', () => {
+  it('長い方の動画の終了位置を、短い方の長さに合わせて詰める', () => {
+    const head = makeItem({ id: 'a', duration: 8, trimStart: 1, trimEnd: 9, originalDuration: 10 });
+    const partner = makeItem({ id: 'b', duration: 5 });
+    expect(resolveSplitCompareMatchDuration(head, partner)).toEqual({
+      itemId: 'a', field: 'trimEnd', current: 9, next: 6,
+    });
+  });
+
+  it('倍速の動画はタイムライン上の長さがそろうようにソース尺を換算する', () => {
+    // 2 倍速: ソース 16 秒 → タイムライン 8 秒。5 秒にそろえるにはソース 10 秒
+    const head = makeItem({ id: 'a', duration: 8, trimStart: 0, trimEnd: 16, originalDuration: 20, playbackSpeed: 2 });
+    const partner = makeItem({ id: 'b', duration: 5 });
+    expect(resolveSplitCompareMatchDuration(head, partner)?.next).toBe(10);
+  });
+
+  it('長い方が画像なら表示時間を短い方と同じにする・そろっていれば何もしない', () => {
+    const image = makeItem({ id: 'img', type: 'image', duration: 7 });
+    const video = makeItem({ id: 'v', duration: 4 });
+    expect(resolveSplitCompareMatchDuration(video, image)).toEqual({
+      itemId: 'img', field: 'duration', current: 7, next: 4,
+    });
+    expect(resolveSplitCompareMatchDuration(video, makeItem({ id: 'w', duration: 4.02 }))).toBeNull();
+  });
+
+  it('保存データの長さそろえ設定と戻し情報を読み込み、不正な戻し情報は捨てる', () => {
+    const restore = { itemId: 'a', field: 'trimEnd', original: 9, applied: 6 };
+    expect(normalizeSplitCompareSettings({ ...compare(), matchDuration: true, matchDurationRestore: restore }))
+      .toMatchObject({ matchDuration: true, matchDurationRestore: restore });
+    expect(normalizeSplitCompareSettings({ ...compare(), matchDuration: true, matchDurationRestore: { itemId: 'a', field: 'x' } }))
+      .toMatchObject({ matchDuration: true, matchDurationRestore: null });
+    expect(normalizeSplitCompareSettings({ ...compare(), matchDuration: false })).not.toHaveProperty('matchDuration');
   });
 });

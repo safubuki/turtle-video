@@ -170,7 +170,7 @@ export function useAutoSave() {
         m.isLocked,
         m.transitionToNext ? `${m.transitionToNext.type}@${m.transitionToNext.duration}` : '',
         m.splitCompareToNext
-          ? `${m.splitCompareToNext.layout}/${m.splitCompareToNext.divider}/${m.splitCompareToNext.fit}/${m.splitCompareToNext.lineColor}`
+          ? `${m.splitCompareToNext.layout}/${m.splitCompareToNext.divider}/${m.splitCompareToNext.fit}/${m.splitCompareToNext.lineColor}/${m.splitCompareToNext.matchDuration ? 'match' : 'keep'}`
           : '',
         m.thumbnailMode ?? 'auto',
         m.thumbnailSourceTime ?? '',
