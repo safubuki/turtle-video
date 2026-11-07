@@ -3,13 +3,14 @@
  * @author Turtle Village
  * @copyright Copyright (C) 2026 safubuki (Turtle Village)
  * @license GPL-3.0-or-later
- * @description 動画クリップの実効再生音量（個別音量 × 音量揃えゲイン、ミュート、0〜250%）。
+ * @description 動画クリップの実効再生音量（個別音量 × 音量揃えゲイン、ミュート、0〜300%）。
  *
  * preview / export / 波形はすべてこの関数を通す。個別スライダー値を直接 gain に載せない。
  */
 
 export const MEDIA_VOLUME_MIN = 0;
-export const MEDIA_VOLUME_MAX = 2.5;
+/** 音量の上限（300%）。動画・BGM・ナレーション・一括音量の共通上限 */
+export const MEDIA_VOLUME_MAX = 3;
 
 export interface MediaVolumeSource {
   volume?: number;
@@ -31,7 +32,7 @@ export function normalizeMediaNormalizeGain(gain: unknown): number {
 
 /**
  * プレビュー・書き出しに渡す実効音量。
- * ミュート時は 0。音量揃えゲイン未設定は 1。上限 250%。
+ * ミュート時は 0。音量揃えゲイン未設定は 1。上限 300%（MEDIA_VOLUME_MAX）。
  */
 export function resolveMediaPlaybackVolume(item: MediaVolumeSource | null | undefined): number {
   if (!item || item.isMuted) return 0;

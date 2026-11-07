@@ -17,7 +17,7 @@ import {
   useAudioStore,
 } from '../../../stores/audioStore';
 import { findActiveTimelineItemWithTransitions } from '../../../utils/transitionTimeline';
-import { resolveMediaPlaybackVolume } from '../../../utils/mediaVolume';
+import { resolveMediaPlaybackVolume, MEDIA_VOLUME_MAX } from '../../../utils/mediaVolume';
 import {
   getPreviewAudioRoutingPlan,
   shouldAttemptDeferredPreviewPlay,
@@ -77,8 +77,8 @@ const resetNativeMediaAudioState = (mediaEl: HTMLMediaElement) => {
   mediaEl.muted = false;
   mediaEl.volume = 1;
 };
-// BGM / ナレーション UI は 250% まで指定できるため、standard preview の gain も同じ上限にそろえる。
-const MAX_PREVIEW_AUDIO_GAIN = 2.5;
+// BGM / ナレーション UI は MEDIA_VOLUME_MAX（300%）まで指定できるため、standard preview の gain も同じ上限にそろえる。
+const MAX_PREVIEW_AUDIO_GAIN = MEDIA_VOLUME_MAX;
 
 export function clampPreviewAudioGain(volume: number): number {
   return Math.max(0, Math.min(MAX_PREVIEW_AUDIO_GAIN, volume));

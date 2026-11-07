@@ -304,14 +304,14 @@ describe('BgmClipList continuous sliders keep the preview playing', () => {
   it('does not pause the preview while dragging the volume slider', () => {
     const { onBeforeEdit, onBeforeContinuousEdit } = renderList();
 
-    // 音量スライダー（0〜250% / step 5%）を特定してドラッグを再現する
+    // 音量スライダー（0〜300% / step 5%）を特定してドラッグを再現する
     const volumeSlider = screen
       .getAllByRole('slider')
-      .find((el) => (el as HTMLInputElement).max === '250') as HTMLInputElement;
+      .find((el) => (el as HTMLInputElement).max === '300') as HTMLInputElement;
     expect(volumeSlider).toBeTruthy();
 
     // 100% を跨ぐアグレッシブな変更を再現（clip.volume の初期値 1 とは異なる値を並べる）
-    const dragValues = ['195', '60', '250'];
+    const dragValues = ['195', '60', '300'];
     for (const value of dragValues) {
       fireEvent.change(volumeSlider, { target: { value } });
     }
@@ -321,7 +321,7 @@ describe('BgmClipList continuous sliders keep the preview playing', () => {
     // 連続編集フックがドラッグの各目盛で呼ばれる
     expect(onBeforeContinuousEdit).toHaveBeenCalledTimes(dragValues.length);
     expect(onBeforeContinuousEdit).toHaveBeenCalledWith('update-bgm-clip-volume');
-    expect(useAudioStore.getState().bgmClips[0].volume).toBe(2.5);
+    expect(useAudioStore.getState().bgmClips[0].volume).toBe(3);
   });
 
   it('still pauses the preview for one-shot buttons (mute / reorder)', () => {

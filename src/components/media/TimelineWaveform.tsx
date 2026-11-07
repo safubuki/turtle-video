@@ -19,12 +19,14 @@
  * 両者が同じ検出結果を使う必要があるため、フックは TurtleVideo 側で 1 度だけ呼ぶ。
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronsLeft, ChevronsRight, AudioLines } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, AudioLines, TriangleAlert } from 'lucide-react';
 import type { TimelineWaveformData } from '../../hooks/useTimelineWaveform';
 import { resolveSwipeDirection, type SwipeDirection } from '../../utils/swipeGesture';
 import {
+  detectTimelineClippingRegions,
   findAdjacentSilenceBoundary,
   resolveTimelinePlayheadPercent,
+  TIMELINE_CLIPPING_PEAK_THRESHOLD,
   type SilenceSourceTarget,
 } from '../../utils/timelineWaveform';
 
@@ -111,6 +113,12 @@ const TimelineWaveform: React.FC<TimelineWaveformProps> = ({
 
   const duration = totalDuration > 0 ? totalDuration : 0;
 
+  // 音割れの可能性がある区間（合成後の振幅が上限付近）。音量を上げすぎたときの注意に使う。
+  const clippingRegions = useMemo(
+    () => (peaks ? detectTimelineClippingRegions(peaks, duration) : []),
+    [peaks, duration],
+  );
+
   const timeToX = useCallback(
     (time: number): number => {
       if (duration <= 0 || width <= 0) return 0;
@@ -160,13 +168,22 @@ const TimelineWaveform: React.FC<TimelineWaveformProps> = ({
       }
     }
 
-    // 波形の棒（振幅は sqrt で小音量も視認できるようにする）
+    // 音割れの可能性がある区間の帯（赤）
+    ctx.fillStyle = 'rgba(248, 113, 113, 0.18)';
+    for (const region of clippingRegions) {
+      const x = timeToX(region.start);
+      ctx.fillRect(x, 0, Math.max(2, timeToX(region.end) - x), WAVE_HEIGHT);
+    }
+
+    // 波形の棒（振幅は sqrt で小音量も視認できるようにする）。上限付近の棒は赤で示す。
     const bucketCount = peaks.length;
     const barWidth = width / bucketCount;
-    ctx.fillStyle = 'rgba(96, 165, 250, 0.9)';
     for (let b = 0; b < bucketCount; b++) {
       const amp = Math.min(1, Math.sqrt(peaks[b]));
       const h = Math.max(0.5, amp * (mid - 1));
+      ctx.fillStyle = peaks[b] >= TIMELINE_CLIPPING_PEAK_THRESHOLD
+        ? 'rgba(248, 113, 113, 0.95)'
+        : 'rgba(96, 165, 250, 0.9)';
       ctx.fillRect(b * barWidth, mid - h, Math.max(0.5, barWidth - 0.3), h * 2);
     }
 
@@ -176,7 +193,7 @@ const TimelineWaveform: React.FC<TimelineWaveformProps> = ({
     ctx.moveTo(0, mid + 0.5);
     ctx.lineTo(width, mid + 0.5);
     ctx.stroke();
-  }, [peaks, silences, width, duration, timeToX]);
+  }, [peaks, silences, clippingRegions, width, duration, timeToX]);
 
   /** 波形上の x 座標を時刻へ変換してシークする（シークバーと同じ 0〜幅 の対応）。 */
   const seekFromClientX = useCallback(
@@ -307,6 +324,10 @@ const TimelineWaveform: React.FC<TimelineWaveformProps> = ({
 
   const currentPercent = resolveTimelinePlayheadPercent(currentTime, duration);
   const hasSilences = silences.length > 0;
+  // 現在位置より後ろの最初の音割れ区間（無ければ先頭の区間へ戻る）
+  const nextClipping = clippingRegions.find((region) => region.start > currentTime + 0.05)
+    ?? clippingRegions[0]
+    ?? null;
 
   return (
     <div className="mt-1.5 space-y-1.5">
@@ -382,6 +403,33 @@ const TimelineWaveform: React.FC<TimelineWaveformProps> = ({
           </span>
         )}
       </div>
+
+      {/* 音割れの注意。動画・BGM・ナレーションを合成した最終的な音で判定する。 */}
+      {clippingRegions.length > 0 && (
+        <div
+          data-testid="timeline-clipping-warning"
+          role="status"
+          className="flex flex-wrap items-center gap-1.5 rounded-lg border border-red-500/40 bg-red-950/40 px-2 py-1 text-[10px] text-red-200 md:text-xs"
+        >
+          <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-red-300" aria-hidden />
+          <span className="min-w-0 flex-1">
+            音割れの可能性（{clippingRegions.length}か所・波形の赤い部分）。音量を少し下げると解消します。
+          </span>
+          {nextClipping && (
+            <button
+              type="button"
+              onClick={() => onSeek(nextClipping.start)}
+              disabled={disabled}
+              className="flex min-h-7 shrink-0 items-center gap-1 rounded-md border border-red-500/50 bg-red-900/40 px-2 text-red-100 transition hover:bg-red-800/60 disabled:opacity-30"
+              aria-label="音割れの箇所へ移動"
+              title="次の音割れの箇所へ移動"
+            >
+              音割れの箇所へ
+              <ChevronsRight className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 };

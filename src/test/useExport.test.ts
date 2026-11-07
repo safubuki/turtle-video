@@ -857,11 +857,12 @@ describe('useExport', () => {
     expect(result.current.exportExt).toBeNull();
   });
 
-  it('AudioTrack volume は export 前に 0..2.5 へ clamp する', () => {
+  it('AudioTrack volume は export 前に 0..3 へ clamp する', () => {
     expect(clampAudioTrackVolume(-1)).toBe(0);
     expect(clampAudioTrackVolume(0)).toBe(0);
     expect(clampAudioTrackVolume(1.25)).toBe(1.25);
     expect(clampAudioTrackVolume(2.5)).toBe(2.5);
-    expect(clampAudioTrackVolume(3)).toBe(2.5);
+    expect(clampAudioTrackVolume(3)).toBe(3);
+    expect(clampAudioTrackVolume(4)).toBe(3);
   });
 });

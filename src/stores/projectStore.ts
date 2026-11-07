@@ -63,6 +63,7 @@ import {
 } from '../utils';
 import { normalizeMediaZoomAmount, normalizeMediaZoomDirection, hasMediaZoomRange, createMediaZoomRangePatch } from '../utils/mediaZoom';
 
+import { MEDIA_VOLUME_MAX } from '../utils/mediaVolume';
 export function getProjectStoreErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
@@ -814,7 +815,7 @@ function deserializeNarrationClip(data: SerializedNarrationClip): NarrationClip 
     url,
     blobUrl,
     startTime: Math.max(0, data.startTime),
-    volume: Math.max(0, Math.min(2.5, data.volume)),
+    volume: Math.max(0, Math.min(MEDIA_VOLUME_MAX, data.volume)),
     isMuted: Boolean(data.isMuted),
     trimStart,
     trimEnd,
@@ -846,7 +847,7 @@ function convertLegacyNarrationToClip(track: AudioTrack): NarrationClip {
     url: track.url,
     blobUrl: track.blobUrl,
     startTime: Math.max(0, track.delay || 0),
-    volume: Math.max(0, Math.min(2.5, track.volume)),
+    volume: Math.max(0, Math.min(MEDIA_VOLUME_MAX, track.volume)),
     isMuted: false,
     trimStart: 0,
     trimEnd: Math.max(0, track.duration),
@@ -1310,21 +1311,21 @@ export const useProjectStore = create<ProjectState>()(
             bulkVideoMuted: data.bulkVideoMuted,
             bulkVideoVolumeEnabled: Boolean(data.bulkVideoVolumeEnabled),
             bulkVideoVolume: Number.isFinite(data.bulkVideoVolume)
-              ? Math.max(0, Math.min(2.5, data.bulkVideoVolume as number))
+              ? Math.max(0, Math.min(MEDIA_VOLUME_MAX, data.bulkVideoVolume as number))
               : 1,
             videoAudioNormalizeEnabled: Boolean(data.videoAudioNormalizeEnabled),
             videoAudioNormalizeMode: data.videoAudioNormalizeMode === 'loudest' ? 'loudest' : 'mean',
             bulkBgmMuted: data.bulkBgmMuted,
             bulkBgmVolumeEnabled: Boolean(data.bulkBgmVolumeEnabled),
             bulkBgmVolume: Number.isFinite(data.bulkBgmVolume)
-              ? Math.max(0, Math.min(2.5, data.bulkBgmVolume as number))
+              ? Math.max(0, Math.min(MEDIA_VOLUME_MAX, data.bulkBgmVolume as number))
               : 1,
             bgmAudioNormalizeEnabled: Boolean(data.bgmAudioNormalizeEnabled),
             bgmAudioNormalizeMode: data.bgmAudioNormalizeMode === 'loudest' ? 'loudest' : 'mean',
             bulkNarrationMuted: data.bulkNarrationMuted,
             bulkNarrationVolumeEnabled: Boolean(data.bulkNarrationVolumeEnabled),
             bulkNarrationVolume: Number.isFinite(data.bulkNarrationVolume)
-              ? Math.max(0, Math.min(2.5, data.bulkNarrationVolume as number))
+              ? Math.max(0, Math.min(MEDIA_VOLUME_MAX, data.bulkNarrationVolume as number))
               : 1,
             narrationAudioNormalizeEnabled: Boolean(data.narrationAudioNormalizeEnabled),
             narrationAudioNormalizeMode: data.narrationAudioNormalizeMode === 'loudest' ? 'loudest' : 'mean',

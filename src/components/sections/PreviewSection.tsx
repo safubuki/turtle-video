@@ -15,6 +15,7 @@ import React, {
   useState,
 } from 'react';
 import { createPortal, flushSync } from 'react-dom';
+import { PREVIEW_SKIP_SECONDS } from '../../constants';
 import {
   Play,
   Pause,
@@ -22,6 +23,7 @@ import {
   Download,
   Loader,
   RotateCcw,
+  RotateCw,
   MonitorPlay,
   AlertCircle,
   Camera,
@@ -937,7 +939,25 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
           onSeekEnd={onSeekEnd}
         />
 
-        <div className="mt-4 flex justify-center gap-4 border-b border-gray-800 pb-6">
+        {/* 並び: [3秒戻る][停止][再生][3秒進む] | [キャプチャ]。秒送りは再生操作の両隣、
+            キャプチャは役割が違うので少し離して右端に置く。 */}
+        <div className="mt-4 flex items-center justify-center gap-2.5 sm:gap-4 border-b border-gray-800 pb-6">
+          <button
+            type="button"
+            onClick={() => seekFloatingBy(-PREVIEW_SKIP_SECONDS)}
+            disabled={mediaItems.length === 0 || isLoading || isProcessing}
+            title={`${PREVIEW_SKIP_SECONDS}秒戻る`}
+            aria-label={`${PREVIEW_SKIP_SECONDS}秒戻る`}
+            className={`${PREVIEW_ICON_BUTTON_BASE} ${PREVIEW_STOP_BUTTON}`}
+          >
+            <RotateCcw className="w-5 h-5 lg:w-6 lg:h-6" strokeWidth={1.75} />
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-0 flex items-center justify-center pt-px text-[8px] lg:text-[9px] font-bold"
+            >
+              {PREVIEW_SKIP_SECONDS}
+            </span>
+          </button>
           <button
             type="button"
             onClick={onStop}
@@ -956,6 +976,24 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
           >
             {isLoading ? <Loader className="w-5 h-5 lg:w-6 lg:h-6 animate-spin" /> : isPlaying ? <Pause className="w-5 h-5 lg:w-6 lg:h-6" /> : <Play className="w-5 h-5 lg:w-6 lg:h-6 ml-0.5" />}
           </button>
+          <button
+            type="button"
+            onClick={() => seekFloatingBy(PREVIEW_SKIP_SECONDS)}
+            disabled={mediaItems.length === 0 || isLoading || isProcessing}
+            title={`${PREVIEW_SKIP_SECONDS}秒進む`}
+            aria-label={`${PREVIEW_SKIP_SECONDS}秒進む`}
+            className={`${PREVIEW_ICON_BUTTON_BASE} ${PREVIEW_STOP_BUTTON}`}
+          >
+            <RotateCw className="w-5 h-5 lg:w-6 lg:h-6" strokeWidth={1.75} />
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-0 flex items-center justify-center pt-px text-[8px] lg:text-[9px] font-bold"
+            >
+              {PREVIEW_SKIP_SECONDS}
+            </span>
+          </button>
+          {/* キャプチャは再生操作から少し離す */}
+          <span aria-hidden className="mx-0.5 sm:mx-1 h-8 w-px bg-gray-700/80" />
           <button
             type="button"
             onClick={() => triggerCaptureFeedback(onCapture)}

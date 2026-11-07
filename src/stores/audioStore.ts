@@ -16,7 +16,7 @@ import {
   resolveSavedBulkMuted,
   revokeObjectUrl,
 } from '../utils';
-import { clampMediaVolume } from '../utils/mediaVolume';
+import { clampMediaVolume, MEDIA_VOLUME_MAX } from '../utils/mediaVolume';
 import {
   DEFAULT_VIDEO_AUDIO_NORMALIZE_MODE,
   normalizeVideoAudioNormalizeMode,
@@ -626,7 +626,7 @@ export function createNarrationClip(params: CreateNarrationClipParams): Narratio
     url: params.url,
     blobUrl: params.blobUrl,
     startTime: Math.max(0, params.startTime),
-    volume: Math.max(0, Math.min(2.5, params.volume ?? 1.0)),
+    volume: Math.max(0, Math.min(MEDIA_VOLUME_MAX, params.volume ?? 1.0)),
     isMuted: false,
     trimStart: 0,
     trimEnd: safeDuration,
@@ -655,7 +655,7 @@ function normalizeNarrationClip(clip: NarrationClip): NarrationClip {
     ...clip,
     duration,
     startTime: Math.max(0, clip.startTime),
-    volume: Math.max(0, Math.min(2.5, clip.volume)),
+    volume: Math.max(0, Math.min(MEDIA_VOLUME_MAX, clip.volume)),
     isMuted: Boolean(clip.isMuted),
     trimStart: clampedTrimStart,
     trimEnd: clampedTrimEnd,
@@ -716,7 +716,7 @@ export const useAudioStore = create<AudioState>()(
       updateBgmVolume: (value) => {
         set((state) => {
           if (!state.bgm) return state;
-          return { bgm: { ...state.bgm, volume: Math.max(0, Math.min(2.5, value)) } };
+          return { bgm: { ...state.bgm, volume: Math.max(0, Math.min(MEDIA_VOLUME_MAX, value)) } };
         });
       },
 
@@ -837,7 +837,7 @@ export const useAudioStore = create<AudioState>()(
           bulkBgmVolumeEnabled: false,
           bgmClips: state.bgmClips.map((clip) => (
             clip.id === id
-              ? normalizeNarrationClip({ ...clip, volume: Math.max(0, Math.min(2.5, value)) })
+              ? normalizeNarrationClip({ ...clip, volume: Math.max(0, Math.min(MEDIA_VOLUME_MAX, value)) })
               : clip
           )),
         }));
@@ -1079,7 +1079,7 @@ export const useAudioStore = create<AudioState>()(
           bulkNarrationVolumeEnabled: false,
           narrations: state.narrations.map((clip) => {
             if (clip.id !== id) return clip;
-            return normalizeNarrationClip({ ...clip, volume: Math.max(0, Math.min(2.5, value)) });
+            return normalizeNarrationClip({ ...clip, volume: Math.max(0, Math.min(MEDIA_VOLUME_MAX, value)) });
           }),
         }));
       },

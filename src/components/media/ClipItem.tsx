@@ -92,6 +92,7 @@ import {
   type MediaTransformResetKind,
 } from '../../utils/mediaZoom';
 
+import { MEDIA_VOLUME_MAX } from '../../utils/mediaVolume';
 export interface ClipItemProps {
   item: MediaItem;
   timelineRange: { start: number; end: number };
@@ -857,7 +858,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
               <NumericSliderField
                 ariaLabel="音量"
                 min={0}
-                max={250}
+                max={MEDIA_VOLUME_MAX * 100}
                 step={5}
                 value={Math.round(v.volume * 100)}
                 disabled={v.isMuted || isDisabled || bulkVolumeEnabled}

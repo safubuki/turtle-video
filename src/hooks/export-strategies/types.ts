@@ -11,6 +11,7 @@ import type {
 import type { MediaRecorderProfile, PlatformCapabilities } from '../../utils/platform';
 import type { ExportFrameProfileSummary } from '../../utils/exportFrameProfiler';
 
+import { MEDIA_VOLUME_MAX } from '../../utils/mediaVolume';
 export type ExportStrategyId = 'ios-safari-mediarecorder' | 'webcodecs-mp4';
 export const EXPORT_PREPARATION_STEP_ORDER = [
   1,
@@ -279,7 +280,7 @@ export interface UseExportRuntimeConfig {
 }
 
 const AUDIO_TRACK_MIN_VOLUME = 0;
-const AUDIO_TRACK_MAX_VOLUME = 2.5;
+const AUDIO_TRACK_MAX_VOLUME = MEDIA_VOLUME_MAX;
 
 /** 音量クランプは両フレーバー共通のドメインルール（プラットフォーム依存なし） */
 export function clampAudioTrackVolume(volume: number): number {

@@ -9,6 +9,7 @@ import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Loader, Pause, Play, RotateCcw, RotateCw, Square, X } from 'lucide-react';
 import { formatTimeCentiseconds } from '../../utils/format';
+import { PREVIEW_SKIP_SECONDS } from '../../constants';
 import PreviewSeekSlider from './PreviewSeekSlider';
 
 interface FloatingPreviewProps {
@@ -116,12 +117,12 @@ const FloatingPreview: React.FC<FloatingPreviewProps> = ({
             <button
               type="button"
               className={BUTTON}
-              onClick={() => onSeekBy(-5)}
+              onClick={() => onSeekBy(-PREVIEW_SKIP_SECONDS)}
               disabled={isLoading || currentTime <= 0}
-              aria-label="5秒戻る"
+              aria-label={`${PREVIEW_SKIP_SECONDS}秒戻る`}
             >
               <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.75} />
-              <span className="text-xs">5</span>
+              <span className="text-xs">{PREVIEW_SKIP_SECONDS}</span>
             </button>
             <button
               type="button"
@@ -148,11 +149,11 @@ const FloatingPreview: React.FC<FloatingPreviewProps> = ({
             <button
               type="button"
               className={BUTTON}
-              onClick={() => onSeekBy(5)}
+              onClick={() => onSeekBy(PREVIEW_SKIP_SECONDS)}
               disabled={isLoading || currentTime >= totalDuration}
-              aria-label="5秒進む"
+              aria-label={`${PREVIEW_SKIP_SECONDS}秒進む`}
             >
-              <span className="text-xs">5</span>
+              <span className="text-xs">{PREVIEW_SKIP_SECONDS}</span>
               <RotateCw className="h-3.5 w-3.5" strokeWidth={1.75} />
             </button>
           </div>

@@ -29,6 +29,7 @@ import {
   resolveVideoSourceTime,
 } from './playbackSpeed';
 
+import { MEDIA_VOLUME_MAX } from './mediaVolume';
 /**
  * ID生成用カウンター（同一ミリ秒内での重複を防止）
  */
@@ -223,7 +224,7 @@ export function applyBulkVolumeToAddedMediaItems<T extends MediaVolumeSnapshot>(
   bulkVolume: number,
 ): T[] {
   if (!bulkEnabled) return addedItems;
-  const volume = Math.max(0, Math.min(2.5, bulkVolume));
+  const volume = Math.max(0, Math.min(MEDIA_VOLUME_MAX, bulkVolume));
   return addedItems.map((item) =>
     item.type === 'video' ? { ...item, volume } : item,
   );
@@ -263,7 +264,7 @@ export function applyBulkVolumeToAddedAudioClips<T extends AudioClipVolumeSnapsh
   bulkVolume: number,
 ): T[] {
   if (!bulkEnabled) return addedItems;
-  const volume = Math.max(0, Math.min(2.5, bulkVolume));
+  const volume = Math.max(0, Math.min(MEDIA_VOLUME_MAX, bulkVolume));
   return addedItems.map((item) => ({ ...item, volume }));
 }
 

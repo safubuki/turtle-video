@@ -137,6 +137,12 @@ afterEach(() => {
   window.ResizeObserver = originalResizeObserver;
 });
 
+/** 本体にも同じ名前の秒送りがあるので、ミニプレビュー（ポータルで後ろに描画）側を取る */
+function miniButton(name: string): HTMLElement {
+  const buttons = screen.getAllByRole('button', { name });
+  return buttons[buttons.length - 1];
+}
+
 describe('Issue #236 追従プレビュー', () => {
   it('通常映像が画面内なら補助UIはなく、画面外になったときだけボタンを表示する', () => {
     render(<PreviewSection {...fixture()} />);
@@ -435,33 +441,33 @@ describe('Issue #236 追従プレビュー', () => {
     expect(props.onStop).toHaveBeenCalledOnce();
   });
 
-  it('±5秒は相対コールバックを使い、先頭／末尾で無効になる', () => {
+  it('±3秒は相対コールバックを使い、先頭／末尾で無効になる', () => {
     const onSeekBy = vi.fn();
     const props = fixture({ onSeekBy });
     const { rerender } = render(<PreviewSection {...props} />);
     latestObserver().emit(false);
     open();
-    fireEvent.click(screen.getByRole('button', { name: '5秒戻る' }));
-    fireEvent.click(screen.getByRole('button', { name: '5秒進む' }));
-    expect(onSeekBy.mock.calls).toEqual([[-5], [5]]);
+    fireEvent.click(miniButton('3秒戻る'));
+    fireEvent.click(miniButton('3秒進む'));
+    expect(onSeekBy.mock.calls).toEqual([[-3], [3]]);
     rerender(<PreviewSection {...props} currentTime={0} />);
-    expect(screen.getByRole('button', { name: '5秒戻る' })).toBeDisabled();
+    expect(miniButton('3秒戻る')).toBeDisabled();
     rerender(<PreviewSection {...props} currentTime={5} />);
-    expect(screen.getByRole('button', { name: '5秒進む' })).toBeDisabled();
+    expect(miniButton('3秒進む')).toBeDisabled();
   });
 
-  it('相対コールバック省略時も5秒ずつ移動し、短い動画では先頭／末尾へ制限する', () => {
+  it('相対コールバック省略時も3秒ずつ移動し、短い動画では先頭／末尾へ制限する', () => {
     const props = fixture({ currentTime: 8, totalDuration: 20 });
     const { rerender } = render(<PreviewSection {...props} />);
     latestObserver().emit(false);
     open();
-    fireEvent.click(screen.getByRole('button', { name: '5秒戻る' }));
-    fireEvent.click(screen.getByRole('button', { name: '5秒進む' }));
-    expect(vi.mocked(props.onSeekToTime).mock.calls).toEqual([[3], [13]]);
+    fireEvent.click(miniButton('3秒戻る'));
+    fireEvent.click(miniButton('3秒進む'));
+    expect(vi.mocked(props.onSeekToTime).mock.calls).toEqual([[5], [11]]);
     vi.mocked(props.onSeekToTime).mockClear();
-    rerender(<PreviewSection {...props} currentTime={1} totalDuration={4.5} />);
-    fireEvent.click(screen.getByRole('button', { name: '5秒戻る' }));
-    fireEvent.click(screen.getByRole('button', { name: '5秒進む' }));
+    rerender(<PreviewSection {...props} currentTime={2} totalDuration={4.5} />);
+    fireEvent.click(miniButton('3秒戻る'));
+    fireEvent.click(miniButton('3秒進む'));
     expect(vi.mocked(props.onSeekToTime).mock.calls).toEqual([[0], [4.5]]);
   });
 

@@ -499,3 +499,22 @@ describe('TimelineWaveform の表示条件', () => {
     expect(screen.getByRole('button', { name: '無音区間：前へ' })).toBeDisabled();
   });
 });
+
+describe('TimelineWaveform 音割れの注意', () => {
+  afterEach(() => cleanup());
+
+  it('合成後の振幅が上限付近の区間があれば注意を出し、ボタンでその箇所へ移動する', () => {
+    // 10 秒・10 バケット。4〜5 秒が上限超え
+    const peaks = new Float32Array(10).fill(0.4);
+    peaks[4] = 1.3;
+    const { onSeek } = renderWaveform({ waveform: readyData({ peaks }), currentTime: 1 });
+    expect(screen.getByTestId('timeline-clipping-warning')).toHaveTextContent('音割れの可能性（1か所');
+    fireEvent.click(screen.getByRole('button', { name: '音割れの箇所へ移動' }));
+    expect(onSeek).toHaveBeenCalledWith(4);
+  });
+
+  it('上限に届かなければ注意を出さない', () => {
+    renderWaveform();
+    expect(screen.queryByTestId('timeline-clipping-warning')).not.toBeInTheDocument();
+  });
+});

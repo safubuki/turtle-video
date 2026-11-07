@@ -82,10 +82,10 @@ describe('formatNormalizeAdjustment', () => {
 });
 
 describe('resolveMediaPlaybackVolume', () => {
-  it('ミュートは 0、音量揃えゲインを乗算して 250% でクランプ', () => {
+  it('ミュートは 0、音量揃えゲインを乗算して 300% でクランプ', () => {
     expect(resolveMediaPlaybackVolume({ volume: 1, isMuted: true, audioNormalizeGain: 2 })).toBe(0);
     expect(resolveMediaPlaybackVolume({ volume: 1, audioNormalizeGain: 1.5 })).toBeCloseTo(1.5);
-    expect(resolveMediaPlaybackVolume({ volume: 2, audioNormalizeGain: 2 })).toBe(2.5);
+    expect(resolveMediaPlaybackVolume({ volume: 2, audioNormalizeGain: 2 })).toBe(3);
     expect(resolveMediaPlaybackVolume({ volume: 0.8 })).toBeCloseTo(0.8);
   });
 });

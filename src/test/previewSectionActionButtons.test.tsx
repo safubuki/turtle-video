@@ -111,6 +111,27 @@ afterEach(() => {
 });
 
 describe('PreviewSection action buttons', () => {
+  it('再生・停止の両隣に 3 秒戻る／進むを置き、キャプチャは右端に並べる', () => {
+    const onSeekBy = vi.fn();
+    renderPreviewSection({ currentTime: 4, onSeekBy });
+    const labels = screen.getAllByRole('button')
+      .map((button) => button.getAttribute('aria-label'))
+      .filter((label) => label && /秒戻る|秒進む|プレビューを(停止|再生|一時停止|キャプチャ)/.test(label));
+    expect(labels).toEqual(['3秒戻る', 'プレビューを停止', 'プレビューを再生', '3秒進む', 'プレビューをキャプチャ']);
+    fireEvent.click(screen.getByRole('button', { name: '3秒戻る' }));
+    fireEvent.click(screen.getByRole('button', { name: '3秒進む' }));
+    expect(onSeekBy).toHaveBeenNthCalledWith(1, -3);
+    expect(onSeekBy).toHaveBeenNthCalledWith(2, 3);
+  });
+
+  it('秒送りは先頭と末尾で止まる（onSeekBy が無いときは onSeekToTime へ）', () => {
+    const { props } = renderPreviewSection({ currentTime: 2, totalDuration: 4 });
+    fireEvent.click(screen.getByRole('button', { name: '3秒戻る' }));
+    fireEvent.click(screen.getByRole('button', { name: '3秒進む' }));
+    expect(props.onSeekToTime).toHaveBeenNthCalledWith(1, 0);
+    expect(props.onSeekToTime).toHaveBeenNthCalledWith(2, 4);
+  });
+
   it('連続する画像カードはシークバー上でオレンジ系の濃淡により区切って表示する', () => {
     const imageItems: MediaItem[] = [2, 3, 4].map((duration, index) => ({
       ...mediaItem,

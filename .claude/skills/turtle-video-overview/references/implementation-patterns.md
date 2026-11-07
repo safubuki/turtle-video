@@ -5108,3 +5108,17 @@ export 終了（成功/失敗/中断）
 - **ファイル**: `src/components/common/CaptionFontStyleField.tsx`
 - **問題**: 字体ボタンが等分幅（`flex-1`）だったため、文字数が多く字幅の広い「丸ゴシック」だけ窮屈になっていた。
 - **対策**: ボタンを `flex-auto`（文字幅を基準に余白を配分）＋左右余白 `px-1` にし、「その他」ドロップダウンは `min-w-[3rem] md:min-w-[4.5rem]` で潰れないようにした。スマホ幅（390px）では「その他」の右端がわずかに欠けるが、字体ボタンの文字を優先している。
+
+### 13-290. 音量の上限を 300% へ上げ、合成後の音割れをプレビュー波形で知らせる
+
+- **ファイル**: `src/utils/mediaVolume.ts`（`MEDIA_VOLUME_MAX = 3`）, 音量 clamp を持つ store / export / preview（`audioStore`・`projectStore`・`media.ts`・`export-strategies/types.ts`・`usePreviewAudioSession.ts`・apple-safari `exportEngine.ts`）, 各音量スライダー（`ClipItem`・`BgmClipList`・`BgmSection`・`NarrationSection`）, `src/utils/timelineWaveform.ts`（`detectTimelineClippingRegions`）, `src/components/media/TimelineWaveform.tsx`, 関連テスト
+- **確認（実測）**: 200% は振幅がちょうど 2 倍（プレビュー最大振幅 0.213→0.426、書き出し RMS 比 2.000）。圧縮・リミッター処理は無い。体感で「2 倍に聞こえない」のは、振幅 2 倍＝+6dB に対し体感 2 倍は約 +10dB（振幅約 3 倍）のため。
+- **上限 300%**: 散在していた `2.5` / `max={250}` を `MEDIA_VOLUME_MAX` 参照へ統一（新たに上限を書くときも直書きしない）。300% ≒ +9.5dB。
+- **音割れの注意**: プレビュー波形は全素材を音量込みで合成した PCM（8kHz モノラル）から作っているため、合成後ピークが 0.98 以上のバケットを「音割れの可能性」とし、波形の棒を赤・区間に赤帯、波形下に件数と「音割れの箇所へ」移動ボタンを出す。素材単体ではなく重なりで超える場合も検出できるよう、カード単位ではなくプレビューに出す。
+- **注意**: 判定は間引き波形のため実ピークよりやや低く出る（しきい値 0.98 で補正）。書き出しは AAC エンコード時に上限で切られる。
+
+### 13-291. プレビューの再生操作に 3 秒戻る／進むを追加し、キャプチャを右端へ離す
+
+- **ファイル**: `src/components/sections/PreviewSection.tsx`, `src/test/previewSectionActionButtons.test.tsx`
+- **並び**: [3秒戻る][停止][再生][3秒進む] ｜ [キャプチャ]。秒数は `constants` の `PREVIEW_SKIP_SECONDS = 3`（本体・ミニプレビュー共通）。AI 動画は 1 本 10〜15 秒・2〜3 本で 30 秒前後が中心のため、大移動はシークバー、細かい行き来は 3 秒送り（ユーザー判断。10 秒→5 秒→3 秒と調整）。秒送りは再生操作の両隣（一般的なプレイヤーと同じ）、キャプチャは役割が違うため区切り線で離して右端。
+- **実装**: ミニプレビュー用の `seekFloatingBy`（`onSeekBy` があればそれ、無ければ `onSeekToTime` を 0〜総尺でクランプ）を共用。アイコンはミニプレビューと同じ RotateCcw / RotateCw に秒数を重ねる。書き出し中・読込中・素材なしは無効。

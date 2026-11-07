@@ -26,6 +26,7 @@ import NumericSliderField from '../common/NumericSliderField';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import BgmClipList from './BgmClipList';
 
+import { MEDIA_VOLUME_MAX } from '../../utils/mediaVolume';
 interface BgmSectionProps {
   audioSettingsPanel?: React.ReactNode;
   bulkVolumeEnabled?: boolean;
@@ -262,7 +263,7 @@ const BgmSection: React.FC<BgmSectionProps> = ({
               <NumericSliderField
                 ariaLabel="BGMの音量"
                 min={0}
-                max={250}
+                max={MEDIA_VOLUME_MAX * 100}
                 step={5}
                 value={Math.round(bgm.volume * 100)}
                 onChange={(value) => handleVolumeChange(value / 100)}

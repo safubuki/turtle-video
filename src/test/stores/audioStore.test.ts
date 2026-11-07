@@ -97,8 +97,8 @@ describe('audioStore', () => {
       useAudioStore.setState({ bgm: createMockAudioTrack() });
       const { updateBgmVolume } = useAudioStore.getState();
 
-      updateBgmVolume(3.0);
-      expect(useAudioStore.getState().bgm?.volume).toBe(2.5);
+      updateBgmVolume(4.0);
+      expect(useAudioStore.getState().bgm?.volume).toBe(3);
 
       updateBgmVolume(-0.5);
       expect(useAudioStore.getState().bgm?.volume).toBe(0);
@@ -164,8 +164,8 @@ describe('audioStore', () => {
       updateNarrationVolume(clip.id, 1.5);
       expect(useAudioStore.getState().narrations[0].volume).toBe(1.5);
 
-      updateNarrationVolume(clip.id, 3.0);
-      expect(useAudioStore.getState().narrations[0].volume).toBe(2.5);
+      updateNarrationVolume(clip.id, 4.0);
+      expect(useAudioStore.getState().narrations[0].volume).toBe(3);
     });
 
     it('should toggle narration mute', () => {

@@ -39,6 +39,7 @@ import {
 } from '../../utils/timeStepperInput';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 
+import { MEDIA_VOLUME_MAX } from '../../utils/mediaVolume';
 interface BgmClipListProps {
   audioSettingsPanel?: React.ReactNode;
   bulkVolumeEnabled?: boolean;
@@ -364,7 +365,7 @@ const BgmClipList: React.FC<BgmClipListProps> = ({
                 <NumericSliderField
                   ariaLabel="BGMの音量"
                   min={0}
-                  max={250}
+                  max={MEDIA_VOLUME_MAX * 100}
                   step={5}
                   value={Math.round(clip.volume * 100)}
                   onChange={withContinuousEdit('update-bgm-clip-volume', (val: number) => updateBgmClipVolume(clip.id, val / 100))}

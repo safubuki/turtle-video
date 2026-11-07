@@ -131,15 +131,15 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe.each(controllers)('%s ミニプレビューの連続5秒シーク', (_flavor, useController) => {
+describe.each(controllers)('%s ミニプレビューの連続3秒シーク', (_flavor, useController) => {
   it.each([
-    ['戻る連打', [-5, -5, -5], 10],
-    ['進む連打', [5, 5, 5], 40],
-    ['戻ると進むの交互操作', [5, -5, 5, -5, -5], 20],
+    ['戻る連打', [-3, -3, -3], 16],
+    ['進む連打', [3, 3, 3], 34],
+    ['戻ると進むの交互操作', [3, -3, 3, -3, -3], 22],
   ] as const)('%sで各移動を累積し、最後の位置から一度だけ再開する', (_label, deltas, expected) => {
     const state = renderMini(useController);
     for (const delta of deltas) {
-      fireEvent.click(screen.getByRole('button', { name: delta < 0 ? '5秒戻る' : '5秒進む' }));
+      fireEvent.click(screen.getByRole('button', { name: delta < 0 ? '3秒戻る' : '3秒進む' }));
       act(() => { vi.advanceTimersByTime(20); });
     }
     expect(state.currentTimeRef.current).toBe(expected);
@@ -160,23 +160,23 @@ describe.each(controllers)('%s ミニプレビューの連続5秒シーク', (_f
   it('一時停止中の連打は位置だけを変えて再生を開始しない', () => {
     const state = renderMini(useController, false);
     for (let index = 0; index < 3; index++) {
-      fireEvent.click(screen.getByRole('button', { name: '5秒戻る' }));
+      fireEvent.click(screen.getByRole('button', { name: '3秒戻る' }));
       act(() => { vi.advanceTimersByTime(20); });
     }
     act(() => { vi.advanceTimersByTime(1_000); });
-    expect(state.currentTimeRef.current).toBe(10);
+    expect(state.currentTimeRef.current).toBe(16);
     expect(state.isPlayingRef.current).toBe(false);
     expect(state.isSeekPlaybackPreparingRef.current).toBe(false);
     expect(state.play).not.toHaveBeenCalled();
     expect(state.loop).not.toHaveBeenCalled();
   });
 
-  it('準備中に明示一時停止した後は古い待機や次の5秒操作で再開しない', () => {
+  it('準備中に明示一時停止した後は古い待機や次の3秒操作で再開しない', () => {
     const state = renderMini(useController);
-    fireEvent.click(screen.getByRole('button', { name: '5秒戻る' }));
+    fireEvent.click(screen.getByRole('button', { name: '3秒戻る' }));
     act(() => { vi.advanceTimersByTime(20); });
     fireEvent.click(screen.getByRole('button', { name: 'ミニプレビューを一時停止' }));
-    fireEvent.click(screen.getByRole('button', { name: '5秒進む' }));
+    fireEvent.click(screen.getByRole('button', { name: '3秒進む' }));
     act(() => { vi.advanceTimersByTime(1_000); });
     expect(state.currentTimeRef.current).toBe(25);
     expect(state.isPlayingRef.current).toBe(false);
@@ -189,10 +189,10 @@ describe.each(controllers)('%s ミニプレビューの連続5秒シーク', (_f
   it('遅いデコーダでも最後のシーク完了を待ち、古い準備からは再開しない', () => {
     const state = renderMini(useController);
     state.setSeeking(true);
-    fireEvent.click(screen.getByRole('button', { name: '5秒戻る' }));
+    fireEvent.click(screen.getByRole('button', { name: '3秒戻る' }));
     act(() => { vi.advanceTimersByTime(240); });
     expect(state.play).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: '5秒進む' }));
+    fireEvent.click(screen.getByRole('button', { name: '3秒進む' }));
     act(() => { vi.advanceTimersByTime(240); });
     expect(state.play).not.toHaveBeenCalled();
     state.setSeeking(false);
@@ -207,11 +207,11 @@ describe.each(controllers)('%s ミニプレビューの連続5秒シーク', (_f
   it('iOS Safari の明示的な自動再開禁止を維持する', () => {
     const state = renderMini(useController, true, true);
     for (let index = 0; index < 3; index++) {
-      fireEvent.click(screen.getByRole('button', { name: '5秒戻る' }));
+      fireEvent.click(screen.getByRole('button', { name: '3秒戻る' }));
       act(() => { vi.advanceTimersByTime(20); });
     }
     act(() => { vi.advanceTimersByTime(1_000); });
-    expect(state.currentTimeRef.current).toBe(10);
+    expect(state.currentTimeRef.current).toBe(16);
     expect(state.isPlayingRef.current).toBe(false);
     expect(state.play).not.toHaveBeenCalled();
     expect(state.loop).not.toHaveBeenCalled();

@@ -223,10 +223,11 @@ describe('standard preview volume routing', () => {
       expect(modes[0]).toBe('webaudio');
     });
 
-    it('clamps gain to the 250% ceiling instead of switching routes', () => {
-      // 増幅は経路切替ではなく gain で表現する。上限 250%、下限 0 でクランプされる。
+    it('clamps gain to the 300% ceiling instead of switching routes', () => {
+      // 増幅は経路切替ではなく gain で表現する。上限 300%、下限 0 でクランプされる。
       expect(clampPreviewAudioGain(2.5)).toBe(2.5);
-      expect(clampPreviewAudioGain(9)).toBe(2.5);
+      expect(clampPreviewAudioGain(3)).toBe(3);
+      expect(clampPreviewAudioGain(9)).toBe(3);
       expect(clampPreviewAudioGain(-1)).toBe(0);
     });
 
@@ -246,7 +247,7 @@ describe('standard preview volume routing', () => {
         });
         expect(Number.isFinite(gain)).toBe(true);
         expect(gain).toBeGreaterThanOrEqual(0);
-        expect(gain).toBeLessThanOrEqual(2.5);
+        expect(gain).toBeLessThanOrEqual(3);
       }
     });
   });

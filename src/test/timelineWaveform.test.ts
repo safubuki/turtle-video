@@ -11,6 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildTimelineWaveform,
+  detectTimelineClippingRegions,
   composeTimelinePcm,
   detectTimelineSilences,
   collectSeekBoundaries,
@@ -549,5 +550,22 @@ describe('resolveTimelinePlayheadPercent', () => {
     expect(resolveTimelinePlayheadPercent(5, 0)).toBe(0);
     expect(resolveTimelinePlayheadPercent(Number.NaN, 10)).toBe(0);
     expect(resolveTimelinePlayheadPercent(5, Number.POSITIVE_INFINITY)).toBe(0);
+  });
+});
+
+describe('detectTimelineClippingRegions（音割れの可能性がある区間）', () => {
+  it('上限付近のバケットを区間にし、0.5 秒以内の隙間はまとめる', () => {
+    // 10 秒・10 バケット（1 バケット 1 秒）
+    const peaks = new Float32Array([0.2, 0.99, 1.2, 0.3, 0.3, 0.3, 1.0, 0.1, 0.1, 0.1]);
+    expect(detectTimelineClippingRegions(peaks, 10)).toEqual([
+      { start: 1, end: 3 },
+      { start: 6, end: 7 },
+    ]);
+  });
+
+  it('上限に届かなければ空・長さ 0 も空', () => {
+    expect(detectTimelineClippingRegions(new Float32Array([0.5, 0.97]), 2)).toEqual([]);
+    expect(detectTimelineClippingRegions(new Float32Array([1.5]), 0)).toEqual([]);
+    expect(detectTimelineClippingRegions(new Float32Array([]), 10)).toEqual([]);
   });
 });

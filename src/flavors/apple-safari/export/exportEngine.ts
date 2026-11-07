@@ -44,7 +44,7 @@ import {
   resolveExportAudioBufferOffsetSec,
   resolveExportClipAudioExtractRange,
 } from '../../../utils/exportAudioExtract';
-import { resolveMediaPlaybackVolume } from '../../../utils/mediaVolume';
+import { resolveMediaPlaybackVolume, MEDIA_VOLUME_MAX } from '../../../utils/mediaVolume';
 import { capturePitchPreservedSpeedAudio } from '../../../utils/audioPitchPreservedCapture';
 import {
   extractAndTimeCompressAudioBuffer,
@@ -899,7 +899,7 @@ async function offlineRenderAudio(
     const playDuration = effective.effectivePlayableDuration;
     if (playDuration <= 0) return;
 
-    gain.gain.setValueAtTime(Math.max(0, Math.min(2.5, clip.volume)), clipStart);
+    gain.gain.setValueAtTime(Math.max(0, Math.min(MEDIA_VOLUME_MAX, clip.volume)), clipStart);
     source.start(clipStart, trimStart, playDuration);
     scheduledSources++;
   }

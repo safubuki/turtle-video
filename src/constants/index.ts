@@ -27,6 +27,12 @@ export const CAPTION_FADE_DURATION = 0.5; // 秒
 
 // フェード時間オプション
 export const FADE_DURATION_OPTIONS = [0.5, 1.0, 2.0];
+/**
+ * プレビューの秒送り（戻る／進む）の秒数。本体・ミニプレビュー共通。
+ * AI 動画は 1 本 10〜15 秒で、2〜3 本つないだ 30 秒前後が中心。大きく動くときはシークバー、
+ * 素材の中を細かく行き来するときにこのボタンを使うので 3 秒刻みにする。
+ */
+export const PREVIEW_SKIP_SECONDS = 3;
 export const DEFAULT_FADE_DURATION = 1.0;
 
 // 音量増幅設定

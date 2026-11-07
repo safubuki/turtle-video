@@ -474,3 +474,45 @@ export function resolveTimelinePlayheadPercent(
   }
   return clamp((currentTime / totalDuration) * 100, 0, 100);
 }
+
+/**
+ * 合成後の振幅がこの値以上なら「音割れの可能性あり」とみなす。
+ * 波形は 8kHz モノラルへ間引いた合成なので、実際のピークより少し低く出る。そのぶん 1.0 より手前で判定する。
+ */
+export const TIMELINE_CLIPPING_PEAK_THRESHOLD = 0.98;
+
+export interface TimelineClippingRegion {
+  /** 区間の開始（タイムライン秒） */
+  start: number;
+  /** 区間の終了（タイムライン秒） */
+  end: number;
+}
+
+/**
+ * 波形ピーク（合成後・音量込み）から、音割れの可能性がある区間を求める。
+ * 隣り合う（または 0.5 秒以内の）バケットは 1 区間へまとめる。
+ * 動画・BGM・ナレーションの重なりで超える場合も、合成後の値なので検出できる。
+ */
+export function detectTimelineClippingRegions(
+  peaks: Float32Array | ArrayLike<number>,
+  duration: number,
+  threshold: number = TIMELINE_CLIPPING_PEAK_THRESHOLD,
+  mergeGapSec = 0.5,
+): TimelineClippingRegion[] {
+  const count = peaks.length;
+  if (count === 0 || !(duration > 0)) return [];
+  const bucketSec = duration / count;
+  const regions: TimelineClippingRegion[] = [];
+  for (let b = 0; b < count; b++) {
+    if (!(peaks[b] >= threshold)) continue;
+    const start = b * bucketSec;
+    const end = Math.min(duration, (b + 1) * bucketSec);
+    const last = regions[regions.length - 1];
+    if (last && start - last.end <= mergeGapSec) {
+      last.end = end;
+    } else {
+      regions.push({ start, end });
+    }
+  }
+  return regions;
+}

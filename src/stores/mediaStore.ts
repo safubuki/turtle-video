@@ -919,7 +919,7 @@ export const useMediaStore = create<MediaState>()(
         }));
       },
 
-      // Audio - Volume (max 2.5 = 250%)
+      // Audio - Volume (max MEDIA_VOLUME_MAX = 300%)
       updateVolume: (id, volume) => {
         set((state) => ({
           bulkVideoVolumeEnabled: false,
