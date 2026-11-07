@@ -24,7 +24,9 @@ import { mixToMono } from '../utils/audioWaveform';
 import { resolveMediaPlaybackVolume } from '../utils/mediaVolume';
 import {
   buildTimelineWaveform,
+  resolveClippingFixScales,
   TIMELINE_WAVEFORM_SAMPLE_RATE,
+  type ClippingFixScale,
   type SilenceSourceTarget,
   type TimelinePlacement,
   type TimelineSilenceRegion,
@@ -45,6 +47,11 @@ export interface TimelineWaveformData {
   resolvedSilenceSource: SilenceSourceTarget;
   /** 波形の基準にしたタイムライン長（秒） */
   duration: number;
+  /**
+   * 音割れを解消する音量倍率を求める（この波形と同じ配置・音量で計算する）。
+   * 音割れの「自動調整」ボタン用。fixedIds は調整しない素材（ロック中など）。
+   */
+  resolveClippingFix?: (fixedIds?: ReadonlySet<string>) => ClippingFixScale[];
 }
 
 /** 描画バケット数（波形の横解像度）。ナレーション波形と同じ考え方で固定する。 */
@@ -444,6 +451,10 @@ export function useTimelineWaveform(
             silences: result.silences,
             resolvedSilenceSource: result.silenceSource,
             duration: result.duration,
+            resolveClippingFix: (fixedIds) => resolveClippingFixScales(placements, totalDuration, {
+              endrollBgmFade,
+              fixedIds,
+            }),
           };
           lastReadyRef.current = next;
           setData(next);

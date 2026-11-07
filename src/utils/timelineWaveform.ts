@@ -516,3 +516,114 @@ export function detectTimelineClippingRegions(
   }
   return regions;
 }
+
+/**
+ * 音割れ自動調整で狙う合成後の最大振幅。注意の判定（0.98）のすぐ下に置き、
+ * 「音を大きくしたいが音割れは避けたい」に応えて、音割れしないぎりぎりまでで止める。
+ */
+export const TIMELINE_CLIPPING_FIX_TARGET_PEAK = 0.97;
+
+export interface ClippingFixScale {
+  id: string;
+  kind: WaveformSourceKind;
+  /** 現在の音量に掛ける倍率（0〜1 未満） */
+  scale: number;
+}
+
+/** 配置がタイムライン上で鳴る区間 [start, end) */
+function placementTimelineRange(placement: TimelinePlacement): { start: number; end: number } {
+  const speed = Number.isFinite(placement.playbackSpeed) && (placement.playbackSpeed as number) > 0
+    ? (placement.playbackSpeed as number)
+    : 1;
+  const sourceLength = Math.max(0, placement.sourceEnd - placement.sourceStart);
+  return { start: placement.timelineStart, end: placement.timelineStart + sourceLength / speed };
+}
+
+/**
+ * 音割れを解消する音量倍率を求める（AI を使わない決定的な計算）。
+ *
+ * 合成（音量込み）で上限付近に達した区間ごとに、その区間で鳴っている素材を
+ * **同じ割合**で下げる。合成は線形なので、重なっている素材を一律に f 倍すると合成も f 倍になり、
+ * バランスを保ったまま確実に上限の内側へ収まる。複数区間にまたがる素材は最も小さい倍率を採る。
+ * 下げた結果で合成し直し、残りがあれば繰り返す（下げるだけなので新たな音割れは生まれない）。
+ *
+ * @param placements - 現在の音量で作った配置（波形と同じもの）
+ * @param fixedIds - 調整してはいけない素材（ロック中など）
+ * @returns 下げる必要がある素材と倍率。音割れが無ければ空
+ */
+export function resolveClippingFixScales(
+  placements: TimelinePlacement[],
+  totalDuration: number,
+  options: {
+    endrollBgmFade?: { fadeStartSec: number } | null;
+    fixedIds?: ReadonlySet<string>;
+    targetPeak?: number;
+    sampleRate?: number;
+    maxIterations?: number;
+  } = {},
+): ClippingFixScale[] {
+  const {
+    endrollBgmFade,
+    fixedIds,
+    targetPeak = TIMELINE_CLIPPING_FIX_TARGET_PEAK,
+    sampleRate = TIMELINE_WAVEFORM_SAMPLE_RATE,
+    maxIterations = 4,
+  } = options;
+  const scales = new Map<string, number>();
+  for (const placement of placements) scales.set(placement.id, 1);
+
+  for (let iteration = 0; iteration < maxIterations; iteration++) {
+    const scaled = placements.map((placement) => ({
+      ...placement,
+      volume: placement.volume * (scales.get(placement.id) ?? 1),
+    }));
+    const mixed = composeTimelinePcm(scaled, totalDuration, sampleRate, endrollBgmFade);
+    const samples = mixed.samples;
+    const rate = mixed.sampleRate;
+    const mergeGapSamples = Math.round(0.5 * rate);
+
+    // 上限付近のサンプルを区間にまとめ、区間ごとの最大振幅を取る
+    const regions: Array<{ start: number; end: number; peak: number }> = [];
+    for (let i = 0; i < samples.length; i++) {
+      const amplitude = Math.abs(samples[i]);
+      if (amplitude < TIMELINE_CLIPPING_PEAK_THRESHOLD) continue;
+      const last = regions[regions.length - 1];
+      if (last && i - last.end <= mergeGapSamples) {
+        last.end = i;
+        if (amplitude > last.peak) last.peak = amplitude;
+      } else {
+        regions.push({ start: i, end: i, peak: amplitude });
+      }
+    }
+    if (regions.length === 0) break;
+
+    // 区間ごとの倍率は「この回の合成に使った倍率」を基準に計算し、素材ごとに最小を採る。
+    // （区間ごとに掛け合わせると、音割れ箇所が多いほど必要以上に下がってしまう）
+    const baseScales = new Map(scales);
+    let changed = false;
+    for (const region of regions) {
+      const regionStart = region.start / rate;
+      const regionEnd = (region.end + 1) / rate;
+      const factor = targetPeak / region.peak;
+      for (const placement of scaled) {
+        if (!(placement.volume > 0) || fixedIds?.has(placement.id)) continue;
+        const range = placementTimelineRange(placement);
+        if (range.end <= regionStart || range.start >= regionEnd) continue;
+        const next = (baseScales.get(placement.id) ?? 1) * factor;
+        const current = scales.get(placement.id) ?? 1;
+        if (next < current - 1e-6) {
+          scales.set(placement.id, next);
+          changed = true;
+        }
+      }
+    }
+    if (!changed) break;
+  }
+
+  const result: ClippingFixScale[] = [];
+  for (const placement of placements) {
+    const scale = scales.get(placement.id) ?? 1;
+    if (scale < 0.999) result.push({ id: placement.id, kind: placement.kind, scale });
+  }
+  return result;
+}

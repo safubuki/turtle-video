@@ -33,6 +33,8 @@ import {
 interface TimelineWaveformProps {
   /** 波形データ（TurtleVideo が useTimelineWaveform で生成したもの） */
   waveform: TimelineWaveformData;
+  /** 音割れの自動調整。指定時だけ注意に「音量を自動調整」ボタンを出す（押したときだけ動く） */
+  onFixClipping?: () => void;
   /** プロジェクト全体の長さ（秒）。シークバーの max と同じ値を渡すこと */
   totalDuration: number;
   /** 現在の再生位置（秒） */
@@ -77,6 +79,7 @@ const TimelineWaveform: React.FC<TimelineWaveformProps> = ({
   enabled,
   disabled,
   onSeek,
+  onFixClipping,
   onSeekStart,
   onSeekChange,
   onSeekEnd,
@@ -409,25 +412,45 @@ const TimelineWaveform: React.FC<TimelineWaveformProps> = ({
         <div
           data-testid="timeline-clipping-warning"
           role="status"
-          className="flex flex-wrap items-center gap-1.5 rounded-lg border border-red-500/40 bg-red-950/40 px-2 py-1 text-[10px] text-red-200 md:text-xs"
+          className="space-y-1.5 rounded-lg border border-red-500/40 bg-red-950/40 px-2 py-1.5 text-[10px] text-red-200 md:text-xs"
         >
-          <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-red-300" aria-hidden />
-          <span className="min-w-0 flex-1">
-            音割れの可能性（{clippingRegions.length}か所・波形の赤い部分）。音量を少し下げると解消します。
-          </span>
-          {nextClipping && (
-            <button
-              type="button"
-              onClick={() => onSeek(nextClipping.start)}
-              disabled={disabled}
-              className="flex min-h-7 shrink-0 items-center gap-1 rounded-md border border-red-500/50 bg-red-900/40 px-2 text-red-100 transition hover:bg-red-800/60 disabled:opacity-30"
-              aria-label="音割れの箇所へ移動"
-              title="次の音割れの箇所へ移動"
-            >
-              音割れの箇所へ
-              <ChevronsRight className="h-3.5 w-3.5" />
-            </button>
-          )}
+          {/* 1 段目: 説明（横幅いっぱい）。2 段目: 操作ボタン（狭い画面でも文章が縦長に潰れない） */}
+          <div className="flex items-start gap-1.5">
+            <TriangleAlert className="mt-px h-3.5 w-3.5 shrink-0 text-red-300" aria-hidden />
+            <p className="min-w-0 flex-1 leading-snug">
+              音割れの可能性（{clippingRegions.length}か所・波形の赤い部分）。
+              {onFixClipping && waveform.resolveClippingFix
+                ? '「音量を自動調整」で、音割れしないぎりぎりの音量まで下げます（重なっている音は同じ割合で）。意図的な音割れならそのままで構いません。'
+                : '音量を少し下げると解消します。'}
+            </p>
+          </div>
+          <div className="flex flex-wrap justify-end gap-1.5">
+            {onFixClipping && waveform.resolveClippingFix && (
+              <button
+                type="button"
+                onClick={onFixClipping}
+                disabled={disabled || status !== 'ready'}
+                className="flex min-h-7 shrink-0 items-center gap-1 rounded-md border border-red-400/70 bg-red-700/60 px-2 font-semibold text-white transition hover:bg-red-600/70 disabled:opacity-30"
+                aria-label="音割れしないよう音量を自動調整"
+                title="音割れしている箇所で鳴っている素材の音量を、音割れしないぎりぎりまで下げます"
+              >
+                音量を自動調整
+              </button>
+            )}
+            {nextClipping && (
+              <button
+                type="button"
+                onClick={() => onSeek(nextClipping.start)}
+                disabled={disabled}
+                className="flex min-h-7 shrink-0 items-center gap-1 rounded-md border border-red-500/50 bg-red-900/40 px-2 text-red-100 transition hover:bg-red-800/60 disabled:opacity-30"
+                aria-label="音割れの箇所へ移動"
+                title="次の音割れの箇所へ移動"
+              >
+                音割れの箇所へ
+                <ChevronsRight className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>

@@ -3857,6 +3857,60 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     supportsTimelineWaveform && mediaItems.length > 0,
   );
 
+  // 音割れの自動調整（ボタンを押したときだけ）。音割れしている区間で鳴っている素材を、
+  // 音割れしないぎりぎりの音量まで下げる（重なる素材は同じ割合でバランスを保つ）。
+  // ロック中の素材は変えない。AI は使わない。
+  const handleFixClipping = useCallback(() => {
+    const resolve = timelineWaveform.resolveClippingFix;
+    if (!resolve) return;
+    const media = useMediaStore.getState();
+    const audio = useAudioStore.getState();
+    const fixedIds = new Set<string>();
+    for (const item of media.mediaItems) {
+      if (media.isClipsLocked || item.isLocked) fixedIds.add(item.id);
+    }
+    if (audio.isBgmLocked) audio.bgmClips.forEach((clip) => fixedIds.add(clip.id));
+    if (audio.isNarrationLocked) audio.narrations.forEach((clip) => fixedIds.add(clip.id));
+
+    const scales = resolve(fixedIds);
+    if (scales.length === 0) {
+      showToast(fixedIds.size > 0
+        ? '自動で下げられる素材がありません（ロック中の素材は調整しません）'
+        : '音割れは見つかりませんでした');
+      return;
+    }
+    // 下げた結果が上限を超えないよう、1% 単位で切り捨てる
+    const lowered = (volume: number, scale: number) => Math.max(0, Math.floor(volume * scale * 100) / 100);
+    const percent = (volume: number) => `${Math.round(volume * 100)}%`;
+    const changes: string[] = [];
+    for (const { id, kind, scale } of scales) {
+      if (kind === 'video') {
+        const index = media.mediaItems.findIndex((item) => item.id === id);
+        const item = media.mediaItems[index];
+        if (!item) continue;
+        const next = lowered(item.volume, scale);
+        media.updateVolume(id, next);
+        changes.push(`動画${index + 1} ${percent(item.volume)}→${percent(next)}`);
+      } else if (kind === 'bgm') {
+        const index = audio.bgmClips.findIndex((clip) => clip.id === id);
+        const clip = audio.bgmClips[index];
+        if (!clip) continue;
+        const next = lowered(clip.volume, scale);
+        audio.updateBgmClipVolume(id, next);
+        changes.push(`BGM${index + 1} ${percent(clip.volume)}→${percent(next)}`);
+      } else {
+        const index = audio.narrations.findIndex((clip) => clip.id === id);
+        const clip = audio.narrations[index];
+        if (!clip) continue;
+        const next = lowered(clip.volume, scale);
+        audio.updateNarrationVolume(id, next);
+        changes.push(`ナレーション${index + 1} ${percent(clip.volume)}→${percent(next)}`);
+      }
+    }
+    useLogStore.getState().info('AUDIO', '音割れの自動調整', { changes });
+    showToast(`音割れしないよう音量を下げました（${changes.join('、')}）`, 6000);
+  }, [timelineWaveform, showToast]);
+
   // 移動先には無音区間の開始・終了に加えて動画の先頭（0秒）・末尾も含まれる。
   // タイミング打ちの「読みやすい位置へ調整」ON 時は comfortable モードで余白付き位置へ飛ぶ。
   const handleSeekToSilenceBoundary = useCallback((
@@ -4834,6 +4888,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
                 onSeekToTime={handleSeekToTime}
                 supportsTimelineWaveform={supportsTimelineWaveform}
                 timelineWaveform={timelineWaveform}
+                onFixClipping={handleFixClipping}
                 onTogglePlay={togglePlay}
                 onSeekBy={handleStampSeekBy}
                 onDismissFloatingPreview={handleDismissFloatingPreview}

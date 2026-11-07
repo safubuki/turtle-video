@@ -166,6 +166,8 @@ interface PreviewSectionProps {
   onSeekEnd: () => void;
   /** 波形タップ・無音区間ジャンプからの絶対時刻シーク（Issue #217） */
   onSeekToTime: (time: number) => void;
+  /** 音割れの自動調整（音割れの注意に「音量を自動調整」ボタンを出す） */
+  onFixClipping?: () => void;
   /**
    * シークバー直下の音量波形を出せる環境か。
    * iOS Safari は decodeAudioData が不安定なため false（波形なしで従来どおり動く）。
@@ -229,6 +231,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   onSeekStart,
   onSeekEnd,
   onSeekToTime,
+  onFixClipping,
   supportsTimelineWaveform,
   timelineWaveform,
   onTogglePlay,
@@ -934,6 +937,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
           enabled={supportsTimelineWaveform && mediaItems.length > 0}
           disabled={isProcessing}
           onSeek={onSeekToTime}
+          onFixClipping={onFixClipping}
           onSeekStart={onSeekStart}
           onSeekChange={applyProtectedSeekValue}
           onSeekEnd={onSeekEnd}

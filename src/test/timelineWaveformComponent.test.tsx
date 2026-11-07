@@ -518,3 +518,34 @@ describe('TimelineWaveform 音割れの注意', () => {
     expect(screen.queryByTestId('timeline-clipping-warning')).not.toBeInTheDocument();
   });
 });
+
+describe('TimelineWaveform 音割れの自動調整ボタン', () => {
+  afterEach(() => cleanup());
+
+  it('自動調整が使えるときだけボタンを出し、押したときだけ調整を呼ぶ', () => {
+    const peaks = new Float32Array(10).fill(0.4);
+    peaks[4] = 1.3;
+    const onFixClipping = vi.fn();
+    const { rerender } = renderWaveform({
+      waveform: readyData({ peaks, resolveClippingFix: () => [] }),
+      onFixClipping,
+    });
+    expect(onFixClipping).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '音割れしないよう音量を自動調整' }));
+    expect(onFixClipping).toHaveBeenCalledTimes(1);
+
+    // 自動調整の計算が無い（波形データ未対応）ときはボタンを出さない
+    rerender(
+      <TimelineWaveform
+        waveform={readyData({ peaks })}
+        totalDuration={TOTAL_DURATION}
+        currentTime={0}
+        enabled
+        disabled={false}
+        onSeek={vi.fn()}
+        onFixClipping={onFixClipping}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: '音割れしないよう音量を自動調整' })).not.toBeInTheDocument();
+  });
+});

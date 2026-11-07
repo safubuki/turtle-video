@@ -5122,3 +5122,11 @@ export 終了（成功/失敗/中断）
 - **ファイル**: `src/components/sections/PreviewSection.tsx`, `src/test/previewSectionActionButtons.test.tsx`
 - **並び**: [3秒戻る][停止][再生][3秒進む] ｜ [キャプチャ]。秒数は `constants` の `PREVIEW_SKIP_SECONDS = 3`（本体・ミニプレビュー共通）。AI 動画は 1 本 10〜15 秒・2〜3 本で 30 秒前後が中心のため、大移動はシークバー、細かい行き来は 3 秒送り（ユーザー判断。10 秒→5 秒→3 秒と調整）。秒送りは再生操作の両隣（一般的なプレイヤーと同じ）、キャプチャは役割が違うため区切り線で離して右端。
 - **実装**: ミニプレビュー用の `seekFloatingBy`（`onSeekBy` があればそれ、無ければ `onSeekToTime` を 0〜総尺でクランプ）を共用。アイコンはミニプレビューと同じ RotateCcw / RotateCw に秒数を重ねる。書き出し中・読込中・素材なしは無効。
+
+### 13-292. 音割れの「音量を自動調整」（押したときだけ・AI 不使用）
+
+- **ファイル**: `src/utils/timelineWaveform.ts`（`resolveClippingFixScales` / `TIMELINE_CLIPPING_FIX_TARGET_PEAK = 0.97`）, `src/hooks/useTimelineWaveform.ts`（`TimelineWaveformData.resolveClippingFix`）, `src/components/TurtleVideo.tsx`（`handleFixClipping`）, `src/components/sections/PreviewSection.tsx`, `src/components/media/TimelineWaveform.tsx`, 関連テスト
+- **仕様**: 音割れの注意に「音量を自動調整」ボタンを出す。押したときだけ、音割れ区間で鳴っている素材（動画・BGM・ナレーション）を**音割れしないぎりぎり**（合成後の最大振幅 0.97・判定 0.98 のすぐ下）まで下げる。重なる素材は同じ割合で下げてバランスを保つ。目的は「音を大きくしたいが音割れは避けたい」なので、必要以上に下げない。押さなければ何もしない（意図的な音割れを尊重）。
+- **計算**: 波形と同じ配置（音量込み・8kHz モノラル合成）で、上限付近（0.98）の区間ごとに、**その回の合成に使った倍率を基準に** `0.97 / 区間ピーク` を掛けた値を候補とし、素材ごとに最小を採る。**区間ごとに掛け合わせない**（初版はここで倍率を累積させ、音割れ箇所が多いほど下がりすぎた: 300%→92%）。合成し直して残りがあれば最大 4 回繰り返す。合成は線形なので一律倍率で確実に下がり、バランスも保てる。
+- **適用**: 個別音量を 1% 単位で切り捨てて設定（動画 `updateVolume` / BGM `updateBgmClipVolume` / ナレーション `updateNarrationVolume`。一括音量は個別編集と同じく OFF になる）。ロック中（クリップ個別・セクション）の素材は変えない。結果はトーストで「動画1 300%→114%」のように表示し、ログにも残す。
+- **検証**: 実アプリで kling 動画（180% まで注意なし・182% から注意）を 300% / 240% / 182% から押すと、いずれも 179% で止まり注意が消える。

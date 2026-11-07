@@ -12,6 +12,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildTimelineWaveform,
   detectTimelineClippingRegions,
+  resolveClippingFixScales,
   composeTimelinePcm,
   detectTimelineSilences,
   collectSeekBoundaries,
@@ -567,5 +568,51 @@ describe('detectTimelineClippingRegions（音割れの可能性がある区間�
     expect(detectTimelineClippingRegions(new Float32Array([0.5, 0.97]), 2)).toEqual([]);
     expect(detectTimelineClippingRegions(new Float32Array([1.5]), 0)).toEqual([]);
     expect(detectTimelineClippingRegions(new Float32Array([]), 10)).toEqual([]);
+  });
+});
+
+describe('resolveClippingFixScales（音割れの自動調整）', () => {
+  it('音割れ区間で重なっている素材を同じ割合で下げ、合成後の最大振幅を目標以下にする', () => {
+    // 0〜4 秒: 動画 0.6×1.5=0.9 と BGM 0.5×1=0.5 が重なり、合成 1.4 で音割れ
+    const video = placement({ id: 'v', kind: 'video', pcm: buildConstantPcm(0.6, 4), volume: 1.5 });
+    const bgm = placement({ id: 'b', kind: 'bgm', pcm: buildConstantPcm(0.5, 4), volume: 1 });
+    const fixes = resolveClippingFixScales([video, bgm], 4);
+    expect(fixes.map((f) => f.id).sort()).toEqual(['b', 'v']);
+    const scaleOf = (id: string) => fixes.find((f) => f.id === id)!.scale;
+    // 同じ割合で下げる（バランスを保つ）
+    expect(scaleOf('v')).toBeCloseTo(scaleOf('b'), 6);
+    const fixed = composeTimelinePcm([
+      { ...video, volume: video.volume * scaleOf('v') },
+      { ...bgm, volume: bgm.volume * scaleOf('b') },
+    ], 4);
+    expect(Math.max(...Array.from(fixed.samples as Float32Array, Math.abs))).toBeLessThanOrEqual(0.9701);
+  });
+
+  it('音割れ区間で鳴っていない素材とロック中の素材は変えない', () => {
+    // 動画は 0〜2 秒だけ大きい。ナレーションは 3〜4 秒（重ならない）
+    const video = placement({ id: 'v', kind: 'video', pcm: buildConstantPcm(0.8, 2), sourceEnd: 2, volume: 2 });
+    const narration = placement({ id: 'n', kind: 'narration', pcm: buildConstantPcm(0.5, 1), sourceEnd: 1, timelineStart: 3 });
+    const fixes = resolveClippingFixScales([video, narration], 4);
+    expect(fixes.map((f) => f.id)).toEqual(['v']);
+    expect(fixes[0].scale).toBeCloseTo(0.97 / 1.6, 4);
+    expect(resolveClippingFixScales([video, narration], 4, { fixedIds: new Set(['v']) })).toEqual([]);
+  });
+
+  it('音割れ箇所が複数あっても倍率を掛け合わせず、一番大きく下げる必要がある箇所に合わせる（ぎりぎりで止める）', () => {
+    // 0〜1 秒: 振幅 0.6、2〜3 秒: 振幅 0.5、4〜5 秒: 振幅 0.55。音量 300% で 3 か所とも音割れ
+    const pcm = buildPcm([
+      { from: 0, to: 1, amp: 0.6 },
+      { from: 2, to: 3, amp: 0.5 },
+      { from: 4, to: 5, amp: 0.55 },
+    ], 5);
+    const peak = Math.max(...Array.from(pcm.samples as Float32Array, Math.abs));
+    const fixes = resolveClippingFixScales([placement({ id: 'v', kind: 'video', pcm, sourceEnd: 5, volume: 3 })], 5);
+    // 最大振幅 0.6 の箇所だけで決まる: 3 × scale × 0.6 = 0.97
+    expect(fixes[0].scale).toBeCloseTo(0.97 / (3 * peak), 4);
+    expect(3 * fixes[0].scale).toBeGreaterThan(1.6); // 300% → 約 162%（掛け合わせると 100% 未満まで下がっていた）
+  });
+
+  it('音割れが無ければ何も変えない', () => {
+    expect(resolveClippingFixScales([placement({ pcm: buildConstantPcm(0.5, 4) })], 4)).toEqual([]);
   });
 });
