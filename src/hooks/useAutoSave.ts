@@ -169,6 +169,9 @@ export function useAutoSave() {
         m.isTransformOpen,
         m.isLocked,
         m.transitionToNext ? `${m.transitionToNext.type}@${m.transitionToNext.duration}` : '',
+        m.splitCompareToNext
+          ? `${m.splitCompareToNext.layout}/${m.splitCompareToNext.divider}/${m.splitCompareToNext.fit}/${m.splitCompareToNext.lineColor}`
+          : '',
         m.thumbnailMode ?? 'auto',
         m.thumbnailSourceTime ?? '',
         m.playbackSpeed ?? 1,

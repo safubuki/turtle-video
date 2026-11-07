@@ -1,6 +1,7 @@
 import { useCallback, type MutableRefObject } from 'react';
 
 import type { MediaElementsRef, MediaItem } from '../../../types';
+import { getSplitComparePairForIndex } from '../../../utils/splitCompare';
 import {
   shouldAvoidPauseInactiveVideoInPreview,
   type PreviewPlatformPolicy,
@@ -32,7 +33,15 @@ export function useInactiveVideoManager({
   previewPlatformPolicy,
 }: UseInactiveVideoManagerParams): UseInactiveVideoManagerResult {
   const resetInactiveVideos = useCallback((options?: ResetInactiveVideosOptions) => {
-    for (const item of mediaItemsRef.current) {
+    // 並べて比較のペアの相手は active と同時に流れる peer。先頭へ巻き戻さない。
+    const items = mediaItemsRef.current;
+    const activeIndex = items.findIndex((item) => item.id === activeVideoIdRef.current);
+    const activePair = activeIndex >= 0 ? getSplitComparePairForIndex(items, activeIndex) : null;
+    const comparePeerId = activePair
+      ? items[activeIndex === activePair.headIndex ? activePair.partnerIndex : activePair.headIndex]?.id ?? null
+      : null;
+    for (const item of items) {
+      if (item.id === comparePeerId) continue;
       if (item.type === 'video' && item.id !== activeVideoIdRef.current) {
         const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement | undefined;
         if (!videoEl) {

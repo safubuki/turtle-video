@@ -89,7 +89,8 @@ import type {
 import { clampAudioTrackVolume } from '../../../hooks/export-strategies/types';
 import {
   computeTransitionTimelineRanges,
-  getClipOverlapToNext,
+  getTimelineAdvanceForItem,
+  getTimelineOverlapToNext,
 } from '../../../utils/transitionTimeline';
 import {
   canAttemptAlphaWebmExport,
@@ -886,12 +887,13 @@ async function offlineRenderAudio(
         // ディゾルブ(重ねる)の音声クロスフェード（プレビューと同じ聴こえ方にする）。
         // 既存のクリップフェードと重複した場合はランプが上書きされるが、併用は稀なため近似として許容する。
         const rangeIndex = mediaRange?.index ?? -1;
+        // 並べて比較のペアは重ならない扱い（両方を通常音量で同時に鳴らす）
         const overlapOutSec =
           rangeIndex >= 0 && rangeIndex < mediaItems.length - 1
-            ? getClipOverlapToNext(item, mediaItems[rangeIndex + 1])
+            ? getTimelineOverlapToNext(mediaItems, rangeIndex)
             : 0;
         const overlapInSec =
-          rangeIndex > 0 ? getClipOverlapToNext(mediaItems[rangeIndex - 1], item) : 0;
+          rangeIndex > 0 ? getTimelineOverlapToNext(mediaItems, rangeIndex - 1) : 0;
         if (overlapInSec > 0) {
           gain.gain.setValueAtTime(0, clipStart);
           gain.gain.linearRampToValueAtTime(vol, clipStart + overlapInSec);
@@ -959,11 +961,9 @@ async function offlineRenderAudio(
     }
     {
       const advanceRange = mediaRangeByItemId.get(item.id);
-      const advanceOverlap =
-        advanceRange && advanceRange.index < mediaItems.length - 1
-          ? getClipOverlapToNext(item, mediaItems[advanceRange.index + 1])
-          : 0;
-      timelinePosition = (advanceRange?.start ?? timelinePosition) + item.duration - advanceOverlap;
+      timelinePosition = advanceRange
+        ? advanceRange.start + getTimelineAdvanceForItem(mediaItems, advanceRange.index)
+        : timelinePosition + item.duration;
     }
   }
 

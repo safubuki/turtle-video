@@ -108,6 +108,17 @@ export function buildProjectDiagnostics(input: ProjectDiagnosticsInput) {
       fadeOut: fadeSeconds(item.fadeOut, item.fadeOutDuration),
       // 次のクリップへのつなぎ方
       transition,
+      // 次のクリップと並べて同時再生（比較）。設定時のみ出す
+      ...(item.splitCompareToNext && hasNext
+        ? {
+          compareWithNext: {
+            layout: item.splitCompareToNext.layout,
+            divider: item.splitCompareToNext.divider,
+            fit: item.splitCompareToNext.fit,
+            line: item.splitCompareToNext.lineColor,
+          },
+        }
+        : {}),
     };
   });
 

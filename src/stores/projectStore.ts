@@ -50,6 +50,7 @@ import { normalizeMediaBlur, normalizeRotation } from '../utils/canvas';
 import { normalizeVideoTitleSettings } from '../utils/videoTitle';
 import { normalizeWatermarkOverlay } from '../utils/watermarkOverlay';
 import { normalizeEndrollOverlay } from '../utils/endrollOverlay';
+import { normalizeSplitCompareSettings } from '../utils/splitCompare';
 import { compactSaveThumbnail } from '../utils/saveThumbnail';
 import { getEndrollDuration } from '../utils/endrollOverlay';
 import {
@@ -523,6 +524,7 @@ async function serializeMediaItem(item: MediaItem): Promise<SerializedMediaItem>
     sourceWidth: item.sourceWidth,
     sourceHeight: item.sourceHeight,
     transitionToNext: item.transitionToNext ?? null,
+    splitCompareToNext: normalizeSplitCompareSettings(item.splitCompareToNext),
     thumbnailMode: item.type === 'video'
       ? (item.thumbnailMode === 'manual' ? 'manual' : 'auto')
       : undefined,
@@ -619,6 +621,7 @@ function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
     sourceWidth: data.sourceWidth,
     sourceHeight: data.sourceHeight,
     transitionToNext: data.transitionToNext ?? null,
+    splitCompareToNext: normalizeSplitCompareSettings(data.splitCompareToNext),
     thumbnailMode,
     thumbnailSourceTime,
     playbackSpeed,

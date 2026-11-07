@@ -320,6 +320,9 @@ export const useMediaStore = create<MediaState>()(
             url: URL.createObjectURL(source.file),
             isTransformOpen: false,
             isLocked: false,
+            // 並べて比較はカード間の設定。直後へ挿入するコピーまで持つと、
+            // 元のペアの相手が入れ替わってしまうため引き継がない。
+            splitCompareToNext: null,
           };
           useLogStore.getState().info('MEDIA', 'メディアアイテムを複製', {
             sourceId: source.id,
@@ -376,6 +379,8 @@ export const useMediaStore = create<MediaState>()(
             }),
             thumbnailMode: thumbnail.thumbnailMode,
             thumbnailSourceTime: thumbnail.thumbnailSourceTime,
+            // 並べて比較のペアの相手を入れ替えないよう、続きクリップへは引き継がない
+            splitCompareToNext: null,
             ...createMediaZoomHoldPatch(source),
           };
           useLogStore.getState().info('MEDIA', '続きクリップを追加', {
@@ -424,9 +429,23 @@ export const useMediaStore = create<MediaState>()(
           const targetIndex = direction === 'up' ? index - 1 : index + 1;
           if (targetIndex < 0 || targetIndex >= items.length) return state;
           [items[index], items[targetIndex]] = [items[targetIndex], items[index]];
+          // カード間の設定（トランジション・並べて比較）は「何枚目と何枚目の間」に属する。
+          // カードを入れ替えても、つなぎ方はその位置に残す（カードと一緒に動かさない）。
+          for (const slot of [index, targetIndex]) {
+            const original = state.mediaItems[slot];
+            items[slot] = {
+              ...items[slot],
+              transitionToNext: original.transitionToNext ?? null,
+              splitCompareToNext: original.splitCompareToNext ?? null,
+            };
+          }
+          // ディゾルブの重なり（両クリップ長でクランプ）や比較ペアの長さ（長いほう）は
+          // 並びで変わるため、総尺も取り直す。
+          const totalDuration = calculateTotalDuration(items);
           return {
             mediaItems: items,
-            ...autoPosterPatchIfLeadingClipChanged(state, items, state.totalDuration),
+            totalDuration,
+            ...autoPosterPatchIfLeadingClipChanged(state, items, totalDuration),
           };
         });
       },
@@ -745,6 +764,7 @@ export const useMediaStore = create<MediaState>()(
             duration: localTimeSec,
             fadeOut: false,
             transitionToNext: null,
+            splitCompareToNext: null,
             ...makeThumbnail(source.trimStart, splitTime),
             ...createMediaZoomRangePatch(range.start, splitScale),
           };

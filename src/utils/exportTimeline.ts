@@ -269,6 +269,14 @@ export interface ExportCanvasCaptureDecisionInput {
   presentedFrameId: number | null;
   /** 直前スナップショット時の presentedFrameId */
   lastCapturedPresentedFrameId: number | null;
+  /**
+   * 並べて比較で同時に流しているもう一方の動画（peer）の提示フレーム識別子。
+   * 指定したとき（null/undefined 以外）は、active と同じく peer にも新しい提示が来るまで
+   * 1 rAF だけ見送る。peer だけ提示の合間に焼かれて「止まって飛ぶ」のを防ぐ（13-285）。
+   */
+  peerPresentedFrameId?: number | null;
+  /** 直前スナップショット時の peerPresentedFrameId（peer が変わったら null） */
+  lastCapturedPeerPresentedFrameId?: number | null;
 }
 
 export interface ExportCanvasCaptureDecision {
@@ -301,7 +309,8 @@ export function resolveExportCanvasCaptureDecision(
     return { action: 'reuse', nextDeferredCurrentIndex: false };
   }
 
-  if (!input.hasActiveVideo || lastCapturedIndex === null || input.videoNearEnd) {
+  const hasPeerVideo = input.peerPresentedFrameId !== null && input.peerPresentedFrameId !== undefined;
+  if ((!input.hasActiveVideo && !hasPeerVideo) || lastCapturedIndex === null || input.videoNearEnd) {
     return { action: 'capture', nextDeferredCurrentIndex: false };
   }
 
@@ -309,10 +318,15 @@ export function resolveExportCanvasCaptureDecision(
     return { action: 'capture', nextDeferredCurrentIndex: false };
   }
 
-  const presentedChanged =
+  const activeChanged = !input.hasActiveVideo || (
     input.presentedFrameId !== null
-    && input.presentedFrameId !== input.lastCapturedPresentedFrameId;
-  if (presentedChanged) {
+    && input.presentedFrameId !== input.lastCapturedPresentedFrameId
+  );
+  const peerChanged = !hasPeerVideo
+    || input.lastCapturedPeerPresentedFrameId === null
+    || input.lastCapturedPeerPresentedFrameId === undefined
+    || input.peerPresentedFrameId !== input.lastCapturedPeerPresentedFrameId;
+  if (activeChanged && peerChanged) {
     return { action: 'capture', nextDeferredCurrentIndex: false };
   }
 

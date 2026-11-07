@@ -738,16 +738,17 @@ export function buildAutoProjectPosterContentKey(
     | 'blur'
     | 'playbackSpeed'
     | 'transitionToNext'
-  >>,
+  > & Partial<Pick<MediaItem, 'splitCompareToNext'>>>,
   totalDuration: number,
   aspectRatio: string,
 ): string {
   const durationKey = Number.isFinite(totalDuration) ? totalDuration : 0;
   const itemKeys = items.map((item) => {
     const transition = item.transitionToNext;
-    const transitionKey = transition
+    const compare = item.splitCompareToNext;
+    const transitionKey = (transition
       ? `${transition.type}:${transition.duration}`
-      : '';
+      : '') + (compare ? `|cmp:${compare.layout}:${compare.divider}:${compare.fit}:${compare.lineColor}` : '');
     return [
       item.id,
       item.type,
@@ -790,7 +791,7 @@ export function resolveAutoProjectPosterCaptureTime(totalDuration: number): numb
 }
 
 type AutoPosterTimelineItem = Pick<MediaItem, 'id' | 'type' | 'duration' | 'transitionToNext'>
-  & Partial<Pick<MediaItem, 'trimStart' | 'trimEnd' | 'playbackSpeed'>>;
+  & Partial<Pick<MediaItem, 'trimStart' | 'trimEnd' | 'playbackSpeed' | 'splitCompareToNext'>>;
 
 function resolveAutoPosterActiveItem(
   items: ReadonlyArray<AutoPosterTimelineItem>,

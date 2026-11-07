@@ -62,9 +62,11 @@ import {
   drawSpeedBadgeFrame,
   resolveExportTimelineWallDivisorForItem,
   resolveSpeedAwareVideoSyncThresholdSec,
+  normalizeVideoPlaybackSpeed,
   resolveVideoCatchUpPlaybackRate,
   resolveVideoSafeEndSourceTime,
   resolveVideoSourceTime,
+  VIDEO_CATCH_UP_MAX_DRIFT_SEC,
   wallDeltaToExportTimelineDelta,
 } from '../../../utils/playbackSpeed';
 import { resolveMediaPlaybackVolume } from '../../../utils/mediaVolume';
@@ -75,9 +77,19 @@ import {
 import {
   computeTransitionTimelineRanges,
   findActiveTimelineItemWithTransitions,
-  getClipOverlapToNext,
   getTimelineAdvanceForItem,
+  getTimelineOverlapToNext,
 } from '../../../utils/transitionTimeline';
+import {
+  clipToSplitCompareRegion,
+  drawSplitCompareDivider,
+  getSplitComparePairForIndex,
+  resolveSplitCompareGeometry,
+  resolveSplitComparePeerFadeAlpha,
+  resolveSplitCompareRoles,
+  type SplitCompareGeometry,
+  type SplitCompareRegion,
+} from '../../../utils/splitCompare';
 import type { LogCategory } from '../../../stores/logStore';
 import { useMediaStore } from '../../../stores';
 import {
@@ -400,6 +412,10 @@ const findNextVideoItem = (items: MediaItem[], activeIndex: number): MediaItem |
 
 // HTMLMediaElement.HAVE_METADATA: currentTime を安全に合わせ直せる最小 readyState。
 const MIN_VIDEO_READY_STATE_FOR_SEEK = 1;
+/** 並べて比較の peer の控えコマを再生中に取り直す間隔 */
+const SPLIT_COMPARE_PEER_SNAPSHOT_INTERVAL_MS = 200;
+/** 控えコマの最大幅（px）。プレビュー領域の半分程度で足りるので縮小して持つ */
+const SPLIT_COMPARE_PEER_SNAPSHOT_MAX_WIDTH = 960;
 // HTMLMediaElement.HAVE_CURRENT_DATA: canvas 描画と play retry を始められる最小 readyState。
 const MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME = 2;
 // 再生開始前に許容する currentTime のずれ。既存 preview sync しきい値より厳しく合わせる。
@@ -1206,6 +1222,8 @@ export function usePreviewEngine({
   const exportLastCapturedIndexRef = useRef<number | null>(null);
   const exportCaptureDeferredIndexRef = useRef<number | null>(null);
   const exportLastCapturedPresentedFrameIdRef = useRef<number | null>(null);
+  // 並べて比較の peer について、直前スナップショット時の提示数（peer が変わったら捨てる）
+  const exportLastCapturedPeerPresentedRef = useRef<{ videoId: string; frames: number } | null>(null);
   const exportRvfcStateRef = useRef<{
     video: HTMLVideoElement | null;
     videoId: string | null;
@@ -1309,6 +1327,7 @@ export function usePreviewEngine({
     exportLastCapturedIndexRef.current = null;
     exportCaptureDeferredIndexRef.current = null;
     exportLastCapturedPresentedFrameIdRef.current = null;
+    exportLastCapturedPeerPresentedRef.current = null;
     exportFrameSnapshotRingRef.current.clear();
     exportRvfcStateRef.current.presentedFrames = null;
     exportRvfcStateRef.current.mediaTimeSec = null;
@@ -1915,6 +1934,55 @@ export function usePreviewEngine({
     });
   };
 
+  // 並べて比較の peer（同時に流すもう一方の動画）の直前のコマの控え。
+  // シーク中で描けないフレームに領域が黒く抜けないよう、最後に描けたコマで埋める。
+  // 停止中・シーク中は毎回、再生中は間引いて取り直す（縮小して保持し負荷を抑える）。
+  const splitComparePeerSnapshotRef = useRef<Record<string, {
+    canvas: HTMLCanvasElement;
+    width: number;
+    height: number;
+    capturedAtMs: number;
+  }>>({});
+  const captureSplitComparePeerSnapshot = (
+    id: string,
+    videoEl: HTMLVideoElement,
+    force: boolean,
+  ) => {
+    const vw = videoEl.videoWidth;
+    const vh = videoEl.videoHeight;
+    if (!vw || !vh) return;
+    const now = Date.now();
+    const existing = splitComparePeerSnapshotRef.current[id];
+    if (!force && existing && now - existing.capturedAtMs < SPLIT_COMPARE_PEER_SNAPSHOT_INTERVAL_MS) return;
+    const scale = Math.min(1, SPLIT_COMPARE_PEER_SNAPSHOT_MAX_WIDTH / vw);
+    const sw = Math.max(1, Math.round(vw * scale));
+    const sh = Math.max(1, Math.round(vh * scale));
+    let canvas = existing?.canvas;
+    if (!canvas) {
+      canvas = document.createElement('canvas');
+    }
+    if (canvas.width !== sw || canvas.height !== sh) {
+      canvas.width = sw;
+      canvas.height = sh;
+    }
+    const snapshotCtx = canvas.getContext('2d');
+    if (!snapshotCtx) return;
+    try {
+      snapshotCtx.drawImage(videoEl, 0, 0, sw, sh);
+    } catch {
+      return;
+    }
+    // 消えたカードの控えは捨てる（比較ペアは高々数組）
+    const ids = Object.keys(splitComparePeerSnapshotRef.current);
+    if (ids.length > 4) {
+      const liveIds = new Set(mediaItemsRef.current.map((item) => item.id));
+      for (const staleId of ids) {
+        if (!liveIds.has(staleId)) delete splitComparePeerSnapshotRef.current[staleId];
+      }
+    }
+    splitComparePeerSnapshotRef.current[id] = { canvas, width: vw, height: vh, capturedAtMs: now };
+  };
+
   const renderFrame = useCallback(
     (time: number, isActivePlaying = false, _isExporting = false) => {
       let previousSmoothingEnabled: boolean | undefined;
@@ -2026,11 +2094,13 @@ export function usePreviewEngine({
         let overlapCrossInAlpha: number | null = null;
         let overlapAudioCrossIn: number | null = null;
         let overlapAudioCrossOut = 0;
+        // 並べて比較の役割（ペアの前後・ペア内はディゾルブしない）
+        const splitCompareRoles = resolveSplitCompareRoles(currentItems);
         if (!zoomPreview && activeId && activeIndex > 0) {
           const prevOverlapItem = currentItems[activeIndex - 1];
           const prevOverlapRange = timelineRanges.get(prevOverlapItem.id);
           const activeOverlapRange = timelineRanges.get(activeId);
-          const overlapSec = getClipOverlapToNext(prevOverlapItem, currentItems[activeIndex]);
+          const overlapSec = getTimelineOverlapToNext(currentItems, activeIndex - 1, splitCompareRoles);
           if (
             overlapSec > 0
             && prevOverlapRange
@@ -2045,6 +2115,63 @@ export function usePreviewEngine({
             overlapCrossInAlpha = overlapRatio;
             overlapAudioCrossIn = overlapRatio;
             overlapAudioCrossOut = 1 - overlapRatio;
+          }
+        }
+        // 並べて比較のペアは 1 つの区間として扱う。「次のカード」はペアの後ろ、
+        // 「最後のカード」はペアの partner が最後のとき（短いほうが終わっても head は最後まで流れる）。
+        const activeGroupComparePair = activeIndex >= 0
+          ? getSplitComparePairForIndex(currentItems, activeIndex, splitCompareRoles)
+          : null;
+        const activeGroupNextIndex = activeGroupComparePair
+          ? activeGroupComparePair.partnerIndex + 1
+          : activeIndex + 1;
+        const activeGroupNextItemType = activeIndex >= 0 && activeGroupNextIndex < currentItems.length
+          ? currentItems[activeGroupNextIndex]?.type ?? null
+          : null;
+        const isActiveGroupLast = activeIndex >= 0 && activeGroupNextIndex >= currentItems.length;
+        // === 並べて比較（同時再生）の判定 ===
+        // active がペアの一員なら、もう一方を peer として同時に描画・再生する。
+        // active は後勝ち（partner の区間中は partner、短い partner が終わった後は head）。
+        // peer が自分の区間を過ぎていれば最後のコマで止めて表示し続ける。
+        let splitCompareFrame: {
+          geometry: SplitCompareGeometry;
+          fit: 'cover' | 'contain';
+          regionById: Map<string, SplitCompareRegion>;
+          peerFinished: boolean;
+        } | null = null;
+        if (!zoomPreview && activeId && activeIndex >= 0) {
+          const comparePair = getSplitComparePairForIndex(currentItems, activeIndex, splitCompareRoles);
+          if (comparePair) {
+            const otherIndex = activeIndex === comparePair.headIndex
+              ? comparePair.partnerIndex
+              : comparePair.headIndex;
+            const otherItem = currentItems[otherIndex];
+            const otherRange = otherItem ? timelineRanges.get(otherItem.id) : undefined;
+            if (otherItem && otherRange) {
+              const otherDuration = Math.max(0, otherItem.duration || 0);
+              const rawOtherLocalTime = time - otherRange.start;
+              const geometry = resolveSplitCompareGeometry(
+                comparePair.settings,
+                ctx.canvas.width,
+                ctx.canvas.height,
+              );
+              const headItem = currentItems[comparePair.headIndex];
+              const partnerItem = currentItems[comparePair.partnerIndex];
+              splitCompareFrame = {
+                geometry,
+                fit: comparePair.settings.fit,
+                regionById: new Map([
+                  [headItem.id, geometry.regions[0]],
+                  [partnerItem.id, geometry.regions[1]],
+                ]),
+                peerFinished: rawOtherLocalTime >= otherDuration - 0.001,
+              };
+              overlapPeerId = otherItem.id;
+              overlapPeerLocalTime = Math.max(0, Math.min(rawOtherLocalTime, Math.max(0, otherDuration - 0.001)));
+              overlapCrossInAlpha = null;
+              overlapAudioCrossIn = null;
+              overlapAudioCrossOut = 1;
+            }
           }
         }
 
@@ -2188,7 +2315,7 @@ export function usePreviewEngine({
               const isTimelineEnd =
                 totalDurationRef.current > 0 &&
                 time >= totalDurationRef.current - PREVIEW_END_THRESHOLD_SEC;
-              const isLastTimelineItem = activeIndex === currentItems.length - 1;
+              const isLastTimelineItem = isActiveGroupLast;
               const isNearTimelineEnd =
                 totalDurationRef.current > 0 &&
                 time >= totalDurationRef.current - 0.05;
@@ -2328,6 +2455,8 @@ export function usePreviewEngine({
                 // フェード途中で freezeFrame を alpha=1.0 で上書きすると fade が見えなくなるため、
                 // fadeIn / fadeOut の途中であれば下流の通常 drawImage パス (line ~1916) に処理を委ねる。
                 && !isInFadeRegion
+                // 並べて比較は領域ごとに描くため、全面へ引き伸ばす freezeFrame は使わない
+                && !splitCompareFrame
                 && activeEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
                 && !activeEl.seeking
                 && activeEl.videoWidth > 0
@@ -2395,9 +2524,7 @@ export function usePreviewEngine({
                 isExporting: _isExporting,
                 isIosSafari: platformCapabilities.isIosSafari,
                 isLastTimelineItem,
-                nextItemType: activeIndex + 1 < currentItems.length
-                  ? currentItems[activeIndex + 1]?.type ?? null
-                  : null,
+                nextItemType: activeGroupNextItemType,
                 fps: FPS,
               });
 
@@ -2605,8 +2732,11 @@ export function usePreviewEngine({
         let standardImmediateNextVideoId: string | null = null;
         if (isStandardLivePreviewPlayback && activeIndex !== -1) {
           const activeItemForPrewarm = currentItems[activeIndex];
-          const immediateNextItem = activeIndex + 1 < currentItems.length
-            ? currentItems[activeIndex + 1]
+          // 並べて比較のペア内では、相手は「次」ではなく同時に流れている peer。
+          // 次に温めるのはペアの後ろのカード（相手を先頭へ巻き戻さない）。
+          const immediateNextIndex = activeGroupNextIndex;
+          const immediateNextItem = immediateNextIndex < currentItems.length
+            ? currentItems[immediateNextIndex]
             : null;
           if (
             activeItemForPrewarm?.type === 'video'
@@ -2672,6 +2802,20 @@ export function usePreviewEngine({
           if (timelineRange.start - time > 0.0005) {
             nearestFutureVideoId = item.id;
             break;
+          }
+        }
+        // 次が並べて比較のペアなら、同時に始まる相手の動画も一緒に温めておく
+        let nearestFutureComparePartnerId: string | null = null;
+        if (nearestFutureVideoId) {
+          const nearestIndex = currentItems.findIndex((item) => item.id === nearestFutureVideoId);
+          const nearestPair = nearestIndex >= 0
+            ? getSplitComparePairForIndex(currentItems, nearestIndex, splitCompareRoles)
+            : null;
+          if (nearestPair) {
+            const partner = currentItems[
+              nearestIndex === nearestPair.headIndex ? nearestPair.partnerIndex : nearestPair.headIndex
+            ];
+            if (partner?.type === 'video') nearestFutureComparePartnerId = partner.id;
           }
         }
 
@@ -2767,10 +2911,8 @@ export function usePreviewEngine({
                   videoEnded: videoEl.ended,
                   isExporting: _isExporting,
                   isIosSafari: platformCapabilities.isIosSafari,
-                  isLastTimelineItem: activeIndex === currentItems.length - 1,
-                  nextItemType: activeIndex + 1 < currentItems.length
-                    ? currentItems[activeIndex + 1]?.type ?? null
-                    : null,
+                  isLastTimelineItem: isActiveGroupLast,
+                  nextItemType: activeGroupNextItemType,
                   fps: FPS,
                 });
 
@@ -3120,14 +3262,19 @@ export function usePreviewEngine({
                 // fit 計算には回転後の実効寸法を渡す（回転しても cover/contain が成立する）。
                 const fitDims = resolveRotatedFitDimensions(elemW, elemH, rotationDeg);
 
+                // 並べて比較では自分の領域（外接矩形）を枠として収め、領域外は描かない。
+                const compareRegion = splitCompareFrame?.regionById.get(id) ?? null;
+
                 // 縦(9:16)キャンバスは横素材を「縦フレームを埋める」cover 配置、
                 // 横(16:9)キャンバスは従来どおり contain。Canvas 寸法から向きを判定する。
                 const baseScale = resolveMediaBaseScale({
-                  canvasWidth: ctx.canvas.width,
-                  canvasHeight: ctx.canvas.height,
+                  canvasWidth: compareRegion ? compareRegion.fitRect.width : ctx.canvas.width,
+                  canvasHeight: compareRegion ? compareRegion.fitRect.height : ctx.canvas.height,
                   elementWidth: fitDims.width,
                   elementHeight: fitDims.height,
-                  mode: ctx.canvas.height > ctx.canvas.width ? 'cover' : 'contain',
+                  mode: compareRegion && splitCompareFrame
+                    ? splitCompareFrame.fit
+                    : ctx.canvas.height > ctx.canvas.width ? 'cover' : 'contain',
                 });
                 const renderScale = baseScale * scaleFactor;
                 const rawDrawSource = (stallSnapshotCanvas ?? element) as CanvasImageSource;
@@ -3147,10 +3294,20 @@ export function usePreviewEngine({
                   : rawDrawSource;
 
                 ctx.save();
+                if (compareRegion) {
+                  clipToSplitCompareRegion(ctx, compareRegion);
+                }
                 ctx.filter = isVideo
                   ? resolveMediaBlurFilter(conf.blur, ctx.canvas.width, ctx.canvas.height)
                   : 'none';
-                ctx.translate(ctx.canvas.width / 2 + userX, ctx.canvas.height / 2 + userY);
+                if (compareRegion) {
+                  ctx.translate(
+                    compareRegion.fitRect.x + compareRegion.fitRect.width / 2 + userX,
+                    compareRegion.fitRect.y + compareRegion.fitRect.height / 2 + userY,
+                  );
+                } else {
+                  ctx.translate(ctx.canvas.width / 2 + userX, ctx.canvas.height / 2 + userY);
+                }
                 if (rotationDeg !== 0) {
                   ctx.rotate((rotationDeg * Math.PI) / 180);
                 }
@@ -3315,12 +3472,35 @@ export function usePreviewEngine({
               if (peerIsVideo && isExportBoundaryStalled && !peerVideoEl.paused) {
                 peerVideoEl.pause();
               }
+              // 並べて比較: peer は長時間いっしょに流れるため、速度・ずれ補正・終了後の静止まで面倒を見る。
+              const isComparePeer = splitCompareFrame !== null;
+              const comparePeerFinished = isComparePeer && !!splitCompareFrame?.peerFinished;
+              if (peerIsVideo && comparePeerFinished) {
+                // 短いほうは最後のコマで止めて表示し続ける（再生し続けると先頭へ戻る・先へ進む）
+                if (!peerVideoEl.paused) {
+                  peerVideoEl.pause();
+                }
+                const peerEndTarget = resolveVideoSafeEndSourceTime({
+                  trimStart: conf.trimStart || 0,
+                  timelineDuration: conf.duration,
+                  playbackSpeed: conf.playbackSpeed,
+                  trimEnd: conf.trimEnd,
+                });
+                if (
+                  peerVideoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
+                  && !peerVideoEl.seeking
+                  && Math.abs(peerVideoEl.currentTime - peerEndTarget) > 0.25
+                ) {
+                  try { peerVideoEl.currentTime = peerEndTarget; } catch { /* ignore */ }
+                }
+              }
               // 終了した動画へ play() すると先頭から再生し直すため、前クリップの末尾が
               // 冒頭の絵へ飛ぶ。終了済みなら最後のコマのまま描く（13-281）。
               if (
                 peerIsVideo
                 && isActivePlaying
                 && !isExportBoundaryStalled
+                && !comparePeerFinished
                 && peerVideoEl.paused
                 && !peerVideoEl.ended
                 && !peerVideoEl.seeking
@@ -3328,12 +3508,47 @@ export function usePreviewEngine({
               ) {
                 peerVideoEl.play().catch(() => { /* ignore */ });
               }
-              if (peerIsVideo && !isActivePlaying) {
+              if (peerIsVideo && isComparePeer && isActivePlaying && !comparePeerFinished) {
                 const peerTarget = resolveVideoSourceTime({ trimStart: conf.trimStart || 0, localTime: overlapPeerLocalTime, playbackSpeed: conf.playbackSpeed });
+                const peerSpeed = normalizeVideoPlaybackSpeed(conf.playbackSpeed);
+                if (_isExporting) {
+                  // export は active の速度で壁時計を縮める（倍速 dilation）。peer はその比で再生する。
+                  const exportWallDivisor = resolveExportTimelineWallDivisorForItem(
+                    activeIndex >= 0 ? currentItems[activeIndex] : null,
+                  );
+                  applyVideoElementCatchUpPlaybackRate(peerVideoEl, peerSpeed / exportWallDivisor);
+                } else {
+                  applyVideoElementCatchUpPlaybackRate(
+                    peerVideoEl,
+                    resolveVideoCatchUpPlaybackRate({
+                      isExporting: false,
+                      playbackSpeed: conf.playbackSpeed,
+                      videoCurrentTime: peerVideoEl.currentTime,
+                      targetSourceTime: peerTarget,
+                      canCatchUp: !isSeekingRef.current && !peerVideoEl.paused && !peerVideoEl.seeking,
+                    }),
+                  );
+                }
+                // 速度補正で吸収できない大きなずれだけ 1 回 seek で合わせる
+                const peerLagTimelineSec = Math.abs(peerTarget - peerVideoEl.currentTime) / peerSpeed;
+                const peerSeekLimitSec = !_isExporting && peerSpeed > 2 ? 0.5 : VIDEO_CATCH_UP_MAX_DRIFT_SEC;
                 if (
                   peerVideoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
                   && !peerVideoEl.seeking
-                  && Math.abs(peerVideoEl.currentTime - peerTarget) > 0.3
+                  && !isExportBoundaryStalled
+                  && peerLagTimelineSec > peerSeekLimitSec
+                ) {
+                  try { peerVideoEl.currentTime = peerTarget; } catch { /* ignore */ }
+                }
+              }
+              if (peerIsVideo && !isActivePlaying && !comparePeerFinished) {
+                const peerTarget = resolveVideoSourceTime({ trimStart: conf.trimStart || 0, localTime: overlapPeerLocalTime, playbackSpeed: conf.playbackSpeed });
+                // 比較では停止中・シーク中の画も正確に並べたいので、しきい値を 1 コマ程度にする
+                const peerPausedSyncThresholdSec = isComparePeer ? 0.04 : 0.3;
+                if (
+                  peerVideoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_SEEK
+                  && !peerVideoEl.seeking
+                  && Math.abs(peerVideoEl.currentTime - peerTarget) > peerPausedSyncThresholdSec
                 ) {
                   try { peerVideoEl.currentTime = peerTarget; } catch { /* ignore */ }
                 }
@@ -3341,18 +3556,30 @@ export function usePreviewEngine({
               const peerReady = peerIsVideo
                 ? peerVideoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME && peerVideoEl.videoWidth > 0
                 : peerImageEl.naturalWidth > 0;
-              if (peerReady) {
-                const peerW = peerIsVideo ? peerVideoEl.videoWidth : peerImageEl.naturalWidth;
-                const peerH = peerIsVideo ? peerVideoEl.videoHeight : peerImageEl.naturalHeight;
+              // 並べて比較では、active が描けて peer だけシーク中（readyState<2）のフレームがある。
+              // そのまま描かないと黒クリア後に peer の領域だけ黒く抜けるため、直前のコマの控えで埋める。
+              const peerHoldSnapshot = !peerReady && isComparePeer && peerIsVideo
+                ? splitComparePeerSnapshotRef.current[id] ?? null
+                : null;
+              if (peerReady || peerHoldSnapshot) {
+                const peerW = peerHoldSnapshot
+                  ? peerHoldSnapshot.width
+                  : peerIsVideo ? peerVideoEl.videoWidth : peerImageEl.naturalWidth;
+                const peerH = peerHoldSnapshot
+                  ? peerHoldSnapshot.height
+                  : peerIsVideo ? peerVideoEl.videoHeight : peerImageEl.naturalHeight;
                 if (peerW && peerH) {
                   const peerRotationDeg = normalizeRotation(conf.rotation);
                   const peerFitDims = resolveRotatedFitDimensions(peerW, peerH, peerRotationDeg);
+                  const peerRegion = splitCompareFrame?.regionById.get(id) ?? null;
                   const peerBase = resolveMediaBaseScale({
-                    canvasWidth: ctx.canvas.width,
-                    canvasHeight: ctx.canvas.height,
+                    canvasWidth: peerRegion ? peerRegion.fitRect.width : ctx.canvas.width,
+                    canvasHeight: peerRegion ? peerRegion.fitRect.height : ctx.canvas.height,
                     elementWidth: peerFitDims.width,
                     elementHeight: peerFitDims.height,
-                    mode: ctx.canvas.height > ctx.canvas.width ? 'cover' : 'contain',
+                    mode: peerRegion && splitCompareFrame
+                      ? splitCompareFrame.fit
+                      : ctx.canvas.height > ctx.canvas.width ? 'cover' : 'contain',
                   });
                   const peerRenderScale = peerBase * resolveMediaScaleFactor(conf, overlapPeerLocalTime);
                   const peerBlurPixels = resolveMediaBlurPixels(
@@ -3368,20 +3595,33 @@ export function usePreviewEngine({
                         peerBlurPixels,
                         peerRenderScale,
                       )
-                    : element as CanvasImageSource;
+                    : (peerHoldSnapshot?.canvas ?? element) as CanvasImageSource;
                   ctx.save();
+                  if (peerRegion) {
+                    clipToSplitCompareRegion(ctx, peerRegion);
+                  }
                   ctx.filter = peerIsVideo
                     ? resolveMediaBlurFilter(conf.blur, ctx.canvas.width, ctx.canvas.height)
                     : 'none';
-                  ctx.translate(
-                    ctx.canvas.width / 2 + (conf.positionX || 0),
-                    ctx.canvas.height / 2 + (conf.positionY || 0),
-                  );
+                  if (peerRegion) {
+                    ctx.translate(
+                      peerRegion.fitRect.x + peerRegion.fitRect.width / 2 + (conf.positionX || 0),
+                      peerRegion.fitRect.y + peerRegion.fitRect.height / 2 + (conf.positionY || 0),
+                    );
+                  } else {
+                    ctx.translate(
+                      ctx.canvas.width / 2 + (conf.positionX || 0),
+                      ctx.canvas.height / 2 + (conf.positionY || 0),
+                    );
+                  }
                   if (peerRotationDeg !== 0) {
                     ctx.rotate((peerRotationDeg * Math.PI) / 180);
                   }
                   ctx.scale(peerRenderScale, peerRenderScale);
-                  ctx.globalAlpha = 1.0;
+                  // ディゾルブの前クリップは不透明のまま下層へ。比較ではクリップ自身のフェードを掛ける。
+                  ctx.globalAlpha = isComparePeer
+                    ? resolveSplitComparePeerFadeAlpha(conf, overlapPeerLocalTime)
+                    : 1.0;
                   try {
                     ctx.drawImage(peerDrawSource, -peerW / 2, -peerH / 2, peerW, peerH);
                     didUpdateCanvas = true;
@@ -3392,13 +3632,40 @@ export function usePreviewEngine({
                     ctx.filter = 'none';
                     ctx.globalAlpha = 1.0;
                   }
+                  if (isComparePeer && peerIsVideo && !peerHoldSnapshot) {
+                    captureSplitComparePeerSnapshot(id, peerVideoEl, !isActivePlaying);
+                  }
                 }
               }
               if (peerIsVideo) {
-                const peerGainNode = gainNodesRef.current[id];
-                const peerHasNode = !!sourceNodesRef.current[id];
-                let peerVol = resolveMediaPlaybackVolume(conf) * overlapAudioCrossOut;
+                let peerHasNode = !!sourceNodesRef.current[id];
+                // 比較は両方を通常音量で鳴らす（クリップ自身のフェードのみ・終了後は無音）
+                let peerVol = isComparePeer
+                  ? (comparePeerFinished
+                    ? 0
+                    : resolveMediaPlaybackVolume(conf) * resolveSplitComparePeerFadeAlpha(conf, overlapPeerLocalTime))
+                  : resolveMediaPlaybackVolume(conf) * overlapAudioCrossOut;
                 if (!isActivePlaying || holdAudioThisFrame) peerVol = 0;
+                if (
+                  isComparePeer
+                  && !peerHasNode
+                  && peerVol > 0
+                  && getPreviewAudioOutputMode(previewPlatformPolicy, {
+                    hasAudioNode: false,
+                    isExporting: _isExporting,
+                    audibleSourceCount: activePreviewAudioSourceCount,
+                    desiredVolume: peerVol,
+                    baseVolume: resolveMediaPlaybackVolume(conf),
+                    sourceType: 'video',
+                  }) === 'webaudio'
+                ) {
+                  // 100% 超の増幅は WebAudio 経路でないと効かない（active と同じ扱い）
+                  peerHasNode = ensureAudioNodeForElement(id, peerVideoEl);
+                  if (peerHasNode && !_isExporting) {
+                    requestPreviewAudioRouteRefreshRef.current();
+                  }
+                }
+                const peerGainNode = gainNodesRef.current[id];
                 const peerMode = applyPreviewAudioOutputState(previewPlatformPolicy, peerVideoEl, {
                   hasAudioNode: peerHasNode,
                   desiredVolume: peerVol,
@@ -3429,7 +3696,7 @@ export function usePreviewEngine({
                 isActivePlaying,
                 timeSinceVideoEndSec,
                 timeUntilVideoStartSec,
-                isNearestFutureVideo: id === nearestFutureVideoId,
+                isNearestFutureVideo: id === nearestFutureVideoId || id === nearestFutureComparePartnerId,
                 allowExtendedFuturePrewarm: allowExtendedFutureVideoPrewarm,
               });
               const avoidPausePlayForInactive = shouldAvoidPauseInactiveVideoInPreview(previewPlatformPolicy, {
@@ -3502,6 +3769,11 @@ export function usePreviewEngine({
           }
         });
 
+        // 並べて比較の境界線（両方の映像の上・キャプションやトランジションより下）
+        if (splitCompareFrame && drawSplitCompareDivider(ctx, splitCompareFrame.geometry)) {
+          didUpdateCanvas = true;
+        }
+
         const previewCaptionIds = previewCaptionIdsRef?.current;
         const holdOpenCaptionId = resolveStampHoldOpenCaptionId(
           stampHoldOpenCaptionIdRef?.current,
@@ -3544,20 +3816,42 @@ export function usePreviewEngine({
             };
 
             // フェード(黒/白)のディップのみ（ディゾルブは overlap 方式で peer/active 描画に統合済み）
-            const outgoing = transitionActiveItem.transitionToNext;
-            if (outgoing && transitionActiveIndex < currentItems.length - 1) {
-              const overlay = getOutgoingTransitionOverlay(outgoing, transitionActiveRange.end - time);
+            // 並べて比較のペアは 1 つの区間として扱う: 入りは head の前の境界、
+            // 出は partner の設定（ペアの長いほうの終わり）を使う。ペア内の境界にはフェードを掛けない。
+            const transitionComparePair = getSplitComparePairForIndex(
+              currentItems,
+              transitionActiveIndex,
+              splitCompareRoles,
+            );
+            let fadeOutgoingIndex = transitionActiveIndex;
+            let fadeOutgoingEnd = transitionActiveRange.end;
+            let fadeIncomingIndex = transitionActiveIndex;
+            let fadeIncomingStart = transitionActiveRange.start;
+            if (transitionComparePair) {
+              const headRange = timelineRanges.get(currentItems[transitionComparePair.headIndex].id);
+              const partnerRange = timelineRanges.get(currentItems[transitionComparePair.partnerIndex].id);
+              fadeOutgoingIndex = transitionComparePair.partnerIndex;
+              fadeOutgoingEnd = Math.max(headRange?.end ?? 0, partnerRange?.end ?? 0);
+              fadeIncomingIndex = transitionComparePair.headIndex;
+              fadeIncomingStart = headRange?.start ?? transitionActiveRange.start;
+            }
+            const outgoing = currentItems[fadeOutgoingIndex]?.transitionToNext;
+            if (outgoing && fadeOutgoingIndex < currentItems.length - 1) {
+              const overlay = getOutgoingTransitionOverlay(outgoing, fadeOutgoingEnd - time);
               if (overlay) {
                 drawTransitionColorOverlay(overlay.color, overlay.alpha);
               }
             }
 
-            const transitionPrevItem = transitionActiveIndex > 0
-              ? currentItems[transitionActiveIndex - 1]
+            const transitionPrevItem = fadeIncomingIndex > 0
+              ? currentItems[fadeIncomingIndex - 1]
               : null;
-            const incoming = transitionPrevItem?.transitionToNext;
+            // 直前がペアの head（= この境界は比較）ならフェードは無い
+            const incoming = splitCompareRoles[fadeIncomingIndex] === 'partner'
+              ? null
+              : transitionPrevItem?.transitionToNext;
             if (incoming) {
-              const overlayIn = getIncomingTransitionOverlay(incoming, time - transitionActiveRange.start);
+              const overlayIn = getIncomingTransitionOverlay(incoming, time - fadeIncomingStart);
               if (overlayIn) {
                 drawTransitionColorOverlay(overlayIn.color, overlayIn.alpha);
               }
@@ -5281,26 +5575,45 @@ export function usePreviewEngine({
         activeExportVideoItem?.type === 'video'
           ? mediaElementsRef.current[activeExportVideoItem.id] as HTMLVideoElement | undefined
           : undefined;
+      // 並べて比較で peer がまだ流れている間は、capture 判定に peer の提示も使う（13-285）
+      let exportComparePeerVideoId: string | null = null;
       if (isExportMode) {
         bindExportRvfc(activeExportVideoElement ?? null, activeExportVideoItem?.type === 'video'
           ? activeExportVideoItem.id
           : null);
         // ディゾルブの重なり窓では前クリップも描画に使うので、同じく提示を促す。
-        const exportPeerItem = resolvedSegment && resolvedSegmentIndex > 0
-          ? mediaItemsRef.current[resolvedSegmentIndex - 1]
+        // 並べて比較ではペアのもう一方（まだ再生中のとき）が対象。
+        const exportComparePair = resolvedSegment && resolvedSegmentIndex >= 0
+          ? getSplitComparePairForIndex(mediaItemsRef.current, resolvedSegmentIndex)
           : null;
+        const exportPeerIndex = exportComparePair
+          ? (resolvedSegmentIndex === exportComparePair.headIndex
+            ? exportComparePair.partnerIndex
+            : exportComparePair.headIndex)
+          : resolvedSegmentIndex - 1;
+        const exportPeerItem = resolvedSegment && exportPeerIndex >= 0
+          ? mediaItemsRef.current[exportPeerIndex] ?? null
+          : null;
+        const exportPeerRangeStart = exportComparePair && exportPeerItem
+          ? computeTransitionTimelineRanges(mediaItemsRef.current)[exportPeerIndex]?.start ?? 0
+          : 0;
         const isExportPeerOverlapping =
           !!exportPeerItem
           && exportPeerItem.type === 'video'
           && !!activeExportVideoItem
           && resolvedSegment !== null
-          && resolvedSegment.localTime < getClipOverlapToNext(exportPeerItem, activeExportVideoItem);
+          && (exportComparePair
+            ? renderTimeSec - exportPeerRangeStart < Math.max(0, exportPeerItem.duration) - 0.001
+            : resolvedSegment.localTime < getTimelineOverlapToNext(mediaItemsRef.current, exportPeerIndex));
         bindExportPeerRvfc(
           isExportPeerOverlapping
             ? (mediaElementsRef.current[exportPeerItem.id] as HTMLVideoElement | undefined) ?? null
             : null,
           isExportPeerOverlapping ? exportPeerItem.id : null,
         );
+        if (exportComparePair && isExportPeerOverlapping && exportPeerItem) {
+          exportComparePeerVideoId = exportPeerItem.id;
+        }
       }
 
       // 描画時間を実測する（エクスポート時のみ。プレビューには影響させない）。
@@ -5422,9 +5735,20 @@ export function usePreviewEngine({
               }
               // ディゾルブで重なる前クリップは peer として再生が続いているため、待機の開始と同時に止める。
               // カット境界（重なりなし）の前クリップは対象外（従来どおり inactive 側の処理に任せる）。
+              // 並べて比較の相手（同時に始まる head）も止め、待機後に同じ位置から一緒に動かす。
+              const comparePairAtBoundary = getSplitComparePairForIndex(
+                mediaItemsRef.current,
+                resolvedSegmentIndex,
+              );
+              const isCompareHeadAtBoundary =
+                !!comparePairAtBoundary
+                && comparePairAtBoundary.partnerIndex === resolvedSegmentIndex;
               if (
                 previousItem?.type === 'video'
-                && getClipOverlapToNext(previousItem, activeItem) > 0
+                && (
+                  isCompareHeadAtBoundary
+                  || getTimelineOverlapToNext(mediaItemsRef.current, resolvedSegmentIndex - 1) > 0
+                )
               ) {
                 const previousVideoElement = mediaElementsRef.current[previousItem.id] as HTMLVideoElement | undefined;
                 if (previousVideoElement && !previousVideoElement.paused) {
@@ -5432,6 +5756,24 @@ export function usePreviewEngine({
                     previousVideoElement.pause();
                   } catch {
                     /* ignore */
+                  }
+                }
+                if (previousVideoElement && isCompareHeadAtBoundary) {
+                  const compareHeadAnchorTime = resolveVideoSourceTime({
+                    trimStart: previousItem.trimStart || 0,
+                    localTime: Math.max(0, anchorDisplayTimeSec - boundaryStartSec),
+                    playbackSpeed: previousItem.playbackSpeed,
+                  });
+                  if (
+                    previousVideoElement.readyState >= 1
+                    && !previousVideoElement.seeking
+                    && Math.abs(previousVideoElement.currentTime - compareHeadAnchorTime) > syncToleranceSec
+                  ) {
+                    try {
+                      previousVideoElement.currentTime = compareHeadAnchorTime;
+                    } catch {
+                      /* ignore */
+                    }
                   }
                 }
               }
@@ -5552,6 +5894,14 @@ export function usePreviewEngine({
             )
           ),
         );
+        // peer の rVFC が登録済みで提示数が取れるときだけ peer も待つ（rVFC 非対応環境は従来どおり）
+        const peerRvfcState = exportPeerRvfcStateRef.current;
+        const peerPresentedFrameId = exportComparePeerVideoId
+          && peerRvfcState.videoId === exportComparePeerVideoId
+          && peerRvfcState.handle !== null
+          ? peerRvfcState.frames
+          : null;
+        const lastCapturedPeer = exportLastCapturedPeerPresentedRef.current;
         const captureDecision = resolveExportCanvasCaptureDecision({
           currentIndex: exportFrameIndex,
           lastCapturedIndex: exportLastCapturedIndexRef.current,
@@ -5560,6 +5910,10 @@ export function usePreviewEngine({
           videoNearEnd,
           presentedFrameId,
           lastCapturedPresentedFrameId: exportLastCapturedPresentedFrameIdRef.current,
+          peerPresentedFrameId,
+          lastCapturedPeerPresentedFrameId: lastCapturedPeer && lastCapturedPeer.videoId === exportComparePeerVideoId
+            ? lastCapturedPeer.frames
+            : null,
         });
         exportCaptureDeferredIndexRef.current = captureDecision.nextDeferredCurrentIndex
           ? exportFrameIndex
@@ -5573,6 +5927,9 @@ export function usePreviewEngine({
           exportRenderedFrameTrackerRef.current.note(exportFrameIndex);
           exportLastCapturedIndexRef.current = exportFrameIndex;
           exportLastCapturedPresentedFrameIdRef.current = presentedFrameId;
+          exportLastCapturedPeerPresentedRef.current = exportComparePeerVideoId && peerPresentedFrameId !== null
+            ? { videoId: exportComparePeerVideoId, frames: peerPresentedFrameId }
+            : null;
         }
       }
       if (useFrameDrivenExportTime) {
@@ -6189,6 +6546,39 @@ export function usePreviewEngine({
           t += getTimelineAdvanceForItem(mediaItemsRef.current, index);
         }
 
+        // 並べて比較のペア内から再生を始めるときは、相手の動画も同じ位置へ合わせておく
+        // （renderFrame の peer 処理が再生を引き継ぐ）。
+        let splitComparePartnerIdAtStart: string | null = null;
+        if (activeItemIndex >= 0) {
+          const startPair = getSplitComparePairForIndex(mediaItemsRef.current, activeItemIndex);
+          if (startPair) {
+            const partnerIndex = activeItemIndex === startPair.headIndex
+              ? startPair.partnerIndex
+              : startPair.headIndex;
+            const partnerItem = mediaItemsRef.current[partnerIndex];
+            const partnerStart = computeTransitionTimelineRanges(mediaItemsRef.current)[partnerIndex]?.start ?? 0;
+            const partnerEl = partnerItem?.type === 'video'
+              ? mediaElementsRef.current[partnerItem.id] as HTMLVideoElement | undefined
+              : undefined;
+            if (partnerItem && partnerEl) {
+              splitComparePartnerIdAtStart = partnerItem.id;
+              const partnerLocalTime = Math.max(0, Math.min(fromTime - partnerStart, Math.max(0, partnerItem.duration - 0.001)));
+              const partnerTarget = resolveVideoSourceTime({
+                trimStart: partnerItem.trimStart || 0,
+                localTime: partnerLocalTime,
+                playbackSpeed: partnerItem.playbackSpeed,
+              });
+              if (partnerEl.readyState >= 1 && Math.abs(partnerEl.currentTime - partnerTarget) > 0.05) {
+                try {
+                  partnerEl.currentTime = partnerTarget;
+                } catch {
+                  // ignore
+                }
+              }
+            }
+          }
+        }
+
         const nextVideoItem = findNextVideoItem(mediaItemsRef.current, activeItemIndex);
 
         if (activeVideoElForBundledStart && activeVideoTargetTime !== null) {
@@ -6275,6 +6665,7 @@ export function usePreviewEngine({
           activeVideoIdRef.current,
           nextVideoItem?.id ?? null,
           activeItemIndex > 0 ? mediaItemsRef.current[activeItemIndex - 1]?.id ?? null : null,
+          splitComparePartnerIdAtStart,
         ].filter((id): id is string => !!id);
 
         resetInactiveVideos({

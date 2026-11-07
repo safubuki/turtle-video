@@ -78,6 +78,7 @@ export function createAndroidPreviewCacheKey(
       fileSize: item.file instanceof File ? item.file.size : null,
       lastModified: item.file instanceof File ? item.file.lastModified : null,
       transitionToNext: item.transitionToNext ?? null,
+      splitCompareToNext: item.splitCompareToNext ?? null,
     })),
     bgm: input.bgm
       ? {

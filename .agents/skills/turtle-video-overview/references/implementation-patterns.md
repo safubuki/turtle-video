@@ -5041,3 +5041,42 @@ export 終了（成功/失敗/中断）
   3. 書き出し中、ディゾルブ窓（`localTime < getClipOverlapToNext(prev, active)`）の前クリップにも `requestVideoFrameCallback` を登録し続ける（active の `bindExportRvfc` と同様）。提示を促すための登録で、capture 判定には使わない。ログモード「詳細」では提示間隔 100ms 以上を `export.peer.gap@…`、窓終了時に `export.peer.summary@…`（提示数・最大間隔）を記録する。
 - **未確定（実機確認待ち）**: 3 の「提示の間引き」はヘッドレス Chrome では再現しなかった（画面合成をしないため）。実機の書き出しで `export.peer.gap` / `summary` の最大間隔が 1 フレーム程度（〜50ms）に収まれば仮説どおり。収まらなければデコーダ側の遅れとして別対策を検討する（毎フレーム seek・常時 prefetch は禁止のまま）。
 - **回帰ガード**: `standardPreviewEngine.test.tsx`「ディゾルブの前クリップが終了していたら play() で先頭から再生し直さない」「書き出し中の seeked では停止中プレビュー用の再描画をせず、active video を止めない」（いずれも修正を外すと失敗することを確認済み）。
+
+### 13-282. 並べて比較（同時再生）: カード間コネクタで 2 枚を同時に流し、画面を左右/上下・まっすぐ/ななめに分割する【standard 限定】
+
+- **ファイル**: `src/utils/splitCompare.ts`（新規・純ロジック）, `src/utils/transitionTimeline.ts`, `src/types/index.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/useInactiveVideoManager.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/components/sections/ClipsSection.tsx`, `src/components/sections/PreviewSection.tsx`, `src/stores/mediaStore.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/hooks/useAutoSave.ts`, `src/utils/media.ts`, `src/utils/projectDiagnostics.ts`, `src/constants/sectionHelp.ts`, `src/test/splitCompare.test.ts`, `src/test/splitCompareConnector.ui.test.tsx`
+- **対象 flavor**: standard（Android/PC）のみ。UI はトランジションと同じゲート（`!isIosSafari`）。apple-safari エンジンは逐次再生のまま（ディゾルブと同じ縮退。iOS で開くと総尺が短いぶん終端が切り詰められる）。
+- **UI（入口）**: カード間コネクタを 2 色の楕円ボタンにした（左=トランジション・紫 / 右=並べて比較・水色、間を `clip-path` のななめで区切る）。押した側のモードへ切り替えて設定を開き、選択中の側は開閉。切り替えで消える側の設定はコネクタ内の ref に覚えて戻すと復元する（誤タップで失わない）。比較できない境界では水色側を暗くし、押すと理由をパネルに出す。左ボタンのアクセシブル名は従来どおり「トランジション」（既存テストの互換）。
+- **カードの枠の強調**: 再生位置のカードがペアの一員なら、相手のカードも同じ枠で光らせる（`ClipsSection` の `focusedIds`。短いほうが最後のコマで止まっている間も含む）。ズーム端点の確認中と iOS は従来どおり 1 枚。カードの自動開閉（`focusId`）は 1 枚のまま。パネルの比較は「比較: オン / オフ」で解除する（オフで以前のトランジションを復元して閉じる）。
+- **ペア前後のディゾルブ不可の見せ方**: 仕様として不可（ペア 2 本＋次の 1 本を同時デコードすることになるため）。トランジション設定のディゾルブは `disabled` に加え、塗りなし・破線枠・薄い文字・鍵アイコン・title で使えないことを示す。
+- **データ契約**: `MediaItem.splitCompareToNext?: SplitCompareSettings | null`（上のカードに持つ。`layout: horizontal|vertical`（`auto` は旧データ互換のみ・UI 非表示。新規 ON は `createDefaultSplitCompareSettings(aspectRatio)` で横=左右/縦=上下。表示は `resolveSplitCompareDisplayLayout` で読み替え） / `divider: straight|diagonal` / `fit: cover|contain` / `lineColor: white|black|none`）。保存・自動保存ハッシュ・設定レポート（`compareWithNext`）・ポスターキーへ追加。旧データは undefined で従来どおり。複製・続きクリップ・分割の前半には引き継がない（ペアの相手が入れ替わるため）。
+- **ペア規約（`resolveSplitCompareRoles` が単一ソース）**: 設定のあるカード（head）＋直後のカード（partner）の 2 枚まで。partner に残った設定は無視（3 枚連鎖しない）。最後のカードの設定も無視。
+- **タイムライン**: partner は head と同じ start。次のカードはペアの**長いほうの終わり**から。`getTimelineAdvanceForItem` は head=0、partner=max(両者)。総尺は区間の end の最大値。ペアの前後・ペア内のディゾルブは `getTimelineOverlapToNext(items, index)` が 0 を返す（カット扱い）。**ペアを含みうる箇所では pairwise の `getClipOverlapToNext` ではなく index 文脈付きの `getTimelineOverlapToNext` を使う**。フェード(黒/白)はペアを 1 区間として扱う（入りは head の前の境界、出は partner の設定・ペア終端）。
+- **描画（preview = export）**: active は従来どおり後勝ち（partner 区間中は partner、短い partner の後は head）。もう一方を既存のディゾルブ peer 分岐で描く。`splitCompareFrame` があるとき、active/peer とも領域多角形で `clip()` し、領域の外接矩形を枠として `resolveMediaBaseScale`（fit 設定）＋カードの位置/拡大を適用。境界線は両方の描画後・キャプション/トランジションの前に描く。end freezeFrame（全面引き伸ばし）は比較中は使わない。
+- **peer（比較）の再生管理**: 自分の区間を過ぎたら pause して `resolveVideoSafeEndSourceTime` の最後のコマで保持（`play()` しない）。再生中はプレビューで catch-up rate、export は `peerSpeed / active の wall divisor`。1 秒超（高倍速は 0.5 秒）のずれだけ単発 seek。停止中は 0.04 秒で合わせる（`handleSeeked` で再描画される）。音声はクリップ自身のフェードのみ・通常音量、100% 超は active と同じく WebAudio へ。export 音声は `getTimelineOverlapToNext` によりクロスフェードなしで両方を鳴らす。
+- **「次のカード」の取り違え防止**: ペア内では相手は「次」ではない。standard の直後動画 prewarm（trimStart へ seek）、`shouldHoldVideoFrameAtClipEnd` の `nextItemType` / `isLastTimelineItem` は**ペアの後ろ**を基準にする（`activeGroupNextIndex`）。`resetInactiveVideos` は active の比較相手を巻き戻さない。これを外すと短いほうが終わった後に相手が 0 秒へ巻き戻され、最後のコマと先頭が交互に出る（ヘッドレス実測で確認）。
+- **export**: 境界待機（13-187〜189）で partner を待つ間は head も pause し、同じアンカー位置へ合わせる。比較中の peer にも `bindExportPeerRvfc` を登録する（13-281 と同様）。
+- **検証**: ヘッドレス Chrome（CDP）で実アプリに 2〜3 本を読み込み、プレビュー再生中の両 video の currentTime 一致、短いほうの最後のコマ保持、書き出し mp4 の尺（ペア＝長いほう）と左右領域のフレーム差分（静止は 24→30fps のプルダウン周期のみで両側同時）を確認。実機（Android の 2 本同時デコード負荷）は未確認。
+
+### 13-283. カードの並べ替えでトランジション・並べて比較を「位置」に残す（カードと一緒に動かさない）＋総尺の取り直し
+
+- **ファイル**: `src/stores/mediaStore.ts`（`moveMediaItem`）, `src/test/stores/mediaStore.test.ts`
+- **問題**: `transitionToNext` / `splitCompareToNext` は上のカードに保存しているため、上下移動でカードと一緒に動き、「1↔2 の比較」が「2↔3 の比較」に化ける（ディゾルブ・フェードも同様）。また `moveMediaItem` は `totalDuration` を取り直しておらず、ディゾルブの重なり（両クリップ長でクランプ）や比較ペアの長さ（長いほう）が並びで変わるとシークバーの総尺が古いまま残っていた。
+- **対策**: 入れ替えた 2 スロットへ、入れ替え前のスロットの `transitionToNext` / `splitCompareToNext` を書き戻す（つなぎ方は「何枚目と何枚目の間」に属する）。`calculateTotalDuration` で総尺を取り直し、自動ポスター判定にも新しい総尺を渡す。
+- **注意**: 削除・複製・分割・続き追加は従来どおり（カード側の値の扱いは 13-282 の注記どおり）。並べ替え後にペアの前後へディゾルブが来た場合は、既存規約どおりカット扱い（UI は鍵表示）。
+
+### 13-284. 並べて比較のシーク中に peer（左/上）の領域だけ黒く抜ける: 直前のコマの控えで埋める
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`（`splitComparePeerSnapshotRef` / `captureSplitComparePeerSnapshot` / peer 分岐）
+- **症状**: 比較中にシークバーを動かすと、左（上）側だけ黒が挟まってチラつく。動画の種類・左右の入れ替えに関係なく常に peer 側（active は後勝ちで partner＝右/下）。
+- **原因**: active が描けないフレームは `holdFrame` でクリアせず前フレームを残すが、active が描けて peer だけシーク中（`readyState<2`）のフレームは通常どおり黒クリアされ、peer は描画をスキップしていた。
+- **対策**: 比較の peer（動画）が描けたら縮小（最大幅 960px）した控えコマを保存し（停止中・シーク中は毎回、再生中は 200ms 間隔）、描けないフレームでは控えを同じ変換・領域クリップで描く。ディゾルブの peer には適用しない（従来どおり）。
+- **検証**: ヘッドレス Chrome で実マウス操作のスクラブ中の左右の黒率を rAF ごとに採取。peer 側の黒フレーム 257/300 → 0/300。右（active）側はヘッドレスでは黒くなるが、比較なしの単一動画でも同率（187/298）で黒くなるヘッドレス固有の既存挙動のため対象外（実機では発生報告なし）。
+
+### 13-285. 並べて比較の書き出しで peer（左/上）だけカクつく: capture 判定で peer の新しい提示も 1 rAF 待つ
+
+- **ファイル**: `src/utils/exportTimeline.ts`（`resolveExportCanvasCaptureDecision` に `peerPresentedFrameId` / `lastCapturedPeerPresentedFrameId`）, `src/flavors/standard/preview/usePreviewEngine.ts`（`exportLastCapturedPeerPresentedRef`、export ループの capture 判定へ peer rVFC の `frames` を渡す）, `src/test/exportTimeline.test.ts`
+- **症状（実機の書き出し mp4 で計測）**: 比較区間で右（active）は 24fps 素材の正常なプルダウン（5 枚に 1 回同じ画）なのに、左（peer）は 5 枚に 2 回同じ画＋直後に 2 コマ分跳ぶ「止まって飛ぶ」リズム。左右を入れ替えても peer 側に出る。
+- **原因**: 13-204 の capture 判定は **active の提示**が変わった瞬間にスロットを確定する。peer は自分のクロックで提示されるため、確定の瞬間が peer の提示の合間に当たり、同じ画が 2 スロット続いて次で跳ぶ（エイリアシング）。デコード不足ではない。
+- **対策**: 比較中で peer がまだ再生中（rVFC 登録済み）のときだけ、peer の提示数（`exportPeerRvfcStateRef.frames`）も capture 判定へ渡し、「active と peer の両方が前回スナップショットから新しい提示を出した」ときに確定する。そうでなければ 13-204 と同じく **1 rAF だけ**見送る（見送りは 1 回まで・時計は止めない・スロットを飛び越えたら即確定）。peer が切り替わった直後（前回値なし）は待たない。ディゾルブの peer には適用しない（従来どおり）。active が画像で peer が動画の場合も peer を待つ。
+- **検証**: ヘッドレス Chrome でユーザー素材（左: 24fps たこ焼き / 右: kling）を書き出し、左領域の変化列を計測。修正後は `11110` の規則的なプルダウンのみ（連続リピート 0）。実機では書き出し mp4 の左右の同一フレーム率で再確認する。

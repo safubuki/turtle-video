@@ -161,6 +161,36 @@ describe('mediaStore', () => {
       expect(mediaItems[1].id).toBe('a');
     });
 
+    it('カードを入れ替えても、トランジションと並べて比較は「何枚目と何枚目の間」に残り、総尺を取り直す', () => {
+      const compare = { layout: 'horizontal', divider: 'diagonal', fit: 'cover', lineColor: 'white' } as const;
+      useMediaStore.setState({
+        mediaItems: [
+          { id: 'a', type: 'video', duration: 6, splitCompareToNext: compare, transitionToNext: null } as any,
+          { id: 'b', type: 'video', duration: 4, transitionToNext: { type: 'dissolve', duration: 1 } } as any,
+          { id: 'c', type: 'video', duration: 10, transitionToNext: null } as any,
+        ],
+        totalDuration: 15, // max(6,4) + 10 - 0（ペアの後ろのディゾルブはカット）
+      });
+
+      // 1 枚目を下へ: [b, a, c]。1↔2 の比較・2↔3 の設定は位置に残る
+      useMediaStore.getState().moveMediaItem(0, 'down');
+      let s = useMediaStore.getState();
+      expect(s.mediaItems.map((m) => m.id)).toEqual(['b', 'a', 'c']);
+      expect(s.mediaItems[0].splitCompareToNext).toEqual(compare);
+      expect(s.mediaItems[0].transitionToNext).toBeNull();
+      expect(s.mediaItems[1].splitCompareToNext).toBeNull();
+      expect(s.mediaItems[1].transitionToNext).toEqual({ type: 'dissolve', duration: 1 });
+      expect(s.totalDuration).toBe(16); // max(4,6) + 10
+
+      // 3 枚目を上へ: [b, c, a]。ペアは引き続き 1↔2（b と c）で、長いほう 10 + 6
+      useMediaStore.getState().moveMediaItem(2, 'up');
+      s = useMediaStore.getState();
+      expect(s.mediaItems.map((m) => m.id)).toEqual(['b', 'c', 'a']);
+      expect(s.mediaItems[0].splitCompareToNext).toEqual(compare);
+      expect(s.mediaItems[1].splitCompareToNext).toBeNull();
+      expect(s.totalDuration).toBe(16);
+    });
+
     it('should not move if at boundary', () => {
       useMediaStore.setState({
         mediaItems: [

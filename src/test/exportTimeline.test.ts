@@ -591,6 +591,53 @@ describe('resolveExportPresentedFrameId', () => {
 });
 
 describe('resolveExportCanvasCaptureDecision', () => {
+  it('並べて比較: active が新しくても peer がまだ同じ画なら 1 rAF だけ見送る（13-285）', () => {
+    const base = {
+      currentIndex: 9,
+      lastCapturedIndex: 8,
+      hasActiveVideo: true,
+      presentedFrameId: 101,
+      lastCapturedPresentedFrameId: 100,
+      peerPresentedFrameId: 50,
+      lastCapturedPeerPresentedFrameId: 50,
+    };
+    expect(resolveExportCanvasCaptureDecision({ ...base, deferredCurrentIndex: false }))
+      .toEqual({ action: 'defer', nextDeferredCurrentIndex: true });
+    // 見送りは 1 回まで（時計は止めない）
+    expect(resolveExportCanvasCaptureDecision({ ...base, deferredCurrentIndex: true }).action).toBe('capture');
+    // 両方新しければ即取る
+    expect(resolveExportCanvasCaptureDecision({ ...base, deferredCurrentIndex: false, peerPresentedFrameId: 51 }).action)
+      .toBe('capture');
+    // peer の前回値が無い（peer が切り替わった直後）は peer 側を待たない
+    expect(resolveExportCanvasCaptureDecision({
+      ...base, deferredCurrentIndex: false, lastCapturedPeerPresentedFrameId: null,
+    }).action).toBe('capture');
+  });
+
+  it('並べて比較: peer を指定しなければ従来どおり active だけで判定する', () => {
+    expect(resolveExportCanvasCaptureDecision({
+      currentIndex: 9,
+      lastCapturedIndex: 8,
+      deferredCurrentIndex: false,
+      hasActiveVideo: true,
+      presentedFrameId: 101,
+      lastCapturedPresentedFrameId: 100,
+    }).action).toBe('capture');
+  });
+
+  it('並べて比較: active が画像でも peer 動画の新しい提示は待つ', () => {
+    expect(resolveExportCanvasCaptureDecision({
+      currentIndex: 9,
+      lastCapturedIndex: 8,
+      deferredCurrentIndex: false,
+      hasActiveVideo: false,
+      presentedFrameId: null,
+      lastCapturedPresentedFrameId: null,
+      peerPresentedFrameId: 50,
+      lastCapturedPeerPresentedFrameId: 50,
+    }).action).toBe('defer');
+  });
+
   it('同じ index は再利用し、live Canvas を次フレームで上書きしない', () => {
     expect(resolveExportCanvasCaptureDecision({
       currentIndex: 4,

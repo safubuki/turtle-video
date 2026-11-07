@@ -7,7 +7,8 @@
  */
 
 import { useLogStore } from '../stores/logStore';
-import type { CaptionFontStyle, CaptionTextAlign } from '../types';
+import type { CaptionFontStyle, CaptionTextAlign, SplitCompareSettings } from '../types';
+import { calculateTotalDurationWithTransitions } from './transitionTimeline';
 
 const DB_NAME = 'turtle-video-db';
 const DB_VERSION = 2;
@@ -100,6 +101,8 @@ export interface SerializedMediaItem {
   sourceHeight?: number;
   // 次のクリップへのトランジション（standard フレーバー限定機能・任意）
   transitionToNext?: { type: 'dissolve' | 'fade-black' | 'fade-white'; duration: number } | null;
+  /** 次のカードと並べて同時再生する（比較）。standard 限定・任意・旧データは undefined */
+  splitCompareToNext?: SplitCompareSettings | null;
   /** 動画サムネイル設定モード（任意・旧データは auto） */
   thumbnailMode?: 'auto' | 'manual';
   /** サムネイル取得位置（元動画上の秒・任意） */
@@ -421,19 +424,8 @@ export interface ProjectData {
 }
 
 export function toManualProjectSummary(data: ProjectData & { slot: ManualSaveSlot }): ManualProjectSummary {
-  let duration = 0;
-  for (let index = 0; index < data.mediaItems.length; index++) {
-    const item = data.mediaItems[index];
-    const next = data.mediaItems[index + 1];
-    const itemDuration = Number.isFinite(item.duration) ? Math.max(0, item.duration) : 0;
-    const nextDuration = next && Number.isFinite(next.duration) ? Math.max(0, next.duration) : 0;
-    const requestedOverlap = item.transitionToNext?.type === 'dissolve'
-      ? Math.max(0, item.transitionToNext.duration) : 0;
-    const overlap = next
-      ? Math.min(requestedOverlap, Math.max(0, itemDuration - 0.15), Math.max(0, nextDuration - 0.15))
-      : 0;
-    duration += itemDuration - overlap;
-  }
+  // ディゾルブの重なり・並べて比較のペアを含め、プレビューと同じタイムライン規約で求める
+  let duration = calculateTotalDurationWithTransitions(data.mediaItems);
   if (data.endrollOverlay?.enabled && Number.isFinite(data.endrollOverlay.durationSec)) {
     duration += Math.max(0, data.endrollOverlay.durationSec);
   }

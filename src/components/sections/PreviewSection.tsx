@@ -43,6 +43,7 @@ import type { AppFlavor } from '../../app/resolveAppFlavor';
 import { getAppFlavorUiCapabilities, getPreviewRuntimeNotice } from '../../app/appFlavorUi';
 import { formatTimeCentiseconds } from '../../utils/format';
 import { computeTransitionTimelineRanges } from '../../utils/transitionTimeline';
+import { resolveSplitCompareRoles } from '../../utils/splitCompare';
 import { resolveTimelinePlayheadPercent } from '../../utils/timelineWaveform';
 import { useLogStore } from '../../stores/logStore';
 import { useCanvasStore } from '../../stores/canvasStore';
@@ -352,11 +353,14 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
    */
   const previewTransitionSegments = useMemo(() => {
     const ranges = computeTransitionTimelineRanges(mediaItems);
+    const compareRoles = resolveSplitCompareRoles(mediaItems);
     const segments: PreviewTransitionSegment[] = [];
     for (let i = 0; i < ranges.length - 1; i++) {
       const current = ranges[i];
       const next = ranges[i + 1];
       if (!current || !next) continue;
+      // 並べて比較の境界（ペア内）は切り替え効果を使わない
+      if (compareRoles[i] === 'head') continue;
 
       const transition = mediaItems[i]?.transitionToNext;
       if (!transition) continue;
@@ -375,8 +379,9 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
       }
 
       // 描画エンジンと同じく、フェード時間は境界の前後へ半分ずつ配分する。
+      // 並べて比較の後ろの境界は、ペアの長いほうの終わり（= 次のカードの開始）。
       const halfDuration = Math.max(0.05, transition.duration / 2);
-      const boundary = current.end;
+      const boundary = compareRoles[i] === 'partner' ? next.start : current.end;
       const start = Math.max(current.start, boundary - halfDuration);
       const end = Math.min(next.end, boundary + halfDuration);
       if (!(end > start)) continue;
@@ -388,6 +393,23 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
         peakPercent: ((boundary - start) / (end - start)) * 100,
       });
     }
+    return segments;
+  }, [mediaItems]);
+
+  /** 並べて比較（同時再生）の区間。シークバーへ斜線で重ねる */
+  const previewSplitCompareSegments = useMemo(() => {
+    const ranges = computeTransitionTimelineRanges(mediaItems);
+    const roles = resolveSplitCompareRoles(mediaItems);
+    const segments: Array<{ key: string; start: number; end: number }> = [];
+    roles.forEach((role, index) => {
+      if (role !== 'head') return;
+      const head = ranges[index];
+      const partner = ranges[index + 1];
+      if (!head || !partner) return;
+      const end = Math.max(head.end, partner.end);
+      if (!(end > head.start)) return;
+      segments.push({ key: `${head.id}-${partner.id}`, start: head.start, end });
+    });
     return segments;
   }, [mediaItems]);
 
@@ -833,6 +855,25 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
                   className="bg-slate-500 border-l border-gray-950/35 opacity-60"
                 />
               )}
+              {/* 並べて比較（同時再生）の区間は水色の斜線で示す */}
+              {totalDuration > 0 && previewSplitCompareSegments.map((segment) => (
+                <div
+                  key={segment.key}
+                  data-testid="preview-split-compare-segment"
+                  role="img"
+                  aria-label="並べて比較（同時再生）の区間"
+                  title="並べて比較（同時再生）の区間"
+                  style={{
+                    position: 'absolute',
+                    left: `${(segment.start / totalDuration) * 100}%`,
+                    width: `${((segment.end - segment.start) / totalDuration) * 100}%`,
+                    top: 0,
+                    bottom: 0,
+                    backgroundImage:
+                      'repeating-linear-gradient(135deg, rgba(34, 211, 238, 0.75) 0 3px, rgba(34, 211, 238, 0.15) 3px 7px)',
+                  }}
+                />
+              ))}
               {/* トランジションの影響範囲と強さをグラデーションで最前面へ */}
               {totalDuration > 0 && previewTransitionSegments.map((transition) => (
                 <div

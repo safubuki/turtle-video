@@ -17,8 +17,9 @@ import {
   ChevronDown,
   ChevronRight,
   SlidersHorizontal,
+  Columns2,
 } from 'lucide-react';
-import type { ClipTransition, MediaItem, MediaZoomDirection } from '../../types';
+import type { ClipTransition, MediaItem, MediaZoomDirection, SplitCompareSettings } from '../../types';
 import ClipItem from '../media/ClipItem';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
@@ -34,6 +35,17 @@ import {
   getClipTransitionLabel,
 } from '../../utils/clipTransitions';
 import {
+  createDefaultSplitCompareSettings,
+  describeSplitCompareSettings,
+  getSplitComparePairForIndex,
+  resolveSplitCompareDisplayLayout,
+  resolveSplitCompareRoles,
+  SPLIT_COMPARE_DIVIDER_OPTIONS,
+  SPLIT_COMPARE_FIT_OPTIONS,
+  SPLIT_COMPARE_LAYOUT_OPTIONS,
+  SPLIT_COMPARE_LINE_COLOR_OPTIONS,
+} from '../../utils/splitCompare';
+import {
   collapseAllClipCards,
   createInitialClipCardDisclosure,
   expandAllClipCards,
@@ -44,48 +56,273 @@ import {
   type ClipCardDisclosureState,
 } from '../../utils/clipCardDisclosure';
 
+/** 並べて比較の設定ボタン 1 行（ラベル + 選択肢） */
+function SplitCompareOptionRow<T extends string>({
+  label,
+  options,
+  value,
+  disabled,
+  onSelect,
+}: {
+  label: string;
+  options: { value: T; label: string }[];
+  value: T;
+  disabled: boolean;
+  onSelect: (value: T) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1" role="group" aria-label={label}>
+      <span className="text-gray-500 shrink-0 w-12">{label}:</span>
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          onClick={() => onSelect(opt.value)}
+          disabled={disabled}
+          aria-pressed={value === opt.value}
+          className={`flex-1 py-1 rounded transition ${value === opt.value
+            ? 'bg-cyan-400 text-gray-900 font-semibold'
+            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+            } disabled:opacity-40`}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /**
  * カードとカードの間のトランジションコネクタ（standard フレーバー限定）。
  * タップで種類（なし/ディゾルブ/フェード黒/フェード白）と時間（0.5/1/2秒）を設定する。
  * ディゾルブは重なり分だけタイムラインを短縮し、フェードは長さを変えない。
+ * 「並べて比較」に切り替えると、上下 2 枚のカードを同時に再生して画面を分割して並べる。
  */
 const ClipTransitionConnector: React.FC<{
   transition: ClipTransition | null;
+  /** この境界の並べて比較の設定（null = 比較しない） */
+  splitCompare: SplitCompareSettings | null;
+  /** 比較にできない理由（前後が別の比較ペア）。null なら設定できる */
+  splitCompareBlockedReason: string | null;
+  /** 前後どちらかが比較ペアに入っている（この境界のディゾルブはカット扱い） */
+  isAdjacentToSplitCompare: boolean;
+  /** 動画の向き。比較を ON にしたときの初期の並べ方（横=左右 / 縦=上下）に使う */
+  aspectRatio: AspectRatio;
   disabled: boolean;
   /** 「すべて閉じる」のたびに増える。開いている設定パネルを畳む */
   closeSignal: number;
   onBeforeEdit: () => void;
   onChange: (transition: ClipTransition | null) => void;
-}> = ({ transition, disabled, closeSignal, onBeforeEdit, onChange }) => {
+  onChangeSplitCompare: (settings: SplitCompareSettings | null) => void;
+}> = ({
+  transition,
+  splitCompare,
+  splitCompareBlockedReason,
+  isAdjacentToSplitCompare,
+  aspectRatio,
+  disabled,
+  closeSignal,
+  onBeforeEdit,
+  onChange,
+  onChangeSplitCompare,
+}) => {
   const [open, setOpen] = useState(false);
   const [appliedCloseSignal, setAppliedCloseSignal] = useState(closeSignal);
   if (appliedCloseSignal !== closeSignal) {
     setAppliedCloseSignal(closeSignal);
     if (open) setOpen(false);
   }
+  const isCompare = !!splitCompare;
+  const isCompareBlocked = !isCompare && splitCompareBlockedReason !== null;
+  // 切り替えで消える側の設定を覚えておき、戻したときに復元する（誤タップで設定を失わない）
+  const rememberedTransitionRef = useRef<ClipTransition | null>(null);
+  const rememberedSplitCompareRef = useRef<SplitCompareSettings | null>(null);
+  const updateSplitCompare = (patch: Partial<SplitCompareSettings>) => {
+    if (!splitCompare) return;
+    onBeforeEdit();
+    onChangeSplitCompare({ ...splitCompare, ...patch });
+  };
+  /** 順番に再生（トランジション）へ切り替える。比較中なら解除して以前のトランジションを戻す */
+  const switchToSequential = () => {
+    if (!isCompare) return;
+    onBeforeEdit();
+    rememberedSplitCompareRef.current = splitCompare;
+    onChangeSplitCompare(null);
+    if (rememberedTransitionRef.current) {
+      onChange(rememberedTransitionRef.current);
+    }
+  };
+  /** 並べて比較へ切り替える。以前の比較設定があれば戻す */
+  const switchToCompare = () => {
+    if (isCompare || isCompareBlocked) return;
+    onBeforeEdit();
+    rememberedTransitionRef.current = transition;
+    onChangeSplitCompare(rememberedSplitCompareRef.current ?? createDefaultSplitCompareSettings(aspectRatio));
+  };
+
+  // 2 色の楕円ボタン（左: トランジション=紫 / 右: 並べて比較=水色、間はななめに区切る）。
+  // 押した側のモードに切り替えて設定を開く。選択中の側をもう一度押すと開閉する。
+  const SEGMENT_SLANT_PX = 7;
+  const transitionLabel = transition && !isCompare
+    ? `${getClipTransitionLabel(transition.type)} ${transition.duration}秒`
+    : 'トランジション';
+  const compareLabel = splitCompare
+    ? `並べて比較 ${describeSplitCompareSettings(splitCompare, aspectRatio)}`
+    : '並べて比較';
 
   return (
     <div className="flex flex-col items-center py-0.5">
-      <button
-        onClick={() => {
-          if (!open) onBeforeEdit();
-          setOpen((prev) => !prev);
-        }}
-        disabled={disabled}
-        className={`px-2.5 py-0.5 rounded-full border text-[10px] transition flex items-center gap-1 ${transition
-          ? 'bg-purple-900/40 border-purple-500/50 text-purple-200'
-          : 'bg-gray-800 border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-600'
-          } disabled:opacity-40`}
-        title="このカード間のトランジション（切り替え効果）を設定"
-        aria-expanded={open}
+      <div
+        className={`flex items-stretch rounded-full border overflow-hidden bg-gray-900 text-[10px] ${isCompare
+          ? 'border-cyan-500/50'
+          : transition
+            ? 'border-purple-500/50'
+            : 'border-gray-700'
+          } ${disabled ? 'opacity-40' : ''}`}
+        role="group"
+        aria-label="カード間のつなぎ方"
       >
-        <ArrowDownUp className="w-3 h-3" />
-        {transition
-          ? `${getClipTransitionLabel(transition.type)} ${transition.duration}秒`
-          : 'トランジション'}
-      </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (isCompare) {
+              switchToSequential();
+              setOpen(true);
+              return;
+            }
+            if (!open) onBeforeEdit();
+            setOpen((prev) => !prev);
+          }}
+          disabled={disabled}
+          className={`pl-2.5 py-0.5 flex items-center gap-1 transition ${!isCompare && transition
+            ? 'bg-purple-900/60 text-purple-100 font-semibold'
+            : !isCompare
+              ? 'bg-purple-950/50 text-purple-300/80 hover:text-purple-100'
+              : 'bg-purple-950/30 text-purple-300/50 hover:text-purple-200'
+            }`}
+          style={{
+            paddingRight: `${SEGMENT_SLANT_PX + 6}px`,
+            clipPath: `polygon(0 0, 100% 0, calc(100% - ${SEGMENT_SLANT_PX}px) 100%, 0 100%)`,
+          }}
+          title="このカード間のトランジション（切り替え効果）を設定"
+          aria-label={transitionLabel}
+          aria-expanded={open && !isCompare}
+          aria-pressed={!isCompare}
+        >
+          <ArrowDownUp className="w-3 h-3" />
+          {transitionLabel}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (!isCompare) {
+              if (isCompareBlocked) {
+                // 設定できない理由をパネルで見せる
+                if (!open) onBeforeEdit();
+                setOpen(true);
+                return;
+              }
+              switchToCompare();
+              setOpen(true);
+              return;
+            }
+            if (!open) onBeforeEdit();
+            setOpen((prev) => !prev);
+          }}
+          disabled={disabled}
+          className={`pr-2.5 py-0.5 flex items-center gap-1 transition ${isCompare
+            ? 'bg-cyan-800/70 text-cyan-50 font-semibold'
+            : isCompareBlocked
+              ? 'bg-cyan-950/20 text-cyan-300/30'
+              : 'bg-cyan-950/50 text-cyan-300/80 hover:text-cyan-100'
+            }`}
+          style={{
+            marginLeft: `-${SEGMENT_SLANT_PX - 2}px`,
+            paddingLeft: `${SEGMENT_SLANT_PX + 6}px`,
+            clipPath: `polygon(${SEGMENT_SLANT_PX}px 0, 100% 0, 100% 100%, 0 100%)`,
+          }}
+          title={isCompareBlocked
+            ? splitCompareBlockedReason ?? undefined
+            : '上下のカードを同時に再生し、画面を分けて並べて比較'}
+          aria-label={compareLabel}
+          aria-expanded={open && isCompare}
+          aria-pressed={isCompare}
+        >
+          <Columns2 className="w-3 h-3" />
+          {compareLabel}
+        </button>
+      </div>
       {open && (
-        <div className="w-full mt-1.5 mb-0.5 p-2 bg-gray-800/80 border border-purple-500/30 rounded-lg space-y-1.5 text-[10px]">
+        <div className={`w-full mt-1.5 mb-0.5 p-2 bg-gray-800/80 border rounded-lg space-y-1.5 text-[10px] ${isCompare ? 'border-cyan-500/30' : 'border-purple-500/30'}`}>
+          {!isCompare && splitCompareBlockedReason && (
+            <div className="text-[9px] text-gray-500">※ 並べて比較: {splitCompareBlockedReason}</div>
+          )}
+          {splitCompare ? (
+            <>
+              {/* 比較のオン/オフ。オフにすると順番に再生へ戻り（以前のトランジションも復元）、設定を閉じる */}
+              <div className="flex items-center gap-1" role="group" aria-label="並べて比較のオン・オフ">
+                <span className="text-cyan-300 shrink-0 w-12 font-semibold flex items-center gap-0.5">
+                  <Columns2 className="w-3 h-3" />
+                  比較:
+                </span>
+                <button
+                  type="button"
+                  disabled={disabled}
+                  aria-pressed
+                  className="flex-1 py-1 rounded bg-cyan-400 text-gray-900 font-semibold cursor-default"
+                >
+                  オン
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    switchToSequential();
+                    setOpen(false);
+                  }}
+                  disabled={disabled}
+                  aria-pressed={false}
+                  title="並べて比較をやめて、順番に再生に戻します"
+                  className="flex-1 py-1 rounded transition bg-gray-700 text-gray-300 hover:bg-gray-600 disabled:opacity-40"
+                >
+                  オフ
+                </button>
+              </div>
+              <SplitCompareOptionRow
+                label="並べ方"
+                options={SPLIT_COMPARE_LAYOUT_OPTIONS}
+                value={resolveSplitCompareDisplayLayout(splitCompare.layout, aspectRatio)}
+                disabled={disabled}
+                onSelect={(layout) => updateSplitCompare({ layout })}
+              />
+              <SplitCompareOptionRow
+                label="境界線"
+                options={SPLIT_COMPARE_DIVIDER_OPTIONS}
+                value={splitCompare.divider}
+                disabled={disabled}
+                onSelect={(divider) => updateSplitCompare({ divider })}
+              />
+              <SplitCompareOptionRow
+                label="線の色"
+                options={SPLIT_COMPARE_LINE_COLOR_OPTIONS}
+                value={splitCompare.lineColor}
+                disabled={disabled}
+                onSelect={(lineColor) => updateSplitCompare({ lineColor })}
+              />
+              <SplitCompareOptionRow
+                label="表示"
+                options={SPLIT_COMPARE_FIT_OPTIONS}
+                value={splitCompare.fit}
+                disabled={disabled}
+                onSelect={(fit) => updateSplitCompare({ fit })}
+              />
+              <div className="text-[9px] text-gray-500 space-y-0.5">
+                <div>※ 上のカードが左（上下なら上）、下のカードが右（下）に並びます。最初は横動画なら左右、縦動画なら上下になります。</div>
+                <div>※ 2枚は同時に始まり、長いほうに合わせて次のカードへ進みます（短いほうは最後のコマで止まります）。</div>
+                <div>※ 位置・拡大はそれぞれのカードの設定がそのまま使えます。</div>
+              </div>
+            </>
+          ) : (
+          <>
           <div className="flex gap-1">
             <button
               onClick={() => {
@@ -111,12 +348,21 @@ const ClipTransitionConnector: React.FC<{
                     duration: transition?.duration ?? CLIP_TRANSITION_DEFAULT_DURATION,
                   });
                 }}
-                disabled={disabled}
-                className={`flex-1 py-1 rounded transition ${transition?.type === opt.value
+                disabled={disabled || (opt.value === 'dissolve' && isAdjacentToSplitCompare && transition?.type !== 'dissolve')}
+                title={opt.value === 'dissolve' && isAdjacentToSplitCompare
+                  ? '並べて比較の前後では使えません（3本を同時に流すことになるため）'
+                  : undefined}
+                className={`flex-1 py-1 rounded transition flex items-center justify-center gap-0.5 ${transition?.type === opt.value
                   ? 'bg-purple-500 text-gray-900 font-semibold'
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  : opt.value === 'dissolve' && isAdjacentToSplitCompare
+                    // 使えないことが一目で分かるよう、塗りを消して破線枠・薄い文字・鍵にする
+                    ? 'bg-transparent border border-dashed border-gray-700 text-gray-600 cursor-not-allowed'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                   }`}
               >
+                {opt.value === 'dissolve' && isAdjacentToSplitCompare && transition?.type !== 'dissolve' && (
+                  <Lock className="w-2.5 h-2.5" aria-hidden />
+                )}
                 {opt.label}
               </button>
             ))}
@@ -142,10 +388,14 @@ const ClipTransitionConnector: React.FC<{
             ))}
           </div>
           <div className="text-[9px] text-gray-500">
-            {transition?.type === 'dissolve'
-              ? '※ ディゾルブは前の動画が流れたまま次が重なって始まります（重なりぶん動画全体が短くなります）'
-              : '※ フェードは動画全体の長さを変えません'}
+            {isAdjacentToSplitCompare
+              ? '※ 並べて比較の前後では、ディゾルブは使えません（2本の並びと次の動画の計3本を同時に流すことになるため、カットでつながります）。フェードは使えます'
+              : transition?.type === 'dissolve'
+                ? '※ ディゾルブは前の動画が流れたまま次が重なって始まります（重なりぶん動画全体が短くなります）'
+                : '※ フェードは動画全体の長さを変えません'}
           </div>
+          </>
+          )}
         </div>
       )}
     </div>
@@ -287,6 +537,8 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   const canDuplicate = !isIosSafari;
   // クリップ間トランジションは standard フレーバー（Android/PC）限定
   const supportsTransitions = !isIosSafari;
+  // 並べて比較の役割（コネクタの表示・設定可否に使う）
+  const splitCompareRoles = useMemo(() => resolveSplitCompareRoles(mediaItems), [mediaItems]);
   // 動画倍速は standard フレーバー（Android/PC）限定（apple-safari では UI 非表示）
   const supportsPlaybackSpeed = !isIosSafari;
   const clipListRestoreEpoch = useMediaStore((s) => s.clipListRestoreEpoch);
@@ -299,6 +551,22 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
       ? zoomEndpointPreview.id : resolveFocusedClipId(mediaItems, currentTime),
     [mediaItems, currentTime, zoomEndpointPreview, isPlaying, isExporting],
   );
+  // 並べて比較のペアは同時に画面へ出るので、片方が再生位置ならもう片方の枠も同じように光らせる。
+  // （ズーム端点の確認中は 1 枚だけを表示するので対象外）
+  const focusedIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!focusId) return ids;
+    ids.add(focusId);
+    const isZoomEndpointFocus = !isPlaying && !isExporting && zoomEndpointPreview?.id === focusId;
+    if (!supportsTransitions || isZoomEndpointFocus) return ids;
+    const index = mediaItems.findIndex((item) => item.id === focusId);
+    const pair = index >= 0 ? getSplitComparePairForIndex(mediaItems, index, splitCompareRoles) : null;
+    if (pair) {
+      const partner = mediaItems[index === pair.headIndex ? pair.partnerIndex : pair.headIndex];
+      if (partner) ids.add(partner.id);
+    }
+    return ids;
+  }, [focusId, mediaItems, splitCompareRoles, supportsTransitions, zoomEndpointPreview, isPlaying, isExporting]);
   const [disclosure, setDisclosure] = useState<ClipCardDisclosureState>(() => (
     createInitialClipCardDisclosure(isExporting ? null : resolveFocusedClipId(mediaItems, currentTime))
   ));
@@ -563,7 +831,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
           <ClipItem
             item={v}
             isOpen={!isExporting && isClipCardBodyOpen(disclosure, v.id)}
-            isFocused={focusId === v.id}
+            isFocused={focusedIds.has(v.id)}
             onToggleOpen={() => {
               if (!isExporting) setDisclosure((prev) => toggleClipCard(prev, v.id, focusId));
             }}
@@ -647,10 +915,25 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
           {supportsTransitions && i < mediaItems.length - 1 && (
             <ClipTransitionConnector
               transition={v.transitionToNext ?? null}
+              splitCompare={splitCompareRoles[i] === 'head' ? v.splitCompareToNext ?? null : null}
+              splitCompareBlockedReason={
+                splitCompareRoles[i] === 'partner'
+                  ? '上のカードと並べて比較中のため、このカードからは設定できません'
+                  : splitCompareRoles[i + 1] === 'head'
+                    ? '下のカードが次のカードと並べて比較中のため設定できません'
+                    : null
+              }
+              isAdjacentToSplitCompare={splitCompareRoles[i] !== null || splitCompareRoles[i + 1] !== null}
+              aspectRatio={aspectRatio}
               disabled={isClipsLocked || v.isLocked}
               closeSignal={transitionCloseSignal}
               onBeforeEdit={onBeforeTransitionEdit}
               onChange={(transition) => updateMediaItem(v.id, { transitionToNext: transition })}
+              onChangeSplitCompare={(settings) => updateMediaItem(v.id, {
+                splitCompareToNext: settings,
+                // 比較と切り替え効果は同じ境界で併用しない
+                ...(settings ? { transitionToNext: null } : {}),
+              })}
             />
           )}
           </React.Fragment>

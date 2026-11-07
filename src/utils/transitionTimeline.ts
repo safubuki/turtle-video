@@ -12,8 +12,16 @@
  * standard フレーバー（Android/PC）のプレビュー/シーク/エクスポートと、
  * mediaStore の totalDuration がこのモジュールを参照する。
  * トランジション未使用時（overlap=0）の計算結果は従来の逐次加算と完全一致する。
+ *
+ * 並べて比較（splitCompareToNext）のペアは同じ時刻に始まり、長いほうの終わりで次へ進む
+ * （utils/splitCompare.ts）。ペアの前後の境界のディゾルブはカット扱い（重なり 0）。
  */
 import type { MediaItem } from '../types';
+import { resolveSplitCompareRoles, type SplitCompareRole } from './splitCompare';
+
+/** タイムライン計算に必要な最小のカード情報（保存データからも計算できるようにする） */
+export type TimelineItemLike = Pick<MediaItem, 'id' | 'type' | 'duration' | 'transitionToNext'>
+  & Partial<Pick<MediaItem, 'splitCompareToNext'>>;
 
 const EPSILON = 0.001;
 /** オーバーラップがクリップを食い潰さないよう残す最低秒数 */
@@ -28,7 +36,10 @@ function normalizeDuration(duration: number): number {
  * このクリップ→次のクリップのオーバーラップ秒数を返す（ディゾルブのみ >0）。
  * 双方のクリップ長を超えないよう安全にクランプする。
  */
-export function getClipOverlapToNext(item: MediaItem, next: MediaItem | undefined): number {
+export function getClipOverlapToNext(
+  item: TimelineItemLike,
+  next: TimelineItemLike | undefined,
+): number {
   if (!next) return 0;
   const transition = item.transitionToNext;
   if (!transition || transition.type !== 'dissolve') return 0;
@@ -45,12 +56,41 @@ export function getClipOverlapToNext(item: MediaItem, next: MediaItem | undefine
   );
 }
 
-/** タイムライン上でクリップ i から次のクリップ開始までの前進量（duration - overlap） */
-export function getTimelineAdvanceForItem(items: MediaItem[], index: number): number {
+/**
+ * 並び順の文脈を考慮した「クリップ index → 次のクリップ」の重なり秒数。
+ * 並べて比較のペアに関わる境界（ペア内・ペアの前・ペアの後）は 0 を返す。
+ * それ以外は getClipOverlapToNext と同じ。
+ */
+export function getTimelineOverlapToNext(
+  items: ReadonlyArray<TimelineItemLike>,
+  index: number,
+  precomputedRoles?: SplitCompareRole[],
+): number {
+  const item = items[index];
+  const next = items[index + 1];
+  if (!item || !next) return 0;
+  const roles = precomputedRoles ?? resolveSplitCompareRoles(items);
+  if (roles[index] || roles[index + 1]) return 0;
+  return getClipOverlapToNext(item, next);
+}
+
+/**
+ * タイムライン上でクリップ i の開始から次のクリップ開始までの前進量。
+ * 通常は duration - overlap。並べて比較の head は 0（partner が同時に始まる）、
+ * partner は「ペアの長いほうの終わり − 開始」。
+ * 最後のクリップは自身の終わり（ペアならペアの終わり）までの長さを返す。
+ */
+export function getTimelineAdvanceForItem(items: ReadonlyArray<TimelineItemLike>, index: number): number {
   const item = items[index];
   if (!item) return 0;
+  const roles = resolveSplitCompareRoles(items);
+  if (roles[index] === 'head') return 0;
   const duration = normalizeDuration(item.duration);
-  return duration - getClipOverlapToNext(item, items[index + 1]);
+  if (roles[index] === 'partner') {
+    const head = items[index - 1];
+    return Math.max(duration, normalizeDuration(head?.duration ?? 0));
+  }
+  return duration - getTimelineOverlapToNext(items, index, roles);
 }
 
 export interface TransitionTimelineRange {
@@ -60,23 +100,46 @@ export interface TransitionTimelineRange {
   end: number;
 }
 
-/** 各クリップのタイムライン区間（オーバーラップ考慮）を配列順で返す */
-export function computeTransitionTimelineRanges(items: MediaItem[]): TransitionTimelineRange[] {
+/**
+ * 各クリップのタイムライン区間（オーバーラップ・並べて比較を考慮）を配列順で返す。
+ * 並べて比較の partner は head と同じ start を持つ。
+ */
+export function computeTransitionTimelineRanges(
+  items: ReadonlyArray<TimelineItemLike>,
+): TransitionTimelineRange[] {
   const ranges: TransitionTimelineRange[] = [];
+  const roles = resolveSplitCompareRoles(items);
   let cursor = 0;
   items.forEach((item, index) => {
+    const duration = normalizeDuration(item.duration);
+    if (roles[index] === 'partner' && ranges[index - 1]) {
+      const headRange = ranges[index - 1];
+      const start = headRange.start;
+      const end = start + duration;
+      ranges.push({ id: item.id, index, start, end });
+      // ペアの長いほうの終わりで次へ進む（ペアの後のディゾルブはカット扱い）
+      cursor = Math.max(headRange.end, end);
+      return;
+    }
     const start = cursor;
-    const end = start + normalizeDuration(item.duration);
+    const end = start + duration;
     ranges.push({ id: item.id, index, start, end });
-    cursor = start + getTimelineAdvanceForItem(items, index);
+    cursor = roles[index] === 'head'
+      ? start
+      : start + duration - getTimelineOverlapToNext(items, index, roles);
   });
   return ranges;
 }
 
 /** 総再生時間（オーバーラップぶん短くなる）。トランジション未使用時は従来の合計と一致 */
-export function calculateTotalDurationWithTransitions(items: MediaItem[]): number {
+export function calculateTotalDurationWithTransitions(items: ReadonlyArray<TimelineItemLike>): number {
   const ranges = computeTransitionTimelineRanges(items);
-  return ranges.length > 0 ? ranges[ranges.length - 1].end : 0;
+  let total = 0;
+  for (const range of ranges) {
+    // 並べて比較で head のほうが長い場合、最後の区間より head の終わりが後になる
+    total = Math.max(total, range.end);
+  }
+  return ranges.length > 0 ? total : 0;
 }
 
 /**
@@ -85,7 +148,7 @@ export function calculateTotalDurationWithTransitions(items: MediaItem[]): numbe
  * シーク処理が描画側（renderFrame）と同じクリップを「現在の動画」として扱うために使う。
  */
 export function findTimelineItemInRangeWithTransitions(
-  items: MediaItem[],
+  items: ReadonlyArray<TimelineItemLike>,
   time: number,
   precomputedRanges?: TransitionTimelineRange[],
 ): { index: number; start: number; localTime: number } | null {
@@ -112,7 +175,7 @@ export interface ActiveTimelineItemWithTransitions {
  * playbackTimeline.findActiveTimelineItem と同じ規約に揃える。
  */
 export function findActiveTimelineItemWithTransitions(
-  items: MediaItem[],
+  items: ReadonlyArray<TimelineItemLike>,
   time: number,
   totalDuration: number,
   precomputedRanges?: TransitionTimelineRange[],

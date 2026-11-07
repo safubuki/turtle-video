@@ -83,6 +83,21 @@ export interface ClipTransition {
   duration: number; // 秒（0.5 / 1 / 2）
 }
 
+// 並べて比較（同時再生）。standard フレーバー限定機能。詳細は utils/splitCompare.ts
+/** 並べ方。auto は旧データ互換のみ（キャンバスの向き 横=左右 / 縦=上下 に従う）。UI では選べない */
+export type SplitCompareLayout = 'auto' | 'horizontal' | 'vertical';
+/** 境界線の形。diagonal は少し傾けた線 */
+export type SplitCompareDivider = 'straight' | 'diagonal';
+/** 領域への収め方。cover = 枠を埋める（はみ出しはカット）/ contain = 全体を表示 */
+export type SplitCompareFit = 'cover' | 'contain';
+export type SplitCompareLineColor = 'white' | 'black' | 'none';
+export interface SplitCompareSettings {
+  layout: SplitCompareLayout;
+  divider: SplitCompareDivider;
+  fit: SplitCompareFit;
+  lineColor: SplitCompareLineColor;
+}
+
 /** 動画カードの再生速度（0.5〜8.0・0.1刻み。旧データは 1/2/4/8） */
 export type VideoPlaybackSpeed = number;
 
@@ -146,6 +161,11 @@ export interface MediaItem {
   sourceHeight?: number;
   // 次のクリップへのトランジション（standard 限定・任意。最後のクリップでは無視）
   transitionToNext?: ClipTransition | null;
+  /**
+   * 次のカードと並べて同時再生する（比較）。standard 限定・任意。最後のカードでは無視。
+   * 設定中はこの境界の transitionToNext は使わない（UI で排他にする）。
+   */
+  splitCompareToNext?: SplitCompareSettings | null;
   /**
    * 動画サムネイルの設定モード（動画のみ。旧データは auto 扱い）
    * - auto: 有効範囲の先頭フレーム（先頭が黒のときだけ直後の非黒フレーム）
