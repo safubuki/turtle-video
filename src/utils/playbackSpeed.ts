@@ -274,62 +274,76 @@ export function resolveVideoElementPlaybackRateForContext(
   return speed;
 }
 
-/** 追従補正を掛けない小さなずれ（タイムライン秒）。export の 30fps 量子化 1.5 フレーム程度 */
-export const VIDEO_CATCH_UP_DEADBAND_SEC = 0.05;
+/**
+ * 追従補正を始めるずれ（タイムライン秒）。これ未満は補正しない。
+ * rate を変えると preservesPitch の時間伸縮で音が切り貼りされ、切り替えのたびに
+ * プチプチ音が出るため、クリップ境界の play() 開始遅れ程度（〜0.1 秒）では動かさない（13-286）。
+ */
+export const VIDEO_CATCH_UP_START_SEC = 0.12;
+/** 補正中に、ここまで寄ったら設定速度へ戻す（ヒステリシス。開始と同じ値だと境目で往復する） */
+export const VIDEO_CATCH_UP_STOP_SEC = 0.03;
 /** これ以上のずれは既存の seek / recovery に任せる（タイムライン秒） */
 export const VIDEO_CATCH_UP_MAX_DRIFT_SEC = 1.0;
-/** ずれをおよそ何秒で解消する比率にするか */
-export const VIDEO_CATCH_UP_WINDOW_SEC = 1.0;
-/** 設定速度に対する補正率の上限（±10%。preservesPitch なので音程は変わらない） */
-export const VIDEO_CATCH_UP_MAX_RATIO = 0.1;
-/** 毎フレームの rate 変更を避けるための補正率の刻み */
-export const VIDEO_CATCH_UP_RATIO_STEP = 0.02;
+/**
+ * 補正中の速度比（設定速度に対して ±6%・固定）。
+ * ずれに比例させて刻みで変えると補正 1 回で rate が何度も切り替わり、音が乱れる。
+ * 固定にして、1 回の補正で rate が変わるのは「開始」と「終了」の 2 回だけにする。
+ */
+export const VIDEO_CATCH_UP_RATIO = 0.06;
 /** プレビューで追従補正する設定速度の上限（高倍速は decode 余裕が無いので補正しない） */
 export const VIDEO_CATCH_UP_PREVIEW_MAX_SPEED = 2;
 
-/**
- * active 動画の `<video>.playbackRate` を、タイムライン時計とのずれに応じてわずかに増減する。
- *
- * キャプション・ナレーション・BGM はタイムライン時計に従う。一方 `<video>` は play() 開始遅れや
- * export backpressure 後の再開遅れでタイムラインから遅れたまま進み、seek しきい値（ソース秒 0.5）
- * 未満のずれは補正されない。スロー 0.5x ではタイムライン上 1 秒近いずれが残り、
- * 「再生中・シーク後・書き出し」で字幕と映像の位置関係が変わる原因になっていた。
- * seek は Android でカクつくため、ずれは速度の微調整で吸収する。
- *
- * - export は補正しない（倍速 rate=1 + 壁時計 dilation、等倍・スローの native rate を変えない。
- *   export はクリップ先頭で映像が動き出すまでタイムラインを止める境界待機で揃えている）。
- * - プレビューは 2x まで補正する（高倍速は decode 余裕が無いので rate を上げない）。
- */
-export function resolveVideoCatchUpPlaybackRate(params: {
+export interface VideoCatchUpParams {
   isExporting: boolean;
   playbackSpeed: unknown;
   videoCurrentTime: number;
   targetSourceTime: number;
   canCatchUp: boolean;
-}): number {
+  /** 直前のフレームで補正中だったか（ヒステリシス用。未指定は補正していない扱い） */
+  wasCatchingUp?: boolean;
+}
+
+/**
+ * 動画の `<video>.playbackRate` を、タイムライン時計とのずれに応じて一時的に増減する。
+ *
+ * キャプション・ナレーション・BGM はタイムライン時計に従う。一方 `<video>` は play() 開始遅れや
+ * export backpressure 後の再開遅れでタイムラインから遅れたまま進み、seek しきい値（ソース秒 0.5）
+ * 未満のずれは補正されない。スロー 0.5x ではタイムライン上 1 秒近いずれが残り、
+ * 「再生中・シーク後・書き出し」で字幕と映像の位置関係が変わる原因になっていた。
+ * seek は Android でカクつくため、ずれは速度の調整で吸収する。
+ *
+ * - 0.12 秒以上ずれたら固定 ±6% で寄せ、0.03 秒以内に戻ったら設定速度へ戻す（ヒステリシス）。
+ * - export は補正しない（倍速 rate=1 + 壁時計 dilation、等倍・スローの native rate を変えない。
+ *   export はクリップ先頭で映像が動き出すまでタイムラインを止める境界待機で揃えている）。
+ * - プレビューは 2x まで補正する（高倍速は decode 余裕が無いので rate を上げない）。
+ */
+export function resolveVideoCatchUpState(params: VideoCatchUpParams): {
+  rate: number;
+  isCatchingUp: boolean;
+} {
   const baseRate = resolveVideoElementPlaybackRateForContext(params.isExporting, params.playbackSpeed);
-  if (params.isExporting || !params.canCatchUp) return baseRate;
+  const idle = { rate: baseRate, isCatchingUp: false };
+  if (params.isExporting || !params.canCatchUp) return idle;
   const speed = normalizeVideoPlaybackSpeed(params.playbackSpeed);
-  if (speed > VIDEO_CATCH_UP_PREVIEW_MAX_SPEED) return baseRate;
+  if (speed > VIDEO_CATCH_UP_PREVIEW_MAX_SPEED) return idle;
   if (!Number.isFinite(params.videoCurrentTime) || !Number.isFinite(params.targetSourceTime)) {
-    return baseRate;
+    return idle;
   }
 
   // 正: 映像がタイムラインより遅れている（速める）/ 負: 進んでいる（遅くする）
   const timelineLagSec = (params.targetSourceTime - params.videoCurrentTime) / speed;
   const absLagSec = Math.abs(timelineLagSec);
-  if (absLagSec < VIDEO_CATCH_UP_DEADBAND_SEC || absLagSec > VIDEO_CATCH_UP_MAX_DRIFT_SEC) {
-    return baseRate;
-  }
+  if (absLagSec > VIDEO_CATCH_UP_MAX_DRIFT_SEC) return idle;
+  const threshold = params.wasCatchingUp ? VIDEO_CATCH_UP_STOP_SEC : VIDEO_CATCH_UP_START_SEC;
+  if (absLagSec < threshold) return idle;
 
-  const ratio = clamp(
-    timelineLagSec / VIDEO_CATCH_UP_WINDOW_SEC,
-    -VIDEO_CATCH_UP_MAX_RATIO,
-    VIDEO_CATCH_UP_MAX_RATIO,
-  );
-  const steppedRatio = Math.round(ratio / VIDEO_CATCH_UP_RATIO_STEP) * VIDEO_CATCH_UP_RATIO_STEP;
-  if (Math.abs(steppedRatio) < VIDEO_CATCH_UP_RATIO_STEP / 2) return baseRate;
-  return Number((baseRate * (1 + steppedRatio)).toFixed(4));
+  const ratio = timelineLagSec > 0 ? VIDEO_CATCH_UP_RATIO : -VIDEO_CATCH_UP_RATIO;
+  return { rate: Number((baseRate * (1 + ratio)).toFixed(4)), isCatchingUp: true };
+}
+
+/** `resolveVideoCatchUpState` の rate だけを返す版（補正中の状態を持たない呼び出し向け） */
+export function resolveVideoCatchUpPlaybackRate(params: VideoCatchUpParams): number {
+  return resolveVideoCatchUpState(params).rate;
 }
 
 export function shouldDrawSpeedBadge(

@@ -14,6 +14,7 @@ import {
   resolveSpeedBadgeFadeAlpha,
   resolveSpeedBadgePresetPosition,
   resolveVideoCatchUpPlaybackRate,
+  resolveVideoCatchUpState,
   resolveVideoElementPlaybackRateForContext,
   resolveVideoSafeEndSourceTime,
   resolveVideoSourceTime,
@@ -202,36 +203,61 @@ describe('速度バッジ', () => {
 describe('resolveVideoCatchUpPlaybackRate（プレビューで映像をタイムライン時計へ寄せる）', () => {
   const base = { isExporting: false, canCatchUp: true };
 
-  it('0.5x で映像が 0.1 秒（ソース）遅れている＝タイムライン 0.2 秒遅れなら少し速める', () => {
-    // target 5.0 / current 4.9 → ソース 0.1s 遅れ → タイムライン 0.2s → +10%（上限）
+  it('0.5x で映像が 0.1 秒（ソース）遅れている＝タイムライン 0.2 秒遅れなら固定 +6% で速める', () => {
     const rate = resolveVideoCatchUpPlaybackRate({
       ...base, playbackSpeed: 0.5, videoCurrentTime: 4.9, targetSourceTime: 5.0,
     });
-    expect(rate).toBeCloseTo(0.55, 4);
+    expect(rate).toBeCloseTo(0.53, 4);
   });
 
-  it('映像が進んでいるときは少し遅くする', () => {
+  it('映像が進んでいるときは固定 -6% で遅くする', () => {
     const rate = resolveVideoCatchUpPlaybackRate({
-      ...base, playbackSpeed: 1, videoCurrentTime: 5.1, targetSourceTime: 5.0,
+      ...base, playbackSpeed: 1, videoCurrentTime: 5.2, targetSourceTime: 5.0,
     });
-    expect(rate).toBeCloseTo(0.9, 4);
+    expect(rate).toBeCloseTo(0.94, 4);
   });
 
-  it('小さなずれは補正率を刻みへ丸める（毎フレーム rate を変えない）', () => {
-    const rate = resolveVideoCatchUpPlaybackRate({
-      ...base, playbackSpeed: 1, videoCurrentTime: 4.94, targetSourceTime: 5.0,
-    });
-    expect(rate).toBeCloseTo(1.06, 4);
-  });
-
-  it('不感帯（タイムライン 50ms 未満）は設定速度のまま', () => {
+  it('クリップ境界の開始遅れ程度（0.12 秒未満）は補正しない（rate を切り替えると音が乱れる・13-286）', () => {
+    expect(resolveVideoCatchUpPlaybackRate({
+      ...base, playbackSpeed: 1, videoCurrentTime: 4.9, targetSourceTime: 5.0,
+    })).toBe(1);
     expect(resolveVideoCatchUpPlaybackRate({
       ...base, playbackSpeed: 1, videoCurrentTime: 4.97, targetSourceTime: 5.0,
     })).toBe(1);
-    // 0.5x のソース 0.02s はタイムライン 0.04s
+    // 0.5x のソース 0.05s はタイムライン 0.1s
     expect(resolveVideoCatchUpPlaybackRate({
-      ...base, playbackSpeed: 0.5, videoCurrentTime: 4.98, targetSourceTime: 5.0,
+      ...base, playbackSpeed: 0.5, videoCurrentTime: 4.95, targetSourceTime: 5.0,
     })).toBe(0.5);
+  });
+
+  it('補正は同じ速度のまま 0.03 秒以内まで続け、そこで設定速度へ戻す（境目で往復しない）', () => {
+    // 補正中なら 0.08 秒遅れでも同じ +6% を保つ
+    expect(resolveVideoCatchUpState({
+      ...base, playbackSpeed: 1, videoCurrentTime: 4.92, targetSourceTime: 5.0, wasCatchingUp: true,
+    })).toEqual({ rate: 1.06, isCatchingUp: true });
+    // 補正していなければ 0.08 秒は補正しない
+    expect(resolveVideoCatchUpState({
+      ...base, playbackSpeed: 1, videoCurrentTime: 4.92, targetSourceTime: 5.0, wasCatchingUp: false,
+    })).toEqual({ rate: 1, isCatchingUp: false });
+    // 0.03 秒未満まで寄ったら終了
+    expect(resolveVideoCatchUpState({
+      ...base, playbackSpeed: 1, videoCurrentTime: 4.98, targetSourceTime: 5.0, wasCatchingUp: true,
+    })).toEqual({ rate: 1, isCatchingUp: false });
+  });
+
+  it('ずれが 0.3 秒から縮んでいく間、rate は「開始」と「終了」の 2 回しか変わらない', () => {
+    let wasCatchingUp = false;
+    let previousRate = 1;
+    let changes = 0;
+    for (let lag = 0.3; lag >= 0; lag -= 0.005) {
+      const state = resolveVideoCatchUpState({
+        ...base, playbackSpeed: 1, videoCurrentTime: 5 - lag, targetSourceTime: 5.0, wasCatchingUp,
+      });
+      if (state.rate !== previousRate) changes++;
+      previousRate = state.rate;
+      wasCatchingUp = state.isCatchingUp;
+    }
+    expect(changes).toBe(2);
   });
 
   it('大きなずれ（1 秒超）は既存の seek / recovery に任せて設定速度のまま', () => {

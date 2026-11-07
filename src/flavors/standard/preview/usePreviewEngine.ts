@@ -63,7 +63,8 @@ import {
   resolveExportTimelineWallDivisorForItem,
   resolveSpeedAwareVideoSyncThresholdSec,
   normalizeVideoPlaybackSpeed,
-  resolveVideoCatchUpPlaybackRate,
+  resolveVideoCatchUpState,
+  type VideoCatchUpParams,
   resolveVideoSafeEndSourceTime,
   resolveVideoSourceTime,
   VIDEO_CATCH_UP_MAX_DRIFT_SEC,
@@ -1983,6 +1984,21 @@ export function usePreviewEngine({
     splitComparePeerSnapshotRef.current[id] = { canvas, width: vw, height: vh, capturedAtMs: now };
   };
 
+  // 動画ごとの「追従補正中か」。補正の開始・終了にヒステリシスを持たせ、
+  // rate の切り替えを最小にする（切り替えのたびにプレビュー音声が乱れるため・13-286）。
+  const videoCatchUpStateRef = useRef(new WeakMap<HTMLVideoElement, boolean>());
+  const resolveVideoCatchUpRateFor = (
+    videoEl: HTMLVideoElement,
+    params: Omit<VideoCatchUpParams, 'wasCatchingUp'>,
+  ): number => {
+    const result = resolveVideoCatchUpState({
+      ...params,
+      wasCatchingUp: videoCatchUpStateRef.current.get(videoEl) ?? false,
+    });
+    videoCatchUpStateRef.current.set(videoEl, result.isCatchingUp);
+    return result.rate;
+  };
+
   const renderFrame = useCallback(
     (time: number, isActivePlaying = false, _isExporting = false) => {
       let previousSmoothingEnabled: boolean | undefined;
@@ -2290,7 +2306,7 @@ export function usePreviewEngine({
               if (isActivePlaying) {
                 applyVideoElementCatchUpPlaybackRate(
                   activeEl,
-                  resolveVideoCatchUpPlaybackRate({
+                  resolveVideoCatchUpRateFor(activeEl, {
                     isExporting: _isExporting,
                     playbackSpeed: activeItem.playbackSpeed,
                     videoCurrentTime: activeEl.currentTime,
@@ -2306,6 +2322,7 @@ export function usePreviewEngine({
                 );
               } else {
                 applyVideoElementPlaybackRate(activeEl, 1);
+                videoCatchUpStateRef.current.set(activeEl, false);
               }
               const activeVideoDrift = Math.abs(activeEl.currentTime - targetTime);
               const isAndroidPassiveBoundaryWindow =
@@ -2846,7 +2863,7 @@ export function usePreviewEngine({
               if (isActivePlaying) {
                 applyVideoElementCatchUpPlaybackRate(
                   videoEl,
-                  resolveVideoCatchUpPlaybackRate({
+                  resolveVideoCatchUpRateFor(videoEl, {
                     isExporting: _isExporting,
                     playbackSpeed: conf.playbackSpeed,
                     videoCurrentTime: videoEl.currentTime,
@@ -3520,7 +3537,7 @@ export function usePreviewEngine({
                 } else {
                   applyVideoElementCatchUpPlaybackRate(
                     peerVideoEl,
-                    resolveVideoCatchUpPlaybackRate({
+                    resolveVideoCatchUpRateFor(peerVideoEl, {
                       isExporting: false,
                       playbackSpeed: conf.playbackSpeed,
                       videoCurrentTime: peerVideoEl.currentTime,
