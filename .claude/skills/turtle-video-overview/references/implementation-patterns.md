@@ -5089,3 +5089,22 @@ export 終了（成功/失敗/中断）
 - **対策**: 補正開始は 0.12 秒以上のずれ、終了は 0.03 秒以内（ヒステリシス・動画要素ごとに WeakMap で状態保持）、補正中は固定 ±6%。1 回の補正で rate が変わるのは開始と終了の 2 回だけ。停止中は状態を解除する。export・iOS・2x 超・Android 境界直後は従来どおり補正しない。
 - **検証**: 同構成のヘッドレス再生で、次動画開始時の rate 変更 8 回 → 0 回（2 回計測）。スロー 0.5x の大きなずれ（13-275 の本来の目的）は引き続き補正される（テスト）。
 - **注意**: 0.12 秒未満のずれは残る（字幕との差としては体感しにくい範囲）。比例・刻み制御へ戻すと再びノイズが出る。
+
+### 13-287. フェード時間スライダー（0.5 / 1 / 2 秒）は 3 段を等間隔に並べ、1 秒を中央に置く
+
+- **ファイル**: `src/components/common/NumericSliderField.tsx`（`sliderStops`）, `src/components/common/PresetFadeDurationField.tsx`, `src/components/SwipeProtectedSlider.tsx`（`ariaValueText`）
+- **問題**: スライダーが 0.5〜2 の連続値だったため、中間の 1 秒が左から 1/3 の位置に表示されていた（全 22 箇所のフェード入力で共通）。
+- **対策**: `sliderStops` を指定するとスライダーは値の番号（0〜n-1, step 1）で動き、値は stop の実値へ変換する。数値欄と −/+ は従来どおり実値。読み上げは `aria-valuetext` で「1秒」等を渡す。
+
+### 13-288. 並べて比較の「左右・ななめ」で、触っていない横長素材の横位置を自動で ±5% にする
+
+- **ファイル**: `src/utils/splitCompare.ts`（`isSplitCompareDiagonalOffsetWanted` / `resolveSplitCompareAutoOffsetPatch`）, `src/components/sections/ClipsSection.tsx`（`handleChangeSplitCompare`）, `src/test/splitCompare.test.ts`, `src/test/splitCompareConnector.ui.test.tsx`
+- **仕様**: 比較設定が「左右・ななめ」になった瞬間（ななめに変更・左右に変更・ななめのまま比較 ON）に、左（head）を −5%、右（partner）を ＋5% にする。「左右・ななめ」でなくなった瞬間（まっすぐ・上下・比較 OFF）に、自動の ±5% のままなら 0 に戻す。
+- **対象条件**: 横長素材（回転後の幅 > 高さ。動画は `sourceWidth/Height`、画像は読み込み済み要素の natural サイズ。不明なら対象外）で、拡大 1・縦位置 0・ズームなし・ロックなし。適用は横位置 0 のときだけ、復元は自動値（±0.2% 許容）のときだけ。ユーザーが動かした位置・拡大は変えない。
+- **注意**: 位置は px（`useCanvasStore().width` 基準）で保存しているため、% はキャンバス幅から換算する。縦長素材の並べ方（拡大の自動調整）は未対応。
+
+### 13-289. キャプションの字体ボタン（丸ゴシック等）の文字がはみ出しそうになる
+
+- **ファイル**: `src/components/common/CaptionFontStyleField.tsx`
+- **問題**: 字体ボタンが等分幅（`flex-1`）だったため、文字数が多く字幅の広い「丸ゴシック」だけ窮屈になっていた。
+- **対策**: ボタンを `flex-auto`（文字幅を基準に余白を配分）＋左右余白 `px-1` にし、「その他」ドロップダウンは `min-w-[3rem] md:min-w-[4.5rem]` で潰れないようにした。スマホ幅（390px）では「その他」の右端がわずかに欠けるが、字体ボタンの文字を優先している。

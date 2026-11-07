@@ -111,7 +111,7 @@ const CaptionFontStyleField = React.memo<CaptionFontStyleFieldProps>(({
             <button
               onClick={() => onSetFontStyle(null)}
               disabled={disabled}
-              className={`flex-1 min-w-0 px-0.5 py-1 rounded transition whitespace-nowrap ${
+              className={`flex-auto min-w-0 px-1 py-1 rounded transition whitespace-nowrap ${
                 isDefaultSelected
                   ? 'bg-yellow-500 text-gray-900'
                   : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -127,7 +127,7 @@ const CaptionFontStyleField = React.memo<CaptionFontStyleFieldProps>(({
               key={opt.value}
               onClick={() => onSetFontStyle(opt.value)}
               disabled={disabled}
-              className={`flex-1 min-w-0 px-0.5 py-1 rounded transition whitespace-nowrap ${
+              className={`flex-auto min-w-0 px-1 py-1 rounded transition whitespace-nowrap ${
                 fontStyle === opt.value
                   ? 'bg-yellow-500 text-gray-900'
                   : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -148,7 +148,7 @@ const CaptionFontStyleField = React.memo<CaptionFontStyleFieldProps>(({
                 if (value) onSetFontStyle(value);
               }}
               disabled={disabled}
-              className={`flex-1 min-w-0 max-w-[7.5rem] py-1 px-1 rounded transition text-[10px] md:text-xs bg-gray-700 focus:outline-none focus:ring-1 focus:ring-yellow-500 disabled:opacity-50 ${
+              className={`flex-1 min-w-[3rem] md:min-w-[4.5rem] max-w-[7.5rem] py-1 px-1 rounded transition text-[10px] md:text-xs bg-gray-700 focus:outline-none focus:ring-1 focus:ring-yellow-500 disabled:opacity-50 ${
                 dropdownFontValue
                   ? 'text-yellow-300 ring-1 ring-yellow-500/70 font-semibold'
                   : 'text-gray-300 hover:bg-gray-600'

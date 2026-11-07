@@ -75,6 +75,22 @@ export interface NumericSliderFieldProps {
   inputId?: string;
   /** 行全体に付与する追加クラス */
   className?: string;
+  /**
+   * 選べる値が決まっているとき（例: 0.5 / 1 / 2 秒）の値の一覧（昇順）。
+   * 指定するとスライダーはこの値を**等間隔**に並べ、つまみは一覧の何番目かで動く。
+   * 値に比例した位置だと 0.5〜2 の 1 が左寄り（1/3）に見えるため、中間の値を中央に置く。
+   * 数値欄と −/+ は従来どおり実際の値で動く。
+   */
+  sliderStops?: readonly number[];
+}
+
+/** 値に最も近い stop の番号 */
+function nearestStopIndex(stops: readonly number[], value: number): number {
+  let best = 0;
+  for (let i = 1; i < stops.length; i++) {
+    if (Math.abs(stops[i] - value) < Math.abs(stops[best] - value)) best = i;
+  }
+  return best;
 }
 
 const NumericSliderField = React.memo<NumericSliderFieldProps>(({
@@ -99,6 +115,7 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
   ariaLabel,
   inputId,
   className = '',
+  sliderStops,
 }) => {
   const resolvedDecimals = decimals ?? inferDecimals(step);
   const stepAmount = stepperStep ?? step;
@@ -115,7 +132,23 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
     return next;
   };
 
-  const slider = (
+  const hasStops = !!sliderStops && sliderStops.length >= 2;
+  const slider = hasStops ? (
+    <SwipeProtectedSlider
+      min={0}
+      max={sliderStops.length - 1}
+      step={1}
+      value={nearestStopIndex(sliderStops, displayValue)}
+      onChange={(index) => {
+        const next = sliderStops[Math.max(0, Math.min(sliderStops.length - 1, Math.round(index)))];
+        if (next !== undefined && next !== displayValue) onChange(next);
+      }}
+      disabled={disabled}
+      ariaLabel={effectiveLabel}
+      ariaValueText={`${formatDisplayValue ? formatDisplayValue(displayValue) : displayValue}${unit ?? ''}`}
+      className={sliderClassName}
+    />
+  ) : (
     <SwipeProtectedSlider
       min={min}
       max={max}

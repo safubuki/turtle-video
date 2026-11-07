@@ -38,6 +38,8 @@ import {
   createDefaultSplitCompareSettings,
   describeSplitCompareSettings,
   getSplitComparePairForIndex,
+  isSplitCompareDiagonalOffsetWanted,
+  resolveSplitCompareAutoOffsetPatch,
   resolveSplitCompareDisplayLayout,
   resolveSplitCompareRoles,
   SPLIT_COMPARE_DIVIDER_OPTIONS,
@@ -531,6 +533,51 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   const hasOverallSettings = Boolean(titleSettingsNode || watermarkNode || audioSettingsNode);
   // 出力の向き（16:9 横 / 9:16 縦）。プロジェクトごとに保持され、プレビュー/カード/エクスポートに反映される。
   const aspectRatio = useCanvasStore((s) => s.aspectRatio);
+  const canvasWidth = useCanvasStore((s) => s.width);
+  /** 素材の幅・高さ（動画は保存値、画像は読み込み済み要素から）。不明なら null */
+  const resolveSourceSize = (item: MediaItem): { width: number; height: number } | null => {
+    if (item.sourceWidth && item.sourceHeight) {
+      return { width: item.sourceWidth, height: item.sourceHeight };
+    }
+    const element = mediaElements[item.id];
+    if (element instanceof HTMLVideoElement && element.videoWidth > 0) {
+      return { width: element.videoWidth, height: element.videoHeight };
+    }
+    if (element instanceof HTMLImageElement && element.naturalWidth > 0) {
+      return { width: element.naturalWidth, height: element.naturalHeight };
+    }
+    return null;
+  };
+  /**
+   * カード間の「並べて比較」設定を変える。左右・ななめになった／ではなくなったときは、
+   * 何も触っていない横長素材だけ横位置を ±5% 自動調整・復元する（ユーザーの調整は変えない）。
+   */
+  const handleChangeSplitCompare = (index: number, settings: SplitCompareSettings | null) => {
+    const head = mediaItems[index];
+    const partner = mediaItems[index + 1];
+    if (!head) return;
+    const previous = splitCompareRoles[index] === 'head' ? head.splitCompareToNext ?? null : null;
+    const wasWanted = isSplitCompareDiagonalOffsetWanted(previous, aspectRatio);
+    const isWanted = isSplitCompareDiagonalOffsetWanted(settings, aspectRatio);
+    const offsetPatch = (item: MediaItem, role: 'head' | 'partner') => resolveSplitCompareAutoOffsetPatch({
+      item,
+      role,
+      wasWanted,
+      isWanted,
+      sourceSize: resolveSourceSize(item),
+      canvasWidth,
+    });
+    updateMediaItem(head.id, {
+      splitCompareToNext: settings,
+      // 比較と切り替え効果は同じ境界で併用しない
+      ...(settings ? { transitionToNext: null } : {}),
+      ...(offsetPatch(head, 'head') ?? {}),
+    });
+    const partnerPatch = partner ? offsetPatch(partner, 'partner') : null;
+    if (partner && partnerPatch) {
+      updateMediaItem(partner.id, partnerPatch);
+    }
+  };
   const duplicateMediaItem = useMediaStore((s) => s.duplicateMediaItem);
   const addContinuationMediaItem = useMediaStore((s) => s.addContinuationMediaItem);
   const updateMediaItem = useMediaStore((s) => s.updateMediaItem);
@@ -929,11 +976,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
               closeSignal={transitionCloseSignal}
               onBeforeEdit={onBeforeTransitionEdit}
               onChange={(transition) => updateMediaItem(v.id, { transitionToNext: transition })}
-              onChangeSplitCompare={(settings) => updateMediaItem(v.id, {
-                splitCompareToNext: settings,
-                // 比較と切り替え効果は同じ境界で併用しない
-                ...(settings ? { transitionToNext: null } : {}),
-              })}
+              onChangeSplitCompare={(settings) => handleChangeSplitCompare(i, settings)}
             />
           )}
           </React.Fragment>

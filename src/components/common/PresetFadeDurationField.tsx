@@ -9,6 +9,9 @@ interface PresetFadeDurationFieldProps {
   accentClassName: string;
 }
 
+/** フェード時間の選択肢。スライダーはこの 3 つを等間隔に並べ、1 秒を中央に置く */
+const FADE_DURATION_STOPS = [0.5, 1, 2] as const;
+
 /** 0.5 / 1 / 2 秒だけを選べるフェード時間の共通入力。 */
 const PresetFadeDurationField = React.memo<PresetFadeDurationFieldProps>(({
   value,
@@ -21,6 +24,7 @@ const PresetFadeDurationField = React.memo<PresetFadeDurationFieldProps>(({
     min={0.5}
     max={2}
     step={0.5}
+    sliderStops={FADE_DURATION_STOPS}
     value={value}
     onChange={(next) => onChange(next < 0.75 ? 0.5 : next < 1.5 ? 1 : 2)}
     resolveStep={(from, direction) => direction < 0

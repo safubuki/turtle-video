@@ -13,6 +13,8 @@ import {
   normalizeSplitCompareSettings,
   resolveSplitCompareGeometry,
   resolveSplitComparePeerFadeAlpha,
+  isSplitCompareDiagonalOffsetWanted,
+  resolveSplitCompareAutoOffsetPatch,
   resolveSplitCompareDisplayLayout,
   resolveSplitCompareRoles,
   SPLIT_COMPARE_DEFAULT_SETTINGS,
@@ -252,5 +254,53 @@ describe('resolveSplitComparePeerFadeAlpha', () => {
     const short = makeItem({ duration: 1, fadeIn: true, fadeOut: true, fadeInDuration: 1, fadeOutDuration: 1 });
     expect(resolveSplitComparePeerFadeAlpha(short, 0.25)).toBeCloseTo(0.5);
     expect(resolveSplitComparePeerFadeAlpha(makeItem({}), 3)).toBe(1);
+  });
+});
+
+describe('左右・ななめの自動位置調整（±5%）', () => {
+  const landscape = { width: 1920, height: 1080 };
+  const untouched = { positionX: 0, positionY: 0, scale: 1, isLocked: false };
+  const apply = { wasWanted: false, isWanted: true, sourceSize: landscape, canvasWidth: 1280 };
+  const revert = { wasWanted: true, isWanted: false, sourceSize: landscape, canvasWidth: 1280 };
+
+  it('左右・ななめのときだけ調整対象（まっすぐ・上下・比較なしは対象外）', () => {
+    expect(isSplitCompareDiagonalOffsetWanted(compare({ layout: 'horizontal', divider: 'diagonal' }), 'landscape')).toBe(true);
+    expect(isSplitCompareDiagonalOffsetWanted(compare({ layout: 'horizontal', divider: 'straight' }), 'landscape')).toBe(false);
+    expect(isSplitCompareDiagonalOffsetWanted(compare({ layout: 'vertical', divider: 'diagonal' }), 'landscape')).toBe(false);
+    expect(isSplitCompareDiagonalOffsetWanted(compare({ layout: 'auto', divider: 'diagonal' }), 'portrait')).toBe(false);
+    expect(isSplitCompareDiagonalOffsetWanted(null, 'landscape')).toBe(false);
+  });
+
+  it('何も触っていない横長素材は、ななめにすると左 -5%・右 +5%', () => {
+    expect(resolveSplitCompareAutoOffsetPatch({ ...apply, item: untouched, role: 'head' })).toEqual({ positionX: -64 });
+    expect(resolveSplitCompareAutoOffsetPatch({ ...apply, item: untouched, role: 'partner' })).toEqual({ positionX: 64 });
+  });
+
+  it('自動で入れた ±5% のままなら、まっすぐに戻すと 0 に戻す', () => {
+    expect(resolveSplitCompareAutoOffsetPatch({ ...revert, item: { ...untouched, positionX: -64 }, role: 'head' }))
+      .toEqual({ positionX: 0 });
+    expect(resolveSplitCompareAutoOffsetPatch({ ...revert, item: { ...untouched, positionX: 64 }, role: 'partner' }))
+      .toEqual({ positionX: 0 });
+  });
+
+  it('ユーザーが位置・拡大・ズームを調整していたら、適用も復元もしない', () => {
+    expect(resolveSplitCompareAutoOffsetPatch({ ...apply, item: { ...untouched, positionX: 30 }, role: 'head' })).toBeNull();
+    expect(resolveSplitCompareAutoOffsetPatch({ ...apply, item: { ...untouched, scale: 1.2 }, role: 'head' })).toBeNull();
+    expect(resolveSplitCompareAutoOffsetPatch({ ...apply, item: { ...untouched, positionY: 40 }, role: 'head' })).toBeNull();
+    expect(resolveSplitCompareAutoOffsetPatch({ ...apply, item: { ...untouched, zoomDirection: 'in' }, role: 'head' })).toBeNull();
+    expect(resolveSplitCompareAutoOffsetPatch({ ...apply, item: { ...untouched, isLocked: true }, role: 'head' })).toBeNull();
+    // 自動値から動かした（-64 → -100）なら戻さない
+    expect(resolveSplitCompareAutoOffsetPatch({ ...revert, item: { ...untouched, positionX: -100 }, role: 'head' })).toBeNull();
+  });
+
+  it('縦長・正方形・向き不明の素材、90度回転で縦長になる素材は対象外', () => {
+    expect(resolveSplitCompareAutoOffsetPatch({ ...apply, sourceSize: { width: 1080, height: 1920 }, item: untouched, role: 'head' })).toBeNull();
+    expect(resolveSplitCompareAutoOffsetPatch({ ...apply, sourceSize: { width: 1000, height: 1000 }, item: untouched, role: 'head' })).toBeNull();
+    expect(resolveSplitCompareAutoOffsetPatch({ ...apply, sourceSize: null, item: untouched, role: 'head' })).toBeNull();
+    expect(resolveSplitCompareAutoOffsetPatch({ ...apply, item: { ...untouched, rotation: 90 }, role: 'head' })).toBeNull();
+  });
+
+  it('調整の要否が変わらないとき（ななめのまま線の色を変える等）は何もしない', () => {
+    expect(resolveSplitCompareAutoOffsetPatch({ ...apply, wasWanted: true, item: untouched, role: 'head' })).toBeNull();
   });
 });

@@ -307,6 +307,77 @@ export function drawSplitCompareDivider(
 }
 
 /**
+ * 左右・ななめのとき、横長素材を境界線から少し離すための横位置（中央原点 %）。
+ * 左（head）は −5%、右（partner）は ＋5%。ななめの線で素材の中心が隠れにくくなる。
+ */
+export const SPLIT_COMPARE_DIAGONAL_AUTO_OFFSET_PERCENT = 5;
+/** 自動調整済みとみなす許容差（%）。キャンバス幅の px 丸め分 */
+const AUTO_OFFSET_TOLERANCE_PERCENT = 0.2;
+
+/** この設定で「左右・ななめ」の自動位置調整を掛けるべきか（比較なしは false） */
+export function isSplitCompareDiagonalOffsetWanted(
+  settings: SplitCompareSettings | null | undefined,
+  aspectRatio: 'landscape' | 'portrait',
+): boolean {
+  if (!settings) return false;
+  return settings.divider === 'diagonal'
+    && resolveSplitCompareDisplayLayout(settings.layout, aspectRatio) === 'horizontal';
+}
+
+type AutoOffsetItem = Pick<MediaItem, 'positionX' | 'positionY' | 'scale' | 'isLocked'>
+  & Partial<Pick<MediaItem, 'rotation' | 'zoomDirection' | 'zoomStartScale' | 'zoomEndScale'>>;
+
+/** 拡大・縦位置・ズームを触っていない（横位置だけを見る前提の）カードか */
+function hasUntouchedTransform(item: AutoOffsetItem): boolean {
+  const hasZoom = (item.zoomDirection === 'in' || item.zoomDirection === 'out')
+    || (Number.isFinite(item.zoomStartScale) && Number.isFinite(item.zoomEndScale)
+      && Math.abs((item.zoomStartScale as number) - (item.zoomEndScale as number)) > 1e-6);
+  return !item.isLocked
+    && Math.abs((item.scale ?? 1) - 1) < 1e-6
+    && Math.abs(item.positionY || 0) < 0.5
+    && !hasZoom;
+}
+
+/**
+ * 「左右・ななめ」の自動位置調整のパッチ（positionX の px）を返す。不要なら null。
+ *
+ * - 調整が必要になった（ななめにした等）とき: 横長素材で、位置・拡大・ズームを何も触っていない
+ *   （横位置 0）なら、左は −5%・右は ＋5% にする。
+ * - 不要になった（まっすぐに戻した・上下にした・比較をやめた）とき: 自動で入れた ±5% のまま
+ *   何も触っていなければ 0 に戻す。ユーザーが動かした位置・拡大は変えない。
+ * 素材の向きが分からない（未読込）・縦長・正方形は何もしない。
+ */
+export function resolveSplitCompareAutoOffsetPatch(params: {
+  item: AutoOffsetItem;
+  role: 'head' | 'partner';
+  wasWanted: boolean;
+  isWanted: boolean;
+  /** 素材の幅・高さ（回転前）。不明なら null */
+  sourceSize: { width: number; height: number } | null;
+  /** 位置の px 基準（キャンバス幅） */
+  canvasWidth: number;
+}): { positionX: number } | null {
+  const { item, role, wasWanted, isWanted, sourceSize, canvasWidth } = params;
+  if (wasWanted === isWanted || !sourceSize || !(canvasWidth > 0)) return null;
+  const rotated = ((item.rotation ?? 0) % 180 + 180) % 180 === 90;
+  const width = rotated ? sourceSize.height : sourceSize.width;
+  const height = rotated ? sourceSize.width : sourceSize.height;
+  if (!(width > height)) return null;
+  if (!hasUntouchedTransform(item)) return null;
+
+  const offsetPercent = role === 'head'
+    ? -SPLIT_COMPARE_DIAGONAL_AUTO_OFFSET_PERCENT
+    : SPLIT_COMPARE_DIAGONAL_AUTO_OFFSET_PERCENT;
+  const currentPercent = ((item.positionX || 0) / canvasWidth) * 100;
+  if (isWanted) {
+    if (Math.abs(currentPercent) > AUTO_OFFSET_TOLERANCE_PERCENT) return null;
+    return { positionX: Math.round((offsetPercent / 100) * canvasWidth) };
+  }
+  if (Math.abs(currentPercent - offsetPercent) > AUTO_OFFSET_TOLERANCE_PERCENT) return null;
+  return { positionX: 0 };
+}
+
+/**
  * ペアのもう一方（peer）に掛けるクリップ自身のフェード係数（0〜1）。
  * active と同じく、フェードイン + フェードアウトがクリップ長を超えるときは按分する。
  */

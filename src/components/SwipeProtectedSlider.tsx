@@ -17,6 +17,8 @@ interface SwipeProtectedSliderProps {
   disabled?: boolean;
   className?: string;
   ariaLabel?: string;
+  /** 読み上げ用の値の表記（スライダー位置と実際の値が異なるときに指定する） */
+  ariaValueText?: string;
 }
 
 /**
@@ -35,6 +37,7 @@ export const SwipeProtectedSlider: React.FC<SwipeProtectedSliderProps> = ({
   disabled = false,
   className = '',
   ariaLabel,
+  ariaValueText,
 }) => {
   const handlers = useSwipeProtectedValue(
     value,
@@ -56,6 +59,7 @@ export const SwipeProtectedSlider: React.FC<SwipeProtectedSliderProps> = ({
       {...handlers}
       disabled={disabled}
       aria-label={ariaLabel}
+      aria-valuetext={ariaValueText}
       className={className}
       style={{ touchAction: 'pan-y pinch-zoom' }}
     />

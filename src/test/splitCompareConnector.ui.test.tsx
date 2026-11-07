@@ -6,6 +6,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ClipsSection from '../components/sections/ClipsSection';
 import useMediaStore from '../stores/mediaStore';
+import { useCanvasStore } from '../stores/canvasStore';
 import type { MediaItem } from '../types';
 
 function createVideo(id: string, duration = 5): MediaItem {
@@ -135,6 +136,47 @@ describe('並べて比較（同時再生）コネクタ', () => {
     // もう一度水色側を押すと、直前の比較設定（ななめ）が戻る
     fireEvent.click(screen.getAllByRole('button', { name: '並べて比較' })[0]);
     expect(useMediaStore.getState().mediaItems[0].splitCompareToNext?.divider).toBe('diagonal');
+  });
+
+  it('左右でななめにすると、触っていない横長の 2 枚を左 -5%・右 +5% にし、まっすぐで 0 に戻す', () => {
+    const canvasWidth = useCanvasStore.getState().width;
+    const landscape = { sourceWidth: 1920, sourceHeight: 1080 };
+    useMediaStore.setState({
+      mediaItems: [
+        { ...createVideo('a', 6), ...landscape, splitCompareToNext: { layout: 'horizontal', divider: 'straight', fit: 'cover', lineColor: 'white' } },
+        { ...createVideo('b', 4), ...landscape },
+        createVideo('c', 5),
+      ],
+    });
+    const { rerender } = renderSection(useMediaStore.getState().mediaItems);
+    fireEvent.click(screen.getByRole('button', { name: /並べて比較 左右・まっすぐ/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'ななめ' }));
+    let items = useMediaStore.getState().mediaItems;
+    expect(items[0].positionX).toBe(Math.round(-0.05 * canvasWidth));
+    expect(items[1].positionX).toBe(Math.round(0.05 * canvasWidth));
+    expect(items[2].positionX).toBe(0);
+
+    rerender(<ClipsSection {...makeProps(items)} />);
+    fireEvent.click(screen.getByRole('button', { name: 'まっすぐ' }));
+    items = useMediaStore.getState().mediaItems;
+    expect(items[0].positionX).toBe(0);
+    expect(items[1].positionX).toBe(0);
+  });
+
+  it('ユーザーが動かした位置は、ななめにしても変えない', () => {
+    useMediaStore.setState({
+      mediaItems: [
+        { ...createVideo('a', 6), sourceWidth: 1920, sourceHeight: 1080, positionX: 40, splitCompareToNext: { layout: 'horizontal', divider: 'straight', fit: 'cover', lineColor: 'white' } },
+        { ...createVideo('b', 4), sourceWidth: 1920, sourceHeight: 1080, scale: 1.3 },
+      ],
+    });
+    renderSection(useMediaStore.getState().mediaItems);
+    fireEvent.click(screen.getByRole('button', { name: /並べて比較 左右・まっすぐ/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'ななめ' }));
+    const items = useMediaStore.getState().mediaItems;
+    expect(items[0].positionX).toBe(40);
+    expect(items[1].positionX).toBe(0);
+    expect(items[0].splitCompareToNext?.divider).toBe('diagonal');
   });
 
   it('並べて比較のペアは、再生位置にあるとき 2 枚とも枠が光る', () => {
