@@ -306,7 +306,7 @@ def validate_help_content(help_data: Dict[str, Any]) -> Dict[str, Any]:
                         "message": (
                             f"古い位置表現 '{loc}' が含まれています。"
                             "実画面レイアウトに合わせ、"
-                            "『トップ画面のタートルビデオ アプリ名の横の歯車アイコン』と表記を一致させてください。"
+                            "現在の実画面位置（例: 『トップ画面のアプリ名横の歯車アイコン』）と表記を一致させてください。"
                         ),
                     })
 
@@ -325,6 +325,32 @@ def validate_help_content(help_data: Dict[str, Any]) -> Dict[str, Any]:
                                 f"{forbidden_kw} の設定は適切な全体設定または別セクションで説明してください。"
                             ),
                         })
+
+            # Rule 11: Eliminate developer meta-commentary, changelog phrasing, and negative excuses
+            meta_phrases = [
+                "目次になります",
+                "行わないようにしました",
+                "しないようにしました",
+                "変更しました",
+                "修正しました",
+                "対応しました",
+                "実装しました",
+                "しない仕様です",
+                "行わない仕様です",
+            ]
+            for phrase in meta_phrases:
+                if phrase in combined_sec_text:
+                    issues.append({
+                        "severity": "warning",
+                        "section": sec_key,
+                        "title": title,
+                        "rule": "no-meta-or-changelog-phrasing",
+                        "message": (
+                            f"開発者視点のメタ解説や経緯表現 '{phrase}' が含まれています。"
+                            "ヘルプはユーザーのための操作案内であり、設計意図の講釈や開発経緯・非動作の言い訳は不要です。"
+                            "ユーザーが必要とする『何ができるか』『どう操作するか』のみに整理してください。"
+                        ),
+                    })
 
     has_license_or_env = any(
         any("ライセンス" in item.get("title", "") or "動作" in item.get("title", "") or "環境" in item.get("title", "")
@@ -443,6 +469,23 @@ def validate_component_source(component_path: Path) -> Dict[str, Any]:
                 ),
             })
 
+    # Rule 8: Check for developer meta-commentary in UI text
+    meta_component_phrases = [
+        "目次になります",
+        "行わないようにしました",
+        "しないようにしました",
+    ]
+    for phrase in meta_component_phrases:
+        if phrase in content:
+            issues.append({
+                "severity": "warning",
+                "rule": "no-developer-meta-commentary-in-ui",
+                "message": (
+                    f"UI内に開発者視点のメタ解説 '{phrase}' が含まれています。"
+                    "読み手にとって不要な設計意図の講釈や内部都合の前提条件は削除し、"
+                    "操作そのもの（例: '各項目をクリックして開閉できます'）のみを端的に表示してください。"
+                ),
+            })
 
     return {
         "valid": len([i for i in issues if i["severity"] == "error"]) == 0,
@@ -523,10 +566,10 @@ def generate_skeleton(scan_result: Optional[Dict[str, Any]] = None) -> Dict[str,
                 items[0]["note"] = (
                     "重要: この機能を使用するには事前のAPIキー設定が必要です。"
                     "登録したAPIキーはお使いのブラウザ内（ローカル）にのみ安全に保存され、外部サーバーには送信されません。"
-                    "トップ画面のタートルビデオ アプリ名の横の歯車アイコンからAPIキーを登録してください。"
+                    "トップ画面のアプリ名横の歯車アイコンからAPIキーを登録してください。"
                 )
                 items[0]["bullets"].insert(0, {
-                    "text": "APIキー連携: トップ画面のタートルビデオ アプリ名の横の歯車アイコンからキーを登録して利用可能にします。",
+                    "text": "APIキー連携: トップ画面のアプリ名横の歯車アイコンからキーを登録して利用可能にします。",
                     "visuals": ["settings_gear_badge"]
                 })
 
