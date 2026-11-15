@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   detectBrowserPlatform,
   getAudioUploadAccept,
+  getBgmUploadAccept,
   getPlatformCapabilities,
   isStrictIosSafari,
   getSupportedMediaRecorderProfile,
@@ -118,6 +119,50 @@ describe('getAudioUploadAccept', () => {
     });
 
     expect(accept).toBe('audio/*');
+  });
+});
+
+describe('getBgmUploadAccept', () => {
+  const androidChrome = {
+    userAgent: 'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 Chrome/135.0.0.0 Mobile Safari/537.36',
+    platform: 'Linux armv8l',
+    maxTouchPoints: 5,
+    isAndroid: true,
+    isIOS: false,
+    isSafari: false,
+    isIosSafari: false,
+  };
+  const iosSafari = {
+    userAgent:
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
+    platform: 'iPhone',
+    maxTouchPoints: 5,
+    isAndroid: false,
+    isIOS: true,
+    isSafari: true,
+    isIosSafari: true,
+  };
+
+  it('Android/PC では音声に加えて音声付き動画も選べる', () => {
+    const accept = getBgmUploadAccept(androidChrome).split(',');
+    expect(accept).toContain('audio/*');
+    expect(accept).toContain('video/*');
+    expect(accept).toContain('.mp4');
+    expect(accept).toContain('.mov');
+    expect(accept).toContain('.webm');
+  });
+
+  it('iOS Safari では既存の音声拡張子を維持したまま動画も選べる', () => {
+    const accept = getBgmUploadAccept(iosSafari).split(',');
+    for (const token of getAudioUploadAccept(iosSafari).split(',')) {
+      expect(accept).toContain(token);
+    }
+    expect(accept).toContain('video/*');
+  });
+
+  it('ナレーション用の accept は変更しない（BGM 専用の拡張）', () => {
+    expect(getAudioUploadAccept(androidChrome)).toBe('audio/*');
+    expect(getAudioUploadAccept(androidChrome).split(',')).not.toContain('video/*');
   });
 });
 

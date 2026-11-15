@@ -65,6 +65,14 @@ const IOS_SAFARI_AUDIO_UPLOAD_ACCEPT =
 
 const DEFAULT_AUDIO_UPLOAD_ACCEPT = 'audio/*';
 
+// BGM は「動画の音声だけを重ねる」用途のため、音声付き動画も選べるようにする。
+// 動画コンテナの音声はプレビュー（<audio> 要素）と書き出し（decodeAudioData /
+// <video> 経由抽出）のどちらも既存経路で扱える。映像は使わない。
+const IOS_SAFARI_BGM_UPLOAD_ACCEPT = `${IOS_SAFARI_AUDIO_UPLOAD_ACCEPT},video/*`;
+
+const DEFAULT_BGM_UPLOAD_ACCEPT =
+  'audio/*,video/*,.mp4,.m4v,.mov,.webm';
+
 // テスト時に差し替えやすいよう、実環境オブジェクトの取得を薄い関数に分離している。
 function getDefaultNavigator(): NavigatorLike | undefined {
   return typeof navigator !== 'undefined' ? navigator : undefined;
@@ -115,6 +123,15 @@ export function isStrictIosSafari(navigatorLike: NavigatorLike | undefined = get
  */
 export function getAudioUploadAccept(platformInfo: BrowserPlatformInfo = detectBrowserPlatform()): string {
   return platformInfo.isIosSafari ? IOS_SAFARI_AUDIO_UPLOAD_ACCEPT : DEFAULT_AUDIO_UPLOAD_ACCEPT;
+}
+
+/**
+ * BGM アップロード input の accept 文字列を返す。
+ * 音声ファイルに加えて音声付き動画（MP4/MOV/WebM など）も選べる。
+ * 動画は音声トラックだけを BGM として使う（映像はプレビュー・書き出しに出さない）。
+ */
+export function getBgmUploadAccept(platformInfo: BrowserPlatformInfo = detectBrowserPlatform()): string {
+  return platformInfo.isIosSafari ? IOS_SAFARI_BGM_UPLOAD_ACCEPT : DEFAULT_BGM_UPLOAD_ACCEPT;
 }
 
 /**

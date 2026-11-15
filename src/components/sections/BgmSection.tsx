@@ -20,7 +20,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { AudioTrack, BgmClip } from '../../types';
-import { getAudioUploadAccept } from '../../utils/platform';
+import { getBgmUploadAccept } from '../../utils/platform';
 import PresetFadeDurationField from '../common/PresetFadeDurationField';
 import NumericSliderField from '../common/NumericSliderField';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
@@ -85,7 +85,8 @@ const BgmSection: React.FC<BgmSectionProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const prevBgmUrlRef = useRef<string | null>(bgm?.url ?? null);
   const prevBgmClipCountRef = useRef(bgmClips.length);
-  const audioFileAccept = getAudioUploadAccept();
+  // 音声付き動画も選べる（音声部分だけを BGM として使う）
+  const audioFileAccept = getBgmUploadAccept();
   // 複数 BGM は standard フレーバー（Android/PC）限定。iOS Safari は従来の単一 BGM UI を維持する。
   const { isIosSafari } = usePlatformCapabilities();
   const isMultiBgm = !isIosSafari;

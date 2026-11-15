@@ -528,4 +528,10 @@ describe('sectionHelp support messaging', () => {
     expect(fullText).toContain('自動調整');
     expect(fullText).toContain('微調整');
   });
+
+  it('BGM の追加ボタン説明で音声付き動画を選べることを案内する', () => {
+    const text = getHelpDescription('bgm', '追加ボタン');
+    expect(text).toContain('音声付きの動画');
+    expect(text).toContain('音声だけ');
+  });
 });
