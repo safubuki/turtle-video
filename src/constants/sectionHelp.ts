@@ -717,7 +717,7 @@ export function getSectionHelpContent(
       {
         "title": "追加ボタン",
         "category": "セクションヘッダー（追加・ロック）",
-        "description": "BGMファイルを追加できます。",
+        "description": "BGMファイルを追加できます。音声付きの動画（MP4・MOV・WebMなど）も選べ、その動画の音声だけをBGMとして重ねられます（映像は使われません）。",
         "visuals": [
           "add_green_button"
         ]

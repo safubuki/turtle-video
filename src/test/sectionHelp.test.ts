@@ -253,10 +253,13 @@ describe('sectionHelp support messaging', () => {
     expect(getHelpVisuals('bgm', '複数のBGM（Android/PC版）')).toEqual(
       expect.arrayContaining(['bgm_count_label', 'bgm_auto_adjust_toggle', 'copy_button'])
     );
-    expect(getHelpDescription('bgm', 'BGMのトリミング（Android/PC版）'))
-      .toContain('現在流れているBGMの音源位置');
-    expect(getHelpDescription('bgm', 'BGMのトリミング（Android/PC版）'))
-      .toContain('BGM配置開始は移動しません');
+    // #242 で実画面のボタン名（音源の現在位置を開始点に／終了点に）へ文言を揃えた。
+    // 「音源内の位置で使用範囲を決める」「動画上の配置（開始位置）は別に調整する」の2点を確認する。
+    const bgmTrimHelp = getHelpDescription('bgm', 'BGMのトリミング（Android/PC版）');
+    expect(bgmTrimHelp).toContain('BGM音源内の現在位置');
+    expect(bgmTrimHelp).toContain('音源の現在位置を開始点に');
+    expect(bgmTrimHelp).toContain('音源の現在位置を終了点に');
+    expect(bgmTrimHelp).toContain('動画上でBGMを流し始める位置は、カードの「開始位置」で調整します');
     expect(getHelpVisuals('bgm', 'BGMのトリミング（Android/PC版）'))
       .toEqual(['bgm_trim_position_buttons']);
     expect(getHelpVisuals('narration', 'タイトルの登録件数')).toContain('narration_count_label');
@@ -527,5 +530,11 @@ describe('sectionHelp support messaging', () => {
     expect(fullText).toContain('実画面仕様');
     expect(fullText).toContain('自動調整');
     expect(fullText).toContain('微調整');
+  });
+
+  it('BGM の追加ボタン説明で音声付き動画を選べることを案内する', () => {
+    const text = getHelpDescription('bgm', '追加ボタン');
+    expect(text).toContain('音声付きの動画');
+    expect(text).toContain('音声だけ');
   });
 });

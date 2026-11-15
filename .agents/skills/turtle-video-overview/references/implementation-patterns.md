@@ -5089,3 +5089,27 @@ export 終了（成功/失敗/中断）
 - **対策**: 補正開始は 0.12 秒以上のずれ、終了は 0.03 秒以内（ヒステリシス・動画要素ごとに WeakMap で状態保持）、補正中は固定 ±6%。1 回の補正で rate が変わるのは開始と終了の 2 回だけ。停止中は状態を解除する。export・iOS・2x 超・Android 境界直後は従来どおり補正しない。
 - **検証**: 同構成のヘッドレス再生で、次動画開始時の rate 変更 8 回 → 0 回（2 回計測）。スロー 0.5x の大きなずれ（13-275 の本来の目的）は引き続き補正される（テスト）。
 - **注意**: 0.12 秒未満のずれは残る（字幕との差としては体感しにくい範囲）。比例・刻み制御へ戻すと再びノイズが出る。
+
+### 13-287. BGM に音声付き動画を追加できる（動画の音声だけを BGM として使う）
+
+- **ファイル**: `src/utils/platform.ts`（`getBgmUploadAccept` 新設）, `src/components/sections/BgmSection.tsx`, `src/constants/sectionHelp.ts`, `spec.md`, `src/test/platform.test.ts`, `src/test/sectionHelp.test.ts`
+- **目的**: 動画側をミュートし、別の動画の音声部分だけを BGM として重ねたい用途に対応する。
+- **対策**: BGM の file input の accept を BGM 専用に分離した。standard（Android/PC）は `audio/*,video/*,.mp4,.m4v,.mov,.webm`、iOS Safari は従来の音声 accept＋`video/*`。ナレーションは `getAudioUploadAccept()` のまま変更しない。
+- **既存経路で動く理由（変更不要だった箇所）**:
+  - 追加: `handleAddBgmClips` / `handleBgmUpload` は MIME で弾かず `new Audio(url)` の `loadedmetadata` で尺を取るため、動画コンテナでも尺が取れる。
+  - プレビュー: BGM は `MediaResourceLoader` の `<audio>` 要素で再生するため、動画ファイルでも音声だけ鳴り、映像は Canvas に描かれない。
+  - 書き出し: standard は `decodeAudioData`（Chrome は MP4/WebM の音声をデコード可）、失敗時は `<video>` 経由抽出へフォールバック。iOS は `resolveAppleSafariExportAudioSource` が動画コンテナを `media-element` に振り分ける。
+  - 保存/読込: `serializeNarrationClip` が `fileType`（`video/mp4` 等）を保持する。
+- **検証**: ヘッドレス Chromium で青一色の動画＋BGM（testsrc 映像＋660Hz の WebM 動画）を追加。プレビュー中 `<audio>` が再生され Canvas 中央は青のまま。書き出し用 OfflineAudioContext のレンダリング結果は 660Hz・peak 0.126 で、音声ファイル BGM（880Hz）と同じ振幅。ヘッドレス Chromium は AAC エンコード非対応のため MP4 化は未確認（音声ファイル BGM でも同じく失敗する環境制約）。
+- **注意**:
+  - 音声トラックの無い動画を BGM にすると無音になり、standard の書き出しでは `decodeAudioData` 失敗→`<video>` 経由のリアルタイム抽出にフォールバックするため準備時間が延びる。
+  - 動画ファイルは音声ファイルより大きいため、保存データ（IndexedDB）のサイズが増える。
+
+### 13-288. タイトルミニビューの「素材0件」分岐を冪等にする（テストのメモリ不足対策）
+
+- **ファイル**: `src/components/TurtleVideo.tsx`（タイトルミニビュー先頭フレーム固定の effect）, `src/test/sectionHelp.test.ts`
+- **症状**: `src/test/turtleVideoExportWiring.test.tsx` の standard 2件がヒープ不足（約2GB）で worker ごと落ち、全体実行では「158ファイル中157件」しか集計されず未処理エラーになっていた。git bisect で `1a9b054`（タイトルミニビューを先頭付近の映像フレームに固定）から発生。
+- **原因**: 素材0件の分岐が、既に空の状態でも毎回 `setTitleOpeningFrameKey(+1)` していた。テストのモックは `renderFrame` を毎描画で新しく返すため、effect 再実行→キー更新→再描画→再実行が止まらなかった。
+- **対策**: 同じ contentKey で既に空（`hasFrame=false` かつ canvas 参照 null）なら何もせず return する。映像がある場合の撮影・撮り直し条件は変更しない。
+- **あわせて**: `sectionHelp.test.ts` の BGM トリミング期待値が #242 の文言変更前（「開始設定」時代）のままだったため、現在の実画面どおりの文言（「音源の現在位置を開始点に／終了点に」「開始位置」で配置を調整）を確認する内容へ更新した。
+- **注意**: この effect の依存（`renderFrame` 等）が不安定になると、空分岐以外でも state を毎回更新する処理を足すとループし得る。state 更新は「変化があるときだけ」にする。

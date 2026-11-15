@@ -5143,3 +5143,27 @@ export 終了（成功/失敗/中断）
 - **ファイル**: `src/components/sections/ClipsSection.tsx`, `src/components/sections/PreviewSection.tsx`, `src/constants/sectionHelp.ts`, `src/test/splitCompareConnector.ui.test.tsx`
 - **名前**: 比べる用途に限らず「2 つを並べたいだけ」の場面もあるため、画面上の表記を「2画面表示」に統一（コネクタの水色側「2画面表示 左右・まっすぐ」、パネル見出し「2画面: オン/オフ」、設定不可の理由、ディゾルブ不可の説明、シークバー区間のラベル、ヘルプ）。**内部名（`splitCompare*` / `splitCompareToNext`）と保存形式は変えない**（旧プロジェクト互換）。13-282〜293 の「並べて比較」はこの機能のこと。
 - **注意書き**: パネル下の 9px の「※」説明 4 行は削除（プレビューを見れば分かる内容・詳細はヘルプ）。操作に使う「上 X秒・下 Y秒」と「長さがずれています」、設定不可の理由は 10px / md:12px の読める大きさで残す。
+
+### 13-287. BGM に音声付き動画を追加できる（動画の音声だけを BGM として使う）
+
+- **ファイル**: `src/utils/platform.ts`（`getBgmUploadAccept` 新設）, `src/components/sections/BgmSection.tsx`, `src/constants/sectionHelp.ts`, `spec.md`, `src/test/platform.test.ts`, `src/test/sectionHelp.test.ts`
+- **目的**: 動画側をミュートし、別の動画の音声部分だけを BGM として重ねたい用途に対応する。
+- **対策**: BGM の file input の accept を BGM 専用に分離した。standard（Android/PC）は `audio/*,video/*,.mp4,.m4v,.mov,.webm`、iOS Safari は従来の音声 accept＋`video/*`。ナレーションは `getAudioUploadAccept()` のまま変更しない。
+- **既存経路で動く理由（変更不要だった箇所）**:
+  - 追加: `handleAddBgmClips` / `handleBgmUpload` は MIME で弾かず `new Audio(url)` の `loadedmetadata` で尺を取るため、動画コンテナでも尺が取れる。
+  - プレビュー: BGM は `MediaResourceLoader` の `<audio>` 要素で再生するため、動画ファイルでも音声だけ鳴り、映像は Canvas に描かれない。
+  - 書き出し: standard は `decodeAudioData`（Chrome は MP4/WebM の音声をデコード可）、失敗時は `<video>` 経由抽出へフォールバック。iOS は `resolveAppleSafariExportAudioSource` が動画コンテナを `media-element` に振り分ける。
+  - 保存/読込: `serializeNarrationClip` が `fileType`（`video/mp4` 等）を保持する。
+- **検証**: ヘッドレス Chromium で青一色の動画＋BGM（testsrc 映像＋660Hz の WebM 動画）を追加。プレビュー中 `<audio>` が再生され Canvas 中央は青のまま。書き出し用 OfflineAudioContext のレンダリング結果は 660Hz・peak 0.126 で、音声ファイル BGM（880Hz）と同じ振幅。ヘッドレス Chromium は AAC エンコード非対応のため MP4 化は未確認（音声ファイル BGM でも同じく失敗する環境制約）。
+- **注意**:
+  - 音声トラックの無い動画を BGM にすると無音になり、standard の書き出しでは `decodeAudioData` 失敗→`<video>` 経由のリアルタイム抽出にフォールバックするため準備時間が延びる。
+  - 動画ファイルは音声ファイルより大きいため、保存データ（IndexedDB）のサイズが増える。
+
+### 13-288. タイトルミニビューの「素材0件」分岐を冪等にする（テストのメモリ不足対策）
+
+- **ファイル**: `src/components/TurtleVideo.tsx`（タイトルミニビュー先頭フレーム固定の effect）, `src/test/sectionHelp.test.ts`
+- **症状**: `src/test/turtleVideoExportWiring.test.tsx` の standard 2件がヒープ不足（約2GB）で worker ごと落ち、全体実行では「158ファイル中157件」しか集計されず未処理エラーになっていた。git bisect で `1a9b054`（タイトルミニビューを先頭付近の映像フレームに固定）から発生。
+- **原因**: 素材0件の分岐が、既に空の状態でも毎回 `setTitleOpeningFrameKey(+1)` していた。テストのモックは `renderFrame` を毎描画で新しく返すため、effect 再実行→キー更新→再描画→再実行が止まらなかった。
+- **対策**: 同じ contentKey で既に空（`hasFrame=false` かつ canvas 参照 null）なら何もせず return する。映像がある場合の撮影・撮り直し条件は変更しない。
+- **あわせて**: `sectionHelp.test.ts` の BGM トリミング期待値が #242 の文言変更前（「開始設定」時代）のままだったため、現在の実画面どおりの文言（「音源の現在位置を開始点に／終了点に」「開始位置」で配置を調整）を確認する内容へ更新した。
+- **注意**: この effect の依存（`renderFrame` 等）が不安定になると、空分岐以外でも state を毎回更新する処理を足すとループし得る。state 更新は「変化があるときだけ」にする。

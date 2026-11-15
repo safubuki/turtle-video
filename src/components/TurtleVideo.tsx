@@ -1843,6 +1843,15 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     }
 
     if (mediaItems.length === 0 || totalDuration <= 0) {
+      // 既に同じ内容で空にしてあれば何もしない。ここで毎回キーを進めると、
+      // 依存が変わるたびに再描画→再実行が続き、描画ループになり得る。
+      if (
+        contentKey === titleOpeningContentKeyRef.current
+        && !titleOpeningSnapshotRef.current.hasFrame
+        && titleOpeningCanvasRef.current === null
+      ) {
+        return;
+      }
       titleOpeningSnapshotRef.current.hasFrame = false;
       titleOpeningCanvasRef.current = null;
       titleOpeningContentKeyRef.current = contentKey;
