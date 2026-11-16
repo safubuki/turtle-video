@@ -119,8 +119,9 @@ describe('OverlaySection', () => {
     const { props } = renderSection(true);
     // タブにもサムネイルがあるため、設定カード側の画像を明示的に取る
     const thumbnail = screen.getByTestId('logo-preview');
-    Object.defineProperty(thumbnail, 'naturalWidth', { configurable: true, value: 400 });
-    Object.defineProperty(thumbnail, 'naturalHeight', { configurable: true, value: 200 });
+    // 1080p キャンバスではロゴを 1.5 倍で扱う（プレビュー 720p 基準）ため、通常サイズの例として 200×100 を使う
+    Object.defineProperty(thumbnail, 'naturalWidth', { configurable: true, value: 200 });
+    Object.defineProperty(thumbnail, 'naturalHeight', { configurable: true, value: 100 });
     fireEvent.load(thumbnail);
 
     const group = screen.getByRole('group', { name: 'ウォーターマークの位置を簡単設定' });

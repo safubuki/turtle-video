@@ -258,7 +258,7 @@ describe('ウォーターマーク描画', () => {
     } as unknown as CanvasRenderingContext2D);
 
     const ctx = {
-      canvas: { width: 1920, height: 1080 },
+      canvas: { width: 1280, height: 720 },
       globalAlpha: 1,
       save: vi.fn(),
       restore: vi.fn(),
@@ -293,7 +293,7 @@ describe('ウォーターマーク描画', () => {
     } as unknown as CanvasRenderingContext2D);
 
     const ctx = {
-      canvas: { width: 1920, height: 1080 },
+      canvas: { width: 1280, height: 720 },
       globalAlpha: 1,
       save: vi.fn(),
       restore: vi.fn(),
@@ -311,6 +311,73 @@ describe('ウォーターマーク描画', () => {
 
     expect(ellipse).toHaveBeenCalledWith(100, 100, 50, 50, 0, 0, Math.PI * 2);
   });
+
+  /**
+   * 回帰: 以前はロゴを元のピクセル数のまま描いていたため、
+   * プレビュー（1280×720）と書き出し（1920×1080）で画面に対するロゴの大きさが 2/3 にずれ、
+   * 周辺ぼかし・切り抜きの比率も一致しなかった。
+   */
+  it('プレビューと書き出しで、画面に対するロゴの大きさ・マスク・ぼかしの比率が一致する', () => {
+    const renderOn = (canvasWidth: number, canvasHeight: number) => {
+      const ellipse = vi.fn();
+      const rasterCtx = {
+        drawImage: vi.fn(),
+        save: vi.fn(),
+        restore: vi.fn(),
+        beginPath: vi.fn(),
+        ellipse,
+        closePath: vi.fn(),
+        fill: vi.fn(),
+        globalCompositeOperation: 'source-over',
+        fillStyle: '',
+        filter: 'none',
+      };
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+        rasterCtx as unknown as CanvasRenderingContext2D,
+      );
+      const outerDraw = vi.fn();
+      const translate = vi.fn();
+      const ctx = {
+        canvas: { width: canvasWidth, height: canvasHeight },
+        globalAlpha: 1,
+        save: vi.fn(),
+        restore: vi.fn(),
+        translate,
+        rotate: vi.fn(),
+        drawImage: outerDraw,
+      } as unknown as CanvasRenderingContext2D;
+
+      drawWatermarkOverlayFrame(
+        ctx,
+        activeOverlay({ mask: 'circle', maskSize: 80, feather: 12, size: 0.5, positionX: 80, positionY: 70 }),
+        createImage(),
+        4,
+      );
+      const [, , radiusX] = ellipse.mock.calls[0] as number[];
+      const raster = outerDraw.mock.calls[0][0] as HTMLCanvasElement;
+      const [centerX, centerY] = translate.mock.calls[0] as number[];
+      vi.restoreAllMocks();
+      return {
+        maskRadiusRatio: radiusX / canvasHeight,
+        rasterWidthRatio: raster.width / canvasHeight,
+        blurPx: Number(/blur\(([\d.]+)px\)/.exec(rasterCtx.filter)?.[1] ?? 0),
+        centerXRatio: centerX / canvasWidth,
+        centerYRatio: centerY / canvasHeight,
+        canvasHeight,
+      };
+    };
+
+    const preview = renderOn(1280, 720);
+    const exported = renderOn(1920, 1080);
+
+    // 通常プレビューは従来どおり「倍率 1 = 元のピクセル数」（円形 200px × 0.5 × マスク 80%）
+    expect(preview.maskRadiusRatio * 720).toBeCloseTo(40, 5);
+    expect(exported.maskRadiusRatio).toBeCloseTo(preview.maskRadiusRatio, 6);
+    expect(exported.rasterWidthRatio).toBeCloseTo(preview.rasterWidthRatio, 2);
+    expect(exported.blurPx / exported.canvasHeight).toBeCloseTo(preview.blurPx / preview.canvasHeight, 6);
+    expect(exported.centerXRatio).toBeCloseTo(preview.centerXRatio, 6);
+    expect(exported.centerYRatio).toBeCloseTo(preview.centerYRatio, 6);
+  });
 });
 
 describe('ウォーターマーク位置の簡単設定', () => {
@@ -327,32 +394,32 @@ describe('ウォーターマーク位置の簡単設定', () => {
     const leftBottom = resolveWatermarkPresetPosition({
       overlay,
       preset: 'bottom-left',
-      imageNaturalWidth: 400,
-      imageNaturalHeight: 200,
+      imageNaturalWidth: 200,
+      imageNaturalHeight: 100,
       canvasWidth: 1920,
       canvasHeight: 1080,
     });
     const rightBottom = resolveWatermarkPresetPosition({
       overlay,
       preset: 'bottom-right',
-      imageNaturalWidth: 400,
-      imageNaturalHeight: 200,
+      imageNaturalWidth: 200,
+      imageNaturalHeight: 100,
       canvasWidth: 1920,
       canvasHeight: 1080,
     });
     const leftTop = resolveWatermarkPresetPosition({
       overlay,
       preset: 'top-left',
-      imageNaturalWidth: 400,
-      imageNaturalHeight: 200,
+      imageNaturalWidth: 200,
+      imageNaturalHeight: 100,
       canvasWidth: 1920,
       canvasHeight: 1080,
     });
     const rightTop = resolveWatermarkPresetPosition({
       overlay,
       preset: 'top-right',
-      imageNaturalWidth: 400,
-      imageNaturalHeight: 200,
+      imageNaturalWidth: 200,
+      imageNaturalHeight: 100,
       canvasWidth: 1920,
       canvasHeight: 1080,
     });
@@ -381,7 +448,29 @@ describe('ウォーターマーク位置の簡単設定', () => {
     });
 
     expect(position.positionX).toBe(9);
-    expect(position.positionY).toBeCloseTo(15.2778, 4);
+    expect(position.positionY).toBeCloseTo(22.2222, 4);
+  });
+
+  it('簡単配置の結果はプレビューと書き出しの解像度に依存しない', () => {
+    const overlay = activeOverlay({ size: 2, rotation: 30, maskSize: 70, feather: 20 });
+    const atPreview = resolveWatermarkPresetPosition({
+      overlay,
+      preset: 'bottom-right',
+      imageNaturalWidth: 400,
+      imageNaturalHeight: 200,
+      canvasWidth: 1280,
+      canvasHeight: 720,
+    });
+    const atExport = resolveWatermarkPresetPosition({
+      overlay,
+      preset: 'bottom-right',
+      imageNaturalWidth: 400,
+      imageNaturalHeight: 200,
+      canvasWidth: 1920,
+      canvasHeight: 1080,
+    });
+    expect(atExport.positionX).toBeCloseTo(atPreview.positionX, 6);
+    expect(atExport.positionY).toBeCloseTo(atPreview.positionY, 6);
   });
 
   it('中央は画像サイズにかかわらず縦横50%へ設定する', () => {

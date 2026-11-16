@@ -708,6 +708,7 @@
 | **export の高速化** | 現行の駆動方式（壁時計 dilation / native 連続再生 / backpressure / 末尾補完）は**ユーザー実機で最良と確認済み。速度を理由に変更しない**。負荷を下げたいときは **VideoEncoder の configure 交渉**（`prefer-hardware`、13-169）から手を付ける。**`latencyMode:'quality'` は禁止**（内部バッファリングが `encodeQueueSize` を曇らせ backpressure 検知を遅らせる＝後半黒画面の再発条件。13-116 も同旨）。queue 上限の緩和と bitrate 低下はリカバリ性・画質を損なうので最後の手段 |
 | **export の滑らかさ** | プレビューは rAF（多くは約60Hz）提示、export は固定30fps CFR。滑らかさ改善は駆動方式を変えず、提示フレーム合わせとスロット単位スナップショットに閉じる（13-204）。**ユーザー実機で「劇的にスムーズになった」と確認済み（2026-08-17）**。フレーム駆動化・毎フレームseek・出力fps変更・bitrate変更は再導入しない |
 | **preview の UI 時刻** | 再生時計・Canvas・`video.currentTime` は毎 rAF のまま。Zustand の `currentTime` だけ約 50ms に間引き、pause/stop/終端で flush する。字幕グリフ Canvas は LRU 再利用（13-226）。駆動方式・export・apple-safari には広げない |
+| **preview / export の見た目一致** | Canvas へ焼き込む要素（ロゴ・文字・バッジ・ぼかし・線）は必ずキャンバス寸法に比例させる。プレビューは 720p、書き出しは 1080p 等なので、元画像のピクセル数や固定 px で描くとずれる（13-295） |
 | **スロー export 音声** | スローはプレビューと同じ `preservesPitch` キャプチャを第一経路にし、decode+WSOLA 参照で先頭遅延だけ切る（13-237）。キャプチャは TrackProcessor / AudioWorklet 優先で、ScriptProcessor は出力無音化の予備（13-238）。エネルギー無音切りは禁止。キャプチャ失敗時のみ WSOLA。13-236 の WSOLA 第一経路は音質退行のため改訂 |
 
 ## 12. Dev Script Pattern (media-video-analyzer STT)
@@ -5167,3 +5168,14 @@ export 終了（成功/失敗/中断）
 - **対策**: 同じ contentKey で既に空（`hasFrame=false` かつ canvas 参照 null）なら何もせず return する。映像がある場合の撮影・撮り直し条件は変更しない。
 - **あわせて**: `sectionHelp.test.ts` の BGM トリミング期待値が #242 の文言変更前（「開始設定」時代）のままだったため、現在の実画面どおりの文言（「音源の現在位置を開始点に／終了点に」「開始位置」で配置を調整）を確認する内容へ更新した。
 - **注意**: この effect の依存（`renderFrame` 等）が不安定になると、空分岐以外でも state を毎回更新する処理を足すとループし得る。state 更新は「変化があるときだけ」にする。
+
+### 13-295. ロゴ（ウォーターマーク / エンドロール）のサイズをキャンバス解像度に比例させ、プレビューと書き出しの見た目を一致させる
+
+- **ファイル**: `src/utils/watermarkOverlay.ts`（`LOGO_REFERENCE_SHORT_SIDE` / `resolveLogoLayoutScale` / `resolveLogoFeatherPixels` / `resolveLogoRenderedSize`、`drawLogoImageFrame`、`resolveWatermarkPresetPosition`）, `src/test/watermarkOverlay.test.ts`, `src/test/overlaySection.test.tsx`
+- **問題**: プレビューは 1280×720、書き出しは 1920×1080 のキャンバスで描くのに、ロゴは**元のピクセル数 × 倍率**のまま描いていた。周辺ぼかしだけは `canvas.height / 1080` で比例していたため、書き出しではロゴが画面比 2/3 に縮み、ロゴに対するぼかし・切り抜き（円形・角丸）の比率も強く見えた。エンドロールは同じ共通コアを使うため同じずれがあった。
+- **対策**: ロゴの描画サイズを `元のピクセル数 × 倍率 × (短辺 / 720)` にした。基準短辺は `MAX_PREVIEW_CANVAS_HEIGHT`（720）。**通常プレビュー（720p）は従来とピクセル単位で同じ**見た目のまま、書き出し（1080p 等）は同じ比率まで拡大される。周辺ぼかしは従来どおり `feather × 高さ / 1080` で、ロゴも同じく比例するため、プレビューと書き出しでぼかしとロゴの比率が一致する。簡単配置（左下など）も同じサイズ計算を共有し、解像度に依存しない結果になった。
+- **保存データ**: 変更なし（`size` / `feather` などの意味は「720p プレビューでの見た目」に固定）。既存プロジェクトのプレビューの見た目は変わらず、書き出しだけがプレビューに一致する。素材が 720p 未満でプレビューのキャンバスが小さい場合は、そのプレビューでもロゴが比例して小さくなる（書き出しと一致）。
+- **注意**:
+  - キャンバスへ焼き込む要素は **キャンバス寸法に比例**させる（キャプション・タイトル = 短辺/1080、クリップのぼかし = 1920×1080 基準、倍速バッジ・2画面の境界線 = 短辺比、ロゴ = 短辺/720）。画像の元のピクセル数や固定 px で描くと、プレビュー（720p）と書き出し（1080p）で見た目がずれる。
+  - ロゴのサイズ計算は `resolveLogoRenderedSize` に一本化する。描画と簡単配置で別々に計算しない。
+  - 回帰テスト: `watermarkOverlay.test.ts` の「プレビューと書き出しで、画面に対するロゴの大きさ・マスク・ぼかしの比率が一致する」。

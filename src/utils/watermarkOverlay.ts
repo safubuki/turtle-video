@@ -3,6 +3,7 @@
  * @description Issue #210 の範囲指定ウォーターマークに関する正規化と共通 Canvas 描画。
  */
 import type { WatermarkMask, WatermarkOverlay, WatermarkScope } from '../types';
+import { MAX_PREVIEW_CANVAS_HEIGHT } from '../constants';
 import { quantizeTimeToCentiseconds } from './format';
 import { calculateLinearRangeFadeAlpha } from './rangeFade';
 
@@ -37,6 +38,49 @@ export type LogoImageStyle = Pick<
   WatermarkOverlay,
   'positionX' | 'positionY' | 'size' | 'opacity' | 'rotation' | 'mask' | 'maskSize' | 'feather'
 >;
+
+/**
+ * ロゴサイズの基準となるキャンバス短辺（px）。
+ *
+ * 「倍率 1 = 画像の元のピクセル数」はこの短辺のキャンバス上で成り立つ。
+ * 通常のプレビュー（1280×720 / 720×1280）を基準にしているため、
+ * プレビューの見た目は従来どおりで、書き出し（1080p 等）では同じ比率まで拡大される。
+ * 以前はキャンバス解像度に関係なく元のピクセル数で描いていたため、
+ * 書き出しでロゴが 2/3 に縮み、ぼかし・切り抜きの比率もプレビューとずれていた。
+ */
+export const LOGO_REFERENCE_SHORT_SIDE = MAX_PREVIEW_CANVAS_HEIGHT;
+
+/** キャンバス寸法からロゴの拡大率（短辺 / 基準短辺）を返す */
+export function resolveLogoLayoutScale(canvasWidth: number, canvasHeight: number): number {
+  const shortSide = Math.min(canvasWidth, canvasHeight);
+  if (!Number.isFinite(shortSide) || shortSide <= 0) return 1;
+  return shortSide / LOGO_REFERENCE_SHORT_SIDE;
+}
+
+/** 周辺ぼかし（1080p 基準）を現在のキャンバス上のピクセル数へ変換する */
+export function resolveLogoFeatherPixels(feather: number, canvasHeight: number): number {
+  if (!Number.isFinite(canvasHeight) || canvasHeight <= 0) return 0;
+  return feather * (canvasHeight / 1080);
+}
+
+/**
+ * ロゴのキャンバス上の描画サイズ（マスク前の画像枠）を返す。
+ * 描画と簡単配置の計算で共有し、プレビュー / 書き出しで同じ比率になるようにする。
+ */
+export function resolveLogoRenderedSize(
+  style: Pick<LogoImageStyle, 'mask' | 'size'>,
+  imageNaturalWidth: number,
+  imageNaturalHeight: number,
+  canvasWidth: number,
+  canvasHeight: number,
+): { width: number; height: number } {
+  const scale = style.size * resolveLogoLayoutScale(canvasWidth, canvasHeight);
+  const naturalCircleSize = Math.min(imageNaturalWidth, imageNaturalHeight);
+  return {
+    width: (style.mask === 'circle' ? naturalCircleSize : imageNaturalWidth) * scale,
+    height: (style.mask === 'circle' ? naturalCircleSize : imageNaturalHeight) * scale,
+  };
+}
 
 export const DEFAULT_WATERMARK_OVERLAY: WatermarkOverlay = {
   file: null,
@@ -300,13 +344,15 @@ export function resolveWatermarkPresetPosition(params: {
     return { positionX: 50, positionY: 50 };
   }
 
-  const naturalCircleSize = Math.min(imageNaturalWidth, imageNaturalHeight);
-  const renderedWidth = (overlay.mask === 'circle' ? naturalCircleSize : imageNaturalWidth)
-    * overlay.size;
-  const renderedHeight = (overlay.mask === 'circle' ? naturalCircleSize : imageNaturalHeight)
-    * overlay.size;
+  const { width: renderedWidth, height: renderedHeight } = resolveLogoRenderedSize(
+    overlay,
+    imageNaturalWidth,
+    imageNaturalHeight,
+    canvasWidth,
+    canvasHeight,
+  );
   const maskRatio = overlay.maskSize / 100;
-  const featherPx = overlay.feather * (canvasHeight / 1080);
+  const featherPx = resolveLogoFeatherPixels(overlay.feather, canvasHeight);
   const visibleWidth = Math.min(renderedWidth, renderedWidth * maskRatio + featherPx * 4);
   const visibleHeight = Math.min(renderedHeight, renderedHeight * maskRatio + featherPx * 4);
   const radians = (overlay.rotation * Math.PI) / 180;
@@ -446,10 +492,16 @@ export function drawLogoImageFrame(
   image: HTMLImageElement,
   alpha: number,
 ): void {
-  const naturalCircleSize = Math.min(image.naturalWidth, image.naturalHeight);
-  const width = (style.mask === 'circle' ? naturalCircleSize : image.naturalWidth) * style.size;
-  const height = (style.mask === 'circle' ? naturalCircleSize : image.naturalHeight) * style.size;
-  const featherPx = style.feather * (ctx.canvas.height / 1080);
+  // サイズ・ぼかしともキャンバス解像度に比例させ、プレビュー（720p）と書き出し（1080p 等）で
+  // 画面に対するロゴの大きさ・切り抜き・周辺ぼかしの比率を一致させる。
+  const { width, height } = resolveLogoRenderedSize(
+    style,
+    image.naturalWidth,
+    image.naturalHeight,
+    ctx.canvas.width,
+    ctx.canvas.height,
+  );
+  const featherPx = resolveLogoFeatherPixels(style.feather, ctx.canvas.height);
   const raster = getRasterizedWatermark(
     image,
     width,
