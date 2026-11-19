@@ -22,6 +22,11 @@ import {
   type MonoPcm,
   type SilenceDetectionOptions,
 } from './audioWaveform';
+import {
+  computeTimelineDurationFromSource,
+  resolveVideoSourceOffsetAtLocalTime,
+  type VideoSpeedRamp,
+} from './playbackSpeed';
 
 /** 波形合成に使う内部サンプリングレート（Hz）。
  * 表示と無音検出にしか使わないので低めで十分（長尺でもメモリを食わない）。
@@ -64,6 +69,8 @@ export interface TimelinePlacement {
    * 例: ソース 10s・speed 2 → タイムライン 5s に全内容を詰める（見た目も密になる）。
    */
   playbackSpeed?: number;
+  /** 動画クリップ先頭の速度のなめらか接続（あれば先頭の段の速さで貼る） */
+  speedRamp?: VideoSpeedRamp | null;
 }
 
 export interface TimelineSilenceRegion {
@@ -149,7 +156,10 @@ export function composeTimelinePcm(
     const speed = Number.isFinite(speedRaw) && (speedRaw as number) > 0
       ? (speedRaw as number)
       : 1;
-    const timelinePlayable = sourcePlayable / speed;
+    const speedRamp = placement.speedRamp ?? null;
+    const timelinePlayable = speedRamp
+      ? computeTimelineDurationFromSource(sourcePlayable, speed, speedRamp)
+      : sourcePlayable / speed;
 
     const timelineStart = Math.max(0, placement.timelineStart);
     const writeStart = Math.round(timelineStart * safeRate);
@@ -163,7 +173,10 @@ export function composeTimelinePcm(
     for (let i = writeStart; i < writeEnd; i++) {
       // タイムライン経過秒 → 音源は speed 倍で進む
       const elapsed = (i - writeStart) / safeRate;
-      const srcIndex = Math.floor((sourceStart + elapsed * speed) * srcRate);
+      const sourceOffset = speedRamp
+        ? resolveVideoSourceOffsetAtLocalTime(elapsed, speed, speedRamp)
+        : elapsed * speed;
+      const srcIndex = Math.floor((sourceStart + sourceOffset) * srcRate);
       if (srcIndex < 0 || srcIndex >= srcSamples.length) continue;
 
       let gain = volume;
@@ -536,7 +549,10 @@ function placementTimelineRange(placement: TimelinePlacement): { start: number; 
     ? (placement.playbackSpeed as number)
     : 1;
   const sourceLength = Math.max(0, placement.sourceEnd - placement.sourceStart);
-  return { start: placement.timelineStart, end: placement.timelineStart + sourceLength / speed };
+  const timelineLength = placement.speedRamp
+    ? computeTimelineDurationFromSource(sourceLength, speed, placement.speedRamp)
+    : sourceLength / speed;
+  return { start: placement.timelineStart, end: placement.timelineStart + timelineLength };
 }
 
 /**

@@ -25,8 +25,11 @@ import {
 import {
   computeTimelineDurationFromSource,
   getVideoSourceClipDuration,
-  normalizeVideoPlaybackSpeed,
+  resolveItemVideoSourceTime,
+  resolveVideoSourceOffsetAtLocalTime,
   resolveVideoSourceTime,
+  resolveVideoSpeedRampForItem,
+  type VideoSpeedRamp,
 } from './playbackSpeed';
 
 import { MEDIA_VOLUME_MAX } from './mediaVolume';
@@ -367,6 +370,8 @@ export function computeVideoTrimFromPreviewPosition(params: {
   minDuration?: number;
   /** 動画倍速。未指定は 1 */
   playbackSpeed?: unknown;
+  /** クリップ先頭のなめらか接続（あれば先頭の段も反映して位置を換算する） */
+  speedRamp?: VideoSpeedRamp | null;
 }): { start: number; end: number; duration: number } | null {
   const minDuration = params.minDuration ?? MIN_VIDEO_TRIM_DURATION_SEC;
   const originalDuration = Number.isFinite(params.originalDuration)
@@ -383,8 +388,11 @@ export function computeVideoTrimFromPreviewPosition(params: {
   const playableDuration = sourceTrimEnd - sourceTrimStart;
   if (playableDuration < minDuration) return null;
 
-  const speed = normalizeVideoPlaybackSpeed(params.playbackSpeed);
-  const timelinePlayable = playableDuration / speed;
+  const timelinePlayable = computeTimelineDurationFromSource(
+    playableDuration,
+    params.playbackSpeed,
+    params.speedRamp,
+  );
 
   if (!Number.isFinite(params.previewPosition)) return null;
   // 現在の有効区間内にクランプ（区間外の指定は無効扱い・タイムライン秒）
@@ -393,7 +401,11 @@ export function computeVideoTrimFromPreviewPosition(params: {
   }
 
   // 浮動小数点の蓄積を避けるため、元動画上の絶対位置を一度だけ合成する
-  const sourcePosition = sourceTrimStart + params.previewPosition * speed;
+  const sourcePosition = sourceTrimStart + resolveVideoSourceOffsetAtLocalTime(
+    params.previewPosition,
+    params.playbackSpeed,
+    params.speedRamp,
+  );
 
   let newStart: number;
   let newEnd: number;
@@ -425,6 +437,7 @@ export function canSetVideoTrimFromPreviewPosition(params: {
   type: 'start' | 'end';
   minDuration?: number;
   playbackSpeed?: unknown;
+  speedRamp?: VideoSpeedRamp | null;
 }): boolean {
   return computeVideoTrimFromPreviewPosition(params) !== null;
 }
@@ -454,10 +467,15 @@ type VideoContinuationTrimParams = {
 };
 
 /** 表示時間から元動画の分割地点を解決。両側に最低トリム尺を残す。 */
-export function resolveVideoSplitSourceTime(item: Pick<MediaItem, 'type' | 'trimStart' | 'trimEnd' | 'duration' | 'playbackSpeed'>, localTimeSec: number): number | null {
+export function resolveVideoSplitSourceTime(
+  item: Pick<MediaItem, 'type' | 'trimStart' | 'trimEnd' | 'duration' | 'playbackSpeed'>
+    & Partial<Pick<MediaItem, 'originalDuration' | 'speedRampIn' | 'speedRampFromSpeed' | 'speedRampDuration'>>,
+  localTimeSec: number,
+): number | null {
   if (item.type !== 'video' || !Number.isFinite(localTimeSec)
     || localTimeSec <= 0 || localTimeSec >= item.duration) return null;
-  const splitTime = item.trimStart + localTimeSec * normalizeVideoPlaybackSpeed(item.playbackSpeed);
+  // なめらか接続の段を含めて、表示時間 → 元動画の時刻へ換算する
+  const splitTime = resolveItemVideoSourceTime(item, localTimeSec);
   if (!Number.isFinite(splitTime) || splitTime - item.trimStart < MIN_VIDEO_TRIM_DURATION_SEC - 1e-9
     || item.trimEnd - splitTime < MIN_VIDEO_TRIM_DURATION_SEC - 1e-9) return null;
   return splitTime;
@@ -599,6 +617,7 @@ export function computeThumbnailSourceTimeFromPreviewPosition(params: {
   /** クリップ有効区間先頭からの相対秒（タイムライン）。倍速時は speed を掛ける */
   previewPosition: number;
   playbackSpeed?: unknown;
+  speedRamp?: VideoSpeedRamp | null;
 }): number | null {
   const originalDuration = Number.isFinite(params.originalDuration)
     ? Math.max(0, params.originalDuration)
@@ -613,12 +632,15 @@ export function computeThumbnailSourceTimeFromPreviewPosition(params: {
     : originalDuration;
   const playable = sourceTrimEnd - sourceTrimStart;
   if (playable <= 0) return null;
-  const speed = normalizeVideoPlaybackSpeed(params.playbackSpeed);
-  const timelinePlayable = playable / speed;
+  const timelinePlayable = computeTimelineDurationFromSource(playable, params.playbackSpeed, params.speedRamp);
   if (!Number.isFinite(params.previewPosition)) return null;
   if (params.previewPosition < 0 || params.previewPosition > timelinePlayable) return null;
 
-  const sourceTime = sourceTrimStart + params.previewPosition * speed;
+  const sourceTime = sourceTrimStart + resolveVideoSourceOffsetAtLocalTime(
+    params.previewPosition,
+    params.playbackSpeed,
+    params.speedRamp,
+  );
   // 終端ちょうどは < end 契約から外れるため僅かに手前へ
   if (sourceTime >= sourceTrimEnd) {
     return Math.max(sourceTrimStart, sourceTrimEnd - 0.001);
@@ -792,7 +814,8 @@ export function resolveAutoProjectPosterCaptureTime(totalDuration: number): numb
 }
 
 type AutoPosterTimelineItem = Pick<MediaItem, 'id' | 'type' | 'duration' | 'transitionToNext'>
-  & Partial<Pick<MediaItem, 'trimStart' | 'trimEnd' | 'playbackSpeed' | 'splitCompareToNext'>>;
+  & Partial<Pick<MediaItem, 'trimStart' | 'trimEnd' | 'playbackSpeed' | 'splitCompareToNext'
+    | 'originalDuration' | 'speedRampIn' | 'speedRampFromSpeed' | 'speedRampDuration'>>;
 
 function resolveAutoPosterActiveItem(
   items: ReadonlyArray<AutoPosterTimelineItem>,
@@ -864,6 +887,7 @@ export function resolveAutoProjectPosterCaptureTarget(
       trimStart: item.trimStart,
       localTime,
       playbackSpeed: item.playbackSpeed,
+      speedRamp: resolveVideoSpeedRampForItem(item),
     });
   return { clipId: item.id, type: item.type, sourceTime };
 }

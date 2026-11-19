@@ -96,3 +96,37 @@ export function formatTimeStepperInput(value: number): string {
   if (Math.abs(roundedCs - tenths) < 1e-6) return tenths.toFixed(1);
   return roundedCs.toFixed(2);
 }
+
+/**
+ * 開始の −/+。終了（stepEndTime）と同じく 0.1 秒格子へ吸着する。
+ * 分割などで 13.38 のような 1/100 秒の開始になっていても、−/+ では 13.3 / 13.5 へ揃える。
+ */
+export function stepStartTime(
+  fromSec: number,
+  direction: 1 | -1,
+  step: number = TIME_STEPPER_STEP_SEC,
+): number {
+  if (!Number.isFinite(fromSec)) return 0;
+  return Math.max(0, quantizeTimeStep(fromSec + direction * step, step));
+}
+
+/**
+ * カード見出しの時刻（m:ss.t）。0.1 秒で表せない値だけ 1/100 秒（m:ss.cc）にする。
+ * トリミング欄・開始/終了の数値（1/100 秒）と食い違って見えないようにするため。
+ */
+export function formatClipCompactClock(seconds: number): string {
+  const cs = Math.round(Math.max(0, Number.isFinite(seconds) ? seconds : 0) * 100);
+  const minutes = Math.floor(cs / 6000);
+  const secs = Math.floor((cs % 6000) / 100);
+  const frac = cs % 100;
+  const fracLabel = frac % 10 === 0 ? String(frac / 10) : frac.toString().padStart(2, '0');
+  return `${minutes}:${secs.toString().padStart(2, '0')}.${fracLabel}`;
+}
+
+/** カード見出しの長さ（例: 5秒 / 13.4秒 / 1.66秒）。0.1 秒で表せない値だけ 1/100 秒 */
+export function formatClipDurationLabel(seconds: number): string {
+  const cs = Math.round(Math.max(0, Number.isFinite(seconds) ? seconds : 0) * 100);
+  if (cs % 100 === 0) return `${cs / 100}秒`;
+  if (cs % 10 === 0) return `${(cs / 100).toFixed(1)}秒`;
+  return `${(cs / 100).toFixed(2)}秒`;
+}

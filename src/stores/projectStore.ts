@@ -60,6 +60,7 @@ import {
   normalizeSpeedBadgeLabelStyle,
   normalizeSpeedBadgePosition,
   normalizeVideoPlaybackSpeed,
+  normalizeSpeedRampDuration,
 } from '../utils';
 import { normalizeMediaZoomAmount, normalizeMediaZoomDirection, hasMediaZoomRange, createMediaZoomRangePatch } from '../utils/mediaZoom';
 
@@ -536,6 +537,11 @@ async function serializeMediaItem(item: MediaItem): Promise<SerializedMediaItem>
       ? normalizeVideoPlaybackSpeed(item.playbackSpeed)
       : undefined,
     showSpeedBadge: item.type === 'video' ? Boolean(item.showSpeedBadge) : undefined,
+    // 開始速度（speedRampFromSpeed）は並びからの派生値なので保存しない
+    speedRampIn: item.type === 'video' && item.speedRampIn === true ? true : undefined,
+    speedRampDuration: item.type === 'video' && item.speedRampIn === true
+      ? normalizeSpeedRampDuration(item.speedRampDuration)
+      : undefined,
     audioNormalizeEnabled: item.type === 'video'
       ? item.audioNormalizeEnabled !== false
       : undefined,
@@ -566,6 +572,8 @@ function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
     ? normalizeVideoPlaybackSpeed(data.playbackSpeed)
     : undefined;
   const showSpeedBadge = data.type === 'video' ? Boolean(data.showSpeedBadge) : undefined;
+  const speedRampIn = data.type === 'video' && data.speedRampIn === true ? true : undefined;
+  const speedRampDuration = speedRampIn ? normalizeSpeedRampDuration(data.speedRampDuration) : undefined;
   const audioNormalizeEnabled = data.type === 'video'
     ? data.audioNormalizeEnabled !== false
     : undefined;
@@ -580,7 +588,8 @@ function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
   const badgePos = data.type === 'video'
     ? normalizeSpeedBadgePosition(data.speedBadgePositionX, data.speedBadgePositionY)
     : null;
-  // 動画は trim + speed から timeline 尺を再計算（旧データで speed 未保存でも 1 で一致）
+  // 動画は trim + speed から timeline 尺を再計算（旧データで speed 未保存でも 1 で一致）。
+  // なめらか接続の尺は並び全体が必要なため、mediaStore.restoreFromSave の同期で取り直す。
   const duration = data.type === 'video'
     ? computeVideoTimelineDurationFromTrim({
       trimStart: data.trimStart,
@@ -626,6 +635,8 @@ function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
     thumbnailMode,
     thumbnailSourceTime,
     playbackSpeed,
+    speedRampIn,
+    speedRampDuration,
     showSpeedBadge,
     audioNormalizeEnabled,
     audioNormalizeGain,

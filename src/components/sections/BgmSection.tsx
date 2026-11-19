@@ -25,6 +25,9 @@ import PresetFadeDurationField from '../common/PresetFadeDurationField';
 import NumericSliderField from '../common/NumericSliderField';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import BgmClipList from './BgmClipList';
+import FileDropOverlay from '../common/FileDropOverlay';
+import { useFileDropZone } from '../../hooks/useFileDropZone';
+import { useUIStore } from '../../stores/uiStore';
 
 import { MEDIA_VOLUME_MAX } from '../../utils/mediaVolume';
 interface BgmSectionProps {
@@ -49,6 +52,11 @@ interface BgmSectionProps {
   bgmClips: BgmClip[];
   currentTime: number;
   onAddBgmClips: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  /**
+   * セクションへドロップされた音声・音声付き動画ファイル（受け付ける形式だけに絞り済み）。
+   * 複数 BGM では全件、単一 BGM（iOS Safari）では先頭 1 件だけ渡す。
+   */
+  onDropBgmFiles?: (files: File[]) => void;
   onBeforeBgmClipEdit: (reason: string) => void;
   /** 連続値スライダー用。プレビューを止めずに反映する（BgmClipList の説明を参照） */
   onBeforeBgmClipContinuousEdit: (reason: string) => void;
@@ -78,6 +86,7 @@ const BgmSection: React.FC<BgmSectionProps> = ({
   bgmClips,
   currentTime,
   onAddBgmClips,
+  onDropBgmFiles,
   onBeforeBgmClipEdit,
   onBeforeBgmClipContinuousEdit,
 }) => {
@@ -122,8 +131,36 @@ const BgmSection: React.FC<BgmSectionProps> = ({
     prevBgmClipCountRef.current = bgmClips.length;
   }, [bgmClips.length]);
 
+  const showToast = useUIStore((s) => s.showToast);
+  const handleDropFiles = useCallback((files: File[]) => {
+    onDropBgmFiles?.(files);
+  }, [onDropBgmFiles]);
+  const handleDropRejected = useCallback((rejectedCount: number) => {
+    showToast(`音声・動画ではないファイル${rejectedCount}件はBGMに追加しませんでした`);
+  }, [showToast]);
+  const { isDragActive, dropZoneProps } = useFileDropZone({
+    accept: audioFileAccept,
+    multiple: isMultiBgm,
+    disabled: isBgmLocked,
+    onFiles: handleDropFiles,
+    onRejected: handleDropRejected,
+  });
+  const dropProps = onDropBgmFiles ? dropZoneProps : undefined;
+
   return (
-    <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl min-w-0">
+    <section
+      className="relative bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl min-w-0"
+      data-testid="bgm-section"
+      {...dropProps}
+    >
+      <FileDropOverlay
+        active={Boolean(onDropBgmFiles) && isDragActive}
+        disabled={isBgmLocked}
+        label="BGMを追加"
+        hint="音声ファイル・音声付き動画"
+        tone="purple"
+        testId="bgm-section-drop-overlay"
+      />
       <div
         className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center gap-3 cursor-pointer hover:bg-gray-800/50 transition"
         onClick={() => setIsOpen(!isOpen)}

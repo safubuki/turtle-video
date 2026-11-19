@@ -9,7 +9,7 @@ import {
   useAudioStore,
 } from '../../../stores/audioStore';
 import { getTimelineAdvanceForItem } from '../../../utils/transitionTimeline';
-import { resolveVideoSourceTime } from '../../../utils/playbackSpeed';
+import { resolveVideoSourceTime, resolveVideoSpeedRampForItem } from '../../../utils/playbackSpeed';
 import {
   getPageHidePausePlan,
   getVisibilityRecoveryPlan,
@@ -100,6 +100,7 @@ export function usePreviewVisibilityLifecycle({
               trimStart: item.trimStart || 0,
               localTime,
               playbackSpeed: item.playbackSpeed,
+              speedRamp: resolveVideoSpeedRampForItem(item),
             });
             if (
               !videoElement.seeking

@@ -143,8 +143,21 @@ export {
   resolveSpeedBadgeFadeAlpha,
   drawSpeedBadgeFrame,
   applyVideoElementPlaybackRate,
+  normalizeVideoPlaybackRateValue,
+  SPEED_RAMP_DURATION_STOPS,
+  DEFAULT_SPEED_RAMP_DURATION_SEC,
+  normalizeSpeedRampDuration,
+  buildVideoSpeedRamp,
+  resolveVideoSpeedRampForItem,
+  resolveVideoSourceOffsetAtLocalTime,
+  resolveVideoLocalTimeAtSourceOffset,
+  resolveVideoPlaybackSpeedAtLocalTime,
+  resolveItemPlaybackSpeedAtLocalTime,
+  resolveItemVideoSourceTime,
+  resolveSpeedRampFromSpeed,
+  syncVideoSpeedRampItems,
 } from './playbackSpeed';
-export type { SpeedBadgePositionPreset } from './playbackSpeed';
+export type { SpeedBadgePositionPreset, VideoSpeedRamp, VideoSpeedRampStep } from './playbackSpeed';
 
 export {
   MEDIA_VOLUME_MIN,

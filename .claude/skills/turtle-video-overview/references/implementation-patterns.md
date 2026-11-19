@@ -677,6 +677,8 @@
 |---------|--------|
 | **AudioContext** | `suspended` → `resume()` はユーザージェスチャーが必要。必ず `catch` する |
 | **ObjectURL** | 作成したら必ず `revokeObjectURL` で解放。特にリストア時の古い URL に注意 |
+| **速度のなめらか接続** | 時刻換算は `resolveVideoSpeedRampForItem` 付き `resolveVideoSourceTime`、rate・dilation は `resolveItemPlaybackSpeedAtLocalTime`。`playbackSpeed` を直接掛けない。開始速度と尺は mediaStore の set ラッパーが並びから取り直す（13-296） |
+| **ファイルのドラッグ&ドロップ** | window の `usePreventWindowFileDrop` が Files の drop を常に preventDefault する。ファイルを受け付ける UI を新設するなら要素自身で onDrop を処理し、受付判定は追加ボタンと同じ accept 文字列（`matchesFileAccept`）で揃える（13-298） |
 | **Canvas** | `display: none` の video からは描画不可。`opacity: 0.001` で隠す |
 | **WebCodecs** | `VideoFrame` は `close()` しないとメモリリーク。CFR 強制が重要 |
 | **Safari Export** | iOS Safari では OfflineAudioContext による音声プリレンダリング方式を使用。メインAudioContextで`decodeAudioData`を実行し、`f32-planar`形式のAudioDataをAudioEncoderに直接供給する。**重要**: iOS Safari の `decodeAudioData` はビデオコンテナ(.mov/.mp4)をデコードできない（`EncodingError`）ため、`extractAudioViaVideoElement()` で `<video>` 要素経由のリアルタイム音声抽出にフォールバックする。muxer/AudioEncoder は常に音声付きで初期化。OfflineAudioContext 失敗時は ScriptProcessorNode にフォールバック |
@@ -5179,3 +5181,54 @@ export 終了（成功/失敗/中断）
   - キャンバスへ焼き込む要素は **キャンバス寸法に比例**させる（キャプション・タイトル = 短辺/1080、クリップのぼかし = 1920×1080 基準、倍速バッジ・2画面の境界線 = 短辺比、ロゴ = 短辺/720）。画像の元のピクセル数や固定 px で描くと、プレビュー（720p）と書き出し（1080p）で見た目がずれる。
   - ロゴのサイズ計算は `resolveLogoRenderedSize` に一本化する。描画と簡単配置で別々に計算しない。
   - 回帰テスト: `watermarkOverlay.test.ts` の「プレビューと書き出しで、画面に対するロゴの大きさ・マスク・ぼかしの比率が一致する」。
+
+### 13-296. 速度のなめらか接続（スピードランプ）: 後ろのクリップの先頭で、前の動画の速さから段階的に移る【standard 限定】
+
+- **ファイル**: `src/utils/playbackSpeed.ts`（`buildVideoSpeedRamp` / `resolveVideoSpeedRampForItem` / `resolveVideoSourceOffsetAtLocalTime` / `resolveVideoLocalTimeAtSourceOffset` / `resolveVideoPlaybackSpeedAtLocalTime` / `resolveItemPlaybackSpeedAtLocalTime` / `resolveSpeedRampFromSpeed` / `syncVideoSpeedRampItems` / `normalizeVideoPlaybackRateValue`）, `src/stores/mediaStore.ts`（set ラッパー `withSyncedSpeedRamps`、`updateVideoSpeedRampIn` / `updateVideoSpeedRampDuration`、分割）, `src/utils/audioTimeStretch.ts`（`wsolaTimeStretchChannelMapped` / `timeStretchAudioBufferWithSpeedRamp`）, `src/utils/audioPitchPreservedCapture.ts`（段ごとの rate 切替）, `src/flavors/standard/export/exportEngine.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/utils/media.ts`, `src/utils/timelineWaveform.ts`, `src/components/media/ClipItem.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, `src/test/speedRamp.test.ts`, `src/test/clipItemSpeedRamp.test.tsx`
+- **要件**: 同じ動画を分割して後半だけ 0.8 倍などにすると、つなぎ目で速さがガクッと変わって見える。その段差を目立たなくする。
+- **設計判断**:
+  - **置き場所はクリップの速度欄（トランジションではない）**。速さの変化は「どちらか 1 本のクリップの時刻対応」を変える処理で、トランジション（見た目の重ね方・ディゾルブの重なり）とは別物。コネクタには既にトランジションと 2 画面表示があり、混ぜると分かりにくい。
+  - **後ろのクリップが受け持つ**（前側だけ速度を変えた場合も同じ。後ろのカードは毎回直前の速さを読み直す）。前のクリップは次の速さを知らないので変えない。同じ動画の分割なら「前の末尾で変える」は「分割点を手前にずらして後ろの先頭で変える」と同じ見た目になるため、前の末尾で変える方式は持たない。
+  - **前のカードにも入口を置く**: 前のカードの速度欄に「次の動画へ速度をなめらかにつなぐ」（`SpeedRampControl` を共用、`nextClipSpeedRamp` / `onUpdateNextSpeedRampIn` / `onUpdateNextSpeedRampDuration`）。押すと**直後のカードの** `speedRampIn` / `speedRampDuration` を変える（設定の実体は 1 つ）。直後が動画でなければ出さず、どちらかのカードがロック中なら操作不可。状態は `ClipsSection` の `resolveNextClipSpeedRampInfo` で直後のカードから作る。後ろのクリップ先頭 `speedRampDuration`（0.5 / 1 / 2 秒・既定 1）で「前の速さ → 自分の速さ」へ移る。スロー区間からの戻り（0.8 → 1）も、戻り先のクリップで ON にすれば同じ仕組み。
+  - **連続曲線ではなく、一定速度の段の折れ線**（対数で等分・1 段の速度比 ≈4%・1 段 ≥0.1 秒・2〜12 段）。プレビューの `playbackRate`、export の rate / 壁時計 dilation、音声キャプチャの rate 切替、WSOLA、シーク・分割・トリムの時刻換算がすべて**同じ段**を使うので、経路ごとのずれが出ない。1 段の最短時間は 13-286（rate の頻繁な切替で preservesPitch がプチプチ鳴る）への配慮。
+- **データ契約**:
+  - 保存: `speedRampIn?: true` / `speedRampDuration?: 0.5|1|2`（旧データは undefined = なし。手動・自動保存・自動保存ハッシュ・Android プレビューキャッシュ署名に含む）。
+  - 派生（保存しない）: `speedRampFromSpeed` = 直前の動画の速さ。直前が動画でない・速さの差 <0.05・2 画面表示のペア（直前の `splitCompareToNext` か自分の `splitCompareToNext`）なら undefined = 効かない。
+  - `item.duration` = 段の区間 + `(ソース尺 − 段のソース尺) / speed`。クリップが短く段のソース尺が足りないときはクリップ全体を段に充てる。
+- **store 同期**: `mediaStore` の `set` をラップし、`mediaItems` が変わった更新では必ず `syncVideoSpeedRampItems` を通して開始速度と尺・総尺を取り直す（前のカードの速度変更・並べ替え・削除・追加・`restoreFromSave` のどれでも追従）。なめらか接続を使わないカードは一切触らず、同じ配列を返す（従来の尺計算と完全一致）。分割の後半はなめらか接続を持たない。
+- **再生・書き出し**:
+  - ソース時刻は `resolveVideoSourceTime({ ..., speedRamp: resolveVideoSpeedRampForItem(item) })`。standard の preview / seek / visibility 復帰 / キャプチャフレーム / タイトル開始フレーム / ポスターはすべて渡す。
+  - rate・追従補正・同期しきい値・export 壁時計の割り算は `resolveItemPlaybackSpeedAtLocalTime(item, localTime)`（その瞬間の段の速さ）。`resolveVideoElementPlaybackRateForContext` / `resolveVideoCatchUpState` / `resolveSpeedAwareVideoSyncThresholdSec` / `applyVideoElementPlaybackRate` は 0.1 刻みに丸めない `normalizeVideoPlaybackRateValue` を使う（段の 0.967 倍などを丸めると段が消える）。0.1 刻みの設定値は従来と同じ結果。
+  - export 映像は段ごとに従来方式を切り替えるだけ（倍速段 = rate 1 + dilation、スロー段 = native rate）。`resolveExportTimelineWallDivisorForItem(item, localTime)`。
+  - export 音声は、なめらか接続があれば等倍でも `pitch-preserved-capture`。キャプチャは段の時刻に `setTimeout` で rate を切り替え、録る長さは `item.duration`。スロー段があれば参照 PCM で先頭遅延を切る。予備の WSOLA は段ごとに別々に伸縮すると境目に無音の隙間が出るため、出力位置→入力位置の対応表で 1 回走査する `wsolaTimeStretchChannelMapped`。
+  - タイムライン波形も同じ対応表で貼る。
+- **対象外**: apple-safari エンジン（UI は出さない。保存データに ON があっても iOS は線形換算のまま。尺は store の値なので、段の分だけ終端が最大 0.1 秒程度ずれうる）。凍結レガシーエンジン（`src/components/turtle-video/*`・`src/hooks/usePlayback.ts`）。
+- **注意**:
+  - 速度を扱う新しい経路を足すときは、`item.playbackSpeed` を直接掛けず、時刻換算は `resolveVideoSpeedRampForItem` 付きの `resolveVideoSourceTime`、rate は `resolveItemPlaybackSpeedAtLocalTime` を使う。
+  - `useMediaStore.setState` は set ラッパーを通らない（テストのフィクスチャ用）。アプリ内の更新は必ずアクション経由にする。
+  - 回帰テスト: `speedRamp.test.ts`（段の単調性・連続性・逆変換・尺・store 追従・分割・WSOLA の隙間なし）、`clipItemSpeedRamp.test.tsx`（UI の出し分け）。
+
+### 13-297. 分割点が 1/100 秒のとき、開始の数値・カード見出しが 0.1 秒に丸まって食い違って見える
+
+- **ファイル**: `src/utils/timeStepperInput.ts`（`stepStartTime` / `formatClipCompactClock` / `formatClipDurationLabel`）, `src/components/media/ClipItem.tsx`, `src/test/clipSplitDisplay.test.tsx`, `src/test/speedRamp.test.ts`
+- **症状**: 13.38 秒で分割すると、トリミング欄と終了は 13.38 なのに、後半カードの開始の数値は 13.4、見出しは `0:13.4` / `13.4秒` と出た。
+- **原因**: 表示だけの丸め。保存値は分割位置そのまま（例 13.3833）。開始の `NumericSliderField` は `step=0.1` から小数 1 桁を推定して表示し、見出しは 0.1 秒単位で整形していた。
+- **対策**: 開始も `decimals={2}`（終了と同じ 1/100 秒表示）。−/+ は `stepStartTime` で 0.1 秒格子へ吸着（終了の `stepEndTime` と同じ操作感）。見出しは 0.1 秒で表せる値は従来どおり（`0:05.0` / `5秒`）、表せない値だけ 1/100 秒（`0:13.38` / `1.66秒`）。
+- **分割のコマについて（変更なし・設計確認）**: 分割は前半 `[trimStart, T)`・後半 `[T, trimEnd)` の半開区間で、`T` は丸めない。`T` がコマの途中でも、そのコマは前半の末尾 `T − f_k` と後半の先頭 `f_{k+1} − T` に分かれて合計 1 コマ分しか表示されない（2 回出ない）。後半を 1 コマ進めると、逆にそのコマの残りが飛ぶ。**分割位置を 1/100 秒などへ丸めると重なり・すき間の原因になるので丸めない**（回帰テスト: speedRamp.test.ts「分割は前半の終わり = 後半の始まり」）。つなぎ目のカクつきが見える場合は、分割の計算ではなく、プレビューで次の動画の play() 開始が 0.1 秒ほど遅れる境界の問題（13-286 の背景）を疑う。書き出しは境界待機で揃えている。
+
+### 13-298. 動画・画像 / BGM / ナレーションのセクションへファイルをドラッグ&ドロップして追加する
+
+- **ファイル**: `src/utils/fileDrop.ts`, `src/hooks/useFileDropZone.ts`（`useFileDropZone` / `usePreventWindowFileDrop`）, `src/components/common/FileDropOverlay.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/sections/BgmSection.tsx`, `src/components/sections/NarrationSection.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, `src/test/sectionFileDrop.test.tsx`
+- **要件**: セクション（閉じた見出しバーを含む）へファイルを落とすと追加できるようにする。動画・画像は動画/画像、BGM は音声＋音声付き動画、ナレーションは音声。
+- **設計**:
+  - **処理は「追加」ボタンと共通化**: `TurtleVideo` の input ハンドラから「ファイル配列を受け取る中核」を切り出した（`addLegacyBgmFile` / `addBgmClipFiles` / `addNarrationFiles`、動画・画像は既存の `processUploadedMediaFiles`）。input 版はこれを呼ぶ薄いラッパー。ドロップ専用の読み込み処理を別に作らない（ObjectURL 解放・メタデータタイムアウト・失敗件数トーストを二重管理しないため）。
+  - **受付判定は `<input accept>` と同じ文字列**で行う（`matchesFileAccept`。`type/*`・MIME・`.拡張子`）。動画・画像は `MEDIA_UPLOAD_ACCEPT`、BGM は `getBgmUploadAccept()`、ナレーションは `getAudioUploadAccept()`。`File.type` が空になる拡張子（Windows の .opus / .flac / .mkv など）は拡張子表で補う。受け付けないファイルは除外し、件数をトーストで伝える。
+  - **BGM の単一/複数**: section は `multiple: isMultiBgm`（iOS Safari の単一 BGM は先頭 1 件）。`handleDropBgmFiles` も `isIosSafari` で `addLegacyBgmFile` / `addBgmClipFiles` を振り分ける（ボタンの `onBgmUpload` / `onAddBgmClips` と同じ）。
+  - **ロック中**は `dropEffect='none'` とオーバーレイ「ロック中のため追加できません」を出し、drop しても追加しない。
+  - **表示**: `<section>` を `relative` にして `FileDropOverlay`（`pointer-events-none`）を重ねる。子要素の出入りで dragenter/dragleave が対で飛ぶため深さカウンタで管理し、window の drop/dragend でもリセットする。
+  - **Files 以外は無視**: `dataTransfer.types` に `Files` が無いドラッグ（ページ内のテキスト・要素）には反応しない。
+  - **セクション外へのドロップ対策**: ドロップ先以外へ落とすとブラウザがファイルを開いて編集画面から離脱する。`usePreventWindowFileDrop` が window で既定動作を止める（`dragover` は `defaultPrevented` でなければ `dropEffect='none'`、`drop` は常に preventDefault）。セクションの React ハンドラはルートで先に preventDefault 済みなので「コピー」表示は上書きされない。
+- **注意**:
+  - 新たにファイルを受け付ける UI（見えている `<input type="file">` や独自ドロップ領域）を作る場合、window ガードが Files の drop を preventDefault するため、**その要素自身で onDrop を処理する**こと（ネイティブ input へのドロップの既定動作には頼れない）。現状の file input はすべて `hidden`。
+  - section 内からポータルで出したポップオーバー上でも React の合成イベントは section へバブルするので、そこへのドロップもそのセクションへの追加になる（許容）。
+  - ドロップの props（`onDropMediaFiles` / `onDropBgmFiles` / `onDropNarrationFiles`）は任意。渡さなければドロップ先にならない（既存テストの描画を壊さない）。

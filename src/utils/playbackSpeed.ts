@@ -82,19 +82,310 @@ export function getVideoSourceClipDuration(item: {
 }
 
 /**
+ * 再生中の「いまの速さ」（`<video>.playbackRate` や壁時計の割り算に使う値）を正規化する。
+ * なめらか接続の途中段（例: 0.967 倍）を 0.1 刻みへ丸めると段差が消えるため、丸めずに
+ * 0.5〜8 の範囲へ収めるだけにする。0.1 刻みの設定値はそのまま通る。
+ */
+export function normalizeVideoPlaybackRateValue(value: unknown): number {
+  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_VIDEO_PLAYBACK_SPEED;
+  return Number(clamp(n, MIN_VIDEO_PLAYBACK_SPEED, MAX_VIDEO_PLAYBACK_SPEED).toFixed(4));
+}
+
+// ---------------------------------------------------------------------------
+// 速度のなめらか接続（スピードランプ）
+// ---------------------------------------------------------------------------
+
+/** なめらか接続にかける時間（タイムライン秒）の選択肢。フェード時間と同じ 3 段 */
+export const SPEED_RAMP_DURATION_STOPS = [0.5, 1, 2] as const;
+export const DEFAULT_SPEED_RAMP_DURATION_SEC = 1;
+/** これ未満の速度差は「同じ速さ」とみなし、なめらか接続をしない */
+export const SPEED_RAMP_MIN_SPEED_DIFF = 0.05;
+/** 1 段あたりの速度比の目安（4%）。これ以下の差なら目で見て段差に気づきにくい */
+const SPEED_RAMP_STEP_RATIO = 1.04;
+/** 1 段の最短時間（タイムライン秒）。rate の切り替えを詰めすぎない（13-286 の音の乱れ対策） */
+const SPEED_RAMP_MIN_STEP_SEC = 0.1;
+const SPEED_RAMP_MIN_STEPS = 2;
+const SPEED_RAMP_MAX_STEPS = 12;
+
+export function normalizeSpeedRampDuration(value: unknown): number {
+  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_SPEED_RAMP_DURATION_SEC;
+  if (n < 0.75) return 0.5;
+  if (n < 1.5) return 1;
+  return 2;
+}
+
+/** なめらか接続の 1 段（その段のあいだは一定の速さで進む） */
+export interface VideoSpeedRampStep {
+  speed: number;
+  /** クリップ先頭からのタイムライン秒 */
+  timelineStart: number;
+  timelineEnd: number;
+  /** trimStart からのソース秒 */
+  sourceStart: number;
+}
+
+/**
+ * クリップ先頭で「前の動画の速さ → このクリップの速さ」へ段階的に移る区間。
+ * 段ごとに一定速度の折れ線で、プレビュー・書き出し・シーク・音声の全経路が同じ段を使う。
+ */
+export interface VideoSpeedRamp {
+  fromSpeed: number;
+  toSpeed: number;
+  steps: readonly VideoSpeedRampStep[];
+  /** なめらか接続の区間のタイムライン尺 */
+  timelineDuration: number;
+  /** なめらか接続の区間で進むソース尺 */
+  sourceDuration: number;
+}
+
+/**
+ * 「前の速さ → 目標の速さ」の段を作る。速さは対数で等分し（0.8→1 と 1→1.25 を同じ感覚にする）、
+ * 両端を除いた中間値だけを並べる。クリップが短くて段の合計ソース尺が足りないときは、
+ * クリップ全体を段に充てる（目標の速さまで届かずに終わる）。
+ */
+export function buildVideoSpeedRamp(params: {
+  fromSpeed: unknown;
+  toSpeed: unknown;
+  durationSec: unknown;
+  sourceClipDuration: number;
+}): VideoSpeedRamp | null {
+  const fromSpeed = normalizeVideoPlaybackSpeed(params.fromSpeed);
+  const toSpeed = normalizeVideoPlaybackSpeed(params.toSpeed);
+  if (Math.abs(fromSpeed - toSpeed) < SPEED_RAMP_MIN_SPEED_DIFF) return null;
+  const sourceClipDuration = Number.isFinite(params.sourceClipDuration)
+    ? Math.max(0, params.sourceClipDuration)
+    : 0;
+  if (!(sourceClipDuration > 0)) return null;
+  const requestedDuration = normalizeSpeedRampDuration(params.durationSec);
+
+  const logRatio = Math.log(toSpeed / fromSpeed);
+  const maxStepsByDuration = Math.max(
+    SPEED_RAMP_MIN_STEPS,
+    Math.floor(requestedDuration / SPEED_RAMP_MIN_STEP_SEC + 1e-9),
+  );
+  const stepCount = clamp(
+    Math.ceil(Math.abs(logRatio) / Math.log(SPEED_RAMP_STEP_RATIO)),
+    SPEED_RAMP_MIN_STEPS,
+    Math.min(SPEED_RAMP_MAX_STEPS, maxStepsByDuration),
+  );
+  const speeds: number[] = [];
+  for (let k = 0; k < stepCount; k++) {
+    speeds.push(Number((fromSpeed * Math.exp(logRatio * ((k + 1) / (stepCount + 1)))).toFixed(4)));
+  }
+  const speedSum = speeds.reduce((sum, s) => sum + s, 0);
+  let stepDuration = requestedDuration / stepCount;
+  const requestedSource = stepDuration * speedSum;
+  if (requestedSource > sourceClipDuration) {
+    stepDuration *= sourceClipDuration / requestedSource;
+  }
+  if (!(stepDuration > 0)) return null;
+
+  const steps: VideoSpeedRampStep[] = [];
+  let sourceCursor = 0;
+  for (let k = 0; k < stepCount; k++) {
+    steps.push({
+      speed: speeds[k],
+      timelineStart: k * stepDuration,
+      timelineEnd: (k + 1) * stepDuration,
+      sourceStart: sourceCursor,
+    });
+    sourceCursor += stepDuration * speeds[k];
+  }
+  return {
+    fromSpeed,
+    toSpeed,
+    steps,
+    timelineDuration: stepDuration * stepCount,
+    sourceDuration: Math.min(sourceClipDuration, sourceCursor),
+  };
+}
+
+/** なめらか接続の判定に使う MediaItem のフィールド */
+export interface VideoSpeedRampItemFields {
+  type?: string;
+  trimStart?: number;
+  trimEnd?: number;
+  originalDuration?: number;
+  playbackSpeed?: unknown;
+  speedRampIn?: boolean;
+  speedRampFromSpeed?: number;
+  speedRampDuration?: number;
+}
+
+const speedRampCache = new WeakMap<object, { key: string; ramp: VideoSpeedRamp | null }>();
+
+/**
+ * クリップのなめらか接続の段を返す（無効なら null）。
+ * `speedRampFromSpeed` は store が直前の動画から毎回取り直す派生値（保存しない）。
+ * 毎フレーム呼ばれるため、同じ内容のアイテムでは結果を使い回す。
+ */
+export function resolveVideoSpeedRampForItem(
+  item: VideoSpeedRampItemFields | null | undefined,
+): VideoSpeedRamp | null {
+  if (!item || item.type === 'image' || item.speedRampIn !== true) return null;
+  if (!Number.isFinite(item.speedRampFromSpeed)) return null;
+  const sourceClipDuration = getVideoSourceClipDuration(item);
+  const key = [
+    sourceClipDuration,
+    item.playbackSpeed,
+    item.speedRampFromSpeed,
+    item.speedRampDuration,
+  ].join('|');
+  const cached = speedRampCache.get(item);
+  if (cached && cached.key === key) return cached.ramp;
+  const ramp = buildVideoSpeedRamp({
+    fromSpeed: item.speedRampFromSpeed,
+    toSpeed: item.playbackSpeed,
+    durationSec: item.speedRampDuration,
+    sourceClipDuration,
+  });
+  speedRampCache.set(item, { key, ramp });
+  return ramp;
+}
+
+function findSpeedRampStep(ramp: VideoSpeedRamp, localTime: number): VideoSpeedRampStep | null {
+  if (!(localTime < ramp.timelineDuration)) return null;
+  const steps = ramp.steps;
+  const stepDuration = ramp.timelineDuration / steps.length;
+  const index = clamp(Math.floor(localTime / stepDuration), 0, steps.length - 1);
+  return steps[index] ?? null;
+}
+
+/** クリップ先頭からのタイムライン秒 → trimStart からのソース秒 */
+export function resolveVideoSourceOffsetAtLocalTime(
+  localTime: number,
+  playbackSpeed: unknown,
+  speedRamp?: VideoSpeedRamp | null,
+): number {
+  const t = Number.isFinite(localTime) ? Math.max(0, localTime) : 0;
+  const speed = normalizeVideoPlaybackSpeed(playbackSpeed);
+  if (!speedRamp) return t * speed;
+  const step = findSpeedRampStep(speedRamp, t);
+  if (step) return step.sourceStart + (t - step.timelineStart) * step.speed;
+  return speedRamp.sourceDuration + (t - speedRamp.timelineDuration) * speed;
+}
+
+/** trimStart からのソース秒 → クリップ先頭からのタイムライン秒（上の逆変換） */
+export function resolveVideoLocalTimeAtSourceOffset(
+  sourceOffset: number,
+  playbackSpeed: unknown,
+  speedRamp?: VideoSpeedRamp | null,
+): number {
+  const src = Number.isFinite(sourceOffset) ? Math.max(0, sourceOffset) : 0;
+  const speed = normalizeVideoPlaybackSpeed(playbackSpeed);
+  if (!speedRamp) return src / speed;
+  if (src >= speedRamp.sourceDuration) {
+    return speedRamp.timelineDuration + (src - speedRamp.sourceDuration) / speed;
+  }
+  const steps = speedRamp.steps;
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const step = steps[i];
+    if (src >= step.sourceStart) {
+      return step.timelineStart + (src - step.sourceStart) / step.speed;
+    }
+  }
+  return 0;
+}
+
+/**
+ * クリップ内のその瞬間の速さ。なめらか接続の区間では段の速さ、それ以外は設定速度。
+ * `<video>.playbackRate`・追従補正・export の壁時計 dilation に使う（0.1 刻みに丸めない）。
+ */
+export function resolveVideoPlaybackSpeedAtLocalTime(
+  localTime: number,
+  playbackSpeed: unknown,
+  speedRamp?: VideoSpeedRamp | null,
+): number {
+  const speed = normalizeVideoPlaybackSpeed(playbackSpeed);
+  if (!speedRamp || !Number.isFinite(localTime)) return speed;
+  return findSpeedRampStep(speedRamp, Math.max(0, localTime))?.speed ?? speed;
+}
+
+/** アイテムから直接「いまの速さ」を求める（画像は 1） */
+export function resolveItemPlaybackSpeedAtLocalTime(
+  item: VideoSpeedRampItemFields | null | undefined,
+  localTime: number,
+): number {
+  if (!item || item.type === 'image') return DEFAULT_VIDEO_PLAYBACK_SPEED;
+  return resolveVideoPlaybackSpeedAtLocalTime(
+    localTime,
+    item.playbackSpeed,
+    resolveVideoSpeedRampForItem(item),
+  );
+}
+
+/**
+ * 直前のカードから「なめらか接続の開始速度」を決める。使えないときは undefined。
+ * - 直前が動画でない（先頭・画像）: 速さの段差が無いので使わない
+ * - 2 画面表示のペア（直前が自分と同時再生 / 自分が次と同時再生）: 同時に流すので使わない
+ * - 速さがほぼ同じ: 変化が無いので使わない
+ */
+export function resolveSpeedRampFromSpeed(
+  items: ReadonlyArray<Pick<VideoSpeedRampItemFields, 'type' | 'playbackSpeed'> & {
+    splitCompareToNext?: unknown;
+  }>,
+  index: number,
+): number | undefined {
+  const item = items[index];
+  const prev = index > 0 ? items[index - 1] : undefined;
+  if (!item || item.type !== 'video' || !prev || prev.type !== 'video') return undefined;
+  if (prev.splitCompareToNext || item.splitCompareToNext) return undefined;
+  const fromSpeed = normalizeVideoPlaybackSpeed(prev.playbackSpeed);
+  const toSpeed = normalizeVideoPlaybackSpeed(item.playbackSpeed);
+  if (Math.abs(fromSpeed - toSpeed) < SPEED_RAMP_MIN_SPEED_DIFF) return undefined;
+  return fromSpeed;
+}
+
+/**
+ * なめらか接続の派生値（開始速度・タイムライン尺）を並び全体で取り直す。
+ * 直前のカードの速度変更・並べ替え・削除・追加・保存読込のどれでも同じ結果になるよう、
+ * store の更新ごとに通す。変化が無ければ同じ配列を返す。
+ * なめらか接続を使っていないカードは一切触らない（従来の尺計算と完全一致）。
+ */
+export function syncVideoSpeedRampItems<T extends VideoSpeedRampItemFields & {
+  duration: number;
+  splitCompareToNext?: unknown;
+}>(items: T[]): T[] {
+  let changed = false;
+  const next = items.map((item, index) => {
+    if (item.type !== 'video') return item;
+    const wantsRamp = item.speedRampIn === true;
+    if (!wantsRamp && item.speedRampFromSpeed === undefined) return item;
+    const fromSpeed = wantsRamp ? resolveSpeedRampFromSpeed(items, index) : undefined;
+    const candidate = { ...item, speedRampFromSpeed: fromSpeed };
+    const duration = computeTimelineDurationFromSource(
+      getVideoSourceClipDuration(item),
+      item.playbackSpeed,
+      resolveVideoSpeedRampForItem(candidate),
+    );
+    const sameFrom = item.speedRampFromSpeed === fromSpeed;
+    const sameDuration = Math.abs((item.duration || 0) - duration) < 1e-9;
+    if (sameFrom && sameDuration) return item;
+    changed = true;
+    return { ...candidate, duration };
+  });
+  return changed ? next : items;
+}
+
+/**
  * ソース尺と速度からタイムライン尺を求める。
+ * なめらか接続があるときは、段の区間 + 残りを設定速度で割った尺。
  */
 export function computeTimelineDurationFromSource(
   sourceDuration: number,
   speed: unknown,
+  speedRamp?: VideoSpeedRamp | null,
 ): number {
   const s = normalizeVideoPlaybackSpeed(speed);
   if (!Number.isFinite(sourceDuration) || sourceDuration <= 0) return 0;
-  return sourceDuration / s;
+  if (!speedRamp) return sourceDuration / s;
+  return speedRamp.timelineDuration + Math.max(0, sourceDuration - speedRamp.sourceDuration) / s;
 }
 
 /**
- * 動画 MediaItem のタイムライン尺を trim と speed から再計算する。
+ * 動画 MediaItem のタイムライン尺を trim と speed（なめらか接続を含む）から再計算する。
  */
 export function resolveVideoTimelineDuration(item: {
   type?: string;
@@ -103,28 +394,52 @@ export function resolveVideoTimelineDuration(item: {
   originalDuration?: number;
   playbackSpeed?: unknown;
   duration?: number;
+  speedRampIn?: boolean;
+  speedRampFromSpeed?: number;
+  speedRampDuration?: number;
 }): number {
   if (item.type === 'image') {
     return Number.isFinite(item.duration) ? Math.max(0, item.duration as number) : 0;
   }
   const source = getVideoSourceClipDuration(item);
-  return computeTimelineDurationFromSource(source, item.playbackSpeed);
+  return computeTimelineDurationFromSource(
+    source,
+    item.playbackSpeed,
+    resolveVideoSpeedRampForItem(item),
+  );
 }
 
 /**
  * タイムライン上の localTime → 元動画 currentTime。
+ * `speedRamp` を渡すと、クリップ先頭のなめらか接続の段も反映する。
  */
 export function resolveVideoSourceTime(params: {
   trimStart?: number;
   localTime: number;
   playbackSpeed?: unknown;
+  speedRamp?: VideoSpeedRamp | null;
 }): number {
-  const speed = normalizeVideoPlaybackSpeed(params.playbackSpeed);
   const trimStart = Number.isFinite(params.trimStart)
     ? Math.max(0, params.trimStart as number)
     : 0;
-  const localTime = Number.isFinite(params.localTime) ? Math.max(0, params.localTime) : 0;
-  return trimStart + localTime * speed;
+  return trimStart + resolveVideoSourceOffsetAtLocalTime(
+    params.localTime,
+    params.playbackSpeed,
+    params.speedRamp,
+  );
+}
+
+/** アイテムから直接ソース時刻を求める（なめらか接続を含む） */
+export function resolveItemVideoSourceTime(
+  item: VideoSpeedRampItemFields,
+  localTime: number,
+): number {
+  return resolveVideoSourceTime({
+    trimStart: item.trimStart,
+    localTime,
+    playbackSpeed: item.playbackSpeed,
+    speedRamp: resolveVideoSpeedRampForItem(item),
+  });
 }
 
 /**
@@ -222,7 +537,7 @@ export function resolveSpeedAwareVideoSyncThresholdSec(
   const base = Number.isFinite(baseThresholdSec) && baseThresholdSec > 0
     ? baseThresholdSec
     : 0.5;
-  const speed = normalizeVideoPlaybackSpeed(playbackSpeed);
+  const speed = normalizeVideoPlaybackRateValue(playbackSpeed);
   if (speed <= 1) return base;
   // プレビュー連続再生用: 2x なら 0.5→1.0 程度まで緩める
   return Math.max(base, base * speed * 0.75);
@@ -239,10 +554,14 @@ export function resolveSpeedAwareVideoSyncThresholdSec(
  * - スローで壁時計 dilation: タイムラインが壁より速く進み、出力フレームが不足する
  */
 export function resolveExportTimelineWallDivisorForItem(
-  item: { type?: string; playbackSpeed?: unknown } | null | undefined,
+  item: VideoSpeedRampItemFields | null | undefined,
+  localTime?: number,
 ): number {
   if (!item || item.type === 'image') return 1;
-  const speed = normalizeVideoPlaybackSpeed(item.playbackSpeed);
+  // なめらか接続の区間では段の速さで割る（段ごとに倍速 dilation / native slow を切り替える）
+  const speed = Number.isFinite(localTime)
+    ? resolveItemPlaybackSpeedAtLocalTime(item, localTime as number)
+    : normalizeVideoPlaybackSpeed(item.playbackSpeed);
   return speed > 1 ? speed : 1;
 }
 
@@ -269,7 +588,8 @@ export function resolveVideoElementPlaybackRateForContext(
   isExporting: boolean,
   playbackSpeed: unknown,
 ): VideoPlaybackSpeed {
-  const speed = normalizeVideoPlaybackSpeed(playbackSpeed);
+  // なめらか接続の途中段（例: 0.967）も丸めずに通す
+  const speed = normalizeVideoPlaybackRateValue(playbackSpeed);
   if (isExporting && speed > 1) return DEFAULT_VIDEO_PLAYBACK_SPEED;
   return speed;
 }
@@ -324,7 +644,7 @@ export function resolveVideoCatchUpState(params: VideoCatchUpParams): {
   const baseRate = resolveVideoElementPlaybackRateForContext(params.isExporting, params.playbackSpeed);
   const idle = { rate: baseRate, isCatchingUp: false };
   if (params.isExporting || !params.canCatchUp) return idle;
-  const speed = normalizeVideoPlaybackSpeed(params.playbackSpeed);
+  const speed = normalizeVideoPlaybackRateValue(params.playbackSpeed);
   if (speed > VIDEO_CATCH_UP_PREVIEW_MAX_SPEED) return idle;
   if (!Number.isFinite(params.videoCurrentTime) || !Number.isFinite(params.targetSourceTime)) {
     return idle;
@@ -476,7 +796,7 @@ export function applyVideoElementPlaybackRate(
   video: HTMLVideoElement | null | undefined,
   speed: unknown,
 ): void {
-  setVideoElementPlaybackRate(video, normalizeVideoPlaybackSpeed(speed));
+  setVideoElementPlaybackRate(video, normalizeVideoPlaybackRateValue(speed));
 }
 
 /**

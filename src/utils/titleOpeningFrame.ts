@@ -7,7 +7,7 @@
  */
 import type { MediaItem } from '../types';
 import { resolveAutoProjectPosterCaptureTime } from './media';
-import { resolveVideoSourceTime } from './playbackSpeed';
+import { resolveVideoSourceTime, resolveVideoSpeedRampForItem } from './playbackSpeed';
 import {
   computeTransitionTimelineRanges,
   findActiveTimelineItemWithTransitions,
@@ -54,6 +54,7 @@ export function resolveTitleMiniPreviewCaptureTarget(
       trimStart: item.trimStart,
       localTime: active?.localTime ?? 0,
       playbackSpeed: item.playbackSpeed,
+      speedRamp: resolveVideoSpeedRampForItem(item),
     });
   return { clipId: item.id, type: item.type, sourceTime };
 }

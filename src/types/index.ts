@@ -195,6 +195,19 @@ export interface MediaItem {
    * @see Docs/specs/2026-08-01_video-playback-speed.md
    */
   playbackSpeed?: VideoPlaybackSpeed;
+  /**
+   * 速度のなめらか接続（スピードランプ）。true のとき、直前の動画の速さから
+   * このクリップの速さへ、クリップ先頭 `speedRampDuration` 秒で段階的に移る。
+   * 直前のクリップは変えない（このクリップの先頭だけで受け持つ）。standard 限定・旧データは undefined。
+   */
+  speedRampIn?: boolean;
+  /** なめらか接続にかける時間（タイムライン秒・0.5 / 1 / 2）。未定義は 1 */
+  speedRampDuration?: number;
+  /**
+   * なめらか接続の開始速度（直前の動画の速さ）。store が並びから毎回取り直す派生値で、保存しない。
+   * 直前が動画でない・同じ速さ・2 画面表示のペアのときは undefined（なめらか接続なし）。
+   */
+  speedRampFromSpeed?: number;
   /** プレビュー/書き出しに速度バッジを出すか（等倍でも保存可。描画は等倍以外） */
   showSpeedBadge?: boolean;
   /**

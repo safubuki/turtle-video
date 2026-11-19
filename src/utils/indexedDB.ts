@@ -109,6 +109,10 @@ export interface SerializedMediaItem {
   thumbnailSourceTime?: number;
   /** 動画再生速度 0.5〜8.0（任意・旧データは 1。旧 1/2/4/8 はそのまま読める） */
   playbackSpeed?: number;
+  /** 速度のなめらか接続（任意・旧データは undefined = なし） */
+  speedRampIn?: boolean;
+  /** なめらか接続にかける時間（秒・任意・旧データは 1） */
+  speedRampDuration?: number;
   /** 倍速バッジ表示（任意・旧データは false） */
   showSpeedBadge?: boolean;
   /** 音量揃えの対象（任意・旧データは true） */

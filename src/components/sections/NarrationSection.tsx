@@ -31,6 +31,9 @@ import {
 import type { NarrationClip } from '../../types';
 import { formatNormalizeAdjustment } from '../../utils';
 import { getAudioUploadAccept } from '../../utils/platform';
+import FileDropOverlay from '../common/FileDropOverlay';
+import { useFileDropZone } from '../../hooks/useFileDropZone';
+import { useUIStore } from '../../stores/uiStore';
 import { SwipeProtectedSlider } from '../SwipeProtectedSlider';
 import NumericSliderField from '../common/NumericSliderField';
 import {
@@ -62,6 +65,8 @@ interface NarrationSectionProps {
   onAddAiNarration: () => void;
   onEditAiNarration: (id: string) => void;
   onNarrationUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  /** セクションへドロップされた音声ファイル（受け付ける形式だけに絞り済み） */
+  onDropNarrationFiles?: (files: File[]) => void;
   onRemoveNarration: (id: string) => void;
   onMoveNarration: (id: string, direction: 'up' | 'down') => void;
   onSaveNarration: (id: string) => void;
@@ -91,6 +96,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
   onAddAiNarration,
   onEditAiNarration,
   onNarrationUpload,
+  onDropNarrationFiles,
   onRemoveNarration,
   onMoveNarration,
   onSaveNarration,
@@ -146,8 +152,35 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
 
   const isAiAddDisabled = isNarrationLocked || offlineMode;
 
+  const showToast = useUIStore((s) => s.showToast);
+  const handleDropFiles = useCallback((files: File[]) => {
+    onDropNarrationFiles?.(files);
+  }, [onDropNarrationFiles]);
+  const handleDropRejected = useCallback((rejectedCount: number) => {
+    showToast(`音声ではないファイル${rejectedCount}件はナレーションに追加しませんでした`);
+  }, [showToast]);
+  const { isDragActive, dropZoneProps } = useFileDropZone({
+    accept: audioFileAccept,
+    disabled: isNarrationLocked,
+    onFiles: handleDropFiles,
+    onRejected: handleDropRejected,
+  });
+  const dropProps = onDropNarrationFiles ? dropZoneProps : undefined;
+
   return (
-    <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl min-w-0">
+    <section
+      className="relative bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl min-w-0"
+      data-testid="narration-section"
+      {...dropProps}
+    >
+      <FileDropOverlay
+        active={Boolean(onDropNarrationFiles) && isDragActive}
+        disabled={isNarrationLocked}
+        label="ナレーションを追加"
+        hint="音声ファイル"
+        tone="indigo"
+        testId="narration-section-drop-overlay"
+      />
       <div
         className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center gap-2 cursor-pointer hover:bg-gray-800/50 transition"
         onClick={() => setIsOpen(!isOpen)}
