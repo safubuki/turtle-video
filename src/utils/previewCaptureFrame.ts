@@ -33,6 +33,7 @@ import {
 import {
   resolveVideoSafeEndSourceTime,
   resolveVideoSourceTime,
+  resolveVideoSpeedRampForItem,
 } from './playbackSpeed';
 
 /**
@@ -119,6 +120,7 @@ export function resolveCaptureFrameTarget(
         trimStart: item.trimStart,
         localTime: active.localTime,
         playbackSpeed: item.playbackSpeed,
+        speedRamp: resolveVideoSpeedRampForItem(item),
       });
 
   return {

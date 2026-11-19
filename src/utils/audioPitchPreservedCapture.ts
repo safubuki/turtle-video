@@ -12,7 +12,7 @@
  * 非対応時は AudioWorklet、最後に出力を無音化した ScriptProcessor へ倒す。
  */
 import { resolveExportCaptureTailPaddingSec } from './audioTimeStretch';
-import { applyVideoElementPlaybackRate } from './playbackSpeed';
+import { applyVideoElementPlaybackRate, type VideoSpeedRamp } from './playbackSpeed';
 import { getTrackProcessorConstructor } from './platform';
 
 export interface PitchPreservedSpeedCaptureParams {
@@ -22,8 +22,15 @@ export interface PitchPreservedSpeedCaptureParams {
   trimStart: number;
   /** ソース上の有効尺（秒）= trimEnd - trimStart */
   sourceDurationSec: number;
-  /** 1 以外の再生速度（スロー含む） */
+  /** 1 以外の再生速度（スロー含む）。なめらか接続があれば等倍でもよい */
   speed: number;
+  /**
+   * クリップ先頭のなめらか接続。あれば段の時刻に合わせて playbackRate を切り替えながら録る
+   * （プレビューと同じ段の速さ・同じ preservesPitch の聴こえ方にする）。
+   */
+  speedRamp?: VideoSpeedRamp | null;
+  /** 録る長さ（タイムライン秒）。なめらか接続つきは sourceDuration/speed と一致しないので渡す */
+  timelineDurationSec?: number;
   audioContext: AudioContext;
   signal?: AbortSignal;
   onLog?: (level: 'info' | 'warn', message: string, details?: Record<string, unknown>) => void;
@@ -118,20 +125,31 @@ export async function capturePitchPreservedSpeedAudio(
     trimStart,
     sourceDurationSec,
     speed,
+    speedRamp,
     audioContext,
     signal,
     onLog,
   } = params;
 
-  if (!(Math.abs(speed - 1) > 0.001) || !(sourceDurationSec > 0) || signal?.aborted) {
+  const hasSpeedRamp = !!speedRamp && speedRamp.steps.length > 0;
+  if ((!(Math.abs(speed - 1) > 0.001) && !hasSpeedRamp) || !(sourceDurationSec > 0) || signal?.aborted) {
     return null;
   }
 
-  const wallDurationSec = sourceDurationSec / speed;
+  const wallDurationSec = hasSpeedRamp
+    && Number.isFinite(params.timelineDurationSec)
+    && (params.timelineDurationSec as number) > 0
+    ? (params.timelineDurationSec as number)
+    : sourceDurationSec / speed;
   if (!(wallDurationSec > 0.05)) {
     return null;
   }
-  const extraTailSec = resolveExportCaptureTailPaddingSec(speed);
+  // 遅延の余裕は一番遅い段で見積もる（低速ほど preservesPitch の先読みが伸びる）
+  const slowestSpeed = hasSpeedRamp
+    ? Math.min(speed, ...speedRamp!.steps.map((step) => step.speed))
+    : speed;
+  const extraTailSec = resolveExportCaptureTailPaddingSec(slowestSpeed);
+  const initialRate = hasSpeedRamp ? speedRamp!.steps[0].speed : speed;
 
   const log = (level: 'info' | 'warn', message: string, details?: Record<string, unknown>) => {
     onLog?.(level, message, details);
@@ -182,6 +200,7 @@ export async function capturePitchPreservedSpeedAudio(
     let totalFrames = 0;
     let captureStartedAt = 0;
     let capturedSampleRate = audioContext.sampleRate;
+    const rampTimerIds: number[] = [];
 
     const appendStereo = (left: Float32Array, right: Float32Array) => {
       chunksL.push(left);
@@ -190,6 +209,8 @@ export async function capturePitchPreservedSpeedAudio(
     };
 
     const cleanup = () => {
+      for (const timerId of rampTimerIds) window.clearTimeout(timerId);
+      rampTimerIds.length = 0;
       if (trackReader) {
         try { void trackReader.cancel(); } catch { /* ignore */ }
         trackReader = null;
@@ -424,7 +445,7 @@ export async function capturePitchPreservedSpeedAudio(
           return;
         }
 
-        applyVideoElementPlaybackRate(video, speed);
+        applyVideoElementPlaybackRate(video, initialRate);
 
         const targetStart = Math.max(0, trimStart);
         if (Math.abs(video.currentTime - targetStart) > 0.02) {
@@ -455,6 +476,18 @@ export async function capturePitchPreservedSpeedAudio(
 
         await video.play();
         captureStartedAt = performance.now();
+        if (hasSpeedRamp) {
+          // 段の境目（タイムライン秒＝録音の壁時計秒）で rate を切り替え、最後に設定速度へ戻す
+          const switches = [
+            ...speedRamp!.steps.slice(1).map((step) => ({ atSec: step.timelineStart, rate: step.speed })),
+            { atSec: speedRamp!.timelineDuration, rate: speed },
+          ];
+          for (const sw of switches) {
+            rampTimerIds.push(window.setTimeout(() => {
+              if (!settled) applyVideoElementPlaybackRate(video, sw.rate);
+            }, Math.max(0, sw.atSec * 1000)));
+          }
+        }
         log('info', 'pitch-preserved capture started', {
           speed,
           wallDurationSec: Math.round(wallDurationSec * 1000) / 1000,

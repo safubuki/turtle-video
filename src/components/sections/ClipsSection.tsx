@@ -30,6 +30,37 @@ import { useUIStore } from '../../stores/uiStore';
 import type { AspectRatio } from '../../stores/canvasStore';
 import { resolveMediaScaleFactor, type MediaTransformResetKind, type MediaZoomEndpointPreview } from '../../utils/mediaZoom';
 import {
+  normalizeSpeedRampDuration,
+  normalizeVideoPlaybackSpeed,
+  resolveVideoSpeedRampForItem,
+} from '../../utils/playbackSpeed';
+import type { NextClipSpeedRampInfo } from '../media/ClipItem';
+import FileDropOverlay from '../common/FileDropOverlay';
+import { useFileDropZone } from '../../hooks/useFileDropZone';
+
+/** 「追加」ボタンの input と同じ。ドロップもこれで絞る */
+export const MEDIA_UPLOAD_ACCEPT = 'image/*,video/*';
+
+/**
+ * 前のカードから「次の動画へなめらかにつなぐ」を操作するための、直後の動画カードの状態。
+ * 設定の実体は直後のカード（後ろのカードの先頭で段階的に速さを変える）。
+ */
+function resolveNextClipSpeedRampInfo(
+  current: MediaItem,
+  next: MediaItem | undefined,
+  isClipsLocked: boolean,
+): NextClipSpeedRampInfo | null {
+  if (current.type !== 'video' || !next || next.type !== 'video') return null;
+  return {
+    speed: normalizeVideoPlaybackSpeed(next.playbackSpeed),
+    enabled: next.speedRampIn === true,
+    duration: normalizeSpeedRampDuration(next.speedRampDuration),
+    actualSec: resolveVideoSpeedRampForItem(next)?.timelineDuration ?? null,
+    isLocked: isClipsLocked || next.isLocked,
+    isSplitComparePair: Boolean(current.splitCompareToNext) || Boolean(next.splitCompareToNext),
+  };
+}
+import {
   CLIP_TRANSITION_DEFAULT_DURATION,
   CLIP_TRANSITION_DURATION_OPTIONS,
   CLIP_TRANSITION_TYPE_OPTIONS,
@@ -453,6 +484,8 @@ interface ClipsSectionProps {
   mediaElements: Record<string, HTMLVideoElement | HTMLImageElement>;
   onToggleClipsLock: () => void;
   onMediaUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  /** セクションへドロップされた動画・画像ファイル（受け付ける形式だけに絞り済み） */
+  onDropMediaFiles?: (files: File[]) => void;
   onOpenMediaPicker: () => void;
   supportsShowOpenFilePicker: boolean;
   onAspectRatioChange: (aspectRatio: AspectRatio) => void;
@@ -481,6 +514,9 @@ interface ClipsSectionProps {
   onToggleMediaMute: (id: string) => void;
   onBeforeTransitionEdit: () => void;
   onUpdateVideoPlaybackSpeed?: (id: string, speed: number) => void;
+  /** 速度のなめらか接続（standard 限定） */
+  onUpdateVideoSpeedRampIn?: (id: string, enabled: boolean) => void;
+  onUpdateVideoSpeedRampDuration?: (id: string, duration: number) => void;
   bulkVolumeEnabled?: boolean;
   onUpdateVideoShowSpeedBadge?: (id: string, show: boolean) => void;
   onUpdateVideoSpeedBadgeLabelStyle?: (id: string, style: 'ja' | 'en') => void;
@@ -514,6 +550,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   mediaElements,
   onToggleClipsLock,
   onMediaUpload,
+  onDropMediaFiles,
   onOpenMediaPicker,
   supportsShowOpenFilePicker,
   onAspectRatioChange,
@@ -542,6 +579,8 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   onToggleMediaMute,
   onBeforeTransitionEdit,
   onUpdateVideoPlaybackSpeed,
+  onUpdateVideoSpeedRampIn,
+  onUpdateVideoSpeedRampDuration,
   bulkVolumeEnabled = false,
   onUpdateVideoShowSpeedBadge,
   onUpdateVideoSpeedBadgeLabelStyle,
@@ -841,8 +880,33 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
     fileInputRef.current?.click();
   };
 
+  const handleDropFiles = (files: File[]) => {
+    onDropMediaFiles?.(files);
+  };
+  const { isDragActive, dropZoneProps } = useFileDropZone({
+    accept: MEDIA_UPLOAD_ACCEPT,
+    disabled: isClipsLocked,
+    onFiles: handleDropFiles,
+    onRejected: (rejectedCount) => {
+      showToast(`動画・画像ではないファイル${rejectedCount}件は追加しませんでした`);
+    },
+  });
+  const dropProps = onDropMediaFiles ? dropZoneProps : undefined;
+
   return (
-    <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl min-w-0">
+    <section
+      className="relative bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl min-w-0"
+      data-testid="clips-section"
+      {...dropProps}
+    >
+      <FileDropOverlay
+        active={Boolean(onDropMediaFiles) && isDragActive}
+        disabled={isClipsLocked}
+        label="動画・画像を追加"
+        hint="動画・画像ファイル"
+        tone="blue"
+        testId="clips-section-drop-overlay"
+      />
       <div
         className="p-4 bg-gray-850 border-b border-gray-800 flex justify-between items-center gap-3 cursor-pointer hover:bg-gray-800/50 transition"
         onClick={() => setIsSectionOpen((open) => !open)}
@@ -918,7 +982,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             ref={fileInputRef}
             type="file"
             multiple
-            accept="image/*,video/*"
+            accept={MEDIA_UPLOAD_ACCEPT}
             className="hidden"
             onChange={onMediaUpload}
             disabled={isClipsLocked}
@@ -970,7 +1034,12 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
         )}
         {mediaItems.length === 0 && (
           <div className="text-center py-8 text-gray-600 text-xs md:text-sm border-2 border-dashed border-gray-800 rounded">
-            動画または画像ファイルを追加してください
+            <span className="block">動画または画像ファイルを追加してください</span>
+            {onDropMediaFiles && (
+              <span className="mt-1 block text-[10px] md:text-xs text-gray-600">
+                ここへファイルをドラッグ&ドロップしても追加できます
+              </span>
+            )}
           </div>
         )}
         {mediaItems.map((v, i) => (
@@ -1058,6 +1127,39 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             onApplySpeedBadgePreset={
               supportsPlaybackSpeed && onApplyVideoSpeedBadgePreset
                 ? (preset) => onApplyVideoSpeedBadgePreset(v.id, preset)
+                : undefined
+            }
+            onUpdateSpeedRampIn={
+              supportsPlaybackSpeed && onUpdateVideoSpeedRampIn
+                ? (enabled) => onUpdateVideoSpeedRampIn(v.id, enabled)
+                : undefined
+            }
+            onUpdateSpeedRampDuration={
+              supportsPlaybackSpeed && onUpdateVideoSpeedRampDuration
+                ? (duration) => onUpdateVideoSpeedRampDuration(v.id, duration)
+                : undefined
+            }
+            previousVideoSpeed={
+              i > 0 && mediaItems[i - 1].type === 'video'
+                ? normalizeVideoPlaybackSpeed(mediaItems[i - 1].playbackSpeed)
+                : null
+            }
+            isInSplitComparePair={
+              Boolean(v.splitCompareToNext) || (i > 0 && Boolean(mediaItems[i - 1].splitCompareToNext))
+            }
+            nextClipSpeedRamp={
+              supportsPlaybackSpeed
+                ? resolveNextClipSpeedRampInfo(v, mediaItems[i + 1], isClipsLocked)
+                : null
+            }
+            onUpdateNextSpeedRampIn={
+              supportsPlaybackSpeed && onUpdateVideoSpeedRampIn && mediaItems[i + 1]?.type === 'video'
+                ? (enabled) => onUpdateVideoSpeedRampIn(mediaItems[i + 1].id, enabled)
+                : undefined
+            }
+            onUpdateNextSpeedRampDuration={
+              supportsPlaybackSpeed && onUpdateVideoSpeedRampDuration && mediaItems[i + 1]?.type === 'video'
+                ? (duration) => onUpdateVideoSpeedRampDuration(mediaItems[i + 1].id, duration)
                 : undefined
             }
             onToggleFadeIn={(checked) => onToggleMediaFadeIn(v.id, checked)}

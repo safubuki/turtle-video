@@ -26,6 +26,7 @@ import {
 import {
   resolveVideoSafeEndSourceTime,
   resolveVideoSourceTime,
+  resolveVideoSpeedRampForItem,
 } from '../../../utils/playbackSpeed';
 
 interface PreparedPreviewAudioNodesResult {
@@ -228,7 +229,7 @@ export function usePreviewSeekController({
               const localTime = preview?.localTime ?? time - accumulatedTime;
               const targetTime = preview && zoomEndpointPreviewRef?.current?.endpoint === 'end'
                 ? resolveVideoSafeEndSourceTime({ trimStart: item.trimStart || 0, timelineDuration: item.duration, playbackSpeed: item.playbackSpeed, trimEnd: item.trimEnd })
-                : resolveVideoSourceTime({ trimStart: item.trimStart || 0, localTime, playbackSpeed: item.playbackSpeed });
+                : resolveVideoSourceTime({ trimStart: item.trimStart || 0, localTime, playbackSpeed: item.playbackSpeed, speedRamp: resolveVideoSpeedRampForItem(item) });
               const drift = Math.abs(videoElement.currentTime - targetTime);
               if (drift > seekThreshold && (force || !videoElement.seeking)) {
                 assignVideoSeekTarget(videoElement, item.id, targetTime, { interrupt: options?.interrupt });
@@ -644,7 +645,7 @@ export function usePreviewSeekController({
               const videoElement = mediaElementsRef.current[item.id] as HTMLVideoElement;
               if (videoElement) {
                 const localTime = playbackTime - accumulatedTime;
-                const targetTime = resolveVideoSourceTime({ trimStart: item.trimStart || 0, localTime, playbackSpeed: item.playbackSpeed });
+                const targetTime = resolveVideoSourceTime({ trimStart: item.trimStart || 0, localTime, playbackSpeed: item.playbackSpeed, speedRamp: resolveVideoSpeedRampForItem(item) });
 
                 if (Math.abs(videoElement.currentTime - targetTime) > 0.05) {
                   videoElement.currentTime = targetTime;

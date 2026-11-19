@@ -44,6 +44,7 @@ import { createDiagnosticId } from '../../../utils/diagnostics';
 import {
   getVideoSourceClipDuration,
   normalizeVideoPlaybackSpeed,
+  resolveVideoSpeedRampForItem,
 } from '../../../utils/playbackSpeed';
 import {
   CAPTURE_PREROLL_OBSERVATION_LIMIT,
@@ -788,7 +789,12 @@ async function offlineRenderAudio(
       const playbackSpeed = normalizeVideoPlaybackSpeed(item.playbackSpeed);
       const sourceClipDuration = getVideoSourceClipDuration(item);
       const playSourceDuration = sourceClipDuration > 0 ? sourceClipDuration : item.duration;
-      const speedAudioStrategy = resolveExportSpeedAudioStrategy(playbackSpeed);
+      // なめらか接続: 先頭の段の速さも、映像・プレビューと同じ対応表で音声に反映する
+      const speedRamp = resolveVideoSpeedRampForItem(item);
+      const slowestSpeed = speedRamp
+        ? Math.min(playbackSpeed, ...speedRamp.steps.map((step) => step.speed))
+        : playbackSpeed;
+      const speedAudioStrategy = resolveExportSpeedAudioStrategy(playbackSpeed, speedRamp);
       const canCaptureSpeedAudio =
         playSourceDuration > 0 && item.file instanceof File && speedAudioStrategy !== 'source';
 
@@ -798,9 +804,9 @@ async function offlineRenderAudio(
       const speedAudio = await resolveExportClipSpeedAudio({
         strategy: speedAudioStrategy,
         audioContext: mainCtx,
-        alignCapturedToReference: playbackSpeed < 1,
+        alignCapturedToReference: slowestSpeed < 1,
         expectedDurationSec: item.duration,
-        maxLagSec: resolveExportCaptureMaxLagSec(playbackSpeed),
+        maxLagSec: resolveExportCaptureMaxLagSec(slowestSpeed),
         capture: async () => {
           if (!canCaptureSpeedAudio) return null;
           return capturePitchPreservedSpeedAudio({
@@ -809,6 +815,8 @@ async function offlineRenderAudio(
             trimStart: item.trimStart || 0,
             sourceDurationSec: playSourceDuration,
             speed: playbackSpeed,
+            speedRamp,
+            timelineDurationSec: item.duration,
             audioContext: mainCtx,
             signal,
             onLog: (level, message, details) => {
@@ -845,6 +853,7 @@ async function offlineRenderAudio(
           }),
           playSourceDuration,
           playbackSpeed,
+          speedRamp,
         ),
       });
       const audioBuffer = speedAudio.buffer;
@@ -940,6 +949,8 @@ async function offlineRenderAudio(
           trimStart: item.trimStart,
           duration: Math.round(item.duration * 100) / 100,
           playbackSpeed,
+          speedRampFrom: speedRamp?.fromSpeed ?? null,
+          speedRampSec: speedRamp ? Math.round(speedRamp.timelineDuration * 100) / 100 : null,
           sourceClipDuration: Math.round(sourceClipDuration * 100) / 100,
           speedAudioStrategy,
           usedSpeedAlignedPcm,

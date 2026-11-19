@@ -37,6 +37,8 @@ import {
   computeVideoContinuationTrim,
   resolveVideoSplitSourceTime,
   normalizeVideoPlaybackSpeed,
+  normalizeSpeedRampDuration,
+  syncVideoSpeedRampItems,
   normalizeVideoAudioNormalizeMode,
   normalizeSpeedBadgeLabelStyle,
   normalizeSpeedBadgePosition,
@@ -89,6 +91,20 @@ function autoPosterPatchIfLeadingClipChanged(
     projectPosterDataUrl: null,
     projectPosterTimelineTime: result.timelineTime,
   };
+}
+
+/**
+ * 更新後の並びで、なめらか接続を使うカードの開始速度と尺を取り直す。
+ * 変化があれば総尺も取り直す（なめらか接続を使わない並びは何も変えない）。
+ */
+function withSyncedSpeedRamps(
+  state: MediaState,
+  next: Partial<MediaState> | MediaState | null | undefined,
+): Partial<MediaState> | MediaState {
+  if (!next || !next.mediaItems || next.mediaItems === state.mediaItems) return next ?? {};
+  const synced = syncVideoSpeedRampItems(next.mediaItems);
+  if (synced === next.mediaItems) return next;
+  return { ...next, mediaItems: synced, totalDuration: calculateTotalDuration(synced) };
 }
 
 interface MediaState {
@@ -193,6 +209,10 @@ interface MediaState {
   toggleMute: (id: string) => void;
   /** 動画の再生速度（0.5〜8.0）。タイムライン尺を再計算する */
   updateVideoPlaybackSpeed: (id: string, speed: VideoPlaybackSpeed) => void;
+  /** 速度のなめらか接続（直前の動画の速さから、このクリップ先頭で段階的に移る） */
+  updateVideoSpeedRampIn: (id: string, enabled: boolean) => void;
+  /** なめらか接続にかける時間（0.5 / 1 / 2 秒） */
+  updateVideoSpeedRampDuration: (id: string, duration: number) => void;
   /** 一括音量の有効/無効。有効化時は全動画へ現在値を適用する */
   setBulkVideoVolumeEnabled: (enabled: boolean) => void;
   /** 一括音量の値。有効時のみ全動画へ反映する */
@@ -265,7 +285,18 @@ interface MediaState {
 
 export const useMediaStore = create<MediaState>()(
   devtools(
-    (set, get) => ({
+    (rawSet, get) => {
+      // すべての更新で、なめらか接続の派生値（開始速度・尺）を並びから取り直す。
+      // 直前カードの速度変更・並べ替え・削除・追加・保存読込のどれでも尺がずれないよう、一か所で通す。
+      const set = ((partial: unknown, ...rest: unknown[]) => {
+        (rawSet as (...args: unknown[]) => void)((state: MediaState) => {
+          const next = typeof partial === 'function'
+            ? (partial as (s: MediaState) => Partial<MediaState>)(state)
+            : (partial as Partial<MediaState>);
+          return withSyncedSpeedRamps(state, next);
+        }, ...rest);
+      }) as typeof rawSet;
+      return ({
       // Initial state
       mediaItems: [],
       totalDuration: 0,
@@ -773,7 +804,17 @@ export const useMediaStore = create<MediaState>()(
             id: generateId(),
             url: URL.createObjectURL(source.file),
             trimStart: splitTime,
-            duration: source.duration - localTimeSec,
+            // なめらか接続は分割元の先頭（first）だけが持つ。後半は同じ速さの続きなので持たない。
+            duration: source.speedRampIn
+              ? computeVideoTimelineDurationFromTrim({
+                trimStart: splitTime,
+                trimEnd: source.trimEnd,
+                originalDuration: source.originalDuration,
+                playbackSpeed: source.playbackSpeed,
+              })
+              : source.duration - localTimeSec,
+            speedRampIn: undefined,
+            speedRampFromSpeed: undefined,
             fadeIn: false,
             isLocked: false,
             isTransformOpen: false,
@@ -1036,6 +1077,33 @@ export const useMediaStore = create<MediaState>()(
         });
       },
 
+      updateVideoSpeedRampIn: (id, enabled) => {
+        useLogStore.getState().info('MEDIA', '速度のなめらか接続を更新', { id, enabled });
+        set((state) => {
+          const updated = state.mediaItems.map((item) => {
+            if (item.id !== id || item.type !== 'video') return item;
+            return {
+              ...item,
+              speedRampIn: enabled ? true : undefined,
+              speedRampDuration: normalizeSpeedRampDuration(item.speedRampDuration),
+              // 開始速度と尺は set の同期（syncVideoSpeedRampItems）で並びから取り直す
+            };
+          });
+          return { mediaItems: updated };
+        });
+      },
+
+      updateVideoSpeedRampDuration: (id, duration) => {
+        const nextDuration = normalizeSpeedRampDuration(duration);
+        set((state) => ({
+          mediaItems: state.mediaItems.map((item) =>
+            item.id === id && item.type === 'video'
+              ? { ...item, speedRampDuration: nextDuration }
+              : item
+          ),
+        }));
+      },
+
       updateVideoShowSpeedBadge: (id, show) => {
         set((state) => ({
           mediaItems: state.mediaItems.map((item) => {
@@ -1228,7 +1296,8 @@ export const useMediaStore = create<MediaState>()(
           clipListRestoreEpoch: get().clipListRestoreEpoch + 1,
         });
       },
-    }),
+    });
+    },
     { name: 'media-store' }
   )
 );

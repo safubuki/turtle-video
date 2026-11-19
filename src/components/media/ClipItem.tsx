@@ -59,6 +59,9 @@ import {
   resolveEndTimeInput,
   resolveTimeSliderMax,
   stepEndTime,
+  stepStartTime,
+  formatClipCompactClock,
+  formatClipDurationLabel,
 } from '../../utils/timeStepperInput';
 import {
   IMAGE_DURATION_SLIDER_STEP,
@@ -77,7 +80,10 @@ import {
   getVideoSourceClipDuration,
   normalizeSpeedBadgeLabelStyle,
   normalizeVideoPlaybackSpeed,
+  normalizeSpeedRampDuration,
   resolveSpeedBadgePresetPosition,
+  resolveVideoSpeedRampForItem,
+  SPEED_RAMP_MIN_SPEED_DIFF,
   type SpeedBadgePositionPreset,
 } from '../../utils/playbackSpeed';
 import { formatNormalizeAdjustment } from '../../utils/videoAudioLoudness';
@@ -142,6 +148,24 @@ export interface ClipItemProps {
   onUpdateSpeedBadgeLabelStyle?: (style: SpeedBadgeLabelStyle) => void;
   onUpdateSpeedBadgePosition?: (axis: 'x' | 'y', value: number) => void;
   onApplySpeedBadgePreset?: (preset: SpeedBadgePositionPreset) => void;
+  /** 速度のなめらか接続の ON/OFF（standard 限定。未指定なら UI を出さない） */
+  onUpdateSpeedRampIn?: (enabled: boolean) => void;
+  /** なめらか接続にかける時間（0.5 / 1 / 2 秒） */
+  onUpdateSpeedRampDuration?: (duration: number) => void;
+  /**
+   * 直前のカードが動画ならその速さ。先頭・直前が画像なら null（なめらか接続は効かない）。
+   */
+  previousVideoSpeed?: number | null;
+  /** 直前または自分が 2 画面表示のペア（同時再生なので、なめらか接続は効かない） */
+  isInSplitComparePair?: boolean;
+  /**
+   * 直後のカードが動画のときの、そのカードのなめらか接続の状態（無ければ null）。
+   * なめらか接続は後ろのカードが受け持つが、前のカードの速度を変えた人も気づけるよう、
+   * 前のカードからも同じ設定を切り替えられるようにする（設定の実体は後ろのカード 1 つ）。
+   */
+  nextClipSpeedRamp?: NextClipSpeedRampInfo | null;
+  onUpdateNextSpeedRampIn?: (enabled: boolean) => void;
+  onUpdateNextSpeedRampDuration?: (duration: number) => void;
   onToggleFadeIn: (checked: boolean) => void;
   onToggleFadeOut: (checked: boolean) => void;
   onUpdateFadeInDuration: (duration: number) => void;
@@ -152,6 +176,88 @@ export interface ClipItemProps {
   isFocused?: boolean;
   onToggleOpen?: () => void;
 }
+
+/** 直後の動画カードのなめらか接続の状態（前のカードから同じ設定を操作するため） */
+export interface NextClipSpeedRampInfo {
+  /** 直後の動画の設定速度 */
+  speed: number;
+  /** 直後のカードでなめらか接続が ON か */
+  enabled: boolean;
+  /** かける時間の設定（0.5 / 1 / 2 秒） */
+  duration: number;
+  /** 実際にかかる秒数（短いクリップでは縮む）。効いていなければ null */
+  actualSec: number | null;
+  /** 直後のカードがロック中 */
+  isLocked: boolean;
+  /** このカードと直後のカードが 2 画面表示のペア（または直後が次とペア） */
+  isSplitComparePair: boolean;
+}
+
+interface SpeedRampControlProps {
+  testIdPrefix: string;
+  itemId: string;
+  label: string;
+  durationAriaLabel: string;
+  checked: boolean;
+  disabled: boolean;
+  duration: number;
+  note: string;
+  onToggle: (enabled: boolean) => void;
+  onUpdateDuration?: (duration: number) => void;
+}
+
+/** 速度のなめらか接続の ON/OFF・かける時間・説明（「前から」「次へ」の両方で使う） */
+const SpeedRampControl = React.memo<SpeedRampControlProps>(({
+  testIdPrefix,
+  itemId,
+  label,
+  durationAriaLabel,
+  checked,
+  disabled,
+  duration,
+  note,
+  onToggle,
+  onUpdateDuration,
+}) => (
+  <div
+    data-testid={`${testIdPrefix}-${itemId}`}
+    className="space-y-1.5 rounded-lg border border-gray-700/50 bg-gray-900/40 p-2"
+  >
+    <label
+      className={`flex items-center gap-1.5 text-[10px] text-gray-300 md:text-xs ${disabled ? 'opacity-50' : 'cursor-pointer'}`}
+    >
+      <input
+        type="checkbox"
+        data-testid={`${testIdPrefix}-toggle-${itemId}`}
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onToggle(e.target.checked)}
+        className="rounded accent-amber-500 w-3 h-3"
+      />
+      <span>{label}</span>
+    </label>
+    {checked && onUpdateDuration && (
+      <div className="flex items-center gap-2 text-[10px] md:text-xs">
+        <span className="shrink-0 text-gray-500">かける時間</span>
+        <PresetFadeDurationField
+          value={duration}
+          onChange={onUpdateDuration}
+          disabled={disabled}
+          ariaLabel={durationAriaLabel}
+          accentClassName="accent-amber-500"
+        />
+      </div>
+    )}
+    <p
+      data-testid={`${testIdPrefix}-note-${itemId}`}
+      className="text-[10px] leading-snug text-gray-400 md:text-xs"
+    >
+      {note}
+    </p>
+  </div>
+));
+
+SpeedRampControl.displayName = 'SpeedRampControl';
 
 /**
  * クリップアイテムコンポーネント
@@ -197,6 +303,13 @@ const ClipItem: React.FC<ClipItemProps> = ({
   onUpdateSpeedBadgeLabelStyle,
   onUpdateSpeedBadgePosition,
   onApplySpeedBadgePreset,
+  onUpdateSpeedRampIn,
+  onUpdateSpeedRampDuration,
+  previousVideoSpeed = null,
+  isInSplitComparePair = false,
+  nextClipSpeedRamp = null,
+  onUpdateNextSpeedRampIn,
+  onUpdateNextSpeedRampDuration,
   onToggleFadeIn,
   onToggleFadeOut,
   onUpdateFadeInDuration,
@@ -214,6 +327,43 @@ const ClipItem: React.FC<ClipItemProps> = ({
   const playbackSpeed = normalizeVideoPlaybackSpeed(v.playbackSpeed);
   const speedBadgeLabelStyle = normalizeSpeedBadgeLabelStyle(v.speedBadgeLabelStyle);
   const sourceClipDuration = v.type === 'video' ? getVideoSourceClipDuration(v) : 0;
+  const speedRamp = v.type === 'video' ? resolveVideoSpeedRampForItem(v) : null;
+  const speedRampDuration = normalizeSpeedRampDuration(v.speedRampDuration);
+  const showSpeedRampControls = v.type === 'video'
+    && !!onUpdateSpeedRampIn
+    && (previousVideoSpeed != null || Boolean(v.speedRampIn));
+  const speedRampNote = (() => {
+    if (previousVideoSpeed == null) return '前が動画のときに使えます（先頭や画像の次では変わりません）。';
+    if (isInSplitComparePair) return '2画面表示のペアでは使えません。';
+    const fromLabel = formatPlaybackSpeedValue(previousVideoSpeed);
+    const toLabel = formatPlaybackSpeedValue(playbackSpeed);
+    if (Math.abs(previousVideoSpeed - playbackSpeed) < SPEED_RAMP_MIN_SPEED_DIFF) {
+      return `前の動画も ${fromLabel}倍のため、変化しません。`;
+    }
+    if (v.speedRampIn) {
+      // 短いクリップでは段がクリップ全体に縮むので、実際にかかる秒数を出す
+      const rampSec = Number((speedRamp?.timelineDuration ?? speedRampDuration).toFixed(1));
+      return `${fromLabel}倍 → ${toLabel}倍 を、先頭 ${rampSec}秒でなだらかに変えます。前の動画はそのままです。`;
+    }
+    return `前の動画（${fromLabel}倍）とのつなぎ目で速さが急に変わるのを、この動画の先頭でなだらかにします。`;
+  })();
+  const showNextSpeedRampControls = v.type === 'video'
+    && !!nextClipSpeedRamp
+    && !!onUpdateNextSpeedRampIn;
+  const nextSpeedRampNote = (() => {
+    if (!nextClipSpeedRamp) return '';
+    if (nextClipSpeedRamp.isSplitComparePair) return '2画面表示のペアでは使えません。';
+    const fromLabel = formatPlaybackSpeedValue(playbackSpeed);
+    const toLabel = formatPlaybackSpeedValue(nextClipSpeedRamp.speed);
+    if (Math.abs(nextClipSpeedRamp.speed - playbackSpeed) < SPEED_RAMP_MIN_SPEED_DIFF) {
+      return `次の動画も ${toLabel}倍のため、変化しません。`;
+    }
+    if (nextClipSpeedRamp.enabled) {
+      const rampSec = Number((nextClipSpeedRamp.actualSec ?? nextClipSpeedRamp.duration).toFixed(1));
+      return `次の動画の先頭 ${rampSec}秒で ${fromLabel}倍 → ${toLabel}倍 へなだらかに変えます。この動画はそのままです（次の動画のカードと同じ設定です）。`;
+    }
+    return `次の動画（${toLabel}倍）とのつなぎ目で速さが急に変わるのを、次の動画の先頭でなだらかにします。`;
+  })();
   const continuationTrim = useMemo(
     () => (v.type === 'video' && onAddContinuation
       ? computeVideoContinuationTrim({
@@ -228,6 +378,10 @@ const ClipItem: React.FC<ClipItemProps> = ({
   // スワイプ保護用コールバック
   const trimSliderMax = resolveTimeSliderMax(v.originalDuration, v.originalDuration);
   const handleTrimStart = useCallback((val: number) => onUpdateVideoTrim('start', String(val)), [onUpdateVideoTrim]);
+  const resolveTrimStartStep = useCallback(
+    (from: number, direction: 1 | -1) => stepStartTime(from, direction),
+    [],
+  );
   const handleTrimEnd = useCallback((val: number) => {
     const next = resolveEndTimeInput(val, {
       startTime: v.trimStart,
@@ -290,6 +444,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
       previewPosition: previewPositionInClip,
       type: 'start',
       playbackSpeed: v.playbackSpeed,
+      speedRamp,
     });
   const canSetTrimEndFromPreview = !isDisabled
     && v.type === 'video'
@@ -300,6 +455,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
       previewPosition: previewPositionInClip,
       type: 'end',
       playbackSpeed: v.playbackSpeed,
+      speedRamp,
     });
   const imageDurationFromPreview = v.type === 'image'
     ? resolveImageDurationFromPreviewPosition({
@@ -349,17 +505,10 @@ const ClipItem: React.FC<ClipItemProps> = ({
   const thumbnailRangeEnd = v.type === 'video'
     ? (v.trimEnd > v.trimStart ? v.trimEnd : (v.originalDuration > 0 ? v.originalDuration : undefined))
     : undefined;
-  const compactClock = (seconds: number) => {
-    const tenths = Math.round(Math.max(0, seconds) * 10);
-    const minutes = Math.floor(tenths / 600);
-    const secs = Math.floor((tenths % 600) / 10);
-    return `${minutes}:${secs.toString().padStart(2, '0')}.${tenths % 10}`;
-  };
-  const rangeLabel = `${compactClock(timelineRange.start)}–${compactClock(timelineRange.end)}`;
-  const roundedDuration = Math.round(v.duration * 10) / 10;
-  const durationLabel = Number.isInteger(roundedDuration)
-    ? `${roundedDuration}秒`
-    : `${roundedDuration.toFixed(1)}秒`;
+  // 分割点などが 1/100 秒（例 13.38）のとき、見出しだけ 0.1 秒へ丸めると
+  // トリミング欄の 13.38 と食い違って見えるため、0.1 秒で表せない値は 1/100 秒で出す。
+  const rangeLabel = `${formatClipCompactClock(timelineRange.start)}–${formatClipCompactClock(timelineRange.end)}`;
+  const durationLabel = formatClipDurationLabel(v.duration);
   const showSpeedMark = v.type === 'video' && Math.abs(playbackSpeed - 1) >= 0.05;
   const showMuteMark = v.type === 'video' && v.isMuted;
   const bodyId = `clip-card-body-${v.id}`;
@@ -552,6 +701,9 @@ const ClipItem: React.FC<ClipItemProps> = ({
             min={0}
             max={trimSliderMax}
             step={TIME_STEPPER_STEP_SEC}
+            // 表示は終了と同じ 1/100 秒（分割した 13.38 を 13.4 と出さない）。−/+ は 0.1 秒格子へ吸着
+            decimals={2}
+            resolveStep={resolveTrimStartStep}
             value={v.trimStart}
             onChange={handleTrimStart}
             formatDisplayValue={formatTimeStepperInput}
@@ -936,6 +1088,35 @@ const ClipItem: React.FC<ClipItemProps> = ({
                   </button>
                 ))}
               </div>
+              {showSpeedRampControls && (
+                <SpeedRampControl
+                  testIdPrefix="clip-speed-ramp"
+                  itemId={v.id}
+                  label="前の動画から速度をなめらかにつなぐ"
+                  durationAriaLabel="速度をなめらかにつなぐ時間"
+                  checked={Boolean(v.speedRampIn)}
+                  disabled={isDisabled}
+                  duration={speedRampDuration}
+                  note={speedRampNote}
+                  onToggle={(enabled) => onUpdateSpeedRampIn?.(enabled)}
+                  onUpdateDuration={onUpdateSpeedRampDuration}
+                />
+              )}
+              {showNextSpeedRampControls && nextClipSpeedRamp && (
+                <SpeedRampControl
+                  testIdPrefix="clip-next-speed-ramp"
+                  itemId={v.id}
+                  label="次の動画へ速度をなめらかにつなぐ"
+                  durationAriaLabel="次の動画へ速度をなめらかにつなぐ時間"
+                  checked={nextClipSpeedRamp.enabled}
+                  // 設定の実体は次のカード。どちらかがロック中なら変えない
+                  disabled={isDisabled || nextClipSpeedRamp.isLocked}
+                  duration={nextClipSpeedRamp.duration}
+                  note={nextSpeedRampNote}
+                  onToggle={(enabled) => onUpdateNextSpeedRampIn?.(enabled)}
+                  onUpdateDuration={onUpdateNextSpeedRampDuration}
+                />
+              )}
               {onUpdateShowSpeedBadge && (
                 <div className="space-y-2">
                   <label

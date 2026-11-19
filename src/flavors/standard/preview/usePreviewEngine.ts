@@ -67,6 +67,8 @@ import {
   type VideoCatchUpParams,
   resolveVideoSafeEndSourceTime,
   resolveVideoSourceTime,
+  resolveVideoSpeedRampForItem,
+  resolveItemPlaybackSpeedAtLocalTime,
   VIDEO_CATCH_UP_MAX_DRIFT_SEC,
   wallDeltaToExportTimelineDelta,
 } from '../../../utils/playbackSpeed';
@@ -2299,7 +2301,7 @@ export function usePreviewEngine({
               }
             } else {
               const trimStart = activeItem.trimStart || 0;
-              const targetTime = resolveVideoSourceTime({ trimStart, localTime, playbackSpeed: activeItem.playbackSpeed });
+              const targetTime = resolveVideoSourceTime({ trimStart, localTime, playbackSpeed: activeItem.playbackSpeed, speedRamp: resolveVideoSpeedRampForItem(activeItem) });
               // プレビュー: playbackRate=speed で連続再生。
               // export: 常に rate=1 連続再生 + ループ側の壁時計 dilation（seek 駆動は静止画化）。
               // タイムライン時計とのずれは rate の微調整で吸収し、字幕と映像を揃える。
@@ -2308,7 +2310,8 @@ export function usePreviewEngine({
                   activeEl,
                   resolveVideoCatchUpRateFor(activeEl, {
                     isExporting: _isExporting,
-                    playbackSpeed: activeItem.playbackSpeed,
+                    // なめらか接続の区間では段の速さ（それ以外は設定速度）
+                    playbackSpeed: resolveItemPlaybackSpeedAtLocalTime(activeItem, localTime),
                     videoCurrentTime: activeEl.currentTime,
                     targetSourceTime: targetTime,
                     canCatchUp:
@@ -2440,7 +2443,7 @@ export function usePreviewEngine({
                   isExporting: _isExporting,
                   hasExportPlayFailure: false,
                 }),
-                activeItem.playbackSpeed,
+                resolveItemPlaybackSpeedAtLocalTime(activeItem, localTime),
               );
               const shouldHoldForImageToVideoTransition = shouldHoldFrameForImageToVideoExportTransition({
                 isExporting: _isExporting,
@@ -2857,7 +2860,7 @@ export function usePreviewEngine({
               });
             if (conf.type === 'video') {
               const videoEl = element as HTMLVideoElement;
-              const targetTime = resolveVideoSourceTime({ trimStart: conf.trimStart || 0, localTime, playbackSpeed: conf.playbackSpeed });
+              const targetTime = resolveVideoSourceTime({ trimStart: conf.trimStart || 0, localTime, playbackSpeed: conf.playbackSpeed, speedRamp: resolveVideoSpeedRampForItem(conf) });
               // プレビュー: rate=speed。export: rate=1 + ループ壁時計 dilation。
               // 上の active 判定と同じ値にして、同一フレーム内で rate を往復させない。
               if (isActivePlaying) {
@@ -2865,7 +2868,7 @@ export function usePreviewEngine({
                   videoEl,
                   resolveVideoCatchUpRateFor(videoEl, {
                     isExporting: _isExporting,
-                    playbackSpeed: conf.playbackSpeed,
+                    playbackSpeed: resolveItemPlaybackSpeedAtLocalTime(conf, localTime),
                     videoCurrentTime: videoEl.currentTime,
                     targetSourceTime: targetTime,
                     canCatchUp:
@@ -2887,7 +2890,10 @@ export function usePreviewEngine({
                 });
               const syncThreshold = shouldStabilizeImageToVideoTransition
                 ? baseSyncThreshold
-                : resolveSpeedAwareVideoSyncThresholdSec(baseSyncThreshold, conf.playbackSpeed);
+                : resolveSpeedAwareVideoSyncThresholdSec(
+                  baseSyncThreshold,
+                  resolveItemPlaybackSpeedAtLocalTime(conf, localTime),
+                );
 
               if (isActivePlaying && activeVideoIdRef.current !== id) {
                 activeVideoIdRef.current = id;
@@ -3526,12 +3532,13 @@ export function usePreviewEngine({
                 peerVideoEl.play().catch(() => { /* ignore */ });
               }
               if (peerIsVideo && isComparePeer && isActivePlaying && !comparePeerFinished) {
-                const peerTarget = resolveVideoSourceTime({ trimStart: conf.trimStart || 0, localTime: overlapPeerLocalTime, playbackSpeed: conf.playbackSpeed });
+                const peerTarget = resolveVideoSourceTime({ trimStart: conf.trimStart || 0, localTime: overlapPeerLocalTime, playbackSpeed: conf.playbackSpeed, speedRamp: resolveVideoSpeedRampForItem(conf) });
                 const peerSpeed = normalizeVideoPlaybackSpeed(conf.playbackSpeed);
                 if (_isExporting) {
                   // export は active の速度で壁時計を縮める（倍速 dilation）。peer はその比で再生する。
                   const exportWallDivisor = resolveExportTimelineWallDivisorForItem(
                     activeIndex >= 0 ? currentItems[activeIndex] : null,
+                    localTime,
                   );
                   applyVideoElementCatchUpPlaybackRate(peerVideoEl, peerSpeed / exportWallDivisor);
                 } else {
@@ -3559,7 +3566,7 @@ export function usePreviewEngine({
                 }
               }
               if (peerIsVideo && !isActivePlaying && !comparePeerFinished) {
-                const peerTarget = resolveVideoSourceTime({ trimStart: conf.trimStart || 0, localTime: overlapPeerLocalTime, playbackSpeed: conf.playbackSpeed });
+                const peerTarget = resolveVideoSourceTime({ trimStart: conf.trimStart || 0, localTime: overlapPeerLocalTime, playbackSpeed: conf.playbackSpeed, speedRamp: resolveVideoSpeedRampForItem(conf) });
                 // 比較では停止中・シーク中の画も正確に並べたいので、しきい値を 1 コマ程度にする
                 const peerPausedSyncThresholdSec = isComparePeer ? 0.04 : 0.3;
                 if (
@@ -4974,7 +4981,11 @@ export function usePreviewEngine({
           const activeItemForClock = activeForClock
             ? mediaItemsRef.current[activeForClock.index]
             : null;
-          const wallDivisor = resolveExportTimelineWallDivisorForItem(activeItemForClock);
+          // なめらか接続の区間では段ごとの速さで割る（倍速段は dilation、スロー段は native rate）
+          const wallDivisor = resolveExportTimelineWallDivisorForItem(
+            activeItemForClock,
+            activeForClock?.localTime,
+          );
           exportTimelineSecRef.current += wallDeltaToExportTimelineDelta(wallDeltaSec, wallDivisor);
           elapsed = exportTimelineSecRef.current;
         }
@@ -5555,7 +5566,7 @@ export function usePreviewEngine({
             const activeEl =
               mediaElementsRef.current[currentItem.id] as HTMLVideoElement | undefined;
             const trimStart = currentItem.trimStart || 0;
-            const targetTime = resolveVideoSourceTime({ trimStart, localTime: resolvedSegment.localTime, playbackSpeed: currentItem.playbackSpeed });
+            const targetTime = resolveVideoSourceTime({ trimStart, localTime: resolvedSegment.localTime, playbackSpeed: currentItem.playbackSpeed, speedRamp: resolveVideoSpeedRampForItem(currentItem) });
             logInfo('RENDER', 'preview.boundary.sample', {
               phase: 'before-500ms',
               previousId: currentItem.id,
@@ -5670,6 +5681,7 @@ export function usePreviewEngine({
             trimStart: activeItem.trimStart || 0,
             localTime: resolvedSegment.localTime,
             playbackSpeed: activeItem.playbackSpeed,
+            speedRamp: resolveVideoSpeedRampForItem(activeItem),
           });
           const syncToleranceSec = Math.min(
             resolveSpeedAwareVideoSyncThresholdSec(
@@ -5677,7 +5689,7 @@ export function usePreviewEngine({
                 isExporting: true,
                 hasExportPlayFailure,
               }),
-              activeItem.playbackSpeed,
+              resolveItemPlaybackSpeedAtLocalTime(activeItem, resolvedSegment.localTime),
             ),
             1.5 / FPS,
           );
@@ -5734,6 +5746,7 @@ export function usePreviewEngine({
                 trimStart: activeItem.trimStart || 0,
                 localTime: Math.max(0, anchorDisplayTimeSec - boundaryStartSec),
                 playbackSpeed: activeItem.playbackSpeed,
+                speedRamp: resolveVideoSpeedRampForItem(activeItem),
               });
               let anchorSeekApplied = false;
               // active 化前の metadata 位置が trimStart から外れていた場合だけ、境界で1回合わせる。
@@ -5780,6 +5793,7 @@ export function usePreviewEngine({
                     trimStart: previousItem.trimStart || 0,
                     localTime: Math.max(0, anchorDisplayTimeSec - boundaryStartSec),
                     playbackSpeed: previousItem.playbackSpeed,
+                    speedRamp: resolveVideoSpeedRampForItem(previousItem),
                   });
                   if (
                     previousVideoElement.readyState >= 1
@@ -6551,7 +6565,7 @@ export function usePreviewEngine({
               const videoEl = mediaElementsRef.current[item.id] as HTMLVideoElement;
               if (videoEl) {
                 const localTime = fromTime - t;
-                const targetTime = resolveVideoSourceTime({ trimStart: item.trimStart || 0, localTime, playbackSpeed: item.playbackSpeed });
+                const targetTime = resolveVideoSourceTime({ trimStart: item.trimStart || 0, localTime, playbackSpeed: item.playbackSpeed, speedRamp: resolveVideoSpeedRampForItem(item) });
                 videoEl.currentTime = targetTime;
                 activeVideoIdRef.current = item.id;
                 activeVideoElForBundledStart = videoEl;
@@ -6584,6 +6598,7 @@ export function usePreviewEngine({
                 trimStart: partnerItem.trimStart || 0,
                 localTime: partnerLocalTime,
                 playbackSpeed: partnerItem.playbackSpeed,
+                speedRamp: resolveVideoSpeedRampForItem(partnerItem),
               });
               if (partnerEl.readyState >= 1 && Math.abs(partnerEl.currentTime - partnerTarget) > 0.05) {
                 try {

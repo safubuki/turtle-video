@@ -39,6 +39,7 @@ import type { AspectRatio } from '../stores/canvasStore';
 
 import type { ExportPreparationStep } from '../hooks/export-strategies/types';
 import { usePreventUnload } from '../hooks/usePreventUnload';
+import { usePreventWindowFileDrop } from '../hooks/useFileDropZone';
 import { useTimelineWaveform } from '../hooks/useTimelineWaveform';
 import { findAdjacentSilenceBoundary } from '../utils/timelineWaveform';
 import { useProjectStore } from '../stores/projectStore';
@@ -98,7 +99,7 @@ import {
   normalizeImageDuration,
   resolveImageDurationFromPreviewPosition,
 } from '../utils/media';
-import { computeTimelineDurationFromSource } from '../utils/playbackSpeed';
+import { computeTimelineDurationFromSource, resolveVideoSpeedRampForItem } from '../utils/playbackSpeed';
 import {
   resolveTitleMiniPreviewCaptureTarget,
   resolveTitleMiniPreviewFrameTimes,
@@ -168,6 +169,8 @@ interface TurtleVideoProps {
 const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, exportRuntime, saveRuntime }) => {
   // 離脱防止フックを使用
   usePreventUnload();
+  // セクション外にファイルを落としてブラウザがファイルを開き、編集画面から離脱するのを防ぐ
+  usePreventWindowFileDrop();
   const uiCapabilities = useMemo(() => getAppFlavorUiCapabilities(appFlavor), [appFlavor]);
 
   // === Zustand Stores ===
@@ -219,6 +222,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const updateVolume = useMediaStore((s) => s.updateVolume);
   const toggleMute = useMediaStore((s) => s.toggleMute);
   const updateVideoPlaybackSpeed = useMediaStore((s) => s.updateVideoPlaybackSpeed);
+  const updateVideoSpeedRampIn = useMediaStore((s) => s.updateVideoSpeedRampIn);
+  const updateVideoSpeedRampDuration = useMediaStore((s) => s.updateVideoSpeedRampDuration);
   const updateVideoShowSpeedBadge = useMediaStore((s) => s.updateVideoShowSpeedBadge);
   const updateVideoSpeedBadgeLabelStyle = useMediaStore((s) => s.updateVideoSpeedBadgeLabelStyle);
   const updateVideoSpeedBadgePosition = useMediaStore((s) => s.updateVideoSpeedBadgePosition);
@@ -2618,6 +2623,18 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     [processUploadedMediaFiles, setError, logError]
   );
 
+  // --- 動画・画像セクションへのドロップ ---
+  const handleDropMediaFiles = useCallback((files: File[]) => {
+    void (async () => {
+      try {
+        await processUploadedMediaFiles(files);
+      } catch (err) {
+        setError('メディアの読み込みエラー');
+        logError('MEDIA', 'メディアドロップ読み込みエラー', { error: String(err) });
+      }
+    })();
+  }, [processUploadedMediaFiles, setError, logError]);
+
   const handleOpenMediaPicker = useCallback(async () => {
     if (!supportsShowOpenFilePicker) return;
 
@@ -2704,6 +2721,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         previewPosition,
         type,
         playbackSpeed: item.playbackSpeed,
+        speedRamp: resolveVideoSpeedRampForItem(item),
       });
       if (!nextTrim) return;
 
@@ -2727,11 +2745,15 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       // タイムライン位置を新しい有効範囲内へ補正
       // - 開始点変更: そのフレームが新クリップ先頭になるのでクリップ先頭へ
       // - 終了点変更: ちょうど終端だと次クリップ扱いになるため、終端直前へ
-      // nextTrim.duration はソース尺。タイムライン尺は倍速で割る
-      const timelineClipDuration = computeTimelineDurationFromSource(
-        nextTrim.duration,
-        item.playbackSpeed,
-      );
+      // nextTrim.duration はソース尺。タイムライン尺は倍速で割る。
+      // なめらか接続つきは store が並びから取り直した尺を使う（先頭の段の分だけ単純な割り算とずれる）
+      const updatedItem = useMediaStore.getState().mediaItems.find((v) => v.id === id);
+      const timelineClipDuration = updatedItem?.speedRampIn && Number.isFinite(updatedItem.duration)
+        ? updatedItem.duration
+        : computeTimelineDurationFromSource(
+          nextTrim.duration,
+          item.playbackSpeed,
+        );
       const newTimelineStart = range.start;
       const newTimelineEnd = range.start + timelineClipDuration;
       let nextTimelineTime: number;
@@ -3122,10 +3144,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
   // --- BGMアップロードハンドラ ---
   // 目的: BGMファイルを読み込みストアに設定
-  const handleBgmUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  // 「追加」ボタン（input）とセクションへのドロップの共通処理
+  const addLegacyBgmFile = useCallback((file: File | undefined) => {
     if (!file) return;
-    e.target.value = '';
     pausePreviewBeforeEdit('add-bgm');
     clearExport();
     const url = URL.createObjectURL(file);
@@ -3168,13 +3189,19 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     };
   }, [pausePreviewBeforeEdit, setBgm, clearExport, showToast]);
 
+  const handleBgmUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    addLegacyBgmFile(file);
+  }, [addLegacyBgmFile]);
+
   // --- BGM クリップ追加ハンドラ（複数BGM・standard フレーバー限定） ---
   // 目的: 複数の BGM ファイルを読み込み、動画の長さへ自動フィットさせてクリップとして追加
-  const handleAddBgmClips = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
+  // 「追加」ボタン（input）とセクションへのドロップの共通処理
+  const addBgmClipFiles = useCallback((files: File[]) => {
     if (files.length === 0) return;
 
-    e.target.value = '';
     pausePreviewBeforeEdit('add-bgm-clip');
     clearExport();
 
@@ -3228,13 +3255,30 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     })();
   }, [pausePreviewBeforeEdit, clearExport, addBgmClip, showToast]);
 
-  // --- ナレーションアップロードハンドラ ---
-  // 目的: ナレーションファイルを読み込みストアに設定
-  const handleNarrationUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAddBgmClips = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
-
     e.target.value = '';
+    addBgmClipFiles(files);
+  }, [addBgmClipFiles]);
+
+  // --- BGM セクションへのドロップ ---
+  // 複数 BGM（standard）はクリップとして全件追加、iOS Safari の単一 BGM は先頭 1 件で置き換える
+  // （「追加」ボタンの onAddBgmClips / onBgmUpload の振り分けと同じ）
+  const handleDropBgmFiles = useCallback((files: File[]) => {
+    if (platformCapabilities.isIosSafari) {
+      addLegacyBgmFile(files[0]);
+      return;
+    }
+    addBgmClipFiles(files);
+  }, [platformCapabilities.isIosSafari, addLegacyBgmFile, addBgmClipFiles]);
+
+  // --- ナレーションアップロードハンドラ ---
+  // 目的: ナレーションファイルを読み込みストアに設定
+  // 「追加」ボタン（input）とセクションへのドロップの共通処理
+  const addNarrationFiles = useCallback((files: File[]) => {
+    if (files.length === 0) return;
+
     pausePreviewBeforeEdit('add-narration');
     clearExport();
 
@@ -3296,6 +3340,13 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       }
     })();
   }, [pausePreviewBeforeEdit, addNarration, clearExport, showToast]);
+
+  const handleNarrationUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    e.target.value = '';
+    addNarrationFiles(files);
+  }, [addNarrationFiles]);
 
   // --- BGM/ナレーション開始位置更新ハンドラ ---
   // 目的: オーディオトラックの再生開始位置（ファイル内の位置）を変更
@@ -4664,6 +4715,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               mediaElements={mediaElementsRef.current as Record<string, HTMLVideoElement | HTMLImageElement>}
               onToggleClipsLock={withPreviewPause('toggle-clips-lock', toggleClipsLock)}
               onMediaUpload={handleMediaUpload}
+              onDropMediaFiles={handleDropMediaFiles}
               onOpenMediaPicker={handleOpenMediaPicker}
               supportsShowOpenFilePicker={shouldUseMediaPicker}
               onAspectRatioChange={handleAspectRatioChange}
@@ -4693,6 +4745,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               bulkVolumeEnabled={bulkVideoVolumeEnabled}
               onBeforeTransitionEdit={() => pausePreviewBeforeEdit('edit-clip-transition')}
               onUpdateVideoPlaybackSpeed={withoutPreviewPause('update-video-playback-speed', updateVideoPlaybackSpeed)}
+              onUpdateVideoSpeedRampIn={withPreviewPause('update-video-speed-ramp-in', updateVideoSpeedRampIn)}
+              onUpdateVideoSpeedRampDuration={withPreviewPause('update-video-speed-ramp-duration', updateVideoSpeedRampDuration)}
               onUpdateVideoShowSpeedBadge={withPreviewPause('update-video-show-speed-badge', updateVideoShowSpeedBadge)}
               onUpdateVideoSpeedBadgeLabelStyle={withPreviewPause('update-video-speed-badge-label-style', updateVideoSpeedBadgeLabelStyle)}
               onUpdateVideoSpeedBadgePosition={withPreviewPause('update-video-speed-badge-position', updateVideoSpeedBadgePosition)}
@@ -4744,6 +4798,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               bgmClips={bgmClips}
               currentTime={currentTime}
               onAddBgmClips={handleAddBgmClips}
+              onDropBgmFiles={handleDropBgmFiles}
               onBeforeBgmClipEdit={pausePreviewBeforeEdit}
               onBeforeBgmClipContinuousEdit={clearGeneratedExportForContinuousEdit}
             />
@@ -4780,6 +4835,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onAddAiNarration={handleAddAiNarration}
               onEditAiNarration={handleEditAiNarration}
               onNarrationUpload={handleNarrationUpload}
+              onDropNarrationFiles={addNarrationFiles}
               onRemoveNarration={withPreviewPause('remove-narration', removeNarration)}
               onMoveNarration={withPreviewPause('move-narration', moveNarration)}
               onSaveNarration={handleSaveNarration}

@@ -8,7 +8,12 @@
  * キャプチャ失敗時の予備。スローではキャプチャ先頭の処理遅延を、デコード伸長した
  * 参照 PCM とのエンベロープ相関で切る（切らないと口パクが遅れる）。
  */
-import { normalizeVideoPlaybackSpeed } from './playbackSpeed';
+import {
+  normalizeVideoPlaybackSpeed,
+  resolveVideoSourceOffsetAtLocalTime,
+  computeTimelineDurationFromSource,
+  type VideoSpeedRamp,
+} from './playbackSpeed';
 
 function hannWindow(size: number): Float32Array {
   const w = new Float32Array(size);
@@ -112,6 +117,96 @@ export function wsolaTimeStretchChannel(
 }
 
 /**
+ * 出力位置 → 入力位置の対応（フレーム単位）を与えて WSOLA で時間伸縮する。
+ * なめらか接続のように途中で速さが変わるクリップ用。段ごとに別々に伸縮して繋ぐと
+ * 段の境目に無音の隙間ができるため、1 回の走査で対応表どおりに入力位置を動かす。
+ * 理想入力位置は毎フレーム対応表から直接求めるので、段をまたいでも誤差がたまらない。
+ */
+export function wsolaTimeStretchChannelMapped(
+  input: Float32Array,
+  outputLength: number,
+  inputFrameAtOutputFrame: (outputFrame: number) => number,
+  frameSize = 1024,
+): Float32Array {
+  const outLen = Math.max(1, Math.floor(Number.isFinite(outputLength) ? outputLength : 0));
+  const output = new Float32Array(outLen);
+  if (!input.length) return output;
+  const weight = new Float32Array(outLen);
+  const window = hannWindow(frameSize);
+  const synthesisHop = Math.max(1, Math.floor(frameSize / 2));
+  const searchRadius = Math.max(0, Math.floor(synthesisHop / 2));
+  const maxFrameStart = Math.max(0, input.length - frameSize);
+
+  let outputPos = 0;
+  while (outputPos < outLen) {
+    const idealInput = Math.round(inputFrameAtOutputFrame(outputPos));
+    let bestOffset = 0;
+    if (outputPos >= synthesisHop) {
+      let bestCorr = -Infinity;
+      const searchStart = Math.max(0, idealInput - searchRadius);
+      const searchEnd = Math.min(maxFrameStart, idealInput + searchRadius);
+      for (let candidate = searchStart; candidate <= searchEnd; candidate++) {
+        let corr = 0;
+        for (let i = 0; i < synthesisHop; i++) {
+          const outIdx = outputPos - synthesisHop + i;
+          const inIdx = candidate + i;
+          if (outIdx >= 0 && outIdx < outLen && inIdx < input.length) {
+            corr += output[outIdx] * input[inIdx];
+          }
+        }
+        if (corr > bestCorr) {
+          bestCorr = corr;
+          bestOffset = candidate - idealInput;
+        }
+      }
+    }
+    const frameStart = Math.max(0, Math.min(maxFrameStart, idealInput + bestOffset));
+    for (let i = 0; i < frameSize; i++) {
+      const o = outputPos + i;
+      if (o >= outLen) break;
+      const src = frameStart + i;
+      if (src < input.length) {
+        output[o] += input[src] * window[i];
+        weight[o] += window[i];
+      }
+    }
+    outputPos += synthesisHop;
+  }
+
+  for (let i = 0; i < outLen; i++) {
+    const w = weight[i] ?? 0;
+    if (w > 1e-6) output[i] /= w;
+  }
+  return output;
+}
+
+/**
+ * なめらか接続つきクリップのソース PCM を、タイムライン尺へ時間伸縮する（音程維持）。
+ * 先頭は段ごとの速さ、残りは設定速度。プレビュー・映像と同じ対応表を使う。
+ */
+export function timeStretchAudioBufferWithSpeedRamp(
+  audioContext: BaseAudioContext,
+  buffer: AudioBuffer,
+  speed: number,
+  speedRamp: VideoSpeedRamp,
+): AudioBuffer {
+  const sr = buffer.sampleRate;
+  const timelineDurationSec = computeTimelineDurationFromSource(buffer.duration, speed, speedRamp);
+  const outLen = Math.max(1, Math.round(timelineDurationSec * sr));
+  const minSpeed = Math.min(normalizeVideoPlaybackSpeed(speed), ...speedRamp.steps.map((step) => step.speed));
+  const frameSec = minSpeed < 1 ? 0.05 : 0.03;
+  const frameSize = Math.min(4096, Math.max(512, Math.floor(sr * frameSec)));
+  const map = (outputFrame: number) =>
+    resolveVideoSourceOffsetAtLocalTime(outputFrame / sr, speed, speedRamp) * sr;
+  const result = audioContext.createBuffer(buffer.numberOfChannels, outLen, sr);
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const stretched = wsolaTimeStretchChannelMapped(buffer.getChannelData(c), outLen, map, frameSize);
+    result.getChannelData(c).set(stretched.subarray(0, outLen));
+  }
+  return result;
+}
+
+/**
  * AudioBuffer を tempo 倍速（tempo>1 で短い）に時間圧縮。ピッチは WSOLA で概ね維持。
  * @returns 新しい AudioBuffer（元は変更しない）
  */
@@ -175,6 +270,7 @@ export function extractAndTimeCompressAudioBuffer(
   offsetSec: number,
   sourceDurationSec: number,
   speed: number,
+  speedRamp?: VideoSpeedRamp | null,
 ): AudioBuffer {
   const sr = buffer.sampleRate;
   const start = Math.max(0, Math.floor((Number.isFinite(offsetSec) ? offsetSec : 0) * sr));
@@ -200,6 +296,9 @@ export function extractAndTimeCompressAudioBuffer(
     }
   }
 
+  if (speedRamp) {
+    return timeStretchAudioBufferWithSpeedRamp(audioContext, sliced, speed, speedRamp);
+  }
   const tempo = Number.isFinite(speed) && speed > 0 ? speed : 1;
   if (Math.abs(tempo - 1) < 1e-3) {
     return sliced;
@@ -221,7 +320,12 @@ const ALIGN_MIN_IMPROVEMENT = 0.08;
  * 等倍はソース直載せ。非等倍はプレビューと同じ preservesPitch キャプチャ。
  * WSOLA（offline-stretch）はキャプチャ失敗時の予備経路。
  */
-export function resolveExportSpeedAudioStrategy(speed: unknown): ExportSpeedAudioStrategy {
+export function resolveExportSpeedAudioStrategy(
+  speed: unknown,
+  speedRamp?: VideoSpeedRamp | null,
+): ExportSpeedAudioStrategy {
+  // なめらか接続があれば、等倍クリップでも先頭の速さが変わるのでキャプチャする
+  if (speedRamp) return 'pitch-preserved-capture';
   const s = normalizeVideoPlaybackSpeed(speed);
   if (Math.abs(s - 1) <= 0.001) return 'source';
   return 'pitch-preserved-capture';

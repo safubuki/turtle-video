@@ -22,6 +22,7 @@ import { computeTransitionTimelineRanges } from '../utils/transitionTimeline';
 import { getEndrollDuration } from '../utils/endrollOverlay';
 import { mixToMono } from '../utils/audioWaveform';
 import { resolveMediaPlaybackVolume } from '../utils/mediaVolume';
+import { resolveVideoSpeedRampForItem } from '../utils/playbackSpeed';
 import {
   buildTimelineWaveform,
   resolveClippingFixScales,
@@ -340,6 +341,7 @@ export function useTimelineWaveform(
       item.trimEnd.toFixed(3),
       item.duration.toFixed(3),
       item.playbackSpeed ?? 1,
+      item.speedRampFromSpeed ?? '',
       resolveMediaPlaybackVolume(item),
       item.fadeIn ? item.fadeInDuration : 0,
       item.fadeOut ? item.fadeOutDuration : 0,
@@ -427,6 +429,7 @@ export function useTimelineWaveform(
               fadeInSec: item.fadeIn ? Math.max(0, item.fadeInDuration) : 0,
               fadeOutSec: item.fadeOut ? Math.max(0, item.fadeOutDuration) : 0,
               playbackSpeed,
+              speedRamp: resolveVideoSpeedRampForItem(item),
             });
           }
 

@@ -100,6 +100,15 @@ export function buildProjectDiagnostics(input: ProjectDiagnosticsInput) {
           trimIn: round2(item.trimStart),
           trimOut: round2(item.trimEnd),
           speed: normalizeVideoPlaybackSpeed(item.playbackSpeed),
+          // 速度のなめらか接続（使っているときだけ載せる）
+          ...(item.speedRampIn
+            ? {
+              speedRamp: {
+                from: item.speedRampFromSpeed ?? null,
+                seconds: item.speedRampDuration ?? 1,
+              },
+            }
+            : {}),
           mute: !!item.isMuted,
           volumePercent: percent(item.volume),
         }

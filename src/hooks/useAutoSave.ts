@@ -175,6 +175,7 @@ export function useAutoSave() {
         m.thumbnailMode ?? 'auto',
         m.thumbnailSourceTime ?? '',
         m.playbackSpeed ?? 1,
+        m.speedRampIn ? `ramp@${m.speedRampDuration ?? 1}` : '',
         m.showSpeedBadge ? 1 : 0,
         m.speedBadgeLabelStyle ?? 'ja',
         m.speedBadgePositionX ?? '',
