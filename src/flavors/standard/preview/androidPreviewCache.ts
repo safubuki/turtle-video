@@ -1,5 +1,6 @@
 import type { MediaItem } from '../../../types';
 import { resolveMediaPlaybackVolume } from '../../../utils/mediaVolume';
+import { buildMediaColorKey } from '../../../utils/mediaColor';
 import type {
   CreatePreviewCacheKeyInput,
   ShouldUsePreviewCacheInput,
@@ -68,6 +69,7 @@ export function createAndroidPreviewCacheKey(
       panEndPositionY: item.panEndPositionY ?? null,
       rotation: item.rotation ?? 0,
       blur: item.blur ?? 0,
+      color: buildMediaColorKey(item),
       playbackSpeed: item.playbackSpeed ?? 1,
       speedRampIn: item.speedRampIn === true,
       speedRampDuration: item.speedRampIn === true ? (item.speedRampDuration ?? 1) : null,

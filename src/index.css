@@ -108,6 +108,86 @@ input[type="range"]:disabled {
   cursor: not-allowed;
 }
 
+/*
+ * 色合いスライダー（ClipColorPanel）。溝そのものを「左端〜右端でどう変わるか」のカラーバーにする。
+ * 0 が中央になるよう、どのバーも中央を無調整の色にしている。
+ * 画面幅ごとの溝・つまみの拡大（下の @media）より詳細度が高いので、幅によらずこの大きさ。
+ */
+input[type="range"].color-grade-slider::-webkit-slider-runnable-track {
+  height: 10px;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: var(--color-grade-track);
+  /*
+   * 既定（padding-box 基準）だと、グラデーションが縁（1px）の部分で繰り返され、
+   * 左の先端に右端の色、右の先端に左端の色が細く出る。縁まで含めて描く。
+   */
+  background-origin: border-box;
+}
+
+input[type="range"].color-grade-slider::-webkit-slider-thumb {
+  width: 18px;
+  height: 18px;
+  margin-top: -5px;
+  border: 2px solid #1f2937;
+  background: #f9fafb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+input[type="range"].color-grade-slider::-moz-range-track {
+  height: 10px;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: var(--color-grade-track);
+  /*
+   * 既定（padding-box 基準）だと、グラデーションが縁（1px）の部分で繰り返され、
+   * 左の先端に右端の色、右の先端に左端の色が細く出る。縁まで含めて描く。
+   */
+  background-origin: border-box;
+}
+
+input[type="range"].color-grade-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #1f2937;
+  border-radius: 50%;
+  background: #f9fafb;
+}
+
+/* 明るさ: 暗い → 明るい */
+input[type="range"].color-grade-slider--brightness {
+  --color-grade-track: linear-gradient(to right, #0f0f0f, #808080, #fafafa);
+}
+
+/* コントラスト: 上半分と下半分の明暗差が、左（ほぼ同じ灰色）→ 右（白と黒）へ広がる */
+input[type="range"].color-grade-slider--contrast {
+  --color-grade-track:
+    linear-gradient(to right, #8c8c8c, #b4b4b4, #f5f5f5) top / 100% 50% no-repeat,
+    linear-gradient(to right, #737373, #4b4b4b, #0a0a0a) bottom / 100% 50% no-repeat;
+}
+
+/* 彩度: 灰色（白黒）→ あざやかな色。虹色の上に左ほど濃い灰色を重ねる */
+input[type="range"].color-grade-slider--saturation {
+  --color-grade-track:
+    linear-gradient(to right, #808080 0%, rgba(128, 128, 128, 0.55) 50%, rgba(128, 128, 128, 0) 100%),
+    linear-gradient(to right, #ef4444, #f59e0b, #22c55e, #06b6d4, #6366f1, #d946ef);
+}
+
+/* 色温度: 青み（寒色）→ 暖かみ（暖色） */
+input[type="range"].color-grade-slider--temperature {
+  --color-grade-track: linear-gradient(to right, #3b82f6, #cbd5e1, #f59e0b);
+}
+
+/* 色かぶり: 緑 → マゼンタ */
+input[type="range"].color-grade-slider--tint {
+  --color-grade-track: linear-gradient(to right, #22c55e, #cbd5e1, #d946ef);
+}
+
+/* 自動補正の強さ: なし（灰色）→ 100% */
+input[type="range"].color-grade-slider--strength {
+  --color-grade-track: linear-gradient(to right, #4b5563, #f59e0b);
+}
+
 /* スマホ用カラーピッカー。黒を選択中でも各色の範囲を常に見分けられる。 */
 input[type="range"].mobile-color-picker-slider::-webkit-slider-runnable-track {
   height: 32px;

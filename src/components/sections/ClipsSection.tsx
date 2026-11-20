@@ -19,7 +19,7 @@ import {
   SlidersHorizontal,
   Columns2,
 } from 'lucide-react';
-import type { ClipTransition, MediaItem, MediaZoomDirection, SplitCompareSettings } from '../../types';
+import type { ClipTransition, MediaColorAdjust, MediaItem, MediaZoomDirection, SplitCompareSettings } from '../../types';
 import ClipItem from '../media/ClipItem';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
@@ -40,6 +40,8 @@ import {
   resolveVideoSpeedRampForItem,
 } from '../../utils/playbackSpeed';
 import type { NextClipSpeedRampInfo } from '../media/ClipItem';
+import type { ColorSnapshot } from '../media/ClipColorPanel';
+import type { ColorMatchDirection } from '../../utils/mediaColorSampler';
 import FileDropOverlay from '../common/FileDropOverlay';
 import { useFileDropZone } from '../../hooks/useFileDropZone';
 
@@ -520,6 +522,15 @@ interface ClipsSectionProps {
   onUpdateMediaPosition: (id: string, axis: 'x' | 'y', value: string) => void;
   onRotateMedia: (id: string) => void;
   onUpdateMediaBlur: (id: string, value: number) => void;
+  /** 色合い（standard 限定。未指定なら「色合い」欄を出さない） */
+  onUpdateMediaColorAdjust?: (id: string, patch: Partial<MediaColorAdjust>) => void;
+  /** 隣の素材（前＝上／次＝下）に色を合わせる */
+  onMatchMediaColor?: (id: string, direction: ColorMatchDirection) => Promise<boolean> | boolean;
+  /** 自動で合わせる前の色合いへ戻す */
+  onRestoreMediaColor?: (id: string, snapshot: ColorSnapshot) => void;
+  onUpdateMediaColorMatchStrength?: (id: string, strength: number) => void;
+  onClearMediaColorMatch?: (id: string) => void;
+  onResetMediaColor?: (id: string) => void;
   onResetMediaSetting: (id: string, type: MediaTransformResetKind) => void;
   onUpdateMediaVolume: (id: string, value: number) => void;
   onToggleMediaMute: (id: string) => void;
@@ -584,6 +595,12 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   onUpdateMediaPosition,
   onRotateMedia,
   onUpdateMediaBlur,
+  onUpdateMediaColorAdjust,
+  onMatchMediaColor,
+  onRestoreMediaColor,
+  onUpdateMediaColorMatchStrength,
+  onClearMediaColorMatch,
+  onResetMediaColor,
   onResetMediaSetting,
   onUpdateMediaVolume,
   onToggleMediaMute,
@@ -1111,6 +1128,25 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
                 ? (value) => onUpdateMediaBlur(v.id, value)
                 : undefined
             }
+            onUpdateColorAdjust={
+              uiCapabilities.supportsMediaColor && onUpdateMediaColorAdjust
+                ? (patch) => onUpdateMediaColorAdjust(v.id, patch)
+                : undefined
+            }
+            onMatchColorToPrevious={
+              uiCapabilities.supportsMediaColor && i > 0 && onMatchMediaColor
+                ? () => onMatchMediaColor(v.id, 'previous')
+                : undefined
+            }
+            onMatchColorToNext={
+              uiCapabilities.supportsMediaColor && i < mediaItems.length - 1 && onMatchMediaColor
+                ? () => onMatchMediaColor(v.id, 'next')
+                : undefined
+            }
+            onRestoreColor={onRestoreMediaColor ? (snapshot) => onRestoreMediaColor(v.id, snapshot) : undefined}
+            onUpdateColorMatchStrength={onUpdateMediaColorMatchStrength ? (strength) => onUpdateMediaColorMatchStrength(v.id, strength) : undefined}
+            onClearColorMatch={onClearMediaColorMatch ? () => onClearMediaColorMatch(v.id) : undefined}
+            onResetColor={onResetMediaColor ? () => onResetMediaColor(v.id) : undefined}
             onResetSetting={(type) => onResetMediaSetting(v.id, type)}
             onUpdateVolume={(value) => onUpdateMediaVolume(v.id, value)}
             onToggleMute={() => onToggleMediaMute(v.id)}

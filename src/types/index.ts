@@ -128,6 +128,36 @@ export type SpeedBadgeLabelStyle = 'ja' | 'en';
  */
 export type MediaZoomDirection = 'none' | 'in' | 'out';
 
+/**
+ * クリップ単位の手動の色合い調整（-100〜100・0 で変更なし）。
+ * 描画式は `src/utils/mediaColor.ts`（WebGL シェーダと CPU 版で同一）。
+ */
+export interface MediaColorAdjust {
+  /** 明るさ（中間調のガンマ。黒・白の端は保つ） */
+  brightness: number;
+  /** コントラスト（中間 50% を軸に 0.5〜2 倍） */
+  contrast: number;
+  /** 彩度（0〜2 倍。-100 で白黒） */
+  saturation: number;
+  /** 色温度（−: 青み／＋: 暖かみ） */
+  temperature: number;
+  /** 色かぶり（−: 緑／＋: マゼンタ） */
+  tint: number;
+}
+
+/**
+ * 前の素材に色合いを合わせる自動補正（MKL: 線形最適輸送による色分布の転写）。
+ * sRGB 0〜1 の値に `matrix · rgb + offset` を掛け、strength で元の色と混ぜる。
+ */
+export interface MediaColorMatch {
+  /** 3×3 行列（行優先） */
+  matrix: number[];
+  /** オフセット（0〜1 単位、RGB） */
+  offset: number[];
+  /** 効き具合（0〜100%） */
+  strength: number;
+}
+
 // メディアアイテム (動画/画像)
 export interface MediaItem {
   id: string;
@@ -177,6 +207,10 @@ export interface MediaItem {
   rotation?: number;
   /** クリップ単位のぼかし強度（0〜30px @1080p基準）。未定義は 0（ぼかしなし） */
   blur?: number;
+  /** 手動の色合い調整（standard 限定・任意。未定義は変更なし） */
+  colorAdjust?: MediaColorAdjust;
+  /** 前の素材に合わせた自動の色補正（standard 限定・任意。未定義/null は補正なし） */
+  colorMatch?: MediaColorMatch | null;
   isTransformOpen: boolean;
   isLocked: boolean;
   // ソース動画の解像度（エクスポート用キャンバスサイズの動的決定に使用）

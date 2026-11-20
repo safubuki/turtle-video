@@ -5341,3 +5341,72 @@ export 終了（成功/失敗/中断）
 - **ファイル**: `src/components/common/CompactField.tsx`（`COMPACT_AXIS_SECOND_ROW_CLASS = 'mt-1'`）, `src/components/media/ClipCompositionPanel.tsx`, `src/components/media/ClipItem.tsx`（速度バッジ）, `src/components/common/CaptionPositionField.tsx`, テスト `clipMotion.ui` / `compactAudioRows.ui`
 - **問題**: 13-302 で横・縦を `gap-0.5`（2px）で続けたため、高さ 36px の数値欄どうしが上下でほぼ接して見えた。速度バッジの横・縦も同じ。
 - **対策**: 見出しと 1 行目の間（2px）は変えず、2 行目（縦）だけに `mt-1` を足して行間 6px にする。横・縦を並べる欄はこの定数を使う。
+
+### 13-309. 色合い（手動調整・前の素材に色を合わせる MKL 色転写）を WebGL で掛ける【standard 限定】
+
+- **ファイル**: `src/utils/mediaColor.ts`（正規化・色の式の CPU 版・変更検知キー）, `src/utils/colorMatch.ts`（RGB 統計・3×3 固有分解・MKL）, `src/utils/mediaColorRenderer.ts`（共有 WebGL キャンバスのシェーダ）, `src/utils/mediaColorSampler.ts`（最初／最後のコマの読み取り・補正の計算）, `src/components/media/ClipColorPanel.tsx`, `src/components/media/ClipItem.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/TurtleVideo.tsx`, `src/stores/mediaStore.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/components/common/MiniPreview.tsx`, `src/app/appFlavorUi.ts`（`supportsMediaColor`）, テスト `mediaColor` / `clipColor.ui` / `mediaStore` / `projectStoreSave`
+- **要求**: 続けてつないだ動画（A の最後のコマから B を生成など）の色合いの微妙な差を、AI を使わずにそろえたい。明るさ・彩度などの基本調整も欲しい。
+- **自動合わせ（MKL）**: 前のクリップの最後のコマ（trimEnd − 1/30 秒）と、このクリップの最初のコマ（trimStart + 1/60 秒）を長辺 192px で読み、RGB の平均・共分散から `T = Σs^-1/2 (Σs^1/2 Σt Σs^1/2)^1/2 Σs^-1/2`、`o = μt − T μs` を求める（Pitié & Kokaram 2007）。Reinhard（チャンネル別の平均・標準偏差）より相関まで合い、色を動かしすぎない。保存は `colorMatch {matrix(行優先9), offset(3), strength 0〜100}`。
+  - 安全策: 共分散に 1e-4 の正則化、T の固有値を 0.4〜2.5 に制限、単色（分散和 < 2e-5）は平均だけ、alpha < 128 の画素は集計しない。
+  - 前のクリップの色設定は CPU 版で掛けてから基準にする（A→B→C の連鎖でつなぎ目ごとにそろう）。合わせると手動調整は 0 に戻す（`applyColorMatch`）。
+  - 読み取りは一時 video を 1 本ずつ作り、`finally` で `removeAttribute('src')`＋`load()`＋DOM から外す（プレビューの共有 video・背景撮影と競合させない、Android の同時デコード数を増やさない）。計算中に並びが変わったら結果を捨てる。
+- **色の式**（sRGB 0〜1、この順。シェーダと `applyMediaColorGradeToRgb` で同一）: 自動補正 `mix(c, clamp(M c + o), s)` → 色温度・色かぶりのゲイン（輝度で正規化）→ 明るさ（ガンマ `2^(−v/100)`）→ コントラスト（50% 軸 `2^(v/100)` 倍）→ 彩度（輝度と `1+v/100` で混合）。
+- **描画**: `prepareColorGradedSource(source, w, h, resolveMediaColorGrade(item))` が共有 WebGL キャンバス（`preserveDrawingBuffer`・素材解像度・長辺 3840 上限）を返す。何も変えない設定は null → 素材をそのまま返し GPU を使わない。適用箇所: renderFrame の通常描画（止めたコマの控え含む）・ディゾルブ前クリップ／2 画面の相手（peer）・プレビュー末尾の freezeFrame・ミニプレビュー。ぼかしは色の後（画像のぼかし縮小元に色済みキャンバスを渡す）。
+- **注意**:
+  - 戻り値のキャンバスは**次の呼び出しで上書き**される。作ったら他の素材の prepare を挟まず直後に drawImage すること（今の 3 箇所はすべてそうなっている）。
+  - 毎フレーム `gl.getError()` を呼ばない（GPU 同期待ちになる）。コンテキスト喪失時は次の呼び出しで作り直し、初期化できない環境では色を掛けずに描く（`console.warn` は 1 回）。jsdom のテストでは WebGL が無いので素材がそのまま返る。
+  - GLSL の `mat3` は列優先。保存値（行優先）は転置して `uniformMatrix3fv` に渡す。GPU と CPU 版の一致はヘッドレス Chrome（SwiftShader）で最大差 1/255 を確認済み。式を変えるときは両方を同時に変える。
+  - 変更検知: `buildMediaColorKey()` を自動保存ハッシュ・自動ポスター・Android プレビューキャッシュ・`mediaTransformPreviewKey`（停止中の再描画）に含めている。新しい色項目を足したらキーにも足す。
+  - apple-safari のエンジンには入れていない（standard で付けた色は iPhone / iPad では反映されない。MiniPreview だけは共通部品なので色が付く）。
+
+### 13-310. 色合い欄を一番下へ移し、次の素材にも合わせられるようにする。スライダーの溝をカラーバーにする
+
+- **ファイル**: `src/components/media/ClipColorPanel.tsx`, `src/components/media/ClipItem.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/TurtleVideo.tsx`（`handleMatchMediaColor(id, direction)`）, `src/utils/mediaColorSampler.ts`（`computeClipColorMatchToNeighbor` / `resolveColorMatchEdges`）, `src/index.css`（`.color-grade-slider` / `--*`）, `src/constants/sectionHelp.ts`, テスト `clipColor.ui` / `mediaColor`
+- **要望**: 2 枚目の色の方が良いときに 1 枚目を 2 枚目へ合わせたい。色合いは使う頻度が低いので音量・速度より下へ。項目の縦の間隔を詰めたい。両端の小さな説明文字は読めないので、色の帯で表したい。
+- **対策**:
+  - 「↑ 前の素材に合わせる」「↓ 次の素材に合わせる」を横に並べる。前＝(前の end, 自分の start)、次＝(次の start, 自分の end) のコマを比べ、補正は押したカードにだけ入る。ClipsSection は `i > 0` / `i < length - 1` で各ハンドラを渡す。計算後は「同じ向きの隣が同じ id か」を確かめ、並びが変わっていたら捨てる。
+  - 欄の順を「サイズ・位置・動き → フェード・ぼかし → 音量・再生速度 → 色合い」にする（画像カードは音量欄が無いのでフェードの次）。
+  - スライダーの溝を CSS 変数 `--color-grade-track` のグラデーションにする（スマホ用カラーピッカー `.mobile-color-picker-slider` と同じ作り）。溝 10px・つまみ 18px（白・濃い縁）。`input[type=range].color-grade-slider::...` は画面幅ごとの拡大ルールより詳細度が高いので幅によらず同じ。入力要素は `h-5 bg-transparent`。コントラストは上下半分の明暗差が右ほど広がる 2 層、彩度は虹色の上に左ほど濃い灰色を重ねる 2 層。どのバーも中央＝無調整。
+  - 両端の説明文字の行を削除し、見出しとスライダーの間の余白を 0、項目間を `space-y-1` にした（1 項目あたり約 20px 短い）。
+- **注意**: 同じつなぎ目で両方のカードから合わせ合うと打ち消し合う（後から押した側が、すでに合わせた相手の見た目に合わせるため）。どちらか一方で合わせる、とヘルプで案内している。相手のカードの色を後で変えても、合わせ済みの補正は自動では取り直さない。
+
+### 13-311. 自動で合わせた色補正をスライダーの値へ分解し、表しきれない残りだけを行列で持つ
+
+- **ファイル**: `src/utils/colorMatchDecompose.ts`（新規）, `src/utils/mediaColorSampler.ts`（`computeColorMatchFromPixels` が `{ match: 残り | null, adjust }` を返す）, `src/stores/mediaStore.ts`（`applyColorMatch(id, match, adjust)`）, `src/components/TurtleVideo.tsx`, `src/components/media/ClipColorPanel.tsx`, テスト `mediaColor` / `mediaStore` / `clipColor.ui`
+- **要望**: 自動で合わせた結果をカラーバー（スライダー）の位置として見せ、そこから手で詰めたい。
+- **方式**: MKL の T を合わせる側の画素に掛けた色 d を目標に、(1) 5 項目の整数値を座標降下（刻み 32→1）で探して P(c)≈d、(2) e=P⁻¹(d) への c→e の 3×4 リッジ回帰で残り R を求め、P(R(c))≈d。(3) R の改善が RMS 1/255 未満なら R は付けない。描画順は従来どおり colorMatch（R）→ colorAdjust（P）なので保存形式・シェーダは不変。
+- **UI**: 合わせるとスライダーが結果の値になる（今の手動値は置き換え）。R があるときだけ、スライダーの下に「細かな色ずれの補正」（0〜100%・くるくるで外す・説明 1 行）を出す（旧「自動補正の強さ」）。
+- **注意**:
+  - P の逆変換は clamp で失われた分を戻せない（白飛び・黒つぶれの画素）。回帰はそれも含めた最小二乗なので、R はあくまで近似。
+  - 計算量は画素 1500 × 評価 最大 ~1200 回（数百 ms 以内）。画素数・刻みを増やすときは UI の待ち時間に注意。
+  - 実アプリ確認（青く暗くずらした画像）: 明るさ 14・コントラスト 30・彩度 8・色温度 98・色かぶり −6 ＋残りの補正で、平均色 (108,146,179)→(129,158,159)（基準 129,158,160）。
+
+### 13-312. 自動合わせを手動調整の下へ移し、向いている場面の注意書きと「合わせる前に戻す」を付ける
+
+- **ファイル**: `src/components/media/ClipColorPanel.tsx`（`ColorSnapshot` / `onRestore`）, `src/components/media/ClipItem.tsx`（`onRestoreColor`）, `src/components/sections/ClipsSection.tsx`（`onRestoreMediaColor`）, `src/components/TurtleVideo.tsx`（`handleMatchMediaColor` が `Promise<boolean>`、`handleRestoreMediaColor`）, `src/constants/sectionHelp.ts`, テスト `clipColor.ui`
+- **問題**: 場面の違う素材（泡だらけの部屋 → ふつうの部屋）で合わせると、MKL は分布の違い（白い泡が多い＝明るく低彩度）をそのまま色の差として移すため、明るさ +50・彩度 −43 のように白黒に近い色合いになった。欄の先頭にボタンがあると最初に押されやすい。
+- **対策**:
+  - 並びを「手動スライダー → 細かな色ずれの補正 → 隣の素材に自動で合わせる（注意書き・前／次）→ すべて元に戻す」にした。注意書きは橙の枠で「同じ場面の続き向け／場面が違うと色が大きく変わる」。
+  - 合わせる直前の `{ adjust, match }` をパネルの state に控え、ハンドラが `true` を返したときだけ「合わせる前に戻す」を出す。押すと `applyColorMatch(id, match, adjust)` で戻す。合わせ直しても最初の控えを保つ。戻す・全リセット・欄を閉じる（パネルのアンマウント）で消える。保存はしない。
+- **注意**: ハンドラは結果を入れたときだけ `true` を返す（失敗・並び替えでの取り消しは `false`）。戻す先は控えた時点の値なので、合わせた後に手で動かした分も戻る（「合わせる前」の意味どおり）。
+
+### 13-313. 色合いスライダーの溝の先端に反対側の端の色が出る（グラデーションが縁で繰り返される）
+
+- **ファイル**: `src/index.css`（`.color-grade-slider` の `::-webkit-slider-runnable-track` / `::-moz-range-track`）
+- **問題**: 溝の左の先端に右端の色（彩度なら赤紫、色温度ならオレンジ）、右の先端に左端の色が細く出ていた。
+- **原因**: 溝に 1px の縁を付けている。背景は既定で padding-box 基準に描かれ border-box まで塗られるため、縁の 1px ではグラデーションが繰り返され、反対側の端の色が回り込む。
+- **対策**: 溝に `background-origin: border-box` を足し、縁まで含めた大きさでグラデーションを 1 回だけ描く。バーの配色は変えない。
+- **注意**: 縁付きの要素にグラデーション背景を付けるときは `background-origin: border-box`（または縁を無くす）。なお一度、真ん中の色をそろえる・彩度を縞にする変更をしたが、要望（先端の色）と違い見た目も悪化したため元の配色に戻した。
+
+### 13-314. 先頭付近で停止中に見た目を調整すると、背景撮影の戻しシーク中に黒が一瞬挟まる
+
+- **ファイル**: `src/components/TurtleVideo.tsx`（`isDisplayVideoSeekingWhileStopped`・`restorePreviewAfterCapture`・キャプション/ロゴ/見た目変更時の再描画 effect）
+- **問題**: プレビューを 0:00 付近で止めたまま、先頭カードの色合い・ぼかし等のスライダーを動かすと、プレビューに黒い画面が 1〜2 フレームずつ挟まる（色合い追加で目立ったが、ぼかしでも同じく再現＝既存不具合）。
+- **原因**（ヘッドレス Chrome で `fillRect` を横取りして特定）:
+  1. 先頭カードの見た目が変わると、自動ポスター／タイトルミニビューの背景撮影が共有 video を撮影時刻へ動かす（スライダー変更のたびに effect の片付けも走る）。
+  2. 片付けの `restorePreviewAfterCapture` が video を表示位置へ戻すシークを始めた**直後に** `renderFrame` していた。見た目変更の再描画 effect も同様に、シーク中に描いていた。
+  3. engine は停止中 `time <= 0.05` を強制黒クリアする（終端フレーム残像対策・変えない）。シーク中の video は描けないため、seeked で描き直されるまで黒が見えた。
+- **対策**: 停止中に表示位置の video がシーク中なら、`restorePreviewAfterCapture` と見た目変更の再描画 effect は描かない。画面には直前の絵が残り、シーク完了の seeked（`handlePreviewMediaSeeked` → `handleSeeked`）が最新の設定で描き直す。engine の先頭黒クリアは変更しない。
+- **確認**: 0:00 で停止・動画クリップ・明るさ 0→60（途中 350ms の止まり 6 回）／ぼかし 0→30 で、黒フレームが 2 → 0。止めた後の絵は最終値（平均輝度 92）で、背景撮影完了後も正しい色。
+- **注意**: 停止中の「描き直し要求」を足すときは、表示 video がシーク中かを先に確認する（`isDisplayVideoSeekingWhileStopped`）。描かずに待っても seeked で必ず描き直される。背景撮影の hold 中に seeked が来た場合は無視されるが、その撮影の後片付けで再度戻す／描くので最終的に最新になる。
+

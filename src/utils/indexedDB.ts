@@ -97,6 +97,16 @@ export interface SerializedMediaItem {
   rotation?: number;
   /** クリップ単位のぼかし強度（0〜30px @1080p基準）。旧データには存在しないため任意 */
   blur?: number;
+  /** 手動の色合い調整（-100〜100。任意・旧データには無い＝変更なし） */
+  colorAdjust?: {
+    brightness: number;
+    contrast: number;
+    saturation: number;
+    temperature: number;
+    tint: number;
+  };
+  /** 前の素材に合わせた自動の色補正（任意・旧データには無い＝補正なし） */
+  colorMatch?: { matrix: number[]; offset: number[]; strength: number } | null;
   isTransformOpen: boolean;
   isLocked: boolean;
   // ソース動画の解像度（エクスポートキャンバスサイズの動的決定に使用）

@@ -64,6 +64,7 @@ import {
 } from '../utils';
 import { normalizeMediaZoomAmount, normalizeMediaZoomDirection, hasMediaZoomRange, createMediaZoomRangePatch } from '../utils/mediaZoom';
 import { hasMediaPanRange, createMediaPanRangePatch } from '../utils/mediaPan';
+import { normalizeMediaColorAdjust, normalizeMediaColorMatch } from '../utils/mediaColor';
 
 import { MEDIA_VOLUME_MAX } from '../utils/mediaVolume';
 export function getProjectStoreErrorMessage(error: unknown): string {
@@ -526,6 +527,8 @@ async function serializeMediaItem(item: MediaItem): Promise<SerializedMediaItem>
     } : {}),
     rotation: normalizeRotation(item.rotation),
     blur: normalizeMediaBlur(item.blur),
+    colorAdjust: normalizeMediaColorAdjust(item.colorAdjust),
+    colorMatch: normalizeMediaColorMatch(item.colorMatch) ?? undefined,
     isTransformOpen: item.isTransformOpen,
     isLocked: item.isLocked,
     sourceWidth: item.sourceWidth,
@@ -637,6 +640,8 @@ function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
       : {}),
     rotation: normalizeRotation(data.rotation),
     blur: normalizeMediaBlur(data.blur),
+    colorAdjust: normalizeMediaColorAdjust(data.colorAdjust),
+    colorMatch: normalizeMediaColorMatch(data.colorMatch),
     isTransformOpen: data.isTransformOpen,
     isLocked: data.isLocked,
     sourceWidth: data.sourceWidth,

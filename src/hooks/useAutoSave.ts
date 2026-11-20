@@ -15,6 +15,7 @@ import { useUIStore } from '../stores/uiStore';
 import { useLogStore } from '../stores/logStore';
 import { useCanvasStore } from '../stores/canvasStore';
 import { useOverlayStore } from '../stores/overlayStore';
+import { buildMediaColorKey } from '../utils/mediaColor';
 
 /** 自動保存間隔の設定キー */
 export const AUTO_SAVE_INTERVAL_KEY = 'turtle-video-auto-save-interval';
@@ -168,6 +169,7 @@ export function useAutoSave() {
         m.panEndPositionY ?? '',
         m.rotation ?? 0,
         m.blur ?? 0,
+        buildMediaColorKey(m),
         m.isTransformOpen,
         m.isLocked,
         m.transitionToNext ? `${m.transitionToNext.type}@${m.transitionToNext.duration}` : '',

@@ -33,6 +33,7 @@ import {
 } from './playbackSpeed';
 
 import { MEDIA_VOLUME_MAX } from './mediaVolume';
+import { buildMediaColorKey } from './mediaColor';
 /**
  * ID生成用カウンター（同一ミリ秒内での重複を防止）
  */
@@ -761,7 +762,7 @@ export function buildAutoProjectPosterContentKey(
     | 'blur'
     | 'playbackSpeed'
     | 'transitionToNext'
-  > & Partial<Pick<MediaItem, 'splitCompareToNext' | 'panEndPositionX' | 'panEndPositionY'>>>,
+  > & Partial<Pick<MediaItem, 'splitCompareToNext' | 'panEndPositionX' | 'panEndPositionY' | 'colorAdjust' | 'colorMatch'>>>,
   totalDuration: number,
   aspectRatio: string,
 ): string {
@@ -789,6 +790,7 @@ export function buildAutoProjectPosterContentKey(
       item.panEndPositionY ?? '',
       item.rotation ?? 0,
       item.blur ?? 0,
+      buildMediaColorKey(item),
       item.playbackSpeed ?? 1,
       transitionKey,
     ].join(':');

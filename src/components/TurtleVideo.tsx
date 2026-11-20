@@ -11,6 +11,7 @@ import type { AppFlavor } from '../app/resolveAppFlavor';
 import { getAppFlavorUiCapabilities } from '../app/appFlavorUi';
 import type {
   MediaItem,
+  MediaColorAdjust,
   AudioTrack,
   NarrationClip,
   NarrationScriptLength,
@@ -76,6 +77,9 @@ import {
   releaseVideoFromBackgroundCapture,
 } from '../utils/backgroundCaptureVideoHold';
 import { resolveMediaZoomEndpointPreview, type MediaTransformResetKind, type MediaZoomEndpointPreview } from '../utils/mediaZoom';
+import { buildMediaColorKey } from '../utils/mediaColor';
+import { computeClipColorMatchToNeighbor, type ColorMatchDirection } from '../utils/mediaColorSampler';
+import type { ColorSnapshot } from './media/ClipColorPanel';
 import type { MediaComposition, MediaMotionPoint } from '../utils/mediaMotion';
 import { getEndrollDuration } from '../utils/endrollOverlay';
 import {
@@ -216,6 +220,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const updatePosition = useMediaStore((s) => s.updatePosition);
   const rotateClip = useMediaStore((s) => s.rotateClip);
   const updateBlur = useMediaStore((s) => s.updateBlur);
+  const updateColorAdjust = useMediaStore((s) => s.updateColorAdjust);
+  const applyColorMatch = useMediaStore((s) => s.applyColorMatch);
+  const updateColorMatchStrength = useMediaStore((s) => s.updateColorMatchStrength);
+  const clearColorMatch = useMediaStore((s) => s.clearColorMatch);
+  const resetColor = useMediaStore((s) => s.resetColor);
   const resetTransform = useMediaStore((s) => s.resetTransform);
   const toggleTransformPanel = useMediaStore((s) => s.toggleTransformPanel);
   const updateVolume = useMediaStore((s) => s.updateVolume);
@@ -1548,6 +1557,15 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     handleVideoLoadedData();
   }, [handleVideoLoadedData, isDisplayVideoHeldByCapture]);
 
+  // 停止中に、表示位置の video が（背景撮影からの戻りなどで）まだシーク中か。
+  // シーク中の video は描けないうえ、先頭 0.05 秒以内の停止中は engine が黒クリアするため、
+  // この間に描き直すと一瞬黒い画面が挟まる。シーク完了の seeked で engine が描き直すので待てばよい。
+  const isDisplayVideoSeekingWhileStopped = useCallback(() => {
+    if (isPlayingRef.current) return false;
+    const element = resolveActivePosterMediaElement(currentTimeRef.current);
+    return element instanceof HTMLVideoElement && element.seeking;
+  }, [isPlayingRef, resolveActivePosterMediaElement]);
+
   // 背景撮影の後片付け: 撮影で動かした共有 video を最新の表示位置の素材時刻へ戻して描く。
   // 停止中の renderFrame は video をシークしないため、戻さないと撮影時刻の絵が残る。
   // 撮影中にシークされていればその位置を使い、撮影開始時の時刻へは戻さない。
@@ -1559,9 +1577,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       const target = resolveTitleMiniPreviewCaptureTarget(latest.mediaItems, latest.totalDuration, time);
       primePosterCaptureSeek(time, target?.type === 'video' ? target.sourceTime : null);
     }
-    // シーク完了時は handleSeeked が最新の表示位置で描き直す。
+    // 戻しのシーク中は描かない（描けない video ＋先頭の黒クリアで黒が一瞬出る）。
+    // 画面には撮影前の絵が残っており、シーク完了時に handleSeeked が最新の表示位置で描き直す。
+    if (isDisplayVideoSeekingWhileStopped()) return;
     renderFrame(time, false);
-  }, [isPlayingRef, isSeekingRef, primePosterCaptureSeek, renderFrame]);
+  }, [isDisplayVideoSeekingWhileStopped, isPlayingRef, isSeekingRef, primePosterCaptureSeek, renderFrame]);
 
   // 対象クリップが描画可能で、かつキャプチャしたい元動画時刻に着いているか。
   // 未着のまま canvas を読むと、直前プレビューの holdFrame（古い動画）をサムネにしてしまう。
@@ -3081,6 +3101,82 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     updateBlur(id, value);
   }, [pausePreviewBeforeEdit, updateBlur]);
 
+  // --- 色合いハンドラ ---
+  // 目的: 動画・画像カードごとの色合い（手動調整・前の素材に合わせる自動補正）。ぼかしと同じく編集前に一時停止する
+  const handleUpdateMediaColorAdjust = useCallback((id: string, patch: Partial<MediaColorAdjust>) => {
+    pausePreviewBeforeEdit('update-media-color');
+    updateColorAdjust(id, patch);
+  }, [pausePreviewBeforeEdit, updateColorAdjust]);
+
+  const handleUpdateMediaColorMatchStrength = useCallback((id: string, strength: number) => {
+    pausePreviewBeforeEdit('update-media-color-match-strength');
+    updateColorMatchStrength(id, strength);
+  }, [pausePreviewBeforeEdit, updateColorMatchStrength]);
+
+  const handleClearMediaColorMatch = useCallback((id: string) => {
+    pausePreviewBeforeEdit('clear-media-color-match');
+    clearColorMatch(id);
+  }, [pausePreviewBeforeEdit, clearColorMatch]);
+
+  const handleResetMediaColor = useCallback((id: string) => {
+    pausePreviewBeforeEdit('reset-media-color');
+    resetColor(id);
+  }, [pausePreviewBeforeEdit, resetColor]);
+
+  const handleMatchMediaColor = useCallback(async (id: string, direction: ColorMatchDirection): Promise<boolean> => {
+    pausePreviewBeforeEdit('match-media-color');
+    const neighborOffset = direction === 'previous' ? -1 : 1;
+    const neighborLabel = direction === 'previous' ? '前' : '次';
+    const items = useMediaStore.getState().mediaItems;
+    const index = items.findIndex((item) => item.id === id);
+    const target = index >= 0 ? items[index] : null;
+    const neighbor = index >= 0 ? items[index + neighborOffset] ?? null : null;
+    if (!neighbor || !target) {
+      showToast(`${neighborLabel}の素材がないため、色を合わせられません`);
+      return false;
+    }
+    try {
+      const result = await computeClipColorMatchToNeighbor(neighbor, target, direction);
+      // 計算中に並び替え・削除されていたら、別の相手に合わせた結果を入れない
+      const latest = useMediaStore.getState().mediaItems;
+      const latestIndex = latest.findIndex((item) => item.id === id);
+      if (latestIndex < 0 || latest[latestIndex + neighborOffset]?.id !== neighbor.id) {
+        showToast('色合わせ中に並びが変わったため、取り消しました');
+        return false;
+      }
+      if (typeof result === 'string') {
+        logWarn('MEDIA', '色合わせのコマを読み取れませんでした', { id, neighborId: neighbor.id, direction, reason: result });
+        showToast('素材のコマを読み取れず、色を合わせられませんでした');
+        return false;
+      }
+      applyColorMatch(id, result.match, result.adjust);
+      logInfo('MEDIA', '隣の素材に色を合わせました', {
+        id,
+        neighborId: neighbor.id,
+        direction,
+        distanceBefore: Number(result.distanceBefore.toFixed(4)),
+        adjust: result.adjust ?? null,
+        residualMatrix: result.match?.matrix ?? null,
+        residualOffset: result.match?.offset ?? null,
+      });
+      showToast(`${neighborLabel}の素材の色合いに合わせました`);
+      return true;
+    } catch (error) {
+      logError('MEDIA', '色合わせに失敗しました', {
+        id,
+        direction,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      showToast('色を合わせられませんでした');
+      return false;
+    }
+  }, [applyColorMatch, logError, logInfo, logWarn, pausePreviewBeforeEdit, showToast]);
+
+  const handleRestoreMediaColor = useCallback((id: string, snapshot: ColorSnapshot) => {
+    pausePreviewBeforeEdit('restore-media-color');
+    applyColorMatch(id, snapshot.match, snapshot.adjust);
+  }, [applyColorMatch, pausePreviewBeforeEdit]);
+
   // --- 設定リセットハンドラ ---
   // 目的: スケール・位置・回転・ぼかしを初期値にリセット
   const handleResetMediaSetting = useCallback((id: string, type: MediaTransformResetKind) => {
@@ -4115,7 +4211,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   // 端点確認中は背景撮影が待機するため、位置などの調整もここで明示的に描き直す。
   // 確認中のカード・時刻・倍率は保持し、背景撮影の再開や再シークに頼らない。
   const mediaTransformPreviewKey = mediaItems
-    .map((item) => `${item.id}:${item.scale}:${item.positionX}:${item.positionY}:${item.rotation ?? ''}:${item.blur ?? ''}:${item.zoomDirection ?? ''}:${item.zoomAmount ?? ''}:${item.zoomStartScale ?? ''}:${item.zoomEndScale ?? ''}:${item.panEndPositionX ?? ''}:${item.panEndPositionY ?? ''}`)
+    .map((item) => `${item.id}:${item.scale}:${item.positionX}:${item.positionY}:${item.rotation ?? ''}:${item.blur ?? ''}:${item.zoomDirection ?? ''}:${item.zoomAmount ?? ''}:${item.zoomStartScale ?? ''}:${item.zoomEndScale ?? ''}:${item.panEndPositionX ?? ''}:${item.panEndPositionY ?? ''}:${buildMediaColorKey(item)}`)
     .join('|');
 
   // --- キャプション・ロゴ変更時のプレビュー再描画 ---
@@ -4130,10 +4226,14 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   useEffect(() => {
     if (isPlayingRef.current || isProcessing) return;
     const id = requestAnimationFrame(() => {
+      // 表示位置の video が背景撮影からの戻りでシーク中なら、ここでは描かない
+      // （黒が一瞬挟まる）。シーク完了時の handleSeeked が最新の設定で描き直す。
+      if (isDisplayVideoSeekingWhileStopped()) return;
       renderFrame(currentTimeRef.current, false);
     });
     return () => cancelAnimationFrame(id);
   }, [
+    isDisplayVideoSeekingWhileStopped,
     captions,
     captionSettings,
     previewCaptionIds,
@@ -4737,6 +4837,12 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onUpdateMediaPosition={handleUpdateMediaPosition}
               onRotateMedia={handleRotateMedia}
               onUpdateMediaBlur={handleUpdateMediaBlur}
+              onUpdateMediaColorAdjust={handleUpdateMediaColorAdjust}
+              onMatchMediaColor={handleMatchMediaColor}
+              onRestoreMediaColor={handleRestoreMediaColor}
+              onUpdateMediaColorMatchStrength={handleUpdateMediaColorMatchStrength}
+              onClearMediaColorMatch={handleClearMediaColorMatch}
+              onResetMediaColor={handleResetMediaColor}
               onResetMediaSetting={handleResetMediaSetting}
               onUpdateMediaVolume={withoutPreviewPause('update-media-volume', updateVolume)}
               onToggleMediaMute={withPreviewPause('toggle-media-mute', toggleMute)}

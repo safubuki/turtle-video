@@ -1306,6 +1306,81 @@ describe('mediaStore', () => {
     });
   });
 
+  describe('色合い（updateColorAdjust / applyColorMatch）', () => {
+    const match = { matrix: [1.1, 0, 0, 0, 1, 0, 0, 0, 0.9], offset: [0.01, 0, -0.02], strength: 100 };
+
+    it('手動調整は指定した項目だけ変え、すべて 0 に戻すと未設定になる', async () => {
+      await useMediaStore.getState().addMediaItems([
+        new File(['a'], 'a.png', { type: 'image/png' }),
+        new File(['b'], 'b.png', { type: 'image/png' }),
+      ]);
+      const [first, second] = useMediaStore.getState().mediaItems;
+      expect(first.colorAdjust).toBeUndefined();
+
+      useMediaStore.getState().updateColorAdjust(first.id, { brightness: 20 });
+      useMediaStore.getState().updateColorAdjust(first.id, { temperature: -150 });
+      expect(useMediaStore.getState().mediaItems[0].colorAdjust).toEqual({
+        brightness: 20, contrast: 0, saturation: 0, temperature: -100, tint: 0,
+      });
+      expect(useMediaStore.getState().mediaItems[1].colorAdjust).toBe(second.colorAdjust);
+
+      useMediaStore.getState().updateColorAdjust(first.id, { brightness: 0, temperature: 0 });
+      expect(useMediaStore.getState().mediaItems[0].colorAdjust).toBeUndefined();
+    });
+
+    it('合わせた結果はスライダーの値を置き換え、残りの補正の強さ・解除・全リセットができる', async () => {
+      await useMediaStore.getState().addMediaItems([new File(['a'], 'a.png', { type: 'image/png' })]);
+      const [item] = useMediaStore.getState().mediaItems;
+      useMediaStore.getState().updateColorAdjust(item.id, { saturation: 30 });
+
+      // スライダーで表せた分は colorAdjust へ（今の手動調整は置き換える）
+      useMediaStore.getState().applyColorMatch(item.id, match, { brightness: 12, temperature: -8 });
+      expect(useMediaStore.getState().mediaItems[0]).toMatchObject({
+        colorMatch: match,
+        colorAdjust: { brightness: 12, contrast: 0, saturation: 0, temperature: -8, tint: 0 },
+      });
+      // 残りが無ければ残りの補正は外れる
+      useMediaStore.getState().applyColorMatch(item.id, null, { contrast: 5 });
+      expect(useMediaStore.getState().mediaItems[0]).toMatchObject({
+        colorMatch: null,
+        colorAdjust: { brightness: 0, contrast: 5, saturation: 0, temperature: 0, tint: 0 },
+      });
+      useMediaStore.getState().applyColorMatch(item.id, match, undefined);
+      expect(useMediaStore.getState().mediaItems[0]).toMatchObject({ colorMatch: match, colorAdjust: undefined });
+
+      useMediaStore.getState().updateColorMatchStrength(item.id, 40.4);
+      expect(useMediaStore.getState().mediaItems[0].colorMatch?.strength).toBe(40);
+
+      // 自動補正だけ外すと手動調整は残る
+      useMediaStore.getState().updateColorAdjust(item.id, { contrast: 10 });
+      useMediaStore.getState().clearColorMatch(item.id);
+      expect(useMediaStore.getState().mediaItems[0].colorMatch).toBeNull();
+      expect(useMediaStore.getState().mediaItems[0].colorAdjust?.contrast).toBe(10);
+      // 補正が無いときの強さ変更は何もしない
+      useMediaStore.getState().updateColorMatchStrength(item.id, 80);
+      expect(useMediaStore.getState().mediaItems[0].colorMatch).toBeNull();
+
+      useMediaStore.getState().applyColorMatch(item.id, match, undefined);
+      useMediaStore.getState().updateColorAdjust(item.id, { tint: 5 });
+      useMediaStore.getState().resetColor(item.id);
+      expect(useMediaStore.getState().mediaItems[0]).toMatchObject({ colorAdjust: undefined, colorMatch: null });
+    });
+
+    it('壊れた補正は入れない。コピー・分割は色合いを引き継ぐ', async () => {
+      await useMediaStore.getState().addMediaItems([new File(['a'], 'a.png', { type: 'image/png' })]);
+      const [item] = useMediaStore.getState().mediaItems;
+      useMediaStore.getState().applyColorMatch(item.id, { matrix: [1], offset: [0, 0, 0], strength: 100 }, undefined);
+      expect(useMediaStore.getState().mediaItems[0].colorMatch).toBeNull();
+
+      useMediaStore.getState().applyColorMatch(item.id, match, undefined);
+      useMediaStore.getState().updateColorAdjust(item.id, { brightness: -15 });
+      useMediaStore.getState().duplicateMediaItem(item.id);
+      const [, copy] = useMediaStore.getState().mediaItems;
+      expect(copy.colorMatch).toEqual(match);
+      expect(copy.colorAdjust?.brightness).toBe(-15);
+    });
+  });
+
   describe('updateBlur / resetTransform(blur)', () => {
     it('カードごとにぼかしを更新し、0〜30の範囲へ収める', async () => {
       const { addMediaItems } = useMediaStore.getState();

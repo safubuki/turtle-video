@@ -12,6 +12,8 @@ export interface AppFlavorUiCapabilities {
   supportsMediaTrimFromPreview: boolean;
   supportsMediaRotation: boolean;
   supportsMediaBlur: boolean;
+  /** 色合い（手動調整・前の素材に合わせる自動補正） */
+  supportsMediaColor: boolean;
   supportsBulkMediaMute: boolean;
   supportsClipAudioSettings: boolean;
   supportsWatermark: boolean;
@@ -33,6 +35,7 @@ export function getAppFlavorUiCapabilities(appFlavor: AppFlavor): AppFlavorUiCap
     supportsMediaTrimFromPreview: supportsStandardFeatures,
     supportsMediaRotation: supportsStandardFeatures,
     supportsMediaBlur: supportsStandardFeatures,
+    supportsMediaColor: supportsStandardFeatures,
     supportsBulkMediaMute: supportsStandardFeatures,
     supportsClipAudioSettings: supportsStandardFeatures,
     supportsWatermark: supportsStandardFeatures,

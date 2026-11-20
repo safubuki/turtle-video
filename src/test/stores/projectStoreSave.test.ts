@@ -152,6 +152,35 @@ function createNarrationClip(id: string, overrides: Partial<NarrationClip> = {})
 }
 
 describe('projectStore save behavior', () => {
+  it('色合い（手動調整・自動補正）を手動保存/自動保存して復元し、未設定や壊れた値は補正なしで読む', async () => {
+    const match = { matrix: [1.05, 0.01, 0, 0, 0.98, 0.02, 0, 0, 1.1], offset: [0.01, -0.02, 0.03], strength: 70 };
+    const items = [
+      {
+        ...createMediaItem('graded.mp4'),
+        colorAdjust: { brightness: 10, contrast: -5, saturation: 0, temperature: 20, tint: 0 },
+        colorMatch: match,
+      },
+      createMediaItem('plain.png', 'image'),
+      // 形の壊れた補正（旧版・手作業の改変など）は補正なしとして読む
+      { ...createMediaItem('broken.png', 'image'), colorMatch: { matrix: [1, 2], offset: [0, 0, 0], strength: 100 } },
+    ];
+    for (const mode of ['manual', 'auto'] as const) {
+      const save = mode === 'manual' ? useProjectStore.getState().saveProjectManual : useProjectStore.getState().saveProjectAuto;
+      await save(items, false, null, false, [], false, [], defaultCaptionSettings, false);
+      const saved = mocks.saveProject.mock.calls[mocks.saveProject.mock.calls.length - 1][0] as ProjectData;
+      expect(saved.mediaItems[0]).toMatchObject({ colorAdjust: items[0].colorAdjust, colorMatch: match });
+      expect(saved.mediaItems[1].colorAdjust).toBeUndefined();
+      expect(saved.mediaItems[1].colorMatch).toBeUndefined();
+      expect(saved.mediaItems[2].colorMatch).toBeUndefined();
+      mocks.loadProject.mockResolvedValueOnce(saved);
+      const loaded = await useProjectStore.getState().loadProjectFromSlot(mode);
+      expect(loaded!.mediaItems[0]).toMatchObject({ colorAdjust: items[0].colorAdjust, colorMatch: match });
+      expect(loaded!.mediaItems[1].colorAdjust).toBeUndefined();
+      expect(loaded!.mediaItems[1].colorMatch).toBeNull();
+      expect(loaded!.mediaItems[2].colorMatch).toBeNull();
+    }
+  });
+
   it('位置の移動（パン）の終了位置を手動保存/自動保存して復元し、固定は終了を保存しない', async () => {
     const items = [
       { ...createMediaItem('pan.mp4'), positionX: -100, positionY: 40, panEndPositionX: 200, panEndPositionY: -60 },

@@ -12,7 +12,13 @@
  */
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import type { MediaItem, MediaZoomDirection, SpeedBadgeLabelStyle, VideoAudioNormalizeMode, VideoPlaybackSpeed } from '../types';
+import type { MediaColorAdjust, MediaColorMatch, MediaItem, MediaZoomDirection, SpeedBadgeLabelStyle, VideoAudioNormalizeMode, VideoPlaybackSpeed } from '../types';
+import {
+  normalizeMediaColorAdjust,
+  normalizeMediaColorMatch,
+  normalizeMediaColorMatchStrength,
+  resolveMediaColorAdjust,
+} from '../utils/mediaColor';
 import type { AspectRatio } from './canvasStore';
 import {
   createMediaItem,
@@ -233,6 +239,19 @@ interface MediaState {
   rotateClip: (id: string) => void;
   /** クリップ単位のぼかし強度を更新（0〜30px @1080p基準） */
   updateBlur: (id: string, blur: number) => void;
+  /** 手動の色合い調整のうち、指定した項目だけ変える（-100〜100）。すべて 0 なら未設定へ戻す */
+  updateColorAdjust: (id: string, patch: Partial<MediaColorAdjust>) => void;
+  /**
+   * 隣の素材に合わせた結果を入れる。スライダーの値（adjust）は今の手動調整を置き換え、
+   * スライダーで表しきれない残り（match）は「細かな色ずれの補正」として入れる（無ければ外す）。
+   */
+  applyColorMatch: (id: string, match: MediaColorMatch | null, adjust: Partial<MediaColorAdjust> | undefined) => void;
+  /** 細かな色ずれの補正の効き具合（0〜100%） */
+  updateColorMatchStrength: (id: string, strength: number) => void;
+  /** 自動補正だけ外す（手動の調整は残す） */
+  clearColorMatch: (id: string) => void;
+  /** 色合いの設定（手動・自動）をすべて外す */
+  resetColor: (id: string) => void;
   resetTransform: (id: string, type: MediaTransformResetKind) => void;
   toggleTransformPanel: (id: string) => void;
 
@@ -1011,6 +1030,54 @@ export const useMediaStore = create<MediaState>()(
         set((state) => ({
           mediaItems: state.mediaItems.map((item) =>
             item.id === id ? { ...item, blur: normalized } : item
+          ),
+        }));
+      },
+
+      // Color（standard 限定 UI。描画は mediaColor.ts / mediaColorRenderer.ts）
+      updateColorAdjust: (id, patch) => {
+        set((state) => ({
+          mediaItems: state.mediaItems.map((item) =>
+            item.id === id
+              ? { ...item, colorAdjust: normalizeMediaColorAdjust({ ...resolveMediaColorAdjust(item.colorAdjust), ...patch }) }
+              : item
+          ),
+        }));
+      },
+
+      applyColorMatch: (id, match, adjust) => {
+        const normalizedMatch = normalizeMediaColorMatch(match);
+        const normalizedAdjust = normalizeMediaColorAdjust(adjust);
+        set((state) => ({
+          mediaItems: state.mediaItems.map((item) =>
+            item.id === id ? { ...item, colorMatch: normalizedMatch, colorAdjust: normalizedAdjust } : item
+          ),
+        }));
+      },
+
+      updateColorMatchStrength: (id, strength) => {
+        set((state) => ({
+          mediaItems: state.mediaItems.map((item) => {
+            if (item.id !== id) return item;
+            const current = normalizeMediaColorMatch(item.colorMatch);
+            if (!current) return item;
+            return { ...item, colorMatch: { ...current, strength: normalizeMediaColorMatchStrength(strength) } };
+          }),
+        }));
+      },
+
+      clearColorMatch: (id) => {
+        set((state) => ({
+          mediaItems: state.mediaItems.map((item) =>
+            item.id === id ? { ...item, colorMatch: null } : item
+          ),
+        }));
+      },
+
+      resetColor: (id) => {
+        set((state) => ({
+          mediaItems: state.mediaItems.map((item) =>
+            item.id === id ? { ...item, colorAdjust: undefined, colorMatch: null } : item
           ),
         }));
       },

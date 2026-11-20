@@ -25,7 +25,7 @@ import {
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
-import type { MediaItem, MediaZoomDirection, SpeedBadgeLabelStyle, VideoPlaybackSpeed } from '../../types';
+import type { MediaColorAdjust, MediaItem, MediaZoomDirection, SpeedBadgeLabelStyle, VideoPlaybackSpeed } from '../../types';
 import ClipThumbnail from '../common/ClipThumbnail';
 import ClipFileNameButton from './ClipFileNameButton';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
@@ -85,6 +85,8 @@ import {
 } from '../../utils/mediaZoom';
 import type { MediaComposition, MediaMotionPoint } from '../../utils/mediaMotion';
 import ClipCompositionPanel from './ClipCompositionPanel';
+import ClipColorPanel, { type ColorSnapshot } from './ClipColorPanel';
+import { hasMediaColorSettings } from '../../utils/mediaColor';
 
 import { MEDIA_VOLUME_MAX } from '../../utils/mediaVolume';
 
@@ -137,6 +139,17 @@ export interface ClipItemProps {
   /** クリップを 90 度単位で時計回りに回転（0→90→180→270→0） */
   onRotate?: () => void;
   onUpdateBlur?: (value: number) => void;
+  /** 色合いの手動調整（standard 限定。未指定なら「色合い」欄を出さない） */
+  onUpdateColorAdjust?: (patch: Partial<MediaColorAdjust>) => void;
+  /** 前（上）の素材に色を合わせる（先頭カードでは未指定）。結果を入れたら true */
+  onMatchColorToPrevious?: () => Promise<boolean | void> | boolean | void;
+  /** 次（下）の素材に色を合わせる（最後のカードでは未指定）。結果を入れたら true */
+  onMatchColorToNext?: () => Promise<boolean | void> | boolean | void;
+  /** 自動で合わせる前の色合いへ戻す */
+  onRestoreColor?: (snapshot: ColorSnapshot) => void;
+  onUpdateColorMatchStrength?: (strength: number) => void;
+  onClearColorMatch?: () => void;
+  onResetColor?: () => void;
   onResetSetting: (type: MediaTransformResetKind) => void;
   onUpdateVolume: (value: number) => void;
   onToggleMute: () => void;
@@ -293,6 +306,13 @@ const ClipItem: React.FC<ClipItemProps> = ({
   onUpdatePosition,
   onRotate,
   onUpdateBlur,
+  onUpdateColorAdjust,
+  onMatchColorToPrevious,
+  onMatchColorToNext,
+  onRestoreColor,
+  onUpdateColorMatchStrength,
+  onClearColorMatch,
+  onResetColor,
   onResetSetting,
   onUpdateVolume,
   onToggleMute,
@@ -320,6 +340,8 @@ const ClipItem: React.FC<ClipItemProps> = ({
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   /** 動画の音量・再生速度（既定は閉じる。再生速度が無い画面は音量だけ） */
   const [isVolumeSpeedOpen, setIsVolumeSpeedOpen] = useState(false);
+  const [isColorOpen, setIsColorOpen] = useState(false);
+  const noopColor = useCallback(() => {}, []);
   const canvasWidth = useCanvasStore((s) => s.width);
   const canvasHeight = useCanvasStore((s) => s.height);
   const isDisabled = isClipsLocked || v.isLocked;
@@ -1184,6 +1206,37 @@ const ClipItem: React.FC<ClipItemProps> = ({
               )}
               </div>
             )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 色合い（アコーディオン・standard 限定）: 隣の素材に合わせる自動補正と手動の色調整。使う頻度が低いので一番下 */}
+      {onUpdateColorAdjust && (
+        <div className="mb-2 rounded-lg border border-gray-700/70 bg-gray-900/30">
+          <SettingsAccordionHeader
+            title={hasMediaColorSettings(v) ? '色合い（調整中）' : '色合い'}
+            isOpen={isColorOpen}
+            disabled={isDisabled}
+            controlsId={`clip-color-settings-${v.id}`}
+            onToggle={() => setIsColorOpen(!isColorOpen)}
+          />
+          {isColorOpen && (
+            <div
+              id={`clip-color-settings-${v.id}`}
+              className="px-2 pb-2 border-t border-gray-700/60 pt-2"
+            >
+              <ClipColorPanel
+                item={v}
+                isDisabled={isDisabled}
+                onUpdateAdjust={onUpdateColorAdjust}
+                onMatchPrevious={onMatchColorToPrevious}
+                onMatchNext={onMatchColorToNext}
+                onRestore={onRestoreColor}
+                onUpdateMatchStrength={onUpdateColorMatchStrength ?? noopColor}
+                onClearMatch={onClearColorMatch ?? noopColor}
+                onReset={onResetColor ?? noopColor}
+              />
             </div>
           )}
         </div>

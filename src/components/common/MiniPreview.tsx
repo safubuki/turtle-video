@@ -14,6 +14,8 @@ import {
   resolveMediaBlurPixels,
   resolveRotatedFitDimensions,
 } from '../../utils/canvas';
+import { resolveMediaColorGrade } from '../../utils/mediaColor';
+import { prepareColorGradedSource } from '../../utils/mediaColorRenderer';
 import { resolveMediaScaleFactor, mediaScaleToPercent } from '../../utils/mediaZoom';
 import { resolveMediaPosition } from '../../utils/mediaPan';
 import { isVideoHeldByBackgroundCapture } from '../../utils/backgroundCaptureVideoHold';
@@ -111,15 +113,20 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement, localTime
         miniCanvasWidth,
         miniCanvasHeight,
       );
+      // 色合いも本プレビューと同じに掛ける（ここで作った描画元はこの後すぐ描く）
+      const canDrawFrame = currentItem.type !== 'video' || (mediaElement as HTMLVideoElement).readyState >= 2;
+      const gradedSource = canDrawFrame
+        ? prepareColorGradedSource(mediaElement, elemW, elemH, resolveMediaColorGrade(currentItem))
+        : mediaElement;
       const drawSource = blurPixels > 0
         ? prepareUniformMediaBlurSource(
-            mediaElement,
+            gradedSource,
             elemW,
             elemH,
             blurPixels,
             renderScale,
           )
-        : mediaElement;
+        : gradedSource;
 
       // トランスフォーム適用
       ctx.save();
