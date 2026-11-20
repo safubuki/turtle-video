@@ -277,7 +277,7 @@ describe('SectionHelpModal', () => {
 
     // 子アコーディオン
     const subAccordionBtn = screen.getByRole('button', {
-      name: /位置・サイズ・回転・ぼかし調整/,
+      name: /サイズ・位置・動き/,
     });
     expect(subAccordionBtn).toHaveAttribute('aria-expanded', 'false');
 

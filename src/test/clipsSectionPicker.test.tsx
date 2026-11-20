@@ -136,6 +136,8 @@ describe('ClipsSection media picker routing', () => {
       onUpdateMediaBlur,
     });
 
+    // ぼかしは「フェード・ぼかし」欄
+    fireEvent.click(screen.getByRole('button', { name: 'フェード・ぼかし' }));
     expect(screen.getByText('ぼかし: 4 px')).toBeInTheDocument();
     fireEvent.change(screen.getByRole('slider', { name: 'ぼかし強度' }), {
       target: { value: '12' },

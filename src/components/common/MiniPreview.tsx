@@ -15,6 +15,7 @@ import {
   resolveRotatedFitDimensions,
 } from '../../utils/canvas';
 import { resolveMediaScaleFactor, mediaScaleToPercent } from '../../utils/mediaZoom';
+import { resolveMediaPosition } from '../../utils/mediaPan';
 import { isVideoHeldByBackgroundCapture } from '../../utils/backgroundCaptureVideoHold';
 
 interface MiniPreviewProps {
@@ -125,8 +126,9 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement, localTime
       ctx.filter = 'none';
 
       // 位置計算: プレビュー比率に合わせて縮小
-      const userX = currentItem.positionX * previewRatio;
-      const userY = currentItem.positionY * previewRatio;
+      const currentPosition = resolveMediaPosition(currentItem, localTimeRef.current);
+      const userX = currentPosition.x * previewRatio;
+      const userY = currentPosition.y * previewRatio;
 
       // 中心基準で移動・回転・スケール（メインプレビューと同じ順序）
       ctx.translate(miniCanvasWidth / 2 + userX, miniCanvasHeight / 2 + userY);
@@ -277,6 +279,8 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement, localTime
   // }, [item.scale, item.positionX, item.positionY, renderFrame]);
 
   const zoomPercent = mediaScaleToPercent(resolveMediaScaleFactor(item, localTime));
+  // 移動（パン）中はその時刻の位置を出す（ズームの拡大率と同じ時刻）
+  const displayPosition = resolveMediaPosition(item, localTime);
 
   // 親（トランスフォームパネル）の先頭に置かれ、間隔は親の space-y-2 が付ける。
   // 以前はスライダーの下（末尾）だったため mt-2 で間を空けていたが、
@@ -304,7 +308,7 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement, localTime
               （保存値は丸めない。あくまで表示上の見やすさのため） */}
           <span>
             {(item.rotation || 0) !== 0 ? `${item.rotation}° ` : ''}
-            X: {Math.round(item.positionX || 0)} Y: {Math.round(item.positionY || 0)}
+            X: {Math.round(displayPosition.x)} Y: {Math.round(displayPosition.y)}
           </span>
         </div>
       </div>

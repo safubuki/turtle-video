@@ -272,7 +272,7 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
         {/* 開始時間 */}
         <NumericSliderField
           label="開始:"
-          labelClassName="text-gray-400 w-8 shrink-0"
+          labelClassName="text-gray-400 w-9 shrink-0"
           ariaLabel="キャプションの開始時間"
           min={0}
           max={timeSliderMax}
@@ -289,7 +289,7 @@ const CaptionItem: React.FC<CaptionItemProps> = ({
         {/* 終了時間 */}
         <NumericSliderField
           label="終了:"
-          labelClassName="text-gray-400 w-8 shrink-0"
+          labelClassName="text-gray-400 w-9 shrink-0"
           ariaLabel="キャプションの終了時間"
           min={0}
           max={timeSliderMax}

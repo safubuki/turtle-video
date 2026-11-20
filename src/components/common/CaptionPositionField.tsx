@@ -15,6 +15,7 @@
 import React from 'react';
 import type { CaptionPosition } from '../../types';
 import NumericSliderField from './NumericSliderField';
+import { COMPACT_AXIS_LABEL_CLASS } from './CompactField';
 import {
   CAPTION_POSITION_CUSTOM_DEFAULT,
   clampPositionPercent,
@@ -169,12 +170,14 @@ const CaptionPositionField = React.memo<CaptionPositionFieldProps>(({
       </div>
       {/* カスタム位置入力（キャンバスに対する % / テキスト中心） */}
       {supportsCustom && isCustom && (
-        <div className={`space-y-1.5 ${compact ? 'pl-12 md:pl-[4.5rem]' : 'pl-[4.5rem]'}`}>
+        <div className={`space-y-1 ${compact ? 'pl-12 md:pl-[4.5rem]' : 'pl-[4.5rem]'}`}>
+          {/* 横・縦は 1 文字ラベルで続けて並べる（動画・画像の位置と同じ。向きは下の注記で説明） */}
+          <div className="flex flex-col gap-0.5">
           {(['x', 'y'] as const).map((axis) => (
             <NumericSliderField
               key={axis}
-              label={axis === 'x' ? '横 (右+)' : '縦 (上+)'}
-              labelClassName="w-10 shrink-0 whitespace-nowrap text-gray-400"
+              label={axis === 'x' ? '横' : '縦'}
+              labelClassName={COMPACT_AXIS_LABEL_CLASS}
               min={CENTER_ORIGIN_MIN}
               max={CENTER_ORIGIN_MAX}
               step={1}
@@ -189,6 +192,7 @@ const CaptionPositionField = React.memo<CaptionPositionFieldProps>(({
               inputClassName="w-14 focus:border-yellow-500"
             />
           ))}
+          </div>
           <div className="text-[10px] leading-relaxed text-gray-400 md:text-xs">
             中央が 0。横は右が＋、縦は上が＋（テキスト中心の位置）
           </div>

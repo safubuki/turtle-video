@@ -164,6 +164,8 @@ export function useAutoSave() {
         m.zoomEndScale ?? '',
         m.positionX,
         m.positionY,
+        m.panEndPositionX ?? '',
+        m.panEndPositionY ?? '',
         m.rotation ?? 0,
         m.blur ?? 0,
         m.isTransformOpen,

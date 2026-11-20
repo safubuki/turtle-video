@@ -126,6 +126,7 @@ import { createRenderedFrameTracker } from '../../../utils/exportDiagnostics';
 import { createExportFrameProfiler } from '../../../utils/exportFrameProfiler';
 import { resolveMediaBaseScale } from '../../../stores/canvasStore';
 import { resolveMediaScaleFactor, resolveMediaZoomEndpointPreview, type MediaZoomEndpointPreview } from '../../../utils/mediaZoom';
+import { resolveMediaPosition } from '../../../utils/mediaPan';
 import {
   normalizeRotation,
   prepareUniformMediaBlurSource,
@@ -2252,6 +2253,8 @@ export function usePreviewEngine({
 
         let holdFrame = false;
         let shouldBlackoutFadeTail = false;
+        // 停止中の描き直しで黒クリアしてよいか（表示中クリップの絵をこのフレームで描けるか）
+        let isActiveFrameDrawableNow = false;
         let shouldSkipAndroidPreviewActiveDraw = false;
         let shouldPlayAndroidPreviewActiveVideoAfterDraw = false;
         // fade 中であるかは canvas clear 制御 (line ~1530 の shouldSuppressEndClear) でも参照するため、
@@ -2532,6 +2535,7 @@ export function usePreviewEngine({
                 activeEl.videoWidth > 0 &&
                 activeEl.videoHeight > 0 &&
                 !activeEl.seeking;
+              isActiveFrameDrawableNow = hasFrame;
 
               const shouldHoldForVideoEnd = shouldHoldVideoFrameAtClipEnd({
                 clipLocalTime: localTime,
@@ -2642,6 +2646,7 @@ export function usePreviewEngine({
               activeEl.complete &&
               activeEl.naturalWidth > 0 &&
               activeEl.naturalHeight > 0;
+            isActiveFrameDrawableNow = isImageReady;
             if (!isImageReady) {
               holdFrame = true;
             }
@@ -2689,6 +2694,11 @@ export function usePreviewEngine({
           guardNearEnd: shouldGuardNearEnd,
           guardAfterFinalize: shouldGuardAfterFinalize,
           hasActiveItem: activeIndex !== -1,
+          redrawStoppedDrawableFrame:
+            !_isExporting
+            && !isActivePlaying
+            && !isPlayingRef.current
+            && isActiveFrameDrawableNow,
         });
 
         if (shouldClearCanvas) {
@@ -3277,8 +3287,10 @@ export function usePreviewEngine({
                 : isVideo ? videoEl.videoHeight : imgEl.naturalHeight;
               if (elemW && elemH) {
                 const scaleFactor = resolveMediaScaleFactor(conf, zoomPreview?.scaleTime ?? localTime);
-                const userX = conf.positionX || 0;
-                const userY = conf.positionY || 0;
+                // 位置の移動（パン）もズームと同じ時刻・同じ進み方で補間する
+                const userPosition = resolveMediaPosition(conf, zoomPreview?.scaleTime ?? localTime);
+                const userX = userPosition.x;
+                const userY = userPosition.y;
                 const rotationDeg = normalizeRotation(conf.rotation);
 
                 // 90/270 度回転では素材の縦横がキャンバス上で入れ替わるため、
@@ -3606,6 +3618,7 @@ export function usePreviewEngine({
                       : ctx.canvas.height > ctx.canvas.width ? 'cover' : 'contain',
                   });
                   const peerRenderScale = peerBase * resolveMediaScaleFactor(conf, overlapPeerLocalTime);
+                  const peerPosition = resolveMediaPosition(conf, overlapPeerLocalTime);
                   const peerBlurPixels = resolveMediaBlurPixels(
                     conf.blur,
                     ctx.canvas.width,
@@ -3629,13 +3642,13 @@ export function usePreviewEngine({
                     : 'none';
                   if (peerRegion) {
                     ctx.translate(
-                      peerRegion.fitRect.x + peerRegion.fitRect.width / 2 + (conf.positionX || 0),
-                      peerRegion.fitRect.y + peerRegion.fitRect.height / 2 + (conf.positionY || 0),
+                      peerRegion.fitRect.x + peerRegion.fitRect.width / 2 + peerPosition.x,
+                      peerRegion.fitRect.y + peerRegion.fitRect.height / 2 + peerPosition.y,
                     );
                   } else {
                     ctx.translate(
-                      ctx.canvas.width / 2 + (conf.positionX || 0),
-                      ctx.canvas.height / 2 + (conf.positionY || 0),
+                      ctx.canvas.width / 2 + peerPosition.x,
+                      ctx.canvas.height / 2 + peerPosition.y,
                     );
                   }
                   if (peerRotationDeg !== 0) {

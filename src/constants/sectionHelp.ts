@@ -623,40 +623,62 @@ export function getSectionHelpContent(
         ]
       },
       {
-        "title": "位置・サイズ・回転・ぼかし調整",
+        "title": "サイズ・位置・動き",
         "category": "動画・画像カードの設定",
         "isSubAccordion": true,
-        "description": "クリップごとに映像の拡大縮小、配置位置、回転、背景ぼかしを調整します。",
+        "description": "映像の大きさ・位置と、表示中の動き（ズーム・移動）を1か所で設定します。サイズ・横・縦のスライダーは1組だけで、「動かさない」ならクリップ全体、「動かす」なら選んだ時点（開始／終了）の構図を変えます。",
         "bullets": [
           {
-            "text": "位置・サイズ: スライダーで拡大率や横・縦の配置を調整（中央が0、-100〜+100%）。",
-            "visuals": [
-              "scale_chip",
-              "position_chip"
-            ]
-          },
-          {
-            "text": "黒帯除去: 102.5%に拡大して上下左右の黒帯をカットします。",
+            "text": "黒帯除去: 102.5%に拡大して上下左右の黒帯をカットします（欄の先頭にあります）。",
             "visuals": [
               "blackbar_toggle_chip"
             ]
           },
           {
-            "text": "90°回転: タップするたびに 0°→90°→180°→270° と切り替わります。",
+            "text": "サイズ・位置: サイズは50〜600%（0.1%刻み）。位置の横・縦は中央が0で−100〜+100%（右・上が＋）です。値は数値欄で確認・入力できます。",
+            "visuals": [
+              "scale_chip",
+              "position_chip"
+            ]
+          },
+          "動き（ズーム・位置の移動）「動かさない」（最初はこちら）: クリップ全体を同じサイズ・位置で表示します。拡大や位置合わせだけならこのままで使えます。そのカードを表示中なら、今のプレビュー位置のまま確認できます。",
+          "「動かす」を選ぶと「編集する時点」が出ます。表示時間のあいだに開始（先頭）の構図から終了（末尾）の構図へまっすぐ変化します（サイズが変わればズーム、位置が変われば移動、両方同時もできます）。",
+          "編集する時点: 開始（先頭）か終了（末尾）を選び、上のサイズ・位置のスライダーでその時点の構図を決めます。選んだ時点の絵を本プレビューとミニプレビューで止めて表示します。「動かす」を押した直後は終了（末尾）が選ばれています。動きを止めるときは「動かさない」を押します（もう一度「動かす」にすると直前の終了の構図に戻ります）。",
+          "例: ズームインは「動かす」→「終了（末尾）」でサイズを大きく（例 120%）、ズームアウトは小さくします。見せたい場所へ寄っていくには、終了のサイズを150%にし、横・縦をその場所へずらします。",
+          "前の素材の最後の構図を引き継ぐ: 直前カードの最後のサイズ・位置を、このカードの開始にします（動かしていれば終了は今のまま、動かしていなければその構図で表示します）。分割した動画の動きを続けるときに便利です。",
+          "Android/PCの動画は「現在位置で分割」で、分割地点のサイズ・位置を前半の終了・後半の開始へ引き継ぎます。「続きを追加コピー」は終了の構図で始まり、そのまま表示します。",
+          {
+            "text": "リセット: 「サイズ」「位置」の見出しの右にあるくるくるアイコンで戻します（位置は横・縦をまとめて戻します。横だけ戻すなら数値欄に0を入れます）。動かさないときは100%・中央へ、動かすときは開始なら100%・中央、終了なら開始と同じへ戻します。「100%・中央に戻す」はサイズ・位置・動きをまとめて初期状態にします。",
+            "visuals": [
+              "reset_button"
+            ]
+          },
+          {
+            "text": "90°回転: 欄の一番下にあります。タップするたびに 0°→90°→180°→270° と切り替わります。",
             "visuals": [
               "rotate_button"
+            ]
+          }
+        ],
+        "visuals": []
+      },
+      {
+        "title": "フェード・ぼかし",
+        "category": "動画・画像カードの設定",
+        "isSubAccordion": true,
+        "description": "映像の見た目の効果です。黒から現れる・黒へ消えるフェードと、ぼかしを設定します。",
+        "bullets": [
+          {
+            "text": "フェードイン/アウト: チェックを入れて0.5秒・1秒・2秒から選択します。",
+            "visuals": [
+              "fade_in_checkbox",
+              "fade_out_checkbox"
             ]
           },
           {
             "text": "ぼかし: 0〜30pxで背景素材などを柔らかく見せます。",
             "visuals": [
               "blur_chip"
-            ]
-          },
-          {
-            "text": "リセット: くるくるアイコンで項目ごとに初期値へ戻せます。",
-            "visuals": [
-              "reset_button"
             ]
           }
         ],
@@ -684,30 +706,6 @@ export function getSectionHelpContent(
         "visuals": [
           "speed_badge_presets"
         ]
-      },
-      {
-        "title": "フェード・ズームイン/アウト",
-        "category": "動画・画像カードの設定",
-        "isSubAccordion": true,
-        "description": "フェードと、表示時間いっぱいのズームです。開始・終了は画面に適用する実効倍率を％で入力します。",
-        "bullets": [
-          {
-            "text": "フェードイン/アウト: チェックを入れて0.5秒・1秒・2秒から選択します。",
-            "visuals": [
-              "fade_in_checkbox",
-              "fade_out_checkbox"
-            ]
-          },
-          "ズーム: なし・ズームイン・ズームアウト。開始・終了を50%〜600%（0.1%刻み）で入力します。130と入力すれば130%。同じ倍率にすれば固定できます。表示時間いっぱいで変化し、専用の時刻はありません。",
-          "開始を操作するとその素材の先頭、終了を操作すると末尾を停止プレビューします。確認ボタンでも切り替えられます。確認中は素材のフェードやカード間の切り替え効果で暗くしません。再生や通常のシークで通常表示へ戻ります。",
-          "開始倍率は位置・サイズの拡大率と同じ値です。ズーム中にサイズを変えると開始だけが変わり、終了は保ちます。ズームなしなら両端が連動します。位置・サイズでサイズを変えるときは、そのカードを表示中なら今のプレビュー位置のまま確認できます（別のカードを表示中なら、そのカードの先頭を表示します）。",
-          "くるくる矢印: 開始は100%へ、終了は開始と同じ倍率へ戻します。「開始倍率で固定」や「なし」は、今の開始倍率を保ってズームの動きだけを止めます。開始300%なら終了も300%になります。",
-          "100%にリセット: 開始・終了と位置・サイズの拡大率をまとめて100%へ戻し、先頭をプレビューします。位置・回転・ぼかしなど、拡大率以外の設定は保ちます。",
-          "前の素材の終了倍率を引き継ぐ: 直前カードの最後の実効倍率で固定します。コピーした直後にも使えます。位置・回転は今のカードのままです。",
-          "Android/PCの動画は「現在位置で分割」で、分割地点の倍率を前半の終了・後半の開始へ引き継ぎます。「続きを追加コピー」は終了倍率で固定します。",
-          "拡大率: この欄と位置・サイズは同じ値です。黒帯除去は位置・サイズだけです。"
-        ],
-        "visuals": []
       }
     ]
   },
@@ -1748,7 +1746,7 @@ export function getSectionHelpContent(
     const mainFeatures = content.app.items.find((item) => item.title === '主要な機能');
     if (mainFeatures) {
       mainFeatures.bullets = [
-        '動画・画像: 追加、並び替え、トリミング、位置・サイズ調整',
+        '動画・画像: 追加、並び替え、トリミング、サイズ・位置・動き',
         '音声: BGM、AI／音声ナレーション',
         '文字: キャプション、一括・個別設定',
         '仕上げ: プレビュー、キャプチャ、動画ファイル作成',
@@ -1784,15 +1782,26 @@ export function getSectionHelpContent(
       volumeSpeed.visuals = [];
     }
 
-    const clipTransform = content.clips.items.find((item) => item.title === '位置・サイズ・回転・ぼかし調整');
+    // iPhone / iPad 版には回転・ぼかし・動画の分割が無い
+    const clipTransform = content.clips.items.find((item) => item.title === 'サイズ・位置・動き');
     if (clipTransform) {
-      clipTransform.title = '位置・サイズ調整';
-      clipTransform.facts = clipTransform.facts?.filter(
-        (fact) => fact.label !== '回転' && fact.label !== 'ぼかし'
-      );
+      clipTransform.bullets = clipTransform.bullets?.filter((bullet) => {
+        const text = typeof bullet === 'string' ? bullet : bullet.text;
+        return !text.startsWith('90°回転') && !text.startsWith('Android/PCの動画は');
+      });
       clipTransform.visuals = clipTransform.visuals?.filter(
         (visual) => visual !== 'rotate_button' && visual !== 'blur_chip'
       );
+    }
+
+    const clipLook = content.clips.items.find((item) => item.title === 'フェード・ぼかし');
+    if (clipLook) {
+      clipLook.title = 'フェード';
+      clipLook.description = '黒から現れる・黒へ消えるフェードを設定します。';
+      clipLook.bullets = clipLook.bullets?.filter((bullet) => {
+        const text = typeof bullet === 'string' ? bullet : bullet.text;
+        return !text.startsWith('ぼかし');
+      });
     }
 
     const captionStyle = content.caption.items.find(

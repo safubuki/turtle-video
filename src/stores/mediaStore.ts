@@ -56,6 +56,22 @@ import {
   createMediaZoomHoldPatch,
   type MediaTransformResetKind,
 } from '../utils/mediaZoom';
+import {
+  resolveMediaPanRange,
+  resolveMediaPosition,
+  createMediaPanRangePatch,
+  createMediaPanHoldPatch,
+  createMediaPanEndpointPatch,
+} from '../utils/mediaPan';
+import {
+  createDefaultCompositionPatch,
+  createInheritCompositionPatch,
+  createMediaMotionEndPatch,
+  createMediaMotionPointPatch,
+  resolvePreviousComposition,
+  type MediaComposition,
+  type MediaMotionPoint,
+} from '../utils/mediaMotion';
 import { useLogStore } from './logStore';
 
 export type ProjectPosterMode = 'auto' | 'manual';
@@ -146,6 +162,8 @@ interface MediaState {
   /** 表示時間内の現在位置で動画を分割。両端の倍率を補間し総尺を維持する。 */
   splitMediaItem: (id: string, localTimeSec: number) => void;
   inheritPreviousZoom: (id: string) => void;
+  /** 直前カードの終了位置（移動の到達点）で固定する */
+  inheritPreviousPan: (id: string) => void;
   removeMediaItem: (id: string) => void;
   moveMediaItem: (index: number, direction: 'up' | 'down') => void;
   updateMediaItem: (id: string, updates: Partial<MediaItem>) => void;
@@ -197,6 +215,20 @@ interface MediaState {
   updateZoomAmount: (id: string, amount: number) => void;
   updateZoomEndpoint: (id: string, endpoint: 'start' | 'end', scale: number) => void;
   updatePosition: (id: string, axis: 'x' | 'y', value: number) => void;
+  /**
+   * 位置の移動（パン）の端点を 1 軸だけ変える（px）。開始は positionX/Y と同じ。
+   * 固定中に終了を変えると、開始位置から動き始める。開始＝終了になれば固定へ戻る。
+   */
+  updatePanEndpoint: (id: string, endpoint: 'start' | 'end', axis: 'x' | 'y', value: number) => void;
+  /**
+   * 「サイズ・位置・動き」: 開始か終了の一方の構図（サイズ・横・縦の一部）を変える。
+   * もう一方は今の値のまま保つ（動かす欄での編集）。
+   */
+  updateMotionPoint: (id: string, point: MediaMotionPoint, patch: Partial<MediaComposition>) => void;
+  /** 終了の構図を指定する。null なら開始と同じにして動きを止める */
+  setMotionEnd: (id: string, end: MediaComposition | null) => void;
+  /** 直前カードの最後の構図を引き継ぐ（動いていれば開始へ、動いていなければ全体を固定） */
+  inheritPreviousComposition: (id: string) => void;
   /** クリップの回転を 90 度単位で1段階進める（0→90→180→270→0 の巡回） */
   rotateClip: (id: string) => void;
   /** クリップ単位のぼかし強度を更新（0〜30px @1080p基準） */
@@ -413,6 +445,8 @@ export const useMediaStore = create<MediaState>()(
             // 並べて比較のペアの相手を入れ替えないよう、続きクリップへは引き継がない
             splitCompareToNext: null,
             ...createMediaZoomHoldPatch(source),
+            // 続きは前のカードの到達位置から始めて止まる（ズームと同じく末尾で固定）
+            ...createMediaPanHoldPatch(source),
           };
           useLogStore.getState().info('MEDIA', '続きクリップを追加', {
             sourceId: source.id,
@@ -780,6 +814,8 @@ export const useMediaStore = create<MediaState>()(
           if (splitTime == null) return state;
           const range = resolveMediaZoomRange(source);
           const splitScale = resolveMediaScaleFactor(source, localTimeSec);
+          const panRange = resolveMediaPanRange(source);
+          const splitPosition = resolveMediaPosition(source, localTimeSec);
           const makeThumbnail = (trimStart: number, trimEnd: number) => {
             const { thumbnailMode, thumbnailSourceTime } = resolveThumbnailAfterTrimChange({
               mode: source.thumbnailMode ?? 'auto',
@@ -798,6 +834,7 @@ export const useMediaStore = create<MediaState>()(
             splitCompareToNext: null,
             ...makeThumbnail(source.trimStart, splitTime),
             ...createMediaZoomRangePatch(range.start, splitScale),
+            ...createMediaPanRangePatch(panRange.start, splitPosition),
           };
           const second: MediaItem = {
             ...source,
@@ -820,6 +857,7 @@ export const useMediaStore = create<MediaState>()(
             isTransformOpen: false,
             ...makeThumbnail(splitTime, source.trimEnd),
             ...createMediaZoomRangePatch(splitScale, range.end),
+            ...createMediaPanRangePatch(splitPosition, panRange.end),
           };
           const updated = [...state.mediaItems.slice(0, index), first, second, ...state.mediaItems.slice(index + 1)];
           const totalDuration = calculateTotalDuration(updated);
@@ -836,6 +874,15 @@ export const useMediaStore = create<MediaState>()(
           const index = state.mediaItems.findIndex((item) => item.id === id);
           if (index <= 0 || state.isClipsLocked || state.mediaItems[index].isLocked) return state;
           const patch = createMediaZoomHoldPatch(state.mediaItems[index - 1]);
+          return { mediaItems: state.mediaItems.map((item, i) => i === index ? { ...item, ...patch } : item) };
+        });
+      },
+
+      inheritPreviousPan: (id) => {
+        set((state) => {
+          const index = state.mediaItems.findIndex((item) => item.id === id);
+          if (index <= 0 || state.isClipsLocked || state.mediaItems[index].isLocked) return state;
+          const patch = createMediaPanHoldPatch(state.mediaItems[index - 1]);
           return { mediaItems: state.mediaItems.map((item, i) => i === index ? { ...item, ...patch } : item) };
         });
       },
@@ -908,6 +955,47 @@ export const useMediaStore = create<MediaState>()(
         }));
       },
 
+      updatePanEndpoint: (id, endpoint, axis, value) => {
+        if (!Number.isFinite(value)) return;
+        set((state) => ({
+          mediaItems: state.mediaItems.map((item) => {
+            if (item.id !== id || item.isLocked || state.isClipsLocked) return item;
+            return { ...item, ...createMediaPanEndpointPatch(item, endpoint, axis, value) };
+          }),
+        }));
+      },
+
+      updateMotionPoint: (id, point, patch) => {
+        set((state) => ({
+          mediaItems: state.mediaItems.map((item) => {
+            if (item.id !== id || item.isLocked || state.isClipsLocked) return item;
+            return { ...item, ...createMediaMotionPointPatch(item, point, patch) };
+          }),
+        }));
+      },
+
+      setMotionEnd: (id, end) => {
+        set((state) => ({
+          mediaItems: state.mediaItems.map((item) => {
+            if (item.id !== id || item.isLocked || state.isClipsLocked) return item;
+            return { ...item, ...createMediaMotionEndPatch(item, end) };
+          }),
+        }));
+      },
+
+      inheritPreviousComposition: (id) => {
+        set((state) => {
+          const index = state.mediaItems.findIndex((item) => item.id === id);
+          if (index <= 0 || state.isClipsLocked || state.mediaItems[index].isLocked) return state;
+          const previousEnd = resolvePreviousComposition(state.mediaItems[index - 1]);
+          return {
+            mediaItems: state.mediaItems.map((item, i) => (
+              i === index ? { ...item, ...createInheritCompositionPatch(item, previousEnd) } : item
+            )),
+          };
+        });
+      },
+
       // Transform - Rotation（90 度単位で1段階進める。0→90→180→270→0）
       rotateClip: (id) => {
         set((state) => ({
@@ -941,6 +1029,14 @@ export const useMediaStore = create<MediaState>()(
             }
             if (type === 'zoom-default') {
               return { ...item, ...createMediaZoomRangePatch(1, 1) };
+            }
+            if (type === 'composition-default') {
+              return { ...item, ...createDefaultCompositionPatch() };
+            }
+            if (type === 'pan') {
+              // 開始位置で固定（移動を止める）
+              const { start } = resolveMediaPanRange(item);
+              return { ...item, ...createMediaPanRangePatch(start, start) };
             }
             if (type === 'x') return { ...item, positionX: 0 };
             if (type === 'y') return { ...item, positionY: 0 };

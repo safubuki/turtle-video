@@ -45,6 +45,15 @@ export interface PreviewCanvasClearInput {
    * true なら終端ガードよりクリアを優先し、前フレームの残像を残さない。
    */
   hasActiveItem: boolean;
+  /**
+   * 停止中（再生・書き出し中でない）で、このフレームに表示中クリップの絵をすぐ描ける。
+   * true なら holdFrame より黒クリアを優先する。
+   * 動画の末尾付近は再生中の黒点滅対策で前フレームを保持（holdFrame）するが、停止中に
+   * 末尾確認のまま位置・拡大を変えると、保持した前フレームの上へ新しい位置で重ね描きされ、
+   * ずらした背面に画像の端が何重にも残っていた（移動の終了位置の確認で顕在化）。
+   * 描ける絵があるなら黒から描き直してよい。描けない（シーク中など）なら従来どおり保持する。
+   */
+  redrawStoppedDrawableFrame?: boolean;
 }
 
 /**
@@ -63,6 +72,7 @@ export function shouldClearPreviewCanvas(input: PreviewCanvasClearInput): boolea
     guardNearEnd,
     guardAfterFinalize,
     hasActiveItem,
+    redrawStoppedDrawableFrame = false,
   } = input;
 
   // hold 系の抑止は最優先（前フレーム保持が目的なのでクリアしてはいけない）
@@ -72,6 +82,11 @@ export function shouldClearPreviewCanvas(input: PreviewCanvasClearInput): boolea
 
   // 先頭付近の強制クリアと fade tail の黒落としは従来どおり無条件に通す
   if (forceStartClear || blackoutFadeTail) {
+    return true;
+  }
+
+  // 停止中で今の絵を描けるなら、保持より黒からの描き直しを優先する（重ね描きの残像を残さない）
+  if (redrawStoppedDrawableFrame && hasActiveItem && !holdAtTimelineEnd) {
     return true;
   }
 

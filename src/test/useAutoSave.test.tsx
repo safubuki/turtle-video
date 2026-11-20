@@ -669,6 +669,9 @@ describe('useAutoSave', () => {
       { zoomAmount: 1.3 },
       { zoomStartScale: 1.1, zoomEndScale: 1.3 },
       { zoomEndScale: 1.4 },
+      // 位置の移動（パン）の終了位置だけの変更も保存する
+      { panEndPositionX: 120, panEndPositionY: -40 },
+      { panEndPositionX: 160 },
     ];
     for (const change of zoomChanges) {
       act(() => useMediaStore.getState().updateMediaItem('video-1', change));

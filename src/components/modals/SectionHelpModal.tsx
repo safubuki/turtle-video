@@ -2309,8 +2309,8 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
         </span>
       );
     }
-    // 14. 位置・サイズ・回転
-    if (item.title.includes('位置・サイズ・回転')) {
+    // 14. サイズ・位置・動き
+    if (item.title.includes('サイズ・位置・動き')) {
       return (
         <span className="inline-flex items-center gap-1 text-gray-400 shrink-0">
           <RotateCw className="w-3 h-3" />

@@ -761,7 +761,7 @@ export function buildAutoProjectPosterContentKey(
     | 'blur'
     | 'playbackSpeed'
     | 'transitionToNext'
-  > & Partial<Pick<MediaItem, 'splitCompareToNext'>>>,
+  > & Partial<Pick<MediaItem, 'splitCompareToNext' | 'panEndPositionX' | 'panEndPositionY'>>>,
   totalDuration: number,
   aspectRatio: string,
 ): string {
@@ -785,6 +785,8 @@ export function buildAutoProjectPosterContentKey(
       item.zoomEndScale ?? '',
       item.positionX,
       item.positionY,
+      item.panEndPositionX ?? '',
+      item.panEndPositionY ?? '',
       item.rotation ?? 0,
       item.blur ?? 0,
       item.playbackSpeed ?? 1,

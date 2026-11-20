@@ -64,6 +64,8 @@ export function createAndroidPreviewCacheKey(
         : null,
       positionX: item.positionX,
       positionY: item.positionY,
+      panEndPositionX: item.panEndPositionX ?? null,
+      panEndPositionY: item.panEndPositionY ?? null,
       rotation: item.rotation ?? 0,
       blur: item.blur ?? 0,
       playbackSpeed: item.playbackSpeed ?? 1,

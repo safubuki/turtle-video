@@ -16,6 +16,7 @@ import {
 import { captureCaptionFreeSnapshot, createCaptionGlyphCanvas, type CaptionFreeSnapshot } from '../../../utils/canvas';
 import { resolveMediaBaseScale } from '../../../stores/canvasStore';
 import { resolveMediaScaleFactor, resolveMediaZoomEndpointPreview, type MediaZoomEndpointPreview } from '../../../utils/mediaZoom';
+import { resolveMediaPosition } from '../../../utils/mediaPan';
 import {
   normalizeRotation,
   prepareUniformMediaBlurSource,
@@ -564,6 +565,8 @@ export function usePreviewEngine({
 
         let holdFrame = false;
         let shouldBlackoutFadeTail = false;
+        // 停止中の描き直しで黒クリアしてよいか（表示中クリップの絵をこのフレームで描けるか）
+        let isActiveFrameDrawableNow = false;
         if (activeId && activeIndex !== -1) {
           const activeItem = currentItems[activeIndex];
           const activeFadeOutDur = activeItem.fadeOutDuration || 1.0;
@@ -661,6 +664,7 @@ export function usePreviewEngine({
                 activeEl.videoWidth > 0 &&
                 activeEl.videoHeight > 0 &&
                 !activeEl.seeking;
+              isActiveFrameDrawableNow = hasFrame;
 
               const shouldHoldForVideoEnd = shouldHoldVideoFrameAtClipEnd({
                 clipLocalTime: localTime,
@@ -711,6 +715,7 @@ export function usePreviewEngine({
               activeEl.complete &&
               activeEl.naturalWidth > 0 &&
               activeEl.naturalHeight > 0;
+            isActiveFrameDrawableNow = isImageReady;
             if (!isImageReady) {
               holdFrame = true;
             }
@@ -749,6 +754,11 @@ export function usePreviewEngine({
           guardNearEnd: shouldGuardNearEnd,
           guardAfterFinalize: shouldGuardAfterFinalize,
           hasActiveItem: activeIndex !== -1,
+          redrawStoppedDrawableFrame:
+            !_isExporting
+            && !isActivePlaying
+            && !isPlayingRef.current
+            && isActiveFrameDrawableNow,
         });
 
         if (shouldClearCanvas) {
@@ -1040,8 +1050,10 @@ export function usePreviewEngine({
               const elemH = isVideo ? videoEl.videoHeight : imgEl.naturalHeight;
               if (elemW && elemH) {
                 const scaleFactor = resolveMediaScaleFactor(conf, zoomPreview?.scaleTime ?? localTime);
-                const userX = conf.positionX || 0;
-                const userY = conf.positionY || 0;
+                // 位置の移動（パン）もズームと同じ時刻・同じ進み方で補間する
+                const userPosition = resolveMediaPosition(conf, zoomPreview?.scaleTime ?? localTime);
+                const userX = userPosition.x;
+                const userY = userPosition.y;
                 const rotationDeg = normalizeRotation(conf.rotation);
 
                 // 90/270 度回転では素材の縦横が入れ替わるため fit 計算には回転後寸法を使う。

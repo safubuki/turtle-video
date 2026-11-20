@@ -11,7 +11,9 @@ export const MAX_MEDIA_ZOOM_AMOUNT = 1.5;
 export const MIN_MEDIA_ZOOM_SCALE = MIN_SCALE;
 export const MAX_MEDIA_ZOOM_SCALE = MAX_SCALE * MAX_MEDIA_ZOOM_AMOUNT;
 
-export type MediaTransformResetKind = 'scale' | 'x' | 'y' | 'rotation' | 'blur' | 'zoom' | 'zoom-default';
+export type MediaTransformResetKind = 'scale' | 'x' | 'y' | 'rotation' | 'blur' | 'zoom' | 'zoom-default' | 'pan'
+  /** サイズ 100%・中央・動きなし（「サイズ・位置・動き」の「100%・中央に戻す」） */
+  | 'composition-default';
 
 export interface MediaZoomSource {
   scale?: number;

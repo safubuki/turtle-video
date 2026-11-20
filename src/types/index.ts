@@ -164,8 +164,15 @@ export interface MediaItem {
   /** 実効開始/終了倍率。両方ある場合は scale×zoomAmount より優先。編集時はscale=開始へ揃える。 */
   zoomStartScale?: number;
   zoomEndScale?: number;
+  /** 位置（px・中心原点）。位置の移動（パン）では開始位置を兼ねる */
   positionX: number;
   positionY: number;
+  /**
+   * 位置の移動（パン）の終了位置（px）。両方が有限値のときだけ、表示時間全体で
+   * positionX/Y からここへ線形に動く（ズームと同じ進み方）。未定義は固定（旧データ互換）。
+   */
+  panEndPositionX?: number;
+  panEndPositionY?: number;
   /** 90度単位の時計回り回転（0 / 90 / 180 / 270）。未定義は 0 とみなす（旧データ後方互換） */
   rotation?: number;
   /** クリップ単位のぼかし強度（0〜30px @1080p基準）。未定義は 0（ぼかしなし） */

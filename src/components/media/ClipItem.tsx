@@ -18,32 +18,20 @@ import {
   Lock,
   Unlock,
   RotateCcw,
-  RotateCw,
   Blend,
-  ZoomIn,
-  Move,
-  Volume2,
-  VolumeX,
-  RefreshCw,
+  Gauge,
   MapPin,
   Split,
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
 import type { MediaItem, MediaZoomDirection, SpeedBadgeLabelStyle, VideoPlaybackSpeed } from '../../types';
-import MiniPreview from '../common/MiniPreview';
-import {
-  CENTER_ORIGIN_MAX,
-  CENTER_ORIGIN_MIN,
-  fromCenterPixels,
-  roundCenterOrigin,
-  toCenterPixels,
-} from '../../utils/centerOriginPosition';
 import ClipThumbnail from '../common/ClipThumbnail';
 import ClipFileNameButton from './ClipFileNameButton';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import PresetFadeDurationField from '../common/PresetFadeDurationField';
 import NumericSliderField from '../common/NumericSliderField';
+import { COMPACT_AXIS_LABEL_CLASS, CompactFieldHeader, CompactMuteToggle } from '../common/CompactField';
 import { useCanvasStore } from '../../stores/canvasStore';
 import {
   canSetVideoTrimFromPreviewPosition,
@@ -68,7 +56,6 @@ import {
   IMAGE_DURATION_STEP,
   MAX_IMAGE_DURATION,
   MIN_IMAGE_DURATION,
-  MIN_SCALE,
 } from '../../constants';
 import {
   VIDEO_PLAYBACK_SPEEDS,
@@ -88,17 +75,16 @@ import {
 } from '../../utils/playbackSpeed';
 import { formatNormalizeAdjustment } from '../../utils/videoAudioLoudness';
 import {
-  MAX_MEDIA_ZOOM_SCALE,
-  MIN_MEDIA_ZOOM_SCALE,
-  mediaScaleToPercent,
-  mediaPercentToScale,
-  resolveMediaZoomRange,
-  normalizeMediaZoomDirection,
   resolveMediaScaleFactor,
   type MediaTransformResetKind,
 } from '../../utils/mediaZoom';
+import type { MediaComposition, MediaMotionPoint } from '../../utils/mediaMotion';
+import ClipCompositionPanel from './ClipCompositionPanel';
 
 import { MEDIA_VOLUME_MAX } from '../../utils/mediaVolume';
+
+/** 音量（0〜300%）・速度バッジ位置（0〜100%）の数値欄の幅（3 桁） */
+const AUDIO_SPEED_INPUT_WIDTH_CHARS = 3;
 export interface ClipItemProps {
   item: MediaItem;
   timelineRange: { start: number; end: number };
@@ -125,15 +111,23 @@ export interface ClipItemProps {
   /** プレビュー現在位置をこの画像の表示終了へ反映 */
   onSetImageEndFromCurrent?: () => void;
   onUpdateScale: (value: string | number) => void;
-  onUpdateZoomDirection: (direction: MediaZoomDirection) => void;
-  onUpdateZoomAmount: (amount: number) => void;
-  onUpdateZoomEndpoint?: (endpoint: 'start' | 'end', scale: number) => void;
+  /** @deprecated 旧ズーム欄の方向ボタン。「サイズ・位置・動き」へ統合したため使わない（互換のため残す） */
+  onUpdateZoomDirection?: (direction: MediaZoomDirection) => void;
+  /** @deprecated 旧ズーム量。使わない（互換のため残す） */
+  onUpdateZoomAmount?: (amount: number) => void;
+  /** その時点（先頭／末尾）を本プレビューで停止表示する（「動かす」の開始・終了の確認） */
   onPreviewZoomEndpoint?: (endpoint: 'start' | 'end') => void;
-  /** 位置・サイズの拡大率を操作した。表示中のカードなら現在位置を保ち、別カードなら先頭を確認する */
+  /** 動かさないときのサイズ操作。表示中のカードなら現在位置を保ち、別カードなら先頭を確認する */
   onPreviewScale?: () => void;
   zoomPreviewEndpoint?: 'start' | 'end';
-  onInheritZoom?: () => void;
-  previousZoomEndScale?: number;
+  /** 「動かす」で、開始か終了の一方の構図（サイズ・横・縦）を変える。未指定なら動きの欄を出さない */
+  onUpdateMotionPoint?: (point: MediaMotionPoint, patch: Partial<MediaComposition>) => void;
+  /** 終了の構図を決める（null で開始と同じ＝動きを止める） */
+  onSetMotionEnd?: (end: MediaComposition | null) => void;
+  /** 前の素材の最後の構図を引き継ぐ */
+  onInheritComposition?: () => void;
+  /** 直前カードの最後の構図 */
+  previousComposition?: MediaComposition;
   onUpdatePosition: (axis: 'x' | 'y', value: string) => void;
   /** クリップを 90 度単位で時計回りに回転（0→90→180→270→0） */
   onRotate?: () => void;
@@ -284,13 +278,13 @@ const ClipItem: React.FC<ClipItemProps> = ({
   onUpdateImageDuration,
   onSetImageEndFromCurrent,
   onUpdateScale,
-  onUpdateZoomDirection,
-  onUpdateZoomEndpoint,
   onPreviewZoomEndpoint,
   onPreviewScale,
   zoomPreviewEndpoint,
-  onInheritZoom,
-  previousZoomEndScale,
+  onUpdateMotionPoint,
+  onSetMotionEnd,
+  onInheritComposition,
+  previousComposition,
   onUpdatePosition,
   onRotate,
   onUpdateBlur,
@@ -398,29 +392,12 @@ const ClipItem: React.FC<ClipItemProps> = ({
     ),
     [v.trimStart, v.originalDuration],
   );
-  const handleScale = useCallback((percent: number) => {
-    onUpdateScale(mediaPercentToScale(percent));
-    onPreviewScale?.();
-  }, [onUpdateScale, onPreviewScale]);
-  const zoomDirection = normalizeMediaZoomDirection(v.zoomDirection);
-  const zoomRange = resolveMediaZoomRange(v);
   const canSplit = !isDisabled && resolveVideoSplitSourceTime(v, currentTime - timelineRange.start) != null;
-  const clipZoomLocalTime = zoomPreviewEndpoint === 'start' ? 0 : zoomPreviewEndpoint === 'end' ? v.duration : Math.min(
+  // プレビュー現在位置のこのクリップ内の時刻（「動かさない」ときのミニプレビュー用）
+  const clipLocalTime = Math.min(
     Math.max(0, currentTime - timelineRange.start),
     Math.max(0, v.duration),
   );
-  // 位置は「中央原点・上が＋」の共通座標系（%）で操作し、保存形式(px)へ変換して渡す。
-  // ロゴ・キャプションと操作感を揃えるための変換層（centerOriginPosition.ts 参照）。
-  const handlePositionX = useCallback(
-    (val: number) => onUpdatePosition('x', String(toCenterPixels(val, canvasWidth, 'x'))),
-    [onUpdatePosition, canvasWidth],
-  );
-  const handlePositionY = useCallback(
-    (val: number) => onUpdatePosition('y', String(toCenterPixels(val, canvasHeight, 'y'))),
-    [onUpdatePosition, canvasHeight],
-  );
-  const displayPositionX = roundCenterOrigin(fromCenterPixels(v.positionX || 0, canvasWidth, 'x'));
-  const displayPositionY = roundCenterOrigin(fromCenterPixels(v.positionY || 0, canvasHeight, 'y'));
   const handleBlur = useCallback((val: number) => onUpdateBlur?.(val), [onUpdateBlur]);
   const handleImageDuration = useCallback((val: number) => onUpdateImageDuration(String(val)), [onUpdateImageDuration]);
   const handleVolume = useCallback((val: number) => onUpdateVolume(val), [onUpdateVolume]);
@@ -689,7 +666,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
               type="button"
               onClick={onSplit}
               disabled={!canSplit}
-              title={canSplit ? 'ズームの動きを保って前半・後半へ分割' : 'この動画の開始・終了から0.1秒以上離れた位置へ移動してください'}
+              title={canSplit ? 'サイズ・位置の動きを保って前半・後半へ分割' : 'この動画の開始・終了から0.1秒以上離れた位置へ移動してください'}
               className="min-h-11 w-full rounded-lg border border-blue-700 bg-blue-900/30 px-2.5 text-xs text-blue-200 hover:bg-blue-900/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:opacity-40"
             >
               現在位置で分割
@@ -791,10 +768,11 @@ const ClipItem: React.FC<ClipItemProps> = ({
         </div>
       )}
 
-      {/* 調整パネル (アコーディオン) */}
+      {/* サイズ・位置・動き（アコーディオン）。サイズ・横・縦の 1 組のスライダーで、
+          動かさないなら全体、動かすなら選んだ時点（開始／終了）の構図を編集する（ClipCompositionPanel） */}
       <div className="mb-2 rounded-lg border border-gray-700/70 bg-gray-900/30">
         <SettingsAccordionHeader
-          title="位置・サイズ・回転・ぼかし調整"
+          title="サイズ・位置・動き"
           isOpen={v.isTransformOpen}
           disabled={isDisabled}
           controlsId={`clip-transform-settings-${v.id}`}
@@ -803,149 +781,98 @@ const ClipItem: React.FC<ClipItemProps> = ({
         {v.isTransformOpen && (
         <div
           id={`clip-transform-settings-${v.id}`}
-          className="px-2 pb-2 space-y-2 border-t border-gray-700/60 pt-2"
+          className="px-2 pb-2 border-t border-gray-700/60 pt-2"
         >
-          {/* ミニプレビュー: 調整結果を確認する場所なので**スライダーより上**に置く。
-              下に置くと、スライダーを操作する指（スマホ）がプレビューを隠してしまい、
-              「動かす → 結果を見る」の往復で視線も上下に振られる。
-              キャプション設定のミニプレビューとも配置を揃える。 */}
-          <MiniPreview item={v} mediaElement={mediaElement} localTime={clipZoomLocalTime} />
+          <ClipCompositionPanel
+            item={v}
+            isDisabled={isDisabled}
+            canvasWidth={canvasWidth}
+            canvasHeight={canvasHeight}
+            mediaElement={mediaElement}
+            currentLocalTime={clipLocalTime}
+            previewEndpoint={zoomPreviewEndpoint}
+            onUpdateScale={onUpdateScale}
+            onUpdatePosition={onUpdatePosition}
+            onUpdateMotionPoint={onUpdateMotionPoint}
+            onSetMotionEnd={onSetMotionEnd}
+            onPreviewEndpoint={onPreviewZoomEndpoint}
+            onPreviewScale={onPreviewScale}
+            onInheritComposition={onInheritComposition}
+            previousComposition={previousComposition}
+            onResetSetting={onResetSetting}
+            onRotate={onRotate}
+          />
+        </div>
+        )}
+      </div>
 
-          {/* 拡大率 */}
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between text-[10px] text-gray-400">
-              <div className="flex items-center gap-1">
-                <ZoomIn className="w-3 h-3" /> 拡大: {mediaScaleToPercent(zoomRange.start)}%
-              </div>
-              <button
-                onClick={() => { onResetSetting('scale'); onPreviewScale?.(); }}
-                disabled={isDisabled}
-                title="リセット"
-                className="hover:text-white disabled:opacity-30"
-              >
-                <RotateCcw className="w-3 h-3" />
-              </button>
-            </div>
-
-            {/* 拡大微調整チェックボックス */}
-            <div className="flex items-center gap-2 px-1 mb-1">
+      {/* フェード・ぼかし（アコーディオン）: 見た目の効果 */}
+      <div className="mb-2 rounded-lg border border-gray-700/70 bg-gray-900/30">
+        <SettingsAccordionHeader
+          title={onUpdateBlur ? 'フェード・ぼかし' : 'フェード'}
+          isOpen={isSettingsOpen}
+          disabled={isDisabled}
+          controlsId={`clip-audio-settings-${v.id}`}
+          onToggle={() => setIsSettingsOpen(!isSettingsOpen)}
+        />
+        {isSettingsOpen && (
+        <div
+          id={`clip-audio-settings-${v.id}`}
+          className="px-2 pb-2 space-y-3 border-t border-gray-700/60 pt-2"
+        >
+          {/* フェード設定 (共通) */}
+          <div className="flex flex-col gap-2 text-xs md:text-sm">
+            <h3 className="font-medium text-gray-300">フェード</h3>
+            {/* フェードイン */}
+            <div className="flex items-center gap-2">
               <label
-                className={`flex items-center gap-1.5 text-[10px] text-gray-300 cursor-pointer hover:text-white transition md:text-xs ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}
+                className={`flex w-28 shrink-0 items-center justify-start gap-1.5 ${isDisabled ? 'opacity-50' : 'cursor-pointer'}`}
               >
                 <input
                   type="checkbox"
-                  checked={Math.abs(zoomRange.start - 1.025) < 0.001}
-                  onChange={(e) => { onUpdateScale(e.target.checked ? 1.025 : 1.0); onPreviewScale?.(); }}
-                  className="rounded accent-blue-500 w-3 h-3"
+                  checked={v.fadeIn}
+                  onChange={(e) => onToggleFadeIn(e.target.checked)}
                   disabled={isDisabled}
+                  className="h-3.5 w-3.5 cursor-pointer rounded accent-blue-500 disabled:cursor-default disabled:opacity-50"
                 />
-                <span>黒帯除去 (102.5%に拡大)</span>
+                <span className="whitespace-nowrap">フェードイン</span>
               </label>
+              <PresetFadeDurationField
+                value={v.fadeInDuration}
+                onChange={onUpdateFadeInDuration}
+                disabled={isDisabled || !v.fadeIn}
+                ariaLabel="動画のフェードイン時間"
+                accentClassName="accent-blue-500"
+              />
             </div>
 
-            <NumericSliderField
-              ariaLabel="拡大率"
-              min={mediaScaleToPercent(MIN_SCALE)}
-              max={mediaScaleToPercent(MAX_MEDIA_ZOOM_SCALE)}
-              step={0.1}
-              stepperStep={2.5}
-              value={mediaScaleToPercent(zoomRange.start)}
-              onChange={handleScale}
-              onInputFocus={onPreviewScale}
-              unit="%"
-              disabled={isDisabled}
-              sliderClassName="flex-1 min-w-0 accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-            />
-            <p className="text-[10px] text-gray-400">ズームの開始倍率と同じ値です。</p>
-          </div>
-
-          {/* 横方向 */}
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between text-[10px] text-gray-400">
-              <div className="flex items-center gap-1">
-                <Move className="w-3 h-3" /> 横 (右+): {displayPositionX}%
-              </div>
-              <button
-                onClick={() => onResetSetting('x')}
-                disabled={isDisabled}
-                title="リセット"
-                className="min-h-11 min-w-11 flex items-center justify-center rounded hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:opacity-30"
+            {/* フェードアウト */}
+            <div className="flex items-center gap-2">
+              <label
+                className={`flex w-28 shrink-0 items-center justify-start gap-1.5 ${isDisabled ? 'opacity-50' : 'cursor-pointer'}`}
               >
-                <RotateCcw className="w-3 h-3" />
-              </button>
+                <input
+                  type="checkbox"
+                  checked={v.fadeOut}
+                  onChange={(e) => onToggleFadeOut(e.target.checked)}
+                  disabled={isDisabled}
+                  className="h-3.5 w-3.5 cursor-pointer rounded accent-blue-500 disabled:cursor-default disabled:opacity-50"
+                />
+                <span className="whitespace-nowrap">フェードアウト</span>
+              </label>
+              <PresetFadeDurationField
+                value={v.fadeOutDuration}
+                onChange={onUpdateFadeOutDuration}
+                disabled={isDisabled || !v.fadeOut}
+                ariaLabel="動画のフェードアウト時間"
+                accentClassName="accent-blue-500"
+              />
             </div>
-            <NumericSliderField
-              ariaLabel="横位置"
-              min={CENTER_ORIGIN_MIN}
-              max={CENTER_ORIGIN_MAX}
-              step={1}
-              value={displayPositionX}
-              onChange={handlePositionX}
-              disabled={isDisabled}
-              unit="%"
-              sliderClassName="flex-1 min-w-0 accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-            />
           </div>
-
-          {/* 縦方向 */}
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between text-[10px] text-gray-400">
-              <div className="flex items-center gap-1">
-                <Move className="w-3 h-3" /> 縦 (上+): {displayPositionY}%
-              </div>
-              <button
-                onClick={() => onResetSetting('y')}
-                disabled={isDisabled}
-                title="リセット"
-                className="hover:text-white disabled:opacity-30"
-              >
-                <RotateCcw className="w-3 h-3" />
-              </button>
-            </div>
-            <NumericSliderField
-              ariaLabel="縦位置"
-              min={CENTER_ORIGIN_MIN}
-              max={CENTER_ORIGIN_MAX}
-              step={1}
-              value={displayPositionY}
-              onChange={handlePositionY}
-              disabled={isDisabled}
-              unit="%"
-              sliderClassName="flex-1 min-w-0 accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-            />
-          </div>
-
-          {/* 回転 (90度単位) */}
-          {onRotate && (
-            <div className="flex flex-col gap-1 border-t border-gray-700/50 pt-2 mt-1">
-            <div className="flex items-center justify-between text-[10px] text-gray-400">
-              <div className="flex items-center gap-1">
-                <RotateCw className="w-3 h-3" /> 回転: {v.rotation || 0}°
-              </div>
-              <button
-                onClick={() => onResetSetting('rotation')}
-                disabled={isDisabled}
-                title="リセット"
-                className="hover:text-white disabled:opacity-30"
-              >
-                <RotateCcw className="w-3 h-3" />
-              </button>
-            </div>
-            <button
-              onClick={onRotate}
-              disabled={isDisabled}
-              title="90度ずつ回転（縦横の入れ替えに）"
-              className="flex items-center justify-center gap-1.5 w-full py-1.5 rounded bg-gray-700 hover:bg-gray-600 border border-gray-600 text-gray-200 text-[11px] font-medium transition disabled:opacity-40 disabled:pointer-events-none"
-            >
-              <RotateCw className="w-3.5 h-3.5" />
-              <span>90°回転</span>
-            </button>
-            </div>
-          )}
 
           {/* ぼかし（カード単位・1080p基準） */}
           {onUpdateBlur && (
-            <div className="flex flex-col gap-1 border-t border-gray-700/50 pt-2 mt-1">
+            <div className="flex flex-col gap-1 border-t border-gray-700/50 pt-2">
             <div className="flex items-center justify-between text-[10px] text-gray-400">
               <div className="flex items-center gap-1">
                 <Blend className="w-3 h-3" />
@@ -980,7 +907,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
           )}
         </div>
         )}
-        </div>
+      </div>
 
       {/* 音量・再生速度（動画のみ。再生速度が無い画面は音量だけ） */}
       {v.type === 'video' && (
@@ -998,35 +925,31 @@ const ClipItem: React.FC<ClipItemProps> = ({
               className="px-2 pb-2 space-y-3 border-t border-gray-700/60 pt-2"
             >
             <div className="space-y-1.5">
-            <div className="bg-gray-800/50 p-2 rounded-lg flex items-center gap-2">
-              <button
-                onClick={onToggleMute}
-                disabled={isDisabled}
-                className={`h-9 w-9 md:h-8 md:w-8 shrink-0 flex items-center justify-center rounded border transition ${v.isMuted ? 'border-red-400/60 bg-red-500/20 text-red-300' : 'border-gray-500 bg-gray-700 text-gray-300 hover:bg-gray-600 hover:text-white disabled:opacity-50'}`}
-                title={v.isMuted ? "ミュート解除" : "ミュート"}
-              >
-                {v.isMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
-              </button>
-              <NumericSliderField
-                ariaLabel="音量"
-                min={0}
-                max={MEDIA_VOLUME_MAX * 100}
-                step={5}
-                value={Math.round(v.volume * 100)}
-                disabled={v.isMuted || isDisabled || bulkVolumeEnabled}
-                onChange={(value) => handleVolume(value / 100)}
-                unit="%"
-                className="flex-1 min-w-0"
-                sliderClassName={`flex-1 min-w-0 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${v.isMuted || isDisabled || bulkVolumeEnabled ? '' : 'cursor-pointer'}`}
+            {/* 音量: 見出し（音量 … リセット）→ [ミュート][数値欄][スライダー][−/+]（ミュートは従来どおり数値欄の左） */}
+            <div className="flex flex-col gap-0.5">
+              <CompactFieldHeader
+                title="音量"
+                onReset={() => onUpdateVolume(1)}
+                resetDisabled={isDisabled || bulkVolumeEnabled}
+                resetLabel="音量をリセット"
+                resetTitle="100%へ戻す"
               />
-              <button
-                onClick={() => onUpdateVolume(1)}
-                disabled={isDisabled || bulkVolumeEnabled}
-                className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition disabled:opacity-50"
-                title="リセット"
-              >
-                <RefreshCw className="w-3 h-3" />
-              </button>
+              <div className="flex items-center gap-1.5">
+                <CompactMuteToggle muted={v.isMuted} disabled={isDisabled} onToggle={onToggleMute} />
+                <NumericSliderField
+                  ariaLabel="音量"
+                  min={0}
+                  max={MEDIA_VOLUME_MAX * 100}
+                  step={5}
+                  value={Math.round(v.volume * 100)}
+                  disabled={v.isMuted || isDisabled || bulkVolumeEnabled}
+                  onChange={(value) => handleVolume(value / 100)}
+                  unit="%"
+                  inputWidthChars={AUDIO_SPEED_INPUT_WIDTH_CHARS}
+                  className="flex-1 min-w-0"
+                  sliderClassName={`flex-1 min-w-0 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${v.isMuted || isDisabled || bulkVolumeEnabled ? '' : 'cursor-pointer'}`}
+                />
+              </div>
             </div>
             {bulkVolumeEnabled && (
               <p className="px-1 text-[10px] leading-relaxed text-blue-300/80 md:text-xs">一括音量設定中のため、ここでは変更できません。</p>
@@ -1050,14 +973,22 @@ const ClipItem: React.FC<ClipItemProps> = ({
             </div>
             {onUpdatePlaybackSpeed && (
             <div className="space-y-2 border-t border-gray-700/50 pt-2">
-              <div className="flex items-center justify-between text-[10px] md:text-xs text-gray-500">
-                <span>{formatPlaybackSpeedValue(playbackSpeed)}倍</span>
-                <span className="font-mono text-gray-300">
-                  元 {sourceClipDuration.toFixed(1)}s → 表示 {v.duration.toFixed(1)}s
-                </span>
-              </div>
+              <div className="flex flex-col gap-0.5">
+              <CompactFieldHeader
+                icon={<Gauge className="w-3 h-3" aria-hidden="true" />}
+                title="再生速度"
+                info={(
+                  <span className="font-mono text-gray-300">
+                    元 {sourceClipDuration.toFixed(1)}s → 表示 {v.duration.toFixed(1)}s
+                  </span>
+                )}
+                onReset={() => onUpdatePlaybackSpeed(1)}
+                resetDisabled={isDisabled || Math.abs(playbackSpeed - 1) < 0.05}
+                resetLabel="再生速度をリセット"
+                resetTitle="等倍へ戻す"
+              />
+              {/* 見出し（アイコン＋再生速度）の下に、数値欄から始まる行（サイズ・ぼかし等と同じ形） */}
               <NumericSliderField
-                label="速度"
                 ariaLabel="再生速度"
                 min={MIN_VIDEO_PLAYBACK_SPEED}
                 max={MAX_VIDEO_PLAYBACK_SPEED}
@@ -1068,8 +999,9 @@ const ClipItem: React.FC<ClipItemProps> = ({
                 unit="倍"
                 decimals={1}
                 sliderClassName="flex-1 min-w-0 accent-amber-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-                inputClassName="w-12 focus:border-amber-500"
+                inputClassName="focus:border-amber-500"
               />
+              </div>
               <div className="flex flex-wrap gap-1">
                 {VIDEO_PLAYBACK_SPEEDS.map((speed) => (
                   <button
@@ -1205,8 +1137,11 @@ const ClipItem: React.FC<ClipItemProps> = ({
                               );
                             })}
                           </div>
+                          <div className="flex flex-col gap-0.5">
+                          <CompactFieldHeader title="表示位置（左上が0%）" />
                           <NumericSliderField
                             label="横"
+                            labelClassName={COMPACT_AXIS_LABEL_CLASS}
                             ariaLabel="速度バッジの横位置"
                             min={0}
                             max={100}
@@ -1215,11 +1150,13 @@ const ClipItem: React.FC<ClipItemProps> = ({
                             onChange={(val) => onUpdateSpeedBadgePosition('x', val)}
                             disabled={isDisabled}
                             unit="%"
+                            inputWidthChars={AUDIO_SPEED_INPUT_WIDTH_CHARS}
                             sliderClassName="flex-1 min-w-0 accent-amber-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-                            inputClassName="w-11 focus:border-amber-500"
+                            inputClassName="focus:border-amber-500"
                           />
                           <NumericSliderField
                             label="縦"
+                            labelClassName={COMPACT_AXIS_LABEL_CLASS}
                             ariaLabel="速度バッジの縦位置"
                             min={0}
                             max={100}
@@ -1228,9 +1165,11 @@ const ClipItem: React.FC<ClipItemProps> = ({
                             onChange={(val) => onUpdateSpeedBadgePosition('y', val)}
                             disabled={isDisabled}
                             unit="%"
+                            inputWidthChars={AUDIO_SPEED_INPUT_WIDTH_CHARS}
                             sliderClassName="flex-1 min-w-0 accent-amber-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-                            inputClassName="w-11 focus:border-amber-500"
+                            inputClassName="focus:border-amber-500"
                           />
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1243,194 +1182,6 @@ const ClipItem: React.FC<ClipItemProps> = ({
           )}
         </div>
       )}
-
-      {/* 設定パネル (アコーディオン: フェードとズーム) */}
-      <div className="mb-2 rounded-lg border border-gray-700/70 bg-gray-900/30">
-        <SettingsAccordionHeader
-          title="フェード・ズームイン/アウト"
-          isOpen={isSettingsOpen}
-          disabled={isDisabled}
-          controlsId={`clip-audio-settings-${v.id}`}
-          onToggle={() => setIsSettingsOpen(!isSettingsOpen)}
-        />
-        {isSettingsOpen && (
-        <div
-          id={`clip-audio-settings-${v.id}`}
-          className="px-2 pb-2 space-y-3 border-t border-gray-700/60 pt-2"
-        >
-          {/* フェード設定 (共通) */}
-          <div className="flex flex-col gap-2 text-xs md:text-sm">
-            <h3 className="font-medium text-gray-300">フェード</h3>
-            {/* フェードイン */}
-            <div className="flex items-center gap-2">
-              <label
-                className={`flex w-28 shrink-0 items-center justify-start gap-1.5 ${isDisabled ? 'opacity-50' : 'cursor-pointer'}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={v.fadeIn}
-                  onChange={(e) => onToggleFadeIn(e.target.checked)}
-                  disabled={isDisabled}
-                  className="h-3.5 w-3.5 cursor-pointer rounded accent-blue-500 disabled:cursor-default disabled:opacity-50"
-                />
-                <span className="whitespace-nowrap">フェードイン</span>
-              </label>
-              <PresetFadeDurationField
-                value={v.fadeInDuration}
-                onChange={onUpdateFadeInDuration}
-                disabled={isDisabled || !v.fadeIn}
-                ariaLabel="動画のフェードイン時間"
-                accentClassName="accent-blue-500"
-              />
-            </div>
-
-            {/* フェードアウト */}
-            <div className="flex items-center gap-2">
-              <label
-                className={`flex w-28 shrink-0 items-center justify-start gap-1.5 ${isDisabled ? 'opacity-50' : 'cursor-pointer'}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={v.fadeOut}
-                  onChange={(e) => onToggleFadeOut(e.target.checked)}
-                  disabled={isDisabled}
-                  className="h-3.5 w-3.5 cursor-pointer rounded accent-blue-500 disabled:cursor-default disabled:opacity-50"
-                />
-                <span className="whitespace-nowrap">フェードアウト</span>
-              </label>
-              <PresetFadeDurationField
-                value={v.fadeOutDuration}
-                onChange={onUpdateFadeOutDuration}
-                disabled={isDisabled || !v.fadeOut}
-                ariaLabel="動画のフェードアウト時間"
-                accentClassName="accent-blue-500"
-              />
-            </div>
-          </div>
-
-          {/* ズームイン/アウト（フェードと同じ欄。黒帯除去は位置・サイズだけ） */}
-          <div className="flex flex-col gap-2 border-t border-gray-700/50 pt-2">
-            <h3 className="text-xs font-medium text-gray-300 md:text-sm">ズーム</h3>
-            <div className="grid grid-cols-3 gap-1.5" role="group" aria-label="ズームの向き">
-              {([
-                ['none', 'なし', 'ズームなし'],
-                ['in', 'ズームイン', 'ズームイン'],
-                ['out', 'ズームアウト', 'ズームアウト'],
-              ] as const).map(([direction, label, ariaLabel]) => (
-                <button
-                  key={direction}
-                  type="button"
-                  aria-pressed={zoomDirection === direction}
-                  aria-label={ariaLabel}
-                  disabled={isDisabled}
-                  onClick={() => onUpdateZoomDirection(direction)}
-                  className={`flex min-h-11 w-full items-center justify-center whitespace-nowrap rounded-lg border px-1 text-xs font-semibold transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/80 disabled:pointer-events-none disabled:opacity-40 md:px-2 md:text-sm ${
-                    zoomDirection === direction
-                      ? 'border-blue-400 bg-blue-500/20 text-blue-100'
-                      : 'border-gray-700 bg-gray-800 text-gray-200 hover:border-gray-500 hover:bg-gray-700'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => onResetSetting('zoom')}
-              disabled={isDisabled}
-              title={`開始・終了を${mediaScaleToPercent(zoomRange.start)}%にそろえ、ズームの動きを止めます`}
-              aria-label="開始倍率で固定"
-              className="inline-flex min-h-9 items-center gap-1.5 self-end rounded-lg px-1.5 text-xs text-gray-300 transition-colors hover:bg-gray-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:opacity-30 motion-reduce:transition-none md:text-sm"
-            >
-              <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
-              開始倍率で固定
-            </button>
-            <p className="text-xs text-gray-200" aria-live="polite">
-              開始 {mediaScaleToPercent(zoomRange.start)}% → 終了 {mediaScaleToPercent(zoomRange.end)}%
-            </p>
-            {onPreviewZoomEndpoint && (
-              <div className="grid grid-cols-2 gap-1.5">
-                {(['start', 'end'] as const).map((endpoint) => (
-                  <button
-                    key={endpoint}
-                    type="button"
-                    onClick={() => onPreviewZoomEndpoint(endpoint)}
-                    disabled={isDisabled}
-                    aria-pressed={zoomPreviewEndpoint === endpoint}
-                    className={`flex min-h-11 items-center justify-center rounded-lg border px-1.5 text-center text-xs font-medium leading-tight transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:opacity-40 md:text-sm ${zoomPreviewEndpoint === endpoint ? 'border-blue-400 bg-blue-500/20 text-blue-100' : 'border-gray-700 bg-gray-800 text-gray-200 hover:border-gray-500 hover:bg-gray-700'}`}
-                  >
-                    {endpoint === 'start' ? '開始（先頭）を確認' : '終了（末尾）を確認'}
-                  </button>
-                ))}
-              </div>
-            )}
-            {(['start', 'end'] as const).map((endpoint) => (
-              <div key={endpoint} className="flex min-w-0 items-center gap-1">
-                <NumericSliderField
-                  label={endpoint === 'start' ? '開始' : '終了'}
-                  ariaLabel={endpoint === 'start' ? 'ズーム開始倍率' : 'ズーム終了倍率'}
-                  min={mediaScaleToPercent(MIN_MEDIA_ZOOM_SCALE)}
-                  max={mediaScaleToPercent(MAX_MEDIA_ZOOM_SCALE)}
-                  step={0.1}
-                  stepperStep={5}
-                  value={mediaScaleToPercent(zoomRange[endpoint])}
-                  onChange={(percent) => {
-                    onUpdateZoomEndpoint?.(endpoint, mediaPercentToScale(percent));
-                    onPreviewZoomEndpoint?.(endpoint);
-                  }}
-                  onInputFocus={() => onPreviewZoomEndpoint?.(endpoint)}
-                  disabled={isDisabled}
-                  unit="%"
-                  inputClassName="w-14 focus:border-blue-500"
-                  className="flex-1 min-w-0"
-                  sliderClassName="flex-1 min-w-0 accent-blue-400 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    onUpdateZoomEndpoint?.(endpoint, endpoint === 'start' ? 1 : zoomRange.start);
-                    onPreviewZoomEndpoint?.(endpoint);
-                  }}
-                  disabled={isDisabled}
-                  aria-label={endpoint === 'start' ? 'ズーム開始倍率をリセット' : 'ズーム終了倍率をリセット'}
-                  title={endpoint === 'start' ? '100%へ戻す' : '開始倍率と同じにする'}
-                  className="h-8 w-8 shrink-0 flex items-center justify-center rounded text-gray-300 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:opacity-40"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
-                </button>
-              </div>
-            ))}
-            {onInheritZoom && previousZoomEndScale != null && (
-              <button
-                type="button"
-                onClick={onInheritZoom}
-                disabled={isDisabled}
-                title={`前の素材の終了倍率${mediaScaleToPercent(previousZoomEndScale)}%で固定します`}
-                className="min-h-11 rounded-lg border border-blue-700 bg-blue-900/30 px-2.5 text-xs leading-snug text-blue-200 hover:bg-blue-900/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:opacity-40 md:text-sm"
-              >
-                前の素材の終了倍率を引き継ぐ（{mediaScaleToPercent(previousZoomEndScale)}%）
-              </button>
-            )}
-            <p className="text-[10px] leading-snug text-gray-500 md:text-xs">
-              開始は先頭、終了は末尾をプレビューします。開始倍率は位置・サイズと共通です。同じ倍率で固定できます。
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                onResetSetting('zoom-default');
-                onPreviewZoomEndpoint?.('start');
-              }}
-              disabled={isDisabled}
-              title="開始・終了と位置・サイズの拡大率を100%へ戻します"
-              className="inline-flex min-h-8 items-center gap-1 self-start rounded px-1 text-xs text-gray-400 transition-colors hover:text-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:opacity-30 motion-reduce:transition-none"
-            >
-              <RotateCcw className="h-3 w-3" aria-hidden="true" />
-              100%にリセット
-            </button>
-          </div>
-        </div>
-        )}
-        </div>
 
       </div>
       )}

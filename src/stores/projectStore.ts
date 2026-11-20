@@ -63,6 +63,7 @@ import {
   normalizeSpeedRampDuration,
 } from '../utils';
 import { normalizeMediaZoomAmount, normalizeMediaZoomDirection, hasMediaZoomRange, createMediaZoomRangePatch } from '../utils/mediaZoom';
+import { hasMediaPanRange, createMediaPanRangePatch } from '../utils/mediaPan';
 
 import { MEDIA_VOLUME_MAX } from '../utils/mediaVolume';
 export function getProjectStoreErrorMessage(error: unknown): string {
@@ -519,6 +520,10 @@ async function serializeMediaItem(item: MediaItem): Promise<SerializedMediaItem>
     ...(hasMediaZoomRange(item) ? createMediaZoomRangePatch(item.zoomStartScale!, item.zoomEndScale!) : {}),
     positionX: item.positionX,
     positionY: item.positionY,
+    ...(hasMediaPanRange(item) ? {
+      panEndPositionX: item.panEndPositionX,
+      panEndPositionY: item.panEndPositionY,
+    } : {}),
     rotation: normalizeRotation(item.rotation),
     blur: normalizeMediaBlur(item.blur),
     isTransformOpen: item.isTransformOpen,
@@ -624,6 +629,12 @@ function deserializeMediaItem(data: SerializedMediaItem): MediaItem {
     ...(hasMediaZoomRange(data) ? createMediaZoomRangePatch(data.zoomStartScale!, data.zoomEndScale!) : {}),
     positionX: data.positionX,
     positionY: data.positionY,
+    ...(hasMediaPanRange(data)
+      ? createMediaPanRangePatch(
+        { x: data.positionX, y: data.positionY },
+        { x: data.panEndPositionX!, y: data.panEndPositionY! },
+      )
+      : {}),
     rotation: normalizeRotation(data.rotation),
     blur: normalizeMediaBlur(data.blur),
     isTransformOpen: data.isTransformOpen,

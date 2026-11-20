@@ -45,6 +45,11 @@ export interface NumericStepperInputProps {
   inputClassName?: string;
   /** 表示時の小数桁数。省略時は step から推定する */
   decimals?: number;
+  /**
+   * 数値欄の幅（数字の文字数）。省略時は min/max から自動で決める。
+   * 並べて置く欄の幅を揃えたいときに指定する（例: サイズ 50〜600% を横・縦 −100〜100% と同じ 4 桁幅に）。
+   */
+  inputWidthChars?: number;
   /** 指定時は数値欄の表示文字列を差し替える（14 → "14.0"、0 → "0" など） */
   formatDisplayValue?: (value: number) => string;
   /** −/+ の次値。省略時は from ± stepperStep を clamp する */
@@ -142,6 +147,7 @@ const NumericStepperInput = React.memo<NumericStepperInputProps>(({
   unit,
   inputClassName = 'w-16 focus:border-blue-500',
   decimals,
+  inputWidthChars,
   formatDisplayValue,
   resolveStep,
   ariaLabel,
@@ -170,7 +176,8 @@ const NumericStepperInput = React.memo<NumericStepperInputProps>(({
     formatDisplayValue?.(max).length ?? 0,
   );
   // 数字の左右余白だけを足す。number input はデスクトップの共通 CSS で余白が広がる。
-  const inputWidth = `calc(${boundaryLength}ch + ${formatDisplayValue ? '0.75rem' : '1.25rem'})`;
+  const widthChars = inputWidthChars ?? boundaryLength;
+  const inputWidth = `calc(${widthChars}ch + ${formatDisplayValue ? '0.75rem' : '1.25rem'})`;
 
   // 入力中の生文字列。null = 非編集中（value をそのまま表示する）
   const [draft, setDraft] = useState<string | null>(null);

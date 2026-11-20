@@ -90,6 +90,9 @@ export interface SerializedMediaItem {
   zoomEndScale?: number;
   positionX: number;
   positionY: number;
+  /** 位置の移動（パン）の終了位置（px）。両方あるときだけ移動。旧データには無い */
+  panEndPositionX?: number;
+  panEndPositionY?: number;
   /** 90度単位の時計回り回転（0 / 90 / 180 / 270）。旧データには存在しないため任意 */
   rotation?: number;
   /** クリップ単位のぼかし強度（0〜30px @1080p基準）。旧データには存在しないため任意 */

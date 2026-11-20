@@ -38,6 +38,7 @@ import { usePreviewSeekController } from '../flavors/standard/preview/usePreview
 import { usePreviewEngine as useAppleSafariPreviewEngine } from '../flavors/apple-safari/preview/usePreviewEngine';
 import { usePreviewSeekController as useAppleSafariPreviewSeekController } from '../flavors/apple-safari/preview/usePreviewSeekController';
 import * as titleOpeningFrameUtils from '../utils/titleOpeningFrame';
+import { resolveMediaPosition } from '../utils/mediaPan';
 
 /** 全レンダーで共有する renderFrame。呼び出し回数の増加＝再描画が走った証拠 */
 const renderFrameSpy = vi.fn(() => true);
@@ -170,10 +171,10 @@ describe.each([
   ['apple-safari', useAppleSafariPreviewEngine, useAppleSafariPreviewSeekController, true],
 ] as const)('%s: サイズ調整後も静止画の位置を調整できる', (_flavor, useEngine, useSeek, isIosSafari) => {
   it.each([
-    ['start', false],
+    ['none', false],
     ['start', true],
     ['end', true],
-  ] as const)('%s確認・ズーム%s: 横縦の変更を描画し、確認位置と倍率を保持する', async (endpoint, animated) => {
+  ] as const)('編集する時点 %s・動き%s: 横縦の変更を描画し、確認位置と倍率を保持する', async (endpoint, animated) => {
     vi.stubGlobal('IntersectionObserver', class {
       observe() {}
       disconnect() {}
@@ -216,10 +217,13 @@ describe.each([
     };
     runtime.usePreviewSeekController = useSeek;
     renderApp(runtime);
+    // 動いているカードは開始を選んだ状態で開く。サイズは選んだ時点（開始）だけを変える。
     fireEvent.change(screen.getByRole('slider', { name: '拡大率' }), { target: { value: '210.1' } });
-    // サイズ変更だけでは端点確認に入らないため、確認ボタンで端点を選ぶ。
-    fireEvent.click(screen.getByRole('button', { name: 'フェード・ズームイン/アウト' }));
-    fireEvent.click(screen.getByRole('button', { name: endpoint === 'end' ? '終了（末尾）を確認' : '開始（先頭）を確認' }));
+    if (endpoint !== 'none') {
+      fireEvent.click(screen.getByRole('button', { name: endpoint === 'end' ? '終了（末尾）' : '開始（先頭）' }));
+    }
+    // 本Canvasの2D contextは最初の描画で作られるため、できるまで待つ
+    await waitFor(() => expect(contexts.get(getMainCanvas()!)).toBeDefined());
     const canvas = getMainCanvas()!;
     const context = contexts.get(canvas)!;
     const translate = vi.mocked(context.translate);
@@ -248,10 +252,14 @@ describe.each([
       const dimensions = useCanvasStore.getState();
       await waitFor(() => expect(drawImage.mock.calls.length).toBeGreaterThan(baseline));
       expect(drawImage).toHaveBeenLastCalledWith(image, expect.any(Number), expect.any(Number), 1280, 720);
+      // 動かすときは選んだ時点（開始＝先頭／終了＝末尾）の位置、動かさないときは全体の位置
+      const position = resolveMediaPosition(item, endpoint === 'end' ? item.duration : 0);
       expect(translate).toHaveBeenLastCalledWith(
-        expect.closeTo(canvas.width / 2 + item.positionX * canvas.width / dimensions.width),
-        expect.closeTo(canvas.height / 2 + item.positionY * canvas.height / dimensions.height),
+        expect.closeTo(canvas.width / 2 + position.x * canvas.width / dimensions.width),
+        expect.closeTo(canvas.height / 2 + position.y * canvas.height / dimensions.height),
       );
+      // 動かすときに終了を選んでいれば、開始の位置（positionX/Y）は変えない
+      if (endpoint === 'end') expect(item).toMatchObject({ positionX: 0, positionY: 0 });
       expect(scale).toHaveBeenLastCalledWith(expect.closeTo(expectedScale), expect.closeTo(expectedScale));
       expect(useUIStore.getState().currentTime).toBe(previewTime);
       expect(item.zoomStartScale).toBe(2.101);
@@ -300,7 +308,7 @@ describe.each([
     });
     useMediaStore.setState({
       mediaItems: [
-        createSource('scale-a', { zoomDirection: 'in', zoomStartScale: 1, zoomEndScale: 2.5 }),
+        createSource('scale-a'),
         createSource('scale-b'),
       ],
       totalDuration: 10, isClipsLocked: false,
@@ -327,7 +335,6 @@ describe.each([
 
     const cardA = () => screen.getByTestId('clip-card-scale-a');
     const cardB = () => screen.getByTestId('clip-card-scale-b');
-    fireEvent.click(within(cardA()).getByRole('button', { name: 'フェード・ズームイン/アウト' }));
     const canvas = getMainCanvas()!;
     const fit = Math.min(canvas.width / 1280, canvas.height / 720);
     // 本Canvasの2D contextは最初の描画で作られるため、検証時に取り出す。
@@ -338,24 +345,20 @@ describe.each([
 
     // 表示中のカード: スライダー・数値入力・黒帯除去のどれでも現在位置（2秒）を保つ。
     fireEvent.change(within(cardA()).getByRole('slider', { name: '拡大率' }), { target: { value: '210.1' } });
-    const expectedAtTwoSeconds = (2.101 + (2.5 - 2.101) * (2 / 5)) * fit;
-    await expectLastScale(expectedAtTwoSeconds);
+    await expectLastScale(2.101 * fit);
     expect(useUIStore.getState().currentTime).toBe(2);
-    expect(within(cardA()).getByRole('button', { name: '開始（先頭）を確認' })).toHaveAttribute('aria-pressed', 'false');
-    expect(useMediaStore.getState().mediaItems[0]).toMatchObject({ zoomStartScale: 2.101, zoomEndScale: 2.5 });
+    expect(useMediaStore.getState().mediaItems[0]).toMatchObject({ zoomStartScale: 2.101, zoomEndScale: 2.101 });
 
     fireEvent.focus(within(cardA()).getByRole('spinbutton', { name: '拡大率（数値）' }));
     fireEvent.click(within(cardA()).getByRole('checkbox', { name: /黒帯除去/ }));
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
     expect(useUIStore.getState().currentTime).toBe(2);
-    expect(within(cardA()).getByRole('button', { name: '開始（先頭）を確認' })).toHaveAttribute('aria-pressed', 'false');
+    await expectLastScale(1.025 * fit);
 
     // 別カード: 調整結果が見えるよう、そのカードの先頭（5秒）を確認する。
     fireEvent.click(screen.getByRole('button', { name: 'すべて開く' }));
     fireEvent.change(within(cardB()).getByRole('slider', { name: '拡大率' }), { target: { value: '150' } });
     await waitFor(() => expect(useUIStore.getState().currentTime).toBe(5));
-    fireEvent.click(within(cardB()).getByRole('button', { name: 'フェード・ズームイン/アウト' }));
-    expect(within(cardB()).getByRole('button', { name: '開始（先頭）を確認' })).toHaveAttribute('aria-pressed', 'true');
     await expectLastScale(1.5 * fit);
 
     // 確認中のカードを続けて調整しても、確認位置は動かさない。
@@ -371,6 +374,11 @@ describe('ズーム端点確認中は背景撮影が動画の表示位置を変�
     ['auto', 1.025],
     ['manual', 1.4],
   ] as const)('ポスター%s: トリム後の終了倍率を保ち、確認解除後に撮影を再開する', async (posterMode, startScale) => {
+    // 「サイズ・位置・動き」を開くとミニプレビューが出る
+    vi.stubGlobal('IntersectionObserver', class {
+      observe() {}
+      disconnect() {}
+    });
     const video = document.createElement('video');
     let readyState = 1;
     Object.defineProperties(video, {
@@ -418,8 +426,9 @@ describe('ズーム端点確認中は背景撮影が動画の表示位置を変�
       expect(video.currentTime).toBeLessThan(3);
     });
     readyState = 4;
-    fireEvent.click(screen.getByRole('button', { name: 'フェード・ズームイン/アウト' }));
-    fireEvent.change(screen.getByRole('slider', { name: 'ズーム終了倍率' }), { target: { value: '126.2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'サイズ・位置・動き' }));
+    fireEvent.click(screen.getByRole('button', { name: '終了（末尾）' }));
+    fireEvent.change(screen.getByRole('slider', { name: '拡大率' }), { target: { value: '126.2' } });
     titleCaptureTarget.mockClear();
     await waitFor(() => expect(scale).toHaveBeenLastCalledWith(1.262, 1.262));
     expect(video.currentTime).toBeCloseTo(9.099);
@@ -433,9 +442,9 @@ describe('ズーム端点確認中は背景撮影が動画の表示位置を変�
     expect(titleCaptureTarget).not.toHaveBeenCalled();
 
     // 同じ端点の再調整と先頭確認も背景撮影へ譲らない。
-    fireEvent.change(screen.getByRole('slider', { name: 'ズーム終了倍率' }), { target: { value: '131.2' } });
+    fireEvent.change(screen.getByRole('slider', { name: '拡大率' }), { target: { value: '131.2' } });
     expect(scale).toHaveBeenLastCalledWith(expect.closeTo(1.312), expect.closeTo(1.312));
-    fireEvent.click(screen.getByRole('button', { name: '開始（先頭）を確認' }));
+    fireEvent.click(screen.getByRole('button', { name: '開始（先頭）' }));
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 200)); });
     expect(video.currentTime).toBe(2.5);
     expect(scale).toHaveBeenLastCalledWith(startScale, startScale);
@@ -820,5 +829,167 @@ describe('自動サムネイルのキャプチャはプレビューへ漏れな�
 
     // 先頭(0.2秒付近)を描いたまま次の描画へ進むとチラつく
     expect(everLeftCaptureFrameVisible()).toBe(false);
+  });
+});
+
+describe.each([
+  ['standard', usePreviewEngine, usePreviewSeekController, false],
+  ['apple-safari', useAppleSafariPreviewEngine, useAppleSafariPreviewSeekController, true],
+] as const)('%s: 位置の移動（パン）を端点確認で描画する', (_flavor, useEngine, useSeek, isIosSafari) => {
+  it('終了・開始の確認でその位置へ描き、終了位置の変更も末尾で描き直す（ズームと同時）', async () => {
+    vi.stubGlobal('IntersectionObserver', class {
+      observe() {}
+      disconnect() {}
+    });
+    const image = document.createElement('img');
+    Object.defineProperties(image, {
+      naturalWidth: { value: 1280 }, naturalHeight: { value: 720 }, complete: { value: true },
+    });
+    const contexts = new Map<HTMLCanvasElement, CanvasRenderingContext2D>();
+    const baseContext = document.createElement('canvas').getContext('2d')!;
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+      if (!contexts.has(this)) {
+        contexts.set(this, {
+          ...baseContext, canvas: this, translate: vi.fn(), scale: vi.fn(), drawImage: vi.fn(),
+          strokeRect: vi.fn(), getImageData: () => ({ data: new Uint8ClampedArray([255, 255, 255, 255]) }),
+        } as unknown as CanvasRenderingContext2D);
+      }
+      return contexts.get(this)!;
+    });
+    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/jpeg;base64,existing');
+    const source: MediaItem = {
+      id: 'image-pan', type: 'image', file: new File(['x'], 'image.png'), url: 'blob:image-pan',
+      duration: 5, originalDuration: 5, trimStart: 0, trimEnd: 5, scale: 1,
+      zoomDirection: 'in', zoomStartScale: 1, zoomEndScale: 2,
+      positionX: 0, positionY: 0, panEndPositionX: 256, panEndPositionY: -144,
+      volume: 1, isMuted: false, fadeIn: false, fadeOut: false,
+      fadeInDuration: 1, fadeOutDuration: 1, isLocked: false, isTransformOpen: false,
+    };
+    useMediaStore.setState({
+      mediaItems: [source], totalDuration: 5, isClipsLocked: false,
+      projectPosterMode: 'manual', projectPosterDataUrl: 'data:image/jpeg;base64,existing',
+    });
+    useUIStore.setState({ currentTime: 2 });
+    const capabilities = { ...createCapabilities(), isAndroid: !isIosSafari, isIosSafari };
+    const runtime = createPreviewRuntime(capabilities);
+    let getMainCanvas = (): HTMLCanvasElement | null => null;
+    runtime.usePreviewEngine = (params) => {
+      params.mediaElementsRef.current[source.id] = image;
+      getMainCanvas = () => params.canvasRef.current;
+      return useEngine(params);
+    };
+    runtime.usePreviewSeekController = useSeek;
+    renderApp(runtime);
+    fireEvent.click(screen.getByRole('button', { name: 'サイズ・位置・動き' }));
+    const dims = useCanvasStore.getState();
+    const expectAt = async (x: number, y: number, zoom: number) => {
+      await waitFor(() => {
+        const canvas = getMainCanvas()!;
+        const context = contexts.get(canvas);
+        expect(context).toBeDefined();
+        const translate = vi.mocked(context!.translate);
+        const scale = vi.mocked(context!.scale);
+        const fit = Math.min(canvas.width / 1280, canvas.height / 720);
+        expect(translate).toHaveBeenLastCalledWith(
+          expect.closeTo(canvas.width / 2 + x * canvas.width / dims.width),
+          expect.closeTo(canvas.height / 2 + y * canvas.height / dims.height),
+        );
+        expect(scale).toHaveBeenLastCalledWith(expect.closeTo(zoom * fit), expect.closeTo(zoom * fit));
+      });
+    };
+
+    fireEvent.click(screen.getByRole('button', { name: '終了（末尾）' }));
+    await expectAt(256, -144, 2);
+    fireEvent.click(screen.getByRole('button', { name: '開始（先頭）' }));
+    await expectAt(0, 0, 1);
+
+    // 終了を選び直し、横を 30%（= 384px）へ。末尾を確認しながら描き直す
+    fireEvent.click(screen.getByRole('button', { name: '終了（末尾）' }));
+    fireEvent.change(screen.getByRole('slider', { name: '横位置' }), { target: { value: '30' } });
+    expect(useMediaStore.getState().mediaItems[0]).toMatchObject({ panEndPositionX: dims.width * 0.3, panEndPositionY: -144 });
+    await expectAt(dims.width * 0.3, -144, 2);
+    expect(useUIStore.getState().isPlaying).toBe(false);
+  });
+});
+
+describe.each([
+  ['standard', usePreviewEngine, usePreviewSeekController, false],
+  ['apple-safari', useAppleSafariPreviewEngine, useAppleSafariPreviewSeekController, true],
+] as const)('%s: 動画の末尾確認で移動の終了位置を変えても前の絵を重ねない', (_flavor, useEngine, useSeek, isIosSafari) => {
+  it('末尾の前フレーム保持中でも、描き直しは黒で塗ってから描く', async () => {
+    vi.stubGlobal('IntersectionObserver', class {
+      observe() {}
+      disconnect() {}
+    });
+    // 末尾付近で停止している動画（末尾の前フレーム保持＝shouldHoldVideoFrameAtClipEnd が働く状態）
+    const video = document.createElement('video');
+    let videoTime = 4.999;
+    Object.defineProperties(video, {
+      readyState: { get: () => 4 },
+      videoWidth: { value: 1280 },
+      videoHeight: { value: 720 },
+      seeking: { get: () => false },
+      ended: { get: () => false },
+      paused: { get: () => true },
+      duration: { value: 5 },
+      currentTime: { get: () => videoTime, set: (value: number) => { videoTime = value; } },
+    });
+    const ops: string[] = [];
+    let mainCanvasRef: { current: HTMLCanvasElement | null } | null = null;
+    const contexts = new Map<HTMLCanvasElement, CanvasRenderingContext2D>();
+    const baseContext = document.createElement('canvas').getContext('2d')!;
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+      if (!contexts.has(this)) {
+        const canvas = this;
+        contexts.set(this, {
+          ...baseContext, canvas, translate: vi.fn(), scale: vi.fn(), strokeRect: vi.fn(),
+          // 本プレビューの canvas だけを見る（フェード用スナップショット canvas への複製は除外）
+          fillRect: vi.fn((x: number, y: number, w: number, h: number) => {
+            if (canvas === mainCanvasRef?.current && x === 0 && y === 0 && w === canvas.width && h === canvas.height) ops.push('clear');
+          }),
+          drawImage: vi.fn((source: unknown) => {
+            if (canvas === mainCanvasRef?.current && source === video) ops.push('draw');
+          }),
+          getImageData: () => ({ data: new Uint8ClampedArray([255, 255, 255, 255]) }),
+        } as unknown as CanvasRenderingContext2D);
+      }
+      return contexts.get(this)!;
+    });
+    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/jpeg;base64,existing');
+    const source: MediaItem = {
+      id: 'video-pan', type: 'video', file: new File(['x'], 'clip.mp4', { type: 'video/mp4' }), url: 'blob:video-pan',
+      duration: 5, originalDuration: 5, trimStart: 0, trimEnd: 5, scale: 1,
+      positionX: 0, positionY: 0, panEndPositionX: 256, panEndPositionY: 0,
+      volume: 1, isMuted: false, fadeIn: false, fadeOut: false,
+      fadeInDuration: 1, fadeOutDuration: 1, isLocked: false, isTransformOpen: false,
+    };
+    useMediaStore.setState({
+      mediaItems: [source], totalDuration: 5, isClipsLocked: false,
+      projectPosterMode: 'manual', projectPosterDataUrl: 'data:image/jpeg;base64,existing',
+    });
+    useUIStore.setState({ currentTime: 2 });
+    const capabilities = { ...createCapabilities(), isAndroid: !isIosSafari, isIosSafari };
+    const runtime = createPreviewRuntime(capabilities);
+    runtime.usePreviewEngine = (params) => {
+      params.mediaElementsRef.current[source.id] = video;
+      mainCanvasRef = params.canvasRef;
+      return useEngine(params);
+    };
+    runtime.usePreviewSeekController = useSeek;
+    renderApp(runtime);
+    fireEvent.click(screen.getByRole('button', { name: 'サイズ・位置・動き' }));
+    fireEvent.click(screen.getByRole('button', { name: '終了（末尾）' }));
+    await waitFor(() => expect(ops).toContain('draw'));
+
+    for (const value of ['35', '50', '20']) {
+      ops.length = 0;
+      fireEvent.change(screen.getByRole('slider', { name: '横位置' }), { target: { value } });
+      await waitFor(() => expect(ops).toContain('draw'));
+      // 描くたびに直前で黒クリアしている（クリアなしで描くと前の位置の絵が残る）
+      ops.forEach((op, i) => {
+        if (op === 'draw') expect(ops[i - 1]).toBe('clear');
+      });
+    }
+    expect(useUIStore.getState().isPlaying).toBe(false);
   });
 });

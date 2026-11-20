@@ -238,18 +238,31 @@ describe('sectionHelp support messaging', () => {
     expect(getHelpVisuals('clips', 'トランジション（Android/PC版）')).toContain(
       'transition_button'
     );
-    expect(getHelpVisuals('clips', '位置・サイズ・回転・ぼかし調整')).toContain('rotate_button');
-    expect(getHelpDescription('clips', '位置・サイズ・回転・ぼかし調整')).not.toContain('ズームイン');
-    expect(getHelpDescription('clips', 'フェード・ズームイン/アウト')).toContain('ズームイン');
-    expect(getHelpDescription('clips', 'フェード・ズームイン/アウト')).toContain('黒帯除去は位置・サイズだけ');
-    expect(getHelpDescription('clips', 'フェード・ズームイン/アウト')).toContain('100%にリセット');
-    expect(getHelpDescription('clips', 'フェード・ズームイン/アウト')).toContain('開始300%なら終了も300%');
-    const appleZoomHelp = getHelpDescription('clips', 'フェード・ズームイン/アウト', {
-      appFlavor: 'apple-safari',
-      supportsShowSaveFilePicker: false,
-    });
-    expect(appleZoomHelp).toContain('ズームアウト');
-    expect(appleZoomHelp).toContain('100%にリセット');
+    // 「サイズ・位置・動き」: 1 組のスライダーで動かさない／動かす（開始・終了）を編集する
+    expect(getHelpVisuals('clips', 'サイズ・位置・動き')).toEqual(
+      expect.arrayContaining(['blackbar_toggle_chip', 'scale_chip', 'position_chip', 'rotate_button']),
+    );
+    const motionHelp = getHelpDescription('clips', 'サイズ・位置・動き');
+    for (const phrase of ['動かさない', '動かす', '開始（先頭）', '終了（末尾）', 'ズームイン', '前の素材の最後の構図を引き継ぐ', '100%・中央に戻す', '90°回転']) {
+      expect(motionHelp).toContain(phrase);
+    }
+    expect(getHelpVisuals('clips', 'サイズ・位置・動き')).not.toContain('blur_chip');
+    expect(getHelpVisuals('clips', 'フェード・ぼかし')).toEqual(
+      expect.arrayContaining(['fade_in_checkbox', 'fade_out_checkbox', 'blur_chip']),
+    );
+    expect(getHelpDescription('clips', 'フェード・ぼかし')).not.toContain('ズーム');
+    // 旧欄名は残っていない
+    expect(() => getHelpDescription('clips', '位置・サイズ・回転・ぼかし調整')).toThrow();
+    expect(() => getHelpDescription('clips', 'フェード・ズーム・移動')).toThrow();
+    // iPhone / iPad 版: 回転・ぼかし・分割の説明を外し、2 つ目は「フェード」
+    const appleContext = { appFlavor: 'apple-safari' as const, supportsShowSaveFilePicker: false };
+    const appleMotionHelp = getHelpDescription('clips', 'サイズ・位置・動き', appleContext);
+    expect(appleMotionHelp).toContain('ズームアウト');
+    expect(appleMotionHelp).toContain('100%・中央に戻す');
+    expect(appleMotionHelp).not.toContain('90°回転');
+    expect(appleMotionHelp).not.toContain('現在位置で分割');
+    expect(getHelpDescription('clips', 'フェード', appleContext)).toContain('フェードイン');
+    expect(getHelpDescription('clips', 'フェード', appleContext)).not.toContain('ぼかし:');
     expect(getHelpVisuals('bgm', '複数のBGM（Android/PC版）')).toEqual(
       expect.arrayContaining(['bgm_count_label', 'bgm_auto_adjust_toggle', 'copy_button'])
     );

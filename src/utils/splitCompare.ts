@@ -383,7 +383,8 @@ export function isSplitCompareDiagonalOffsetWanted(
 }
 
 type AutoOffsetItem = Pick<MediaItem, 'positionX' | 'positionY' | 'scale' | 'isLocked'>
-  & Partial<Pick<MediaItem, 'rotation' | 'zoomDirection' | 'zoomStartScale' | 'zoomEndScale'>>;
+  & Partial<Pick<MediaItem, 'rotation' | 'zoomDirection' | 'zoomStartScale' | 'zoomEndScale'
+    | 'panEndPositionX' | 'panEndPositionY'>>;
 
 /** 拡大・縦位置・ズームを触っていない（横位置だけを見る前提の）カードか */
 function hasUntouchedTransform(item: AutoOffsetItem): boolean {
@@ -393,7 +394,9 @@ function hasUntouchedTransform(item: AutoOffsetItem): boolean {
   return !item.isLocked
     && Math.abs((item.scale ?? 1) - 1) < 1e-6
     && Math.abs(item.positionY || 0) < 0.5
-    && !hasZoom;
+    && !hasZoom
+    // 位置の移動（パン）を設定したカードは利用者が位置を決めているので自動調整しない
+    && !(Number.isFinite(item.panEndPositionX) && Number.isFinite(item.panEndPositionY));
 }
 
 /**

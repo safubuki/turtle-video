@@ -15,7 +15,6 @@ import {
   Timer,
   ChevronDown,
   ChevronRight,
-  RefreshCw,
   CircleHelp,
   Trash2,
 } from 'lucide-react';
@@ -23,6 +22,7 @@ import type { AudioTrack, BgmClip } from '../../types';
 import { getBgmUploadAccept } from '../../utils/platform';
 import PresetFadeDurationField from '../common/PresetFadeDurationField';
 import NumericSliderField from '../common/NumericSliderField';
+import { CompactFieldHeader } from '../common/CompactField';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import BgmClipList from './BgmClipList';
 import FileDropOverlay from '../common/FileDropOverlay';
@@ -244,11 +244,15 @@ const BgmSection: React.FC<BgmSectionProps> = ({
               <Trash2 className="w-3 h-3" />
             </button>
           </div>
-          <div className="space-y-1 px-2">
-            <div className="flex justify-between text-[10px] md:text-xs text-gray-400">
-              <span>開始位置 (頭出し): {formatTime(bgm.startPoint)}</span>
-              <span>長さ: {formatTime(bgm.duration)}</span>
-            </div>
+          <div className="flex flex-col gap-0.5 px-2">
+            <CompactFieldHeader
+              title=<>開始位置 (頭出し): {formatTime(bgm.startPoint)}</>
+              info={<span>長さ: {formatTime(bgm.duration)}</span>}
+              onReset={() => handleStartPointChange(0)}
+              resetDisabled={isBgmLocked || bgm.startPoint === 0}
+              resetTitle="開始位置を0秒にリセット"
+              resetLabel="BGMの開始位置を0秒にリセット"
+            />
             <div className="flex items-center gap-2">
               <NumericSliderField
                 ariaLabel="BGMの開始位置（頭出し）"
@@ -263,16 +267,6 @@ const BgmSection: React.FC<BgmSectionProps> = ({
                 sliderClassName="flex-1 min-w-0 accent-purple-500 h-1 bg-gray-700 rounded appearance-none cursor-pointer disabled:opacity-50"
                 inputClassName="w-16 md:w-20 focus:border-purple-500"
               />
-              <button
-                type="button"
-                onClick={() => handleStartPointChange(0)}
-                disabled={isBgmLocked || bgm.startPoint === 0}
-                className="shrink-0 p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition disabled:opacity-50"
-                title="開始位置を0秒にリセット"
-                aria-label="BGMの開始位置を0秒にリセット"
-              >
-                <RefreshCw className="w-3 h-3" />
-              </button>
             </div>
           </div>
           <div className="bg-purple-900/30 p-2 lg:p-3 rounded border border-purple-500/30 space-y-1">
@@ -294,10 +288,15 @@ const BgmSection: React.FC<BgmSectionProps> = ({
             />
           </div>
           {/* 音量コントロール */}
-          <div className="space-y-1">
-            <div className="px-2 text-[10px] md:text-xs text-gray-400">音量</div>
-            <div className="bg-gray-800/50 p-2 rounded-lg flex items-center gap-2">
-              <Volume2 className="w-3 h-3 text-gray-400" />
+          <div className="flex flex-col gap-0.5 rounded-lg bg-gray-800/50 px-2 py-1.5">
+            <CompactFieldHeader
+              icon={<Volume2 className="w-3 h-3" aria-hidden="true" />}
+              title="音量"
+              onReset={() => onUpdateVolume('1')}
+              resetDisabled={isBgmLocked}
+              resetLabel="音量をリセット"
+              resetTitle="100%へ戻す"
+            />
               <NumericSliderField
                 ariaLabel="BGMの音量"
                 min={0}
@@ -307,18 +306,9 @@ const BgmSection: React.FC<BgmSectionProps> = ({
                 onChange={(value) => handleVolumeChange(value / 100)}
                 disabled={isBgmLocked}
                 unit="%"
-                className="flex-1 min-w-0"
+                className="min-w-0"
                 sliderClassName={`flex-1 min-w-0 accent-purple-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isBgmLocked ? '' : 'cursor-pointer'}`}
               />
-              <button
-                onClick={() => onUpdateVolume('1')}
-                disabled={isBgmLocked}
-                className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition disabled:opacity-50"
-                title="リセット"
-              >
-                <RefreshCw className="w-3 h-3" />
-              </button>
-            </div>
           </div>
 
           {/* フェード設定 - レイアウト改善 */}

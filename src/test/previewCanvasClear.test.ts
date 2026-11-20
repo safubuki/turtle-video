@@ -130,4 +130,21 @@ describe('shouldClearPreviewCanvas', () => {
       }),
     ).toBe(false);
   });
+
+  // === 停止中の描き直し（移動の終了位置の確認で前フレームが重なる不具合） ===
+  it('停止中で今の絵を描けるなら、前フレーム保持中でも黒からやり直す', () => {
+    expect(shouldClearPreviewCanvas({ ...base, holdFrame: true })).toBe(false);
+    expect(shouldClearPreviewCanvas({ ...base, holdFrame: true, redrawStoppedDrawableFrame: true })).toBe(true);
+    expect(shouldClearPreviewCanvas({
+      ...base, holdFrame: true, guardNearEnd: true, redrawStoppedDrawableFrame: true,
+    })).toBe(true);
+  });
+
+  it('停止中の描き直しでも、hold 系の抑止・描画対象なし・終端保持は従来どおり', () => {
+    const redraw = { ...base, holdFrame: true, redrawStoppedDrawableFrame: true };
+    expect(shouldClearPreviewCanvas({ ...redraw, suppressAndroidPreviewClear: true })).toBe(false);
+    expect(shouldClearPreviewCanvas({ ...redraw, suppressPostExportHoldClear: true })).toBe(false);
+    expect(shouldClearPreviewCanvas({ ...redraw, hasActiveItem: false })).toBe(false);
+    expect(shouldClearPreviewCanvas({ ...redraw, holdAtTimelineEnd: true })).toBe(false);
+  });
 });

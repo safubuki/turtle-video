@@ -28,7 +28,12 @@ import { useMediaStore } from '../../stores/mediaStore';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { useUIStore } from '../../stores/uiStore';
 import type { AspectRatio } from '../../stores/canvasStore';
-import { resolveMediaScaleFactor, type MediaTransformResetKind, type MediaZoomEndpointPreview } from '../../utils/mediaZoom';
+import type { MediaTransformResetKind, MediaZoomEndpointPreview } from '../../utils/mediaZoom';
+import {
+  resolvePreviousComposition,
+  type MediaComposition,
+  type MediaMotionPoint,
+} from '../../utils/mediaMotion';
 import {
   normalizeSpeedRampDuration,
   normalizeVideoPlaybackSpeed,
@@ -498,13 +503,19 @@ interface ClipsSectionProps {
   onUpdateImageDuration: (id: string, value: string) => void;
   onSetImageEndFromCurrent?: (id: string) => void;
   onUpdateMediaScale: (id: string, value: string | number) => void;
-  onUpdateMediaZoomDirection: (id: string, direction: MediaZoomDirection) => void;
-  onUpdateMediaZoomAmount: (id: string, amount: number) => void;
-  onUpdateMediaZoomEndpoint?: (id: string, endpoint: 'start' | 'end', scale: number) => void;
+  /** @deprecated 旧ズーム欄。「サイズ・位置・動き」へ統合したため使わない（互換のため残す） */
+  onUpdateMediaZoomDirection?: (id: string, direction: MediaZoomDirection) => void;
+  /** @deprecated 旧ズーム量。使わない（互換のため残す） */
+  onUpdateMediaZoomAmount?: (id: string, amount: number) => void;
+  /** 「動かす」で、開始か終了の一方の構図（サイズ・横・縦）を変える */
+  onUpdateMediaMotionPoint?: (id: string, point: MediaMotionPoint, patch: Partial<MediaComposition>) => void;
+  /** 終了の構図を決める（null で開始と同じ＝動きを止める） */
+  onSetMediaMotionEnd?: (id: string, end: MediaComposition | null) => void;
   onPreviewMediaZoomEndpoint?: (id: string, endpoint: 'start' | 'end') => void;
   onPreviewMediaScale?: (id: string) => void;
   zoomEndpointPreview?: MediaZoomEndpointPreview | null;
-  onInheritMediaZoom?: (id: string) => void;
+  /** 前の素材の最後の構図を引き継ぐ */
+  onInheritMediaComposition?: (id: string) => void;
   onSplitMedia?: (id: string) => void;
   onUpdateMediaPosition: (id: string, axis: 'x' | 'y', value: string) => void;
   onRotateMedia: (id: string) => void;
@@ -563,13 +574,12 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   onUpdateImageDuration,
   onSetImageEndFromCurrent,
   onUpdateMediaScale,
-  onUpdateMediaZoomDirection,
-  onUpdateMediaZoomAmount,
-  onUpdateMediaZoomEndpoint,
+  onUpdateMediaMotionPoint,
+  onSetMediaMotionEnd,
   onPreviewMediaZoomEndpoint,
   onPreviewMediaScale,
   zoomEndpointPreview,
-  onInheritMediaZoom,
+  onInheritMediaComposition,
   onSplitMedia,
   onUpdateMediaPosition,
   onRotateMedia,
@@ -1085,14 +1095,15 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
                 : undefined
             }
             onUpdateScale={(value) => onUpdateMediaScale(v.id, value)}
-            onUpdateZoomDirection={(direction) => onUpdateMediaZoomDirection(v.id, direction)}
-            onUpdateZoomAmount={(amount) => onUpdateMediaZoomAmount(v.id, amount)}
-            onUpdateZoomEndpoint={onUpdateMediaZoomEndpoint ? (endpoint, scale) => onUpdateMediaZoomEndpoint(v.id, endpoint, scale) : undefined}
             onPreviewZoomEndpoint={onPreviewMediaZoomEndpoint ? (endpoint) => onPreviewMediaZoomEndpoint(v.id, endpoint) : undefined}
             onPreviewScale={onPreviewMediaScale ? () => onPreviewMediaScale(v.id) : undefined}
             zoomPreviewEndpoint={zoomEndpointPreview?.id === v.id ? zoomEndpointPreview.endpoint : undefined}
-            onInheritZoom={i > 0 && onInheritMediaZoom ? () => onInheritMediaZoom(v.id) : undefined}
-            previousZoomEndScale={i > 0 ? resolveMediaScaleFactor(mediaItems[i - 1], mediaItems[i - 1].duration) : undefined}
+            onUpdateMotionPoint={onUpdateMediaMotionPoint
+              ? (point, patch) => onUpdateMediaMotionPoint(v.id, point, patch)
+              : undefined}
+            onSetMotionEnd={onSetMediaMotionEnd ? (end) => onSetMediaMotionEnd(v.id, end) : undefined}
+            onInheritComposition={i > 0 && onInheritMediaComposition ? () => onInheritMediaComposition(v.id) : undefined}
+            previousComposition={i > 0 ? resolvePreviousComposition(mediaItems[i - 1]) : undefined}
             onUpdatePosition={(axis, value) => onUpdateMediaPosition(v.id, axis, value)}
             onRotate={uiCapabilities.supportsMediaRotation ? () => onRotateMedia(v.id) : undefined}
             onUpdateBlur={

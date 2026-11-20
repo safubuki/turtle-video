@@ -11,7 +11,6 @@ import type { AppFlavor } from '../app/resolveAppFlavor';
 import { getAppFlavorUiCapabilities } from '../app/appFlavorUi';
 import type {
   MediaItem,
-  MediaZoomDirection,
   AudioTrack,
   NarrationClip,
   NarrationScriptLength,
@@ -77,6 +76,7 @@ import {
   releaseVideoFromBackgroundCapture,
 } from '../utils/backgroundCaptureVideoHold';
 import { resolveMediaZoomEndpointPreview, type MediaTransformResetKind, type MediaZoomEndpointPreview } from '../utils/mediaZoom';
+import type { MediaComposition, MediaMotionPoint } from '../utils/mediaMotion';
 import { getEndrollDuration } from '../utils/endrollOverlay';
 import {
   buildNarrationCaptionPlan,
@@ -209,10 +209,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   );
   const updateImageDuration = useMediaStore((s) => s.updateImageDuration);
   const updateScale = useMediaStore((s) => s.updateScale);
-  const updateZoomDirection = useMediaStore((s) => s.updateZoomDirection);
-  const updateZoomAmount = useMediaStore((s) => s.updateZoomAmount);
-  const updateZoomEndpoint = useMediaStore((s) => s.updateZoomEndpoint);
-  const inheritPreviousZoom = useMediaStore((s) => s.inheritPreviousZoom);
+  const updateMotionPoint = useMediaStore((s) => s.updateMotionPoint);
+  const setMotionEnd = useMediaStore((s) => s.setMotionEnd);
+  const inheritPreviousComposition = useMediaStore((s) => s.inheritPreviousComposition);
   const splitMediaItem = useMediaStore((s) => s.splitMediaItem);
   const updatePosition = useMediaStore((s) => s.updatePosition);
   const rotateClip = useMediaStore((s) => s.rotateClip);
@@ -3031,25 +3030,25 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     updateScale(id, val);
   }, [pausePreviewBeforeEdit, updateScale]);
 
-  const handleUpdateMediaZoomDirection = useCallback((id: string, direction: MediaZoomDirection) => {
-    pausePreviewBeforeEdit('update-media-zoom-direction');
-    updateZoomDirection(id, direction);
-  }, [pausePreviewBeforeEdit, updateZoomDirection]);
+  // --- サイズ・位置・動き（開始・終了の構図）---
+  // ズームの端点編集と同じく編集前停止経路を通す（端点の確認表示は ClipCompositionPanel 側が要求する）
+  const handleUpdateMediaMotionPoint = useCallback(
+    (id: string, point: MediaMotionPoint, patch: Partial<MediaComposition>) => {
+      pausePreviewBeforeEdit('update-media-motion-point');
+      updateMotionPoint(id, point, patch);
+    },
+    [pausePreviewBeforeEdit, updateMotionPoint],
+  );
 
-  const handleUpdateMediaZoomAmount = useCallback((id: string, amount: number) => {
-    pausePreviewBeforeEdit('update-media-zoom-amount');
-    updateZoomAmount(id, amount);
-  }, [pausePreviewBeforeEdit, updateZoomAmount]);
+  const handleSetMediaMotionEnd = useCallback((id: string, end: MediaComposition | null) => {
+    pausePreviewBeforeEdit('set-media-motion-end');
+    setMotionEnd(id, end);
+  }, [pausePreviewBeforeEdit, setMotionEnd]);
 
-  const handleUpdateMediaZoomEndpoint = useCallback((id: string, endpoint: 'start' | 'end', scale: number) => {
-    pausePreviewBeforeEdit('update-media-zoom-endpoint');
-    updateZoomEndpoint(id, endpoint, scale);
-  }, [pausePreviewBeforeEdit, updateZoomEndpoint]);
-
-  const handleInheritMediaZoom = useCallback((id: string) => {
-    pausePreviewBeforeEdit('inherit-media-zoom');
-    inheritPreviousZoom(id);
-  }, [pausePreviewBeforeEdit, inheritPreviousZoom]);
+  const handleInheritMediaComposition = useCallback((id: string) => {
+    pausePreviewBeforeEdit('inherit-media-composition');
+    inheritPreviousComposition(id);
+  }, [pausePreviewBeforeEdit, inheritPreviousComposition]);
 
   const handleSplitMedia = useCallback((id: string) => {
     const range = mediaTimelineRanges[id];
@@ -4116,7 +4115,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   // 端点確認中は背景撮影が待機するため、位置などの調整もここで明示的に描き直す。
   // 確認中のカード・時刻・倍率は保持し、背景撮影の再開や再シークに頼らない。
   const mediaTransformPreviewKey = mediaItems
-    .map((item) => `${item.id}:${item.scale}:${item.positionX}:${item.positionY}:${item.rotation ?? ''}:${item.blur ?? ''}:${item.zoomDirection ?? ''}:${item.zoomAmount ?? ''}:${item.zoomStartScale ?? ''}:${item.zoomEndScale ?? ''}`)
+    .map((item) => `${item.id}:${item.scale}:${item.positionX}:${item.positionY}:${item.rotation ?? ''}:${item.blur ?? ''}:${item.zoomDirection ?? ''}:${item.zoomAmount ?? ''}:${item.zoomStartScale ?? ''}:${item.zoomEndScale ?? ''}:${item.panEndPositionX ?? ''}:${item.panEndPositionY ?? ''}`)
     .join('|');
 
   // --- キャプション・ロゴ変更時のプレビュー再描画 ---
@@ -4728,13 +4727,12 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onUpdateImageDuration={handleUpdateImageDuration}
               onSetImageEndFromCurrent={handleSetImageEndFromCurrent}
               onUpdateMediaScale={handleUpdateMediaScale}
-              onUpdateMediaZoomDirection={handleUpdateMediaZoomDirection}
-              onUpdateMediaZoomAmount={handleUpdateMediaZoomAmount}
-              onUpdateMediaZoomEndpoint={handleUpdateMediaZoomEndpoint}
               onPreviewMediaZoomEndpoint={handlePreviewMediaZoomEndpoint}
               onPreviewMediaScale={handlePreviewMediaScale}
               zoomEndpointPreview={zoomEndpointPreview}
-              onInheritMediaZoom={handleInheritMediaZoom}
+              onUpdateMediaMotionPoint={handleUpdateMediaMotionPoint}
+              onSetMediaMotionEnd={handleSetMediaMotionEnd}
+              onInheritMediaComposition={handleInheritMediaComposition}
               onSplitMedia={handleSplitMedia}
               onUpdateMediaPosition={handleUpdateMediaPosition}
               onRotateMedia={handleRotateMedia}

@@ -679,6 +679,8 @@
 | **ObjectURL** | 作成したら必ず `revokeObjectURL` で解放。特にリストア時の古い URL に注意 |
 | **速度のなめらか接続** | 時刻換算は `resolveVideoSpeedRampForItem` 付き `resolveVideoSourceTime`、rate・dilation は `resolveItemPlaybackSpeedAtLocalTime`。`playbackSpeed` を直接掛けない。開始速度と尺は mediaStore の set ラッパーが並びから取り直す（13-296） |
 | **ファイルのドラッグ&ドロップ** | window の `usePreventWindowFileDrop` が Files の drop を常に preventDefault する。ファイルを受け付ける UI を新設するなら要素自身で onDrop を処理し、受付判定は追加ボタンと同じ accept 文字列（`matchesFileAccept`）で揃える（13-298） |
+| **位置の移動（パン）** | 描画位置は `resolveMediaPosition(item, localTime)`（端点確認中は `zoomPreview.scaleTime`）で求める。`positionX/Y` を描画に直接使わない（開始位置にすぎない）。分割・続き・引き継ぎは `createMediaPanRangePatch` / `createMediaPanHoldPatch` を通す（13-299） |
+| **サイズ・位置・動き** | カードの構図編集は `ClipCompositionPanel` に集約。開始・終了の構図の読み書きは `mediaMotion.ts`（ズーム・移動の保存値をまとめて扱う）を通す。同じ値を別の欄へ二重に出さない。動かさない＝`updateScale`/`updatePosition`（両端連動）、動かす＝`updateMotionPoint`（選んだ時点だけ）（13-301） |
 | **Canvas** | `display: none` の video からは描画不可。`opacity: 0.001` で隠す |
 | **WebCodecs** | `VideoFrame` は `close()` しないとメモリリーク。CFR 強制が重要 |
 | **Safari Export** | iOS Safari では OfflineAudioContext による音声プリレンダリング方式を使用。メインAudioContextで`decodeAudioData`を実行し、`f32-planar`形式のAudioDataをAudioEncoderに直接供給する。**重要**: iOS Safari の `decodeAudioData` はビデオコンテナ(.mov/.mp4)をデコードできない（`EncodingError`）ため、`extractAudioViaVideoElement()` で `<video>` 要素経由のリアルタイム音声抽出にフォールバックする。muxer/AudioEncoder は常に音声付きで初期化。OfflineAudioContext 失敗時は ScriptProcessorNode にフォールバック |
@@ -5232,3 +5234,97 @@ export 終了（成功/失敗/中断）
   - 新たにファイルを受け付ける UI（見えている `<input type="file">` や独自ドロップ領域）を作る場合、window ガードが Files の drop を preventDefault するため、**その要素自身で onDrop を処理する**こと（ネイティブ input へのドロップの既定動作には頼れない）。現状の file input はすべて `hidden`。
   - section 内からポータルで出したポップオーバー上でも React の合成イベントは section へバブルするので、そこへのドロップもそのセクションへの追加になる（許容）。
   - ドロップの props（`onDropMediaFiles` / `onDropBgmFiles` / `onDropNarrationFiles`）は任意。渡さなければドロップ先にならない（既存テストの描画を壊さない）。
+
+### 13-299. 位置の移動（パン）: 開始位置→終了位置を表示時間全体で直線補間し、ズームと同時に使える
+
+- **ファイル**: `src/utils/mediaPan.ts`（新規）, `src/types/index.ts`, `src/utils/indexedDB.ts`, `src/stores/mediaStore.ts`（`updatePanEndpoint` / `inheritPreviousPan` / `resetTransform('pan')` / 分割・続き）, `src/stores/projectStore.ts`, `src/hooks/useAutoSave.ts`, `src/utils/media.ts`（ポスターキー）, `src/flavors/standard/preview/androidPreviewCache.ts`, `src/utils/splitCompare.ts`, 両flavorの `preview/usePreviewEngine.ts`, `src/components/common/MiniPreview.tsx`, `src/components/media/ClipItem.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/TurtleVideo.tsx`（`mediaTransformPreviewKey`）, `src/constants/sectionHelp.ts`, `spec.md`, テスト `mediaPan.test.ts` / `clipPan.ui.test.tsx` / `overlayPreviewRefresh.test.tsx`（両実engine）/ `projectStoreSave.test.ts` / `useAutoSave.test.tsx`
+- **要件**: ズームイン/アウトと同じ感覚で、開始位置と終了位置を指定するとその位置へ動く。ズームと組み合わせて「目的の位置へずらしながら拡大」したい。
+- **契約（ズーム 13-264 と同じ考え方）**:
+  - 開始位置 = 既存の `positionX/Y`（位置・サイズの横・縦と共通）。終了位置 = 任意の `panEndPositionX/Y`（px・保存座標）。**両方が有限値のときだけ移動**。欠けていれば固定（旧データ互換）。
+  - `createMediaPanRangePatch` は開始＝終了（0.5px 未満差）なら終了を消して固定にする。固定中に開始を動かすと終了も追従、移動中は終了を保つ（ズームの `createMediaStartScalePatch` と同じ）。固定中に終了を触ると開始から動き始める（`createMediaPanEndpointPatch`）。
+  - 進み方は `localTime / duration` の線形でズームと同一。同時に使うと同じ瞬間に始まり終わる。
+- **描画**: 両flavorの `renderFrame` は `resolveMediaPosition(conf, zoomPreview?.scaleTime ?? localTime)`、standard のディゾルブ前クリップ／2画面表示の peer は `resolveMediaPosition(conf, overlapPeerLocalTime)`、ミニビューは `localTimeRef`。書き出しは同じプレビュー canvas を撮るので追加対応なし。カードのサムネイルは開始位置のまま（拡大率も開始倍率なので揃っている）。legacy `components/turtle-video/usePreviewEngine.ts` と `usePlayback.ts` は凍結のまま。
+- **編集の流れ**: 移動欄の操作はズーム端点と同じく `pausePreviewBeforeEdit` を通し、`onPreviewZoomEndpoint(endpoint)` で先頭/末尾を停止プレビューする（確認ボタンはズーム欄のものを共用し、移動欄には重複して置かない）。アコーディオン名は「フェード・ズーム・移動」へ改名。
+- **継承・分割**: 分割は分割時刻の補間位置を前半の終了・後半の開始へ。続きコピーは `createMediaPanHoldPatch`（終了位置で固定）。通常コピーは設定ごと複製。「前の素材の終了位置を引き継ぐ」は直前カードの終了位置で固定（ズームの引き継ぎとは独立）。
+- **注意**:
+  - `positionX/Y` を描画・判定で「その時刻の位置」として使わない。新しい描画経路を足すときは `resolveMediaPosition` を通す。
+  - 変更検知キー（自動保存ハッシュ、ポスターキー、Android キャッシュキー、`mediaTransformPreviewKey`）に `panEndPositionX/Y` を含めた。新しいキーを作るときも含めること。
+  - 2画面表示の「横位置の自動調整」は、移動を設定したカードを「触ったカード」とみなして調整しない（`hasUntouchedTransform`）。
+  - 未検証: standard のディゾルブ前クリップ（peer）経路の移動は単体テストなし（コードは同じ関数を使う）。イージング（ゆっくり始まる等）は未対応で、ズームと同じ線形。
+
+### 13-300. 停止中の描き直しは、末尾の前フレーム保持中でも黒から描く（移動の終了位置確認で絵が重なる）
+
+- **ファイル**: `src/utils/previewCanvasClear.ts`（`redrawStoppedDrawableFrame`）, 両flavorの `preview/usePreviewEngine.ts`（`isActiveFrameDrawableNow`）, `src/test/previewCanvasClear.test.ts`, `src/test/overlayPreviewRefresh.test.tsx`
+- **症状**: 動画カードで移動（13-299）の終了位置を変えると、プレビューの空いた側に画像の端が何重にも残り、ギザギザに重なって見えた。背面が黒にならない。
+- **原因**: 終了の確認は `localTime = duration − 0.001` を描く。動画の末尾 0.2 秒は `shouldHoldVideoFrameAtClipEnd` が働き、再生中の黒点滅対策として `holdFrame = true` になる。`shouldClearPreviewCanvas` は holdFrame 中は黒クリアしない。一方、絵自体は描ける（`readyState≥2`・非シーク）ので新しい位置で描画される。結果として、前の位置の絵の上へ重ね描きになっていた。拡大の縮小でも同じ形で起き得たが、移動で目立った。画像は末尾 hold が無いので起きない。
+- **対策**: `shouldClearPreviewCanvas` に任意入力 `redrawStoppedDrawableFrame` を追加した。停止中（`!_isExporting && !isActivePlaying && !isPlayingRef.current`）かつ表示中クリップの絵をこのフレームで描ける（動画は `hasFrame`、画像は `isImageReady`）なら、holdFrame より黒クリアを優先する。
+- **維持したもの**: hold 系の抑止（Android プレビュー・書き出し直後）、描画対象なし、タイムライン終端の保持は従来どおり優先する。再生中・書き出し中の hold も変えない。シーク中など描けないときは従来どおり前フレームを保持する（黒点滅させない）。
+- **回帰ガード**: 両実engineで、末尾付近で停止した動画（hold 発動状態）の終了確認中に移動の終了横位置を 3 回変え、本プレビュー canvas の動画描画の直前に毎回全面の黒クリアがあることを検証する。修正を外すと両flavorとも失敗する。注意: フェード用スナップショット canvas への複製 drawImage も呼ばれるので、本 canvas だけを数えること。
+
+### 13-301. カード設定を「サイズ・位置・動き／フェード・ぼかし／音量・再生速度」へ再分類し、構図は1組のスライダーで開始・終了を編集する
+
+- **ファイル**: `src/utils/mediaMotion.ts`（新規）, `src/components/media/ClipCompositionPanel.tsx`（新規）, `src/components/media/ClipItem.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/TurtleVideo.tsx`, `src/stores/mediaStore.ts`（`updateMotionPoint` / `setMotionEnd` / `inheritPreviousComposition` / `resetTransform('composition-default')`）, `src/utils/mediaZoom.ts`（リセット種別）, `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`, `spec.md`, テスト `clipMotion.ui.test.tsx`（`clipZoom.ui` / `clipPan.ui` を置き換え）/ `mediaMotion.test.ts` / `overlayPreviewRefresh.test.tsx` / `clipCardDisclosure.ui.test.tsx` / `clipsSectionPicker.test.tsx` / `sectionHelp(.Modal).test`
+- **問題**: 「位置・サイズ・回転・ぼかし調整」と「フェード・ズーム・移動」に分かれ、拡大率＝ズーム開始、横・縦＝移動の開始が2か所に出ていた。構図スライダーが9本（サイズ・横・縦／ズーム開始・終了／移動の開始・終了×横縦）あり、行き来とカードの長さが問題。フェード（効果）とズーム（構図）が同じ欄、ぼかし（効果）が構図の欄に混在。
+- **対策（UI だけ。保存形式・描画は不変）**:
+  - 欄を「サイズ・位置・動き」「フェード・ぼかし」（ぼかし無しの iOS は「フェード」）「音量・再生速度」の順に並べ替え。
+  - `ClipCompositionPanel`: スライダーはサイズ・横・縦の3本だけ。aria は従来どおり「拡大率」「横位置」「縦位置」。「動かさない」なら従来の `onUpdateScale`（`createMediaStartScalePatch` で固定なら両端連動）/`onUpdatePosition`（パン終了未設定なら追従）と `onPreviewScale`（13-272: 表示中カードは現在位置を保つ）。「動かす」なら `onUpdateMotionPoint(editPoint, patch)`（選んだ時点だけ。もう一方は保つ）と `onPreviewZoomEndpoint(editPoint)`（13-265 の端点停止プレビューを流用）。
+  - 「動かす」状態は「実際に動いている（`isMediaMotionActive`）」か「利用者が押した」の UI 状態。押した直後は終了を選び、終了＝開始の間は案内を出す。「動かさない」は `setMotionEnd(null)`、直前の終了を UI 状態で覚えて再度「動かす」で戻す（カードを再マウントすると忘れる）。親の `zoomPreviewEndpoint` が来たら編集時点をそれに合わせる。
+  - かんたん設定のズームイン／アウトは `setMotionEnd({...range.end, scale: start×1.2 or ÷1.2})`（従来の既定ズーム量と同じ）。「動かさない」からでも「動かす・終了」へ切り替える。
+  - 引き継ぎは `inheritPreviousComposition`: 直前カードの最後の構図（`resolvePreviousComposition`）を、動いていれば開始へ（終了は保つ＝動きが続く）、固定なら全体へ。旧 `inheritPreviousZoom` / `inheritPreviousPan` はストアに残す（UI からは呼ばない）。
+  - 黒帯除去は先頭、回転は一番下。黒帯除去は動かすときは選んだ時点のサイズに効く。
+  - 旧 props（`onUpdateZoomDirection` / `onUpdateZoomAmount`）は @deprecated の任意 props として残し、渡しても使わない。`onUpdateZoomEndpoint` / `onInheritZoom` / `onUpdatePanEndpoint` / `onInheritPan` などの旧配線は削除。
+- **ヘルプ**: 「サイズ・位置・動き」「フェード・ぼかし」の2項目に書き直し（ユースケース: 拡大だけ、動かす、かんたん設定、寄っていく例、引き継ぎ、分割・続き、リセット、回転）。iOS は回転・分割の説明を外し、2つ目を「フェード」にする。
+- **注意**:
+  - 動かすときのサイズ・位置編集は端点停止プレビューへ移る（13-272 の「現在位置を保つ」は動かさないときだけ）。選んだ時点の絵を見ながら編集するための意図的な仕様。
+  - 「動かす」中に開始を変えると、終了は元の値のまま残る（固定から動きが生まれる）。動かさないときの両端連動（13-264）とは別経路なので混ぜないこと。
+  - 新しく構図の UI を足すときは `mediaMotion.ts` を経由し、ズーム・移動の保存値を直接いじらない。
+
+### 13-302. 「サイズ・位置・動き」のスライダー欄を詰める（位置は横・縦をまとめ、数値欄の幅をそろえる）
+
+- **ファイル**: `src/components/media/ClipCompositionPanel.tsx`, `src/components/common/NumericSliderField.tsx` / `NumericStepperInput.tsx`（`inputWidthChars`）, `src/constants/sectionHelp.ts`, `src/test/clipMotion.ui.test.tsx`
+- **要望**: 項目ごとの上下の間隔が広い（特に横・縦）。見出しの「サイズ: 100%」の値は数値欄と重複。サイズの数値欄だけ横・縦より幅が広い。
+- **対策**:
+  - 横・縦を「位置（右・上が＋）」の見出し1行にまとめ、各行は1文字ラベル「横」「縦」を数値欄の左に置く（見出しの行を1つ減らす）。サイズ行は同じ幅の見えないラベル（`SPACER_LABEL`）で数値欄の左端をそろえる。
+  - 見出しから値を外す（値は数値欄だけ）。
+  - リセットは「サイズ」「位置」の見出しの右端に1つずつ。位置は横・縦をまとめて戻す（動かすときは開始なら中央、終了なら開始と同じ）。＋ボタンの隣には置かない（連打中の押し間違い防止）。
+  - リセットボタンは見た目 28px（`h-7 w-7 -my-1`）にして行の高さを伸ばさず、`after:-inset-2` の疑似要素で押せる範囲 44px 相当を保つ。見出しと欄の間は `gap-0.5`、欄どうしは `space-y-1.5`。
+  - `NumericStepperInput` に `inputWidthChars` を追加（省略時は従来どおり min/max から自動）。サイズ（50〜600・0.1刻み＝自動だと5桁）を横・縦と同じ4桁幅にそろえる。
+- **注意**: ラベルを数値欄の左に置くのは1文字の横・縦だけ。「サイズ」まで左に置くとスマホ幅（約300px）でスライダーが100px未満になり、細かい調整がしづらい。
+
+### 13-303. 「動き」の見出しをサイズ・位置とそろえ、かんたん設定（ズームイン／アウト）を廃止する
+
+- **ファイル**: `src/components/media/ClipCompositionPanel.tsx`, `src/utils/mediaMotion.ts`（`MEDIA_MOTION_QUICK_ZOOM_RATIO` 削除）, `src/constants/sectionHelp.ts`, `spec.md`, `src/test/clipMotion.ui.test.tsx`
+- **問題**: 「動き」だけトグルの左に太字で置かれ、サイズ・位置の見出しと書き方が違って何の項目か分かりにくい。「動かさない」なのにズームイン／アウトのボタンが出て矛盾。動かすにすると「かんたん設定」と「開始／終了」が並んでごちゃつく。利用者は細かく調整するので、かんたん設定は使わない。
+- **対策**: 見出しを「動き（ズーム・位置の移動）」としてサイズ・位置と同じ書き方（アイコン＋小さい灰色文字の行）にし、トグルはその下（`aria-labelledby` で見出しに紐付け）。かんたん設定（ズームイン＝終了を開始の120%、ズームアウト＝1/1.2）と「開始と同じにする」は削除し、「動かす」のときだけ「編集する時点（選んで、上のサイズ・位置を変更）」と開始→終了の要約を出す。止めるのは「動かさない」だけ。選択ボタンの高さはキャプションの割り付けボタンと同じ `py-1.5`（44px の `min-h-11` をやめる）。
+- **注意**: ズームイン／アウトは「動かす」→「終了（末尾）」でサイズを変えて作る。ヘルプは例として説明する。13-301 のかんたん設定の記述は本節で置き換え。
+
+### 13-304. 音量・再生速度・BGM・ナレーション・キャプション位置のスライダー欄を「サイズ・位置」と同じ作法にそろえる（CompactField）
+
+- **ファイル**: `src/components/common/CompactField.tsx`（新規: `CompactFieldHeader` / `CompactMuteToggle` / `COMPACT_RESET_BUTTON_CLASS` / `COMPACT_AXIS_LABEL_CLASS` / `COMPACT_SPACER_LABEL`）, `src/components/media/ClipItem.tsx`（音量・再生速度・速度バッジ位置）, `src/components/media/ClipCompositionPanel.tsx`（定数を共通化）, `src/components/sections/BgmClipList.tsx` / `BgmSection.tsx` / `NarrationSection.tsx`（開始位置・音量）, `src/components/common/CaptionPositionField.tsx`（カスタム位置）, `src/test/compactAudioRows.ui.test.tsx`
+- **問題**: 動画の「速度」が `NumericSliderField` の左ラベル（既定 `w-6`）に収まらず縦書きになっていた。音量の行は左にミュートボタンがあり、速度の数値欄と左端がそろわない。音量・開始位置のリセットが＋ボタンの右にあり、他の欄（見出しの右端）と違う。速度バッジの横・縦の間隔が広い。BGM・ナレーションも同じ形。
+- **取り決め（新しい欄もこれに従う）**:
+  - 見出し行 `CompactFieldHeader`: 左に「アイコン＋項目名（＋ミュート等 `titleExtra`）」、右に補足 `info` と小さなリセット。値は見出しに重ねない。リセットは＋の隣に置かない。
+  - 行は数値欄から始める（左ラベルを置かない）。対になる横・縦だけ 1 文字ラベル `COMPACT_AXIS_LABEL_CLASS`。並べる欄は `inputWidthChars` で数値欄の幅をそろえる（音量・速度・速度バッジ位置は 3 桁、サイズ・位置は 4 桁）。
+  - ミュートは見出しの項目名の隣の `CompactMuteToggle`（title は従来どおり「ミュート」／「ミュート解除」、文言は「ミュート」／「ミュート中」）。
+  - 見出しと欄の間は `gap-0.5`。リセットは見た目 28px・押せる範囲 44px 相当（after 疑似要素）。
+- **個別**: 動画の再生速度は見出し「再生速度」の右に「元 Xs → 表示 Ys」とリセット（等倍へ）。速度の値（◯倍）は見出しから外した（数値欄にある）。BGM・ナレーションの開始位置は見出し「開始位置: mm:ss」右に「長さ」とリセット（mm:ss は秒の数値欄と形式が違うので残す）。キャプションのカスタム位置は「横 (右+)」→「横」（向きは下の注記）。
+- **対象外**: ロゴ（ウォーターマーク／エンドロール）の `NumericControl` は 1 行完結（ラベル列の隣にリセット、＋の隣ではない）の別デザインなので変更しない。
+- **注意**: 既存テストは mute を `getByTitle('ミュート')`、開始位置リセットを aria-label「〜の開始位置を0秒にリセット」で探す。名前を変えないこと。
+
+### 13-305. ミュートは見出しの右側へ、1 文字・2 文字ラベルは数値欄にくっつけない
+
+- **ファイル**: `src/components/common/CompactField.tsx`, `src/components/common/NumericSliderField.tsx`, `src/components/media/ClipItem.tsx`, `src/components/media/CaptionItem.tsx`, `src/components/sections/BgmClipList.tsx`, `src/components/sections/NarrationSection.tsx`, `src/test/compactAudioRows.ui.test.tsx`
+- **要望**: 13-304 で「音量」の隣に置いたミュートが見出しに近すぎて分かりにくい。速度バッジの「横」「縦」が数値欄にくっついて見える。
+- **対策**:
+  - ミュート（`CompactMuteToggle`）は `titleExtra` ではなく `info`（右寄せ・リセットの左）に置く。右側の並びは `gap-3` にしてリセットとの押し間違いを避ける。`titleExtra` にはボタンを置かない。
+  - `COMPACT_AXIS_LABEL_CLASS` を `w-3` → `w-4`（文字幅 12px より広く、左右に余白）。サイズ・位置、速度バッジ位置、キャプションのカスタム位置にまとめて効く（サイズ行の空白ラベルも同じ幅）。
+  - 同じ理由で、`NumericSliderField` の既定ラベル幅を `w-6` → `w-7`（動画トリムの「開始」「終了」）、キャプションの「開始:」「終了:」を `w-8` → `w-9`。
+
+### 13-306. ミュートは従来どおり数値欄の左のアイコンボタンへ戻す（音量だけの例外）。再生速度は他の欄と同じ形
+
+- **ファイル**: `src/components/common/CompactField.tsx`（`CompactMuteToggle` をアイコンだけの h-9 w-9 / md:h-8 md:w-8 ボタンへ、`COMPACT_ROW_ICON_CLASS`）, `src/components/media/ClipItem.tsx`, `src/components/sections/BgmClipList.tsx`, `src/components/sections/NarrationSection.tsx`, `src/test/compactAudioRows.ui.test.tsx`
+- **経緯**: 13-304 でミュートを見出しの項目名の隣、13-305 で見出しの右側へ移したが、どちらも違和感が強いという判断。従来の「数値欄（%）の左にアイコンだけ・ミュート中は赤」に戻した（13-305 のミュート位置の記述は本節で置き換え）。
+- **形**:
+  - 音量: 見出し「音量 …… ↺」（見出しにスピーカーアイコンは付けない＝ボタンと重複）→ 行 `[ミュート][数値欄]%[スライダー][−][+]`。title は「ミュート」／「ミュート解除」。
+  - 再生速度: 見出し「⏱ 再生速度 …… 元→表示 ↺」→ 行は数値欄から始める（サイズ・ぼかし等と同じ）。音量の数値欄と左端・幅を合わせる必要はない（利用者確認済み）。
+- **注意**: ミュートを見出しへ移す案は2回不評だったので再提案しない。リセットは引き続き見出しの右端（＋の隣に置かない）。

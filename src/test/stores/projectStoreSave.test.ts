@@ -48,6 +48,7 @@ import {
 } from '../../stores/projectPersistence';
 import { appleSafariSaveRuntime } from '../../flavors/apple-safari/appleSafariSaveRuntime';
 import { standardSaveRuntime } from '../../flavors/standard/standardSaveRuntime';
+import { resolveMediaPosition } from '../../utils/mediaPan';
 import { createMediaZoomRangePatch, resolveMediaScaleFactor } from '../../utils/mediaZoom';
 
 const defaultCaptionSettings: CaptionSettings = {
@@ -151,6 +152,30 @@ function createNarrationClip(id: string, overrides: Partial<NarrationClip> = {})
 }
 
 describe('projectStore save behavior', () => {
+  it('位置の移動（パン）の終了位置を手動保存/自動保存して復元し、固定は終了を保存しない', async () => {
+    const items = [
+      { ...createMediaItem('pan.mp4'), positionX: -100, positionY: 40, panEndPositionX: 200, panEndPositionY: -60 },
+      { ...createMediaItem('fixed.png', 'image'), positionX: 30, positionY: 0 },
+      // 片方だけの不正データは固定として読み込む
+      { ...createMediaItem('broken.png', 'image'), positionX: 5, positionY: 5, panEndPositionX: 99 },
+    ];
+    for (const mode of ['manual', 'auto'] as const) {
+      const save = mode === 'manual' ? useProjectStore.getState().saveProjectManual : useProjectStore.getState().saveProjectAuto;
+      await save(items, false, null, false, [], false, [], defaultCaptionSettings, false);
+      const saved = mocks.saveProject.mock.calls[mocks.saveProject.mock.calls.length - 1][0] as ProjectData;
+      expect(saved.mediaItems[0]).toMatchObject({ positionX: -100, positionY: 40, panEndPositionX: 200, panEndPositionY: -60 });
+      expect(saved.mediaItems[1].panEndPositionX).toBeUndefined();
+      expect(saved.mediaItems[2].panEndPositionX).toBeUndefined();
+      mocks.loadProject.mockResolvedValueOnce(saved);
+      const loaded = await useProjectStore.getState().loadProjectFromSlot(mode);
+      for (const [i, original] of items.entries()) {
+        for (const t of [0, original.duration / 2, original.duration]) {
+          expect(resolveMediaPosition(loaded!.mediaItems[i], t)).toEqual(resolveMediaPosition(original, t));
+        }
+      }
+    }
+  });
+
   it('旧小数倍率・実効端点・固定倍率を手動保存/自動保存して復元する', async () => {
     const items = [
       { ...createMediaItem('legacy.mp4'), scale: 1.4, zoomDirection: 'in' as const, zoomAmount: 1.3 },
