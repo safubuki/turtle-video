@@ -15,7 +15,7 @@
 import React from 'react';
 import type { CaptionPosition } from '../../types';
 import NumericSliderField from './NumericSliderField';
-import { COMPACT_AXIS_LABEL_CLASS } from './CompactField';
+import { COMPACT_AXIS_LABEL_CLASS, COMPACT_AXIS_SECOND_ROW_CLASS } from './CompactField';
 import {
   CAPTION_POSITION_CUSTOM_DEFAULT,
   clampPositionPercent,
@@ -177,6 +177,7 @@ const CaptionPositionField = React.memo<CaptionPositionFieldProps>(({
             <NumericSliderField
               key={axis}
               label={axis === 'x' ? '横' : '縦'}
+              className={axis === 'y' ? COMPACT_AXIS_SECOND_ROW_CLASS : ''}
               labelClassName={COMPACT_AXIS_LABEL_CLASS}
               min={CENTER_ORIGIN_MIN}
               max={CENTER_ORIGIN_MAX}

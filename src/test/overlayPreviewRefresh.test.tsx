@@ -39,6 +39,14 @@ import { usePreviewEngine as useAppleSafariPreviewEngine } from '../flavors/appl
 import { usePreviewSeekController as useAppleSafariPreviewSeekController } from '../flavors/apple-safari/preview/usePreviewSeekController';
 import * as titleOpeningFrameUtils from '../utils/titleOpeningFrame';
 import { resolveMediaPosition } from '../utils/mediaPan';
+import { MEDIA_SIZE_SLIDER_STOPS } from '../utils/mediaZoom';
+
+/** サイズのスライダーは目盛り番号で動く（13-307）。その % の目盛り番号を返す */
+const sizeStop = (percent: number) => {
+  const index = MEDIA_SIZE_SLIDER_STOPS.indexOf(percent);
+  if (index < 0) throw new Error(`サイズの目盛りに無い値: ${percent}`);
+  return String(index);
+};
 
 /** 全レンダーで共有する renderFrame。呼び出し回数の増加＝再描画が走った証拠 */
 const renderFrameSpy = vi.fn(() => true);
@@ -218,7 +226,7 @@ describe.each([
     runtime.usePreviewSeekController = useSeek;
     renderApp(runtime);
     // 動いているカードは開始を選んだ状態で開く。サイズは選んだ時点（開始）だけを変える。
-    fireEvent.change(screen.getByRole('slider', { name: '拡大率' }), { target: { value: '210.1' } });
+    fireEvent.change(screen.getByRole('slider', { name: '拡大率' }), { target: { value: sizeStop(210) } });
     if (endpoint !== 'none') {
       fireEvent.click(screen.getByRole('button', { name: endpoint === 'end' ? '終了（末尾）' : '開始（先頭）' }));
     }
@@ -229,7 +237,7 @@ describe.each([
     const translate = vi.mocked(context.translate);
     const scale = vi.mocked(context.scale);
     const drawImage = vi.mocked(context.drawImage);
-    const expectedScale = (endpoint === 'end' ? 2.5 : 2.101) * Math.min(canvas.width / 1280, canvas.height / 720);
+    const expectedScale = (endpoint === 'end' ? 2.5 : 2.1) * Math.min(canvas.width / 1280, canvas.height / 720);
     await waitFor(() => expect(scale).toHaveBeenLastCalledWith(expect.closeTo(expectedScale), expect.closeTo(expectedScale)));
     // 端点選択直後の描画と要素準備タイマーを終えてから、位置変更だけを検証する。
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 150)); });
@@ -262,8 +270,8 @@ describe.each([
       if (endpoint === 'end') expect(item).toMatchObject({ positionX: 0, positionY: 0 });
       expect(scale).toHaveBeenLastCalledWith(expect.closeTo(expectedScale), expect.closeTo(expectedScale));
       expect(useUIStore.getState().currentTime).toBe(previewTime);
-      expect(item.zoomStartScale).toBe(2.101);
-      expect(item.zoomEndScale).toBe(animated ? 2.5 : 2.101);
+      expect(item.zoomStartScale).toBe(2.1);
+      expect(item.zoomEndScale).toBe(animated ? 2.5 : 2.1);
       expect(useUIStore.getState().isPlaying).toBe(false);
       expect(capture).not.toHaveBeenCalled();
     }
@@ -344,10 +352,10 @@ describe.each([
     ]));
 
     // 表示中のカード: スライダー・数値入力・黒帯除去のどれでも現在位置（2秒）を保つ。
-    fireEvent.change(within(cardA()).getByRole('slider', { name: '拡大率' }), { target: { value: '210.1' } });
-    await expectLastScale(2.101 * fit);
+    fireEvent.change(within(cardA()).getByRole('slider', { name: '拡大率' }), { target: { value: sizeStop(210) } });
+    await expectLastScale(2.1 * fit);
     expect(useUIStore.getState().currentTime).toBe(2);
-    expect(useMediaStore.getState().mediaItems[0]).toMatchObject({ zoomStartScale: 2.101, zoomEndScale: 2.101 });
+    expect(useMediaStore.getState().mediaItems[0]).toMatchObject({ zoomStartScale: 2.1, zoomEndScale: 2.1 });
 
     fireEvent.focus(within(cardA()).getByRole('spinbutton', { name: '拡大率（数値）' }));
     fireEvent.click(within(cardA()).getByRole('checkbox', { name: /黒帯除去/ }));
@@ -357,12 +365,12 @@ describe.each([
 
     // 別カード: 調整結果が見えるよう、そのカードの先頭（5秒）を確認する。
     fireEvent.click(screen.getByRole('button', { name: 'すべて開く' }));
-    fireEvent.change(within(cardB()).getByRole('slider', { name: '拡大率' }), { target: { value: '150' } });
+    fireEvent.change(within(cardB()).getByRole('slider', { name: '拡大率' }), { target: { value: sizeStop(150) } });
     await waitFor(() => expect(useUIStore.getState().currentTime).toBe(5));
     await expectLastScale(1.5 * fit);
 
     // 確認中のカードを続けて調整しても、確認位置は動かさない。
-    fireEvent.change(within(cardB()).getByRole('slider', { name: '拡大率' }), { target: { value: '160' } });
+    fireEvent.change(within(cardB()).getByRole('slider', { name: '拡大率' }), { target: { value: sizeStop(160) } });
     await expectLastScale(1.6 * fit);
     expect(useUIStore.getState().currentTime).toBe(5);
     expect(useUIStore.getState().isPlaying).toBe(false);
@@ -428,22 +436,22 @@ describe('ズーム端点確認中は背景撮影が動画の表示位置を変�
     readyState = 4;
     fireEvent.click(screen.getByRole('button', { name: 'サイズ・位置・動き' }));
     fireEvent.click(screen.getByRole('button', { name: '終了（末尾）' }));
-    fireEvent.change(screen.getByRole('slider', { name: '拡大率' }), { target: { value: '126.2' } });
+    fireEvent.change(screen.getByRole('slider', { name: '拡大率' }), { target: { value: sizeStop(126) } });
     titleCaptureTarget.mockClear();
-    await waitFor(() => expect(scale).toHaveBeenLastCalledWith(1.262, 1.262));
+    await waitFor(() => expect(scale).toHaveBeenLastCalledWith(1.26, 1.26));
     expect(video.currentTime).toBeCloseTo(9.099);
     expect(useMediaStore.getState().mediaItems[0].duration).toBeCloseTo(6.6);
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1000)); });
     expect(video.currentTime).toBeCloseTo(9.099);
     expect(drawnSourceTimes[drawnSourceTimes.length - 1]).toBeCloseTo(9.099);
-    expect(scale).toHaveBeenLastCalledWith(1.262, 1.262);
+    expect(scale).toHaveBeenLastCalledWith(1.26, 1.26);
     expect(useUIStore.getState().currentTime).toBeCloseTo(6.599);
     expect(capture).not.toHaveBeenCalled();
     expect(titleCaptureTarget).not.toHaveBeenCalled();
 
     // 同じ端点の再調整と先頭確認も背景撮影へ譲らない。
-    fireEvent.change(screen.getByRole('slider', { name: '拡大率' }), { target: { value: '131.2' } });
-    expect(scale).toHaveBeenLastCalledWith(expect.closeTo(1.312), expect.closeTo(1.312));
+    fireEvent.change(screen.getByRole('slider', { name: '拡大率' }), { target: { value: sizeStop(131) } });
+    expect(scale).toHaveBeenLastCalledWith(expect.closeTo(1.31), expect.closeTo(1.31));
     fireEvent.click(screen.getByRole('button', { name: '開始（先頭）' }));
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 200)); });
     expect(video.currentTime).toBe(2.5);
@@ -609,7 +617,7 @@ describe('動画の途中でサイズを変えても撮影時刻の絵を見せ�
     mainDraws.length = 0;
     miniDraws.length = 0;
     titleCaptureTarget.mockClear();
-    fireEvent.change(screen.getByRole('slider', { name: '拡大率' }), { target: { value: '150' } });
+    fireEvent.change(screen.getByRole('slider', { name: '拡大率' }), { target: { value: sizeStop(150) } });
     await waitFor(() => expect(titleCaptureTarget).toHaveBeenCalled());
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)); });
 

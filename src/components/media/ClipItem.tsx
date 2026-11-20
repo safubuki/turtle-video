@@ -31,7 +31,12 @@ import ClipFileNameButton from './ClipFileNameButton';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import PresetFadeDurationField from '../common/PresetFadeDurationField';
 import NumericSliderField from '../common/NumericSliderField';
-import { COMPACT_AXIS_LABEL_CLASS, CompactFieldHeader, CompactMuteToggle } from '../common/CompactField';
+import {
+  COMPACT_AXIS_LABEL_CLASS,
+  COMPACT_AXIS_SECOND_ROW_CLASS,
+  CompactFieldHeader,
+  CompactMuteToggle,
+} from '../common/CompactField';
 import { useCanvasStore } from '../../stores/canvasStore';
 import {
   canSetVideoTrimFromPreviewPosition,
@@ -1156,6 +1161,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
                           />
                           <NumericSliderField
                             label="縦"
+                            className={COMPACT_AXIS_SECOND_ROW_CLASS}
                             labelClassName={COMPACT_AXIS_LABEL_CLASS}
                             ariaLabel="速度バッジの縦位置"
                             min={0}

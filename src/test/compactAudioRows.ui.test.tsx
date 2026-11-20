@@ -98,6 +98,8 @@ describe('動画カードの音量・再生速度', () => {
     const xLabel = within(x.closest('div.flex-col') as HTMLElement).getByText('横');
     // 1 文字ラベルは文字幅より広い w-4 で、数値欄にくっつけない
     expect(xLabel.className).toContain('w-4');
+    expect(y.closest('.mt-1')).not.toBeNull();
+    expect(x.closest('.mt-1')).toBeNull();
   });
 });
 

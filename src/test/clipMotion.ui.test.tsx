@@ -9,6 +9,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ClipItem from '../components/media/ClipItem';
 import { useCanvasStore } from '../stores/canvasStore';
 import type { MediaItem } from '../types';
+import { MEDIA_SIZE_SLIDER_STOPS } from '../utils/mediaZoom';
+
+/** サイズのスライダーは目盛り番号で動く。その % の目盛り番号を返す */
+const sizeStop = (percent: number) => String(MEDIA_SIZE_SLIDER_STOPS.indexOf(percent));
 
 vi.mock('../components/common/ClipThumbnail', () => ({
   default: ({ scale }: { scale?: number }) => <div data-testid="clip-thumbnail" data-scale={scale} />,
@@ -107,7 +111,7 @@ describe('サイズ・位置・動き: 動かさない（既定）', () => {
     // ぼかしはこの欄に無い
     expect(within(panel).queryByRole('slider', { name: 'ぼかし強度' })).not.toBeInTheDocument();
 
-    fireEvent.change(size, { target: { value: '150' } });
+    fireEvent.change(size, { target: { value: sizeStop(150) } });
     expect(props.onUpdateScale).toHaveBeenLastCalledWith(1.5);
     expect(props.onPreviewScale).toHaveBeenCalledTimes(1);
     fireEvent.change(within(panel).getByRole('slider', { name: '横位置' }), { target: { value: '10' } });
@@ -148,6 +152,9 @@ describe('サイズ・位置・動き: 動かさない（既定）', () => {
     expect(before(xLabel, x)).toBe(true);
     expect(before(x, yLabel)).toBe(true);
     expect(before(yLabel, y)).toBe(true);
+    // 横と縦の数値欄が上下でくっつかないよう、縦の行に上の余白（行間 6px）
+    expect(y.closest('.mt-1')).not.toBeNull();
+    expect(x.closest('.mt-1')).toBeNull();
     // リセットはサイズと位置の見出しに 1 つずつ（＋ボタンの隣には置かない）
     expect(within(panel).queryByRole('button', { name: '横位置をリセット' })).not.toBeInTheDocument();
     expect(within(panel).getAllByRole('button', { name: /をリセット$/ }).map((b) => b.getAttribute('aria-label')))
@@ -177,6 +184,36 @@ describe('サイズ・位置・動き: 動かさない（既定）', () => {
   });
 });
 
+describe('サイズのスライダーの細かさと数値欄の幅（13-307）', () => {
+  it('50〜200% にバーの長さを多く割り当て、数値は 0.1% 単位のまま。数値欄は 157.4 が切れない幅', () => {
+    const stops = MEDIA_SIZE_SLIDER_STOPS;
+    expect(stops[0]).toBe(50);
+    expect(stops[stops.length - 1]).toBe(600);
+    expect(stops).toContain(102.5); // 黒帯除去
+    expect(stops.indexOf(100.5) - stops.indexOf(100)).toBe(1); // 50〜200% は 0.5% 刻み
+    expect(stops.indexOf(201) - stops.indexOf(200)).toBe(1); // 200〜300% は 1% 刻み
+    expect(stops.indexOf(305) - stops.indexOf(300)).toBe(1); // 300〜600% は 5% 刻み
+    // 等分なら 50〜200% はバーの 27%。目盛りで 60% 以上を割り当てる
+    expect(stops.indexOf(200) / (stops.length - 1)).toBeGreaterThan(0.6);
+    for (let i = 1; i < stops.length; i++) expect(stops[i]).toBeGreaterThan(stops[i - 1]);
+
+    const { props } = renderItem({ item: createItem({ scale: 1.574, zoomStartScale: 1.574, zoomEndScale: 1.574 }) });
+    const slider = screen.getByRole('slider', { name: '拡大率' });
+    expect(slider).toHaveAttribute('max', String(stops.length - 1));
+    const size = screen.getByRole('spinbutton', { name: '拡大率（数値）' });
+    expect(size).toHaveValue(157.4);
+    // 5 文字（157.4）分の幅。横・縦も同じ幅
+    expect(size.style.width).toContain('5ch');
+    expect(screen.getByRole('spinbutton', { name: '横位置（数値）' }).style.width).toBe(size.style.width);
+    expect(screen.getByRole('spinbutton', { name: '縦位置（数値）' }).style.width).toBe(size.style.width);
+    // 数値欄の入力は 0.1% 単位のまま
+    fireEvent.focus(size);
+    fireEvent.change(size, { target: { value: '123.4' } });
+    fireEvent.blur(size);
+    expect(props.onUpdateScale).toHaveBeenLastCalledWith(1.234);
+  });
+});
+
 describe('サイズ・位置・動き: 動かす', () => {
   it('「動かす」で終了を選び、同じスライダーで選んだ時点だけを変える', () => {
     const { props } = renderItem();
@@ -187,7 +224,7 @@ describe('サイズ・位置・動き: 動かす', () => {
     expect(screen.getByTestId('clip-composition-point-still-1')).toHaveTextContent('終了（末尾）の構図を表示・編集中');
     expect(screen.getByTestId('mini-preview')).toHaveAttribute('data-local-time', '4');
 
-    fireEvent.change(screen.getByRole('slider', { name: '拡大率' }), { target: { value: '150' } });
+    fireEvent.change(screen.getByRole('slider', { name: '拡大率' }), { target: { value: sizeStop(150) } });
     expect(props.onUpdateMotionPoint).toHaveBeenLastCalledWith('end', { scale: 1.5 });
     expect(props.onUpdateScale).not.toHaveBeenCalled();
 

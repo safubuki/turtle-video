@@ -14,6 +14,7 @@ import MiniPreview from '../common/MiniPreview';
 import NumericSliderField from '../common/NumericSliderField';
 import {
   COMPACT_AXIS_LABEL_CLASS,
+  COMPACT_AXIS_SECOND_ROW_CLASS,
   COMPACT_RESET_BUTTON_CLASS,
   COMPACT_SPACER_LABEL,
 } from '../common/CompactField';
@@ -26,6 +27,7 @@ import {
 } from '../../utils/centerOriginPosition';
 import {
   MAX_MEDIA_ZOOM_SCALE,
+  MEDIA_SIZE_SLIDER_STOPS,
   MIN_MEDIA_ZOOM_SCALE,
   mediaPercentToScale,
   mediaScaleToPercent,
@@ -83,8 +85,8 @@ const resetIconClass = COMPACT_RESET_BUTTON_CLASS;
 /** 横・縦の 1 文字ラベル（サイズの行は同じ幅の空白で数値欄の左端をそろえる） */
 const axisLabelClass = COMPACT_AXIS_LABEL_CLASS;
 
-/** サイズと横・縦の数値欄を同じ幅（横・縦の −100〜100 と同じ 4 桁）にそろえる */
-const POSITION_INPUT_WIDTH_CHARS = 4;
+/** サイズと横・縦の数値欄を同じ幅にそろえる（サイズの「157.4」のような 5 文字が切れない幅） */
+const POSITION_INPUT_WIDTH_CHARS = 5;
 
 /** サイズ行の見えないラベル（横・縦の 1 文字ラベルと同じ幅を空けて数値欄の左端をそろえる） */
 const SPACER_LABEL = COMPACT_SPACER_LABEL;
@@ -272,6 +274,7 @@ const ClipCompositionPanel: React.FC<ClipCompositionPanelProps> = ({
           max={mediaScaleToPercent(MAX_MEDIA_ZOOM_SCALE)}
           step={0.1}
           stepperStep={2.5}
+          sliderStops={MEDIA_SIZE_SLIDER_STOPS}
           value={shownDisplay.size}
           onChange={handleSize}
           onInputFocus={motionMode ? () => onPreviewEndpoint?.(editPoint) : onPreviewScale}
@@ -304,6 +307,7 @@ const ClipCompositionPanel: React.FC<ClipCompositionPanelProps> = ({
             key={axis}
             label={axis === 'x' ? '横' : '縦'}
             labelClassName={axisLabelClass}
+            className={axis === 'y' ? COMPACT_AXIS_SECOND_ROW_CLASS : ''}
             ariaLabel={axis === 'x' ? '横位置' : '縦位置'}
             min={CENTER_ORIGIN_MIN}
             max={CENTER_ORIGIN_MAX}

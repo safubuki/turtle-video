@@ -11,6 +11,32 @@ export const MAX_MEDIA_ZOOM_AMOUNT = 1.5;
 export const MIN_MEDIA_ZOOM_SCALE = MIN_SCALE;
 export const MAX_MEDIA_ZOOM_SCALE = MAX_SCALE * MAX_MEDIA_ZOOM_AMOUNT;
 
+/**
+ * 「サイズ」スライダーの目盛り（%）。値の範囲 50〜600% をそのまま等分すると、
+ * よく使う 50〜200% が短くなり 1 目盛り（1px）あたり約 3% 動いて粗い。
+ * 50〜200% は 0.5% 刻み、200〜300% は 1% 刻み、300〜600% は 5% 刻みにして、
+ * バーの約 65% を 50〜200% に割り当てる（数値欄と −/+ は従来どおり 0.1% 単位）。
+ */
+export const MEDIA_SIZE_SLIDER_STOPS: readonly number[] = (() => {
+  const min = Math.round(MIN_MEDIA_ZOOM_SCALE * 100);
+  const max = Math.round(MAX_MEDIA_ZOOM_SCALE * 100);
+  const bands: Array<{ until: number; step: number }> = [
+    { until: 200, step: 0.5 },
+    { until: 300, step: 1 },
+    { until: max, step: 5 },
+  ];
+  const stops: number[] = [];
+  let value = min;
+  for (const band of bands) {
+    while (value < band.until - 1e-9 && value < max - 1e-9) {
+      stops.push(Number(value.toFixed(1)));
+      value += band.step;
+    }
+  }
+  stops.push(max);
+  return stops;
+})();
+
 export type MediaTransformResetKind = 'scale' | 'x' | 'y' | 'rotation' | 'blur' | 'zoom' | 'zoom-default' | 'pan'
   /** サイズ 100%・中央・動きなし（「サイズ・位置・動き」の「100%・中央に戻す」） */
   | 'composition-default';

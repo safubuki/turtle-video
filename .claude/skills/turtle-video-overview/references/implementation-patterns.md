@@ -5328,3 +5328,16 @@ export 終了（成功/失敗/中断）
   - 音量: 見出し「音量 …… ↺」（見出しにスピーカーアイコンは付けない＝ボタンと重複）→ 行 `[ミュート][数値欄]%[スライダー][−][+]`。title は「ミュート」／「ミュート解除」。
   - 再生速度: 見出し「⏱ 再生速度 …… 元→表示 ↺」→ 行は数値欄から始める（サイズ・ぼかし等と同じ）。音量の数値欄と左端・幅を合わせる必要はない（利用者確認済み）。
 - **注意**: ミュートを見出しへ移す案は2回不評だったので再提案しない。リセットは引き続き見出しの右端（＋の隣に置かない）。
+
+### 13-307. サイズのスライダーを 50〜200% で細かく動かせる目盛りにし、サイズ・位置の数値欄を 5 文字幅にする
+
+- **ファイル**: `src/utils/mediaZoom.ts`（`MEDIA_SIZE_SLIDER_STOPS`）, `src/components/media/ClipCompositionPanel.tsx`, `src/constants/sectionHelp.ts`, `src/test/clipMotion.ui.test.tsx`, `src/test/overlayPreviewRefresh.test.tsx`
+- **問題**: 50〜600% を等分したスライダーでは、よく使う 50〜200% がバーの 27% しかなく、1px あたり約 3% 動いて粗い。数値欄（4 文字幅）では「157.4」の末尾が切れる。
+- **対策（新機能は足さず、バーの中だけで対応）**: 既存の `sliderStops` を使い、50〜200% は 0.5% 刻み・200〜300% は 1% 刻み・300〜600% は 5% 刻みの目盛りにした（50〜200% がバーの約 65%）。数値欄と −/+（2.5%）は従来どおり 0.1% 単位。黒帯除去の 102.5% は目盛りに含む。サイズと横・縦の数値欄は `inputWidthChars=5` にそろえた。
+- **注意**: 目盛り付きスライダーの値は「目盛り番号」。テストでスライダーを直接動かすときは `MEDIA_SIZE_SLIDER_STOPS.indexOf(%)` を渡す（目盛りに無い値は数値欄から入れる）。表示中の値が目盛りの間（例 157.4）でも、つまみは最寄りの目盛りに置かれ、値は変えない。
+
+### 13-308. 横・縦の 2 行の行間を 6px にする（数値欄が上下でくっつく）
+
+- **ファイル**: `src/components/common/CompactField.tsx`（`COMPACT_AXIS_SECOND_ROW_CLASS = 'mt-1'`）, `src/components/media/ClipCompositionPanel.tsx`, `src/components/media/ClipItem.tsx`（速度バッジ）, `src/components/common/CaptionPositionField.tsx`, テスト `clipMotion.ui` / `compactAudioRows.ui`
+- **問題**: 13-302 で横・縦を `gap-0.5`（2px）で続けたため、高さ 36px の数値欄どうしが上下でほぼ接して見えた。速度バッジの横・縦も同じ。
+- **対策**: 見出しと 1 行目の間（2px）は変えず、2 行目（縦）だけに `mt-1` を足して行間 6px にする。横・縦を並べる欄はこの定数を使う。

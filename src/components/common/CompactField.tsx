@@ -17,6 +17,9 @@ export const COMPACT_RESET_BUTTON_CLASS = "relative -my-1 flex h-7 w-7 shrink-0 
 // w-3（12px）だと文字幅いっぱいで数値欄にくっついて見えるため、w-4 で左右に少し余白を持たせる
 export const COMPACT_AXIS_LABEL_CLASS = 'w-4 shrink-0 text-center text-gray-400';
 
+/** 横・縦の 2 行目（縦）に付ける上の余白。2px だと上下の数値欄がくっついて見えるため、行間を 6px にする */
+export const COMPACT_AXIS_SECOND_ROW_CLASS = 'mt-1';
+
 /** 横・縦ラベルと同じ幅を空けるための見えないラベル */
 export const COMPACT_SPACER_LABEL = String.fromCharCode(0xa0);
 
