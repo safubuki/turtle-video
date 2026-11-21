@@ -5506,6 +5506,16 @@ export 終了（成功/失敗/中断）
   - 同一アスペクト比であれば高解像度・低解像度・プレビュー・書き出しすべてでキャンバスに対する文字比率は完全に一致（`standard` / `apple-safari` / キャプション単独書き出し / ミニプレビュー / 動画タイトル / プリセット→カスタム変換の全経路へ自動反映）。
 - **注意**: キャプション／タイトルのレイアウトスケールを個別計算せず、必ず `resolveCaptionLayoutScale(canvasWidth, canvasHeight)` を単一ソースとして経由させる。
 
+### 13-324. サムネイル設定の小枠・PCホバー拡大枠・スマホ拡大ライトボックスを出力アスペクト比へ一致させ、黒帯誤認と縦圧迫を解消
+
+- **ファイル**: `src/components/common/ThumbnailZoomPreview.tsx`, `src/components/sections/PreviewSection.tsx`, `src/components/common/ClipThumbnail.tsx`, `src/test/previewSectionActionButtons.test.tsx`, `src/test/clipThumbnail.test.tsx`
+- **背景**: サムネイル設定の表示枠とホバー拡大は 9:16 / 正方形（±10%）/ 16:9 の 3 択固定、クリップカードの PC ホバー拡大は `320×187` 固定だったため、少し横長の正方形や 4:3・4:5 の動画で左右／上下に黒い帯が見え、書き出しサムネイル自体に黒帯が入るかのような誤解を生んでいた。
+- **対策**:
+  - `ThumbnailZoomPreview.tsx` に `resolveCompactPosterBoxSize(ratio)`（面積基準 62・最大 `96×60`、9:16 は `34×60` で従来の 80px より縦圧迫を低減）と `resolveHoverPreviewBoxSize(ratio)`（面積基準 240・最大 `340×240`、16:9=`320×180` / 1:1=`240×240` / 4:3=`277×208` / 9:16=`135×240` と縦高さを正方形基準 240px に抑えつつ任意比率へ連続対応）を追加。
+  - `PreviewSection.tsx` のサムネイル設定は `projectPosterAspectRatio`（`auto` 時は `canvasWidth / canvasHeight`）から小枠とホバー拡大枠を算出。
+  - `ClipThumbnail.tsx` の PC ホバー拡大枠も `projectCanvasWidth / projectCanvasHeight` から算出（カードヘッダーの小枠 `104×61` は 3 行グリッド＋番号バッジの整列とスマホ縦幅保護のため維持）。
+  - スマホ（タッチ端末）は従来どおりホバーではなくタップでライトボックス表示（`max-h-[min(70vh,480px)]` 上限付き）とし、画像周りの無駄な横幅黒帯を抑えるよう `w-auto max-w-full` へ調整。
+
 
 
 

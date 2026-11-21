@@ -51,7 +51,11 @@ import { useLogStore } from '../../stores/logStore';
 import { formatCanvasSizeBadge, useCanvasStore } from '../../stores/canvasStore';
 import type { AspectRatio } from '../../stores/canvasStore';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
-import ThumbnailZoomPreview from '../common/ThumbnailZoomPreview';
+import ThumbnailZoomPreview, {
+  resolveCompactPosterBoxSize,
+  resolveHoverPreviewBoxSize,
+  resolveThumbnailAspectRatio,
+} from '../common/ThumbnailZoomPreview';
 import FloatingPreview from '../common/FloatingPreview';
 import PreviewSeekSlider from '../common/PreviewSeekSlider';
 import TimelineWaveform from '../media/TimelineWaveform';
@@ -272,11 +276,13 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   );
   const previewAspectCss = canvasWidth > 0 && canvasHeight > 0 ? `${canvasWidth} / ${canvasHeight}` : '16 / 9';
   const isTallOrSquarePreview = canvasHeight > canvasWidth || (canvasWidth > 0 && canvasHeight / canvasWidth >= 0.72);
-  const isTallPoster = projectPosterAspectRatio === 'portrait'
-    || (projectPosterAspectRatio === 'auto' && canvasHeight > canvasWidth);
-  const isSquarePoster = projectPosterAspectRatio === 'auto'
-    && canvasWidth > 0 && canvasHeight > 0
-    && Math.abs(canvasWidth / canvasHeight - 1) <= 0.1;
+  const posterAspect = projectPosterAspectRatio === 'portrait'
+    ? 9 / 16
+    : projectPosterAspectRatio === 'landscape'
+      ? 16 / 9
+      : resolveThumbnailAspectRatio(canvasWidth, canvasHeight);
+  const posterCompactSize = resolveCompactPosterBoxSize(posterAspect);
+  const posterHoverSize = resolveHoverPreviewBoxSize(posterAspect);
   const normalPreviewRef = useRef<HTMLDivElement>(null);
   const floatingCanvasHostRef = useRef<HTMLDivElement>(null);
   const floatingButtonRef = useRef<HTMLButtonElement>(null);
@@ -1088,15 +1094,13 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
                             ? `手動設定（${formatTime(projectPosterTimelineTime)}）`
                             : `自動設定（${formatTime(projectPosterTimelineTime)}）`
                         }
-                        compactClassName={`flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-gray-600/70 bg-black ${
-                          isTallPoster
-                            ? 'h-20 aspect-[9/16]'
-                            : isSquarePoster
-                              ? 'h-14 aspect-square'
-                              : 'h-12 aspect-video'
-                        }`}
-                        hoverWidth={isTallPoster ? 180 : isSquarePoster ? 240 : 320}
-                        hoverHeight={isTallPoster ? 320 : isSquarePoster ? 240 : 180}
+                        compactClassName="flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-gray-600/70 bg-black"
+                        compactStyle={{
+                          width: posterCompactSize.width,
+                          height: posterCompactSize.height,
+                        }}
+                        hoverWidth={posterHoverSize.width}
+                        hoverHeight={posterHoverSize.height}
                         lightboxTitle="プロジェクトのサムネイル"
                         testIdPrefix="project-poster"
                       />

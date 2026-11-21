@@ -3,6 +3,7 @@ import { act, cleanup, createEvent, fireEvent, render, screen } from '@testing-l
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import PreviewSection from '../components/sections/PreviewSection';
 import type { AppFlavor } from '../app/resolveAppFlavor';
+import { useCanvasStore } from '../stores/canvasStore';
 import type { MediaItem } from '../types';
 
 const mediaItem: MediaItem = {
@@ -106,6 +107,7 @@ function installMatchMediaMock(matches: boolean) {
 
 afterEach(() => {
   cleanup();
+  useCanvasStore.getState().setAspectRatio('landscape');
   vi.clearAllMocks();
   vi.useRealTimers();
 });
@@ -226,7 +228,7 @@ describe('PreviewSection action buttons', () => {
     expect(screen.getByRole('button', { name: '自動設定に戻す' })).toBeInTheDocument();
   });
 
-  it('縦向きポスターは9:16のプレビュー枠で表示する', () => {
+  it('縦向きポスターは9:16の比率で縦圧迫を抑えたプレビュー枠で表示する', () => {
     renderPreviewSection({
       projectPosterMode: 'manual',
       projectPosterDataUrl: 'data:image/jpeg;base64,portrait',
@@ -236,8 +238,41 @@ describe('PreviewSection action buttons', () => {
     fireEvent.click(screen.getByRole('button', { name: '動画出力オプション' }));
 
     const poster = screen.getByRole('img', { name: 'プロジェクトのサムネイル' });
-    expect(poster.parentElement?.className).toContain('aspect-[9/16]');
-    expect(poster.parentElement?.className).not.toContain('aspect-video');
+    const frame = poster.parentElement as HTMLElement;
+    const width = Number.parseFloat(frame.style.width);
+    const height = Number.parseFloat(frame.style.height);
+    expect(height).toBeLessThanOrEqual(60);
+    expect(width / height).toBeCloseTo(9 / 16, 1);
+  });
+
+  it('素材に合わせるで正方形に近い横長動画のとき、小枠・ホバー拡大枠とも実比率に合わせる', () => {
+    installMatchMediaMock(true);
+    useCanvasStore.setState({
+      width: 840,
+      height: 700,
+      exportWidth: 1260,
+      exportHeight: 1050,
+      aspectRatio: 'auto',
+    });
+    renderPreviewSection({
+      projectPosterMode: 'auto',
+      projectPosterDataUrl: 'data:image/jpeg;base64,near-square',
+      projectPosterAspectRatio: 'auto',
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '動画出力オプション' }));
+
+    const trigger = screen.getByRole('button', { name: 'プロジェクトのサムネイル（マウスオーバーで拡大）' });
+    const compactW = Number.parseFloat(trigger.style.width);
+    const compactH = Number.parseFloat(trigger.style.height);
+    expect(compactW / compactH).toBeCloseTo(840 / 700, 1);
+
+    fireEvent.mouseEnter(trigger);
+    const hover = screen.getByTestId('project-poster-hover-preview');
+    const hoverW = Number.parseFloat(hover.style.width);
+    const hoverH = Number.parseFloat(hover.style.height);
+    expect(hoverW / hoverH).toBeCloseTo(840 / 700, 1);
+    expect(hoverW).toBeLessThan(300);
   });
 
   it('自動設定でもキャプチャ済み画像があればミニ画面に表示する', () => {

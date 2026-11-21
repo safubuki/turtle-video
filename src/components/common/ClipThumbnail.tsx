@@ -16,6 +16,7 @@ import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 import { buildThumbnailSeekCandidates, isCanvasEffectivelyBlank, validateScale } from '../../utils/media';
 import { resolveMediaBaseScale, resolveMediaFitMode, useCanvasStore } from '../../stores/canvasStore';
 import { normalizeRotation, resolveRotatedFitDimensions } from '../../utils/canvas';
+import { resolveHoverPreviewBoxSize, resolveThumbnailAspectRatio } from './ThumbnailZoomPreview';
 
 interface ClipThumbnailProps {
   file: File;
@@ -57,9 +58,6 @@ const CARD_DISPLAY_HEIGHT = 61;
  */
 const CAPTURE_WIDTH = 336;
 const CAPTURE_HEIGHT = 196;
-/** ホバー浮き出しプレビュー（キャプチャに近いサイズ） */
-const HOVER_PREVIEW_WIDTH = 320;
-const HOVER_PREVIEW_HEIGHT = 187;
 const VIDEO_FRAME_WAIT_MS = 120;
 const VIDEO_DRAW_RETRY_COUNT = 6;
 const VIDEO_DIMENSION_WAIT_MS = 1200;
@@ -140,14 +138,18 @@ function usePrefersHoverPreview(): boolean {
   return prefersHover;
 }
 
-function resolveHoverPreviewPosition(anchor: DOMRect): { top: number; left: number } {
+function resolveHoverPreviewPosition(
+  anchor: DOMRect,
+  width: number,
+  height: number,
+): { top: number; left: number } {
   const margin = 8;
-  let left = anchor.left + anchor.width / 2 - HOVER_PREVIEW_WIDTH / 2;
-  left = Math.max(margin, Math.min(left, window.innerWidth - HOVER_PREVIEW_WIDTH - margin));
+  let left = anchor.left + anchor.width / 2 - width / 2;
+  left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
 
   let top = anchor.bottom + margin;
-  if (top + HOVER_PREVIEW_HEIGHT > window.innerHeight - margin) {
-    top = anchor.top - HOVER_PREVIEW_HEIGHT - margin;
+  if (top + height > window.innerHeight - margin) {
+    top = anchor.top - height - margin;
   }
   top = Math.max(margin, top);
 
@@ -189,6 +191,9 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
   const projectCanvasWidth = useCanvasStore((state) => state.width);
   const projectCanvasHeight = useCanvasStore((state) => state.height);
   const projectAspectRatio = useCanvasStore((state) => state.aspectRatio);
+  const hoverPreviewSize = resolveHoverPreviewBoxSize(
+    resolveThumbnailAspectRatio(projectCanvasWidth, projectCanvasHeight),
+  );
   // 表示枠の大きさは保ち、内部の構図はプロジェクトの出力比率で描く。
   const thumbnailRatio = CAPTURE_WIDTH / Math.max(projectCanvasWidth, projectCanvasHeight);
   const thumbnailWidth = Math.max(1, Math.round(projectCanvasWidth * thumbnailRatio));
@@ -333,9 +338,9 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
     }
     if (!prefersHover || !previewSrc || !triggerRef.current) return;
     const rect = triggerRef.current.getBoundingClientRect();
-    setHoverPos(resolveHoverPreviewPosition(rect));
+    setHoverPos(resolveHoverPreviewPosition(rect, hoverPreviewSize.width, hoverPreviewSize.height));
     setHoverOpen(true);
-  }, [prefersHover, previewSrc]);
+  }, [hoverPreviewSize.height, hoverPreviewSize.width, prefersHover, previewSrc]);
 
   const closeHoverPreview = useCallback(() => {
     setHoverOpen(false);
@@ -1020,8 +1025,8 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
             style={{
               top: hoverPos.top,
               left: hoverPos.left,
-              width: HOVER_PREVIEW_WIDTH,
-              height: HOVER_PREVIEW_HEIGHT,
+              width: hoverPreviewSize.width,
+              height: hoverPreviewSize.height,
             }}
           >
             <img
@@ -1064,11 +1069,11 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              <div className="flex max-h-[min(70vh,480px)] items-center justify-center overflow-hidden rounded-lg bg-black">
+              <div className="flex max-h-[min(70vh,480px)] items-center justify-center">
                 <img
                   src={previewSrc}
                   alt=""
-                  className="max-h-[min(70vh,480px)] w-full object-contain"
+                  className="max-h-[min(70vh,480px)] max-w-full w-auto h-auto rounded-lg bg-black object-contain"
                   style={{ imageRendering: 'auto' }}
                   draggable={false}
                 />

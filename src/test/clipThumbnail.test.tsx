@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ClipThumbnail from '../components/common/ClipThumbnail';
+import { useCanvasStore } from '../stores/canvasStore';
 
 const getPlatformCapabilitiesMock = vi.fn();
 const matchMediaMatchesMock = vi.fn((_query: string) => false);
@@ -145,6 +146,7 @@ function installVideoElementMock(): VideoMockControls {
 
 afterEach(() => {
   cleanup();
+  useCanvasStore.getState().setAspectRatio('landscape');
   vi.clearAllMocks();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -447,5 +449,28 @@ describe('ClipThumbnail', () => {
 
     fireEvent.click(trigger);
     expect(screen.queryByTestId('clip-thumbnail-lightbox')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { label: '16:9', width: 1280, height: 720, aspectRatio: 'landscape' as const, expectedW: 320, expectedH: 180 },
+    { label: '正方形 1:1', width: 720, height: 720, aspectRatio: 'auto' as const, expectedW: 240, expectedH: 240 },
+    { label: '4:3', width: 960, height: 720, aspectRatio: 'auto' as const, expectedW: 277, expectedH: 208 },
+    { label: '縦 9:16', width: 720, height: 1280, aspectRatio: 'portrait' as const, expectedW: 135, expectedH: 240 },
+  ])('PC ホバー拡大枠は出力比率（$label）に合わせた寸法で表示する', async ({ width, height, aspectRatio, expectedW, expectedH }) => {
+    installMatchMediaMock(true);
+    installVideoElementMock();
+    useCanvasStore.setState({ width, height, aspectRatio });
+
+    const file = new File(['video'], 'aspect.mp4', { type: 'video/mp4' });
+    render(<ClipThumbnail file={file} type="video" displaySize="card" />);
+
+    const trigger = await screen.findByRole('button', { name: /マウスオーバーで拡大/ });
+    await waitFor(() => expect(trigger).not.toBeDisabled());
+    await flushHoverSettleFrames();
+
+    fireEvent.mouseEnter(trigger);
+    const hover = await screen.findByTestId('clip-thumbnail-hover-preview');
+    expect(hover.style.width).toBe(`${expectedW}px`);
+    expect(hover.style.height).toBe(`${expectedH}px`);
   });
 });

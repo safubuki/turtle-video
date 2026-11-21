@@ -8,6 +8,64 @@ import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 
+const DEFAULT_THUMBNAIL_ASPECT_RATIO = 16 / 9;
+const MIN_THUMBNAIL_ASPECT_RATIO = 9 / 21;
+const MAX_THUMBNAIL_ASPECT_RATIO = 21 / 9;
+
+/** サムネイル設定の小枠: どの比率でも画面を圧迫しないサイズ（横16:9≒83×47, 1:1=60×60, 縦9:16=34×60） */
+const COMPACT_POSTER_AREA_SIDE = 62;
+const COMPACT_POSTER_MAX_WIDTH = 96;
+const COMPACT_POSTER_MAX_HEIGHT = 60;
+
+/** PC ホバー拡大枠: 横16:9=320×180 / 1:1=240×240 / 縦9:16=135×240 と縦方向の圧迫を抑えつつ任意比率へ対応 */
+const HOVER_PREVIEW_AREA_SIDE = 240;
+const HOVER_PREVIEW_MAX_WIDTH = 340;
+const HOVER_PREVIEW_MAX_HEIGHT = 240;
+
+export function resolveThumbnailAspectRatio(width: number, height: number): number {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return DEFAULT_THUMBNAIL_ASPECT_RATIO;
+  }
+  const raw = width / height;
+  return Math.max(MIN_THUMBNAIL_ASPECT_RATIO, Math.min(MAX_THUMBNAIL_ASPECT_RATIO, raw));
+}
+
+function fitAreaBoxToAspectRatio(
+  aspectRatio: number,
+  areaSide: number,
+  maxWidth: number,
+  maxHeight: number,
+): { width: number; height: number } {
+  const safeRatio = resolveThumbnailAspectRatio(aspectRatio, 1);
+  const rawWidth = areaSide * Math.sqrt(safeRatio);
+  const rawHeight = areaSide / Math.sqrt(safeRatio);
+  const clampScale = Math.min(1, maxWidth / rawWidth, maxHeight / rawHeight);
+  return {
+    width: Math.max(1, Math.round(rawWidth * clampScale)),
+    height: Math.max(1, Math.round(rawHeight * clampScale)),
+  };
+}
+
+/** サムネイル設定の小枠寸法を、アスペクト比を保ちつつ縦圧迫を抑えて算出する */
+export function resolveCompactPosterBoxSize(aspectRatio: number): { width: number; height: number } {
+  return fitAreaBoxToAspectRatio(
+    aspectRatio,
+    COMPACT_POSTER_AREA_SIDE,
+    COMPACT_POSTER_MAX_WIDTH,
+    COMPACT_POSTER_MAX_HEIGHT,
+  );
+}
+
+/** PC ホバー拡大プレビューの寸法を、出力アスペクト比に合わせて算出する */
+export function resolveHoverPreviewBoxSize(aspectRatio: number): { width: number; height: number } {
+  return fitAreaBoxToAspectRatio(
+    aspectRatio,
+    HOVER_PREVIEW_AREA_SIDE,
+    HOVER_PREVIEW_MAX_WIDTH,
+    HOVER_PREVIEW_MAX_HEIGHT,
+  );
+}
+
 function usePrefersHoverPreview(): boolean {
   const [prefersHover, setPrefersHover] = useState(false);
 
@@ -52,6 +110,7 @@ export interface ThumbnailZoomPreviewProps {
   alt: string;
   title: string;
   compactClassName: string;
+  compactStyle?: React.CSSProperties;
   hoverWidth: number;
   hoverHeight: number;
   lightboxTitle: string;
@@ -64,6 +123,7 @@ const ThumbnailZoomPreview: React.FC<ThumbnailZoomPreviewProps> = ({
   alt,
   title,
   compactClassName,
+  compactStyle,
   hoverWidth,
   hoverHeight,
   lightboxTitle,
@@ -118,7 +178,7 @@ const ThumbnailZoomPreview: React.FC<ThumbnailZoomPreviewProps> = ({
 
   if (!src) {
     return (
-      <div className={compactClassName} title={title}>
+      <div className={compactClassName} style={compactStyle} title={title}>
         <span className="px-1 text-center text-[9px] leading-tight text-gray-500">
           {emptyLabel}
         </span>
@@ -143,6 +203,7 @@ const ThumbnailZoomPreview: React.FC<ThumbnailZoomPreviewProps> = ({
             : `${alt}を拡大表示`
         }
         title={prefersHover ? 'マウスオーバーで拡大' : 'タップで拡大'}
+        style={compactStyle}
         className={[
           compactClassName,
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70',
@@ -209,11 +270,11 @@ const ThumbnailZoomPreview: React.FC<ThumbnailZoomPreviewProps> = ({
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              <div className="flex max-h-[min(70vh,480px)] items-center justify-center overflow-hidden rounded-lg bg-black">
+              <div className="flex max-h-[min(70vh,480px)] items-center justify-center">
                 <img
                   src={src}
                   alt=""
-                  className="max-h-[min(70vh,480px)] w-full object-contain"
+                  className="max-h-[min(70vh,480px)] max-w-full w-auto h-auto rounded-lg bg-black object-contain"
                   draggable={false}
                 />
               </div>
