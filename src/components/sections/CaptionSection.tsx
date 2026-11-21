@@ -70,6 +70,7 @@ import {
   clampCaptionBackgroundRadius,
   clampCaptionStrokeWidth,
   resolveCaptionBaseFontSize,
+  resolveCaptionLayoutScale,
   resolveCaptionPresetAsCustomPercent,
 } from '../../utils/captionStyle';
 import { useCanvasStore } from '../../stores/canvasStore';
@@ -212,7 +213,7 @@ function resolvePresetCustomPercent(
   canvasHeight: number,
   fontSize: number,
 ): { x: number; y: number } {
-  const captionScale = canvasHeight > 0 ? canvasHeight / 1080 : 1;
+  const captionScale = resolveCaptionLayoutScale(canvasWidth, canvasHeight);
   return resolveCaptionPresetAsCustomPercent(position, {
     canvasWidth,
     canvasHeight,

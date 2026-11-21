@@ -124,7 +124,7 @@ import {
 import { createExportFrameSnapshotRing } from '../../../utils/exportFrameSnapshot';
 import { createRenderedFrameTracker } from '../../../utils/exportDiagnostics';
 import { createExportFrameProfiler } from '../../../utils/exportFrameProfiler';
-import { resolveMediaBaseScale } from '../../../stores/canvasStore';
+import { resolveMediaBaseScale, resolveMediaFitMode, useCanvasStore } from '../../../stores/canvasStore';
 import { resolveMediaScaleFactor, resolveMediaZoomEndpointPreview, type MediaZoomEndpointPreview } from '../../../utils/mediaZoom';
 import { resolveMediaPosition } from '../../../utils/mediaPan';
 import { resolveEffectiveGlobalColorAdjust, resolveMediaColorGrade } from '../../../utils/mediaColor';
@@ -1615,6 +1615,11 @@ export function usePreviewEngine({
             videoWidth: videoEl.videoWidth,
             videoHeight: videoEl.videoHeight,
           });
+        }
+      } else if (element.tagName === 'IMG') {
+        const imgEl = element as HTMLImageElement;
+        if (imgEl.naturalWidth > 0 && imgEl.naturalHeight > 0) {
+          useMediaStore.getState().setMediaSourceDimensions(id, imgEl.naturalWidth, imgEl.naturalHeight);
         }
       }
     },
@@ -3319,8 +3324,7 @@ export function usePreviewEngine({
                 // 並べて比較では自分の領域（外接矩形）を枠として収め、領域外は描かない。
                 const compareRegion = splitCompareFrame?.regionById.get(id) ?? null;
 
-                // 縦(9:16)キャンバスは横素材を「縦フレームを埋める」cover 配置、
-                // 横(16:9)キャンバスは従来どおり contain。Canvas 寸法から向きを判定する。
+                // 縦固定(9:16)は cover、横固定(16:9)および素材に合わせる(auto)は contain。
                 const baseScale = resolveMediaBaseScale({
                   canvasWidth: compareRegion ? compareRegion.fitRect.width : ctx.canvas.width,
                   canvasHeight: compareRegion ? compareRegion.fitRect.height : ctx.canvas.height,
@@ -3328,7 +3332,7 @@ export function usePreviewEngine({
                   elementHeight: fitDims.height,
                   mode: compareRegion && splitCompareFrame
                     ? splitCompareFrame.fit
-                    : ctx.canvas.height > ctx.canvas.width ? 'cover' : 'contain',
+                    : resolveMediaFitMode(useCanvasStore.getState().aspectRatio),
                 });
                 const renderScale = baseScale * scaleFactor;
                 // 色合い（WebGL・個別＋全体重ね掛け）→ ぼかしの順。止めたコマの控え（stallSnapshot）は素の絵なので同じく色を掛ける
@@ -3645,7 +3649,7 @@ export function usePreviewEngine({
                     elementHeight: peerFitDims.height,
                     mode: peerRegion && splitCompareFrame
                       ? splitCompareFrame.fit
-                      : ctx.canvas.height > ctx.canvas.width ? 'cover' : 'contain',
+                      : resolveMediaFitMode(useCanvasStore.getState().aspectRatio),
                   });
                   const peerRenderScale = peerBase * resolveMediaScaleFactor(conf, overlapPeerLocalTime);
                   const peerPosition = resolveMediaPosition(conf, overlapPeerLocalTime);

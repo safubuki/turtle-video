@@ -11,10 +11,14 @@ import {
   GEMINI_API_BASE_URL,
   GEMINI_SCRIPT_MODEL,
   GEMINI_SCRIPT_FALLBACK_MODELS,
-  GEMINI_TTS_MODEL,
-  TTS_SAMPLE_RATE,
+  DEFAULT_NARRATION_TTS_ENGINE,
   VOICE_OPTIONS,
 } from '../constants';
+import {
+  GEMINI_38_INTERACTIONS_URL,
+  buildGemini38TtsRequest,
+  readGemini38OutputAudio,
+} from '../utils/gemini38Tts';
 import { useLogStore } from '../stores/logStore';
 
 // API キー (環境変数から取得)
@@ -40,43 +44,6 @@ export interface UseAiNarrationReturn {
   generateScript: () => Promise<void>;
   generateSpeech: (onNarrationCreated: (narration: AudioTrack) => void) => Promise<void>;
   resetAiState: () => void;
-}
-
-// PCM to WAV 変換ユーティリティ
-function pcmToWav(pcmData: ArrayBuffer, sampleRate: number): ArrayBuffer {
-  const numChannels = 1;
-  const bitsPerSample = 16;
-  const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
-  const blockAlign = (numChannels * bitsPerSample) / 8;
-  const dataSize = pcmData.byteLength;
-  const buffer = new ArrayBuffer(44 + dataSize);
-  const view = new DataView(buffer);
-
-  const writeString = (v: DataView, offset: number, str: string) => {
-    for (let i = 0; i < str.length; i++) {
-      v.setUint8(offset + i, str.charCodeAt(i));
-    }
-  };
-
-  writeString(view, 0, 'RIFF');
-  view.setUint32(4, 36 + dataSize, true);
-  writeString(view, 8, 'WAVE');
-  writeString(view, 12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, numChannels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, byteRate, true);
-  view.setUint16(32, blockAlign, true);
-  view.setUint16(34, bitsPerSample, true);
-  writeString(view, 36, 'data');
-  view.setUint32(40, dataSize, true);
-
-  const pcmView = new Uint8Array(pcmData);
-  const wavView = new Uint8Array(buffer, 44);
-  wavView.set(pcmView);
-
-  return buffer;
 }
 
 export function useAiNarration(): UseAiNarrationReturn {
@@ -145,8 +112,12 @@ export function useAiNarration(): UseAiNarrationReturn {
         }
 
         const data = await response.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (typeof text === 'string' && text.trim()) {
+        const parts: Array<{ text?: unknown; thought?: unknown }> = data.candidates?.[0]?.content?.parts ?? [];
+        const text = parts
+          .filter((part) => !part?.thought && typeof part?.text === 'string')
+          .map((part) => part.text as string)
+          .join('\n');
+        if (text.trim()) {
           const normalized = text
             .replace(/\r?\n+/g, ' ')
             .replace(/^(原稿案|ナレーション|台本)\s*[:：]\s*/i, '')
@@ -175,63 +146,59 @@ export function useAiNarration(): UseAiNarrationReturn {
       setIsAiLoading(true);
       useLogStore.getState().info('AUDIO', 'AI音声合成を開始', { voice: aiVoice, scriptLength: aiScript.length });
       try {
-        const response = await fetch(`${GEMINI_API_BASE_URL}/${GEMINI_TTS_MODEL}:generateContent`, {
+        const request = buildGemini38TtsRequest({
+          engine: DEFAULT_NARRATION_TTS_ENGINE,
+          script: aiScript,
+          voice: aiVoice,
+          tone: 'natural',
+          pace: 'normal',
+          styleDetail: '',
+        });
+        const response = await fetch(GEMINI_38_INTERACTIONS_URL, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'x-goog-api-key': apiKey,
           },
           referrerPolicy: 'no-referrer',
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: aiScript }] }],
-            generationConfig: {
-              responseModalities: ['AUDIO'],
-              speechConfig: {
-                voiceConfig: {
-                  prebuiltVoiceConfig: { voiceName: aiVoice },
-                },
-              },
-            },
-          }),
+          body: JSON.stringify(request),
         });
-
-        const data = await response.json();
-        const inlineData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-
-        if (inlineData) {
-          const binaryString = window.atob(inlineData.data);
-          const len = binaryString.length;
-          const bytes = new Uint8Array(len);
-          for (let i = 0; i < len; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-          }
-
-          const wavBuffer = pcmToWav(bytes.buffer, TTS_SAMPLE_RATE);
-          const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' });
-          const blobUrl = URL.createObjectURL(wavBlob);
-
-          const audio = new Audio(blobUrl);
-          audio.onloadedmetadata = () => {
-            const voiceLabel = VOICE_OPTIONS.find((v) => v.id === aiVoice)?.label || 'AI音声';
-            useLogStore.getState().info('AUDIO', 'AI音声合成成功', { voice: aiVoice, duration: audio.duration });
-            const narration: AudioTrack = {
-              file: { name: `AIナレーション_${voiceLabel}.wav` },
-              url: blobUrl,
-              blobUrl: blobUrl,
-              startPoint: 0,
-              delay: 0,
-              volume: 1.0,
-              fadeIn: false,
-              fadeOut: false,
-              fadeInDuration: 2.0,
-              fadeOutDuration: 2.0,
-              duration: audio.duration,
-              isAi: true,
-            };
-            onNarrationCreated(narration);
-            setShowAiModal(false);
-          };
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
+
+        const encodedAudio = readGemini38OutputAudio(await response.json());
+        const binaryString = window.atob(encodedAudio);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        const wavBlob = new Blob([bytes.buffer], { type: 'audio/wav' });
+        const blobUrl = URL.createObjectURL(wavBlob);
+
+        const audio = new Audio(blobUrl);
+        audio.onloadedmetadata = () => {
+          const voiceLabel = VOICE_OPTIONS.find((v) => v.id === aiVoice)?.label || 'AI音声';
+          useLogStore.getState().info('AUDIO', 'AI音声合成成功', { voice: aiVoice, duration: audio.duration });
+          const narration: AudioTrack = {
+            file: { name: `AIナレーション_${voiceLabel}.wav` },
+            url: blobUrl,
+            blobUrl: blobUrl,
+            startPoint: 0,
+            delay: 0,
+            volume: 1.0,
+            fadeIn: false,
+            fadeOut: false,
+            fadeInDuration: 2.0,
+            fadeOutDuration: 2.0,
+            duration: audio.duration,
+            isAi: true,
+          };
+          onNarrationCreated(narration);
+          setShowAiModal(false);
+        };
       } catch (e) {
         useLogStore.getState().error('AUDIO', 'AI音声合成失敗', { error: e instanceof Error ? e.message : String(e) });
         console.error('音声生成エラー:', e);

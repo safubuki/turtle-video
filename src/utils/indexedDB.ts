@@ -387,8 +387,8 @@ export interface ProjectData {
   /** エンドロール。任意・旧データには存在しない（additive） */
   endrollOverlay?: SerializedEndrollOverlay;
 
-  // 出力の向き（'landscape'=16:9 / 'portrait'=9:16）。任意・既定 landscape（旧データ後方互換）。
-  aspectRatio?: 'landscape' | 'portrait';
+  // 出力の向き（'landscape'=16:9 / 'portrait'=9:16 / 'auto'=素材に合わせる）。任意・既定 landscape（旧データ後方互換）。
+  aspectRatio?: 'landscape' | 'portrait' | 'auto';
 
   /**
    * プロジェクト全体のポスター（アプリ内プレビュー用）。
@@ -399,7 +399,7 @@ export interface ProjectData {
   /** 小さい JPEG data URL（任意） */
   projectPosterDataUrl?: string | null;
   /** ポスター画像を生成した時点の出力向き（任意・旧データはプロジェクト向きへ補完） */
-  projectPosterAspectRatio?: 'landscape' | 'portrait';
+  projectPosterAspectRatio?: 'landscape' | 'portrait' | 'auto';
 
   /**
    * 動画の一括ミュート（任意・旧データは既存動画がすべてミュートなら ON）。

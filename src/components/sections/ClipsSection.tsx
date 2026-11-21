@@ -14,6 +14,7 @@ import {
   ArrowDownUp,
   RectangleHorizontal,
   RectangleVertical,
+  Scan,
   ChevronDown,
   ChevronRight,
   SlidersHorizontal,
@@ -155,6 +156,8 @@ const ClipTransitionConnector: React.FC<{
   isAdjacentToSplitCompare: boolean;
   /** 動画の向き。比較を ON にしたときの初期の並べ方（横=左右 / 縦=上下）に使う */
   aspectRatio: AspectRatio;
+  /** 現在のキャンバスが縦長か（aspectRatio='auto' のときの上下/左右判定に使う） */
+  isCanvasPortrait: boolean;
   /** 比較ペアの長さ（上のカード, 下のカード）。比較中だけ渡す */
   pairDurations: [number, number] | null;
   /** 長さそろえがオンのまま長さがずれたとき、そろえ直す */
@@ -171,6 +174,7 @@ const ClipTransitionConnector: React.FC<{
   splitCompareBlockedReason,
   isAdjacentToSplitCompare,
   aspectRatio,
+  isCanvasPortrait,
   pairDurations,
   onRealignSplitCompareDuration,
   disabled,
@@ -210,7 +214,7 @@ const ClipTransitionConnector: React.FC<{
     if (isCompare || isCompareBlocked) return;
     onBeforeEdit();
     rememberedTransitionRef.current = transition;
-    onChangeSplitCompare(rememberedSplitCompareRef.current ?? createDefaultSplitCompareSettings(aspectRatio));
+    onChangeSplitCompare(rememberedSplitCompareRef.current ?? createDefaultSplitCompareSettings(aspectRatio, isCanvasPortrait));
   };
 
   // 2 色の楕円ボタン（左: トランジション=紫 / 右: 並べて比較=水色、間はななめに区切る）。
@@ -220,7 +224,7 @@ const ClipTransitionConnector: React.FC<{
     ? `${getClipTransitionLabel(transition.type)} ${transition.duration}秒`
     : 'トランジション';
   const compareLabel = splitCompare
-    ? `2画面表示 ${describeSplitCompareSettings(splitCompare, aspectRatio)}`
+    ? `2画面表示 ${describeSplitCompareSettings(splitCompare, aspectRatio, isCanvasPortrait)}`
     : '2画面表示';
 
   return (
@@ -343,7 +347,7 @@ const ClipTransitionConnector: React.FC<{
               <SplitCompareOptionRow
                 label="並べ方"
                 options={SPLIT_COMPARE_LAYOUT_OPTIONS}
-                value={resolveSplitCompareDisplayLayout(splitCompare.layout, aspectRatio)}
+                value={resolveSplitCompareDisplayLayout(splitCompare.layout, aspectRatio, isCanvasPortrait)}
                 disabled={disabled}
                 onSelect={(layout) => updateSplitCompare({ layout })}
               />
@@ -635,9 +639,11 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   const audioSettingsNode = uiCapabilities.supportsClipAudioSettings ? audioSettingsPanel : null;
   const colorSettingsNode = uiCapabilities.supportsMediaColor ? colorSettingsPanel : null;
   const hasOverallSettings = Boolean(titleSettingsNode || watermarkNode || audioSettingsNode || colorSettingsNode);
-  // 出力の向き（16:9 横 / 9:16 縦）。プロジェクトごとに保持され、プレビュー/カード/エクスポートに反映される。
+  // 出力の向き（16:9 横 / 9:16 縦 / 素材に合わせる）。プロジェクトごとに保持され、プレビュー/カード/エクスポートに反映される。
   const aspectRatio = useCanvasStore((s) => s.aspectRatio);
   const canvasWidth = useCanvasStore((s) => s.width);
+  const canvasHeight = useCanvasStore((s) => s.height);
+  const isCanvasPortrait = canvasHeight > canvasWidth;
   const showToast = useUIStore((s) => s.showToast);
   /** 素材の幅・高さ（動画は保存値、画像は読み込み済み要素から）。不明なら null */
   const resolveSourceSize = (item: MediaItem): { width: number; height: number } | null => {
@@ -731,8 +737,8 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
     } else if (!wasMatching && isMatching && settings) {
       settings = { ...settings, matchDurationRestore: applyMatchDuration(index, null) };
     }
-    const wasWanted = isSplitCompareDiagonalOffsetWanted(previous, aspectRatio);
-    const isWanted = isSplitCompareDiagonalOffsetWanted(settings, aspectRatio);
+    const wasWanted = isSplitCompareDiagonalOffsetWanted(previous, aspectRatio, isCanvasPortrait);
+    const isWanted = isSplitCompareDiagonalOffsetWanted(settings, aspectRatio, isCanvasPortrait);
     const offsetPatch = (item: MediaItem, role: 'head' | 'partner') => resolveSplitCompareAutoOffsetPatch({
       item,
       role,
@@ -968,7 +974,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
           </button>
         </h2>
         <div className="flex items-center gap-1.5 shrink-0" onClick={(event) => event.stopPropagation()}>
-          {/* 出力の向き切替（16:9 横 / 9:16 縦）。既定は横。 */}
+          {/* 出力の向き切替（16:9 横 / 9:16 縦 / 素材に合わせる）。既定は横。 */}
           {uiCapabilities.supportsAspectRatioSelection && (
             <div
               className="flex items-center rounded-lg border border-gray-700 bg-gray-800/70 p-0.5"
@@ -980,6 +986,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
               onClick={() => onAspectRatioChange('landscape')}
               aria-pressed={aspectRatio === 'landscape'}
               title="横画面 (16:9)"
+              aria-label="横画面 (16:9)"
               className={`p-1 rounded-md transition ${aspectRatio === 'landscape' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
             >
               <RectangleHorizontal className="w-4 h-4" />
@@ -989,9 +996,20 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
               onClick={() => onAspectRatioChange('portrait')}
               aria-pressed={aspectRatio === 'portrait'}
               title="縦画面 (9:16)"
+              aria-label="縦画面 (9:16)"
               className={`p-1 rounded-md transition ${aspectRatio === 'portrait' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
             >
               <RectangleVertical className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onAspectRatioChange('auto')}
+              aria-pressed={aspectRatio === 'auto'}
+              title="素材に合わせる（正方形・オリジナル比率）"
+              aria-label="素材に合わせる"
+              className={`p-1 rounded-md transition ${aspectRatio === 'auto' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
+            >
+              <Scan className="w-4 h-4" />
             </button>
             </div>
           )}
@@ -1236,6 +1254,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
               }
               isAdjacentToSplitCompare={splitCompareRoles[i] !== null || splitCompareRoles[i + 1] !== null}
               aspectRatio={aspectRatio}
+              isCanvasPortrait={isCanvasPortrait}
               pairDurations={splitCompareRoles[i] === 'head' && mediaItems[i + 1]
                 ? [v.duration, mediaItems[i + 1].duration]
                 : null}

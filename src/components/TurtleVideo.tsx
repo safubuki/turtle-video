@@ -26,16 +26,13 @@ import type { PreviewRuntime } from './turtle-video/previewRuntime';
 import type { SaveRuntime } from './turtle-video/saveRuntime';
 import {
   VOICE_OPTIONS,
-  isVoiceId,
   GEMINI_API_BASE_URL,
   GEMINI_SCRIPT_MODEL,
   GEMINI_SCRIPT_FALLBACK_MODELS,
-  GEMINI_TTS_MODEL,
   DEFAULT_NARRATION_TTS_ENGINE,
-  TTS_SAMPLE_RATE,
   IMAGE_DURATION_STEP,
 } from '../constants';
-import { useCanvasStore } from '../stores/canvasStore';
+import { resolveCanvasReferenceDimensions, useCanvasStore } from '../stores/canvasStore';
 import type { AspectRatio } from '../stores/canvasStore';
 
 import type { ExportPreparationStep } from '../hooks/export-strategies/types';
@@ -56,7 +53,7 @@ import {
 import { resolveCaptureFrameTarget } from '../utils/previewCaptureFrame';
 import { preserveOriginalFileName, resolveAiNarrationFileName } from '../utils/fileNames';
 import { fetchGeminiWithRetry } from '../utils/geminiRetry';
-import { buildGemini38TtsRequest, GEMINI_38_INTERACTIONS_URL, readGemini38OutputAudio } from '../utils/gemini38Tts';
+import { buildGemini38TtsRequest, GEMINI_38_INTERACTIONS_URL, normalizeNarrationTtsEngine, readGemini38OutputAudio } from '../utils/gemini38Tts';
 import { saveBlobWithClientFileStrategy, saveObjectUrlWithClientFileStrategy } from '../utils/fileSave';
 import {
   buildCaptionLayerVideoFileName,
@@ -184,6 +181,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const canvasWidth = useCanvasStore((s) => s.width);
   const canvasHeight = useCanvasStore((s) => s.height);
   const aspectRatio = useCanvasStore((s) => s.aspectRatio);
+  const posterAspectKey = aspectRatio === 'auto' ? `auto:${canvasWidth}x${canvasHeight}` : aspectRatio;
   const setAspectRatio = useCanvasStore((s) => s.setAspectRatio);
   const resetCanvasSize = useCanvasStore((s) => s.resetCanvasSize);
   const applyCanvasFromSource = useCanvasStore((s) => s.applyFromSource);
@@ -940,18 +938,16 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     closeAiModal();
   }, [offlineMode, showAiModal, closeAiModal]);
 
-  // --- 動的キャンバスサイズ: 最初のビデオメディアの解像度に応じて
-  // エクスポート用キャンバスサイズを更新する（1920×1080 上限、横向き固定）。
+  // --- 動的キャンバスサイズ: 出力モード（横 / 縦 / 素材に合わせる）と素材寸法に応じて
+  // プレビュー・エクスポート用キャンバスサイズを更新する。
   useEffect(() => {
-    const firstVideo = mediaItems.find((item) => item.type === 'video');
-    if (!firstVideo) {
+    const reference = resolveCanvasReferenceDimensions(mediaItems, aspectRatio);
+    if (!reference) {
       resetCanvasSize();
       return;
     }
-    if (firstVideo.sourceWidth && firstVideo.sourceHeight) {
-      applyCanvasFromSource(firstVideo.sourceWidth, firstVideo.sourceHeight);
-    }
-  }, [mediaItems, resetCanvasSize, applyCanvasFromSource]);
+    applyCanvasFromSource(reference.width, reference.height);
+  }, [mediaItems, aspectRatio, resetCanvasSize, applyCanvasFromSource]);
 
   // --- メモリ監視（10秒ごと） ---
   useEffect(() => {
@@ -1631,7 +1627,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     const contentKey = buildAutoProjectPosterContentKey(
       mediaItems,
       totalDuration,
-      aspectRatio,
+      posterAspectKey,
       globalColorPreviewKey,
     );
     const captureIdentity = resolveAutoProjectPosterCaptureIdentity(mediaItems, totalDuration);
@@ -1846,6 +1842,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     mediaItems,
     totalDuration,
     aspectRatio,
+    posterAspectKey,
     globalColorPreviewKey,
     isPlaying,
     isProcessing,
@@ -1873,7 +1870,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     if (!uiCapabilities.supportsVideoTitle) return;
     if (isPlaying || isProcessing || isPreviewInEndroll || zoomEndpointPreview) return;
 
-    const contentKey = buildAutoProjectPosterContentKey(mediaItems, totalDuration, aspectRatio, globalColorPreviewKey);
+    const contentKey = buildAutoProjectPosterContentKey(mediaItems, totalDuration, posterAspectKey, globalColorPreviewKey);
     if (
       contentKey === titleOpeningContentKeyRef.current
       && titleOpeningSnapshotRef.current.hasFrame
@@ -2003,6 +2000,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     mediaItems,
     totalDuration,
     aspectRatio,
+    posterAspectKey,
     globalColorPreviewKey,
     isPlaying,
     isProcessing,
@@ -2104,42 +2102,6 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   });
 
   // --- Gemini API Helpers ---
-  const pcmToWav = useCallback((pcmData: ArrayBuffer, sampleRate: number): ArrayBuffer => {
-    const numChannels = 1;
-    const bitsPerSample = 16;
-    const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
-    const blockAlign = (numChannels * bitsPerSample) / 8;
-    const dataSize = pcmData.byteLength;
-    const buffer = new ArrayBuffer(44 + dataSize);
-    const view = new DataView(buffer);
-
-    const writeString = (v: DataView, offset: number, str: string) => {
-      for (let i = 0; i < str.length; i++) {
-        v.setUint8(offset + i, str.charCodeAt(i));
-      }
-    };
-
-    writeString(view, 0, 'RIFF');
-    view.setUint32(4, 36 + dataSize, true);
-    writeString(view, 8, 'WAVE');
-    writeString(view, 12, 'fmt ');
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, numChannels, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, byteRate, true);
-    view.setUint16(32, blockAlign, true);
-    view.setUint16(34, bitsPerSample, true);
-    writeString(view, 36, 'data');
-    view.setUint32(40, dataSize, true);
-
-    const pcmView = new Uint8Array(pcmData);
-    const wavView = new Uint8Array(buffer, 44);
-    wavView.set(pcmView);
-
-    return buffer;
-  }, []);
-
   const generateScript = useCallback(async () => {
     const trimmedPrompt = aiPrompt.trim();
     if (!trimmedPrompt) return;
@@ -2176,7 +2138,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         '出力: ナレーション本文のみ',
       ].join('\n');
 
-      type ScriptPart = { text?: string };
+      type ScriptPart = { text?: string; thought?: boolean };
       type ScriptCandidate = { content?: { parts?: ScriptPart[] } };
       type ScriptResponse = { candidates?: ScriptCandidate[] };
 
@@ -2230,6 +2192,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         const data = (await response.json()) as ScriptResponse;
         const rawText = (data.candidates ?? [])
           .flatMap((candidate) => candidate.content?.parts ?? [])
+          .filter((part) => !part.thought)
           .map((part) => (typeof part.text === 'string' ? part.text : ''))
           .join('\n')
           .trim();
@@ -2284,50 +2247,37 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     setAiLoading(true);
     let pendingGeneratedUrl: string | null = null;
     try {
-      // 場面 + 区間語り口調を 1 本の TTS プロンプトへ（原稿は単一テキスト＋マーカー）
-      const { buildNarrationTtsPrompt, stripDeliveryMarkers } = await import('../utils/narrationDelivery');
-      const sceneText = (useUIStore.getState().aiNarrationScene || '').trim();
-      // 旧「声の調子」は場面未設定時のフォールバックとして残す
-      const legacyStyle = aiVoiceStyle.trim();
-      const effectiveScene = sceneText || legacyStyle;
-      const delivery = buildNarrationTtsPrompt({
-        scene: effectiveScene,
-        script: aiScript,
-      });
-      const plainText = delivery.plainText || stripDeliveryMarkers(aiScript).trim();
+      const { stripDeliveryMarkers } = await import('../utils/narrationDelivery');
+      const plainText = stripDeliveryMarkers(aiScript).trim();
       if (!plainText) {
         setError('読み上げる原稿が空です。語り口調の記号だけの状態になっていないか確認してください。');
         return;
       }
 
-      const styledPrompt = delivery.prompt;
-      const plainPrompt = `Say the following Japanese text:\n${plainText}`;
-      const strictPrompt = `TTS the following text exactly as written. Do not add any extra words.\n${plainText}`;
+      const readTtsErrorMessage = async (res: Response): Promise<string> => {
+        const errorData = await res.json().catch(() => ({} as { error?: { message?: string } }));
+        return errorData.error?.message || `HTTP ${res.status}: ${res.statusText}`;
+      };
 
-      const requestTts = (text: string) => fetchGeminiWithRetry(
-        () => fetch(`${GEMINI_API_BASE_URL}/${GEMINI_TTS_MODEL}:generateContent`, {
+      const effectiveEngine = normalizeNarrationTtsEngine(aiTtsEngine);
+      const request = buildGemini38TtsRequest({
+        engine: effectiveEngine,
+        script: aiScript,
+        voice: aiVoice,
+        tone: aiTtsTone,
+        pace: aiTtsPace,
+        styleDetail: aiTtsStyleDetail,
+      });
+      const response = await fetchGeminiWithRetry(
+        () => fetch(GEMINI_38_INTERACTIONS_URL, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': apiKey,
-          },
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
           referrerPolicy: 'no-referrer',
-          body: JSON.stringify({
-            contents: [{ parts: [{ text }] }],
-            generationConfig: {
-              responseModalities: ['AUDIO'],
-              speechConfig: {
-                voiceConfig: {
-                  prebuiltVoiceConfig: { voiceName: isVoiceId(aiVoice) ? aiVoice : 'Aoede' },
-                },
-              },
-            },
-          }),
-        }), {
+          body: JSON.stringify(request),
+        }),
+        {
           onRetry: ({ retryNumber, delayMs, status, error }) => {
-            if (retryNumber === 1) {
-              showToast('音声生成APIの一時的な混雑・通信失敗を検知したため、自動で再試行しています。', 5000);
-            }
+            if (retryNumber === 1) showToast('音声生成APIが混雑しているため再試行しています。', 5000);
             logWarn('AUDIO', 'AI音声合成を自動再試行', {
               retryNumber,
               delayMs,
@@ -2338,160 +2288,23 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
           },
         },
       );
+      if (!response.ok) throw new Error(await readTtsErrorMessage(response));
+      const encodedAudio = readGemini38OutputAudio(await response.json());
 
-      const readTtsErrorMessage = async (res: Response): Promise<string> => {
-        const errorData = await res.json().catch(() => ({} as { error?: { message?: string } }));
-        return errorData.error?.message || `HTTP ${res.status}: ${res.statusText}`;
-      };
-
-      type TtsInlineData = { data?: string; mimeType?: string };
-      type TtsPart = { text?: string; inlineData?: TtsInlineData; inline_data?: TtsInlineData };
-      type TtsCandidate = { finishReason?: string; content?: { parts?: TtsPart[] } };
-      type TtsResponse = { candidates?: TtsCandidate[]; promptFeedback?: { blockReason?: string } };
-      type TtsAttempt = {
-        label: 'style' | 'plain' | 'strict';
-        prompt: string;
-        usedStyle: boolean;
-      };
-
-      const parseTtsResponse = (data: TtsResponse) => {
-        const candidates = Array.isArray(data.candidates) ? data.candidates : [];
-        const parts = candidates.flatMap((candidate) => (Array.isArray(candidate.content?.parts) ? candidate.content.parts : []));
-        const inlineData = parts
-          .map((part) => part.inlineData ?? part.inline_data)
-          .find((candidateInlineData): candidateInlineData is TtsInlineData & { data: string } =>
-            typeof candidateInlineData?.data === 'string' && candidateInlineData.data.length > 0
-          );
-        const hasTextPart = parts.some((part) => typeof part.text === 'string' && part.text.trim().length > 0);
-        const finishReason = candidates.map((candidate) => candidate.finishReason).find((reason) => !!reason);
-        return {
-          inlineData,
-          hasTextPart,
-          finishReason,
-          blockReason: data.promptFeedback?.blockReason,
-          partsCount: parts.length,
-        };
-      };
-
-      const attempts: TtsAttempt[] = delivery.hasDeliveryControl
-        ? [
-            { label: 'style', prompt: styledPrompt, usedStyle: true },
-            { label: 'plain', prompt: plainPrompt, usedStyle: false },
-          ]
-        : [
-            { label: 'plain', prompt: plainPrompt, usedStyle: false },
-            { label: 'strict', prompt: strictPrompt, usedStyle: false },
-          ];
-
-      let resolvedInlineData: (TtsInlineData & { data: string }) | null = null;
-      let resolvedAttempt: TtsAttempt | null = null;
-      let lastFinishReason: string | undefined;
-      let lastBlockReason: string | undefined;
-      let lastHttpError: string | undefined;
-
-      if (aiTtsEngine !== 'legacy') {
-        const request = buildGemini38TtsRequest({
-          engine: aiTtsEngine,
-          script: aiScript,
-          voice: aiVoice,
-          tone: aiTtsTone,
-          pace: aiTtsPace,
-          styleDetail: aiTtsStyleDetail,
-        });
-        const response = await fetchGeminiWithRetry(
-          () => fetch(GEMINI_38_INTERACTIONS_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-            referrerPolicy: 'no-referrer',
-            body: JSON.stringify(request),
-          }),
-          {
-            onRetry: ({ retryNumber }) => {
-              if (retryNumber === 1) showToast('音声生成APIが混雑しているため再試行しています。', 5000);
-            },
-          },
-        );
-        if (!response.ok) throw new Error(await readTtsErrorMessage(response));
-        resolvedInlineData = {
-          data: readGemini38OutputAudio(await response.json()),
-          mimeType: 'audio/wav',
-        };
-      } else {
-        for (let i = 0; i < attempts.length; i++) {
-          const attempt = attempts[i];
-          const hasNext = i < attempts.length - 1;
-          const response = await requestTts(attempt.prompt);
-
-          if (!response.ok) {
-            const errorMessage = await readTtsErrorMessage(response);
-            lastHttpError = errorMessage;
-            const retryableHttpError = /model tried to generate text|only be used for tts|response modalities/i.test(errorMessage);
-            if (hasNext && retryableHttpError) {
-              console.warn('TTS attempt failed and will retry with fallback prompt/model.', {
-                label: attempt.label,
-                errorMessage,
-              });
-              continue;
-            }
-            throw new Error(errorMessage);
-          }
-
-          const data = (await response.json()) as TtsResponse;
-          const parsed = parseTtsResponse(data);
-          if (parsed.inlineData) {
-            resolvedInlineData = parsed.inlineData;
-            resolvedAttempt = attempt;
-            lastFinishReason = parsed.finishReason;
-            lastBlockReason = parsed.blockReason;
-            break;
-          }
-
-          lastFinishReason = parsed.finishReason;
-          lastBlockReason = parsed.blockReason;
-          if (hasNext) {
-            console.warn('TTS attempt returned no inline audio data. Retrying with fallback.', {
-              label: attempt.label,
-              finishReason: parsed.finishReason,
-              blockReason: parsed.blockReason,
-              hasTextPart: parsed.hasTextPart,
-              partsCount: parsed.partsCount,
-            });
-            continue;
-          }
-        }
-      }
-
-      if (!resolvedInlineData) {
-        if (lastHttpError) {
-          throw new Error(lastHttpError);
-        }
-        if (lastBlockReason) {
-          throw new Error(`音声生成がブロックされました: ${lastBlockReason}`);
-        }
-        const reasonSuffix = lastFinishReason ? ` (${lastFinishReason})` : '';
-        throw new Error(`音声データを取得できませんでした${reasonSuffix}`);
-      }
-
-      if (aiTtsEngine === 'legacy' && delivery.hasDeliveryControl && resolvedAttempt && !resolvedAttempt.usedStyle) {
-        showToast('場面・語り口調の指定は適用できなかったため、通常の読み上げで生成しました。', 5000);
-      }
-
-      const binaryString = window.atob(resolvedInlineData.data);
+      const binaryString = window.atob(encodedAudio);
       const len = binaryString.length;
       const bytes = new Uint8Array(len);
       for (let i = 0; i < len; i++) {
         bytes[i] = binaryString.charCodeAt(i);
       }
 
-      const normalizedMimeType = resolvedInlineData.mimeType?.toLowerCase() || '';
-      const payloadIsWav = normalizedMimeType.includes('audio/wav') || normalizedMimeType.includes('audio/x-wav');
-      if (aiTtsEngine !== 'legacy' &&
-        (bytes.length < 12 || String.fromCharCode(...bytes.slice(0, 4)) !== 'RIFF' ||
-          String.fromCharCode(...bytes.slice(8, 12)) !== 'WAVE')) {
+      if (
+        bytes.length < 12 || String.fromCharCode(...bytes.slice(0, 4)) !== 'RIFF' ||
+        String.fromCharCode(...bytes.slice(8, 12)) !== 'WAVE'
+      ) {
         throw new Error('Gemini 3.8 から有効な WAV 音声を取得できませんでした。');
       }
-      const wavBuffer = payloadIsWav ? bytes.buffer : pcmToWav(bytes.buffer, TTS_SAMPLE_RATE);
-      const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' });
+      const wavBlob = new Blob([bytes.buffer], { type: 'audio/wav' });
       const blobUrl = URL.createObjectURL(wavBlob);
       pendingGeneratedUrl = blobUrl;
 
@@ -2611,7 +2424,6 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     aiTtsPace,
     aiTtsStyleDetail,
     editingNarrationId,
-    pcmToWav,
     replaceNarrationAudio,
     updateNarrationMeta,
     addNarration,
@@ -2867,7 +2679,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       autoProjectPosterContentKeyRef.current = buildAutoProjectPosterContentKey(
         [],
         0,
-        aspectRatio,
+        posterAspectKey,
         globalColorPreviewKey,
       );
       autoProjectPosterCaptureIdentityRef.current = null;
@@ -2882,7 +2694,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     autoProjectPosterContentKeyRef.current = buildAutoProjectPosterContentKey(
       mediaItems,
       totalDuration,
-      aspectRatio,
+      posterAspectKey,
       globalColorPreviewKey,
     );
     autoProjectPosterCaptureIdentityRef.current = resolveAutoProjectPosterCaptureIdentity(
@@ -2957,6 +2769,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     resetProjectPosterToAuto,
     setProjectPosterDataUrl,
     aspectRatio,
+    posterAspectKey,
     globalColorPreviewKey,
     showToast,
     resolveActivePosterMediaElement,
@@ -2966,13 +2779,19 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     logWarn,
   ]);
 
-  // --- 動画形式（横/縦）変更時のプロジェクトポスター整合 ---
+  // --- 動画形式（横/縦/素材に合わせる）変更時のプロジェクトポスター整合 ---
   const handleAspectRatioChange = useCallback((nextAspectRatio: AspectRatio) => {
     if (nextAspectRatio === aspectRatio) return;
 
     pausePreviewBeforeEdit('change-aspect-ratio');
     const captureGeneration = ++projectPosterCaptureGenerationRef.current;
     setAspectRatio(nextAspectRatio);
+    const reference = resolveCanvasReferenceDimensions(mediaItems, nextAspectRatio);
+    if (reference) {
+      applyCanvasFromSource(reference.width, reference.height);
+    } else {
+      resetCanvasSize();
+    }
     const resetManual = reconcileProjectPosterAspectRatio(nextAspectRatio, totalDuration);
     const posterState = useMediaStore.getState();
 
@@ -3007,11 +2826,13 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       });
     });
   }, [
+    applyCanvasFromSource,
     aspectRatio,
-    mediaItems.length,
+    mediaItems,
     pausePreviewBeforeEdit,
     reconcileProjectPosterAspectRatio,
     renderFrame,
+    resetCanvasSize,
     setAspectRatio,
     setCurrentTime,
     setProjectPosterDataUrl,
@@ -3646,7 +3467,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     setAiVoice(target.aiVoice ?? 'Aoede');
     setAiVoiceStyle(target.aiVoiceStyle ?? '');
     setAiNarrationScene(target.aiNarrationScene ?? '');
-    setAiTtsEngine(target.aiTtsEngine ?? 'legacy');
+    setAiTtsEngine(normalizeNarrationTtsEngine(target.aiTtsEngine));
     setAiTtsTone(target.aiTtsTone ?? 'natural');
     setAiTtsPace(target.aiTtsPace ?? 'normal');
     setAiTtsStyleDetail(target.aiTtsStyleDetail ?? '');
@@ -4261,7 +4082,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   // 確認中のカード・時刻・倍率は保持し、背景撮影の再開や再シークに頼らない。
   const mediaTransformPreviewKey = `${mediaItems
     .map((item) => `${item.id}:${item.scale}:${item.positionX}:${item.positionY}:${item.rotation ?? ''}:${item.blur ?? ''}:${item.zoomDirection ?? ''}:${item.zoomAmount ?? ''}:${item.zoomStartScale ?? ''}:${item.zoomEndScale ?? ''}:${item.panEndPositionX ?? ''}:${item.panEndPositionY ?? ''}:${buildMediaColorKey(item)}`)
-    .join('|')}|gcolor:${globalColorPreviewKey}`;
+    .join('|')}|gcolor:${globalColorPreviewKey}|canvas:${canvasWidth}x${canvasHeight}:${aspectRatio}`;
 
   // --- キャプション・ロゴ変更時のプレビュー再描画 ---
   // キャプション／ウォーターマーク／エンドロールはプレビュー canvas へ焼き込まれるため、

@@ -17,11 +17,15 @@ describe('media blur', () => {
     expect(normalizeMediaBlur(100)).toBe(MAX_MEDIA_BLUR);
   });
 
-  it('1080p基準値を横長・縦長Canvasへ同じ比率で変換する', () => {
+  it('1080p基準値を横長・縦長・正方形Canvasへ同じ短辺比率で変換する', () => {
     expect(resolveMediaBlurPixels(12, 1920, 1080)).toBe(12);
     expect(resolveMediaBlurPixels(12, 1280, 720)).toBe(8);
+    expect(resolveMediaBlurPixels(12, 1080, 1080)).toBe(12);
+    expect(resolveMediaBlurPixels(12, 720, 720)).toBe(8);
+    expect(resolveMediaBlurPixels(12, 1440, 1080)).toBe(12);
     expect(resolveMediaBlurFilter(12, 1920, 1080)).toBe('blur(12px)');
     expect(resolveMediaBlurFilter(12, 1080, 1920)).toBe('blur(12px)');
+    expect(resolveMediaBlurFilter(12, 1080, 1080)).toBe('blur(12px)');
     expect(resolveMediaBlurFilter(12, 1280, 720)).toBe('blur(8px)');
   });
 

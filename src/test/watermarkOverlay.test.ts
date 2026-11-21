@@ -369,6 +369,8 @@ describe('ウォーターマーク描画', () => {
 
     const preview = renderOn(1280, 720);
     const exported = renderOn(1920, 1080);
+    const portrait = renderOn(1080, 1920);
+    const square = renderOn(1080, 1080);
 
     // 通常プレビューは従来どおり「倍率 1 = 元のピクセル数」（円形 200px × 0.5 × マスク 80%）
     expect(preview.maskRadiusRatio * 720).toBeCloseTo(40, 5);
@@ -377,6 +379,9 @@ describe('ウォーターマーク描画', () => {
     expect(exported.blurPx / exported.canvasHeight).toBeCloseTo(preview.blurPx / preview.canvasHeight, 6);
     expect(exported.centerXRatio).toBeCloseTo(preview.centerXRatio, 6);
     expect(exported.centerYRatio).toBeCloseTo(preview.centerYRatio, 6);
+    // 縦長・正方形でも短辺基準で周辺ぼかしが横長と同じ強さになる
+    expect(portrait.blurPx).toBeCloseTo(exported.blurPx, 6);
+    expect(square.blurPx).toBeCloseTo(exported.blurPx, 6);
   });
 });
 

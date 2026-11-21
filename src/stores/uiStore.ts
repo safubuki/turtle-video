@@ -13,7 +13,8 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import type { ExportFormat, NarrationTtsEngine, NarrationTtsPace, NarrationTtsTone } from '../types';
-import { DEFAULT_NARRATION_TTS_ENGINE, isVoiceId } from '../constants';
+import { DEFAULT_NARRATION_TTS_ENGINE } from '../constants';
+import { normalizeNarrationTtsEngine } from '../utils/gemini38Tts';
 
 interface UIState {
   // Toast & Error
@@ -259,10 +260,9 @@ export const useUIStore = create<UIState>()(
         set({ aiNarrationScene: scene });
       },
 
-      setAiTtsEngine: (engine) => set((state) => ({
-        aiTtsEngine: engine,
-        aiVoice: engine === 'legacy' && !isVoiceId(state.aiVoice) ? 'Aoede' : state.aiVoice,
-      })),
+      setAiTtsEngine: (engine) => set({
+        aiTtsEngine: normalizeNarrationTtsEngine(engine),
+      }),
       setAiTtsTone: (tone) => set({ aiTtsTone: tone }),
       setAiTtsPace: (pace) => set({ aiTtsPace: pace }),
       setAiTtsStyleDetail: (style) => set({ aiTtsStyleDetail: style }),

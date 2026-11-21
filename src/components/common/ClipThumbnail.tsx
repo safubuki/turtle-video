@@ -14,7 +14,7 @@ import { X } from 'lucide-react';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 import { buildThumbnailSeekCandidates, isCanvasEffectivelyBlank, validateScale } from '../../utils/media';
-import { resolveMediaBaseScale, useCanvasStore } from '../../stores/canvasStore';
+import { resolveMediaBaseScale, resolveMediaFitMode, useCanvasStore } from '../../stores/canvasStore';
 import { normalizeRotation, resolveRotatedFitDimensions } from '../../utils/canvas';
 
 interface ClipThumbnailProps {
@@ -188,11 +188,12 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
   } | null>(null);
   const projectCanvasWidth = useCanvasStore((state) => state.width);
   const projectCanvasHeight = useCanvasStore((state) => state.height);
+  const projectAspectRatio = useCanvasStore((state) => state.aspectRatio);
   // 表示枠の大きさは保ち、内部の構図はプロジェクトの出力比率で描く。
   const thumbnailRatio = CAPTURE_WIDTH / Math.max(projectCanvasWidth, projectCanvasHeight);
   const thumbnailWidth = Math.max(1, Math.round(projectCanvasWidth * thumbnailRatio));
   const thumbnailHeight = Math.max(1, Math.round(projectCanvasHeight * thumbnailRatio));
-  const transformRef = useRef({ scale, positionX, positionY, rotation, projectCanvasWidth, projectCanvasHeight });
+  const transformRef = useRef({ scale, positionX, positionY, rotation, projectCanvasWidth, projectCanvasHeight, projectAspectRatio });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [ready, setReady] = useState(false);
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
@@ -237,7 +238,7 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
         canvasHeight: height,
         elementWidth: fitDims.width,
         elementHeight: fitDims.height,
-        mode: height > width ? 'cover' : 'contain',
+        mode: resolveMediaFitMode(transform.projectAspectRatio),
       });
       const renderScale = baseScale * validateScale(transform.scale);
       const previewRatio = width / transform.projectCanvasWidth;
@@ -264,9 +265,9 @@ const ClipThumbnail: React.FC<ClipThumbnailProps> = ({
 
   useLayoutEffect(() => {
     // デコード中の変形・向き変更も、完了時に最新の値を使う。
-    transformRef.current = { scale, positionX, positionY, rotation, projectCanvasWidth, projectCanvasHeight };
+    transformRef.current = { scale, positionX, positionY, rotation, projectCanvasWidth, projectCanvasHeight, projectAspectRatio };
     drawThumbnail();
-  }, [scale, positionX, positionY, rotation, projectCanvasWidth, projectCanvasHeight, drawThumbnail]);
+  }, [scale, positionX, positionY, rotation, projectCanvasWidth, projectCanvasHeight, projectAspectRatio, drawThumbnail]);
 
   // トリム操作中は同じ File の sourceTime/range が高頻度で変わる。
   // 操作が一段落してから 1 回だけ再キャプチャし、デコーダ生成の連打を避ける。

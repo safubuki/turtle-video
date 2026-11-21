@@ -258,7 +258,7 @@ export function useAutoSave() {
         n.aiVoice ?? '',
         n.aiVoiceStyle ?? '',
         n.aiNarrationScene ?? '',
-        n.aiTtsEngine ?? 'legacy',
+        n.aiTtsEngine ?? 'gemini-3.8-flash-tts',
         n.aiTtsTone ?? 'natural',
         n.aiTtsPace ?? 'normal',
         n.aiTtsStyleDetail ?? '',

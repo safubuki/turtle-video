@@ -5,6 +5,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   applyExportCanvasSize,
+  computeMediaCoverFillScale,
+  formatCanvasSizeBadge,
+  normalizeAspectRatio,
+  resolveCanvasReferenceDimensions,
+  resolveMediaFitMode,
   useCanvasStore,
   computeCanvasSizeFromSource,
   resolveExportCanvasSize,
@@ -323,5 +328,111 @@ describe('resolveMediaBaseScale', () => {
     expect(resolveMediaBaseScale({
       canvasWidth: 1080, canvasHeight: 1920, elementWidth: 0, elementHeight: 0, mode: 'cover',
     })).toBe(1);
+  });
+});
+
+describe('素材に合わせる（auto）アスペクト比モード', () => {
+  beforeEach(() => {
+    useCanvasStore.getState().setAspectRatio('landscape');
+    useCanvasStore.getState().setExportQuality('auto');
+    useCanvasStore.getState().resetCanvasSize();
+  });
+
+  it('正方形・4:3・3:4・21:9・低解像度・極端比率を安全な偶数解像度へ解決する', () => {
+    // 1:1 正方形（高解像度は 1080×1080、プレビューは 720×720、低解像度はそのまま維持）
+    expect(computeCanvasSizeFromSource(2000, 2000, MAX_CANVAS_WIDTH, MAX_CANVAS_HEIGHT, 'auto'))
+      .toEqual({ width: 1080, height: 1080 });
+    expect(computeCanvasSizeFromSource(2000, 2000, MAX_PREVIEW_CANVAS_WIDTH, MAX_PREVIEW_CANVAS_HEIGHT, 'auto'))
+      .toEqual({ width: 720, height: 720 });
+    expect(computeCanvasSizeFromSource(640, 640, MAX_CANVAS_WIDTH, MAX_CANVAS_HEIGHT, 'auto'))
+      .toEqual({ width: 640, height: 640 });
+
+    // 4:3 / 3:4
+    expect(computeCanvasSizeFromSource(1600, 1200, MAX_CANVAS_WIDTH, MAX_CANVAS_HEIGHT, 'auto'))
+      .toEqual({ width: 1440, height: 1080 });
+    expect(computeCanvasSizeFromSource(1200, 1600, MAX_CANVAS_WIDTH, MAX_CANVAS_HEIGHT, 'auto'))
+      .toEqual({ width: 1080, height: 1440 });
+
+    // 21:9 シネマ横長（1920 / (21/9) = 822.86 → 偶数丸め 824）
+    const cinema = computeCanvasSizeFromSource(2560, 1080, MAX_CANVAS_WIDTH, MAX_CANVAS_HEIGHT, 'auto');
+    expect(cinema.width).toBe(1920);
+    expect(cinema.height).toBe(824);
+    expect(cinema.width % 2).toBe(0);
+    expect(cinema.height % 2).toBe(0);
+
+    // 極端なパノラマ（4:1）は 21:9 上限へクランプ
+    const panorama = computeCanvasSizeFromSource(4000, 1000, MAX_CANVAS_WIDTH, MAX_CANVAS_HEIGHT, 'auto');
+    expect(panorama).toEqual({ width: 1920, height: 824 });
+
+    // 極端な縦長（1:4）は 9:16 下限へクランプ
+    const tall = computeCanvasSizeFromSource(1000, 4000, MAX_CANVAS_WIDTH, MAX_CANVAS_HEIGHT, 'auto');
+    expect(tall).toEqual({ width: 1080, height: 1920 });
+  });
+
+  it('resolveExportCanvasSize auto: fhd/hd でも素材比率を保って上限枠へ収める', () => {
+    expect(resolveExportCanvasSize('fhd', 640, 640, 'auto')).toEqual({ width: 1080, height: 1080 });
+    expect(resolveExportCanvasSize('hd', 2000, 2000, 'auto')).toEqual({ width: 720, height: 720 });
+    expect(resolveExportCanvasSize('fhd', 800, 600, 'auto')).toEqual({ width: 1440, height: 1080 });
+    expect(resolveExportCanvasSize('hd', 800, 600, 'auto')).toEqual({ width: 960, height: 720 });
+    // ソース未知なら 16:9 既定
+    expect(resolveExportCanvasSize('auto', null, null, 'auto')).toEqual({ width: 1920, height: 1080 });
+  });
+
+  it('resolveCanvasReferenceDimensions（案B）: 正方形より長方形優先・長方形は先頭・画像のみや90度回転にも対応', () => {
+    // 正方形のみ（画像）
+    expect(resolveCanvasReferenceDimensions([
+      { type: 'image', sourceWidth: 1000, sourceHeight: 1000 },
+    ], 'auto')).toEqual({ width: 1000, height: 1000 });
+
+    // 正方形 → 横長16:9 → 縦長9:16 の順: 正方形より先頭の長方形（16:9）を採用
+    expect(resolveCanvasReferenceDimensions([
+      { type: 'image', sourceWidth: 1080, sourceHeight: 1080 },
+      { type: 'video', sourceWidth: 1920, sourceHeight: 1080 },
+      { type: 'video', sourceWidth: 1080, sourceHeight: 1920 },
+    ], 'auto')).toEqual({ width: 1920, height: 1080 });
+
+    // 横素材を 90° 回転した場合は縦長として扱う
+    expect(resolveCanvasReferenceDimensions([
+      { type: 'image', sourceWidth: 1600, sourceHeight: 1200, rotation: 90 },
+    ], 'auto')).toEqual({ width: 1200, height: 1600 });
+
+    // landscape / portrait では従来どおり先頭動画のみ参照
+    expect(resolveCanvasReferenceDimensions([
+      { type: 'image', sourceWidth: 1000, sourceHeight: 1000 },
+    ], 'landscape')).toBeNull();
+  });
+
+  it('resolveMediaFitMode と computeMediaCoverFillScale の計算が正しい', () => {
+    expect(resolveMediaFitMode('portrait')).toBe('cover');
+    expect(resolveMediaFitMode('landscape')).toBe('contain');
+    expect(resolveMediaFitMode('auto')).toBe('contain');
+
+    // 16:9 枠に 1:1 正方形 → 約 1.778 倍（177.8%）
+    expect(computeMediaCoverFillScale({
+      canvasWidth: 1920, canvasHeight: 1080, elementWidth: 1080, elementHeight: 1080, baseMode: 'contain',
+    })).toBeCloseTo(16 / 9, 4);
+
+    // 16:9 枠に 9:16 縦動画 → 約 3.160 倍（316.0%）
+    expect(computeMediaCoverFillScale({
+      canvasWidth: 1920, canvasHeight: 1080, elementWidth: 1080, elementHeight: 1920, baseMode: 'contain',
+    })).toBeCloseTo((16 / 9) / (9 / 16), 4);
+
+    // 同比率・cover モード時は不要なので null
+    expect(computeMediaCoverFillScale({
+      canvasWidth: 1080, canvasHeight: 1080, elementWidth: 1080, elementHeight: 1080, baseMode: 'contain',
+    })).toBeNull();
+    expect(computeMediaCoverFillScale({
+      canvasWidth: 1080, canvasHeight: 1920, elementWidth: 1920, elementHeight: 1080, baseMode: 'cover',
+    })).toBeNull();
+  });
+
+  it('normalizeAspectRatio と formatCanvasSizeBadge', () => {
+    expect(normalizeAspectRatio('auto')).toBe('auto');
+    expect(normalizeAspectRatio('portrait')).toBe('portrait');
+    expect(normalizeAspectRatio('unknown')).toBe('landscape');
+    expect(formatCanvasSizeBadge(1080, 1080)).toBe('1080×1080 (1:1)');
+    expect(formatCanvasSizeBadge(1920, 1080)).toBe('1920×1080 (16:9)');
+    expect(formatCanvasSizeBadge(1440, 1080)).toBe('1440×1080 (4:3)');
+    expect(formatCanvasSizeBadge(1750, 1080)).toBe('1750×1080');
   });
 });

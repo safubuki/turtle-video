@@ -43,8 +43,8 @@ export type VoiceId =
   | 'Sadaltager'
   | 'Sulafat';
 export type NarrationScriptLength = 'short' | 'medium' | 'long';
-/** 旧プロジェクトは従来の generateContent 音声エンジンを使う。 */
-export type NarrationTtsEngine = 'legacy' | 'gemini-3.8-flash-tts' | 'gemini-3.8-flash-lite-tts';
+/** Gemini 3.8 TTS 音声エンジン（旧保存データの 'legacy' は読込・編集時に既定へ移行する） */
+export type NarrationTtsEngine = 'gemini-3.8-flash-tts' | 'gemini-3.8-flash-lite-tts';
 export type NarrationTtsTone = 'natural' | 'warm' | 'calm' | 'energetic' | 'clear';
 export type NarrationTtsPace = 'normal' | 'slow' | 'fast';
 

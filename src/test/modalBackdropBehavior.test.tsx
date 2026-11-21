@@ -75,7 +75,7 @@ const renderAiModal = (onClose = vi.fn()) => {
       aiVoice="Aoede"
       aiVoiceStyle=""
       aiNarrationScene=""
-      aiTtsEngine="legacy"
+      aiTtsEngine="gemini-3.8-flash-tts"
       aiTtsTone="natural"
       aiTtsPace="normal"
       aiTtsStyleDetail=""

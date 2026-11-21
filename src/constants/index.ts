@@ -63,10 +63,9 @@ export const AUDIO_SYNC_THRESHOLD = 0.5; // 秒 - オーディオの同期ズレ
 export const PRELOAD_TIME = 1.5; // 秒 - 次のメディアのプリロード開始時間
 export const SEEK_THROTTLE_MS = 50; // ミリ秒 - シーク操作のスロットリング間隔
 
-// API設定
-export const GEMINI_SCRIPT_MODEL = 'gemini-2.5-flash';
-export const GEMINI_SCRIPT_FALLBACK_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash'];
-export const GEMINI_TTS_MODEL = 'gemini-2.5-flash-preview-tts';
+// API設定（すべて Free Tier 無料枠ありの現行安定モデルを使用）
+export const GEMINI_SCRIPT_MODEL = 'gemini-3.5-flash-lite';
+export const GEMINI_SCRIPT_FALLBACK_MODELS = ['gemini-3.8-flash', 'gemini-3.1-flash-lite'];
 export const DEFAULT_NARRATION_TTS_ENGINE: NarrationTtsEngine = 'gemini-3.8-flash-tts';
 export const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 export const TTS_SAMPLE_RATE = 24000;

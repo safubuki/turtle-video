@@ -55,6 +55,7 @@ import {
   resolveCaptionBackgroundStyle,
   resolveCaptionBaseFontSize,
   resolveCaptionGlyphStyle,
+  resolveCaptionLayoutScale,
   resolveCaptionPresetAsCustomPercent,
 } from '../../utils/captionStyle';
 import { useCanvasStore } from '../../stores/canvasStore';
@@ -473,7 +474,7 @@ const CaptionSettingsModal: React.FC<CaptionSettingsModalProps> = ({
               resolvePresetAsCustom={() => {
                 // 個別設定は「一括設定を継承」もあるため、実効プリセットを使う
                 const effectivePosition = caption.overridePosition ?? settings.position;
-                const captionScale = canvasHeight > 0 ? canvasHeight / 1080 : 1;
+                const captionScale = resolveCaptionLayoutScale(canvasWidth, canvasHeight);
                 return resolveCaptionPresetAsCustomPercent(effectivePosition, {
                   canvasWidth,
                   canvasHeight,

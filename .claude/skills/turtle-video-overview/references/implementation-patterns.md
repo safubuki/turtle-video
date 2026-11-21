@@ -5423,4 +5423,49 @@ export 終了（成功/失敗/中断）
   - `apple-safari` では `uiCapabilities.supportsMediaColor` が `false` のため UI・ヘルプとも非表示。
   - 自動保存（`useAutoSave.ts`）・停止中再描画（`mediaTransformPreviewKey`）・自動ポスター／タイトルミニビュー（`buildAutoProjectPosterContentKey`）・全クリア（`handleClearAll`）のすべてへ全体色合いキーを含めている。
 
+### 13-316. 出力アスペクト比「素材に合わせる（auto）」と異比率クリップの「画面いっぱいに合わせる（切り抜き）」【standard 限定】
+
+- **ファイル**: `src/stores/canvasStore.ts`, `src/utils/splitCompare.ts`, `src/utils/indexedDB.ts`, `src/stores/mediaStore.ts`, `src/stores/projectStore.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/components/common/MiniPreview.tsx`, `src/components/common/ClipThumbnail.tsx`, `src/components/media/ClipCompositionPanel.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/sections/PreviewSection.tsx`, `src/components/TurtleVideo.tsx`, `src/components/modals/SettingsModal.tsx`, `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`, テスト `canvasStore` / `projectStoreSave` / `autoAspectRatio.ui`
+- **要件**: 正方形（1:1）や 4:3・3:4・21:9 などのオリジナル比率の動画をそのままプレビュー・書き出ししたい。また、異比率が混在したときに勝手に切り抜かれず全体表示しつつ、ワンクリックで黒帯なし切り抜きへ切り替えたい。
+- **設計**:
+  - `AspectRatio` を `'landscape' | 'portrait' | 'auto'` へ拡張。`resolveCanvasReferenceDimensions(items, aspectRatio)` は `auto` 時に動画・画像の両方（90°/270°回転反映）を対象とし、正方形（±5%）より長方形を優先・長方形は先頭を採用、すべて正方形なら先頭正方形。
+  - `computeCanvasSizeFromSource` / `resolveExportCanvasSize` の `auto` 分岐は、比率を `9:16〜21:9` へクランプし、H.264 Level 4.2 上限を守るため「長辺最大 1920・短辺最大 1080」（HD/プレビューは 1280/720）・偶数丸めへ収める（1:1→1080×1080）。
+  - 初期フィット方式を `resolveMediaFitMode(aspectRatio)` に単一ソース化（`portrait` のみ `cover`、`landscape`/`auto` は `contain`）し、本プレビュー・書き出し・ミニプレビュー・サムネイルの 4 箇所を統一。
+  - `usePreviewEngine.ts` の `handleMediaElementLoaded` で `IMG` 要素も `setMediaSourceDimensions` を呼び、画像のみのプロジェクトでも比率決定と切り抜き計算が効くようにした。
+  - `ClipCompositionPanel` に `computeMediaCoverFillScale()` による「画面いっぱいに合わせる（切り抜き）」ボタンを追加（比率差 3% 超かつ `contain` 時のみ表示、`scale` のみを更新するため保存形式・動き機能と完全互換）。
+- **注意**: `auto` モードで素材構成により比率が変わったときも自動ポスターが再取得されるよう、`TurtleVideo.tsx` は `posterAspectKey = auto:${canvasWidth}x${canvasHeight}` をキーに使う。
+
+### 13-317. AI ナレーション原稿生成モデルを無料枠ありの現行安定版（Gemini 3.5 Flash-Lite / 3.8 Flash / 3.1 Flash-Lite）へ更新
+
+- **ファイル**: `src/constants/index.ts`, `src/components/TurtleVideo.tsx`, `src/hooks/useAiNarration.ts`
+- **問題**: 原稿生成モデルのフォールバック `gemini-2.0-flash` / `gemini-1.5-flash` が既に提供終了し、メインの `gemini-2.5-flash` も非推奨（2026年12月1日から `gemini-3.5-flash-lite` へ自動転送）となっていた。また Gemini 3.x 系で思考パート（`part.thought === true`）が返った場合に原稿テキストへ混入する恐れがあった。
+- **対策**:
+  - `GEMINI_SCRIPT_MODEL` を `gemini-3.5-flash-lite`、`GEMINI_SCRIPT_FALLBACK_MODELS` を `['gemini-3.8-flash', 'gemini-3.1-flash-lite']` へ更新（いずれも Google AI Studio 公式料金表で Free Tier 無料枠あり・安定版）。
+  - レスポンスの `parts` 読み取り時に `!part.thought` で思考パートを除外する防御を追加。
+  - TTS の既定（`gemini-3.8-flash-tts` / `gemini-3.8-flash-lite-tts`）は既に最新かつ無料枠あり・廃止予定なしのため据え置き。
+- **注意**: 今後モデルを更新する際も、Free Tier（無料枠）の有無を公式料金ドキュメント（`ai.google.dev/gemini-api/docs/pricing`）で確認してから選定する。
+
+### 13-318. 終了予定の `gemini-2.5-flash-preview-tts`（従来方式 `legacy`）を削除し Gemini 3.8 TTS へ一本化
+
+- **ファイル**: `src/types/index.ts`, `src/constants/index.ts`, `src/utils/gemini38Tts.ts`, `src/components/modals/AiModal.tsx`, `src/components/TurtleVideo.tsx`, `src/hooks/useAiNarration.ts`, `src/stores/uiStore.ts`, `src/stores/projectStore.ts`, `src/hooks/useAutoSave.ts`, `src/constants/sectionHelp.ts`, テスト `aiModalTtsEngine` / `modalBackdropBehavior` / `uiStore`
+- **問題**: `gemini-2.5-flash-preview-tts` が 2026年12月18日に提供終了予定のため、UI に従来方式を残すと終了後にエラーになる。
+- **対策**:
+  - `NarrationTtsEngine` を `'gemini-3.8-flash-tts' | 'gemini-3.8-flash-lite-tts'` の 2 択へ整理し、`GEMINI_TTS_MODEL` 定数および `AiModal` / `TurtleVideo` / `useAiNarration` の 2.5 TTS 経路を削除。
+  - `normalizeNarrationTtsEngine()` を追加し、旧保存データや既存クリップに `'legacy'` / `undefined` が入っていても読込・編集・生成時に自動で `'gemini-3.8-flash-tts'` へ移行する（後方互換維持）。
+- **注意**: 過去の保存プロジェクトにある `aiTtsEngine: 'legacy'` は読込時に `normalizeNarrationTtsEngine()` で自動変換される。
+
+### 13-319. アスペクト比変更（16:9 / 9:16 / 正方形・特殊比）時の短辺基準スケーリング統一（取り残し解消）
+
+- **ファイル**: `src/components/sections/CaptionSection.tsx`, `src/components/modals/CaptionSettingsModal.tsx`, `src/utils/watermarkOverlay.ts`, `src/utils/canvas.ts`, テスト `captionStyle` / `mediaBlur` / `watermarkOverlay`
+- **背景**: キャプション・動画タイトル本体の描画は既に短辺基準（`resolveCaptionLayoutScale = Math.max(0.1, min(w, h) / 1080)`）で統一済みだったが、以下の 3 箇所に旧来の高さ基準・長辺基準が残っていた。
+- **対策**:
+  - `CaptionSection.tsx` / `CaptionSettingsModal.tsx` のプリセット位置→カスタム位置変換（`resolvePresetCustomPercent` 等）を `canvasHeight / 1080` から `resolveCaptionLayoutScale(canvasWidth, canvasHeight)` へ統一。
+  - `watermarkOverlay.ts` の `resolveLogoFeatherPixels` を `canvasHeight / 1080` から短辺基準 `Math.min(canvasWidth, canvasHeight) / 1080` へ変更し、ロゴ本体サイズ（`resolveLogoLayoutScale`）と縦画面・正方形でのぼかし比率を一致させた（引数省略時の後方互換あり）。
+  - `canvas.ts` の `resolveMediaBlurPixels` を `Math.min(longSide / 1920, shortSide / 1080)` から短辺基準 `shortSide / 1080` へ変更し、正方形（1080×1080）や 4:3（1440×1080）でメディアぼかしが約半分〜75% に弱まる問題を解消。
+- **注意**: 今後アスペクト比や解像度に連動する UI・描画ピクセル計算（文字・余白・ぼかし・ロゴ・縁幅）を追加する際は、必ず短辺基準（`Math.min(canvasWidth, canvasHeight)`）を使い、高さ単独や長辺比率を混ぜない。
+
+
+
+
+
 

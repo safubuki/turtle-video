@@ -8,7 +8,7 @@
  * 保存形式・描画は従来のズーム（zoomStart/EndScale）と移動（positionX/Y・panEndPositionX/Y）のまま。
  */
 import React, { useEffect, useState } from 'react';
-import { Move, MoveDiagonal, RotateCcw, RotateCw, ZoomIn } from 'lucide-react';
+import { Maximize2, Move, MoveDiagonal, RotateCcw, RotateCw, ZoomIn } from 'lucide-react';
 import type { MediaItem } from '../../types';
 import MiniPreview from '../common/MiniPreview';
 import NumericSliderField from '../common/NumericSliderField';
@@ -18,6 +18,12 @@ import {
   COMPACT_RESET_BUTTON_CLASS,
   COMPACT_SPACER_LABEL,
 } from '../common/CompactField';
+import {
+  computeMediaCoverFillScale,
+  resolveMediaFitMode,
+  useCanvasStore,
+} from '../../stores/canvasStore';
+import { normalizeRotation, resolveRotatedFitDimensions } from '../../utils/canvas';
 import {
   CENTER_ORIGIN_MAX,
   CENTER_ORIGIN_MIN,
@@ -198,6 +204,40 @@ const ClipCompositionPanel: React.FC<ClipCompositionPanelProps> = ({
     onPreviewScale?.();
   };
 
+  // キャンバスと比率が異なるクリップで、黒帯を消して画面いっぱいに広げる（切り抜き）倍率を計算する
+  const aspectRatio = useCanvasStore((s) => s.aspectRatio);
+  const rawSourceWidth = v.sourceWidth
+    ?? (mediaElement instanceof HTMLVideoElement ? mediaElement.videoWidth : undefined)
+    ?? (mediaElement instanceof HTMLImageElement ? mediaElement.naturalWidth : undefined)
+    ?? 0;
+  const rawSourceHeight = v.sourceHeight
+    ?? (mediaElement instanceof HTMLVideoElement ? mediaElement.videoHeight : undefined)
+    ?? (mediaElement instanceof HTMLImageElement ? mediaElement.naturalHeight : undefined)
+    ?? 0;
+  const rotatedSourceDims = rawSourceWidth > 0 && rawSourceHeight > 0
+    ? resolveRotatedFitDimensions(rawSourceWidth, rawSourceHeight, normalizeRotation(v.rotation))
+    : null;
+  const coverFillScale = rotatedSourceDims
+    ? computeMediaCoverFillScale({
+        canvasWidth,
+        canvasHeight,
+        elementWidth: rotatedSourceDims.width,
+        elementHeight: rotatedSourceDims.height,
+        baseMode: resolveMediaFitMode(aspectRatio),
+      })
+    : null;
+  const coverFillPercent = coverFillScale !== null ? mediaScaleToPercent(coverFillScale) : null;
+  const isCoverFilled = coverFillScale !== null && Math.abs(shown.scale - coverFillScale) < 0.015;
+  const applyCoverFill = () => {
+    if (coverFillScale === null) return;
+    if (motionMode) {
+      updatePoint({ scale: coverFillScale });
+      return;
+    }
+    onUpdateScale(coverFillScale);
+    onPreviewScale?.();
+  };
+
   const turnMotionOff = () => {
     if (isMoving) setSavedEnd(range.end);
     setIsMotionOn(false);
@@ -248,6 +288,28 @@ const ClipCompositionPanel: React.FC<ClipCompositionPanelProps> = ({
         />
         <span>黒帯除去（102.5%に拡大）{motionMode ? `：${pointLabel}` : ''}</span>
       </label>
+
+      {/* 異比率クリップ向け: ワンクリックで黒帯がぴったり消える切り抜き倍率へ拡大 */}
+      {coverFillPercent !== null && (
+        <button
+          type="button"
+          onClick={applyCoverFill}
+          disabled={isDisabled}
+          aria-pressed={isCoverFilled}
+          data-testid={`clip-cover-fill-${v.id}`}
+          title="黒帯を消して画面いっぱいに拡大します（位置スライダーで見せたい場所を調整できます）"
+          className={`flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/80 disabled:pointer-events-none disabled:opacity-40 md:text-sm ${
+            isCoverFilled
+              ? 'border-blue-400/75 bg-blue-500/20 text-blue-100'
+              : 'border-blue-500/35 bg-blue-950/45 text-blue-100 hover:border-blue-400/55 hover:bg-blue-900/50'
+          }`}
+        >
+          <Maximize2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span className="truncate">
+            画面いっぱいに合わせる（切り抜き・{coverFillPercent}%）{motionMode ? `：${pointLabel}` : ''}
+          </span>
+        </button>
+      )}
 
       {/* サイズ（見出しの右端にリセット。値は数値欄に出ているので見出しには出さない） */}
       <div className="flex flex-col gap-0.5">

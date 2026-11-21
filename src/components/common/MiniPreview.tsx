@@ -7,7 +7,7 @@
  */
 import React, { useRef, useEffect, useCallback } from 'react';
 import type { MediaItem } from '../../types';
-import { useCanvasStore, resolveMediaBaseScale } from '../../stores/canvasStore';
+import { useCanvasStore, resolveMediaBaseScale, resolveMediaFitMode } from '../../stores/canvasStore';
 import { useMediaStore } from '../../stores/mediaStore';
 import {
   normalizeRotation,
@@ -28,9 +28,8 @@ interface MiniPreviewProps {
   localTime?: number;
 }
 
-// ミニプレビューの枠。向きに合わせて長辺 96 を基準にする（横=96×54 / 縦=54×96）。
+// ミニプレビューの枠。プロジェクトの出力比率を保ち、長辺 96 を基準にする（横=96×54 / 縦=54×96 / 正方形=96×96）。
 const MINI_CANVAS_LONG = 96;
-const MINI_CANVAS_SHORT = 54;
 
 /**
  * ミニプレビューコンポーネント
@@ -39,12 +38,15 @@ const MINI_CANVAS_SHORT = 54;
 const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement, localTime = 0 }) => {
   const projectCanvasWidth = useCanvasStore((s) => s.width);
   const projectCanvasHeight = useCanvasStore((s) => s.height);
+  const aspectRatio = useCanvasStore((s) => s.aspectRatio);
   const bulkColorEnabled = useMediaStore((s) => s.bulkColorEnabled);
   const bulkColorAdjust = useMediaStore((s) => s.bulkColorAdjust);
-  // 出力の向きに合わせてミニ枠と配置モードを決める（メインプレビューと一致させる）。
+  // 出力比率に合わせてミニ枠寸法を計算する（メインプレビューと一致させる）。
   const isPortrait = projectCanvasHeight > projectCanvasWidth;
-  const miniCanvasWidth = isPortrait ? MINI_CANVAS_SHORT : MINI_CANVAS_LONG;
-  const miniCanvasHeight = isPortrait ? MINI_CANVAS_LONG : MINI_CANVAS_SHORT;
+  const isSquareOrTall = projectCanvasHeight >= projectCanvasWidth * 0.9;
+  const miniScale = MINI_CANVAS_LONG / Math.max(projectCanvasWidth, projectCanvasHeight, 1);
+  const miniCanvasWidth = Math.max(1, Math.round(projectCanvasWidth * miniScale));
+  const miniCanvasHeight = Math.max(1, Math.round(projectCanvasHeight * miniScale));
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number | null>(null);
@@ -102,13 +104,13 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement, localTime
       const rotationDeg = normalizeRotation(currentItem.rotation);
       // 90/270 度回転では縦横が入れ替わるため fit 計算には回転後寸法を使う（メインプレビューと一致）。
       const fitDims = resolveRotatedFitDimensions(elemW, elemH, rotationDeg);
-      // 縦(9:16)は cover（縦フレームを埋める）、横(16:9)は contain。メインプレビューと一致させる。
+      // フィット方式もメインプレビューと一致させる（portrait のみ cover、landscape / auto は contain）。
       const baseScale = resolveMediaBaseScale({
         canvasWidth: miniCanvasWidth,
         canvasHeight: miniCanvasHeight,
         elementWidth: fitDims.width,
         elementHeight: fitDims.height,
-        mode: isPortrait ? 'cover' : 'contain',
+        mode: resolveMediaFitMode(aspectRatio),
       });
       const renderScale = baseScale * resolveMediaScaleFactor(currentItem, localTimeRef.current);
       const blurPixels = resolveMediaBlurPixels(
@@ -174,7 +176,7 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement, localTime
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
     ctx.lineWidth = 1;
     ctx.strokeRect(0, 0, miniCanvasWidth, miniCanvasHeight);
-  }, [mediaElement, projectCanvasWidth, miniCanvasWidth, miniCanvasHeight, isPortrait]); // itemへの依存を削除
+  }, [mediaElement, projectCanvasWidth, miniCanvasWidth, miniCanvasHeight, aspectRatio]); // itemへの依存を削除
 
   useEffect(() => {
     itemRef.current = item;
@@ -311,7 +313,7 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement, localTime
           ref={canvasRef}
           width={miniCanvasWidth}
           height={miniCanvasHeight}
-          className={isPortrait ? 'block mx-auto h-32' : 'block w-full'}
+          className={isPortrait || isSquareOrTall ? 'block mx-auto h-32 w-auto max-w-full' : 'block w-full'}
         />
 
         {/* トランスフォーム情報オーバーレイ */}

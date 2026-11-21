@@ -48,7 +48,7 @@ import { computeTransitionTimelineRanges } from '../../utils/transitionTimeline'
 import { resolveSplitCompareRoles } from '../../utils/splitCompare';
 import { resolveTimelinePlayheadPercent } from '../../utils/timelineWaveform';
 import { useLogStore } from '../../stores/logStore';
-import { useCanvasStore } from '../../stores/canvasStore';
+import { formatCanvasSizeBadge, useCanvasStore } from '../../stores/canvasStore';
 import type { AspectRatio } from '../../stores/canvasStore';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 import ThumbnailZoomPreview from '../common/ThumbnailZoomPreview';
@@ -263,6 +263,20 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   const log = useLogStore.getState();
   const canvasWidth = useCanvasStore((s) => s.width);
   const canvasHeight = useCanvasStore((s) => s.height);
+  const exportWidth = useCanvasStore((s) => s.exportWidth);
+  const exportHeight = useCanvasStore((s) => s.exportHeight);
+  const aspectRatio = useCanvasStore((s) => s.aspectRatio);
+  const outputSizeBadge = useMemo(
+    () => formatCanvasSizeBadge(exportWidth, exportHeight),
+    [exportWidth, exportHeight],
+  );
+  const previewAspectCss = canvasWidth > 0 && canvasHeight > 0 ? `${canvasWidth} / ${canvasHeight}` : '16 / 9';
+  const isTallOrSquarePreview = canvasHeight > canvasWidth || (canvasWidth > 0 && canvasHeight / canvasWidth >= 0.72);
+  const isTallPoster = projectPosterAspectRatio === 'portrait'
+    || (projectPosterAspectRatio === 'auto' && canvasHeight > canvasWidth);
+  const isSquarePoster = projectPosterAspectRatio === 'auto'
+    && canvasWidth > 0 && canvasHeight > 0
+    && Math.abs(canvasWidth / canvasHeight - 1) <= 0.1;
   const normalPreviewRef = useRef<HTMLDivElement>(null);
   const floatingCanvasHostRef = useRef<HTMLDivElement>(null);
   const floatingButtonRef = useRef<HTMLButtonElement>(null);
@@ -722,6 +736,15 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
           </button>
         </h2>
         <div className="flex items-center gap-2">
+          {uiCapabilities.supportsAspectRatioSelection && outputSizeBadge && (
+            <span
+              data-testid="preview-output-size-badge"
+              title={aspectRatio === 'auto' ? '素材に合わせるモードで決まった出力サイズ' : '現在の出力サイズ'}
+              className="rounded-md border border-green-500/35 bg-green-500/10 px-2 py-0.5 font-mono text-[10px] text-green-400 md:text-xs"
+            >
+              {aspectRatio === 'auto' ? `自動 ${outputSizeBadge}` : outputSizeBadge}
+            </span>
+          )}
           {isProcessing && (
             <span className="text-[10px] md:text-xs text-green-400 font-mono animate-pulse bg-green-900/30 px-2 py-0.5 rounded">
               REC ●
@@ -732,12 +755,16 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
       <div
         ref={normalPreviewRef}
         data-testid="normal-preview-canvas"
+        style={{ aspectRatio: previewAspectCss }}
         className={
           canvasHeight > canvasWidth
-            // 縦(9:16): 高さ上限つきで中央に収める（画面が縦長になりすぎないよう max-height を設定）。
-            ? 'relative aspect-[9/16] bg-black group mx-auto max-h-[70vh] h-[70vh] max-w-full'
-            // 横(16:9): 従来どおり。
-            : 'relative aspect-video bg-black w-full group'
+            // 縦長（9:16 / 3:4 等）: 高さ上限つきで中央に収める。
+            ? 'relative bg-black group mx-auto max-h-[70vh] h-[70vh] max-w-full'
+            : isTallOrSquarePreview
+              // 正方形（1:1）・4:3 等: 幅いっぱいだと縦に伸びすぎるため高さ上限付きで中央に収める。
+              ? 'relative bg-black group mx-auto max-h-[70vh] w-full max-w-full'
+              // 横長（16:9 / 21:9 等）: 従来どおり。
+              : 'relative bg-black w-full group'
         }
       >
         {createPortal(<canvas ref={canvasRef} className="w-full h-full object-contain" />, canvasContainer)}
@@ -1062,12 +1089,14 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
                             : `自動設定（${formatTime(projectPosterTimelineTime)}）`
                         }
                         compactClassName={`flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-gray-600/70 bg-black ${
-                          projectPosterAspectRatio === 'portrait'
+                          isTallPoster
                             ? 'h-20 aspect-[9/16]'
-                            : 'h-12 aspect-video'
+                            : isSquarePoster
+                              ? 'h-14 aspect-square'
+                              : 'h-12 aspect-video'
                         }`}
-                        hoverWidth={projectPosterAspectRatio === 'portrait' ? 180 : 320}
-                        hoverHeight={projectPosterAspectRatio === 'portrait' ? 320 : 180}
+                        hoverWidth={isTallPoster ? 180 : isSquarePoster ? 240 : 320}
+                        hoverHeight={isTallPoster ? 320 : isSquarePoster ? 240 : 180}
                         lightboxTitle="プロジェクトのサムネイル"
                         testIdPrefix="project-poster"
                       />

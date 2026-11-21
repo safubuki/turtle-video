@@ -8,6 +8,11 @@ import { parseDeliveryMarkup } from './narrationDelivery';
 
 export const GEMINI_38_INTERACTIONS_URL = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 
+/** 保存データ等の音声エンジン指定を現行の Gemini 3.8 TTS へ正規化する（旧 'legacy' 等は既定へ移行） */
+export function normalizeNarrationTtsEngine(engine: unknown): NarrationTtsEngine {
+  return engine === 'gemini-3.8-flash-lite-tts' ? 'gemini-3.8-flash-lite-tts' : 'gemini-3.8-flash-tts';
+}
+
 const TONE_STYLES: Record<NarrationTtsTone, string> = {
   natural: '',
   warm: 'warm and friendly',
@@ -23,7 +28,7 @@ const PACE_STYLES: Record<NarrationTtsPace, string> = {
 };
 
 export function buildGemini38TtsRequest(input: {
-  engine: Exclude<NarrationTtsEngine, 'legacy'>;
+  engine: NarrationTtsEngine;
   script: string;
   voice: string;
   tone: NarrationTtsTone;

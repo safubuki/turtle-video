@@ -230,7 +230,7 @@ describe('sectionHelp support messaging', () => {
   });
 
   it('文章だけだった最近の機能にも操作部品の視覚見本を持たせる', () => {
-    expect(getHelpVisuals('clips', '動画の形式（横16:9／縦9:16）')).toContain(
+    expect(getHelpVisuals('clips', '動画の形式（横16:9／縦9:16／素材に合わせる）')).toContain(
       'aspect_ratio_toggle'
     );
     expect(getHelpVisuals('clips', 'ロゴ表示（ウォーターマーク / エンドロール）'))

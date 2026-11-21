@@ -153,6 +153,15 @@ describe('resolveCaptionLayoutScale', () => {
     expect(resolveCaptionLayoutScale(720, 1280)).toBeCloseTo(720 / 1080, 5);
     expect(resolveCaptionLayoutScale(1080, 1920)).toBeLessThan(1920 / 1080);
   });
+
+  it('正方形・4:3・21:9 など素材に合わせる比率でも短辺に対する比率を一定に保つ', () => {
+    expect(resolveCaptionLayoutScale(1080, 1080)).toBeCloseTo(1, 5);
+    expect(resolveCaptionLayoutScale(720, 720)).toBeCloseTo(720 / 1080, 5);
+    expect(resolveCaptionLayoutScale(1440, 1080)).toBeCloseTo(1, 5);
+    expect(resolveCaptionLayoutScale(1080, 1440)).toBeCloseTo(1, 5);
+    expect(resolveCaptionLayoutScale(1920, 824)).toBeCloseTo(824 / 1080, 5);
+    expect(resolveCaptionLayoutScale(1280, 550)).toBeCloseTo(550 / 1080, 5);
+  });
 });
 
 describe('resolveCaptionAnchor', () => {

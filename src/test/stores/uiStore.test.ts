@@ -182,7 +182,8 @@ describe('uiStore', () => {
   describe('AI Modal', () => {
     it('新規の既定とモーダルリセットは Gemini 3.8 Flash TTS にする', () => {
       expect(useUIStore.getState().aiTtsEngine).toBe('gemini-3.8-flash-tts');
-      useUIStore.getState().setAiTtsEngine('legacy');
+      useUIStore.getState().setAiTtsEngine('gemini-3.8-flash-lite-tts');
+      expect(useUIStore.getState().aiTtsEngine).toBe('gemini-3.8-flash-lite-tts');
       useUIStore.getState().resetAiModal();
       expect(useUIStore.getState().aiTtsEngine).toBe('gemini-3.8-flash-tts');
     });
@@ -221,14 +222,10 @@ describe('uiStore', () => {
       expect(useUIStore.getState().aiVoice).toBe('Puck');
     });
 
-    it('switching to the legacy engine restores a supported voice', () => {
-      const { setAiVoice, setAiTtsEngine } = useUIStore.getState();
-      setAiTtsEngine('gemini-3.8-flash-tts');
-      setAiVoice('voice_custom');
-      expect(useUIStore.getState().aiVoice).toBe('voice_custom');
-
-      setAiTtsEngine('legacy');
-      expect(useUIStore.getState().aiVoice).toBe('Aoede');
+    it('旧 legacy 指定など未知のエンジン名は既定の Gemini 3.8 Flash TTS へ正規化する', () => {
+      const { setAiTtsEngine } = useUIStore.getState();
+      setAiTtsEngine('legacy' as never);
+      expect(useUIStore.getState().aiTtsEngine).toBe('gemini-3.8-flash-tts');
     });
   });
 

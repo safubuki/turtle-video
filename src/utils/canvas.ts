@@ -20,7 +20,7 @@ export function normalizeMediaBlur(blur: number | undefined | null): number {
   return Math.max(0, Math.min(MAX_MEDIA_BLUR, blur));
 }
 
-/** 1080p 基準のぼかし値を現在の Canvas 上のピクセル数へ変換する。 */
+/** 1080p 基準のぼかし値を現在の Canvas 上のピクセル数へ変換する（短辺基準）。 */
 export function resolveMediaBlurPixels(
   blur: number | undefined | null,
   canvasWidth: number,
@@ -29,18 +29,17 @@ export function resolveMediaBlurPixels(
   const normalized = normalizeMediaBlur(blur);
   if (normalized <= 0) return 0;
 
-  const longSide = Math.max(canvasWidth, canvasHeight);
   const shortSide = Math.min(canvasWidth, canvasHeight);
   const scale =
-    Number.isFinite(longSide) && Number.isFinite(shortSide) && longSide > 0 && shortSide > 0
-      ? Math.min(longSide / 1920, shortSide / 1080)
+    Number.isFinite(shortSide) && shortSide > 0
+      ? shortSide / 1080
       : 1;
   return Number((normalized * scale).toFixed(3));
 }
 
 /**
  * 1080p基準のメディアぼかし値を現在のCanvas実寸へ合わせた filter 文字列へ変換する。
- * 横/縦どちらでも長辺1920・短辺1080を基準にするため、preview/exportの見た目が揃う。
+ * 横・縦・正方形・特殊比のいずれでも短辺 1080px を基準にするため、アスペクト比変更や preview/export で見た目が揃う。
  */
 export function resolveMediaBlurFilter(
   blur: number | undefined | null,

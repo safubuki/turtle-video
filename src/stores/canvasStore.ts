@@ -20,26 +20,168 @@ import {
   MAX_PREVIEW_CANVAS_WIDTH,
   MAX_PREVIEW_CANVAS_HEIGHT,
 } from '../constants';
+import { normalizeRotation, resolveRotatedFitDimensions } from '../utils/canvas';
+import { normalizeMediaZoomScale } from '../utils/mediaZoom';
 
 /**
  * 出力品質モード。
- * - auto: 先頭動画のソース解像度に合わせる（従来挙動・上限 1920×1080）
- * - fhd:  常に 1920×1080 で書き出す
- * - hd:   常に 1280×720 で書き出す
+ * - auto: 先頭動画（または素材に合わせる時は基準素材）のソース解像度に合わせる（上限 1920×1080 相当）
+ * - fhd:  高画質上限で書き出す（16:9=1920×1080 / 9:16=1080×1920 / 1:1=1080×1080）
+ * - hd:   標準画質上限で書き出す（16:9=1280×720 / 9:16=720×1280 / 1:1=720×720）
  */
 export type ExportQuality = 'auto' | 'fhd' | 'hd';
 
 /**
- * 出力の向き（アスペクト比）。
+ * 出力の向き（アスペクト比モード）。
  * - landscape: 16:9 横（従来・既定）
  * - portrait:  9:16 縦（ショート動画向け）
+ * - auto:      素材に合わせる（正方形・オリジナル比率対応）
  * 向きはプロジェクトごとに保持し、保存/読込で復元する。
  */
-export type AspectRatio = 'landscape' | 'portrait';
+export type AspectRatio = 'landscape' | 'portrait' | 'auto';
 
-/** 各向きの目標アスペクト比（幅/高さ）。 */
+/** 「素材に合わせる」モードのアスペクト比（幅/高さ）の安全範囲（縦 9:16 〜 横 21:9） */
+export const AUTO_ASPECT_MIN = 9 / 16;
+export const AUTO_ASPECT_MAX = 21 / 9;
+
+/** 正方形（1:1）とみなす許容誤差（幅/高さが 0.95〜1.05 なら正方形扱い） */
+export const SQUARE_ASPECT_TOLERANCE = 0.05;
+
+/** 「画面いっぱいに合わせる（切り抜き）」ボタンを出す最小倍率差（既存の黒帯除去 102.5% より大きい場合） */
+const COVER_FILL_MIN_SCALE_DIFF = 1.03;
+
+/** 保存値・入力値を安全な AspectRatio へ正規化する（旧データや未知値は landscape） */
+export function normalizeAspectRatio(value: unknown): AspectRatio {
+  if (value === 'portrait' || value === 'auto') return value;
+  return 'landscape';
+}
+
+/** 各向きの目標アスペクト比（幅/高さ）。auto のフォールバック時は 16:9 */
 export function getTargetAspect(aspectRatio: AspectRatio): number {
   return aspectRatio === 'portrait' ? 9 / 16 : 16 / 9;
+}
+
+/**
+ * 出力モードに応じた素材の初期フィット方式を返す（プレビュー・書き出し・ミニプレビュー・サムネイル共通）。
+ * - portrait（9:16 固定）: 従来どおり cover（横素材を縦いっぱいに埋める）
+ * - landscape（16:9 固定）/ auto（素材に合わせる）: contain（勝手に切り抜かず全体表示）
+ */
+export function resolveMediaFitMode(aspectRatio: AspectRatio): 'contain' | 'cover' {
+  return aspectRatio === 'portrait' ? 'cover' : 'contain';
+}
+
+/**
+ * 複数素材からキャンバス計算の基準となるソース解像度（回転後）を選定する。
+ *
+ * - `auto`（素材に合わせる）:
+ *   動画・画像の両方を対象とし、90°/270°回転済みの素材は回転後の寸法で判定する。
+ *   正方形（1:1 ±5%）より長方形を優先し、長方形が複数あるときは先頭（1 番目）の長方形を採用する。
+ *   すべて正方形なら先頭の正方形を採用する。有効な寸法が無ければ null。
+ * - `landscape` / `portrait`:
+ *   従来どおり、先頭の動画クリップの寸法を返す（画像のみなら null で既定枠）。
+ */
+export function resolveCanvasReferenceDimensions(
+  items: ReadonlyArray<{
+    type: 'video' | 'image';
+    sourceWidth?: number;
+    sourceHeight?: number;
+    rotation?: number;
+  }>,
+  aspectRatio: AspectRatio,
+): { width: number; height: number } | null {
+  if (aspectRatio !== 'auto') {
+    const firstVideo = items.find((item) => item.type === 'video');
+    if (
+      firstVideo
+      && Number.isFinite(firstVideo.sourceWidth)
+      && Number.isFinite(firstVideo.sourceHeight)
+      && (firstVideo.sourceWidth as number) > 0
+      && (firstVideo.sourceHeight as number) > 0
+    ) {
+      return { width: firstVideo.sourceWidth as number, height: firstVideo.sourceHeight as number };
+    }
+    return null;
+  }
+
+  let firstSquare: { width: number; height: number } | null = null;
+  for (const item of items) {
+    if (
+      !Number.isFinite(item.sourceWidth)
+      || !Number.isFinite(item.sourceHeight)
+      || (item.sourceWidth as number) <= 0
+      || (item.sourceHeight as number) <= 0
+    ) {
+      continue;
+    }
+    const rotationDeg = normalizeRotation(item.rotation);
+    const rotated = resolveRotatedFitDimensions(
+      item.sourceWidth as number,
+      item.sourceHeight as number,
+      rotationDeg,
+    );
+    const aspect = rotated.width / rotated.height;
+    const isSquare = Math.abs(aspect - 1) <= SQUARE_ASPECT_TOLERANCE;
+    if (!isSquare) {
+      return { width: rotated.width, height: rotated.height };
+    }
+    if (!firstSquare) {
+      firstSquare = { width: rotated.width, height: rotated.height };
+    }
+  }
+  return firstSquare;
+}
+
+/**
+ * 異比率クリップで黒帯を消して画面いっぱいに広げる（切り抜き）ための拡大倍率を求める。
+ * 既に枠を埋めるモード（cover）または比率差がごくわずか（3% 以下）のときは null を返す。
+ */
+export function computeMediaCoverFillScale(input: {
+  canvasWidth: number;
+  canvasHeight: number;
+  elementWidth: number;
+  elementHeight: number;
+  baseMode: 'contain' | 'cover';
+}): number | null {
+  const { canvasWidth, canvasHeight, elementWidth, elementHeight, baseMode } = input;
+  if (baseMode === 'cover') return null;
+  if (
+    !Number.isFinite(canvasWidth) || !Number.isFinite(canvasHeight)
+    || !Number.isFinite(elementWidth) || !Number.isFinite(elementHeight)
+    || canvasWidth <= 0 || canvasHeight <= 0 || elementWidth <= 0 || elementHeight <= 0
+  ) {
+    return null;
+  }
+  const containScale = Math.min(canvasWidth / elementWidth, canvasHeight / elementHeight);
+  const coverScale = Math.max(canvasWidth / elementWidth, canvasHeight / elementHeight);
+  if (containScale <= 0) return null;
+  const fillScale = coverScale / containScale;
+  if (fillScale <= COVER_FILL_MIN_SCALE_DIFF) return null;
+  return normalizeMediaZoomScale(fillScale);
+}
+
+const KNOWN_ASPECT_LABELS: ReadonlyArray<{ ratio: number; label: string }> = [
+  { ratio: 16 / 9, label: '16:9' },
+  { ratio: 9 / 16, label: '9:16' },
+  { ratio: 1, label: '1:1' },
+  { ratio: 4 / 3, label: '4:3' },
+  { ratio: 3 / 4, label: '3:4' },
+  { ratio: 4 / 5, label: '4:5' },
+  { ratio: 5 / 4, label: '5:4' },
+  { ratio: 3 / 2, label: '3:2' },
+  { ratio: 2 / 3, label: '2:3' },
+  { ratio: 21 / 9, label: '21:9' },
+];
+
+/** 出力サイズと代表的な比率ラベルを整形する（例: "1080×1080 (1:1)" / 特殊比は "1420×1080"） */
+export function formatCanvasSizeBadge(width: number, height: number): string {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return '';
+  }
+  const w = Math.round(width);
+  const h = Math.round(height);
+  const aspect = w / h;
+  const matched = KNOWN_ASPECT_LABELS.find((entry) => Math.abs(aspect - entry.ratio) <= 0.025);
+  return matched ? `${w}×${h} (${matched.label})` : `${w}×${h}`;
 }
 
 /**
@@ -144,13 +286,50 @@ function resolveOrientedMaxFrame(
 }
 
 /**
+ * 「素材に合わせる（auto）」モードで、目標比率を保ちながら
+ * 「長辺 <= longLimit かつ 短辺 <= shortLimit」の最大枠を返す（H.264 偶数丸め）。
+ * 例 (1920, 1080): 16:9→1920×1080 / 9:16→1080×1920 / 1:1→1080×1080 / 4:3→1440×1080 / 21:9→1920×822
+ */
+function resolveAutoMaxFrame(
+  maxWidth: number,
+  maxHeight: number,
+  targetAspect: number,
+): { width: number; height: number } {
+  const longLimit = Math.max(maxWidth, maxHeight);
+  const shortLimit = Math.min(maxWidth, maxHeight);
+  if (targetAspect >= 1) {
+    // 横長・正方形: 高さは shortLimit まで、幅は longLimit まで
+    if (shortLimit * targetAspect <= longLimit) {
+      return {
+        width: roundToEven(shortLimit * targetAspect),
+        height: roundToEven(shortLimit),
+      };
+    }
+    return {
+      width: roundToEven(longLimit),
+      height: roundToEven(longLimit / targetAspect),
+    };
+  }
+  // 縦長: 幅は shortLimit まで、高さは longLimit まで
+  if (shortLimit / targetAspect <= longLimit) {
+    return {
+      width: roundToEven(shortLimit),
+      height: roundToEven(shortLimit / targetAspect),
+    };
+  }
+  return {
+    width: roundToEven(longLimit * targetAspect),
+    height: roundToEven(longLimit),
+  };
+}
+
+/**
  * ソースサイズと最大サイズから、指定した向きのキャンバスサイズを算出する。
  *
- * - 出力アスペクト比は向きで固定する（landscape=16:9 / portrait=9:16）。先頭動画の比率に引きずられない。
+ * - landscape / portrait: 出力アスペクト比を固定する（16:9 / 9:16）。先頭動画の比率に引きずられない。
+ * - auto（素材に合わせる）: ソース比率（9:16〜21:9 にクランプ）を採用し、長辺<=longLimit・短辺<=shortLimit に収める。
  * - 解像度は可変。ソースを縮小せず内包できる最小の枠を採り、品質を保つ。
- *   - 目標比より「短辺が余る」ソースは長辺基準で枠を広げる（黒帯が入り、拡大機能で押し出せる）。
  * - 最大枠を超える場合のみ目標比を保ったまま縮小する。
- * - 目標の向きに合わないソース（landscape 枠に縦長ソース等）・無効値は既定枠へフォールバックする。
  * - H.264 の都合により幅・高さは偶数に丸める。
  * - aspectRatio 既定は landscape のため、従来呼び出し（4引数まで）は挙動不変。
  */
@@ -161,6 +340,33 @@ export function computeCanvasSizeFromSource(
   maxHeight: number = MAX_CANVAS_HEIGHT,
   aspectRatio: AspectRatio = 'landscape',
 ): { width: number; height: number } {
+  if (aspectRatio === 'auto') {
+    if (!Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight)
+      || sourceWidth <= 0 || sourceHeight <= 0) {
+      const { maxW, maxH } = resolveOrientedMaxFrame(maxWidth, maxHeight, 'landscape');
+      return fallbackFrame(maxW, maxH, getTargetAspect('landscape'));
+    }
+    const sourceAspect = sourceWidth / sourceHeight;
+    const targetAspect = Math.min(AUTO_ASPECT_MAX, Math.max(AUTO_ASPECT_MIN, sourceAspect));
+    const maxFrame = resolveAutoMaxFrame(maxWidth, maxHeight, targetAspect);
+
+    let width: number;
+    let height: number;
+    if (sourceAspect >= targetAspect) {
+      width = sourceWidth;
+      height = width / targetAspect;
+    } else {
+      height = sourceHeight;
+      width = height * targetAspect;
+    }
+
+    const scale = Math.min(1, maxFrame.width / width, maxFrame.height / height);
+    return {
+      width: roundToEven(width * scale),
+      height: roundToEven(height * scale),
+    };
+  }
+
   const { maxW, maxH } = resolveOrientedMaxFrame(maxWidth, maxHeight, aspectRatio);
   const targetAspect = getTargetAspect(aspectRatio); // 幅/高さ
 
@@ -213,12 +419,12 @@ function fallbackFrame(maxW: number, maxH: number, targetAspect: number): { widt
 
 function roundToEven(value: number): number {
   const rounded = Math.round(value);
-  return rounded % 2 === 0 ? rounded : rounded + 1;
+  return Math.max(2, rounded % 2 === 0 ? rounded : rounded + 1);
 }
 
-/** 固定解像度モードのサイズ定義（向き別）。 */
+/** 固定解像度モードのサイズ定義（横/縦の固定向き用）。 */
 const FIXED_EXPORT_SIZES: Record<
-  AspectRatio,
+  Exclude<AspectRatio, 'auto'>,
   Record<Exclude<ExportQuality, 'auto'>, { width: number; height: number }>
 > = {
   landscape: {
@@ -233,7 +439,7 @@ const FIXED_EXPORT_SIZES: Record<
 
 /**
  * 出力品質モードとソース解像度・向きからエクスポートサイズを解決する。
- * auto はソース基準（従来挙動・上限は向きに応じた枠）、fhd/hd は向き別固定サイズ。
+ * auto はソース基準（上限は向きに応じた枠）、fhd/hd は品質上限サイズ（auto 向きでは素材比率を保って上限枠へ）。
  * aspectRatio 既定は landscape のため、従来呼び出し（3引数まで）は挙動不変。
  */
 export function resolveExportCanvasSize(
@@ -242,6 +448,26 @@ export function resolveExportCanvasSize(
   sourceHeight: number | null,
   aspectRatio: AspectRatio = 'landscape',
 ): { width: number; height: number } {
+  if (aspectRatio === 'auto') {
+    const hasSource = sourceWidth != null && sourceHeight != null
+      && Number.isFinite(sourceWidth) && Number.isFinite(sourceHeight)
+      && sourceWidth > 0 && sourceHeight > 0;
+    const targetAspect = hasSource
+      ? Math.min(AUTO_ASPECT_MAX, Math.max(AUTO_ASPECT_MIN, (sourceWidth as number) / (sourceHeight as number)))
+      : getTargetAspect('landscape');
+
+    if (quality === 'fhd') {
+      return resolveAutoMaxFrame(MAX_CANVAS_WIDTH, MAX_CANVAS_HEIGHT, targetAspect);
+    }
+    if (quality === 'hd') {
+      return resolveAutoMaxFrame(MAX_PREVIEW_CANVAS_WIDTH, MAX_PREVIEW_CANVAS_HEIGHT, targetAspect);
+    }
+    if (hasSource) {
+      return computeCanvasSizeFromSource(sourceWidth as number, sourceHeight as number, MAX_CANVAS_WIDTH, MAX_CANVAS_HEIGHT, 'auto');
+    }
+    return { width: MAX_CANVAS_WIDTH, height: MAX_CANVAS_HEIGHT };
+  }
+
   if (quality !== 'auto') {
     return { ...FIXED_EXPORT_SIZES[aspectRatio][quality] };
   }

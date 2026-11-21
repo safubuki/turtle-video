@@ -249,7 +249,7 @@ describe('SectionHelpModal', () => {
     await user.click(sectionHeaderBtn);
     expect(sectionHeaderBtn).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('追加ボタン')).toBeInTheDocument();
-    expect(screen.getByText('動画の形式（横16:9／縦9:16）')).toBeInTheDocument();
+    expect(screen.getByText('動画の形式（横16:9／縦9:16／素材に合わせる）')).toBeInTheDocument();
     expect(screen.getByText('セクションの鍵アイコン')).toBeInTheDocument();
 
     // 2. 全体設定を開くと、タイトル・ロゴ・音声一括設定の3つがアコーディオン無しで直接表示される

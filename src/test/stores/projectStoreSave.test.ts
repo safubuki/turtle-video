@@ -209,6 +209,27 @@ describe('projectStore save behavior', () => {
     useMediaStore.getState().resetBulkColor();
   });
 
+  it('出力アスペクト比 auto（素材に合わせる）を手動保存/自動保存して復元できる', async () => {
+    useCanvasStore.getState().setAspectRatio('auto');
+    useMediaStore.setState({ projectPosterAspectRatio: 'auto' });
+    const items = [createMediaItem('square.png', 'image')];
+    for (const mode of ['manual', 'auto'] as const) {
+      const save = mode === 'manual' ? useProjectStore.getState().saveProjectManual : useProjectStore.getState().saveProjectAuto;
+      await save(items, false, null, false, [], false, [], defaultCaptionSettings, false);
+      const saved = mocks.saveProject.mock.calls[mocks.saveProject.mock.calls.length - 1][0] as ProjectData;
+      expect(saved.aspectRatio).toBe('auto');
+      expect(saved.projectPosterAspectRatio).toBe('auto');
+
+      mocks.loadProject.mockResolvedValueOnce(saved);
+      useCanvasStore.getState().setAspectRatio('landscape');
+      const loaded = await useProjectStore.getState().loadProjectFromSlot(mode);
+      expect(useCanvasStore.getState().aspectRatio).toBe('auto');
+      expect(loaded!.projectPosterAspectRatio).toBe('auto');
+    }
+    useCanvasStore.getState().setAspectRatio('landscape');
+    useMediaStore.setState({ projectPosterAspectRatio: 'landscape' });
+  });
+
   it('位置の移動（パン）の終了位置を手動保存/自動保存して復元し、固定は終了を保存しない', async () => {
     const items = [
       { ...createMediaItem('pan.mp4'), positionX: -100, positionY: 40, panEndPositionX: 200, panEndPositionY: -60 },

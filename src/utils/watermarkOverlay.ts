@@ -57,10 +57,20 @@ export function resolveLogoLayoutScale(canvasWidth: number, canvasHeight: number
   return shortSide / LOGO_REFERENCE_SHORT_SIDE;
 }
 
-/** 周辺ぼかし（1080p 基準）を現在のキャンバス上のピクセル数へ変換する */
-export function resolveLogoFeatherPixels(feather: number, canvasHeight: number): number {
-  if (!Number.isFinite(canvasHeight) || canvasHeight <= 0) return 0;
-  return feather * (canvasHeight / 1080);
+/**
+ * 周辺ぼかし（短辺 1080px 基準）を現在のキャンバス上のピクセル数へ変換する。
+ * ロゴ本体サイズと同じく短辺基準に揃え、横・縦・正方形などアスペクト比変更でぼかし比率が変わらないようにする。
+ */
+export function resolveLogoFeatherPixels(
+  feather: number,
+  canvasWidthOrShortSide: number,
+  canvasHeight?: number,
+): number {
+  const shortSide = canvasHeight === undefined
+    ? canvasWidthOrShortSide
+    : Math.min(canvasWidthOrShortSide, canvasHeight);
+  if (!Number.isFinite(shortSide) || shortSide <= 0) return 0;
+  return feather * (shortSide / 1080);
 }
 
 /**
@@ -352,7 +362,7 @@ export function resolveWatermarkPresetPosition(params: {
     canvasHeight,
   );
   const maskRatio = overlay.maskSize / 100;
-  const featherPx = resolveLogoFeatherPixels(overlay.feather, canvasHeight);
+  const featherPx = resolveLogoFeatherPixels(overlay.feather, canvasWidth, canvasHeight);
   const visibleWidth = Math.min(renderedWidth, renderedWidth * maskRatio + featherPx * 4);
   const visibleHeight = Math.min(renderedHeight, renderedHeight * maskRatio + featherPx * 4);
   const radians = (overlay.rotation * Math.PI) / 180;
@@ -501,7 +511,7 @@ export function drawLogoImageFrame(
     ctx.canvas.width,
     ctx.canvas.height,
   );
-  const featherPx = resolveLogoFeatherPixels(style.feather, ctx.canvas.height);
+  const featherPx = resolveLogoFeatherPixels(style.feather, ctx.canvas.width, ctx.canvas.height);
   const raster = getRasterizedWatermark(
     image,
     width,

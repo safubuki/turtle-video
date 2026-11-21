@@ -23,7 +23,7 @@ import {
   resolveMediaColorAdjust,
   scaleMediaColorAdjust,
 } from '../utils/mediaColor';
-import type { AspectRatio } from './canvasStore';
+import { normalizeAspectRatio, type AspectRatio } from './canvasStore';
 import {
   createMediaItem,
   areAllExistingVideosMuted,
@@ -1523,7 +1523,7 @@ export const useMediaStore = create<MediaState>()(
         const timelineTime = mode === 'manual' && Number.isFinite(poster?.timelineTime)
           ? Math.max(0, poster!.timelineTime as number)
           : computeAutoProjectPosterTimelineTime(totalDuration);
-        const aspectRatio = poster?.aspectRatio === 'portrait' ? 'portrait' : 'landscape';
+        const aspectRatio = normalizeAspectRatio(poster?.aspectRatio);
         set({
           mediaItems: items,
           totalDuration,

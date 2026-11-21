@@ -32,16 +32,11 @@ import {
   getContextSelectOptions,
 } from '../../utils/gemini38VoiceCategories';
 import {
-  NARRATION_SCENE_PRESETS,
   NARRATION_TONE_PRESETS,
   clearAllDeliveryMarkers,
-  decodeSceneSetting,
   listAppliedToneLabels,
-  matchScenePresetId,
-  resolveSceneSetting,
   unwrapRangeTone,
   wrapRangeWithTone,
-  type NarrationScenePresetId,
 } from '../../utils/narrationDelivery';
 import { useDisableBodyScroll } from '../../hooks/useDisableBodyScroll';
 
@@ -88,8 +83,8 @@ const AiModal: React.FC<AiModalProps> = ({
   aiScript,
   aiScriptLength,
   aiVoice,
-  aiVoiceStyle,
-  aiNarrationScene,
+  aiVoiceStyle: _aiVoiceStyle,
+  aiNarrationScene: _aiNarrationScene,
   aiTtsEngine,
   aiTtsTone,
   aiTtsPace,
@@ -101,7 +96,7 @@ const AiModal: React.FC<AiModalProps> = ({
   onScriptLengthChange,
   onVoiceChange,
   onVoiceStyleChange: _onVoiceStyleChange,
-  onNarrationSceneChange,
+  onNarrationSceneChange: _onNarrationSceneChange,
   onTtsEngineChange,
   onTtsToneChange,
   onTtsPaceChange,
@@ -132,10 +127,6 @@ const AiModal: React.FC<AiModalProps> = ({
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [libraryError, setLibraryError] = useState('');
   const libraryRequestRef = useRef<AbortController | null>(null);
-  /** 場面プリセット（custom 時は Scene / Sample Context を自由入力） */
-  const [scenePresetId, setScenePresetId] = useState<NarrationScenePresetId | 'custom'>('none');
-  const [customSceneLine, setCustomSceneLine] = useState('');
-  const [customSampleContext, setCustomSampleContext] = useState('');
   /** 区間語り口調の自由入力 */
   const [customToneText, setCustomToneText] = useState('');
   const [selectionHint, setSelectionHint] = useState('');
@@ -165,7 +156,7 @@ const AiModal: React.FC<AiModalProps> = ({
     { id: 'male', label: '男性' },
   ];
 
-  const isGemini38 = aiTtsEngine !== 'legacy';
+  const isGemini38 = true;
 
   useEffect(() => {
     setLibraryLoading(false);
@@ -294,42 +285,6 @@ const AiModal: React.FC<AiModalProps> = ({
 
   const appliedToneLabels = useMemo(() => listAppliedToneLabels(aiScript), [aiScript]);
 
-  const activeSceneSetting = useMemo(() => {
-    if (scenePresetId === 'custom') {
-      return {
-        scene: customSceneLine.trim(),
-        sampleContext: customSampleContext.trim(),
-      };
-    }
-    const preset = NARRATION_SCENE_PRESETS.find((p) => p.id === scenePresetId);
-    return {
-      scene: preset?.scene ?? '',
-      sampleContext: preset?.sampleContext ?? '',
-    };
-  }, [scenePresetId, customSceneLine, customSampleContext]);
-
-  const applyScenePreset = (presetId: NarrationScenePresetId | 'custom') => {
-    setScenePresetId(presetId);
-    if (presetId === 'custom') {
-      let nextScene = customSceneLine;
-      let nextContext = customSampleContext;
-      if (!nextScene && !nextContext && scenePresetId !== 'none' && scenePresetId !== 'custom') {
-        const prevPreset = NARRATION_SCENE_PRESETS.find((p) => p.id === scenePresetId);
-        if (prevPreset) {
-          nextScene = prevPreset.scene;
-          nextContext = prevPreset.sampleContext;
-          setCustomSceneLine(nextScene);
-          setCustomSampleContext(nextContext);
-        }
-      }
-      onNarrationSceneChange(
-        resolveSceneSetting('custom', nextScene, nextContext),
-      );
-      return;
-    }
-    onNarrationSceneChange(resolveSceneSetting(presetId, '', ''));
-  };
-
   const restoreCaret = (caret: number) => {
     requestAnimationFrame(() => {
       const ta = scriptTextareaRef.current;
@@ -421,27 +376,6 @@ const AiModal: React.FC<AiModalProps> = ({
       closedByPopstateRef.current = false;
     };
   }, [isOpen, onClose]);
-
-  // モーダルを開いたとき・場面設定が変わったときプリセット選択を同期
-  useEffect(() => {
-    if (!isOpen) return;
-    if (scenePresetId === 'custom' && !aiNarrationScene.trim()) {
-      return;
-    }
-    const matched = matchScenePresetId(aiNarrationScene);
-    setScenePresetId(matched);
-    if (matched === 'custom') {
-      const decoded = decodeSceneSetting(aiNarrationScene);
-      setCustomSceneLine(decoded.scene);
-      setCustomSampleContext(decoded.sampleContext);
-    } else if (!aiNarrationScene.trim() && aiVoiceStyle.trim()) {
-      // 旧「声の調子」のみあるデータは Sample Context として復元
-      setScenePresetId('custom');
-      setCustomSceneLine('');
-      setCustomSampleContext(aiVoiceStyle);
-      onNarrationSceneChange(resolveSceneSetting('custom', '', aiVoiceStyle));
-    }
-  }, [aiNarrationScene, aiVoiceStyle, isOpen, onNarrationSceneChange]);
 
   const resetTouchTracking = () => {
     touchStartXRef.current = null;
@@ -722,10 +656,7 @@ const AiModal: React.FC<AiModalProps> = ({
               )}
               {appliedToneLabels.length > 0 && (
                 <p className="text-[10px] text-gray-500">
-                  設定中: {appliedToneLabels.join(' / ')}（選択フレーズのみ部分演出。
-                  {aiTtsEngine === 'legacy'
-                    ? 'Gemini 2.5 では [tag] へ変換します。'
-                    : 'Gemini 3.8 では区間ごとの話し方へ変換します。'}）
+                  設定中: {appliedToneLabels.join(' / ')}（選択フレーズのみ部分演出。区間ごとの話し方へ変換します。）
                 </p>
               )}
             </div>
@@ -748,110 +679,10 @@ const AiModal: React.FC<AiModalProps> = ({
               >
                 <option value="gemini-3.8-flash-tts">Gemini 3.8 Flash TTS（既定・高音質）</option>
                 <option value="gemini-3.8-flash-lite-tts">Gemini 3.8 Flash-Lite TTS（高速）</option>
-                <option value="legacy">Gemini 2.5 Flash TTS（従来方式）</option>
               </select>
-              <p className="text-[10px] md:text-xs text-gray-500">
-                Gemini 2.5 Flash TTS は、これまでと同じ方法で音声を生成します。
-              </p>
             </div>
 
-            {/* 従来エンジンの Scene / Sample Context */}
-            {aiTtsEngine === 'legacy' && (
             <div className="space-y-2 rounded-xl border border-indigo-500/30 bg-linear-to-br from-indigo-950/30 via-purple-950/20 to-gray-900/50 p-3 md:p-3.5">
-              <p className="text-xs font-bold text-indigo-200">Gemini 2.5 Flash TTS の設定</p>
-              <span className="block text-xs font-bold text-gray-400">場面・状況（全体）</span>
-              <div
-                className="grid grid-cols-2 sm:grid-cols-3 gap-1.5"
-                role="group"
-                aria-label="場面プリセット"
-              >
-                {NARRATION_SCENE_PRESETS.map((preset) => {
-                  const active = scenePresetId === preset.id;
-                  return (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() => applyScenePreset(preset.id)}
-                      className={`min-h-10 w-full px-2 rounded-lg text-[11px] md:text-xs font-semibold border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 ${
-                        active
-                          ? 'bg-indigo-500 text-white border-indigo-400'
-                          : 'bg-gray-900 text-gray-300 border-gray-700 hover:border-indigo-400/60'
-                      }`}
-                      aria-pressed={active}
-                    >
-                      {preset.label}
-                    </button>
-                  );
-                })}
-                <button
-                  type="button"
-                  onClick={() => applyScenePreset('custom')}
-                  className={`min-h-10 w-full px-2 rounded-lg text-[11px] md:text-xs font-semibold border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 ${
-                    scenePresetId === 'custom'
-                      ? 'bg-indigo-500 text-white border-indigo-400'
-                      : 'bg-gray-900 text-gray-300 border-gray-700 hover:border-indigo-400/60'
-                  }`}
-                  aria-pressed={scenePresetId === 'custom'}
-                >
-                  自由入力
-                </button>
-              </div>
-              {scenePresetId === 'custom' && (
-                <div className="space-y-1.5">
-                  <input
-                    type="text"
-                    value={customSceneLine}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setCustomSceneLine(value);
-                      setScenePresetId('custom');
-                      onNarrationSceneChange(
-                        resolveSceneSetting('custom', value, customSampleContext),
-                      );
-                    }}
-                    placeholder="場面（Scene）例: 静かなスタジオ。"
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-                  />
-                  <textarea
-                    value={customSampleContext}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setCustomSampleContext(value);
-                      setScenePresetId('custom');
-                      onNarrationSceneChange(
-                        resolveSceneSetting('custom', customSceneLine, value),
-                      );
-                    }}
-                    rows={2}
-                    placeholder="話し方（Sample Context）例: 落ち着いたペースで、はっきりと親しみやすく。"
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 resize-none"
-                  />
-                </div>
-              )}
-              {(activeSceneSetting.scene || activeSceneSetting.sampleContext) && (
-                <div className="rounded-lg border border-gray-700/70 bg-gray-900/60 px-2.5 py-2 space-y-1 text-[10px] md:text-[11px] text-gray-400 leading-relaxed">
-                  {activeSceneSetting.scene && (
-                    <p>
-                      <span className="font-semibold text-gray-300">場面（Scene）</span>{' '}
-                      {activeSceneSetting.scene}
-                    </p>
-                  )}
-                  {activeSceneSetting.sampleContext && (
-                    <p>
-                      <span className="font-semibold text-gray-300">話し方（Sample Context）</span>{' '}
-                      {activeSceneSetting.sampleContext}
-                    </p>
-                  )}
-                </div>
-              )}
-              <p className="text-[10px] text-gray-500 leading-relaxed">
-                場面と話し方を指定し、文中のアクセントと組み合わせられます。
-              </p>
-            </div>
-            )}
-
-            {aiTtsEngine !== 'legacy' && (
-              <div className="space-y-2 rounded-xl border border-indigo-500/30 bg-linear-to-br from-indigo-950/30 via-purple-950/20 to-gray-900/50 p-3 md:p-3.5">
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-bold text-indigo-200 flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-indigo-300" />
@@ -933,7 +764,6 @@ const AiModal: React.FC<AiModalProps> = ({
                   </div>
                 </div>
               </div>
-            )}
 
             <div className="space-y-2.5 md:space-y-3">
               <div className="flex items-center justify-between">
@@ -1436,7 +1266,7 @@ const AiModal: React.FC<AiModalProps> = ({
                 </p>
               )}
               <p id="ai-voice-help" className="text-[10px] md:text-xs text-gray-500 leading-relaxed">
-                基本の {voiceOptions.length} 声は両エンジンで使える定番の声。{isGemini38 && '追加音声は Gemini 3.8 専用で、人物像や用途から選べます。'}
+                基本の {voiceOptions.length} 声に加え、追加音声は人物像や用途から選べます。
               </p>
             </div>
           </div>

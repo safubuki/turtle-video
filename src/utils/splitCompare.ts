@@ -41,13 +41,15 @@ export const SPLIT_COMPARE_DEFAULT_SETTINGS: SplitCompareSettings = {
   lineColor: 'white',
 };
 
-/** 比較を ON にしたときの初期設定。横動画（16:9）は左右、縦動画（9:16）は上下 */
+/** 比較を ON にしたときの初期設定。横動画（16:9）・正方形は左右、縦動画は上下 */
 export function createDefaultSplitCompareSettings(
-  aspectRatio: 'landscape' | 'portrait',
+  aspectRatio: 'landscape' | 'portrait' | 'auto',
+  isCanvasPortrait: boolean = false,
 ): SplitCompareSettings {
+  const vertical = aspectRatio === 'portrait' || (aspectRatio === 'auto' && isCanvasPortrait);
   return {
     ...SPLIT_COMPARE_DEFAULT_SETTINGS,
-    layout: aspectRatio === 'portrait' ? 'vertical' : 'horizontal',
+    layout: vertical ? 'vertical' : 'horizontal',
   };
 }
 
@@ -59,10 +61,12 @@ export const SPLIT_COMPARE_LAYOUT_OPTIONS: { value: 'horizontal' | 'vertical'; l
 /** UI に出す並べ方（旧データの 'auto' はキャンバスの向きで左右/上下に読み替える） */
 export function resolveSplitCompareDisplayLayout(
   layout: SplitCompareLayout,
-  aspectRatio: 'landscape' | 'portrait',
+  aspectRatio: 'landscape' | 'portrait' | 'auto',
+  isCanvasPortrait: boolean = false,
 ): 'horizontal' | 'vertical' {
   if (layout === 'horizontal' || layout === 'vertical') return layout;
-  return aspectRatio === 'portrait' ? 'vertical' : 'horizontal';
+  const vertical = aspectRatio === 'portrait' || (aspectRatio === 'auto' && isCanvasPortrait);
+  return vertical ? 'vertical' : 'horizontal';
 }
 
 export const SPLIT_COMPARE_DIVIDER_OPTIONS: { value: SplitCompareDivider; label: string }[] = [
@@ -375,11 +379,12 @@ const AUTO_OFFSET_TOLERANCE_PERCENT = 0.2;
 /** この設定で「左右・ななめ」の自動位置調整を掛けるべきか（比較なしは false） */
 export function isSplitCompareDiagonalOffsetWanted(
   settings: SplitCompareSettings | null | undefined,
-  aspectRatio: 'landscape' | 'portrait',
+  aspectRatio: 'landscape' | 'portrait' | 'auto',
+  isCanvasPortrait: boolean = false,
 ): boolean {
   if (!settings) return false;
   return settings.divider === 'diagonal'
-    && resolveSplitCompareDisplayLayout(settings.layout, aspectRatio) === 'horizontal';
+    && resolveSplitCompareDisplayLayout(settings.layout, aspectRatio, isCanvasPortrait) === 'horizontal';
 }
 
 type AutoOffsetItem = Pick<MediaItem, 'positionX' | 'positionY' | 'scale' | 'isLocked'>
@@ -466,9 +471,10 @@ export function resolveSplitComparePeerFadeAlpha(
 /** コネクタやログに出す短い説明（例: 「左右・まっすぐ」） */
 export function describeSplitCompareSettings(
   settings: SplitCompareSettings,
-  aspectRatio: 'landscape' | 'portrait' = 'landscape',
+  aspectRatio: 'landscape' | 'portrait' | 'auto' = 'landscape',
+  isCanvasPortrait: boolean = false,
 ): string {
-  const displayLayout = resolveSplitCompareDisplayLayout(settings.layout, aspectRatio);
+  const displayLayout = resolveSplitCompareDisplayLayout(settings.layout, aspectRatio, isCanvasPortrait);
   const layout = SPLIT_COMPARE_LAYOUT_OPTIONS.find((o) => o.value === displayLayout)?.label ?? '';
   const divider = SPLIT_COMPARE_DIVIDER_OPTIONS.find((o) => o.value === settings.divider)?.label ?? '';
   return `${layout}・${divider}`;

@@ -48,6 +48,7 @@ import {
   ArrowLeftRight,
   RectangleHorizontal,
   RectangleVertical,
+  Scan,
   RotateCw,
   Image as ImageIcon,
   ChevronsLeft,
@@ -546,7 +547,13 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
             >
               <RectangleVertical className="h-4 w-4" />
             </span>
-            <span className="px-2 text-[10px] text-gray-400 md:text-xs">横16:9／縦9:16</span>
+            <span
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400"
+              title="素材に合わせる（正方形・オリジナル比率）"
+            >
+              <Scan className="h-4 w-4" />
+            </span>
+            <span className="px-2 text-[10px] text-gray-400 md:text-xs">横16:9／縦9:16／素材に合わせる</span>
           </div>
         );
       case 'watermark_controls':
@@ -2192,6 +2199,7 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
         <span className="inline-flex items-center rounded border border-gray-700 bg-gray-900/90 p-0.5 shrink-0">
           <RectangleHorizontal className="w-3.5 h-3.5 text-blue-400 p-0.5" />
           <RectangleVertical className="w-3.5 h-3.5 text-gray-500 p-0.5" />
+          <Scan className="w-3.5 h-3.5 text-gray-500 p-0.5" />
         </span>
       );
     }

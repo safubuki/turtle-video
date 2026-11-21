@@ -43,7 +43,8 @@ import { useAudioStore } from './audioStore';
 import { createDiagnosticId } from '../utils/diagnostics';
 import versionData from '../../version.json';
 import { useUIStore } from './uiStore';
-import { useCanvasStore, type AspectRatio } from './canvasStore';
+import { normalizeNarrationTtsEngine } from '../utils/gemini38Tts';
+import { useCanvasStore, normalizeAspectRatio, type AspectRatio } from './canvasStore';
 import { useMediaStore } from './mediaStore';
 import { useCaptionStore } from './captionStore';
 import { useOverlayStore } from './overlayStore';
@@ -855,7 +856,7 @@ function deserializeNarrationClip(data: SerializedNarrationClip): NarrationClip 
     aiVoice: data.aiVoice as NarrationClip['aiVoice'],
     aiVoiceStyle: data.aiVoiceStyle,
     aiNarrationScene: data.aiNarrationScene,
-    aiTtsEngine: data.aiTtsEngine as NarrationClip['aiTtsEngine'],
+    aiTtsEngine: data.aiTtsEngine ? normalizeNarrationTtsEngine(data.aiTtsEngine) : undefined,
     aiTtsTone: data.aiTtsTone as NarrationClip['aiTtsTone'],
     aiTtsPace: data.aiTtsPace as NarrationClip['aiTtsPace'],
     aiTtsStyleDetail: data.aiTtsStyleDetail,
@@ -1292,12 +1293,10 @@ export const useProjectStore = create<ProjectState>()(
 
           // 出力の向きを復元（旧データは landscape 後方互換）。
           // メディア寸法の反映（applyFromSource）より前に向きを確定させておく。
-          const loadedAspectRatio: AspectRatio = data.aspectRatio === 'portrait' ? 'portrait' : 'landscape';
-          const loadedPosterAspectRatio: AspectRatio = data.projectPosterAspectRatio === 'portrait'
-            ? 'portrait'
-            : data.projectPosterAspectRatio === 'landscape'
-              ? 'landscape'
-              : loadedAspectRatio;
+          const loadedAspectRatio: AspectRatio = normalizeAspectRatio(data.aspectRatio);
+          const loadedPosterAspectRatio: AspectRatio = data.projectPosterAspectRatio != null
+            ? normalizeAspectRatio(data.projectPosterAspectRatio)
+            : loadedAspectRatio;
           const hasCompatibleManualPoster = data.projectPosterMode === 'manual'
             && loadedPosterAspectRatio === loadedAspectRatio;
           const hasCompatiblePosterImage = loadedPosterAspectRatio === loadedAspectRatio;
