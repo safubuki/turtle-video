@@ -238,6 +238,14 @@ describe('NumericSliderField', () => {
     fireEvent.click(screen.getByLabelText('終了位置を0.1増やす'));
     expect(onChange).toHaveBeenLastCalledWith(20.1);
   });
+
+  it('fixedDecimals 指定時は type=number のまま小数末尾の 0 を固定表示する', () => {
+    renderField({ value: 2, min: 0.5, max: 8, step: 0.05, decimals: 2, fixedDecimals: true, inputWidthChars: 7 });
+    const input = screen.getByRole('spinbutton', { name: '終了位置（数値）' }) as HTMLInputElement;
+    expect(input.type).toBe('number');
+    expect(input.value).toBe('2.00');
+    expect(input.style.width).toContain('7ch');
+  });
 });
 
 const StatefulNumericSliderField = ({

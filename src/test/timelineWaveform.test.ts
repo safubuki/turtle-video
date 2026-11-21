@@ -12,6 +12,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildTimelineWaveform,
   detectTimelineClippingRegions,
+  planClippingFixUpdates,
   resolveClippingFixScales,
   composeTimelinePcm,
   detectTimelineSilences,
@@ -614,5 +615,76 @@ describe('resolveClippingFixScales（音割れの自動調整）', () => {
 
   it('音割れが無ければ何も変えない', () => {
     expect(resolveClippingFixScales([placement({ pcm: buildConstantPcm(0.5, 4) })], 4)).toEqual([]);
+  });
+});
+
+describe('planClippingFixUpdates（一括音量設定との連携）', () => {
+  it('ナレーションの一括音量設定が ON のときは個別更新せず一括音量を最小倍率へ下げ、チェックを外さない', () => {
+    const plan = planClippingFixUpdates({
+      scales: [
+        { id: 'n1', kind: 'narration', scale: 0.8 },
+        { id: 'n2', kind: 'narration', scale: 0.9 },
+      ],
+      videos: [],
+      bgms: [],
+      narrations: [
+        { id: 'n1', volume: 1.2 },
+        { id: 'n2', volume: 1.2 },
+      ],
+      bulk: {
+        video: { enabled: false, volume: 1, hasLockedVideo: false },
+        bgm: { enabled: false, volume: 1 },
+        narration: { enabled: true, volume: 1.2 },
+      },
+    });
+
+    expect(plan.itemUpdates).toEqual([]);
+    expect(plan.bulkUpdates).toEqual([{ kind: 'narration', from: 1.2, to: 0.96 }]);
+    expect(plan.changes).toEqual(['ナレーション一括 120%→96%']);
+  });
+
+  it('一括音量設定が ON の種別は一括更新、OFF の種別は個別更新として両方正しく処理する', () => {
+    const plan = planClippingFixUpdates({
+      scales: [
+        { id: 'v1', kind: 'video', scale: 0.7 },
+        { id: 'b1', kind: 'bgm', scale: 0.8 },
+        { id: 'n1', kind: 'narration', scale: 0.85 },
+      ],
+      videos: [{ id: 'v1', volume: 1.5 }],
+      bgms: [{ id: 'b1', volume: 1 }],
+      narrations: [{ id: 'n1', volume: 1.2 }],
+      bulk: {
+        video: { enabled: false, volume: 1, hasLockedVideo: false },
+        bgm: { enabled: true, volume: 1 },
+        narration: { enabled: true, volume: 1.2 },
+      },
+    });
+
+    expect(plan.itemUpdates).toEqual([{ id: 'v1', kind: 'video', index: 0, from: 1.5, to: 1.05 }]);
+    expect(plan.bulkUpdates).toEqual([
+      { kind: 'bgm', from: 1, to: 0.8 },
+      { kind: 'narration', from: 1.2, to: 1.02 },
+    ]);
+    expect(plan.changes).toEqual(['動画1 150%→105%', 'BGM一括 100%→80%', 'ナレーション一括 120%→102%']);
+  });
+
+  it('動画に個別ロッククリップが混在する場合は一括更新を避けて未ロックのみ個別更新する', () => {
+    const plan = planClippingFixUpdates({
+      scales: [{ id: 'v1', kind: 'video', scale: 0.8 }],
+      videos: [
+        { id: 'v1', volume: 1.5 },
+        { id: 'v2', volume: 1.5 },
+      ],
+      bgms: [],
+      narrations: [],
+      bulk: {
+        video: { enabled: true, volume: 1.5, hasLockedVideo: true },
+        bgm: { enabled: false, volume: 1 },
+        narration: { enabled: false, volume: 1 },
+      },
+    });
+
+    expect(plan.bulkUpdates).toEqual([]);
+    expect(plan.itemUpdates).toEqual([{ id: 'v1', kind: 'video', index: 0, from: 1.5, to: 1.2 }]);
   });
 });

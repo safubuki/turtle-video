@@ -1,6 +1,6 @@
 /**
  * @file playbackSpeed.ts
- * @description 動画カード再生速度（0.5〜8.0・0.1刻み）の正規化・タイムライン/ソース時刻変換・速度バッジ描画。
+ * @description 動画カード再生速度（0.5〜8.0・0.05刻み）の正規化・タイムライン/ソース時刻変換・速度バッジ描画。
  * Docs/specs/2026-08-01_video-playback-speed.md
  */
 import type { MediaItem, SpeedBadgeLabelStyle, VideoPlaybackSpeed } from '../types';
@@ -10,7 +10,7 @@ export const MIN_VIDEO_PLAYBACK_SPEED = 0.5;
 /** スライダーの上限（従来の 8x を維持） */
 export const MAX_VIDEO_PLAYBACK_SPEED = 8;
 /** スライダー / ステッパーの刻み */
-export const VIDEO_PLAYBACK_SPEED_STEP = 0.1;
+export const VIDEO_PLAYBACK_SPEED_STEP = 0.05;
 
 /** よく使う倍率のショートカット（スライダー本体とは別に任意で置く） */
 export const VIDEO_PLAYBACK_SPEEDS: readonly VideoPlaybackSpeed[] = [0.5, 1, 2, 4, 8];
@@ -41,12 +41,12 @@ function clamp(value: number, min: number, max: number): number {
 
 function roundToPlaybackSpeedStep(value: number): number {
   const stepped = Math.round(value / VIDEO_PLAYBACK_SPEED_STEP) * VIDEO_PLAYBACK_SPEED_STEP;
-  return Number(stepped.toFixed(1));
+  return Number(stepped.toFixed(2));
 }
 
 /**
- * 未知値・旧データを 0.5〜8.0（0.1刻み）へ正規化する。
- * 旧プロジェクトの 1/2/4/8 はそのまま通る。0.5 未満は 0.5。不正値は 1。
+ * 未知値・旧データを 0.50〜8.00（0.05刻み）へ正規化する。
+ * 旧プロジェクトの 1/2/4/8 や 0.1 刻みはそのまま通る。0.5 未満は 0.5。不正値は 1。
  */
 export function normalizeVideoPlaybackSpeed(value: unknown): VideoPlaybackSpeed {
   const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
@@ -57,9 +57,15 @@ export function normalizeVideoPlaybackSpeed(value: unknown): VideoPlaybackSpeed 
   );
 }
 
+/** 速度バッジ・見出し向けの簡潔な倍率表記（2 / 1.5 / 1.25 のように 0.05 単位を崩さず表示） */
 export function formatPlaybackSpeedValue(speed: unknown): string {
   const s = normalizeVideoPlaybackSpeed(speed);
-  return Number.isInteger(s) ? String(s) : s.toFixed(1);
+  return Number(s.toFixed(2)).toString();
+}
+
+/** 数値入力欄向けの小数 2 桁固定表記（例: 2.00 / 1.05 / 0.50） */
+export function formatPlaybackSpeedInputValue(speed: unknown): string {
+  return normalizeVideoPlaybackSpeed(speed).toFixed(2);
 }
 
 /**

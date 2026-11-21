@@ -643,3 +643,90 @@ export function resolveClippingFixScales(
   }
   return result;
 }
+
+export interface ClippingFixBulkState {
+  video: { enabled: boolean; volume: number; hasLockedVideo: boolean };
+  bgm: { enabled: boolean; volume: number };
+  narration: { enabled: boolean; volume: number };
+}
+
+export interface ClippingFixPlan {
+  bulkUpdates: Array<{ kind: 'video' | 'bgm' | 'narration'; from: number; to: number }>;
+  itemUpdates: Array<{ id: string; kind: 'video' | 'bgm' | 'narration'; index: number; from: number; to: number }>;
+  changes: string[];
+}
+
+/**
+ * 音割れ自動調整の適用プランを作る。
+ * 「一括音量設定」が ON の種別（ナレーション / BGM / ロック混在のない動画）は
+ * 個別更新でチェックマークを外さず、対象クリップ中で最も厳しい倍率に合わせて一括音量を下げる。
+ */
+export function planClippingFixUpdates(params: {
+  scales: readonly ClippingFixScale[];
+  videos: ReadonlyArray<{ id: string; volume: number }>;
+  bgms: ReadonlyArray<{ id: string; volume: number }>;
+  narrations: ReadonlyArray<{ id: string; volume: number }>;
+  bulk: ClippingFixBulkState;
+}): ClippingFixPlan {
+  // 2進浮動小数点の誤差（例: 1.5 * 0.7 * 100 = 104.99999999999999）で 1% 余計に切り捨てないよう極小値を足す
+  const lowered = (volume: number, scale: number) => Math.max(0, Math.floor(volume * scale * 100 + 1e-9) / 100);
+  const percent = (volume: number) => `${Math.round(volume * 100)}%`;
+
+  const bulkUpdates: ClippingFixPlan['bulkUpdates'] = [];
+  const itemUpdates: ClippingFixPlan['itemUpdates'] = [];
+  const changes: string[] = [];
+
+  const handleKind = (
+    kind: 'video' | 'bgm' | 'narration',
+    label: string,
+    items: ReadonlyArray<{ id: string; volume: number }>,
+    useBulk: boolean,
+    bulkVolume: number,
+  ) => {
+    const kindScales = params.scales.filter((entry) => entry.kind === kind);
+    if (kindScales.length === 0) return;
+
+    if (useBulk) {
+      let nextBulk = bulkVolume;
+      let matched = false;
+      for (const { id, scale } of kindScales) {
+        const item = items.find((entry) => entry.id === id);
+        if (!item) continue;
+        matched = true;
+        const candidate = Math.min(lowered(item.volume, scale), lowered(bulkVolume, scale));
+        if (candidate < nextBulk) nextBulk = candidate;
+      }
+      if (!matched) return;
+      bulkUpdates.push({ kind, from: bulkVolume, to: nextBulk });
+      changes.push(`${label}一括 ${percent(bulkVolume)}→${percent(nextBulk)}`);
+      return;
+    }
+
+    for (const { id, scale } of kindScales) {
+      const index = items.findIndex((entry) => entry.id === id);
+      const item = items[index];
+      if (!item) continue;
+      const next = lowered(item.volume, scale);
+      itemUpdates.push({ id, kind, index, from: item.volume, to: next });
+      changes.push(`${label}${index + 1} ${percent(item.volume)}→${percent(next)}`);
+    }
+  };
+
+  handleKind(
+    'video',
+    '動画',
+    params.videos,
+    params.bulk.video.enabled && !params.bulk.video.hasLockedVideo,
+    params.bulk.video.volume,
+  );
+  handleKind('bgm', 'BGM', params.bgms, params.bulk.bgm.enabled, params.bulk.bgm.volume);
+  handleKind(
+    'narration',
+    'ナレーション',
+    params.narrations,
+    params.bulk.narration.enabled,
+    params.bulk.narration.volume,
+  );
+
+  return { bulkUpdates, itemUpdates, changes };
+}

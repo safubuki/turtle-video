@@ -177,6 +177,37 @@ describe('ClipItem 速度バッジ', () => {
     );
     expect(screen.getByTestId('clip-show-speed-badge-video-1')).toBeDisabled();
   });
+
+  it('再生速度は 0.05 単位で調整でき、数値欄は 2.00 のように小数 2 桁・ゆとり幅で表示する', () => {
+    const onUpdatePlaybackSpeed = vi.fn();
+    const { rerender, props } = renderClipItem({
+      item: createVideo({ playbackSpeed: 2 }),
+      onUpdatePlaybackSpeed,
+    });
+    openPlaybackSpeed();
+
+    const speedInput = screen.getByRole('spinbutton', { name: '再生速度（数値）' }) as HTMLInputElement;
+    expect(speedInput.value).toBe('2.00');
+    expect(speedInput.style.width).toContain('5ch');
+
+    fireEvent.click(screen.getByRole('button', { name: '再生速度を0.05増やす' }));
+    expect(onUpdatePlaybackSpeed).toHaveBeenLastCalledWith(2.05);
+
+    fireEvent.click(screen.getByRole('button', { name: '再生速度を0.05減らす' }));
+    expect(onUpdatePlaybackSpeed).toHaveBeenLastCalledWith(1.95);
+
+    // 1.05 倍速は等倍扱いにならず、リセットボタンも有効になる
+    rerender(
+      <ClipItem
+        {...props}
+        item={createVideo({ playbackSpeed: 1.05 })}
+        onUpdatePlaybackSpeed={onUpdatePlaybackSpeed}
+      />,
+    );
+    expect(speedInput.value).toBe('1.05');
+    expect(screen.getByRole('button', { name: '再生速度をリセット' })).toBeEnabled();
+    expect(screen.queryByText('等倍の映像には出しません。先にチェックしてから速度を変えられます。')).not.toBeInTheDocument();
+  });
 });
 
 describe('ClipItem video trim end snap', () => {

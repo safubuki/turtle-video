@@ -39,7 +39,7 @@ import type { ExportPreparationStep } from '../hooks/export-strategies/types';
 import { usePreventUnload } from '../hooks/usePreventUnload';
 import { usePreventWindowFileDrop } from '../hooks/useFileDropZone';
 import { useTimelineWaveform } from '../hooks/useTimelineWaveform';
-import { findAdjacentSilenceBoundary } from '../utils/timelineWaveform';
+import { findAdjacentSilenceBoundary, planClippingFixUpdates } from '../utils/timelineWaveform';
 import { useProjectStore } from '../stores/projectStore';
 
 // Utils
@@ -3910,36 +3910,47 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         : '音割れは見つかりませんでした');
       return;
     }
-    // 下げた結果が上限を超えないよう、1% 単位で切り捨てる
-    const lowered = (volume: number, scale: number) => Math.max(0, Math.floor(volume * scale * 100) / 100);
-    const percent = (volume: number) => `${Math.round(volume * 100)}%`;
-    const changes: string[] = [];
-    for (const { id, kind, scale } of scales) {
-      if (kind === 'video') {
-        const index = media.mediaItems.findIndex((item) => item.id === id);
-        const item = media.mediaItems[index];
-        if (!item) continue;
-        const next = lowered(item.volume, scale);
-        media.updateVolume(id, next);
-        changes.push(`動画${index + 1} ${percent(item.volume)}→${percent(next)}`);
-      } else if (kind === 'bgm') {
-        const index = audio.bgmClips.findIndex((clip) => clip.id === id);
-        const clip = audio.bgmClips[index];
-        if (!clip) continue;
-        const next = lowered(clip.volume, scale);
-        audio.updateBgmClipVolume(id, next);
-        changes.push(`BGM${index + 1} ${percent(clip.volume)}→${percent(next)}`);
+    const plan = planClippingFixUpdates({
+      scales,
+      videos: media.mediaItems,
+      bgms: audio.bgmClips,
+      narrations: audio.narrations,
+      bulk: {
+        video: {
+          enabled: media.bulkVideoVolumeEnabled,
+          volume: media.bulkVideoVolume,
+          hasLockedVideo: media.mediaItems.some((item) => item.type === 'video' && item.isLocked),
+        },
+        bgm: {
+          enabled: audio.bulkBgmVolumeEnabled,
+          volume: audio.bulkBgmVolume,
+        },
+        narration: {
+          enabled: audio.bulkNarrationVolumeEnabled,
+          volume: audio.bulkNarrationVolume,
+        },
+      },
+    });
+    for (const update of plan.bulkUpdates) {
+      if (update.kind === 'video') {
+        media.setBulkVideoVolume(update.to);
+      } else if (update.kind === 'bgm') {
+        audio.setBulkBgmVolume(update.to);
       } else {
-        const index = audio.narrations.findIndex((clip) => clip.id === id);
-        const clip = audio.narrations[index];
-        if (!clip) continue;
-        const next = lowered(clip.volume, scale);
-        audio.updateNarrationVolume(id, next);
-        changes.push(`ナレーション${index + 1} ${percent(clip.volume)}→${percent(next)}`);
+        audio.setBulkNarrationVolume(update.to);
       }
     }
-    useLogStore.getState().info('AUDIO', '音割れの自動調整', { changes });
-    showToast(`音割れしないよう音量を下げました（${changes.join('、')}）`, 6000);
+    for (const update of plan.itemUpdates) {
+      if (update.kind === 'video') {
+        media.updateVolume(update.id, update.to);
+      } else if (update.kind === 'bgm') {
+        audio.updateBgmClipVolume(update.id, update.to);
+      } else {
+        audio.updateNarrationVolume(update.id, update.to);
+      }
+    }
+    useLogStore.getState().info('AUDIO', '音割れの自動調整', { changes: plan.changes });
+    showToast(`音割れしないよう音量を下げました（${plan.changes.join('、')}）`, 6000);
   }, [timelineWaveform, showToast]);
 
   // 移動先には無音区間の開始・終了に加えて動画の先頭（0秒）・末尾も含まれる。

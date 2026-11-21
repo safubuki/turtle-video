@@ -60,6 +60,8 @@ export interface NumericSliderFieldProps {
   inputClassName?: string;
   /** 表示時の小数桁数。省略時は step から推定する */
   decimals?: number;
+  /** true のとき number input のまま小数末尾の 0 を固定表示する（例: 2 → "2.00"） */
+  fixedDecimals?: boolean;
   /** 数値欄の幅（数字の文字数）。並べた欄の幅を揃えるときに指定する */
   inputWidthChars?: number;
   /** 指定時は数値欄の表示文字列を差し替える */
@@ -112,6 +114,7 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
   sliderClassName = 'flex-1 min-w-0 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50',
   inputClassName = 'w-12 focus:border-blue-500',
   decimals,
+  fixedDecimals = false,
   inputWidthChars,
   formatDisplayValue,
   resolveStep,
@@ -210,6 +213,7 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
             unit={unit}
             inputClassName={inputClassName}
             decimals={decimals}
+            fixedDecimals={fixedDecimals}
             inputWidthChars={inputWidthChars}
             formatDisplayValue={formatDisplayValue}
             resolveStep={resolveStep}
@@ -231,6 +235,7 @@ const NumericSliderField = React.memo<NumericSliderFieldProps>(({
           unit={unit}
           inputClassName={inputClassName}
           decimals={decimals}
+          fixedDecimals={fixedDecimals}
           inputWidthChars={inputWidthChars}
           formatDisplayValue={formatDisplayValue}
           resolveStep={resolveStep}

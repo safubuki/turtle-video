@@ -45,6 +45,8 @@ export interface NumericStepperInputProps {
   inputClassName?: string;
   /** 表示時の小数桁数。省略時は step から推定する */
   decimals?: number;
+  /** true のとき number input のまま小数末尾の 0 を固定表示する（例: 2 → "2.00"） */
+  fixedDecimals?: boolean;
   /**
    * 数値欄の幅（数字の文字数）。省略時は min/max から自動で決める。
    * 並べて置く欄の幅を揃えたいときに指定する（例: サイズ 50〜600% を横・縦 −100〜100% と同じ 4 桁幅に）。
@@ -147,6 +149,7 @@ const NumericStepperInput = React.memo<NumericStepperInputProps>(({
   unit,
   inputClassName = 'w-16 focus:border-blue-500',
   decimals,
+  fixedDecimals = false,
   inputWidthChars,
   formatDisplayValue,
   resolveStep,
@@ -233,7 +236,14 @@ const NumericStepperInput = React.memo<NumericStepperInputProps>(({
           min={formatDisplayValue ? undefined : min}
           max={formatDisplayValue ? undefined : max}
           step={formatDisplayValue ? undefined : step}
-          value={draft ?? (formatDisplayValue ? formatDisplayValue(displayValue) : displayNumber(displayValue))}
+          value={
+            draft
+            ?? (formatDisplayValue
+              ? formatDisplayValue(displayValue)
+              : fixedDecimals
+                ? displayValue.toFixed(resolvedDecimals)
+                : displayNumber(displayValue))
+          }
           onChange={(e) => setDraft(e.target.value)}
           onFocus={(e) => { e.currentTarget.select(); onInputFocus?.(); }}
           onBlur={(e) => { if (draft !== null) commitDraft(e.target.value); }}

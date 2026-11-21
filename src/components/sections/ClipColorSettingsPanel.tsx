@@ -94,7 +94,6 @@ const ClipColorSettingsPanel: React.FC<ClipColorSettingsPanelProps> = ({
     >
       <SettingsAccordionHeader
         title={isEffectiveActive ? '色合い 一括設定（適用中）' : '色合い 一括設定'}
-        icon={<Palette className="w-3 h-3 shrink-0" aria-hidden="true" />}
         isOpen={isOpen}
         disabled={isLocked}
         controlsId={accordionId}

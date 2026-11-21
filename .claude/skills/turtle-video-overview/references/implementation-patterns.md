@@ -5487,6 +5487,14 @@ export 終了（成功/失敗/中断）
   - **話し方プロンプト改善**: `gemini38Tts.ts` で性格の被らない雰囲気 9 種（自然・明るく元気・温かく親しみ・ニュース解説・熱血盛り上げ・重厚シリアス・楽しくコミカル・切なくしんみり・静かささやき）を排他統合し、`normalizeGemini38StyleDetail()` で日本語演出を簡潔な英語 `speech_metadata.style` へ変換。部分アクセントが `fast`/`slow` や `whispers`/`shouting` の区間では全体側の相反指示を自動除外する。
 - **注意**: `AiModal` は `textarea` 起点の下スワイプ無効・上端シート下スワイプ閉じ・領域外クリック閉じなし・`popstate` 多重モーダル保護をすべて維持する。
 
+### 13-322. 動画再生速度の 0.05 刻み・小数 2 桁表示対応、および音割れ自動調整の一括音量設定維持
+
+- **ファイル**: `src/utils/playbackSpeed.ts`, `src/components/common/NumericStepperInput.tsx`, `src/components/common/NumericSliderField.tsx`, `src/components/media/ClipItem.tsx`, `src/utils/timelineWaveform.ts`, `src/components/TurtleVideo.tsx`, `src/components/sections/ClipColorSettingsPanel.tsx`
+- **対策**:
+  - **動画再生速度 0.05 刻み＆2.00 表示**: `VIDEO_PLAYBACK_SPEED_STEP` を `0.05` へ変更し、`NumericStepperInput` / `NumericSliderField` に `fixedDecimals` を追加（`type="number"` のまま `2.00` / `1.05` を表示し、`role="spinbutton"` と PC 用 `section input[type="number"]` CSS を維持）。幅は `inputWidthChars={5}` へ調整。等倍判定はすべて `VIDEO_PLAYBACK_SPEED_STEP / 2`（`0.025`）へ統一し、`0.95` / `1.05` が等倍誤認されないよう修正。
+  - **音割れ自動調整での一括音量チェック維持**: `TurtleVideo.tsx` の `handleFixClipping` が無条件に個別音量更新（`updateNarrationVolume` 等 → `bulk*VolumeEnabled: false` 化）を呼んでいたため、一括音量設定のチェックが外れていた。`planClippingFixUpdates()` を導入し、一括音量設定が ON の種別（ナレーション / BGM / 個別ロック混在のない動画）では最小倍率で `setBulk*Volume()` を呼ぶよう改善。
+  - **色合い 一括設定ヘッダー統一**: `ClipColorSettingsPanel.tsx` の `SettingsAccordionHeader` から単独で付いていた `Palette` アイコンを削除し、他の全体設定アコーディオンと見た目を統一。
+
 
 
 

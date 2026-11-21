@@ -516,7 +516,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
   // トリミング欄の 13.38 と食い違って見えるため、0.1 秒で表せない値は 1/100 秒で出す。
   const rangeLabel = `${formatClipCompactClock(timelineRange.start)}–${formatClipCompactClock(timelineRange.end)}`;
   const durationLabel = formatClipDurationLabel(v.duration);
-  const showSpeedMark = v.type === 'video' && Math.abs(playbackSpeed - 1) >= 0.05;
+  const showSpeedMark = v.type === 'video' && Math.abs(playbackSpeed - 1) >= VIDEO_PLAYBACK_SPEED_STEP / 2;
   const showMuteMark = v.type === 'video' && v.isMuted;
   const bodyId = `clip-card-body-${v.id}`;
   const toggleLabel = isOpen ? `${v.file.name}のカードを閉じる` : `${v.file.name}のカードを開く`;
@@ -1013,7 +1013,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
                   </span>
                 )}
                 onReset={() => onUpdatePlaybackSpeed(1)}
-                resetDisabled={isDisabled || Math.abs(playbackSpeed - 1) < 0.05}
+                resetDisabled={isDisabled || Math.abs(playbackSpeed - 1) < VIDEO_PLAYBACK_SPEED_STEP / 2}
                 resetLabel="再生速度をリセット"
                 resetTitle="等倍へ戻す"
               />
@@ -1027,7 +1027,9 @@ const ClipItem: React.FC<ClipItemProps> = ({
                 onChange={onUpdatePlaybackSpeed}
                 disabled={isDisabled}
                 unit="倍"
-                decimals={1}
+                decimals={2}
+                fixedDecimals
+                inputWidthChars={5}
                 sliderClassName="flex-1 min-w-0 accent-amber-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50"
                 inputClassName="focus:border-amber-500"
               />
@@ -1040,7 +1042,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
                     disabled={isDisabled}
                     onClick={() => onUpdatePlaybackSpeed(speed)}
                     className={`min-h-7 px-2 rounded-lg border text-[10px] font-medium transition disabled:opacity-40 ${
-                      Math.abs(playbackSpeed - speed) < 0.05
+                      Math.abs(playbackSpeed - speed) < VIDEO_PLAYBACK_SPEED_STEP / 2
                         ? 'bg-amber-500/20 border-amber-500/60 text-amber-200'
                         : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-500'
                     }`}
@@ -1094,7 +1096,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
                     />
                     <span>プレビュー/書き出しに速度を表示</span>
                   </label>
-                  {Math.abs(playbackSpeed - 1) < 0.05 && (
+                  {Math.abs(playbackSpeed - 1) < VIDEO_PLAYBACK_SPEED_STEP / 2 && (
                     <p className="text-[10px] leading-snug text-gray-400 md:text-xs">
                       等倍の映像には出しません。先にチェックしてから速度を変えられます。
                     </p>

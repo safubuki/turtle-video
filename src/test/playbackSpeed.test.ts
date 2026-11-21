@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeTimelineDurationFromSource,
+  formatPlaybackSpeedInputValue,
   formatSpeedBadgeLabel,
   getVideoSourceClipDuration,
   normalizeSpeedBadgeLabelStyle,
@@ -28,19 +29,29 @@ import {
 import { computeVideoTrimFromPreviewPosition } from '../utils/media';
 
 describe('normalizeVideoPlaybackSpeed', () => {
-  it('0.5〜8.0 を 0.1 刻みで通し、0.5 未満と不正値は丸める', () => {
+  it('0.50〜8.00 を 0.05 刻みで通し、0.5 未満と不正値は丸める', () => {
     expect(normalizeVideoPlaybackSpeed(1)).toBe(1);
     expect(normalizeVideoPlaybackSpeed(2)).toBe(2);
     expect(normalizeVideoPlaybackSpeed(4)).toBe(4);
     expect(normalizeVideoPlaybackSpeed(8)).toBe(8);
     expect(normalizeVideoPlaybackSpeed('4')).toBe(4);
     expect(normalizeVideoPlaybackSpeed(3)).toBe(3);
-    expect(normalizeVideoPlaybackSpeed(1.54)).toBe(1.5);
+    expect(normalizeVideoPlaybackSpeed(1.54)).toBe(1.55);
+    expect(normalizeVideoPlaybackSpeed(1.52)).toBe(1.5);
+    expect(normalizeVideoPlaybackSpeed(1.05)).toBe(1.05);
+    expect(normalizeVideoPlaybackSpeed(0.95)).toBe(0.95);
     expect(normalizeVideoPlaybackSpeed(0.5)).toBe(0.5);
     expect(normalizeVideoPlaybackSpeed(0.1)).toBe(0.5);
     expect(normalizeVideoPlaybackSpeed(undefined)).toBe(1);
     expect(normalizeVideoPlaybackSpeed(0)).toBe(1);
     expect(normalizeVideoPlaybackSpeed(12)).toBe(8);
+  });
+
+  it('formatPlaybackSpeedInputValue は常に小数第 2 位まで整形する', () => {
+    expect(formatPlaybackSpeedInputValue(2)).toBe('2.00');
+    expect(formatPlaybackSpeedInputValue(1.5)).toBe('1.50');
+    expect(formatPlaybackSpeedInputValue(1.05)).toBe('1.05');
+    expect(formatPlaybackSpeedInputValue(0.5)).toBe('0.50');
   });
 });
 
@@ -129,12 +140,14 @@ describe('速度バッジ', () => {
     expect(resolveSpeedBadgePresetPosition('bottom-right')).toEqual({ x: 91, y: 91 });
   });
 
-  it('バッジ文言は既定が日本語、en で 2x。0.1 単位も表示する', () => {
+  it('バッジ文言は既定が日本語、en で 2x。0.05 単位も崩さず表示する', () => {
     expect(normalizeSpeedBadgeLabelStyle(undefined)).toBe('ja');
     expect(formatSpeedBadgeLabel(2, 'ja')).toBe('\u00BB 2倍速');
     expect(formatSpeedBadgeLabel(4, undefined)).toBe('\u00BB 4倍速');
     expect(formatSpeedBadgeLabel(1.5, 'ja')).toBe('\u00BB 1.5倍速');
+    expect(formatSpeedBadgeLabel(1.25, 'ja')).toBe('\u00BB 1.25倍速');
     expect(formatSpeedBadgeLabel(0.5, 'en')).toBe('\u00BB 0.5x');
+    expect(formatSpeedBadgeLabel(1.05, 'en')).toBe('\u00BB 1.05x');
     expect(formatSpeedBadgeLabel(2, 'en')).toBe('\u00BB 2x');
   });
 
