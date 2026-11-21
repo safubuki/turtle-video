@@ -17,11 +17,131 @@
  *   4. コントラスト: 50% を軸に倍率
  *   5. 彩度: 輝度との混合
  */
-import type { MediaColorAdjust, MediaColorMatch, MediaItem } from '../types';
+import type { MediaColorAdjust, MediaColorMatch, MediaColorPresetId, MediaItem } from '../types';
 
 export const MEDIA_COLOR_ADJUST_MIN = -100;
 export const MEDIA_COLOR_ADJUST_MAX = 100;
 export const MEDIA_COLOR_MATCH_STRENGTH_DEFAULT = 100;
+export const MEDIA_COLOR_PRESET_STRENGTH_MIN = 0;
+export const MEDIA_COLOR_PRESET_STRENGTH_MAX = 150;
+export const MEDIA_COLOR_PRESET_STRENGTH_DEFAULT = 100;
+
+export interface MediaColorPresetDefinition {
+  id: MediaColorPresetId;
+  label: string;
+  description: string;
+  /** ボタン左端の小さな色見本（CSS カラー） */
+  swatch: string;
+  /** 強さ 100% 時の基準スライダー値 */
+  adjust: MediaColorAdjust;
+}
+
+/**
+ * 全体の色合い一括設定で選べる雰囲気プリセット。
+ * 押すと下の 5 本スライダーへ基準値（×強さ%）が入り、そのまま手動で微調整できる。
+ */
+export const MEDIA_COLOR_PRESETS: readonly MediaColorPresetDefinition[] = Object.freeze([
+  {
+    id: 'cool',
+    label: 'クール',
+    description: '青みがかった爽やか・冷たい雰囲気',
+    swatch: '#38bdf8',
+    adjust: { brightness: 0, contrast: 10, saturation: -10, temperature: -65, tint: 5 },
+  },
+  {
+    id: 'cinema',
+    label: 'シネマ',
+    description: '緑がかった映画風の落ち着いた雰囲気',
+    swatch: '#34d399',
+    adjust: { brightness: -8, contrast: 22, saturation: -20, temperature: -30, tint: -65 },
+  },
+  {
+    id: 'warm',
+    label: 'ウォーム',
+    description: '暖かみのある夕暮れ・やわらかな光景',
+    swatch: '#fb923c',
+    adjust: { brightness: 6, contrast: 8, saturation: 10, temperature: 65, tint: 12 },
+  },
+  {
+    id: 'bright',
+    label: '明るい',
+    description: '軽やかでパッと明るいトーン',
+    swatch: '#fde68a',
+    adjust: { brightness: 32, contrast: -6, saturation: 12, temperature: 10, tint: 0 },
+  },
+  {
+    id: 'dark',
+    label: 'ダーク',
+    description: '重厚で引き締まった暗めのトーン',
+    swatch: '#64748b',
+    adjust: { brightness: -32, contrast: 24, saturation: -18, temperature: -15, tint: 0 },
+  },
+  {
+    id: 'vivid',
+    label: 'くっきり',
+    description: 'メリハリと鮮やかさを強調',
+    swatch: '#f472b6',
+    adjust: { brightness: 4, contrast: 28, saturation: 35, temperature: 0, tint: 0 },
+  },
+  {
+    id: 'retro',
+    label: 'レトロ',
+    description: '少し色あせた懐かしさのある色味',
+    swatch: '#d6b27c',
+    adjust: { brightness: 6, contrast: -14, saturation: -30, temperature: 45, tint: -18 },
+  },
+  {
+    id: 'mono',
+    label: 'モノクロ',
+    description: '陰影が際立つ白黒表現',
+    swatch: '#e5e7eb',
+    adjust: { brightness: 0, contrast: 22, saturation: -100, temperature: 0, tint: 0 },
+  },
+  {
+    id: 'turtle',
+    label: 'タートル',
+    description: 'タートルビデオ独自の、深く緑がかった印象的な映像美（タートルグリーン）',
+    swatch: '#10b981',
+    adjust: { brightness: -14, contrast: 52, saturation: 72, temperature: -72, tint: -96 },
+  },
+]);
+
+export function findMediaColorPreset(
+  presetId: MediaColorPresetId | null | undefined,
+): MediaColorPresetDefinition | null {
+  if (!presetId) return null;
+  return MEDIA_COLOR_PRESETS.find((preset) => preset.id === presetId) ?? null;
+}
+
+/** プリセットの強さ（0〜150% の整数）。不正値は 100 */
+export function normalizeMediaColorPresetStrength(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return MEDIA_COLOR_PRESET_STRENGTH_DEFAULT;
+  return Math.round(clamp(value, MEDIA_COLOR_PRESET_STRENGTH_MIN, MEDIA_COLOR_PRESET_STRENGTH_MAX));
+}
+
+/** 基準のスライダー値を強さ（0〜150%）でスケーリングして正規化する */
+export function scaleMediaColorAdjust(
+  base: MediaColorAdjust,
+  strengthPercent: number,
+): MediaColorAdjust | undefined {
+  const ratio = normalizeMediaColorPresetStrength(strengthPercent) / 100;
+  return normalizeMediaColorAdjust({
+    brightness: base.brightness * ratio,
+    contrast: base.contrast * ratio,
+    saturation: base.saturation * ratio,
+    temperature: base.temperature * ratio,
+    tint: base.tint * ratio,
+  });
+}
+
+/** 有効フラグが ON のときだけ正規化済みの全体色合いを返す（OFF または全項目 0 なら undefined） */
+export function resolveEffectiveGlobalColorAdjust(
+  enabled: boolean,
+  adjust: Partial<MediaColorAdjust> | null | undefined,
+): MediaColorAdjust | undefined {
+  if (!enabled) return undefined;
+  return normalizeMediaColorAdjust(adjust);
+}
 
 export const MEDIA_COLOR_ADJUST_KEYS = [
   'brightness',
@@ -119,13 +239,8 @@ export function normalizeMediaColorMatch(match: unknown): MediaColorMatch | null
   };
 }
 
-/** シェーダへ渡す、正規化済みの色変換パラメータ */
-export interface ResolvedMediaColorGrade {
-  /** 自動補正の行列（行優先 3×3）。補正なしは単位行列 */
-  matchMatrix: number[];
-  matchOffset: [number, number, number];
-  /** 0〜1 */
-  matchStrength: number;
+/** 1 段分の手動・全体色変換パラメータ（シェーダ・CPU 版共通） */
+export interface ResolvedMediaColorAdjustParams {
   /** 色温度・色かぶりのチャンネルゲイン */
   gain: [number, number, number];
   /** 明るさのガンマ指数（1 で変更なし） */
@@ -136,22 +251,23 @@ export interface ResolvedMediaColorGrade {
   saturation: number;
 }
 
-/**
- * クリップの色設定をシェーダ用パラメータへ変換する。何も変えない設定なら null
- * （描画側は null のとき素材をそのまま描き、余計な GPU 処理をしない）。
- */
-export function resolveMediaColorGrade(
-  item: Pick<MediaItem, 'colorAdjust' | 'colorMatch'> | null | undefined,
-): ResolvedMediaColorGrade | null {
-  if (!item) return null;
-  const adjust = normalizeMediaColorAdjust(item.colorAdjust);
-  const match = normalizeMediaColorMatch(item.colorMatch);
-  const matchStrength = match ? match.strength / 100 : 0;
-  if (!adjust && matchStrength <= 0) return null;
+/** シェーダへ渡す、正規化済みの色変換パラメータ */
+export interface ResolvedMediaColorGrade extends ResolvedMediaColorAdjustParams {
+  /** 自動補正の行列（行優先 3×3）。補正なしは単位行列 */
+  matchMatrix: number[];
+  matchOffset: [number, number, number];
+  /** 0〜1 */
+  matchStrength: number;
+  /**
+   * 全体の色合い（個別設定の上に重ね掛けする 2 段目）。
+   * 未適用なら null（個別未設定で全体だけ有効なときは 1 段目へそのまま入れる）。
+   */
+  overlay: ResolvedMediaColorAdjustParams | null;
+}
 
-  const a = adjust ?? NEUTRAL_MEDIA_COLOR_ADJUST;
-  const temperature = a.temperature / 100;
-  const tint = a.tint / 100;
+function resolveAdjustParams(adjust: MediaColorAdjust): ResolvedMediaColorAdjustParams {
+  const temperature = adjust.temperature / 100;
+  const tint = adjust.tint / 100;
   const rawGain: [number, number, number] = [
     1 + TEMPERATURE_GAIN_RANGE * temperature,
     1 - TINT_GAIN_RANGE * tint,
@@ -161,17 +277,78 @@ export function resolveMediaColorGrade(
   const gain = rawGain.map((g) => g / gainLuma) as [number, number, number];
 
   return {
+    gain,
+    // +100 で中間調 50% → 約 71%、-100 で約 25%
+    gamma: Math.pow(2, -adjust.brightness / 100),
+    contrast: Math.pow(2, adjust.contrast / 100),
+    saturation: 1 + adjust.saturation / 100,
+  };
+}
+
+/**
+ * クリップの色設定と全体の色合い（重ね掛け）をシェーダ用パラメータへ変換する。
+ * どちらも何も変えない設定なら null（描画側は null のとき素材をそのまま描き、余計な GPU 処理をしない）。
+ */
+export function resolveMediaColorGrade(
+  item: Pick<MediaItem, 'colorAdjust' | 'colorMatch'> | null | undefined,
+  globalAdjust?: Partial<MediaColorAdjust> | null,
+): ResolvedMediaColorGrade | null {
+  const itemAdjust = item ? normalizeMediaColorAdjust(item.colorAdjust) : undefined;
+  const match = item ? normalizeMediaColorMatch(item.colorMatch) : null;
+  const matchStrength = match ? match.strength / 100 : 0;
+  const normalizedGlobal = normalizeMediaColorAdjust(globalAdjust);
+
+  const hasItemGrade = Boolean(itemAdjust || matchStrength > 0);
+  if (!hasItemGrade && !normalizedGlobal) return null;
+
+  // 個別が未設定で全体だけ有効なときは、1 段目だけで完結させて余計な 2 段目計算を省く
+  if (!hasItemGrade && normalizedGlobal) {
+    return {
+      matchMatrix: [...IDENTITY_MATRIX],
+      matchOffset: [0, 0, 0],
+      matchStrength: 0,
+      ...resolveAdjustParams(normalizedGlobal),
+      overlay: null,
+    };
+  }
+
+  return {
     matchMatrix: matchStrength > 0 && match ? [...match.matrix] : [...IDENTITY_MATRIX],
     matchOffset: matchStrength > 0 && match
       ? [match.offset[0], match.offset[1], match.offset[2]]
       : [0, 0, 0],
     matchStrength,
-    gain,
-    // +100 で中間調 50% → 約 71%、-100 で約 25%
-    gamma: Math.pow(2, -a.brightness / 100),
-    contrast: Math.pow(2, a.contrast / 100),
-    saturation: 1 + a.saturation / 100,
+    ...resolveAdjustParams(itemAdjust ?? NEUTRAL_MEDIA_COLOR_ADJUST),
+    overlay: normalizedGlobal ? resolveAdjustParams(normalizedGlobal) : null,
   };
+}
+
+function applyAdjustParamsToRgb(
+  r: number,
+  g: number,
+  b: number,
+  params: ResolvedMediaColorAdjustParams,
+  out: [number, number, number],
+): [number, number, number] {
+  let cr = clamp01(r * params.gain[0]);
+  let cg = clamp01(g * params.gain[1]);
+  let cb = clamp01(b * params.gain[2]);
+
+  if (params.gamma !== 1) {
+    cr = Math.pow(cr, params.gamma);
+    cg = Math.pow(cg, params.gamma);
+    cb = Math.pow(cb, params.gamma);
+  }
+
+  cr = (cr - 0.5) * params.contrast + 0.5;
+  cg = (cg - 0.5) * params.contrast + 0.5;
+  cb = (cb - 0.5) * params.contrast + 0.5;
+
+  const luma = cr * LUMA_WEIGHTS[0] + cg * LUMA_WEIGHTS[1] + cb * LUMA_WEIGHTS[2];
+  out[0] = clamp01(luma + (cr - luma) * params.saturation);
+  out[1] = clamp01(luma + (cg - luma) * params.saturation);
+  out[2] = clamp01(luma + (cb - luma) * params.saturation);
+  return out;
 }
 
 /**
@@ -200,24 +377,10 @@ export function applyMediaColorGradeToRgb(
     cb += (mb - cb) * s;
   }
 
-  cr = clamp01(cr * grade.gain[0]);
-  cg = clamp01(cg * grade.gain[1]);
-  cb = clamp01(cb * grade.gain[2]);
-
-  if (grade.gamma !== 1) {
-    cr = Math.pow(cr, grade.gamma);
-    cg = Math.pow(cg, grade.gamma);
-    cb = Math.pow(cb, grade.gamma);
+  applyAdjustParamsToRgb(cr, cg, cb, grade, out);
+  if (grade.overlay) {
+    applyAdjustParamsToRgb(out[0], out[1], out[2], grade.overlay, out);
   }
-
-  cr = (cr - 0.5) * grade.contrast + 0.5;
-  cg = (cg - 0.5) * grade.contrast + 0.5;
-  cb = (cb - 0.5) * grade.contrast + 0.5;
-
-  const luma = cr * LUMA_WEIGHTS[0] + cg * LUMA_WEIGHTS[1] + cb * LUMA_WEIGHTS[2];
-  out[0] = clamp01(luma + (cr - luma) * grade.saturation);
-  out[1] = clamp01(luma + (cg - luma) * grade.saturation);
-  out[2] = clamp01(luma + (cb - luma) * grade.saturation);
   return out;
 }
 
@@ -238,13 +401,33 @@ export function applyMediaColorGradeToRgba(
   }
 }
 
+/** 手動調整だけのキー文字列（未設定は空文字） */
+export function buildMediaColorAdjustKey(
+  adjust: Partial<MediaColorAdjust> | null | undefined,
+): string {
+  const normalized = normalizeMediaColorAdjust(adjust);
+  return normalized ? MEDIA_COLOR_ADJUST_KEYS.map((key) => normalized[key]).join('/') : '';
+}
+
+/** 全体の色合い設定の変更検知用キー（プレビュー再描画・自動保存・ポスター用）。OFF または未設定は空文字 */
+export function buildGlobalMediaColorKey(
+  enabled: boolean,
+  adjust: Partial<MediaColorAdjust> | null | undefined,
+  includeDisabledState: boolean = false,
+): string {
+  const adjustKey = buildMediaColorAdjustKey(adjust);
+  if (includeDisabledState) {
+    return enabled || adjustKey ? `${enabled ? '1' : '0'}:${adjustKey}` : '';
+  }
+  return enabled && adjustKey ? adjustKey : '';
+}
+
 /** 色設定の変更検知用キー（自動保存・キャッシュ・停止中の再描画）。未設定は空文字 */
 export function buildMediaColorKey(
   item: Pick<MediaItem, 'colorAdjust' | 'colorMatch'>,
 ): string {
-  const adjust = normalizeMediaColorAdjust(item.colorAdjust);
+  const adjustKey = buildMediaColorAdjustKey(item.colorAdjust);
   const match = normalizeMediaColorMatch(item.colorMatch);
-  const adjustKey = adjust ? MEDIA_COLOR_ADJUST_KEYS.map((key) => adjust[key]).join('/') : '';
   const matchKey = match ? `${match.strength}@${match.matrix.join(',')};${match.offset.join(',')}` : '';
   return adjustKey || matchKey ? `${adjustKey}|${matchKey}` : '';
 }

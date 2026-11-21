@@ -5410,3 +5410,17 @@ export 終了（成功/失敗/中断）
 - **確認**: 0:00 で停止・動画クリップ・明るさ 0→60（途中 350ms の止まり 6 回）／ぼかし 0→30 で、黒フレームが 2 → 0。止めた後の絵は最終値（平均輝度 92）で、背景撮影完了後も正しい色。
 - **注意**: 停止中の「描き直し要求」を足すときは、表示 video がシーク中かを先に確認する（`isDisplayVideoSeekingWhileStopped`）。描かずに待っても seeked で必ず描き直される。背景撮影の hold 中に seeked が来た場合は無視されるが、その撮影の後片付けで再度戻す／描くので最終的に最新になる。
 
+### 13-315. 全体設定の「色合い 一括設定」（個別色合いへの重ね掛け＋雰囲気プリセット＋強さ連動）【standard 限定】
+
+- **ファイル**: `src/types/index.ts`, `src/utils/mediaColor.ts`, `src/utils/mediaColorRenderer.ts`, `src/stores/mediaStore.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/hooks/useAutoSave.ts`, `src/components/modals/SaveLoadModal.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/components/common/MiniPreview.tsx`, `src/components/sections/ClipColorSettingsPanel.tsx`（新規）, `src/components/media/ClipColorPanel.tsx`, `src/components/media/ClipItem.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/TurtleVideo.tsx`, `src/utils/media.ts`, `src/constants/sectionHelp.ts`, テスト `mediaColor` / `mediaStore` / `projectStoreSave` / `clipColor.ui`
+- **要件**: 各素材の個別色合い補正（暗さ補正や隣の素材合わせ）を壊さずに、作品全体を青み・緑み・ダーク・モノクロ等の雰囲気へ一括で染めたい。ワンクリックの雰囲気プリセット＋強さ調整で 5 本スライダーへ連動反映し、そこから微調整できるようにする。
+- **重ね掛けアーキテクチャ**:
+  - `ResolvedMediaColorGrade` に 2 段目 `overlay: ResolvedMediaColorAdjustParams | null` を追加し、`resolveMediaColorGrade(item, globalAdjust)` が「個別 → 全体」の 2 段変換を構築する（個別未設定で全体のみ有効なときは 1 段目だけで完結）。
+  - WebGL シェーダ（`mediaColorRenderer.ts`）は `uHasOverlay` により 1 パスのまま 2 段目を実行（`applyMediaColorGradeToRgb` と同一式）。`usePreviewEngine.ts`（通常・末尾静止・ディゾルブ/2画面相手）と `MiniPreview.tsx` の全 4 箇所へ接続し、字幕・タイトル・透かしには掛けない。
+  - 「隣の素材に自動で合わせる」は個別土台のみを対象とするため、後から全体の雰囲気を変えてもつなぎ目がズレない。
+- **プリセット＆強さ連動**: 先頭に「ナチュラル（元の色・補正なし）」ボタン（押すと `resetBulkColor`）を置き、その下に `MEDIA_COLOR_PRESETS`（9種：クール / シネマ / ウォーム / 明るい / ダーク / くっきり / レトロ / モノクロ / タートル）を 3 列×3 段で配置。`scaleMediaColorAdjust(base, strength)`（0〜150%）で強さを連動。ストアには永続対象の `bulkColorEnabled` / `bulkColorAdjust` に加え、実行時 UI 状態として `bulkColorPresetId` / `bulkColorPresetStrength` を保持。一時オフ（`bulkColorEnabled=false`）時はプリセット選択ハイライトと強さバーを隠して違和感なく見比べられる。強さ変更で 5 本スライダーが連動し、5 本スライダーの手動操作で `bulkColorPresetId = null` へ移行して微調整を継続できる。
+- **注意**:
+  - `apple-safari` では `uiCapabilities.supportsMediaColor` が `false` のため UI・ヘルプとも非表示。
+  - 自動保存（`useAutoSave.ts`）・停止中再描画（`mediaTransformPreviewKey`）・自動ポスター／タイトルミニビュー（`buildAutoProjectPosterContentKey`）・全クリア（`handleClearAll`）のすべてへ全体色合いキーを含めている。
+
+

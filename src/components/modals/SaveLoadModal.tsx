@@ -701,6 +701,9 @@ export default function SaveLoadModal({
           bulkVideoVolume: data.bulkVideoVolume,
           videoAudioNormalizeEnabled: data.videoAudioNormalizeEnabled,
           videoAudioNormalizeMode: data.videoAudioNormalizeMode,
+        }, {
+          bulkColorEnabled: data.bulkColorEnabled,
+          bulkColorAdjust: data.bulkColorAdjust,
         });
         restoreAudio(
           data.bgm,

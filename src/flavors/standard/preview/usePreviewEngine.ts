@@ -127,7 +127,7 @@ import { createExportFrameProfiler } from '../../../utils/exportFrameProfiler';
 import { resolveMediaBaseScale } from '../../../stores/canvasStore';
 import { resolveMediaScaleFactor, resolveMediaZoomEndpointPreview, type MediaZoomEndpointPreview } from '../../../utils/mediaZoom';
 import { resolveMediaPosition } from '../../../utils/mediaPan';
-import { resolveMediaColorGrade } from '../../../utils/mediaColor';
+import { resolveEffectiveGlobalColorAdjust, resolveMediaColorGrade } from '../../../utils/mediaColor';
 import { prepareColorGradedSource } from '../../../utils/mediaColorRenderer';
 import {
   normalizeRotation,
@@ -2493,12 +2493,17 @@ export function usePreviewEngine({
                 ctx.filter = resolveMediaBlurFilter(activeItem.blur, ctx.canvas.width, ctx.canvas.height);
                 try {
                   // 色合いも通常の描画と同じに掛ける（末尾で止めた絵だけ色が戻らないように）
+                  const mediaStoreForFreezeColor = useMediaStore.getState();
+                  const freezeGlobalColor = resolveEffectiveGlobalColorAdjust(
+                    mediaStoreForFreezeColor.bulkColorEnabled,
+                    mediaStoreForFreezeColor.bulkColorAdjust,
+                  );
                   ctx.drawImage(
                     prepareColorGradedSource(
                       activeEl,
                       activeEl.videoWidth,
                       activeEl.videoHeight,
-                      resolveMediaColorGrade(activeItem),
+                      resolveMediaColorGrade(activeItem, freezeGlobalColor),
                     ),
                     0,
                     0,
@@ -3326,12 +3331,17 @@ export function usePreviewEngine({
                     : ctx.canvas.height > ctx.canvas.width ? 'cover' : 'contain',
                 });
                 const renderScale = baseScale * scaleFactor;
-                // 色合い（WebGL）→ ぼかしの順。止めたコマの控え（stallSnapshot）は素の絵なので同じく色を掛ける
+                // 色合い（WebGL・個別＋全体重ね掛け）→ ぼかしの順。止めたコマの控え（stallSnapshot）は素の絵なので同じく色を掛ける
+                const mediaStoreForMainColor = useMediaStore.getState();
+                const mainGlobalColor = resolveEffectiveGlobalColorAdjust(
+                  mediaStoreForMainColor.bulkColorEnabled,
+                  mediaStoreForMainColor.bulkColorAdjust,
+                );
                 const rawDrawSource = prepareColorGradedSource(
                   (stallSnapshotCanvas ?? element) as CanvasImageSource,
                   elemW,
                   elemH,
-                  resolveMediaColorGrade(conf),
+                  resolveMediaColorGrade(conf, mainGlobalColor),
                 );
                 const blurPixels = resolveMediaBlurPixels(
                   conf.blur,
@@ -3644,12 +3654,17 @@ export function usePreviewEngine({
                     ctx.canvas.width,
                     ctx.canvas.height,
                   );
-                  // ディゾルブの前クリップ・2 画面表示の相手も、自分の色合いで描く
+                  // ディゾルブの前クリップ・2 画面表示の相手も、自分の色合い＋全体の色合いで描く
+                  const mediaStoreForPeerColor = useMediaStore.getState();
+                  const peerGlobalColor = resolveEffectiveGlobalColorAdjust(
+                    mediaStoreForPeerColor.bulkColorEnabled,
+                    mediaStoreForPeerColor.bulkColorAdjust,
+                  );
                   const peerGradedSource = prepareColorGradedSource(
                     (peerHoldSnapshot?.canvas ?? element) as CanvasImageSource,
                     peerW,
                     peerH,
-                    resolveMediaColorGrade(conf),
+                    resolveMediaColorGrade(conf, peerGlobalColor),
                   );
                   const peerDrawSource = !peerIsVideo && peerBlurPixels > 0
                     ? prepareUniformMediaBlurSource(

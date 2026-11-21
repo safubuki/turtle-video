@@ -480,6 +480,9 @@ interface ClipsSectionProps {
   /** カードとは独立しているが、操作上は動画・画像に属する先頭設定 */
   watermarkPanel?: React.ReactNode;
   audioSettingsPanel?: React.ReactNode;
+  colorSettingsPanel?: React.ReactNode;
+  /** 全体の色合い一括設定が有効かつ適用中のとき true */
+  isGlobalColorActive?: boolean;
   mediaItems: MediaItem[];
   mediaTimelineRanges: Record<string, { start: number; end: number }>;
   currentTime: number;
@@ -563,6 +566,8 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   titleSettingsPanel,
   watermarkPanel,
   audioSettingsPanel,
+  colorSettingsPanel,
+  isGlobalColorActive = false,
   mediaItems,
   mediaTimelineRanges,
   currentTime,
@@ -628,7 +633,8 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
   const titleSettingsNode = uiCapabilities.supportsVideoTitle ? titleSettingsPanel : null;
   const watermarkNode = uiCapabilities.supportsWatermark ? watermarkPanel : null;
   const audioSettingsNode = uiCapabilities.supportsClipAudioSettings ? audioSettingsPanel : null;
-  const hasOverallSettings = Boolean(titleSettingsNode || watermarkNode || audioSettingsNode);
+  const colorSettingsNode = uiCapabilities.supportsMediaColor ? colorSettingsPanel : null;
+  const hasOverallSettings = Boolean(titleSettingsNode || watermarkNode || audioSettingsNode || colorSettingsNode);
   // 出力の向き（16:9 横 / 9:16 縦）。プロジェクトごとに保持され、プレビュー/カード/エクスポートに反映される。
   const aspectRatio = useCanvasStore((s) => s.aspectRatio);
   const canvasWidth = useCanvasStore((s) => s.width);
@@ -1055,6 +1061,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
                 {titleSettingsNode}
                 {watermarkNode}
                 {audioSettingsNode}
+                {colorSettingsNode}
               </div>
             )}
           </div>
@@ -1147,6 +1154,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             onUpdateColorMatchStrength={onUpdateMediaColorMatchStrength ? (strength) => onUpdateMediaColorMatchStrength(v.id, strength) : undefined}
             onClearColorMatch={onClearMediaColorMatch ? () => onClearMediaColorMatch(v.id) : undefined}
             onResetColor={onResetMediaColor ? () => onResetMediaColor(v.id) : undefined}
+            isGlobalColorActive={isGlobalColorActive}
             onResetSetting={(type) => onResetMediaSetting(v.id, type)}
             onUpdateVolume={(value) => onUpdateMediaVolume(v.id, value)}
             onToggleMute={() => onToggleMediaMute(v.id)}

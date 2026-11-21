@@ -12,12 +12,16 @@
  */
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import type { MediaColorAdjust, MediaColorMatch, MediaItem, MediaZoomDirection, SpeedBadgeLabelStyle, VideoAudioNormalizeMode, VideoPlaybackSpeed } from '../types';
+import type { MediaColorAdjust, MediaColorMatch, MediaColorPresetId, MediaItem, MediaZoomDirection, SpeedBadgeLabelStyle, VideoAudioNormalizeMode, VideoPlaybackSpeed } from '../types';
 import {
+  MEDIA_COLOR_PRESET_STRENGTH_DEFAULT,
+  findMediaColorPreset,
   normalizeMediaColorAdjust,
   normalizeMediaColorMatch,
   normalizeMediaColorMatchStrength,
+  normalizeMediaColorPresetStrength,
   resolveMediaColorAdjust,
+  scaleMediaColorAdjust,
 } from '../utils/mediaColor';
 import type { AspectRatio } from './canvasStore';
 import {
@@ -154,6 +158,14 @@ interface MediaState {
   videoAudioNormalizeEnabled: boolean;
   /** 音量揃えの目標。mean=平均、loudest=一番大きい音。旧データは mean */
   videoAudioNormalizeMode: VideoAudioNormalizeMode;
+  /** 全体の色合い一括設定。ON のとき個別色合いの上から重ね掛けする（standard 限定 UI） */
+  bulkColorEnabled: boolean;
+  /** 全体の色合いの 5 項目（明るさ・コントラスト・彩度・色温度・色かぶり）。すべて 0 なら undefined */
+  bulkColorAdjust: MediaColorAdjust | undefined;
+  /** 全体の色合いで選択中の雰囲気プリセット（実行時 UI 用・未永続） */
+  bulkColorPresetId: MediaColorPresetId | null;
+  /** 選択中プリセットの強さ（0〜150%、既定 100。実行時 UI 用・未永続） */
+  bulkColorPresetStrength: number;
   /**
    * 保存読み込みのたびに増やす実行時カウンタ。
    * カードの開閉は保存せず、この値の変化でセッション表示だけを捨てる。
@@ -252,6 +264,16 @@ interface MediaState {
   clearColorMatch: (id: string) => void;
   /** 色合いの設定（手動・自動）をすべて外す */
   resetColor: (id: string) => void;
+  /** 全体の色合い一括設定の ON/OFF（OFF でもスライダー値は保持し見比べできる） */
+  setBulkColorEnabled: (enabled: boolean) => void;
+  /** 全体の色合いの 5 項目のうち指定した項目だけ変える。非ゼロ値が入れば自動で ON にする */
+  updateBulkColorAdjust: (patch: Partial<MediaColorAdjust>) => void;
+  /** 雰囲気プリセットを強さ付きで適用し、スライダー値へ反映＋自動で ON にする */
+  applyBulkColorPreset: (presetId: MediaColorPresetId, strength?: number) => void;
+  /** 選択中プリセットの強さ（0〜150%）を変え、5 本スライダーへ連動反映する */
+  setBulkColorPresetStrength: (strength: number) => void;
+  /** 全体の色合い一括設定をすべて初期値へ戻す（個別設定は触らない） */
+  resetBulkColor: () => void;
   resetTransform: (id: string, type: MediaTransformResetKind) => void;
   toggleTransformPanel: (id: string) => void;
 
@@ -330,6 +352,10 @@ interface MediaState {
       bulkVideoVolume?: number;
       videoAudioNormalizeEnabled?: boolean;
       videoAudioNormalizeMode?: VideoAudioNormalizeMode;
+    },
+    colorSettings?: {
+      bulkColorEnabled?: boolean;
+      bulkColorAdjust?: MediaColorAdjust;
     }
   ) => void;
 }
@@ -361,6 +387,10 @@ export const useMediaStore = create<MediaState>()(
       bulkVideoVolume: 1,
       videoAudioNormalizeEnabled: false,
       videoAudioNormalizeMode: 'mean',
+      bulkColorEnabled: false,
+      bulkColorAdjust: undefined,
+      bulkColorPresetId: null,
+      bulkColorPresetStrength: MEDIA_COLOR_PRESET_STRENGTH_DEFAULT,
       clipListRestoreEpoch: 0,
 
       // Add media items
@@ -1082,6 +1112,61 @@ export const useMediaStore = create<MediaState>()(
         }));
       },
 
+      setBulkColorEnabled: (enabled) => {
+        set({ bulkColorEnabled: Boolean(enabled) });
+      },
+
+      updateBulkColorAdjust: (patch) => {
+        set((state) => {
+          const nextAdjust = normalizeMediaColorAdjust({
+            ...resolveMediaColorAdjust(state.bulkColorAdjust),
+            ...patch,
+          });
+          return {
+            bulkColorAdjust: nextAdjust,
+            bulkColorEnabled: nextAdjust ? true : state.bulkColorEnabled,
+            bulkColorPresetId: null,
+          };
+        });
+      },
+
+      applyBulkColorPreset: (presetId, strength = MEDIA_COLOR_PRESET_STRENGTH_DEFAULT) => {
+        const preset = findMediaColorPreset(presetId);
+        if (!preset) return;
+        const normalizedStrength = normalizeMediaColorPresetStrength(strength);
+        const scaled = scaleMediaColorAdjust(preset.adjust, normalizedStrength);
+        set({
+          bulkColorEnabled: true,
+          bulkColorAdjust: scaled,
+          bulkColorPresetId: preset.id,
+          bulkColorPresetStrength: normalizedStrength,
+        });
+      },
+
+      setBulkColorPresetStrength: (strength) => {
+        set((state) => {
+          const preset = findMediaColorPreset(state.bulkColorPresetId);
+          const normalizedStrength = normalizeMediaColorPresetStrength(strength);
+          if (!preset) {
+            return { bulkColorPresetStrength: normalizedStrength };
+          }
+          return {
+            bulkColorEnabled: true,
+            bulkColorAdjust: scaleMediaColorAdjust(preset.adjust, normalizedStrength),
+            bulkColorPresetStrength: normalizedStrength,
+          };
+        });
+      },
+
+      resetBulkColor: () => {
+        set({
+          bulkColorEnabled: false,
+          bulkColorAdjust: undefined,
+          bulkColorPresetId: null,
+          bulkColorPresetStrength: MEDIA_COLOR_PRESET_STRENGTH_DEFAULT,
+        });
+      },
+
       // Reset transform
       resetTransform: (id, type) => {
         set((state) => ({
@@ -1429,7 +1514,7 @@ export const useMediaStore = create<MediaState>()(
 
       // Restore from save (isLockedのエイリアス)
       isLocked: false,
-      restoreFromSave: (items, isLocked, poster, audioSettings) => {
+      restoreFromSave: (items, isLocked, poster, audioSettings, colorSettings) => {
         const { mediaItems } = get();
         // 既存のURLを解放
         mediaItems.forEach((item) => revokeObjectUrl(item.url));
@@ -1456,6 +1541,10 @@ export const useMediaStore = create<MediaState>()(
           bulkVideoVolume: clampMediaVolume(audioSettings?.bulkVideoVolume ?? 1),
           videoAudioNormalizeEnabled: Boolean(audioSettings?.videoAudioNormalizeEnabled),
           videoAudioNormalizeMode: normalizeVideoAudioNormalizeMode(audioSettings?.videoAudioNormalizeMode),
+          bulkColorEnabled: Boolean(colorSettings?.bulkColorEnabled),
+          bulkColorAdjust: normalizeMediaColorAdjust(colorSettings?.bulkColorAdjust),
+          bulkColorPresetId: null,
+          bulkColorPresetStrength: MEDIA_COLOR_PRESET_STRENGTH_DEFAULT,
           clipListRestoreEpoch: get().clipListRestoreEpoch + 1,
         });
       },

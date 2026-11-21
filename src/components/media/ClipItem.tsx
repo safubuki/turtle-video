@@ -150,6 +150,8 @@ export interface ClipItemProps {
   onUpdateColorMatchStrength?: (strength: number) => void;
   onClearColorMatch?: () => void;
   onResetColor?: () => void;
+  /** 全体の色合い一括設定が有効かつ適用中のとき true */
+  isGlobalColorActive?: boolean;
   onResetSetting: (type: MediaTransformResetKind) => void;
   onUpdateVolume: (value: number) => void;
   onToggleMute: () => void;
@@ -313,6 +315,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
   onUpdateColorMatchStrength,
   onClearColorMatch,
   onResetColor,
+  isGlobalColorActive = false,
   onResetSetting,
   onUpdateVolume,
   onToggleMute,
@@ -1236,6 +1239,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
                 onUpdateMatchStrength={onUpdateColorMatchStrength ?? noopColor}
                 onClearMatch={onClearColorMatch ?? noopColor}
                 onReset={onResetColor ?? noopColor}
+                isGlobalColorActive={isGlobalColorActive}
               />
             </div>
           )}

@@ -73,6 +73,8 @@ export interface ClipColorPanelProps {
   onUpdateMatchStrength: (strength: number) => void;
   onClearMatch: () => void;
   onReset: () => void;
+  /** 全体の色合い一括設定が有効かつ適用中のとき true（重ね掛け中であることを案内する） */
+  isGlobalColorActive?: boolean;
 }
 
 const ClipColorPanel: React.FC<ClipColorPanelProps> = ({
@@ -85,6 +87,7 @@ const ClipColorPanel: React.FC<ClipColorPanelProps> = ({
   onUpdateMatchStrength,
   onClearMatch,
   onReset,
+  isGlobalColorActive = false,
 }) => {
   const [matchingDirection, setMatchingDirection] = useState<ColorMatchDirection | null>(null);
   /** 自動で合わせる直前の色合い。合わせた直後だけ持ち、戻すか欄を閉じると消える */
@@ -150,6 +153,15 @@ const ClipColorPanel: React.FC<ClipColorPanelProps> = ({
 
   return (
     <div className="space-y-2" data-testid={`clip-color-panel-${item.id}`}>
+      {isGlobalColorActive && (
+        <p
+          className="flex items-start gap-1.5 rounded-md border border-blue-500/25 bg-blue-950/35 px-2 py-1 text-[10px] leading-relaxed text-blue-200/90 md:text-xs"
+          data-testid={`clip-color-global-notice-${item.id}`}
+        >
+          <Info className="mt-0.5 h-3 w-3 shrink-0 text-blue-300/90" aria-hidden="true" />
+          <span>全体の色合いが適用中です。ここでの個別調整の上から重ねて掛かります。</span>
+        </p>
+      )}
       {/* 手動調整（見出し＋スライダーの 2 行を詰めて並べる） */}
       <div className="space-y-1">
         {ADJUST_ROWS.map((row) => (

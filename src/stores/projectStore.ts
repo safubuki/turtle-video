@@ -9,6 +9,7 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import type {
+  MediaColorAdjust,
   MediaItem,
   AudioTrack,
   BgmClip,
@@ -298,6 +299,8 @@ interface ProjectState {
     bulkVideoVolume: number;
     videoAudioNormalizeEnabled: boolean;
     videoAudioNormalizeMode: 'mean' | 'loudest';
+    bulkColorEnabled: boolean;
+    bulkColorAdjust?: MediaColorAdjust;
     bulkBgmMuted?: boolean;
     bulkBgmVolumeEnabled: boolean;
     bulkBgmVolume: number;
@@ -1043,6 +1046,8 @@ export const useProjectStore = create<ProjectState>()(
               bulkVideoVolume: useMediaStore.getState().bulkVideoVolume,
               videoAudioNormalizeEnabled: useMediaStore.getState().videoAudioNormalizeEnabled,
               videoAudioNormalizeMode: useMediaStore.getState().videoAudioNormalizeMode,
+              bulkColorEnabled: useMediaStore.getState().bulkColorEnabled,
+              bulkColorAdjust: normalizeMediaColorAdjust(useMediaStore.getState().bulkColorAdjust),
               bulkBgmMuted: useAudioStore.getState().bulkBgmMuted,
               bulkBgmVolumeEnabled: useAudioStore.getState().bulkBgmVolumeEnabled,
               bulkBgmVolume: useAudioStore.getState().bulkBgmVolume,
@@ -1192,6 +1197,8 @@ export const useProjectStore = create<ProjectState>()(
               bulkVideoVolume: useMediaStore.getState().bulkVideoVolume,
               videoAudioNormalizeEnabled: useMediaStore.getState().videoAudioNormalizeEnabled,
               videoAudioNormalizeMode: useMediaStore.getState().videoAudioNormalizeMode,
+              bulkColorEnabled: useMediaStore.getState().bulkColorEnabled,
+              bulkColorAdjust: normalizeMediaColorAdjust(useMediaStore.getState().bulkColorAdjust),
               bulkBgmMuted: useAudioStore.getState().bulkBgmMuted,
               bulkBgmVolumeEnabled: useAudioStore.getState().bulkBgmVolumeEnabled,
               bulkBgmVolume: useAudioStore.getState().bulkBgmVolume,
@@ -1342,6 +1349,8 @@ export const useProjectStore = create<ProjectState>()(
               : 1,
             videoAudioNormalizeEnabled: Boolean(data.videoAudioNormalizeEnabled),
             videoAudioNormalizeMode: data.videoAudioNormalizeMode === 'loudest' ? 'loudest' : 'mean',
+            bulkColorEnabled: Boolean(data.bulkColorEnabled),
+            bulkColorAdjust: normalizeMediaColorAdjust(data.bulkColorAdjust),
             bulkBgmMuted: data.bulkBgmMuted,
             bulkBgmVolumeEnabled: Boolean(data.bulkBgmVolumeEnabled),
             bulkBgmVolume: Number.isFinite(data.bulkBgmVolume)

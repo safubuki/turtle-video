@@ -27,7 +27,7 @@ void main() {
 }
 `;
 
-// mediaColor.ts の applyMediaColorGradeToRgb() と同じ式・同じ順序
+// mediaColor.ts の applyMediaColorGradeToRgb() と同じ式・同じ順序（個別 → 全体の 2 段重ね掛け対応）
 const FRAGMENT_SHADER = `
 #ifdef GL_FRAGMENT_PRECISION_HIGH
 precision highp float;
@@ -42,18 +42,34 @@ uniform vec3 uGain;
 uniform float uGamma;
 uniform float uContrast;
 uniform float uSaturation;
+uniform float uHasOverlay;
+uniform vec3 uOverlayGain;
+uniform float uOverlayGamma;
+uniform float uOverlayContrast;
+uniform float uOverlaySaturation;
 varying vec2 vUv;
+
+vec3 applyAdjustPass(vec3 c, vec3 gain, float gamma, float contrast, float saturation) {
+  c = clamp(c * gain, 0.0, 1.0);
+  if (gamma != 1.0) {
+    c = pow(max(c, vec3(0.0)), vec3(gamma));
+  }
+  c = (c - 0.5) * contrast + 0.5;
+  float luma = dot(c, vec3(${LUMA_WEIGHTS[0]}, ${LUMA_WEIGHTS[1]}, ${LUMA_WEIGHTS[2]}));
+  c = mix(vec3(luma), c, saturation);
+  return clamp(c, 0.0, 1.0);
+}
+
 void main() {
   vec4 texel = texture2D(uTexture, vUv);
   vec3 c = texel.rgb;
   vec3 matched = clamp(uMatchMatrix * c + uMatchOffset, 0.0, 1.0);
   c = mix(c, matched, uMatchStrength);
-  c = clamp(c * uGain, 0.0, 1.0);
-  c = pow(c, vec3(uGamma));
-  c = (c - 0.5) * uContrast + 0.5;
-  float luma = dot(c, vec3(${LUMA_WEIGHTS[0]}, ${LUMA_WEIGHTS[1]}, ${LUMA_WEIGHTS[2]}));
-  c = mix(vec3(luma), c, uSaturation);
-  gl_FragColor = vec4(clamp(c, 0.0, 1.0), texel.a);
+  c = applyAdjustPass(c, uGain, uGamma, uContrast, uSaturation);
+  if (uHasOverlay > 0.5) {
+    c = applyAdjustPass(c, uOverlayGain, uOverlayGamma, uOverlayContrast, uOverlaySaturation);
+  }
+  gl_FragColor = vec4(c, texel.a);
 }
 `;
 
@@ -69,6 +85,11 @@ interface ColorRendererState {
     gamma: WebGLUniformLocation | null;
     contrast: WebGLUniformLocation | null;
     saturation: WebGLUniformLocation | null;
+    hasOverlay: WebGLUniformLocation | null;
+    overlayGain: WebGLUniformLocation | null;
+    overlayGamma: WebGLUniformLocation | null;
+    overlayContrast: WebGLUniformLocation | null;
+    overlaySaturation: WebGLUniformLocation | null;
   };
 }
 
@@ -162,6 +183,11 @@ function createRendererState(): ColorRendererState | null {
       gamma: gl.getUniformLocation(program, 'uGamma'),
       contrast: gl.getUniformLocation(program, 'uContrast'),
       saturation: gl.getUniformLocation(program, 'uSaturation'),
+      hasOverlay: gl.getUniformLocation(program, 'uHasOverlay'),
+      overlayGain: gl.getUniformLocation(program, 'uOverlayGain'),
+      overlayGamma: gl.getUniformLocation(program, 'uOverlayGamma'),
+      overlayContrast: gl.getUniformLocation(program, 'uOverlayContrast'),
+      overlaySaturation: gl.getUniformLocation(program, 'uOverlaySaturation'),
     },
   };
 
@@ -237,6 +263,19 @@ export function prepareColorGradedSource(
     gl.uniform1f(uniforms.gamma, grade.gamma);
     gl.uniform1f(uniforms.contrast, grade.contrast);
     gl.uniform1f(uniforms.saturation, grade.saturation);
+    if (grade.overlay) {
+      gl.uniform1f(uniforms.hasOverlay, 1);
+      gl.uniform3fv(uniforms.overlayGain, grade.overlay.gain);
+      gl.uniform1f(uniforms.overlayGamma, grade.overlay.gamma);
+      gl.uniform1f(uniforms.overlayContrast, grade.overlay.contrast);
+      gl.uniform1f(uniforms.overlaySaturation, grade.overlay.saturation);
+    } else {
+      gl.uniform1f(uniforms.hasOverlay, 0);
+      gl.uniform3fv(uniforms.overlayGain, [1, 1, 1]);
+      gl.uniform1f(uniforms.overlayGamma, 1);
+      gl.uniform1f(uniforms.overlayContrast, 1);
+      gl.uniform1f(uniforms.overlaySaturation, 1);
+    }
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);

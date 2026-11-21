@@ -12,6 +12,7 @@ import { getAppFlavorUiCapabilities } from '../app/appFlavorUi';
 import type {
   MediaItem,
   MediaColorAdjust,
+  MediaColorPresetId,
   AudioTrack,
   NarrationClip,
   NarrationScriptLength,
@@ -77,7 +78,7 @@ import {
   releaseVideoFromBackgroundCapture,
 } from '../utils/backgroundCaptureVideoHold';
 import { resolveMediaZoomEndpointPreview, type MediaTransformResetKind, type MediaZoomEndpointPreview } from '../utils/mediaZoom';
-import { buildMediaColorKey } from '../utils/mediaColor';
+import { buildGlobalMediaColorKey, buildMediaColorKey, resolveEffectiveGlobalColorAdjust } from '../utils/mediaColor';
 import { computeClipColorMatchToNeighbor, type ColorMatchDirection } from '../utils/mediaColorSampler';
 import type { ColorSnapshot } from './media/ClipColorPanel';
 import type { MediaComposition, MediaMotionPoint } from '../utils/mediaMotion';
@@ -124,6 +125,7 @@ import NarrationSection from './sections/NarrationSection';
 import CaptionSection from './sections/CaptionSection';
 import OverlaySection from './sections/OverlaySection';
 import ClipAudioSettingsPanel from './sections/ClipAudioSettingsPanel';
+import ClipColorSettingsPanel from './sections/ClipColorSettingsPanel';
 import { VideoTitleSettingsBlock } from './sections/VideoTitleSettingsPanel';
 import PreviewSection from './sections/PreviewSection';
 import AiModal from './modals/AiModal';
@@ -255,6 +257,17 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const toggleClipsLock = useMediaStore((s) => s.toggleClipsLock);
   const clearAllMedia = useMediaStore((s) => s.clearAllMedia);
   const resetBulkVideoAudioSettings = useMediaStore((s) => s.resetBulkVideoAudioSettings);
+  const bulkColorEnabled = useMediaStore((s) => s.bulkColorEnabled);
+  const bulkColorAdjust = useMediaStore((s) => s.bulkColorAdjust);
+  const bulkColorPresetId = useMediaStore((s) => s.bulkColorPresetId);
+  const bulkColorPresetStrength = useMediaStore((s) => s.bulkColorPresetStrength);
+  const setBulkColorEnabled = useMediaStore((s) => s.setBulkColorEnabled);
+  const updateBulkColorAdjust = useMediaStore((s) => s.updateBulkColorAdjust);
+  const applyBulkColorPreset = useMediaStore((s) => s.applyBulkColorPreset);
+  const setBulkColorPresetStrength = useMediaStore((s) => s.setBulkColorPresetStrength);
+  const resetBulkColor = useMediaStore((s) => s.resetBulkColor);
+  const globalColorPreviewKey = buildGlobalMediaColorKey(bulkColorEnabled, bulkColorAdjust);
+  const isGlobalColorActive = Boolean(resolveEffectiveGlobalColorAdjust(bulkColorEnabled, bulkColorAdjust));
 
   // Audio Store
   const bgm = useAudioStore((s) => s.bgm);
@@ -1619,6 +1632,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       mediaItems,
       totalDuration,
       aspectRatio,
+      globalColorPreviewKey,
     );
     const captureIdentity = resolveAutoProjectPosterCaptureIdentity(mediaItems, totalDuration);
     const captureTarget = resolveAutoProjectPosterCaptureTarget(mediaItems, totalDuration);
@@ -1832,6 +1846,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     mediaItems,
     totalDuration,
     aspectRatio,
+    globalColorPreviewKey,
     isPlaying,
     isProcessing,
     // エンドロール区間を抜けたら、見送ったキャプチャを撮り直す
@@ -1858,7 +1873,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     if (!uiCapabilities.supportsVideoTitle) return;
     if (isPlaying || isProcessing || isPreviewInEndroll || zoomEndpointPreview) return;
 
-    const contentKey = buildAutoProjectPosterContentKey(mediaItems, totalDuration, aspectRatio);
+    const contentKey = buildAutoProjectPosterContentKey(mediaItems, totalDuration, aspectRatio, globalColorPreviewKey);
     if (
       contentKey === titleOpeningContentKeyRef.current
       && titleOpeningSnapshotRef.current.hasFrame
@@ -1988,6 +2003,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     mediaItems,
     totalDuration,
     aspectRatio,
+    globalColorPreviewKey,
     isPlaying,
     isProcessing,
     isPreviewInEndroll,
@@ -2852,6 +2868,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         [],
         0,
         aspectRatio,
+        globalColorPreviewKey,
       );
       autoProjectPosterCaptureIdentityRef.current = null;
       resetProjectPosterToAuto(0, null, aspectRatio);
@@ -2866,6 +2883,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       mediaItems,
       totalDuration,
       aspectRatio,
+      globalColorPreviewKey,
     );
     autoProjectPosterCaptureIdentityRef.current = resolveAutoProjectPosterCaptureIdentity(
       mediaItems,
@@ -2939,6 +2957,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     resetProjectPosterToAuto,
     setProjectPosterDataUrl,
     aspectRatio,
+    globalColorPreviewKey,
     showToast,
     resolveActivePosterMediaElement,
     isPosterMediaElementDrawable,
@@ -3176,6 +3195,32 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     pausePreviewBeforeEdit('restore-media-color');
     applyColorMatch(id, snapshot.match, snapshot.adjust);
   }, [applyColorMatch, pausePreviewBeforeEdit]);
+
+  // --- 全体の色合い一括設定ハンドラ（standard 限定） ---
+  const handleToggleBulkColorEnabled = useCallback((enabled: boolean) => {
+    pausePreviewBeforeEdit('toggle-bulk-color');
+    setBulkColorEnabled(enabled);
+  }, [pausePreviewBeforeEdit, setBulkColorEnabled]);
+
+  const handleUpdateBulkColorAdjust = useCallback((patch: Partial<MediaColorAdjust>) => {
+    pausePreviewBeforeEdit('update-bulk-color');
+    updateBulkColorAdjust(patch);
+  }, [pausePreviewBeforeEdit, updateBulkColorAdjust]);
+
+  const handleApplyBulkColorPreset = useCallback((presetId: MediaColorPresetId) => {
+    pausePreviewBeforeEdit('apply-bulk-color-preset');
+    applyBulkColorPreset(presetId);
+  }, [applyBulkColorPreset, pausePreviewBeforeEdit]);
+
+  const handleChangeBulkColorPresetStrength = useCallback((strength: number) => {
+    pausePreviewBeforeEdit('change-bulk-color-preset-strength');
+    setBulkColorPresetStrength(strength);
+  }, [pausePreviewBeforeEdit, setBulkColorPresetStrength]);
+
+  const handleResetBulkColor = useCallback(() => {
+    pausePreviewBeforeEdit('reset-bulk-color');
+    resetBulkColor();
+  }, [pausePreviewBeforeEdit, resetBulkColor]);
 
   // --- 設定リセットハンドラ ---
   // 目的: スケール・位置・回転・ぼかしを初期値にリセット
@@ -3634,6 +3679,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       || mediaState.videoAudioNormalizeEnabled
       || mediaState.bulkVideoVolume !== 1
       || mediaState.videoAudioNormalizeMode !== 'mean';
+    const hasBulkColor = mediaState.bulkColorEnabled || Boolean(mediaState.bulkColorAdjust);
     const hasBulkBgmAudio = audioState.bulkBgmMuted
       || audioState.bulkBgmVolumeEnabled
       || audioState.bgmAudioNormalizeEnabled
@@ -3655,6 +3701,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
       && !endrollOverlay.file
       && !videoTitle.text.trim()
       && !hasBulkVideoAudio
+      && !hasBulkColor
       && !hasBulkBgmAudio
       && !hasBulkNarrationAudio
     ) return;
@@ -3697,6 +3744,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     // Zustand stores clear
     clearAllMedia();
     resetBulkVideoAudioSettings();
+    resetBulkColor();
     reconcileProjectPosterAspectRatio(aspectRatio, 0);
     clearAllAudio();
     resetBulkAudioSettings();
@@ -3725,6 +3773,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     stopAll,
     clearAllMedia,
     resetBulkVideoAudioSettings,
+    resetBulkColor,
     reconcileProjectPosterAspectRatio,
     aspectRatio,
     clearAllAudio,
@@ -4210,9 +4259,9 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
   // 端点確認中は背景撮影が待機するため、位置などの調整もここで明示的に描き直す。
   // 確認中のカード・時刻・倍率は保持し、背景撮影の再開や再シークに頼らない。
-  const mediaTransformPreviewKey = mediaItems
+  const mediaTransformPreviewKey = `${mediaItems
     .map((item) => `${item.id}:${item.scale}:${item.positionX}:${item.positionY}:${item.rotation ?? ''}:${item.blur ?? ''}:${item.zoomDirection ?? ''}:${item.zoomAmount ?? ''}:${item.zoomStartScale ?? ''}:${item.zoomEndScale ?? ''}:${item.panEndPositionX ?? ''}:${item.panEndPositionY ?? ''}:${buildMediaColorKey(item)}`)
-    .join('|');
+    .join('|')}|gcolor:${globalColorPreviewKey}`;
 
   // --- キャプション・ロゴ変更時のプレビュー再描画 ---
   // キャプション／ウォーターマーク／エンドロールはプレビュー canvas へ焼き込まれるため、
@@ -4805,6 +4854,21 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
                   onApplyNormalizeGains={applyVideoNormalizeGains}
                 />
               ) : undefined}
+              colorSettingsPanel={uiCapabilities.supportsMediaColor ? (
+                <ClipColorSettingsPanel
+                  isLocked={isClipsLocked}
+                  enabled={bulkColorEnabled}
+                  adjust={bulkColorAdjust}
+                  activePresetId={bulkColorPresetId}
+                  presetStrength={bulkColorPresetStrength}
+                  onToggleEnabled={handleToggleBulkColorEnabled}
+                  onUpdateAdjust={handleUpdateBulkColorAdjust}
+                  onApplyPreset={handleApplyBulkColorPreset}
+                  onChangePresetStrength={handleChangeBulkColorPresetStrength}
+                  onReset={handleResetBulkColor}
+                />
+              ) : undefined}
+              isGlobalColorActive={uiCapabilities.supportsMediaColor && isGlobalColorActive}
               mediaItems={mediaItems}
               mediaTimelineRanges={mediaTimelineRanges}
               currentTime={currentTime}

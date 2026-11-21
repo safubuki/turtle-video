@@ -1379,6 +1379,55 @@ describe('mediaStore', () => {
       expect(copy.colorMatch).toEqual(match);
       expect(copy.colorAdjust?.brightness).toBe(-15);
     });
+
+    it('全体の色合い一括設定はプリセット・強さ連動・手動微調整・一時OFF・個別保持リセット・復元ができる', async () => {
+      await useMediaStore.getState().addMediaItems([new File(['a'], 'a.png', { type: 'image/png' })]);
+      const [item] = useMediaStore.getState().mediaItems;
+      useMediaStore.getState().updateColorAdjust(item.id, { brightness: 18 });
+
+      // プリセット適用で自動 ON＋スライダー値反映
+      useMediaStore.getState().applyBulkColorPreset('cinema');
+      expect(useMediaStore.getState().bulkColorEnabled).toBe(true);
+      expect(useMediaStore.getState().bulkColorPresetId).toBe('cinema');
+      expect(useMediaStore.getState().bulkColorPresetStrength).toBe(100);
+      expect(useMediaStore.getState().bulkColorAdjust?.tint).toBeLessThan(0);
+
+      // 強さを下げると 5 本スライダー値が比率を保って弱まる
+      const baseTint = useMediaStore.getState().bulkColorAdjust!.tint;
+      useMediaStore.getState().setBulkColorPresetStrength(50);
+      expect(useMediaStore.getState().bulkColorPresetStrength).toBe(50);
+      expect(Math.abs(useMediaStore.getState().bulkColorAdjust!.tint)).toBeLessThan(Math.abs(baseTint));
+
+      // 手動微調整するとプリセット選択は解除され、変更値が保持される
+      useMediaStore.getState().updateBulkColorAdjust({ temperature: -42 });
+      expect(useMediaStore.getState().bulkColorPresetId).toBeNull();
+      expect(useMediaStore.getState().bulkColorAdjust?.temperature).toBe(-42);
+
+      // 一時 OFF でも値は保持され、再びスライダーを動かすと自動 ON
+      useMediaStore.getState().setBulkColorEnabled(false);
+      expect(useMediaStore.getState().bulkColorEnabled).toBe(false);
+      expect(useMediaStore.getState().bulkColorAdjust?.temperature).toBe(-42);
+      useMediaStore.getState().updateBulkColorAdjust({ brightness: 5 });
+      expect(useMediaStore.getState().bulkColorEnabled).toBe(true);
+
+      // 全体リセットは個別設定を壊さない
+      useMediaStore.getState().resetBulkColor();
+      expect(useMediaStore.getState().bulkColorEnabled).toBe(false);
+      expect(useMediaStore.getState().bulkColorAdjust).toBeUndefined();
+      expect(useMediaStore.getState().mediaItems[0].colorAdjust?.brightness).toBe(18);
+
+      // restoreFromSave で復元できる（旧データの undefined 時は OFF）
+      useMediaStore.getState().restoreFromSave([], false, undefined, undefined, {
+        bulkColorEnabled: true,
+        bulkColorAdjust: { brightness: 0, contrast: 10, saturation: -10, temperature: -65, tint: 5 },
+      });
+      expect(useMediaStore.getState().bulkColorEnabled).toBe(true);
+      expect(useMediaStore.getState().bulkColorAdjust?.temperature).toBe(-65);
+
+      useMediaStore.getState().restoreFromSave([], false);
+      expect(useMediaStore.getState().bulkColorEnabled).toBe(false);
+      expect(useMediaStore.getState().bulkColorAdjust).toBeUndefined();
+    });
   });
 
   describe('updateBlur / resetTransform(blur)', () => {

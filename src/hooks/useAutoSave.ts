@@ -15,7 +15,7 @@ import { useUIStore } from '../stores/uiStore';
 import { useLogStore } from '../stores/logStore';
 import { useCanvasStore } from '../stores/canvasStore';
 import { useOverlayStore } from '../stores/overlayStore';
-import { buildMediaColorKey } from '../utils/mediaColor';
+import { buildGlobalMediaColorKey, buildMediaColorKey } from '../utils/mediaColor';
 
 /** 自動保存間隔の設定キー */
 export const AUTO_SAVE_INTERVAL_KEY = 'turtle-video-auto-save-interval';
@@ -100,6 +100,8 @@ export function useAutoSave() {
   const bulkVideoVolume = useMediaStore((s) => s.bulkVideoVolume);
   const videoAudioNormalizeEnabled = useMediaStore((s) => s.videoAudioNormalizeEnabled);
   const videoAudioNormalizeMode = useMediaStore((s) => s.videoAudioNormalizeMode);
+  const bulkColorEnabled = useMediaStore((s) => s.bulkColorEnabled);
+  const bulkColorAdjust = useMediaStore((s) => s.bulkColorAdjust);
   const bulkBgmMuted = useAudioStore((s) => s.bulkBgmMuted);
   const bulkBgmVolumeEnabled = useAudioStore((s) => s.bulkBgmVolumeEnabled);
   const bulkBgmVolume = useAudioStore((s) => s.bulkBgmVolume);
@@ -195,6 +197,7 @@ export function useAutoSave() {
       bulkVideoVolume,
       videoAudioNormalizeEnabled ? '1' : '0',
       videoAudioNormalizeMode,
+      buildGlobalMediaColorKey(bulkColorEnabled, bulkColorAdjust, true),
       bulkBgmMuted ? '1' : '0',
       bulkBgmVolumeEnabled ? '1' : '0',
       bulkBgmVolume,
@@ -357,6 +360,8 @@ export function useAutoSave() {
     bulkVideoVolume,
     videoAudioNormalizeEnabled,
     videoAudioNormalizeMode,
+    bulkColorEnabled,
+    bulkColorAdjust,
     bulkBgmMuted,
     bulkBgmVolumeEnabled,
     bulkBgmVolume,

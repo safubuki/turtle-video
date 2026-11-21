@@ -5,14 +5,19 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  MEDIA_COLOR_PRESETS,
   applyMediaColorGradeToRgb,
   applyMediaColorGradeToRgba,
+  buildGlobalMediaColorKey,
   buildMediaColorKey,
+  findMediaColorPreset,
   hasMediaColorSettings,
   LUMA_WEIGHTS,
   normalizeMediaColorAdjust,
   normalizeMediaColorMatch,
+  resolveEffectiveGlobalColorAdjust,
   resolveMediaColorGrade,
+  scaleMediaColorAdjust,
 } from '../utils/mediaColor';
 import {
   COLOR_TRANSFER_MAX_GAIN,
@@ -344,5 +349,62 @@ describe('mediaColorRenderer', () => {
   it('作業キャンバスは素材の解像度のまま、長辺 3840 までに抑える', () => {
     expect(resolveColorWorkSize(1920, 1080)).toEqual({ width: 1920, height: 1080 });
     expect(resolveColorWorkSize(7680, 4320)).toEqual({ width: 3840, height: 2160 });
+  });
+});
+
+describe('全体の色合い（重ね掛け・雰囲気プリセット）', () => {
+  it('個別未設定で全体だけ有効なときは 1 段目で完結し、両方あるときは個別→全体の 2 段重ね掛けになる', () => {
+    const globalWarm = { brightness: 0, contrast: 0, saturation: 0, temperature: 65, tint: 0 };
+    const onlyGlobal = resolveMediaColorGrade({}, globalWarm);
+    expect(onlyGlobal).not.toBeNull();
+    expect(onlyGlobal!.overlay).toBeNull();
+
+    // 個別で白黒（彩度 -100）にした上から全体ウォームを重ねると、白黒に暖かみが乗る（R > B）
+    const monoItem = { colorAdjust: { brightness: 0, contrast: 0, saturation: -100, temperature: 0, tint: 0 } };
+    const stacked = resolveMediaColorGrade(monoItem, globalWarm)!;
+    expect(stacked.overlay).not.toBeNull();
+    const [r, , b] = applyMediaColorGradeToRgb(0.2, 0.5, 0.8, stacked);
+    expect(r).toBeGreaterThan(b);
+
+    // 段階的に別々で掛けた結果と 2 段重ね掛けの結果が一致する
+    const step1 = applyMediaColorGradeToRgb(0.3, 0.5, 0.7, resolveMediaColorGrade(monoItem)!);
+    const step2 = applyMediaColorGradeToRgb(step1[0], step1[1], step1[2], resolveMediaColorGrade({}, globalWarm)!);
+    const combined = applyMediaColorGradeToRgb(0.3, 0.5, 0.7, stacked);
+    expect(combined[0]).toBeCloseTo(step2[0], 6);
+    expect(combined[1]).toBeCloseTo(step2[1], 6);
+    expect(combined[2]).toBeCloseTo(step2[2], 6);
+  });
+
+  it('雰囲気プリセットは 9 種（タートル含む）すべて有効で、強さ 0〜150% でクランプ付きスケーリングできる', () => {
+    expect(MEDIA_COLOR_PRESETS).toHaveLength(9);
+    const cinema = findMediaColorPreset('cinema')!;
+    expect(cinema.adjust.tint).toBeLessThan(0);
+
+    const turtle = findMediaColorPreset('turtle')!;
+    expect(turtle.label).toBe('タートル');
+    expect(turtle.adjust.tint).toBeLessThan(-80);
+    expect(turtle.adjust.temperature).toBeLessThan(-50);
+    expect(turtle.adjust.contrast).toBeGreaterThan(30);
+    expect(turtle.adjust.saturation).toBeGreaterThan(50);
+
+    expect(scaleMediaColorAdjust(cinema.adjust, 0)).toBeUndefined();
+    const half = scaleMediaColorAdjust(cinema.adjust, 50)!;
+    expect(Math.abs(half.tint)).toBeLessThan(Math.abs(cinema.adjust.tint));
+    const strong = scaleMediaColorAdjust(cinema.adjust, 150)!;
+    expect(strong.tint).toBeGreaterThanOrEqual(-100);
+    expect(strong.tint).toBeLessThan(cinema.adjust.tint);
+
+    const monoStrong = scaleMediaColorAdjust(findMediaColorPreset('mono')!.adjust, 150)!;
+    expect(monoStrong.saturation).toBe(-100);
+  });
+
+  it('全体色合いの有効解決と変更検知キーは ON/OFF と値変化を正しく区別する', () => {
+    const cool = findMediaColorPreset('cool')!.adjust;
+    expect(resolveEffectiveGlobalColorAdjust(false, cool)).toBeUndefined();
+    expect(resolveEffectiveGlobalColorAdjust(true, cool)).toEqual(cool);
+    expect(buildGlobalMediaColorKey(false, cool)).toBe('');
+    expect(buildGlobalMediaColorKey(true, cool)).not.toBe('');
+    expect(buildGlobalMediaColorKey(false, cool, true)).toContain('0:');
+    expect(buildGlobalMediaColorKey(true, cool, true)).toContain('1:');
   });
 });

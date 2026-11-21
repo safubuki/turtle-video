@@ -422,6 +422,15 @@ export interface ProjectData {
    * mean=幾何平均、loudest=一番大きい音。
    */
   videoAudioNormalizeMode?: 'mean' | 'loudest';
+  /** 全体の色合い一括設定（任意・旧データは OFF / 未設定）。個別色合いの上から重ね掛けする */
+  bulkColorEnabled?: boolean;
+  bulkColorAdjust?: {
+    brightness: number;
+    contrast: number;
+    saturation: number;
+    temperature: number;
+    tint: number;
+  };
   /** BGM の一括ミュート（任意・旧データは既存曲がすべてミュートなら ON） */
   bulkBgmMuted?: boolean;
   /** BGM の一括音量（任意・旧データは OFF / 100%） */

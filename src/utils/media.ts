@@ -765,6 +765,7 @@ export function buildAutoProjectPosterContentKey(
   > & Partial<Pick<MediaItem, 'splitCompareToNext' | 'panEndPositionX' | 'panEndPositionY' | 'colorAdjust' | 'colorMatch'>>>,
   totalDuration: number,
   aspectRatio: string,
+  globalColorKey: string = '',
 ): string {
   const durationKey = Number.isFinite(totalDuration) ? totalDuration : 0;
   const itemKeys = items.map((item) => {
@@ -795,7 +796,8 @@ export function buildAutoProjectPosterContentKey(
       transitionKey,
     ].join(':');
   });
-  return `${aspectRatio}|${durationKey}|first-frame|${itemKeys.join('|')}`;
+  const baseKey = `${aspectRatio}|${durationKey}|first-frame|${itemKeys.join('|')}`;
+  return globalColorKey ? `${baseKey}|gcolor:${globalColorKey}` : baseKey;
 }
 
 /**

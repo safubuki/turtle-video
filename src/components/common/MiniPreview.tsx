@@ -8,13 +8,14 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import type { MediaItem } from '../../types';
 import { useCanvasStore, resolveMediaBaseScale } from '../../stores/canvasStore';
+import { useMediaStore } from '../../stores/mediaStore';
 import {
   normalizeRotation,
   prepareUniformMediaBlurSource,
   resolveMediaBlurPixels,
   resolveRotatedFitDimensions,
 } from '../../utils/canvas';
-import { resolveMediaColorGrade } from '../../utils/mediaColor';
+import { resolveEffectiveGlobalColorAdjust, resolveMediaColorGrade } from '../../utils/mediaColor';
 import { prepareColorGradedSource } from '../../utils/mediaColorRenderer';
 import { resolveMediaScaleFactor, mediaScaleToPercent } from '../../utils/mediaZoom';
 import { resolveMediaPosition } from '../../utils/mediaPan';
@@ -38,6 +39,8 @@ const MINI_CANVAS_SHORT = 54;
 const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement, localTime = 0 }) => {
   const projectCanvasWidth = useCanvasStore((s) => s.width);
   const projectCanvasHeight = useCanvasStore((s) => s.height);
+  const bulkColorEnabled = useMediaStore((s) => s.bulkColorEnabled);
+  const bulkColorAdjust = useMediaStore((s) => s.bulkColorAdjust);
   // 出力の向きに合わせてミニ枠と配置モードを決める（メインプレビューと一致させる）。
   const isPortrait = projectCanvasHeight > projectCanvasWidth;
   const miniCanvasWidth = isPortrait ? MINI_CANVAS_SHORT : MINI_CANVAS_LONG;
@@ -113,10 +116,15 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement, localTime
         miniCanvasWidth,
         miniCanvasHeight,
       );
-      // 色合いも本プレビューと同じに掛ける（ここで作った描画元はこの後すぐ描く）
+      // 色合いも本プレビューと同じに掛ける（個別＋全体重ね掛け。ここで作った描画元はこの後すぐ描く）
+      const mediaStoreState = useMediaStore.getState();
+      const globalColorAdjust = resolveEffectiveGlobalColorAdjust(
+        mediaStoreState.bulkColorEnabled,
+        mediaStoreState.bulkColorAdjust,
+      );
       const canDrawFrame = currentItem.type !== 'video' || (mediaElement as HTMLVideoElement).readyState >= 2;
       const gradedSource = canDrawFrame
-        ? prepareColorGradedSource(mediaElement, elemW, elemH, resolveMediaColorGrade(currentItem))
+        ? prepareColorGradedSource(mediaElement, elemW, elemH, resolveMediaColorGrade(currentItem, globalColorAdjust))
         : mediaElement;
       const drawSource = blurPixels > 0
         ? prepareUniformMediaBlurSource(
@@ -173,7 +181,7 @@ const MiniPreview: React.FC<MiniPreviewProps> = ({ item, mediaElement, localTime
     localTimeRef.current = localTime;
     // プロパティ変更時は即時反映 (force=true)
     requestAnimationFrame(() => renderFrame(true));
-  }, [item, localTime, renderFrame]);
+  }, [item, localTime, bulkColorEnabled, bulkColorAdjust, renderFrame]);
 
   // アニメーションループ管理
   const startLoop = useCallback(() => {

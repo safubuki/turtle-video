@@ -145,6 +145,18 @@ export interface MediaColorAdjust {
   tint: number;
 }
 
+/** 全体の色合い一括設定で選べる雰囲気プリセットの識別子 */
+export type MediaColorPresetId =
+  | 'cool'
+  | 'cinema'
+  | 'warm'
+  | 'bright'
+  | 'dark'
+  | 'vivid'
+  | 'retro'
+  | 'mono'
+  | 'turtle';
+
 /**
  * 前の素材に色合いを合わせる自動補正（MKL: 線形最適輸送による色分布の転写）。
  * sRGB 0〜1 の値に `matrix · rgb + offset` を掛け、strength で元の色と混ぜる。

@@ -181,6 +181,34 @@ describe('projectStore save behavior', () => {
     }
   });
 
+  it('全体の色合い一括設定を手動保存/自動保存して復元し、旧データ未保存時は OFF で読む', async () => {
+    const bulkAdjust = { brightness: -8, contrast: 22, saturation: -20, temperature: -30, tint: -65 };
+    useMediaStore.setState({ bulkColorEnabled: true, bulkColorAdjust: bulkAdjust });
+    const items = [createMediaItem('scene.mp4')];
+    for (const mode of ['manual', 'auto'] as const) {
+      const save = mode === 'manual' ? useProjectStore.getState().saveProjectManual : useProjectStore.getState().saveProjectAuto;
+      await save(items, false, null, false, [], false, [], defaultCaptionSettings, false);
+      const saved = mocks.saveProject.mock.calls[mocks.saveProject.mock.calls.length - 1][0] as ProjectData;
+      expect(saved.bulkColorEnabled).toBe(true);
+      expect(saved.bulkColorAdjust).toEqual(bulkAdjust);
+
+      mocks.loadProject.mockResolvedValueOnce(saved);
+      const loaded = await useProjectStore.getState().loadProjectFromSlot(mode);
+      expect(loaded!.bulkColorEnabled).toBe(true);
+      expect(loaded!.bulkColorAdjust).toEqual(bulkAdjust);
+
+      // 旧データ（フィールド無し）の後方互換
+      const legacySaved = { ...saved };
+      delete legacySaved.bulkColorEnabled;
+      delete legacySaved.bulkColorAdjust;
+      mocks.loadProject.mockResolvedValueOnce(legacySaved);
+      const legacyLoaded = await useProjectStore.getState().loadProjectFromSlot(mode);
+      expect(legacyLoaded!.bulkColorEnabled).toBe(false);
+      expect(legacyLoaded!.bulkColorAdjust).toBeUndefined();
+    }
+    useMediaStore.getState().resetBulkColor();
+  });
+
   it('位置の移動（パン）の終了位置を手動保存/自動保存して復元し、固定は終了を保存しない', async () => {
     const items = [
       { ...createMediaItem('pan.mp4'), positionX: -100, positionY: 40, panEndPositionX: 200, panEndPositionY: -60 },

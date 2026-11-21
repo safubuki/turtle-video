@@ -6,7 +6,9 @@ import type { ComponentProps } from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ClipItem from '../components/media/ClipItem';
+import ClipColorSettingsPanel from '../components/sections/ClipColorSettingsPanel';
 import { useCanvasStore } from '../stores/canvasStore';
+import { useMediaStore } from '../stores/mediaStore';
 import type { MediaItem } from '../types';
 
 vi.mock('../components/common/ClipThumbnail', () => ({
@@ -238,5 +240,100 @@ describe('色合い欄', () => {
     renderItem({ item: createItem({ isLocked: true }) });
     const header = screen.getByRole('button', { name: '色合い' });
     expect(header).toBeDisabled();
+  });
+
+  it('全体の色合いが適用中のときは、個別パネルに重ね掛け中の案内を出す', () => {
+    renderItem({ isGlobalColorActive: true });
+    openColor();
+    expect(screen.getByTestId('clip-color-global-notice-clip-2')).toHaveTextContent(/全体の色合いが適用中です/);
+  });
+});
+
+describe('色合い 一括設定パネル（ClipColorSettingsPanel）', () => {
+  beforeEach(() => {
+    useMediaStore.getState().resetBulkColor();
+  });
+
+  function renderConnectedBulkPanel(isLocked = false) {
+    const Wrapper = () => {
+      const enabled = useMediaStore((s) => s.bulkColorEnabled);
+      const adjust = useMediaStore((s) => s.bulkColorAdjust);
+      const activePresetId = useMediaStore((s) => s.bulkColorPresetId);
+      const presetStrength = useMediaStore((s) => s.bulkColorPresetStrength);
+      const setEnabled = useMediaStore((s) => s.setBulkColorEnabled);
+      const updateAdjust = useMediaStore((s) => s.updateBulkColorAdjust);
+      const applyPreset = useMediaStore((s) => s.applyBulkColorPreset);
+      const setStrength = useMediaStore((s) => s.setBulkColorPresetStrength);
+      const reset = useMediaStore((s) => s.resetBulkColor);
+      return (
+        <ClipColorSettingsPanel
+          isLocked={isLocked}
+          enabled={enabled}
+          adjust={adjust}
+          activePresetId={activePresetId}
+          presetStrength={presetStrength}
+          onToggleEnabled={setEnabled}
+          onUpdateAdjust={updateAdjust}
+          onApplyPreset={applyPreset}
+          onChangePresetStrength={setStrength}
+          onReset={reset}
+        />
+      );
+    };
+    return render(<Wrapper />);
+  }
+
+  it('雰囲気プリセットを押すと自動で適用中になり、5本スライダーと強さ調整が連動する', () => {
+    renderConnectedBulkPanel();
+    fireEvent.click(screen.getByRole('button', { name: '色合い 一括設定' }));
+
+    expect(screen.queryByTestId('clip-bulk-color-preset-strength')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'ナチュラル（元の色・補正なし）' })).toHaveAttribute('aria-pressed', 'true');
+
+    // 「シネマ」プリセットをワンクリック
+    fireEvent.click(screen.getByRole('button', { name: 'シネマ' }));
+    expect(screen.getByRole('button', { name: '色合い 一括設定（適用中）' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: '全体の色合いを適用する' })).toBeChecked();
+    expect(screen.getByRole('button', { name: 'シネマ' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'ナチュラル（元の色・補正なし）' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByTestId('clip-bulk-color-preset-strength')).toBeInTheDocument();
+
+    // チェックで一時オフするとプリセットの選択ハイライトも外れ、再チェックで復帰する
+    fireEvent.click(screen.getByRole('checkbox', { name: '全体の色合いを適用する' }));
+    expect(screen.getByRole('button', { name: 'シネマ' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByTestId('clip-bulk-color-preset-strength')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: '全体の色合いを適用する' }));
+    expect(screen.getByRole('button', { name: 'シネマ' })).toHaveAttribute('aria-pressed', 'true');
+
+    const tintSlider = screen.getByRole('slider', { name: '全体の色かぶり' }) as HTMLInputElement;
+    expect(Number(tintSlider.value)).toBe(-65);
+
+    // 強さクイックボタン「弱」(50%) でスライダーが連動して弱まる（Math.round(-65 * 0.5) = -32）
+    fireEvent.click(screen.getByRole('button', { name: '弱' }));
+    expect(Number(tintSlider.value)).toBe(-32);
+
+    // 5 本スライダーを手動微調整すると強さ欄が閉じ、値が保持される
+    fireEvent.change(screen.getByRole('slider', { name: '全体の色温度' }), { target: { value: '-80' } });
+    expect(screen.queryByTestId('clip-bulk-color-preset-strength')).not.toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: '全体の色温度' })).toHaveValue('-80');
+
+    // チェックを外すと値を残したまま一時オフになり、見出しの（適用中）が消える
+    fireEvent.click(screen.getByRole('checkbox', { name: '全体の色合いを適用する' }));
+    expect(screen.getByRole('button', { name: '色合い 一括設定' })).toBeInTheDocument();
+    expect(screen.getByText(/一時オフ中です/)).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: '全体の色温度' })).toHaveValue('-80');
+
+    // 「タートル」プリセットをワンクリックすると深いタートルグリーン設定が入る
+    fireEvent.click(screen.getByRole('button', { name: 'タートル' }));
+    expect(screen.getByRole('button', { name: 'タートル' })).toHaveAttribute('aria-pressed', 'true');
+    expect(Number((screen.getByRole('slider', { name: '全体の色かぶり' }) as HTMLInputElement).value)).toBe(-96);
+    expect(Number((screen.getByRole('slider', { name: '全体の色温度' }) as HTMLInputElement).value)).toBe(-72);
+
+    // 「ナチュラル（元の色・補正なし）」を押すと即座に 0・オフへ戻る
+    fireEvent.click(screen.getByRole('button', { name: 'ナチュラル（元の色・補正なし）' }));
+    expect(screen.getByRole('button', { name: 'ナチュラル（元の色・補正なし）' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('slider', { name: '全体の色温度' })).toHaveValue('0');
+    expect(screen.getByRole('slider', { name: '全体の色かぶり' })).toHaveValue('0');
+    expect(screen.getByRole('button', { name: '全体の色合いを元に戻す' })).toBeDisabled();
   });
 });
