@@ -1,4 +1,4 @@
-﻿/**
+/**
  * audioStore のテスト
  */
 
@@ -10,6 +10,7 @@ import {
   resolveAudioClipTrimAtSourceTime,
   resolveEffectiveAudioClipPlayback,
   resolveBgmClipsEffectivePlayback,
+  resolveNarrationSplitSourceTime,
   useAudioStore,
 } from '../../stores/audioStore';
 import type { AudioTrack, NarrationClip } from '../../types';
@@ -524,6 +525,120 @@ describe('audioStore', () => {
 
       useAudioStore.getState().duplicateNarration('nar-nofile');
 
+      expect(useAudioStore.getState().narrations).toHaveLength(1);
+    });
+  });
+
+  describe('splitNarration', () => {
+    it('プレビュー現在位置で前半・後半へ分割し、後半を直後へ独立URLで配置する', () => {
+      const source = createMockNarrationClip({
+        id: 'nar-split-1',
+        sourceType: 'ai',
+        isAiEditable: true,
+        blobUrl: 'blob:nar-split-1',
+        url: 'blob:nar-split-1',
+        startTime: 2,
+        duration: 10,
+        trimStart: 1,
+        trimEnd: 8,
+        volume: 1.3,
+        aiScript: 'テスト原稿',
+        aiVoice: 'Aoede',
+      });
+      const tail = createMockNarrationClip({
+        id: 'nar-tail',
+        startTime: 15,
+      });
+      useAudioStore.setState({ narrations: [source, tail], isNarrationLocked: false });
+
+      // 再生区間は [2, 9]（音源 1〜8）。タイムライン 5.0 秒 → 音源 4.0 秒で分割
+      expect(resolveNarrationSplitSourceTime(source, 5)).toBeCloseTo(4, 6);
+      useAudioStore.getState().splitNarration('nar-split-1', 5);
+
+      const narrations = useAudioStore.getState().narrations;
+      expect(narrations).toHaveLength(3);
+      const [first, second, third] = narrations;
+      expect(first.id).toBe('nar-split-1');
+      expect(first.startTime).toBeCloseTo(2, 6);
+      expect(first.trimStart).toBeCloseTo(1, 6);
+      expect(first.trimEnd).toBeCloseTo(4, 6);
+
+      expect(second.id).not.toBe(first.id);
+      expect(second.url).not.toBe(first.url);
+      expect(second.blobUrl).toBe(second.url);
+      expect(second.blobUrl).not.toBe(first.blobUrl);
+      expect(second.startTime).toBeCloseTo(5, 6);
+      expect(second.trimStart).toBeCloseTo(4, 6);
+      expect(second.trimEnd).toBeCloseTo(8, 6);
+      expect(second.volume).toBeCloseTo(1.3, 6);
+      expect(second.aiScript).toBe('テスト原稿');
+      expect(second.aiVoice).toBe('Aoede');
+
+      // 元クリップの直後へ挿入され、後続クリップの並びが保たれる
+      expect(third.id).toBe('nar-tail');
+    });
+
+    it('分割した後半をさらに分割でき、前半を削除しても後半の独立URLが残る', () => {
+      const source = createMockNarrationClip({
+        id: 'nar-chain',
+        startTime: 0,
+        duration: 10,
+        trimStart: 0,
+        trimEnd: 10,
+        blobUrl: 'blob:nar-chain',
+        url: 'blob:nar-chain',
+      });
+      useAudioStore.setState({ narrations: [source], isNarrationLocked: false });
+
+      useAudioStore.getState().splitNarration('nar-chain', 3.5);
+      const afterFirst = useAudioStore.getState().narrations;
+      expect(afterFirst).toHaveLength(2);
+
+      useAudioStore.getState().splitNarration(afterFirst[1].id, 7.25);
+      const afterSecond = useAudioStore.getState().narrations;
+      expect(afterSecond).toHaveLength(3);
+      expect(afterSecond.map((c) => [c.startTime, c.trimStart, c.trimEnd])).toEqual([
+        [0, 0, 3.5],
+        [3.5, 3.5, 7.25],
+        [7.25, 7.25, 10],
+      ]);
+
+      const secondUrl = afterSecond[1].url;
+      useAudioStore.getState().removeNarration(afterSecond[0].id);
+      expect(useAudioStore.getState().narrations).toHaveLength(2);
+      expect(useAudioStore.getState().narrations[0].url).toBe(secondUrl);
+    });
+
+    it('再生区間外・端から0.05秒未満・ロック中・File実体なしでは分割しない', () => {
+      const source = createMockNarrationClip({
+        id: 'nar-guard',
+        startTime: 2,
+        duration: 10,
+        trimStart: 1,
+        trimEnd: 6, // 再生区間 [2, 7]
+      });
+      useAudioStore.setState({ narrations: [source], isNarrationLocked: false });
+
+      expect(resolveNarrationSplitSourceTime(source, 1.5)).toBeNull();
+      expect(resolveNarrationSplitSourceTime(source, 2.02)).toBeNull();
+      expect(resolveNarrationSplitSourceTime(source, 6.98)).toBeNull();
+      expect(resolveNarrationSplitSourceTime(source, 7.5)).toBeNull();
+      useAudioStore.getState().splitNarration('nar-guard', 2.02);
+      expect(useAudioStore.getState().narrations).toHaveLength(1);
+
+      useAudioStore.setState({ isNarrationLocked: true });
+      useAudioStore.getState().splitNarration('nar-guard', 4);
+      expect(useAudioStore.getState().narrations).toHaveLength(1);
+
+      const noFile = createMockNarrationClip({
+        id: 'nar-nofile',
+        file: { name: 'ghost.wav' },
+        startTime: 0,
+        duration: 10,
+      });
+      useAudioStore.setState({ narrations: [noFile], isNarrationLocked: false });
+      expect(resolveNarrationSplitSourceTime(noFile, 5)).toBeNull();
+      useAudioStore.getState().splitNarration('nar-nofile', 5);
       expect(useAudioStore.getState().narrations).toHaveLength(1);
     });
   });

@@ -18,6 +18,7 @@ import {
   ArrowUp,
   ArrowDown,
   Copy,
+  Scissors,
   Trash2,
   MapPin,
   FileAudio,
@@ -45,7 +46,7 @@ import {
 import NumericStepperInput from '../common/NumericStepperInput';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import { getAppFlavorUiCapabilities } from '../../app/appFlavorUi';
-import { useAudioStore } from '../../stores/audioStore';
+import { resolveNarrationSplitSourceTime, useAudioStore } from '../../stores/audioStore';
 import NarrationWaveform from '../media/NarrationWaveform';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
 
@@ -73,6 +74,8 @@ interface NarrationSectionProps {
   onUpdateStartTime: (id: string, value: string) => void;
   onSetStartTimeToCurrent: (id: string) => void;
   onSetEndTimeToCurrent: (id: string) => void;
+  /** プレビュー現在位置で前半・後半へ分割する（Android/PC standard 限定） */
+  onSplitNarration?: (id: string) => void;
   onUpdateVolume: (id: string, value: string) => void;
   onToggleMute: (id: string) => void;
   onUpdateTrimStart: (id: string, value: string) => void;
@@ -103,6 +106,7 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
   onUpdateStartTime,
   onSetStartTimeToCurrent,
   onSetEndTimeToCurrent,
+  onSplitNarration,
   onUpdateVolume,
   onToggleMute,
   onUpdateTrimStart,
@@ -277,6 +281,8 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
             const canCreateCaptionRange =
               totalDuration > clip.startTime && Math.min(rawEndTime, totalDuration) > clip.startTime;
             const canSetCurrentAsEnd = currentTime >= clip.startTime + 0.05;
+            const canSplitAtCurrent =
+              !isNarrationLocked && resolveNarrationSplitSourceTime(clip, currentTime) !== null;
             const hasEndMarker = totalDuration > 0;
             const clampedEndTime = hasEndMarker
               ? Math.max(0, Math.min(totalDuration, rawEndTime))
@@ -490,6 +496,28 @@ const NarrationSection: React.FC<NarrationSectionProps> = ({
                     <MapPin className="w-3.5 h-3.5" /> 終了
                   </button>
                 </div>
+                {canDuplicate && onSplitNarration && (
+                  <div className="px-2">
+                    <button
+                      type="button"
+                      onClick={() => onSplitNarration(clip.id)}
+                      disabled={!canSplitAtCurrent}
+                      className="min-h-11 w-full rounded-lg border border-indigo-600/80 bg-indigo-900/35 px-2.5 text-xs text-indigo-100 hover:bg-indigo-900/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 disabled:opacity-40 flex items-center justify-center gap-1.5 transition"
+                      title={
+                        isNarrationLocked
+                          ? 'ロック中は分割できません'
+                          : !(clip.file instanceof File)
+                            ? 'このナレーションは分割できません'
+                            : canSplitAtCurrent
+                              ? `現在位置(${formatTime(currentTime)})で前半・後半へ分割して配置`
+                              : 'このナレーションの再生区間内（開始・終了から0.05秒以上内側）へプレビューを移動してください'
+                      }
+                    >
+                      <Scissors className="w-3.5 h-3.5" />
+                      現在位置で分割
+                    </button>
+                  </div>
+                )}
 
                 <div className="flex flex-col gap-0.5 rounded-lg bg-gray-800/50 px-2 py-1.5">
                   <CompactFieldHeader

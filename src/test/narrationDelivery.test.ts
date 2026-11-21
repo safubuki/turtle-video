@@ -7,6 +7,9 @@ import {
   buildOpenMarker,
   buildTaggedNarrationBody,
   clearAllDeliveryMarkers,
+  convertInlineEventMarkersToTtsTags,
+  insertInlineEventMarker,
+  listAppliedInlineEventLabels,
   listAppliedToneLabels,
   parseDeliveryMarkup,
   resolveToneTagFromMarkerBody,
@@ -193,5 +196,40 @@ describe('buildTaggedNarrationBody / buildNarrationTtsPrompt', () => {
     // タグに長文を埋め込まない
     expect(prompt).not.toMatch(/\[comically,/);
     expect(prompt).not.toMatch(/playful cartoonish/);
+  });
+});
+
+describe('瞬間タグ（【少し間】【長めの間】【ため息】【笑い】）', () => {
+  it('カーソル位置へ瞬間タグを挿入し、TTS送信時に英語インラインタグへ変換できる', () => {
+    const inserted = insertInlineEventMarker('こんにちは。今日は晴れです。', 6, 6, '【少し間】');
+    expect(inserted.text).toBe('こんにちは。【少し間】今日は晴れです。');
+    expect(inserted.caret).toBe(11);
+
+    const withEvents = 'こんにちは。【少し間】ちょっと大変だったけど【ため息】楽しかったよ【笑い】';
+    expect(convertInlineEventMarkersToTtsTags(withEvents)).toBe(
+      'こんにちは。 <short pause> ちょっと大変だったけど <sigh> 楽しかったよ <laugh> ',
+    );
+    expect(listAppliedInlineEventLabels(withEvents)).toEqual(['少し間', 'ため息', '笑い']);
+  });
+
+  it('キャプション生成用の stripDeliveryMarkers で瞬間タグと英語タグもすべて除去される', () => {
+    const marked = '《ささやき》秘密だよ。《/》【少し間】ほんと？【ため息】<short pause>うそだよ【笑い】';
+    expect(stripDeliveryMarkers(marked)).toBe('秘密だよ。ほんと？うそだよ');
+    expect(clearAllDeliveryMarkers(marked)).toBe('秘密だよ。ほんと？うそだよ');
+  });
+
+  it('追加の公式瞬間タグ（ひと呼吸・ハッと驚く・くすっと笑い・咳払い・ホッと一息など）も英語変換と平文除去ができる', () => {
+    const withExtras = '【ひと呼吸】あれ？【ハッと驚く】本当だ！【くすっと笑い】【咳払い】では本題です。【ホッと一息】<phew><sneeze>';
+    expect(convertInlineEventMarkersToTtsTags(withExtras)).toBe(
+      ' <breath> あれ？ <gasp> 本当だ！ <chuckle> <cough> では本題です。 <phew> <phew><sneeze>',
+    );
+    expect(listAppliedInlineEventLabels(withExtras)).toEqual([
+      'ひと呼吸',
+      'ハッと驚く',
+      'くすっと笑い',
+      '咳払い',
+      'ホッと一息',
+    ]);
+    expect(stripDeliveryMarkers(withExtras)).toBe('あれ？本当だ！では本題です。');
   });
 });

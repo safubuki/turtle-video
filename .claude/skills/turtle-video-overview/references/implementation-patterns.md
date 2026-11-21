@@ -5464,6 +5464,31 @@ export 終了（成功/失敗/中断）
   - `canvas.ts` の `resolveMediaBlurPixels` を `Math.min(longSide / 1920, shortSide / 1080)` から短辺基準 `shortSide / 1080` へ変更し、正方形（1080×1080）や 4:3（1440×1080）でメディアぼかしが約半分〜75% に弱まる問題を解消。
 - **注意**: 今後アスペクト比や解像度に連動する UI・描画ピクセル計算（文字・余白・ぼかし・ロゴ・縁幅）を追加する際は、必ず短辺基準（`Math.min(canvasWidth, canvasHeight)`）を使い、高さ単独や長辺比率を混ぜない。
 
+### 13-320. ナレーションの「現在位置で分割」（Android/PC standard 限定）
+
+- **ファイル**: `src/stores/audioStore.ts`, `src/components/sections/NarrationSection.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, テスト `audioStore.test.ts` / `narrationSplit.ui.test.tsx` / `sectionHelp.test.ts`
+- **要件**: 動画の「現在位置で分割」と同じ要領で、ナレーションをプレビューの現在位置で前半（そこまで）と後半（そこから先）に分割し、後半の開始位置をずらすなどの調整を簡単に行いたい。
+- **設計**:
+  - `resolveNarrationSplitSourceTime(clip, timelineTime)` で、タイムライン時刻から音源内時刻 `trimStart + (timelineTime - startTime)` を求め、両側に最小再生尺 `MIN_AUDIO_CLIP_DURATION_SEC`（0.05 秒）が残るかつ `clip.file instanceof File` の場合のみ分割を許可。
+  - `audioStore.splitNarration(id, timelineTime)` は前半の `trimEnd` を分割点に更新し、後半を元クリップの直後（`index + 1`）へ挿入（`startTime = 分割時のタイムライン時刻`・`trimStart = 分割点`・元の `trimEnd` を維持）。
+  - 後半クリップには `URL.createObjectURL(source.file)` で独立した URL を発行し、`source.blobUrl` がある場合も新しい URL へ差し替えることで、前半削除時の `revokeObjectUrl` 巻き添えを防止（`duplicateNarration` も同様に安全化）。
+  - 既存の `NarrationClip` フィールド（`startTime` / `trimStart` / `trimEnd`）のみで構成されるため、保存・復元・自動保存・再生・書き出しスキーマは完全互換。
+  - UI は動画分割・簡単コピーと同様に `standard` フレーバー限定で「プレビュー位置を反映（開始／終了）」直下に配置し、操作時は `pausePreviewBeforeEdit('split-narration')` を経由。
+- **注意**: ナレーションの分割・複製では `blobUrl` を元の参照のままスプレッドコピーしないこと（削除時の `revokeObjectUrl` で他方の保存・シリアライズが壊れる）。
+
+### 13-321. AIナレーションスタジオ刷新（PC 2カラム / スマホ 2タブ / 代表＆よく使う声 / 瞬間タグ / 英語 style 最適化）
+
+- **ファイル**: `src/components/modals/AiModal.tsx`, `src/utils/gemini38Tts.ts`, `src/utils/narrationDelivery.ts`, `src/utils/aiVoiceRecents.ts`（新規）, `src/constants/sectionHelp.ts`, テスト `aiModalTtsEngine.test.tsx` / `gemini38Tts.test.ts` / `narrationDelivery.test.ts`
+- **課題**: 旧モーダルは全項目が縦 1 列に常時展開され、スマホで約 3 画面分の縦長＋声一覧の二重スクロールが発生していた。また「声の雰囲気」と「演出チップ」が重複し、日本語の演出指示が英語 `speech_metadata.style` へ混在送信されたり、全体速度と部分アクセントの速度が矛盾送信されて効きにくくなるケースがあった。
+- **対策**:
+  - **レイアウト刷新**: PC（`md:`）は上端基準（`md:items-start md:pt-8 md:pb-6`）かつ `max-w-5xl` で丸番号付き枠（`1 原稿・部分演出` → `2 声・話し方`）の左右 2 カラム＋本体セクション相当の文字サイズ（`text-xs md:text-sm` 中心）で上下余白を詰めて 1 画面へ収め、声探しサブビュー中は画面縦いっぱいの固定高（`md:h-[min(calc(100vh-3.5rem),1100px)]`）にして広々見渡せつつタブ・フィルタ切替時の上下ガタつきを防止。スマホは 2 タブ＋下部固定の作成フッターへ整理し、二重スクロールを廃止。
+  - **代表ボイス＆よく使う声・探索整理**: `aiVoiceRecents.ts` に調子の異なる男女各 4 パターン（女: Zephyr/Leda/Kore/Achernar、男: Puck/Charon/Enceladus/Algenib）と `localStorage` ベースの使用履歴（最大 4 件常時表示・切替前の声も `ensureAiVoiceInHistory()` で保護して誤選択時にワンタップ復帰可能）を追加。「もっと別の声を探す」サブビューでは基本 30 声に雰囲気タグ 5 択、追加音声に日本語用途タグ 6 択＋年代タグ 5 択（`〜20代`〜`60代〜`、詳細プルダウンは折りたたみ）＋ `formatCompactExtraVoiceCard()` による重複・英語原文ノイズ除去の清潔な 2 行カードを導入し、選択後は自動でメインへ戻る（基本ボイスの二重英語表記も解消）。
+  - **瞬間タグのワンタップ挿入＆スクロール維持**: `narrationDelivery.ts` に定番 4 種（`【少し間】`/`【長めの間】`/`【ため息】`/`【笑い】`）＋「その他」トグルで直下へインライン展開する追加 14 種（`【ひと呼吸】`/`【ハッと驚く】`/`【ホッと一息】`/`【くすっと笑い】`/`【咳払い】`/`【えへん】` 等）を追加。範囲マーカー `《…》` と記号を分け、TTS 送信時に公式の `<short pause>`/`<gasp>`/`<chuckle>`/`<cough>` 等へ変換、キャプション生成時の `stripDeliveryMarkers` では全公式タグを自動除去する。部分アクセント・瞬間タグ適用時は `useLayoutEffect` で `scrollTop` とカーソルを復元（`focus({ preventScroll: true })`）し、長文先頭での編集時に最下部へ飛ばないよう防止。
+  - **話し方プロンプト改善**: `gemini38Tts.ts` で性格の被らない雰囲気 9 種（自然・明るく元気・温かく親しみ・ニュース解説・熱血盛り上げ・重厚シリアス・楽しくコミカル・切なくしんみり・静かささやき）を排他統合し、`normalizeGemini38StyleDetail()` で日本語演出を簡潔な英語 `speech_metadata.style` へ変換。部分アクセントが `fast`/`slow` や `whispers`/`shouting` の区間では全体側の相反指示を自動除外する。
+- **注意**: `AiModal` は `textarea` 起点の下スワイプ無効・上端シート下スワイプ閉じ・領域外クリック閉じなし・`popstate` 多重モーダル保護をすべて維持する。
+
+
+
 
 
 

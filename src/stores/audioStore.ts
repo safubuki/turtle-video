@@ -115,6 +115,8 @@ interface AudioState {
   // Narration actions
   addNarration: (clip: NarrationClip) => void;
   duplicateNarration: (id: string) => void;
+  /** プレビューの現在位置（タイムライン秒）でナレーションを前半・後半に分割し、後半を直後へ配置する */
+  splitNarration: (id: string, timelineTime: number) => void;
   updateNarrationStartTime: (id: string, value: number) => void;
   updateNarrationVolume: (id: string, value: number) => void;
   toggleNarrationMute: (id: string) => void;
@@ -252,6 +254,30 @@ export function resolveAudioClipEndAtTimelineTime(
   const trimEnd = Math.min(duration, trimStart + requestedPlayableDuration);
   if (trimEnd - trimStart < MIN_AUDIO_CLIP_DURATION_SEC) return null;
   return { trimEnd };
+}
+
+/**
+ * タイムライン上の現在位置から、ナレーション分割地点の音源内時刻（秒）を解決する。
+ * 前半・後半の両方に最小再生尺（MIN_AUDIO_CLIP_DURATION_SEC）を残せる場合のみ時刻を返し、
+ * 範囲外または File 実体なしの場合は null を返す。
+ */
+export function resolveNarrationSplitSourceTime(
+  clip: Pick<NarrationClip, 'file' | 'startTime' | 'duration' | 'trimStart' | 'trimEnd'>,
+  timelineTime: number,
+): number | null {
+  if (!(clip.file instanceof File) || !Number.isFinite(timelineTime)) return null;
+  const startTime = Number.isFinite(clip.startTime) ? Math.max(0, clip.startTime) : 0;
+  const { trimStart, trimEnd } = resolveClipTrimBounds(clip);
+  const localOffset = timelineTime - startTime;
+  const splitSourceTime = trimStart + localOffset;
+  if (
+    !Number.isFinite(splitSourceTime)
+    || splitSourceTime - trimStart < MIN_AUDIO_CLIP_DURATION_SEC - 1e-9
+    || trimEnd - splitSourceTime < MIN_AUDIO_CLIP_DURATION_SEC - 1e-9
+  ) {
+    return null;
+  }
+  return splitSourceTime;
 }
 
 /**
@@ -1049,10 +1075,12 @@ export const useAudioStore = create<AudioState>()(
             ? Math.max(trimStart, Math.min(source.duration, source.trimEnd))
             : source.duration;
           const effectiveLength = Math.max(0, trimEnd - trimStart);
+          const copyUrl = URL.createObjectURL(source.file);
           const copy: NarrationClip = normalizeNarrationClip({
             ...source,
             id: generateNarrationId(),
-            url: URL.createObjectURL(source.file),
+            url: copyUrl,
+            blobUrl: source.blobUrl ? copyUrl : undefined,
             startTime: source.startTime + effectiveLength,
           });
           useLogStore.getState().info('AUDIO', 'ナレーションを複製', {
@@ -1062,6 +1090,58 @@ export const useAudioStore = create<AudioState>()(
             startTime: copy.startTime,
           });
           return { narrations: [...state.narrations, copy] };
+        });
+      },
+
+      // ナレーションをプレビューの現在位置で前半・後半に分割し、後半を直後へ挿入する。
+      // 後半には独立した ObjectURL を発行し、前半削除時に URL が巻き添え解放されないようにする。
+      splitNarration: (id, timelineTime) => {
+        set((state) => {
+          if (state.isNarrationLocked) return state;
+          const index = state.narrations.findIndex((clip) => clip.id === id);
+          const source = state.narrations[index];
+          if (!source) return state;
+          const splitSourceTime = resolveNarrationSplitSourceTime(source, timelineTime);
+          if (splitSourceTime == null || !(source.file instanceof File)) {
+            return state;
+          }
+          const startTime = Number.isFinite(source.startTime) ? Math.max(0, source.startTime) : 0;
+          const { trimStart, trimEnd } = resolveClipTrimBounds(source);
+          const nextStartTime = startTime + (splitSourceTime - trimStart);
+          const secondUrl = URL.createObjectURL(source.file);
+
+          const first: NarrationClip = normalizeNarrationClip({
+            ...source,
+            trimStart,
+            trimEnd: splitSourceTime,
+            fadeOut: source.fadeOut ? false : source.fadeOut,
+          });
+          const second: NarrationClip = normalizeNarrationClip({
+            ...source,
+            id: generateNarrationId(),
+            url: secondUrl,
+            blobUrl: source.blobUrl ? secondUrl : undefined,
+            startTime: nextStartTime,
+            trimStart: splitSourceTime,
+            trimEnd,
+            fadeIn: source.fadeIn ? false : source.fadeIn,
+          });
+
+          useLogStore.getState().info('AUDIO', 'ナレーションを分割', {
+            sourceId: source.id,
+            newId: second.id,
+            fileName: source.file.name,
+            splitSourceTime,
+            timelineTime: nextStartTime,
+          });
+
+          const updated = [
+            ...state.narrations.slice(0, index),
+            first,
+            second,
+            ...state.narrations.slice(index + 1),
+          ];
+          return { narrations: updated };
         });
       },
 

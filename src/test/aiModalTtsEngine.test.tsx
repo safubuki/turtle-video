@@ -3,242 +3,270 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import AiModal from '../components/modals/AiModal';
 import { VOICE_OPTIONS } from '../constants';
+import { AI_VOICE_USAGE_STORAGE_KEY } from '../utils/aiVoiceRecents';
 
-describe('AIナレーションの音声エンジン設定', () => {
+function buildBaseProps(overrides: Partial<ComponentProps<typeof AiModal>> = {}): ComponentProps<typeof AiModal> {
+  return {
+    isOpen: true,
+    onClose: vi.fn(),
+    aiPrompt: '',
+    aiScript: 'こんにちは。',
+    aiScriptLength: 'short',
+    aiVoice: 'Aoede',
+    aiVoiceStyle: '',
+    aiNarrationScene: '',
+    aiTtsEngine: 'gemini-3.8-flash-tts',
+    aiTtsTone: 'natural',
+    aiTtsPace: 'normal',
+    aiTtsStyleDetail: '',
+    isAiLoading: false,
+    voiceOptions: VOICE_OPTIONS,
+    onPromptChange: vi.fn(),
+    onScriptChange: vi.fn(),
+    onScriptLengthChange: vi.fn(),
+    onVoiceChange: vi.fn(),
+    onVoiceStyleChange: vi.fn(),
+    onNarrationSceneChange: vi.fn(),
+    onTtsEngineChange: vi.fn(),
+    onTtsToneChange: vi.fn(),
+    onTtsPaceChange: vi.fn(),
+    onTtsStyleDetailChange: vi.fn(),
+    onGenerateScript: vi.fn(),
+    onGenerateSpeech: vi.fn(),
+    ...overrides,
+  };
+}
+
+describe('AIナレーションスタジオ刷新UIと音声エンジン設定', () => {
   afterEach(() => {
     localStorage.removeItem('turtle-video-gemini-api-key');
+    localStorage.removeItem(AI_VOICE_USAGE_STORAGE_KEY);
     vi.unstubAllGlobals();
   });
-  it('Gemini 3.8 Flash を既定として表示し、Flash-Lite へ切り替えられる（旧 2.5 選択肢は出さない）', () => {
+
+  it('Gemini 3.8 Flash / Flash-Lite の2択と、全体の雰囲気・速さ・男女代表ボイスをワンタップ設定できる', () => {
     const onTtsEngineChange = vi.fn();
     const onTtsToneChange = vi.fn();
-    const props: ComponentProps<typeof AiModal> = {
-      isOpen: true,
-      onClose: vi.fn(),
-      aiPrompt: '',
-      aiScript: 'こんにちは。',
-      aiScriptLength: 'short',
-      aiVoice: 'Aoede',
-      aiVoiceStyle: '',
-      aiNarrationScene: '',
-      aiTtsEngine: 'gemini-3.8-flash-tts',
-      aiTtsTone: 'natural',
-      aiTtsPace: 'normal',
-      aiTtsStyleDetail: '',
-      isAiLoading: false,
-      voiceOptions: [{ id: 'Aoede', label: 'Aoede', desc: '軽やか', gender: 'female', traitEn: 'Breezy' }],
-      onPromptChange: vi.fn(),
-      onScriptChange: vi.fn(),
-      onScriptLengthChange: vi.fn(),
-      onVoiceChange: vi.fn(),
-      onVoiceStyleChange: vi.fn(),
-      onNarrationSceneChange: vi.fn(),
-      onTtsEngineChange,
-      onTtsToneChange,
-      onTtsPaceChange: vi.fn(),
-      onTtsStyleDetailChange: vi.fn(),
-      onGenerateScript: vi.fn(),
-      onGenerateSpeech: vi.fn(),
-    };
-    const { rerender } = render(<AiModal {...props} />);
+    const onTtsPaceChange = vi.fn();
+    const onTtsStyleDetailChange = vi.fn();
+    const onVoiceChange = vi.fn();
 
-    expect(screen.getByRole('option', { name: 'Gemini 3.8 Flash TTS（既定・高音質）' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Gemini 3.8 Flash-Lite TTS（高速）' })).toBeInTheDocument();
-    expect(screen.queryByRole('option', { name: /2\.5/ })).not.toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: '音声エンジン' })).toHaveValue('gemini-3.8-flash-tts');
-    expect(screen.getByText('Gemini 3.8 の話し方')).toBeInTheDocument();
+    render(
+      <AiModal
+        {...buildBaseProps({
+          onTtsEngineChange,
+          onTtsToneChange,
+          onTtsPaceChange,
+          onTtsStyleDetailChange,
+          onVoiceChange,
+        })}
+      />,
+    );
 
-    fireEvent.change(screen.getByRole('combobox', { name: '音声エンジン' }), {
-      target: { value: 'gemini-3.8-flash-lite-tts' },
-    });
+    // 音声エンジン（旧 2.5 は出さず 3.8 の 2 択）
+    const engineGroup = screen.getByRole('group', { name: '音声エンジン' });
+    expect(within(engineGroup).getByRole('button', { name: '高音質 Flash' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(engineGroup).queryByRole('button', { name: /2\.5/ })).not.toBeInTheDocument();
+    fireEvent.click(within(engineGroup).getByRole('button', { name: '高速 Flash-Lite' }));
     expect(onTtsEngineChange).toHaveBeenCalledWith('gemini-3.8-flash-lite-tts');
 
-    rerender(<AiModal {...props} aiTtsEngine="gemini-3.8-flash-lite-tts" />);
-    expect(screen.getByRole('combobox', { name: '音声エンジン' })).toHaveValue('gemini-3.8-flash-lite-tts');
-    expect(screen.getByText('Gemini 3.8 の話し方')).toBeInTheDocument();
-
-    fireEvent.change(screen.getByRole('combobox', { name: '声の雰囲気' }), {
-      target: { value: 'warm' },
-    });
+    // 全体の雰囲気（メリハリある統合9種）
+    const atmosphereGroup = screen.getByRole('group', { name: '全体の雰囲気' });
+    fireEvent.click(within(atmosphereGroup).getByRole('button', { name: '温かく親しみ' }));
     expect(onTtsToneChange).toHaveBeenCalledWith('warm');
-    expect(screen.getByRole('combobox', { name: '声の選択' })).toBeInTheDocument();
+    expect(onTtsStyleDetailChange).toHaveBeenCalledWith('');
+
+    fireEvent.click(within(atmosphereGroup).getByRole('button', { name: 'ニュース・解説' }));
+    expect(onTtsToneChange).toHaveBeenCalledWith('clear');
+    expect(onTtsStyleDetailChange).toHaveBeenCalledWith('');
+
+    fireEvent.click(within(atmosphereGroup).getByRole('button', { name: '熱血・盛り上げ' }));
+    expect(onTtsToneChange).toHaveBeenCalledWith('natural');
+    expect(onTtsStyleDetailChange).toHaveBeenCalledWith('熱血・ハイテンションに');
+
+    fireEvent.click(within(atmosphereGroup).getByRole('button', { name: '重厚・シリアス' }));
+    expect(onTtsToneChange).toHaveBeenCalledWith('natural');
+    expect(onTtsStyleDetailChange).toHaveBeenCalledWith('ドキュメンタリー風の重厚な語りで');
+
+    // 話す速さ（3択セグメント）
+    const paceGroup = screen.getByRole('group', { name: '話す速さ' });
+    fireEvent.click(within(paceGroup).getByRole('button', { name: 'ゆっくり' }));
+    expect(onTtsPaceChange).toHaveBeenCalledWith('slow');
+
+    // 男女の代表的な声をその場でワンタップ選択でき、直前の声も「よく使う声」に残って取り消せる
+    const femaleGroup = screen.getByRole('group', { name: '女性の代表的な声' });
+    fireEvent.click(within(femaleGroup).getByRole('button', { name: /若々しい/ }));
+    expect(onVoiceChange).toHaveBeenCalledWith('Leda');
+    const frequentAfterClick = screen.getByRole('group', { name: 'よく使う声' });
+    expect(within(frequentAfterClick).getByRole('button', { name: /Aoede/ })).toBeInTheDocument();
+    expect(within(frequentAfterClick).getByRole('button', { name: /Leda/ })).toBeInTheDocument();
+
+    const maleGroup = screen.getByRole('group', { name: '男性の代表的な声' });
+    fireEvent.click(within(maleGroup).getByRole('button', { name: /渋い・低め/ }));
+    expect(onVoiceChange).toHaveBeenCalledWith('Algenib');
   });
 
-  it('Gemini 3.8 で基本音声と追加音声を切り替えて選択できる', async () => {
+  it('先頭付近に部分アクセントを適用しても、原稿欄のスクロール位置が末尾へ飛ばず維持される', () => {
+    const longScript = Array.from({ length: 30 }, (_, i) => `第${i + 1}段落のナレーション原稿です。`).join('\n');
+    let currentScript = longScript;
+    const onScriptChange = vi.fn((next: string) => {
+      currentScript = next;
+    });
+
+    const { rerender } = render(
+      <AiModal
+        {...buildBaseProps({
+          aiScript: currentScript,
+          onScriptChange,
+        })}
+      />,
+    );
+
+    const textarea = screen.getByLabelText('原稿（直接入力・編集）') as HTMLTextAreaElement;
+    textarea.scrollTop = 0;
+    textarea.setSelectionRange(0, 5);
+
+    fireEvent.click(screen.getByRole('button', { name: '強調して' }));
+    expect(onScriptChange).toHaveBeenCalled();
+
+    // 親からの再描画で textarea.scrollTop が下へ飛ばされそうになっても元の 0 に復元される
+    textarea.scrollTop = 999;
+    rerender(
+      <AiModal
+        {...buildBaseProps({
+          aiScript: currentScript,
+          onScriptChange,
+        })}
+      />,
+    );
+    expect(textarea.scrollTop).toBe(0);
+  });
+
+  it('瞬間タグ（少し間・ため息・笑い）をカーソル位置へワンタップ挿入できる', () => {
+    const onScriptChange = vi.fn();
+    render(
+      <AiModal
+        {...buildBaseProps({
+          aiScript: 'こんにちは。ありがとう。',
+          onScriptChange,
+        })}
+      />,
+    );
+
+    const textarea = screen.getByLabelText('原稿（直接入力・編集）') as HTMLTextAreaElement;
+    textarea.setSelectionRange(6, 6);
+
+    fireEvent.click(screen.getByRole('button', { name: '少し間' }));
+    expect(onScriptChange).toHaveBeenLastCalledWith('こんにちは。【少し間】ありがとう。');
+
+    fireEvent.click(screen.getByRole('button', { name: 'ため息' }));
+    expect(onScriptChange).toHaveBeenLastCalledWith('こんにちは。【ため息】ありがとう。');
+
+    fireEvent.click(screen.getByRole('button', { name: '笑い' }));
+    expect(onScriptChange).toHaveBeenLastCalledWith('こんにちは。【笑い】ありがとう。');
+
+    // 「その他」で直下へインライン展開 → 公式タグをワンタップ挿入 → もう一度「その他」で非表示
+    const toggleBtn = screen.getByRole('button', { name: 'その他' });
+    fireEvent.click(toggleBtn);
+    const extraMenu = screen.getByRole('region', { name: 'その他の間・息づかいメニュー' });
+    fireEvent.click(within(extraMenu).getByRole('button', { name: 'ハッと驚く' }));
+    expect(onScriptChange).toHaveBeenLastCalledWith('こんにちは。【ハッと驚く】ありがとう。');
+    expect(screen.getByRole('region', { name: 'その他の間・息づかいメニュー' })).toBeInTheDocument();
+    fireEvent.click(toggleBtn);
+    expect(screen.queryByRole('region', { name: 'その他の間・息づかいメニュー' })).not.toBeInTheDocument();
+  });
+
+  it('「もっと別の声を探す」画面で基本30声と追加音声を絞り込み選択でき、英語の二重表示が起きない', async () => {
     localStorage.setItem('turtle-video-gemini-api-key', 'test-key');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ voices: [
-        { id: 'Aoede', display_name: 'Aoede', type: 'prebuilt', gender: 'female' },
-        { id: 'voice_extra', display_name: '追加の日本語声', type: 'prompted', gender: 'female', language_code: 'ja-JP', persona: '教師', context: '教育' },
-        { id: 'voice_teacher_ad', display_name: '広告用の教師声', type: 'prebuilt', gender: 'female', language_code: 'ja-JP', persona: '教師', context: '広告' },
-        { id: 'voice_news', display_name: 'ニュース用声', type: 'prebuilt', gender: 'female', language_code: 'ja-JP', persona: 'アナウンサー', context: 'ニュース' },
-        { id: 'voice_plain', display_name: '分類なしの声', type: 'prebuilt', gender: 'female', language_code: 'ja-JP' },
-        { id: 'voice_english', display_name: 'English narrator', type: 'prebuilt', gender: 'male', language_code: 'en-US', persona: 'Narrator', context: 'Audiobook' },
-        { id: 'voice_tutor_6', display_name: 'Tutor 6', description: '22-year-old Tutor from the East Coast. Speaks clearly with a friendly and encouraging tone for long educational conversations.', type: 'prebuilt', gender: 'male', language_code: 'en-US', persona: 'Educational Tutor', context: 'Conversational / Edu' },
-        { id: 'voice_french', display_name: 'French narrator', type: 'prebuilt', gender: 'male', language_code: 'fr-FR', persona: 'Narrator', context: 'Audiobook' },
-      ] }),
+      json: async () => ({
+        voices: [
+          { id: 'Aoede', display_name: 'Aoede', type: 'prebuilt', gender: 'female' },
+          { id: 'voice_extra', display_name: '追加の日本語声', description: '24-year-old Teacher with a clear voice.', type: 'prompted', gender: 'female', language_code: 'ja-JP', persona: '教師', context: '教育' },
+          { id: 'voice_teacher_ad', display_name: '広告用の教師声', description: '42-year-old Teacher with a warm voice.', type: 'prebuilt', gender: 'female', language_code: 'ja-JP', persona: '教師', context: '広告' },
+          { id: 'voice_news', display_name: 'ニュース用声', description: '62-year-old News Anchor with a calm voice.', type: 'prebuilt', gender: 'female', language_code: 'ja-JP', persona: 'アナウンサー', context: 'ニュース' },
+          { id: 'voice_english', display_name: 'English narrator', type: 'prebuilt', gender: 'male', language_code: 'en-US', persona: 'Narrator', context: 'Audiobook' },
+          { id: 'voice_tutor_6', display_name: 'Tutor 6', description: '22-year-old Tutor from the East Coast. Speaks clearly with a friendly and encouraging tone for long educational conversations.', type: 'prebuilt', gender: 'male', language_code: 'en-US', persona: 'Educational Tutor', context: 'Conversational / Edu' },
+          { id: 'voice_french', display_name: 'French narrator', type: 'prebuilt', gender: 'male', language_code: 'fr-FR', persona: 'Narrator', context: 'Audiobook' },
+        ],
+      }),
     }));
+
     const onVoiceChange = vi.fn();
-    const props: ComponentProps<typeof AiModal> = {
-      isOpen: true, onClose: vi.fn(), aiPrompt: '', aiScript: 'こんにちは。', aiScriptLength: 'short',
-      aiVoice: 'Aoede', aiVoiceStyle: '', aiNarrationScene: '', aiTtsEngine: 'gemini-3.8-flash-tts',
-      aiTtsTone: 'natural', aiTtsPace: 'normal', aiTtsStyleDetail: '', isAiLoading: false,
-      voiceOptions: VOICE_OPTIONS,
-      onPromptChange: vi.fn(), onScriptChange: vi.fn(), onScriptLengthChange: vi.fn(),
-      onVoiceChange, onVoiceStyleChange: vi.fn(), onNarrationSceneChange: vi.fn(),
-      onTtsEngineChange: vi.fn(), onTtsToneChange: vi.fn(), onTtsPaceChange: vi.fn(),
-      onTtsStyleDetailChange: vi.fn(), onGenerateScript: vi.fn(), onGenerateSpeech: vi.fn(),
-    };
-    const { rerender } = render(<AiModal {...props} />);
+    render(<AiModal {...buildBaseProps({ aiVoice: 'Leda', onVoiceChange })} />);
+
+    // 通常画面から「もっと別の声を探す」を開く
+    fireEvent.click(screen.getByRole('button', { name: /もっと別の声を探す/ }));
+
+    // Leda の説明が二重英語表記になっていないこと
+    expect(screen.getByText('若々しい（Youthful）')).toBeInTheDocument();
+    expect(screen.queryByText(/Youthful.*Youthful/)).not.toBeInTheDocument();
+
+    // 基本30声の性別＋雰囲気タグ絞り込み
+    fireEvent.click(within(screen.getByRole('group', { name: '声の性別で絞り込み' })).getByRole('button', { name: '男性' }));
+    expect(within(screen.getByRole('listbox', { name: '声の一覧リスト' })).getByRole('button', { name: /Puck/ })).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole('group', { name: '基本の声の雰囲気タグ' })).getByRole('button', { name: '明るい・元気' }));
+    expect(within(screen.getByRole('listbox', { name: '声の一覧リスト' })).getByRole('button', { name: /Puck/ })).toBeInTheDocument();
+    expect(within(screen.getByRole('listbox', { name: '声の一覧リスト' })).queryByRole('button', { name: /Charon/ })).not.toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole('group', { name: '基本の声の雰囲気タグ' })).getByRole('button', { name: 'すべて' }));
+    fireEvent.click(within(screen.getByRole('group', { name: '声の性別で絞り込み' })).getByRole('button', { name: '全て' }));
+
+    // 追加音声へ切替 → 自動読み込み → 用途タグ＆詳細絞り込み → 清潔な日本語カード表示を確認 → タップで選択＆自動でメイン画面へ戻る
     fireEvent.click(screen.getByRole('button', { name: '追加音声' }));
-    fireEvent.click(screen.getByRole('button', { name: '追加の声を読み込む' }));
     const voiceSelect = screen.getByRole('combobox', { name: '声の選択' });
     await waitFor(() => expect(within(voiceSelect).getByRole('option', { name: /追加の日本語声/ })).toBeInTheDocument());
-    expect(within(voiceSelect).getByRole('option', { name: /ニュース用声/ })).toBeInTheDocument();
-    expect(within(voiceSelect).getByRole('option', { name: /分類なしの声/ })).toBeInTheDocument();
     expect(within(voiceSelect).queryByRole('option', { name: /English narrator|French narrator/ })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '基本の30声' }));
-    fireEvent.click(within(screen.getByRole('group', { name: '声の性別で絞り込み' })).getByRole('button', { name: '男性' }));
-    expect(within(screen.getByRole('listbox', { name: '声の一覧リスト' })).queryByRole('button', { name: /Aoede/ })).not.toBeInTheDocument();
-    expect(within(screen.getByRole('listbox', { name: '声の一覧リスト' })).getByRole('button', { name: /Puck/ })).toBeInTheDocument();
-    expect(screen.getByText('16 件中 16 件表示')).toBeInTheDocument();
-    expect(screen.getByText('選択中')).toBeInTheDocument();
-    fireEvent.click(within(screen.getByRole('group', { name: '声の性別で絞り込み' })).getByRole('button', { name: '全て' }));
-    expect(within(screen.getByRole('listbox', { name: '声の一覧リスト' })).queryByRole('button', { name: /Aoede/ })).not.toBeInTheDocument();
-    expect(screen.getByText('29 件中 29 件表示')).toBeInTheDocument();
+
+    // カード表面に「原文:」ノイズが出ずスッキリ表示されていること
+    const extraList = screen.getByRole('listbox', { name: '声の一覧リスト' });
+    expect(within(extraList).queryByText(/原文:/)).not.toBeInTheDocument();
+
+    // 用途タグで「ニュース・案内」へ絞り込み → 「すべて」へ戻す
+    fireEvent.click(within(screen.getByRole('group', { name: '追加音声の用途タグ' })).getByRole('button', { name: 'ニュース・案内' }));
+    expect(within(voiceSelect).getByRole('option', { name: /ニュース用声/ })).toBeInTheDocument();
     expect(within(voiceSelect).queryByRole('option', { name: /追加の日本語声/ })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '追加音声' }));
+    fireEvent.click(within(screen.getByRole('group', { name: '追加音声の用途タグ' })).getByRole('button', { name: 'すべて' }));
+
+    // 年代タグで「〜20代」と「60代〜」を絞り込み → 「すべて」へ戻す
+    const ageGroup = screen.getByRole('group', { name: '追加音声の年代タグ' });
+    fireEvent.click(within(ageGroup).getByRole('button', { name: '〜20代' }));
+    expect(within(voiceSelect).getByRole('option', { name: /追加の日本語声/ })).toBeInTheDocument();
+    expect(within(voiceSelect).queryByRole('option', { name: /ニュース用声/ })).not.toBeInTheDocument();
+    fireEvent.click(within(ageGroup).getByRole('button', { name: '60代〜' }));
+    expect(within(voiceSelect).getByRole('option', { name: /ニュース用声/ })).toBeInTheDocument();
+    expect(within(voiceSelect).queryByRole('option', { name: /追加の日本語声/ })).not.toBeInTheDocument();
+    fireEvent.click(within(ageGroup).getByRole('button', { name: 'すべて' }));
+
+    // 「細かい職業・分類で絞る」を開いて詳細絞り込みも使える
+    fireEvent.click(screen.getByRole('button', { name: /細かい職業・分類で絞る/ }));
     fireEvent.change(screen.getByRole('combobox', { name: '職業・人物像' }), { target: { value: '教師' } });
     expect(within(voiceSelect).queryByRole('option', { name: /ニュース用声/ })).not.toBeInTheDocument();
-    expect(within(voiceSelect).queryByRole('option', { name: /分類なしの声/ })).not.toBeInTheDocument();
-    expect(within(voiceSelect).getByRole('option', { name: /広告用の教師声/ })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: '教育' })).toBeInTheDocument();
     fireEvent.change(screen.getByRole('combobox', { name: 'シーン・用途' }), { target: { value: '教育' } });
     expect(within(voiceSelect).queryByRole('option', { name: /広告用の教師声/ })).not.toBeInTheDocument();
-    fireEvent.change(screen.getByRole('combobox', { name: '声の選択' }), { target: { value: 'voice_extra' } });
+
+    // タップ選択で onVoiceChange が呼ばれ、自動でメイン画面へ戻り、よく使う声に記録される
+    fireEvent.click(within(screen.getByRole('listbox', { name: '声の一覧リスト' })).getByRole('button', { name: /追加の日本語声/ }));
     expect(onVoiceChange).toHaveBeenCalledWith('voice_extra');
-    rerender(<AiModal {...props} aiVoice="voice_extra" />);
-    expect(within(screen.getByRole('listbox', { name: '声の一覧リスト' })).queryByRole('button', { name: /追加の日本語声/ })).not.toBeInTheDocument();
-
-    fireEvent.change(screen.getByRole('combobox', { name: '言語' }), { target: { value: 'en' } });
-    expect(within(voiceSelect).getByRole('option', { name: /English narrator/ })).toBeInTheDocument();
-    const tutorCard = screen.getByRole('button', { name: /Tutor 6/ });
-    expect(tutorCard).toHaveTextContent('22歳・教育・講師・明瞭・親しみやすい・励ますような');
-    expect(tutorCard.title.replace(/\s+/g, ' ')).toContain('long educational conversations.');
-    expect(tutorCard.title).toContain('\n');
-    expect(tutorCard.title.split('\n').every((line) => [...line].reduce(
-      (width, char) => width + (char.codePointAt(0)! > 0xff ? 2 : 1), 0,
-    ) <= 48)).toBe(true);
-    expect(within(voiceSelect).queryByRole('option', { name: /追加の日本語声|French narrator/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /もっと別の声を探す/ })).toBeInTheDocument();
+    expect(within(screen.getByRole('group', { name: 'よく使う声' })).getByRole('button', { name: /追加の日本語声/ })).toBeInTheDocument();
   });
 
-  it('Gemini 3.8 で用途・目的ドロップダウンの絞り込みと条件リセットが動作する', async () => {
-    localStorage.setItem('turtle-video-gemini-api-key', 'test-key');
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ voices: [
-        { id: 'voice_narration', display_name: '解説ナレーター', type: 'prebuilt', gender: 'female', language_code: 'ja-JP', persona: 'Video Voiceover', context: 'Content & Media' },
-        { id: 'voice_story', display_name: '昔話の語り手', type: 'prebuilt', gender: 'male', language_code: 'ja-JP', persona: 'Storyteller', context: 'Conversational / Edu' },
-      ] }),
+  it('よく使う声の履歴が使用回数順で通常画面に自動表示される', () => {
+    localStorage.setItem(AI_VOICE_USAGE_STORAGE_KEY, JSON.stringify({
+      Sulafat: { id: 'Sulafat', count: 5, lastUsedAt: 200, label: 'Sulafat', gender: 'female', shortLabel: 'あたたかい' },
+      Zephyr: { id: 'Zephyr', count: 2, lastUsedAt: 100, label: 'Zephyr', gender: 'female', shortLabel: '明るい' },
     }));
+
     const onVoiceChange = vi.fn();
-    const props: ComponentProps<typeof AiModal> = {
-      isOpen: true, onClose: vi.fn(), aiPrompt: '', aiScript: 'こんにちは。', aiScriptLength: 'short',
-      aiVoice: 'Aoede', aiVoiceStyle: '', aiNarrationScene: '', aiTtsEngine: 'gemini-3.8-flash-tts',
-      aiTtsTone: 'natural', aiTtsPace: 'normal', aiTtsStyleDetail: '', isAiLoading: false,
-      voiceOptions: [{ id: 'Aoede', label: 'Aoede', desc: '軽やか', gender: 'female', traitEn: 'Breezy' }],
-      onPromptChange: vi.fn(), onScriptChange: vi.fn(), onScriptLengthChange: vi.fn(),
-      onVoiceChange, onVoiceStyleChange: vi.fn(), onNarrationSceneChange: vi.fn(),
-      onTtsEngineChange: vi.fn(), onTtsToneChange: vi.fn(), onTtsPaceChange: vi.fn(),
-      onTtsStyleDetailChange: vi.fn(), onGenerateScript: vi.fn(), onGenerateSpeech: vi.fn(),
-    };
-    render(<AiModal {...props} />);
-    fireEvent.click(screen.getByRole('button', { name: '追加音声' }));
-    fireEvent.click(screen.getByRole('button', { name: '追加の声を読み込む' }));
+    render(<AiModal {...buildBaseProps({ aiVoice: 'Zephyr', onVoiceChange })} />);
 
-    const voiceSelect = screen.getByRole('combobox', { name: '声の選択' });
-    await waitFor(() => expect(within(voiceSelect).getByRole('option', { name: /解説ナレーター/ })).toBeInTheDocument());
-    expect(within(voiceSelect).getByRole('option', { name: /昔話の語り手/ })).toBeInTheDocument();
+    const frequentGroup = screen.getByRole('group', { name: 'よく使う声' });
+    const buttons = within(frequentGroup).getAllByRole('button');
+    expect(buttons[0]).toHaveTextContent('Sulafat');
+    expect(buttons[1]).toHaveTextContent('Zephyr');
 
-    // 「Content & Media」の日本語・英語併記オプションが存在することを確認
-    expect(screen.getByRole('option', { name: /動画・メディアコンテンツ \(Content & Media\)/ })).toBeInTheDocument();
-
-    // 用途・目的ドロップダウンで「Content & Media」に絞り込み
-    fireEvent.change(screen.getByRole('combobox', { name: 'シーン・用途' }), { target: { value: 'Content & Media' } });
-    expect(within(voiceSelect).getByRole('option', { name: /解説ナレーター/ })).toBeInTheDocument();
-    expect(within(voiceSelect).queryByRole('option', { name: /昔話の語り手/ })).not.toBeInTheDocument();
-
-    // カードリストから直接タップして選択
-    fireEvent.click(screen.getByRole('button', { name: /解説ナレーター/ }));
-    expect(onVoiceChange).toHaveBeenCalledWith('voice_narration');
-
-    // 条件をリセット
-    expect(screen.getByRole('button', { name: /条件をリセット/ })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /条件をリセット/ }));
-  });
-
-  it('職業を選択しても用途・目的ドロップダウンの全選択肢が維持され、用途の変更で職業がリセットされる', async () => {
-    localStorage.setItem('turtle-video-gemini-api-key', 'test-key');
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ voices: [
-        { id: 'voice_narration', display_name: '解説ナレーター', type: 'prebuilt', gender: 'female', language_code: 'ja-JP', persona: 'Video Voiceover', context: 'Content & Media' },
-        { id: 'voice_story', display_name: '昔話の語り手', type: 'prebuilt', gender: 'male', language_code: 'ja-JP', persona: 'Storyteller', context: 'Conversational / Edu' },
-      ] }),
-    }));
-    const props: ComponentProps<typeof AiModal> = {
-      isOpen: true, onClose: vi.fn(), aiPrompt: '', aiScript: 'こんにちは。', aiScriptLength: 'short',
-      aiVoice: 'Aoede', aiVoiceStyle: '', aiNarrationScene: '', aiTtsEngine: 'gemini-3.8-flash-tts',
-      aiTtsTone: 'natural', aiTtsPace: 'normal', aiTtsStyleDetail: '', isAiLoading: false,
-      voiceOptions: [{ id: 'Aoede', label: 'Aoede', desc: '軽やか', gender: 'female', traitEn: 'Breezy' }],
-      onPromptChange: vi.fn(), onScriptChange: vi.fn(), onScriptLengthChange: vi.fn(),
-      onVoiceChange: vi.fn(), onVoiceStyleChange: vi.fn(), onNarrationSceneChange: vi.fn(),
-      onTtsEngineChange: vi.fn(), onTtsToneChange: vi.fn(), onTtsPaceChange: vi.fn(),
-      onTtsStyleDetailChange: vi.fn(), onGenerateScript: vi.fn(), onGenerateSpeech: vi.fn(),
-    };
-    render(<AiModal {...props} />);
-    fireEvent.click(screen.getByRole('button', { name: '追加音声' }));
-    fireEvent.click(screen.getByRole('button', { name: '追加の声を読み込む' }));
-
-    const voiceSelect = screen.getByRole('combobox', { name: '声の選択' });
-    await waitFor(() => expect(within(voiceSelect).getByRole('option', { name: /解説ナレーター/ })).toBeInTheDocument());
-
-    const contextSelect = screen.getByRole('combobox', { name: 'シーン・用途' });
-    const personaSelect = screen.getByRole('combobox', { name: '職業・人物像' });
-
-    // 先に職業・人物像で「Video Voiceover」を選択
-    fireEvent.change(personaSelect, { target: { value: 'Video Voiceover' } });
-    expect(personaSelect).toHaveValue('Video Voiceover');
-
-    // 職業を選択していても、用途・目的ドロップダウンには依然としてすべての用途（Content & Media と Conversational / Edu）が残っている
-    expect(within(contextSelect).getByRole('option', { name: /動画・メディアコンテンツ/ })).toBeInTheDocument();
-    expect(within(contextSelect).getByRole('option', { name: /会話・教育・学習/ })).toBeInTheDocument();
-
-    // 直接用途を「Conversational / Edu」に切り替えると、前の職業が自動リセットされ、用途に属する声が表示される
-    fireEvent.change(contextSelect, { target: { value: 'Conversational / Edu' } });
-    expect(personaSelect).toHaveValue('');
-    expect(within(voiceSelect).getByRole('option', { name: /昔話の語り手/ })).toBeInTheDocument();
-    expect(within(voiceSelect).queryByRole('option', { name: /解説ナレーター/ })).not.toBeInTheDocument();
-  });
-
-  it('追加の話し方にアニメ調やドキュメンタリー風などの演出チップが表示され、クリックで設定される', () => {
-    const onTtsStyleDetailChange = vi.fn();
-    const props: ComponentProps<typeof AiModal> = {
-      isOpen: true, onClose: vi.fn(), aiPrompt: '', aiScript: 'こんにちは。', aiScriptLength: 'short',
-      aiVoice: 'Aoede', aiVoiceStyle: '', aiNarrationScene: '', aiTtsEngine: 'gemini-3.8-flash-tts',
-      aiTtsTone: 'natural', aiTtsPace: 'normal', aiTtsStyleDetail: '', isAiLoading: false,
-      voiceOptions: [{ id: 'Aoede', label: 'Aoede', desc: '軽やか', gender: 'female', traitEn: 'Breezy' }],
-      onPromptChange: vi.fn(), onScriptChange: vi.fn(), onScriptLengthChange: vi.fn(),
-      onVoiceChange: vi.fn(), onVoiceStyleChange: vi.fn(), onNarrationSceneChange: vi.fn(),
-      onTtsEngineChange: vi.fn(), onTtsToneChange: vi.fn(), onTtsPaceChange: vi.fn(),
-      onTtsStyleDetailChange, onGenerateScript: vi.fn(), onGenerateSpeech: vi.fn(),
-    };
-    render(<AiModal {...props} />);
-
-    const animeChip = screen.getByRole('button', { name: '＋ アニメ調でコミカルに' });
-    expect(animeChip).toBeInTheDocument();
-    fireEvent.click(animeChip);
-    expect(onTtsStyleDetailChange).toHaveBeenCalledWith('アニメ調でコミカルに');
+    fireEvent.click(buttons[0]);
+    expect(onVoiceChange).toHaveBeenCalledWith('Sulafat');
   });
 });

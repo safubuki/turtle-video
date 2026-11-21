@@ -832,6 +832,174 @@ export function wrapVoiceTooltip(text: string, maxLineLength = 48): string {
   return lines.join('\n');
 }
 
+export type BasicVoiceMoodGroup =
+  | 'all'
+  | 'bright'
+  | 'calm'
+  | 'clear'
+  | 'character';
+
+export const BASIC_VOICE_MOOD_GROUPS: ReadonlyArray<{ id: BasicVoiceMoodGroup; label: string }> = [
+  { id: 'all', label: 'すべて' },
+  { id: 'bright', label: '明るい・元気' },
+  { id: 'calm', label: '優しい・落ち着き' },
+  { id: 'clear', label: 'はっきり・解説' },
+  { id: 'character', label: '若々しい・大人・渋い' },
+];
+
+const BASIC_MOOD_TRAITS: Record<Exclude<BasicVoiceMoodGroup, 'all'>, ReadonlySet<string>> = {
+  bright: new Set(['bright', 'upbeat', 'excitable', 'lively', 'forward', 'breezy']),
+  calm: new Set(['soft', 'gentle', 'warm', 'smooth', 'easy-going', 'even', 'breathy', 'casual', 'friendly']),
+  clear: new Set(['clear', 'firm', 'informative', 'knowledgeable']),
+  character: new Set(['youthful', 'mature', 'gravelly']),
+};
+
+/** 基本30声が指定した雰囲気タグに該当するか判定する */
+export function voiceMatchesBasicMood(
+  voice: { traitEn?: string; desc?: string },
+  mood: BasicVoiceMoodGroup,
+): boolean {
+  if (mood === 'all') return true;
+  const trait = (voice.traitEn ?? '').trim().toLowerCase();
+  if (trait && BASIC_MOOD_TRAITS[mood].has(trait)) return true;
+  return false;
+}
+
+export type ExtraVoiceAgeGroup =
+  | 'all'
+  | 'young'
+  | 'thirties'
+  | 'middle'
+  | 'senior';
+
+export const EXTRA_VOICE_AGE_GROUPS: ReadonlyArray<{ id: ExtraVoiceAgeGroup; label: string }> = [
+  { id: 'all', label: 'すべて' },
+  { id: 'young', label: '〜20代' },
+  { id: 'thirties', label: '30代' },
+  { id: 'middle', label: '40〜50代' },
+  { id: 'senior', label: '60代〜' },
+];
+
+/** 追加音声の説明文から年齢（整数）を抽出する */
+export function extractVoiceAge(voice: Pick<Gemini38Voice, 'description'>): number | null {
+  const text = voice.description.trim();
+  if (!text) return null;
+  const match = text.match(/\b(\d{1,3})-year-old\b/i) ?? text.match(/(\d{1,3})\s*歳/);
+  if (!match) return null;
+  const age = Number.parseInt(match[1], 10);
+  return Number.isFinite(age) && age > 0 && age < 130 ? age : null;
+}
+
+/** 追加音声が指定した年代チップに該当するか判定する */
+export function voiceMatchesAgeGroup(
+  voice: Pick<Gemini38Voice, 'description' | 'persona'>,
+  group: ExtraVoiceAgeGroup,
+): boolean {
+  if (group === 'all') return true;
+  const age = extractVoiceAge(voice);
+  if (age !== null) {
+    switch (group) {
+      case 'young':
+        return age <= 29;
+      case 'thirties':
+        return age >= 30 && age <= 39;
+      case 'middle':
+        return age >= 40 && age <= 59;
+      case 'senior':
+        return age >= 60;
+    }
+  }
+  const text = `${voice.persona} ${voice.description}`.toLowerCase();
+  switch (group) {
+    case 'young':
+      return /\b(young|youth|teen|teenager|twenties|20s)\b|若|20代|10代/.test(text);
+    case 'thirties':
+      return /\b(thirties|30s)\b|30代/.test(text);
+    case 'middle':
+      return /\b(middle-aged|forties|fifties|40s|50s|mature)\b|40代|50代|中年/.test(text);
+    case 'senior':
+      return /\b(elderly|senior|grandparent|grandfather|grandmother|sixties|seventies|60s|70s)\b|シニア|祖父|祖母|高齢|60代/.test(text);
+    default:
+      return true;
+  }
+}
+
+/**
+ * 追加音声カードをノイズなく簡潔な日本語2行へ整形する。
+ * 英語の原文・二重表記はツールチップへ逃がし、一目で声の人物像と特徴が分かるようにする。
+ */
+export interface CompactExtraVoiceCardInfo {
+  /** カード主見出し（例: "研究員・リサーチャー" / "親友" / "医師"） */
+  primaryTitle: string;
+  /** 年齢バッジ（例: "62歳"、不明時は空文字） */
+  ageLabel: string;
+  /** 2行目の簡潔な日本語サマリー（例: "ビジネス案内 · 明瞭"） */
+  summaryLine: string;
+  /** 控えめに添える元の英語声名（例: "Authoritative Advisor 11"） */
+  rawName: string;
+}
+
+export function formatCompactExtraVoiceCard(voice: Gemini38Voice): CompactExtraVoiceCardInfo {
+  const personaFull = formatPersonaLabel(voice.persona);
+  // "専門家・顧問: 研究員・リサーチャー (Researcher)" → 具体的な役割 "研究員・リサーチャー" を優先
+  const stripParens = (s: string) => s.replace(/\s*[（(][^）)]*[）)]\s*/g, '').trim();
+  let primaryTitle = '';
+  let categoryFallback = '';
+  if (personaFull) {
+    const colonIdx = personaFull.indexOf(':');
+    if (colonIdx >= 0) {
+      categoryFallback = stripParens(personaFull.slice(0, colonIdx));
+      primaryTitle = stripParens(personaFull.slice(colonIdx + 1));
+    } else {
+      primaryTitle = stripParens(personaFull);
+    }
+  }
+  const contextShort = stripParens(formatContextLabel(voice.context));
+  if (!primaryTitle) {
+    primaryTitle = contextShort || voice.label;
+  }
+
+  const original = voice.description.trim();
+  const ageMatch = original.match(/\b(\d{1,3})-year-old\b/i);
+  const ageLabel = ageMatch ? `${ageMatch[1]}歳` : '';
+
+  const traitMatchers: Array<[RegExp, string]> = [
+    [/\bclear(?:ly)?\b/i, '明瞭'],
+    [/\bfriendly\b/i, '親しみやすい'],
+    [/\bencouraging\b/i, '励ますような'],
+    [/\bwarm\b/i, '温かい'],
+    [/\bcalm\b/i, '落ち着いた'],
+    [/\bmeasured\b/i, 'ゆったり'],
+    [/\bexpressive\b/i, '表現豊か'],
+    [/\benergetic|upbeat|lively\b/i, '元気'],
+    [/\bauthoritative|confident\b/i, '説得力'],
+    [/\bgentle|soft\b/i, 'やわらかい'],
+  ];
+  const traits = traitMatchers
+    .filter(([pattern]) => pattern.test(original))
+    .map(([, label]) => label)
+    .slice(0, 3);
+
+  const summaryParts: string[] = [];
+  const contextOrCategory = contextShort || categoryFallback;
+  if (contextOrCategory && contextOrCategory !== primaryTitle) {
+    summaryParts.push(contextOrCategory);
+  }
+  for (const trait of traits) {
+    if (!summaryParts.includes(trait)) {
+      summaryParts.push(trait);
+    }
+  }
+  const summaryLine = summaryParts.join(' · ');
+
+  return {
+    primaryTitle,
+    ageLabel,
+    summaryLine,
+    rawName: voice.label,
+  };
+}
+
 /**
  * 音声が指定された用途グループにマッチするか判定する（互換用）。
  */
@@ -842,15 +1010,15 @@ export function voiceMatchesPurposeGroup(voice: Gemini38Voice, group: VoicePurpo
 
   switch (group) {
     case 'narration':
-      return /video|narrat|documentary|explainer|teach|educat|instruct|corporate|e-learning|presenter|profess|academic|technical|content/i.test(targetText);
+      return /video|narrat|documentary|explainer|teach|educat|\bedu\b|tutor|training|instruct|corporate|e-learning|presenter|profess|academic|technical|content|ナレー|解説|教育|教師|講師|研修|学習|動画|ドキュメンタリー|説明|指導/i.test(targetText);
     case 'storytelling':
-      return /story|audiobook|fiction|book|tale|bedtime|poet|drama|literature/i.test(targetText);
+      return /story|audiobook|fiction|book|tale|bedtime|poet|drama|literature|物語|朗読|小説|読み聞かせ|ストーリー|ドラマ|昔話/i.test(targetText);
     case 'commercial':
-      return /commercial|advertis|promo|market|sales|pitch|infomercial|growth/i.test(targetText);
+      return /commercial|advertis|promo|market|sales|pitch|infomercial|growth|広告|宣伝|セールス|営業|プロモ|販促|告知|\bcm\b|\bpr\b/i.test(targetText);
     case 'character':
-      return /casual|conversat|assistant|game|gaming|companion|character|hero|villain|youth|friend|sidekick|entertainment/i.test(targetText);
+      return /casual|conversat|assistant|game|gaming|companion|character|hero|villain|youth|friend|sidekick|entertainment|会話|対話|友人|親友|アシスタント|キャラ|ゲーム|エンタメ|日常|相棒/i.test(targetText);
     case 'announcement':
-      return /news|anchor|reporter|journalist|public|broadcast|ivr|phone|operator|tour|museum|meditation|wellness|customer|enterprise/i.test(targetText);
+      return /news|anchor|reporter|journalist|public|broadcast|podcast|radio|ivr|phone|operator|tour|museum|meditation|wellness|customer|enterprise|concierge|support|advisor|ニュース|アナウン|案内|放送|報道|企業|ビジネス|サポート|窓口|専門家|顧問|コンシェルジュ|瞑想|ウェルネス|ガイド/i.test(targetText);
     default:
       return true;
   }

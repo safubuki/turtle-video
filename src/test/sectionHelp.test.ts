@@ -46,6 +46,7 @@ describe('sectionHelp support messaging', () => {
     );
 
     expect(titles).not.toContain('ロゴ表示（ウォーターマーク / エンドロール）');
+    expect(titles).not.toContain('現在位置で分割（Android/PC版）');
     expect(titles).not.toContain('AI原稿からキャプションカードを追加');
     expect(titles).not.toContain('タイトル（キャプションとは別管理）');
     expect(titles).not.toContain('サムネイル（プロジェクト全体）');

@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   VOICE_PURPOSE_GROUPS,
+  extractVoiceAge,
+  formatCompactExtraVoiceCard,
   formatContextLabel,
   formatPersonaLabel,
   getContextSelectOptions,
   getPersonaSelectOptions,
+  voiceMatchesAgeGroup,
+  voiceMatchesBasicMood,
   voiceMatchesPurposeGroup,
 } from '../utils/gemini38VoiceCategories';
 import type { Gemini38Voice } from '../utils/gemini38Voices';
@@ -256,5 +260,81 @@ describe('gemini38VoiceCategories', () => {
     expect(optionsForTeacher).toEqual([
       { value: 'Education', label: '教育・学習 (Education)', count: 1 },
     ]);
+  });
+
+  it('voiceMatchesPurposeGroup は日本語の persona・context や Google API の実分類にも一致する', () => {
+    const jaNewsVoice: Gemini38Voice = {
+      id: 'voice_news',
+      label: 'ニュース用声',
+      description: '',
+      gender: 'female',
+      languageCode: 'ja-JP',
+      persona: 'アナウンサー',
+      context: 'ニュース',
+      type: 'prebuilt',
+    };
+    const jaTeacherVoice: Gemini38Voice = {
+      id: 'voice_teacher',
+      label: '追加の日本語声',
+      description: '',
+      gender: 'female',
+      languageCode: 'ja-JP',
+      persona: '教師',
+      context: '教育',
+      type: 'prompted',
+    };
+    expect(voiceMatchesPurposeGroup(jaNewsVoice, 'announcement')).toBe(true);
+    expect(voiceMatchesPurposeGroup(jaNewsVoice, 'narration')).toBe(false);
+    expect(voiceMatchesPurposeGroup(jaTeacherVoice, 'narration')).toBe(true);
+    expect(voiceMatchesPurposeGroup(jaTeacherVoice, 'announcement')).toBe(false);
+  });
+
+  it('voiceMatchesBasicMood は基本30声を雰囲気タグ別に正しく絞り込む', () => {
+    expect(voiceMatchesBasicMood({ traitEn: 'Bright' }, 'bright')).toBe(true);
+    expect(voiceMatchesBasicMood({ traitEn: 'Bright' }, 'calm')).toBe(false);
+    expect(voiceMatchesBasicMood({ traitEn: 'Soft' }, 'calm')).toBe(true);
+    expect(voiceMatchesBasicMood({ traitEn: 'Informative' }, 'clear')).toBe(true);
+    expect(voiceMatchesBasicMood({ traitEn: 'Youthful' }, 'character')).toBe(true);
+    expect(voiceMatchesBasicMood({ traitEn: 'Gravelly' }, 'all')).toBe(true);
+  });
+
+  it('formatCompactExtraVoiceCard は英語原文や重複を除いた簡潔な日本語カード情報へ整形する', () => {
+    const advisorVoice: Gemini38Voice = {
+      id: 'advisor_11',
+      label: 'Authoritative Advisor 11',
+      description: '62-year-old Researcher with a clear and calm delivery.',
+      gender: 'female',
+      languageCode: 'ja-JP',
+      persona: 'High-Trust Advisor / Authoritative Advisor (Researcher)',
+      context: 'Enterprise Agent',
+      type: 'prebuilt',
+    };
+    const compact = formatCompactExtraVoiceCard(advisorVoice);
+    expect(compact.primaryTitle).toBe('研究員・リサーチャー');
+    expect(compact.ageLabel).toBe('62歳');
+    expect(compact.summaryLine).toBe('企業・ビジネス案内 · 明瞭 · 落ち着いた');
+    expect(compact.summaryLine).not.toContain('原文:');
+    expect(compact.summaryLine).not.toContain('Enterprise Agent');
+    expect(compact.rawName).toBe('Authoritative Advisor 11');
+  });
+
+  it('extractVoiceAge と voiceMatchesAgeGroup は年齢表記やキーワードから年代別に正しく絞り込む', () => {
+    const youngVoice = { description: '22-year-old Best Friend with a clear voice.', persona: 'Best Friend' };
+    const thirtiesVoice = { description: '36-year-old Parent speaking warmly.', persona: 'Parent' };
+    const middleVoice = { description: '50-year-old Doctor from Tokyo.', persona: 'Doctor' };
+    const seniorVoice = { description: '62-year-old Researcher with a calm voice.', persona: 'Researcher' };
+    const keywordSenior = { description: 'Warm storytelling voice.', persona: 'Grandparent' };
+
+    expect(extractVoiceAge(youngVoice)).toBe(22);
+    expect(extractVoiceAge(seniorVoice)).toBe(62);
+    expect(extractVoiceAge(keywordSenior)).toBeNull();
+
+    expect(voiceMatchesAgeGroup(youngVoice, 'young')).toBe(true);
+    expect(voiceMatchesAgeGroup(youngVoice, 'senior')).toBe(false);
+    expect(voiceMatchesAgeGroup(thirtiesVoice, 'thirties')).toBe(true);
+    expect(voiceMatchesAgeGroup(middleVoice, 'middle')).toBe(true);
+    expect(voiceMatchesAgeGroup(seniorVoice, 'senior')).toBe(true);
+    expect(voiceMatchesAgeGroup(keywordSenior, 'senior')).toBe(true);
+    expect(voiceMatchesAgeGroup(keywordSenior, 'all')).toBe(true);
   });
 });

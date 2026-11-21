@@ -312,6 +312,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
   const applyNarrationNormalizeGains = useAudioStore((s) => s.applyNarrationNormalizeGains);
   const setAllNarrationsMuted = useAudioStore((s) => s.setAllNarrationsMuted);
   const addNarration = useAudioStore((s) => s.addNarration);
+  const splitNarration = useAudioStore((s) => s.splitNarration);
   const updateNarrationStartTime = useAudioStore((s) => s.updateNarrationStartTime);
   const updateNarrationVolume = useAudioStore((s) => s.updateNarrationVolume);
   const toggleNarrationMute = useAudioStore((s) => s.toggleNarrationMute);
@@ -3358,6 +3359,11 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     setNarrationEndTime(id, currentTimeRef.current);
   }, [pausePreviewBeforeEdit, setNarrationEndTime]);
 
+  const handleSplitNarration = useCallback((id: string) => {
+    pausePreviewBeforeEdit('split-narration');
+    splitNarration(id, currentTimeRef.current);
+  }, [pausePreviewBeforeEdit, splitNarration]);
+
   // 音量はドラッグ中に連続発火するため一時停止しない（withoutPreviewPause の説明を参照）
   const handleUpdateNarrationVolume = useCallback((id: string, val: string) => {
     const numVal = parseFloat(val);
@@ -4833,6 +4839,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
               onUpdateStartTime={handleUpdateNarrationStart}
               onSetStartTimeToCurrent={handleSetNarrationStartToCurrent}
               onSetEndTimeToCurrent={handleSetNarrationEndToCurrent}
+              onSplitNarration={handleSplitNarration}
               onUpdateVolume={handleUpdateNarrationVolume}
               onToggleMute={handleToggleNarrationMute}
               onUpdateTrimStart={handleUpdateNarrationTrimStart}

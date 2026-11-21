@@ -109,6 +109,70 @@ export const NARRATION_TONE_PRESETS = [
 
 export type NarrationTonePresetId = (typeof NARRATION_TONE_PRESETS)[number]['id'];
 
+/**
+ * Gemini 3.8 TTS 公式インライン瞬間タグ（カーソル位置へワンタップ挿入）。
+ * 範囲マーカー《…》《/》と明確に区別するため、原稿上では【…】表記を使い、
+ * TTS 送信時に公式の英語 <...> タグへ変換、キャプション生成時は自動除去する。
+ */
+export const NARRATION_INLINE_EVENT_PRESETS = [
+  { id: 'short-pause', label: '少し間', marker: '【少し間】', tag: '<short pause>' },
+  { id: 'long-pause', label: '長めの間', marker: '【長めの間】', tag: '<long pause>' },
+  { id: 'sigh', label: 'ため息', marker: '【ため息】', tag: '<sigh>' },
+  { id: 'laugh', label: '笑い', marker: '【笑い】', tag: '<laugh>' },
+] as const;
+
+export type NarrationInlineEventGroup = '息づかい・驚き' | '笑い・しぐさ' | '感情';
+
+export interface NarrationExtraInlineEventPreset {
+  id: string;
+  label: string;
+  marker: string;
+  tag: string;
+  group: NarrationInlineEventGroup;
+}
+
+/** 「その他」メニューからワンタップ挿入できる追加の公式インラインタグ */
+export const NARRATION_EXTRA_INLINE_EVENT_PRESETS: ReadonlyArray<NarrationExtraInlineEventPreset> = [
+  // 息づかい・驚き
+  { id: 'breath', label: 'ひと呼吸', marker: '【ひと呼吸】', tag: '<breath>', group: '息づかい・驚き' },
+  { id: 'heavy-breath', label: '深呼吸', marker: '【深呼吸】', tag: '<heavy breath>', group: '息づかい・驚き' },
+  { id: 'gasp', label: 'ハッと驚く', marker: '【ハッと驚く】', tag: '<gasp>', group: '息づかい・驚き' },
+  { id: 'phew', label: 'ホッと一息', marker: '【ホッと一息】', tag: '<phew>', group: '息づかい・驚き' },
+  { id: 'yawn', label: 'あくび', marker: '【あくび】', tag: '<yawn>', group: '息づかい・驚き' },
+  { id: 'pant', label: '息切れ', marker: '【息切れ】', tag: '<pant>', group: '息づかい・驚き' },
+  // 笑い・しぐさ
+  { id: 'chuckle', label: 'くすっと笑い', marker: '【くすっと笑い】', tag: '<chuckle>', group: '笑い・しぐさ' },
+  { id: 'giggle', label: 'くすくす笑い', marker: '【くすくす笑い】', tag: '<giggle>', group: '笑い・しぐさ' },
+  { id: 'cough', label: '咳払い', marker: '【咳払い】', tag: '<cough>', group: '笑い・しぐさ' },
+  { id: 'throat-clearing', label: 'えへん', marker: '【えへん】', tag: '<throat-clearing>', group: '笑い・しぐさ' },
+  { id: 'sneeze', label: 'くしゃみ', marker: '【くしゃみ】', tag: '<sneeze>', group: '笑い・しぐさ' },
+  { id: 'tsk', label: '舌打ち', marker: '【舌打ち】', tag: '<tsk>', group: '笑い・しぐさ' },
+  // 感情
+  { id: 'cheer', label: '歓声', marker: '【歓声】', tag: '<cheer>', group: '感情' },
+  { id: 'sob', label: 'すすり泣き', marker: '【すすり泣き】', tag: '<sob>', group: '感情' },
+  { id: 'groan', label: 'うめき', marker: '【うめき】', tag: '<groan>', group: '感情' },
+];
+
+export const ALL_NARRATION_INLINE_EVENT_PRESETS: ReadonlyArray<{
+  id: string;
+  label: string;
+  marker: string;
+  tag: string;
+}> = [
+  ...NARRATION_INLINE_EVENT_PRESETS,
+  ...NARRATION_EXTRA_INLINE_EVENT_PRESETS,
+];
+
+export type NarrationInlineEventPresetId = (typeof NARRATION_INLINE_EVENT_PRESETS)[number]['id'];
+
+const INLINE_EVENT_JA_LABELS_PATTERN = ALL_NARRATION_INLINE_EVENT_PRESETS
+  .map((preset) => preset.marker.replace(/^【|】$/g, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  .join('|');
+
+/** 原稿内の【少し間】等の瞬間タグ（および公式英語 <...> 瞬間タグ全般）を検出する正規表現 */
+const INLINE_EVENT_JA_RE = new RegExp(`【(${INLINE_EVENT_JA_LABELS_PATTERN})】`, 'g');
+const INLINE_EVENT_EN_RE = /<(?:short pause|long pause|argh|breath|heavy breath|exhales|cackle|cheer|chuckle|chuckles|cough|cry|gasp|giggle|groan|growl|laugh|laughter|moan|pant|pff|phew|shout|shriek|sigh|sighs|sneeze|snicker|snort|sob|throat-clearing|tsk|whimper|whispers|whispering|yawn)>/gi;
+
 /** 過去のプリセット互換テーブル */
 const LEGACY_TONE_PRESETS: ReadonlyArray<{ id: string; label: string; tag: string }> = [
   { id: 'bright', label: '明るく', tag: 'bright' },
@@ -416,11 +480,63 @@ export function parseDeliveryMarkup(script: string): DeliverySegment[] {
   return segments.filter((s) => s.text.length > 0);
 }
 
-/** 語り口調マーカーを除いた平文（キャプション生成・表示用） */
+/** 瞬間タグ（【少し間】等および英語 <short pause> 等）を除去した平文を返す */
+export function stripInlineEventMarkers(text: string): string {
+  return (text ?? '')
+    .replace(INLINE_EVENT_JA_RE, '')
+    .replace(INLINE_EVENT_EN_RE, '');
+}
+
+/** 原稿内の日本語瞬間タグ【少し間】等を Gemini 3.8 TTS 公式英語インラインタグ <short pause> 等へ変換する */
+export function convertInlineEventMarkersToTtsTags(text: string): string {
+  const source = text ?? '';
+  if (!source) return '';
+  let converted = source;
+  for (const preset of ALL_NARRATION_INLINE_EVENT_PRESETS) {
+    if (converted.includes(preset.marker)) {
+      converted = converted.split(preset.marker).join(` ${preset.tag} `);
+    }
+  }
+  return converted.replace(/[ \t]{2,}/g, ' ');
+}
+
+/** カーソル位置（範囲選択中なら選択末尾）へ瞬間タグを挿入する */
+export function insertInlineEventMarker(
+  script: string,
+  selectionStart: number,
+  selectionEnd: number,
+  marker: string,
+): WrapToneResult {
+  const source = script ?? '';
+  const { end } = clampRange(selectionStart, selectionEnd, source.length);
+  if (!marker) return { text: source, caret: end };
+  const next = source.slice(0, end) + marker + source.slice(end);
+  return { text: next, caret: end + marker.length };
+}
+
+/** 原稿内で使用されている瞬間タグのラベル一覧（重複除去・出現順） */
+export function listAppliedInlineEventLabels(script: string): string[] {
+  const source = script ?? '';
+  const seen = new Set<string>();
+  const labels: string[] = [];
+  INLINE_EVENT_JA_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = INLINE_EVENT_JA_RE.exec(source)) !== null) {
+    const label = match[1];
+    if (label && !seen.has(label)) {
+      seen.add(label);
+      labels.push(label);
+    }
+  }
+  return labels;
+}
+
+/** 語り口調マーカーおよび瞬間タグを除いた平文（キャプション生成・表示用） */
 export function stripDeliveryMarkers(script: string): string {
-  return parseDeliveryMarkup(script)
+  const withoutRange = parseDeliveryMarkup(script)
     .map((s) => s.text)
     .join('');
+  return stripInlineEventMarkers(withoutRange);
 }
 
 /** 適用中の語り口調ラベル一覧（重複除去・出現順） */
