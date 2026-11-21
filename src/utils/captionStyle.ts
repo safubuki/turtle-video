@@ -139,22 +139,36 @@ export const CAPTION_POSITION_CUSTOM_DEFAULT_PORTRAIT = {
 
 /**
  * キャプション／タイトルのレイアウト基準（px）。
- * 短辺を 1080 とみなしてスケールする（横 16:9 / 縦 9:16 で文字の見た目比率を揃える）。
- * 高さだけを基準にすると縦画面で文字が約 1.78 倍になりすぎる。
+ * 16:9（1920×1080）および 9:16（1080×1920）では短辺 1080 かつ面積の幾何平均 1440（√(1920×1080)）で
+ * ちょうど scale = 1.0 となる。
  */
 export const CAPTION_REFERENCE_SIZE = 1080;
 
 /**
+ * 16:9 / 9:16 FHD（1920×1080）の画面面積から求めた基準一辺（√(1920×1080) = 1440px）。
+ * 正方形（1:1）や 4:3 など正方形に近いアスペクト比で短辺基準だけを使うと、
+ * 画面全体の広さに対する文字の占有率が最大約 1.78 倍まで膨らんで大きく見えてしまうため、
+ * 面積基準（√(w×h) / 1440）との小さい方を採用する。
+ */
+export const CAPTION_REFERENCE_AREA_SIDE = 1440;
+
+/**
  * キャンバス寸法からレイアウトスケールを求める。
- * 短辺 / 1080。プレビュー 720p と export 1080p の WYSIWYG を保ちつつ、
- * 縦画面でも横画面と同程度の文字サイズになる。
+ *
+ * - 横 16:9（1920×1080 / 1280×720）と縦 9:16（1080×1920 / 720×1280）は従来と同じく 1.0 / 0.667 になる。
+ * - 正方形（1:1）や 4:3・4:5 では面積基準（√(w×h)/1440）が効き、16:9 と同じ画面占有感に揃う
+ *   （例: 1080×1080 → 0.75、720×720 → 0.50、480×480 → 0.333）。
+ * - 21:9 などの超ワイド・超縦長では短辺基準（min(w, h)/1080）が効き、上下・左右のはみ出しを防ぐ。
+ * - どのアスペクト比でも同一比率であれば解像度の高低（プレビュー・書き出し・低解像度素材）に依らず
+ *   キャンバス寸法に対する文字サイズの割合は完全に一定（WYSIWYG）になる。
  */
 export function resolveCaptionLayoutScale(canvasWidth: number, canvasHeight: number): number {
-  const shortSide = Math.min(
-    Number.isFinite(canvasWidth) ? canvasWidth : 0,
-    Number.isFinite(canvasHeight) ? canvasHeight : 0,
-  );
-  return Math.max(0.1, shortSide / CAPTION_REFERENCE_SIZE);
+  const w = Number.isFinite(canvasWidth) && canvasWidth > 0 ? canvasWidth : 0;
+  const h = Number.isFinite(canvasHeight) && canvasHeight > 0 ? canvasHeight : 0;
+  if (w <= 0 || h <= 0) return 0.1;
+  const shortSideScale = Math.min(w, h) / CAPTION_REFERENCE_SIZE;
+  const areaScale = Math.sqrt(w * h) / CAPTION_REFERENCE_AREA_SIDE;
+  return Math.max(0.05, Math.min(shortSideScale, areaScale));
 }
 
 /** キャンバスが縦長（9:16 等）かどうか */

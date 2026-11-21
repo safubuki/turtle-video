@@ -142,25 +142,55 @@ describe('caption text alignment', () => {
 });
 
 describe('resolveCaptionLayoutScale', () => {
-  it('横画面は高さ（短辺）を基準にスケールする', () => {
+  it('横画面（16:9）は従来どおり 1080p=1.0 / 720p=720/1080 を維持する', () => {
     expect(resolveCaptionLayoutScale(1920, 1080)).toBeCloseTo(1, 5);
     expect(resolveCaptionLayoutScale(1280, 720)).toBeCloseTo(720 / 1080, 5);
   });
 
-  it('縦画面も短辺（幅）を基準にし、高さ基準より小さくする', () => {
+  it('縦画面（9:16）も従来どおり 1080×1920=1.0 / 720×1280=720/1080 を維持する', () => {
     // 旧実装: height/1080 ≈ 1.78 → 文字が大きくなりすぎる
     expect(resolveCaptionLayoutScale(1080, 1920)).toBeCloseTo(1, 5);
     expect(resolveCaptionLayoutScale(720, 1280)).toBeCloseTo(720 / 1080, 5);
     expect(resolveCaptionLayoutScale(1080, 1920)).toBeLessThan(1920 / 1080);
   });
 
-  it('正方形・4:3・21:9 など素材に合わせる比率でも短辺に対する比率を一定に保つ', () => {
-    expect(resolveCaptionLayoutScale(1080, 1080)).toBeCloseTo(1, 5);
-    expect(resolveCaptionLayoutScale(720, 720)).toBeCloseTo(720 / 1080, 5);
-    expect(resolveCaptionLayoutScale(1440, 1080)).toBeCloseTo(1, 5);
-    expect(resolveCaptionLayoutScale(1080, 1440)).toBeCloseTo(1, 5);
+  it('正方形・4:3・4:5 など正方形に近い比率は面積基準で過大表示を抑え、21:9 は短辺基準を維持する', () => {
+    // 正方形 1:1: √(w*h)/1440 = s/1440（1080×1080 で 0.75、画面面積に対する文字比が 16:9 と一致）
+    expect(resolveCaptionLayoutScale(1080, 1080)).toBeCloseTo(0.75, 5);
+    expect(resolveCaptionLayoutScale(720, 720)).toBeCloseTo(0.5, 5);
+    expect(resolveCaptionLayoutScale(480, 480)).toBeCloseTo(480 / 1440, 5);
+
+    // 4:3 / 3:4 / 4:5: 正方形寄りでも画面面積に対して一定の見た目サイズになる
+    expect(resolveCaptionLayoutScale(1440, 1080)).toBeCloseTo(Math.sqrt(1440 * 1080) / 1440, 5);
+    expect(resolveCaptionLayoutScale(1080, 1440)).toBeCloseTo(Math.sqrt(1080 * 1440) / 1440, 5);
+    expect(resolveCaptionLayoutScale(1080, 1350)).toBeCloseTo(Math.sqrt(1080 * 1350) / 1440, 5);
+
+    // 21:9 のような超ワイドは短辺基準が効き、縦方向にはみ出さない
     expect(resolveCaptionLayoutScale(1920, 824)).toBeCloseTo(824 / 1080, 5);
     expect(resolveCaptionLayoutScale(1280, 550)).toBeCloseTo(550 / 1080, 5);
+  });
+
+  it('同じアスペクト比なら高解像度・プレビュー・低解像度で画面幅に対する文字サイズ比率が完全に一致する', () => {
+    // 正方形 1:1 の各解像度
+    const sqHighRatio = resolveCaptionLayoutScale(1080, 1080) / 1080;
+    const sqPreviewRatio = resolveCaptionLayoutScale(720, 720) / 720;
+    const sqLowRatio = resolveCaptionLayoutScale(480, 480) / 480;
+    const sqTinyRatio = resolveCaptionLayoutScale(240, 240) / 240;
+    expect(sqPreviewRatio).toBeCloseTo(sqHighRatio, 6);
+    expect(sqLowRatio).toBeCloseTo(sqHighRatio, 6);
+    expect(sqTinyRatio).toBeCloseTo(sqHighRatio, 6);
+
+    // 4:3 の各解像度
+    const r43High = resolveCaptionLayoutScale(1440, 1080) / 1440;
+    const r43Mid = resolveCaptionLayoutScale(960, 720) / 960;
+    const r43Low = resolveCaptionLayoutScale(640, 480) / 640;
+    expect(r43Mid).toBeCloseTo(r43High, 6);
+    expect(r43Low).toBeCloseTo(r43High, 6);
+
+    // 16:9 と 1:1 で文字面積比（scale^2 / (w*h)）が一致する
+    const areaRatio16x9 = (resolveCaptionLayoutScale(1920, 1080) ** 2) / (1920 * 1080);
+    const areaRatio1x1 = (resolveCaptionLayoutScale(1080, 1080) ** 2) / (1080 * 1080);
+    expect(areaRatio1x1).toBeCloseTo(areaRatio16x9, 8);
   });
 });
 
