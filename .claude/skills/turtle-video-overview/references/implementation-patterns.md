@@ -5525,7 +5525,7 @@ export 終了（成功/失敗/中断）
   - 「一括クリア」はプロジェクト全体のリセット操作であるにもかかわらずプレビュー最下部に置かれていた。
 - **対策**:
   - `PreviewSection.tsx` に `useIsDesktopTwoColumn()`（`matchMedia('(min-width: 1024px)')`）を導入し、DOM 重複を避けながら PC（`>= 1024px`）ではプレビューヘッダー右側のみ、モバイル（`< 1024px`）ではプレビュー下部のみに枠なし単色ブルーの角丸四角（`rounded-xl` ＋ `Clapperboard` アイコン）の「動画ファイルを作成」トリガーボタンを配置。
-  - 書き出し開始（`isProcessing`）〜完了（`exportUrl`）の間は PC・スマホ共通で画面中央の `ExportStatusModal`（`createPortal`, `z-[350]`, `bg-black/75 backdrop-blur-sm`）を表示。書き出し中はモーダル内の軽量モニター `<canvas>` へ本番プレビュー Canvas から約 12.5fps（80ms 間隔・長辺最大 480px）で縮小ミラー描画し、専用プログレスバー（準備中は `0%` 固定＋待機パルスから開始し、`0% → 100%` へ単調増加）・経過時間・画面維持の注意書き・「中止」ボタンを表示する（本番 `<canvas>` 自体は移動・非表示にしないため WebCodecs / Safari MediaRecorder 出力への影響ゼロ）。完了後は右上の「×」ボタン・「ダウンロード (.ext)」・WebM 注意・「編集に戻る」ボタンへ切り替わる（背景クリック・Escape での誤閉じ禁止）。未ダウンロードのまま「編集に戻る」／「×」を押したときのみモーダル内に確認パネルを表示し、ダウンロード済みなら即座に閉じる。
+  - 書き出し開始（`isProcessing`）〜完了（`exportUrl`）の間は PC・スマホ共通で画面中央の `ExportStatusModal`（`createPortal`, `z-[350]`, `bg-black/75 backdrop-blur-sm`）を表示。書き出し中はモーダル内の軽量モニター `<canvas>` へ本番プレビュー Canvas から約 12.5fps（80ms 間隔・長辺最大 480px）で縮小ミラー描画し、専用プログレスバー（準備中は `0%` 固定＋待機パルスから開始し、`0% → 100%` へ単調増加）・経過時間・画面維持の注意書き・「中止」ボタンを表示する（本番 `<canvas>` 自体は移動・非表示にしないため WebCodecs / Safari MediaRecorder 出力への影響ゼロ）。ミニプレビューは横幅いっぱいの黒背景コンテナを使わず `<canvas>` 自身へ `aspectRatio`・`max-h-[min(36vh,260px)]`・`ring-1` を付与して中央配置とし、正方形・縦長（9:16）でも左右黒帯を出さず出力比率どおりに見せる。完了後は右上の「×」ボタン・「ダウンロード (.ext)」・WebM 注意・「編集に戻る」ボタンへ切り替わる（背景クリック・Escape での誤閉じ禁止）。未ダウンロードのまま「編集に戻る」／「×」を押したときのみモーダル内に確認パネルを表示し、ダウンロード済みなら即座に閉じる。
   - 設定モーダル（`SettingsModal.tsx`）は PC での読みやすさ改善（`md:max-w-xl`・文字サイズ/コントラスト強化・選択中 1 行説明・「APIキー」タブの初回向け手順整理と重複注記の集約）を行い、「動画の出力品質」を「動画の出力」カードへ統合して「出力品質（standard のみ）」と「出力中のミニプレビュー（表示する／表示しない、既定 ON、`canvasStore.exportLivePreviewEnabled`・`localStorage` 永続化）」を配置。OFF 時はモニター `<canvas>` と `rAF` コピー処理を完全に止めて低スペック端末の負荷をゼロに抑える。
   - 解像度バッジ（`preview-output-size-badge`）は `SettingsAccordionHeader` の `trailing` prop（`aria-hidden="true"` でアクセシブル名 `'動画出力オプション'` を維持）経由で「動画出力オプション」見出し右へ移設。
   - `Header.tsx` を 1 セットのレスポンシブ構造へ統合しつつ、細い縦区切り線の右側に赤み系の消しゴムアイコンボタン（`Eraser`・`border-rose-500/45 bg-rose-500/10 text-rose-300`、`?` ボタンと対になるアイコン統一デザイン）として「一括クリア」を配置し、`TurtleVideo.tsx` の `hasClearableProjectContent` と `isProcessing` で有効/無効を制御。
@@ -5544,6 +5544,8 @@ export 終了（成功/失敗/中断）
 - **注意**:
   - 動画 export 全体のフレーム駆動化、毎フレーム seek、常時 prefetch（13-186）、通常フレームごとの余分なスナップショットコピーは導入しないこと。
   - 診断ログ `standard.export.video.syncSeek` / `standard.export.video.stallSnapshotHold`（1秒スロットル）を追加しているため、実機再発時は設定のログタブからシーク発生時刻・drift・paused 状態を確認できる。
+- **実機確認結果（2026-11-22）**:
+  - ユーザー実機にて再書き出しを行い、一時黒塗り症状が解消したことを確認済み（`ac49ba8`）。現行の成功実装として、シーク判定の単一ソース化・同一フレーム `play()` 衝突防止・オンデマンド退避スナップショットの組み合わせを維持すること。
 
 
 

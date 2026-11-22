@@ -40,7 +40,7 @@ turtle-video/
 │   │   ├── common/          # 共通UI (Toast, ErrorBoundary, MiniPreview)
 │   │   ├── media/           # メディア関連 (ClipItem, CaptionItem, MediaResourceLoader)
 │   │   ├── sections/        # セクション (Clips, BGM, Narration, Caption, Preview)
-│   │   ├── modals/          # モーダル (AI, Settings, SaveLoad, CaptionSettings)
+│   │   ├── modals/          # モーダル (AI, Settings, SaveLoad, CaptionSettings, ExportStatus)
 │   │   ├── Header.tsx       # ヘッダー
 │   │   ├── SwipeProtectedSlider.tsx  # 誤操作防止スライダー
 │   │   └── TurtleVideo.tsx  # メインコンポーネント
