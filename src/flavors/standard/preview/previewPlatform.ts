@@ -817,6 +817,74 @@ export interface FadeStallSnapshotFrameOptions {
   snapshotHeight: number;
 }
 
+export interface ActiveVideoPlaybackSyncOptions {
+  isActivePlaying: boolean;
+  isUserSeeking: boolean;
+  isAndroidPreviewPlayback: boolean;
+  shouldDeferTrimmedHeadSync: boolean;
+  isVideoSeeking: boolean;
+  shouldHoldVideoAtClipEnd: boolean;
+  hasExportPlayFailure: boolean;
+  activeVideoDriftSec: number;
+  syncThresholdSec: number;
+}
+
+export interface ExportStallSnapshotFrameOptions {
+  isExporting: boolean;
+  isVideoDrawable: boolean;
+  shouldBlackoutFadeTail: boolean;
+  activeVideoId: string | null;
+  snapshotVideoId: string | null;
+  snapshotWidth: number;
+  snapshotHeight: number;
+}
+
+/**
+ * 再生中（通常プレビュー・エクスポート）の active video に対して同期シークを実行すべきか判定する。
+ *
+ * `renderFrame` の黒クリア前（`holdFrame` / スナップショット退避判定）と、後半の実シーク処理で
+ * 同一条件を共有する。判定が食い違うと「黒クリア後に同一フレームでシーク開始 → seeking=true で
+ * drawImage スキップ → 真っ黒フレームを以降の holdFrame が保持し続ける」黒塗り不具合が起きる。
+ */
+export function shouldSyncActiveVideoDuringPlayback(
+  options: ActiveVideoPlaybackSyncOptions,
+): boolean {
+  return (
+    options.isActivePlaying
+    && !options.isUserSeeking
+    && !options.isAndroidPreviewPlayback
+    && !options.shouldDeferTrimmedHeadSync
+    && !options.isVideoSeeking
+    && !options.shouldHoldVideoAtClipEnd
+    && !options.hasExportPlayFailure
+    && Number.isFinite(options.activeVideoDriftSec)
+    && Number.isFinite(options.syncThresholdSec)
+    && options.activeVideoDriftSec > options.syncThresholdSec
+  );
+}
+
+/**
+ * export 中に active video がシーク中・デコード未完で描画不能なフレームで、
+ * 直前に退避した同一動画の正常スナップショットを代わりに描いて黒塗りを防ぐべきか判定する。
+ *
+ * - プレビュー専用の `shouldDrawFadeStallSnapshotFrame` とは責務を分離する。
+ * - `shouldBlackoutFadeTail`（フェードアウト終端の意図的な黒）は常に黒を優先する。
+ * - 別クリップの絵を誤描画しないよう `snapshotVideoId === activeVideoId` を必須とする。
+ */
+export function shouldDrawExportStallSnapshotFrame(
+  options: ExportStallSnapshotFrameOptions,
+): boolean {
+  return (
+    options.isExporting
+    && !options.isVideoDrawable
+    && !options.shouldBlackoutFadeTail
+    && options.activeVideoId !== null
+    && options.snapshotVideoId === options.activeVideoId
+    && options.snapshotWidth > 0
+    && options.snapshotHeight > 0
+  );
+}
+
 /**
  * fade region 中は holdFrame による canvas 保持を使えない (旧フレームが透けて見えるため毎フレーム
  * 黒クリアする) が、デコーダ固着で実フレームが無いと純粋な黒が出続けてブラックアウトに見える。

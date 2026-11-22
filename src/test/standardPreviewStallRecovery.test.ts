@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   getStandardExportVideoBoundaryStallDecision,
   getStandardPreviewStallKickDecision,
+  shouldDrawExportStallSnapshotFrame,
   shouldDrawFadeStallSnapshotFrame,
+  shouldSyncActiveVideoDuringPlayback,
   STANDARD_EXPORT_VIDEO_BOUNDARY_STALL_TIMEOUT_MS,
   STANDARD_PREVIEW_STALL_KICK_AFTER_MS,
   STANDARD_PREVIEW_STALL_KICK_INTERVAL_MS,
@@ -209,5 +211,59 @@ describe('shouldDrawFadeStallSnapshotFrame', () => {
     expect(shouldDrawFadeStallSnapshotFrame({ ...base, snapshotVideoId: null })).toBe(false);
     expect(shouldDrawFadeStallSnapshotFrame({ ...base, snapshotWidth: 0 })).toBe(false);
     expect(shouldDrawFadeStallSnapshotFrame({ ...base, activeVideoId: null, snapshotVideoId: null })).toBe(false);
+  });
+});
+
+describe('shouldSyncActiveVideoDuringPlayback', () => {
+  const base = {
+    isActivePlaying: true,
+    isUserSeeking: false,
+    isAndroidPreviewPlayback: false,
+    shouldDeferTrimmedHeadSync: false,
+    isVideoSeeking: false,
+    shouldHoldVideoAtClipEnd: false,
+    hasExportPlayFailure: false,
+    activeVideoDriftSec: 0.75,
+    syncThresholdSec: 0.5,
+  };
+
+  it('非 Android 再生・export 中に drift がしきい値を超えたら true を返す', () => {
+    expect(shouldSyncActiveVideoDuringPlayback(base)).toBe(true);
+  });
+
+  it('drift がしきい値以下・seeking 中・Android プレビュー・クリップ終端保持・play 失敗時は false を返す', () => {
+    expect(shouldSyncActiveVideoDuringPlayback({ ...base, activeVideoDriftSec: 0.5 })).toBe(false);
+    expect(shouldSyncActiveVideoDuringPlayback({ ...base, isVideoSeeking: true })).toBe(false);
+    expect(shouldSyncActiveVideoDuringPlayback({ ...base, isAndroidPreviewPlayback: true })).toBe(false);
+    expect(shouldSyncActiveVideoDuringPlayback({ ...base, shouldHoldVideoAtClipEnd: true })).toBe(false);
+    expect(shouldSyncActiveVideoDuringPlayback({ ...base, hasExportPlayFailure: true })).toBe(false);
+    expect(shouldSyncActiveVideoDuringPlayback({ ...base, isActivePlaying: false })).toBe(false);
+    expect(shouldSyncActiveVideoDuringPlayback({ ...base, isUserSeeking: true })).toBe(false);
+  });
+});
+
+describe('shouldDrawExportStallSnapshotFrame', () => {
+  const base = {
+    isExporting: true,
+    isVideoDrawable: false,
+    shouldBlackoutFadeTail: false,
+    activeVideoId: 'video-1',
+    snapshotVideoId: 'video-1',
+    snapshotWidth: 1108,
+    snapshotHeight: 854,
+  };
+
+  it('export 中に動画が描画不能かつ同一動画の退避スナップショットがあるとき true を返す', () => {
+    expect(shouldDrawExportStallSnapshotFrame(base)).toBe(true);
+  });
+
+  it('通常プレビュー・描画可能時・fade tail 黒落とし・別動画/空スナップショット時は false を返す', () => {
+    expect(shouldDrawExportStallSnapshotFrame({ ...base, isExporting: false })).toBe(false);
+    expect(shouldDrawExportStallSnapshotFrame({ ...base, isVideoDrawable: true })).toBe(false);
+    expect(shouldDrawExportStallSnapshotFrame({ ...base, shouldBlackoutFadeTail: true })).toBe(false);
+    expect(shouldDrawExportStallSnapshotFrame({ ...base, snapshotVideoId: 'video-2' })).toBe(false);
+    expect(shouldDrawExportStallSnapshotFrame({ ...base, snapshotVideoId: null })).toBe(false);
+    expect(shouldDrawExportStallSnapshotFrame({ ...base, snapshotWidth: 0 })).toBe(false);
+    expect(shouldDrawExportStallSnapshotFrame({ ...base, activeVideoId: null, snapshotVideoId: null })).toBe(false);
   });
 });

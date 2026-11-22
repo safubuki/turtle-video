@@ -5530,6 +5530,22 @@ export 終了（成功/失敗/中断）
   - 解像度バッジ（`preview-output-size-badge`）は `SettingsAccordionHeader` の `trailing` prop（`aria-hidden="true"` でアクセシブル名 `'動画出力オプション'` を維持）経由で「動画出力オプション」見出し右へ移設。
   - `Header.tsx` を 1 セットのレスポンシブ構造へ統合しつつ、細い縦区切り線の右側に赤み系の消しゴムアイコンボタン（`Eraser`・`border-rose-500/45 bg-rose-500/10 text-rose-300`、`?` ボタンと対になるアイコン統一デザイン）として「一括クリア」を配置し、`TurtleVideo.tsx` の `hasClearableProjectContent` と `isProcessing` で有効/無効を制御。
 
+### 13-326. standard export 中の同期シークによる一時黒塗り（背景のみ黒・キャプション残存）の防止
+
+- **ファイル**: `src/flavors/standard/preview/previewPlatform.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewStallRecovery.test.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **対象 flavor**: **standard（Android / PC）のみ**。apple-safari、動画 export の駆動方式（壁時計 + wall dilation + native 1x 連続再生）、backpressure（13-153）、境界待機（13-187〜189）、提示スナップショット（13-204）、`shouldDrawFadeStallSnapshotFrame`（プレビュー専用）は変更しない。
+- **問題**:
+  - 実機書き出し MP4（`1108×854`・30fps・39.45秒）の途中 `5.333s〜6.667s`（41フレーム・1.37秒間）で、キャプションだけが通常描画されたまま動画背景のみが完全黒（`#000000`）になり、その後 `6.700s` で突然復帰する症状が発生した（コンテナ `stts`・音声・後半は正常であり 2026-07-27 の backpressure 後半黒画面とは別系統）。
+  - `renderFrame` の前半（`needsCorrection`・`holdFrame` 判定）は `!activeEl.paused && !hasExportPlayFailure` を要求する一方、後半（`videoEl.currentTime = targetTime` 実行）は `paused` やフォールバックシークでも発火する条件不一致があった。そのため backpressure 再開直後（`paused === true`）等で `drift > syncThreshold` になると、(1) `holdFrame=false` のまま `ctx.fillRect('#000000')` で黒クリア → (2) 同一フレーム後半で同期シークが走って `videoEl.seeking=true` 化 → (3) `canRequestPlay` がシーク前の古い変数 `isVideoSeeking` を見て `play()` も同時衝突 → (4) `isVideoReady` が `false` になり `ctx.drawImage` スキップ → (5) 続くシーク完了待ちの全フレームで `holdFrame=true` が「直前の真っ黒 Canvas」をそのまま保持し続ける、という連鎖が起きていた。
+- **対策**:
+  1. **シーク判定の単一ソース化**: `shouldSyncActiveVideoDuringPlayback()` を `previewPlatform.ts` へ抽出し、黒クリア前の `willSeekActiveVideoThisFrame` 判定（フォールバックシーク・image→video 安定化シークも含む）と後半の実シーク判定を完全一致させた。
+  2. **シークと `play()` の同一フレーム衝突防止**: `canRequestPlay` の判定をシーク前の古い変数 `isVideoSeeking` ではなく最新の `!videoEl.seeking` に変更した。
+  3. **export 向けオンデマンド退避スナップショット（通常時負荷ゼロ）**: プレビュー用 `fadeStallSnapshotRef` とは独立した `exportStallSnapshotRef` と `shouldDrawExportStallSnapshotFrame()` を新設。export 中は通常フレームでは一切コピーせず、**シーク発行直前（`willSeekActiveVideoThisFrame && hasFrame` で `force=true`）** と **フェード区間中（200ms 間隔）** だけ正常な動画フレームを退避する。シーク中・デコード未完時は退避フレーム＋現在時刻キャプションを綺麗に合成し（黒塗り 0・キャプション二重文字 0）、退避が無いフレームは `holdFrame=true` で黒クリア自体を抑止する。`shouldBlackoutFadeTail`（13-77）は引き続き最優先で黒にする。
+- **注意**:
+  - 動画 export 全体のフレーム駆動化、毎フレーム seek、常時 prefetch（13-186）、通常フレームごとの余分なスナップショットコピーは導入しないこと。
+  - 診断ログ `standard.export.video.syncSeek` / `standard.export.video.stallSnapshotHold`（1秒スロットル）を追加しているため、実機再発時は設定のログタブからシーク発生時刻・drift・paused 状態を確認できる。
+
+
 
 
 

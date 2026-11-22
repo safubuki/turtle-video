@@ -154,12 +154,14 @@ import {
   getStandardExportVideoBoundaryStallDecision,
   STANDARD_EXPORT_VIDEO_HEAD_MIN_READY_STATE,
   getStandardPreviewStallKickDecision,
+  shouldDrawExportStallSnapshotFrame,
   shouldDrawFadeStallSnapshotFrame,
   shouldRecoverAudioOnlyAfterVideoBoundary,
   shouldReinitializeAudioRoute,
   shouldRetryAudioOnlyPrimeAtPreviewStart,
   shouldStabilizeImageToVideoTransitionDuringExport,
   shouldStopBeforePreviewAudioRouteInit,
+  shouldSyncActiveVideoDuringPlayback,
   shouldUseCaptionBlurFallback,
   shouldAvoidPauseInactiveVideoInPreview,
   type PreviewPlatformPolicy,
@@ -1421,6 +1423,15 @@ export function usePreviewEngine({
     capturedAtMs: number;
   }>({ videoId: null, canvas: null, capturedAtMs: 0 });
   const fadeStallHoldLogAtRef = useRef<Record<string, number>>({});
+  // export 中の同期シーク直前やフェード区間にオンデマンド退避する動画スナップショット。
+  // シーク中・デコード未完時に黒塗りやキャプション二重描画を防ぐ（通常フレームの負荷は増やさない）。
+  const exportStallSnapshotRef = useRef<{
+    videoId: string | null;
+    canvas: HTMLCanvasElement | null;
+    capturedAtMs: number;
+  }>({ videoId: null, canvas: null, capturedAtMs: 0 });
+  const exportStallHoldLogAtRef = useRef<Record<string, number>>({});
+  const exportSyncSeekLogAtRef = useRef<Record<string, number>>({});
   const previewPlayFailureLogAtRef = useRef<Record<string, number>>({});
   // active video のデコード停止（readyState<=1 + seeking 継続）を検知するための状態。
   // stall を最初に観測した時刻と、直近に load() 復旧を試みた時刻を video 単位で保持する。
@@ -1473,6 +1484,13 @@ export function usePreviewEngine({
       canvas: fadeStallSnapshotRef.current.canvas,
       capturedAtMs: 0,
     };
+    exportStallSnapshotRef.current = {
+      videoId: null,
+      canvas: exportStallSnapshotRef.current.canvas,
+      capturedAtMs: 0,
+    };
+    exportStallHoldLogAtRef.current = {};
+    exportSyncSeekLogAtRef.current = {};
   }, []);
   const maybeAssignAndroidPreviewSeek = useCallback((
     {
@@ -1595,6 +1613,53 @@ export function usePreviewEngine({
         fadeStallSnapshotRef.current = { videoId, canvas, capturedAtMs: now };
       } catch {
         // drawImage は decode 状態次第で失敗しうる。失敗時は直前のスナップショットを維持する。
+      }
+    },
+    [],
+  );
+  // export 中にシーク直前（force=true）またはフェード区間（200ms 間隔）だけ正常動画フレームを退避する。
+  // 通常フレームでは呼ばないため、export の定常負荷を一切増やさない。
+  const captureExportStallSnapshot = useCallback(
+    (
+      videoId: string,
+      videoEl: HTMLVideoElement,
+      maxWidth: number,
+      maxHeight: number,
+      force = false,
+    ): boolean => {
+      const now = Date.now();
+      const snapshot = exportStallSnapshotRef.current;
+      if (
+        !force
+        && snapshot.videoId === videoId
+        && now - snapshot.capturedAtMs < PREVIEW_FADE_STALL_SNAPSHOT_INTERVAL_MS
+      ) {
+        return snapshot.canvas !== null && snapshot.canvas.width > 0 && snapshot.canvas.height > 0;
+      }
+      const videoWidth = videoEl.videoWidth;
+      const videoHeight = videoEl.videoHeight;
+      if (videoWidth <= 0 || videoHeight <= 0 || maxWidth <= 0 || maxHeight <= 0) {
+        return false;
+      }
+      const scale = Math.min(1, maxWidth / videoWidth, maxHeight / videoHeight);
+      const width = Math.max(1, Math.round(videoWidth * scale));
+      const height = Math.max(1, Math.round(videoHeight * scale));
+      try {
+        let canvas = snapshot.canvas;
+        if (!canvas || canvas.width !== width || canvas.height !== height) {
+          canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+        }
+        const snapshotCtx = canvas.getContext('2d');
+        if (!snapshotCtx) {
+          return false;
+        }
+        snapshotCtx.drawImage(videoEl, 0, 0, width, height);
+        exportStallSnapshotRef.current = { videoId, canvas, capturedAtMs: now };
+        return true;
+      } catch {
+        return false;
       }
     },
     [],
@@ -2586,8 +2651,86 @@ export function usePreviewEngine({
                   || activeEl.videoHeight <= 0
                 );
 
+              const shouldStabilizeActiveImageToVideo =
+                shouldStabilizeImageToVideoTransitionDuringExport({
+                  isExporting: _isExporting,
+                  isAndroid: platformCapabilities.isAndroid,
+                  activeItemType: activeItem.type,
+                  previousItemType: previousItem?.type ?? null,
+                  clipLocalTime: localTime,
+                });
+              const activeSyncThreshold = shouldStabilizeActiveImageToVideo
+                ? 0.01
+                : resolveSpeedAwareVideoSyncThresholdSec(
+                  getPreviewVideoSyncThreshold(previewPlatformPolicy, {
+                    isExporting: _isExporting,
+                    hasExportPlayFailure,
+                  }),
+                  resolveItemPlaybackSpeedAtLocalTime(activeItem, localTime),
+                );
+              const willSyncSeekActiveVideo = shouldSyncActiveVideoDuringPlayback({
+                isActivePlaying,
+                isUserSeeking: isSeekingRef.current,
+                isAndroidPreviewPlayback,
+                shouldDeferTrimmedHeadSync:
+                  isAndroidPreviewPlayback
+                  && activeItem.trimStart > 0.001
+                  && localTime <= 0.3,
+                isVideoSeeking: activeEl.seeking,
+                shouldHoldVideoAtClipEnd: shouldHoldForVideoEnd,
+                hasExportPlayFailure,
+                activeVideoDriftSec: activeVideoDrift,
+                syncThresholdSec: isAndroidPreviewPlayback
+                  ? Math.max(activeSyncThreshold, ANDROID_PREVIEW_RESYNC_THRESHOLD_SEC)
+                  : activeSyncThreshold,
+              });
+              const willStabilizeImageToVideoSeek =
+                isActivePlaying
+                && !isSeekingRef.current
+                && shouldStabilizeActiveImageToVideo
+                && !activeEl.seeking
+                && activeVideoDrift > EXPORT_IMAGE_TO_VIDEO_STABILIZATION_SYNC_TOLERANCE_SEC;
+              const willExportFallbackSeekActiveVideo =
+                _isExporting
+                && isActivePlaying
+                && !isSeekingRef.current
+                && hasExportPlayFailure
+                && activeEl.paused
+                && !activeEl.seeking
+                && !shouldHoldForVideoEnd
+                && activeVideoDrift > 0.04
+                && (Date.now() - (exportFallbackSeekAtRef.current[activeId] || 0) >= 140);
+              const willSeekActiveVideoThisFrame =
+                willSyncSeekActiveVideo
+                || willStabilizeImageToVideoSeek
+                || willExportFallbackSeekActiveVideo;
+
+              // export 中にこれから同期シークを発行する直前は、まだ生きた正常フレームが残っている。
+              // この瞬間に 1 回だけオフスクリーンへ退避しておけば、シーク完了待ちの間も
+              // 黒塗り・キャプション二重描画をどちらも起こさず、かつ通常フレームの負荷を増やさない。
+              if (_isExporting && willSeekActiveVideoThisFrame && hasFrame) {
+                captureExportStallSnapshot(
+                  activeId,
+                  activeEl,
+                  ctx.canvas.width,
+                  ctx.canvas.height,
+                  true,
+                );
+              }
+              const exportStallSnapshotBeforeClear = exportStallSnapshotRef.current;
+              const canUseExportStallSnapshotThisFrame = shouldDrawExportStallSnapshotFrame({
+                isExporting: _isExporting,
+                isVideoDrawable: hasFrame && !willSeekActiveVideoThisFrame,
+                shouldBlackoutFadeTail: shouldPreferBlackoutAtFadeTail,
+                activeVideoId: activeId,
+                snapshotVideoId: exportStallSnapshotBeforeClear.videoId,
+                snapshotWidth: exportStallSnapshotBeforeClear.canvas?.width ?? 0,
+                snapshotHeight: exportStallSnapshotBeforeClear.canvas?.height ?? 0,
+              });
+
               const shouldHoldActiveVideoFrame =
                 !hasFrame
+                || willSeekActiveVideoThisFrame
                 || shouldHoldForAndroidPreviewNotDrawable
                 || needsCorrection
                 || shouldHoldForVideoEnd
@@ -2620,8 +2763,13 @@ export function usePreviewEngine({
               if (shouldHoldActiveVideoFrame) {
                 // fade 中 (fadeIn / fadeOut) は holdFrame で前フレームを保持すると
                 // 旧 clip の絵柄が透けて見え、フェードが効いていないように見える。
-                // fade 中は canvas を毎フレーム黒クリアして alpha 付きで描画するパスへ委ねる。
-                if (!shouldPreferBlackoutAtFadeTail && !isInFadeRegion) {
+                // また export 用退避スナップショットがあるフレームは黒クリア後に退避動画＋
+                // 最新キャプションを描き直す方が二重文字を防げる。退避が無いときは holdFrame で黒塗りを防ぐ。
+                if (
+                  !shouldPreferBlackoutAtFadeTail
+                  && !isInFadeRegion
+                  && !canUseExportStallSnapshotThisFrame
+                ) {
                   holdFrame = true;
                 }
                 if (shouldHoldForAndroidPreviewNotDrawable) {
@@ -2999,32 +3147,48 @@ export function usePreviewEngine({
                     : syncThreshold;
 
                   if (
-                    !isAndroidPreviewPlayback &&
-                    !shouldDeferTrimmedHeadSync &&
-                    !isVideoSeeking &&
-                    !shouldHoldVideoAtClipEnd &&
-                    !hasExportPlayFailure &&
-                    !(
-                      isAndroidPreviewPlayback
-                      && localTime <= 0.3
-                      && videoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
-                      && Math.abs(videoEl.currentTime - targetTime) <= ANDROID_PREVIEW_SOFT_DRAW_DRIFT_THRESHOLD_SEC
-                  ) &&
-                    Math.abs(videoEl.currentTime - targetTime) > androidPreviewSyncThreshold
+                    shouldSyncActiveVideoDuringPlayback({
+                      isActivePlaying,
+                      isUserSeeking,
+                      isAndroidPreviewPlayback,
+                      shouldDeferTrimmedHeadSync,
+                      isVideoSeeking,
+                      shouldHoldVideoAtClipEnd,
+                      hasExportPlayFailure,
+                      activeVideoDriftSec: Math.abs(videoEl.currentTime - targetTime),
+                      syncThresholdSec: androidPreviewSyncThreshold,
+                    })
                   ) {
+                    if (_isExporting) {
+                      const nowMs = Date.now();
+                      if (nowMs - (exportSyncSeekLogAtRef.current[id] ?? 0) >= 1000) {
+                        exportSyncSeekLogAtRef.current[id] = nowMs;
+                        logWarn('RENDER', 'standard.export.video.syncSeek', {
+                          videoId: id,
+                          globalTimeMs: Math.round(time * 1000),
+                          localTimeMs: Math.round(localTime * 1000),
+                          videoCurrentTime: Math.round(videoEl.currentTime * 1000) / 1000,
+                          targetTime: Math.round(targetTime * 1000) / 1000,
+                          driftMs: Math.round(Math.abs(videoEl.currentTime - targetTime) * 1000),
+                          paused: videoEl.paused,
+                          readyState: videoEl.readyState,
+                        });
+                      }
+                    }
                     videoEl.currentTime = targetTime;
                   }
                 const msSinceHardReset = Date.now() - (videoHardResetAtRef.current[id] ?? 0);
                 const suppressPlayAfterHardReset =
                   msSinceHardReset < POST_EXPORT_PLAY_SUPPRESS_AFTER_HARD_RESET_MS;
                 // seeking 固着中や hard reset 直後の play() は decoder を再 wedge させる（Issue #209 ログ）。
+                // 直上の同期シークで videoEl.seeking が true になった同一フレームでも play() を衝突させない。
                 const canRequestPlay =
                   !shouldStabilizeImageToVideoTransition
                   && videoEl.paused
                   && videoEl.readyState >= 1
                   && !shouldHoldVideoAtClipEnd
                   && !hasExportPlayFailure
-                  && !isVideoSeeking
+                  && !videoEl.seeking
                   && !suppressPlayAfterHardReset
                   && !shouldSuppressVideoPlayForPostExportPreview({
                     isExporting: _isExporting,
@@ -3279,14 +3443,16 @@ export function usePreviewEngine({
             // デコーダ固着で実フレームが無いときは、直前の非黒スナップショットに fade alpha を
             // 掛けて描画し、ブラックアウト固着を防ぐ。
             const fadeStallSnapshot = fadeStallSnapshotRef.current;
+            const exportStallSnapshot = exportStallSnapshotRef.current;
+            const isVideoDrawableNow =
+              isVideoReady && videoEl.videoWidth > 0 && videoEl.videoHeight > 0;
             const shouldUseFadeStallSnapshot =
               isVideo
               && id === activeId
               && !shouldSkipVideoDrawForAndroidHold
               && shouldDrawFadeStallSnapshotFrame({
                 isExporting: _isExporting,
-                isVideoDrawable:
-                  isVideoReady && videoEl.videoWidth > 0 && videoEl.videoHeight > 0,
+                isVideoDrawable: isVideoDrawableNow,
                 isInFadeRegion,
                 shouldBlackoutFadeTail,
                 activeVideoId: activeId,
@@ -3294,9 +3460,24 @@ export function usePreviewEngine({
                 snapshotWidth: fadeStallSnapshot.canvas?.width ?? 0,
                 snapshotHeight: fadeStallSnapshot.canvas?.height ?? 0,
               });
+            const shouldUseExportStallSnapshot =
+              isVideo
+              && id === activeId
+              && !shouldSkipVideoDrawForAndroidHold
+              && shouldDrawExportStallSnapshotFrame({
+                isExporting: _isExporting,
+                isVideoDrawable: isVideoDrawableNow,
+                shouldBlackoutFadeTail,
+                activeVideoId: activeId,
+                snapshotVideoId: exportStallSnapshot.videoId,
+                snapshotWidth: exportStallSnapshot.canvas?.width ?? 0,
+                snapshotHeight: exportStallSnapshot.canvas?.height ?? 0,
+              });
             const stallSnapshotCanvas = shouldUseFadeStallSnapshot
               ? fadeStallSnapshot.canvas
-              : null;
+              : shouldUseExportStallSnapshot
+                ? exportStallSnapshot.canvas
+                : null;
 
             if (
               (isReady || stallSnapshotCanvas)
@@ -3414,24 +3595,43 @@ export function usePreviewEngine({
                     elemH,
                   );
                   didUpdateCanvas = true;
-                  if (isVideo && id === activeId && !_isExporting) {
-                    if (stallSnapshotCanvas) {
+                  if (isVideo && id === activeId) {
+                    if (!_isExporting) {
+                      if (stallSnapshotCanvas) {
+                        const nowMs = Date.now();
+                        if (
+                          nowMs - (fadeStallHoldLogAtRef.current[id] ?? 0)
+                          >= PREVIEW_FADE_STALL_HOLD_LOG_INTERVAL_MS
+                        ) {
+                          fadeStallHoldLogAtRef.current[id] = nowMs;
+                          logInfo('RENDER', 'preview.fade.stallSnapshotHold', {
+                            videoId: id,
+                            readyState: videoEl.readyState,
+                            seeking: videoEl.seeking,
+                            timelineTime: time,
+                            snapshotAgeMs: nowMs - fadeStallSnapshot.capturedAtMs,
+                          });
+                        }
+                      } else {
+                        captureFadeStallSnapshot(id, videoEl, ctx.canvas.width, ctx.canvas.height);
+                      }
+                    } else if (shouldUseExportStallSnapshot) {
                       const nowMs = Date.now();
                       if (
-                        nowMs - (fadeStallHoldLogAtRef.current[id] ?? 0)
+                        nowMs - (exportStallHoldLogAtRef.current[id] ?? 0)
                         >= PREVIEW_FADE_STALL_HOLD_LOG_INTERVAL_MS
                       ) {
-                        fadeStallHoldLogAtRef.current[id] = nowMs;
-                        logInfo('RENDER', 'preview.fade.stallSnapshotHold', {
+                        exportStallHoldLogAtRef.current[id] = nowMs;
+                        logInfo('RENDER', 'standard.export.video.stallSnapshotHold', {
                           videoId: id,
                           readyState: videoEl.readyState,
                           seeking: videoEl.seeking,
-                          timelineTime: time,
-                          snapshotAgeMs: nowMs - fadeStallSnapshot.capturedAtMs,
+                          timelineTime: Math.round(time * 1000) / 1000,
+                          snapshotAgeMs: nowMs - exportStallSnapshot.capturedAtMs,
                         });
                       }
-                    } else {
-                      captureFadeStallSnapshot(id, videoEl, ctx.canvas.width, ctx.canvas.height);
+                    } else if (isInFadeRegion) {
+                      captureExportStallSnapshot(id, videoEl, ctx.canvas.width, ctx.canvas.height);
                     }
                   }
                 } finally {
@@ -7020,6 +7220,13 @@ export function usePreviewEngine({
               exportBackpressurePausedAtMsRef.current = null;
               exportVideoBoundaryStallRef.current = null;
               exportVideoBoundaryHandledKeyRef.current = null;
+              exportStallSnapshotRef.current = {
+                videoId: null,
+                canvas: exportStallSnapshotRef.current.canvas,
+                capturedAtMs: 0,
+              };
+              exportStallHoldLogAtRef.current = {};
+              exportSyncSeekLogAtRef.current = {};
               startTimeRef.current = loopStartNowMs - fromTime * 1000;
               exportTimelineSecRef.current = fromTime;
               exportLastWallNowMsRef.current = loopStartNowMs;

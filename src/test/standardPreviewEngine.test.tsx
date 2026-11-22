@@ -3227,4 +3227,143 @@ describe('standard preview engine', () => {
     expect(logInfo.mock.calls.some(([, msg]) => msg === 'preview.android.boundary.passive-switch')).toBe(false);
   });
 
+  it('export 中に paused 動画で同期シークが走っても黒クリア単独にならず、同一フレームで play() を衝突させない（スナップショット退避経路）', () => {
+    const videoItem = createVideoItem({
+      id: 'video-export-seek-snapshot',
+      duration: 10,
+      originalDuration: 10,
+      trimStart: 0,
+      trimEnd: 10,
+    });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 4;
+    videoElement.paused = true;
+    videoElement.seeking = false;
+    let internalCurrentTime = 4.0;
+    Object.defineProperty(videoElement, 'currentTime', {
+      configurable: true,
+      get: () => internalCurrentTime,
+      set: (value: number) => {
+        internalCurrentTime = value;
+        // 実ブラウザと同様に currentTime 代入で同期的に seeking=true になる挙動を再現
+        videoElement.seeking = true;
+      },
+    });
+
+    const snapshotDrawImage = vi.fn();
+    const originalCreateElement = document.createElement.bind(document);
+    const createElementSpy = vi.spyOn(document, 'createElement').mockImplementation(((tagName: string) => {
+      const el = originalCreateElement(tagName);
+      if (tagName.toLowerCase() === 'canvas') {
+        Object.defineProperty(el, 'getContext', {
+          configurable: true,
+          value: vi.fn(() => ({
+            drawImage: snapshotDrawImage,
+          })),
+        });
+      }
+      return el;
+    }) as typeof document.createElement);
+
+    try {
+      const { canvasContext, hook } = setupRenderFrameHarness({
+        mediaItems: [videoItem],
+        mediaElements: {
+          [videoItem.id]: videoElement as unknown as HTMLVideoElement,
+        } as MediaElementsRef,
+        totalDuration: 10,
+        platformCapabilities: { isAndroid: false },
+      });
+
+      const fillRectMock = canvasContext.fillRect as ReturnType<typeof vi.fn>;
+      const drawImageMock = canvasContext.drawImage as ReturnType<typeof vi.fn>;
+
+      // 5.33s で drift=1.33s > 0.5s の同期シークが走る（paused=true の backpressure 再開直後などを再現）
+      hook.result.current.renderFrame(5.33, true, true);
+
+      expect(videoElement.seeking).toBe(true);
+      expect(internalCurrentTime).toBeCloseTo(5.33, 2);
+      // 同一フレームでシークと play() が衝突しないこと
+      expect(videoElement.play).not.toHaveBeenCalled();
+      // シーク直前に生きた動画フレームが退避され、本番 Canvas へ黒抜きせず描画されること
+      expect(snapshotDrawImage).toHaveBeenCalledTimes(1);
+      expect(drawImageMock).toHaveBeenCalledTimes(1);
+      expect(drawImageMock.mock.calls[0]?.[0]).not.toBe(videoElement);
+
+      // 続く seeking=true 継続フレームでも黒クリア単独にならず退避フレームが描かれること
+      fillRectMock.mockClear();
+      drawImageMock.mockClear();
+      hook.result.current.renderFrame(5.37, true, true);
+      expect(fillRectMock).toHaveBeenCalledTimes(1);
+      expect(drawImageMock).toHaveBeenCalledTimes(1);
+      expect(drawImageMock.mock.calls[0]?.[0]).not.toBe(videoElement);
+
+      // シーク完了後は通常どおり生きた videoElement を描画し play() も再開すること
+      drawImageMock.mockClear();
+      videoElement.seeking = false;
+      hook.result.current.renderFrame(5.40, true, true);
+      expect(drawImageMock).toHaveBeenCalledTimes(1);
+      expect(drawImageMock.mock.calls[0]?.[0]).toBe(videoElement);
+      expect(videoElement.play).toHaveBeenCalledTimes(1);
+    } finally {
+      createElementSpy.mockRestore();
+    }
+  });
+
+  it('export 中に退避スナップショットが確保できない場合も、同期シーク発火フレームは黒クリアを抑止して前フレームを保持する', () => {
+    const videoItem = createVideoItem({
+      id: 'video-export-seek-hold',
+      duration: 10,
+      originalDuration: 10,
+      trimStart: 0,
+      trimEnd: 10,
+    });
+    const videoElement = createMockVideoElement();
+    videoElement.readyState = 4;
+    videoElement.paused = true;
+    videoElement.seeking = false;
+    let internalCurrentTime = 4.0;
+    Object.defineProperty(videoElement, 'currentTime', {
+      configurable: true,
+      get: () => internalCurrentTime,
+      set: (value: number) => {
+        internalCurrentTime = value;
+        videoElement.seeking = true;
+      },
+    });
+
+    const originalCreateElement = document.createElement.bind(document);
+    const createElementSpy = vi.spyOn(document, 'createElement').mockImplementation(((tagName: string) => {
+      const el = originalCreateElement(tagName);
+      if (tagName.toLowerCase() === 'canvas') {
+        Object.defineProperty(el, 'getContext', {
+          configurable: true,
+          value: vi.fn(() => null),
+        });
+      }
+      return el;
+    }) as typeof document.createElement);
+
+    try {
+      const { canvasContext, hook } = setupRenderFrameHarness({
+        mediaItems: [videoItem],
+        mediaElements: {
+          [videoItem.id]: videoElement as unknown as HTMLVideoElement,
+        } as MediaElementsRef,
+        totalDuration: 10,
+        platformCapabilities: { isAndroid: false },
+      });
+
+      // 新規オフスクリーン canvas の getContext('2d') が null でスナップショット退避が不成立でも、
+      // willSeekActiveVideoThisFrame が holdFrame=true を立て、黒クリア自体を抑止する
+      hook.result.current.renderFrame(5.33, true, true);
+
+      expect(videoElement.seeking).toBe(true);
+      expect(canvasContext.fillRect).not.toHaveBeenCalled();
+      expect(videoElement.play).not.toHaveBeenCalled();
+    } finally {
+      createElementSpy.mockRestore();
+    }
+  });
+
 });
