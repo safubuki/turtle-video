@@ -180,3 +180,18 @@ export function computeExportVideoBitrate(width: number, height: number): number
   const bitrate = Math.round(EXPORT_VIDEO_BITRATE * ratio);
   return Math.max(EXPORT_VIDEO_BITRATE_MIN, bitrate);
 }
+
+/**
+ * standard（Android / PC）の通常書き出しだけに使う下限（10 Mbps）。
+ * realtime のレート制御は「圧縮しやすい映像 → 高精細な映像」への切り替え直後に
+ * 帳尻合わせでコマを極端に削り、ブロックノイズを出す。720p の 6 Mbps では余裕が小さいため引き上げる。
+ * iOS Safari（apple-safari）とキャプションレイヤー書き出しは `computeExportVideoBitrate` のまま。
+ */
+export const STANDARD_EXPORT_VIDEO_BITRATE_MIN = 10_000_000;
+
+/**
+ * standard の通常書き出し用ビットレート。解像度比例の値（1080p で 12 Mbps）を下限 10 Mbps で底上げする。
+ */
+export function computeStandardExportVideoBitrate(width: number, height: number): number {
+  return Math.max(STANDARD_EXPORT_VIDEO_BITRATE_MIN, computeExportVideoBitrate(width, height));
+}

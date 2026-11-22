@@ -715,6 +715,7 @@
 | **preview / export の見た目一致** | Canvas へ焼き込む要素（ロゴ・文字・バッジ・ぼかし・線）は必ずキャンバス寸法に比例させる。プレビューは 720p、書き出しは 1080p 等なので、元画像のピクセル数や固定 px で描くとずれる（13-295） |
 | **スロー export 音声** | スローはプレビューと同じ `preservesPitch` キャプチャを第一経路にし、decode+WSOLA 参照で先頭遅延だけ切る（13-237）。キャプチャは TrackProcessor / AudioWorklet 優先で、ScriptProcessor は出力無音化の予備（13-238）。エネルギー無音切りは禁止。キャプチャ失敗時のみ WSOLA。13-236 の WSOLA 第一経路は音質退行のため改訂 |
 | **BGM クリップ／ナレーションの preview 追従** | `processNarrationClip` の通常プレビューは `previewAudioClipSync.ts` で判定する。シーク中に次のシークを重ねない・ずれ補正は実測所要時間ぶん先回り・区間 2 秒前に頭出し。「0.5 秒超なら毎フレーム今の位置へシーク」に戻すと、シークの重い素材（動画 BGM）や一括音量操作中に区間全体が無音になる（13-329） |
+| **export のキーフレーム・ビットレート** | standard の Canvas 経路はキーフレームをクリップの切り替えへ合わせる（`exportKeyframePlan.ts`。最大間隔 FPS+10 コマ）。下限は `computeStandardExportVideoBitrate` の 10 Mbps（iOS・キャプションレイヤーは共有の `computeExportVideoBitrate` のまま）。`% FPS` だけの定期キーフレームに戻すとカット直後のブロックノイズが再発しやすい（13-330） |
 
 ## 12. Dev Script Pattern (media-video-analyzer STT)
 
@@ -5609,11 +5610,19 @@ export 終了（成功/失敗/中断）
   - `previewAudioClipSync.test.ts` に、シークの遅い要素を模擬したフレームループで「修正前の追従は無音（可聴 0%）」「新しい追従は区間の 95% 以上で鳴る」を固定している。追従を変えるときはこのシミュレーションで比較する。
   - 書き出しの音声は OfflineAudioContext 経路でこの判定を使わない。書き出し側へ広げる場合はライブ捕捉フォールバックとの整合を別途確認すること。
 
+### 13-330. 書き出しのカット直後のブロックノイズ対策（キーフレームをカットへ合わせる・720p 下限 10 Mbps）
 
-
-
-
-
-
-
-
+- **ファイル**: `src/flavors/standard/export/exportKeyframePlan.ts`（新規）, `src/flavors/standard/export/exportEngine.ts`（Canvas 経路の `isKeyFrame`・ビットレート）, `src/constants/index.ts`（`computeStandardExportVideoBitrate` / `STANDARD_EXPORT_VIDEO_BITRATE_MIN`）, `src/test/exportKeyframePlan.test.ts`（新規）
+- **対象 flavor**: **standard（Android / PC）の通常書き出しのみ**。共有の `computeExportVideoBitrate`（apple-safari・キャプションレイヤー書き出し `captionLayerOfflineEncode` が使用）は変えない。TrackProcessor 経路（現在は `useManualCanvasFrames = true` で未使用）とキャプションレイヤーのキーフレームは従来どおり。
+- **問題**: 圧縮しやすい CG（トラックのスライド）から、雨・反射の多い高精細な実写風映像（バイク）へカットで切り替えた直後の約 0.5〜0.8 秒だけ、書き出し MP4 に強いブロックノイズが出た。元動画はどちらも正常。
+- **原因**（書き出し MP4 の stsz / stss を直接解析）:
+  - 1 秒ごとの定期キーフレームが 4.00 秒、カットがその 1 コマ後の 4.033 秒だった。切り替わった最初のコマは差分フレームとして 74KB を使い、realtime のレート制御が帳尻合わせで続くコマを 1〜4KB まで削った（通常 18〜40KB）。720p の目標 6 Mbps では余裕が小さかった。
+  - 「簡単な映像 → 複雑な映像」のカット直後に一瞬崩れるのは、realtime 向けのレート制御一般の性質。latencyMode `quality` は backpressure（13-153）の前提を壊すため使わない（`videoEncoderConfig.ts` の注記どおり）。
+  - 当該 MP4 は avcC レベル 3.1 で、この開発 PC の Chrome エンコーダ（レベル 4.2 を出力し、同じ素材で削り込みが起きない）とは別のエンコーダで書き出されたもの。削り込み自体の改善は、書き出した実機での再確認が必要。
+- **対策**:
+  1. **キーフレームをカットへ合わせる**: `computeExportCutFrameIndices()` が各クリップの最初に描かれるフレーム（`getExportFrameTiming` の時刻が `range.start` 以上になる最初のコマ。`findActiveTimelineItemWithTransitions` と同じ規約）を求める。Canvas 経路のフレーム i は時刻 timestamp_i で描いたスロットなので一致する。`createExportKeyframeDecider()` は先頭から「直前のキーフレームから FPS コマで定期キーフレーム、カットのコマは必ずキーフレームにして数え直す、定期分の直後 10 コマ以内にカットがあればそちらへ譲る、6 コマ未満で続くカットには重ねない」を判定する。キーフレーム間隔は最大 FPS + 10 コマ（1.33 秒）。
+  2. **720p 以下の下限を 10 Mbps へ**: `computeStandardExportVideoBitrate = max(10 Mbps, 解像度比例値)`。1080p は従来どおり 12 Mbps。720p のファイルサイズは約 1.6 倍になる。
+- **変えていないもの**: 駆動方式（壁時計 dilation / native 1x 連続再生）、encode の呼び出し回数・タイミング、queue 30/90 と backpressure、CFR timestamp、末尾補完、エンコーダ候補（prefer-hardware + realtime）、30fps。変わるのは各フレームの `keyFrame` フラグと configure の `bitrate` 値だけ。
+- **注意**:
+  - 13-196 のとおり、端末によっては VideoEncoder の処理性能が 30fps 未満で backpressure 待機が出る。ビットレート増でその待機がわずかに増える可能性はあるが、待機はフレームを守る安全弁でありフレーム欠落・黒画面にはならない。実機で待機が大きく悪化した場合は下限値（`STANDARD_EXPORT_VIDEO_BITRATE_MIN`）を見直す。
+  - 定期キーフレームを `frameIndex % FPS === 0` へ戻すと、カット 1 コマ前のキーフレームが再発する。カット判定を描画規約（`time >= range.start`）とずらすと、キーフレームが 1 コマ前へずれて効果がなくなる。

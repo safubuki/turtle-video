@@ -9,7 +9,7 @@
  * src/hooks/export-strategies/ の契約型・純ロジックのみ。
  */
 import { useState, useRef, useCallback } from 'react';
-import { FPS, computeExportVideoBitrate } from '../../../constants';
+import { FPS, computeStandardExportVideoBitrate } from '../../../constants';
 import { applyExportCanvasSize, useCanvasStore } from '../../../stores/canvasStore';
 import * as Mp4Muxer from 'mp4-muxer';
 import type { AudioTrack, NarrationClip } from '../../../types';
@@ -102,6 +102,7 @@ import {
 } from '../../../utils/captionLayerExport';
 import { drawCaptionLayerFrame } from '../../../utils/captionLayerRender';
 import { encodeCaptionLayerVideoOffline } from './captionLayerOfflineEncode';
+import { computeExportCutFrameIndices, createExportKeyframeDecider } from './exportKeyframePlan';
 
 export type {
   ExportAudioSources,
@@ -2189,7 +2190,8 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           const { exportWidth, exportHeight } = useCanvasStore.getState();
           const { width, height } = applyExportCanvasSize(canvas, exportWidth, exportHeight);
 
-          const exportVideoBitrate = computeExportVideoBitrate(width, height);
+          // カット直後のブロックノイズ対策で、standard は下限 10 Mbps へ底上げする（13-330）
+          const exportVideoBitrate = computeStandardExportVideoBitrate(width, height);
           logInfo('エクスポート用キャンバスサイズへ切替', {
             width,
             height,
@@ -3113,7 +3115,19 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           const processVideoWithCanvasFrames = async () => {
             let frameIndex = 0;
             const framePollInterval = 16;
-            const isKeyFrame = (index: number) => index === 0 || index % FPS === 0;
+            // キーフレームをクリップの切り替え（カット）の最初のコマへ合わせる（13-330）。
+            // この経路のフレーム i はタイムライン時刻 timestamp_i で描いたスロットなので、
+            // 切り替えコマを事前に正確に求められる。変えるのは keyFrame フラグだけ。
+            const cutFrameIndices = audioSources && resolvedExportDuration
+              ? computeExportCutFrameIndices(audioSources.mediaItems, resolvedExportDuration, FPS)
+              : [];
+            const isKeyFrame = createExportKeyframeDecider({ fps: FPS, cutFrameIndices });
+            if (cutFrameIndices.length > 0) {
+              logInfo('書き出しキーフレームをクリップの切り替えへ合わせる', {
+                cutFrameCount: cutFrameIndices.length,
+                firstCutFrames: cutFrameIndices.slice(0, 10),
+              });
+            }
 
             try {
               while (!signal.aborted) {
