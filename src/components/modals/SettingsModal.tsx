@@ -66,18 +66,17 @@ const PREVIEW_LOG_MODE_OPTIONS: ReadonlyArray<{
   {
     value: 'smooth',
     label: '標準',
-    description: '通常確認向け。境界診断ログを抑えて、プレビューへの負荷を最小にします。',
+    description: '通常はこちら。動作への負荷を最小限に抑えます。',
   },
   {
     value: 'boundary',
     label: '境界診断',
-    description:
-      'プレビュー再生中のvideo→video 境界前後を記録し、引っかかり原因を分類します。Android実機での映像切替診断に有効です。',
+    description: 'クリップの切り替え時の引っかかりを詳しく記録します。',
   },
   {
     value: 'detailed',
     label: '詳細',
-    description: 'タイムライン詳細も記録します。開発調査用で、実機では重くなる場合があります。',
+    description: '不具合調査向けの詳細ログを記録します（重くなる場合があります）。',
   },
 ];
 
@@ -102,17 +101,17 @@ const EXPORT_QUALITY_OPTIONS: ReadonlyArray<{
   {
     value: 'auto',
     label: '自動',
-    description: '基準素材の解像度に合わせます（上限 1920×1080 相当・正方形は 1080×1080）。',
+    description: '素材に合わせて最適な解像度で書き出します（最大 1920×1080）。',
   },
   {
     value: 'fhd',
     label: 'フルHD',
-    description: '高画質の上限で書き出します（横 1920×1080 / 縦 1080×1920 / 正方形 1080×1080）。低解像度の素材は引き伸ばされます。',
+    description: '高画質（最大 1920×1080 相当）で書き出します。',
   },
   {
     value: 'hd',
     label: 'HD',
-    description: '軽量な HD 上限で書き出します（横 1280×720 / 縦 720×1280 / 正方形 720×720）。ファイルが軽く、書き出しも安定します。',
+    description: '軽めの画質（最大 1280×720 相当）で安定して書き出します。',
   },
 ];
 
@@ -127,13 +126,13 @@ const OFFLINE_MODE_ENABLE_CONFIRM_MESSAGE = [
 ].join('\n');
 
 const SETTINGS_TOGGLE_BUTTON_BASE =
-  'flex min-h-[42px] items-center justify-center rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors';
+  'flex min-h-[42px] items-center justify-center rounded-lg border px-4 py-2.5 text-sm md:text-[15px] font-semibold transition-colors';
 const SETTINGS_OFF_BUTTON_ACTIVE = 'border-blue-500/80 bg-blue-600 text-white hover:bg-blue-500';
 const SETTINGS_ON_BUTTON_ACTIVE = 'border-amber-400/80 bg-amber-500 text-black hover:bg-amber-400';
 const SETTINGS_TOGGLE_BUTTON_INACTIVE =
   'border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800';
 const SETTINGS_ACTION_BUTTON =
-  'flex min-h-[42px] w-full max-w-[calc(50%-0.25rem)] items-center justify-center rounded-lg border border-blue-500/80 bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:border-gray-700 disabled:bg-gray-800 disabled:text-gray-400';
+  'flex min-h-[42px] w-full max-w-[calc(50%-0.25rem)] items-center justify-center rounded-lg border border-blue-500/80 bg-blue-600 px-4 py-2.5 text-sm md:text-[15px] font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:border-gray-700 disabled:bg-gray-800 disabled:text-gray-400';
 
 /**
  * APIキーをlocalStorageから取得
@@ -260,9 +259,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
   const showToast = useUIStore((s) => s.showToast);
   const offlineMode = useOfflineModeStore((s) => s.offlineMode);
   const setOfflineMode = useOfflineModeStore((s) => s.setOfflineMode);
-  // 動画の出力品質（書き出し解像度）
+  // 動画の出力設定（書き出し解像度・出力中のミニプレビュー表示）
   const exportQuality = useCanvasStore((s) => s.exportQuality);
   const setExportQuality = useCanvasStore((s) => s.setExportQuality);
+  const exportLivePreviewEnabled = useCanvasStore((s) => s.exportLivePreviewEnabled);
+  const setExportLivePreviewEnabled = useCanvasStore((s) => s.setExportLivePreviewEnabled);
   const exportWidth = useCanvasStore((s) => s.exportWidth);
   const exportHeight = useCanvasStore((s) => s.exportHeight);
   const checkForUpdate = useUpdateStore((s) => s.checkForUpdate);
@@ -569,7 +570,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
       onClick={onClose}
     >
       <div
-        className="bg-gray-900 rounded-t-2xl md:rounded-2xl border border-gray-700 w-full max-w-lg shadow-2xl max-h-[calc(100dvh-0.5rem)] md:max-h-[90vh] flex flex-col overflow-hidden animate-ai-modal-sheet"
+        className="bg-gray-900 rounded-t-2xl md:rounded-2xl border border-gray-700 w-full max-w-lg md:max-w-xl shadow-2xl max-h-[calc(100dvh-0.5rem)] md:max-h-[90vh] flex flex-col overflow-hidden animate-ai-modal-sheet"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 上部（ドラッグハンドル + ヘッダー）だけ下スワイプで閉じる。ヘルプ/履歴本文とは競合させない */}
@@ -639,7 +640,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
         <div className="flex border-b border-gray-700 shrink-0">
           <button
             onClick={() => setActiveTab('apikey')}
-            className={`flex-1 py-3 px-2 text-xs font-bold flex items-center justify-center gap-1 transition ${
+            className={`flex-1 py-3 px-2 text-xs md:text-sm font-bold flex items-center justify-center gap-1.5 transition ${
               activeTab === 'apikey'
                 ? 'text-white border-b-2 border-blue-500 bg-gray-800/50'
                 : 'text-gray-400 hover:text-white hover:bg-gray-800/30'
@@ -650,7 +651,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
           </button>
           <button
             onClick={() => setActiveTab('settings')}
-            className={`flex-1 py-3 px-2 text-xs font-bold flex items-center justify-center gap-1 transition ${
+            className={`flex-1 py-3 px-2 text-xs md:text-sm font-bold flex items-center justify-center gap-1.5 transition ${
               activeTab === 'settings'
                 ? 'text-white border-b-2 border-blue-500 bg-gray-800/50'
                 : 'text-gray-400 hover:text-white hover:bg-gray-800/30'
@@ -664,7 +665,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
               setActiveTab('logs');
               clearErrorFlag();
             }}
-            className={`flex-1 py-3 px-2 text-xs font-bold flex items-center justify-center gap-1 transition ${
+            className={`flex-1 py-3 px-2 text-xs md:text-sm font-bold flex items-center justify-center gap-1.5 transition ${
               activeTab === 'logs'
                 ? 'text-white border-b-2 border-blue-500 bg-gray-800/50'
                 : 'text-gray-400 hover:text-white hover:bg-gray-800/30'
@@ -705,12 +706,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
                   <li>
                     設定タブの「オフラインモード」は、AI機能とソフトウェア更新の通信を止めます。ONにするときだけ確認画面が表示されます。
                   </li>
-                  {uiCapabilities.supportsOutputQualitySelection && (
-                    <li>
-                      「動画の出力品質」は 自動／フルHD／HD
-                      から選べます。動画の横16:9／縦9:16は「動画・画像」セクション右上で切り替えます。
-                    </li>
-                  )}
+                  <li>
+                    「動画の出力」では
+                    {uiCapabilities.supportsOutputQualitySelection
+                      ? '出力品質（自動／フルHD／HD）と、作成中のミニプレビュー表示を切り替えられます。動画の横16:9／縦9:16は「動画・画像」セクション右上で切り替えます。'
+                      : '作成中のミニプレビュー表示を切り替えられます。'}
+                  </li>
                   <li>
                     「ログモード」は 標準／境界診断／詳細
                     から選べます。境界診断を選んだ場合は、プレビューを停止して再生し直すと反映されます。
@@ -801,32 +802,40 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
           )}
           {activeTab === 'apikey' ? (
             /* APIキータブ */
-            <div className="p-4 space-y-4 overflow-y-auto">
+            <div className="p-4 md:p-5 space-y-4 overflow-y-auto">
               {/* 説明 */}
-              <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
-                <h3 className="font-bold text-blue-400 mb-2 flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4" />
-                  AIナレーション機能について
+              <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-3.5 md:p-4">
+                <h3 className="text-sm md:text-base font-bold text-blue-300 mb-2 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  AIナレーション用のAPIキー
                 </h3>
-                <p className="text-sm text-gray-300 leading-relaxed">
-                  AIナレーション機能を使用するには、Google Gemini APIキーが必要です。
-                  以下の手順でAPIキーを取得してください：
+                <p className="text-xs md:text-sm text-gray-200 leading-relaxed">
+                  AIナレーションを使うには、Google Gemini の APIキーが必要です。
+                  <br />
+                  <span className="text-gray-300">
+                    （Googleアカウントがあれば無料枠から使えます）
+                  </span>
                 </p>
-                <ol className="text-sm text-gray-300 mt-2 space-y-1 list-decimal list-inside">
-                  <li>下のリンクからGoogle AI Studioにアクセス</li>
-                  <li>Googleアカウントでログイン</li>
-                  <li>「Get API Key」をクリックしてキーを発行</li>
-                  <li>発行されたキーをコピーして下に貼り付け</li>
+                <ol className="text-xs md:text-sm text-gray-200 mt-2 space-y-1 list-decimal list-inside leading-relaxed">
+                  <li>下のボタンから Google AI Studio を開き、Googleアカウントでログイン</li>
+                  <li>
+                    <span className="font-semibold text-white">「APIキーを作成（Create API key）」</span>
+                    からキーを発行
+                  </li>
+                  <li>
+                    発行された <span className="font-mono font-semibold text-white">AIza...</span>{' '}
+                    の文字列をコピーして下に貼り付け、「保存」を押す
+                  </li>
                 </ol>
-                <p className="text-xs text-blue-200/80 mt-2.5">
-                  ※APIキーはお使いのブラウザ内（ローカル）にのみ安全に保存され、外部サーバーには送信されません。
+                <p className="text-[11px] md:text-xs text-blue-200/85 mt-2.5 leading-relaxed">
+                  ※ 初回のみ、利用規約の同意やプロジェクト選択が表示される場合があります。
                 </p>
               </div>
 
               {/* AI Studio リンク */}
               {offlineMode && (
-                <div className="flex items-center justify-center gap-2 border border-gray-700 bg-gray-800/80 text-gray-500 py-3 px-4 rounded-lg font-bold">
-                  <ExternalLink className="w-4 h-4" />
+                <div className="flex items-center justify-center gap-2 border border-gray-700 bg-gray-800/80 text-gray-400 py-3 px-4 rounded-lg text-xs md:text-sm font-bold">
+                  <ExternalLink className="w-4 h-4 shrink-0" />
                   Google AI Studio はオフラインモードでは開けません
                 </div>
               )}
@@ -835,18 +844,24 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
                   href="https://aistudio.google.com/app/apikey"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white py-3 px-4 rounded-lg font-bold transition shadow-lg"
+                  className="flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white py-3 px-4 rounded-lg text-sm md:text-[15px] font-bold transition shadow-lg"
                 >
-                  <ExternalLink className="w-4 h-4" />
+                  <ExternalLink className="w-4 h-4 shrink-0" />
                   Google AI Studio でAPIキーを取得
                 </a>
               )}
 
               {/* APIキー入力 */}
               <div className="space-y-2">
-                <label className="block text-sm font-bold text-gray-300">Gemini APIキー</label>
+                <label
+                  htmlFor="gemini-api-key-input"
+                  className="block text-sm md:text-base font-bold text-gray-200"
+                >
+                  Gemini APIキー
+                </label>
                 <div className="relative">
                   <input
+                    id="gemini-api-key-input"
                     type={showKey ? 'text' : 'password'}
                     value={showKey ? apiKey : apiKey ? maskApiKey(apiKey) : ''}
                     onChange={(e) => {
@@ -857,26 +872,28 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
                     }}
                     onFocus={() => setShowKey(true)}
                     placeholder="AIza..."
-                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 pr-12 text-sm font-mono focus:outline-none focus:border-blue-500 transition"
+                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 pr-12 text-sm md:text-base font-mono focus:outline-none focus:border-blue-500 transition"
                   />
                   <button
                     type="button"
                     onClick={() => setShowKey(!showKey)}
+                    aria-label={showKey ? 'APIキーを隠す' : 'APIキーを表示'}
+                    title={showKey ? 'APIキーを隠す' : 'APIキーを表示'}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition"
                   >
                     {showKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                   </button>
                 </div>
-                <p className="text-xs text-gray-500">
-                  ※ APIキーはブラウザのローカルストレージに保存されます
+                <p className="text-xs md:text-sm text-gray-400 leading-relaxed">
+                  ※ キーはこのブラウザ内にのみ保存されます（タートルビデオのサーバーには保存されません）。
                 </p>
               </div>
 
               {/* 保存成功メッセージ */}
               {saved && (
                 <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3 flex items-center gap-2 text-green-400">
-                  <CheckCircle className="w-4 h-4" />
-                  <span className="text-sm font-bold">保存しました！</span>
+                  <CheckCircle className="w-4 h-4 shrink-0" />
+                  <span className="text-sm md:text-[15px] font-bold">保存しました！</span>
                 </div>
               )}
 
@@ -884,29 +901,29 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
               <div className="flex gap-3 pt-2">
                 <button
                   onClick={handleClear}
-                  className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2.5 rounded-lg font-bold transition"
+                  className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2.5 rounded-lg text-sm md:text-[15px] font-bold transition"
                 >
                   クリア
                 </button>
                 <button
                   onClick={handleSave}
                   disabled={!apiKey.trim()}
-                  className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white py-2.5 rounded-lg font-bold transition shadow-lg"
+                  className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white py-2.5 rounded-lg text-sm md:text-[15px] font-bold transition shadow-lg"
                 >
                   保存
                 </button>
               </div>
             </div>
           ) : activeTab === 'settings' ? (
-            <div className="p-4 space-y-4 overflow-y-auto">
-              <div className="bg-gray-800 rounded-lg p-4 space-y-3">
+            <div className="p-4 md:p-5 space-y-4 overflow-y-auto">
+              <div className="bg-gray-800 rounded-xl p-4 md:p-5 space-y-3">
                 <div className="space-y-1">
-                  <div className="text-sm font-bold text-gray-100">オフラインモード</div>
-                  <p className="text-xs text-gray-300 leading-relaxed">
-                    インターネット接続が必要な機能を使わず、この端末だけで編集します。
+                  <div className="text-sm md:text-base font-bold text-white">オフラインモード</div>
+                  <p className="text-xs md:text-sm text-gray-300 leading-relaxed">
+                    インターネット接続が必要な機能を使わず、端末内だけで編集します。
                   </p>
-                  <p className="text-xs text-gray-300 leading-relaxed">
-                    ※ ブラウザやOSレベルですべての通信を遮断するものではありません。
+                  <p className="text-[11px] md:text-xs text-gray-400 leading-relaxed">
+                    ※ ブラウザやOSの通信自体を完全に遮断するものではありません。
                   </p>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
@@ -929,56 +946,85 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
                 </div>
               </div>
 
-              {uiCapabilities.supportsOutputQualitySelection && (
-                <div className="bg-gray-800 rounded-lg p-4 space-y-3">
-                <div className="space-y-1">
-                  <div className="text-sm font-bold text-gray-100">動画の出力品質</div>
-                  <p className="text-xs text-gray-300 leading-relaxed">
-                    保存（書き出し）する動画の解像度を選びます。上限は 1920×1080 です。
-                  </p>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {EXPORT_QUALITY_OPTIONS.map(({ value, label }) => (
+              <div className="bg-gray-800 rounded-xl p-4 md:p-5 space-y-4">
+                <div className="text-sm md:text-base font-bold text-white">動画の出力</div>
+
+                {uiCapabilities.supportsOutputQualitySelection && (
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs md:text-sm font-bold text-gray-100">出力品質</div>
+                      <span className="rounded-md border border-blue-400/30 bg-blue-500/10 px-2 py-0.5 font-mono text-[11px] md:text-xs text-blue-200">
+                        現在 {exportWidth}×{exportHeight}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {EXPORT_QUALITY_OPTIONS.map(({ value, label }) => (
+                        <button
+                          key={value}
+                          onClick={() => setExportQuality(value)}
+                          className={`${SETTINGS_TOGGLE_BUTTON_BASE} ${
+                            exportQuality === value
+                              ? SETTINGS_OFF_BUTTON_ACTIVE
+                              : SETTINGS_TOGGLE_BUTTON_INACTIVE
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs md:text-sm text-gray-300 leading-relaxed">
+                      {EXPORT_QUALITY_OPTIONS.find((option) => option.value === exportQuality)?.description}
+                    </p>
+                  </div>
+                )}
+
+                <div
+                  className={`space-y-2.5 ${
+                    uiCapabilities.supportsOutputQualitySelection
+                      ? 'border-t border-gray-700/70 pt-4'
+                      : ''
+                  }`}
+                >
+                  <div className="space-y-1">
+                    <div className="text-xs md:text-sm font-bold text-gray-100">
+                      出力中のミニプレビュー
+                    </div>
+                    <p className="text-xs md:text-sm text-gray-300 leading-relaxed">
+                      作成中の画面に映像を表示します。動作が重い場合は「表示しない」にしてください。
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
                     <button
-                      key={value}
-                      onClick={() => setExportQuality(value)}
+                      type="button"
+                      onClick={() => setExportLivePreviewEnabled(true)}
                       className={`${SETTINGS_TOGGLE_BUTTON_BASE} ${
-                        exportQuality === value
+                        exportLivePreviewEnabled
                           ? SETTINGS_OFF_BUTTON_ACTIVE
                           : SETTINGS_TOGGLE_BUTTON_INACTIVE
                       }`}
                     >
-                      {label}
+                      表示する
                     </button>
-                  ))}
-                </div>
-                <div className="space-y-1.5 text-[11px] leading-relaxed text-gray-400">
-                  {EXPORT_QUALITY_OPTIONS.map(({ value, label, description }) => (
-                    <p
-                      key={value}
-                      className={exportQuality === value ? 'text-blue-100' : undefined}
+                    <button
+                      type="button"
+                      onClick={() => setExportLivePreviewEnabled(false)}
+                      className={`${SETTINGS_TOGGLE_BUTTON_BASE} ${
+                        !exportLivePreviewEnabled
+                          ? SETTINGS_OFF_BUTTON_ACTIVE
+                          : SETTINGS_TOGGLE_BUTTON_INACTIVE
+                      }`}
                     >
-                      <span className="font-semibold text-gray-200">{label}</span>
-                      <span className="ml-1">{description}</span>
-                    </p>
-                  ))}
+                      表示しない
+                    </button>
+                  </div>
                 </div>
-                <p className="text-[11px] text-gray-500 leading-relaxed">
-                  現在の書き出しサイズ: {exportWidth}×{exportHeight}※
-                  プレビューの画質には影響しません。長い動画で書き出しが不安定な場合は HD (1280×720)
-                  をお試しください。
-                </p>
-                </div>
-              )}
+              </div>
 
-              <div className="bg-gray-800 rounded-lg p-4 space-y-3">
+              <div className="bg-gray-800 rounded-xl p-4 md:p-5 space-y-3">
                 <div className="space-y-1">
-                  <div className="text-sm font-bold text-gray-100">ログモード</div>
-                  <p className="text-xs text-gray-300 leading-relaxed">
-                    ログの記録量を調整します。設定変更後は次のプレビュー開始から反映されます。
-                  </p>
-                  <p className="text-xs text-gray-500 leading-relaxed">
-                    ※ すでに再生中の場合は、プレビューを停止して再生し直してください。
+                  <div className="text-sm md:text-base font-bold text-white">ログモード</div>
+                  <p className="text-xs md:text-sm text-gray-300 leading-relaxed">
+                    動作記録の詳しさを選びます（次の再生から反映）。
                   </p>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
@@ -996,25 +1042,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
                     </button>
                   ))}
                 </div>
-                <div className="space-y-1.5 text-[11px] leading-relaxed text-gray-400">
-                  {PREVIEW_LOG_MODE_OPTIONS.map(({ value, label, description }) => (
-                    <p
-                      key={value}
-                      className={previewLogMode === value ? 'text-blue-100' : undefined}
-                    >
-                      <span className="font-semibold text-gray-200">{label}</span>
-                      <span className="ml-1">{description}</span>
-                    </p>
-                  ))}
-                </div>
+                <p className="text-xs md:text-sm text-gray-300 leading-relaxed">
+                  {PREVIEW_LOG_MODE_OPTIONS.find((option) => option.value === previewLogMode)?.description}
+                </p>
                 {previewLogMode !== (previewLogModeAtLoadRef.current ?? 'smooth') && (
                   <div className="flex items-center justify-between gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2">
-                    <p className="text-xs text-amber-300">
-                      変更は次のプレビュー開始時に反映されます。反映が不安定な場合はリロードしてください。
+                    <p className="text-xs md:text-sm text-amber-200">
+                      次の再生から反映されます。すぐ切り替えたい場合はリロードしてください。
                     </p>
                     <button
                       onClick={() => window.location.reload()}
-                      className="shrink-0 rounded-md bg-amber-500 px-3 py-1 text-xs font-bold text-black hover:bg-amber-400 transition"
+                      className="shrink-0 rounded-md bg-amber-500 px-3 py-1.5 text-xs md:text-sm font-bold text-black hover:bg-amber-400 transition"
                     >
                       リロード
                     </button>
@@ -1022,11 +1060,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
                 )}
               </div>
 
-              <div className="bg-gray-800 rounded-lg p-4 space-y-3">
+              <div className="bg-gray-800 rounded-xl p-4 md:p-5 space-y-3">
                 <div className="space-y-1">
-                  <div className="text-sm font-bold text-gray-100">ソフトウェア更新の手動確認</div>
-                  <p className="text-xs text-gray-300 leading-relaxed">
-                    手動でタートルビデオのソフトウェア更新を確認します。
+                  <div className="text-sm md:text-base font-bold text-white">ソフトウェア更新</div>
+                  <p className="text-xs md:text-sm text-gray-300 leading-relaxed">
+                    新しいバージョンが公開されているか確認します。
                   </p>
                 </div>
                 <div className="flex justify-center">
@@ -1161,7 +1199,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ appFlavor, isOpen, onClos
 
         {/* バージョン情報 & 更新確認 */}
         <div className="px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] md:pb-3 border-t border-gray-700 pt-3 shrink-0 flex flex-col items-center gap-2">
-          <span className="text-xs text-gray-500">タートルビデオ v{APP_VERSION}</span>
+          <span className="text-xs md:text-sm text-gray-400">タートルビデオ v{APP_VERSION}</span>
           <UpdateStatus />
         </div>
       </div>

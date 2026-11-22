@@ -212,6 +212,7 @@ export function resolveMediaBaseScale(input: {
 }
 
 export const EXPORT_QUALITY_STORAGE_KEY = 'turtle-video-export-quality';
+export const EXPORT_LIVE_PREVIEW_STORAGE_KEY = 'turtle-video-export-live-preview';
 
 export function readStoredExportQuality(): ExportQuality {
   try {
@@ -235,6 +236,27 @@ function persistExportQuality(quality: ExportQuality): void {
   }
 }
 
+export function readStoredExportLivePreviewEnabled(): boolean {
+  try {
+    return localStorage.getItem(EXPORT_LIVE_PREVIEW_STORAGE_KEY) !== 'false';
+  } catch {
+    // localStorage が使えない環境では既定で表示
+  }
+  return true;
+}
+
+function persistExportLivePreviewEnabled(enabled: boolean): void {
+  try {
+    if (enabled) {
+      localStorage.removeItem(EXPORT_LIVE_PREVIEW_STORAGE_KEY);
+    } else {
+      localStorage.setItem(EXPORT_LIVE_PREVIEW_STORAGE_KEY, 'false');
+    }
+  } catch {
+    // localStorage が使えない環境では何もしない
+  }
+}
+
 interface CanvasState {
   /** 現在キャンバス要素が取るサイズ（プレビュー時は preview*、エクスポート時は export*）。 */
   width: number;
@@ -249,6 +271,8 @@ interface CanvasState {
   isExportMode: boolean;
   /** 出力品質モード（localStorage に永続化） */
   exportQuality: ExportQuality;
+  /** 書き出しモーダル内のミニプレビュー表示（localStorage に永続化・既定 ON） */
+  exportLivePreviewEnabled: boolean;
   /** 出力の向き（プロジェクトごとに保持。既定は landscape=16:9）。 */
   aspectRatio: AspectRatio;
   /** 直近に適用したソース動画の解像度（品質モード変更時の再計算用） */
@@ -258,6 +282,8 @@ interface CanvasState {
   applyFromSource: (sourceWidth: number, sourceHeight: number) => void;
   /** 出力品質モードを変更し、エクスポートサイズを再計算する。 */
   setExportQuality: (quality: ExportQuality) => void;
+  /** 書き出しモーダル内のミニプレビュー表示を切り替える。 */
+  setExportLivePreviewEnabled: (enabled: boolean) => void;
   /** 出力の向きを変更し、プレビュー/エクスポートサイズを再計算する。 */
   setAspectRatio: (aspectRatio: AspectRatio) => void;
   /** ストアを既定状態へ戻す。 */
@@ -513,6 +539,7 @@ export const useCanvasStore = create<CanvasState>()(
     exportHeight: MAX_CANVAS_HEIGHT,
     isExportMode: false,
     exportQuality: readStoredExportQuality(),
+    exportLivePreviewEnabled: readStoredExportLivePreviewEnabled(),
     aspectRatio: 'landscape',
     lastSourceWidth: null,
     lastSourceHeight: null,
@@ -548,6 +575,10 @@ export const useCanvasStore = create<CanvasState>()(
         width: isExportMode ? exportSize.width : width,
         height: isExportMode ? exportSize.height : height,
       });
+    },
+    setExportLivePreviewEnabled: (enabled) => {
+      persistExportLivePreviewEnabled(enabled);
+      set({ exportLivePreviewEnabled: enabled });
     },
     setAspectRatio: (aspectRatio) => {
       const { exportQuality, lastSourceWidth, lastSourceHeight, isExportMode } = get();

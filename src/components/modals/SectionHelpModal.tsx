@@ -29,7 +29,8 @@ import {
   Square,
   Play,
   Camera,
-  RotateCcw,
+  Clapperboard,
+  Eraser,
   Download,
   Check,
   Type,
@@ -1445,18 +1446,18 @@ const SectionHelpModal: React.FC<SectionHelpModalProps> = ({
         return (
           <span
             key={`${token}-${index}`}
-            className={`${chipBaseClass} px-2.5 py-1 border-gray-600 bg-gray-700/50 text-gray-200 font-medium`}
+            className={`${chipBaseClass} px-2.5 py-1 border-rose-500/45 bg-rose-500/10 text-rose-300 font-medium`}
           >
-            <RotateCcw className="w-3 h-3" /> 一括クリア
+            <Eraser className="w-3.5 h-3.5" /> 一括クリア
           </span>
         );
       case 'export_button':
         return (
           <span
             key={`${token}-${index}`}
-            className={`${chipBaseClass} px-3 py-1.5 rounded-full border-blue-500/60 bg-blue-600 text-white font-semibold`}
+            className={`${chipBaseClass} px-3 py-1.5 rounded-xl border-transparent bg-blue-600 text-white font-semibold`}
           >
-            動画ファイルを作成
+            <Clapperboard className="w-3.5 h-3.5" /> 動画ファイルを作成
           </span>
         );
       case 'download_button':

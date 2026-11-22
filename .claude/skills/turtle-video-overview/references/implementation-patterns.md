@@ -5516,6 +5516,20 @@ export 終了（成功/失敗/中断）
   - `ClipThumbnail.tsx` の PC ホバー拡大枠も `projectCanvasWidth / projectCanvasHeight` から算出（カードヘッダーの小枠 `104×61` は 3 行グリッド＋番号バッジの整列とスマホ縦幅保護のため維持）。
   - スマホ（タッチ端末）は従来どおりホバーではなくタップでライトボックス表示（`max-h-[min(70vh,480px)]` 上限付き）とし、画像周りの無駄な横幅黒帯を抑えるよう `w-auto max-w-full` へ調整。
 
+### 13-325. PC プレビューヘッダーへのエクスポート昇格・書き出し専用モーダル導入・解像度バッジ移設・グローバルヘッダーへの一括クリア統合
+
+- **ファイル**: `src/components/modals/ExportStatusModal.tsx`（新規）, `src/components/sections/PreviewSection.tsx`, `src/components/common/SettingsAccordionHeader.tsx`, `src/components/Header.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, `src/test/previewSectionActionButtons.test.tsx`, `src/test/headerFlavorBadgePlacement.test.tsx`
+- **課題**:
+  - PC（2 カラム表示）では左カラムが縦に長くなると `lg:sticky` の右プレビュー下端にある「動画ファイルを作成」が画面外へ隠れ、左端までスクロールしないと押せなかった。
+  - プレビューのシークバーが書き出し進捗バーを兼ねており役割が混在していた。また書き出し中の中断・完了後の編集復帰が「■ 停止」ボタン頼みで分かりにくかった。
+  - 「一括クリア」はプロジェクト全体のリセット操作であるにもかかわらずプレビュー最下部に置かれていた。
+- **対策**:
+  - `PreviewSection.tsx` に `useIsDesktopTwoColumn()`（`matchMedia('(min-width: 1024px)')`）を導入し、DOM 重複を避けながら PC（`>= 1024px`）ではプレビューヘッダー右側のみ、モバイル（`< 1024px`）ではプレビュー下部のみに枠なし単色ブルーの角丸四角（`rounded-xl` ＋ `Clapperboard` アイコン）の「動画ファイルを作成」トリガーボタンを配置。
+  - 書き出し開始（`isProcessing`）〜完了（`exportUrl`）の間は PC・スマホ共通で画面中央の `ExportStatusModal`（`createPortal`, `z-[350]`, `bg-black/75 backdrop-blur-sm`）を表示。書き出し中はモーダル内の軽量モニター `<canvas>` へ本番プレビュー Canvas から約 12.5fps（80ms 間隔・長辺最大 480px）で縮小ミラー描画し、専用プログレスバー（準備中は `0%` 固定＋待機パルスから開始し、`0% → 100%` へ単調増加）・経過時間・画面維持の注意書き・「中止」ボタンを表示する（本番 `<canvas>` 自体は移動・非表示にしないため WebCodecs / Safari MediaRecorder 出力への影響ゼロ）。完了後は右上の「×」ボタン・「ダウンロード (.ext)」・WebM 注意・「編集に戻る」ボタンへ切り替わる（背景クリック・Escape での誤閉じ禁止）。未ダウンロードのまま「編集に戻る」／「×」を押したときのみモーダル内に確認パネルを表示し、ダウンロード済みなら即座に閉じる。
+  - 設定モーダル（`SettingsModal.tsx`）は PC での読みやすさ改善（`md:max-w-xl`・文字サイズ/コントラスト強化・選択中 1 行説明・「APIキー」タブの初回向け手順整理と重複注記の集約）を行い、「動画の出力品質」を「動画の出力」カードへ統合して「出力品質（standard のみ）」と「出力中のミニプレビュー（表示する／表示しない、既定 ON、`canvasStore.exportLivePreviewEnabled`・`localStorage` 永続化）」を配置。OFF 時はモニター `<canvas>` と `rAF` コピー処理を完全に止めて低スペック端末の負荷をゼロに抑える。
+  - 解像度バッジ（`preview-output-size-badge`）は `SettingsAccordionHeader` の `trailing` prop（`aria-hidden="true"` でアクセシブル名 `'動画出力オプション'` を維持）経由で「動画出力オプション」見出し右へ移設。
+  - `Header.tsx` を 1 セットのレスポンシブ構造へ統合しつつ、細い縦区切り線の右側に赤み系の消しゴムアイコンボタン（`Eraser`・`border-rose-500/45 bg-rose-500/10 text-rose-300`、`?` ボタンと対になるアイコン統一デザイン）として「一括クリア」を配置し、`TurtleVideo.tsx` の `hasClearableProjectContent` と `isProcessing` で有効/無効を制御。
+
 
 
 

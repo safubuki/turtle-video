@@ -139,7 +139,26 @@ describe('modal backdrop behavior', () => {
     fireEvent.click(screen.getByRole('button', { name: '各種設定' }));
 
     expect(screen.queryByText('動画の出力品質')).not.toBeInTheDocument();
+    expect(screen.queryByText('出力品質')).not.toBeInTheDocument();
+    expect(screen.getByText('動画の出力')).toBeInTheDocument();
+    expect(screen.getByText('出力中のミニプレビュー')).toBeInTheDocument();
     expect(screen.getByText('オフラインモード')).toBeInTheDocument();
+  });
+
+  it('SettingsModal の「動画の出力」で出力中のミニプレビューを切り替えられる', () => {
+    localStorage.clear();
+    render(<SettingsModal appFlavor="standard" isOpen={true} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '各種設定' }));
+    expect(screen.getByText('動画の出力')).toBeInTheDocument();
+    expect(screen.getByText('出力品質')).toBeInTheDocument();
+    expect(screen.getByText('出力中のミニプレビュー')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '表示しない' }));
+    expect(localStorage.getItem('turtle-video-export-live-preview')).toBe('false');
+
+    fireEvent.click(screen.getByRole('button', { name: '表示する' }));
+    expect(localStorage.getItem('turtle-video-export-live-preview')).toBeNull();
   });
 
   it('SettingsModal は API キー保存後も閉じない', () => {

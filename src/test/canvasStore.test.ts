@@ -435,4 +435,17 @@ describe('素材に合わせる（auto）アスペクト比モード', () => {
     expect(formatCanvasSizeBadge(1440, 1080)).toBe('1440×1080 (4:3)');
     expect(formatCanvasSizeBadge(1750, 1080)).toBe('1750×1080');
   });
+
+  it('exportLivePreviewEnabled の切替と localStorage 永続化', () => {
+    localStorage.clear();
+    expect(useCanvasStore.getState().exportLivePreviewEnabled).toBe(true);
+
+    useCanvasStore.getState().setExportLivePreviewEnabled(false);
+    expect(useCanvasStore.getState().exportLivePreviewEnabled).toBe(false);
+    expect(localStorage.getItem('turtle-video-export-live-preview')).toBe('false');
+
+    useCanvasStore.getState().setExportLivePreviewEnabled(true);
+    expect(useCanvasStore.getState().exportLivePreviewEnabled).toBe(true);
+    expect(localStorage.getItem('turtle-video-export-live-preview')).toBeNull();
+  });
 });

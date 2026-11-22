@@ -20,14 +20,13 @@ import {
   Play,
   Pause,
   Square,
-  Download,
   Loader,
   RotateCcw,
   RotateCw,
   MonitorPlay,
-  AlertCircle,
   Camera,
   CircleHelp,
+  Clapperboard,
   Image as ImageIcon,
   RefreshCw,
 } from 'lucide-react';
@@ -57,6 +56,7 @@ import ThumbnailZoomPreview, {
   resolveThumbnailAspectRatio,
 } from '../common/ThumbnailZoomPreview';
 import FloatingPreview from '../common/FloatingPreview';
+import ExportStatusModal from '../modals/ExportStatusModal';
 import PreviewSeekSlider from '../common/PreviewSeekSlider';
 import TimelineWaveform from '../media/TimelineWaveform';
 import type { TimelineWaveformData } from '../../hooks/useTimelineWaveform';
@@ -68,6 +68,33 @@ import {
 
 const PREVIEW_ICON_BUTTON_BASE =
   'relative overflow-hidden p-3 lg:p-4 rounded-full border transition-[transform,background-color,color,box-shadow,filter] duration-200 shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed';
+
+/** Tailwind の lg (1024px) 2 カラム表示と一致するかを監視する */
+function useIsDesktopTwoColumn(): boolean {
+  const [isDesktop, setIsDesktop] = useState(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return false;
+    }
+    return window.matchMedia('(min-width: 1024px)').matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return;
+    }
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const update = () => setIsDesktop(mq.matches);
+    update();
+    if (typeof mq.addEventListener === 'function') {
+      mq.addEventListener('change', update);
+      return () => mq.removeEventListener('change', update);
+    }
+    mq.addListener(update);
+    return () => mq.removeListener(update);
+  }, []);
+
+  return isDesktop;
+}
 const PREVIEW_STOP_BUTTON =
   'border-gray-700 bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white disabled:border-gray-700 disabled:bg-gray-800 disabled:text-gray-500';
 const PREVIEW_CAPTURE_BUTTON =
@@ -189,7 +216,8 @@ interface PreviewSectionProps {
   onStop: () => void;
   onExport: () => void;
   onDownload: () => void;
-  onClearAll: () => void;
+  /** 後方互換用（現在は上部グローバルヘッダーに配置） */
+  onClearAll?: () => void;
   onCapture: () => void;
   onExportFinalizeTimeout?: () => void;
   onOpenHelp: () => void;
@@ -218,8 +246,6 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   appFlavor,
   supportsShowSaveFilePicker,
   mediaItems,
-  bgm,
-  narrations,
   canvasRef,
   currentTime,
   totalDuration,
@@ -247,7 +273,6 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   onStop,
   onExport,
   onDownload,
-  onClearAll,
   onCapture,
   onExportFinalizeTimeout,
   onOpenHelp,
@@ -264,11 +289,13 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   onDownloadSubtitles,
   hasCaptionsForSubtitleExport = false,
 }) => {
+  const isDesktopTwoColumn = useIsDesktopTwoColumn();
   const log = useLogStore.getState();
   const canvasWidth = useCanvasStore((s) => s.width);
   const canvasHeight = useCanvasStore((s) => s.height);
   const exportWidth = useCanvasStore((s) => s.exportWidth);
   const exportHeight = useCanvasStore((s) => s.exportHeight);
+  const exportLivePreviewEnabled = useCanvasStore((s) => s.exportLivePreviewEnabled);
   const aspectRatio = useCanvasStore((s) => s.aspectRatio);
   const outputSizeBadge = useMemo(
     () => formatCanvasSizeBadge(exportWidth, exportHeight),
@@ -296,7 +323,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   });
   const floating = useFloatingPreview(
     normalPreviewRef,
-    mediaItems.length > 0 && totalDuration > 0 && !isProcessing && !floatingPreviewBlocked,
+    mediaItems.length > 0 && totalDuration > 0 && !isProcessing && !exportUrl && !floatingPreviewBlocked,
     floatingPreviewBottomObstructionRef,
     floatingPreviewBottomObstructionActive,
   );
@@ -638,27 +665,21 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
   const exportProcessingElapsedText =
     exportProcessingElapsedSec >= 3 ? `（${exportProcessingElapsedSec}秒経過）` : '';
 
-  const exportButtonText = useMemo(() => {
+  const isExportModalOpen = isProcessing || hasExportUrl;
+  const exportTriggerLabel = exportOutputOptions.contentMode === 'caption-layer'
+    ? 'キャプションのみ書き出し'
+    : '動画ファイルを作成';
+
+  const exportModalStageHeadline = useMemo(() => {
     const isCaptionLayer = exportOutputOptions.contentMode === 'caption-layer';
-    if (!isProcessing) {
-      return isCaptionLayer ? 'キャプションのみ書き出し' : '動画ファイルを作成';
-    }
     if (exportPhase === 'preparing') {
-      return `書き出し準備中...${exportProcessingElapsedText}`;
+      return '書き出し準備中...';
     }
     if (exportPhase === 'finalizing') {
       return '保存ファイルを作成中...';
     }
-    return isCaptionLayer
-      ? `キャプション書き出し中... ${exportProgressPct.toFixed(0)}%`
-      : `映像を書き出し中... ${exportProgressPct.toFixed(0)}%`;
-  }, [
-    exportOutputOptions.contentMode,
-    exportPhase,
-    exportProcessingElapsedText,
-    exportProgressPct,
-    isProcessing,
-  ]);
+    return isCaptionLayer ? 'キャプション書き出し中...' : '映像を書き出し中...';
+  }, [exportOutputOptions.contentMode, exportPhase]);
 
   const exportStatusText = useMemo(() => {
     if (!isProcessing) return null;
@@ -679,38 +700,41 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
     preparationStageCopy.description,
   ]);
 
-  const exportActionButton = exportButtonState === 'download' ? (
-    <button
-      type="button"
-      onClick={onDownload}
-      className="bg-green-600 hover:bg-green-500 text-white px-6 py-2.5 rounded-full text-sm lg:text-base font-bold flex items-center gap-2 animate-bounce-short shadow-lg"
-    >
-      <Download className="w-4 h-4 lg:w-5 lg:h-5" /> ダウンロード (.{exportExt})
-    </button>
-  ) : exportButtonState === 'processing' ? (
-    <button
-      onClick={exportFromPreview}
-      disabled
-      className="flex-1 max-w-xs flex items-center justify-center gap-2 px-6 py-2.5 lg:py-3 rounded-full text-sm lg:text-base font-bold shadow-lg transition bg-gray-700 text-gray-400 cursor-wait"
-    >
-      <Loader className="animate-spin w-4 h-4 lg:w-5 lg:h-5" />
-      {exportButtonText}
-    </button>
-  ) : (
-    <button
-      onClick={exportFromPreview}
-      disabled={mediaItems.length === 0}
-      className="flex-1 max-w-xs flex items-center justify-center gap-2 px-6 py-2.5 lg:py-3 rounded-full text-sm lg:text-base font-bold shadow-lg transition bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20"
-    >
-      {exportButtonText}
-    </button>
-  );
+  const renderExportTriggerButton = (placement: 'header' | 'footer') => {
+    const isHeader = placement === 'header';
+    return (
+      <div
+        data-testid={`preview-export-actions-${placement}`}
+        className={isHeader ? 'flex shrink-0 items-center' : 'flex w-full items-center justify-center'}
+      >
+        <button
+          type="button"
+          onClick={exportFromPreview}
+          disabled={mediaItems.length === 0 || isExportModalOpen}
+          className={`inline-flex ${isHeader ? 'h-9 px-4 text-sm lg:text-[15px]' : 'h-11 w-full max-w-xs px-6 text-[15px]'} items-center justify-center gap-2 rounded-xl bg-blue-600 font-bold tracking-wide text-white shadow-lg shadow-blue-500/25 transition hover:bg-blue-500 hover:shadow-blue-500/35 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45 disabled:shadow-none disabled:hover:bg-blue-600 whitespace-nowrap leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300/90`}
+        >
+          <Clapperboard aria-hidden="true" className="h-4 w-4 shrink-0" />
+          {exportTriggerLabel}
+        </button>
+      </div>
+    );
+  };
 
   const previewRuntimeNotice = useMemo(
     () => getPreviewRuntimeNotice({ appFlavor, supportsShowSaveFilePicker }),
     [appFlavor, supportsShowSaveFilePicker],
   );
   const uiCapabilities = useMemo(() => getAppFlavorUiCapabilities(appFlavor), [appFlavor]);
+  const outputSizeBadgeElement = uiCapabilities.supportsAspectRatioSelection && outputSizeBadge ? (
+    <span
+      data-testid="preview-output-size-badge"
+      title={aspectRatio === 'auto' ? '素材に合わせるモードで決まった出力サイズ' : '現在の出力サイズ'}
+      className="rounded-md border border-green-500/35 bg-green-500/10 px-2 py-0.5 font-mono text-[10px] text-green-400 md:text-xs"
+    >
+      {aspectRatio === 'auto' ? `自動 ${outputSizeBadge}` : outputSizeBadge}
+    </span>
+  ) : null;
+  const hasLowerFooterContent = mediaItems.length > 0 || !isDesktopTwoColumn;
 
   const triggerCaptureFeedback = (callback: () => void) => {
     if (flashTimeoutRef.current !== null) {
@@ -726,8 +750,11 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
 
   return (
     <section className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
-      <div className="p-3 lg:p-4 border-b border-gray-800 bg-gray-850 flex items-center justify-between">
-        <h2 className="font-bold flex items-center gap-2 text-green-400 md:text-base lg:text-lg">
+      <div
+        data-testid="preview-section-header"
+        className="px-3 py-2.5 lg:px-4 lg:py-3 border-b border-gray-800 bg-gray-850 flex items-center justify-between gap-2"
+      >
+        <h2 className="font-bold flex items-center gap-2 text-green-400 md:text-base lg:text-lg shrink-0">
           <span className="w-6 h-6 lg:w-7 lg:h-7 rounded-full bg-green-500/10 flex items-center justify-center text-xs lg:text-sm">
             5
           </span>{' '}
@@ -741,22 +768,11 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
             <CircleHelp className="w-4 h-4" />
           </button>
         </h2>
-        <div className="flex items-center gap-2">
-          {uiCapabilities.supportsAspectRatioSelection && outputSizeBadge && (
-            <span
-              data-testid="preview-output-size-badge"
-              title={aspectRatio === 'auto' ? '素材に合わせるモードで決まった出力サイズ' : '現在の出力サイズ'}
-              className="rounded-md border border-green-500/35 bg-green-500/10 px-2 py-0.5 font-mono text-[10px] text-green-400 md:text-xs"
-            >
-              {aspectRatio === 'auto' ? `自動 ${outputSizeBadge}` : outputSizeBadge}
-            </span>
-          )}
-          {isProcessing && (
-            <span className="text-[10px] md:text-xs text-green-400 font-mono animate-pulse bg-green-900/30 px-2 py-0.5 rounded">
-              REC ●
-            </span>
-          )}
-        </div>
+        {isDesktopTwoColumn && (
+          <div className="flex items-center gap-2 min-w-0">
+            {renderExportTriggerButton('header')}
+          </div>
+        )}
       </div>
       <div
         ref={normalPreviewRef}
@@ -814,28 +830,6 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
           </span>
         </div>
 
-        {isProcessing && (
-          <div className="mb-3 rounded-xl border border-amber-400/40 bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-rose-500/10 px-3 py-2.5 lg:px-4 lg:py-3 shadow-[0_6px_20px_rgba(251,146,60,0.14)]">
-            <div className="flex items-start gap-2.5">
-              <div className="mt-0.5 w-6 h-6 rounded-lg border border-amber-300/40 bg-amber-300/10 flex items-center justify-center shrink-0">
-                <AlertCircle className="w-3.5 h-3.5 text-amber-200" />
-              </div>
-              <div>
-                <p className="text-[11px] md:text-[12px] lg:text-sm leading-snug font-semibold text-amber-100">
-                  動画作成中はこの画面のままお待ちください
-                </p>
-                <p className="text-[10px] md:text-[11px] lg:text-xs leading-snug text-amber-200/90 mt-0.5">
-                  画面を切り替えると映像・音声が乱れます
-                </p>
-                {exportStatusText && (
-                  <p className="text-[10px] md:text-[11px] lg:text-xs leading-snug text-amber-100/90 mt-1">
-                    {exportStatusText}
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
         {previewRuntimeNotice && !isProcessing && (
           <div className="mb-3 rounded-xl border border-sky-400/35 bg-linear-to-r from-sky-500/10 via-cyan-500/10 to-emerald-500/10 px-3 py-2.5 lg:px-4 lg:py-3 shadow-[0_6px_20px_rgba(34,211,238,0.12)]">
             <div className="flex items-start gap-2.5">
@@ -978,7 +972,11 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
 
         {/* 並び: [3秒戻る][停止][再生][3秒進む] | [キャプチャ]。秒送りは再生操作の両隣、
             キャプチャは役割が違うので少し離して右端に置く。 */}
-        <div className="mt-4 flex items-center justify-center gap-2.5 sm:gap-4 border-b border-gray-800 pb-6">
+        <div
+          className={`mt-4 flex items-center justify-center gap-2.5 sm:gap-4 ${
+            hasLowerFooterContent ? 'border-b border-gray-800 pb-5' : ''
+          }`}
+        >
           <button
             type="button"
             onClick={() => seekFloatingBy(-PREVIEW_SKIP_SECONDS)}
@@ -1046,7 +1044,8 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
             <Camera className="w-5 h-5 lg:w-6 lg:h-6" />
           </button>
         </div>
-        <div className="mt-6 flex flex-col gap-4">
+        {hasLowerFooterContent && (
+        <div className="mt-5 flex flex-col gap-4">
           {/* サムネイルと動画書き出し設定を一か所にまとめる */}
           {mediaItems.length > 0 && (
             <div className="overflow-hidden rounded-lg border border-gray-700/70 bg-gray-850/80">
@@ -1054,6 +1053,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
                 title="動画出力オプション"
                 isOpen={isVideoOutputOptionsOpen}
                 controlsId="video-output-options"
+                trailing={outputSizeBadgeElement}
                 onToggle={() => setIsVideoOutputOptionsOpen((open) => !open)}
               />
               {isVideoOutputOptionsOpen && (
@@ -1067,7 +1067,7 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
                         この設定で動画を作成済みです
                       </p>
                       <p className="mt-0.5 text-[10px] leading-snug text-emerald-200/70 md:text-[11px]">
-                        設定変更には生成済み動画の解除が必要です。
+                        設定変更には「編集に戻る」ボタンで生成済み動画を解除してください。
                       </p>
                     </div>
                   )}
@@ -1284,34 +1284,9 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
             </div>
           )}
 
-          <div className="flex items-center justify-between gap-4">
-            <button
-              onClick={onClearAll}
-              disabled={mediaItems.length === 0 && !bgm && narrations.length === 0}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm lg:text-base font-medium text-gray-400 hover:bg-red-900/20 hover:text-red-400 transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <RotateCcw className="w-4 h-4 lg:w-5 lg:h-5" /> 一括クリア
-            </button>
-            {exportActionButton}
-          </div>
-          {exportUrl && exportExt === 'webm' && (
-            <div className="bg-yellow-900/30 border border-yellow-700/50 p-3 rounded-lg flex items-start gap-2 text-xs text-yellow-200">
-              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-              <div>
-                <p className="font-bold">
-                  {exportOutputOptions.contentMode === 'caption-layer'
-                    ? '透過形式について'
-                    : '重要: SNS投稿について'}
-                </p>
-                <p>
-                  {exportOutputOptions.contentMode === 'caption-layer'
-                    ? '透過キャプションは WebM で保存されます（MP4 / H.264 は非対応）。'
-                    : 'お使いのブラウザはMP4出力に非対応のため、互換性の高いWebM形式で保存しました。'}
-                </p>
-              </div>
-            </div>
-          )}
+          {!isDesktopTwoColumn && renderExportTriggerButton('footer')}
         </div>
+        )}
       </div>
       {floating.available && !floating.isOpen && createPortal(
         <button
@@ -1344,6 +1319,25 @@ const PreviewSection: React.FC<PreviewSectionProps> = ({
         onSeekEnd={finishFloatingSeek}
         onClose={closeFloatingPreview}
       />}
+      <ExportStatusModal
+        isOpen={isExportModalOpen}
+        mode={hasExportUrl ? 'complete' : 'processing'}
+        contentMode={exportOutputOptions.contentMode}
+        exportPhase={exportPhase}
+        progressPct={exportProgressPct}
+        elapsedSec={exportProcessingElapsedSec}
+        stageHeadline={exportModalStageHeadline}
+        statusDescription={exportStatusText}
+        exportExt={exportExt}
+        outputSizeLabel={outputSizeBadge}
+        durationLabel={totalDuration > 0 ? formatTimeCentiseconds(totalDuration) : null}
+        previewCanvasRef={canvasRef}
+        canvasWidth={canvasWidth}
+        canvasHeight={canvasHeight}
+        showLivePreview={exportLivePreviewEnabled}
+        onDownload={onDownload}
+        onExitToEdit={onStop}
+      />
     </section>
   );
 };

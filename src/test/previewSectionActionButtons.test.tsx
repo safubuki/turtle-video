@@ -107,7 +107,9 @@ function installMatchMediaMock(matches: boolean) {
 
 afterEach(() => {
   cleanup();
+  installMatchMediaMock(false);
   useCanvasStore.getState().setAspectRatio('landscape');
+  useCanvasStore.getState().setExportLivePreviewEnabled(true);
   vi.clearAllMocks();
   vi.useRealTimers();
 });
@@ -369,25 +371,27 @@ describe('PreviewSection action buttons', () => {
     expect(captureButton.className).not.toContain('animate-preview-capture-press');
   });
 
-  it('準備中はグルーピングされた準備文言を表示する', () => {
+  it('準備中はグルーピングされた準備文言をモーダルに表示する', () => {
     renderPreviewSection({
       isProcessing: true,
       currentTime: 0,
       exportPreparationStep: 1,
     });
 
-    expect(screen.getByRole('button', { name: '書き出し準備中...' })).toBeInTheDocument();
+    const modal = screen.getByTestId('export-status-modal');
+    expect(modal).toHaveTextContent('書き出し準備中...');
     expect(screen.getByText('書き出しに必要な準備を進めています。')).toBeInTheDocument();
   });
 
-  it('音声解析ステージをボタンに反映する', () => {
+  it('音声解析ステージをモーダル表示に反映する', () => {
     renderPreviewSection({
       isProcessing: true,
       currentTime: 0,
       exportPreparationStep: 3,
     });
 
-    expect(screen.getByRole('button', { name: '書き出し準備中...' })).toBeInTheDocument();
+    const modal = screen.getByTestId('export-status-modal');
+    expect(modal).toHaveTextContent('書き出し準備中...');
     expect(screen.getByText('同じ動画が複数ある場合は解析結果を再利用します。')).toBeInTheDocument();
   });
 
@@ -421,7 +425,7 @@ describe('PreviewSection action buttons', () => {
       vi.advanceTimersByTime(1800);
     });
 
-    expect(screen.getByRole('button', { name: '書き出し準備中...' })).toBeInTheDocument();
+    expect(screen.getByTestId('export-status-modal')).toHaveTextContent('書き出し準備中...');
   });
 
   it('開始直後の微小な進行は準備表示を維持する', () => {
@@ -447,10 +451,10 @@ describe('PreviewSection action buttons', () => {
       vi.advanceTimersByTime(1800);
     });
 
-    expect(screen.getByRole('button', { name: '書き出し準備中...' })).toBeInTheDocument();
+    expect(screen.getByTestId('export-status-modal')).toHaveTextContent('書き出し準備中...');
   });
 
-  it('準備が長いと経過秒数つきの説明を表示する', () => {
+  it('準備が長いと経過秒数つきの説明をモーダルに表示する', () => {
     vi.useFakeTimers();
     renderPreviewSection({
       isProcessing: true,
@@ -462,11 +466,13 @@ describe('PreviewSection action buttons', () => {
       vi.advanceTimersByTime(3000);
     });
 
-    expect(screen.getByRole('button', { name: '書き出し準備中...（3秒経過）' })).toBeInTheDocument();
+    const modal = screen.getByTestId('export-status-modal');
+    expect(modal).toHaveTextContent('書き出し準備中...');
+    expect(modal).toHaveTextContent('経過 3秒');
     expect(screen.getByText('同じ動画が複数ある場合は解析結果を再利用します。（3秒経過）')).toBeInTheDocument();
   });
 
-  it('開始直後の閾値を超えた後は生成中表示に切り替わる', () => {
+  it('開始直後の閾値を超えた後は生成中表示と進捗率に切り替わる', () => {
     vi.useFakeTimers();
     const { rerender, props } = renderPreviewSection({
       isProcessing: true,
@@ -489,7 +495,9 @@ describe('PreviewSection action buttons', () => {
       vi.advanceTimersByTime(300);
     });
 
-    expect(screen.getByRole('button', { name: '映像を書き出し中... 1%' })).toBeInTheDocument();
+    const modal = screen.getByTestId('export-status-modal');
+    expect(modal).toHaveTextContent('映像を書き出し中...');
+    expect(screen.getByTestId('export-modal-progress-percent')).toHaveTextContent('1%');
   });
 
   it('apple-safari flavor では安定動作優先の案内を表示する', () => {
@@ -502,7 +510,7 @@ describe('PreviewSection action buttons', () => {
     expect(screen.getByText(/共有メニュー、または通常のダウンロード手順/)).toBeInTheDocument();
   });
 
-  it('export 完了後に processing=false なら download ボタンを表示する', () => {
+  it('export 完了後に processing=false なら完了モーダルにダウンロードと編集に戻るボタンを表示する', () => {
     const onDownload = vi.fn();
     const onExport = vi.fn();
     const { rerender, props } = renderPreviewSection({
@@ -514,7 +522,8 @@ describe('PreviewSection action buttons', () => {
       onExport,
     });
 
-    expect(screen.getByRole('button', { name: 'ダウンロード (.mp4)' })).toBeInTheDocument();
+    const modal = screen.getByTestId('export-status-modal');
+    expect(modal).toContainElement(screen.getByRole('button', { name: 'ダウンロード (.mp4)' }));
 
     rerender(
       <PreviewSection
@@ -530,7 +539,8 @@ describe('PreviewSection action buttons', () => {
     fireEvent.click(screen.getByRole('button', { name: 'ダウンロード (.mp4)' }));
 
     expect(onDownload).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole('button', { name: '動画ファイルを作成' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '編集に戻る' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '動画ファイルを作成' })).toBeDisabled();
   });
 
   it('生成済み動画のダウンロード表示中は動画出力オプションを変更できない', () => {
@@ -635,7 +645,7 @@ describe('PreviewSection action buttons', () => {
     expect(screen.getByRole('button', { name: '動画ファイルを作成' })).toBeInTheDocument();
   });
 
-  it('100%到達後に exportUrl が無ければ保存ファイル作成中表示を出す', () => {
+  it('100%到達後に exportUrl が無ければ保存ファイル作成中表示をモーダル内に出す', () => {
     renderPreviewSection({
       isProcessing: true,
       currentTime: 9.99,
@@ -643,7 +653,8 @@ describe('PreviewSection action buttons', () => {
       exportPreparationStep: 10,
     });
 
-    expect(screen.getByRole('button', { name: '保存ファイルを作成中...' })).toBeInTheDocument();
+    const modal = screen.getByTestId('export-status-modal');
+    expect(modal).toHaveTextContent('保存ファイルを作成中...');
     expect(screen.getByText('保存ファイルを作成中...', { selector: 'p' })).toBeInTheDocument();
   });
 
@@ -660,7 +671,7 @@ describe('PreviewSection action buttons', () => {
       vi.advanceTimersByTime(4000);
     });
 
-    expect(screen.getByRole('button', { name: '保存ファイルを作成中...' })).toBeInTheDocument();
+    expect(screen.getByTestId('export-status-modal')).toHaveTextContent('保存ファイルを作成中...');
   });
 
   it('保存ファイル作成が30秒を超えたら timeout callback を一度だけ呼ぶ', () => {
@@ -1118,6 +1129,129 @@ describe('シークバーの区間表示（ディゾルブ・エンドロール�
       clipsDuration: 10,
     });
     expect(container.querySelector('.bg-slate-500')).toBeNull();
+  });
+
+  it('PC 2 カラム表示では動画ファイル作成ボタンをプレビューヘッダー右側にのみ表示する', () => {
+    installMatchMediaMock(true);
+    renderPreviewSection();
+
+    const header = screen.getByTestId('preview-section-header');
+    const createButton = screen.getByRole('button', { name: '動画ファイルを作成' });
+    expect(header).toContainElement(createButton);
+    expect(screen.getByTestId('preview-export-actions-header')).toBeInTheDocument();
+    expect(screen.queryByTestId('preview-export-actions-footer')).not.toBeInTheDocument();
+    // 一括クリアはグローバルヘッダーへ移設したためプレビュー内には置かない
+    expect(screen.queryByRole('button', { name: '一括クリア' })).not.toBeInTheDocument();
+  });
+
+  it('スマホ 1 カラム表示では動画ファイル作成ボタンをプレビュー下部にのみ表示する', () => {
+    installMatchMediaMock(false);
+    renderPreviewSection();
+
+    const header = screen.getByTestId('preview-section-header');
+    const createButton = screen.getByRole('button', { name: '動画ファイルを作成' });
+    expect(header).not.toContainElement(createButton);
+    expect(screen.getByTestId('preview-export-actions-footer')).toContainElement(createButton);
+    expect(screen.queryByTestId('preview-export-actions-header')).not.toBeInTheDocument();
+  });
+
+  it('書き出し完了後は未保存での閉じ操作のみ確認を出し、保存後は即座に編集へ戻せる', () => {
+    installMatchMediaMock(true);
+    const onStop = vi.fn();
+    const onDownload = vi.fn();
+    renderPreviewSection({
+      exportUrl: 'blob:export',
+      exportExt: 'mp4',
+      onStop,
+      onDownload,
+    });
+
+    const modal = screen.getByTestId('export-status-modal');
+    const downloadButton = screen.getByRole('button', { name: 'ダウンロード (.mp4)' });
+    const backButton = screen.getByRole('button', { name: '編集に戻る' });
+    const closeButton = screen.getByRole('button', { name: '閉じる' });
+    expect(modal).toContainElement(downloadButton);
+    expect(modal).toContainElement(backButton);
+    expect(modal).toContainElement(closeButton);
+    expect(screen.queryByTestId('export-exit-confirm')).not.toBeInTheDocument();
+
+    // 誤操作防止のためオーバーレイ背景のクリックでは閉じない
+    fireEvent.click(modal);
+    expect(onStop).not.toHaveBeenCalled();
+
+    // 未ダウンロードで「閉じる」を押すと確認パネルが出て、まだ閉じない
+    fireEvent.click(closeButton);
+    expect(onStop).not.toHaveBeenCalled();
+    expect(screen.getByTestId('export-exit-confirm')).toBeInTheDocument();
+
+    // キャンセルで確認パネルを閉じられる
+    fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+    expect(screen.queryByTestId('export-exit-confirm')).not.toBeInTheDocument();
+
+    // 未ダウンロードで「編集に戻る」→「保存せずに戻る」で確定解除
+    fireEvent.click(screen.getByRole('button', { name: '編集に戻る' }));
+    expect(screen.getByTestId('export-exit-confirm')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '保存せずに戻る' }));
+    expect(onStop).toHaveBeenCalledTimes(1);
+
+    // ダウンロード実行後は確認なしで即座に閉じられる
+    fireEvent.click(downloadButton);
+    expect(onDownload).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('export-exit-confirm')).not.toBeInTheDocument();
+
+    fireEvent.click(closeButton);
+    expect(onStop).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(screen.getByRole('button', { name: '編集に戻る' }));
+    expect(onStop).toHaveBeenCalledTimes(3);
+  });
+
+  it('書き出し中は PC・スマホ共通で専用モーダルに進捗バー・注意書き・「中止」ボタンを表示する', () => {
+    installMatchMediaMock(false);
+    const onStop = vi.fn();
+    renderPreviewSection({
+      isProcessing: true,
+      currentTime: 4,
+      totalDuration: 10,
+      onStop,
+    });
+
+    const modal = screen.getByTestId('export-status-modal');
+    expect(modal).toContainElement(screen.getByTestId('export-modal-live-preview'));
+    expect(modal).toContainElement(screen.getByRole('progressbar', { name: '動画作成の進捗' }));
+    expect(modal).toHaveTextContent('動画作成中はこの画面のままお待ちください');
+
+    const cancelButton = screen.getByRole('button', { name: '中止' });
+    expect(modal).toContainElement(cancelButton);
+    fireEvent.click(cancelButton);
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it('準備中の進捗バーは 0% から開始し、ミニプレビュー設定 OFF 時は映像モニターを描画しない', () => {
+    useCanvasStore.getState().setExportLivePreviewEnabled(false);
+    renderPreviewSection({
+      isProcessing: true,
+      currentTime: 0,
+      totalDuration: 10,
+      exportPreparationStep: 1,
+    });
+
+    const modal = screen.getByTestId('export-status-modal');
+    expect(screen.queryByTestId('export-modal-live-preview')).not.toBeInTheDocument();
+    expect(screen.getByTestId('export-modal-progress-percent')).toHaveTextContent('0%');
+    expect(screen.getByRole('progressbar', { name: '動画作成の進捗' })).toHaveAttribute('aria-valuenow', '0');
+    expect(modal).toHaveTextContent('書き出し準備中...');
+  });
+
+  it('解像度バッジはプレビューヘッダーではなく動画出力オプション見出し右側に表示する', () => {
+    installMatchMediaMock(true);
+    renderPreviewSection();
+
+    const header = screen.getByTestId('preview-section-header');
+    const optionsButton = screen.getByRole('button', { name: '動画出力オプション' });
+    const badge = screen.getByTestId('preview-output-size-badge');
+    expect(header).not.toContainElement(badge);
+    expect(optionsButton).toContainElement(badge);
   });
 
 });

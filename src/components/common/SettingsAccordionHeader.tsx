@@ -20,6 +20,8 @@ interface SettingsAccordionHeaderProps {
   disabled?: boolean;
   /** タイトル左に置く任意のアイコン */
   icon?: React.ReactNode;
+  /** 右端の開閉矢印の左隣に置く任意の補助表示（解像度バッジ等。アクセシブル名を変えないよう aria-hidden 扱い） */
+  trailing?: React.ReactNode;
   /** セクション見出しと同じ黄色で強調する */
   highlighted?: boolean;
 }
@@ -35,6 +37,7 @@ const SettingsAccordionHeader = React.memo<SettingsAccordionHeaderProps>(({
   controlsId,
   disabled = false,
   icon,
+  trailing,
   highlighted = false,
 }) => (
   <button
@@ -57,11 +60,18 @@ const SettingsAccordionHeader = React.memo<SettingsAccordionHeaderProps>(({
         </span>
       )}
     </span>
-    {isOpen ? (
-      <ChevronDown className="h-3 w-3 shrink-0" />
-    ) : (
-      <ChevronRight className="h-3 w-3 shrink-0" />
-    )}
+    <span className="flex shrink-0 items-center gap-2">
+      {trailing && (
+        <span aria-hidden="true" className="flex shrink-0 items-center">
+          {trailing}
+        </span>
+      )}
+      {isOpen ? (
+        <ChevronDown className="h-3 w-3 shrink-0" />
+      ) : (
+        <ChevronRight className="h-3 w-3 shrink-0" />
+      )}
+    </span>
   </button>
 ));
 

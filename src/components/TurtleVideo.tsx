@@ -3495,6 +3495,63 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     setActiveHelpSection('app');
   }, [pausePreviewBeforeHeaderModal]);
 
+  const hasClearableProjectContent = useMemo(
+    () => (
+      mediaItems.length > 0
+      || Boolean(bgm)
+      || bgmClips.length > 0
+      || narrations.length > 0
+      || captions.length > 0
+      || Boolean(watermarkOverlay.file)
+      || Boolean(endrollOverlay.file)
+      || Boolean(videoTitle.text.trim())
+      || bulkVideoMuted
+      || bulkVideoVolumeEnabled
+      || videoAudioNormalizeEnabled
+      || bulkVideoVolume !== 1
+      || videoAudioNormalizeMode !== 'mean'
+      || bulkColorEnabled
+      || Boolean(bulkColorAdjust)
+      || bulkBgmMuted
+      || bulkBgmVolumeEnabled
+      || bgmAudioNormalizeEnabled
+      || bulkBgmVolume !== 1
+      || bgmAudioNormalizeMode !== 'mean'
+      || bulkNarrationMuted
+      || bulkNarrationVolumeEnabled
+      || narrationAudioNormalizeEnabled
+      || bulkNarrationVolume !== 1
+      || narrationAudioNormalizeMode !== 'mean'
+    ),
+    [
+      mediaItems.length,
+      bgm,
+      bgmClips.length,
+      narrations.length,
+      captions.length,
+      watermarkOverlay.file,
+      endrollOverlay.file,
+      videoTitle.text,
+      bulkVideoMuted,
+      bulkVideoVolumeEnabled,
+      videoAudioNormalizeEnabled,
+      bulkVideoVolume,
+      videoAudioNormalizeMode,
+      bulkColorEnabled,
+      bulkColorAdjust,
+      bulkBgmMuted,
+      bulkBgmVolumeEnabled,
+      bgmAudioNormalizeEnabled,
+      bulkBgmVolume,
+      bgmAudioNormalizeMode,
+      bulkNarrationMuted,
+      bulkNarrationVolumeEnabled,
+      narrationAudioNormalizeEnabled,
+      bulkNarrationVolume,
+      narrationAudioNormalizeMode,
+    ],
+  );
+
   // --- 全クリア処理 ---
   // 目的: 全てのメディア・オーディオ・キャプション・ウォーターマークと
   //       動画/BGM/ナレーションの一括音設定を削除し初期状態に戻す
@@ -3535,7 +3592,7 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
 
     // 確認ダイアログを表示
     const confirmed = window.confirm(
-      'すべてのメディア、一括設定、ウォーターマーク、エンドロール、BGM、ナレーション、キャプションをクリアします。よろしいですか？',
+      '現在編集中の内容（動画・画像、BGM、ナレーション、キャプション、タイトル・ロゴ、各種一括設定）をすべてクリアして初期状態に戻します。\n\n※保存済みのプロジェクトデータは削除されません。\n\nよろしいですか？',
     );
     if (!confirmed) return;
 
@@ -4625,6 +4682,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
         onOpenSettings={handleOpenSettingsModal}
         onOpenProjectManager={handleOpenProjectManagerModal}
         onOpenAppHelp={handleOpenAppHelpModal}
+        onClearAll={handleClearAll}
+        clearAllDisabled={isProcessing || !hasClearableProjectContent}
       />
 
       <div className="max-w-md md:max-w-3xl lg:max-w-6xl mx-auto p-4 lg:p-6">
