@@ -170,6 +170,15 @@ import {
   type PreviewPlatformPolicy,
 } from './previewPlatform';
 import { getStandardPreviewNow } from './playbackClock';
+import {
+  createPreviewAudioClipSyncState,
+  notePreviewAudioClipSeekIssued,
+  observePreviewAudioClipSync,
+  resetPreviewAudioClipSyncPending,
+  resolvePreviewAudioClipPrerollSeek,
+  resolvePreviewAudioClipSyncDecision,
+  type PreviewAudioClipSyncState,
+} from './previewAudioClipSync';
 import type { ResetInactiveVideosOptions } from './useInactiveVideoManager';
 import {
   clampPreviewAudioGain,
@@ -2075,6 +2084,18 @@ export function usePreviewEngine({
     });
     videoCatchUpStateRef.current.set(videoEl, result.isCatchingUp);
     return result.rate;
+  };
+
+  // BGM クリップ／ナレーション要素ごとの追従状態（シーク・再生開始の所要時間の学習値を含む）。
+  // シーク中に次のシークを重ねて区間全体が無音になる不具合の対策（previewAudioClipSync.ts）。
+  const previewAudioClipSyncStateRef = useRef(new WeakMap<HTMLMediaElement, PreviewAudioClipSyncState>());
+  const getPreviewAudioClipSyncState = (element: HTMLMediaElement): PreviewAudioClipSyncState => {
+    let state = previewAudioClipSyncStateRef.current.get(element);
+    if (!state) {
+      state = createPreviewAudioClipSyncState();
+      previewAudioClipSyncStateRef.current.set(element, state);
+    }
+    return state;
   };
 
   const renderFrame = useCallback(
@@ -4635,6 +4656,37 @@ export function usePreviewEngine({
             && previewPlatformPolicy.muteNativeMediaWhenAudioRouted
             && !_isExporting;
 
+          // 通常プレビューの追従はシークを重ねない判定（previewAudioClipSync.ts）を使う。
+          // 書き出し中と avoidNarPause 経路は従来処理のまま変えない。
+          const clipSyncState = !_isExporting && !avoidNarPause
+            ? getPreviewAudioClipSyncState(element)
+            : null;
+          const clipSyncNowMs = clipSyncState ? getStandardPreviewNow() : 0;
+          if (clipSyncState) {
+            if (!isActivePlaying) {
+              // 停止していた時間をシーク・再生開始の所要時間として学習しない
+              resetPreviewAudioClipSyncPending(clipSyncState);
+            }
+            observePreviewAudioClipSync(clipSyncState, element, clipSyncNowMs);
+          }
+          // 区間開始の少し前に、止めてある要素を区間の頭へ先にシークしておく。
+          // 区間に入った瞬間のシークがなくなり、重い素材（動画の BGM など）でも頭から鳴らせる。
+          const prerollPreviewAudioClip = (): boolean => {
+            if (!clipSyncState || inRange || effective.isDisabled || isSilencedByEndroll) {
+              return false;
+            }
+            const prerollSeekTo = resolvePreviewAudioClipPrerollSeek({
+              timeUntilStartSec: effective.startTime - time,
+              trimStart,
+              element,
+            });
+            if (prerollSeekTo === null) {
+              return false;
+            }
+            element.currentTime = prerollSeekTo;
+            return true;
+          };
+
           if (isActivePlaying) {
             if (!inRange) {
               applyPreviewAudioOutputState(previewPlatformPolicy, element, {
@@ -4647,31 +4699,56 @@ export function usePreviewEngine({
                 gainNode.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.1);
               }
               if (!avoidNarPause && !element.paused) element.pause();
+              if (clipSyncState && prerollPreviewAudioClip()) {
+                notePreviewAudioClipSeekIssued(clipSyncState, clipSyncNowMs);
+              }
               return;
             }
 
-            const needsSeek = Math.abs(element.currentTime - sourceTime) > (avoidNarPause ? 2.0 : 0.5);
-            if (needsSeek) {
+            // false の間は gain を 0 にする（シーク完了待ち・先回り位置での待機など）
+            let isClipSyncAudible = true;
+            if (clipSyncState) {
+              const decision = resolvePreviewAudioClipSyncDecision(clipSyncState, {
+                nowMs: clipSyncNowMs,
+                element,
+                targetSourceTime: sourceTime,
+                endSourceTime: trimStart + playableDuration,
+                hold: holdAudioThisFrame,
+              });
+              if (decision.pause && !element.paused) {
+                element.pause();
+              }
+              if (decision.seekTo !== null) {
+                element.currentTime = decision.seekTo;
+              }
+              if (decision.play) {
+                element.play().catch(() => { });
+              }
+              isClipSyncAudible = decision.audible;
+            } else {
+              const needsSeek = Math.abs(element.currentTime - sourceTime) > (avoidNarPause ? 2.0 : 0.5);
+              if (needsSeek) {
+                if (avoidNarPause) {
+                  element.currentTime = sourceTime;
+                } else {
+                  if (!element.paused) {
+                    element.pause();
+                  }
+                  element.currentTime = sourceTime;
+                }
+              }
+
               if (avoidNarPause) {
-                element.currentTime = sourceTime;
-              } else {
+                if (element.paused && !element.seeking && element.readyState >= 2) {
+                  element.play().catch(() => { });
+                }
+              } else if (holdAudioThisFrame) {
                 if (!element.paused) {
                   element.pause();
                 }
-                element.currentTime = sourceTime;
-              }
-            }
-
-            if (avoidNarPause) {
-              if (element.paused && !element.seeking && element.readyState >= 2) {
+              } else if (!element.seeking && element.readyState >= 2 && element.paused) {
                 element.play().catch(() => { });
               }
-            } else if (holdAudioThisFrame) {
-              if (!element.paused) {
-                element.pause();
-              }
-            } else if (!element.seeking && element.readyState >= 2 && element.paused) {
-              element.play().catch(() => { });
             }
 
             let vol = clampPreviewAudioGain(resolveMediaPlaybackVolume(clip));
@@ -4698,7 +4775,7 @@ export function usePreviewEngine({
                 timeSec: time,
               });
             }
-            if (element.seeking || holdAudioThisFrame) {
+            if (element.seeking || holdAudioThisFrame || !isClipSyncAudible) {
               vol = 0;
             }
 
@@ -4742,6 +4819,7 @@ export function usePreviewEngine({
             }
             if (!element.paused) element.pause();
 
+            prerollPreviewAudioClip();
             if (inRange && Math.abs(element.currentTime - sourceTime) > 0.1) {
               element.currentTime = sourceTime;
             }

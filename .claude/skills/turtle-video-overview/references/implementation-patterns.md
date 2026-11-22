@@ -714,6 +714,7 @@
 | **preview の UI 時刻** | 再生時計・Canvas・`video.currentTime` は毎 rAF のまま。Zustand の `currentTime` だけ約 50ms に間引き、pause/stop/終端で flush する。字幕グリフ Canvas は LRU 再利用（13-226）。駆動方式・export・apple-safari には広げない |
 | **preview / export の見た目一致** | Canvas へ焼き込む要素（ロゴ・文字・バッジ・ぼかし・線）は必ずキャンバス寸法に比例させる。プレビューは 720p、書き出しは 1080p 等なので、元画像のピクセル数や固定 px で描くとずれる（13-295） |
 | **スロー export 音声** | スローはプレビューと同じ `preservesPitch` キャプチャを第一経路にし、decode+WSOLA 参照で先頭遅延だけ切る（13-237）。キャプチャは TrackProcessor / AudioWorklet 優先で、ScriptProcessor は出力無音化の予備（13-238）。エネルギー無音切りは禁止。キャプチャ失敗時のみ WSOLA。13-236 の WSOLA 第一経路は音質退行のため改訂 |
+| **BGM クリップ／ナレーションの preview 追従** | `processNarrationClip` の通常プレビューは `previewAudioClipSync.ts` で判定する。シーク中に次のシークを重ねない・ずれ補正は実測所要時間ぶん先回り・区間 2 秒前に頭出し。「0.5 秒超なら毎フレーム今の位置へシーク」に戻すと、シークの重い素材（動画 BGM）や一括音量操作中に区間全体が無音になる（13-329） |
 
 ## 12. Dev Script Pattern (media-video-analyzer STT)
 
@@ -5586,6 +5587,27 @@ export 終了（成功/失敗/中断）
   - ペアを暗黙に解消する操作（partner の削除で head が最後になる等）では書き戻しをしないため、カードに残っていた（ペア前の）フェードに戻る。
   - iOS（apple-safari）で同じプロジェクトを開くと、2 画面は逐次再生でカードのフェードを使う（ペアのフェードは使われない）。
   - `.agents/skills` / `.github/skills` の overview は `npm run skills:sync` で同期する。
+
+### 13-329. BGM クリップ／ナレーションのプレビュー追従でシークを重ねない（動画ベース BGM の区間が無音になる不具合）
+
+- **ファイル**: `src/flavors/standard/preview/previewAudioClipSync.ts`（新規）, `src/flavors/standard/preview/usePreviewEngine.ts`（`processNarrationClip`）, `src/test/previewAudioClipSync.test.ts`（新規）, `src/test/standardPreviewEngine.test.tsx`
+- **対象 flavor**: **standard（Android / PC）の通常プレビューのみ**。`processNarrationClip` を通る BGM クリップとナレーションが対象。書き出し中（`_isExporting`）と `avoidNarPause`（`muteNativeMediaWhenAudioRouted` 経路。standard では実質未使用）は従来処理のまま。レガシー単一 BGM（`processAudioTrack`）、apple-safari、export 音声生成は変更しない。
+- **問題**: 動画ファイルを BGM にしてトリミングした区間が、プレビューで鳴ったり鳴らなかったりする（毎回ではない）。動画・画像の一括音量を再生中に上げたときに起きやすい。
+- **原因**:
+  - 従来は区間内で毎フレーム「`|currentTime - タイムライン位置| > 0.5秒` なら pause → シーク → seeked 後に play」としていた。シーク中の `currentTime` はシーク先で止まったままタイムラインだけ進むため、**シーク（＋再生開始）に 0.5 秒以上かかると、完了前に次のシークが重なり続けて永久に鳴らず、区間全体が無音**になる。
+  - 再生中は区間に入る前に要素を頭出ししていなかったため、区間に入った瞬間に必ずシークが走っていた。
+  - 動画コンテナは音声ファイルよりシークが重い。再生中に一括音量スライダーを動かすと、全体の再描画・タイムライン波形の再合成・自動保存などでメインスレッドが詰まり、`play()` の開始も遅れて 0.5 秒の境界を越えやすい（一括音量の値そのものが BGM を消しているわけではない）。
+  - ヘッドレス Chrome で動画 BGM の出力を AnalyserNode で計測し、要素のシークを 0.6 秒に遅らせると **修正前は区間 1.9 秒が完全に無音（可聴サンプル 0）** になることを再現した。0.3〜0.45 秒では遅れて鳴る。
+- **対策**（判定は `previewAudioClipSync.ts` の純関数。要素ごとの状態は `WeakMap<HTMLMediaElement, PreviewAudioClipSyncState>`）:
+  1. **シークを重ねない**: `element.seeking` の間は新しいシークを出さず、gain 0 で完了を待つ。
+  2. **先回りシーク**: 0.5 秒超のずれは「今の位置」ではなく、実測したシーク所要時間＋再生開始所要時間（上限 1.5 秒）だけ先へシークする。早く終わったらタイムラインが追いつくまで鳴らさずに待つ。所要時間は遅くなった環境にはすぐ合わせ、速くなったときは半分ずつ戻す。
+  3. **play() 開始待ち**: `play()` 後に `currentTime` が進み始めるまで（最大 1.5 秒）は、ずれて見えても再シークしない。
+  4. **区間前の頭出し**: 区間開始の 2 秒前から、止めてある要素を `trimStart` へ先にシークしておく（再生中・停止中の描画とも）。区間に入った瞬間のシークがなくなる。
+  5. 終端で止まった要素（`ended`）には `play()` しない（先頭から鳴り直すため）。停止中の描画では計測途中の状態を捨て、放置時間を所要時間として学習しない。
+- **注意**:
+  - 0.5 秒のずれ閾値自体は従来どおり。再生中のずれ判定に「シーク中も今の位置へシークし直す」処理を戻さないこと（シークが重い素材・端末で区間全体が無音に戻る）。
+  - `previewAudioClipSync.test.ts` に、シークの遅い要素を模擬したフレームループで「修正前の追従は無音（可聴 0%）」「新しい追従は区間の 95% 以上で鳴る」を固定している。追従を変えるときはこのシミュレーションで比較する。
+  - 書き出しの音声は OfflineAudioContext 経路でこの判定を使わない。書き出し側へ広げる場合はライブ捕捉フォールバックとの整合を別途確認すること。
 
 
 

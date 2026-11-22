@@ -1480,6 +1480,8 @@ describe('standard preview engine', () => {
     videoElement.readyState = 2;
     videoElement.seeking = false;
     const narrationElement = createMockAudioElement();
+    // 再生位置に合っている要素（ずれたシーク直後は完了まで鳴らさないため、gain の検証では位置を合わせる）
+    narrationElement.currentTime = 5;
     const narrationGain = {
       gain: {
         value: 1,
@@ -1526,6 +1528,131 @@ describe('standard preview engine', () => {
 
     expect(narrationElement.volume).toBe(1);
     expect(narrationGain.gain.setTargetAtTime).toHaveBeenLastCalledWith(2.5, 7, 0.1);
+  });
+
+  describe('BGM クリップ（動画ファイルの音声など）の追従', () => {
+    const createBgmClip = (): NarrationClip => ({
+      id: 'bgmclip_video',
+      sourceType: 'file',
+      file: new File([''], 'bgm-video.mp4', { type: 'video/mp4' }),
+      url: 'blob:bgm-video',
+      startTime: 4,
+      volume: 2,
+      isMuted: false,
+      trimStart: 2.8,
+      trimEnd: 4.7,
+      duration: 12,
+      isAiEditable: false,
+    });
+    const createGain = () => ({
+      gain: {
+        value: 1,
+        setTargetAtTime: vi.fn(),
+        setValueAtTime: vi.fn(),
+        cancelScheduledValues: vi.fn(),
+      },
+    }) as unknown as GainNode;
+    const createAudioContext = () => ({
+      state: 'running',
+      currentTime: 7,
+      destination: {},
+      onstatechange: null,
+      resume: vi.fn().mockResolvedValue(undefined),
+      suspend: vi.fn().mockResolvedValue(undefined),
+    }) as unknown as AudioContext;
+
+    const setup = (bgmElement: ReturnType<typeof createMockAudioElement>, gain: GainNode) => {
+      const mediaItem = createVideoItem({ id: 'video-1', duration: 10, trimStart: 0, trimEnd: 10 });
+      const videoElement = createMockVideoElement();
+      videoElement.readyState = 2;
+      videoElement.seeking = false;
+      return setupRenderFrameHarness({
+        narrations: [createBgmClip()],
+        mediaItems: [mediaItem],
+        mediaElements: {
+          [mediaItem.id]: videoElement as unknown as HTMLVideoElement,
+          'narration:bgmclip_video': bgmElement as unknown as HTMLAudioElement,
+        } as MediaElementsRef,
+        gainNodes: { 'narration:bgmclip_video': gain },
+        audioContext: createAudioContext(),
+        totalDuration: 10,
+      });
+    };
+
+    it('シーク中はずれが 0.5 秒を超えても次のシークを重ねず、音を止めて完了を待つ', () => {
+      // 重いシークの途中（シーク先 2.8 秒のまま）でタイムラインだけ 0.9 秒進んだ状態
+      const bgmElement = createMockAudioElement();
+      bgmElement.currentTime = 2.8;
+      bgmElement.seeking = true;
+      const gain = createGain();
+      const { hook } = setup(bgmElement, gain);
+
+      hook.result.current.renderFrame(4.9, true, false);
+
+      expect(bgmElement.currentTime).toBe(2.8);
+      expect(bgmElement.pause).not.toHaveBeenCalled();
+      expect(bgmElement.play).not.toHaveBeenCalled();
+      expect(gain.gain.setTargetAtTime).toHaveBeenLastCalledWith(0, 7, 0.1);
+    });
+
+    it('シーク完了後に大きくずれていたら、先回りした位置へシークし直す', () => {
+      const bgmElement = createMockAudioElement();
+      bgmElement.currentTime = 2.8;
+      bgmElement.seeking = false;
+      const { hook } = setup(bgmElement, createGain());
+
+      hook.result.current.renderFrame(4.9, true, false);
+
+      // タイムライン上の位置（3.7 秒）より先を狙う
+      expect(bgmElement.currentTime).toBeGreaterThan(3.7);
+      expect(bgmElement.play).not.toHaveBeenCalled();
+    });
+
+    it('再生中、区間開始の少し前に止めてある要素を区間の頭へシークしておく', () => {
+      const bgmElement = createMockAudioElement();
+      bgmElement.currentTime = 0;
+      const gain = createGain();
+      const { hook } = setup(bgmElement, gain);
+
+      hook.result.current.renderFrame(3, true, false);
+
+      expect(bgmElement.currentTime).toBe(2.8);
+      expect(bgmElement.play).not.toHaveBeenCalled();
+      expect(gain.gain.setTargetAtTime).toHaveBeenLastCalledWith(0, 7, 0.1);
+    });
+
+    it('停止中の描画でも、区間開始の少し前なら区間の頭へシークしておく', () => {
+      const bgmElement = createMockAudioElement();
+      bgmElement.currentTime = 0;
+      const { hook } = setup(bgmElement, createGain());
+
+      hook.result.current.renderFrame(3, false, false);
+
+      expect(bgmElement.currentTime).toBe(2.8);
+    });
+
+    it('区間開始まで遠いときは頭出ししない', () => {
+      const bgmElement = createMockAudioElement();
+      bgmElement.currentTime = 0;
+      const { hook } = setup(bgmElement, createGain());
+
+      hook.result.current.renderFrame(1, true, false);
+
+      expect(bgmElement.currentTime).toBe(0);
+    });
+
+    it('頭出し済みの要素は区間に入った瞬間にシークせずそのまま鳴らす', () => {
+      const bgmElement = createMockAudioElement();
+      bgmElement.currentTime = 2.8;
+      const gain = createGain();
+      const { hook } = setup(bgmElement, gain);
+
+      hook.result.current.renderFrame(4.01, true, false);
+
+      expect(bgmElement.currentTime).toBe(2.8);
+      expect(bgmElement.play).toHaveBeenCalledTimes(1);
+      expect(gain.gain.setTargetAtTime).toHaveBeenLastCalledWith(2, 7, 0.1);
+    });
   });
 
   it('Android preview は trimStart あり video の先頭で readyState < 2 の video を描画しない', () => {
