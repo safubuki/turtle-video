@@ -1243,6 +1243,21 @@ describe('シークバーの区間表示（ディゾルブ・エンドロール�
     expect(modal).toHaveTextContent('書き出し準備中...');
   });
 
+  it('書き出し中ミニプレビューは縦長・正方形でも出力比率のまま中央表示し、横幅いっぱいの黒背景枠を付けない', () => {
+    useCanvasStore.getState().setAspectRatio('portrait');
+    renderPreviewSection({
+      isProcessing: true,
+      currentTime: 2,
+      totalDuration: 10,
+    });
+
+    const frame = screen.getByTestId('export-modal-live-preview-frame');
+    const canvas = screen.getByTestId('export-modal-live-preview') as HTMLCanvasElement;
+    expect(frame).not.toHaveClass('bg-black');
+    expect(canvas.style.aspectRatio).toBe('720 / 1280');
+    expect(canvas.width).toBeLessThan(canvas.height);
+  });
+
   it('解像度バッジはプレビューヘッダーではなく動画出力オプション見出し右側に表示する', () => {
     installMatchMediaMock(true);
     renderPreviewSection();

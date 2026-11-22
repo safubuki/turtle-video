@@ -218,14 +218,18 @@ const ExportStatusModal: React.FC<ExportStatusModalProps> = ({
             {/* 本文: リアルタイム映像モニター（設定ON時）＋専用進捗バー＋注意書き */}
             <div className="space-y-4 p-4 sm:p-5">
               {showLivePreview && (
-                <div className="flex items-center justify-center overflow-hidden rounded-xl border border-gray-800 bg-black p-1">
+                <div
+                  data-testid="export-modal-live-preview-frame"
+                  className="flex items-center justify-center"
+                >
                   <canvas
                     ref={monitorCanvasRef}
                     width={monitorWidth}
                     height={monitorHeight}
                     data-testid="export-modal-live-preview"
                     aria-label="書き出し中のプレビュー映像"
-                    className="block max-h-[min(36vh,260px)] max-w-full w-auto h-auto rounded-lg object-contain"
+                    style={{ aspectRatio: `${safeWidth} / ${safeHeight}` }}
+                    className="block max-h-[min(36vh,260px)] max-w-full w-auto h-auto rounded-xl bg-black object-contain ring-1 ring-gray-700/80 shadow-lg shadow-black/40"
                   />
                 </div>
               )}
