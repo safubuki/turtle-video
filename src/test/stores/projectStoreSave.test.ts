@@ -750,6 +750,111 @@ describe('projectStore save behavior', () => {
     expect(useProjectStore.getState().lastSaveFailure?.reason).toContain('broken.mp4');
   });
 
+  describe('2画面表示（並べて比較）のフェード（ペア設定）', () => {
+    const pairBase = { layout: 'horizontal', divider: 'diagonal', fit: 'contain', lineColor: 'black' } as const;
+
+    it('ペアのフェードを手動保存/自動保存して往復する（カードのフェードとは別に残る）', async () => {
+      const items: MediaItem[] = [
+        {
+          ...createMediaItem('left.mp4'),
+          // カード自身のフェード（ペア中は使わない）は別の値のまま保存する
+          fadeOut: true,
+          fadeOutDuration: 0.5,
+          splitCompareToNext: { ...pairBase, fadeIn: true, fadeInDuration: 0.5, fadeOut: true, fadeOutDuration: 2 },
+        },
+        createMediaItem('right.png', 'image'),
+      ];
+      for (const mode of ['manual', 'auto'] as const) {
+        const save = mode === 'manual' ? useProjectStore.getState().saveProjectManual : useProjectStore.getState().saveProjectAuto;
+        await save(items, false, null, false, [], false, [], defaultCaptionSettings, false);
+        const saved = mocks.saveProject.mock.calls[mocks.saveProject.mock.calls.length - 1][0] as ProjectData;
+        expect(saved.mediaItems[0].splitCompareToNext).toEqual({
+          ...pairBase, fadeIn: true, fadeInDuration: 0.5, fadeOut: true, fadeOutDuration: 2,
+        });
+        expect(saved.mediaItems[0]).toMatchObject({ fadeOut: true, fadeOutDuration: 0.5 });
+
+        mocks.loadProject.mockResolvedValueOnce(saved);
+        const loaded = await useProjectStore.getState().loadProjectFromSlot(mode);
+        expect(loaded!.mediaItems[0].splitCompareToNext).toEqual(saved.mediaItems[0].splitCompareToNext);
+        expect(loaded!.mediaItems[0]).toMatchObject({ fadeOut: true, fadeOutDuration: 0.5 });
+      }
+    });
+
+    it('旧データ（ペアにフェードが無い）は、2 枚のカードのフェードから求めてペア設定へ入れ、次の保存で残る', async () => {
+      const items: MediaItem[] = [
+        { ...createMediaItem('left.mp4'), fadeOut: true, fadeOutDuration: 0.5, splitCompareToNext: { ...pairBase, fadeIn: false, fadeOut: false, fadeInDuration: 1, fadeOutDuration: 1 } },
+        { ...createMediaItem('right.mp4'), fadeIn: true, fadeInDuration: 2, fadeOut: true, fadeOutDuration: 1 },
+        createMediaItem('after.png', 'image'),
+      ];
+      await useProjectStore.getState().saveProjectManual(items, false, null, false, [], false, [], defaultCaptionSettings, false);
+      const saved = mocks.saveProject.mock.calls[mocks.saveProject.mock.calls.length - 1][0] as ProjectData;
+      // 以前のバージョンが保存した形（ペアにフェードの項目が無い）にする
+      const legacy: ProjectData = {
+        ...saved,
+        mediaItems: saved.mediaItems.map((item, index) => (index === 0
+          ? { ...item, splitCompareToNext: { ...pairBase } as never }
+          : item)),
+      };
+
+      mocks.loadProject.mockResolvedValueOnce(legacy);
+      const loaded = await useProjectStore.getState().loadProjectFromSlot('manual');
+      // どちらかのカードで ON なら ON・秒数は ON のカードのうち長いほう
+      expect(loaded!.mediaItems[0].splitCompareToNext).toEqual({
+        ...pairBase, fadeIn: true, fadeInDuration: 2, fadeOut: true, fadeOutDuration: 1,
+      });
+      // カード自身のフェードは変えない・ペアでないカードには何も足さない
+      expect(loaded!.mediaItems[0]).toMatchObject({ fadeOut: true, fadeOutDuration: 0.5 });
+      expect(loaded!.mediaItems[1].splitCompareToNext).toBeNull();
+      expect(loaded!.mediaItems[2].splitCompareToNext).toBeNull();
+
+      // 読み込んだ内容を保存し直すと、ペアのフェードとして残る（次回はカードから求め直さない）
+      await useProjectStore.getState().saveProjectManual(
+        loaded!.mediaItems, false, null, false, [], false, [], defaultCaptionSettings, false,
+      );
+      const resaved = mocks.saveProject.mock.calls[mocks.saveProject.mock.calls.length - 1][0] as ProjectData;
+      expect(resaved.mediaItems[0].splitCompareToNext).toEqual({
+        ...pairBase, fadeIn: true, fadeInDuration: 2, fadeOut: true, fadeOutDuration: 1,
+      });
+    });
+
+    it('ペアにフェードが保存されていれば、カードのフェードより優先する（オフもそのまま）', async () => {
+      const items: MediaItem[] = [
+        {
+          ...createMediaItem('left.mp4'),
+          fadeIn: true,
+          fadeOut: true,
+          splitCompareToNext: { ...pairBase, fadeIn: false, fadeInDuration: 1, fadeOut: false, fadeOutDuration: 1 },
+        },
+        { ...createMediaItem('right.mp4'), fadeIn: true, fadeOut: true, fadeOutDuration: 2 },
+      ];
+      await useProjectStore.getState().saveProjectAuto(items, false, null, false, [], false, [], defaultCaptionSettings, false);
+      const saved = mocks.saveProject.mock.calls[mocks.saveProject.mock.calls.length - 1][0] as ProjectData;
+      mocks.loadProject.mockResolvedValueOnce(saved);
+      const loaded = await useProjectStore.getState().loadProjectFromSlot('auto');
+      expect(loaded!.mediaItems[0].splitCompareToNext).toMatchObject({ fadeIn: false, fadeOut: false });
+    });
+
+    it('ペアのフェードの値が壊れていても既定（オフ・1 秒）へ寄せて読み込む', async () => {
+      const items: MediaItem[] = [
+        { ...createMediaItem('left.mp4'), splitCompareToNext: { ...pairBase, fadeIn: false, fadeInDuration: 1, fadeOut: false, fadeOutDuration: 1 } },
+        createMediaItem('right.mp4'),
+      ];
+      await useProjectStore.getState().saveProjectManual(items, false, null, false, [], false, [], defaultCaptionSettings, false);
+      const saved = mocks.saveProject.mock.calls[mocks.saveProject.mock.calls.length - 1][0] as ProjectData;
+      const broken: ProjectData = {
+        ...saved,
+        mediaItems: saved.mediaItems.map((item, index) => (index === 0
+          ? { ...item, splitCompareToNext: { ...pairBase, fadeIn: 'yes', fadeOut: true, fadeInDuration: -3, fadeOutDuration: 'x' } as never }
+          : item)),
+      };
+      mocks.loadProject.mockResolvedValueOnce(broken);
+      const loaded = await useProjectStore.getState().loadProjectFromSlot('manual');
+      expect(loaded!.mediaItems[0].splitCompareToNext).toEqual({
+        ...pairBase, fadeIn: false, fadeInDuration: 1, fadeOut: true, fadeOutDuration: 1,
+      });
+    });
+  });
+
   it('保存と読込の往復でメディアの元ファイル名を維持する', async () => {
     const mediaItems = [createMediaItem('original-name.mp4', 'video')];
     mocks.saveProject.mockResolvedValue(undefined);

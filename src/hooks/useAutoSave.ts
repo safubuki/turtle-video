@@ -177,6 +177,9 @@ export function useAutoSave() {
         m.transitionToNext ? `${m.transitionToNext.type}@${m.transitionToNext.duration}` : '',
         m.splitCompareToNext
           ? `${m.splitCompareToNext.layout}/${m.splitCompareToNext.divider}/${m.splitCompareToNext.fit}/${m.splitCompareToNext.lineColor}/${m.splitCompareToNext.matchDuration ? 'match' : 'keep'}`
+            // 2 画面まとめてのフェード（ペア設定）
+            + `/in${m.splitCompareToNext.fadeIn ? 1 : 0}@${m.splitCompareToNext.fadeInDuration}`
+            + `/out${m.splitCompareToNext.fadeOut ? 1 : 0}@${m.splitCompareToNext.fadeOutDuration}`
           : '',
         m.thumbnailMode ?? 'auto',
         m.thumbnailSourceTime ?? '',

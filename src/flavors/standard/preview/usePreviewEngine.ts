@@ -88,9 +88,12 @@ import {
   drawSplitCompareDivider,
   getSplitComparePairForIndex,
   resolveSplitCompareGeometry,
-  resolveSplitComparePeerFadeAlpha,
+  resolveSplitComparePairFade,
+  resolveSplitComparePairFadeState,
   resolveSplitCompareRoles,
   type SplitCompareGeometry,
+  type SplitComparePairFade,
+  type SplitComparePairFadeState,
   type SplitCompareRegion,
 } from '../../../utils/splitCompare';
 import type { LogCategory } from '../../../stores/logStore';
@@ -2229,6 +2232,13 @@ export function usePreviewEngine({
           fit: 'cover' | 'contain';
           regionById: Map<string, SplitCompareRegion>;
           peerFinished: boolean;
+          /**
+           * 2 画面を 1 つの画面として扱う共通フェード（ペア設定の fadeIn / fadeOut）。
+           * 左右の映像・境界線・2 枚の音声に同じ alpha を掛け、片方だけ・境界線だけが残らないようにする
+           * （カード自身のフェードは使わない）。
+           */
+          fade: SplitComparePairFadeState;
+          fadeSettings: SplitComparePairFade;
         } | null = null;
         if (!zoomPreview && activeId && activeIndex >= 0) {
           const comparePair = getSplitComparePairForIndex(currentItems, activeIndex, splitCompareRoles);
@@ -2248,6 +2258,11 @@ export function usePreviewEngine({
               );
               const headItem = currentItems[comparePair.headIndex];
               const partnerItem = currentItems[comparePair.partnerIndex];
+              // ペアの先頭（2 枚は同時に始まる）からの経過で共通フェードを求める。
+              // active の localTime は終端フォールバックで短いほうの尺に寄るため、タイムライン時刻から取る。
+              const pairStart = timelineRanges.get(headItem.id)?.start ?? otherRange.start;
+              const pairFadeSettings = resolveSplitComparePairFade(comparePair.settings, headItem, partnerItem);
+              const pairFade = resolveSplitComparePairFadeState(pairFadeSettings, time - pairStart);
               splitCompareFrame = {
                 geometry,
                 fit: comparePair.settings.fit,
@@ -2256,6 +2271,8 @@ export function usePreviewEngine({
                   [partnerItem.id, geometry.regions[1]],
                 ]),
                 peerFinished: rawOtherLocalTime >= otherDuration - 0.001,
+                fade: pairFade,
+                fadeSettings: pairFadeSettings,
               };
               overlapPeerId = otherItem.id;
               overlapPeerLocalTime = Math.max(0, Math.min(rawOtherLocalTime, Math.max(0, otherDuration - 0.001)));
@@ -2337,11 +2354,18 @@ export function usePreviewEngine({
         if (activeId && activeIndex !== -1) {
           const activeItem = currentItems[activeIndex];
           const previousItem = activeIndex > 0 ? currentItems[activeIndex - 1] : null;
-          const activeFadeOutDur = activeItem.fadeOutDuration || 1.0;
-          const hasExplicitFadeToBlack = !!activeItem.fadeOut;
+          // 並べて比較中はペア共通のフェード（2 画面を 1 つの画面として扱う）で判定する。
+          const compareFade = splitCompareFrame?.fade ?? null;
+          const compareFadeSettings = splitCompareFrame?.fadeSettings ?? null;
+          const activeFadeOutDur = compareFadeSettings
+            ? compareFadeSettings.fadeOutDuration
+            : activeItem.fadeOutDuration || 1.0;
+          const hasExplicitFadeToBlack = compareFadeSettings
+            ? compareFadeSettings.fadeOutDuration > 0
+            : !!activeItem.fadeOut;
           const shouldPreferBlackoutAtFadeTail = shouldBlackoutVideoFadeTail({
-            clipLocalTime: localTime,
-            clipDuration: activeItem.duration,
+            clipLocalTime: compareFade ? compareFade.localTime : localTime,
+            clipDuration: compareFadeSettings ? compareFadeSettings.duration : activeItem.duration,
             fadeOut: hasExplicitFadeToBlack,
             fadeOutDuration: activeFadeOutDur,
           });
@@ -2350,12 +2374,19 @@ export function usePreviewEngine({
           // fade region は video / image の両方に適用される (MediaItem 共通プロパティ)。
           // type==='video' に絞ると画像クリップで fade region が拾われず、
           // 下流の shouldSuppressEndClear / freezeFrame / holdFrame ガードが効かなくなる。
-          isInFadeOutRegion =
-            activeItem.fadeOut &&
-            localTime > activeItem.duration - activeFadeOutDur;
-          isInFadeInRegion =
-            activeItem.fadeIn &&
-            localTime < activeFadeInDur;
+          if (compareFade) {
+            // 比較では active 自身の設定が OFF でもペアとしてフェード中なら毎フレーム黒クリア + alpha 描画にする
+            // （前フレームを残すと 2 画面のフェードが見えなくなる）。
+            isInFadeOutRegion = compareFade.isFadingOut;
+            isInFadeInRegion = compareFade.isFadingIn;
+          } else {
+            isInFadeOutRegion =
+              activeItem.fadeOut &&
+              localTime > activeItem.duration - activeFadeOutDur;
+            isInFadeInRegion =
+              activeItem.fadeIn &&
+              localTime < activeFadeInDur;
+          }
           isInFadeRegion = isInFadeInRegion || isInFadeOutRegion;
 
           if (activeItem.type === 'video' && hasExplicitFadeToBlack && shouldPreferBlackoutAtFadeTail) {
@@ -2874,7 +2905,10 @@ export function usePreviewEngine({
         });
 
         if (shouldClearCanvas) {
-          const hasExplicitFadeToBlack = activeIndex !== -1 && !!currentItems[activeIndex]?.fadeOut;
+          // 並べて比較中はペア共通のフェードアウト（ログ用）
+          const hasExplicitFadeToBlack = splitCompareFrame
+            ? splitCompareFrame.fadeSettings.fadeOutDuration > 0
+            : activeIndex !== -1 && !!currentItems[activeIndex]?.fadeOut;
           const hasActiveItem = activeIndex !== -1;
           const isBeforeTimelineEnd = totalDurationRef.current > 0 && time < totalDurationRef.current;
           const shouldSuppressEndClear =
@@ -3564,21 +3598,26 @@ export function usePreviewEngine({
                 ctx.scale(renderScale, renderScale);
 
                 let alpha = 1.0;
-                let fadeInDur = conf.fadeIn ? (conf.fadeInDuration || 1.0) : 0;
-                let fadeOutDur = conf.fadeOut ? (conf.fadeOutDuration || 1.0) : 0;
-                // フェード時間のクランプ（フェードイン + フェードアウト > クリップ長の場合に按分）。
-                // export と同じロジックを使い、プレビューと書き出しでフェード挙動を一致させる。
-                if (fadeInDur + fadeOutDur > conf.duration && conf.duration > 0) {
-                  const ratio = conf.duration / (fadeInDur + fadeOutDur);
-                  fadeInDur *= ratio;
-                  fadeOutDur *= ratio;
-                }
+                if (compareRegion && splitCompareFrame) {
+                  // 並べて比較: 2 画面を 1 つの画面としてフェードする（peer・境界線と同じ係数）
+                  alpha = splitCompareFrame.fade.alpha;
+                } else {
+                  let fadeInDur = conf.fadeIn ? (conf.fadeInDuration || 1.0) : 0;
+                  let fadeOutDur = conf.fadeOut ? (conf.fadeOutDuration || 1.0) : 0;
+                  // フェード時間のクランプ（フェードイン + フェードアウト > クリップ長の場合に按分）。
+                  // export と同じロジックを使い、プレビューと書き出しでフェード挙動を一致させる。
+                  if (fadeInDur + fadeOutDur > conf.duration && conf.duration > 0) {
+                    const ratio = conf.duration / (fadeInDur + fadeOutDur);
+                    fadeInDur *= ratio;
+                    fadeOutDur *= ratio;
+                  }
 
-                if (fadeInDur > 0 && localTime < fadeInDur) {
-                  alpha = localTime / fadeInDur;
-                } else if (fadeOutDur > 0 && localTime > conf.duration - fadeOutDur) {
-                  const remaining = conf.duration - localTime;
-                  alpha = remaining / fadeOutDur;
+                  if (fadeInDur > 0 && localTime < fadeInDur) {
+                    alpha = localTime / fadeInDur;
+                  } else if (fadeOutDur > 0 && localTime > conf.duration - fadeOutDur) {
+                    const remaining = conf.duration - localTime;
+                    alpha = remaining / fadeOutDur;
+                  }
                 }
 
                 // ディゾルブ(重ねる): 前クリップの上へクロスフェードで重なる
@@ -3661,14 +3700,19 @@ export function usePreviewEngine({
               const currentGainNode = gainNodesRef.current[id];
               if (isActivePlaying) {
                 let vol = holdAudioThisFrame ? 0 : resolveMediaPlaybackVolume(conf);
-                const fadeInDur = conf.fadeInDuration || 1.0;
-                const fadeOutDur = conf.fadeOutDuration || 1.0;
+                if (splitCompareFrame?.regionById.has(id)) {
+                  // 並べて比較: 映像・peer の音声と同じペア共通のフェード（2 枚の音が一緒に立ち上がり・消える）
+                  vol *= splitCompareFrame.fade.alpha;
+                } else {
+                  const fadeInDur = conf.fadeInDuration || 1.0;
+                  const fadeOutDur = conf.fadeOutDuration || 1.0;
 
-                if (conf.fadeIn && localTime < fadeInDur) {
-                  vol *= localTime / fadeInDur;
-                } else if (conf.fadeOut && localTime > conf.duration - fadeOutDur) {
-                  const remaining = conf.duration - localTime;
-                  vol *= remaining / fadeOutDur;
+                  if (conf.fadeIn && localTime < fadeInDur) {
+                    vol *= localTime / fadeInDur;
+                  } else if (conf.fadeOut && localTime > conf.duration - fadeOutDur) {
+                    const remaining = conf.duration - localTime;
+                    vol *= remaining / fadeOutDur;
+                  }
                 }
                 // ディゾルブ(重ねる): 音声もクロスフェードイン
                 if (overlapAudioCrossIn !== null) {
@@ -3901,9 +3945,10 @@ export function usePreviewEngine({
                     ctx.rotate((peerRotationDeg * Math.PI) / 180);
                   }
                   ctx.scale(peerRenderScale, peerRenderScale);
-                  // ディゾルブの前クリップは不透明のまま下層へ。比較ではクリップ自身のフェードを掛ける。
-                  ctx.globalAlpha = isComparePeer
-                    ? resolveSplitComparePeerFadeAlpha(conf, overlapPeerLocalTime)
+                  // ディゾルブの前クリップは不透明のまま下層へ。比較では active・境界線と同じ
+                  // ペア共通のフェードを掛ける（短いほうが先に暗転したり、片側だけ残ったりしない）。
+                  ctx.globalAlpha = isComparePeer && splitCompareFrame
+                    ? splitCompareFrame.fade.alpha
                     : 1.0;
                   try {
                     ctx.drawImage(peerDrawSource, -peerW / 2, -peerH / 2, peerW, peerH);
@@ -3922,11 +3967,11 @@ export function usePreviewEngine({
               }
               if (peerIsVideo) {
                 let peerHasNode = !!sourceNodesRef.current[id];
-                // 比較は両方を通常音量で鳴らす（クリップ自身のフェードのみ・終了後は無音）
-                let peerVol = isComparePeer
+                // 比較は両方を通常音量で鳴らす。フェードは active・映像と同じペア共通の係数（終了後は無音）
+                let peerVol = isComparePeer && splitCompareFrame
                   ? (comparePeerFinished
                     ? 0
-                    : resolveMediaPlaybackVolume(conf) * resolveSplitComparePeerFadeAlpha(conf, overlapPeerLocalTime))
+                    : resolveMediaPlaybackVolume(conf) * splitCompareFrame.fade.alpha)
                   : resolveMediaPlaybackVolume(conf) * overlapAudioCrossOut;
                 if (!isActivePlaying || holdAudioThisFrame) peerVol = 0;
                 if (
@@ -4052,8 +4097,12 @@ export function usePreviewEngine({
           }
         });
 
-        // 並べて比較の境界線（両方の映像の上・キャプションやトランジションより下）
-        if (splitCompareFrame && drawSplitCompareDivider(ctx, splitCompareFrame.geometry)) {
+        // 並べて比較の境界線（両方の映像の上・キャプションやトランジションより下）。
+        // 左右の映像と同じ共通フェードを掛け、暗転し切った画面に線だけが残らないようにする。
+        if (
+          splitCompareFrame
+          && drawSplitCompareDivider(ctx, splitCompareFrame.geometry, splitCompareFrame.fade.alpha)
+        ) {
           didUpdateCanvas = true;
         }
 

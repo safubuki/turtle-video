@@ -15,6 +15,10 @@
  * - ペアの前後の境界のディゾルブはカット扱い（重ねる相手が 3 枚になるため）。
  *   フェード(黒/白) はペアの前後でもそのまま使える。
  * - 描画: head は左/上、partner は右/下の領域へ、領域ごとに素材を収めて描く。
+ * - フェードイン/アウト: ペア設定（SplitCompareSettings.fadeIn など）が持つ。2 画面を 1 つの画面として
+ *   扱い、左右の映像・境界線・2 枚の音声に同じ係数を掛ける（resolveSplitComparePairFade）。
+ *   ペア中はカード自身のフェードは使わない。旧データ（ペアにフェードが無い）は読み込み時に
+ *   2 枚のカードのフェードから求める（migrateLegacySplitComparePairFades）。
  *
  * タイムライン計算は `transitionTimeline.ts` が、描画は standard エンジンの renderFrame が行う
  * （プレビューと書き出しで同じ描画 = WYSIWYG）。
@@ -34,22 +38,46 @@ import type {
  * 保存データの正規化で使う既定値。layout の 'auto'（キャンバスの向きに従う）は
  * 旧データ互換のためだけに残す。UI からは選べない（新規は createDefaultSplitCompareSettings）。
  */
+/** ペアのフェード秒数の既定（新しいカードと同じ 1 秒） */
+export const SPLIT_COMPARE_DEFAULT_FADE_DURATION = 1;
+
+/** ペア設定のうちフェードにかかわる値（2 画面まとめて掛ける） */
+export type SplitComparePairFadeSettings = Pick<
+  SplitCompareSettings,
+  'fadeIn' | 'fadeOut' | 'fadeInDuration' | 'fadeOutDuration'
+>;
+
+/** ペアのフェードの既定（オフ・1 秒） */
+export const SPLIT_COMPARE_DEFAULT_PAIR_FADE: Readonly<SplitComparePairFadeSettings> = {
+  fadeIn: false,
+  fadeOut: false,
+  fadeInDuration: SPLIT_COMPARE_DEFAULT_FADE_DURATION,
+  fadeOutDuration: SPLIT_COMPARE_DEFAULT_FADE_DURATION,
+};
+
 export const SPLIT_COMPARE_DEFAULT_SETTINGS: SplitCompareSettings = {
   layout: 'auto',
   divider: 'straight',
   fit: 'cover',
   lineColor: 'white',
+  ...SPLIT_COMPARE_DEFAULT_PAIR_FADE,
 };
 
-/** 比較を ON にしたときの初期設定。横動画（16:9）・正方形は左右、縦動画は上下 */
+/**
+ * 比較を ON にしたときの初期設定。横動画（16:9）・正方形は左右、縦動画は上下。
+ * initialFade は 2 枚のカードに付いていたフェード（deriveSplitComparePairFadeFromClips）。
+ * ON にしただけでカードに付けていたフェードが消えないよう、ペアへ引き継ぐ。
+ */
 export function createDefaultSplitCompareSettings(
   aspectRatio: 'landscape' | 'portrait' | 'auto',
   isCanvasPortrait: boolean = false,
+  initialFade: SplitComparePairFadeSettings = SPLIT_COMPARE_DEFAULT_PAIR_FADE,
 ): SplitCompareSettings {
   const vertical = aspectRatio === 'portrait' || (aspectRatio === 'auto' && isCanvasPortrait);
   return {
     ...SPLIT_COMPARE_DEFAULT_SETTINGS,
     layout: vertical ? 'vertical' : 'horizontal',
+    ...pickSplitComparePairFade(initialFade),
   };
 }
 
@@ -99,24 +127,125 @@ function pick<T extends string>(value: unknown, allowed: readonly T[], fallback:
     : fallback;
 }
 
+/** フェード秒数の正規化。未設定・0 以下・不正値は 1 秒（カードのフェードと同じ扱い） */
+function normalizePairFadeDuration(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : SPLIT_COMPARE_DEFAULT_FADE_DURATION;
+}
+
+/** ペア設定からフェードの 4 項目だけを取り出す（カードへ書き戻すときにも使う） */
+export function pickSplitComparePairFade(
+  settings: SplitComparePairFadeSettings,
+): SplitComparePairFadeSettings {
+  return {
+    fadeIn: settings.fadeIn === true,
+    fadeOut: settings.fadeOut === true,
+    fadeInDuration: normalizePairFadeDuration(settings.fadeInDuration),
+    fadeOutDuration: normalizePairFadeDuration(settings.fadeOutDuration),
+  };
+}
+
+/**
+ * 保存データのペア設定にフェードの ON/OFF が入っているか。
+ * 入っていない旧データは、読み込み時に 2 枚のカードのフェードから求める（秒数だけでは判断しない）。
+ */
+export function hasSplitComparePairFadeFields(raw: unknown): boolean {
+  if (!raw || typeof raw !== 'object') return false;
+  const value = raw as Partial<Record<keyof SplitCompareSettings, unknown>>;
+  return typeof value.fadeIn === 'boolean' || typeof value.fadeOut === 'boolean';
+}
+
+type SplitCompareFadeItem = Pick<
+  MediaItem,
+  'duration' | 'fadeIn' | 'fadeOut' | 'fadeInDuration' | 'fadeOutDuration'
+>;
+
+function resolveEnabledFadeSeconds(enabled: boolean, seconds: number | undefined): number {
+  if (!enabled) return 0;
+  // 動画・画像カードと同じく、未設定は 1 秒
+  return normalizePairFadeDuration(seconds);
+}
+
+/**
+ * 2 枚のカードに付いていたフェードから、ペアのフェードを求める（旧データの移行と、2 画面を ON にしたとき）。
+ * - フェードイン / アウトは、どちらかのカードで ON なら ON。
+ * - 秒数は ON のカードのうち長いほう。どちらも OFF なら既定の 1 秒。
+ * - イン＋アウトがペアの長さを超えるときの按分は描画時（resolveSplitComparePairFade）に行う
+ *   （保存値は 0.5 / 1 / 2 秒の選択肢のまま残す）。
+ */
+export function deriveSplitComparePairFadeFromClips(
+  head: SplitCompareFadeItem,
+  partner: SplitCompareFadeItem | null | undefined,
+): SplitComparePairFadeSettings {
+  const cards = partner ? [head, partner] : [head];
+  const fadeInSeconds = Math.max(0, ...cards.map((card) => resolveEnabledFadeSeconds(card.fadeIn, card.fadeInDuration)));
+  const fadeOutSeconds = Math.max(0, ...cards.map((card) => resolveEnabledFadeSeconds(card.fadeOut, card.fadeOutDuration)));
+  return {
+    fadeIn: fadeInSeconds > 0,
+    fadeOut: fadeOutSeconds > 0,
+    fadeInDuration: fadeInSeconds > 0 ? fadeInSeconds : SPLIT_COMPARE_DEFAULT_FADE_DURATION,
+    fadeOutDuration: fadeOutSeconds > 0 ? fadeOutSeconds : SPLIT_COMPARE_DEFAULT_FADE_DURATION,
+  };
+}
+
 /**
  * 保存データや外部入力から設定を正規化する。未設定（null/undefined/非オブジェクト）は null。
  * 未知の値は既定値へ寄せる（前方互換）。
+ * フェードが保存されていない旧データはオフ・1 秒で読む。2 画面ペアとして使われている旧データは、
+ * 読み込み後に migrateLegacySplitComparePairFades がカードのフェードから求めた値へ置き換える。
  */
 export function normalizeSplitCompareSettings(raw: unknown): SplitCompareSettings | null {
   if (!raw || typeof raw !== 'object') return null;
   const value = raw as Partial<Record<keyof SplitCompareSettings, unknown>>;
+  const fade = pickSplitComparePairFade(
+    hasSplitComparePairFadeFields(value)
+      ? value as SplitComparePairFadeSettings
+      : SPLIT_COMPARE_DEFAULT_PAIR_FADE,
+  );
   const normalized: SplitCompareSettings = {
     layout: pick(value.layout, LAYOUTS, SPLIT_COMPARE_DEFAULT_SETTINGS.layout),
     divider: pick(value.divider, DIVIDERS, SPLIT_COMPARE_DEFAULT_SETTINGS.divider),
     fit: pick(value.fit, FITS, SPLIT_COMPARE_DEFAULT_SETTINGS.fit),
     lineColor: pick(value.lineColor, LINE_COLORS, SPLIT_COMPARE_DEFAULT_SETTINGS.lineColor),
+    ...fade,
   };
   if (value.matchDuration === true) {
     normalized.matchDuration = true;
     normalized.matchDurationRestore = normalizeMatchDurationRestore(value.matchDurationRestore);
   }
   return normalized;
+}
+
+type LegacyPairFadeMigrationItem = SplitCompareFadeItem & Pick<MediaItem, 'splitCompareToNext'>;
+
+/**
+ * 読み込んだプロジェクトの 2 画面ペアのうち、保存データにペアのフェードが無かったもの（旧データ）へ、
+ * 2 枚のカードのフェードから求めた値（deriveSplitComparePairFadeFromClips）を入れる。
+ * 以前と同じ見え方・聞こえ方のまま開き、次の保存でペア設定として残る。
+ *
+ * @param items 正規化済みのカード（splitCompareToNext は normalizeSplitCompareSettings 済み）
+ * @param rawSplitCompareList items[i] の保存データ上の splitCompareToNext（正規化前）
+ * @returns 変更があったカードだけ差し替えた新しい配列（無ければ同じ配列）
+ */
+export function migrateLegacySplitComparePairFades<T extends LegacyPairFadeMigrationItem>(
+  items: T[],
+  rawSplitCompareList: ReadonlyArray<unknown>,
+): T[] {
+  const roles = resolveSplitCompareRoles(items);
+  let result: T[] | null = null;
+  for (let i = 0; i < items.length; i++) {
+    if (roles[i] !== 'head') continue;
+    const settings = items[i].splitCompareToNext;
+    if (!settings || hasSplitComparePairFadeFields(rawSplitCompareList[i])) continue;
+    const migrated: SplitCompareSettings = {
+      ...settings,
+      ...deriveSplitComparePairFadeFromClips(items[i], items[i + 1]),
+    };
+    result ??= [...items];
+    result[i] = { ...items[i], splitCompareToNext: migrated };
+  }
+  return result ?? items;
 }
 
 function normalizeMatchDurationRestore(raw: unknown): SplitCompareMatchDurationRestore | null {
@@ -337,14 +466,18 @@ export function clipToSplitCompareRegion(
   ctx.clip();
 }
 
-/** 境界線を描く。色が none のときは何もしない */
+/**
+ * 境界線を描く。色が none のときは何もしない。
+ * alpha は左右の映像と同じペア共通のフェード係数を渡す（0 以下・不正値は描かない）。
+ * NaN を globalAlpha に入れると Canvas は無視して不透明のまま描くため、ここで弾く。
+ */
 export function drawSplitCompareDivider(
   ctx: SplitCompareCanvasContext,
   geometry: SplitCompareGeometry,
   alpha = 1,
 ): boolean {
   if (!geometry.lineColor || geometry.lineWidth <= 0) return false;
-  const clamped = Math.max(0, Math.min(1, alpha));
+  const clamped = Number.isFinite(alpha) ? Math.max(0, Math.min(1, alpha)) : 0;
   if (clamped <= 0) return false;
   ctx.save();
   try {
@@ -443,29 +576,161 @@ export function resolveSplitCompareAutoOffsetPatch(params: {
   return { positionX: 0 };
 }
 
+/** ペアを 1 つの画面として扱うときのフェード（秒）。なしは 0 */
+export interface SplitComparePairFade {
+  /** ペア全体の長さ（長いほうの尺） */
+  duration: number;
+  /** 共通のフェードイン秒（按分後） */
+  fadeInDuration: number;
+  /** 共通のフェードアウト秒（按分後） */
+  fadeOutDuration: number;
+}
+
+/** 1 フレームぶんのペア共通フェード */
+export interface SplitComparePairFadeState {
+  /** 左右の映像・境界線・2 枚の音声に共通で掛ける係数（0〜1） */
+  alpha: number;
+  /** ペアの先頭からの経過秒（0〜ペア尺にクランプ） */
+  localTime: number;
+  isFadingIn: boolean;
+  isFadingOut: boolean;
+}
+
+function normalizePairDuration(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
 /**
- * ペアのもう一方（peer）に掛けるクリップ自身のフェード係数（0〜1）。
- * active と同じく、フェードイン + フェードアウトがクリップ長を超えるときは按分する。
+ * 並べて比較（2 画面表示）のペアに掛ける共通フェードを求める。
+ *
+ * 2 画面は 1 つの画面として扱い、左右（上下）の映像・境界線・2 枚の音声を同じ係数でフェードさせる
+ * （片方だけ・線だけが残らないようにする）。フェードの ON/OFF と秒数は**ペア設定**から読む
+ * （カード自身のフェードは見ない。旧データは読み込み時にカードから移行済み）。
+ * - フェードアウト: ペア全体の終わり（長いほうの終わり）に掛ける。
+ * - フェードイン: ペアの始まり（2 枚が同時に始まる時刻）に掛ける。
+ * - フェードイン + フェードアウトがペア尺を超えるときは、単体のクリップと同じく按分する。
  */
-export function resolveSplitComparePeerFadeAlpha(
-  item: Pick<MediaItem, 'duration' | 'fadeIn' | 'fadeOut' | 'fadeInDuration' | 'fadeOutDuration'>,
-  localTime: number,
-): number {
-  const duration = Number.isFinite(item.duration) ? Math.max(0, item.duration) : 0;
-  let fadeInDur = item.fadeIn ? (item.fadeInDuration || 1.0) : 0;
-  let fadeOutDur = item.fadeOut ? (item.fadeOutDuration || 1.0) : 0;
-  if (fadeInDur + fadeOutDur > duration && duration > 0) {
-    const ratio = duration / (fadeInDur + fadeOutDur);
-    fadeInDur *= ratio;
-    fadeOutDur *= ratio;
+export function resolveSplitComparePairFade(
+  settings: SplitComparePairFadeSettings,
+  head: Pick<MediaItem, 'duration'>,
+  partner: Pick<MediaItem, 'duration'>,
+): SplitComparePairFade {
+  const duration = Math.max(normalizePairDuration(head.duration), normalizePairDuration(partner.duration));
+  let fadeInDuration = resolveEnabledFadeSeconds(settings.fadeIn === true, settings.fadeInDuration);
+  let fadeOutDuration = resolveEnabledFadeSeconds(settings.fadeOut === true, settings.fadeOutDuration);
+  if (fadeInDuration + fadeOutDuration > duration && duration > 0) {
+    const ratio = duration / (fadeInDuration + fadeOutDuration);
+    fadeInDuration *= ratio;
+    fadeOutDuration *= ratio;
   }
+  return { duration, fadeInDuration, fadeOutDuration };
+}
+
+/** ペアの先頭からの経過秒で、共通フェードの係数と区間を返す */
+export function resolveSplitComparePairFadeState(
+  fade: SplitComparePairFade,
+  pairLocalTime: number,
+): SplitComparePairFadeState {
+  const localTime = Number.isFinite(pairLocalTime)
+    ? Math.max(0, Math.min(fade.duration, pairLocalTime))
+    : 0;
+  const isFadingIn = fade.fadeInDuration > 0 && localTime < fade.fadeInDuration;
+  const isFadingOut = !isFadingIn
+    && fade.fadeOutDuration > 0
+    && localTime > fade.duration - fade.fadeOutDuration;
   let alpha = 1;
-  if (fadeInDur > 0 && localTime < fadeInDur) {
-    alpha = localTime / fadeInDur;
-  } else if (fadeOutDur > 0 && localTime > duration - fadeOutDur) {
-    alpha = (duration - localTime) / fadeOutDur;
+  if (isFadingIn) {
+    alpha = localTime / fade.fadeInDuration;
+  } else if (isFadingOut) {
+    alpha = (fade.duration - localTime) / fade.fadeOutDuration;
   }
-  return Math.max(0, Math.min(1, alpha));
+  return {
+    alpha: Math.max(0, Math.min(1, alpha)),
+    localTime,
+    isFadingIn,
+    isFadingOut,
+  };
+}
+
+/** ペア共通フェードの係数（0〜1）。左右の映像・境界線・2 枚の音声に同じ値を使う */
+export function resolveSplitComparePairFadeAlpha(
+  fade: SplitComparePairFade,
+  pairLocalTime: number,
+): number {
+  return resolveSplitComparePairFadeState(fade, pairLocalTime).alpha;
+}
+
+/**
+ * index のカードが 2 画面ペアに入っていれば、ペア共通のフェードを返す（入っていなければ null）。
+ * 音声（プレビューの準備・書き出しのエンベロープ）で、映像と同じ係数を使うための入口。
+ */
+export function resolveSplitComparePairFadeForIndex(
+  items: ReadonlyArray<Pick<MediaItem, 'duration' | 'splitCompareToNext'>>,
+  index: number,
+  precomputedRoles?: SplitCompareRole[],
+): (SplitComparePairInfo & { fade: SplitComparePairFade }) | null {
+  const pair = getSplitComparePairForIndex(items, index, precomputedRoles);
+  if (!pair) return null;
+  const head = items[pair.headIndex];
+  const partner = items[pair.partnerIndex];
+  if (!head || !partner) return null;
+  return { ...pair, fade: resolveSplitComparePairFade(pair.settings, head, partner) };
+}
+
+/** 動画カードの音声フェード（タイムライン秒）。書き出しのゲインエンベロープに使う */
+export interface ClipAudioFadeWindow {
+  /** フェードを測る区間の始まり（カード単体はカードの始まり、ペアはペアの始まり） */
+  start: number;
+  /** 区間の終わり（カード単体はカードの終わり、ペアは長いほうの終わり） */
+  end: number;
+  /** 按分後のフェードイン秒（なしは 0） */
+  fadeInDuration: number;
+  /** 按分後のフェードアウト秒（なしは 0） */
+  fadeOutDuration: number;
+  /** 2 画面ペアの共通フェードか */
+  isSplitComparePair: boolean;
+}
+
+/**
+ * 書き出しで動画カードの音声に掛けるフェードの区間を求める。
+ * - 2 画面ペア: 2 枚とも同じ区間（ペアの始まり〜長いほうの終わり）と同じ秒数（ペア設定）。
+ *   映像と同じ係数で、2 枚の音が一緒に立ち上がり・一緒に消える。短いほうは自分の終わりで音が止まる。
+ * - それ以外: 従来どおりカード自身のフェード（イン＋アウトがカード長を超えるときは按分）。
+ *
+ * @param clipStart このカードのタイムライン上の開始秒（ペアは 2 枚とも同じ）
+ */
+export function resolveClipAudioFadeWindow(
+  items: ReadonlyArray<SplitCompareFadeItem & Pick<MediaItem, 'splitCompareToNext'>>,
+  index: number,
+  clipStart: number,
+): ClipAudioFadeWindow {
+  const item = items[index];
+  const pair = resolveSplitComparePairFadeForIndex(items, index);
+  if (pair) {
+    return {
+      start: clipStart,
+      end: clipStart + pair.fade.duration,
+      fadeInDuration: pair.fade.fadeInDuration,
+      fadeOutDuration: pair.fade.fadeOutDuration,
+      isSplitComparePair: true,
+    };
+  }
+  const duration = item?.duration ?? 0;
+  let fadeInDuration = item?.fadeIn ? item.fadeInDuration || 1.0 : 0;
+  let fadeOutDuration = item?.fadeOut ? item.fadeOutDuration || 1.0 : 0;
+  // 書き出しの従来ロジックのまま（重なった場合に按分）
+  if (fadeInDuration + fadeOutDuration > duration) {
+    const ratio = duration / (fadeInDuration + fadeOutDuration);
+    fadeInDuration *= ratio;
+    fadeOutDuration *= ratio;
+  }
+  return {
+    start: clipStart,
+    end: clipStart + duration,
+    fadeInDuration,
+    fadeOutDuration,
+    isSplitComparePair: false,
+  };
 }
 
 /** コネクタやログに出す短い説明（例: 「左右・まっすぐ」） */

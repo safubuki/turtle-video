@@ -162,7 +162,7 @@ describe('mediaStore', () => {
     });
 
     it('カードを入れ替えても、トランジションと並べて比較は「何枚目と何枚目の間」に残り、総尺を取り直す', () => {
-      const compare = { layout: 'horizontal', divider: 'diagonal', fit: 'cover', lineColor: 'white' } as const;
+      const compare = { layout: 'horizontal', divider: 'diagonal', fit: 'cover', lineColor: 'white', fadeIn: false, fadeOut: true, fadeInDuration: 1, fadeOutDuration: 2 } as const;
       useMediaStore.setState({
         mediaItems: [
           { id: 'a', type: 'video', duration: 6, splitCompareToNext: compare, transitionToNext: null } as any,

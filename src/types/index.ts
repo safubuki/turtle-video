@@ -112,6 +112,18 @@ export interface SplitCompareSettings {
   matchDuration?: boolean;
   /** matchDuration で詰めた内容（オフで戻すため）。詰めていなければ null */
   matchDurationRestore?: SplitCompareMatchDurationRestore | null;
+  /**
+   * 2 画面まとめてのフェードイン。左右の映像・境界線・2 枚の音声に同じ係数を掛ける。
+   * ペア中はカード自身のフェード（MediaItem.fadeIn など）は使わない。
+   * 旧データ（未保存）は読み込み時に 2 枚のカードのフェードから求める（utils/splitCompare.ts）。
+   */
+  fadeIn: boolean;
+  /** 2 画面まとめてのフェードアウト（ペアの終わり = 長いほうの終わりへ向けて消す） */
+  fadeOut: boolean;
+  /** フェードインの秒数（0.5 / 1 / 2）。イン＋アウトがペアの長さを超えるときは描画時に按分する */
+  fadeInDuration: number;
+  /** フェードアウトの秒数（0.5 / 1 / 2） */
+  fadeOutDuration: number;
 }
 
 /** 動画カードの再生速度（0.5〜8.0・0.1刻み。旧データは 1/2/4/8） */

@@ -52,7 +52,7 @@ import { normalizeMediaBlur, normalizeRotation } from '../utils/canvas';
 import { normalizeVideoTitleSettings } from '../utils/videoTitle';
 import { normalizeWatermarkOverlay } from '../utils/watermarkOverlay';
 import { normalizeEndrollOverlay } from '../utils/endrollOverlay';
-import { normalizeSplitCompareSettings } from '../utils/splitCompare';
+import { migrateLegacySplitComparePairFades, normalizeSplitCompareSettings } from '../utils/splitCompare';
 import { compactSaveThumbnail } from '../utils/saveThumbnail';
 import { getEndrollDuration } from '../utils/endrollOverlay';
 import {
@@ -1283,7 +1283,20 @@ export const useProjectStore = create<ProjectState>()(
             return null;
           }
 
-          const mediaItems = data.mediaItems.map(deserializeMediaItem);
+          const deserializedMediaItems = data.mediaItems.map(deserializeMediaItem);
+          // 2 画面ペアのフェードが保存されていない旧データは、2 枚のカードのフェードから求めて
+          // ペア設定へ入れる（以前と同じ見え方のまま開き、次の保存でペア設定として残る）。
+          const mediaItems = migrateLegacySplitComparePairFades(
+            deserializedMediaItems,
+            data.mediaItems.map((item) => item.splitCompareToNext),
+          );
+          if (mediaItems !== deserializedMediaItems) {
+            useLogStore.getState().info('SYSTEM', '2画面のフェードを旧データのカード設定から移行', {
+              operationId,
+              slot,
+              pairCount: mediaItems.filter((item, index) => item !== deserializedMediaItems[index]).length,
+            });
+          }
           const bgm = data.bgm ? deserializeAudioTrack(data.bgm) : null;
           const bgmClips = (data.bgmClips ?? []).map(deserializeNarrationClip);
           const narrations = (data.narrations && data.narrations.length > 0)

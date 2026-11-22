@@ -93,6 +93,7 @@ import {
   getTimelineAdvanceForItem,
   getTimelineOverlapToNext,
 } from '../../../utils/transitionTimeline';
+import { resolveClipAudioFadeWindow } from '../../../utils/splitCompare';
 import {
   canAttemptAlphaWebmExport,
   normalizeExportOutputOptions,
@@ -871,26 +872,28 @@ async function offlineRenderAudio(
         const clipStart = mediaRange?.start ?? timelinePosition;
         const clipEnd = clipStart + item.duration;
 
-        // フェード時間のクランプ（重なった場合に按分）
-        let fadeInDur = item.fadeIn ? item.fadeInDuration || 1.0 : 0;
-        let fadeOutDur = item.fadeOut ? item.fadeOutDuration || 1.0 : 0;
-        if (fadeInDur + fadeOutDur > item.duration) {
-          const ratio = item.duration / (fadeInDur + fadeOutDur);
-          fadeInDur *= ratio;
-          fadeOutDur *= ratio;
-        }
+        // フェード区間（重なった場合に按分）。並べて比較のペアは 2 枚とも同じ区間・同じ秒数
+        // （ペアの始まり〜長いほうの終わり、ペア設定のフェード）で、映像と一緒に立ち上がり・消える。
+        // それ以外はカード自身のフェード（従来どおり）。
+        const audioFade = resolveClipAudioFadeWindow(
+          mediaItems,
+          mediaRange?.index ?? mediaItems.indexOf(item),
+          clipStart,
+        );
+        const fadeInDur = audioFade.fadeInDuration;
+        const fadeOutDur = audioFade.fadeOutDuration;
 
         // ゲインエンベロープ設定
         gain.gain.setValueAtTime(0, 0);
         if (fadeInDur > 0) {
-          gain.gain.setValueAtTime(0, clipStart);
-          gain.gain.linearRampToValueAtTime(vol, clipStart + fadeInDur);
+          gain.gain.setValueAtTime(0, audioFade.start);
+          gain.gain.linearRampToValueAtTime(vol, audioFade.start + fadeInDur);
         } else {
-          gain.gain.setValueAtTime(vol, clipStart);
+          gain.gain.setValueAtTime(vol, audioFade.start);
         }
         if (fadeOutDur > 0) {
-          gain.gain.setValueAtTime(vol, clipEnd - fadeOutDur);
-          gain.gain.linearRampToValueAtTime(0, clipEnd);
+          gain.gain.setValueAtTime(vol, audioFade.end - fadeOutDur);
+          gain.gain.linearRampToValueAtTime(0, audioFade.end);
         }
 
         // ディゾルブ(重ねる)の音声クロスフェード（プレビューと同じ聴こえ方にする）。

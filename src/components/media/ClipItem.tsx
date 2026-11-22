@@ -173,6 +173,11 @@ export interface ClipItemProps {
   /** 直前または自分が 2 画面表示のペア（同時再生なので、なめらか接続は効かない） */
   isInSplitComparePair?: boolean;
   /**
+   * 2 画面表示のペアとして同時再生されるカード。フェードはペアの設定（カード間の 2 画面の設定）で
+   * まとめて変えるため、カードのフェードイン/アウトは出さずに案内だけ出す。
+   */
+  isSplitCompareFadeShared?: boolean;
+  /**
    * 直後のカードが動画のときの、そのカードのなめらか接続の状態（無ければ null）。
    * なめらか接続は後ろのカードが受け持つが、前のカードの速度を変えた人も気づけるよう、
    * 前のカードからも同じ設定を切り替えられるようにする（設定の実体は後ろのカード 1 つ）。
@@ -329,6 +334,7 @@ const ClipItem: React.FC<ClipItemProps> = ({
   onUpdateSpeedRampDuration,
   previousVideoSpeed = null,
   isInSplitComparePair = false,
+  isSplitCompareFadeShared = false,
   nextClipSpeedRamp = null,
   onUpdateNextSpeedRampIn,
   onUpdateNextSpeedRampDuration,
@@ -853,6 +859,17 @@ const ClipItem: React.FC<ClipItemProps> = ({
           {/* フェード設定 (共通) */}
           <div className="flex flex-col gap-2 text-xs md:text-sm">
             <h3 className="font-medium text-gray-300">フェード</h3>
+            {isSplitCompareFadeShared ? (
+              // 2 画面表示中: フェードはペアの設定で 2 画面まとめて掛かる（カードのフェードは使わない）。
+              // 編集する場所を 1 つにするため、カードのフェードは出さない。
+              <p
+                data-testid={`clip-split-compare-fade-note-${v.id}`}
+                className="text-[10px] leading-snug text-cyan-200/80 md:text-xs"
+              >
+                2画面表示中は2画面の設定でフェードを変えます
+              </p>
+            ) : (
+            <>
             {/* フェードイン */}
             <div className="flex items-center gap-2">
               <label
@@ -898,6 +915,8 @@ const ClipItem: React.FC<ClipItemProps> = ({
                 accentClassName="accent-blue-500"
               />
             </div>
+            </>
+            )}
           </div>
 
           {/* ぼかし（カード単位・1080p基準） */}

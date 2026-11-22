@@ -23,6 +23,7 @@ import {
 import type { ClipTransition, MediaColorAdjust, MediaItem, MediaZoomDirection, SplitCompareSettings } from '../../types';
 import ClipItem from '../media/ClipItem';
 import SettingsAccordionHeader from '../common/SettingsAccordionHeader';
+import PresetFadeDurationField from '../common/PresetFadeDurationField';
 import { usePlatformCapabilities } from '../../app/PlatformCapabilitiesContext';
 import { getAppFlavorUiCapabilities } from '../../app/appFlavorUi';
 import { useMediaStore } from '../../stores/mediaStore';
@@ -76,6 +77,7 @@ import {
 } from '../../utils/clipTransitions';
 import {
   createDefaultSplitCompareSettings,
+  deriveSplitComparePairFadeFromClips,
   describeSplitCompareSettings,
   getSplitComparePairForIndex,
   isSplitCompareDiagonalOffsetWanted,
@@ -87,6 +89,8 @@ import {
   SPLIT_COMPARE_FIT_OPTIONS,
   SPLIT_COMPARE_LAYOUT_OPTIONS,
   SPLIT_COMPARE_LINE_COLOR_OPTIONS,
+  pickSplitComparePairFade,
+  type SplitComparePairFadeSettings,
 } from '../../utils/splitCompare';
 import {
   collapseAllClipCards,
@@ -141,6 +145,58 @@ function SplitCompareOptionRow<T extends string>({
 }
 
 /**
+ * 2 画面まとめてのフェード 1 行（チェック + 0.5 / 1 / 2 秒）。
+ * カードのフェード行と同じ形にし、2 画面の設定の中に置く（カード側ではない）。
+ */
+function SplitCompareFadeRow({
+  testId,
+  label,
+  checked,
+  duration,
+  disabled,
+  onToggle,
+  onChangeDuration,
+}: {
+  testId: string;
+  label: string;
+  checked: boolean;
+  duration: number;
+  disabled: boolean;
+  onToggle: (checked: boolean) => void;
+  onChangeDuration: (duration: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2" data-testid={testId}>
+      {/*
+        ラベル列はカードのフェード行と同じ w-28 にそろえる（イン/アウトで秒数欄の左端が一致する）。
+        min-w-max で「チェック + フェードアウト」より狭くならないようにし、
+        端末の最小フォントや文字拡大で文字が広がっても秒数欄に重ならない（縮むのは右のスライダー側）。
+      */}
+      <label
+        className={`flex w-28 min-w-max shrink-0 items-center justify-start gap-1.5 text-gray-300 ${disabled ? 'opacity-50' : 'cursor-pointer'}`}
+      >
+        <input
+          type="checkbox"
+          data-testid={`${testId}-toggle`}
+          checked={checked}
+          disabled={disabled}
+          onChange={(e) => onToggle(e.target.checked)}
+          className="h-3 w-3 cursor-pointer rounded accent-cyan-400 disabled:cursor-default disabled:opacity-50"
+        />
+        <span className="whitespace-nowrap">{label}</span>
+      </label>
+      <PresetFadeDurationField
+        value={duration}
+        onChange={onChangeDuration}
+        disabled={disabled || !checked}
+        ariaLabel={`2画面の${label}時間`}
+        accentClassName="accent-cyan-400"
+      />
+    </div>
+  );
+}
+
+/**
  * カードとカードの間のトランジションコネクタ（standard フレーバー限定）。
  * タップで種類（なし/ディゾルブ/フェード黒/フェード白）と時間（0.5/1/2秒）を設定する。
  * ディゾルブは重なり分だけタイムラインを短縮し、フェードは長さを変えない。
@@ -162,6 +218,11 @@ const ClipTransitionConnector: React.FC<{
   pairDurations: [number, number] | null;
   /** 長さそろえがオンのまま長さがずれたとき、そろえ直す */
   onRealignSplitCompareDuration: () => void;
+  /**
+   * 比較を初めて ON にするときのペアのフェード（2 枚のカードに付いていたフェードから求める）。
+   * ON にしただけでカードのフェードが消えないようにする。以前の比較設定を戻すときは使わない。
+   */
+  resolveInitialPairFade: () => SplitComparePairFadeSettings;
   disabled: boolean;
   /** 「すべて閉じる」のたびに増える。開いている設定パネルを畳む */
   closeSignal: number;
@@ -177,6 +238,7 @@ const ClipTransitionConnector: React.FC<{
   isCanvasPortrait,
   pairDurations,
   onRealignSplitCompareDuration,
+  resolveInitialPairFade,
   disabled,
   closeSignal,
   onBeforeEdit,
@@ -214,7 +276,10 @@ const ClipTransitionConnector: React.FC<{
     if (isCompare || isCompareBlocked) return;
     onBeforeEdit();
     rememberedTransitionRef.current = transition;
-    onChangeSplitCompare(rememberedSplitCompareRef.current ?? createDefaultSplitCompareSettings(aspectRatio, isCanvasPortrait));
+    onChangeSplitCompare(
+      rememberedSplitCompareRef.current
+      ?? createDefaultSplitCompareSettings(aspectRatio, isCanvasPortrait, resolveInitialPairFade()),
+    );
   };
 
   // 2 色の楕円ボタン（左: トランジション=紫 / 右: 並べて比較=水色、間はななめに区切る）。
@@ -396,6 +461,36 @@ const ClipTransitionConnector: React.FC<{
                     && <span className="block text-amber-300">長さがずれています。「短い方に合わせる」を押すとそろえ直します。</span>}
                 </div>
               )}
+              {/* 2 画面まとめてのフェード（左右の映像・境界線・音声）。ペア中はカードのフェードを使わない */}
+              <div
+                data-testid="split-compare-fade-settings"
+                role="group"
+                aria-label="2画面のフェード"
+                className="space-y-1 border-t border-cyan-500/20 pt-1.5"
+              >
+                <div className="text-gray-500">フェード（2画面まとめて）:</div>
+                <SplitCompareFadeRow
+                  testId="split-compare-fade-in"
+                  label="フェードイン"
+                  checked={splitCompare.fadeIn === true}
+                  duration={splitCompare.fadeInDuration}
+                  disabled={disabled}
+                  onToggle={(fadeIn) => updateSplitCompare({ fadeIn })}
+                  onChangeDuration={(fadeInDuration) => updateSplitCompare({ fadeInDuration })}
+                />
+                <SplitCompareFadeRow
+                  testId="split-compare-fade-out"
+                  label="フェードアウト"
+                  checked={splitCompare.fadeOut === true}
+                  duration={splitCompare.fadeOutDuration}
+                  disabled={disabled}
+                  onToggle={(fadeOut) => updateSplitCompare({ fadeOut })}
+                  onChangeDuration={(fadeOutDuration) => updateSplitCompare({ fadeOutDuration })}
+                />
+                <p className="text-[10px] md:text-xs leading-snug text-gray-400">
+                  左右の映像・境界線・音をまとめてフェードします。2画面表示中はカードのフェードは使いません。
+                </p>
+              </div>
             </>
           ) : (
           <>
@@ -752,15 +847,19 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
     const latestPartner = partner
       ? useMediaStore.getState().mediaItems.find((item) => item.id === partner.id) ?? partner
       : undefined;
+    // 2 画面をやめるときは、ペアのフェードを 2 枚のカードへ書き戻す（やめた途端にフェードが変わらない）。
+    // 戻したペア設定（コネクタが覚えている値）はそのまま残る。
+    const fadeBackPatch = previous && !settings ? pickSplitComparePairFade(previous) : null;
     updateMediaItem(head.id, {
       splitCompareToNext: settings,
       // 比較と切り替え効果は同じ境界で併用しない
       ...(settings ? { transitionToNext: null } : {}),
       ...(offsetPatch(latestHead, 'head') ?? {}),
+      ...(fadeBackPatch ?? {}),
     });
     const partnerPatch = latestPartner ? offsetPatch(latestPartner, 'partner') : null;
-    if (partner && partnerPatch) {
-      updateMediaItem(partner.id, partnerPatch);
+    if (partner && (partnerPatch || fadeBackPatch)) {
+      updateMediaItem(partner.id, { ...(partnerPatch ?? {}), ...(fadeBackPatch ?? {}) });
     }
   };
   const duplicateMediaItem = useMediaStore((s) => s.duplicateMediaItem);
@@ -1220,6 +1319,9 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
             isInSplitComparePair={
               Boolean(v.splitCompareToNext) || (i > 0 && Boolean(mediaItems[i - 1].splitCompareToNext))
             }
+            // 実際に 2 画面ペアとして再生されるカード（役割で判定）。フェードはペアの設定で変える。
+            // apple-safari は 2 画面を逐次再生するため、カードのフェードをそのまま使う。
+            isSplitCompareFadeShared={supportsTransitions && splitCompareRoles[i] !== null}
             nextClipSpeedRamp={
               supportsPlaybackSpeed
                 ? resolveNextClipSpeedRampInfo(v, mediaItems[i + 1], isClipsLocked)
@@ -1259,6 +1361,7 @@ const ClipsSection: React.FC<ClipsSectionProps> = ({
                 ? [v.duration, mediaItems[i + 1].duration]
                 : null}
               onRealignSplitCompareDuration={() => handleRealignSplitCompareDuration(i)}
+              resolveInitialPairFade={() => deriveSplitComparePairFadeFromClips(v, mediaItems[i + 1])}
               disabled={isClipsLocked || v.isLocked}
               closeSignal={transitionCloseSignal}
               onBeforeEdit={onBeforeTransitionEdit}

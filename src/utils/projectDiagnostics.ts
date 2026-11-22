@@ -126,6 +126,9 @@ export function buildProjectDiagnostics(input: ProjectDiagnosticsInput) {
             fit: item.splitCompareToNext.fit,
             line: item.splitCompareToNext.lineColor,
             matchDuration: !!item.splitCompareToNext.matchDuration,
+            // 2 画面まとめてのフェード（ペア中はカードの fadeIn / fadeOut は使わない）
+            fadeIn: fadeSeconds(item.splitCompareToNext.fadeIn, item.splitCompareToNext.fadeInDuration),
+            fadeOut: fadeSeconds(item.splitCompareToNext.fadeOut, item.splitCompareToNext.fadeOutDuration),
           },
         }
         : {}),

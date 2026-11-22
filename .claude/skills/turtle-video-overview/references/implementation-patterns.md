@@ -5547,6 +5547,46 @@ export 終了（成功/失敗/中断）
 - **実機確認結果（2026-11-22）**:
   - ユーザー実機にて再書き出しを行い、一時黒塗り症状が解消したことを確認済み（`ac49ba8`）。現行の成功実装として、シーク判定の単一ソース化・同一フレーム `play()` 衝突防止・オンデマンド退避スナップショットの組み合わせを維持すること。
 
+### 13-327. 2画面表示（並べて比較）のフェード: 左右の映像と境界線を 1 つの画面として共通 alpha で消す【standard 限定】
+
+- **ファイル**: `src/utils/splitCompare.ts`（`resolveSplitComparePairFade` / `resolveSplitComparePairFadeState` / `resolveSplitComparePairFadeAlpha` 新設、`drawSplitCompareDivider` の不正 alpha ガード）, `src/flavors/standard/preview/usePreviewEngine.ts`（`splitCompareFrame.fade` / `fadeSettings`、active・peer・境界線の alpha、fade region 判定）, `src/constants/sectionHelp.ts`, `spec.md`, `src/test/splitCompare.test.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **対象 flavor**: standard（Android/PC）のみ。書き出しの映像は同じ `renderFrame(_isExporting)` を通るため preview / export 共通。apple-safari（2画面表示なし・逐次再生）と凍結済みの `src/components/turtle-video/usePreviewEngine.ts` には該当経路が無い。`exportEngine.ts` はキャプションレイヤーと音声だけを扱い、映像は描かない。
+- **症状**: 2画面表示でフェードアウトすると、終端で画面全体が黒になっても中央の境界線（白/黒）だけが残った（停止して再生ボタンが出る終端フレームで目立つ）。
+- **原因**:
+  - `drawSplitCompareDivider(ctx, geometry)` を alpha なし（=1）で呼んでいたため、左右がフェードで黒くなっても線は不透明のまま描いていた。
+  - 左右はカードごとのフェードを使っていた（active は自分の `localTime`、peer は `resolveSplitComparePeerFadeAlpha`）。peer の時刻は自分の尺の手前で止めるため、短いほうがフェードアウト ON だと自分の終わりで先に黒くなり、その後ペアの終わりまで黒い半面が続いた。逆に短いほうが OFF・長いほうが ON だと、短いほう（最後のコマ）が不透明のまま残り片側だけ消えなかった。同じ設定でも、フェードイン＋アウトの按分がクリップ尺ごとなので尺が違うとフェードインの速さがずれた。
+- **対策（規則）**:
+  - ペアを 1 区間として共通フェードを求める。どちらかのカードで ON ならペア全体に掛け、秒数（既存 UI の 0.5 / 1 / 2 秒）は ON のカードのうち長いほう。ペア尺＝長いほうの尺で、フェードイン＋アウトが超えるときは単体と同じく按分。
+  - 時刻はタイムライン時刻 − ペア先頭（head の start）。active の `localTime` は終端フォールバックで短いほうの尺に寄る（`findActiveTimelineItemWithTransitions` が最後のカード＝partner を返す）ため使わない。
+  - active・peer・境界線に同じ `splitCompareFrame.fade.alpha` を掛ける。`isInFadeIn/OutRegion` も比較中はペアの値にする（active 自身が OFF でもペアがフェード中なら毎フレーム黒クリア＋alpha 描画。前フレーム保持だとフェードが見えない／0df405e と同じ理屈）。
+  - `drawSplitCompareDivider` は NaN 等の不正 alpha を 0 扱いにする（Canvas は NaN の `globalAlpha` 代入を無視して不透明のまま描くため）。
+- **変えていないもの**: 2画面でないカードのフェード（カードごと・従来の按分）、フェード時間 UI（`PresetFadeDurationField` / `FADE_DURATION_STOPS = [0.5, 1, 2]`）、トランジションのフェード(黒/白)、音声のフェード（active・peer・export とも従来どおりカードごと。peer 音声は引き続き `resolveSplitComparePeerFadeAlpha`）。
+- **テスト**: `splitCompare.test.ts` に境界線 alpha（0・負・NaN は描かない／小さい alpha はそのまま）と共通フェード（0.5/1/2 秒・尺違い・片方だけ ON・秒数違い・按分・終端クランプ）。`standardPreviewEngine.test.tsx` で画像 2 枚のペアを `renderFrame` し、左右の `drawImage` と境界線 `stroke` の `globalAlpha` が一致すること、終端で線を描かず中央の列が黒になること（簡易ピクセルモデル）、export フラグでも同じこと、2画面でないカードは従来どおりカード単位であることを確認。旧実装では比較の 5 件が失敗することを確認済み。
+- **注意**:
+  - 比較中の映像フェードをカードごとの計算へ戻さないこと（片側だけ・線だけが残る）。境界線を描く箇所を増やすときも必ず同じ alpha を渡す。
+  - フェードインも同じ共通係数を使う。2枚でフェードインの設定が違う場合は、OFF 側もペアとして立ち上がる（仕様として明記）。
+  - 実機（Android の 2 本同時デコード）での見え方は未確認。
+- **更新（13-328）**: フェードの ON/OFF と秒数の出どころを「カードから求める」から「ペア設定に保存」へ移し、音声も 2 画面まとめてフェードするよう変更した。上の「どちらかのカードで ON・長いほう」の規則は、旧データの移行と 2 画面を ON にしたときの引き継ぎにだけ使う。`resolveSplitComparePeerFadeAlpha` は削除済み（13-328 参照）。
+
+### 13-328. 2画面表示のフェードをペア設定（2画面の設定パネル）へ移し、音声も 2 画面まとめてフェードする【standard 限定】
+
+- **ファイル**: `src/types/index.ts`（`SplitCompareSettings.fadeIn` / `fadeOut` / `fadeInDuration` / `fadeOutDuration` 必須）, `src/utils/splitCompare.ts`（`SPLIT_COMPARE_DEFAULT_PAIR_FADE` / `pickSplitComparePairFade` / `hasSplitComparePairFadeFields` / `deriveSplitComparePairFadeFromClips` / `migrateLegacySplitComparePairFades` / `resolveSplitComparePairFadeForIndex` / `resolveClipAudioFadeWindow` 新設、`resolveSplitComparePairFade(settings, head, partner)` へ変更、`resolveSplitComparePeerFadeAlpha` 削除）, `src/stores/projectStore.ts`（読み込み時の移行）, `src/hooks/useAutoSave.ts`, `src/utils/projectDiagnostics.ts`, `src/components/sections/ClipsSection.tsx`, `src/components/media/ClipItem.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/usePreviewAudioSession.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/constants/sectionHelp.ts`, `spec.md`, テスト（`splitCompare.test.ts`, `splitCompareFade.ui.test.tsx`（新規）, `splitCompareConnector.ui.test.tsx`, `standardPreviewEngine.test.tsx`, `stores/projectStoreSave.test.ts`, `stores/mediaStore.test.ts`, `useAutoSave.test.tsx`）
+- **目的**: 2 画面のフェードを編集する場所を 1 つ（コネクタの 2 画面設定）にし、左右の映像・境界線・2 枚の音を同じ係数で立ち上げ・消す。
+- **データ**: ペア設定（head の `splitCompareToNext`）が持つ。新規はオフ・1 秒。`normalizeSplitCompareSettings` は ON/OFF（boolean）が無ければオフ・1 秒、秒数は有限の正数以外 1 秒。保存（`serializeMediaItem` が normalize を通す）・自動保存ハッシュ・解析レポート（`compareWithNext.fadeIn/fadeOut`）に含める。コピー・続き追加・分割・移動・Android preview cache key は `splitCompareToNext` オブジェクトごと扱うため追加対応不要（コピー／続きは従来どおりペア設定を引き継がない）。
+- **移行**: `loadProject` で `deserializeMediaItem` の後に `migrateLegacySplitComparePairFades(items, 保存データの splitCompareToNext 一覧)`。**実際の head（`resolveSplitCompareRoles`）で、保存データに fadeIn/fadeOut（boolean）が無いものだけ**、2 枚のカードから「どちらかで ON・ON のうち長い秒数・どちらも OFF は 1 秒」で求める。按分はしない（保存値は 0.5/1/2 のまま、描画時に `resolveSplitComparePairFade` が按分）＝以前と同じ見え方。移行時は `SYSTEM` ログ「2画面のフェードを旧データのカード設定から移行」。
+- **UI**: コネクタの 2 画面パネル（並べ方〜長さの下）に「フェード（2画面まとめて）」。`SplitCompareFadeRow` = チェック + `PresetFadeDurationField`（`ariaLabel` は「2画面のフェードイン時間」等、オフ中は秒数 disabled）。`data-testid`: `split-compare-fade-settings` / `split-compare-fade-in` / `split-compare-fade-out`（チェックは `-toggle` 付き）。カード側は `ClipItem` の `isSplitCompareFadeShared` が true のとき「フェード」欄のチェックと秒数を出さず `clip-split-compare-fade-note-{id}`「2画面表示中は2画面の設定でフェードを変えます」。ぼかしはカードごとのまま。
+  - `isSplitCompareFadeShared` は `supportsTransitions && splitCompareRoles[i] !== null`（役割で判定）。既存の `isInSplitComparePair`（直前/自分に設定があるか・なめらか接続の案内用で `playbackSpeed.ts` と同じゆるい判定）は流用しない。最後のカードに残った設定や partner に残った設定ではカードのフェードを隠さない。apple-safari は 2 画面を逐次再生するので常にカードのフェードを出す。
+- **ON/OFF**: 初めて ON（コネクタが覚えている設定が無い）は `createDefaultSplitCompareSettings(…, deriveSplitComparePairFadeFromClips(head, partner))` でカードのフェードを引き継ぐ。OFF（「オフ」・紫側）は `handleChangeSplitCompare` で直前のペアのフェードを `pickSplitComparePairFade` で head・partner の両カードへ書き戻す（partner がロック中でも、見え方を保つための書き戻しなので行う）。もう一度 ON はコネクタが覚えている最後のペア設定（フェード込み）を戻す。
+- **音声（共通エンベロープ）**:
+  - プレビュー: active は `splitCompareFrame.regionById.has(id)` なら `vol *= splitCompareFrame.fade.alpha`、peer は `resolveMediaPlaybackVolume(conf) * splitCompareFrame.fade.alpha`（peer 終了後は従来どおり 0）。`preparePreviewAudioNodesForTime` もペアならペアの係数（standard の既定ポリシー `muteNativeMediaWhenAudioRouted=false` では早期 return するため現状は通らない）。
+  - 書き出し: `offlineRenderAudio` の動画音声は `resolveClipAudioFadeWindow(mediaItems, index, clipStart)` の区間・秒数でゲインを組む。ペアは 2 枚とも「ペアの始まり〜長いほうの終わり・ペア設定の秒数」、ペア外は従来の式（カードのフェード・`> duration` で按分）。短いほうの音源は自分の終わりで止まる（ペアのフェードアウト区間より前に終わる場合は無フェードで切れる＝従来のフェード OFF と同じ）。ディゾルブのクロスフェードはペア境界では 0 のまま。
+- **テスト**: 正規化・移行（旧ペア＋カードのフェード → ペア、保存済みが優先、partner/最後の残り設定は移行しない、壊れた値）、保存往復（手動/自動・再保存で残る）、`resolveSplitComparePairFade` がカードを見ないこと、UI（パネルのチェックと 0.5/1/2 の 3 段・ON 引き継ぎ・OFF 書き戻し・再 ON 復元・ペアのカードの案内・ペア外のカードは従来どおり）、プレビュー映像（左右・線が同じ alpha、カードのフェードは効かない）、プレビュー音声（2 枚の `volume` がペアの係数で一致・ペアオフならカードのフェードが付いていても 1・ペア外は従来）、書き出し音声区間（`resolveClipAudioFadeWindow`）。peer 音声の係数を外すと音声テスト 4 件が落ちることを確認済み。
+- **注意**:
+  - 比較中のフェード（映像・音とも）をカードの `fadeIn/fadeOut` から読むよう戻さないこと。編集 UI はペア設定だけを書く。
+  - ペアを暗黙に解消する操作（partner の削除で head が最後になる等）では書き戻しをしないため、カードに残っていた（ペア前の）フェードに戻る。
+  - iOS（apple-safari）で同じプロジェクトを開くと、2 画面は逐次再生でカードのフェードを使う（ペアのフェードは使われない）。
+  - `.agents/skills` / `.github/skills` の overview は `npm run skills:sync` で同期する。
+
 
 
 

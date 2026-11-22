@@ -15,6 +15,7 @@ import type {
   MediaElementsRef,
   MediaItem,
   NarrationClip,
+  SplitCompareSettings,
 } from '../types';
 import type { PlatformCapabilities } from '../utils/platform';
 import { DEFAULT_VIDEO_TITLE_SETTINGS } from '../utils/videoTitle';
@@ -2777,6 +2778,358 @@ describe('standard preview engine', () => {
     );
     expect(didUpdateCanvas).toBe(true);
     expect(alphaAtDraw).toBeCloseTo(0.5);
+  });
+
+  describe('並べて比較（2 画面表示）のフェード: 左右と境界線を 1 つの画面として消す', () => {
+    const FADE_DURATION_STOPS = [0.5, 1, 2] as const;
+    /** 素材の明るさ（簡易ピクセルモデル用。白い境界線=1 より暗い） */
+    const PANE_LUMA = 0.6;
+    const SPLIT_SETTINGS: SplitCompareSettings = {
+      layout: 'horizontal',
+      divider: 'straight',
+      fit: 'cover',
+      lineColor: 'white',
+      fadeIn: false,
+      fadeOut: false,
+      fadeInDuration: 1,
+      fadeOutDuration: 1,
+    };
+
+    function createImageElement() {
+      return {
+        tagName: 'IMG',
+        complete: true,
+        naturalWidth: 1280,
+        naturalHeight: 720,
+      } as unknown as HTMLImageElement;
+    }
+
+    function setupSplitCompare(options: {
+      head: Partial<MediaItem>;
+      partner: Partial<MediaItem>;
+      /** 2 画面まとめてのフェード（ペア設定）。カード自身のフェードはペア中は使わない */
+      pairFade?: Partial<SplitCompareSettings>;
+      totalDuration: number;
+    }) {
+      const head = createImageItem({
+        id: 'compare-head',
+        splitCompareToNext: { ...SPLIT_SETTINGS, ...options.pairFade },
+        ...options.head,
+      });
+      const partner = createImageItem({ id: 'compare-partner', ...options.partner });
+      const left = createImageElement();
+      const right = createImageElement();
+      const harness = setupRenderFrameHarness({
+        mediaItems: [head, partner],
+        mediaElements: { [head.id]: left, [partner.id]: right } as MediaElementsRef,
+        totalDuration: options.totalDuration,
+        platformCapabilities: { isAndroid: false },
+      });
+      const ctx = harness.canvasContext as unknown as {
+        globalAlpha: number;
+        fillStyle: string;
+        strokeStyle: string;
+        drawImage: ReturnType<typeof vi.fn>;
+        fillRect: ReturnType<typeof vi.fn>;
+      };
+      // 中央の列（境界線）と左右の代表点の明るさ（0〜1）を globalAlpha で合成する簡易ピクセルモデル
+      let pixels = { left: 0, center: 0, right: 0 };
+      let paneAlphas: Record<'left' | 'right', number[]> = { left: [], right: [] };
+      let dividerAlphas: number[] = [];
+      const blend = (dst: number, src: number, alpha: number) => alpha * src + (1 - alpha) * dst;
+      Object.assign(ctx, {
+        beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        closePath: vi.fn(),
+        clip: vi.fn(),
+        rotate: vi.fn(),
+        lineWidth: 1,
+        strokeStyle: '',
+        lineCap: 'butt',
+        stroke: vi.fn(() => {
+          dividerAlphas.push(ctx.globalAlpha);
+          pixels.center = blend(pixels.center, ctx.strokeStyle === '#000000' ? 0 : 1, ctx.globalAlpha);
+        }),
+      });
+      ctx.fillRect.mockImplementation(() => {
+        const luma = ctx.fillStyle === '#000000' ? 0 : 1;
+        pixels = {
+          left: blend(pixels.left, luma, ctx.globalAlpha),
+          center: blend(pixels.center, luma, ctx.globalAlpha),
+          right: blend(pixels.right, luma, ctx.globalAlpha),
+        };
+      });
+      ctx.drawImage.mockImplementation((source: unknown) => {
+        const side = source === left ? 'left' : source === right ? 'right' : null;
+        if (!side) return;
+        paneAlphas[side].push(ctx.globalAlpha);
+        pixels[side] = blend(pixels[side], PANE_LUMA, ctx.globalAlpha);
+        // 境界線の下は左右どちらの領域にも接している
+        pixels.center = blend(pixels.center, PANE_LUMA, ctx.globalAlpha);
+      });
+      const render = (time: number, isActivePlaying: boolean, isExporting = false) => {
+        pixels = { left: 0, center: 0, right: 0 };
+        paneAlphas = { left: [], right: [] };
+        dividerAlphas = [];
+        harness.hook.result.current.renderFrame(time, isActivePlaying, isExporting);
+        return { pixels, paneAlphas, dividerAlphas };
+      };
+      return { render };
+    }
+
+    it.each(FADE_DURATION_STOPS)(
+      'フェードアウト %s 秒: 左右の映像と境界線が同じ alpha で消え、終端で中央の線が残らない（preview / export）',
+      (seconds) => {
+        // 長さが違うペア（左 6 秒・右 4 秒）。ペア設定でフェードアウト ON。
+        // 短いほうのカード自身にはフェードアウトを付けておく（ペア中は使わないので先に暗転しない）
+        const { render } = setupSplitCompare({
+          head: { duration: 6 },
+          partner: { duration: 4, fadeOut: true, fadeOutDuration: seconds },
+          pairFade: { fadeOut: true, fadeOutDuration: seconds },
+          totalDuration: 6,
+        });
+
+        // 短いほう（右）の終わり際: 右だけ先に暗転しない（以前は右だけ黒く落ちていた）
+        const nearShortEnd = render(3.95, true);
+        expect(nearShortEnd.paneAlphas.left).toEqual([1]);
+        expect(nearShortEnd.paneAlphas.right).toEqual([1]);
+        expect(nearShortEnd.dividerAlphas).toEqual([1]);
+
+        // ペアの終わりのフェード途中: 左右・境界線がすべて同じ alpha
+        for (const isExporting of [false, true]) {
+          const mid = render(6 - seconds / 2, true, isExporting);
+          expect(mid.paneAlphas.left).toHaveLength(1);
+          expect(mid.paneAlphas.right).toHaveLength(1);
+          expect(mid.paneAlphas.left[0]).toBeCloseTo(0.5, 6);
+          expect(mid.paneAlphas.right[0]).toBeCloseTo(0.5, 6);
+          expect(mid.dividerAlphas).toHaveLength(1);
+          expect(mid.dividerAlphas[0]).toBeCloseTo(0.5, 6);
+          // 中央の列は不透明な白にならない（左右の映像と一緒に暗くなる）
+          expect(mid.pixels.center).toBeLessThan(0.75);
+        }
+
+        // 終端（停止して再生ボタンが出る状態）: 画面が黒になり、中央の線も描かない
+        for (const isActivePlaying of [false, true]) {
+          const end = render(6, isActivePlaying);
+          expect(end.dividerAlphas).toEqual([]);
+          expect([...end.paneAlphas.left, ...end.paneAlphas.right].every((alpha) => alpha <= 1e-6)).toBe(true);
+          expect(end.pixels.center).toBeLessThanOrEqual(1e-6);
+          expect(end.pixels.left).toBeLessThanOrEqual(1e-6);
+          expect(end.pixels.right).toBeLessThanOrEqual(1e-6);
+        }
+      },
+    );
+
+    it('ペア設定のフェードだけを使う: カードに付いたフェードは 2 画面中は効かない', () => {
+      // カードはどちらもフェードイン/アウト ON（0.5 秒）だが、ペア設定はオフ
+      const { render } = setupSplitCompare({
+        head: { duration: 6, fadeIn: true, fadeInDuration: 0.5, fadeOut: true, fadeOutDuration: 0.5 },
+        partner: { duration: 4, fadeIn: true, fadeInDuration: 0.5, fadeOut: true, fadeOutDuration: 0.5 },
+        totalDuration: 6,
+      });
+
+      for (const time of [0.25, 3.75, 5.75]) {
+        const frame = render(time, true);
+        expect(frame.paneAlphas.left).toEqual([1]);
+        expect(frame.paneAlphas.right).toEqual([1]);
+        expect(frame.dividerAlphas).toEqual([1]);
+      }
+    });
+
+    it('カードのフェードがオフでも、ペア設定のフェードアウトで 2 画面全体と境界線がペアの終わりで一緒に消える', () => {
+      const { render } = setupSplitCompare({
+        head: { duration: 6, fadeOut: false },
+        partner: { duration: 4, fadeOut: false },
+        pairFade: { fadeOut: true, fadeOutDuration: 0.5 },
+        totalDuration: 6,
+      });
+
+      // 右の終わり（4 秒）では暗転しない
+      const nearShortEnd = render(3.9, true);
+      expect(nearShortEnd.paneAlphas.right).toEqual([1]);
+      expect(nearShortEnd.paneAlphas.left).toEqual([1]);
+
+      // ペアの終わりの 0.5 秒で左右・線が一緒に消える（左だけ・線だけが残らない）
+      const mid = render(5.75, true);
+      expect(mid.paneAlphas.left[0]).toBeCloseTo(0.5, 6);
+      expect(mid.paneAlphas.right[0]).toBeCloseTo(0.5, 6);
+      expect(mid.dividerAlphas[0]).toBeCloseTo(0.5, 6);
+
+      const end = render(6, false);
+      expect(end.dividerAlphas).toEqual([]);
+      expect(end.pixels.center).toBeLessThanOrEqual(1e-6);
+    });
+
+    it('フェードインも左右と境界線で共通: 先頭の黒い画面に線だけが先に出ない', () => {
+      const { render } = setupSplitCompare({
+        head: { duration: 4 },
+        partner: { duration: 4 },
+        pairFade: { fadeIn: true, fadeInDuration: 1 },
+        totalDuration: 4,
+      });
+
+      const start = render(0, false);
+      expect(start.dividerAlphas).toEqual([]);
+      expect(start.pixels.center).toBeLessThanOrEqual(1e-6);
+
+      const mid = render(0.5, true);
+      expect(mid.paneAlphas.left[0]).toBeCloseTo(0.5, 6);
+      expect(mid.paneAlphas.right[0]).toBeCloseTo(0.5, 6);
+      expect(mid.dividerAlphas[0]).toBeCloseTo(0.5, 6);
+
+      const after = render(2, true);
+      expect(after.paneAlphas.left).toEqual([1]);
+      expect(after.paneAlphas.right).toEqual([1]);
+      expect(after.dividerAlphas).toEqual([1]);
+    });
+
+    it.each(FADE_DURATION_STOPS)(
+      '2 画面でないカードのフェードアウト %s 秒は従来どおりカード単位（境界線は描かない）',
+      (seconds) => {
+        const first = createImageItem({ id: 'single-a', duration: 3, fadeOut: true, fadeOutDuration: seconds });
+        const second = createImageItem({ id: 'single-b', duration: 3, fadeOut: false });
+        const firstEl = createImageElement();
+        const secondEl = createImageElement();
+        const { canvasContext, hook } = setupRenderFrameHarness({
+          mediaItems: [first, second],
+          mediaElements: { [first.id]: firstEl, [second.id]: secondEl } as MediaElementsRef,
+          totalDuration: 6,
+          platformCapabilities: { isAndroid: false },
+        });
+        const stroke = vi.fn();
+        Object.assign(canvasContext, { stroke, rotate: vi.fn() });
+        const draws: Array<{ source: unknown; alpha: number }> = [];
+        (canvasContext.drawImage as ReturnType<typeof vi.fn>).mockImplementation((source: unknown) => {
+          draws.push({ source, alpha: canvasContext.globalAlpha as number });
+        });
+
+        hook.result.current.renderFrame(3 - seconds / 2, true, false);
+        expect(draws).toHaveLength(1);
+        expect(draws[0].source).toBe(firstEl);
+        expect(draws[0].alpha).toBeCloseTo(0.5, 6);
+
+        draws.length = 0;
+        hook.result.current.renderFrame(4, true, false);
+        expect(draws).toHaveLength(1);
+        expect(draws[0].source).toBe(secondEl);
+        expect(draws[0].alpha).toBe(1);
+        expect(stroke).not.toHaveBeenCalled();
+      },
+    );
+
+    describe('音声も 2 画面まとめてフェードする（映像と同じ係数で 2 枚の音が一緒に立ち上がり・消える）', () => {
+      function createPlayingVideoElement() {
+        const element = createMockVideoElement();
+        element.readyState = 4;
+        element.seeking = false;
+        element.paused = false;
+        return element;
+      }
+
+      function setupVideoPair(options: {
+        head: Partial<MediaItem>;
+        partner: Partial<MediaItem>;
+        pairFade?: Partial<SplitCompareSettings>;
+        totalDuration: number;
+      }) {
+        const head = createVideoItem({
+          id: 'compare-head-video',
+          trimStart: 0,
+          splitCompareToNext: { ...SPLIT_SETTINGS, ...options.pairFade },
+          ...options.head,
+        });
+        const partner = createVideoItem({ id: 'compare-partner-video', trimStart: 0, ...options.partner });
+        const headEl = createPlayingVideoElement();
+        const partnerEl = createPlayingVideoElement();
+        const { canvasContext, hook } = setupRenderFrameHarness({
+          mediaItems: [head, partner],
+          mediaElements: {
+            [head.id]: headEl as unknown as HTMLVideoElement,
+            [partner.id]: partnerEl as unknown as HTMLVideoElement,
+          } as MediaElementsRef,
+          totalDuration: options.totalDuration,
+          platformCapabilities: { isAndroid: false },
+        });
+        Object.assign(canvasContext, {
+          beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), closePath: vi.fn(), clip: vi.fn(),
+          rotate: vi.fn(), stroke: vi.fn(), lineWidth: 1, strokeStyle: '', lineCap: 'butt',
+        });
+        const volumesAt = (time: number) => {
+          headEl.volume = -1;
+          partnerEl.volume = -1;
+          hook.result.current.renderFrame(time, true, false);
+          return { head: headEl.volume, partner: partnerEl.volume };
+        };
+        return { volumesAt };
+      }
+
+      it('フェードイン: ペア設定の秒数で 2 枚とも同じ音量になる（カード自身のフェードインは使わない）', () => {
+        const { volumesAt } = setupVideoPair({
+          // カード自身は別の設定（head は OFF、partner は 2 秒）
+          head: { duration: 6, originalDuration: 6, trimEnd: 6, fadeIn: false },
+          partner: { duration: 6, originalDuration: 6, trimEnd: 6, fadeIn: true, fadeInDuration: 2 },
+          pairFade: { fadeIn: true, fadeInDuration: 1 },
+          totalDuration: 6,
+        });
+
+        const mid = volumesAt(0.5);
+        expect(mid.head).toBeCloseTo(0.5, 6);
+        expect(mid.partner).toBeCloseTo(0.5, 6);
+
+        const after = volumesAt(1.5);
+        expect(after.head).toBe(1);
+        expect(after.partner).toBe(1);
+      });
+
+      it.each(FADE_DURATION_STOPS)('フェードアウト %s 秒: ペアの終わりに向けて 2 枚の音が一緒に下がる', (seconds) => {
+        const { volumesAt } = setupVideoPair({
+          head: { duration: 6, originalDuration: 6, trimEnd: 6 },
+          partner: { duration: 6, originalDuration: 6, trimEnd: 6 },
+          pairFade: { fadeOut: true, fadeOutDuration: seconds },
+          totalDuration: 6,
+        });
+
+        const before = volumesAt(6 - seconds - 0.05);
+        expect(before.head).toBe(1);
+        expect(before.partner).toBe(1);
+
+        const mid = volumesAt(6 - seconds / 2);
+        expect(mid.head).toBeCloseTo(0.5, 6);
+        expect(mid.partner).toBeCloseTo(0.5, 6);
+      });
+
+      it('ペア設定がオフなら、カードにフェードが付いていても 2 画面中は音をフェードしない', () => {
+        const { volumesAt } = setupVideoPair({
+          head: { duration: 6, originalDuration: 6, trimEnd: 6, fadeIn: true, fadeOut: true, fadeInDuration: 1, fadeOutDuration: 1 },
+          partner: { duration: 6, originalDuration: 6, trimEnd: 6, fadeIn: true, fadeOut: true, fadeInDuration: 1, fadeOutDuration: 1 },
+          totalDuration: 6,
+        });
+
+        for (const time of [0.25, 5.75]) {
+          const frame = volumesAt(time);
+          expect(frame.head).toBe(1);
+          expect(frame.partner).toBe(1);
+        }
+      });
+
+      it('2 画面でない動画カードの音は従来どおりカード自身のフェード', () => {
+        const single = createVideoItem({
+          id: 'single-video', trimStart: 0, duration: 6, originalDuration: 6, trimEnd: 6,
+          fadeOut: true, fadeOutDuration: 1,
+        });
+        const singleEl = createPlayingVideoElement();
+        const { hook } = setupRenderFrameHarness({
+          mediaItems: [single],
+          mediaElements: { [single.id]: singleEl as unknown as HTMLVideoElement } as MediaElementsRef,
+          totalDuration: 6,
+          platformCapabilities: { isAndroid: false },
+        });
+
+        hook.result.current.renderFrame(5.5, true, false);
+        expect(singleEl.volume).toBeCloseTo(0.5, 6);
+      });
+    });
   });
 
   it('video fadeOut 描画前にキャンバスを黒で fillRect クリアして残像を防ぐ', () => {

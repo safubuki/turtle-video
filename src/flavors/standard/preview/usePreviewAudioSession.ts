@@ -17,6 +17,10 @@ import {
   useAudioStore,
 } from '../../../stores/audioStore';
 import { findActiveTimelineItemWithTransitions } from '../../../utils/transitionTimeline';
+import {
+  resolveSplitComparePairFadeAlpha,
+  resolveSplitComparePairFadeForIndex,
+} from '../../../utils/splitCompare';
 import { resolveMediaPlaybackVolume, MEDIA_VOLUME_MAX } from '../../../utils/mediaVolume';
 import {
   getPreviewAudioRoutingPlan,
@@ -274,14 +278,21 @@ export function usePreviewAudioSession({
         const element = mediaElementsRef.current[activeItem.id] as HTMLVideoElement | undefined;
         if (element) {
           let volume = resolveMediaPlaybackVolume(activeItem);
-          const fadeInDur = activeItem.fadeInDuration || 1.0;
-          const fadeOutDur = activeItem.fadeOutDuration || 1.0;
+          // 並べて比較: 2 枚は同時に始まるので、active の経過秒がそのままペアの経過秒。
+          // 描画（renderFrame）と同じペア共通のフェードで判定する。
+          const comparePair = resolveSplitComparePairFadeForIndex(currentItems, active.index);
+          if (comparePair) {
+            volume *= resolveSplitComparePairFadeAlpha(comparePair.fade, active.localTime);
+          } else {
+            const fadeInDur = activeItem.fadeInDuration || 1.0;
+            const fadeOutDur = activeItem.fadeOutDuration || 1.0;
 
-          if (activeItem.fadeIn && active.localTime < fadeInDur) {
-            volume *= active.localTime / fadeInDur;
-          } else if (activeItem.fadeOut && active.localTime > activeItem.duration - fadeOutDur) {
-            const remaining = activeItem.duration - active.localTime;
-            volume *= remaining / fadeOutDur;
+            if (activeItem.fadeIn && active.localTime < fadeInDur) {
+              volume *= active.localTime / fadeInDur;
+            } else if (activeItem.fadeOut && active.localTime > activeItem.duration - fadeOutDur) {
+              const remaining = activeItem.duration - active.localTime;
+              volume *= remaining / fadeOutDur;
+            }
           }
 
           if (volume > 0) {

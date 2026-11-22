@@ -34,6 +34,9 @@ function createVideo(id: string, duration = 5): MediaItem {
   };
 }
 
+/** 2 画面まとめてのフェードはオフ（ペア設定の既定） */
+const NO_PAIR_FADE = { fadeIn: false, fadeOut: false, fadeInDuration: 1, fadeOutDuration: 1 } as const;
+
 function makeProps(mediaItems: MediaItem[]): ComponentProps<typeof ClipsSection> {
   return {
     mediaItems,
@@ -96,6 +99,8 @@ describe('並べて比較（同時再生）コネクタ', () => {
     const state = useMediaStore.getState();
     expect(state.mediaItems[0].splitCompareToNext).toEqual({
       layout: 'horizontal', divider: 'straight', fit: 'cover', lineColor: 'white',
+      // カードにフェードが無いので 2 画面のフェードはオフ・1 秒
+      fadeIn: false, fadeOut: false, fadeInDuration: 1, fadeOutDuration: 1,
     });
     expect(state.mediaItems[0].transitionToNext).toBeNull();
     expect(state.totalDuration).toBe(11); // max(6, 4) + 5
@@ -143,7 +148,7 @@ describe('並べて比較（同時再生）コネクタ', () => {
     const landscape = { sourceWidth: 1920, sourceHeight: 1080 };
     useMediaStore.setState({
       mediaItems: [
-        { ...createVideo('a', 6), ...landscape, splitCompareToNext: { layout: 'horizontal', divider: 'straight', fit: 'cover', lineColor: 'white' } },
+        { ...createVideo('a', 6), ...landscape, splitCompareToNext: { layout: 'horizontal', divider: 'straight', fit: 'cover', lineColor: 'white', ...NO_PAIR_FADE } },
         { ...createVideo('b', 4), ...landscape },
         createVideo('c', 5),
       ],
@@ -166,7 +171,7 @@ describe('並べて比較（同時再生）コネクタ', () => {
   it('ユーザーが動かした位置は、ななめにしても変えない', () => {
     useMediaStore.setState({
       mediaItems: [
-        { ...createVideo('a', 6), sourceWidth: 1920, sourceHeight: 1080, positionX: 40, splitCompareToNext: { layout: 'horizontal', divider: 'straight', fit: 'cover', lineColor: 'white' } },
+        { ...createVideo('a', 6), sourceWidth: 1920, sourceHeight: 1080, positionX: 40, splitCompareToNext: { layout: 'horizontal', divider: 'straight', fit: 'cover', lineColor: 'white', ...NO_PAIR_FADE } },
         { ...createVideo('b', 4), sourceWidth: 1920, sourceHeight: 1080, scale: 1.3 },
       ],
     });
@@ -181,7 +186,7 @@ describe('並べて比較（同時再生）コネクタ', () => {
 
   it('並べて比較のペアは、再生位置にあるとき 2 枚とも枠が光る', () => {
     const items: MediaItem[] = [
-      { ...createVideo('a', 6), splitCompareToNext: { layout: 'auto', divider: 'straight', fit: 'cover', lineColor: 'white' } },
+      { ...createVideo('a', 6), splitCompareToNext: { layout: 'auto', divider: 'straight', fit: 'cover', lineColor: 'white', ...NO_PAIR_FADE } },
       createVideo('b', 4),
       createVideo('c', 5),
     ];
@@ -203,7 +208,7 @@ describe('並べて比較（同時再生）コネクタ', () => {
   it('ペアの後ろの境界では比較を重ねて設定できず、ディゾルブも選べない', () => {
     useMediaStore.setState({
       mediaItems: [
-        { ...createVideo('a', 6), splitCompareToNext: { layout: 'auto', divider: 'straight', fit: 'cover', lineColor: 'white' } },
+        { ...createVideo('a', 6), splitCompareToNext: { layout: 'auto', divider: 'straight', fit: 'cover', lineColor: 'white', ...NO_PAIR_FADE } },
         createVideo('b', 4),
         createVideo('c', 5),
       ],
@@ -220,7 +225,7 @@ describe('並べて比較（同時再生）コネクタ', () => {
 });
 
 describe('並べて比較: 長さを短い方に合わせる', () => {
-  const compareOn = { layout: 'horizontal', divider: 'straight', fit: 'cover', lineColor: 'white' } as const;
+  const compareOn = { layout: 'horizontal', divider: 'straight', fit: 'cover', lineColor: 'white', ...NO_PAIR_FADE } as const;
   const longVideo = (trimEnd = 8): MediaItem => ({ ...createVideo('a', 10), trimEnd, duration: trimEnd, splitCompareToNext: { ...compareOn } });
   const items = () => useMediaStore.getState().mediaItems;
   const openPanel = () => fireEvent.click(screen.getByRole('button', { name: /2画面表示 左右・まっすぐ/ }));

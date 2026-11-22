@@ -761,4 +761,84 @@ describe('useAutoSave', () => {
 
     expect(saveProjectAuto).toHaveBeenCalledTimes(2);
   });
+
+  it('2画面表示のフェード（ペア設定）の変更も自動保存の差分として検知する', async () => {
+    const refreshSaveInfo = vi.fn().mockResolvedValue(undefined);
+    const saveProjectAuto = vi.fn().mockResolvedValue(true);
+    const createClip = (id: string) => ({
+      id,
+      file: new File(['video'], `${id}.mp4`, { type: 'video/mp4' }),
+      type: 'video' as const,
+      url: `blob:${id}`,
+      volume: 1,
+      isMuted: false,
+      fadeIn: false,
+      fadeOut: false,
+      fadeInDuration: 1,
+      fadeOutDuration: 1,
+      duration: 5,
+      originalDuration: 5,
+      trimStart: 0,
+      trimEnd: 5,
+      scale: 1,
+      positionX: 0,
+      positionY: 0,
+      isTransformOpen: false,
+      isLocked: false,
+    });
+    const pair = {
+      layout: 'horizontal' as const,
+      divider: 'straight' as const,
+      fit: 'cover' as const,
+      lineColor: 'white' as const,
+      fadeIn: false,
+      fadeOut: false,
+      fadeInDuration: 1,
+      fadeOutDuration: 1,
+    };
+
+    act(() => {
+      useProjectStore.setState({
+        refreshSaveInfo,
+        saveProjectAuto,
+        isSaving: false,
+        lastManualSave: null,
+      });
+      useMediaStore.setState({
+        mediaItems: [{ ...createClip('a'), splitCompareToNext: pair }, createClip('b')],
+        isClipsLocked: false,
+      });
+    });
+
+    const { result } = renderHook(() => useAutoSave());
+    await act(async () => {
+      await result.current.performAutoSave();
+    });
+    expect(saveProjectAuto).toHaveBeenCalledTimes(1);
+
+    // 変更なしなら保存しない
+    await act(async () => {
+      await result.current.performAutoSave();
+    });
+    expect(saveProjectAuto).toHaveBeenCalledTimes(1);
+
+    const changes = [
+      { fadeIn: true },
+      { fadeInDuration: 2 },
+      { fadeOut: true },
+      { fadeOutDuration: 0.5 },
+    ];
+    for (const [index, patch] of changes.entries()) {
+      act(() => {
+        const head = useMediaStore.getState().mediaItems[0];
+        useMediaStore.getState().updateMediaItem('a', {
+          splitCompareToNext: { ...head.splitCompareToNext!, ...patch },
+        });
+      });
+      await act(async () => {
+        await result.current.performAutoSave();
+      });
+      expect(saveProjectAuto).toHaveBeenCalledTimes(2 + index);
+    }
+  });
 });
