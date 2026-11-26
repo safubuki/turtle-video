@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file exportEngine.ts (standard flavor)
  * @author Turtle Village
  * @copyright Copyright (C) 2026 safubuki (Turtle Village)
@@ -102,7 +102,15 @@ import {
 } from '../../../utils/captionLayerExport';
 import { drawCaptionLayerFrame } from '../../../utils/captionLayerRender';
 import { encodeCaptionLayerVideoOffline } from './captionLayerOfflineEncode';
-import { computeExportCutFrameIndices, createExportKeyframeDecider } from './exportKeyframePlan';
+import {
+  computeExportCutFrameIndices,
+  computeExportKeyframeAvoidRanges,
+  createExportKeyframeDecider,
+} from './exportKeyframePlan';
+import {
+  createExportAdaptiveQuantizer,
+  type ExportAdaptiveQuantizer,
+} from './exportAdaptiveQuantizer';
 
 export type {
   ExportAudioSources,
@@ -2314,6 +2322,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           let videoEncoderOutputFrames = 0;
           let muxedAudioEndUs = 0;
           let finalAudioInputSamples = 0;
+          let adaptiveQuantizer: ExportAdaptiveQuantizer | null = null;
           // 正常なら前セッションの finally で空だが、ブラウザイベント順の例外で残っていても
           // 新しい codec セッションを作る前に必ず解放する。
           releaseWebCodecsEncoders('stale-before-create');
@@ -2321,6 +2330,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             output: (chunk, meta) => {
               muxer.addVideoChunk(chunk, meta);
               videoEncoderOutputFrames += 1;
+              adaptiveQuantizer?.onEncodedChunk(chunk.byteLength, chunk.type === 'key');
             },
             error: (e) => {
               // エンコーダーがエラー状態に落ちるとフレーム投入が止まり、preview 側の
@@ -2331,6 +2341,7 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                 errorName: e instanceof Error ? e.name : 'unknown',
                 videoEncoderSubmittedFrames,
                 videoEncoderOutputFrames,
+                usesQuantizer: adaptiveQuantizer !== null,
               });
               console.error('VideoEncoder error:', e);
             },
@@ -2347,37 +2358,83 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           // ※WebCodecs 仕様の latencyMode 既定値は quality。対応環境では realtime を
           //   明示して 30fps を出力期限として扱わせ、内部滞留を抑える。未対応時は
           //   従来候補へ段階フォールバックする（13-169 / 13-116）。
+          // ※Canvas 直接経路では bitrateMode='quantizer' を最優先で交渉し、Windows HW
+          //   エンコーダがキーフレーム・フェード直後に QP=51 へ跳ね上がるブロックノイズを防ぐ。
           const resolvedEncoderConfig = await resolveVideoEncoderConfig({
             width,
             height,
             bitrate: exportVideoBitrate,
             framerate: FPS,
+            preferQuantizer: useManualCanvasFrames,
           });
-          useLogStore.getState().info('RENDER', 'VideoEncoder 設定を決定', {
-            exportSessionId,
-            variant: resolvedEncoderConfig.variant,
-            negotiated: resolvedEncoderConfig.negotiated,
-            hardwareAcceleration: resolvedEncoderConfig.config.hardwareAcceleration ?? 'unset',
-            latencyMode: resolvedEncoderConfig.config.latencyMode ?? 'quality-default',
-          });
+          let effectiveEncoderConfig = resolvedEncoderConfig;
           try {
-            videoEncoder.configure(resolvedEncoderConfig.config);
+            videoEncoder.configure(effectiveEncoderConfig.config);
           } catch (configError) {
-            // 交渉済み設定が configure で弾かれた場合は現行同等の baseline で必ず再試行する。
-            useLogStore.getState().warn('RENDER', 'VideoEncoder 設定に失敗、baseline で再試行', {
+            // 交渉済み設定が configure で弾かれた場合は安全側へ段階フォールバックする。
+            useLogStore.getState().warn('RENDER', 'VideoEncoder 設定に失敗、代替設定で再試行', {
               exportSessionId,
-              variant: resolvedEncoderConfig.variant,
+              variant: effectiveEncoderConfig.variant,
+              usesQuantizer: effectiveEncoderConfig.usesQuantizer,
               error: configError instanceof Error ? configError.message : String(configError),
             });
-            videoEncoder.configure(
-              buildBaselineVideoEncoderConfig({
+            if (effectiveEncoderConfig.usesQuantizer) {
+              const nonQuantizerConfig = await resolveVideoEncoderConfig({
                 width,
                 height,
                 bitrate: exportVideoBitrate,
                 framerate: FPS,
-              })
-            );
+                preferQuantizer: false,
+              });
+              try {
+                videoEncoder.configure(nonQuantizerConfig.config);
+                effectiveEncoderConfig = nonQuantizerConfig;
+              } catch {
+                const baselineConfig = buildBaselineVideoEncoderConfig({
+                  width,
+                  height,
+                  bitrate: exportVideoBitrate,
+                  framerate: FPS,
+                });
+                videoEncoder.configure(baselineConfig);
+                effectiveEncoderConfig = {
+                  config: baselineConfig,
+                  variant: 'baseline',
+                  negotiated: false,
+                  usesQuantizer: false,
+                };
+              }
+            } else {
+              const baselineConfig = buildBaselineVideoEncoderConfig({
+                width,
+                height,
+                bitrate: exportVideoBitrate,
+                framerate: FPS,
+              });
+              videoEncoder.configure(baselineConfig);
+              effectiveEncoderConfig = {
+                config: baselineConfig,
+                variant: 'baseline',
+                negotiated: false,
+                usesQuantizer: false,
+              };
+            }
           }
+          if (effectiveEncoderConfig.usesQuantizer) {
+            adaptiveQuantizer = createExportAdaptiveQuantizer({
+              targetBitrate: exportVideoBitrate,
+              fps: FPS,
+            });
+          }
+          useLogStore.getState().info('RENDER', 'VideoEncoder 設定を決定', {
+            exportSessionId,
+            variant: effectiveEncoderConfig.variant,
+            negotiated: effectiveEncoderConfig.negotiated,
+            hardwareAcceleration: effectiveEncoderConfig.config.hardwareAcceleration ?? 'unset',
+            latencyMode: effectiveEncoderConfig.config.latencyMode ?? 'quality-default',
+            bitrateMode: effectiveEncoderConfig.config.bitrateMode ?? 'default',
+            usesQuantizer: effectiveEncoderConfig.usesQuantizer,
+          });
           const noteVideoFrameSubmitted = () => {
             videoEncoderSubmittedFrames += 1;
             audioSources?.onVideoFrameSubmitted?.(videoEncoderSubmittedFrames);
@@ -3115,17 +3172,26 @@ export function createUseExport(config: UseExportRuntimeConfig) {
           const processVideoWithCanvasFrames = async () => {
             let frameIndex = 0;
             const framePollInterval = 16;
-            // キーフレームをクリップの切り替え（カット）の最初のコマへ合わせる（13-330）。
-            // この経路のフレーム i はタイムライン時刻 timestamp_i で描いたスロットなので、
-            // 切り替えコマを事前に正確に求められる。変えるのは keyFrame フラグだけ。
+            // キーフレームをクリップの切り替え（カット）へ合わせつつ、フェード・ディゾルブ区間は
+            // 定期キーフレームを避ける。この経路のフレーム i はタイムライン時刻 timestamp_i で
+            // 描いたスロットなので、切り替え・フェード区間を事前に正確に求められる。
             const cutFrameIndices = audioSources && resolvedExportDuration
               ? computeExportCutFrameIndices(audioSources.mediaItems, resolvedExportDuration, FPS)
               : [];
-            const isKeyFrame = createExportKeyframeDecider({ fps: FPS, cutFrameIndices });
-            if (cutFrameIndices.length > 0) {
-              logInfo('書き出しキーフレームをクリップの切り替えへ合わせる', {
+            const avoidRanges = audioSources && resolvedExportDuration
+              ? computeExportKeyframeAvoidRanges(audioSources.mediaItems, resolvedExportDuration, FPS)
+              : [];
+            const isKeyFrame = createExportKeyframeDecider({
+              fps: FPS,
+              cutFrameIndices,
+              avoidRanges,
+            });
+            if (cutFrameIndices.length > 0 || avoidRanges.length > 0) {
+              logInfo('書き出しキーフレーム計画を適用', {
                 cutFrameCount: cutFrameIndices.length,
                 firstCutFrames: cutFrameIndices.slice(0, 10),
+                avoidRangeCount: avoidRanges.length,
+                usesQuantizer: adaptiveQuantizer !== null,
               });
             }
 
@@ -3185,9 +3251,14 @@ export function createUseExport(config: UseExportRuntimeConfig) {
                     });
                     // VideoFrame 生成 + encode の所要時間を計測する（ボトルネック切り分け用）。
                     const endEncodeMeasure = audioSources?.beginEncodeMeasure?.();
-                    videoEncoder.encode(frame, {
-                      keyFrame: frameIndex === 0 ? true : isKeyFrame(frameIndex),
-                    });
+                    const keyFrame = frameIndex === 0 ? true : isKeyFrame(frameIndex);
+                    const encodeOptions: VideoEncoderEncodeOptions = adaptiveQuantizer
+                      ? {
+                          keyFrame,
+                          avc: { quantizer: adaptiveQuantizer.getQuantizerForFrame(keyFrame) },
+                        }
+                      : { keyFrame };
+                    videoEncoder.encode(frame, encodeOptions);
                     endEncodeMeasure?.();
                     noteVideoFrameSubmitted();
                     if (forceToEnd) {
@@ -3512,8 +3583,9 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             maxPausedMs: Math.round(backpressureMaxPausedMs),
             highWaterMark: VIDEO_ENCODE_QUEUE_HARD_LIMIT,
             lowWaterMark: VIDEO_ENCODE_QUEUE_SOFT_LIMIT,
-            encoderConfigVariant: resolvedEncoderConfig.variant,
-            latencyMode: resolvedEncoderConfig.config.latencyMode ?? 'quality-default',
+            encoderConfigVariant: effectiveEncoderConfig.variant,
+            latencyMode: effectiveEncoderConfig.config.latencyMode ?? 'quality-default',
+            usesQuantizer: effectiveEncoderConfig.usesQuantizer,
           };
           if (backpressurePauseCount > 0) {
             useLogStore
@@ -3673,8 +3745,10 @@ export function createUseExport(config: UseExportRuntimeConfig) {
             submittedFrames: videoEncoderSubmittedFrames,
             outputFrames: videoEncoderOutputFrames,
             outputGap: videoEncoderOutputGap,
-            encoderConfigVariant: resolvedEncoderConfig.variant,
-            latencyMode: resolvedEncoderConfig.config.latencyMode ?? 'quality-default',
+            encoderConfigVariant: effectiveEncoderConfig.variant,
+            latencyMode: effectiveEncoderConfig.config.latencyMode ?? 'quality-default',
+            usesQuantizer: effectiveEncoderConfig.usesQuantizer,
+            quantizerStats: adaptiveQuantizer?.getStats() ?? null,
           };
           if (videoEncoderOutputGap > 0) {
             useLogStore

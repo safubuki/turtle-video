@@ -202,5 +202,62 @@ describe('resolveVideoEncoderConfig', () => {
     const resolved = await resolveVideoEncoderConfig(PARAMS);
     expect(resolved.variant).toBe('prefer-hardware-realtime');
     expect(resolved.config.latencyMode).toBe('realtime');
+    expect(resolved.usesQuantizer).toBe(false);
+  });
+
+  it('preferQuantizer=true では先頭に prefer-hardware-realtime-quantizer を置き、HW非対応時は既存候補へ落とす', () => {
+    const candidates = buildVideoEncoderConfigCandidates({ ...PARAMS, preferQuantizer: true });
+    expect(candidates.map((c) => c.variant)).toEqual([
+      'prefer-hardware-realtime-quantizer',
+      'prefer-hardware-realtime',
+      'no-preference-realtime',
+      'prefer-hardware',
+      'no-preference',
+      'baseline',
+    ]);
+    expect(candidates[0].config.hardwareAcceleration).toBe('prefer-hardware');
+    expect(candidates[0].config.latencyMode).toBe('realtime');
+    expect(candidates[0].config.bitrateMode).toBe('quantizer');
+    expect(candidates[0].config.avc).toEqual({ format: 'avc' });
+    // no-preference には quantizer を置かない（HW 非対応時に重い SW へ落ちるのを防ぐ）
+    expect(candidates.slice(1).every(({ config }) => config.bitrateMode === undefined)).toBe(true);
+    // quality はどの候補にも明示しない
+    expect(candidates.every(({ config }) => config.latencyMode !== 'quality')).toBe(true);
+  });
+
+  it('preferQuantizer=true で quantizer が通れば usesQuantizer=true を返す', async () => {
+    stubVideoEncoder(async (config) => ({ supported: true, config }));
+
+    const resolved = await resolveVideoEncoderConfig({ ...PARAMS, preferQuantizer: true });
+    expect(resolved.variant).toBe('prefer-hardware-realtime-quantizer');
+    expect(resolved.negotiated).toBe(true);
+    expect(resolved.usesQuantizer).toBe(true);
+    expect(resolved.config.bitrateMode).toBe('quantizer');
+    expect(resolved.config.latencyMode).toBe('realtime');
+  });
+
+  it('preferQuantizer=true でも quantizer 非対応なら prefer-hardware-realtime へフォールバックする', async () => {
+    stubVideoEncoder(async (config) => ({
+      supported: config.bitrateMode !== 'quantizer',
+      config,
+    }));
+
+    const resolved = await resolveVideoEncoderConfig({ ...PARAMS, preferQuantizer: true });
+    expect(resolved.variant).toBe('prefer-hardware-realtime');
+    expect(resolved.negotiated).toBe(true);
+    expect(resolved.usesQuantizer).toBe(false);
+    expect(resolved.config.bitrateMode).toBeUndefined();
+  });
+
+  it('quantizer が variable へ正規化された場合は quantizer 成功と誤認しない', async () => {
+    stubVideoEncoder(async (config) => ({
+      supported: true,
+      config:
+        config.bitrateMode === 'quantizer' ? { ...config, bitrateMode: 'variable' } : config,
+    }));
+
+    const resolved = await resolveVideoEncoderConfig({ ...PARAMS, preferQuantizer: true });
+    expect(resolved.variant).toBe('prefer-hardware-realtime');
+    expect(resolved.usesQuantizer).toBe(false);
   });
 });

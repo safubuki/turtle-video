@@ -46,6 +46,7 @@ export interface ResolvedVideoEncoderConfig {
   config: VideoEncoderConfig;
   /** 実際に採用した候補の名前（ログ用） */
   variant:
+    | 'prefer-hardware-realtime-quantizer'
     | 'prefer-hardware-realtime'
     | 'no-preference-realtime'
     | 'prefer-hardware'
@@ -53,6 +54,12 @@ export interface ResolvedVideoEncoderConfig {
     | 'baseline';
   /** isConfigSupported で候補を絞れたか。false ならフォールバック採用 */
   negotiated: boolean;
+  /**
+   * 採用した設定が `bitrateMode: 'quantizer'`（フレーム単位 QP 指定）か。
+   * true の場合、呼び出し側は `encode(frame, { keyFrame, avc: { quantizer } })` で
+   * 毎フレーム QP を渡す必要がある。
+   */
+  usesQuantizer: boolean;
 }
 
 export interface BuildVideoEncoderConfigParams {
@@ -62,6 +69,20 @@ export interface BuildVideoEncoderConfigParams {
   framerate: number;
   /** 既定 'avc1.4d002a'（Main Profile Level 4.2）。呼び出し側の現行値を尊重する */
   codec?: string;
+  /**
+   * true のとき、先頭候補として `prefer-hardware + realtime + bitrateMode: 'quantizer'` を試す。
+   *
+   * Windows Media Foundation のハードウェア H.264 エンコーダは、CBR/VBR のレート制御で
+   * キーフレームやフェード開始の直後に QP を上限の 51 へ跳ね上げ、1 コマに 1 ずつしか戻らない
+   * ため、フェードやカット直後に強いブロックノイズが出る（`bitrate` や `latencyMode` を変えても
+   * 解消しない）。`bitrateMode: 'quantizer'` はこのレート制御を迂回し、呼び出し側が安全な
+   * 範囲の QP を指定できる。
+   *
+   * 非対応環境（OpenH264 や一部 Android MediaCodec 等）は `isConfigSupported()` で自然に
+   * 既存の `prefer-hardware-realtime` 以降へフォールバックする。HW 非対応時に重い SW へ
+   * 落とさないよう、`no-preference` には quantizer 候補を置かない。
+   */
+  preferQuantizer?: boolean;
 }
 
 /** 現行実装と完全に同じ最小構成。フォールバック先であり、挙動の基準線。 */
@@ -88,7 +109,28 @@ export function buildVideoEncoderConfigCandidates(
 ): Array<{ variant: ResolvedVideoEncoderConfig['variant']; config: VideoEncoderConfig }> {
   const baseline = buildBaselineVideoEncoderConfig(params);
 
+  const quantizerCandidates: Array<{
+    variant: ResolvedVideoEncoderConfig['variant'];
+    config: VideoEncoderConfig;
+  }> = params.preferQuantizer
+    ? [
+        {
+          // GPU / 専用エンコーダ + realtime + quantizer を最優先する。
+          // bitrate も併記しておき、ブラウザ側パーサ要件を満たしつつ通常値も保つ。
+          variant: 'prefer-hardware-realtime-quantizer',
+          config: {
+            ...baseline,
+            hardwareAcceleration: 'prefer-hardware',
+            latencyMode: 'realtime',
+            bitrateMode: 'quantizer',
+            avc: { format: 'avc' },
+          },
+        },
+      ]
+    : [];
+
   return [
+    ...quantizerCandidates,
     {
       // GPU / 専用エンコーダ + realtime を最優先する。WebCodecs 仕様の既定は
       // quality なので、低遅延を意図する場合は明示が必要。
@@ -154,7 +196,12 @@ export async function resolveVideoEncoderConfig(
     typeof VideoEncoder !== 'undefined' && typeof VideoEncoder.isConfigSupported === 'function';
 
   if (!canProbe) {
-    return { config: baseline.config, variant: 'baseline', negotiated: false };
+    return {
+      config: baseline.config,
+      variant: 'baseline',
+      negotiated: false,
+      usesQuantizer: false,
+    };
   }
 
   for (const candidate of candidates) {
@@ -162,7 +209,7 @@ export async function resolveVideoEncoderConfig(
       const support = await VideoEncoder.isConfigSupported(candidate.config);
       if (support?.supported) {
         // ブラウザが正規化した config を返す場合はそちらを優先する。ただし
-        // 省略された明示値（特に realtime）を失わないよう候補へマージする。
+        // 省略された明示値（特に realtime / quantizer）を失わないよう候補へマージする。
         const normalizedConfig = {
           ...candidate.config,
           ...(support.config ?? {}),
@@ -175,10 +222,19 @@ export async function resolveVideoEncoderConfig(
         ) {
           continue;
         }
+        // quantizer を明示したのに variable/constant へ正規化された環境では、
+        // quantizer 成功として扱わない（encode() 時の avc.quantizer 指定と食い違うため）。
+        if (
+          candidate.config.bitrateMode === 'quantizer' &&
+          normalizedConfig.bitrateMode !== 'quantizer'
+        ) {
+          continue;
+        }
         return {
           config: normalizedConfig,
           variant: candidate.variant,
           negotiated: true,
+          usesQuantizer: normalizedConfig.bitrateMode === 'quantizer',
         };
       }
     } catch {
@@ -186,5 +242,10 @@ export async function resolveVideoEncoderConfig(
     }
   }
 
-  return { config: baseline.config, variant: 'baseline', negotiated: false };
+  return {
+    config: baseline.config,
+    variant: 'baseline',
+    negotiated: false,
+    usesQuantizer: false,
+  };
 }
