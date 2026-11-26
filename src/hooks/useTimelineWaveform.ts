@@ -26,6 +26,7 @@ import { resolveVideoSpeedRampForItem } from '../utils/playbackSpeed';
 import {
   buildTimelineWaveform,
   resolveClippingFixScales,
+  resolveMaximizeVolumeScale,
   TIMELINE_WAVEFORM_SAMPLE_RATE,
   type ClippingFixScale,
   type SilenceSourceTarget,
@@ -53,6 +54,14 @@ export interface TimelineWaveformData {
    * 音割れの「自動調整」ボタン用。fixedIds は調整しない素材（ロック中など）。
    */
   resolveClippingFix?: (fixedIds?: ReadonlySet<string>) => ClippingFixScale[];
+  /**
+   * 指定した種類（動画・BGM・ナレーション）を、音割れしない最大まで上げる倍率を求める。
+   * 「最大まで上げる」ボタン用。対象の素材が無ければ null。
+   */
+  resolveVolumeMaximize?: (
+    kind: 'video' | 'bgm' | 'narration',
+    fixedIds?: ReadonlySet<string>,
+  ) => number | null;
 }
 
 /** 描画バケット数（波形の横解像度）。ナレーション波形と同じ考え方で固定する。 */
@@ -455,6 +464,10 @@ export function useTimelineWaveform(
             resolvedSilenceSource: result.silenceSource,
             duration: result.duration,
             resolveClippingFix: (fixedIds) => resolveClippingFixScales(placements, totalDuration, {
+              endrollBgmFade,
+              fixedIds,
+            }),
+            resolveVolumeMaximize: (kind, fixedIds) => resolveMaximizeVolumeScale(placements, totalDuration, kind, {
               endrollBgmFade,
               fixedIds,
             }),

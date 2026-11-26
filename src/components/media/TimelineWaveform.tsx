@@ -171,21 +171,21 @@ const TimelineWaveform: React.FC<TimelineWaveformProps> = ({
       }
     }
 
-    // 音割れの可能性がある区間の帯（赤）
-    ctx.fillStyle = 'rgba(248, 113, 113, 0.18)';
+    // 音割れの可能性がある区間の帯（控えめなアンバー）
+    ctx.fillStyle = 'rgba(251, 191, 36, 0.12)';
     for (const region of clippingRegions) {
       const x = timeToX(region.start);
       ctx.fillRect(x, 0, Math.max(2, timeToX(region.end) - x), WAVE_HEIGHT);
     }
 
-    // 波形の棒（振幅は sqrt で小音量も視認できるようにする）。上限付近の棒は赤で示す。
+    // 波形の棒（振幅は sqrt で小音量も視認できるようにする）。上限付近の棒はアンバーで示す。
     const bucketCount = peaks.length;
     const barWidth = width / bucketCount;
     for (let b = 0; b < bucketCount; b++) {
       const amp = Math.min(1, Math.sqrt(peaks[b]));
       const h = Math.max(0.5, amp * (mid - 1));
       ctx.fillStyle = peaks[b] >= TIMELINE_CLIPPING_PEAK_THRESHOLD
-        ? 'rgba(248, 113, 113, 0.95)'
+        ? 'rgba(251, 191, 36, 0.95)'
         : 'rgba(96, 165, 250, 0.9)';
       ctx.fillRect(b * barWidth, mid - h, Math.max(0.5, barWidth - 0.3), h * 2);
     }
@@ -407,32 +407,30 @@ const TimelineWaveform: React.FC<TimelineWaveformProps> = ({
         )}
       </div>
 
-      {/* 音割れの注意。動画・BGM・ナレーションを合成した最終的な音で判定する。 */}
+      {/* 音割れの注意。動画・BGM・ナレーションを合成した最終的な音で判定する。
+          よく出る注意なので、赤い警告ではなく控えめな 1 行にし、長い説明はボタンの title へ回す。 */}
       {clippingRegions.length > 0 && (
         <div
           data-testid="timeline-clipping-warning"
           role="status"
-          className="space-y-1.5 rounded-lg border border-red-500/40 bg-red-950/40 px-2 py-1.5 text-[10px] text-red-200 md:text-xs"
+          className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-amber-500/25 bg-amber-950/15 px-2 py-1 text-[10px] text-amber-200/90 md:text-xs"
         >
-          {/* 1 段目: 説明（横幅いっぱい）。2 段目: 操作ボタン（狭い画面でも文章が縦長に潰れない） */}
-          <div className="flex items-start gap-1.5">
-            <TriangleAlert className="mt-px h-3.5 w-3.5 shrink-0 text-red-300" aria-hidden />
-            <p className="min-w-0 flex-1 leading-snug">
-              音割れの可能性（{clippingRegions.length}か所・波形の赤い部分）。
-              {onFixClipping && waveform.resolveClippingFix
-                ? '「音量を自動調整」で、音割れしないぎりぎりの音量まで下げます（重なっている音は同じ割合で）。意図的な音割れならそのままで構いません。'
-                : '音量を少し下げると解消します。'}
-            </p>
-          </div>
-          <div className="flex flex-wrap justify-end gap-1.5">
+          <p className="flex min-w-0 flex-1 items-center gap-1 leading-snug">
+            <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-300/80" aria-hidden />
+            <span>
+              音割れの可能性（{clippingRegions.length}か所）
+              {!(onFixClipping && waveform.resolveClippingFix) && '・音量を少し下げると解消します'}
+            </span>
+          </p>
+          <div className="ml-auto flex shrink-0 items-center gap-1">
             {onFixClipping && waveform.resolveClippingFix && (
               <button
                 type="button"
                 onClick={onFixClipping}
                 disabled={disabled || status !== 'ready'}
-                className="flex min-h-7 shrink-0 items-center gap-1 rounded-md border border-red-400/70 bg-red-700/60 px-2 font-semibold text-white transition hover:bg-red-600/70 disabled:opacity-30"
+                className="flex min-h-7 shrink-0 items-center gap-1 rounded-md border border-amber-400/50 bg-amber-600/25 px-2 font-semibold text-amber-50 transition hover:bg-amber-500/35 disabled:opacity-30"
                 aria-label="音割れしないよう音量を自動調整"
-                title="音割れしている箇所で鳴っている素材の音量を、音割れしないぎりぎりまで下げます"
+                title="音割れしている箇所で鳴っている素材の音量を、音割れしないぎりぎりまで下げます（重なっている音は同じ割合で）。意図的な音割れならそのままで構いません"
               >
                 音量を自動調整
               </button>
@@ -442,11 +440,11 @@ const TimelineWaveform: React.FC<TimelineWaveformProps> = ({
                 type="button"
                 onClick={() => onSeek(nextClipping.start)}
                 disabled={disabled}
-                className="flex min-h-7 shrink-0 items-center gap-1 rounded-md border border-red-500/50 bg-red-900/40 px-2 text-red-100 transition hover:bg-red-800/60 disabled:opacity-30"
+                className="flex min-h-7 shrink-0 items-center gap-0.5 rounded-md px-1.5 text-amber-200/70 transition hover:bg-amber-900/30 hover:text-amber-100 disabled:opacity-30"
                 aria-label="音割れの箇所へ移動"
                 title="次の音割れの箇所へ移動"
               >
-                音割れの箇所へ
+                箇所へ
                 <ChevronsRight className="h-3.5 w-3.5" />
               </button>
             )}

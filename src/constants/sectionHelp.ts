@@ -511,7 +511,7 @@ export function getSectionHelpContent(
             ]
           },
           {
-            "text": "一括音量設定: すべての動画を同じ音量（%）に統一します。",
+            "text": "一括音量設定: すべての動画を同じ音量（%）に統一します。「音割れしない最大まで上げる」で、ほかの音はそのままに動画の音量を音割れしないぎりぎりまで上げられます（Android/PC版）。",
             "visuals": [
               "bulk_volume_checkbox"
             ]
@@ -831,7 +831,7 @@ export function getSectionHelpContent(
             ]
           },
           {
-            "text": "一括音量設定: 全曲の音量を同じ音量（%）に統一します。",
+            "text": "一括音量設定: 全曲の音量を同じ音量（%）に統一します。「音割れしない最大まで上げる」で、ほかの音はそのままにBGMの音量を音割れしないぎりぎりまで上げられます（Android/PC版）。",
             "visuals": [
               "bulk_volume_checkbox"
             ]
@@ -1080,7 +1080,7 @@ export function getSectionHelpContent(
               "ai_voice_setting_demo"
             ]
           },
-          "全体の話し方とエンジン: 9種類の雰囲気プリセット・3段階の速さ・細かい補足、および高音質な Gemini 3.8 Flash / 高速な Flash-Lite を切り替えられます。"
+          "全体の話し方とエンジン: 9種類の雰囲気プリセット・3段階の速さ・細かい補足、および高音質な Gemini 3.8 Flash / 高速な Flash-Lite を切り替えられます。雰囲気は「ニュース・解説＋熱血・盛り上げ」のように組み合わせられ（声の調子は1つ）、補足を書いても選択は外れません。"
         ],
         "visuals": []
       },
@@ -1118,7 +1118,7 @@ export function getSectionHelpContent(
             ]
           },
           {
-            "text": "一括音量設定: 全ナレーションの音量を同じ音量（%）に統一します。",
+            "text": "一括音量設定: 全ナレーションの音量を同じ音量（%）に統一します。「音割れしない最大まで上げる」で、ほかの音はそのままにナレーションの音量を音割れしないぎりぎりまで上げられます（Android/PC版）。",
             "visuals": [
               "bulk_volume_checkbox"
             ]
@@ -1260,7 +1260,7 @@ export function getSectionHelpContent(
         "facts": [
           {
             "label": "作成方法",
-            "description": "句点・読点で読みやすい長さに分け、句読点は除いて画面に収まるキャプションへします。"
+            "description": "文ごとに分け、長い文は読点や「〜ので」「〜は」などの言葉の切れ目で、なるべく同じ長さになるよう区切ります。単語の途中やカギ括弧の中では区切りません。句読点は除いて画面に収まるキャプションにします。"
           },
           {
             "label": "短い無音",

@@ -75,7 +75,10 @@ import {
 import {
   GEMINI_38_ATMOSPHERE_PRESETS,
   TONE_FALLBACK_LABELS,
-  resolveActiveAtmospherePresetId,
+  composeAtmosphereStyleDetail,
+  parseAtmosphereStyleDetail,
+  resolveActiveAtmospherePresetIds,
+  toggleAtmospherePreset,
   type Gemini38AtmospherePreset,
 } from '../../utils/gemini38Tts';
 import {
@@ -489,10 +492,22 @@ const AiModal: React.FC<AiModalProps> = ({
   const appliedInlineLabels = useMemo(() => listAppliedInlineEventLabels(aiScript), [aiScript]);
   const plainScriptLength = useMemo(() => stripDeliveryMarkers(aiScript).trim().length, [aiScript]);
   const estimatedSpeechSec = plainScriptLength > 0 ? Math.max(1, Math.round(plainScriptLength / 5.5)) : 0;
-  const activeAtmosphereId = useMemo(
-    () => resolveActiveAtmospherePresetId(aiTtsTone, aiTtsStyleDetail),
+  // 雰囲気は「声の調子 1 つ＋演出を重ねがけ」。補足欄には利用者が書いた文だけを出す（13-332）。
+  const activeAtmosphereIds = useMemo(
+    () => resolveActiveAtmospherePresetIds(aiTtsTone, aiTtsStyleDetail),
     [aiTtsTone, aiTtsStyleDetail],
   );
+  const parsedAtmosphereStyle = useMemo(
+    () => parseAtmosphereStyleDetail(aiTtsStyleDetail),
+    [aiTtsStyleDetail],
+  );
+  // 入力中の末尾の空白・読点が組み立て直しで消えないよう、補足欄は下書きを持つ
+  const [styleFreeTextDraft, setStyleFreeTextDraft] = useState(parsedAtmosphereStyle.freeText);
+  useEffect(() => {
+    setStyleFreeTextDraft((draft) => (
+      draft.trim() === parsedAtmosphereStyle.freeText ? draft : parsedAtmosphereStyle.freeText
+    ));
+  }, [parsedAtmosphereStyle.freeText]);
 
   const selectedVoiceDisplayName = selectedVoice
     ? selectedVoice.label
@@ -513,11 +528,15 @@ const AiModal: React.FC<AiModalProps> = ({
         : '';
 
   const activeAtmosphereLabel = useMemo(() => {
-    const matched = GEMINI_38_ATMOSPHERE_PRESETS.find((preset) => preset.id === activeAtmosphereId);
-    if (matched) return matched.label;
-    if (aiTtsStyleDetail.trim()) return aiTtsStyleDetail.trim();
-    return TONE_FALLBACK_LABELS[aiTtsTone] || '自然（標準）';
-  }, [activeAtmosphereId, aiTtsStyleDetail, aiTtsTone]);
+    const labels = GEMINI_38_ATMOSPHERE_PRESETS
+      .filter((preset) => activeAtmosphereIds.includes(preset.id))
+      .map((preset) => preset.label);
+    // 旧データの calm など、ボタンに無い声の調子
+    if (labels.length === 0 && aiTtsTone !== 'natural') labels.push(TONE_FALLBACK_LABELS[aiTtsTone]);
+    const base = labels.join('＋') || '自然（標準）';
+    const free = parsedAtmosphereStyle.freeText;
+    return free ? `${base}（${free}）` : base;
+  }, [activeAtmosphereIds, aiTtsTone, parsedAtmosphereStyle.freeText]);
 
   const activePaceLabel = PACE_OPTIONS.find((opt) => opt.value === aiTtsPace)?.label ?? '標準';
   const activeEngineLabel = aiTtsEngine === 'gemini-3.8-flash-lite-tts' ? '高速 Lite' : '高音質 Flash';
@@ -553,8 +572,14 @@ const AiModal: React.FC<AiModalProps> = ({
   };
 
   const handleAtmospherePresetClick = (preset: Gemini38AtmospherePreset) => {
-    onTtsToneChange(preset.tone);
-    onTtsStyleDetailChange(preset.styleDetail);
+    const next = toggleAtmospherePreset({ tone: aiTtsTone, styleDetail: aiTtsStyleDetail }, preset.id);
+    if (next.tone !== aiTtsTone) onTtsToneChange(next.tone);
+    if (next.styleDetail !== aiTtsStyleDetail) onTtsStyleDetailChange(next.styleDetail);
+  };
+
+  const handleStyleFreeTextChange = (value: string) => {
+    setStyleFreeTextDraft(value);
+    onTtsStyleDetailChange(composeAtmosphereStyleDetail(parsedAtmosphereStyle.stylePresetIds, value));
   };
 
   const handleGenerateSpeechClick = () => {
@@ -1300,12 +1325,15 @@ const AiModal: React.FC<AiModalProps> = ({
                     <span className="text-[11px] md:text-xs text-indigo-300/80">動画全体のベース</span>
                   </div>
 
-                  {/* 雰囲気9種（3列×3段・排他選択で矛盾なし） */}
+                  {/* 雰囲気9種（3列×3段）。声の調子は1つ、演出（2段目右〜3段目）は重ねられる */}
                   <div className="space-y-1">
-                    <span className="text-xs font-semibold text-gray-300">雰囲気</span>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-xs font-semibold text-gray-300">雰囲気</span>
+                      <span className="text-[10px] md:text-[11px] text-gray-400">組み合わせOK（声の調子は1つ）</span>
+                    </div>
                     <div className="grid grid-cols-3 gap-1.5" role="group" aria-label="全体の雰囲気">
                       {GEMINI_38_ATMOSPHERE_PRESETS.map((preset) => {
-                        const active = activeAtmosphereId === preset.id;
+                        const active = activeAtmosphereIds.includes(preset.id);
                         return (
                           <button
                             key={preset.id}
@@ -1360,21 +1388,22 @@ const AiModal: React.FC<AiModalProps> = ({
                       <label htmlFor="ai-tts-style-detail" className="text-xs md:text-sm font-semibold text-gray-200">
                         細かい話し方の補足（任意）
                       </label>
-                      {aiTtsStyleDetail.trim() && (
+                      {styleFreeTextDraft.trim() && (
                         <button
                           type="button"
-                          onClick={() => onTtsStyleDetailChange('')}
+                          onClick={() => handleStyleFreeTextChange('')}
                           className="text-xs text-gray-400 hover:text-gray-200 underline"
                         >
                           クリア
                         </button>
                       )}
                     </div>
+                    {/* 雰囲気ボタンの選択とは別に、自分で書いた補足だけを入れる（書いても選択は外れない） */}
                     <input
                       id="ai-tts-style-detail"
                       type="text"
-                      value={aiTtsStyleDetail}
-                      onChange={(event) => onTtsStyleDetailChange(event.target.value)}
+                      value={styleFreeTextDraft}
+                      onChange={(event) => handleStyleFreeTextChange(event.target.value)}
                       maxLength={200}
                       placeholder="例: 物語の読み聞かせ風に、怪談っぽく不気味に"
                       className="w-full rounded-lg border border-gray-700 bg-gray-900/90 px-2.5 py-1.5 text-xs md:text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-indigo-400"

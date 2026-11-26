@@ -5,6 +5,7 @@ import {
   normalizeNarrationCaptionText,
   snapNarrationCaptionPlanToSilences,
   splitNarrationCaptionText,
+  __setNarrationCaptionWordSegmenterForTest,
 } from '../utils/narrationCaptionPlan';
 
 describe('narrationCaptionPlan', () => {
@@ -26,9 +27,10 @@ describe('narrationCaptionPlan', () => {
       'ボタンを押し続けるだけで数値が自動でカウントアップ。いちいち連打する手間が省けて、作業効率がグンとアップします。入力作業がスムーズになりますよ。'
     );
 
+    // 「…自動で｜カウントアップ」（長い1枚＋短い残り）ではなく、意味の切れ目で長さをそろえる
     expect(segments).toEqual([
-      'ボタンを押し続けるだけで数値が自動で',
-      'カウントアップ',
+      'ボタンを押し続けるだけで',
+      '数値が自動でカウントアップ',
       'いちいち連打する手間が省けて',
       '作業効率がグンとアップします',
       '入力作業がスムーズになりますよ',
@@ -184,5 +186,68 @@ describe('narrationCaptionPlan', () => {
         duration: 0.6,
       },
     ]);
+  });
+
+  describe('意味の切れ目で区切る（中途半端な位置で別カードにしない）', () => {
+    const cases: Array<{ text: string; expected: string[] }> = [
+      {
+        text: '私たちは東京の大学で10年間ことばの研究を続けてきました。',
+        expected: ['私たちは東京の大学で', '10年間ことばの研究を続けてきました'],
+      },
+      {
+        text: '新しいアップデートでは動画の書き出し速度が大幅に向上し待ち時間がこれまでの半分以下になりました。',
+        expected: ['新しいアップデートでは', '動画の書き出し速度が大幅に向上し', '待ち時間がこれまでの半分以下になりました'],
+      },
+      {
+        text: 'あなたの大切な思い出を、世界にひとつだけの特別な動画として残してみませんか。',
+        expected: ['あなたの大切な思い出を世界にひとつだけの', '特別な動画として残してみませんか'],
+      },
+    ];
+    for (const { text, expected } of cases) {
+      it(text, () => {
+        expect(splitNarrationCaptionText(text)).toEqual(expected);
+      });
+    }
+
+    it('単語の途中・数字と単位の間・助詞や助動詞の直前では区切らない', () => {
+      const texts = [
+        '今日は朝から雨が降っていたので傘を持って出かけましたが途中でやんでしまいました。',
+        'この機能を使えば、誰でも簡単にプロ並みの動画を作ることができます。',
+        '「タートルビデオ」はスマホでもパソコンでも使える無料の動画編集アプリです。',
+        '毎日たった3分のストレッチを続けるだけで体の調子が驚くほど良くなります。',
+      ];
+      const badStarts = /^(の|は|が|を|に|へ|と|も|で|て|た|だ|です|ます|ない|ー|っ|ゃ|ゅ|ょ|年|分|つ)/u;
+      for (const text of texts) {
+        const segments = splitNarrationCaptionText(text);
+        expect(segments.length).toBeGreaterThan(1);
+        expect(segments.join('')).toBe(text.replace(/[。、]/gu, ''));
+        for (const segment of segments.slice(1)) {
+          expect(segment).not.toMatch(badStarts);
+        }
+        for (const segment of segments) {
+          expect(Array.from(segment).length).toBeLessThanOrEqual(23);
+        }
+      }
+    });
+
+    it('句点の直後の閉じ括弧は同じカードに残す', () => {
+      const segments = splitNarrationCaptionText('彼は「行きます。」と言った。そして静かに部屋を出ていった。');
+      expect(segments.some((segment) => segment.startsWith('」'))).toBe(false);
+      expect(segments[0]).toBe('彼は「行きます」と言った');
+    });
+
+    it('Intl.Segmenter が使えない環境でも、文字種の切れ目で区切れる', () => {
+      __setNarrationCaptionWordSegmenterForTest(null);
+      try {
+        const segments = splitNarrationCaptionText('新しいアップデートでは動画の書き出し速度が大幅に向上し待ち時間がこれまでの半分以下になりました。');
+        expect(segments.length).toBeGreaterThan(1);
+        expect(segments.every((segment) => Array.from(segment).length <= 23)).toBe(true);
+        for (const segment of segments.slice(1)) {
+          expect(segment).not.toMatch(/^(の|は|が|を|に|で|て|た|ー)/u);
+        }
+      } finally {
+        __setNarrationCaptionWordSegmenterForTest(undefined);
+      }
+    });
   });
 });

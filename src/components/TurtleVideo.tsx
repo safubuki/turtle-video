@@ -39,7 +39,7 @@ import type { ExportPreparationStep } from '../hooks/export-strategies/types';
 import { usePreventUnload } from '../hooks/usePreventUnload';
 import { usePreventWindowFileDrop } from '../hooks/useFileDropZone';
 import { useTimelineWaveform } from '../hooks/useTimelineWaveform';
-import { findAdjacentSilenceBoundary, planClippingFixUpdates } from '../utils/timelineWaveform';
+import { findAdjacentSilenceBoundary, planClippingFixUpdates, planVolumeMaximizeUpdates } from '../utils/timelineWaveform';
 import { useProjectStore } from '../stores/projectStore';
 
 // Utils
@@ -4010,6 +4010,74 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
     showToast(`音割れしないよう音量を下げました（${plan.changes.join('、')}）`, 6000);
   }, [timelineWaveform, showToast]);
 
+  // 「音割れしない最大まで上げる」（種類ごと）。他の音はそのままに、その種類だけを同じ割合で
+  // 音割れしないぎりぎり（自動調整と同じ基準）まで上げる。ロック中の素材は変えない。AI は使わない。
+  const maximizeVolumeAvailable = supportsTimelineWaveform
+    && timelineWaveform.status === 'ready'
+    && !!timelineWaveform.resolveVolumeMaximize;
+  const handleMaximizeVolume = useCallback((kind: 'video' | 'bgm' | 'narration') => {
+    const resolve = timelineWaveform.resolveVolumeMaximize;
+    if (!resolve || timelineWaveform.status !== 'ready') return;
+    const media = useMediaStore.getState();
+    const audio = useAudioStore.getState();
+    const label = kind === 'video' ? '動画' : kind === 'bgm' ? 'BGM' : 'ナレーション';
+
+    const fixedIds = new Set<string>();
+    if (kind === 'video') {
+      for (const item of media.mediaItems) {
+        if (media.isClipsLocked || item.isLocked) fixedIds.add(item.id);
+      }
+    } else if (kind === 'bgm' && audio.isBgmLocked) {
+      audio.bgmClips.forEach((clip) => fixedIds.add(clip.id));
+    } else if (kind === 'narration' && audio.isNarrationLocked) {
+      audio.narrations.forEach((clip) => fixedIds.add(clip.id));
+    }
+
+    const scale = resolve(kind, fixedIds);
+    if (scale === null) {
+      showToast(fixedIds.size > 0
+        ? `${label}はロック中のため調整できません`
+        : `音の出る${label}がありません（ミュート中・音声なしは対象外）`);
+      return;
+    }
+
+    const items = kind === 'video'
+      ? media.mediaItems
+        .filter((item) => item.type === 'video')
+        .map((item) => ({ id: item.id, volume: item.isMuted ? 0 : item.volume }))
+      : (kind === 'bgm' ? audio.bgmClips : audio.narrations)
+        .map((clip) => ({ id: clip.id, volume: clip.isMuted ? 0 : clip.volume }));
+    const bulk = kind === 'video'
+      ? {
+        // ロック中の動画があると一括音量はロック中にも掛かるため、個別に変える（自動調整と同じ規則）
+        enabled: media.bulkVideoVolumeEnabled
+          && !media.mediaItems.some((item) => item.type === 'video' && item.isLocked),
+        volume: media.bulkVideoVolume,
+      }
+      : kind === 'bgm'
+        ? { enabled: audio.bulkBgmVolumeEnabled, volume: audio.bulkBgmVolume }
+        : { enabled: audio.bulkNarrationVolumeEnabled, volume: audio.bulkNarrationVolume };
+
+    const plan = planVolumeMaximizeUpdates({ label, scale, items, fixedIds, bulk });
+    if (plan.changes.length === 0) {
+      showToast(`${label}はすでに音割れしないぎりぎりの音量です`);
+      return;
+    }
+    if (plan.bulkUpdate) {
+      if (kind === 'video') media.setBulkVideoVolume(plan.bulkUpdate.to);
+      else if (kind === 'bgm') audio.setBulkBgmVolume(plan.bulkUpdate.to);
+      else audio.setBulkNarrationVolume(plan.bulkUpdate.to);
+    }
+    for (const update of plan.itemUpdates) {
+      if (kind === 'video') media.updateVolume(update.id, update.to);
+      else if (kind === 'bgm') audio.updateBgmClipVolume(update.id, update.to);
+      else audio.updateNarrationVolume(update.id, update.to);
+    }
+    useLogStore.getState().info('AUDIO', '音割れしない最大まで音量を上げる', { kind, scale, changes: plan.changes });
+    const verb = scale >= 1 ? '上げました' : '下げました（今の音量では音割れするため）';
+    showToast(`音割れしないぎりぎりまで${verb}（${plan.changes.join('、')}）`, 6000);
+  }, [timelineWaveform, showToast]);
+
   // 移動先には無音区間の開始・終了に加えて動画の先頭（0秒）・末尾も含まれる。
   // タイミング打ちの「読みやすい位置へ調整」ON 時は comfortable モードで余白付き位置へ飛ぶ。
   const handleSeekToSilenceBoundary = useCallback((
@@ -4749,6 +4817,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
                   onToggleNormalizeEnabled={withPreviewPause('toggle-video-audio-normalize', setVideoAudioNormalizeEnabled)}
                   onChangeNormalizeMode={withoutPreviewPause('change-video-audio-normalize-mode', setVideoAudioNormalizeMode)}
                   onApplyNormalizeGains={applyVideoNormalizeGains}
+                  onMaximizeVolume={supportsTimelineWaveform ? () => handleMaximizeVolume('video') : undefined}
+                  maximizeAvailable={maximizeVolumeAvailable}
                 />
               ) : undefined}
               colorSettingsPanel={uiCapabilities.supportsMediaColor ? (
@@ -4842,6 +4912,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
                   onToggleNormalizeEnabled={withPreviewPause('toggle-bgm-audio-normalize', setBgmAudioNormalizeEnabled)}
                   onChangeNormalizeMode={withoutPreviewPause('change-bgm-audio-normalize-mode', setBgmAudioNormalizeMode)}
                   onApplyNormalizeGains={applyBgmNormalizeGains}
+                  onMaximizeVolume={supportsTimelineWaveform ? () => handleMaximizeVolume('bgm') : undefined}
+                  maximizeAvailable={maximizeVolumeAvailable}
                 />
               ) : undefined}
               bulkVolumeEnabled={bulkBgmVolumeEnabled}
@@ -4887,6 +4959,8 @@ const TurtleVideo: React.FC<TurtleVideoProps> = ({ appFlavor, previewRuntime, ex
                   onToggleNormalizeEnabled={withPreviewPause('toggle-narration-audio-normalize', setNarrationAudioNormalizeEnabled)}
                   onChangeNormalizeMode={withoutPreviewPause('change-narration-audio-normalize-mode', setNarrationAudioNormalizeMode)}
                   onApplyNormalizeGains={applyNarrationNormalizeGains}
+                  onMaximizeVolume={supportsTimelineWaveform ? () => handleMaximizeVolume('narration') : undefined}
+                  maximizeAvailable={maximizeVolumeAvailable}
                 />
               ) : undefined}
               bulkVolumeEnabled={bulkNarrationVolumeEnabled}

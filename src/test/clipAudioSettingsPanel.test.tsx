@@ -201,3 +201,28 @@ describe('ClipAudioSettingsPanel', () => {
     }
   });
 });
+
+describe('ClipAudioSettingsPanel: 音割れしない最大まで上げる', () => {
+  it('指定時だけボタンを出し、解析が終わっていれば押せる（一括音量のチェックが無くても使える）', () => {
+    const onMaximizeVolume = vi.fn();
+    renderPanel({ kind: 'bgm', onMaximizeVolume, maximizeAvailable: true });
+    fireEvent.click(screen.getByRole('button', { name: '音声 一括設定' }));
+    const button = screen.getByRole('button', { name: 'BGMを音割れしない最大まで上げる' });
+    expect(button).toBeEnabled();
+    fireEvent.click(button);
+    expect(onMaximizeVolume).toHaveBeenCalledTimes(1);
+  });
+
+  it('解析中・ロック中は押せず、未指定（iOS など）ならボタン自体を出さない', () => {
+    const { unmount } = renderPanel({ kind: 'narration', onMaximizeVolume: vi.fn(), maximizeAvailable: false });
+    fireEvent.click(screen.getByRole('button', { name: '音声 一括設定' }));
+    expect(screen.getByRole('button', { name: 'ナレーションを音割れしない最大まで上げる' })).toBeDisabled();
+    expect(screen.getByText('音声を解析中…')).toBeInTheDocument();
+    unmount();
+
+    renderPanel({ kind: 'video' });
+    fireEvent.click(screen.getByRole('button', { name: '音声 一括設定' }));
+    expect(screen.queryByRole('button', { name: /最大まで上げる/ })).not.toBeInTheDocument();
+  });
+});
+

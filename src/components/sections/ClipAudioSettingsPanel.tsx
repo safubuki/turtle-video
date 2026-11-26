@@ -37,6 +37,8 @@ const KIND_COPY: Record<
   {
     muteHint: string;
     volumeHint: string;
+    /** 「最大まで上げる」ボタンの読み上げ名に使う対象名 */
+    maximizeTarget: string;
     normalizeHint: string;
     compareHint: string;
     analyzing: string;
@@ -47,6 +49,7 @@ const KIND_COPY: Record<
   video: {
     muteHint: 'チェックを入れると、すべての動画をミュートします。',
     volumeHint: 'チェックを入れると、すべての動画の音量をまとめて設定します。',
+    maximizeTarget: '動画',
     normalizeHint: 'チェックを入れると、すべての動画の音量を揃えます。',
     compareHint: '比較する動画が2本以上あるときに揃えます。',
     analyzing: '各動画の音量を解析しています…',
@@ -56,6 +59,7 @@ const KIND_COPY: Record<
   bgm: {
     muteHint: 'チェックを入れると、すべてのBGMをミュートします。',
     volumeHint: 'チェックを入れると、すべてのBGMの音量をまとめて設定します。',
+    maximizeTarget: 'BGM',
     normalizeHint: 'チェックを入れると、すべてのBGMの音量を揃えます。',
     compareHint: '比較するBGMが2本以上あるときに揃えます。',
     analyzing: '各BGMの音量を解析しています…',
@@ -65,6 +69,7 @@ const KIND_COPY: Record<
   narration: {
     muteHint: 'チェックを入れると、すべてのナレーションをミュートします。',
     volumeHint: 'チェックを入れると、すべてのナレーションの音量をまとめて設定します。',
+    maximizeTarget: 'ナレーション',
     normalizeHint: 'チェックを入れると、すべてのナレーションの音量を揃えます。',
     compareHint: '比較するナレーションが2本以上あるときに揃えます。',
     analyzing: '各ナレーションの音量を解析しています…',
@@ -105,6 +110,12 @@ export interface ClipAudioSettingsPanelProps {
   onToggleNormalizeEnabled: (enabled: boolean) => void;
   onChangeNormalizeMode: (mode: VideoAudioNormalizeMode) => void;
   onApplyNormalizeGains: (gains: Record<string, number>) => void;
+  /**
+   * 「音割れしない最大まで上げる」。指定時だけボタンを出す（波形を解析できる standard のみ）。
+   * maximizeAvailable が false の間（波形の解析中など）はボタンを押せない。
+   */
+  onMaximizeVolume?: () => void;
+  maximizeAvailable?: boolean;
   accordionId?: string;
 }
 
@@ -123,6 +134,8 @@ const ClipAudioSettingsPanel: React.FC<ClipAudioSettingsPanelProps> = ({
   onToggleNormalizeEnabled,
   onChangeNormalizeMode,
   onApplyNormalizeGains,
+  onMaximizeVolume,
+  maximizeAvailable = false,
   accordionId,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -210,6 +223,23 @@ const ClipAudioSettingsPanel: React.FC<ClipAudioSettingsPanelProps> = ({
               sliderClassName={`flex-1 min-w-0 accent-blue-500 h-1 bg-gray-600 rounded appearance-none disabled:opacity-50 ${isLocked || !hasItems || !bulkEnabled ? '' : 'cursor-pointer'}`}
             />
             <p className={HELP_TEXT_CLASS}>{copy.volumeHint}</p>
+            {onMaximizeVolume && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pt-0.5">
+                <button
+                  type="button"
+                  onClick={onMaximizeVolume}
+                  disabled={isLocked || !hasItems || !maximizeAvailable}
+                  className="min-h-8 rounded-lg border border-sky-500/50 bg-sky-900/30 px-2.5 text-[11px] font-semibold text-sky-100 transition hover:bg-sky-800/40 disabled:cursor-not-allowed disabled:opacity-40 md:text-xs"
+                  aria-label={`${copy.maximizeTarget}を音割れしない最大まで上げる`}
+                  title="ほかの音はそのままに、この種類の音量を同じ割合で、音割れしないぎりぎりまで上げます（ロック中は変えません）"
+                >
+                  音割れしない最大まで上げる
+                </button>
+                <span className="text-[10px] leading-snug text-gray-500">
+                  {maximizeAvailable ? 'ほかの音はそのまま' : '音声を解析中…'}
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="rounded-lg border border-gray-700/60 bg-black/20 p-2 space-y-2">

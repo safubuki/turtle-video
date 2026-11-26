@@ -644,6 +644,125 @@ export function resolveClippingFixScales(
   return result;
 }
 
+/**
+ * 「音割れしない最大まで上げる」の倍率を求める（AI を使わない決定的な計算）。
+ *
+ * 指定した種類（動画・BGM・ナレーション）の素材だけを一律に s 倍し、他の音はそのままにする。
+ * 合成は線形なので、各サンプルで「他の音 a(t) ＋ s × この種類の音 b(t)」が ±targetPeak に収まる
+ * 最大の s をサンプルごとの不等式から直接求められる。他の音だけで既に上限を超えている箇所は
+ * この種類では直せないので条件に入れない。音量上限（300%）で頭打ちになった素材を反映して
+ * 合成し直し、まだ超えていれば縮める（自動調整と同じ 0.97 を狙うので、上げた後に注意は出ない）。
+ *
+ * @returns 現在の音量に掛ける倍率（1 未満なら今が上げすぎ）。対象の素材が無ければ null
+ */
+export function resolveMaximizeVolumeScale(
+  placements: TimelinePlacement[],
+  totalDuration: number,
+  kind: WaveformSourceKind,
+  options: {
+    endrollBgmFade?: { fadeStartSec: number } | null;
+    fixedIds?: ReadonlySet<string>;
+    targetPeak?: number;
+    sampleRate?: number;
+    /** 素材 1 つの音量上限（実効音量）。既定 3（300%） */
+    maxVolume?: number;
+  } = {},
+): number | null {
+  const {
+    endrollBgmFade,
+    fixedIds,
+    targetPeak = TIMELINE_CLIPPING_FIX_TARGET_PEAK,
+    sampleRate = TIMELINE_WAVEFORM_SAMPLE_RATE,
+    maxVolume = 3,
+  } = options;
+  const isTarget = (placement: TimelinePlacement) =>
+    placement.kind === kind && placement.volume > 0 && !fixedIds?.has(placement.id);
+  const targets = placements.filter(isTarget);
+  if (targets.length === 0) return null;
+  const others = placements.filter((placement) => !isTarget(placement));
+
+  const own = composeTimelinePcm(targets, totalDuration, sampleRate, endrollBgmFade).samples;
+  const rest = composeTimelinePcm(others, totalDuration, sampleRate, endrollBgmFade).samples;
+
+  // 誰かがまだ上げられる最大の倍率（全員が上限に達したらそれ以上は意味がない）
+  const ceiling = Math.max(...targets.map((placement) => maxVolume / placement.volume));
+  let scale = ceiling;
+  for (let i = 0; i < own.length; i++) {
+    const b = own[i];
+    if (Math.abs(b) < 1e-6) continue;
+    const a = rest[i] ?? 0;
+    if (Math.abs(a) > targetPeak) continue;
+    const bound = b > 0 ? (targetPeak - a) / b : (-targetPeak - a) / b;
+    if (bound < scale) scale = bound;
+  }
+  scale = Math.max(0, scale);
+
+  // 上限で頭打ちになる素材を反映して確かめる（線形からずれる分だけ縮める）
+  for (let iteration = 0; iteration < 4; iteration++) {
+    const scaled = placements.map((placement) => (isTarget(placement)
+      ? { ...placement, volume: Math.min(maxVolume, placement.volume * scale) }
+      : placement));
+    const mixed = composeTimelinePcm(scaled, totalDuration, sampleRate, endrollBgmFade).samples;
+    let peak = 0;
+    for (let i = 0; i < mixed.length; i++) {
+      if (Math.abs(own[i]) < 1e-6 || Math.abs(rest[i] ?? 0) > targetPeak) continue;
+      const amplitude = Math.abs(mixed[i]);
+      if (amplitude > peak) peak = amplitude;
+    }
+    if (peak <= targetPeak + 1e-4) break;
+    scale *= targetPeak / peak;
+  }
+  return scale;
+}
+
+export interface VolumeMaximizePlan {
+  /** 一括音量を変える場合の新しい値 */
+  bulkUpdate: { from: number; to: number } | null;
+  itemUpdates: Array<{ id: string; index: number; from: number; to: number }>;
+  changes: string[];
+}
+
+/**
+ * 「最大まで上げる」の適用プラン。一括音量が ON なら一括音量を、OFF なら各素材の音量を倍率ぶん変える。
+ * 1% 単位で切り捨てる（上げすぎない）。素材の上限（300%）を超えない。ロック中の素材は変えない。
+ */
+export function planVolumeMaximizeUpdates(params: {
+  label: string;
+  scale: number;
+  items: ReadonlyArray<{ id: string; volume: number }>;
+  fixedIds?: ReadonlySet<string>;
+  bulk: { enabled: boolean; volume: number };
+  maxVolume?: number;
+}): VolumeMaximizePlan {
+  const maxVolume = params.maxVolume ?? 3;
+  const percent = (volume: number) => `${Math.round(volume * 100)}%`;
+  const scaled = (volume: number) => Math.min(
+    maxVolume,
+    Math.max(0, Math.floor(volume * params.scale * 100 + 1e-9) / 100),
+  );
+
+  if (params.bulk.enabled) {
+    const to = scaled(params.bulk.volume);
+    if (Math.abs(to - params.bulk.volume) < 0.005) return { bulkUpdate: null, itemUpdates: [], changes: [] };
+    return {
+      bulkUpdate: { from: params.bulk.volume, to },
+      itemUpdates: [],
+      changes: [`${params.label}一括 ${percent(params.bulk.volume)}→${percent(to)}`],
+    };
+  }
+
+  const itemUpdates: VolumeMaximizePlan['itemUpdates'] = [];
+  const changes: string[] = [];
+  params.items.forEach((item, index) => {
+    if (params.fixedIds?.has(item.id) || !(item.volume > 0)) return;
+    const to = scaled(item.volume);
+    if (Math.abs(to - item.volume) < 0.005) return;
+    itemUpdates.push({ id: item.id, index, from: item.volume, to });
+    changes.push(`${params.label}${index + 1} ${percent(item.volume)}→${percent(to)}`);
+  });
+  return { bulkUpdate: null, itemUpdates, changes };
+}
+
 export interface ClippingFixBulkState {
   video: { enabled: boolean; volume: number; hasLockedVideo: boolean };
   bgm: { enabled: boolean; volume: number };

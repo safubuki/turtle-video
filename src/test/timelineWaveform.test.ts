@@ -14,6 +14,8 @@ import {
   detectTimelineClippingRegions,
   planClippingFixUpdates,
   resolveClippingFixScales,
+  resolveMaximizeVolumeScale,
+  planVolumeMaximizeUpdates,
   composeTimelinePcm,
   detectTimelineSilences,
   collectSeekBoundaries,
@@ -686,5 +688,85 @@ describe('planClippingFixUpdates（一括音量設定との連携）', () => {
 
     expect(plan.bulkUpdates).toEqual([]);
     expect(plan.itemUpdates).toEqual([{ id: 'v1', kind: 'video', index: 0, from: 1.5, to: 1.2 }]);
+  });
+});
+
+describe('resolveMaximizeVolumeScale（音割れしない最大まで上げる）', () => {
+  const peakOf = (placements: TimelinePlacement[], total: number) =>
+    Math.max(...Array.from(composeTimelinePcm(placements, total).samples as Float32Array, Math.abs));
+
+  it('他の音はそのままに、その種類だけを合成の最大振幅が 0.97 になるまで上げる', () => {
+    // BGM 0.3 と ナレーション 0.2×音量1（重なる）。ナレーションだけ上げる: 0.3 + 0.2s = 0.97 → s = 3.35 だが
+    // 音量は 300% まで。ナレーション音量 0.5 なら 0.1s → s = 6.7 だが上限 3/0.5 = 6。ここでは 0.4×音量1 で 1.675
+    const bgm = placement({ id: 'b', kind: 'bgm', pcm: buildConstantPcm(0.3, 4), volume: 1 });
+    const narration = placement({ id: 'n', kind: 'narration', pcm: buildConstantPcm(0.4, 4), volume: 1 });
+    const scale = resolveMaximizeVolumeScale([bgm, narration], 4, 'narration')!;
+    expect(scale).toBeCloseTo((0.97 - 0.3) / 0.4, 4);
+    const raised = { ...narration, volume: narration.volume * scale };
+    expect(peakOf([bgm, raised], 4)).toBeLessThanOrEqual(0.9701);
+    expect(peakOf([bgm, raised], 4)).toBeGreaterThan(0.96);
+  });
+
+  it('音量上限（300%）で頭打ちになるときは、それ以上の倍率を返さない', () => {
+    const narration = placement({ id: 'n', kind: 'narration', pcm: buildConstantPcm(0.1, 4), volume: 1 });
+    expect(resolveMaximizeVolumeScale([narration], 4, 'narration')).toBeCloseTo(3, 6);
+  });
+
+  it('今が上げすぎなら 1 未満（音割れしないぎりぎりまで下げる）', () => {
+    const video = placement({ id: 'v', kind: 'video', pcm: buildConstantPcm(0.8, 4), volume: 1.5 });
+    expect(resolveMaximizeVolumeScale([video], 4, 'video')).toBeCloseTo(0.97 / 1.2, 4);
+  });
+
+  it('他の音だけで上限を超えている箇所は条件に入れない（その種類では直せないため）', () => {
+    // 0〜2 秒: BGM だけで 1.2（ナレーションなし）。2〜4 秒: BGM 0.3 ＋ ナレーション 0.2
+    const bgmPcm = buildPcm([], 4);
+    for (let i = 0; i < bgmPcm.samples.length; i++) (bgmPcm.samples as Float32Array)[i] = i < 2 * RATE ? 1.2 : 0.3;
+    const bgm = placement({ id: 'b', kind: 'bgm', pcm: bgmPcm, volume: 1 });
+    const narration = placement({
+      id: 'n', kind: 'narration', pcm: buildConstantPcm(0.4, 2), sourceEnd: 2, timelineStart: 2, volume: 1,
+    });
+    expect(resolveMaximizeVolumeScale([bgm, narration], 4, 'narration')).toBeCloseTo((0.97 - 0.3) / 0.4, 4);
+  });
+
+  it('対象がロック中・ミュート（音量 0）・存在しないときは null', () => {
+    const narration = placement({ id: 'n', kind: 'narration', pcm: buildConstantPcm(0.2, 4) });
+    expect(resolveMaximizeVolumeScale([narration], 4, 'narration', { fixedIds: new Set(['n']) })).toBeNull();
+    expect(resolveMaximizeVolumeScale([{ ...narration, volume: 0 }], 4, 'narration')).toBeNull();
+    expect(resolveMaximizeVolumeScale([narration], 4, 'bgm')).toBeNull();
+  });
+});
+
+describe('planVolumeMaximizeUpdates', () => {
+  it('一括音量 ON なら一括音量だけを、上限 300% で切り捨てて変える', () => {
+    const plan = planVolumeMaximizeUpdates({
+      label: 'BGM', scale: 1.678, items: [{ id: 'a', volume: 1 }], bulk: { enabled: true, volume: 1 },
+    });
+    expect(plan.bulkUpdate).toEqual({ from: 1, to: 1.67 });
+    expect(plan.itemUpdates).toEqual([]);
+    expect(planVolumeMaximizeUpdates({
+      label: 'BGM', scale: 5, items: [], bulk: { enabled: true, volume: 1 },
+    }).bulkUpdate?.to).toBe(3);
+  });
+
+  it('一括音量 OFF なら各素材を同じ割合で変え、ロック中・ミュートは変えない', () => {
+    const plan = planVolumeMaximizeUpdates({
+      label: 'ナレーション',
+      scale: 1.5,
+      items: [{ id: 'a', volume: 1 }, { id: 'b', volume: 0 }, { id: 'c', volume: 0.8 }, { id: 'd', volume: 2.5 }],
+      fixedIds: new Set(['c']),
+      bulk: { enabled: false, volume: 1 },
+    });
+    expect(plan.itemUpdates).toEqual([
+      { id: 'a', index: 0, from: 1, to: 1.5 },
+      { id: 'd', index: 3, from: 2.5, to: 3 },
+    ]);
+    expect(plan.changes).toEqual(['ナレーション1 100%→150%', 'ナレーション4 250%→300%']);
+  });
+
+  it('変化が 1% 未満なら何もしない（すでにぎりぎり）', () => {
+    const plan = planVolumeMaximizeUpdates({
+      label: '動画', scale: 1.004, items: [{ id: 'a', volume: 1 }], bulk: { enabled: false, volume: 1 },
+    });
+    expect(plan.changes).toEqual([]);
   });
 });

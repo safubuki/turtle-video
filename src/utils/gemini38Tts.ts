@@ -112,6 +112,98 @@ export function resolveActiveAtmospherePresetId(
   return matched ? matched.id : null;
 }
 
+// ---- 雰囲気の組み合わせ（保存形式は従来どおり aiTtsTone + aiTtsStyleDetail の 2 項目） ----
+// - 「声の調子」プリセット（自然・明るく元気・温かく・ニュース解説）は tone の 1 値なので 1 つだけ。
+// - 「演出」プリセット（熱血・重厚・コミカル・切なく・ささやき）は styleDetail の定型句なので重ねられる。
+// - 利用者が書いた補足は、演出の定型句の後ろへ「、」でつないで同じ styleDetail に保存する。
+//   旧データ（定型句だけ／自由記述だけ）もそのまま読める。
+
+/** 演出（重ねられる）プリセット */
+export const GEMINI_38_STYLE_PRESETS = GEMINI_38_ATMOSPHERE_PRESETS.filter((preset) => preset.styleDetail);
+/** 声の調子（1 つだけ）プリセット */
+export const GEMINI_38_TONE_PRESETS = GEMINI_38_ATMOSPHERE_PRESETS.filter((preset) => !preset.styleDetail);
+
+const STYLE_JOINER = '、';
+const STYLE_EDGE_SEPARATORS = /^[、，,。\s]+|[、，,。\s]+$/gu;
+
+export interface ParsedAtmosphereStyle {
+  /** 選ばれている演出プリセットの ID（定義順） */
+  stylePresetIds: string[];
+  /** 利用者が書いた補足（定型句を除いた残り） */
+  freeText: string;
+}
+
+/** styleDetail を「演出プリセット」と「自由な補足」に分ける */
+export function parseAtmosphereStyleDetail(styleDetail: string): ParsedAtmosphereStyle {
+  let rest = styleDetail.trim();
+  const found = new Set<string>();
+  // 長い定型句から順に取り除く（部分一致の取り違えを防ぐ）
+  const byLength = [...GEMINI_38_STYLE_PRESETS].sort((a, b) => b.styleDetail.length - a.styleDetail.length);
+  for (const preset of byLength) {
+    const index = rest.indexOf(preset.styleDetail);
+    if (index < 0) continue;
+    found.add(preset.id);
+    rest = `${rest.slice(0, index)}${STYLE_JOINER}${rest.slice(index + preset.styleDetail.length)}`;
+  }
+  const freeText = rest
+    .replace(/[、，,]{2,}/gu, STYLE_JOINER)
+    .replace(STYLE_EDGE_SEPARATORS, '')
+    .trim();
+  return {
+    stylePresetIds: GEMINI_38_STYLE_PRESETS.filter((preset) => found.has(preset.id)).map((preset) => preset.id),
+    freeText,
+  };
+}
+
+/** 演出プリセットと自由な補足から styleDetail を組み立てる */
+export function composeAtmosphereStyleDetail(stylePresetIds: readonly string[], freeText: string): string {
+  const selected = new Set(stylePresetIds);
+  const phrases = GEMINI_38_STYLE_PRESETS
+    .filter((preset) => selected.has(preset.id))
+    .map((preset) => preset.styleDetail);
+  const free = freeText.trim();
+  return [...phrases, free].filter(Boolean).join(STYLE_JOINER);
+}
+
+/** 画面で「選択中」に見せるプリセット ID（声の調子 0〜1 個 ＋ 演出 0 個以上） */
+export function resolveActiveAtmospherePresetIds(tone: NarrationTtsTone, styleDetail: string): string[] {
+  const { stylePresetIds } = parseAtmosphereStyleDetail(styleDetail);
+  const tonePreset = GEMINI_38_TONE_PRESETS.find((preset) => preset.tone === tone);
+  const ids: string[] = [];
+  if (tonePreset && (tonePreset.id !== 'natural' || stylePresetIds.length === 0)) {
+    ids.push(tonePreset.id);
+  }
+  return [...ids, ...stylePresetIds];
+}
+
+/**
+ * 雰囲気ボタンを押したときの次の tone / styleDetail。
+ * - 「自然（標準）」: 声の調子と演出を標準へ戻す（自由な補足は残す）
+ * - 声の調子: 選び替え。選択中をもう一度押すと標準へ戻す
+ * - 演出: 付け外し（他の選択はそのまま）
+ */
+export function toggleAtmospherePreset(
+  current: { tone: NarrationTtsTone; styleDetail: string },
+  presetId: string,
+): { tone: NarrationTtsTone; styleDetail: string } {
+  const preset = GEMINI_38_ATMOSPHERE_PRESETS.find((entry) => entry.id === presetId);
+  if (!preset) return current;
+  const parsed = parseAtmosphereStyleDetail(current.styleDetail);
+  if (preset.id === 'natural') {
+    return { tone: 'natural', styleDetail: composeAtmosphereStyleDetail([], parsed.freeText) };
+  }
+  if (!preset.styleDetail) {
+    return {
+      tone: current.tone === preset.tone ? 'natural' : preset.tone,
+      styleDetail: current.styleDetail,
+    };
+  }
+  const nextIds = parsed.stylePresetIds.includes(preset.id)
+    ? parsed.stylePresetIds.filter((id) => id !== preset.id)
+    : [...parsed.stylePresetIds, preset.id];
+  return { tone: current.tone, styleDetail: composeAtmosphereStyleDetail(nextIds, parsed.freeText) };
+}
+
 /**
  * 日本語の演出・話し方テキスト → Gemini 3.8 TTS が強く反応する簡潔な英語 style 表現。
  * 公式ガイドに従い、長文の演技メモではなく短く明確な話し方指示へ寄せる。
@@ -152,10 +244,24 @@ export function normalizeGemini38StyleDetail(detail: string): string {
   if (!trimmed) return '';
   if (isMostlyAsciiText(trimmed)) return trimmed;
 
-  const exactPreset = GEMINI_38_ATMOSPHERE_PRESETS.find(
-    (preset) => preset.styleDetail && preset.styleDetail === trimmed,
-  );
-  if (exactPreset) return exactPreset.styleEn;
+  // 演出プリセット（重ねがけ可）と自由な補足を分け、それぞれを英語 style にしてつなぐ。
+  // 以前は全体を 1 つの文として辞書照合していたため、プリセットと補足を併記すると補足が捨てられていた。
+  const { stylePresetIds, freeText } = parseAtmosphereStyleDetail(trimmed);
+  const parts: string[] = [];
+  for (const id of stylePresetIds) {
+    const preset = GEMINI_38_STYLE_PRESETS.find((entry) => entry.id === id);
+    if (preset?.styleEn) parts.push(preset.styleEn);
+  }
+  const freeEn = normalizeFreeStyleText(freeText);
+  if (freeEn) parts.push(freeEn);
+  return parts.filter((part, index) => parts.indexOf(part) === index).join(', ');
+}
+
+/** 利用者が書いた補足（プリセット以外）を英語 style へ寄せる。辞書にない表現は原文のまま */
+function normalizeFreeStyleText(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return '';
+  if (isMostlyAsciiText(trimmed)) return trimmed;
 
   const matchedEn: string[] = [];
   for (const entry of JA_STYLE_PHRASES) {

@@ -70,23 +70,21 @@ describe('AIナレーションスタジオ刷新UIと音声エンジン設定', 
     fireEvent.click(within(engineGroup).getByRole('button', { name: '高速 Flash-Lite' }));
     expect(onTtsEngineChange).toHaveBeenCalledWith('gemini-3.8-flash-lite-tts');
 
-    // 全体の雰囲気（メリハリある統合9種）
+    // 全体の雰囲気（メリハリある統合9種）。声の調子はトーンだけ、演出は補足の定型句だけを変える
     const atmosphereGroup = screen.getByRole('group', { name: '全体の雰囲気' });
     fireEvent.click(within(atmosphereGroup).getByRole('button', { name: '温かく親しみ' }));
     expect(onTtsToneChange).toHaveBeenCalledWith('warm');
-    expect(onTtsStyleDetailChange).toHaveBeenCalledWith('');
 
     fireEvent.click(within(atmosphereGroup).getByRole('button', { name: 'ニュース・解説' }));
     expect(onTtsToneChange).toHaveBeenCalledWith('clear');
-    expect(onTtsStyleDetailChange).toHaveBeenCalledWith('');
+    expect(onTtsStyleDetailChange).not.toHaveBeenCalled();
 
     fireEvent.click(within(atmosphereGroup).getByRole('button', { name: '熱血・盛り上げ' }));
-    expect(onTtsToneChange).toHaveBeenCalledWith('natural');
     expect(onTtsStyleDetailChange).toHaveBeenCalledWith('熱血・ハイテンションに');
 
     fireEvent.click(within(atmosphereGroup).getByRole('button', { name: '重厚・シリアス' }));
-    expect(onTtsToneChange).toHaveBeenCalledWith('natural');
     expect(onTtsStyleDetailChange).toHaveBeenCalledWith('ドキュメンタリー風の重厚な語りで');
+    expect(onTtsToneChange).not.toHaveBeenCalledWith('natural');
 
     // 話す速さ（3択セグメント）
     const paceGroup = screen.getByRole('group', { name: '話す速さ' });
