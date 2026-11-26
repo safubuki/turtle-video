@@ -17,6 +17,8 @@
 | **草案** | 標準化の途上。将来変わりうる。準拠の根拠にはできない |
 | **実証** | 査読研究またはユーザー調査に裏付けられた知見 |
 | **経験則** | 実務で広く支持されるが定量的裏付けは限定的 |
+| **観察** | 提供元や専門家の公開した観察・事例。対照実験の数値はない |
+| **設計上の仮説** | このスキルが「こうすれば良くなる」と置いている前提。検証方法を併記する |
 | **要注意** | 広く流布しているが、誤用・誇張・陳腐化がある |
 
 ---
@@ -118,6 +120,57 @@ Miller (1956) の研究対象は**短期記憶に保持すべき無関係な項�
 | マイクロインタラクションが満足度を高める | **経験則** | 過剰だと遅さと煩わしさに転じる |
 
 **このスキルの立場**: Wow Factor は**アクセシビリティとパフォーマンスを削って得るものではない**。両立しない場合は、規範（WCAG）と実測値（Core Web Vitals）を優先する。演出のための演出は削る。
+
+---
+
+## G. 「AI が作った感じ」と、お手本・ルールで直す理由
+
+| 主張 | 確度 | 出典 | 適用限界 |
+|------|------|------|---------|
+| 指示が無いと、LLM は学習データで多数派の無難な見た目に寄る（Inter などの定番フォント、白地に紫のグラデーション、控えめな動き）。Anthropic はこれを "distributional convergence" と呼び、利用者が "AI slop" と呼ぶ見た目の原因としている | **観察（提供元の公式記事）** | Anthropic「Improving frontend design through Skills」(2025-11-12) https://claude.com/blog/improving-frontend-design-through-skills | 対照実験の数値は示されていない。同記事では、具体的な指示を与えたスキルで出力が変わった例を示している |
+| 同記事は避ける例として Inter・Roboto・Open Sans・Lato・既定のシステムフォントを挙げ、思い切った主色と鋭いアクセントを勧める | **観察** | 同上 | 欧文ランディングページ向けの助言。日本語 UI では本文フォントより見出しの書体とブランド色で個性を出す（design-rules.md 2 章） |
+| このスキルのお手本と数値ルールは、上の「多数派に寄る」傾向を、具体的な見本と値で上書きするためのもの | **設計上の仮説** | — | 効果はこのスキル単体では未検証。同じ依頼をスキルの有無で作り、スクリーンショットで比べて確かめる（H 章） |
+
+## H. お手本そのものの位置づけ
+
+assets/exemplars/ の 8 画面は、**利用者テストで検証済みの画面ではない。** 次の 3 つを組み合わせて作った「出発点」である。
+
+1. 規範：WCAG 2.2（コントラスト、フォーカス、ターゲットサイズ、色だけに頼らない）→ `ux_audit.py` で機械的に確認済み
+2. 研究・調査：下の I 章の項目
+3. 経験則：成熟したデザインシステムで広く使われている構成（4px 刻みの余白、型のスケール、カード、表、タブバーなど）
+
+効果を確かめる方法：同じ依頼（例「家計簿アプリのホーム画面」）を、このスキルあり／なしで作り、`capture.mjs` で撮って並べる。AI っぽさのチェック（anti-patterns.md）に当てはまる項目の数を比べる。
+
+## I. 文言・アイコン・フォーム・読み込み表示
+
+| 主張 | 確度 | 出典 | 適用限界 |
+|------|------|------|---------|
+| 宣伝調の誇張表現は、読み手が誇張を取り除く手間を生み、使いやすさを下げる。簡潔・拾い読みしやすい・客観的に書き直すと、計測した使いやすさが 124% 向上した | **実証（古い単一研究）** | NN/g「Concise, SCANNABLE, and Objective: How to Write for the Web」(1997) https://www.nngroup.com/articles/concise-scannable-and-objective-how-to-write-for-the-web/ | 1997 年の小規模研究。数値そのものより「誇張は逆効果」という方向性を使う |
+| アイコンには常に見えるテキストラベルを付ける（hover で出すのは不可）。意味が共通理解されているアイコンは虫眼鏡（検索）など少数 | **実証（調査に基づく指針）** | NN/g「Icon Usability」https://www.nngroup.com/articles/icon-usability/ | ナビや頻出操作で、ラベル付きの状態から慣れてもらった後なら省略を検討できる |
+| ラベル付きアイコンは 88%、ラベルなしは 60% の確率で、タップ後の動作を正しく予想できた（モバイルアプリのアイコン 190 個） | **実証（業界調査）** | UserTesting「Making Your Icons User-Friendly」https://www.usertesting.com/blog/user-friendly-ui-icons/ | 単一の業界調査 |
+| placeholder をラベル代わりにすると、入力後に何の欄か分からなくなり、見直しやエラー修正が難しくなる | **実証（調査に基づく指針）** | NN/g「Placeholders in Form Fields Are Harmful」https://www.nngroup.com/articles/form-design-placeholders/ | placeholder は入力例など補足に使うのは可 |
+| スケルトン表示がスピナーより速く感じられるかは、**研究結果が割れている**。Viget（2017、136 人）ではスケルトンが全指標で最下位、別の研究では有利 | **要注意** | Viget「A Bone to Pick with Skeleton Screens」https://viget.com/articles/a-bone-to-pick-with-skeleton-screens | このスキルでは「体感速度」ではなく「読み込み後のレイアウトのずれを防ぎ、何が出るかを予告する」ためにスケルトンを使う |
+
+## J. 日本語の文字組み
+
+| 主張 | 確度 | 出典 | 適用限界 |
+|------|------|------|---------|
+| 日本語の横組みでは、1 行の文字数を増やすと読む速さは上がり、20 字前後でほぼ頭打ちになる | **実証（国内研究）** | "Relation between Reading Speed, Eye Movements, and Line Length in Japanese Electronic Text Reader"（CiNii）https://cir.nii.ac.jp/crid/1390846637104169856 | 読む速さの研究で、読みやすさ全体の最適値は示していない |
+| 本文 1 行 35〜45 字（`--measure: 40rem`） | **経験則** | 日本語 Web の慣習。欧文の 45〜75 字の推奨に相当 | 研究で最適値が決まっているわけではない。20 字未満は避け、長すぎる行は改行後の行頭探しが負担になる |
+| 行長と行間は日本語の読みやすさへの影響が特に大きい | **経験則（W3C の議論）** | W3C jlreq-d discussions #110 https://github.com/w3c/jlreq-d/discussions/110 | 定量的な最適値は示されていない |
+| 本文の行間 1.7 以上 | **経験則** | 日本語 Web の慣習 | 書体・文字サイズ・行長で調整する |
+
+## K. AI 機能の画面（ai-ui-patterns.md）
+
+| 主張 | 確度 | 出典 | 適用限界 |
+|------|------|------|---------|
+| 人と AI のやりとりの設計指針 18 項目を 4 段階（最初に／使っている間／間違えたとき／使い続けるうちに）に整理。150 以上の推奨を集約し、49 人の実務者が 20 の AI 製品に当てはめて検証した | **実証（査読論文＋実務者評価）** | Amershi et al.「Guidelines for Human-AI Interaction」CHI 2019, doi:10.1145/3290605.3300233 / Microsoft HAX Toolkit https://www.microsoft.com/en-us/haxtoolkit/ | 単純なチェックリストとして使うものではないと Microsoft 自身が述べている。指針の番号は公式（G8 退けやすく、G9 直しやすく、G10 迷ったら範囲を絞る）に合わせること |
+| 先回りして出す機能（proactive）は、頼まれて応える機能（reactive）より失敗に対する許容度が低い。見えない機能（invisible）はフィードバックを集めにくい。暗黙のフィードバック（行動）を主にし、明示の評価は必要なときだけ任意で求める | **規範に準じる実務指針（OS 提供元）** | Apple Human Interface Guidelines「Machine learning」https://developer.apple.com/design/human-interface-guidelines/machine-learning | Apple プラットフォーム向けの指針。数値の根拠は示されていない |
+| ユーザーの必要から始める、メンタルモデル、説明と信頼、フィードバックと制御、エラーと穏やかな失敗 | **実務指針（提供元のガイドブック）** | Google PAIR「People + AI Guidebook」https://pair.withgoogle.com/guidebook | 章ごとの方法論。画面の型は示さない |
+| 何でもチャットにするのは良い設計ではない。製品固有のチャットは範囲が狭く、利用者の必要を満たすか・戦略に合うかで判断する | **観察（UX 研究機関の記事）** | NN/g「AI Chat Is Not Always the Answer」https://www.nngroup.com/articles/ai-chat-not-the-answer/ | 「Conversation Trap」は NN/g の正式な用語としては確認できなかった。このスキルでは使わない |
+| 生成 AI は「意図を伝えて結果を指定する」新しい操作の型。Generative UI では、設計者は個々の画面ではなく目標と制約（部品・規則）を決める | **観察（専門家の論考）** | NN/g「Generative UI and Outcome-Oriented Design」https://www.nngroup.com/articles/generative-ui/ | 将来像を含む論考。現時点では「部品カタログの範囲で返す」に限って使う |
+| AI 製品の UI を、最初の一歩を助ける Wayfinders（例・候補・ひな形）、調整の Tuners などに分類した実例集 | **観察（実例の分類）** | The Shape of AI（Emily Campbell）https://www.shapeof.ai/ | 分類名は版によって変わっている（Governors などは時期により記載が異なる）。用語は参考程度に |
+| 7 つの型（会話・成果物・その場・調整＋ひと言・裏で動く・部品で返す・計画と承認）への整理と、問いに答えて型を選ぶ判断表 | **設計上の仮説** | 上の出典をもとにした整理（agent-study/ui-guide を基にした） | 型の数や名前は業界標準ではない。組み合わせて使う前提。ai-assistant.html / ai-agent.html も利用者テストは未実施 |
 
 ---
 

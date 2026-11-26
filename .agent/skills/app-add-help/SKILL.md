@@ -1,6 +1,6 @@
 ---
 name: app-add-help
-description: Web/デスクトップアプリへ操作体験一致型の階層アコーディオン＆インライン視覚見本ヘルプ機能を設計・スキャフォールド・品質検証するスキル。機能概要の自動抽出、操作と直結したインライン見本配置、リアル操作パネル見本、多重モーダル安全保護、前提条件の動的案内、目次化アコーディオン、枠線視認性（border-2）、ライセンス表記準拠まで一貫して支援。「ヘルプを追加」「ヘルプ機能を作成」「ヘルプを設計」「アプリにヘルプを付けたい」「ヘルプUI」「app-add-help」「使い方の説明画面」「help modal」「操作マニュアルをアプリに組み込む」「ヘルプゴー」などで発火。
+description: Web/デスクトップアプリへ操作体験一致型の階層アコーディオン＆インライン視覚見本ヘルプ機能を設計・スキャフォールド・品質検証するスキル。機能概要の自動抽出、操作と直結したインライン見本配置、リアル操作パネル見本、多重モーダル安全保護、前提条件の動的案内、目次化アコーディオン、画面順に合わせた並び順、流れ・場所・前後の違いを示す SVG 図解、枠線視認性（border-2）、ライセンス表記準拠まで一貫して支援。「ヘルプを追加」「ヘルプ機能を作成」「ヘルプを設計」「アプリにヘルプを付けたい」「ヘルプUI」「app-add-help」「使い方の説明画面」「help modal」「操作マニュアルをアプリに組み込む」「ヘルプに図を入れたい」「ヘルプゴー」などで発火。
 ---
 
 # App Add Help
@@ -41,6 +41,8 @@ description: Web/デスクトップアプリへ操作体験一致型の階層ア
 19. **操作見本ボタンの改行防止と整列**: 「プレビュー位置を反映」などのボタン群がスマホ幅で途中で折り返されないよう、`flex-col sm:flex-row`、`flex-nowrap`、各ボタンへの `whitespace-nowrap shrink-0` を徹底。
 20. **タイムライン・音声波形等の高密度リアル見本化**: 音声波形やシークバー、タイムライン等の操作補助UIは見本化の際、数本の棒等による粗い抽象表現を廃止し、タイムコード、進行バー、上下対称の微細な波形、無音区間ハイライト、再生ヘッドを実画面と同じスケール・質感で忠実に再現。
 21. **開発者視点のメタ解説・設計意図・不要な前提条件の全廃**: 「閉じておくと目次になります」のようなUI設計意図の講釈や、「〇〇を行わないようにしました」等の開発経緯・非動作の言い訳・不要な否定形前提条件を徹底排除。読み手（ユーザー）が必要とする「何ができるか」「どう操作するか」のみを簡潔に伝達。
+22. **SVG 図解（流れ・場所・前後の違い・仕組み）**: 3 つ以上の手順の流れ、画面上の場所、設定の前後、配分のしくみは、番号付きの略図（SVG）で見せ、説明は同じ番号で図の横・下に書く。スマホ幅でも文字が 12px 以上、ライト/ダーク両対応。Mermaid は実行時に読み込まず SVG にして同梱する。
+23. **並び順は画面で出会う順・作業の順**: カテゴリはアプリの画面の上→下・左→右の順。各カテゴリは目的→基本操作→詳細設定→うまくいかないとき。末尾に動作環境・注意事項・ライセンス。
 
 ---
 
@@ -52,7 +54,8 @@ description: Web/デスクトップアプリへ操作体験一致型の階層ア
 | **情報設計・動線判断** | AI | 抽出結果から主要カテゴリ・基本操作・詳細調整・多重モーダル動線を設計 |
 | **雛形スキャフォールド** | `scripts/help_system_tool.py scaffold` | リアル操作パネル見本・前提条件案内・構造化facts・安全保存注記を含むヘルプ定義スケルトンを生成 |
 | **UIコンポーネント実装** | AI | 実画面一致操作見本トークン、インラインアイコン置換、履歴スタック保護モーダル、スマホ2行親ヘッダーの実装 |
-| **品質・UXルール監査** | `scripts/help_system_tool.py validate` | 140文字制限、アイコン散乱、セクション責務混入、セキュリティ文言、古い位置表現、スマホ2行構造・インデントを自動検証 |
+| **図解の設計** | AI | 図にする箇所の選定、型（流れ・場所・前後）の選択、番号と本文の対応付け、`assets/diagrams/` のお手本からの SVG 作成 |
+| **品質・UXルール監査** | `scripts/help_system_tool.py validate` | 140文字制限、アイコン散乱、セクション責務混入、セキュリティ文言、古い位置表現、スマホ2行構造・インデント、SVG 図（スマホでの文字サイズ・読み上げ名・テーマ・画像埋め込み）を自動検証 |
 | **テスト・保守性確保** | AI | 導入文長、Flavor境界フィルタリング、Hooks耐久性、多重モーダル保護のユニットテストを作成 |
 
 ---
@@ -99,8 +102,19 @@ python scripts/help_system_tool.py scaffold --scan-file help-features.json --out
 6. **動的案内の前提条件と安全性注記**: APIキー未設定時のみ黄色枠を表示し、設定済み時は非表示にする制御を設計。「ローカルのブラウザ内に安全保存され外部サーバーには送信されない」旨を端的に記載（通信に関する言及は不安を煽るため排除）。
 7. **実画面位置表現の一致**: 現在のレイアウトと完全に一致した場所を明記（例: 「トップ画面のアプリ名横の歯車アイコン」）。
 8. **基本情報項目**: 動作環境、注意事項、ライセンス表記（依存ライブラリ一覧）を追加。
+9. **並び順**: カテゴリをアプリの画面で出会う順（上→下、左→右）に並べ、各カテゴリの中は「目的→基本操作→詳細設定→うまくいかないとき」、末尾に基本情報を置く（[原則 26](references/help-design-principles.md)）。
 
-### Step 3: UIコンポーネント（HelpModal）を実装する
+### Step 3: 図を作る（流れ・場所・前後の違い・仕組み）
+
+[references/diagram-guide.md](references/diagram-guide.md) の判断表で、図にする項目を選ぶ。2〜3 行の文章で言えること、ボタン 1 つの説明は図にしない。
+
+1. 型を選び、[assets/diagrams/](assets/diagrams/) のお手本（`flow-steps.svg` / `screen-callouts.svg` / `before-after.svg`）をコピーして中身を差し替える
+2. 図には番号だけ振り、説明はヘルプ定義の `diagram.legend` か箇条書きに同じ番号で書く
+3. 色は `--hd-*` 変数のまま残す（インライン SVG ならアプリのトークンへ対応付ける）
+4. Mermaid で下書きした場合は SVG に書き出してから同梱する（実行時に読み込まない）
+5. 検査する：`python scripts/help_system_tool.py validate --svg <図のフォルダ>`
+
+### Step 4: UIコンポーネント（HelpModal）を実装する
 
 [references/help-design-principles.md](references/help-design-principles.md) に基づき、モーダルUIコンポーネントを実装します。
 
@@ -180,7 +194,7 @@ python scripts/help_system_tool.py scaffold --scan-file help-features.json --out
   「歯車アイコン」等のテキストを `<Settings className="inline w-3.5 h-3.5" />` に置換し、外部リンクには `target="_blank" rel="noreferrer"` を付与。
 - **一括開閉ボタン**: 「すべて開く」「すべて閉じる」を上部に配置。
 
-### Step 4: ヘルプ定義およびコンポーネントコードの品質を自動検証する
+### Step 5: ヘルプ定義およびコンポーネントコードの品質を自動検証する
 
 スクリプトの `validate` コマンドで、定義データ（JSON）のUXルールに加え、UIコンポーネント（TSX/JSX）のスマホ対応2行ヘッダー設計やインデント配置を自動監査します。
 
@@ -190,11 +204,16 @@ python scripts/help_system_tool.py validate --file src/constants/helpContent.jso
 
 # UIコンポーネントのレスポンシブ2行設計・インデント監査
 python scripts/help_system_tool.py validate --component src/components/modals/SectionHelpModal.tsx
+
+# 図（SVG）の監査：幅 343px での文字サイズ、読み上げ名、テーマ、画像・外部 URL・foreignObject
+python scripts/help_system_tool.py validate --svg src/assets/help/
 ```
+
+- 図はスマホ幅とダークモードの実画面でも目で確認する（elite-ux-architect スキルがあれば `capture.mjs --viewports mobile --theme both`）。
 
 - 警告やエラーが出た場合は、指示に従って導入文の短縮、見本のリアル操作パネル化、タイムライン・波形の高密度リアル化、アコーディオン見出し見本の削除、通信に関する不安誘発表現の削除、開発者視点のメタ解説（例: 「目次になります」）や開発経緯・言い訳・不要前提条件（例: 「〇〇を行わないようにしました」）の削除、位置表現の修正（例: 「右上の設定」→「アプリ名横の歯車アイコン」）、スマホ2行ヘッダー（`flex-col sm:flex-row`、`pl-10 sm:pl-0`、`items-start sm:items-center`）の適用を行います。
 
-### Step 5: 自動テスト（Unit Tests）を整備する
+### Step 6: 自動テスト（Unit Tests）を整備する
 
 ヘルプが将来の改修で壊れないよう、テストを作成します：
 - 導入文が140文字以内に保たれていること
@@ -207,7 +226,9 @@ python scripts/help_system_tool.py validate --component src/components/modals/Se
 
 ## 参照ドキュメント
 
-- [references/help-design-principles.md](references/help-design-principles.md) — ヘルプUI/UX設計の21大原則とスキーマ仕様
+- [references/help-design-principles.md](references/help-design-principles.md) — ヘルプUI/UX設計の原則（26 項目）とスキーマ仕様
+- [references/diagram-guide.md](references/diagram-guide.md) — 図にするかの判断、SVG の書き方（大きさ・色・読み上げ）、埋め込み方、Mermaid の扱い
+- [assets/diagrams/](assets/diagrams/) — 図のお手本 3 型と `preview.html`（ライト/ダークで確認できる）
 - [references/script-contract.md](references/script-contract.md) — 補助スクリプトの入出力仕様
 - [scripts/help_system_tool.py](scripts/help_system_tool.py) — 静的解析・スキャフォールド・品質検証ツール
 

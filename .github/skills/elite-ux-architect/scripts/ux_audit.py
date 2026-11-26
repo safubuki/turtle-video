@@ -103,12 +103,44 @@ RGB_FUNC_RE = re.compile(
     r"\brgba?\(\s*(\d{1,3})[\s,]+(\d{1,3})[\s,]+(\d{1,3})",
     re.IGNORECASE,
 )
+# oklch(L C H) with L as 0-1 or a percentage; alpha after "/" is ignored.
+OKLCH_FUNC_RE = re.compile(
+    r"\boklch\(\s*([\d.]+)(%?)\s+([\d.]+)\s+([\d.]+)(?:deg)?\s*(?:/[^)]*)?\)",
+    re.IGNORECASE,
+)
+
+
+def oklch_to_srgb(lightness: float, chroma: float, hue_deg: float) -> tuple[int, int, int]:
+    """Convert OKLCH to gamut-clipped 8-bit sRGB (Björn Ottosson's OKLab matrices)."""
+
+    hue = math.radians(hue_deg)
+    a = chroma * math.cos(hue)
+    b = chroma * math.sin(hue)
+    l_ = (lightness + 0.3963377774 * a + 0.2158037573 * b) ** 3
+    m_ = (lightness - 0.1055613458 * a - 0.0638541728 * b) ** 3
+    s_ = (lightness - 0.0894841775 * a - 1.2914855480 * b) ** 3
+    linear = (
+        4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_,
+        -1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_,
+        -0.0041960863 * l_ - 0.7034186147 * m_ + 1.7076147010 * s_,
+    )
+
+    def encode(channel: float) -> int:
+        channel = min(1.0, max(0.0, channel))
+        value = 12.92 * channel if channel <= 0.0031308 else 1.055 * channel ** (1 / 2.4) - 0.055
+        return int(round(value * 255))
+
+    return (encode(linear[0]), encode(linear[1]), encode(linear[2]))
 
 
 def parse_color(value: str) -> tuple[int, int, int] | None:
-    """Parse #rgb/#rgba/#rrggbb/#rrggbbaa or rgb()/rgba() into 8-bit sRGB."""
+    """Parse #hex, rgb()/rgba() or oklch() into 8-bit sRGB."""
 
     text = value.strip()
+    oklch = OKLCH_FUNC_RE.match(text)
+    if oklch:
+        lightness = float(oklch.group(1)) / (100.0 if oklch.group(2) else 1.0)
+        return oklch_to_srgb(lightness, float(oklch.group(3)), float(oklch.group(4)))
     match = HEX_RE.fullmatch(text) or HEX_RE.match(text)
     if match:
         digits = match.group(1)
@@ -262,6 +294,128 @@ CLICKABLE_HINT_RE = re.compile(
 )
 
 FIXED_PX_FONT_RE = re.compile(r"font-size\s*:\s*(\d+(?:\.\d+)?)px", re.IGNORECASE)
+
+# --- Spacing rhythm / readability -----------------------------------------
+# A heading must sit closer to the content it introduces than to the block
+# above it (Gestalt proximity). Below this top margin we assume the heading is
+# leaning on a container `gap` and is therefore visually equidistant.
+HEADING_MIN_TOP_REM = 1.5
+MAX_COMFORTABLE_CH = 80.0
+MIN_BODY_LINE_HEIGHT = 1.4
+
+# Match a CSS rule block so we can inspect its selector and declarations.
+HEADING_RULE_RE = re.compile(
+    r"(?P<selector>[^{}/;]+?)\{(?P<body>[^{}]*)\}",
+    re.MULTILINE,
+)
+# CSS Modules class names like `.sectionTitle` count as headings too.
+HEADING_SELECTOR_RE = re.compile(
+    r"(?<![\w-])h[1-6](?![\w-])|title|heading|headline|sectionTitle",
+    re.IGNORECASE,
+)
+MARGIN_DECL_RE = re.compile(r"(?<![-\w])margin(?:-top|-block|-block-start)?\s*:", re.IGNORECASE)
+MARGIN_SHORTHAND_RE = re.compile(r"(?<![-\w])margin\s*:\s*(?P<value>[^;}]+)", re.IGNORECASE)
+MARGIN_TOP_RE = re.compile(
+    r"(?<![-\w])margin-(?:top|block-start)\s*:\s*(?P<value>[^;}]+)", re.IGNORECASE
+)
+MARGIN_BOTTOM_RE = re.compile(
+    r"(?<![-\w])margin-(?:bottom|block-end)\s*:\s*(?P<value>[^;}]+)", re.IGNORECASE
+)
+MARGIN_BLOCK_RE = re.compile(r"(?<![-\w])margin-block\s*:\s*(?P<value>[^;}]+)", re.IGNORECASE)
+MAX_WIDTH_CH_RE = re.compile(r"max-width\s*:\s*(\d+(?:\.\d+)?)ch", re.IGNORECASE)
+UNITLESS_LINE_HEIGHT_RE = re.compile(r"line-height\s*:\s*(\d(?:\.\d+)?)\s*[;}]", re.IGNORECASE)
+HEADING_CONTEXT_RE = re.compile(
+    r"h[1-6]|title|heading|hero|display|brand|logo|mark|icon|badge|number|count",
+    re.IGNORECASE,
+)
+# Running text is set at body size or larger and usually wraps.
+BODY_TEXT_HINT_RE = re.compile(
+    r"font-size\s*:\s*var\(--text-(?:base|lg|md)\)|font-size\s*:\s*1(?:\.0+)?rem"
+    r"|font-size\s*:\s*1\.1\d*rem|max-width\s*:\s*\d+(?:ch|rem)",
+    re.IGNORECASE,
+)
+
+# Spacing tokens are usually `--space-6: 1.5rem`, so a bare var() tells us
+# nothing numerically. Treat those as "unknown" rather than guessing.
+_REM_RE = re.compile(r"^(-?\d+(?:\.\d+)?)rem$")
+_PX_RE = re.compile(r"^(-?\d+(?:\.\d+)?)px$")
+
+
+def length_to_rem(token: str) -> float | None:
+    """Convert a single CSS length token to rem, or None if not resolvable."""
+
+    value = token.strip().lower()
+    if value in {"0", "0rem", "0px", "0em"}:
+        return 0.0
+    match = _REM_RE.match(value)
+    if match:
+        return float(match.group(1))
+    match = _PX_RE.match(value)
+    if match:
+        # Assume the conventional 16px root so px and rem stay comparable.
+        return float(match.group(1)) / 16.0
+    return None
+
+
+def _shorthand_parts(value: str) -> list[str]:
+    return [part for part in re.split(r"\s+", value.strip()) if part]
+
+
+def selector_line(text: str, block_start: int, selector: str) -> int:
+    """1-indexed line of a rule's selector.
+
+    The rule regex starts matching at the whitespace left over from the previous
+    block, so counting newlines at ``block_start`` reports the line above.
+    Skipping that leading whitespace puts the finding on the selector itself.
+    """
+
+    offset = block_start + (len(selector) - len(selector.lstrip()))
+    return text[:offset].count("\n") + 1
+
+
+def margin_top_of(body: str) -> float | None:
+    """Resolve the effective top margin of a declaration block, in rem."""
+
+    match = MARGIN_TOP_RE.search(body)
+    if match:
+        return length_to_rem(match.group("value"))
+    match = MARGIN_BLOCK_RE.search(body)
+    if match:
+        parts = _shorthand_parts(match.group("value"))
+        if parts:
+            return length_to_rem(parts[0])
+    match = MARGIN_SHORTHAND_RE.search(body)
+    if match:
+        parts = _shorthand_parts(match.group("value"))
+        if parts:
+            return length_to_rem(parts[0])
+    return None
+
+
+def margin_bottom_of(body: str) -> float | None:
+    """Resolve the effective bottom margin of a declaration block, in rem."""
+
+    match = MARGIN_BOTTOM_RE.search(body)
+    if match:
+        return length_to_rem(match.group("value"))
+    match = MARGIN_BLOCK_RE.search(body)
+    if match:
+        parts = _shorthand_parts(match.group("value"))
+        if parts:
+            # `margin-block: a` sets both; `margin-block: a b` sets start/end.
+            return length_to_rem(parts[1] if len(parts) > 1 else parts[0])
+    match = MARGIN_SHORTHAND_RE.search(body)
+    if match:
+        parts = _shorthand_parts(match.group("value"))
+        if not parts:
+            return None
+        # margin: a | a b | a b c | a b c d  -> bottom is index 2 when present.
+        if len(parts) == 1:
+            return length_to_rem(parts[0])
+        if len(parts) == 2:
+            return length_to_rem(parts[0])
+        return length_to_rem(parts[2])
+    return None
 
 # Pairs of colors declared close together are the realistic contrast candidates.
 COLOR_DECL_RE = re.compile(
@@ -469,6 +623,119 @@ def check_layout_animation(text: str, name: str, findings: list[Finding]) -> Non
         )
 
 
+def check_heading_proximity(text: str, name: str, findings: list[Finding]) -> None:
+    """Flag headings whose top margin is zero inside a flow of body text.
+
+    Gestalt proximity: a heading belongs to the content *below* it, so the gap
+    above must be clearly larger than the gap below. When a heading rule sets
+    ``margin: 0`` (or only a bottom margin) and the surrounding container relies
+    on a uniform ``gap``, the heading ends up equidistant from -- or closer to --
+    the *previous* block. Readers then parse it as the tail of the section above,
+    which is exactly the "cramped" look this check exists to prevent.
+    """
+
+    blocks = HEADING_RULE_RE.finditer(text)
+    for match in blocks:
+        selector = match.group("selector")
+        body = match.group("body")
+        # Only judge rules that actually style a heading-ish element.
+        if not HEADING_SELECTOR_RE.search(selector):
+            continue
+        # A rule that never touches margin isn't making a spacing claim.
+        margin_decl = MARGIN_DECL_RE.search(body)
+        if not margin_decl:
+            continue
+
+        top = margin_top_of(body)
+        bottom = margin_bottom_of(body)
+        if top is None or bottom is None:
+            continue
+        # The heading must "own" the content beneath it.
+        if top > bottom or top >= HEADING_MIN_TOP_REM:
+            continue
+        # A heading with no bottom margin either isn't separating anything or is
+        # spaced by its container; only a real bottom gap proves the rule is
+        # doing the spacing itself, which is when the asymmetry actually shows.
+        if bottom <= 0:
+            continue
+
+        line = selector_line(text, match.start(), selector)
+        findings.append(
+            Finding(
+                "warning",
+                "spacing-rhythm",
+                name,
+                line,
+                (
+                    f"Heading rule '{selector.strip()[:44]}' has margin-top "
+                    f"{top}rem vs margin-bottom {bottom}rem, so it sits as close to "
+                    f"the previous block as to its own content"
+                ),
+                (
+                    "Give headings a larger top margin than bottom (roughly 2:1) so "
+                    "proximity groups each heading with the text it introduces"
+                ),
+            )
+        )
+
+
+def check_line_length(text: str, name: str, findings: list[Finding]) -> None:
+    """Flag prose containers that allow uncomfortably long measures."""
+
+    for index, line in enumerate(text.splitlines(), start=1):
+        match = MAX_WIDTH_CH_RE.search(line)
+        if match:
+            width = float(match.group(1))
+            if width > MAX_COMFORTABLE_CH:
+                findings.append(
+                    Finding(
+                        "info",
+                        "readability",
+                        name,
+                        index,
+                        f"Text container allows {match.group(1)}ch per line",
+                        "Keep running text near 45-75ch; long measures lose the return sweep",
+                    )
+                )
+
+
+def check_line_height(text: str, name: str, findings: list[Finding]) -> None:
+    """Flag *body* text set with a line-height too tight to scan comfortably.
+
+    Only rules that also declare a body-sized font are considered. Single-line
+    UI furniture (icons, badges, brand lockups) legitimately runs at 1.0 and
+    would otherwise drown the signal.
+    """
+
+    for match in HEADING_RULE_RE.finditer(text):
+        selector = match.group("selector")
+        body = match.group("body")
+        lh_match = UNITLESS_LINE_HEIGHT_RE.search(body)
+        if not lh_match:
+            continue
+        value = float(lh_match.group(1))
+        if value >= MIN_BODY_LINE_HEIGHT:
+            continue
+        # Headings and display type are meant to be tight.
+        if HEADING_CONTEXT_RE.search(selector):
+            continue
+        # Require evidence this rule styles running text, not a one-line label.
+        if not BODY_TEXT_HINT_RE.search(body):
+            continue
+
+        line = selector_line(text, match.start(), selector)
+        findings.append(
+            Finding(
+                "info",
+                "readability",
+                name,
+                line,
+                f"'{selector.strip()[:44]}' sets line-height {lh_match.group(1)} on body text",
+                "Body copy reads best around 1.5-1.8; reserve <1.3 for headings",
+            )
+        )
+
+
 def check_fixed_font(text: str, name: str, findings: list[Finding]) -> None:
     """Flag px font sizes that ignore the user's browser font-size setting."""
 
@@ -536,6 +803,9 @@ def scan_file(path: Path, root: Path, ctx: ScanContext, findings: list[Finding])
     if suffix in {".css", ".scss", ".sass", ".less", ".html", ".htm", ".vue", ".svelte", ".astro"}:
         check_contrast(text, name, findings)
         check_fixed_font(text, name, findings)
+        check_heading_proximity(text, name, findings)
+        check_line_length(text, name, findings)
+        check_line_height(text, name, findings)
     check_focus(text, name, findings)
     check_touch_targets(text, name, findings)
     check_layout_animation(text, name, findings)
@@ -898,6 +1168,162 @@ def cmd_palette(args: argparse.Namespace) -> int:
     return 2 if failures else 0
 
 
+# ---------------------------------------------------------------------------
+# Token file check (assets/tokens.css style: light-dark() + oklch() + var())
+# ---------------------------------------------------------------------------
+
+CUSTOM_PROP_RE = re.compile(r"(--[\w-]+)\s*:\s*([^;]+);")
+VAR_RE = re.compile(r"var\(\s*(--[\w-]+)\s*(?:,\s*([^()]*))?\)")
+CALC_MUL_RE = re.compile(r"calc\(\s*([\d.]+)\s*\*\s*([\d.]+)\s*\)")
+BLOCK_RE = re.compile(r"([^{}]+)\{([^{}]*)\}")
+
+# Role pairs every token set must satisfy: (foreground, background, minimum ratio, why).
+TOKEN_PAIRS: tuple[tuple[str, str, float, str], ...] = (
+    ("--text", "--bg", 4.5, "本文"),
+    ("--text", "--surface", 4.5, "カード上の本文"),
+    ("--text", "--surface-2", 4.5, "薄い面の本文"),
+    ("--text", "--surface-3", 4.5, "hover 面の本文"),
+    ("--text-muted", "--bg", 4.5, "補足テキスト"),
+    ("--text-muted", "--surface", 4.5, "カード上の補足"),
+    ("--text-muted", "--surface-2", 4.5, "薄い面の補足"),
+    ("--on-accent", "--accent", 4.5, "主ボタンの文字"),
+    ("--on-accent", "--accent-hover", 4.5, "主ボタン hover の文字"),
+    ("--accent-text", "--bg", 4.5, "リンク"),
+    ("--accent-text", "--surface", 4.5, "カード上のリンク"),
+    ("--accent-text", "--accent-soft", 4.5, "アクセント淡色バッジ"),
+    ("--success-text", "--success-soft", 4.5, "成功バッジ"),
+    ("--warning-text", "--warning-soft", 4.5, "警告バッジ"),
+    ("--danger-text", "--danger-soft", 4.5, "エラーバッジ"),
+    ("--danger-text", "--surface", 4.5, "エラーメッセージ"),
+    ("--on-danger", "--danger", 4.5, "削除ボタンの文字"),
+    ("--border-input", "--surface", 3.0, "入力欄の枠 (1.4.11)"),
+    ("--focus-ring", "--bg", 3.0, "フォーカスリング"),
+    ("--focus-ring", "--surface", 3.0, "カード上のフォーカスリング"),
+    ("--success", "--surface", 3.0, "成功アイコン"),
+    ("--danger", "--surface", 3.0, "エラーアイコン"),
+)
+
+
+def _split_top_level(args: str) -> list[str]:
+    """Split a function argument list on commas that are not nested in parentheses."""
+
+    parts, depth, current = [], 0, []
+    for char in args:
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        if char == "," and depth == 0:
+            parts.append("".join(current).strip())
+            current = []
+            continue
+        current.append(char)
+    parts.append("".join(current).strip())
+    return parts
+
+
+def _pick_light_dark(value: str, mode: str) -> str:
+    """Replace every light-dark(a, b) with a (light) or b (dark)."""
+
+    while True:
+        start = value.find("light-dark(")
+        if start == -1:
+            return value
+        depth, index = 0, start + len("light-dark(")
+        for index in range(start + len("light-dark("), len(value)):
+            if value[index] == "(":
+                depth += 1
+            elif value[index] == ")":
+                if depth == 0:
+                    break
+                depth -= 1
+        inner = value[start + len("light-dark("):index]
+        parts = _split_top_level(inner)
+        chosen = parts[0] if mode == "light" or len(parts) < 2 else parts[1]
+        value = value[:start] + chosen + value[index + 1:]
+
+
+def load_token_props(css: str, accent: str | None) -> dict[str, str]:
+    """Collect :root custom properties, then apply a [data-accent] preset if asked."""
+
+    props: dict[str, str] = {}
+    preset: dict[str, str] = {}
+    for match in BLOCK_RE.finditer(css):
+        selector, body = match.group(1).strip(), match.group(2)
+        selector = re.sub(r"/\*.*?\*/", "", selector, flags=re.S).strip()
+        body = re.sub(r"/\*.*?\*/", "", body, flags=re.S)
+        if selector == ":root":
+            props.update({k: v.strip() for k, v in CUSTOM_PROP_RE.findall(body)})
+        elif accent and selector == f'[data-accent="{accent}"]':
+            preset.update({k: v.strip() for k, v in CUSTOM_PROP_RE.findall(body)})
+    if accent and not preset:
+        raise ValueError(f'preset [data-accent="{accent}"] not found')
+    props.update(preset)
+    return props
+
+
+def resolve_token(name: str, props: dict[str, str], mode: str, depth: int = 0) -> str:
+    """Resolve var() references, light-dark() and simple calc() for one token."""
+
+    if depth > 20:
+        raise ValueError(f"var() cycle while resolving {name}")
+    value = props.get(name)
+    if value is None:
+        raise KeyError(name)
+    value = _pick_light_dark(value, mode)
+    value = VAR_RE.sub(lambda m: resolve_token(m.group(1), props, mode, depth + 1), value)
+    value = _pick_light_dark(value, mode)
+    value = CALC_MUL_RE.sub(lambda m: f"{float(m.group(1)) * float(m.group(2)):.4f}", value)
+    return value.strip()
+
+
+def cmd_tokens(args: argparse.Namespace) -> int:
+    """Check the role pairs of a token file in light and dark mode."""
+
+    css = Path(args.file).read_text(encoding="utf-8")
+    props = load_token_props(css, args.accent)
+    if args.hue is not None:
+        props["--brand-h"] = str(args.hue)
+    if args.chroma is not None:
+        props["--brand-c"] = str(args.chroma)
+
+    rows: list[dict[str, str]] = []
+    failures = 0
+    for mode in ("light", "dark"):
+        for fg_name, bg_name, minimum, why in TOKEN_PAIRS:
+            try:
+                fg_value = resolve_token(fg_name, props, mode)
+                bg_value = resolve_token(bg_name, props, mode)
+            except KeyError as missing:
+                rows.append({"mode": mode, "pair": f"{fg_name} / {bg_name}", "ratio": "-",
+                             "need": f"{minimum}", "verdict": f"SKIP (missing {missing})", "why": why})
+                continue
+            fg_rgb, bg_rgb = parse_color(fg_value), parse_color(bg_value)
+            if fg_rgb is None or bg_rgb is None:
+                rows.append({"mode": mode, "pair": f"{fg_name} / {bg_name}", "ratio": "-",
+                             "need": f"{minimum}", "verdict": "SKIP (unparsable)", "why": why})
+                continue
+            ratio = contrast_ratio(fg_rgb, bg_rgb)
+            ok = ratio >= minimum
+            failures += 0 if ok else 1
+            rows.append({"mode": mode, "pair": f"{fg_name} / {bg_name}", "ratio": f"{ratio:.2f}",
+                         "need": f"{minimum}", "verdict": "PASS" if ok else "FAIL", "why": why})
+
+    if args.format == "json":
+        print(json.dumps({"failures": failures, "pairs": rows}, ensure_ascii=False, indent=2))
+    else:
+        label = f" accent={args.accent}" if args.accent else ""
+        label += f" hue={args.hue}" if args.hue is not None else ""
+        print(f"token check: {args.file}{label}")
+        for row in rows:
+            if args.failures_only and row["verdict"] == "PASS":
+                continue
+            print(f"  [{row['mode']:<5}] {row['pair']:<34} {row['ratio']:>6} (>= {row['need']})  "
+                  f"{row['verdict']}  {row['why']}")
+        print(f"\n{failures} failing pair(s) out of {len(rows)}")
+    return 2 if failures else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ux_audit.py",
@@ -930,6 +1356,17 @@ def build_parser() -> argparse.ArgumentParser:
     palette.add_argument("--foregrounds", required=True, help="Comma-separated foreground colors")
     palette.add_argument("--format", choices=["text", "json", "csv"], default="text")
     palette.set_defaults(func=cmd_palette)
+
+    tokens = subparsers.add_parser(
+        "tokens", help="Check role pairs of a tokens.css (light-dark/oklch/var) in both modes"
+    )
+    tokens.add_argument("--file", required=True, help="Path to tokens.css")
+    tokens.add_argument("--accent", help='Apply a [data-accent="..."] preset before checking')
+    tokens.add_argument("--hue", type=float, help="Override --brand-h (0-360)")
+    tokens.add_argument("--chroma", type=float, help="Override --brand-c")
+    tokens.add_argument("--failures-only", action="store_true", help="Print only failing pairs")
+    tokens.add_argument("--format", choices=["text", "json"], default="text")
+    tokens.set_defaults(func=cmd_tokens)
     return parser
 
 

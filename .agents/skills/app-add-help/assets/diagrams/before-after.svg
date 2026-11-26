@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 196" role="img" aria-labelledby="hd-ba-title hd-ba-desc">
+  <title id="hd-ba-title">「黒帯を除去」をオンにする前と後</title>
+  <desc id="hd-ba-desc">オフのときは映像の上下に黒い帯が残る。オンにすると帯の分だけ拡大され、枠いっぱいに映像が表示される。</desc>
+  <style>
+    .hd-ba-frame { fill: var(--hd-surface, #f3f5f8); stroke: var(--hd-line, #7b8494); stroke-width: 1.5; }
+    .hd-ba-bar { fill: #111111; }
+    .hd-ba-video { fill: var(--hd-accent-soft, #e8efff); stroke: var(--hd-accent, #1d4ed8); stroke-width: 2; }
+    .hd-ba-ink { fill: var(--hd-accent, #1d4ed8); }
+    .hd-ba-label { fill: var(--hd-text, #1f2933); font: 700 15px system-ui, "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif; }
+    .hd-ba-note { fill: var(--hd-muted, #4b5563); font: 400 14px system-ui, "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif; }
+    .hd-ba-arrow { fill: var(--hd-line, #7b8494); }
+    @media (prefers-color-scheme: dark) {
+      .hd-ba-frame { fill: var(--hd-surface, #1f2937); stroke: var(--hd-line, #7d8796); }
+      .hd-ba-bar { fill: #000000; }
+      .hd-ba-video { fill: var(--hd-accent-soft, #1e2a4a); stroke: var(--hd-accent, #8fb0ff); }
+      .hd-ba-ink { fill: var(--hd-accent, #8fb0ff); }
+      .hd-ba-label { fill: var(--hd-text, #f3f4f6); }
+      .hd-ba-note { fill: var(--hd-muted, #c4c9d2); }
+      .hd-ba-arrow { fill: var(--hd-line, #7d8796); }
+    }
+  </style>
+  <defs>
+    <clipPath id="hd-ba-clip-before"><rect x="17" y="35" width="158" height="94" rx="7"/></clipPath>  </defs>
+
+  <!-- 前（左）：見出しは「状態」を短く。良い/悪いの評価語より、何が違うかを書く -->
+  <text class="hd-ba-label" x="16" y="22">オフ</text>
+  <rect class="hd-ba-frame" x="16" y="34" width="160" height="96" rx="8"/>
+  <g clip-path="url(#hd-ba-clip-before)">
+    <rect class="hd-ba-bar" x="17" y="35" width="158" height="18"/>
+    <rect class="hd-ba-video" x="17" y="53" width="158" height="58"/>
+    <rect class="hd-ba-bar" x="17" y="111" width="158" height="18"/>
+  </g>
+  <path class="hd-ba-ink" d="M86 70 L86 94 L106 82 Z"/>
+  <text class="hd-ba-note" x="16" y="154">上下に黒い帯が残る</text>
+
+  <!-- 矢印 -->
+  <path class="hd-ba-arrow" d="M190 76 L206 76 L206 68 L220 82 L206 96 L206 88 L190 88 Z"/>
+
+  <!-- 後（右） -->
+  <text class="hd-ba-label" x="228" y="22">オン</text>
+  <rect class="hd-ba-frame" x="228" y="34" width="160" height="96" rx="8"/>
+  <rect class="hd-ba-video" x="229" y="35" width="158" height="94" rx="7"/>
+  <path class="hd-ba-ink" d="M298 70 L298 94 L318 82 Z"/>
+  <text class="hd-ba-note" x="228" y="154">枠いっぱいに表示</text>
+  <text class="hd-ba-note" x="228" y="176">（帯の分だけ拡大）</text>
+</svg>

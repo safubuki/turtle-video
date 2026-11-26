@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 280" role="img" aria-labelledby="hd-map-title hd-map-desc">
+  <title id="hd-map-title">画面の各部の名前</title>
+  <desc id="hd-map-desc">1 は上部のアプリ名と設定（歯車）、2 は左の素材一覧、3 は中央のプレビュー、4 は下部の操作ボタン。</desc>
+  <style>
+    /* 画面は「本物そっくり」にせず、場所が分かる程度の略図にする（細部は UI 変更ですぐ古くなる） */
+    .hd-map-frame { fill: var(--hd-bg, #ffffff); stroke: var(--hd-line, #7b8494); stroke-width: 1.5; }
+    .hd-map-area { fill: var(--hd-surface, #f3f5f8); stroke: var(--hd-line, #7b8494); stroke-width: 1; }
+    .hd-map-focus { fill: var(--hd-accent-soft, #e8efff); stroke: var(--hd-accent, #1d4ed8); stroke-width: 2; }
+    .hd-map-ink { fill: var(--hd-line, #7b8494); }
+    .hd-map-text { fill: var(--hd-text, #1f2933); font: 600 14px system-ui, "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif; }
+    .hd-map-num { fill: var(--hd-accent, #1d4ed8); stroke: var(--hd-bg, #ffffff); stroke-width: 2; }
+    .hd-map-num-text { fill: var(--hd-on-accent, #ffffff); font: 700 15px system-ui, "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif; }
+    @media (prefers-color-scheme: dark) {
+      .hd-map-frame { fill: var(--hd-bg, #111827); stroke: var(--hd-line, #7d8796); }
+      .hd-map-area { fill: var(--hd-surface, #1f2937); stroke: var(--hd-line, #7d8796); }
+      .hd-map-focus { fill: var(--hd-accent-soft, #1e2a4a); stroke: var(--hd-accent, #8fb0ff); }
+      .hd-map-ink { fill: var(--hd-line, #7d8796); }
+      .hd-map-text { fill: var(--hd-text, #f3f4f6); }
+      .hd-map-num { fill: var(--hd-accent, #8fb0ff); stroke: var(--hd-bg, #111827); }
+      .hd-map-num-text { fill: var(--hd-on-accent, #0b1220); }
+    }
+  </style>
+
+  <!-- 画面の外枠 -->
+  <rect class="hd-map-frame" x="4" y="4" width="392" height="272" rx="12"/>
+
+  <!-- 1: ヘッダー（アプリ名 + 歯車） -->
+  <rect class="hd-map-area" x="16" y="16" width="368" height="36" rx="6"/>
+  <text class="hd-map-text" x="30" y="39">アプリ名</text>
+  <circle class="hd-map-ink" cx="106" cy="34" r="7"/>
+
+  <!-- 2: 左の一覧 -->
+  <rect class="hd-map-area" x="16" y="62" width="104" height="152" rx="6"/>
+  <rect class="hd-map-ink" x="28" y="76" width="80" height="10" rx="3" opacity="0.55"/>
+  <rect class="hd-map-ink" x="28" y="96" width="64" height="10" rx="3" opacity="0.55"/>
+  <rect class="hd-map-ink" x="28" y="116" width="72" height="10" rx="3" opacity="0.55"/>
+
+  <!-- 3: プレビュー（いま説明している場所は強調色で囲む） -->
+  <rect class="hd-map-focus" x="130" y="62" width="254" height="152" rx="6"/>
+  <path class="hd-map-ink" d="M240 120 L240 156 L270 138 Z" opacity="0.8"/>
+
+  <!-- 4: 下部の操作ボタン -->
+  <rect class="hd-map-area" x="16" y="224" width="368" height="40" rx="6"/>
+  <rect class="hd-map-ink" x="150" y="234" width="44" height="20" rx="5" opacity="0.55"/>
+  <rect class="hd-map-ink" x="206" y="234" width="44" height="20" rx="5" opacity="0.55"/>
+
+  <!-- 番号（本文の箇条書きと同じ番号を振る。説明文は SVG の外の HTML に書く） -->
+  <circle class="hd-map-num" cx="372" cy="16" r="13"/>
+  <text class="hd-map-num-text" x="372" y="21" text-anchor="middle">1</text>
+  <circle class="hd-map-num" cx="20" cy="66" r="13"/>
+  <text class="hd-map-num-text" x="20" y="71" text-anchor="middle">2</text>
+  <circle class="hd-map-num" cx="372" cy="66" r="13"/>
+  <text class="hd-map-num-text" x="372" y="71" text-anchor="middle">3</text>
+  <circle class="hd-map-num" cx="372" cy="228" r="13"/>
+  <text class="hd-map-num-text" x="372" y="233" text-anchor="middle">4</text>
+</svg>

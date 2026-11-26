@@ -1,6 +1,6 @@
 ---
 name: scripted-skill-generator
-description: 定型処理を自然言語で毎回AIに実行させず、scripts/ に保存した決定的なスクリプトへ委譲する Agent Skill を作成・改善するメタスキル。GitHubアクティビティ取得、統計処理後のCSV出力、プロジェクト固有の静的解析、データ変換、定型ワークフロー自動化などを script-backed skill として設計し、Windows/Linux(Ubuntu) 両対応、実行環境確認、選択式ヒアリング、スクリプト優先/非スクリプト判断、安全検証まで支援する。「スクリプトスキルを作成」「スクリプトスキルゴー」「scripted skill」「スクリプト活用型Skill」「トークン節約」「定型処理をスクリプト化」「AgentSkillsにscriptsを入れる」などで発火。
+description: AI が自律的に「自然言語で確率論的に扱う処理」と「scripts/ で確率論を排除して決定論的に固定する処理」の境界を見極め、最適な Agent Skill を作成・改善するメタスキル。業務の工程分解、3層分離（決定論コア／可変境界／確率論的判断）、固定しすぎ・柔軟すぎの自己診断、最小限確認での自律設計、Windows/Linux(Ubuntu) 両対応、雛形生成、安全検証まで支援する。「スクリプトスキルを作成」「スクリプトスキルゴー」「scripted skill」「スクリプト活用型Skill」「トークン節約」「定型処理をスクリプト化」「AgentSkillsにscriptsを入れる」「スクリプトと自然言語の境界を見直したい」などで発火。
 ---
 
 # Scripted Skill Generator
@@ -10,119 +10,202 @@ description: 定型処理を自然言語で毎回AIに実行させず、scripts/
 このスキルが読み込まれたら、必ず以下の通知をユーザーに表示してください：
 
 > **Scripted Skill Generator スキルを読み込みました**  
-> 定型処理を scripts/ に逃がす Agent Skill を設計・作成します。
+> 確率論的な判断（自然言語）と決定論的な定型処理（スクリプト）の境界を自律的に設計し、Agent Skill を作成・改善します。
 
 ## 概要
 
-このスキルは、Agent Skill の中で毎回 AI が自然言語から手順を再構成している定型処理を、あらかじめ用意したスクリプトに委譲するためのメタスキルです。大量データ処理、決まった API 取得、統計集計、CSV/JSON 出力、静的解析などは `scripts/` に置いた再利用可能な処理へ移し、AI は判断・設計・例外対応・結果解釈に集中します。
+このスキルは、Agent Skill の中で「毎回 AI が自然言語で処理するとブレや計算ミス・トークン浪費が起きる定型処理」を `scripts/` の決定論的スクリプトへ委譲し、「文脈に応じて柔軟に考えるべき処理」を自然言語へ残すためのメタスキルです。
 
-ただし、すべてをスクリプト化することが正解ではありません。判断が主で入力が毎回大きく変わる作業、利用者との対話で仕様が固まる作業、探索的な設計作業は自然言語ワークフローとして残します。
+**「何でもスクリプト化する（固定しすぎ・硬直化）」のも「定型処理まで自然言語に残す（確率論の混入・抜け漏れやブレ）」のも失敗の原因**になります。そのため、AI 自身が次の **3層分離モデル** で最適な境界を見極め、スキルを設計・実装します。
 
-## 手順
+| 層 | 性質 | 役割 | 実装場所 |
+|----|------|------|----------|
+| **層1: 決定論コア（固定）** | 確率論を排除（再現性100%） | 誤差や抜け漏れを許さない取得・計算・集計・検証・固定書式出力・安全制御 | `scripts/` |
+| **層2: 可変境界（調整つまみ・契約）** | 固定と柔軟の橋渡し | 案件ごとに変わる条件をコード改造なしで渡す CLI 引数・設定・中間データ（JSON/Markdown） | 引数・設定・中間ファイル |
+| **層3: 判断・解釈・対話（柔軟）** | 確率論的推論（文脈依存） | 曖昧な要望整理、構造化設計、オプション選定、警告や異常値の解釈、改善提案 | `SKILL.md`（自然言語） |
 
-### Step 1: 選択式でヒアリングする
+## 自律判断と「最小限確認」の原則
 
-ユーザーへの質問は、askQuestions のような選択形式で行う。`request_user_input` や同等の選択UIが利用できる環境ではそれを使い、利用できない場合は短い番号付き選択肢で聞く。1回に聞く質問は最大3つにする。
+**境界の切り分けや設計判断をいちいちユーザーに委ねず、AI が自律的に判断して作成・改善まで進めます。** ユーザーに質問・確認するのは、次の「本当に確認が必要な場合」だけに限定します。
 
-最初に確認する項目：
+- **自律進行すること（原則、確認不要）**:
+  - どの工程をスクリプト（決定論）にし、どこを引数・中間データ（可変境界）にし、どこを自然言語（確率論）に残すかの判定
+  - アーキテクチャパターン（A〜D）の選定
+  - ワークスペース構成や導入済みランタイムからの技術選択・配置先推定
+  - 完了後に「境界判断サマリー」を簡潔に報告し、必要なら事後調整できる形にする
+- **本当に確認が必要なケース（立ち止まって選択式・最大2問で確認）**:
+  - ユーザーの依頼自体が極端に抽象的で、何の業務・成果物を作るか推定できないとき
+  - ランタイムや外部パッケージの新規インストールが必要なとき
+  - 外部送信、認証情報、既存ファイル削除などの破壊的・高リスク操作を仕様に含める必要があるとき
+  - 配置先がワークスペースから全く推定できないとき、または既存スキルの大規模な破壊的変更を行うとき
 
-1. **スクリプト化の優先度**: できる限りスクリプト化 / 必要な部分だけ / まず設計だけ
-2. **想定ランタイム**: Python / Node.js / プロジェクト既存の標準に合わせる
-3. **配置先**: `.agents/skills` / `.github/skills` / `.claude/skills` / ユーザー指定パス
+## 運用モード
 
-以降の詳細質問は、入力データ、出力形式、API/認証の有無、破壊的操作の有無、実行頻度に絞る。
+ユーザーの要望に応じて 2 つのモードを使い分けます。
 
-### Step 2: スクリプト化する範囲を判定する
+- **Mode 1: 新規作成（Create）** — 依頼内容と環境から AI が自律的に境界を設計し、スキルを作成・検証する
+- **Mode 2: 既存スキルの改善・境界見直し（Refactor / Rebalance）** — 既存スキルを診断し、「固定しすぎ」の柔軟化や「柔軟すぎ（確率論の過剰混入）」のスクリプト化を行う
 
-以下の資料を読み、定型処理と AI 判断を分離する：
+---
 
-- [references/script-first-design.md](references/script-first-design.md) — スクリプト化判断、非スクリプト判断、代表例
-- [references/script-quality-checklist.md](references/script-quality-checklist.md) — 安全性、冪等性、検証観点
+## Mode 1: 新規作成（Create）
 
-原則として、以下は `scripts/` に落とす：
+### Step 1: 要件と環境の自律把握（必要なときだけ最小限確認）
 
-- API やコマンドから決まった形でデータを取得する処理
-- 大量ファイルや大量行を走査して統計を出す処理
-- CSV/JSON/Markdown など決まった形式へ変換・出力する処理
-- プロジェクト固有の静的解析、規約チェック、集計
-- 毎回同じ引数、同じ順序、同じ出力形式で実行するワークフロー
+まずユーザーの依頼文、対象リポジトリの構造、既存のスキル配置先（`.agents/skills` / `.claude/skills` / `.github/skills` 等）、利用可能なランタイムを確認し、推定できる項目は AI が自動で補完します。
 
-以下は自然言語ワークフローとして残す：
+上記の「本当に確認が必要なケース」に該当する不明点がある場合のみ、`ask_question` 等の選択 UI（使えない場合は短い番号付き選択肢）で **必要最小限（最大2〜3問）** だけ確認します。推定で安全に進められるなら質問せず Step 2 へ進みます。
 
-- 要件定義、設計判断、優先順位付け
-- コードレビューの評価や改善提案
-- 例外ケースの解釈、ユーザーとの相談
-- 一度きりの作業で、スクリプト作成コストが回収できないもの
+### Step 2: 工程分解と「確率論 vs 決定論」の自律境界設計
+
+[references/script-first-design.md](references/script-first-design.md) と [references/script-quality-checklist.md](references/script-quality-checklist.md) に基づき、AI 自身が業務を工程ごと（取得 → 整形 → 計算・検証 → 判断 → 出力）に分解し、次を自律決定します。
+
+1. **各工程の配置先**: 層1（決定論コア）／層2（可変境界）／層3（確率論的判断）
+2. **アーキテクチャパターン**:
+   - **パターンA（決定論パイプライン型）**: 取得〜集計〜出力までスクリプトが一貫処理（例: GitHub 活動集計、統計 CSV）
+   - **パターンB（AI設計 ＋ スクリプト実行型）**: AI が柔軟に構成した中間データ（JSON/Markdown）をスクリプトが検証・変換・描画（例: 図表生成、設定ファイル生成）
+   - **パターンC（スクリプト収集・検証 ＋ AI判断型）**: スクリプトが事実収集や規約検出を網羅し、AI が優先度判定・提案を実施（例: 静的解析、監査）
+   - **パターンD（自然言語先行型）**: 仕様未確定・判断中心・単発作業のため、今回は `scripts/` を作らず自然言語スキルとして作成
+3. **AI による逆方向セルフレビュー（必須）**:
+   - **固定しすぎ警報**: 閾値・除外条件・期間・分類ルールをハードコードしていないか？曖昧な文章を脆い正規表現で処理しようとしていないか？
+   - **柔軟すぎ警報（確率論の過剰混入）**: 計算・件数集計・ソート・書式保証・上書き保護を AI の自然言語手順に放置していないか？
+
+**分岐**:
+- AI が **パターンD（自然言語先行型）** が最適と判断した場合: 無理に `scripts/` を作らず、自然言語の `SKILL.md` を作成し、「同じ定型処理が2回以上発生したらスクリプトへ昇格させる」見直し条件を明記します（検証時は `--allow-no-scripts` を使用）。
+- **パターンA〜C** と判断した場合: 確認待ちせずそのまま Step 3 へ進みます。
 
 ### Step 3: 実行環境を確認する
 
-Windows と Linux(Ubuntu) の両方で動くスクリプトを優先する。迷ったら Python 標準ライブラリで書く。Node.js プロジェクトでは `.mjs` も候補にする。
+Windows と Linux（Ubuntu）の両方で動く構成を優先します。迷ったら Python 標準ライブラリ、Node.js プロジェクトでは `.mjs` を自動選定します。
 
-作成前にランタイムを確認する：
+作成前にランタイムを確認します（Windows では `python3` が Microsoft Store エイリアスを呼ぶ場合があるため、確認順に注意します）：
 
 ```bash
+# Windows
 python --version
+py -3 --version
+node --version
+
+# Linux (Ubuntu)
 python3 --version
+python --version
 node --version
 ```
 
-必要なランタイムがない場合は、勝手にインストールしない。選択式で「インストールする」「別ランタイムに変更する」「今回はスクリプトファイルだけ生成する」を確認する。詳細は [references/runtime-policy.md](references/runtime-policy.md) を読む。
+すでに利用可能なランタイムがある場合はそのまま採用して次へ進みます。必要なランタイムが一切ない場合のみ勝手にインストールせず、選択式で「インストールする」「別ランタイムに変更する」「今回はスクリプトファイルだけ生成する」を確認します。詳細は [references/runtime-policy.md](references/runtime-policy.md) を参照してください。
 
 ### Step 4: スキルの雛形を生成する
 
-定型的な雛形生成は、このスキル同梱のスクリプトを使う。最初はドライランで確認する：
+定型的な雛形生成は、このスキル同梱のスクリプトを使います。`<generator-dir>` は実際に読み込んだこのスキルのパス（例: `.claude/skills/scripted-skill-generator` や `.agents/skills/scripted-skill-generator`）に置き換えて実行します。
+
+最初はドライラン（`--apply` なし）で確認します：
 
 ```bash
-python scripts/scripted_skill_tool.py scaffold --name github-activity-exporter --output .agents/skills --purpose "GitHub activity data export" --script-name collect_activity --runtime python
+python <generator-dir>/scripts/scripted_skill_tool.py scaffold \
+  --name github-activity-exporter \
+  --output .agents/skills \
+  --purpose "GitHubの活動履歴を集計しCSV/JSONで出力する" \
+  --script-name collect_activity \
+  --runtime python \
+  --pattern pipeline \
+  --triggers "GitHub活動集計,GitHubアクティビティ出力"
 ```
 
-問題なければ `--apply` を付けて作成する：
+`--pattern` は Step 2 で自律選定した設計に応じて `pipeline`（A）/ `ai-to-script`（B）/ `script-to-ai`（C）を指定します。問題なければ `--apply` を付けて作成します：
 
 ```bash
-python scripts/scripted_skill_tool.py scaffold --name github-activity-exporter --output .agents/skills --purpose "GitHub activity data export" --script-name collect_activity --runtime python --apply
+python <generator-dir>/scripts/scripted_skill_tool.py scaffold \
+  --name github-activity-exporter \
+  --output .agents/skills \
+  --purpose "GitHubの活動履歴を集計しCSV/JSONで出力する" \
+  --script-name collect_activity \
+  --runtime python \
+  --pattern pipeline \
+  --triggers "GitHub活動集計,GitHubアクティビティ出力" \
+  --apply
 ```
 
-生成後、`scripts/{script-name}.py` または `scripts/{script-name}.mjs` の TODO を、対象業務の実処理に置き換える。生成されるスキルの基本形は [assets/scripted-skill-template.md](assets/scripted-skill-template.md) を参考にする。
+生成されるスキルの基本形は [assets/scripted-skill-template.md](assets/scripted-skill-template.md) を参照します。
 
 ### Step 5: スクリプトを実装する
 
+生成された `scripts/{script-name}.py` または `.mjs` の仮実装を、対象業務の実処理へ置き換えます。
+
 実装ルール：
 
-- 生成される Agent Skill のスクリプトは必ずそのスキルの `scripts/` フォルダに保存する
-- Windows/Linux のパス差を避けるため、Python では `pathlib`、Node.js では `node:path` を使う
-- 書き込み・削除・外部送信を伴う場合は `--dry-run` を用意し、危険な操作は既定で適用しない
-- 出力順序を安定させる。CSV は列順を固定し、JSON は必要に応じてキー順を固定する
-- 外部依存は最小限にする。必要な場合は依存名、用途、導入確認手順を SKILL.md に書く
-- シークレット、トークン、個人情報をログに出さない
-- エラー時は原因、入力、次の確認ポイントを短く出す
+- 生成される Agent Skill のスクリプトは必ずそのスキル自身の `scripts/` に保存する
+- **可変境界を守る**: 期間、除外パス、閾値、出力形式などの可変条件はハードコードせず、CLI 引数・設定・中間データ経由で受け取る
+- **異常値は推測補正しない**: 想定外データや欠損は構造化された警告・エラーとして返し、AI が解釈・対応できるようにする
+- Windows/Linux 互換のため、Python では `pathlib`、Node.js では `node:path` を使い、環境固有の絶対パスを直書きしない
+- UTF-8 を明示し、データ本体は標準出力（stdout）、進捗やエラー詳細は標準エラー出力（stderr）に分ける
+- 書き込み・削除・外部送信を伴う場合は `--dry-run` を用意し、既存ファイルの上書きは `--force` なしでは拒否するなど既定で安全にする
+- 出力順序を安定させる（CSV は列順固定・0件時も安全、JSON はキー順・構造固定）
+- 外部依存は最小限にし、必要な場合は依存名・用途・代替案・導入確認手順を `SKILL.md` に明記する
+- シークレット、トークン、個人情報をログや出力に含めない
 
-### Step 6: SKILL.md からスクリプトを呼ぶ導線を書く
+### Step 6: SKILL.md と入出力契約を整備する
 
-生成されるスキルの `SKILL.md` には、少なくとも以下を含める：
+生成されるスキルの `SKILL.md` には、少なくとも以下を含めます：
 
 - スキル読み込み通知
-- 何を AI が判断し、何をスクリプトが処理するか
-- ランタイム確認コマンド
-- ドライランと本実行のコマンド
-- 入力、出力、失敗時の見方
-- スクリプトの更新が必要な条件
+- 業務固有の発火キーワード（`scripted skill` などメタスキル用の汎用ワードを残さない）
+- 3層の役割分担（確率論的判断／可変境界［引数・中間データ］／決定論コア）
+- ランタイム確認コマンドと、未導入時の選択式フォールバック
+- プロジェクトルート基準の明確な実行コマンド（ドライランと本実行）
+- スクリプト出力および警告の解釈方法、失敗時の確認ポイント
+- スクリプト更新・見直し条件（いつスクリプトを更新し、いつ自然言語へ戻すか）
 
-テンプレートをそのまま埋め込まず、必要に応じて `assets/` や `references/` に分離する。
+長い仕様やチェックリストは `SKILL.md` に直接埋め込まず、`references/` や `assets/` に分離します。
 
-### Step 7: 検証する
+### Step 7: 検証・実動作テストと境界判断サマリーの報告
 
-作成後に、このスキル同梱の検証を実行する：
+作成後、同梱ツールで静的検証を実行します（検証は副作用なしで実行され、`__pycache__` を生成しません）：
 
 ```bash
-python scripts/scripted_skill_tool.py validate --skill .agents/skills/github-activity-exporter
+python <generator-dir>/scripts/scripted_skill_tool.py validate --skill .agents/skills/github-activity-exporter
 ```
 
-さらに、生成した業務スクリプト自体の `--help`、ドライラン、代表入力、空入力、異常入力を実行して確認する。問題があれば `SKILL.md` だけで説明を増やすのではなく、まずスクリプトの引数、エラー表示、出力形式を改善する。
+パターンD（自然言語先行型）の場合は `--allow-no-scripts` を付けて検証します。
+
+さらに、生成した業務スクリプト自体を次のケースで実動作テストします：
+
+1. `--help` の表示確認
+2. `--dry-run` でファイル書き込みが起きないことの確認
+3. 代表入力での成功確認
+4. 空入力・0件データでの安全な挙動確認
+5. 存在しないファイル・不正引数での分かりやすいエラー終了確認
+6. 既存出力ファイルがある場合、`--force` なしで誤上書きされないことの確認
+
+問題が見つかった場合、`SKILL.md` に注意書きを足すだけで逃げず、まずスクリプトの引数・バリデーション・エラー表示・出力形式（または境界設計自体）を改善します。
+
+完了報告では、作成したファイル一覧と検証結果に加えて、**「境界判断サマリー（どこを決定論スクリプトにし、どこを可変境界にし、どこを自然言語の確率論的判断に残したかとその理由）」** を短く提示し、ユーザーが後から微調整したい箇所があればすぐ変更できるようにします。
+
+---
+
+## Mode 2: 既存スキルの改善・境界見直し（Refactor / Rebalance）
+
+既存のスキル（自然言語のみのスキル、または既に `scripts/` を持つスキル）を改善するときは、次の手順で自律的に進めます。
+
+1. **現状読み込み**: 対象スキルの `SKILL.md`、`references/`、`scripts/` をすべて読み込む
+2. **境界診断**: [references/script-first-design.md](references/script-first-design.md) の「2大失敗モード」に照らし、以下を抽出する
+   - **固定しすぎ箇所**: スクリプト内のハードコードされた条件・閾値、脆い正規表現、定性判断の無理な分岐
+   - **柔軟すぎ箇所（確率論の過剰混入）**: `SKILL.md` 内で AI に暗算・目視集計・書式厳守・安全なファイル操作を頼んでいる箇所
+   - **品質・運用ギャップ**: `validate` で検出される不整合、リンク切れ、安全性不足、実行パスの曖昧さ
+3. **自律改善と必要時のみ確認**: 既存仕様を保ったまま安全に改善できる範囲（バグ修正、定型処理のスクリプト化、ハードコードの引数外出し等）はそのままリファクタリング＆ Step 7 の検証を実施する。既存スクリプトの廃止や外部仕様の大きな変更など破壊的影響が大きい場合のみ事前にユーザー確認する。
+4. **結果報告**: 改善前後の境界変化と判断理由、検証結果を簡潔に報告する。
+
+## スクリプト更新・見直し条件
+
+このメタスキル自身や生成したスキルは、次のタイミングで境界と実装を見直します：
+
+- 入力形式、対象 API、プロジェクト構造、出力契約が変わったとき
+- 同じ例外対応や手作業を2回以上繰り返したとき（自然言語 → スクリプトへの昇格サイン）
+- 実行のたびにスクリプト本体を書き換えているとき（固定しすぎ → 引数化・自然言語への差し戻しサイン）
 
 ## 参照ドキュメント
 
-- [references/script-first-design.md](references/script-first-design.md) — スクリプト化の判断基準と代表ユースケース
-- [references/runtime-policy.md](references/runtime-policy.md) — Windows/Linux のランタイム確認とインストール確認方針
-- [references/script-quality-checklist.md](references/script-quality-checklist.md) — 生成スクリプトの品質チェックリスト
+- [references/script-first-design.md](references/script-first-design.md) — 3層分離モデル、確率論 vs 決定論の判定軸、固定しすぎ／柔軟すぎ防止ガイド
+- [references/runtime-policy.md](references/runtime-policy.md) — Windows/Linux のランタイム確認、文字コード対策、インストール確認方針
+- [references/script-quality-checklist.md](references/script-quality-checklist.md) — 境界設計・実装品質・安全性・テストのチェックリスト
 - [assets/scripted-skill-template.md](assets/scripted-skill-template.md) — 生成されるスクリプト活用型 Agent Skill のテンプレート
 - [scripts/scripted_skill_tool.py](scripts/scripted_skill_tool.py) — スキル雛形生成と検証の補助スクリプト

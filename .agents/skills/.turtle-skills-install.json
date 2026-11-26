@@ -1,0 +1,24 @@
+{
+  "library": "C:\\git_home\\turtle-skills-neo",
+  "updatedAt": "2026-11-26T00:25:37.261Z",
+  "skills": {
+    "app-add-help": {
+      "hash": "202f780e5308b92cc5f279ad1bb082fcf8a913e74d5b0709fcf394db69037919"
+    },
+    "elite-ux-architect": {
+      "hash": "80b300004a86276ce510f8f0247309a22227258e98a9f2a1be21ff9251418f64"
+    },
+    "issue-specialist": {
+      "hash": "69a23febe46c5eb81ed2ac4d5c5a57ec664b1a3127ba2759147ffc00bf470bc6"
+    },
+    "release-version-manager": {
+      "hash": "6c30fe4a127973a79e86233f277ef0f70f79ecf91601353ae9ce06576776f3b7"
+    },
+    "scripted-skill-generator": {
+      "hash": "5345dbd7666ddf6a91c5ce4d382c94d05a212aef66e05db4de1121fca10a5549"
+    },
+    "skills-sync-guard": {
+      "hash": "e9c723668c3787bb6a1151846651edc1982a42b9a94657c2a7e2a45cd55490f9"
+    }
+  }
+}

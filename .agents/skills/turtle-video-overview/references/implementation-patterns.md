@@ -677,6 +677,10 @@
 |---------|--------|
 | **AudioContext** | `suspended` → `resume()` はユーザージェスチャーが必要。必ず `catch` する |
 | **ObjectURL** | 作成したら必ず `revokeObjectURL` で解放。特にリストア時の古い URL に注意 |
+| **速度のなめらか接続** | 時刻換算は `resolveVideoSpeedRampForItem` 付き `resolveVideoSourceTime`、rate・dilation は `resolveItemPlaybackSpeedAtLocalTime`。`playbackSpeed` を直接掛けない。開始速度と尺は mediaStore の set ラッパーが並びから取り直す（13-296） |
+| **ファイルのドラッグ&ドロップ** | window の `usePreventWindowFileDrop` が Files の drop を常に preventDefault する。ファイルを受け付ける UI を新設するなら要素自身で onDrop を処理し、受付判定は追加ボタンと同じ accept 文字列（`matchesFileAccept`）で揃える（13-298） |
+| **位置の移動（パン）** | 描画位置は `resolveMediaPosition(item, localTime)`（端点確認中は `zoomPreview.scaleTime`）で求める。`positionX/Y` を描画に直接使わない（開始位置にすぎない）。分割・続き・引き継ぎは `createMediaPanRangePatch` / `createMediaPanHoldPatch` を通す（13-299） |
+| **サイズ・位置・動き** | カードの構図編集は `ClipCompositionPanel` に集約。開始・終了の構図の読み書きは `mediaMotion.ts`（ズーム・移動の保存値をまとめて扱う）を通す。同じ値を別の欄へ二重に出さない。動かさない＝`updateScale`/`updatePosition`（両端連動）、動かす＝`updateMotionPoint`（選んだ時点だけ）（13-301） |
 | **Canvas** | `display: none` の video からは描画不可。`opacity: 0.001` で隠す |
 | **WebCodecs** | `VideoFrame` は `close()` しないとメモリリーク。CFR 強制が重要 |
 | **Safari Export** | iOS Safari では OfflineAudioContext による音声プリレンダリング方式を使用。メインAudioContextで`decodeAudioData`を実行し、`f32-planar`形式のAudioDataをAudioEncoderに直接供給する。**重要**: iOS Safari の `decodeAudioData` はビデオコンテナ(.mov/.mp4)をデコードできない（`EncodingError`）ため、`extractAudioViaVideoElement()` で `<video>` 要素経由のリアルタイム音声抽出にフォールバックする。muxer/AudioEncoder は常に音声付きで初期化。OfflineAudioContext 失敗時は ScriptProcessorNode にフォールバック |
@@ -708,7 +712,10 @@
 | **export の高速化** | 現行の駆動方式（壁時計 dilation / native 連続再生 / backpressure / 末尾補完）は**ユーザー実機で最良と確認済み。速度を理由に変更しない**。負荷を下げたいときは **VideoEncoder の configure 交渉**（`prefer-hardware`、13-169）から手を付ける。**`latencyMode:'quality'` は禁止**（内部バッファリングが `encodeQueueSize` を曇らせ backpressure 検知を遅らせる＝後半黒画面の再発条件。13-116 も同旨）。queue 上限の緩和と bitrate 低下はリカバリ性・画質を損なうので最後の手段 |
 | **export の滑らかさ** | プレビューは rAF（多くは約60Hz）提示、export は固定30fps CFR。滑らかさ改善は駆動方式を変えず、提示フレーム合わせとスロット単位スナップショットに閉じる（13-204）。**ユーザー実機で「劇的にスムーズになった」と確認済み（2026-08-17）**。フレーム駆動化・毎フレームseek・出力fps変更・bitrate変更は再導入しない |
 | **preview の UI 時刻** | 再生時計・Canvas・`video.currentTime` は毎 rAF のまま。Zustand の `currentTime` だけ約 50ms に間引き、pause/stop/終端で flush する。字幕グリフ Canvas は LRU 再利用（13-226）。駆動方式・export・apple-safari には広げない |
+| **preview / export の見た目一致** | Canvas へ焼き込む要素（ロゴ・文字・バッジ・ぼかし・線）は必ずキャンバス寸法に比例させる。プレビューは 720p、書き出しは 1080p 等なので、元画像のピクセル数や固定 px で描くとずれる（13-295） |
 | **スロー export 音声** | スローはプレビューと同じ `preservesPitch` キャプチャを第一経路にし、decode+WSOLA 参照で先頭遅延だけ切る（13-237）。キャプチャは TrackProcessor / AudioWorklet 優先で、ScriptProcessor は出力無音化の予備（13-238）。エネルギー無音切りは禁止。キャプチャ失敗時のみ WSOLA。13-236 の WSOLA 第一経路は音質退行のため改訂 |
+| **BGM クリップ／ナレーションの preview 追従** | `processNarrationClip` の通常プレビューは `previewAudioClipSync.ts` で判定する。シーク中に次のシークを重ねない・ずれ補正は実測所要時間ぶん先回り・区間 2 秒前に頭出し。「0.5 秒超なら毎フレーム今の位置へシーク」に戻すと、シークの重い素材（動画 BGM）や一括音量操作中に区間全体が無音になる（13-329） |
+| **export のキーフレーム・ビットレート** | standard の Canvas 経路は `prefer-hardware + realtime + bitrateMode:'quantizer'` と適応 QP 制御（`exportAdaptiveQuantizer.ts`、22〜34 クランプ）を最優先し、非対応・設定失敗時は既存ビットレート経路へフォールバックする。キーフレームは `exportKeyframePlan.ts` で 2 秒基準・ハードカット合わせ・フェード／ディゾルブ回避（最大 4 秒）とする。下限は `computeStandardExportVideoBitrate` の 10 Mbps（iOS・キャプションレイヤーは共有の `computeExportVideoBitrate` のまま）。`% FPS` だけの定期キーフレームや `bitrateMode` 無制御へ戻すとフェード・カット直後の QP=51 ブロックノイズが再発する（13-330 / 13-335） |
 
 ## 12. Dev Script Pattern (media-video-analyzer STT)
 
@@ -5090,6 +5097,60 @@ export 終了（成功/失敗/中断）
 - **検証**: 同構成のヘッドレス再生で、次動画開始時の rate 変更 8 回 → 0 回（2 回計測）。スロー 0.5x の大きなずれ（13-275 の本来の目的）は引き続き補正される（テスト）。
 - **注意**: 0.12 秒未満のずれは残る（字幕との差としては体感しにくい範囲）。比例・刻み制御へ戻すと再びノイズが出る。
 
+### 13-287. フェード時間スライダー（0.5 / 1 / 2 秒）は 3 段を等間隔に並べ、1 秒を中央に置く
+
+- **ファイル**: `src/components/common/NumericSliderField.tsx`（`sliderStops`）, `src/components/common/PresetFadeDurationField.tsx`, `src/components/SwipeProtectedSlider.tsx`（`ariaValueText`）
+- **問題**: スライダーが 0.5〜2 の連続値だったため、中間の 1 秒が左から 1/3 の位置に表示されていた（全 22 箇所のフェード入力で共通）。
+- **対策**: `sliderStops` を指定するとスライダーは値の番号（0〜n-1, step 1）で動き、値は stop の実値へ変換する。数値欄と −/+ は従来どおり実値。読み上げは `aria-valuetext` で「1秒」等を渡す。
+
+### 13-288. 並べて比較の「左右・ななめ」で、触っていない横長素材の横位置を自動で ±5% にする
+
+- **ファイル**: `src/utils/splitCompare.ts`（`isSplitCompareDiagonalOffsetWanted` / `resolveSplitCompareAutoOffsetPatch`）, `src/components/sections/ClipsSection.tsx`（`handleChangeSplitCompare`）, `src/test/splitCompare.test.ts`, `src/test/splitCompareConnector.ui.test.tsx`
+- **仕様**: 比較設定が「左右・ななめ」になった瞬間（ななめに変更・左右に変更・ななめのまま比較 ON）に、左（head）を −5%、右（partner）を ＋5% にする。「左右・ななめ」でなくなった瞬間（まっすぐ・上下・比較 OFF）に、自動の ±5% のままなら 0 に戻す。
+- **対象条件**: 横長素材（回転後の幅 > 高さ。動画は `sourceWidth/Height`、画像は読み込み済み要素の natural サイズ。不明なら対象外）で、拡大 1・縦位置 0・ズームなし・ロックなし。適用は横位置 0 のときだけ、復元は自動値（±0.2% 許容）のときだけ。ユーザーが動かした位置・拡大は変えない。
+- **注意**: 位置は px（`useCanvasStore().width` 基準）で保存しているため、% はキャンバス幅から換算する。縦長素材の並べ方（拡大の自動調整）は未対応。
+
+### 13-289. キャプションの字体ボタン（丸ゴシック等）の文字がはみ出しそうになる
+
+- **ファイル**: `src/components/common/CaptionFontStyleField.tsx`
+- **問題**: 字体ボタンが等分幅（`flex-1`）だったため、文字数が多く字幅の広い「丸ゴシック」だけ窮屈になっていた。
+- **対策**: ボタンを `flex-auto`（文字幅を基準に余白を配分）＋左右余白 `px-1` にし、「その他」ドロップダウンは `min-w-[3rem] md:min-w-[4.5rem]` で潰れないようにした。スマホ幅（390px）では「その他」の右端がわずかに欠けるが、字体ボタンの文字を優先している。
+
+### 13-290. 音量の上限を 300% へ上げ、合成後の音割れをプレビュー波形で知らせる
+
+- **ファイル**: `src/utils/mediaVolume.ts`（`MEDIA_VOLUME_MAX = 3`）, 音量 clamp を持つ store / export / preview（`audioStore`・`projectStore`・`media.ts`・`export-strategies/types.ts`・`usePreviewAudioSession.ts`・apple-safari `exportEngine.ts`）, 各音量スライダー（`ClipItem`・`BgmClipList`・`BgmSection`・`NarrationSection`）, `src/utils/timelineWaveform.ts`（`detectTimelineClippingRegions`）, `src/components/media/TimelineWaveform.tsx`, 関連テスト
+- **確認（実測）**: 200% は振幅がちょうど 2 倍（プレビュー最大振幅 0.213→0.426、書き出し RMS 比 2.000）。圧縮・リミッター処理は無い。体感で「2 倍に聞こえない」のは、振幅 2 倍＝+6dB に対し体感 2 倍は約 +10dB（振幅約 3 倍）のため。
+- **上限 300%**: 散在していた `2.5` / `max={250}` を `MEDIA_VOLUME_MAX` 参照へ統一（新たに上限を書くときも直書きしない）。300% ≒ +9.5dB。
+- **音割れの注意**: プレビュー波形は全素材を音量込みで合成した PCM（8kHz モノラル）から作っているため、合成後ピークが 0.98 以上のバケットを「音割れの可能性」とし、波形の棒を赤・区間に赤帯、波形下に件数と「音割れの箇所へ」移動ボタンを出す。素材単体ではなく重なりで超える場合も検出できるよう、カード単位ではなくプレビューに出す。
+- **注意**: 判定は間引き波形のため実ピークよりやや低く出る（しきい値 0.98 で補正）。書き出しは AAC エンコード時に上限で切られる。
+
+### 13-291. プレビューの再生操作に 3 秒戻る／進むを追加し、キャプチャを右端へ離す
+
+- **ファイル**: `src/components/sections/PreviewSection.tsx`, `src/test/previewSectionActionButtons.test.tsx`
+- **並び**: [3秒戻る][停止][再生][3秒進む] ｜ [キャプチャ]。秒数は `constants` の `PREVIEW_SKIP_SECONDS = 3`（本体・ミニプレビュー共通）。AI 動画は 1 本 10〜15 秒・2〜3 本で 30 秒前後が中心のため、大移動はシークバー、細かい行き来は 3 秒送り（ユーザー判断。10 秒→5 秒→3 秒と調整）。秒送りは再生操作の両隣（一般的なプレイヤーと同じ）、キャプチャは役割が違うため区切り線で離して右端。
+- **実装**: ミニプレビュー用の `seekFloatingBy`（`onSeekBy` があればそれ、無ければ `onSeekToTime` を 0〜総尺でクランプ）を共用。アイコンはミニプレビューと同じ RotateCcw / RotateCw に秒数を重ねる。書き出し中・読込中・素材なしは無効。
+
+### 13-292. 音割れの「音量を自動調整」（押したときだけ・AI 不使用）
+
+- **ファイル**: `src/utils/timelineWaveform.ts`（`resolveClippingFixScales` / `TIMELINE_CLIPPING_FIX_TARGET_PEAK = 0.97`）, `src/hooks/useTimelineWaveform.ts`（`TimelineWaveformData.resolveClippingFix`）, `src/components/TurtleVideo.tsx`（`handleFixClipping`）, `src/components/sections/PreviewSection.tsx`, `src/components/media/TimelineWaveform.tsx`, 関連テスト
+- **仕様**: 音割れの注意に「音量を自動調整」ボタンを出す。押したときだけ、音割れ区間で鳴っている素材（動画・BGM・ナレーション）を**音割れしないぎりぎり**（合成後の最大振幅 0.97・判定 0.98 のすぐ下）まで下げる。重なる素材は同じ割合で下げてバランスを保つ。目的は「音を大きくしたいが音割れは避けたい」なので、必要以上に下げない。押さなければ何もしない（意図的な音割れを尊重）。
+- **計算**: 波形と同じ配置（音量込み・8kHz モノラル合成）で、上限付近（0.98）の区間ごとに、**その回の合成に使った倍率を基準に** `0.97 / 区間ピーク` を掛けた値を候補とし、素材ごとに最小を採る。**区間ごとに掛け合わせない**（初版はここで倍率を累積させ、音割れ箇所が多いほど下がりすぎた: 300%→92%）。合成し直して残りがあれば最大 4 回繰り返す。合成は線形なので一律倍率で確実に下がり、バランスも保てる。
+- **適用**: 個別音量を 1% 単位で切り捨てて設定（動画 `updateVolume` / BGM `updateBgmClipVolume` / ナレーション `updateNarrationVolume`。一括音量は個別編集と同じく OFF になる）。ロック中（クリップ個別・セクション）の素材は変えない。結果はトーストで「動画1 300%→114%」のように表示し、ログにも残す。
+- **検証**: 実アプリで kling 動画（180% まで注意なし・182% から注意）を 300% / 240% / 182% から押すと、いずれも 179% で止まり注意が消える。
+
+### 13-293. 並べて比較の「長さ: 短い方に合わせる」（オンで長い方を詰め、オフで戻す）
+
+- **ファイル**: `src/types/index.ts`（`SplitCompareSettings.matchDuration` / `matchDurationRestore`）, `src/utils/splitCompare.ts`（`resolveSplitCompareMatchDuration` / 正規化）, `src/components/sections/ClipsSection.tsx`（`handleChangeSplitCompare` / `applyMatchDuration` / `revertMatchDuration` / `handleRealignSplitCompareDuration`、コネクタの「長さ」行）, `src/hooks/useAutoSave.ts`, `src/utils/projectDiagnostics.ts`, 関連テスト
+- **仕様**: 比較パネルに「長さ: [そろえない] [短い方に合わせる]」（既定はそろえない）。オンで長い方を短い方のタイムライン長へ詰める（動画は `updateVideoTrim(end)`、倍速はソース尺へ換算／画像は `updateImageDuration`）。既存のトリミング経路を通すので preview / export / カード表示がそのまま一致する。
+- **戻し**: 詰める前の値（original）と入れた値（applied）を `matchDurationRestore` に保存（プロジェクト保存にも残る）。オフ・比較オフで、まだ applied のままなら original へ戻す。オンの後に手で長さを変えていたら戻さない。オン前に手でトリミングしていた値が original なので、そこへ戻る。オンのまま押し直すとそろえ直し（original は最初の値を引き継ぐ）。詰める側が別カードに変わったら前回分を先に戻す。
+- **注意**: ロック中のカードは変えずトーストで知らせる。パネルに「上 X秒・下 Y秒」を表示し、オンのまま長さがずれたら注意文を出す。自動保存ハッシュと設定レポートに `matchDuration` を含める。
+
+### 13-294. 「並べて比較」の表示名を「2画面表示」へ変更し、パネルの小さな注意書きを整理
+
+- **ファイル**: `src/components/sections/ClipsSection.tsx`, `src/components/sections/PreviewSection.tsx`, `src/constants/sectionHelp.ts`, `src/test/splitCompareConnector.ui.test.tsx`
+- **名前**: 比べる用途に限らず「2 つを並べたいだけ」の場面もあるため、画面上の表記を「2画面表示」に統一（コネクタの水色側「2画面表示 左右・まっすぐ」、パネル見出し「2画面: オン/オフ」、設定不可の理由、ディゾルブ不可の説明、シークバー区間のラベル、ヘルプ）。**内部名（`splitCompare*` / `splitCompareToNext`）と保存形式は変えない**（旧プロジェクト互換）。13-282〜293 の「並べて比較」はこの機能のこと。
+- **注意書き**: パネル下の 9px の「※」説明 4 行は削除（プレビューを見れば分かる内容・詳細はヘルプ）。操作に使う「上 X秒・下 Y秒」と「長さがずれています」、設定不可の理由は 10px / md:12px の読める大きさで残す。
+
 ### 13-287. BGM に音声付き動画を追加できる（動画の音声だけを BGM として使う）
 
 - **ファイル**: `src/utils/platform.ts`（`getBgmUploadAccept` 新設）, `src/components/sections/BgmSection.tsx`, `src/constants/sectionHelp.ts`, `spec.md`, `src/test/platform.test.ts`, `src/test/sectionHelp.test.ts`
@@ -5113,3 +5174,505 @@ export 終了（成功/失敗/中断）
 - **対策**: 同じ contentKey で既に空（`hasFrame=false` かつ canvas 参照 null）なら何もせず return する。映像がある場合の撮影・撮り直し条件は変更しない。
 - **あわせて**: `sectionHelp.test.ts` の BGM トリミング期待値が #242 の文言変更前（「開始設定」時代）のままだったため、現在の実画面どおりの文言（「音源の現在位置を開始点に／終了点に」「開始位置」で配置を調整）を確認する内容へ更新した。
 - **注意**: この effect の依存（`renderFrame` 等）が不安定になると、空分岐以外でも state を毎回更新する処理を足すとループし得る。state 更新は「変化があるときだけ」にする。
+
+### 13-295. ロゴ（ウォーターマーク / エンドロール）のサイズをキャンバス解像度に比例させ、プレビューと書き出しの見た目を一致させる
+
+- **ファイル**: `src/utils/watermarkOverlay.ts`（`LOGO_REFERENCE_SHORT_SIDE` / `resolveLogoLayoutScale` / `resolveLogoFeatherPixels` / `resolveLogoRenderedSize`、`drawLogoImageFrame`、`resolveWatermarkPresetPosition`）, `src/test/watermarkOverlay.test.ts`, `src/test/overlaySection.test.tsx`
+- **問題**: プレビューは 1280×720、書き出しは 1920×1080 のキャンバスで描くのに、ロゴは**元のピクセル数 × 倍率**のまま描いていた。周辺ぼかしだけは `canvas.height / 1080` で比例していたため、書き出しではロゴが画面比 2/3 に縮み、ロゴに対するぼかし・切り抜き（円形・角丸）の比率も強く見えた。エンドロールは同じ共通コアを使うため同じずれがあった。
+- **対策**: ロゴの描画サイズを `元のピクセル数 × 倍率 × (短辺 / 720)` にした。基準短辺は `MAX_PREVIEW_CANVAS_HEIGHT`（720）。**通常プレビュー（720p）は従来とピクセル単位で同じ**見た目のまま、書き出し（1080p 等）は同じ比率まで拡大される。周辺ぼかしは従来どおり `feather × 高さ / 1080` で、ロゴも同じく比例するため、プレビューと書き出しでぼかしとロゴの比率が一致する。簡単配置（左下など）も同じサイズ計算を共有し、解像度に依存しない結果になった。
+- **保存データ**: 変更なし（`size` / `feather` などの意味は「720p プレビューでの見た目」に固定）。既存プロジェクトのプレビューの見た目は変わらず、書き出しだけがプレビューに一致する。素材が 720p 未満でプレビューのキャンバスが小さい場合は、そのプレビューでもロゴが比例して小さくなる（書き出しと一致）。
+- **注意**:
+  - キャンバスへ焼き込む要素は **キャンバス寸法に比例**させる（キャプション・タイトル = 短辺/1080、クリップのぼかし = 1920×1080 基準、倍速バッジ・2画面の境界線 = 短辺比、ロゴ = 短辺/720）。画像の元のピクセル数や固定 px で描くと、プレビュー（720p）と書き出し（1080p）で見た目がずれる。
+  - ロゴのサイズ計算は `resolveLogoRenderedSize` に一本化する。描画と簡単配置で別々に計算しない。
+  - 回帰テスト: `watermarkOverlay.test.ts` の「プレビューと書き出しで、画面に対するロゴの大きさ・マスク・ぼかしの比率が一致する」。
+
+### 13-296. 速度のなめらか接続（スピードランプ）: 後ろのクリップの先頭で、前の動画の速さから段階的に移る【standard 限定】
+
+- **ファイル**: `src/utils/playbackSpeed.ts`（`buildVideoSpeedRamp` / `resolveVideoSpeedRampForItem` / `resolveVideoSourceOffsetAtLocalTime` / `resolveVideoLocalTimeAtSourceOffset` / `resolveVideoPlaybackSpeedAtLocalTime` / `resolveItemPlaybackSpeedAtLocalTime` / `resolveSpeedRampFromSpeed` / `syncVideoSpeedRampItems` / `normalizeVideoPlaybackRateValue`）, `src/stores/mediaStore.ts`（set ラッパー `withSyncedSpeedRamps`、`updateVideoSpeedRampIn` / `updateVideoSpeedRampDuration`、分割）, `src/utils/audioTimeStretch.ts`（`wsolaTimeStretchChannelMapped` / `timeStretchAudioBufferWithSpeedRamp`）, `src/utils/audioPitchPreservedCapture.ts`（段ごとの rate 切替）, `src/flavors/standard/export/exportEngine.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/utils/media.ts`, `src/utils/timelineWaveform.ts`, `src/components/media/ClipItem.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, `src/test/speedRamp.test.ts`, `src/test/clipItemSpeedRamp.test.tsx`
+- **要件**: 同じ動画を分割して後半だけ 0.8 倍などにすると、つなぎ目で速さがガクッと変わって見える。その段差を目立たなくする。
+- **設計判断**:
+  - **置き場所はクリップの速度欄（トランジションではない）**。速さの変化は「どちらか 1 本のクリップの時刻対応」を変える処理で、トランジション（見た目の重ね方・ディゾルブの重なり）とは別物。コネクタには既にトランジションと 2 画面表示があり、混ぜると分かりにくい。
+  - **後ろのクリップが受け持つ**（前側だけ速度を変えた場合も同じ。後ろのカードは毎回直前の速さを読み直す）。前のクリップは次の速さを知らないので変えない。同じ動画の分割なら「前の末尾で変える」は「分割点を手前にずらして後ろの先頭で変える」と同じ見た目になるため、前の末尾で変える方式は持たない。
+  - **前のカードにも入口を置く**: 前のカードの速度欄に「次の動画へ速度をなめらかにつなぐ」（`SpeedRampControl` を共用、`nextClipSpeedRamp` / `onUpdateNextSpeedRampIn` / `onUpdateNextSpeedRampDuration`）。押すと**直後のカードの** `speedRampIn` / `speedRampDuration` を変える（設定の実体は 1 つ）。直後が動画でなければ出さず、どちらかのカードがロック中なら操作不可。状態は `ClipsSection` の `resolveNextClipSpeedRampInfo` で直後のカードから作る。後ろのクリップ先頭 `speedRampDuration`（0.5 / 1 / 2 秒・既定 1）で「前の速さ → 自分の速さ」へ移る。スロー区間からの戻り（0.8 → 1）も、戻り先のクリップで ON にすれば同じ仕組み。
+  - **連続曲線ではなく、一定速度の段の折れ線**（対数で等分・1 段の速度比 ≈4%・1 段 ≥0.1 秒・2〜12 段）。プレビューの `playbackRate`、export の rate / 壁時計 dilation、音声キャプチャの rate 切替、WSOLA、シーク・分割・トリムの時刻換算がすべて**同じ段**を使うので、経路ごとのずれが出ない。1 段の最短時間は 13-286（rate の頻繁な切替で preservesPitch がプチプチ鳴る）への配慮。
+- **データ契約**:
+  - 保存: `speedRampIn?: true` / `speedRampDuration?: 0.5|1|2`（旧データは undefined = なし。手動・自動保存・自動保存ハッシュ・Android プレビューキャッシュ署名に含む）。
+  - 派生（保存しない）: `speedRampFromSpeed` = 直前の動画の速さ。直前が動画でない・速さの差 <0.05・2 画面表示のペア（直前の `splitCompareToNext` か自分の `splitCompareToNext`）なら undefined = 効かない。
+  - `item.duration` = 段の区間 + `(ソース尺 − 段のソース尺) / speed`。クリップが短く段のソース尺が足りないときはクリップ全体を段に充てる。
+- **store 同期**: `mediaStore` の `set` をラップし、`mediaItems` が変わった更新では必ず `syncVideoSpeedRampItems` を通して開始速度と尺・総尺を取り直す（前のカードの速度変更・並べ替え・削除・追加・`restoreFromSave` のどれでも追従）。なめらか接続を使わないカードは一切触らず、同じ配列を返す（従来の尺計算と完全一致）。分割の後半はなめらか接続を持たない。
+- **再生・書き出し**:
+  - ソース時刻は `resolveVideoSourceTime({ ..., speedRamp: resolveVideoSpeedRampForItem(item) })`。standard の preview / seek / visibility 復帰 / キャプチャフレーム / タイトル開始フレーム / ポスターはすべて渡す。
+  - rate・追従補正・同期しきい値・export 壁時計の割り算は `resolveItemPlaybackSpeedAtLocalTime(item, localTime)`（その瞬間の段の速さ）。`resolveVideoElementPlaybackRateForContext` / `resolveVideoCatchUpState` / `resolveSpeedAwareVideoSyncThresholdSec` / `applyVideoElementPlaybackRate` は 0.1 刻みに丸めない `normalizeVideoPlaybackRateValue` を使う（段の 0.967 倍などを丸めると段が消える）。0.1 刻みの設定値は従来と同じ結果。
+  - export 映像は段ごとに従来方式を切り替えるだけ（倍速段 = rate 1 + dilation、スロー段 = native rate）。`resolveExportTimelineWallDivisorForItem(item, localTime)`。
+  - export 音声は、なめらか接続があれば等倍でも `pitch-preserved-capture`。キャプチャは段の時刻に `setTimeout` で rate を切り替え、録る長さは `item.duration`。スロー段があれば参照 PCM で先頭遅延を切る。予備の WSOLA は段ごとに別々に伸縮すると境目に無音の隙間が出るため、出力位置→入力位置の対応表で 1 回走査する `wsolaTimeStretchChannelMapped`。
+  - タイムライン波形も同じ対応表で貼る。
+- **対象外**: apple-safari エンジン（UI は出さない。保存データに ON があっても iOS は線形換算のまま。尺は store の値なので、段の分だけ終端が最大 0.1 秒程度ずれうる）。凍結レガシーエンジン（`src/components/turtle-video/*`・`src/hooks/usePlayback.ts`）。
+- **注意**:
+  - 速度を扱う新しい経路を足すときは、`item.playbackSpeed` を直接掛けず、時刻換算は `resolveVideoSpeedRampForItem` 付きの `resolveVideoSourceTime`、rate は `resolveItemPlaybackSpeedAtLocalTime` を使う。
+  - `useMediaStore.setState` は set ラッパーを通らない（テストのフィクスチャ用）。アプリ内の更新は必ずアクション経由にする。
+  - 回帰テスト: `speedRamp.test.ts`（段の単調性・連続性・逆変換・尺・store 追従・分割・WSOLA の隙間なし）、`clipItemSpeedRamp.test.tsx`（UI の出し分け）。
+
+### 13-297. 分割点が 1/100 秒のとき、開始の数値・カード見出しが 0.1 秒に丸まって食い違って見える
+
+- **ファイル**: `src/utils/timeStepperInput.ts`（`stepStartTime` / `formatClipCompactClock` / `formatClipDurationLabel`）, `src/components/media/ClipItem.tsx`, `src/test/clipSplitDisplay.test.tsx`, `src/test/speedRamp.test.ts`
+- **症状**: 13.38 秒で分割すると、トリミング欄と終了は 13.38 なのに、後半カードの開始の数値は 13.4、見出しは `0:13.4` / `13.4秒` と出た。
+- **原因**: 表示だけの丸め。保存値は分割位置そのまま（例 13.3833）。開始の `NumericSliderField` は `step=0.1` から小数 1 桁を推定して表示し、見出しは 0.1 秒単位で整形していた。
+- **対策**: 開始も `decimals={2}`（終了と同じ 1/100 秒表示）。−/+ は `stepStartTime` で 0.1 秒格子へ吸着（終了の `stepEndTime` と同じ操作感）。見出しは 0.1 秒で表せる値は従来どおり（`0:05.0` / `5秒`）、表せない値だけ 1/100 秒（`0:13.38` / `1.66秒`）。
+- **分割のコマについて（変更なし・設計確認）**: 分割は前半 `[trimStart, T)`・後半 `[T, trimEnd)` の半開区間で、`T` は丸めない。`T` がコマの途中でも、そのコマは前半の末尾 `T − f_k` と後半の先頭 `f_{k+1} − T` に分かれて合計 1 コマ分しか表示されない（2 回出ない）。後半を 1 コマ進めると、逆にそのコマの残りが飛ぶ。**分割位置を 1/100 秒などへ丸めると重なり・すき間の原因になるので丸めない**（回帰テスト: speedRamp.test.ts「分割は前半の終わり = 後半の始まり」）。つなぎ目のカクつきが見える場合は、分割の計算ではなく、プレビューで次の動画の play() 開始が 0.1 秒ほど遅れる境界の問題（13-286 の背景）を疑う。書き出しは境界待機で揃えている。
+
+### 13-298. 動画・画像 / BGM / ナレーションのセクションへファイルをドラッグ&ドロップして追加する
+
+- **ファイル**: `src/utils/fileDrop.ts`, `src/hooks/useFileDropZone.ts`（`useFileDropZone` / `usePreventWindowFileDrop`）, `src/components/common/FileDropOverlay.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/sections/BgmSection.tsx`, `src/components/sections/NarrationSection.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, `src/test/sectionFileDrop.test.tsx`
+- **要件**: セクション（閉じた見出しバーを含む）へファイルを落とすと追加できるようにする。動画・画像は動画/画像、BGM は音声＋音声付き動画、ナレーションは音声。
+- **設計**:
+  - **処理は「追加」ボタンと共通化**: `TurtleVideo` の input ハンドラから「ファイル配列を受け取る中核」を切り出した（`addLegacyBgmFile` / `addBgmClipFiles` / `addNarrationFiles`、動画・画像は既存の `processUploadedMediaFiles`）。input 版はこれを呼ぶ薄いラッパー。ドロップ専用の読み込み処理を別に作らない（ObjectURL 解放・メタデータタイムアウト・失敗件数トーストを二重管理しないため）。
+  - **受付判定は `<input accept>` と同じ文字列**で行う（`matchesFileAccept`。`type/*`・MIME・`.拡張子`）。動画・画像は `MEDIA_UPLOAD_ACCEPT`、BGM は `getBgmUploadAccept()`、ナレーションは `getAudioUploadAccept()`。`File.type` が空になる拡張子（Windows の .opus / .flac / .mkv など）は拡張子表で補う。受け付けないファイルは除外し、件数をトーストで伝える。
+  - **BGM の単一/複数**: section は `multiple: isMultiBgm`（iOS Safari の単一 BGM は先頭 1 件）。`handleDropBgmFiles` も `isIosSafari` で `addLegacyBgmFile` / `addBgmClipFiles` を振り分ける（ボタンの `onBgmUpload` / `onAddBgmClips` と同じ）。
+  - **ロック中**は `dropEffect='none'` とオーバーレイ「ロック中のため追加できません」を出し、drop しても追加しない。
+  - **表示**: `<section>` を `relative` にして `FileDropOverlay`（`pointer-events-none`）を重ねる。子要素の出入りで dragenter/dragleave が対で飛ぶため深さカウンタで管理し、window の drop/dragend でもリセットする。
+  - **Files 以外は無視**: `dataTransfer.types` に `Files` が無いドラッグ（ページ内のテキスト・要素）には反応しない。
+  - **セクション外へのドロップ対策**: ドロップ先以外へ落とすとブラウザがファイルを開いて編集画面から離脱する。`usePreventWindowFileDrop` が window で既定動作を止める（`dragover` は `defaultPrevented` でなければ `dropEffect='none'`、`drop` は常に preventDefault）。セクションの React ハンドラはルートで先に preventDefault 済みなので「コピー」表示は上書きされない。
+- **注意**:
+  - 新たにファイルを受け付ける UI（見えている `<input type="file">` や独自ドロップ領域）を作る場合、window ガードが Files の drop を preventDefault するため、**その要素自身で onDrop を処理する**こと（ネイティブ input へのドロップの既定動作には頼れない）。現状の file input はすべて `hidden`。
+  - section 内からポータルで出したポップオーバー上でも React の合成イベントは section へバブルするので、そこへのドロップもそのセクションへの追加になる（許容）。
+  - ドロップの props（`onDropMediaFiles` / `onDropBgmFiles` / `onDropNarrationFiles`）は任意。渡さなければドロップ先にならない（既存テストの描画を壊さない）。
+
+### 13-299. 位置の移動（パン）: 開始位置→終了位置を表示時間全体で直線補間し、ズームと同時に使える
+
+- **ファイル**: `src/utils/mediaPan.ts`（新規）, `src/types/index.ts`, `src/utils/indexedDB.ts`, `src/stores/mediaStore.ts`（`updatePanEndpoint` / `inheritPreviousPan` / `resetTransform('pan')` / 分割・続き）, `src/stores/projectStore.ts`, `src/hooks/useAutoSave.ts`, `src/utils/media.ts`（ポスターキー）, `src/flavors/standard/preview/androidPreviewCache.ts`, `src/utils/splitCompare.ts`, 両flavorの `preview/usePreviewEngine.ts`, `src/components/common/MiniPreview.tsx`, `src/components/media/ClipItem.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/TurtleVideo.tsx`（`mediaTransformPreviewKey`）, `src/constants/sectionHelp.ts`, `spec.md`, テスト `mediaPan.test.ts` / `clipPan.ui.test.tsx` / `overlayPreviewRefresh.test.tsx`（両実engine）/ `projectStoreSave.test.ts` / `useAutoSave.test.tsx`
+- **要件**: ズームイン/アウトと同じ感覚で、開始位置と終了位置を指定するとその位置へ動く。ズームと組み合わせて「目的の位置へずらしながら拡大」したい。
+- **契約（ズーム 13-264 と同じ考え方）**:
+  - 開始位置 = 既存の `positionX/Y`（位置・サイズの横・縦と共通）。終了位置 = 任意の `panEndPositionX/Y`（px・保存座標）。**両方が有限値のときだけ移動**。欠けていれば固定（旧データ互換）。
+  - `createMediaPanRangePatch` は開始＝終了（0.5px 未満差）なら終了を消して固定にする。固定中に開始を動かすと終了も追従、移動中は終了を保つ（ズームの `createMediaStartScalePatch` と同じ）。固定中に終了を触ると開始から動き始める（`createMediaPanEndpointPatch`）。
+  - 進み方は `localTime / duration` の線形でズームと同一。同時に使うと同じ瞬間に始まり終わる。
+- **描画**: 両flavorの `renderFrame` は `resolveMediaPosition(conf, zoomPreview?.scaleTime ?? localTime)`、standard のディゾルブ前クリップ／2画面表示の peer は `resolveMediaPosition(conf, overlapPeerLocalTime)`、ミニビューは `localTimeRef`。書き出しは同じプレビュー canvas を撮るので追加対応なし。カードのサムネイルは開始位置のまま（拡大率も開始倍率なので揃っている）。legacy `components/turtle-video/usePreviewEngine.ts` と `usePlayback.ts` は凍結のまま。
+- **編集の流れ**: 移動欄の操作はズーム端点と同じく `pausePreviewBeforeEdit` を通し、`onPreviewZoomEndpoint(endpoint)` で先頭/末尾を停止プレビューする（確認ボタンはズーム欄のものを共用し、移動欄には重複して置かない）。アコーディオン名は「フェード・ズーム・移動」へ改名。
+- **継承・分割**: 分割は分割時刻の補間位置を前半の終了・後半の開始へ。続きコピーは `createMediaPanHoldPatch`（終了位置で固定）。通常コピーは設定ごと複製。「前の素材の終了位置を引き継ぐ」は直前カードの終了位置で固定（ズームの引き継ぎとは独立）。
+- **注意**:
+  - `positionX/Y` を描画・判定で「その時刻の位置」として使わない。新しい描画経路を足すときは `resolveMediaPosition` を通す。
+  - 変更検知キー（自動保存ハッシュ、ポスターキー、Android キャッシュキー、`mediaTransformPreviewKey`）に `panEndPositionX/Y` を含めた。新しいキーを作るときも含めること。
+  - 2画面表示の「横位置の自動調整」は、移動を設定したカードを「触ったカード」とみなして調整しない（`hasUntouchedTransform`）。
+  - 未検証: standard のディゾルブ前クリップ（peer）経路の移動は単体テストなし（コードは同じ関数を使う）。イージング（ゆっくり始まる等）は未対応で、ズームと同じ線形。
+
+### 13-300. 停止中の描き直しは、末尾の前フレーム保持中でも黒から描く（移動の終了位置確認で絵が重なる）
+
+- **ファイル**: `src/utils/previewCanvasClear.ts`（`redrawStoppedDrawableFrame`）, 両flavorの `preview/usePreviewEngine.ts`（`isActiveFrameDrawableNow`）, `src/test/previewCanvasClear.test.ts`, `src/test/overlayPreviewRefresh.test.tsx`
+- **症状**: 動画カードで移動（13-299）の終了位置を変えると、プレビューの空いた側に画像の端が何重にも残り、ギザギザに重なって見えた。背面が黒にならない。
+- **原因**: 終了の確認は `localTime = duration − 0.001` を描く。動画の末尾 0.2 秒は `shouldHoldVideoFrameAtClipEnd` が働き、再生中の黒点滅対策として `holdFrame = true` になる。`shouldClearPreviewCanvas` は holdFrame 中は黒クリアしない。一方、絵自体は描ける（`readyState≥2`・非シーク）ので新しい位置で描画される。結果として、前の位置の絵の上へ重ね描きになっていた。拡大の縮小でも同じ形で起き得たが、移動で目立った。画像は末尾 hold が無いので起きない。
+- **対策**: `shouldClearPreviewCanvas` に任意入力 `redrawStoppedDrawableFrame` を追加した。停止中（`!_isExporting && !isActivePlaying && !isPlayingRef.current`）かつ表示中クリップの絵をこのフレームで描ける（動画は `hasFrame`、画像は `isImageReady`）なら、holdFrame より黒クリアを優先する。
+- **維持したもの**: hold 系の抑止（Android プレビュー・書き出し直後）、描画対象なし、タイムライン終端の保持は従来どおり優先する。再生中・書き出し中の hold も変えない。シーク中など描けないときは従来どおり前フレームを保持する（黒点滅させない）。
+- **回帰ガード**: 両実engineで、末尾付近で停止した動画（hold 発動状態）の終了確認中に移動の終了横位置を 3 回変え、本プレビュー canvas の動画描画の直前に毎回全面の黒クリアがあることを検証する。修正を外すと両flavorとも失敗する。注意: フェード用スナップショット canvas への複製 drawImage も呼ばれるので、本 canvas だけを数えること。
+
+### 13-301. カード設定を「サイズ・位置・動き／フェード・ぼかし／音量・再生速度」へ再分類し、構図は1組のスライダーで開始・終了を編集する
+
+- **ファイル**: `src/utils/mediaMotion.ts`（新規）, `src/components/media/ClipCompositionPanel.tsx`（新規）, `src/components/media/ClipItem.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/TurtleVideo.tsx`, `src/stores/mediaStore.ts`（`updateMotionPoint` / `setMotionEnd` / `inheritPreviousComposition` / `resetTransform('composition-default')`）, `src/utils/mediaZoom.ts`（リセット種別）, `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`, `spec.md`, テスト `clipMotion.ui.test.tsx`（`clipZoom.ui` / `clipPan.ui` を置き換え）/ `mediaMotion.test.ts` / `overlayPreviewRefresh.test.tsx` / `clipCardDisclosure.ui.test.tsx` / `clipsSectionPicker.test.tsx` / `sectionHelp(.Modal).test`
+- **問題**: 「位置・サイズ・回転・ぼかし調整」と「フェード・ズーム・移動」に分かれ、拡大率＝ズーム開始、横・縦＝移動の開始が2か所に出ていた。構図スライダーが9本（サイズ・横・縦／ズーム開始・終了／移動の開始・終了×横縦）あり、行き来とカードの長さが問題。フェード（効果）とズーム（構図）が同じ欄、ぼかし（効果）が構図の欄に混在。
+- **対策（UI だけ。保存形式・描画は不変）**:
+  - 欄を「サイズ・位置・動き」「フェード・ぼかし」（ぼかし無しの iOS は「フェード」）「音量・再生速度」の順に並べ替え。
+  - `ClipCompositionPanel`: スライダーはサイズ・横・縦の3本だけ。aria は従来どおり「拡大率」「横位置」「縦位置」。「動かさない」なら従来の `onUpdateScale`（`createMediaStartScalePatch` で固定なら両端連動）/`onUpdatePosition`（パン終了未設定なら追従）と `onPreviewScale`（13-272: 表示中カードは現在位置を保つ）。「動かす」なら `onUpdateMotionPoint(editPoint, patch)`（選んだ時点だけ。もう一方は保つ）と `onPreviewZoomEndpoint(editPoint)`（13-265 の端点停止プレビューを流用）。
+  - 「動かす」状態は「実際に動いている（`isMediaMotionActive`）」か「利用者が押した」の UI 状態。押した直後は終了を選び、終了＝開始の間は案内を出す。「動かさない」は `setMotionEnd(null)`、直前の終了を UI 状態で覚えて再度「動かす」で戻す（カードを再マウントすると忘れる）。親の `zoomPreviewEndpoint` が来たら編集時点をそれに合わせる。
+  - かんたん設定のズームイン／アウトは `setMotionEnd({...range.end, scale: start×1.2 or ÷1.2})`（従来の既定ズーム量と同じ）。「動かさない」からでも「動かす・終了」へ切り替える。
+  - 引き継ぎは `inheritPreviousComposition`: 直前カードの最後の構図（`resolvePreviousComposition`）を、動いていれば開始へ（終了は保つ＝動きが続く）、固定なら全体へ。旧 `inheritPreviousZoom` / `inheritPreviousPan` はストアに残す（UI からは呼ばない）。
+  - 黒帯除去は先頭、回転は一番下。黒帯除去は動かすときは選んだ時点のサイズに効く。
+  - 旧 props（`onUpdateZoomDirection` / `onUpdateZoomAmount`）は @deprecated の任意 props として残し、渡しても使わない。`onUpdateZoomEndpoint` / `onInheritZoom` / `onUpdatePanEndpoint` / `onInheritPan` などの旧配線は削除。
+- **ヘルプ**: 「サイズ・位置・動き」「フェード・ぼかし」の2項目に書き直し（ユースケース: 拡大だけ、動かす、かんたん設定、寄っていく例、引き継ぎ、分割・続き、リセット、回転）。iOS は回転・分割の説明を外し、2つ目を「フェード」にする。
+- **注意**:
+  - 動かすときのサイズ・位置編集は端点停止プレビューへ移る（13-272 の「現在位置を保つ」は動かさないときだけ）。選んだ時点の絵を見ながら編集するための意図的な仕様。
+  - 「動かす」中に開始を変えると、終了は元の値のまま残る（固定から動きが生まれる）。動かさないときの両端連動（13-264）とは別経路なので混ぜないこと。
+  - 新しく構図の UI を足すときは `mediaMotion.ts` を経由し、ズーム・移動の保存値を直接いじらない。
+
+### 13-302. 「サイズ・位置・動き」のスライダー欄を詰める（位置は横・縦をまとめ、数値欄の幅をそろえる）
+
+- **ファイル**: `src/components/media/ClipCompositionPanel.tsx`, `src/components/common/NumericSliderField.tsx` / `NumericStepperInput.tsx`（`inputWidthChars`）, `src/constants/sectionHelp.ts`, `src/test/clipMotion.ui.test.tsx`
+- **要望**: 項目ごとの上下の間隔が広い（特に横・縦）。見出しの「サイズ: 100%」の値は数値欄と重複。サイズの数値欄だけ横・縦より幅が広い。
+- **対策**:
+  - 横・縦を「位置（右・上が＋）」の見出し1行にまとめ、各行は1文字ラベル「横」「縦」を数値欄の左に置く（見出しの行を1つ減らす）。サイズ行は同じ幅の見えないラベル（`SPACER_LABEL`）で数値欄の左端をそろえる。
+  - 見出しから値を外す（値は数値欄だけ）。
+  - リセットは「サイズ」「位置」の見出しの右端に1つずつ。位置は横・縦をまとめて戻す（動かすときは開始なら中央、終了なら開始と同じ）。＋ボタンの隣には置かない（連打中の押し間違い防止）。
+  - リセットボタンは見た目 28px（`h-7 w-7 -my-1`）にして行の高さを伸ばさず、`after:-inset-2` の疑似要素で押せる範囲 44px 相当を保つ。見出しと欄の間は `gap-0.5`、欄どうしは `space-y-1.5`。
+  - `NumericStepperInput` に `inputWidthChars` を追加（省略時は従来どおり min/max から自動）。サイズ（50〜600・0.1刻み＝自動だと5桁）を横・縦と同じ4桁幅にそろえる。
+- **注意**: ラベルを数値欄の左に置くのは1文字の横・縦だけ。「サイズ」まで左に置くとスマホ幅（約300px）でスライダーが100px未満になり、細かい調整がしづらい。
+
+### 13-303. 「動き」の見出しをサイズ・位置とそろえ、かんたん設定（ズームイン／アウト）を廃止する
+
+- **ファイル**: `src/components/media/ClipCompositionPanel.tsx`, `src/utils/mediaMotion.ts`（`MEDIA_MOTION_QUICK_ZOOM_RATIO` 削除）, `src/constants/sectionHelp.ts`, `spec.md`, `src/test/clipMotion.ui.test.tsx`
+- **問題**: 「動き」だけトグルの左に太字で置かれ、サイズ・位置の見出しと書き方が違って何の項目か分かりにくい。「動かさない」なのにズームイン／アウトのボタンが出て矛盾。動かすにすると「かんたん設定」と「開始／終了」が並んでごちゃつく。利用者は細かく調整するので、かんたん設定は使わない。
+- **対策**: 見出しを「動き（ズーム・位置の移動）」としてサイズ・位置と同じ書き方（アイコン＋小さい灰色文字の行）にし、トグルはその下（`aria-labelledby` で見出しに紐付け）。かんたん設定（ズームイン＝終了を開始の120%、ズームアウト＝1/1.2）と「開始と同じにする」は削除し、「動かす」のときだけ「編集する時点（選んで、上のサイズ・位置を変更）」と開始→終了の要約を出す。止めるのは「動かさない」だけ。選択ボタンの高さはキャプションの割り付けボタンと同じ `py-1.5`（44px の `min-h-11` をやめる）。
+- **注意**: ズームイン／アウトは「動かす」→「終了（末尾）」でサイズを変えて作る。ヘルプは例として説明する。13-301 のかんたん設定の記述は本節で置き換え。
+
+### 13-304. 音量・再生速度・BGM・ナレーション・キャプション位置のスライダー欄を「サイズ・位置」と同じ作法にそろえる（CompactField）
+
+- **ファイル**: `src/components/common/CompactField.tsx`（新規: `CompactFieldHeader` / `CompactMuteToggle` / `COMPACT_RESET_BUTTON_CLASS` / `COMPACT_AXIS_LABEL_CLASS` / `COMPACT_SPACER_LABEL`）, `src/components/media/ClipItem.tsx`（音量・再生速度・速度バッジ位置）, `src/components/media/ClipCompositionPanel.tsx`（定数を共通化）, `src/components/sections/BgmClipList.tsx` / `BgmSection.tsx` / `NarrationSection.tsx`（開始位置・音量）, `src/components/common/CaptionPositionField.tsx`（カスタム位置）, `src/test/compactAudioRows.ui.test.tsx`
+- **問題**: 動画の「速度」が `NumericSliderField` の左ラベル（既定 `w-6`）に収まらず縦書きになっていた。音量の行は左にミュートボタンがあり、速度の数値欄と左端がそろわない。音量・開始位置のリセットが＋ボタンの右にあり、他の欄（見出しの右端）と違う。速度バッジの横・縦の間隔が広い。BGM・ナレーションも同じ形。
+- **取り決め（新しい欄もこれに従う）**:
+  - 見出し行 `CompactFieldHeader`: 左に「アイコン＋項目名（＋ミュート等 `titleExtra`）」、右に補足 `info` と小さなリセット。値は見出しに重ねない。リセットは＋の隣に置かない。
+  - 行は数値欄から始める（左ラベルを置かない）。対になる横・縦だけ 1 文字ラベル `COMPACT_AXIS_LABEL_CLASS`。並べる欄は `inputWidthChars` で数値欄の幅をそろえる（音量・速度・速度バッジ位置は 3 桁、サイズ・位置は 4 桁）。
+  - ミュートは見出しの項目名の隣の `CompactMuteToggle`（title は従来どおり「ミュート」／「ミュート解除」、文言は「ミュート」／「ミュート中」）。
+  - 見出しと欄の間は `gap-0.5`。リセットは見た目 28px・押せる範囲 44px 相当（after 疑似要素）。
+- **個別**: 動画の再生速度は見出し「再生速度」の右に「元 Xs → 表示 Ys」とリセット（等倍へ）。速度の値（◯倍）は見出しから外した（数値欄にある）。BGM・ナレーションの開始位置は見出し「開始位置: mm:ss」右に「長さ」とリセット（mm:ss は秒の数値欄と形式が違うので残す）。キャプションのカスタム位置は「横 (右+)」→「横」（向きは下の注記）。
+- **対象外**: ロゴ（ウォーターマーク／エンドロール）の `NumericControl` は 1 行完結（ラベル列の隣にリセット、＋の隣ではない）の別デザインなので変更しない。
+- **注意**: 既存テストは mute を `getByTitle('ミュート')`、開始位置リセットを aria-label「〜の開始位置を0秒にリセット」で探す。名前を変えないこと。
+
+### 13-305. ミュートは見出しの右側へ、1 文字・2 文字ラベルは数値欄にくっつけない
+
+- **ファイル**: `src/components/common/CompactField.tsx`, `src/components/common/NumericSliderField.tsx`, `src/components/media/ClipItem.tsx`, `src/components/media/CaptionItem.tsx`, `src/components/sections/BgmClipList.tsx`, `src/components/sections/NarrationSection.tsx`, `src/test/compactAudioRows.ui.test.tsx`
+- **要望**: 13-304 で「音量」の隣に置いたミュートが見出しに近すぎて分かりにくい。速度バッジの「横」「縦」が数値欄にくっついて見える。
+- **対策**:
+  - ミュート（`CompactMuteToggle`）は `titleExtra` ではなく `info`（右寄せ・リセットの左）に置く。右側の並びは `gap-3` にしてリセットとの押し間違いを避ける。`titleExtra` にはボタンを置かない。
+  - `COMPACT_AXIS_LABEL_CLASS` を `w-3` → `w-4`（文字幅 12px より広く、左右に余白）。サイズ・位置、速度バッジ位置、キャプションのカスタム位置にまとめて効く（サイズ行の空白ラベルも同じ幅）。
+  - 同じ理由で、`NumericSliderField` の既定ラベル幅を `w-6` → `w-7`（動画トリムの「開始」「終了」）、キャプションの「開始:」「終了:」を `w-8` → `w-9`。
+
+### 13-306. ミュートは従来どおり数値欄の左のアイコンボタンへ戻す（音量だけの例外）。再生速度は他の欄と同じ形
+
+- **ファイル**: `src/components/common/CompactField.tsx`（`CompactMuteToggle` をアイコンだけの h-9 w-9 / md:h-8 md:w-8 ボタンへ、`COMPACT_ROW_ICON_CLASS`）, `src/components/media/ClipItem.tsx`, `src/components/sections/BgmClipList.tsx`, `src/components/sections/NarrationSection.tsx`, `src/test/compactAudioRows.ui.test.tsx`
+- **経緯**: 13-304 でミュートを見出しの項目名の隣、13-305 で見出しの右側へ移したが、どちらも違和感が強いという判断。従来の「数値欄（%）の左にアイコンだけ・ミュート中は赤」に戻した（13-305 のミュート位置の記述は本節で置き換え）。
+- **形**:
+  - 音量: 見出し「音量 …… ↺」（見出しにスピーカーアイコンは付けない＝ボタンと重複）→ 行 `[ミュート][数値欄]%[スライダー][−][+]`。title は「ミュート」／「ミュート解除」。
+  - 再生速度: 見出し「⏱ 再生速度 …… 元→表示 ↺」→ 行は数値欄から始める（サイズ・ぼかし等と同じ）。音量の数値欄と左端・幅を合わせる必要はない（利用者確認済み）。
+- **注意**: ミュートを見出しへ移す案は2回不評だったので再提案しない。リセットは引き続き見出しの右端（＋の隣に置かない）。
+
+### 13-307. サイズのスライダーを 50〜200% で細かく動かせる目盛りにし、サイズ・位置の数値欄を 5 文字幅にする
+
+- **ファイル**: `src/utils/mediaZoom.ts`（`MEDIA_SIZE_SLIDER_STOPS`）, `src/components/media/ClipCompositionPanel.tsx`, `src/constants/sectionHelp.ts`, `src/test/clipMotion.ui.test.tsx`, `src/test/overlayPreviewRefresh.test.tsx`
+- **問題**: 50〜600% を等分したスライダーでは、よく使う 50〜200% がバーの 27% しかなく、1px あたり約 3% 動いて粗い。数値欄（4 文字幅）では「157.4」の末尾が切れる。
+- **対策（新機能は足さず、バーの中だけで対応）**: 既存の `sliderStops` を使い、50〜200% は 0.5% 刻み・200〜300% は 1% 刻み・300〜600% は 5% 刻みの目盛りにした（50〜200% がバーの約 65%）。数値欄と −/+（2.5%）は従来どおり 0.1% 単位。黒帯除去の 102.5% は目盛りに含む。サイズと横・縦の数値欄は `inputWidthChars=5` にそろえた。
+- **注意**: 目盛り付きスライダーの値は「目盛り番号」。テストでスライダーを直接動かすときは `MEDIA_SIZE_SLIDER_STOPS.indexOf(%)` を渡す（目盛りに無い値は数値欄から入れる）。表示中の値が目盛りの間（例 157.4）でも、つまみは最寄りの目盛りに置かれ、値は変えない。
+
+### 13-308. 横・縦の 2 行の行間を 6px にする（数値欄が上下でくっつく）
+
+- **ファイル**: `src/components/common/CompactField.tsx`（`COMPACT_AXIS_SECOND_ROW_CLASS = 'mt-1'`）, `src/components/media/ClipCompositionPanel.tsx`, `src/components/media/ClipItem.tsx`（速度バッジ）, `src/components/common/CaptionPositionField.tsx`, テスト `clipMotion.ui` / `compactAudioRows.ui`
+- **問題**: 13-302 で横・縦を `gap-0.5`（2px）で続けたため、高さ 36px の数値欄どうしが上下でほぼ接して見えた。速度バッジの横・縦も同じ。
+- **対策**: 見出しと 1 行目の間（2px）は変えず、2 行目（縦）だけに `mt-1` を足して行間 6px にする。横・縦を並べる欄はこの定数を使う。
+
+### 13-309. 色合い（手動調整・前の素材に色を合わせる MKL 色転写）を WebGL で掛ける【standard 限定】
+
+- **ファイル**: `src/utils/mediaColor.ts`（正規化・色の式の CPU 版・変更検知キー）, `src/utils/colorMatch.ts`（RGB 統計・3×3 固有分解・MKL）, `src/utils/mediaColorRenderer.ts`（共有 WebGL キャンバスのシェーダ）, `src/utils/mediaColorSampler.ts`（最初／最後のコマの読み取り・補正の計算）, `src/components/media/ClipColorPanel.tsx`, `src/components/media/ClipItem.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/TurtleVideo.tsx`, `src/stores/mediaStore.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/components/common/MiniPreview.tsx`, `src/app/appFlavorUi.ts`（`supportsMediaColor`）, テスト `mediaColor` / `clipColor.ui` / `mediaStore` / `projectStoreSave`
+- **要求**: 続けてつないだ動画（A の最後のコマから B を生成など）の色合いの微妙な差を、AI を使わずにそろえたい。明るさ・彩度などの基本調整も欲しい。
+- **自動合わせ（MKL）**: 前のクリップの最後のコマ（trimEnd − 1/30 秒）と、このクリップの最初のコマ（trimStart + 1/60 秒）を長辺 192px で読み、RGB の平均・共分散から `T = Σs^-1/2 (Σs^1/2 Σt Σs^1/2)^1/2 Σs^-1/2`、`o = μt − T μs` を求める（Pitié & Kokaram 2007）。Reinhard（チャンネル別の平均・標準偏差）より相関まで合い、色を動かしすぎない。保存は `colorMatch {matrix(行優先9), offset(3), strength 0〜100}`。
+  - 安全策: 共分散に 1e-4 の正則化、T の固有値を 0.4〜2.5 に制限、単色（分散和 < 2e-5）は平均だけ、alpha < 128 の画素は集計しない。
+  - 前のクリップの色設定は CPU 版で掛けてから基準にする（A→B→C の連鎖でつなぎ目ごとにそろう）。合わせると手動調整は 0 に戻す（`applyColorMatch`）。
+  - 読み取りは一時 video を 1 本ずつ作り、`finally` で `removeAttribute('src')`＋`load()`＋DOM から外す（プレビューの共有 video・背景撮影と競合させない、Android の同時デコード数を増やさない）。計算中に並びが変わったら結果を捨てる。
+- **色の式**（sRGB 0〜1、この順。シェーダと `applyMediaColorGradeToRgb` で同一）: 自動補正 `mix(c, clamp(M c + o), s)` → 色温度・色かぶりのゲイン（輝度で正規化）→ 明るさ（ガンマ `2^(−v/100)`）→ コントラスト（50% 軸 `2^(v/100)` 倍）→ 彩度（輝度と `1+v/100` で混合）。
+- **描画**: `prepareColorGradedSource(source, w, h, resolveMediaColorGrade(item))` が共有 WebGL キャンバス（`preserveDrawingBuffer`・素材解像度・長辺 3840 上限）を返す。何も変えない設定は null → 素材をそのまま返し GPU を使わない。適用箇所: renderFrame の通常描画（止めたコマの控え含む）・ディゾルブ前クリップ／2 画面の相手（peer）・プレビュー末尾の freezeFrame・ミニプレビュー。ぼかしは色の後（画像のぼかし縮小元に色済みキャンバスを渡す）。
+- **注意**:
+  - 戻り値のキャンバスは**次の呼び出しで上書き**される。作ったら他の素材の prepare を挟まず直後に drawImage すること（今の 3 箇所はすべてそうなっている）。
+  - 毎フレーム `gl.getError()` を呼ばない（GPU 同期待ちになる）。コンテキスト喪失時は次の呼び出しで作り直し、初期化できない環境では色を掛けずに描く（`console.warn` は 1 回）。jsdom のテストでは WebGL が無いので素材がそのまま返る。
+  - GLSL の `mat3` は列優先。保存値（行優先）は転置して `uniformMatrix3fv` に渡す。GPU と CPU 版の一致はヘッドレス Chrome（SwiftShader）で最大差 1/255 を確認済み。式を変えるときは両方を同時に変える。
+  - 変更検知: `buildMediaColorKey()` を自動保存ハッシュ・自動ポスター・Android プレビューキャッシュ・`mediaTransformPreviewKey`（停止中の再描画）に含めている。新しい色項目を足したらキーにも足す。
+  - apple-safari のエンジンには入れていない（standard で付けた色は iPhone / iPad では反映されない。MiniPreview だけは共通部品なので色が付く）。
+
+### 13-310. 色合い欄を一番下へ移し、次の素材にも合わせられるようにする。スライダーの溝をカラーバーにする
+
+- **ファイル**: `src/components/media/ClipColorPanel.tsx`, `src/components/media/ClipItem.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/TurtleVideo.tsx`（`handleMatchMediaColor(id, direction)`）, `src/utils/mediaColorSampler.ts`（`computeClipColorMatchToNeighbor` / `resolveColorMatchEdges`）, `src/index.css`（`.color-grade-slider` / `--*`）, `src/constants/sectionHelp.ts`, テスト `clipColor.ui` / `mediaColor`
+- **要望**: 2 枚目の色の方が良いときに 1 枚目を 2 枚目へ合わせたい。色合いは使う頻度が低いので音量・速度より下へ。項目の縦の間隔を詰めたい。両端の小さな説明文字は読めないので、色の帯で表したい。
+- **対策**:
+  - 「↑ 前の素材に合わせる」「↓ 次の素材に合わせる」を横に並べる。前＝(前の end, 自分の start)、次＝(次の start, 自分の end) のコマを比べ、補正は押したカードにだけ入る。ClipsSection は `i > 0` / `i < length - 1` で各ハンドラを渡す。計算後は「同じ向きの隣が同じ id か」を確かめ、並びが変わっていたら捨てる。
+  - 欄の順を「サイズ・位置・動き → フェード・ぼかし → 音量・再生速度 → 色合い」にする（画像カードは音量欄が無いのでフェードの次）。
+  - スライダーの溝を CSS 変数 `--color-grade-track` のグラデーションにする（スマホ用カラーピッカー `.mobile-color-picker-slider` と同じ作り）。溝 10px・つまみ 18px（白・濃い縁）。`input[type=range].color-grade-slider::...` は画面幅ごとの拡大ルールより詳細度が高いので幅によらず同じ。入力要素は `h-5 bg-transparent`。コントラストは上下半分の明暗差が右ほど広がる 2 層、彩度は虹色の上に左ほど濃い灰色を重ねる 2 層。どのバーも中央＝無調整。
+  - 両端の説明文字の行を削除し、見出しとスライダーの間の余白を 0、項目間を `space-y-1` にした（1 項目あたり約 20px 短い）。
+- **注意**: 同じつなぎ目で両方のカードから合わせ合うと打ち消し合う（後から押した側が、すでに合わせた相手の見た目に合わせるため）。どちらか一方で合わせる、とヘルプで案内している。相手のカードの色を後で変えても、合わせ済みの補正は自動では取り直さない。
+
+### 13-311. 自動で合わせた色補正をスライダーの値へ分解し、表しきれない残りだけを行列で持つ
+
+- **ファイル**: `src/utils/colorMatchDecompose.ts`（新規）, `src/utils/mediaColorSampler.ts`（`computeColorMatchFromPixels` が `{ match: 残り | null, adjust }` を返す）, `src/stores/mediaStore.ts`（`applyColorMatch(id, match, adjust)`）, `src/components/TurtleVideo.tsx`, `src/components/media/ClipColorPanel.tsx`, テスト `mediaColor` / `mediaStore` / `clipColor.ui`
+- **要望**: 自動で合わせた結果をカラーバー（スライダー）の位置として見せ、そこから手で詰めたい。
+- **方式**: MKL の T を合わせる側の画素に掛けた色 d を目標に、(1) 5 項目の整数値を座標降下（刻み 32→1）で探して P(c)≈d、(2) e=P⁻¹(d) への c→e の 3×4 リッジ回帰で残り R を求め、P(R(c))≈d。(3) R の改善が RMS 1/255 未満なら R は付けない。描画順は従来どおり colorMatch（R）→ colorAdjust（P）なので保存形式・シェーダは不変。
+- **UI**: 合わせるとスライダーが結果の値になる（今の手動値は置き換え）。R があるときだけ、スライダーの下に「細かな色ずれの補正」（0〜100%・くるくるで外す・説明 1 行）を出す（旧「自動補正の強さ」）。
+- **注意**:
+  - P の逆変換は clamp で失われた分を戻せない（白飛び・黒つぶれの画素）。回帰はそれも含めた最小二乗なので、R はあくまで近似。
+  - 計算量は画素 1500 × 評価 最大 ~1200 回（数百 ms 以内）。画素数・刻みを増やすときは UI の待ち時間に注意。
+  - 実アプリ確認（青く暗くずらした画像）: 明るさ 14・コントラスト 30・彩度 8・色温度 98・色かぶり −6 ＋残りの補正で、平均色 (108,146,179)→(129,158,159)（基準 129,158,160）。
+
+### 13-312. 自動合わせを手動調整の下へ移し、向いている場面の注意書きと「合わせる前に戻す」を付ける
+
+- **ファイル**: `src/components/media/ClipColorPanel.tsx`（`ColorSnapshot` / `onRestore`）, `src/components/media/ClipItem.tsx`（`onRestoreColor`）, `src/components/sections/ClipsSection.tsx`（`onRestoreMediaColor`）, `src/components/TurtleVideo.tsx`（`handleMatchMediaColor` が `Promise<boolean>`、`handleRestoreMediaColor`）, `src/constants/sectionHelp.ts`, テスト `clipColor.ui`
+- **問題**: 場面の違う素材（泡だらけの部屋 → ふつうの部屋）で合わせると、MKL は分布の違い（白い泡が多い＝明るく低彩度）をそのまま色の差として移すため、明るさ +50・彩度 −43 のように白黒に近い色合いになった。欄の先頭にボタンがあると最初に押されやすい。
+- **対策**:
+  - 並びを「手動スライダー → 細かな色ずれの補正 → 隣の素材に自動で合わせる（注意書き・前／次）→ すべて元に戻す」にした。注意書きは橙の枠で「同じ場面の続き向け／場面が違うと色が大きく変わる」。
+  - 合わせる直前の `{ adjust, match }` をパネルの state に控え、ハンドラが `true` を返したときだけ「合わせる前に戻す」を出す。押すと `applyColorMatch(id, match, adjust)` で戻す。合わせ直しても最初の控えを保つ。戻す・全リセット・欄を閉じる（パネルのアンマウント）で消える。保存はしない。
+- **注意**: ハンドラは結果を入れたときだけ `true` を返す（失敗・並び替えでの取り消しは `false`）。戻す先は控えた時点の値なので、合わせた後に手で動かした分も戻る（「合わせる前」の意味どおり）。
+
+### 13-313. 色合いスライダーの溝の先端に反対側の端の色が出る（グラデーションが縁で繰り返される）
+
+- **ファイル**: `src/index.css`（`.color-grade-slider` の `::-webkit-slider-runnable-track` / `::-moz-range-track`）
+- **問題**: 溝の左の先端に右端の色（彩度なら赤紫、色温度ならオレンジ）、右の先端に左端の色が細く出ていた。
+- **原因**: 溝に 1px の縁を付けている。背景は既定で padding-box 基準に描かれ border-box まで塗られるため、縁の 1px ではグラデーションが繰り返され、反対側の端の色が回り込む。
+- **対策**: 溝に `background-origin: border-box` を足し、縁まで含めた大きさでグラデーションを 1 回だけ描く。バーの配色は変えない。
+- **注意**: 縁付きの要素にグラデーション背景を付けるときは `background-origin: border-box`（または縁を無くす）。なお一度、真ん中の色をそろえる・彩度を縞にする変更をしたが、要望（先端の色）と違い見た目も悪化したため元の配色に戻した。
+
+### 13-314. 先頭付近で停止中に見た目を調整すると、背景撮影の戻しシーク中に黒が一瞬挟まる
+
+- **ファイル**: `src/components/TurtleVideo.tsx`（`isDisplayVideoSeekingWhileStopped`・`restorePreviewAfterCapture`・キャプション/ロゴ/見た目変更時の再描画 effect）
+- **問題**: プレビューを 0:00 付近で止めたまま、先頭カードの色合い・ぼかし等のスライダーを動かすと、プレビューに黒い画面が 1〜2 フレームずつ挟まる（色合い追加で目立ったが、ぼかしでも同じく再現＝既存不具合）。
+- **原因**（ヘッドレス Chrome で `fillRect` を横取りして特定）:
+  1. 先頭カードの見た目が変わると、自動ポスター／タイトルミニビューの背景撮影が共有 video を撮影時刻へ動かす（スライダー変更のたびに effect の片付けも走る）。
+  2. 片付けの `restorePreviewAfterCapture` が video を表示位置へ戻すシークを始めた**直後に** `renderFrame` していた。見た目変更の再描画 effect も同様に、シーク中に描いていた。
+  3. engine は停止中 `time <= 0.05` を強制黒クリアする（終端フレーム残像対策・変えない）。シーク中の video は描けないため、seeked で描き直されるまで黒が見えた。
+- **対策**: 停止中に表示位置の video がシーク中なら、`restorePreviewAfterCapture` と見た目変更の再描画 effect は描かない。画面には直前の絵が残り、シーク完了の seeked（`handlePreviewMediaSeeked` → `handleSeeked`）が最新の設定で描き直す。engine の先頭黒クリアは変更しない。
+- **確認**: 0:00 で停止・動画クリップ・明るさ 0→60（途中 350ms の止まり 6 回）／ぼかし 0→30 で、黒フレームが 2 → 0。止めた後の絵は最終値（平均輝度 92）で、背景撮影完了後も正しい色。
+- **注意**: 停止中の「描き直し要求」を足すときは、表示 video がシーク中かを先に確認する（`isDisplayVideoSeekingWhileStopped`）。描かずに待っても seeked で必ず描き直される。背景撮影の hold 中に seeked が来た場合は無視されるが、その撮影の後片付けで再度戻す／描くので最終的に最新になる。
+
+### 13-315. 全体設定の「色合い 一括設定」（個別色合いへの重ね掛け＋雰囲気プリセット＋強さ連動）【standard 限定】
+
+- **ファイル**: `src/types/index.ts`, `src/utils/mediaColor.ts`, `src/utils/mediaColorRenderer.ts`, `src/stores/mediaStore.ts`, `src/stores/projectStore.ts`, `src/utils/indexedDB.ts`, `src/hooks/useAutoSave.ts`, `src/components/modals/SaveLoadModal.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/components/common/MiniPreview.tsx`, `src/components/sections/ClipColorSettingsPanel.tsx`（新規）, `src/components/media/ClipColorPanel.tsx`, `src/components/media/ClipItem.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/TurtleVideo.tsx`, `src/utils/media.ts`, `src/constants/sectionHelp.ts`, テスト `mediaColor` / `mediaStore` / `projectStoreSave` / `clipColor.ui`
+- **要件**: 各素材の個別色合い補正（暗さ補正や隣の素材合わせ）を壊さずに、作品全体を青み・緑み・ダーク・モノクロ等の雰囲気へ一括で染めたい。ワンクリックの雰囲気プリセット＋強さ調整で 5 本スライダーへ連動反映し、そこから微調整できるようにする。
+- **重ね掛けアーキテクチャ**:
+  - `ResolvedMediaColorGrade` に 2 段目 `overlay: ResolvedMediaColorAdjustParams | null` を追加し、`resolveMediaColorGrade(item, globalAdjust)` が「個別 → 全体」の 2 段変換を構築する（個別未設定で全体のみ有効なときは 1 段目だけで完結）。
+  - WebGL シェーダ（`mediaColorRenderer.ts`）は `uHasOverlay` により 1 パスのまま 2 段目を実行（`applyMediaColorGradeToRgb` と同一式）。`usePreviewEngine.ts`（通常・末尾静止・ディゾルブ/2画面相手）と `MiniPreview.tsx` の全 4 箇所へ接続し、字幕・タイトル・透かしには掛けない。
+  - 「隣の素材に自動で合わせる」は個別土台のみを対象とするため、後から全体の雰囲気を変えてもつなぎ目がズレない。
+- **プリセット＆強さ連動**: 先頭に「ナチュラル（元の色・補正なし）」ボタン（押すと `resetBulkColor`）を置き、その下に `MEDIA_COLOR_PRESETS`（9種：クール / シネマ / ウォーム / 明るい / ダーク / くっきり / レトロ / モノクロ / タートル）を 3 列×3 段で配置。`scaleMediaColorAdjust(base, strength)`（0〜150%）で強さを連動。ストアには永続対象の `bulkColorEnabled` / `bulkColorAdjust` に加え、実行時 UI 状態として `bulkColorPresetId` / `bulkColorPresetStrength` を保持。一時オフ（`bulkColorEnabled=false`）時はプリセット選択ハイライトと強さバーを隠して違和感なく見比べられる。強さ変更で 5 本スライダーが連動し、5 本スライダーの手動操作で `bulkColorPresetId = null` へ移行して微調整を継続できる。
+- **注意**:
+  - `apple-safari` では `uiCapabilities.supportsMediaColor` が `false` のため UI・ヘルプとも非表示。
+  - 自動保存（`useAutoSave.ts`）・停止中再描画（`mediaTransformPreviewKey`）・自動ポスター／タイトルミニビュー（`buildAutoProjectPosterContentKey`）・全クリア（`handleClearAll`）のすべてへ全体色合いキーを含めている。
+
+### 13-316. 出力アスペクト比「素材に合わせる（auto）」と異比率クリップの「画面いっぱいに合わせる（切り抜き）」【standard 限定】
+
+- **ファイル**: `src/stores/canvasStore.ts`, `src/utils/splitCompare.ts`, `src/utils/indexedDB.ts`, `src/stores/mediaStore.ts`, `src/stores/projectStore.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/components/common/MiniPreview.tsx`, `src/components/common/ClipThumbnail.tsx`, `src/components/media/ClipCompositionPanel.tsx`, `src/components/sections/ClipsSection.tsx`, `src/components/sections/PreviewSection.tsx`, `src/components/TurtleVideo.tsx`, `src/components/modals/SettingsModal.tsx`, `src/constants/sectionHelp.ts`, `src/components/modals/SectionHelpModal.tsx`, テスト `canvasStore` / `projectStoreSave` / `autoAspectRatio.ui`
+- **要件**: 正方形（1:1）や 4:3・3:4・21:9 などのオリジナル比率の動画をそのままプレビュー・書き出ししたい。また、異比率が混在したときに勝手に切り抜かれず全体表示しつつ、ワンクリックで黒帯なし切り抜きへ切り替えたい。
+- **設計**:
+  - `AspectRatio` を `'landscape' | 'portrait' | 'auto'` へ拡張。`resolveCanvasReferenceDimensions(items, aspectRatio)` は `auto` 時に動画・画像の両方（90°/270°回転反映）を対象とし、正方形（±5%）より長方形を優先・長方形は先頭を採用、すべて正方形なら先頭正方形。
+  - `computeCanvasSizeFromSource` / `resolveExportCanvasSize` の `auto` 分岐は、比率を `9:16〜21:9` へクランプし、H.264 Level 4.2 上限を守るため「長辺最大 1920・短辺最大 1080」（HD/プレビューは 1280/720）・偶数丸めへ収める（1:1→1080×1080）。
+  - 初期フィット方式を `resolveMediaFitMode(aspectRatio)` に単一ソース化（`portrait` のみ `cover`、`landscape`/`auto` は `contain`）し、本プレビュー・書き出し・ミニプレビュー・サムネイルの 4 箇所を統一。
+  - `usePreviewEngine.ts` の `handleMediaElementLoaded` で `IMG` 要素も `setMediaSourceDimensions` を呼び、画像のみのプロジェクトでも比率決定と切り抜き計算が効くようにした。
+  - `ClipCompositionPanel` に `computeMediaCoverFillScale()` による「画面いっぱいに合わせる（切り抜き）」ボタンを追加（比率差 3% 超かつ `contain` 時のみ表示、`scale` のみを更新するため保存形式・動き機能と完全互換）。
+- **注意**: `auto` モードで素材構成により比率が変わったときも自動ポスターが再取得されるよう、`TurtleVideo.tsx` は `posterAspectKey = auto:${canvasWidth}x${canvasHeight}` をキーに使う。
+
+### 13-317. AI ナレーション原稿生成モデルを無料枠ありの現行安定版（Gemini 3.5 Flash-Lite / 3.8 Flash / 3.1 Flash-Lite）へ更新
+
+- **ファイル**: `src/constants/index.ts`, `src/components/TurtleVideo.tsx`, `src/hooks/useAiNarration.ts`
+- **問題**: 原稿生成モデルのフォールバック `gemini-2.0-flash` / `gemini-1.5-flash` が既に提供終了し、メインの `gemini-2.5-flash` も非推奨（2026年12月1日から `gemini-3.5-flash-lite` へ自動転送）となっていた。また Gemini 3.x 系で思考パート（`part.thought === true`）が返った場合に原稿テキストへ混入する恐れがあった。
+- **対策**:
+  - `GEMINI_SCRIPT_MODEL` を `gemini-3.5-flash-lite`、`GEMINI_SCRIPT_FALLBACK_MODELS` を `['gemini-3.8-flash', 'gemini-3.1-flash-lite']` へ更新（いずれも Google AI Studio 公式料金表で Free Tier 無料枠あり・安定版）。
+  - レスポンスの `parts` 読み取り時に `!part.thought` で思考パートを除外する防御を追加。
+  - TTS の既定（`gemini-3.8-flash-tts` / `gemini-3.8-flash-lite-tts`）は既に最新かつ無料枠あり・廃止予定なしのため据え置き。
+- **注意**: 今後モデルを更新する際も、Free Tier（無料枠）の有無を公式料金ドキュメント（`ai.google.dev/gemini-api/docs/pricing`）で確認してから選定する。
+
+### 13-318. 終了予定の `gemini-2.5-flash-preview-tts`（従来方式 `legacy`）を削除し Gemini 3.8 TTS へ一本化
+
+- **ファイル**: `src/types/index.ts`, `src/constants/index.ts`, `src/utils/gemini38Tts.ts`, `src/components/modals/AiModal.tsx`, `src/components/TurtleVideo.tsx`, `src/hooks/useAiNarration.ts`, `src/stores/uiStore.ts`, `src/stores/projectStore.ts`, `src/hooks/useAutoSave.ts`, `src/constants/sectionHelp.ts`, テスト `aiModalTtsEngine` / `modalBackdropBehavior` / `uiStore`
+- **問題**: `gemini-2.5-flash-preview-tts` が 2026年12月18日に提供終了予定のため、UI に従来方式を残すと終了後にエラーになる。
+- **対策**:
+  - `NarrationTtsEngine` を `'gemini-3.8-flash-tts' | 'gemini-3.8-flash-lite-tts'` の 2 択へ整理し、`GEMINI_TTS_MODEL` 定数および `AiModal` / `TurtleVideo` / `useAiNarration` の 2.5 TTS 経路を削除。
+  - `normalizeNarrationTtsEngine()` を追加し、旧保存データや既存クリップに `'legacy'` / `undefined` が入っていても読込・編集・生成時に自動で `'gemini-3.8-flash-tts'` へ移行する（後方互換維持）。
+- **注意**: 過去の保存プロジェクトにある `aiTtsEngine: 'legacy'` は読込時に `normalizeNarrationTtsEngine()` で自動変換される。
+
+### 13-319. アスペクト比変更（16:9 / 9:16 / 正方形・特殊比）時の短辺基準スケーリング統一（取り残し解消）
+
+- **ファイル**: `src/components/sections/CaptionSection.tsx`, `src/components/modals/CaptionSettingsModal.tsx`, `src/utils/watermarkOverlay.ts`, `src/utils/canvas.ts`, テスト `captionStyle` / `mediaBlur` / `watermarkOverlay`
+- **背景**: キャプション・動画タイトル本体の描画は既に短辺基準（`resolveCaptionLayoutScale = Math.max(0.1, min(w, h) / 1080)`）で統一済みだったが、以下の 3 箇所に旧来の高さ基準・長辺基準が残っていた。
+- **対策**:
+  - `CaptionSection.tsx` / `CaptionSettingsModal.tsx` のプリセット位置→カスタム位置変換（`resolvePresetCustomPercent` 等）を `canvasHeight / 1080` から `resolveCaptionLayoutScale(canvasWidth, canvasHeight)` へ統一。
+  - `watermarkOverlay.ts` の `resolveLogoFeatherPixels` を `canvasHeight / 1080` から短辺基準 `Math.min(canvasWidth, canvasHeight) / 1080` へ変更し、ロゴ本体サイズ（`resolveLogoLayoutScale`）と縦画面・正方形でのぼかし比率を一致させた（引数省略時の後方互換あり）。
+  - `canvas.ts` の `resolveMediaBlurPixels` を `Math.min(longSide / 1920, shortSide / 1080)` から短辺基準 `shortSide / 1080` へ変更し、正方形（1080×1080）や 4:3（1440×1080）でメディアぼかしが約半分〜75% に弱まる問題を解消。
+- **注意**: 今後アスペクト比や解像度に連動する UI・描画ピクセル計算（文字・余白・ぼかし・ロゴ・縁幅）を追加する際は、必ず短辺基準（`Math.min(canvasWidth, canvasHeight)`）を使い、高さ単独や長辺比率を混ぜない。
+
+### 13-320. ナレーションの「現在位置で分割」（Android/PC standard 限定）
+
+- **ファイル**: `src/stores/audioStore.ts`, `src/components/sections/NarrationSection.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, テスト `audioStore.test.ts` / `narrationSplit.ui.test.tsx` / `sectionHelp.test.ts`
+- **要件**: 動画の「現在位置で分割」と同じ要領で、ナレーションをプレビューの現在位置で前半（そこまで）と後半（そこから先）に分割し、後半の開始位置をずらすなどの調整を簡単に行いたい。
+- **設計**:
+  - `resolveNarrationSplitSourceTime(clip, timelineTime)` で、タイムライン時刻から音源内時刻 `trimStart + (timelineTime - startTime)` を求め、両側に最小再生尺 `MIN_AUDIO_CLIP_DURATION_SEC`（0.05 秒）が残るかつ `clip.file instanceof File` の場合のみ分割を許可。
+  - `audioStore.splitNarration(id, timelineTime)` は前半の `trimEnd` を分割点に更新し、後半を元クリップの直後（`index + 1`）へ挿入（`startTime = 分割時のタイムライン時刻`・`trimStart = 分割点`・元の `trimEnd` を維持）。
+  - 後半クリップには `URL.createObjectURL(source.file)` で独立した URL を発行し、`source.blobUrl` がある場合も新しい URL へ差し替えることで、前半削除時の `revokeObjectUrl` 巻き添えを防止（`duplicateNarration` も同様に安全化）。
+  - 既存の `NarrationClip` フィールド（`startTime` / `trimStart` / `trimEnd`）のみで構成されるため、保存・復元・自動保存・再生・書き出しスキーマは完全互換。
+  - UI は動画分割・簡単コピーと同様に `standard` フレーバー限定で「プレビュー位置を反映（開始／終了）」直下に配置し、操作時は `pausePreviewBeforeEdit('split-narration')` を経由。
+- **注意**: ナレーションの分割・複製では `blobUrl` を元の参照のままスプレッドコピーしないこと（削除時の `revokeObjectUrl` で他方の保存・シリアライズが壊れる）。
+
+### 13-321. AIナレーションスタジオ刷新（PC 2カラム / スマホ 2タブ / 代表＆よく使う声 / 瞬間タグ / 英語 style 最適化）
+
+- **ファイル**: `src/components/modals/AiModal.tsx`, `src/utils/gemini38Tts.ts`, `src/utils/narrationDelivery.ts`, `src/utils/aiVoiceRecents.ts`（新規）, `src/constants/sectionHelp.ts`, テスト `aiModalTtsEngine.test.tsx` / `gemini38Tts.test.ts` / `narrationDelivery.test.ts`
+- **課題**: 旧モーダルは全項目が縦 1 列に常時展開され、スマホで約 3 画面分の縦長＋声一覧の二重スクロールが発生していた。また「声の雰囲気」と「演出チップ」が重複し、日本語の演出指示が英語 `speech_metadata.style` へ混在送信されたり、全体速度と部分アクセントの速度が矛盾送信されて効きにくくなるケースがあった。
+- **対策**:
+  - **レイアウト刷新**: PC（`md:`）は上端基準（`md:items-start md:pt-8 md:pb-6`）かつ `max-w-5xl` で丸番号付き枠（`1 原稿・部分演出` → `2 声・話し方`）の左右 2 カラム＋本体セクション相当の文字サイズ（`text-xs md:text-sm` 中心）で上下余白を詰めて 1 画面へ収め、声探しサブビュー中は画面縦いっぱいの固定高（`md:h-[min(calc(100vh-3.5rem),1100px)]`）にして広々見渡せつつタブ・フィルタ切替時の上下ガタつきを防止。スマホは 2 タブ＋下部固定の作成フッターへ整理し、二重スクロールを廃止。
+  - **代表ボイス＆よく使う声・探索整理**: `aiVoiceRecents.ts` に調子の異なる男女各 4 パターン（女: Zephyr/Leda/Kore/Achernar、男: Puck/Charon/Enceladus/Algenib）と `localStorage` ベースの使用履歴（最大 4 件常時表示・切替前の声も `ensureAiVoiceInHistory()` で保護して誤選択時にワンタップ復帰可能）を追加。「もっと別の声を探す」サブビューでは基本 30 声に雰囲気タグ 5 択、追加音声に日本語用途タグ 6 択＋年代タグ 5 択（`〜20代`〜`60代〜`、詳細プルダウンは折りたたみ）＋ `formatCompactExtraVoiceCard()` による重複・英語原文ノイズ除去の清潔な 2 行カードを導入し、選択後は自動でメインへ戻る（基本ボイスの二重英語表記も解消）。
+  - **瞬間タグのワンタップ挿入＆スクロール維持**: `narrationDelivery.ts` に定番 4 種（`【少し間】`/`【長めの間】`/`【ため息】`/`【笑い】`）＋「その他」トグルで直下へインライン展開する追加 14 種（`【ひと呼吸】`/`【ハッと驚く】`/`【ホッと一息】`/`【くすっと笑い】`/`【咳払い】`/`【えへん】` 等）を追加。範囲マーカー `《…》` と記号を分け、TTS 送信時に公式の `<short pause>`/`<gasp>`/`<chuckle>`/`<cough>` 等へ変換、キャプション生成時の `stripDeliveryMarkers` では全公式タグを自動除去する。部分アクセント・瞬間タグ適用時は `useLayoutEffect` で `scrollTop` とカーソルを復元（`focus({ preventScroll: true })`）し、長文先頭での編集時に最下部へ飛ばないよう防止。
+  - **話し方プロンプト改善**: `gemini38Tts.ts` で性格の被らない雰囲気 9 種（自然・明るく元気・温かく親しみ・ニュース解説・熱血盛り上げ・重厚シリアス・楽しくコミカル・切なくしんみり・静かささやき）を排他統合し、`normalizeGemini38StyleDetail()` で日本語演出を簡潔な英語 `speech_metadata.style` へ変換。部分アクセントが `fast`/`slow` や `whispers`/`shouting` の区間では全体側の相反指示を自動除外する。
+- **注意**: `AiModal` は `textarea` 起点の下スワイプ無効・上端シート下スワイプ閉じ・領域外クリック閉じなし・`popstate` 多重モーダル保護をすべて維持する。
+
+### 13-322. 動画再生速度の 0.05 刻み・小数 2 桁表示対応、および音割れ自動調整の一括音量設定維持
+
+- **ファイル**: `src/utils/playbackSpeed.ts`, `src/components/common/NumericStepperInput.tsx`, `src/components/common/NumericSliderField.tsx`, `src/components/media/ClipItem.tsx`, `src/utils/timelineWaveform.ts`, `src/components/TurtleVideo.tsx`, `src/components/sections/ClipColorSettingsPanel.tsx`
+- **対策**:
+  - **動画再生速度 0.05 刻み＆2.00 表示**: `VIDEO_PLAYBACK_SPEED_STEP` を `0.05` へ変更し、`NumericStepperInput` / `NumericSliderField` に `fixedDecimals` を追加（`type="number"` のまま `2.00` / `1.05` を表示し、`role="spinbutton"` と PC 用 `section input[type="number"]` CSS を維持）。幅は `inputWidthChars={5}` へ調整。等倍判定はすべて `VIDEO_PLAYBACK_SPEED_STEP / 2`（`0.025`）へ統一し、`0.95` / `1.05` が等倍誤認されないよう修正。
+  - **音割れ自動調整での一括音量チェック維持**: `TurtleVideo.tsx` の `handleFixClipping` が無条件に個別音量更新（`updateNarrationVolume` 等 → `bulk*VolumeEnabled: false` 化）を呼んでいたため、一括音量設定のチェックが外れていた。`planClippingFixUpdates()` を導入し、一括音量設定が ON の種別（ナレーション / BGM / 個別ロック混在のない動画）では最小倍率で `setBulk*Volume()` を呼ぶよう改善。
+  - **色合い 一括設定ヘッダー統一**: `ClipColorSettingsPanel.tsx` の `SettingsAccordionHeader` から単独で付いていた `Palette` アイコンを削除し、他の全体設定アコーディオンと見た目を統一。
+
+### 13-323. 正方形・正方形に近い比率（1:1 / 4:3 / 4:5 等）でのキャプション／タイトル過大表示を面積×短辺ハイブリッド基準で解消
+
+- **ファイル**: `src/utils/captionStyle.ts`, `src/test/captionStyle.test.ts`
+- **背景**: 13-319 の短辺基準 `min(w, h) / 1080` のみでは、16:9（1920×1080）や 9:16（1080×1920）は適切でも、正方形（1080×1080）で短辺＝横幅＝1080 となるため画面面積に対する文字占有率が 16:9 の約 1.78 倍に膨らみ、正方形に近い動画で文字が大きく見えていた。
+- **対策**: `CAPTION_REFERENCE_AREA_SIDE = 1440`（`√(1920×1080)`）を導入し、`resolveCaptionLayoutScale(w, h)` を `Math.max(0.05, Math.min(min(w, h) / 1080, Math.sqrt(w * h) / 1440))`（非正・不正値は `0.1`）へ変更。
+  - 16:9 / 9:16 は `min(w, h) / 1080 === √(w*h) / 1440` となるため既存挙動と **100% 一致**。
+  - 正方形（1:1）は `0.75`（`1080×1080`）/ `0.50`（`720×720`）、4:3 は約 `0.866` となり、画面面積に対する文字比が 16:9 と一致。
+  - 21:9 等の超ワイド・超縦長は短辺基準が効くため従来どおりはみ出しを防止。
+  - 同一アスペクト比であれば高解像度・低解像度・プレビュー・書き出しすべてでキャンバスに対する文字比率は完全に一致（`standard` / `apple-safari` / キャプション単独書き出し / ミニプレビュー / 動画タイトル / プリセット→カスタム変換の全経路へ自動反映）。
+- **注意**: キャプション／タイトルのレイアウトスケールを個別計算せず、必ず `resolveCaptionLayoutScale(canvasWidth, canvasHeight)` を単一ソースとして経由させる。
+
+### 13-324. サムネイル設定の小枠・PCホバー拡大枠・スマホ拡大ライトボックスを出力アスペクト比へ一致させ、黒帯誤認と縦圧迫を解消
+
+- **ファイル**: `src/components/common/ThumbnailZoomPreview.tsx`, `src/components/sections/PreviewSection.tsx`, `src/components/common/ClipThumbnail.tsx`, `src/test/previewSectionActionButtons.test.tsx`, `src/test/clipThumbnail.test.tsx`
+- **背景**: サムネイル設定の表示枠とホバー拡大は 9:16 / 正方形（±10%）/ 16:9 の 3 択固定、クリップカードの PC ホバー拡大は `320×187` 固定だったため、少し横長の正方形や 4:3・4:5 の動画で左右／上下に黒い帯が見え、書き出しサムネイル自体に黒帯が入るかのような誤解を生んでいた。
+- **対策**:
+  - `ThumbnailZoomPreview.tsx` に `resolveCompactPosterBoxSize(ratio)`（面積基準 62・最大 `96×60`、9:16 は `34×60` で従来の 80px より縦圧迫を低減）と `resolveHoverPreviewBoxSize(ratio)`（面積基準 240・最大 `340×240`、16:9=`320×180` / 1:1=`240×240` / 4:3=`277×208` / 9:16=`135×240` と縦高さを正方形基準 240px に抑えつつ任意比率へ連続対応）を追加。
+  - `PreviewSection.tsx` のサムネイル設定は `projectPosterAspectRatio`（`auto` 時は `canvasWidth / canvasHeight`）から小枠とホバー拡大枠を算出。
+  - `ClipThumbnail.tsx` の PC ホバー拡大枠も `projectCanvasWidth / projectCanvasHeight` から算出（カードヘッダーの小枠 `104×61` は 3 行グリッド＋番号バッジの整列とスマホ縦幅保護のため維持）。
+  - スマホ（タッチ端末）は従来どおりホバーではなくタップでライトボックス表示（`max-h-[min(70vh,480px)]` 上限付き）とし、画像周りの無駄な横幅黒帯を抑えるよう `w-auto max-w-full` へ調整。
+
+### 13-325. PC プレビューヘッダーへのエクスポート昇格・書き出し専用モーダル導入・解像度バッジ移設・グローバルヘッダーへの一括クリア統合
+
+- **ファイル**: `src/components/modals/ExportStatusModal.tsx`（新規）, `src/components/sections/PreviewSection.tsx`, `src/components/common/SettingsAccordionHeader.tsx`, `src/components/Header.tsx`, `src/components/TurtleVideo.tsx`, `src/constants/sectionHelp.ts`, `src/test/previewSectionActionButtons.test.tsx`, `src/test/headerFlavorBadgePlacement.test.tsx`
+- **課題**:
+  - PC（2 カラム表示）では左カラムが縦に長くなると `lg:sticky` の右プレビュー下端にある「動画ファイルを作成」が画面外へ隠れ、左端までスクロールしないと押せなかった。
+  - プレビューのシークバーが書き出し進捗バーを兼ねており役割が混在していた。また書き出し中の中断・完了後の編集復帰が「■ 停止」ボタン頼みで分かりにくかった。
+  - 「一括クリア」はプロジェクト全体のリセット操作であるにもかかわらずプレビュー最下部に置かれていた。
+- **対策**:
+  - `PreviewSection.tsx` に `useIsDesktopTwoColumn()`（`matchMedia('(min-width: 1024px)')`）を導入し、DOM 重複を避けながら PC（`>= 1024px`）ではプレビューヘッダー右側のみ、モバイル（`< 1024px`）ではプレビュー下部のみに枠なし単色ブルーの角丸四角（`rounded-xl` ＋ `Clapperboard` アイコン）の「動画ファイルを作成」トリガーボタンを配置。
+  - 書き出し開始（`isProcessing`）〜完了（`exportUrl`）の間は PC・スマホ共通で画面中央の `ExportStatusModal`（`createPortal`, `z-[350]`, `bg-black/75 backdrop-blur-sm`）を表示。書き出し中はモーダル内の軽量モニター `<canvas>` へ本番プレビュー Canvas から約 12.5fps（80ms 間隔・長辺最大 480px）で縮小ミラー描画し、専用プログレスバー（準備中は `0%` 固定＋待機パルスから開始し、`0% → 100%` へ単調増加）・経過時間・画面維持の注意書き・「中止」ボタンを表示する（本番 `<canvas>` 自体は移動・非表示にしないため WebCodecs / Safari MediaRecorder 出力への影響ゼロ）。ミニプレビューは横幅いっぱいの黒背景コンテナを使わず `<canvas>` 自身へ `aspectRatio`・`max-h-[min(36vh,260px)]`・`ring-1` を付与して中央配置とし、正方形・縦長（9:16）でも左右黒帯を出さず出力比率どおりに見せる。完了後は右上の「×」ボタン・「ダウンロード (.ext)」・WebM 注意・「編集に戻る」ボタンへ切り替わる（背景クリック・Escape での誤閉じ禁止）。未ダウンロードのまま「編集に戻る」／「×」を押したときのみモーダル内に確認パネルを表示し、ダウンロード済みなら即座に閉じる。
+  - 設定モーダル（`SettingsModal.tsx`）は PC での読みやすさ改善（`md:max-w-xl`・文字サイズ/コントラスト強化・選択中 1 行説明・「APIキー」タブの初回向け手順整理と重複注記の集約）を行い、「動画の出力品質」を「動画の出力」カードへ統合して「出力品質（standard のみ）」と「出力中のミニプレビュー（表示する／表示しない、既定 ON、`canvasStore.exportLivePreviewEnabled`・`localStorage` 永続化）」を配置。OFF 時はモニター `<canvas>` と `rAF` コピー処理を完全に止めて低スペック端末の負荷をゼロに抑える。
+  - 解像度バッジ（`preview-output-size-badge`）は `SettingsAccordionHeader` の `trailing` prop（`aria-hidden="true"` でアクセシブル名 `'動画出力オプション'` を維持）経由で「動画出力オプション」見出し右へ移設。
+  - `Header.tsx` を 1 セットのレスポンシブ構造へ統合しつつ、細い縦区切り線の右側に赤み系の消しゴムアイコンボタン（`Eraser`・`border-rose-500/45 bg-rose-500/10 text-rose-300`、`?` ボタンと対になるアイコン統一デザイン）として「一括クリア」を配置し、`TurtleVideo.tsx` の `hasClearableProjectContent` と `isProcessing` で有効/無効を制御。
+
+### 13-326. standard export 中の同期シークによる一時黒塗り（背景のみ黒・キャプション残存）の防止
+
+- **ファイル**: `src/flavors/standard/preview/previewPlatform.ts`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/test/standardPreviewStallRecovery.test.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **対象 flavor**: **standard（Android / PC）のみ**。apple-safari、動画 export の駆動方式（壁時計 + wall dilation + native 1x 連続再生）、backpressure（13-153）、境界待機（13-187〜189）、提示スナップショット（13-204）、`shouldDrawFadeStallSnapshotFrame`（プレビュー専用）は変更しない。
+- **問題**:
+  - 実機書き出し MP4（`1108×854`・30fps・39.45秒）の途中 `5.333s〜6.667s`（41フレーム・1.37秒間）で、キャプションだけが通常描画されたまま動画背景のみが完全黒（`#000000`）になり、その後 `6.700s` で突然復帰する症状が発生した（コンテナ `stts`・音声・後半は正常であり 2026-07-27 の backpressure 後半黒画面とは別系統）。
+  - `renderFrame` の前半（`needsCorrection`・`holdFrame` 判定）は `!activeEl.paused && !hasExportPlayFailure` を要求する一方、後半（`videoEl.currentTime = targetTime` 実行）は `paused` やフォールバックシークでも発火する条件不一致があった。そのため backpressure 再開直後（`paused === true`）等で `drift > syncThreshold` になると、(1) `holdFrame=false` のまま `ctx.fillRect('#000000')` で黒クリア → (2) 同一フレーム後半で同期シークが走って `videoEl.seeking=true` 化 → (3) `canRequestPlay` がシーク前の古い変数 `isVideoSeeking` を見て `play()` も同時衝突 → (4) `isVideoReady` が `false` になり `ctx.drawImage` スキップ → (5) 続くシーク完了待ちの全フレームで `holdFrame=true` が「直前の真っ黒 Canvas」をそのまま保持し続ける、という連鎖が起きていた。
+- **対策**:
+  1. **シーク判定の単一ソース化**: `shouldSyncActiveVideoDuringPlayback()` を `previewPlatform.ts` へ抽出し、黒クリア前の `willSeekActiveVideoThisFrame` 判定（フォールバックシーク・image→video 安定化シークも含む）と後半の実シーク判定を完全一致させた。
+  2. **シークと `play()` の同一フレーム衝突防止**: `canRequestPlay` の判定をシーク前の古い変数 `isVideoSeeking` ではなく最新の `!videoEl.seeking` に変更した。
+  3. **export 向けオンデマンド退避スナップショット（通常時負荷ゼロ）**: プレビュー用 `fadeStallSnapshotRef` とは独立した `exportStallSnapshotRef` と `shouldDrawExportStallSnapshotFrame()` を新設。export 中は通常フレームでは一切コピーせず、**シーク発行直前（`willSeekActiveVideoThisFrame && hasFrame` で `force=true`）** と **フェード区間中（200ms 間隔）** だけ正常な動画フレームを退避する。シーク中・デコード未完時は退避フレーム＋現在時刻キャプションを綺麗に合成し（黒塗り 0・キャプション二重文字 0）、退避が無いフレームは `holdFrame=true` で黒クリア自体を抑止する。`shouldBlackoutFadeTail`（13-77）は引き続き最優先で黒にする。
+- **注意**:
+  - 動画 export 全体のフレーム駆動化、毎フレーム seek、常時 prefetch（13-186）、通常フレームごとの余分なスナップショットコピーは導入しないこと。
+  - 診断ログ `standard.export.video.syncSeek` / `standard.export.video.stallSnapshotHold`（1秒スロットル）を追加しているため、実機再発時は設定のログタブからシーク発生時刻・drift・paused 状態を確認できる。
+- **実機確認結果（2026-11-22）**:
+  - ユーザー実機にて再書き出しを行い、一時黒塗り症状が解消したことを確認済み（`ac49ba8`）。現行の成功実装として、シーク判定の単一ソース化・同一フレーム `play()` 衝突防止・オンデマンド退避スナップショットの組み合わせを維持すること。
+
+### 13-327. 2画面表示（並べて比較）のフェード: 左右の映像と境界線を 1 つの画面として共通 alpha で消す【standard 限定】
+
+- **ファイル**: `src/utils/splitCompare.ts`（`resolveSplitComparePairFade` / `resolveSplitComparePairFadeState` / `resolveSplitComparePairFadeAlpha` 新設、`drawSplitCompareDivider` の不正 alpha ガード）, `src/flavors/standard/preview/usePreviewEngine.ts`（`splitCompareFrame.fade` / `fadeSettings`、active・peer・境界線の alpha、fade region 判定）, `src/constants/sectionHelp.ts`, `spec.md`, `src/test/splitCompare.test.ts`, `src/test/standardPreviewEngine.test.tsx`
+- **対象 flavor**: standard（Android/PC）のみ。書き出しの映像は同じ `renderFrame(_isExporting)` を通るため preview / export 共通。apple-safari（2画面表示なし・逐次再生）と凍結済みの `src/components/turtle-video/usePreviewEngine.ts` には該当経路が無い。`exportEngine.ts` はキャプションレイヤーと音声だけを扱い、映像は描かない。
+- **症状**: 2画面表示でフェードアウトすると、終端で画面全体が黒になっても中央の境界線（白/黒）だけが残った（停止して再生ボタンが出る終端フレームで目立つ）。
+- **原因**:
+  - `drawSplitCompareDivider(ctx, geometry)` を alpha なし（=1）で呼んでいたため、左右がフェードで黒くなっても線は不透明のまま描いていた。
+  - 左右はカードごとのフェードを使っていた（active は自分の `localTime`、peer は `resolveSplitComparePeerFadeAlpha`）。peer の時刻は自分の尺の手前で止めるため、短いほうがフェードアウト ON だと自分の終わりで先に黒くなり、その後ペアの終わりまで黒い半面が続いた。逆に短いほうが OFF・長いほうが ON だと、短いほう（最後のコマ）が不透明のまま残り片側だけ消えなかった。同じ設定でも、フェードイン＋アウトの按分がクリップ尺ごとなので尺が違うとフェードインの速さがずれた。
+- **対策（規則）**:
+  - ペアを 1 区間として共通フェードを求める。どちらかのカードで ON ならペア全体に掛け、秒数（既存 UI の 0.5 / 1 / 2 秒）は ON のカードのうち長いほう。ペア尺＝長いほうの尺で、フェードイン＋アウトが超えるときは単体と同じく按分。
+  - 時刻はタイムライン時刻 − ペア先頭（head の start）。active の `localTime` は終端フォールバックで短いほうの尺に寄る（`findActiveTimelineItemWithTransitions` が最後のカード＝partner を返す）ため使わない。
+  - active・peer・境界線に同じ `splitCompareFrame.fade.alpha` を掛ける。`isInFadeIn/OutRegion` も比較中はペアの値にする（active 自身が OFF でもペアがフェード中なら毎フレーム黒クリア＋alpha 描画。前フレーム保持だとフェードが見えない／0df405e と同じ理屈）。
+  - `drawSplitCompareDivider` は NaN 等の不正 alpha を 0 扱いにする（Canvas は NaN の `globalAlpha` 代入を無視して不透明のまま描くため）。
+- **変えていないもの**: 2画面でないカードのフェード（カードごと・従来の按分）、フェード時間 UI（`PresetFadeDurationField` / `FADE_DURATION_STOPS = [0.5, 1, 2]`）、トランジションのフェード(黒/白)、音声のフェード（active・peer・export とも従来どおりカードごと。peer 音声は引き続き `resolveSplitComparePeerFadeAlpha`）。
+- **テスト**: `splitCompare.test.ts` に境界線 alpha（0・負・NaN は描かない／小さい alpha はそのまま）と共通フェード（0.5/1/2 秒・尺違い・片方だけ ON・秒数違い・按分・終端クランプ）。`standardPreviewEngine.test.tsx` で画像 2 枚のペアを `renderFrame` し、左右の `drawImage` と境界線 `stroke` の `globalAlpha` が一致すること、終端で線を描かず中央の列が黒になること（簡易ピクセルモデル）、export フラグでも同じこと、2画面でないカードは従来どおりカード単位であることを確認。旧実装では比較の 5 件が失敗することを確認済み。
+- **注意**:
+  - 比較中の映像フェードをカードごとの計算へ戻さないこと（片側だけ・線だけが残る）。境界線を描く箇所を増やすときも必ず同じ alpha を渡す。
+  - フェードインも同じ共通係数を使う。2枚でフェードインの設定が違う場合は、OFF 側もペアとして立ち上がる（仕様として明記）。
+  - 実機（Android の 2 本同時デコード）での見え方は未確認。
+- **更新（13-328）**: フェードの ON/OFF と秒数の出どころを「カードから求める」から「ペア設定に保存」へ移し、音声も 2 画面まとめてフェードするよう変更した。上の「どちらかのカードで ON・長いほう」の規則は、旧データの移行と 2 画面を ON にしたときの引き継ぎにだけ使う。`resolveSplitComparePeerFadeAlpha` は削除済み（13-328 参照）。
+
+### 13-328. 2画面表示のフェードをペア設定（2画面の設定パネル）へ移し、音声も 2 画面まとめてフェードする【standard 限定】
+
+- **ファイル**: `src/types/index.ts`（`SplitCompareSettings.fadeIn` / `fadeOut` / `fadeInDuration` / `fadeOutDuration` 必須）, `src/utils/splitCompare.ts`（`SPLIT_COMPARE_DEFAULT_PAIR_FADE` / `pickSplitComparePairFade` / `hasSplitComparePairFadeFields` / `deriveSplitComparePairFadeFromClips` / `migrateLegacySplitComparePairFades` / `resolveSplitComparePairFadeForIndex` / `resolveClipAudioFadeWindow` 新設、`resolveSplitComparePairFade(settings, head, partner)` へ変更、`resolveSplitComparePeerFadeAlpha` 削除）, `src/stores/projectStore.ts`（読み込み時の移行）, `src/hooks/useAutoSave.ts`, `src/utils/projectDiagnostics.ts`, `src/components/sections/ClipsSection.tsx`, `src/components/media/ClipItem.tsx`, `src/flavors/standard/preview/usePreviewEngine.ts`, `src/flavors/standard/preview/usePreviewAudioSession.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/constants/sectionHelp.ts`, `spec.md`, テスト（`splitCompare.test.ts`, `splitCompareFade.ui.test.tsx`（新規）, `splitCompareConnector.ui.test.tsx`, `standardPreviewEngine.test.tsx`, `stores/projectStoreSave.test.ts`, `stores/mediaStore.test.ts`, `useAutoSave.test.tsx`）
+- **目的**: 2 画面のフェードを編集する場所を 1 つ（コネクタの 2 画面設定）にし、左右の映像・境界線・2 枚の音を同じ係数で立ち上げ・消す。
+- **データ**: ペア設定（head の `splitCompareToNext`）が持つ。新規はオフ・1 秒。`normalizeSplitCompareSettings` は ON/OFF（boolean）が無ければオフ・1 秒、秒数は有限の正数以外 1 秒。保存（`serializeMediaItem` が normalize を通す）・自動保存ハッシュ・解析レポート（`compareWithNext.fadeIn/fadeOut`）に含める。コピー・続き追加・分割・移動・Android preview cache key は `splitCompareToNext` オブジェクトごと扱うため追加対応不要（コピー／続きは従来どおりペア設定を引き継がない）。
+- **移行**: `loadProject` で `deserializeMediaItem` の後に `migrateLegacySplitComparePairFades(items, 保存データの splitCompareToNext 一覧)`。**実際の head（`resolveSplitCompareRoles`）で、保存データに fadeIn/fadeOut（boolean）が無いものだけ**、2 枚のカードから「どちらかで ON・ON のうち長い秒数・どちらも OFF は 1 秒」で求める。按分はしない（保存値は 0.5/1/2 のまま、描画時に `resolveSplitComparePairFade` が按分）＝以前と同じ見え方。移行時は `SYSTEM` ログ「2画面のフェードを旧データのカード設定から移行」。
+- **UI**: コネクタの 2 画面パネル（並べ方〜長さの下）に「フェード（2画面まとめて）」。`SplitCompareFadeRow` = チェック + `PresetFadeDurationField`（`ariaLabel` は「2画面のフェードイン時間」等、オフ中は秒数 disabled）。`data-testid`: `split-compare-fade-settings` / `split-compare-fade-in` / `split-compare-fade-out`（チェックは `-toggle` 付き）。カード側は `ClipItem` の `isSplitCompareFadeShared` が true のとき「フェード」欄のチェックと秒数を出さず `clip-split-compare-fade-note-{id}`「2画面表示中は2画面の設定でフェードを変えます」。ぼかしはカードごとのまま。
+  - `isSplitCompareFadeShared` は `supportsTransitions && splitCompareRoles[i] !== null`（役割で判定）。既存の `isInSplitComparePair`（直前/自分に設定があるか・なめらか接続の案内用で `playbackSpeed.ts` と同じゆるい判定）は流用しない。最後のカードに残った設定や partner に残った設定ではカードのフェードを隠さない。apple-safari は 2 画面を逐次再生するので常にカードのフェードを出す。
+- **ON/OFF**: 初めて ON（コネクタが覚えている設定が無い）は `createDefaultSplitCompareSettings(…, deriveSplitComparePairFadeFromClips(head, partner))` でカードのフェードを引き継ぐ。OFF（「オフ」・紫側）は `handleChangeSplitCompare` で直前のペアのフェードを `pickSplitComparePairFade` で head・partner の両カードへ書き戻す（partner がロック中でも、見え方を保つための書き戻しなので行う）。もう一度 ON はコネクタが覚えている最後のペア設定（フェード込み）を戻す。
+- **音声（共通エンベロープ）**:
+  - プレビュー: active は `splitCompareFrame.regionById.has(id)` なら `vol *= splitCompareFrame.fade.alpha`、peer は `resolveMediaPlaybackVolume(conf) * splitCompareFrame.fade.alpha`（peer 終了後は従来どおり 0）。`preparePreviewAudioNodesForTime` もペアならペアの係数（standard の既定ポリシー `muteNativeMediaWhenAudioRouted=false` では早期 return するため現状は通らない）。
+  - 書き出し: `offlineRenderAudio` の動画音声は `resolveClipAudioFadeWindow(mediaItems, index, clipStart)` の区間・秒数でゲインを組む。ペアは 2 枚とも「ペアの始まり〜長いほうの終わり・ペア設定の秒数」、ペア外は従来の式（カードのフェード・`> duration` で按分）。短いほうの音源は自分の終わりで止まる（ペアのフェードアウト区間より前に終わる場合は無フェードで切れる＝従来のフェード OFF と同じ）。ディゾルブのクロスフェードはペア境界では 0 のまま。
+- **テスト**: 正規化・移行（旧ペア＋カードのフェード → ペア、保存済みが優先、partner/最後の残り設定は移行しない、壊れた値）、保存往復（手動/自動・再保存で残る）、`resolveSplitComparePairFade` がカードを見ないこと、UI（パネルのチェックと 0.5/1/2 の 3 段・ON 引き継ぎ・OFF 書き戻し・再 ON 復元・ペアのカードの案内・ペア外のカードは従来どおり）、プレビュー映像（左右・線が同じ alpha、カードのフェードは効かない）、プレビュー音声（2 枚の `volume` がペアの係数で一致・ペアオフならカードのフェードが付いていても 1・ペア外は従来）、書き出し音声区間（`resolveClipAudioFadeWindow`）。peer 音声の係数を外すと音声テスト 4 件が落ちることを確認済み。
+- **注意**:
+  - 比較中のフェード（映像・音とも）をカードの `fadeIn/fadeOut` から読むよう戻さないこと。編集 UI はペア設定だけを書く。
+  - ペアを暗黙に解消する操作（partner の削除で head が最後になる等）では書き戻しをしないため、カードに残っていた（ペア前の）フェードに戻る。
+  - iOS（apple-safari）で同じプロジェクトを開くと、2 画面は逐次再生でカードのフェードを使う（ペアのフェードは使われない）。
+  - `.agents/skills` / `.github/skills` の overview は `npm run skills:sync` で同期する。
+
+### 13-329. BGM クリップ／ナレーションのプレビュー追従でシークを重ねない（動画ベース BGM の区間が無音になる不具合）
+
+- **ファイル**: `src/flavors/standard/preview/previewAudioClipSync.ts`（新規）, `src/flavors/standard/preview/usePreviewEngine.ts`（`processNarrationClip`）, `src/test/previewAudioClipSync.test.ts`（新規）, `src/test/standardPreviewEngine.test.tsx`
+- **対象 flavor**: **standard（Android / PC）の通常プレビューのみ**。`processNarrationClip` を通る BGM クリップとナレーションが対象。書き出し中（`_isExporting`）と `avoidNarPause`（`muteNativeMediaWhenAudioRouted` 経路。standard では実質未使用）は従来処理のまま。レガシー単一 BGM（`processAudioTrack`）、apple-safari、export 音声生成は変更しない。
+- **問題**: 動画ファイルを BGM にしてトリミングした区間が、プレビューで鳴ったり鳴らなかったりする（毎回ではない）。動画・画像の一括音量を再生中に上げたときに起きやすい。
+- **原因**:
+  - 従来は区間内で毎フレーム「`|currentTime - タイムライン位置| > 0.5秒` なら pause → シーク → seeked 後に play」としていた。シーク中の `currentTime` はシーク先で止まったままタイムラインだけ進むため、**シーク（＋再生開始）に 0.5 秒以上かかると、完了前に次のシークが重なり続けて永久に鳴らず、区間全体が無音**になる。
+  - 再生中は区間に入る前に要素を頭出ししていなかったため、区間に入った瞬間に必ずシークが走っていた。
+  - 動画コンテナは音声ファイルよりシークが重い。再生中に一括音量スライダーを動かすと、全体の再描画・タイムライン波形の再合成・自動保存などでメインスレッドが詰まり、`play()` の開始も遅れて 0.5 秒の境界を越えやすい（一括音量の値そのものが BGM を消しているわけではない）。
+  - ヘッドレス Chrome で動画 BGM の出力を AnalyserNode で計測し、要素のシークを 0.6 秒に遅らせると **修正前は区間 1.9 秒が完全に無音（可聴サンプル 0）** になることを再現した。0.3〜0.45 秒では遅れて鳴る。
+- **対策**（判定は `previewAudioClipSync.ts` の純関数。要素ごとの状態は `WeakMap<HTMLMediaElement, PreviewAudioClipSyncState>`）:
+  1. **シークを重ねない**: `element.seeking` の間は新しいシークを出さず、gain 0 で完了を待つ。
+  2. **先回りシーク**: 0.5 秒超のずれは「今の位置」ではなく、実測したシーク所要時間＋再生開始所要時間（上限 1.5 秒）だけ先へシークする。早く終わったらタイムラインが追いつくまで鳴らさずに待つ。所要時間は遅くなった環境にはすぐ合わせ、速くなったときは半分ずつ戻す。
+  3. **play() 開始待ち**: `play()` 後に `currentTime` が進み始めるまで（最大 1.5 秒）は、ずれて見えても再シークしない。
+  4. **区間前の頭出し**: 区間開始の 2 秒前から、止めてある要素を `trimStart` へ先にシークしておく（再生中・停止中の描画とも）。区間に入った瞬間のシークがなくなる。
+  5. 終端で止まった要素（`ended`）には `play()` しない（先頭から鳴り直すため）。停止中の描画では計測途中の状態を捨て、放置時間を所要時間として学習しない。
+- **注意**:
+  - 0.5 秒のずれ閾値自体は従来どおり。再生中のずれ判定に「シーク中も今の位置へシークし直す」処理を戻さないこと（シークが重い素材・端末で区間全体が無音に戻る）。
+  - `previewAudioClipSync.test.ts` に、シークの遅い要素を模擬したフレームループで「修正前の追従は無音（可聴 0%）」「新しい追従は区間の 95% 以上で鳴る」を固定している。追従を変えるときはこのシミュレーションで比較する。
+  - 書き出しの音声は OfflineAudioContext 経路でこの判定を使わない。書き出し側へ広げる場合はライブ捕捉フォールバックとの整合を別途確認すること。
+
+### 13-330. 書き出しのカット直後のブロックノイズ対策（キーフレームをカットへ合わせる・720p 下限 10 Mbps）
+
+- **ファイル**: `src/flavors/standard/export/exportKeyframePlan.ts`（新規）, `src/flavors/standard/export/exportEngine.ts`（Canvas 経路の `isKeyFrame`・ビットレート）, `src/constants/index.ts`（`computeStandardExportVideoBitrate` / `STANDARD_EXPORT_VIDEO_BITRATE_MIN`）, `src/test/exportKeyframePlan.test.ts`（新規）
+- **対象 flavor**: **standard（Android / PC）の通常書き出しのみ**。共有の `computeExportVideoBitrate`（apple-safari・キャプションレイヤー書き出し `captionLayerOfflineEncode` が使用）は変えない。TrackProcessor 経路（現在は `useManualCanvasFrames = true` で未使用）とキャプションレイヤーのキーフレームは従来どおり。
+- **問題**: 圧縮しやすい CG（トラックのスライド）から、雨・反射の多い高精細な実写風映像（バイク）へカットで切り替えた直後の約 0.5〜0.8 秒だけ、書き出し MP4 に強いブロックノイズが出た。元動画はどちらも正常。
+- **原因**（書き出し MP4 の stsz / stss を直接解析）:
+  - 1 秒ごとの定期キーフレームが 4.00 秒、カットがその 1 コマ後の 4.033 秒だった。切り替わった最初のコマは差分フレームとして 74KB を使い、realtime のレート制御が帳尻合わせで続くコマを 1〜4KB まで削った（通常 18〜40KB）。720p の目標 6 Mbps では余裕が小さかった。
+  - 「簡単な映像 → 複雑な映像」のカット直後に一瞬崩れるのは、realtime 向けのレート制御一般の性質。latencyMode `quality` は backpressure（13-153）の前提を壊すため使わない（`videoEncoderConfig.ts` の注記どおり）。
+  - 当該 MP4 は avcC レベル 3.1 で、この開発 PC の Chrome エンコーダ（レベル 4.2 を出力し、同じ素材で削り込みが起きない）とは別のエンコーダで書き出されたもの。削り込み自体の改善は、書き出した実機での再確認が必要。
+- **対策**:
+  1. **キーフレームをカットへ合わせる**: `computeExportCutFrameIndices()` が各クリップの最初に描かれるフレーム（`getExportFrameTiming` の時刻が `range.start` 以上になる最初のコマ。`findActiveTimelineItemWithTransitions` と同じ規約）を求める。Canvas 経路のフレーム i は時刻 timestamp_i で描いたスロットなので一致する。`createExportKeyframeDecider()` は先頭から「直前のキーフレームから FPS コマで定期キーフレーム、カットのコマは必ずキーフレームにして数え直す、定期分の直後 10 コマ以内にカットがあればそちらへ譲る、6 コマ未満で続くカットには重ねない」を判定する。キーフレーム間隔は最大 FPS + 10 コマ（1.33 秒）。
+  2. **720p 以下の下限を 10 Mbps へ**: `computeStandardExportVideoBitrate = max(10 Mbps, 解像度比例値)`。1080p は従来どおり 12 Mbps。720p のファイルサイズは約 1.6 倍になる。
+- **変えていないもの**: 駆動方式（壁時計 dilation / native 1x 連続再生）、encode の呼び出し回数・タイミング、queue 30/90 と backpressure、CFR timestamp、末尾補完、エンコーダ候補（prefer-hardware + realtime）、30fps。変わるのは各フレームの `keyFrame` フラグと configure の `bitrate` 値だけ。
+- **注意**:
+  - 13-196 のとおり、端末によっては VideoEncoder の処理性能が 30fps 未満で backpressure 待機が出る。ビットレート増でその待機がわずかに増える可能性はあるが、待機はフレームを守る安全弁でありフレーム欠落・黒画面にはならない。実機で待機が大きく悪化した場合は下限値（`STANDARD_EXPORT_VIDEO_BITRATE_MIN`）を見直す。
+  - 定期キーフレームを `frameIndex % FPS === 0` へ戻すと、カット 1 コマ前のキーフレームが再発する。カット判定を描画規約（`time >= range.start`）とずらすと、キーフレームが 1 コマ前へずれて効果がなくなる。
+- **実機確認結果（2026-11-22）**:
+  - 元の書き出しと同じ端末で再書き出しし、カット直後のブロックノイズが消えたこと、引っかかり（書き出し映像のカクつき）も出ていないことをユーザーが確認済み（`1259549`）。キーフレームのカット合わせと 720p 下限 10 Mbps の組み合わせを現行の成功実装として維持すること。
+
+### 13-331. ナレーション原稿→キャプションの分割を文節単位の最適分割へ（AI 不使用）
+
+- **ファイル**: `src/utils/narrationCaptionPlan.ts`（`wrapLongSegment` / `splitByStrongBreaks` / `computeBreakCosts`）, `src/test/narrationCaptionPlan.test.ts`, `src/constants/sectionHelp.ts`
+- **対象 flavor**: shared utility（`buildNarrationCaptionPlan` は両 flavor 共通。ボタン表示は 13-171 どおり standard 限定）。時刻配分・無音吸着（13-157）・保存契約は変更しない。
+- **問題**: 読点が無い長い文を、上限手前の最後の「は・が・を・に・で・と・も・て…」の **1 文字**で切っていたため、「こと｜ば」「し｜て」のような単語の途中や、「長い 1 枚＋短い残り」の偏った分割が起きた。
+- **対策**:
+  - ブラウザ標準の `Intl.Segmenter('ja', {granularity:'word'})`（ICU の日本語辞書。AI ではない）で単語に分け、区切りを文節の境目に限る。使えない環境は文字種の切れ目へフォールバック。
+  - 区切りコスト: 読点 0 ＜ 「から・ので・ば・ても」等 1 ＜ 「は・が・を・に」等と「〜て＋漢字」2 ＜ 「」の後 2 ＜ ひらがな語→漢字/カタカナ 4〜5（複合動詞の可能性）＜ 「の」の後 5 ＜ 単語境界 9 ＜ 単語途中・数字と単位の間 16。行頭禁則（ー・小書き仮名・閉じ括弧・句読点）と開き括弧の直後は禁止、カギ括弧内は +3。次の語が助詞・助動詞なら区切らない（「だけ｜の」「動画｜です」）。「し」は動詞と区別できないので助詞扱いしない。
+  - 1 文全体で「区切りコスト＋上限超過（最大 1.15 倍まで）＋短すぎ＋長さの偏り＋行数増」が最小になる分け方を、行数を 3 通り試す動的計画法で選ぶ。
+  - カギ括弧内の「。」は文末扱いしない。句点直後の閉じ括弧は同じ文へ含める。
+- **注意**: 単語境界判定を `PARTICLE` 1 文字の正規表現へ戻さない。表示長は句読点・空白を除いた文字数で数える。
+
+### 13-332. AIナレーション「全体の話し方」を組み合わせ可能にし、補足を書いても選択が外れないように
+
+- **ファイル**: `src/utils/gemini38Tts.ts`（`parseAtmosphereStyleDetail` / `composeAtmosphereStyleDetail` / `resolveActiveAtmospherePresetIds` / `toggleAtmospherePreset` / `normalizeGemini38StyleDetail`）, `src/components/modals/AiModal.tsx`, `src/test/aiNarrationAtmosphereCombo.test.tsx`, `src/test/aiModalTtsEngine.test.tsx`
+- **保存形式は不変**: `aiTtsTone` ＋ `aiTtsStyleDetail` の 2 項目のまま。声の調子（自然／明るく元気／温かく／ニュース・解説）は tone の 1 値、演出（熱血／重厚／コミカル／切なく／ささやき）は styleDetail 内の定型句で重ねがけ、自由な補足は定型句の後ろへ「、」でつなぐ。旧データ（定型句だけ／自由記述だけ）はそのまま読める。
+- **問題**: 選択中かどうかを「補足欄の文字列＝プリセット定型句」で判定していたため、補足欄を編集すると選択が外れた。また英語変換は全体を 1 文で辞書照合しており、定型句と自由記述を併記すると自由記述が捨てられていた。
+- **対策**: 補足欄には自由な補足だけを表示・編集（末尾の空白を消さないよう下書き state を持つ）。英語 style は「演出プリセットの styleEn ＋ 自由補足の変換」を別々に作って結合。自然（標準）は声の調子と演出をリセット（補足は残す）。
+- **注意**: プリセットの `styleDetail` 文言を変えると旧データの読み取りが変わる。変える場合は旧文言も解析対象に残すこと。
+
+### 13-333. 音割れの注意を控えめな 1 行へ（自動調整ボタンは維持）
+
+- **ファイル**: `src/components/media/TimelineWaveform.tsx`
+- **変更**: 赤い 2 段の警告枠を、アンバーの控えめな 1 行（「音割れの可能性（N か所）」＋「音量を自動調整」＋小さな「箇所へ」）にした。長い説明は自動調整ボタンの title へ移した。波形上の帯・上限付近の棒も赤→アンバー。`data-testid` / aria-label（「音割れしないよう音量を自動調整」「音割れの箇所へ移動」）は維持。
+
+### 13-334. 「音割れしない最大まで上げる」（動画・BGM・ナレーションの種類ごと）
+
+- **ファイル**: `src/utils/timelineWaveform.ts`（`resolveMaximizeVolumeScale` / `planVolumeMaximizeUpdates`）, `src/hooks/useTimelineWaveform.ts`（`resolveVolumeMaximize`）, `src/components/TurtleVideo.tsx`（`handleMaximizeVolume`）, `src/components/sections/ClipAudioSettingsPanel.tsx`, `src/constants/sectionHelp.ts`, 関連テスト
+- **対象 flavor**: standard（タイムライン波形がある環境）。iOS Safari はボタンを出さない。
+- **計算**: 合成は線形なので、他の音 a(t) を固定して対象種類 b(t) だけ s 倍したとき |a + s·b| ≤ 0.97（自動調整と同じ目標）となる最大の s をサンプルごとの不等式から直接求める。他の音だけで上限を超える箇所は条件に入れない。素材の上限 300% で頭打ちになる分を反映して合成し直し、超えていれば縮める。s < 1 なら「今は上げすぎ」として下げる。
+- **適用**: 一括音量 ON なら一括音量を、OFF（またはロック中の動画が混在）なら各素材を 1% 切り捨てで変更。ロック中・ミュートは変えない。変化が 1% 未満なら「すでにぎりぎり」とトースト。波形の解析中（status !== 'ready'）は押せない。
+- **注意**: 判定は波形用のモノラル 8kHz 合成に基づく（自動調整・音割れ注意と同じ近似）。基準を変えるときは 3 つをそろえること。
+
+### 13-335. 書き出しのフェード・切り替え時ブロックノイズ対策（quantizer モード＋適応 QP 制御＋フェード回避キーフレーム）
+
+- **ファイル**: `src/utils/videoEncoderConfig.ts`, `src/flavors/standard/export/exportAdaptiveQuantizer.ts`（新規）, `src/flavors/standard/export/exportKeyframePlan.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/test/videoEncoderConfig.test.ts`, `src/test/exportKeyframePlan.test.ts`, `src/test/exportAdaptiveQuantizer.test.ts`（新規）
+- **対象 flavor**: **standard（Android / PC）の通常書き出し（Canvas 直接経路）のみ**。`apple-safari` およびキャプションレイヤー書き出し・駆動方式・queue 30/90・backpressure・CFR は変更しない。
+- **問題**: 13-330 後も、フェードアウト／フェードイン／ディゾルブ／カット切り替え時に強いモザイク状のブロックノイズが出た。提供 MP4（`avc1.4d401f`）および実機 Chrome/Edge のビットストリームを解析したところ、Windows Media Foundation HW エンコーダの CBR/VBR レート制御が I フレームやフェード開始の大きな P フレーム直後に **QP を上限の 51 へ急騰させ、1 コマに 1 ずつしか戻らない**（51→50→…）ため、画面全体の輝度変化を QP 40〜51 で符号化して破綻していた（`bitrate` 増や `latencyMode` 変更でも回避不可）。さらに 1 秒ごとの定期キーフレームが 9.00 秒などのフェード開始へ直撃していた。
+- **対策**:
+  1. **`bitrateMode: 'quantizer'` の優先交渉**: `resolveVideoEncoderConfig({ ..., preferQuantizer: true })` で先頭に `prefer-hardware-realtime-quantizer` を試す。ブラウザが `quantizer` を `variable` へ正規化した場合は採用せず、非対応環境や `configure()` 失敗時は自動的に既存の `prefer-hardware-realtime` 以降へフォールバックする（HW 非対応時に重い SW へ落とさないため `no-preference` には置かない）。
+  2. **適応 QP 制御（`exportAdaptiveQuantizer.ts`）**: 基準 QP=24・範囲 `[22, 34]`（I フレーム +2）で毎フレーム `avc: { quantizer }` を指定し、`output` チャンクの移動平均が目標ビットレートを大きく超える極端な複雑映像（1080p 高周波ノイズ等）だけ緩やかに QP を上げて上限 34 で頭打ちにする。単発の I フレーム寄与はキャップし、カットやフェード開始で QP が跳ねない。
+  3. **フェード・ディゾルブ回避キーフレーム（`exportKeyframePlan.ts`）**: 定期キーフレーム間隔を 2 秒（最大 4 秒）へ適正化し、ハードカット・フェード黒/白境界のみ強制カットとし、ディゾルブ開始への強制キーフレームを廃止。クリップ単体／2 画面ペアのフェードおよびトランジション区間（直前 10 コマ含む）では定期キーフレームを先送りし、`quantizer` 非対応端末でもブロックノイズを軽減する。
+- **検証結果（Chrome / Edge 実機・ユーザー提供動画と同条件の 720p 10 秒＋末尾 1 秒フェードアウト）**: 修正前 `QP max=51` / `QP>=40: 91 コマ` / `r16=1.270` → 修正後 `QP 22〜26` / `QP>=40: 0 コマ` / `r16=1.009` / `outputGap=0` / 7.70 Mbps。
+- **注意**:
+  - `quantizer` 非採用時・`configure()` フォールバック時は必ず `adaptiveQuantizer = null` とし、`encode()` へ `avc.quantizer` を渡さない。
+  - 固定 QP のままにすると 1080p の高周波ノイズ映像で 100 Mbps 超へファイルサイズが暴走するため、必ず適応 QP の上限ガードを維持する。
+  - `latencyMode: 'quality'` は引き続き禁止（13-169 / 13-191）。

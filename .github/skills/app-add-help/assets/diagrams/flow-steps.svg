@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 312" role="img" aria-labelledby="hd-flow-title hd-flow-desc">
+  <title id="hd-flow-title">動画を作る 3 つの手順</title>
+  <desc id="hd-flow-desc">1. 「追加」ボタンで素材を選ぶ。2. カードをドラッグして順番と長さを整える。3. 「書き出し」で MP4 を保存する。</desc>
+  <style>
+    /* クラス名は hd-flow- で始める（インライン SVG の style はページ全体に効くため、他と衝突させない） */
+    .hd-flow-box { fill: var(--hd-surface, #f3f5f8); stroke: var(--hd-line, #7b8494); stroke-width: 1.5; }
+    .hd-flow-num { fill: var(--hd-accent, #1d4ed8); }
+    .hd-flow-num-text { fill: var(--hd-on-accent, #ffffff); font: 700 15px system-ui, "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif; }
+    .hd-flow-title { fill: var(--hd-text, #1f2933); font: 700 16px system-ui, "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif; }
+    .hd-flow-desc { fill: var(--hd-muted, #4b5563); font: 400 14px system-ui, "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif; }
+    .hd-flow-arrow { stroke: var(--hd-line, #7b8494); stroke-width: 2; fill: none; }
+    .hd-flow-head { fill: var(--hd-line, #7b8494); }
+    .hd-flow-label { fill: var(--hd-muted, #4b5563); font: 500 14px system-ui, "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif; }
+    @media (prefers-color-scheme: dark) {
+      .hd-flow-box { fill: var(--hd-surface, #1f2937); stroke: var(--hd-line, #7d8796); }
+      .hd-flow-num { fill: var(--hd-accent, #8fb0ff); }
+      .hd-flow-num-text { fill: var(--hd-on-accent, #0b1220); }
+      .hd-flow-title { fill: var(--hd-text, #f3f4f6); }
+      .hd-flow-desc, .hd-flow-label { fill: var(--hd-muted, #c4c9d2); }
+      .hd-flow-arrow { stroke: var(--hd-line, #7d8796); }
+      .hd-flow-head { fill: var(--hd-line, #7d8796); }
+    }
+  </style>
+
+  <!-- 手順 1 -->
+  <rect class="hd-flow-box" x="56" y="8" width="296" height="64" rx="10"/>
+  <circle class="hd-flow-num" cx="28" cy="40" r="16"/>
+  <text class="hd-flow-num-text" x="28" y="45" text-anchor="middle">1</text>
+  <text class="hd-flow-title" x="72" y="35">素材を選ぶ</text>
+  <text class="hd-flow-desc" x="72" y="57">「追加」ボタンから動画や画像を選ぶ</text>
+
+  <!-- 1 → 2：矢印には「何が渡るか」を書く -->
+  <line class="hd-flow-arrow" x1="28" y1="58" x2="28" y2="128"/>
+  <path class="hd-flow-head" d="M21 124 L28 136 L35 124 Z"/>
+  <text class="hd-flow-label" x="72" y="101">選んだ素材がカードになる</text>
+
+  <!-- 手順 2 -->
+  <rect class="hd-flow-box" x="56" y="120" width="296" height="64" rx="10"/>
+  <circle class="hd-flow-num" cx="28" cy="152" r="16"/>
+  <text class="hd-flow-num-text" x="28" y="157" text-anchor="middle">2</text>
+  <text class="hd-flow-title" x="72" y="147">順番と長さを整える</text>
+  <text class="hd-flow-desc" x="72" y="169">カードをドラッグして並べ替える</text>
+
+  <!-- 2 → 3 -->
+  <line class="hd-flow-arrow" x1="28" y1="170" x2="28" y2="240"/>
+  <path class="hd-flow-head" d="M21 236 L28 248 L35 236 Z"/>
+  <text class="hd-flow-label" x="72" y="213">並べた順に 1 本の動画になる</text>
+
+  <!-- 手順 3 -->
+  <rect class="hd-flow-box" x="56" y="232" width="296" height="64" rx="10"/>
+  <circle class="hd-flow-num" cx="28" cy="264" r="16"/>
+  <text class="hd-flow-num-text" x="28" y="269" text-anchor="middle">3</text>
+  <text class="hd-flow-title" x="72" y="259">書き出す</text>
+  <text class="hd-flow-desc" x="72" y="281">「書き出し」で MP4 を保存する</text>
+</svg>

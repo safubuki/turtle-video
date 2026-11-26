@@ -456,6 +456,17 @@ def validate_component_source(component_path: Path) -> Dict[str, Any]:
                 ),
             })
 
+    # Rule 8: Mermaid rendered at runtime (図は SVG で同梱する)
+    if re.search(r'''(?:from\s+["']mermaid["']|require\(\s*["']mermaid["']\s*\)|mermaid\.(?:initialize|render|run)\s*\()''', content):
+        issues.append({
+            "severity": "info",
+            "rule": "prefer-prebuilt-svg-diagram",
+            "message": (
+                "ヘルプ表示時に Mermaid を読み込んで描画しています。ライブラリが大きく、開くたびに描画処理が走ります。"
+                "図は作成時に SVG へ書き出して同梱するか、SVG を直接書いてください（references/diagram-guide.md）。"
+            ),
+        })
+
     # Rule 7: Check title parenthesis formatting (かっこ書きスマホ次行表示・単語途中改行防止)
     if "formatAccordionTitle" in content:
         if "sr-only" not in content or "&#8203;" not in content:
@@ -602,6 +613,139 @@ def generate_skeleton(scan_result: Optional[Dict[str, Any]] = None) -> Dict[str,
 
 
 # ==============================================================================
+# SVG Diagram Validator
+# ==============================================================================
+
+_SVG_FONT_ATTR = re.compile(r'font-size\s*=\s*["\']\s*([\d.]+)', re.IGNORECASE)
+_SVG_FONT_CSS = re.compile(r'font-size\s*:\s*([\d.]+)px', re.IGNORECASE)
+# CSS shorthand: font: [style] [weight] <size>px[/line-height] family
+_SVG_FONT_SHORTHAND = re.compile(r'(?<![-\w])font\s*:[^;{}]*?([\d.]+)px', re.IGNORECASE)
+_SVG_VIEWBOX = re.compile(r'<svg\b[^>]*\bviewBox\s*=\s*["\']\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)', re.IGNORECASE | re.DOTALL)
+_SVG_ROOT = re.compile(r'<svg\b[^>]*>', re.IGNORECASE | re.DOTALL)
+
+
+def _collect_svg_files(paths: List[Path]) -> List[Path]:
+    files: List[Path] = []
+    for p in paths:
+        if p.is_dir():
+            files.extend(sorted(p.rglob("*.svg")))
+        elif p.exists():
+            files.append(p)
+        else:
+            raise FileNotFoundError(f"SVG path not found: {p}")
+    return files
+
+
+def validate_svg_diagrams(paths: List[Path], min_width: int = 343, min_text_px: float = 12.0) -> Dict[str, Any]:
+    """Audit help diagrams (SVG) for readability on narrow screens, accessibility, theme and staleness risks."""
+    files = _collect_svg_files(paths)
+    results: List[Dict[str, Any]] = []
+    overall_valid = True
+
+    for f in files:
+        content = f.read_text(encoding="utf-8", errors="ignore")
+        issues: List[Dict[str, Any]] = []
+        root_m = _SVG_ROOT.search(content)
+        root = root_m.group(0) if root_m else ""
+
+        vb = _SVG_VIEWBOX.search(content)
+        vb_width = float(vb.group(1)) if vb else None
+        if not vb:
+            issues.append({
+                "severity": "error", "rule": "svg-viewbox",
+                "message": "ルートの <svg> に viewBox がありません。幅に合わせて縮むように viewBox を付け、width/height は CSS（width:100%; height:auto）で決めてください。",
+            })
+
+        has_title = re.search(r'<title\b', content, re.IGNORECASE) is not None
+        has_label = re.search(r'\baria-label(?:ledby)?\s*=', root, re.IGNORECASE) is not None
+        is_hidden = re.search(r'\baria-hidden\s*=\s*["\']true', root, re.IGNORECASE) is not None
+        if is_hidden:
+            issues.append({
+                "severity": "info", "rule": "svg-aria-hidden",
+                "message": "aria-hidden=\"true\" です。ヘルプの図は内容なので、同じ内容を本文に書いていない限り読み上げ対象にしてください。",
+            })
+        elif not (re.search(r'\brole\s*=\s*["\']img', root, re.IGNORECASE) and (has_title or has_label)):
+            issues.append({
+                "severity": "error", "rule": "svg-accessible-name",
+                "message": "読み上げ用の名前がありません。<svg role=\"img\" aria-labelledby=\"…\"> と <title>（必要なら <desc>）を付けてください。<img> で埋め込む場合は alt に図の要点を書きます。",
+            })
+
+        sizes = [float(x) for x in _SVG_FONT_ATTR.findall(content)]
+        sizes += [float(x) for x in _SVG_FONT_CSS.findall(content)]
+        sizes += [float(x) for x in _SVG_FONT_SHORTHAND.findall(content)]
+        text_count = len(re.findall(r'<text\b', content, re.IGNORECASE))
+        if text_count and not sizes:
+            sizes = [16.0]  # SVG の既定（medium）
+        if sizes and vb_width:
+            smallest = min(sizes)
+            rendered = smallest * min(1.0, min_width / vb_width)
+            if rendered < min_text_px:
+                need_vb = int(smallest * min_width / min_text_px)
+                issues.append({
+                    "severity": "warning", "rule": "svg-min-text-size",
+                    "message": (
+                        f"幅 {min_width}px で表示すると最小の文字が約 {rendered:.1f}px になります（{min_text_px:.0f}px 未満）。"
+                        f"viewBox の幅を {need_vb} 以下にする、文字を大きくする、縦に並べ替える、のいずれかで直してください。"
+                    ),
+                    "details": {"smallest_font": smallest, "viewbox_width": vb_width, "rendered_px": round(rendered, 1)},
+                })
+
+        if text_count == 0 and re.search(r'<path\b', content, re.IGNORECASE):
+            issues.append({
+                "severity": "warning", "rule": "svg-text-as-text",
+                "message": "<text> がありません。文字をアウトライン（path）化していると、検索・翻訳・読み上げ・修正ができません。文字は <text> で書くか、説明を SVG の外の本文に書いてください。",
+            })
+
+        if re.search(r'<image\b[^>]*(?:href|xlink:href)\s*=\s*["\'](?:data:image/(?:png|jpe?g|webp)|[^"\']+\.(?:png|jpe?g|webp))', content, re.IGNORECASE):
+            issues.append({
+                "severity": "warning", "rule": "svg-no-raster",
+                "message": "画像（スクリーンショット等）が埋め込まれています。UI を変えるたびに古くなり、拡大でぼやけます。場所が分かる程度の略図にしてください。",
+            })
+
+        if re.search(r'(?:href|xlink:href|src)\s*=\s*["\']https?://', content, re.IGNORECASE) or re.search(r'@import\s+url\(\s*["\']?https?://', content, re.IGNORECASE):
+            issues.append({
+                "severity": "error", "rule": "svg-no-external",
+                "message": "外部 URL を読み込んでいます。オフラインで表示できず、<img> 埋め込みでは読み込まれません。必要なものは SVG の中に含めてください。",
+            })
+
+        if re.search(r'<foreignObject\b', content, re.IGNORECASE):
+            issues.append({
+                "severity": "warning", "rule": "svg-no-foreignobject",
+                "message": "<foreignObject> があります（Mermaid の既定出力など）。<img> 埋め込みや他のアプリで文字が消えることがあります。Mermaid なら htmlLabels を false にして書き出すか、<text> で書き直してください。",
+            })
+
+        hardcoded = re.search(r'(?:fill|stroke)\s*[:=]\s*["\']?#[0-9a-fA-F]{3,8}', content) is not None
+        themable = ("prefers-color-scheme" in content) or ("currentColor" in content) or ("var(--" in content)
+        if hardcoded and not themable:
+            issues.append({
+                "severity": "info", "rule": "svg-theme-colors",
+                "message": "色が固定で、ダークモードに追従しません。色は var(--…, 既定色) か currentColor で指定し、<style> に @media (prefers-color-scheme: dark) を書いてください。",
+            })
+
+        if re.search(r'<style\b', content, re.IGNORECASE):
+            classes = set(re.findall(r'\.([A-Za-z_][\w-]*)\s*[{,]', content))
+            generic = sorted(c for c in classes if "-" not in c)
+            if generic:
+                issues.append({
+                    "severity": "info", "rule": "svg-scoped-class-names",
+                    "message": f"<style> のクラス名 {', '.join(generic[:5])} に接頭辞がありません。インライン SVG の <style> はページ全体に効くので、図ごとの接頭辞（例: hd-flow-）を付けてください。",
+                })
+
+        size_kb = len(content.encode("utf-8")) / 1024
+        if size_kb > 100:
+            issues.append({
+                "severity": "warning", "rule": "svg-file-size",
+                "message": f"{size_kb:.0f}KB あります。描画ツールの書き出しで不要なメタデータや画像が入っていないか確認してください（目安 30KB 以下）。",
+            })
+
+        valid = not any(i["severity"] == "error" for i in issues)
+        overall_valid = overall_valid and valid
+        results.append({"file": str(f), "valid": valid, "issues": issues})
+
+    return {"valid": overall_valid, "min_width": min_width, "files": results}
+
+
+# ==============================================================================
 # CLI Entrypoint
 # ==============================================================================
 
@@ -626,6 +770,8 @@ def build_parser() -> argparse.ArgumentParser:
     val_p = subparsers.add_parser("validate", help="Audit help definitions or component UI code against UX rules.")
     val_p.add_argument("--file", type=Path, help="Help definition JSON file to validate")
     val_p.add_argument("--component", type=Path, help="Help component TSX/JSX file to validate for mobile responsiveness")
+    val_p.add_argument("--svg", type=Path, action="append", help="SVG diagram file or directory to validate (repeatable)")
+    val_p.add_argument("--min-width", type=int, default=343, help="Narrowest display width in px for SVG text-size check (default: 343)")
 
     return parser
 
@@ -661,8 +807,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
 
     if args.command == "validate":
-        if not args.file and not args.component:
-            print("Error: Either --file or --component must be specified.", file=sys.stderr)
+        if not args.file and not args.component and not args.svg:
+            print("Error: Specify at least one of --file, --component, --svg.", file=sys.stderr)
             return 1
 
         overall_valid = True
@@ -683,6 +829,12 @@ def main(argv: Optional[List[str]] = None) -> int:
             c_report = validate_component_source(args.component)
             print(json.dumps(c_report, ensure_ascii=False, indent=2))
             if not c_report["valid"]:
+                overall_valid = False
+
+        if args.svg:
+            s_report = validate_svg_diagrams(args.svg, min_width=args.min_width)
+            print(json.dumps(s_report, ensure_ascii=False, indent=2))
+            if not s_report["valid"]:
                 overall_valid = False
 
         return 0 if overall_valid else 1

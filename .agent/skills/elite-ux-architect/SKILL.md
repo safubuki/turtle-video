@@ -1,363 +1,138 @@
 ---
 name: elite-ux-architect
-description: 世界最高峰のUX・至高の美的UI・堅牢な実装を追求するエリートUX/UIアーキテクトスキル。scripts/ux_audit.py でコントラスト比(WCAG2.2+APCA)、スムーズスクロールと減モーション対応、スティッキー/戻る導線、アンカー切れ、タッチターゲット、フォーカスリング、レイアウトを起こすアニメーションを機械的に検査し、AIは設計判断・情報の提示順序・美的統一に集中する。新規UIはWow Factorを追求し、既存UIは影響範囲を抑えて改善提案する。「UIを作って」「画面を作成」「デザインして」「サイトを作って」「ランディングページ」「ポートフォリオ」「UX改善」「UI改善」「Wow Factor」「美しいUI」「モダンなデザイン」「使いやすく」「体験を良く」「操作性改善」「ユーザー体験」「新しい画面」「コンポーネント作成」「レイアウト」「アニメーション」「スムーズスクロール」「ヌルッと動く」「スクロール」「目次」「動線」「アクセシビリティ」「コントラスト」「配色」「色を決めて」「a11y」「UI提案」「デザイン提案」「UI設計」「フロントエンド」「frontend」「design」「ux」「ui」「component」「layout」「animation」「landing page」「portfolio」などで発火。
+description: UI を作る・直すときに、assets/ のデザイントークン（tokens.css）・部品（base.css）・完成画面のお手本（LP、ダッシュボード、設定フォーム、記事、スマホアプリ、AI で作る・直すツール、AI エージェント、部品カタログ）を写して組み、scripts/capture.mjs でスクリーンショットを撮って目で確かめて直し、scripts/ux_audit.py でコントラストやフォーカスを機械検査するスキル。形容詞ではなく、お手本と数値ルールと目視で品質を出す。「UIを作って」「画面を作成」「デザインして」「LP」「ランディングページ」「ダッシュボード」「管理画面」「設定画面」「フォーム」「UI改善」「見た目を良く」「デザインを整えて」「配色」「ダークモード」「スマホ対応」「UIレビュー」「AI機能の画面」「チャットUI」「エージェントの画面」などで発火。
 ---
 
-# Elite UX Architect — 至高のUI/UX設計スキル
+# Elite UX Architect
 
 ## スキル読み込み通知
 
-このスキルが読み込まれたら、必ず以下の通知をユーザーに表示してください：
+読み込んだら 1 行だけ通知する：
 
-> 🎨 **Elite UX Architect スキルを読み込みました**  
-> 世界最高峰のUXと至高の美的デザインで、感動的なプロダクトを創造します。  
-> 定型的な品質検査は `scripts/ux_audit.py` に委譲し、設計判断に集中します。
+> 🎨 **Elite UX Architect を読み込みました** — お手本を写して組み、スクリーンショットで確かめながら仕上げます。
 
-## When to Use
+## 考え方
 
-- 新しいUIコンポーネント・画面・機能のUIを作成するとき
-- Webサイト・ランディングページ・ポートフォリオを作るとき
-- 既存のUIをより良いユーザー体験に改善したいとき
-- 操作性・見た目・インタラクションを洗練させたいとき
-- スクロール体験・ページ内動線を設計したいとき
-- 配色を決めたい、コントラストを検証したいとき
-- アニメーション・マイクロインタラクションを追加したいとき
-- アクセシビリティ・レスポンシブ対応を強化したいとき
+指示が無いと LLM は学習データで多数派の無難な見た目（定番フォント、紫のグラデーション、飾りのアイコン、中身のない大見出し）に寄る。「美しく」と指示しても変わらないので、このスキルは具体的な見本と値で上書きする（根拠と確度は [references/evidence-ledger.md](references/evidence-ledger.md) G〜J 章）。お手本は検証済みの正解ではなく、規範・研究・実務の慣習から組んだ出発点。3 つの道具で品質を出す。
 
----
+| 道具 | 中身 | 使い方 |
+|---|---|---|
+| **お手本**（assets/） | トークン、部品 CSS、完成した 8 画面 | 作る画面に近いものを開いて、構成・余白・部品を**そのまま写す** |
+| **ルール**（references/） | 数値ルール、パターンの判断表、避けるパターン | 迷ったら値と判断表で決める。新しい値を発明しない |
+| **確認**（scripts/） | スクリーンショット撮影、機械検査 | **描画して画像を見る。** コードを読んだだけで完成にしない |
 
-## 役割分担 — スクリプトが検査し、AIが判断する
+## 新しく作るとき
 
-このスキルは、毎回AIが目視で再確認していた**機械的に判定可能な項目**を `scripts/ux_audit.py` に委譲する。AI は設計・美意識・文脈判断に集中する。
+### Step 1: お手本を選んで開く
 
-| 領域 | 担当 |
-|------|------|
-| コントラスト比の計算（WCAG 2.2 + APCA Lc） | **スクリプト** |
-| スムーズスクロールの減モーション対応漏れ | **スクリプト** |
-| `scroll-margin-top` 欠落（着地点がヘッダーに隠れる） | **スクリプト** |
-| アンカーリンクの飛び先 `id` 欠落 | **スクリプト** |
-| 戻る導線（スティッキー/Back to Top）の有無 | **スクリプト** |
-| フォーカスリング除去、タッチターゲット過小 | **スクリプト** |
-| レイアウトを起こすプロパティのアニメーション | **スクリプト** |
-| 情報の提示順序、物語の流れ | **AI** |
-| 視覚的ヒエラルキー、余白のリズム、美的統一 | **AI** |
-| 検出結果の優先度判断と修正方針 | **AI** |
-| Wow Factor の設計、体感的な自然さ | **AI** |
+[references/pattern-catalog.md](references/pattern-catalog.md) の表から、作る画面にいちばん近いお手本を選び、HTML を読む。
 
-> 💡 **原則**: スクリプトが出せる答えを、AI が目視で再導出しない。逆に、スクリプトの PASS は「機械的な不備がない」ことしか意味しない。**美しさと分かりやすさは AI が判断する。**
+| 作るもの | お手本 |
+|---|---|
+| 製品紹介・LP・ポートフォリオ | [assets/exemplars/landing.html](assets/exemplars/landing.html) |
+| 管理画面・分析・一覧 | [assets/exemplars/dashboard.html](assets/exemplars/dashboard.html) |
+| 設定・登録・編集フォーム | [assets/exemplars/settings-form.html](assets/exemplars/settings-form.html) |
+| ブログ・ドキュメント | [assets/exemplars/article.html](assets/exemplars/article.html) |
+| スマホ中心のアプリ・PWA | [assets/exemplars/mobile-app.html](assets/exemplars/mobile-app.html) |
+| AI で作る・直すツール（文章・画像などの生成） | [assets/exemplars/ai-assistant.html](assets/exemplars/ai-assistant.html) |
+| AI に複数の手順を任せる（エージェント・自動化） | [assets/exemplars/ai-agent.html](assets/exemplars/ai-agent.html) |
+| 部品単体・状態の作り方 | [assets/exemplars/components.html](assets/exemplars/components.html) |
 
-### 実行環境の確認
+**AI を使う機能は、先に [references/ai-ui-patterns.md](references/ai-ui-patterns.md) の判断表で型を決める。** チャット欄は最後の選択肢（条件を選ばせる・その場で補助する・裏で動かす、のほうが合うことが多い）。
 
-```bash
-python --version
-```
+### Step 2: 土台を決める
 
-Python 3.9 以上（標準ライブラリのみ。外部依存なし。Windows / Linux 両対応）。Python がない場合は、勝手にインストールせず「インストールする」「今回は手動確認で進める」を選択式で確認する。
+- **既存プロジェクトにトークンや部品があれば、それを優先する。** 対応付けは [references/framework-mapping.md](references/framework-mapping.md)（素の CSS / CSS Modules / Tailwind v4・v3 / shadcn/ui）
+- 無ければ [assets/tokens.css](assets/tokens.css) と [assets/base.css](assets/base.css) をコピーする
+- ブランド色は `--brand-h`（色相）と `--brand-c`（彩度 0.17 以下）だけ変えるか、`data-accent` のプリセット（teal / green / orange / rose / violet / graphite）を使う
+- 色を変えたら検証する：`python scripts/ux_audit.py tokens --file <tokens.css>`
 
----
+### Step 3: 写して組む
 
-## 基本哲学
+お手本の構成（セクションの順番、グリッド、余白、部品）をそのまま写し、文言とデータを実際のものに差し替える。値は [references/design-rules.md](references/design-rules.md) にあるものだけを使う。迷う判断（ボタンの置き場所、表かカードか、ダイアログかトーストか）は pattern-catalog.md の判断表で決める。
 
-このスキルは以下の3つの柱を同時に追求する：
+### Step 4: 状態を作る
 
-| 柱 | 目標 | 絶対基準 |
-|----|------|---------|
-| **UX（体験）** | 直感的で迷わない操作 | ユーザーが考えなくても正しく動ける |
-| **UI（美学）** | 見るだけで心が躍るデザイン | 統一感・余白・タイポグラフィの完璧な調和 |
-| **実装（堅牢性）** | バグなし・軽快・保守しやすい | パフォーマンス・アクセシビリティ・型安全性 |
+データがある画面と同じだけ、空（0 件）・読み込み中・エラー・長いデータの見た目を作る（components.html に全部ある）。
 
-**絶対原則**：
-- **バグのなさ** — 動作が完全であることが最低条件
-- **動作の軽快さ** — 60fps を維持し、ユーザーを待たせない
-- **直感的な操作性** — 説明がなくても使える UI が理想
-
-**根拠の扱い**: 「ベストプラクティスだから」で押し切らない。主張の出典・確度・適用限界は [references/evidence-ledger.md](references/evidence-ledger.md) に記録してある。**広く信じられているが不正確な主張**（FID、44px必須、Miller の 7±2、3クリックルール、APCA が確定標準）を再生産しない。
-
----
-
-## モード判定
-
-```
-ユーザーの要望
-    ├─ 新しいUI/画面/コンポーネントを「ゼロから作る」
-    │   → Mode 1: Create（新規作成）
-    │
-    ├─ 既存のUI/画面に対する「改善」「修正」「調整」
-    │   → Mode 2: Enhance（既存UI改善）
-    │
-    └─ 新しい取組・機能追加の「検討」「相談」「提案して」
-        → Mode 3: Propose（提案・影響分析）
-```
-
----
-
-## Mode 1: Create — 新規UI/UX開発（Wow Factor追求）
-
-### Step 1: ビジョンの明確化
-
-1. **何を作るか**: 画面・コンポーネント・機能の概要
-2. **誰が使うか**: ターゲットユーザーとデバイス
-3. **どこに配置されるか**: アプリ内の位置づけ、既存画面との関係
-4. **何を感じてもらいたいか**: 快適さ・楽しさ・プロフェッショナル感など
-
-> 💡 ユーザーが漠然とした要望の場合、最も魅力的なアプローチを自ら提案する。「普通」を作るのではなく、使う人を驚かせるビジョンを描く。
-
-### Step 2: 情報の提示順序を設計する（実装より先）
-
-**最初に「何を、どの順で見せるか」を決める。** いきなり詳細を出さず、段階的に理解が進む流れを作る。
-
-📄 **[references/information-architecture.md](references/information-architecture.md)**
-
-原則：
-
-- **主張 → 証拠** の順（ポートフォリオなら「誰で何をする人か」→「その証拠となる成果物」）
-- **ベネフィット → 機能**（何ができるかより、自分に何が起きるか）
-- **結論を先に**（逆ピラミッド。最初の1画面で「何のページか」が伝わる）
-- **段階的開示**（低頻度・上級者向けの情報は二次画面へ。ただし必須情報は隠さない）
-
-ページ種別ごとの推奨セクション順序（ポートフォリオ、LP、ダッシュボード）は上記リファレンスに記載。
-
-### Step 3: 配色を決めて数値検証する
-
-📄 **[references/color-science.md](references/color-science.md)**
+### Step 5: 撮って、見て、直す（必須）
 
 ```bash
-# パレット全体を総当たり検証（ライト/ダーク両方を必ず）
-python scripts/ux_audit.py palette \
-  --surfaces "#ffffff,#f8fafc,#0f172a,#1e293b" \
-  --foregrounds "#0f172a,#475569,#94a3b8,#e2e8f0"
+node scripts/capture.mjs <ページの HTML か URL> --theme both
+node scripts/capture.mjs <ページ> --viewports desktop --full
 ```
 
-- **WCAG 2.2 が準拠の床**（4.5:1 / 3:1）、**APCA Lc が可読性の天井**（本文 Lc 75 目安）
-- OKLCH を使うと色相が変わっても明るさが揃う（HSL では揃わない）
-- 色だけで情報を伝えない（色覚特性は男性の約8%）
+撮った画像を開き、[references/visual-review.md](references/visual-review.md) の順に確認する。崩れ・詰まり・重なりを見つけたら直して撮り直す。**最低 1 回は「直して撮り直す」を回す。** 仕上げに [references/anti-patterns.md](references/anti-patterns.md) の「AI が作った感じ」の症状が残っていないか見る。
 
-### Step 4: 動線とスクロール体験を設計する
-
-📄 **[references/navigation-and-scroll-design.md](references/navigation-and-scroll-design.md)**
-
-ページ内移動がある場合、**この3点セットは必ず揃える**：
-
-```css
-/* 1. なめらかな移動（ただし減モーション希望者には即時ジャンプ） */
-@media (prefers-reduced-motion: no-preference) {
-  html { scroll-behavior: smooth; }
-}
-/* 2. 着地点がスティッキーヘッダーに隠れない */
-:where(section, [id]) { scroll-margin-top: calc(var(--header-height) + 0.5rem); }
-/* 3. 戻る導線 = スティッキーヘッダー or Back to Top */
-```
-
-加えて：現在地表示（IntersectionObserver によるスクロールスパイ）、スキップリンク、Back to Top のフォーカス移動。
-**スクロールジャッキング（ホイール量を奪う実装）は使わない。**
-
-### Step 5: UX/UI設計と美的パターンの適用
-
-📄 **[references/ux-design-principles.md](references/ux-design-principles.md)**
-📄 **[references/ui-aesthetic-patterns.md](references/ui-aesthetic-patterns.md)**
-
-| カテゴリ | 検討項目 |
-|---------|---------|
-| レイアウト | 視覚的ヒエラルキー、余白のリズム、グリッドシステム |
-| カラー | コントラスト比、色覚多様性、ブランド統一性 |
-| タイポグラフィ | フォントサイズスケール、行間、可読性 |
-| インタラクション | ホバー・フォーカス・アクティブ状態、フィードバック |
-| アニメーション | トランジション、マイクロインタラクション、減モーション対応 |
-| レスポンシブ | ブレイクポイント戦略、タッチ対応、スクロール体験 |
-
-### Step 6: 実装
-
-📄 **[references/quality-assessment-criteria.md](references/quality-assessment-criteria.md)**
-
-**実装時の鉄則**：
-1. **型安全**: TypeScript の strict モードを前提とし、`any` を排除する
-2. **コンポーネント設計**: 単一責任・再利用性・テスタビリティを確保する
-3. **パフォーマンス**: 不要な再レンダリングを排除する（メモ化は必要な箇所のみ）
-4. **アクセシビリティ**: ARIA属性、キーボードナビゲーション、スクリーンリーダー対応
-5. **アニメーション**: `transform` + `opacity` のみをアニメートし、レイアウトスラッシングを回避する
-6. **エラーハンドリング**: ユーザーフレンドリーなフォールバックを必ず用意する
-
-### Step 7: 機械検査を実行する（必須）
-
-実装したら、目視で確認する前にスクリプトを回す：
+### Step 6: 機械検査
 
 ```bash
-# まず全体を確認
-python scripts/ux_audit.py audit --path <実装ディレクトリ>
-
-# CI や記録用に構造化出力
-python scripts/ux_audit.py audit --path <実装ディレクトリ> --format json --output ux-report.json
-
-# error が1件でもあれば終了コード 2（品質ゲートとして使える）
 python scripts/ux_audit.py audit --path <実装ディレクトリ> --fail-on error
 ```
 
-**検出結果の扱い**：
+`error` は必ず直す。`warning` は直すか、見送る理由を報告に書く。
 
-| severity | 意味 | 対応 |
-|----------|------|------|
-| `error` | WCAG 違反または機能不全（アンカー切れ等） | **必ず修正する** |
-| `warning` | 体験を損なう可能性が高い | 原則修正。見送る場合は理由を説明する |
-| `info` | 改善余地・提案 | 文脈次第。AI が要否を判断する |
+### Step 7: 報告
 
-> ⚠️ `<project>` と表示される finding はファイル単位ではなくプロジェクト全体の検査結果（例: 「減モーション対応がどこにもない」）。
+ベースにしたお手本、お手本から変えた点、スクリーンショットで見つけて直した点、機械検査の結果、残っている課題を短くまとめる。
 
-### Step 8: Wow Factor チェック（AI の目視判断）
+## 既存の UI を改善するとき
 
-スクリプトが PASS した後で、**機械には測れない項目**を評価する：
+1. **今の状態を撮る**（desktop / mobile / dark）+ `ux_audit.py audit`
+2. visual-review.md と anti-patterns.md で問題を挙げ、影響の大きい順に 3〜5 件を提案する。根拠は撮った画像の該当箇所で示す
+3. ユーザーが選んだものを直し、**同じ条件で撮り直して前後を比べる**
+4. 既存のトークン・部品・技術スタックを尊重する。全面的な作り直しは提案に留める
 
-- [ ] 初めて見た人が「おっ」と声を出すデザインか
-- [ ] 操作した瞬間に気持ちよさを感じるインタラクションか
-- [ ] 細部まで一貫したデザインランゲージが感じられるか
-- [ ] 不要な要素が一切なく、削ぎ落とされた美しさがあるか
-- [ ] 情報の提示順序に「なぜこの順か」の説明がつけられるか
-- [ ] スティッキーヘッダーの高さがコンテンツを圧迫していないか
-- [ ] スクロール量とアニメーション時間が体感的に自然か
+## ユーザーの前提が根拠と食い違うとき
 
-**テンプレート**: 📄 **[assets/new-project-template.md](assets/new-project-template.md)**
+指示の前提が [references/evidence-ledger.md](references/evidence-ledger.md) と食い違う場合は、黙って従わず、黙って無視もしない。
 
----
+1. 指示の意図（実現したい体験）をくむ
+2. 前提の食い違いを 1〜2 文で伝え、出典を示す
+3. 意図を満たす、より確かな代わりの案を出す
+4. それでも同じ指示なら、その判断に従って作る
 
-## Mode 2: Enhance — 既存UI改善（実現可能な範囲でUX最大化）
+例：「全ページにスムーズスクロールを入れて」→ 意図（気持ちよく移動したい）は妥当。ただし前庭障害のある人には負担になりうるので、`prefers-reduced-motion` で止める形で入れ、理由を伝える。
 
-既に完成に近づいているUIに対しては、**大幅な変更は行わない**。実現可能な範囲でユーザー体験を最大化する。
+## 守ること
 
-### 大原則
+- 値はトークンから取る。生の色コード・中間の文字サイズ・4px 刻み以外の余白を足さない
+- 1 画面に主ボタンは 1 つ。アクセント色は面積 1 割以下
+- 本文は左揃え・40rem まで・行間 1.7 以上。日本語の見出しは `word-break: auto-phrase`
+- 状態は色だけで伝えない（文言かアイコンを添える）
+- 動かすのは `transform` と `opacity` だけ。`prefers-reduced-motion` を尊重する
+- フォーカスリングを消さない。アイコンだけのボタンには `aria-label`
+- 絵文字をアイコンに使わない。ストック画像やぼかし円で埋めず、製品の画面や実データを見せる
+- 根拠のない通説（「44px 必須」「APCA が新基準」など）を言わない。根拠は [references/evidence-ledger.md](references/evidence-ledger.md)
 
-> 既存UIの設計思想・画面構成・操作フローを尊重する。  
-> 「壊さない」「混乱させない」「既存ユーザーの体験を損なわない」を最優先とする。
+## ファイル
 
-### Step 1: 機械検査で現状を把握する（分析の起点）
+| パス | 内容 |
+|---|---|
+| [assets/tokens.css](assets/tokens.css) | 色（ライト/ダーク、OKLCH）、文字、余白、角丸、影、動き、レイアウトのトークン |
+| [assets/base.css](assets/base.css) | リセット、文字組み、レイアウト、ボタン・入力・カード・バッジ・表・タブ・ダイアログなどの部品 |
+| [assets/exemplars/](assets/exemplars/index.html) | 完成画面のお手本 8 つと一覧（`?theme=dark`、`?accent=teal` で切り替えて見られる。AI の 2 つは `?state=` で状態も切り替わる） |
+| [references/design-rules.md](references/design-rules.md) | 数値ルール（色・文字・余白・角丸・影・レイアウト・動き・状態・文言） |
+| [references/pattern-catalog.md](references/pattern-catalog.md) | 画面ごとの構成と、迷ったときの判断表 |
+| [references/anti-patterns.md](references/anti-patterns.md) | 「AI が作った感じ」の症状と直し方 |
+| [references/ai-ui-patterns.md](references/ai-ui-patterns.md) | AI 機能の画面の 7 つの型、選び方、作る状態、Microsoft HAX の 18 指針 |
+| [references/visual-review.md](references/visual-review.md) | スクリーンショットの撮り方と見る順番 |
+| [references/framework-mapping.md](references/framework-mapping.md) | React / Tailwind / shadcn/ui への持ち込み方 |
+| [references/color-science.md](references/color-science.md) | コントラストと OKLCH の根拠 |
+| [references/navigation-and-scroll-design.md](references/navigation-and-scroll-design.md) | スティッキーヘッダー、ページ内リンク、戻る導線、スクロールスパイ |
+| [references/evidence-ledger.md](references/evidence-ledger.md) | 原則の出典と確度、よくある誤った通説 |
+| [scripts/capture.mjs](scripts/capture.mjs) | スクリーンショット撮影（desktop / laptop / tablet / mobile、light / dark、ページ全体） |
+| [scripts/ux_audit.py](scripts/ux_audit.py) | 機械検査：`audit`（ソース一式）、`tokens`（トークンファイル）、`palette` / `contrast`（色の組） |
 
-**目視分析の前にスクリプトを回す。** 客観的な指摘リストが手に入り、AI は解釈と優先度付けに集中できる。
+## 実行環境
 
-```bash
-python scripts/ux_audit.py audit --path <対象ディレクトリ> --format json --output before.json
-```
+- `capture.mjs`：Node.js 22 以上と、Chrome / Edge / Chromium のどれか。npm パッケージは不要。見つからなければ `--browser <パス>` を指定する
+- `ux_audit.py`：Python 3.9 以上、標準ライブラリのみ
+- どちらも勝手にインストールしない。無い場合は「インストールする」「今回は目視・手動で確認する」をユーザーに選んでもらう
+- スクリプトのパスは、スキルを置いた場所に合わせて読み替える（例：`.agents/skills/elite-ux-architect/scripts/capture.mjs`）
 
-### Step 2: AI による定性分析
+## スクリプトを更新すべきとき
 
-スクリプトが拾えない観点を評価する：
-
-| 評価軸 | 観点 |
-|--------|------|
-| 情報設計 | 提示順序、段階的開示、粒度の一貫性 |
-| ビジュアル | 余白・配色・タイポグラフィの一貫性 |
-| インタラクション | フィードバックの質、体感的な自然さ |
-| 動線 | 迷わず戻れるか、現在地が分かるか |
-| コード品質 | 型安全性・コンポーネント分割・命名 |
-
-### Step 3: 改善提案の作成
-
-| カテゴリ | 説明 | 変更規模 |
-|---------|------|---------|
-| 🟢 **Quick Win** | すぐに適用でき、効果が大きい改善 | 数行〜数十行の変更 |
-| 🟡 **Moderate** | ある程度の工数で品質を向上させる改善 | 1ファイル程度の変更 |
-| 🔵 **Strategic** | 将来に向けた基盤改善（提案のみ） | 複数ファイルに影響 |
-
-スクリプトの `error` は原則 Quick Win に分類する（`scroll-margin-top` の追加や減モーションガードは数行で終わり、効果が大きい）。
-
-> ⚠️ **制約**: 「大幅な画面構成の変更」「既存操作フローの根本的な変更」「デザインシステムの刷新」は **このモードでは行わない**。Mode 3 で提案として扱う。
-
-### Step 4: 承認された改善の実施と検証
-
-1. **影響範囲の最小化**: 変更箇所を最小限にとどめる
-2. **段階的な適用**: 優先度の高いものから順に
-3. **既存テストの維持**: テストが壊れていないことを確認する
-4. **ビフォー/アフターの明示**: 数値で示す
-
-```bash
-python scripts/ux_audit.py audit --path <対象ディレクトリ> --format json --output after.json
-```
-
-`before.json` と `after.json` の `counts` を比較し、改善件数を具体的に報告する。
-
-**テンプレート**: 📄 **[assets/improvement-proposal-template.md](assets/improvement-proposal-template.md)**
-
----
-
-## Mode 3: Propose — 新規取組の提案（影響分析付き）
-
-### Step 1: 要望の理解
-
-- 表面的な要望の裏にある真のニーズは何か
-- 既存のUIでは実現できないのか
-- 類似の成功事例やベストプラクティスはあるか
-
-### Step 2: 影響分析
-
-| 分析項目 | 確認内容 |
-|---------|---------|
-| **画面構成への影響** | 既存レイアウトの変更が必要か |
-| **操作フローへの影響** | ユーザーの学習コストが増えないか |
-| **コンポーネントへの影響** | 既存コンポーネントの修正が必要か |
-| **状態管理への影響** | ストアの構造変更が必要か |
-| **パフォーマンスへの影響** | バンドルサイズ・描画性能に悪影響はないか |
-| **アクセシビリティへの影響** | 既存のアクセシビリティが損なわれないか |
-
-### Step 3: 対応案の提示
-
-| 案 | 説明 |
-|----|------|
-| **案A: ミニマル** | 既存UIへの影響を最小にし、最低限の変更で目的を達成する案 |
-| **案B: バランス** | 適度な変更で、UX向上と開発コストのバランスを取る案（推奨） |
-| **案C: フルリニューアル** | 理想を追求した全面的な変更案（工数・リスクも提示） |
-
-各案について **メリット/デメリット**、**推定工数**（小・中・大）、**既存UIへの影響度**（低・中・高）、**Wow Factor 度**（★〜★★★）を明示する。
-
-### Step 4: 承認と実装
-
-ユーザーが選択した案に基づき、Mode 1（Create）の手順で実装する。
-
----
-
-## ユーザーの前提が事実と異なる場合の扱い
-
-ユーザーから UI/UX の指示を受けたとき、その前提が [evidence-ledger.md](references/evidence-ledger.md) の記載と食い違う場合は、**黙って従わず、黙って無視もしない**。
-
-1. 指示の**意図**（達成したい体験）を汲む
-2. 前提の誤りを1〜2文で簡潔に指摘し、出典を示す
-3. 意図を満たす**より確実な代替案**を提示する
-4. ユーザーが再度同じ指示をした場合は、その判断を尊重して実行する
-
-**例**: 「全ページにスムーズスクロールを入れて」→ 意図（気持ちよく移動したい）は妥当。ただし無条件適用は前庭障害のあるユーザーに健康被害を与えうるため、`prefers-reduced-motion` ガード付きで実装し、その理由を伝える。
-
----
-
-## プロジェクトコンテキストの活用
-
-### 既存スキルとの連携
-
-| スキル | 連携タイミング |
-|--------|--------------|
-| `bugfix-guard` | コード変更時にデグレ防止を確認する |
-| `implementation-plan` | 大規模な変更が必要な場合に実装計画を策定する |
-
-### 技術スタックの尊重
-
-プロジェクトの既存技術スタック（React, TypeScript, Tailwind CSS, Zustand 等）を尊重し、新たな依存ライブラリの追加は最小限にとどめる。外部ライブラリを追加する場合は、必ずその理由と代替手段を提示する。
-
-**とくにスクロール系**: スムーズスクロールにライブラリは不要（`scroll-behavior: smooth` で足りる）。スクロールジャッキング系ライブラリの導入は原則却下する。
-
----
-
-## スクリプトを更新すべき条件
-
-- 新しい WCAG 達成基準に対応する必要が出たとき
-- WCAG 3.0 のコントラスト算法が確定し、APCA の位置づけが変わったとき
-- Core Web Vitals の指標・閾値が変更されたとき
-- 対応するフレームワーク（Vue/Svelte/Astro 等）の記法で誤検出・見逃しが出たとき
-- 同じ指摘を2回以上手作業で行ったとき（＝検査項目に昇格させる）
-
-## 参照ドキュメント
-
-- [references/navigation-and-scroll-design.md](references/navigation-and-scroll-design.md) — スムーズスクロール、スティッキー、戻る導線、スクロールスパイの実装パターン
-- [references/color-science.md](references/color-science.md) — WCAG 2.2 / APCA / OKLCH / 色覚多様性の根拠と実務運用
-- [references/information-architecture.md](references/information-architecture.md) — 情報の提示順序、段階的開示、ページ種別ごとのセクション構成
-- [references/evidence-ledger.md](references/evidence-ledger.md) — 主張の出典・確度・適用限界（誤情報の再生産防止）
-- [references/ux-design-principles.md](references/ux-design-principles.md) — 世界最高峰のUX設計原則
-- [references/ui-aesthetic-patterns.md](references/ui-aesthetic-patterns.md) — 至高の美的デザインパターン集
-- [references/quality-assessment-criteria.md](references/quality-assessment-criteria.md) — 品質評価基準（実装・パフォーマンス・アクセシビリティ）
-- [assets/new-project-template.md](assets/new-project-template.md) — 新規作成時のアウトプットテンプレート
-- [assets/improvement-proposal-template.md](assets/improvement-proposal-template.md) — 既存UI改善提案テンプレート
-- [scripts/ux_audit.py](scripts/ux_audit.py) — 機械的な UI/UX 検査スクリプト（audit / contrast / palette）
+- 同じ見落とし（崩れ・コントラスト不足など）を 2 回以上スクリーンショットで見つけた → `ux_audit.py audit` に検査を足す
+- 新しい画面の種類を 2 回以上作った → `assets/exemplars/` にお手本を足し、pattern-catalog.md に行を足す
+- トークンを変えた → `ux_audit.py tokens` の全プリセットと色相 0〜360 で検証する

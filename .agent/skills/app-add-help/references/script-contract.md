@@ -63,3 +63,27 @@ python scripts/help_system_tool.py validate --file <help_definitions.json>
   - `basic-app-meta`: 動作環境、ライセンス、基本操作が含まれているか（警告）
 - **終了コード**: エラーが 0 件なら `0`、エラーが存在すれば `1`
 
+
+### 1.4. `validate --component`
+ヘルプ UI コンポーネント（TSX/JSX）のスマホ 2 行ヘッダー、インデント、ボタン改行防止、Mermaid の実行時読み込み（`prefer-prebuilt-svg-diagram`、情報）を検査します。
+
+### 1.5. `validate --svg`
+ヘルプの図（SVG）を検査します。ファイルかフォルダを指定し、複数回指定できます。
+
+```bash
+python scripts/help_system_tool.py validate --svg <file_or_dir> [--svg <...>] [--min-width 343]
+```
+
+- **検証ルール**:
+  - `svg-viewbox`: ルートの `<svg>` に viewBox があるか（エラー）
+  - `svg-accessible-name`: `role="img"` と `<title>` または `aria-label(ledby)` があるか（エラー）。`aria-hidden="true"` は情報として通知
+  - `svg-min-text-size`: 最小の文字サイズ × (`--min-width` ÷ viewBox の幅) が 12px 以上か（警告）。`font-size` 属性、`font-size:` 、`font:` 省略記法を読む。文字があってサイズ指定が無い場合は 16 とみなす
+  - `svg-text-as-text`: `<text>` が 1 つも無く `<path>` だけで描かれていないか（警告）
+  - `svg-no-raster`: PNG/JPEG/WebP の画像を埋め込んでいないか（警告）
+  - `svg-no-external`: 外部 URL を読み込んでいないか（エラー）
+  - `svg-no-foreignobject`: `<foreignObject>` を使っていないか（警告）
+  - `svg-theme-colors`: 固定色だけで、`prefers-color-scheme` / `currentColor` / `var(--…)` のどれも無いか（情報）
+  - `svg-scoped-class-names`: `<style>` のクラス名に接頭辞（ハイフン入り）があるか（情報）
+  - `svg-file-size`: 100KB を超えていないか（警告）
+- **出力**: `{"valid": bool, "min_width": int, "files": [{"file", "valid", "issues": [{"severity", "rule", "message", "details?"}]}]}`
+- **終了コード**: `--file` / `--component` / `--svg` のどれかでエラーがあれば `1`、なければ `0`

@@ -715,7 +715,7 @@
 | **preview / export の見た目一致** | Canvas へ焼き込む要素（ロゴ・文字・バッジ・ぼかし・線）は必ずキャンバス寸法に比例させる。プレビューは 720p、書き出しは 1080p 等なので、元画像のピクセル数や固定 px で描くとずれる（13-295） |
 | **スロー export 音声** | スローはプレビューと同じ `preservesPitch` キャプチャを第一経路にし、decode+WSOLA 参照で先頭遅延だけ切る（13-237）。キャプチャは TrackProcessor / AudioWorklet 優先で、ScriptProcessor は出力無音化の予備（13-238）。エネルギー無音切りは禁止。キャプチャ失敗時のみ WSOLA。13-236 の WSOLA 第一経路は音質退行のため改訂 |
 | **BGM クリップ／ナレーションの preview 追従** | `processNarrationClip` の通常プレビューは `previewAudioClipSync.ts` で判定する。シーク中に次のシークを重ねない・ずれ補正は実測所要時間ぶん先回り・区間 2 秒前に頭出し。「0.5 秒超なら毎フレーム今の位置へシーク」に戻すと、シークの重い素材（動画 BGM）や一括音量操作中に区間全体が無音になる（13-329） |
-| **export のキーフレーム・ビットレート** | standard の Canvas 経路はキーフレームをクリップの切り替えへ合わせる（`exportKeyframePlan.ts`。最大間隔 FPS+10 コマ）。下限は `computeStandardExportVideoBitrate` の 10 Mbps（iOS・キャプションレイヤーは共有の `computeExportVideoBitrate` のまま）。`% FPS` だけの定期キーフレームに戻すとカット直後のブロックノイズが再発しやすい（13-330） |
+| **export のキーフレーム・ビットレート** | standard の Canvas 経路は `prefer-hardware + realtime + bitrateMode:'quantizer'` と適応 QP 制御（`exportAdaptiveQuantizer.ts`、22〜34 クランプ）を最優先し、非対応・設定失敗時は既存ビットレート経路へフォールバックする。キーフレームは `exportKeyframePlan.ts` で 2 秒基準・ハードカット合わせ・フェード／ディゾルブ回避（最大 4 秒）とする。下限は `computeStandardExportVideoBitrate` の 10 Mbps（iOS・キャプションレイヤーは共有の `computeExportVideoBitrate` のまま）。`% FPS` だけの定期キーフレームや `bitrateMode` 無制御へ戻すとフェード・カット直後の QP=51 ブロックノイズが再発する（13-330 / 13-335） |
 
 ## 12. Dev Script Pattern (media-video-analyzer STT)
 
@@ -5626,3 +5626,53 @@ export 終了（成功/失敗/中断）
 - **注意**:
   - 13-196 のとおり、端末によっては VideoEncoder の処理性能が 30fps 未満で backpressure 待機が出る。ビットレート増でその待機がわずかに増える可能性はあるが、待機はフレームを守る安全弁でありフレーム欠落・黒画面にはならない。実機で待機が大きく悪化した場合は下限値（`STANDARD_EXPORT_VIDEO_BITRATE_MIN`）を見直す。
   - 定期キーフレームを `frameIndex % FPS === 0` へ戻すと、カット 1 コマ前のキーフレームが再発する。カット判定を描画規約（`time >= range.start`）とずらすと、キーフレームが 1 コマ前へずれて効果がなくなる。
+- **実機確認結果（2026-11-22）**:
+  - 元の書き出しと同じ端末で再書き出しし、カット直後のブロックノイズが消えたこと、引っかかり（書き出し映像のカクつき）も出ていないことをユーザーが確認済み（`1259549`）。キーフレームのカット合わせと 720p 下限 10 Mbps の組み合わせを現行の成功実装として維持すること。
+
+### 13-331. ナレーション原稿→キャプションの分割を文節単位の最適分割へ（AI 不使用）
+
+- **ファイル**: `src/utils/narrationCaptionPlan.ts`（`wrapLongSegment` / `splitByStrongBreaks` / `computeBreakCosts`）, `src/test/narrationCaptionPlan.test.ts`, `src/constants/sectionHelp.ts`
+- **対象 flavor**: shared utility（`buildNarrationCaptionPlan` は両 flavor 共通。ボタン表示は 13-171 どおり standard 限定）。時刻配分・無音吸着（13-157）・保存契約は変更しない。
+- **問題**: 読点が無い長い文を、上限手前の最後の「は・が・を・に・で・と・も・て…」の **1 文字**で切っていたため、「こと｜ば」「し｜て」のような単語の途中や、「長い 1 枚＋短い残り」の偏った分割が起きた。
+- **対策**:
+  - ブラウザ標準の `Intl.Segmenter('ja', {granularity:'word'})`（ICU の日本語辞書。AI ではない）で単語に分け、区切りを文節の境目に限る。使えない環境は文字種の切れ目へフォールバック。
+  - 区切りコスト: 読点 0 ＜ 「から・ので・ば・ても」等 1 ＜ 「は・が・を・に」等と「〜て＋漢字」2 ＜ 「」の後 2 ＜ ひらがな語→漢字/カタカナ 4〜5（複合動詞の可能性）＜ 「の」の後 5 ＜ 単語境界 9 ＜ 単語途中・数字と単位の間 16。行頭禁則（ー・小書き仮名・閉じ括弧・句読点）と開き括弧の直後は禁止、カギ括弧内は +3。次の語が助詞・助動詞なら区切らない（「だけ｜の」「動画｜です」）。「し」は動詞と区別できないので助詞扱いしない。
+  - 1 文全体で「区切りコスト＋上限超過（最大 1.15 倍まで）＋短すぎ＋長さの偏り＋行数増」が最小になる分け方を、行数を 3 通り試す動的計画法で選ぶ。
+  - カギ括弧内の「。」は文末扱いしない。句点直後の閉じ括弧は同じ文へ含める。
+- **注意**: 単語境界判定を `PARTICLE` 1 文字の正規表現へ戻さない。表示長は句読点・空白を除いた文字数で数える。
+
+### 13-332. AIナレーション「全体の話し方」を組み合わせ可能にし、補足を書いても選択が外れないように
+
+- **ファイル**: `src/utils/gemini38Tts.ts`（`parseAtmosphereStyleDetail` / `composeAtmosphereStyleDetail` / `resolveActiveAtmospherePresetIds` / `toggleAtmospherePreset` / `normalizeGemini38StyleDetail`）, `src/components/modals/AiModal.tsx`, `src/test/aiNarrationAtmosphereCombo.test.tsx`, `src/test/aiModalTtsEngine.test.tsx`
+- **保存形式は不変**: `aiTtsTone` ＋ `aiTtsStyleDetail` の 2 項目のまま。声の調子（自然／明るく元気／温かく／ニュース・解説）は tone の 1 値、演出（熱血／重厚／コミカル／切なく／ささやき）は styleDetail 内の定型句で重ねがけ、自由な補足は定型句の後ろへ「、」でつなぐ。旧データ（定型句だけ／自由記述だけ）はそのまま読める。
+- **問題**: 選択中かどうかを「補足欄の文字列＝プリセット定型句」で判定していたため、補足欄を編集すると選択が外れた。また英語変換は全体を 1 文で辞書照合しており、定型句と自由記述を併記すると自由記述が捨てられていた。
+- **対策**: 補足欄には自由な補足だけを表示・編集（末尾の空白を消さないよう下書き state を持つ）。英語 style は「演出プリセットの styleEn ＋ 自由補足の変換」を別々に作って結合。自然（標準）は声の調子と演出をリセット（補足は残す）。
+- **注意**: プリセットの `styleDetail` 文言を変えると旧データの読み取りが変わる。変える場合は旧文言も解析対象に残すこと。
+
+### 13-333. 音割れの注意を控えめな 1 行へ（自動調整ボタンは維持）
+
+- **ファイル**: `src/components/media/TimelineWaveform.tsx`
+- **変更**: 赤い 2 段の警告枠を、アンバーの控えめな 1 行（「音割れの可能性（N か所）」＋「音量を自動調整」＋小さな「箇所へ」）にした。長い説明は自動調整ボタンの title へ移した。波形上の帯・上限付近の棒も赤→アンバー。`data-testid` / aria-label（「音割れしないよう音量を自動調整」「音割れの箇所へ移動」）は維持。
+
+### 13-334. 「音割れしない最大まで上げる」（動画・BGM・ナレーションの種類ごと）
+
+- **ファイル**: `src/utils/timelineWaveform.ts`（`resolveMaximizeVolumeScale` / `planVolumeMaximizeUpdates`）, `src/hooks/useTimelineWaveform.ts`（`resolveVolumeMaximize`）, `src/components/TurtleVideo.tsx`（`handleMaximizeVolume`）, `src/components/sections/ClipAudioSettingsPanel.tsx`, `src/constants/sectionHelp.ts`, 関連テスト
+- **対象 flavor**: standard（タイムライン波形がある環境）。iOS Safari はボタンを出さない。
+- **計算**: 合成は線形なので、他の音 a(t) を固定して対象種類 b(t) だけ s 倍したとき |a + s·b| ≤ 0.97（自動調整と同じ目標）となる最大の s をサンプルごとの不等式から直接求める。他の音だけで上限を超える箇所は条件に入れない。素材の上限 300% で頭打ちになる分を反映して合成し直し、超えていれば縮める。s < 1 なら「今は上げすぎ」として下げる。
+- **適用**: 一括音量 ON なら一括音量を、OFF（またはロック中の動画が混在）なら各素材を 1% 切り捨てで変更。ロック中・ミュートは変えない。変化が 1% 未満なら「すでにぎりぎり」とトースト。波形の解析中（status !== 'ready'）は押せない。
+- **注意**: 判定は波形用のモノラル 8kHz 合成に基づく（自動調整・音割れ注意と同じ近似）。基準を変えるときは 3 つをそろえること。
+
+### 13-335. 書き出しのフェード・切り替え時ブロックノイズ対策（quantizer モード＋適応 QP 制御＋フェード回避キーフレーム）
+
+- **ファイル**: `src/utils/videoEncoderConfig.ts`, `src/flavors/standard/export/exportAdaptiveQuantizer.ts`（新規）, `src/flavors/standard/export/exportKeyframePlan.ts`, `src/flavors/standard/export/exportEngine.ts`, `src/test/videoEncoderConfig.test.ts`, `src/test/exportKeyframePlan.test.ts`, `src/test/exportAdaptiveQuantizer.test.ts`（新規）
+- **対象 flavor**: **standard（Android / PC）の通常書き出し（Canvas 直接経路）のみ**。`apple-safari` およびキャプションレイヤー書き出し・駆動方式・queue 30/90・backpressure・CFR は変更しない。
+- **問題**: 13-330 後も、フェードアウト／フェードイン／ディゾルブ／カット切り替え時に強いモザイク状のブロックノイズが出た。提供 MP4（`avc1.4d401f`）および実機 Chrome/Edge のビットストリームを解析したところ、Windows Media Foundation HW エンコーダの CBR/VBR レート制御が I フレームやフェード開始の大きな P フレーム直後に **QP を上限の 51 へ急騰させ、1 コマに 1 ずつしか戻らない**（51→50→…）ため、画面全体の輝度変化を QP 40〜51 で符号化して破綻していた（`bitrate` 増や `latencyMode` 変更でも回避不可）。さらに 1 秒ごとの定期キーフレームが 9.00 秒などのフェード開始へ直撃していた。
+- **対策**:
+  1. **`bitrateMode: 'quantizer'` の優先交渉**: `resolveVideoEncoderConfig({ ..., preferQuantizer: true })` で先頭に `prefer-hardware-realtime-quantizer` を試す。ブラウザが `quantizer` を `variable` へ正規化した場合は採用せず、非対応環境や `configure()` 失敗時は自動的に既存の `prefer-hardware-realtime` 以降へフォールバックする（HW 非対応時に重い SW へ落とさないため `no-preference` には置かない）。
+  2. **適応 QP 制御（`exportAdaptiveQuantizer.ts`）**: 基準 QP=24・範囲 `[22, 34]`（I フレーム +2）で毎フレーム `avc: { quantizer }` を指定し、`output` チャンクの移動平均が目標ビットレートを大きく超える極端な複雑映像（1080p 高周波ノイズ等）だけ緩やかに QP を上げて上限 34 で頭打ちにする。単発の I フレーム寄与はキャップし、カットやフェード開始で QP が跳ねない。
+  3. **フェード・ディゾルブ回避キーフレーム（`exportKeyframePlan.ts`）**: 定期キーフレーム間隔を 2 秒（最大 4 秒）へ適正化し、ハードカット・フェード黒/白境界のみ強制カットとし、ディゾルブ開始への強制キーフレームを廃止。クリップ単体／2 画面ペアのフェードおよびトランジション区間（直前 10 コマ含む）では定期キーフレームを先送りし、`quantizer` 非対応端末でもブロックノイズを軽減する。
+- **検証結果（Chrome / Edge 実機・ユーザー提供動画と同条件の 720p 10 秒＋末尾 1 秒フェードアウト）**: 修正前 `QP max=51` / `QP>=40: 91 コマ` / `r16=1.270` → 修正後 `QP 22〜26` / `QP>=40: 0 コマ` / `r16=1.009` / `outputGap=0` / 7.70 Mbps。
+- **注意**:
+  - `quantizer` 非採用時・`configure()` フォールバック時は必ず `adaptiveQuantizer = null` とし、`encode()` へ `avc.quantizer` を渡さない。
+  - 固定 QP のままにすると 1080p の高周波ノイズ映像で 100 Mbps 超へファイルサイズが暴走するため、必ず適応 QP の上限ガードを維持する。
+  - `latencyMode: 'quality'` は引き続き禁止（13-169 / 13-191）。
