@@ -3259,6 +3259,135 @@ describe('standard preview engine', () => {
     });
   });
 
+  describe('2 画面表示の書き出し: 左右の再生位置を揃える（13-336）', () => {
+    const PAIR_SETTINGS: SplitCompareSettings = {
+      layout: 'horizontal',
+      divider: 'diagonal',
+      fit: 'cover',
+      lineColor: 'white',
+      fadeIn: false,
+      fadeOut: false,
+      fadeInDuration: 1,
+      fadeOutDuration: 1,
+    };
+
+    /** 先頭の 2 画面（左=head は元動画 1〜4 秒、右=partner は 3〜6 秒）。active は後勝ちで partner */
+    function setupExportPair() {
+      const head = createVideoItem({
+        id: 'pair-head',
+        duration: 3,
+        originalDuration: 10,
+        trimStart: 1,
+        trimEnd: 4,
+        splitCompareToNext: PAIR_SETTINGS,
+      });
+      const partner = createVideoItem({
+        id: 'pair-partner',
+        duration: 3,
+        originalDuration: 10,
+        trimStart: 3,
+        trimEnd: 6,
+      });
+      const headEl = Object.assign(createMockVideoElement(), { playbackRate: 1, readyState: 4, seeking: false });
+      const partnerEl = Object.assign(createMockVideoElement(), { playbackRate: 1, readyState: 4, seeking: false });
+      const { canvasContext, hook } = setupRenderFrameHarness({
+        mediaItems: [head, partner],
+        mediaElements: {
+          [head.id]: headEl as unknown as HTMLVideoElement,
+          [partner.id]: partnerEl as unknown as HTMLVideoElement,
+        } as MediaElementsRef,
+        totalDuration: 3,
+        platformCapabilities: { isAndroid: false },
+      });
+      Object.assign(canvasContext, {
+        beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), closePath: vi.fn(), clip: vi.fn(),
+        rotate: vi.fn(), stroke: vi.fn(), lineWidth: 1, strokeStyle: '', lineCap: 'butt',
+      });
+      return { hook, headEl, partnerEl };
+    }
+
+    it('書き出し開始前の停止描画では、warmup で再生されたままの head も止めて開始位置へ戻す', () => {
+      const { hook, headEl, partnerEl } = setupExportPair();
+      // 先頭クリップ（head）は warmup の play() を受けて、音声の事前レンダリング中も進んでいた
+      headEl.paused = false;
+      headEl.currentTime = 1.4;
+      partnerEl.paused = true;
+      partnerEl.currentTime = 3;
+
+      hook.result.current.renderFrame(0, false, true);
+
+      // 止めずに開始位置へ戻すだけだと、ループ開始までの間に head だけ先へ進み、
+      // 書き出しで左が右より先行したまま区間の終わりまで残る（実機 0.3 秒・ヘッドレス再現 0.37 秒）
+      expect(headEl.pause).toHaveBeenCalled();
+      expect(headEl.paused).toBe(true);
+      expect(headEl.currentTime).toBeCloseTo(1, 6);
+    });
+
+    it('書き出し中は head を active（partner）の実際の再生位置へ速さで寄せ、揃ったら 1 倍へ戻す', () => {
+      const { hook, headEl, partnerEl } = setupExportPair();
+      headEl.paused = false;
+      partnerEl.paused = false;
+
+      // active は元動画 3.5 秒（ペア先頭から 0.5 秒）。head が 0.2 秒先行 → 遅くする
+      partnerEl.currentTime = 3.5;
+      headEl.currentTime = 1.7;
+      hook.result.current.renderFrame(0.5, true, true);
+      expect(headEl.playbackRate).toBeCloseTo(0.85, 6);
+      expect(headEl.currentTime).toBeCloseTo(1.7, 6); // 1 秒未満のずれでは seek しない
+
+      // まだ 0.03 秒先行（補正中は 0.01 秒まで寄せ続ける）
+      partnerEl.currentTime = 3.6;
+      headEl.currentTime = 1.63;
+      hook.result.current.renderFrame(0.6, true, true);
+      expect(headEl.playbackRate).toBeCloseTo(0.85, 6);
+
+      // 揃った → 1 倍へ戻す
+      partnerEl.currentTime = 3.7;
+      headEl.currentTime = 1.705;
+      hook.result.current.renderFrame(0.7, true, true);
+      expect(headEl.playbackRate).toBe(1);
+
+      // 0.1 秒遅れ → 速める
+      partnerEl.currentTime = 3.9;
+      headEl.currentTime = 1.8;
+      hook.result.current.renderFrame(0.9, true, true);
+      expect(headEl.playbackRate).toBeCloseTo(1.15, 6);
+    });
+
+    it('基準はタイムライン時計ではなく active の実際の再生位置（左右の見た目を揃える）', () => {
+      const { hook, headEl, partnerEl } = setupExportPair();
+      headEl.paused = false;
+      partnerEl.paused = false;
+      // 時計は 0.58 秒だが active はまだ 0.5 秒の位置。head も 0.5 秒の位置なら左右は揃っている
+      partnerEl.currentTime = 3.5;
+      headEl.currentTime = 1.5;
+      hook.result.current.renderFrame(0.58, true, true);
+      expect(headEl.playbackRate).toBe(1);
+
+      // 逆に head が時計（0.58 秒）に合っていても、active より 0.08 秒先行していれば遅くする
+      headEl.currentTime = 1.58;
+      hook.result.current.renderFrame(0.58, true, true);
+      expect(headEl.playbackRate).toBeCloseTo(0.85, 6);
+    });
+
+    it('プレビューは従来どおり（停止描画で head を止めない・書き出し用の補正を使わない）', () => {
+      const { hook, headEl, partnerEl } = setupExportPair();
+      headEl.paused = false;
+      headEl.currentTime = 1;
+      partnerEl.paused = true;
+      partnerEl.currentTime = 3;
+      hook.result.current.renderFrame(0, false, false);
+      expect(headEl.pause).not.toHaveBeenCalled();
+
+      // 再生中・0.08 秒先行: プレビューの追従補正（0.12 秒から）では動かさない
+      partnerEl.paused = false;
+      partnerEl.currentTime = 3.5;
+      headEl.currentTime = 1.58;
+      hook.result.current.renderFrame(0.5, true, false);
+      expect(headEl.playbackRate).toBe(1);
+    });
+  });
+
   it('video fadeOut 描画前にキャンバスを黒で fillRect クリアして残像を防ぐ', () => {
     // 回帰テスト: フェード時に前フレームの video が残っていると alpha=0.5 で重ね描き
     // しても 0.5*new + 0.5*old = 旧フレームと同色のため「フェードしているように見えない」。

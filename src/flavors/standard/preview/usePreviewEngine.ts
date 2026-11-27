@@ -60,8 +60,10 @@ import {
   applyVideoElementCatchUpPlaybackRate,
   applyVideoElementPlaybackRate,
   drawSpeedBadgeFrame,
+  resolveExportSplitComparePeerSyncState,
   resolveExportTimelineWallDivisorForItem,
   resolveSpeedAwareVideoSyncThresholdSec,
+  resolveSplitComparePeerTargetFromActive,
   normalizeVideoPlaybackSpeed,
   resolveVideoCatchUpState,
   type VideoCatchUpParams,
@@ -2074,6 +2076,8 @@ export function usePreviewEngine({
   // 動画ごとの「追従補正中か」。補正の開始・終了にヒステリシスを持たせ、
   // rate の切り替えを最小にする（切り替えのたびにプレビュー音声が乱れるため・13-286）。
   const videoCatchUpStateRef = useRef(new WeakMap<HTMLVideoElement, boolean>());
+  // 書き出し中の 2 画面の相手（peer）を active へ寄せている最中か（13-336）。書き出し開始で作り直す。
+  const exportComparePeerSyncStateRef = useRef(new WeakMap<HTMLVideoElement, boolean>());
   const resolveVideoCatchUpRateFor = (
     videoEl: HTMLVideoElement,
     params: Omit<VideoCatchUpParams, 'wasCatchingUp'>,
@@ -3806,6 +3810,12 @@ export function usePreviewEngine({
               if (peerIsVideo && isExportBoundaryStalled && !peerVideoEl.paused) {
                 peerVideoEl.pause();
               }
+              // 書き出しの停止描画（ループ開始前の renderFrame(0, false, true)）では、active 分岐と同じく
+              // peer も止める。2 画面表示の head は先頭クリップとして warmup の play() を受けたまま残り、
+              // 音声の事前レンダリング中も進み続けて、相手（active）より先行した状態で書き出しが始まっていた（13-336）。
+              if (peerIsVideo && _isExporting && !isActivePlaying && !peerVideoEl.paused) {
+                peerVideoEl.pause();
+              }
               // 並べて比較: peer は長時間いっしょに流れるため、速度・ずれ補正・終了後の静止まで面倒を見る。
               const isComparePeer = splitCompareFrame !== null;
               const comparePeerFinished = isComparePeer && !!splitCompareFrame?.peerFinished;
@@ -3847,11 +3857,67 @@ export function usePreviewEngine({
                 const peerSpeed = normalizeVideoPlaybackSpeed(conf.playbackSpeed);
                 if (_isExporting) {
                   // export は active の速度で壁時計を縮める（倍速 dilation）。peer はその比で再生する。
+                  const activeItemForPeerSync = activeIndex >= 0 ? currentItems[activeIndex] : null;
                   const exportWallDivisor = resolveExportTimelineWallDivisorForItem(
-                    activeIndex >= 0 ? currentItems[activeIndex] : null,
+                    activeItemForPeerSync,
                     localTime,
                   );
-                  applyVideoElementCatchUpPlaybackRate(peerVideoEl, peerSpeed / exportWallDivisor);
+                  // 左右の見た目を揃えるため、peer は active の実際の再生位置へ速さだけで寄せる（13-336）。
+                  // 開始時の play() の立ち上がり差・backpressure 後の再開差が、区間の終わりまで残らないようにする。
+                  // active が動いていないとき（画像・停止・シーク中）はタイムライン時計を基準にする。
+                  const activeElForPeerSync = activeItemForPeerSync?.type === 'video'
+                    ? mediaElementsRef.current[activeItemForPeerSync.id] as HTMLVideoElement | undefined
+                    : undefined;
+                  const activeRangeForPeerSync = activeItemForPeerSync
+                    ? timelineRanges.get(activeItemForPeerSync.id)
+                    : undefined;
+                  const peerRangeForPeerSync = timelineRanges.get(id);
+                  const peerTargetFromActive = activeItemForPeerSync
+                    && activeElForPeerSync
+                    && activeRangeForPeerSync
+                    && peerRangeForPeerSync
+                    && !activeElForPeerSync.paused
+                    && !activeElForPeerSync.seeking
+                    && !activeElForPeerSync.ended
+                    && activeElForPeerSync.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME
+                    ? resolveSplitComparePeerTargetFromActive({
+                      active: activeItemForPeerSync,
+                      activeCurrentTime: activeElForPeerSync.currentTime,
+                      activeRangeStart: activeRangeForPeerSync.start,
+                      peer: conf,
+                      peerRangeStart: peerRangeForPeerSync.start,
+                      peerDuration: Math.max(0, conf.duration || 0),
+                    })
+                    : null;
+                  const canCorrectPeer = !isExportBoundaryStalled
+                    && !peerVideoEl.paused
+                    && !peerVideoEl.seeking
+                    && peerVideoEl.readyState >= MIN_VIDEO_READY_STATE_FOR_CURRENT_FRAME;
+                  const wasCorrectingPeer = exportComparePeerSyncStateRef.current.get(peerVideoEl) ?? false;
+                  const peerSync = canCorrectPeer
+                    ? resolveExportSplitComparePeerSyncState({
+                      peerCurrentTime: peerVideoEl.currentTime,
+                      peerTargetTime: peerTargetFromActive ?? peerTarget,
+                      peerSpeed,
+                      wasCorrecting: wasCorrectingPeer,
+                    })
+                    : { rateFactor: 1, isCorrecting: false };
+                  exportComparePeerSyncStateRef.current.set(peerVideoEl, peerSync.isCorrecting);
+                  if (peerSync.isCorrecting !== wasCorrectingPeer && previewLogModeRef.current === 'detailed') {
+                    logInfo('RENDER', `export.peer.sync@${Math.round(time * 1000)}`, {
+                      videoId: id,
+                      correcting: peerSync.isCorrecting,
+                      rateFactor: peerSync.rateFactor,
+                      reference: peerTargetFromActive !== null ? 'active' : 'timeline',
+                      lagMs: Math.round(
+                        (((peerTargetFromActive ?? peerTarget) - peerVideoEl.currentTime) / peerSpeed) * 1000,
+                      ),
+                    });
+                  }
+                  applyVideoElementCatchUpPlaybackRate(
+                    peerVideoEl,
+                    (peerSpeed / exportWallDivisor) * peerSync.rateFactor,
+                  );
                 } else {
                   applyVideoElementCatchUpPlaybackRate(
                     peerVideoEl,
@@ -6513,6 +6579,7 @@ export function usePreviewEngine({
         });
         exportRenderedFrameIndexRef.current = null;
         resetExportCaptureState();
+        exportComparePeerSyncStateRef.current = new WeakMap();
         frameDrivenExportSubmittedCountRef.current = 0;
         frameDrivenExportLastRenderedCountRef.current = null;
         frameDrivenExportStallObservedCountRef.current = 0;

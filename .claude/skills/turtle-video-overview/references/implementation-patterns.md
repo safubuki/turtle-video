@@ -5676,3 +5676,13 @@ export 終了（成功/失敗/中断）
   - `quantizer` 非採用時・`configure()` フォールバック時は必ず `adaptiveQuantizer = null` とし、`encode()` へ `avc.quantizer` を渡さない。
   - 固定 QP のままにすると 1080p の高周波ノイズ映像で 100 Mbps 超へファイルサイズが暴走するため、必ず適応 QP の上限ガードを維持する。
   - `latencyMode: 'quality'` は引き続き禁止（13-169 / 13-191）。
+
+### 13-336. 先頭の 2 画面表示を書き出すと左（head）だけ約 0.3 秒先行する: 開始前の停止描画で peer も止め、書き出し中は peer を active の実際の位置へ速さで寄せる【standard 限定】
+
+- **ファイル**: `src/flavors/standard/preview/usePreviewEngine.ts`（peer 分岐・`exportComparePeerSyncStateRef`）, `src/utils/playbackSpeed.ts`（`resolveExportSplitComparePeerSyncState` / `resolveSplitComparePeerTargetFromActive` / `EXPORT_SPLIT_COMPARE_PEER_SYNC_*`）, `src/test/standardPreviewEngine.test.tsx`, `src/test/playbackSpeed.test.ts`
+- **対象 flavor**: standard の export のみ。プレビュー（停止描画・±6% 追従補正 13-286）、境界待機（13-187〜189 / 13-278）、backpressure、1 秒超の単発 seek、ディゾルブの peer の再生管理は変えていない。
+- **問題**: 2 画面のペアがタイムライン先頭にあると、書き出し mp4 で左（head）が右より約 0.31 秒先行したまま区間の終わりまで続いた（プレビュー録画とのコマ照合で計測。先頭コマは +0.07 秒、2 コマ目で +0.25 秒に跳び、以後一定）。
+- **原因**: 書き出し開始時、先頭クリップ（=ペアの head）は warmup で `play()` される。直後の停止描画 `renderFrame(0, false, true)` は active 分岐なら動画を `pause()` するが、peer 分岐は開始位置へ seek するだけで止めなかった。ペアの active は後勝ちで partner なので head は peer 扱いとなり、音声の事前レンダリング中も進み続けた。partner の準備が済んでいて開始時の境界待機が起きないと誰も head を揃えず、export の peer 補正は 1 秒超の seek だけなので 1 秒未満の先行が残った。
+- **対策**: (1) peer 分岐で `_isExporting && !isActivePlaying` のとき peer を `pause()` する。(2) 書き出し中の 2 画面の peer は、active の実際の `currentTime` から求めた位置（active が停止・シーク中・画像ならタイムライン時計）に対し、0.03 秒以上ずれたら rate を ±15% にし、0.01 秒以内で 1 倍に戻す（ヒステリシス）。export の音声は事前レンダリング済みなので、rate を変えても出力の音には影響しない。
+- **検証**: ヘッドレス Chrome で実アプリを操作（トリム済みペア＋BGM＋事前プレビュー再生）して、修正前は左右差 −1.67 秒（期待値 −2.00・0.33 秒先行。2 回とも再現）、修正後は −2.00 秒（±1 コマ）。トリムなし 3 回はいずれも 0.00 を中心に ±1 コマ。境界待機解除後に head の `play()` が 1 フレーム遅れて 0.03〜0.05 秒残るため、開始しきい値は 0.05 ではなく 0.03 にした。ログモード「詳細」では `export.peer.sync@…`（補正の開始と終了・lagMs・基準）を記録する。
+- **注意**: peer の毎フレーム seek は入れない（13-153 / 13-189）。warmup は先頭クリップのトリム開始が 0.2 秒を超えると、`play()` 後にイベントが来ず 4 秒のタイムアウトまで待つ（書き出し開始が約 4 秒遅れる。別件・未対応）。

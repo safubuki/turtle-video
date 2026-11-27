@@ -10,8 +10,10 @@ import {
   getVideoSourceClipDuration,
   normalizeSpeedBadgeLabelStyle,
   normalizeVideoPlaybackSpeed,
+  resolveExportSplitComparePeerSyncState,
   resolveExportTimelineWallDivisorForItem,
   resolveSpeedAwareVideoSyncThresholdSec,
+  resolveSplitComparePeerTargetFromActive,
   resolveSpeedBadgeFadeAlpha,
   resolveSpeedBadgePresetPosition,
   resolveVideoCatchUpPlaybackRate,
@@ -304,6 +306,113 @@ describe('resolveVideoCatchUpPlaybackRate（プレビューで映像をタイム
     expect(resolveVideoCatchUpPlaybackRate({
       ...base, playbackSpeed: 1, videoCurrentTime: Number.NaN, targetSourceTime: 5.0,
     })).toBe(1);
+  });
+});
+
+describe('resolveExportSplitComparePeerSyncState（書き出しの 2 画面で相手を active へ寄せる・13-336）', () => {
+  it('0.03 秒未満のずれでは補正しない（書き出し 1 コマ未満は動かさない）', () => {
+    expect(resolveExportSplitComparePeerSyncState({
+      peerCurrentTime: 1.02, peerTargetTime: 1.0, peerSpeed: 1,
+    })).toEqual({ rateFactor: 1, isCorrecting: false });
+    // 境界待機の解除後に残りやすい 0.04 秒のずれは寄せる
+    expect(resolveExportSplitComparePeerSyncState({
+      peerCurrentTime: 0.96, peerTargetTime: 1.0, peerSpeed: 1,
+    })).toEqual({ rateFactor: 1.15, isCorrecting: true });
+  });
+
+  it('先行していれば 15% 遅く、遅れていれば 15% 速くする', () => {
+    expect(resolveExportSplitComparePeerSyncState({
+      peerCurrentTime: 1.3, peerTargetTime: 1.0, peerSpeed: 1,
+    })).toEqual({ rateFactor: 0.85, isCorrecting: true });
+    expect(resolveExportSplitComparePeerSyncState({
+      peerCurrentTime: 0.9, peerTargetTime: 1.0, peerSpeed: 1,
+    })).toEqual({ rateFactor: 1.15, isCorrecting: true });
+  });
+
+  it('補正中は 0.01 秒以内に寄るまで続け、寄ったら 1 倍へ戻す（ヒステリシス）', () => {
+    expect(resolveExportSplitComparePeerSyncState({
+      peerCurrentTime: 1.02, peerTargetTime: 1.0, peerSpeed: 1, wasCorrecting: true,
+    })).toEqual({ rateFactor: 0.85, isCorrecting: true });
+    expect(resolveExportSplitComparePeerSyncState({
+      peerCurrentTime: 1.005, peerTargetTime: 1.0, peerSpeed: 1, wasCorrecting: true,
+    })).toEqual({ rateFactor: 1, isCorrecting: false });
+  });
+
+  it('ずれはタイムライン秒で判定する（2 倍速の相手はソース秒 0.05 = タイムライン 0.025 秒で補正しない）', () => {
+    expect(resolveExportSplitComparePeerSyncState({
+      peerCurrentTime: 2.05, peerTargetTime: 2.0, peerSpeed: 2,
+    }).isCorrecting).toBe(false);
+    expect(resolveExportSplitComparePeerSyncState({
+      peerCurrentTime: 2.08, peerTargetTime: 2.0, peerSpeed: 2,
+    }).isCorrecting).toBe(true);
+  });
+
+  it('1 秒を超えるずれは従来の単発 seek に任せ、非有限値は補正しない', () => {
+    expect(resolveExportSplitComparePeerSyncState({
+      peerCurrentTime: 2.5, peerTargetTime: 1.0, peerSpeed: 1,
+    })).toEqual({ rateFactor: 1, isCorrecting: false });
+    expect(resolveExportSplitComparePeerSyncState({
+      peerCurrentTime: Number.NaN, peerTargetTime: 1.0, peerSpeed: 1,
+    })).toEqual({ rateFactor: 1, isCorrecting: false });
+  });
+});
+
+describe('resolveSplitComparePeerTargetFromActive（active の再生位置から相手のあるべき位置を求める）', () => {
+  const pairItem = (overrides: Record<string, unknown>) => ({
+    type: 'video', trimStart: 0, trimEnd: 10, originalDuration: 10, playbackSpeed: 1, ...overrides,
+  });
+
+  it('同時に始まるペアは、active の経過と同じだけ相手のトリム開始から進める', () => {
+    expect(resolveSplitComparePeerTargetFromActive({
+      active: pairItem({ trimStart: 3 }),
+      activeCurrentTime: 3.5,
+      activeRangeStart: 0,
+      peer: pairItem({ trimStart: 1 }),
+      peerRangeStart: 0,
+      peerDuration: 3,
+    })).toBeCloseTo(1.5, 6);
+  });
+
+  it('速さの違うペアはタイムライン時刻を介して写す（active 2 倍速・相手 1 倍）', () => {
+    // active はソース 1 秒進んだ = タイムライン 0.5 秒 → 相手はソース 0.5 秒
+    expect(resolveSplitComparePeerTargetFromActive({
+      active: pairItem({ trimStart: 2, playbackSpeed: 2 }),
+      activeCurrentTime: 3,
+      activeRangeStart: 4,
+      peer: pairItem({ trimStart: 0 }),
+      peerRangeStart: 4,
+      peerDuration: 5,
+    })).toBeCloseTo(0.5, 6);
+  });
+
+  it('相手は自分の尺の手前で止め、トリム開始より前には戻さない', () => {
+    expect(resolveSplitComparePeerTargetFromActive({
+      active: pairItem({ trimStart: 0 }),
+      activeCurrentTime: 8,
+      activeRangeStart: 0,
+      peer: pairItem({ trimStart: 1 }),
+      peerRangeStart: 0,
+      peerDuration: 3,
+    })).toBeCloseTo(3.999, 6);
+    expect(resolveSplitComparePeerTargetFromActive({
+      active: pairItem({ trimStart: 2 }),
+      activeCurrentTime: 1.5,
+      activeRangeStart: 0,
+      peer: pairItem({ trimStart: 1 }),
+      peerRangeStart: 0,
+      peerDuration: 3,
+    })).toBeCloseTo(1, 6);
+  });
+
+  it('再生位置が非有限なら null（呼び出し側でタイムライン時計を使う）', () => {
+    expect(resolveSplitComparePeerTargetFromActive({
+      active: pairItem({}),
+      activeCurrentTime: Number.NaN,
+      activeRangeStart: 0,
+      peer: pairItem({}),
+      peerRangeStart: 0,
+      peerDuration: 3,
+    })).toBeNull();
   });
 });
 

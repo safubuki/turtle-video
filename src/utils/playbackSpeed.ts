@@ -672,6 +672,101 @@ export function resolveVideoCatchUpPlaybackRate(params: VideoCatchUpParams): num
   return resolveVideoCatchUpState(params).rate;
 }
 
+/**
+ * 書き出し中の 2 画面表示で、相手（peer）を active へ寄せ始めるずれ（タイムライン秒）。
+ * 書き出し 30fps の約 1 コマ。境界待機の解除後は active が先に動き、peer の play() は次のフレームになるため、
+ * 0.03〜0.05 秒のずれが残りやすい（0.05 秒からにすると 1〜2 コマ遅れたまま区間の終わりまで残った）。
+ */
+export const EXPORT_SPLIT_COMPARE_PEER_SYNC_START_SEC = 0.03;
+/** 補正中に、ここまで寄ったら通常の速さへ戻す（ヒステリシス。開始と同じ値だと境目で往復する） */
+export const EXPORT_SPLIT_COMPARE_PEER_SYNC_STOP_SEC = 0.01;
+/**
+ * 補正中の速度比（±15%・固定）。書き出しの音声は事前レンダリング済みで video 要素の音は出力に入らないため、
+ * プレビュー（±6%・13-286）より強く寄せ、数秒の 2 画面区間の中で揃え切る（0.1 秒のずれを約 0.7 秒で吸収）。
+ */
+export const EXPORT_SPLIT_COMPARE_PEER_SYNC_RATIO = 0.15;
+
+export interface ExportSplitComparePeerSyncParams {
+  /** peer の `<video>.currentTime`（ソース秒） */
+  peerCurrentTime: number;
+  /** peer がいま表示しているべきソース秒 */
+  peerTargetTime: number;
+  /** peer の設定速度（ソース秒 / タイムライン秒）。ずれをタイムライン秒へ直すのに使う */
+  peerSpeed: number;
+  /** 直前のフレームで補正中だったか（ヒステリシス用） */
+  wasCorrecting?: boolean;
+}
+
+/**
+ * 書き出し中の 2 画面表示の相手（peer）に掛ける速度の倍率を返す（13-336）。
+ *
+ * 書き出しでは peer を native 再生のまま流し、1 秒を超えるずれだけ単発 seek していた。
+ * そのため開始時の play() の立ち上がり差などで生じた 1 秒未満のずれが、2 画面の区間の終わりまで残った。
+ * seek は書き出しで静止画化・カクつきの原因になるため（13-153 / 13-189）、速度だけで寄せる。
+ *
+ * - 0.03 秒以上ずれたら固定 ±15% で寄せ、0.01 秒以内に戻ったら 1 倍へ戻す（ヒステリシス）。
+ * - 1 秒を超えるずれは従来の単発 seek に任せる（ここでは 1 倍を返す）。
+ */
+export function resolveExportSplitComparePeerSyncState(params: ExportSplitComparePeerSyncParams): {
+  rateFactor: number;
+  isCorrecting: boolean;
+} {
+  const idle = { rateFactor: 1, isCorrecting: false };
+  if (!Number.isFinite(params.peerCurrentTime) || !Number.isFinite(params.peerTargetTime)) {
+    return idle;
+  }
+  const speed = Number.isFinite(params.peerSpeed) && params.peerSpeed > 0 ? params.peerSpeed : 1;
+  // 正: peer が遅れている（速める）/ 負: 進んでいる（遅くする）
+  const lagSec = (params.peerTargetTime - params.peerCurrentTime) / speed;
+  const absLagSec = Math.abs(lagSec);
+  if (absLagSec > VIDEO_CATCH_UP_MAX_DRIFT_SEC) return idle;
+  const threshold = params.wasCorrecting
+    ? EXPORT_SPLIT_COMPARE_PEER_SYNC_STOP_SEC
+    : EXPORT_SPLIT_COMPARE_PEER_SYNC_START_SEC;
+  if (absLagSec < threshold) return idle;
+  const ratio = lagSec > 0 ? EXPORT_SPLIT_COMPARE_PEER_SYNC_RATIO : -EXPORT_SPLIT_COMPARE_PEER_SYNC_RATIO;
+  return { rateFactor: 1 + ratio, isCorrecting: true };
+}
+
+/**
+ * 2 画面表示の相手（peer）がいま表示しているべきソース秒を、active の実際の再生位置から求める（13-336）。
+ *
+ * 書き出しでは active も peer も壁時計とは独立に native 再生しているため、左右の見た目を揃えるには
+ * タイムライン時計ではなく active の再生位置に合わせる。active のソース位置 → タイムライン時刻 →
+ * peer のソース位置の順に写す（なめらか接続の段も反映）。peer は自分の尺の手前で止める。
+ */
+export function resolveSplitComparePeerTargetFromActive(params: {
+  active: VideoSpeedRampItemFields;
+  activeCurrentTime: number;
+  activeRangeStart: number;
+  peer: VideoSpeedRampItemFields;
+  peerRangeStart: number;
+  peerDuration: number;
+}): number | null {
+  if (
+    !Number.isFinite(params.activeCurrentTime)
+    || !Number.isFinite(params.activeRangeStart)
+    || !Number.isFinite(params.peerRangeStart)
+    || !Number.isFinite(params.peerDuration)
+  ) {
+    return null;
+  }
+  const activeTrimStart = Number.isFinite(params.active.trimStart)
+    ? Math.max(0, params.active.trimStart as number)
+    : 0;
+  const activeLocalTime = resolveVideoLocalTimeAtSourceOffset(
+    params.activeCurrentTime - activeTrimStart,
+    params.active.playbackSpeed,
+    resolveVideoSpeedRampForItem(params.active),
+  );
+  const peerLocalTime = clamp(
+    params.activeRangeStart + activeLocalTime - params.peerRangeStart,
+    0,
+    Math.max(0, params.peerDuration - 0.001),
+  );
+  return resolveItemVideoSourceTime(params.peer, peerLocalTime);
+}
+
 export function shouldDrawSpeedBadge(
   item: Pick<MediaItem, 'type' | 'playbackSpeed' | 'showSpeedBadge'> | null | undefined,
 ): boolean {
